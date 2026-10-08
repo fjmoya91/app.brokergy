@@ -15,15 +15,18 @@
 //   node scripts/cee_inicial.js video    <clave> [--archivo v.mp4] [--videos id1,id2] [--refrescar]
 //   node scripts/cee_inicial.js pedir-fotos <clave> [--paredes FBN1,F1O1] [--sin-planos] [--enviar]
 //   node scripts/cee_inicial.js eprel    <codigo del modelo> [--out DIR]
+//   node scripts/cee_inicial.js keymark  <codigo del modelo> --url <titular|subtipo heatpumpkeymark> [--out DIR]
 //   node scripts/cee_inicial.js alta-aerotermia --json datos.json
-//            [--ficha ft.pdf[:1,3-4]] [--eprel-fiche f.pdf] [--eprel-label l.pdf] [--escribir]
+//            [--ficha "ft.pdf[:1,3-4][|Nombre]"] [--eprel-fiche f.pdf] [--eprel-label l.pdf]
+//            [--anexo "doc.pdf[:págs][|Nombre]" …] [--originales] [--actualizar <id>] [--escribir]
+//            (lo usa también la skill `alta-aerotermia`)
 //   node scripts/cee_inicial.js aplicar  <clave> --plan plan.json [--escribir] [--sin-aviso]
 //            [--sin-pdf] [--calificar]
 //   node scripts/cee_inicial.js instalacion <clave> --plan plan.json [--escribir]
 //            (solo lo de las PLACAS a la app: sin .cex, sin Drive y sin avisar)
 //
 // Con --escribir, además del .cex deja su XML y su PDF OFICIAL al lado
-// (`… _REVISAR.xml/.pdf`), calificados por CE3X 3.1 sin abrir su ventana
+// (`… _REVISAR.xml/.pdf`), calificados por CE3X 3.2 sin abrir su ventana
 // (`services/cee/cexAPdf.js`; solo en un PC con CE3X). --sin-pdf lo salta.
 // En seco, --calificar hace lo mismo junto a la copia local, sin subir nada.
 //
@@ -92,6 +95,15 @@ function opt(nombre) {
     return sig && !sig.startsWith('--') ? sig : true;
 }
 const ESCRIBIR = RESTO.includes('--escribir');
+/** Todas las apariciones de una opción repetible (`--anexo a --anexo b`). */
+function optAll(nombre) {
+    const out = [];
+    RESTO.forEach((a, i) => {
+        if (a.startsWith(`--${nombre}=`)) out.push(a.slice(a.indexOf('=') + 1));
+        else if (a === `--${nombre}` && RESTO[i + 1] && !RESTO[i + 1].startsWith('--')) out.push(RESTO[i + 1]);
+    });
+    return out;
+}
 //: El técnico que FIRMA el .cex si el plan no dice otro y no hay un técnico de
 //: verdad en la barra: Francisco Javier Moya López (`prescriptores.id_empresa`).
 //: Decisión del usuario, 2026-10-06. `CEE_TECNICO_POR_DEFECTO` lo cambia.
@@ -782,6 +794,142 @@ async function eprel() {
     }
 }
 
+// ─── keymark ────────────────────────────────────────────────────────────────
+//
+// El HP KEYMARK publica, por SUBTIPO de cada titular, el informe con los datos
+// ensayados de cada modelo (EN 14825 por clima y a 35/55 °C, EN 14511 a A7/W55)
+// y el certificado del organismo. No hay buscador por modelo que responda (el
+// listado completo de titulares se cuelga): se parte de la página del TITULAR o
+// del SUBTIPO —la da el buscador web— y se recorren sus subtipos.
+//
+// REGLA — los modelos se publican con COMODINES («MHC-V12WD2N7-B2***») y uno
+// genérico («MHC-V12WD2N7-***») casa también con modelos de OTRA gama: gana el
+// patrón MÁS ESPECÍFICO (más caracteres fijos), nunca el primero que case.
+
+const KEYMARK = 'https://www.heatpumpkeymark.com';
+const esperar = (ms) => new Promise(res => setTimeout(res, ms));
+
+async function keymarkGet(url, binario = false) {
+    let ultimo = null;
+    for (let i = 0; i < 4; i++) {
+        try {
+            const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Brokergy/1.0)' },
+                                         signal: AbortSignal.timeout(90000) });
+            const b = Buffer.from(await r.arrayBuffer());
+            // La web se cae a ratos («Uncaught TYPO3 Exception · Cannot connect to the
+            // configured database», con un 503): se espera y se reintenta.
+            const caida = !binario && /Uncaught TYPO3 Exception/.test(b.toString('utf8', 0, 4000));
+            if (r.ok && !caida) return b;
+            ultimo = new Error(`HTTP ${r.status}`);
+        } catch (e) { ultimo = e; }
+        await esperar(15000);
+    }
+    throw new Error(`Keymark no responde (${url}): ${ultimo?.message}`);
+}
+
+const desHtml = (t) => String(t).replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/\s+/g, ' ').trim();
+const normKm = (t) => String(t || '').toUpperCase().replace(/[^A-Z0-9*]/g, '');
+
+/** ¿Casa el patrón publicado con el código? Devuelve los caracteres FIJOS (0 = no casa). */
+function casaKeymark(patron, codigo) {
+    const p = normKm(patron), c = normKm(codigo);
+    if (!p || !c) return 0;
+    const re = new RegExp(`^${p.split('*').join('.*')}$`);
+    return re.test(c) ? p.replace(/\*/g, '').length : 0;
+}
+
+/** Los datos de UN modelo, del HTML de su subtipo. */
+function datosModeloKeymark(htmlSub, idModelo) {
+    const i = htmlSub.indexOf(`id="${idModelo}"`);
+    if (i < 0) return null;
+    const j = htmlSub.indexOf('class="accordion"', i + 20);
+    const t = desHtml(htmlSub.slice(i, j > 0 ? j : undefined));
+    // En la página, cada clima va como «Warmer Climate EN 12102-1 … EN 14825 Low
+    // temperature Medium temperature η s 269 % 192 % … SCOP 6.8 4.88 …» (el informe
+    // PDF lo escribe «EN 14825 | Warmer Climate»: se aceptan las dos formas).
+    const clima = (nombre) => {
+        const partes = t.split(new RegExp(`${nombre}(?= EN 12102| \\|)|EN 14825 \\| ${nombre}`));
+        const b = (partes[1] || '').split(/(?:Average|Colder|Warmer) Climate EN 12102/)[0];
+        const eta = b.match(/η ?s ([\d.]+) % ([\d.]+) %/);
+        const scop = b.match(/SCOP ([\d.]+) ([\d.]+)/);
+        return eta ? { eta_35: +eta[1], eta_55: +eta[2], scop_35: scop ? +scop[1] : null, scop_55: scop ? +scop[2] : null } : null;
+    };
+    const b14511 = (t.split(/EN 14511-2(?: \| Heating)?/)[1] || '').split(/EN 14511-4|EN 12102/)[0];
+    const cop = b14511.match(/COP ([\d.]+) ([\d.]+)/);
+    const pot = b14511.match(/Heat output ([\d.]+) kW ([\d.]+) kW/);
+    return {
+        medio: clima('Average Climate'), calido: clima('Warmer Climate'), frio: clima('Colder Climate'),
+        // En el Keymark, «Low/Medium temperature» de la EN 14511-2 son A7/W35 y A7/W55.
+        cop_a7w35: cop ? +cop[1] : null, cop_a7w55: cop ? +cop[2] : null,
+        potencia_a7w35_kw: pot ? +pot[1] : null,
+    };
+}
+
+async function keymark() {
+    const codigo = POS[0];
+    const url = opt('url');
+    if (!codigo || !url || url === true) {
+        throw new Error('Uso: keymark <código del modelo> --url <página del titular o del subtipo en heatpumpkeymark.com>');
+    }
+    const out = opt('out') && opt('out') !== true ? opt('out') : path.join(CACHE, 'keymark');
+    fs.mkdirSync(out, { recursive: true });
+    const abs = (u) => (u.startsWith('http') ? u : KEYMARK + u).replace(/&amp;/g, '&');
+
+    const html0 = (await keymarkGet(abs(url))).toString('utf8');
+    // ¿Titular (lista de subtipos) o un subtipo directamente?
+    const subtipos = [];
+    if (/showSubtype/.test(url)) subtipos.push({ nombre: '(subtipo dado)', url: abs(url), html: html0 });
+    else {
+        const vistos = new Set();
+        for (const m of html0.matchAll(/<a[^>]+href="([^"]*showSubtype[^"]*)"[^>]*>([\s\S]*?)<\/a>/g)) {
+            const u = abs(m[1]);
+            const id = u.match(/subtype%5D=(\d+)/)?.[1] || u;
+            if (vistos.has(id)) continue;           // cada subtipo sale dos veces (su nombre y el titular)
+            vistos.add(id);
+            subtipos.push({ nombre: desHtml(m[2]), url: u });
+        }
+        console.log(`${subtipos.length} subtipos en el titular.`);
+    }
+
+    let mejor = null;
+    for (const st of subtipos) {
+        if (!st.html) {
+            try { st.html = (await keymarkGet(st.url)).toString('utf8'); } catch (e) { console.log(`  ✗ ${st.nombre}: ${e.message}`); continue; }
+            await esperar(1200);
+        }
+        for (const m of st.html.matchAll(/<div class="accordion" id="(model_\d+)">\s*([^<]+?)\s*</g)) {
+            const fijo = casaKeymark(m[2], codigo);
+            if (fijo && (!mejor || fijo > mejor.fijo)) mejor = { fijo, patron: m[2].trim(), id: m[1], st };
+        }
+        if (mejor && normKm(mejor.patron) === normKm(codigo)) break;   // exacto: no hay nada mejor
+    }
+    if (!mejor) { console.log(`Ningún subtipo de ese titular publica «${codigo}».`); return; }
+
+    const { st } = mejor;
+    const titulo = desHtml(st.html.match(/<h2>\s*Subtype\s*<\/h2>\s*<h3>([\s\S]*?)<\/h3>/)?.[1] || st.nombre);
+    console.log(`\n✓ «${codigo}» casa con «${mejor.patron}» · subtipo «${titulo}»`);
+    console.log(JSON.stringify(datosModeloKeymark(st.html, mejor.id), null, 1));
+
+    const pdfs = [];
+    const gen = st.html.match(/href="([^"]*action%5D=generatePdf[^"]*)"/)?.[1];
+    if (gen) pdfs.push({ url: abs(gen), nombre: `keymark_informe_${normKm(titulo).slice(0, 30)}.pdf` });
+    for (const m of st.html.matchAll(/href="(\/uploads\/[^"]+\.pdf)"/gi)) {
+        pdfs.push({ url: abs(m[1]), nombre: `keymark_certificado_${path.basename(m[1])}` });
+    }
+    for (const p of pdfs) {
+        try {
+            const b = await keymarkGet(p.url, true);
+            if (b.slice(0, 4).toString() !== '%PDF') { console.log(`  ✗ ${p.nombre}: no es un PDF`); continue; }
+            fs.writeFileSync(path.join(out, p.nombre), b);
+            console.log(`  → ${path.join(out, p.nombre)} (${kb(b.length)})`);
+        } catch (e) { console.log(`  ✗ ${p.nombre}: ${e.message}`); }
+    }
+    console.log(`\nurl_keymark: ${st.url}`);
+    console.log('El informe trae TODOS los modelos del subtipo: a la ficha van su portada y las páginas'
+        + ` de «Model ${mejor.patron}» (--anexo "informe.pdf:1,N-M|Keymark …").`);
+}
+
 // ─── alta-aerotermia ────────────────────────────────────────────────────────
 
 /** «1,3-4» → [0,2,3] (índices de página). */
@@ -791,6 +939,32 @@ function paginas(spec, total) {
         const [a, b] = t.split('-').map(Number);
         return b ? [...Array(b - a + 1).keys()].map(k => a - 1 + k) : [a - 1];
     }).filter(i => i >= 0 && i < total);
+}
+
+/**
+ * Carga un PDF con pdf-lib y, si su estructura está dañada (pasa con certificados
+ * de organismos: «Expected instance of PDFDict»), lo REESCRIBE con PyMuPDF —mismo
+ * contenido, índice reparado— y lo dice. Nunca se rehace ni se resume: es el
+ * documento original con su tabla de objetos arreglada.
+ */
+async function cargarPdfReparando(PDFDocument, fichero) {
+    const prueba = async (buf) => {
+        const src = await PDFDocument.load(buf, { ignoreEncryption: true });
+        await (await PDFDocument.create()).copyPages(src, [0]);
+        return src;
+    };
+    try { return await prueba(fs.readFileSync(fichero)); } catch (e0) {
+        const rep = path.join(os.tmpdir(), `reparado_${Date.now()}_${path.basename(fichero)}`);
+        try {
+            execFileSync('python', ['-c', 'import sys,fitz; d=fitz.open(sys.argv[1]); d.save(sys.argv[2], garbage=4, deflate=True, clean=True)',
+                                    fichero, rep], { stdio: 'pipe' });
+            const src = await prueba(fs.readFileSync(rep));
+            console.log(`  ⚠ ${path.basename(fichero)} tenía la estructura dañada (${e0.message}): reescrito con PyMuPDF, mismo contenido.`);
+            return src;
+        } catch (e1) {
+            throw new Error(`No se puede unir ${path.basename(fichero)} (${e0.message}) ni repararlo con PyMuPDF (${e1.message}).`);
+        }
+    }
 }
 
 async function altaAerotermia() {
@@ -807,7 +981,30 @@ async function altaAerotermia() {
     const m = await placaEquipo.casarConCatalogo(
         { marca: payload.marca, modelo: payload.modelo_ud_exterior || payload.modelo_conjunto },
         { marca: payload.marca, modelo: payload.modelo_ud_interior });
-    if (m.modelo) throw new Error(`YA está en el catálogo: id ${m.modelo.id} (${m.modelo.modelo_comercial}). No se duplica.`);
+    // --actualizar <id>: COMPLETAR o CORREGIR una fila que ya existe (dada de alta
+    // a medias, o con datos copiados de otro modelo). Solo se escriben los campos
+    // que trae datos.json —un hueco no borra lo que haya— y cada cambio se enseña.
+    const idAct = opt('actualizar') && opt('actualizar') !== true ? Number(opt('actualizar')) : null;
+    let previa = null;
+    if (idAct) {
+        ({ data: previa } = await supabase.from('aerotermia').select('*').eq('id', idAct).maybeSingle());
+        if (!previa) throw new Error(`No existe la aerotermia ${idAct}.`);
+        if (m.modelo && m.modelo.id !== idAct) {
+            throw new Error(`Ese código casa con OTRA fila (id ${m.modelo.id}): no se actualiza la ${idAct}.`);
+        }
+        console.log(`\nCAMBIOS sobre la fila ${idAct} (${previa.modelo_comercial}):`);
+        let n = 0;
+        for (const [k, v] of Object.entries(payload)) {
+            if (v === null || k === 'is_validated') continue;
+            const antes = previa[k];
+            const igual = antes != null && (typeof v === 'number' ? Math.abs(Number(antes) - v) < 1e-6 : String(antes) === String(v));
+            if (!igual) { n++; console.log(`  ${k.padEnd(22)} ${antes ?? '—'}  →  ${v}`); }
+        }
+        if (!n) console.log('  (ninguno)');
+    } else if (m.modelo) {
+        throw new Error(`YA está en el catálogo: id ${m.modelo.id} (${m.modelo.modelo_comercial}). No se duplica: `
+            + `para completarla o corregirla, --actualizar ${m.modelo.id}.`);
+    }
 
     // El SCOP y el η declaran lo mismo: SCOP = 2,5 · (η + 3) / 100 (Rgto. 813/2013).
     const avisos = [];
@@ -827,21 +1024,28 @@ async function altaAerotermia() {
     // La FICHA: las páginas que justifican los datos, más la EPREL y la etiqueta.
     const { PDFDocument } = require('pdf-lib');
     const piezas = [];
+    // «fichero[:páginas][|Nombre que se enseña]». El ORDEN es el de la ficha:
+    // fabricante → EPREL (ficha, etiqueta) → el resto (Keymark, certificados,
+    // tablas de rendimiento de un manual…). Todo lo que justifique un dato va.
+    const pieza = (v) => {
+        const [ruta, etiqueta] = String(v).split('|');
+        const [f, spec] = ruta.split(/:(?=[\d,-]+$)/);
+        if (!fs.existsSync(f)) throw new Error(`No existe ${f}`);
+        return { fichero: f, spec: spec || null, nombre: (etiqueta || path.basename(f)).trim() };
+    };
     const ft = opt('ficha');
-    if (ft && ft !== true) {
-        const [f, spec] = ft.split(/:(?=[\d,-]+$)/);
-        piezas.push({ fichero: f, spec, nombre: path.basename(f) });
-    }
+    if (ft && ft !== true) piezas.push(pieza(ft));
     for (const k of ['eprel-fiche', 'eprel-label']) {
         const f = opt(k);
-        if (f && f !== true) piezas.push({ fichero: f, spec: null, nombre: path.basename(f) });
+        if (f && f !== true) piezas.push(pieza(f));
     }
+    for (const a of optAll('anexo')) piezas.push(pieza(a));
     let unida = null;
     const partes = [];
     if (piezas.length) {
         const doc = await PDFDocument.create();
         for (const p of piezas) {
-            const src = await PDFDocument.load(fs.readFileSync(p.fichero), { ignoreEncryption: true });
+            const src = await cargarPdfReparando(PDFDocument, p.fichero);
             const idx = paginas(p.spec, src.getPageCount());
             const copiadas = await doc.copyPages(src, idx);
             copiadas.forEach(pg => doc.addPage(pg));
@@ -852,15 +1056,38 @@ async function altaAerotermia() {
         }
         unida = Buffer.from(await doc.save());
         console.log(`\nFICHA unida: ${partes.map(p => `${p.nombre} (${p.paginas} pág)`).join(' + ')} · ${kb(unida.length)}`);
+        // Una copia local para MIRARLA antes de escribir: es lo que se anexará a los certificados.
+        const local = path.join(CACHE, `FT_${normKm(payload.modelo_ud_exterior || payload.modelo_conjunto)}.pdf`);
+        fs.mkdirSync(CACHE, { recursive: true });
+        fs.writeFileSync(local, unida);
+        console.log(`  copia para revisarla: ${local}`);
     } else console.log('\n⚠ Sin ficha técnica: el certificado no tendrá con qué justificar el SCOP.');
 
     if (!ESCRIBIR) { console.log('\nEN SECO. Pásale --escribir para darlo de alta.'); return; }
 
     await supabase.from('aerotermia_marcas').upsert({ nombre: payload.marca },
                                                    { onConflict: 'nombre', ignoreDuplicates: true });
-    const { data: fila, error } = await supabase.from('aerotermia').insert(payload).select('id').single();
-    if (error) throw new Error(`No se ha podido dar de alta: ${error.message}`);
-    console.log(`\n✓ Alta: aerotermia id ${fila.id}`);
+    let fila;
+    if (idAct) {
+        const cambio = Object.fromEntries(Object.entries(payload).filter(([k, v]) => v !== null && k !== 'is_validated'));
+        const { error } = await supabase.from('aerotermia').update(cambio).eq('id', idAct);
+        if (error) throw new Error(`No se ha podido actualizar: ${error.message}`);
+        fila = { id: idAct };
+        console.log(`\n✓ Actualizada: aerotermia id ${idAct}`);
+        // La copia del equipo que guarda cada expediente NO cambia con el catálogo:
+        // se dice quién lo usa, para que se vuelva a elegir el modelo si procede.
+        const { data: usos } = await supabase.from('expedientes').select('numero_expediente')
+            .or(`instalacion->aerotermia_cal->>aerotermia_db_id.eq.${idAct},instalacion->aerotermia_acs->>aerotermia_db_id.eq.${idAct}`);
+        if (usos?.length) {
+            console.log(`  ⚠ Lo usan: ${usos.map(u => u.numero_expediente).join(', ')}. Su copia del equipo NO cambia:`
+                + ' vuelve a elegir el modelo en Instalación para que tome los datos nuevos.');
+        }
+    } else {
+        const r = await supabase.from('aerotermia').insert(payload).select('id').single();
+        if (r.error) throw new Error(`No se ha podido dar de alta: ${r.error.message}`);
+        fila = r.data;
+        console.log(`\n✓ Alta: aerotermia id ${fila.id}`);
+    }
     if (unida) {
         const { guardarFichaEnCatalogo } = require('../services/catalogoFichas');
         const g = await guardarFichaEnCatalogo('aerotermia', fila.id, {
@@ -870,6 +1097,25 @@ async function altaAerotermia() {
                 : null,
         });
         console.log(g.ok ? `✓ Ficha en el catálogo: ${g.link}` : `✗ Ficha: ${g.motivo}`);
+    }
+    // Los documentos ORIGINALES, enteros y sin tocar: la ficha lleva solo las
+    // páginas que justifican; el resto se puede consultar en
+    // «01. FICHAS TECNICAS AEROTERMIA / ORIGINALES / {modelo}».
+    if (RESTO.includes('--originales') && piezas.length) {
+        const { CARPETAS } = require('../services/catalogoFichas');
+        const raiz = CARPETAS?.aerotermia?.id;
+        const nombreMod = [payload.marca, payload.modelo_comercial || payload.modelo_conjunto].join(' ')
+            .replace(/[\\/:*?"<>|]/g, '-');
+        // `getOrCreateSubfolder` devuelve el PADRE si falla: eso no es una carpeta nueva.
+        const orig = raiz ? await driveService.getOrCreateSubfolder(raiz, 'ORIGINALES') : null;
+        const dir = orig && orig !== raiz ? await driveService.getOrCreateSubfolder(orig, nombreMod) : null;
+        if (!dir || dir === orig) console.log('✗ Originales: no se ha podido crear su carpeta (no se suben a otro sitio).');
+        else {
+            for (const f of new Set(piezas.map(p => p.fichero))) {
+                const r = await driveService.saveFileToFolder(dir, path.basename(f), 'application/pdf', fs.readFileSync(f));
+                console.log(`${r ? '✓' : '✗'} Original: ${path.basename(f)}`);
+            }
+        }
     }
 }
 
@@ -1215,9 +1461,11 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     };
     // Los AIRES ACONDICIONADOS que ya tiene la vivienda: con el MISMO bloque de
     // la ventana (`airesAcondicionados`). En un CAE, «Equipo de sólo
-    // refrigeración» (máquina frigorífica, 250 %); en un CEE directo, «calefacción
-    // y refrigeración». Sustituyen a los que puso el bloque (`aire: true`), nunca
-    // se suman. `"aires": true` = los que confirmó el cliente; `{ "n": 2 }` a mano.
+    // refrigeración» (máquina frigorífica, 250 %), cada uno con lo que enfría
+    // (~40 m², 10-25 % de la vivienda, hasta el 100 % entre todos) y de 3 a 5 kW;
+    // en un CEE directo, «calefacción y refrigeración». Sustituyen a los que puso
+    // el bloque (`aire: true`), nunca se suman. `"aires": true` = los que confirmó
+    // el cliente; `{ "n": 2 }` a mano.
     if (plan.aires) {
         const f = await esm('cee-envolvente/logic/fichaCe3x.js');
         const conf = f.airesDelCliente(ctx.expediente);
@@ -1225,9 +1473,9 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         const modo = plan.aires?.modo || conf?.modo || 'refrigeracion';
         const superficie = Number(plan.aires?.superficie) || Number(ajustes.superficie_util_habitable)
             || Number(inputsDe(ctx).superficieCalefactable || inputsDe(ctx).superficie) || null;
-        // `potencia_kw`: la de refrigeración de cada aparato, si se sabe o se
-        // supone (un split doméstico, 3.000-5.000 frigorías ≈ 3,5-5,8 kW).
-        // Sin ella va la de por defecto del motor, y se avisa.
+        // `potencia_kw`: la de refrigeración de cada aparato, si consta de su
+        // placa. Sin ella, la que pone `airesAcondicionados` (0,1 kW por m² que
+        // sirve, de 3 a 5 kW).
         const potKw = Number(plan.aires?.potencia_kw) || null;
         ajustes.equipos_extra = [
             ...(ajustes.equipos_extra || []).filter(x => !x.aire),
@@ -1363,7 +1611,7 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     }
 
     // 6a. Una OPORTUNIDAD aún no tiene certificador ni fechas del CEE, y sin los
-    //     datos del técnico CE3X 3.1 califica pero NO escribe el XML («Revise …
+    //     datos del técnico CE3X 3.x califica pero NO escribe el XML («Revise …
     //     Datos Administrativos»). El plan puede declararlos: `tecnico` (el
     //     id_empresa del certificador que firma) y `fechas` ({emision, visita},
     //     AAAA-MM-DD). Lo de un expediente manda: aquí solo se rellena lo que falta.
@@ -1492,12 +1740,13 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
 
     if (!ESCRIBIR) {
         await hacerCroquis(ctx, { geo, trabajo, cexBytes: fichero, avisos: [...avisos, ...avMotor], decisiones });
-        // Con --calificar, CE3X 3.1 (en este PC) lo califica y deja el XML y el
+        // Con --calificar, CE3X 3.2 (en este PC) lo califica y deja el XML y el
         // PDF junto a la copia local: para revisarlo antes de escribir nada.
         if (RESTO.includes('--calificar')) {
-            console.log('\nCalificando con CE3X 3.1 (≈1 min)…');
+            console.log('\nCalificando con CE3X 3.2 (≈1 min)…');
             const cal = await cexAPdf.calificarCex(fichero);
-            for (const [ext, b] of [['.xml', cal.xml], ['.pdf', cal.pdf]]) {
+            //: Con el autoconsumo ajustado mes a mes por CE3X, el .cex que vale es ése.
+            for (const [ext, b] of [['.cex', cal.cex], ['.xml', cal.xml], ['.pdf', cal.pdf]]) {
                 if (b) fs.writeFileSync(local.replace(/\.cex$/i, ext), b);
             }
             for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
@@ -1610,7 +1859,7 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
                 }
             }
         }
-        // Su XML y su PDF oficial, calificados por CE3X 3.1 en este PC, junto al
+        // Su XML y su PDF oficial, calificados por CE3X 3.2 en este PC, junto al
         // .cex (`cee/cexAPdf.js`). Sin CE3X se dice y se sigue: el .cex ya está.
         if (res080?.med?.ok) {
             // Ya calificado por CE3X con la medida dentro: se suben su XML y su PDF.
@@ -1620,7 +1869,7 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             if (g2.ok) for (const s of g2.subidos) console.log(`✓ ${s.nombre}\n  ${s.link}`);
             else avisos.push(`XML/PDF del inicial calificados pero no subidos: ${g2.error}`);
         } else if (!RESTO.includes('--sin-pdf')) {
-            console.log('\nCalificando con CE3X 3.1 y generando el PDF (≈1 min)…');
+            console.log('\nCalificando con CE3X 3.2 y generando el PDF (≈1 min)…');
             const cal = await cexAPdf.calificarYGuardar(ctx, 'inicial', gd.nombre, fichero);
             for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
         }
@@ -1665,12 +1914,15 @@ async function componerPrevisto(ctx, { fichero, ficha, plan }) {
     return p;
 }
 
-/** CE3X 3.1 (en este PC): califica el previsto y lo mete como medida del inicial. */
+/** CE3X 3.2 (en este PC): califica el previsto y lo mete como medida del inicial. */
 async function previstoAlInicial(previsto, inicial) {
-    console.log('\nCalificando el PREVISTO con CE3X 3.1 (≈1 min)…');
+    console.log('\nCalificando el PREVISTO con CE3X 3.2 (≈1 min)…');
     const cal = await cexAPdf.calificarCex(previsto.buffer, { medidas: false });
     for (const l of cexAPdf.lineasCalificado(cal)) console.log(`  ${l}`);
     if (!cal.ok) return { cal, med: null };
+    //: Si CE3X ajustó el autoconsumo de las placas del previsto mes a mes, el
+    //: previsto que vale (el que se sube y el que va de medida) es el ajustado.
+    if (cal.cex) previsto.buffer = cal.cex;
     console.log('Poniendo el previsto como MEDIDA del inicial («Nuevo edificio», ≈30 s)…');
     const med = await cexAPdf.ponerPrevistoComoMedida(inicial, previsto.buffer, previsto.textos);
     if (med.ok) {
@@ -2792,7 +3044,7 @@ async function rehacer() {
 
 // ─── main ───────────────────────────────────────────────────────────────────
 
-const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel,
+const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel, keymark,
                   'alta-aerotermia': altaAerotermia, aplicar, croquis, video,
                   'pedir-fotos': pedirFotos, streetview, rehacer, instalacion };
 

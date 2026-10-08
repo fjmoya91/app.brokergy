@@ -20,6 +20,7 @@ import {
     normalizeHybridMethod,
     FUEL_PRICES,
     getUByYear,
+    GUIA_TRANSMITANCIAS,
     getVentanaYACHByYear,
     AEROTHERMIA_MODELS,
     CAE_PRECIO_CLIENTE_NUEVAS,
@@ -233,6 +234,12 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         // Combinamos los defaults con la data inicial.
         // Si initialData ya es un objeto de estado completo (viniendo de App.jsx), se respetará íntegramente.
         const base = { ...INITIAL_INPUTS, ...initialData };
+        // Una simulación NUEVA calcula con la Guía de Transmitancias vigente (la de
+        // CE3X 3.2) y lo lleva escrito; una guardada sin la marca no la estrena
+        // (su bono ya se le dio al cliente). No va en INITIAL_INPUTS: la heredarían.
+        if (!initialData?.isPersistent && base.guia_transmitancias === undefined) {
+            base.guia_transmitancias = GUIA_TRANSMITANCIAS;
+        }
 
         // Forzamos defaults críticos si vienen vacíos de initialData (ej: oportunidades antiguas o mal inicializadas)
         if (!base.boilerHeatingType || base.boilerHeatingType === '') {
@@ -356,7 +363,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             }
 
             if (!isPersistent && base.anio) {
-                const yearU = getUByYear(base.anio);
+                const yearU = getUByYear(base.anio, base.zona, base);
                 base.uMuro = yearU.wall;
                 base.uCubierta = yearU.roof;
 

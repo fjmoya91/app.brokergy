@@ -19,6 +19,7 @@ const { createLead } = require('../services/leadService');
 // (residencial), las declara una persona. Fuente única en utils/fichas.js.
 const { FICHAS, detectPrograma } = require('../utils/fichas');
 const { sellarPrecioCae } = require('../utils/precioCae');
+const { sellarGuiaTransmitancias } = require('../utils/guiaTransmitancias');
 const clasificarFotos = require('../services/clasificarFotosService');
 const whatsappMedia = require('../services/whatsappMedia');
 const multer = require('multer');
@@ -398,6 +399,9 @@ router.post('/', enforceAuth, async (req, res) => {
         // al expediente. La regla —y por qué solo se marcan las NUEVAS— vive en
         // utils/precioCae.js.
         sellarPrecioCae(datosCalculoFinal.inputs, existingData);
+        // Y la GUÍA DE TRANSMITANCIAS: una anterior no estrena la de CE3X al
+        // reguardarse (utils/guiaTransmitancias.js).
+        sellarGuiaTransmitancias(datosCalculoFinal.inputs, existingData);
 
         // La ENVOLVENTE empezada desde la calculadora (botón CE3X) vive en
         // `envolvente_cee` y la escribe SOLO su RPC (`set_oportunidad_cee_field`).

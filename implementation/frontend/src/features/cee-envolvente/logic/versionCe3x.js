@@ -1,10 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // La VERSIÓN de CE3X con la que se escribe el `.cex`.
 //
-// Hasta el 30/09/2026 se certificaba con CE3X 2.3; desde el 01/10/2026, con la
-// 3.1, que es la VIGENTE y la que sale por defecto. Las dos tienen que poder
-// usarse: hay iniciales hechos con la 2.3 cuyo final se emite ya con la 3.1, y
-// un técnico puede seguir necesitando la 2.3 para algo que tenía a medias.
+// Hasta el 30/09/2026 se certificaba con CE3X 2.3; del 01/10/2026 al 07/10/2026,
+// con la 3.1; desde el 08/10/2026, con la 3.2, que es la VIGENTE y la que sale
+// por defecto (decisión del usuario; la 2.3, solo cuando se pida). La 3.2 guarda
+// el fichero con la MISMA forma que la 3.1 —cambia la cabecera— y calcula igual
+// (medido con su propio motor): todo lo que aquí se dice de la 3.1 vale para las
+// dos (`esModerna`). Lo que la 3.2 aclara es QUÉ se teclea en Datos generales
+// («Ampliación del manual de usuario CE3X», 6.2-6.6): las plantas sobre y bajo
+// rasante son las del EDIFICIO entero (de Catastro), no las de lo que se certifica.
 //
 // El CÁLCULO es el mismo —medido con el motor de las dos sobre el mismo
 // fichero—: lo que cambia es la FORMA del fichero y los datos que pide cada
@@ -26,14 +30,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const VERSIONES_CE3X = [
-    { valor: '3.1', etiqueta: 'CE3X 3.1', ayuda: 'la vigente desde el 01/10/2026' },
+    { valor: '3.2', etiqueta: 'CE3X 3.2', ayuda: 'la vigente desde el 08/10/2026' },
+    { valor: '3.1', etiqueta: 'CE3X 3.1', ayuda: 'del 01/10/2026 al 07/10/2026' },
     { valor: '2.3', etiqueta: 'CE3X 2.3', ayuda: 'la de antes del 01/10/2026' },
 ];
 
 //: La VIGENTE. Un expediente que nunca ha elegido versión se escribe con ella:
-//: los ficheros de la 2.3 los abre la 3.1, pero lo que la 3.1 pide de más no lo
+//: los ficheros de la 2.3 los abre la 3.2, pero lo que pide de más no lo
 //: rellena nadie si no se pone aquí.
-export const VERSION_CE3X_DEFECTO = '3.1';
+export const VERSION_CE3X_DEFECTO = '3.2';
+
+//: Las que guardan la forma NUEVA del fichero (la 3.2 es la 3.1 con otra cabecera).
+export const esModerna = (v) => v === '3.1' || v === '3.2';
 
 /** La versión con la que se escribe y si la ha ELEGIDO alguien. */
 export function versionCe3xDe(ajustes) {
@@ -256,6 +264,44 @@ const entero = (v) => {
 };
 
 /**
+ * Las plantas sobre y bajo rasante del EDIFICIO ENTERO, de Catastro.
+ *
+ * Manual de la 3.2, 6.6: «tienen carácter descriptivo del edificio y se prevé su
+ * cumplimentación a partir de información catastral. Por esta razón, deben
+ * referirse al edificio en su conjunto, incluso cuando el certificado
+ * corresponda únicamente a una parte» (su ejemplo de un piso en un bloque pasa
+ * de 1 a 8). Salen de los BuildingPart de la parcela que mide el motor
+ * (`numberOfFloorsAboveGround` / `BelowGround`, el máximo); sin ellos, de los
+ * niveles medidos. No se confunden con las plantas HABITABLES (6.5), que son las
+ * de lo que se certifica.
+ *
+ * @param {object} g  la geometría del motor (`geo.geometria`)
+ * @returns {{ sobre: number|null, bajo: number|null }|null}
+ */
+export function plantasDelEdificio(g) {
+    const partes = g?.modelo?.building_parts || [];
+    const ent = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+    };
+    let sobre = null;
+    let bajo = null;
+    for (const p of partes) {
+        const s = ent(p?.attrs?.numberOfFloorsAboveGround);
+        const b = ent(p?.attrs?.numberOfFloorsBelowGround);
+        if (s !== null) sobre = Math.max(sobre ?? 0, s);
+        if (b !== null) bajo = Math.max(bajo ?? 0, b);
+    }
+    if (sobre === null) {
+        const niveles = (g?.modelo?.floors || []).map(f => Number(f?.nivel)).filter(Number.isFinite);
+        if (!niveles.length) return null;
+        sobre = niveles.filter(n => n >= 0).length || null;
+        bajo = niveles.filter(n => n < 0).length;
+    }
+    return { sobre, bajo: bajo ?? 0 };
+}
+
+/**
  * Los datos de la 3.1 que no estaban en la 2.3, con su procedencia.
  *
  * Lo que la app ya sabe se PROPONE (la superficie y las plantas son las de
@@ -268,7 +314,7 @@ const entero = (v) => {
  */
 export function datosCe3x31({ ajustes, terciario = false, tipoEdificio = '',
                               superficie = null, plantas = null, titulacion = null,
-                              actividad = null, normativa = null } = {}) {
+                              actividad = null, normativa = null, edificio = null } = {}) {
     const c = ajustes?.ce3x31 || {};
     const avisos = [];
     const de = {};
@@ -311,7 +357,7 @@ export function datosCe3x31({ ajustes, terciario = false, tipoEdificio = '',
     } else if (titulacion) {
         de.titulacion = 'no casa con ninguna del desplegable';
         avisos.push(`La titulación del técnico («${titulacion}») no casa con ninguna del `
-                    + 'desplegable de CE3X 3.1: en el XML saldría «Otra(.*)». Elígela en Datos '
+                    + 'desplegable de CE3X: en el XML saldría «Otra(.*)». Elígela en Datos '
                     + 'administrativos.');
     }
 
@@ -330,21 +376,26 @@ export function datosCe3x31({ ajustes, terciario = false, tipoEdificio = '',
             : (terciario ? 'por defecto: un edificio o un local' : 'una vivienda');
     } else {
         de.unidades_uso = 'falta';
-        avisos.push('Falta el nº de viviendas o unidades de uso (Datos generales): CE3X 3.1 '
-                    + 'no califica sin él.');
+        avisos.push('Falta el nº de viviendas o unidades de uso (Datos generales): CE3X 3.2 '
+                    + 'no califica sin él. Son las de lo que se CERTIFICA: un piso de un bloque es 1.');
     }
 
+    // Las del EDIFICIO ENTERO (manual de la 3.2, 6.6), de Catastro; sin ellas,
+    // las habitables y ninguna bajo rasante, como hasta ahora.
+    const delEdificio = entero(edificio?.sobre);
     const sobre = suyo('plantas_sobre_rasante') ? entero(c.plantas_sobre_rasante)
-        : entero(plantas);
+        : (delEdificio || entero(plantas));
     if (sobre) {
         val.plantas_sobre_rasante = sobre;
-        de.plantas_sobre_rasante = suyo('plantas_sobre_rasante')
-            ? 'puesto a mano por el certificador' : 'las plantas habitables de Datos generales';
+        de.plantas_sobre_rasante = suyo('plantas_sobre_rasante') ? 'puesto a mano por el certificador'
+            : (delEdificio ? 'las del edificio entero, de Catastro'
+                           : 'las plantas habitables de Datos generales (Catastro no las dice)');
     }
-    const bajo = suyo('plantas_bajo_rasante') ? entero(c.plantas_bajo_rasante) : 0;
+    const bajoEdificio = edificio && delEdificio ? entero(edificio.bajo) : null;
+    const bajo = suyo('plantas_bajo_rasante') ? entero(c.plantas_bajo_rasante) : (bajoEdificio ?? 0);
     val.plantas_bajo_rasante = bajo ?? 0;
     de.plantas_bajo_rasante = suyo('plantas_bajo_rasante') ? 'puesto a mano por el certificador'
-        : 'por defecto: sin sótano';
+        : (bajoEdificio !== null ? 'las del edificio entero, de Catastro' : 'por defecto: sin sótano');
 
     return { valores: val, de, avisos };
 }

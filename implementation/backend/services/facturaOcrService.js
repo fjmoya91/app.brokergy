@@ -13,6 +13,8 @@
  * criterio sea auditable y no dependa del humor del modelo.
  */
 
+const { ajustesGemini } = require('../utils/geminiAjustes');
+
 const PROVIDER = (process.env.FACTURA_OCR_PROVIDER || process.env.CEE_OCR_PROVIDER || 'gemini').toLowerCase();
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
@@ -207,9 +209,8 @@ async function extractWithGemini(pdfBuffer) {
         generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: GEMINI_SCHEMA,
-            temperature: 0,
             // Sin razonamiento: ver THINKING_BUDGET arriba (250 s → 5,6 s).
-            thinkingConfig: { thinkingBudget: THINKING_BUDGET },
+            ...ajustesGemini(GEMINI_MODEL, { pensamiento: THINKING_BUDGET, temperatura: 0 }),
         },
     };
 

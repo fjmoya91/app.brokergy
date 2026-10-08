@@ -13,6 +13,7 @@
  */
 
 const { construirPrompt } = require('./botPrompt');
+const { ajustesGemini } = require('../utils/geminiAjustes');
 
 const MODELO = process.env.BOT_WHATSAPP_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const MAX_RETRIES = 2;
@@ -92,8 +93,7 @@ async function pensar(ctx, pregunta, historial = []) {
         generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: ESQUEMA,
-            temperature: 0,
-            thinkingConfig: { thinkingBudget: THINKING_BUDGET },
+            ...ajustesGemini(MODELO, { pensamiento: THINKING_BUDGET, temperatura: 0 }),
         },
     };
 

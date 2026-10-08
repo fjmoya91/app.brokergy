@@ -105,17 +105,24 @@ Todos los umbrales están medidos sobre los 143 CEE iniciales que Fran había ap
 | El generador que se sustituye está en el CEE inicial | `caldera_antigua_cal.rendimiento_id` | NO APTO (en RES080, aviso) |
 | Es de **combustión** (en RES060/093/TER100/TER173) | la ficha | NO APTO |
 | El **combustible** es el declarado | `inputs.fuelType` + la fila de rendimiento | NO APTO si cambia de FAMILIA; aviso dentro de ella |
+| …y el de la **PLACA y las fotos** de la caldera | `instalacion.placa_ocr.leido.combustible` | NO APTO — **a mano**: si la placa dice otro, manda la placa y el expediente se corrige (26RES060_191: placa «gasoleo», CEE y expediente «gas natural») |
 | **Rendimiento** de la caldera (y su cola en el `.cex`) | la tabla | **solo informa** |
 | El **ACS**: si la actuación lo toca, está descrito; y con el mismo equipo si así consta | `cambio_acs`, `misma_caldera_acs` | NO APTO / aviso |
 | **Demanda** y **superficie** frente a las simuladas | la oportunidad | aviso hasta −10 %; NO APTO más abajo |
 | **Referencia catastral** y **zona climática** | el expediente | NO APTO / aviso |
-| **Transmitancias** = la Guía (±2 %) | `getUByYear` | aviso desde el 01/04/2026; antes, info |
+| **Transmitancias** = la Guía (±2 %): desde el 08/10/2026, los «Estimados según antigüedad y zona» de CE3X 3.2 | `transmitanciasCe3x.js` · antes, `getUByYearGuiaAnterior` | aviso desde el 01/04/2026; antes, info |
 | **Ventilación** = la Guía | `getVentanaYACHByYear` | aviso desde el 01/04/2026 |
 | **Año** = el de la simulación | la oportunidad | aviso |
 | **Huecos**: que haya, y entre 6 % y 45 % de la fachada | lo aprobado | NO APTO / aviso |
 | **Puentes**: forjado, contorno de hueco, pilares | lo aprobado | aviso |
+| **Sótano**: sus muros, contra el TERRENO; y en una casa aislada, ninguna medianera | zonas bajo rasante del `.cex`, colindantes | NO APTO — **a mano** (aún no lo mira el código) |
+| **Suelos por zona**: suelo + partición inferior ≤ superficie de la zona; nada «inferior» en la planta más baja ni entre dos plantas de vivienda | el `.cex` | NO APTO — **a mano** (aún no lo mira el código) |
+| **Versión de CE3X**: la que tocaba en la fecha del certificado — **3.2** desde el 08/10/2026, 3.1 del 01 al 07/10/2026, 2.3 antes. Una 3.1 emitida desde el 08/10 se pasa a la 3.2 (misma forma, solo la cabecera) | cabecera del `.cex` y fecha del certificado | aviso (`version_ce3x_32`; la 2.3 tardía, `version_ce3x`) |
+| **Datos generales de la 3.x** completos: superficie útil, nº de viviendas o unidades de uso, plantas sobre rasante (sin ellos CE3X no califica) | el `.cex` | aviso |
+| …y con el criterio de la 3.2: **unidades de uso y plantas habitables, las de lo que se CERTIFICA** (un piso = 1); **plantas sobre y bajo rasante, las del EDIFICIO ENTERO** (Catastro), aunque sea un piso | Catastro (BuildingPart) | **a mano** (el código solo mira que estén): si no casa, se dice |
 | **Reparto** de calefacción y ACS al 100 % | el `.cex` | aviso |
-| **Aires y placas** que confirmó el cliente | `confirmacion_cliente`, `fotovoltaica` | aviso |
+| **Aires y placas** que confirmó el cliente (las placas existentes cuentan como «Generación renovable eléctrica» o como contribución) | `confirmacion_cliente`, `fotovoltaica` | aviso |
+| En la **3.2**, placas como **«Contribución energética»**: la FV va SIEMPRE en «Generación renovable eléctrica», potencia pico y autoconsumo mes a mes | el `.cex` | aviso (`fv_contribucion`; en la 3.1, solo informa) |
 | **Medida de mejora**: existe, calculada, sobre ESTE edificio | el `.cex` | NO APTO (RES080: aviso si no hay) |
 | **Medida**: bomba de calor, modelo y SCOP del expediente | el expediente o la simulación | NO APTO / aviso |
 | **RES080**: qué elementos de envolvente cambian | `documentacion.envolvente` | NO APTO |
@@ -125,6 +132,10 @@ Todos los umbrales están medidos sobre los 143 CEE iniciales que Fran había ap
 | **Quién firma** el certificado es el técnico asignado | `prescriptores` del `certificador_id` | aviso |
 
 ## Lo que hay que saber
+
+**El `.xml` de la 3.1 y el de la 3.2 son el MISMO esquema (v3.0).** Los distingue
+`<Procedimiento><Version>`, que es la fecha de compilación: **2026.08.20** la 3.1, **2026.10.05** la
+3.2. El de la 2.3 es el v2.0 (`CEXv2.3`). Cómo se lee cada uno: [referencia/criterio.md](referencia/criterio.md).
 
 **La acumulación de ACS y la medida de mejora solo están en el `.cex`.** El `.xml` no declara el
 depósito (medido en 462) ni qué equipo propone la medida o si está calculada. Por eso la revisión lee

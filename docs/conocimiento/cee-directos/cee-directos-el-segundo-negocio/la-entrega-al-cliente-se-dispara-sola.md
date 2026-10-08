@@ -16,10 +16,18 @@ la llaman los TRES sitios donde puede completarse la condición — marcar cobra
 el PUT que pone la fase en REGISTRADO, y la subida del registro desde el enlace
 público del certificador. **Quien llegue el segundo es el que envía.**
 
-**REGLA — solo se le mandan DOS ficheros: el PDF firmado y el justificante de
-registro.** El `.xml` y el `.cex` son ficheros de trabajo del certificador que el
-cliente no puede abrir, y la etiqueta ya va dentro del propio certificado.
-Mandarle los cinco hace que no sepa cuál de ellos es "su papel".
+**REGLA — se le mandan TRES ficheros: el PDF firmado, el justificante de registro y
+la ETIQUETA** (+ la guía de la Renta si procede). Hasta el 07/10/2026 eran dos —«la
+etiqueta ya va dentro del certificado»—, pero el usuario la quiere en TODAS las
+entregas (inicial, final y único): es el papel que se cuelga y el que piden en una
+compraventa. Sin etiqueta subida no se entrega (sale en «qué falta»). El `.xml` y el
+`.cex` siguen fuera: son ficheros de trabajo del certificador que el cliente no puede
+abrir. El reenvío desde la rejilla («Reenviar notificación») es esta MISMA entrega
+(`entregar` con `reenviar`): antes tenía su copia, saludaba y escribía al TITULAR en
+vez de a la persona de contacto (2026CEE_55) y mandaba la sección entera.
+
+En un encargo DOBLE, la entrega del INICIAL termina con «cuando tengas la factura
+definitiva de la instalación, avísanos y emitimos el certificado final».
 
 **REGLA — la idempotencia se comprueba ANTES que nada.** Los dos disparadores
 pueden coincidir en el mismo minuto (marcar cobrado justo cuando entra el

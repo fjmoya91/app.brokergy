@@ -235,7 +235,7 @@ Debe devolver **0 filas**. Si devuelve el expediente → la serie ACS está copi
 
 **c) Facturas completas y enlazadas.** Todas las facturas existentes archivadas y con `documentacion.facturas[].drive_link` no nulo; Σ bases s/IVA = inversión.
 
-**d) DACS = demanda de ACS del CEE INICIAL.** Lee la demanda de ACS (kWh/m²·año) de los XML de los dos CEE (`Demanda/EdificioObjeto/ACS` en los de CE3X 2.3; `Indicadores/Demanda/Acs` en los de CE3X 3.1, `version="3.0"`). Iguales → ok. Distintas → `revisar` + incidencia LEVE «DACS CEE inicial X ≠ CEE final Y → se usa la inicial», y comprueba que `dacs` (método XML) = demanda inicial × S. Si `dacs` sale de la final → corrígelo a la inicial y avísalo en el chat (cambia el ahorro).
+**d) DACS = demanda de ACS del CEE INICIAL.** Lee la demanda de ACS (kWh/m²·año) de los XML de los dos CEE (`Demanda/EdificioObjeto/ACS` en los de CE3X 2.3; `Indicadores/Demanda/Acs` en los de CE3X 3.x —3.1 o 3.2, esquema v3.0, `version="3.0"`—). Iguales → ok. Distintas → `revisar` + incidencia LEVE «DACS CEE inicial X ≠ CEE final Y → se usa la inicial», y comprueba que `dacs` (método XML) = demanda inicial × S. Si `dacs` sale de la final → corrígelo a la inicial y avísalo en el chat (cambia el ahorro).
 
 ### 6. Informe hecho / pendiente
 Devuelve al usuario, de forma breve:

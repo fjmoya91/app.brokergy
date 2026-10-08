@@ -137,6 +137,21 @@ def test_en_la_31_sin_meses_se_queda_como_contribucion_y_se_dice():
     assert any("Contribución energética" in a and "PVGIS" in a for a in avisos)
 
 
+def test_en_la_32_con_meses_va_como_generador():
+    resto, gens, avisos = G.separar_generadores([FV, CALDERA], "3.2")
+    assert gens == [FV] and resto == [CALDERA]
+    assert any("de la 3.2" in a for a in avisos)
+
+
+def test_en_la_32_sin_meses_no_se_escribe_como_contribucion():
+    """Manual de la 3.2, 7.1: la fotovoltaica va en «Generación renovable
+    eléctrica», y la pestaña de contribuciones «no debe utilizarse» para ella."""
+    for quita in ("generacion_mensual_kwh", "potencia_pico_kwp"):
+        sin = {k: v for k, v in FV.items() if k != quita}
+        with pytest.raises(G.GeneracionError, match="Generación renovable eléctrica"):
+            G.separar_generadores([sin], "3.2")
+
+
 def test_una_contribucion_de_renovables_no_es_un_generador():
     solar_termica = {"slot": "renovable", "nombre": "SOLAR ACS", "pct_acs": 60,
                      "generacion_electrica_kwh": 0}

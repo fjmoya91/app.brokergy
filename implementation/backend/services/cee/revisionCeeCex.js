@@ -26,6 +26,11 @@ const { norm } = require('./radiografiaCee');
 //: abril de 2026. Un certificado anterior se revisó con otro criterio.
 const FECHA_GUIA = '2026-04-01';
 
+//: Desde cuándo la Guía es la de CE3X 3.2: lo que CE3X pone con «Estimados según
+//: antigüedad y zona climática», escrito como «Conocidas» (decisión de Fran,
+//: 08/10/2026). Un certificado anterior se compara con la Guía de antes.
+const FECHA_GUIA_CE3X = '2026-10-08';
+
 //: Holgura al comparar con la guía: la U se teclea con dos decimales.
 const TOL_U = 0.02;
 
@@ -62,8 +67,46 @@ function aplicaGuia(ctx, cex) {
 // ─── Transmitancias frente a la guía ─────────────────────────────────────────
 
 /**
+ * La Guía con la que se compara ESTE certificado, por su fecha de emisión: desde
+ * el 08/10/2026 la de CE3X 3.2 por cerramiento y con el periodo que DECLARA el
+ * `.cex` (con el que CE3X calcularía sus «Estimados»); antes, la anterior (muro,
+ * cubierta y suelo por año). Devuelve las U que valen para cada cerramiento.
+ */
+function guiaDelCertificado(ctx, { anio, zona, periodo, fecha }) {
+    const G = ctx.guiaCe3x;
+    if (G && (!fecha || fecha >= FECHA_GUIA_CE3X)) {
+        const p = periodo && G.epocaDe(periodo) ? periodo : G.periodoDeAnio(anio);
+        const u = (clave) => G.uCe3x(clave, { periodo: p, zona })?.u ?? null;
+        const nbe = G.epocaDe(p) === 'nbe' ? `, NBE ${G.zonaNbe(zona)}` : '';
+        return {
+            nueva: true,
+            //: Una cubierta vale plana o inclinada (solo difieren antes de 1980).
+            refs: (t, c) => (t === 'fachada' && c.frontera === 'aire' ? [u('fachada_aire')]
+                : t === 'cubierta' ? (c.frontera === 'terreno' ? [u('cubierta_terreno')]
+                    : [u('cubierta_plana'), u('cubierta_inclinada')])
+                : t === 'suelo' && c.modo === 'Conocidas'
+                    ? [c.frontera === 'aire' ? u('suelo_aire') : u('suelo_terreno')]
+                : []),
+            texto: `CE3X «Estimados según antigüedad y zona» (${G.etiquetaPeriodo(p)}, ${zona || 'zona —'}${nbe}): `
+                + `muro ${coma(u('fachada_aire'))} · cubierta ${coma(u('cubierta_plana'))}`
+                + ` · suelo al aire ${coma(u('suelo_aire'))}`,
+        };
+    }
+    const anterior = ctx.getUByYearGuiaAnterior || ctx.getUByYear;
+    if (!anterior) return null;
+    const g = anterior(anio, zona);
+    return {
+        nueva: false,
+        refs: (t, c) => (t === 'fachada' && c.frontera === 'aire' ? [g.wall]
+            : t === 'cubierta' ? [g.roof]
+            : t === 'suelo' && c.modo === 'Conocidas' ? [g.floor] : []),
+        texto: `Guía anterior: muro ${coma(g.wall)} · cubierta ${coma(g.roof)} · suelo ${coma(g.floor)} (${anio}, ${zona || 'zona —'})`,
+    };
+}
+
+/**
  * Las transmitancias de fachadas, cubiertas y suelos, frente a la Guía de
- * Transmitancias de BROKERGY (`getUByYear`, la MISMA que estudió la propuesta).
+ * Transmitancias de BROKERGY (la de su fecha: `guiaDelCertificado`).
  *
  * Qué se compara, y qué no:
  *   · fachada al aire → U de muro; cubierta → U de cubierta;
@@ -78,14 +121,15 @@ function aplicaGuia(ctx, cex) {
 function revisarTransmitancias(inf, rx, cex, ctx) {
     const anio = cex?.generales?.anio || rx.identificacion.anio_construccion;
     const zona = cex?.generales?.zona_he1 || rx.identificacion.zona_climatica;
-    if (!anio || !ctx.getUByYear) {
+    const { aplica, fecha } = aplicaGuia(ctx, cex);
+    const G = anio ? guiaDelCertificado(ctx, { anio, zona, periodo: cex?.generales?.normativa, fecha }) : null;
+    if (!anio || !G) {
         inf.anota('transmitancias', 'Transmitancias frente a la guía', 'no_comprobable', {
             dice: 'el certificado no declara el año de construcción',
             esperado: 'la U de la Guía de Transmitancias para su año y zona',
         });
         return;
     }
-    const g = ctx.getUByYear(anio, zona);
     const cer = cex ? cex.envolvente.cerramientos : rx.envolvente.opacos.map((o) => ({
         nombre: o.nombre, tipo: o.tipo, u: o.transmitancia,
         frontera: /medianer|adiab/i.test(o.tipo || '') ? 'edificio' : 'aire',
@@ -93,17 +137,13 @@ function revisarTransmitancias(inf, rx, cex, ctx) {
     }));
     const mira = [];
     for (const c of cer) {
-        const t = norm(c.tipo);
-        let ref = null;
-        if (t === 'fachada' && c.frontera === 'aire') ref = g.wall;
-        else if (t === 'cubierta') ref = g.roof;
-        else if (t === 'suelo' && c.modo === 'Conocidas') ref = g.floor;
-        if (ref == null || c.u == null) continue;
-        mira.push({ ...c, ref, igual: Math.abs(c.u - ref) <= ref * TOL_U + 0.005 });
+        const refs = G.refs(norm(c.tipo), c).filter((r) => r != null);
+        if (!refs.length || c.u == null) continue;
+        const iguales = refs.filter((r) => Math.abs(c.u - r) <= r * TOL_U + 0.005);
+        mira.push({ ...c, ref: iguales[0] ?? refs[0], igual: iguales.length > 0 });
     }
     const dist = mira.filter((c) => !c.igual);
-    const { aplica, fecha } = aplicaGuia(ctx, cex);
-    const guia = `muro ${coma(g.wall)} · cubierta ${coma(g.roof)} · suelo ${coma(g.floor)} (${anio}, ${zona || 'zona —'})`;
+    const guia = G.texto;
     if (!mira.length) {
         inf.anota('transmitancias', 'Transmitancias frente a la guía', 'no_comprobable', {
             dice: 'no hay fachadas ni cubiertas que comparar', esperado: guia,
@@ -118,32 +158,34 @@ function revisarTransmitancias(inf, rx, cex, ctx) {
             esperado: guia,
             detalle: !dist.length ? null
                 : aplica
-                    ? 'No coinciden con la Guía de Transmitancias, que es con la que se calculó la propuesta. Si hay motivo (proyecto, muro de piedra, cubierta rehecha), que conste; si no, que el certificador las ponga de la guía.'
+                    ? `No coinciden con la Guía de Transmitancias${G.nueva ? ' (las que pone CE3X con «Estimados según antigüedad y zona climática»)' : ' anterior, la vigente cuando se emitió'}. Si hay motivo (proyecto, muro de piedra, cubierta rehecha), que conste; si no, que el certificador las ponga de la guía.`
                     : `Certificado de ${fecha ? fecha.split('-').reverse().join('/') : 'fecha desconocida'}, anterior a que se exigiera la guía (${FECHA_GUIA.split('-').reverse().join('/')}): solo se informa.`,
         });
 }
 
 // ─── La versión de CE3X ──────────────────────────────────────────────────────
 
-//: Desde el 01/10/2026 se certifica con CE3X 3.1. El cálculo es el mismo que en
-//: la 2.3 (medido con el motor de las dos), pero el XML del certificado y lo
-//: que se declara son los de la 3.1.
+//: Desde el 01/10/2026 se certifica con CE3X 3.1, y desde el 08/10/2026 con la
+//: 3.2 (decisión del usuario). El cálculo es el mismo en las tres (medido con el
+//: motor de cada una); la 3.2 guarda la misma forma que la 3.1 con otra cabecera.
 const FECHA_CE3X_31 = '2026-10-01';
+const FECHA_CE3X_32 = '2026-10-08';
+const ddmm = (iso) => iso.split('-').reverse().join('/');
 
 /**
- * Con qué versión de CE3X está hecho el `.cex` y, en la 3.1, si trae lo que
+ * Con qué versión de CE3X está hecho el `.cex` y, en la 3.x, si trae lo que
  * esa versión exige para calificar (superficie útil, nº de viviendas o
  * unidades de uso y plantas sobre rasante).
  *
- * AVISA, no bloquea: un certificado de la 2.3 calcula lo mismo, y el CEE final
- * que la app saca de él ya sale en la 3.1 (se convierte al copiarlo).
+ * AVISA, no bloquea: un certificado de la 2.3 o la 3.1 calcula lo mismo, y el
+ * CEE final que la app saca de él ya sale en la 3.2 (se convierte al copiarlo).
  */
 function revisarVersion(inf, rx, cex, ctx) {
     const v = cex?.version_ce3x || null;
     if (!v) {
         inf.anota('version_ce3x', 'Versión de CE3X', 'aviso', {
             dice: `cabecera «${cex?.version || '—'}»`,
-            esperado: 'CE3X 3.1 (o 2.3 si es anterior al 01/10/2026)',
+            esperado: 'CE3X 3.2 (3.1 si es anterior al 08/10/2026; 2.3, al 01/10/2026)',
             detalle: 'No es una cabecera de .cex conocida: compruébalo abriéndolo en CE3X.',
         });
         return;
@@ -154,24 +196,43 @@ function revisarVersion(inf, rx, cex, ctx) {
         const tarde = !fecha || fecha >= FECHA_CE3X_31;
         inf.anota('version_ce3x', 'Versión de CE3X', tarde ? 'aviso' : 'ok', {
             dice: `CE3X 2.3${fechaTxt ? ` · emitido el ${fechaTxt}` : ''}`,
-            esperado: `CE3X 3.1 desde el ${FECHA_CE3X_31.split('-').reverse().join('/')}`,
+            esperado: `CE3X 3.x desde el ${ddmm(FECHA_CE3X_31)} (la 3.2 desde el ${ddmm(FECHA_CE3X_32)})`,
             detalle: tarde
-                ? 'Hecho con la 2.3 cuando ya se certifica con la 3.1. El cálculo es el mismo, pero el XML del certificado es el de la 3.1: que lo abra con CE3X 3.1, complete lo que pide (Datos generales y la potencia de los equipos) y lo vuelva a guardar. El CEE final que saca la app de él ya sale en la 3.1.'
+                ? 'Hecho con la 2.3 cuando ya se certifica con la 3.2. El cálculo es el mismo, pero el XML del certificado es el de la 3.x: que lo abra con CE3X 3.2, complete lo que pide (Datos generales —las plantas sobre y bajo rasante, del edificio entero— y la potencia de los equipos) y lo vuelva a guardar. El CEE final que saca la app de él ya sale en la 3.2.'
                 : null,
         });
         return;
+    }
+    if (v === '3.1' && (!fecha || fecha >= FECHA_CE3X_32)) {
+        inf.anota('version_ce3x_32', 'Versión de CE3X', 'aviso', {
+            dice: `CE3X 3.1${fechaTxt ? ` · emitido el ${fechaTxt}` : ''}`,
+            esperado: `CE3X 3.2 desde el ${ddmm(FECHA_CE3X_32)}`,
+            detalle: 'Hecho con la 3.1 cuando ya se certifica con la 3.2. Tienen la misma forma y calculan igual: que lo abra con CE3X 3.2 y lo vuelva a guardar (o lo pasa la app con tools/convertir_cex.py, que solo cambia la cabecera).',
+        });
     }
     const g = cex.generales || {};
     const faltan = [['superficie útil', g.superficie_util], ['nº de viviendas o unidades de uso', g.unidades_uso],
                     ['plantas sobre rasante', g.plantas_sobre_rasante]]
         .filter(([, x]) => !(Number(x) > 0)).map(([k]) => k);
     inf.anota('version_ce3x', 'Versión de CE3X', faltan.length ? 'aviso' : 'ok', {
-        dice: faltan.length ? `CE3X 3.1 · sin ${faltan.join(', ')}` : 'CE3X 3.1',
-        esperado: 'CE3X 3.1 con sus datos generales completos',
+        dice: faltan.length ? `CE3X ${v} · sin ${faltan.join(', ')}` : `CE3X ${v}`,
+        esperado: `CE3X ${v} con sus datos generales completos`,
         detalle: faltan.length
-            ? 'CE3X 3.1 no califica sin esos datos de Datos generales: que los complete y lo vuelva a guardar.'
+            ? `CE3X ${v} no califica sin esos datos de Datos generales: que los complete y lo vuelva a guardar.`
             : null,
     });
+    // Las placas de AUTOCONSUMO van en «Generación renovable eléctrica», mes a
+    // mes; «Contribuciones energéticas» no debe usarse para la fotovoltaica
+    // (manual de la 3.2, 7.1). Una 3.1 aún lo admitía; en la 3.2 es un aviso.
+    const fvContribucion = (cex.equipos || []).filter((e) => e.slot === 'renovable'
+        && /fotovolt|placas?\b|autoconsumo|\bFV\b/i.test(e.nombre || ''));
+    if (fvContribucion.length) {
+        inf.anota('fv_contribucion', 'Placas como «Contribución energética»', v === '3.2' ? 'aviso' : 'info', {
+            dice: fvContribucion.map((e) => e.nombre).join(' · '),
+            esperado: '«Generación renovable eléctrica»: potencia pico y autoconsumo mes a mes',
+            detalle: 'En CE3X 3.2 la fotovoltaica va SIEMPRE en «Generación renovable eléctrica», con la potencia pico y el autoconsumo de cada mes (lo menor entre la producción y el consumo eléctrico de calefacción, refrigeración y ACS de ese mes). La pestaña de contribuciones es para «cogeneración y otras instalaciones».',
+        });
+    }
 }
 
 // ─── Datos generales ─────────────────────────────────────────────────────────
@@ -259,10 +320,12 @@ function revisarExistentes(inf, rx, cex, ctx) {
         });
     }
     if (ctx.fotovoltaica === 'si') {
-        const fv = eq.filter((e) => e.slot === 'renovable' || /fotovolt|placas|solar/i.test(e.nombre || ''));
+        //: En la 3.x van como «generador eléctrico» (slot 13), no como contribución.
+        const fv = [...eq.filter((e) => e.slot === 'renovable' || /fotovolt|placas|solar/i.test(e.nombre || '')),
+                    ...(cex.generadores_electricos || [])];
         inf.anota('placas', 'Placas fotovoltaicas existentes', fv.length ? 'ok' : 'aviso', {
-            dice: fv.length ? fv.map((e) => e.nombre).join(' · ') : 'ninguna contribución renovable declarada',
-            esperado: 'el cliente declaró tener placas: van como instalación EXISTENTE',
+            dice: fv.length ? fv.map((e) => e.nombre).join(' · ') : 'ninguna generación renovable eléctrica declarada',
+            esperado: 'el cliente declaró tener placas: van como instalación EXISTENTE («Generación renovable eléctrica» en la 3.x)',
         });
     }
 }
@@ -465,5 +528,5 @@ module.exports = {
     revisarConCex,
     revisarTransmitancias,
     revisarVersion,
-    FECHA_GUIA, FECHA_CE3X_31, HUECOS_MIN, HUECOS_MAX, PUENTES_BASE, TOL_SCOP_PCT,
+    FECHA_GUIA, FECHA_GUIA_CE3X, FECHA_CE3X_31, HUECOS_MIN, HUECOS_MAX, PUENTES_BASE, TOL_SCOP_PCT,
 };

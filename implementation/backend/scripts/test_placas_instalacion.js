@@ -98,6 +98,33 @@ const comprueba = (que, real, esperado) => {
     const f = await proponerPlacas({ exp: { id: 'x', instalacion: vacia }, caldera, equipos });
     comprueba('sin aplicar ni simular → no compone nada', f.instalacion, null);
 
+    // g) Sustituir el EQUIPO trae los documentos del modelo NUEVO (consulta el
+    //    catálogo, solo lectura). Caso 26RES060_178: la DUO AI 10 elegida al
+    //    simular conservaba su EPREL y su ficha tras casar la placa con la
+    //    Extensa S 10 (WOYA100KLT), y el CIFO anexaba los papeles de otra máquina.
+    const supabase = require('../services/supabaseClient');
+    const { data: s10 } = await supabase.from('aerotermia')
+        .select('id, eprel, ficha_tecnica, url_keymark').eq('modelo_ud_exterior', 'WOYA100KLT').maybeSingle();
+    if (s10) {
+        const conDuo = { ...vacia, tipo_emisor: 'suelo_radiante', aerotermia_cal: {
+            aerotermia_db_id: 83, marca: 'THERMOR', modelo: 'ALFEA EXTENSA DUO AI 10', scop: 5.95,
+            url_eprel: 'https://eprel.ec.europa.eu/screen/product/spaceheaters/670070',
+            url_ficha: 'https://drive.google.com/open?id=FICHA_DE_LA_DUO', url_keymark: 'https://keymark/DUO',
+        } };
+        const g = await proponerPlacas({
+            exp: { id: 'x', instalacion: conDuo }, zona: 'D3', caldera: { leido: null, sin_fotos: true, fotos: [], avisos: [] },
+            equipos: { unidades: { exterior: { marca: 'FUJITSU', modelo: 'WOYA100KLT', numero_serie: 'T0' } }, fotos: [], avisos: [] },
+            simular: true, ponerEquipo: true,
+        });
+        const nodo = g.instalacion?.aerotermia_cal || {};
+        comprueba('sustituir el equipo: el id es el del modelo nuevo', nodo.aerotermia_db_id, s10.id);
+        comprueba('sustituir el equipo: ficha, EPREL y Keymark del modelo NUEVO',
+            [nodo.url_ficha, nodo.url_eprel, nodo.url_keymark],
+            [s10.ficha_tecnica || null, s10.eprel || null, s10.url_keymark || null]);
+    } else {
+        console.log('  --   (sin la fila WOYA100KLT en el catálogo: caso g no comprobado)');
+    }
+
     console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ Todo bien');
     process.exit(fallos ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

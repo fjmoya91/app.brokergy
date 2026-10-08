@@ -37,13 +37,15 @@ Lo demás: `<IdentificacionEdificio>` (ref. catastral, zona climática, normativ
 **⚠️ Varios ficheros DECLARAN `encoding="UTF-8"` y están en ISO-8859-1.** Leídos como UTF-8, «Caldera
 Estándar» sale con un carácter roto y deja de casar con el enum.
 
-### El `.xml` de CE3X 3.1 (desde el 01/10/2026) es OTRO esquema
+### El `.xml` de CE3X 3.x (3.1 desde el 01/10/2026, 3.2 desde el 08/10/2026) es OTRO esquema
 
-Lo de arriba es el esquema **v2.0** (CE3X 2.3). CE3X 3.1 escribe el **v3.0**
-(`<DatosEnergeticosDelEdificio version="3.0">`): el mismo certificado con otras etiquetas. El
-comprobador lee los dos y devuelve lo mismo (`services/cee/xmlCeeV30.js`); a mano, esto:
+Lo de arriba es el esquema **v2.0** (CE3X 2.3). CE3X 3.1 y 3.2 escriben el **v3.0**
+(`<DatosEnergeticosDelEdificio version="3.0">`): el mismo certificado con otras etiquetas. Entre la
+3.1 y la 3.2 el esquema es el mismo; los distingue `<Procedimiento><Version>`, la fecha de
+compilación: **2026.08.20** la 3.1, **2026.10.05** la 3.2. El comprobador lee los dos esquemas y
+devuelve lo mismo (`services/cee/xmlCeeV30.js`); a mano, esto:
 
-| Dato | v2.0 (CE3X 2.3) | v3.0 (CE3X 3.1) |
+| Dato | v2.0 (CE3X 2.3) | v3.0 (CE3X 3.1 / 3.2) |
 |---|---|---|
 | Edificio (dirección, municipio, zona…) | `<IdentificacionEdificio>` | `<DatosEdificio>` |
 | Referencia catastral | `<ReferenciaCatastral>` | `<ReferenciasCatastrales><Ref><Parcela>` + `<Inmueble>` (14 + 6) |
@@ -72,11 +74,15 @@ Y lo que cambia de significado, que es donde uno se equivoca:
   (`<PorDefecto>Transmitancia</PorDefecto>`). Lo demás puede ser Estimado o Conocido y el fichero no
   lo distingue: el punto de las transmitancias justificadas no se puede afirmar solo con el `.xml`.
 - **La acumulación de ACS SÍ viene** (`<Sistemas><Acumulador>`, volumen en m³).
-- **Las placas en la 3.1 pueden ir como «generador eléctrico»** (`<GeneradorElectrico>`, con la
-  potencia) en vez de como contribución anual. Si el técnico las vuelve a meter así, la energía
-  primaria y las emisiones eléctricas cambian respecto a la 2.3 **aunque la obra sea la misma**: no
-  es el motor, es cómo se han declarado. El mismo `.cex` abierto en la 3.1 sin tocarlo da las
-  mismas cifras.
+- **Las placas en la 3.x van como «generador eléctrico»** (`<GeneradorElectrico>`, con la
+  potencia) en vez de como contribución anual. **En la 3.2, SIEMPRE así** («Generación renovable
+  eléctrica»: potencia pico y autoconsumo MES A MES, manual 7.1); como «Contribución energética» →
+  aviso (`fv_contribucion`; en la 3.1 solo informa). Cada mes el autoconsumo es lo menor entre la
+  producción y el consumo eléctrico de calefacción + refrigeración + ACS de ese mes: CE3X 3.2 avisa
+  de los meses que se pasan. Si el técnico las vuelve a meter como generador, la energía primaria y
+  las emisiones eléctricas cambian respecto a la 2.3 **aunque la obra sea la misma**: no es el
+  motor, es cómo se han declarado. El mismo `.cex` abierto en la 3.x sin tocarlo da las mismas
+  cifras.
 
 ---
 
@@ -186,18 +192,25 @@ Después se cruza con lo que declara la pestaña Envolvente (`documentacion.envo
 ### 10. Las transmitancias, IGUALES A LA GUÍA
 
 Criterio de Fran (29/09/2026): las U de **fachadas al aire, cubiertas y suelos declarados
-«Conocidas»** tienen que ser las de la **Guía de Transmitancias de BROKERGY** para el año y la zona
-del certificado (`getUByYear`, la MISMA con la que se calculó la propuesta), con **±2 %**:
+«Conocidas»** tienen que ser las de la **Guía de Transmitancias de BROKERGY** para el periodo y la
+zona del certificado, con **±2 %**.
 
-| Año | Muro | Cubierta | Suelo |
+**Desde el 08/10/2026 la Guía son los «Estimados según antigüedad y zona climática» de CE3X 3.2**
+(`transmitanciasCe3x.js`, regla 129; PDF en «03. OPERACIONES / 02. MANUALES»): por el periodo que
+declara el `.cex` («Normativa vigente») y, de 1980 a 2007, por la **zona NBE** (V…Z; con la
+localidad «Otro»: E1 → Z · C3/D → Y · C4 → X · A3-B4, C1, C2 → W · el resto → V):
+
+| Periodo | Muro | Cubierta | Suelo al aire |
 |---|---|---|---|
-| antes de 1960 | 2,20 | 2,50 | 1,25 |
-| 1960-1978 | 1,90 | 2,10 | 1,10 |
-| 1979-1990 | 1,80 | 1,90 | 1,05 |
-| 1991-2007 | 1,69 | 1,69 | 1,00 |
-| 2008-2013 | U_max del CTE 2006 por zona | | |
-| 2014-2019 | 0,35 | 0,25 | 0,35 |
-| desde 2020 | 0,27 | 0,22 | 0,30 |
+| Antes 1980 | 2,38 | 2,17 plana · 2,63 inclinada | 2,50 |
+| 1980-2007, NBE V·W / X / Y / Z | 1,80 / 1,60 / 1,40 / 1,40 | 1,40 / 1,20 / 0,90 / 0,70 | 1,00 / 0,90 / 0,80 / 0,70 |
+| 2007-2013, A / B / C / D / E | 0,94 / 0,82 / 0,73 / 0,66 / 0,57 | 0,50 / 0,45 / 0,41 / 0,38 / 0,35 | 0,53 / 0,52 / 0,50 / 0,49 / 0,48 |
+| desde 2014, A / B / C / D / E | 0,50 / 0,38 / 0,29 / 0,27 / 0,25 | 0,47 / 0,33 / 0,23 / 0,22 / 0,19 | 0,53 / 0,46 / 0,36 / 0,34 / 0,31 |
+
+Particiones, suelos contra el terreno, masas y Canarias: en la tabla completa (docs, «Los valores
+POR DEFECTO de CE3X 3.2»). **Un certificado emitido hasta el 07/10/2026 se compara con la Guía de
+entonces** (1,69/1,69/1,00 en 1991-2007, 1,80/1,90/1,05 en 1979-1990…, `getUByYearGuiaAnterior`),
+y el aviso dice con cuál.
 
 - Distinta → **aviso**, no fallo, con la U de la guía al lado.
 - **Solo en certificados emitidos desde el 01/04/2026**, que es cuando se empezó a exigir la guía.
@@ -245,6 +258,19 @@ caldera **no se retira** —son hibridaciones, y ahí conviven las dos—, así 
 - **Año** distinto del de la simulación → aviso (coincide en 91 de 94 aprobados).
 - Superficie, plantas, altura, demanda de ACS y normativa → **se enseñan** (el nº de plantas no casa
   con la oportunidad en 26 de 110 aprobados: la oportunidad cuenta distinto).
+- **La versión de CE3X**, por la fecha del certificado: **3.2** desde el 08/10/2026, 3.1 del 01 al
+  07/10/2026, 2.3 antes. Una **3.1 emitida desde el 08/10/2026** → aviso: que la abra con CE3X 3.2 y
+  la guarde, o se pasa con `tools/convertir_cex.py` (misma forma, solo cambia la cabecera; calcula
+  igual). Una **2.3 emitida desde el 01/10/2026** → aviso: abrirla con la 3.2 y completar lo que
+  pide.
+- En la **3.x**, sin superficie útil, nº de viviendas o unidades de uso o plantas sobre rasante →
+  aviso (CE3X no califica sin ellos).
+- Con el criterio de la 3.2 («Ampliación del manual de usuario CE3X», octubre 2026), **a mano**:
+  superficie útil (RD 390/2021) = la administrativa, de lo que se certifica; superficie de cálculo
+  = la de los recintos habitables; **unidades de uso y plantas habitables = las de lo que se
+  CERTIFICA** (un piso de un bloque = 1); **plantas sobre y bajo rasante = las del EDIFICIO ENTERO**,
+  de Catastro, aunque se certifique un piso (el ejemplo oficial «Vivienda dentro de bloque» pasa
+  de 1 a 8). Si no casa, se dice.
 
 ### 15. Huecos y puentes (del `.cex`)
 - **Ningún hueco** → NO APTO.
@@ -252,10 +278,39 @@ caldera **no se retira** —son hibridaciones, y ahí conviven las dos—, así 
 - Falta alguno de **forjado · contorno de hueco · pilar integrado · pilar en esquina** → aviso (los
   llevan más del 93 % de los aprobados).
 
+### 15.b Sótano y suelos (del `.cex`) — se mira A MANO, el comprobador aún no lo hace
+Caso: 26RES060_191 (Fran, 2026-10-01), casa aislada con 19 m² de vivienda en el sótano junto al
+garaje. El `.cex` del motor (19/09) y el de la técnica traían cuatro muros del sótano como
+«PARTICION CON EL VECINO» (U 1,8) y el sótano con 137,65 m² de suelo y otra partición «con garaje»
+debajo; arreglado, la demanda bajó de 289 a 222 kWh/m² y la letra de G a F.
+- Los muros de una zona **bajo rasante** (SÓTANO) van como **«Muro en contacto con el terreno»**
+  (`'Fachada'` con frontera `'terreno'`, «Por defecto»: CE3X no admite «Conocidas» y pone la U por
+  la normativa, 0,66 en CTE 2010 D3). Una **partición o medianera «con el vecino»** en esa zona, o
+  una fachada al aire sin huecos → NO APTO. Las particiones contra el garaje del propio sótano, bien.
+- En una vivienda **aislada** (sin colindantes) **ninguna medianera** → NO APTO.
+- **Suelos**: por zona, suelo contra terreno + particiones horizontales INFERIORES ≈ su superficie
+  (m² de vivienda). Si las pasan de largo, sobran metros. Una partición «inferior» en la planta
+  más baja (no hay nada debajo) o en una planta que está sobre vivienda (el forjado entre dos
+  plantas de vivienda no se escribe, regla 48.j; los `.cex` del motor anteriores al 21/09/2026 lo
+  traen como «Garaje/espacio enterrado») → NO APTO.
+- Cómo se arregla: `muros_terreno.py` del oráculo de CE3X (lo hace el propio CE3X: muros,
+  forjados, superficies y los puentes que colgaban), volver a poner la medida y calcularla.
+
 ### 16. Equipos existentes (del `.cex`)
 - Reparto de calefacción o ACS ≠ **100 %** → aviso (CE3X no calcula así).
 - El cliente **confirmó aires** al aceptar y el inicial no tiene equipos de frío → aviso.
-- El cliente **declaró placas** y no hay contribución renovable → aviso (van como EXISTENTES).
+- En un **RES060** (cambio de caldera) los aires van como **máquina frigorífica (sólo
+  refrigeración)** (Fran, 2026-10-07). Declarados como «calefacción y refrigeración» (bomba de
+  calor) → aviso: le quitan calefacción a la caldera.
+- **Un aire no cubre la casa** (Fran, 2026-10-08): ~40 m² por aparato, **10-25 % de la vivienda
+  cada uno** y como mucho el 100 % entre todos, con **3 a 5 kW** de frío (0,1 kW por m² que sirve)
+  salvo placa que diga otra. Uno o dos aires cubriendo el 100 % del frío → aviso, con lo que les
+  toca al lado (`repartoAires` en fichaCe3x.js: 1 en 233 m² → 17 %).
+- El cliente **declaró placas** y el `.cex` no las declara —ni como «Generación renovable
+  eléctrica» ni como contribución— → aviso (van como EXISTENTES; en la 3.2, en «Generación
+  renovable eléctrica»).
+- En la **3.2**, placas como «Contribución energética» → aviso (`fv_contribucion`): la FV va
+  SIEMPRE en «Generación renovable eléctrica» (manual, 7.1). En la 3.1, solo se informa.
 
 ### 17. La MEDIDA DE MEJORA del CEE inicial (del `.cex`)
 Es lo que Fran añadía a mano: «le cargo como medida de mejora lo que va a ser el final».

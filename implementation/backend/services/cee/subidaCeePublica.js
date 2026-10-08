@@ -118,10 +118,9 @@ async function subirCeeDirecto({ id, fase, slot, buffer, mimetype, quien = QUIEN
         // estaba cobrado, el cliente recibe su certificado sin que nadie se acuerde.
         require('../ceeDirectoEntrega')
             .intentarEntregaAsync(row.id, ph, `registro subido por ${quien.texto}`);
-        // Si aún NO está cobrado, se le avisa de que ya está registrado (una vez por fase).
-        setImmediate(() => require('../ceeDirectoEntrega')
-            .avisarRegistrado(row.id, ph, { manual: false })
-            .catch(e => console.warn('[cee-directo-upload aviso cliente]', e.message)));
+        // Si aún NO está cobrado, al cliente NO se le escribe solo (desde el
+        // 07/10/2026): te llega a ti el aviso con el enlace al popup, donde decides
+        // si avisarle y si va la factura adjunta (ceeDirectoEntrega.avisarRegistrado).
 
         const [aa, mm, dd] = String(fechaRegistro).split('-');
         await svcCeeDirecto.anotarHistorial(row.id, {
@@ -131,17 +130,22 @@ async function subirCeeDirecto({ id, fase, slot, buffer, mimetype, quien = QUIEN
             usuario: null
         });
         // Aviso al equipo: lo siguiente es cobrarlo y entregárselo al cliente.
-        // Best-effort, fuera de la respuesta.
+        // Sin cobrar, con el ENLACE al popup «Avisar al cliente» (y la factura);
+        // cobrado, la entrega ya ha salido sola. Best-effort, fuera de la respuesta.
         setImmediate(async () => {
             try {
                 const wa = process.env.WHATSAPP_ADMIN_CHAT;
-                const texto = `✅ ${row.numero_expediente} — ${ph === 'final' ? 'CEE FINAL' : 'CEE'} REGISTRADO por ${quien.texto}.`;
+                const base = process.env.FRONTEND_URL || 'https://app.brokergy.es';
+                const siguiente = row.cobrado
+                    ? 'Está cobrado: la entrega al cliente sale sola.'
+                    : `Avisar al cliente y emitir la factura:\n${base}/?cee=${row.id}&avisar=${ph}`;
+                const texto = `✅ ${row.numero_expediente} — ${ph === 'final' ? 'CEE FINAL' : 'CEE'} REGISTRADO por ${quien.texto}.\n\n${siguiente}`;
                 if (wa) await require('../whatsappService').sendText(wa, texto);
                 if (process.env.ADMIN_EMAIL) {
                     await require('../emailService').sendMail({
                         to: process.env.ADMIN_EMAIL,
                         subject: `${row.numero_expediente} — CEE registrado`,
-                        text: texto, html: `<p>${texto}</p>`
+                        text: texto, html: `<p>${texto.replace(/&/g, '&amp;').replace(/</g, '&lt;').split('\n').join('<br>')}</p>`
                     });
                 }
             } catch (e) { console.error('[cee-directo-upload aviso]', e.message); }

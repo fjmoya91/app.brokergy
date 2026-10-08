@@ -52,6 +52,12 @@ const unir = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', 
 function equiposDelPrevisto(ficha, previsto = {}) {
     const ids = Array.isArray(previsto.medidas) ? previsto.medidas : null;
     const medidas = (ficha?.medidas || []).filter((m, i) => !ids || ids.includes(m.id) || ids.includes(i));
+    //: Pedir medidas que no casan con ninguna no puede dar un previsto SIN equipos
+    //: en silencio: describiría una obra sin la aerotermia.
+    if (ids && ids.length && !medidas.length && (ficha?.medidas || []).length) {
+        throw new Error(`previsto.medidas (${ids.join(', ')}) no casa con ninguna medida de la ficha `
+            + `(${(ficha.medidas || []).map((m, i) => m.id ?? i).join(', ')}).`);
+    }
     const equipos = [];
     for (const m of medidas) {
         for (const eq of m.instalaciones || []) {

@@ -55,3 +55,13 @@ leía como la marca. En la MIDEA, el nº de serie salía el **EAN-13** del códi
 
 ⚠️ `paredFotoService.escribir` actualiza ahora el objeto que tiene en la mano: dos escrituras seguidas
 desde un script se pisaban (la segunda reemplazaba la clave con lo de antes de la primera).
+
+**REGLA — la aerotermia de la medida sale del PRESUPUESTO, y el presupuesto se busca en DOS sitios**
+(2026-10-08, 26RES060_209): el slot `DOC_PRESUPUESTO` y la carpeta `0. PRESUPUESTO` del Drive del
+expediente. En el 209 el slot solo tenía la cifra estimada (12.000 €, sin partidas) y el presupuesto
+del instalador —DAIKIN ERGA08EAV3H7 + «máquina interior con ACS»— estaba en la carpeta; el primer
+`.cex` salió con la aerotermia GENÉRICA de la simulación (SCOP 4) y hubo que rehacerlo. La genérica
+(`aerotermia_generica`) es el último recurso. En un EXPEDIENTE el equipo se escribe con `proponerPlacas`
+(la función del botón «Leer placas», `equipoId` + códigos de las dos unidades), que resuelve el SCOP
+por emisor y zona y el ACS del conjunto; si el presupuesto no nombra la interior y hay varias, se
+pregunta cuál.

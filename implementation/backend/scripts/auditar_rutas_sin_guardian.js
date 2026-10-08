@@ -38,6 +38,7 @@ const ABIERTAS = {
     'GET /api/catastro/neighbors': 'datos públicos del Catastro (landing)',
     'GET /api/catastro/image/:rc': 'datos públicos del Catastro (landing)',
     'GET /api/catastro/parcel-image/:rc': 'datos públicos del Catastro (landing)',
+    'GET /api/catastro/sede/:rc': 'redirección pública a la ficha de la Sede (enlace de la landing y de las fichas)',
     'GET /api/catastro/municipios': 'datos públicos (landing)',
     'GET /api/catastro/property-data': 'datos públicos del Catastro (landing)',
     'GET /api/geo/ccaa': 'listado público de CCAA',

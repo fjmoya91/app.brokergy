@@ -9,6 +9,7 @@
  */
 
 import { coberturaPorGenerador, leerGeneradoresDeTexto, vectorCanonico, pctTexto } from './coberturaGeneradores.js';
+import { uCe3x } from './transmitanciasCe3x.js';
 
 
 // ============================================================================
@@ -581,6 +582,19 @@ export const AEROTHERMIA_MODELS = [
 // ============================================================================
 // TRANSMITANCIAS TÉRMICAS POR ÉPOCA DE CONSTRUCCIÓN
 // ============================================================================
+// Desde el 08/10/2026 la Guía de Transmitancias de BROKERGY son los valores que
+// el propio CE3X 3.2 pone con «Estimados según antigüedad y zona climática»
+// (decisión de Fran): `transmitanciasCe3x.js`, fuente única también del `.cex`.
+//
+// REGLA — lo ya simulado NO se mueve (como el precio CAE, regla 43): una
+// simulación NUEVA lleva `inputs.guia_transmitancias` y calcula con la de CE3X;
+// una guardada sin esa marca sigue con la Guía anterior (`getUByYearGuiaAnterior`),
+// porque su bono ya se le dio al cliente. La PRESENCIA de la clave es la marca.
+export const GUIA_TRANSMITANCIAS = 'ce3x-3.2';
+
+/** ¿Esta simulación se hizo con la Guía de CE3X (la vigente)? Sin inputs, sí. */
+export const usaGuiaCe3x = (inputs) => !inputs || !!inputs.guia_transmitancias;
+
 const U_MAX_CTE_2006 = {
     A: { wall: 1.22, roof: 0.63, floor: 0.82, window: 5.70 },
     B: { wall: 1.07, roof: 0.59, floor: 0.65, window: 4.20 },
@@ -591,7 +605,25 @@ const U_MAX_CTE_2006 = {
 
 const getZoneLetter = (zone) => (zone ? zone.charAt(0).toUpperCase() : 'D');
 
-export function getUByYear(year, zone) {
+/**
+ * Muro, cubierta y suelo de la Guía VIGENTE: lo que CE3X 3.2 pone a la fachada
+ * al aire, a la cubierta plana y al suelo contra el terreno con «Estimados según
+ * antigüedad y zona climática», por el periodo del año (tramos de la 3.2) y la
+ * zona. Con `inputs` de una simulación anterior a la Guía nueva (sin
+ * `guia_transmitancias`), los de la Guía anterior.
+ */
+export function getUByYear(year, zone, inputs) {
+    if (!usaGuiaCe3x(inputs)) return getUByYearGuiaAnterior(year, zone);
+    const de = (c) => uCe3x(c, { anio: year, zona: zone })?.u;
+    return { wall: de('fachada_aire'), roof: de('cubierta_plana'), floor: de('suelo_terreno') };
+}
+
+/**
+ * La Guía de Transmitancias ANTERIOR (17/03/2026 – 07/10/2026): la de las
+ * simulaciones guardadas antes del 08/10/2026 y la que se exigió a los CEE de
+ * ese periodo. No se usa para nada nuevo.
+ */
+export function getUByYearGuiaAnterior(year, zone) {
     const letter = getZoneLetter(zone);
 
     if (year >= 2020) {
@@ -770,7 +802,7 @@ export function calculateDemand(inputs) {
     // Usamos prioritariamente la superficie calefactable para el cálculo físico de la energía
     const S = (S_cal && S_cal > 0) ? Number(S_cal) : (Number(S_util) || 0);
 
-    const Ubase = getUByYear(anio, zona);
+    const Ubase = getUByYear(anio, zona, inputs);
     const U_floor = Ubase.floor;
 
     const areas = estimateAreas({ ...inputs, superficie: S });

@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { alturaHueco, areaPoligono, at, caja, centro, centroide, CAMARA_ISO, ESCALA_AXO, fmt,
          claveEncuadre, largo, LARGO_MINIMO_PARED, pegarAPared, proyector,
-         recorrido, reparto,
+         ordenPulsacion, recorrido, reparto,
          simplificarTrazo, tamanosDeDibujo, TOPE_ALT }
     from '../logic/geometriaPlano';
 import { TIPOS_PARED, nombreHueco } from '../logic/usePlanoEnvolvente';
@@ -414,7 +414,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     // La letra del plano y los tamaños de lo que se agarra, todos derivados
     // del ENCUADRE: así son constantes en pantalla y ampliar da precisión de
     // verdad. Va aquí arriba porque `pegar` necesita el radio del imán.
-    const { tam, tirador, asa, iman } = tamanosDeDibujo(vista);
+    const { tam, tirador, asa, iman, pulsacion } = tamanosDeDibujo(vista);
 
     // ── zoom y paneo ─────────────────────────────────────────────────────────
     // De coordenadas de PANTALLA a coordenadas del dibujo. Hay que deshacer el
@@ -1369,14 +1369,22 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                             ))}
 
                             {/* La ZONA DE PULSACIÓN va la ÚLTIMA y es ancha
-                                (0,9 m): con el dedo en una tablet, apuntar a un
-                                trazo de 0,34 m es imposible. */}
+                                (hasta 0,9 m): con el dedo en una tablet, apuntar
+                                a un trazo de 0,34 m es imposible. Pero un
+                                quiebro de 30 cm quedaba TAPADO por las zonas de
+                                sus dos vecinas y no había forma de pulsarlo,
+                                ni ampliando. Por eso: el ancho acompaña al zoom
+                                (`pulsacion`), los extremos van RECTOS (con
+                                redondeo, cada pared sobresalía medio ancho por
+                                sus dos puntas, justo encima de la de al lado)
+                                y se pintan de la más larga a la más CORTA, que
+                                queda encima y gana en su trozo. */}
                             <g>
-                                {capa2d.map(m => (
+                                {ordenPulsacion(capa2d).map(m => (
                                     <polyline
                                         key={m.id} points={recorrido(m.svg)} fill="none"
-                                        stroke="transparent" strokeWidth={0.9}
-                                        strokeLinecap="round" strokeLinejoin="round"
+                                        stroke="transparent" strokeWidth={pulsacion}
+                                        strokeLinecap="butt" strokeLinejoin="round"
                                         className="cursor-pointer"
                                         style={{ outline: 'none' }}
                                         role="button" tabIndex={0}

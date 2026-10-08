@@ -124,7 +124,10 @@ await prueba('las coordenadas UTM (huso 30) llevan a su sitio; un dato raro, a l
     assert.equal(enc.utmALatLon(12, 34), null);
     const c = enc.comoLlegar({ direccion: 'CL SOL 20, TOMELLOSO', coord_x: 489734, coord_y: 4383301, rc: '9835137VJ8893N0001EJ' });
     assert.ok(c.conCoordenadas && c.mapa.includes('39.599'));
-    assert.ok(c.catastro.includes('rc1=9835137&rc2=VJ8893N'));
+    // El MISMO enlace que el icono del Catastro de la app: la ruta resuelve delegación y municipio.
+    assert.equal(c.catastro, '/api/catastro/sede/9835137VJ8893N0001EJ');
+    assert.equal(enc.comoLlegar({ rc: '9835137 VJ8893N' }).catastro, '/api/catastro/sede/9835137VJ8893N');
+    assert.equal(enc.comoLlegar({ rc: '9835137' }).catastro, null);
     const d = enc.comoLlegar({ direccion: 'CL SOL 20, TOMELLOSO' });
     assert.ok(!d.conCoordenadas && d.mapa.includes(encodeURIComponent('CL SOL 20')));
     assert.equal(d.catastro, null);

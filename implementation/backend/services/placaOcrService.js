@@ -15,7 +15,8 @@
  * sea que el dato lleva meses en Drive y se seguía tecleando a mano.
  *
  * Gemelo pequeño de `riteOcrService` / `registroCeeOcrService`: mismo proveedor,
- * `temperature: 0`, `thinkingBudget: 0` y los mismos reintentos ante 429/500/503.
+ * sin razonar, a temperatura 0 donde el modelo la respeta (`utils/geminiAjustes`) y
+ * los mismos reintentos ante 429/500/503.
  *
  * ── LAS FOTOS VAN COMO FOTOS, NO COMO PDF ────────────────────────────────────
  * Los otros lectores pasan por `ceeOcrService.normalizeToPdf` porque leen
@@ -45,6 +46,7 @@ const reformaUploadService = require('./reformaUploadService');
 const {
     reglasSerie, SCHEMA_SERIE, SCHEMA_SERIE_BASE, elegirSerie, combinarSeries,
 } = require('../utils/serieDePlaca');
+const { ajustesGemini } = require('../utils/geminiAjustes');
 
 const PROVIDER = 'gemini';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -353,10 +355,10 @@ async function llamarGemini(imagenes, {
         generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: schema,
-            temperature: temperatura,
-            // Ver el aviso de la cabecera: a cero es lo correcto para transcribir,
-            // y es un bloqueo seguro para lo que hay que razonar.
-            ...(pensar ? {} : { thinkingConfig: { thinkingBudget: 0 } }),
+            // Ver el aviso de la cabecera: sin razonar es lo correcto para transcribir,
+            // y es un bloqueo seguro para lo que hay que razonar. Qué parámetro se
+            // manda a cada modelo lo decide `ajustesGemini`.
+            ...ajustesGemini(modelo, { pensamiento: pensar ? null : 0, temperatura }),
             ...(resolucion ? { mediaResolution: resolucion } : {}),
             // Un TOPE de salida. Lo que se pide son unas decenas de campos cortos
             // (~300 tokens), y sin tope una lectura puede entrar en BUCLE: medido el
@@ -448,6 +450,9 @@ async function leerDosVeces(imagenes, {
     // algo de variación: con la decodificación voraz de `temperature: 0` el bucle
     // se repite idéntico, y con un poco de aleatoriedad casi siempre sale. Solo
     // ante el bucle: para cualquier otro fallo, repetir no arregla nada.
+    // Desde gemini-3.6-flash la temperatura no se manda (la ignora: medido el
+    // 07/10/2026, a 0 ya da una respuesta distinta en cada llamada), así que en
+    // ese modelo la repetición varía sola y el reintento sigue sirviendo.
     const conReintento = async (o) => {
         try { return await llamarGemini(imagenes, { ...o, maxTokens: MAX_TOKENS_PLACA }); } catch (e) {
             if (!/bucle/.test(e.message)) throw e;

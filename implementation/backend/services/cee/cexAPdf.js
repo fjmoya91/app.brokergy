@@ -8,37 +8,47 @@
 //   // r = { ok, xml, pdf, version, calificacion, medidas, avisos, error }
 //
 // Cómo:
-//   1. El MOTOR DE CE3X 3.1, ejecutado sin ventana con su propio Python
-//      (`cee-engine/tools/oraculo_ce3x`, script `cex_a_xml.py`), abre el .cex,
-//      lo califica, calcula sus medidas de mejora y escribe el XML.
-//   2. `xml2cert.exe` (el generador que trae CE3X 3.1) hace el PDF desde el XML.
+//   1. El MOTOR DE CE3X 3.2 (desde el 08/10/2026; antes la 3.1), ejecutado sin
+//      ventana con su propio Python (`cee-engine/tools/oraculo_ce3x`, script
+//      `cex_a_xml.py`), abre el .cex, lo califica, calcula sus medidas de
+//      mejora y escribe el XML.
+//   2. `xml2cert.exe` (el generador que trae CE3X) hace el PDF desde el XML.
 //
-// REGLA — SOLO EN UN PC CON CE3X 3.1 INSTALADO. En el VPS no hay CE3X: esto lo
+// REGLA — SOLO EN UN PC CON CE3X 3.2 INSTALADO. En el VPS no hay CE3X: esto lo
 // usan los scripts de las skills, que corren en el PC. Sin CE3X se devuelve
 // `{ ok:false, noDisponible:true }` y quien llama sigue sin el PDF.
 //
 // REGLA — todo se hace en una carpeta TEMPORAL con nombres ASCII sin puntos.
-// CE3X 3.1 no saca el PDF si la ruta lleva tildes o eñes (su subprocess de
+// CE3X 3.x no saca el PDF si la ruta lleva tildes o eñes (su subprocess de
 // Python 2.7 no admite argumentos Unicode: «JOSÉ ÁNGEL» falla) y xml2cert no
 // encuentra el XML si el nombre del .cex lleva puntos. Medido el 02/10/2026.
 //
-// REGLA — el motor sin ventana solo abre ficheros con un CE3X 3.1 ABIERTO en el
+// REGLA — el motor sin ventana solo abre ficheros con un CE3X ABIERTO en el
 // equipo (sin él, `abreArchivoCEX` no hace nada y no dice nada). Si no lo está,
 // se arranca OCULTO, se espera ~10 s y se cierra al terminar.
 //
-// REGLA — un .cex de la 2.3 NO se califica aquí: CE3X 3.1 lo abriría, lo
-// migraría y escribiría un XML de la 3.1 que no corresponde al fichero. Se dice.
+// REGLA — un .cex de la 2.3 NO se califica aquí: CE3X 3.2 lo abriría, lo
+// migraría y escribiría un XML que no corresponde al fichero. Se dice. Uno de la
+// 3.1 SÍ: la 3.2 guarda la misma forma y calcula igual (medido el 08/10/2026).
 //
 // REGLA — el .cex de origen NO se toca: se califica una COPIA. El XML y el PDF
 // salen de lo que CE3X calcula, nunca de una cifra nuestra.
+//
+// REGLA — el AUTOCONSUMO mes a mes se AJUSTA a lo que calcula CE3X (decisión del
+// usuario, 08/10/2026): cada mes, lo menor entre la producción de PVGIS y el
+// consumo eléctrico de calefacción + refrigeración + ACS de ese mes. CE3X 3.2
+// solo usa el total anual, pero avisa de cada mes que se pasa; con
+// `ajustarAutoconsumo` (por defecto) esos meses se recortan a SU consumo, se
+// recalcula y se devuelve el `.cex` guardado por CE3X en `cex` para subirlo en
+// lugar del otro.
 // ============================================================================
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const CE3X_DIR = process.env.CE3X_DIR || 'C:\\Program Files (x86)\\CE3Xv3.1';
-const CE3X_EXE = process.env.CE3X_EXE || 'ce3xv3.1.exe';
+const CE3X_DIR = process.env.CE3X_DIR || 'C:\\Program Files (x86)\\CE3Xv3.2';
+const CE3X_EXE = process.env.CE3X_EXE || 'ce3xv3.2.exe';
 const ORACULO_DIR = path.resolve(__dirname, '..', '..', '..', 'cee-engine', 'tools', 'oraculo_ce3x');
 const ESPERA_CE3X_MS = Number(process.env.CEX_A_PDF_ESPERA_MS) || 6 * 60 * 1000;
 const ESPERA_PDF_MS = 2 * 60 * 1000;
@@ -59,19 +69,23 @@ function rutaXml2cert() {
 /** ¿Hay en este PC lo necesario? Devuelve el motivo si no. */
 function disponible() {
     if (process.platform !== 'win32') return { ok: false, motivo: 'CE3X solo existe en Windows' };
-    if (!fs.existsSync(path.join(CE3X_DIR, CE3X_EXE))) return { ok: false, motivo: `no está CE3X 3.1 en ${CE3X_DIR}` };
+    if (!fs.existsSync(path.join(CE3X_DIR, CE3X_EXE))) return { ok: false, motivo: `no está CE3X 3.2 en ${CE3X_DIR}` };
     if (!rutaXml2cert()) return { ok: false, motivo: 'no está el generador del PDF (moduloXML/xmlcert_*/xml2cert.exe)' };
     if (!fs.existsSync(path.join(ORACULO_DIR, 'ce3xpy.exe'))) return { ok: false, motivo: `falta ${path.join(ORACULO_DIR, 'ce3xpy.exe')}` };
     return { ok: true };
 }
 
-/** Versión de CE3X que declara el fichero (pickle 0): '3.1', '2.3' o null. */
+/** Versión de CE3X que declara el fichero (pickle 0): '3.2', '3.1', '2.3' o null. */
 function versionDelCex(buf) {
     const cab = buf.subarray(0, 400).toString('latin1');
-    if (/CE3Xv3\.1/.test(cab)) return '3.1';
+    const m = /CE3Xv(3\.\d)/.exec(cab);
+    if (m) return m[1];
     if (/CEXv2\.3/.test(cab)) return '2.3';
     return null;
 }
+
+/** La 3.1 y la 3.2 guardan la misma forma (las MODERNAS de `version_ce3x.py`). */
+const esModerna = (v) => v === '3.1' || v === '3.2';
 
 /** Una carpeta temporal cuya ruta sea ASCII (el usuario de Windows puede no serlo). */
 function carpetaTemporal() {
@@ -102,13 +116,13 @@ function ejecutar(exe, args, { cwd, env, plazoMs }) {
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** ¿Hay un CE3X 3.1 abierto en el equipo? */
+/** ¿Hay un CE3X abierto en el equipo? */
 async function ce3xAbierto() {
     const r = await ejecutar('tasklist', ['/FI', `IMAGENAME eq ${CE3X_EXE}`, '/NH'], { plazoMs: 15000 });
     return new RegExp(CE3X_EXE.replace(/\./g, '\\.'), 'i').test(r.salida || '');
 }
 
-/** Arranca CE3X 3.1 sin ventana y le da tiempo a levantarse (≈10 s medidos). */
+/** Arranca CE3X sin ventana y le da tiempo a levantarse (≈10 s medidos). */
 async function arrancarCe3xOculto() {
     const g = spawn(path.join(CE3X_DIR, CE3X_EXE), [], { cwd: CE3X_DIR, windowsHide: true, stdio: 'ignore' });
     g.on('error', () => { /* sin CE3X: lo dirá el intento */ });
@@ -139,10 +153,10 @@ const num = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Ma
 
 /**
  * Ejecuta un script del oráculo (`cee-engine/tools/oraculo_ce3x/<script>`) con
- * el Python de CE3X, con un CE3X 3.1 abierto (arrancándolo oculto si no lo
+ * el Python de CE3X, con un CE3X abierto (arrancándolo oculto si no lo
  * está). Devuelve `{ s }` (el JSON que escribe el script) o `{ fallo }`.
  *
- * ⚠️ El motor sin ventana NO abre ningún .cex si no hay un CE3X 3.1 ABIERTO en
+ * ⚠️ El motor sin ventana NO abre ningún .cex si no hay un CE3X ABIERTO en
  * el equipo: `abreArchivoCEX` vuelve sin leer el fichero (medido el 02/10/2026:
  * funciona con CE3X abierto, falla al cerrarlo, también con los ejemplos
  * oficiales). Si no lo está, se arranca OCULTO y se cierra al terminar; si ya
@@ -179,7 +193,7 @@ async function correrOraculo(dir, script, envExtra) {
     } finally {
         if (gui) { try { gui.kill(); } catch { /* ya cerrado */ } }
     }
-    if (s.error === 'NO_ABRE') return { fallo: 'CE3X 3.1 no abre el fichero (ni con CE3X arrancado). Ábrelo en CE3X para ver por qué.' };
+    if (s.error === 'NO_ABRE') return { fallo: 'CE3X no abre el fichero (ni con CE3X arrancado). Ábrelo en CE3X para ver por qué.' };
     return { s };
 }
 
@@ -205,27 +219,68 @@ async function pdfDesdeXml(xml, dir) {
 /** Los diálogos de CE3X que no dicen nada. */
 const ruidoCe3x = (x) => x && !/^Dialog\.ShowModal: Dialog Opciones del Informe/.test(x);
 
+const kwh = (v) => Math.round(Number(v) || 0).toLocaleString('es-ES');
+
+/**
+ * Lo que dijo CE3X del AUTOCONSUMO mes a mes, en frases: los meses en que se
+ * pasaba del consumo del edificio y, si se ajustó, a cuánto.
+ */
+function avisosAutoconsumo(a) {
+    const out = [];
+    const una = (donde, r) => {
+        if (!r) return;
+        const ORDEN = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto',
+                       'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+        const meses = Object.entries(r.meses || {}).sort((x, y) => ORDEN.indexOf(x[0]) - ORDEN.indexOf(y[0]));
+        if (!meses.length) return;
+        if (r.recortes?.length) {
+            const antes = r.recortes.reduce((t, x) => t + x.antes, 0);
+            const despues = r.recortes.reduce((t, x) => t + x.despues, 0);
+            out.push(`Autoconsumo ${donde}: en ${meses.length} mes${meses.length > 1 ? 'es' : ''} `
+                + `(${meses.map(([m]) => m.toLowerCase()).join(', ')}) pasaba del consumo eléctrico `
+                + 'de calefacción, refrigeración y ACS que calcula CE3X: se ha ajustado cada uno a su '
+                + `consumo (${kwh(antes)} → ${kwh(despues)} kWh). Es la regla: cada mes, lo menor entre `
+                + 'la producción de PVGIS y lo que consume el edificio.');
+        } else {
+            out.push(`Autoconsumo ${donde}: CE3X avisa de que en ${meses.map(([m, c]) => `${m.toLowerCase()} `
+                + `(consumo ${kwh(c)} kWh)`).join(', ')} el autoconsumo pasa del consumo eléctrico del `
+                + 'edificio. Cada mes tiene que ser lo menor entre la producción y ese consumo.');
+        }
+    };
+    una('del edificio', a?.edificio);
+    for (const m of a?.medidas || []) una(`de la medida «${m.nombre}»`, m);
+    return out;
+}
+
 /**
  * Califica un .cex y devuelve su XML y su PDF.
  * @param {Buffer|string} entrada  el .cex (bytes o ruta)
- * @param {{ medidas?: boolean, pdf?: boolean }} [opts]
+ * @param {{ medidas?: boolean, pdf?: boolean, ajustarAutoconsumo?: boolean }} [opts]
+ *        `ajustarAutoconsumo` (por defecto): los meses de autoconsumo que pasan del
+ *        consumo que calcula CE3X se recortan a él, y el `.cex` resultante —guardado
+ *        por CE3X— vuelve en `cex` (null si no había nada que ajustar).
  */
-async function calificarCex(entrada, { medidas = true, pdf = true } = {}) {
+async function calificarCex(entrada, { medidas = true, pdf = true, ajustarAutoconsumo = true } = {}) {
     const disp = disponible();
     if (!disp.ok) return { ok: false, noDisponible: true, error: disp.motivo };
 
     const buf = Buffer.isBuffer(entrada) ? entrada : fs.readFileSync(entrada);
     const version = versionDelCex(buf);
     if (version === '2.3') {
-        return { ok: false, version, error: 'el .cex es de CE3X 2.3: CE3X 3.1 lo migraría y el XML no sería el de ese fichero. Conviértelo antes (tools/convertir_cex.py) o califícalo en la 2.3.' };
+        return { ok: false, version, error: 'el .cex es de CE3X 2.3: CE3X 3.2 lo migraría y el XML no sería el de ese fichero. Conviértelo antes (tools/convertir_cex.py) o califícalo en la 2.3.' };
     }
 
     const dir = carpetaTemporal();
     const cex = path.join(dir, 'cee.cex');
     const xml = path.join(dir, 'cee.xml');
+    const ajustado = path.join(dir, 'cee_ajustado.cex');
     try {
         fs.writeFileSync(cex, buf);
-        const r = await correrOraculo(dir, 'cex_a_xml.py', { CASO: cex, XML: xml, SIN_MEDIDAS: medidas ? null : '1' });
+        const r = await correrOraculo(dir, 'cex_a_xml.py', {
+            CASO: cex, XML: xml, SIN_MEDIDAS: medidas ? null : '1',
+            AJUSTAR_AUTOCONSUMO: ajustarAutoconsumo ? '1' : null,
+            SALIDA_CEX: ajustarAutoconsumo ? ajustado : null,
+        });
         if (r.fallo) return { ok: false, version, error: r.fallo };
         const s = r.s;
         if (s.error) return { ok: false, version, error: `CE3X ha fallado:\n${s.error}` };
@@ -233,6 +288,9 @@ async function calificarCex(entrada, { medidas = true, pdf = true } = {}) {
         const c = s.calificacion || {};
         const calificacion = calificacionDe(c);
         const avisos = [...(s.abrir || []), ...((c._log) || []), ...(s.medidas_log || [])].filter(ruidoCe3x);
+        avisos.push(...avisosAutoconsumo(s.autoconsumo));
+        //: El `.cex` con el autoconsumo ajustado, guardado por CE3X (o null).
+        const cexAjustado = s.autoconsumo?.guardado && fs.existsSync(ajustado) ? fs.readFileSync(ajustado) : null;
         if (!calificacion) {
             return { ok: false, version: s.version || version, avisos,
                      error: `CE3X no ha podido calificarlo${c._aviso ? `: ${c._aviso}` : ''}` };
@@ -242,7 +300,7 @@ async function calificarCex(entrada, { medidas = true, pdf = true } = {}) {
             //: fallo no se puede diagnosticar.
             const porQue = (s.xml || []).filter(Boolean).join(' · ');
             return { ok: false, version: s.version || version, calificacion, avisos,
-                     medidas: s.medidas || [],
+                     medidas: s.medidas || [], autoconsumo: s.autoconsumo || null, cex: cexAjustado,
                      error: `CE3X no ha escrito el XML${porQue ? `: ${porQue}` : ''}` };
         }
 
@@ -250,6 +308,8 @@ async function calificarCex(entrada, { medidas = true, pdf = true } = {}) {
             ok: true, version: s.version || version, calificacion, avisos,
             generales: s.generales || null,
             medidas: (s.medidas || []).map((m) => ({ nombre: m.nombre, ahorro: m.ahorro })),
+            autoconsumo: s.autoconsumo || null,
+            cex: cexAjustado,
             xml: fs.readFileSync(xml), pdf: null,
         };
         if (!pdf) return resultado;
@@ -282,8 +342,8 @@ async function ponerPrevistoComoMedida(inicial, previsto, textos = {}, { pdf = t
     const bi = Buffer.isBuffer(inicial) ? inicial : fs.readFileSync(inicial);
     const bp = Buffer.isBuffer(previsto) ? previsto : fs.readFileSync(previsto);
     for (const [que, b] of [['inicial', bi], ['previsto', bp]]) {
-        if (versionDelCex(b) !== '3.1') {
-            return { ok: false, error: `el CEE ${que} no es de CE3X 3.1: la medida «Nuevo edificio» solo se pone con la 3.1` };
+        if (!esModerna(versionDelCex(b))) {
+            return { ok: false, error: `el CEE ${que} no es de CE3X 3.x: la medida «Nuevo edificio» solo se pone con la 3.1 o la 3.2` };
         }
     }
 
@@ -303,6 +363,8 @@ async function ponerPrevistoComoMedida(inicial, previsto, textos = {}, { pdf = t
             otros: textos.otros || '', justificacion: textos.justificacion || '',
             inversion: textos.inversion ?? null, vida_util: textos.vida_util ?? null,
             coste_mantenimiento: textos.coste_mantenimiento ?? null,
+            //: La ruta que guarda la medida «Nuevo Edificio» (la que enseña CE3X).
+            ruta_previsto: textos.ruta_previsto || '',
         }), 'utf8');
         const r = await correrOraculo(dir, 'medida_previsto.py', {
             CASO: ini, PREVISTO: prev, SALIDA_CEX: salida, XML: xml, TEXTOS: ftextos,
@@ -352,8 +414,10 @@ function textoCalificacion(c) {
 async function calificarYGuardar(ctx, fase, nombreCex, buffer, { escribir = true, medidas = true } = {}) {
     const r = await calificarCex(buffer, { medidas });
     if (!escribir || (!r.xml && !r.pdf)) return r;
+    //: Con el autoconsumo ajustado, el `.cex` que vale es el que guardó CE3X: va
+    //: a Drive en lugar del otro (que se archiva en OLD), junto a su XML y PDF.
     const guardado = await require('../ceeEnvolventeCex')
-        .guardarCalificadoEnDrive(ctx, fase, nombreCex, { xml: r.xml, pdf: r.pdf });
+        .guardarCalificadoEnDrive(ctx, fase, nombreCex, { xml: r.xml, pdf: r.pdf, cex: r.cex });
     return { ...r, guardado };
 }
 
@@ -364,7 +428,7 @@ async function calificarYGuardar(ctx, fase, nombreCex, buffer, { escribir = true
  */
 function lineasCalificado(r, { esperado = null } = {}) {
     if (!r) return [];
-    if (r.noDisponible) return [`· XML y PDF: no se generan en este equipo (${r.error}). Califícalo en CE3X o con scripts/cex_a_pdf.js en el PC.`];
+    if (r.noDisponible) return [`· XML y PDF: no se generan en este equipo (${r.error}). Califícalo en CE3X 3.2 o con scripts/cex_a_pdf.js en el PC.`];
     const out = [];
     if (r.calificacion) out.push(`CE3X lo califica: ${textoCalificacion(r.calificacion)}`);
     if (esperado && r.calificacion) {
@@ -385,4 +449,4 @@ function lineasCalificado(r, { esperado = null } = {}) {
     return out;
 }
 
-module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion };
+module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna };

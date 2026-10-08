@@ -17,7 +17,7 @@ const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
-const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff } = require('../middleware/auth');
+const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff, isAdmin } = require('../middleware/auth');
 const { buildCertClienteData } = require('../services/certClienteData');
 const svc = require('../services/ceeDirectoService');
 const folders = require('../services/ceeDirectoFolders');
@@ -165,8 +165,16 @@ router.get('/', internalOnly, async (req, res) => {
         // Mismo criterio que en el detalle: al técnico no se le dice quién nos
         // contrata, tampoco en el listado.
         const verPartner = isStaff(req);
-        const filas = data.map(r => ({
+        const filas = data.map(({ presentacion, ...r }) => ({
             ...r,
+            // Derivado al vuelo, no el sellado: así un encargo de presentación
+            // ya enviado se ve aunque la fila se guardara antes de contar con él.
+            estado: estados.deriveEstado({ ...r, presentacion }),
+            // Del encargo de presentación solo viaja QUIÉN presenta (nunca su
+            // correo ni el nonce del enlace), y solo al equipo.
+            presentador: verPartner
+                ? (estados.encargoPresentacion({ presentacion }, estados.faseActiva(r))?.nombre || null)
+                : undefined,
             prescriptor_id: verPartner ? r.prescriptor_id : undefined,
             cliente_nombre: nombreCliente(mapCli[r.cliente_id]),
             prescriptor_nombre: verPartner
@@ -174,7 +182,7 @@ router.get('/', internalOnly, async (req, res) => {
                 : undefined,
             certificador_nombre: mapPre[r.cee_certificador]?.razon_social || mapPre[r.cee_certificador]?.acronimo || null,
             fase_activa: estados.faseActiva(r),
-            responsable: estados.responsable(r)
+            responsable: estados.responsable({ ...r, presentacion })
         }));
 
         res.json(filas);
@@ -554,7 +562,12 @@ router.put('/:id', internalOnly, async (req, res) => {
             // Y el encargo de PRESENTACIÓN (`cee.presentacion`), que lleva el nonce
             // del enlace de quien presenta y solo lo escribe su ruta.
             // Y la revisión HUMANA del plano (`cee.envolvente_revision`), idem.
-            for (const k of ['agente_ia', 'presentacion', 'envolvente_revision']) {
+            // Y lo que escribe la ventana de la envolvente desde OTRA pestaña: el
+            // trabajo, sus fotos e imágenes y qué construcciones cuentan. La copia
+            // de la ficha es la de cuando se abrió y borraría lo puesto después.
+            for (const k of ['agente_ia', 'presentacion', 'envolvente_revision',
+                             'envolvente', 'envolvente_fotos', 'envolvente_imagenes',
+                             'construcciones_elegidas', 'construcciones_elegidas_detalle']) {
                 if (row.cee && k in row.cee) patch.cee[k] = row.cee[k];
                 else delete patch.cee[k];
             }
@@ -615,9 +628,12 @@ router.put('/:id', internalOnly, async (req, res) => {
                         cuerpo: `${titular} — ${row.numero_expediente}`
                             + `${nombreCliente(row.cliente) ? ` (${nombreCliente(row.cliente)})` : ''}
 `
-                            + `Lo ha hecho ${quien}.
-
-${enlaceApp(row.id)}`
+                            + `Lo ha hecho ${quien}.\n\n`
+                            // Registrado y sin cobrar: el enlace abre el popup «Avisar al
+                            // cliente» (con la factura). Cobrado, la entrega sale sola.
+                            + (ahora === 'REGISTRADO' && !guardado.cobrado
+                                ? `Avisar al cliente y emitir la factura:\n${enlaceApp(row.id)}&avisar=${fase}`
+                                : enlaceApp(row.id))
                     }).catch(e => console.warn('[cee-directos aviso avance]', e.message));
                 });
             }
@@ -1524,7 +1540,8 @@ router.post('/:id/notify-registration', internalOnly, async (req, res) => {
             telefono: process.env.WHATSAPP_ADMIN_CHAT,
             asunto: `${row.numero_expediente} — ${faseLabel} REGISTRADO`,
             cuerpo: `✅ ${faseLabel} REGISTRADO — ${row.numero_expediente}`
-                + `${nombreCliente(row.cliente) ? ` (${nombreCliente(row.cliente)})` : ''}\n\n${enlaceApp(row.id)}`
+                + `${nombreCliente(row.cliente) ? ` (${nombreCliente(row.cliente)})` : ''}\n\n`
+                + (row.cobrado ? enlaceApp(row.id) : `Avisar al cliente y emitir la factura:\n${enlaceApp(row.id)}&avisar=${phase}`)
         });
 
         // Y a quien se haya marcado en el popup — antes este paso no existía y el
@@ -1922,38 +1939,25 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
             return res.status(400).json({ error: `El ${faseLabel} todavía no está registrado.` });
         }
 
-        // El enlace al portal del cliente (`/mi-cee/:id`) NO se manda todavía: esa
-        // página aún no existe, y un mensaje de entrega con un enlace muerto es
-        // peor que no mandarlo — el cliente lo pulsa, no funciona, y llama. Hasta
-        // que exista, el certificado va ADJUNTO, que además es lo que la mayoría
-        // quiere: guardarse el PDF.
-
-        // La guía de la deducción del IRPF va con el certificado si esta fase es la
-        // de "después" y los certificados la acreditan: mismo criterio que la
-        // entrega del panel (`guiaIrpfService.guiaDeEntrega`). Nunca para el envío.
-        const guiaIrpf = require('../services/guiaIrpfService');
-        const guiaEntrega = await guiaIrpf.guiaDeEntrega(row, phase);
-
-        // Texto editado en la preview. Viaja en `overrides.CLIENTE`, igual que en el
-        // CAE, para que lo que se revisa en pantalla sea exactamente lo que sale.
-        // Este texto va igual al email que al WhatsApp: sin los asteriscos de negrita.
+        // Es la MISMA entrega que la del panel y la automática (ceeDirectoEntrega):
+        // el destinatario es la PERSONA DE CONTACTO si el cliente la tiene —antes
+        // esta ruta saludaba y escribía al titular (2026CEE_55)— y van el PDF
+        // firmado, el justificante de registro, la etiqueta y, si procede, la guía
+        // de la Renta. Por WhatsApp también: el certificado es lo que ha comprado.
+        // El texto editado en la preview viaja en `overrides.CLIENTE`.
         const textoEditado = String(req.body?.overrides?.CLIENTE || req.body?.customMessage || '').trim();
-        const cuerpoPorDefecto = (textoGuia) =>
-            `¡Hola${nombreCliente(row.cliente) ? ` ${nombreCliente(row.cliente)}` : ''}!\n\n`
-            + `Ya tienes listo tu ${faseLabel} (expediente ${row.numero_expediente}).\n\n`
-            + `Te lo adjuntamos en este mensaje.\n\n`
-            + (textoGuia ? `${textoGuia.replace(/\*/g, '')}\n\n` : '')
-            + `¡Gracias por confiar en nosotros!\nBROKERGY · Ingeniería Energética`;
 
         if (preview) {
+            const st = await entrega.estado(row, phase);
             return res.json({
                 ok: true,
-                preview: { CLIENTE: textoEditado || cuerpoPorDefecto(guiaEntrega.va ? guiaEntrega.texto : '') },
+                preview: { CLIENTE: textoEditado || entrega.mensaje(row, phase, { textoGuia: st.guia?.va ? st.guia.texto : '' }) },
                 cobrado: row.cobrado,
-                destinatario: { email: row.cliente?.email || null, tlf: row.cliente?.tlf || null }
+                destinatario: st.destinatario
             });
         }
 
+        // ⚠️ El candado de cobro lo comprueba `entregar` (FALTAN_REQUISITOS).
         if (!row.cobrado) {
             return res.status(409).json({
                 error: 'Este expediente todavía no está marcado como cobrado. El certificado no se entrega hasta entonces.',
@@ -1961,76 +1965,25 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
             });
         }
 
-        const canales = canalesDe(req);
-        // Los ficheros del CEE van adjuntos al email. Por WhatsApp va solo el
-        // texto: el envío de media es otra ruta y un .cex no se abre en un móvil.
-        const attachments = canales.includes('email')
-            ? await uploads.getSectionAttachments(row, phase)
-            : undefined;
-
-        // La guía: si no se puede rasterizar, el certificado sale igual y el texto
-        // por defecto ya no la anuncia (un adjunto prometido que no llega se busca).
-        let guiaPdf = null;
-        if (guiaEntrega.va) {
-            try { guiaPdf = await guiaIrpf.pdfGuiaDeEntrega(guiaEntrega); }
-            catch (e) { console.warn('[cee-directos resend] la guía del IRPF no se pudo preparar:', e.message); }
-        }
-        const nombreGuiaPdf = guiaPdf ? guiaPdf.filename.replace(' – ', ' - ') : null;
-        if (guiaPdf && attachments) attachments.push({ filename: nombreGuiaPdf, content: guiaPdf.buffer, contentType: 'application/pdf' });
-        const cuerpo = textoEditado || cuerpoPorDefecto(guiaPdf ? guiaEntrega.texto : '');
-
-        const telefono = row.cliente?.tlf || row.cliente?.telefono;
-        const { enviados, errores } = await enviar({
-            canales,
-            email: row.cliente?.email,
-            telefono,
-            asunto: `${row.numero_expediente} — Tu certificado de eficiencia energética`,
-            cuerpo, attachments
+        const r = await entrega.entregar(row.id, phase, {
+            manual: true, reenviar: true, mensaje: textoEditado || null,
+            channels: canalesDe(req), usuario: req.user?.email || null
         });
-        if (!enviados.length) return res.status(502).json({ error: `No se pudo enviar. ${errores.join(' · ')}` });
-
-        // Por WhatsApp sí va la guía —un PDF de una página, que se lee en el móvil—,
-        // detrás del texto y con su etiqueta corta, como en la entrega del panel.
-        if (guiaPdf && enviados.includes('whatsapp')) {
-            try {
-                await whatsappService.sendMedia(telefono,
-                    { base64: guiaPdf.buffer.toString('base64'), filename: nombreGuiaPdf, mimetype: 'application/pdf' },
-                    { caption: 'guía para la deducción en la Renta', splitCaption: false });
-            } catch (e) { errores.push(`whatsapp (guía): ${e.message}`); }
-        }
-
-        await svc.anotarHistorial(row.id, {
-            tipo: 'CLIENTE',
-            texto: `${faseLabel.toUpperCase()} ENTREGADO AL CLIENTE POR ${enviados.join(' Y ').toUpperCase()}`
-                + `${guiaPdf ? ` + GUÍA DE LA DEDUCCIÓN DEL IRPF (${guiaEntrega.modalidad} %${guiaEntrega.ejemplo ? ', CON EJEMPLO' : ''})` : ''}`,
-            usuario: req.user?.email || null
-        });
-        if (guiaPdf) {
-            try {
-                await guiaIrpf.sellarGuiaEntregada(guiaEntrega, guiaPdf.buffer, {
-                    canales: enviados,
-                    destinatario: {
-                        nombre: nombreCliente(row.cliente),
-                        email: enviados.includes('email') ? row.cliente?.email : null,
-                        tlf: enviados.includes('whatsapp') ? telefono : null,
-                    },
-                    ficheros: [nombreGuiaPdf],
-                    usuario: req.user?.email || null,
-                });
-            } catch (e) { console.warn('[cee-directos resend] no se pudo sellar la guía:', e.message); }
+        if (!r.enviado) {
+            return res.status(r.motivo === 'FALTAN_REQUISITOS' ? 422 : 502)
+                .json({ error: r.faltan?.join(' · ') || `No se pudo enviar. ${(r.errores || []).join(' · ')}`, ...r });
         }
 
         // La rejilla enseña el resultado leyendo `channels.email` / `channels.whatsapp`
-        // (nombres de los destinatarios). Sin ese mapa anunciaba "ningún
-        // destinatario tenía datos del canal elegido" después de enviar bien.
-        const aQuien = nombreCliente(row.cliente) || row.cliente?.email || 'Cliente';
+        // (nombres de los destinatarios).
+        const aQuien = svc.contactoCliente(row.cliente).nombre || nombreCliente(row.cliente) || 'Cliente';
         res.json({
             ok: true,
             channels: {
-                email: enviados.includes('email') ? [aQuien] : [],
-                whatsapp: enviados.includes('whatsapp') ? [aQuien] : []
+                email: r.canales.includes('email') ? [aQuien] : [],
+                whatsapp: r.canales.includes('whatsapp') ? [aQuien] : []
             },
-            enviados, errores
+            enviados: r.canales, errores: r.errores || []
         });
     } catch (err) {
         console.error('[cee-directos resend]', err.message);
@@ -2214,6 +2167,44 @@ router.post('/:id/entrega', staffOnly, async (req, res) => {
     } catch (err) {
         console.error('[cee-directos entrega POST]', err.message);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── /:id/aviso-registrado ── «Ya está registrado» al cliente, con o sin factura ─
+// Lo pregunta la app: al subirse el registro te llega un aviso con el enlace a
+// este popup (`?cee=<id>&avisar=<fase>`). La factura —importes— es solo de ADMIN.
+router.get('/:id/aviso-registrado', staffOnly, async (req, res) => {
+    try {
+        const b = await entrega.borradorAviso(req.params.id, req.query.phase);
+        if (!b) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!isAdmin(req)) { b.factura = null; b.textos.conFactura = null; }
+        res.json(b);
+    } catch (err) {
+        console.error('[cee-directos aviso-registrado GET]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/:id/aviso-registrado', staffOnly, async (req, res) => {
+    try {
+        const conFactura = req.body?.factura === true;
+        if (conFactura && !isAdmin(req)) return res.status(403).json({ error: 'Emitir o enviar la factura es cosa de un administrador.' });
+        const channels = Array.isArray(req.body?.channels) && req.body.channels.length
+            ? req.body.channels.map(c => String(c).toLowerCase()) : ['whatsapp', 'email'];
+        const r = await entrega.avisarRegistrado(req.params.id, req.body?.phase, {
+            manual: true, channels, factura: conFactura,
+            mensaje: req.body?.mensaje || null, usuario: req.user?.email || null
+        });
+        if (!r.enviado) {
+            const txt = r.motivo === 'SIN_CONTACTO' ? 'El contacto del cliente no tiene ni teléfono ni email.'
+                : r.motivo === 'NO_EXISTE' ? 'Expediente no encontrado'
+                : `No ha salido por ningún canal.${r.factura ? ` La factura ${r.factura.numero} ha quedado emitida: se puede enviar desde «Generar factura».` : ''}`;
+            return res.status(r.motivo === 'NO_EXISTE' ? 404 : 422).json({ ...r, error: txt });
+        }
+        res.json(r);
+    } catch (err) {
+        console.error('[cee-directos aviso-registrado POST]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 

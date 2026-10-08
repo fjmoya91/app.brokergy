@@ -4,6 +4,11 @@
 // entregó el técnico. Es lo mismo que el botón «Generar CEE final» de la fila del
 // CEE final (misma función: `services/cee/ceeFinalDesdeMedida.js`).
 //
+// ⚠️ Un RES060 va a `cee_final_copiando.js` (copiar el inicial + instalaciones
+// instaladas + autoconsumo máximo mes a mes, CE3X 3.2; decisión del 08/10/2026).
+// Este camino queda para el RES093 (retirar el generador en apoyo) o con
+// --desde-medida.
+//
 //   node scripts/cee_final.js <nº|id>                       análisis (no escribe)
 //   node scripts/cee_final.js <nº> --fecha=2026-09-30 --escribir
 //   node scripts/cee_final.js <nº> --fecha=2026-09-30 --guardar="C:/Users/…/Downloads/x.cex"
@@ -26,10 +31,15 @@
 //                              el XML y el PDF junto a la copia local)
 //
 // Con --escribir, además del .cex deja su XML y su PDF OFICIAL al lado, calificados
-// por CE3X 3.1 sin abrir su ventana (`services/cee/cexAPdf.js`; solo en un PC con
+// por CE3X 3.2 sin abrir su ventana (`services/cee/cexAPdf.js`; solo en un PC con
 // CE3X), y dice si la calificación coincide con la calculada para la medida del inicial.
-//   --version=2.3|3.1          versión de CE3X del final (sin decirla, la 3.1 vigente; el
-//                              inicial del técnico puede ser de la 2.3: se convierte al copiarlo)
+// Si el autoconsumo de algún mes pasa del consumo que calcula CE3X, lo ajusta a él y
+// sube ese .cex (regla 126).
+//   --version=2.3|3.1|3.2      versión de CE3X del final (sin decirla, la 3.2 vigente; el
+//                              inicial del técnico puede ser de la 2.3 o la 3.1: se convierte al copiarlo)
+//   --base=ruta.cex            parte de ESE .cex local y no del que entregó el técnico en Drive
+//                              (p. ej. su inicial con la medida puesta por la app, en seco,
+//                              cuando él la calculó pero guardó el fichero antes de añadirla)
 //
 // Con --escribir, al terminar avisa como el AGENTE IA (services/agenteIa.js):
 // fase «pendiente de revisión» si el encargo es del agente, y WhatsApp + email.
@@ -39,6 +49,7 @@
 // ============================================================================
 require('dotenv').config({ quiet: true });
 const fs = require('fs');
+const path = require('path');
 const cex = require('../services/ceeEnvolventeCex');
 const { prepararFinal } = require('../services/cee/ceeFinalDesdeMedida');
 const cexAPdf = require('../services/cee/cexAPdf');
@@ -53,6 +64,7 @@ function args(argv) {
         else if (a === '--json') o.json = true;
         else if (a === '--sin-pdf') o.sinPdf = true;
         else if (a === '--calificar') o.calificar = true;
+        else if (a === '--desde-medida') o.desdeMedida = true;
         else if (k === '--fecha') o.fecha = val;
         else if (k === '--fecha-visita') o.fechaVisita = val;
         else if (k === '--medidas') o.medidas = val === 'ninguna' ? [] : val.split(',').map((s) => s.trim()).filter(Boolean);
@@ -60,6 +72,7 @@ function args(argv) {
         else if (k === '--caracteristicas') o.caracteristicas = val;
         else if (k === '--guardar') o.guardar = val;
         else if (k === '--version') o.version = val;
+        else if (k === '--base') o.base = val;
         else if (k === '--cubierta' || k === '--fachada') {
             const [solucion, cm] = val.split(':');
             o.params = { ...(o.params || {}), [`aislamiento_${k.slice(2)}`]: {
@@ -82,6 +95,19 @@ async function main() {
     const ctx = await cex.cargarExpediente(o.clave);
     if (!ctx) throw new Error(`No encuentro el expediente ${o.clave}`);
 
+    // Un RES060 NO se hace desde la medida (decisión del usuario del 08/10/2026,
+    // 26RES060_178): se COPIA el inicial, se le ponen las instalaciones
+    // INSTALADAS y el autoconsumo máximo mes a mes sacado del XML del propio
+    // final, en CE3X 3.2. Es otro script; aquí se le pasa la palabra con los
+    // mismos argumentos. `--desde-medida` fuerza el camino de siempre.
+    const { fichaFromNumero } = require('../utils/fichas');
+    if (fichaFromNumero(ctx.expediente.numero_expediente) === 'RES060' && !o.desdeMedida) {
+        console.log('RES060 → el CEE final se hace COPIANDO el inicial (scripts/cee_final_copiando.js).');
+        const { status } = require('child_process').spawnSync(process.execPath,
+            [path.join(__dirname, 'cee_final_copiando.js'), ...process.argv.slice(2)], { stdio: 'inherit' });
+        process.exit(status ?? 1);
+    }
+
     const textos = (o.nombre || o.caracteristicas)
         ? { retirada: { ...(o.nombre ? { nombre: o.nombre } : {}), ...(o.caracteristicas ? { caracteristicas: o.caracteristicas } : {}) } }
         : {};
@@ -91,6 +117,7 @@ async function main() {
         fechaEmision: o.fecha || null, fechaVisita: o.fechaVisita || o.fecha || null,
         medidas: o.medidas ?? null, textos, params: o.params || {},
         version: o.version || null,
+        cexBase: o.base ? { bytes: fs.readFileSync(o.base), nombre: path.basename(o.base) } : null,
     });
     if (o.json) {
         const { fichero, ...resto } = r;
@@ -99,7 +126,7 @@ async function main() {
         const a = r.analisis;
         console.log(`\n${ctx.expediente.numero_expediente} · ${r.ficha}`);
         console.log(`  parte de: ${r.base}${a.version_inicial ? ` (CE3X ${a.version_inicial})` : ''}`);
-        console.log(`  el final sale con CE3X ${r.version_ce3x || a.version_final || '3.1'}`);
+        console.log(`  el final sale con CE3X ${r.version_ce3x || a.version_final || '3.2'}`);
         console.log(`  medida del inicial: «${a.medida_inicial.nombre}» · ${a.medida_inicial.calculada ? 'CALCULADA' : 'SIN calcular'}`
             + `${a.medida_inicial.desfase?.length ? ' · DESFASADA' : ''}`);
         console.log('  instalación del CEE FINAL (la de esa medida, con los equipos del expediente):');
@@ -137,11 +164,12 @@ async function main() {
     const calificar = !o.sinPdf && (o.escribir || o.calificar);
     let cal = null;
     if (calificar && r.fichero) {
-        console.log('\n  Calificando con CE3X 3.1 y generando el PDF (≈1 min)…');
+        console.log('\n  Calificando con CE3X 3.2 y generando el PDF (≈1 min)…');
         cal = await cexAPdf.calificarCex(r.fichero);
     }
     if (o.guardar && r.fichero) {
-        fs.writeFileSync(o.guardar, r.fichero);
+        //: Con el autoconsumo ajustado mes a mes por CE3X, el que vale es ése.
+        fs.writeFileSync(o.guardar, cal?.cex || r.fichero);
         console.log(`\n  copia local: ${o.guardar} (${r.fichero.length} bytes)`);
         for (const [ext, b] of [['.xml', cal?.xml], ['.pdf', cal?.pdf]]) {
             if (b) fs.writeFileSync(o.guardar.replace(/\.cex$/i, ext), b);
@@ -152,11 +180,13 @@ async function main() {
         console.log(`\n  ✓ guardado en Drive: ${r.guardado.carpeta} / ${r.guardado.nombre}`);
         if (r.guardado.archivado) console.log(`    (el anterior se archiva en OLD como «${r.guardado.archivado}»)`);
         console.log(`    ${r.guardado.link}\n    carpeta: ${r.guardado.carpeta_link}`);
-        // Su XML y su PDF oficial junto al .cex (`cee/cexAPdf.js`, CE3X 3.1 en
+        // Su XML y su PDF oficial junto al .cex (`cee/cexAPdf.js`, CE3X 3.2 en
         // este PC). Sin CE3X se dice y se sigue: el .cex ya está guardado.
         if (cal) {
             if (cal.xml || cal.pdf) {
-                cal.guardado = await cex.guardarCalificadoEnDrive(ctx, 'final', r.guardado.nombre, { xml: cal.xml, pdf: cal.pdf });
+                //: Si CE3X ajustó el autoconsumo mes a mes, sube también ese .cex.
+                cal.guardado = await cex.guardarCalificadoEnDrive(ctx, 'final', r.guardado.nombre,
+                    { xml: cal.xml, pdf: cal.pdf, cex: cal.cex });
             }
             for (const l of cexAPdf.lineasCalificado(cal, { esperado })) console.log(`  ${l}`);
         }

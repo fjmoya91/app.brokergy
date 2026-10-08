@@ -6,7 +6,7 @@ import { ACTIVIDADES_ILUMINACION_CE3X, airesAcondicionados, AISLAMIENTOS_CE3X, A
          LAMPARAS_CE3X, MAX_AIRES_CE3X, MODOS_AIRES, PERFILES_USO_CE3X, porCombustion,
          repartoAires, TIPOS_EQUIPO_CE3X, TIPOS_RESIDENCIAL_CE3X, tipoEquipo, usosDeEquipo,
          VERSIONES_CE3X, NORMATIVAS_23, NORMATIVAS_31, TITULACIONES_31, GRADOS_PROTECCION_31,
-         PARTES_PROTEGIDAS_31, usosDePrograma, TIPOS_BDC_31 }
+         PARTES_PROTEGIDAS_31, usosDePrograma, TIPOS_BDC_31, esCe3xModerna as esModerna }
     from '../logic/fichaCe3x';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,15 +69,21 @@ const EDIFICIO = [
       campo: 'masa_particiones', opciones: ['Ligera', 'Media', 'Pesada'] },
 ];
 
-//: Lo que CE3X 3.1 pide de más en «Datos generales» (RD 390/2021). Sin ellos la
-//: 3.1 NO califica. Se proponen de lo que ya dice la ficha y se pueden cambiar:
-//: se guardan con el trabajo (`ajustes.ce3x31`), no en ninguna otra ficha.
+//: Lo que CE3X 3.x pide de más en «Datos generales» (RD 390/2021). Sin ellos NO
+//: califica. Se proponen de lo que ya dice la ficha y se pueden cambiar: se
+//: guardan con el trabajo (`ajustes.ce3x31`), no en ninguna otra ficha. Los
+//: rótulos dicen a QUÉ se refiere cada uno («Ampliación del manual de usuario
+//: CE3X» de la 3.2, 6.2-6.6): la superficie útil y las unidades, a lo que se
+//: certifica; las plantas sobre y bajo rasante, al EDIFICIO entero.
 const GENERALES_31 = [
-    { k: 'superficie_util', etiqueta: 'Superficie útil (RD 390/2021)', tipo: 'number',
-      unidad: 'm²' },
-    { k: 'unidades_uso', etiqueta: 'Nº de viviendas o unidades de uso', tipo: 'number' },
-    { k: 'plantas_sobre_rasante', etiqueta: 'Plantas sobre rasante', tipo: 'number' },
-    { k: 'plantas_bajo_rasante', etiqueta: 'Plantas bajo rasante', tipo: 'number' },
+    { k: 'superficie_util', etiqueta: 'Superficie útil (RD 390/2021) · de lo que se certifica',
+      tipo: 'number', unidad: 'm²' },
+    { k: 'unidades_uso', etiqueta: 'Nº de viviendas o unidades de uso · de lo que se certifica',
+      tipo: 'number' },
+    { k: 'plantas_sobre_rasante', etiqueta: 'Plantas sobre rasante · del edificio entero',
+      tipo: 'number' },
+    { k: 'plantas_bajo_rasante', etiqueta: 'Plantas bajo rasante · del edificio entero',
+      tipo: 'number' },
 ];
 
 //: Lo que se corrige del TITULAR, y en qué columna de `clientes` se escribe.
@@ -206,10 +212,10 @@ export function PanelAdministrativos({ datos, fuente, puedeCliente = false,
                 )}
             </GrupoFicha>
 
-            {/* Lo que CE3X 3.1 pide de más en Datos administrativos. No es de
+            {/* Lo que CE3X 3.x pide de más en Datos administrativos. No es de
                 ninguna ficha de la app —es una decisión del certificado—, así
                 que se guarda con el trabajo y no en Clientes ni Prescriptores. */}
-            {version?.version === '3.1' && (
+            {esModerna(version?.version) && (
                 <Administrativos31 version={version} terciario={terciario}
                                    tecnico={t} puestos={ce3x31Puestos}
                                    onCambiar={onCambiarCe3x31} />
@@ -234,7 +240,7 @@ function Administrativos31({ version, terciario, tecnico, puestos = {}, onCambia
     const alternarParte = (x) => onCambiar?.('partes_protegidas',
         partes.includes(x) ? partes.filter(y => y !== x) : [...partes, x]);
     return (
-        <Grupo titulo="Lo que pide CE3X 3.1">
+        <Grupo titulo={`Lo que pide CE3X ${version?.version || ''}`}>
             <Campo c={{ k: 'uso', etiqueta: 'Uso del edificio', opciones: usosDePrograma(terciario),
                         ancho: true }}
                    v={v('uso')} puesto={puestos.uso} onCambiar={onCambiar} />
@@ -380,7 +386,7 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
     const a = datos?.ficha?.administrativos || {};
     const t = datos?.ficha?.termicas || {};
     const terciario = esTerciarioCe3x(tipoCe3x?.tipo);
-    const es31 = version?.version === '3.1';
+    const es31 = esModerna(version?.version);
     //: La normativa tiene los tramos de SU versión: cuatro en la 2.3, siete en
     //: la 3.1. El resto de campos no cambia.
     const generales = GENERALES.filter(c => (terciario ? !c.soloRes : !c.soloTer))
@@ -423,7 +429,7 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
                 </div>
             )}
 
-            {/* La VERSIÓN de CE3X: la 3.1 es la vigente desde el 01/10/2026 y la
+            {/* La VERSIÓN de CE3X: la 3.2 es la vigente desde el 08/10/2026 y la
                 que sale si nadie dice otra cosa. Va arriba porque de ella cuelga
                 qué se pide debajo. */}
             {version && (
@@ -442,10 +448,10 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
                 {EDIFICIO.map(campo)}
             </Grupo>
 
-            {/* Lo que la 3.1 pide de más: sin ello NO califica. Se propone de
+            {/* Lo que la 3.x pide de más: sin ello NO califica. Se propone de
                 lo de arriba y se puede cambiar. */}
             {es31 && (
-                <Grupo titulo="Lo que pide CE3X 3.1">
+                <Grupo titulo={`Lo que pide CE3X ${version?.version}`}>
                     {GENERALES_31.map(c => (
                         <Campo key={c.k} c={c}
                                v={{ valor: version?.valores?.[c.k] ?? null, de: version?.de?.[c.k] }}
@@ -501,9 +507,10 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
 /**
  * La VERSIÓN de CE3X con la que se escribe el `.cex`.
  *
- * Las dos se pueden usar: la 3.1 es la vigente y la 2.3 queda para lo que
- * estaba a medias. El CÁLCULO es el mismo en las dos (medido con el motor de
- * cada una); cambian la forma del fichero y lo que pide cada versión.
+ * La 3.2 es la vigente (desde el 08/10/2026); la 3.1 la guarda con la misma
+ * forma, y la 2.3 queda para cuando se pida expresamente. El CÁLCULO es el mismo
+ * en las tres (medido con el motor de cada una); cambian la forma del fichero y
+ * lo que pide cada versión.
  */
 export function VersionCe3x({ version, onCambiar, compacto = false }) {
     return (
@@ -812,7 +819,7 @@ function Foto({ titulo, cual, b64, puesta, cargando, fallo, onSustituir, onQuita
 export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superficie,
                                      ajustes = {}, onAjuste, extras = [], onExtra,
                                      onAnadir, onBorrar, dosFases = true, iluminacion = null,
-                                     conservados = [], aires = null, version = '3.1',
+                                     conservados = [], aires = null, version = '3.2',
                                      children }) {
     const esFinal = fase === 'final';
     const [abierta, setAbierta] = useState('principal');
@@ -1103,7 +1110,7 @@ function resumen(eq) {
  * unos radiadores eléctricos no (ver `porCombustion`, medido en el corpus).
  */
 function FormularioEquipo({ eq, superficie, puesto = {}, onCampo, principal = false,
-                           version = '3.1' }) {
+                           version = '3.2' }) {
     const t = tipoEquipo(eq?.slot);
     const conocido = eq?.rendimiento === 'conocido' && t.valor !== 'refrigeracion';
     const combustion = !conocido && porCombustion(eq);
@@ -1217,11 +1224,11 @@ function FormularioEquipo({ eq, superficie, puesto = {}, onCampo, principal = fa
                     eq?.rend_combustion ?? t.nominal ?? '100.0')
             )}
 
-            {/* La POTENCIA de cada servicio y el tipo de bomba de calor: CE3X 3.1
+            {/* La POTENCIA de cada servicio y el tipo de bomba de calor: CE3X 3.x
                 los pide a todo equipo que no sea una caldera estimada (la suya va
                 en su cola). Sin ellos califica, pero no escribe el XML. No mueven
                 el cálculo. En la 2.3 no existen. */}
-            {version === '3.1' && !combustion && (
+            {esModerna(version) && !combustion && (
                 <>
                     {t.servicios.map(s => num(`potencia_${s}`,
                         `Potencia de ${ROTULO_SERVICIO[s].toLowerCase()}`, 'kW'))}
@@ -1424,8 +1431,9 @@ function Conservados({ lista }) {
 
 /**
  * Los AIRES ACONDICIONADOS de la vivienda, de un clic: cuántos y cómo se
- * declaran. Crea uno por aparato con el 100 % de la refrigeración repartido
- * entre todos (y la superficie en la misma proporción).
+ * declaran. Crea uno por aparato con su parte de la refrigeración (y la
+ * superficie en la misma proporción): solo frío, ~40 m² cada uno y como mucho el
+ * 100 % entre todos (`repartoAires`); frío y calor, el 100 % repartido.
  *
  * REGLA — el número y el modo se PROPONEN (lo que dijo el cliente al aceptar, y
  * el negocio) y se cambian aquí. Volver a pulsar SUSTITUYE los aires que puso
@@ -1445,8 +1453,9 @@ function AiresAcondicionados({ aires, extras = [], superficie, onPoner }) {
     const pendiente = aires?.tiene && puestos.length === 0
         && !extras.some(x => tipoEquipo(x?.slot).servicios.includes('refrigeracion'));
     const visible = abierto || (pendiente && !ahoraNo);
-    const reparto = repartoAires(n);
+    const reparto = repartoAires(n, { superficie, modo });
     const iguales = reparto.every(p => p === reparto[0]);
+    const total = reparto.reduce((s, p) => s + p, 0);
 
     const poner = () => {
         const nuevos = airesAcondicionados({ n, modo, superficie });
@@ -1521,10 +1530,12 @@ function AiresAcondicionados({ aires, extras = [], superficie, onPoner }) {
                 {' '}{modo === 'climatizacion'
                     ? 'bomba de calor con 270 % de calefacción y 250 % de refrigeración'
                     : 'máquina frigorífica con 250 % nominal'}, estimado y posterior a 2013. Entre
-                todos cubren el 100 % de la refrigeración
+                todos cubren el {total} % de la refrigeración
                 ({iguales ? `${reparto[0]} % cada uno` : reparto.join(' · ') + ' %'})
-                {modo === 'climatizacion' ? ' y de la calefacción' : ''}. Se cambia después en cada
-                tarjeta.
+                {modo === 'climatizacion' ? ' y de la calefacción' : ''}
+                {modo !== 'climatizacion' && total < 100
+                    ? ': cada aparato enfría su estancia (~40 m²), no la casa; el resto lo pone CE3X por defecto'
+                    : ''}. Se cambia después en cada tarjeta.
             </p>
             {modo === 'climatizacion' && (
                 <p className="mt-1 text-[11px] leading-relaxed text-amber-200/85">
@@ -1773,7 +1784,7 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
                                 {/* PVGIS: los kWp que hacen falta en ESTE sitio y el
                                     reparto mensual. «Usar en la medida» guarda los
                                     kWh y la producción del sitio, y con ella la
-                                    medida lleva su potencia pico (la 3.1 la exige). */}
+                                    medida lleva su potencia pico (la 3.x la exige). */}
                                 {m.id === 'autoconsumo' && verPvgis && ubicacionFv
                                     && !/YA tiene placas/.test(m.motivo || '') && (
                                     <ProduccionFotovoltaica

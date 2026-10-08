@@ -288,7 +288,7 @@ const prueba = async (nombre, fn) => {
         await assert.rejects(svc.correoDeBandeja('basura'), e => e.status === 403);
     });
 
-    await prueba('bandeja: solo lo de SU correo; pendiente con enlace, retirado fuera, presentado un mes', async () => {
+    await prueba('bandeja: solo lo PENDIENTE de SU correo, con enlace; retirado y presentado fuera', async () => {
         const ahora = Date.parse('2026-10-06T12:00:00Z');
         const filas = [
             { origen: 'expediente', r: { id: 'a', numero_expediente: 'A', seguimiento: {}, ffi: '2026-10-01',
@@ -303,13 +303,15 @@ const prueba = async (nombre, fn) => {
                 presentacion: { inicial: { nonce: 'n5', email: 'eva@ejemplo.com', registrado_at: '2026-07-01T10:00:00Z' } } } },
             { origen: 'cee_directo', r: { id: 'f', numero_expediente: 'F', alcance: 'UNICO', seguimiento: {},
                 presentacion: { inicial: { nonce: 'n6', email: 'EVA@ejemplo.com' } } } },
+            // Registrado por OTRO (Fran sube el justificante) con el encargo aún vivo: tampoco.
+            { origen: 'expediente', r: { id: 'g', numero_expediente: 'G', seguimiento: { cee_inicial: 'REGISTRADO' },
+                presentacion: { inicial: { nonce: 'n7', email: 'eva@ejemplo.com', registrado_at: null } } } },
         ];
         const it = svc.itemsBandeja(filas, 'eva@ejemplo.com', ahora);
-        assert.deepStrictEqual(it.map(i => `${i.numero}:${i.hecho ? 'hecho' : 'pend'}`), ['A:pend', 'D:hecho', 'F:pend']);
+        assert.deepStrictEqual(it.map(i => i.numero), ['A', 'F'], 'lo presentado (D, E, G) no le aparece');
         const a = it.find(i => i.numero === 'A');
         assert.ok(/\/presentar\/cae\/a\?fase=inicial&token=/.test(a.enlace));
         assert.deepStrictEqual(a.plazo, { limite: '2026-10-31', quedan: 25 });
-        assert.strictEqual(it.find(i => i.numero === 'D').enlace, null);
         assert.strictEqual(it.find(i => i.numero === 'F').faseLabel, 'CEE');
         assert.ok(/\/presentar\/cee\/f\?/.test(it.find(i => i.numero === 'F').enlace));
     });

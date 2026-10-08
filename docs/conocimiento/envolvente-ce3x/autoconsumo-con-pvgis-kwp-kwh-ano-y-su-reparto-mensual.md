@@ -54,7 +54,13 @@ Sin PVGIS consultado, la medida sale exactamente como antes. El 90 % declarable
 (`AUTOCONSUMO_DECLARABLE`) vive ahora en `autoconsumoMaximo.js` (fichaCe3x lo reexporta):
 la barra y la medida no pueden usar dos cifras distintas.
 
-**REGLA — en la 3.1 el autoconsumo se ESCRIBE como «Generación renovable eléctrica»**
+> **Desde el 08/10/2026 (CE3X 3.2)**: los meses ya NO son la curva de PVGIS de los kWh declarados,
+> sino, cada mes, **lo menor entre la producción de PVGIS y el consumo eléctrico de ese mes** (sacado
+> del XML), y en el PC CE3X los ajusta a su consumo exacto al calificar. En la 3.2 la fotovoltaica
+> nunca va como contribución. Ver «CE3X 3.2 — la vigente desde el 08/10/2026, y el AUTOCONSUMO mes a
+> mes» (`ce3x-3-2-la-vigente-y-el-autoconsumo-mes-a-mes.md`).
+
+**REGLA — en la 3.1 (y la 3.2) el autoconsumo se ESCRIBE como «Generación renovable eléctrica»**
 (2026-10-02): potencia pico y autoconsumo MES A MES, un `models.GeneradorElectrico` con la
 forma medida sobre «EJEMPLO MIGRADO.cex» (claves STRING, nombre y zona UNICODE, meses FLOAT, `id`
 un `uuid.UUID` derivado de sus datos para que el fichero salga igual cada vez). En la 2.3, la
@@ -63,7 +69,8 @@ contribución anual de siempre. Lo decide el motor (`separar_generadores` ·
 [generar_cex.py](implementation/cee-engine/tools/generar_cex.py)) y es el MISMO camino en las
 CUATRO superficies que escriben una medida: el `.cex` de la envolvente (inicial y final),
 «Poner la medida» en el `.cex` del técnico (con la versión de ESE fichero) y el CEE final desde
-la medida. Sin los doce meses se queda como contribución —que la 3.1 calcula igual— y se dice.
+la medida. Sin los doce meses, en la 3.1 se quedaba como contribución —que calcula igual— y se
+decía; en la 3.2 NO se escribe (su manual prohíbe la contribución para la fotovoltaica) y se dice.
 
 **REGLA — en una medida el generador va en TRES sitios**: `listadoGeneradoresElectricoMM`, el
 slot 13 de `datosInstalaciones` y el de la copia de `mejoras[1][1]`. Medido con CE3X 3.1: sin el

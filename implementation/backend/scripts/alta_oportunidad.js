@@ -368,7 +368,7 @@ async function crear() {
     // Lo que la calculadora recalcula al abrirse (CalculatorForm): las U y la
     // ventilación con la ZONA. Si no se hace aquí, el resultado guardado y el
     // que ve el técnico al abrirla no coinciden.
-    const u = calc.getUByYear(inputs.anio, inputs.zona);
+    const u = calc.getUByYear(inputs.anio, inputs.zona, inputs);
     const va = calc.getVentanaYACHByYear(inputs.anio, inputs.zona);
     Object.assign(inputs, { uMuro: u.wall, uCubierta: u.roof, ventanaU: va.ventanaU, ach: va.ach });
     // Orientación de la fachada principal y patios interiores (del croquis o las fotos).

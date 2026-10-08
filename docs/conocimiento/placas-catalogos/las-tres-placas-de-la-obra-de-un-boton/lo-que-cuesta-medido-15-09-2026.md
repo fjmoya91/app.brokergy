@@ -32,5 +32,7 @@ remitiendo a `gemini-3.5-flash-lite`), aunque la página oficial de deprecacione
 diciendo que 2.5 no tiene fecha de retirada anunciada. El día que le toque a
 `gemini-2.5-flash` **solo hay que cambiar `GEMINI_MODEL`** —la variable ya existe y la leen
 los seis lectores—, y el relevo se decide con `comparar_modelos_ocr.js`, no de oídas.
-⚠️ `gemini-3.5-flash-lite` **no admite `thinkingBudget: 0`** (responde 400): si algún día
-se migra a él, hay que quitar ese `thinkingConfig`.
+⚠️ `gemini-3.5-flash-lite` **no admite `thinkingBudget: 0`** (responde 400). Desde el 07/10/2026
+ya no hace falta tocar nada para migrar a él: `ajustesGemini` le manda `thinkingLevel: minimal`
+(regla 121, [el razonamiento y la temperatura según el modelo](docs/conocimiento/infra/razonamiento-y-temperatura-segun-el-modelo.md)).
+Antes de cambiar, `test_gemini_ajustes.js --vivo <modelo>`.

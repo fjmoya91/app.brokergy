@@ -177,6 +177,15 @@ async function guardarEncargo(origen, id, fase, valor) {
         ? await supabase.rpc('set_cee_directo_cee_field', { p_cee_directo_id: id, p_field: 'presentacion', p_value: actual })
         : await supabase.rpc('set_expediente_cee_field', { p_expediente_id: id, p_field: 'presentacion', p_value: actual });
     if (error) throw new Error(`No se ha podido guardar el encargo: ${error.message}`);
+    // En los CEE directos el `estado` se DERIVA y cuenta con el encargo
+    // («PTE. PRESENTACIÓN»): se vuelve a sellar al encargar y al retirar.
+    if (origen === 'cee_directo') {
+        try {
+            const estado = require('../utils/ceeDirectoEstados')
+                .deriveEstado({ alcance: fresca.alcance, seguimiento: fresca.seguimiento, presentacion: actual });
+            await supabase.from('cee_directos').update({ estado }).eq('id', id);
+        } catch (e) { console.warn('[presentacion-cee] estado:', e.message); }
+    }
     return actual;
 }
 
@@ -279,11 +288,13 @@ async function correoDeBandeja(token) {
     return correo;
 }
 
-const HECHOS_DIAS = 30; // lo ya presentado se enseña un mes, como acuse
-
 /**
- * Puro: de las filas con `presentacion`, las fases encargadas a ESE correo —
- * pendientes (con su enlace vivo) y presentadas en el último mes—.
+ * Puro: de las filas con `presentacion`, las fases encargadas a ESE correo que
+ * siguen PENDIENTES, con su enlace vivo.
+ *
+ * REGLA — lo ya presentado NO le aparece (decisión del usuario, 2026-10-08):
+ * registrada la fase —por ella o por cualquiera, p. ej. Fran subiendo él el
+ * justificante—, sale de la lista. Antes quedaba un mes en «Presentados».
  */
 function itemsBandeja(filas, correo, ahora = Date.now()) {
     const items = [];
@@ -292,13 +303,8 @@ function itemsBandeja(filas, correo, ahora = Date.now()) {
             const enc = r.presentacion?.[fase];
             if (!enc || String(enc.email || '').toLowerCase() !== correo) continue;
             const reg = String(r.seguimiento?.[fase === 'final' ? 'cee_final' : 'cee_inicial'] || '').toUpperCase() === 'REGISTRADO';
-            const fechaReg = (fase === 'final' ? r.frf : r.fri) || null;
-            const hecho = reg || !!enc.registrado_at;
-            if (!hecho && !enc.nonce) continue; // retirado
-            if (hecho) {
-                const cuando = enc.registrado_at || fechaReg;
-                if (!cuando || (ahora - new Date(cuando)) / 86400000 > HECHOS_DIAS) continue;
-            }
+            if (reg || enc.registrado_at) continue; // presentado
+            if (!enc.nonce) continue;               // retirado
             const firma = (fase === 'final' ? (r.fff || r.dff) : (r.ffi || r.dfi)) || null;
             const plazo = plazoDesdeFirma(firma, ahora);
             const faseLabel = fase === 'final' ? 'CEE final'
@@ -309,10 +315,7 @@ function itemsBandeja(filas, correo, ahora = Date.now()) {
                 fase, faseLabel,
                 enviado_at: enc.enviado_at || null,
                 plazo,
-                hecho,
-                registrado_at: hecho ? (enc.registrado_at || fechaReg) : null,
-                // El enlace de SU encargo: solo si sigue vivo.
-                enlace: !hecho && enc.nonce ? enlace(origen, r.id, fase, enc.nonce) : null,
+                enlace: enlace(origen, r.id, fase, enc.nonce),
             });
         }
     }
@@ -321,7 +324,7 @@ function itemsBandeja(filas, correo, ahora = Date.now()) {
 }
 
 /**
- * Lo que tiene pendiente (y lo presentado hace poco) quien abre la bandeja.
+ * Lo que tiene pendiente quien abre la bandeja (lo presentado ya no sale).
  * Puro de cara a la red: solo lee. Lista lo encargado a SU correo.
  */
 async function bandejaPublica(token) {
@@ -329,8 +332,7 @@ async function bandejaPublica(token) {
     // Campos CONCRETOS del JSONB, nunca `cee` entero (regla 22: lleva los .xml).
     const campos = 'id, numero_expediente, cliente_id, seguimiento, presentacion:cee->presentacion, '
         + 'ffi:cee->fecha_firma_cee_inicial, fff:cee->fecha_firma_cee_final, '
-        + 'dfi:documentacion->fecha_firma_cee_inicial, dff:documentacion->fecha_firma_cee_final, '
-        + 'fri:documentacion->fecha_registro_cee_inicial, frf:documentacion->fecha_registro_cee_final';
+        + 'dfi:documentacion->fecha_firma_cee_inicial, dff:documentacion->fecha_firma_cee_final';
     const [cae, cd] = await Promise.all([
         supabase.from('expedientes').select(campos).not('cee->presentacion', 'is', null),
         supabase.from('cee_directos').select(`${campos}, alcance`).not('cee->presentacion', 'is', null),
@@ -351,17 +353,13 @@ async function bandejaPublica(token) {
         const { data } = await supabase.from('clientes').select('id_cliente, nombre_razon_social, apellidos').in('id_cliente', ids);
         for (const c of data || []) nombres[c.id_cliente] = nombreCliente(c);
     }
-    const limpio = items.map(({ cliente_id, ...i }) => ({ ...i, cliente: nombres[cliente_id] || '' }));
-    // Lo que corre más prisa, primero; sin plazo conocido, al final de los pendientes.
-    const pendientes = limpio.filter(i => !i.hecho)
+    // Lo que corre más prisa, primero; sin plazo conocido, al final.
+    const pendientes = items.map(({ cliente_id, ...i }) => ({ ...i, cliente: nombres[cliente_id] || '' }))
         .sort((a, b) => (a.plazo?.quedan ?? 9999) - (b.plazo?.quedan ?? 9999));
-    const hechos = limpio.filter(i => i.hecho)
-        .sort((a, b) => String(b.registrado_at || '').localeCompare(String(a.registrado_at || '')));
     const presentador = await presentadorPorDefecto();
     return {
         nombre: presentador?.email === correo ? presentador.nombre || '' : '',
         pendientes,
-        hechos,
     };
 }
 

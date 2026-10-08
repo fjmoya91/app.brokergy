@@ -149,10 +149,31 @@ console.log('La versión de CE3X');
 t('2.3 emitido antes del 01/10/2026 → ok', () => {
     const i = inf(); revisarConCex(i, rxXml, cex(), ctx()); assert.strictEqual(i.de('version_ce3x').estado, 'ok');
 });
-t('2.3 emitido después → aviso, y dice que el final ya sale en la 3.1', () => {
+t('2.3 emitido después → aviso, y dice que el final ya sale en la 3.2', () => {
     const i = inf(); revisarConCex(i, rxXml, cex({ informe: { emision: '02/10/2026' } }), ctx({ fechaCertificado: '2026-10-02' }));
     const p = i.de('version_ce3x');
-    assert.strictEqual(p.estado, 'aviso'); assert.match(p.detalle, /3\.1/);
+    assert.strictEqual(p.estado, 'aviso'); assert.match(p.detalle, /3\.2/);
+});
+t('3.1 emitido desde el 08/10/2026 → aviso de pasarlo a la 3.2 (solo la cabecera)', () => {
+    const c = cex({ version: 'CE3Xv3.1 Residencial', version_ce3x: '3.1' });
+    c.generales = { ...c.generales, superficie_util: 132, unidades_uso: 1, plantas_sobre_rasante: 1 };
+    const i = inf(); revisarConCex(i, rxXml, c, ctx({ fechaCertificado: '2026-10-09' }));
+    assert.strictEqual(i.de('version_ce3x_32').estado, 'aviso');
+    assert.strictEqual(i.de('version_ce3x').estado, 'ok');
+});
+t('3.1 emitido antes del 08/10/2026 → nada que decir', () => {
+    const c = cex({ version: 'CE3Xv3.1 Residencial', version_ce3x: '3.1' });
+    c.generales = { ...c.generales, superficie_util: 132, unidades_uso: 1, plantas_sobre_rasante: 1 };
+    const i = inf(); revisarConCex(i, rxXml, c, ctx({ fechaCertificado: '2026-10-05' }));
+    assert.strictEqual(i.de('version_ce3x_32'), undefined);
+});
+t('3.2: las placas como «contribución energética» → aviso (manual de la 3.2, 7.1)', () => {
+    const c = cex({ version: 'CE3Xv3.2 Residencial', version_ce3x: '3.2' });
+    c.generales = { ...c.generales, superficie_util: 132, unidades_uso: 1, plantas_sobre_rasante: 1 };
+    c.equipos = [...(c.equipos || []), { nombre: 'AUTOCONSUMO FOTOVOLTAICO', slot: 'renovable', servicios: {} }];
+    const i = inf(); revisarConCex(i, rxXml, c, ctx({ fechaCertificado: '2026-10-09' }));
+    assert.strictEqual(i.de('fv_contribucion').estado, 'aviso');
+    assert.strictEqual(i.de('version_ce3x').dice, 'CE3X 3.2');
 });
 t('3.1 con sus datos generales → ok', () => {
     const c = cex({ version: 'CE3Xv3.1 Residencial', version_ce3x: '3.1' });
@@ -171,6 +192,45 @@ t('una cabecera desconocida → aviso', () => {
 });
 
 (async () => {
+    // Desde el 08/10/2026 la Guía es la de CE3X 3.2 por cerramiento y con el
+    // periodo que DECLARA el .cex; un certificado anterior, con la de antes.
+    console.log('Transmitancias frente a la guía de CE3X (desde el 08/10/2026)');
+    const guiaCe3x = await import('../../frontend/src/features/calculator/logic/transmitanciasCe3x.js');
+    const c188 = () => cex({
+        generales: { anio: 2003, zona_he1: 'E1', normativa: 'NBE-CT-79_aPartir1998', ventilacion: 0.83,
+                     superficie: 233, plantas: 2, altura_planta: 2.8, demanda_acs_l_dia: 140 },
+        informe: { emision: '08/10/2026' },
+    });
+    const ctx188 = (over = {}) => ctx({ guiaCe3x, fechaCertificado: '2026-10-08', anioOportunidad: 2003, ...over });
+    t('26RES060_188 (2003, E1 → NBE Z): fachada 1,40 y cubierta 0,70 → ok', () => {
+        const c = c188();
+        c.envolvente.cerramientos[0].u = 1.4; c.envolvente.cerramientos[1].u = 0.7;
+        const i = inf(); revisarConCex(i, rxXml, c, ctx188());
+        assert.strictEqual(i.de('transmitancias').estado, 'ok');
+        assert.match(i.de('transmitancias').esperado, /1998 - 2007, E1, NBE Z/);
+    });
+    t('la cubierta de la zona de un D (0,90, el «Y» que escribía el motor) → aviso', () => {
+        const c = c188();
+        c.envolvente.cerramientos[0].u = 1.4; c.envolvente.cerramientos[1].u = 0.9;
+        const i = inf(); revisarConCex(i, rxXml, c, ctx188());
+        assert.strictEqual(i.de('transmitancias').estado, 'aviso');
+        assert.match(i.de('transmitancias').detalle, /Estimados según antigüedad/);
+    });
+    t('los 1,69 de la Guía anterior en un certificado NUEVO → aviso', () => {
+        const c = c188();
+        c.envolvente.cerramientos[0].u = 1.69; c.envolvente.cerramientos[1].u = 1.69;
+        const i = inf(); revisarConCex(i, rxXml, c, ctx188());
+        assert.strictEqual(i.de('transmitancias').estado, 'aviso');
+    });
+    t('los 1,69 en un certificado del 07/10/2026 → la Guía anterior, ok', () => {
+        const c = c188(); c.informe.emision = '07/10/2026';
+        c.envolvente.cerramientos[0].u = 1.69; c.envolvente.cerramientos[1].u = 1.69;
+        const i = inf();
+        revisarConCex(i, rxXml, c, ctx188({ fechaCertificado: '2026-10-07',
+            getUByYear: () => ({ wall: 1.69, roof: 1.69, floor: 1.0 }) }));
+        assert.strictEqual(i.de('transmitancias').estado, 'ok');
+    });
+
     console.log('Sin .xml y la copia del borrador');
     const { revisarCee } = require('../services/cee/revisionCee');
     const res = await revisarCee({ radiografia: null, cex: cex({ medidas: [] }),

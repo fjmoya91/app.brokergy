@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // ============================================================================
-// cex_a_pdf.js — califica un .cex con CE3X 3.1 (sin abrir su ventana) y deja al
-// lado su XML y su PDF oficial, con el MISMO nombre que el .cex.
+// cex_a_pdf.js — califica un .cex con CE3X 3.2 (sin abrir su ventana) y deja al
+// lado su XML y su PDF oficial, con el MISMO nombre que el .cex. Si el
+// autoconsumo de algún mes pasa del consumo que calcula CE3X, lo ajusta a él y
+// deja también el .cex ajustado (el de antes, a OLD/).
 //
 //   node scripts/cex_a_pdf.js "C:/…/1. CEE INICIAL/26RES060_186 - CEE INICIAL_REVISAR.cex"
 //   node scripts/cex_a_pdf.js "C:/…/1. CEE INICIAL"          (todos los .cex de la carpeta)
@@ -10,10 +12,11 @@
 //   --sin-medidas   no calcula las medidas de mejora (el XML sale sin sus resultados)
 //   --solo-xml      no genera el PDF
 //   --en-seco       califica y enseña el resultado, sin escribir nada
+//   --sin-ajustar   no recorta el autoconsumo mes a mes (solo avisa)
 //
 // Lo que ya hubiera con ese nombre se mueve a OLD/ (nunca se borra).
-// Funciona con tildes, eñes y puntos en la ruta (CE3X 3.1 no: ver cexAPdf.js).
-// Solo en un PC con CE3X 3.1 instalado. Fuente única: services/cee/cexAPdf.js.
+// Funciona con tildes, eñes y puntos en la ruta (CE3X no: ver cexAPdf.js).
+// Solo en un PC con CE3X 3.2 instalado. Fuente única: services/cee/cexAPdf.js.
 // ============================================================================
 const fs = require('fs');
 const path = require('path');
@@ -53,7 +56,8 @@ async function main() {
     for (const f of ficheros) {
         console.log(`\n${path.basename(f)}`);
         const t0 = Date.now();
-        const r = await calificarCex(f, { medidas: !OPC.has('--sin-medidas'), pdf: !OPC.has('--solo-xml') });
+        const r = await calificarCex(f, { medidas: !OPC.has('--sin-medidas'), pdf: !OPC.has('--solo-xml'),
+                                          ajustarAutoconsumo: !OPC.has('--sin-ajustar') });
         const seg = Math.round((Date.now() - t0) / 1000);
         if (!r.ok && !r.xml) { fallos++; console.log(`  ✗ ${r.error}`); continue; }
         console.log(`  CE3X ${r.version || '?'} · ${seg} s · ${textoCalificacion(r.calificacion)}`);
@@ -63,7 +67,8 @@ async function main() {
         if (OPC.has('--en-seco')) { console.log('  EN SECO: no se escribe nada.'); continue; }
 
         const base = f.replace(/\.cex$/i, '');
-        for (const [ext, bytes] of [['.xml', r.xml], ['.pdf', r.pdf]]) {
+        //: Con el autoconsumo ajustado, el .cex que vale es el que guardó CE3X.
+        for (const [ext, bytes] of [['.cex', r.cex], ['.xml', r.xml], ['.pdf', r.pdf]]) {
             if (!bytes) continue;
             const destino = base + ext;
             const viejo = aOld(destino);

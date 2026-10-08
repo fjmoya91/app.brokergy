@@ -7,7 +7,7 @@ class Host {
   [DllImport("python27.dll", CallingConvention=CallingConvention.Cdecl)] static extern void Py_Initialize();
   [DllImport("python27.dll", CallingConvention=CallingConvention.Cdecl)] static extern int PyRun_SimpleString(string code);
   static int Main(string[] args) {
-    string ce = Environment.GetEnvironmentVariable("CE3X_DIR") ?? @"C:\Program Files (x86)\CE3Xv3.1";
+    string ce = Environment.GetEnvironmentVariable("CE3X_DIR") ?? @"C:\Program Files (x86)\CE3Xv3.2";
     Environment.SetEnvironmentVariable("PYTHONHOME", ce);
     Environment.SetEnvironmentVariable("PYTHONPATH", ce);
     Environment.SetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", "1");

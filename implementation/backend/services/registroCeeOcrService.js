@@ -37,6 +37,7 @@
 
 const { primerasPaginas, aISO } = require('./riteOcrService');
 const ceeOcrService = require('./ceeOcrService');
+const { ajustesGemini } = require('../utils/geminiAjustes');
 
 const PROVIDER = 'gemini';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -92,8 +93,7 @@ async function llamarGemini(pdfBuffer) {
         generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: SCHEMA,
-            temperature: 0,
-            thinkingConfig: { thinkingBudget: 0 },
+            ...ajustesGemini(GEMINI_MODEL, { pensamiento: 0, temperatura: 0 }),
         },
     };
 

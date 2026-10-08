@@ -8,8 +8,8 @@ const API_URL = '/api/public/presentar-pendientes';
 // PresentarPendientesView — /presentar/pendientes?token=
 //
 // La BANDEJA de quien presenta los CEE por encargo nuestro (Eva), sin cuenta:
-// todo lo que tiene pendiente de presentar, ordenado por lo que corre más prisa,
-// y lo que ya presentó en el último mes. Cada fila abre su encargo.
+// todo lo que tiene pendiente de presentar, ordenado por lo que corre más prisa.
+// Cada fila abre su encargo. Lo ya presentado NO sale (lo filtra el backend).
 // Ver services/presentacionCeeService.js (bandejaPublica).
 //
 // REGLA — lo que corre prisa se VE: el plazo de un mes sale en ámbar a falta de
@@ -42,7 +42,6 @@ export function PresentarPendientesView({ token }) {
     useEffect(() => { cargar(); }, [cargar]);
 
     const pendientes = datos?.pendientes || [];
-    const hechos = datos?.hechos || [];
     const nombre = String(datos?.nombre || '').split(/\s+/)[0];
 
     return (
@@ -77,31 +76,6 @@ export function PresentarPendientesView({ token }) {
                                 </div>
                             )}
                         </section>
-
-                        {hechos.length > 0 && (
-                            <section>
-                                <div className="flex items-baseline justify-between mb-2 px-1">
-                                    <h2 className="text-[11px] font-black text-white/60 uppercase tracking-widest">Presentados (último mes)</h2>
-                                    <span className="text-[11px] text-white/30 normal-case">{hechos.length}</span>
-                                </div>
-                                <div className="space-y-1.5">
-                                    {hechos.map((h, i) => (
-                                        <div key={`${h.numero}-${h.fase}-${i}`}
-                                             className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-                                            <span className="shrink-0 text-emerald-400 text-[12px]">✓</span>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="text-[12px] text-white/70 normal-case truncate">
-                                                    <b className="text-white/85">{h.numero}</b> · {h.faseLabel}{h.cliente ? ` · ${h.cliente}` : ''}
-                                                </div>
-                                            </div>
-                                            {h.registrado_at && (
-                                                <span className="shrink-0 text-[10px] text-white/35 normal-case">Registrado {fechaCorta(h.registrado_at)}</span>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            </section>
-                        )}
 
                         <p className="text-[10px] text-white/25 normal-case text-center leading-snug">
                             Este enlace es personal: no lo compartas. Cada encargo te llega también por correo con sus ficheros.

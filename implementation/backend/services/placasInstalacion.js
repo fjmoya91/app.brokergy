@@ -422,6 +422,13 @@ async function proponerPlacas({
             nuevaAero.modelo_ud_interior = equipoCatalogo.modelo_ud_interior || nuevaAero.modelo_ud_interior || '';
             nuevaAero.modelo_conjunto = catalogo.modelo.modelo_conjunto || '';
             if (equipoCatalogo.potencia) nuevaAero.potencia = equipoCatalogo.potencia;
+            // Los documentos que JUSTIFICAN el SCOP son los del modelo nuevo, igual
+            // que al elegirlo en el desplegable: si se quedaran los del anterior, el
+            // CIFO anexaría la ficha y el EPREL de OTRA máquina (26RES060_178:
+            // DUO AI 10 → Extensa S 10 conservaba el EPREL 670070 de la DUO).
+            nuevaAero.url_eprel = modeloCompleto?.eprel || null;
+            nuevaAero.url_ficha = modeloCompleto?.ficha_tecnica || null;
+            nuevaAero.url_keymark = modeloCompleto?.url_keymark || null;
             // El SCOP solo se escribe si se ha podido resolver: un equipo con el
             // id del catálogo y el SCOP del anterior es peor que uno sin id.
             if (equipoCatalogo.scop != null) {

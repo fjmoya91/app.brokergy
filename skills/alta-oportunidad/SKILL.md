@@ -143,10 +143,12 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
     se hace a mano cargando el CEE en «Cálculo Estimado» (OP140, OP152, OP168).
   - `modo: "cee"`: la simulación USA el certificado (como «Nueva simulación» con un CEE en la
     puerta). Entonces las dos cifras coinciden y **no hay comparativa**: solo si se pide así.
-  - Lo que declare el CEE sirve para el resto del plan: placas fotovoltaicas («Contribuciones
-    energéticas: Inst. Fotovolt. 5 kWp» → `placas: {estado:"si", kwp:5}`), si la caldera da el ACS,
-    aires acondicionados (a `decisiones`: se quedan). El rendimiento estacional del CEE **no** cambia la
-    fila de la caldera (manda la edad).
+  - Lo que declare el CEE sirve para el resto del plan: placas fotovoltaicas (→ `placas:
+    {estado:"si", kwp:5}`), si la caldera da el ACS, aires acondicionados (a `decisiones`: se
+    quedan). Las placas vienen, según la versión con la que se hizo el CEE, en **«Generación
+    renovable eléctrica»** (CE3X 3.x: potencia pico y autoconsumo mes a mes) o en **«Contribuciones
+    energéticas»** (CE3X 2.3: «Inst. Fotovolt. 5 kWp»); las dos valen. El rendimiento estacional del
+    CEE **no** cambia la fila de la caldera (manda la edad).
   - Solo PDF o fotos: el `.xml` no se lee fuera del navegador.
 - **El chat puede ser del propio CLIENTE** (escribe en primera persona: «si tengo subvención»): su
   teléfono es el del chat y el partner es el instalador que firma el presupuesto (o el que va entre

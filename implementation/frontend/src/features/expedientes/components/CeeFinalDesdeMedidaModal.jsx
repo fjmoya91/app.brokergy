@@ -87,8 +87,8 @@ export default function CeeFinalDesdeMedidaModal({ expediente, apiBase = '/api/e
     const [params, setParams] = useState({});
     const [fechaEmision, setFechaEmision] = useState(hoy());
     const [fechaVisita, setFechaVisita] = useState(hoy());
-    //: Con qué versión de CE3X sale el final: la 3.1 vigente salvo que se diga
-    //: otra. El inicial del técnico puede ser de la 2.3: se convierte al copiarlo.
+    //: Con qué versión de CE3X sale el final: la 3.2 vigente salvo que se diga
+    //: otra. El inicial del técnico puede ser de la 2.3 o la 3.1: se convierte al copiarlo.
     const [version, setVersion] = useState(VERSION_CE3X_DEFECTO);
     const [envio, setEnvio] = useState({ phase: null, ok: false, items: [], error: '', link: null });
 
@@ -211,8 +211,9 @@ export default function CeeFinalDesdeMedidaModal({ expediente, apiBase = '/api/e
                                 </p>
 
                                 {/* La VERSIÓN de CE3X del final. Un inicial de la 2.3
-                                    sale en la 3.1 sin perder nada: se le añade lo que la
-                                    3.1 pide (datos generales, potencias de los equipos). */}
+                                    sale en la 3.2 sin perder nada: se le añade lo que la
+                                    3.x pide (datos generales, potencias de los equipos).
+                                    De la 3.1 a la 3.2 solo cambia la cabecera. */}
                                 <section className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Versión de CE3X del final</p>
@@ -228,8 +229,10 @@ export default function CeeFinalDesdeMedidaModal({ expediente, apiBase = '/api/e
                                         <p className="text-[11px] text-white/45">
                                             El inicial del técnico está hecho con <b className="text-white/70">CE3X {a.version_inicial}</b>
                                             {a.version_inicial !== version
-                                                ? (version === '3.1'
-                                                    ? ': al copiarlo se pasa a la 3.1 —datos generales nuevos y la potencia de cada equipo—. Revísalo en CE3X antes de calcular.'
+                                                ? (version !== '2.3' && a.version_inicial !== '2.3'
+                                                    ? `: tienen la misma forma y al copiarlo solo cambia la cabecera a la ${version}.`
+                                                    : version !== '2.3'
+                                                    ? `: al copiarlo se pasa a la ${version} —datos generales nuevos (las plantas sobre y bajo rasante son las del edificio entero) y la potencia de cada equipo—. Revísalo en CE3X antes de calcular.`
                                                     : ': se intenta bajar a la 2.3; si lleva algo que la 2.3 no sabe abrir, no se escribe y se dice.')
                                                 : '.'}
                                         </p>

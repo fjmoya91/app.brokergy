@@ -247,6 +247,29 @@ router.get('/neighbors', async (req, res) => {
     }
 });
 
+// GET /sede/:rc — abre el inmueble en la Sede del Catastro (redirección 302).
+// Es el destino del icono del Catastro de toda la app (`enlaceSedeCatastro`) y del
+// botón "Ver en Catastro" de la página del encargo. Pública a propósito: es un
+// enlace, se abre en otra pestaña y no lleva ningún dato nuestro. La decisión de a
+// qué página va es `urlSedeCatastro` (ficha · lista de la parcela · atajo); aquí
+// solo se valida y se redirige. Una referencia de 18 (sin los dos de control) se
+// resuelve por su parcela, los 14 primeros.
+router.get('/sede/:rc', async (req, res) => {
+    const rc = String(req.params.rc || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (rc.length < 14 || rc.length > 20) return res.status(400).send('Referencia catastral no válida');
+    const consulta = rc.length === 20 ? rc : rc.slice(0, 14);
+    let info = null;
+    try {
+        info = await catastroService.codigosSede(consulta);
+    } catch (e) {
+        // Catastro bloqueado o sin responder: el atajo lo resuelve el navegador de
+        // quien pulsa, que no es la IP del servidor, así que no castiga al WAF.
+        console.warn('[catastro/sede]', consulta, e.code || e.message);
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.redirect(302, catastroService.urlSedeCatastro(consulta, info));
+});
+
 // GET /image/:rc - Proxy para imagen de fachada de Catastro
 router.get('/image/:rc', async (req, res) => {
     try {

@@ -2,6 +2,12 @@
 
 ## CE3X 2.3 y 3.1 — se certifica con las DOS (2026-10-02)
 
+> **Desde el 08/10/2026 la vigente es la 3.2** (la 3.1 se desinstala): misma forma de fichero que la
+> 3.1 con otra cabecera, mismo cálculo. Todo lo de abajo sobre «la 3.1» vale para las dos («las
+> modernas», `es_moderna`). Lo que la 3.2 aclara —plantas sobre/bajo rasante del EDIFICIO entero, la
+> fotovoltaica solo como «Generación renovable eléctrica» y el autoconsumo mes a mes— está en
+> «CE3X 3.2 — la vigente desde el 08/10/2026» (`ce3x-3-2-la-vigente-y-el-autoconsumo-mes-a-mes.md`).
+
 Hasta el 30/09/2026 se certificaba con CE3X 2.3; desde el 01/10/2026, con la **3.1**.
 La app escribe las dos, **por defecto la 3.1**, y un CEE final hecho sobre un inicial
 de la 2.3 sale ya en la 3.1: se convierte al copiarlo, en los dos caminos (la ventana

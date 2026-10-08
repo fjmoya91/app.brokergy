@@ -197,12 +197,12 @@ export function CalculatorForm({
 
     const [dirtyUWall, setDirtyUWall] = useState(() => {
         if (!inputs.anio || !inputs.uMuro) return false;
-        const defaults = getUByYear(inputs.anio, inputs.zona);
+        const defaults = getUByYear(inputs.anio, inputs.zona, inputs);
         return inputs.uMuro !== defaults.wall;
     });
     const [dirtyURoof, setDirtyURoof] = useState(() => {
         if (!inputs.anio || !inputs.uCubierta) return false;
-        const defaults = getUByYear(inputs.anio, inputs.zona);
+        const defaults = getUByYear(inputs.anio, inputs.zona, inputs);
         return inputs.uCubierta !== defaults.roof;
     });
     const [dirtyVentana, setDirtyVentana] = useState(() => {
@@ -456,7 +456,7 @@ export function CalculatorForm({
     useEffect(() => {
         if (!inputs.anio) return;
 
-        const defaultsU = getUByYear(inputs.anio, inputs.zona);
+        const defaultsU = getUByYear(inputs.anio, inputs.zona, inputs);
         const defaultsVentanaAch = getVentanaYACHByYear(inputs.anio, inputs.zona);
         let updates = {};
 

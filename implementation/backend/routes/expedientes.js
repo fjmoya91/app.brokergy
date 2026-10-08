@@ -5122,6 +5122,28 @@ router.post('/:id/placa-caldera/ocr', suyoSiCertificador, (req, res, next) => {
     }
 });
 
+// ─── POST /api/expedientes/:id/series-repetidas ───────────────────────────────
+// ¿Algún nº de serie de este expediente (caldera que se retira, aerotermia que se
+// pone) consta ya en OTRO expediente? Lo pide el módulo Instalación con lo que hay
+// EN PANTALLA (`body.instalacion`), antes del autoguardado, para avisar mientras se
+// teclea. Solo AVISA: no escribe ni bloquea. Qué es serie y cómo se compara:
+// `utils/seriesEquipos.js`.
+//
+// ACCESO — staffOnly: la respuesta nombra expedientes ajenos, y un certificador
+// solo ve los suyos. A él el aviso no le sale (403 y el frontend calla).
+router.post('/:id/series-repetidas', staffOnly, async (req, res) => {
+    try {
+        const { buscarSeriesRepetidas } = require('../services/seriesRepetidas');
+        const inst = req.body?.instalacion;
+        if (!inst || typeof inst !== 'object') return res.status(400).json({ error: 'Falta la instalación.' });
+        res.json(await buscarSeriesRepetidas(inst, req.params.id));
+    } catch (err) {
+        console.error('Error POST expedientes/:id/series-repetidas:', err.message);
+        // Con la BD caída no se contesta «no hay repetidas» (regla 38).
+        res.status(503).json({ error: 'No se han podido comprobar los nº de serie.' });
+    }
+});
+
 // ─── POST /api/expedientes/:id/placas/ocr ─────────────────────────────────────
 // Lee de una vez las TRES placas de la obra y rellena con ellas la Instalación:
 // la de la CALDERA que se retira y las de la bomba de calor que se pone (unidad

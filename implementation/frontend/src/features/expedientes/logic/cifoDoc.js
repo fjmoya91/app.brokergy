@@ -19,7 +19,7 @@
 // inyecte su propio origen absoluto (Puppeteer renderiza con setContent → base
 // about:blank, las rutas relativas no cargan).
 // ============================================================================
-import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, redondeaScop } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, redondeaScop, normalizeClimateSeason } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, domicilioEmpresa, empresaInstaladora, empresasActuacion,
     notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
@@ -199,6 +199,15 @@ export function deriveCifoData({ expediente, results }) {
     const zoneLabel = [
         'A3', 'A4', 'B3', 'B4', 'C1', 'C2', 'C3', 'C4', 'D1', 'D2', 'D3'
     ].includes(zoneStr) ? 'Cálido' : (zoneStr === 'E1' ? 'Medio' : 'Cálido');
+    // Clima en el que se DECLARA el SCOP de calefacción. Si el equipo no publica el
+    // cálido, la app cae al medio (el Anexo III lo admite siempre) y lo sella en
+    // `scop_temporada`; imprimir entonces "Cálido" por la zona pondría ese SCOP al
+    // lado de un clima en el que la ficha no lo da. Sin sello, lo de siempre: la
+    // zona (así un CIFO ya emitido no cambia al regenerarse).
+    const temporadaCal = inst.aerotermia_cal?.scop_temporada;
+    const climaScopCal = temporadaCal
+        ? ({ calido: 'Cálido', medio: 'Medio', frio: 'Frío' }[normalizeClimateSeason(temporadaCal)] || zoneLabel)
+        : zoneLabel;
 
     const numexpte = exp.numero_expediente || '';
     const facturasList = (doc.facturas || []).map(f => f.numero_factura).filter(Boolean).join(', ') || '—';
@@ -500,7 +509,7 @@ export function deriveCifoData({ expediente, results }) {
         // objetos crudos usados directamente en el HTML
         inst, cli, ceeFinal,
         // identificación / cabecera
-        isHybrid, isTerciario, isTer173, cbAnexo, cbIncompleto, numexpte, zoneStr, zoneLabel,
+        isHybrid, isTerciario, isTer173, cbAnexo, cbIncompleto, numexpte, zoneStr, zoneLabel, climaScopCal,
         // variables de la fórmula
         dcal, dcalRaw, sStr, sRaw, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
         acsPorM2Str, acsSupStr, acsFaseStr,
@@ -677,7 +686,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     const placaRecorte = placaAcs?.recorte || null;
     const {
         inst, cli, ceeFinal,
-        isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel,
+        isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel, climaScopCal,
         dcal, sStr, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
         acsPorM2Str, acsSupStr, acsFaseStr,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
@@ -1260,7 +1269,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             `Justificación del SCOP en ${label} — ${anexoRef}`,
             `SCOP = CC · (${etaVar} + F(1) + F(2))`,
             `${svRow('CC', 'Coeficiente de conversión', '2,5')}
-             ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : emitterScopContext(inst.tipo_emisor)})`, `${etaValue}%`)}
+             ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${(isAcs ? zoneLabel : climaScopCal).toLowerCase()}${isAcs ? ' y perfil ACS' : emitterScopContext(inst.tipo_emisor)})`, `${etaValue}%`)}
              ${svRow('F(1)', 'Factor de corrección por tecnología (bombas de calor aerotérmicas)', '3%')}
              ${svRow('F(2)', 'Factor de corrección por clima (bombas de calor aerotérmicas)', '0%')}
              ${scopResult(`Cálculo: SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}% &nbsp;→&nbsp; SCOP en ${label}`, scopStr)}`
@@ -1322,7 +1331,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ? scopCallout('SCOP en Calefacción = no aplica. La calefacción queda fuera del alcance de la actuación: el generador existente se mantiene y AE<sub>C</sub> no computa en el ahorro.')
             : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:16px 20px;display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;font-size:12.5px;">
             <div style="display:flex;justify-content:space-between;border-bottom:1px dashed #E4E4DC;padding-bottom:8px;"><span style="color:#6E6E66;">Ubicación de la instalación</span><span style="font-weight:700;">Zona climática ${zoneStr} (DB-HE CTE)</span></div>
-            <div style="display:flex;justify-content:space-between;border-bottom:1px dashed #E4E4DC;padding-bottom:8px;"><span style="color:#6E6E66;">Condiciones en calefacción</span><span style="font-weight:700;">${zoneLabel}</span></div>
+            <div style="display:flex;justify-content:space-between;border-bottom:1px dashed #E4E4DC;padding-bottom:8px;"><span style="color:#6E6E66;">Condiciones en calefacción</span><span style="font-weight:700;">${climaScopCal}</span></div>
             <div style="display:flex;justify-content:space-between;border-bottom:1px dashed #E4E4DC;padding-bottom:8px;"><span style="color:#6E6E66;">Tipo de bomba de calor</span><span style="font-weight:700;">Aerotérmica</span></div>
             <div style="display:flex;justify-content:space-between;border-bottom:1px dashed #E4E4DC;padding-bottom:8px;"><span style="color:#6E6E66;">Sistema de distribución</span><span style="font-weight:700;">${emiLabel}</span></div>
         </div>

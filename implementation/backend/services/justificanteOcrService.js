@@ -17,6 +17,7 @@
 
 const { PDFDocument } = require('pdf-lib');
 const { primerasPaginas } = require('./riteOcrService');
+const { ajustesGemini } = require('../utils/geminiAjustes');
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const DEADLINE_MS = Number(process.env.JUSTIFICANTE_OCR_TIMEOUT_MS) || 25000;
@@ -58,9 +59,8 @@ async function llamarGemini(pdf) {
         generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: SCHEMA,
-            temperature: 0,
             maxOutputTokens: 256,
-            thinkingConfig: { thinkingBudget: 0 },
+            ...ajustesGemini(GEMINI_MODEL, { pensamiento: 0, temperatura: 0 }),
         },
     });
     const t0 = Date.now();

@@ -68,7 +68,7 @@ const TEXTO_TECNICO = {
     acumulacion_acs: 'Este dato solo está en el .cex: súbelo para que se pueda comprobar.',
     anio: 'Del año de construcción salen las transmitancias y la ventilación de la guía: comprueba cuál es el bueno.',
     transmitancias: {
-        aviso: 'No coinciden con la Guía de Transmitancias de Brokergy para ese año y zona. Si hay motivo (proyecto, muro de piedra, cubierta rehecha), dilo en el mensaje a Brokergy; si no, pon las de la guía.',
+        aviso: 'No coinciden con la Guía de Transmitancias de Brokergy para ese año y zona: desde el 08/10/2026 son las que pone el propio CE3X con «Estimados según antigüedad y zona climática», escritas como «Conocidas». Si hay motivo (proyecto, muro de piedra, cubierta rehecha), dilo en el mensaje a Brokergy; si no, pon las de la guía.',
     },
     ventilacion: { aviso: 'No es la de la guía de Brokergy para ese año: si no hay motivo, pon la de la guía.' },
     version_ce3x: (p) => (/^CE3X 3\.1/.test(p.dice || '')

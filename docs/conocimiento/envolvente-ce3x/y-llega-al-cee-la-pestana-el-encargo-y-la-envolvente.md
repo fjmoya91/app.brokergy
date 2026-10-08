@@ -14,14 +14,43 @@ se mira al encargar el certificado. Ahora va a los tres sitios donde se usa:
 
 **REGLA — los aires existentes se declaran según el NEGOCIO, y lo decide una
 persona.** En un expediente **CAE** van como **«Equipo de sólo refrigeración»**
-(máquina frigorífica, 250 % nominal), repartiéndose el 100 % de la refrigeración
+(máquina frigorífica, 250 % nominal), cada uno con su parte de la refrigeración
 —y la superficie en la misma proporción—: es el CEE inicial de **26RES060_206**
-hecho a mano (5 × 20 %, 28,4 m² cada uno). En una **deducción del IRPF** (CEE
+hecho a mano (5 × 20 %, 28,4 m² cada uno). Cuánto es esa parte, más abajo
+(2026-10-08). En una **deducción del IRPF** (CEE
 directo, **2026CEE_60**) van como **«Equipo de calefacción y refrigeración»**
 (bomba de calor, 270 % / 250 %): ahí los aires son parte de la calefacción. El
 bloque propone uno u otro por el negocio (`airesDelCliente`) y se cambia en él;
 el número viene de lo que dijo el cliente. Volver a pulsar **sustituye** los aires
 que puso el bloque (marca `aire: true`), nunca los suma.
+
+**En un RES060 (cambio de caldera), cada aire es una máquina frigorífica (sólo frío)**
+(decisión de Fran, 2026-10-07, 26RES060_223: 3 aparatos sin foto de su placa). La
+potencia no cambia el cálculo, pero la 3.x la exige para escribir el XML; si hay placa
+con otra potencia de frío, manda la placa. Lo aplican las skills `generar-cee-inicial`
+(`"aires": { "n", "modo": "refrigeracion" }`) y `revisar-cee`.
+
+**REGLA — un aire SOLO FRÍO enfría su estancia, no la casa** (decisión de Fran,
+2026-10-08). Repartir el 100 % entre los que hubiera hacía que un solo split
+«refrigerase» una vivienda de 233 m². Ahora cada aparato cubre **~40 m²**
+(`M2_POR_AIRE`), **entre el 10 % y el 25 % de la vivienda** (`pctPorAire`), y entre
+todos **como mucho el 100 %**: se llega a partir de 4 en una casa de hasta 160 m²; una
+más grande necesita más. Lo que no cubren lo pone CE3X con su sistema por defecto
+(máquina frigorífica eléctrica). Su **potencia de frío: 0,1 kW por m² que sirve, entre
+3 y 5 kW** (`potenciaAireKw`). La referencia de siempre se conserva: 5 aires en
+142 m² siguen dando 5 × 20 % (cinco de 25 % pasan del 100 %). Con **frío y calor**
+(CEE directo) se sigue repartiendo el 100 %: ahí los aires son la calefacción y esa
+decisión no se ha tocado. Fuente única: `repartoAires` en
+[fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js),
+que usan el bloque de la ventana y la skill; el encargo al certificador lo dice con
+palabras (`bloqueConfirmacionCertificador`).
+
+| Aires | 100 m² | 160 m² | 233 m² | 300 m² |
+|---|---|---|---|---|
+| 1 | 25 % · 3 kW | 25 % · 4 kW | 17 % · 4 kW | 13 % · 4 kW |
+| 2 | 50 % | 50 % | 34 % | 26 % |
+| 4 | 100 % | 100 % | 68 % | 52 % |
+| 6 | 100 % | 100 % | 100 % | 78 % |
 
 **REGLA — los aires van en el CEE INICIAL.** El final los conserva al copiarlo (la
 refrigeración nunca retira nada, regla 72); declararlos solo en el final dejaría

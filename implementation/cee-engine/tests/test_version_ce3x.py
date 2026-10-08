@@ -82,6 +82,9 @@ def _uno(slots: list, slot: str) -> list:
     ("3.1", "residencial", b"S'CE3Xv3.1 Residencial'\np0\n."),
     ("3.1", "pequeno_terciario", b"S'CE3Xv3.1 Peque\\xf1oTerciario'\np0\n."),
     ("3.1", "gran_terciario", b"S'CE3Xv3.1 GranTerciario'\np0\n."),
+    ("3.2", "residencial", b"S'CE3Xv3.2 Residencial'\np0\n."),
+    ("3.2", "pequeno_terciario", b"S'CE3Xv3.2 Peque\\xf1oTerciario'\np0\n."),
+    ("3.2", "gran_terciario", b"S'CE3Xv3.2 GranTerciario'\np0\n."),
 ])
 def test_la_cabecera_es_la_que_escribe_cada_version(version, tipo, esperado):
     assert VC.cabecera(version, tipo) == esperado
@@ -95,8 +98,9 @@ def test_la_2_3_es_la_misma_cabecera_que_escribia_el_motor():
 
 
 def test_sin_decir_version_se_escribe_la_vigente_y_una_que_no_existe_se_rechaza():
-    assert VC.version_pedida({}) == "3.1"
+    assert VC.version_pedida({}) == "3.2"
     assert VC.version_pedida({"version_ce3x": "2.3"}) == "2.3"
+    assert VC.version_pedida({"version_ce3x": "3.1"}) == "3.1"
     with pytest.raises(GeneracionError):
         VC.version_pedida({"version_ce3x": "3.0"})
 
@@ -341,7 +345,7 @@ def test_la_conversion_solo_toca_cabecera_y_los_pickles_que_cambian_de_forma():
     crudo = _cex_23(con_medida=True)
     salida, avisos, destino = server.convertir(crudo, {})
     antes, despues = L.trocear_bytes(crudo), L.trocear_bytes(salida)
-    assert destino == "3.1" and despues.version == "CE3Xv3.1 Residencial"
+    assert destino == "3.2" and despues.version == "CE3Xv3.2 Residencial"
     for i in (3, 5, 6, 7, 8, 9, 10, 12, 13):
         assert repr(L.leer(antes, i)) == repr(L.leer(despues, i)), f"pickle {i} cambiado"
     p2 = L.leer(despues, 2)
@@ -351,7 +355,39 @@ def test_la_conversion_solo_toca_cabecera_y_los_pickles_que_cambian_de_forma():
     assert any("2.3" in a for a in avisos)
     # Convertir lo ya convertido no hace nada.
     otra, avisos2, _ = server.convertir(salida, {})
-    assert otra == salida and "ya es de CE3X 3.1" in avisos2[0]
+    assert otra == salida and "ya es de CE3X 3.2" in avisos2[0]
+
+
+def test_de_la_3_1_a_la_3_2_solo_cambia_la_cabecera():
+    """La 3.2 guarda la MISMA forma que la 3.1 (medido sobre los ejemplos
+    oficiales de las dos, 08/10/2026): pasar de una a otra es la cabecera."""
+    import server
+    v31, _, _ = server.convertir(_cex_23(con_medida=True), {"version_ce3x": "3.1"})
+    assert L.trocear_bytes(v31).version == "CE3Xv3.1 Residencial"
+    v32, avisos, destino = server.convertir(v31, {})
+    a, b = L.trocear_bytes(v31), L.trocear_bytes(v32)
+    assert destino == "3.2" and b.version == "CE3Xv3.2 Residencial"
+    for i in range(1, 15):
+        assert repr(L.leer(a, i)) == repr(L.leer(b, i)), f"pickle {i} cambiado"
+    assert any("solo cambia la cabecera" in x for x in avisos)
+    # Y de vuelta, igual.
+    otra, _, destino = server.convertir(v32, {"version_ce3x": "3.1"})
+    assert destino == "3.1" and otra == v31
+
+
+def test_las_plantas_sobre_y_bajo_rasante_son_las_del_edificio_entero():
+    """Manual de la 3.2, 6.6: las plantas sobre y bajo rasante describen el
+    EDIFICIO (de Catastro), aunque se certifique una vivienda de un bloque."""
+    ext = VC.extra_31({"generales": {"n_plantas_habitables": {"valor": 1},
+                                     "plantas_edificio": {"valor": {"sobre_rasante": 8,
+                                                                    "bajo_rasante": 1}}}})
+    assert ext["plantas_sobre_rasante"] == "8" and ext["plantas_bajo_rasante"] == "1"
+    # Lo que puso el certificador manda; sin Catastro, las habitables y ninguna bajo.
+    assert VC.extra_31({"ce3x31": {"plantas_sobre_rasante": 3},
+                        "generales": {"plantas_edificio": {"valor": {"sobre_rasante": 8}}}}
+                       )["plantas_sobre_rasante"] == "3"
+    sin = VC.extra_31({"generales": {"n_plantas_habitables": {"valor": 2}}})
+    assert sin["plantas_sobre_rasante"] == "2" and sin["plantas_bajo_rasante"] == "0"
 
 
 def test_se_puede_volver_a_la_2_3_si_no_se_pierde_nada():
@@ -371,9 +407,9 @@ def test_el_final_de_un_inicial_de_la_2_3_sale_en_la_3_1_con_la_potencia_del_exp
             {"servicio": "calefaccion", "nombre": "AEROTERMIA X", "rend": 434, "potencia": 9},
             {"servicio": "acs", "nombre": "AEROTERMIA X", "rend": 300, "potencia": 9}],
         "informe": {"fecha_emision": "2026-10-02", "fecha_visita": "2026-10-02"}})
-    assert analisis["version_inicial"] == "2.3" and analisis["version_final"] == "3.1"
+    assert analisis["version_inicial"] == "2.3" and analisis["version_final"] == "3.2"
     cex = L.trocear_bytes(salida)
-    assert cex.version == "CE3Xv3.1 Residencial"
+    assert cex.version == "CE3Xv3.2 Residencial"
     p4 = L.leer(cex, 4)
     [aero] = p4[G.SLOTS.index("mixto2")]
     assert aero[9] == ["9", "9", ""] and aero[7][-1] == 1
@@ -391,7 +427,7 @@ def test_la_radiografia_dice_la_version_y_lee_lo_nuevo_de_la_3_1():
     import server
     salida, _, _ = server.convertir(_cex_23(), {})
     rx = RX.radiografia_bytes(salida)
-    assert rx["version_ce3x"] == "3.1"
+    assert rx["version_ce3x"] == "3.2"
     assert rx["generales"]["superficie_util"] == 120.0
     assert rx["generales"]["plantas_sobre_rasante"] == 1.0
     [caldera] = rx["equipos"]
@@ -405,7 +441,7 @@ def test_poner_la_medida_respeta_la_version_del_fichero():
     con_medida, _ = server.poner_medida(salida, {"medidas": [
         {"nombre": "AEROTERMIA", "instalaciones": [AEROTERMIA]}]})
     cex = L.trocear_bytes(con_medida)
-    assert cex.version == "CE3Xv3.1 Residencial"
+    assert cex.version == "CE3Xv3.2 Residencial"
     assert len(L.leer(cex, 4)) == 14              # la instalacion, intacta
     assert [m["nombre"] for m in RX.radiografia_bytes(con_medida)["medidas"]] == ["AEROTERMIA"]
 

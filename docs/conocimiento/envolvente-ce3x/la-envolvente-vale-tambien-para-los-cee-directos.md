@@ -44,9 +44,9 @@ otra.
 **REGLA — la ZONA CLIMÁTICA y el AÑO no vienen de ninguna oportunidad.** La zona
 la deriva `ceeDirectoService` del municipio cada vez que se toca la dirección
 (`zona_climatica`, columna de la tabla) y el año lo da Catastro con la
-geometría. Las transmitancias siguen saliendo de `getUByYear`, la MISMA función
-que estudia las oportunidades: la Guía de Transmitancias no cambia porque el
-encargo sea de otro negocio.
+geometría. Las transmitancias salen de la MISMA Guía de Transmitancias que en el
+CAE (desde el 08/10/2026, los «Estimados» de CE3X 3.2, `transmitanciasCe3x.js`,
+regla 129): no cambia porque el encargo sea de otro negocio.
 
 **REGLA — lo que no hay, se TECLEA y se dice.** En un CEE suelto no hay
 `instalacion`: la caldera que hay y el equipo que se pone los escribe el

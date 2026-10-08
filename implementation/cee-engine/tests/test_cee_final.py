@@ -190,13 +190,21 @@ def test_la_medida_que_manda_la_app_se_escribe_sobre_el_final():
     base = _slots([CALDERA])
     medida = _slots([BOMBA])
     crudo = _cex(base, [("AEROTERMIA MARCA 12", medida)])
+    # En la 3.2 las placas van como «Generación renovable eléctrica», mes a mes
+    # (manual de la 3.2, 7.1); en la 2.3, la contribución anual de siempre.
+    meses = [100.0, 110, 125, 130, 140, 145, 150, 145, 130, 120, 105, 100]
     auto = {"nombre": "AUTOCONSUMO FOTOVOLTAICO", "caracteristicas": "placas",
             "instalaciones": [{"slot": "renovable", "nombre": "AUTOCONSUMO FOTOVOLTAICO",
-                               "generacion_electrica_kwh": 1500}]}
+                               "generacion_electrica_kwh": sum(meses),
+                               "generacion_mensual_kwh": meses, "potencia_pico_kwp": 1.0}]}
     salida, analisis, _ = CF.componer(crudo, {"medidas": [auto]})
     assert analisis["medidas_final"] == ["AUTOCONSUMO FOTOVOLTAICO"]
     [g] = L.leer(L.trocear_bytes(salida), G.MEDIDAS)
     assert [r[0] for r in g.estado["sistemasCalefaccionMM"]] == [BOMBA["nombre"]]
+    assert g.estado["sistemasContribucionesMM"] == []
+    assert len(g.estado["listadoGeneradoresElectricoMM"]) == 1
+    salida, _, _ = CF.componer(crudo, {"medidas": [auto], "version_ce3x": "2.3"})
+    [g] = L.leer(L.trocear_bytes(salida), G.MEDIDAS)
     assert [r[0] for r in g.estado["sistemasContribucionesMM"]] == ["AUTOCONSUMO FOTOVOLTAICO"]
 
 

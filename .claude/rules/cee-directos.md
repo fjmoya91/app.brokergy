@@ -31,16 +31,16 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-formulario-se-guarda-solo-y-eso-tiene-una-trampa.md` — El formulario se guarda solo, y eso tiene una trampa · 1,4 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-historico-importado.md` — El histórico importado · 1,1 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-tecnico-acusa-el-encargo-lo-cojo-no-puedo.md` — El técnico ACUSA el encargo: lo cojo / no puedo · 2,6 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/estados.md` — Estados · 0,7 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/estados.md` — Estados · 1,6 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/fuentes-unicas.md` — Fuentes únicas · 1,0 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-direccion-se-elige-no-se-teclea.md` — La dirección se ELIGE, no se teclea · 1,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-direccion-se-trae-del-catastro-y-se-puede-corregir.md` — La dirección se trae del Catastro, y se puede corregir · 3,3 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-entrega-al-cliente-se-dispara-sola.md` — La entrega al cliente se dispara SOLA · 2,9 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-entrega-al-cliente-se-dispara-sola.md` — La entrega al cliente se dispara SOLA · 3,5 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-factura-se-emite-contra-el-libro-de-facturas-de-appsheet.md` — La FACTURA se emite contra el libro de facturas de AppSheet (2026-09-23) · 5,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-ficha-del-cee-es-una-linea-de-datos-no-un-formulario.md` — La ficha del CEE es UNA LÍNEA de datos, no un formulario · 2,0 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-oferta-el-paso-anterior-al-expediente.md` — La OFERTA — el paso anterior al expediente (2026-09-23) · 4,8 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/lo-que-se-comparte-importado-y-no-copiado.md` — Lo que se comparte, IMPORTADO y no copiado · 1,4 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-avisos-al-cliente-como-en-el-cae.md` — Los avisos al CLIENTE, como en el CAE (2026-09-23) · 1,5 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-avisos-al-cliente-como-en-el-cae.md` — Los avisos al CLIENTE, como en el CAE (2026-09-23) · 2,2 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-ficheros-los-coloca-el-servidor-no-el-navegador.md` — Los FICHEROS los coloca el SERVIDOR, no el navegador · 2,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/numeracion-aaaa-cee-n.md` — Numeración — `{AAAA}CEE_{n}` · 0,9 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/que-ve-el-certificador-y-que-no.md` — Qué ve el certificador — y qué NO · 1,5 KB
@@ -69,6 +69,8 @@ render?".**
   - **REGLA — el gesto es el MISMO que en el CAE.**
   - **REGLA — aceptar es automático; RECHAZAR nunca.**
   - **REGLA — al rechazar se RETIRA el certificador**
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/estados.md`
+  - **REGLA — el encargo de PRESENTAR también cuenta**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-direccion-se-elige-no-se-teclea.md`
   - **REGLA — comunidad, provincia y municipio van por SELECTOR en cascada.**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-direccion-se-trae-del-catastro-y-se-puede-corregir.md`
@@ -77,8 +79,8 @@ render?".**
   - **REGLA — si hay que CREAR el cliente, su ficha nace con la dirección del
 inmueble**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-entrega-al-cliente-se-dispara-sola.md`
-  - **REGLA — solo se le mandan DOS ficheros: el PDF firmado y el justificante de
-registro.**
+  - **REGLA — se le mandan TRES ficheros: el PDF firmado, el justificante de registro y
+la ETIQUETA**
   - **REGLA — la idempotencia se comprueba ANTES que nada.**
   - **REGLA — los adjuntos se vuelven a comprobar al descargarlos.**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-factura-se-emite-contra-el-libro-de-facturas-de-appsheet.md`
@@ -101,6 +103,9 @@ registro.**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/lo-que-se-comparte-importado-y-no-copiado.md`
   - **REGLA — un endpoint nuevo del módulo CEE se declara en LAS DOS rutas**
   - **REGLA — el gemelo se ESCRIBE, no se bifurca.**
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-avisos-al-cliente-como-en-el-cae.md`
+  - **REGLA — al
+  cliente NO se le escribe solo: te PREGUNTA la app**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-ficheros-los-coloca-el-servidor-no-el-navegador.md`
   - **REGLA — ninguna ruta de carpeta llega desde el cliente.**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/que-ve-el-certificador-y-que-no.md`

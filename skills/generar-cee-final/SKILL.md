@@ -1,9 +1,77 @@
 ---
 name: generar-cee-final
-description: 'GENERA el CEE FINAL (.cex de CE3X) de un expediente CAE RES060 o RES093 a partir de la MEDIDA DE MEJORA del CEE inicial que ya entregó el técnico: el «edificio mejorado» de esa medida pasa a ser el certificado final (misma envolvente, mismos datos, mismo técnico, mismas imágenes; la instalación, la de la medida TAL CUAL). En una HIBRIDACIÓN (RES093) le pone como medida de mejora retirar la caldera que quedó en apoyo, con la bomba de calor al 100 %; en una sustitución (RES060), el autoconsumo si procede; y medidas de AISLAMIENTO de cubierta o fachada con su solución constructiva. Deja `{nº} - CEE FINAL_REVISAR.cex` en «1. CEE / CEE FINAL» y dice qué tiene que dar al calificarlo en CE3X. Úsalo cuando el usuario diga "genera el CEE final de NNN", "el final como aparece en la medida de mejora", "prepárame el CEE final para visto bueno y firmar". Es el mismo camino que el botón «Generar» de la fila del CEE final en la app. RES080 NO (segunda fase).'
+description: 'GENERA el CEE FINAL (.cex de CE3X 3.2, con su XML y su PDF) de un expediente CAE. RES060 (sustitución): COPIA el CEE inicial del técnico, le cambia las instalaciones por las INSTALADAS (las del expediente) y, si no hay placas, le pone como medida de mejora el AUTOCONSUMO máximo mes a mes sacado del XML del propio final (PVGIS, fotovoltaica a 1.000 €/kWp). RES093 (hibridación): desde la MEDIDA DE MEJORA del inicial, retirando la caldera que quedó en apoyo. RES080 (reforma): el final lleva TODO lo que ha cambiado (ventanas, aislamientos, instalaciones), por el camino del PREVISTO. Deja `{nº} - CEE FINAL_REVISAR.cex/.xml/.pdf` en «1. CEE / CEE FINAL». Úsalo cuando el usuario diga "haz / genera el CEE final de NNN", "prepárame el CEE final para visto bueno y firmar".'
 ---
 
-# Generar el CEE final desde la medida de mejora del inicial
+# Generar el CEE final
+
+## RES060: se COPIA el inicial (decisión del usuario, 08/10/2026 — «grabado a fuego»)
+
+Cuando el usuario pide el CEE final de un **RES060**, el procedimiento es SIEMPRE este, sin
+preguntarlo (solo se preguntan las fechas de visita y emisión):
+
+1. **Se copia el CEE INICIAL del técnico** (el `.cex` de «1. CEE / CEE INICIAL» sin `_REVISAR`): su
+   envolvente, sus datos, su técnico y sus imágenes, tal cual.
+2. **Se cambian las INSTALACIONES por las que se han INSTALADO de verdad**: las del expediente, ya
+   corregidas por placas y facturas (no las de la medida de mejora que tecleó el técnico). El
+   generador viejo se retira; el ACS de otra máquina va como segundo equipo con el depósito.
+3. **Si la vivienda no tiene placas, la medida de mejora es el AUTOCONSUMO, el MÁXIMO que se permite
+   MES A MES**: primero se califica el final SIN medida para tener SU XML; de ese XML sale el consumo
+   eléctrico de cada mes (no del inicial: con una caldera de gasóleo casi no hay electricidad y la
+   potencia sale ridícula); los kWp, con PVGIS, para el 90 % del consumo eléctrico anual del final;
+   y cada mes se declara lo menor entre producción y consumo. Al calificar, CE3X recorta los meses
+   que aún se pasen de SU consumo y ese `.cex` ajustado es el que se sube (regla 126).
+4. **Inversión del autoconsumo: 1.000 € por kWp** (con 25 años de vida útil).
+5. **Si el catálogo no tiene el SEER de la bomba, se pone el EER de su ficha técnica** (en
+   `PATCH /api/aerotermia/:id/datos-rite`, campo `seer`): con suelo radiante o splits la bomba da
+   frío y sin SEER saldría sin refrigeración (regla 72).
+6. **En la versión vigente de CE3X (3.2)**. Un inicial de la 2.3 o la 3.1 se convierte al copiarlo.
+
+```bash
+# desde implementation/backend · motor levantado · CE3X 3.2 en el PC
+node scripts/cee_final_copiando.js 26RES060_178 --fecha=2026-10-08            # en seco (califica, no sube)
+node scripts/cee_final_copiando.js 26RES060_178 --fecha=2026-10-08 --escribir # .cex/.xml/.pdf a Drive + aviso
+```
+
+`node scripts/cee_final.js <RES060>` lleva aquí solo (con los mismos argumentos); `--desde-medida`
+fuerza el camino viejo. Opciones: `--fecha-visita=`, `--version=` (3.2 por defecto), `--base=ruta.cex`
+(copiar otro inicial), `--guardar=ruta.cex` (copia local), `--sin-aviso`. Fuente única:
+`services/cee/ceeFinalCopiando.js` (encadena `componerFicha` → motor `/cex/instalaciones` →
+`cexAPdf.calificarCex`, dos vueltas). Las fechas del informe son las del FINAL (las del inicial no
+pasan; sin fecha, en blanco y avisado) y el texto de las pruebas del técnico se respeta.
+
+El informe dice: de qué inicial parte, las instalaciones escritas (con sus %), la calificación SIN
+medida (es la del certificado), los kWp, los kWh declarados mes a mes, cuántos meses ajustó CE3X
+(antes → después), la inversión y los enlaces. Caso: **26RES060_178** (08/10/2026) — Extensa S 10
+(453 % cal. · 280 % ref. con el EER de la FT) + Aeromax ACS → B (19,3) / C (113,92); autoconsumo
+10,61 kWp · 10.610 € · 12.074 → ~12.012 kWh (CE3X ajustó mayo, junio y octubre).
+
+## RES080 (reforma): el final lleva TODO lo que ha cambiado
+
+En un RES080 la obra toca la envolvente, así que el final no es «el inicial con otra máquina»: es la
+vivienda con **toda** la reforma hecha. Es el mismo camino que el **PREVISTO** (regla 117, skill
+`generar-cee-inicial`, bloque `previsto` del plan, motor `/cex/previsto`), pero con lo que se ha
+hecho DE VERDAD:
+
+- **Qué cambia** lo dicen las marcas «- CAMBIA» del plano (regla 66): ventanas, paredes que se
+  aíslan, la parte de la cubierta que se rehace. Compruébalo contra las FACTURAS y las fotos del
+  después: si se cambiaron más o menos ventanas que las presupuestadas, se corrige antes.
+- **Ventanas nuevas** a «Conocidas», con los datos de SU ficha o factura (U marco, U vidrio, g,
+  % de marco, permeabilidad); sin datos, U marco 1,3 · U vidrio 1,3 · g 0,43 · 20 % · clase 3. Una
+  puerta conserva su % de marco.
+- **Lo aislado** con su U nueva en «Conocidas» — **la U se PREGUNTA (o λ y espesor), nunca se
+  supone**; una medianera no se aísla y un suelo contra el terreno no admite U conocida.
+- **Ventilación 0,53** y **masa «Ligera»**, siempre.
+- **Instalaciones**: las INSTALADAS (como en el RES060), con el SEER ← EER de la FT si falta.
+- **Fechas de visita y emisión del final** y, si no hay placas, **la medida de AUTOCONSUMO máximo mes
+  a mes** con el XML de ese final, a 1.000 €/kWp, como en el RES060. En CE3X 3.2.
+
+Hoy no hay un comando único para el final de un RES080: se hace el previsto con los datos reales
+sobre el inicial REVISADO del técnico (ver `generar-cee-inicial`, «RES080: el INICIAL y el
+PREVISTO»), y las fechas y la medida de autoconsumo se ponen después. **Dilo** en el informe y
+pregunta antes de improvisar otro camino.
+
+## RES093 (hibridación): desde la medida de mejora del inicial
 
 El CEE final no se levanta de cero: se abre el **CEE inicial que entregó el certificador** (el que ya
 pasó la revisión, con su medida de mejora **calculada** por CE3X) y su «edificio mejorado» pasa a ser
@@ -37,9 +105,13 @@ el final. Es como se hace a mano, y la app lo hace igual:
   administrativos y generales, el técnico, las imágenes y el texto de las pruebas son los suyos, byte a
   byte.
 - **Lo CALCULA CE3X, y ya sin abrir su ventana**: con `--escribir`, el script lo califica con el
-  motor de CE3X 3.1 instalado en el PC (`services/cee/cexAPdf.js`, ≈1 min) y deja al lado del `.cex`
-  su **`.xml` y su `.pdf` oficial** (`… CEE FINAL_REVISAR.xml/.pdf`), con las medidas calculadas. Si
-  no hay CE3X en el equipo, lo dice y el `.cex` se queda igual. Todo lleva `_REVISAR` (la rejilla no
+  motor de CE3X 3.2 instalado en el PC (`services/cee/cexAPdf.js`, ≈1 min; lo arranca oculto) y deja
+  al lado del `.cex` su **`.xml` y su `.pdf` oficial** (`… CEE FINAL_REVISAR.xml/.pdf`), con las
+  medidas calculadas (en la 3.2 van en el Anexo III del propio certificado, no en un PDF aparte). Si
+  no hay CE3X en el equipo, lo dice y el `.cex` se queda igual.
+- **Sale en CE3X 3.2** (la vigente desde el 08/10/2026; la 2.3 solo si el usuario la pide). Un inicial
+  del técnico hecho en la 3.1 o la 2.3 se convierte al copiarlo: de la 3.1 solo cambia la cabecera y
+  calcula igual. Todo lleva `_REVISAR` (la rejilla no
   lo toma por la entrega del técnico) y nunca se dice «listo» a secas: falta revisarlo y firmarlo.
 - Proyecto Supabase `app.brokergy` → `okfeopwetlxdffrsbfqw`. Motor (cee-engine) levantado en
   `CEE_ENGINE_URL` (local: `http://127.0.0.1:8090`, `preview_start cee-engine`).
@@ -80,6 +152,9 @@ node scripts/cee_final.js 26RES093_11 --fecha=2026-09-30 --escribir \
 | `--calificar` | Sin `--escribir`: lo califica igual y dice si cuadra (con `--guardar`, deja el `.xml` y el `.pdf` junto a la copia local) |
 | `--guardar=ruta.cex` | Una copia local (sin `--escribir`, SOLO la copia local) |
 | `--json` | El análisis en JSON |
+| `--version=2.3\|3.1\|3.2` | Versión de CE3X del final. Sin ella, la **3.2** (la vigente); la 2.3 solo si el usuario la pide expresamente |
+| `--base=ruta.cex` | Parte de ESE `.cex` local y no del que entregó el técnico en Drive (lo dice en los avisos). Para cuando el técnico calculó su medida pero guardó el `.cex` ANTES de añadirla («no tiene medida de mejora» y su `.xml` sí la trae): se le pone la del expediente con las funciones de `revisionCex.ponerMedida` sin subirla, y el final sale de esa copia |
+| `--desde-medida` | En un RES060, usa ESTE camino y no el de copiar el inicial (solo si el usuario lo pide) |
 
 **Sin `--escribir` ni `--guardar` no se toca nada.** Siempre primero en seco.
 
@@ -111,7 +186,7 @@ node scripts/cee_final.js 26RES093_11 --fecha=2026-09-30 --escribir \
 | Ficha | Por defecto | Por qué |
 |---|---|---|
 | **RES093** (hibridación) | **Retirar el generador en apoyo**: la bomba de calor asume el 100 % de lo que compartía con la caldera | Es lo que queda por hacer: la caldera sigue dando servicio |
-| **RES060** (sustitución) | **Autoconsumo fotovoltaico**, si la vivienda no tiene ya placas | La aerotermia ya está puesta: proponerla describiría otra vivienda (regla de `medidasCe3x`) |
+| **RES060** (sustitución) | **Autoconsumo fotovoltaico** máximo mes a mes, si la vivienda no tiene ya placas — por el camino de COPIAR el inicial (arriba) | La aerotermia ya está puesta: proponerla describiría otra vivienda (regla de `medidasCe3x`) |
 | **Con placas ya instaladas** (cualquier ficha) | Además, **aislamiento de cubierta** | El autoconsumo no cabe y el final necesita una medida que proponer |
 
 ### Las medidas de ENVOLVENTE: aislamiento de cubierta y de fachada
@@ -134,16 +209,37 @@ cubierta que guardó CE3X para 26RES093_11.
 - La retirada **no se decide por la ficha sino mirando el fichero**: un equipo del inicial cuya parte
   de un servicio BAJA en la medida es el generador en apoyo; el equipo nuevo que comparte ese servicio
   con él es la bomba. Una caldera **mixta** que sigue con el ACS se queda, con la calefacción a 0.
-- Si el `.cex` del técnico ya declara **placas existentes**, el autoconsumo no se ofrece.
+- Si el `.cex` del técnico ya declara **placas existentes** (como «Generación renovable eléctrica» o
+  como contribución), el autoconsumo no se ofrece.
 - Un RES060 con placas sale **sin medida de mejora**, y se dice: hay que definirla en CE3X.
+
+### La medida de AUTOCONSUMO en la 3.2
+
+- **Va SIEMPRE en «Generación renovable eléctrica»**: potencia pico (de PVGIS) y autoconsumo MES A
+  MES (manual de la 3.2, 7.1); nunca en «Contribuciones energéticas». Sin los doce meses (PVGIS no
+  responde) el motor no escribe la medida y lo dice: se vuelve a generar.
+- **Cada mes se declara lo MENOR entre la producción de PVGIS de ese mes y el consumo eléctrico de
+  calefacción + refrigeración + ACS** (y la iluminación fuera del residencial privado) **de ese
+  mes** (decisión del usuario, 2026-10-08). La app lo saca del XML del CEE que manda (el final si
+  está, si no el inicial) con el reparto mensual de CE3X (`autoconsumoMensual.js`). CE3X 3.2 solo
+  calcula con el TOTAL anual, pero avisa de cada mes que se pasa. El 90 % del máximo declarable
+  sigue valiendo para DIMENSIONAR los kWp. Medido en 2026CEE_58 (5 kWp): de 8.170 kWh de PVGIS
+  quedan ~5.717 y el ahorro de la medida baja del 52,8 % al 45,9 %.
+- **Al calificar lo AJUSTA CE3X** (`--escribir` o `--calificar`): cada mes avisado se recorta al
+  consumo EXACTO que calcula CE3X, se recalcula y se guarda el `.cex` con CE3X. **Ese `.cex` ajustado
+  es el que se sube** a «1. CEE / CEE FINAL» (sustituye al otro, que va a OLD) junto a su XML y su
+  PDF, y es el que deja `--guardar`. El script lo dice: «Autoconsumo de la medida «…»: en N meses
+  (…) pasaba del consumo … se ha ajustado cada uno a su consumo (X → Y kWh)». Llévalo al informe.
 
 ## Reglas que no se rompen
 
-- **Solo RES060 y RES093.** En un RES080 la medida del inicial toca la envolvente y el final tiene que
-  llevar esa obra: es la segunda fase. El servicio se niega y el motor también (si la medida cambia la
-  envolvente, no escribe).
+- **RES060 → copiando el inicial** (`cee_final_copiando.js`); **RES093 → desde la medida**
+  (`cee_final.js`); **RES080 → el previsto con lo que se ha hecho de verdad** (arriba). El camino
+  «desde la medida» se niega en un RES080 y el motor también (si la medida cambia la envolvente, no
+  escribe).
 - **Solo sobre el `.cex` del TÉCNICO**, con medida. Sin él → 409. El borrador `_REVISAR` de la app no
-  vale: no está calculado.
+  vale: no está calculado. La única salida es `--base`: SU `.cex` con la medida del expediente puesta
+  por la app (sin calcular, y se avisa), cuando él la calculó pero guardó el fichero antes.
 - **Con varias medidas manda la que imprime su informe**; si no se sabe cuál, se pregunta.
 - **No se genera sobre un CEE final ya REGISTRADO.**
 - **Al escribir, avisa al equipo** (WhatsApp + email, como un técnico que sube su archivo) y lo anota
@@ -152,18 +248,21 @@ cubierta que guardó CE3X para 26RES093_11.
 
 ## Lo que queda por hacer (el informe final lo dice SIEMPRE)
 
-1. **La calificación** ya la ha hecho el script con CE3X 3.1 (línea «CE3X lo califica: …») y dice si
+1. **La calificación** ya la ha hecho el script con CE3X 3.2 (línea «CE3X lo califica: …») y dice si
    **coincide** con lo que CE3X calculó para la medida del inicial. Si NO coincide, **no se emite**:
    algo no es el edificio de la medida. **Salvo si se corrigieron equipos**: entonces sale otra cifra
    (con el rendimiento real) y es la buena. Sin CE3X en el PC: abrir el `.cex` en CE3X → Calificar.
 2. Comprobar que la **demanda de ACS** del final es **la misma que la del inicial** (lo garantiza el
    depósito heredado; si no coincide, revisa «Con acumulación» del equipo de ACS).
-   Y que **cada equipo de cada medida lleva su POTENCIA** (CE3X 3.1 la pide por servicio y sin ella no
+   Y que **cada equipo de cada medida lleva su POTENCIA** (CE3X 3.x la pide por servicio y sin ella no
    escribe el XML): el motor se la pone desde 2026-10-05 (`medidas_equipos_a_31`) — la del técnico si
    ya la tenía, la del expediente si consta, o por defecto y avisado. Lo que salga por defecto, dilo.
-3. Revisar el **`.pdf` `_REVISAR`** que ha dejado el script (lleva las medidas ya calculadas). Si se
-   corrige algo en CE3X, regenerar el PDF: `node scripts/cex_a_pdf.js "<ruta del .cex>"` o, desde el
-   Explorador, botón derecho sobre el `.xml` → Enviar a → «PDF del CEE (CE3X 3.1)».
+   Con **autoconsumo**: cuántos meses ajustó CE3X, los kWh declarados (antes → después) y el ahorro
+   que queda.
+3. Revisar el **`.pdf` `_REVISAR`** que ha dejado el script (lleva las medidas ya calculadas, en su
+   Anexo III). Si se corrige algo en CE3X, regenerar el PDF: `node scripts/cex_a_pdf.js "<ruta del
+   .cex>"` (también ajusta el autoconsumo y deja el `.cex` ajustado; `--sin-ajustar` solo avisa) o,
+   desde el Explorador, botón derecho sobre el `.xml` → Enviar a → «PDF del CEE (CE3X 3.2)».
 4. Guardar los tres como `{nº} – CEE FINAL.*` (sin `_REVISAR`: es lo que los hace entrega).
 5. Subirlos a la fila del **CEE final** del expediente → revisión (lupa) → visto bueno → el técnico
    firma y registra.
@@ -177,6 +276,7 @@ node implementation/backend/scripts/test_medidas_aislamiento.mjs
 node implementation/backend/scripts/cee_final.js 26RES093_11      # caso real, en seco
 ```
 
-Casos de referencia: **26RES060_184 y 26RES060_185** (equipos corregidos por el expediente) y
+Casos de referencia: **26RES060_178** (08/10/2026, el RES060 copiando el inicial: arriba),
+**26RES060_184 y 26RES060_185** (equipos corregidos por el expediente, por el camino viejo) y
 **26RES093_11** (30/09/2026) — el `.cex` que sale por aquí es idéntico byte a
 byte al montado a mano (caldera 3 % + aerotermia 97 % → medida: aerotermia 100 %, caldera fuera).

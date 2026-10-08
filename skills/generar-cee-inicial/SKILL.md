@@ -44,7 +44,7 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `pedir-fotos <clave> [--paredes …] [--enviar]` | El **WhatsApp al propietario** pidiendo la foto de las paredes que no se han podido resolver, una por lado, numeradas y con su plano en rojo. **En seco** salvo `--enviar` (solo con el «sí» del usuario); al enviar, el CEE queda «esperando las fotos» | con `--enviar` |
 | `eprel <modelo>` | Busca el modelo en EPREL y baja su ficha (ES) y su etiqueta | nada |
 | `alta-aerotermia --json d.json [--ficha ft.pdf:1,3-4] [--eprel-fiche f.pdf] [--eprel-label l.pdf]` | Da de alta el equipo en el catálogo y guarda la ficha unida en Drive | con `--escribir` |
-| `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla). Además lo **califica con CE3X 3.1 en el PC** (≈1 min, sin abrir su ventana) y deja al lado su **`.xml` y su `.pdf` oficial** (`… _REVISAR.xml/.pdf`); `--sin-pdf` lo salta. En seco, `--calificar` lo califica y los deja junto a la copia local | con `--escribir` |
+| `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla). Además lo **califica con CE3X 3.2 en el PC** (≈1 min, sin abrir su ventana) y deja al lado su **`.xml` y su `.pdf` oficial** (`… _REVISAR.xml/.pdf`); `--sin-pdf` lo salta. Si el autoconsumo de algún mes pasa del consumo de ese mes, CE3X lo ajusta y el `.cex` que sube es ESE (punto 13 de «Lo que hay que poner SIEMPRE»). En seco, `--calificar` lo califica y los deja junto a la copia local | con `--escribir` |
 | `rehacer <clave> [--plan plan.json]` | **Rehace el CEE sobre lo corregido A MANO en la pizarra** (tras «Así es como está»): imprime la revisión (nota y cambios) y los huecos dibujados que quedan por medir, y aplica el plan sobre el trabajo guardado sin deshacer nada de lo dibujado (ver «Rehacer el CEE tras una corrección A MANO»). Marca la revisión como rehecha | con `--escribir` |
 | `instalacion <clave> --plan plan.json` | **Solo lo de las PLACAS a la app** (Instalación del expediente, o inputs de la oportunidad), con el mismo plan que `aplicar`: sin `.cex`, sin Drive, sin aviso al equipo. Para un CEE ya hecho al que le falta la Instalación rellena | con `--escribir` |
 | `croquis <clave> [--fase final]` | El **croquis en PDF** de lo que YA hay (trabajo guardado + `.cex` de la carpeta): plano de obra por planta con la marca de BROKERGY, a escala, con muros, huecos, cotas y zonas, y los cuadros de huecos, superficies y cerramientos (sin avisos: vale para una auditoría). `aplicar --escribir` ya lo hace solo | con `--escribir` (sube `… - CEE INICIAL_CROQUIS.pdf` junto al `.cex`) |
@@ -82,7 +82,10 @@ nada**: siempre primero en seco.
    oportunidad: la instalación actual sale del **cuestionario** del cliente
    (`documentacion.cuestionario`: calefacción, ACS, aires, placas) y se TECLEA en el plan
    (`ajustes.instalacion` / `ajustes.equipos_extra`), con el aviso de que no viene de una placa.
-   **La versión de CE3X**: por defecto la **3.1**; la 2.3 solo si se pide (`ajustes.version_ce3x`).
+   **La versión de CE3X**: por defecto la **3.2** (la vigente desde el 08/10/2026; la 3.1 ya no
+   está en el PC); la 2.3 solo si el usuario la pide expresamente (`ajustes.version_ce3x`). Los
+   **Datos generales** de la 3.2 se rellenan con el criterio del punto 16 de «Lo que hay que poner
+   SIEMPRE» (plantas sobre y bajo rasante: las del EDIFICIO entero).
 2. **`placas`**, y **abre las fotos de las placas** para contrastar marca, modelo, potencia y serie.
    - La CALDERA: la potencia que va al `.cex` es la **útil** (`Pn`, *Output*, *Puissance rendue*),
      no el consumo (`Qn`, *Input*). En una placa policombustible, la del combustible del expediente.
@@ -251,20 +254,51 @@ como su medida de mejora. Ahora lo hace `aplicar` con el bloque **`previsto`** d
 
 - La medida del inicial **ES** el previsto: los equipos del previsto salen de las MISMAS medidas de la
   ficha y el motor los escribe con la MISMA función que una medida. No pueden contar dos obras.
-- Necesita CE3X 3.1 en el PC (como el XML/PDF). Sin él (`--sin-pdf`), el previsto se guarda pero la
+- Necesita CE3X 3.2 en el PC (como el XML/PDF). Sin él (`--sin-pdf`), el previsto se guarda pero la
   medida hay que ponerla a mano en CE3X («Cargar edificio») y el XML cargarlo como CEE final: dilo.
 - En una **oportunidad** el XML del previsto no se carga (no hay CEE final): se carga al aceptarla.
+- **Si el usuario ya revisó el INICIAL** (el `.cex` sin `_REVISAR` de la carpeta, hecho a mano o por
+  el técnico), el previsto se hace sobre ESE fichero y no sobre uno regenerado: se pasa a la 3.2
+  con `python implementation/cee-engine/tools/convertir_cex.py <inicial>.cex` (por defecto `--a 3.2`;
+  deja `<inicial>_v32.cex`; de una 3.1 solo cambia la cabecera) — no cambia el cálculo:
+  compruébalo con la calificación — y se le pide el previsto al motor (`/cex/previsto`) con los
+  equipos de `medidasCe3x` y el bloque `previsto`, como hace `aplicar`. Caso: 26RES080_87 (se hizo
+  pasándolo a la 3.1, la vigente entonces).
+- La medida «Nuevo Edificio» del inicial tiene que verse en CE3X como **«Nuevo Edificio Completo»**
+  en el árbol de medidas. Si sale «Nuevas Instalaciones», al pulsarla da error: es el fallo
+  corregido el 07/10/2026 en `medida_previsto.py` (ver CLAUDE.md, regla 117).
 
 ## Reglas que no se rompen
 
 - **Lo dibujado a mano en la pizarra MANDA** sobre las fotos y sobre Catastro: solo se miden sus
   huecos (`medir`). Ver «Rehacer el CEE tras una corrección A MANO».
+- **En CE3X 3.x (3.1 y 3.2) las RECOMENDACIONES DE USO van SIEMPRE** (Anexo III, apartado 1,
+  «Recomendaciones de uso del edificio o parte del edificio»; decisión del usuario, 2026-10-07). Las
+  pone el motor cuando la casilla está vacía, en TODOS los caminos: generar, convertir (de la 2.3 o
+  la 3.1 a la 3.2), el previsto, «poner la medida» y el CEE final. Las del técnico, si las
+  escribió, no se tocan. En la 3.2 las **medidas de mejora ya no salen en un PDF aparte**: van
+  en el Anexo III del propio certificado.
+  **Antes de entregar, abre el PDF del certificado y comprueba que ese apartado NO sale en blanco**
+  (en 26RES080_87 salió vacío al convertir el inicial revisado: ya está corregido). Si sale vacío,
+  no lo des por bueno: dilo.
 - **Una ventana con balcón es una BALCONERA**: `ventana` de ~2,10 m de alto, no `puerta` (una puerta
   sale de madera al 90 % de marco; una balconera es un hueco acristalado).
 - **Una puerta de patio acristalada** va como `puerta` con `porc_marco` 30-40 y su marco y vidrio.
 - **El garaje, un trastero o un porche NO son vivienda**: van al croquis (o a `zonas_fuera`) y sus
   huecos NO se ponen — la puerta del garaje, y también las ventanas que el reparto deje dentro del
   garaje. Un porche abierto es `PORCHE` (exterior), no un espacio no habitable.
+- **Contra qué da una pared pegada al VECINO lo decide QUÉ HAY al otro lado** (criterio de Fran,
+  2026-10-08). **Primero se mira qué dice Catastro** (uso del colindante, cartografía, croquis por
+  plantas) y **luego se CONFIRMA con las imágenes** (fotos, Street View, vista aérea); si no casan,
+  mandan las imágenes y se dice:
+  - una **casa con habitaciones** (vivienda calefactada) → **MEDIANERA**;
+  - una **nave cerrada**, el **garaje** de una casa, un almacén o un trastero → **PARTICIÓN
+    VERTICAL** (espacio no habitable): `"tipos": { "FBE1": "PARTICION_VERTICAL" }`;
+  - nada construido (calle, patio, solar) → **FACHADA**.
+  En las imágenes: la vista aérea (cubierta de chapa o plana de una nave) y Street View (portón de
+  nave o de cochera). Caso 26RES060_221: la pared este de la planta baja daba a la nave
+  del vecino (Catastro la tenía como fachada y como medianera) → partición vertical. Si no se puede
+  saber qué hay, se pregunta en el informe en vez de suponerlo.
 - **Las superficies por planta tienen que casar con Catastro**: vivienda + garaje + porche de cada
   planta. Lo comprueba el propio `aplicar` («CROQUIS ajustado … (Catastro …)»).
 - **El ACS que da otro aparato** (un termo): la caldera va `da_acs: false` y el termo en `acs_aparte`.
@@ -314,9 +348,25 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
 (26RES060_210, 2026-10-02) y que tienen que salir ya en el primer `.cex`:
 
 1. **La AEROTERMIA del PRESUPUESTO, en el expediente y en el `.cex`.** Sin fotos de placas, el equipo
-   que manda es el del presupuesto (`DOC_PRESUPUESTO`): búscalo en el catálogo por su CÓDIGO comercial
+   que manda es el del presupuesto: búscalo en el catálogo por su CÓDIGO comercial
    («LAVX1123DV» → id 43, ERLA11D2V3 + EBVX11S23DJ6V) y ponlo en `aerotermia_id`. Sin aerotermia en el
    expediente **la medida de mejora no se escribe** (aviso «No consta el equipo nuevo»).
+   - **Dónde está el presupuesto — mira SIEMPRE los DOS sitios** (2026-10-08, 26RES060_209): el slot
+     `DOC_PRESUPUESTO` de «12.» **y la carpeta `0. PRESUPUESTO` del Drive del expediente**. En el 209 el
+     slot solo tenía la cifra estimada (12.000 €, sin partidas) y el presupuesto real del instalador
+     —con la máquina— estaba en `0. PRESUPUESTO/PRESUPUESTO DE LA INSTALACIÓN.pdf`. Léelo (PyMuPDF
+     saca el texto) y di en el informe de dónde sale el equipo.
+   - **`aerotermia_generica` es el ÚLTIMO recurso**: solo si en ninguno de los dos sitios hay un
+     presupuesto que nombre la máquina. Si la hay, la medida va con ESA, no con la de la simulación.
+   - **En un EXPEDIENTE, `aerotermia_id` no escribe la Instalación** (allí la aerotermia no se toca
+     desde `aplicar`). Se pone con `proponerPlacas` ([placasInstalacion.js](../../implementation/backend/services/placasInstalacion.js)),
+     la MISMA función del botón «Leer placas»: `equipos.unidades` con los códigos de la ud. exterior e
+     interior, `equipoId` del catálogo, primero `simular` y luego `aplicar`. Así el SCOP (por emisor y
+     zona) y el bloque de ACS del conjunto salen de las funciones del desplegable. Luego `aplicar` del
+     CEE ya la lleva en la medida.
+   - **Si el presupuesto nombra solo la EXTERIOR** («MÁQUINA INTERIOR CON ACS» sin modelo) y en el
+     catálogo hay varias interiores con ella, **se PREGUNTA cuál** (con la recomendada primero): cada
+     una tiene su depósito y su SCOP_dhw. En el 209 se eligió EHVX08S18EJ6V (180 l, id 211).
    - Si hay **dos filas** del mismo equipo, elige la que nombra el presupuesto y, a igualdad, la que
      tenga **SEER** (con suelo radiante o splits la medida declara también el frío, y sin SEER sale
      sin él) y **litros** de depósito.
@@ -334,8 +384,22 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    claro en el tejado). Nace dudoso.
 4. **AIRE ACONDICIONADO**: si el cliente confirmó al aceptar que tiene aires (`confirmacion_cliente`,
    lo avisa la ficha), pon `"aires": true`. En un CAE va como **«Equipo de sólo refrigeración» —
-   máquina frigorífica** (250 %), repartiendo el 100 % del frío; en un CEE directo, «calefacción y
-   refrigeración». Los aires se QUEDAN en la medida: la aerotermia cubre el frío que no cubren ellos.
+   máquina frigorífica** (250 %); en un CEE directo, «calefacción y refrigeración» (ahí se sigue
+   repartiendo el 100 %). Los aires se QUEDAN en la medida: la aerotermia cubre el frío que no
+   cubren ellos. **En un RES060 (cambio de caldera), SIEMPRE «máquina frigorífica» (sólo frío)**,
+   sin esperar a su placa (decisión de Fran, 2026-10-07, 26RES060_223):
+   `"aires": { "n": <los que dijo el cliente>, "modo": "refrigeracion" }`.
+   **Un aire NO cubre la casa** (decisión de Fran, 2026-10-08): cada aparato enfría su estancia,
+   **~40 m², entre el 10 % y el 25 % de la vivienda**, y entre todos como mucho el 100 % —se llega
+   a partir de 4 en una casa de hasta 160 m²; una más grande necesita más—. Lo que no cubren lo
+   pone CE3X con su sistema por defecto. **Potencia de frío de cada uno: 0,1 kW por m² que sirve,
+   entre 3 y 5 kW.** Lo calcula `repartoAires` / `potenciaAireKw` (fichaCe3x.js), lo mismo que el
+   bloque de la ventana: no pongas `potencia_kw` salvo que haya foto de su placa, que manda.
+   Ej.: 1 aire en 233 m² → 17 % (39,6 m²) y 4 kW; 5 aires en 142 m² → 5 × 20 % y 3 kW.
+   **Las TRANSMITANCIAS no se tocan en el plan** (desde 2026-10-08): la ficha escribe en «Conocidas»
+   las U y masas que CE3X 3.2 pone con «Estimados según antigüedad y zona climática», por la
+   normativa del `.cex` y su zona NBE (regla 129, Guía en «03. OPERACIONES / 02. MANUALES»). Solo
+   con documentación de la obra (proyecto, cata) se retoca una U, y se dice en el informe.
 5. **Una parcela con VARIOS inmuebles** (`paredes` avisa «FLOOR_AREA_MISMATCH» y Catastro declara mucho
    menos que la huella): el edificio no es la vivienda. Mira la lista de inmuebles de la parcela
    (otra vivienda, un garaje de otro titular). Hay que **delimitar la vivienda** («✂ Delimitar adosado»
@@ -350,7 +414,7 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
 8. **La CALDERA**: si la «placa» es la de la centralita (Vitotronic, Logamatic…), la marca y el
    modelo salen del frontal y la **potencia no consta**: va con 24 kW por defecto y se pide la foto de
    la placa de la propia caldera.
-9. **La POTENCIA de cada equipo, también DENTRO de las medidas (CE3X 3.1).** La 3.1 la pide por
+9. **La POTENCIA de cada equipo, también DENTRO de las medidas (CE3X 3.x).** La 3.x la pide por
    servicio a todo equipo que no sea una caldera estimada (aires, aerotermia, termo), y sin ella no
    escribe el XML. El motor la pone en la instalación del edificio **y en los equipos de cada medida**
    (`medidas_equipos_a_31`, desde 2026-10-05: en 2026CEE_58 los siete aires de la medida de
@@ -365,9 +429,10 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
 11. **No fuerces `superficie_util_habitable` por debajo de lo medido**: si es menor que la suma de las
    zonas, CE3X no califica («la superficie de las zonas del edificio es mayor que la del edificio»).
    La útil de los planos va en el informe, no en el ajuste.
-12. **Califícalo en seco antes de escribir**: `aplicar … --calificar` (CE3X 3.1 en el PC) da la letra
-   y los errores de CE3X sin tocar nada. Sin **fecha de emisión y de visita** CE3X califica pero NO
-   escribe el XML («invalid literal for int()»): en un CEE sin visita todavía es lo esperado y se dice.
+12. **Califícalo en seco antes de escribir**: `aplicar … --calificar` (CE3X 3.2 en el PC) da la letra
+   y los errores de CE3X sin tocar nada en Drive. Sin **fecha de emisión y de visita** CE3X califica
+   pero NO escribe el XML («invalid literal for int()»): en un CEE sin visita todavía es lo esperado
+   y se dice. Con autoconsumo, lee además la línea «Autoconsumo …» de la salida (punto 13).
 13. **Aerotermia + ACS + PLACAS en UNA medida.** Si en la carpeta hay un presupuesto de
    fotovoltaica (p. ej. `OTROS_ANTES__PPTO. FV.pdf` en «12.»), la medida es UN conjunto con todo
    lo que se instala: `"medidas": ["aerotermia_fv"]`, con los kWp del presupuesto × la producción
@@ -375,6 +440,26 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    / `autoconsumo_pvgis`, y su importe en `ajustes.autoconsumo_inversion`. Cómo, paso a paso:
    `referencia/plan.md` → «Aerotermia + ACS + placas en UNA medida». Busca también el presupuesto
    de la aerotermia: el «aerotermo» que trae es el equipo de ACS aparte.
+   - **En la 3.2 la fotovoltaica va SIEMPRE en «Generación renovable eléctrica»** (potencia pico +
+     autoconsumo MES A MES; manual, 7.1), nunca en «Contribuciones energéticas» —ni las placas
+     ya instaladas ni las de la medida—. El motor ya no la escribe como contribución: sin los doce
+     meses (PVGIS no responde) no genera la medida y lo dice.
+   - **El autoconsumo de cada mes es lo MENOR entre la producción de PVGIS de ese mes y el consumo
+     eléctrico de calefacción + refrigeración + ACS** (y la iluminación fuera del residencial
+     privado) **de ese mes** (decisión del usuario, 2026-10-08). La app lo saca del XML del CEE que
+     manda (el final si está, si no el inicial) con el reparto mensual de CE3X
+     (`autoconsumoMensual.js`); sin XML —lo normal al generar el inicial— va la producción entera
+     y se dice. CE3X 3.2 solo calcula con el TOTAL anual, pero AVISA de cada mes que se pasa.
+     Medido en 2026CEE_58 (5 kWp): la curva de PVGIS de 8.170 kWh dejaba 6 meses avisados; con la
+     regla quedan ~5.717 kWh y el ahorro de la medida baja del 52,8 % al 45,9 %.
+   - **Al calificar en el PC lo AJUSTA CE3X** (`--calificar` en seco, y `--escribir`): cada mes
+     avisado se recorta al consumo EXACTO que calcula CE3X, se recalcula y se guarda el `.cex` con
+     CE3X; ese `.cex` ajustado es el que queda en la copia local y el que sube a Drive (el otro va a
+     OLD) con su XML y su PDF. Ya no hace falta mirar a mano si CE3X se queja: **lee la línea
+     «Autoconsumo de la medida «…»: en N meses (…) pasaba del consumo … se ha ajustado cada uno a
+     su consumo (X → Y kWh)»** y llévala al informe (los kWh declarados y el ahorro que quedan).
+   - El **90 % del máximo declarable** sigue valiendo para DIMENSIONAR los kWp; lo que se declara
+     cada mes lo decide la regla de arriba.
 14. **El CERTIFICADOR — por defecto FIRMA FRAN** (decisión del usuario, 2026-10-06: «ponme como
    certificador a mí siempre a no ser que te indique lo contrario»). Si el plan no dice otra cosa y
    en la barra está el AGENTE IA (o nadie, en una oportunidad), el `.cex` lleva los datos de
@@ -384,6 +469,37 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    sustituye: es quien firma, y el agente no le quita el encargo. La barra no se toca: el agente
    sigue en ella para el seguimiento (si el usuario quiere que conste él en la barra, se asigna en
    la app — el certificador de la casa no recibe aviso).
+15. **Un SÓTANO: muros contra el TERRENO y suelos solo de la VIVIENDA** (Fran, 2026-10-01,
+   26RES060_191: casa aislada con 19 m² de vivienda bajo rasante junto al garaje).
+   - Los muros perimetrales de una planta **bajo rasante** son **«Muro en contacto con el
+     terreno»**, nunca medianera ni «partición con el vecino» aunque Catastro tenga la parcela de
+     al lado pegada: bajo tierra, al otro lado hay tierra. Las paredes contra el garaje o el almacén
+     del propio sótano siguen siendo **partición vertical**.
+   - En CE3X ese muro **no admite «Conocidas»** (solo «Estimadas» o «Por defecto»): va **«Por
+     defecto»** y la U la pone CE3X por la normativa (CTE 2010, D3 → **0,66**). Sus puentes de
+     fachada (pilares, forjado) se quitan con la pared.
+   - **El suelo de cada zona es solo su VIVIENDA**: 19 m² de sótano habitable llevan 19 m² de suelo
+     contra el terreno, no la huella entera con el garaje (salían 137,65). Y **ninguna «partición
+     horizontal inferior»** en la planta más baja (no hay nada debajo) **ni entre dos plantas de
+     vivienda** (regla 48.j; los `.cex` del motor anteriores al 21/09/2026 la traen como
+     «Garaje/espacio enterrado»). Suelo + particiones inferiores de una zona ≈ su superficie.
+   - **El motor aún no escribe el muro con terreno**: tras `aplicar --escribir`, pásalo con el propio
+     CE3X — `MUROS=… QUITAR=… SUPERFICIES=… bash run.sh muros_terreno.py` (oráculo,
+     `implementation/cee-engine/tools/oraculo_ce3x/`, con un CE3X 3.2 abierto) — y **vuelve a poner
+     la medida** (lleva dentro la envolvente de antes) y a calcularla antes de sacar XML y PDF. En
+     el informe, qué paredes y qué forjados se cambiaron.
+16. **Los DATOS GENERALES de la 3.2** («Ampliación del manual de usuario CE3X», octubre 2026):
+   - **Superficie útil** (RD 390/2021): la administrativa, la de lo que se certifica. **Superficie
+     de cálculo**: la de los recintos habitables.
+   - **Nº de viviendas o unidades de uso** y **plantas habitables**: las de lo que se CERTIFICA (un
+     piso de un bloque = 1 vivienda).
+   - **Plantas sobre y bajo rasante: las del EDIFICIO ENTERO, de Catastro**, aunque se certifique
+     un piso (el ejemplo oficial «Vivienda dentro de bloque» pasa de 1 a 8). La app ya las propone
+     así (`plantasDelEdificio`, de los BuildingPart de Catastro): no las bajes a las de la vivienda.
+     Si Catastro no las da y salen de las plantas habitables, dilo en el informe.
+   - Se corrigen en el plan con `ajustes.ce3x31` (`unidades_uso`, `plantas_sobre_rasante`,
+     `plantas_bajo_rasante`, `superficie_util`), con este mismo criterio. En un «Bloque de
+     Viviendas» la app no propone las unidades de uso: pon `unidades_uso: 1` si se certifica un piso.
 
 ## Lo que el informe final dice SIEMPRE
 
@@ -410,6 +526,8 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
 - Quién va como **técnico** en el `.cex` (por defecto Fran; si había un técnico asignado, él), y que
   la medida de mejora va **sin calcular**
   (en CE3X: Medidas de mejora → Actualizar).
+- Con **autoconsumo**: los kWp, los kWh declarados (la suma de los doce meses) y si CE3X ajustó
+  algún mes a su consumo (cuántos, y los kWh antes → después), con el ahorro que queda.
 - En un **RES080**: el enlace del PREVISTO, qué cambia (ventanas, cerramientos con su U), las dos
   calificaciones (inicial y previsto), el ahorro de la medida, y que su XML está cargado como CEE
   FINAL (o por qué no). Aquí la medida SÍ va calculada (la ha calculado CE3X).

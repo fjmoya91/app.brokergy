@@ -94,7 +94,7 @@ Lo que no sea deducible → `registrar_incidencia` (GRAVE si bloquea el CIFO) y 
 | Equipo nuevo cal.: marca/modelo/serie ud. exterior | `instalacion.aerotermia_cal` | placa DESPUÉS > CIFO/factura > presupuesto |
 | SCOPbdc + método | `aerotermia_cal.scop`, `metodo_scop` | ver paso 2 |
 | DCAL, S | del CEE (los verifica el backend contra `datos_calculo`) | CEE inicial |
-| DACS | Demanda de ACS del **CEE INICIAL** (XML inicial `Demanda/EdificioObjeto/ACS` × S; en un XML de CE3X 3.1, `Indicadores/Demanda/Acs`) **solo si** el método marcado es XML; si no, **CTE Anejo F** (habitaciones→personas→l/día×0,001162×365×46). Nunca la del CEE final | XML inicial / CTE |
+| DACS | Demanda de ACS del **CEE INICIAL** (XML inicial `Demanda/EdificioObjeto/ACS` × S; en un XML de CE3X 3.x (3.1 o 3.2, esquema v3.0), `Indicadores/Demanda/Acs`) **solo si** el método marcado es XML; si no, **CTE Anejo F** (habitaciones→personas→l/día×0,001162×365×46). Nunca la del CEE final | XML inicial / CTE |
 | Instalador (razón social, CIF, domicilio, rep. legal) | `prescriptores` vía FK | CIFO previo/RITE |
 
 **Bloque ACS — regla de oro `cambio_acs`:**

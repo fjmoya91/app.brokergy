@@ -2,9 +2,9 @@
 // Los dos enlaces de un inmueble: su ficha en el Catastro y dónde está.
 //
 // Vivían sueltos dentro de `PropertySheet` y hacían falta también en la ventana
-// de la envolvente. Se sacan a un sitio porque lo que no puede divergir es la
-// URL: la de la Sede parte la referencia en dos trozos de 7 caracteres, y una
-// partida distinta no da error — abre la ficha de OTRO inmueble.
+// de la envolvente y en los clientes. Se sacan a un sitio porque lo que no puede
+// divergir es la URL: todos los iconos del Catastro llevan a la ficha por
+// `enlaceSedeCatastro` (que pasa por el backend: ver su comentario).
 //
 // Lo que se enseña es un enlace, no un dato: si no hay referencia catastral no
 // hay botón de Catastro, y sin dirección no hay botón de Maps. Un botón que

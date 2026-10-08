@@ -135,6 +135,25 @@ comprueba('lo puesto a mano manda (y lo que no es del desplegable se cae)', {
 const hotel = V.datosCe3x31({ terciario: true, ajustes: { ce3x31: { uso: 'ResidencialPublico' } },
                               actividad: 'Habitaciones de hoteles' });
 comprueba('en el terciario no cabe «residencial público»', hotel.valores.uso, 'Otro');
+// Manual de la 3.2, 6.6: las plantas sobre y bajo rasante son las del EDIFICIO
+// entero (de Catastro), aunque se certifique un piso: su ejemplo pasa de 1 a 8.
+const piso = V.datosCe3x31({ superficie: 90, plantas: 1, edificio: { sobre: 8, bajo: 1 } });
+comprueba('un piso de un bloque: las plantas del EDIFICIO, de Catastro', {
+    sobre: piso.valores.plantas_sobre_rasante, bajo: piso.valores.plantas_bajo_rasante,
+    de: piso.de.plantas_sobre_rasante, uds: piso.valores.unidades_uso,
+}, { sobre: 8, bajo: 1, de: 'las del edificio entero, de Catastro', uds: 1 });
+comprueba('…y lo puesto a mano sigue mandando',
+          V.datosCe3x31({ edificio: { sobre: 8, bajo: 1 },
+                          ajustes: { ce3x31: { plantas_sobre_rasante: 3 } } }).valores.plantas_sobre_rasante, 3);
+comprueba('las plantas del edificio salen de los BuildingPart (el máximo)',
+          V.plantasDelEdificio({ modelo: { building_parts: [
+              { attrs: { numberOfFloorsAboveGround: 2, numberOfFloorsBelowGround: 0 } },
+              { attrs: { numberOfFloorsAboveGround: 8, numberOfFloorsBelowGround: 1 } }] } }),
+          { sobre: 8, bajo: 1 });
+comprueba('…y sin ellos, de los niveles medidos',
+          V.plantasDelEdificio({ modelo: { floors: [{ nivel: -1 }, { nivel: 0 }, { nivel: 1 }] } }),
+          { sobre: 2, bajo: 1 });
+comprueba('…y sin nada, nada', V.plantasDelEdificio({}), null);
 const raro = V.datosCe3x31({ titulacion: 'LICENCIADO EN FÍSICA' });
 comprueba('una titulación que no casa no se manda y se avisa',
           [raro.valores.titulacion, raro.avisos.some(a => a.includes('Otra(.*)'))], [undefined, true]);
@@ -199,9 +218,12 @@ const geo = { geometria: { modelo: { catastro: { inmueble: { antiguedad: 2001,
 const base = { expediente: { ...exp(), instalacion: { ...exp().instalacion, zona_climatica: 'D3' } },
                geo, cliente: {} };
 const f31 = F.fichaCe3x({ ...base });
-comprueba('sin elegir: la 3.1, y se dice que nadie la ha elegido',
+comprueba('sin elegir: la 3.2 (la vigente desde el 08/10/2026), y se dice que nadie la ha elegido',
           [f31.ficha.version_ce3x, f31.version_ce3x.version, f31.version_ce3x.elegida],
-          ['3.1', '3.1', false]);
+          ['3.2', '3.2', false]);
+const f31b = F.fichaCe3x({ ...base, ajustes: { version_ce3x: '3.1' } });
+comprueba('la 3.1 se puede seguir eligiendo, con lo mismo que la 3.2',
+          [f31b.ficha.version_ce3x, !!f31b.ficha.ce3x31?.uso], ['3.1', true]);
 comprueba('  …con la normativa de sus tramos (2001 → 1998-2007)',
           f31.ficha.generales.normativa.valor, 'NBE-CT-79_aPartir1998');
 comprueba('  …y lo que la 3.1 pide de más va al motor', !!f31.ficha.ce3x31?.uso, true);

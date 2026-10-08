@@ -22,6 +22,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const { PDFDocument } = require('pdf-lib');
 const supabaseMod = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
+const { ajustesGemini } = require('../utils/geminiAjustes');
 
 const supabase = supabaseMod.supabase || supabaseMod;
 const EXECUTE = process.argv.includes('--execute');
@@ -89,7 +90,7 @@ async function leer(pdf, modelo) {
                 { text: PROMPT.replace('{{MODELO}}', modelo) },
                 { inline_data: { mime_type: 'application/pdf', data: pdf.toString('base64') } },
             ] }],
-            generationConfig: { responseMimeType: 'application/json', responseSchema: SCHEMA, temperature: 0 },
+            generationConfig: { responseMimeType: 'application/json', responseSchema: SCHEMA, ...ajustesGemini(MODEL, { temperatura: 0 }) },
         }),
     });
     const txt = await res.text();

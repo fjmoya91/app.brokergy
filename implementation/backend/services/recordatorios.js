@@ -306,7 +306,13 @@ function encargoCeeDirectoClienteMsg({ destinatario, numExp, fase, tecnico = nul
  * entrega va tras el pago —es la condición del presupuesto—; si ya lo está, la
  * entrega sale sola con los PDF y aquí basta con anunciarla.
  */
-function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = false, tercero = false, obra = null }) {
+/**
+ * Aviso al cliente de un CEE directo: su certificado ya está REGISTRADO.
+ * Con `factura` ({ numero, total }) va la factura adjunta y la política de la
+ * casa: los certificados se envían una vez abonada, y se le pide el justificante
+ * de pago (la entrega sale sola al marcar cobrado).
+ */
+function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = false, tercero = false, obra = null, factura = null }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const cert = fase === 'final' ? 'certificado de eficiencia energética final'
         : fase === 'inicial' ? 'certificado de eficiencia energética inicial'
@@ -314,9 +320,18 @@ function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = 
     const dir = direccionLimpia(obra?.direccion);
     const deQue = tercero ? ` de *${capitalizar(obra?.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}` : '';
     const tu = tercero ? 'os' : 'te';
+    const papeles = 'junto con su justificante de registro y la etiqueta energética';
+    const importe = factura?.total != null
+        ? ` por importe de *${Number(factura.total).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €*`
+        : '';
     const cierre = cobrado
-        ? `En breve ${tu} lo enviamos junto con su justificante de registro.`
-        : `Te lo enviamos, junto con su justificante de registro, en cuanto recibamos el pago del presupuesto por transferencia (BBVA · ES10 0182 0394 3002 0175 3286). Si ya lo has hecho, no hace falta que hagas nada más.`;
+        ? `En breve ${tu} lo enviamos ${papeles}.`
+        : factura
+            ? `${tercero ? 'Os' : 'Te'} adjuntamos la factura *${factura.numero}*${importe}. Por política de la empresa, `
+              + `los certificados se envían una vez abonada la factura: puede pagarse por transferencia `
+              + `(BBVA · ES10 0182 0394 3002 0175 3286).\n\nCuando esté pagada, ${tercero ? 'enviadnos' : 'envíanos'} por aquí el *justificante de pago* `
+              + `y ${tu} mandamos el certificado ${papeles}.`
+            : `${tercero ? 'Os' : 'Te'} lo enviamos, ${papeles}, en cuanto recibamos el pago del presupuesto por transferencia (BBVA · ES10 0182 0394 3002 0175 3286). ${tercero ? 'Si ya lo habéis hecho, no hace falta que hagáis' : 'Si ya lo has hecho, no hace falta que hagas'} nada más.`;
     return `${hola}\n\n✅ El *${cert}*${deQue} (expediente *${numExp}*) ya está *registrado* en Industria.\n\n${cierre}\n\n¡Gracias!\n${FIRMA}`;
 }
 

@@ -1,7 +1,8 @@
 import { buildMedidaMejora } from './ce3xFinal.js';
 import { tieneFotovoltaica, potenciaTexto, normalizarFotovoltaica } from './fotovoltaica.js';
 import { autoconsumoMaximo } from './autoconsumoMaximo.js';
-import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser.js';
+import { consumoElectricoMensual } from './autoconsumoMensual.js';
+import { parseEmisionesTotalesFromXml, leerConsumoElectricoDeTexto } from '../../calculator/logic/xmlCeeParser.js';
 import { justificacionMedida } from '../../cee-envolvente/logic/justificacionMedidas.js';
 
 // ─── ce3xTextos.js ───────────────────────────────────────────────────────────
@@ -181,6 +182,24 @@ export function techoAutoconsumo(expediente) {
 }
 
 /**
+ * El consumo eléctrico de CADA MES del certificado que manda (el FINAL si está
+ * cargado; si no, el inicial, y se dice cuál): el tope del autoconsumo de ese mes
+ * en CE3X 3.2 (`autoconsumoMensual.js`). Sale del `.xml` crudo: el objeto
+ * guardado del CEE no trae el desglose por servicio.
+ *
+ * @returns {{ meses: number[], anual: number, zona: string, exacta: boolean,
+ *             fase: 'final'|'inicial' }|null}
+ */
+export function consumoMensualDelCee(expediente) {
+    const cee = expediente?.cee || {};
+    for (const [fase, xmlKey] of [['final', 'xml_final'], ['inicial', 'xml_inicial']]) {
+        const c = consumoElectricoMensual(leerConsumoElectricoDeTexto(cee[xmlKey]));
+        if (c) return { ...c, fase };
+    }
+    return null;
+}
+
+/**
  * Las chuletas de CE3X de ESTE expediente, en el orden en que se teclean.
  *
  * @param {object|null} expediente  con `instalacion` VIVA (ver la nota del popup)
@@ -236,6 +255,19 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
         nota: `${num2(techo.emisiones)} kgCO₂/año ÷ ${String(techo.factor).replace('.', ',')}`
             + ` (factor de paso de la electricidad) · del CEE ${techo.fase}`,
     };
+    // El TOPE de cada mes (CE3X 3.2): el consumo eléctrico de ese mes. Cada mes
+    // se declara lo menor entre lo que producen las placas y esto
+    // (`autoconsumoMensual.js`, decisión del usuario del 08/10/2026).
+    const consumoMes = consumoMensualDelCee(expediente);
+    const campoMeses = consumoMes && {
+        campo: 'Autoconsumo máximo de cada mes (kWh)',
+        valor: consumoMes.meses.map(v => Math.floor(v).toLocaleString('es-ES')).join(' · '),
+        copia: consumoMes.meses.map(v => String(Math.floor(v))).join('\t'),
+        nota: `El consumo eléctrico de calefacción, refrigeración y ACS de cada mes (enero → diciembre), `
+            + `del CEE ${consumoMes.fase}, repartido como CE3X${consumoMes.exacta ? '' : ` (perfil de la zona ${consumoMes.zona})`}. `
+            + 'En «Generación renovable eléctrica» cada mes va lo MENOR entre la producción de las placas '
+            + '(PVGIS) y esta cifra: si no, CE3X 3.2 avisa de que el autoconsumo supera el consumo.',
+    };
     // Sin ese dato no hay barra ⚡ a la que remitir: se dice por qué, en vez de
     // mandar a buscar un número que no está en ninguna parte.
     const notaSinTecho = techo
@@ -250,14 +282,15 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
             titulo: 'Autoconsumo fotovoltaico YA INSTALADO',
             resumen: 'Va en el estado actual, no como mejora',
             aviso: `La vivienda ya tiene autoconsumo fotovoltaico${p ? ` de ${p}` : ''}: hay que declararlo `
-                + 'como instalación EXISTENTE (contribuciones energéticas), no proponerlo como medida de mejora.',
+                + 'como instalación EXISTENTE en «Generación renovable eléctrica» (potencia pico y autoconsumo '
+                + 'mes a mes; en CE3X 3.2 nunca en «Contribuciones energéticas»), no proponerlo como medida de mejora.',
             nota: [
                 p ? null : 'La potencia no consta en el expediente: hay que pedírsela al cliente (factura de la instalación o boletín eléctrico) antes de declararla.',
                 notaSinTecho,
             ].filter(Boolean).join(' · ') || null,
             // El techo vale igual para la generación EXISTENTE: no se puede
             // declarar más autoconsumo que electricidad gasta el edificio.
-            campos: campoTecho ? [campoTecho] : [],
+            campos: [campoTecho, campoMeses].filter(Boolean),
         });
     } else {
         secciones.push({
@@ -268,14 +301,14 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
                 notaSinTecho,
                 fv.estado ? null : 'En el expediente no consta si la vivienda YA tiene placas: si las tiene, esta medida no aplica.',
             ].filter(Boolean).join(' · ') || null,
-            campos: campoTecho ? [...MEDIDA_AUTOCONSUMO, campoTecho] : MEDIDA_AUTOCONSUMO,
+            campos: [...MEDIDA_AUTOCONSUMO, campoTecho, campoMeses].filter(Boolean),
         });
     }
 
     // Las dos casillas de texto de «Opciones del informe». Se enseña el texto
-    // llano y se COPIA en la forma de la 3.1 (con `<br>`), que es con la que se
-    // certifica desde el 01/10/2026; la de la 2.3, aparte.
-    const notaBr = 'Se copia para CE3X 3.1, con <br> al final de cada línea: sin ellos el PDF del '
+    // llano y se COPIA en la forma de la 3.x (con `<br>`), que es con la que se
+    // certifica desde el 01/10/2026 (la 3.2 desde el 08/10/2026); la de la 2.3, aparte.
+    const notaBr = 'Se copia para CE3X 3.2 (y 3.1), con <br> al final de cada línea: sin ellos el PDF del '
         + 'certificado junta todo el texto en un párrafo. Para CE3X 2.3, la casilla de abajo.';
     secciones.push({
         id: 'pruebas_certificador',
@@ -283,7 +316,7 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
         resumen: 'Realizadas por el técnico certificador',
         nota: notaBr,
         campos: [
-            { campo: 'Para CE3X 3.1', parrafo: true, valor: PRUEBAS_CERTIFICADOR,
+            { campo: 'Para CE3X 3.2', parrafo: true, valor: PRUEBAS_CERTIFICADOR,
                 copia: textoInformeCe3x31(PRUEBAS_CERTIFICADOR) },
             { campo: 'Para CE3X 2.3', valor: 'El mismo texto, sin los <br>', copia: PRUEBAS_CERTIFICADOR },
         ],
@@ -295,7 +328,7 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
     secciones.push({
         id: 'recomendaciones_uso',
         titulo: 'Recomendaciones para un uso eficiente',
-        resumen: 'Anexo III · 1. Recomendaciones de uso (solo CE3X 3.1)',
+        resumen: 'Anexo III · 1. Recomendaciones de uso (solo CE3X 3.x)',
         nota: notaBr.replace(' Para CE3X 2.3, la casilla de abajo.', ' La 2.3 no tiene esta casilla.'),
         campos: [
             { campo: 'Texto completo', parrafo: true, valor: recomendaciones,
@@ -320,7 +353,7 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
     secciones.push({
         id: 'justificacion_medidas',
         titulo: 'Justificación de las medidas',
-        resumen: 'Anexo III · 3. Secuencia temporal (solo CE3X 3.1)',
+        resumen: 'Anexo III · 3. Secuencia temporal (solo CE3X 3.x)',
         nota: 'Una por conjunto de medidas, en su casilla «Justificación». Orden de ejecución: '
             + 'primero la envolvente, después el generador y al final el autoconsumo.',
         campos: JUST.map(([campo, tipo]) => ({

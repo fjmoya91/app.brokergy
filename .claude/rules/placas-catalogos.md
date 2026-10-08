@@ -1,12 +1,13 @@
 ---
 paths:
   - "implementation/backend/services/{placa*,catalogoFichas,fichaConsolidada,fichaEprelMerge,fichaTecnicaSlot}.js"
-  - "implementation/backend/utils/serieDePlaca.js"
+  - "implementation/backend/utils/{serieDePlaca,seriesEquipos}.js"
+  - "implementation/backend/services/seriesRepetidas.js"
   - "implementation/backend/routes/{aerotermia,ventanas}.js"
   - "implementation/frontend/src/features/expedientes/logic/{acsCatalogo,aerotermiaUnits,aerotermiaOpciones,ventanasCatalogo,fichaConsolidable}.js"
   - "implementation/frontend/src/features/{ventanas,aerotermia}/**"
   - "implementation/frontend/src/features/calculator/components/LeerPlacaModal.jsx"
-  - "implementation/frontend/src/features/expedientes/components/{LeerPlacas*,EprelAcs*,ConsolidarFicha*,InstalacionModule,GuardarEnCatalogo*}.jsx"
+  - "implementation/frontend/src/features/expedientes/components/{LeerPlacas*,EprelAcs*,ConsolidarFicha*,InstalacionModule,GuardarEnCatalogo*,AvisoSerieRepetida}.jsx"
   - "implementation/frontend/src/components/SearchableSelect.jsx"
   - "skills/alta-aerotermia/**"
 ---
@@ -50,17 +51,20 @@ paths:
 
 120. **Una aerotermia se da de alta (o se completa) con TODA su documentación, con la skill `alta-aerotermia`** (2026-10-07). Del modelo se busca la ficha técnica ORIGINAL del fabricante, la ficha y la etiqueta EPREL (`cee_inicial.js eprel`) y el HP KEYMARK (`cee_inicial.js keymark <código> --url <titular>`: recorre los subtipos del titular, gana el patrón con comodines MÁS ESPECÍFICO —`-B2***` frente a `-***`— y baja el informe y el certificado). `alta-aerotermia` une en UNA FT páginas originales de cada documento (`--ficha`, `--eprel-*`, y `--anexo "doc.pdf[:págs][|Nombre]"` para cualquier otro que justifique un dato), deja una copia local para mirarla, guarda los documentos ENTEROS en `ORIGINALES/{modelo}` (`--originales`) y, con `--actualizar <id>`, corrige una fila existente enseñando cada cambio y avisando de qué expedientes la usan (su copia del equipo no cambia sola). Nada propio ni inventado: un número que no esté escrito en un documento guardado no entra; si discrepan, manda el certificado (Keymark/EPREL). El SEER sale del ηs,c a 18 °C del manual. Un PDF con la estructura dañada se reescribe con PyMuPDF (mismo contenido). Caso: **MIDEA MHC-V12WD2N7-B2E30** (gama Nature, Keymark ICIM-PDC-000226) → id 571, que otra sesión había dado de alta sin cálido 35 y con el SEER y el COP del `-E30`.
 
+130. **Un Nº DE SERIE que ya consta en OTRO expediente se AVISA, no se bloquea** (2026-10-08): la caldera que se retira y la aerotermia que se pone (ud. exterior, ud. interior, cada Ud. de una cascada, ACS y piscina) se cruzan con las de todos los expedientes mientras se teclea en Instalación, y el aviso sale debajo de la casilla con el expediente, el papel y el estado. También se avisa una misma serie en la caldera y en el equipo nuevo del MISMO expediente. Se compara solo letras y dígitos; «NO LEGIBLE», «S/N», «0000» y similares **no son una serie** (25 expedientes llevan «NO LEGIBLE» y se avisarían entre sí). Dos nodos del mismo grupo (el clon de ACS, la ud. interior de un monobloc) son una máquina. La ruta lee solo los nodos con serie (regla 22), responde 503 con la BD caída (regla 38) y es **staffOnly**: nombra expedientes ajenos. Fuente única: [utils/seriesEquipos.js](implementation/backend/utils/seriesEquipos.js); búsqueda en [services/seriesRepetidas.js](implementation/backend/services/seriesRepetidas.js) (`POST /api/expedientes/:id/series-repetidas`); aviso en [AvisoSerieRepetida.jsx](implementation/frontend/src/features/expedientes/components/AvisoSerieRepetida.jsx). Tras tocarlo: `node implementation/backend/scripts/test_series_repetidas.js`; barrido de lo existente (solo lee): `auditar_series_repetidas.js`. Ver "El Nº DE SERIE repetido entre expedientes se AVISA".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/placas-catalogos/el-catalogo-de-ventanas-marcos-y-vidrios.md` — El CATÁLOGO DE VENTANAS — marcos y vidrios (2026-09-07) · 7,6 KB
-- `docs/conocimiento/placas-catalogos/el-n-de-serie-de-una-placa-dos-lecturas-y-lo-decide-el-codigo.md` — El Nº DE SERIE de una placa: dos lecturas, y lo decide el código (2026-09-30) · 5,1 KB
+- `docs/conocimiento/placas-catalogos/el-n-de-serie-de-una-placa-dos-lecturas-y-lo-decide-el-codigo.md` — El Nº DE SERIE de una placa: dos lecturas, y lo decide el código (2026-09-30) · 5,4 KB
+- `docs/conocimiento/placas-catalogos/el-n-de-serie-repetido-se-avisa.md` — El Nº DE SERIE repetido entre expedientes se AVISA (2026-10-08) · 3,5 KB
 - `docs/conocimiento/placas-catalogos/la-ficha-del-catalogo-cuando-son-varios-papeles.md` — La ficha del catálogo cuando son VARIOS papeles (2026-09-11) · 5,7 KB
 - `docs/conocimiento/placas-catalogos/la-placa-de-la-caldera-se-lee-con-ia.md` — La PLACA de la caldera se lee con IA (2026-09-13) · 5,1 KB
 - `docs/conocimiento/placas-catalogos/la-placa-la-lee-tambien-el-certificador.md` — La PLACA la lee también el CERTIFICADOR · 0,9 KB
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/00-las-tres-placas-de-la-obra-de-un-boton.md` — Las TRES placas de la obra, de un botón (2026-09-15) · 14,9 KB
-- `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/lo-que-cuesta-medido-15-09-2026.md` — Lo que cuesta, medido (15/09/2026) · 2,0 KB
+- `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/lo-que-cuesta-medido-15-09-2026.md` — Lo que cuesta, medido (15/09/2026) · 2,2 KB
 - `docs/conocimiento/placas-catalogos/un-conjunto-resuelve-el-acs-solo.md` — Un CONJUNTO resuelve el ACS solo (2026-09-13) · 8,1 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -85,6 +89,13 @@ expediente.**
 solo.**
   - **REGLA — NINGÚN PROMPT LLEVA UN Nº DE SERIE REAL DE EJEMPLO.**
   - **REGLA — la lista de códigos va SOLO al modelo nuevo.**
+- `docs/conocimiento/placas-catalogos/el-n-de-serie-repetido-se-avisa.md`
+  - **REGLA — se AVISA, no se bloquea.**
+  - **REGLA — se comparan solo letras y dígitos, sin mayúsculas ni tildes.**
+  - **REGLA — un marcador de «no hay serie» no es una serie.**
+  - **REGLA — dos nodos no son dos máquinas.**
+  - **REGLA — se mira lo que hay EN PANTALLA**
+  - **REGLA — solo lo ve el equipo interno.**
 - `docs/conocimiento/placas-catalogos/la-ficha-del-catalogo-cuando-son-varios-papeles.md`
   - **REGLA — un pack POR HUECO, nunca uno para todo.**
   - **REGLA — de quién es cada PDF suelto lo dice una PERSONA.**

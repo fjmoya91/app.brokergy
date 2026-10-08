@@ -345,6 +345,54 @@ async function enviar(id, numero, { canales = [], email, tlf, mensaje, usuario =
     return { resultados, canalesOk };
 }
 
+// ── La factura del aviso de «registrado» ──────────────────────────────────
+//
+// El aviso al cliente de que su CEE está registrado puede llevar la factura
+// (ceeDirectoEntrega.avisarRegistrado). Se emite con LO MISMO que propone el
+// popup de la factura —destinatario por defecto, líneas por defecto, fecha de
+// hoy— para que no haya dos criterios de «la factura de este encargo». Si ya hay
+// una emitida, se adjunta esa: un número emitido no se repite.
+
+const hoyMadrid = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }).format(new Date());
+
+/** Qué factura acompañaría al aviso: la ya emitida, o la que se emitiría. Sin escribir nada. */
+async function facturaParaAviso(id) {
+    const b = await borrador(id);
+    const ultima = b.emitidas.length ? b.emitidas[b.emitidas.length - 1] : null;
+    if (ultima) return { modo: 'adjuntar', numero: ultima.numero, total: ultima.total, a: ultima.cliente?.razon_social || '' };
+    const m = await modulo();
+    const dest = b.destinatarios[b.destinoDefecto] || {};
+    const { total } = m.totalesFactura(b.lineas || []);
+    const faltan = [];
+    if (!txt(dest.razon_social)) faltan.push('el nombre a quien se factura');
+    if (!txt(dest.cif)) faltan.push('el NIF/CIF a quien se factura');
+    if (!(total > 0)) faltan.push('el importe (no hay líneas por defecto)');
+    if (b.errorHoja) faltan.push(`el libro de facturas no responde (${b.errorHoja})`);
+    return { modo: 'emitir', numero: b.proximoNumero || null, total, a: dest.razon_social || '', destino: b.destinoDefecto, faltan };
+}
+
+/** Emite la factura por defecto (o devuelve la ya emitida) y da su PDF. */
+async function facturaDelAviso(id, { usuario = null } = {}) {
+    const f = await facturaParaAviso(id);
+    if (f.modo === 'emitir') {
+        if (f.faltan.length) throw error(400, `No se puede emitir la factura: falta ${f.faltan.join(', ')}. Emítela desde «Generar factura».`);
+        const b = await borrador(id);
+        const r = await emitir(id, {
+            destino: b.destinoDefecto, lineas: b.lineas, observaciones: b.observaciones, fecha: hoyMadrid(),
+        }, { usuario });
+        f.numero = r.numero;
+        f.total = r.total;
+    }
+    const { buffer, filename, reg } = await pdfDe(id, f.numero);
+    return { numero: reg.numero, total: reg.total, emitida: f.modo === 'emitir', buffer, filename, reg };
+}
+
+/** Deja constancia de que la factura ha salido con otro mensaje (el aviso de registrado). */
+async function anotarEnvio(id, numero, envio) {
+    const { row, reg } = await registroDe(id, numero);
+    await svc.mergeDoc(row.id, CAMPO, { [reg.numero]: { ...reg, envios: [...(reg.envios || []), envio] } });
+}
+
 // ── Cobro ──────────────────────────────────────────────────────────────────
 
 /**
@@ -370,4 +418,7 @@ async function sincronizarCobro(id, cobrado, cobradoAt) {
     }
 }
 
-module.exports = { borrador, emitir, rehacerPdf, cambiarFecha, pdfDe, enviar, sincronizarCobro, CAMPO };
+module.exports = {
+    borrador, emitir, rehacerPdf, cambiarFecha, pdfDe, enviar, sincronizarCobro,
+    facturaParaAviso, facturaDelAviso, anotarEnvio, CAMPO
+};

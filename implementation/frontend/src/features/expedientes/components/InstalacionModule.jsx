@@ -16,6 +16,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 import EprelAcsModal from './EprelAcsModal';
+import { SeriesRepetidasProvider, AvisoSerieRepetida, ResumenSeriesRepetidas } from './AvisoSerieRepetida';
 
 // Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
 // CIFO y el RES080), y la capa de "inicial vs finales" en logic/emisores.js. Las
@@ -303,6 +304,7 @@ function CalderaSection({ title, data, onChange, readOnly, permiteSinEquipo = fa
                         placeholder={sinEquipo ? 'No procede — sin generador' : ''}
                         className="w-full bg-bkg-elevated border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand/50"
                     />
+                    {!sinEquipo && <AvisoSerieRepetida serie={data?.numero_serie} />}
                 </div>
                 <div className="space-y-1">
                     <label className="flex items-center gap-1.5 text-xs text-white/40 uppercase tracking-wider font-bold">
@@ -1040,6 +1042,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                                 readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-emerald-500/25 focus:border-emerald-500/50'
                             }`}
                         />
+                        <AvisoSerieRepetida serie={data?.numero_serie} />
                     </div>
                     {!readOnly && (
                         <button type="button"
@@ -1214,6 +1217,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                         readOnly ? 'border-white/5 text-white/40 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
                     }`}
                 />
+                <AvisoSerieRepetida serie={esAcumulador ? acum.serie : data?.numero_serie} />
             </div>
 
             <div className="space-y-1">
@@ -1412,6 +1416,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                                         : (u?.numero_serie ? 'border-white/10 focus:border-brand/50' : 'border-amber-500/40 focus:border-amber-400')
                                 }`}
                             />
+                            <AvisoSerieRepetida serie={u?.numero_serie} />
                         </div>
                     </div>
 
@@ -1515,7 +1520,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     // Y quién es el INSTALADOR no es asunto suyo: el certificador viene a medir
     // la vivienda y a emitir el certificado, no a saber con qué empresa
     // trabajamos ni a asignarla (ver abajo, «bloque del INSTALADOR»).
-    const { isAdmin, isCertificador } = getRoleFlags(user);
+    const { isAdmin, isCertificador, isStaff } = getRoleFlags(user);
     const [showInstaladorFicha, setShowInstaladorFicha] = useState(false);
     const [marcas, setMarcas] = useState([]);
     const [modelosPorMarca, setModelosPorMarca] = useState({});
@@ -1964,8 +1969,10 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     const esCoberturaPorCaldera = hybridInputs.method === HYBRID_METHODS.CALDERA;
 
     return (
+        <SeriesRepetidasProvider expedienteId={expediente?.id} instalacion={local} activo={isStaff}>
         <div className="space-y-6">
             <div className={`space-y-5 transition-all duration-500`}>
+                <ResumenSeriesRepetidas />
                 {/* ── DIRECCIÓN ── */}
                 <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06] space-y-4">
                     <Toggle
@@ -2723,5 +2730,6 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
             </div>
 
         </div>
+        </SeriesRepetidasProvider>
     );
 }

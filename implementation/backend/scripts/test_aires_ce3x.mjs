@@ -34,13 +34,38 @@ t('5 aires solo frío sobre 142 m²: lo del CEE de 26RES060_206', () => {
         assert.equal(x.pct_refrigeracion, '20');
         assert.equal(x.superficie_refrigeracion, '28.4');
         assert.equal(x.rend_nominal, '250.0');
+        assert.equal(x.potencia_refrigeracion, '3', '28,4 m² × 0,1 kW/m² = 2,8 → el mínimo, 3 kW');
         assert.ok(F.esAire(x));
     }
 });
-t('3 aires: 34 · 33 · 33, y la superficie en la misma proporción', () => {
-    const a = F.airesAcondicionados({ n: 3, modo: 'refrigeracion', superficie: 100 });
-    assert.deepEqual(a.map(x => x.pct_refrigeracion), ['34', '33', '33']);
-    assert.deepEqual(a.map(x => x.superficie_refrigeracion), ['34', '33', '33']);
+
+console.log('\nCuánto enfría cada aire (solo frío, 2026-10-08)');
+t('uno solo NO cubre la casa: 233 m² → 17 % (40 m²), 4 kW', () => {
+    const [x] = F.airesAcondicionados({ n: 1, superficie: 233 });
+    assert.equal(x.pct_refrigeracion, '17');
+    assert.equal(x.superficie_refrigeracion, '39.61');
+    assert.equal(x.potencia_refrigeracion, '4');
+});
+t('cada uno entre el 10 % y el 25 % de la vivienda', () => {
+    assert.equal(F.pctPorAire(90), 25, 'en una casa pequeña, el tope');
+    assert.equal(F.pctPorAire(500), 10, 'en una muy grande, el suelo');
+    assert.equal(F.pctPorAire(null), 20, 'sin superficie, 20 %');
+});
+t('van sumando hasta el 100 %: a partir de 4 en una casa de 160 m²', () => {
+    const total = (n, s) => F.repartoAires(n, { superficie: s }).reduce((a, b) => a + b, 0);
+    assert.deepEqual([1, 2, 3, 4, 5].map(n => total(n, 160)), [25, 50, 75, 100, 100]);
+    assert.deepEqual([1, 4, 6].map(n => total(n, 233)), [17, 68, 100]);
+    assert.deepEqual(F.repartoAires(3, { superficie: 100 }), [25, 25, 25]);
+    assert.deepEqual(F.repartoAires(6, { superficie: 100 }), [17, 17, 17, 17, 16, 16]);
+});
+t('la potencia de frío va de 3 a 5 kW por lo que sirve (0,1 kW/m²)', () => {
+    assert.equal(F.potenciaAireKw(22), 3);
+    assert.equal(F.potenciaAireKw(43), 4.5);
+    assert.equal(F.potenciaAireKw(80), 5);
+    assert.equal(F.potenciaAireKw(null), 3);
+});
+t('frío y calor (CEE directo) sigue repartiendo el 100 %', () => {
+    assert.deepEqual(F.repartoAires(3, { superficie: 233, modo: 'climatizacion' }), [34, 33, 33]);
 });
 t('uno solo se llama «AIRE ACONDICIONADO», sin número', () => {
     assert.equal(F.airesAcondicionados({ n: 1, superficie: 90 })[0].nombre, 'AIRE ACONDICIONADO');

@@ -18,8 +18,8 @@ print 'abrir ->', getattr(FRAME, 'versionArchivoGuardado', '?'), LOG
 
 g = FRAME.panelDatosGenerales
 if hasattr(g, 'superficieUtil'):
-    # Los campos que la 3.1 exige para calificar.
-    print 'generales 3.1: sup util', repr(g.superficieUtil.GetValue()), \
+    # Los campos que la 3.x exige para calificar.
+    print 'generales 3.x: sup util', repr(g.superficieUtil.GetValue()), \
         'viviendas', repr(g.numViviendas.GetValue()), \
         'bajo rasante', repr(g.numeroPlantasBajoRasante.GetValue()), \
         'sobre rasante', repr(g.numeroPlantasSobreRasante.GetValue())

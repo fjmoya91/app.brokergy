@@ -1,24 +1,29 @@
-import { getUByYear, getVentanaYACHByYear, BOILER_EFFICIENCIES }
+import { getVentanaYACHByYear, BOILER_EFFICIENCIES }
     from '../../calculator/logic/calculation.js';
+import { uCe3x, periodoDeAnio, epocaDe, etiquetaPeriodo, zonaNbe }
+    from '../../calculator/logic/transmitanciasCe3x.js';
 import { resolverCe3x, buildMedidaMejora } from '../../expedientes/logic/ce3xFinal.js';
 import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
-         techoAutoconsumo, recomendacionesUso } from '../../expedientes/logic/ce3xTextos.js';
+         techoAutoconsumo, consumoMensualDelCee, recomendacionesUso } from '../../expedientes/logic/ce3xTextos.js';
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
 import { AUTOCONSUMO_DECLARABLE } from '../../expedientes/logic/autoconsumoMaximo.js';
 import { especificaValida, kwpPara, mensualDe } from '../../expedientes/logic/produccionFv.js';
+import { autoconsumoMensual, NOMBRES_MES } from '../../expedientes/logic/autoconsumoMensual.js';
 import { justificacionMedida } from './justificacionMedidas.js';
 import { EQUIPO_NUEVO, RENDIMIENTO_JOULE, countUnidades }
     from '../../expedientes/logic/aerotermiaUnits.js';
 import { contactoCliente, deQuienEs } from '../../../utils/contactoCliente.js';
 import { esCeeDirecto } from './ceeDirecto.js';
 import { resolveDacs, CTE_ACS, ACS_METHOD } from '../../expedientes/logic/demandaAcs.js';
-import { versionCe3xDe, normativa31, normativaDeVersion, datosCe3x31 } from './versionCe3x.js';
+import { versionCe3xDe, normativa31, normativaDeVersion, datosCe3x31, esModerna,
+         plantasDelEdificio } from './versionCe3x.js';
 
 //: La VERSIÓN de CE3X y lo que la 3.1 pide de más: vive en `versionCe3x.js`
 //: (puro, sin la ficha) y se reexporta para que la pantalla lo tome de aquí.
 export { VERSIONES_CE3X, VERSION_CE3X_DEFECTO, versionCe3xDe, etiquetaVersionCe3x,
          NORMATIVAS_23, NORMATIVAS_31, TITULACIONES_31, GRADOS_PROTECCION_31,
-         PARTES_PROTEGIDAS_31, usosDePrograma, TIPOS_BDC_31 } from './versionCe3x.js';
+         PARTES_PROTEGIDAS_31, usosDePrograma, TIPOS_BDC_31, esModerna as esCe3xModerna }
+    from './versionCe3x.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La ficha del certificador: lo que el `.cex` necesita ALREDEDOR de la
@@ -30,37 +35,21 @@ export { VERSIONES_CE3X, VERSION_CE3X_DEFECTO, versionCe3xDe, etiquetaVersionCe3
 // `cifoService` con `cifoDoc.js`. Si cada uno compusiera la suya, lo que se
 // revisa en pantalla y lo que se escribe en el fichero podrían no coincidir.
 //
-// REGLA — las transmitancias son las MISMAS que estudiaron la oportunidad.
-// Salen de `getUByYear`, que ya implementa la Guía de Transmitancias de
-// BROKERGY valor a valor. No se copia aquí ninguna U: se importa. Un `.cex`
-// con transmitancias distintas de las que se usaron para prometerle el ahorro
-// al cliente es un certificado que contradice su propia propuesta.
+// REGLA — las transmitancias son las de la Guía de Transmitancias de BROKERGY,
+// que desde el 08/10/2026 son las que el propio CE3X 3.2 pone con «Estimados
+// según antigüedad y zona climática», escritas como «Conocidas» (decisión de
+// Fran). Salen de `transmitanciasCe3x.js`, la MISMA tabla que usa la
+// calculadora en las simulaciones nuevas: no se copia aquí ninguna U.
 //
 // REGLA — lo que NO se puede derivar sale con su valor por defecto DECLARADO y
 // dice que lo es (`de:`). No hay ni un dato mudo: cada valor lleva de dónde
 // viene, y eso vuelve como aviso antes de firmar.
 // ─────────────────────────────────────────────────────────────────────────────
 
-//: PARTICIÓN interior por época — lo ÚNICO de la guía (§2) que la calculadora
-//: no usa, porque una partición con un espacio no habitable no entra en la
-//: demanda que se simula. Verificado contra el `.cex` que un certificador hizo
-//: a mano para 26RES060_186 (año 1994): 2,00 en las dos particiones.
-const U_PARTICION = [
-    { desde: 2014, u: 1.60 },   // CTE 2013
-    { desde: 2008, u: 1.80 },   // CTE 2006
-    { desde: 1991, u: 2.00 },   // NBE-CT-79 consolidada
-    { desde: 1979, u: 2.10 },   // NBE-CT-79 transición
-    { desde: 1960, u: 2.20 },   // pre-normativa
-    { desde: 0,    u: 2.56 },   // anterior a 1960
-];
-
-//: Masa superficial (kg/m²) de cada elemento. CE3X la usa para la inercia
-//: térmica y NO está en la guía, que solo habla de U. Son las del `.cex` real
-//: de 26RES060_186, hecho a mano por el certificador.
-const MASA = {
-    fachada: 200, medianera: 200, cubierta: 100,
-    suelo: 750, particion_h: 500, particion_v: 60,
-};
+//: Masa de la medianera (kg/m²): adiabática, CE3X solo la usa para la inercia
+//: (la de un muro «pesado», la del `.cex` de 26RES060_186). El resto de masas
+//: salen de la tabla de CE3X, con su U.
+const MASA_MEDIANERA = 200;
 
 //: El desplegable de normativa de CE3X, con sus cadenas EXACTAS. Medidas sobre
 //: el corpus de 1.188 `.cex` reales (NBE-CT-79 538 · Anterior 315 · C.T.E. 140
@@ -88,12 +77,12 @@ export function normativaCe3x(anio) {
  * cual en la 3.1. No mueve el cálculo (medido): solo lo que dice el certificado.
  */
 export function normativaDeLaFicha(puesta, anio, version) {
-    const derivada = anio ? (version === '3.1' ? normativa31(anio) : normativaCe3x(anio)) : null;
+    const derivada = anio ? (esModerna(version) ? normativa31(anio) : normativaCe3x(anio)) : null;
     const mano = normativaDeVersion(puesta, version);
     if (mano && mano !== derivada) return { valor: mano, de: 'puesto a mano por el certificador' };
     return { valor: derivada,
-             de: anio ? `año de construcción ${anio}${version === '3.1'
-                 ? ' (tramos de CE3X 3.1)' : ''}` : 'sin año de construcción' };
+             de: anio ? `año de construcción ${anio}${esModerna(version)
+                 ? ` (tramos de CE3X ${version})` : ''}` : 'sin año de construcción' };
 }
 
 /**
@@ -111,34 +100,46 @@ export function normativaDeLaFicha(puesta, anio, version) {
  *   una queda marcada como suya en `_retocadas`, que va a los avisos: un valor
  *   que no sale de la guía tiene que constar.
  */
-export function transmitancias(anio, zona, { particionArriba = true, retoques } = {}) {
-    const u = getUByYear(anio, zona);
-    const uPart = (U_PARTICION.find(p => anio >= p.desde) || U_PARTICION[U_PARTICION.length - 1]).u;
-    const guia = `Guía de Transmitancias BROKERGY (${normativaCe3x(anio)}, ${anio}` +
-                 `${anio >= 2008 && anio < 2014 ? `, zona ${zona}` : ''}) — la MISMA U que usó la simulación`;
+export function transmitancias(anio, zona, { particionArriba = true, retoques, normativa } = {}) {
+    //: El periodo es el que DECLARA el `.cex` (su «Normativa vigente»): es con el
+    //: que CE3X calcularía sus «Estimados», así que la U y la normativa del
+    //: fichero no pueden salir de dos sitios. Sin él, el del año.
+    const periodo = (normativa && epocaDe(normativa)) ? normativa : periodoDeAnio(anio);
+    const de = (c) => uCe3x(c, { periodo, zona }) || { u: null, masa: null };
+    const r = de('fachada_aire');
+    const nbe = r.zona_nbe ? `, zona NBE ${r.zona_nbe}` : '';
+    const guia = `Guía de Transmitancias BROKERGY = CE3X 3.2 «Estimados según antigüedad y zona `
+                 + `climática» (${etiquetaPeriodo(periodo)}, zona ${zona || '—'}${nbe}), escritas como Conocidas`;
+    const conocida = (c, extra = {}) => {
+        const v = de(c);
+        return { u: v.u, masa: v.masa, modo: 'Conocidas', ...extra };
+    };
+    const inferior = conocida('particion_inferior', {
+        tipo_espacio: 'Garaje/espacio enterrado', sentido: 'horizontal inferior' });
+    const superior = conocida('particion_superior_otro', {
+        tipo_espacio: 'Otro', sentido: 'horizontal superior' });
 
     const base = {
         _de: guia,
-        fachada: { u: u.wall, masa: MASA.fachada, modo: 'Conocidas' },
+        fachada: conocida('fachada_aire'),
         // Adiabática: al otro lado hay vivienda a la misma temperatura. Si el
         // certificador sabe que hay un garaje, la marca como partición y
         // entonces sí lleva U — lo resuelve `medianeras_como_particion`.
-        medianera: { u: 0, masa: MASA.medianera, modo: '(sin bloque)' },
-        cubierta: { u: u.roof, masa: MASA.cubierta, modo: 'Conocidas', forma: 'Cubierta plana' },
+        medianera: { u: 0, masa: MASA_MEDIANERA, modo: '(sin bloque)' },
+        cubierta: conocida('cubierta_plana', { forma: 'Cubierta plana' }),
         // El suelo contra terreno va SIEMPRE 'Por defecto': de los 15.704
         // cerramientos del corpus ni uno solo lo tiene en 'Conocidas'. CE3X
-        // modela el terreno aparte.
-        suelo_terreno: { u: u.floor, masa: MASA.suelo, modo: 'Por defecto' },
-        // El suelo que VUELA sobre un porche abierto o un soportal: es un
-        // forjado (masa de partición horizontal) y lleva la U de SUELO de la
-        // guía en 'Conocidas', como los 23 de los 216 del corpus que la declaran.
-        suelo_aire: { u: u.floor, masa: MASA.particion_h, modo: 'Conocidas' },
-        particion_superior: {
-            u: uPart, masa: MASA.particion_h, modo: 'Conocidas',
-            tipo_espacio: particionArriba ? 'Otro' : 'Garaje/espacio enterrado',
-            sentido: particionArriba ? 'horizontal superior' : 'horizontal inferior',
-        },
-        particion_vertical: { u: uPart, masa: MASA.particion_v, modo: 'Conocidas', tipo_espacio: '' },
+        // modela el terreno aparte, y su «Por defecto» es justo esta U.
+        suelo_terreno: { ...conocida('suelo_terreno'), modo: 'Por defecto' },
+        // El suelo que VUELA sobre un porche abierto o un soportal: el «suelo en
+        // contacto con el aire exterior» de CE3X, en 'Conocidas'.
+        suelo_aire: conocida('suelo_aire'),
+        // La partición horizontal: hacia ARRIBA es «Otro»; hacia ABAJO, garaje o
+        // espacio enterrado, cada una con su U (el motor elige por el sentido del
+        // elemento: `particion_inferior`).
+        particion_superior: particionArriba ? superior : inferior,
+        particion_inferior: inferior,
+        particion_vertical: conocida('particion_vertical', { tipo_espacio: '' }),
     };
 
     const retocadas = [];
@@ -149,6 +150,11 @@ export function transmitancias(anio, zona, { particionArriba = true, retoques } 
         retocadas.push(`${ETIQUETA_U[elemento] || elemento}: ${fmtU(n)} en vez de `
                        + `${fmtU(base[elemento].u)} (puesta a mano)`);
         base[elemento] = { ...base[elemento], u: n };
+        //: «Particiones» en la pantalla es UNA casilla para las horizontales:
+        //: lo tecleado vale hacia arriba y hacia abajo.
+        if (elemento === 'particion_superior') {
+            base.particion_inferior = { ...base.particion_inferior, u: n };
+        }
     }
     if (retocadas.length) base._retocadas = retocadas;
     return base;
@@ -162,6 +168,7 @@ export const ETIQUETA_U = {
     suelo_terreno: 'Suelo',
     suelo_aire: 'Suelo al aire exterior',
     particion_superior: 'Particiones',
+    particion_inferior: 'Partición inferior',
     particion_vertical: 'Partición vertical',
     medianera: 'Medianera',
 };
@@ -526,9 +533,8 @@ export const equipoNuevo = (slot) => {
 //
 // Son equipos EXISTENTES: el CEE inicial los recoge y el final los conserva al
 // copiarlo (la refrigeración nunca retira nada, regla 72). El cliente dice
-// cuántos tiene al aceptar, así que se crean de un clic: uno por aparato, con
-// el 100 % de la demanda de refrigeración repartido entre todos —y la
-// superficie en la misma proporción—, que es como los declara el certificador.
+// cuántos tiene al aceptar, así que se crean de un clic: uno por aparato, cada
+// uno con su parte de la refrigeración —y la superficie en la misma proporción—.
 //
 // REGLA — CÓMO se declaran depende del negocio, y lo decide una persona:
 //   · CAE (RES060…): SOLO FRÍO, máquina frigorífica, 250 % nominal — el CEE
@@ -537,6 +543,13 @@ export const equipoNuevo = (slot) => {
 //     REFRIGERACIÓN, bomba de calor, 270 % / 250 % — ahí los aires son parte de
 //     la calefacción de la vivienda.
 // Se propone por el negocio y se cambia en el propio bloque.
+//
+// REGLA — un aire SOLO FRÍO enfría su estancia, no la casa (decisión del
+// usuario, 2026-10-08): cada uno cubre ~40 m², entre el 10 % y el 25 % de la
+// vivienda, y entre todos como mucho el 100 % —a partir de 4 en una casa de hasta
+// 160 m²; una más grande necesita más—. Lo que no cubren lo pone CE3X con su
+// sistema por defecto. Potencia de frío de cada uno: 0,1 kW por m² que sirve,
+// entre 3 y 5 kW. Con frío y calor (CEE directo) se sigue repartiendo el 100 %.
 // ─────────────────────────────────────────────────────────────────────────────
 export const MODOS_AIRES = [
     { valor: 'refrigeracion', etiqueta: 'Solo frío',
@@ -550,12 +563,45 @@ export const MAX_AIRES_CE3X = 20;
 /** ¿Este equipo añadido es uno de los aires creados por el bloque? */
 export const esAire = (x) => x?.aire === true;
 
+//: Lo que cubre UN aire solo frío (la REGLA de arriba). Sin superficie, 20 %.
+export const M2_POR_AIRE = 40;
+export const PCT_AIRE = { min: 10, max: 25, sinSuperficie: 20 };
+export const POTENCIA_AIRE_KW = { porM2: 0.1, min: 3, max: 5 };
+
+const numAires = (n) => Math.max(1, Math.min(MAX_AIRES_CE3X, Math.round(Number(n) || 1)));
+
 /** Enteros que suman 100 entre `n` aparatos (3 → 34 · 33 · 33). */
-export function repartoAires(n) {
-    const k = Math.max(1, Math.min(MAX_AIRES_CE3X, Math.round(Number(n) || 1)));
+function repartoCien(k) {
     const base = Math.floor(100 / k);
     let resto = 100 - base * k;
     return Array.from({ length: k }, () => base + (resto-- > 0 ? 1 : 0));
+}
+
+/** El % de la refrigeración que cubre UN aire en una vivienda de `superficie` m². */
+export function pctPorAire(superficie) {
+    const s = Number(superficie);
+    if (!(s > 0)) return PCT_AIRE.sinSuperficie;
+    return Math.max(PCT_AIRE.min, Math.min(PCT_AIRE.max, Math.round(M2_POR_AIRE / s * 100)));
+}
+
+/**
+ * El % de refrigeración de cada uno de los `n` aires. Solo frío: cada uno lo
+ * suyo (`pctPorAire`) y, si entre todos pasan del 100 %, el 100 % repartido
+ * (5 en 142 m² → 20 · 20 · 20 · 20 · 20, el CEE de 26RES060_206; 1 en 233 m² →
+ * 17). Frío y calor: el 100 % repartido entre todos, como siempre.
+ */
+export function repartoAires(n, { superficie, modo = 'refrigeracion' } = {}) {
+    const k = numAires(n);
+    if (modo === 'climatizacion') return repartoCien(k);
+    const p = pctPorAire(superficie);
+    return k * p >= 100 ? repartoCien(k) : Array.from({ length: k }, () => p);
+}
+
+/** Potencia de frío de un aire que sirve `m2` (kW, al medio kW): 0,1 kW/m², de 3 a 5. */
+export function potenciaAireKw(m2) {
+    const { porM2, min, max } = POTENCIA_AIRE_KW;
+    const kw = Number(m2) > 0 ? Math.round(Number(m2) * porM2 * 2) / 2 : min;
+    return Math.max(min, Math.min(max, kw));
 }
 
 /**
@@ -564,8 +610,8 @@ export function repartoAires(n) {
  */
 export function airesAcondicionados({ n, modo = 'refrigeracion', superficie } = {}) {
     const t = tipoEquipo(modo === 'climatizacion' ? 'climatizacion' : 'refrigeracion');
-    const pcts = repartoAires(n);
     const sup = Number(superficie) > 0 ? Number(superficie) : null;
+    const pcts = repartoAires(n, { superficie: sup, modo: t.valor });
     const parte = (p) => (sup ? String(Math.round(sup * p) / 100) : undefined);
     return pcts.map((p, i) => {
         const eq = {
@@ -586,6 +632,7 @@ export function airesAcondicionados({ n, modo = 'refrigeracion', superficie } = 
             });
         } else {
             eq.rend_nominal = t.nominal;
+            eq.potencia_refrigeracion = String(potenciaAireKw(sup ? sup * p / 100 : null));
         }
         return eq;
     });
@@ -1311,8 +1358,11 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
     const rendRef = d.conFrio ? Math.round((Number(d.seer) || 0) * 100) : 0;
     const conFrio = d.conFrio && rendRef > 0;
     if (d.conFrio && !rendRef) {
+        //: Sin SEER en el catálogo vale el EER de la ficha técnica (decisión del
+        //: usuario, 08/10/2026, 26RES060_178): se guarda como SEER en el modelo.
         avisos.push('La unidad terminal da frío pero el equipo no tiene SEER en el catálogo: '
-                    + 'se escribe SIN refrigeración. Ponlo en la ficha del modelo y regenera.');
+                    + 'se escribe SIN refrigeración. Ponlo en la ficha del modelo (si la ficha '
+                    + 'técnica no da SEER, su EER) y regenera.');
     }
     const slotBomba = conFrio
         ? (mixto ? 'mixto3' : 'climatizacion')
@@ -1834,9 +1884,16 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     //: La producción ESPECÍFICA de PVGIS en este sitio (kWh por kWp), si se ha
     //: consultado en la pestaña. Con ella los kWp de la instalación salen de una
     //: regla de tres con datos del sitio, en vez de la estimación peninsular de
-    //: 1.500 kWh/kWp que pone el motor al pasar a la 3.1 (`version_ce3x.py`).
+    //: 1.500 kWh/kWp que pone el motor al pasar a la 3.x (`version_ce3x.py`).
     const pvgis = especificaValida(autoconsumoFv) ? autoconsumoFv : null;
     const kwpFv = pvgis && kwh ? kwpPara(pvgis, kwh) : null;
+    //: Lo que se DECLARA cada mes (CE3X 3.2, decisión del usuario del
+    //: 08/10/2026): lo menor entre lo que producen esos kWp (PVGIS) y lo que el
+    //: edificio consume de electricidad ese mes (`consumoMensualDelCee`, del
+    //: XML que manda). Sin XML no hay tope: va la producción y se dice; en el PC
+    //: lo ajusta después CE3X con su consumo exacto (`cexAPdf`).
+    const consumoMes = consumoMensualDelCee(expediente);
+    const declarado = kwpFv ? autoconsumoMensual(mensualDe(pvgis, kwh), consumoMes?.meses || null) : null;
     const yaTienePlacas = fv.estado === 'si';
     const nombreFv = campoDe(MEDIDA_AUTOCONSUMO, 'Nombre conjunto medidas mejora');
     //: El texto de la chuleta habla del consumo «derivado del uso de la
@@ -1852,7 +1909,11 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
         titulo: 'Autoconsumo fotovoltaico',
         resumen: (tecleado ? `${miles(kwh)} kWh/año tecleados`
             : (kwh ? `${miles(kwh)} kWh/año declarables` : 'Sin techo calculable: teclea los kWh'))
-            + (kwpFv ? ` · ≈ ${String(kwpFv).replace('.', ',')} kWp (PVGIS)` : ''),
+            + (kwpFv ? ` · ≈ ${String(kwpFv).replace('.', ',')} kWp (PVGIS)` : '')
+            + (declarado?.recortados.length ? ` · ${miles(declarado.anual)} kWh/año mes a mes` : ''),
+        //: Lo que se declara de verdad: la suma de los meses (cada uno, lo menor
+        //: entre producción y consumo). Null sin PVGIS.
+        kwh_declarado: declarado ? declarado.anual : null,
         //: En un CEE suelto, teclear los kWh ES pedir la medida: la elección de
         //: la pestaña no se guarda y, sin esto, habría que volver a marcarla en
         //: cada generación.
@@ -1866,7 +1927,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
         kwh_techo: techo ? Math.round(techo.kwhAnio) : null,
         motivo: yaTienePlacas
             ? 'La vivienda YA tiene placas: van declaradas como instalación existente '
-              + '(«Generación renovable eléctrica» en CE3X 3.1, «Contribuciones energéticas» '
+              + '(«Generación renovable eléctrica» en CE3X 3.x, «Contribuciones energéticas» '
               + 'en la 2.3), no como medida de mejora.'
             : (kwh ? null : 'No hay un CEE cargado del que sacar el máximo declarable: teclea '
                           + 'los kWh/año de autoconsumo (como mucho, el 90 % del consumo '
@@ -1885,11 +1946,13 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             instalaciones: [{
                 slot: 'renovable',
                 nombre: nombreFv,
-                generacion_electrica_kwh: kwh,
+                //: Con PVGIS, el TOTAL es la suma de lo declarado mes a mes (en la
+                //: 2.3, esa misma cifra como contribución anual).
+                generacion_electrica_kwh: declarado ? declarado.anual : kwh,
                 //: Solo con PVGIS consultado. La lee `potencias_de_equipos` del
-                //: motor: es la potencia pico que la 3.1 exige a unas placas.
+                //: motor: es la potencia pico que la 3.x exige a unas placas.
                 ...(kwpFv ? { potencia_pico_kwp: kwpFv,
-                              generacion_mensual_kwh: mensualDe(pvgis, kwh) } : {}),
+                              generacion_mensual_kwh: declarado.meses } : {}),
             }],
         } : null,
     };
@@ -1913,14 +1976,22 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             partes.push(`Con PVGIS (${miles(Math.round(pvgis.anual))} kWh por kWp al año en este sitio) `
                         + `son unos ${String(kwpFv).replace('.', ',')} kWp.`);
         }
-        //: Cómo se escribe: en la 3.1 es «Generación renovable eléctrica» con la
+        if (declarado?.recortados.length) {
+            partes.push(`Cada mes se declara lo menor entre la producción y el consumo eléctrico del `
+                + `edificio ese mes (CEE ${consumoMes.fase}): en ${declarado.recortados
+                    .map(i => NOMBRES_MES[i]).join(', ')} las placas producen más de lo que se consume, `
+                + `así que se declaran ${miles(declarado.anual)} kWh/año.`);
+        } else if (kwpFv && !consumoMes) {
+            partes.push('Sin el XML del CEE no se puede limitar cada mes a su consumo: va la producción '
+                + 'de PVGIS, y al calificarlo en el PC CE3X recorta los meses que se pasen.');
+        }
+        //: Cómo se escribe: en la 3.x es «Generación renovable eléctrica» con la
         //: potencia y el autoconsumo MES A MES (lo hace el motor:
         //: `instalaciones_de_medida`); en la 2.3, la contribución anual de siempre.
-        //: Con los mismos kWh, CE3X 3.1 da la misma calificación de las dos formas.
+        //: En la 3.2 la contribución ya no vale para la fotovoltaica (manual, 7.1).
         partes.push(kwpFv
-            ? 'En CE3X 3.1 va como «Generación renovable eléctrica»: esos kWp y el autoconsumo '
-              + 'repartido mes a mes según PVGIS.'
-            : 'En CE3X 3.1 va como «Generación renovable eléctrica», mes a mes: si no consultas '
+            ? 'En CE3X 3.2 va como «Generación renovable eléctrica»: esos kWp y el autoconsumo mes a mes.'
+            : 'En CE3X 3.2 va como «Generación renovable eléctrica», mes a mes: si no consultas '
               + 'PVGIS en la barra ⚡, se le pregunta al generar (ángulos óptimos del sitio).');
         if (!fv.estado) {
             partes.push('En el expediente no consta si la vivienda ya tiene placas: si las '
@@ -2002,7 +2073,11 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                         + (m.motivo || 'faltan datos.'));
             continue;
         }
-        medidas.push(m.datos);
+        //: Con su `id` del catálogo: el previsto de un RES080 elige por él de qué
+        //: medidas salen sus equipos (`previsto.medidas: ["aerotermia"]`). Sin él,
+        //: ese filtro no casaba con nada y el previsto salía SIN la aerotermia
+        //: (26RES080_87). El motor lee las medidas con `.get` y no le afecta.
+        medidas.push({ ...m.datos, id: m.id });
         if (m.nota) avisos.push(`Medida «${m.titulo}»: ${m.nota}`);
     }
     if (!medidas.length) {
@@ -2437,6 +2512,9 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                     : 'SIN DETERMINAR: en un terciario va por uso y ocupación (CTE HE-4)')
                 : dato(cfg.demanda_acs, 'DECISIÓN del certificador (valor por defecto)'));
     const ilum = terciario ? iluminacionCe3x(ajustes || {}, plantasHabitables(g)) : null;
+    //: La normativa que declara el `.cex` decide también sus U (la tabla de CE3X
+    //: va por periodo): se calcula una vez y se usa en los dos sitios.
+    const normativaFicha = normativaDeLaFicha(cfg.normativa, anio, versionCe3x);
 
     const ficha = {
         //: El PROGRAMA de CE3X. Lo lee el motor para la cabecera, los datos
@@ -2477,7 +2555,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
             cliente_email: contacto.email,
         },
         generales: {
-            normativa: normativaDeLaFicha(cfg.normativa, anio, versionCe3x),
+            normativa: normativaFicha,
             // El campo [1] del pickle 2: el tipo de vivienda en un residencial,
             // el PERFIL DE USO en un terciario. Con claves distintas para que
             // la pantalla y el motor no los confundan.
@@ -2491,6 +2569,13 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
             }),
             zona_climatica_he1: puesto('zona', zona, 'zona climática del expediente'),
             zona_climatica_he4: dato(he4.valor, he4.de),
+            // La zona de la NBE-CT-79 (V…Z): CE3X la guarda aparte y no la enseña,
+            // y de ella salen sus «Estimados» de 1980 a 2007. Con la localidad
+            // «Otro» —la nuestra— la deduce de la HE-1; si se escribiera otra, un
+            // cerramiento puesto en «Estimados» en CE3X saldría con la U de otra
+            // zona (26RES060_188, E1: cubierta 0,90 en vez de 0,70).
+            zona_nbe: dato(zonaNbe(zona),
+                           'la de CE3X para la zona HE-1 con la localidad «Otro»'),
             superficie_util_habitable: puesto('superficie_util_habitable', superficieMedida,
                                               deQuienSaleLoQueCuenta(g, 'superficie')),
             // Por defecto la MISMA con la que el motor midió las fachadas: si se
@@ -2530,6 +2615,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         termicas: transmitancias(anio, zona, {
             particionArriba: particionArriba(g),
             retoques: cfg.transmitancias,
+            normativa: normativaFicha.valor,
         }),
         ...(tecnicoCe3x(certificador) ? { tecnico: tecnicoCe3x(certificador) } : {}),
         ...(instalacion.equipos.length ? { instalaciones: instalacion.equipos } : {}),
@@ -2567,11 +2653,14 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     //: del desplegable, la superficie útil, las unidades de uso y las plantas—,
     //: con lo que la app propone y lo que haya tocado el certificador. Viaja al
     //: motor en `ce3x31`; en la 2.3 no existe y no se manda.
-    const ce31 = versionCe3x === '3.1' ? datosCe3x31({
+    const ce31 = esModerna(versionCe3x) ? datosCe3x31({
         ajustes, terciario,
         tipoEdificio: cfg.tipo_edificio,
         superficie: ficha.generales.superficie_util_habitable?.valor,
         plantas: ficha.generales.n_plantas_habitables?.valor,
+        //: Las plantas sobre y bajo rasante del EDIFICIO ENTERO, de Catastro
+        //: (manual de la 3.2, 6.6), no las habitables de lo que se certifica.
+        edificio: plantasDelEdificio(g),
         titulacion: ficha.tecnico?.titulacion || null,
         actividad: ilum?.defecto?.actividad || null,
         normativa: ficha.generales.normativa?.valor || null,

@@ -56,6 +56,34 @@ def _txt(x):
         return repr(x)
 
 
+def _filas_resultados(n):
+    """Que cada tabla del panel de resultados economicos tenga al menos `n` filas.
+
+    Solo AÑADE filas vacias: las que ya hay no se tocan, y la medida las rellena
+    al recalcular. Lo que se hace queda en el log.
+    """
+    import wx.grid as WG
+    try:
+        import AnalisisEconomico.panelResultadoAnalisis as PRA
+    except Exception:
+        return
+    vistos = set()
+    for a in dir(FRAME):
+        o = getattr(FRAME, a, None)
+        if o is None or 'nalisis' not in a:
+            continue
+        for b in dir(o):
+            p = getattr(o, b, None)
+            if not isinstance(p, PRA.Panel1) or id(p) in vistos:
+                continue
+            vistos.add(id(p))
+            for c in dir(p):
+                g = getattr(p, c, None)
+                if isinstance(g, WG.Grid) and g.GetNumberRows() < n:
+                    SALIDA['log'].append(u'resultados %s: %d -> %d filas' % (c, g.GetNumberRows(), n))
+                    g.AppendRows(n - g.GetNumberRows())
+
+
 #: Los slots de `datosInstalaciones` y el atributo de la medida que los guarda.
 ORDEN_MM = ['sistemasACSMM', 'sistemasCalefaccionMM', 'sistemasRefrigeracionMM',
             'sistemasClimatizacionMM', 'sistemasMixto2MM', 'sistemasMixto3MM',
@@ -185,6 +213,17 @@ try:
         SALIDA['medidas'].append({'clase': gm.__class__.__name__, 'nombre': _txt(st.get('nombre')),
                                   'ahorro': [_txt(x) for x in (st.get('ahorro') or [])]})
 
+    # Al GUARDAR, `mejoras` vuelve a ser lo que CE3X deja en una «Nuevo Edificio»:
+    # la RUTA del .cex cargado (texto). De ese campo saca la PANTALLA que es la
+    # medida: con la lista de arriba la pinta como «Nuevas Instalaciones» y al
+    # pulsarla da error (26RES080_87, 07/10/2026); con la ruta, «Nuevo Edificio
+    # Completo», como los RES080 hechos a mano. La lista solo hace falta para el
+    # PRIMER calculo de la medida recien cargada (`incluirMedidas` indexa
+    # mejoras[1][1]); con el fichero guardado y reabierto, el panel economico y el
+    # calculo funcionan con la ruta (medido: mismo ahorro).
+    # La ruta que se ve: la del previsto en la carpeta del expediente si quien
+    # llama la sabe (`ruta_previsto`); si no, la del fichero que se ha cargado.
+    m.mejoras = _u('RUTA_PREVISTO') or unicode(PREVISTO)
     del LOG[:]
     FRAME.filename = os.environ['SALIDA_CEX']
     FRAME.OnMenuFileSaveMenu(None)
@@ -192,6 +231,13 @@ try:
     SALIDA['log'] += list(LOG)
     if os.environ.get('XML'):
         sys.exc_clear()
+        # Las tablas del panel de RESULTADOS del analisis economico se dimensionan
+        # al ABRIR el fichero, con las medidas que traia. Si el inicial llego SIN
+        # medidas (uno del tecnico, o uno pasado de la 2.3 a la 3.1), tienen 0
+        # filas y el XML revienta al escribir la de la medida nueva («invalid row
+        # or column index in wxGridStringTable», medido en 26RES080_87,
+        # 07/10/2026). Se les dan las filas que faltan antes de pedir el XML.
+        _filas_resultados(len(FRAME.listadoConjuntosMMUsuario or []))
         SALIDA['xml'] = generar_xml(os.environ['XML'])
 except RuntimeError as e:
     SALIDA['error'] = str(e)

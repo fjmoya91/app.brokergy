@@ -26,6 +26,7 @@ const SELECT_LISTA = `
     drive_folder_link, cobrado, cobrado_at, created_at, updated_at,
     duplicado_historico,
     seguimiento,
+    presentacion:cee->presentacion,
     cee_certificador:cee->>certificador_id,
     cee_fecha_visita_ini:cee->cee_inicial->>fechaVisita,
     cee_fecha_firma_ini:cee->cee_inicial->>fechaFirma
@@ -153,11 +154,17 @@ async function guardar(id, patch, { seguimientoPrev = null } = {}) {
     const tocaDireccion = 'municipio' in patch || 'provincia' in patch;
 
     let alcance = patch.alcance || actual.alcance;
+    // El encargo de presentación también cuenta para el estado (deriveEstado):
+    // sin él, cualquier autoguardado devolvería «pendiente de presentación» a
+    // «pendiente de revisión». El atajo de `seguimientoPrev` no lo trae.
+    let presentacion = patch.cee && 'presentacion' in patch.cee ? patch.cee.presentacion
+        : actual.cee ? (actual.cee.presentacion || null) : undefined;
     let base = null;
-    if (!alcance || tocaDireccion) {
-        base = await supabase.from(TABLA).select('alcance, provincia, municipio').eq('id', id)
+    if (!alcance || tocaDireccion || presentacion === undefined) {
+        base = await supabase.from(TABLA).select('alcance, provincia, municipio, presentacion:cee->presentacion').eq('id', id)
             .maybeSingle().then(r => r.data || {});
         alcance = alcance || base.alcance;
+        if (presentacion === undefined) presentacion = base.presentacion || null;
     }
 
     if (tocaDireccion) {
@@ -170,7 +177,7 @@ async function guardar(id, patch, { seguimientoPrev = null } = {}) {
         update.zona_climatica = info?.climateZone ?? null;
         update.altitud = info?.altitude ?? null;
     }
-    const paraDerivar = { alcance, seguimiento: update.seguimiento || actual.seguimiento };
+    const paraDerivar = { alcance, seguimiento: update.seguimiento || actual.seguimiento, presentacion };
     update.estado = estados.deriveEstado(paraDerivar);
     update.updated_at = new Date().toISOString();
     delete update.id;

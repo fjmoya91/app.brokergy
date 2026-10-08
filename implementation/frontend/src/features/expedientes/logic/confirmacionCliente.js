@@ -318,8 +318,9 @@ export function textoReparto(n) {
  * descubren.
  *
  * REGLA — en un expediente CAE los aires van como SOLO FRÍO (máquina
- * frigorífica), repartiéndose el 100 % de la refrigeración: así los declaró el
- * certificador en 26RES060_206. En un CEE directo depende de para qué es: si es
+ * frigorífica), como los declaró el certificador en 26RES060_206, y cada uno con
+ * la parte que enfría de verdad (~40 m², la regla de `repartoAires` en
+ * fichaCe3x.js, 2026-10-08). En un CEE directo depende de para qué es: si es
  * para una deducción del IRPF (por los propios aires o por las placas) van como
  * calefacción Y refrigeración con bomba de calor (2026CEE_60); si no, solo frío.
  *
@@ -346,8 +347,9 @@ export function bloqueConfirmacionCertificador({ confirmacion = null, cuestionar
         l.push('');
         if (cae) {
             l.push(`❄️ Los aires acondicionados son equipos EXISTENTES: declara ${cuantos} en el CEE `
-                   + 'como «Equipo de sólo refrigeración» (máquina frigorífica), repartiéndose entre '
-                   + `todos el 100 % de la demanda de refrigeración${reparto}.`);
+                   + 'como «Equipo de sólo refrigeración» (máquina frigorífica), de 3 a 5 kW. Cada '
+                   + 'aparato enfría su estancia, no la casa: unos 40 m² cada uno (entre el 10 y el '
+                   + '25 % de la vivienda) y, entre todos, como mucho el 100 % de la refrigeración.');
         } else {
             l.push(`❄️ Los aires acondicionados (${cuantos}) son equipos EXISTENTES. Si el CEE es para `
                    + 'una deducción del IRPF (por los propios aires o por las placas), decláralos como '

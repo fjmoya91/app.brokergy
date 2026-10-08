@@ -14,27 +14,36 @@ ahora no lo componía nadie: el botón de generar leía `expediente.ce3x_datos`,
 | Rutas | `POST /api/cee-envolvente/:id/ficha` (lo que se va a escribir, sin escribir) · `POST .../cex` |
 | Prueba de punta a punta con un expediente real | `node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186 [--escribir]` |
 
-**REGLA — las transmitancias son las MISMAS que estudiaron la oportunidad.**
-Salen de `getUByYear(anio, zona)` de
-[calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js),
-que YA implementa la *Guía de Transmitancias CE3X de BROKERGY* valor a valor
-(2,20/2,50/1,25 antes de 1960 · 1,90/2,10/1,10 hasta 1978 · 1,80/1,90/1,05 hasta
-1990 · 1,69/1,69/1,00 hasta 2007 · U_max del CTE 2006 por zona hasta 2013 ·
-0,35/0,25/0,35 desde 2014). **No se copia ni una U: se importa.** Un `.cex` con
-transmitancias distintas de las que se usaron para prometerle el ahorro al
-cliente es un certificado que contradice su propia propuesta.
+**REGLA — las transmitancias son las de la GUÍA DE TRANSMITANCIAS de BROKERGY, y
+desde el 08/10/2026 la Guía son los «Estimados según antigüedad y zona climática» de
+CE3X 3.2, escritos como «Conocidas»** (decisión de Fran: «cada nuevo CEE debe llevar
+valores conocidos como si se hubiera seleccionado estimados según antigüedad y
+zona»). Salen de [transmitanciasCe3x.js](implementation/frontend/src/features/calculator/logic/transmitanciasCe3x.js),
+la MISMA tabla que usa la calculadora en las simulaciones nuevas, el PDF de la Guía
+y la revisión: **no se copia ni una U, se importa**. Fachada, cubierta, suelo al aire,
+suelo contra el terreno («Por defecto»), partición vertical y partición horizontal
+—hacia arriba «Otro», hacia abajo garaje, cada una con la suya— llevan la U **y la
+masa** de CE3X, por el periodo que DECLARA el `.cex` (su «Normativa vigente», no el
+año a secas) y, de 1980 a 2007, por la **zona NBE** que el `.cex` escribe en sus datos
+generales (`zona_nbe`). Comprobado abriendo con CE3X los `.cex` nuevos de 26RES060_188
+(23 cerramientos) y 26RES060_186 (14, partición incluida): las U y masas «Conocidas»
+son idénticas a las que CE3X pone con «Estimados». La tabla, cómo se sacó y el porqué:
+«Los valores POR DEFECTO de CE3X 3.2, por época y zona».
 
-Lo único que la guía tiene y la calculadora no es la **partición interior**
-(2,56 · 2,20 · 2,10 · 2,00 · 1,80 · 1,60), que no entra en la demanda simulada.
-Y las **masas superficiales** (fachada 200 · cubierta 100 · suelo 750 ·
-partición horizontal 500 · vertical 60) no están en la guía: son las del `.cex`
-real de 26RES060_186.
+Hasta el 07/10/2026 la Guía era la del 17/03/2026 (2,20/2,50/1,25 antes de 1960 ·
+1,90/2,10/1,10 hasta 1978 · 1,80/1,90/1,05 hasta 1990 · 1,69/1,69/1,00 hasta 2007 ·
+U_max del CTE 2006 por zona hasta 2013 · 0,35/0,25/0,35 desde 2014; particiones
+2,56 → 1,60; masas fijas del `.cex` de 26RES060_186). Se conserva como
+`getUByYearGuiaAnterior`: con ella se revisan los certificados de antes del
+08/10/2026 y siguen calculando las simulaciones guardadas sin la marca
+`guia_transmitancias`.
 
-**Verificado contra ese mismo expediente**: la ficha derivada reproduce
-**19 de 19** campos del `.cex` que el certificador escribió a mano —normativa
-NBE-CT-79, zona D3, 165 m², 1 planta, ventilación 0,83, año 1994 y las seis
-transmitancias con sus masas—. La ventilación sale también de la app
-(`getVentanaYACHByYear`), no de una tabla nueva.
+**Verificado contra ese mismo expediente** (con la Guía anterior): la ficha derivada
+reproducía **19 de 19** campos del `.cex` que el certificador escribió a mano
+—normativa NBE-CT-79, zona D3, 165 m², 1 planta, ventilación 0,83, año 1994 y las seis
+transmitancias con sus masas—. Desde el 08/10/2026 las U y masas cambian a propósito;
+los demás campos, no. La ventilación sale también de la app (`getVentanaYACHByYear`),
+no de una tabla nueva.
 
 **REGLA — el `.cex` se GUARDA SIEMPRE en la carpeta del expediente**, `1. CEE /
 CEE INICIAL`, que es la que ya se comparte con el certificador al encargarle el

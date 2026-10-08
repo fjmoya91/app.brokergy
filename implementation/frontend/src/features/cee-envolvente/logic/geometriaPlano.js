@@ -363,7 +363,16 @@ export const DIBUJO = {
     tirador: 0.58,
     asa: 1.15,
     iman: 3.0,
+    pulsacion: 1.7, // ancho de la zona invisible donde se PULSA una pared
 };
+
+//: Los topes de la zona de pulsación de una pared, en METROS. Arriba, los 0,9 m
+//: de siempre (con el dedo en una tablet, apuntar a un trazo de 0,34 m es
+//: imposible); abajo, lo que deja de ser pulsable. Que ACOMPAÑE AL ZOOM es lo
+//: que permite coger un quiebro de 30 cm ampliando: con 0,9 m fijos, la pared
+//: de al lado lo tapaba entero por mucho que se ampliara (lo contó una
+//: certificadora el 2026-10-07).
+export const PULSACION = { max: 0.9, min: 0.12 };
 
 //: Los topes del imán, en METROS. Arriba, lo de siempre —un ancho de puerta—,
 //: porque lo que se dibuja va DE PARED A PARED y soltarlo a 20 cm de la pared
@@ -405,7 +414,25 @@ export function tamanosDeDibujo(vista) {
         tirador: tam * DIBUJO.tirador,
         asa: tam * DIBUJO.asa,
         iman: Math.min(IMAN.max, Math.max(IMAN.min, tam * DIBUJO.iman)),
+        pulsacion: Math.min(PULSACION.max, Math.max(PULSACION.min, tam * DIBUJO.pulsacion)),
     };
+}
+
+/**
+ * En qué ORDEN se pintan las zonas de pulsación de las paredes: de la más
+ * LARGA a la más CORTA. En un SVG gana lo último que se pinta, y una pared
+ * corta —un quiebro de 30 cm— queda debajo de las zonas de sus dos vecinas,
+ * que la cubren entera: al pulsarla se seleccionaba la de al lado. Pintándola
+ * la última gana en su propio trozo, y las largas siguen teniendo todo lo
+ * demás.
+ */
+export function ordenPulsacion(muros) {
+    // El largo del TRAZO que se pinta, no el de Catastro: una pared movida o
+    // dibujada a mano ocupa en pantalla lo que mide su trazo.
+    return (muros || [])
+        .map(m => ({ m, l: largo(m?.svg) }))
+        .sort((a, b) => b.l - a.l)
+        .map(x => x.m);
 }
 
 /**

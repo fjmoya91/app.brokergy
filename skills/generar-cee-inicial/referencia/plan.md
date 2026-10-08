@@ -55,7 +55,7 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `aerotermia_id` | id del catálogo `aerotermia` | En una oportunidad va a los inputs (SCOP del catálogo, temperatura por el emisor). En un EXPEDIENTE va a su Instalación (como el desplegable, con el ACS del conjunto); si ya tenía otro equipo, hace falta `"aerotermia_sustituir": true` |
 | `altura_planta` | altura de planta en m (p. ej. `3.3`) | El motor mide las fachadas con ella y la ficha la declara. Sin ella, la ya guardada o 2,80 |
 | `lucernarios` | `[{ "planta": "P1", "ancho": 2.0, "alto": 3.0, "por_que": "…" }]` | En la cubierta de su planta (la de arriba si se omite). Cada planta del plan sustituye la suya. Nacen dudosos |
-| `aires` | `true` (los que confirmó el cliente) o `{ "n": 2, "modo": "refrigeracion", "potencia_kw": 4.65 }` | CAE: máquina frigorífica de sólo refrigeración; CEE directo: `climatizacion`. Sustituyen a los aires ya puestos, nunca se suman. `potencia_kw` = la de refrigeración de cada aparato (split doméstico: 3.000-5.000 frigorías ≈ 3,5-5,8 kW); sin ella, la de por defecto |
+| `aires` | `true` (los que confirmó el cliente) o `{ "n": 2, "modo": "refrigeracion", "potencia_kw": 4.65 }` | CAE: máquina frigorífica de sólo refrigeración; CEE directo: `climatizacion`. Sustituyen a los aires ya puestos, nunca se suman. `potencia_kw` = la de refrigeración de cada aparato (split doméstico: 3.000-5.000 frigorías ≈ 3,5-5,8 kW); sin ella, la de por defecto. **RES060 (cambio de caldera): siempre `"modo": "refrigeracion"` y `"potencia_kw": 3`** salvo que una placa diga otra (Fran, 2026-10-07) |
 | `placa_aerotermia` | lo leído de la placa (`exterior` / `interior`: marca, modelo, nº de serie) | EXPEDIENTE: los nº de serie van a su Instalación (solo huecos, como «Leer placas»). OPORTUNIDAD: a `inputs.placa_ocr` y el expediente los hereda al nacer. `serie_dudosa: true` = ese nº no se escribe |
 | `caldera.nombre` | nombre del equipo en CE3X | Lo que dice la placa/frontal. Sin marca legible, se omite. Si coincide con «CALDERA {marca} {modelo}» de la app no se pone como ajuste (lo compone la ficha) |
 | `caldera.marca` / `modelo` / `numero_serie` | lo que dice la placa | EXPEDIENTE: a la Instalación (caldera de calefacción y, si es la misma, la de ACS), **solo huecos**; lo distinto sale como conflicto y no se toca. OPORTUNIDAD: a `inputs.placa_caldera`. `serie_dudosa: true` si las dos lecturas no coinciden: entonces no se escribe |
@@ -71,7 +71,7 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `huecos[].porc_marco` | % de marco | Puerta de entrada 90 (defecto), de patio acristalada 30-40 |
 | `fotos[pared]` | fotos que se pegan a la pared | Las de «12. DOCUMENTOS PARA CEE» (fachada, patios, ventanas) por su id, o fotogramas del vídeo como `"frame:H3"`: con `--escribir` se SUBEN a «1. CEE / CEE INICIAL / FOTOS ENVOLVENTE» con el vídeo y el segundo del que salen. `aplicar` busca `video.json` en la carpeta de trabajo (`--video-dir` si está en otra). Las de **Street View**, como `"sv:SV1"`: se suben igual, marcadas con su panorama y su fecha (`streetview.json`; `--sv-dir` si está en otra carpeta) |
 | `excluidas` | paredes apartadas de la envolvente | Por id |
-| `tipos` / `orientaciones` | «da contra» corregido a mano: `{ "M1S1": "FACHADA" }` y su rumbo `{ "M1S1": "S" }` | Lo mismo que el panel de la pared. Sale avisado en el `.cex`. Una medianera que en realidad da a la calle |
+| `tipos` / `orientaciones` | «da contra» corregido a mano: `{ "M1S1": "FACHADA" }` y su rumbo `{ "M1S1": "S" }` | Lo mismo que el panel de la pared. Sale avisado en el `.cex`. Una medianera que en realidad da a la calle; contra la NAVE o el GARAJE del vecino, `PARTICION_VERTICAL` (contra una casa con habitaciones, `MEDIANERA`) |
 | `croquis_ajustar` | `false` = el croquis «solo enderezar» | Úsalo cuando la planta tenga **otro inmueble** (el garaje del vecino): el ajuste escala los m² de Catastro a la huella entera y los infla |
 | `pilares` | pilares integrados contados, `{ "FBN2": 0 }` | Se estiman uno cada 3,5 m con mínimo 2: en un quiebro de 30 cm hay que ponerlo a 0 (a 0 no se escribe el puente) |
 | `cuerpos_fuera` / `zonas_fuera` | lo que no es vivienda | Se vuelve a medir. `zonas_fuera`: `[{ "nivel": 0, "uso": "GARAJE"\|"ALMACEN"\|"ESPACIO NO HABITABLE"\|"PORCHE", "poligono": [[x,y],…] }]` en EPSG:25830 (`paredes` imprime las esquinas del edificio). **Solo si el polígono es conocido**: los de la PROPUESTA «DEL CROQUIS CATASTRAL (exacta)» lo son —se copian tal cual—, y los cuerpos que el croquis dice que sobran (`→ sobra en los niveles…`) van a `cuerpos_fuera` por su id |
@@ -80,11 +80,12 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `medir` | las medidas de los huecos que una persona dibujó a mano: `{ "FBS1": { "V3": { "ancho": 1.2, "alto": 1.1 } } }` | Lo ÚNICO que el plan puede hacer sobre una pared tocada en la PIZARRA: la pizarra dice que hay una ventana y dónde, no cuánto mide. Se miden con las fotos y quedan `medido`. Por el NOMBRE del hueco |
 | `forzar_mano` | `true` = el plan pisa lo dibujado a mano | Solo si el usuario lo pide expresamente: sin esto, `aplicar` **para** si el plan pone huecos, cambia el tipo o aparta una pared tocada en la pizarra, o si lleva `reemplazar` |
 | `ajustes` | cualquier otro ajuste de la ventana, tal cual | Se funden sobre los guardados |
+| `ajustes.ce3x31` | los Datos generales que pide la 3.x: `{ "unidades_uso": 1, "plantas_sobre_rasante": 8, "plantas_bajo_rasante": 1, "superficie_util": 85 }` | Solo si lo que propone la app está mal. Unidades de uso y superficie útil: las de lo que se CERTIFICA (un piso = 1). **Plantas sobre y bajo rasante: las del EDIFICIO ENTERO** (Catastro), aunque se certifique un piso. SKILL.md, punto 16 |
 | `tecnico` | quién firma el `.cex` | Por defecto **Fran** (no hace falta ponerlo). Otro: su `id_empresa` de `prescriptores`; ninguno: `false`. Un técnico de verdad asignado en la barra manda |
 | `medidas` | las medidas de mejora que se escriben (`["autoconsumo"]`, `["aerotermia"]`, `["aerotermia_fv"]`…) | Sin la clave, las que trae marcadas la fase. El autoconsumo necesita sus kWh: del CEE cargado o tecleados en `ajustes.autoconsumo_kwh` (en un CEE directo, siempre tecleados). **`aerotermia_fv`** = UN conjunto con la aerotermia, su equipo de ACS si va aparte y las placas (ver abajo) |
-| `medidas_libres` | medidas que NO están en el catálogo de la ventana: `[{ nombre, caracteristicas, otros_datos, inversion, vida_util, instalaciones: [equipos] }]` | Se ponen con `/cex/medida` (los MISMOS escritores que «Poner la medida»): los equipos que asumen un servicio retiran el generador que lo daba. Caso: CEE directo sin aerotermia con «retirar caldera + 2 splits `climatizacion` + termo `ACS` + placas `renovable`» (2026CEE_57). Usa `"medidas": []` para no duplicar |
-| `ajustes.autoconsumo_kwh` | kWh/año de las placas | Con presupuesto de FV: **kWp del presupuesto × producción específica de PVGIS** del tejado |
-| `ajustes.autoconsumo_pvgis` | la producción específica de PVGIS (kWh por kWp, anual y 12 meses) y con qué tejado | Forma `{ anual, mensual[12], inclinacion, orientacion, optimos, perdidas, montaje, lat, lon, fuente, consultado }`. Con ella salen los kWp y el reparto mes a mes. Sin ella, el backend pregunta con los ángulos ÓPTIMOS, que sobreestiman unas placas coplanares |
+| `medidas_libres` | medidas que NO están en el catálogo de la ventana: `[{ nombre, caracteristicas, otros_datos, inversion, vida_util, instalaciones: [equipos] }]` | Se ponen con `/cex/medida` (los MISMOS escritores que «Poner la medida»): los equipos que asumen un servicio retiran el generador que lo daba. Caso: CEE directo sin aerotermia con «retirar caldera + 2 splits `climatizacion` + termo `ACS` + placas `renovable`» (2026CEE_57). Usa `"medidas": []` para no duplicar. En la 3.2 las placas `renovable` necesitan `potencia_pico_kwp` y `generacion_mensual_kwh` (doce meses, cada uno lo menor entre producción y consumo): sin ellos el motor no escribe la medida |
+| `ajustes.autoconsumo_kwh` | kWh/año que PRODUCEN las placas | Con presupuesto de FV: **kWp del presupuesto × producción específica de PVGIS** del tejado. Es la producción: lo que se DECLARA cada mes es lo menor entre ella y el consumo del mes (ver abajo, paso 5) |
+| `ajustes.autoconsumo_pvgis` | la producción específica de PVGIS (kWh por kWp, anual y 12 meses) y con qué tejado | Forma `{ anual, mensual[12], inclinacion, orientacion, optimos, perdidas, montaje, lat, lon, fuente, consultado }`. Con ella salen los kWp y el reparto mes a mes. Sin ella, el backend pregunta con los ángulos ÓPTIMOS, que sobreestiman unas placas coplanares. En la 3.2, sin los doce meses (PVGIS no responde) la medida NO se genera y se dice: ya no cae a «contribución energética» |
 | `ajustes.autoconsumo_inversion` | lo que cuestan las placas | Solo lo suma `aerotermia_fv`. Con el MISMO criterio de IVA que la inversión de la aerotermia (la del presupuesto de la oportunidad, que en un particular va con IVA) |
 
 ## RES080: el bloque `previsto`
@@ -144,8 +145,21 @@ equipos de las medidas `aerotermia` y `autoconsumo` juntos; los aires existentes
    `ajustes.autoconsumo_pvgis` = `r` (con `consultado`), `ajustes.autoconsumo_inversion` = importe.
    Con `autoconsumo_inversion` guardado, `aerotermia_fv` sale marcada SOLA (en lugar de la de
    aerotermia), así que regenerar desde la ventana de la envolvente no deja fuera las placas.
-5. Al calificar en seco (`--calificar`), comprueba que CE3X no se queja de que el autoconsumo pase
-   del 90 % del consumo eléctrico de la medida.
+5. **Cada mes se declara lo MENOR entre la producción de PVGIS de ese mes y el consumo eléctrico de
+   calefacción + refrigeración + ACS** (y la iluminación fuera del residencial privado) **de ese
+   mes** (decisión del usuario, 2026-10-08). Va en «Generación renovable eléctrica» (potencia pico
+   + autoconsumo mes a mes), nunca en «Contribuciones energéticas». La app saca el consumo del XML
+   del CEE que manda (el final si está, si no el inicial) con el reparto mensual de CE3X
+   (`autoconsumoMensual.js`); sin XML va la producción entera y se dice.
+6. **Al calificar (`--calificar` en seco, o `--escribir`) lo ajusta CE3X 3.2**: cada mes que avisa
+   («La energía eléctrica generada para autoconsumo supera la energía eléctrica consumida… en los
+   siguientes meses») se recorta al consumo EXACTO que calcula, se recalcula y se guarda el `.cex`
+   con CE3X; ese `.cex` es el de la copia local y el que sube a Drive (el anterior, a OLD). No hace
+   falta mirarlo a mano: revisa en la salida la línea **«Autoconsumo de la medida «…»: en N meses
+   (…) pasaba del consumo … se ha ajustado cada uno a su consumo (X → Y kWh)»** y dila en el
+   informe. Medido en 2026CEE_58 (5 kWp): de 8.170 kWh de PVGIS quedan ~5.717 y el ahorro de la
+   medida baja del 52,8 % al 45,9 %. El **90 %** del máximo declarable sigue valiendo para
+   DIMENSIONAR los kWp.
 
 ## Medir un hueco desde una foto
 
@@ -167,6 +181,7 @@ certificador hay que decir DÓNDE está cada cosa:
 |---|---|
 | `GARAJE` / `ALMACEN` a la misma altura | La pared de la vivienda contra él: **partición VERTICAL** con espacio no habitable. El forjado de la planta de encima sobre él: **partición horizontal NH inferior**. Su suelo no es de la envolvente |
 | `PORCHE` (abierto, «PORCHE 100%») | Es **exterior**: la pared detrás, **fachada**; el forjado de encima, **suelo en contacto con el aire** |
+| **SÓTANO** (vivienda bajo rasante) | Muros perimetrales: **muro en contacto con el terreno «Por defecto»** (nunca medianera ni «partición con el vecino»); contra el garaje del sótano, partición vertical. Suelo contra terreno = **solo los m² de vivienda** del sótano; ni partición inferior debajo ni forjado con la planta de encima. El motor no lo escribe aún: SKILL.md, punto 15 |
 
 Con el `croquis` no hace falta calcular ni un vértice: se dice DÓNDE y los m² salen de Catastro.
 Ejemplo real (26RES060_OP246, Catastro PB: vivienda 39 · aparcamiento 122 · porche 36): «garaje =

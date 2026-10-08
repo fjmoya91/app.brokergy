@@ -613,8 +613,13 @@ async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase 
     //: La tabla del Anexo VIII es del frontend (ESM); el backend ya la carga así
     //: en `cifoService`. Se importa dentro para no obligar a todo el que
     //: requiera este módulo a arrastrar el bundle del frontend.
-    const { BOILER_EFFICIENCIES, getUByYear, getVentanaYACHByYear } = await import(
+    const { BOILER_EFFICIENCIES, getUByYearGuiaAnterior, getVentanaYACHByYear } = await import(
         '../../../frontend/src/features/calculator/logic/calculation.js'
+    );
+    //: La Guía de Transmitancias VIGENTE (la de CE3X 3.2, por cerramiento) y la
+    //: ANTERIOR, que es la que se pidió a los certificados de antes del 08/10/2026.
+    const guiaCe3x = await import(
+        '../../../frontend/src/features/calculator/logic/transmitanciasCe3x.js'
     );
     const fila = BOILER_EFFICIENCIES.find((b) => b.id === rendimientoId) || null;
 
@@ -663,7 +668,7 @@ async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase 
         envolventeDeclarada: null,   // se rellena abajo, solo en RES080
         //: Lo que necesitan las comprobaciones del `.cex` (revisionCeeCex.js).
         hayCex: !!cex,
-        getUByYear, getVentanaYACHByYear,
+        getUByYearGuiaAnterior, guiaCe3x, getVentanaYACHByYear,
         fechaCertificado: rx.fechas?.certificado || null,
         anioOportunidad: Number(inputs.anio || inputs.yearBuilt) || null,
         confirmacion: inst.confirmacion_cliente || op.datos_calculo?.confirmacion_cliente || null,

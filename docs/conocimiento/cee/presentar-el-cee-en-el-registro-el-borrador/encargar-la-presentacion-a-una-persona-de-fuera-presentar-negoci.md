@@ -60,8 +60,11 @@ nadie lo mueve, así que 26RES080_92 (registrado el 08/10/2026 sin pasar por el 
 bueno), 26RES080_42 y 26RES093_3 seguían ofreciendo «Validar y enviar a presentar».
 
 **Su BANDEJA — `/presentar/pendientes?token=`**: una página personal con todo lo que
-tiene pendiente (ordenado por plazo, ámbar a una semana y rojo vencido) y lo presentado
-el último mes; cada fila abre su encargo. Va en cada correo de encargo y en cada página
+tiene pendiente (ordenado por plazo, ámbar a una semana y rojo vencido); cada fila abre
+su encargo. **REGLA — lo ya presentado NO le aparece** (decisión del usuario,
+2026-10-08): en cuanto la fase está REGISTRADA —la registre ella o cualquiera, p. ej.
+Fran subiendo él el justificante— o lleva `registrado_at`, sale de la lista. Antes
+quedaba un mes en un bloque «Presentados». Va en cada correo de encargo y en cada página
 de presentar, y el popup tiene «📋 Copiar su página». El token es `{nonce}.{hmac}` con el
 nonce en `app_settings` (`presentador_bandeja:{nonce}` ↔ `presentador_bandeja_email:{correo}`):
 el correo no viaja en la URL y renovar el nonce la revoca. Lista solo lo encargado a SU

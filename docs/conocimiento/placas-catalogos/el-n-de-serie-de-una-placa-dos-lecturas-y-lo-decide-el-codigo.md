@@ -52,6 +52,9 @@ sin razonamiento lo mete en **bucle** (10 de 43 calderas, hasta el tope de salid
 prompt de siempre no lo hace nunca. Por eso hay dos prompts (`PROMPT` / `PROMPT_BASE`) y
 toda lectura va con `maxOutputTokens` (1.536): un bucle acaba en respuesta cortada, se
 reintenta una vez con `temperature: 0.4` y, si vuelve a fallar, queda la otra lectura.
+(Desde el 07/10/2026 la temperatura solo se manda a los modelos anteriores a la 3.6. `gemini-3.6-flash`
+la ignora y ya responde distinto en cada llamada, así que su reintento varía igual. Ver
+[el razonamiento y la temperatura según el modelo](docs/conocimiento/infra/razonamiento-y-temperatura-segun-el-modelo.md).)
 
 Un nº de serie dudoso leído en la **calculadora** no se hereda al crear el expediente
 (`expedienteService`), y en la **envolvente** no se propone: se elige en «Leer placas».

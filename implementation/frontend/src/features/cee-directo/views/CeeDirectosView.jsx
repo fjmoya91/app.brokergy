@@ -42,6 +42,8 @@ const COLOR_ESTADO = (estado) => {
     if (estado === 'FINALIZADO') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     if (estado.startsWith('PENDIENTE REVISIÓN')) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     if (estado.startsWith('REVISADO')) return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+    // Validado y encargado a quien presenta en el Registro: se espera su justificante.
+    if (estado.startsWith('PTE. PRESENTACIÓN')) return 'bg-violet-500/10 text-violet-400 border-violet-500/20';
     if (estado.startsWith('EN ')) return 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
     return 'bg-white/[0.04] text-white/45 border-white/10';
 };
@@ -350,7 +352,9 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                                 <Pastilla className={COLOR_ESTADO(r.estado)}>{r.estado}</Pastilla>
                                                 {r.responsable && (
                                                     <div className="text-[10px] text-white/25 mt-1 uppercase tracking-widest">
-                                                        Pelota: {r.responsable === 'CERTIFICADOR' ? 'Técnico' : 'Nuestra'}
+                                                        Pelota: {r.responsable === 'CERTIFICADOR' ? 'Técnico'
+                                                            : r.responsable === 'PRESENTADOR' ? (r.presentador?.split(/\s+/)[0] || 'Quien presenta')
+                                                            : 'Nuestra'}
                                                     </div>
                                                 )}
                                             </td>

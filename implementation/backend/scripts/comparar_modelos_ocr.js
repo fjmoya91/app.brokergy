@@ -20,6 +20,7 @@
  */
 require('dotenv').config();
 const fs = require('fs');
+const { ajustesGemini } = require('../utils/geminiAjustes');
 
 const FOTO = process.argv[2];
 const VERDAD = process.argv[3];          // lo que de verdad pone la placa
@@ -60,9 +61,9 @@ const PRECIOS = {
 async function leer(modelo, buffer, pensar) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`;
     const generationConfig = {
-        responseMimeType: 'application/json', responseSchema: SCHEMA, temperature: 0,
+        responseMimeType: 'application/json', responseSchema: SCHEMA,
+        ...ajustesGemini(modelo, { pensamiento: pensar ? null : 0, temperatura: 0 }),
     };
-    if (!pensar) generationConfig.thinkingConfig = { thinkingBudget: 0 };
 
     const t0 = Date.now();
     const res = await fetch(url, {

@@ -21,7 +21,13 @@ todos **medidos sobre los 143 CEE iniciales que él había aprobado** antes de f
 `getVentanaYACHByYear`), pero solo AVISO y solo desde el 01/04/2026** (`FECHA_GUIA`). Medido: de 142
 aprobados solo 55 la cumplían entera —53 de los 68 que firmó el propio Fran difieren—, y la
 coincidencia sube desde abril de 2026. Antes de esa fecha, solo se informa. No cuentan el suelo
-contra el terreno «Por defecto» (su U la calcula CE3X), las medianeras ni los puentes.
+contra el terreno «Por defecto» (su U la calcula CE3X), las medianeras ni los puentes. **Desde el
+08/10/2026 (`FECHA_GUIA_CE3X`) la Guía es la de CE3X 3.2** («Estimados según antigüedad y zona
+climática», `transmitanciasCe3x.js`): se compara cada cerramiento con lo suyo —fachada al aire,
+cubierta plana o inclinada, suelo al aire o contra el terreno—, por el periodo que declara el
+`.cex` y, de 1980 a 2007, por su zona NBE (`guiaDelCertificado` en `revisionCeeCex.js`). Un
+certificado anterior se sigue comparando con la Guía de su fecha (`getUByYearGuiaAnterior`), y el
+aviso dice cuál.
 
 **REGLA — la demanda y la superficie por debajo de lo simulado: aviso hasta −10 %, NO APTO más
 abajo** (`LIMITE_FALLO_PCT`). Había aprobados 13 entre −4 % y −24 %.
@@ -61,3 +67,19 @@ la BD) y **sin motor, los puntos del `.cex` salen «sin comprobar»**, nunca en 
 
 ⚠️ El `.cex` se busca SIN crear ni hacer pública la carpeta (`carpetaSinCrear`): para LEER no se
 toca Drive.
+
+### Y con CE3X 3.2 (08/10/2026)
+
+La versión vigente pasa a ser la **3.2** (ver «CE3X 3.2 — la vigente desde el 08/10/2026» en
+`envolvente-ce3x`). `revisarVersion` en [revisionCeeCex.js](implementation/backend/services/cee/revisionCeeCex.js):
+
+- una **3.1 emitida desde el 08/10/2026** (o sin fecha) → aviso `version_ce3x_32`: misma forma y
+  mismo cálculo, que la abra con la 3.2 y la guarde (o `convertir_cex.py`, que solo cambia la
+  cabecera); antes de esa fecha no se dice nada;
+- una **2.3 emitida desde el 01/10/2026** → aviso, como antes, pidiendo ya la 3.2;
+- en la **3.2, placas como «contribución energética»** → aviso `fv_contribucion` (el manual de la
+  3.2 manda la fotovoltaica a «Generación renovable eléctrica»; en una 3.1, solo informa);
+- las placas EXISTENTES que confirmó el cliente cuentan también si vienen como generador
+  eléctrico (`generadores_electricos` de la radiografía).
+
+Pruebas: `node implementation/backend/scripts/test_revision_cee_cex.js`.

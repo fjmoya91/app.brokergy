@@ -119,7 +119,7 @@ async function medidasDelExpediente(ctx, { superficie, existentes = null, versio
     const final = { ajustes: cfg[claveInstalacion('final')], extras: Array.isArray(extras) ? extras : [] };
     //: En un `.cex` de la 3.1 el autoconsumo va como «Generación renovable
     //: eléctrica», mes a mes: los meses salen de PVGIS (ver `pvgisParaAutoconsumo`).
-    const pv = version === '3.1' ? await cex.pvgisParaAutoconsumo(ctx, cfg) : {};
+    const pv = ['3.1', '3.2'].includes(version) ? await cex.pvgisParaAutoconsumo(ctx, cfg) : {};
     return medidasCe3x({
         expediente: ctx.expediente, superficie, fase: 'inicial',
         modelos: ctx.modelos, textos: cfg.medidas_texto, final,

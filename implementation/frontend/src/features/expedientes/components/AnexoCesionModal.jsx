@@ -161,12 +161,16 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
         try {
             const html = buildAnexoCesionHtml(expediente, results, docOpts);
             const fileName = `${numexpte} - Anexo Cesion ahorro`;
-            await axios.post('/api/pdf/save-to-drive', {
-                html, 
+            const { data } = await axios.post('/api/pdf/save-to-drive', {
+                html,
                 folderId,
                 fileName,
                 subfolderName: '6. ANEXOS CAE'
             }, { timeout: 90000 });
+            // El borrador guardado es el que sirve el enlace de firma: se enlaza en
+            // su slot como hace el Anexo I. Sin esto quedaba en Drive sin enlazar
+            // hasta el primer envío (26RES060_178).
+            if (data?.driveLink && onSaveDrive) onSaveDrive(data.driveLink);
             alert('✅ Guardado en Drive correctamente');
         } catch (err) {
             console.error(err);

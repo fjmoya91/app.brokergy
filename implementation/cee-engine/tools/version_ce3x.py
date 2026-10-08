@@ -1,6 +1,27 @@
-"""La VERSION del .cex: CE3X 2.3 (hasta el 30/09/2026) y CE3X 3.1 (desde el 01/10/2026).
+"""La VERSION del .cex: CE3X 2.3 (hasta el 30/09/2026), CE3X 3.1 (del 01/10/2026 al
+07/10/2026) y CE3X 3.2 (desde el 08/10/2026, la vigente).
 
-QUE CAMBIA DE UNA A OTRA — PREGUNTADO A LA PROPIA 3.1
+LA 3.2 ES LA 3.1 CON OTRA CABECERA (medido el 08/10/2026)
+--------------------------------------------------------
+Comparados pickle a pickle los ejemplos oficiales que traen las dos, la 3.2 guarda
+la MISMA forma: 29 / 26 / 4 / 14 slots..., los equipos del pickle 4 identicos y el
+generador electrico igual. Cambia la cabecera ('CE3Xv3.2 Residencial') y lo que
+se TECLEA en Datos generales (ver «Ampliacion del manual de usuario CE3X», 6.2 a
+6.6): las plantas sobre y bajo rasante son las del EDIFICIO ENTERO (el ejemplo
+«Vivienda dentro de bloque» pasa de 1 a 8), mientras las habitables y el nº de
+unidades de uso son los de lo que se certifica. El calculo es el mismo: el motor de
+la 3.2 abre los .cex de la 3.1 y da las mismas cifras (2026CEE_58: ahorro de la
+medida 32,6 / 14,5 / 52,8 en las dos). Por eso aqui la 3.1 y la 3.2 son las
+versiones MODERNAS (`es_moderna`) y todo lo que se decia de la 3.1 vale para las
+dos; pasar de una a otra es solo la cabecera.
+
+Y una cosa que la 3.2 si cambia en el criterio: las placas de autoconsumo van
+SIEMPRE en «Generacion renovable electrica», nunca en «Contribuciones
+energeticas» (manual, 7.1; la pestaña de contribuciones dice ya «Cogeneracion y
+otras instalaciones no contempladas en el apartado de generacion renovable
+electrica»).
+
+QUE CAMBIA DE LA 2.3 A LA 3.1 — PREGUNTADO A LA PROPIA 3.1
 -----------------------------------------------------
 Nada de esto esta deducido mirando ficheros a ojo: se le pregunto a CE3X 3.1
 ejecutando su propio codigo (el Python 2.7 que trae instalado, ver
@@ -61,17 +82,23 @@ Asi el resto del motor no tiene que saber que hay dos versiones.
 """
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
+from pathlib import Path
 from typing import Any, Callable
 
 from errores import GeneracionError
 
-VERSIONES = ("2.3", "3.1")
+VERSIONES = ("2.3", "3.1", "3.2")
 
-#: Desde el 01/10/2026 se certifica con la 3.1. La 2.3 queda para lo que ya
-#: estaba hecho con ella y para quien la pida expresamente.
-POR_DEFECTO = "3.1"
+#: Las que tienen la forma NUEVA del fichero (la 3.2 guarda la misma que la 3.1).
+MODERNAS = ("3.1", "3.2")
+
+#: Desde el 08/10/2026 se certifica con la 3.2 (decision del usuario). La 2.3
+#: queda para quien la pida expresamente; la 3.1, para leer lo que se hizo con
+#: ella (la 3.2 la abre tal cual).
+POR_DEFECTO = "3.2"
 
 #: Lo que escribe cada programa en el pickle 0. La ñ es la de CE3X.
 TEXTO = {
@@ -81,7 +108,16 @@ TEXTO = {
     ("3.1", "residencial"): "CE3Xv3.1 Residencial",
     ("3.1", "pequeno_terciario"): "CE3Xv3.1 PequeñoTerciario",
     ("3.1", "gran_terciario"): "CE3Xv3.1 GranTerciario",
+    ("3.2", "residencial"): "CE3Xv3.2 Residencial",
+    ("3.2", "pequeno_terciario"): "CE3Xv3.2 PequeñoTerciario",
+    ("3.2", "gran_terciario"): "CE3Xv3.2 GranTerciario",
 }
+
+
+def es_moderna(version: Any) -> bool:
+    """Si la version tiene la forma nueva (3.1 o 3.2): campos de la RD 390/2021,
+    potencias por equipo, generador electrico y termosolar, 8 casillas de informe."""
+    return str(version or "") in MODERNAS
 
 #: Los indices de los pickles que cambian de forma entre versiones.
 ADMINISTRATIVOS, GENERALES, INSTALACIONES, MEDIDAS, INFORME = 1, 2, 4, 5, 11
@@ -124,7 +160,7 @@ def programa_de(cex: Any) -> str | None:
 
 
 def version_pedida(datos: dict | None, defecto: str | None = None) -> str:
-    """La version con la que se escribe. Sin decir nada, la vigente (3.1)."""
+    """La version con la que se escribe. Sin decir nada, la vigente (3.2)."""
     v = str((datos or {}).get("version_ce3x") or defecto or POR_DEFECTO).strip()
     if v not in VERSIONES:
         raise GeneracionError(
@@ -331,8 +367,12 @@ def extra_31(datos: dict | None) -> dict:
 
     `datos["ce3x31"]` manda (lo corregido en la pantalla); lo demas se deriva de
     lo que la ficha ya trae. Los defectos son los de los 6 `.cex` de la 3.1 que
-    hay en el disco: superficie util = la habitable, plantas sobre rasante = las
-    habitables, ninguna bajo rasante y una unidad de uso salvo en un bloque.
+    hay en el disco: superficie util = la habitable y una unidad de uso salvo en
+    un bloque. Las plantas sobre y bajo rasante son las del EDIFICIO ENTERO
+    (manual de la 3.2, 6.6: «se prevé su cumplimentación a partir de información
+    catastral… incluso cuando el certificado corresponda a una parte»), que la
+    ficha trae en `generales.plantas_edificio`; sin ellas, las habitables y
+    ninguna bajo rasante, como hasta ahora.
     """
     d = datos or {}
     c = d.get("ce3x31") or {}
@@ -347,7 +387,11 @@ def extra_31(datos: dict | None) -> dict:
     uso = c.get("uso") or (uso_de_actividad(((d.get("iluminacion") or {}).get("defecto")
                                               or {}).get("actividad"))
                            if terciario else "ResidencialPrivado")
+    edificio = _val(g.get("plantas_edificio")) or {}
+    edificio = edificio if isinstance(edificio, dict) else {}
     bajo = c.get("plantas_bajo_rasante")
+    if bajo in (None, ""):
+        bajo = edificio.get("bajo_rasante")
     usos = USOS_TERCIARIO if terciario else USOS_RESIDENCIAL
     return {
         # La que se ELIGIO en la app (los 7 tramos de la 3.1). Sin ella se
@@ -363,6 +407,7 @@ def extra_31(datos: dict | None) -> dict:
                                     or _val(g.get("superficie_util_habitable"))),
         "unidades_uso": _txt_num(unidades),
         "plantas_sobre_rasante": _txt_num(c.get("plantas_sobre_rasante")
+                                          or edificio.get("sobre_rasante")
                                           or _val(g.get("n_plantas_habitables"))),
         "plantas_bajo_rasante": _txt_num(bajo if bajo not in (None, "") else 0),
         "normativa_otros": str(c.get("normativa_otros") or ""),
@@ -438,7 +483,7 @@ def administrativos_a_31(p1: Any, ext: dict) -> tuple[list, list[str]]:
         out[25] = tit
     elif actual and actual not in TITULACIONES:
         avisos.append(
-            f"La titulación «{actual}» no casa con ninguna del desplegable de CE3X 3.1: "
+            f"La titulación «{actual}» no casa con ninguna del desplegable de CE3X 3.x: "
             "en el XML saldría «Otra(.*)». Elígela en Datos administrativos antes de "
             "registrar el certificado.")
     if era_31:
@@ -484,8 +529,8 @@ def generales_a_31(p2: Any, ext: dict) -> tuple[list, list[str]]:
     else:
         out = out[:21] + nuevos
     if not str(out[23] or "").strip():
-        avisos.append("Falta el nº de viviendas o unidades de uso (Datos generales): la 3.1 "
-                      "no califica sin él. Ponlo en CE3X antes de calcular.")
+        avisos.append("Falta el nº de viviendas o unidades de uso (Datos generales): CE3X "
+                      "3.x no califica sin él. Ponlo en CE3X antes de calcular.")
     return out, avisos
 
 
@@ -526,6 +571,25 @@ def texto_llano_23(texto: Any) -> Any:
     if not isinstance(texto, str) or not _BR.search(texto):
         return texto
     return _BR.sub("", texto)
+
+
+#: Las RECOMENDACIONES DE USO (Anexo III, 1) que la app escribe al generar el
+#: .cex (`recomendacionesUso` de ce3xTextos.js). Aqui en un JSON porque el motor
+#: corre en su propio contenedor, sin el frontend; la prueba
+#: tests/test_recomendaciones_uso.py comprueba que es el MISMO texto.
+_RECOMENDACIONES_USO = json.loads(
+    (Path(__file__).resolve().parent / "recomendaciones_uso.json").read_text(encoding="utf-8"))
+
+
+def recomendaciones_por_defecto(tipo: str | None = None) -> str:
+    """El texto de recomendaciones de uso del programa (residencial o terciario).
+
+    REGLA (decision del usuario, 07/10/2026): en la 3.1 SIEMPRE van. Un .cex
+    convertido de la 2.3 o uno del tecnico con la casilla vacia salian con el
+    apartado 1 del Anexo III en blanco (26RES080_87).
+    """
+    clave = "residencial" if (tipo or "residencial") == "residencial" else "terciario"
+    return _RECOMENDACIONES_USO[clave]
 
 
 def informe_a_31(inf: Any, recomendaciones: str | None = None) -> Any:
@@ -763,7 +827,7 @@ def equipo_a_31(reg: Any, pot: dict | None = None, meta: dict | None = None
     if len(reg) != LARGO_23[tipo]:
         raise GeneracionError(
             f"el equipo «{nombre}» ({tipo}) tiene {len(reg)} campos y la 2.3 escribe "
-            f"{LARGO_23[tipo]}: no se sabe pasarlo a la 3.1 sin adivinar")
+            f"{LARGO_23[tipo]}: no se sabe pasarlo a la 3.x sin adivinar")
     cola = reg[7]
     if es_cola_caldera(cola):
         # Una caldera ESTIMADA declara su potencia en la cola, y es la que la 3.1
@@ -794,7 +858,7 @@ def equipo_a_31(reg: Any, pot: dict | None = None, meta: dict | None = None
     if por_defecto:
         avisos.append(
             f"«{nombre}»: no consta su potencia; va por defecto ({', '.join(por_defecto)}). "
-            "No cambia el cálculo, pero CE3X 3.1 la exige para escribir el XML: corrígela "
+            "No cambia el cálculo, pero CE3X 3.x la exige para escribir el XML: corrígela "
             "en Instalaciones si tienes la placa.")
     return out[:-1] + [bloque, out[-1]], avisos
 
@@ -814,7 +878,7 @@ def _renovable_a_31(reg: list, pot: dict, meta: dict) -> tuple[list, list[str]]:
         avisos.append(
             f"«{reg[0]}»: no consta la potencia pico de las placas; va "
             f"{_txt_num(kwp).replace('.', ',')} kWp, estimada de lo que generan "
-            f"({_txt_num(genera)} kWh/año ÷ 1.500). No cambia el cálculo, pero la 3.1 la "
+            f"({_txt_num(genera)} kWh/año ÷ 1.500). No cambia el cálculo, pero la 3.x la "
             "exige para el XML: corrígela si la conoces.")
     out = list(reg)
     out[3] = bloque + [_txt_num(kwp) if kwp else ""]
@@ -920,9 +984,9 @@ def bajable(p4: Any, p5: Any = None) -> list[str]:
     """
     motivos = []
     if isinstance(p4, list) and len(p4) >= 14 and any(p4[12:14]):
-        motivos.append("el fichero declara generadores eléctricos o termosolares de la 3.1")
+        motivos.append("el fichero declara generadores eléctricos o termosolares de la 3.x")
     if p5 is not None and _tiene_objetos_31(p5):
-        motivos.append("sus medidas de mejora están calculadas con la 3.1")
+        motivos.append("sus medidas de mejora están calculadas con la 3.x")
     return motivos
 
 
@@ -1074,7 +1138,8 @@ def _por_slots_de_medida(grupos: list, hacer: Callable[[int, Any], None]) -> Non
 
 def elevar(pickles: dict, ext: dict, potencias: dict | None = None,
            meta: dict | None = None,
-           reemitir: Callable[[Any], Any] | None = None) -> list[str]:
+           reemitir: Callable[[Any], Any] | None = None,
+           tipo: str | None = None) -> list[str]:
     """Pasa a la forma de la 3.1 los pickles 1, 2, 4 y 11 de `pickles` (EN SITIO).
 
     Solo toca los que vengan: quien llama decide cuales escribe. Devuelve los
@@ -1092,7 +1157,9 @@ def elevar(pickles: dict, ext: dict, potencias: dict | None = None,
             pickles[INSTALACIONES], potencias, meta, reemitir)
         avisos += av
     if INFORME in pickles:
-        pickles[INFORME] = informe_a_31(pickles[INFORME], (ext or {}).get("recomendaciones"))
+        pickles[INFORME] = informe_a_31(
+            pickles[INFORME],
+            (ext or {}).get("recomendaciones") or recomendaciones_por_defecto(tipo))
     if MEDIDAS in pickles:
         pickles[MEDIDAS] = medidas_a_31(pickles[MEDIDAS], (ext or {}).get("justificaciones"))
         # Y sus equipos, con la potencia de cada servicio: la misma maquina que
@@ -1117,7 +1184,7 @@ def bajar(pickles: dict) -> list[str]:
         pickles[INSTALACIONES] = p4
         if meta["era_31"]:
             avisos.append("Se escribe para CE3X 2.3: las potencias de los equipos y el tipo "
-                          "de bomba de calor, que solo existen en la 3.1, no van en el fichero.")
+                          "de bomba de calor, que solo existen en la 3.x, no van en el fichero.")
     if INFORME in pickles:
         pickles[INFORME] = informe_a_23(pickles[INFORME])
     if MEDIDAS in pickles:

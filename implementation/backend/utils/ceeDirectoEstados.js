@@ -34,11 +34,13 @@ const ORDEN_ESTADOS = [
     'EN TRABAJO (CEE INICIAL)',
     'PENDIENTE REVISIÓN (INICIAL)',
     'REVISADO Y LISTO (INICIAL)',
+    'PTE. PRESENTACIÓN (INICIAL)',
     'PTE. CEE FINAL',
     'EN CERTIFICADOR CEE FINAL',
     'EN TRABAJO (CEE FINAL)',
     'PENDIENTE REVISIÓN (FINAL)',
     'REVISADO Y LISTO (FINAL)',
+    'PTE. PRESENTACIÓN (FINAL)',
     'FINALIZADO'
 ];
 
@@ -76,9 +78,29 @@ function esDoble(ceeDirecto) {
 }
 
 /**
+ * El encargo de PRESENTAR la fase en el Registro (`cee.presentacion[fase]`,
+ * presentacionCeeService), si está vivo: enviado, sin retirar y sin registrar.
+ * Acepta la fila con `cee` o con el alias `presentacion` del listado.
+ */
+function encargoPresentacion(ceeDirecto, fase) {
+    const pres = ceeDirecto?.presentacion !== undefined
+        ? ceeDirecto.presentacion
+        : ceeDirecto?.cee?.presentacion;
+    const enc = pres?.[fase];
+    return enc?.nonce && enc?.enviado_at && !enc?.registrado_at ? enc : null;
+}
+
+/**
  * Estado del expediente a partir de sus subestados de seguimiento.
  *
- * @param {object} ceeDirecto  fila de cee_directos (usa `alcance` y `seguimiento`)
+ * Mandarlo a PRESENTAR (a Eva) es posterior al visto bueno: solo se puede con
+ * la fase REVISADA o, si el certificado es de la casa, en cuanto se sube — y en
+ * ese caso nadie pulsa «Validar» aparte. Así que, con el encargo vivo, la fase
+ * está «pendiente de presentación» diga lo que diga el subestado (2026CEE_61:
+ * enviado a Eva y el listado seguía en «PENDIENTE REVISIÓN»).
+ *
+ * @param {object} ceeDirecto  fila de cee_directos (usa `alcance`, `seguimiento`
+ *                             y `cee.presentacion` o su alias `presentacion`)
  * @returns {string} uno de ORDEN_ESTADOS
  */
 function deriveEstado(ceeDirecto) {
@@ -89,14 +111,16 @@ function deriveEstado(ceeDirecto) {
 
     // Fase inicial aún abierta.
     if (ini !== 'REGISTRADO') {
+        if (encargoPresentacion(ceeDirecto, 'inicial')) return 'PTE. PRESENTACIÓN (INICIAL)';
         return (MAPA[ini] || 'PTE. CEE INICIAL').replace('{F}', 'INICIAL');
     }
 
     // Inicial registrado. En un encargo de un solo certificado, ahí se acabó.
     if (!doble) return 'FINALIZADO';
 
-    if (!fin || fin === 'PTE_ENVIO_CERT') return 'PTE. CEE FINAL';
     if (fin === 'REGISTRADO') return 'FINALIZADO';
+    if (encargoPresentacion(ceeDirecto, 'final')) return 'PTE. PRESENTACIÓN (FINAL)';
+    if (!fin || fin === 'PTE_ENVIO_CERT') return 'PTE. CEE FINAL';
     return (MAPA[fin] || 'PTE. CEE FINAL').replace('{F}', 'FINAL');
 }
 
@@ -114,11 +138,13 @@ function faseActiva(ceeDirecto) {
 
 /**
  * De quién es la pelota ahora mismo. El parte diario agrupa por esto.
- * @returns {'BROKERGY'|'CERTIFICADOR'|null}
+ * @returns {'BROKERGY'|'CERTIFICADOR'|'PRESENTADOR'|null}
  */
 function responsable(ceeDirecto) {
     const fase = faseActiva(ceeDirecto);
     if (!fase) return null;
+    // Encargada la presentación, se espera a quien presenta (Eva), no a nosotros.
+    if (encargoPresentacion(ceeDirecto, fase)) return 'PRESENTADOR';
     const seg = ceeDirecto?.seguimiento || {};
     const sub = String((fase === 'final' ? seg.cee_final : seg.cee_inicial) || 'PTE_ENVIO_CERT').toUpperCase();
     // Lo que espera al certificador: que trabaje, que entregue o que registre.
@@ -139,6 +165,7 @@ module.exports = {
     rankEstado,
     rankSubestado,
     esDoble,
+    encargoPresentacion,
     deriveEstado,
     faseActiva,
     responsable,

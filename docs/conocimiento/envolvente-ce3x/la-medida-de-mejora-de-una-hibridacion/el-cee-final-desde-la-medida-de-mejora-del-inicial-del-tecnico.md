@@ -3,6 +3,13 @@
 
 ### El CEE FINAL desde la MEDIDA DE MEJORA del inicial del técnico (2026-09-30)
 
+> ⚠️ **Desde el 08/10/2026 un RES060 NO se hace por aquí** (decisión del usuario): se COPIA el
+> inicial con las instalaciones INSTALADAS y el autoconsumo máximo mes a mes — ver
+> [el-cee-final-de-un-res060-copiando-el-inicial.md](el-cee-final-de-un-res060-copiando-el-inicial.md)
+> (regla 127). Este camino queda para el RES093; `cee_final.js` manda los RES060 al otro script
+> salvo `--desde-medida`. El botón «Generar» de la fila del CEE final todavía usa este camino
+> también en un RES060 (pendiente de cambiar).
+
 El otro camino al CEE final, y el que se usa cuando el técnico ya ha ENTREGADO el inicial con su
 medida de mejora CALCULADA: el «edificio mejorado» de esa medida ES el certificado final. Botón
 **«Generar»** en la fila del CEE final (solo ADMIN, solo RES060 y RES093) y skill
@@ -53,6 +60,14 @@ popup y en el script: es la comprobación al calificarlo. Una medida sin calcula
 vista); sin ellas quedan en blanco y se dice. Con varias medidas manda la que imprime el informe
 (casilla 0 del pickle 11); si no casa ninguna, se pregunta. Una medida que toca la ENVOLVENTE
 (RES080) no se genera: es la fase 2.
+
+**Cuando el `.cex` del técnico NO trae la medida pero su `.xml` sí** (2026-10-08, 26RES060_178: guardó
+el `.cex` a las 19:40 y calculó la medida y exportó el XML a las 19:45; tampoco trae el texto de las
+pruebas del Anexo IV), el final no sale («no tiene medida de mejora»). Se le pone en seco la del
+EXPEDIENTE con las funciones de `revisionCex.ponerMedida` (`radiografiaCex` + `medidasDelExpediente` +
+motor `/cex/medida`, sin subirla) y el final parte de esa copia: `cee_final.js --base=<ruta>`
+(`prepararFinal({ cexBase })`), que lo dice en los avisos. La medida va SIN calcular, así que no hay
+«lo que debe dar»: la referencia es que las DEMANDAS del final sean las del `.xml` del técnico.
 
 Sale como `{nº} - CEE FINAL_REVISAR.cex` por `guardarEnDrive(ctx, buf, 'final')` —el mismo nombre y
 carpeta que el botón de la envolvente—, así que la rejilla no lo toma por la entrega del técnico

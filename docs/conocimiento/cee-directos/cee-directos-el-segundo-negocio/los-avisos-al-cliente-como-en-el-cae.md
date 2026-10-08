@@ -8,11 +8,20 @@ Hasta aquí un CEE directo solo le mandaba al cliente la entrega final.
   cliente en los DOS negocios (`GET /:id/aviso-cliente-cee`, cada ruta con su
   texto). El de CEE suelto (`encargoCeeDirectoClienteMsg`) nombra al técnico y no
   habla de ayudas ni facturas. Una vez por fase (`aviso_cliente_cee[fase]`).
-- **Al quedar REGISTRADO**: `ceeDirectoEntrega.avisarRegistrado` — desde el popup
-  de la rejilla (que antes decía "enviadas" habiendo avisado solo al equipo) y
-  AUTOMÁTICO cuando el técnico sube el justificante por su enlace. Si está
-  **cobrado no se manda**: sale la entrega con los PDF y lo cubre. Si no, le
-  recuerda el pago por transferencia. Respeta `CEE_ENTREGA_AUTO`.
+- **Al quedar REGISTRADO**: `ceeDirectoEntrega.avisarRegistrado`. **REGLA — al
+  cliente NO se le escribe solo: te PREGUNTA la app** (2026-10-07). Al subirse el
+  registro (técnico, Eva o desde la rejilla) te llega el aviso por WhatsApp y email
+  con el enlace `?cee=<id>&avisar=<fase>`, que abre el popup «Avisar al cliente»
+  (`AvisoRegistradoModal.jsx`, también desde el panel «Entrega al cliente»). Ahí:
+  el destinatario es la **persona de contacto** (`contactoCliente`), y la casilla
+  **«¿Emitimos ya la factura?»** (solo ADMIN) emite la de por defecto —las mismas
+  líneas y destinatario que el popup de la factura (`facturaDelAviso`)— o adjunta la
+  ya emitida; el mensaje dice que, **por política de empresa, los certificados se
+  envían una vez abonada la factura** y pide el justificante de pago. La factura se
+  emite ANTES de enviar: si no se puede, no sale nada. Si está **cobrado** no hace
+  falta: la entrega sale sola con el certificado. Rutas: `GET|POST
+  /:id/aviso-registrado`. Antes el aviso salía AUTOMÁTICO al subir el técnico, sin
+  factura y sin preguntar.
 - **El técnico ACEPTA el encargo**: ni el CAE ni los directos avisan al cliente.
 - El destinatario sale de `ceeDirectoService.contactoCliente` (desvío a la persona
   de contacto, igual que `resolveSolicitudContacto` del CAE), también en la entrega.

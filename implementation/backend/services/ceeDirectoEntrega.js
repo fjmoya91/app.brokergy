@@ -22,11 +22,14 @@ const uploads = require('./ceeDirectoUploadService');
 const svc = require('./ceeDirectoService');
 const estados = require('../utils/ceeDirectoEstados');
 
-// Los dos que se entregan, en este orden (el certificado primero: es lo que el
-// cliente ha comprado; el registro es la prueba de que está presentado).
-const SLOTS_ENTREGA = ['pdf', 'registro'];
+// Los que se entregan, en este orden (el certificado primero: es lo que el
+// cliente ha comprado; el registro es la prueba de que está presentado). La
+// ETIQUETA va también, en todas las entregas (decisión del usuario, 2026-10-07):
+// aunque esté dentro del certificado, es el papel que se cuelga y el que piden
+// en una compraventa o un alquiler.
+const SLOTS_ENTREGA = ['pdf', 'registro', 'etiqueta'];
 
-const ETIQUETA_SLOT = { pdf: 'certificado firmado', registro: 'justificante de registro', guia: 'guía para la deducción en la Renta' };
+const ETIQUETA_SLOT = { pdf: 'certificado firmado', registro: 'justificante de registro', etiqueta: 'etiqueta energética', guia: 'guía para la deducción en la Renta' };
 
 // La guía de la deducción del IRPF viaja con la entrega cuando los certificados
 // la acreditan (ver `guiaIrpfService.guiaDeEntrega`). Lazy: ese servicio arrastra
@@ -68,6 +71,7 @@ async function estado(row, fase) {
     if (row.seguimiento?.[key] !== 'REGISTRADO') faltan.push('Que el CEE esté registrado');
     if (!enDrive.pdf) faltan.push('Subir el PDF del CEE firmado');
     if (!enDrive.registro) faltan.push('Subir el justificante de registro');
+    if (!enDrive.etiqueta) faltan.push('Subir la etiqueta energética');
 
     // Mismo destinatario que el resto de avisos al cliente: con el desvío
     // activo, su persona de contacto (como en el CAE).
@@ -87,9 +91,14 @@ async function estado(row, fase) {
         ficheros: {
             pdf: enDrive.pdf ? enDrive.pdf.name : null,
             registro: enDrive.registro ? enDrive.registro.name : null,
+            etiqueta: enDrive.etiqueta ? enDrive.etiqueta.name : null,
             guia: guia?.va ? guia.fichero : null
         },
-        guia
+        guia,
+        // Lo que va antes de la entrega: el aviso de «registrado» (con o sin factura).
+        registrado: row.seguimiento?.[key] === 'REGISTRADO',
+        cobrado: !!row.cobrado,
+        avisoRegistrado: row.documentacion?.aviso_registrado?.[ph] || null
     };
 }
 
@@ -99,7 +108,13 @@ async function estado(row, fase) {
  * de la Renta que va adjunta.
  */
 function mensaje(row, fase, { textoGuia = '' } = {}) {
-    const faseLabel = estados.nombreFase(row, uploads.normalizePhase(fase));
+    const ph = uploads.normalizePhase(fase);
+    const faseLabel = estados.nombreFase(row, ph);
+    // En un encargo DOBLE, con el inicial se le recuerda el paso siguiente: el
+    // final se emite cuando la obra está hecha y facturada.
+    const siguiente = estados.esDoble(row) && ph === 'inicial'
+        ? `Cuando tengas la *factura definitiva de la instalación*, avísanos y emitimos el *certificado energético final*.\n\n`
+        : '';
     // Se saluda a quien RECIBE el mensaje (con el desvío activo, su persona de
     // contacto) y en minúsculas: la ficha guarda el nombre en MAYÚSCULAS y
     // "¡Hola LAURA!" delata la plantilla.
@@ -108,8 +123,9 @@ function mensaje(row, fase, { textoGuia = '' } = {}) {
     const pila = p ? ` ${p.charAt(0).toUpperCase()}${p.slice(1).toLowerCase()}` : '';
     return `¡Hola${pila}!\n\n`
         + `Ya tienes tu *${faseLabel}* registrado (expediente ${row.numero_expediente}).\n\n`
-        + `Te adjuntamos el certificado firmado y el justificante de registro. `
+        + `Te adjuntamos el certificado firmado, el justificante de registro y la etiqueta energética. `
         + `Guárdalos: son los documentos que te van a pedir.\n\n`
+        + siguiente
         + (textoGuia ? `${textoGuia}\n\n` : '')
         + `¡Gracias por confiar en nosotros!\n*BROKERGY · Ingeniería Energética*`;
 }
@@ -180,8 +196,10 @@ async function entregar(id, fase, opts = {}) {
 
     const cuerpo = opts.mensaje?.trim() || mensaje(row, ph, { textoGuia: guia?.texto });
     const faseLabel = estados.nombreFase(row, ph);
+    // Por defecto los dos canales; el popup de reenvío puede pedir solo uno.
+    const usar = Array.isArray(opts.channels) && opts.channels.length ? opts.channels : ['email', 'whatsapp'];
 
-    if (st.destinatario.email) {
+    if (st.destinatario.email && usar.includes('email')) {
         try {
             await emailService.sendMail({
                 to: st.destinatario.email,
@@ -194,7 +212,7 @@ async function entregar(id, fase, opts = {}) {
         } catch (e) { errores.push(`email: ${e.message}`); }
     }
 
-    if (st.destinatario.tlf) {
+    if (st.destinatario.tlf && usar.includes('whatsapp')) {
         try {
             // El texto va PRIMERO y aparte; luego cada PDF con una etiqueta corta.
             // Un mensaje largo como caption de un adjunto hace que mucha gente no
@@ -286,7 +304,61 @@ function intentarEntregaAsync(id, fase, contexto = '') {
  *
  * @returns {Promise<{enviado:boolean, motivo?:string, canales?:string[]}>}
  */
-async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsapp', 'email'], usuario = null, mensaje: textoLibre = null } = {}) {
+const facturas = () => require('./ceeFacturaService');
+
+const textoAviso = (row, ph, contacto, factura) => require('./recordatorios').ceeDirectoRegistradoClienteMsg({
+    destinatario: contacto.nombre, numExp: row.numero_expediente,
+    fase: svc.faseCliente(row, ph), cobrado: !!row.cobrado,
+    tercero: contacto.tercero, obra: contacto.tercero ? svc.obraDe(row) : null,
+    factura
+});
+
+/**
+ * Lo que enseña el popup «Avisar al cliente» antes de mandar nada: a quién (la
+ * PERSONA DE CONTACTO si el cliente la tiene), qué factura iría (la ya emitida o
+ * la que se emitiría, con su importe) y el texto, con y sin factura.
+ */
+async function borradorAviso(id, fase) {
+    const ph = uploads.normalizePhase(fase);
+    const row = await svc.cargar(id);
+    if (!row) return null;
+    const key = ph === 'final' ? 'cee_final' : 'cee_inicial';
+    const contacto = svc.contactoCliente(row.cliente);
+    let factura = null;
+    try { factura = await facturas().facturaParaAviso(row.id); }
+    catch (e) { factura = { modo: 'error', faltan: [e.message] }; }
+    const conFactura = factura && factura.modo !== 'error' && !(factura.faltan || []).length;
+    return {
+        fase: ph,
+        faseLabel: estados.nombreFase(row, ph),
+        registrado: row.seguimiento?.[key] === 'REGISTRADO',
+        cobrado: !!row.cobrado,
+        yaAvisado: row.documentacion?.aviso_registrado?.[ph] || null,
+        destinatario: { nombre: contacto.nombre || nombreCliente(row.cliente), email: contacto.email || null, tlf: contacto.tlf || null, tercero: !!contacto.tercero },
+        factura,
+        textos: {
+            conFactura: conFactura ? textoAviso(row, ph, contacto, { numero: factura.numero || 'que te adjuntamos', total: factura.total }) : null,
+            sinFactura: textoAviso(row, ph, contacto, null)
+        }
+    };
+}
+
+/**
+ * Aviso al cliente de que su certificado ya está REGISTRADO — el gemelo del
+ * "CEE registrado" del CAE, con texto de CEE suelto (recordatorios.js).
+ *
+ * Desde el 07/10/2026 lo decide una PERSONA: al subirse el registro te llega el
+ * aviso con un enlace a este popup, y ahí se elige si va la FACTURA adjunta
+ * (`factura: true`): se emite la de por defecto —o se adjunta la ya emitida— y el
+ * mensaje dice que los certificados se envían una vez abonada y pide el
+ * justificante de pago. Al marcar cobrado, la entrega sale sola.
+ *
+ * Con la factura, primero se EMITE: si no se puede, no sale nada (un aviso que
+ * promete una factura que no va adjunta deja al cliente buscándola).
+ *
+ * @returns {Promise<{enviado:boolean, motivo?:string, canales?:string[], factura?:object}>}
+ */
+async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsapp', 'email'], usuario = null, mensaje: textoLibre = null, factura: conFactura = false } = {}) {
     const ph = uploads.normalizePhase(fase);
     const row = await svc.cargar(id);
     if (!row) return { enviado: false, motivo: 'NO_EXISTE' };
@@ -297,39 +369,60 @@ async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsap
 
     const contacto = svc.contactoCliente(row.cliente);
     if (!contacto.tlf && !contacto.email) return { enviado: false, motivo: 'SIN_CONTACTO' };
-    const texto = (textoLibre && String(textoLibre).trim()) || require('./recordatorios').ceeDirectoRegistradoClienteMsg({
-        destinatario: contacto.nombre, numExp: row.numero_expediente,
-        fase: svc.faseCliente(row, ph), cobrado: !!row.cobrado,
-        tercero: contacto.tercero, obra: contacto.tercero ? svc.obraDe(row) : null
-    });
+
+    // La factura, ANTES de mandar nada (puede lanzar: nada sale).
+    let fac = null;
+    if (conFactura) fac = await facturas().facturaDelAviso(row.id, { usuario });
+
+    const texto = (textoLibre && String(textoLibre).trim()) || textoAviso(row, ph, contacto, fac ? { numero: fac.numero, total: fac.total } : null);
     const canales = [];
     if (channels.includes('whatsapp') && contacto.tlf) {
-        try { await whatsappService.sendText(contacto.tlf, texto); canales.push('whatsapp'); }
+        try {
+            await whatsappService.sendText(contacto.tlf, texto);
+            if (fac) {
+                await whatsappService.sendMedia(contacto.tlf,
+                    { base64: fac.buffer.toString('base64'), filename: fac.filename, mimetype: 'application/pdf' },
+                    { caption: `factura ${fac.numero}`, splitCaption: false });
+            }
+            canales.push('whatsapp');
+        }
         catch (e) { console.warn('[cee-directo registrado] WA:', e.message); }
     }
     if (channels.includes('email') && contacto.email) {
         try {
             await emailService.sendMail({
                 to: contacto.email,
-                subject: `${row.numero_expediente} — Tu certificado energético ya está registrado`,
+                subject: `${row.numero_expediente} — Tu certificado energético ya está registrado${fac ? ` · factura ${fac.numero}` : ''}`,
                 text: texto.replace(/\*/g, ''),
-                html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;color:#222;font-size:15px;line-height:24px">${texto.replace(/\*/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split('\n').join('<br>')}</div>`
+                html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;color:#222;font-size:15px;line-height:24px">${texto.replace(/\*/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split('\n').join('<br>')}</div>`,
+                ...(fac ? { attachments: [{ filename: fac.filename, content: fac.buffer, contentType: 'application/pdf' }] } : {})
             });
             canales.push('email');
         } catch (e) { console.warn('[cee-directo registrado] email:', e.message); }
     }
-    if (!canales.length) return { enviado: false, motivo: 'ENVIO_FALLIDO' };
-    await svc.mergeDoc(row.id, 'aviso_registrado', { [clave]: { at: new Date().toISOString(), canales, to: contacto.email || contacto.tlf, automatico: !manual } });
+    if (!canales.length) return { enviado: false, motivo: 'ENVIO_FALLIDO', ...(fac ? { factura: { numero: fac.numero, emitida: fac.emitida } } : {}) };
+    const at = new Date().toISOString();
+    await svc.mergeDoc(row.id, 'aviso_registrado', {
+        [clave]: { at, canales, to: contacto.email || contacto.tlf, automatico: !manual, ...(fac ? { factura: fac.numero } : {}) }
+    });
+    if (fac) {
+        await facturas().anotarEnvio(row.id, fac.numero, {
+            at, canales, email: canales.includes('email') ? contacto.email : null,
+            tlf: canales.includes('whatsapp') ? contacto.tlf : null, usuario, con: 'aviso de registrado'
+        }).catch(e => console.warn('[cee-directo registrado] envío de la factura:', e.message));
+    }
     await svc.anotarHistorial(row.id, {
         tipo: 'CLIENTE',
-        texto: `AVISO AL CLIENTE: ${estados.nombreFase(row, ph).toUpperCase()} REGISTRADO, POR ${canales.join(' Y ').toUpperCase()}${manual ? '' : ' (AUTOMÁTICO)'}`,
+        texto: `AVISO AL CLIENTE: ${estados.nombreFase(row, ph).toUpperCase()} REGISTRADO, POR ${canales.join(' Y ').toUpperCase()}`
+            + `${fac ? ` · CON LA FACTURA ${fac.numero}${fac.emitida ? ' (EMITIDA AHORA)' : ''}` : ''}${manual ? '' : ' (AUTOMÁTICO)'}`,
         usuario
     });
-    return { enviado: true, canales };
+    return { enviado: true, canales, ...(fac ? { factura: { numero: fac.numero, total: fac.total, emitida: fac.emitida } } : {}) };
 }
 
 module.exports = {
     avisarRegistrado,
+    borradorAviso,
     SLOTS_ENTREGA,
     autoActivado,
     estado,

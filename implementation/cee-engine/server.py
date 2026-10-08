@@ -481,7 +481,7 @@ def cex(payload: dict = Body(...)) -> Response:
         # lo primero: un tipo que no existe no puede acabar a medias en un
         # fichero.
         tipo = G.TER.tipo_de(datos)
-        # La VERSION de CE3X (2.3 o 3.1, por defecto la vigente). Tambien se
+        # La VERSION de CE3X (2.3, 3.1 o 3.2; por defecto la vigente, 3.2). Tambien se
         # valida lo primero, por lo mismo.
         version = VC.version_pedida(datos)
         envolvente_, avisos = G.construir_envolvente(geometria, datos)
@@ -555,14 +555,14 @@ def cex(payload: dict = Body(...)) -> Response:
         # reales); para la 3.1 se le añade lo que esa version pide —datos
         # generales y administrativos nuevos, la potencia de cada equipo—. Las
         # medidas, su orden de ejecucion y su justificacion (Anexo III, 3).
-        if version == "3.1":
+        if VC.es_moderna(version):
             # Las de la instalacion del edificio Y las de los equipos que solo
             # estan en una medida (la aerotermia que se propone): la 3.1 pide la
             # potencia tambien dentro de cada medida.
             pot = VC.potencias_de_equipos(
                 list(datos.get("instalaciones") or [])
                 + [eq for m in (datos.get("medidas") or []) for eq in (m.get("instalaciones") or [])])
-            avisos.extend(VC.elevar(nuevos, VC.extra_31(datos), pot))
+            avisos.extend(VC.elevar(nuevos, VC.extra_31(datos), pot, tipo=tipo))
         salida.write_bytes(G.montar(PLANTILLA, nuevos, tipo, version))
 
         # Releer SIEMPRE antes de devolver. Un .cex que no se relee igual que se
@@ -753,6 +753,26 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
                 informe[0] = str((ficha["medidas"][0] or {}).get("nombre") or "")
                 cambios[G.INFORME] = informe
 
+        # Las FECHAS del informe son las del FINAL, nunca las del inicial que se
+        # copia («las fechas del inicial NO pasan al final»): las de la ficha y,
+        # sin ellas, en blanco y se dice. El texto de las pruebas del técnico se
+        # respeta; si lo dejó vacío, va el de la app (26RES060_178).
+        informe = cambios.get(G.INFORME)
+        if informe is None:
+            leido = L.leer(base, G.INFORME)
+            informe = G._reemitible(leido) if VC.informe_valido(leido) else None
+        if informe is not None:
+            inf_ficha = ficha.get("informe") or {}
+            for clave, i, que in (("fecha_emision", 5, "emisión"), ("fecha_visita", 6, "visita")):
+                fecha = G._fecha_cex(inf_ficha.get(clave))
+                informe[i] = fecha or ["", "", ""]
+                if not fecha:
+                    avisos.append(f"No consta la fecha de {que} del CEE final: se deja en "
+                                  "blanco (la del inicial no vale) para ponerla en CE3X.")
+            if not str(informe[3] or "").strip() and str(inf_ficha.get("pruebas") or "").strip():
+                informe[3] = str(inf_ficha["pruebas"]).strip()
+            cambios[G.INFORME] = informe
+
         # La versión de destino (por defecto la 3.1): las potencias de los
         # equipos nuevos salen de la ficha; las de los que se quedan, del fichero.
         pot = VC.potencias_de_equipos(
@@ -831,7 +851,7 @@ async def cex_previsto(fichero: UploadFile = File(...),
                 existentes=G.generadores_de_base(meta.get("extra"), version))
             avisos += av
             cambios[G.INSTALACIONES] = inst
-            if version == "3.1" and gens:
+            if VC.es_moderna(version) and gens:
                 extra = list(meta.get("extra") or [[], []])
                 meta = dict(meta, extra=[extra[0] if extra else [], gens])
         elif not hechos["huecos"] and not hechos["cerramientos"]:
@@ -960,7 +980,7 @@ def poner_medida(crudo: bytes, ficha: dict) -> tuple[bytes, list[str]]:
     # servicio, o el diálogo de la medida sale en blanco y CE3X no escribe el
     # XML: la del equipo nuevo, de la ficha; la de los que se quedan, la que ya
     # les puso el técnico (`meta`), o por defecto y dicho.
-    if VC.version_de(base) == "3.1":
+    if VC.es_moderna(VC.version_de(base)):
         avisos.extend(VC.medidas_equipos_a_31(
             grupos, VC.potencias_de_equipos([eq for m in medidas for eq in (m.get("instalaciones") or [])]),
             meta))

@@ -1205,6 +1205,130 @@ async function getParcelImage(rc, { conFallos = false } = {}) {
     }
 }
 
+// ── El enlace a la ficha del inmueble en la Sede ──────────────────────────────
+//
+// El atajo de siempre, `OVCListaBienes.aspx?rc1=&rc2=`, no es la ficha: la Sede
+// lo RESUELVE y redirige a `OVCConCiud.aspx?del=..&mun=..&UrbRus=&RefC=<20>`, y
+// esa resolución depende de la sesión del navegador. En el Chrome de Fran (con su
+// sesión de la Sede) contestaba "No hay inmuebles en la ubicación seleccionada"
+// (07/10/2026, 7847709VJ9374N0001DD); en un navegador limpio funciona. Enlazar
+// directamente a la dirección final se salta ese paso. Comprobado contra la Sede:
+//   · la ficha exige la referencia de 20: con la de 14 da "Error de Datos";
+//   · `UrbRus` lleva U o R según el `cn` del Catastro, como el enlace que a Fran SÍ
+//     le abría la ficha; vacío también vale (es lo que pone la redirección de la
+//     propia Sede) y es lo que va cuando no se sabe;
+//   · una parcela con varios inmuebles se abre con su LISTA, también con del/mun;
+//   · `mun` es el código del CATASTRO (`cmc`), no el del INE: en Logroño son 900
+//     y 89. Con el del INE la ficha no casaría (mismo criterio que getReformsByRC).
+const SEDE_LISTA_URL = 'https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx';
+const TTL_NO_EXISTE = 24 * 60 * 60 * 1000;
+
+/**
+ * Lo que la Sede necesita para abrir un inmueble: `{ del, mun, rc20, varios }`.
+ * `rc20` es la referencia completa (la dada, o la del único inmueble de la
+ * parcela); `varios`, que la parcela tiene más de uno. `{ noExiste: true }` si el
+ * Catastro dice que no existe, y null si no ha contestado lo que se esperaba.
+ * Una consulta DNPRC cacheada 30 días; el "no existe", un día (la ruta que la
+ * usa es pública y no puede convertirse en una forma de preguntar al WAF a
+ * ráfagas por referencias inventadas).
+ */
+async function codigosSede(rc) {
+    const cleanRC = String(rc || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (cleanRC.length !== 14 && cleanRC.length !== 20) return null;
+    const cacheKey = `sede:${cleanRC}`;
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+    if (monitor.shouldSkipRequest()) throw new CatastroBlockedError();
+
+    monitor.recordRequest();
+    const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RefCat=${cleanRC}`;
+    let consulta;
+    try {
+        // 10 s: la lista de un BLOQUE es lenta de componer (medido: 4,9 s con 118
+        // inmuebles en Logroño); una vivienda contesta en 0,2-0,4 s.
+        const response = await catastroGetReintentando(url, { headers: COMMON_HEADERS, timeout: 10000 });
+        if (isRateLimitResponse(null, response.data)) {
+            monitor.record403(String(response.data).substring(0, 200));
+            throw new CatastroBlockedError();
+        }
+        consulta = JSON.parse(response.data)?.consulta_dnprcResult;
+    } catch (error) {
+        if (error instanceof CatastroBlockedError) throw error;
+        // El WAF contesta con 400/403 y su HTML: catastroGet lo rechaza con `response`.
+        if (isRateLimitResponse(error)) {
+            monitor.record403(error.message);
+            throw new CatastroBlockedError();
+        }
+        monitor.recordOtherError(error.message);
+        throw error;
+    }
+    monitor.recordSuccess();
+    if (!consulta) return null;
+    if (consulta.lerr) {
+        // Solo se recuerda lo que el Catastro dice que NO EXISTE o está MAL ESCRITO
+        // (los mismos códigos que getByRC); otro error puede ser pasajero.
+        const errs = [].concat(consulta.lerr.err || consulta.lerr);
+        const cod = String(errs[0]?.cod || '');
+        const des = errs.map(e => String(e?.des || '')).join(' ').toUpperCase();
+        if (['1', '4', '7', '8'].includes(cod) || des.includes('NO ENCONTRADA') || des.includes('NO SE HA ENCONTRADO') || des.includes('NO EXISTE')) {
+            const noExiste = { noExiste: true };
+            cache.set(cacheKey, noExiste, TTL_NO_EXISTE);
+            return noExiste;
+        }
+        return null;
+    }
+
+    const rcDe = (r) => (r ? `${r.pc1 || ''}${r.pc2 || ''}${r.car || ''}${r.cc1 || ''}${r.cc2 || ''}` : '');
+    let dt = null; let rc20 = cleanRC.length === 20 ? cleanRC : ''; let varios = false; let cn = '';
+    if (consulta.bico) {
+        const bi = Array.isArray(consulta.bico.bi) ? consulta.bico.bi[0] : consulta.bico.bi;
+        dt = bi?.dt;
+        cn = bi?.idbi?.cn;
+        if (!rc20) rc20 = rcDe(bi?.idbi?.rc);
+    } else if (consulta.lrcdnp) {
+        const raw = consulta.lrcdnp;
+        const lista = Array.isArray(raw) ? raw : (raw.rcdnp ? [].concat(raw.rcdnp) : []);
+        dt = lista[0]?.dt;
+        varios = lista.length > 1;
+        cn = lista[0]?.idbi?.cn || lista[0]?.rc?.cn;
+        if (!rc20 && lista.length === 1) rc20 = rcDe(lista[0]?.rc || lista[0]?.idbi?.rc);
+    }
+    const del = String(dt?.loine?.cp ?? '').trim();
+    const mun = String(dt?.cmc ?? dt?.loine?.cm ?? '').trim();
+    if (!del || !mun) return null;
+
+    // `cn` dice si es URbana o RUstica ('UR' / 'RU'); la ficha lo lleva en `UrbRus`.
+    const urbRus = String(cn || '').toUpperCase().startsWith('U') ? 'U'
+        : String(cn || '').toUpperCase().startsWith('R') ? 'R' : '';
+    const out = { del, mun, rc20: rc20.length === 20 ? rc20 : null, varios, urbRus };
+    cache.set(cacheKey, out, 30 * 24 * 60 * 60 * 1000);
+    return out;
+}
+
+/**
+ * La dirección de la Sede para una referencia, con lo que haya devuelto
+ * `codigosSede` (o null). Pura, para poder probarla sin red:
+ *   · con la referencia de 20 → la ficha de ese inmueble;
+ *   · con la de 14 de una parcela de UN inmueble → la ficha, con su referencia de 20;
+ *   · con la de 14 de una parcela de VARIOS → la lista de la parcela;
+ *   · sin códigos (Catastro no contesta, o no existe) → el atajo de siempre: un
+ *     enlace que a veces falla es mejor que uno que no abre nada.
+ */
+function urlSedeCatastro(rc, info) {
+    const limpia = String(rc || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const rc1 = limpia.slice(0, 7); const rc2 = limpia.slice(7, 14);
+    if (!info || !info.del || !info.mun) {
+        return `${SEDE_LISTA_URL}?rc1=${rc1}&rc2=${rc2}${limpia.length === 20 ? `&RCCompleta=${limpia}` : ''}`;
+    }
+    const dm = `del=${encodeURIComponent(info.del)}&mun=${encodeURIComponent(info.mun)}`;
+    const rc20 = limpia.length === 20 ? limpia : info.rc20;
+    if (rc20 && !(limpia.length === 14 && info.varios)) {
+        const urbRus = info.urbRus === 'U' || info.urbRus === 'R' ? info.urbRus : '';
+        return `${SEDE_FICHA_URL}?${dm}&UrbRus=${urbRus}&RefC=${rc20}`;
+    }
+    return `${SEDE_LISTA_URL}?${dm}&rc1=${rc1}&rc2=${rc2}`;
+}
+
 async function getDetails(rc) { return await getByRC(rc); }
 
-module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel, fachadaCompleta, cerrarFachada, extraerInmuebles, resumirParcela, miniaturaExif, getWmsImage };
+module.exports = { getByRC, getRCByCoords, getDetails, codigosSede, urlSedeCatastro, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel, fachadaCompleta, cerrarFachada, extraerInmuebles, resumirParcela, miniaturaExif, getWmsImage };

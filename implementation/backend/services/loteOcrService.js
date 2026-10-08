@@ -35,6 +35,7 @@
  */
 
 const { normalizarCodigoCae, contarRangoCae } = require('../utils/codigosCae');
+const { ajustesGemini } = require('../utils/geminiAjustes');
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const RETRYABLE_STATUS = new Set([429, 500, 503]);
@@ -86,8 +87,7 @@ async function leerConGemini(pdfBuffer, prompt, schema, etiqueta) {
         generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: schema,
-            temperature: 0,
-            thinkingConfig: { thinkingBudget: THINKING_BUDGET },
+            ...ajustesGemini(GEMINI_MODEL, { pensamiento: THINKING_BUDGET, temperatura: 0 }),
         },
     };
 

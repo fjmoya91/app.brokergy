@@ -1,8 +1,8 @@
 // Prueba de `programaCee`: con qué programa —y qué versión— se hizo un .xml de CEE.
-// Es la etiqueta «CE3X 2.3 / 3.1» de la rejilla del CEE.
+// Es la etiqueta «CE3X 2.3 / 3.1 / 3.2» de la rejilla del CEE.
 //   node implementation/backend/scripts/test_programa_cee.mjs
 import assert from 'node:assert/strict';
-import { programaCee, FECHA_CE3X_31 } from '../../frontend/src/features/cee/programaCee.js';
+import { programaCee, FECHA_CE3X_31, FECHA_CE3X_32 } from '../../frontend/src/features/cee/programaCee.js';
 
 const V23 = '<?xml version="1.0"?><DatosEnergeticosDelEdificio version="2.0"><IdentificacionEdificio>'
     + '<AnoConstruccion>1990</AnoConstruccion><Procedimiento>CEXv2.3</Procedimiento></IdentificacionEdificio>'
@@ -30,6 +30,17 @@ ok(`una 2.3 emitida desde el ${FECHA_CE3X_31} sale en ámbar; antes, no`, () => 
     assert.equal(programaCee(V23, { fechaEmision: '2026-10-02' }).tono, 'aviso');
     assert.equal(programaCee(V23, { fechaEmision: '2026-09-30' }).tono, 'anterior');
     assert.equal(programaCee(V31, { fechaEmision: '2026-10-02' }).tono, 'actual');
+});
+ok('CE3X 3.2: el mismo esquema v3.0, con su compilación (2026.10.05)', () => {
+    const V32 = V31.replace('2026.08.20', '2026.10.05');
+    const p = programaCee(V32, { fechaEmision: '2026-10-09' });
+    assert.equal(p.etiqueta, 'CE3X 3.2'); assert.equal(p.esquema, '3.0'); assert.equal(p.tono, 'actual');
+    assert.equal(programaCee(V32.toUpperCase()).etiqueta, 'CE3X 3.2');
+});
+ok(`una 3.1 emitida desde el ${FECHA_CE3X_32} sale en ámbar; antes, no`, () => {
+    const p = programaCee(V31, { fechaEmision: '2026-10-09' });
+    assert.equal(p.tono, 'aviso'); assert.match(p.titulo, /CE3X 3\.2/);
+    assert.equal(programaCee(V31, { fechaEmision: '2026-10-07' }).tono, 'actual');
 });
 ok('otro programa: se nombra, no se le inventa versión', () => {
     const p = programaCee('<DatosEnergeticosDelEdificio version="2.0"><IdentificacionEdificio><Procedimiento>HULC 2.0'

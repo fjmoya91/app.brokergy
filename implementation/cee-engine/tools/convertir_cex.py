@@ -2,27 +2,29 @@
 
 El CEE final se hace copiando el inicial (`/cex/instalaciones`) o desde la
 medida de mejora del inicial del tecnico (`cee_final.py`), y ese inicial puede
-estar hecho con la 2.3 aunque el final se emita con la 3.1 —es justo lo que pasa
-con todo lo que estaba en marcha el 01/10/2026—. Este modulo completa los
-`cambios` que ya se iban a escribir para que el fichero salga en la version de
-destino:
+estar hecho con la 2.3 o la 3.1 aunque el final se emita con la 3.2 —es justo lo
+que pasa con todo lo que estaba en marcha el 01/10/2026 y el 08/10/2026—. Este
+modulo completa los `cambios` que ya se iban a escribir para que el fichero salga
+en la version de destino:
 
-  · de la 2.3 a la 3.1: se reescriben tambien la cabecera, los datos
+  · de la 2.3 a la 3.1 o la 3.2: se reescriben tambien la cabecera, los datos
     administrativos y generales (con sus campos nuevos), las instalaciones (con
     su potencia) y el informe. Lo que el fichero ya dice —la superficie, las
     plantas, la titulacion que tecleo el tecnico— manda (`extra_de_cex`).
-  · de la 3.1 a la 2.3: solo si no se pierde nada que la 2.3 no sepa abrir
-    (`version_ce3x.bajable`); si no, se dice y no se escribe.
+  · entre la 3.1 y la 3.2: SOLO la cabecera (la forma es la misma, medido sobre
+    los ejemplos oficiales de las dos), y las recomendaciones de uso si faltan.
+  · de la 3.1 o la 3.2 a la 2.3: solo si no se pierde nada que la 2.3 no sepa
+    abrir (`version_ce3x.bajable`); si no, se dice y no se escribe.
 
 La envolvente (pickle 3) es igual en las dos y no se toca nunca.
 
 Y POR LINEA DE ORDENES, para un .cex suelto (el que un tecnico migro a mano, el
 de un expediente antiguo):
 
-    python tools/convertir_cex.py entrada.cex [--a 3.1|2.3] [--salida salida.cex]
+    python tools/convertir_cex.py entrada.cex [--a 3.2|3.1|2.3] [--salida salida.cex]
                                   [--viviendas N] [--uso ResidencialPrivado]
 
-Sin `--salida` escribe al lado `<nombre>_v31.cex` (o `_v23`). ⚠ Nunca con
+Sin `--salida` escribe al lado `<nombre>_v32.cex` (o `_v31`, `_v23`). ⚠ Nunca con
 PUNTOS en el nombre: el generador del PDF oficial (xml2cert) no encuentra el
 XML de un fichero llamado «… CEE FINAL_3.1.cex».
 """
@@ -69,7 +71,10 @@ def a_version(base: Any, cambios: dict, destino: str, ficha: dict | None = None,
     if destino not in VC.VERSIONES:
         raise GeneracionError(f"versión de CE3X {destino!r} no contemplada")
 
-    if origen != destino:
+    if origen != destino and VC.es_moderna(origen) and VC.es_moderna(destino):
+        # Entre la 3.1 y la 3.2 la forma es la MISMA: solo cambia la cabecera.
+        cambios[0] = VC.cabecera(destino, tipo)
+    elif origen != destino:
         # Al cambiar de version se reescriben TODOS los pickles que cambian de
         # forma, aunque el contenido sea el mismo.
         for i in (G.ADMINISTRATIVOS, G.GENERALES, G.INFORME):
@@ -81,15 +86,33 @@ def a_version(base: Any, cambios: dict, destino: str, ficha: dict | None = None,
             meta = meta or meta_base
         cambios[0] = VC.cabecera(destino, tipo)
 
-    if destino == "3.1":
-        if origen != "3.1":
+    if VC.es_moderna(destino):
+        if not VC.es_moderna(origen):
             avisos.append(
-                "El fichero de partida estaba hecho con CE3X 2.3 y este sale para la 3.1: "
-                "se han rellenado los datos que la 3.1 pide (superficie útil, nº de "
+                f"El fichero de partida estaba hecho con CE3X 2.3 y este sale para la {destino}: "
+                f"se han rellenado los datos que la {destino} pide (superficie útil, nº de "
                 "viviendas, plantas, uso, grado de protección y la potencia de cada "
-                "equipo). Compruébalos en CE3X antes de calcular.")
+                "equipo). Compruébalos en CE3X antes de calcular: las plantas sobre y bajo "
+                "rasante son las del EDIFICIO ENTERO (manual de la 3.2, 6.6).")
+        elif origen != destino:
+            avisos.append(
+                f"El fichero estaba hecho con CE3X {origen} y sale para la {destino}: tienen la "
+                "misma forma y solo cambia la cabecera. Ábrelo y guárdalo con la "
+                f"{destino}; ya no se puede abrir con la {origen} si se modifica en la "
+                f"{destino}.")
+        # Las RECOMENDACIONES DE USO van SIEMPRE en la 3.1 (decision del
+        # usuario, 07/10/2026): un fichero que ya es de la 3.1 pero llega con la
+        # casilla vacia (el del tecnico, o uno convertido antes) se completa
+        # aunque no se fuera a reescribir su informe.
+        if G.INFORME not in cambios:
+            inf = L.leer(base, G.INFORME)
+            if (isinstance(inf, list) and (len(inf) == 7 or (
+                    len(inf) == 8 and not str(inf[VC.INFORME_RECOMENDACIONES] or "").strip()))):
+                cambios[G.INFORME] = G._reemitible(inf)
+                avisos.append("El informe no traía las recomendaciones de uso (Anexo III, 1): "
+                              "se han puesto las de siempre. Revísalas en «Opciones del informe».")
         ext = VC.extra_de_cex(L.leer(base, G.ADMINISTRATIVOS), L.leer(base, G.GENERALES), ficha)
-        avisos += VC.elevar(cambios, ext, potencias, meta, reemitir=G._reemitible)
+        avisos += VC.elevar(cambios, ext, potencias, meta, reemitir=G._reemitible, tipo=tipo)
         return avisos
 
     # destino 2.3
@@ -100,21 +123,21 @@ def a_version(base: Any, cambios: dict, destino: str, ficha: dict | None = None,
         if meta and any(meta.get("extra") or []):
             motivos.append("las placas o un generador van como «generador eléctrico» "
                            "o termosolar de la 3.1")
-    elif origen == "3.1":
+    elif VC.es_moderna(origen):
         motivos += VC.bajable(L.leer(base, G.INSTALACIONES))
-    if origen == "3.1" and G.MEDIDAS not in cambios:
+    if VC.es_moderna(origen) and G.MEDIDAS not in cambios:
         motivos += VC.bajable(None, L.leer(base, G.MEDIDAS))
     if motivos:
         raise GeneracionError(
             "No se puede escribir para CE3X 2.3 sin perder datos ("
-            + "; ".join(motivos) + "). Genéralo con la 3.1.")
-    if origen == "3.1":
+            + "; ".join(motivos) + f"). Genéralo con la {VC.POR_DEFECTO}.")
+    if VC.es_moderna(origen):
         avisos += VC.bajar(cambios)
     return avisos
 
 
 def convertir_bytes(crudo: bytes, ficha: dict | None = None) -> tuple[bytes, list[str], str]:
-    """El MISMO `.cex` en la version pedida (por defecto, la 3.1).
+    """El MISMO `.cex` en la version pedida (por defecto, la vigente: 3.2).
 
     Devuelve `(bytes, avisos, version de destino)`. Si ya es de esa version, el
     fichero vuelve tal cual y se dice. Es la logica de `/cex/convertir` y de la
@@ -127,7 +150,13 @@ def convertir_bytes(crudo: bytes, ficha: dict | None = None) -> tuple[bytes, lis
     destino = VC.version_pedida(ficha)
     origen, _tipo = version_y_programa(base)
     if origen == destino:
-        return crudo, [f"El fichero ya es de CE3X {destino}: no hay nada que convertir."], destino
+        # Uno que YA es de la 3.x puede llegar sin las recomendaciones de uso:
+        # se completan (es lo unico que `a_version` toca en ese caso).
+        cambios: dict = {}
+        avisos = a_version(base, cambios, destino, ficha) if VC.es_moderna(destino) else []
+        if not cambios:
+            return crudo, [f"El fichero ya es de CE3X {destino}: no hay nada que convertir."], destino
+        return E.sustituir_pickles(crudo, cambios), avisos, destino
     cambios: dict = {}
     pot = VC.potencias_de_equipos(ficha.get("instalaciones"))
     avisos = a_version(base, cambios, destino, ficha, None, pot)
@@ -135,7 +164,7 @@ def convertir_bytes(crudo: bytes, ficha: dict | None = None) -> tuple[bytes, lis
 
 
 def nombre_de_salida(entrada: Path, destino: str) -> Path:
-    """`<nombre>_v31.cex` al lado, sin puntos en el nombre (xml2cert no los soporta)."""
+    """`<nombre>_v32.cex` al lado, sin puntos en el nombre (xml2cert no los soporta)."""
     tallo = entrada.stem.replace(".", "-")
     return entrada.with_name(f"{tallo}_v{destino.replace('.', '')}{entrada.suffix}")
 
@@ -143,10 +172,10 @@ def nombre_de_salida(entrada: Path, destino: str) -> Path:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    ap = argparse.ArgumentParser(description="Pasa un .cex de CE3X 2.3 a 3.1 (o al revés).")
+    ap = argparse.ArgumentParser(description="Pasa un .cex de una versión de CE3X a otra (2.3, 3.1, 3.2).")
     ap.add_argument("entrada", type=Path)
     ap.add_argument("--a", dest="version", default=VC.POR_DEFECTO, choices=VC.VERSIONES,
-                    help="versión de destino (por defecto la vigente, 3.1)")
+                    help=f"versión de destino (por defecto la vigente, {VC.POR_DEFECTO})")
     ap.add_argument("--salida", type=Path, default=None)
     ap.add_argument("--viviendas", default=None,
                     help="nº de viviendas o unidades de uso (un bloque no lo dice el fichero)")

@@ -823,6 +823,61 @@ export function leerCalificacionesDeTexto(xmlString) {
  *
  * Case-insensitive: el XML guardado en BD llega entero en MAYÚSCULAS.
  */
+/**
+ * El consumo ELÉCTRICO del edificio por servicio, leído del texto del `.xml`
+ * SIN DOM (vale en Node): `{ cal, ref, acs, ilu }` en kWh/m²·año, la superficie
+ * de cálculo (m²) y la zona climática; o null si el certificado no lo trae.
+ *
+ * Es el «máximo» del que habla la regla del autoconsumo de CE3X 3.2 (decisión
+ * del usuario, 08/10/2026): cada mes se declara lo menor entre lo que producen
+ * las placas y lo que el edificio consume de electricidad en calefacción,
+ * refrigeración y ACS (y la iluminación fuera del residencial privado). El
+ * reparto por meses lo hace `autoconsumoMensual.js`.
+ *
+ * Son los valores BRUTOS por servicio: en el v3.0 el `<Tot>` de la electricidad
+ * ya descuenta las placas que el edificio tenga, y aquí no se usa. Y en el XML
+ * guardado en BD (MAYÚSCULAS) se busca sin distinguir mayúsculas.
+ */
+export function leerConsumoElectricoDeTexto(xmlString) {
+    if (!xmlString || typeof xmlString !== 'string') return null;
+    const num = (v) => {
+        const n = parseFloat(String(v ?? '').replace(',', '.'));
+        return Number.isFinite(n) && n >= 0 && n < 99999999 ? n : null;
+    };
+    const etiqueta = (txt, tag) => {
+        const m = String(txt || '').match(new RegExp(`<${tag}>\\s*([^<]*?)\\s*</${tag}>`, 'i'));
+        return m ? m[1] : null;
+    };
+    const zona = (etiqueta(xmlString, 'ZonaClimatica') || '').trim().toUpperCase() || null;
+
+    if (esXmlCeeV30(xmlString)) {
+        const x = leerXmlCeeV30(xmlString);
+        const e = (x.vectores || []).find((v) => /^ELECTRICIDAD/i.test(String(v.nombre || '')));
+        // <AreaRef> es la superficie de CÁLCULO (la de los kWh/m²); la útil de la
+        // RD 390/2021 puede ser otra (manual de la 3.2, 6.2 y 6.3).
+        const superficie = num(etiqueta(xmlString, 'AreaRef')) || x.superficieUtil || null;
+        if (!superficie) return null;
+        return { cal: e?.cal || 0, ref: e?.ref || 0, acs: e?.acs || 0, ilu: e?.ilu || 0,
+                 superficie, zona, version: '3.0' };
+    }
+
+    const abre = xmlString.search(/<EnergiaFinalVectores[\s>]/i);
+    if (abre < 0) return null;
+    const cierra = xmlString.toLowerCase().indexOf('</energiafinalvectores>', abre);
+    const efv = xmlString.slice(abre, cierra < 0 ? undefined : cierra);
+    const out = { cal: 0, ref: 0, acs: 0, ilu: 0 };
+    // Los cuatro vectores eléctricos del v2.0 (península, Baleares, Canarias, Ceuta y Melilla).
+    for (const m of efv.matchAll(/<(Electricidad\w*)>([\s\S]*?)<\/\1>/gi)) {
+        out.cal += num(etiqueta(m[2], 'Calefaccion')) || 0;
+        out.ref += num(etiqueta(m[2], 'Refrigeracion')) || 0;
+        out.acs += num(etiqueta(m[2], 'ACS')) || 0;
+        out.ilu += num(etiqueta(m[2], 'Iluminacion')) || 0;
+    }
+    const superficie = num(etiqueta(xmlString, 'SuperficieHabitable'));
+    if (!superficie) return null;
+    return { ...out, superficie, zona, version: '2.0' };
+}
+
 export function leerDatosIrpfDeTexto(xmlString) {
     const out = {
         epnrConsumo: null, epnrLetra: null,

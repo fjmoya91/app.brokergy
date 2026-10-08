@@ -8,6 +8,9 @@
 //                                                                   pulsa ENVIAR de verdad
 //   node scripts/claude_propuesta.js enviar <OP> --a cliente --mensaje texto.txt
 //                                                                   con el texto del fichero en vez del que compone el popup
+//   node scripts/claude_propuesta.js enviar <OP> --a partner --guardar
+//                                                                   pulsa «Guardar Oportunidad» antes del PDF (para inputs
+//                                                                   tocados por un script: la BD queda con el cálculo de la app)
 //   node scripts/claude_propuesta.js baja                          la desactiva (deja de poder entrar)
 //
 // CÓMO FUNCIONA. La propuesta (el PDF y los mensajes) la compone el NAVEGADOR al
@@ -147,6 +150,25 @@ async function enviar() {
             .catch(async () => { throw new Error(`No se abrió la oportunidad (captura: ${await foto(page, '0-error')}).`); });
         await espera(1500);
 
+        if (bandera('--guardar')) {
+            // --guardar: pulsa «Guardar Oportunidad» de la calculadora como una persona.
+            // Cuando un script cambia los `inputs`, la calculadora recalcula al abrir
+            // pero NO lo da por «sin guardar» (su foto de referencia es ya la
+            // recalculada), así que el `result` de la BD se quedaría viejo. Guardando
+            // aquí, la BD y la propuesta salen del MISMO cálculo de la app.
+            const [guardar] = await page.$$('xpath/.//button[.//span[normalize-space()="Guardar"] and .//span[normalize-space()="Oportunidad"]]');
+            if (!guardar) throw new Error(`No encuentro el botón «Guardar Oportunidad» (captura: ${await foto(page, '1-guardar')}).`);
+            await guardar.click();
+            const datos = await page.waitForSelector('xpath/.//button[contains(., "Guardar Datos")]', { timeout: 30000 }).catch(() => null);
+            if (!datos) throw new Error(`No se abrió el popup de guardar (captura: ${await foto(page, '1-guardar')}).`);
+            await datos.click();
+            await page.waitForSelector('xpath/.//*[contains(text(), "Oportunidad Guardada")]', { timeout: 60000 })
+                .catch(async () => { throw new Error(`No se ha confirmado el guardado (captura: ${await foto(page, '1-guardar')}).`); });
+            console.log('  ✓ Simulación GUARDADA desde la calculadora (el resultado es el de la app).');
+            const [cerrar] = await page.$$('xpath/.//button[contains(., "Cerrar Ventana")]');
+            if (cerrar) await cerrar.click();
+            await espera(1500);
+        }
         await page.click('[data-robot="abrir-propuesta"]');
         await espera(1500);
         if (await page.$('[data-robot="aviso-sin-guardar"]')) {

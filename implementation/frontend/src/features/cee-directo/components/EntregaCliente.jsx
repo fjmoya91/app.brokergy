@@ -2,6 +2,18 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { GuiaIrpfModal } from '../../expedientes/components/GuiaIrpfModal';
 import { eur } from '../../expedientes/logic/guiaIrpf';
+import { AvisoRegistradoModal } from './AvisoRegistradoModal';
+
+// El enlace del aviso «CEE registrado» (`?cee=<id>&avisar=<fase>`) abre el popup
+// de avisar al cliente. Se lee al CARGAR el módulo —App reescribe la URL al abrir
+// la ficha y el parámetro se perdería— y se consume una sola vez.
+let avisarPendiente = (() => {
+    try {
+        const p = new URLSearchParams(window.location.search);
+        const fase = p.get('avisar');
+        return p.get('cee') && fase ? { cee: p.get('cee'), fase: fase === 'final' ? 'final' : 'inicial' } : null;
+    } catch { return null; }
+})();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entrega del certificado al cliente.
@@ -70,6 +82,7 @@ function Fila({ id, fase, etiqueta, onCambio }) {
     const [resultado, setResultado] = useState(null);
     const [confirmarReenvio, setConfirmarReenvio] = useState(false);
     const [revisarGuia, setRevisarGuia] = useState(false);
+    const [avisar, setAvisar] = useState(false);
 
     const cargar = useCallback(async () => {
         try {
@@ -79,6 +92,21 @@ function Fila({ id, fase, etiqueta, onCambio }) {
     }, [id, fase]);
 
     useEffect(() => { cargar(); }, [cargar]);
+
+    // Llegada desde el enlace del aviso «registrado»: se abre el popup una vez.
+    useEffect(() => {
+        if (avisarPendiente && avisarPendiente.fase === fase
+            && (avisarPendiente.cee === id || avisarPendiente.cee === String(id))) {
+            avisarPendiente = null;
+            // Fuera de la URL: recargar la ficha no debe volver a abrirlo.
+            try {
+                const u = new URL(window.location.href);
+                u.searchParams.delete('avisar');
+                window.history.replaceState(window.history.state, '', u);
+            } catch { /* sin URL que limpiar */ }
+            setAvisar(true);
+        }
+    }, [id, fase]);
 
     const entregar = async (reenviar = false) => {
         setEnviando(true);
@@ -99,7 +127,9 @@ function Fila({ id, fase, etiqueta, onCambio }) {
 
     if (!info) return null;
 
-    const { puede, faltan, yaEntregado, destinatario, ficheros, guia } = info;
+    const { puede, faltan, yaEntregado, destinatario, ficheros, guia, registrado, cobrado, avisoRegistrado } = info;
+    // Registrado y sin cobrar: lo que toca es avisarle (con la factura) y esperar el pago.
+    const tocaAvisar = registrado && !cobrado && !yaEntregado;
 
     return (
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
@@ -128,7 +158,7 @@ function Fila({ id, fase, etiqueta, onCambio }) {
                                 {destinatario.tlf ? ` · ${destinatario.tlf}` : ''}
                             </div>
                             <div className="text-[11px] text-white/25 mt-1">
-                                Adjuntos: {[ficheros.pdf, ficheros.registro, ficheros.guia].filter(Boolean).join(' · ')}
+                                Adjuntos: {[ficheros.pdf, ficheros.registro, ficheros.etiqueta, ficheros.guia].filter(Boolean).join(' · ')}
                             </div>
                             <LineaGuia guia={guia} onRevisar={() => setRevisarGuia(true)} />
                         </>
@@ -140,12 +170,27 @@ function Fila({ id, fase, etiqueta, onCambio }) {
                                     <li key={i} className="text-[11px] text-amber-400/80">• {f}</li>
                                 ))}
                             </ul>
+                            {tocaAvisar && (
+                                <div className="text-[11px] mt-2 text-white/45">
+                                    {avisoRegistrado
+                                        ? <>✓ Avisado de que está registrado el {new Date(avisoRegistrado.at).toLocaleDateString('es-ES')}{avisoRegistrado.factura ? `, con la factura ${avisoRegistrado.factura}` : ''}. Al marcar cobrado, sale solo.</>
+                                        : <span className="text-brand">El cliente aún no sabe que está registrado.</span>}
+                                </div>
+                            )}
                             <LineaGuia guia={guia} onRevisar={() => setRevisarGuia(true)} />
                         </>
                     )}
                 </div>
 
-                <div className="shrink-0">
+                <div className="shrink-0 flex flex-col gap-2 items-end">
+                    {tocaAvisar && (
+                        <button onClick={() => setAvisar(true)}
+                            className={`min-h-[44px] px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                avisoRegistrado ? 'border border-white/10 text-white/40 hover:text-white hover:border-white/25'
+                                    : 'bg-brand text-bkg-deep hover:bg-brand-700'}`}>
+                            {avisoRegistrado ? 'Volver a avisar' : 'Avisar al cliente'}
+                        </button>
+                    )}
                     {!yaEntregado && puede && (
                         <button onClick={() => entregar(false)} disabled={enviando}
                             className="min-h-[44px] px-4 rounded-xl bg-brand text-bkg-deep text-[10px] font-black uppercase tracking-widest hover:bg-brand-700 transition-colors disabled:opacity-40">
@@ -185,6 +230,9 @@ function Fila({ id, fase, etiqueta, onCambio }) {
             <GuiaIrpfModal isOpen={revisarGuia} onClose={() => { setRevisarGuia(false); cargar(); }}
                            expedienteId={id} apiBase={API} soloRevisar
                            onEnviado={() => { cargar(); onCambio?.(); }} />
+
+            <AvisoRegistradoModal isOpen={avisar} onClose={() => setAvisar(false)} id={id} fase={fase}
+                                  onEnviado={() => { cargar(); onCambio?.(); }} />
         </div>
     );
 }
@@ -207,9 +255,11 @@ export function EntregaCliente({ id, esDoble, autoAvisoRef, onCambio }) {
             </div>
 
             <p className="text-[11px] text-white/30 mb-4">
-                Se envía solo —por email y WhatsApp, con el certificado firmado y el justificante de
-                registro adjuntos— en cuanto el expediente está cobrado y el registro subido. Si los
-                certificados acreditan la deducción del IRPF, va también la guía de la Renta.
+                Al subirse el registro te llega un aviso: desde «Avisar al cliente» le dices que está
+                registrado y, si quieres, le emites la factura. El certificado se envía solo —por email y
+                WhatsApp, con el PDF firmado, el justificante de registro y la etiqueta— en cuanto el
+                expediente está cobrado. Si los certificados acreditan la deducción del IRPF, va también
+                la guía de la Renta.
             </p>
 
             {/* Que el automático esté apagado tiene que verse. Sin este aviso, en

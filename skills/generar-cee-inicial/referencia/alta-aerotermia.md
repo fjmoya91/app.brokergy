@@ -1,5 +1,9 @@
 # Dar de alta una aerotermia en el catálogo
 
+> **El procedimiento completo está en la skill `alta-aerotermia`** (buscar ficha del fabricante,
+> EPREL y Keymark; orden `keymark`; `--anexo` para cualquier documento que justifique un dato;
+> `--actualizar <id>` para completar una fila a medias; `--originales`). Lo de abajo es el resumen.
+
 Cuando `placas` dice **«NO ESTÁ»**. Sin el equipo en el catálogo el SCOP sale de la simulación
 (genérico) y el certificado no tiene ficha con qué justificarlo.
 

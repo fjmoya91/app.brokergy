@@ -1033,14 +1033,19 @@ def _es_autoconsumo(eq: dict) -> bool:
 
 def separar_generadores(equipos: list[dict], version: str | None
                         ) -> tuple[list[dict], list[dict], list[str]]:
-    """En la 3.1, las placas de autoconsumo SALEN de las contribuciones y van
-    como «Generacion renovable electrica». Devuelve (resto, generadores, avisos).
+    """En la 3.1 y la 3.2, las placas de autoconsumo SALEN de las contribuciones
+    y van como «Generacion renovable electrica». Devuelve (resto, generadores,
+    avisos).
 
-    Hace falta el reparto MENSUAL (lo da PVGIS) y la potencia pico: sin ellos se
-    quedan como contribucion anual —que la 3.1 abre y calcula igual— y se dice
-    como pasarlas. En la 2.3 no existe el objeto: todo se queda como estaba.
+    Hace falta el reparto MENSUAL (lo da PVGIS, limitado mes a mes por lo que el
+    edificio consume: `autoconsumoMensual` de la app) y la potencia pico. En la
+    3.1, sin ellos se quedaban como contribucion anual —que calcula igual— y se
+    decia. En la 3.2 NO: su manual (7.1) dice que la pestaña de contribuciones
+    «no debe utilizarse» para la fotovoltaica, asi que sin los doce meses no se
+    escribe y se dice por que (PVGIS no ha respondido: se vuelve a generar). En
+    la 2.3 no existe el objeto: todo se queda como estaba.
     """
-    if version != "3.1":
+    if not VC.es_moderna(version):
         return list(equipos or []), [], []
     resto: list[dict] = []
     gens: list[dict] = []
@@ -1055,9 +1060,16 @@ def separar_generadores(equipos: list[dict], version: str | None
             gens.append(eq)
             miles = f"{round(sum(meses)):,}".replace(",", ".")
             avisos.append(
-                f"«{eq.get('nombre')}»: va como «Generación renovable eléctrica» de la 3.1, "
-                f"{_num(kwp).replace('.', ',')} kWp y {miles} kWh/año de autoconsumo "
+                f"«{eq.get('nombre')}»: va como «Generación renovable eléctrica» de la "
+                f"{version}, {_num(kwp).replace('.', ',')} kWp y {miles} kWh/año de autoconsumo "
                 f"repartidos mes a mes.")
+        elif version != "3.1":
+            raise GeneracionError(
+                f"«{eq.get('nombre')}»: en CE3X {version} las placas van SIEMPRE en «Generación "
+                f"renovable eléctrica», con la potencia pico y el autoconsumo MES A MES, y aquí "
+                f"faltan {'los doce meses' if not meses else 'los kWp'} (PVGIS no ha respondido "
+                f"o no hay ubicación). Consulta PVGIS en la barra ⚡ del módulo CEE y vuelve a "
+                f"generar; como «Contribución energética» ya no se puede declarar.")
         else:
             resto.append(eq)
             avisos.append(
@@ -1076,7 +1088,7 @@ def generadores_de_base(extra: Any, version: str | None) -> list:
     placas como generador, la medida tiene que llevarlas, o CE3X la calcularia
     sobre una vivienda SIN placas y el ahorro saldria de otro edificio.
     """
-    if version != "3.1" or not isinstance(extra, (list, tuple)) or len(extra) < 2:
+    if not VC.es_moderna(version) or not isinstance(extra, (list, tuple)) or len(extra) < 2:
         return []
     return [_reemitible(g) for g in (extra[1] or [])]
 
@@ -1097,7 +1109,7 @@ def instalaciones_de_medida(equipos: list[dict], base: list, zonas: set[str] | N
     resto, gen_eqs, avisos = separar_generadores(equipos, version)
     zona_defecto = "Edificio Objeto" if str(espacio).lower() == "auto" else str(espacio)
     declaradas = (zonas or set()) | {"Edificio Objeto"}
-    gens = list(existentes or []) if version == "3.1" else []
+    gens = list(existentes or []) if VC.es_moderna(version) else []
     for eq in gen_eqs:
         zona = eq.get("zona", zona_defecto)
         if zona not in declaradas:
@@ -2099,6 +2111,10 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
             # CE3X ('Garaje/espacio enterrado' solo hacia abajo), asi que
             # escribirlos al reves es un cerramiento que CE3X lee mal.
             base = term["particion_superior"]
+            # Hacia ABAJO (garaje, espacio enterrado) la U de CE3X es otra que
+            # hacia arriba: la ficha la trae aparte. Una anterior no: la de siempre.
+            if el.get("subtipo") == "ESPACIO_NO_HABITABLE_INFERIOR" and term.get("particion_inferior"):
+                base = term["particion_inferior"]
             sentido = SENTIDO_PARTICION.get(el.get("subtipo"))
             if sentido:
                 base = {**base, **sentido}
@@ -2431,7 +2447,12 @@ def construir_generales(datos: dict, plantilla: list) -> list:
     out[12] = _opcional(datos["administrativos"]["localidad_texto"])
     out[13] = [False, "", ""]
     out[14] = False
-    out[15] = "Y"
+    # La zona de la NBE-CT-79 (V..Z): CE3X la guarda aqui, no la ensena, y de
+    # ella salen sus «Estimados» de 1980 a 2007. La pone la ficha
+    # (`zonaNbe`, la que CE3X deduce de la HE-1 con la localidad «Otro»). Era
+    # siempre "Y" y en un E1 eso es la zona de un D (26RES060_188: cubierta
+    # «Estimada» 0,90 en vez de 0,70). Una ficha anterior no la trae: "Y".
+    out[15] = _opcional(g.get("zona_nbe")) or "Y"
     out[16] = str(_v(g["ventilacion"], "generales.ventilacion"))
     out[17] = imagen(g.get("foto_edificio"))      # foto de fachada
     out[18] = imagen(g.get("plano_situacion"))    # plano/croquis de Catastro

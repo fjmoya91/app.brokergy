@@ -166,17 +166,19 @@ function loadProduccionFv() {
     return loadEsm(PRODUCCION_FV_JS, _produccionFv);
 }
 
-//: Cuánto se espera a PVGIS al GENERAR. Sin respuesta, el autoconsumo sale
-//: como contribución anual —que la 3.1 calcula igual— y se dice: un `.cex` no
-//: puede quedarse esperando a un servicio de fuera.
+//: Cuánto se espera a PVGIS al GENERAR. Sin respuesta, en la 3.1 el autoconsumo
+//: salía como contribución anual —que calcula igual—; en la 3.2 eso ya no vale
+//: (su manual, 7.1) y el motor no escribe las placas y lo dice: un `.cex` no
+//: puede quedarse esperando a un servicio de fuera, pero tampoco declararlas mal.
 const PVGIS_ESPERA_MS = Number(process.env.PVGIS_ESPERA_CEX_MS) || 12000;
 
 /**
  * La producción ESPECÍFICA de PVGIS (kWh por kWp, anual y mes a mes) para el
  * autoconsumo de ESTE expediente.
  *
- * En CE3X 3.1 las placas se declaran como «Generación renovable eléctrica»:
- * potencia pico y autoconsumo MES A MES. Esos meses salen de PVGIS. Si alguien
+ * En CE3X 3.1 y 3.2 las placas se declaran como «Generación renovable eléctrica»:
+ * potencia pico y autoconsumo MES A MES. Esos meses salen de PVGIS (y luego cada
+ * uno se limita a lo que el edificio consume ese mes: `autoconsumoMensual`). Si alguien
  * lo consultó en la barra ⚡ y lo usó en la medida, manda lo guardado
  * (`ajustes.autoconsumo_pvgis`, con su tejado); si no, se pregunta aquí con los
  * ángulos ÓPTIMOS del sitio, que es lo mismo que enseña la barra sin tocar
@@ -189,8 +191,9 @@ async function pvgisParaAutoconsumo(ctx, ajustes) {
     if (especificaValida(ajustes?.autoconsumo_pvgis)) return { especifica: ajustes.autoconsumo_pvgis };
     const ubicacion = ubicacionDeExpediente(ctx.expediente);
     if (!ubicacion) {
-        return { aviso: 'Sin coordenadas ni referencia catastral no se puede preguntar a PVGIS: el '
-                        + 'autoconsumo va como «Contribución energética» (kWh/año).' };
+        return { aviso: 'Sin coordenadas ni referencia catastral no se puede preguntar a PVGIS: sin '
+                        + 'el reparto mensual, CE3X 3.2 no admite el autoconsumo (iría como «Contribución '
+                        + 'energética», que su manual prohíbe para la fotovoltaica).' };
     }
     const pvgis = require('./pvgisService');
     let plazo;
@@ -212,15 +215,15 @@ async function pvgisParaAutoconsumo(ctx, ajustes) {
                    + 'barra ⚡ del módulo CEE y vuelve a generar.',
         };
     } catch (e) {
-        return { aviso: `PVGIS no ha respondido (${e.message}): el autoconsumo va como «Contribución `
-                        + 'energética» (kWh/año), que la 3.1 calcula igual. Vuelve a generar en un rato '
-                        + 'para declararlo como «Generación renovable eléctrica» mes a mes.' };
+        return { aviso: `PVGIS no ha respondido (${e.message}): sin el reparto mensual el autoconsumo `
+                        + 'no se puede declarar como «Generación renovable eléctrica». Vuelve a generar en '
+                        + 'un rato.' };
     } finally {
         clearTimeout(plazo);
     }
 }
 
-/** ¿Alguna medida declara autoconsumo SIN los doce meses? (lo que la 3.1 necesita) */
+/** ¿Alguna medida declara autoconsumo SIN los doce meses? (lo que la 3.x necesita) */
 function autoconsumoSinMeses(medidas) {
     return (medidas || []).some((m) => (m?.instalaciones || []).some((e) =>
         e?.slot === 'renovable' && Number(e.generacion_electrica_kwh) > 0
@@ -774,12 +777,12 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
         geo: { geometria }, envolvente, ajustes: aj, imagenes, fase, medidas,
     });
     let compuesta = componer(ajustes);
-    // En la 3.1 el autoconsumo va como «Generación renovable eléctrica», mes a
-    // mes. Si nadie consultó PVGIS en la barra ⚡, se pregunta aquí — solo al
-    // GENERAR: la previsualización se pide muchas veces y no puede esperar a
-    // un servicio de fuera.
+    // En la 3.1 y la 3.2 el autoconsumo va como «Generación renovable
+    // eléctrica», mes a mes. Si nadie consultó PVGIS en la barra ⚡, se pregunta
+    // aquí — solo al GENERAR: la previsualización se pide muchas veces y no
+    // puede esperar a un servicio de fuera.
     const avisosPvgis = [];
-    if (conImagenes && compuesta.ficha?.version_ce3x === '3.1'
+    if (conImagenes && ['3.1', '3.2'].includes(compuesta.ficha?.version_ce3x)
         && autoconsumoSinMeses(compuesta.ficha?.medidas)) {
         const { especifica, aviso } = await pvgisParaAutoconsumo(ctx, ajustes);
         if (aviso) avisosPvgis.push(aviso);
@@ -1003,20 +1006,25 @@ async function guardarEnDrive(ctx, buffer, fase = 'inicial') {
 /**
  * El XML y el PDF de un `.cex` ya guardado, junto a él y con su MISMO nombre
  * (`… - CEE INICIAL_REVISAR.xml` / `.pdf`). Salen de `cee/cexAPdf.js`, que lo
- * califica con CE3X 3.1 en el PC: aquí solo se suben. Lo que hubiera con ese
+ * califica con CE3X 3.2 en el PC: aquí solo se suben. Lo que hubiera con ese
  * nombre se archiva en OLD, como el `.cex`.
+ *
+ * `cex`: el `.cex` que guardó CE3X tras AJUSTAR el autoconsumo mes a mes a su
+ * consumo (`cexAPdf`, regla del 08/10/2026). Sustituye al que había con ese
+ * nombre —que va a OLD—: el XML y el PDF son los de ESE fichero.
  *
  * El `_REVISAR` los aparta de la rejilla (`matchSlot`): son el borrador
  * calificado, no la entrega del técnico. Nunca lanza: el `.cex` ya está.
  */
-async function guardarCalificadoEnDrive(ctx, fase, nombreCex, { xml = null, pdf = null } = {}) {
+async function guardarCalificadoEnDrive(ctx, fase, nombreCex, { xml = null, pdf = null, cex = null } = {}) {
     if (!ctx.driveFolderId && !esCeeDirecto(ctx.expediente)) return { ok: false, error: 'el expediente no tiene carpeta de Drive' };
     try {
         const { id: carpeta } = await carpetaFase(ctx, fase);
         if (!carpeta) throw new Error('no se ha podido resolver la carpeta de la fase');
         const base = String(nombreCex).replace(/\.cex$/i, '');
         const subidos = [];
-        for (const [ext, mime, bytes] of [['.xml', 'application/xml', xml], ['.pdf', 'application/pdf', pdf]]) {
+        for (const [ext, mime, bytes] of [['.cex', 'application/octet-stream', cex],
+            ['.xml', 'application/xml', xml], ['.pdf', 'application/pdf', pdf]]) {
             if (!bytes) continue;
             const nombre = base + ext;
             const previo = await driveService.findFileByName(carpeta, nombre);

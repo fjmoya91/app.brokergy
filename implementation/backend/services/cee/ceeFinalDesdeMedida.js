@@ -99,10 +99,10 @@ async function catalogoFinal(ctx, analisis, params = {}) {
     try {
         const { medidasCe3x } = await cex.loadFichaCe3x();
         const trabajo = await cex.leerTrabajo(ctx.expediente.id).catch(() => null);
-        //: En la 3.1 el autoconsumo va como «Generación renovable eléctrica»,
-        //: MES A MES: los meses salen de PVGIS (lo guardado en la barra ⚡, o se
-        //: pregunta aquí; cacheado 30 días por sitio).
-        const pv = (analisis?.version_final || '3.1') === '3.1'
+        //: En la 3.1 y la 3.2 el autoconsumo va como «Generación renovable
+        //: eléctrica», MES A MES: los meses salen de PVGIS (lo guardado en la
+        //: barra ⚡, o se pregunta aquí; cacheado 30 días por sitio).
+        const pv = ['3.1', '3.2'].includes(analisis?.version_final || '3.2')
             ? await cex.pvgisParaAutoconsumo(ctx, trabajo?.ajustes) : {};
         const { catalogo: cat } = medidasCe3x({
             expediente: ctx.expediente, superficie: null, fase: 'final',
@@ -169,13 +169,19 @@ async function catalogoFinal(ctx, analisis, params = {}) {
  * @param {object}  [op.params] { aislamiento_cubierta: {solucion, espesor_cm, lambda}, … }
  * @param {boolean} [op.guardarDrive] false = se monta el fichero pero NO se sube
  *        (el script lo usa para probar en seco con el fichero en la mano)
- * @param {string}  [op.version] '2.3' | '3.1' — la versión de CE3X del final. Sin
- *        decirla, la 3.1 (la vigente): el inicial del técnico puede estar hecho con
- *        la 2.3 y el final salir ya con la 3.1 — el motor lo convierte al copiarlo.
+ * @param {string}  [op.version] '2.3' | '3.1' | '3.2' — la versión de CE3X del final.
+ *        Sin decirla, la 3.2 (la vigente desde el 08/10/2026): el inicial del técnico
+ *        puede estar hecho con la 2.3 o la 3.1 y el final salir ya con la 3.2 — el
+ *        motor lo convierte al copiarlo.
+ * @param {{bytes: Buffer, nombre: string}} [op.cexBase] un `.cex` CONCRETO del que
+ *        partir en vez del que entregó el técnico en Drive (`cee_final.js --base=`).
+ *        Para cuando el técnico calculó su medida pero guardó el `.cex` ANTES de
+ *        añadirla: se le pone con `ponerMedida` (en seco) y el final sale de esa
+ *        copia. Solo lo pasa una persona a propósito, y se dice en los avisos.
  */
 async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fechaVisita = null,
                                      medidas = null, textos = {}, params = {}, guardarDrive = true,
-                                     version = null } = {}) {
+                                     version = null, cexBase = null } = {}) {
     const exp = ctx?.expediente;
     if (!exp) throw error(404, 'Expediente no encontrado');
     if (cex.esCeeDirecto(exp) || cex.esOportunidad(exp)) {
@@ -190,7 +196,9 @@ async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fecha
         throw error(409, 'El CEE final de este expediente ya está REGISTRADO: no se vuelve a generar.');
     }
 
-    const entregado = await revisionCex.cexEntregado(ctx, 'inicial');
+    const entregado = cexBase?.bytes?.length
+        ? { bytes: cexBase.bytes, nombre: cexBase.nombre || 'base.cex', varios: false, aMano: true }
+        : await revisionCex.cexEntregado(ctx, 'inicial');
     if (!entregado) {
         throw error(409, 'No hay ningún .cex del técnico en «1. CEE / CEE INICIAL»: el final sale de '
             + 'la medida de mejora de ese fichero (el borrador «_REVISAR» de la app no vale: no está calculado).');
@@ -201,9 +209,9 @@ async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fecha
     const { equiposDelExpediente } = await cex.loadFichaCe3x();
     const equiposExpediente = equiposDelExpediente(exp, { modelos: ctx.modelos });
 
-    //: La versión de CE3X del final. Lo que no es una de las dos no se manda: el
-    //: motor rechazaría el fichero entero por una versión inventada.
-    const versionCe3x = ['2.3', '3.1'].includes(String(version || '')) ? String(version) : null;
+    //: La versión de CE3X del final. Lo que no es una de las conocidas no se
+    //: manda: el motor rechazaría el fichero entero por una versión inventada.
+    const versionCe3x = ['2.3', '3.1', '3.2'].includes(String(version || '')) ? String(version) : null;
     const conVersion = versionCe3x ? { version_ce3x: versionCe3x } : {};
 
     const r1 = await alMotor(entregado.bytes, { solo_analizar: true, equipos_expediente: equiposExpediente,
@@ -216,6 +224,10 @@ async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fecha
         : catalogo.filter((m) => m.porDefecto).map((m) => m.id);
 
     const avisos = [...avisosAnalisis];
+    if (entregado.aMano) {
+        avisos.push(`Parte de un .cex indicado a mano («${entregado.nombre}»), no del que entregó el técnico `
+            + 'en «1. CEE / CEE INICIAL»: compruébalo antes de dar el final por bueno.');
+    }
     if (entregado.varios) {
         avisos.push(`Hay varios .cex del técnico en CEE INICIAL: se usa el más reciente («${entregado.nombre}»).`);
     }

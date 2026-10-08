@@ -158,16 +158,21 @@ function utmALatLon(x, y, huso = 30) {
     return r.lat > 27 && r.lat < 44.5 && r.lon > -19 && r.lon < 5 ? r : null;
 }
 
-/** «Cómo llegar» y «Ver en Catastro», con las coordenadas si se tienen. */
+/**
+ * «Cómo llegar» y «Ver en Catastro», con las coordenadas si se tienen.
+ * El de Catastro pasa por `/api/catastro/sede/:rc` —el MISMO enlace que el icono del
+ * Catastro del resto de la app (`enlaceSedeCatastro`)—, que redirige a la ficha del
+ * inmueble con su delegación y su municipio: el atajo `OVCListaBienes.aspx?rc1=&rc2=`
+ * depende de la sesión de la Sede del navegador y a veces contesta "No hay inmuebles".
+ * Relativo a propósito: lo pinta nuestra propia página, en el mismo origen que la API.
+ */
 function comoLlegar({ direccion, coord_x: x, coord_y: y, rc }) {
     const p = utmALatLon(x, y);
     const destino = p ? `${p.lat.toFixed(6)},${p.lon.toFixed(6)}` : limpio(direccion);
-    const rc14 = limpio(rc).replace(/\s+/g, '').slice(0, 14);
+    const ref = limpio(rc).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     return {
         mapa: destino ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destino)}` : null,
-        catastro: rc14.length === 14
-            ? `https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=${rc14.slice(0, 7)}&rc2=${rc14.slice(7)}`
-            : null,
+        catastro: ref.length >= 14 && ref.length <= 20 ? `/api/catastro/sede/${ref}` : null,
         conCoordenadas: !!p,
     };
 }

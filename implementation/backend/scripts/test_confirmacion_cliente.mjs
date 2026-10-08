@@ -199,7 +199,9 @@ t('CAE (26RES060_206): radiadores, 6 kWp y 5 aires, con cómo declararlos', () =
     assert.match(b, /Calefacción: Radiadores/);
     assert.match(b, /Aire acondicionado: Sí · 5 aparatos/);
     assert.match(b, /sólo refrigeración/);
-    assert.match(b, /20 % cada uno/);
+    assert.match(b, /3 a 5 kW/);
+    assert.match(b, /enfría su estancia, no la casa/);
+    assert.match(b, /como mucho el 100 %/);
     assert.match(b, /autoconsumo/);
 });
 t('CEE directo (2026CEE_60): el cuestionario, y frío y calor si es para la deducción', () => {

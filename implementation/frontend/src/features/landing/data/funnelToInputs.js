@@ -10,7 +10,7 @@
 import { mapBoiler, mapAcsType, shouldWarnBiomasa } from './boilerMapping';
 import { fotovoltaicaDesdeFunnel, FOTOVOLTAICA_VACIA } from '../../expedientes/logic/fotovoltaica';
 import { mapEmisor } from './emisoresMapping';
-import { getUByYear, getVentanaYACHByYear, CAE_PRECIO_CLIENTE_NUEVAS } from '../../calculator/logic/calculation';
+import { getUByYear, getVentanaYACHByYear, CAE_PRECIO_CLIENTE_NUEVAS, GUIA_TRANSMITANCIAS } from '../../calculator/logic/calculation';
 import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
 
 /**
@@ -156,9 +156,12 @@ function funnelToCalculatorInputs(funnel, catastro, options = {}) {
         inputs.gla = 15;
     }
 
-    // 4. Ajustes por año (transmitancias y ventilación)
+    // 4. Ajustes por año (transmitancias y ventilación). Siempre es una simulación
+    // NUEVA: calcula con la Guía vigente (la de CE3X 3.2, por año y zona) y lo
+    // lleva escrito (`guia_transmitancias`, ver calculation.js).
+    inputs.guia_transmitancias = GUIA_TRANSMITANCIAS;
     if (inputs.anio) {
-        const yearU = getUByYear(inputs.anio);
+        const yearU = getUByYear(inputs.anio, inputs.zona, inputs);
         if (yearU) {
             inputs.uMuro = yearU.wall;
             inputs.uCubierta = yearU.roof;

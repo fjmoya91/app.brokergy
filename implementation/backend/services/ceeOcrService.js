@@ -13,6 +13,7 @@
  */
 
 const { PDFDocument } = require('pdf-lib');
+const { ajustesGemini } = require('../utils/geminiAjustes');
 
 const PROVIDER = (process.env.CEE_OCR_PROVIDER || 'gemini').toLowerCase();
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -254,9 +255,8 @@ async function extractWithGemini(pdfBuffer) {
     generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: GEMINI_SCHEMA,
-      temperature: 0,
       // Sin razonamiento: ver THINKING_BUDGET arriba (10,6 s → 2,9 s, y más fiel).
-      thinkingConfig: { thinkingBudget: THINKING_BUDGET },
+      ...ajustesGemini(GEMINI_MODEL, { pensamiento: THINKING_BUDGET, temperatura: 0 }),
     },
   };
 

@@ -51,11 +51,14 @@ LF = b"\n"
 #: terciario del disco, sus envolventes, equipos y medidas tienen exactamente
 #: las mismas formas que las del residencial (ver tools/terciario.py).
 #: Y desde el 01/10/2026 CE3X 3.1 (`tools/version_ce3x.py`): los mismos tres
-#: programas con la cabecera 'CE3Xv3.1 …'.
+#: programas con la cabecera 'CE3Xv3.1 …'; desde el 08/10/2026, la 3.2, con la
+#: MISMA forma y la cabecera 'CE3Xv3.2 …'.
 VERSIONES_CONOCIDAS = ("CEXv2.3 Residencial", "CEXv2.3 PequeñoTerciario",
                        "CEXv2.3 GranTerciario",
                        "CE3Xv3.1 Residencial", "CE3Xv3.1 PequeñoTerciario",
-                       "CE3Xv3.1 GranTerciario")
+                       "CE3Xv3.1 GranTerciario",
+                       "CE3Xv3.2 Residencial", "CE3Xv3.2 PequeñoTerciario",
+                       "CE3Xv3.2 GranTerciario")
 
 # El pickle 2 lleva la imagen del plano embebida y ocupa ~100 KB. En el volcado
 # los textos largos se cortan; para verlos enteros esta --largo.
