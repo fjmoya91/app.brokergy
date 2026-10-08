@@ -348,6 +348,31 @@ export function EnviarPropuestaModal({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [candidates]);
 
+    // Los datos del destinatario pueden llegar DESPUÉS de abrir: la ficha del
+    // cliente se pide aparte y, mientras no vuelve, la fila del CLIENTE es el
+    // titular sin teléfono ni correo. La inicialización se quedaba con esa foto:
+    // el saludo al titular aunque el mensaje fuera a su persona de contacto y los
+    // dos canales apagados («MARCA UN CANAL»). Medido en 26RES060_OP141: «¡Hola
+    // Sonia Villa Saez!» con la propuesta saliendo a Paloma. Cuando cambian los
+    // contactos se rehacen los canales (respetando los que se han tocado a mano) y
+    // el mensaje (solo si no se ha editado). La apertura la hace la inicialización.
+    const firmaCandidatos = candidates.map(c => [c.mode, c.label, c.email, c.phone, (c.personas || []).map(p => `${p.id}:${p.email || ''}:${p.phone || ''}`).join(',')].join('|')).join('#');
+    const firmaRef = useRef(null);
+    useEffect(() => {
+        if (!isOpen) { firmaRef.current = null; return; }
+        if (firmaRef.current === null || firmaRef.current === firmaCandidatos) { firmaRef.current = firmaCandidatos; return; }
+        firmaRef.current = firmaCandidatos;
+        const sel = selectedModes.flatMap(m => resolveContacts(m, personasSel));
+        const hayEmail = sel.some(c => c.email);
+        const hayTlf = sel.some(c => phoneValid(c.phone));
+        setChannels(ch => ({
+            email: hayEmail ? (channelTouched.current.email ? ch.email : true) : false,
+            whatsapp: hayTlf ? (channelTouched.current.whatsapp ? ch.whatsapp : true) : false,
+        }));
+        applyDefaultMessage(selectedModes, !!ceeComparisonAvailable && !!includeCee, personasSel, !!fcEstado?.procede && !!includeFc);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, firmaCandidatos]);
+
     // El estado de WhatsApp se consultaba UNA sola vez, al abrir. La sesión del
     // servidor se cae y vuelve sola (cada deploy la reinicia y tarda ~5 min en
     // reconectar), así que el canal se quedaba muerto hasta cerrar y reabrir el

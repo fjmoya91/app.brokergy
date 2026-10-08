@@ -209,9 +209,19 @@ async function enviar() {
         if (faltan.length) throw new Error(`En el popup no hay destinatario ${faltan.join(', ')} (hay: ${modos.map(m => m.modo).join(', ') || 'ninguno'}).`);
         await espera(1200);
 
-        const canales = await page.$$eval('[data-robot^="canal-"]', els => els.map(e => ({
+        const leerCanales = () => page.$$eval('[data-robot^="canal-"]', els => els.map(e => ({
             canal: e.getAttribute('data-robot').slice(6), on: e.getAttribute('data-robot-on') === '1', texto: e.innerText.replace(/\s+/g, ' ').trim(),
         })));
+        let canales = await leerCanales();
+        // Un canal con destinatario pero APAGADO se enciende, como haría una persona
+        // con el chip de la barra. Pasaba cuando la ficha del cliente llegaba después
+        // de abrir el popup (26RES060_OP141, 08/10/2026): los dos chips apagados y
+        // «MARCA UN CANAL». El popup ya lo corrige solo; esto cubre una app sin él.
+        for (const c of canales.filter(x => !x.on && /\ba [1-9]\d* destinatario/i.test(x.texto))) {
+            const boton = await page.$(`[data-robot="canal-${c.canal}"] button`);
+            if (boton) { await boton.click(); await espera(500); console.log(`  (canal ${c.canal.toUpperCase()} encendido: estaba apagado con destinatario)`); }
+        }
+        canales = await leerCanales();
         // --mensaje <fichero>: sustituye el texto del popup (como si se editara a mano).
         // Se escribe con el setter nativo + evento `input`, que es lo que React escucha.
         const ficheroMensaje = opcion('--mensaje');
