@@ -262,6 +262,87 @@ prueba('solo lo ASIGNADO, con su fotograma, su caja y nace dudoso', () => {
     assert.ok(/1:05/.test(plan.FBSE1[0].por_que));
 });
 
+// ─── Lo que DICE quien graba (el audio transcrito) ──────────────────────────
+// Caso de 26RES060_226 (09/10/2026): la propietaria graba los patios por fuera
+// y dice «y este sería un patio de luces… con dos ventanas, que son dos baños».
+console.log('\nEl AUDIO: la transcripción');
+const transcrita = v.normalizarTranscripcion({ frases: [
+    { t: '00:40', t_fin: '00:42.5', texto: 'Y este sería un patio de luces', menciona: { da_a: 'patio' } },
+    { t: '00:44', t_fin: '00:48', texto: 'con dos ventanas, que son dos baños', menciona: { cuantos: 2, huecos: ['ventana'] } },
+    { t: '00:37', texto: 'Lo que da a la terraza.', menciona: { da_a: 'terraza' } },
+    { t: '00:50', texto: '[inaudible]' },
+    { t: '02:10', texto: 'esto no cabe en el vídeo' },
+    { t: '00:55', texto: 'da al salón', menciona: { da_a: 'interior' } },
+] }, 60);
+prueba('ordena por segundo, quita lo inaudible y lo que se sale del vídeo', () => {
+    assert.deepStrictEqual(transcrita.frases.map(f => f.t), [37, 40, 44, 55]);
+    assert.strictEqual(transcrita.sin_voz, false);
+});
+prueba('sin final, se estima lo que se tarda en decirla; el «da a» va de la lista cerrada', () => {
+    const t = transcrita.frases.find(f => f.t === 37);
+    assert.ok(t.t_fin > 37 && t.t_fin <= 43);
+    assert.strictEqual(transcrita.frases.find(f => f.t === 55).menciona.da_a, null);   // «interior» no es exterior
+    assert.strictEqual(transcrita.frases.find(f => f.t === 40).menciona.da_a, 'patio');
+});
+prueba('sin voz: lista vacía y se dice', () => {
+    assert.strictEqual(v.normalizarTranscripcion({ frases: [] }, 30).sin_voz, true);
+});
+
+console.log('\nEl AUDIO junto a cada hueco');
+const frases = transcrita.frases.map(f => ({ ...f, video: 1 }));
+prueba('lo que se oye de 6 s antes a 4 s después del segundo del hueco', () => {
+    assert.deepStrictEqual(u.frasesCerca(frases, 46, { video: 1 }).map(f => f.t), [40, 44]);
+    assert.deepStrictEqual(u.frasesCerca(frases, 46, { video: 2 }), []);       // otro vídeo, nada
+    assert.deepStrictEqual(u.frasesCerca(frases, 20, { video: 1 }), []);
+});
+prueba('persiana bajada (no se ve) + lo dice quien graba → vale lo dicho, sin ser firme', () => {
+    const r = u.conLoDicho([{ id: 'H8', t: 46, video: 1, da_a: null, da_a_fuente: 'no se ve el exterior' }], frases);
+    assert.strictEqual(r.huecos[0].da_a, 'patio');
+    assert.strictEqual(r.huecos[0].da_a_fuente, 'lo dice quien graba');
+    assert.ok(/patio de luces/.test(r.huecos[0].dice));
+    assert.strictEqual(u.daAFirme(r.huecos[0]), false);
+});
+prueba('lo visto y lo dicho COINCIDEN (patio = jardín) → firme', () => {
+    const r = u.conLoDicho([{ id: 'H9', t: 46, video: 1, da_a: 'jardin', da_a_fuente: 'solo el vídeo' }], frases);
+    assert.strictEqual(r.huecos[0].dicho_coincide, true);
+    assert.strictEqual(u.daAFirme(r.huecos[0]), true);
+    assert.ok(/lo dice quien graba/.test(r.huecos[0].da_a_fuente));
+});
+prueba('lo dicho CONTRADICE lo visto → no se decide y se avisa', () => {
+    const r = u.conLoDicho([{ id: 'H2', t: 46, video: 1, da_a: 'calle', da_a_fuente: 'las dos lecturas' }], frases);
+    assert.strictEqual(r.huecos[0].da_a, null);
+    assert.strictEqual(r.avisos.length, 1);
+});
+prueba('dos cosas distintas nombradas cerca del hueco → solo se enseña, no decide', () => {
+    const r = u.conLoDicho([{ id: 'H3', t: 39, video: 1, da_a: null }], frases);   // «terraza» y «patio»
+    assert.strictEqual(r.huecos[0].da_a, null);
+    assert.ok(r.huecos[0].dice);
+    assert.strictEqual(r.avisos.length, 1);
+});
+prueba('sin frases cerca, el hueco no cambia', () => {
+    const h = { id: 'H1', t: 5, video: 1, da_a: 'calle', da_a_fuente: 'las dos lecturas' };
+    assert.strictEqual(u.conLoDicho([h], frases).huecos[0], h);
+});
+prueba('asignarHuecos: lo visto + lo dicho de acuerdo da confianza ALTA', () => {
+    // Planta baja del plano de mentira: una sola fachada a la CALLE (FBSO1).
+    const dichas = [{ video: 1, t: 10, t_fin: 12, texto: 'esta es la del salón, que da a la calle',
+                      menciona: { da_a: 'calle' } }];
+    const solo = u.asignarHuecos({ huecos: [{ id: 'H5', t: 12, video: 1, planta: 0, tipo: 'ventana', da_a: 'calle',
+                                              da_a_fuente: 'solo el vídeo' }] }, lados);
+    assert.strictEqual(solo.huecos[0].confianza, 'media');            // un solo modelo: por confirmar
+    const { huecos } = u.conLoDicho([{ id: 'H5', t: 12, video: 1, planta: 0, tipo: 'ventana', da_a: 'calle',
+                                      da_a_fuente: 'solo el vídeo' }], dichas);
+    const a = u.asignarHuecos({ huecos }, lados);
+    assert.strictEqual(a.huecos[0].pared, 'FBSO1');
+    assert.strictEqual(a.huecos[0].estado, 'asignado');
+    assert.strictEqual(a.huecos[0].confianza, 'alta');
+});
+prueba('el porqué del plan lleva lo que se dice', () => {
+    const plan = u.huecosParaPlan({ huecos: [{ id: 'H8', estado: 'asignado', pared: 'FBSE1', tipo: 'ventana', t: 46,
+                                               motivo: 'm', dice: 'Y este sería un patio de luces' }] });
+    assert.ok(/dice: «Y este sería un patio de luces»/.test(plan.FBSE1[0].por_que));
+});
+
 console.log('\nEl mensaje al propietario');
 const paredes = [{ titulo: 'Tu casa vista desde la calle', subtitulo: 'Ponte en la acera.' },
                  { titulo: 'La pared que da al patio', subtitulo: 'Mide unos 7 m.' }];

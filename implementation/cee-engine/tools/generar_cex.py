@@ -1185,7 +1185,11 @@ def _heredar_acumulacion(equipos: list[dict], plantilla: list) -> list[str]:
     diria que la vivienda ha perdido su acumulacion de ACS, que es un cambio que
     nadie ha hecho.
 
-    Lo que el expediente SI declare manda: ahi hay un acumulador nuevo de verdad.
+    Y se conserva AUNQUE el expediente declare otro (decision del usuario,
+    09/10/2026): la demanda de ACS del final tiene que ser la MISMA que la del
+    inicial, y CE3X la calcula con las perdidas del deposito. En 26RES060_202 el
+    inicial llevaba 230 l (UA 5,4) y el expediente el integrado de 180 l: el
+    final salia con 18,92 kWh/m2 de ACS frente a 20,02.
     """
     avisos: list[str] = []
     if not isinstance(plantilla, list) or len(plantilla) != len(SLOTS):
@@ -1205,18 +1209,19 @@ def _heredar_acumulacion(equipos: list[dict], plantilla: list) -> list[str]:
     for eq in equipos:
         if "acs" not in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()):
             continue
+        # Su registro TAL CUAL (con su UA y sus temperaturas), como hizo el
+        # certificador en 26RES060_198 (230 l, UA 5.4).
         declarado = eq.get("acumulacion")
-        if declarado:
-            # Lo declarado en el expediente manda... salvo que sea el MISMO
-            # deposito: mismos litros que el del fichero. Entonces se conserva
-            # su registro tal cual (con su UA y sus temperaturas), que es lo que
-            # hizo el certificador en 26RES060_198 (230 l, UA 5.4).
-            if _numf(declarado.get("volumen")) != _numf(previa[1]):
-                continue
         eq["acumulacion_cruda"] = list(previa)
-        avisos.append(
-            f"se conserva el deposito de ACS del .cex que se copia ({previa[1]} l): el "
-            f"generador cambia, el deposito no. Si la obra lo ha cambiado, corrigelo en CE3X.")
+        if declarado and _numf(declarado.get("volumen")) != _numf(previa[1]):
+            avisos.append(
+                f"se conserva el deposito de ACS del .cex que se copia ({previa[1]} l) y no el "
+                f"de la obra ({_num(_numf(declarado.get('volumen')))} l): la demanda de ACS "
+                f"tiene que ser la MISMA que la del inicial.")
+        else:
+            avisos.append(
+                f"se conserva el deposito de ACS del .cex que se copia ({previa[1]} l): el "
+                f"generador cambia, el deposito no.")
     return avisos
 
 

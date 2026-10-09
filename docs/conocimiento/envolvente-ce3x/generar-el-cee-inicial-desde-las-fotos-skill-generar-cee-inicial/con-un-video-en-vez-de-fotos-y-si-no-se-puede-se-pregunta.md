@@ -53,6 +53,42 @@ que lleguen después. Si el vídeo ve más plantas que Catastro (escalera con de
 las estima el modelo con una referencia de la imagen y nacen dudosas (sin referencia, la de por defecto).
 
 La lectura se cachea en bruto (`…/video/lectura.json`) y se vuelve a normalizar: cambiar las reglas no
-obliga a volver a pagarla. Coste medido: 0,01-0,07 € por vídeo, 30-90 s. El vídeo va a la File API del
+obliga a volver a pagarla.
+
+#### Y el AUDIO, aparte: lo que se DICE junto a cada ventana (2026-10-09)
+
+Lo pidió Fran con 26RES060_226: «cuando nos envíen un vídeo, extrae el audio además de los
+fotogramas; uniendo audio y vídeo identificarías dónde están las ventanas». La lectura del vídeo ya
+recibía el sonido, pero solo devolvía un resumen (`narracion`) sin ligarlo a ningún hueco, y quien
+escribe el plan no oye nada: ve fotogramas. En el 226 la hija del titular grabó los patios por FUERA
+diciendo «este sería un patio de luces con dos ventanas, que son dos baños, y la puerta del pasillo»
+y «las ventanas que se ven desde el patio de abajo», y la lectura dejó esas ventanas «dudosas» entre
+20 fachadas.
+
+| Qué | Dónde |
+|---|---|
+| Sacar la pista de sonido (`audio_1.aac`) | `cee_inicial_video.py audio`: con `ffmpeg` copia la pista; sin él (el PC no lo tiene) lee las tablas del MP4/MOV (`stsd`/`esds`, `stsz`, `stsc`, `stco`) y escribe cada trama AAC con su cabecera ADTS, sin recodificar (un MP3 dentro se copia tal cual) |
+| Transcribirla LITERAL, frase a frase con su `t`/`t_fin` y lo que NOMBRA (huecos, «da a», planta, habitación) | `transcribir` + `normalizarTranscripcion` en [videoEnvolventeService.js](implementation/backend/services/videoEnvolventeService.js) (`gemini-2.5-flash`, sin pensar; en línea hasta 14 MB, si no por la File API; sin pista sacada, oye el propio vídeo) |
+| Lo que se dice junto a cada hueco, como lectura de a qué da | `frasesCerca`, `conLoDicho`, `daAFirme` en [utils/videoEnvolvente.js](implementation/backend/utils/videoEnvolvente.js) |
+| La hoja de contactos con SUBTÍTULOS y el mosaico con lo dicho | `hoja --subtitulos` y `mosaico` (`dice`) en `cee_inicial_video.py` |
+
+**REGLA — se TRANSCRIBE, no se interpreta.** El modelo copia lo que se dice y solo marca lo que la
+frase NOMBRA; qué hueco es y en qué pared va lo sigue decidiendo el código.
+
+**REGLA — lo dicho es una lectura MÁS, con su peso.** Cuenta lo que se oye de 6 s antes a 4 s después
+del segundo del hueco (se nombra lo que se va a enseñar). Si el vídeo y el fotograma no dejan ver a qué
+da (persiana bajada) vale lo dicho, pero a confianza MEDIA; si lo visto y lo dicho coinciden (patio =
+jardín, como en `ENCAJE`) es firme, ALTA; si se contradicen, no se decide; y si cerca del hueco se
+nombran dos cosas distintas, solo se enseña.
+
+Medido en el 226: 60 s de vídeo, 6 frases desde el 0:29, transcritas en 3,5-4,7 s (~2.400 tokens). El
+audio dijo lo que el código no podía: que la terraza de arriba está sobre la casita, que hay DOS
+patios de luces (el de abajo con la cocina y el de arriba con los baños) y desde dónde se graba cada
+uno. Con eso y las coordenadas del plano se casaron 20 huecos de patio; el vídeo solo no pasaba de la
+puerta de entrada.
+
+⚠️ De paso: `aplicar` numeraba los huecos del plan desde cero aunque se conservaran los de otras
+paredes, y salían dos «P1» (CE3X enlaza los puentes térmicos por el nombre y el motor no escribe el
+`.cex`). Ahora la numeración salta los nombres ya ocupados. Coste medido: 0,01-0,07 € por vídeo, 30-90 s. El vídeo va a la File API del
 proyecto de PAGO y se borra al terminar. ⚠️ El contenedor del asistente necesita `ffmpeg` (añadido al
 Dockerfile: hay que reconstruirlo).

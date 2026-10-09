@@ -638,6 +638,9 @@ const contornoMayor = (contornos) => (contornos || [])
  *  - `croquis`: `Map(índice → { cx, cy, titulo, sub, escala })`
  *  - `cuerpos`: `Map(id → { x, y (línea base), fs, texto })`
  *
+ * `equipos` (`[{ id, caja: {x0,y0,x1,y1} }]`, ver `marcasDelPlano` en
+ * `equiposPlano.js`) son obstáculos FIJOS: se colocan los primeros y no salen.
+ *
  * `memoria` (opcional) es un objeto que guarda quien llama —un `useRef`—: si
  * nada de lo que cuenta para los rótulos ha cambiado desde la última vez, se
  * devuelve lo mismo sin recalcular. El plano se repinta a cada movimiento del
@@ -657,12 +660,14 @@ export function colocarRotulosPlano(datos, memoria = null) {
 //: otra selección o otro encuadre la cambian; pasar el ratón por encima, no.
 function firmaDe({ muros = [], sel = null, entrada = null, tam, entorno = false, nombreDe = m => m.id,
                    hacia = null, interior = () => false, fuera = () => false, zonas = [], cuerpos = [],
-                   cuerpoSobre = null, croquis = [] }) {
+                   cuerpoSobre = null, croquis = [], equipos = [] }) {
     // Una lista VACÍA vale lo mismo venga de donde venga (un `= []` por
     // defecto es otra lista en cada render).
     const lista = l => (l && l.length ? l : 0);
+    // Los equipos llegan recalculados en cada render: cuentan por DÓNDE están.
+    const eq = (equipos || []).map(e => `${e.id}:${e.caja.x0},${e.caja.y0},${e.caja.x1},${e.caja.y1}`).join('|');
     const f = [tam, entorno, sel, entrada, hacia?.[0], hacia?.[1], lista(zonas), lista(cuerpos), cuerpoSobre,
-               lista(croquis), muros.length];
+               lista(croquis), eq, muros.length];
     for (const m of muros) {
         f.push(m.id, m.svg, nombreDe ? nombreDe(m) : m.id, !!m.cambia, m.largo, !!fuera(m), !!interior(m));
     }
@@ -678,8 +683,21 @@ function mismaFirma(a, b) {
 function calcularRotulosPlano({ muros = [], sel = null, entrada = null, tam, entorno = false,
                                 nombreDe = m => m.id, hacia = null, interior = () => false,
                                 fuera = () => false, zonas = [], cuerpos = [], cuerpoSobre = null,
-                                croquis = [] }) {
+                                croquis = [], equipos = [] }) {
     const items = [];
+
+    // Los ICONOS de los equipos (caldera, máquina nueva, ACS, unidad exterior),
+    // con su rótulo: no se mueven —están donde los puso una persona—, así que
+    // entran los PRIMEROS y como obstáculo fijo, y los nombres y las cotas se
+    // apartan o se esconden. No salen en la respuesta: los pinta `MarcasEquipos`.
+    // Sin esto, «FBSO3» quedaba debajo de «Nuevo» (revisión de diseño, 09/10/2026).
+    for (const e of equipos || []) {
+        const c = e?.caja;
+        if (!c) continue;
+        items.push({ id: `e:${e.id}`, clase: 'equipo', nivel: NIVEL.forzado, peso: 3e9,
+                     candidatos: [cajaRotulo((c.x0 + c.x1) / 2, (c.y0 + c.y1) / 2,
+                                             c.x1 - c.x0, c.y1 - c.y0)] });
+    }
 
     for (const m of muros) {
         const forzado = m.id === sel || m.id === entrada;

@@ -186,6 +186,19 @@ def test_la_normativa_elegida_en_la_app_manda_sobre_la_del_anio():
     assert VC.extra_de_cex([""] * 26, p2)["normativa"] is None
 
 
+def test_al_convertir_la_superficie_util_es_la_del_fichero_no_la_de_la_ficha():
+    """26RES060_202 (09/10/2026): el inicial del tecnico decia 240 m2 y la ficha
+    330; el final copiado salio con 330 y la demanda TOTAL pasaba de 50.246 a
+    69.089 kWh/año. Sin superficie en el fichero, la de la ficha."""
+    p2 = [""] * 21
+    p2[0], p2[6], p2[8], p2[19] = "NBE-CT-79", "240.0", "2", "1998"
+    ext = VC.extra_de_cex([""] * 26, p2, {"ce3x31": {"superficie_util": 330}})
+    assert ext["superficie_util"] == "240"
+    p2[6] = ""
+    assert VC.extra_de_cex([""] * 26, p2, {"ce3x31": {"superficie_util": 330}})[
+        "superficie_util"] == "330"
+
+
 def test_un_bloque_sin_numero_de_viviendas_se_avisa():
     p2 = [""] * 21
     p2[1], p2[6], p2[8], p2[19] = "Bloque de Viviendas", "1293.44", "4", "1960"

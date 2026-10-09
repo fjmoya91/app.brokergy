@@ -245,6 +245,19 @@ def test_los_dos_heredan_el_deposito_del_edificio():
     assert all(e["acumulacion_cruda"][1] == "100" for e in equipos)
 
 
+def test_el_deposito_del_inicial_manda_aunque_la_obra_declare_otro():
+    """La demanda de ACS del final es la del inicial (usuario, 09/10/2026): en
+    26RES060_202 el integrado de 180 l de la obra sustituia a los 230 l del
+    inicial y la demanda de ACS bajaba de 20,02 a 18,92."""
+    solo = [{"slot": "mixto2", "nombre": "AEROTERMIA", "generador":
+             "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+             "rendimiento": "conocido", "rend_calefaccion": "423", "rend_acs": "348",
+             "acumulacion": {"volumen": 180}}]
+    avisos = G.heredar_del_base(solo, _base_con_caldera(litros="230"))
+    assert solo[0]["acumulacion_cruda"][1] == "230"
+    assert any("no el de la obra (180 l)" in a for a in avisos)
+
+
 def test_una_SUSTITUCION_sigue_heredando_la_superficie_entera():
     """Sin reparto (100 %), nada cambia: se reescribe TAL CUAL la del fichero."""
     solo = [{"slot": "mixto2", "nombre": "AEROTERMIA", "generador":
@@ -466,11 +479,12 @@ def test_el_estacional_sale_del_factor_medido():
     assert G._estacional("Equipo de Rendimiento Constante", "refrigeracion", "300") == 300.0
 
 
-def test_con_otro_deposito_manda_el_declarado():
-    """Litros distintos de los del fichero: es un acumulador nuevo de verdad."""
+def test_con_otro_deposito_se_conserva_el_del_fichero():
+    """Litros distintos de los del fichero: antes mandaba el declarado; desde el
+    09/10/2026 se conserva el del inicial, para que la demanda de ACS no cambie."""
     equipos = [_aerotermia("mixto3", acumulacion={"volumen": 150})]
     G.heredar_del_base(equipos, _base_con_caldera(litros="100"))
-    assert "acumulacion_cruda" not in equipos[0]
+    assert equipos[0]["acumulacion_cruda"][1] == "100"
 
 
 def test_mixto3_estimado_no_se_escribe():

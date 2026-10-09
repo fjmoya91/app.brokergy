@@ -85,7 +85,11 @@ relativas a esa carpeta.
 | `cee` | `{ fichero, modo, wa_msg_id }` | El CEE que aporta el cliente, el MÁS RECIENTE (PDF o fotos separadas por comas; no `.xml`). Se lee con el OCR de «Nueva simulación» y va solo a `DOC_CEE_EXISTENTE`. `modo`: `comparativa` (por defecto: la simulación sigue estimada y la propuesta ofrece «con tu CEE / CEE nuevo BROKERGY») o `cee` (la simulación usa el certificado; sin comparativa). El seco imprime las dos cifras |
 | `documentos[]` | `{ fichero, slot, wa_msg_id? }` | Apartados: `FOTO_CALDERA_ANTES`, `FOTO_PLACA_CALDERA_ANTES`, `FOTO_EMISORES_ANTES`, `FOTO_ACS_ANTES`, `FOTO_FACHADA_PRINCIPAL`, `FOTO_PATIOS_INTERIORES`, `VIDEO_VIVIENDA`, `DOC_PLANOS`, `DOC_CEE_EXISTENTE`, `DOC_PRESUPUESTO`, `OTROS_ANTES`. El presupuesto entra solo |
 | `decisiones[]` | lo que se ha decidido y por qué | Al historial. Es lo que revisa una persona |
-| `obra_estado` | `no_empezada` (por defecto) | Esta skill da de alta sustituciones de caldera (RES060) |
+| `obra_estado` | `no_empezada` (por defecto) · `a_medias` · `ejecutada` | Como el funnel |
+| `reforma` | `{ ventanas, paredes, cubierta, suelo }` (booleanos) | Una REFORMA (RES080): lo que se toca de la envolvente. Sin ella, sustitución de caldera (RES060) |
+| `cee_xml` | `{ inicial, final }` (rutas a los `.xml` v3.0) | Solo con `reforma`. El inicial y el PREVISTO (o el final) ya calificados por CE3X 3.1/3.2 (`cex_a_pdf.js --solo-xml`): entran como en la calculadora con los dos `.xml` (modo `real`, ahorro por VECTOR con la energía final declarada) y la superficie es la del CEE. Sin `cee_previo`, para que la propuesta no ofrezca la comparativa «con tu CEE». Caso: 26RES080_OP70 |
+| `presupuesto.envolvente_con_iva` | importe | P. Reforma (la envolvente), aparte del de la instalación (`importe_con_iva`) |
+| `incluir_irpf` | `false` | Deja la deducción del IRPF fuera de la propuesta (la obra ya tuvo otra ayuda, o ya se la aplicó) |
 
 **Qué va a cada apartado**
 

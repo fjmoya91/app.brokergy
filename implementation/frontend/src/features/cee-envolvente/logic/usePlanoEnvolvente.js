@@ -4,6 +4,7 @@ import { traduccionDeIds } from './identidadParedes.js';
 import { esFuera, esMedianera, esParticion, tipoDe } from './tiposPared.js';
 import { mudarHueco, paredesParaHueco } from './huecosEnParedes.js';
 import { aplicarTrabajo, deltaLienzo, trasladarMuros, trasladarTrabajo } from './trabajoGuardado.js';
+import { alMundo, equiposEnLienzo, ponEquipo, quitaEquipo } from './equiposPlano.js';
 // Lo que se manda al motor y lo que hace falta para montarlo vive en un módulo
 // PURO (`senalado.js`): la skill `generar-cee-inicial` lo usa desde Node, y con
 // una copia aquí el `.cex` del script y el del botón dejarían de coincidir.
@@ -90,6 +91,12 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     //: volver a PEDIR la geometría con ellas.
     const [zonasFuera, setZonasFuera] = useState([]);
 
+    //: Dónde están los EQUIPOS: la caldera que se retira, la máquina nueva, el
+    //: depósito de ACS y la unidad exterior (que puede ir en la CUBIERTA). En
+    //: el MUNDO, como las zonas, y uno de cada tipo (ver `equiposPlano.js`).
+    //: No va al `.cex`: es del plano y del croquis.
+    const [equiposPlano, setEquiposPlano] = useState([]);
+
     //: Los huecos que se han quedado SIN PARED al volver a medir: estaban en un
     //: cerramiento que ya no existe (se fue con el cuerpo o la zona que se
     //: acaba de quitar). Antes desaparecían sin decir nada; ahora se enseñan y
@@ -173,6 +180,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 setZonasFuera(r.zonasFuera);
                 setCubiertas(r.cubiertas);
                 setLucernarios(r.lucernarios || {});
+                setEquiposPlano(r.equiposPlano || []);
                 setPizarra({
                     cambios: Array.isArray(g.pizarra?.cambios) ? g.pizarra.cambios.slice(-80) : [],
                     tocadas: Array.isArray(g.pizarra?.tocadas) ? g.pizarra.tocadas.map(id).filter(Boolean) : [],
@@ -265,12 +273,15 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         // Lo dibujado en la pizarra y aún sin confirmar, y lo que ha tocado una
         // persona. Solo si hay: un plano sin pizarra se guarda como siempre.
         ...(pizarra.cambios.length || pizarra.tocadas.length ? { pizarra } : {}),
+        // Dónde están los equipos. Solo si hay: un plano sin ninguno se guarda
+        // exactamente como antes.
+        ...(equiposPlano.length ? { equipos_plano: equiposPlano } : {}),
         // En qué lienzo están las coordenadas de arriba (paredes dibujadas y
         // movidas, cubierta): sin esto, al volver a medir se quedaban en otro
         // sitio del edificio.
         lienzo_ref: refLienzo,
     } : null), [muros, entrada, sel, geometria, cuerposFuera, cubiertas, lucernarios,
-                recorte, zonasFuera, huerfanos, pizarra, refLienzo]);
+                recorte, zonasFuera, huerfanos, pizarra, equiposPlano, refLienzo]);
 
     useEffect(() => {
         if (!Object.keys(muros).length) return;
@@ -299,10 +310,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     .filter(m => m.orientacion_manual).map(m => [m.id, m.orientacion_manual])),
                 paredes: geometria,
                 ...(pizarra.cambios.length || pizarra.tocadas.length ? { pizarra } : {}),
+                ...(equiposPlano.length ? { equipos_plano: equiposPlano } : {}),
                 lienzo_ref: refLienzo,
             }));
         } catch { /* idem */ }
-    }, [muros, entrada, sel, clave, geometria, cubiertas, lucernarios, pizarra, refLienzo]);
+    }, [muros, entrada, sel, clave, geometria, cubiertas, lucernarios, pizarra, equiposPlano, refLienzo]);
 
     const plantas = useMemo(() => {
         if (!geo) return [];
@@ -863,6 +875,23 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         setLucernarios(v => { const n = { ...v }; delete n[planta]; return n; });
     }
 
+    /**
+     * Pone un EQUIPO (o lo cambia de sitio) en `nivel` —el de una planta o
+     * `'cubierta'`—, con el punto en el LIENZO de ahora: se guarda en el mundo.
+     * Sin georreferencia no se puede guardar en ninguna parte y no se hace nada.
+     */
+    function ponEquipoPlano(tipo, nivel, puntoLienzo) {
+        if (!refLienzo || !Array.isArray(puntoLienzo)) return false;
+        setEquiposPlano(v => ponEquipo(v, { tipo, nivel, punto: alMundo(puntoLienzo, refLienzo) }));
+        return true;
+    }
+    function quitaEquipoPlano(tipo) {
+        setEquiposPlano(v => quitaEquipo(v, tipo));
+    }
+    //: Los equipos, en el lienzo que hay en pantalla (para pintarlos).
+    const equiposLienzo = useMemo(() => equiposEnLienzo(equiposPlano, refLienzo),
+                                  [equiposPlano, refLienzo]);
+
     /** Una medianera lo es por lo que hay AL OTRO LADO, no por tocar. */
     function marcaComoParticion(id, si) {
         setMuros(v => ({ ...v, [id]: { ...v[id], como_particion: si } }));
@@ -1284,6 +1313,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
         cuerposFuera, sacaCuerpo, apartaParedesDe,
         recorte, zonasFuera, setZonasFuera, refLienzo,
+        equiposPlano, equiposLienzo, ponEquipoPlano, quitaEquipoPlano,
         huerfanos, recuperaHuerfanos, descartaHuerfanos,
         loSenalado, restaurar,
         pizarra, trazoPizarra, aplicaPizarra, limpiaPizarra, murosDePlanta,

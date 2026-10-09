@@ -3,6 +3,8 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { LeyendaPlano, PlanoPlanta } from '../components/PlanoPlanta';
+import { EquiposControl, PlanoCubierta } from '../components/EquiposPlano';
+import { NIVEL_CUBIERTA, TIPOS_EQUIPO, faldonesCubierta } from '../logic/equiposPlano';
 import { PanelPared } from '../components/PanelPared';
 import { usePlanoEnvolvente, nombreDe } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo, areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
@@ -252,6 +254,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const [croquisPlanta, setCroquisPlanta] = useState(null);
     const [usoCroquis, setUsoCroquis] = useState('GARAJE');
     const [trazosCroquis, setTrazosCroquis] = useState({});
+    //: El EQUIPO que se tiene «en la mano» para colocarlo en el plano (caldera
+    //: actual, equipo nuevo, ACS, unidad exterior; `null`: modo apagado) y si
+    //: se enseña el PLANO DE CUBIERTA. Son de la pantalla: el equipo elegido
+    //: vale para cualquier planta y para la cubierta.
+    const [equipoEnMano, setEquipoEnMano] = useState(null);
+    const [verCubiertaEquipos, setVerCubiertaEquipos] = useState(false);
     //: El croquis pintado DESDE EL MÓVIL (ver `logic/useCroquisMovil.js`): lo
     //: que se pinta allí se refleja AQUÍ en `trazosCroquis` según se dibuja, y
     //: el ajuste que pide el teléfono lo hace esta ventana. El QR se enseña al
@@ -344,6 +352,34 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
     const aLaVez = soloPlanta == null ? plantas
         : [plantas[Math.min(soloPlanta, plantas.length - 1)]].filter(Boolean);
+
+    //: Los EQUIPOS: abrir el modo con el primero que falte por poner, y apagar
+    //: los demás modos de dibujo de la pantalla (un toque no puede significar
+    //: dos cosas). Lo que se ve de la cubierta: los faldones del edificio.
+    const equiposPuestos = plano.equiposLienzo || [];
+    const enCubierta = equiposPuestos.filter(e => e.nivel === NIVEL_CUBIERTA);
+    const cambiarEquipoEnMano = (t) => {
+        if (t === 'abrir') {
+            const puestos = new Set(equiposPuestos.map(e => e.tipo));
+            t = (TIPOS_EQUIPO.find(x => !puestos.has(x.id)) || TIPOS_EQUIPO[0]).id;
+        }
+        if (t) {
+            setDibujandoCubierta(null); setDibujandoRecorte(null);
+            setDibujandoZona(null); setCroquisPlanta(null);
+        }
+        setEquipoEnMano(t || null);
+    };
+    const ponerEquipo = (nivel, punto) => {
+        if (equipoEnMano) plano.ponEquipoPlano(equipoEnMano, nivel, punto);
+    };
+    const faldones = useMemo(
+        () => faldonesCubierta({ cuerpos: geo?.cuerpos || [], plantas: plano.plantas || [] }),
+        [geo?.cuerpos, plano.plantas]);
+    //: El plano de CUBIERTA se ve si hay algo puesto en ella o si se ha pedido
+    //: con el modo abierto. Es una tarjeta más junto a las plantas.
+    const conCubiertaEquipos = modo !== '3d' && (enCubierta.length > 0
+        || (!!equipoEnMano && verCubiertaEquipos));
+    const nTarjetas = aLaVez.length + (conCubiertaEquipos ? 1 : 0);
 
     const cambiarModo = (m) => {
         setModo(m);
@@ -1750,6 +1786,17 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     <BarraVista plantas={plantas} sel={soloPlanta}
                                 onSel={setEleccionPlanta}
                                 modo={modo} onModo={cambiarModo} />
+                    {/* Los EQUIPOS: la tira va UNA vez, encima de las plantas —el
+                        equipo elegido vale para cualquiera y para la cubierta—. */}
+                    {equipoEnMano && modo !== '3d' && (
+                        <EquiposControl enMano={equipoEnMano} onEnMano={cambiarEquipoEnMano}
+                                        equipos={plano.equiposPlano || []} plantas={plantas}
+                                        verCubierta={conCubiertaEquipos}
+                                        cubiertaFija={enCubierta.length > 0}
+                                        onVerCubierta={setVerCubiertaEquipos}
+                                        onQuitar={plano.quitaEquipoPlano}
+                                        onCerrar={() => setEquipoEnMano(null)} />
+                    )}
                     {/* En 3D es UN dibujo, se enseñe una planta o las dos: dos
                         axonometrías del mismo edificio una al lado de la otra
                         son el mismo dibujo dos veces. Y por eso la rejilla se
@@ -1759,7 +1806,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         Entre 1024 y 1280 px van UNA DEBAJO DE OTRA: ahí el panel
                         de la pared ya está a la derecha, y dos tarjetas de
                         300 px lado a lado no dejan distinguir una ventana. */}
-                    <div className={`grid gap-3 ${modo !== '3d' && aLaVez.length > 1
+                    <div className={`grid gap-3 ${modo !== '3d' && nTarjetas > 1
                             ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2' : 'grid-cols-1'}`}>
                         {modo === '3d' ? (
                             <PlanoPlanta planta={aLaVez[0] || plantas[0]} plano={plano}
@@ -1772,10 +1819,14 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                             <PlanoPlanta key={p.id || p.nombre} planta={p} plano={plano}
                                          // Con varias tarjetas, la leyenda va UNA vez
                                          // debajo de todas (ver abajo), no repetida.
-                                         leyenda={aLaVez.length < 2}
+                                         leyenda={nTarjetas < 2}
                                          // Y comparten filas (barra · tiras · plano):
                                          // así los dos planos arrancan a la misma altura.
-                                         alinear={aLaVez.length > 1}
+                                         alinear={nTarjetas > 1}
+                                         equipos={equiposPuestos.filter(e => e.nivel === p.nivel)}
+                                         equipoEnMano={equipoEnMano}
+                                         onEquipoEnMano={cambiarEquipoEnMano}
+                                         onPonerEquipo={(pt) => ponerEquipo(p.nivel, pt)}
                                          onAsiEsComoEsta={() => setVerAsiEs(true)}
                                          cuerpos={cuerpos} onCuerpo={setCuerpoSel}
                                          entorno={entorno} onEntorno={setEntorno}
@@ -1790,6 +1841,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onCubiertaModo={conCubierta.has(p.id)
                                              ? (si => { setDibujandoZona(null);
                                                         setDibujandoRecorte(null);
+                                                        if (si) setEquipoEnMano(null);
                                                         setDibujandoCubierta(si ? p.id : null); })
                                              : null}
                                          onCubiertaEntera={() => { setDibujandoCubierta(null);
@@ -1802,6 +1854,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onRecorteModo={p.id === plantaRecorte
                                              ? (si => { setDibujandoCubierta(null);
                                                         setDibujandoZona(null);
+                                                        if (si) setEquipoEnMano(null);
                                                         setDibujandoRecorte(si ? p.id : null); })
                                              : null}
                                          // Delimitar con el DEDO: el QR se abre en la
@@ -1820,6 +1873,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onZonaModo={si => { setDibujandoCubierta(null);
                                                              setDibujandoRecorte(null);
                                                              setCroquisPlanta(null);
+                                                             if (si) setEquipoEnMano(null);
                                                              setDibujandoZona(si ? p.id : null); }}
                                          croquis={trazosCroquis[p.id] || []}
                                          dibujarCroquis={croquisPlanta === p.id}
@@ -1829,6 +1883,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onCroquisModo={si => { setDibujandoCubierta(null);
                                                                 setDibujandoRecorte(null);
                                                                 setDibujandoZona(null);
+                                                                if (si) setEquipoEnMano(null);
                                                                 if (!si) setNotasPropuesta(n => ({ ...n, [p.id]: null }));
                                                                 setCroquisPlanta(si ? p.id : null); }}
                                          propuestaCroquis={propuestaCroquis[p.id] || null}
@@ -1873,11 +1928,20 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          georef={geo?.georef} satelite={verSatelite}
                                          onSatelite={ponSatelite} />
                         ))}
+                        {/* El PLANO DE CUBIERTA: una tarjeta más, con las tejas,
+                            para la unidad exterior que va en el tejado. */}
+                        {conCubiertaEquipos && (
+                            <PlanoCubierta faldones={faldones} contexto={plano.contexto}
+                                           equipos={enCubierta} plantas={plantas}
+                                           enMano={equipoEnMano}
+                                           onPoner={equipoEnMano ? ponerEquipo : null}
+                                           alinear={nTarjetas > 1} />
+                        )}
                     </div>
                     {/* El código de colores es el MISMO en las dos plantas: debajo
                         de cada tarjeta eran dos franjas iguales que alargaban la
                         página justo donde se compara una planta con otra. */}
-                    {modo !== '3d' && aLaVez.length > 1 && <LeyendaPlano />}
+                    {modo !== '3d' && nTarjetas > 1 && <LeyendaPlano />}
                 </div>
                     {/* La CUBIERTA no está aquí: se marca dibujándola sobre el
                         plano de su planta, así que su mando vive bajo la barra

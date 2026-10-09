@@ -12,7 +12,7 @@
 //   node scripts/cee_inicial.js paredes  <clave> [--out DIR] [--sin-sede]
 //   node scripts/cee_inicial.js catastro <clave> [--out DIR] [--escribir] [--refrescar-catastro]
 //   node scripts/cee_inicial.js leer-pared <clave> --pared FBE1 --fotos id1,id2   (o frame:F1)
-//   node scripts/cee_inicial.js video    <clave> [--archivo v.mp4] [--videos id1,id2] [--refrescar]
+//   node scripts/cee_inicial.js video    <clave> [--archivo v.mp4] [--videos id1,id2] [--refrescar] [--sin-audio]
 //   node scripts/cee_inicial.js pedir-fotos <clave> [--paredes FBN1,F1O1] [--sin-planos] [--enviar]
 //   node scripts/cee_inicial.js eprel    <codigo del modelo> [--out DIR]
 //   node scripts/cee_inicial.js keymark  <codigo del modelo> --url <titular|subtipo heatpumpkeymark> [--out DIR]
@@ -1421,20 +1421,38 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     const huecos = {};
     const marcas = [];                    // [{ clave, drive_id, uid, box }]
     const n = { puerta: 0, ventana: 0 };
+    // Los nombres YA ocupados: los que trae el plan y, si no se reemplaza todo,
+    // los de las paredes que el plan no toca (se conservan). La numeración nueva
+    // los SALTA: CE3X enlaza los puentes térmicos por el nombre del hueco y el
+    // motor no escribe el .cex con uno repetido. Medido en 26RES060_226: el plan
+    // de los patios ponía otra «P1» junto a la puerta de entrada que ya estaba.
+    const nombreDelPlan = h => (typeof h?.nombre === 'string' && /^[A-Z]{1,3}\d{1,3}$/.test(h.nombre.trim())
+        ? h.nombre.trim() : null);
+    const ocupados = new Set(Object.values(plan.huecos || {}).flat().map(nombreDelPlan).filter(Boolean));
+    if (!plan.reemplazar) {
+        for (const [id, lista] of Object.entries(prev?.huecos || {})) {
+            if (Object.prototype.hasOwnProperty.call(plan.huecos || {}, id)) continue;
+            for (const h of lista || []) if (h?.nombre) ocupados.add(String(h.nombre).trim());
+        }
+    }
+    const nombreLibre = (tipo) => {
+        let nombre;
+        do { n[tipo] += 1; nombre = `${tipo === 'puerta' ? 'P' : 'V'}${n[tipo]}`; } while (ocupados.has(nombre));
+        ocupados.add(nombre);
+        return nombre;
+    };
     for (const [id, lista] of Object.entries(plan.huecos || {})) {
         const m = porId[id];
         if (!m) throw new Error(`La pared ${id} no está en el plano.`);
         if ((lista || []).length && !admiteHuecos({ ...m })) throw new Error(`${id} es ${m.tipo}: no admite huecos (solo fachadas).`);
         huecos[id] = (lista || []).map((h) => {
             const tipo = h.tipo === 'puerta' ? 'puerta' : 'ventana';
-            n[tipo] += 1;
             const uid = nuevoUid();
             if (h.foto && h.box) marcas.push({ clave: id, drive_id: h.foto, uid, box: h.box });
             return {
                 //: El nombre del plan si lo trae (el que usa el certificador en su
                 //: croquis: «V2» es la de la calle aunque haya desaparecido la V1).
-                uid, nombre: (typeof h.nombre === 'string' && /^[A-Z]{1,3}\d{1,3}$/.test(h.nombre.trim()))
-                    ? h.nombre.trim() : `${tipo === 'puerta' ? 'P' : 'V'}${n[tipo]}`, tipo,
+                uid, nombre: nombreDelPlan(h) || nombreLibre(tipo), tipo,
                 ancho: Number(h.ancho), alto: Number(h.alto),
                 // Lo leído de una foto NACE DUDOSO: lo confirma el certificador.
                 estado: h.estado === 'medido' ? 'medido' : 'dudoso',
@@ -2403,7 +2421,10 @@ async function croquis() {
 //      plantas y, de cada hueco, el segundo en que mejor se ve y a qué da.
 //   3. Se saca el fotograma más nítido de cada hueco (`cee_inicial_video.py`) y
 //      OTRO modelo lo mira quieto (`confirmarFotogramas`): si las dos lecturas
-//      no dicen lo mismo, no se decide.
+//      no dicen lo mismo, no se decide. El AUDIO se saca aparte y se transcribe
+//      literal con su segundo (`transcribir`): lo que se DICE junto a un hueco
+//      («el patio de luces, con las ventanas de los baños») es una lectura más
+//      de a qué da (`conLoDicho`), y va de subtítulo en la hoja de contactos.
 //   4. El CÓDIGO pone cada hueco en su pared (`utils/videoEnvolvente.js`): por
 //      planta y por lo que se ve por él. Lo que no se puede decidir queda
 //      DUDOSO, y las paredes que el vídeo no resuelve son las fotos que hay que
@@ -2428,7 +2449,7 @@ function videoPy(args, ms = 900_000) {
         const ultima = String(e.stdout || '').trim().split('\n').pop();
         let j = null;
         try { j = JSON.parse(ultima); } catch { /* no era JSON */ }
-        throw new Error(j?.error ? `fotogramas: ${j.error}`
+        throw new Error(j?.error ? `${args[0] === 'audio' ? 'audio' : 'fotogramas'}: ${j.error}`
             : `cee_inicial_video.py: ${String(e.stderr || e.message).slice(0, 300)}`);
     }
     return JSON.parse(out.trim().split('\n').pop());
@@ -2501,15 +2522,23 @@ async function video() {
         }
     }
 
-    // 2. Cuánto dura cada uno, si tiene sonido, y su hoja de contactos.
+    // 2. Cuánto dura cada uno, si tiene sonido, y su AUDIO aparte (2026-10-09):
+    //    lo que dice quien graba es lo que dice a qué da cada ventana cuando la
+    //    imagen no lo deja ver. Sin ffmpeg se saca del propio MP4/MOV.
     for (const [i, v] of videos.entries()) {
         Object.assign(v, videoPy(['probe', v.local]));
-        v.hoja = path.join(out, `hoja_${i + 1}.jpg`);
-        const n = Math.max(12, Math.min(48, Math.round((v.duracion_s || 60) / 5)));
-        videoPy(['hoja', v.local, v.hoja, '--n', String(n), '--cols', '6']);
+        if (v.audio !== false) {
+            try {
+                const a = videoPy(['audio', v.local, path.join(out, `audio_${i + 1}.aac`)], 300_000);
+                v.audio_archivo = a.audio;
+                v.audio_motor = a.motor;
+            } catch (e) { v.audio_error = e.message; }
+        }
         console.log(`VÍDEO ${i + 1}: ${v.nombre} · ${mmss(v.duracion_s)} · ${v.ancho}×${v.alto}`
             + ` · ${v.audio === true ? 'con sonido' : v.audio === false ? 'SIN sonido' : 'sonido ?'}`
-            + ` · ${kb(v.tam)} (motor de fotogramas: ${v.motor})`);
+            + ` · ${kb(v.tam)} (motor de fotogramas: ${v.motor})`
+            + `${v.audio_archivo ? ` · audio → ${path.basename(v.audio_archivo)} (${v.audio_motor})` : ''}`
+            + `${v.audio_error ? ` · el audio no se ha podido sacar (${v.audio_error}): se oirá del vídeo` : ''}`);
     }
 
     // 3. La lectura del vídeo, cacheada: la misma entrada no se vuelve a pagar
@@ -2538,6 +2567,57 @@ async function video() {
         if (videos.every(v => v.audio === false)) lectura.narracion = [];
         fs.writeFileSync(fLectura, JSON.stringify({ clave: claveLectura, lectura }, null, 1));
     } else console.log('\n(lectura del vídeo de la caché: --refrescar para volver a pedirla)');
+
+    // 3b. Lo que DICE quien graba: el audio transcrito LITERAL, con el segundo de
+    //     cada frase (cacheado como la lectura). Sin pista de audio sacada, se
+    //     oye del propio vídeo. `--sin-audio` lo salta.
+    const conVoz = videos.filter(v => v.audio !== false);
+    const fTrans = path.join(out, 'transcripcion.json');
+    const claveTrans = JSON.stringify({ v: videos.map(v => [v.drive_id || v.nombre, v.tam]), m: svc.MODELO_AUDIO });
+    let trans = null;
+    if (conVoz.length && !RESTO.includes('--sin-audio')) {
+        if (!refrescar && fs.existsSync(fTrans)) {
+            const c = JSON.parse(fs.readFileSync(fTrans, 'utf8'));
+            if (c.clave === claveTrans) trans = c.trans;
+        }
+        if (!trans) {
+            console.log(`Transcribiendo lo que se dice con ${svc.MODELO_AUDIO}…`);
+            trans = { por_video: [] };
+            for (const [i, v] of videos.entries()) {
+                if (v.audio === false) continue;
+                try {
+                    const r = await svc.transcribir(v.audio_archivo
+                        ? { audio: { buffer: fs.readFileSync(v.audio_archivo),
+                                     mimeType: /\.mp3$/i.test(v.audio_archivo) ? 'audio/mp3' : 'audio/aac' } }
+                        : { video: { buffer: fs.readFileSync(v.local), nombre: v.nombre, mimeType: v.mime } },
+                    { duracion_s: v.duracion_s });
+                    trans.por_video.push({ video: i + 1, bruto: r.bruto, modelo: r.modelo, at: r.at, de: r.de });
+                } catch (e) {
+                    console.log(`  ✗ no se ha podido transcribir el vídeo ${i + 1}: ${e.message}`);
+                }
+            }
+            fs.writeFileSync(fTrans, JSON.stringify({ clave: claveTrans, trans }, null, 1));
+        } else console.log('(transcripción del audio de la caché)');
+    }
+    // Se vuelve a NORMALIZAR lo transcrito (como la lectura): cambiar las reglas
+    // no obliga a volver a pagarla.
+    const frases = (trans?.por_video || []).flatMap(p => svc.normalizarTranscripcion(
+        p.bruto, videos[p.video - 1]?.duracion_s).frases.map(f => ({ ...f, video: p.video })));
+
+    // 3c. La hoja de contactos de cada vídeo, con lo que se dice debajo de cada
+    //     fotograma (imagen y voz juntas, para quien escribe el plan).
+    for (const [i, v] of videos.entries()) {
+        v.hoja = path.join(out, `hoja_${i + 1}.jpg`);
+        const n = Math.max(12, Math.min(48, Math.round((v.duracion_s || 60) / 3)));
+        const suyas = frases.filter(f => f.video === i + 1);
+        const args = ['hoja', v.local, v.hoja, '--n', String(n), '--cols', '6'];
+        if (suyas.length) {
+            const fSubs = path.join(out, `subtitulos_${i + 1}.json`);
+            fs.writeFileSync(fSubs, JSON.stringify(suyas));
+            args.push('--subtitulos', fSubs);
+        }
+        videoPy(args);
+    }
 
     // 4. Los fotogramas: el más nítido de ±0,7 s del segundo de cada hueco y de
     //    cada fachada vista desde fuera.
@@ -2577,7 +2657,11 @@ async function video() {
         })));
         fs.writeFileSync(fConf, JSON.stringify({ clave: claveConf, conf }, null, 1));
     }
-    const rec = svc.reconciliar(lectura.huecos, conf?.lecturas || {});
+    const rec0 = svc.reconciliar(lectura.huecos, conf?.lecturas || {});
+    // 5b. Lo que se DICE alrededor del segundo de cada hueco, como una lectura
+    //     más de a qué da (utils/videoEnvolvente.js, `conLoDicho`).
+    const dicho = videoUtil().conLoDicho(rec0.huecos, frases);
+    const rec = { huecos: dicho.huecos, avisos: [...rec0.avisos, ...dicho.avisos] };
 
     // 6. Cada hueco a su pared, con el plano de la geometría (la misma que la
     //    ventana: lo que el trabajo ya deja fuera, fuera).
@@ -2612,6 +2696,7 @@ async function video() {
 
     // 7. El mosaico rotulado, para repasar de una vez lo que se propone.
     const nombreEst = Object.fromEntries(lectura.estancias.map(e => [e.id, e.nombre]));
+    const dichoEn = (t, video) => u.frasesCerca(frases, t, { video }).map(f => f.texto).join(' ') || null;
     const mosaico = [
         ...asig.huecos, ...asig.lucernarios, ...asig.descartados,
     ].filter(h => fotogramas[h.id]).map(h => ({
@@ -2620,11 +2705,13 @@ async function video() {
         rotulo: `${h.id} · ${mmss(fotogramas[h.id].t)} · P${h.nivel ?? h.planta ?? '?'} · ${h.tipo.replace('_', ' ')}|`
             + `${nombreEst[h.estancia] || ''} →${h.estado === 'asignado' ? h.pared : h.tipo === 'lucernario' ? 'cubierta'
                 : h.motivo && !h.estado ? 'no se pone' : '¿?'}`,
+        dice: h.dice || dichoEn(h.t, h.video),
     }));
     for (const f of fachadas.filter(x => fotogramas[x.id])) {
         mosaico.push({ clave: f.id, archivo: fotogramas[f.id].archivo,
                        rotulo: `${f.id} · ${mmss(fotogramas[f.id].t)} · fachada vista desde fuera|`
-                           + `da a ${f.da_a || '?'} → ${f.pared || '¿?'}` });
+                           + `da a ${f.da_a || '?'} → ${f.pared || '¿?'}`,
+                       dice: dichoEn(f.t, f.video) });
     }
     let fMosaico = null;
     if (mosaico.length) {
@@ -2656,8 +2743,10 @@ async function video() {
     const manifiesto = {
         clave: ctx.clave, generado_at: new Date().toISOString(),
         videos: videos.map(v => ({ nombre: v.nombre, drive_id: v.drive_id, local: v.local,
-                                   duracion_s: v.duracion_s, audio: v.audio, hoja: v.hoja })),
+                                   duracion_s: v.duracion_s, audio: v.audio, hoja: v.hoja,
+                                   audio_archivo: v.audio_archivo || null, audio_error: v.audio_error || null })),
         modelo: lectura.modelo, modelo_fotogramas: conf?.modelo || null,
+        transcripcion: trans ? { modelo: trans.por_video[0]?.modelo || svc.MODELO_AUDIO, frases } : null,
         lectura: { ...lectura, huecos: undefined },
         fotogramas,
         huecos: asig.huecos, lucernarios: asig.lucernarios, descartados: asig.descartados,
@@ -2683,6 +2772,7 @@ async function video() {
         console.log(`        ${med.ancho}×${med.alto} m ${med.estimada ? `(estimada: ${h.medida_referencia})` : '(por defecto)'}`
             + ` → ${h.estado === 'asignado' ? `${h.pared} [${h.confianza}]` : h.estado.toUpperCase()} · ${h.motivo}`
             + `${h.estado === 'dudoso' && h.candidatas?.length ? ` · candidatas: ${h.candidatas.map(c => c.pared).join(', ')}` : ''}`);
+        if (h.dice) console.log(`        dice (${mmss(h.dice_t)}): «${String(h.dice).slice(0, 150)}»`);
     }
     if (asig.lucernarios.length) {
         console.log('\nLUCERNARIOS: ' + asig.lucernarios.map(l => `${l.id} ${mmss(l.t)} (${l.descripcion || ''})`).join(' · '));
@@ -2704,15 +2794,36 @@ async function video() {
     for (const l of est.sinPedir) console.log(`  · ${l.id} (${fmt(l.largo)} m) ${l.estado === 'sin_ver' ? 'sin ver' : 'en duda'}: muy corta para pedir su foto (si tiene una ventana, lo verá el certificador)`);
     const avisos = manifiesto.avisos;
     if (avisos.length) { console.log('\nAVISOS'); for (const a of avisos) console.log(`  ⚠ ${a}`); }
-    if (lectura.narracion.length) {
+    if (frases.length) {
+        // La transcripción LITERAL del audio, y qué se ve mientras se dice cada
+        // frase: es lo que une imagen y voz para quien escribe el plan.
+        console.log(`\nLO QUE DICE QUIEN GRABA — el AUDIO transcrito (${trans.por_video[0]?.modelo || svc.MODELO_AUDIO}):`);
+        const vistos = [...asig.huecos, ...asig.lucernarios, ...fachadas].filter(x => x.t !== null && x.t !== undefined);
+        for (const f of frases) {
+            const junto = vistos.filter(x => (x.video || 1) === f.video
+                && x.t >= f.t - u.DICHO_DESPUES && x.t <= (f.t_fin ?? f.t) + u.DICHO_ANTES);
+            const m = f.menciona || {};
+            const nombra = [m.da_a && `da a ${m.da_a}`, m.cuantos && `${m.cuantos} huecos`,
+                            m.planta !== null && m.planta !== undefined && `planta ${m.planta}`, m.estancia]
+                .filter(Boolean).join(', ');
+            console.log(`  ${videos.length > 1 ? `v${f.video} ` : ''}${mmss(f.t)}–${mmss(f.t_fin)} «${f.texto}»`
+                + `${nombra ? `  [${nombra}]` : ''}${junto.length ? `  ↔ ${junto.map(x => `${x.id} ${mmss(x.t)}`).join(', ')}` : ''}`);
+        }
+    } else if (lectura.narracion.length) {
         console.log('\nLO QUE DICE QUIEN GRABA (según la lectura; NO comprobado — úsalo como pista):');
         for (const n of lectura.narracion) console.log(`  ${mmss(n.t)} «${n.texto}»`);
+    } else if (trans && !frases.length) {
+        console.log('\nAUDIO: no se dice nada (o no se entiende).');
     }
     if (lectura.no_se_ve.length) { console.log('\nNO SE VE'); for (const x of lectura.no_se_ve) console.log(`  · ${x}`); }
     if (lectura.observaciones) console.log(`\nOBSERVACIONES: ${lectura.observaciones}`);
 
     console.log(`\nFICHEROS en ${out}`);
-    for (const v of videos) console.log(`  ${path.basename(v.hoja)}  (hoja de contactos de ${v.nombre})`);
+    for (const v of videos) {
+        console.log(`  ${path.basename(v.hoja)}  (hoja de contactos de ${v.nombre}`
+            + `${frases.some(f => f.video === videos.indexOf(v) + 1) ? ', con lo que se dice debajo' : ''})`);
+        if (v.audio_archivo) console.log(`  ${path.basename(v.audio_archivo)}  (el audio de ${v.nombre}, para oírlo)`);
+    }
     if (fMosaico) console.log('  mosaico.jpg  (cada hueco con su fotograma y la pared propuesta)');
     console.log('  fotogramas/  ·  video.json (con la PROPUESTA para el plan: «propuesta»)');
     console.log('\nSIGUIENTE');

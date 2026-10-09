@@ -1,3 +1,5 @@
+import { equiposValidos } from './equiposPlano.js';
+
 /**
  * Poner un TRABAJO guardado encima de los muros recién medidos.
  *
@@ -87,6 +89,9 @@ export function aplicarTrabajo(nuevo, g, id, { paredDibujada, rescatarHueco, med
         // los huecos, quiere su superficie y su cubierta— así que no hay nada
         // que trasladar al volver a medir.
         lucernarios: lucernariosValidos(g.lucernarios, rescatarHueco),
+        // Dónde están los EQUIPOS (caldera, máquina nueva, ACS, unidad
+        // exterior). Van en el MUNDO, como las zonas: no hay que trasladarlos.
+        equiposPlano: equiposValidos(g.equipos_plano),
     };
 }
 

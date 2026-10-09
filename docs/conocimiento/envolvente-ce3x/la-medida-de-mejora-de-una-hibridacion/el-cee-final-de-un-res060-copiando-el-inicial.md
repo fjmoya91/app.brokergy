@@ -46,6 +46,22 @@ copiarlo (`a_version` rellena lo que pide la 3.2 y se avisa).
 blanco y se avisa — nunca las del inicial. El texto de las pruebas del técnico se respeta; si lo
 dejó vacío, va el de la app.
 
+**REGLA — la DEMANDA del final es la del inicial, en kWh/año: calefacción Y ACS** (usuario,
+09/10/2026, «la demanda de calefacción no puede variar»). La app la compara al cargar el XML del
+final (popup «DEMANDA CEE INICIAL ≠ FINAL», incidencia GRAVE). Dos cosas la movían al copiar:
+
+| Qué | Antes | Ahora |
+|---|---|---|
+| Superficie útil de la 3.x (`[22]` de generales) al convertir un inicial de la 2.3 | La de la ficha (`ce3x31.superficie_util`) | La que tecleó el técnico en el fichero (`extra_de_cex`); la de la ficha solo si el fichero no la trae |
+| Depósito de ACS cuando la obra declara otros litros | El de la obra | El del fichero, con su UA y temperaturas (`_heredar_acumulacion`), y se avisa |
+
+Medido en **26RES060_202**: inicial de Raquel en la 2.3 con 240 m² y caldera de gasóleo con 230 l
+(80/60 °C, UA 5,4); la ficha decía 330 m² y la obra, la Daikin con el integrado de 180 l. El final
+salió con 209,36 kWh/m² × 330 = **69.089 kWh/año** frente a 50.246, y ACS 18,92 frente a 20,02.
+Rehecho: 240 m², calefacción 209,36 y ACS 20,02, C (20,73) / C (122,35). En 26RES060_198 (343 m²
+en el fichero, 214 en la ficha) pasaba lo mismo con la superficie; su depósito ya coincidía.
+**Tras generar, se mira en el XML del final `<SuperficieUtil>` y `<Demanda>` contra el inicial.**
+
 Medido en **26RES060_178** (08/10/2026): inicial del técnico en la 2.3 con caldera de gasóleo →
 ALFEA EXTENSA S 10 (453 % calefacción, 280 % refrigeración con el EER 2,8 de la FT, suelo radiante)
 + AEROMAX VS R290 200 de ACS (354 %, 200 l). Sin medida: **B (19,3 kgCO₂/m²) / C (113,92 kWh/m²)**.

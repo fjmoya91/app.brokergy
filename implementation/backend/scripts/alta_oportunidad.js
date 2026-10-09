@@ -63,6 +63,23 @@ const SCRATCH = path.join(__dirname, '..', 'scratch', 'alta-oportunidad');
 const API = String(process.env.BROKERGY_API_URL || 'https://app.brokergy.es').replace(/\/+$/, '');
 
 const esm = f => import(pathToFileURL(path.join(FRONT, f)).href);
+
+/** `parseCeeXml` usa el DOMParser del navegador: en Node, @xmldom (como test_xml_cee_v30). */
+function instalarDomParser() {
+    if (globalThis.DOMParser) return;
+    const xmldom = require(path.join(FRONT, '..', 'node_modules', '@xmldom', 'xmldom'));
+    const conQuery = (doc) => {
+        doc.querySelector = (sel) => (sel === 'parsererror' ? (doc.getElementsByTagName('parsererror')[0] || null) : null);
+        return doc;
+    };
+    globalThis.DOMParser = class {
+        parseFromString(s, tipo) {
+            const p = new xmldom.DOMParser({ onError: () => {} });
+            try { return conQuery(p.parseFromString(s, tipo)); }
+            catch { return conQuery(p.parseFromString('<parsererror>XML mal formado</parsererror>', 'text/xml')); }
+        }
+    };
+}
 // `toLocaleString('es-ES')` no agrupa los números de cuatro cifras («8126,84 €»).
 const miles = (n, dec = 0) => {
     const [ent, frac] = Math.abs(Number(n)).toFixed(dec).split('.');
@@ -487,6 +504,55 @@ async function crear() {
         if (!(Number(ceeLeido.demandas?.calefaccion_kwh_m2_ano) > 0)) avisos.push('El CEE no deja leer la demanda de calefacción: sin ella no hay comparativa.');
     }
 
+    // 6c. RES080 con los DOS certificados en .xml (`cee_xml: { inicial, final }`): el
+    //     inicial y el PREVISTO (o el final) ya calificados por CE3X. Entran como en la
+    //     calculadora con los dos .xml cargados —modo «real», ahorro por VECTOR con la
+    //     energía final que DECLARA cada certificado— y la superficie es la del
+    //     certificado: la energía final del .xml es por m² de SU superficie.
+    let ceeXml = null;
+    if (plan.cee_xml) {
+        if (!funnel.isReforma) throw new Error('cee_xml es para un RES080: pon también "reforma" en el plan.');
+        instalarDomParser();
+        const { parseCeeXml } = await esm('features/calculator/logic/xmlCeeParser.js');
+        const { ceeFromXml } = await esm('features/cee/ceeExtract.js');
+        const leerXml = (f) => {
+            const buf = fs.readFileSync(path.resolve(base, f));
+            try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { return buf.toString('latin1'); }
+        };
+        const tIni = leerXml(plan.cee_xml.inicial);
+        const tFin = leerXml(plan.cee_xml.final);
+        const xIni = parseCeeXml(tIni);
+        const xFin = parseCeeXml(tFin);
+        if (!xIni?.energiaFinalVectores || !xFin?.energiaFinalVectores) {
+            throw new Error('cee_xml: los dos .xml tienen que declarar <EnergiaFinalVectores> (CE3X 3.1/3.2).');
+        }
+        const sup = Number(xIni.superficieHabitable) || inputs.superficieCalefactable;
+        if (Math.abs(sup - inputs.superficieCalefactable) > 0.5) {
+            avisos.push(`Superficie: la del CEE (${dosDec(sup)} m²), no la de vivienda del Catastro (${dosDec(inputs.superficieCalefactable)} m²) — la energía final del .xml es por m² del certificado.`);
+        }
+        Object.assign(inputs, {
+            // Con los dos certificados el ahorro es el MEDIDO: la opción «solo
+            // aerotermia» (RES060 estimado) no se ofrece al lado (avisoFc → dosOpciones).
+            comparativaReforma: false,
+            demandMode: 'real', metodoAhorroRes080: 'simplificado',
+            xmlDemandData: xIni, xmlDemandDataFinal: xFin,
+            // Sin `cee_previo`: con él la propuesta ofrece la comparativa «con tu CEE /
+            // CEE nuevo BROKERGY» (ProposalModal → computeCeeComparison), que con el
+            // ahorro ya MEDIDO entre los dos certificados no tiene sentido (26RES080_OP70).
+            cee_final: ceeFromXml(xFin), cee_ahorro_origen: 'medido',
+            superficieCalefactable: sup, manualSuperficie: sup, manualSupInicial: sup, manualSupFinal: sup,
+        });
+        ceeXml = { tIni, tFin, xIni, xFin };
+        const rcXml = String(xIni.identificacion?.refCatastral || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (rcXml && rcXml.slice(0, 14) !== rc.slice(0, 14)) avisos.push(`El CEE inicial es de OTRA referencia catastral (${rcXml}), no de ${rc}.`);
+    }
+    if (Number(plan.presupuesto?.envolvente_con_iva) > 0) {
+        inputs.presupuestoEnvolvente = Math.round(Number(plan.presupuesto.envolvente_con_iva));
+    }
+    // La deducción del IRPF se puede dejar fuera de la propuesta (la obra ya tuvo otra
+    // ayuda, o ya se la aplicó): `"incluir_irpf": false`.
+    if (plan.incluir_irpf === false) inputs.includeIrpf = false;
+
     // 6.b La comisión por defecto del partner, como la aplica la calculadora al
     //     elegirlo (CalculatorForm): descontada del CLIENTE y, si se pactó en %,
     //     sobre lo que se le ofrece al cliente (logic/comisionPartner.js).
@@ -503,6 +569,30 @@ async function crear() {
 
     // 7. El resultado, con la MISMA función que guarda el formulario.
     const result = computeFullCalculatorResult(inputs);
+    if (ceeXml && result) {
+        // Con los dos .xml manda la rama de la calculadora (CalculatorView, modo «real»
+        // + simplificado): `computeFullCalculatorResult` solo sabe la estimada.
+        result.res080 = calc.calculateRes080SimplificadoFromXml({
+            xmlInicial: ceeXml.xIni, xmlFinal: ceeXml.xFin,
+            xmlTextoInicial: ceeXml.tIni, xmlTextoFinal: ceeXml.tFin,
+            superficieCustom: inputs.superficieCalefactable,
+        });
+        result.financialsRes080 = result.res080 ? calc.calculateFinancials({
+            presupuesto: (inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0),
+            presupuestoFotovoltaica: inputs.presupuestoFotovoltaica,
+            savingsKwh: result.res080.ahorroEnergiaFinalTotal,
+            caePriceClient: inputs.caePriceClient, caePriceSO: inputs.caePriceSO,
+            costeVerificacion: inputs.costeVerificacion,
+            caePricePrescriptor: inputs.includeCommission ? inputs.caePricePrescriptor : 0,
+            prescriptorMode: inputs.prescriptorMode, tipo: inputs.tipo, participation: inputs.participation,
+            numOwners: inputs.numOwners, discountCertificates: inputs.discountCertificates,
+            includeLegalization: inputs.includeLegalization, installerNoCard: inputs.installerNoCard,
+            legalizationPrice: inputs.legalizationPrice, itpPercent: inputs.itpPercent,
+            includeIrpf: inputs.includeIrpf, titularType: inputs.titularType || 'particular',
+            aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true',
+            includeIVA: inputs.includeIVA === true || inputs.includeIVA === 'true',
+        }) : null;
+    }
     let comparativa = null;
     if (ceePlan) {
         const { computeCeeComparison } = await esm('features/calculator/logic/ceeComparison.js');
@@ -563,6 +653,14 @@ async function crear() {
         }
     }
     console.log(`Ficha:        ${funnel.isReforma ? 'RES080' : 'RES060'}`);
+    if (funnel.isReforma && result?.res080) {
+        const r8 = result.res080;
+        const f8 = result.financialsRes080 || {};
+        console.log(`RES080:       ${r8.metodoAhorro || 'detallado'} · ${r8.fuenteDatos || 'estimado'} · E. final ${dosDec(r8.totalEnergiaInicialM2)} → ${dosDec(r8.totalEnergiaFinalM2)} kWh/m²`
+            + ` × ${dosDec(r8.superficieAplicada)} m² · ahorro ${miles(r8.ahorroEnergiaFinalTotal || 0)} kWh/año`
+            + ` · bono CAE ${eur(f8.caeBonus)} · IRPF ${eur(f8.irpfDeduction)} · ayuda total ${eur(f8.totalAyuda)}`
+            + ` · presupuesto ${eur((inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0))}`);
+    }
     // Los apartados que tendrá la oportunidad, con la MISMA función que valida la
     // subida (sin expediente detrás, el alcance es el de la simulación).
     const reformaUpload = require('../services/reformaUploadService');
