@@ -15,7 +15,7 @@
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 14,4 KB | 5 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 34,0 KB | 9 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor, .cex inicial/final, medidas de mejora, croquis, 2.3/3.1, PVGIS, skills CEE | `.claude/rules/envolvente-ce3x.md` · 121,2 KB | 43 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor, .cex inicial/final, medidas de mejora, croquis, 2.3/3.1, PVGIS, skills CEE | `.claude/rules/envolvente-ce3x.md` · 124,1 KB | 44 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,7 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
@@ -208,6 +208,7 @@
 - **128** → `.claude/rules/envolvente-ce3x.md` — La ventana de la envolvente no SOLAPA nada a ningún ancho
 - **129** → `.claude/rules/envolvente-ce3x.md` — La GUÍA DE TRANSMITANCIAS son los «Estimados según antigüedad y zona climática» de CE3X 3.2, escritos como «…
 - **130** → `.claude/rules/placas-catalogos.md` — Un Nº DE SERIE que ya consta en OTRO expediente se AVISA, no se bloquea
+- **131** → `.claude/rules/envolvente-ce3x.md` — Los EQUIPOS se marcan en el plano —caldera actual, equipo nuevo, depósito de ACS y unidad exterior— y la uni…
 
 ## Documentos por área
 
@@ -341,6 +342,7 @@
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-geometria-se-puede-corregir-y-eso-se-mide-y-se-declara.md` — La GEOMETRÍA se puede corregir, y eso se mide y se declara (2026-09-14)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-pantalla-se-parece-a-ce3x-y-el-plano-a-un-plano-de-obra.md` — La pantalla se parece a CE3X, y el plano a un plano de obra (2026-09-13)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-ventana-sin-solapes-barra-rotulos-tiras-y-panel.md` — La ventana sin SOLAPES: barra, rótulos, tiras y panel (2026-10-08)
+- `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/los-equipos-en-el-plano-y-el-plano-de-cubierta.md` — Los EQUIPOS en el plano, y el PLANO DE CUBIERTA (2026-10-09)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/una-medida-por-defecto-se-puede-dar-por-buena-de-un-clic.md` — Una medida por defecto se puede dar por BUENA de un clic
 - `docs/conocimiento/envolvente-ce3x/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)
 - `docs/conocimiento/envolvente-ce3x/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/con-un-video-en-vez-de-fotos-y-si-no-se-puede-se-pregunta.md` — Con un VÍDEO en vez de fotos — y si no se puede, se PREGUNTA (2026-10-06)

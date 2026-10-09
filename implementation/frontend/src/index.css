@@ -51,6 +51,14 @@
   --warning: #FFA000;
   --danger: #FF5252;
 
+  /* Los EQUIPOS del plano de la envolvente (caldera actual, equipo nuevo, ACS,
+     unidad exterior): icono blanco sobre su color ≥ 3:1 y su rótulo ≥ 4,5:1 sobre
+     el papel del plano, en los DOS temas (ver `logic/equiposPlano.js`). */
+  --equipo-caldera: #FF5252;
+  --equipo-nuevo: #00A043;
+  --equipo-acs: #0891B2;
+  --equipo-exterior: #8B5CF6;
+
   /* Gradients */
   --gradient-primary: linear-gradient(135deg, #FFA000 0%, #FF6D00 100%);
   --gradient-dark: linear-gradient(135deg, #0C0E12 0%, #13151A 100%);
@@ -792,6 +800,12 @@ input[autocomplete="new-password"] {
     --border-subtle: rgba(15, 23, 42, 0.07);
     --border-default: rgba(15, 23, 42, 0.11);
     --border-strong: rgba(15, 23, 42, 0.16);
+
+    /* Los equipos del plano, más oscuros sobre papel blanco (rótulos ≥ 4,5:1). */
+    --equipo-caldera: #C8373B;
+    --equipo-nuevo: #1E7A46;
+    --equipo-acs: #0E7490;
+    --equipo-exterior: #6D28D9;
 
     /* Sombras más suaves (las de producción son negras y muy marcadas) */
     --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.06);

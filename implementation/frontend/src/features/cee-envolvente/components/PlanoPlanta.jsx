@@ -28,6 +28,8 @@ function fechaVuelo(url) {
 }
 import { EtiquetaMancha } from './EtiquetaMancha';
 import { PizarraControl, TrazoPizarra } from './PizarraControl';
+import { MarcasEquipos } from './EquiposPlano';
+import { cajaDeMarca, marcasDelPlano } from '../logic/equiposPlano';
 import { colorDeLapiz } from '../logic/pizarra';
 import { colocarRotulosPlano } from '../logic/rotulosPlano';
 
@@ -280,7 +282,15 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                               //: Varias plantas lado a lado: la tarjeta comparte
                               //: sus tres filas con la de al lado (`subgrid`)
                               //: para que los planos empiecen a la misma altura.
-                              alinear = false }) {
+                              alinear = false,
+                              //: Los EQUIPOS de esta planta (en este lienzo), el
+                              //: que se tiene «en la mano» para colocarlo (es un
+                              //: MODO: un toque lo pone, arrastrar mueve el plano)
+                              //: y a quién se le entrega el punto. El modo es de
+                              //: la PANTALLA —vale para todas las plantas y la
+                              //: cubierta—, así que su tira la pinta la vista.
+                              equipos = [], equipoEnMano = null, onEquipoEnMano = null,
+                              onPonerEquipo = null }) {
     const { muros, entrada, sel, elegir, esCandidata, esMedianera, mueveHueco,
             muevePared, dibujaPared, estadoDe, nombreDe, tipoDe } = plano;
 
@@ -498,6 +508,8 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     const [avisoPizarra, setAvisoPizarra] = useState(null);
     const pizarraActiva = !!lapizPizarra && !es3d;
     const pintandoPizarra = pizarraActiva && lapizPizarra !== 'mano';
+    //: Colocando un EQUIPO (caldera, máquina nueva, ACS, unidad exterior).
+    const poniendoEquipo = !!equipoEnMano && !!onPonerEquipo && !es3d;
     //: Con la PIZARRA abierta, las tiras de Vivienda y Cubierta se apartan, como
     //: con cualquier otro modo de dibujo: la paleta es la tira de ese momento, y
     //: con las tres debajo el plano empezaba 338 px por debajo de la barra en
@@ -708,6 +720,14 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                  x0: e.clientX, y0: e.clientY, movido: false };
             return;
         }
+        // Colocar un EQUIPO: como un vértice de la cubierta, un toque (sin
+        // arrastrar) lo pone donde se pulsa; arrastrar sigue moviendo el plano.
+        if (poniendoEquipo && e.button === 0) {
+            arrastre.current = { gesto: 'equipo', cam: camara,
+                                 ...aDibujo(e.clientX, e.clientY), vb: vista,
+                                 x0: e.clientX, y0: e.clientY, movido: false };
+            return;
+        }
         // Con la BARRA ESPACIADORA pulsada, el plano se mueve aunque se esté
         // dibujando: en modo dibujo el botón izquierdo traza, así que sin esto
         // la única forma de llegar a otra parte del plano era alejarse con la
@@ -839,6 +859,16 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
             setTrazoPizarra(null);
             const r = plano.trazoPizarra(planta.id, d.pts, lapizPizarra, { tam, iman });
             setAvisoPizarra({ ...r, at: Date.now() });
+            arrastrado.current = true;
+            setTimeout(() => { arrastrado.current = false; }, 0);
+            return;
+        }
+        if (d?.gesto === 'equipo') {
+            if (!d.movido) {
+                const p = aDibujo(e.clientX, e.clientY);
+                onPonerEquipo?.([Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]);
+            }
+            // Ni el toque ni el arrastre eligen la pared que hubiera debajo.
             arrastrado.current = true;
             setTimeout(() => { arrastrado.current = false; }, 0);
             return;
@@ -985,7 +1015,11 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     //: zonas van sin rótulo mientras se pinta un croquis (el croquis las va a
     //: sustituir), y los cuerpos no se dibujan mientras se dibuja una pared.
     const fantasmaZonas = dibujarCroquis || !!croquisMovil;
+    //: Los iconos de los EQUIPOS, con su sitio y lo que ocupan: entran en la
+    //: pasada de rótulos como obstáculos fijos y se pintan con la MISMA maqueta.
+    const marcas = es3d ? [] : marcasDelPlano(equipos, tam);
     const colocados = es3d ? null : colocarRotulosPlano({
+        equipos: marcas.map(m => ({ id: m.e.tipo, caja: cajaDeMarca(m) })),
         muros: capa2d, sel, entrada, tam, entorno, nombreDe, hacia,
         interior: esInterior, fuera: m => estadoDe(m) === 'fuera',
         zonas: fantasmaZonas ? [] : zonas,
@@ -1041,13 +1075,20 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 es3d={es3d}
                 dibujando={dibujando}
                 onDibujar={d => { setDibujando(d); setTrazo(null); setCorto(false);
-                                  if (d) setLapizPizarra(null); }}
+                                  if (d) { setLapizPizarra(null); onEquipoEnMano?.(null); } }}
                 corto={corto}
                 pizarra={pizarraActiva}
                 onPizarra={es3d || !plano.trazoPizarra ? null : (si => {
                     setLapizPizarra(si ? 'FACHADA' : null);
                     setAvisoPizarra(null);
-                    if (si) { setDibujando(false); setTrazo(null); }
+                    if (si) { setDibujando(false); setTrazo(null); onEquipoEnMano?.(null); }
+                })}
+                equipos={poniendoEquipo}
+                onEquipos={es3d || !onEquipoEnMano || !onPonerEquipo ? null : (si => {
+                    // El primero que falte por poner, o el primero si ya están.
+                    onEquipoEnMano(si ? 'abrir' : null);
+                    if (si) { setLapizPizarra(null); setAvisoPizarra(null);
+                              setDibujando(false); setTrazo(null); }
                 })}
                 onGirar={g => setCamara(c => ({ ...c, az: c.az + g }))}
                 onZoom={f => escalar(f)} onEncuadrar={encuadrar}
@@ -1368,6 +1409,13 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                 </g>
                             ))}
 
+                            {/* Los EQUIPOS de esta planta: dónde está la caldera
+                                que se retira, la máquina nueva, el ACS y la unidad
+                                exterior. Encima de los rótulos y sin recoger el
+                                ratón: la pared de debajo se sigue pulsando. */}
+                            <MarcasEquipos marcas={marcas} tam={tam} papel={PAPEL}
+                                           elegido={poniendoEquipo ? equipoEnMano : null} />
+
                             {/* La ZONA DE PULSACIÓN va la ÚLTIMA y es ancha
                                 (hasta 0,9 m): con el dedo en una tablet, apuntar
                                 a un trazo de 0,34 m es imposible. Pero un
@@ -1549,7 +1597,7 @@ function anchoEnUnaFila(el) {
  * cabe, entonces sí salta de fila, alineada a la derecha.
  */
 function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, corto,
-                     pizarra = false, onPizarra = null,
+                     pizarra = false, onPizarra = null, equipos = false, onEquipos = null,
                      onZoom, onEncuadrar, puedeAlejar, entorno, onEntorno,
                      catastro, onCatastro, trayendoCatastro, falloCatastro,
                      satelite, onSatelite, avisoSatelite, enlaces = [] }) {
@@ -1561,9 +1609,10 @@ function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, cor
     //: decide AL PINTAR, sin efecto, comparando con la firma de la última
     //: búsqueda. Y se baja de uno en uno mientras no quepa, midiendo en un
     //: `useLayoutEffect`: todo antes de pintar, en pantalla solo se ve el último.
-    const firma = [ancho, es3d, dibujando, corto, pizarra, entorno, puedeAlejar,
+    const firma = [ancho, es3d, dibujando, corto, pizarra, equipos, entorno, puedeAlejar,
                    trayendoCatastro, !!falloCatastro, !!(satelite && avisoSatelite),
-                   !!onCatastro, !!onSatelite, !!onPizarra, !!onDibujar, enlaces.length > 0].join('|');
+                   !!onCatastro, !!onSatelite, !!onPizarra, !!onEquipos, !!onDibujar,
+                   enlaces.length > 0].join('|');
     const [ajuste, setAjuste] = useState({ firma, escalon: 0 });
     if (ajuste.firma !== firma) setAjuste({ firma, escalon: 0 });
     const escalon = ajuste.firma === firma ? ajuste.escalon : 0;
@@ -1624,7 +1673,21 @@ function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, cor
                         {pizarra ? '✏️ Pizarra · cerrar' : iconos ? '✏️' : '✏️ Pizarra'}
                     </Boton>
                 )}
-                {!es3d && onDibujar && !pizarra && (
+                {/* Los EQUIPOS: dónde está la caldera que se retira y dónde van
+                    la máquina nueva, el ACS y la unidad exterior (también en la
+                    cubierta). La tira del modo la pinta la vista, una vez. */}
+                {!es3d && onEquipos && !pizarra && (
+                    <Boton onClick={() => onEquipos(!equipos)} activo={equipos}
+                           aria-pressed={!!equipos}
+                           cuadrado={iconos && !equipos}
+                           etiqueta={iconos && !equipos ? 'Equipos' : undefined}
+                           title="Equipos: marcar en el plano dónde está la caldera actual y dónde van
+                                  el equipo nuevo, el depósito de ACS y la unidad exterior (también en
+                                  la cubierta).">
+                        {equipos ? '📍 Equipos · cerrar' : iconos ? '📍' : '📍 Equipos'}
+                    </Boton>
+                )}
+                {!es3d && onDibujar && !pizarra && !equipos && (
                     <Boton onClick={() => onDibujar(!dibujando)} activo={dibujando}
                            aria-pressed={!!dibujando}
                            cuadrado={iconos && !dibujando}

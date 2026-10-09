@@ -181,15 +181,18 @@ const DEFS_LEYENDA = `<svg width="0" height="0" style="position:absolute"><defs>
  * MILÍMETROS de papel, así que la escala que se rotula es la de verdad.
  */
 function planoPlanta(G, { muros: murosIn, zonas: zonasIn, entrada, contexto: ctxIn,
+                         equipos: equiposIn = [],
                          giro = 0, centroGiro = [0, 0], anchoMm = 178, altoMm = 196 }) {
     // Todo se gira a la vez (ver `giroDeLaCasa`); la flecha del norte, también.
     const rot = girador(giro, centroGiro);
     const muros = murosIn.map(m => ({ ...m, svg: rot(m.svg) }));
     const zonas = zonasIn.map(z => ({ ...z, puntos: rot(z.puntos) }));
+    const equipos = equiposIn.map(e => ({ ...e, lienzo: rot([e.lienzo])[0] }));
     const contexto = { vecinos: (ctxIn?.vecinos || []).map(rot), parcela: (ctxIn?.parcela || []).map(rot) };
     const pts = [];
     for (const m of muros) pts.push(...(m.svg || []));
     for (const z of zonas) pts.push(...z.puntos);
+    for (const e of equipos) pts.push(e.lienzo);
     const caja = bbox(pts);
     if (!caja) return { svg: '<p class="nota">Sin paredes que dibujar en esta planta.</p>', escala: null };
     const margen = 2.6;                                  // m: sitio para cotas y rótulos
@@ -355,7 +358,31 @@ function planoPlanta(G, { muros: murosIn, zonas: zonasIn, entrada, contexto: ctx
         capas.push(`<text transform="${k.tr}" font-size="${fsSub}" text-anchor="middle" dominant-baseline="middle" fill="${fuera ? '#8A9099' : M.negro}" ${halo}>`
             + `<tspan font-weight="700">${esc(nombre)}</tspan> · ${num(L)} m${fuera ? ' · no cuenta' : ''}</text>`);
     }
-    // 6 · Norte y escala gráfica.
+    // 6 · Los EQUIPOS de esta planta: dónde está la caldera que se retira y
+    //     dónde van la máquina nueva, el ACS y la unidad exterior.
+    capas.push(...marcasEquiposSvg(G, equipos, { mm, fsMin, halo }));
+    // 7 · Norte y escala gráfica.
+    capas.push(...norteYEscala({ vb, mm, giro, fsSub, fsMin, mmPorM, den }));
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W.toFixed(1)}mm" height="${H.toFixed(1)}mm" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" font-family="'DM Sans', Arial, sans-serif">
+<defs>
+<pattern id="trMed" patternUnits="userSpaceOnUse" width="0.12" height="0.12" patternTransform="rotate(45)">
+<rect width="0.12" height="0.12" fill="#fff"/><line x1="0" y1="0" x2="0" y2="0.12" stroke="${P.medianera}" stroke-width="0.035"/></pattern>
+<pattern id="trPart" patternUnits="userSpaceOnUse" width="0.12" height="0.12" patternTransform="rotate(-45)">
+<rect width="0.12" height="0.12" fill="#fff"/><line x1="0" y1="0" x2="0" y2="0.12" stroke="${P.particion}" stroke-width="0.045"/></pattern>
+<pattern id="trZona" patternUnits="userSpaceOnUse" width="0.35" height="0.35" patternTransform="rotate(45)">
+<rect width="0.35" height="0.35" fill="${M.crema}"/><line x1="0" y1="0" x2="0" y2="0.35" stroke="#D3D7DD" stroke-width="0.03"/></pattern>
+</defs>
+${capas.join('\n')}
+</svg>`;
+    return { svg, escala: den };
+}
+
+/** La aguja del NORTE (girada con la casa) y la escala gráfica, arriba a la
+ *  derecha y abajo a la izquierda del dibujo. La comparten las plantas y la
+ *  cubierta. */
+function norteYEscala({ vb, mm, giro, fsSub, fsMin, mmPorM, den }) {
+    const capas = [];
     const nX = vb.x + vb.w - mm(9), nY = vb.y + mm(10);
     const R = mm(5);
     const nT = nX + Math.sin((giro * Math.PI) / 180) * (R + fsSub * 0.9);
@@ -376,20 +403,122 @@ function planoPlanta(G, { muros: murosIn, zonas: zonasIn, entrada, contexto: ctx
     capas.push(`<text x="${sX}" y="${sY - mm(2)}" font-size="${fsMin}" fill="${M.negro}">0</text>`
         + `<text x="${sX + esc_m}" y="${sY - mm(2)}" font-size="${fsMin}" text-anchor="middle" fill="${M.negro}">${esc_m} m</text>`
         + `<text x="${sX + esc_m + mm(4)}" y="${sY}" font-size="${fsSub}" font-weight="700" fill="${M.negro}">E 1:${den}</text>`);
+    return capas;
+}
 
+/**
+ * Los iconos de los EQUIPOS (ya girados, en metros del dibujo): el cuadrado de
+ * su color con su trazo —el MISMO que en la ventana (`equiposPlano.js`)— y su
+ * rótulo debajo. Dos en el mismo sitio (la máquina nueva donde estaba la
+ * caldera) se corren y se unen a su punto con una línea.
+ */
+function marcasDelPapel(G, equipos, { mm, fsMin }) {
+    if (!equipos?.length || !G.ep) return [];
+    const lado = mm(6.5);
+    const anchoDe = (tipo) => (G.ep.tipoEquipo(tipo)?.rotulo || '').length * fsMin * 0.66;
+    // Corridos lo bastante para que los RÓTULOS no se lean como uno solo
+    // («CALDERA ACTUAL EQUIPO NUEVO» a 2 mm, revisión de diseño 09/10/2026).
+    const paso = Math.max(lado * 2.5, ...equipos.map(e => anchoDe(e.tipo) + mm(4)));
+    return G.ep.separarMarcas(equipos, paso).map(m => ({ ...m, lado, fs: fsMin, ancho: Math.max(lado, anchoDe(m.e.tipo)) }));
+}
+
+function marcasEquiposSvg(G, equipos, { mm, fsMin, halo }) {
+    const marcas = marcasDelPapel(G, equipos, { mm, fsMin });
+    if (!marcas.length) return [];
+    const capas = [];
+    // DOS pasadas: las líneas de los corridos debajo de TODOS los iconos. En una,
+    // la del equipo nuevo tapaba la llama de la caldera que tiene debajo.
+    for (const { e, ancla, pos, corrida } of marcas) {
+        const t = G.ep.tipoEquipo(e.tipo);
+        if (!t || !corrida) continue;
+        capas.push(`<line x1="${ancla[0]}" y1="${ancla[1]}" x2="${pos[0]}" y2="${pos[1]}" stroke="${t.colorPdf}" stroke-width="${mm(0.35)}"/>`
+            + `<circle cx="${ancla[0]}" cy="${ancla[1]}" r="${mm(0.9)}" fill="${t.colorPdf}" stroke="#fff" stroke-width="${mm(0.25)}"/>`);
+    }
+    for (const { e, pos, lado } of marcas) {
+        const t = G.ep.tipoEquipo(e.tipo);
+        if (!t) continue;
+        capas.push(G.ep.iconoSvg(e.tipo, pos[0], pos[1], lado, { filo: mm(0.45) }));
+        capas.push(`<text x="${pos[0]}" y="${pos[1] + lado / 2 + fsMin * 1.15}" font-size="${fsMin}" text-anchor="middle" font-weight="700" fill="${t.colorPdf}" ${halo}>${esc(t.rotulo)}</text>`);
+    }
+    return capas;
+}
+
+/**
+ * El PLANO DE CUBIERTA: el tejado visto desde arriba, con sus tejas, y los
+ * equipos que van en él (la unidad exterior). Cada faldón es una edificación
+ * de Catastro a la altura de su planta más alta (`faldonesCubierta`), pintados
+ * de abajo arriba. Mismo giro y misma escala normalizada que las plantas.
+ */
+function planoCubierta(G, { faldones: faldonesIn, equipos: equiposIn = [], contexto: ctxIn, nombreNivel,
+                           giro = 0, centroGiro = [0, 0], anchoMm = 178, altoMm = 196 }) {
+    const rot = girador(giro, centroGiro);
+    const faldones = (faldonesIn || []).map(f => ({ ...f, puntos: rot(f.puntos) }));
+    const equipos = equiposIn.map(e => ({ ...e, lienzo: rot([e.lienzo])[0] }));
+    const vecinos = (ctxIn?.vecinos || []).map(rot);
+    const caja = bbox([...faldones.flatMap(f => f.puntos), ...equipos.map(e => e.lienzo)]);
+    if (!caja) return { svg: '<p class="nota">Sin contorno del edificio para dibujar la cubierta.</p>', escala: null };
+    const margen = 2.6;
+    const w = caja.x1 - caja.x0 + 2 * margen, h = caja.y1 - caja.y0 + 2 * margen;
+    const den = ESCALAS.find(d => (w * 1000) / d <= anchoMm && (h * 1000) / d <= altoMm) || ESCALAS.at(-1);
+    const mmPorM = 1000 / den;
+    const W = anchoMm, H = Math.min(altoMm, h * mmPorM + 14);
+    const vbW = W / mmPorM, vbH = H / mmPorM;
+    const vb = { x: (caja.x0 + caja.x1) / 2 - vbW / 2, y: (caja.y0 + caja.y1) / 2 - vbH / 2, w: vbW, h: vbH };
+    const mm = (v) => v / mmPorM;
+    const fsSub = mm(2.1), fsMin = mm(1.8);
+    const halo = `stroke="#fff" stroke-width="${mm(0.9)}" paint-order="stroke" stroke-linejoin="round"`;
+    const linea = (p) => p.map(([x, y]) => `${x.toFixed(3)},${y.toFixed(3)}`).join(' ');
+    const capas = [];
+    for (const v of vecinos) {
+        capas.push(`<polygon points="${linea(v)}" fill="#F1F2F4" stroke="#D5D9DF" stroke-width="${mm(0.2)}"/>`);
+    }
+    // La TEJA en VECTORIAL: hileras de arcos recortadas a cada faldón. Con un
+    // `<pattern>`, Chrome lo convierte en imagen a 72 ppp al hacer el PDF y al
+    // imprimir salía un punteado (revisión de diseño, 09/10/2026). Mide 0,5 m de
+    // verdad pero nunca menos de 3 mm de papel: a 1:250 se leía como un rayado.
+    const t = Math.max(0.5, mm(3));
+    const a = t / 2;                                    // ancho de cada teja (arco)
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const arriba = Math.max(...faldones.map(f => f.nivel));
+    const defs = [];
+    faldones.forEach((f, i) => {
+        const c = bbox(f.puntos);
+        const tramos = [];
+        for (let k = 0, y = c.y0 + a; y <= c.y1 + a; k++, y += a) {
+            let d = `M${r2(c.x0 - a - (k % 2) * a / 2)} ${r2(y)}`;
+            for (let x = c.x0 - a - (k % 2) * a / 2; x < c.x1 + a; x += a) d += `Q${r2(x + a / 2)} ${r2(y - a * 0.84)} ${r2(x + a)} ${r2(y)}`;
+            tramos.push(d);
+        }
+        defs.push(`<clipPath id="cf${i}"><polygon points="${linea(f.puntos)}"/></clipPath>`);
+        // El tejado más BAJO (el del garaje junto al de la casa), más claro: se
+        // ve la diferencia de altura sin leer el rótulo.
+        const op = f.nivel < arriba ? ' opacity=".6"' : '';
+        capas.push(`<g${op}><polygon points="${linea(f.puntos)}" fill="${TEJA.fondo}"/>`
+            + `<path d="${tramos.join('')}" fill="none" stroke="${TEJA.linea}" stroke-width="${mm(0.18)}" clip-path="url(#cf${i})"/>`
+            + `<polygon points="${linea(f.puntos)}" fill="none" stroke="${TEJA.borde}" stroke-width="${mm(0.45)}" stroke-linejoin="round"/></g>`);
+    });
+    // Con tejados a distintas alturas, a qué planta cubre cada uno: en su sitio
+    // más holgado (no el centroide, que en una L cae en el codo) y, si ahí hay
+    // un icono, debajo de su rótulo — era lo único que decía sobre qué tejado
+    // está la unidad exterior y quedaba tapado.
+    const marcas = marcasDelPapel(G, equipos, { mm, fsMin });
+    if (new Set(faldones.map(f => f.nivel)).size > 1) {
+        for (const f of faldones) {
+            const texto = `sobre ${nombreNivel(f.nivel)}`;
+            const [x, y] = G.ep.sitioRotuloFaldon(f.puntos, marcas, (p) => G.polo(p), { texto, fs: fsMin });
+            capas.push(`<text x="${x}" y="${y}" font-size="${fsMin}" text-anchor="middle" font-weight="700" fill="#5B3A22" ${halo}>${esc(texto)}</text>`);
+        }
+    }
+    capas.push(...marcasEquiposSvg(G, equipos, { mm, fsMin, halo }));
+    capas.push(...norteYEscala({ vb, mm, giro, fsSub, fsMin, mmPorM, den }));
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W.toFixed(1)}mm" height="${H.toFixed(1)}mm" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" font-family="'DM Sans', Arial, sans-serif">
-<defs>
-<pattern id="trMed" patternUnits="userSpaceOnUse" width="0.12" height="0.12" patternTransform="rotate(45)">
-<rect width="0.12" height="0.12" fill="#fff"/><line x1="0" y1="0" x2="0" y2="0.12" stroke="${P.medianera}" stroke-width="0.035"/></pattern>
-<pattern id="trPart" patternUnits="userSpaceOnUse" width="0.12" height="0.12" patternTransform="rotate(-45)">
-<rect width="0.12" height="0.12" fill="#fff"/><line x1="0" y1="0" x2="0" y2="0.12" stroke="${P.particion}" stroke-width="0.045"/></pattern>
-<pattern id="trZona" patternUnits="userSpaceOnUse" width="0.35" height="0.35" patternTransform="rotate(45)">
-<rect width="0.35" height="0.35" fill="${M.crema}"/><line x1="0" y1="0" x2="0" y2="0.35" stroke="#D3D7DD" stroke-width="0.03"/></pattern>
-</defs>
+<defs>${defs.join('')}</defs>
 ${capas.join('\n')}
 </svg>`;
     return { svg, escala: den };
 }
+//: La TEJA en el papel: terracota clara de fondo y la línea de cada hilera.
+const TEJA = { fondo: '#F4D9C6', linea: '#C9764A', borde: '#A0522D' };
 
 // ─── Los cuadros ────────────────────────────────────────────────────────────
 
@@ -420,7 +549,11 @@ async function componerCroquisHtml({ cabecera = {}, geo, trabajo, rx = null }) {
     const tp = await esm('cee-envolvente/logic/tiposPared.js');
     const sen = await esm('cee-envolvente/logic/senalado.js');
     const ref = await esm('cee-envolvente/logic/reforma.js').catch(() => ({}));
-    const G = { ...geom, ...tp, ...sen, nombreHueco: ref.nombreHueco };
+    const ep = await esm('cee-envolvente/logic/equiposPlano.js').catch(() => null);
+    const rp = await esm('cee-envolvente/logic/rotulosPlano.js').catch(() => null);
+    const G = { ...geom, ...tp, ...sen, nombreHueco: ref.nombreHueco, ep,
+                //: El punto más holgado de un polígono (para el rótulo de un faldón).
+                polo: rp?.poloInaccesible || ((p) => { const [x, y] = geom.centroide(p); return { x, y }; }) };
     const { fuentes, logo } = marca();
 
     const st = sen.estadoDeTrabajo(geo, trabajo || null);
@@ -435,6 +568,12 @@ async function componerCroquisHtml({ cabecera = {}, geo, trabajo, rx = null }) {
     const g = rx?.generales || {};
     const env = rx?.envolvente || {};
     let totalPaginas = plantas.length + 1;
+    //: Dónde están los EQUIPOS (se guardan en el mundo, como las zonas) y si
+    //: alguno va en la CUBIERTA: entonces el croquis lleva su hoja de tejado.
+    const equipos = ep ? ep.equiposEnLienzo(trabajo?.equipos_plano, lam) : [];
+    const enCubierta = equipos.filter(e => e.nivel === ep?.NIVEL_CUBIERTA);
+    const conCubierta = enCubierta.length > 0;
+    const nombreSitio = (n) => (ep ? ep.nombreDelSitio(n, plantas) : String(n));
 
     const cabeceraHoja = () => `<header class="cab">
   ${logo ? `<img class="logo" src="${logo}" alt="BROKERGY">` : '<b class="logo-txt">BROKERGY</b>'}
@@ -444,11 +583,16 @@ async function componerCroquisHtml({ cabecera = {}, geo, trabajo, rx = null }) {
     const titulo = (n, texto, sub = '') => `<div class="titulo"><span class="num">${String(n).padStart(2, '0')}</span>`
         + `<h2>${esc(texto)}${sub ? ` <small>${sub}</small>` : ''}</h2></div><div class="regla"></div>`;
 
-    const leyenda = `<div class="leyenda">
+    //: Los equipos en la leyenda: solo los que salen en ESA hoja (la planta 1 no
+    //: lista la caldera que está en la baja).
+    const iconoLeyenda = (tipo) => `<svg width="12" height="12" viewBox="0 0 24 24">${ep.iconoSvg(tipo, 12, 12, 24, { filo: 0 })}</svg>`;
+    const leyendaEquipos = (lista) => (ep ? ep.TIPOS_EQUIPO.filter(t => lista.some(e => e.tipo === t.id))
+        .map(t => `<span>${iconoLeyenda(t.id)}${esc(t.etiqueta)}</span>`).join('') : '');
+    const leyenda = (lista = []) => `<div class="leyenda">
   <span>${simbolo('fachada')}Muro al exterior</span><span>${simbolo('medianera')}Medianera</span>
   <span>${simbolo('particion')}Partición con espacio no habitable</span><span>${simbolo('zona')}No es vivienda</span>
   <span>${simbolo('ventana')}Ventana</span><span>${simbolo('puerta')}Puerta</span>
-  <span>${simbolo('cota')}Cota (m)</span><span>${simbolo('acceso')}Acceso</span>
+  <span>${simbolo('cota')}Cota (m)</span><span>${simbolo('acceso')}Acceso</span>${leyendaEquipos(lista)}
 </div>`;
     // Un solo giro para todas las plantas: la misma casa, en la misma posición.
     const vivosTodos = muros.filter(m => !G.esFuera(m));
@@ -498,9 +642,10 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
         const hs = huecos.filter(h => h.planta === p.id);
         // El plano se lleva el sitio que deja el cuadro de huecos de su planta.
         const alto = (primera ? 175 : 222) - Math.min(14, hs.length) * 6.2 - (hs.length ? 16 : 0);
+        const eqs = equipos.filter(e => e.nivel === p.nivel);
         const { svg, escala } = planoPlanta(G, {
             muros: ms, zonas: zs, entrada: st.entrada, contexto: geo.contexto,
-            giro, centroGiro, altoMm: Math.max(110, alto),
+            equipos: eqs, giro, centroGiro, altoMm: Math.max(110, alto),
         });
         const nombre = /^planta/i.test(p.nombre || '') ? p.nombre : `Planta ${p.nombre || p.id}`;
         const sup = supPlanta(p);
@@ -510,11 +655,37 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
         return `<section class="hoja">${cabeceraHoja()}
 ${primera ? `<div class="portada"><div class="kicker">${esc(c.fase || 'CEE INICIAL')} · CROQUIS DE LA ENVOLVENTE TÉRMICA</div>${meta}</div>` : ''}
 ${titulo(i + 1, nombre, sub)}
-${leyenda}
+${leyenda(eqs)}
 <div class="plano">${svg}</div>
 ${hs.length ? `<h3>Huecos de esta planta <small>· ${hs.length} · ${num(supH)} m²</small></h3>${tabla(CAB_HUECOS, hs.map(filaHueco), { clase: 'huecos' })}` : ''}
 ${pie(i + 1)}</section>`;
     }).join('\n');
+
+    // ── La CUBIERTA, si algún equipo va en el tejado (la unidad exterior) ──
+    const hojaCubierta = conCubierta ? (() => {
+        const n = plantas.length + 1;
+        const faldones = ep.faldonesCubierta({ cuerpos: geo.cuerpos || [], plantas });
+        const { svg, escala } = planoCubierta(G, {
+            faldones, equipos: enCubierta, contexto: geo.contexto, giro, centroGiro, altoMm: 200,
+            nombreNivel: (nv) => nombreSitio(nv).toLowerCase(),
+        });
+        const sub = ['vista desde arriba', escala ? `E 1:${escala}` : null].filter(Boolean).join(' · ');
+        const legendaTeja = `<span><svg width="26" height="10" viewBox="0 0 26 10"><rect x="1" y="1" width="24" height="8" fill="${TEJA.fondo}" stroke="${TEJA.borde}" stroke-width=".8"/>`
+            + `<path d="M1 7 Q4 3 7 7 Q10 3 13 7 Q16 3 19 7 Q22 3 25 7" fill="none" stroke="${TEJA.linea}" stroke-width=".7"/></svg>Tejado</span>`;
+        return `<section class="hoja">${cabeceraHoja()}
+${titulo(n, 'Cubierta', sub)}
+<div class="leyenda">${legendaTeja}${enCubierta.map(e => `<span>${iconoLeyenda(e.tipo)}${esc(ep.tipoEquipo(e.tipo)?.etiqueta || e.tipo)}</span>`).join('')}</div>
+<div class="plano">${svg}</div>
+<p class="nota">Cubierta según las edificaciones de Catastro: cada faldón a la altura de la planta más alta de su edificación. La posición de los equipos es la marcada sobre el plano.</p>
+${pie(n)}</section>`;
+    })() : '';
+    const nHojasPlano = plantas.length + (conCubierta ? 1 : 0);
+
+    // ── Dónde está cada equipo ──
+    const filasEquipos = ep ? equipos.map((e) => {
+        const t = ep.tipoEquipo(e.tipo);
+        return `<tr><td class="nw">${iconoLeyenda(e.tipo)} <b>${esc(t?.etiqueta || e.tipo)}</b></td><td class="nw">${esc(nombreSitio(e.nivel))}</td></tr>`;
+    }) : [];
 
     // ── Cuadros ──
     // Superficies por planta (de la geometría y de las zonas). Dos porches de la
@@ -529,40 +700,63 @@ ${pie(i + 1)}</section>`;
         if (!p) return id || '—';
         return /^planta/i.test(p.nombre || '') ? p.nombre : `Planta ${p.nombre || p.id}`;
     };
+    // Cuántas líneas ocupa cada fila de superficies: una por uso que no es vivienda.
+    const lineasSup = [];
     const filasSup = plantas.map((p) => {
         const zs = (trabajo?.zonas_fuera || []).filter(z => Number(z.nivel) === Number(p.nivel));
         const nombre = /^planta/i.test(p.nombre || '') ? p.nombre : `Planta ${p.nombre || p.id}`;
         const hs = huecos.filter(h => h.planta === p.id);
-        return `<tr><td><b>${esc(nombre)}</b></td><td class="n">${num(supPlanta(p), 1)}</td>`
+        lineasSup.push(Math.max(1, porUso(zs).length));
+        return `<tr><td class="nw"><b>${esc(nombre)}</b></td><td class="n">${num(supPlanta(p), 1)}</td>`
             + `<td>${porUso(zs).map(([uso, a]) => `${esc(ROTULO_ZONA[uso] || uso)} ${num(a, 1)} m²`).join('<br>') || '—'}</td>`
             + `<td class="n">${num(p.superficie, 1)}</td><td class="n">${hs.length} · ${num(hs.reduce((s, h) => s + (Number(h.sup) || 0), 0))} m²</td></tr>`;
     });
 
-    // Cerramientos opacos: del .cex.
+    // Cerramientos opacos: del .cex. Cada fila con su NOMBRE (lo que decide si
+    // ocupa una línea o dos, ver la paginación de abajo).
     const filasCer = (env.cerramientos || []).map((ce) => {
         const id = idDeNombre(ce.nombre);
         const mu = st.muros?.[id] || muros.find(x => G.nombreDe(x) === id);
-        return `<tr><td><b>${esc(ce.nombre)}</b></td><td>${chipTipo(ce.tipo)}</td><td>${esc(mu?.planta ? nombrePlanta(mu.planta) : (ce.zona || '—'))}</td>`
+        return { nombre: ce.nombre, html: `<tr><td><b>${esc(ce.nombre)}</b></td><td>${chipTipo(ce.tipo)}</td><td class="nw">${esc(mu?.planta ? nombrePlanta(mu.planta) : (ce.zona || '—'))}</td>`
             + `<td>${esc(ce.orientacion || '—')}</td><td class="n">${mu ? `${num(G.largo(mu.svg))} × ${num(mu.alto)}` : '—'}</td>`
-            + `<td class="n">${num(ce.superficie)}</td><td class="n">${ce.tipo === 'Medianera' ? '—' : num(ce.u)}</td></tr>`;
+            + `<td class="n">${num(ce.superficie)}</td><td class="n">${ce.tipo === 'Medianera' ? '—' : num(ce.u)}</td></tr>` };
     });
     // Sin el .cex, los muros del dibujo.
     const filasMuros = filasCer.length ? filasCer : muros.filter(m => !G.esFuera(m)).map((m) => {
         const t = G.tipoDe(m);
-        return `<tr><td><b>${esc(G.nombreDe(m) || m.id)}</b></td><td>${chipTipo(NOMBRE_TIPO[t] || t)}</td><td>${esc(m.planta ? nombrePlanta(m.planta) : '—')}</td>`
+        const nombre = G.nombreDe(m) || m.id;
+        return { nombre, html: `<tr><td><b>${esc(nombre)}</b></td><td>${chipTipo(NOMBRE_TIPO[t] || t)}</td><td class="nw">${esc(m.planta ? nombrePlanta(m.planta) : '—')}</td>`
             + `<td>${esc((G.rumboDe && G.rumboDe(m)) || '—')}</td><td class="n">${num(G.largo(m.svg))} × ${num(m.alto)}</td>`
-            + `<td class="n">${num(G.largo(m.svg) * (Number(m.alto) || 0))}</td><td class="n">—</td></tr>`;
+            + `<td class="n">${num(G.largo(m.svg) * (Number(m.alto) || 0))}</td><td class="n">—</td></tr>` };
     });
 
     // Las hojas son de alto FIJO (y recortan): los cerramientos se reparten en
     // tantas hojas como haga falta, repitiendo la cabecera de la tabla.
+    //
+    // Se reparten por ALTO, no por número de filas (2026-10-09, 26RES060_226): un
+    // nombre largo («FBNE6 ESPACIO_LIBRE_PARCELA») parte en dos líneas y la
+    // planta también lo hacía («PLANTA / BAJA»), así que 34 filas «de una
+    // línea» medían 300 mm y las últimas quedaban bajo el pie o fuera de la
+    // hoja — un cuadro de auditoría con cerramientos que no se ven. La planta va
+    // ya sin partir (`nw`) y cada fila cuenta lo que mide (medido en el PDF:
+    // 6,7 mm una línea, 10,5 dos). El hueco útil de la tabla en una hoja (entre
+    // la cabecera de la tabla y el pie, dejando la nota final) son 212 mm.
     const CAB_CER = ['Cerramiento', 'Tipo', 'Planta', 'Orientación / espacio', 'Largo × alto (m)', 'Sup. bruta (m²)', 'U (W/m²K)'];
-    const POR_HOJA_PRIMERA = Math.max(8, 24 - filasSup.length * 2);
-    const POR_HOJA = 34;
-    const trozos = [filasMuros.slice(0, POR_HOJA_PRIMERA)];
-    for (let i = POR_HOJA_PRIMERA; i < filasMuros.length; i += POR_HOJA) trozos.push(filasMuros.slice(i, i + POR_HOJA));
+    const ALTO_UTIL_MM = 212;
+    const altoFila = (f) => (String(f.nombre || '').length > 25 ? 10.5 : 6.7);
+    // La primera hoja lleva además el título, las superficies y —si hay— los equipos.
+    const altoPrimera = ALTO_UTIL_MM - 18 - 16 - lineasSup.reduce((s, l) => s + 6.7 + (l - 1) * 3.8, 0)
+        - (filasEquipos.length ? 16 + filasEquipos.length * 6.7 : 0);
+    const trozos = [[]];
+    let queda = Math.max(40, altoPrimera);
+    for (const f of filasMuros) {
+        const h = altoFila(f);
+        if (h > queda && trozos[trozos.length - 1].length) { trozos.push([]); queda = ALTO_UTIL_MM; }
+        trozos[trozos.length - 1].push(f.html);
+        queda -= h;
+    }
     const nota = `<p class="nota">Croquis de la envolvente térmica del edificio a partir de la cartografía catastral y de la documentación del expediente${c.fichero ? `; los cuadros reproducen el fichero ${esc(c.fichero)}` : ''}. Superficies construidas medidas sobre el dibujo. La posición de los huecos a lo largo de cada muro es orientativa: el cálculo usa su superficie y el cerramiento al que pertenecen.</p>`;
-    const nCuadros = plantas.length + 1;
+    const nCuadros = nHojasPlano + 1;
     const hojaCuadros = trozos.map((filas, k) => {
         const n = nCuadros + k;
         const ultima = k === trozos.length - 1;
@@ -570,13 +764,15 @@ ${pie(i + 1)}</section>`;
 ${k === 0 ? `${titulo(nCuadros, 'Cuadro de superficies y cerramientos')}
 <h3>Superficies por planta</h3>
 ${tabla(['Planta', 'Construida dibujada (m²)', 'No es vivienda', 'Vivienda según Catastro (m²)', 'Huecos'], filasSup)}
+${filasEquipos.length ? `<h3>Ubicación de los equipos <small>· ${filasEquipos.length}</small></h3>
+${tabla(['Equipo', 'Dónde'], filasEquipos, { clase: 'compacta equipos' })}` : ''}
 <h3>Cerramientos <small>· ${filasMuros.length}${totHue ? ` · huecos ${num(totHue)} m²` : ''}</small></h3>`
             : `<h3>Cerramientos <small>· continuación (${k + 1} de ${trozos.length})</small></h3>`}
 ${tabla(CAB_CER, filas)}
 ${ultima ? nota : ''}
 ${pie(n)}</section>`;
     }).join(String.fromCharCode(10));
-    totalPaginas = plantas.length + trozos.length;
+    totalPaginas = nHojasPlano + trozos.length;
 
     return (`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Croquis ${esc(c.numero)}</title>
 <style>
@@ -614,6 +810,9 @@ thead th { background: ${M.crema}; font-size: 6.9pt; text-transform: uppercase; 
 td.n { text-align: right; white-space: nowrap; }
 table.compacta { width: 75%; }
 table.huecos td, table.huecos th { padding: .9mm 1.6mm; }
+td.nw { white-space: nowrap; }
+table.equipos td { vertical-align: middle; }
+table.equipos td svg { vertical-align: -0.5mm; }
 .chip { border-radius: 2mm; padding: 0 1.6mm; font-size: 7pt; white-space: nowrap; border: .25mm solid; }
 .chip.fach { border-color: ${M.negro}; } .chip.med { border-color: ${P.medianera}; color: #4B5260; }
 .chip.part { border-color: #8EA72A; color: #5E7016; } .chip.otro { border-color: ${M.grisClaro}; color: ${M.gris}; }
@@ -623,6 +822,7 @@ table.huecos td, table.huecos th { padding: .9mm 1.6mm; }
 </style></head><body>
 ${DEFS_LEYENDA}
 ${hojasPlanos}
+${hojaCubierta}
 ${hojaCuadros}
 </body></html>`).split('%%TOTAL_PAGINAS%%').join(String(totalPaginas));
 }
