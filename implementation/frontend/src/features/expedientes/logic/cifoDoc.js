@@ -612,6 +612,37 @@ export function placaImgHtml({ src, recorte, ancho, maxAlto, estilo = '' }) {
         + `</div>`;
 }
 
+/**
+ * El η_wh que se imprime junto a un SCOP_dhw de CONJUNTO (Anexo IV: SCOP = 2,5 · η_wh).
+ *
+ * El expediente guarda el SCOP, no el η, y el certificado lo sacaba dividiendo:
+ * 3,48 / 2,5 = 139,2 %, una cifra que no está en el EPREL (publica el η_wh en %
+ * ENTERO: 139) y que el recuadro atribuye a la Ficha EPREL (26RES060_144,
+ * 09/10/2026). Entre dos SCOP de dos decimales solo cabe UN η entero (va de 0,025
+ * en 0,025), así que, si ese entero redondea EXACTAMENTE al SCOP guardado, es el del
+ * EPREL y se imprime él, con el producto sin redondear cuando difiere
+ * (2,5 · 139 % = 3,475 → 3,48). Si no casa —un SCOP tecleado que no sale de ningún
+ * η entero— se imprime la división de siempre: no se inventa un η que no consta.
+ *
+ * FUENTE ÚNICA del CIFO, del Certificado RES080 y de su modal.
+ *
+ * @returns {{ etaStr: string, calculo: string }} el η sin el «%» y el lado derecho
+ *          del «Cálculo: SCOP_dhw = …» (también sin el «→ SCOP en ACS»).
+ */
+export function etaWhAnexoIv(scopAcsRaw) {
+    const scop = redondeaScop(scopAcsRaw);
+    if (!Number.isFinite(scop) || scop <= 0) return { etaStr: '—', calculo: '2,5 · —' };
+    const division = (scop / 2.5 * 100).toFixed(1).replace('.', ',');
+    const deDivision = { etaStr: division, calculo: `2,5 · ${division}%` };
+    const eta = Math.round(scop / 2.5 * 100);
+    // En milésimas y como entero (eta · 25), para no arrastrar decimales binarios.
+    const producto = Number(`${eta * 25}e-3`);
+    if (redondeaScop(producto) !== scop) return deDivision;
+    const etaStr = String(eta);
+    const exacto = producto === scop ? '' : ` = ${String(producto).replace('.', ',')}`;
+    return { etaStr, calculo: `2,5 · ${etaStr}%${exacto}` };
+}
+
 /** Factor de corrección por zona climática del Anexo VI. */
 export const FC_ZONA_ACS = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
 
@@ -1294,7 +1325,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         const acsFtUrl   = inst.misma_aerotermia_acs ? inst.aerotermia_cal?.url_ficha  : inst.aerotermia_acs?.url_ficha;
 
         if (metodoAcs === 'conjunto') {
-            const etaWh = (scopAcsRaw / 2.5 * 100).toFixed(1).replace('.', ',');
+            const { etaStr: etaWh, calculo } = etaWhAnexoIv(scopAcsRaw);
             const fichaEprel = acsEprelUrl
                 ? `<a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Ficha EPREL</a>`
                 : 'Ficha EPREL';
@@ -1303,7 +1334,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 `SCOP<sub>dhw</sub> = CC · η<sub>wh</sub>`,
                 `${svRow('CC', 'Coeficiente de conversión', '2,5')}
                  ${svRow('η<sub>wh</sub>', `Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()} y perfil ACS)`, `${etaWh}%`)}
-                 ${scopResult(`Cálculo: SCOP<sub>dhw</sub> = 2,5 · ${etaWh}% &nbsp;→&nbsp; SCOP en ACS`, scopAcsStr)}`
+                 ${scopResult(`Cálculo: SCOP<sub>dhw</sub> = ${calculo} &nbsp;→&nbsp; SCOP en ACS`, scopAcsStr)}`
             );
         }
 

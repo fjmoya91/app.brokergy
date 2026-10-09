@@ -113,3 +113,28 @@ COP a 35 °C copiado por error.
 ⚠️ **Con la prioridad "ficha primero", el método `conjunto` no se activa hoy en ningún
 modelo**: los 179 que tienen η_wh tienen además SCOP_dhw de ficha. Entrará en juego en
 cuanto el popup rellene el η_wh de alguno de los 27, que es justo para lo que existe.
+
+## El 3,78 de los Daikin Altherma 3 integrada y el η_wh que imprimía el certificado (2026-10-09)
+
+Auditando 26RES060_198 salió que el catálogo declaraba `scop_dhw_calido = 3,78` en SEIS
+conjuntos Daikin ERLA + EBVX (ids 205, 237, 240, 243, 244 y 263) sin que ningún documento lo
+sostenga: sus fichas técnicas no traen SCOP de ACS (solo «clase A+» y el perfil) y el EPREL da
+η_wh cálido **139 %** con 180 l (perfil L) y **124 %** con 230 l (perfil XL). Por el Anexo IV
+quedan **3,48** y **3,10**. Las casillas de clima MEDIO sí cuadraban (2,90 y 2,73), así que solo
+se corrigió `scop_dhw_calido`. Expedientes que lo llevaban copiado: 26RES060_157 (3,78 → 3,10) y
+26RES060_144 (3,77 → 3,48), los dos con el CIFO ya firmado —se regeneró y se pidió de nuevo la
+firma al instalador—, y 26RES060_228 (3,78 → 3,10, aún sin documentos). Ninguno estaba en un lote.
+El Convenio no se volvió a pedir: habla de ahorro ESTIMADO (decisión del usuario).
+
+**REGLA — el η_wh del recuadro del Anexo IV es el del EPREL, no la división del SCOP.** El
+expediente guarda el SCOP, y el certificado sacaba el η dividiendo: con el SCOP ya redondeado,
+3,48 / 2,5 = **139,2 %**, una cifra que no está en el EPREL y que el recuadro atribuye a la Ficha
+EPREL (el 157 imprimía «151,2 %» por el mismo camino). El EPREL publica el η_wh en % ENTERO, y
+entre dos SCOP de dos decimales solo cabe uno: si ese entero redondea EXACTAMENTE al SCOP guardado
+se imprime él, con el producto cuando difiere (`2,5 · 139 % = 3,475 → 3,48`); si no casa, la
+división de siempre, que no se inventa un η. Fuente única: `etaWhAnexoIv` en
+[cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js), que usan el CIFO,
+`res080Doc.js` y `CertificadoRes080Modal`. Prueba: `node implementation/backend/scripts/test_eta_wh_anexo_iv.mjs`.
+
+⚠️ Siguen imprimiendo la división los expedientes cuyo SCOP guardado no sale de un η entero:
+26RES060_167 y 25RES060_70 guardan 3,47 (con 139 % sería 3,48) y salen con 138,8 %.

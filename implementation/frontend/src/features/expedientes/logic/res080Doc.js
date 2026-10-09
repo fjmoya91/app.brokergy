@@ -22,7 +22,7 @@ import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
     EMPRESAS_COL_EJECUTA, EMPRESAS_COL_HABILITADA, notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { hitosActuacion, hitosBoxHtml } from './hitosActuacion.js';
-import { EMITTER_OPTIONS, emitterScopContext, scopAcsAnexoViHtml, placaAnexoContenido, PLACA_ANEXO_TITULO, PLACA_ANEXO_LABEL } from './cifoDoc.js';
+import { EMITTER_OPTIONS, emitterScopContext, scopAcsAnexoViHtml, placaAnexoContenido, PLACA_ANEXO_TITULO, PLACA_ANEXO_LABEL, etaWhAnexoIv } from './cifoDoc.js';
 import { emisorLabelDocumento } from './emisores.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico, esAcumuladorAcs, datosAcumulador, acsSerieDeclarada } from './aerotermiaUnits.js';
 
@@ -1302,14 +1302,14 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         const acsEprelUrl = sameAero ? inst.aerotermia_cal?.url_eprel : inst.aerotermia_acs?.url_eprel;
         const acsFtUrl = sameAero ? inst.aerotermia_cal?.url_ficha : inst.aerotermia_acs?.url_ficha;
         if (metodoAcs === 'conjunto') {
-            const etaWh = (scopAcsRaw / 2.5 * 100).toFixed(1).replace('.', ',');
+            const { etaStr: etaWh, calculo } = etaWhAnexoIv(scopAcsRaw);
             const fichaEprel = acsEprelUrl ? `<a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Ficha EPREL</a>` : 'Ficha EPREL';
             return scopBox(
                 'Justificación del SCOP en ACS — Anexo IV ficha RES060 (depósito ACS en conjunto con la BdC)',
                 `SCOP<sub>dhw</sub> = CC · η<sub>wh</sub>`,
                 `${svRow('CC', 'Coeficiente de conversión', '2,5')}
                  ${svRow('η<sub>wh</sub>', `Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()} y perfil ACS)`, `${etaWh}%`)}
-                 ${scopResult(`Cálculo: SCOP<sub>dhw</sub> = 2,5 · ${etaWh}% &nbsp;→&nbsp; SCOP en ACS`, scopAcsStr)}`
+                 ${scopResult(`Cálculo: SCOP<sub>dhw</sub> = ${calculo} &nbsp;→&nbsp; SCOP en ACS`, scopAcsStr)}`
             );
         }
         if (metodoAcs === 'independiente') {

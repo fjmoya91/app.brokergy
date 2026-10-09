@@ -6,7 +6,7 @@ import { BOILER_EFFICIENCIES, redondeaScop } from '../../calculator/logic/calcul
 import { esXmlCeeV30, huecosYOpacosV30 } from '../../calculator/logic/xmlCeeV30';
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
-import { EMITTER_OPTIONS, emitterScopContext, scopAcsAnexoViHtml, placaAnexoContenido, PLACA_ANEXO_TITULO, PLACA_ANEXO_LABEL } from '../logic/cifoDoc';
+import { EMITTER_OPTIONS, emitterScopContext, scopAcsAnexoViHtml, placaAnexoContenido, PLACA_ANEXO_TITULO, PLACA_ANEXO_LABEL, etaWhAnexoIv } from '../logic/cifoDoc';
 // La placa de la unidad exterior que justifica el COP del Anexo VI (SCOP_dhw).
 import { usePlacaScopAcs } from '../logic/usePlacaScopAcs';
 import { PlacaScopAcsBanda } from './PlacaScopAcsBanda';
@@ -1625,7 +1625,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
             if (metodoAcs === 'conjunto') {
                 // Anexo IV RES060: SCOPdhw = CC × ηwh = 2,5 × (eta_acs / 100)
-                const etaWh = (scopAcsRaw / 2.5 * 100).toFixed(1).replace('.', ',');
+                const { etaStr: etaWh, calculo } = etaWhAnexoIv(scopAcsRaw);
                 const fichaEprel = acsEprelUrl
                     ? `<a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Ficha EPREL</a>`
                     : 'Ficha EPREL';
@@ -1634,7 +1634,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                     `SCOP<sub>dhw</sub> = CC · η<sub>wh</sub>`,
                     `${svRow('CC', 'Coeficiente de conversión', '2,5')}
                      ${svRow('η<sub>wh</sub>', `Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()} y perfil ACS)`, `${etaWh}%`)}
-                     ${scopResult(`Cálculo: SCOP<sub>dhw</sub> = 2,5 · ${etaWh}% &nbsp;→&nbsp; SCOP en ACS`, scopAcsStr)}`
+                     ${scopResult(`Cálculo: SCOP<sub>dhw</sub> = ${calculo} &nbsp;→&nbsp; SCOP en ACS`, scopAcsStr)}`
                 );
             }
 
