@@ -165,6 +165,7 @@ const COMBUSTIBLES = ['gas', 'gasoleo', 'electrica', 'carbon', 'biomasa'];
 const EMISORES = ['radiadores_convencionales', 'radiadores_baja_temp', 'suelo_radiante', 'fancoils'];
 const ACS_ACTUAL = ['misma_caldera', 'termo', 'butano', 'gas', 'gasoleo', 'solar', 'no_tengo'];
 const EDADES = ['<10', '10-20', '>20', 'no_se'];
+const OBRA_ESTADOS = ['no_empezada', 'a_medias', 'ejecutada'];
 
 /**
  * Las respuestas que habría dado quien rellena «Nueva simulación», sacadas del
@@ -193,11 +194,19 @@ function funnelDesdePlan(plan = {}) {
     if (placas.estado != null && !['si', 'futuro', 'no'].includes(placas.estado)) {
         throw new Error(`placas «${placas.estado}»: usa si | futuro | no (o null si no se sabe).`);
     }
+    // Una REFORMA (RES080): lo que se toca de la envolvente, como lo marca «Nueva
+    // simulación» en `reforma_elementos`. Sin `reforma`, sustitución de caldera (RES060).
+    const reforma = plan.reforma && typeof plan.reforma === 'object' ? plan.reforma : null;
+    const obraEstado = plan.obra_estado || 'no_empezada';
+    if (!OBRA_ESTADOS.includes(obraEstado)) throw new Error(`obra_estado «${obraEstado}»: usa ${OBRA_ESTADOS.join(' | ')}.`);
     return {
-        isReforma: false,
-        reforma_elementos: { caldera: true, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false, aires: false },
+        isReforma: !!reforma,
+        reforma_elementos: {
+            caldera: true, ventanas: !!reforma?.ventanas, cubierta: !!reforma?.cubierta, suelo: !!reforma?.suelo,
+            paredes: !!reforma?.paredes, placas: false, aires: false,
+        },
         reforma_aires_count: null,
-        obra_estado: plan.obra_estado || 'no_empezada',
+        obra_estado: obraEstado,
         reforma_sin_caldera: sinCalefaccion,
         combustible_actual: comb,
         edad_caldera: sinCalefaccion ? null : edad,

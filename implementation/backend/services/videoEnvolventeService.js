@@ -556,6 +556,138 @@ function reconciliar(huecos, lecturas) {
     return { huecos: out, avisos };
 }
 
+// ── El AUDIO: lo que DICE quien graba, literal y con su minuto ──────────────
+//
+// La lectura del vídeo ya «oye» (Gemini recibe la pista de sonido), pero solo
+// devuelve un resumen de lo que le parece útil (`narracion`), sin ligarlo a
+// ningún hueco, y quien escribe el plan no oye nada: ve fotogramas. Medido en
+// 26RES060_226 (09/10/2026): la propietaria grabó los patios por FUERA diciendo
+// «este sería un patio de luces con dos ventanas, que son dos baños, y la puerta
+// del pasillo», y la lectura dejó esas ventanas «dudosas» entre 20 fachadas.
+// Lo que se dice es la otra mitad del vídeo: dice A QUÉ da una ventana cuando la
+// imagen no lo deja ver (persiana bajada, desde fuera sin referencia), y lo dice
+// quien vive en la casa. Por eso el audio se saca APARTE
+// (`cee_inicial_video.py audio`) y se TRANSCRIBE LITERAL con el segundo de cada
+// frase; el código lo cruza con el segundo de cada hueco (`utils/videoEnvolvente`,
+// `conLoDicho`) y la hoja de contactos lo lleva como subtítulos.
+//
+// REGLA — se TRANSCRIBE, no se interpreta: el modelo copia lo que se dice y
+// marca solo lo que la frase NOMBRA (huecos, «da a», planta, habitación). Qué
+// hueco es y en qué pared va lo sigue decidiendo el código.
+
+//: El modelo que transcribe. Transcribir no es razonar: el de las placas, sin pensar.
+const MODELO_AUDIO = process.env.VIDEO_AUDIO_MODELO || placaOcr.GEMINI_MODEL;
+//: Hasta este tamaño el audio va EN LÍNEA (el tope de una petición son 20 MB);
+//: más grande, por la File API.
+const MAX_AUDIO_EN_LINEA = 14 * 1024 * 1024;
+
+const PROMPT_AUDIO = `Te mando el SONIDO de un video que ha grabado el propietario de una vivienda espanola ensenando su casa (por dentro, por fuera o los patios) para que hagamos su certificado de eficiencia energetica. TRANSCRIBE LITERALMENTE todo lo que se dice, frase a frase, con el momento en que empieza y acaba cada frase.
+
+PARA CADA FRASE DEVUELVE:
+- t: cuando EMPIEZA, como texto "MM:SS" (p. ej. "00:41"; para mas precision "00:41.5").
+- t_fin: cuando ACABA, como texto "MM:SS".
+- texto: lo que se dice, LITERAL, en espanol. No resumas, no corrijas, no completes. Lo que no se entienda: [inaudible].
+- habla: "propietario" si habla quien graba; "otra" si es otra persona.
+- menciona: SOLO lo que la frase DICE EXPLICITAMENTE (si no lo dice, null o lista vacia; NO lo deduzcas de lo que esperarias):
+  - huecos: los huecos que nombra ("ventana", "balcon", "balconera", "puerta", "puerta_patio", "lucernario", "paves"...).
+  - cuantos: cuantos huecos dice que hay ("dos ventanas" -> 2), o null.
+  - da_a: a que dice que dan esos huecos o donde dice que esta: "calle", "patio", "jardin" (parcela, corral, huerto), "terraza", o null. Un "patio de luces" o un "patio interior" es "patio". "La fachada" o "la de delante" es "calle" SOLO si dice que da a la calle.
+  - planta: la planta de la que habla (0 la baja, 1 la primera, 2 la segunda), o null si no lo dice.
+  - estancia: la habitacion que nombra ("bano", "cocina", "salon", "dormitorio", "pasillo"...), o null.
+
+ADEMAS: sin_voz true si no se dice nada (solo ruido, viento o musica).
+
+REGLAS: las marcas de tiempo empiezan en "00:00" y nunca pasan de lo que dura el sonido. No inventes: es mejor null que un dato que no se ha dicho.`;
+
+const SCHEMA_AUDIO = H({
+    sin_voz: B(),
+    frases: { type: 'ARRAY', items: H({
+        t: S(false), t_fin: S(), texto: S(false), habla: S(),
+        menciona: { ...H({
+            huecos: { type: 'ARRAY', items: { type: 'STRING' } },
+            cuantos: I(), da_a: S(), planta: I(), estancia: S(),
+        }), nullable: true },
+    }, ['t', 'texto']) },
+}, ['frases']);
+
+/**
+ * La transcripción, ya limpia: segundos dentro de la duración, frases vacías o
+ * «[inaudible]» fuera, «da a» de la lista cerrada y ordenadas por su segundo.
+ * Pura: la prueba el test. Nunca lanza.
+ */
+function normalizarTranscripcion(bruto, duracion = null) {
+    const d = numero(duracion);
+    const frases = [];
+    for (const f of bruto?.frases || []) {
+        const texto = limpia(f?.texto);
+        if (!texto || /^\[?\s*inaudible\s*\]?\.?$/i.test(texto)) continue;
+        const t = segundosDe(f.t, d);
+        // Una frase que «empieza» después del final es una marca mal puesta: fuera.
+        if (t === null || (d > 0 && t > d + 0.5)) continue;
+        let tf = segundosDe(f.t_fin, d);
+        // Sin final (o al revés), lo que se tarda en decirla: ~0,35 s por palabra.
+        if (tf === null || tf < t) tf = t + Math.min(6, Math.max(1.5, texto.split(/\s+/).length * 0.35));
+        if (d > 0) tf = Math.min(tf, d);
+        const m = f.menciona || {};
+        const da = minus(m.da_a);
+        frases.push({
+            t: dos(t), t_fin: dos(tf), texto,
+            habla: minus(f.habla) === 'otra' ? 'otra' : 'propietario',
+            menciona: {
+                huecos: (m.huecos || []).map(minus).filter(Boolean),
+                cuantos: entero(m.cuantos),
+                da_a: DA_A.has(da) && !['interior', 'cielo'].includes(da) ? da : null,
+                planta: entero(m.planta),
+                estancia: limpia(m.estancia),
+            },
+        });
+    }
+    frases.sort((a, b) => a.t - b.t);
+    return { frases, sin_voz: !frases.length };
+}
+
+/**
+ * Transcribe lo que se dice en el vídeo.
+ *
+ * @param {Object} fuente  `{ audio: { buffer, mimeType } }` (la pista sacada con
+ *   `cee_inicial_video.py audio`) o, si no se pudo sacar, `{ video: { buffer,
+ *   mimeType, nombre } }`: Gemini oye la pista del propio vídeo (cuesta más).
+ * @returns {Promise<Object>} `{ frases, sin_voz, bruto, modelo, at, de }`
+ */
+async function transcribir(fuente, { duracion_s = null, modelo = MODELO_AUDIO } = {}) {
+    const a = fuente?.audio;
+    const v = fuente?.video;
+    if (!a?.buffer && !v?.buffer) throw new Error('No hay sonido que transcribir.');
+    let subido = null;
+    try {
+        let parte;
+        if (a?.buffer && a.buffer.length <= MAX_AUDIO_EN_LINEA) {
+            parte = { buffer: a.buffer, mimeType: a.mimeType || 'audio/aac' };
+        } else if (a?.buffer) {
+            subido = await subirAGemini(a.buffer, a.mimeType || 'audio/aac', 'audio');
+            parte = { fileUri: subido.uri, mimeType: subido.mimeType };
+        } else {
+            const mime = mimeVideo(v.nombre, v.mimeType);
+            if (!mime) throw new Error(`«${v.nombre}» no es un vídeo que se pueda oír.`);
+            subido = await subirAGemini(v.buffer, mime, v.nombre);
+            parte = { fileUri: subido.uri, mimeType: subido.mimeType };
+        }
+        const dur = numero(duracion_s);
+        const r = await llamarGemini([{ texto: `SONIDO${dur ? ` (dura ${Math.round(dur)} s)` : ''}:` }, parte], {
+            prompt: PROMPT_AUDIO,
+            schema: SCHEMA_AUDIO,
+            etiqueta: 'videoEnvolvente:audio',
+            deadline: 240_000,
+            modelo,
+            maxTokens: 30_000,
+        });
+        return { ...normalizarTranscripcion(r, dur), bruto: r, modelo, at: new Date().toISOString(),
+                 de: a?.buffer ? 'audio' : 'video' };
+    } finally {
+        if (subido) await borrarDeGemini(subido.name);
+    }
+}
+
 // ── Lo que se llama desde fuera ─────────────────────────────────────────────
 
 /**
@@ -607,6 +739,8 @@ module.exports = {
     analizarVideos,
     confirmarFotogramas,
     reconciliar,
+    transcribir,
+    normalizarTranscripcion,
     cajaMarca,
     normalizar,
     segundosDe,
@@ -620,4 +754,6 @@ module.exports = {
     SCHEMA,
     MODELO,
     MODELO_FOTOGRAMAS,
+    MODELO_AUDIO,
+    PROMPT_AUDIO,
 };

@@ -17,16 +17,26 @@ node scripts/cee_inicial.js video <clave> --refrescar      # vuelve a pedir la l
 
 No escribe nada. Hace, en este orden:
 
-1. **Baja el vídeo**, mira cuánto dura y si tiene sonido, y hace su **hoja de contactos** (`hoja_1.jpg`).
+1. **Baja el vídeo**, mira cuánto dura y si tiene sonido, y **saca su AUDIO aparte** (`audio_1.aac`;
+   sin `ffmpeg`, del propio MP4/MOV, sin recodificar).
 2. **Gemini lo mira entero** (`gemini-3.6-flash`, con el audio): estancias, plantas y, de cada hueco,
    el momento en que mejor se ve, el tipo, a qué da y qué se ve por él. ~30-60 s y céntimos.
-3. Saca el **fotograma más nítido** de ±0,7 s de cada hueco (`cee_inicial_video.py`, OpenCV).
-4. **Otro modelo** (`gemini-2.5-flash`) mira cada fotograma quieto: si se ve el exterior, a qué da y
+3. **Transcribe el audio LITERAL**, frase a frase con su segundo y lo que nombra (huecos, «da a»,
+   planta, habitación): `transcripcion.json`, ~4 s. `--sin-audio` lo salta.
+4. Hace la **hoja de contactos** (`hoja_1.jpg`, un fotograma cada ~3 s) con **lo que se dice debajo
+   de cada fotograma** (subtítulos): imagen y voz juntas.
+5. Saca el **fotograma más nítido** de ±0,7 s de cada hueco (`cee_inicial_video.py`, OpenCV).
+6. **Otro modelo** (`gemini-2.5-flash`) mira cada fotograma quieto: si se ve el exterior, a qué da y
    dónde está el hueco en la imagen (la marca para la envolvente).
-5. **El código** pone cada hueco en su pared (`utils/videoEnvolvente.js`). Lo que no se puede decidir
+7. **Lo que se DICE** de 6 s antes a 4 s después de cada hueco cuenta como otra lectura de a qué da
+   (`conLoDicho`): con la persiana bajada vale lo dicho (confianza media); visto y dicho de acuerdo,
+   alta; en contra, no se decide.
+8. **El código** pone cada hueco en su pared (`utils/videoEnvolvente.js`). Lo que no se puede decidir
    queda **DUDOSO** con sus candidatas.
-6. Deja `mosaico.jpg` (cada hueco con su fotograma y la pared propuesta), `fotogramas/` y `video.json`
-   con la **PROPUESTA para el plan** (`propuesta.huecos`, `propuesta.fotos`, `propuesta.lucernarios`).
+9. Deja `mosaico.jpg` (cada hueco con su fotograma, la pared propuesta y lo que se dice), `fotogramas/`
+   y `video.json` con la **PROPUESTA para el plan** (`propuesta.huecos`, `propuesta.fotos`,
+   `propuesta.lucernarios`) y la `transcripcion`. El informe lista cada frase con los huecos que se
+   ven mientras se dice (`↔ H8 0:45`).
 
 ## Cómo decide el código (y por qué tan prudente)
 
@@ -58,14 +68,24 @@ lleguen después: si el plan pone 5 huecos en la planta alta y el vídeo vio 7, 
 
 ## Tu trabajo con el resultado
 
-1. **Mira `mosaico.jpg` y la hoja de contactos** junto a `plano.png` y `plano_satelite.png`. Tú ves más
-   que el código: un patio de baldosas con barbacoa que en la vista aérea solo está a un lado, la
-   fachada de enfrente que solo puede ser de la calle. Si con eso una pared queda clara, **decídelo tú**
-   en el plan y dilo en `decisiones` («H10: el patio de baldosas del fotograma es el SE de la vista aérea»).
+1. **Mira `mosaico.jpg` y la hoja de contactos** (con sus subtítulos) junto a `plano.png` y
+   `plano_satelite.png`, y **lee la transcripción**: lo que se dice («hasta ahí la planta baja», «lo que
+   da a la terraza», «el patio de luces de los baños») sitúa cada tramo del vídeo. Tú ves más que el
+   código: un patio de baldosas con barbacoa que en la vista aérea solo está a un lado, la fachada de
+   enfrente que solo puede ser de la calle. Si con eso una pared queda clara, **decídelo tú** en el plan
+   y dilo en `decisiones` («H10: el patio de baldosas del fotograma es el SE de la vista aérea»).
+   - Para casar un patio con sus paredes: el orden en que aparecen al **girar la cámara** (hacia la
+     derecha = sentido de las agujas del reloj visto desde arriba) contra las coordenadas de las paredes
+     (`26RES060_XXX.geo.json` de la caché, `svg` con la Y hacia abajo), y lo que se ve **al fondo**
+     cuando se graba desde una ventana de arriba. Caso: 26RES060_226.
+   - Si hace falta otro momento que el modelo no eligió, saca su fotograma con
+     `cee_inicial_video.py fotogramas <vídeo> pedidos.json <carpeta>/fotogramas` y añádelo a
+     `video.json → fotogramas` (`M1`…, con `video_nombre` y `video_drive_id`): entra al plan como `frame:M1`.
 2. Lo asignado (y lo que tú resuelvas) va al plan: copia de `video.json → propuesta` los huecos de cada
-   pared (`foto: "frame:H3"`, su `box`) y `fotos[pared]: ["frame:H3"]`. Con `aplicar --escribir`, cada
-   fotograma se SUBE a «1. CEE / CEE INICIAL / FOTOS ENVOLVENTE», pegado a su pared y con el hueco
-   marcado, y queda anotado de qué vídeo y de qué segundo sale.
+   pared (`foto: "frame:H3"`, su `box`) y **también** `fotos[pared]: ["frame:H3"]` —el `foto` de un
+   hueco solo es su marca; lo que se SUBE y se pega a la pared es lo de `fotos`—. Con `aplicar
+   --escribir`, cada fotograma se SUBE a «1. CEE / CEE INICIAL / FOTOS ENVOLVENTE», pegado a su pared y
+   con el hueco marcado, y queda anotado de qué vídeo y de qué segundo sale.
 3. Lo que **no se puede decidir NO se adivina** → se le piden las fotos al propietario (abajo). No
    escribas el `.cex` con huecos en paredes que no sabes; espera a las fotos.
 4. Un **lucernario** visto en el vídeo va a `lucernarios` (ya está en la propuesta).
@@ -103,8 +123,10 @@ node scripts/cee_inicial.js pedir-fotos <clave> --enviar           # SOLO con el
 
 ## Coste y requisitos
 
-- ~0,01-0,07 € por vídeo (lectura con audio + comprobación de fotogramas); se cachea en
-  `…/brokergy-cee-inicial/<nº>/video/lectura.json` y no se vuelve a pagar salvo `--refrescar`.
+- ~0,01-0,07 € por vídeo (lectura con audio + comprobación de fotogramas) y unas milésimas la
+  transcripción; se cachean en `…/brokergy-cee-inicial/<nº>/video/lectura.json` y `transcripcion.json`
+  y no se vuelven a pagar salvo `--refrescar`.
 - En el PC hace falta **OpenCV** (`pip install opencv-python`) para los fotogramas; sin él, el
-  ejecutable **`ffmpeg`** con Pillow (lo que lleva el contenedor del asistente).
+  ejecutable **`ffmpeg`** con Pillow (lo que lleva el contenedor del asistente). El audio no necesita
+  ninguno de los dos en un MP4/MOV con AAC o MP3 (el de los móviles y WhatsApp); otro códec, `ffmpeg`.
 - El vídeo se sube a la **File API** de Gemini (proyecto de pago) y se **borra** al terminar.

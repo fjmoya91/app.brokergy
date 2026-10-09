@@ -300,11 +300,11 @@ function asignarHuecos(lectura, lados, { niveles = null, entrada = null, estanci
             huecos.push({ ...base, estado: 'sin_pared', motivo: `no hay ninguna fachada en la planta ${nivel}` });
         } else if (top.length === 1 && (h.da_a || cands.length === 1)) {
             const c = top[0];
-            // «Alta» solo con las DOS lecturas de acuerdo (o la entrada ya
-            // señalada) y las plantas cuadrando con el plano. Lo que solo dice
-            // uno de los dos modelos se pone, pero para confirmar.
-            const firme = porEntrada || (c.encaje >= 3
-                && ['las dos lecturas', 'el fotograma'].includes(h.da_a_fuente));
+            // «Alta» solo con las DOS lecturas de acuerdo —o lo visto y lo
+            // dicho de acuerdo, o la entrada ya señalada— y las plantas
+            // cuadrando con el plano. Lo que solo dice una fuente se pone,
+            // pero para confirmar.
+            const firme = porEntrada || (c.encaje >= 3 && daAFirme(h));
             huecos.push({
                 ...base, estado: 'asignado', lado: c.lado.id, pared: c.pared.id,
                 confianza: firme && !sobran.length ? 'alta' : 'media',
@@ -323,6 +323,82 @@ function asignarHuecos(lectura, lados, { niveles = null, entrada = null, estanci
         }
     }
     return { huecos, lucernarios, descartados, avisos };
+}
+
+// ── Lo que DICE quien graba (el audio, transcrito) ──────────────────────────
+
+//: Lo que se dice cuenta para un hueco si se oye desde 6 s antes de su segundo
+//: hasta 4 s después: se nombra lo que se va a enseñar («y este sería el patio
+//: de luces…» y luego se gira hacia él) o mientras se enseña. Medido en
+//: 26RES060_226: «patio de luces» a las 0:40, sus ventanas en el 0:45-0:47.
+const DICHO_ANTES = 6;
+const DICHO_DESPUES = 4;
+//: «Patio» y «jardín» son lo MISMO para decidir (ver `ENCAJE`): desde una
+//: ventana —y de palabra— no se distinguen del espacio libre de la parcela.
+const GRUPO_DA_A = { patio: 'patio', jardin: 'patio', calle: 'calle', terraza: 'terraza' };
+
+/** Las frases que se oyen alrededor del segundo `t` de un vídeo. */
+function frasesCerca(frases, t, { video = 1, antes = DICHO_ANTES, despues = DICHO_DESPUES } = {}) {
+    if (t === null || t === undefined) return [];
+    return (frases || []).filter((f) => (f.video || 1) === (video || 1)
+        && f.t <= t + despues && (f.t_fin ?? f.t) >= t - antes);
+}
+
+/**
+ * Junta lo que se DICE con lo que se VE. Pura: la prueba el test.
+ *
+ * A cada hueco le pone `dice` (lo que se oye alrededor de su segundo) y, si lo
+ * que se dice NOMBRA a qué da («el patio de luces», «lo que da a la calle»),
+ * lo usa como una lectura más:
+ * - el vídeo y el fotograma no lo dejan ver (persiana bajada, no se ve el
+ *   exterior) → vale lo dicho (`'lo dice quien graba'`): confianza MEDIA;
+ * - lo dicho COINCIDE con lo visto → `dicho_coincide`: dos fuentes que no
+ *   dependen una de otra, cuenta como firme;
+ * - lo dicho CONTRADICE lo visto → no se decide (`da_a` null) y se avisa;
+ * - se nombran a la vez dos cosas distintas cerca del hueco («la calle… y el
+ *   patio») → no se usa para decidir, solo se enseña.
+ *
+ * @param {Array} huecos  los reconciliados (`videoEnvolventeService.reconciliar`)
+ * @param {Array} frases  la transcripción, cada una con su `video`
+ * @returns {{ huecos: Array, avisos: Array }}
+ */
+function conLoDicho(huecos, frases) {
+    const avisos = [];
+    const out = (huecos || []).map((h) => {
+        const cerca = frasesCerca(frases, h.t, { video: h.video });
+        if (!cerca.length) return h;
+        const base = { ...h, dice: cerca.map((f) => f.texto).join(' '), dice_t: cerca[0].t };
+        const das = [...new Set(cerca.map((f) => f.menciona?.da_a).filter((d) => GRUPO_DA_A[d]))];
+        const grupos = [...new Set(das.map((d) => GRUPO_DA_A[d]))];
+        if (grupos.length > 1) {
+            avisos.push(`${h.id}: cerca de su segundo se nombran a la vez ${das.join(' y ')}: `
+                + 'lo dicho no se usa para decidir a qué da.');
+            return base;
+        }
+        if (!grupos.length) return base;
+        const dicho = das[0];
+        if (!h.da_a) {
+            return { ...base, da_a: dicho, da_a_dicho: dicho,
+                     da_a_fuente: h.da_a_fuente === 'discrepan'
+                         ? 'lo dice quien graba (las dos lecturas discrepaban)' : 'lo dice quien graba' };
+        }
+        if (GRUPO_DA_A[h.da_a] === grupos[0]) {
+            return { ...base, da_a_dicho: dicho, dicho_coincide: true,
+                     da_a_fuente: `${h.da_a_fuente || 'la lectura'} + lo dice quien graba` };
+        }
+        avisos.push(`${h.id}: se ve que da a «${h.da_a}» y quien graba dice «${dicho}»: queda sin decidir.`);
+        return { ...base, da_a: null, da_a_dicho: dicho, da_a_fuente: 'discrepa con lo que dice quien graba' };
+    });
+    return { huecos: out, avisos };
+}
+
+/**
+ * ¿«A qué da» está FIRME? Con las dos lecturas de acuerdo (o el fotograma, que
+ * lo ve quieto), o con lo que se ve y lo que se dice de acuerdo.
+ */
+function daAFirme(h) {
+    if (['las dos lecturas', 'el fotograma'].includes(h?.da_a_fuente)) return true;
+    return h?.dicho_coincide === true;
 }
 
 /** Las medidas de un hueco: las estimadas si las hay, y si no, las de por defecto. */
@@ -486,7 +562,7 @@ function huecosParaPlan(asignacion, { varios = false } = {}) {
             // que se pinta sobre la foto en la ventana de la envolvente.
             ...(h.box ? { box: h.box } : {}),
             por_que: (`${h.descripcion || h.tipo} — vídeo${varios ? ` ${h.video}` : ''} ${minuto} `
-                + `(${h.motivo}; ${de})`).slice(0, 280),
+                + `(${h.motivo}; ${de})${h.dice ? ` · dice: «${h.dice.slice(0, 90)}»` : ''}`).slice(0, 280),
         });
     }
     return plan;
@@ -499,6 +575,11 @@ module.exports = {
     capacidad,
     medidas,
     huecosParaPlan,
+    conLoDicho,
+    frasesCerca,
+    daAFirme,
+    DICHO_ANTES,
+    DICHO_DESPUES,
     tomasParaParedes,
     peticionesPorLado,
     muroEnNivel,

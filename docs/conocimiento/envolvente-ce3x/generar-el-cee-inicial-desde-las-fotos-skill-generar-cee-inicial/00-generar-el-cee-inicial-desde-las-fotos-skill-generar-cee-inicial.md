@@ -65,3 +65,14 @@ del instalador —DAIKIN ERGA08EAV3H7 + «máquina interior con ACS»— estaba 
 (la función del botón «Leer placas», `equipoId` + códigos de las dos unidades), que resuelve el SCOP
 por emisor y zona y el ACS del conjunto; si el presupuesto no nombra la interior y hay varias, se
 pregunta cuál.
+
+**Lo que Fran pide en CADA CEE pasa a ser lo de por defecto** (2026-10-09, 26RES060_225 — revisadas
+las conversaciones anteriores): (a) **fechas de firma y de visita = HOY** (`fechas` del plan; lo pidió
+en 26RES060_223, _225, _228, 26RES080_OP60, 2026CEE_54 y 2026CEE_63); (b) **lo mandado por WhatsApp
+se lleva primero a la obra** con `alta-oportunidad documentar` y, al terminar, el nº de obra va al
+nombre del chat (`renombrar`, con `--anteponer` si es el chat del propio cliente sin el prefijo de la
+casa); (c) **la medida de mejora es TODO el presupuesto**: cada equipo, también el de ACS aparte con
+sus LITROS (`instalacion.aerotermia_acs.litros`; sin ellos sale «SIN depósito») — en el 225 el LASIAN
+ATHERIA 100 los tenía vacíos. Y (d) un **patio que Catastro no dibuja** (el 225 tiene dos y Catastro
+cuenta uno como vivienda) no recorta la superficie: sus huecos van a la fachada de su orientación más
+probable, en ámbar y dicho. Está en la skill, «Lo que hay que poner SIEMPRE», puntos 17-19.

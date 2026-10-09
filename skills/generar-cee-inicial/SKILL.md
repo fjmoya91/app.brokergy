@@ -40,7 +40,7 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `catastro <clave> [--out DIR] [--refrescar-catastro]` | Solo los **documentos de la Sede del Catastro**: croquis por plantas (PDF), FXCC por plantas (DXF+ASC), KML 3D por plantas y de la parcela, FXCC con colindantes | con `--escribir` (los sube a `1. CEE / CEE INICIAL / CATASTRO`; `aplicar --escribir` ya lo hace solo) |
 | `leer-pared <clave> --pared ID --fotos id1,id2` | Inventaria los huecos de una fachada desde su foto (escala por la puerta). Admite un fotograma del vídeo (`--fotos frame:F1`) y una foto de Street View (`--fotos sv:SV1`) | nada |
 | `streetview <clave> [--out DIR]` | **Fotos de las fachadas desde Google Street View**: agrupa las paredes en LADOS de la casa (todas las plantas del mismo plano), busca el panorama más cercano DELANTE de cada lado, lo apunta y baja la foto a `<out>/streetview/SV<n>_<rumbo>.jpg` con su fecha, rumbo y oblicuidad. Lista aparte los lados a PATIO (no se ven desde la calle). En el plan van como `sv:SV1`. Clave `GOOGLE_MAPS_KEY`; ~0,007 € por foto | nada (las sube `aplicar --escribir`) |
-| `video <clave> [--archivo v.mp4] [--refrescar]` | Lee el **VÍDEO** de la vivienda: estancias, plantas, cada hueco con su fotograma, a qué da y **a qué pared va** (o «dudoso»). Deja `mosaico.jpg`, la hoja de contactos y `video.json` con la propuesta para el plan (`frame:H3`). Ver `referencia/video.md` | nada |
+| `video <clave> [--archivo v.mp4] [--refrescar] [--sin-audio]` | Lee el **VÍDEO** de la vivienda: estancias, plantas, cada hueco con su fotograma, a qué da y **a qué pared va** (o «dudoso»). Saca el **AUDIO** aparte y lo **transcribe con su segundo**: lo que se dice junto a cada ventana cuenta para decidir a qué da, y la hoja de contactos lo lleva de subtítulo. Deja `mosaico.jpg`, la hoja, `audio_1.aac`, `transcripcion.json` y `video.json` con la propuesta para el plan (`frame:H3`). Ver `referencia/video.md` | nada |
 | `pedir-fotos <clave> [--paredes …] [--enviar]` | El **WhatsApp al propietario** pidiendo la foto de las paredes que no se han podido resolver, una por lado, numeradas y con su plano en rojo. **En seco** salvo `--enviar` (solo con el «sí» del usuario); al enviar, el CEE queda «esperando las fotos» | con `--enviar` |
 | `eprel <modelo>` | Busca el modelo en EPREL y baja su ficha (ES) y su etiqueta | nada |
 | `alta-aerotermia --json d.json [--ficha ft.pdf:1,3-4] [--eprel-fiche f.pdf] [--eprel-label l.pdf]` | Da de alta el equipo en el catálogo y guarda la ficha unida en Drive | con `--escribir` |
@@ -76,6 +76,17 @@ nada**: siempre primero en seco.
    inicial con versión 3.1»). Lo imprime `estado` («título de la sesión: …»). En Claude Code,
    `set_session_title` con `session_id: "self"`; donde no exista esa herramienta (Cowork), se le dice
    al usuario para que lo ponga a mano. Así se sabe de qué obra es cada conversación.
+0. **¿Lo ha mandado por WHATSAPP?** («Ceferino nos ha enviado fotos y vídeo», «lo que ha mandado
+   Eladio»: 26RES060_225, _227, _188, 26RES080_92). Antes de nada se lleva a la obra con la skill
+   **`alta-oportunidad`** (su apartado `documentar`), que es la que lee el chat: `chats "<nombre>"` →
+   `chat <tel> --bajar todo` → mira cada fichero → `documentar --op <nº> --plan docs.json` en seco y
+   `--escribir`. Así las fotos y los vídeos quedan en «12. DOCUMENTOS PARA CEE» (calle →
+   `FOTO_FACHADA_PRINCIPAL`, patios → `FOTO_PATIOS_INTERIORES`, cualquier vídeo de la casa o de los
+   patios → `VIDEO_VIVIENDA`, que es el que lee `video`) y el resto de órdenes los encuentran. **Al
+   terminar el CEE, el nº de obra en el nombre del chat**: `renombrar --op <nº> --tel <tel>` (seco y
+   `--escribir`); si es el chat del PROPIO cliente y no lleva el prefijo de la casa, con `--anteponer`
+   («OP250 Ceferino (Ism)» → «RES060_225 OP250 Ceferino (Ism)»). El título de la sesión sigue siendo
+   `{nº} - {CLIENTE}`.
 1. **`estado`**. Sin carpeta de Drive no hay dónde dejar el `.cex` (en una oportunidad: guardarla
    desde la calculadora). Si ya hay trabajo guardado, `aplicar` lo conserva y añade encima.
    En un **CEE directo** las fotos están en «4. DOCUMENTACIÓN PARA CEE» (no en «12.»), y no hay
@@ -177,7 +188,7 @@ nada**: siempre primero en seco.
    - Los **PATIOS** (y la parte de atrás tapada) no salen en Street View: se piden al cliente
      (`pedir-fotos`) y el `.cex` sale con esas paredes sin huecos, **diciéndolo**.
 4b. **¿Hay VÍDEO en vez de (o además de) fotos de las fachadas?** (`estado` lo dice: «vídeos de la
-   vivienda: …»; si llegó por WhatsApp, bájalo y pásalo con `--archivo`). Lánzale **`video`** y sigue
+   vivienda: …»; si llegó por WhatsApp, súbelo primero a la obra con `documentar` —paso 0— o, solo para probar, pásalo con `--archivo`). Lánzale **`video`** y sigue
    `referencia/video.md`. En corto:
    - Casi siempre es de DENTRO: el **recuento por planta** sale bien (medido contra el técnico en
      26RES060_197 y _199) y la **pared** solo se decide cuando en esa planta hay UNA fachada que encaje
@@ -500,6 +511,29 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    - Se corrigen en el plan con `ajustes.ce3x31` (`unidades_uso`, `plantas_sobre_rasante`,
      `plantas_bajo_rasante`, `superficie_util`), con este mismo criterio. En un «Bloque de
      Viviendas» la app no propone las unidades de uso: pon `unidades_uso: 1` si se certifica un piso.
+17. **FECHAS de firma y de visita: HOY, por defecto** — Fran lo pide en casi cada CEE («fecha de firma
+   hoy», «fecha de visita y firma hoy», «realiza el cee, fecha de hoy»: 26RES060_223, _225, _228,
+   26RES080_OP60, 2026CEE_54, 2026CEE_63). El plan lleva SIEMPRE
+   `"fechas": { "emision": "<hoy AAAA-MM-DD>", "visita": "<hoy>" }` salvo que diga otra fecha (o que
+   aún no se firme: entonces sin `fechas`). `aplicar` solo las usa si el expediente no tiene ya las
+   suyas (mandan las del expediente), y sin ellas CE3X 3.x no escribe el XML (punto 12). Dilo en una
+   línea en `decisiones` y en el informe.
+18. **La MEDIDA DE MEJORA es TODO lo que trae el PRESUPUESTO** (Fran, 26RES060_225: «como medida de
+   mejora debe ser lo que aparezca en el presupuesto»). Léelo SIEMPRE (los dos sitios del punto 1) y
+   comprueba, partida a partida, que la Instalación del expediente tiene CADA equipo antes de
+   escribir: la aerotermia de calefacción, el equipo de ACS aparte (bomba de calor de ACS, termo)
+   **con sus LITROS** y la fotovoltaica (→ `aerotermia_fv`, punto 13). Sin los litros el equipo de
+   ACS sale «SIN depósito» (lo avisa `aplicar`): en 26RES060_225 el LASIAN ATHERIA 100 («Capacidad:
+   100 Litros») se puso en `instalacion.aerotermia_acs.litros` con un `jsonb_set` atómico, como lo
+   llevan los demás expedientes (MANANTIAL 110 → 110). El depósito de INERCIA de calefacción no es de
+   ACS: no va. Lo que el presupuesto no dice (la potencia de la bomba de ACS) no se inventa: se dice.
+19. **Un PATIO que Catastro no dibuja** (26RES060_225: los vídeos enseñan dos patios y Catastro solo
+   uno de 6 m²; el otro, la «terraza» del croquis del cliente, lo cuenta como vivienda). La
+   superficie NO se recorta (mandan los m² de Catastro); sus huecos van a la fachada de su
+   ORIENTACIÓN más probable (la ventana y la puerta de la cocina que dan a poniente → la fachada a
+   poniente), en ámbar, con el porqué en `por_que` y en `decisiones`, y se dice en el informe para
+   que el certificador lo confirme o lo redibuje con la pizarra. `pedir-fotos` no lo resuelve: las
+   fotos ya están, lo que falta es la geometría.
 
 ## Lo que el informe final dice SIEMPRE
 

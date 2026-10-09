@@ -449,6 +449,13 @@ def extra_de_cex(p1: Any, p2: Any, datos: dict | None = None) -> dict:
     }
     c = (datos or {}).get("ce3x31") or {}
     for k, v in c.items():
+        # La superficie util es la habitable que tecleo el TECNICO en el fichero
+        # (manual de la 3.2: la de Datos generales). La de la ficha es otra
+        # medida —la de Catastro o la del plano— y pisarla cambia la demanda
+        # TOTAL del certificado: en 26RES060_202 el final copiado salio con
+        # 330 m2 en vez de 240 y 69.089 kWh/año en vez de 50.246 (09/10/2026).
+        if k == "superficie_util" and base["superficie_util"] not in (None, "", "0"):
+            continue
         if v not in (None, "") and k in base:
             base[k] = _txt_num(v) if k in ("superficie_util", "unidades_uso",
                                             "plantas_sobre_rasante",

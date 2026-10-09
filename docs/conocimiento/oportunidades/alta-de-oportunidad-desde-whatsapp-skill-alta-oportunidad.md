@@ -68,6 +68,21 @@ placas de diciembre de 2023): estimado 4.392 € de bono frente a 3.294 € con 
 ⚠️ `CalculatorForm.applyCeePrevio` (cargar el CEE en la calculadora) guarda el **PDF en base64**
 dentro de `inputs.cee_previo` —hasta 2,6 MB (OP139)—, contra la regla 21; `ceeParaComparativa` no.
 
+**Y un RES080 con los DOS certificados en `.xml`** (2026-10-08, 26RES080_OP70: reforma integral
+ya ejecutada con ayudas FEDER, CEE del estado previo registrado con la 2.3). El plan admite
+`reforma` (qué se toca de la envolvente → `isReforma`), `obra_estado: "ejecutada"`, `cee_xml:
+{ inicial, final }`, `presupuesto.envolvente_con_iva` e `incluir_irpf: false`. El inicial se pasa a
+la 3.2 (`convertir_cex.py`) y el previsto se hace copiando el inicial (`/cex/previsto`); los dos se
+califican con CE3X (`cex_a_pdf.js --solo-xml`) y sus `.xml` entran como en la calculadora con los
+dos cargados: `demandMode: 'real'` + `metodoAhorroRes080: 'simplificado'` →
+`calculateRes080SimplificadoFromXml` (la energía final que declara cada uno, por vector).
+**REGLA — la superficie es la del CEE, no la de vivienda del Catastro**: la energía final del
+`.xml` es por m² del certificado (OP70: 152,12 m² frente a 198; con la del Catastro el ahorro subía
+un 30 %). **Sin `cee_previo`**: con él `ProposalModal` ofrece la comparativa «con tu CEE / CEE
+nuevo», que con el ahorro medido entre dos certificados no tiene sentido (en OP70 salían 36.427 € y
+6.795 €; sin él, 3.467 €, lo mismo que el alta). Ese hueco sigue en la app: cargar a mano un
+inicial y un final en «Nueva simulación» también deja `cee_previo`.
+
 Primer caso real: **26RES060_OP250** (chat «ISM Alejandro administración», 01/10/2026): RC + PDF del
 Catastro, presupuesto con CARRIER 30AWH010HM (catálogo id 420) y bomba de ACS LASIAN ATHERIA 100
 (fuera de catálogo), placa JUNKERS CGW25 de gasóleo 25 kW y croquis con los radiadores por estancia.

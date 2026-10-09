@@ -614,11 +614,18 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
     // ── Los huecos, con su planta: del .cex si lo hay; si no, del trabajo ──
     const huecosRx = env.huecos || [];
     const plantaDeMuro = (id) => (st.muros?.[id] || muros.find(x => G.nombreDe(x) === id))?.planta || null;
+    // En el .cex la PERSIANA de un hueco es su puente «Caja de Persiana»
+    // («PT Caja de Persiana-V5»), no `tieneProteccionSolar`, que es otra cosa
+    // (toldos, lamas, voladizos): leyendo ése, la columna salía «No» en todos
+    // los huecos de todos los croquis (visto en 26RES060_226, con 14 cajas).
+    const conCaja = new Set((env.puentes || [])
+        .filter(p => /caja de persiana/i.test(p.tipo || ''))
+        .map(p => String(p.nombre || '').replace(/^PT\s*Caja de Persiana\s*-\s*/i, '').trim()));
     const huecos = huecosRx.length ? huecosRx.map((h) => ({
         planta: plantaDeMuro(idDeNombre(h.cerramiento)),
         nombre: h.nombre, muro: idDeNombre(h.cerramiento), orient: h.orientacion,
         ancho: h.ancho, alto: h.alto, sup: (Number(h.superficie) || 0) * (Number(h.multiplicador) || 1),
-        marco: h.marco, vidrio: h.vidrio, porc: h.porc_marco, persiana: !!h.proteccion_solar,
+        marco: h.marco, vidrio: h.vidrio, porc: h.porc_marco, persiana: conCaja.has(String(h.nombre || '').trim()),
     })) : muros.filter(m => !G.esFuera(m)).flatMap(m => (m.huecos || []).map((h) => {
         const k = carp(h);
         return {
