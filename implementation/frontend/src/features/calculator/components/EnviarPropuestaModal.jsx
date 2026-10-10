@@ -32,7 +32,7 @@ import { textoFecha } from '../logic/programarEnvio';
 
 const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 const eur = (n) => `${new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: true }).format(Math.round(Number(n) || 0))} €`;
-const MODE_ORDER = ['CLIENTE', 'PARTNER', 'INSTALADOR', 'OTRO'];
+const MODE_ORDER = ['CLIENTE', 'TITULAR', 'PARTNER', 'INSTALADOR', 'OTRO'];
 // La propuesta es asunto COMERCIAL: dentro de un partner la recibe quien lleva la
 // obra con el cliente, no quien firma los certificados (regla del reparto).
 const ROL_PROPUESTA = 'comercial';
@@ -693,7 +693,7 @@ export function EnviarPropuestaModal({
                         channel: 'email', status: 'ok',
                         text: `${principal.label} → ${principal.email}${copia.length ? ` (+${copia.length} en copia)` : ''}`,
                     });
-                    if (mode === 'CLIENTE') clienteOk = true;
+                    if (mode === 'CLIENTE' || mode === 'TITULAR') clienteOk = true;
                 } catch (err) {
                     out.push({ channel: 'email', status: 'fail', text: `${principal.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
                 }
@@ -720,7 +720,7 @@ export function EnviarPropuestaModal({
                     if (wa?.despues && wa.despues.ok === false) {
                         out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: llegó la propuesta, pero NO el mensaje con el enlace para aceptar (${wa.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
                     }
-                    if (mode === 'CLIENTE') clienteOk = true;
+                    if (mode === 'CLIENTE' || mode === 'TITULAR') clienteOk = true;
                 } catch (err) {
                     out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${err.response?.data?.error || err.message}` });
                 }

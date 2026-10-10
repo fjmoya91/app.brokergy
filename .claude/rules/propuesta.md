@@ -30,10 +30,13 @@ paths:
 
 100. **El ENLACE para aceptar la propuesta va en un MENSAJE APARTE, después del PDF** (2026-10-01): dentro del texto largo, a mitad y tras las cifras, nadie lo veía — «¿y cómo lo acepto?» y había que volver a pasarlo a mano. Las ocho variantes del mensaje (cliente/partner × aerotermia/reforma/comparativa/CEE aportado) ya no llevan el enlace: en su sitio dicen «👇 Más abajo te dejo el enlace para aceptarla» (`lineaEnlaceDebajo`, que vale para los dos canales). Por WhatsApp salen tres burbujas: texto → PDF → **el enlace solo, en su línea** (`mensajeAceptacion`); al partner, en tercera persona para que pueda reenviárselo al cliente tal cual. En el **email no se repite**: el correo ya lleva el botón «✍️ Aceptar y firmar» debajo del texto. Viaja como `textoDespues` de `sendMedia` (ruta `/api/whatsapp/send-media` y el envío PROGRAMADO, que lo guarda en el plan como `whatsapps[].mensajeAceptacion`; un plan anterior sale como entonces), con su propia confirmación de ACK; si falla **no se lanza** —el texto y el PDF ya llegaron y reintentar los duplicaría—: se devuelve en `despues` y el resultado del envío lo dice («pásaselo a mano»). El popup lo enseña debajo del mensaje antes de pulsar. Fuente única: [logic/mensajeAceptacion.js](implementation/frontend/src/features/calculator/logic/mensajeAceptacion.js). Tras tocarlo: `node implementation/backend/scripts/test_mensaje_aceptacion.mjs`.
 
+132. **Con los avisos del cliente desviados a otra persona, el TITULAR sigue pudiendo recibir la propuesta** (2026-10-10, 26RES060_OP264): fila `TITULAR` en el popup (sin marcar), solo si su teléfono o email difiere del de la persona de contacto; cuenta como cliente en tuteo, email, aviso del CEE y paso a ENVIADA (también en el envío programado). Y si la oportunidad viene de un colaborador (`cobrand`, nunca BROKERGY), **al titular** se le escribe «En colaboración con {empresa}, te adjuntamos…» en vez de «Tal y como acordamos»; a la persona de contacto, como antes. Robot: `claude_propuesta.js --a titular`. Ver "La propuesta al TITULAR, aunque sus avisos vayan al instalador".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
+- `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 1,8 KB
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,3 KB
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19) · 4,9 KB
 - `docs/conocimiento/propuesta/versiones-de-la-propuesta.md` — Versiones de la PROPUESTA (2026-08-25) · 6,0 KB
@@ -42,6 +45,10 @@ paths:
 
 > Son sus frases en negrita, copiadas tal cual. El porqué y los casos, en el documento.
 
+- `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md`
+  - **REGLA — con los avisos desviados, el titular es una fila más: `TITULAR`.**
+  - **REGLA — si la oportunidad viene de un colaborador, al titular se le escribe «En
+colaboración con {empresa}, te adjuntamos…»**
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md`
   - **REGLA — el popup, no dos zonas de suelta abiertas.**
   - **REGLA — "no tengo" NO es saltarse el paso: es ELEGIR el estimado.**

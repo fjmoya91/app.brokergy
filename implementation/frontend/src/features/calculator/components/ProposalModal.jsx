@@ -904,10 +904,21 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest, 
             .then(res => {
                 const c = res.data;
                 const uc = c.notificaciones_contacto_activas === true;
+                const redirigido = uc && !!(c.persona_contacto_tlf || c.persona_contacto_email);
                 setClienteInfo({
                     name: (uc && c.persona_contacto_nombre) ? c.persona_contacto_nombre : (c.nombre_razon_social || name),
                     phone: (uc && c.persona_contacto_tlf) ? c.persona_contacto_tlf : (c.tlf || c.telefono || null),
                     email: (uc && c.persona_contacto_email) ? c.persona_contacto_email : (c.email || null),
+                    // Con los avisos desviados a otra persona (a menudo el propio
+                    // instalador), el TITULAR sigue pudiendo recibir la propuesta:
+                    // hay instaladores que la quieren ver primero y, con su OK,
+                    // piden que se la mandemos nosotros al cliente.
+                    redirigido,
+                    titular: redirigido ? {
+                        name: c.nombre_razon_social || name,
+                        phone: c.tlf || c.telefono || null,
+                        email: c.email || null,
+                    } : null,
                 });
 
             })
@@ -2140,6 +2151,15 @@ info@brokergy.es · 623 926 179`;
         // (`buildAceptacion`, abajo), y en su sitio el texto avisa de que está
         // debajo. A mitad de este mensaje no lo veía nadie.
         const enlaceDebajo = lineaEnlaceDebajo({ b2b: esB2B(mode) });
+        // Si la oportunidad viene de un instalador (o de otro colaborador), el
+        // cliente la recibe EN COLABORACIÓN con él, no «tal y como acordamos»:
+        // quien habló con el cliente fue el instalador, no nosotros. Solo al
+        // propio titular: si los avisos del cliente van a otra persona (casi
+        // siempre ese mismo instalador), a ella se le sigue escribiendo como antes.
+        const alTitular = mode === 'TITULAR' || (mode === 'CLIENTE' && !clienteInfo?.redirigido);
+        const apertura = (alTitular && cobrand?.name)
+            ? `En colaboración con ${cobrand.name}, te adjuntamos`
+            : 'Tal y como acordamos, te adjunto';
 
         // ── VARIANTE "CEE APORTADO": comparativa con tu CEE vs. un CEE nuevo BROKERGY ──
         if (opts.cee && ceeComparison) {
@@ -2156,7 +2176,7 @@ info@brokergy.es · 623 926 179`;
             }
             const firstName = nombreSaludo(targetName);
             const saludo = `¡Hola ${firstName || 'cliente'}!`;
-            return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu expediente (Nº ${displayId}). Como ya cuentas con un Certificado de Eficiencia Energética (CEE) inicial, te presento *dos opciones* para que elijas la que prefieras:\n\n🔹 *Opción A — Usando el CEE que nos has aportado:*\nEl Bono Energético CAE sería de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo nosotros un CEE inicial nuevo:*\nEl Bono Energético CAE sería de *${formatNumber(ceeNuevo)} €* gracias al Bono Energético BROKERGY.\n\n_¿Por qué la diferencia?_ ${explica.replace('ya se tiene', 'nos aportas').replace('la vivienda', 'tu vivienda')} *Tú eliges* qué opción usar.\n\nAdemás, si eres propietario y tienes retenciones (y la normativa sigue vigente), puedes acogerte a las deducciones en el IRPF; el importe estimado sería de *${formatNumber(irpf)} €*, *el mismo en ambas opciones*. Dejaremos toda la parte técnica preparada para que las puedas solicitar.\n\n💡 *Resumen total de las ayudas (bono + IRPF):*\n• Con tu CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya).\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
+            return `${saludo}\n\n${apertura} la simulación de las ayudas para tu expediente (Nº ${displayId}). Como ya cuentas con un Certificado de Eficiencia Energética (CEE) inicial, te presento *dos opciones* para que elijas la que prefieras:\n\n🔹 *Opción A — Usando el CEE que nos has aportado:*\nEl Bono Energético CAE sería de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo nosotros un CEE inicial nuevo:*\nEl Bono Energético CAE sería de *${formatNumber(ceeNuevo)} €* gracias al Bono Energético BROKERGY.\n\n_¿Por qué la diferencia?_ ${explica.replace('ya se tiene', 'nos aportas').replace('la vivienda', 'tu vivienda')} *Tú eliges* qué opción usar.\n\nAdemás, si eres propietario y tienes retenciones (y la normativa sigue vigente), puedes acogerte a las deducciones en el IRPF; el importe estimado sería de *${formatNumber(irpf)} €*, *el mismo en ambas opciones*. Dejaremos toda la parte técnica preparada para que las puedas solicitar.\n\n💡 *Resumen total de las ayudas (bono + IRPF):*\n• Con tu CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya).\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
         }
 
         if (mode === 'PARTNER' || mode === 'INSTALADOR') {
@@ -2174,7 +2194,7 @@ info@brokergy.es · 623 926 179`;
             const firstName = nombreSaludo(targetName);
             const saludo = `¡Hola ${firstName || 'cliente'}!`;
             if (isOnlyReforma) {
-                return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu expediente de Reforma Energética (Nº ${displayId}), donde detallamos los ahorros y subvenciones que puedes obtener:\n\n🔹 *A modo resumen:*\n\n*Bono Energético:* Gracias al ahorro energético que se produciría en tu vivienda tras la reforma, podrías obtener una ayuda de *${formatNumber(Math.round(fReforma.caeBonus || 0))} €* gestionada a través de BROKERGY.\n\nAdemás, si eres propietario y tienes retenciones, puedes acogerte a las deducciones en el IRPF por rehabilitación siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*. (Nosotros nos encargamos de toda la justificación técnica necesaria para que puedas solicitarlas con seguridad).\n\n💡 *Resumen total de las ayudas:* Podrías recuperar hasta *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €* de tu inversión en la reforma energética.\n\nSiguientes pasos:\n\n• Revisar y aceptar la propuesta técnica adjunta en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda.\n\nUn saludo, Fran Moya\n\nBROKERGY — Ingeniería Energética`;
+                return `${saludo}\n\n${apertura} la simulación de las ayudas para tu expediente de Reforma Energética (Nº ${displayId}), donde detallamos los ahorros y subvenciones que puedes obtener:\n\n🔹 *A modo resumen:*\n\n*Bono Energético:* Gracias al ahorro energético que se produciría en tu vivienda tras la reforma, podrías obtener una ayuda de *${formatNumber(Math.round(fReforma.caeBonus || 0))} €* gestionada a través de BROKERGY.\n\nAdemás, si eres propietario y tienes retenciones, puedes acogerte a las deducciones en el IRPF por rehabilitación siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*. (Nosotros nos encargamos de toda la justificación técnica necesaria para que puedas solicitarlas con seguridad).\n\n💡 *Resumen total de las ayudas:* Podrías recuperar hasta *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €* de tu inversión en la reforma energética.\n\nSiguientes pasos:\n\n• Revisar y aceptar la propuesta técnica adjunta en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda.\n\nUn saludo, Fran Moya\n\nBROKERGY — Ingeniería Energética`;
             } else if (isBoth) {
                 const bonoAero = Math.round(fAero.caeBonus || 0);
                 const irpfAero = Math.round(fAero.irpfDeduction || 0);
@@ -2182,12 +2202,12 @@ info@brokergy.es · 623 926 179`;
                 const bonoReforma = Math.round(fReforma.caeBonus || 0);
                 const irpfReforma = Math.round(fReforma.irpfDeduction || 0);
                 const totalReforma = Math.round(fReforma.totalAyuda || 0);
-                return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu proyecto, presentando las siguientes opciones:\n\n🔹 *Opción 1: Instalando solo aerotermia*\nPodrías obtener una ayuda directa de *${formatNumber(bonoAero)} €* gracias al Bono Energético BROKERGY. Si sumamos las deducciones del IRPF (*${formatNumber(irpfAero)} €*), podrías alcanzar un total de hasta *${formatNumber(totalAero)} €*.\n\n🔹 *Opción 2: Aerotermia junto con mejora de la envolvente (cambio de ventanas y/o aislamiento en muros o cubierta)*\nEn este caso, la ayuda del Bono Energético BROKERGY asciende a *${formatNumber(bonoReforma)} €*. Sumando las deducciones del IRPF (*${formatNumber(irpfReforma)} €*), el total podría llegar hasta los *${formatNumber(totalReforma)} €*.\n\nTe recordamos que para acogerte a las deducciones del IRPF debes ser propietario de la vivienda y contar con retenciones aplicables, y que la normativa debe seguir vigente. Por nuestra parte, dejaremos toda la parte técnica preparada para que las puedas solicitar fácilmente.\n\nPara avanzar con el proceso, los pasos serían:\n\n• Aceptar el presupuesto del instalador.\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo,\n\nFran Moya\nBROKERGY | Ingeniería Energética\nhttps://brokergy.es/`;
+                return `${saludo}\n\n${apertura} la simulación de las ayudas para tu proyecto, presentando las siguientes opciones:\n\n🔹 *Opción 1: Instalando solo aerotermia*\nPodrías obtener una ayuda directa de *${formatNumber(bonoAero)} €* gracias al Bono Energético BROKERGY. Si sumamos las deducciones del IRPF (*${formatNumber(irpfAero)} €*), podrías alcanzar un total de hasta *${formatNumber(totalAero)} €*.\n\n🔹 *Opción 2: Aerotermia junto con mejora de la envolvente (cambio de ventanas y/o aislamiento en muros o cubierta)*\nEn este caso, la ayuda del Bono Energético BROKERGY asciende a *${formatNumber(bonoReforma)} €*. Sumando las deducciones del IRPF (*${formatNumber(irpfReforma)} €*), el total podría llegar hasta los *${formatNumber(totalReforma)} €*.\n\nTe recordamos que para acogerte a las deducciones del IRPF debes ser propietario de la vivienda y contar con retenciones aplicables, y que la normativa debe seguir vigente. Por nuestra parte, dejaremos toda la parte técnica preparada para que las puedas solicitar fácilmente.\n\nPara avanzar con el proceso, los pasos serían:\n\n• Aceptar el presupuesto del instalador.\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo,\n\nFran Moya\nBROKERGY | Ingeniería Energética\nhttps://brokergy.es/`;
             } else {
-                return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu expediente (Nº ${displayId}), presentando las siguientes opciones para tu caso:\n\n🔹 *A modo resumen:*\n\n*Opción 1:* Instalando el sistema de aerotermia, podrías obtener una ayuda de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY.\n\nAdemás, si eres propietario y tienes retenciones, puedes acogerte a las deducciones en el IRPF siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).\n\n💡 *Resumen total de las ayudas:* Podrías obtener hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €* combinando ambas opciones.\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya)\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
+                return `${saludo}\n\n${apertura} la simulación de las ayudas para tu expediente (Nº ${displayId}), presentando las siguientes opciones para tu caso:\n\n🔹 *A modo resumen:*\n\n*Opción 1:* Instalando el sistema de aerotermia, podrías obtener una ayuda de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY.\n\nAdemás, si eres propietario y tienes retenciones, puedes acogerte a las deducciones en el IRPF siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).\n\n💡 *Resumen total de las ayudas:* Podrías obtener hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €* combinando ambas opciones.\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya)\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
             }
         }
-    }, [inputs, result, displayId, ceeComparison]);
+    }, [inputs, result, displayId, ceeComparison, cobrand, clienteInfo]);
 
     /**
      * El SEGUNDO mensaje: el enlace para aceptar la propuesta, solo. Por
@@ -2486,6 +2506,22 @@ info@brokergy.es · 623 926 179`;
             phone: clienteInfo?.phone || inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || '',
             entidad: inputs?.cliente_id ? { tipo: 'cliente', id: inputs.cliente_id } : null,
         }];
+        // El TITULAR, aparte, cuando los avisos del cliente van a otra persona.
+        // Sin esta fila, la propuesta solo podía ir a quien recibe los avisos
+        // (medido en 26RES060_OP264: «JESÚS · CLIENTE», el instalador, y el
+        // titular FRANCISCO no aparecía). Solo si tiene un dato distinto: si su
+        // teléfono y su email son los mismos, sería la misma persona dos veces.
+        const tit = clienteInfo?.titular;
+        if (tit && ((tit.phone && tit.phone !== clienteInfo.phone) || (tit.email && tit.email !== clienteInfo.email))) {
+            list.push({
+                mode: 'TITULAR',
+                label: tit.name,
+                sublabel: 'Titular',
+                email: tit.email || '',
+                phone: tit.phone || '',
+                entidad: inputs?.cliente_id ? { tipo: 'cliente', id: inputs.cliente_id } : null,
+            });
+        }
         // `label` = la persona a la que se escribe (interlocutor de notificaciones);
         // `org` = la empresa, que se muestra debajo para no perder de vista quién es.
         // La chapa dice lo que ES el partner (su `tipo_empresa`), no "Distribuidor"

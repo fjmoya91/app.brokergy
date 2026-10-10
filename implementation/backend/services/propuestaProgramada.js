@@ -207,7 +207,7 @@ async function enviar(fila) {
                     channel: 'email', status: 'ok',
                     text: `${grupo.email.label || grupo.email.userName || grupo.email.to} → ${grupo.email.to}${grupo.email.cc?.length ? ` (+${grupo.email.cc.length} en copia)` : ''}`,
                 });
-                if (grupo.modo === 'CLIENTE') clienteOk = true;
+                if (grupo.modo === 'CLIENTE' || grupo.modo === 'TITULAR') clienteOk = true;
             } catch (e) {
                 out.push({ channel: 'email', status: 'fail', text: `${grupo.email.label || grupo.email.to}: ${e.response?.data?.message || e.response?.data?.error || e.message}` });
             }
@@ -233,7 +233,7 @@ async function enviar(fila) {
                 if (r?.despues && r.despues.ok === false) {
                     out.push({ channel: 'whatsapp', status: 'fail', text: `${w.label || w.phone}: llegó la propuesta, pero NO el mensaje con el enlace para aceptar (${r.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
                 }
-                if (grupo.modo === 'CLIENTE') clienteOk = true;
+                if (grupo.modo === 'CLIENTE' || grupo.modo === 'TITULAR') clienteOk = true;
             } catch (e) {
                 out.push({ channel: 'whatsapp', status: 'fail', text: `${w.label || w.phone}: ${e.message}` });
             }

@@ -47,7 +47,8 @@ const URL_SB = process.env.SUPABASE_URL;
 const sb = createClient(URL_SB, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const REF = new URL(URL_SB).hostname.split('.')[0];
 const CLAVE_SESION = `sb-${REF}-auth-token`;
-const MODOS = { cliente: 'CLIENTE', partner: 'PARTNER', instalador: 'INSTALADOR' };
+// titular: el cliente en persona cuando sus avisos van a otro (p. ej. al instalador).
+const MODOS = { cliente: 'CLIENTE', titular: 'TITULAR', partner: 'PARTNER', instalador: 'INSTALADOR' };
 const SALIDA = path.join(__dirname, '../scratch/claude_propuesta');
 
 const args = process.argv.slice(2);
@@ -117,7 +118,7 @@ async function enviar() {
     const op = args[1];
     if (!op || !/^\d\dRES|^\d\dTER/.test(op)) throw new Error('Falta el nº de oportunidad (p. ej. 26RES060_OP217).');
     const pedidos = (opcion('--a') || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    if (!pedidos.length || pedidos.some(p => !MODOS[p])) throw new Error('Indica a quién: --a cliente,instalador (también: partner).');
+    if (!pedidos.length || pedidos.some(p => !MODOS[p])) throw new Error('Indica a quién: --a cliente,instalador (también: partner, titular).');
     const quiero = new Set(pedidos.map(p => MODOS[p]));
     const deVerdad = bandera('--enviar');
     fs.mkdirSync(SALIDA, { recursive: true });

@@ -25,7 +25,7 @@
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 18,9 KB | 7 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 14,2 KB | 5 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 32,7 KB | 9 |
-| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 12,9 KB | 3 |
+| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 14,1 KB | 4 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,0 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 6,3 KB | 0 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 5,0 KB | 3 |
@@ -209,6 +209,7 @@
 - **129** → `.claude/rules/envolvente-ce3x.md` — La GUÍA DE TRANSMITANCIAS son los «Estimados según antigüedad y zona climática» de CE3X 3.2, escritos como «…
 - **130** → `.claude/rules/placas-catalogos.md` — Un Nº DE SERIE que ya consta en OTRO expediente se AVISA, no se bloquea
 - **131** → `.claude/rules/envolvente-ce3x.md` — Los EQUIPOS se marcan en el plano —caldera actual, equipo nuevo, depósito de ACS y unidad exterior— y la uni…
+- **132** → `.claude/rules/propuesta.md` — Con los avisos del cliente desviados a otra persona, el TITULAR sigue pudiendo recibir la propuesta
 
 ## Documentos por área
 
@@ -446,6 +447,7 @@
 
 ### propuesta
 
+- `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10)
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03)
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19)
 - `docs/conocimiento/propuesta/versiones-de-la-propuesta.md` — Versiones de la PROPUESTA (2026-08-25)
