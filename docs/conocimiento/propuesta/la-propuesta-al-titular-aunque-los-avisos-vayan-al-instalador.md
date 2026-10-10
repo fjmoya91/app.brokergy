@@ -23,3 +23,11 @@ quien habló con el cliente fue el instalador. La empresa es la del co-branding 
 propuesta (`cobrand`: el instalador asociado o, si no, el partner; nunca BROKERGY). Solo
 al propio titular —fila `TITULAR`, o `CLIENTE` sin desvío—: a la persona de contacto
 (casi siempre ese mismo instalador) se le sigue escribiendo como antes.
+
+**Y abrir una oportunidad guardada NO le impone la comisión de la ficha del partner.**
+Al ir a enviársela a Francisco, producción recalculaba la OP264 con 20 €/MWh de comisión
+(el 20 % por defecto de la ficha del instalador) en vez de los 30 guardados: el bono pasaba
+de 2.017 € —el que ya tenía el instalador en la v2— a 2.305 €, y el robot paraba por
+«cambios sin guardar». La siembra de `CalculatorForm` se hacía cada vez que aparecía un
+`prescriptor_id`, también al CARGAR; ahora, al cargarse una oportunidad, su partner cuenta
+como ya aplicado y solo cambiar de partner trae la comisión del nuevo.

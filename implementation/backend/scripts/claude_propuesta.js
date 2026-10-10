@@ -202,10 +202,17 @@ async function enviar() {
             const p = disponibles.find(m => m.modo === 'PARTNER' && /instalador/i.test(m.texto));
             if (p) { quiero.delete('INSTALADOR'); quiero.add('PARTNER'); console.log(`  (el instalador va en la fila de partner: ${p.texto})`); }
         }
-        for (const m of disponibles) {
-            if (m.on !== quiero.has(m.modo)) { await page.click(`[data-robot="modo-${m.modo}"]`); await espera(700); }
+        // Hasta tres pasadas: la fila TITULAR (y los datos del cliente) llegan cuando
+        // vuelve su ficha, y un clic en mitad de ese repintado se pierde.
+        let modos = disponibles;
+        for (let pasada = 0; pasada < 3; pasada++) {
+            for (const m of modos) {
+                if (m.on !== quiero.has(m.modo)) { await page.click(`[data-robot="modo-${m.modo}"]`); await espera(700); }
+            }
+            await espera(1200);
+            modos = await estadoModos();
+            if (modos.every(m => m.on === quiero.has(m.modo)) && [...quiero].every(q => modos.some(m => m.modo === q))) break;
         }
-        const modos = await estadoModos();
         const faltan = [...quiero].filter(q => !modos.some(m => m.modo === q && m.on));
         if (faltan.length) throw new Error(`En el popup no hay destinatario ${faltan.join(', ')} (hay: ${modos.map(m => m.modo).join(', ') || 'ninguno'}).`);
         await espera(1200);

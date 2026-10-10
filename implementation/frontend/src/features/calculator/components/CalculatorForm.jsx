@@ -69,8 +69,21 @@ export function CalculatorForm({
     // Si se pactó en %, se traduce con el precio que se le ofrece al CLIENTE en
     // ESTA simulación (logic/comisionPartner.js).
     const comisionAplicadaRef = useRef(null);
+    // Una oportunidad GUARDADA llega con su comisión ya decidida, y abrirla no es
+    // elegir partner: imponerle aquí la de la ficha pisaba la guardada y cambiaba
+    // el bono del cliente (26RES060_OP264: 30 €/MWh guardados → 20 al abrirla, y
+    // el bono de 2.017 € a 2.305 €, distinto del que ya tenía el instalador).
+    // Al cargarse una oportunidad, su partner cuenta como ya aplicado; cambiarlo
+    // después sí trae la comisión del nuevo.
+    const oppCargadaRef = useRef(null);
     useEffect(() => {
         const pid = inputs?.prescriptor_id;
+        const opId = inputs?.id_oportunidad || null;
+        if (opId && oppCargadaRef.current !== opId) {
+            oppCargadaRef.current = opId;
+            comisionAplicadaRef.current = pid || null;
+            return;
+        }
         if (!pid) { comisionAplicadaRef.current = null; return; }
         if (comisionAplicadaRef.current === pid) return;
         comisionAplicadaRef.current = pid;
@@ -91,7 +104,7 @@ export function CalculatorForm({
             })
             .catch(() => { /* sin comisión por defecto: se sigue como siempre */ });
         return () => { cancelado = true; };
-    }, [inputs?.prescriptor_id]);
+    }, [inputs?.prescriptor_id, inputs?.id_oportunidad]);
 
     // "Por emisiones" pone el modo y abre el modal de desglose RES080 (que vive en
     // ResultsPanel, elevado a CalculatorView) donde se editan emisiones/combustible.
