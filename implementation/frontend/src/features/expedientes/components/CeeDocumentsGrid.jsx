@@ -533,6 +533,8 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     // una persona, y de ella cuelgan el plazo de la obra y la facturación del
     // certificador: no se pisa sin que alguien vea las dos fechas.
     const [releyendoFecha, setReleyendoFecha] = useState(null); // 'inicial' | 'final' | null
+    // Fase con el selector del método de ACS desplegado (por defecto, plegado: solo XML).
+    const [acsSelector, setAcsSelector] = useState(null); // 'inicial' | 'final' | null
     const releerFechaRegistro = async (section) => {
         setReleyendoFecha(section);
         try {
@@ -1962,8 +1964,29 @@ Según el documento:
                                         leer el valor, no a cambiarlo. */}
                                     {!esCertificador && (
                                     <div className="flex flex-col gap-1.5">
-                                        <div className="flex flex-wrap justify-center p-0.5 bg-black/40 rounded-lg border border-white/5 max-md:w-full">
-                                            <button 
+                                        {/* Por defecto manda el XML y solo se ve el método
+                                            elegido; las demás opciones salen con «cambiar». */}
+                                        {acsSelector !== section ? (
+                                            <div className="flex items-center gap-1 max-md:w-full">
+                                                <span
+                                                    title="Método con el que se calcula la demanda de ACS"
+                                                    className="px-2.5 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest bg-brand text-black"
+                                                >
+                                                    {isHab ? 'HAB' : isLitros ? 'L/D' : isDacsManual ? 'MAN' : 'XML'}
+                                                </span>
+                                                <button
+                                                    onClick={() => setAcsSelector(section)}
+                                                    title="Cambiar el método de la demanda de ACS (XML · dormitorios · litros/día)"
+                                                    className="w-6 h-6 max-md:w-11 max-md:h-11 rounded-md bg-white/[0.03] border border-white/5 flex items-center justify-center text-white/30 hover:text-brand hover:border-brand/30 transition-all active:scale-95 shrink-0"
+                                                >
+                                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                        <div className="flex flex-wrap justify-center p-0.5 bg-black/40 rounded-lg border border-white/5 max-md:w-full" onClick={() => setAcsSelector(null)}>
+                                            <button
                                                 onClick={() => onManualUpdate({ acs_method: ACS_METHOD.XML })}
                                                 className={`px-2.5 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${acsMethod === ACS_METHOD.XML || !acsMethod ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                             >
@@ -1992,6 +2015,7 @@ Según el documento:
                                                 </button>
                                             )}
                                         </div>
+                                        )}
                                         {isHab && (
                                             <div className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded-lg border border-white/5">
                                                 <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">Dorm:</span>

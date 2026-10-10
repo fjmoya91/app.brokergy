@@ -1422,31 +1422,6 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                                     <span className="text-white/30 text-[10px] font-black uppercase tracking-wider">
                                         Creado: {expediente.created_at ? new Date(expediente.created_at).toLocaleDateString('es-ES') : '—'}
                                     </span>
-                                    {(() => {
-                                        // De quién viene: el prescriptor de la oportunidad.
-                                        const pres = op.prescriptor_id
-                                            ? partners.find(p => String(p.id_empresa) === String(op.prescriptor_id))
-                                            : null;
-                                        if (!pres) return null;
-                                        const { titulo, sub } = nombrePartner(pres);
-                                        return (
-                                            <>
-                                                <span className="text-white/20 text-xs">·</span>
-                                                <span
-                                                    className="flex items-center gap-1.5 pl-0.5 pr-2.5 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 max-w-[260px]"
-                                                    title={`Prescriptor: ${[titulo, sub].filter(Boolean).join(' · ')} (${tipoEmpresaLabel(pres.tipo_empresa)})`}
-                                                >
-                                                    <LogoEmpresa p={pres} size={16} className="rounded-full" />
-                                                    <span className="text-[9px] font-bold text-violet-300/70 uppercase tracking-widest">
-                                                        {tipoEmpresaLabel(pres.tipo_empresa)}
-                                                    </span>
-                                                    <span className="text-[10px] font-bold text-violet-300 uppercase tracking-wide truncate">
-                                                        {titulo}
-                                                    </span>
-                                                </span>
-                                            </>
-                                        );
-                                    })()}
                                 </div>
                             )}
                         </div>
@@ -1484,6 +1459,45 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 </div>
 
                 <div className="flex items-center gap-3 flex-wrap max-md:w-full">
+                    {/* De quién viene: el prescriptor (partner) de la oportunidad, arriba a
+                        la derecha y con el mismo chip que la oportunidad, para verlo de un
+                        vistazo. Sin partner, «Directo». */}
+                    {!isCertificador && (() => {
+                        const pres = op.prescriptor_id
+                            ? partners.find(p => String(p.id_empresa) === String(op.prescriptor_id))
+                            : null;
+                        if (op.prescriptor_id && !pres) return null; // la lista aún no ha llegado
+                        if (!pres) {
+                            return (
+                                <span
+                                    className="flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03]"
+                                    title="La oportunidad no tiene partner: cliente directo de BROKERGY"
+                                >
+                                    <span className="flex flex-col leading-tight">
+                                        <span className="text-[8px] font-bold text-white/30 uppercase tracking-widest">Partner</span>
+                                        <span className="text-[10px] font-bold text-white/60 uppercase tracking-wide">Directo · Brokergy</span>
+                                    </span>
+                                </span>
+                            );
+                        }
+                        const { titulo, sub } = nombrePartner(pres);
+                        return (
+                            <span
+                                className="flex items-center gap-2 pl-1 pr-3 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 max-w-[260px]"
+                                title={`Prescriptor: ${[titulo, sub].filter(Boolean).join(' · ')} (${tipoEmpresaLabel(pres.tipo_empresa)})`}
+                            >
+                                <LogoEmpresa p={pres} size={20} className="rounded-full" />
+                                <span className="flex flex-col leading-tight min-w-0">
+                                    <span className="text-[8px] font-bold text-violet-300/70 uppercase tracking-widest">
+                                        {tipoEmpresaLabel(pres.tipo_empresa)}
+                                    </span>
+                                    <span className="text-[10px] font-bold text-violet-300 uppercase tracking-wide truncate">
+                                        {titulo}
+                                    </span>
+                                </span>
+                            </span>
+                        );
+                    })()}
                     {/* Indicador de Sincronización (Autosave) */}
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/5">
                         {saving ? (
