@@ -175,6 +175,20 @@ async function nextFacturaNumero(year) {
     return { n, numero: `F-${year}CAE_${n}` };
 }
 
+// ¿Ese nº de factura lo tiene ya OTRO lote? Devuelve su código, o null si está libre.
+// Se mira ANTES de generar o de enviar: un número repetido que ya ha salido al S.O.
+// solo se arregla emitiendo otra factura (pasó con el F-2026CAE_9, en LOTE-2025-003
+// y LOTE-2025-001).
+async function loteConNumeroFactura(numero, loteId) {
+    const n = String(numero || '').trim();
+    if (!n) return null;
+    const { data, error } = await supabase.from('facturas_so').select('lote_id').eq('numero', n).neq('lote_id', loteId);
+    if (error) throw error;
+    if (!data?.length) return null;
+    const { data: otro } = await supabase.from('lotes').select('codigo').eq('id', data[0].lote_id).maybeSingle();
+    return otro?.codigo || 'otro lote';
+}
+
 // Upsert de la factura del lote (UNA por lote → onConflict lote_id). En borrador
 // NO se incluye `estado` (para no degradar una EMITIDA); al emitir se marca EMITIDA.
 async function upsertFacturaSo(lote, fields, opts = {}) {
@@ -196,8 +210,12 @@ async function upsertFacturaSo(lote, fields, opts = {}) {
     };
     if (opts.emit) {
         row.estado = 'EMITIDA';
-        row.drive_link = opts.drive_link || null;
-        row.drive_file_id = opts.drive_file_id || null;
+        // Enviada sin pasar por «Generar y guardar» no hay PDF en la carpeta del
+        // lote: no se pisa el enlace que ya tuviera.
+        if (opts.drive_link !== undefined) {
+            row.drive_link = opts.drive_link || null;
+            row.drive_file_id = opts.drive_file_id || null;
+        }
         row.generada_por = opts.generada_por || null;
     }
     const { data, error } = await supabase.from('facturas_so').upsert(row, { onConflict: 'lote_id' }).select().single();
@@ -566,6 +584,8 @@ router.put('/:id/factura-so/draft', adminOnly, async (req, res) => {
         const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const ocupado = await loteConNumeroFactura(factura.numero, lote.id);
+        if (ocupado) return res.status(409).json({ error: `El nº ${String(factura.numero).trim()} ya es la factura de ${ocupado}.`, codigo: 'NUMERO_FACTURA_OCUPADO' });
         const saved = await upsertFacturaSo(lote, factura);
         res.json(saved);
     } catch (err) {
@@ -587,6 +607,8 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
         const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const ocupado = await loteConNumeroFactura(factura.numero, lote.id);
+        if (ocupado) return res.status(409).json({ error: `El nº ${String(factura.numero).trim()} ya es la factura de ${ocupado}.`, codigo: 'NUMERO_FACTURA_OCUPADO' });
 
         const docsFolder = await ensureLoteDocsFolder(lote);
         const pdfBuffer = await htmlToPdf(html);
@@ -642,7 +664,7 @@ async function acronimoSoDe(lote) {
 // (ver services/facturaContabilidad.js). El mes es el de la fecha de la factura.
 router.post('/:id/factura-so/contabilidad', adminOnly, async (req, res) => {
     try {
-        const { html, numero, fecha } = req.body || {};
+        const { html, numero, fecha, factura } = req.body || {};
         if (!html || !numero) return res.status(400).json({ error: 'Faltan el HTML o el número de factura' });
         const { data: lote, error } = await supabase.from('lotes').select('id, codigo, sujeto_obligado_id, historial').eq('id', req.params.id).maybeSingle();
         if (error) throw error;
@@ -651,6 +673,13 @@ router.post('/:id/factura-so/contabilidad', adminOnly, async (req, res) => {
         const acronimoSo = await acronimoSoDe(lote);
         const pdf = await htmlToPdf(html);
         const r = await archivarFacturaVenta({ pdf, numero, fecha, codigoLote: lote.codigo, acronimoSo });
+
+        // Una factura ENVIADA está emitida, se haya pulsado o no «Generar y guardar»:
+        // se registra en `facturas_so`, que es de donde sale el siguiente número.
+        // Sin esto, el nº enviado no existía para el contador y se repetía.
+        if (factura) {
+            await upsertFacturaSo(lote, { ...factura, numero }, { emit: true, generada_por: usuarioDe(req) });
+        }
 
         const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
         historial.push({

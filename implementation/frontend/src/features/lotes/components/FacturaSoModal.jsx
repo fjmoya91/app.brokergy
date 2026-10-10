@@ -116,18 +116,35 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
 
     // Auto-guardado del borrador en `facturas_so`: persiste al salir de cualquier
     // campo (onBlur burbujea en React). Nunca se pierde el dato aunque no se genere.
+    const facturaActual = () => ({
+        numero: numero ? numero.trim() : null,
+        fecha, vencimiento,
+        cae_inicial: caeInicial ? caeInicial.trim() : null,
+        cae_final: caeFinal ? caeFinal.trim() : null,
+        unidades_kwh: Math.round(Number(unidadesKwh) || 0) || null,
+        precio_kwh: Number(precioKwh) || null,
+        base, iva, total,
+    });
+    const avisoNumeroOcupado = (err) => {
+        if (err.response?.data?.codigo !== 'NUMERO_FACTURA_OCUPADO') return false;
+        showAlert(`${err.response.data.error} Pon otro número.`, 'Nº de factura repetido', 'error');
+        return true;
+    };
     const saveDraft = () => {
-        axios.put(`/api/lotes/${lote.id}/factura-so/draft`, {
-            factura: {
-                numero: numero ? numero.trim() : null,
-                fecha, vencimiento,
-                cae_inicial: caeInicial ? caeInicial.trim() : null,
-                cae_final: caeFinal ? caeFinal.trim() : null,
-                unidades_kwh: Math.round(Number(unidadesKwh) || 0) || null,
-                precio_kwh: Number(precioKwh) || null,
-                base, iva, total,
-            },
-        }).catch(() => { });
+        axios.put(`/api/lotes/${lote.id}/factura-so/draft`, { factura: facturaActual() })
+            .catch(err => { avisoNumeroOcupado(err); });
+    };
+
+    // Antes de ENVIAR, el número se registra en `facturas_so` (y así lo ve el
+    // contador); si ya es de otro lote, no se abre el envío.
+    const abrirEnvio = async () => {
+        if (!numero.trim()) return showAlert('Indica el número de factura.', 'Falta dato', 'warning');
+        try {
+            await axios.put(`/api/lotes/${lote.id}/factura-so/draft`, { factura: facturaActual() });
+            setSendOpen(true);
+        } catch (err) {
+            if (!avisoNumeroOcupado(err)) showAlert(err.response?.data?.error || 'No se pudo registrar el nº de factura.', 'Error', 'error');
+        }
     };
 
     const handleGenerate = async () => {
@@ -152,7 +169,7 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
                 c?.ruta ? 'Hecho' : 'Revisa contabilidad', c?.ruta ? 'success' : 'warning');
             onClose();
         } catch (err) {
-            showAlert(err.response?.data?.error || 'Error al generar la factura', 'Error', 'error');
+            if (!avisoNumeroOcupado(err)) showAlert(err.response?.data?.error || 'Error al generar la factura', 'Error', 'error');
         } finally {
             setGenerating(false);
         }
@@ -354,7 +371,7 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
                                     className="px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/15 text-white/70 hover:text-white hover:border-white/30 disabled:opacity-40 transition-all">
                                     {downloading ? 'Generando…' : 'Descargar PDF'}
                                 </button>
-                                <button onClick={() => setSendOpen(true)} disabled={generating}
+                                <button onClick={abrirEnvio} disabled={generating}
                                     className="px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand/30 text-brand bg-brand/10 hover:bg-brand/20 disabled:opacity-40 transition-all">
                                     Enviar al S.O.
                                 </button>
@@ -377,10 +394,11 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Factura S.O.' }}
                     docs={sendDocs}
                     // Enviada la factura, su PDF se archiva en contabilidad:
-                    // FACTURAS VENTAS/{año}/{n. MES}, por la fecha de la factura.
+                    // FACTURAS VENTAS/{año}/{n. MES}, por la fecha de la factura,
+                    // y queda EMITIDA en `facturas_so` (de ahí sale el siguiente nº).
                     afterSendLabel="Guardando en contabilidad…"
                     onAfterSend={async () => {
-                        const { data } = await axios.post(`/api/lotes/${lote.id}/factura-so/contabilidad`, { html, numero, fecha });
+                        const { data } = await axios.post(`/api/lotes/${lote.id}/factura-so/contabilidad`, { html, numero, fecha, factura: facturaActual() });
                         return [{ channel: 'drive', status: 'ok', label: 'Guardada', text: data.ruta || 'Contabilidad' }];
                     }}
                     onClose={() => setSendOpen(false)}
