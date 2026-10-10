@@ -46,6 +46,7 @@ import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal
 import { LoteDetailModal } from '../../lotes/components/LoteDetailModal';
 import { FechasPrevistasEjecucion } from '../components/FechasPrevistasEjecucion';
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
+import SearchableSelect from '../../../components/SearchableSelect';
 import { nombrePartner, tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 
 // Pausa de inactividad antes de persistir los cambios de "Instalación". Los
@@ -277,6 +278,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
     // Todos los partners: de aquí sale también el PRESCRIPTOR de la oportunidad
     // (de quién viene el expediente) sin pedir su ficha aparte.
     const [partners, setPartners] = useState([]);
+    // Asignando el partner a una oportunidad que nació sin él (cabecera).
+    const [asignandoPartner, setAsignandoPartner] = useState(false);
 
     // Estado "Live" para monitorización en tiempo real sin guardar
     const [liveCee, setLiveCee] = useState(null);
@@ -1467,6 +1470,59 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                             ? partners.find(p => String(p.id_empresa) === String(op.prescriptor_id))
                             : null;
                         if (op.prescriptor_id && !pres) return null; // la lista aún no ha llegado
+                        // Sin partner y con permiso: en su sitio, un desplegable con buscador
+                        // para ponérselo. Va por la MISMA ruta que el panel de oportunidades
+                        // (`/asignar`, staffOnly) y escribe en la oportunidad, que es de donde
+                        // lo leen el listado, los avisos al instalador y la propuesta.
+                        if (!pres && isStaff && op.id_oportunidad) {
+                            const opciones = partners
+                                .filter(p => !['SUJETO_OBLIGADO', 'VERIFICADOR'].includes(String(p.tipo_empresa || '').toUpperCase()))
+                                .map(p => {
+                                    const { titulo, sub } = nombrePartner(p);
+                                    return {
+                                        value: p.id_empresa,
+                                        label: titulo,
+                                        sublabel: [tipoEmpresaLabel(p.tipo_empresa), sub].filter(Boolean).join(' · '),
+                                        logo: p.logo_empresa,
+                                        acronimo: p.acronimo,
+                                    };
+                                })
+                                .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+                            const asignar = async (idEmpresa) => {
+                                if (!idEmpresa || asignandoPartner) return;
+                                const elegido = partners.find(p => String(p.id_empresa) === String(idEmpresa));
+                                const nombre = elegido ? (elegido.acronimo || elegido.razon_social || nombrePartner(elegido).titulo) : 'BROKERGY';
+                                setAsignandoPartner(true);
+                                try {
+                                    await axios.patch(`/api/oportunidades/${op.id_oportunidad}/asignar`, {
+                                        prescriptor_id: idEmpresa,
+                                        prescriptor_name: nombre,
+                                    });
+                                    setExpediente(prev => prev ? {
+                                        ...prev,
+                                        oportunidades: { ...(prev.oportunidades || {}), prescriptor_id: idEmpresa, prescriptor: nombre },
+                                    } : prev);
+                                } catch (err) {
+                                    console.error('[Expediente] Error asignando partner:', err);
+                                    showAlert('No se ha podido asignar el partner. Inténtalo de nuevo.', 'Error', 'error');
+                                } finally {
+                                    setAsignandoPartner(false);
+                                }
+                            };
+                            return (
+                                <div className="w-[260px] max-md:w-full" title="La oportunidad no tiene partner: elige de quién viene">
+                                    <SearchableSelect
+                                        value=""
+                                        onChange={asignar}
+                                        options={opciones}
+                                        placeholder={asignandoPartner ? 'Asignando…' : 'Sin partner · asignar…'}
+                                        searchPlaceholder="Buscar partner…"
+                                        disabled={asignandoPartner}
+                                        triggerClassName="!py-1.5 !text-xs !rounded-full !border-violet-500/30 !bg-violet-500/5"
+                                    />
+                                </div>
+                            );
+                        }
                         if (!pres) {
                             return (
                                 <span
