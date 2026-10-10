@@ -185,7 +185,11 @@ async function renombrar({ dryRun = true, despuesDe = null, incluirCambioFicha =
  *    llevar el nº de una—; un número que no está en la agenda no se guarda.
  * `dryRun` por defecto. UN guardado: el límite de la agenda (429) no aplica a uno.
  */
-async function renombrarUno({ telefono, codigo, dryRun = true, anteponer = false, forzarFicha = false } = {}) {
+// `nombre`: lo que va DETRÁS del prefijo para GUARDAR un número que no está en la
+// agenda ("Francisco Manzano (Jesús Sánchez)"). Sin él, un número sin guardar no
+// se toca: no se inventa cómo llamar a nadie. Con él, solo se usa si el número NO
+// está guardado — un nombre que ya está en la agenda se sigue tratando como antes.
+async function renombrarUno({ telefono, codigo, dryRun = true, anteponer = false, forzarFicha = false, nombre = null } = {}) {
     let numero = String(telefono || '').replace(/\D/g, '');
     if (numero.length === 9) numero = `34${numero}`;
     if (numero.length < 10 || numero.length > 15) {
@@ -203,6 +207,13 @@ async function renombrarUno({ telefono, codigo, dryRun = true, anteponer = false
     const info = await contactos.datos(`${numero}@c.us`);
     const base = { telefono: numero, codigo: cod, antes: info.nombre || null, pushname: info.pushname || null };
     if (!info.nombre) {
+        const resto = String(nombre || '').replace(/\s+/g, ' ').trim();
+        if (resto) {
+            const nuevo = `${cod} ${resto}`;
+            if (dryRun) return { ...base, accion: 'seco_nuevo', despues: nuevo };
+            await contactos.guardar(numero, nuevo, '');   // lanza si WhatsApp no lo guarda (o limita)
+            return { ...base, accion: 'guardado', despues: nuevo };
+        }
         return { ...base, accion: 'sin_agenda',
             motivo: 'Ese número no está guardado en la agenda: no se le pone nombre desde aquí.' };
     }

@@ -18,7 +18,7 @@
 //   node scripts/alta_oportunidad.js crear --plan plan.json [--escribir]
 //   node scripts/alta_oportunidad.js obra <26RES080_OP52|26RES080_87>
 //   node scripts/alta_oportunidad.js documentar --op <nº> --plan docs.json [--escribir]
-//   node scripts/alta_oportunidad.js renombrar --op <nº> --tel <tel> [--anteponer] [--escribir]
+//   node scripts/alta_oportunidad.js renombrar --op <nº> --tel <tel> [--anteponer] [--nombre "Nombre (Partner)"] [--escribir]
 //
 // REGLAS (ver skills/alta-oportunidad/SKILL.md):
 //   · El chat se LEE en el servidor (la sesión de WhatsApp vive en el VPS) por
@@ -941,7 +941,8 @@ async function renombrar() {
     const r = await api('/api/whatsapp/contactos/renombrar', {
         method: 'POST',
         body: { telefono: tel, codigo: o.codigo, dryRun: !ESCRIBIR, anteponer: RESTO.includes('--anteponer'),
-            forzarFicha: RESTO.includes('--forzar-ficha') },
+            forzarFicha: RESTO.includes('--forzar-ficha'),
+            nombre: (opt('nombre') && opt('nombre') !== true) ? opt('nombre') : null },
     });
     const nombre = r.despues || r.propuesto || r.antes;
     const linea = {
@@ -950,10 +951,12 @@ async function renombrar() {
         ya_al_dia: `Ya se llama «${r.antes}».`,
         revisar: `NO se toca: ${r.motivo} (propuesto «${r.propuesto}»; con --forzar-ficha si es correcto)`,
         sin_prefijo: `NO se toca: ${r.motivo} (propuesto «${r.propuesto}»)`,
-        sin_agenda: `NO se toca: ${r.motivo}${r.pushname ? ` (en su WhatsApp se llama «${r.pushname}»)` : ''}`,
+        seco_nuevo: `no está en la agenda: se guardaría como «${r.despues}» (en seco: repítelo con --escribir)`,
+        guardado: `✓ guardado en la agenda como «${r.despues}»`,
+        sin_agenda: `NO se toca: ${r.motivo}${r.pushname ? ` (en su WhatsApp se llama «${r.pushname}»)` : ''} — para guardarlo: --nombre "Nombre Apellido (Partner)"`,
     }[r.accion] || JSON.stringify(r);
     console.log(`\nWhatsApp ${r.telefono}: ${linea}`);
-    if (nombre && ['seco', 'renombrado', 'ya_al_dia'].includes(r.accion)) {
+    if (nombre && ['seco', 'renombrado', 'ya_al_dia', 'seco_nuevo', 'guardado'].includes(r.accion)) {
         console.log(`\nTÍTULO DE LA SESIÓN DE CLAUDE: ${nombre}`);
     }
 }

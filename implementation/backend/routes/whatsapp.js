@@ -252,7 +252,8 @@ router.post('/contactos/renombrar-clientes', adminOInterno, async (req, res) => 
     } catch (e) { errorLabels(res, e); }
 });
 
-// POST /api/whatsapp/contactos/renombrar  { telefono, codigo, dryRun?, anteponer?, forzarFicha? }
+// POST /api/whatsapp/contactos/renombrar  { telefono, codigo, dryRun?, anteponer?, forzarFicha?, nombre? }
+// (: para GUARDAR un número que no está en la agenda, con el prefijo delante)
 //
 // UN contacto, el del chat que se acaba de trabajar: lo pide la skill
 // `alta-oportunidad` con el nº de la obra ya decidido (26RES080_OP52 →
@@ -267,6 +268,7 @@ router.post('/contactos/renombrar', adminOInterno, async (req, res) => {
             dryRun: req.body?.dryRun !== false,
             anteponer: req.body?.anteponer === true,
             forzarFicha: req.body?.forzarFicha === true,
+            nombre: typeof req.body?.nombre === 'string' ? req.body.nombre : null,
         }));
     } catch (e) { errorLabels(res, e); }
 });

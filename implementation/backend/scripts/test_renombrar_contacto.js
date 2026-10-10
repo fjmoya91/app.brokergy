@@ -66,12 +66,23 @@ const eq = (a, b, m) => { assert.deepStrictEqual(a, b, m); n++; };
     r = await renombrarUno({ telefono: '34600000004', codigo: '26RES080_OP52', dryRun: false });
     eq(r.accion, 'sin_agenda');
 
+    // …salvo que se le DÉ el nombre: entonces se guarda con el prefijo delante
+    // (26RES060_OP264, el titular escribió por primera vez).
+    r = await renombrarUno({ telefono: '600000004', codigo: '26RES060_OP264', nombre: '  Francisco  Manzano (Jesús Sánchez) ' });
+    eq([r.accion, r.despues], ['seco_nuevo', 'RES060_OP264 Francisco Manzano (Jesús Sánchez)']);
+    r = await renombrarUno({ telefono: '600000004', codigo: '26RES060_OP264', nombre: 'Francisco Manzano (Jesús Sánchez)', dryRun: false });
+    eq(r.accion, 'guardado');
+    // Y un número que YA está en la agenda no se pisa con el nombre que se pase.
+    r = await renombrarUno({ telefono: '34600000002', codigo: '26RES060_OP250', nombre: 'Otro', dryRun: false });
+    eq(r.accion, 'sin_prefijo');
+
     // Datos que no valen: 400 (datoInvalido), nunca un 500.
     for (const [t, c] of [['123', '26RES080_OP52'], ['646359217', 'LOTE-2026-004']]) {
         await assert.rejects(renombrarUno({ telefono: t, codigo: c }), e => e.datoInvalido === true);
         n++;
     }
-    eq(guardados.length, 1, 'solo se guardó el que se pidió de verdad');
+    eq(guardados.length, 2, 'solo se guardó lo que se pidió de verdad');
+    eq(guardados[1], { numero: '34600000004', nombre: 'RES060_OP264 Francisco Manzano (Jesús Sánchez)' });
 
     console.log(`✓ test_renombrar_contacto: ${n} comprobaciones`);
     setTimeout(() => process.exit(0), 50);
