@@ -6,6 +6,7 @@ import AppConfirm from '../../../components/AppConfirm';
 import { EnviarPropuestaModal } from './EnviarPropuestaModal';
 import { computeCeeComparison } from '../logic/ceeComparison';
 import { esPresupuestoEstimado, avisoPresupuestoEstimado, lineaPresupuestoEstimado } from '../logic/presupuestoEstimado';
+import { avisarIrpfBiomasa, avisoIrpfBiomasa, lineaIrpfBiomasa } from '../logic/irpfBiomasa';
 import { lecturaAPresupuesto, HUECOS_PRESUPUESTO, CAMPOS_PRESUPUESTO, huecoDe, huecoActivo } from '../logic/presupuestoLeido';
 // Aviso del factor de corrección (ficha RES060FC en consulta pública): decide si
 // procede ofrecerlo y redacta el párrafo. Fuente única — ver `logic/avisoFc.js`.
@@ -2137,6 +2138,17 @@ info@brokergy.es · 623 926 179`;
     }, [inputs, result]);
 
     /**
+     * Caldera de BIOMASA sin placas: la deducción del IRPF no se puede aplicar (no se
+     * reduce la primaria no renovable) y el bono CAE sí. Se resuelve UNA vez para el
+     * recuadro del documento y el mensaje de envío, como `presInfo`. Fuente única:
+     * logic/irpfBiomasa.js.
+     */
+    const irpfBiomasa = useMemo(() => {
+        const conIrpf = (result?.financials?.irpfCap || 0) > 0 || (result?.financialsRes080?.irpfCap || 0) > 0;
+        return avisarIrpfBiomasa(inputs, { conIrpf });
+    }, [inputs, result]);
+
+    /**
      * ¿Esta propuesta mejoraría con la ficha revisada (factor de corrección)?
      *
      * Trae las dos cifras y cuánto sube, o el MOTIVO por el que no se puede
@@ -2316,6 +2328,7 @@ info@brokergy.es · 623 926 179`;
             });
             txt = `${txt}\n\n⚠️ *Importante — el presupuesto de la obra es estimado.* ${nota}`;
         }
+        if (irpfBiomasa) txt = `${txt}\n\n${lineaIrpfBiomasa()}`;
         if (opts.fc && fcInfo) {
             txt = `${txt}\n\n${lineaFactorCorreccion({
                 actual: fcInfo.actual,
@@ -2325,7 +2338,7 @@ info@brokergy.es · 623 926 179`;
             })}`;
         }
         return txt;
-    }, [buildCaptionBase, presInfo, fcInfo, opcionesComision]);
+    }, [buildCaptionBase, presInfo, irpfBiomasa, fcInfo, opcionesComision]);
 
     const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);
@@ -2721,6 +2734,7 @@ info@brokergy.es · 623 926 179`;
     const avisoPres = presEstimado
         ? avisoPresupuestoEstimado({ conIrpf: presConIrpf, importe: presInfo.importe })
         : null;
+    const avisoBiomasa = irpfBiomasa ? avisoIrpfBiomasa() : null;
     const lineaHibrida = lineaTablaHibridacion(opHibrida);
     const avisoHibrida = avisoHibridacion(opHibrida);
 
@@ -3526,6 +3540,15 @@ info@brokergy.es · 623 926 179`;
                                         <div className="prop-est">
                                             <h4>⚠ {avisoPres.titulo} — propuesta provisional</h4>
                                             {avisoPres.parrafos.map((p, i) => <p key={i}>{p}</p>)}
+                                        </div>
+                                    )}
+
+                                    {/* Biomasa sin placas: la deducción del IRPF de la tabla queda
+                                        condicionada a tenerlas; el bono CAE, no. */}
+                                    {avisoBiomasa && (
+                                        <div className="prop-est">
+                                            <h4>⚠ {avisoBiomasa.titulo}</h4>
+                                            {avisoBiomasa.parrafos.map((p, i) => <p key={i}>{p}</p>)}
                                         </div>
                                     )}
 

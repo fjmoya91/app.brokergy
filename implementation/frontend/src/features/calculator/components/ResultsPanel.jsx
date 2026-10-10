@@ -21,6 +21,7 @@ import ComparativaCeeModal from '../../cee/ComparativaCeeModal';
 import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToColumn } from '../logic/ceeSeed';
 import { computeCeeComparison } from '../logic/ceeComparison';
+import { avisarIrpfBiomasa } from '../logic/irpfBiomasa';
 import realCasesData from '../data/real_cases_db.json';
 import { DocsAdminModal } from './DocsAdminModal';
 import { ErrorBoundary } from '../../../components/ErrorBoundary';
@@ -1026,6 +1027,17 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     {' — '}se ha calculado con {formatNumber(inputs.presupuesto)} € porque aún no hay presupuesto real.
                                     El <strong>bono CAE no cambiará</strong>{result?.financials?.irpfCap > 0 ? ', pero la deducción del IRPF y la inversión neta sí' : ''}.
                                     La propuesta saldrá marcada como provisional; en cuanto se teclee un presupuesto, el aviso desaparece.
+                                </div>
+                            )}
+                            {/* Caldera de biomasa sin placas: la deducción del IRPF de estas tablas
+                                solo se puede aplicar con placas fotovoltaicas; el CAE, siempre.
+                                La propuesta lo dice en su recuadro y en el mensaje (irpfBiomasa.js). */}
+                            {avisarIrpfBiomasa(inputs, { conIrpf: (result?.financials?.irpfCap || 0) > 0 || (result?.financialsRes080?.irpfCap || 0) > 0 }) && (
+                                <div className="mb-4 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-[12px] text-orange-100 leading-relaxed">
+                                    <span className="font-black uppercase tracking-wider text-orange-300">⚠ Biomasa sin placas solares</span>
+                                    {' — '}la <strong>deducción del IRPF</strong> solo se puede aplicar si la vivienda tiene (o pone en esta obra) placas solares fotovoltaicas:
+                                    con pellets o leña, pasar a aerotermia no reduce la energía primaria no renovable.
+                                    El <strong>bono CAE sí</strong> se obtiene. La propuesta lo avisa en su recuadro y en el mensaje de envío.
                                 </div>
                             )}
                             <div className={`grid grid-cols-1 ${result.financialsRes080 && inputs?.comparativaReforma !== false ? 'xl:grid-cols-2' : ''} gap-4`}>

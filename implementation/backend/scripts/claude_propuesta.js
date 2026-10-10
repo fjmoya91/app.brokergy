@@ -185,6 +185,23 @@ async function enviar() {
         await page.waitForSelector('[data-robot="abrir-envio"]', { timeout: 90000 })
             .catch(async () => { throw new Error(`No se abrió la propuesta (captura: ${await foto(page, '2-error')}).`); });
         await espera(4000);   // la portada se ajusta midiendo: que termine
+        // La PORTADA tal y como va a salir, para revisarla antes de enviar (el popup
+        // solo enseña el mensaje). Como `foto`, nunca lanza.
+        try {
+            const portada = await page.$('.prop-page');
+            if (portada) {
+                // La hoja vive en un modal con scroll: con la ventana de 950 px la foto
+                // sale cortada. Se alarga solo para la foto y se devuelve como estaba.
+                const vista = page.viewport();
+                await page.setViewport({ ...vista, height: 2600 });
+                await espera(800);
+                const f = path.join(SALIDA, `${op}-2-portada.png`);
+                await portada.screenshot({ path: f });
+                await page.setViewport(vista);
+                await espera(800);
+                console.log(`  Portada: ${f}`);
+            }
+        } catch { /* sin captura de la portada: el envío sigue igual */ }
         await page.click('[data-robot="abrir-envio"]');
         await page.waitForSelector('[data-robot^="modo-"]', { timeout: 60000 });
         await espera(2500);   // carga de versiones y estado de WhatsApp

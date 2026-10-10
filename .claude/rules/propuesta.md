@@ -32,10 +32,13 @@ paths:
 
 132. **Con los avisos del cliente desviados a otra persona, el TITULAR sigue pudiendo recibir la propuesta** (2026-10-10, 26RES060_OP264): fila `TITULAR` en el popup (sin marcar), solo si su teléfono o email difiere del de la persona de contacto; cuenta como cliente en tuteo, email, aviso del CEE y paso a ENVIADA (también en el envío programado). Y si la oportunidad viene de un colaborador (`cobrand`, nunca BROKERGY), **al titular** se le escribe «En colaboración con {empresa}, te adjuntamos…» en vez de «Tal y como acordamos»; a la persona de contacto, como antes. Robot: `claude_propuesta.js --a titular`. Ver "La propuesta al TITULAR, aunque sus avisos vayan al instalador".
 
+133. **Caldera de BIOMASA (combustible sólido que no es carbón): la deducción del IRPF exige placas solares; el Bono CAE no** (2026-10-10, decisión del usuario, 26RES060_OP274/OP288). Pasar de pellets o leña a aerotermia no reduce la energía primaria NO renovable, que es el requisito de la deducción; el CAE sale del ahorro de energía final y se obtiene igual. Sin placas (ya puestas o en esta obra; «en el futuro» no cuenta) y con deducción en juego, la calculadora lo avisa (`ResultsPanel`) y la propuesta lleva un recuadro bajo la tabla y un párrafo al final del mensaje de envío, **diciendo las dos cosas**. Biomasa = `fuelType` pellets/leña, o caldera `solid_*` que el funnel o la placa dicen de biomasa aunque el desplegable diga carbón (lo pone por defecto). Fuente única: [logic/irpfBiomasa.js](implementation/frontend/src/features/calculator/logic/irpfBiomasa.js). Tras tocarlo: `node implementation/backend/scripts/test_irpf_biomasa.mjs`. Ver "Caldera de BIOMASA: la deducción del IRPF exige placas solares".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
+- `docs/conocimiento/propuesta/biomasa-la-deduccion-del-irpf-exige-placas-solares.md` — Caldera de BIOMASA: la deducción del IRPF exige placas solares; el CAE no (2026-10-10) · 3,2 KB
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01) · 2,7 KB
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 2,4 KB
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,3 KB
@@ -46,6 +49,12 @@ paths:
 
 > Son sus frases en negrita, copiadas tal cual. El porqué y los casos, en el documento.
 
+- `docs/conocimiento/propuesta/biomasa-la-deduccion-del-irpf-exige-placas-solares.md`
+  - **REGLA — el aviso dice las DOS cosas.**
+  - **REGLA — el CARBÓN no entra.**
+  - **REGLA — biomasa se decide por la simulación, no solo por el desplegable.**
+  - **REGLA — placas que cuentan:**
+  - **REGLA — sin deducción en juego no se avisa**
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md`
   - **REGLA — quien prepara la propuesta elige qué cifra es el PRECIO**
   - **REGLA — retirar la caldera es DESMONTARLA Y SACARLA DE LA VIVIENDA.**
