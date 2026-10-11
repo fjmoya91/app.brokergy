@@ -39,6 +39,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { EnvioLoteModal } from '../components/EnvioLoteModal';
+import { PresentarEvaModal } from '../components/PresentarEvaModal';
+import { EncargarPresentacionModal } from '../../expedientes/components/EncargarPresentacionModal';
 import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
 import { TecnicoPicker } from '../../expedientes/components/TecnicoPicker';
 import { EncargoCertificadorModal } from '../../expedientes/components/EncargoCertificadorModal';
@@ -77,6 +79,7 @@ const ROL_PATH = {
     CERTIFICADOR: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
     INSTALADOR: 'M11 4a4 4 0 105.657 5.657l-1.414 1.414 3.536 3.536a2 2 0 01-2.829 2.829l-3.535-3.536-1.415 1.414A4 4 0 1011 4z',
     CLIENTE: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
+    PRESENTADOR: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
 };
 
 function IconoRol({ tipo, className }) {
@@ -87,7 +90,7 @@ function IconoRol({ tipo, className }) {
         </svg>
     );
 }
-const ROL_TXT = { CERTIFICADOR: 'Certificador', INSTALADOR: 'Instalador', CLIENTE: 'Cliente' };
+const ROL_TXT = { CERTIFICADOR: 'Certificador', INSTALADOR: 'Instalador', CLIENTE: 'Cliente', PRESENTADOR: 'Presenta los CEE de Fran' };
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -109,6 +112,8 @@ export function SeguimientoView() {
     // ruta) y la fila cuyo encargo se está preparando.
     const [certificadores, setCertificadores] = useState([]);
     const [encargo, setEncargo] = useState(null);   // { fila, certificador }
+    // CEE de Fran: el encargo de presentarlo a Eva, desde su fila de Revisar.
+    const [presentar, setPresentar] = useState(null);   // fila del radar
 
     const cargar = useCallback(async () => {
         try {
@@ -310,7 +315,8 @@ export function SeguimientoView() {
                                 encargoEnCurso={encargo}
                                 onEncargar={abrirEncargo}
                                 grupoPedirDe={grupoPedirDe}
-                                onPedir={setGrupoAbierto} />
+                                onPedir={setGrupoAbierto}
+                                onPresentar={setPresentar} />
                         ))}
                     </div>
                 )
@@ -337,12 +343,29 @@ export function SeguimientoView() {
                 />
             )}
 
-            {grupoAbierto && (
+            {/* Los CEE de Fran no son un mensaje: cada uno sale con su encargo a Eva. */}
+            {grupoAbierto && grupoAbierto.tipo === 'presentar-cee' && (
+                <PresentarEvaModal
+                    grupo={grupoAbierto}
+                    onCerrar={() => setGrupoAbierto(null)}
+                    onHecho={(n) => { setGrupoAbierto(null); setHechos(h => h + (n || 1)); cargar(); }}
+                />
+            )}
+            {grupoAbierto && grupoAbierto.tipo !== 'presentar-cee' && (
                 <EnvioLoteModal
                     grupo={grupoAbierto}
                     onCerrar={() => setGrupoAbierto(null)}
                     onHecho={(n) => { setGrupoAbierto(null); setHechos(h => h + (n || 1)); cargar(); }}
                 />
+            )}
+
+            {presentar && (
+                <EncargarPresentacionModal isOpen
+                    onClose={() => setPresentar(null)}
+                    apiBase="/api/expedientes"
+                    expedienteId={presentar.expediente_id}
+                    fase={presentar.scope}
+                    onEnviado={() => { setHechos(h => h + 1); cargar(); }} />
             )}
         </div>
     );
@@ -451,7 +474,7 @@ function TarjetaGrupo({ g, onAbrir }) {
                 {/* Acción a todo el ancho y ABAJO: es donde llega el pulgar. */}
                 <button onClick={(ev) => { ev.stopPropagation(); onAbrir(); }}
                     className="mt-3 w-full py-3 rounded-xl bg-brand/10 text-brand text-[12px] font-black uppercase tracking-wider active:bg-brand active:text-bkg-deep transition-colors">
-                    Preparar mensaje
+                    {g.tipo === 'presentar-cee' ? 'Enviar los encargos' : 'Preparar mensaje'}
                 </button>
             </div>
         </div>
@@ -555,7 +578,9 @@ function ResumenRegistra({ filas }) {
 }
 
 /** Una fila del diagnóstico. `enPlazo` la atenúa: está en marcha, no es una tarea. */
-function FilaExpediente({ f, enPlazo }) {
+function FilaExpediente({ f, enPlazo, onPresentar }) {
+    // Un CEE de Fran: el botón le encarga la presentación a Eva (`aEva` del radar).
+    const aEva = f.accion?.tipo === 'presentar-cee' && onPresentar;
     return (
         // El botón va FUERA del enlace, como hermano: un <button> dentro de un <a> es
         // contenido interactivo anidado y el navegador puede acabar haciendo las dos
@@ -580,6 +605,13 @@ function FilaExpediente({ f, enPlazo }) {
                     {textoDias(f.dias, f.sin_fecha)}
                 </span>
             </a>
+            {aEva && (
+                <button type="button" onClick={() => onPresentar(f)}
+                    title={f.registra?.encargado ? 'Ya se le envió: volver a mandárselo (el enlace anterior deja de valer)' : 'Mandarle a Eva el borrador y los tres ficheros para presentarlo'}
+                    className="shrink-0 mr-1 px-3 h-9 rounded-lg border border-brand/30 bg-brand/10 text-brand text-[10px] font-black uppercase tracking-wider hover:bg-brand/20 transition-colors whitespace-nowrap">
+                    ✉ {f.registra?.encargado ? 'Reenviar a Eva' : 'Enviar a Eva'}
+                </button>
+            )}
             <BotonCarpeta f={f} />
         </div>
     );
@@ -595,7 +627,7 @@ function FilaExpediente({ f, enPlazo }) {
  * Por eso el contador de la cabecera cuenta lo PARADO —que es lo que duele— y lo que
  * va en plazo se anuncia aparte, atenuado y bajo su propio rótulo.
  */
-function BloqueDiagnostico({ b, abierto, onToggle, filtrando, certificadores, encargoEnCurso, onEncargar, grupoPedirDe, onPedir }) {
+function BloqueDiagnostico({ b, abierto, onToggle, filtrando, certificadores, encargoEnCurso, onEncargar, grupoPedirDe, onPedir, onPresentar }) {
     const esEncargo = b.bloque === 'SIN_ENCARGAR';
     // Una FUNCIÓN y no un componente definido aquí dentro: un componente nuevo en
     // cada render desmontaría la fila —y con ella el desplegable abierto— cada vez.
@@ -603,7 +635,7 @@ function BloqueDiagnostico({ b, abierto, onToggle, filtrando, certificadores, en
         ? <FilaEncargo key={key} f={f} enPlazo={enPlazo} certificadores={certificadores}
             encargoEnCurso={encargoEnCurso} onEncargar={onEncargar}
             grupoPedir={grupoPedirDe?.get(f.expediente_id)} onPedir={onPedir} />
-        : <FilaExpediente key={key} f={f} enPlazo={enPlazo} />);
+        : <FilaExpediente key={key} f={f} enPlazo={enPlazo} onPresentar={onPresentar} />);
     const t = tono(b.bloque);
     const vencidas = b.filas.filter(f => f.vencida);
     const enPlazo = b.filas.filter(f => !f.vencida);

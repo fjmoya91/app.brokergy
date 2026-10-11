@@ -789,7 +789,10 @@ async function rellenarNombres(filas) {
         for (const f of filas) {
             if (f.certificador_id) f.certificador_nombre = nombre(f.certificador_id);
             if (f.instalador_id) f.instalador_nombre = nombre(f.instalador_id);
-            if (f.bloque === 'REGISTRO') f.registra = quienRegistra(f, map.get(String(f.certificador_id)));
+            if (f.bloque === 'REGISTRO') {
+                f.registra = quienRegistra(f, map.get(String(f.certificador_id)));
+                if (f.registra.casa) aEva(f);
+            }
         }
     }
 }
@@ -828,6 +831,21 @@ function quienRegistra(f, cert) {
 }
 
 /**
+ * Un CEE de Fran sin registrar no se le reclama a Fran —sería escribirse a sí
+ * mismo—: la acción es ENCARGARLE la presentación a Eva (decisión del usuario,
+ * 2026-10-11). No es un mensaje de `seguimientoLote` sino el encargo de siempre
+ * (`presentacionCeeService`: correo con el borrador y los tres ficheros), uno por
+ * expediente; el parte solo los junta en una tarjeta «Eva».
+ * El AVISO es el propio encargo: enviado hace menos de `reinsistir` días, la fila
+ * calla («avisado hace N días»); pasado, se ofrece reenviárselo.
+ */
+function aEva(f) {
+    f.responsable = 'PRESENTADOR';
+    f.accion = { tipo: 'presentar-cee', scope: f.scope, label: 'Enviar a presentar a Eva' };
+    f.aviso = f.presentacion ? { dias: dias(f.presentacion.enviado_at) ?? 0, target: 'PRESENTADOR' } : null;
+}
+
+/**
  * Agrupa lo ACCIONABLE por (tipo de acción + persona concreta a la que hay que
  * escribir). Es la vista de "despachar", frente a `agruparPorBloque`, que es la de
  * "diagnosticar".
@@ -851,6 +869,9 @@ function agruparPorDestinatario(filas) {
         if (!f.accion || f.accion.tipo === 'ver') return null;   // no hay nada que enviar
         const dest = f.responsable === 'CERTIFICADOR'
             ? { tipo: 'CERTIFICADOR', id: f.certificador_id, nombre: f.certificador_nombre }
+            // Quien presenta los CEE de Fran (ver `aEva`): una sola tarjeta para todos.
+            : f.responsable === 'PRESENTADOR'
+            ? { tipo: 'PRESENTADOR', id: 'presentador', nombre: f.presentacion?.nombre || 'Eva' }
             : f.responsable === 'INSTALADOR'
                 ? { tipo: 'INSTALADOR', id: f.instalador_id, nombre: f.instalador_nombre }
                 : { tipo: 'CLIENTE', id: f.cliente_id, nombre: f.cliente_nombre };

@@ -37,6 +37,17 @@ del bloque, el reparto (cuántos tiene cada uno). Lo calcula `quienRegistra` en
 `rellenarNombres` (`f.registra`); del encargo solo viajan el nombre y la fecha, nunca el
 `nonce` del enlace.
 
+**REGLA — a los CEE de Fran no se les «recuerda al certificador»: se le ENCARGAN a Eva**
+(decisión del usuario, 2026-10-11). Era escribirse a uno mismo. `aEva` les cambia la
+acción a `presentar-cee` (responsable `PRESENTADOR`): en Despachar salen en UNA tarjeta
+«Eva» cuyo popup ([PresentarEvaModal.jsx](implementation/frontend/src/features/seguimiento/components/PresentarEvaModal.jsx))
+abre, uno a uno, el MISMO `EncargarPresentacionModal` del módulo CEE (correo con el
+borrador y los tres ficheros); en Revisar, la fila lleva «✉ Enviar a Eva». No es un
+mensaje de `seguimientoLote` ni tiene enlace de un clic en el parte diario (allí sale como
+«abrir el expediente»). El aviso es el propio encargo: enviado hace menos de 3 días
+(`reinsistir` de REGISTRO) la fila calla; pasado, se ofrece «Reenviar a Eva», que le
+cambia el enlace (el popup lo advierte).
+
 **REGLA — `SIN_LOTEAR` es el único bloque que habla de DINERO, no de un documento.** El
 CAE no se emite ni se cobra hasta que el expediente entra en un lote, y ese tramo estaba
 **entero fuera del parte**: 28 expedientes el 07/09/2026, el más viejo de hacía dos

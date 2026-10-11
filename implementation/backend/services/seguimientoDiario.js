@@ -63,9 +63,13 @@ const linkExpediente = (f) => `${FRONTEND()}/?exp=${encodeURIComponent(f.numero_
  * Enlace de la línea. Si la acción es automatizable y no está silenciada por un aviso
  * reciente, va el enlace FIRMADO a la página de confirmación; si no, el expediente.
  */
+// El encargo a Eva no tiene enlace de un clic (`acciones.js`): sale con sus tres
+// ficheros desde la app, así que en el parte cuenta como «abrir el expediente».
+const porEnlace = (f) => f.accion && f.accion.tipo !== 'ver' && f.accion.tipo !== 'presentar-cee';
+
 function enlaceDe(f) {
     const sil = radar.silenciadaPor(f);
-    if (f.accion && f.accion.tipo !== 'ver' && !sil) {
+    if (porEnlace(f) && !sil) {
         return { url: urlAccion(f.accion.tipo, f.expediente_id, f.accion.scope), label: f.accion.label, accionable: true };
     }
     return { url: linkExpediente(f), label: sil ? `Abrir (${sil})` : (f.accion?.label || 'Abrir el expediente'), accionable: false };
@@ -80,7 +84,7 @@ function construirWa(grupos, total, urlParte) {
 
     // Solo lo que se resuelve con un clic desde aquí, lo más grave primero.
     const accionables = grupos.flatMap(g => g.filas.map(f => ({ f, g })))
-        .filter(({ f }) => f.accion && f.accion.tipo !== 'ver' && !radar.silenciadaPor(f));
+        .filter(({ f }) => porEnlace(f) && !radar.silenciadaPor(f));
 
     const muestra = accionables.slice(0, WA_MAX_ACCIONES).map(({ f, g }) => {
         const { url, label } = enlaceDe(f);
