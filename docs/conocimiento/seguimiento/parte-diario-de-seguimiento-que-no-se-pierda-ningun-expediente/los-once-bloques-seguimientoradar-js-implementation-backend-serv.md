@@ -28,6 +28,15 @@ las dos sillas y ningún expediente sale por partida doble diciendo lo mismo. El
 entra solo **mientras bloquee** —o sea, mientras el CIFO no esté firmado—: lo aporta el
 instalador y con el CIFO ya firmado no desbloquea nada.
 
+**REGLA — en `REGISTRO` cada fila dice QUIÉN lo registra** (decisión del usuario,
+2026-10-11): el técnico que lo firma («Luis», «Raquel») y, si lo firma el de la CASA (por
+CIF, como `esDeBrokergy`), «Fran (Eva)», porque esos los presenta Eva. Si la presentación
+ya se encargó (`cee.presentacion[fase].enviado_at` sin `registrado_at`), entre paréntesis va
+a quién se le encargó; un «Fran (Eva)» sin encargo sale en ámbar «· sin enviarle». Encima
+del bloque, el reparto (cuántos tiene cada uno). Lo calcula `quienRegistra` en
+`rellenarNombres` (`f.registra`); del encargo solo viajan el nombre y la fecha, nunca el
+`nonce` del enlace.
+
 **REGLA — `SIN_LOTEAR` es el único bloque que habla de DINERO, no de un documento.** El
 CAE no se emite ni se cobra hasta que el expediente entra en un lote, y ese tramo estaba
 **entero fuera del parte**: 28 expedientes el 07/09/2026, el más viejo de hacía dos

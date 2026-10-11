@@ -518,6 +518,42 @@ function BotonCarpeta({ f }) {
     );
 }
 
+/**
+ * ¿Quién tiene que REGISTRAR este CEE? Lo decide el backend (`quienRegistra` en
+ * seguimientoRadar.js): el técnico que lo firma, y si lo firma Fran, Eva. En ámbar
+ * cuando es de Eva y el encargo de presentarlo aún no le ha salido.
+ */
+function QuienRegistra({ r }) {
+    const sinEnviar = r.casa && !r.encargado;
+    return (
+        <span title={sinEnviar ? 'Lo presenta Eva, pero aún no se le ha enviado el encargo («✉ Enviar a presentar»)'
+            : r.encargado ? 'Encargo de presentación enviado' : 'Lo registra el técnico que lo firma'}
+            className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold whitespace-nowrap ${
+                sinEnviar ? 'bg-amber-500/10 text-amber-400' : 'bg-sky-500/10 text-sky-300'}`}>
+            {r.etiqueta}{sinEnviar ? ' · sin enviarle' : ''}
+        </span>
+    );
+}
+
+/** El reparto del bloque de registro: cuántos tiene cada uno (parados y en plazo). */
+function ResumenRegistra({ filas }) {
+    const por = new Map();
+    for (const f of filas) {
+        if (!f.registra) continue;
+        const k = f.registra.etiqueta;
+        por.set(k, (por.get(k) || 0) + 1);
+    }
+    if (!por.size) return null;
+    return (
+        <div className="px-4 pt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+            {[...por.entries()].sort((a, b) => b[1] - a[1]).map(([n, c]) => (
+                <span key={n} className="font-black text-sky-300">{n} <span className="tabular-nums">{c}</span></span>
+            ))}
+            <span className="text-white/25">· quién lo registra</span>
+        </div>
+    );
+}
+
 /** Una fila del diagnóstico. `enPlazo` la atenúa: está en marcha, no es una tarea. */
 function FilaExpediente({ f, enPlazo }) {
     return (
@@ -535,6 +571,7 @@ function FilaExpediente({ f, enPlazo }) {
                             <span className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[9px] font-bold text-white/35 whitespace-nowrap">{f.silenciada}</span>
                         )}
                         {f.material && <MaterialCee m={f.material} />}
+                        {f.registra && <QuienRegistra r={f.registra} />}
                     </span>
                     <span className="block text-[11px] text-white/60 leading-snug mt-0.5">{f.detalle}</span>
                     <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
@@ -595,6 +632,7 @@ function BloqueDiagnostico({ b, abierto, onToggle, filtrando, certificadores, en
                 <div className="border-t border-white/[0.06]">
                     {b.nota && <p className="px-4 pt-3 text-[11px] text-white/35 leading-relaxed">{b.nota}</p>}
                     {esEncargo && <ResumenMaterial filas={b.filas} />}
+                    {b.bloque === 'REGISTRO' && <ResumenRegistra filas={b.filas} />}
                     <div className="p-2 space-y-0.5">
                         {vencidas.map((f, i) => fila(f, `v-${f.expediente_id}-${i}`, false))}
                         {enPlazo.length > 0 && (
