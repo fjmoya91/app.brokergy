@@ -310,8 +310,16 @@ const textoAviso = (row, ph, contacto, factura) => require('./recordatorios').ce
     destinatario: contacto.nombre, numExp: row.numero_expediente,
     fase: svc.faseCliente(row, ph), cobrado: !!row.cobrado,
     tercero: contacto.tercero, obra: contacto.tercero ? svc.obraDe(row) : null,
-    factura
+    factura,
+    // El inicial de un DOBLE sin factura: el cobro se deja para el final.
+    cobroAlFinal: estados.esDoble(row) && ph === 'inicial'
 });
+
+/** Texto del aviso SIN certificados (no cobrado y sin factura) — el que manda la rejilla. */
+const textoSinCobrar = (row, fase) => {
+    const ph = uploads.normalizePhase(fase);
+    return textoAviso(row, ph, svc.contactoCliente(row.cliente), null);
+};
 
 /**
  * Lo que enseña el popup «Avisar al cliente» antes de mandar nada: a quién (la
@@ -427,6 +435,7 @@ module.exports = {
     autoActivado,
     estado,
     mensaje,
+    textoSinCobrar,
     entregar,
     intentarEntregaAsync
 };

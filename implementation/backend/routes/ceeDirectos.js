@@ -1924,7 +1924,8 @@ router.post('/:id/documents/repair-cee-links', staffOnly, async (req, res) => {
 // ⚠️ EL CANDADO DE COBRO SE COMPRUEBA AQUÍ, no solo en la pantalla del cliente.
 // Este es el otro camino por el que el certificado puede salir de la app, y un
 // candado que solo vive en el portal no es un candado: basta con pulsar "enviar"
-// desde el panel para saltárselo sin querer.
+// desde el panel para saltárselo sin querer. Sin cobrar, lo que sale es el aviso
+// de «registrado» SIN ningún fichero (ver más abajo).
 router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
     try {
         const row = await svc.cargar(req.params.id);
@@ -1947,21 +1948,46 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
         // El texto editado en la preview viaja en `overrides.CLIENTE`.
         const textoEditado = String(req.body?.overrides?.CLIENTE || req.body?.customMessage || '').trim();
 
+        // SIN COBRAR se envía igual, pero SIN los certificados (2026-10-12): es el
+        // aviso de «registrado» (`avisarRegistrado`, sin factura). En el INICIAL de
+        // un encargo DOBLE el texto le pide que avise cuando la instalación esté
+        // hecha y facturada: la factura va con el final. El candado no se mueve —
+        // los ficheros salen solos al marcar cobrado—.
         if (preview) {
             const st = await entrega.estado(row, phase);
             return res.json({
                 ok: true,
-                preview: { CLIENTE: textoEditado || entrega.mensaje(row, phase, { textoGuia: st.guia?.va ? st.guia.texto : '' }) },
+                preview: {
+                    CLIENTE: textoEditado || (row.cobrado
+                        ? entrega.mensaje(row, phase, { textoGuia: st.guia?.va ? st.guia.texto : '' })
+                        : entrega.textoSinCobrar(row, phase))
+                },
                 cobrado: row.cobrado,
+                sinCertificado: !row.cobrado,
                 destinatario: st.destinatario
             });
         }
 
-        // ⚠️ El candado de cobro lo comprueba `entregar` (FALTAN_REQUISITOS).
+        const aQuien = svc.contactoCliente(row.cliente).nombre || nombreCliente(row.cliente) || 'Cliente';
+
         if (!row.cobrado) {
-            return res.status(409).json({
-                error: 'Este expediente todavía no está marcado como cobrado. El certificado no se entrega hasta entonces.',
-                motivo: 'NO_COBRADO'
+            const r = await entrega.avisarRegistrado(row.id, phase, {
+                manual: true, channels: canalesDe(req), usuario: req.user?.email || null,
+                mensaje: textoEditado || entrega.textoSinCobrar(row, phase)
+            });
+            if (!r.enviado) {
+                return res.status(r.motivo === 'SIN_CONTACTO' ? 422 : 502).json({
+                    error: r.motivo === 'SIN_CONTACTO' ? 'El cliente no tiene ni email ni teléfono en su ficha.' : 'No se pudo enviar el aviso.',
+                    ...r
+                });
+            }
+            return res.json({
+                ok: true, sinCertificado: true,
+                channels: {
+                    email: r.canales.includes('email') ? [aQuien] : [],
+                    whatsapp: r.canales.includes('whatsapp') ? [aQuien] : []
+                },
+                enviados: r.canales
             });
         }
 
@@ -1976,7 +2002,6 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
 
         // La rejilla enseña el resultado leyendo `channels.email` / `channels.whatsapp`
         // (nombres de los destinatarios).
-        const aQuien = svc.contactoCliente(row.cliente).nombre || nombreCliente(row.cliente) || 'Cliente';
         res.json({
             ok: true,
             channels: {
