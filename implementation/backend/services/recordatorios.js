@@ -312,7 +312,11 @@ function encargoCeeDirectoClienteMsg({ destinatario, numExp, fase, tecnico = nul
  * casa: los certificados se envían una vez abonada, y se le pide el justificante
  * de pago (la entrega sale sola al marcar cobrado).
  */
-function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = false, tercero = false, obra = null, factura = null }) {
+// `cobroAlFinal`: el INICIAL de un encargo DOBLE sin cobrar. No se le reclama el
+// pago todavía: se le pide que avise cuando la instalación esté hecha y facturada,
+// y con el FINAL va la factura; los certificados, cuando esté abonada (el candado
+// de cobro no se mueve). El cobro se puede reclamar con el inicial o con el final.
+function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = false, tercero = false, obra = null, factura = null, cobroAlFinal = false }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const cert = fase === 'final' ? 'certificado de eficiencia energética final'
         : fase === 'inicial' ? 'certificado de eficiencia energética inicial'
@@ -331,6 +335,9 @@ function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = 
               + `los certificados se envían una vez abonada la factura: puede pagarse por transferencia `
               + `(BBVA · ES10 0182 0394 3002 0175 3286).\n\nCuando esté pagada, ${tercero ? 'enviadnos' : 'envíanos'} por aquí el *justificante de pago* `
               + `y ${tu} mandamos el certificado ${papeles}.`
+            : cobroAlFinal
+                ? `Cuando la instalación esté terminada y facturada, ${tercero ? 'avisadnos' : 'avísanos'} y emitiremos el *certificado de eficiencia energética final*. `
+                  + `Entonces ${tu} enviaremos nuestra factura y, una vez abonada, los dos certificados (inicial y final) ${papeles}.`
             : `${tercero ? 'Os' : 'Te'} lo enviamos, ${papeles}, en cuanto recibamos el pago del presupuesto por transferencia (BBVA · ES10 0182 0394 3002 0175 3286). ${tercero ? 'Si ya lo habéis hecho, no hace falta que hagáis' : 'Si ya lo has hecho, no hace falta que hagas'} nada más.`;
     return `${hola}\n\n✅ El *${cert}*${deQue} (expediente *${numExp}*) ya está *registrado* en Industria.\n\n${cierre}\n\n¡Gracias!\n${FIRMA}`;
 }

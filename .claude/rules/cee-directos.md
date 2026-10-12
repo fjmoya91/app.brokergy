@@ -26,7 +26,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/asignar-y-reasignar-certificador.md` — Asignar y REASIGNAR certificador · 2,6 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/descuento-cuestionario-de-climatizacion-y-documentacion-del-cee.md` — Descuento, cuestionario de climatización y documentación del CEE (2026-09-23) · 2,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/drive.md` — Drive · 0,8 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-candado-de-cobro.md` — El candado de cobro · 0,6 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-candado-de-cobro.md` — El candado de cobro · 1,5 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-cliente-es-el-de-siempre-y-desde-su-ficha-se-llega-al-cee.md` — El cliente es el de siempre, y desde su ficha se llega al CEE · 1,5 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-formulario-se-guarda-solo-y-eso-tiene-una-trampa.md` — El formulario se guarda solo, y eso tiene una trampa · 1,4 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-historico-importado.md` — El histórico importado · 1,1 KB

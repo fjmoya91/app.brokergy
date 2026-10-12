@@ -237,12 +237,18 @@ function detectarRegistro(e, out) {
             }));
             continue;
         }
+        // A quién se le encargó PRESENTARLO (Eva, `presentacionCeeService`): solo el
+        // nombre y si salió, nunca el nonce del enlace. Quién registra lo decide
+        // `quienRegistra`, ya con el certificador a la vista (rellenarNombres).
+        const pres = e.presentacion?.[f.scope];
         out.push(fila(e, 'REGISTRO', {
             scope: f.scope, desde, d,
             detalle: `${f.label} · visto bueno dado, falta registrar`,
             responsable: 'CERTIFICADOR',
             accion: { tipo: 'cert-registro', scope: f.scope, label: 'Recordar al certificador' },
             aviso: ultimoAviso(e.recordatorios, `cert-registro:${f.scope}`),
+            presentacion: pres?.enviado_at && !pres?.registrado_at
+                ? { nombre: pres.nombre || pres.email || null, enviado_at: pres.enviado_at } : null,
         }));
     }
 }
@@ -622,6 +628,7 @@ function fila(e, bloque, extra) {
         accion: extra.accion || null,
         aviso: extra.aviso || null,
         material: extra.material || null,
+        presentacion: extra.presentacion || null,
         cee_folder_link: e.cee_folder_link || null,
     };
 }
@@ -648,6 +655,7 @@ async function escanear(opts = {}) {
             oportunidades(instalador_asociado_id,prescriptor_id,uploads:datos_calculo->reforma_uploads),
             certificador_id:cee->>certificador_id,
             cee_folder_link:cee->>cee_folder_link,
+            presentacion:cee->presentacion,
             fin_obra:documentacion->>fecha_fin_obra_comunicada,
             fecha_registro_ini:documentacion->>fecha_registro_cee_inicial,
             reg_fin:documentacion->>fecha_registro_cee_final,
@@ -774,15 +782,67 @@ async function rellenarNombres(filas) {
     if (partnerIds.length) {
         const { data } = await supabase
             .from('prescriptores')
-            .select('id_empresa, razon_social, acronimo')
+            .select('id_empresa, razon_social, acronimo, nombre_responsable, cif, empresa_cif')
             .in('id_empresa', partnerIds);
         const map = new Map((data || []).map(p => [String(p.id_empresa), p]));
         const nombre = (id) => { const p = map.get(String(id)); return p?.razon_social || p?.acronimo || null; };
         for (const f of filas) {
             if (f.certificador_id) f.certificador_nombre = nombre(f.certificador_id);
             if (f.instalador_id) f.instalador_nombre = nombre(f.instalador_id);
+            if (f.bloque === 'REGISTRO') {
+                f.registra = quienRegistra(f, map.get(String(f.certificador_id)));
+                if (f.registra.casa) aEva(f);
+            }
         }
     }
+}
+
+// Mismo criterio que `esDeBrokergy` (ceeFirmaService): por el CIF, nunca por el nombre.
+const CIF_BROKERGY = 'B19350222';
+const esDeLaCasa = (p) => {
+    const limpio = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return !!p && (limpio(p.empresa_cif) === CIF_BROKERGY || limpio(p.cif) === CIF_BROKERGY);
+};
+// «LUIS ALBERTO» → «Luis»: en la fila basta con reconocer a la persona.
+const nombreCorto = (s) => {
+    const w = String(s || '').trim().split(/\s+/)[0] || '';
+    return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : null;
+};
+
+/**
+ * ¿A quién le toca REGISTRAR este CEE? Al técnico que lo firmó, salvo que lo firme
+ * el de la CASA (Fran): eso lo presenta Eva (decisión del usuario, 2026-10-11; ver
+ * «con el certificador de la CASA, Validar es encargar la presentación»). Si la
+ * presentación ya se le encargó a alguien, manda a quién se le encargó.
+ * `pendiente`: es de Eva y el encargo todavía no le ha salido — sin él, no lo sabe.
+ */
+function quienRegistra(f, cert) {
+    const casa = esDeLaCasa(cert);
+    // El de la casa es «Fran» en todo el equipo; su ficha dice FRANCISCO JAVIER.
+    const tecnico = casa ? 'Fran'
+        : nombreCorto(cert?.nombre_responsable || cert?.razon_social || f.certificador_nombre) || 'Sin técnico';
+    const presentador = f.presentacion ? (nombreCorto(f.presentacion.nombre) || 'Presentador') : (casa ? 'Eva' : null);
+    return {
+        // «Luis» · «Raquel» · «Fran (Eva)»: el técnico y, entre paréntesis, quién lo presenta.
+        etiqueta: presentador ? `${tecnico} (${presentador})` : tecnico,
+        casa,
+        encargado: !!f.presentacion,
+    };
+}
+
+/**
+ * Un CEE de Fran sin registrar no se le reclama a Fran —sería escribirse a sí
+ * mismo—: la acción es ENCARGARLE la presentación a Eva (decisión del usuario,
+ * 2026-10-11). No es un mensaje de `seguimientoLote` sino el encargo de siempre
+ * (`presentacionCeeService`: correo con el borrador y los tres ficheros), uno por
+ * expediente; el parte solo los junta en una tarjeta «Eva».
+ * El AVISO es el propio encargo: enviado hace menos de `reinsistir` días, la fila
+ * calla («avisado hace N días»); pasado, se ofrece reenviárselo.
+ */
+function aEva(f) {
+    f.responsable = 'PRESENTADOR';
+    f.accion = { tipo: 'presentar-cee', scope: f.scope, label: 'Enviar a presentar a Eva' };
+    f.aviso = f.presentacion ? { dias: dias(f.presentacion.enviado_at) ?? 0, target: 'PRESENTADOR' } : null;
 }
 
 /**
@@ -809,6 +869,9 @@ function agruparPorDestinatario(filas) {
         if (!f.accion || f.accion.tipo === 'ver') return null;   // no hay nada que enviar
         const dest = f.responsable === 'CERTIFICADOR'
             ? { tipo: 'CERTIFICADOR', id: f.certificador_id, nombre: f.certificador_nombre }
+            // Quien presenta los CEE de Fran (ver `aEva`): una sola tarjeta para todos.
+            : f.responsable === 'PRESENTADOR'
+            ? { tipo: 'PRESENTADOR', id: 'presentador', nombre: f.presentacion?.nombre || 'Eva' }
             : f.responsable === 'INSTALADOR'
                 ? { tipo: 'INSTALADOR', id: f.instalador_id, nombre: f.instalador_nombre }
                 : { tipo: 'CLIENTE', id: f.cliente_id, nombre: f.cliente_nombre };

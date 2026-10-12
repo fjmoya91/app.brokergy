@@ -934,6 +934,8 @@ Según el documento:
     // Previsualización editable por destinatario (lo que se enviará por WhatsApp).
     const [resendMessages, setResendMessages] = useState({}); // { CLIENTE, PARTNER, ADMIN }
     const [resendPreviewLoading, setResendPreviewLoading] = useState(false);
+    // CEE directo sin cobrar: el reenvío sale SIN los certificados (lo dice el backend en la preview).
+    const [resendSinCertificado, setResendSinCertificado] = useState(false);
     // Acceso directo al modal "Solicitar lo que falta" desde la tarjeta CEE.
     const [showSolicitarModal, setShowSolicitarModal] = useState(false);
     // Estado de WhatsApp (barrido previo al envío) + overlay estándar + puerta de conexión.
@@ -1064,6 +1066,7 @@ Según el documento:
         setResendTargets(['CLIENTE', ...(hasPartner ? ['PARTNER'] : []), 'ADMIN']);
         setResendChannels(['email', 'whatsapp']);
         setResendMessages({});
+        setResendSinCertificado(false);
         setWaStatus(null);
         setResendNotifModal({ section });
         // Cargar la previsualización (textos por destinatario) sin enviar nada.
@@ -1075,6 +1078,7 @@ Según el documento:
                 axios.get('/api/whatsapp/status').catch(() => null),
             ]);
             if (data?.preview) setResendMessages(data.preview);
+            setResendSinCertificado(!!data?.sinCertificado);
             if (waRes?.data) setWaStatus(waRes.data);
         } catch (err) {
             console.warn('[resend-cee-notifications preview]', err.message);
@@ -3338,6 +3342,17 @@ Según el documento:
                                         <span className={`text-[10px] font-bold ${waStatus?.state === 'READY' ? 'text-emerald-400/80' : 'text-red-400/80'}`}>
                                             {waStatus == null ? 'Comprobando WhatsApp…' : waStatus.state === 'READY' ? 'WhatsApp conectado' : 'WhatsApp desconectado · se pedirá conectar al enviar'}
                                         </span>
+                                    </div>
+                                )}
+
+                                {resendSinCertificado && (
+                                    <div className="w-full -mt-2 mb-6 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-left">
+                                        <p className="text-[11px] text-amber-300 font-bold leading-relaxed">
+                                            Aún no está cobrado: se envía el aviso SIN los certificados.
+                                        </p>
+                                        <p className="text-[10px] text-amber-200/70 leading-relaxed mt-1">
+                                            El certificado firmado, el registro y la etiqueta salen solos al marcarlo como cobrado.
+                                        </p>
                                     </div>
                                 )}
 
