@@ -10,6 +10,8 @@ import { DocumentacionCee } from '../components/DocumentacionCee';
 import { FacturaCeeModal } from '../components/FacturaCeeModal';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
+import { GuiaIrpfModal } from '../../expedientes/components/GuiaIrpfModal';
+import { fechaEs } from '../../expedientes/logic/guiaIrpf';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ficha de un CEE contratado suelto.
@@ -46,6 +48,7 @@ export function CeeDirectoDetailView({ id, onBack }) {
     const [showDatos, setShowDatos] = useState(false);
     const [showPartner, setShowPartner] = useState(false);
     const [showFactura, setShowFactura] = useState(false);
+    const [showGuia, setShowGuia] = useState(false);
     // Pestaña de la ficha: el certificado (a lo que se entra) o la documentación
     // que aporta el cliente. Las dos se quedan MONTADAS: la de documentación tiene
     // que poder contar lo que falta y lo que hay por validar sin abrirla.
@@ -280,6 +283,26 @@ export function CeeDirectoDetailView({ id, onBack }) {
                                 </button>
                             );
                         })()}
+                        {/* ACCESO DIRECTO a la guía de la Renta: el botón de verdad
+                            está al final del módulo CEE, debajo de las dos filas, y
+                            cuando se cobra hay que bajar a buscarlo. Abre el MISMO
+                            popup (certificados firmados + guía del IRPF). Solo si hay
+                            un "antes" con el que comparar: las dos fases, o el CEE
+                            anterior que trajo el cliente. */}
+                        {isStaff && (esDoble || expediente.cee?.cee_anterior) && (() => {
+                            const enviada = expediente.documentacion?.guia_irpf?.enviada;
+                            return (
+                                <button onClick={() => setShowGuia(true)}
+                                    title={enviada
+                                        ? `Guía de la Renta enviada el ${fechaEs(String(enviada.at || '').slice(0, 10))}. Pulsa para verla o reenviarla.`
+                                        : 'Enviar al cliente sus certificados firmados y la guía de la deducción del IRPF'}
+                                    className={`min-h-[44px] px-4 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-colors ${enviada
+                                        ? 'border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/10'
+                                        : 'border-brand/40 text-brand hover:bg-brand hover:text-black'}`}>
+                                    🧾 {enviada ? 'Guía Renta ✓' : 'Guía de la Renta'}
+                                </button>
+                            );
+                        })()}
                         {isStaff && expediente.drive_folder_link && (
                             <a href={expediente.drive_folder_link} target="_blank" rel="noreferrer"
                                 className="min-h-[44px] px-4 inline-flex items-center rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white hover:border-white/25 transition-colors">
@@ -397,6 +420,11 @@ export function CeeDirectoDetailView({ id, onBack }) {
             {isAdmin && (
                 <FacturaCeeModal isOpen={showFactura} onClose={() => setShowFactura(false)}
                     expedienteId={expediente.id} onCambio={() => cargar(true)} />
+            )}
+
+            {isStaff && (
+                <GuiaIrpfModal isOpen={showGuia} onClose={() => setShowGuia(false)}
+                    expedienteId={expediente.id} apiBase={API} onEnviado={() => cargar(true)} />
             )}
 
             {showCliente && expediente.cliente_id && (

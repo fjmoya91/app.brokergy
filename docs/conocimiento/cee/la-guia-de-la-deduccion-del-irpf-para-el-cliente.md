@@ -10,6 +10,15 @@ banda oscura con el lema), que le dice qué deducción aplicarse, dónde se marc
 Renta Web y todos los datos que le va a pedir, ya rellenos. La guía se guarda en Drive
 y el cliente la descarga también desde su portal (`/mi-expediente`).
 
+**Acceso directo en la cabecera del CEE directo (2026-10-13)**: el botón de abajo queda
+debajo de las dos filas y de «Cargar CEE por fichero», y al cobrar no se encontraba. En
+[CeeDirectoDetailView.jsx](implementation/frontend/src/features/cee-directo/views/CeeDirectoDetailView.jsx)
+hay un **🧾 Guía de la Renta** junto a «Factura» que abre el MISMO `GuiaIrpfModal` (no una
+copia). Sale en las mismas condiciones que el de abajo (DOBLE, o ÚNICO con `cee_anterior`;
+solo equipo) y en verde «Guía Renta ✓» si `guia_irpf.enviada` existe. Ojo: la que sale
+sola con la entrega lleva los ficheros de la entrega (los del CEE final) + la guía; el
+envío desde el popup lleva el CEE inicial Y el final firmados + la guía.
+
 | Qué | Dónde |
 |---|---|
 | Qué deducción, estimación, texto del mensaje y HTML del PDF (fuente única) | [logic/guiaIrpf.js](implementation/frontend/src/features/expedientes/logic/guiaIrpf.js) |
