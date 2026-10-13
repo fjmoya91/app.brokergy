@@ -1101,25 +1101,39 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
     // largo nadie lo veía, y así es lo último que queda en el chat.
     // Si falla NO se lanza: el texto y el PDF ya han llegado, y quien llama los
     // reintentaría duplicándolos. Se devuelve aparte (`despues`) para que lo diga.
+    // Puede ser una LISTA (2026-10-10): cada uno en su burbuja y en orden — el
+    // enlace para aceptar y, detrás, un aviso que no se puede perder (biomasa →
+    // IRPF solo con placas). Si uno falla, los de detrás no salen: llegarían
+    // desordenados y el que falta es justo el que hay que pasar a mano.
     let despues;
-    const tras = (textoDespues || '').trim();
-    if (tras) {
-        try {
-            await sleep(randomDelay());        // pausa humana entre el PDF y el enlace
-            await waitForRateSlot();
-            await sendTypingThenWait();
-            const r2 = await withTimeout(
-                client.sendMessage(chatId, tras, { waitUntilMsgSent: true, sendSeen: SEND_SEEN }),
-                60_000, 'sendMessage(texto-despues)',
-            );
-            await confirmarEntrega(r2, `texto tras el adjunto → ${chatId}`);
-            sentTimestamps.push(Date.now());
-            despues = { ok: true, id: r2?.id?._serialized || null };
-            console.log(`[wwa] Texto posterior al adjunto enviado a ${chatId}.`);
-        } catch (err) {
-            console.warn('[wwa] No se pudo enviar el texto posterior al adjunto:', err.message);
-            despues = { ok: false, error: err.message };
+    const tras = (Array.isArray(textoDespues) ? textoDespues : [textoDespues])
+        .map(t => String(t || '').trim()).filter(Boolean);
+    if (tras.length) {
+        const partes = [];
+        for (let i = 0; i < tras.length; i++) {
+            try {
+                await sleep(randomDelay());        // pausa humana entre mensajes
+                await waitForRateSlot();
+                await sendTypingThenWait();
+                const r2 = await withTimeout(
+                    client.sendMessage(chatId, tras[i], { waitUntilMsgSent: true, sendSeen: SEND_SEEN }),
+                    60_000, 'sendMessage(texto-despues)',
+                );
+                await confirmarEntrega(r2, `texto ${i + 1} tras el adjunto → ${chatId}`);
+                sentTimestamps.push(Date.now());
+                partes.push({ ok: true, id: r2?.id?._serialized || null });
+                console.log(`[wwa] Texto ${i + 1}/${tras.length} posterior al adjunto enviado a ${chatId}.`);
+            } catch (err) {
+                console.warn(`[wwa] No se pudo enviar el texto ${i + 1} posterior al adjunto:`, err.message);
+                partes.push({ ok: false, error: err.message });
+                for (let j = i + 1; j < tras.length; j++) partes.push({ ok: false, error: 'no enviado: falló el anterior' });
+                break;
+            }
         }
+        const fallo = partes.find(p => !p.ok);
+        despues = fallo
+            ? { ok: false, error: fallo.error, partes }
+            : { ok: true, id: partes[0]?.id || null, partes };
     }
 
     return {

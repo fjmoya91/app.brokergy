@@ -84,6 +84,7 @@ export function EnviarPropuestaModal({
     candidates = [],            // [{ mode, label, sublabel, email, phone }]
     buildDefaultMessage,        // (mode, name) => string
     buildAcceptMessage,         // (mode) => string — el enlace para aceptar, en mensaje APARTE
+    buildAvisoFinal,            // (mode) => string|null — aviso que no se puede perder: ÚLTIMA burbuja
     getPdfHtml,                 // () => html (para el PDF de WhatsApp)
     getEmailHtml,               // () => html (para el PDF del email)
     buildSummaryData,           // (mode, name) => summaryData (plantilla email)
@@ -507,6 +508,16 @@ export function EnviarPropuestaModal({
     // botón «Aceptar y firmar» debajo del texto.
     const aceptacionFor = (c) => (buildAcceptMessage ? buildAcceptMessage(c.mode) || null : null);
 
+    // ── El ÚLTIMO mensaje: un aviso que no se puede perder ───────────────────
+    // (2026-10-10, biomasa → la deducción del IRPF solo con placas). Por
+    // WhatsApp va en su burbuja DESPUÉS del enlace, lo último del chat; en el
+    // email, que es un solo cuerpo, al final del texto.
+    const avisoFinalFor = (c) => (buildAvisoFinal ? buildAvisoFinal(c.mode) || null : null);
+    const conAvisoFinal = (texto, c) => {
+        const aviso = avisoFinalFor(c);
+        return aviso ? `${texto}\n\n${aviso}` : texto;
+    };
+
     // ── El PLAN de envío, ya decidido ────────────────────────────────────────
     // Lo mismo que recorre `handleSend`, pero como DATO. Es lo que se guarda al
     // programar: el despachador del servidor lo replica sin volver a decidir a
@@ -528,7 +539,7 @@ export function EnviarPropuestaModal({
                     label: principal.label,
                     userName: nombre,
                     summaryData: buildSummaryData ? buildSummaryData(mode, nombre) : { id: numexpte },
-                    mensaje: messageFor(principal),
+                    mensaje: conAvisoFinal(messageFor(principal), principal),
                 };
             }
             const whatsapps = doWa
@@ -537,6 +548,7 @@ export function EnviarPropuestaModal({
                     phone: String(c.phone).replace(/[^0-9]/g, ''),
                     mensaje: messageFor(c),
                     mensajeAceptacion: aceptacionFor(c),
+                    avisoFinal: avisoFinalFor(c),
                 }))
                 : [];
             if (email || whatsapps.length) gruposPlan.push({ modo: mode, email, whatsapps });
@@ -671,7 +683,7 @@ export function EnviarPropuestaModal({
             if (doEmail && conEmail.length) {
                 const principal = conEmail[0];
                 const copia = conEmail.slice(1).map(c => c.email);
-                const msg = messageFor(principal);
+                const msg = conAvisoFinal(messageFor(principal), principal);
                 const nombre = saludoDe(principal) || principal.label;
                 try {
                     await postEmail('/api/pdf/send-proposal', {
@@ -711,14 +723,18 @@ export function EnviarPropuestaModal({
                         caption: messageFor(c),
                         media: { base64: waPdf, filename, mimetype: 'application/pdf' },
                         asDocument: true,
-                        textoDespues: aceptacionFor(c),
+                        // En orden y cada uno en su burbuja: el enlace y, el
+                        // último, el aviso que no se puede perder.
+                        textoDespues: [aceptacionFor(c), avisoFinalFor(c)].filter(Boolean),
                     });
                     out.push({ channel: 'whatsapp', status: 'ok', text: `${c.label} → ${c.phone}` });
-                    // El PDF llegó pero el enlace no: se dice, porque es justo lo
-                    // que le va a faltar para aceptar. No se reintenta: el texto y
+                    // El PDF llegó pero el enlace (o el aviso) no: se dice, porque
+                    // es justo lo que le va a faltar. No se reintenta: el texto y
                     // el PDF ya están en el chat y repetirlos los duplica.
                     if (wa?.despues && wa.despues.ok === false) {
-                        out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: llegó la propuesta, pero NO el mensaje con el enlace para aceptar (${wa.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
+                        const nombres = [aceptacionFor(c) && 'el enlace para aceptar', avisoFinalFor(c) && 'el aviso final'].filter(Boolean);
+                        const faltan = (wa.despues.partes || []).map((p, i) => (p.ok ? null : nombres[i])).filter(Boolean);
+                        out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: llegó la propuesta, pero NO ${faltan.join(' ni ') || 'el mensaje de después del PDF'} (${wa.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
                     }
                     if (mode === 'CLIENTE' || mode === 'TITULAR') clienteOk = true;
                 } catch (err) {
@@ -1070,6 +1086,20 @@ export function EnviarPropuestaModal({
                                 <p className="mt-2 text-[9px] text-white/30 leading-relaxed">
                                     Por WhatsApp sale aparte, después del PDF, para que el enlace no se pierda en el texto.
                                     En el email no se repite: el correo ya lleva el botón «Aceptar y firmar».
+                                </p>
+                            </div>
+                        )}
+                        {/* El ÚLTIMO mensaje, si lo hay (biomasa → IRPF solo con placas). */}
+                        {buildAvisoFinal && buildAvisoFinal(primaryMode) && (
+                            <div data-robot="aviso-final" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3">
+                                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-400/90 mb-1.5">
+                                    {buildAcceptMessage ? '3er' : '2º'} mensaje · aviso importante
+                                </p>
+                                <p className="whitespace-pre-wrap break-words text-[12px] text-white/70 leading-relaxed">
+                                    {buildAvisoFinal(primaryMode)}
+                                </p>
+                                <p className="mt-2 text-[9px] text-white/30 leading-relaxed">
+                                    Por WhatsApp sale aparte y el último, para que no se pierda. En el email va al final del texto.
                                 </p>
                             </div>
                         )}

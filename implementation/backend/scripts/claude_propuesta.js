@@ -267,6 +267,8 @@ async function enviar() {
             return [...caja.querySelectorAll('p, div')].map(e => e.innerText?.trim()).filter(t => t && /versi[oó]n|anula|ya se envi|programad|acept/i.test(t) && t.length < 400)
                 .filter((t, i, a) => a.indexOf(t) === i).slice(0, 6);
         });
+        // El ÚLTIMO mensaje aparte, si lo hay (biomasa → IRPF solo con placas).
+        const avisoFinal = await page.$eval('[data-robot="aviso-final"]', e => e.innerText.trim()).catch(() => null);
         const captura = await foto(page, '3-popup');
 
         console.log('\n══ Lo que se va a enviar ══');
@@ -274,6 +276,7 @@ async function enviar() {
         console.log(`  Canales: ${canales.map(c => `${c.on ? '✓' : '·'} ${c.texto}`).join('   ')}`);
         if (avisos.length) { console.log('  Avisos del popup:'); for (const a of avisos) console.log(`    · ${a.replace(/\s+/g, ' ')}`); }
         console.log('\n── Mensaje ──\n' + mensaje + '\n─────────────');
+        if (avisoFinal) console.log('── Último mensaje, aparte ──\n' + avisoFinal + '\n─────────────');
         console.log(`  Captura: ${captura}`);
         if (errores.length) console.log(`  ⚠ Errores en la página: ${errores.slice(0, 3).join(' | ')}`);
         if (!canales.some(c => c.on)) throw new Error('Ningún canal disponible: no se puede enviar.');

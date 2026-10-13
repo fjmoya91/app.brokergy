@@ -225,13 +225,17 @@ async function enviar(fila) {
                     // `mensajeAceptacion`: el enlace para aceptar, en su propia
                     // burbuja DESPUÉS del PDF — igual que enviándola a mano. Un
                     // plan guardado antes de que existiera no lo trae y sale
-                    // como entonces.
-                    { caption: w.mensaje || '', asDocument: true, textoDespues: w.mensajeAceptacion || null }
+                    // como entonces. `avisoFinal` (2026-10-10): un aviso que no se
+                    // puede perder (biomasa → IRPF solo con placas), la ÚLTIMA burbuja.
+                    { caption: w.mensaje || '', asDocument: true,
+                      textoDespues: [w.mensajeAceptacion, w.avisoFinal].filter(Boolean) }
                 );
                 if (r && r.ok === false) throw new Error(r.error || 'WhatsApp no confirmó la entrega');
                 out.push({ channel: 'whatsapp', status: 'ok', text: `${w.label || w.phone} → ${w.phone}` });
                 if (r?.despues && r.despues.ok === false) {
-                    out.push({ channel: 'whatsapp', status: 'fail', text: `${w.label || w.phone}: llegó la propuesta, pero NO el mensaje con el enlace para aceptar (${r.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
+                    const nombres = [w.mensajeAceptacion && 'el enlace para aceptar', w.avisoFinal && 'el aviso final'].filter(Boolean);
+                    const faltan = (r.despues.partes || []).map((p, i) => (p.ok ? null : nombres[i])).filter(Boolean);
+                    out.push({ channel: 'whatsapp', status: 'fail', text: `${w.label || w.phone}: llegó la propuesta, pero NO ${faltan.join(' ni ') || 'el mensaje de después del PDF'} (${r.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
                 }
                 if (grupo.modo === 'CLIENTE' || grupo.modo === 'TITULAR') clienteOk = true;
             } catch (e) {

@@ -42,9 +42,17 @@ Fuente única: [logic/irpfBiomasa.js](implementation/frontend/src/features/calcu
 
 - **Calculadora** (`ResultsPanel`): recuadro naranja encima de las tablas de viabilidad, para quien
   prepara la propuesta.
-- **Propuesta** (`ProposalModal`): recuadro bajo la tabla, junto al del presupuesto estimado, y un
-  párrafo al final del mensaje de envío (`buildCaption`, una vez para todas sus ramas, como el
-  presupuesto estimado). El texto es impersonal: vale para el cliente, el partner y el instalador.
+- **Propuesta** (`ProposalModal`): recuadro bajo la tabla, junto al del presupuesto estimado.
+- **Envío** (`EnviarPropuestaModal`, prop `buildAvisoFinal`): **un mensaje APARTE y el ÚLTIMO**
+  (decisión del usuario, el mismo día: dentro del texto largo se pierde y es algo que el cliente
+  tiene que saber). Por WhatsApp va en su burbuja después del PDF y del enlace para aceptar
+  (`textoDespues` admite ya una LISTA: cada texto en su burbuja y en orden; si uno falla, los de
+  detrás no salen y el resultado dice cuál falta). En el email, que es un solo cuerpo, va al final
+  del texto. El popup lo enseña en un recuadro ámbar («3er mensaje · aviso importante») y el envío
+  PROGRAMADO lo guarda en el plan como `whatsapps[].avisoFinal`. El texto es impersonal: vale para
+  el cliente, el partner y el instalador.
+
+**REGLA — el aviso NO va dentro del texto largo: va el último, aparte.**
 
 Medido en las dos de Federico: la portada cabe con los dos recuadros (presupuesto estimado +
 biomasa) y la comparativa de CEE, sin pisar el pie.
@@ -52,4 +60,4 @@ biomasa) y la comparativa de CEE, sin pisar el pie.
 Los mensajes del funnel público (`leadMessages`) **no** lo llevan todavía: allí la biomasa ya
 tiene su aviso propio al elegir el combustible (`Step2_Combustible`).
 
-Tras tocarlo: `node implementation/backend/scripts/test_irpf_biomasa.mjs`.
+Tras tocarlo: `node implementation/backend/scripts/test_irpf_biomasa.mjs`, `test_mensaje_aceptacion.mjs` y `test_propuesta_programada.js`.

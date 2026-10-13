@@ -2328,7 +2328,6 @@ info@brokergy.es · 623 926 179`;
             });
             txt = `${txt}\n\n⚠️ *Importante — el presupuesto de la obra es estimado.* ${nota}`;
         }
-        if (irpfBiomasa) txt = `${txt}\n\n${lineaIrpfBiomasa()}`;
         if (opts.fc && fcInfo) {
             txt = `${txt}\n\n${lineaFactorCorreccion({
                 actual: fcInfo.actual,
@@ -2338,7 +2337,12 @@ info@brokergy.es · 623 926 179`;
             })}`;
         }
         return txt;
-    }, [buildCaptionBase, presInfo, irpfBiomasa, fcInfo, opcionesComision]);
+    }, [buildCaptionBase, presInfo, fcInfo, opcionesComision]);
+
+    // El aviso de BIOMASA no va dentro del texto largo: sale como ÚLTIMO mensaje
+    // (WhatsApp: burbuja aparte tras el enlace; email: al final del cuerpo), para
+    // que no se pierda — decisión del usuario, 2026-10-10.
+    const buildAvisoFinal = useCallback(() => (irpfBiomasa ? lineaIrpfBiomasa() : null), [irpfBiomasa]);
 
     const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);
@@ -2451,7 +2455,7 @@ info@brokergy.es · 623 926 179`;
             const caption = customMessages[mode] || buildCaption(mode, name);
             setConfirmConfig({ title: `Enviando ${i + 1}/${recipients.length}...`, message: `Entregando a ${name} (${toPhone})...`, confirmText: null, cancelText: null });
             try {
-                const r = await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption, media: { base64: pdfBase64, filename, mimetype: 'application/pdf' }, asDocument: true, textoDespues: buildAceptacion(mode) });
+                const r = await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption, media: { base64: pdfBase64, filename, mimetype: 'application/pdf' }, asDocument: true, textoDespues: [buildAceptacion(mode), buildAvisoFinal()].filter(Boolean) });
                 results.push({ name, ok: r.data?.ok === true && r.data?.despues?.ok !== false });
             } catch (e) {
                 results.push({ name, ok: false, error: e.response?.data?.error || e.message });
@@ -2483,7 +2487,7 @@ info@brokergy.es · 623 926 179`;
         const summary = results.map(r => `${r.ok ? '✅' : '❌'} ${r.name}${!r.ok && r.error ? ': ' + r.error : ''}`).join('\n');
         setConfirmConfig({ title: allOk ? '¡Propuesta enviada!' : 'Resultado del envío', message: summary, confirmText: 'Aceptar', onConfirm: () => setConfirmConfig(null) });
         setSendingWhatsapp(false);
-    }, [buildCaption, buildAceptacion, inputs, proposalRef, partnerInfo, instaladorInfo, clienteInfo]);
+    }, [buildCaption, buildAceptacion, buildAvisoFinal, inputs, proposalRef, partnerInfo, instaladorInfo, clienteInfo]);
 
     const handleSendByWhatsapp = () => {
         setSendingWhatsapp(false);
@@ -4199,6 +4203,7 @@ info@brokergy.es · 623 926 179`;
                 onContactoActualizado={() => setContactosRefresh(n => n + 1)}
                 buildDefaultMessage={buildCaption}
                 buildAcceptMessage={buildAceptacion}
+                buildAvisoFinal={buildAvisoFinal}
                 getPdfHtml={getProposalPdfHtml}
                 getEmailHtml={getProposalEmailHtml}
                 buildSummaryData={buildPropSummaryData}
