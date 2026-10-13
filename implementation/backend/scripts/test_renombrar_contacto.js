@@ -14,7 +14,16 @@ require.cache[rutaContactos] = {
             const c = agenda.get(chatId);
             return { enAgenda: !!c, nombre: c?.nombre || null, pushname: c?.pushname || null };
         },
-        guardar: async (numero, nombre) => { guardados.push({ numero, nombre }); return true; },
+        // Como la agenda de verdad: lo guardado es lo que se lee después. Salvo el
+        // contacto «partido» (nombre y apellidos en el móvil), que conserva el
+        // primer campo y CRECE — el caso de M Rosario, 13/10/2026.
+        guardar: async (numero, nombre) => {
+            guardados.push({ numero, nombre });
+            const id = `${numero}@c.us`;
+            const previo = agenda.get(id);
+            agenda.set(id, { ...(previo || {}), nombre: previo?.partido ? `${previo.partido} ${nombre}` : nombre });
+            return true;
+        },
         guardarSiFalta: async () => ({ accion: 'ya_estaba' }),
     },
 };
@@ -83,6 +92,17 @@ const eq = (a, b, m) => { assert.deepStrictEqual(a, b, m); n++; };
     }
     eq(guardados.length, 2, 'solo se guardó lo que se pidió de verdad');
     eq(guardados[1], { numero: '34600000004', nombre: 'RES060_OP264 Francisco Manzano (Jesús Sánchez)' });
+
+    // Un nombre con VARIOS nº de obra no se toca: crecería en cada pasada.
+    agenda.set('34600000006@c.us', { nombre: 'RES060 - M Rosario Foncaman RES060_OP191 M Rosario Foncaman' });
+    r = await renombrarUno({ telefono: '34600000006', codigo: '26RES060_224', dryRun: false });
+    eq(r.accion, 'revisar');
+    eq(guardados.length, 2, 'el de varios prefijos no se guarda');
+
+    // Y si tras guardar la agenda NO dice lo pedido, se dice (no se da por hecho).
+    agenda.set('34600000007@c.us', { nombre: 'RES060 Rosa', partido: 'RES060 Rosa' });
+    await assert.rejects(renombrarUno({ telefono: '34600000007', codigo: '26RES060_224', dryRun: false }), e => e.noCuadra === true);
+    n++;
 
     console.log(`✓ test_renombrar_contacto: ${n} comprobaciones`);
     setTimeout(() => process.exit(0), 50);

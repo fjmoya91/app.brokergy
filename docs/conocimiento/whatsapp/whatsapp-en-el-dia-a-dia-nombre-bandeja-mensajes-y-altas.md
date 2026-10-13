@@ -93,6 +93,17 @@ defecto) crea las de tipo y estado que falten con `whatsappLabels.crear`. Usa
 `labelAddAction` de `WAWebBizLabelEditingAction`, porque en la 2.3000.x la colección
 ya no trae `addNewLabel`, y el siguiente color libre. Una que ya existe no se duplica.
 
+**REGLA — un nombre con VARIOS nº de obra no se renombra, y lo guardado se
+COMPRUEBA.** En el primer repaso en producción (13/10/2026) un contacto
+(«RES060 - M Rosario … RES060_OP191 M Rosario …») no quedó como se pidió: en el
+móvil está guardado en dos campos (nombre y apellidos) y WhatsApp conserva el
+primero, así que el nombre CRECÍA en cada pasada. Ahora `variosPrefijos` lo
+aparta a «revisar», para arreglarlo a mano en el móvil. Además, `guardarYComprobar`
+relee la agenda tras guardar: si no dice exactamente lo pedido, se informa
+(`noCuadra`) y no se da por renombrado. Pruebas: `test_nombre_contacto_cliente.js`
+y `test_renombrar_contacto.js`. El repaso real de ese día: 0 etiquetas pendientes
+en los 356 clientes candidatos, 8 nombres guardados (7 bien y el de M Rosario, que creció) y 17 «revisar» sin tocar.
+
 **6 · Últimos mensajes.** Los N últimos de un chat (`ultimos`, un lote como mucho).
 Cada adjunto tiene «Ver», cada audio «Transcribir» y cada tarjeta de contacto «Dar
 de alta» (si ese número no está ya en la app).

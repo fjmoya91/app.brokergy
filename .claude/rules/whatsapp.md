@@ -47,7 +47,7 @@ paths:
 - `docs/conocimiento/whatsapp/modulo-whatsapp-novedades.md` — Módulo WhatsApp — Novedades (2026-04-17) · 2,2 KB
 - `docs/conocimiento/whatsapp/rutas-y-esquema.md` — Rutas y esquema · 1,0 KB
 - `docs/conocimiento/whatsapp/un-mensaje-con-el-reloj-no-esta-enviado.md` — Un mensaje con el RELOJ no está enviado (2026-09-08) · 7,7 KB
-- `docs/conocimiento/whatsapp/whatsapp-en-el-dia-a-dia-nombre-bandeja-mensajes-y-altas.md` — WhatsApp en el día a día: nombre, bandeja, mensajes, audios y altas (2026-10-13) · 8,1 KB
+- `docs/conocimiento/whatsapp/whatsapp-en-el-dia-a-dia-nombre-bandeja-mensajes-y-altas.md` — WhatsApp en el día a día: nombre, bandeja, mensajes, audios y altas (2026-10-13) · 8,9 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -105,6 +105,8 @@ camino de envío.**
   - **REGLA — solo los chats del CLIENTE.**
   - **REGLA — ligero.**
   - **REGLA — nace APAGADO**
+  - **REGLA — un nombre con VARIOS nº de obra no se renombra, y lo guardado se
+COMPRUEBA.**
   - **REGLA — lo del paréntesis es QUIÉN LO TRAE.**
 
 <!-- generado:fin -->

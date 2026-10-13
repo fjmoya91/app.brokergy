@@ -64,4 +64,12 @@ eq(obraDelContacto({ cee_directos: [{ numero_expediente: '2026CEE_54', estado: '
 // Sin nada: null.
 eq(obraDelContacto({}, 'RES060'), null);
 
+// ── Un nombre con VARIOS nº de obra no se toca (crecería en cada pasada) ────
+const { variosPrefijos } = require('../utils/nombreContactoCliente');
+eq(variosPrefijos('RES060 - M Rosario de la Barreda Foncaman RES060_OP191 M Rosario de laBarreda Foncaman'), true);
+eq(variosPrefijos('RES080_87 Irene Lopez (Gonzagarri)'), false);
+eq(variosPrefijos('RES060 Miguel Angel (Inst. Miguelturra)'), false);
+eq(variosPrefijos('26RES080_78 Juan Manuel'), false);
+eq(variosPrefijos('Teresa Alonso'), false);
+
 console.log(`✓ ${n} comprobaciones`);

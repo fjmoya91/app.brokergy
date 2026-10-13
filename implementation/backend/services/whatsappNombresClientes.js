@@ -30,7 +30,23 @@ const whatsappService = require('./whatsappService');
 const contactos = require('./whatsappContactos');
 const { _conPlazo: conPlazo } = require('./whatsappLabels');
 const { cargarRelaciones } = require('./clientesRelaciones');
-const { leerPrefijo, obraDelContacto, nombreNuevo, codigoCorto, fichaDe } = require('../utils/nombreContactoCliente');
+const { leerPrefijo, obraDelContacto, nombreNuevo, codigoCorto, fichaDe, variosPrefijos } = require('../utils/nombreContactoCliente');
+
+/**
+ * Guarda y COMPRUEBA: tras guardar, la agenda tiene que decir exactamente lo
+ * pedido. Si no (un contacto partido en nombre y apellidos en el móvil), se
+ * lanza para que se diga y no se siga insistiendo: insistir hace CRECER el
+ * nombre en cada pasada (medido el 13/10/2026).
+ */
+async function guardarYComprobar(numero, despues) {
+    await contactos.guardar(numero, despues, '');
+    const info = await contactos.datos(`${numero}@c.us`).catch(() => null);
+    if (info && info.nombre && info.nombre.trim() !== despues.trim()) {
+        const e = new Error(`La agenda no ha quedado como se pidió: dice «${info.nombre}». Arréglalo a mano en el móvil.`);
+        e.noCuadra = true;
+        throw e;
+    }
+}
 
 // Mucho más despacio que las etiquetas: WhatsApp LIMITA las ediciones de la
 // agenda. Medido el 30/09/2026: una cada 1,5 s aguantó ~41 y luego 429
@@ -104,6 +120,14 @@ async function planificar({ agenda: dada, incluirCambioFicha = false } = {}) {
     }
     const rel = await cargarRelaciones([...new Set(porCasar.map(c => c.cliente.id_cliente))], { internos: true });
     for (const c of porCasar) {
+        // Dos nº de obra en el nombre: guardado en dos campos en el móvil; al
+        // renombrarlo CRECERÍA en cada pasada. A mano (ver variosPrefijos).
+        if (variosPrefijos(c.nombre)) {
+            informe.revisar.push({ tlf: c.numero, antes: c.nombre, despues: null,
+                cliente: `${c.cliente.nombre_razon_social || ''} ${c.cliente.apellidos || ''}`.trim(),
+                motivo: 'el nombre lleva varios nº de obra: arréglalo a mano en el móvil (nombre y apellidos)' });
+            continue;
+        }
         const { ficha } = leerPrefijo(c.nombre);
         const obra = obraDelContacto(rel.get(c.cliente.id_cliente), ficha);
         const cli = `${c.cliente.nombre_razon_social || ''} ${c.cliente.apellidos || ''}`.trim();
@@ -143,7 +167,7 @@ async function renombrar({ dryRun = true, despuesDe = null, incluirCambioFicha =
     informe.pendientes = pendientes.length;
     for (const c of tanda) {
         try {
-            await contactos.guardar(c.tlf, c.despues, '');
+            await guardarYComprobar(c.tlf, c.despues);
             fallosSeguidos = 0;
             informe.renombrados++;
         } catch (err) {
@@ -217,6 +241,10 @@ async function renombrarUno({ telefono, codigo, dryRun = true, anteponer = false
         return { ...base, accion: 'sin_agenda',
             motivo: 'Ese número no está guardado en la agenda: no se le pone nombre desde aquí.' };
     }
+    if (variosPrefijos(info.nombre)) {
+        return { ...base, accion: 'revisar', propuesto: null,
+            motivo: 'El nombre lleva varios nº de obra (en el móvil está partido en nombre y apellidos): arréglalo a mano.' };
+    }
     const p = leerPrefijo(info.nombre);
     let despues;
     if (p) {
@@ -234,7 +262,7 @@ async function renombrarUno({ telefono, codigo, dryRun = true, anteponer = false
     }
     if (despues === info.nombre) return { ...base, accion: 'ya_al_dia', despues };
     if (dryRun) return { ...base, accion: 'seco', despues };
-    await contactos.guardar(numero, despues, '');
+    await guardarYComprobar(numero, despues);
     return { ...base, accion: 'renombrado', despues };
 }
 

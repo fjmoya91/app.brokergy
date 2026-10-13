@@ -98,6 +98,18 @@ function obraDelContacto(rel, ficha) {
     return { ...r, codigo: codigoCorto(r.numero) };
 }
 
+/**
+ * ¿Lleva el nombre MÁS DE UN nº de obra («RES060 - M Rosario … RES060_OP191 M
+ * Rosario …»)? Ese contacto está guardado en el móvil en dos campos (nombre y
+ * apellidos) y al renombrarlo WhatsApp conserva el primero: el nombre CRECE en
+ * cada pasada en vez de cambiar (medido el 13/10/2026). Se aparta a «revisar»
+ * para arreglarlo a mano en el móvil; no se toca.
+ */
+const TOKEN_OBRA = /\b(?:\d{2}|\d{4})?(?:(?:RES|TER)\d{3}|CEEI?)(?:[_-](?:OP)?\d+)?\b/gi;
+function variosPrefijos(nombre) {
+    return (String(nombre || '').match(TOKEN_OBRA) || []).length > 1;
+}
+
 /** El nombre nuevo, o null si no lleva prefijo. */
 function nombreNuevo(nombreActual, codigo) {
     const p = leerPrefijo(nombreActual);
@@ -105,4 +117,4 @@ function nombreNuevo(nombreActual, codigo) {
     return p.resto ? `${codigo} ${p.resto}` : codigo;
 }
 
-module.exports = { leerPrefijo, codigoCorto, obraDelContacto, nombreNuevo, fichaDe };
+module.exports = { leerPrefijo, codigoCorto, obraDelContacto, nombreNuevo, fichaDe, variosPrefijos };
