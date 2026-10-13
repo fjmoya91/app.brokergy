@@ -68,6 +68,7 @@ function unirAgenda(crudos) {
             porClave.set(clave, {
                 numero, nombre: c.nombre || null, pushname: c.pushname || null,
                 enAgenda: !!c.enAgenda, chat: !!c.chat, t: Number(c.t) || 0,
+                etiquetas: [...new Set(c.etiquetas || [])],
             });
             continue;
         }
@@ -76,6 +77,7 @@ function unirAgenda(crudos) {
         prev.enAgenda = prev.enAgenda || !!c.enAgenda;
         prev.chat = prev.chat || !!c.chat;
         prev.t = Math.max(prev.t, Number(c.t) || 0);
+        prev.etiquetas = [...new Set([...prev.etiquetas, ...(c.etiquetas || [])])];
     }
     return [...porClave.values()];
 }
@@ -130,4 +132,61 @@ function obraDelPrefijo(prefijo) {
     return { tipo: codigo.includes('_OP') ? 'oportunidad' : 'expediente', codigo };
 }
 
-module.exports = { nombreDeContacto, unirAgenda, filtrarAgenda, codigoObra, obraDelPrefijo, _norm: norm };
+/** Los 9 últimos dígitos: así se casa un número con las fichas. */
+const nueve = (t) => { const d = String(t || '').replace(/\D/g, ''); return d.length >= 9 ? d.slice(-9) : null; };
+
+/** Los teléfonos de una ficha de cliente, con por dónde le llega: [{ via, telefono }]. Sin repetir. */
+function telefonosDeCliente(c) {
+    const vias = [['titular', c?.tlf], ['persona de contacto', c?.persona_contacto_tlf],
+        ...(Array.isArray(c?.copropietarios) ? c.copropietarios.map(x => ['copropietario', x?.tlf]) : [])];
+    const vistos = new Set();
+    const out = [];
+    for (const [via, t] of vias) {
+        const n = nueve(t);
+        if (!n || vistos.has(n)) continue;
+        vistos.add(n);
+        out.push({ via, telefono: n });
+    }
+    return out;
+}
+
+/**
+ * El texto con el que se BUSCA a un cliente por su WhatsApp: cómo lo guardaste
+ * en la agenda y cómo se ha puesto él, de todos sus teléfonos, sin repetir.
+ * "RES060_225 Ceferino (ISM) · Cefe". null si no hay nada.
+ */
+function textoWhatsapp(contactos) {
+    const partes = [];
+    for (const c of contactos || []) {
+        for (const v of [c?.nombre, c?.pushname]) {
+            const s = String(v || '').replace(/\s+/g, ' ').trim();
+            if (s && !partes.some(p => norm(p) === norm(s))) partes.push(s);
+        }
+    }
+    return partes.length ? partes.join(' · ').slice(0, 500) : null;
+}
+
+/**
+ * ¿Es un INSTALADOR (o empresa del ramo) este contacto? Por la etiqueta que le
+ * puso una persona (INSTALADORES) o por cómo está guardado («Inst. Miguelturra»,
+ * «Fontanería Pepe», «Climatización Ruiz»). Un contacto con prefijo de obra
+ * («RES060 Miguel (Inst. Miguelturra)») es un CLIENTE: el instalador va en el
+ * paréntesis como quien nos lo trae, no es él.
+ */
+// «inst.» acaba en punto: el \b de detrás no casaría con el espacio que le sigue.
+// Ni «aerotermia» ni «reformas»: describen lo que QUIERE un cliente («Mari Carmen
+// Aerotermia La Solana»), no a quien lo instala (medido el 13/10/2026).
+const RAMO = /\b(?:inst\.|(?:instalador(?:es|a)?|instalaciones|fontaner[ií]as?|fontanero|climatizaci[oó]n|calefacci[oó]n)\b)/i;
+function pareceInstalador({ nombre, etiquetas } = {}) {
+    if (leerPrefijo(nombre)) return false;
+    if ((etiquetas || []).some(e => /instalador/i.test(e))) return true;
+    // Lo que va entre paréntesis es QUIÉN LO TRAE («Cris Truji (Inst. Miguelturra)»):
+    // es gente del instalador, no el instalador. Solo cuenta lo de fuera.
+    const fuera = String(nombre || '').replace(/\([^()]*\)/g, ' ');
+    return RAMO.test(fuera);
+}
+
+module.exports = {
+    nombreDeContacto, unirAgenda, filtrarAgenda, codigoObra, obraDelPrefijo,
+    nueve, telefonosDeCliente, textoWhatsapp, pareceInstalador, _norm: norm,
+};

@@ -305,6 +305,94 @@ router.get('/contactos/pendientes-alta', staffOnly, async (req, res) => {
     }
 });
 
+// GET  /api/whatsapp/bandeja/sin-contestar?horas=2
+// POST /api/whatsapp/bandeja/atendido  { clave, hasta_t }
+//
+// Los chats cuyo último mensaje es del otro y llevan más de `horas` sin
+// respuesta, con quién es en la app. «Ya está» lo quita para todo el equipo
+// hasta su siguiente mensaje. Solo lectura de WhatsApp (services/whatsappBandeja.js).
+const waBandeja = require('../services/whatsappBandeja');
+router.get('/bandeja/sin-contestar', staffOnly, async (req, res) => {
+    try {
+        res.json(await waBandeja.sinContestar({ horas: req.query.horas ?? 2 }));
+    } catch (e) {
+        if (!e.status) console.error('[wa-bandeja] sin contestar:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se han podido leer los chats sin contestar.' });
+    }
+});
+router.post('/bandeja/atendido', staffOnly, async (req, res) => {
+    try {
+        res.json(await waBandeja.marcarAtendido({ clave: req.body?.clave, hastaT: req.body?.hasta_t, usuario: req.user?.email || null }));
+    } catch (e) {
+        if (!e.status) console.error('[wa-bandeja] atendido:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se ha podido marcar el chat.' });
+    }
+});
+
+// GET  /api/whatsapp/auto-sync        → si está encendida y lo último que ha hecho
+// POST /api/whatsapp/auto-sync/repaso → lanza el repaso de toda la cartera YA
+// (etiquetas, nº de obra en el nombre, nombre de WhatsApp para el buscador).
+// Escribe en la agenda REAL: ADMIN o interna, y en segundo plano (tarda).
+const waAuto = require('../services/whatsappAutoSync');
+router.get('/auto-sync', adminOnly, (req, res) => res.json(waAuto.estado()));
+// GET /api/whatsapp/auto-sync/probar/:idCliente → lo que le haría a ese cliente, EN SECO.
+router.get('/auto-sync/probar/:idCliente', adminOnly, async (req, res) => {
+    try { res.json(await waAuto.probarCliente(req.params.idCliente)); }
+    catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : `No se ha podido probar: ${e.message}` }); }
+});
+router.post('/auto-sync/repaso', adminOInterno, (req, res) => {
+    waAuto.repasar({ forzar: true }).catch(e => console.error('[wa-auto] repaso:', e.message));
+    res.status(202).json({ ok: true, mensaje: 'Repaso lanzado en segundo plano: mira GET /api/whatsapp/auto-sync para ver qué ha hecho.' });
+});
+
+// GET /api/whatsapp/contactos/instaladores-pendientes
+// Contactos del ramo (etiqueta INSTALADORES, «Inst. …») que no están en
+// Partners ni en Clientes. Solo lectura; equipo interno.
+router.get('/contactos/instaladores-pendientes', staffOnly, async (req, res) => {
+    try {
+        res.json(await waAgenda.instaladoresPendientes());
+    } catch (e) {
+        if (!e.status) console.error('[wa-agenda] instaladores:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se han podido leer los instaladores pendientes.' });
+    }
+});
+
+// GET /api/whatsapp/contactos/compartidos?dias=30
+// Tarjetas de contacto recibidas cuyo número aún no tiene ficha (para darlas de
+// alta con un clic). Solo lectura; equipo interno.
+router.get('/contactos/compartidos', staffOnly, async (req, res) => {
+    try {
+        res.json(await waAgenda.contactosCompartidos({ dias: req.query.dias }));
+    } catch (e) {
+        if (!e.status) console.error('[wa-agenda] compartidos:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se han podido leer los contactos compartidos.' });
+    }
+});
+
+// GET /api/whatsapp/contactos/cliente/:id
+// Cada teléfono del cliente con su nombre en WhatsApp (agenda y pushname). De
+// paso deja al día `clientes.whatsapp_nombres`, que es por lo que se le busca.
+router.get('/contactos/cliente/:id', staffOnly, async (req, res) => {
+    try {
+        res.json(await waAgenda.whatsappDeCliente(req.params.id));
+    } catch (e) {
+        if (!e.status) console.error('[wa-agenda] cliente:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se ha podido leer el WhatsApp del cliente.' });
+    }
+});
+
+// POST /api/whatsapp/contactos/sincronizar-nombres  { dryRun? }
+// Repasa TODOS los clientes contra la agenda y guarda su nombre de WhatsApp
+// para el buscador. Solo escribe en la BD lo que cambia; `dryRun` por defecto.
+router.post('/contactos/sincronizar-nombres', adminOInterno, async (req, res) => {
+    try {
+        res.json(await waAgenda.sincronizarNombres({ dryRun: req.body?.dryRun !== false }));
+    } catch (e) {
+        if (!e.status) console.error('[wa-agenda] sincronizar nombres:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se han podido sincronizar los nombres de WhatsApp.' });
+    }
+});
+
 // POST /api/whatsapp/contactos/descartados  { telefono, nombre_agenda? }
 // DELETE /api/whatsapp/contactos/descartados/:telefono
 //
@@ -363,8 +451,36 @@ router.post('/conversacion', staffOInterno, async (req, res) => {
     try {
         res.json(await waConversacion.leerConversacion({
             telefono: req.body?.telefono, chatId: req.body?.chatId, dias: req.body?.dias,
+            ultimos: req.body?.ultimos ?? null,
         }));
     } catch (e) { errorConversacion(res, e, 'leer la conversación'); }
+});
+
+// POST { msg } → { texto }: la nota de voz transcrita (Gemini). Solo de una
+// conversación leída aquí, como el adjunto.
+router.post('/conversacion/transcribir', staffOInterno, async (req, res) => {
+    try { res.json(await waConversacion.transcribir(req.body?.msg)); }
+    catch (e) { errorConversacion(res, e, 'transcribir el audio'); }
+});
+
+// POST { id_cliente, texto } → añade la línea a las NOTAS del cliente
+// («[13/10/2026] Audio de WhatsApp: …»). Para guardar lo que dijo en una nota de
+// voz donde se busca y se ve, sin copiar a mano.
+router.post('/conversacion/a-notas', staffOnly, async (req, res) => {
+    try {
+        const id = String(req.body?.id_cliente || '');
+        const texto = String(req.body?.texto || '').trim().slice(0, 4000);
+        if (!id || !texto) return res.status(400).json({ error: 'Falta el cliente o el texto.' });
+        const supabase = require('../services/supabaseClient');
+        const { data: c, error: e1 } = await supabase.from('clientes').select('notas').eq('id_cliente', id).maybeSingle();
+        if (e1) return res.status(503).json({ error: 'La base de datos no responde.' });
+        if (!c) return res.status(404).json({ error: 'Cliente no encontrado.' });
+        const fecha = new Date().toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' });
+        const notas = [String(c.notas || '').trim(), `[${fecha}] ${texto}`].filter(Boolean).join('\n\n');
+        const { error: e2 } = await supabase.from('clientes').update({ notas }).eq('id_cliente', id);
+        if (e2) return res.status(503).json({ error: `No se han podido guardar las notas: ${e2.message}` });
+        res.json({ ok: true, notas });
+    } catch (e) { errorConversacion(res, e, 'guardar en las notas'); }
 });
 
 // GET ?msg= → el adjunto, en binario. Solo de una conversación leída aquí.

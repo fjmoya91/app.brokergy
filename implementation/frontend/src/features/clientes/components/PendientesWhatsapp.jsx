@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { ClienteFormModal } from './ClienteFormModal';
 import { tlfDeContacto } from '../../../utils/agendaWhatsapp';
+import { ContactosCompartidos, InstaladoresPendientes } from './PendientesWhatsappPestanas';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PENDIENTES DE ALTA desde la agenda de WhatsApp.
@@ -34,7 +35,13 @@ function haceCuanto(t) {
     return `habló hace ${Math.round(dias / 30)} meses`;
 }
 
-export function PendientesWhatsapp({ onAlta }) {
+// `pestanaInicial`: 'clientes' | 'compartidos' | 'instaladores'. `etiqueta` y
+// `sinRecuento`: para el botón de Partners, que abre en «Instaladores» y no
+// tiene que enseñar el recuento de clientes.
+const PESTANAS = [['clientes', 'Clientes con prefijo'], ['compartidos', 'Contactos compartidos'], ['instaladores', 'Instaladores']];
+
+export function PendientesWhatsapp({ onAlta, pestanaInicial = 'clientes', etiqueta = 'Pendientes de WhatsApp', sinRecuento = false }) {
+    const [pestana, setPestana] = useState(pestanaInicial);
     const [datos, setDatos] = useState(null);       // { pendientes, conObra, conPrefijo, descartados }
     const [error, setError] = useState(null);
     const [cargando, setCargando] = useState(true);
@@ -145,9 +152,10 @@ export function PendientesWhatsapp({ onAlta }) {
                 title="Contactos de tu WhatsApp con prefijo de obra que todavía no tienen ficha"
                 className="flex items-center gap-2 px-4 py-3.5 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-300 font-black text-[11px] uppercase tracking-widest hover:bg-emerald-500/[0.12] transition-all">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span className="hidden md:inline">Pendientes de WhatsApp</span>
+                <span className="hidden md:inline">{etiqueta}</span>
                 <span className="md:hidden">WhatsApp</span>
-                {cargando && !datos ? <span className="text-emerald-300/50">…</span>
+                {sinRecuento ? null
+                    : cargando && !datos ? <span className="text-emerald-300/50">…</span>
                     : n != null ? <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-200">{n}</span>
                         : error ? <span className="text-amber-300/80">!</span> : null}
             </button>
@@ -159,13 +167,30 @@ export function PendientesWhatsapp({ onAlta }) {
                             <div className="min-w-0">
                                 <h2 className="text-sm font-black text-white uppercase tracking-widest">Pendientes de alta · WhatsApp</h2>
                                 <p className="text-[11px] text-white/35 mt-0.5">
-                                    Contactos guardados con prefijo de obra («RES080 …», «CEE …») cuyo número no está en ninguna ficha.
+                                    Lo que está en tu WhatsApp y todavía no tiene ficha en la app.
                                 </p>
                             </div>
                             <button onClick={() => setAbierto(false)} aria-label="Cerrar"
                                 className="shrink-0 w-11 h-11 -mr-2 rounded-lg hover:bg-white/5 text-white/40 hover:text-white transition-colors text-xl leading-none">×</button>
                         </div>
 
+                        <div className="px-5 pt-3 shrink-0 flex gap-1 overflow-x-auto [scrollbar-width:none]">
+                            {PESTANAS.map(([id, txt]) => (
+                                <button key={id} type="button" onClick={() => setPestana(id)}
+                                    className={`shrink-0 min-h-[36px] px-3 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${pestana === id
+                                        ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/40' : 'text-white/40 hover:text-white border border-transparent'}`}>
+                                    {txt}{id === 'clientes' && n != null ? ` · ${n}` : ''}
+                                </button>
+                            ))}
+                        </div>
+
+                        {pestana !== 'clientes' ? (
+                            <div className="overflow-y-auto px-5 py-4">
+                                {pestana === 'compartidos'
+                                    ? <ContactosCompartidos onAlta={onAlta} />
+                                    : <InstaladoresPendientes onAlta={onAlta} />}
+                            </div>
+                        ) : (<>
                         <div className="px-5 pt-4 shrink-0 flex gap-2">
                             <input value={filtro} onChange={e => setFiltro(e.target.value)} placeholder="Filtrar por nombre, teléfono o nº…"
                                 className="flex-1 min-w-0 bg-white/[0.03] border border-white/10 rounded-xl px-4 min-h-[44px] text-base md:text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/40" />
@@ -262,6 +287,7 @@ export function PendientesWhatsapp({ onAlta }) {
                                 </div>
                             )}
                         </div>
+                        </>)}
                     </div>
                 </div>,
                 document.body,

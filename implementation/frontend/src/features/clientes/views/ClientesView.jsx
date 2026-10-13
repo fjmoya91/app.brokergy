@@ -221,6 +221,8 @@ export function ClientesView({
         const hay = norm([
             c.nombre_razon_social, c.apellidos, c.email, c.dni, c.tlf,
             c.municipio, c.provincia, c.prescriptores?.acronimo,
+            // Cómo está en la agenda de WhatsApp («RES060_225 Ceferino (ISM) · Cefe»).
+            c.whatsapp_nombres,
             // Buscar también por nº de expediente, de CEE o de oportunidad.
             ...(c.expedientes || []).map(e => e.numero_expediente),
             ...(c.cee_directos || []).map(x => x.numero_expediente),
@@ -266,7 +268,7 @@ export function ClientesView({
                             </svg>
                             <input
                                 type="text"
-                                placeholder="Buscar por nombre, email, DNI..."
+                                placeholder="Buscar por nombre, DNI, teléfono o nombre en WhatsApp…"
                                 value={searchTerm}
                                 onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                                 className="w-full bg-bkg-surface border border-white/[0.06] rounded-2xl pl-11 pr-4 py-3.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-brand/40 focus:ring-4 focus:ring-brand/5 transition-all"

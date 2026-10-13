@@ -48,6 +48,7 @@ import { FechasPrevistasEjecucion } from '../components/FechasPrevistasEjecucion
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import SearchableSelect from '../../../components/SearchableSelect';
 import { nombrePartner, tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
+import { AvisoFotosWhatsapp } from '../../whatsapp/components/AvisoFotosWhatsapp';
 
 // Pausa de inactividad antes de persistir los cambios de "Instalación". Los
 // campos de texto emiten en cada pulsación: sin este margen saldría un PUT
@@ -1664,6 +1665,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                         >
                             <span className="text-sm">📸</span>
                             Fotos
+                            {/* Lo llegado por el WhatsApp del cliente sin colocar */}
+                            <AvisoFotosWhatsapp oppId={op.id || op.id_oportunidad} />
                         </button>
                     )}
                 </div>

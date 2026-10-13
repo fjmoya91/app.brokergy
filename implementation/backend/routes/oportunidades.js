@@ -1378,6 +1378,8 @@ ${notesStr}
             })();
         }
 
+        // El estado de la propuesta cambia la etiqueta de su chat (apagado salvo WA_AUTO_SYNC).
+        if (op.cliente_id) require('../services/whatsappAutoSync').programarCliente(op.cliente_id, `oportunidad ${nuevo_estado}`);
         res.status(200).json({ success: true, data: upData[0], numeroExpediente });
     } catch (error) {
         console.error('[StatusUpdate] Error:', error.message);
@@ -2179,6 +2181,20 @@ router.get('/:id/whatsapp-media/contactos', staffOnly, async (req, res) => {
     }
 });
 
+// GET → el AVISO: cuántas fotos/PDF han llegado por los chats del cliente en
+// los últimos 14 días sin colocar todavía (ligero y con caché: se pide al abrir).
+router.get('/:id/whatsapp-media/sin-colocar', staffOnly, async (req, res) => {
+    try {
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        return res.json(await whatsappMedia.sinColocar(opp));
+    } catch (e) {
+        if (!e.status) console.error('[wa-media] sin colocar:', e.message);
+        // Un aviso que no se puede calcular no es un error de la pantalla: se calla.
+        return res.json({ disponible: false, total: 0, error: e.status ? e.message : null });
+    }
+});
+
 // POST { telefonos, dias } → lo que ha llegado por esos chats (sin bajar nada).
 router.post('/:id/whatsapp-media/buscar', staffOnly, async (req, res) => {
     try {
@@ -2214,6 +2230,7 @@ router.post('/:id/whatsapp-media/colocadas', staffOnly, async (req, res) => {
         const opp = await findOppForDocs(req.params.id);
         if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
         const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
+        whatsappMedia.olvidarAviso(opp.id);   // el aviso de «sin colocar» se rehace
         return res.json(await whatsappMedia.registrarColocadas(opp, items, nombreUsuario(req)));
     } catch (e) {
         console.error('[wa-media] colocadas:', e.message);

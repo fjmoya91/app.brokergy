@@ -23,7 +23,9 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 // cliente usa `/api/clientes/:id/justificante`, que elige el expediente destino.
 // `extraBody` viaja junto al fichero. `aviso` = línea ámbar bajo el slot (p. ej. el
 // IBAN de la ficha ya no es el del justificante).
-export function JustificanteUploader({ expedienteId, endpoint = null, extraBody = null, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria', huella = null, cliente = null, deshabilitado = null, aviso = null, detalle = null }) {
+// `archivo` = un fichero que llega de FUERA (p. ej. elegido en el WhatsApp del
+// cliente): en cuanto cambia se sube por el mismo camino que uno soltado encima.
+export function JustificanteUploader({ expedienteId, endpoint = null, extraBody = null, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria', huella = null, cliente = null, deshabilitado = null, aviso = null, detalle = null, archivo = null }) {
     const [link, setLink] = useState(currentLink || null);
     const [comprobacion, setComprobacion] = useState(null);
     const [uploading, setUploading] = useState(false);
@@ -49,6 +51,9 @@ export function JustificanteUploader({ expedienteId, endpoint = null, extraBody 
             setError(e.response?.data?.error || 'No se pudo subir el justificante.');
         } finally { setUploading(false); }
     };
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { if (archivo) doUpload(archivo); }, [archivo]);
 
     const dnd = {
         onDragEnter: e => { e.preventDefault(); if (!uploading) setDragging(true); },

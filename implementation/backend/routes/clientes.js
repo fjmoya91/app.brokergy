@@ -305,6 +305,8 @@ router.post('/', enforceAuth, async (req, res) => {
             }
         }
 
+        // Su chat de WhatsApp: etiquetas y nº de obra en el nombre (apagado salvo WA_AUTO_SYNC).
+        require('../services/whatsappAutoSync').programarCliente(data.id_cliente, 'alta de cliente');
         res.status(201).json(data);
     } catch (err) {
         console.error('Error POST clientes:', err);

@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-export default function InstaladorFormModal({ isOpen, onClose, onSuccess }) {
+// `initialData` (2026-10-13): llega relleno desde un contacto de WhatsApp
+// ({ razon_social, tlf }). Se lee al MONTAR: quien lo usa así lo monta de nuevo
+// para cada contacto.
+export default function InstaladorFormModal({ isOpen, onClose, onSuccess, initialData = null }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [form, setForm] = useState({
@@ -12,6 +15,7 @@ export default function InstaladorFormModal({ isOpen, onClose, onSuccess }) {
         tlf: '',
         usuario_nombre: '',
         usuario_apellidos: '',
+        ...(initialData || {}),
     });
 
     if (!isOpen) return null;

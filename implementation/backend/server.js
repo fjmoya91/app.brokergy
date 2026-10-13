@@ -141,6 +141,13 @@ try {
     } catch (e) {
         console.warn('[server] Bot de WhatsApp no disponible:', e.message);
     }
+    // Etiquetas y nº de obra en el nombre del chat de cada cliente, solos (repaso
+    // cada 6 h). Nace apagado salvo WA_AUTO_SYNC=true: escribe en la agenda REAL.
+    try {
+        require('./services/whatsappAutoSync').iniciar();
+    } catch (e) {
+        console.warn('[server] Sincronización automática de WhatsApp no disponible:', e.message);
+    }
     // El timbre del canal de trabajo con Fran: avisa al contenedor «asistente» cuando él escribe.
     try {
         require('./services/asistenteCanal').start();

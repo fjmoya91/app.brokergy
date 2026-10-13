@@ -44,6 +44,7 @@ import { EncargarPresentacionModal } from '../../expedientes/components/Encargar
 import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
 import { TecnicoPicker } from '../../expedientes/components/TecnicoPicker';
 import { EncargoCertificadorModal } from '../../expedientes/components/EncargoCertificadorModal';
+import { WhatsappSinContestar } from '../../whatsapp/components/WhatsappSinContestar';
 
 // Tono por bloque. El color es información: dice cuánto duele, no adorna.
 const TONO = {
@@ -251,6 +252,9 @@ export function SeguimientoView() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </BotonIcono>
             </div>
+
+            {/* ── WhatsApp: quien escribió y lleva horas sin respuesta ─────────── */}
+            <WhatsappSinContestar />
 
             {/* ── Titular: una fila desplazable, no cuatro tarjetas ───────────── */}
             <div className="flex gap-2 overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 pb-1 mb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

@@ -26,11 +26,11 @@ eq(nombreDeContacto('Teresa Alonso Gil').completo, 'Teresa Alonso Gil');
 // ── La misma persona por @c.us y por @lid: una sola fila ────────────────────
 const unida = unirAgenda([
     { id: '34654547040@c.us', numero: '34654547040', nombre: 'RES080 Irene Lopez', enAgenda: true, chat: false, t: 0 },
-    { id: '1234@lid', numero: '34654547040', pushname: 'Irene', enAgenda: false, chat: true, t: 1700000000 },
+    { id: '1234@lid', numero: '34654547040', pushname: 'Irene', enAgenda: false, chat: true, t: 1700000000, etiquetas: ['RES080', 'EN CURSO'] },
     { id: '999@lid', numero: null, pushname: 'Sin número', chat: true, t: 5 },
 ]);
 eq(unida.length, 2);
-eq(unida[0], { numero: '34654547040', nombre: 'RES080 Irene Lopez', pushname: 'Irene', enAgenda: true, chat: true, t: 1700000000 });
+eq(unida[0], { numero: '34654547040', nombre: 'RES080 Irene Lopez', pushname: 'Irene', enAgenda: true, chat: true, t: 1700000000, etiquetas: ['RES080', 'EN CURSO'] });
 
 // ── Buscar ───────────────────────────────────────────────────────────────────
 const agenda = unirAgenda([
@@ -70,5 +70,38 @@ eq(codigoObra('25RES060_8'), 'RES060_8');
 eq(codigoObra('2026CEE_54'), 'CEE_54');
 eq(codigoObra('26TER173_1'), 'TER173_1');
 eq(codigoObra('RES060'), null);
+
+// ── Instaladores pendientes: quién parece del ramo ──────────────────────────
+const { pareceInstalador, telefonosDeCliente, textoWhatsapp } = require('../utils/agendaWhatsapp');
+eq(pareceInstalador({ nombre: 'Inst. Miguelturra Jose' }), true);
+eq(pareceInstalador({ nombre: 'Fontanería Ruiz' }), true);
+eq(pareceInstalador({ nombre: 'Climatizacion Hermanos Gil' }), true);
+eq(pareceInstalador({ nombre: 'Paco', etiquetas: ['INSTALADORES'] }), true);
+// Un cliente con el instalador entre paréntesis NO es un instalador.
+eq(pareceInstalador({ nombre: 'RES060 Miguel Angel (Inst. Miguelturra)' }), false);
+eq(pareceInstalador({ nombre: 'Irene Lopez' }), false);
+eq(pareceInstalador({ nombre: 'Instituto Bachillerato' }), false);
+// Lo del paréntesis es quién lo trae, y «aerotermia» es lo que quiere un cliente.
+eq(pareceInstalador({ nombre: 'Cris Truji (Inst. Miguelturra)' }), false);
+eq(pareceInstalador({ nombre: 'Mari Carmen Aerotermia La Solana' }), false);
+eq(pareceInstalador({ nombre: 'MALAÑO Jose Vicente (Inst. Bolaños)', etiquetas: ['INSTALADORES'] }), true);
+eq(pareceInstalador({ nombre: 'Manuel Sepulveda Instalador (fontaneria Molinilla)' }), true);
+eq(pareceInstalador({ nombre: 'Vicente Calefaccion Miguel Gonzalez' }), true);
+
+// ── Teléfonos de una ficha y el texto de búsqueda ───────────────────────────
+eq(telefonosDeCliente({ tlf: '654 54 70 40', persona_contacto_tlf: '+34 625096717', copropietarios: [{ tlf: '654547040' }] }),
+    [{ via: 'titular', telefono: '654547040' }, { via: 'persona de contacto', telefono: '625096717' }]);
+eq(textoWhatsapp([{ nombre: 'RES060_225 Ceferino (ISM)', pushname: 'Cefe' }, { nombre: null, pushname: 'cefe' }]),
+    'RES060_225 Ceferino (ISM) · Cefe');
+eq(textoWhatsapp([]), null);
+
+// ── Bandeja: ¿pide respuesta? ────────────────────────────────────────────────
+const { esCortesia } = require('../utils/bandejaWhatsapp');
+for (const t of ['De acuerdo, muchas gracias.', 'Perfecto', 'muchas gracias Fran', '👍', 'Vale gracias!!', 'Ok', 'Gracias a ti 🙏', 'Genial, un saludo'])
+    eq(esCortesia({ tipo: 'chat', texto: t }), true, t);
+for (const t of ['Me la tiene que pasar José Antonio', '¿Cuándo venís?', 'Vale, pero el lunes no puedo', 'Te mando la factura mañana', 'gracias, ¿y lo del banco?'])
+    eq(esCortesia({ tipo: 'chat', texto: t }), false, t);
+eq(esCortesia({ tipo: 'sticker', texto: '' }), true);
+eq(esCortesia({ tipo: 'image', texto: 'gracias' }), false);   // una foto se mira aunque diga gracias
 
 console.log(`✓ ${n} comprobaciones`);

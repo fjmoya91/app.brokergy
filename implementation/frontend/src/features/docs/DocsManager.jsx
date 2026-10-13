@@ -199,6 +199,8 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [previewing, setPreviewing] = useState({}); // { slot: [objectURL|null] } mientras suben
     const [buzon, setBuzon] = useState(null);       // { files } al soltar fuera de una casilla
     const [traerWa, setTraerWa] = useState(false);  // popup «Traer del WhatsApp» (solo staff)
+    // Aviso «ha mandado fotos»: lo llegado por los chats del cliente sin colocar (backend ligero y con caché).
+    const [waNuevos, setWaNuevos] = useState(null);
     const [buzonDrag, setBuzonDrag] = useState(false);
     const [slotError, setSlotError] = useState({});
     const [lightbox, setLightbox] = useState(null);
@@ -306,6 +308,17 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         } catch { /* noop */ }
     };
     useEffect(() => { loadPublicadas(); /* eslint-disable-next-line */ }, [mode, idOrUuid, canValidate]);
+
+    // Aviso de fotos llegadas por WhatsApp sin colocar. Se vuelve a pedir al cerrar
+    // «Traer del WhatsApp» (lo colocado deja de contar). Callado si falla.
+    useEffect(() => {
+        if (mode !== 'admin' || !puedeWhatsapp || !api.whatsapp || traerWa) return undefined;
+        let vivo = true;
+        axios.get(`${api.admin}/${idOrUuid}/whatsapp-media/sin-colocar`, { timeout: 90000 })
+            .then(r => { if (vivo) setWaNuevos(r.data || null); })
+            .catch(() => { if (vivo) setWaNuevos(null); });
+        return () => { vivo = false; };
+    }, [mode, puedeWhatsapp, api.whatsapp, api.admin, idOrUuid, traerWa]);
 
     const openPublish = (slot, it) => {
         setPubForm({ titulo: slot.label || '', actuacion: deriveActuacion(slot.key), consent: false, revisado: false });
@@ -1802,8 +1815,17 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 mandan las fotos al chat. Se leen de ahí y van al repartidor. */}
             {mode === 'admin' && puedeWhatsapp && api.whatsapp && (
                 <button onClick={() => setTraerWa(true)}
-                    className="mb-3 w-full min-h-[44px] py-2.5 rounded-xl border border-emerald-400/30 bg-emerald-400/[0.05] text-emerald-300 text-xs font-black uppercase tracking-widest hover:bg-emerald-400/10 transition-all">
+                    className={`mb-3 w-full min-h-[44px] py-2.5 px-3 rounded-xl border text-xs font-black uppercase tracking-widest transition-all ${waNuevos?.total
+                        ? 'border-emerald-400/60 bg-emerald-400/[0.12] text-emerald-200 shadow-lg shadow-emerald-500/10 hover:bg-emerald-400/20'
+                        : 'border-emerald-400/30 bg-emerald-400/[0.05] text-emerald-300 hover:bg-emerald-400/10'}`}>
                     💬 Traer fotos del WhatsApp
+                    {waNuevos?.total > 0 && (
+                        <span className="block mt-0.5 text-[11px] normal-case tracking-normal font-bold text-emerald-100/90">
+                            {waNuevos.total} {waNuevos.total === 1 ? 'adjunto nuevo' : 'adjuntos nuevos'} sin colocar
+                            {waNuevos.de?.length ? ` · de ${waNuevos.de.slice(0, 2).join(', ')}` : ''}
+                            {waNuevos.ultimo ? ` · el último ${new Date(waNuevos.ultimo * 1000).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}` : ''}
+                        </span>
+                    )}
                 </button>
             )}
 

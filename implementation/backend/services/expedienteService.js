@@ -611,6 +611,9 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             }
         }
 
+        // Su chat de WhatsApp pasa a llevar el nº del expediente (apagado salvo WA_AUTO_SYNC).
+        require('./whatsappAutoSync').programarCliente(id_cliente, `expediente ${numeroExpediente}`);
+
         return {
             ...newExp,
             referencia_cliente: cliente ? `${cliente.nombre_razon_social} ${cliente.apellidos || ''}`.trim().toUpperCase() : null

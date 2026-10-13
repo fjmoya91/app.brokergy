@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { JustificanteUploader } from '../../expedientes/components/JustificanteUploader';
+import { AdjuntosWhatsappPicker } from '../../whatsapp/components/AdjuntosWhatsappPicker';
 
 // El justificante de titularidad bancaria en la FICHA DEL CLIENTE, junto al IBAN.
 // Dice si lo tenemos y se suelta encima para subirlo. Al subirlo se LEE: si la
@@ -24,6 +25,9 @@ const cola4 = v => { const s = norm(v).replace(/\*/g, ''); return s ? `…${s.sl
 export function JustificanteCliente({ clienteId, expedienteId = null, iban = '', clienteForm = null, onRellenar, onSubido }) {
     const [estado, setEstado] = useState(null);
     const [cargando, setCargando] = useState(true);
+    // «Buscar en su WhatsApp»: casi siempre ya nos lo mandó por ahí.
+    const [verWhatsapp, setVerWhatsapp] = useState(false);
+    const [archivo, setArchivo] = useState(null);
 
     const cargar = useCallback(() => {
         if (!clienteId) return;
@@ -61,11 +65,22 @@ export function JustificanteCliente({ clienteId, expedienteId = null, iban = '',
                 extraBody={expedienteId ? { expediente: expedienteId } : null}
                 currentLink={link} detalle={detalle} deshabilitado={deshabilitado} aviso={aviso}
                 cliente={clienteForm || undefined}
+                archivo={archivo}
                 onUploaded={(_link, comp) => {
                     if (comp?.rellenar && !String(iban || '').trim() && onRellenar) onRellenar(comp.rellenar, !!comp.rellenado);
                     cargar();
                     if (onSubido) onSubido(comp);
                 }} />
+            {!deshabilitado && (
+                <button type="button" onClick={() => setVerWhatsapp(true)}
+                    className="mt-1.5 min-h-[32px] text-[10px] font-black uppercase tracking-widest text-emerald-300/80 hover:text-emerald-300">
+                    {link ? 'Buscar otro en su WhatsApp' : 'Buscar en su WhatsApp'}
+                </button>
+            )}
+            {verWhatsapp && (
+                <AdjuntosWhatsappPicker idCliente={clienteId} titulo="Justificante · buscar en su WhatsApp"
+                    onElegir={(f) => setArchivo(f)} onClose={() => setVerWhatsapp(false)} />
+            )}
         </div>
     );
 }

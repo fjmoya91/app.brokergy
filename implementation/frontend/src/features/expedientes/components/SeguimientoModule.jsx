@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChatWhatsappVinculo } from './ChatWhatsappVinculo';
+import { WhatsappCliente } from '../../whatsapp/components/WhatsappCliente';
 import { readPhaseTime, fmtDate, humanDays, STALE_CLASSES } from '../logic/seguimientoTime';
 
 const STATUS_CONFIG = {
@@ -222,6 +223,15 @@ export function SeguimientoModule({ expediente, onSave, saving, readOnly = false
                 en Instalación (que son datos técnicos) ni en la cabecera (que ya
                 está llena). Solo lo ve el staff: la ruta es staffOnly. */}
             {!readOnly && <ChatWhatsappVinculo expediente={expediente} />}
+
+            {/* El WhatsApp del cliente (nombre en la agenda y últimos mensajes), para
+                ver el contexto de la conversación sin salir del expediente. */}
+            {!readOnly && (expediente?.cliente_id || expediente?.oportunidades?.cliente_id) && (
+                <div className="mt-6 space-y-2">
+                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">WhatsApp del cliente</p>
+                    <WhatsappCliente idCliente={expediente.cliente_id || expediente.oportunidades.cliente_id} />
+                </div>
+            )}
         </div>
     );
 }

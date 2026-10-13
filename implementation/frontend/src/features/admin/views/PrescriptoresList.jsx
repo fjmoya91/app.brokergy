@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { PrescriptorDetailModal } from './PrescriptorDetailModal';
 import { nombrePartner } from '../../../utils/tiposEmpresa';
+import { PendientesWhatsapp } from '../../clientes/components/PendientesWhatsapp';
 
 // Estilo/etiqueta por tipo de partner — clases literales para que Tailwind las incluya.
 const TIPO_META = {
@@ -155,6 +156,11 @@ export function PrescriptoresList({ onNavigate }) {
                     </h2>
                     <p className="text-white/40 text-xs mt-2 ml-16 font-medium uppercase tracking-widest">Panel de control de entidades colaboradoras y partners B2B</p>
                 </div>
+                {/* Instaladores que están en tu WhatsApp y no en Partners: alta con un clic. */}
+                {isAdmin && (
+                    <PendientesWhatsapp pestanaInicial="instaladores" etiqueta="Instaladores en WhatsApp" sinRecuento
+                        onAlta={() => fetchData()} />
+                )}
                 {isAdmin && (
                     <button
                          onClick={handleNew}

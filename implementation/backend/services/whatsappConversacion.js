@@ -267,22 +267,27 @@ async function buscarChats(q) {
 /**
  * La conversación con ese número (o ese chat) en los últimos `dias`.
  * `{ chatId, nombre, telefono, incompleto, mensajes: [...] }`. No baja nada.
+ *
+ * `ultimos` (2026-10-13): solo los N últimos mensajes, cargando como mucho UN
+ * lote de antiguos — es lo que pinta la ficha del cliente y el expediente, que
+ * se abren muchas veces al día y no necesitan la conversación entera.
  */
-async function leerConversacion({ telefono, chatId, dias }) {
+async function leerConversacion({ telefono, chatId, dias, ultimos = null }) {
+    const n = Math.min(Math.max(Math.round(Number(ultimos) || 0), 0), 50);
     const d = Math.min(Math.max(Math.round(Number(dias) || 14), 1), CONFIG.maxDias);
     const corteSeg = Math.floor(Date.now() / 1000) - d * 86400;
     let id = null;
     if (chatId && /^[0-9a-z.\-]+@(c\.us|lid|g\.us)$/i.test(String(chatId))) id = String(chatId);
     else {
-        const n = nueve(telefono);
-        if (!n) throw error('Indica un teléfono (9 dígitos) o el chatId.');
-        id = `34${n}@c.us`;
+        const n9 = nueve(telefono);
+        if (!n9) throw error('Indica un teléfono (9 dígitos) o el chatId.');
+        id = `34${n9}@c.us`;
     }
 
     const client = whatsappMedia._clienteWa();
     if (!client) throw noConectado();
     const r = await whatsappMedia._enSerie(() => conPlazo(
-        client.pupPage.evaluate(LEER_CONVERSACION, id, corteSeg, CONFIG.maxMensajes, CONFIG.maxLotes),
+        client.pupPage.evaluate(LEER_CONVERSACION, id, corteSeg, n || CONFIG.maxMensajes, n ? 1 : CONFIG.maxLotes),
         CONFIG.plazoListarMs, 'leer la conversación'));
     if (r?.error) throw error(r.error, 503);
     if (!r?.chatId) throw error('No hay ninguna conversación con ese número en el WhatsApp de la empresa.', 404);
@@ -297,7 +302,7 @@ async function leerConversacion({ telefono, chatId, dias }) {
         // Si no se llegó al corte, lo más antiguo del periodo no se ha podido
         // cargar: se dice, o "no hay nada más" sería mentira.
         incompleto: !r.sinMas && r.masViejo > corteSeg,
-        mensajes: normalizarMensajes(r.mensajes, { corteSeg }),
+        mensajes: n ? normalizarMensajes(r.mensajes, { corteSeg }).slice(-n) : normalizarMensajes(r.mensajes, { corteSeg }),
     };
 }
 
@@ -327,8 +332,38 @@ async function descargarAdjunto(msgId) {
     };
 }
 
+/**
+ * TRANSCRIBE una nota de voz (o un audio) de una conversación leída aquí.
+ * Lo mismo que hace el asistente de Fran (Gemini, «literalmente, no resumas»).
+ * Se guarda en memoria por mensaje: abrir la ficha otra vez no vuelve a pagarlo.
+ */
+const transcritos = new Map();   // msgId → texto
+async function transcribir(msgId) {
+    const id = String(msgId || '');
+    if (transcritos.has(id)) return { texto: transcritos.get(id), cache: true };
+    const { buffer, mimetype } = await descargarAdjunto(id);
+    if (!/^audio\//.test(mimetype)) throw error('Ese mensaje no es un audio.');
+    const { llamarGemini } = require('./placaOcrService');
+    let r;
+    try {
+        r = await llamarGemini([{ buffer, mimeType: mimetype }], {
+            prompt: 'Transcribe literalmente esta nota de voz en español. No resumas: copia lo que dice. '
+                + 'Si hay partes que no se entienden, pon [inaudible].',
+            schema: { type: 'object', properties: { transcripcion: { type: 'string' } }, required: ['transcripcion'] },
+            etiqueta: 'transcribir-audio', maxTokens: 4096,
+        });
+    } catch (e) {
+        throw error(`No se ha podido transcribir: ${e.message}`, 502);
+    }
+    const texto = String(r?.transcripcion || '').trim();
+    if (!texto) throw error('La transcripción ha salido vacía.', 502);
+    if (transcritos.size > 500) transcritos.delete(transcritos.keys().next().value);
+    transcritos.set(id, texto);
+    return { texto, cache: false };
+}
+
 module.exports = {
-    buscarChats, leerConversacion, descargarAdjunto,
+    buscarChats, leerConversacion, descargarAdjunto, transcribir,
     // Puros, para las pruebas:
     normaliza, leerVcard, normalizarMensajes, CONFIG,
 };

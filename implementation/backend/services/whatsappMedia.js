@@ -397,7 +397,7 @@ function disponible() {
  * Lista lo que ha llegado por WhatsApp de esos números en los últimos `dias`.
  * No baja nada: solo metadatos y miniatura.
  */
-async function buscar(opp, { telefonos, dias }) {
+async function buscar(opp, { telefonos, dias, maxLotes = null }) {
     const d = Math.min(Math.max(Math.round(Number(dias) || 30), 1), CONFIG.maxDias);
     const corteSeg = Math.floor(Date.now() / 1000) - d * 86400;
     const tels = [...new Set((telefonos || []).map(nueve).filter(Boolean))].slice(0, CONFIG.maxContactos);
@@ -415,7 +415,7 @@ async function buscar(opp, { telefonos, dias }) {
             for (const tel of tels) {
                 try {
                     const r = await conPlazo(
-                        client.pupPage.evaluate(LEER_CHAT, `34${tel}@c.us`, corteSeg, CONFIG.maxMensajes, CONFIG.maxLotes),
+                        client.pupPage.evaluate(LEER_CHAT, `34${tel}@c.us`, corteSeg, CONFIG.maxMensajes, maxLotes ?? CONFIG.maxLotes),
                         CONFIG.plazoListarMs, 'leer el chat');
                     plazosSeguidos = 0;
                     if (r && r.error) { chats.push({ tel, estado: 'error', error: r.error }); continue; }
@@ -441,6 +441,41 @@ async function buscar(opp, { telefonos, dias }) {
     const colocadas = await marcas(media.map(m => m.id), opp.id);
     return { dias: d, chats, media: media.sort((a, b) => b.t - a.t), colocadas };
 }
+
+/**
+ * El AVISO «ha mandado fotos» (2026-10-13): cuántas fotos, vídeos o PDF han
+ * llegado por los chats DEL CLIENTE en los últimos `dias` que todavía no se han
+ * colocado en ningún expediente. Así se ve al abrir la documentación, sin tener
+ * que acordarse de ir a buscarlas.
+ *
+ * Ligero a propósito, porque se pide al abrir el gestor: solo los chats
+ * `recomendado` (los del cliente; el del instalador trae fotos de otras obras),
+ * UN lote de mensajes antiguos como mucho, y la respuesta se guarda 10 minutos
+ * por oportunidad. Sin WhatsApp no avisa de nada, sin error.
+ */
+const avisos = new Map();   // opp.id → { hasta, datos }
+const AVISO_MS = 10 * 60_000;
+async function sinColocar(opp, { dias = 14 } = {}) {
+    const previo = avisos.get(opp.id);
+    if (previo && previo.hasta > Date.now()) return previo.datos;
+    if (!clienteWa()) return { disponible: false, total: 0 };
+    const contactos = (await contactosDeOportunidad(opp)).filter(c => c.recomendado);
+    if (!contactos.length) return { disponible: true, total: 0 };
+    const r = await buscar(opp, { telefonos: contactos.map(c => c.tel), dias, maxLotes: 1 });
+    const nuevos = (r.media || []).filter(m => !r.colocadas?.[m.id]);
+    const datos = {
+        disponible: true,
+        total: nuevos.length,
+        dias: r.dias,
+        ultimo: nuevos.length ? Math.max(...nuevos.map(m => m.t)) : null,
+        porTipo: nuevos.reduce((a, m) => ({ ...a, [m.tipo]: (a[m.tipo] || 0) + 1 }), {}),
+        de: [...new Set(nuevos.map(m => contactos.find(c => c.tel === m.tel)?.nombre).filter(Boolean))],
+    };
+    avisos.set(opp.id, { hasta: Date.now() + AVISO_MS, datos });
+    return datos;
+}
+/** Tras colocar, el aviso de esa oportunidad se rehace en la siguiente consulta. */
+function olvidarAviso(oppId) { avisos.delete(oppId); }
 
 const MOTIVO_BAJADA = {
     no_encontrado: ['Esa foto ya no está en el chat. Vuelve a buscar.', 404],
@@ -585,7 +620,7 @@ function bajarSimulada(id) {
 }
 
 module.exports = {
-    disponible, contactosDeOportunidad, buscar, descargar, registrarColocadas,
+    disponible, contactosDeOportunidad, buscar, descargar, registrarColocadas, sinColocar, olvidarAviso,
     // Para `whatsappConversacion` (la conversación entera de la skill
     // alta-oportunidad): la MISMA fila de lecturas y la MISMA descarga.
     _enSerie: enSerie, _clienteWa: clienteWa, _BAJAR: BAJAR, MOTIVO_BAJADA,

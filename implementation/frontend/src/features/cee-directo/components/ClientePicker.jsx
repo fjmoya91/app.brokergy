@@ -70,7 +70,7 @@ export function ClientePicker({ cliente, onChange, onEditar, autoFocus = false, 
                             const n9 = num.length > 9 && num.startsWith('34') ? num.slice(2) : num;
                             return [c.tlf, c.persona_contacto_tlf].some(t => digitos(t).includes(n9));
                         }
-                        const heno = norm([c.nombre_razon_social, c.apellidos, c.dni, c.municipio].filter(Boolean).join(' '));
+                        const heno = norm([c.nombre_razon_social, c.apellidos, c.dni, c.municipio, c.whatsapp_nombres].filter(Boolean).join(' '));
                         return palabras.every(w => heno.includes(w));
                     });
                     setResultados(lista.slice(0, 8));

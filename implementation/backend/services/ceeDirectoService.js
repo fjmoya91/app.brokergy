@@ -354,6 +354,8 @@ async function crearExpediente(datos = {}, { createdBy = null, onCarpeta = null,
         };
         if (esperarCarpeta) await prepararCarpeta();
         else setImmediate(prepararCarpeta);
+        // Su chat de WhatsApp: etiqueta CEE y «CEE_n» en el nombre (apagado salvo WA_AUTO_SYNC).
+        if (creado?.cliente_id) require('./whatsappAutoSync').programarCliente(creado.cliente_id, `CEE ${creado.numero_expediente || ''}`.trim());
         return creado;
     }
     throw new Error('No se pudo reservar un número de expediente');

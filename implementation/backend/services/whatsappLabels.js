@@ -129,7 +129,16 @@ async function chatAbierto(telefono) {
         const C = window.require('WAWebCollections');
         if (!C || !C.Chat) return null;
         if (C.Chat.get(clasico)) return clasico;
-        // Puede estar abierto bajo su `@lid`: se busca por el número dentro del id.
+        // Puede estar abierto bajo su `@lid`, que es un número OPACO (no el
+        // teléfono): se le pregunta a WhatsApp cuál es, sin consultar a nadie fuera.
+        // Sin esto, el repaso de etiquetas daba «sin conversación» a chats que
+        // existen (medido el 13/10/2026: 26RES080_59).
+        try {
+            const wid = window.require('WAWebWidFactory').createWid(clasico);
+            const lid = window.require('WAWebApiContact').getCurrentLid(wid);
+            const sid = lid ? (lid._serialized || String(lid)) : null;
+            if (sid && C.Chat.get(sid)) return sid;
+        } catch (e) { /* sin lid conocido: se sigue con la búsqueda por número */ }
         const nueve = clasico.replace(/\D/g, '').slice(-9);
         const hit = C.Chat.getModelsArray().find(ch => {
             const u = ch.id && ch.id.user ? String(ch.id.user) : '';

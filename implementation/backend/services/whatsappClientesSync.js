@@ -127,14 +127,18 @@ function etiquetasObjetivo(actuales, { tipos, estado }, mapa) {
  * Repasa la cartera. `desde` es el índice por el que seguir: va a trozos de
  * `limite` teléfonos y devuelve `siguiente` hasta que es null.
  */
-async function sincronizar({ dryRun = true, desde = 0, pausaMs = PAUSA_MS, limite = LIMITE } = {}) {
+async function sincronizar({ dryRun = true, desde = 0, pausaMs = PAUSA_MS, limite = LIMITE, ids = null } = {}) {
     const mapa = resolverEtiquetas(await waLabels.listar());
     const { etiquetasCliente, estadoCliente } = await logica();
 
     const { data: clientes, error } = await supabase.from('clientes')
         .select('id_cliente, nombre_razon_social, apellidos, tlf').order('id_cliente');
     if (error) throw new Error(`No se han podido leer los clientes: ${error.message}`);
-    const rel = await cargarRelaciones(clientes.map(c => c.id_cliente), { internos: true });
+    // `ids` (2026-10-13): solo esos clientes — el automático, al cambiar uno. El
+    // veto se sigue calculando sobre TODOS: un teléfono compartido lo es aunque
+    // solo se mire una de sus fichas.
+    const objetivo = Array.isArray(ids) ? clientes.filter(c => ids.includes(c.id_cliente)) : clientes;
+    const rel = await cargarRelaciones(objetivo.map(c => c.id_cliente), { internos: true });
     const veto = await telefonosVetados(clientes);
 
     const candidatos = [];
@@ -143,7 +147,7 @@ async function sincronizar({ dryRun = true, desde = 0, pausaMs = PAUSA_MS, limit
         candidatos: 0, cambiados: 0, yaAlDia: 0, sinConversacion: 0,
         vetados: [], errores: [], detalle: [], siguiente: null,
     };
-    for (const c of clientes) {
+    for (const c of objetivo) {
         const r = { ...c, ...(rel.get(c.id_cliente) || {}) };
         // También los tipos solo PRESUPUESTADOS: en el chat interesa ver que
         // se le propuso un RES080 aunque aún no tenga expediente.
@@ -188,4 +192,4 @@ async function sincronizar({ dryRun = true, desde = 0, pausaMs = PAUSA_MS, limit
     return informe;
 }
 
-module.exports = { sincronizar, etiquetasObjetivo, resolverEtiquetas, ETIQUETAS_TIPO, ETIQUETAS_ESTADO };
+module.exports = { sincronizar, etiquetasObjetivo, resolverEtiquetas, telefonosVetados, ETIQUETAS_TIPO, ETIQUETAS_ESTADO };

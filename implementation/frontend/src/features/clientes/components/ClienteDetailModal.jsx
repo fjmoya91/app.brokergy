@@ -7,6 +7,7 @@ import { normalize, PROV_CCAA, PROV_NOMBRE, CCAA_LIST, getProvCodByNombre, parse
 // única en components/DireccionEdit: los comparte con el expediente de CEE.
 import { FieldView, FieldInput, Input, SelectEl, DireccionEdit } from '../../../components/DireccionEdit';
 import { WhatsappEtiquetas } from '../../../components/WhatsappEtiquetas';
+import { WhatsappCliente } from '../../whatsapp/components/WhatsappCliente';
 // Los accesos a la carpeta del expediente (Drive / local) son fuente única en
 // ExpedienteAccesos: los comparte con el listado de clientes.
 import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAccesos';
@@ -132,6 +133,8 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
     const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
     const isAdmin = userRole === 'ADMIN' || userRoleId === 1;
     const isCertificador = userRole === 'CERTIFICADOR' || userRoleId === 4;
+    // Su WhatsApp (nombre en la agenda, mensajes) es la agenda de la EMPRESA: solo equipo interno.
+    const isStaff = isAdmin || userRole === 'TRABAJADOR' || userRoleId === 8;
 
     const [cliente, setCliente] = useState(null);
     const [editing, setEditing] = useState(false);
@@ -891,6 +894,17 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                 teléfono es el mismo chat aunque tenga tres obras. Y aquí es
                                 donde se mira el teléfono, que es justo lo que identifica ese
                                 chat. Solo se pinta si hay número. */}
+                            {/* Cómo está en la agenda de WhatsApp cada teléfono (y por eso
+                                se le encuentra en el buscador), con sus últimos mensajes. */}
+                            {isStaff && (
+                                <div className="pt-4 border-t border-white/[0.04] space-y-2">
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">WhatsApp</p>
+                                    <WhatsappCliente idCliente={cliente.id_cliente}
+                                        nombreCliente={`${cliente.nombre_razon_social || ''} ${cliente.apellidos || ''}`.trim()}
+                                        notifAlContacto={!!cliente.notificaciones_contacto_activas} />
+                                </div>
+                            )}
+
                             {!isCertificador && (cliente.tlf || cliente.persona_contacto_tlf) && (
                                 <div className="pt-4 border-t border-white/[0.04]">
                                     <WhatsappEtiquetas

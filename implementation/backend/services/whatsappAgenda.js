@@ -25,7 +25,10 @@
 const supabase = require('./supabaseClient');
 const whatsappMedia = require('./whatsappMedia');
 const { _conPlazo: conPlazo } = require('./whatsappLabels');
-const { unirAgenda, filtrarAgenda, nombreDeContacto, obraDelPrefijo, codigoObra, _norm: norm } = require('../utils/agendaWhatsapp');
+const {
+    unirAgenda, filtrarAgenda, nombreDeContacto, obraDelPrefijo, codigoObra,
+    telefonosDeCliente, textoWhatsapp, pareceInstalador, _norm: norm,
+} = require('../utils/agendaWhatsapp');
 const { leerPrefijo } = require('../utils/nombreContactoCliente');
 
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
@@ -57,10 +60,18 @@ function LEER_AGENDA() {
     let api = null;
     try { api = window.require('WAWebApiContact'); } catch (e) { /* versión sin el módulo */ }
     const ultimo = new Map();
+    const etiquetasChat = new Map();   // chat → nombres de sus etiquetas
+    let nombreEtiqueta = new Map();
+    try {
+        nombreEtiqueta = new Map((C.Label ? C.Label.getModelsArray() : []).map(l => [String(l.id), String(l.name || '')]));
+    } catch (e) { /* cuenta sin etiquetas */ }
     try {
         for (const ch of C.Chat.getModelsArray()) {
             if (!ch || ch.isGroup || !ch.id) continue;
-            ultimo.set(ch.id._serialized || String(ch.id), Number(ch.t) || 0);
+            const sid = ch.id._serialized || String(ch.id);
+            ultimo.set(sid, Number(ch.t) || 0);
+            const ls = (ch.labels || []).map(x => nombreEtiqueta.get(String(x))).filter(Boolean);
+            if (ls.length) etiquetasChat.set(sid, ls);
         }
     } catch (e) { /* sin chats cargados: solo la agenda */ }
     const out = [];
@@ -77,7 +88,10 @@ function LEER_AGENDA() {
             // Un @lid lleva el número escondido; si WhatsApp ya lo conoce, lo da sin preguntar a nadie.
             try { const pn = api.getPhoneNumber(id); numero = pn && pn.user ? pn.user : null; } catch (e) { /* sin número */ }
         }
-        out.push({ id: sid, numero, nombre: c.name || null, pushname: c.pushname || null, enAgenda, chat, t: ultimo.get(sid) || 0 });
+        out.push({
+            id: sid, numero, nombre: c.name || null, pushname: c.pushname || null, enAgenda, chat,
+            t: ultimo.get(sid) || 0, etiquetas: etiquetasChat.get(sid) || [],
+        });
     }
     return { contactos: out };
 }
@@ -289,7 +303,199 @@ async function recuperar(telefono) {
     return { ok: true, telefono: n };
 }
 
+/**
+ * INSTALADORES PENDIENTES DE ALTA: contactos que parecen del ramo (etiqueta
+ * INSTALADORES o «Inst. …», «Fontanería …») y cuyo número no está en ningún
+ * partner ni en ningún cliente. Los descartes son los mismos que los de los
+ * clientes (por teléfono, para todo el equipo).
+ */
+async function instaladoresPendientes() {
+    const ag = await agenda();
+    const candidatos = ag.filter(c => c.numero && (c.enAgenda || (c.etiquetas || []).length) && pareceInstalador(c));
+    const [{ clientes, partnersPorTlf }, desc] = await Promise.all([
+        fichasPorTelefono(),
+        supabase.from(TABLA_DESCARTES).select('telefono'),
+    ]);
+    if (desc.error) throw error('No se han podido leer los descartados (la base de datos no responde).', 503);
+    const descartados = new Set((desc.data || []).map(d => d.telefono));
+    const pendientes = candidatos
+        .filter((c) => { const n = nueve(c.numero); return n && !partnersPorTlf.has(n) && !clientes.has(n) && !descartados.has(n); })
+        .map(c => ({
+            telefono: c.numero,
+            nombre_agenda: c.nombre || null,
+            pushname: c.pushname || null,
+            etiquetas: c.etiquetas || [],
+            propuesta: (c.nombre || c.pushname || '').replace(/\s+/g, ' ').trim(),
+            t: c.t || 0,
+        }))
+        .sort((a, b) => (b.t - a.t) || a.propuesta.localeCompare(b.propuesta, 'es'));
+    return { pendientes };
+}
+
+/* eslint-disable no-undef -- se ejecuta en el navegador */
+/** Tarjetas de contacto (vCard) recibidas en chats individuales desde `corte`. Solo lo cargado. */
+function LEER_VCARDS(corte) {
+    const C = window.require('WAWebCollections');
+    if (!C || !C.Chat) return { error: 'WhatsApp Web todavía no ha cargado sus conversaciones.' };
+    let api = null;
+    try { api = window.require('WAWebApiContact'); } catch (e) { /* sin el módulo */ }
+    const out = [];
+    for (const ch of C.Chat.getModelsArray()) {
+        if (!ch || ch.isGroup || !ch.id || (Number(ch.t) || 0) < corte) continue;
+        const ms = ch.msgs && ch.msgs.getModelsArray ? ch.msgs.getModelsArray() : [];
+        for (const m of ms) {
+            if (!m || (m.type !== 'vcard' && m.type !== 'multi_vcard') || (Number(m.t) || 0) < corte) continue;
+            if (m.id && m.id.fromMe) continue;
+            let numero = ch.id.server === 'c.us' ? ch.id.user : null;
+            if (!numero && api && api.getPhoneNumber) {
+                try { const pn = api.getPhoneNumber(ch.id); numero = pn && pn.user ? pn.user : null; } catch (e) { /* sin número */ }
+            }
+            const vcards = m.type === 'vcard' ? [String(m.body || '')]
+                : (Array.isArray(m.vcardList) ? m.vcardList.map(v => String((v && v.vcard) || '')) : []);
+            out.push({ numero, t: Number(m.t) || 0, vcards: vcards.map(v => v.slice(0, 4000)) });
+        }
+    }
+    return { mensajes: out };
+}
+/* eslint-enable no-undef */
+
+/**
+ * CONTACTOS COMPARTIDOS: las tarjetas de contacto que nos han mandado (un
+ * instalador que pasa el contacto de un cliente) en los últimos `dias`, cuyo
+ * número todavía no está en ninguna ficha. Quien la compartió, si es partner,
+ * va como sugerencia de «quién nos lo trae». Solo lo que WhatsApp tiene cargado
+ * en memoria: no se abren conversaciones para buscar.
+ */
+async function contactosCompartidos({ dias = 30 } = {}) {
+    const { leerVcard } = require('./whatsappConversacion');
+    const client = whatsappMedia._clienteWa();
+    if (!client) throw error('WhatsApp no está conectado: no se pueden leer los contactos compartidos.', 503);
+    const corte = Math.floor(Date.now() / 1000) - Math.min(Math.max(Number(dias) || 30, 1), 90) * 86400;
+    const r = await whatsappMedia._enSerie(() => conPlazo(client.pupPage.evaluate(LEER_VCARDS, corte), CONFIG.plazoMs, 'leer los contactos compartidos'))
+        .catch((e) => { throw e.plazoAgotado ? error('WhatsApp tarda demasiado. Prueba otra vez en un momento.', 503) : e; });
+    if (r?.error) throw error(r.error, 503);
+    const [{ clientes, partnersPorTlf }, desc] = await Promise.all([
+        fichasPorTelefono(),
+        supabase.from(TABLA_DESCARTES).select('telefono'),
+    ]);
+    if (desc.error) throw error('No se han podido leer los descartados (la base de datos no responde).', 503);
+    const descartados = new Set((desc.data || []).map(d => d.telefono));
+    // Quién la pasó, como está en la agenda («Manuel Instalador Quintanar»), no solo su número.
+    const idx = indiceAgenda(await agenda());
+    const vistos = new Set();
+    const out = [];
+    for (const m of (r?.mensajes || []).sort((a, b) => b.t - a.t)) {
+        const deNueve = nueve(m.numero);
+        const deAgenda = deNueve ? idx.get(deNueve) : null;
+        for (const raw of m.vcards) {
+            const v = leerVcard(raw);
+            for (const tel of v?.telefonos || []) {
+                const n = nueve(tel);
+                if (!n || vistos.has(n)) continue;
+                vistos.add(n);
+                if (clientes.has(n) || partnersPorTlf.has(n) || descartados.has(n)) continue;
+                const propuesta = nombreDeContacto(v.nombre || '');
+                out.push({
+                    telefono: tel,
+                    nombre_tarjeta: v.nombre || null,
+                    propuesta,
+                    t: m.t,
+                    compartido_por: {
+                        telefono: m.numero || null,
+                        nombre: deAgenda ? (deAgenda.nombre || deAgenda.pushname || null) : null,
+                        partner: (deNueve && partnersPorTlf.get(deNueve)) || null,
+                        clientes: (deNueve && clientes.get(deNueve)) || [],
+                    },
+                });
+            }
+        }
+    }
+    return { contactos: out, dias };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EL NOMBRE DE WHATSAPP EN LA FICHA (2026-10-13)
+//
+// Cómo está guardado cada teléfono del cliente en la agenda («RES060_225
+// Ceferino (ISM)») y cómo se ha puesto él («Cefe»). Se enseña en la ficha y se
+// guarda en `clientes.whatsapp_nombres` (texto) para que el BUSCADOR de Clientes
+// lo encuentre sin preguntar a WhatsApp. Se escribe solo si cambia.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Índice 9 dígitos → entrada de la agenda. */
+function indiceAgenda(ag) {
+    const idx = new Map();
+    for (const c of ag) {
+        const n = nueve(c.numero);
+        if (n && !idx.has(n)) idx.set(n, c);
+    }
+    return idx;
+}
+
+function datoDe(entrada, via, telefono) {
+    if (!entrada) return { via, telefono, en_whatsapp: false };
+    return {
+        via, telefono,
+        en_whatsapp: true,
+        nombre_agenda: entrada.nombre || null,
+        pushname: entrada.pushname || null,
+        en_agenda: !!entrada.enAgenda,
+        con_chat: !!entrada.chat,
+        t: entrada.t || 0,
+        numero: entrada.numero,
+    };
+}
+
+/** Los teléfonos de UN cliente con su nombre en WhatsApp; guarda el texto de búsqueda si ha cambiado. */
+async function whatsappDeCliente(idCliente) {
+    const { data: c, error: e } = await supabase.from('clientes')
+        .select('id_cliente, tlf, persona_contacto_tlf, copropietarios, whatsapp_nombres')
+        .eq('id_cliente', idCliente).maybeSingle();
+    if (e) throw error('No se ha podido leer el cliente (la base de datos no responde).', 503);
+    if (!c) throw error('Cliente no encontrado.', 404);
+    const idx = indiceAgenda(await agenda());
+    const telefonos = telefonosDeCliente(c).map(({ via, telefono }) => datoDe(idx.get(telefono), via, telefono));
+    const texto = textoWhatsapp(telefonos.filter(t => t.en_whatsapp).map(t => ({ nombre: t.nombre_agenda, pushname: t.pushname })));
+    if ((texto || null) !== (c.whatsapp_nombres || null)) {
+        await supabase.from('clientes').update({ whatsapp_nombres: texto }).eq('id_cliente', c.id_cliente);
+    }
+    return { telefonos, whatsapp_nombres: texto };
+}
+
+/**
+ * Repasa TODOS los clientes contra la agenda y deja al día su texto de
+ * búsqueda. Solo lee de WhatsApp (una evaluación); escribe en la BD solo lo que
+ * cambia. `dryRun` por defecto.
+ */
+async function sincronizarNombres({ dryRun = true } = {}) {
+    const idx = indiceAgenda(await agenda());
+    const { data, error: e } = await supabase.from('clientes')
+        .select('id_cliente, tlf, persona_contacto_tlf, copropietarios, whatsapp_nombres');
+    if (e) throw error('No se han podido leer los clientes (la base de datos no responde).', 503);
+    const cambios = [];
+    let conWhatsapp = 0;
+    for (const c of data || []) {
+        const ents = telefonosDeCliente(c).map(t => idx.get(t.telefono)).filter(Boolean);
+        if (ents.length) conWhatsapp++;
+        const texto = textoWhatsapp(ents);
+        if ((texto || null) !== (c.whatsapp_nombres || null)) cambios.push({ id_cliente: c.id_cliente, texto });
+    }
+    const informe = { clientes: (data || []).length, conWhatsapp, cambios: cambios.length, dryRun, errores: 0 };
+    if (dryRun) return informe;
+    // De diez en diez: son UPDATE sueltos (un upsert parcial no vale: el INSERT pide el nombre).
+    for (let i = 0; i < cambios.length; i += 10) {
+        const r = await Promise.all(cambios.slice(i, i + 10).map(x =>
+            supabase.from('clientes').update({ whatsapp_nombres: x.texto }).eq('id_cliente', x.id_cliente)));
+        informe.errores += r.filter(x => x.error).length;
+    }
+    return informe;
+}
+
+/** Tira la agenda leída: tras renombrar contactos, la siguiente lectura trae lo nuevo. */
+function olvidarAgenda() { cache = null; }
+
 module.exports = {
-    buscar, pendientesDeAlta, descartar, recuperar, CONFIG,
+    olvidarAgenda,
+    buscar, pendientesDeAlta, instaladoresPendientes, contactosCompartidos, descartar, recuperar, whatsappDeCliente, sincronizarNombres, CONFIG,
     _LEER_AGENDA: LEER_AGENDA, _partnerDePista: partnerDePista,
 };
