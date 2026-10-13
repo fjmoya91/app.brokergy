@@ -118,6 +118,16 @@ cubierta · fachada · ventanas · aerotermia · hibridación · retirada · aut
 cada texto precedido del NOMBRE del conjunto y acabado en `<br>`. Lo que ya trae el conjunto
 (un `.cex` 3.1 del técnico) no se toca; en la 2.3 no se escriben (`medidas_a_23`).
 
+⚠️ **Y también al PONER la medida sobre un `.cex` ya hecho** (2026-10-10, 26RES060_188): `medidas_a_31`
+solo se llamaba al generar el `.cex` entero (`/cex`), así que por `/cex/medida` —el CEE del técnico
+preparado para validar, «Poner la medida», las `medidas_libres` de la skill— el cuadro salía con el
+orden pero **la JUSTIFICACIÓN en blanco**. `poner_medida` lo llama ya con las justificaciones de la
+ficha (`_justificaciones`), y las medidas del técnico que se conservan solo reciben el orden si no lo
+tienen. Lo vigila `test_poner_la_medida_escribe_su_orden_y_su_justificacion`. Y sin placas en la
+vivienda, la aerotermia lleva detrás su conjunto CON placas (`aerotermia_fv`, regla 133): la
+aerotermia dice que fija el consumo eléctrico y la 2.ª, que va después para dimensionar las placas con
+los consumos reales de la bomba de calor.
+
 ### Y el `.xml` de la 3.1 se LEE igual (2026-10-02)
 
 CE3X 3.1 exporta el XML del certificado en el esquema **v3.0**

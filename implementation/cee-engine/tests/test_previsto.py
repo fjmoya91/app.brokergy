@@ -105,6 +105,32 @@ def test_las_ventanas_marcadas_pasan_a_conocidas_con_los_valores_por_defecto():
     assert _hueco(env, "V2").clase == "HuecoEstimadas"
 
 
+def _puente(env, nombre):
+    return next(p for p in env[2] if str(p[0]) == nombre)
+
+
+def test_los_puentes_de_las_ventanas_que_cambian_pasan_a_la_mejora_de_ce3x():
+    """Decision del usuario (2026-10-05): cambiar la ventana resuelve su puente.
+    Los psi son los de la «Mejora de Puentes Termicos» de CE3X 3.2 y se escriben
+    como un psi tecleado (texto + `usuario_fi`)."""
+    env, _, hechos = PV.aplicar_envolvente(_inicial(), {"huecos": [{"que": "cambia"}]})
+    v1 = _puente(env, "PT Contorno de hueco-V1 - CAMBIA")
+    assert (v1[3], str(v1[5]), str(v1[6])) == ("0.02", "usuario_fi", "defecto")
+    assert _puente(env, "PT Contorno de hueco-P1 - CAMBIA")[3] == "0.02"
+    # El de la ventana que NO cambia, como estaba.
+    v2 = _puente(env, "PT Contorno de hueco-V2")
+    assert (v2[3], str(v2[5])) == (0.55, "defecto_fi")
+    assert {p["nombre"] for p in hechos["puentes"]} == {
+        "PT Contorno de hueco-V1 - CAMBIA", "PT Contorno de hueco-P1 - CAMBIA"}
+
+
+def test_los_puentes_de_las_ventanas_se_pueden_dejar_como_estaban():
+    env, _, hechos = PV.aplicar_envolvente(_inicial(), {"huecos": [{"que": "cambia"}],
+                                                        "puentes_huecos": False})
+    assert _puente(env, "PT Contorno de hueco-V1 - CAMBIA")[3] == 0.55
+    assert "puentes" not in hechos
+
+
 def test_una_puerta_conserva_su_porcentaje_de_marco():
     env, _, _ = PV.aplicar_envolvente(_inicial(), {"huecos": [{"que": "cambia"}]})
     assert _hueco(env, "P1 - CAMBIA").estado["porcMarco"] == "90"

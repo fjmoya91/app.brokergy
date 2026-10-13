@@ -349,6 +349,9 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
         ['Hibridación con aerotermia', 'hibridacion'],
         ['Retirada de la caldera de apoyo', 'retirada'],
         ['Autoconsumo fotovoltaico', 'autoconsumo'],
+        //: Sin placas en la vivienda, detrás de la aerotermia: su conjunto con
+        //: placas como 2.ª fase (decisión del usuario, 10/10/2026).
+        ['Aerotermia + autoconsumo, en 2.ª fase', 'aerotermia_fv', { secuencial: true }],
     ];
     secciones.push({
         id: 'justificacion_medidas',
@@ -356,10 +359,10 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
         resumen: 'Anexo III · 3. Secuencia temporal (solo CE3X 3.x)',
         nota: 'Una por conjunto de medidas, en su casilla «Justificación». Orden de ejecución: '
             + 'primero la envolvente, después el generador y al final el autoconsumo.',
-        campos: JUST.map(([campo, tipo]) => ({
+        campos: JUST.map(([campo, tipo, ctx]) => ({
             campo,
             parrafo: true,
-            valor: justificacionMedida(tipo, { conAerotermia }).justificacion,
+            valor: justificacionMedida(tipo, { conAerotermia, ...ctx }).justificacion,
         })),
     });
 

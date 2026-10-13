@@ -49,6 +49,8 @@ CE3X_DIR='C:\Program Files (x86)\CEXv2.3' CE3X_EXE=cexv2.3.exe CASO='C:\ruta\x.c
 | `cex_a_xml.py` | Califica, calcula medidas y escribe el XML devolviendo JSON. Lo usa `backend/services/cee/cexAPdf.js` (→ XML + PDF oficial; comando `backend/scripts/cex_a_pdf.js`). Con `AJUSTAR_AUTOCONSUMO` recorta cada mes de autoconsumo que pase del consumo que calcula CE3X y guarda el `.cex` en `SALIDA_CEX` |
 | `perfil_mensual.py` | El reparto mensual (`coeficientesCal`/`Ref`) de cada `.cex` en las doce zonas: de ahí sale la tabla `PERFILES` de `autoconsumoMensual.js` |
 | `valores_por_defecto.py` | Las U y masas «Por defecto» («Estimados según antigüedad y zona climática») de cada cerramiento, por periodo, zona HE-1 y zona NBE, llamando a `Envolvente.tablasValores` (están compiladas ahí). Sin `.cex`. Deja el JSON en `SALIDA` |
+| `medida_previsto.py` | RES080: mete en el inicial la medida sacada del CEE PREVISTO como UN conjunto autocontenido («Nuevas Instalaciones» + aislamiento + sustitución de huecos), la calcula, guarda y escribe el XML. Lo usa `cexAPdf.ponerPrevistoComoMedida` |
+| `clic_medida.py` | Simula el CLIC en cada conjunto y cada medida del árbol de «Medidas de mejora» y anota el error del manejador si lo hay (lo que en la pantalla es un panel en blanco). Así se encontró que una «Nuevo Edificio» relee el `.cex` del previsto de fuera (26RES080_82) |
 | `muros_terreno.py` | Pasa paredes a «Muro en contacto con el terreno» («Por defecto»), quita forjados y recorta suelos, con el PROPIO CE3X, y guarda encima (`CASO`, `MUROS`, `QUITAR`, `SUPERFICIES`). El motor aún no escribe ese muro (26RES060_191) |
 
 ## Lo que hay que saber

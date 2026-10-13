@@ -6,8 +6,11 @@ QUE ES
 En un RES080 se hacen DOS certificados antes de la obra: el INICIAL (la casa como
 esta) y el PREVISTO (la casa con la medida de mejora entera ya puesta: aerotermia,
 aires, ventanas, aislamiento...). El ahorro de la ficha es la diferencia entre los
-dos, y el previsto se mete en el inicial como su medida de mejora («Nuevo Edificio
-Definido por el Usuario»).
+dos, y lo que cambia el previsto se mete en el inicial como su medida de mejora:
+UN conjunto autocontenido («Nuevas Instalaciones» + aislamiento + sustitucion de
+huecos, oraculo `medida_previsto.py`). Hasta el 10/10/2026 era una «Nuevo Edificio
+Definido por el Usuario», que CE3X relee del .cex del previsto cada vez que se
+pulsa y que sin ese fichero no abria (26RES080_82).
 
 COMO SE HACE A MANO, Y POR ESO SE HACE ASI
 ------------------------------------------
@@ -65,6 +68,16 @@ VENTANA_DEFECTO = {"u_marco": 1.3, "u_vidrio": 1.3, "g": 0.43,
 #: Por encima de este % de marco es una PUERTA (90 la de entrada, 100 la opaca):
 #: el 20 % de una ventana no se le aplica, conserva el suyo.
 PORC_PUERTA = 60.0
+
+#: Los PUENTES TERMICOS de una ventana que se CAMBIA (decision del usuario,
+#: 2026-10-05: «al final estamos resolviendo un puente termico»). Son los psi que
+#: el PROPIO CE3X 3.2 pone en su «Mejora de Puentes Termicos»
+#: (`Envolvente.tablasValores.obtenerPTMedidasMejora`, preguntado con el oraculo):
+#: contorno de hueco 0,55 -> 0,02 y caja de persiana 1,49 -> 0,65. Fijos: no
+#: dependen de la epoca ni de la zona. Se escriben como CE3X guarda un psi
+#: tecleado: el valor en TEXTO y `usuario_fi` (la longitud sigue `defecto`),
+#: medido en los .cex de certificadores (26RES080_83, c02, c10...).
+PSI_MEJORA_HUECO = {"Contorno de hueco": 0.02, "Caja de Persiana": 0.65}
 
 
 def _n(x: Any, que: str) -> float:
@@ -160,6 +173,29 @@ def _hueco_conocido(h: Any, v: dict) -> list[str]:
     return avisos
 
 
+def _mejorar_puentes_de_huecos(puentes: list, nombres: list[str]) -> list[dict]:
+    """Pone a los puentes de las ventanas que cambian el psi de la mejora de
+    CE3X (`PSI_MEJORA_HUECO`). EN SITIO. Un puente es de un hueco por su NOMBRE,
+    «PT {tipo}-{hueco}», que es como lo escriben la app y CE3X; uno que ya tenga
+    un psi menor no se empeora. Devuelve lo cambiado, para el informe."""
+    hechos = []
+    cola = {f"-{n}" for n in nombres if n}
+    for p in puentes or []:
+        if not (isinstance(p, list) and len(p) >= 9):
+            continue
+        tipo = str(p[2])
+        nuevo = PSI_MEJORA_HUECO.get(tipo)
+        if nuevo is None or not any(str(p[0]).endswith(c) for c in cola):
+            continue
+        antes = G._numf(p[3])
+        if antes is not None and antes <= nuevo:
+            continue
+        p[3] = G._dec(nuevo)
+        p[5] = Cadena("usuario_fi")
+        hechos.append({"nombre": str(p[0]), "tipo": tipo, "psi_antes": antes, "psi": nuevo})
+    return hechos
+
+
 # --------------------------------------------------------------------------
 # Cerramientos
 # --------------------------------------------------------------------------
@@ -235,7 +271,12 @@ def aplicar_envolvente(envolvente: Any, spec: dict) -> tuple[list, list[str], di
             avisos += _hueco_conocido(huecos[i], regla)
             hechos["huecos"].append(nombres_h[i])
 
-    nombres_c = [str(r[0]) if isinstance(r, list) and r else "" for r in cerr]
+    # Los puentes de esas ventanas: una carpinteria nueva bien colocada resuelve
+    # el contorno y su cajon (`puentes_huecos: false` en el spec lo apaga).
+    if hechos["huecos"] and spec.get("puentes_huecos", True) is not False and len(env) > 2:
+        hechos["puentes"] = _mejorar_puentes_de_huecos(env[2], hechos["huecos"])
+
+    nombres_c =[str(r[0]) if isinstance(r, list) and r else "" for r in cerr]
     for regla in spec.get("aislamiento") or []:
         tipos = {G.ELEMENTO_AISLAMIENTO[e] for e in (regla.get("elementos") or [])
                  if e in G.ELEMENTO_AISLAMIENTO}

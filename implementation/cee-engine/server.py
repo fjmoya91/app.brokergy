@@ -989,6 +989,15 @@ def poner_medida(crudo: bytes, ficha: dict) -> tuple[bytes, list[str]]:
     nuestros = {str(g.estado[G.Cadena("nombre")]) for g in grupos}
     suyos_g = [g for g in (L.leer(base, G.MEDIDAS) or [])
                if str((getattr(g, "estado", {}) or {}).get("nombre")) not in nuestros]
+    suyos_g = [G._reemitible(g) for g in suyos_g]
+    # Y en la 3.x, el ORDEN de ejecución y la JUSTIFICACIÓN de cada conjunto
+    # (Anexo III, 3: «Propuesta de secuencia temporal»). Se ponía solo al
+    # generar el `.cex` entero (`/cex`); por aquí —el CEE del técnico,
+    # «Poner la medida», las medidas libres de la skill— el cuadro salía en
+    # blanco (26RES060_188, 10/10/2026). Lo que el técnico ya escribió en las
+    # suyas no se toca (`medidas_a_31`).
+    if VC.es_moderna(VC.version_de(base)):
+        VC.medidas_a_31(grupos + suyos_g, VC._justificaciones(ficha))
     res_base = L.leer(base, G.RESUMEN_MEDIDAS)
     suyas_f = [f for f in (res_base[2] if isinstance(res_base, list) and len(res_base) > 2
                            and isinstance(res_base[2], list) else [])
@@ -998,7 +1007,7 @@ def poner_medida(crudo: bytes, ficha: dict) -> tuple[bytes, list[str]]:
                       + ", ".join(str(g.estado.get("nombre")) for g in suyos_g) + ".")
 
     cambios = {
-        G.MEDIDAS: grupos + [G._reemitible(g) for g in suyos_g],
+        G.MEDIDAS: grupos + suyos_g,
         G.RESUMEN_MEDIDAS: G.construir_resumen_medidas(filas + suyas_f, res_base),
     }
     informe = L.leer(base, G.INFORME)

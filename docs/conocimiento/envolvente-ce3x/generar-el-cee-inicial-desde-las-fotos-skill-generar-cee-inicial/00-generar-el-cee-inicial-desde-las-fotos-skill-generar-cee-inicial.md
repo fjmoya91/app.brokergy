@@ -76,3 +76,25 @@ sus LITROS (`instalacion.aerotermia_acs.litros`; sin ellos sale «SIN depósito�
 ATHERIA 100 los tenía vacíos. Y (d) un **patio que Catastro no dibuja** (el 225 tiene dos y Catastro
 cuenta uno como vivienda) no recorta la superficie: sus huecos van a la fachada de su orientación más
 probable, en ámbar y dicho. Está en la skill, «Lo que hay que poner SIEMPRE», puntos 17-19.
+
+**Sin placas, DOS medidas: 1) la aerotermia, 2) la aerotermia + placas, cada una con su justificación**
+(decisión de Fran, 2026-10-10, tras ver el apartado 3 del Anexo III de 26RES060_188 en blanco).
+**REGLA — la 2.ª medida se dimensiona con lo que CE3X calcula que consume la vivienda CON la
+aerotermia**, no con el CEE de la caldera (en un inicial casi no hay electricidad que cubrir):
+`segundaMedidaFv` en `cee_inicial.js aplicar` califica el `.cex` recién escrito, lee la energía final de
+la medida de aerotermia en su XML (`leerConsumoDeMedidaDeTexto`, solo los servicios que son
+electricidad: el ACS que se queda en la caldera es gas), la reparte por meses
+(`consumoElectricoMensual`) y se la pasa a `medidasCe3x` como `consumoMedida`: kWp = 90 % de ese
+consumo con PVGIS, cada mes lo menor entre producción y consumo, 1.000 €/kWp (los criterios del CEE
+final, regla 127), y vuelve a pedir el `.cex` con `["aerotermia", "aerotermia_fv"]`. Las
+justificaciones dicen el porqué del orden (`justificacionMedidas.js`, `conFvDespues` y
+`secuencial`): con la bomba de calor funcionando se conocen sus consumos reales y las placas se
+ajustan a ellos (potencia pico, módulos, acumulación, potencia contratada, ACS en horas de sol) sin
+sobredimensionar. La medida 1 sigue siendo la del informe y la que reproduce el CEE final; la revisión
+del CEE coge la primera con bomba de calor y cita la otra como «además». **No va** —y la salida lo
+marca con «PREGUNTAR:» para que la skill lo consulte— en una hibridación (el XML no separa el gas de
+la caldera), sin CE3X en el PC o sin PVGIS; con placas ya instaladas tampoco (van en Instalaciones),
+con placas en la obra es una sola medida (`aerotermia_fv` sola, con el texto combinado) y en un RES080
+la medida es el previsto. `fv_segunda: false` la quita. Medido en seco sobre el plan de 26RES060_188:
+19.703 kWh/año con la aerotermia → 10,78 kWp, 11.257 kWh/año declarados, ahorro de EPnr 86,4 % →
+94,2 %. Está en la skill, «Lo que hay que poner SIEMPRE», punto 20.

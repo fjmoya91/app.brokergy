@@ -84,7 +84,8 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `tecnico` | quién firma el `.cex` | Por defecto **Fran** (no hace falta ponerlo). Otro: su `id_empresa` de `prescriptores`; ninguno: `false`. Un técnico de verdad asignado en la barra manda |
 | `fechas` | `{ "emision": "AAAA-MM-DD", "visita": "AAAA-MM-DD" }` | **Por defecto HOY las dos** (lo pide Fran siempre: SKILL, punto 17). Solo se usan si el expediente no tiene ya las suyas; sin ellas CE3X 3.x no escribe el XML |
 | `medidas` | las medidas de mejora que se escriben (`["autoconsumo"]`, `["aerotermia"]`, `["aerotermia_fv"]`…) | Sin la clave, las que trae marcadas la fase. El autoconsumo necesita sus kWh: del CEE cargado o tecleados en `ajustes.autoconsumo_kwh` (en un CEE directo, siempre tecleados). **`aerotermia_fv`** = UN conjunto con la aerotermia, su equipo de ACS si va aparte y las placas (ver abajo) |
-| `medidas_libres` | medidas que NO están en el catálogo de la ventana: `[{ nombre, caracteristicas, otros_datos, inversion, vida_util, instalaciones: [equipos] }]` | Se ponen con `/cex/medida` (los MISMOS escritores que «Poner la medida»): los equipos que asumen un servicio retiran el generador que lo daba. Caso: CEE directo sin aerotermia con «retirar caldera + 2 splits `climatizacion` + termo `ACS` + placas `renovable`» (2026CEE_57). Usa `"medidas": []` para no duplicar. En la 3.2 las placas `renovable` necesitan `potencia_pico_kwp` y `generacion_mensual_kwh` (doce meses, cada uno lo menor entre producción y consumo): sin ellos el motor no escribe la medida |
+| `medidas_libres` | medidas que NO están en el catálogo de la ventana: `[{ nombre, caracteristicas, otros_datos, inversion, vida_util, justificacion, secuencia, instalaciones: [equipos] }]` — `justificacion` (texto llano latin-1: por qué esta medida y por qué en su orden) y `secuencia` (1 envolvente · 2 generador · 3 renovables) llenan el apartado 3 del Anexo III; sin ellas sale en blanco | Se ponen con `/cex/medida` (los MISMOS escritores que «Poner la medida»): los equipos que asumen un servicio retiran el generador que lo daba. Caso: CEE directo sin aerotermia con «retirar caldera + 2 splits `climatizacion` + termo `ACS` + placas `renovable`» (2026CEE_57). Usa `"medidas": []` para no duplicar. En la 3.2 las placas `renovable` necesitan `potencia_pico_kwp` y `generacion_mensual_kwh` (doce meses, cada uno lo menor entre producción y consumo): sin ellos el motor no escribe la medida |
+| `fv_segunda` | `false` para NO poner la 2.ª medida (aerotermia + autoconsumo) que `aplicar` añade sola cuando la vivienda no tiene placas ni la obra las trae (SKILL.md, punto 20) | Por defecto va; se quita solo si el usuario lo pide |
 | `ajustes.autoconsumo_kwh` | kWh/año que PRODUCEN las placas | Con presupuesto de FV: **kWp del presupuesto × producción específica de PVGIS** del tejado. Es la producción: lo que se DECLARA cada mes es lo menor entre ella y el consumo del mes (ver abajo, paso 5) |
 | `ajustes.autoconsumo_pvgis` | la producción específica de PVGIS (kWh por kWp, anual y 12 meses) y con qué tejado | Forma `{ anual, mensual[12], inclinacion, orientacion, optimos, perdidas, montaje, lat, lon, fuente, consultado }`. Con ella salen los kWp y el reparto mes a mes. Sin ella, el backend pregunta con los ángulos ÓPTIMOS, que sobreestiman unas placas coplanares. En la 3.2, sin los doce meses (PVGIS no responde) la medida NO se genera y se dice: ya no cae a «contribución energética» |
 | `ajustes.autoconsumo_inversion` | lo que cuestan las placas | Solo lo suma `aerotermia_fv`. Con el MISMO criterio de IVA que la inversión de la aerotermia (la del presupuesto de la oportunidad, que en un particular va con IVA) |
@@ -92,8 +93,9 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 ## RES080: el bloque `previsto`
 
 En un RES080 se hacen DOS certificados: el INICIAL y el **PREVISTO** (la casa con toda la obra
-hecha). Con `previsto` en el plan, `aplicar` escribe los dos, mete el previsto como la medida de
-mejora del inicial («Nuevo Edificio Definido por el Usuario», calculada por CE3X) y carga el XML del
+hecha). Con `previsto` en el plan, `aplicar` escribe los dos, mete lo que cambia el previsto como la
+medida de mejora del inicial (UN conjunto autocontenido: «Nuevas Instalaciones» + aislamiento +
+sustitución de huecos, calculado por CE3X; nunca una «Nuevo Edificio») y carga el XML del
 previsto como **CEE FINAL** en la app (de ahí sale el ahorro del RES080). Ver SKILL.md, «RES080».
 
 ```json
@@ -106,7 +108,7 @@ previsto como **CEE FINAL** en la app (de ahí sale el ahorro del RES080). Ver S
                   "permeabilidad": 3, "descripcion": "PVC con doble vidrio bajo emisivo" } ],
   "aislamiento": [
     { "que": "cambia", "elementos": ["cubierta"], "u": 0.30, "descripcion": "lana mineral de 10 cm" },
-    { "que": "cambia", "elementos": ["fachada"], "lambda": 0.035, "espesor": 0.06 }
+    { "que": "cambia", "elementos": ["fachada"], "lambda": 0.035, "espesor": 0.06, "exterior": false }
   ],
   "inversion": 18500
 }
@@ -116,8 +118,9 @@ previsto como **CEE FINAL** en la app (de ahí sale el ahorro del RES080). Ver S
 |---|---|---|
 | `previsto.medidas` | de qué medidas de la ficha salen los EQUIPOS del previsto | Por defecto las de `medidas`. Las placas (`renovable`) NO entran salvo `con_placas: true` |
 | `previsto.ventanas[]` | las ventanas nuevas | `que`: `"cambia"` (las marcadas `cambia: true`), `"todos"` o `["V1","P2"]`. Valores de la ficha / catálogo / presupuesto; sin ellos **U marco 1,3 · U vidrio 1,3 · g 0,43 · 20 % de marco · permeabilidad 3**. Una puerta conserva su % de marco |
-| `previsto.aislamiento[]` | lo que se aísla | `elementos`: `fachada` · `cubierta` · `suelo` · `particion`; `que` como arriba (las paredes de `cambian`, la cubierta de `cubierta_reforma`). **`u` (o `lambda` + `espesor` en m) SE PREGUNTA al usuario, nunca se supone.** Una medianera no se aísla; un suelo contra el terreno no admite U conocida (CE3X) |
+| `previsto.aislamiento[]` | lo que se aísla | `elementos`: `fachada` · `cubierta` · `suelo` · `particion`; `que` como arriba (las paredes de `cambian`, la cubierta de `cubierta_reforma`). **`u` (o `lambda` + `espesor` en m) SE PREGUNTA al usuario, nunca se supone.** Una medianera no se aísla; un suelo contra el terreno no admite U conocida (CE3X). **`exterior`** (fachada): `true` solo si es SATE / por el exterior — CE3X rebaja entonces los puentes térmicos de la medida y el previsto no; por defecto, por el interior |
 | `previsto.ventilacion` / `masa_particiones` | | **0,53 y «Ligera» siempre** (decisión del usuario) |
+| `previsto.puentes_huecos` | los puentes térmicos de las ventanas que cambian | Por defecto se MEJORAN: contorno de hueco ψ 0,02 y caja de persiana ψ 0,65, los de la «Mejora de Puentes Térmicos» de CE3X 3.2 (decisión de Fran, 2026-10-05: cambiar la ventana resuelve su puente). La medida del inicial lleva la misma pieza. `false` = se quedan como en el inicial |
 | `previsto.nombre` / `caracteristicas` / `otros` / `justificacion` | los textos de la medida del inicial | Sin ellos se componen: los de la aerotermia + «la sustitución de N ventanas… con marco de U = …» + «el aislamiento térmico de la cubierta con … hasta U = …» |
 | `previsto.inversion` / `vida_util` | el análisis económico de la medida | Por defecto facturas, o presupuesto + presupuesto de envolvente; vida 30 años si toca la envolvente. Sin inversión CE3X imprime «coste > 100 000» |
 

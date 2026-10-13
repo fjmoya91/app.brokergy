@@ -50,23 +50,23 @@ const TEXTOS = {
         + 'las pérdidas por transmisión y por infiltración, limita las ganancias solares en verano, '
         + `elimina las condensaciones y mejora el aislamiento acústico. ${DESPUES_ENVOLVENTE}`,
 
-    aerotermia: () => 'El generador de combustión actual, de bajo rendimiento estacional, concentra '
+    aerotermia: ({ conFvDespues }) => 'El generador de combustión actual, de bajo rendimiento estacional, concentra '
         + 'la mayor parte del consumo de energía primaria no renovable y de las emisiones de CO2 del '
         + 'edificio. Su sustitución por una bomba de calor aerotérmica, que aprovecha la energía '
         + 'renovable contenida en el aire exterior con un rendimiento estacional (SCOP) varias veces '
         + 'superior al de una caldera, es la medida que más reduce el consumo de energía primaria no '
         + 'renovable y las emisiones de todas las analizadas, y se integra en la instalación existente '
         + 'sin modificar los emisores. Se ejecuta después de las mejoras de la envolvente, si las hay, '
-        + 'para dimensionar el equipo a la demanda ya reducida.',
+        + `para dimensionar el equipo a la demanda ya reducida.${conFvDespues ? ANTES_DE_LA_FV : ''}`,
 
-    hibridacion: () => 'La calefacción del edificio depende de una caldera de combustión que '
+    hibridacion: ({ conFvDespues }) => 'La calefacción del edificio depende de una caldera de combustión que '
         + 'concentra la mayor parte de su consumo de energía primaria no renovable. Incorporar una '
         + 'bomba de calor aerotérmica funcionando en paralelo con la caldera existente permite cubrir '
         + 'con energía renovable del aire exterior la mayor parte de la demanda anual, reservando la '
         + 'caldera para los periodos de máxima demanda y temperaturas exteriores más bajas, en los que '
         + 'la bomba de calor rinde menos. Es una solución de menor inversión que la sustitución '
         + 'completa, aprovecha el generador y los emisores existentes y garantiza el servicio en todo '
-        + 'momento. Se ejecuta después de las mejoras de la envolvente, si las hay.',
+        + `momento. Se ejecuta después de las mejoras de la envolvente, si las hay.${conFvDespues ? ANTES_DE_LA_FV : ''}`,
 
     retirada: () => 'Con la bomba de calor ya en funcionamiento, la caldera que permanece como '
         + 'apoyo aporta el único consumo de combustible fósil que queda en el edificio. Ampliar la '
@@ -87,12 +87,42 @@ const TEXTOS = {
         + 'caliente sanitaria y la climatización. Se propone en último lugar porque su potencia debe '
         + 'ajustarse al consumo eléctrico que resulte de las medidas anteriores, evitando '
         + 'sobredimensionar la instalación.',
+
+    //: La bomba de calor MÁS las placas, en UN conjunto. Dos casos:
+    //: · `secuencial`: va DETRÁS del conjunto de la aerotermia sola (la vivienda
+    //:   no tiene placas y la obra no las trae; decisión del usuario,
+    //:   10/10/2026): es la SEGUNDA fase, y el porqué es dimensionar las placas
+    //:   con los consumos reales de la aerotermia.
+    //: · si no, la obra trae las dos cosas a la vez y es la única medida.
+    aerotermia_fv: ({ secuencial, hibrida } = {}) => (secuencial
+        ? 'Se propone como segunda fase, una vez instalada y en funcionamiento la bomba de calor de la '
+          + 'medida anterior. Con la electrificación de la calefacción y del agua caliente sanitaria, la '
+          + 'aerotermia pasa a ser el principal consumidor eléctrico de la vivienda, y su consumo real '
+          + 'depende del uso, de las temperaturas de consigna y de la climatología de cada año. Ejecutar '
+          + 'la instalación fotovoltaica después permite dimensionarla con los consumos reales '
+          + 'registrados (facturas, curva horaria de la distribuidora o el propio control de la bomba de '
+          + 'calor) y no con estimaciones: ajustar la potencia pico y el número de módulos al perfil de '
+          + 'consumo, decidir con datos si conviene acumulación, revisar la potencia contratada tras el '
+          + 'cambio de generador y programar la producción de agua caliente y la climatización en las '
+          + 'horas de sol. Así se maximiza el autoconsumo, se evita sobredimensionar la instalación y '
+          + 'su inversión, y se acorta el periodo de amortización. El conjunto resultante, la bomba de '
+          + 'calor alimentada en parte con energía solar generada en el propio edificio, es el que más '
+          + 'reduce el consumo de energía primaria no renovable y las emisiones de CO2 de todos los '
+          + 'analizados.'
+        : `${TEXTOS[hibrida ? 'hibridacion' : 'aerotermia']({})} `
+          + TEXTOS.autoconsumo({ conAerotermia: true })
+              .replace(/ Se propone en último lugar[^.]*\.$/, ' Se ejecuta junto con la bomba de calor, '
+                  + 'dimensionada al consumo eléctrico que ésta va a tener.')),
 };
+
+//: Lo que se añade a la aerotermia cuando detrás va su conjunto con placas.
+const ANTES_DE_LA_FV = ' Es la primera actuación de la secuencia porque fija el nuevo consumo '
+    + 'eléctrico de la vivienda, sobre el que se dimensionará después la instalación fotovoltaica.';
 
 const FAMILIA = {
     cubierta: 'envolvente', fachada: 'envolvente', ventanas: 'envolvente',
     aerotermia: 'generador', hibridacion: 'generador', retirada: 'generador',
-    autoconsumo: 'renovable',
+    autoconsumo: 'renovable', aerotermia_fv: 'renovable',
 };
 
 /** Los tipos de medida con justificación, en el orden en que se ejecutan. */
@@ -103,8 +133,10 @@ export const TIPOS_JUSTIFICACION = Object.keys(TEXTOS)
  * La justificación de una medida y su lugar en la secuencia.
  *
  * @param {string} tipo  cubierta | fachada | ventanas | aerotermia | hibridacion
- *                       | retirada | autoconsumo
- * @param {object} ctx   `u` (transmitancia actual, en texto), `conAerotermia`
+ *                       | retirada | autoconsumo | aerotermia_fv
+ * @param {object} ctx   `u` (transmitancia actual, en texto), `conAerotermia`,
+ *                       `conFvDespues` (aerotermia/hibridación con su conjunto
+ *                       con placas detrás), `secuencial` y `hibrida` (aerotermia_fv)
  * @returns {{ justificacion: string, secuencia: number } | null}
  */
 export function justificacionMedida(tipo, ctx = {}) {

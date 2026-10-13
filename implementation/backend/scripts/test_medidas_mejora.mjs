@@ -227,6 +227,37 @@ comprueba('y el depósito integrado no se menciona en el párrafo',
 comprueba('pero el equipo sigue declarando sus 230 l',
           medidaConjunto?.datos?.instalaciones?.[0]?.acumulacion?.volumen, 230);
 
+// ── La AEROTERMIA y, detrás, su conjunto CON PLACAS (10/10/2026) ─────────────
+// Sin placas en la vivienda, el inicial lleva dos conjuntos: la aerotermia
+// (orden 1) y la aerotermia + autoconsumo (orden 2), con su porqué; las placas
+// se topan con el consumo CON la aerotermia (lo que CE3X calcula para su medida).
+console.log('\n9. La 2.ª medida: aerotermia + autoconsumo, en 2.ª fase');
+const MESES = [1735, 1311, 1138, 790, 395, 260, 653, 631, 219, 514, 1237, 1702];
+const PVGIS = { anual: 1600, mensual: [80, 100, 140, 160, 180, 190, 200, 190, 150, 110, 60, 40] };
+const dos = medidasCe3x({ expediente: expediente({}, { cee_final: null }), superficie: 165, fase: 'inicial',
+                          elegidas: ['aerotermia', 'aerotermia_fv'], autoconsumoFv: PVGIS,
+                          consumoMedida: { meses: MESES, anual: 10585 } });
+comprueba('salen las DOS medidas, la aerotermia primero',
+          dos.medidas.map(m => m.id), ['aerotermia', 'aerotermia_fv']);
+comprueba('con su lugar en la secuencia (generador 2, renovable 3)',
+          dos.medidas.map(m => m.secuencia), [2, 3]);
+comprueba('la aerotermia dice que fija el consumo sobre el que se dimensionan las placas',
+          /dimensionará después la instalación fotovoltaica/.test(dos.medidas[0].justificacion), true);
+comprueba('y la 2.ª, que va después para dimensionar con los consumos REALES',
+          /segunda fase[\s\S]*consumos reales/.test(dos.medidas[1].justificacion), true);
+comprueba('las placas son el 90 % del consumo CON la aerotermia (no el del CEE de la caldera)',
+          de(dos.catalogo, 'autoconsumo').kwh_maximo, Math.round(10585 * AUTOCONSUMO_DECLARABLE));
+const mesesFv = dos.medidas[1].instalaciones.find(i => i.slot === 'renovable')?.generacion_mensual_kwh || [];
+comprueba('y ningún mes pasa de lo que consume la vivienda con la aerotermia',
+          mesesFv.length === 12 && mesesFv.every((v, i) => v <= MESES[i]), true);
+comprueba('el texto no lleva caracteres fuera de latin-1 (el .cex se guarda así)',
+          dos.medidas.every(m => /^[\x00-\xff]*$/.test(m.justificacion)), true);
+const solaFv = medidasCe3x({ expediente: expediente({}, { cee_final: null }), superficie: 165, fase: 'inicial',
+                             elegidas: ['aerotermia_fv'], autoconsumoFv: PVGIS,
+                             consumoMedida: { meses: MESES, anual: 10585 } });
+comprueba('SOLA (la obra trae las placas) no habla de una «segunda fase»',
+          /segunda fase/.test(solaFv.medidas[0].justificacion), false);
+
 
 console.log(fallos ? `\n${fallos} FALLAN` : '\nTodo correcto.');
 process.exit(fallos ? 1 : 0);

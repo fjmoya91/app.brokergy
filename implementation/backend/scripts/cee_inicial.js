@@ -1681,7 +1681,8 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     }
 
     // 6. La ficha, por el MISMO camino que el botón.
-    const { ficha, avisos: avFicha, imagenesFallidas = [] } = await cex.componerFicha(ctx, {
+    // `let`: la 2.ª medida (aerotermia + placas) la rehace más abajo (7a).
+    let { ficha, avisos: avFicha, imagenesFallidas = [] } = await cex.componerFicha(ctx, {
         geometria: geo.geometria, envolvente, ajustes, conImagenes: true, fase: 'inicial',
         //: Las medidas de mejora que se piden (`["autoconsumo"]`). Sin esta clave
         //: mandan las que trae marcadas la fase, como en la ventana.
@@ -1718,7 +1719,26 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         throw new Error(`El motor no ha escrito el .cex: ${f.detail || r.status}\n  ${avisos.join('\n  ')}`);
     }
     let fichero = Buffer.from(await r.arrayBuffer());
-    const avMotor = JSON.parse(r.headers.get('X-Cee-Avisos') || '[]');
+    let avMotor = JSON.parse(r.headers.get('X-Cee-Avisos') || '[]');
+    // 7a. Sin placas en la vivienda, la 2.ª MEDIDA: la aerotermia CON
+    //     autoconsumo, detrás de la aerotermia sola (decisión del usuario,
+    //     10/10/2026). Sus placas se dimensionan con lo que CE3X calcula que
+    //     consume la vivienda con la aerotermia (su medida en el XML).
+    const fv2 = await segundaMedidaFv(ctx, { plan, ficha, fichero, ajustes, envolvente, geo });
+    if (fv2.ficha) {
+        const r2 = await alMotor('/cex', { geometria: geo.geometria, datos: fv2.ficha }, 180_000);
+        if (!r2.ok) {
+            const f = await r2.json().catch(() => ({}));
+            avisos.push(`La 2.ª medida (aerotermia + autoconsumo) NO se ha escrito: ${f.detail || r2.status}. `
+                + 'El .cex va solo con la aerotermia.');
+        } else {
+            ficha = fv2.ficha;
+            fichero = Buffer.from(await r2.arrayBuffer());
+            avMotor = JSON.parse(r2.headers.get('X-Cee-Avisos') || '[]');
+            decisiones.push(fv2.decision);
+        }
+    }
+    avisos.push(...fv2.avisos);
     // 7b. Una medida de mejora que NO está en el catálogo de la ventana (en un
     //     CEE directo no hay aerotermia declarada de la que salga: «retirar la
     //     caldera, dos aires frío-calor, un termo y placas»). Se pone con los
@@ -1845,13 +1865,16 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         if (previsto) {
             if (RESTO.includes('--sin-pdf')) {
                 avisos.push('Con --sin-pdf no se usa CE3X: el previsto NO va como medida del inicial. '
-                    + 'Ponlo en CE3X (Medidas de mejora → «Cargar edificio»).');
+                    + 'Defínela en CE3X como un conjunto (Nuevas Instalaciones + aislamiento + huecos), '
+                    + 'nunca con «Cargar edificio» (regla 117).');
             } else {
                 res080 = await previstoAlInicial(previsto, fichero);
-                if (res080.med?.ok) fichero = res080.med.cex;
-                else {
+                if (res080.med?.ok) {
+                    fichero = res080.med.cex;
+                    avisos.push(...(res080.med.avisosMedida || []));
+                } else {
                     avisos.push(`El previsto NO se ha puesto como medida del inicial (${res080.med?.error || res080.cal?.error}): `
-                        + 'ponlo en CE3X (Medidas de mejora → «Cargar edificio»).');
+                        + 'defínela en CE3X como un conjunto (Nuevas Instalaciones + aislamiento + huecos).');
                 }
             }
         }
@@ -1906,6 +1929,114 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     if (todos.length) console.log(`\nAVISOS (${todos.length})\n  ⚠ ${todos.join('\n  ⚠ ')}`);
 }
 
+// ─── La 2.ª MEDIDA: aerotermia + autoconsumo (sin placas en la vivienda) ────
+
+/**
+ * Sin placas en la vivienda y sin placas en la obra, el inicial lleva DOS
+ * conjuntos de medidas (decisión del usuario, 10/10/2026): 1) la aerotermia
+ * —la obra, la que el CEE final tiene que reproducir— y 2) la aerotermia CON
+ * autoconsumo fotovoltaico, con su justificación: las placas van después porque
+ * se dimensionan con los consumos reales de la bomba de calor.
+ *
+ * Las placas de esa 2.ª medida salen de lo que CE3X calcula que consume la
+ * vivienda CON la aerotermia: se califica el `.cex` recién escrito, se lee la
+ * energía final de su medida (`leerConsumoDeMedidaDeTexto`), se reparte por
+ * meses (`consumoElectricoMensual`) y los kWp son el 90 % de ese consumo con
+ * PVGIS — el mismo criterio que el CEE final (regla 127), con 1.000 €/kWp. Al
+ * calificar con `--escribir`, CE3X recorta cada mes que aún se pase (regla 126).
+ *
+ * Lo que no se puede decidir solo (hibridación, sin CE3X) NO se pone y se dice
+ * con «PREGUNTAR:» para que la skill se lo pregunte a Fran. `fv_segunda: false`
+ * en el plan la quita.
+ *
+ * @returns {{ ficha?: object, decision?: string, avisos: string[] }}
+ */
+async function segundaMedidaFv(ctx, { plan, ficha, fichero, ajustes, envolvente, geo }) {
+    const avisos = [];
+    const sinElla = (motivo) => ({ avisos: motivo ? [...avisos, motivo] : avisos });
+    if (plan.fv_segunda === false || plan.previsto) return sinElla(null);
+    const ids = (ficha.medidas || []).map((m) => m.id);
+    //: Ya lleva placas (la obra las trae: `aerotermia_fv` sola) o es otra cosa.
+    if (ids.length !== 1 || ids[0] !== 'aerotermia') return sinElla(null);
+    const med = ficha.medidas[0];
+
+    const { normalizarFotovoltaica } = await esm('expedientes/logic/fotovoltaica.js');
+    const fv = normalizarFotovoltaica(ctx.expediente?.instalacion?.fotovoltaica);
+    if (fv.estado === 'si') return sinElla(null);          // las placas que ya hay van en Instalaciones
+    if (!fv.estado) {
+        avisos.push('PREGUNTAR: no consta si la vivienda ya tiene placas. Se ha puesto la 2.ª medida '
+            + '(aerotermia + autoconsumo); si las tiene, hay que quitarla y declararlas como instalación existente.');
+    }
+    //: Una HIBRIDACIÓN deja la caldera: la energía final de la medida no es solo
+    //: electricidad y el XML no la desglosa por vector.
+    if ((med.instalaciones || []).some((x) => x?.combustible && !/electric/i.test(x.combustible))) {
+        return sinElla('PREGUNTAR: es una hibridación (la caldera se queda) y no se ha puesto la 2.ª medida '
+            + 'con placas: el consumo eléctrico de la medida no se puede separar del de la caldera. '
+            + '¿Se añade igualmente (y con cuántos kWp)?');
+    }
+    if (RESTO.includes('--sin-pdf') || !cexAPdf.disponible().ok) {
+        return sinElla('PREGUNTAR: sin CE3X en este PC no se mide el consumo con la aerotermia, así que '
+            + 'NO va la 2.ª medida (aerotermia + autoconsumo). Genéralo en el PC con CE3X 3.2.');
+    }
+
+    console.log('\n2.ª MEDIDA (aerotermia + autoconsumo): CE3X mide el consumo con la aerotermia (≈1 min)…');
+    const cal = await cexAPdf.calificarCex(fichero, { pdf: false, ajustarAutoconsumo: false });
+    if (!cal.ok || !cal.xml) {
+        return sinElla(`PREGUNTAR: CE3X no ha calificado el inicial (${cal.error || 'sin XML'}) y la 2.ª medida `
+            + '(aerotermia + autoconsumo) no se ha puesto.');
+    }
+    const cab = cal.xml.subarray(0, 120).toString('latin1');
+    const xml = /encoding=["']utf-?8/i.test(cab) ? cal.xml.toString('utf8') : cal.xml.toString('latin1');
+    const { leerConsumoDeMedidaDeTexto } = await esm('calculator/logic/xmlCeeParser.js');
+    const { consumoElectricoMensual } = await esm('expedientes/logic/autoconsumoMensual.js');
+    const { tipoEquipo } = await esm('cee-envolvente/logic/fichaCe3x.js');
+    //: El ACS cuenta como electricidad solo si la asume un equipo de la medida;
+    //: si se queda en la caldera, es gas.
+    const conAcs = (med.instalaciones || []).some((x) => tipoEquipo(x?.slot)?.servicios?.includes('acs'));
+    const consumo = consumoElectricoMensual(
+        leerConsumoDeMedidaDeTexto(xml, med.nombre, conAcs ? ['cal', 'ref', 'acs'] : ['cal', 'ref']));
+    if (!consumo) {
+        return sinElla('PREGUNTAR: el XML de CE3X no trae la energía final de la medida de aerotermia; '
+            + 'la 2.ª medida (aerotermia + autoconsumo) no se ha puesto.');
+    }
+    const pv = await cex.pvgisParaAutoconsumo(ctx, ajustes);
+    if (!pv.especifica) return sinElla(`PREGUNTAR: ${pv.aviso || 'PVGIS no ha respondido'} — la 2.ª medida no se ha puesto.`);
+
+    const { EUR_POR_KWP } = require('../services/cee/ceeFinalCopiando');
+    const aj = { ...(ajustes || {}), autoconsumo_pvgis: pv.especifica,
+                 autoconsumo_consumo_medida: { meses: consumo.meses, anual: consumo.anual } };
+    const componer = (a) => cex.componerFicha(ctx, {
+        geometria: geo.geometria, envolvente, ajustes: a, conImagenes: false, fase: 'inicial',
+        medidas: ['aerotermia', 'aerotermia_fv'],
+    });
+    let f = await componer(aj);
+    const de = (id) => (f.catalogo || []).find((m) => m.id === id);
+    if (!de('aerotermia_fv')?.disponible) {
+        return sinElla(`PREGUNTAR: la 2.ª medida (aerotermia + autoconsumo) no se puede componer: `
+            + `${de('aerotermia_fv')?.motivo || de('autoconsumo')?.motivo || 'faltan datos'}.`);
+    }
+    const kwp = de('autoconsumo').kwp_pvgis;
+    const inversion = kwp ? Math.round(kwp * EUR_POR_KWP) : 0;
+    f = await componer({ ...aj, autoconsumo_inversion: inversion });
+    const medidas = f.ficha.medidas || [];
+    if (medidas.length !== 2) return sinElla('La 2.ª medida (aerotermia + autoconsumo) no ha salido: se deja solo la aerotermia.');
+    const auto = de('autoconsumo');
+    const kwh = auto.kwh_declarado ?? auto.kwh_maximo;
+    const n = (v) => Math.round(v).toLocaleString('es-ES');
+    for (const m of medidas) {
+        console.log(`  ${m.secuencia === 3 ? '2' : '1'}. «${m.nombre}» · ${n(Number(m.inversion) || 0)} €`);
+    }
+    console.log(`  placas: ${String(kwp).replace('.', ',')} kWp · ${n(kwh)} kWh/año · consumo con la aerotermia `
+        + `${n(consumo.anual)} kWh/año (CE3X) · ${n(pv.especifica.anual)} kWh/kWp (PVGIS)`);
+    return {
+        ficha: { ...ficha, medidas },
+        decision: `2.ª medida «${medidas[1].nombre}»: ${String(kwp).replace('.', ',')} kWp (${n(kwh)} kWh/año, el 90 % `
+            + `del consumo eléctrico con la aerotermia, ${n(consumo.anual)} kWh/año según CE3X) y ${n(inversion)} € de placas `
+            + '(1.000 €/kWp). Va detrás de la aerotermia: las placas se dimensionan con sus consumos reales.',
+        avisos: [...avisos, ...(pv.aviso ? [pv.aviso] : [])],
+    };
+}
+
 // ─── RES080: el CEE PREVISTO (services/cee/previstoRes080.js) ───────────────
 
 /**
@@ -1941,11 +2072,18 @@ async function previstoAlInicial(previsto, inicial) {
     //: Si CE3X ajustó el autoconsumo de las placas del previsto mes a mes, el
     //: previsto que vale (el que se sube y el que va de medida) es el ajustado.
     if (cal.cex) previsto.buffer = cal.cex;
-    console.log('Poniendo el previsto como MEDIDA del inicial («Nuevo edificio», ≈30 s)…');
+    console.log('Poniendo el previsto como MEDIDA del inicial (conjunto: instalaciones + envolvente, ≈30 s)…');
     const med = await cexAPdf.ponerPrevistoComoMedida(inicial, previsto.buffer, previsto.textos);
     if (med.ok) {
         console.log(`  ✓ «${med.medida?.nombre}» · ahorro ${(med.medida?.ahorro || []).join(' / ')} %`
             + ` · inicial ${cexAPdf.textoCalificacion(med.calificacion)}`);
+        //: La medida es un conjunto de CE3X, no el previsto tal cual: su demanda se
+        //: enseña junto a la del previsto para ver cuánto se separan (regla 117).
+        if (med.medida?.demanda_cal != null) {
+            console.log(`    la medida da demanda cal ${Number(med.medida.demanda_cal).toFixed(1)} · EPNR `
+                + `${Number(med.medida.epnr).toFixed(1)} (el previsto: ${cexAPdf.textoCalificacion(cal.calificacion)})`);
+        }
+        for (const a of med.avisosMedida || []) console.log(`    ⚠ ${a}`);
     } else {
         console.log(`  ✗ ${med.error}`);
     }

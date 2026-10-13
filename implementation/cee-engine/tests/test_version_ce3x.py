@@ -459,6 +459,24 @@ def test_poner_la_medida_respeta_la_version_del_fichero():
     assert [m["nombre"] for m in RX.radiografia_bytes(con_medida)["medidas"]] == ["AEROTERMIA"]
 
 
+def test_poner_la_medida_escribe_su_orden_y_su_justificacion():
+    """26RES060_188 (10/10/2026): la medida puesta sobre un `.cex` ya hecho salía
+    con el cuadro «Propuesta de secuencia temporal» en blanco."""
+    import server
+    salida, _, _ = server.convertir(_cex_23(), {})
+    con_medida, _ = server.poner_medida(salida, {"medidas": [
+        {"nombre": "AEROTERMIA + FV", "instalaciones": [AEROTERMIA],
+         "justificacion": "Despues de la aerotermia.", "secuencia": 3},
+        {"nombre": "AEROTERMIA", "instalaciones": [AEROTERMIA],
+         "justificacion": "Primero el generador.", "secuencia": 2}]})
+    grupos = {str(g.estado.get("nombre")): g.estado
+              for g in L.leer(L.trocear_bytes(con_medida), 5)}
+    assert str(grupos["AEROTERMIA"].get("ordenPrioridad")) == "1"
+    assert str(grupos["AEROTERMIA + FV"].get("ordenPrioridad")) == "2"
+    assert "Primero el generador." in str(grupos["AEROTERMIA"].get("justificacion"))
+    assert "Despues de la aerotermia." in str(grupos["AEROTERMIA + FV"].get("justificacion"))
+
+
 # ─── Volver a escribir lo que ya habia ──────────────────────────────────────
 
 def _grupo_calculado() -> P.Instancia:

@@ -1786,7 +1786,8 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                               elegidas = null, textos = null, modelos = {},
                               existentes = null, final = null,
                               generica = false, autoconsumoKwh = null,
-                              autoconsumoFv = null, autoconsumoInversion = null } = {}) {
+                              autoconsumoFv = null, autoconsumoInversion = null,
+                              consumoMedida = null } = {}) {
     const esFinal = fase === 'final';
     const catalogo = [];
     const avisos = [];
@@ -1873,7 +1874,17 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
 
     // ── 2. El AUTOCONSUMO fotovoltaico ───────────────────────────────────────
     const fv = normalizarFotovoltaica(expediente?.instalacion?.fotovoltaica);
-    const techo = techoAutoconsumo(expediente);
+    //: El consumo eléctrico de la vivienda CON la aerotermia, mes a mes, si quien
+    //: llama lo ha medido (`consumoMedida`: lo que CE3X calcula para la medida
+    //: de la aerotermia en el XML del inicial, `cee_inicial.js`). Es el que
+    //: alimentan las placas del conjunto «aerotermia + autoconsumo» en 2.ª fase;
+    //: el del CEE cargado sería el de la caldera, y en un inicial casi no hay
+    //: electricidad que cubrir.
+    const conMedida = Array.isArray(consumoMedida?.meses) && consumoMedida.meses.length === 12
+        && Number(consumoMedida.anual) > 0;
+    const techo = conMedida
+        ? { kwhAnio: Number(consumoMedida.anual), fase: 'con la aerotermia (su medida de mejora)' }
+        : techoAutoconsumo(expediente);
     const maxCee = techo ? Math.round(techo.kwhAnio * AUTOCONSUMO_DECLARABLE) : 0;
     //: Los kWh que TECLEA el certificador. Hacen falta siempre que no haya un
     //: CEE cargado del que sacar el máximo —el caso de TODO CEE directo, que es
@@ -1892,7 +1903,10 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     //: edificio consume de electricidad ese mes (`consumoMensualDelCee`, del
     //: XML que manda). Sin XML no hay tope: va la producción y se dice; en el PC
     //: lo ajusta después CE3X con su consumo exacto (`cexAPdf`).
-    const consumoMes = consumoMensualDelCee(expediente);
+    const consumoMes = conMedida
+        ? { meses: consumoMedida.meses, anual: Number(consumoMedida.anual),
+            fase: 'con la aerotermia (su medida de mejora)' }
+        : consumoMensualDelCee(expediente);
     const declarado = kwpFv ? autoconsumoMensual(mensualDe(pvgis, kwh), consumoMes?.meses || null) : null;
     const yaTienePlacas = fv.estado === 'si';
     const nombreFv = campoDe(MEDIDA_AUTOCONSUMO, 'Nombre conjunto medidas mejora');
@@ -2041,6 +2055,9 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                 .filter(Boolean).join('. '),
             inversion: (Number(aero.datos.inversion) || 0) + invFv,
             instalaciones: [...aero.datos.instalaciones, ...auto.datos.instalaciones],
+            //: Por qué y en qué orden (Anexo III, 3). Sola, la obra trae las dos
+            //: cosas; detrás de la aerotermia es la 2.ª fase (se reescribe abajo).
+            ...justificacionMedida('aerotermia_fv', { hibrida: esHibrida }),
         } : null,
     });
 
@@ -2066,6 +2083,22 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     const marcadas = Array.isArray(elegidas)
         ? catalogo.filter(m => elegidas.includes(m.id))
         : catalogo.filter(m => m.porDefecto);
+    //: La AEROTERMIA y, detrás, su conjunto CON PLACAS (la vivienda no las tiene
+    //: y la obra no las trae; decisión del usuario, 10/10/2026): orden 1 y 2, y
+    //: cada justificación dice por qué va en su sitio — las placas se
+    //: dimensionan con los consumos reales de la bomba de calor.
+    const ids = marcadas.map(m => m.id);
+    if (ids.includes('aerotermia') && ids.includes('aerotermia_fv')) {
+        for (const m of marcadas) {
+            if (!m.datos) continue;
+            if (m.id === 'aerotermia') {
+                m.datos = { ...m.datos,
+                    ...justificacionMedida(esHibrida ? 'hibridacion' : 'aerotermia', { conFvDespues: true }) };
+            } else if (m.id === 'aerotermia_fv') {
+                m.datos = { ...m.datos, ...justificacionMedida('aerotermia_fv', { secuencial: true }) };
+            }
+        }
+    }
     const medidas = [];
     for (const m of marcadas) {
         if (!m.disponible || !m.datos) {
@@ -2472,6 +2505,12 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                                  // criterio de IVA que la inversión de la
                                  // aerotermia), para la medida que junta las dos.
                                  autoconsumoInversion: cfg.autoconsumo_inversion,
+                                 // El consumo eléctrico CON la aerotermia, mes
+                                 // a mes, medido por CE3X en la medida del
+                                 // inicial (`cee_inicial.js`): el tope de las
+                                 // placas de su conjunto en 2.ª fase. Solo en
+                                 // memoria: no se guarda con el trabajo.
+                                 consumoMedida: cfg.autoconsumo_consumo_medida,
                                  // La medida es «el edificio con la instalación
                                  // del CEE FINAL»: si en la cara del final se ha
                                  // cambiado el uso de la aerotermia o se ha

@@ -253,20 +253,37 @@ como su medida de mejora. Ahora lo hace `aplicar` con el bloque **`previsto`** d
    `cambian`, la cubierta en `cubierta_reforma` (salen «- CAMBIA» en el inicial, regla de siempre).
 2. **PREGUNTA la U de lo que se aísla** (o el aislante: λ y espesor) — nunca se supone. Las ventanas
    nuevas: de su ficha / catálogo / presupuesto; sin datos, U marco 1,3 · U vidrio 1,3 · g 0,43 ·
-   20 % de marco · permeabilidad 3. Ventilación **0,53** y masa **«Ligera»** siempre.
+   20 % de marco · permeabilidad 3. Ventilación **0,53** y masa **«Ligera»** siempre. La fachada se
+   aísla **por el interior** salvo que se diga SATE / por el exterior (`exterior: true`): por el
+   exterior CE3X rebaja los puentes térmicos de la medida y el previsto no (en 26RES080_82,
+   149 → 92 kWh/m² de calefacción). Si no consta, pregúntalo junto con la U.
+   **Cada ventana que cambia resuelve sus PUENTES TÉRMICOS** (decisión de Fran, 2026-10-05): en el
+   previsto —y en el CEE final de un RES080, que sale de él— su contorno de hueco pasa de ψ 0,55 a
+   **0,02** y su caja de persiana de 1,49 a **0,65**, los valores de la «Mejora de Puentes Térmicos»
+   del propio CE3X 3.2. Lo hace solo `previsto.py`; la medida del inicial lleva la pieza «Mejora de
+   Puentes Térmicos» con los mismos ψ (CE3X la aplica por TIPO: también a la puerta que no cambia, y
+   lo avisa). `"puentes_huecos": false` en `previsto` lo apaga. Con placas el ahorro apenas se mueve
+   (el autoconsumo se recorta al consumo de cada mes); sin placas, sube.
 3. `aplicar` en seco con **`--calificar`**: imprime qué ha cambiado de verdad (ventanas, cerramientos
    con su U antes → después), los TEXTOS de la medida, y deja en la copia local el previsto, su
    XML/PDF y el inicial con el previsto dentro («…_CON PREVISTO.cex»). Revisa que el previsto
    califique mejor y que el ahorro sea razonable.
-4. Con **`--escribir`**: el inicial va a Drive YA con la medida «Nuevo Edificio Definido por el
-   Usuario» calculada por CE3X (con su coste y su plazo); el previsto queda al lado como
+4. Con **`--escribir`**: el inicial va a Drive YA con la medida calculada por CE3X (con su coste y su
+   plazo): UN conjunto autocontenido «Nuevas Instalaciones» + aislamiento + sustitución de huecos,
+   sacado de lo que cambia el previsto; el previsto queda al lado como
    `{nº} - CEE PREVISTO_REVISAR.cex` con su XML y su PDF; y en un expediente su XML se carga en la app
    como el del **CEE FINAL** (sin fechas de visita ni de firma: el previsto no se visita ni se firma).
 
-- La medida del inicial **ES** el previsto: los equipos del previsto salen de las MISMAS medidas de la
-  ficha y el motor los escribe con la MISMA función que una medida. No pueden contar dos obras.
+- La medida del inicial **ES** la obra del previsto: los equipos del previsto salen de las MISMAS
+  medidas de la ficha y el motor los escribe con la MISMA función que una medida. No pueden contar
+  dos obras. Pero NO es idéntica: CE3X aplica el aislamiento por TIPO de cerramiento y los huecos
+  por ORIENTACIÓN (una puerta de la misma fachada también cambia), y la ventilación y la masa del
+  previsto no son medidas. Lo que no casa sale en los avisos: dilo, con las dos calificaciones.
+- **Nunca una «Nuevo Edificio Definido por el Usuario»**: CE3X relee el `.cex` del previsto de la ruta
+  que guardó cada vez que se pulsa y, si ya no está, el panel se queda en blanco (26RES080_82).
 - Necesita CE3X 3.2 en el PC (como el XML/PDF). Sin él (`--sin-pdf`), el previsto se guarda pero la
-  medida hay que ponerla a mano en CE3X («Cargar edificio») y el XML cargarlo como CEE final: dilo.
+  medida hay que ponerla a mano en CE3X (conjunto con «Nuevas Instalaciones», aislamiento y huecos) y
+  el XML cargarlo como CEE final: dilo.
 - En una **oportunidad** el XML del previsto no se carga (no hay CEE final): se carga al aceptarla.
 - **Si el usuario ya revisó el INICIAL** (el `.cex` sin `_REVISAR` de la carpeta, hecho a mano o por
   el técnico), el previsto se hace sobre ESE fichero y no sobre uno regenerado: se pasa a la 3.2
@@ -275,9 +292,12 @@ como su medida de mejora. Ahora lo hace `aplicar` con el bloque **`previsto`** d
   compruébalo con la calificación — y se le pide el previsto al motor (`/cex/previsto`) con los
   equipos de `medidasCe3x` y el bloque `previsto`, como hace `aplicar`. Caso: 26RES080_87 (se hizo
   pasándolo a la 3.1, la vigente entonces).
-- La medida «Nuevo Edificio» del inicial tiene que verse en CE3X como **«Nuevo Edificio Completo»**
-  en el árbol de medidas. Si sale «Nuevas Instalaciones», al pulsarla da error: es el fallo
-  corregido el 07/10/2026 en `medida_previsto.py` (ver CLAUDE.md, regla 117).
+- En el árbol de medidas de CE3X el conjunto sale con sus piezas debajo («Nuevas Instalaciones»,
+  «Sustitución de ventanas», «Aislamiento térmico de…») y cada una abre su panel. Para comprobarlo
+  sin abrir CE3X: `tools/oraculo_ce3x/clic_medida.py` (simula el clic; ver la regla 117).
+- **Si la ficha del expediente está abierta en el navegador**, al guardarse puede pisar el CEE final
+  y las fechas que acabas de cargar (pasó en 26RES080_82): relee la BD al terminar y, si faltan,
+  vuelve a cargarlos y dile al usuario que recargue la pestaña.
 
 ## Reglas que no se rompen
 
@@ -534,6 +554,36 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    poniente), en ámbar, con el porqué en `por_que` y en `decisiones`, y se dice en el informe para
    que el certificador lo confirme o lo redibuje con la pizarra. `pedir-fotos` no lo resuelve: las
    fotos ya están, lo que falta es la geometría.
+20. **La JUSTIFICACIÓN de cada medida y, sin placas, DOS medidas: 1) la aerotermia, 2) la aerotermia +
+   placas** (Fran, 10/10/2026: «se debe justificar por qué esa es la mejor medida de mejora… poner
+   primero la aerotermia y la segunda las placas»). El apartado 3 del Anexo III del certificado
+   («Propuesta de secuencia temporal», orden de ejecución + JUSTIFICACIÓN) **no puede salir en
+   blanco** (salió así en 26RES060_188).
+   - **La justificación la escribe la app** (`justificacionMedidas.js`): cada conjunto lleva su
+     `justificacion` y su `secuencia` (envolvente 1 → generador 2 → renovables 3) y el motor pone el
+     orden y el texto en el `.cex`, también cuando la medida se pone sobre un `.cex` ya hecho (CEE
+     del técnico, «Poner la medida»). No hay que escribirla en el plan, salvo en las
+     **`medidas_libres`**: ahí cada una lleva `"justificacion"` (texto llano, sin rayas ni «€» ni
+     subíndices: el `.cex` es latin-1) y `"secuencia"` (1, 2 o 3), o sale vacía.
+   - **Sin placas en la vivienda y sin placas en la obra, `aplicar` añade sola la 2.ª medida**
+     «… + AUTOCONSUMO FOTOVOLTAICO» (`aerotermia_fv` detrás de `aerotermia`). Por qué este orden
+     (lo dice su justificación): con la bomba de calor funcionando se conocen sus consumos REALES y
+     las placas se dimensionan con ellos (potencia pico, módulos, acumulación, potencia contratada,
+     ACS en horas de sol), sin sobredimensionar. **Cómo se dimensiona**: CE3X califica el inicial,
+     de su XML sale lo que consume la vivienda CON la aerotermia (la energía final de su medida,
+     mes a mes), los kWp son el 90 % de eso con PVGIS, cada mes lo menor entre producción y
+     consumo, y **1.000 €/kWp** de inversión (los mismos criterios que el CEE final, regla 127).
+     Necesita CE3X en el PC (≈1 min más). La medida 1 sigue siendo la que se imprime en el informe
+     y la que tiene que reproducir el CEE final.
+   - **Cuándo NO va, y se PREGUNTA** (la salida lo marca con **«PREGUNTAR:»** — llévalo al usuario
+     ANTES de `--escribir`, con la opción que propones): una **hibridación** (la caldera se queda y
+     el XML no separa su gas de la electricidad: ¿se añade y con cuántos kWp?), **sin CE3X** en el
+     PC, PVGIS caído, o **no consta si la vivienda ya tiene placas** (va puesta, pero pregúntalo: si
+     las tiene, se quita y se declaran como instalación existente). Con placas YA instaladas no va
+     (van en Instalaciones); con placas EN LA OBRA es el punto 13 (una sola medida con todo); en un
+     RES080 la medida es el previsto. `"fv_segunda": false` en el plan la quita si el usuario lo pide.
+   - Si dudas de qué justificar o de si procede la 2.ª medida en un caso que no está aquí,
+     **pregunta** en vez de suponer.
 
 ## Lo que el informe final dice SIEMPRE
 
@@ -562,6 +612,8 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
   (en CE3X: Medidas de mejora → Actualizar).
 - Con **autoconsumo**: los kWp, los kWh declarados (la suma de los doce meses) y si CE3X ajustó
   algún mes a su consumo (cuántos, y los kWh antes → después), con el ahorro que queda.
+- Las **medidas en su orden** (1. aerotermia · 2. aerotermia + placas) con el ahorro de cada una, que
+  las dos llevan su **justificación**, y lo marcado «PREGUNTAR:» que siga sin contestar.
 - En un **RES080**: el enlace del PREVISTO, qué cambia (ventanas, cerramientos con su U), las dos
   calificaciones (inicial y previsto), el ahorro de la medida, y que su XML está cargado como CEE
   FINAL (o por qué no). Aquí la medida SÍ va calculada (la ha calculado CE3X).

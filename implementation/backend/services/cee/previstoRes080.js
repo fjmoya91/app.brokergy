@@ -3,8 +3,11 @@
 //
 // En un RES080 se hacen DOS certificados antes de la obra: el INICIAL (la casa
 // como está) y el PREVISTO (la casa con TODA la obra hecha: la aerotermia, los
-// aires, las ventanas, el aislamiento). El previsto se mete en el inicial como su
-// medida de mejora —«Nuevo Edificio Definido por el Usuario»— y su XML se carga
+// aires, las ventanas, el aislamiento). Lo que cambia el previsto se mete en el
+// inicial como su medida de mejora —UN conjunto autocontenido: «Nuevas
+// Instalaciones» + aislamiento + sustitución de huecos; hasta el 10/10/2026 era
+// una «Nuevo Edificio Definido por el Usuario», que CE3X relee de un fichero de
+// fuera y se rompía (26RES080_82)— y su XML se carga
 // en la app como el del CEE FINAL, que es de donde sale el ahorro del RES080
 // hasta que haya un final de verdad. Es como se venía haciendo a mano (medido
 // sobre 19 RES080: Eladio, Laura Millán, Diego Rubio, Natalia Ramos…).
@@ -12,8 +15,12 @@
 //   1. `pedirPrevisto`  → el motor COPIA el inicial y le cambia lo de la obra
 //                         (`cee-engine/tools/previsto.py`, POST /cex/previsto).
 //   2. CE3X lo califica (`cexAPdf.calificarCex`).
-//   3. `cexAPdf.ponerPrevistoComoMedida` → el inicial con el previsto dentro, con
-//      los textos de `textosDelPrevisto`, calculado, con su XML y su PDF.
+//   3. `cexAPdf.ponerPrevistoComoMedida` → el inicial con la medida del previsto,
+//      con los textos de `textosDelPrevisto`, calculado, con su XML y su PDF.
+//      CE3X aplica la medida por TIPO de cerramiento y por ORIENTACIÓN de hueco
+//      (una puerta de la misma fachada también cambia), y la ventilación y la
+//      masa del previsto no son medidas: su ahorro se parece al del previsto
+//      pero no es idéntico, y lo que no casa sale en los avisos.
 //   4. `cargarComoFinal` → el XML del previsto en `cee.cee_final` / `xml_final`.
 //
 // REGLA — la medida del inicial ES el previsto: los equipos del previsto salen de
@@ -90,14 +97,24 @@ function datosParaMotor(ficha, previsto = {}) {
                 + '(o lambda + espesor del aislante). No se supone.');
         }
     }
+    // La foto de fachada y el croquis NO viajan: el previsto copia los datos
+    // generales del inicial byte a byte (imágenes incluidas), y en base64 pasan
+    // del 1 MB que el motor admite por campo («Part exceeded maximum size of
+    // 1024KB», 26RES080_OP71).
+    const { foto_edificio, plano_situacion, ...generales } = ficha.generales || {};
     return {
         ...ficha,
+        ...(ficha.generales ? { generales } : {}),
         medidas: [],
         instalaciones: equipos,
         previsto: {
             ventilacion: previsto.ventilacion ?? VENTILACION,
             masa_particiones: previsto.masa_particiones || MASA,
             huecos: huecosDelPrevisto(previsto),
+            // Los puentes térmicos de las ventanas que cambian, a los ψ de la «Mejora
+            // de Puentes Térmicos» de CE3X (contorno 0,02 · cajón 0,65; previsto.py).
+            // Solo `false` en el plan lo apaga.
+            ...(previsto.puentes_huecos === false ? { puentes_huecos: false } : {}),
             aislamiento: (previsto.aislamiento || []).map(a => ({
                 que: a.que ?? 'cambia', elementos: a.elementos || [],
                 modo: a.u != null ? 'u' : 'lambda',
@@ -125,7 +142,7 @@ async function pedirPrevisto(inicial, datos, { ms = 180_000 } = {}) {
 }
 
 /**
- * Los textos de la medida «Nuevo edificio» del inicial: nombre, características,
+ * Los textos de la medida del previsto en el inicial: nombre, características,
  * otros datos, justificación, inversión y vida útil. Lo que diga el plan manda;
  * si no, se compone con los textos de las medidas de la ficha (los de la
  * aerotermia ya son los de siempre) y con lo que de verdad ha cambiado el motor
@@ -159,8 +176,14 @@ function textosDelPrevisto({ ficha, previsto = {}, hechos = {}, expediente = nul
         partesTexto.push(`sustitución de ${cuantos} por carpintería nueva`
             + `${v.descripcion ? ` (${v.descripcion})` : ''} con marco de U = ${dec(um)} W/m²K, `
             + `vidrio de U = ${dec(uv)} W/m²K y factor solar ${dec(g)}, y permeabilidad al aire de `
-            + `${dec(pm, 1)} m³/h·m²`);
-        justif.push('La sustitución de las ventanas reduce las pérdidas por transmisión y por infiltraciones');
+            + `${dec(pm, 1)} m³/h·m²`
+            // Lo que el motor ha cambiado de verdad en sus puentes (previsto.py).
+            + ((hechos.puentes || []).length
+                ? ', resolviendo los puentes térmicos de su contorno y de la caja de persiana'
+                  + ` (ψ ${dec(0.02)} y ${dec(0.65)} W/mK)`
+                : ''));
+        justif.push('La sustitución de las ventanas reduce las pérdidas por transmisión y por infiltraciones'
+            + ((hechos.puentes || []).length ? ', y su colocación resuelve los puentes térmicos del hueco' : ''));
     }
     const cer = hechos.cerramientos || [];
     if (cer.length) {
@@ -170,7 +193,10 @@ function textosDelPrevisto({ ficha, previsto = {}, hechos = {}, expediente = nul
         for (const a of reglas) {
             const els = (a.elementos || []).map(e => ELEMENTO[e] || e);
             const u = a.u != null ? Number(a.u) : null;
-            partesTexto.push(`aislamiento térmico de ${els.length ? unir(els) : 'la envolvente'}`
+            //: La fachada, por el INTERIOR salvo que el plan diga `exterior: true`
+            //: (por el exterior CE3X rebaja los puentes térmicos de la medida).
+            const lado = (a.elementos || []).includes('fachada') ? (a.exterior ? ' por el exterior' : ' por el interior') : '';
+            partesTexto.push(`aislamiento térmico de ${els.length ? unir(els) : 'la envolvente'}${lado}`
                 + (a.descripcion ? ` con ${a.descripcion}`
                     : (a.lambda ? ` con aislante de conductividad ${dec(a.lambda, 3)} W/m·K y ${dec(a.espesor * 100, 1)} cm de espesor` : ''))
                 + (u ? `, hasta una transmitancia de U = ${dec(u)} W/m²K` : ''));
@@ -195,6 +221,8 @@ function textosDelPrevisto({ ficha, previsto = {}, hechos = {}, expediente = nul
         inversion: previsto.inversion ?? (inversionDefecto || null),
         vida_util: previsto.vida_util ?? (tocaEnvolvente ? VIDA_UTIL_ENVOLVENTE : (Math.max(0, ...vidas) || 15)),
         coste_mantenimiento: 0,
+        fachada_exterior: (previsto.aislamiento || [])
+            .some(a => a.exterior === true && (a.elementos || []).includes('fachada')),
     };
 }
 
