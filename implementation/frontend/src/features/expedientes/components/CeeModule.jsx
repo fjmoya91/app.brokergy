@@ -676,11 +676,11 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const isManualSource = String(local.cee_source || '').toLowerCase() === 'manual';
 
     // Método del ahorro: por USO (detallado) o por VECTOR energético (simplificado).
-    const esSimplificado = String(local.metodo_ahorro || '').toLowerCase() === 'simplificado';
+    const elegidoSimplificado = String(local.metodo_ahorro || '').toLowerCase() === 'simplificado';
 
     const res080Data = (() => {
         if (!isReforma) return null;
-        if (isManualSource && esSimplificado) {
+        if (isManualSource && elegidoSimplificado) {
             const em = local.emisiones_manual || {};
             const supFallback = local.superficie_manual || expediente?.oportunidades?.datos_calculo?.surface;
             return calculateRes080Simplificado({
@@ -706,13 +706,17 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 combRefrigeracionInicial: local.comb_ref_inicial,
                 combRefrigeracionFinal: local.comb_ref_final,
                 superficieInicial: local.superficie_manual_inicial || supFallback,
-                superficieFinal: local.superficie_manual_final || local.superficie_manual_inicial || supFallback
+                superficieFinal: local.superficie_manual_final || local.superficie_manual_inicial || supFallback,
+                // Con placas en algún CEE, por vector (calculation.js, autoconsumoDeEmisiones).
+                emiElecIni: em.electrico_ini, emiElecFin: em.electrico_fin,
+                emiOtrosIni: em.otros_ini, emiOtrosFin: em.otros_fin,
+                combOtrosIni: local.comb_otros_inicial, combOtrosFin: local.comb_otros_final,
             });
         }
         if (local.cee_inicial && local.cee_final) {
             // Con los dos .xml, el simplificado sale EXACTO: el propio certificado publica
             // el reparto por vector en <EmisionesCO2><ConsumoElectrico>/<ConsumoOtros>.
-            if (esSimplificado) {
+            if (elegidoSimplificado) {
                 return calculateRes080SimplificadoFromXml({
                     xmlInicial: local.cee_inicial,
                     xmlFinal: local.cee_final,
@@ -738,6 +742,10 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
         }
         return null;
     })();
+    // Con PLACAS en algún CEE el ahorro sale POR VECTOR aunque se haya elegido «por uso»
+    // (calculation.js, autoconsumoDeXml / autoconsumoDeEmisiones): se pinta y se dice así.
+    const forzadoPorPlacas = res080Data?.metodoForzado === 'autoconsumo';
+    const esSimplificado = elegidoSimplificado || forzadoPorPlacas;
 
     // Mostrar con coma decimal (ES). Normalizar lo tecleado a coma.
     const ceeComma = (v) => (v === '' || v === null || v === undefined) ? '' : String(v).replace('.', ',');
@@ -1201,6 +1209,20 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     <h4 className="text-sm font-black text-white uppercase tracking-widest mb-8 flex items-center gap-2">
                         <span className="w-2 h-2 bg-brand rounded-full" /> Resultados Comparativos
                     </h4>
+                    {forzadoPorPlacas && (
+                        <div className="-mt-4 mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30">
+                            <div className="text-[10px] font-black text-amber-300 uppercase tracking-widest mb-1">☀️ Con placas solares, por vector</div>
+                            <p className="text-[11px] text-white/50 leading-relaxed">
+                                El CEE {res080Data.autoconsumoM2?.inicial > 0 && res080Data.autoconsumoM2?.final > 0 ? 'inicial y el final declaran'
+                                    : res080Data.autoconsumoM2?.inicial > 0 ? 'inicial declara' : 'final declara'} electricidad
+                                autoconsumida ({[res080Data.autoconsumoM2?.inicial, res080Data.autoconsumoM2?.final]
+                                    .filter(v => v > 0).map(v => `${String(v).replace('.', ',')} kWh/m²·año`).join(' · ')}),
+                                que CE3X solo resta del total del vector eléctrico, no de cada uso. El ahorro se calcula
+                                <b className="text-white/70"> por vector</b> aunque esté marcado «por uso»: es la cifra que el
+                                verificador reproduce con el certificado, y la que va al CIFO.
+                            </p>
+                        </div>
+                    )}
                     {esSimplificado && (
                         <p className="-mt-5 mb-6 text-[11px] text-white/40 leading-relaxed">
                             {esDeclarada ? (

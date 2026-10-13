@@ -905,7 +905,11 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                     combRefrigeracionInicial: inputs.combustibleRefrigeracionInicial,
                     combRefrigeracionFinal: inputs.combustibleRefrigeracionFinal,
                     superficieInicial: sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable,
-                    superficieFinal: sanitizedInputs.manualSupFinal || sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable
+                    superficieFinal: sanitizedInputs.manualSupFinal || sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable,
+                    // Con placas en algún CEE, por vector (calculation.js, autoconsumoDeEmisiones).
+                    emiElecIni: inputs.manualEmisionesElectricoInicial, emiElecFin: inputs.manualEmisionesElectricoFinal,
+                    emiOtrosIni: inputs.manualEmisionesOtrosInicial, emiOtrosFin: inputs.manualEmisionesOtrosFinal,
+                    combOtrosIni: inputs.combustibleOtrosInicial, combOtrosFin: inputs.combustibleOtrosFinal,
                 });
             } else if (inputs.reformaType === 'estimated' || (inputs.demandMode === 'manual' && inputs.isReforma)) {
                 // MODO ESTIMATIVO MANUAL O CEE APORTADO

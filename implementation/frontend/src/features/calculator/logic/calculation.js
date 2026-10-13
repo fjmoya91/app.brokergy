@@ -1085,6 +1085,59 @@ function etiquetaCobertura(serv) {
 }
 
 // ============================================================================
+// PLACAS SOLARES: con AUTOCONSUMO el ahorro RES080 solo se puede calcular POR VECTOR
+// ============================================================================
+// CE3X declara la energía final de cada USO (calefacción, ACS, refrigeración) en
+// BRUTO y descuenta lo que generan y autoconsumen las placas SOLO del total del
+// vector eléctrico (`Tot` del v3.0, `Global` del v2.0). Medido: 26RES080_OP71
+// previsto, usos 43,82 kWh/m² y total 10,22 (33,60 × 155 m² = 5.208 kWh =
+// <EnergiaGeneradaAutoconsumida>); 26RES080_61 (v2.0), 27,82 frente a 1,41 (4.200 kWh).
+// Sumando usos, el «por uso» cuenta esa electricidad como consumida y el ahorro sale
+// mal (5,21 MWh de menos en OP71). REGLA (2026-10-10, Fran): si CUALQUIERA de los dos
+// CEE declara autoconsumo, el ahorro va POR VECTOR aunque se haya elegido «por uso»
+// —el CIFO no puede presentar una cifra que el verificador no reproduce con el XML—,
+// y el resultado lo dice (`metodoForzado: 'autoconsumo'`).
+
+/** kWh/m²·año que las placas generan y se autoconsumen, según el CEE (0 si nada). */
+export function autoconsumoDeXml(xml) {
+    const elec = Object.values(xml?.energiaFinalVectores || {}).filter((v) => v.esElectrico);
+    if (!elec.length) return 0;
+    const dif = elec.reduce((a, v) => a + (v.calefaccion || 0) + (v.acs || 0) + (v.refrigeracion || 0)
+        + (v.iluminacion || 0) - (v.global || 0), 0);
+    return dif > 0.05 ? Math.round(dif * 100) / 100 : 0;
+}
+
+/**
+ * Lo mismo con las EMISIONES (CEE sin .xml, a mano o por OCR): la suma de las emisiones
+ * de los usos ELÉCTRICOS frente a «Emisiones CO2 por consumo eléctrico» del vector.
+ * kWh/m²·año (0 si no hay datos del vector o no hay diferencia).
+ */
+export function autoconsumoDeEmisiones({ emiElec, emiOtros, usos = [] }) {
+    const n = (v) => {
+        if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+        if (v === null || v === undefined || v === '') return null;
+        let s = String(v).trim();
+        if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+        const x = parseFloat(s);
+        return Number.isFinite(x) ? x : null;
+    };
+    const vec = n(emiElec);
+    // Las celdas por vector que nadie rellenó se guardan a 0 (confirmEmisiones): con las
+    // DOS a cero no hay dato del vector, no «placas que lo cubren todo».
+    if (vec === null || (vec === 0 && !(n(emiOtros) > 0))) return 0;
+    const esElec = (c) => !c || /electric/i.test(String(c));
+    const suma = usos.filter(([, comb]) => esElec(comb)).reduce((a, [emi]) => a + (n(emi) || 0), 0);
+    // Las celdas por vector tienen que ser del MISMO certificado que las de los usos: la
+    // parte no eléctrica (que las placas no tocan) ha de cuadrar. Si no, son de otro CEE
+    // y no se deduce nada.
+    const otrosUsos = usos.filter(([, comb]) => !esElec(comb)).reduce((a, [emi]) => a + (n(emi) || 0), 0);
+    const otrosVec = n(emiOtros) || 0;
+    if (Math.abs(otrosUsos - otrosVec) > Math.max(0.1, otrosUsos * 0.03)) return 0;
+    const dif = (suma - vec) / getFactorPaso('Electricidad peninsular');
+    return dif > 0.15 ? Math.round(dif * 100) / 100 : 0;
+}
+
+// ============================================================================
 // CÁLCULO DE AHORROS RES080 (ENERGÍA FINAL REAL DESDE CEE)
 // ============================================================================
 export function calculateRes080({
@@ -1103,6 +1156,17 @@ export function calculateRes080({
     superficieFinal
 }) {
     if (!xmlInicial || !xmlFinal) return null;
+
+    // Con placas en cualquiera de los dos CEE, POR VECTOR (ver arriba).
+    const fvIni = autoconsumoDeXml(xmlInicial);
+    const fvFin = autoconsumoDeXml(xmlFinal);
+    if (fvIni > 0 || fvFin > 0) {
+        const r = calculateRes080SimplificadoFromXml({
+            xmlInicial, xmlFinal, xmlTextoInicial, xmlTextoFinal,
+            superficieCustom, superficieInicial, superficieFinal,
+        });
+        if (r) return { ...r, metodoForzado: 'autoconsumo', autoconsumoM2: { inicial: fvIni, final: fvFin } };
+    }
 
     const getE = (val) => typeof val === 'number' ? val : 0;
 
@@ -1252,8 +1316,25 @@ export function calculateRes080FromEmissions({
     combAcsInicial, combAcsFinal,
     combCalefaccionInicial, combCalefaccionFinal,
     combRefrigeracionInicial, combRefrigeracionFinal,
-    superficie, superficieInicial, superficieFinal
+    superficie, superficieInicial, superficieFinal,
+    // Opcionales: las celdas POR VECTOR del mismo CEE. Con ellas se ve si hay placas
+    // (las emisiones de los usos eléctricos suman más que las del vector) y entonces
+    // el ahorro va por vector, igual que con los .xml (ver autoconsumoDeXml).
+    emiElecIni, emiElecFin, emiOtrosIni, emiOtrosFin, combOtrosIni, combOtrosFin,
 }) {
+    const fvIni = autoconsumoDeEmisiones({ emiElec: emiElecIni, emiOtros: emiOtrosIni,
+        usos: [[emiAcsIni, combAcsInicial], [emiCalIni, combCalefaccionInicial], [emiRefIni, combRefrigeracionInicial || 'Electricidad peninsular']] });
+    const fvFin = autoconsumoDeEmisiones({ emiElec: emiElecFin, emiOtros: emiOtrosFin,
+        usos: [[emiAcsFin, combAcsFinal], [emiCalFin, combCalefaccionFinal], [emiRefFin, combRefrigeracionFinal || 'Electricidad peninsular']] });
+    if (fvIni > 0 || fvFin > 0) {
+        const r = calculateRes080Simplificado({
+            emiElecIni, emiElecFin, emiOtrosIni, emiOtrosFin,
+            combOtrosIni: combOtrosIni || [combCalefaccionInicial, combAcsInicial].find((c) => c && !/electric/i.test(c)) || '',
+            combOtrosFin: combOtrosFin || [combCalefaccionFinal, combAcsFinal].find((c) => c && !/electric/i.test(c)) || '',
+            superficie, superficieInicial, superficieFinal,
+        });
+        if (r) return { ...r, metodoForzado: 'autoconsumo', autoconsumoM2: { inicial: fvIni, final: fvFin } };
+    }
     const num = (v) => {
         if (typeof v === 'number') return isNaN(v) ? 0 : v;
         if (v === null || v === undefined) return 0;

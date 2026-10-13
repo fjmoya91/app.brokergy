@@ -35,6 +35,21 @@ factor de paso, y con dos combustibles la suma es indeshacible. Con `<EnergiaFin
 vector viene por separado **y en kWh**, así que sumar gasóleo + gas natural es legítimo. Por eso el
 aviso de mezcla y el selector de combustible se ocultan cuando `fuenteDatos === 'energia_final_declarada'`.
 
+**REGLA — con PLACAS, el ahorro bueno es el POR VECTOR** (2026-10-05, decisión del usuario,
+26RES080_OP71). El total de cada vector (`Tot` en el 3.0, `Global` en el 2.0: los DOS formatos
+traen `<EnergiaFinalVectores>`) va NETO de lo que las placas generan y se autoconsume; los usos
+(calefacción, ACS, refrigeración) van en BRUTO. Medido: OP71 previsto, 43,82 − 10,22 = 33,60 kWh/m²
+× 155 = 5.208 kWh = `<EnergiaGeneradaAutoconsumida>`; 26RES080_61 (2.0), 27,82 − 1,41 = 26,41 × 159
+= 4.200. Por eso «por uso» sale 5,21 MWh más bajo en OP71: suma los usos y no resta el autoconsumo.
+Un total **0** es «las placas lo cubren todo», no un dato ausente: el lector volvía a la suma bruta
+(`global || suma`) y se perdía el autoconsumo (2 CEE del corpus, `CEE INICIAL_23` y `10004-5073`,
+6,6-6,7 kWh/m²); ya no — se regeneró la huella de `test_xml_cee_v30.mjs`. Con placas en algún CEE
+solo hay dos RES080 hoy: 26RES080_61 (final) y 26RES080_66 (inicial). **Y por eso, con placas en
+cualquiera de los dos CEE, el cálculo va POR VECTOR aunque esté elegido «por uso»** (regla 134):
+`calculateRes080` lo detecta con `autoconsumoDeXml` y `calculateRes080FromEmissions`, sin XML, con
+las celdas por vector (`autoconsumoDeEmisiones`, que exige que la parte no eléctrica cuadre para no
+fiarse de celdas de otro CEE). El resultado lleva `metodoForzado: 'autoconsumo'` y la pantalla lo dice.
+
 **Un vector con todo a cero no se consume**: el XML los lista los ocho siempre, así que el parser
 guarda solo los que tienen consumo — y esa lista **es** el inventario de combustibles reales del
 edificio. También es donde se ve el reparto que el resumen por servicio escondía: en el CEE medido,

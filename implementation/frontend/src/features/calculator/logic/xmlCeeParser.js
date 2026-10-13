@@ -199,7 +199,11 @@ export function parseCeeXml(xmlString) {
                 vectorXml: tag,
                 esElectrico: /electric/i.test(nombre),
                 calefaccion, acs, refrigeracion, iluminacion,
-                global: global || (calefaccion + acs + refrigeracion + iluminacion),
+                // `Global` ya va NETO de lo que generan y autoconsumen las placas
+                // (Σ usos − <EnergiaGeneradaAutoconsumida>/m²: 26RES080_61, 27,82 − 26,41
+                // = 1,41). Un 0 es «las placas lo cubren todo», no un dato que falta: con
+                // `||` se volvía a la suma bruta y se perdía el autoconsumo.
+                global,
             };
         }
         if (Object.keys(vectores).length > 0) result.energiaFinalVectores = vectores;
@@ -481,7 +485,9 @@ function parseCeeXmlV30(xmlString) {
             vectorXml: v.nombreV20,
             esElectrico: /electric/i.test(nombre),
             calefaccion, acs: acsV, refrigeracion, iluminacion,
-            global: global || suma,
+            // `Tot` va NETO del autoconsumo de las placas (26RES080_OP71: 43,82 − 33,60 =
+            // 10,22). Un 0 es que lo cubren todo: no se vuelve a la suma bruta.
+            global,
         };
     }
     if (Object.keys(vectores).length > 0) result.energiaFinalVectores = vectores;
@@ -876,6 +882,50 @@ export function leerConsumoElectricoDeTexto(xmlString) {
     const superficie = num(etiqueta(xmlString, 'SuperficieHabitable'));
     if (!superficie) return null;
     return { ...out, superficie, zona, version: '2.0' };
+}
+
+/**
+ * La ENERGÍA FINAL de una MEDIDA DE MEJORA del `.xml` (v3.0, CE3X 3.x), por
+ * servicio: `{ cal, ref, acs, ilu, superficie, zona, nombre }` en kWh/m²·año, con
+ * la MISMA forma que `leerConsumoElectricoDeTexto` para pasársela a
+ * `consumoElectricoMensual`. O null.
+ *
+ * El XML no desglosa por vector la energía de una medida (solo la del edificio),
+ * así que esto es su consumo ELÉCTRICO solo si la medida no quema nada: una
+ * aerotermia que asume TODOS los servicios. Lo decide quien llama, que dice
+ * también qué servicios cuenta (`servicios`): el ACS que se queda en la caldera
+ * no es electricidad. Lo usa `cee_inicial.js` para dimensionar las placas del
+ * conjunto «aerotermia + autoconsumo» en 2.ª fase (10/10/2026).
+ *
+ * @param {string} xmlString
+ * @param {string|null} nombre  el del conjunto; sin él (o si no casa), el primero
+ * @param {string[]} servicios  de 'cal', 'ref', 'acs' los que son electricidad
+ */
+export function leerConsumoDeMedidaDeTexto(xmlString, nombre = null, servicios = ['cal', 'ref', 'acs']) {
+    if (!xmlString || typeof xmlString !== 'string' || !esXmlCeeV30(xmlString)) return null;
+    const num = (v) => {
+        const n = parseFloat(String(v ?? '').replace(',', '.'));
+        return Number.isFinite(n) && n >= 0 && n < 99999999 ? n : null;
+    };
+    const etiqueta = (txt, tag) => {
+        const m = String(txt || '').match(new RegExp(`<${tag}>\\s*([^<]*?)\\s*</${tag}>`, 'i'));
+        return m ? m[1] : null;
+    };
+    const bloques = [...xmlString.matchAll(/<MedidaMejora>([\s\S]*?)<\/MedidaMejora>/gi)].map(m => m[1]);
+    if (!bloques.length) return null;
+    const limpio = (s) => String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
+    const elegido = (nombre && bloques.find(b => limpio(etiqueta(b, 'Nombre')) === limpio(nombre))) || bloques[0];
+    const ind = (elegido.match(/<Indicadores>([\s\S]*?)<\/Indicadores>/i) || [])[1] || '';
+    const ef = (ind.match(/<EnergiaFinal>([\s\S]*?)<\/EnergiaFinal>/i) || [])[1];
+    if (!ef) return null;
+    const superficie = num(etiqueta(xmlString, 'AreaRef')) || leerXmlCeeV30(xmlString).superficieUtil || null;
+    if (!superficie) return null;
+    const de = (k, tag) => (servicios.includes(k) ? num(etiqueta(ef, tag)) || 0 : 0);
+    return {
+        cal: de('cal', 'Cal'), ref: de('ref', 'Ref'), acs: de('acs', 'Acs'), ilu: 0,
+        superficie, zona: (etiqueta(xmlString, 'ZonaClimatica') || '').trim().toUpperCase() || null,
+        nombre: etiqueta(elegido, 'Nombre'), version: '3.0',
+    };
 }
 
 export function leerDatosIrpfDeTexto(xmlString) {
