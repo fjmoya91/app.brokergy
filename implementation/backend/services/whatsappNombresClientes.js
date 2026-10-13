@@ -145,7 +145,8 @@ async function planificar({ agenda: dada, incluirCambioFicha = false } = {}) {
     }
     // Orden por TELÉFONO: es el cursor con el que se sigue a trozos.
     informe.cambios.sort((a, b) => a.tlf.localeCompare(b.tlf));
-    informe.revisar.sort((a, b) => a.despues.localeCompare(b.despues));
+    // Los de varios nº de obra no tienen `despues` (no se propone nada): por su nombre actual.
+    informe.revisar.sort((a, b) => String(a.despues || a.antes || '').localeCompare(String(b.despues || b.antes || '')));
     return informe;
 }
 
