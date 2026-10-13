@@ -1977,8 +1977,9 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
             });
             if (!r.enviado) {
                 return res.status(r.motivo === 'SIN_CONTACTO' ? 422 : 502).json({
-                    error: r.motivo === 'SIN_CONTACTO' ? 'El cliente no tiene ni email ni teléfono en su ficha.' : 'No se pudo enviar el aviso.',
-                    ...r
+                    ...r,
+                    error: r.motivo === 'SIN_CONTACTO' ? 'El cliente no tiene ni email ni teléfono en su ficha.'
+                        : (r.errores?.length ? r.errores.join(' · ') : 'No se pudo enviar el aviso.')
                 });
             }
             return res.json({
@@ -1987,7 +1988,7 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
                     email: r.canales.includes('email') ? [aQuien] : [],
                     whatsapp: r.canales.includes('whatsapp') ? [aQuien] : []
                 },
-                enviados: r.canales
+                enviados: r.canales, errores: r.errores || []
             });
         }
 

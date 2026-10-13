@@ -936,6 +936,8 @@ Según el documento:
     const [resendPreviewLoading, setResendPreviewLoading] = useState(false);
     // CEE directo sin cobrar: el reenvío sale SIN los certificados (lo dice el backend en la preview).
     const [resendSinCertificado, setResendSinCertificado] = useState(false);
+    // A quién va de verdad (lo resuelve el backend: persona de contacto si la hay). CEE directos.
+    const [resendDestinatario, setResendDestinatario] = useState(null);
     // Acceso directo al modal "Solicitar lo que falta" desde la tarjeta CEE.
     const [showSolicitarModal, setShowSolicitarModal] = useState(false);
     // Estado de WhatsApp (barrido previo al envío) + overlay estándar + puerta de conexión.
@@ -1067,6 +1069,7 @@ Según el documento:
         setResendChannels(['email', 'whatsapp']);
         setResendMessages({});
         setResendSinCertificado(false);
+        setResendDestinatario(null);
         setWaStatus(null);
         setResendNotifModal({ section });
         // Cargar la previsualización (textos por destinatario) sin enviar nada.
@@ -1079,6 +1082,7 @@ Según el documento:
             ]);
             if (data?.preview) setResendMessages(data.preview);
             setResendSinCertificado(!!data?.sinCertificado);
+            setResendDestinatario(data?.destinatario || null);
             if (waRes?.data) setWaStatus(waRes.data);
         } catch (err) {
             console.warn('[resend-cee-notifications preview]', err.message);
@@ -1115,6 +1119,8 @@ Según el documento:
                 if (wa.length) items.push(`WhatsApp: ${wa.join(', ')}`);
                 if (em.length) items.push(`Email: ${em.join(', ')}`);
                 if (!items.length) items.push('Aviso: ningún destinatario tenía datos del canal elegido');
+                // Un canal puede fallar aunque el otro saliera (p. ej. un teléfono mal en la ficha).
+                (r.errores || []).forEach(e => items.push({ texto: e, tono: 'aviso' }));
                 setSendOutcome({ ok: true, text: '', items });
             } else {
                 setSendOutcome({ ok: false, text: r.reason || 'Error desconocido', items: [] });
@@ -3228,7 +3234,11 @@ Según el documento:
                 const cliName = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : 'Cliente';
                 // Teléfono respetando la persona de notificaciones (mismo criterio que el backend).
                 const cliPhone = (cli?.notificaciones_contacto_activas && cli?.persona_contacto_tlf) ? cli.persona_contacto_tlf : (cli?.tlf || cli?.persona_contacto_tlf);
-                const cliContact = cliPhone || cli?.email || null;
+                // En los CEE directos el destinatario lo resuelve el backend (la preview lo trae).
+                const dest = resendDestinatario;
+                const cliContact = dest
+                    ? [dest.nombre, dest.tlf ? `📱 ${dest.tlf}` : '📱 sin teléfono', dest.email ? `✉ ${dest.email}` : '✉ sin email'].filter(Boolean).join(' · ')
+                    : (cliPhone || cli?.email || null);
                 const hasPartner = op?.prescriptor_id && String(op.prescriptor_id) !== '1';
                 const presName   = pres?.razon_social || pres?.acronimo || 'Partner';
                 // OJO: prescriptores NO tiene columnas telefono/movil → usar tlf/tlf_contacto/landing.
@@ -3292,7 +3302,7 @@ Según el documento:
                                     <RecipientRow
                                         id="CLIENTE"
                                         label="Cliente"
-                                        detail={cliContact ? `${cliName} · ${cliContact}` : cliName}
+                                        detail={dest ? cliContact : (cliContact ? `${cliName} · ${cliContact}` : cliName)}
                                     />
                                     {hasPartner && (
                                         <RecipientRow

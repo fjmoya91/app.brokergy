@@ -384,6 +384,12 @@ async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsap
 
     const texto = (textoLibre && String(textoLibre).trim()) || textoAviso(row, ph, contacto, fac ? { numero: fac.numero, total: fac.total } : null);
     const canales = [];
+    // Por qué no ha salido cada canal, dicho para quien pulsa: «no se pudo enviar»
+    // a secas no dice que el teléfono de la ficha es un apellido (2026CEE_55).
+    const errores = [];
+    if (!channels.includes('whatsapp') && !channels.includes('email')) errores.push('No se ha elegido ninguna vía (email o WhatsApp)');
+    if (channels.includes('whatsapp') && !contacto.tlf) errores.push('WhatsApp: el cliente no tiene teléfono en su ficha');
+    if (channels.includes('email') && !contacto.email) errores.push('Email: el cliente no tiene email en su ficha');
     if (channels.includes('whatsapp') && contacto.tlf) {
         try {
             await whatsappService.sendText(contacto.tlf, texto);
@@ -394,7 +400,12 @@ async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsap
             }
             canales.push('whatsapp');
         }
-        catch (e) { console.warn('[cee-directo registrado] WA:', e.message); }
+        catch (e) {
+            console.warn('[cee-directo registrado] WA:', e.message);
+            errores.push(/no válido|inválido/i.test(e.message)
+                ? `WhatsApp: el teléfono de la ficha no es válido («${contacto.tlf}»). Corrígelo en la ficha del cliente${contacto.tercero ? ' (persona de contacto)' : ''}`
+                : `WhatsApp: ${e.message}`);
+        }
     }
     if (channels.includes('email') && contacto.email) {
         try {
@@ -406,9 +417,9 @@ async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsap
                 ...(fac ? { attachments: [{ filename: fac.filename, content: fac.buffer, contentType: 'application/pdf' }] } : {})
             });
             canales.push('email');
-        } catch (e) { console.warn('[cee-directo registrado] email:', e.message); }
+        } catch (e) { console.warn('[cee-directo registrado] email:', e.message); errores.push(`Email: ${e.message}`); }
     }
-    if (!canales.length) return { enviado: false, motivo: 'ENVIO_FALLIDO', ...(fac ? { factura: { numero: fac.numero, emitida: fac.emitida } } : {}) };
+    if (!canales.length) return { enviado: false, motivo: 'ENVIO_FALLIDO', errores, ...(fac ? { factura: { numero: fac.numero, emitida: fac.emitida } } : {}) };
     const at = new Date().toISOString();
     await svc.mergeDoc(row.id, 'aviso_registrado', {
         [clave]: { at, canales, to: contacto.email || contacto.tlf, automatico: !manual, ...(fac ? { factura: fac.numero } : {}) }
@@ -425,7 +436,7 @@ async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsap
             + `${fac ? ` · CON LA FACTURA ${fac.numero}${fac.emitida ? ' (EMITIDA AHORA)' : ''}` : ''}${manual ? '' : ' (AUTOMÁTICO)'}`,
         usuario
     });
-    return { enviado: true, canales, ...(fac ? { factura: { numero: fac.numero, total: fac.total, emitida: fac.emitida } } : {}) };
+    return { enviado: true, canales, errores, ...(fac ? { factura: { numero: fac.numero, total: fac.total, emitida: fac.emitida } } : {}) };
 }
 
 module.exports = {
