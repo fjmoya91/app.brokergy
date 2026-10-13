@@ -236,6 +236,26 @@ router.post('/etiquetas/sincronizar-clientes', adminOInterno, async (req, res) =
     } catch (e) { errorLabels(res, e); }
 });
 
+// POST /api/whatsapp/etiquetas/crear-faltantes  { dryRun? }
+//
+// Crea en WhatsApp las etiquetas de TIPO y ESTADO que el etiquetado de clientes
+// usa y que la cuenta todavía no tiene (RES060, CEE, PROPUESTA, CERRADO…): sin
+// ellas el repaso las salta para siempre. Una que ya existe no se duplica.
+// ADMIN o interna; `dryRun` por defecto.
+router.post('/etiquetas/crear-faltantes', adminOInterno, async (req, res) => {
+    try {
+        const dryRun = req.body?.dryRun !== false;
+        const { faltan } = waClientesSync.resolverEtiquetas(await waLabels.listar());
+        const hechas = [];
+        for (const nombre of faltan) {
+            // eslint-disable-next-line no-await-in-loop
+            const r = await waLabels.crear(nombre, { dryRun });
+            hechas.push({ nombre, ...r });
+        }
+        res.json({ dryRun, faltaban: faltan, hechas });
+    } catch (e) { errorLabels(res, e); }
+});
+
 // POST /api/whatsapp/contactos/renombrar-clientes  { dryRun?, despuesDe?, incluirCambioFicha? }
 //
 // Pone el nº de obra delante del nombre del cliente en la AGENDA:

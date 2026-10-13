@@ -86,9 +86,12 @@ repaso ya se lanza con `POST /auto-sync/repaso`.
 encontraba los chats que viven bajo su `@lid` (el `user` del lid es OPACO, no el
 teléfono), así que el repaso de etiquetas de clientes los daba por «sin
 conversación». Ahora pregunta antes a `getCurrentLid`, como la lectura de
-conversaciones. ⚠️ Además, en la cuenta no existen las etiquetas RES060, RES093,
-TER100, TER173, CEE, PROPUESTA ni CERRADO: hasta que se creen en el móvil, esas no se
-ponen.
+conversaciones. ⚠️ Además, en la cuenta no existían las etiquetas RES060, RES093,
+TER100, TER173, CEE, PROPUESTA ni CERRADO, así que esas no se ponían. **Ahora se
+crean desde la app**: `POST /api/whatsapp/etiquetas/crear-faltantes` (`dryRun` por
+defecto) crea las de tipo y estado que falten con `whatsappLabels.crear`. Usa
+`labelAddAction` de `WAWebBizLabelEditingAction`, porque en la 2.3000.x la colección
+ya no trae `addNewLabel`, y el siguiente color libre. Una que ya existe no se duplica.
 
 **6 · Últimos mensajes.** Los N últimos de un chat (`ultimos`, un lote como mucho).
 Cada adjunto tiene «Ver», cada audio «Transcribir» y cada tarjeta de contacto «Dar

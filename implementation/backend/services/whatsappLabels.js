@@ -292,4 +292,55 @@ async function alternar(chatId, labelId, { quitar = false } = {}) {
     return destino;
 }
 
-module.exports = { listar, deChat, poner, alternar, chatIdDeTelefono, widDeTelefono, chatAbierto, asegurarChat, _conPlazo: conPlazo };
+/**
+ * CREA una etiqueta de la cuenta (WhatsApp Business), si no existe ya con ese
+ * nombre (sin distinguir mayúsculas). Es lo que hace el móvil en Etiquetas →
+ * Nueva: `labelAddAction(nombre, color)` de `WAWebBizLabelEditingAction` (o
+ * `Label.addNewLabel` en versiones viejas), con el siguiente color libre
+ * (`Label.getNextAvailableColor`). Si esta versión no trae ninguno, se DICE
+ * (`no-soportado`) y no se intenta nada más: hay que crearla en el móvil.
+ * Devuelve { accion: 'ya_existia' | 'creada' | 'en_seco', id? }.
+ */
+async function crear(nombre, { dryRun = false } = {}) {
+    const n = String(nombre || '').trim();
+    if (!n || n.length > 40) throw deDato('Nombre de etiqueta vacío o demasiado largo.');
+    const client = cliente();
+    const r = await conPlazo(client.pupPage.evaluate(async (nom, seco) => {
+        const C = window.require('WAWebCollections');
+        if (!C || !C.Label) return { error: 'sin-etiquetas' };
+        const igual = (l) => String(l.name || '').trim().toLowerCase() === nom.toLowerCase();
+        const ya = C.Label.getModelsArray().find(igual);
+        if (ya) return { accion: 'ya_existia', id: String(ya.id) };
+        // La versión 2.3000.x lo tiene en la acción de edición de etiquetas de
+        // Business (medido el 13/10/2026: la colección ya no trae `addNewLabel`).
+        let anadir = null;
+        if (typeof C.Label.addNewLabel === 'function') anadir = (x, c) => C.Label.addNewLabel(x, c);
+        else {
+            try {
+                const A = window.require('WAWebBizLabelEditingAction');
+                if (A && typeof A.labelAddAction === 'function') anadir = (x, c) => A.labelAddAction(x, c);
+            } catch (e) { /* no existe en esta versión */ }
+        }
+        if (!anadir) return { error: 'no-soportado' };
+        if (seco) return { accion: 'en_seco' };
+        let color;
+        try {
+            if (typeof C.Label.getNextAvailableColor === 'function') color = await C.Label.getNextAvailableColor();
+        } catch (e) { /* sin color: WhatsApp pone uno */ }
+        try {
+            await anadir(nom, color);
+        } catch (e) {
+            return { error: 'fallo', detalle: (e && e.message) || String(e) };
+        }
+        // Se da un momento a que la colección la recoja.
+        for (let i = 0; i < 10 && !C.Label.getModelsArray().find(igual); i++) await new Promise(r => setTimeout(r, 300));
+        const nueva = C.Label.getModelsArray().find(igual);
+        return nueva ? { accion: 'creada', id: String(nueva.id) } : { error: 'no-aparece' };
+    }, n, !!dryRun), PLAZO_MS, 'crear etiqueta');
+    if (r?.error === 'no-soportado') throw deDato('Esta versión de WhatsApp Web no permite crear etiquetas desde aquí: créala en el móvil (Etiquetas → Nueva).');
+    if (r?.error === 'sin-etiquetas') throw deDato('Esta cuenta de WhatsApp no tiene etiquetas. Solo existen en WhatsApp Business.');
+    if (r?.error) throw new Error(`WhatsApp no ha creado «${n}»: ${r.detalle || r.error}`);
+    return r;
+}
+
+module.exports = { listar, deChat, poner, alternar, crear, chatIdDeTelefono, widDeTelefono, chatAbierto, asegurarChat, _conPlazo: conPlazo };

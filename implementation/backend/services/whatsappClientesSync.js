@@ -10,9 +10,10 @@
  *
  * ─── REGLAS ───────────────────────────────────────────────────────────────────
  *
- * REGLA — solo se usan etiquetas que YA EXISTEN en WhatsApp. No se pueden crear
- * desde aquí (WhatsApp no lo expone), así que lo que no exista se dice en el
- * informe ("crea RES093 en el móvil") y se sigue con el resto.
+ * REGLA — solo se usan etiquetas que YA EXISTEN en WhatsApp. El repaso no las
+ * crea por su cuenta: lo que no exista se dice en el informe (`faltanEtiquetas`)
+ * y se sigue con el resto. Se crean a propósito con
+ * `POST /api/whatsapp/etiquetas/crear-faltantes` (whatsappLabels.crear, 2026-10-13).
  *
  * REGLA — el TIPO se añade y no se quita nunca; el ESTADO es EXCLUSIVO. Un
  * cliente que tuvo un RES080 lo sigue teniendo aunque esté cerrado, pero no
