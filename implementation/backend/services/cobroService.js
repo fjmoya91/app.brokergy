@@ -363,6 +363,25 @@ async function filaCobro(exp, { conBorrador = false, ibanCompleto = false } = {}
             iban_anterior_mascara: mascaraIban(cobro.iban_anterior),
             forma_pago: cobro.respuestas?.forma_pago || null,
         },
+        // Lo que viene DESPUÉS de confirmar (pagoClientesService): remesa SEPA,
+        // transferencia hecha y reseña programada. El importe, solo al ADMIN.
+        pago: {
+            remesa: cobro.remesa ? {
+                at: cobro.remesa.at, msg_id: cobro.remesa.msg_id, fecha_ejecucion: cobro.remesa.fecha_ejecucion,
+                importe: ibanCompleto ? cobro.remesa.importe : null,
+            } : null,
+            transferencia: cobro.transferencia ? {
+                at: cobro.transferencia.at, aviso_at: cobro.transferencia.aviso_at || null,
+                aviso_canales: cobro.transferencia.aviso_canales || [],
+                justificante_link: ibanCompleto ? (cobro.transferencia.justificante_link || null) : null,
+            } : null,
+            resena: cobro.resena ? {
+                programada_para: cobro.resena.programada_para || null,
+                enviada_at: cobro.resena.enviada_at || null,
+                cancelada_at: cobro.resena.cancelada_at || null,
+                error: cobro.resena.error || null,
+            } : null,
+        },
         forma_pago,
         resumen: lineas,
         leads,
@@ -405,6 +424,7 @@ module.exports = {
     datosCliente,
     contactoCliente,
     primerNombre,
+    esTercero,
     enlaceCobro,
     buildVista,
     mensajeCobro,

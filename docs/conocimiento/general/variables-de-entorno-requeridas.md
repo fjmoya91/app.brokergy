@@ -36,4 +36,14 @@ WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que s
 PROPUESTA_PROGRAMADA_ENABLED=false ← en LOCAL, APAGADO: saldría a un cliente REAL
 PROPUESTA_PROGRAMADA_INTERVALO_MS=60000
 PROPUESTA_PROGRAMADA_MAX_DIAS=90   ← hasta cuándo se admite programar
+
+# Pago a los clientes del lote (ver "Confirmación de cobro" → "Después de confirmar")
+SEPA_ORDENANTE_IBAN=ES1001820394300201753286   ← cuenta de CARGO de la remesa (BBVA, la de las facturas)
+SEPA_ORDENANTE_BIC=BBVAESMMXXX
+SEPA_ORDENANTE_NIF=B19350222
+SEPA_ORDENANTE_SUFIJO=000          ← sufijo del ordenante (el de la remesa que BBVA aceptó el 02/10/2026)
+SEPA_ORDENANTE_NOMBRE=SOLUCIONES SOSTENIBLES PARA EFICIENCIA ENERGETICA SL
+GOOGLE_RESENA_URL=                 ← enlace «escribir una reseña» de la ficha de Google. Sin él no se programa ninguna
+RESENA_PROGRAMADA_ENABLED=false    ← despachador de reseñas. En LOCAL, APAGADO: saldría a un cliente REAL
+RESENA_DIAS_HABILES=2              ← cuándo se propone pedirla: N días hábiles tras transferir, a las 11:00
 ```

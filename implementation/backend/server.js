@@ -207,6 +207,14 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[PropProg] no se pudo iniciar el despachador:', err.message);
     }
+    // Petición de RESEÑA en Google, programada al avisar de la transferencia al
+    // cliente (fase 7 del lote). Nace APAGADA (RESENA_PROGRAMADA_ENABLED), por
+    // el mismo motivo que el envío programado de propuestas.
+    try {
+      require('./services/pagoClientesService').start();
+    } catch (err) {
+      console.warn('[reseña] no se pudo iniciar el despachador:', err.message);
+    }
   });
 }
 

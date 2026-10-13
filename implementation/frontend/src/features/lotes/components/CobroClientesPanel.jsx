@@ -24,6 +24,8 @@ import SendActionOverlay from '../../../components/SendActionOverlay';
 import { CanalChip } from '../../../components/CanalChip';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { eurEs } from '../../cobro/logic/cobroForm';
+import { RemesaSepaModal, JustificanteModal, AvisoTransferenciaModal } from './PagoClientesModals';
+import { resumenPago } from '../logic/pagoClientes';
 
 const eur = eurEs;
 const fecha = (iso) => (iso ? new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '');
@@ -52,6 +54,10 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
     const [cargando, setCargando] = useState(false);
     const [envio, setEnvio] = useState(null);       // filas que se van a pedir (abre el popup)
     const [copiado, setCopiado] = useState(null);
+    // Después de confirmar: remesa SEPA → justificante → aviso (+ reseña programada).
+    const [remesa, setRemesa] = useState(false);
+    const [justif, setJustif] = useState(false);
+    const [aviso, setAviso] = useState(null);       // filas a las que se avisa (abre el popup)
 
     const cargar = useCallback(async () => {
         if (!lote?.id) return;
@@ -93,6 +99,18 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
     const confirmadas = filas.filter(f => f.cobro?.completado_at);
     const conFactura = confirmadas.filter(f => f.cobro?.forma_pago === 'factura');
     const cambiadas = confirmadas.filter(f => f.cobro?.iban_cambiado);
+    const pago = resumenPago(filas);
+    const todasConfirmadas = filas.length > 0 && pendientes.length === 0;
+    const refrescar = () => { cargar(); if (onChanged) onChanged(); };
+
+    const cancelarResena = async (f) => {
+        try {
+            await axios.post(`/api/lotes/${lote.id}/transferencia/${f.id}/resena/cancelar`);
+            cargar();
+        } catch (e) {
+            setError(e.response?.data?.error || 'No se pudo cancelar la reseña.');
+        }
+    };
 
     const copiar = async (f) => {
         if (!f.link) return;
@@ -117,7 +135,43 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                     {pendientes.length > 0 && <> · <span className="text-white/70">{pendientes.length} pendiente{pendientes.length > 1 ? 's' : ''}</span></>}
                     {cambiadas.length > 0 && <> · <span className="text-amber-300">{cambiadas.length} con la cuenta cambiada</span></>}
                     {conFactura.length > 0 && <> · <span className="text-amber-300">{conFactura.length} quiere{conFactura.length > 1 ? 'n' : ''} factura</span></>}
+                    {pago.transferidas.length > 0 && <> · <span className="text-cyan-300">{pago.transferidas.length} transferido{pago.transferidas.length > 1 ? 's' : ''}</span></>}
+                    {pago.resenasProg.length > 0 && <> · <span className="text-white/60">{pago.resenasProg.length} reseña{pago.resenasProg.length > 1 ? 's' : ''} programada{pago.resenasProg.length > 1 ? 's' : ''}</span></>}
                 </p>
+            )}
+
+            {/* Cuando han confirmado TODOS, se dice: es el momento de la remesa. */}
+            {activo && todasConfirmadas && pago.transferidas.length < filas.length && (
+                <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/[0.06] px-3 py-2 text-[11px] text-emerald-200 leading-snug">
+                    ✅ <span className="font-bold">Han confirmado todos.</span>{' '}
+                    {canSeeMargin ? 'Ya puedes generar la remesa SEPA para BBVA.' : 'Ya se puede preparar la transferencia (la hace un administrador).'}
+                </div>
+            )}
+
+            {activo && canSeeMargin && confirmadas.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                    <button type="button" onClick={() => setRemesa(true)}
+                        className={`px-3.5 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${todasConfirmadas && !pago.enRemesa.length
+                            ? 'bg-brand text-black hover:brightness-110' : 'border border-white/15 text-white/75 hover:border-brand/50 hover:text-white'}`}>
+                        🏦 Remesa SEPA (BBVA)
+                    </button>
+                    {pago.enRemesa.length > 0 && (
+                        <button type="button" onClick={() => setJustif(true)}
+                            className={`px-3.5 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${pago.enRemesa.length > pago.transferidas.length
+                                ? 'bg-brand text-black hover:brightness-110' : 'border border-white/15 text-white/75 hover:border-brand/50 hover:text-white'}`}>
+                            📎 Subir justificante de la transferencia
+                        </button>
+                    )}
+                    {pago.sinAvisar.length > 0 && (
+                        <button type="button" onClick={() => setAviso(pago.sinAvisar)}
+                            className="px-3.5 py-2 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-wider hover:brightness-110 transition-all">
+                            📣 Avisar de la transferencia ({pago.sinAvisar.length})
+                        </button>
+                    )}
+                    {!todasConfirmadas && (
+                        <span className="text-[9px] text-white/30">Aún faltan {pendientes.length} por confirmar: la remesa solo lleva a los que ya lo han hecho.</span>
+                    )}
+                </div>
             )}
 
             {activo && pendientes.length > 0 && (
@@ -211,6 +265,7 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                     ))}
                                 </div>
                             )}
+                            <EstadoPago f={f} admin={canSeeMargin} onAvisar={() => setAviso([f])} onCancelarResena={() => cancelarResena(f)} />
                             {activo && (
                                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                                     {!f.cobro?.completado_at && (
@@ -240,6 +295,20 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                 })}
             </div>
 
+            {remesa && <RemesaSepaModal lote={lote} onClose={() => setRemesa(false)} onHecho={refrescar} />}
+            {justif && (
+                <JustificanteModal lote={lote} filas={filas} onClose={() => setJustif(false)}
+                    onSubido={(ids) => {
+                        setJustif(false);
+                        refrescar();
+                        // Subido el justificante, lo siguiente es avisar: se abre ya.
+                        setAviso(filas.filter(f => ids.includes(f.id)));
+                    }} />
+            )}
+            {aviso && aviso.length > 0 && (
+                <AvisoTransferenciaModal lote={lote} filas={aviso} onClose={() => setAviso(null)} onEnviado={refrescar} />
+            )}
+
             {envio && (
                 <PedirCobroModal
                     filas={envio}
@@ -247,6 +316,44 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                     onEnviado={() => { cargar(); if (onChanged) onChanged(); }}
                 />
             )}
+        </div>
+    );
+}
+
+/** Remesa → transferido → avisado → reseña, en una línea por cliente. */
+function EstadoPago({ f, admin, onAvisar, onCancelarResena }) {
+    const p = f.pago || {};
+    if (!p.remesa && !p.transferencia) return null;
+    const r = p.resena;
+    return (
+        <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[9px]">
+            {p.remesa && (
+                <span className="px-1.5 py-0.5 rounded-md border border-white/15 text-white/55">
+                    🏦 Remesa {fecha(p.remesa.at)}{admin && p.remesa.importe != null ? ` · ${eur(p.remesa.importe)}` : ''}
+                </span>
+            )}
+            {p.transferencia ? (
+                <span className="px-1.5 py-0.5 rounded-md border border-cyan-400/30 text-cyan-300">
+                    💸 Transferido {fecha(p.transferencia.at)}
+                    {p.transferencia.justificante_link && (
+                        <a href={p.transferencia.justificante_link} target="_blank" rel="noreferrer" className="ml-1 underline">justificante</a>
+                    )}
+                </span>
+            ) : (
+                <span className="px-1.5 py-0.5 rounded-md border border-white/10 text-white/35">falta el justificante</span>
+            )}
+            {p.transferencia && (p.transferencia.aviso_at
+                ? <span className="px-1.5 py-0.5 rounded-md border border-emerald-400/30 text-emerald-300">✓ Avisado {fecha(p.transferencia.aviso_at)}</span>
+                : admin && <button type="button" onClick={onAvisar} className="px-1.5 py-0.5 rounded-md border border-brand/40 text-brand font-bold hover:bg-brand/10">📣 Avisar</button>)}
+            {r?.enviada_at && <span className="px-1.5 py-0.5 rounded-md border border-emerald-400/30 text-emerald-300">⭐ Reseña pedida {fecha(r.enviada_at)}</span>}
+            {r && !r.enviada_at && !r.cancelada_at && r.programada_para && (
+                <span className="px-1.5 py-0.5 rounded-md border border-white/15 text-white/60">
+                    ⭐ Reseña el {new Date(r.programada_para).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    {admin && <button type="button" onClick={onCancelarResena} className="ml-1 text-white/40 hover:text-red-300" title="No pedirla">✕</button>}
+                </span>
+            )}
+            {r?.cancelada_at && <span className="px-1.5 py-0.5 rounded-md border border-white/10 text-white/30">reseña cancelada</span>}
+            {r?.error && !r.enviada_at && <span className="px-1.5 py-0.5 rounded-md border border-red-400/30 text-red-300">⚠ reseña: {r.error}</span>}
         </div>
     );
 }

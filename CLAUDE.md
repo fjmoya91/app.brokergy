@@ -106,7 +106,8 @@ Resumen de [docs/conocimiento/COMO-TRABAJAMOS.md](docs/conocimiento/COMO-TRABAJA
   una ruta dedicada va en `CLAVES_PROTEGIDAS` de `mergeDocumentacion`, o el autoguardado lo borra.
 - Con la BD caída se responde **503**, nunca una cifra a cero. (38)
 - **Local = datos de producción**. En el `.env` local, apagados: `REVISION_ALERTA_ENABLED`,
-  `CEE_ENTREGA_AUTO`, `BOT_WHATSAPP_ENABLED`, `PROPUESTA_PROGRAMADA_ENABLED`, `WA_SYNC_INSTALADORES`.
+  `CEE_ENTREGA_AUTO`, `BOT_WHATSAPP_ENABLED`, `PROPUESTA_PROGRAMADA_ENABLED`, `WA_SYNC_INSTALADORES`,
+  `RESENA_PROGRAMADA_ENABLED`.
 - **WhatsApp**: un mensaje con el reloj no está enviado (manda el ACK); nunca `getChatById` ni `sendSeen`
   en el camino de envío. (39)
 - **Drive**: los enlaces, solo para ADMIN; la carpeta de cada expediente la decide `driveFolders.js`. (1)

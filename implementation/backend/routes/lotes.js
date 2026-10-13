@@ -746,6 +746,152 @@ router.get('/:id/cobros', staffOnly, async (req, res) => {
     }
 });
 
+// ─── El PAGO a los clientes: remesa SEPA → justificante → aviso → reseña ─────────
+// Todo adminOnly: son cuentas e importes (regla 6). La lógica, en
+// services/pagoClientesService.js; el fichero SEPA, en utils/sepaTransferencia.js.
+const pagoClientes = require('../services/pagoClientesService');
+
+async function loteParaPago(req, res) {
+    const { data: lote, error } = await supabase
+        .from('lotes').select('id, codigo, estado, drive_folder_id, historial').eq('id', req.params.id).maybeSingle();
+    if (error) { res.status(503).json({ error: 'No se pudo leer el lote' }); return null; }
+    if (!lote) { res.status(404).json({ error: 'Lote no encontrado' }); return null; }
+    return lote;
+}
+
+async function apuntarEnLote(loteId, texto, usuario) {
+    const { data } = await supabase.from('lotes').select('historial').eq('id', loteId).maybeSingle();
+    const historial = Array.isArray(data?.historial) ? [...data.historial] : [];
+    historial.push({ id: `${Date.now()}_pago_clientes`, tipo: 'sistema', texto, fecha: nowIso(), usuario });
+    await supabase.from('lotes').update({ historial, updated_at: nowIso() }).eq('id', loteId);
+}
+
+const idsDe = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map(s => String(s).trim()).filter(Boolean);
+
+// Vista previa: qué entra en la remesa, por cuánto y qué se queda fuera (y por qué).
+router.get('/:id/remesa-sepa', adminOnly, async (req, res) => {
+    try {
+        const lote = await loteParaPago(req, res);
+        if (!lote) return;
+        res.json(await pagoClientes.previsualizarRemesa(lote, { facturaCobrada: idsDe(req.query.factura_cobrada) }));
+    } catch (err) {
+        console.error('[GET /lotes/:id/remesa-sepa]', err.message);
+        res.status(500).json({ error: 'No se pudo preparar la remesa' });
+    }
+});
+
+// Genera el fichero SEPA (pain.001.001.03) para BBVA net cash, lo guarda en la
+// carpeta de documentación del lote y lo devuelve para descargarlo.
+router.post('/:id/remesa-sepa', adminOnly, async (req, res) => {
+    try {
+        const lote = await loteParaPago(req, res);
+        if (!lote) return;
+        const r = await pagoClientes.generarRemesa(lote, {
+            ids: idsDe(req.body?.ids),
+            facturaCobrada: idsDe(req.body?.factura_cobrada),
+            fechaEjecucion: req.body?.fecha_ejecucion,
+            usuario: usuarioDe(req),
+        });
+        const fileName = `${lote.codigo || 'LOTE'} - REMESA SEPA ${r.fecha_ejecucion}.xml`;
+        let link = null;
+        try {
+            const folder = await ensureLoteDocsFolder(lote);
+            try {
+                const prev = await driveService.findFileByName(folder, fileName);
+                if (prev) await driveService.deleteFile(prev);
+            } catch (_) { /* no bloqueante */ }
+            const saved = await driveService.saveFileToFolder(folder, fileName, 'application/xml', Buffer.from(r.xml, 'utf8'));
+            link = saved?.link || null;
+        } catch (e) { console.warn('[remesa-sepa] Drive:', e.message); }
+        await apuntarEnLote(lote.id,
+            `Remesa SEPA generada (${r.n} transferencia${r.n === 1 ? '' : 's'}, ${r.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €, ejecución ${r.fecha_ejecucion}): ${r.expedientes.join(', ')}.`,
+            usuarioDe(req));
+        res.json({ ...r, file_name: fileName, link });
+    } catch (err) {
+        console.error('[POST /lotes/:id/remesa-sepa]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo generar la remesa' });
+    }
+});
+
+// El justificante de la transferencia (el PDF que da el banco). Se guarda en la
+// carpeta de documentación del lote y se marca en los expedientes elegidos.
+router.post('/:id/transferencia', adminOnly, async (req, res) => {
+    try {
+        const lote = await loteParaPago(req, res);
+        if (!lote) return;
+        const { base64, fileName } = req.body || {};
+        const ids = idsDe(req.body?.ids);
+        if (!base64) return res.status(400).json({ error: 'Falta el justificante' });
+        if (!ids.length) return res.status(400).json({ error: 'Elige a qué clientes corresponde' });
+        const buffer = Buffer.from(String(base64).split(',').pop(), 'base64');
+        if (buffer.slice(0, 4).toString() !== '%PDF') return res.status(400).json({ error: 'El justificante tiene que ser un PDF' });
+
+        const folder = await ensureLoteDocsFolder(lote);
+        const nombre = pdfFileName(`${lote.codigo || 'LOTE'} - JUSTIFICANTE TRANSFERENCIA CLIENTES ${new Date().toISOString().slice(0, 10)}`);
+        const saved = await saveOrReplacePdf(folder, nombre, buffer);
+        if (!saved) throw new Error('No se pudo guardar el justificante en Drive');
+        const hechos = await pagoClientes.registrarTransferencia(lote, { ids, link: saved.link, usuario: usuarioDe(req) });
+        if (!hechos.length) return res.status(409).json({ error: 'Ninguno de los elegidos está en una remesa: genera antes la remesa SEPA.' });
+        await apuntarEnLote(lote.id,
+            `Justificante de la transferencia subido (${nombre}${fileName ? `, original «${fileName}»` : ''}): ${hechos.join(', ')}.`,
+            usuarioDe(req));
+        res.json({ ok: true, expedientes: hechos, link: saved.link, file_name: nombre });
+    } catch (err) {
+        console.error('[POST /lotes/:id/transferencia]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo registrar la transferencia' });
+    }
+});
+
+async function expedienteDelLote(req, res) {
+    const exp = await require('../services/cobroService').cargarExpediente(req.params.expId);
+    if (!exp || String(exp.lote_id) !== String(req.params.id)) {
+        res.status(404).json({ error: 'Ese expediente no es de este lote' });
+        return null;
+    }
+    return exp;
+}
+
+// Los borradores del aviso de transferencia y de la reseña, para el popup.
+router.get('/:id/transferencia/:expId/borradores', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        res.json(await pagoClientes.borradoresAviso(exp));
+    } catch (err) {
+        console.error('[GET transferencia/borradores]', err.message);
+        res.status(500).json({ error: 'No se pudieron preparar los mensajes' });
+    }
+});
+
+// Envía el aviso de transferencia y PROGRAMA la reseña con el texto revisado.
+// Body: { channels, mensaje, resena: { programar, at, mensaje } }
+router.post('/:id/transferencia/:expId/avisar', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const channels = idsDe(req.body?.channels);
+        if (!channels.length) return res.status(400).json({ error: 'Selecciona al menos un canal' });
+        res.json(await pagoClientes.avisarTransferencia(exp, {
+            channels, mensaje: req.body?.mensaje, resena: req.body?.resena || null, usuario: usuarioDe(req),
+        }));
+    } catch (err) {
+        console.error('[POST transferencia/avisar]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo enviar el aviso' });
+    }
+});
+
+router.post('/:id/transferencia/:expId/resena/cancelar', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const ok = await pagoClientes.cancelarResena(exp, usuarioDe(req));
+        res.json({ ok });
+    } catch (err) {
+        console.error('[POST resena/cancelar]', err.message);
+        res.status(500).json({ error: 'No se pudo cancelar la reseña' });
+    }
+});
+
 // ─── GET /api/lotes/:id/local-path — ruta de la carpeta en el disco ─────────────
 // Espejo de `GET /api/expedientes/:id/local-path` (ver memoria del protocolo
 // brokergylocal:). El navegador no puede abrir `file://`, así que devolvemos la

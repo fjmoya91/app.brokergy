@@ -419,6 +419,93 @@ export function componerMensajeCobro({
 }
 
 /**
+ * El concepto de la transferencia: lo que el cliente lee en su banco para
+ * reconocerla. El guion bajo del nº de expediente no está en el juego de
+ * caracteres SEPA, así que va con guion — y el mensaje dice el MISMO texto que
+ * verá en el banco.
+ */
+export function conceptoTransferencia(numExp) {
+    return `AYUDA CAE ${String(numExp || '').replace(/_/g, '-')} BROKERGY`.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * El aviso de que la transferencia YA está hecha (tras subir el justificante del
+ * banco). FUENTE ÚNICA del texto.
+ *
+ * REGLA — el justificante del banco NO se le adjunta: el de una remesa lleva los
+ * nombres, cuentas e importes de TODOS los clientes del lote. Se le dice el importe,
+ * la cuenta enmascarada y el concepto con el que lo va a ver.
+ *
+ * @param {object} p
+ *   @param {Array}   p.cuentas   [{ mascara, importe }] — una por cuenta a la que se ingresó
+ *   @param {string}  p.concepto  el concepto de la transferencia
+ */
+export function componerMensajeTransferencia({
+    nombre, tercero = false, titular = null, partner = false, cuentas = [], concepto = null,
+}) {
+    const lista = (cuentas || []).filter(c => Number(c?.importe) > 0);
+    const total = lista.reduce((s, c) => s + Number(c.importe), 0);
+    const saludo = nombre ? `¡Hola ${nombre}! ✅` : '¡Hola! ✅';
+    const deQuien = tercero ? `de ${titular || 'el titular'}` : 'tu';
+    const aCuenta = (c) => (partner || !c.mascara ? '' : ` a la cuenta *${c.mascara}*`);
+
+    let cuerpo;
+    if (lista.length > 1) {
+        cuerpo = [
+            `Ya hemos hecho las transferencias de la ayuda ${tercero ? `de ${titular || 'el titular'}` : 'de tu vivienda'}, *${eurMsg(total)}* en total:`,
+            ...lista.map(c => `• *${eurMsg(c.importe)}*${aCuenta(c)}`),
+        ];
+    } else {
+        const c = lista[0] || {};
+        cuerpo = [`Ya hemos hecho la transferencia de ${tercero ? `la ayuda ${deQuien}` : 'tu ayuda'}: *${eurMsg(c.importe || total)}*${aCuenta(c) || (partner ? ' a la cuenta que nos confirmó' : '')}.`];
+    }
+    const plazo = 'Según el banco, puede tardar uno o dos días hábiles en aparecer en la cuenta.';
+    return [
+        saludo,
+        '',
+        ...cuerpo,
+        '',
+        concepto ? `En el concepto ${tercero ? 'se verá' : 'verás'} «${concepto}». ${plazo}` : plazo,
+        '',
+        'Cualquier duda, contesta a este mensaje. ¡Gracias por confiar en BROKERGY!',
+    ].join('\n');
+}
+
+/**
+ * El mensaje de la RESEÑA en Google, que sale programado cuando la transferencia
+ * ya debería haber llegado. FUENTE ÚNICA del texto.
+ *
+ * REGLA — el esfuerzo se cuenta con lo que DE VERDAD pasó, igual que en la
+ * enhorabuena: con requerimientos se dice cuántos; sin ninguno, el proceso
+ * (verificación, Ministerio, emisión). Pedir una reseña con un requerimiento
+ * inventado es lo que la convierte en una mala.
+ *
+ * @param {object} p
+ *   @param {string} p.enlace          el enlace para escribir la reseña en Google
+ *   @param {number} p.requerimientos  cuántos se contestaron (0 → el proceso)
+ */
+export function componerMensajeResena({ nombre, tercero = false, enlace, requerimientos = 0 }) {
+    const n = Math.max(0, Number(requerimientos) || 0);
+    const vosotros = tercero;
+    const porque = n >= 1
+        ? `hemos tenido que contestar ${n === 1 ? 'un requerimiento' : `${n} requerimientos`} durante la tramitación, documento a documento, y no hemos parado hasta que todo ha salido adelante`
+        : 'la verificación, la presentación ante el Ministerio y la emisión de los certificados tienen sus plazos, y hemos estado encima de cada paso para que todo saliera adelante';
+    return [
+        nombre ? `¡Hola ${nombre}! 😊` : '¡Hola! 😊',
+        '',
+        `${vosotros ? 'Esperamos que el ingreso de la ayuda ya esté en la cuenta' : 'Esperamos que ya tengas el ingreso de tu ayuda en la cuenta'}; si no ${vosotros ? 'lo veis' : 'lo ves'}, ${vosotros ? 'decídnoslo' : 'dínoslo'} y lo miramos.`,
+        '',
+        `Queríamos ${vosotros ? 'daros' : 'darte'} las gracias por la confianza y por la paciencia. Sabemos que todo ha tardado más de lo que nos hubiera gustado: ${porque}.`,
+        '',
+        `Para nosotros es muy importante ${vosotros ? 'vuestra opinión' : 'tu opinión'}: es lo que ayuda a otras familias a fiarse y dar el paso. Si ${vosotros ? 'os ha gustado' : 'te ha gustado'} cómo lo hemos llevado, ¿nos ${vosotros ? 'dejaríais' : 'dejarías'} una reseña en Google? Es menos de un minuto:`,
+        '',
+        enlace,
+        '',
+        '¡Muchas gracias! 🙌',
+    ].join('\n');
+}
+
+/**
  * Qué hay que hacer con la forma de pago elegida, dicho para quien prepara la
  * transferencia. La factura es el caso que se olvida: hay que emitirla y cobrarla
  * ANTES de ingresar, y si nadie lo dice se transfiere el bono entero.

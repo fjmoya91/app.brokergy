@@ -148,6 +148,74 @@ claves). Antes solo se leía `inputs.discountCertificates`.
 El parte diario (bloque `COBRO`) y la página de acciones siguen funcionando, con el
 mismo texto (`cobroLoteWa`, ya con la cuenta enmascarada por expediente).
 
+### Después de confirmar: remesa SEPA → justificante → aviso → reseña (2026-10-13)
+
+Hasta aquí la fase 7 pedía la cuenta y enseñaba quién había contestado; el pago se
+hacía a mano en el banco y al cliente no se le volvía a decir nada. Ahora sigue en
+la misma fase, todo **adminOnly** (cuentas e importes):
+
+1. **Saber que han contestado TODOS.** El aviso al staff de cada confirmación
+   (WhatsApp + email, `routes/public.js`) cuenta los del lote: «LOTE-X: 3 de 5 han
+   confirmado» y, con el último, «✅ ya han confirmado TODOS… genera la remesa SEPA»
+   (el asunto del email lo dice también). La fase 7 lo pinta en verde.
+2. **Remesa SEPA para BBVA.** «🏦 Remesa SEPA (BBVA)» abre la lista: quién entra,
+   por cuánto y quién se queda fuera **con su motivo**; descarga un `pain.001.001.03`
+   (una transferencia por cuenta) que se sube en BBVA net cash
+   → Ficheros → Transferencias SEPA, y lo guarda en la documentación del lote.
+3. **Justificante.** «📎 Subir justificante de la transferencia»: el PDF del banco,
+   a la documentación del lote, marcado en los expedientes elegidos.
+4. **Aviso + reseña.** Al subirlo se abre el popup: a cada cliente, que ya está
+   transferido (importe, cuenta ENMASCARADA y el concepto con el que lo verá) y,
+   PROGRAMADA, la petición de reseña en Google. Las dos se ven y se retocan antes de
+   pulsar; la reseña sale sola a su hora (por defecto, 2 días hábiles después a las
+   11:00) y se puede cancelar desde la fila (✕).
+
+| Qué | Dónde |
+|---|---|
+| Qué entra en la remesa y por cuánto, el aviso, la reseña y su despachador | [pagoClientesService.js](implementation/backend/services/pagoClientesService.js) |
+| El fichero SEPA (puro) | [utils/sepaTransferencia.js](implementation/backend/utils/sepaTransferencia.js) |
+| Los TEXTOS (aviso de transferencia, reseña, concepto) | `componerMensajeTransferencia`, `componerMensajeResena`, `conceptoTransferencia` en [cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) |
+| Los tres popups | [PagoClientesModals.jsx](implementation/frontend/src/features/lotes/components/PagoClientesModals.jsx) |
+| Rutas (adminOnly) | `GET|POST /api/lotes/:id/remesa-sepa` · `POST /:id/transferencia` · `GET /:id/transferencia/:expId/borradores` · `POST …/avisar` · `POST …/resena/cancelar` |
+| Sellos | `documentacion.cobro.remesa` · `.transferencia` · `.resena` (objetos ENTEROS: la RPC funde solo el primer nivel de `cobro`) |
+| Pruebas | `node implementation/backend/scripts/test_remesa_sepa.js` |
+
+**REGLA — el importe es el VERIFICADO menos los honorarios si eligió descontarlos**,
+con `bloquePago` (los 250 € por defecto si el expediente no trae coste): la MISMA
+cuenta que pinta la fila de la fase 7. Medido en seco sobre LOTE-2026-004 el
+13/10/2026: con `costeGestion` = 0 en la simulación, una primera versión no
+descontaba nada y la remesa salía 1.000 € más alta.
+
+**REGLA — fuera de la remesa, y se DICE por qué**: sin confirmar la cuenta, sin
+ahorro verificado, sin elegir forma de pago, con un IBAN que no pasa el dígito de
+control, o con FACTURA pedida hasta que se marque «ya cobrada». Un IBAN malo en el
+fichero hace que el banco rechace la remesa ENTERA, así que ni se genera.
+
+**REGLA — el fichero REPRODUCE el que BBVA ya aceptó** (remesa del 02/10/2026, 5
+pagos, `remesa_BBVA_2026-10-02_5pagos.xml`): ordenante «SOLUCIONES SOSTENIBLES PARA
+EFICIENCIA ENERGETICA SL» —sin «BROKERGY»— con Id `B19350222000` (NIF + sufijo
+`000`) en `InitgPty` y en `Dbtr`, BIC `BBVAESMMXXX`, `BtchBookg` = false,
+`MsgId` «BRKGY» + fecha y hora de Madrid y ejecución el mismo día. Comparadas
+etiqueta a etiqueta el 13/10/2026: la misma estructura, sin una de más ni de menos.
+No se cambia sin probarlo antes en el banco.
+
+**REGLA — los textos del fichero van en el juego SEPA**: sin tildes ni eñes, y el
+guion bajo del nº de expediente pasa a guion. Por eso el concepto es
+«AYUDA CAE 26RES093-3 BROKERGY» y el mensaje al cliente dice ESE texto, el que verá
+en su banco. Con varios cedentes con cuenta propia el ingreso se parte por cuotas
+en céntimos y el resto va a la última cuenta.
+
+**REGLA — el justificante del banco NO se le manda al cliente**: el de una remesa
+lleva los nombres, cuentas e importes de todos los del lote.
+
+**REGLA — la reseña: lo que se vio es lo que sale.** El texto, el teléfono y el
+canal se fijan al programarla (como `propuestaProgramada`); el despachador no
+recompone nada. Solo sale entre las 9:00 y las 21:00 de Madrid, y nace APAGADO
+(`RESENA_PROGRAMADA_ENABLED`): el backend del portátil escribiría a clientes reales.
+Sin `GOOGLE_RESENA_URL` no se programa ninguna, y al PARTNER no se le pide.
+El esfuerzo se cuenta con los requerimientos que CONSTAN (`requerimientosDe`), como
+la enhorabuena: sin ninguno se cuenta el proceso, no se inventan.
+
 ### La bandeja — pestaña **Venta cruzada**
 
 `features/cobro/views/RespuestasCobroView.jsx` sobre `GET /api/expedientes/cobro/respuestas`

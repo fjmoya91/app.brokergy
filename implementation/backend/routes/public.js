@@ -2940,6 +2940,22 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                 const { lineas, leads, forma_pago } = await cobroService.resumenRespuestas(fresco);
                 const c = cobroService.contactoCliente(fresco);
                 const nombre = `${fresco.clientes?.nombre_razon_social || ''} ${fresco.clientes?.apellidos || ''}`.trim();
+                // ¿Era el ÚLTIMO del lote? Es el momento de preparar la remesa SEPA,
+                // y hay que decirlo: si no, se descubre entrando a mirar el lote.
+                let todosLote = '';
+                if (fresco.lote_id) {
+                    try {
+                        const [{ data: lote }, { data: hermanos }] = await Promise.all([
+                            supabase.from('lotes').select('codigo').eq('id', fresco.lote_id).maybeSingle(),
+                            supabase.from('expedientes').select('id, completado:documentacion->cobro->>completado_at').eq('lote_id', fresco.lote_id),
+                        ]);
+                        const lista = hermanos || [];
+                        const hechos = lista.filter(h => h.completado).length;
+                        todosLote = lista.length && hechos === lista.length
+                            ? `\n\n✅ *Con este ya han confirmado TODOS los clientes del ${lote?.codigo || 'lote'}* (${hechos}). Ya puedes generar la remesa SEPA en la fase 7 del lote.`
+                            : (lista.length ? `\n\n${lote?.codigo || 'Lote'}: ${hechos} de ${lista.length} han confirmado.` : '');
+                    } catch (e) { console.warn('[cobro POST] lote:', e.message); }
+                }
                 const aviso = [
                     '🏦 *DATOS DE COBRO CONFIRMADOS*',
                     `Expediente *${fresco.numero_expediente || exp.id}* · ${nombre || 'Cliente'}`,
@@ -2958,6 +2974,7 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                     lineas.length ? `Respuestas: ${lineas.join(' · ')}` : 'Sin respuestas de venta cruzada.',
                     leads.length ? `\n🎯 *Interesado en:* ${leads.map(l => l.texto).join(' · ')}` : '',
                     c.tlf ? `\n📞 ${c.tlf}` : '',
+                    todosLote,
                 ].filter(Boolean).join('\n');
 
                 const chat = process.env.WHATSAPP_ADMIN_CHAT;
@@ -2966,7 +2983,7 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                     try {
                         await emailService.sendMail({
                             to: process.env.ADMIN_EMAIL,
-                            subject: `🏦 Datos de cobro confirmados — ${fresco.numero_expediente || ''}${ibanCambiado ? ' (Nº DE CUENTA CAMBIADO)' : ''}${forma_pago?.tono === 'aviso' ? ' (QUIERE FACTURA)' : ''}`,
+                            subject: `🏦 Datos de cobro confirmados — ${fresco.numero_expediente || ''}${ibanCambiado ? ' (Nº DE CUENTA CAMBIADO)' : ''}${forma_pago?.tono === 'aviso' ? ' (QUIERE FACTURA)' : ''}${todosLote.includes('TODOS') ? ' — LOTE COMPLETO: GENERAR REMESA' : ''}`,
                             text: aviso,
                             html: `<pre style="font-family:Arial,sans-serif;font-size:14px">${aviso.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</pre>`,
                         });
