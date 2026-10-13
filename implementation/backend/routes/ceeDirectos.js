@@ -1959,7 +1959,7 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
                 ok: true,
                 preview: {
                     CLIENTE: textoEditado || (row.cobrado
-                        ? entrega.mensaje(row, phase, { textoGuia: st.guia?.va ? st.guia.texto : '' })
+                        ? entrega.mensaje(row, phase, { textoGuia: st.guia?.va ? st.guia.texto : '', guia: st.guia?.va ? st.guia : null })
                         : entrega.textoSinCobrar(row, phase))
                 },
                 cobrado: row.cobrado,
@@ -2006,8 +2006,8 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
         res.json({
             ok: true,
             channels: {
-                email: r.canales.includes('email') ? [aQuien] : [],
-                whatsapp: r.canales.includes('whatsapp') ? [aQuien] : []
+                email: r.canales.includes('email') ? [r.destinatario?.nombre || aQuien] : [],
+                whatsapp: r.canales.includes('whatsapp') ? [r.destinatario?.nombre || aQuien] : []
             },
             enviados: r.canales, errores: r.errores || []
         });
@@ -2162,7 +2162,7 @@ router.get('/:id/entrega', staffOnly, async (req, res) => {
         res.json({
             ...st,
             phase,
-            mensaje: entrega.mensaje(row, phase, { textoGuia: st.guia?.texto }),
+            mensaje: entrega.mensaje(row, phase, { textoGuia: st.guia?.texto, guia: st.guia }),
             // Que el automático esté apagado es un dato de la pantalla: si no, en
             // local uno marca cobrado, no pasa nada y piensa que está roto.
             autoActivado: entrega.autoActivado()

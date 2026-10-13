@@ -10,6 +10,9 @@
 //
 //   cobrado ✅  +  justificante de REGISTRO subido ✅  +  PDF firmado subido ✅
 //
+// Se le entrega a quien PAGA (`destinatarioEntrega`): el partner si la factura
+// se emitió a su nombre; si no, el cliente.
+//
 // Se mandan SOLO dos ficheros: el PDF del CEE firmado y el justificante de
 // registro. El `.xml` y el `.cex` son ficheros de trabajo del certificador —el
 // cliente no puede abrirlos— y la etiqueta ya va dentro del propio certificado;
@@ -50,6 +53,36 @@ const nombreCliente = (cli) => cli
     : '';
 
 /**
+ * A quién se le ENTREGA: a quien PAGA, que es a quien se emitió la factura.
+ * Si la última factura del encargo es del PARTNER que lo trae, los certificados
+ * van al partner —por el teléfono y el email por los que se le mandó la factura,
+ * que son los que ya han funcionado— y no al particular que sale en el
+ * certificado. Medido en 2026CEE_54: la factura 26ING_81 se emitió a ATERSOL y la
+ * entrega automática le llegó a Vicente, que no había pagado nada.
+ * Sin factura, o facturada al cliente: su contacto (con el desvío, la persona de
+ * contacto), como el resto de avisos.
+ */
+function destinatarioEntrega(row) {
+    const facs = Object.values(row.documentacion?.facturas_emitidas || {})
+        .filter(f => f && typeof f === 'object')
+        .sort((a, b) => String(a.emitida_at || '').localeCompare(String(b.emitida_at || '')));
+    const ultima = facs[facs.length - 1];
+    if (ultima?.destino === 'partner' && row.prescriptor) {
+        const p = row.prescriptor;
+        const envios = Array.isArray(ultima.envios) ? [...ultima.envios].reverse() : [];
+        return {
+            nombre: p.razon_social || ultima.cliente?.razon_social || null,
+            tlf: envios.find(e => e?.tlf)?.tlf || p.tlf || ultima.cliente?.tlf || null,
+            email: envios.find(e => e?.email)?.email || p.email || ultima.cliente?.email || null,
+            partner: true,
+            factura: ultima.numero || null,
+        };
+    }
+    const c = svc.contactoCliente(row.cliente);
+    return { nombre: c.nombre || nombreCliente(row.cliente) || null, tlf: c.tlf || null, email: c.email || null, partner: false };
+}
+
+/**
  * ¿Se le puede entregar ya? Devuelve lo que falta, sin enviar nada.
  * Es lo que pinta la ficha y lo que consulta el automático: una sola definición
  * de "listo para entregar", para que la pantalla no pueda decir que sí mientras
@@ -73,12 +106,12 @@ async function estado(row, fase) {
     if (!enDrive.registro) faltan.push('Subir el justificante de registro');
     if (!enDrive.etiqueta) faltan.push('Subir la etiqueta energética');
 
-    // Mismo destinatario que el resto de avisos al cliente: con el desvío
-    // activo, su persona de contacto (como en el CAE).
-    const contacto = svc.contactoCliente(cli);
-    const email = contacto.email;
-    const tlf = contacto.tlf;
-    if (!email && !tlf) faltan.push('El cliente no tiene ni email ni teléfono en su ficha');
+    // A quien PAGA (`destinatarioEntrega`): el partner si la factura es suya; si
+    // no, el cliente con su desvío a la persona de contacto (como en el CAE).
+    const dest = destinatarioEntrega(row);
+    const email = dest.email;
+    const tlf = dest.tlf;
+    if (!email && !tlf) faltan.push(dest.partner ? 'El partner no tiene ni email ni teléfono en su ficha' : 'El cliente no tiene ni email ni teléfono en su ficha');
 
     // La guía NO es un requisito: si no va, el certificado se entrega igual.
     const guia = guiaIrpf().guiaDeEntregaPublica(await guiaIrpf().guiaDeEntrega(row, ph));
@@ -87,7 +120,7 @@ async function estado(row, fase) {
         puede: faltan.length === 0,
         faltan,
         yaEntregado: sello,
-        destinatario: { nombre: contacto.nombre || nombreCliente(cli), email, tlf },
+        destinatario: { nombre: dest.nombre || nombreCliente(cli), email, tlf, partner: dest.partner, factura: dest.factura || null },
         ficheros: {
             pdf: enDrive.pdf ? enDrive.pdf.name : null,
             registro: enDrive.registro ? enDrive.registro.name : null,
@@ -107,9 +140,30 @@ async function estado(row, fase) {
  * Con `textoGuia` (el párrafo de `guiaIrpf.textoGuiaEnEntrega`) anuncia la guía
  * de la Renta que va adjunta.
  */
-function mensaje(row, fase, { textoGuia = '' } = {}) {
+function mensaje(row, fase, { textoGuia = '', guia = null } = {}) {
     const ph = uploads.normalizePhase(fase);
     const faseLabel = estados.nombreFase(row, ph);
+    // Si paga el PARTNER, el mensaje es para la EMPRESA: de quién es el
+    // certificado y de qué vivienda, en plural y sin "tu". La guía es del
+    // particular (la deducción es suya): se le pide que se la pase.
+    const dest = destinatarioEntrega(row);
+    if (dest.partner) {
+        const obra = svc.obraDe(row);
+        const deQuien = [obra.cliente ? `*${obra.cliente}*` : null, obra.direccion ? `(${obra.direccion})` : null].filter(Boolean).join(' ');
+        const sigP = estados.esDoble(row) && ph === 'inicial'
+            ? `Cuando tengáis la *factura definitiva de la instalación*, avisadnos y emitimos el *certificado energético final*.\n\n`
+            : '';
+        const pct = guia?.modalidad || null;
+        const parrafoGuia = textoGuia
+            ? `Va también una *guía de una página* para que ${obra.cliente ? 'el propietario' : 'vuestro cliente'} se aplique la *deducción${pct ? ` del ${pct} %` : ''}* en su declaración de la Renta, con los datos que le pedirá Renta Web ya rellenos. Pasádsela junto con los certificados.\n\n`
+            : '';
+        return `¡Hola!\n\n`
+            + `Ya está registrado el *${faseLabel}*${deQuien ? ` de ${deQuien}` : ''}, expediente ${row.numero_expediente}.\n\n`
+            + `Os adjuntamos el certificado firmado, el justificante de registro y la etiqueta energética.\n\n`
+            + sigP
+            + parrafoGuia
+            + `¡Gracias por confiar en nosotros!\n*BROKERGY · Ingeniería Energética*`;
+    }
     // En un encargo DOBLE, con el inicial se le recuerda el paso siguiente: el
     // final se emite cuando la obra está hecha y facturada.
     const siguiente = estados.esDoble(row) && ph === 'inicial'
@@ -194,7 +248,7 @@ async function entregar(id, fase, opts = {}) {
         }
     }
 
-    const cuerpo = opts.mensaje?.trim() || mensaje(row, ph, { textoGuia: guia?.texto });
+    const cuerpo = opts.mensaje?.trim() || mensaje(row, ph, { textoGuia: guia?.texto, guia });
     const faseLabel = estados.nombreFase(row, ph);
     // Por defecto los dos canales; el popup de reenvío puede pedir solo uno.
     const usar = Array.isArray(opts.channels) && opts.channels.length ? opts.channels : ['email', 'whatsapp'];
@@ -203,7 +257,9 @@ async function entregar(id, fase, opts = {}) {
         try {
             await emailService.sendMail({
                 to: st.destinatario.email,
-                subject: `${row.numero_expediente} — Tu ${faseLabel}`,
+                subject: st.destinatario.partner
+                    ? `${row.numero_expediente} — ${faseLabel} de ${nombreCliente(row.cliente) || 'vuestro cliente'}`
+                    : `${row.numero_expediente} — Tu ${faseLabel}`,
                 text: cuerpo.replace(/\*/g, ''),
                 html: `<pre style="font-family:inherit;white-space:pre-wrap">${cuerpo.replace(/\*/g, '')}</pre>`,
                 attachments: adjuntos.map(a => ({ filename: a.filename, content: a.content, contentType: a.contentType }))
@@ -241,7 +297,7 @@ async function entregar(id, fase, opts = {}) {
             at: new Date().toISOString(),
             canales,
             ficheros: adjuntos.map(a => a.filename),
-            destinatario: { email: st.destinatario.email, tlf: st.destinatario.tlf },
+            destinatario: { email: st.destinatario.email, tlf: st.destinatario.tlf, ...(st.destinatario.partner ? { partner: st.destinatario.nombre } : {}) },
             automatica: !opts.manual,
             usuario: opts.usuario || null,
             ...(errores.length ? { errores } : {})
@@ -250,7 +306,7 @@ async function entregar(id, fase, opts = {}) {
 
     await svc.anotarHistorial(row.id, {
         tipo: 'CLIENTE',
-        texto: `${faseLabel.toUpperCase()} ENTREGADO AL CLIENTE POR ${canales.join(' Y ').toUpperCase()}`
+        texto: `${faseLabel.toUpperCase()} ENTREGADO ${st.destinatario.partner ? `AL PARTNER (${String(st.destinatario.nombre || '').toUpperCase()}, A QUIEN SE FACTURÓ)` : 'AL CLIENTE'} POR ${canales.join(' Y ').toUpperCase()}`
             + `${guia ? ` + GUÍA DE LA DEDUCCIÓN DEL IRPF (${guia.modalidad} %${guia.ejemplo ? ', CON EJEMPLO' : ''})` : ''}`
             + `${opts.manual ? '' : ' (AUTOMÁTICO)'}`,
         usuario: opts.usuario || null
@@ -271,7 +327,7 @@ async function entregar(id, fase, opts = {}) {
     }
 
     console.log(`[cee-entrega] ${row.numero_expediente} entregado por ${canales.join('+')}${guia ? ' (con la guía del IRPF)' : ''}`);
-    return { enviado: true, canales, errores, ficheros: adjuntos.map(a => a.filename), guia: !!guia };
+    return { enviado: true, canales, errores, ficheros: adjuntos.map(a => a.filename), guia: !!guia, destinatario: st.destinatario };
 }
 
 /**
@@ -448,5 +504,6 @@ module.exports = {
     mensaje,
     textoSinCobrar,
     entregar,
-    intentarEntregaAsync
+    intentarEntregaAsync,
+    destinatarioEntrega
 };

@@ -29,6 +29,17 @@ vez de a la persona de contacto (2026CEE_55) y mandaba la sección entera.
 En un encargo DOBLE, la entrega del INICIAL termina con «cuando tengas la factura
 definitiva de la instalación, avísanos y emitimos el certificado final».
 
+**REGLA — se le entrega a quien PAGA, que es a quien se emitió la factura**
+(2026-10-13, `destinatarioEntrega`). Si la última factura del encargo es del PARTNER
+(`facturas_emitidas[n].destino === 'partner'`), los certificados —y la guía de la
+Renta— van al partner, por el teléfono y el email por los que se le mandó la factura
+(`envios`), y el mensaje es para la empresa: de quién es el certificado y de qué
+vivienda, y que le pase la guía al propietario. Sin factura, o facturada al cliente:
+el cliente, con su desvío a la persona de contacto. Medido en **2026CEE_54**: la
+factura 26ING_81 se emitió a ATERSOL y la entrega automática (inicial + final + guía)
+le llegó a Vicente Gavidia, el particular del certificado, que no había pagado nada.
+El panel lo dice («el partner: se le facturó la 26ING_81») y el historial también.
+
 **REGLA — la idempotencia se comprueba ANTES que nada.** Los dos disparadores
 pueden coincidir en el mismo minuto (marcar cobrado justo cuando entra el
 registro) y el cliente recibiría el certificado dos veces. El sello va en

@@ -156,6 +156,7 @@ function Fila({ id, fase, etiqueta, onCambio }) {
                                 A {destinatario.nombre || 'el cliente'}
                                 {destinatario.email ? ` · ${destinatario.email}` : ''}
                                 {destinatario.tlf ? ` · ${destinatario.tlf}` : ''}
+                                {destinatario.partner ? ` · el partner: se le facturó${destinatario.factura ? ` la ${destinatario.factura}` : ''}` : ''}
                             </div>
                             <div className="text-[11px] text-white/25 mt-1">
                                 Adjuntos: {[ficheros.pdf, ficheros.registro, ficheros.etiqueta, ficheros.guia].filter(Boolean).join(' · ')}
