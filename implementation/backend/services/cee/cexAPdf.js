@@ -7,6 +7,10 @@
 //   const r = await calificarCex(bufferOCaminoDelCex);
 //   // r = { ok, xml, pdf, version, calificacion, medidas, avisos, error }
 //
+//   const { pdfDeXml } = require('./cee/cexAPdf');   // solo el PDF de un XML ya hecho
+//   const p = await pdfDeXml(bufferOCaminoDelXml);   // { ok, pdf, marcaDeAgua, avisos, error }
+//   (lo usa scripts/pdf_del_xml.js, que lo hace solo al guardar el XML: ver allí)
+//
 // Cómo:
 //   1. El MOTOR DE CE3X 3.2 (desde el 08/10/2026; antes la 3.1), ejecutado sin
 //      ventana con su propio Python (`cee-engine/tools/oraculo_ce3x`, script
@@ -216,6 +220,57 @@ async function pdfDesdeXml(xml, dir) {
     return { pdf: fs.readFileSync(pdfRuta) };
 }
 
+/** ¿Está el generador del PDF? (no hace falta el motor de CE3X, solo `xml2cert` y su Java). */
+function disponiblePdf() {
+    if (process.platform !== 'win32') return { ok: false, motivo: 'xml2cert solo está instalado en Windows (lo trae CE3X)' };
+    if (!rutaXml2cert()) return { ok: false, motivo: `no está el generador del PDF (${path.join(CE3X_DIR, 'moduloXML', 'xmlcert_*', 'xml2cert.exe')})` };
+    return { ok: true };
+}
+
+/** Lo que `xml2cert` deja en su `.log`: solo los fallos de validación (los avisos de maquetación de typst no dicen nada). */
+function avisosDelLog(log) {
+    const out = [];
+    for (const m of String(log || '').matchAll(/XML incorrecto "((?:[^"\\]|\\.)*)"/g)) {
+        const txt = m[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        out.push((/error: (.*)$/.exec(txt) || [null, txt])[1]);
+    }
+    if (/\bERROR\b/.test(log) && !out.length) out.push(String(log).split('\n').filter((l) => /\bERROR\b/.test(l)).pop().replace(/^.*?ERROR\s*/, ''));
+    return out;
+}
+
+/**
+ * Solo el PDF oficial a partir de un XML ya hecho (lo que hace «Enviar a → PDF del CEE»),
+ * sin abrir CE3X. En una carpeta temporal ASCII, como todo lo de aquí.
+ * Devuelve { ok, pdf, marcaDeAgua, avisos, version, error }. `marcaDeAgua`: xml2cert lo
+ * ha sacado pero el XML está incompleto (falta algo obligatorio o las medidas de mejora).
+ */
+async function pdfDeXml(entrada) {
+    const disp = disponiblePdf();
+    if (!disp.ok) return { ok: false, noDisponible: true, error: disp.motivo };
+    const buf = Buffer.isBuffer(entrada) ? entrada : fs.readFileSync(entrada);
+    const cabecera = buf.subarray(0, 4096).toString('utf8');
+    if (!/<DatosEnergeticosDelEdificio\b/.test(cabecera)) return { ok: false, noEsCee: true, error: 'no es el XML de un certificado energético' };
+    const version = (/<DatosEnergeticosDelEdificio[^>]*\bversion="([^"]+)"/.exec(cabecera) || [])[1] || null;
+    if (!version || !version.startsWith('3')) {
+        return { ok: false, version, error: `XML v${version || '?'}: xml2cert solo hace el PDF del XML 3.0 (CE3X 3.x); el de la 2.3 lo saca la propia CE3X 2.3` };
+    }
+    const dir = carpetaTemporal();
+    const xml = path.join(dir, 'cee.xml');
+    try {
+        fs.writeFileSync(xml, buf);
+        const p = await pdfDesdeXml(xml, dir);
+        const ruta = path.join(dir, 'cee.log');
+        const log = fs.existsSync(ruta) ? fs.readFileSync(ruta, 'utf8') : '';
+        const avisos = avisosDelLog(log);
+        if (p.error) return { ok: false, version, avisos, error: avisos.length ? `XML no válido: ${avisos[0]}` : p.error };
+        const pendientes = /<MedidasPendientes\b/.test(buf.toString('utf8'));
+        if (pendientes) avisos.push('el XML tiene las medidas de mejora pendientes');
+        return { ok: true, version, pdf: p.pdf, marcaDeAgua: avisos.length > 0, avisos };
+    } finally {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temporal */ }
+    }
+}
+
 /** Los diálogos de CE3X que no dicen nada. */
 const ruidoCe3x = (x) => x && !/^Dialog\.ShowModal: Dialog Opciones del Informe/.test(x);
 
@@ -323,18 +378,27 @@ async function calificarCex(entrada, { medidas = true, pdf = true, ajustarAutoco
 }
 
 /**
- * RES080: mete el CEE PREVISTO en el INICIAL como su medida de mejora («Nuevo
- * Edificio Definido por el Usuario»), con sus textos, la calcula y devuelve el
- * inicial resultante con su XML y su PDF. Lo hace CE3X (oráculo
- * `medida_previsto.py`): lo mismo que «Cargar edificio» en Medidas de mejora.
+ * RES080: mete en el INICIAL la medida de mejora sacada del CEE PREVISTO —UN
+ * conjunto autocontenido: «Nuevas Instalaciones» + aislamiento + sustitución de
+ * huecos, con lo que cambia el previsto—, con sus textos, la calcula y devuelve
+ * el inicial resultante con su XML y su PDF. Lo hace CE3X (oráculo
+ * `medida_previsto.py`).
  *
- * REGLA — fuera las medidas que traiga el inicial: la de un RES080 es el previsto
- * entero, no la aerotermia por un lado y las ventanas por otro.
+ * REGLA — fuera las medidas que traiga el inicial: la de un RES080 es la obra
+ * entera, no la aerotermia por un lado y las ventanas por otro.
+ *
+ * REGLA — ya NO es una «Nuevo Edificio Definido por el Usuario» (2026-10-10,
+ * 26RES080_82): CE3X no la lleva dentro y relee el .cex del previsto desde la
+ * ruta que guardó cada vez que se pulsa; sin ese fichero el panel de la medida
+ * se queda en blanco.
  *
  * `textos` = { nombre, caracteristicas, otros, justificacion, inversion,
- * vida_util, coste_mantenimiento } (los tres últimos, su análisis económico).
+ * vida_util, coste_mantenimiento, fachada_exterior } (inversión, vida y
+ * mantenimiento: su análisis económico; `fachada_exterior`: la fachada se aísla
+ * por el exterior y CE3X rebaja sus puentes térmicos — por defecto, interior).
  * Devuelve { ok, cex, xml, pdf, calificacion (la del inicial), medida: {nombre,
- * ahorro}, avisos, error }.
+ * ahorro, demanda_cal, epnr, emisiones}, avisosMedida (lo que no casa con el
+ * previsto), avisos (el log de CE3X), error }.
  */
 async function ponerPrevistoComoMedida(inicial, previsto, textos = {}, { pdf = true } = {}) {
     const disp = disponible();
@@ -343,7 +407,7 @@ async function ponerPrevistoComoMedida(inicial, previsto, textos = {}, { pdf = t
     const bp = Buffer.isBuffer(previsto) ? previsto : fs.readFileSync(previsto);
     for (const [que, b] of [['inicial', bi], ['previsto', bp]]) {
         if (!esModerna(versionDelCex(b))) {
-            return { ok: false, error: `el CEE ${que} no es de CE3X 3.x: la medida «Nuevo edificio» solo se pone con la 3.1 o la 3.2` };
+            return { ok: false, error: `el CEE ${que} no es de CE3X 3.x: la medida del previsto solo se pone con la 3.1 o la 3.2` };
         }
     }
 
@@ -363,8 +427,7 @@ async function ponerPrevistoComoMedida(inicial, previsto, textos = {}, { pdf = t
             otros: textos.otros || '', justificacion: textos.justificacion || '',
             inversion: textos.inversion ?? null, vida_util: textos.vida_util ?? null,
             coste_mantenimiento: textos.coste_mantenimiento ?? null,
-            //: La ruta que guarda la medida «Nuevo Edificio» (la que enseña CE3X).
-            ruta_previsto: textos.ruta_previsto || '',
+            fachada_exterior: !!textos.fachada_exterior,
         }), 'utf8');
         const r = await correrOraculo(dir, 'medida_previsto.py', {
             CASO: ini, PREVISTO: prev, SALIDA_CEX: salida, XML: xml, TEXTOS: ftextos,
@@ -379,7 +442,11 @@ async function ponerPrevistoComoMedida(inicial, previsto, textos = {}, { pdf = t
         const medida = (s.medidas || [])[0] || null;
         const resultado = {
             ok: true, calificacion: calificacionDe(s.calificacion || {}),
-            medida: medida ? { nombre: medida.nombre, ahorro: medida.ahorro } : null,
+            medida: medida ? { nombre: medida.nombre, ahorro: medida.ahorro, demanda_cal: medida.demanda_cal,
+                               epnr: medida.epnr, emisiones: medida.emisiones } : null,
+            //: Lo que la medida de CE3X no puede decir igual que el previsto (va por
+            //: orientación y por tipo de cerramiento): se le dice al usuario.
+            avisosMedida: s.avisos_medida || [],
             avisos: (s.log || []).filter(ruidoCe3x),
             cex: fs.readFileSync(salida), xml: null, pdf: null,
         };
@@ -449,4 +516,4 @@ function lineasCalificado(r, { esperado = null } = {}) {
     return out;
 }
 
-module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna };
+module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, disponiblePdf, avisosDelLog };
