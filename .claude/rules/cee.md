@@ -54,9 +54,9 @@ paths:
 - `docs/conocimiento/cee/el-agente-ia-un-certificador-mas.md` — El AGENTE IA, un certificador más (2026-10-01) · 4,4 KB
 - `docs/conocimiento/cee/el-modulo-cee-del-expediente-en-el-movil-asignar-tecnico.md` — El módulo CEE del expediente, en el MÓVIL — asignar técnico (2026-08-21) · 7,3 KB
 - `docs/conocimiento/cee/la-fecha-de-registro-del-cee-se-lee-del-justificante.md` — La FECHA DE REGISTRO del CEE se LEE del justificante (2026-09-07) · 4,2 KB
-- `docs/conocimiento/cee/la-guia-de-la-deduccion-del-irpf-para-el-cliente.md` — La GUÍA de la deducción del IRPF para el cliente (2026-10-01) · 8,9 KB
+- `docs/conocimiento/cee/la-guia-de-la-deduccion-del-irpf-para-el-cliente.md` — La GUÍA de la deducción del IRPF para el cliente (2026-10-01) · 9,6 KB
 - `docs/conocimiento/cee/la-pagina-del-encargo-del-tecnico.md` — La PÁGINA DEL ENCARGO del técnico (2026-09-30) · 4,4 KB
-- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/00-presentar-el-cee-en-el-registro-el-borrador.md` — PRESENTAR el CEE en el Registro — el borrador (2026-09-15) · 10,2 KB
+- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/00-presentar-el-cee-en-el-registro-el-borrador.md` — PRESENTAR el CEE en el Registro — el borrador (2026-09-15) · 10,8 KB
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/encargar-la-presentacion-a-una-persona-de-fuera-presentar-negoci.md` — ENCARGAR la presentación a una persona de fuera — `/presentar/:negocio/:id` (2026-10-06) · 6,1 KB
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/la-calificacion-de-emisiones-no-se-guardaba.md` — La calificación de EMISIONES no se guardaba · 1,6 KB
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/los-dos-pasos-del-certificador-presentar-cee-id-token-phase.md` — Los DOS PASOS del certificador — `/presentar-cee/:id?token=&phase=` · 3,5 KB
@@ -138,6 +138,7 @@ no uno compuesto.**
 rejilla.**
   - **REGLA — el borrador es del equipo interno; al certificador le llega ADJUNTO.**
   - **REGLA — el borrador también se GUARDA en la carpeta de su fase**
+  - **REGLA — la CARPETA LOCAL del expediente va SIEMPRE arriba del popup**
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/encargar-la-presentacion-a-una-persona-de-fuera-presentar-negoci.md`
   - **REGLA — se mandan SIEMPRE el BORRADOR del Registro y el .cex, el .xml y el PDF FIRMADO, y
 NADA más**

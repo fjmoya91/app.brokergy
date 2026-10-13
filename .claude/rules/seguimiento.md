@@ -27,7 +27,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/seguimiento/parte-diario-de-seguimiento-que-no-se-pierda-ningun-expediente/encargar-el-cee-desde-la-propia-cola.md` — Encargar el CEE desde la propia cola (2026-09-23) · 2,1 KB
 - `docs/conocimiento/seguimiento/parte-diario-de-seguimiento-que-no-se-pierda-ningun-expediente/envio-en-bloque-seguimientolote-js-implementation-backend-servic.md` — Envío en BLOQUE — [seguimientoLote.js](implementation/backend/services/seguimientoLote.js) · 5,7 KB
 - `docs/conocimiento/seguimiento/parte-diario-de-seguimiento-que-no-se-pierda-ningun-expediente/los-enlaces-de-accion-acciontoken-js-implementation-backend-util.md` — Los enlaces de acción — [accionToken.js](implementation/backend/utils/accionToken.js) + [routes/acciones.js](implementation/backend/routes/acciones.js) · 1,7 KB
-- `docs/conocimiento/seguimiento/parte-diario-de-seguimiento-que-no-se-pierda-ningun-expediente/los-once-bloques-seguimientoradar-js-implementation-backend-serv.md` — Los once bloques — [seguimientoRadar.js](implementation/backend/services/seguimientoRadar.js) · 6,7 KB
+- `docs/conocimiento/seguimiento/parte-diario-de-seguimiento-que-no-se-pierda-ningun-expediente/los-once-bloques-seguimientoradar-js-implementation-backend-serv.md` — Los once bloques — [seguimientoRadar.js](implementation/backend/services/seguimientoRadar.js) · 7,3 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -53,6 +53,7 @@ su PLACA.**
 vuelve.**
   - **REGLA — en `REGISTRO` cada fila dice QUIÉN lo registra**
   - **REGLA — a los CEE de Fran no se les «recuerda al certificador»: se le ENCARGAN a Eva**
+  - **REGLA — con FECHA DE REGISTRO el CEE está registrado, diga lo que diga el subestado**
   - **REGLA — `SIN_LOTEAR` es el único bloque que habla de DINERO, no de un documento.**
   - **REGLA — quién puede lotearse lo decide `loteService.ESTADOS_COMPLETO`, y se IMPORTA.**
   - **REGLA — tener TÉCNICO no es haberle ENCARGADO.**

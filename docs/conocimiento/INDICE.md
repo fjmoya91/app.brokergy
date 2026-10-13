@@ -7,15 +7,15 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 26,5 KB | 8 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 28,1 KB | 8 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
-| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 29,9 KB | 17 |
-| `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,0 KB | 25 |
+| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 30,0 KB | 17 |
+| `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,1 KB | 25 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 6,6 KB | 2 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 14,4 KB | 5 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 34,0 KB | 9 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor, .cex inicial/final, medidas de mejora, croquis, 2.3/3.1, PVGIS, skills CEE | `.claude/rules/envolvente-ce3x.md` · 126,6 KB | 45 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor, .cex inicial/final, medidas de mejora, croquis, 2.3/3.1, PVGIS, skills CEE | `.claude/rules/envolvente-ce3x.md` · 128,9 KB | 47 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,7 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
@@ -25,8 +25,8 @@
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 19,5 KB | 7 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 14,2 KB | 5 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 32,7 KB | 9 |
-| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 16,2 KB | 6 |
-| `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,1 KB | 8 |
+| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 16,4 KB | 6 |
+| `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 6,3 KB | 0 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 5,0 KB | 3 |
 | `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 12,9 KB | 12 |
@@ -194,7 +194,7 @@
 - **114** → `.claude/rules/documentos.md` — Una vivienda con VARIOS propietarios que PAGAN la obra: un convenio con todos, un Anexo I por cada uno y, po…
 - **115** → `.claude/rules/envolvente-ce3x.md` — El CEE inicial también sale de un VÍDEO de la vivienda, y lo que no se puede saber se PIDE
 - **116** → `.claude/rules/cee.md` — El CEE se ENCARGA presentar a una persona de fuera con un enlace sin cuenta
-- **117** → `.claude/rules/envolvente-ce3x.md` — En un RES080 se hacen DOS CEE: el INICIAL y el PREVISTO, y el previsto ES la medida del inicial
+- **117** → `.claude/rules/envolvente-ce3x.md` — En un RES080 se hacen DOS CEE: el INICIAL y el PREVISTO, y lo que cambia el previsto ES la medida del inicial
 - **118** → `.claude/rules/placas-catalogos.md` — La POTENCIA de cada equipo va en los datos del CEE, y es la MISMA que la de la Memoria RITE
 - **119** → `.claude/rules/envolvente-ce3x.md` — La PIZARRA de la envolvente: se dibuja a mano cómo es de verdad la vivienda, y «✓ Así es como está» le pide …
 - **120** → `.claude/rules/placas-catalogos.md` — Una aerotermia se da de alta (o se completa) con TODA su documentación, con la skill `alta-aerotermia`
@@ -211,6 +211,8 @@
 - **131** → `.claude/rules/envolvente-ce3x.md` — Los EQUIPOS se marcan en el plano —caldera actual, equipo nuevo, depósito de ACS y unidad exterior— y la uni…
 - **132** → `.claude/rules/propuesta.md` — Con los avisos del cliente desviados a otra persona, el TITULAR sigue pudiendo recibir la propuesta
 - **133** → `.claude/rules/propuesta.md` — Caldera de BIOMASA (combustible sólido que no es carbón): la deducción del IRPF exige placas solares; el Bon…
+- **134** → `.claude/rules/calculo.md` — Con PLACAS en cualquiera de los dos CEE, el ahorro RES080 va POR VECTOR aunque se haya elegido «por uso»
+- **135** → `.claude/rules/envolvente-ce3x.md` — En un RES080, cada ventana que CAMBIA resuelve sus PUENTES TÉRMICOS
 
 ## Documentos por área
 
@@ -363,9 +365,11 @@
 - `docs/conocimiento/envolvente-ce3x/la-medida-de-mejora-de-una-hibridacion/el-cee-final-desde-la-medida-de-mejora-del-inicial-del-tecnico.md` — El CEE FINAL desde la MEDIDA DE MEJORA del inicial del técnico (2026-09-30)
 - `docs/conocimiento/envolvente-ce3x/la-medida-de-mejora-de-una-hibridacion/el-cee-final-se-hace-copiando-el-inicial.md` — El CEE FINAL se hace COPIANDO el inicial (2026-09-13)
 - `docs/conocimiento/envolvente-ce3x/la-medida-de-mejora-de-una-hibridacion/y-el-cee-final-igual.md` — Y el CEE FINAL, igual (2026-09-16)
+- `docs/conocimiento/envolvente-ce3x/la-medida-del-previsto-res080-va-autocontenida.md` — La medida del PREVISTO (RES080) va AUTOCONTENIDA, no como «Nuevo Edificio» (2026-10-10)
 - `docs/conocimiento/envolvente-ce3x/lo-que-el-certificador-no-tiene-que-ver-ni-tocar.md` — Lo que el CERTIFICADOR no tiene que ver ni tocar (2026-09-14)
 - `docs/conocimiento/envolvente-ce3x/lo-que-se-reforma-en-la-envolvente-cambia.md` — Lo que se REFORMA en la envolvente: «- CAMBIA» (2026-09-19)
 - `docs/conocimiento/envolvente-ce3x/los-administrativos-se-corrigen-desde-la-ventana-en-su-fuente.md` — Los administrativos se CORRIGEN desde la ventana, en su fuente (2026-09-14)
+- `docs/conocimiento/envolvente-ce3x/los-puentes-de-las-ventanas-que-cambian.md` — Los PUENTES TÉRMICOS de las ventanas que CAMBIAN (RES080, 2026-10-05)
 - `docs/conocimiento/envolvente-ce3x/los-puentes-termicos-se-miran-ya-no-se-listan.md` — Los PUENTES TÉRMICOS se miran, ya no se listan (2026-09-19)
 - `docs/conocimiento/envolvente-ce3x/los-valores-por-defecto-de-ce3x-3-2-por-epoca-y-zona.md` — Los valores POR DEFECTO de CE3X 3.2, por época y zona (2026-10-08)
 - `docs/conocimiento/envolvente-ce3x/que-plantas-se-miden-lo-marco-una-persona-no-catastro/00-que-plantas-se-miden-lo-marco-una-persona-no-catastro.md` — Qué PLANTAS se miden lo marcó una persona, no Catastro (2026-09-14)
