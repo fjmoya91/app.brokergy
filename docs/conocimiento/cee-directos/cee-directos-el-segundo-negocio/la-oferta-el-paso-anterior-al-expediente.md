@@ -9,6 +9,10 @@ IVA y editable—, la **tasa de registro por certificado** (16,39 €, la de
 Castilla-La Mancha; 0 = no se incluye) y el cliente, que puede ser un **alta
 rápida con solo nombre y teléfono** (lo que se tiene de quien pregunta por
 WhatsApp; se crea la ficha al enviar y se borra si no sale por ningún canal).
+Desde el 13/10/2026 el cliente se elige en **una sola caja** que busca en la app
+y en la **agenda de WhatsApp**: el contacto trae su nombre (sin el prefijo de
+obra) y su móvil, o se usa lo escrito como cliente nuevo. Ver «La agenda de
+WhatsApp como origen del alta de clientes» (área whatsapp).
 Conceptos y observaciones son los de los presupuestos que ya se mandaban
 (P-26ING_39): "Certificado de Eficiencia Energética inicial y final, incluida su
 presentación en Industria" + "Tasa Certificado … Castilla-La Mancha". Sale como la propuesta CAE:

@@ -4,6 +4,10 @@ import { useAuth } from '../../../context/AuthContext';
 import InstaladorFormModal from './InstaladorFormModal';
 // El partner como persona de contacto: fuente única con la ficha del cliente.
 import { PartnerComoContacto } from './PartnerComoContacto';
+// La agenda de WhatsApp como origen del alta: fuente única con el selector de cliente.
+import { ContactosWhatsapp } from '../../../components/AgendaWhatsapp';
+import { useAgendaWhatsapp, tlfDeContacto } from '../../../utils/agendaWhatsapp';
+import { getRoleFlags } from '../../../utils/roleFlags';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function normalize(s) {
@@ -353,6 +357,14 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
     const [savedCliente, setSavedCliente] = useState(null);
     const [dniConflict, setDniConflict] = useState(null); // cliente existente con mismo DNI
 
+    // «Traer de WhatsApp»: solo equipo interno, y no cuando el alta ya llega
+    // rellena desde un contacto (el selector de cliente la abre así).
+    const { isStaff } = getRoleFlags(user);
+    const verAgenda = isStaff && !initialData?.tlf;
+    const [waQ, setWaQ] = useState('');
+    const [waElegido, setWaElegido] = useState(null);
+    const agenda = useAgendaWhatsapp(waQ, isOpen && verAgenda && !waElegido);
+
     const filteredPrescriptores = prescriptores.filter(p => {
         return normalize(p.acronimo || p.razon_social).includes(normalize(searchTerm));
     });
@@ -370,6 +382,8 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
         setDniConflict(null);
         setSearchTerm('');
         setIsDropdownOpen(false);
+        setWaQ('');
+        setWaElegido(null);
         setShowNotas(!!initialData?.notas);
         setForm({
             nombre_razon_social: '',
@@ -466,6 +480,23 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
     }, [mismaDireccion, getOpDireccion]);
 
     const updateForm = useCallback((patch) => setForm(f => ({ ...f, ...patch })), []);
+
+    // Rellena con el contacto elegido: nombre y apellidos PROPUESTOS (sin el
+    // prefijo de obra de la agenda; se revisan en el formulario), su número y,
+    // si el nombre guardado dice quién nos lo trae y casa con un solo partner,
+    // ese partner — solo si no había uno ya elegido.
+    const traerDeWhatsapp = (k) => {
+        setEsEmpresa(false);
+        setForm(f => ({
+            ...f,
+            nombre_razon_social: (k.propuesta?.nombre || '').toUpperCase(),
+            apellidos: (k.propuesta?.apellidos || '').toUpperCase(),
+            tlf: tlfDeContacto(k),
+            ...(isAdmin && k.partner_sugerido && !f.prescriptor_id ? { prescriptor_id: k.partner_sugerido.id_empresa } : {}),
+        }));
+        setWaElegido(k);
+        setWaQ('');
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -652,6 +683,30 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                 <div className="p-6">
                     {!success ? (
                         <form onSubmit={handleSubmit} className="space-y-6">
+                            {/* Traer de WhatsApp: quien pregunta por WhatsApp ya está en el móvil */}
+                            {verAgenda && (
+                                <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/[0.03] p-3 space-y-2">
+                                    {waElegido ? (
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-[11px] text-emerald-300/80 min-w-0">
+                                                Traído de WhatsApp{waElegido.nombre_agenda ? ` («${waElegido.nombre_agenda}»)` : ''}. Revisa nombre y apellidos.
+                                            </p>
+                                            <button type="button" onClick={() => setWaElegido(null)}
+                                                className="shrink-0 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white">
+                                                Otro
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <input value={waQ} onChange={e => setWaQ(e.target.value)}
+                                                placeholder="Traer de WhatsApp: nombre o teléfono…"
+                                                className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/30" />
+                                            <ContactosWhatsapp {...agenda} onElegir={traerDeWhatsapp} accion="Rellenar" />
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Tipo */}
                             <div className="flex gap-3">
                                 <button type="button" onClick={() => setEsEmpresa(false)}

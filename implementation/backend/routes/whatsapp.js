@@ -273,6 +273,64 @@ router.post('/contactos/renombrar', adminOInterno, async (req, res) => {
     } catch (e) { errorLabels(res, e); }
 });
 
+// GET /api/whatsapp/contactos/buscar?q=irene  (o ?q=654547040)
+//
+// Contactos de la AGENDA de WhatsApp que casan con lo escrito, para dar de alta
+// al cliente (o mandarle la oferta) eligiéndolo en vez de teclearlo. Cada uno
+// dice si su número ya está en la ficha de algún cliente o partner. Solo
+// lectura (ver services/whatsappAgenda.js). Equipo interno: es la agenda de la
+// empresa, un partner no la ve.
+const waAgenda = require('../services/whatsappAgenda');
+router.get('/contactos/buscar', staffOnly, async (req, res) => {
+    try {
+        res.json(await waAgenda.buscar(req.query.q));
+    } catch (e) {
+        if (!e.status) console.error('[wa-agenda] buscar:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se ha podido buscar en la agenda de WhatsApp.' });
+    }
+});
+
+// GET /api/whatsapp/contactos/pendientes-alta
+//
+// Contactos de la agenda con el prefijo de la casa ("RES080 Jesús Quero") cuyo
+// número no está en ninguna ficha: el alta que se quedó por hacer. Si el
+// prefijo es una oportunidad sin cliente, la trae para vincularla al dar de
+// alta. Solo lectura; equipo interno.
+router.get('/contactos/pendientes-alta', staffOnly, async (req, res) => {
+    try {
+        res.json(await waAgenda.pendientesDeAlta());
+    } catch (e) {
+        if (!e.status) console.error('[wa-agenda] pendientes:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se han podido leer los pendientes de la agenda de WhatsApp.' });
+    }
+});
+
+// POST /api/whatsapp/contactos/descartados  { telefono, nombre_agenda? }
+// DELETE /api/whatsapp/contactos/descartados/:telefono
+//
+// Quitar un pendiente de la lista para todo el equipo (un lead que no siguió),
+// y deshacerlo. Solo escribe en la tabla de descartes: ni la agenda ni fichas.
+router.post('/contactos/descartados', staffOnly, async (req, res) => {
+    try {
+        res.json(await waAgenda.descartar({
+            telefono: req.body?.telefono,
+            nombreAgenda: req.body?.nombre_agenda,
+            usuario: req.user?.email || null,
+        }));
+    } catch (e) {
+        if (!e.status) console.error('[wa-agenda] descartar:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se ha podido descartar el contacto.' });
+    }
+});
+router.delete('/contactos/descartados/:telefono', staffOnly, async (req, res) => {
+    try {
+        res.json(await waAgenda.recuperar(req.params.telefono));
+    } catch (e) {
+        if (!e.status) console.error('[wa-agenda] recuperar:', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se ha podido recuperar el contacto.' });
+    }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONVERSACIÓN — leer un chat entero (texto + adjuntos) para la skill
 // `alta-oportunidad`, que da de alta una oportunidad con lo que el instalador

@@ -40,6 +40,7 @@ paths:
 - `docs/conocimiento/whatsapp/coste-medido.md` — Coste medido (2026-08-25) · 0,8 KB
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado · 1,0 KB
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js) · 1,7 KB
+- `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13) · 7,6 KB
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md` — La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09) · 5,4 KB
 - `docs/conocimiento/whatsapp/lo-que-llega-con-el-backend-parado-recuperarperdidos.md` — Lo que llega con el backend PARADO — `recuperarPerdidos()` · 1,4 KB
 - `docs/conocimiento/whatsapp/lo-que-whatsapp-rompio-y-hay-que-saber.md` — Lo que WhatsApp rompió, y hay que saber (2026-08-25) · 3,0 KB
@@ -75,6 +76,12 @@ pensar EN LA MISMA VUELTA.**
   - **REGLA — se guarda la lista COMPLETA, no la que cambia.**
   - **REGLA — se puede etiquetar SIN haber escrito nunca.**
   - **REGLA — el número se comprueba contra WhatsApp**
+- `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md`
+  - **REGLA — solo LECTURA, en memoria y en la fila de las demás lecturas.**
+  - **REGLA — el cruce con la BD avisa, no elige.**
+  - **REGLA — con la BD caída, 503; nunca «no es cliente»**
+  - **REGLA — lo que dice el prefijo decide si se propone.**
+  - **REGLA — descartar es del EQUIPO y se puede deshacer.**
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md`
   - **REGLA — un nombre que YA está en la agenda no se toca jamás.**
   - **REGLA — la etiqueta se AÑADE; la lista se manda COMPLETA.**

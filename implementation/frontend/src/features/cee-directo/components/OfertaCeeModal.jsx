@@ -57,11 +57,13 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
     const [dto, setDto] = useState(0);
 
     const [cliente, setCliente] = useState(null);
-    // 'rapido' → basta un nombre (el teléfono y el email son los de "Se envía a"):
-    // es lo que se tiene de quien pregunta por WhatsApp, y el resto lo completa
-    // él al aceptar. 'existente' → se busca su ficha.
-    const [modoCliente, setModoCliente] = useState('rapido');
+    // 'buscar' → una sola caja que busca en la app y en la agenda de WhatsApp.
+    // 'rapido' → cliente NUEVO: basta un nombre (el teléfono y el email son los de
+    // "Se envía a"), que es lo que se tiene de quien pregunta por WhatsApp; el
+    // resto lo completa él al aceptar. 'existente' → una ficha de la app.
+    const [modoCliente, setModoCliente] = useState('buscar');
     const [nombreRapido, setNombreRapido] = useState('');
+    const [rapidoDeWa, setRapidoDeWa] = useState(false);
     const [prescriptorId, setPrescriptorId] = useState(null);
 
     const [verInmueble, setVerInmueble] = useState(false);
@@ -118,7 +120,7 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
     const clientePdf = modoCliente === 'rapido'
         ? { nombre_razon_social: nombreRapido.trim().toUpperCase(), tlf: tlf.trim(), email: email.trim() }
         : (cliente || {});
-    const hayCliente = modoCliente === 'rapido' ? !!nombreRapido.trim() : !!cliente;
+    const hayCliente = modoCliente === 'rapido' ? !!nombreRapido.trim() : modoCliente === 'existente' && !!cliente;
 
     // El mensaje se compone solo mientras no se edite. El enlace real lo pone
     // el servidor (el token nace al crear la oferta): aquí va un marcador.
@@ -130,9 +132,25 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
 
     const elegirCliente = (c) => {
         setCliente(c);
+        setModoCliente(c ? 'existente' : 'buscar');
         const d = destinoDe(c);
         setEmail(d.email); setTlf(d.tlf);
         setUsaEmail(!!d.email); setUsaWa(!!d.tlf);
+    };
+
+    // Cliente nuevo, del WhatsApp o tecleado: la ficha nace al enviar. Con el
+    // contacto de WhatsApp viene su número (y quién nos lo trae, si el nombre
+    // guardado lo dice y casa con un solo partner).
+    const nuevoRapido = ({ nombre, tlf: t, prescriptorId: pid, deWhatsapp }) => {
+        setNombreRapido(nombre || '');
+        setRapidoDeWa(!!deWhatsapp);
+        if (t) { setTlf(t); setUsaWa(true); }
+        if (pid && !prescriptorId) setPrescriptorId(pid);
+        setModoCliente('rapido');
+    };
+    const volverABuscar = () => {
+        setModoCliente('buscar'); setCliente(null); setNombreRapido(''); setRapidoDeWa(false);
+        setEmail(''); setTlf('');
     };
 
     const traerDelCatastro = async () => {
@@ -153,14 +171,14 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
     const puedeEnviar = hayCliente && precio > 0 && (canEmail || canWa) && !fase;
 
     // Por qué el botón está apagado, dicho junto al botón.
-    const motivo = !hayCliente ? (modoCliente === 'rapido' ? 'Pon el nombre del cliente' : 'Elige el cliente')
+    const motivo = !hayCliente ? (modoCliente === 'rapido' ? 'Pon el nombre del cliente' : 'Elige o escribe el cliente')
         : !(precio > 0) ? 'Pon el precio'
         : !(canEmail || canWa) ? 'Marca un canal con destinatario'
         : null;
 
     const cerrar = () => {
         setAlcance('UNICO'); setPrecio(PRECIO_DEFECTO.UNICO); setPrecioTocado(false); setTasa(TASA_REGISTRO_CLM); setDto(0);
-        setCliente(null); setPrescriptorId(null); setModoCliente('rapido'); setNombreRapido('');
+        setCliente(null); setPrescriptorId(null); setModoCliente('buscar'); setNombreRapido(''); setRapidoDeWa(false);
         setVerInmueble(false); setRefCatastral(''); setInmueble(INMUEBLE_VACIO); setPistaMunicipio(null);
         setCatastro({ cargando: false, msg: null, error: null });
         setObservaciones(observacionesDefecto('UNICO')); setObsTocadas(false);
@@ -284,24 +302,33 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
 
                         {/* ── Cliente ─────────────────────────────── */}
                         <section>
-                            <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center justify-between mb-2 min-h-[36px]">
                                 <label className={`${lbl} mb-0`}>Cliente <span className="text-brand">·</span> obligatorio</label>
-                                <button type="button"
-                                    onClick={() => { setModoCliente(m => (m === 'rapido' ? 'existente' : 'rapido')); setCliente(null); }}
-                                    className="min-h-[36px] px-2 -mr-2 text-[10px] font-black uppercase tracking-widest text-brand/70 hover:text-brand">
-                                    {modoCliente === 'rapido' ? 'Buscar uno que ya existe' : 'Es nuevo: solo nombre'}
-                                </button>
+                                {modoCliente === 'rapido' && (
+                                    <button type="button" onClick={volverABuscar}
+                                        className="min-h-[36px] px-2 -mr-2 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white">
+                                        Cambiar
+                                    </button>
+                                )}
                             </div>
                             {modoCliente === 'rapido' ? (
                                 <>
-                                    <input value={nombreRapido} onChange={e => setNombreRapido(e.target.value)}
-                                        placeholder="Nombre del cliente (p. ej. Francisca Martínez)" className={inp} />
+                                    <div className="relative">
+                                        <input value={nombreRapido} onChange={e => setNombreRapido(e.target.value)} autoFocus={!rapidoDeWa}
+                                            placeholder="Nombre del cliente (p. ej. Francisca Martínez)" className={`${inp} pr-28`} />
+                                        <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black uppercase tracking-widest ${rapidoDeWa ? 'text-emerald-300/70' : 'text-brand/60'}`}>
+                                            {rapidoDeWa ? 'De WhatsApp' : 'Nuevo'}
+                                        </span>
+                                    </div>
                                     <p className="text-[11px] text-white/30 mt-1.5">
-                                        Con el nombre y el teléfono de abajo basta: el DNI, el email y la dirección los completa él al aceptar.
+                                        {rapidoDeWa
+                                            ? 'Su número ya está abajo. La ficha se da de alta al enviar; el DNI, el email y la dirección los completa él al aceptar.'
+                                            : 'Con el nombre y el teléfono de abajo basta: el DNI, el email y la dirección los completa él al aceptar.'}
                                     </p>
                                 </>
                             ) : (
-                                <ClientePicker cliente={cliente} onChange={elegirCliente} datosNuevoCliente={inmueble} />
+                                <ClientePicker cliente={modoCliente === 'existente' ? cliente : null} onChange={elegirCliente}
+                                    datosNuevoCliente={inmueble} onNuevoRapido={nuevoRapido} />
                             )}
                         </section>
 

@@ -3,6 +3,8 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { ClienteFormModal } from '../components/ClienteFormModal';
 import { ClienteDetailModal } from '../components/ClienteDetailModal';
+import { PendientesWhatsapp } from '../components/PendientesWhatsapp';
+import { getRoleFlags } from '../../../utils/roleFlags';
 import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAccesos';
 import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
 import { inmuebleDeCliente } from '../../../utils/enlacesInmueble';
@@ -102,6 +104,7 @@ export function ClientesView({
 }) {
     const { user } = useAuth();
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+    const { isStaff } = getRoleFlags(user);
 
     const [clientes, setClientes] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -284,6 +287,8 @@ export function ClientesView({
                             Volver al Expediente
                         </button>
                     )}
+                    {/* El alta que se quedó por hacer: contactos de WhatsApp con prefijo de obra y sin ficha */}
+                    {isStaff && <PendientesWhatsapp onAlta={fetchClientes} />}
                     <button
                         onClick={() => setShowForm(true)}
                         className="flex items-center gap-3 px-6 py-3.5 bg-gradient-to-r from-brand to-brand-700 text-bkg-deep font-black text-[11px] uppercase tracking-widest rounded-2xl shadow-xl shadow-brand/10 hover:shadow-brand/30 hover:-translate-y-0.5 transition-all active:scale-[0.98]"
