@@ -92,6 +92,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/documentos/convenio-de-cesion-se-firma-antes-de-terminar-la-obra.md` — Convenio de Cesión — se firma ANTES de terminar la obra (2026-08-12) · 4,0 KB
+- `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md` — El Certificado RES080 con VENTANAS: la comparativa en hoja propia y las fichas del marco y del vidrio (2026-10-13) · 2,3 KB
 - `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md` — El CIFO en PDF — las hojas son FIJAS y hay que medirlas (2026-08-25) · 3,6 KB
 - `docs/conocimiento/documentos/hitos-de-la-actuacion-la-factura-que-no-abre-la-obra.md` — HITOS DE LA ACTUACIÓN — la factura que NO abre la obra (2026-09-30) · 7,3 KB
 - `docs/conocimiento/documentos/la-placa-de-la-unidad-exterior-dentro-del-certificado.md` — La PLACA de la unidad exterior, dentro del certificado (2026-09-17) · 7,9 KB
@@ -111,6 +112,9 @@ paths:
   - **REGLA — sin IBAN el convenio NO deja un hueco.**
   - **REGLA — con "Descuento Certificados" activo, el convenio NO dice NADA del coste de gestión.**
   - **REGLA — el contenido cabe en DOS páginas y eso se COMPRUEBA.**
+- `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md`
+  - **REGLA — la comparativa de marco y vidrio va SIEMPRE en una hoja propia**
+  - **REGLA — el generador del servidor adjunta TODAS las fichas, como el modal**
 - `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md`
   - **REGLA — una hoja por bloque; el corte NO es condicional.**
   - **REGLA — la PISCINA encabeza la hoja de variables, no la de instalación.**

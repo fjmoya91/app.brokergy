@@ -360,9 +360,12 @@ async function computeSavingsKwh(exp, op) {
 // logic/annexPrefs.js.
 async function resolveAnnexAttachments(exp) {
     const doc = exp.documentacion || {};
-    const inst = exp.instalacion || {};
-    const { resolveFichaSlots, ftDocFields } = await loadFichasTecnicas();
-    const slots = resolveFichaSlots(inst);
+    const { resolveAllFichaSlots, ftDocFields } = await loadFichasTecnicas();
+    // TODOS los huecos, como el modal: los de la bomba de calor y, en un RES080
+    // con sustitución de ventanas, el marco y el vidrio. Con `resolveFichaSlots`
+    // a secas el Certificado RES080 decía «se adjunta ficha técnica completa del
+    // marco y del cristal en anexos» y no las llevaba (26RES080_59, 13/10/2026).
+    const slots = resolveAllFichaSlots(exp);
     const tieneAcs = slots.some(s => s.cubreAcs);
     const attachments = [];
 

@@ -164,6 +164,28 @@ const casos = [
     ['5 en cascada', cascada(5)],
     ['5 en cascada · ACS equipo propio', acsPropio(cascada(5))],
     ['sin ACS', (() => { const e = cascada(3); e.instalacion.cambio_acs = false; return e; })()],
+    // Las VENTANAS: con cinco que cambian, la hoja de huecos antes/después y la
+    // comparativa de marco y vidrio no cabían juntas (26RES080_59, 13/10/2026).
+    ['5 ventanas que cambian · descripción larga (26RES080_59)', (() => {
+        const e = cascada(1);
+        const huecos = (u) => [1, 2, 3, 4, 5].map((i) => ({
+            nombre: `V${i} (se cambia)`, tipo: 'Hueco', orientacion: i < 4 ? 'SE' : 'NO',
+            transmitancia: u, superficie: 2.94, factorSolar: u > 2 ? 0.63 : 0.31,
+        }));
+        e.cee.cee_inicial.huecos = huecos(3.78);
+        e.cee.cee_final.huecos = huecos(1.27);
+        e.documentacion.envolvente = {
+            ...e.documentacion.envolvente, num_ventanas: 5,
+            descripcion_ventanas: 'Se sustituyen las cinco ventanas de la planta primera por carpintería de PVC: tres balconeras de dos hojas de 1,40 × 2,10 m con capialzado aislado a la fachada principal (V1-V3), una balconera de 0,80 × 2,10 m (V4) y una ventana de 1,00 × 0,70 m (V5) al patio. En V1-V3 se ha abierto el hueco en altura hasta el suelo con el mismo ancho: el CEE inicial los recoge con la altura del hueco de obra (2,265 m, capialzado incluido) y el final con la de la carpintería (2,10 m). La envolvente térmica se mantiene continua: el capialzado de PVC con aislante de 185 mm cierra el hueco sobre la carpintería y su caja de persiana se declara como puente térmico.',
+            marco_nuevo_material: 'PVC', marco_nuevo_marca: 'GEALAN', marco_nuevo_modelo: 'S 8000 · Abisagrada',
+            marco_carpinteria: 'CARPINTERÍAS DE PVC MANCHEGAS, S.L.', marco_nuevo_transmitancia: 1.2,
+            cristal_nuevo_marca: 'GUARDIAN', cristal_nuevo_modelo: 'GUARDIAN SUN',
+            cristal_nuevo_composicion: '4 GUARDIAN SUN (18 AIRE) 3+3 SILENCE',
+            cristal_nuevo_transmitancia: 1.3, cristal_nuevo_factor_solar: 0.43, permeabilidad_nueva: 3,
+            marco_existente_material: 'METÁLICO SIN RPT', cristal_existente_composicion: 'DOBLE', permeabilidad_existente: 100,
+        };
+        return e;
+    })()],
     // ── Dos empresas: la que ejecuta y factura + la habilitada que firma ──
     ['1 equipo · 2 empresas (26RES080_62)', conDelegacion(cascada(1))],
     ['5 en cascada · 2 empresas', conDelegacion(cascada(5))],

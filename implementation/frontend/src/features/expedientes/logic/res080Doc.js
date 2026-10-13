@@ -1189,6 +1189,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
 
     // PÁGINA 4: VENTANAS — solo si se actúa
     if (env.sustituye_ventanas === true) {
+        const obsVentanas = obsBox(`<p style="margin:0;">La duración indicativa de la actuación (Di) es de 25 años según Recomendación (UE) 2019/1658. Se adjunta ficha técnica completa del marco y del cristal en anexos.</p>`, '14px');
         pages.push(`
             <div class="doc-page">
                 ${pageHeader}
@@ -1218,8 +1219,20 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
                             </tbody>
                         </table>
                     </div>
+                ` : `<div style="margin:40px 0;text-align:center;color:#9A9A92;">No hay sustitución de ventanas.</div>`}
+                ${seSustituyen ? '' : obsVentanas}
+                ${footer}
+            </div>
+        `);
 
-                    ${subLabel('Características de las ventanas')}
+        // PÁGINA 4-b: CARACTERÍSTICAS DE LAS VENTANAS, en hoja propia. Con las dos
+        // tablas de huecos y la comparativa en la misma hoja, cinco ventanas ya no
+        // cabían (26RES080_59, 13/10/2026): la comparativa saltaba a una hoja SIN
+        // cabecera. El corte no es condicional, por lo mismo que en el CIFO.
+        if (seSustituyen) pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${sectionTitle('Características de las ventanas', '20px')}
                     ${cmpBox(cmpHead('Comparativa', 'Existentes', 'Nuevas'), `
                         ${cmpGroup('Marco')}
                         ${cmpRow('Material del marco', env.marco_existente_material || '—', eb('marco_nuevo_material'))}
@@ -1238,8 +1251,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
                         ${cmpGroup('Conjunto')}
                         ${cmpRow('Permeabilidad al aire (m³/h·m²)', env.permeabilidad_existente ?? '—', eb('permeabilidad_nueva'))}
                     `)}
-                ` : `<div style="margin:40px 0;text-align:center;color:#9A9A92;">No hay sustitución de ventanas.</div>`}
-                ${obsBox(`<p style="margin:0;">La duración indicativa de la actuación (Di) es de 25 años según Recomendación (UE) 2019/1658. Se adjunta ficha técnica completa del marco y del cristal en anexos.</p>`, '14px')}
+                ${obsVentanas}
                 ${footer}
             </div>
         `);
