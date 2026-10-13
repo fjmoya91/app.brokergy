@@ -140,3 +140,12 @@ lo aparta de los «archivos del CEE»: no se adjunta dos veces al visto bueno ni
 al cliente en la entrega. Se rasteriza UNA vez para adjuntar y guardar
 (`borradorCeeService.paraVistoBueno`), y un fallo se devuelve en `borradorDrive` con su
 motivo, sin tumbar el aviso.
+
+**REGLA — la CARPETA LOCAL del expediente va SIEMPRE arriba del popup** (2026-10-13). En la
+sede, los ficheros se adjuntan con el «Examinar…» de Windows, y pegar en su barra la ruta del
+espejo de Drive Desktop (`C:\Users\Usuario\Mi unidad\26. CERTIF. EFICIENCIA ENER\1. PRODUCCION\2026CEE_61 - …`)
+lleva directo a ellos. La da la MISMA ruta que el botón «Carpeta Local»
+(`GET /:id/local-path`, staffOnly, en las dos rutas del módulo), con **Copiar** y **Abrir**
+(protocolo `brokergylocal:`). Sale también fuera de CLM, y si no se puede resolver se dice en
+ámbar. En la vía pública (`/presentar/…`, con token) no se pide: quien presenta desde fuera no
+tiene nuestro Drive.

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { EncargarPresentacionModal } from './EncargarPresentacionModal';
+import { lanzarProtocolo } from '../../../utils/carpetaLocal';
 
 // ─── Borrador para presentar el CEE ──────────────────────────────────────────
 // Los datos del Registro Autonómico, en el orden en que su formulario los pide y
@@ -80,6 +81,8 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
     const [enDrive, setEnDrive] = useState(null);
     // Encargar la presentación a una persona de fuera (solo el equipo interno).
     const [encargar, setEncargar] = useState(false);
+    // La ruta de la carpeta en el disco (espejo de Drive Desktop): { path } | { error }.
+    const [carpeta, setCarpeta] = useState(null);
 
     // En un CEE directo de alcance ÚNICO no hay fase final: no se ofrece.
     const disponibles = ['inicial', 'final'].filter(f => fases.includes(f));
@@ -107,6 +110,20 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
         })();
         return () => { cancelado = true; };
     }, [isOpen, expedienteId, apiBase, fase, JSON.stringify(paramsExtra || {})]);
+
+    // La carpeta LOCAL del expediente: es la que se pega en el «Examinar…» de la
+    // sede para adjuntar los ficheros. La da la misma ruta que el botón «Carpeta
+    // Local» (`GET /:id/local-path`, en las dos rutas del módulo), que es
+    // `staffOnly`: en la vía pública (token) no se pide.
+    useEffect(() => {
+        if (!isOpen || !expedienteId || paramsExtra || soloLectura) return;
+        let cancelado = false;
+        setCarpeta(null);
+        axios.get(`${apiBase}/${expedienteId}/local-path`)
+            .then(({ data }) => { if (!cancelado) setCarpeta(data?.path ? { path: data.path } : { error: 'Sin ruta local' }); })
+            .catch(e => { if (!cancelado) setCarpeta({ error: e.response?.data?.error || 'No se pudo resolver la carpeta local' }); });
+        return () => { cancelado = true; };
+    }, [isOpen, expedienteId, apiBase, !!paramsExtra, soloLectura]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const copiar = useCallback(async (texto, clave) => {
         try {
@@ -300,6 +317,39 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                     {error && (
                         <div className="rounded-xl border border-red-500/30 bg-red-500/[0.06] px-4 py-3 text-[11px] text-red-300 normal-case leading-snug">
                             {error}
+                        </div>
+                    )}
+
+                    {/* REGLA — la carpeta LOCAL va SIEMPRE arriba. Al adjuntar en la
+                        sede se abre el «Examinar…» de Windows, y pegar esta ruta en su
+                        barra lleva directo a los ficheros del expediente, sin bajar
+                        nada. Si no se puede resolver se dice: callarlo haría pensar
+                        que el expediente no tiene carpeta. */}
+                    {!paramsExtra && !soloLectura && carpeta && (
+                        <div className={`flex items-center gap-2 px-4 py-3 rounded-xl border ${
+                            carpeta.path ? 'border-white/[0.08] bg-white/[0.02]' : 'border-amber-500/25 bg-amber-500/[0.03]'
+                        }`}>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[9px] font-bold uppercase tracking-widest text-white/35">
+                                    📁 Carpeta local · para adjuntar en la sede
+                                </div>
+                                {carpeta.path ? (
+                                    <code className="block text-[11px] text-white/80 break-all normal-case mt-0.5 select-all">{carpeta.path}</code>
+                                ) : (
+                                    <div className="text-[11px] text-amber-400/80 normal-case leading-snug mt-0.5">{carpeta.error}</div>
+                                )}
+                            </div>
+                            {carpeta.path && (
+                                <>
+                                    <button type="button" onClick={() => lanzarProtocolo(carpeta.path)}
+                                            title="Abrir la carpeta en el Explorador (y copiar su ruta)"
+                                            className="shrink-0 px-2 py-1 max-md:hidden rounded-md text-[9px] font-black uppercase tracking-widest bg-white/5 text-white/40 hover:bg-brand/20 hover:text-brand transition-colors">
+                                        Abrir
+                                    </button>
+                                    <BotonCopiar activo={copiado === '__carpeta'}
+                                                 onClick={() => copiar(carpeta.path, '__carpeta')} />
+                                </>
+                            )}
                         </div>
                     )}
 

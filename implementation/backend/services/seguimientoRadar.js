@@ -223,6 +223,11 @@ function detectarRevision(e, out) {
 function detectarRegistro(e, out) {
     for (const f of FASES) {
         if (e.seguimiento?.[f.key] !== 'REVISADO') continue;
+        // Con FECHA DE REGISTRO está registrado, diga lo que diga el subestado: un
+        // visto bueno repetido lo devolvía a REVISADO y salía para presentarlo otra
+        // vez (25RES080_31, registrado el 29/12/2025, 12/10/2026).
+        if ((f.scope === 'final' ? e.reg_fin : e.fecha_registro_ini)
+            || e.presentacion?.[f.scope]?.registrado_at) continue;
         const desde = desdeFase(e.seguimiento, f.key);
         const d = dias(desde);
         // El AGENTE IA no firma ni registra: con el visto bueno dado, lo que falta

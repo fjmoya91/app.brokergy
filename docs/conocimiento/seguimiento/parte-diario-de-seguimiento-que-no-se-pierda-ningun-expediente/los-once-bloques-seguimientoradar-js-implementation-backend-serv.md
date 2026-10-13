@@ -13,7 +13,7 @@ la reinsistencia viven en el mapa `BLOQUES` (todos con variable de entorno).
 | `OBRA_SIN_CERRAR` | obra ejecutada + `cee_final` sin encargar >5 d | BROKERGY | — |
 | `TRAMITACION` | `PTE FIN EXPTE`/`REVISADO Y LISTO (FINAL)` con documentos **sin generar ni enviar** >10 d | BROKERGY | — |
 | `SIN_LOTEAR` | `loteService.ESTADOS_COMPLETO` sin `lote_id` >15 d | BROKERGY | — (meterlo en un lote) |
-| `REGISTRO` | `cee_* = REVISADO` >2 d | CERTIFICADOR | Recordar el registro |
+| `REGISTRO` | `cee_* = REVISADO` **sin fecha de registro** >2 d | CERTIFICADOR | Recordar el registro |
 | `CERT_SIN_ENTREGAR` | `ASIGNADO/EN_TRABAJO/PTE_PRESENTACION` >10 d | CERTIFICADOR | Pedir fecha |
 | `SIN_ENCARGAR` | encargo sin salir, **con técnico o sin él** (plazo 0) | BROKERGY | — |
 | `MIGRADO_SIN_REVISAR` | `PENDIENTE REVISAR EXPTE` >15 d | BROKERGY | — |
@@ -47,6 +47,14 @@ mensaje de `seguimientoLote` ni tiene enlace de un clic en el parte diario (all�
 «abrir el expediente»). El aviso es el propio encargo: enviado hace menos de 3 días
 (`reinsistir` de REGISTRO) la fila calla; pasado, se ofrece «Reenviar a Eva», que le
 cambia el enlace (el popup lo advierte).
+
+**REGLA — con FECHA DE REGISTRO el CEE está registrado, diga lo que diga el subestado**
+(2026-10-12). El 25RES080_31 (CEE final registrado el 29/12/2025, ya en MITECO) salió en
+«Enviar a presentar a Eva»: se le dio otra vez el visto bueno desde el portal y
+`POST /:id/approve-cee` lo devolvió de `REGISTRADO` a `REVISADO`. Dos arreglos: esa ruta
+ya no baja un CEE `REGISTRADO` (el mensaje sale igual, el subestado solo avanza), y
+`detectarRegistro` se salta la fase con `fecha_registro_cee_{inicial,final}` o con
+`presentacion[fase].registrado_at`.
 
 **REGLA — `SIN_LOTEAR` es el único bloque que habla de DINERO, no de un documento.** El
 CAE no se emite ni se cobra hasta que el expediente entra en un lote, y ese tramo estaba

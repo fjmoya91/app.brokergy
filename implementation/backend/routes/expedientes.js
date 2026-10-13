@@ -8001,10 +8001,12 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         const globalEstado = avanzarEstado(exp.estado, newEstado);
 
         const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
-        if (phase === 'final') {
-            applyStatus(seguimiento, 'cee_final', 'REVISADO');
-        } else {
-            applyStatus(seguimiento, 'cee_inicial', 'REVISADO');
+        // Un visto bueno sobre un CEE ya REGISTRADO no lo devuelve a REVISADO: el
+        // mensaje sale igual, pero el subestado solo avanza. Volver atrás lo sacaba en
+        // «sin registrar» y en «Enviar a presentar a Eva» (25RES080_31, 12/10/2026).
+        const segKeyFase = phase === 'final' ? 'cee_final' : 'cee_inicial';
+        if (seguimiento[segKeyFase] !== 'REGISTRADO') {
+            applyStatus(seguimiento, segKeyFase, 'REVISADO');
         }
 
         const docObj = exp.documentacion || {};
