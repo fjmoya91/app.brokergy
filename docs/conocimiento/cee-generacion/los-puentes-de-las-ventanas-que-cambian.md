@@ -1,4 +1,4 @@
-<!-- conocimiento · área: envolvente-ce3x · las rutas de los enlaces son relativas a la raíz del repo -->
+<!-- conocimiento · área: cee-generacion · las rutas de los enlaces son relativas a la raíz del repo -->
 
 ## Los PUENTES TÉRMICOS de las ventanas que CAMBIAN (RES080, 2026-10-05)
 

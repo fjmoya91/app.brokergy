@@ -1,4 +1,4 @@
-<!-- conocimiento · área: envolvente-ce3x · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
+<!-- conocimiento · área: cee-generacion · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
 > Introducción de «La medida de mejora de una HIBRIDACIÓN (2026-09-16)»; cada subsección está en su propio fichero de esta carpeta.
 
 ## La medida de mejora de una HIBRIDACIÓN (2026-09-16)

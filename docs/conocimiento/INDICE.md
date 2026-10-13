@@ -11,11 +11,12 @@
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 30,0 KB | 17 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,1 KB | 25 |
+| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 42,5 KB | 13 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 6,6 KB | 2 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 15,7 KB | 5 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 34,5 KB | 10 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor, .cex inicial/final, medidas de mejora, croquis, 2.3/3.1, PVGIS, skills CEE | `.claude/rules/envolvente-ce3x.md` · 128,9 KB | 47 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 89,5 KB | 34 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,7 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
@@ -111,12 +112,12 @@
 - **46** → `.claude/rules/calculo.md` — El coste del INFORME DE VERIFICACIÓN se teclea ya en la simulación
 - **47** → `.claude/rules/oportunidades.md` — El mismo vecino volviendo al funnel NO estrena oportunidad
 - **48** → `.claude/rules/envolvente-ce3x.md` — El `.cex` de la envolvente se guarda SIEMPRE en `1. CEE / CEE INICIAL` como `{nº} - CEE INICIAL_REVISAR.cex`…
-- **48.b** → `.claude/rules/envolvente-ce3x.md` — El CEE FINAL se hace COPIANDO el inicial, no regenerándolo
+- **48.b** → `.claude/rules/cee-generacion.md` — El CEE FINAL se hace COPIANDO el inicial, no regenerándolo
 - **48.c** → `.claude/rules/envolvente-ce3x.md` — Los ADMINISTRATIVOS del `.cex` se corrigen desde la ventana, escribiendo en SU FUENTE
 - **48.d** → `.claude/rules/envolvente-ce3x.md` — Al CERTIFICADOR no se le enseña lo que no es suyo
-- **48.e** → `.claude/rules/envolvente-ce3x.md` — Cuando el ACS lo hace OTRA máquina, se escriben DOS equipos
+- **48.e** → `.claude/rules/cee-generacion.md` — Cuando el ACS lo hace OTRA máquina, se escriben DOS equipos
 - **48.f** → `.claude/rules/envolvente-ce3x.md` — Un certificador FIRMA como persona y puede ejercer en una EMPRESA
-- **48.g** → `.claude/rules/envolvente-ce3x.md` — La MEDIDA DE MEJORA de una hibridación lleva los DOS generadores, repartidos por el C_b
+- **48.g** → `.claude/rules/cee-generacion.md` — La MEDIDA DE MEJORA de una hibridación lleva los DOS generadores, repartidos por el C_b
 - **48.h** → `.claude/rules/envolvente-ce3x.md` — La envolvente se puede DESHACER (Ctrl+Z o su botón), y la PLACA la lee también el CERTIFICADOR
 - **48.i** → `.claude/rules/envolvente-ce3x.md` — La envolvente vale también para los CEE DIRECTOS
 - **48.j** → `.claude/rules/envolvente-ce3x.md` — Una EDIFICACIÓN entera se quita del plano de un clic, se vuelve a medir, y sale SOLO DE LAS PLANTAS EN LAS Q…
@@ -147,13 +148,13 @@
 - **69** → `.claude/rules/cee.md` — El CEE que entrega el certificador se REVISA antes de darle el visto bueno
 - **70** → `.claude/rules/envolvente-ce3x.md` — La COMA y el PUNTO valen igual al teclear una medida, y lo que no es un número NO vale 0
 - **71** → `.claude/rules/placas-catalogos.md` — La referencia de la UD. EXTERIOR solo se añade al modelo si DICE algo, y SOLO A PARTIR DE AHORA
-- **72** → `.claude/rules/envolvente-ce3x.md` — La aerotermia de la MEDIDA DE MEJORA (y del CEE final) se declara según su UNIDAD TERMINAL y según su ALCANCE
+- **72** → `.claude/rules/cee-generacion.md` — La aerotermia de la MEDIDA DE MEJORA (y del CEE final) se declara según su UNIDAD TERMINAL y según su ALCANCE
 - **73** → `.claude/rules/clientes.md` — El listado de CLIENTES lleva etiquetas de TIPO y un ESTADO, y se filtra por los dos
 - **74** → `.claude/rules/instalador-rite.md` — La tabla de CARGAS TÉRMICAS de la Memoria RITE sale de las ESTANCIAS REALES, confirmadas en un popup antes d…
 - **75** → `.claude/rules/envolvente-ce3x.md` — Un ADOSADO dentro de una comunidad se DELIMITA a mano: el contorno corta el edificio y lo de fuera es la cas…
 - **76** → `.claude/rules/expedientes.md` — Un expediente puede estar RECHAZADO, y es una SALIDA, no un paso del ciclo.
 - **77** → `.claude/rules/envolvente-ce3x.md` — El `.cex` se escribe como RESIDENCIAL, PEQUEÑO o GRAN TERCIARIO, y se pregunta como CE3X antes de medir.
-- **78** → `.claude/rules/envolvente-ce3x.md` — El USO de cada equipo se cambia en Instalaciones, y la FORMA del registro la decide el COMBUSTIBLE.
+- **78** → `.claude/rules/cee-generacion.md` — El USO de cada equipo se cambia en Instalaciones, y la FORMA del registro la decide el COMBUSTIBLE.
 - **79** → `.claude/rules/envolvente-ce3x.md` — Un garaje DENTRO de la casa se quita SOLO de su planta, y lo guardado sigue al edificio aunque el lienzo se …
 - **80** → `.claude/rules/cee.md` — «Solo asignar» a un certificador EXTERNO no es un encargo: la fase NO pasa a `ASIGNADO`.
 - **81** → `.claude/rules/propuesta.md` — La COMISIÓN del partner se expresa en % sobre lo que se le OFRECE AL CLIENTE, y el mensaje de la propuesta l…
@@ -161,17 +162,17 @@
 - **83** → `.claude/rules/envolvente-ce3x.md` — Cada hueco declara su % de MARCO, la PUERTA elige marco y vidrio, y la CUBIERTA admite LUCERNARIOS
 - **84** → `.claude/rules/oportunidades.md` — En la ficha del inmueble del funnel PÚBLICO, las zonas son una PREGUNTA, no una tabla
 - **85** → `.claude/rules/propuesta.md` — Los PRESUPUESTOS adjuntados a la propuesta rellenan Datos Económicos, cada uno en SU campo
-- **86** → `.claude/rules/envolvente-ce3x.md` — Los AIRES ACONDICIONADOS que confirma el cliente llegan al CEE: la pestaña, el encargo y la envolvente
-- **87** → `.claude/rules/envolvente-ce3x.md` — El CEE inicial se GENERA desde las fotos con la skill `generar-cee-inicial`, por las MISMAS funciones que la…
+- **86** → `.claude/rules/cee-generacion.md` — Los AIRES ACONDICIONADOS que confirma el cliente llegan al CEE: la pestaña, el encargo y la envolvente
+- **87** → `.claude/rules/cee-generacion.md` — El CEE inicial se GENERA desde las fotos con la skill `generar-cee-inicial`, por las MISMAS funciones que la…
 - **88** → `.claude/rules/envolvente-ce3x.md` — Una planta que se MIDE es VIVIENDA para sus forjados, aunque Catastro declare en ella sobre todo un garaje; …
 - **89** → `.claude/rules/envolvente-ce3x.md` — Lo que no es vivienda en una planta se PINTA a mano alzada y el motor lo ajusta a los m² de Catastro
 - **90** → `.claude/rules/cee.md` — Al subir su `.xml`/`.cex`, el técnico ve la REVISIÓN PREVIA y corrige lo suyo antes de que llegue a Brokergy
 - **91** → `.claude/rules/envolvente-ce3x.md` — La VISTA AÉREA del plano de la envolvente es la ortofoto del PNOA (IGN), por teselas que pide el navegador, …
 - **92** → `.claude/rules/cee.md` — El técnico tiene UNA página del encargo, y el enlace es SUYO
-- **92** → `.claude/rules/envolvente-ce3x.md` — El CEE FINAL de un RES060/RES093 sale de la MEDIDA DE MEJORA del inicial del técnico
+- **92** → `.claude/rules/cee-generacion.md` — El CEE FINAL de un RES060/RES093 sale de la MEDIDA DE MEJORA del inicial del técnico
 - **93** → `.claude/rules/documentos.md` — Una factura de ENTREGA DE MATERIAL o un ANTICIPO no abre la actuación, y el CIFO lo cuenta en «Hitos de la a…
 - **94** → `.claude/rules/whatsapp.md` — El nombre del cliente en la AGENDA de WhatsApp lleva su nº de obra
-- **95** → `.claude/rules/envolvente-ce3x.md` — La medida de AUTOCONSUMO admite los kWh TECLEADOS, y en un CEE directo es la única forma de tenerla
+- **95** → `.claude/rules/cee-generacion.md` — La medida de AUTOCONSUMO admite los kWh TECLEADOS, y en un CEE directo es la única forma de tenerla
 - **96** → `.claude/rules/envolvente-ce3x.md` — Una PROVINCIA que no está en el desplegable de CE3X impide abrir el `.cex` entero
 - **97** → `.claude/rules/cee.md` — En un CEE directo de UN solo certificado, el CEE de ANTES del cliente se carga APARTE, como «CEE anterior de…
 - **98** → `.claude/rules/cee.md` — Al cliente se le envían sus CEE firmados + una GUÍA de una página para la deducción del IRPF, de un botón
@@ -182,19 +183,19 @@
 - **103** → `.claude/rules/claude-automatizacion.md` — La LLAVE DE CLAUDE: una cuenta sin contraseña que pulsa los botones de la app
 - **103** → `.claude/rules/lotes.md` — El CERTIFICADO CAE emitido se LEE al subirlo y sus códigos van a la factura al S.O.
 - **104** → `.claude/rules/lotes.md` — La factura de Brokergy al S.O. se archiva en CONTABILIDAD al generarla y al enviarla
-- **105** → `.claude/rules/envolvente-ce3x.md` — Se certifica con CE3X 2.3 y con la 3.1, y por defecto la 3.1
+- **105** → `.claude/rules/cee-generacion.md` — Se certifica con CE3X 2.3 y con la 3.1, y por defecto la 3.1
 - **106** → `.claude/rules/envolvente-ce3x.md` — El autoconsumo se dimensiona con PVGIS: kWp ⇄ kWh/año y su reparto mensual
 - **107** → `.claude/rules/cee.md` — La rejilla del CEE: una columna por cosa, la versión del `.xml` a la vista y «Presentar» solo cuando toca
 - **108** → `.claude/rules/envolvente-ce3x.md` — El borrador del CEE que deja el Agente IA lleva su CROQUIS en PDF, junto al `.cex`
 - **109** → `.claude/rules/envolvente-ce3x.md` — Lo que hace el Agente IA se REVISA y se CAMBIA en la propia ventana de la envolvente
-- **110** → `.claude/rules/envolvente-ce3x.md` — El `.xml` y el PDF oficial del CEE se sacan del `.cex` SIN abrir CE3X
+- **110** → `.claude/rules/cee-generacion.md` — El `.xml` y el PDF oficial del CEE se sacan del `.cex` SIN abrir CE3X
 - **111** → `.claude/rules/calculo.md` — En el ahorro RES080 «por vector», la demanda que no cubre ningún generador la pone CE3X con su SISTEMA FICTI…
 - **112** → `.claude/rules/envolvente-ce3x.md` — Al hacer un CEE se bajan de la Sede del Catastro los documentos de la parcela, y su CROQUIS POR PLANTAS mand…
 - **113** → `.claude/rules/claude-automatizacion.md` — Fran trabaja con Claude por WhatsApp, siempre abierto
 - **114** → `.claude/rules/documentos.md` — Una vivienda con VARIOS propietarios que PAGAN la obra: un convenio con todos, un Anexo I por cada uno y, po…
-- **115** → `.claude/rules/envolvente-ce3x.md` — El CEE inicial también sale de un VÍDEO de la vivienda, y lo que no se puede saber se PIDE
+- **115** → `.claude/rules/cee-generacion.md` — El CEE inicial también sale de un VÍDEO de la vivienda, y lo que no se puede saber se PIDE
 - **116** → `.claude/rules/cee.md` — El CEE se ENCARGA presentar a una persona de fuera con un enlace sin cuenta
-- **117** → `.claude/rules/envolvente-ce3x.md` — En un RES080 se hacen DOS CEE: el INICIAL y el PREVISTO, y lo que cambia el previsto ES la medida del inicial
+- **117** → `.claude/rules/cee-generacion.md` — En un RES080 se hacen DOS CEE: el INICIAL y el PREVISTO, y lo que cambia el previsto ES la medida del inicial
 - **118** → `.claude/rules/placas-catalogos.md` — La POTENCIA de cada equipo va en los datos del CEE, y es la MISMA que la de la Memoria RITE
 - **119** → `.claude/rules/envolvente-ce3x.md` — La PIZARRA de la envolvente: se dibuja a mano cómo es de verdad la vivienda, y «✓ Así es como está» le pide …
 - **120** → `.claude/rules/placas-catalogos.md` — Una aerotermia se da de alta (o se completa) con TODA su documentación, con la skill `alta-aerotermia`
@@ -203,8 +204,8 @@
 - **123** → `.claude/rules/envolvente-ce3x.md` — Un SÓTANO: sus muros van contra el TERRENO y cada zona lleva de suelo solo su VIVIENDA
 - **124** → `.claude/rules/envolvente-ce3x.md` — La FICHA del expediente no pisa la ENVOLVENTE
 - **125** → `.claude/rules/claude-automatizacion.md` — Un expediente se JUSTIFICA al terminar la obra con la skill `justificar-expediente`, por las MISMAS rutas qu…
-- **126** → `.claude/rules/envolvente-ce3x.md` — Desde el 08/10/2026 se certifica con CE3X 3.2, y el AUTOCONSUMO de cada mes es lo MENOR entre lo que produce…
-- **127** → `.claude/rules/envolvente-ce3x.md` — El CEE FINAL de un RES060 se hace COPIANDO el CEE inicial del técnico, con las instalaciones INSTALADAS y el…
+- **126** → `.claude/rules/cee-generacion.md` — Desde el 08/10/2026 se certifica con CE3X 3.2, y el AUTOCONSUMO de cada mes es lo MENOR entre lo que produce…
+- **127** → `.claude/rules/cee-generacion.md` — El CEE FINAL de un RES060 se hace COPIANDO el CEE inicial del técnico, con las instalaciones INSTALADAS y el…
 - **128** → `.claude/rules/envolvente-ce3x.md` — La ventana de la envolvente no SOLAPA nada a ningún ancho
 - **129** → `.claude/rules/envolvente-ce3x.md` — La GUÍA DE TRANSMITANCIAS son los «Estimados según antigüedad y zona climática» de CE3X 3.2, escritos como «…
 - **130** → `.claude/rules/placas-catalogos.md` — Un Nº DE SERIE que ya consta en OTRO expediente se AVISA, no se bloquea
@@ -212,7 +213,7 @@
 - **132** → `.claude/rules/propuesta.md` — Con los avisos del cliente desviados a otra persona, el TITULAR sigue pudiendo recibir la propuesta
 - **133** → `.claude/rules/propuesta.md` — Caldera de BIOMASA (combustible sólido que no es carbón): la deducción del IRPF exige placas solares; el Bon…
 - **134** → `.claude/rules/calculo.md` — Con PLACAS en cualquiera de los dos CEE, el ahorro RES080 va POR VECTOR aunque se haya elegido «por uso»
-- **135** → `.claude/rules/envolvente-ce3x.md` — En un RES080, cada ventana que CAMBIA resuelve sus PUENTES TÉRMICOS
+- **135** → `.claude/rules/cee-generacion.md` — En un RES080, cada ventana que CAMBIA resuelve sus PUENTES TÉRMICOS
 
 ## Documentos por área
 
@@ -280,6 +281,22 @@
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/quien-es-el-cliente-y-quien-el-partner.md` — Quién es el CLIENTE y quién el PARTNER
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/seguimiento-del-encargo-que-paso-y-cuando.md` — Seguimiento del encargo — qué pasó y cuándo
 
+### cee-generacion
+
+- `docs/conocimiento/cee-generacion/ce3x-2-3-y-3-1-se-certifica-con-las-dos.md` — CE3X 2.3 y 3.1 — se certifica con las DOS (2026-10-02)
+- `docs/conocimiento/cee-generacion/ce3x-3-2-la-vigente-y-el-autoconsumo-mes-a-mes.md` — CE3X 3.2 — la vigente desde el 08/10/2026, y el AUTOCONSUMO mes a mes
+- `docs/conocimiento/cee-generacion/el-acs-que-hace-otra-maquina-tambien-se-escribe.md` — El ACS que hace OTRA máquina también se escribe (2026-09-14)
+- `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)
+- `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/con-un-video-en-vez-de-fotos-y-si-no-se-puede-se-pregunta.md` — Con un VÍDEO en vez de fotos — y si no se puede, se PREGUNTA (2026-10-06)
+- `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/00-la-medida-de-mejora-de-una-hibridacion.md` — La medida de mejora de una HIBRIDACIÓN (2026-09-16)
+- `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-de-un-res060-copiando-el-inicial.md` — El CEE FINAL de un RES060: se COPIA el inicial (2026-10-08)
+- `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-desde-la-medida-de-mejora-del-inicial-del-tecnico.md` — El CEE FINAL desde la MEDIDA DE MEJORA del inicial del técnico (2026-09-30)
+- `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-se-hace-copiando-el-inicial.md` — El CEE FINAL se hace COPIANDO el inicial (2026-09-13)
+- `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/y-el-cee-final-igual.md` — Y el CEE FINAL, igual (2026-09-16)
+- `docs/conocimiento/cee-generacion/la-medida-del-previsto-res080-va-autocontenida.md` — La medida del PREVISTO (RES080) va AUTOCONTENIDA, no como «Nuevo Edificio» (2026-10-10)
+- `docs/conocimiento/cee-generacion/los-puentes-de-las-ventanas-que-cambian.md` — Los PUENTES TÉRMICOS de las ventanas que CAMBIAN (RES080, 2026-10-05)
+- `docs/conocimiento/cee-generacion/y-llega-al-cee-la-pestana-el-encargo-y-la-envolvente.md` — Y llega al CEE: la pestaña, el encargo y la envolvente (2026-09-29)
+
 ### claude-automatizacion
 
 - `docs/conocimiento/claude-automatizacion/el-asistente-de-fran-por-whatsapp-canal-siempre-abierto.md` — El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05)
@@ -336,12 +353,14 @@
 ### envolvente-ce3x
 
 - `docs/conocimiento/envolvente-ce3x/autoconsumo-con-pvgis-kwp-kwh-ano-y-su-reparto-mensual.md` — AUTOCONSUMO con PVGIS — kWp ⇄ kWh/año y su reparto mensual (2026-10-02)
-- `docs/conocimiento/envolvente-ce3x/ce3x-2-3-y-3-1-se-certifica-con-las-dos.md` — CE3X 2.3 y 3.1 — se certifica con las DOS (2026-10-02)
-- `docs/conocimiento/envolvente-ce3x/ce3x-3-2-la-vigente-y-el-autoconsumo-mes-a-mes.md` — CE3X 3.2 — la vigente desde el 08/10/2026, y el AUTOCONSUMO mes a mes
 - `docs/conocimiento/envolvente-ce3x/deshacer-en-la-envolvente-y-quien-puede-leer-la-placa.md` — DESHACER en la envolvente, y quién puede leer la placa (2026-09-16)
-- `docs/conocimiento/envolvente-ce3x/el-acs-que-hace-otra-maquina-tambien-se-escribe.md` — El ACS que hace OTRA máquina también se escribe (2026-09-14)
 - `docs/conocimiento/envolvente-ce3x/el-boton-que-metia-su-propio-evento-dentro-del-post.md` — El botón que metía su propio EVENTO dentro del POST (2026-09-18)
 - `docs/conocimiento/envolvente-ce3x/el-cex-de-la-envolvente-donde-acaba-y-con-que-transmitancias.md` — El `.cex` de la envolvente: dónde acaba y con qué transmitancias (2026-09-13)
+- `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-a-mano-alzada-se-dice-donde-los-m-los-pone-catastro.md` — El CROQUIS a mano alzada — se dice DÓNDE, los m² los pone Catastro (2026-09-29)
+- `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-catastral-por-plantas-de-la-sede.md` — El CROQUIS CATASTRAL POR PLANTAS, de la Sede (2026-10-05)
+- `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-se-propone-solo.md` — El croquis se PROPONE solo (2026-09-30)
+- `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/y-el-contorno-del-adosado-desde-el-mismo-enlace.md` — Y el CONTORNO del ADOSADO, desde el mismo enlace (2026-10-01)
+- `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/y-se-puede-pintar-desde-el-movil-viendolo-aqui-en-tiempo-real.md` — Y se puede PINTAR DESDE EL MÓVIL, viéndolo aquí en tiempo real (2026-09-29)
 - `docs/conocimiento/envolvente-ce3x/el-croquis-marca-los-huecos-que-se-sustituyen.md` — El CROQUIS marca los huecos que se SUSTITUYEN (2026-10-12)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/00-el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir.md` — El plano de la envolvente: lo que hace falta VER para decidir (2026-09-13)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-coma-y-el-punto-valen-igual-al-teclear-una-medida.md` — La COMA y el PUNTO valen igual al teclear una medida (2026-09-21)
@@ -350,27 +369,13 @@
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-ventana-sin-solapes-barra-rotulos-tiras-y-panel.md` — La ventana sin SOLAPES: barra, rótulos, tiras y panel (2026-10-08)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/los-equipos-en-el-plano-y-el-plano-de-cubierta.md` — Los EQUIPOS en el plano, y el PLANO DE CUBIERTA (2026-10-09)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/una-medida-por-defecto-se-puede-dar-por-buena-de-un-clic.md` — Una medida por defecto se puede dar por BUENA de un clic
-- `docs/conocimiento/envolvente-ce3x/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)
-- `docs/conocimiento/envolvente-ce3x/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/con-un-video-en-vez-de-fotos-y-si-no-se-puede-se-pregunta.md` — Con un VÍDEO en vez de fotos — y si no se puede, se PREGUNTA (2026-10-06)
-- `docs/conocimiento/envolvente-ce3x/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/el-croquis-a-mano-alzada-se-dice-donde-los-m-los-pone-catastro.md` — El CROQUIS a mano alzada — se dice DÓNDE, los m² los pone Catastro (2026-09-29)
-- `docs/conocimiento/envolvente-ce3x/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/el-croquis-catastral-por-plantas-de-la-sede.md` — El CROQUIS CATASTRAL POR PLANTAS, de la Sede (2026-10-05)
-- `docs/conocimiento/envolvente-ce3x/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/el-croquis-se-propone-solo.md` — El croquis se PROPONE solo (2026-09-30)
-- `docs/conocimiento/envolvente-ce3x/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/y-el-contorno-del-adosado-desde-el-mismo-enlace.md` — Y el CONTORNO del ADOSADO, desde el mismo enlace (2026-10-01)
-- `docs/conocimiento/envolvente-ce3x/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/y-se-puede-pintar-desde-el-movil-viendolo-aqui-en-tiempo-real.md` — Y se puede PINTAR DESDE EL MÓVIL, viéndolo aquí en tiempo real (2026-09-29)
 - `docs/conocimiento/envolvente-ce3x/la-envolvente-en-terciario-pequeno-y-gran-terciario.md` — La envolvente en TERCIARIO: pequeño y gran terciario (2026-09-28)
 - `docs/conocimiento/envolvente-ce3x/la-envolvente-vale-tambien-para-los-cee-directos.md` — La envolvente vale también para los CEE DIRECTOS (2026-09-16)
 - `docs/conocimiento/envolvente-ce3x/la-ficha-del-expediente-ya-no-pisa-la-envolvente.md` — La FICHA del expediente ya no pisa la ENVOLVENTE (2026-10-07)
 - `docs/conocimiento/envolvente-ce3x/la-foto-real-de-cada-cerramiento.md` — La FOTO REAL de cada cerramiento (2026-09-15)
-- `docs/conocimiento/envolvente-ce3x/la-medida-de-mejora-de-una-hibridacion/00-la-medida-de-mejora-de-una-hibridacion.md` — La medida de mejora de una HIBRIDACIÓN (2026-09-16)
-- `docs/conocimiento/envolvente-ce3x/la-medida-de-mejora-de-una-hibridacion/el-cee-final-de-un-res060-copiando-el-inicial.md` — El CEE FINAL de un RES060: se COPIA el inicial (2026-10-08)
-- `docs/conocimiento/envolvente-ce3x/la-medida-de-mejora-de-una-hibridacion/el-cee-final-desde-la-medida-de-mejora-del-inicial-del-tecnico.md` — El CEE FINAL desde la MEDIDA DE MEJORA del inicial del técnico (2026-09-30)
-- `docs/conocimiento/envolvente-ce3x/la-medida-de-mejora-de-una-hibridacion/el-cee-final-se-hace-copiando-el-inicial.md` — El CEE FINAL se hace COPIANDO el inicial (2026-09-13)
-- `docs/conocimiento/envolvente-ce3x/la-medida-de-mejora-de-una-hibridacion/y-el-cee-final-igual.md` — Y el CEE FINAL, igual (2026-09-16)
-- `docs/conocimiento/envolvente-ce3x/la-medida-del-previsto-res080-va-autocontenida.md` — La medida del PREVISTO (RES080) va AUTOCONTENIDA, no como «Nuevo Edificio» (2026-10-10)
 - `docs/conocimiento/envolvente-ce3x/lo-que-el-certificador-no-tiene-que-ver-ni-tocar.md` — Lo que el CERTIFICADOR no tiene que ver ni tocar (2026-09-14)
 - `docs/conocimiento/envolvente-ce3x/lo-que-se-reforma-en-la-envolvente-cambia.md` — Lo que se REFORMA en la envolvente: «- CAMBIA» (2026-09-19)
 - `docs/conocimiento/envolvente-ce3x/los-administrativos-se-corrigen-desde-la-ventana-en-su-fuente.md` — Los administrativos se CORRIGEN desde la ventana, en su fuente (2026-09-14)
-- `docs/conocimiento/envolvente-ce3x/los-puentes-de-las-ventanas-que-cambian.md` — Los PUENTES TÉRMICOS de las ventanas que CAMBIAN (RES080, 2026-10-05)
 - `docs/conocimiento/envolvente-ce3x/los-puentes-termicos-se-miran-ya-no-se-listan.md` — Los PUENTES TÉRMICOS se miran, ya no se listan (2026-09-19)
 - `docs/conocimiento/envolvente-ce3x/los-valores-por-defecto-de-ce3x-3-2-por-epoca-y-zona.md` — Los valores POR DEFECTO de CE3X 3.2, por época y zona (2026-10-08)
 - `docs/conocimiento/envolvente-ce3x/que-plantas-se-miden-lo-marco-una-persona-no-catastro/00-que-plantas-se-miden-lo-marco-una-persona-no-catastro.md` — Qué PLANTAS se miden lo marcó una persona, no Catastro (2026-09-14)
@@ -381,7 +386,6 @@
 - `docs/conocimiento/envolvente-ce3x/un-garaje-dentro-de-la-casa-y-lo-que-se-movia-al-volver-a-medir.md` — Un GARAJE dentro de la casa, y lo que se movía al volver a medir (2026-09-28)
 - `docs/conocimiento/envolvente-ce3x/un-sotano-muros-contra-el-terreno-y-suelos-solo-de-la-vivienda.md` — Un SÓTANO: muros contra el TERRENO y suelos solo de la VIVIENDA (2026-10-01)
 - `docs/conocimiento/envolvente-ce3x/una-edificacion-entera-se-quita-de-un-clic.md` — Una EDIFICACIÓN entera se quita de un clic (2026-09-16 · POR PLANTA 2026-09-21)
-- `docs/conocimiento/envolvente-ce3x/y-llega-al-cee-la-pestana-el-encargo-y-la-envolvente.md` — Y llega al CEE: la pestaña, el encargo y la envolvente (2026-09-29)
 
 ### expedientes
 

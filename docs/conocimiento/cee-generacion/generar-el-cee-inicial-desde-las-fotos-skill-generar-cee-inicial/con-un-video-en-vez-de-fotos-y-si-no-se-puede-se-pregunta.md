@@ -1,4 +1,4 @@
-<!-- conocimiento · área: envolvente-ce3x · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
+<!-- conocimiento · área: cee-generacion · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
 > Forma parte de «GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)»; la introducción y el resto, en esta misma carpeta.
 
 ### Con un VÍDEO en vez de fotos — y si no se puede, se PREGUNTA (2026-10-06)

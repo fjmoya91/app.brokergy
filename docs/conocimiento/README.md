@@ -79,7 +79,10 @@ la lista de documentos del área y **todas las frases «REGLA —» en negrita d
 total, copiadas tal cual). El `paths:` de cada área apunta a SUS ficheros, nunca a los que comparten
 todas (como `routes/expedientes.js`); dos áreas transversales (`transversal-backend`,
 `transversal-frontend`) recogen lo que vale para cualquier ruta o pantalla. La más grande,
-`envolvente-ce3x`, pesa ~104 KB (~28.000 tokens) y solo se carga al trabajar en la envolvente.
+`envolvente-ce3x`, pesaba ~104 KB (~28.000 tokens) y solo se carga al trabajar en la envolvente; el
+13/10/2026 pasó de 128 KB y se partió en dos: `envolvente-ce3x` (el plano, ~90 KB) y `cee-generacion`
+(generar el `.cex` inicial/final/previsto, medidas de mejora, versiones de CE3X, ~43 KB). Es el primer
+caso de «si un área pasa del límite, se parte» (§8).
 
 **Nivel 3 — `docs/conocimiento/<área>/*.md` (bajo demanda).** El detalle íntegro: 192 documentos, uno
 por sección del antiguo `CLAUDE.md`; las secciones de más de 16 KB, partidas por subsección en una

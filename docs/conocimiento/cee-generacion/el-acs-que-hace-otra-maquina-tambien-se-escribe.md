@@ -1,4 +1,4 @@
-<!-- conocimiento · área: envolvente-ce3x · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
+<!-- conocimiento · área: cee-generacion · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
 
 ## El ACS que hace OTRA máquina también se escribe (2026-09-14)
 

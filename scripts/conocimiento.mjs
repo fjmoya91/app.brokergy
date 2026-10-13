@@ -26,7 +26,7 @@ const INDICE = path.join(DOCS, 'INDICE.md');
 export const LIMITES = {
     raiz: 20 * 1024,          // CLAUDE.md: por encima, se para
     raizAviso: 16 * 1024,
-    regla: 128 * 1024,        // una regla de área: se paga solo al trabajar en esa área (envolvente-ce3x ≈ 104 KB)
+    regla: 128 * 1024,        // una regla de área: se paga solo al trabajar en esa área (la mayor, envolvente-ce3x ≈ 90 KB tras partirla el 13/10/2026)
     reglaAviso: 40 * 1024,
 };
 

@@ -71,7 +71,7 @@ toca Drive.
 ### Y con CE3X 3.2 (08/10/2026)
 
 La versión vigente pasa a ser la **3.2** (ver «CE3X 3.2 — la vigente desde el 08/10/2026» en
-`envolvente-ce3x`). `revisarVersion` en [revisionCeeCex.js](implementation/backend/services/cee/revisionCeeCex.js):
+`cee-generacion`). `revisarVersion` en [revisionCeeCex.js](implementation/backend/services/cee/revisionCeeCex.js):
 
 - una **3.1 emitida desde el 08/10/2026** (o sin fecha) → aviso `version_ce3x_32`: misma forma y
   mismo cálculo, que la abra con la 3.2 y la guarde (o `convertir_cex.py`, que solo cambia la

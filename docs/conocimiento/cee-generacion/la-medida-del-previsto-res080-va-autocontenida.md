@@ -1,4 +1,4 @@
-<!-- conocimiento · área: envolvente-ce3x · las rutas de los enlaces son relativas a la raíz del repo -->
+<!-- conocimiento · área: cee-generacion · las rutas de los enlaces son relativas a la raíz del repo -->
 
 ## La medida del PREVISTO (RES080) va AUTOCONTENIDA, no como «Nuevo Edificio» (2026-10-10)
 

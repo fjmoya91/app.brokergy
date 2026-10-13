@@ -1,4 +1,4 @@
-<!-- conocimiento · área: envolvente-ce3x · las rutas de los enlaces son relativas a la raíz del repo -->
+<!-- conocimiento · área: cee-generacion · las rutas de los enlaces son relativas a la raíz del repo -->
 
 ## CE3X 3.2 — la vigente desde el 08/10/2026, y el AUTOCONSUMO mes a mes
 

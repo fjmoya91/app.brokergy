@@ -1,5 +1,5 @@
-<!-- conocimiento · área: envolvente-ce3x · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
-> Introducción de «GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)»; cada subsección está en su propio fichero de esta carpeta.
+<!-- conocimiento · área: cee-generacion · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
+> Introducción de «GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)»; cada subsección está en su propio fichero de esta carpeta, salvo las del CROQUIS y el contorno del adosado, que desde el 13/10/2026 están en `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/`.
 
 ## GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)
 

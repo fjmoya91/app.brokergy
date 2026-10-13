@@ -1,4 +1,4 @@
-<!-- conocimiento · área: envolvente-ce3x · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
+<!-- conocimiento · área: cee-generacion · origen: CLAUDE.md antiguo · las rutas de los enlaces son relativas a la raíz del repo -->
 > Estaba escrito dentro de «Al ACEPTAR, el cliente confirma sus EMISORES, PLACAS y AIRES (2026-09-29)», en el CLAUDE.md antiguo.
 
 ### Y llega al CEE: la pestaña, el encargo y la envolvente (2026-09-29)
