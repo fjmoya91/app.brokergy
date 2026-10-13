@@ -556,6 +556,10 @@ async function enviar(origen, id, body = {}, { usuario = null } = {}) {
     adjuntos.push({ filename: filename.replace(' – ', ' - '), content: buffer, contentType: 'application/pdf', etiqueta: 'guía para la deducción en la Renta' });
 
     const cuerpo = txt(body.mensaje) || st.mensaje;
+    // Cuando no va al particular (el partner que pagó, 2026CEE_54), quien envía
+    // pone el asunto y el nombre: "Tus certificados…" a una empresa no se lee bien.
+    const asunto = txt(body.asunto) || st.asunto;
+    const nombreDest = txt(body.destinatario?.nombre) || st.destinatario.nombre;
     const enviados = [];
     const errores = [];
 
@@ -564,7 +568,7 @@ async function enviar(origen, id, body = {}, { usuario = null } = {}) {
             const limpio = cuerpo.replace(/\*/g, '');
             const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${limpio.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`;
             await emailService.sendMail({
-                to: email, subject: st.asunto, text: limpio, html,
+                to: email, subject: asunto, text: limpio, html,
                 attachments: adjuntos.map(a => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
             });
             enviados.push('email');
@@ -591,7 +595,7 @@ async function enviar(origen, id, body = {}, { usuario = null } = {}) {
     try { subido = await subirGuia(ctx, buffer, filename); }
     catch (e) { errorDrive = e.message; console.warn('[guia-irpf] no se pudo guardar en Drive:', e.message); }
 
-    const dest = [st.destinatario.nombre, canales.includes('email') ? email : null, canales.includes('whatsapp') ? tlf : null].filter(Boolean).join(' · ');
+    const dest = [nombreDest, canales.includes('email') ? email : null, canales.includes('whatsapp') ? tlf : null].filter(Boolean).join(' · ');
     await anotarHistorial(ctx, st.previa && st.previa.modalidad !== guia.modalidad
         ? `Guía de la deducción del IRPF CORREGIDA (${st.previa.modalidad} % → ${guia.modalidad} %) y certificados reenviados al cliente por ${enviados.join(' + ')} (${dest})`
         : `Certificados y guía de la deducción del IRPF (${guia.modalidad} %) enviados al cliente por ${enviados.join(' + ')} (${dest})`, usuario);
@@ -600,7 +604,7 @@ async function enviar(origen, id, body = {}, { usuario = null } = {}) {
         enviada: {
             at: new Date().toISOString(),
             canales: enviados,
-            destinatario: { nombre: st.destinatario.nombre, email: canales.includes('email') ? email : null, tlf: canales.includes('whatsapp') ? tlf : null },
+            destinatario: { nombre: nombreDest, email: canales.includes('email') ? email : null, tlf: canales.includes('whatsapp') ? tlf : null },
             ficheros: adjuntos.map(a => a.filename),
             usuario: usuario || null,
             ...(errores.length ? { errores } : {}),
