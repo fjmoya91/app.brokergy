@@ -59,6 +59,19 @@ el espejo. Antes bastaba con que el espejo dijera «PENDIENTE REVISIÓN»: al re
 nadie lo mueve, así que 26RES080_92 (registrado el 08/10/2026 sin pasar por el visto
 bueno), 26RES080_42 y 26RES093_3 seguían ofreciendo «Validar y enviar a presentar».
 
+**El TUTORIAL de cómo se presenta** (2026-10-14): el correo del encargo (bajo el botón, «¿Dudas
+al presentarlo? 🎥 Mira el tutorial paso a paso», y en el texto plano) y la página
+`/presentar/:negocio/:id` (al final, como `tutorial` de `vistaPublica`) enlazan al vídeo de
+cómo se presenta en la sede. **De momento va en DRIVE** («PRESENTACION CEE JCCM.mp4»,
+compartido como «cualquiera con el enlace · lector»): el destino previsto era YouTube como
+**OCULTO** (no «privado», que solo lo ven las cuentas invitadas) —se reproduce al momento en el
+móvil y admite capítulos—, pero el primero que se subió (`dWfQ7GP8g9I`) lo RETIRÓ YouTube «por
+hostigamiento y acoso» el mismo día: en la grabación salían los datos de un cliente real al
+rellenar la sede. ⚠️ Un tutorial se graba con datos de PRUEBA, o difuminados.
+El enlace vive en UNA constante, `TUTORIAL_PRESENTAR` de
+[presentacionCeeService.js](implementation/backend/services/presentacionCeeService.js): si se
+regraba, se cambia ahí (la página lo recibe del backend).
+
 **Su BANDEJA — `/presentar/pendientes?token=`**: una página personal con todo lo que
 tiene pendiente (ordenado por plazo, ámbar a una semana y rojo vencido); cada fila abre
 su encargo. **REGLA — lo ya presentado NO le aparece** (decisión del usuario,

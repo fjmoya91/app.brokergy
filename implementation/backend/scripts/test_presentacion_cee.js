@@ -322,5 +322,13 @@ const prueba = async (nombre, fn) => {
         assert.ok(/Ver todo lo que tienes pendiente/.test(m.html), 'html');
     });
 
+    await prueba('el correo del encargo lleva el tutorial de cómo se presenta', async () => {
+        const m = enviados[enviados.length - 1];
+        const url = svc.TUTORIAL_PRESENTAR;
+        assert.ok(/^https:\/\//.test(url || ''), 'hay enlace');
+        assert.ok(m.text.includes(url), 'texto');
+        assert.ok(m.html.includes(url) && /tutorial paso a paso/.test(m.html), 'html');
+    });
+
     console.log(`\n${ok} pruebas correctas${process.exitCode ? ' — HAY FALLOS' : ''}.`);
 })();

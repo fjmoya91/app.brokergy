@@ -49,6 +49,13 @@ const FICHEROS = [
 
 const PLAZO_DIAS = 30; // un mes desde la emisión (apartado 07.2 del impreso)
 
+// El vídeo de cómo se presenta en la sede, para quien tenga dudas (2026-10-14).
+// Va en el correo y en la página del encargo; si cambia, se cambia SOLO aquí.
+// De momento en DRIVE («cualquiera con el enlace · lector»): el de YouTube
+// (dWfQ7GP8g9I) lo retiró YouTube por salir datos de un cliente real. Cuando se
+// suba uno con datos de prueba, como OCULTO (no «privado»), se pone aquí.
+const TUTORIAL_PRESENTAR = 'https://drive.google.com/file/d/1hXkR8JIWZZ6E8bBDynOLMINz7m0qB6Mb/view';
+
 function err(status, msg) { const e = new Error(msg); e.status = status; return e; }
 
 /** 'cae' | 'cee' (URL) ⇄ 'expediente' | 'cee_directo' (interno). */
@@ -464,7 +471,7 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 const fechaEs = (iso) => { const [a, m, d] = String(iso || '').slice(0, 10).split('-'); return d ? `${d}/${m}/${a}` : ''; };
 
 /** Puro: compone asunto, texto y HTML. Sin un importe. */
-function componerCorreo({ nombre, numero, cliente, faseLabel, adjuntos, link, plazo, nota, reenvio, bandeja = null }) {
+function componerCorreo({ nombre, numero, cliente, faseLabel, adjuntos, link, plazo, nota, reenvio, bandeja = null, tutorial = TUTORIAL_PRESENTAR }) {
     const {
         brandEmailShell, emailP, emailBox, emailButton, emailDataTable, PILL, BRAND, FONT,
     } = require('./emailService');
@@ -514,7 +521,9 @@ function componerCorreo({ nombre, numero, cliente, faseLabel, adjuntos, link, pl
                 </tr>`).join('')}</table>`
             + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;"><tr><td align="center">${
                 emailButton(esc(link), '📄 Abrir el borrador y subir el justificante', BRAND.orange)}</td></tr></table>`
-            + emailP('El enlace es personal: no hace falta usuario ni contraseña.', { size: 11, color: BRAND.muted, center: true, mb: bandeja ? 14 : 0 })
+            + emailP('El enlace es personal: no hace falta usuario ni contraseña.', { size: 11, color: BRAND.muted, center: true, mb: (tutorial || bandeja) ? 14 : 0 })
+            + (tutorial ? emailP(`¿Dudas al presentarlo? <a href="${esc(tutorial)}" style="color:${BRAND.orangeDark};font-weight:700;">🎥 Mira el tutorial paso a paso</a>`,
+                { size: 13, center: true, mb: bandeja ? 8 : 0 }) : '')
             + (bandeja ? emailP(`<a href="${esc(bandeja)}" style="color:${BRAND.orangeDark};font-weight:700;">📋 Ver todo lo que tienes pendiente de presentar</a>`,
                 { size: 13, center: true, mb: 0 }) : ''),
         footerNote: 'Encargo de presentación de BROKERGY. Si algo no cuadra, responde a este correo.',
@@ -528,6 +537,7 @@ function componerCorreo({ nombre, numero, cliente, faseLabel, adjuntos, link, pl
         nota ? `\n${nota}\n` : '',
         'Pasos:', ...pasos.map((p, i) => `  ${i + 1}. ${p}`),
         '', `Enlace: ${link}`,
+        tutorial ? `¿Dudas al presentarlo? Tutorial paso a paso: ${tutorial}` : '',
         bandeja ? `Todo lo que tienes pendiente: ${bandeja}` : '',
     ].filter(l => l !== null).join('\n');
 
@@ -665,6 +675,7 @@ async function vistaPublica(negocioUrl, id, fase, token) {
         fechaRegistro: fechaRegistro(row, fz),
         plazo: plazoDe(origen, row, fz),
         bandeja: await enlaceBandejaSeguro(encargo?.email),
+        tutorial: TUTORIAL_PRESENTAR,
     };
 }
 
@@ -761,6 +772,7 @@ async function subirDevuelto(negocioUrl, id, fase, token, { tipo, buffer, mimety
 
 module.exports = {
     FICHEROS,
+    TUTORIAL_PRESENTAR,
     origenDeUrl,
     elegirFicheros,
     esRevisar,

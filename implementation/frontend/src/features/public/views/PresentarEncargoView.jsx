@@ -164,6 +164,14 @@ export function PresentarEncargoView({ negocio, id, token, fase = 'inicial' }) {
                 </button>
             </Paso>
 
+            {/* El vídeo de cómo se presenta, por si hay dudas. El enlace lo da el backend. */}
+            {info?.tutorial && (
+                <a href={info.tutorial} target="_blank" rel="noopener noreferrer"
+                   className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/[0.08] bg-white/[0.03] text-[11px] font-bold text-white/70 hover:text-brand hover:border-brand/40 normal-case">
+                    🎥 ¿Dudas al presentarlo? Mira el tutorial paso a paso
+                </a>
+            )}
+
             <BorradorCeeModal
                 isOpen={borradorAbierto}
                 onClose={() => setBorradorAbierto(false)}
