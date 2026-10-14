@@ -1770,7 +1770,8 @@ async function ceeDirectoConToken(req, res) {
 router.get('/cee-directo-docs/:id', async (req, res) => {
     try {
         const row = await ceeDirectoConToken(req, res); if (!row) return;
-        res.json(await require('../services/ceeDirectoDocsService').vista(row, { need: req.query.need || null }));
+        // `conPago`: el enlace es del CLIENTE (o del equipo), que sí ve su justificante de pago.
+        res.json(await require('../services/ceeDirectoDocsService').vista(row, { need: req.query.need || null, conPago: true }));
     } catch (e) {
         console.error('[cee-directo-docs GET]', e.message);
         res.status(500).json({ error: 'No se pudo cargar la documentación.' });
@@ -1787,6 +1788,10 @@ router.post('/cee-directo-docs/:id/:slot/batch', requireAuth, uploadDocsArray, a
             subidoPor: isStaff(req) ? 'admin' : 'cliente',
         });
         if (!subidas.length) return res.status(500).json({ error: fallidas[0]?.error || 'No se pudo subir ningún archivo.', fallidas });
+        // El justificante de pago y la factura de la instalación mueven el
+        // procedimiento del encargo: aviso al equipo con el siguiente gesto.
+        require('../services/ceeDirectoProceso').alSubirCliente(row.id, req.params.slot,
+            subidas.map(s => ({ name: s.name, link: s.link })), { porEquipo: isStaff(req) });
         res.json({
             success: true, slot: req.params.slot, fallidas,
             items: subidas.map(({ file, ...it }) => it), // eslint-disable-line no-unused-vars

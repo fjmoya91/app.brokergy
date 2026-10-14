@@ -76,11 +76,12 @@ function LineaGuia({ guia, onRevisar }) {
     );
 }
 
-function Fila({ id, fase, etiqueta, onCambio }) {
+function Fila({ id, fase, etiqueta, isAdmin, onCambio }) {
     const [info, setInfo] = useState(null);
     const [enviando, setEnviando] = useState(false);
     const [resultado, setResultado] = useState(null);
     const [confirmarReenvio, setConfirmarReenvio] = useState(false);
+    const [confirmarSinCobro, setConfirmarSinCobro] = useState(false);
     const [revisarGuia, setRevisarGuia] = useState(false);
     const [avisar, setAvisar] = useState(false);
 
@@ -108,13 +109,14 @@ function Fila({ id, fase, etiqueta, onCambio }) {
         }
     }, [id, fase]);
 
-    const entregar = async (reenviar = false) => {
+    const entregar = async (reenviar = false, sinCobro = false) => {
         setEnviando(true);
         setResultado(null);
         try {
-            const { data } = await axios.post(`${API}/${id}/entrega`, { phase: fase, reenviar });
+            const { data } = await axios.post(`${API}/${id}/entrega`, { phase: fase, reenviar, sinCobro });
             setResultado({ ok: true, texto: `Enviado por ${data.canales.join(' y ')}.` });
             setConfirmarReenvio(false);
+            setConfirmarSinCobro(false);
             await cargar();
             onCambio?.();
         } catch (err) {
@@ -159,7 +161,7 @@ function Fila({ id, fase, etiqueta, onCambio }) {
                                 {destinatario.partner ? ` · el partner: se le facturó${destinatario.factura ? ` la ${destinatario.factura}` : ''}` : ''}
                             </div>
                             <div className="text-[11px] text-white/25 mt-1">
-                                Adjuntos: {[ficheros.pdf, ficheros.registro, ficheros.etiqueta, ficheros.guia].filter(Boolean).join(' · ')}
+                                Adjuntos: {[ficheros.pdf, ficheros.registro, ficheros.etiqueta, ficheros.tasa, ficheros.guia].filter(Boolean).join(' · ')}
                             </div>
                             <LineaGuia guia={guia} onRevisar={() => setRevisarGuia(true)} />
                         </>
@@ -197,6 +199,28 @@ function Fila({ id, fase, etiqueta, onCambio }) {
                             className="min-h-[44px] px-4 rounded-xl bg-brand text-bkg-deep text-[10px] font-black uppercase tracking-widest hover:bg-brand-700 transition-colors disabled:opacity-40">
                             {enviando ? 'Enviando…' : 'Entregar ahora'}
                         </button>
+                    )}
+                    {/* El atajo del procedimiento: todo listo menos el cobro y una
+                        persona decide no esperar al pago. Solo ADMIN, y se confirma. */}
+                    {!yaEntregado && isAdmin && info.soloFaltaCobro && (
+                        confirmarSinCobro ? (
+                            <div className="flex gap-2">
+                                <button onClick={() => setConfirmarSinCobro(false)}
+                                    className="min-h-[44px] px-3 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white">
+                                    No
+                                </button>
+                                <button onClick={() => entregar(false, true)} disabled={enviando}
+                                    className="min-h-[44px] px-4 rounded-xl bg-amber-500 text-bkg-deep text-[10px] font-black uppercase tracking-widest disabled:opacity-40">
+                                    {enviando ? 'Enviando…' : 'Sí, sin cobrar'}
+                                </button>
+                            </div>
+                        ) : (
+                            <button onClick={() => setConfirmarSinCobro(true)}
+                                title="Le envía ya el certificado, el registro y la etiqueta aunque la factura no esté pagada"
+                                className="min-h-[44px] px-4 rounded-xl border border-amber-500/30 text-[10px] font-black uppercase tracking-widest text-amber-300/80 hover:text-amber-200 hover:border-amber-500/50 transition-colors">
+                                Entregar sin esperar al pago
+                            </button>
+                        )
                     )}
                     {/* Reenviar pide confirmación: el cliente ya lo tiene, y recibir
                         el mismo certificado dos veces le hace dudar de cuál vale. */}
@@ -238,7 +262,7 @@ function Fila({ id, fase, etiqueta, onCambio }) {
     );
 }
 
-export function EntregaCliente({ id, esDoble, autoAvisoRef, onCambio }) {
+export function EntregaCliente({ id, esDoble, isAdmin = false, onCambio }) {
     const [auto, setAuto] = useState(null);
 
     useEffect(() => {
@@ -256,11 +280,11 @@ export function EntregaCliente({ id, esDoble, autoAvisoRef, onCambio }) {
             </div>
 
             <p className="text-[11px] text-white/30 mb-4">
-                Al subirse el registro te llega un aviso: desde «Avisar al cliente» le dices que está
-                registrado y, si quieres, le emites la factura. El certificado se envía solo —por email y
-                WhatsApp, con el PDF firmado, el justificante de registro y la etiqueta— en cuanto el
-                expediente está cobrado. Si los certificados acreditan la deducción del IRPF, va también
-                la guía de la Renta.
+                El certificado se envía solo —por email y WhatsApp, con el PDF firmado, el justificante de
+                registro, la etiqueta y, si está, el de la tasa— en cuanto el expediente está cobrado y
+                registrado. Si los certificados acreditan la deducción del IRPF, va también la guía de la
+                Renta. Sin la factura enviada, «Avisar al cliente» le dice que está registrado y, si
+                quieres, se la emite.
             </p>
 
             {/* Que el automático esté apagado tiene que verse. Sin este aviso, en
@@ -273,8 +297,8 @@ export function EntregaCliente({ id, esDoble, autoAvisoRef, onCambio }) {
             )}
 
             <div className="space-y-3">
-                <Fila id={id} fase="inicial" etiqueta={esDoble ? FASES.inicial : 'Certificado'} onCambio={onCambio} />
-                {esDoble && <Fila id={id} fase="final" etiqueta={FASES.final} onCambio={onCambio} />}
+                <Fila id={id} fase="inicial" etiqueta={esDoble ? FASES.inicial : 'Certificado'} isAdmin={isAdmin} onCambio={onCambio} />
+                {esDoble && <Fila id={id} fase="final" etiqueta={FASES.final} isAdmin={isAdmin} onCambio={onCambio} />}
             </div>
         </div>
     );

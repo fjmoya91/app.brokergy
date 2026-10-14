@@ -113,6 +113,10 @@ async function subirCeeDirecto({ id, fase, slot, buffer, mimetype, quien = QUIEN
 
     await svcCeeDirecto.guardar(row.id, patch, { seguimientoPrev: row.seguimiento });
 
+    // El PDF FIRMADO del inicial puede llegar después del visto bueno: entonces
+    // es él el que completa el paso 2 del procedimiento (toca la factura).
+    if (slot === 'pdf' && ph === 'inicial') require('../ceeDirectoProceso').revisarFacturaAsync(row.id, 'PDF firmado subido');
+
     if (registrado) {
         // Otra de las dos mitades de la condición de entrega: si el expediente ya
         // estaba cobrado, el cliente recibe su certificado sin que nadie se acuerde.
@@ -135,10 +139,7 @@ async function subirCeeDirecto({ id, fase, slot, buffer, mimetype, quien = QUIEN
         setImmediate(async () => {
             try {
                 const wa = process.env.WHATSAPP_ADMIN_CHAT;
-                const base = process.env.FRONTEND_URL || 'https://app.brokergy.es';
-                const siguiente = row.cobrado
-                    ? 'Está cobrado: la entrega al cliente sale sola.'
-                    : `Avisar al cliente y emitir la factura:\n${base}/?cee=${row.id}&avisar=${ph}`;
+                const siguiente = require('../ceeDirectoProceso').siguienteTrasRegistro(row, ph);
                 const texto = `✅ ${row.numero_expediente} — ${ph === 'final' ? 'CEE FINAL' : 'CEE'} REGISTRADO por ${quien.texto}.\n\n${siguiente}`;
                 if (wa) await require('../whatsappService').sendText(wa, texto);
                 if (process.env.ADMIN_EMAIL) {

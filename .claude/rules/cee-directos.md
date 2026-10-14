@@ -26,21 +26,22 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/asignar-y-reasignar-certificador.md` — Asignar y REASIGNAR certificador · 2,6 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/descuento-cuestionario-de-climatizacion-y-documentacion-del-cee.md` — Descuento, cuestionario de climatización y documentación del CEE (2026-09-23) · 2,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/drive.md` — Drive · 0,8 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-candado-de-cobro.md` — El candado de cobro · 1,5 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-candado-de-cobro.md` — El candado de cobro · 2,0 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-cliente-es-el-de-siempre-y-desde-su-ficha-se-llega-al-cee.md` — El cliente es el de siempre, y desde su ficha se llega al CEE · 1,5 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-formulario-se-guarda-solo-y-eso-tiene-una-trampa.md` — El formulario se guarda solo, y eso tiene una trampa · 1,4 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-historico-importado.md` — El histórico importado · 1,1 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-procedimiento-de-la-oferta-a-la-entrega.md` — El PROCEDIMIENTO: de la oferta a la entrega (2026-10-14) · 5,0 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-tecnico-acusa-el-encargo-lo-cojo-no-puedo.md` — El técnico ACUSA el encargo: lo cojo / no puedo · 2,6 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/estados.md` — Estados · 1,6 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/estados.md` — Estados · 2,0 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/fuentes-unicas.md` — Fuentes únicas · 1,0 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-direccion-se-elige-no-se-teclea.md` — La dirección se ELIGE, no se teclea · 1,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-direccion-se-trae-del-catastro-y-se-puede-corregir.md` — La dirección se trae del Catastro, y se puede corregir · 3,3 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-entrega-al-cliente-se-dispara-sola.md` — La entrega al cliente se dispara SOLA · 4,4 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-entrega-al-cliente-se-dispara-sola.md` — La entrega al cliente se dispara SOLA · 5,0 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-factura-se-emite-contra-el-libro-de-facturas-de-appsheet.md` — La FACTURA se emite contra el libro de facturas de AppSheet (2026-09-23) · 5,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-ficha-del-cee-es-una-linea-de-datos-no-un-formulario.md` — La ficha del CEE es UNA LÍNEA de datos, no un formulario · 2,0 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-oferta-el-paso-anterior-al-expediente.md` — La OFERTA — el paso anterior al expediente (2026-09-23) · 5,1 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/lo-que-se-comparte-importado-y-no-copiado.md` — Lo que se comparte, IMPORTADO y no copiado · 1,4 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-avisos-al-cliente-como-en-el-cae.md` — Los avisos al CLIENTE, como en el CAE (2026-09-23) · 2,2 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-avisos-al-cliente-como-en-el-cae.md` — Los avisos al CLIENTE, como en el CAE (2026-09-23) · 2,4 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-ficheros-los-coloca-el-servidor-no-el-navegador.md` — Los FICHEROS los coloca el SERVIDOR, no el navegador · 2,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/numeracion-aaaa-cee-n.md` — Numeración — `{AAAA}CEE_{n}` · 0,9 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/que-ve-el-certificador-y-que-no.md` — Qué ve el certificador — y qué NO · 1,5 KB
@@ -65,6 +66,11 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 render?".**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-historico-importado.md`
   - **REGLA — de un histórico solo se afirma lo que tiene JUSTIFICANTE.**
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-procedimiento-de-la-oferta-a-la-entrega.md`
+  - **REGLA — la factura se propone con el certificado FIRMADO y con el VISTO BUENO**
+  - **REGLA — subir el justificante NO marca cobrado: se avisa y una persona lo CONFIRMA**
+  - **REGLA — el justificante va a «3. PRESUPUESTO Y FACTURAS» y el técnico no lo ve.**
+  - **REGLA — con la factura YA enviada, el aviso de «registrado» la RECUERDA**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/el-tecnico-acusa-el-encargo-lo-cojo-no-puedo.md`
   - **REGLA — el gesto es el MISMO que en el CAE.**
   - **REGLA — aceptar es automático; RECHAZAR nunca.**

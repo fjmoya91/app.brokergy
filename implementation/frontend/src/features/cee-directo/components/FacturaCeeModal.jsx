@@ -155,9 +155,12 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
 
     // El mensaje que saldría al emitir (con el nº que tocaría ahora).
     const contactoDestino = datos?.contactos?.[destino] || {};
+    // Procedimiento: el enlace del justificante y en qué punto está su certificado.
+    const ctxMensaje = { enlacePago: datos?.enlacePago || null, certificado: datos?.certificado || null, doble: !!datos?.doble };
     const mensajeDe = (numero) => mensajeFactura({
         nombre: contactoDestino.nombre || cliente.razon_social, numero, total: totales.total,
         expediente: datos?.expediente?.numero, esEmpresa: contactoDestino.esEmpresa ?? !!cliente.esEmpresa, lineas,
+        ...ctxMensaje,
     });
     const numeroPrevisto = datos?.proximoNumero || '';
     const canEmailPrev = usaEmail && /\S+@\S+\.\S+/.test(email);
@@ -285,6 +288,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
     const mensajeAuto = actual ? mensajeFactura({
         nombre: contacto.nombre || actual.cliente?.razon_social, numero: actual.numero, total: actual.total,
         expediente: datos?.expediente?.numero, esEmpresa: contacto.esEmpresa, lineas: actual.lineas || [],
+        ...ctxMensaje,
     }) : '';
 
     const canEmail = usaEmail && /\S+@\S+\.\S+/.test(email);

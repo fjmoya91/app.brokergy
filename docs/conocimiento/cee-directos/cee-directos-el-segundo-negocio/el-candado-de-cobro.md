@@ -16,7 +16,14 @@ cobrado», visto en 2026CEE_55). Lo que sale es el aviso de «registrado» sin f
 registro, ni la etiqueta. El popup lo dice en ámbar antes de enviar (`sinCertificado`
 en la preview). Al marcar cobrado, la entrega con los ficheros sale sola, por fase.
 
-En el **INICIAL de un encargo DOBLE** el texto no reclama el pago (`cobroAlFinal`):
+Desde el 14/10/2026 el cobro tiene su sitio fijo en el PROCEDIMIENTO (ver «El
+PROCEDIMIENTO: de la oferta a la entrega»): la factura sale con el certificado
+firmado y revisado, el cliente sube el justificante por su enlace y una persona
+confirma el cobro. El candado no cambia; el único que lo salta es el atajo
+«Entregar sin esperar al pago» (ADMIN). Si ya hay una factura enviada, el aviso de
+«registrado» sin certificados la RECUERDA, con el enlace del justificante.
+
+En el **INICIAL de un encargo DOBLE SIN ninguna factura** el texto no reclama el pago (`cobroAlFinal`):
 pide que avisen cuando la instalación esté hecha y facturada, para emitir el final, y
 dice que entonces irá nuestra factura y, abonada, los dos certificados. El cobro se
 puede reclamar con el inicial (el popup «Avisar al cliente», con factura) o con el

@@ -545,9 +545,15 @@ router.put('/:id', internalOnly, async (req, res) => {
         // Lo mismo con lo que escriben otras rutas por la RPC de MERGE: la entrega
         // al cliente y la guía de la deducción del IRPF. La copia del navegador no
         // los trae al día y el autoguardado se los llevaría por delante.
+        // Y los sellos del PROCEDIMIENTO (ceeDirectoProceso: aviso de facturar,
+        // justificante de pago, factura de la instalación), los avisos al cliente y
+        // lo que sube el cliente (`reforma_uploads`, por su RPC): llegan mientras la
+        // ficha está abierta, y su copia no los tiene.
         if (patch.documentacion && typeof patch.documentacion === 'object') {
             patch.documentacion = { ...patch.documentacion };
-            for (const clave of ['facturas_emitidas', 'entrega_cliente', 'guia_irpf']) {
+            for (const clave of ['facturas_emitidas', 'entrega_cliente', 'guia_irpf',
+                'aviso_facturar', 'justificante_pago', 'factura_instalacion',
+                'aviso_registrado', 'aviso_cliente_cee', 'reforma_uploads', 'docs_overrides']) {
                 const guardado = row.documentacion?.[clave];
                 if (guardado) patch.documentacion[clave] = guardado;
                 else delete patch.documentacion[clave];
@@ -629,10 +635,11 @@ router.put('/:id', internalOnly, async (req, res) => {
                             + `${nombreCliente(row.cliente) ? ` (${nombreCliente(row.cliente)})` : ''}
 `
                             + `Lo ha hecho ${quien}.\n\n`
-                            // Registrado y sin cobrar: el enlace abre el popup «Avisar al
-                            // cliente» (con la factura). Cobrado, la entrega sale sola.
-                            + (ahora === 'REGISTRADO' && !guardado.cobrado
-                                ? `Avisar al cliente y emitir la factura:\n${enlaceApp(row.id)}&avisar=${fase}`
+                            // Registrado: lo que toca según el procedimiento (cobrado →
+                            // sale solo; factura enviada → esperar el justificante;
+                            // sin factura → el popup «Avisar al cliente», con ella).
+                            + (ahora === 'REGISTRADO'
+                                ? require('../services/ceeDirectoProceso').siguienteTrasRegistro({ ...row, cobrado: guardado.cobrado }, fase)
                                 : enlaceApp(row.id))
                     }).catch(e => console.warn('[cee-directos aviso avance]', e.message));
                 });
@@ -932,7 +939,8 @@ async function filaConAcceso(req, res) {
 router.get('/:id/docs', internalOnly, async (req, res) => {
     try {
         const row = await filaConAcceso(req, res); if (!row) return;
-        const v = await docsCee.vista(row, { admin: true });
+        // El justificante de pago, solo al equipo: el técnico también abre esta ficha.
+        const v = await docsCee.vista(row, { admin: true, conPago: isStaff(req) });
         // Para el botón de pedírselo al cliente.
         const contacto = svc.contactoCliente(row.cliente);
         res.json({ ...v, recipients: { cliente: contacto.tlf || contacto.email ? contacto : null, instalador: null } });
@@ -1388,6 +1396,9 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         if (!sinAviso) seguimiento[`${key}_last_contacto_at`] = new Date().toISOString();
         const guardado = await svc.guardar(row.id, { seguimiento }, { seguimientoPrev: row.seguimiento });
 
+        // Procedimiento, paso 2: firmado y con visto bueno → toca la factura.
+        if (phase === 'inicial') require('../services/ceeDirectoProceso').revisarFacturaAsync(row.id, 'visto bueno');
+
         const nota = (req.body?.notaAdicional || '').trim();
         await svc.anotarHistorial(row.id, {
             tipo: 'CERTIFICADOR',
@@ -1541,7 +1552,7 @@ router.post('/:id/notify-registration', internalOnly, async (req, res) => {
             asunto: `${row.numero_expediente} — ${faseLabel} REGISTRADO`,
             cuerpo: `✅ ${faseLabel} REGISTRADO — ${row.numero_expediente}`
                 + `${nombreCliente(row.cliente) ? ` (${nombreCliente(row.cliente)})` : ''}\n\n`
-                + (row.cobrado ? enlaceApp(row.id) : `Avisar al cliente y emitir la factura:\n${enlaceApp(row.id)}&avisar=${phase}`)
+                + require('../services/ceeDirectoProceso').siguienteTrasRegistro(row, phase)
         });
 
         // Y a quien se haya marcado en el popup — antes este paso no existía y el
@@ -1755,6 +1766,11 @@ router.post('/:id/documents/upload', internalOnly, async (req, res) => {
                 // devuelve para que la rejilla selle ÉSA y no el día de la subida.
                 const { fechaRegistroDeSubida } = require('../services/registroCeeOcrService');
                 const lectura = await fechaRegistroDeSubida({ slotId: slot, fileName, buffer });
+                // El PDF firmado del inicial tras el visto bueno completa el paso 2
+                // del procedimiento: toca la factura.
+                if (slot === 'pdf' && uploads.normalizePhase(fase) === 'inicial') {
+                    require('../services/ceeDirectoProceso').revisarFacturaAsync(row.id, 'PDF firmado subido');
+                }
                 return res.json({
                     drive_link: subido.link, drive_id: subido.id, fileName: subido.fileName,
                     ...(lectura ? {
@@ -1959,8 +1975,8 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
                 ok: true,
                 preview: {
                     CLIENTE: textoEditado || (row.cobrado
-                        ? entrega.mensaje(row, phase, { textoGuia: st.guia?.va ? st.guia.texto : '', guia: st.guia?.va ? st.guia : null })
-                        : entrega.textoSinCobrar(row, phase))
+                        ? await entrega.mensajeEntrega(row, phase, st)
+                        : await entrega.textoSinCobrar(row, phase))
                 },
                 cobrado: row.cobrado,
                 sinCertificado: !row.cobrado,
@@ -1973,7 +1989,7 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
         if (!row.cobrado) {
             const r = await entrega.avisarRegistrado(row.id, phase, {
                 manual: true, channels: canalesDe(req), usuario: req.user?.email || null,
-                mensaje: textoEditado || entrega.textoSinCobrar(row, phase)
+                mensaje: textoEditado || await entrega.textoSinCobrar(row, phase)
             });
             if (!r.enviado) {
                 return res.status(r.motivo === 'SIN_CONTACTO' ? 422 : 502).json({
@@ -2162,7 +2178,7 @@ router.get('/:id/entrega', staffOnly, async (req, res) => {
         res.json({
             ...st,
             phase,
-            mensaje: entrega.mensaje(row, phase, { textoGuia: st.guia?.texto, guia: st.guia }),
+            mensaje: await entrega.mensajeEntrega(row, phase, st),
             // Que el automático esté apagado es un dato de la pantalla: si no, en
             // local uno marca cobrado, no pasa nada y piensa que está roto.
             autoActivado: entrega.autoActivado()
@@ -2176,11 +2192,16 @@ router.get('/:id/entrega', staffOnly, async (req, res) => {
 // ─── POST /:id/entrega ── Entregar ahora (manual) ───────────────────────────
 // Salta el interruptor del automático (aquí hay una persona decidiendo), pero
 // NO las condiciones: sin cobro, sin registro o sin los dos PDF no sale nada.
+// La única que se puede saltar es el COBRO (`sinCobro`), y solo un ADMIN: es el
+// atajo «Entregar sin esperar al pago» del procedimiento.
 router.post('/:id/entrega', staffOnly, async (req, res) => {
     try {
         const phase = req.body?.phase === 'final' ? 'final' : 'inicial';
+        const sinCobro = req.body?.sinCobro === true;
+        if (sinCobro && !isAdmin(req)) return res.status(403).json({ error: 'Entregar sin cobrar es cosa de un administrador.' });
         const r = await entrega.entregar(req.params.id, phase, {
             manual: true,
+            sinCobro,
             reenviar: req.body?.reenviar === true,
             mensaje: req.body?.mensaje,
             usuario: req.user?.email || null
@@ -2192,6 +2213,39 @@ router.post('/:id/entrega', staffOnly, async (req, res) => {
         res.json(r);
     } catch (err) {
         console.error('[cee-directos entrega POST]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── GET /:id/proceso ── El procedimiento del encargo, paso a paso ─────────
+// Lo pinta el panel de la ficha (ProcesoCee): qué está hecho, qué toca y de
+// quién es la pelota. Con el justificante de pago a mano para confirmar el
+// cobro. Importes y enlaces de pago, solo ADMIN (regla 102).
+router.get('/:id/proceso', staffOnly, async (req, res) => {
+    try {
+        const row = await svc.cargar(req.params.id);
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const proceso = require('../services/ceeDirectoProceso');
+        const out = await proceso.pasos(row);
+        if (isAdmin(req)) {
+            // El justificante que ha subido, para mirarlo antes de confirmar el cobro.
+            if (!row.cobrado && proceso.facturas(row).length) {
+                try {
+                    const v = await docsCee.vista(row, { need: docsCee.JUSTIFICANTE_PAGO, conPago: true });
+                    out.justificantes = (v.slots[0]?.items || []).map(i => ({ name: i.name, link: i.link, at: i.at || null }));
+                } catch (e) { out.justificantes = []; console.warn('[cee-directos proceso] justificantes:', e.message); }
+            }
+            out.enlaces = {
+                pago: proceso.facturas(row).length ? await proceso.enlacePago(row) : null,
+                facturaInstalacion: estados.esDoble(row) ? await proceso.enlaceFacturaInstalacion(row) : null,
+            };
+        } else {
+            if (out.factura) delete out.factura.total;
+            for (const p of out.pasos) if (p.clave === 'factura') p.detalle = p.estado === 'hecho' ? 'Enviada' : p.detalle.replace(/ · [^·]*€/, '');
+        }
+        res.json(out);
+    } catch (err) {
+        console.error('[cee-directos proceso]', err.message);
         res.status(500).json({ error: err.message });
     }
 });

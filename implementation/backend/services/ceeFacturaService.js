@@ -78,6 +78,28 @@ function emitidas(row) {
 
 // ── Lo que necesita el popup ───────────────────────────────────────────────
 
+/**
+ * Lo que el mensaje de la factura cuenta además del importe (`mensajeFactura`):
+ * el enlace para SUBIR EL JUSTIFICANTE de pago, si el certificado ya está
+ * firmado o registrado, y si el encargo es DOBLE. Sin cobrar; cobrado no se pide
+ * justificante. Best-effort: sin Drive, el mensaje de siempre.
+ */
+async function contextoMensaje(row) {
+    const proceso = require('./ceeDirectoProceso');
+    const uploads = require('./ceeDirectoUploadService');
+    const doble = String(row.alcance || '').toUpperCase() === 'DOBLE';
+    let certificado = null, enlacePago = null;
+    try {
+        if (row.seguimiento?.cee_inicial === 'REGISTRADO') certificado = 'registrado';
+        else if (row.drive_folder_id) {
+            const ini = await uploads.scanSection(row, 'inicial');
+            if (proceso.firmadoConVistoBueno(row, 'inicial', ini)) certificado = 'firmado';
+        }
+        if (!row.cobrado) enlacePago = await proceso.enlacePago(row);
+    } catch (e) { console.warn('[factura cee] contexto del mensaje:', e.message); }
+    return { enlacePago, certificado, doble };
+}
+
 async function borrador(id) {
     const row = await svc.cargar(id);
     if (!row) throw error(404, 'Expediente no encontrado');
@@ -92,6 +114,9 @@ async function borrador(id) {
 
     return {
         expediente: { id: row.id, numero: row.numero_expediente, alcance: row.alcance, cobrado: row.cobrado },
+        // Para el mensaje (procedimiento del CEE directo): dónde sube el cliente el
+        // justificante y en qué punto está su certificado.
+        ...(await contextoMensaje(row)),
         destinatarios: destinatarios(row),
         destinoDefecto: row.cliente || !row.prescriptor ? 'cliente' : 'partner',
         contactos: { cliente: contactoEnvio(row, 'cliente'), partner: row.prescriptor ? contactoEnvio(row, 'partner') : null },
@@ -310,7 +335,8 @@ async function enviar(id, numero, { canales = [], email, tlf, mensaje, usuario =
     const { buffer, filename, reg, row } = await pdfDe(id, numero);
     const contacto = contactoEnvio(row, reg.destino);
     const texto = txt(mensaje) || m.mensajeFactura({
-        nombre: contacto.nombre, numero: reg.numero, total: reg.total, expediente: row.numero_expediente, esEmpresa: contacto.esEmpresa, lineas: reg.lineas || []
+        nombre: contacto.nombre, numero: reg.numero, total: reg.total, expediente: row.numero_expediente, esEmpresa: contacto.esEmpresa, lineas: reg.lineas || [],
+        ...(await contextoMensaje(row)),
     });
 
     const resultados = {};

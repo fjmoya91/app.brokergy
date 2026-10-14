@@ -354,6 +354,8 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                                     <div className="text-[10px] text-white/25 mt-1 uppercase tracking-widest">
                                                         Pelota: {r.responsable === 'CERTIFICADOR' ? 'Técnico'
                                                             : r.responsable === 'PRESENTADOR' ? (r.presentador?.split(/\s+/)[0] || 'Quien presenta')
+                                                            // El final espera a la obra: la factura de la instalación.
+                                                            : r.responsable === 'CLIENTE' ? 'Cliente (obra)'
                                                             : 'Nuestra'}
                                                     </div>
                                                 )}

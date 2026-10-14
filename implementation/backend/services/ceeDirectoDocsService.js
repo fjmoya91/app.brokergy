@@ -21,10 +21,44 @@ const reforma = require('./reformaUploadService');
 const svc = require('./ceeDirectoService');
 
 const SUBCARPETA = '4. DOCUMENTACIÓN PARA CEE';
+const SUBCARPETA_FACTURAS = '3. PRESUPUESTO Y FACTURAS';
 const FRONTEND = () => process.env.FRONTEND_URL || 'https://app.brokergy.es';
 
 // Los apartados del CEE, en el orden en que se piden.
 const CLAVES = ['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES', 'VIDEO_VIVIENDA', 'DOC_PLANOS', 'DOC_CEE_EXISTENTE', 'OTROS_ANTES'];
+
+// Lo que el cliente sube por el MISMO enlace en el procedimiento del encargo
+// (ceeDirectoProceso): el justificante de la transferencia de nuestra factura y,
+// en un encargo DOBLE, la factura de la instalación, que es lo que abre el CEE
+// final. No son documentación para el técnico:
+//   · el JUSTIFICANTE va a «3. PRESUPUESTO Y FACTURAS» (importes: ni público ni
+//     a la vista del técnico, que solo recibe sus dos subcarpetas) y solo lo ven
+//     el equipo y el propio cliente (`conPago`);
+//   · la FACTURA DE LA INSTALACIÓN sí va a «4. DOCUMENTACIÓN PARA CEE»: dice qué
+//     equipos se han puesto, que es lo que modela el CEE final.
+const ACCEPT_DOC = 'application/pdf,.pdf,image/*,.jpg,.jpeg,.png,.heic,.heif,.webp';
+const JUSTIFICANTE_PAGO = 'JUSTIFICANTE_PAGO';
+const FACTURA_INSTALACION = 'DOC_FACTURAS';
+const SLOTS_PROCESO = {
+    [JUSTIFICANTE_PAGO]: {
+        key: JUSTIFICANTE_PAGO, fase: 'ANTES', destino: 'EXPEDIENTE', required: false, multiple: true, accept: ACCEPT_DOC,
+        label: 'Justificante de pago de la factura',
+        help: 'El justificante de la transferencia (PDF o captura del banco).',
+        labelCliente: 'El justificante de la transferencia',
+        helpCliente: 'Una captura o el PDF del banco donde se vea el pago de nuestra factura.',
+        subcarpeta: SUBCARPETA_FACTURAS,
+    },
+    [FACTURA_INSTALACION]: {
+        key: FACTURA_INSTALACION, fase: 'ANTES', destino: 'CEE', required: false, multiple: true, accept: ACCEPT_DOC,
+        label: 'Factura de la instalación',
+        help: 'La factura de la obra ya terminada: con ella se emite el CEE final.',
+        labelCliente: 'La factura de la instalación',
+        helpCliente: 'Cuando la obra esté terminada, la factura del instalador (PDF o foto). Con ella emitimos tu certificado final.',
+        subcarpeta: SUBCARPETA,
+    },
+};
+const subcarpetaDe = (key) => SLOTS_PROCESO[key]?.subcarpeta || SUBCARPETA;
+const hayFactura = (row) => Object.keys(row?.documentacion?.facturas_emitidas || {}).length > 0;
 
 // La fachada es lo único IMPRESCINDIBLE (de ella salen las ventanas y su
 // tamaño); patios, vídeo y planos ayudan y se piden, pero hay viviendas sin
@@ -37,10 +71,18 @@ const RECOMENDADOS = ['FOTO_PATIOS_INTERIORES', 'VIDEO_VIVIENDA', 'DOC_PLANOS'];
  * que el rótulo y la ayuda que lee el cliente sean idénticos en los dos
  * negocios. Sin el "unir en PDF" (esa ruta es solo del CAE) y todo en la fase
  * de antes: aquí no hay obra.
+ *
+ * Con la fila (`row`), detrás van los apartados del PROCEDIMIENTO que tocan a
+ * ESE encargo: el justificante de pago en cuanto hay una factura emitida, y la
+ * factura de la instalación si es DOBLE. Sin fila (clasificador de fotos, textos)
+ * solo salen los del CEE: el buzón nunca propone un justificante de pago.
  */
-function checklist() {
+function checklist(row = null) {
     const base = reforma.buildDocChecklist({});
-    return CLAVES.map(k => base.find(s => s.key === k)).filter(Boolean).map(s => {
+    const extras = [];
+    if (row && hayFactura(row)) extras.push(SLOTS_PROCESO[JUSTIFICANTE_PAGO]);
+    if (row && String(row.alcance || '').toUpperCase() === 'DOBLE') extras.push(SLOTS_PROCESO[FACTURA_INSTALACION]);
+    return [...CLAVES.map(k => base.find(s => s.key === k)).filter(Boolean).map(s => {
         const out = { ...s, fase: 'ANTES', destino: 'CEE', required: OBLIGATORIOS.has(s.key) };
         delete out.mergePdf;
         delete out.prescindible;
@@ -49,7 +91,7 @@ function checklist() {
             out.help = 'Cualquier otra cosa que ayude al técnico (fotos, papeles, vídeos).';
         }
         return out;
-    });
+    }), ...extras.map(s => { const { subcarpeta, ...out } = s; return out; })]; // eslint-disable-line no-unused-vars
 }
 
 /** Compara el token en tiempo constante: detrás de este enlace se sube a su carpeta. */
@@ -86,10 +128,10 @@ async function carpeta(row) {
     return c.id;
 }
 
-async function listarDrive(row) {
+async function listarDrive(row, subcarpeta = SUBCARPETA) {
     if (!row.drive_folder_id) return [];
     try {
-        const subId = await driveService.findSubfolderByName(row.drive_folder_id, SUBCARPETA);
+        const subId = await driveService.findSubfolderByName(row.drive_folder_id, subcarpeta);
         return subId ? (await driveService.listFiles(subId)) || [] : [];
     } catch (e) {
         console.warn('[cee-directo docs] listado Drive:', e.message);
@@ -108,16 +150,21 @@ const rollup = (items) => {
  * La vista que pinta `DocsManager`: la MISMA forma que la del CAE (slots con sus
  * items), para que el componente no sepa en qué negocio está.
  */
-async function vista(row, { need = null, admin = false } = {}) {
-    const lista = checklist();
+async function vista(row, { need = null, admin = false, conPago = false } = {}) {
+    // El justificante de pago lo ven el equipo y el cliente; el técnico (y su
+    // página del encargo) NO: es un importe (`conPago` = false por defecto).
+    const lista = checklist(row).filter(s => conPago || s.key !== JUSTIFICANTE_PAGO);
     const uploads = row.documentacion?.reforma_uploads || {};
     const overrides = row.documentacion?.docs_overrides || {};
     const driveFiles = await listarDrive(row);
+    const driveFacturas = lista.some(s => subcarpetaDe(s.key) === SUBCARPETA_FACTURAS)
+        ? await listarDrive(row, SUBCARPETA_FACTURAS) : [];
     const usados = new Set();
 
     const slots = lista.map(s => {
         const db = new Map((uploads[s.key] || []).map(it => [it.name, it]));
-        const enDrive = driveFiles.filter(f => reforma.fileBelongsToSlot(f.name, s.key));
+        const enDrive = (subcarpetaDe(s.key) === SUBCARPETA_FACTURAS ? driveFacturas : driveFiles)
+            .filter(f => reforma.fileBelongsToSlot(f.name, s.key));
         enDrive.forEach(f => usados.add(f.id));
         const items = enDrive.length
             ? enDrive.map(f => {
@@ -167,14 +214,14 @@ async function vista(row, { need = null, admin = false } = {}) {
 
 /** Sube una tanda a un apartado, por la MISMA función que el CAE. */
 async function subir(row, slotKey, archivos, { label = null, subidoPor = 'cliente' } = {}) {
-    const slotDef = checklist().find(s => s.key === slotKey);
+    const slotDef = checklist(row).find(s => s.key === slotKey);
     if (!slotDef) throw Object.assign(new Error('Tipo de documento no válido'), { status: 400 });
     const folderId = await carpeta(row);
     return reforma.subirFicherosASlot({
         slotDef, archivos, label, subidoPor,
         destino: {
             folderId,
-            subcarpeta: SUBCARPETA,
+            subcarpeta: subcarpetaDe(slotKey),
             prev: row.documentacion?.reforma_uploads?.[slotKey] || [],
             registrar: (slot, entry, multiple) => supabase.rpc('cee_directo_docs_append', {
                 p_id: row.id, p_slot: slot, p_entry: entry, p_multiple: multiple
@@ -189,7 +236,7 @@ async function borrar(row, slotKey, { name, driveId }) {
     const target = driveId || list.find(it => it.name === name)?.driveId;
     // Solo se borra lo que es de ESTE expediente: el driveId llega del navegador.
     if (target) {
-        const enCarpeta = (await listarDrive(row)).some(f => f.id === target);
+        const enCarpeta = (await listarDrive(row, subcarpetaDe(slotKey))).some(f => f.id === target);
         if (!enCarpeta && !list.some(it => it.driveId === target)) {
             throw Object.assign(new Error('Ese fichero no es de este expediente'), { status: 403 });
         }
@@ -207,7 +254,7 @@ async function marcar(row, slotKey, name, patch) {
     if (i >= 0) list[i] = { ...list[i], ...patch };
     else {
         // Estaba en Drive pero no registrado (subido a mano): se registra ahora.
-        const f = (await listarDrive(row)).find(x => x.name === name);
+        const f = (await listarDrive(row, subcarpetaDe(slotKey))).find(x => x.name === name);
         if (!f) throw Object.assign(new Error('Archivo no encontrado'), { status: 404 });
         list.push({ name, link: f.webViewLink || null, driveId: f.id, at: new Date().toISOString(), subido_por: null, ...patch });
     }
@@ -268,4 +315,4 @@ function lineasPeticion(claves) {
     return out;
 }
 
-module.exports = { SUBCARPETA, checklist, tokenValido, asegurarToken, enlace, vista, subir, borrar, marcar, faltan, lineasPeticion, carpeta };
+module.exports = { SUBCARPETA, SUBCARPETA_FACTURAS, JUSTIFICANTE_PAGO, FACTURA_INSTALACION, checklist, tokenValido, asegurarToken, enlace, vista, subir, borrar, marcar, faltan, lineasPeticion, carpeta };

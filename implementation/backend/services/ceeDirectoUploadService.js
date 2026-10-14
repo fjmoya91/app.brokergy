@@ -93,7 +93,7 @@ async function findSectionFolderLink(ceeDirecto, phase) {
  * Drive es la fuente de verdad de qué ficheros existen (regla 20): la vista
  * reconcilia contra esto, no contra lo que diga el JSONB.
  */
-async function scanSection(ceeDirecto, phase) {
+async function scanSection(ceeDirecto, phase, { conTasa = false } = {}) {
     const out = {};
     const root = ceeDirecto?.drive_folder_id;
     if (!root) return out;
@@ -105,6 +105,13 @@ async function scanSection(ceeDirecto, phase) {
         if (f.mimeType === 'application/vnd.google-apps.folder') continue; // OLD
         const slot = matchSlot(f.name);
         if (slot && !out[slot]) out[slot] = { link: f.webViewLink, name: f.name, id: f.id };
+        // El recibo de la TASA no es una casilla de la rejilla: lo sube quien
+        // presenta como «{nº} – TASA.pdf» (presentacionCeeService.subirDevuelto).
+        // Viaja con la entrega al cliente cuando está (no es un requisito). Solo
+        // si se pide: la rejilla y la reparación de enlaces no lo conocen.
+        else if (conTasa && !slot && !out.tasa && /\bTASA\.[a-z0-9]{2,5}$/i.test(f.name || '')) {
+            out.tasa = { link: f.webViewLink, name: f.name, id: f.id, mimeType: f.mimeType || null };
+        }
     }
     return out;
 }
@@ -119,7 +126,7 @@ async function scanSection(ceeDirecto, phase) {
  */
 async function getSlotAttachments(ceeDirecto, phase, slots) {
     const attachments = [];
-    const encontrados = await scanSection(ceeDirecto, phase);
+    const encontrados = await scanSection(ceeDirecto, phase, { conTasa: slots.includes('tasa') });
     for (const slotId of slots) {
         const f = encontrados[slotId];
         if (!f?.id) continue;
@@ -130,7 +137,7 @@ async function getSlotAttachments(ceeDirecto, phase, slots) {
                     slot: slotId,
                     filename: f.name,
                     content: buf,
-                    contentType: 'application/pdf'
+                    contentType: f.mimeType || 'application/pdf'
                 });
             }
         } catch (e) {

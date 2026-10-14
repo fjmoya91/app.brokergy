@@ -26,8 +26,16 @@ abrir. El reenvío desde la rejilla («Reenviar notificación») es esta MISMA e
 (`entregar` con `reenviar`): antes tenía su copia, saludaba y escribía al TITULAR en
 vez de a la persona de contacto (2026CEE_55) y mandaba la sección entera.
 
-En un encargo DOBLE, la entrega del INICIAL termina con «cuando tengas la factura
-definitiva de la instalación, avísanos y emitimos el certificado final».
+En un encargo DOBLE, la entrega del INICIAL termina con el **enlace para subir la
+factura de la instalación** (`DOC_FACTURAS` del enlace del cliente): al subirla nos
+llega el aviso de encargar el final (2026-10-14, «El PROCEDIMIENTO»). Si está
+cobrado, dice que no hay nada más que pagar. Sin enlace, el texto de antes («avísanos»).
+
+Con el **recibo de la TASA** subido por quien presenta («{nº} – TASA.pdf»), va
+también: es opcional (`OPCIONALES_ENTREGA`, `scanSection(…, { conTasa })`), sin él la
+entrega sale igual. Y el único requisito que una persona puede saltarse es el
+COBRO: «Entregar sin esperar al pago» (`sinCobro`, solo ADMIN y a mano, sellado
+`sin_cobrar`); registro, firmado y etiqueta siguen siendo obligatorios.
 
 **REGLA — se le entrega a quien PAGA, que es a quien se emitió la factura**
 (2026-10-13, `destinatarioEntrega`). Si la última factura del encargo es del PARTNER

@@ -138,7 +138,7 @@ function faseActiva(ceeDirecto) {
 
 /**
  * De quién es la pelota ahora mismo. El parte diario agrupa por esto.
- * @returns {'BROKERGY'|'CERTIFICADOR'|'PRESENTADOR'|null}
+ * @returns {'BROKERGY'|'CERTIFICADOR'|'PRESENTADOR'|'CLIENTE'|null}
  */
 function responsable(ceeDirecto) {
     const fase = faseActiva(ceeDirecto);
@@ -147,6 +147,15 @@ function responsable(ceeDirecto) {
     if (encargoPresentacion(ceeDirecto, fase)) return 'PRESENTADOR';
     const seg = ceeDirecto?.seguimiento || {};
     const sub = String((fase === 'final' ? seg.cee_final : seg.cee_inicial) || 'PTE_ENVIO_CERT').toUpperCase();
+    // El CEE final sin encargar espera a la OBRA: hasta que el cliente sube la
+    // factura de la instalación (procedimiento, ceeDirectoProceso) no hay nada
+    // que certificar. Acepta la fila con `documentacion` o el alias del listado.
+    if (fase === 'final' && sub === 'PTE_ENVIO_CERT') {
+        const fi = ceeDirecto?.factura_instalacion !== undefined
+            ? ceeDirecto.factura_instalacion
+            : ceeDirecto?.documentacion?.factura_instalacion;
+        if (!fi) return 'CLIENTE';
+    }
     // Lo que espera al certificador: que trabaje, que entregue o que registre.
     if (['ASIGNADO', 'EN_TRABAJO', 'PTE_PRESENTACION', 'REVISADO'].includes(sub)) return 'CERTIFICADOR';
     // PTE_ENVIO_CERT (encargarlo), PRESENTADO y PTE_REVISION (revisarlo) son nuestros.

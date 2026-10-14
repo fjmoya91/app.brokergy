@@ -192,6 +192,9 @@ async function guardarEncargo(origen, id, fase, valor) {
                 .deriveEstado({ alcance: fresca.alcance, seguimiento: fresca.seguimiento, presentacion: actual });
             await supabase.from('cee_directos').update({ estado }).eq('id', id);
         } catch (e) { console.warn('[presentacion-cee] estado:', e.message); }
+        // Mandarlo a presentar es el visto bueno del certificado de la casa: paso 2
+        // del procedimiento del CEE directo (toca la factura). No avisa dos veces.
+        if (valor && fase === 'inicial') require('./ceeDirectoProceso').revisarFacturaAsync(id, 'enviado a presentar');
     }
     return actual;
 }

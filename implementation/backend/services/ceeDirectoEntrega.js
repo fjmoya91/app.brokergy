@@ -31,8 +31,15 @@ const estados = require('../utils/ceeDirectoEstados');
 // aunque esté dentro del certificado, es el papel que se cuelga y el que piden
 // en una compraventa o un alquiler.
 const SLOTS_ENTREGA = ['pdf', 'registro', 'etiqueta'];
+// Y el recibo de la TASA de registro si quien presenta lo ha subido (procedimiento,
+// 2026-10-14): el cliente la ha pagado como suplido en nuestra factura. No es un
+// requisito: sin él la entrega sale igual.
+const OPCIONALES_ENTREGA = ['tasa'];
 
-const ETIQUETA_SLOT = { pdf: 'certificado firmado', registro: 'justificante de registro', etiqueta: 'etiqueta energética', guia: 'guía para la deducción en la Renta' };
+const ETIQUETA_SLOT = { pdf: 'certificado firmado', registro: 'justificante de registro', etiqueta: 'etiqueta energética', tasa: 'justificante de la tasa', guia: 'guía para la deducción en la Renta' };
+
+// El procedimiento (enlaces del cliente). Lazy: ese servicio carga el de documentación.
+const proceso = () => require('./ceeDirectoProceso');
 
 // La guía de la deducción del IRPF viaja con la entrega cuando los certificados
 // la acreditan (ver `guiaIrpfService.guiaDeEntrega`). Lazy: ese servicio arrastra
@@ -90,17 +97,18 @@ function destinatarioEntrega(row) {
  *
  * @returns {{puede:boolean, faltan:string[], yaEntregado:object|null, destinatario:object, ficheros:object}}
  */
-async function estado(row, fase) {
+async function estado(row, fase, { sinCobro = false } = {}) {
     const ph = uploads.normalizePhase(fase);
     const key = ph === 'final' ? 'cee_final' : 'cee_inicial';
     const cli = row.cliente || null;
 
     const sello = row.documentacion?.entrega_cliente?.[ph] || null;
 
-    const enDrive = row.drive_folder_id ? await uploads.scanSection(row, ph) : {};
+    const enDrive = row.drive_folder_id ? await uploads.scanSection(row, ph, { conTasa: true }) : {};
 
     const faltan = [];
-    if (!row.cobrado) faltan.push('Marcar el expediente como cobrado');
+    // `sinCobro`: el atajo «Entregar sin esperar al pago» (solo ADMIN, a mano).
+    if (!row.cobrado && !sinCobro) faltan.push('Marcar el expediente como cobrado');
     if (row.seguimiento?.[key] !== 'REGISTRADO') faltan.push('Que el CEE esté registrado');
     if (!enDrive.pdf) faltan.push('Subir el PDF del CEE firmado');
     if (!enDrive.registro) faltan.push('Subir el justificante de registro');
@@ -125,8 +133,11 @@ async function estado(row, fase) {
             pdf: enDrive.pdf ? enDrive.pdf.name : null,
             registro: enDrive.registro ? enDrive.registro.name : null,
             etiqueta: enDrive.etiqueta ? enDrive.etiqueta.name : null,
+            tasa: enDrive.tasa ? enDrive.tasa.name : null,
             guia: guia?.va ? guia.fichero : null
         },
+        // Solo falta el cobro: es lo que el atajo «Entregar sin cobrar» se salta.
+        soloFaltaCobro: faltan.length === 1 && !row.cobrado && !sinCobro,
         guia,
         // Lo que va antes de la entrega: el aviso de «registrado» (con o sin factura).
         registrado: row.seguimiento?.[key] === 'REGISTRADO',
@@ -140,9 +151,14 @@ async function estado(row, fase) {
  * Con `textoGuia` (el párrafo de `guiaIrpf.textoGuiaEnEntrega`) anuncia la guía
  * de la Renta que va adjunta.
  */
-function mensaje(row, fase, { textoGuia = '', guia = null } = {}) {
+function mensaje(row, fase, { textoGuia = '', guia = null, enlaceObra = null, conTasa = false } = {}) {
     const ph = uploads.normalizePhase(fase);
     const faseLabel = estados.nombreFase(row, ph);
+    const papeles = `el certificado firmado, el justificante de registro${conTasa ? ', el justificante de la tasa' : ''} y la etiqueta energética`;
+    // En un DOBLE, el final se emite con la factura de la instalación (paso 5 del
+    // procedimiento): con el ENLACE para subirla, y diciendo que ya está pagado
+    // si lo está (la factura cubrió los dos certificados).
+    const pagado = row.cobrado ? ' Ya está pagado: no hay nada más que abonar.' : '';
     // Si paga el PARTNER, el mensaje es para la EMPRESA: de quién es el
     // certificado y de qué vivienda, en plural y sin "tu". La guía es del
     // particular (la deducción es suya): se le pide que se la pase.
@@ -151,7 +167,9 @@ function mensaje(row, fase, { textoGuia = '', guia = null } = {}) {
         const obra = svc.obraDe(row);
         const deQuien = [obra.cliente ? `*${obra.cliente}*` : null, obra.direccion ? `(${obra.direccion})` : null].filter(Boolean).join(' ');
         const sigP = estados.esDoble(row) && ph === 'inicial'
-            ? `Cuando tengáis la *factura definitiva de la instalación*, avisadnos y emitimos el *certificado energético final*.\n\n`
+            ? (enlaceObra
+                ? `Cuando la instalación esté terminada, subid aquí su *factura* y emitimos el *certificado energético final*.${pagado}\n👉 ${enlaceObra}\n\n`
+                : `Cuando tengáis la *factura definitiva de la instalación*, avisadnos y emitimos el *certificado energético final*.\n\n`)
             : '';
         const pct = guia?.modalidad || null;
         const parrafoGuia = textoGuia
@@ -159,7 +177,7 @@ function mensaje(row, fase, { textoGuia = '', guia = null } = {}) {
             : '';
         return `¡Hola!\n\n`
             + `Ya está registrado el *${faseLabel}*${deQuien ? ` de ${deQuien}` : ''}, expediente ${row.numero_expediente}.\n\n`
-            + `Os adjuntamos el certificado firmado, el justificante de registro y la etiqueta energética.\n\n`
+            + `Os adjuntamos ${papeles}.\n\n`
             + sigP
             + parrafoGuia
             + `¡Gracias por confiar en nosotros!\n*BROKERGY · Ingeniería Energética*`;
@@ -167,7 +185,9 @@ function mensaje(row, fase, { textoGuia = '', guia = null } = {}) {
     // En un encargo DOBLE, con el inicial se le recuerda el paso siguiente: el
     // final se emite cuando la obra está hecha y facturada.
     const siguiente = estados.esDoble(row) && ph === 'inicial'
-        ? `Cuando tengas la *factura definitiva de la instalación*, avísanos y emitimos el *certificado energético final*.\n\n`
+        ? (enlaceObra
+            ? `🔧 *Siguiente paso:* cuando tengas la instalación terminada, sube aquí su *factura* y emitimos tu *certificado energético final*.${pagado}\n👉 ${enlaceObra}\n\n`
+            : `Cuando tengas la *factura definitiva de la instalación*, avísanos y emitimos el *certificado energético final*.\n\n`)
         : '';
     // Se saluda a quien RECIBE el mensaje (con el desvío activo, su persona de
     // contacto) y en minúsculas: la ficha guarda el nombre en MAYÚSCULAS y
@@ -177,7 +197,7 @@ function mensaje(row, fase, { textoGuia = '', guia = null } = {}) {
     const pila = p ? ` ${p.charAt(0).toUpperCase()}${p.slice(1).toLowerCase()}` : '';
     return `¡Hola${pila}!\n\n`
         + `Ya tienes tu *${faseLabel}* registrado (expediente ${row.numero_expediente}).\n\n`
-        + `Te adjuntamos el certificado firmado, el justificante de registro y la etiqueta energética. `
+        + `Te adjuntamos ${papeles}. `
         + `Guárdalos: son los documentos que te van a pedir.\n\n`
         + siguiente
         + (textoGuia ? `${textoGuia}\n\n` : '')
@@ -201,7 +221,9 @@ async function entregar(id, fase, opts = {}) {
     const row = await svc.cargar(id);
     if (!row) return { enviado: false, motivo: 'NO_EXISTE' };
 
-    const st = await estado(row, ph);
+    // `sinCobro` solo lo pasa una persona (ruta adminOnly): el automático nunca.
+    const sinCobro = !!(opts.manual && opts.sinCobro);
+    const st = await estado(row, ph, { sinCobro });
 
     // Idempotencia. La comprobación va ANTES que ninguna otra cosa porque los dos
     // disparadores pueden coincidir (marcar cobrado y subir el registro en el
@@ -218,11 +240,11 @@ async function entregar(id, fase, opts = {}) {
         return { enviado: false, motivo: 'AUTO_DESACTIVADO', simulado: st };
     }
 
-    const adjuntos = await uploads.getSlotAttachments(row, ph, SLOTS_ENTREGA);
+    const adjuntos = await uploads.getSlotAttachments(row, ph, [...SLOTS_ENTREGA, ...OPCIONALES_ENTREGA]);
     // Cinturón: `estado()` los vio en Drive, pero entre la comprobación y la
     // descarga alguien puede haberlos movido. Mandar un email de entrega SIN el
     // certificado deja al cliente esperando algo que ya se dio por enviado.
-    if (adjuntos.length < SLOTS_ENTREGA.length) {
+    if (SLOTS_ENTREGA.some(s => !adjuntos.some(a => a.slot === s))) {
         return { enviado: false, motivo: 'ADJUNTOS_NO_DESCARGABLES', faltan: ['No se han podido descargar los ficheros de Drive'] };
     }
 
@@ -248,7 +270,14 @@ async function entregar(id, fase, opts = {}) {
         }
     }
 
-    const cuerpo = opts.mensaje?.trim() || mensaje(row, ph, { textoGuia: guia?.texto, guia });
+    let enlaceObra = null;
+    if (estados.esDoble(row) && ph === 'inicial') {
+        try { enlaceObra = await proceso().enlaceFacturaInstalacion(row); }
+        catch (e) { console.warn('[cee-entrega] enlace de la factura de la instalación:', e.message); }
+    }
+    const cuerpo = opts.mensaje?.trim() || mensaje(row, ph, {
+        textoGuia: guia?.texto, guia, enlaceObra, conTasa: adjuntos.some(a => a.slot === 'tasa')
+    });
     const faseLabel = estados.nombreFase(row, ph);
     // Por defecto los dos canales; el popup de reenvío puede pedir solo uno.
     const usar = Array.isArray(opts.channels) && opts.channels.length ? opts.channels : ['email', 'whatsapp'];
@@ -277,7 +306,7 @@ async function entregar(id, fase, opts = {}) {
             for (const a of adjuntos) {
                 await whatsappService.sendMedia(
                     st.destinatario.tlf,
-                    { base64: a.content.toString('base64'), filename: a.filename, mimetype: 'application/pdf' },
+                    { base64: a.content.toString('base64'), filename: a.filename, mimetype: a.contentType || 'application/pdf' },
                     { caption: ETIQUETA_SLOT[a.slot] || a.filename, splitCaption: false }
                 );
             }
@@ -300,6 +329,7 @@ async function entregar(id, fase, opts = {}) {
             destinatario: { email: st.destinatario.email, tlf: st.destinatario.tlf, ...(st.destinatario.partner ? { partner: st.destinatario.nombre } : {}) },
             automatica: !opts.manual,
             usuario: opts.usuario || null,
+            ...(sinCobro && !row.cobrado ? { sin_cobrar: true } : {}),
             ...(errores.length ? { errores } : {})
         }
     });
@@ -308,6 +338,7 @@ async function entregar(id, fase, opts = {}) {
         tipo: 'CLIENTE',
         texto: `${faseLabel.toUpperCase()} ENTREGADO ${st.destinatario.partner ? `AL PARTNER (${String(st.destinatario.nombre || '').toUpperCase()}, A QUIEN SE FACTURÓ)` : 'AL CLIENTE'} POR ${canales.join(' Y ').toUpperCase()}`
             + `${guia ? ` + GUÍA DE LA DEDUCCIÓN DEL IRPF (${guia.modalidad} %${guia.ejemplo ? ', CON EJEMPLO' : ''})` : ''}`
+            + `${sinCobro && !row.cobrado ? ' — SIN COBRAR (DECISIÓN MANUAL)' : ''}`
             + `${opts.manual ? '' : ' (AUTOMÁTICO)'}`,
         usuario: opts.usuario || null
     });
@@ -362,20 +393,47 @@ function intentarEntregaAsync(id, fase, contexto = '') {
  */
 const facturas = () => require('./ceeFacturaService');
 
-const textoAviso = (row, ph, contacto, factura) => require('./recordatorios').ceeDirectoRegistradoClienteMsg({
-    destinatario: contacto.nombre, numExp: row.numero_expediente,
-    fase: svc.faseCliente(row, ph), cobrado: !!row.cobrado,
-    tercero: contacto.tercero, obra: contacto.tercero ? svc.obraDe(row) : null,
-    factura,
-    // El inicial de un DOBLE sin factura: el cobro se deja para el final.
-    cobroAlFinal: estados.esDoble(row) && ph === 'inicial'
-});
+/**
+ * El texto del aviso de «registrado». Con el PROCEDIMIENTO (2026-10-14) la
+ * factura suele haber salido ANTES de registrarse: si hay una emitida y sin
+ * cobrar, el aviso la RECUERDA (`facturaPendiente`) en vez de prometer una
+ * factura que ya tiene; y en los dos casos lleva el enlace para subir el
+ * justificante de pago.
+ */
+async function textoAviso(row, ph, contacto, factura) {
+    const ultima = proceso().ultimaFactura(row);
+    const pendiente = !factura && !row.cobrado && ultima ? { numero: ultima.numero, total: ultima.total } : null;
+    let enlacePago = null;
+    if (!row.cobrado && (factura || pendiente)) {
+        try { enlacePago = await proceso().enlacePago(row); }
+        catch (e) { console.warn('[cee-directo registrado] enlace de pago:', e.message); }
+    }
+    return require('./recordatorios').ceeDirectoRegistradoClienteMsg({
+        destinatario: contacto.nombre, numExp: row.numero_expediente,
+        fase: svc.faseCliente(row, ph), cobrado: !!row.cobrado,
+        tercero: contacto.tercero, obra: contacto.tercero ? svc.obraDe(row) : null,
+        factura, facturaPendiente: pendiente, enlacePago,
+        // El inicial de un DOBLE sin ninguna factura: el cobro se deja para el final.
+        cobroAlFinal: estados.esDoble(row) && ph === 'inicial'
+    });
+}
 
-/** Texto del aviso SIN certificados (no cobrado y sin factura) — el que manda la rejilla. */
+/** Texto del aviso SIN certificados (no cobrado) — el que manda la rejilla. */
 const textoSinCobrar = (row, fase) => {
     const ph = uploads.normalizePhase(fase);
     return textoAviso(row, ph, svc.contactoCliente(row.cliente), null);
 };
+
+/** El mensaje de la ENTREGA tal cual saldría (con el enlace de la obra y la tasa), para las vistas previas. */
+async function mensajeEntrega(row, fase, st) {
+    const ph = uploads.normalizePhase(fase);
+    let enlaceObra = null;
+    if (estados.esDoble(row) && ph === 'inicial') {
+        try { enlaceObra = await proceso().enlaceFacturaInstalacion(row); } catch { /* sin enlace: el texto de siempre */ }
+    }
+    const guia = st?.guia?.va ? st.guia : null;
+    return mensaje(row, ph, { textoGuia: guia?.texto || '', guia, enlaceObra, conTasa: !!st?.ficheros?.tasa });
+}
 
 /**
  * Lo que enseña el popup «Avisar al cliente» antes de mandar nada: a quién (la
@@ -401,8 +459,8 @@ async function borradorAviso(id, fase) {
         destinatario: { nombre: contacto.nombre || nombreCliente(row.cliente), email: contacto.email || null, tlf: contacto.tlf || null, tercero: !!contacto.tercero },
         factura,
         textos: {
-            conFactura: conFactura ? textoAviso(row, ph, contacto, { numero: factura.numero || 'que te adjuntamos', total: factura.total }) : null,
-            sinFactura: textoAviso(row, ph, contacto, null)
+            conFactura: conFactura ? await textoAviso(row, ph, contacto, { numero: factura.numero || 'que te adjuntamos', total: factura.total }) : null,
+            sinFactura: await textoAviso(row, ph, contacto, null)
         }
     };
 }
@@ -438,7 +496,7 @@ async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsap
     let fac = null;
     if (conFactura) fac = await facturas().facturaDelAviso(row.id, { usuario });
 
-    const texto = (textoLibre && String(textoLibre).trim()) || textoAviso(row, ph, contacto, fac ? { numero: fac.numero, total: fac.total } : null);
+    const texto = (textoLibre && String(textoLibre).trim()) || await textoAviso(row, ph, contacto, fac ? { numero: fac.numero, total: fac.total } : null);
     const canales = [];
     // Por qué no ha salido cada canal, dicho para quien pulsa: «no se pudo enviar»
     // a secas no dice que el teléfono de la ficha es un apellido (2026CEE_55).
@@ -502,6 +560,7 @@ module.exports = {
     autoActivado,
     estado,
     mensaje,
+    mensajeEntrega,
     textoSinCobrar,
     entregar,
     intentarEntregaAsync,

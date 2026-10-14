@@ -8,6 +8,7 @@ import { ResumenDatos } from '../components/ResumenDatos';
 import { Trazabilidad } from '../components/Trazabilidad';
 import { DocumentacionCee } from '../components/DocumentacionCee';
 import { FacturaCeeModal } from '../components/FacturaCeeModal';
+import { ProcesoCee } from '../components/ProcesoCee';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { GuiaIrpfModal } from '../../expedientes/components/GuiaIrpfModal';
@@ -97,6 +98,14 @@ export function CeeDirectoDetailView({ id, onBack }) {
     }, [id]);
 
     const handleCeeSave = useCallback((ceePatch) => handleSave(ceePatch), [handleSave]);
+
+    // El panel del procedimiento abre la factura (también desde `?facturar=1`).
+    const abrirFactura = useCallback(() => setShowFactura(true), []);
+    // Cada cambio de la ficha (cobro, factura, avisos) refresca el procedimiento.
+    const [tickProceso, setTickProceso] = useState(0);
+    // «Confirmar cobro»: lo abren el panel, el enlace `&cobro=1` y «Marcar cobrado».
+    const [showCobro, setShowCobro] = useState(false);
+    const abrirCobro = useCallback((v) => setShowCobro(!!v), []);
 
     // El módulo emite el estado que va calculando (subestados de seguimiento y
     // fechas). Se reparte igual que en el expediente CAE: lo que empieza por
@@ -227,7 +236,9 @@ export function CeeDirectoDetailView({ id, onBack }) {
                                 una vez, no cada vez que abres el expediente. */}
                             {isAdmin && (
                                 <button
-                                    onClick={() => marcarCobrado(!expediente.cobrado)}
+                                    // Marcar PAGADO pasa por el popup: dice si el certificado
+                                    // sale ya o al registrarse. Quitar la marca, directo.
+                                    onClick={() => (expediente.cobrado ? marcarCobrado(false) : setShowCobro(true))}
                                     title={expediente.cobrado
                                         ? 'Cobrado. Con el registro subido, el certificado se le envía solo al cliente. Pulsa para quitar la marca.'
                                         : 'Sin cobrar: el certificado no sale de aquí. Pulsa para marcarlo como cobrado.'}
@@ -389,6 +400,14 @@ export function CeeDirectoDetailView({ id, onBack }) {
                 />
             </div>
 
+            {/* El PROCEDIMIENTO: qué está hecho, qué toca y de quién es la pelota. */}
+            {isStaff && (
+                <ProcesoCee id={expediente.id} isAdmin={isAdmin} onFacturar={abrirFactura}
+                    cobroAbierto={showCobro} onCobro={abrirCobro}
+                    refrescar={`${expediente.updated_at}|${expediente.cobrado}|${tickProceso}`}
+                    onCambio={() => cargar(true)} />
+            )}
+
             {/* ── Pestañas: el certificado y la documentación del cliente ──── */}
             <PestanasFicha pestana={pestana} onCambiar={setPestana} resumen={resumenDocs} />
 
@@ -418,8 +437,8 @@ export function CeeDirectoDetailView({ id, onBack }) {
             )}
 
             {isAdmin && (
-                <FacturaCeeModal isOpen={showFactura} onClose={() => setShowFactura(false)}
-                    expedienteId={expediente.id} onCambio={() => cargar(true)} />
+                <FacturaCeeModal isOpen={showFactura} onClose={() => { setShowFactura(false); setTickProceso(t => t + 1); }}
+                    expedienteId={expediente.id} onCambio={() => { cargar(true); setTickProceso(t => t + 1); }} />
             )}
 
             {isStaff && (
@@ -477,7 +496,8 @@ export function CeeDirectoDetailView({ id, onBack }) {
             {/* La entrega va DESPUÉS del módulo: es lo último que ocurre, y ponerla
                 arriba invitaría a pulsarla antes de tener el registro subido. */}
             {isStaff && (
-                <EntregaCliente id={expediente.id} esDoble={esDoble} onCambio={() => cargar(true)} />
+                <EntregaCliente id={expediente.id} esDoble={esDoble} isAdmin={isAdmin}
+                    onCambio={() => { cargar(true); setTickProceso(t => t + 1); }} />
             )}
             </div>
 

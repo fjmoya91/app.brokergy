@@ -150,13 +150,39 @@ export function trabajoFacturado(lineas = []) {
  * certificado no se entrega hasta que la factura está abonada (candado de cobro),
  * así que se le pide el JUSTIFICANTE para no tener que esperar a verlo en el banco.
  */
-export function mensajeFactura({ nombre, numero, total, expediente, esEmpresa = false, lineas = [] } = {}) {
+//
+// Con el PROCEDIMIENTO del CEE directo (2026-10-14) la factura sale cuando el
+// certificado está FIRMADO y revisado, antes o mientras se registra:
+//   · `certificado` ('firmado' | 'registrado') le cuenta que ya está hecho;
+//   · `enlacePago` es donde SUBE el justificante (nos llega el aviso para
+//     confirmar el cobro, y el certificado sale solo);
+//   · `doble`: la factura cubre también el final, que ya no se cobra aparte.
+export function mensajeFactura({ nombre, numero, total, expediente, esEmpresa = false, lineas = [], enlacePago = null, certificado = null, doble = false } = {}) {
     const saludo = nombre ? `¡Hola ${esEmpresa ? '' : capital(primerNombre(nombre))}!`.replace('¡Hola !', '¡Hola!') : '¡Hola!';
     const trabajo = trabajoFacturado(lineas);
     const plural = trabajo.startsWith('los ');
+    const cert = doble ? 'certificado energético inicial' : 'certificado energético';
+    const estado = certificado === 'registrado'
+        ? [`✅ Tu *${cert}* ya está hecho, firmado y *registrado* en Industria.`, '']
+        : certificado === 'firmado'
+            ? [`✅ Tu *${cert}* ya está hecho y firmado: lo estamos presentando en el Registro de Industria.`, '']
+            : [];
+    // Solo si de verdad lo factura (las líneas dicen «inicial y final»).
+    const final = doble && /final/.test(trabajo)
+        ? ['La factura incluye también el *certificado final*: cuando la instalación esté terminada nos pasas su factura y lo emitimos, sin nada más que pagar.', '']
+        : [];
+    // En un DOBLE, al pagar se le manda el INICIAL (el final llega con la obra).
+    const queMandamos = final.length ? 'te mandamos el certificado inicial' : `te ${plural ? 'los' : 'lo'} mandamos`;
+    const justificante = enlacePago
+        ? [
+            `📌 Por políticas de empresa, ${plural ? 'los certificados se envían' : 'el certificado se envía'} una vez abonada la factura. Cuando hagas la transferencia, *sube aquí el justificante de pago* y ${queMandamos} en cuanto lo comprobemos:`,
+            `👉 ${enlacePago}`,
+        ]
+        : [`📌 Por políticas de empresa, hasta que la factura no esté abonada no podemos enviarte ${plural ? 'los certificados' : 'el certificado'} de eficiencia energética. Cuando puedas, remítenos por aquí el *justificante de pago* y te ${plural ? 'los' : 'lo'} enviamos en cuanto lo recibamos.`];
     return [
         saludo,
         '',
+        ...estado,
         `Te paso la factura *${numero || ''}* por los trabajos ${trabajo.replace(/^el /, 'del ').replace(/^(?!del )/, 'de ')}${expediente ? ` (expediente ${expediente})` : ''}.`,
         '',
         `💶 *Importe: ${fmtEur(total)}*`,
@@ -164,7 +190,8 @@ export function mensajeFactura({ nombre, numero, total, expediente, esEmpresa = 
         'Puedes abonarla por transferencia a esta cuenta, indicando el nº de factura en el concepto:',
         `🏦 ${BROKERGY_EMISOR.banco} · *${BROKERGY_EMISOR.iban}*`,
         '',
-        `📌 Por políticas de empresa, hasta que la factura no esté abonada no podemos enviarte ${plural ? 'los certificados' : 'el certificado'} de eficiencia energética. Cuando puedas, remítenos por aquí el *justificante de pago* y te ${plural ? 'los' : 'lo'} enviamos en cuanto lo recibamos.`,
+        ...final,
+        ...justificante,
         '',
         'Muchas gracias de antemano.',
         'Un saludo,',

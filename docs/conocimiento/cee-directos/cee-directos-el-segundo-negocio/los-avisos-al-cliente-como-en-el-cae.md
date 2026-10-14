@@ -21,7 +21,9 @@ Hasta aquí un CEE directo solo le mandaba al cliente la entrega final.
   emite ANTES de enviar: si no se puede, no sale nada. Si está **cobrado** no hace
   falta: la entrega sale sola con el certificado. Rutas: `GET|POST
   /:id/aviso-registrado`. Antes el aviso salía AUTOMÁTICO al subir el técnico, sin
-  factura y sin preguntar.
+  factura y sin preguntar. Desde el 14/10/2026, si la factura ya salió (lo normal en
+  el procedimiento), el aviso la recuerda con el enlace del justificante, y el aviso
+  al equipo dice «falta el pago» en lugar de ofrecer emitirla.
 - **El técnico ACEPTA el encargo**: ni el CAE ni los directos avisan al cliente.
 - El destinatario sale de `ceeDirectoService.contactoCliente` (desvío a la persona
   de contacto, igual que `resolveSolicitudContacto` del CAE), también en la entrega.

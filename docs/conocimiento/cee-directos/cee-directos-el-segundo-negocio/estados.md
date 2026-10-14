@@ -21,3 +21,8 @@ aparte. Medido en 2026CEE_61: enviado a Eva y el listado seguía en «PENDIENTE 
 encargado antes del cambio); `guardar` lee `cee->presentacion` para que un autoguardado no
 lo devuelva atrás, y `presentacionCeeService.guardarEncargo` vuelve a sellar `estado` al
 encargar y al retirar.
+
+El CEE FINAL sin encargar de un DOBLE tiene la pelota en el **CLIENTE** («Cliente
+(obra)» en el listado) hasta que sube la factura de la instalación
+(`documentacion.factura_instalacion`, que el listado trae como campo suelto): antes
+salía «Nuestra» mientras no había obra que certificar (2026-10-14, «El PROCEDIMIENTO»).

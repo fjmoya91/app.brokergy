@@ -27,6 +27,7 @@ const SELECT_LISTA = `
     duplicado_historico,
     seguimiento,
     presentacion:cee->presentacion,
+    factura_instalacion:documentacion->factura_instalacion,
     cee_certificador:cee->>certificador_id,
     cee_fecha_visita_ini:cee->cee_inicial->>fechaVisita,
     cee_fecha_firma_ini:cee->cee_inicial->>fechaFirma

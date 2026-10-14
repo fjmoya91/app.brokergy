@@ -316,7 +316,10 @@ function encargoCeeDirectoClienteMsg({ destinatario, numExp, fase, tecnico = nul
 // pago todavía: se le pide que avise cuando la instalación esté hecha y facturada,
 // y con el FINAL va la factura; los certificados, cuando esté abonada (el candado
 // de cobro no se mueve). El cobro se puede reclamar con el inicial o con el final.
-function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = false, tercero = false, obra = null, factura = null, cobroAlFinal = false }) {
+// `facturaPendiente`: la factura ya se le mandó (procedimiento del CEE directo:
+// sale al quedar firmado y revisado) y no está cobrada → se le RECUERDA, no se
+// le anuncia otra. `enlacePago`: dónde sube el justificante de la transferencia.
+function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = false, tercero = false, obra = null, factura = null, facturaPendiente = null, enlacePago = null, cobroAlFinal = false }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const cert = fase === 'final' ? 'certificado de eficiencia energética final'
         : fase === 'inicial' ? 'certificado de eficiencia energética inicial'
@@ -325,16 +328,25 @@ function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = 
     const deQue = tercero ? ` de *${capitalizar(obra?.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}` : '';
     const tu = tercero ? 'os' : 'te';
     const papeles = 'junto con su justificante de registro y la etiqueta energética';
-    const importe = factura?.total != null
-        ? ` por importe de *${Number(factura.total).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €*`
-        : '';
+    const importeDe = (f) => (f?.total != null
+        ? ` por importe de *${Number(f.total).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €*`
+        : '');
+    const importe = importeDe(factura);
+    const subirJustificante = enlacePago
+        ? `${tercero ? 'subid' : 'sube'} aquí el *justificante de pago*:\n👉 ${enlacePago}\n\n`
+        : `${tercero ? 'enviadnos' : 'envíanos'} por aquí el *justificante de pago* `;
     const cierre = cobrado
         ? `En breve ${tu} lo enviamos ${papeles}.`
         : factura
             ? `${tercero ? 'Os' : 'Te'} adjuntamos la factura *${factura.numero}*${importe}. Por política de la empresa, `
               + `los certificados se envían una vez abonada la factura: puede pagarse por transferencia `
-              + `(BBVA · ES10 0182 0394 3002 0175 3286).\n\nCuando esté pagada, ${tercero ? 'enviadnos' : 'envíanos'} por aquí el *justificante de pago* `
-              + `y ${tu} mandamos el certificado ${papeles}.`
+              + `(BBVA · ES10 0182 0394 3002 0175 3286).\n\nCuando esté pagada, ${subirJustificante}`
+              + `${enlacePago ? `En cuanto lo comprobemos, ${tu} mandamos` : `y ${tu} mandamos`} el certificado ${papeles}.`
+            : facturaPendiente
+            ? `Por política de la empresa, los certificados se envían una vez abonada la factura *${facturaPendiente.numero}*${importeDe(facturaPendiente)} `
+              + `que ${tercero ? 'os' : 'te'} enviamos (transferencia a BBVA · ES10 0182 0394 3002 0175 3286). `
+              + `${tercero ? 'Si ya la habéis pagado' : 'Si ya la has pagado'}, ${subirJustificante}`
+              + `${enlacePago ? `En cuanto lo comprobemos, ${tu} mandamos` : `y ${tu} mandamos`} el certificado ${papeles}.`
             : cobroAlFinal
                 ? `Cuando la instalación esté terminada y facturada, ${tercero ? 'avisadnos' : 'avísanos'} y emitiremos el *certificado de eficiencia energética final*. `
                   + `Entonces ${tu} enviaremos nuestra factura y, una vez abonada, los dos certificados (inicial y final) ${papeles}.`
