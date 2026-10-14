@@ -921,6 +921,37 @@ router.post('/:id/cobros/:expId/gestion-bonificada', adminOnly, async (req, res)
     }
 });
 
+// ─── Aviso a los INSTALADORES de que sus clientes ya han cobrado ───────────────
+// UN mensaje por instalador y lote, cuando todos sus clientes están transferidos
+// (services/avisoInstaladoresCobro.js). Lleva lo que cobra cada cliente → adminOnly.
+const avisoInstaladores = require('../services/avisoInstaladoresCobro');
+
+router.get('/:id/aviso-instaladores', adminOnly, async (req, res) => {
+    try {
+        res.json(await avisoInstaladores.gruposDelLote(req.params.id));
+    } catch (err) {
+        console.error('[GET aviso-instaladores]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudieron preparar los avisos' });
+    }
+});
+
+router.post('/:id/aviso-instaladores/:instId', adminOnly, async (req, res) => {
+    try {
+        const channels = idsDe(req.body?.channels);
+        if (!channels.length) return res.status(400).json({ error: 'Selecciona al menos un canal' });
+        const r = await avisoInstaladores.avisarInstalador(req.params.id, req.params.instId, {
+            channels, mensaje: req.body?.mensaje, usuario: usuarioDe(req),
+        });
+        await apuntarEnLote(req.params.id,
+            `Aviso al instalador ${r.instalador} (${r.contacto}) de que sus ${r.n} cliente${r.n === 1 ? '' : 's'} ya ha${r.n === 1 ? '' : 'n'} cobrado, vía ${r.channels.join(' + ')}.`,
+            usuarioDe(req)).catch(() => {});
+        res.json(r);
+    } catch (err) {
+        console.error('[POST aviso-instaladores]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo enviar el aviso' });
+    }
+});
+
 // ─── GET /api/lotes/:id/local-path — ruta de la carpeta en el disco ─────────────
 // Espejo de `GET /api/expedientes/:id/local-path` (ver memoria del protocolo
 // brokergylocal:). El navegador no puede abrir `file://`, así que devolvemos la

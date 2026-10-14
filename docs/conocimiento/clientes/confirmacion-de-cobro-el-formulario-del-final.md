@@ -253,6 +253,33 @@ que hay que reenviarle el mensaje para que lo sepa.
 ⚠️ El margen de Brokergy NO baja con el regalo en el panel económico ni en el
 listado (no leen `documentacion.cobro`): son 250 € menos que la cifra que enseñan.
 
+### Avisar al INSTALADOR de que sus clientes ya han cobrado (2026-10-14)
+
+Hasta aquí el instalador no se enteraba de nada: ni al pedir la cuenta ni al
+transferir. Ahora, en la fase 7, **«📣 Avisar a los instaladores»** (adminOnly,
+`GET /api/lotes/:id/aviso-instaladores` · `POST …/aviso-instaladores/:instId`,
+[avisoInstaladoresCobro.js](implementation/backend/services/avisoInstaladoresCobro.js)).
+
+**REGLA — UN mensaje por instalador y LOTE, no uno por expediente**, al contacto
+COMERCIAL (regla 44; sin él, al canal general y en plural, «Os escribimos…»). El
+instalador sale de la misma cascada que el listado (`instalacion.instalador_id` →
+`instalador_asociado_id` → oportunidad).
+
+**REGLA — se manda cuando sus clientes YA HAN COBRADO** (decisión del usuario): el
+texto dice «ya hemos abonado», así que el grupo solo se puede marcar cuando TODOS sus
+clientes del lote tienen `cobro.transferencia`; si no, dice cuántos faltan y la ruta
+responde 409. Nunca sale solo: borradores revisables en el popup.
+
+**REGLA — tono PROFESIONAL** (sin emojis, sin «es de fiar»): de cada cliente,
+nombre y apellidos (`nombrePropio`), la dirección de la OBRA (`direccionObra`: la de
+la instalación, sin notas internas entre paréntesis, con el municipio) y la ayuda
+cobrada; **nunca el nº de expediente**. Con varios, el total. Los requerimientos se
+cuentan si los hubo. Cierra con «¡Seguimos!». Texto: `componerMensajeInstaladorCobro`
+en [cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js).
+
+El envío se sella en cada expediente (`documentacion.cobro.aviso_instalador`, RPC de
+merge) y en el historial del lote; el popup marca por defecto los listos sin avisar.
+
 ### La bandeja — pestaña **Venta cruzada**
 
 `features/cobro/views/RespuestasCobroView.jsx` sobre `GET /api/expedientes/cobro/respuestas`

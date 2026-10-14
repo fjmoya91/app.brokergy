@@ -245,5 +245,30 @@ const expediente = (over = {}) => ({
         ok(!/íntegra/.test(sinNbsp(m.componerMensajeTransferencia({ nombre: 'Rosa', cuentas: [{ importe: 1 }] }))), 'sin regalo, el aviso no cambia');
     }
 
+    console.log('\n12) Aviso al INSTALADOR de que sus clientes ya han cobrado');
+    {
+        ok(m.nombrePropio('MARIA ELENA ESPUELA LOPEZ-CARRASCO') === 'Maria Elena Espuela Lopez-Carrasco', 'nombre en mayúsculas → nombre propio');
+        ok(m.nombrePropio('QUINTANAR DE LA ORDEN') === 'Quintanar de la Orden', 'las partículas van en minúscula');
+        const dir = m.direccionObra({ instalacion: { direccion: 'C/ CARLOS GARZARÁN, 48 (42 EN CATASTRO)', municipio: 'PEDRO MUÑOZ' } });
+        ok(dir === 'C/ Carlos Garzarán, 48 (Pedro Muñoz)', `sin la nota interna y con el municipio: "${dir}"`);
+        ok(m.direccionObra({ instalacion: { misma_direccion: false }, clientes: { direccion: 'C/ OTRA', municipio: 'X' } }) === null,
+            'con dirección propia de la instalación NO se usa la del cliente');
+        const clientes = [
+            { nombre: 'Julio Gómez Ruiz', direccion: 'C/ Romero, 2 (Ciudad Real)', ayuda: 5681.61 },
+            { nombre: 'Aurora Lloret García', direccion: 'C/ Andalucía, 9 (Ciudad Real)', ayuda: 5548.77 },
+        ];
+        const v = sinNbsp(m.componerMensajeInstaladorCobro({ nombre: 'Tere', clientes, anio: 2023, requerimientos: 2 }));
+        ok(/^Hola, Tere:/.test(v) && /2 de vuestras instalaciones de 2023/.test(v), 'saluda por su nombre y dice cuántas y de qué año');
+        ok(/• Julio Gómez Ruiz — C\/ Romero, 2 \(Ciudad Real\): 5\.681,61 €/.test(v), 'cada cliente: nombre, dirección y ayuda');
+        ok(/Importe total abonado: 11\.230,38 €/.test(v), 'y el total');
+        ok(!/RES060/.test(v), 'sin el nº de expediente');
+        ok(/2 requerimientos/.test(v) && /¡Seguimos!/.test(v), 'cuenta los requerimientos y cierra con «¡Seguimos!»');
+        ok(!/fiar|😉|🎉/.test(v), 'tono profesional: sin emojis ni «de fiar»');
+        const uno = sinNbsp(m.componerMensajeInstaladorCobro({ clientes: [clientes[0]], anio: 2023 }));
+        ok(/^Hola:/.test(uno) && /Os escribimos/.test(uno), 'al canal general, en plural y sin nombre');
+        ok(/abonado a Julio Gómez Ruiz la ayuda/.test(uno) && !/Importe total/.test(uno), 'con un solo cliente, una frase y sin total');
+        ok(/verificación de las actuaciones/.test(uno), 'sin requerimientos se cuenta el proceso');
+    }
+
     console.log(process.exitCode ? '\n❌ Hay comprobaciones que fallan.\n' : '\n✅ Todo correcto.\n');
 })();

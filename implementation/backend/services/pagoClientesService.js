@@ -485,6 +485,7 @@ module.exports = {
     borradoresAviso,
     avisarTransferencia,
     cancelarResena,
+    mandar,
     barrer,
     start,
 };

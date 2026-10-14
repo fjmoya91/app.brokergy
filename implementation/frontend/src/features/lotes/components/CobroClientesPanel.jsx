@@ -24,7 +24,7 @@ import SendActionOverlay from '../../../components/SendActionOverlay';
 import { CanalChip } from '../../../components/CanalChip';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { eurEs } from '../../cobro/logic/cobroForm';
-import { RemesaSepaModal, JustificanteModal, AvisoTransferenciaModal } from './PagoClientesModals';
+import { RemesaSepaModal, JustificanteModal, AvisoTransferenciaModal, AvisoInstaladoresModal } from './PagoClientesModals';
 import { resumenPago } from '../logic/pagoClientes';
 
 const eur = eurEs;
@@ -58,6 +58,7 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
     const [remesa, setRemesa] = useState(false);
     const [justif, setJustif] = useState(false);
     const [aviso, setAviso] = useState(null);       // filas a las que se avisa (abre el popup)
+    const [avisoInst, setAvisoInst] = useState(false); // aviso a los instaladores (abre el popup)
 
     const cargar = useCallback(async () => {
         if (!lote?.id) return;
@@ -182,6 +183,13 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                         <button type="button" onClick={() => setAviso(pago.sinAvisar)}
                             className="px-3.5 py-2 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-wider hover:brightness-110 transition-all">
                             📣 Avisar de la transferencia ({pago.sinAvisar.length})
+                        </button>
+                    )}
+                    {pago.transferidas.length > 0 && (
+                        <button type="button" onClick={() => setAvisoInst(true)}
+                            title="Un mensaje por instalador: qué clientes suyos ya han cobrado"
+                            className="px-3.5 py-2 rounded-xl border border-white/15 text-white/75 text-[11px] font-black uppercase tracking-wider hover:border-brand/50 hover:text-white transition-all">
+                            📣 Avisar a los instaladores
                         </button>
                     )}
                     {!todasConfirmadas && (
@@ -345,6 +353,7 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                         setAviso(filas.filter(f => ids.includes(f.id)));
                     }} />
             )}
+            {avisoInst && <AvisoInstaladoresModal lote={lote} onClose={() => setAvisoInst(false)} onEnviado={refrescar} />}
             {aviso && aviso.length > 0 && (
                 <AvisoTransferenciaModal lote={lote} filas={aviso} onClose={() => setAviso(null)} onEnviado={refrescar} />
             )}

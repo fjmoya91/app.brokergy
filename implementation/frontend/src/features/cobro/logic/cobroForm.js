@@ -527,6 +527,91 @@ export function componerMensajeResena({ nombre, tercero = false, enlace, requeri
     ].join('\n');
 }
 
+// Palabras que en un nombre propio o una calle van en minúscula.
+const MINUSCULAS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en', 'a', 'al']);
+
+/** "MARIA ELENA ESPUELA LOPEZ-CARRASCO" → "Maria Elena Espuela Lopez-Carrasco". */
+export function nombrePropio(v) {
+    return String(v || '').trim().toLowerCase().split(/\s+/).filter(Boolean)
+        .map((w, i) => (i > 0 && MINUSCULAS.has(w) ? w
+            : w.replace(/(^|[-/(])(\p{L})/gu, (_, a, b) => a + b.toUpperCase())))
+        .join(' ');
+}
+
+/**
+ * La dirección de la OBRA para un mensaje: la de la instalación (su propia
+ * dirección, si no la de la simulación y, si comparte domicilio, la del cliente),
+ * sin las notas internas entre paréntesis («(42 EN CATASTRO)») y con el municipio
+ * entre paréntesis. Misma cascada que `buildInstalacionAddress`.
+ */
+export function direccionObra(exp) {
+    const inst = exp?.instalacion || {};
+    const dc = exp?.oportunidades?.datos_calculo || {};
+    const op = { ...dc, ...(dc.inputs || {}) };
+    const cli = inst.misma_direccion === false ? {} : (exp?.clientes || {});
+    const limpia = (s) => String(s || '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').replace(/\s+,/g, ',').trim();
+    const calle = limpia(inst.direccion || op.direccion || cli.direccion);
+    const muni = limpia(inst.municipio || op.municipio || cli.municipio);
+    const c = nombrePropio(calle).replace(/\bnº\s*/gi, 'nº ').replace(/^(c|av|avda|ctra|pza|pl)\b/i, m => m.charAt(0).toUpperCase() + m.slice(1));
+    return [c, muni ? `(${nombrePropio(muni)})` : ''].filter(Boolean).join(' ') || null;
+}
+
+/**
+ * El aviso al INSTALADOR de que sus clientes de un lote ya han COBRADO la ayuda.
+ * UN mensaje por instalador y lote, no uno por expediente. FUENTE ÚNICA del texto.
+ *
+ * REGLA — tono PROFESIONAL: es un partner, no un cliente. Sin emojis ni bromas;
+ * de cada cliente, nombre, apellidos, la dirección de la obra y la ayuda que ha
+ * cobrado (no el nº de expediente, que el instalador no maneja). Cierra con
+ * «¡Seguimos!».
+ *
+ * @param {object} p
+ *   @param {string}  p.nombre         a quién se saluda (null → «Hola:», canal general)
+ *   @param {Array}   p.clientes       [{ nombre, direccion, ayuda }]
+ *   @param {number}  p.anio           año de las actuaciones (opcional)
+ *   @param {number}  p.requerimientos cuántos se contestaron (0 → el proceso)
+ */
+export function componerMensajeInstaladorCobro({ nombre = null, clientes = [], anio = null, requerimientos = 0 }) {
+    const lista = (clientes || []).filter(Boolean);
+    const total = lista.reduce((s, c) => s + (Number(c.ayuda) || 0), 0);
+    const deAnio = anio ? ` de ${anio}` : '';
+    const n = Math.max(0, Number(requerimientos) || 0);
+    const tramite = n >= 1
+        ? `La tramitación ha requerido contestar ${n === 1 ? 'un requerimiento' : `${n} requerimientos`} del Ministerio hasta la emisión definitiva de los certificados.`
+        : 'La tramitación ha incluido la verificación de las actuaciones, su presentación ante el Ministerio y la emisión de los certificados.';
+    // Al canal general de una empresa se le escribe en plural (no hay a quién tutear).
+    const escribimos = nombre ? 'Te escribimos para comunicarte' : 'Os escribimos para comunicaros';
+    const linea = (c) => `• ${c.nombre}${c.direccion ? ` — ${c.direccion}` : ''}: ${eurMsg(Number(c.ayuda) || 0)}`;
+
+    let cuerpo;
+    if (lista.length === 1) {
+        const c = lista[0];
+        cuerpo = [`${escribimos} que ya hemos abonado a ${c.nombre} la ayuda de los Certificados de Ahorro Energético de vuestra instalación${deAnio}${c.direccion ? ` en ${c.direccion}` : ''}: ${eurMsg(Number(c.ayuda) || 0)}.`];
+    } else {
+        cuerpo = [
+            `${escribimos} que ya hemos abonado las ayudas de los Certificados de Ahorro Energético a los clientes de ${lista.length} de vuestras instalaciones${deAnio}:`,
+            '',
+            ...lista.map(linea),
+            '',
+            `Importe total abonado: ${eurMsg(total)}.`,
+        ];
+    }
+    return [
+        nombre ? `Hola, ${nombre}:` : 'Hola:',
+        '',
+        ...cuerpo,
+        '',
+        tramite,
+        '',
+        'Gracias por vuestra colaboración. Si tenéis nuevas obras en marcha, estaremos encantados de tramitarlas.',
+        '',
+        '¡Seguimos!',
+        '',
+        'Un saludo,',
+        'El equipo de BROKERGY',
+    ].join('\n');
+}
+
 /**
  * Qué hay que hacer con la forma de pago elegida, dicho para quien prepara la
  * transferencia. La factura es el caso que se olvida: hay que emitirla y cobrarla

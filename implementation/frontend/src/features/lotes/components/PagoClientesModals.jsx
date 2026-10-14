@@ -462,4 +462,159 @@ export function AvisoTransferenciaModal({ lote, filas, onClose, onEnviado }) {
     );
 }
 
+// ─── 5 · Avisar a los INSTALADORES de que sus clientes ya han cobrado ─────────
+// UN mensaje por instalador y lote, a su contacto COMERCIAL. Solo se puede mandar
+// cuando TODOS sus clientes del lote están transferidos (el texto dice «ya hemos
+// abonado»). El texto lo compone el backend (cobroForm, fuente única); aquí se
+// revisa y se retoca.
+export function AvisoInstaladoresModal({ lote, onClose, onEnviado }) {
+    const [datos, setDatos] = useState(null);
+    const [txt, setTxt] = useState({});             // instalador_id → mensaje
+    const [marcados, setMarcados] = useState({});   // instalador_id → bool
+    const [abierto, setAbierto] = useState(null);
+    const [canales, setCanales] = useState({ whatsapp: true, email: true });
+    const [overlay, setOverlay] = useState(null);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        let vivo = true;
+        axios.get(`/api/lotes/${lote.id}/aviso-instaladores`)
+            .then(({ data }) => {
+                if (!vivo) return;
+                setDatos(data);
+                const t = {}; const m = {};
+                for (const g of data.grupos || []) {
+                    if (!g.instalador_id) continue;
+                    t[g.instalador_id] = g.mensaje || '';
+                    // Por defecto: los que se pueden mandar y aún no se han avisado.
+                    m[g.instalador_id] = g.listo && !g.avisado_at;
+                }
+                setTxt(t); setMarcados(m);
+                const primero = (data.grupos || []).find(g => g.listo && !g.avisado_at);
+                if (primero) setAbierto(primero.instalador_id);
+            })
+            .catch(e => { if (vivo) setError(e.response?.data?.error || 'No se pudieron preparar los avisos.'); });
+        return () => { vivo = false; };
+    }, [lote.id]);
+
+    const grupos = datos?.grupos || [];
+    const elegidos = grupos.filter(g => g.listo && marcados[g.instalador_id]);
+    const conTlf = elegidos.filter(g => g.contacto?.tlf).length;
+    const conEmail = elegidos.filter(g => g.contacto?.email).length;
+    const puede = elegidos.length > 0 && (canales.whatsapp || canales.email);
+
+    const enviar = async () => {
+        const items = [];
+        let fallos = 0;
+        for (let i = 0; i < elegidos.length; i++) {
+            const g = elegidos[i];
+            setOverlay({ phase: 'sending', subtitle: `${i + 1} de ${elegidos.length} · ${g.instalador}` });
+            const channels = [
+                ...(canales.whatsapp && g.contacto?.tlf ? ['whatsapp'] : []),
+                ...(canales.email && g.contacto?.email ? ['email'] : []),
+            ];
+            if (!channels.length) {
+                items.push({ texto: `${g.instalador}: sin teléfono ni email por el canal elegido — no se le ha mandado`, tono: 'info' });
+                continue;
+            }
+            try {
+                const { data } = await axios.post(`/api/lotes/${lote.id}/aviso-instaladores/${g.instalador_id}`, {
+                    channels, mensaje: txt[g.instalador_id],
+                });
+                items.push(`${g.instalador} · ${data.contacto} · ${(data.channels || []).join(' + ')}`);
+            } catch (e) {
+                fallos++;
+                items.push({ texto: `${g.instalador}: ${e.response?.data?.error || 'no se pudo enviar'}`, tono: 'aviso' });
+            }
+        }
+        setOverlay({
+            phase: 'done', ok: fallos < elegidos.length,
+            subtitle: fallos ? `${elegidos.length - fallos} avisados · ${fallos} con error` : `${elegidos.length} instalador${elegidos.length > 1 ? 'es' : ''} avisado${elegidos.length > 1 ? 's' : ''}`,
+            items,
+        });
+        if (onEnviado) onEnviado();
+    };
+
+    return createPortal(
+        <>
+            <Marco
+                subtitulo="Pago a los clientes"
+                titulo="Avisar a los instaladores"
+                explicacion="Un mensaje por instalador, a su contacto comercial: qué clientes suyos ya han cobrado, con su dirección y su ayuda. Solo se puede mandar cuando todos sus clientes del lote están transferidos."
+                onClose={onClose}
+                pie={(
+                    <>
+                        <CanalChip canal="whatsapp" nombre="WhatsApp" activo={canales.whatsapp} disponible={conTlf > 0}
+                            detalle={`${conTlf} con teléfono`} motivo="Ninguno tiene teléfono"
+                            onClick={() => setCanales(c => ({ ...c, whatsapp: !c.whatsapp }))} />
+                        <CanalChip canal="email" nombre="Email" activo={canales.email} disponible={conEmail > 0}
+                            detalle={`${conEmail} con email`} motivo="Ninguno tiene email"
+                            onClick={() => setCanales(c => ({ ...c, email: !c.email }))} />
+                        <div className="flex-1" />
+                        {error && <span className="w-full text-[10px] text-red-400">{error}</span>}
+                        <button type="button" disabled={!puede} onClick={enviar}
+                            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-brand text-black text-[12px] font-black uppercase tracking-wider disabled:opacity-40 hover:brightness-110 transition-all">
+                            Avisar a {elegidos.length} instalador{elegidos.length === 1 ? '' : 'es'}
+                        </button>
+                    </>
+                )}
+            >
+                {!datos && !error && <p className="text-[11px] text-white/40">Preparando los mensajes…</p>}
+                {grupos.map(g => {
+                    const id = g.instalador_id || 'sin';
+                    const total = g.items.reduce((s, i) => s + (Number(i.ayuda) || 0), 0);
+                    return (
+                        <div key={id} className={`rounded-2xl border ${g.listo ? 'border-brand/25 bg-brand/[0.03]' : 'border-white/[0.07] bg-white/[0.02]'}`}>
+                            <div className="flex items-center gap-2.5 px-3 py-2.5">
+                                {g.instalador_id && (
+                                    <input type="checkbox" className="accent-amber-400" disabled={!g.listo}
+                                        checked={!!marcados[g.instalador_id]}
+                                        onChange={e => setMarcados(p => ({ ...p, [g.instalador_id]: e.target.checked }))} />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[12px] font-bold text-white truncate">
+                                        {g.instalador} · {g.items.length} cliente{g.items.length === 1 ? '' : 's'} · {eur(total)}
+                                    </p>
+                                    <p className="text-[10px] text-white/40 truncate">
+                                        {g.contacto ? (
+                                            <>{g.contacto.general ? 'Canal general' : (g.contacto.nombre || 'Contacto')}
+                                                {' · '}{[g.contacto.tlf, g.contacto.email].filter(Boolean).join(' · ') || 'sin teléfono ni email'}</>
+                                        ) : '—'}
+                                        {g.avisado_at && <span className="text-emerald-300/80"> · avisado el {fechaLarga(g.avisado_at)}</span>}
+                                    </p>
+                                    {g.motivo && <p className="text-[10px] text-amber-300/80">{g.motivo}</p>}
+                                </div>
+                                {g.instalador_id && (
+                                    <button type="button" onClick={() => setAbierto(a => (a === g.instalador_id ? null : g.instalador_id))}
+                                        className="text-[10px] font-bold text-white/45 hover:text-white shrink-0">
+                                        {abierto === g.instalador_id ? 'Ocultar' : 'Ver mensaje'}
+                                    </button>
+                                )}
+                            </div>
+                            {abierto === g.instalador_id && g.instalador_id && (
+                                <div className="px-3 pb-3">
+                                    <textarea value={txt[g.instalador_id] || ''} rows={16} readOnly={!g.listo}
+                                        onChange={e => setTxt(p => ({ ...p, [g.instalador_id]: e.target.value }))}
+                                        className="w-full bg-black/25 border border-white/10 rounded-xl p-3 text-[12px] text-white/85 leading-relaxed outline-none focus:border-brand/50 no-uppercase font-sans read-only:opacity-60" />
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </Marco>
+            <SendActionOverlay
+                phase={overlay?.phase || null}
+                ok={!!overlay?.ok}
+                subtitle={overlay?.subtitle}
+                items={overlay?.items || []}
+                sendingTitle="Avisando a los instaladores…"
+                okTitle="Instaladores avisados"
+                errorTitle="No se pudo avisar"
+                onClose={() => { setOverlay(null); onClose(); }}
+            />
+        </>,
+        document.body,
+    );
+}
+
 export default RemesaSepaModal;
