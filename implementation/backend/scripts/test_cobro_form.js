@@ -212,5 +212,38 @@ const expediente = (over = {}) => ({
         ok(tareaFormaPago(null, 250) === null, 'sin elegir no hay tarea');
     }
 
+    console.log('\n11) Gestión REGALADA desde la fase 7 del lote');
+    {
+        const regalo = expediente({ documentacion: { cobro: { gestion_bonificada: { at: '2026-10-14T10:00:00Z', por: 'Fran' } } } });
+        const ctx = contextoDe(regalo);
+        ok(ctx.clienteAsumeCoste === false && ctx.gestionBonificada === 250, 'no paga la gestión y se le perdonan 250 € (defecto)');
+        ok(!bloquesPara(ctx).some(b => b.id === 'forma_pago'), 'no se le pregunta cómo pagarla');
+        const conCoste = expediente({
+            instalacion: { economico_override: { certificates_cost: 298 } },
+            documentacion: { cobro: { gestion_bonificada: { at: 'x' } } },
+        });
+        ok(contextoDe(conCoste).gestionBonificada === 298, 'el regalo es el coste del expediente, no el de defecto');
+        const quitado = expediente({ documentacion: { cobro: { gestion_bonificada: null } } });
+        ok(contextoDe(quitado).clienteAsumeCoste === true && contextoDe(quitado).gestionBonificada === null, 'desmarcado (null) vuelve a pagarla');
+        const absorbida = expediente({
+            oportunidades: { datos_calculo: { inputs: { discount_certificates: true }, result: {} } },
+            documentacion: { cobro: { gestion_bonificada: { at: 'x' } } },
+        });
+        ok(contextoDe(absorbida).gestionBonificada === null, 'con Descuento Certificados no hay nada que regalar (su convenio no la menciona)');
+
+        const msg = componerMensajeCobro({ nombre: 'Rosa', link: 'L', bono: 2642.19, bonificada: 250, requerimientos: 2 });
+        ok(/detalle contigo/.test(msg) && /250,00 €/.test(msg) && /regalo por tu paciencia/.test(msg) && /íntegra/.test(msg),
+            'el mensaje lo cuenta como regalo (con requerimientos: «por tu paciencia»)');
+        ok(!/Descontando/.test(msg), 'y no habla de descontar honorarios');
+        ok(/por tu confianza/.test(componerMensajeCobro({ nombre: 'Rosa', link: 'L', bono: 100, bonificada: 250 })), 'sin requerimientos: «por tu confianza»');
+        const sinImporte = componerMensajeCobro({ nombre: 'Rosa', link: 'L', bonificada: 250 });
+        ok(sinImporte.indexOf('detalle contigo') > sinImporte.indexOf('\nL\n'), 'sin importe, el regalo va tras el enlace');
+        const ter = componerMensajeCobro({ nombre: 'Ana', link: 'L', bono: 100, bonificada: 250, tercero: true, titular: 'Rosa García' });
+        ok(/detalle con Rosa García: no le cobramos/.test(ter), 'a la persona de contacto se le dice en tercera persona');
+        const trf = sinNbsp(m.componerMensajeTransferencia({ nombre: 'Rosa', cuentas: [{ mascara: 'ES60 …', importe: 2642.19 }], bonificada: 250 }));
+        ok(/Va íntegra/.test(trf) && /250,00 €/.test(trf), 'el aviso de transferencia lo recuerda');
+        ok(!/íntegra/.test(sinNbsp(m.componerMensajeTransferencia({ nombre: 'Rosa', cuentas: [{ importe: 1 }] }))), 'sin regalo, el aviso no cambia');
+    }
+
     console.log(process.exitCode ? '\n❌ Hay comprobaciones que fallan.\n' : '\n✅ Todo correcto.\n');
 })();

@@ -103,6 +103,22 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
     const todasConfirmadas = filas.length > 0 && pendientes.length === 0;
     const refrescar = () => { cargar(); if (onChanged) onChanged(); };
 
+    // Regalarle la gestión (o deshacerlo). Solo ADMIN: es dinero. La remesa, el
+    // formulario y los mensajes lo leen del expediente (`contextoCobro`).
+    const [regalando, setRegalando] = useState(null);
+    const regalarGestion = async (f, bonificada) => {
+        setRegalando(f.id);
+        setError('');
+        try {
+            await axios.post(`/api/lotes/${lote.id}/cobros/${f.id}/gestion-bonificada`, { bonificada });
+            await cargar();
+        } catch (e) {
+            setError(e.response?.data?.error || 'No se pudo cambiar la gestión del cliente.');
+        } finally {
+            setRegalando(null);
+        }
+    };
+
     const cancelarResena = async (f) => {
         try {
             await axios.post(`/api/lotes/${lote.id}/transferencia/${f.id}/resena/cancelar`);
@@ -228,8 +244,32 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                         {f.forma_pago.tono === 'aviso' ? '🧾' : '✂️'} {f.forma_pago.texto}
                                     </p>
                                 )}
-                                {!f.coste && f.cobro?.completado_at && (
+                                {!f.coste && !f.gestion_bonificada && f.cobro?.completado_at && (
                                     <p className="text-white/35">Gestión asumida por Brokergy: no se descuenta nada.</p>
+                                )}
+                                {/* La gestión REGALADA: no se le cobra y los mensajes se lo dicen. */}
+                                {canSeeMargin && f.gestion_bonificada && (
+                                    <p className="sm:col-span-2 text-fuchsia-200/90">
+                                        🎁 Gestión regalada: no se le cobran los {eur(f.gestion_bonificada.importe)} y el mensaje se lo dice.
+                                        {!f.pago?.remesa && (
+                                            <button type="button" disabled={regalando === f.id} onClick={() => regalarGestion(f, false)}
+                                                className="ml-2 text-white/40 hover:text-white underline disabled:opacity-40">
+                                                {regalando === f.id ? '…' : 'Deshacer'}
+                                            </button>
+                                        )}
+                                        {f.cobro?.enviado_at && f.gestion_bonificada.at && f.gestion_bonificada.at > f.cobro.enviado_at && (
+                                            <span className="block text-amber-300/80">Se le pidió la cuenta antes del regalo: reenvíale el mensaje para que lo sepa.</span>
+                                        )}
+                                    </p>
+                                )}
+                                {canSeeMargin && f.coste && !f.pago?.remesa && (
+                                    <p className="sm:col-span-2">
+                                        <button type="button" disabled={regalando === f.id} onClick={() => regalarGestion(f, true)}
+                                            title="No se le cobran los honorarios de gestión: la remesa no los descuenta y el mensaje se lo cuenta como un regalo"
+                                            className="px-2 py-0.5 rounded-md border border-fuchsia-400/30 text-fuchsia-200/80 text-[10px] font-bold hover:bg-fuchsia-400/10 disabled:opacity-40 transition-all">
+                                            {regalando === f.id ? 'Guardando…' : `🎁 No cobrarle la gestión (${eur(f.coste.sin_iva)})`}
+                                        </button>
+                                    </p>
                                 )}
                                 {/* VARIOS CEDENTES con cuenta propia: el ingreso se parte. */}
                                 {Array.isArray(f.reparto) && f.reparto.length > 1 && (

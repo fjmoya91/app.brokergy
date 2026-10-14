@@ -262,9 +262,16 @@ export function contextoCobro(exp) {
         || num(inputs.certificates_cost)
         || num(inputs.certificatesCost)
         || 0;
+    // REGLA — la gestión BONIFICADA es un regalo de ahora, no lo que firmó: su
+    // convenio sí la mencionaba. Se marca desde la fase 7 del lote
+    // (`documentacion.cobro.gestion_bonificada`) y, a diferencia de "Descuento
+    // Certificados", el mensaje lo DICE: no cobrarle es justo la noticia.
+    const bonificada = !brokergyAsume && !!exp?.documentacion?.cobro?.gestion_bonificada;
     return {
-        clienteAsumeCoste: !brokergyAsume,
+        clienteAsumeCoste: !brokergyAsume && !bonificada,
         costeGestion: coste,
+        // Lo que se le perdona, sin IVA (el mismo importe que se le habría pedido).
+        gestionBonificada: bonificada ? (coste > 0 ? coste : COSTE_GESTION_DEFECTO) : null,
         solarPrevio: exp?.instalacion?.fotovoltaica?.estado || null,
         respuestas: exp?.documentacion?.cobro?.respuestas || {},
     };
@@ -340,15 +347,22 @@ const eurMsg = eurEs;
  *   @param {object}  p.pago         bloquePago(...) si el cliente asume el coste, o null
  *   @param {number}  p.bono         la ayuda VERIFICADA a ingresar (null → no se dice importe)
  *   @param {number}  p.requerimientos cuántos requerimientos se contestaron (0 → el proceso)
+ *   @param {number}  p.bonificada   honorarios que se le PERDONAN (€ sin IVA), o null
  */
 export function componerMensajeCobro({
     nombre, numExp, link, ibanMascara, tercero = false, titular, partner = false, pago = null,
-    bono = null, requerimientos = 0,
+    bono = null, requerimientos = 0, bonificada = null,
 }) {
     const b = Number(bono) > 0 ? Number(bono) : null;
     const tu = tercero ? 'su' : 'tu';
     const te = tercero ? 'le' : 'te';
     const esfuerzo = textoEsfuerzo(requerimientos, { numExp, titular: tercero ? (titular || 'el titular') : null });
+    // El REGALO se cuenta como regalo: lo que se le habría cobrado y por qué no.
+    // Con requerimientos, el motivo es la espera que ha soportado; si no, la confianza.
+    const regalo = Number(bonificada) > 0
+        ? `🎁 Además, tenemos un detalle ${tercero ? `con ${titular || 'el titular'}` : 'contigo'}: no ${tercero ? 'le' : 'te'} cobramos nuestros honorarios de gestión (${eurMsg(Number(bonificada))}). `
+            + `Es un regalo por ${Number(requerimientos) > 0 ? `${tercero ? 'su' : 'tu'} paciencia durante la tramitación` : `${tercero ? 'su' : 'tu'} confianza`}`
+        : null;
 
     // Lo que se le va a ingresar. Con descuento es la cifra que recibe sin hacer
     // nada más, y por eso va en negrita; la de la factura va al lado para que
@@ -362,6 +376,8 @@ export function componerMensajeCobro({
                 `Descontando nuestros honorarios (${eurMsg(pago.importe_sin_iva)}), ${te} ingresaremos *${eurMsg(recibe)}*. `
                 + `Si ${tercero ? 'prefiere' : 'prefieres'} pagarlos aparte con factura (${eurMsg(pago.importe_total)}, IVA incluido), ${te} ingresaremos los ${eurMsg(b)} una vez abonada. Se elige en el enlace.`,
             );
+        } else if (regalo) {
+            importe.push(`${regalo}, así que ${tercero ? 'se la' : 'te la'} ingresaremos íntegra.`);
         } else {
             importe.push(`${tercero ? 'Se la' : 'Te la'} ingresaremos íntegra.`);
         }
@@ -370,7 +386,7 @@ export function componerMensajeCobro({
     // "en el mismo enlace…" delante del enlace no se entiende.
     const honorariosTras = (b == null && pago)
         ? ['', `En el mismo enlace se elige cómo liquidar nuestros honorarios (${eurMsg(pago.importe_sin_iva)}): descontados del ingreso, o con una factura aparte de ${eurMsg(pago.importe_total)} (IVA incluido) que habría que abonar antes de recibirlo.`]
-        : [];
+        : (b == null && regalo ? ['', `${regalo}.`] : []);
 
     if (tercero) {
         return [
@@ -439,9 +455,10 @@ export function conceptoTransferencia(numExp) {
  * @param {object} p
  *   @param {Array}   p.cuentas   [{ mascara, importe }] — una por cuenta a la que se ingresó
  *   @param {string}  p.concepto  el concepto de la transferencia
+ *   @param {number}  p.bonificada  honorarios que se le perdonaron (€ sin IVA), o null
  */
 export function componerMensajeTransferencia({
-    nombre, tercero = false, titular = null, partner = false, cuentas = [], concepto = null,
+    nombre, tercero = false, titular = null, partner = false, cuentas = [], concepto = null, bonificada = null,
 }) {
     const lista = (cuentas || []).filter(c => Number(c?.importe) > 0);
     const total = lista.reduce((s, c) => s + Number(c.importe), 0);
@@ -460,10 +477,15 @@ export function componerMensajeTransferencia({
         cuerpo = [`Ya hemos hecho la transferencia de ${tercero ? `la ayuda ${deQuien}` : 'tu ayuda'}: *${eurMsg(c.importe || total)}*${aCuenta(c) || (partner ? ' a la cuenta que nos confirmó' : '')}.`];
     }
     const plazo = 'Según el banco, puede tardar uno o dos días hábiles en aparecer en la cuenta.';
+    // Lo regalado se recuerda aquí: es cuando ve que la cifra llega entera.
+    const regalo = Number(bonificada) > 0
+        ? ['', `🎁 Va íntegra: como ${tercero ? 'le' : 'te'} dijimos, nuestros honorarios de gestión (${eurMsg(Number(bonificada))}) corren de nuestra cuenta.`]
+        : [];
     return [
         saludo,
         '',
         ...cuerpo,
+        ...regalo,
         '',
         concepto ? `En el concepto ${tercero ? 'se verá' : 'verás'} «${concepto}». ${plazo}` : plazo,
         '',

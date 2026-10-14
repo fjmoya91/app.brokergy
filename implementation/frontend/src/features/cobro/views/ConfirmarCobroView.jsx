@@ -343,6 +343,13 @@ export function ConfirmarCobroView({ expedienteId, token }) {
                                     {' '}También puedes pagarlos aparte con factura: lo eliges dentro.
                                 </p>
                             )}
+                            {importe.honorarios_bonificados != null && (
+                                <p className="text-white/70 text-xs sm:text-sm mt-2 leading-snug">
+                                    🎁 <strong className="text-white">Un detalle por nuestra parte:</strong> no te cobramos nuestros
+                                    honorarios de gestión ({eur(importe.honorarios_bonificados)}). Te la ingresamos
+                                    {' '}<strong className="text-emerald-300">íntegra</strong>.
+                                </p>
+                            )}
                         </div>
                     )}
                     <p className="text-white/55 text-sm sm:text-base mt-5 leading-relaxed">

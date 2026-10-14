@@ -307,10 +307,12 @@ async function borradoresAviso(exp) {
     const titular = require('./recordatorios').capitalizar(nombreTitular(c)) || null;
     const cuentas = cobro.remesa?.cuentas || [];
     const enlace = enlaceResena();
+    const { gestionBonificada } = await cobroService.contextoDe(exp);
     return {
         contacto: cobroService.contactoCliente(exp),
         transferencia: componerMensajeTransferencia({
             nombre, tercero, titular, partner, cuentas, concepto: conceptoTransferencia(exp.numero_expediente),
+            bonificada: gestionBonificada,
         }),
         // Al PARTNER no se le pide una reseña de BROKERGY en nombre de su cliente.
         resena: partner ? null : (enlace ? componerMensajeResena({

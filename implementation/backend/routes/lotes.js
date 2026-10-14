@@ -892,6 +892,35 @@ router.post('/:id/transferencia/:expId/resena/cancelar', adminOnly, async (req, 
     }
 });
 
+// ─── POST /api/lotes/:id/cobros/:expId/gestion-bonificada — regalarle la gestión
+// { bonificada: true|false }. Con la marca, al cliente no se le cobran los
+// honorarios (ni se le pregunta cómo pagarlos), la remesa no los descuenta y los
+// mensajes se lo dicen como un regalo (`contextoCobro.gestionBonificada`). Es
+// dinero → adminOnly. Con la remesa ya generada no se cambia: el importe que
+// salió en el fichero del banco es el que es.
+router.post('/:id/cobros/:expId/gestion-bonificada', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const cobro = exp.documentacion?.cobro || {};
+        if (cobro.remesa) {
+            return res.status(409).json({ error: 'Ya está en una remesa SEPA: el importe que se transfiere no se puede cambiar.' });
+        }
+        const bonificada = req.body?.bonificada === true;
+        const cobroService = require('../services/cobroService');
+        await cobroService.sellar(exp.id, {
+            gestion_bonificada: bonificada ? { at: nowIso(), por: usuarioDe(req) } : null,
+        });
+        await apuntarEnLote(req.params.id,
+            `${exp.numero_expediente}: ${bonificada ? 'no se le cobran los honorarios de gestión (regalo)' : 'vuelve a pagar los honorarios de gestión'}.`,
+            usuarioDe(req)).catch(() => {});
+        res.json({ ok: true, bonificada });
+    } catch (err) {
+        console.error('[POST gestion-bonificada]', err.message);
+        res.status(500).json({ error: 'No se pudo cambiar la gestión del cliente' });
+    }
+});
+
 // ─── GET /api/lotes/:id/local-path — ruta de la carpeta en el disco ─────────────
 // Espejo de `GET /api/expedientes/:id/local-path` (ver memoria del protocolo
 // brokergylocal:). El navegador no puede abrir `file://`, así que devolvemos la

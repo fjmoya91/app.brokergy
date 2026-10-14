@@ -32,6 +32,7 @@ import { resolveDacs } from '../logic/demandaAcs';
 import { deriveTerciarioVars, TERCIARIO_PRECIOS } from '../logic/terciario';
 import { CAE_PRECIO_CLIENTE_ANTERIOR } from '../../calculator/logic/calculation';
 import { propuestaGuardada } from '../logic/propuestaGuardada';
+import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
 import { driveFolderLink } from '../../../utils/driveFolder';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
@@ -989,16 +990,20 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
         // Los financials antiguos no guardaban `finalPriceClient`; se deriva del
         // CAE pagado y el ahorro para no pintar un precio de 0 €/MWh.
         const precioImplicito = opFin.caeBonus > 0 ? opFin.caeBonus / (heredadoKwh / 1000) : 0;
+        // El VERIFICADO sí se enseña: con él se le paga, y es la MISMA cuenta que leen
+        // el formulario de cobro y la remesa (expedienteFinancials, rama sin CEE).
+        const fv = computeExpedienteFinancials(expediente);
+        const pactado = parseFloat(expediente?.instalacion?.economico_override?.cae_client_rate);
         return {
             ...opSav,
             ...opFin,
             savingsKwh: heredadoKwh,
-            finalPriceClient: opFin.finalPriceClient ?? precioImplicito,
+            finalPriceClient: pactado > 0 ? pactado : (opFin.finalPriceClient ?? precioImplicito),
             profit_neto: opFin.profitBrokergy ?? 0,
             ahorroHeredado: true,
-            savingsKwhVerificado: null,
-            caeBonusVerificado: null,
-            profitBrokergyVerificado: null
+            savingsKwhVerificado: fv.savingsKwhVerificado,
+            caeBonusVerificado: fv.caeVerificado,
+            profitBrokergyVerificado: fv.profitVerificado
         };
     }, [calcResults, expediente]);
 

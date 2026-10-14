@@ -225,6 +225,33 @@ export function computeExpedienteFinancials(exp) {
             profit = storedFin.profitBrokergy ?? null;
             estimadoGuardado = true;
         }
+
+        // Sin CEE tampoco había economía VERIFICADA, y es la que lee el cobro: el
+        // formulario, la fila del lote y la remesa SEPA dejaban al cliente sin cifra
+        // (medido en el lote de Iberdrola de 2023, 8 de 9 migrados de AppSheet).
+        // Con el ahorro verificado se calcula igual que arriba; el precio al cliente
+        // es el pactado (`economico_override.cae_client_rate`) o, si no lo hay, el
+        // implícito de la propuesta guardada. NUNCA el 95 €/MWh por defecto: el de
+        // los migrados fue de 52 a 96 €/MWh.
+        const vRaw = inst.verificacion?.ahorro_verificado_kwh;
+        const kwhH = parseFloat(heredadoKwh);
+        const overrides = inst.economico_override || {};
+        const precioCliente = parseFloat(overrides.cae_client_rate)
+            || (storedFin.caeBonus > 0 && kwhH > 0 ? storedFin.caeBonus / (kwhH / 1000) : 0);
+        if (vRaw !== null && vRaw !== undefined && vRaw !== '' && precioCliente > 0) {
+            savingsKwhVerificado = parseFloat(vRaw) || 0;
+            const finV = calculateFinancials({
+                presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(storedFin.presupuesto) || 0),
+                savingsKwh: savingsKwhVerificado,
+                caePriceClient: precioCliente,
+                caePriceSO: overrides.cae_so_rate ?? 160,
+                discountCertificates: overrides.discount_certificates ?? !!opInputs.discount_certificates,
+                certificatesCost: overrides.certificates_cost ?? opInputs.certificates_cost ?? 250,
+                includeIrpf: true,
+            });
+            caeVerificado = finV.caeBonus;
+            profitVerificado = finV.profitBrokergy;
+        }
     }
 
     return { ficha, savingsKwh, cae, profit, savingsKwhVerificado, caeVerificado, profitVerificado, estimadoGuardado };

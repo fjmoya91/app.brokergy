@@ -53,6 +53,11 @@ const CLAVES_PROTEGIDAS = [
     // MERGE, y el portal del cliente sirve el PDF desde aquí: borrarla dejaría al
     // cliente sin poder descargarse lo que se le mandó.
     'guia_irpf',
+    // El COBRO al cliente (token del enlace, envíos, respuestas, remesa, transferencia,
+    // reseña y la gestión regalada). Solo lo escriben `cobroService.sellar` y sus
+    // scripts, con la RPC de MERGE; una copia vieja del navegador borraría, p. ej.,
+    // la marca de no cobrarle la gestión y la remesa le descontaría los 250 €.
+    'cobro',
 ];
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');

@@ -260,6 +260,8 @@ async function importeVista(ctx) {
         honorarios_total: pago ? pago.importe_total : null,
         recibe_descuento: pago ? pago.recibe_descuento : ctx.bono,
         recibe_factura: pago ? pago.recibe_factura : ctx.bono,
+        // Los honorarios que se le regalan: la portada lo cuenta, como el mensaje.
+        honorarios_bonificados: ctx.gestionBonificada || null,
     };
 }
 
@@ -286,6 +288,7 @@ async function mensajeCobro(exp, link) {
         pago: ctx.clienteAsumeCoste ? bloquePago(ctx.costeGestion, ctx.bono) : null,
         bono: ctx.bono,
         requerimientos: await requerimientosDe(exp),
+        bonificada: ctx.gestionBonificada,
     });
 }
 
@@ -352,6 +355,11 @@ async function filaCobro(exp, { conBorrador = false, ibanCompleto = false } = {}
         justificante_link: ibanCompleto
             ? (cobro.justificante_link || exp?.documentacion?.justificante_titularidad_link || null) : null,
         coste: pago ? { sin_iva: pago.importe_sin_iva, iva: pago.importe_iva, total: pago.importe_total } : null,
+        // Gestión regalada desde la fase 7 (`documentacion.cobro.gestion_bonificada`):
+        // € sin IVA que no se le cobran, con quién y cuándo lo decidió.
+        gestion_bonificada: ctx.gestionBonificada
+            ? { importe: ctx.gestionBonificada, at: cobro.gestion_bonificada?.at || null, por: cobro.gestion_bonificada?.por || null }
+            : null,
         cobro: {
             enviado_at: cobro.enviado_at || null,
             enviado_por: cobro.enviado_por || null,

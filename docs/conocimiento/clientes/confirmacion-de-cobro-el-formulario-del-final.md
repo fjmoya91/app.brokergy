@@ -131,6 +131,16 @@ tenemos aquí»; sin ninguno se cuenta el PROCESO (verificación, Ministerio, em
 y no se inventan requerimientos. En el mensaje en bloque del parte, sin cifra (van
 expedientes de lotes distintos).
 
+**REGLA — un expediente MIGRADO sin CEE también tiene bono verificado** (2026-10-14).
+`computeExpedienteFinancials` solo calculaba el verificado dentro de la rama con CEE
+leído; los migrados de AppSheet no lo tienen, así que con su ahorro verificado
+metido el formulario, la fila del lote y la remesa los dejaban **sin cifra** (medido
+en el lote de Iberdrola de 2023, «PAQUETE 2 - 2023 (PRE APP)»: 8 de 9). Ahora la
+rama sin CEE lo calcula con el precio PACTADO (`economico_override.cae_client_rate`)
+o, si falta, el implícito de la propuesta guardada (bono ÷ MWh) — nunca el 95 €/MWh
+por defecto, que no fue el de ningún migrado. El panel económico del expediente
+enseña ese mismo verificado.
+
 ⚠️ Los euros de estos textos van con `eurEs` (punto de miles SIEMPRE y espacio fijo
 antes del €): `toLocaleString('es-ES')` saca «1840,00 €» en cuatro cifras.
 
@@ -215,6 +225,33 @@ recompone nada. Solo sale entre las 9:00 y las 21:00 de Madrid, y nace APAGADO
 Sin `GOOGLE_RESENA_URL` no se programa ninguna, y al PARTNER no se le pide.
 El esfuerzo se cuenta con los requerimientos que CONSTAN (`requerimientosDe`), como
 la enhorabuena: sin ninguno se cuenta el proceso, no se inventan.
+
+### Regalarle la gestión desde el lote (2026-10-14)
+
+Botón **«🎁 No cobrarle la gestión (250 €)»** en la fila de cada cliente de la fase 7
+(solo ADMIN, `POST /api/lotes/:id/cobros/:expId/gestion-bonificada`
+`{ bonificada }`). Sella `documentacion.cobro.gestion_bonificada = { at, por }` con
+la RPC de merge (`null` lo deshace) y apunta el cambio en el historial del lote.
+
+**REGLA — el regalo NO es «Descuento Certificados».** Aquel lo pactó el convenio y
+por eso el mensaje calla; éste es un detalle de ahora a quien su convenio sí le
+cobraba la gestión, y el mensaje lo DICE: «🎁 Además, tenemos un detalle contigo: no
+te cobramos nuestros honorarios de gestión (250,00 €). Es un regalo por tu
+paciencia durante la tramitación…» (con requerimientos; si no, «por tu confianza»).
+Lo repiten la portada del formulario y el aviso de transferencia («Va íntegra…»).
+`contextoCobro` devuelve `clienteAsumeCoste: false` + `gestionBonificada` (el coste
+que se le habría pedido), así que el formulario no pregunta la forma de pago y la
+remesa no descuenta nada, aunque ya hubiera contestado «descuento» o «factura».
+
+**REGLA — con la remesa generada ya no se cambia** (409): el importe del fichero
+del banco es el que es. Si se regala DESPUÉS de pedirle la cuenta, la fila avisa de
+que hay que reenviarle el mensaje para que lo sepa.
+
+**`cobro` está en `CLAVES_PROTEGIDAS`** de `mergeDocumentacion`: solo lo escriben
+`cobroService.sellar` y sus scripts; una copia vieja de la ficha borraba la marca.
+
+⚠️ El margen de Brokergy NO baja con el regalo en el panel económico ni en el
+listado (no leen `documentacion.cobro`): son 250 € menos que la cifra que enseñan.
 
 ### La bandeja — pestaña **Venta cruzada**
 
