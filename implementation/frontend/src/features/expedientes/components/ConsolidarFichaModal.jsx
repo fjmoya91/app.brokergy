@@ -108,7 +108,9 @@ export default function ConsolidarFichaModal({ expediente, attachments, annexPre
 
     return createPortal(
         <div className="fixed inset-0 z-[320] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm"
-             onClick={onClose}
+             /* Portal: el clic sube igual por el árbol de React hasta el fondo del
+                certificado (onClick={onClose}) y lo cerraba también. */
+             onClick={e => { e.stopPropagation(); onClose(); }}
              onDragOver={e => e.preventDefault()}
              onDrop={e => e.preventDefault()}>
             <div className="w-full max-w-lg bg-[#16181D] border border-white/10 rounded-3xl shadow-2xl overflow-hidden"

@@ -598,6 +598,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 sustituirEnCatalogo: !!catalogo?.sustituirEnCatalogo,
             });
             if (onSaveFichaLink) onSaveFichaLink(type, data.link, data.driveId);
+            if (catalogo?.guardarEnCatalogo && data.catalogo && !data.catalogo.ok) {
+                alert(`⚠ La ficha se ha subido al expediente, pero NO se ha guardado en el catálogo (${data.catalogo.motivo}).`);
+            }
             const previewPages = await renderPdfBufferToImages(arrayBuffer);
             setSlot(slotId, () => ({
                 file: { ...makeSlotFile({ driveId: data.driveId, link: data.link, fileName: file.name, source: 'manual_upload' }), previewPages },

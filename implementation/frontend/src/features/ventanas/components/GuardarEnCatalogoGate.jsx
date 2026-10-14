@@ -82,8 +82,13 @@ export function GuardarEnCatalogoGate({ slot, nombreFichero, onConfirmar, onCanc
     const yaTiene = !!String(modelo.ficha_tecnica || '').trim();
     const etiquetaModelo = cfg.nombre(modelo) || 'este modelo';
 
+    // El portal saca el popup del DOM del certificado, pero NO del árbol de React:
+    // un clic aquí sube igual hasta el fondo del modal padre, que tiene
+    // `onClick={onClose}`, y cerraba el certificado entero al marcar la casilla
+    // o pulsar «Subir la ficha» (la ficha no llegaba a subirse). Se corta aquí.
     return createPortal(
-        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[340] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+             onClick={e => e.stopPropagation()}>
             <div className="w-full max-w-md bg-bkg-surface border border-white/10 rounded-3xl shadow-2xl overflow-hidden">
                 <div className="px-6 pt-6 pb-4">
                     <h3 className="text-white font-black uppercase tracking-widest text-xs">Ficha técnica</h3>
