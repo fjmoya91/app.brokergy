@@ -599,43 +599,49 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         const emailDests = doEmail ? selectedContacts.filter(c => c.email) : [];
         const emailPrincipal = emailDests[0] || null;
         const emailCopia = emailDests.slice(1);
-        for (const c of (emailPrincipal ? [emailPrincipal] : [])) {
+        if (emailPrincipal) {
             // EMAIL — una llamada con todos los adjuntos
-            if (doEmail && c.email) {
-                try {
-                    // Si el buzón principal ha agotado su cuota diaria, postEmail
-                    // pregunta si reenviar desde el alternativo (ver utils/emailFallback).
-                    await postEmail('/api/pdf/send-annex', {
-                        to: c.email,
-                        cc: emailCopia.map(x => x.email),
-                        // El nombre del email es el del CONTACTO al que se escribe, no el del titular.
-                        userName: c.label || clienteNombre,
-                        customMessage: message,
-                        // El asunto sale del docType: en un requerimiento tiene que
-                        // decirlo, o se lee como el mismo correo de la semana pasada.
-                        summaryData: {
-                            id: numexpte,
-                            docType: esRequerimiento ? `Requerimiento · ${docTypeLabel}` : docTypeLabel,
-                            userName: clienteNombre || c.label,
-                        },
-                        ...(esRequerimiento ? {
-                            pillLabel: `Requerimiento · ${plazoDias} días para contestar`,
-                            buttonLabel: '🖊️ Firmar de nuevo mis anexos',
-                            // La línea de asiento del correo es lo único que se lee en la
-                            // bandeja: tiene que decir lo mismo que el cuerpo, no la mitad
-                            // mala de la noticia.
-                            preheader: tituloRequerimiento({ importeAnterior: imp.anterior, importeNuevo: imp.nuevo }),
-                        } : {}),
-                        docs: docDefs.map(d => ({ ...fuenteDoc(d), fileName: d.fileName })),
-                    }, showConfirm);
-                    out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
-                    emailCopia.forEach(x => out.push({ channel: 'email', status: 'ok', text: `${x.label} → ${x.email} (en copia)` }));
-                } catch (err) {
-                    out.push({ channel: 'email', status: 'fail', text: `${c.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
-                }
+            const c = emailPrincipal;
+            try {
+                // Si el buzón principal ha agotado su cuota diaria, postEmail
+                // pregunta si reenviar desde el alternativo (ver utils/emailFallback).
+                await postEmail('/api/pdf/send-annex', {
+                    to: c.email,
+                    cc: emailCopia.map(x => x.email),
+                    // El nombre del email es el del CONTACTO al que se escribe, no el del titular.
+                    userName: c.label || clienteNombre,
+                    customMessage: message,
+                    // El asunto sale del docType: en un requerimiento tiene que
+                    // decirlo, o se lee como el mismo correo de la semana pasada.
+                    summaryData: {
+                        id: numexpte,
+                        docType: esRequerimiento ? `Requerimiento · ${docTypeLabel}` : docTypeLabel,
+                        userName: clienteNombre || c.label,
+                    },
+                    ...(esRequerimiento ? {
+                        pillLabel: `Requerimiento · ${plazoDias} días para contestar`,
+                        buttonLabel: '🖊️ Firmar de nuevo mis anexos',
+                        // La línea de asiento del correo es lo único que se lee en la
+                        // bandeja: tiene que decir lo mismo que el cuerpo, no la mitad
+                        // mala de la noticia.
+                        preheader: tituloRequerimiento({ importeAnterior: imp.anterior, importeNuevo: imp.nuevo }),
+                    } : {}),
+                    docs: docDefs.map(d => ({ ...fuenteDoc(d), fileName: d.fileName })),
+                }, showConfirm);
+                out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
+                emailCopia.forEach(x => out.push({ channel: 'email', status: 'ok', text: `${x.label} → ${x.email} (en copia)` }));
+            } catch (err) {
+                out.push({ channel: 'email', status: 'fail', text: `${c.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
             }
+        }
+        // ── WHATSAPP: a CADA destinatario marcado con teléfono ──────────────
+        // Va en su propio bucle, NO colgado del destinatario del email: desde el
+        // 09/09 lo estaba, y con el email apagado (o un contacto sin email) el
+        // WhatsApp no salía a nadie y el popup acababa en «No se pudo enviar»
+        // sin decir por qué (26RES093_4, 14/10/2026).
+        for (const c of (doWa ? selectedContacts : [])) {
             // WHATSAPP — el primer documento lleva el mensaje completo
-            if (doWa && phoneValid(c.phone)) {
+            if (phoneValid(c.phone)) {
                 if (!waPdfs) {
                     out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${waGenError || 'No se pudo generar el PDF'}` });
                 } else {
