@@ -772,12 +772,31 @@ async function devolver({ origen, row, fz, encargo, quien }, { tipo, buffer, mim
         return r;
     }
 
-    if (tipo === 'tasa') {
+    // La ETIQUETA llega después, por la plataforma de notificaciones de la JCCM (skill
+    // presentar-cee): va a su casilla, por la misma subida que la del técnico.
+    if (tipo === 'etiqueta') {
+        if (!/\.pdf$/i.test(nombreOriginal || '') && mimetype !== 'application/pdf') {
+            throw err(400, 'La etiqueta tiene que ser un PDF.');
+        }
+        const { subirCae, subirCeeDirecto } = require('./cee/subidaCeePublica');
+        const r = origen === 'cee_directo'
+            ? await subirCeeDirecto({ id: row.id, fase: fz, slot: 'etiqueta', buffer, mimetype, quien })
+            : await subirCae({ expedienteId: row.id, fase: fz, slot: 'etiqueta', buffer, mimetype, quien });
+        await anotar(origen, row.id, `🏷️ ${quien.texto} ha subido la etiqueta energética del CEE ${fz}.`, origen === 'cee_directo' ? null : quien.usuario);
+        return r;
+    }
+
+    // `tasa` y `otros` (las resoluciones de la JCCM) van al cajón OTROS con su nombre.
+    if (tipo === 'tasa' || tipo === 'otros') {
         const ext = (String(nombreOriginal || '').match(/\.[a-z0-9]{2,5}$/i)?.[0] || '.pdf').toLowerCase();
-        const nombre = `TASA${ext}`;
+        const base = String(nombreOriginal || '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80);
+        if (tipo === 'otros' && !base) throw err(400, 'Falta el nombre del documento.');
+        const nombre = tipo === 'tasa' ? `TASA${ext}` : `${base}${ext}`;
+        const texto = tipo === 'tasa' ? `🧾 ${quien.texto} ha subido el recibo de la tasa del CEE ${fz}.`
+            : `📄 ${quien.texto} ha subido «${base}» del CEE ${fz}.`;
         if (origen === 'cee_directo') {
             const up = await require('./ceeDirectoUploadService').uploadFile(row, fz, null, buffer, mimetype, { nombreLibre: nombre });
-            await anotar(origen, row.id, `🧾 ${quien.texto} ha subido el recibo de la tasa del CEE ${fz}.`, null);
+            await anotar(origen, row.id, texto, null);
             return { success: true, name: up.fileName, link: up.link };
         }
         const raiz = await ceeUploadService.resolveDriveFolderId(row);
@@ -787,7 +806,7 @@ async function devolver({ origen, row, fz, encargo, quien }, { tipo, buffer, mim
         const prev = await driveService.findFileByName(carpeta, fileName);
         if (prev) await driveService.archiveExistingToOld(carpeta, prev, fileName);
         const saved = await driveService.saveFileToFolder(carpeta, fileName, mimetype || 'application/octet-stream', buffer, { throwOnError: true });
-        await anotar(origen, row.id, `🧾 ${quien.texto} ha subido el recibo de la tasa del CEE ${fz}.`, quien.usuario);
+        await anotar(origen, row.id, texto, quien.usuario);
         return { success: true, name: fileName, link: saved?.link || null };
     }
 

@@ -38,6 +38,19 @@ Y se TECLEA y se pulsa con clics reales **justo antes de subir el XML**: en 2026
 JavaScript y añadida antes de los dos PDF, salía en la lista pero la sede rechazó el XML dos veces; quitada
 y vuelta a teclear justo antes, entró a la primera. Por eso `rellenar.js` ya no la escribe.
 
+**REGLA — la «Fecha de emisión» es la de GENERACIÓN del XML, no la de firma de la app.** La sede la
+compara con `<FechaGeneracion>` del XML (la que el PDF imprime como «Fecha (de generación del
+documento)»). En 26RES060_221 el CEE se calificó el 08/10 y se regeneró el 15/10: con el 08/10 que
+pone el borrador (`fecha_firma_cee_inicial`), la sede rechazó el XML («La Fecha de emisión del
+certificado no coincide con la del xml»). `preparar` ya declara la del XML y lo avisa. Si la sede aún
+lo rechaza, el usuario regenera el CEE en CE3X con una sola fecha y firma de nuevo el PDF (decisión
+del usuario). ⚠️ El borrador del popup sigue tomando la fecha de firma: pendiente de cambiar.
+
+**REGLA — cada solicitud empieza y acaba BORRANDO la sesión de la sede.** Sin cerrar Chrome, la sede
+reutiliza `PHPSESSID` y al volver enseña la solicitud anterior ya registrada (26RES060_221 abrió con
+el resultado de 2026CEE_64). La cookie no es HttpOnly: se borra desde la página antes de entrar y al
+terminar.
+
 **REGLA — los ficheros se suben con su nombre ORIGINAL: el NIF lo pone la sede.** Medido en
 2026CEE_63: el PDF subido como `NIF_2026CEE_63 – …` quedó `NIF_NIF_2026CEE_63 – …`. ⚠️ Contradice lo
 que hacen el borrador (`nombreRegistro`, descarga «ya renombrada con el NIF delante») y el correo de
@@ -69,6 +82,16 @@ JavaScript): se acepta con `escritorio.ps1 aviso`.
 «SOAP:Server: Server Error» y los «Id. de firma» de los adjuntos vacíos, con el registro y la firma del
 formulario bien: parece lo normal de la sede. Pendiente de ver que la copia por correo trae los cuatro
 documentos.
+
+**REGLA — la ETIQUETA y las resoluciones se recogen en notifica.jccm.es, y se COMPRUEBAN antes de
+subirlas** (2026-10-15, primer caso 2026CEE_64). Tres notificaciones por certificado (Resolución de
+Inscripción · EtiquetaCEE · Oficio FEE), todas con la MISMA descripción; cada PDF es un envoltorio
+con el documento ADJUNTO dentro. `presentar_cee.js notificaciones` los extrae y no sube nada si no
+aparece la referencia catastral del expediente o si son de expedientes distintos de la sede (medido:
+la etiqueta de 26RES060_221 se rechaza para 2026CEE_64). Etiqueta → casilla `etiqueta`; las otras dos
+→ OTROS. Lo sube el servidor por la misma ruta interna, con los tipos `etiqueta` y `otros`
+(`presentacionCeeService.devolver`). ⚠️ En la bandeja el «Detalle» enseña el de la fila pulsada ANTES:
+para saber de qué es una notificación, manda la pantalla de acceso, no el Detalle.
 
 **Lo devuelto se sube por las MISMAS funciones** que la página de presentar
 (`subidaCeePublica.subirCae|subirCeeDirecto` con el slot `registro`, y la tasa a OTROS como

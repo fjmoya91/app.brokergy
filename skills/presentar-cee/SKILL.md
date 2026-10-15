@@ -1,6 +1,6 @@
 ---
 name: presentar-cee
-description: 'PRESENTA un CEE (certificado de eficiencia energética) en el Registro de CASTILLA-LA MANCHA (sede de la JCCM, procedimiento 020264 · SIACI SJM3) de principio a fin, sin que el usuario toque el PC: se identifica con su certificado electrónico, rellena el formulario con el borrador de la app, adjunta el PDF firmado, el XML y el .cex, paga la tasa con la tarjeta guardada en Chrome, firma y envía con AutoFirma, y sube a la app el justificante de registro (marca la fase REGISTRADA con la fecha leída) y el recibo de la tasa. Úsalo con "presenta el CEE de 2026CEE_64", "registra el certificado de 26RES060_221", "presenta los CEE pendientes", "¿qué CEE hay sin registrar?". Lo único que hace el usuario es decir SÍ al pago en el chat y autorizarlo en la app de su banco. Necesita Claude en Chrome y el montaje de AutoFirma con Firefox (una vez). Solo CLM; nunca presenta lo encargado a otra persona sin preguntar.'
+description: 'PRESENTA un CEE (certificado de eficiencia energética) en el Registro de CASTILLA-LA MANCHA (sede de la JCCM, procedimiento 020264 · SIACI SJM3) sin que el usuario toque el PC: se identifica con su certificado electrónico, rellena el formulario con el borrador de la app, adjunta el PDF firmado, el XML y el .cex, paga la tasa con la tarjeta guardada en Chrome, firma y envía con AutoFirma, y sube a la app el justificante de registro (marca la fase REGISTRADA con la fecha leída) y el recibo de la tasa; después recoge en notifica.jccm.es la ETIQUETA y las resoluciones y las guarda en su sitio. Úsalo con "presenta el CEE de 2026CEE_64", "registra el certificado de 26RES060_221", "presenta los CEE pendientes", "¿qué CEE hay sin registrar?", "descarga la etiqueta de NNN". Lo único que hace el usuario es decir SÍ al pago en el chat y autorizarlo en la app de su banco. Necesita Claude en Chrome y el montaje de AutoFirma con Firefox. Solo CLM; nunca presenta lo encargado a otra persona sin preguntar.'
 ---
 
 # Presentar un CEE en el Registro de la JCCM
@@ -84,6 +84,12 @@ escribe `ALMACEN_EQUIVOCADO` y sale sin tocar nada → para y avisa. Su salida d
 
 ## 4. Abrir la sede e identificarse
 
+0. **Sesión limpia.** La sede guarda la solicitud en la cookie `PHPSESSID` y, sin cerrar Chrome, al
+   volver enseña la ANTERIOR ya registrada (pasó con 26RES060_221: salió el resultado de 2026CEE_64).
+   Si al abrir aparece «Este es el número de registro…» de otra, NO toques nada: borra la cookie desde
+   la página y vuelve a entrar:
+   `for (const p of ['/','/administracion_electronica','/administracion_electronica/formularios','/administracion_electronica/formularios/']) { document.cookie='PHPSESSID=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path='+p; document.cookie='PHPSESSID=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path='+p+'; domain=.jccm.es'; }`
+   Y lo mismo al TERMINAR cada solicitud, antes de cerrar la pestaña.
 1. `navigate` a `http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S`.
    Pasa por «Validando componentes» y pide una **firma de identificación** con AutoFirma: la acepta
    el vigilante (`ACEPTADO … NSS`).
@@ -185,13 +191,44 @@ presentación si lo había. En el historial figura «Fran (presentación automá
 servidor que tiene el WhatsApp, **llegan los mismos avisos que cuando sube el justificante el
 certificador**. `--local` lo hace desde el PC, sin avisos (solo si el servidor no responde).
 
+## 10. Después: la etiqueta y las resoluciones (notifica.jccm.es)
+
+Horas después del registro llega a Gmail el aviso de que se ha emitido. La JCCM lo deja en
+`https://notifica.jccm.es/notifica/` («Mis notificaciones»): **tres notificaciones por certificado**,
+todas «SJM3 · Resolución de Concesión Favorable», y las del último presentado son **las 3 más
+recientes**. Por orden: Resolución de Inscripción · **EtiquetaCEE** · Oficio FEE.
+
+1. Entrar: si ya hay sesión, va directo a la bandeja; si no, Cl@ve → «DNIe / Certificado electrónico»
+   (si sale el selector de certificados de Chrome, elegir el de quien presenta y comprobarlo en la
+   captura ANTES de aceptar).
+2. Los botones de cada fila (`form1:data:N:_idJsp29` = Detalle, `_idJsp31` = **Acceso**) se pulsan con
+   `document.getElementsByName(...)[0].click()` desde la página; el clic de la extensión no los envía.
+   ⚠️ El «Detalle» va UN PASO POR DETRÁS (enseña el de la fila pulsada antes): para saber de qué
+   expediente es una notificación, fíate de la pantalla de ACCESO, no del Detalle.
+3. **Acceso** → `firma.jsp` («Va a ser objeto de una notificación…») → **Continuar** (consentir: deja
+   constancia del acceso con fecha y hora; no pidió AutoFirma) → «Detalle del Acuse de Recibo» →
+   **Descargar**, con el clic de la EXTENSIÓN (el de la página no siempre dispara la descarga y a
+   veces baja dos copias). Si la ventana de Chrome está detrás de otras, la página no avanza: tráela
+   con `escritorio.ps1 frente -Ventana 'Plataforma de Notificaciones'`.
+4. Cada PDF descargado (`T2024_Resolucion_de_Inscripcion (n).pdf`, `EtiquetaCEE (n).pdf`,
+   `T2024_Oficio_FEE (n).pdf`) es un ENVOLTORIO con el documento de verdad ADJUNTO dentro. Lo resuelve
+   el script:
+   ```bash
+   node scripts/presentar_cee.js notificaciones 2026CEE_64 --resolucion "…\T2024_Resolucion_de_Inscripcion (32).pdf" --etiqueta "…\EtiquetaCEE (35).pdf" --oficio "…\T2024_Oficio_FEE (34).pdf"
+   # en seco: extrae, y comprueba que los tres son de ESE certificado (su referencia catastral) y del
+   # mismo expediente de la sede. Si no, no sube nada. Después, con --escribir:
+   ```
+   La etiqueta va a su casilla (`_etq.pdf`) y las dos resoluciones a OTROS como
+   `{nº} – RESOLUCIÓN DE INSCRIPCIÓN.pdf` y `{nº} – OFICIO FEE.pdf`. Lo sube el servidor (como el
+   registro); `--local` desde el PC.
+
 ## Informe final
 
 Una tabla corta: nº de registro y fecha, tasa (importe, nº 046, código de autorización), adjuntos, qué
 se ha guardado en la app y el estado en que queda. Y lo que hay que mirar (un SOAP Error, el sexo
 supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
 
-## Lo que se aprendió presentando 2026CEE_63 y _64 (15/10/2026)
+## Lo que se aprendió presentando 2026CEE_63, _64 y 26RES060_221 (15/10/2026)
 
 | Pasa esto | Por eso |
 |---|---|
@@ -204,5 +241,9 @@ supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
 | El vigilante dice `ALMACEN_EQUIVOCADO … NSS` | Versión vieja del vigilante: NSS ES Firefox |
 | La tarjeta no se queda en el campo | Se eligió con teclas de la extensión: usa el ratón real |
 | Tras pagar, «referencia 046» vacía | Normal: se escribe a mano el nº de documento 046 |
+| Al abrir la sede sale el registro de OTRA solicitud | Sesión vieja: borrar `PHPSESSID` (paso 4.0) y volver a entrar |
+| `escritorio.ps1 aviso` dice `SIN_VENTANA` y la página no responde | El `alert` está en una pestaña de FONDO (el usuario usa Chrome): captura la pantalla, clic real en la pestaña de la sede y entonces `aviso`. Nunca Intro a ciegas: iría a la pestaña que esté delante |
+| «La Fecha de emisión del certificado no coincide con la del xml» | La sede compara con `<FechaGeneracion>` del XML; `preparar` ya declara esa y lo avisa. Si aun así falla (la calificación y la generación son de días distintos), **se para**: el usuario regenera el CEE en CE3X con la fecha buena, firma de nuevo el PDF y sube XML/PDF/.cex (decisión del usuario, 15/10/2026); después `preparar` otra vez y se adjunta lo nuevo |
+| «SIN OPCION ORT01=LA SOLANA» | La sede escribe «Solana (La)»: `rellenar.js` ya prueba las dos formas |
 
 Detalle y porqué: `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md`.

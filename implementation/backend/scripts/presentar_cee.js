@@ -154,7 +154,7 @@ async function preparar(numero) {
     // (medidos el 15/10/2026). Los selects de provincia/municipio van por TEXTO.
     const valores = {
         TRAMITE_INICIAR: 'EE',                       // edificio existente (todo lo nuestro lo es)
-        NIFCIF: sol['NIF'], NOMBRE: sol['Nombre'], APELL1: sol['Apellido 1'], APELL2: sol['Apellido 2'],
+        NIFCIF: String(sol['NIF'] || '').toUpperCase(), NOMBRE: sol['Nombre'], APELL1: sol['Apellido 1'], APELL2: sol['Apellido 2'],
         SEXO: sexoSol,
         SOL_TIPVIA_VIVIENDA: solVia, SOL_VIVIENDA: sol['Nombre de la vía'], SOL_NCALLE_VIVIENDA: sol['N.º Calle'],
         SOL_PORTAL_VIVIENDA: sol['Portal'], SOL_ESCALERA_VIVIENDA: sol['Escalera'], SOL_PLANTA_VIVIENDA: sol['Planta'], SOL_PUERTA_VIVIENDA: sol['Puerta'],
@@ -178,6 +178,14 @@ async function preparar(numero) {
         BLAND_EDIFICIO: edi['Provincia'], ORT01_EDIFICIO: edi['Población'],
         CALIDADREPR: 'Técnico competente',
     };
+    // Provincia en blanco en la ficha (26RES060_221): la dicen los dos primeros dígitos del
+    // código postal, que son además el `value` del desplegable de la sede («13» = Ciudad Real).
+    for (const [prov, cp] of [['BLAND', 'CODPOS'], ['BLANDREPR', 'CODPOSREPR'], ['BLAND_EDIFICIO', 'CODPOS_EDIFICIO']]) {
+        if (!texto[prov] && /^\d{5}$/.test(String(valores[cp] || ''))) {
+            texto[`${prov}_COD`] = String(valores[cp]).slice(0, 2);
+            avisos.push(`Provincia en blanco (${prov}): se elige por el código postal ${valores[cp]}.`);
+        }
+    }
     for (const [k, v] of Object.entries({ ...valores, ...texto })) {
         if (v === '' || v == null) delete valores[k];
     }
@@ -205,6 +213,21 @@ async function preparar(numero) {
     // Las recomendaciones de mejora van en el Anexo III del propio PDF firmado de
     // CE3X: sin informe aparte, se adjunta el mismo PDF en esa categoría.
     if (!ficheros.mejoras && ficheros.pdf) ficheros.mejoras = ficheros.pdf;
+
+    // La «Fecha de emisión» que la sede compara con el XML es su <FechaGeneracion> (la que el
+    // PDF imprime como «Fecha (de generación del documento)»), no la de la firma que guarda la
+    // app. En 26RES060_221 el CEE se regeneró días después y la sede rechazó el XML: «La Fecha
+    // de emisión del certificado no coincide con la del xml».
+    if (ficheros.xml) {
+        const xml = fs.readFileSync(ficheros.xml, 'latin1');
+        const gen = aIso((xml.match(/<FechaGeneracion>\s*([\d/]+)/i) || [])[1]);
+        const cal = aIso((xml.match(/<FechaCalificacion>\s*([\d/]+)/i) || [])[1]);
+        if (gen && gen !== valores.FECH_EMISION) {
+            avisos.push(`Fecha de emisión: la app dice ${valores.FECH_EMISION || '—'} pero el XML se generó el ${gen}. Se declara la del XML (la que compara la sede).`
+                + (cal && cal !== gen ? ` OJO: la calificación es del ${cal}; si la sede la rechaza, hay que regenerar el CEE con una sola fecha y firmar de nuevo el PDF.` : ''));
+            valores.FECH_EMISION = gen;
+        }
+    }
 
     if (yaRegistrado) avisos.unshift(`${numero} (${fase}) YA ESTÁ REGISTRADO: no se presenta otra vez (sería otra tasa).`);
     const listo = !yaRegistrado && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
@@ -259,10 +282,15 @@ for (const [n, v] of Object.entries(V)) {
 const pick = (n, txt, empieza) => { const s = el(n)[0]; if (!s) return out.push('NO EXISTE ' + n);
   const o = [...s.options].find(o => empieza ? norm(o.text).startsWith(norm(txt)) : norm(o.text) === norm(txt));
   if (!o) return out.push('SIN OPCION ' + n + '=' + txt); $(s).val(o.value).trigger('change'); };
-for (const n of ['BLAND','BLANDREPR','BLAND_EDIFICIO']) if (T[n]) pick(n, T[n]);
+// La sede escribe «Solana (La)» donde la app dice «LA SOLANA»: se prueban las dos formas.
+const conArticulo = (txt) => { const m = norm(txt).match(/^(LA|EL|LOS|LAS) (.+)$/); return m ? m[2] + ' (' + m[1] + ')' : txt; };
+const pickMuni = (n, txt) => { const s = el(n)[0]; if (!s) return out.push('NO EXISTE ' + n);
+  const o = [...s.options].find(o => norm(o.text) === norm(txt)) || [...s.options].find(o => norm(o.text) === norm(conArticulo(txt)));
+  if (!o) return out.push('SIN OPCION ' + n + '=' + txt); $(s).val(o.value).trigger('change'); };
+for (const n of ['BLAND','BLANDREPR','BLAND_EDIFICIO']) { if (T[n]) pick(n, T[n]); else if (T[n + '_COD']) $(el(n)[0]).val(T[n + '_COD']).trigger('change'); }
 if (T.CALIDADREPR) pick('CALIDADREPR', T.CALIDADREPR, true);
 await new Promise(r => setTimeout(r, 2500));
-for (const n of ['ORT01','ORT01REPR','ORT01_EDIFICIO']) if (T[n]) pick(n, T[n]);
+for (const n of ['ORT01','ORT01REPR','ORT01_EDIFICIO']) if (T[n]) pickMuni(n, T[n]);
 // Las casillas dependientes (Unifamiliar, Bloque…) se habilitan tras TIPO_EDIFICIO: segunda pasada.
 for (const n of ['TIPO_VIVIENDA','TIPO_BLOQUE','TIPO_TERCIARIO']) if (V[n]) { const r = [...el(n)].find(x => x.value === V[n]); if (r && !r.checked) r.click(); }
 const chk = (n, on) => { const e = el(n)[0]; if (e && e.checked !== on) e.click(); };
@@ -358,11 +386,78 @@ async function devuelto(numero) {
     await new Promise(r => setTimeout(r, 3000)); // deja salir los avisos asíncronos
 }
 
+// ─── notificaciones ──────────────────────────────────────────────────────────
+// Lo que llega DESPUÉS del registro por notifica.jccm.es: tres notificaciones por
+// certificado (Resolución de Inscripción · EtiquetaCEE · Oficio FEE). Cada PDF que baja
+// la plataforma es un ENVOLTORIO con el documento de verdad como fichero ADJUNTO dentro:
+// se extrae, se comprueba que es de ESTE certificado (su referencia catastral) y se sube:
+// la etiqueta a su casilla y las dos resoluciones a OTROS. Por el servidor, como el registro.
+async function adjuntosDe(pdfPath) {
+    const pdfjs = await import(require('url').pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.mjs')).href);
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(pdfPath)), verbosity: 0 }).promise;
+    const portada = (await (await doc.getPage(1)).getTextContent()).items.map(x => x.str).join(' ');
+    const expSede = (portada.match(/expediente:\s*([\d/]+\s*\(\d+\))/i) || [])[1] || null;
+    const at = Object.values((await doc.getAttachments()) || {});
+    if (!at.length) throw new Error(`${path.basename(pdfPath)} no lleva ningún documento adjunto`);
+    const a = at[0];
+    const buffer = Buffer.from(a.content);
+    const dentro = await pdfjs.getDocument({ data: new Uint8Array(buffer), verbosity: 0 }).promise;
+    let texto = '';
+    for (let i = 1; i <= dentro.numPages; i++) texto += (await (await dentro.getPage(i)).getTextContent()).items.map(x => x.str).join(' ') + ' ';
+    return { buffer, nombre: a.filename, expSede, texto: texto.replace(/\s+/g, ' ') };
+}
+
+async function notificaciones(numero) {
+    const piezas = [['etiqueta', opt('etiqueta'), null], ['otros', opt('resolucion'), 'RESOLUCIÓN DE INSCRIPCIÓN'], ['otros', opt('oficio'), 'OFICIO FEE']]
+        .filter(([, f]) => f);
+    if (!piezas.length) throw new Error('Pasa al menos --etiqueta <pdf> (y --resolucion <pdf> --oficio <pdf>)');
+    const { origen, row } = await localizar(numero);
+    const { borrador } = await require('../services/borradorCeeService').componer(origen, row.id, fase);
+    const rc = (campos((borrador.apartados || []).find(a => a.id === '05'))['Referencia catastral'] || '').toUpperCase();
+    if (!rc) throw new Error(`${numero}: no sé su referencia catastral para comprobar los documentos`);
+
+    const listos = [];
+    const sedes = new Set();
+    for (const [tipo, f, rotulo] of piezas) {
+        const d = await adjuntosDe(f);
+        const ok = d.texto.toUpperCase().includes(rc.slice(0, 14));
+        console.log(`${path.basename(f)} → «${d.nombre}» · expediente sede ${d.expSede || '?'} · ${ok ? `RC ${rc.slice(0, 14)} ✓` : 'RC NO COINCIDE'}`);
+        if (!ok) throw new Error(`«${d.nombre}» no es de ${numero} (no aparece su referencia ${rc.slice(0, 14)}). No se sube nada.`);
+        if (d.expSede) sedes.add(d.expSede);
+        listos.push({ tipo, buffer: d.buffer, nombre: tipo === 'etiqueta' ? 'etiqueta.pdf' : `${rotulo}.pdf` });
+    }
+    if (sedes.size > 1) throw new Error(`Los documentos son de expedientes de la sede distintos (${[...sedes].join(', ')}). No se sube nada.`);
+    if (!flag('escribir')) { console.log('EN SECO · con --escribir: etiqueta a su casilla y resoluciones a OTROS.'); return; }
+
+    if (!flag('local')) {
+        const base = (process.env.PRESENTAR_API || 'https://app.brokergy.es').replace(/\/+$/, '');
+        const negocio = origen === 'cee_directo' ? 'cee-directos' : 'expedientes';
+        for (const p of listos) {
+            const fd = new FormData();
+            fd.append('file', new Blob([p.buffer], { type: 'application/pdf' }), p.nombre);
+            fd.append('quien', QUIEN.texto);
+            const r = await fetch(`${base}/api/${negocio}/${row.id}/presentacion-cee/devuelto?fase=${fase}&tipo=${p.tipo}`,
+                { method: 'POST', headers: { 'x-internal-key': process.env.INTERNAL_API_KEY || '' }, body: fd });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(`${base} respondió ${r.status} con ${p.nombre}: ${j.error || '?'} (¿desplegado el tipo «${p.tipo}»? con --local se sube desde el PC)`);
+            console.log(`${p.tipo.toUpperCase()} (servidor):`, j.name);
+        }
+        return;
+    }
+    const svc = require('../services/presentacionCeeService');
+    for (const p of listos) {
+        const r = await svc.subirDevueltoInterno(origen, row.id, fase, { tipo: p.tipo, buffer: p.buffer, mimetype: 'application/pdf', nombreOriginal: p.nombre, quien: QUIEN.texto });
+        console.log(`${p.tipo.toUpperCase()} (local):`, r.name);
+    }
+    await new Promise(r => setTimeout(r, 3000));
+}
+
 // ─── main ────────────────────────────────────────────────────────────────────
 (async () => {
     if (orden === 'pendientes') await pendientes();
     else if (orden === 'preparar' && args[1]) await preparar(args[1]);
     else if (orden === 'devuelto' && args[1]) await devuelto(args[1]);
+    else if (orden === 'notificaciones' && args[1]) await notificaciones(args[1]);
     else {
         console.log('Uso:\n  node scripts/presentar_cee.js pendientes\n  node scripts/presentar_cee.js preparar <nº> [--fase inicial|final]\n'
             + '  node scripts/presentar_cee.js devuelto <nº> --registro <pdf> [--tasa <pdf>] [--fase …] [--escribir]');

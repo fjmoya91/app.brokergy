@@ -64,7 +64,7 @@ paths:
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/encargar-la-presentacion-a-una-persona-de-fuera-presentar-negoci.md` — ENCARGAR la presentación a una persona de fuera — `/presentar/:negocio/:id` (2026-10-06) · 7,4 KB
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/la-calificacion-de-emisiones-no-se-guardaba.md` — La calificación de EMISIONES no se guardaba · 1,6 KB
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/los-dos-pasos-del-certificador-presentar-cee-id-token-phase.md` — Los DOS PASOS del certificador — `/presentar-cee/:id?token=&phase=` · 3,5 KB
-- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md` — PRESENTARLO sin tocar el PC — skill `presentar-cee` (2026-10-15) · 6,9 KB
+- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md` — PRESENTARLO sin tocar el PC — skill `presentar-cee` (2026-10-15) · 8,7 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/00-revisar-el-cee-que-entrega-el-certificador.md` — REVISAR el CEE que entrega el certificador (2026-09-21) · 2,4 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/con-el-cex-delante-y-la-medida-de-mejora.md` — Con el `.cex` delante, y la MEDIDA DE MEJORA (2026-09-29) · 6,2 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/el-xml-se-lee-de-supabase-sin-bajar-nada-de-drive.md` — El `.xml` se lee de SUPABASE, sin bajar nada de Drive · 1,5 KB
@@ -162,9 +162,13 @@ SEGUIMIENTO**
   - **REGLA — la firma se automatiza AISLANDO el certificado, no pulsando a ciegas.**
   - **REGLA — «Es representante» se marca ANTES de rellenar.**
   - **REGLA — tras escribir la referencia catastral se pulsa «Añadir Referencia».**
+  - **REGLA — la «Fecha de emisión» es la de GENERACIÓN del XML, no la de firma de la app.**
+  - **REGLA — cada solicitud empieza y acaba BORRANDO la sesión de la sede.**
   - **REGLA — los ficheros se suben con su nombre ORIGINAL: el NIF lo pone la sede.**
   - **REGLA — las recomendaciones de mejora son el MISMO PDF firmado.**
   - **REGLA — el pago pide el SÍ del usuario y lo autoriza su banco.**
+  - **REGLA — la ETIQUETA y las resoluciones se recogen en notifica.jccm.es, y se COMPRUEBAN antes de
+subirlas**
   - **REGLA — lo devuelto lo sube el SERVIDOR, no el PC**
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/00-revisar-el-cee-que-entrega-el-certificador.md`
   - **REGLA — el fichero solo se LEE; el juicio es del código.**
