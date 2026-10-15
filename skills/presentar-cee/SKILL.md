@@ -1,0 +1,182 @@
+---
+name: presentar-cee
+description: 'PRESENTA un CEE (certificado de eficiencia energética) en el Registro de CASTILLA-LA MANCHA (sede de la JCCM, procedimiento 020264 · SIACI SJM3) de principio a fin, sin que el usuario toque el PC: se identifica con su certificado electrónico, rellena el formulario con el borrador de la app, adjunta el PDF firmado, el XML y el .cex, paga la tasa con la tarjeta guardada en Chrome, firma y envía con AutoFirma, y sube a la app el justificante de registro (marca la fase REGISTRADA con la fecha leída) y el recibo de la tasa. Úsalo con "presenta el CEE de 2026CEE_64", "registra el certificado de 26RES060_221", "presenta los CEE pendientes", "¿qué CEE hay sin registrar?". Lo único que hace el usuario es decir SÍ al pago en el chat y autorizarlo en la app de su banco. Necesita Claude en Chrome y el montaje de AutoFirma con Firefox (una vez). Solo CLM; nunca presenta lo encargado a otra persona sin preguntar.'
+---
+
+# Presentar un CEE en el Registro de la JCCM
+
+Lleva un CEE con el visto bueno dado hasta el **número de registro**, y lo deja guardado en la app. Es
+lo que hacía una persona con el popup «📄 Presentar el CEE» delante: aquí lo hace Claude en el Chrome
+del usuario, con su certificado.
+
+- **Solo Castilla-La Mancha** (procedimiento 020264 · SIACI SJM3). Fuera de CLM `preparar` lo dice y para.
+- **El pago necesita un «sí» del usuario EN EL CHAT** para ESE expediente y ESE importe, antes de
+  pulsar «Pagar y enviar». Y la confirmación del banco (3DS en la app del banco) la hace él. Nunca se
+  escribe un número de tarjeta: se usa la tarjeta **guardada en Chrome**, la que diga el usuario.
+- **Lo encargado a otra persona (Eva) no se presenta sin preguntar**: si lo presentan los dos, se paga
+  la tasa dos veces. `pendientes` dice a quién está encargado cada uno.
+- **Local = producción**: `devuelto --escribir` sube a Drive y marca REGISTRADO de verdad.
+- Todo corre en el PC del usuario: los scripts por la shell (en Cowork, por Desktop Commander, ver
+  [comun/entorno.md](comun/entorno.md)) y el navegador por **Claude en Chrome**.
+
+## 0. Antes de nada: el montaje (una vez por PC)
+
+AutoFirma abre SIEMPRE su ventana para elegir certificado, y esa ventana no la puede pulsar el
+navegador. Se resuelve así: AutoFirma usa, en las llamadas desde el navegador, el almacén de
+**Firefox**, donde solo está el certificado de quien presenta; con UN certificado su botón «Aceptar» ya
+tiene el foco y un vigilante pulsa Intro. Cómo se monta: [referencia/montaje.md](referencia/montaje.md).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\comprobar_montaje.ps1 -Titular <APELLIDO1_APELLIDO2>
+```
+
+Tiene que acabar en **MONTAJE LISTO**. Si no, para y di qué falta: sin él, la firma no sale sola.
+
+## 1. Qué hay que presentar
+
+```bash
+cd implementation/backend
+node scripts/presentar_cee.js pendientes
+```
+
+Mismo criterio que el radar del parte («con tu visto bueno y sin registrar»): fase REVISADO, sin fecha
+de registro. Ordenado por **plazo** (un mes desde la firma; pasado el mes hay que volver a emitir el
+certificado). Si el usuario pide uno concreto que no sale aquí, dilo antes de seguir.
+
+## 2. Prepararlo (solo lee)
+
+```bash
+node scripts/presentar_cee.js preparar 2026CEE_64            # --fase final para el CEE final
+```
+
+Compone el MISMO borrador del popup y deja en `scratch/presentar-cee/<nº>_<fase>/`:
+
+- `plan.json`: lo que se teclea (por `name` del formulario), los adjuntos con su categoría y los avisos.
+- `rellenar.js`: el código que rellena el formulario en la pestaña de la sede.
+- Los ficheros bajados de Drive **con su nombre ORIGINAL**: la sede pone ella sola el NIF delante
+  (con el NIF ya puesto quedan `NIF_NIF_…`).
+
+Lee los **AVISOS**. «Sexo supuesto por el nombre» es normal (decisión del usuario: si la ficha no lo
+dice, se supone; fallar no es grave). «Falta en Drive» o «NO LISTO» → para y dilo.
+
+## 3. El vigilante, en segundo plano
+
+```powershell
+powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\vigilante_autofirma.ps1 -Segundos 1800 -Veces 5
+```
+
+Lánzalo en segundo plano ANTES de abrir la sede. Acepta la ventana de AutoFirma **solo si es la del
+almacén NSS (Firefox)**; si saliera la del almacén de Windows (con certificados de varias personas)
+escribe `ALMACEN_EQUIVOCADO` y sale sin tocar nada → para y avisa. Su salida dice cada `ACEPTADO`.
+
+## 4. Abrir la sede e identificarse
+
+1. `navigate` a `http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S`.
+   Pasa por «Validando componentes» y pide una **firma de identificación** con AutoFirma: la acepta
+   el vigilante (`ACEPTADO … NSS`).
+2. Pulsa **«Realizar Solicitud»**. Salta un `alert` («Si va a presentar más de una solicitud…»): la
+   página se queda congelada (ni capturas ni JavaScript) hasta aceptarlo, y la extensión no llega:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\escritorio.ps1 aviso
+   ```
+3. Marca **«Es representante»** (debajo del apartado 01). **Recarga la página.** Sin ella, la sede pone
+   de SOLICITANTE a quien se ha identificado; con ella, el solicitante es el titular (editable) y quien
+   presenta queda de REPRESENTANTE, que es como lo plantea el borrador.
+
+## 5. Rellenar
+
+1. Pega el contenido de `rellenar.js` en `javascript_tool` de la pestaña. Devuelve `OK: rellenado` o
+   `REVISAR: …` (un campo que no existe o una opción que no encuentra): resuélvelo antes de seguir.
+2. Pulsa **«Añadir Referencia»** (junto a la referencia catastral). **Recarga.** Es obligatorio: la sede
+   valida el XML contra las referencias AÑADIDAS y, sin esto, rechaza el XML («No ha pulsado el botón
+   'Añadir Referencia'…»).
+3. Comprueba por JavaScript que tras las recargas sigue todo (nombre del solicitante, «Es
+   representante» marcado, municipios, fechas, Unifamiliar…). Las recargas de la sede conservan lo
+   escrito, pero se comprueba.
+
+Valores fijos que pone `rellenar.js`: trámite **edificio existente**, ámbito **Inscripción**, declaración
+**marcada**, «Me opongo a la consulta de datos» **sin marcar**, documentos 1–4 **marcados** y el
+**Anexo V NO** (decisión del usuario: ni se marca ni se sube).
+
+## 6. Adjuntar (cuatro veces)
+
+Para cada entrada de `plan.adjuntos`, en este orden:
+1. `jQuery('[name=CATEGORIA_DOCUMENTO]').val('<categoria>').trigger('change')`.
+2. `find` del input de fichero («Documento») → `file_upload` con la ruta del plan.
+3. Clic en **«Adjuntar documento»** (recarga) y comprueba que aparece en «ANEXAR DOCUMENTOS».
+
+| Categoría | Qué |
+|---|---|
+| 3926 | PDF del certificado firmado |
+| 3927 | Recomendaciones de mejora → el MISMO PDF firmado si no hay informe aparte (van en su Anexo III) |
+| 3928 | XML |
+| 3929 | .cex |
+
+Para quitar uno: marca su casilla y «Quitar documento».
+
+## 7. Pagar — PARA y pide el «sí»
+
+Antes de tocar nada del pago, en el chat: *«{nº} — {titular}, CEE {fase}. Todo
+rellenado y adjuntado. ¿Pago la tasa de 16,39 € y envío?»* (el importe, el que diga la sede en el
+apartado 08). Si hay más de una tarjeta guardada y el usuario no ha dicho cuál, pregúntalo. Con el sí:
+
+1. Marca **«Acceso a la pasarela de pago de tasas»** y pulsa **«Pagar y enviar»** → `alert` («Vas a ser
+   redirigido…») → `escritorio.ps1 aviso`. Se abre otra pestaña, `plataformapagos.jccm.es`.
+2. **«Pago de documentos sin identificación»** → **«Pago con Tarjeta»** → pasarela de Redsys. Apunta el
+   **número de documento 046** (13 dígitos, empieza por `046`): es la referencia que pide la sede.
+3. La tarjeta: el desplegable de Chrome NO se abre con el clic de la extensión. Con el ratón real:
+   - `escritorio.ps1 captura -Salida …\pago.png -Zona 500,150,1000,600` y localiza «Número de tarjeta»
+     en píxeles de pantalla (la franja «Claude empezó a depurar…» mueve la página ~55 px: mide sobre
+     una captura recién hecha).
+   - `escritorio.ps1 clic -X … -Y …` en el campo → captura → `clic` sobre la tarjeta elegida en el
+     desplegable. Chrome rellena número, caducidad y CVV. **No repitas esos datos en el chat.**
+4. **«Pagar»** → 3DS del banco: dile al usuario *«autoriza el pago en la app de tu banco»* y espera
+   (la página cambia sola a «Ticket de pago» con «OPERACIÓN AUTORIZADA CON CÓDIGO …»).
+5. **«Continuar»** → plataforma: «El proceso de pago se ha realizado con éxito. Estado: Pagado». Pulsa el
+   **icono de descarga** junto a «Obtener justificante de pago» (baja `Descargas\<nº 046>.pdf`) y luego
+   **«Continuar»**: la pestaña se cierra y se vuelve al formulario.
+
+## 8. Enviar
+
+1. De vuelta, la sede marca «Indique la referencia 046 del pago ya realizado» con la casilla VACÍA:
+   escribe ahí el nº de documento 046 (`REFERENCIA_PAGO`, máx. 13).
+2. **«Enviar»** → `alert` «Se van a firmar los datos del formulario» → `escritorio.ps1 aviso` → el
+   vigilante firma (`ACEPTADO … NSS`).
+3. Página de resultado: **«Este es el número de registro NNNNNNN/AAAA solicitado el … a las …»**.
+   Pulsa el **icono PDF** de «Descargar PDF solicitud» → `Descargas\NNNNNNN.pdf`: es el justificante.
+   Si debajo sale «SOAP:Server: Server Error» (pasó en el primero, 2026CEE_63) el registro vale igual;
+   dilo, y que el usuario compruebe en el correo de la JCCM que la copia trae los cuatro documentos.
+4. Cierra la pestaña (la sede pide cerrar el navegador entre solicitudes; para la siguiente, pestaña nueva).
+
+## 9. Guardarlo en la app
+
+```bash
+node scripts/presentar_cee.js devuelto 2026CEE_64 --registro "C:\Users\Usuario\Downloads\NNNNNNN.pdf" --tasa "C:\Users\Usuario\Downloads\<nº 046>.pdf"
+# en seco: dice la fecha y el nº que lee del justificante. Si cuadran:
+node scripts/presentar_cee.js devuelto 2026CEE_64 --registro … --tasa … --escribir
+```
+
+Por las mismas funciones que la página de presentar: el justificante va a la casilla **registro** (lee
+la fecha, marca REGISTRADO, avanza el estado, en un CEE directo dispara la entrega si está cobrado) y la
+tasa a OTROS como `{nº} – TASA.pdf`. Cierra el encargo de presentación si lo había. En el historial
+figura «Fran (presentación automática)».
+
+## Informe final
+
+Una tabla corta: nº de registro y fecha, tasa (importe, nº 046, código de autorización), adjuntos, qué
+se ha guardado en la app y el estado en que queda. Y lo que hay que mirar (un SOAP Error, el sexo
+supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
+
+## Lo que se aprendió presentando 2026CEE_63 (15/10/2026)
+
+| Pasa esto | Por eso |
+|---|---|
+| La página no responde a capturas ni a JS | Hay un `alert()` abierto → `escritorio.ps1 aviso` |
+| El solicitante sale con el nombre de quien presenta | Falta «Es representante» |
+| La sede no lista el XML adjuntado | Falta «Añadir Referencia» |
+| Adjuntos `NIF_NIF_…` | Se subieron con el NIF ya puesto: súbelos con el nombre original |
+| El vigilante dice `ALMACEN_EQUIVOCADO … NSS` | Versión vieja del vigilante: NSS ES Firefox |
+| La tarjeta no se queda en el campo | Se eligió con teclas de la extensión: usa el ratón real |
+| Tras pagar, «referencia 046» vacía | Normal: se escribe a mano el nº de documento 046 |
+
+Detalle y porqué: `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md`.

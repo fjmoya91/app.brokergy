@@ -28,6 +28,9 @@ Con Eva · enviado hace N días»** en ámbar, hasta que sube el justificante. *
 fichero con «REVISAR» en el nombre no se manda nunca** (`esRevisar`) — es un borrador de
 la app. Por slot manda el nombre canónico; si falta alguno de los tres, **no sale nada**.
 Los adjuntos van con el NIF del titular delante, como se suben al Registro.
+⚠️ (15/10/2026) Medido presentando 2026CEE_63: **la sede pone ella sola el NIF delante**, así que un
+fichero que ya lo lleva queda `NIF_NIF_…`. Hay que subirlos con el nombre original; este prefijo está
+pendiente de quitarse (ver «PRESENTARLO sin tocar el PC»).
 
 **REGLA — el enlace es REVOCABLE**: HMAC con un `nonce` guardado en
 `cee.presentacion[fase]` (clave preservada en los dos PUT). Reenviar genera otro (el

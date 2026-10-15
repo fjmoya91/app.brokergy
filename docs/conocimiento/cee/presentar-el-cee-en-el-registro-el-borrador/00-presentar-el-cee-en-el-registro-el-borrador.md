@@ -72,6 +72,9 @@ fichero. Si está en la carpeta del CEE se baja de un clic **ya renombrado** con
 delante (`GET /:id/borrador-cee/fichero?fase=&doc=`, que se pide por CLAVE de documento y
 nunca por driveId, así que no sirve para bajar el fichero de otro expediente). Lo que no
 está se dice en ámbar: es lo que hay que resolver antes de entrar en la sede.
+⚠️ (15/10/2026) La sede antepone ELLA el NIF al adjuntar: un fichero bajado así queda
+`NIF_NIF_…` en la solicitud (medido en 2026CEE_63). Pendiente de quitar el prefijo; ver
+«PRESENTARLO sin tocar el PC».
 
 **REGLA — el nombre de descarga es el del fichero que HAY en Drive con el NIF delante,
 no uno compuesto.** Medido en 26RES060_187: sus ficheros se llaman
