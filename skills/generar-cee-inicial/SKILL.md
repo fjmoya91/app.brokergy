@@ -632,6 +632,29 @@ python -m pytest implementation/cee-engine/tests/test_fxcc_plantas.py   # croqui
 python -m pytest implementation/cee-engine/tests/test_previsto.py       # RES080: ventanas y aislamiento del previsto
 ```
 
+## Cuando el usuario lo da por VÁLIDO: firmarlo con el certificado de Brokergy
+
+Solo con un «doy por válido el CEE inicial de NNN» explícito, nunca por iniciativa propia: firmar es
+un acto de quien firma. Antes, el `.cex/.xml/.pdf` tienen que estar en Drive con su NOMBRE CANÓNICO
+(`{nº} – CEE INICIAL.*`, sin `_REVISAR`; ver la memoria «CEE del agente listo para firmar»).
+
+```bash
+cd implementation/backend
+node scripts/firmar_cee.js 26RES060_231              # en seco: firma una copia, la comprueba y deja la vista
+node scripts/firmar_cee.js 26RES060_231 --escribir   # firma y sube «{nº} – CEE INICIAL_fdo.pdf» a su casilla
+```
+
+- Firma con el certificado de **REPRESENTANTE** de Brokergy («NIF NOMBRE (R: B19350222)», el del
+  almacén de Windows) por `AutofirmaCommandLine`, **sin ninguna ventana**.
+- La firma va en la **última página**, debajo de «Firma del/la técnico/a certificador/a»: logo de
+  Brokergy a la izquierda y, a la derecha, NIF, nombre, CIF, fecha y hora. Igual que la firma a mano.
+- Comprueba que el PDF queda firmado, ÍNTEGRO y por Fran. Si no, no sube nada.
+- Enseña al usuario `scratch/firmar-cee/<nº>_inicial/ultima_pagina.png` (en seco) antes del `--escribir`
+  la primera vez de cada sesión.
+- ⚠️ La fecha de firma es la del PC. Si el XML se generó otro día, lo avisa: lo correcto es regenerar en
+  CE3X ese día y firmar el nuevo (la sede compara la emisión con la `<FechaGeneracion>`).
+- Con `--fase final`, lo mismo para el CEE final. Y si después hay que presentarlo: skill `presentar-cee`.
+
 ## Y después: el CEE final
 
 Cuando el técnico entrega el inicial (con su medida calculada) y se le da el visto bueno, el CEE

@@ -38,6 +38,10 @@ powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presenta
 
 Tiene que acabar en **MONTAJE LISTO**. Si no, para y di qué falta: sin él, la firma no sale sola.
 
+Si el CEE aún no está firmado (no hay `{nº} – CEE INICIAL_fdo.pdf`) y el usuario lo ha dado por válido,
+primero `node scripts/firmar_cee.js <nº> --escribir` (ver la skill `generar-cee-inicial`): firma con el
+certificado de representante de Brokergy, sin ventanas, en la última página.
+
 ## 1. Qué hay que presentar
 
 ```bash
