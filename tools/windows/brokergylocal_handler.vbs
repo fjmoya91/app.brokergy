@@ -65,10 +65,10 @@ If imprimir Then
     WScript.Quit
 End If
 
-Set sh = CreateObject("WScript.Shell")
+Set sh = CreateObject("Shell.Application")
 If Len(resolved) > 0 Then
     ' Abrir la carpeta directamente en el Explorador (sin esperar, sin consola)
-    sh.Run "explorer.exe """ & resolved & """", 1, False
+    AbrirCarpeta resolved
 ElseIf Len(gNearest) > 3 Then
     ' Ni por nombre ni por codigo: Drive aun no la ha bajado a este PC (recien creada,
     ' o el espejo va muy atrasado). Se ofrece la carpeta mas cercana que SI existe.
@@ -77,11 +77,21 @@ ElseIf Len(gNearest) > 3 Then
               "movida o renombrada hace poco)." & vbCrLf & vbCrLf & _
               "Abrir la carpeta mas cercana que si existe?" & vbCrLf & gNearest, _
               vbYesNo + vbQuestion, "Brokergy - Carpeta local") = vbYes Then
-        sh.Run "explorer.exe """ & gNearest & """", 1, False
+        AbrirCarpeta gNearest
     End If
 Else
     MsgBox "No existe la carpeta local:" & vbCrLf & path, vbExclamation, "Brokergy - Carpeta local"
 End If
+
+' ── COMAS EN EL NOMBRE (2026-10-15, 26RES060_OP302) ──────────────────────────
+' Antes se lanzaba  explorer.exe "<ruta>" , y explorer.exe trocea sus argumentos
+' por las COMAS aunque vayan entre comillas (las usa para /select, /root...). Con
+' "26RES060_OP302 - URB PABLO IGLESIAS, 3 - 1IZQ" le llegaba una ruta cortada que no
+' existe y abria DOCUMENTOS, sin error. Las direcciones llevan coma a menudo.
+' Shell.Application.Open recibe la ruta como UN valor, sin linea de comandos.
+Sub AbrirCarpeta(ruta)
+    sh.Open CStr(ruta)
+End Sub
 
 ' ── Resolución de ruta tolerante a caracteres ilegales ───────────────────────
 ' Devuelve la ruta REAL en disco. Si la ruta exacta existe, la usa tal cual.
