@@ -130,6 +130,9 @@ async function preparar(numero) {
     const { borrador } = await svc.componer(origen, row.id, fase);
     if (!borrador.aplica) throw new Error(`${numero}: no es de Castilla-La Mancha (${borrador.motivo || 'sin plantilla'}). Esta skill solo presenta en la JCCM.`);
 
+    // Presentar dos veces es pagar dos tasas: si la fase ya está registrada, no se prepara para enviar.
+    const yaRegistrado = String(row.seguimiento?.[claveFase(fase)] || '').toUpperCase() === 'REGISTRADO';
+
     const ap = Object.fromEntries((borrador.apartados || []).map(a => [a.id, a]));
     const sol = campos(ap['01']), rep = campos(ap['02']), edi = campos(ap['05']), cer = campos(ap['06']);
     const avisos = [...(borrador.avisos || []).map(a => (typeof a === 'string' ? a : a.texto || JSON.stringify(a)))];
@@ -203,7 +206,8 @@ async function preparar(numero) {
     // CE3X: sin informe aparte, se adjunta el mismo PDF en esa categoría.
     if (!ficheros.mejoras && ficheros.pdf) ficheros.mejoras = ficheros.pdf;
 
-    const listo = !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
+    if (yaRegistrado) avisos.unshift(`${numero} (${fase}) YA ESTÁ REGISTRADO: no se presenta otra vez (sería otra tasa).`);
+    const listo = !yaRegistrado && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
     const plan = {
         numero, origen, fase, listo: !!listo,
         sede: 'http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S',
@@ -236,9 +240,13 @@ async function preparar(numero) {
  * municipio por TEXTO. No adjunta, no pulsa «Añadir Referencia» ni envía.
  */
 function scriptRellenar(valores, texto) {
+    // La referencia catastral NO la escribe el script: hay que TECLEARLA y pulsar «Añadir
+    // Referencia» con clics reales justo antes del XML. Puesta por JavaScript sale en la
+    // lista pero la sede no la cuenta al validar el XML (medido en 2026CEE_64).
+    const { VIV_IDENT_REFCATASTRAL1: _rc, ...sinRc } = valores;
     return `// Generado por scripts/presentar_cee.js — pegar en javascript_tool de la pestaña de la sede.
-(async () => {
-const V = ${JSON.stringify(valores)};
+await (async () => {
+const V = ${JSON.stringify(sinRc)};
 const T = ${JSON.stringify(texto)};
 const $ = window.jQuery; const out = [];
 const el = (n) => document.getElementsByName(n);

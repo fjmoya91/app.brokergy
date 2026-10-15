@@ -74,7 +74,7 @@ escribe `ALMACEN_EQUIVOCADO` y sale sin tocar nada → para y avisa. Su salida d
 1. `navigate` a `http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S`.
    Pasa por «Validando componentes» y pide una **firma de identificación** con AutoFirma: la acepta
    el vigilante (`ACEPTADO … NSS`).
-2. Pulsa **«Realizar Solicitud»**. Salta un `alert` («Si va a presentar más de una solicitud…»): la
+2. Si sale **«Realizar Solicitud»**, púlsalo (en 2026CEE_64 el formulario se abrió directamente, sin él). Si salta un `alert` («Si va a presentar más de una solicitud…»): la
    página se queda congelada (ni capturas ni JavaScript) hasta aceptarlo, y la extensión no llega:
    ```powershell
    powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\escritorio.ps1 aviso
@@ -87,10 +87,7 @@ escribe `ALMACEN_EQUIVOCADO` y sale sin tocar nada → para y avisa. Su salida d
 
 1. Pega el contenido de `rellenar.js` en `javascript_tool` de la pestaña. Devuelve `OK: rellenado` o
    `REVISAR: …` (un campo que no existe o una opción que no encuentra): resuélvelo antes de seguir.
-2. Pulsa **«Añadir Referencia»** (junto a la referencia catastral). **Recarga.** Es obligatorio: la sede
-   valida el XML contra las referencias AÑADIDAS y, sin esto, rechaza el XML («No ha pulsado el botón
-   'Añadir Referencia'…»).
-3. Comprueba por JavaScript que tras las recargas sigue todo (nombre del solicitante, «Es
+2. Comprueba por JavaScript que tras las recargas sigue todo (nombre del solicitante, «Es
    representante» marcado, municipios, fechas, Unifamiliar…). Las recargas de la sede conservan lo
    escrito, pero se comprueba.
 
@@ -103,7 +100,17 @@ Valores fijos que pone `rellenar.js`: trámite **edificio existente**, ámbito *
 Para cada entrada de `plan.adjuntos`, en este orden:
 1. `jQuery('[name=CATEGORIA_DOCUMENTO]').val('<categoria>').trigger('change')`.
 2. `find` del input de fichero («Documento») → `file_upload` con la ruta del plan.
-3. Clic en **«Adjuntar documento»** (recarga) y comprueba que aparece en «ANEXAR DOCUMENTOS».
+3. `document.getElementsByName('ADJUNTAR')[0].click()` (recarga) y comprueba que aparece en «ANEXAR
+   DOCUMENTOS». El clic de la extensión sobre ese botón a veces no lo envía (el fichero sigue elegido
+   y no se adjunta): el `click()` desde la página es lo fiable.
+
+**Justo ANTES del XML, la referencia catastral**, a mano: clic real en el campo «Referencia catastral»,
+**teclea** la referencia (`computer type`) y clic real en **«Añadir Referencia»** (recarga). La sede valida
+el XML contra las referencias AÑADIDAS; sin esto rechaza el XML («No ha pulsado el botón 'Añadir
+Referencia' o ninguna… coincide con las del XML»). Por eso `rellenar.js` no la escribe: puesta por
+JavaScript, o añadida antes de otros adjuntos, sale en la lista pero la sede no la cuenta (2026CEE_64:
+hubo que quitarla con «Eliminar» + «Quitar marcado/s» y volver a teclearla). Si aun así rechaza el XML,
+repite: quitar, teclear, añadir y subir el XML enseguida.
 
 | Categoría | Qué |
 |---|---|
@@ -125,7 +132,7 @@ apartado 08). Si hay más de una tarjeta guardada y el usuario no ha dicho cuál
 2. **«Pago de documentos sin identificación»** → **«Pago con Tarjeta»** → pasarela de Redsys. Apunta el
    **número de documento 046** (13 dígitos, empieza por `046`): es la referencia que pide la sede.
 3. La tarjeta: el desplegable de Chrome NO se abre con el clic de la extensión. Con el ratón real:
-   - `escritorio.ps1 captura -Salida …\pago.png -Zona 500,150,1000,600` y localiza «Número de tarjeta»
+   - `escritorio.ps1 frente -Ventana 'Pantalla de pago Redsys'` y `escritorio.ps1 captura -Salida …\pago.png -Zona "500,100,1000,650"` (la zona, entre comillas) y localiza «Número de tarjeta»
      en píxeles de pantalla (la franja «Claude empezó a depurar…» mueve la página ~55 px: mide sobre
      una captura recién hecha).
    - `escritorio.ps1 clic -X … -Y …` en el campo → captura → `clic` sobre la tarjeta elegida en el
@@ -134,7 +141,8 @@ apartado 08). Si hay más de una tarjeta guardada y el usuario no ha dicho cuál
    (la página cambia sola a «Ticket de pago» con «OPERACIÓN AUTORIZADA CON CÓDIGO …»).
 5. **«Continuar»** → plataforma: «El proceso de pago se ha realizado con éxito. Estado: Pagado». Pulsa el
    **icono de descarga** junto a «Obtener justificante de pago» (baja `Descargas\<nº 046>.pdf`) y luego
-   **«Continuar»**: la pestaña se cierra y se vuelve al formulario.
+   **«Continuar»**: la pestaña se cierra y se vuelve al formulario. Si tras la descarga «Continuar» no hace
+   nada (pasó en 2026CEE_64), `scroll_to` al botón y púlsalo otra vez.
 
 ## 8. Enviar
 
@@ -144,8 +152,9 @@ apartado 08). Si hay más de una tarjeta guardada y el usuario no ha dicho cuál
    vigilante firma (`ACEPTADO … NSS`).
 3. Página de resultado: **«Este es el número de registro NNNNNNN/AAAA solicitado el … a las …»**.
    Pulsa el **icono PDF** de «Descargar PDF solicitud» → `Descargas\NNNNNNN.pdf`: es el justificante.
-   Si debajo sale «SOAP:Server: Server Error» (pasó en el primero, 2026CEE_63) el registro vale igual;
-   dilo, y que el usuario compruebe en el correo de la JCCM que la copia trae los cuatro documentos.
+   Debajo sale «SOAP:Server: Server Error» y los «Id. de firma» de los adjuntos vacíos: pasó en los dos
+   primeros (2026CEE_63 y _64) con el registro y la firma bien. Dilo, y que el usuario compruebe en el
+   correo de la JCCM que la copia trae los cuatro documentos.
 4. Cierra la pestaña (la sede pide cerrar el navegador entre solicitudes; para la siguiente, pestaña nueva).
 
 ## 9. Guardarlo en la app
@@ -167,13 +176,15 @@ Una tabla corta: nº de registro y fecha, tasa (importe, nº 046, código de aut
 se ha guardado en la app y el estado en que queda. Y lo que hay que mirar (un SOAP Error, el sexo
 supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
 
-## Lo que se aprendió presentando 2026CEE_63 (15/10/2026)
+## Lo que se aprendió presentando 2026CEE_63 y _64 (15/10/2026)
 
 | Pasa esto | Por eso |
 |---|---|
 | La página no responde a capturas ni a JS | Hay un `alert()` abierto → `escritorio.ps1 aviso` |
 | El solicitante sale con el nombre de quien presenta | Falta «Es representante» |
-| La sede no lista el XML adjuntado | Falta «Añadir Referencia» |
+| La sede no lista el XML adjuntado | Falta «Añadir Referencia», o se hizo por JavaScript o antes de otros adjuntos: quítala, tecléala y añádela con clics reales justo antes del XML |
+| «Adjuntar documento» no adjunta (el fichero sigue elegido) | Clic de la extensión perdido: `getElementsByName('ADJUNTAR')[0].click()` |
+| No sale «Realizar Solicitud» | A veces el formulario se abre directo tras la identificación |
 | Adjuntos `NIF_NIF_…` | Se subieron con el NIF ya puesto: súbelos con el nombre original |
 | El vigilante dice `ALMACEN_EQUIVOCADO … NSS` | Versión vieja del vigilante: NSS ES Firefox |
 | La tarjeta no se queda en el campo | Se eligió con teclas de la extensión: usa el ratón real |

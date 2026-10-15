@@ -34,6 +34,9 @@ presenta queda en el 02.
 **REGLA — tras escribir la referencia catastral se pulsa «Añadir Referencia».** La sede valida el XML
 contra las referencias AÑADIDAS a la lista, no contra la casilla: sin el botón, el XML se rechaza
 («No ha pulsado el botón 'Añadir Referencia' o ninguna de las referencias… coincide con las del XML»).
+Y se TECLEA y se pulsa con clics reales **justo antes de subir el XML**: en 2026CEE_64, escrita por
+JavaScript y añadida antes de los dos PDF, salía en la lista pero la sede rechazó el XML dos veces; quitada
+y vuelta a teclear justo antes, entró a la primera. Por eso `rellenar.js` ya no la escribe.
 
 **REGLA — los ficheros se suben con su nombre ORIGINAL: el NIF lo pone la sede.** Medido en
 2026CEE_63: el PDF subido como `NIF_2026CEE_63 – …` quedó `NIF_NIF_2026CEE_63 – …`. ⚠️ Contradice lo
@@ -62,9 +65,10 @@ vuelve con «referencia 046» marcada y VACÍA: se escribe el nº de documento 0
 `NNNNNNN.pdf`. Mientras hay un `alert()` abierto la página no responde a la extensión (ni capturas ni
 JavaScript): se acepta con `escritorio.ps1 aviso`.
 
-⚠️ En 2026CEE_63 la página de resultado mostró además «SOAP:Server: Server Error» y los «Id. de firma»
-de los adjuntos vacíos, con el registro y la firma del formulario bien. Pendiente de ver si llegó la
-copia por correo con los cuatro documentos.
+⚠️ En 2026CEE_63 y en 2026CEE_64 (registro 4171225/2026) la página de resultado mostró además
+«SOAP:Server: Server Error» y los «Id. de firma» de los adjuntos vacíos, con el registro y la firma del
+formulario bien: parece lo normal de la sede. Pendiente de ver que la copia por correo trae los cuatro
+documentos.
 
 **Lo devuelto se sube por las MISMAS funciones** que la página de presentar
 (`subidaCeePublica.subirCae|subirCeeDirecto` con el slot `registro`, y la tasa a OTROS como

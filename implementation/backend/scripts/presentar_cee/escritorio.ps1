@@ -16,10 +16,10 @@
 # «Claude empezó a depurar este navegador» aparece y desaparece y mueve la página ~55 px: se captura
 # justo antes de pinchar y se calcula sobre ESA captura.
 param(
-  [Parameter(Position = 0, Mandatory = $true)][ValidateSet('aviso', 'captura', 'clic', 'teclas')][string]$Accion,
+  [Parameter(Position = 0, Mandatory = $true)][ValidateSet('aviso', 'captura', 'clic', 'teclas', 'frente')][string]$Accion,
   [string]$Ventana = 'Portal de la Junta',
   [string]$Salida = '',
-  [int[]]$Zona = @(),
+  [string]$Zona = '',   # "x,y,ancho,alto" (texto: con -File no llega un array)
   [int]$Ancho = 0,
   [int]$X = 0, [int]$Y = 0,
   [string]$Teclas = ''
@@ -59,6 +59,10 @@ switch ($Accion) {
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
     Write-Output "AVISO_ACEPTADO | $Ventana"
   }
+  'frente' {
+    Al-Frente $Ventana
+    Write-Output "AL_FRENTE | $Ventana"
+  }
   'teclas' {
     if ($Ventana) { Al-Frente $Ventana }
     [System.Windows.Forms.SendKeys]::SendWait($Teclas)
@@ -75,7 +79,8 @@ switch ($Accion) {
     $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
     $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
     [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
-    if ($Zona.Count -eq 4) { $bmp = $bmp.Clone((New-Object System.Drawing.Rectangle $Zona[0], $Zona[1], $Zona[2], $Zona[3]), $bmp.PixelFormat) }
+    $z = @($Zona -split '[,; ]+' | Where-Object { $_ } | ForEach-Object { [int]$_ })
+    if ($z.Count -eq 4) { $bmp = $bmp.Clone((New-Object System.Drawing.Rectangle $z[0], $z[1], $z[2], $z[3]), $bmp.PixelFormat) }
     if ($Ancho -gt 0 -and $bmp.Width -gt $Ancho) {
       $alto = [int]($bmp.Height * $Ancho / $bmp.Width)
       $r = New-Object System.Drawing.Bitmap $Ancho, $alto
