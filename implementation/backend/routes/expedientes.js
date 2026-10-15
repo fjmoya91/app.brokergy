@@ -1655,8 +1655,8 @@ router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
         const { data: exp, error } = await supabase.from('expedientes')
             .select('id, numero_expediente, cliente_id, oportunidad_id, documentacion, '
                     + 'cert:cee->>certificador_id, '
-                    + 'confirmacion:instalacion->confirmacion_cliente, '
-                    + 'oportunidades(confirmacion:datos_calculo->confirmacion_cliente)')
+                    + 'confirmacion:instalacion->confirmacion_cliente, aires:instalacion->aires, '
+                    + 'oportunidades(confirmacion:datos_calculo->confirmacion_cliente, aires:datos_calculo->inputs->aires)')
             .eq('id', req.params.id).single();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         // Lo que confirmó el cliente al aceptar, para el mensaje del ENCARGO al
@@ -1664,9 +1664,12 @@ router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
         // dejar el popup sin su aviso al cliente.
         let bloqueCertificador = '';
         try {
-            const { bloqueConfirmacionCertificador } = await loadConfirmacionCliente();
+            const { bloqueConfirmacionCertificador, conAiresDeOportunidad } = await loadConfirmacionCliente();
+            // Sin respuesta del cliente sobre los aires, los apuntados en la oportunidad.
             bloqueCertificador = bloqueConfirmacionCertificador({
-                confirmacion: exp.confirmacion || exp.oportunidades?.confirmacion || null, cae: true });
+                confirmacion: conAiresDeOportunidad(exp.confirmacion || exp.oportunidades?.confirmacion || null,
+                                                    exp.aires || exp.oportunidades?.aires),
+                cae: true });
         } catch (e) { console.warn('[aviso-cliente-cee] confirmación:', e.message); }
         // La PÁGINA DEL ENCARGO del técnico que se acaba de elegir (su firma lo
         // lleva): el popup la mete en el mensaje en lugar del enlace a la app.

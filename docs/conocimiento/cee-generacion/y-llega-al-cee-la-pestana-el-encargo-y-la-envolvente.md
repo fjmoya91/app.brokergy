@@ -21,7 +21,9 @@ hecho a mano (5 × 20 %, 28,4 m² cada uno). Cuánto es esa parte, más abajo
 directo, **2026CEE_60**) van como **«Equipo de calefacción y refrigeración»**
 (bomba de calor, 270 % / 250 %): ahí los aires son parte de la calefacción. El
 bloque propone uno u otro por el negocio (`airesDelCliente`) y se cambia en él;
-el número viene de lo que dijo el cliente. Volver a pulsar **sustituye** los aires
+el número viene de lo que dijo el cliente —o, mientras no ha contestado, de lo
+apuntado en la OPORTUNIDAD (`instalacion.aires` / `inputs.aires`, 2026-10-15; el
+bloque dice de dónde sale)—. Volver a pulsar **sustituye** los aires
 que puso el bloque (marca `aire: true`), nunca los suma.
 
 **En un RES060 (cambio de caldera), cada aire es una máquina frigorífica (sólo frío)**

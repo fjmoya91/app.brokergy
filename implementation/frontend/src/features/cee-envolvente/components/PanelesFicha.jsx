@@ -1464,10 +1464,13 @@ function AiresAcondicionados({ aires, extras = [], superficie, onPoner }) {
     };
     const quitar = () => onPoner?.((previos) => previos.filter(x => !esAire(x)));
 
+    // `aires.de` dice de dónde sale: lo que contestó el cliente al aceptar o lo
+    // apuntado en la oportunidad (`airesDelCliente`).
+    const segun = `Según ${aires?.de || 'lo que confirmó el cliente'}`;
     const dijo = aires?.tiene === true
-        ? `El cliente dijo al aceptar que tiene ${aires.num
+        ? `${segun}, tiene ${aires.num
             ? `${aires.num} ${aires.num === 1 ? 'aparato' : 'aparatos'}` : 'aire acondicionado'}.`
-        : aires?.tiene === false ? 'El cliente dijo al aceptar que NO tiene aire acondicionado.' : null;
+        : aires?.tiene === false ? `${segun}, NO tiene aire acondicionado.` : null;
 
     if (!visible) {
         return (

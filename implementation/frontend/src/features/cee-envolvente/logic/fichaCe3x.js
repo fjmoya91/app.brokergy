@@ -6,6 +6,7 @@ import { resolverCe3x, buildMedidaMejora } from '../../expedientes/logic/ce3xFin
 import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
          techoAutoconsumo, consumoMensualDelCee, recomendacionesUso } from '../../expedientes/logic/ce3xTextos.js';
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
+import { normalizarAiresOportunidad } from '../../expedientes/logic/confirmacionCliente.js';
 import { AUTOCONSUMO_DECLARABLE } from '../../expedientes/logic/autoconsumoMaximo.js';
 import { especificaValida, kwpPara, mensualDe } from '../../expedientes/logic/produccionFv.js';
 import { autoconsumoMensual, NOMBRES_MES } from '../../expedientes/logic/autoconsumoMensual.js';
@@ -640,8 +641,9 @@ export function airesAcondicionados({ n, modo = 'refrigeracion', superficie } = 
 
 /**
  * Los aires que el cliente dijo tener, y cómo se propone declararlos.
- * CAE: `confirmacion_cliente` (del expediente o de su oportunidad). CEE
- * directo: el cuestionario de la oferta.
+ * CAE: `confirmacion_cliente` (del expediente o de su oportunidad) y, mientras
+ * el cliente no ha contestado, los apuntados en la OPORTUNIDAD (`aires`, regla
+ * en `confirmacionCliente.js`). CEE directo: el cuestionario de la oferta.
  * @returns {{ tiene: boolean, num: number|null, modo: string, de: string } | null}
  */
 export function airesDelCliente(expediente) {
@@ -651,20 +653,30 @@ export function airesDelCliente(expediente) {
     const q = directo ? expediente?.documentacion?.cuestionario : null;
     let tiene = null;
     let num = null;
+    let de = null;
     if (!directo && conf && (conf.aire_acondicionado === true || conf.aire_acondicionado === false)) {
         tiene = conf.aire_acondicionado;
         num = Number(conf.num_aires) || null;
+        de = 'lo que confirmó el cliente al aceptar la propuesta';
     } else if (q && (q.aire_acondicionado === true || q.aire_acondicionado === false)) {
         tiene = q.aire_acondicionado;
         num = Number(q.num_aires) || null;
+        de = 'lo que contestó el cliente al aceptar la oferta';
+    } else if (!directo) {
+        const op = normalizarAiresOportunidad(expediente?.instalacion?.aires
+            || expediente?.oportunidades?.datos_calculo?.inputs?.aires);
+        if (op) {
+            tiene = op.tiene;
+            num = op.num;
+            de = 'lo apuntado en la oportunidad';
+        }
     }
     if (tiene == null) return null;
     return {
         tiene,
         num: tiene && num > 0 ? Math.min(MAX_AIRES_CE3X, Math.round(num)) : null,
         modo: directo ? 'climatizacion' : 'refrigeracion',
-        de: directo ? 'lo que contestó el cliente al aceptar la oferta'
-                    : 'lo que confirmó el cliente al aceptar la propuesta',
+        de,
     };
 }
 
@@ -2488,7 +2500,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     const aires = airesDelCliente(expediente);
     if (!esFinal && aires?.tiene
         && !instalacion.equipos.some(e => tipoEquipo(e?.slot).servicios.includes('refrigeracion'))) {
-        instalacion.avisos.push(`El cliente dijo al aceptar que tiene aire acondicionado`
+        instalacion.avisos.push(`Según ${aires.de}, la vivienda tiene aire acondicionado`
             + `${aires.num ? ` (${aires.num} ${aires.num === 1 ? 'aparato' : 'aparatos'})` : ''} `
             + 'y no hay ningún equipo de refrigeración: añádelos en Instalaciones '
             + '(«Aires acondicionados»).');

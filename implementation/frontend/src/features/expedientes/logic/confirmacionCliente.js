@@ -117,7 +117,7 @@ const aBool = (v) => (v === true || v === 'true' ? true : (v === false || v === 
 /**
  * Del formulario (o de lo guardado) a la forma que se persiste. Lo que llega es
  * de un formulario PÚBLICO: solo pasan valores conocidos.
- * @returns {{ emisor, fotovoltaica, aire_acondicionado, num_aires } | null}
+ * @returns {{ emisor, fotovoltaica, aire_acondicionado, num_aires, aires_de? } | null}
  */
 export function sanearConfirmacion(raw) {
     if (!raw || typeof raw !== 'object') return null;
@@ -135,6 +135,10 @@ export function sanearConfirmacion(raw) {
             : null,
         aire_acondicionado: aire,
         num_aires: aire === true && Number.isFinite(n) && n > 0 && n <= MAX_AIRES ? n : null,
+        // Los aires los apuntamos en la OPORTUNIDAD, no los dijo el cliente
+        // (`conAiresDeOportunidad`). Solo se conserva esa marca: lo que llega del
+        // formulario público nunca la trae.
+        ...(aire !== null && raw.aires_de === AIRES_DE_OPORTUNIDAD ? { aires_de: AIRES_DE_OPORTUNIDAD } : {}),
     };
 }
 
@@ -145,6 +149,48 @@ export function etiquetaAires(c) {
     if (!s.aire_acondicionado) return 'No';
     return s.num_aires ? `Sí · ${s.num_aires} ${s.num_aires === 1 ? 'aparato' : 'aparatos'}` : 'Sí';
 }
+
+// ─── Aires apuntados en la OPORTUNIDAD ───────────────────────────────────────
+//
+// La misma pregunta del cuestionario («¿tiene aire acondicionado? ¿cuántos?»),
+// contestada por nosotros en la calculadora con lo que cuenta el instalador o
+// se ve en las fotos: `datos_calculo.inputs.aires = { tiene, num }`, que el
+// expediente hereda en `instalacion.aires`. Sin ella, los aires solo llegaban
+// al CEE si el cliente los decía al ACEPTAR, y el CEE inicial se hace muchas
+// veces antes (desde la propia oportunidad).
+//
+// REGLA — lo que dice el CLIENTE al aceptar MANDA; lo de la oportunidad es lo
+// que se usa mientras no ha contestado. Y se dice de dónde sale: el encargo no
+// puede poner en boca del cliente lo que apuntamos nosotros.
+
+export const AIRES_DE_OPORTUNIDAD = 'oportunidad';
+
+/** `inputs.aires` / `instalacion.aires` → `{ tiene, num }`, o null si no se ha contestado. */
+export function normalizarAiresOportunidad(v) {
+    if (!v || typeof v !== 'object') return null;
+    const tiene = aBool(v.tiene);
+    if (tiene === null) return null;
+    const n = Math.round(Number(String(v.num ?? '').replace(',', '.')));
+    return { tiene, num: tiene && Number.isFinite(n) && n > 0 && n <= MAX_AIRES ? n : null };
+}
+
+/**
+ * La confirmación del cliente con los aires de la oportunidad DEBAJO: si el
+ * cliente contestó a los aires, se devuelve tal cual; si no, lleva los de la
+ * oportunidad marcados con `aires_de: 'oportunidad'`. Así todo lo que ya lee los
+ * aires de `confirmacion_cliente` (encargo, revisión del CEE, envolvente) los
+ * recibe sin tener que mirar en dos sitios.
+ */
+export function conAiresDeOportunidad(confirmacion, airesOportunidad) {
+    const c = confirmacion && typeof confirmacion === 'object' ? confirmacion : null;
+    if (c && aBool(c.aire_acondicionado) !== null) return c;
+    const a = normalizarAiresOportunidad(airesOportunidad);
+    if (!a) return c;
+    return { ...(c || {}), aire_acondicionado: a.tiene, num_aires: a.num, aires_de: AIRES_DE_OPORTUNIDAD };
+}
+
+/** ¿Los aires de esta confirmación los apuntamos en la oportunidad? */
+export const airesDeOportunidad = (c) => c?.aires_de === AIRES_DE_OPORTUNIDAD;
 
 // ─── Emisor: contraste con el expediente / la simulación ────────────────────
 
@@ -269,7 +315,13 @@ export function resumenConfirmacion(conf) {
         l.push({ tema: 'Placas fotovoltaicas', valor: etiquetaFotovoltaica(c.fotovoltaica), aviso: k.estado === 'difiere' ? k.texto : null });
     }
     const aires = etiquetaAires(c);
-    if (aires) l.push({ tema: 'Aire acondicionado', valor: aires, aviso: null });
+    if (aires && airesDeOportunidad(c)) {
+        l.push({ tema: 'Aire acondicionado (apuntado en la oportunidad)', valor: aires, aviso: null });
+    } else if (aires) {
+        const supAires = etiquetaAires(conAiresDeOportunidad(null, sup.aires));
+        l.push({ tema: 'Aire acondicionado', valor: aires,
+                 aviso: supAires && supAires !== aires ? `En la oportunidad constaba «${supAires}».` : null });
+    }
     return l;
 }
 
@@ -336,8 +388,13 @@ export function bloqueConfirmacionCertificador({ confirmacion = null, cuestionar
     }
     if (!filas.length) return '';
 
-    const l = [cae ? '🏠 *LO QUE HA CONFIRMADO EL CLIENTE AL ACEPTAR*'
-                   : '🏠 *LO QUE HA CONTESTADO EL CLIENTE AL ACEPTAR*'];
+    // Si lo único que hay son los aires apuntados en la oportunidad, el cliente
+    // no ha confirmado nada todavía: no se le atribuye.
+    const s = cae ? sanearConfirmacion(confirmacion) : null;
+    const soloOportunidad = !!s && !s.emisor && !s.fotovoltaica && airesDeOportunidad(s);
+    const l = [soloOportunidad ? '🏠 *LO QUE CONSTA DE LA VIVIENDA*'
+               : cae ? '🏠 *LO QUE HA CONFIRMADO EL CLIENTE AL ACEPTAR*'
+                     : '🏠 *LO QUE HA CONTESTADO EL CLIENTE AL ACEPTAR*'];
     for (const [tema, valor] of filas) l.push(`• ${tema}: ${valor}`);
 
     const aires = airesDeclarados({ confirmacion, cuestionario });

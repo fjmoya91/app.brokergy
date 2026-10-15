@@ -95,6 +95,7 @@ export function oportunidadComoExpediente(row, { cliente = null } = {}) {
             misma_aerotermia_acs: !cambioAcs,
             aerotermia_acs: acs,
             fotovoltaica: inp.fotovoltaica || undefined,
+            aires: inp.aires || undefined,
             hibridacion: inp.hibridacion === true,
             potencia_bomba: num(inp.potenciaBomba) || 0,
             hibridacion_metodo: String(inp.hibridacionMetodo || '').toLowerCase() === 'caldera'

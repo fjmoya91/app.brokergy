@@ -16,7 +16,7 @@ import { normalizarFotovoltaica } from '../logic/fotovoltaica';
 import { ProduccionFotovoltaica } from './ProduccionFotovoltaica';
 import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser';
 import { buildCe3xFinal, CE3X_FALTA, POTENCIA_CAMPOS } from '../logic/ce3xFinal';
-import { bloqueConfirmacionCertificador } from '../logic/confirmacionCliente';
+import { bloqueConfirmacionCertificador, conAiresDeOportunidad } from '../logic/confirmacionCliente';
 import { getUnidades } from '../logic/aerotermiaUnits';
 import { hayCee, patchVaciarCee, textoVaciarCee } from '../logic/ceeFases';
 import { resolveDacs, ACS_METHOD } from '../logic/demandaAcs';
@@ -584,9 +584,11 @@ Según el documento:
     // Lo que el cliente confirmó al aceptar, para el encargo del CEE INICIAL. En
     // un CEE directo es su cuestionario de la oferta; en el CAE, lo que confirmó
     // al aceptar la propuesta. Misma función que el popup de encargo.
+    // Sin respuesta del cliente sobre los aires, los apuntados en la oportunidad.
     const bloqueClienteInicial = bloqueConfirmacionCertificador({
-        confirmacion: expediente?.instalacion?.confirmacion_cliente
+        confirmacion: conAiresDeOportunidad(expediente?.instalacion?.confirmacion_cliente
             || expediente?.oportunidades?.datos_calculo?.confirmacion_cliente || null,
+            expediente?.instalacion?.aires || expediente?.oportunidades?.datos_calculo?.inputs?.aires),
         cuestionario: expediente?.documentacion?.cuestionario || null,
         cae: apiBase !== '/api/cee-directos',
     });

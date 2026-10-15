@@ -431,7 +431,10 @@ async function cargarCae(id, fase, token) {
             hibridacion: inst.hibridacion === true || /093|173/.test(String(op?.ficha || '')),
             fotovoltaica: pick(inst.fotovoltaica, ['estado', 'potencia_kwp', 'potencia_desconocida']),
         },
-        confirmacion: inst.confirmacion_cliente || dc.confirmacion_cliente || null,
+        // Sin respuesta del cliente sobre los aires, los apuntados en la oportunidad.
+        confirmacion: (await import('../../frontend/src/features/expedientes/logic/confirmacionCliente.js'))
+            .conAiresDeOportunidad(inst.confirmacion_cliente || dc.confirmacion_cliente || null,
+                                   inst.aires || dc.inputs?.aires),
         cuestionario: null,
         material,
         subidos: Object.fromEntries(Object.entries(exp.ficheros?.[fase] || {})

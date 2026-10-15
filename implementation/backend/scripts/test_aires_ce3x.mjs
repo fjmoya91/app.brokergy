@@ -131,6 +131,19 @@ t('sin contestar: null (no es lo mismo que «no tiene»)', () => {
     assert.equal(F.airesDelCliente({ instalacion: { confirmacion_cliente:
         { aire_acondicionado: false } } }).tiene, false);
 });
+t('apuntados en la OPORTUNIDAD: valen mientras el cliente no conteste', () => {
+    const a = F.airesDelCliente({ instalacion: { aires: { tiene: true, num: 3 } } });
+    assert.deepEqual({ tiene: a.tiene, num: a.num, modo: a.modo },
+                     { tiene: true, num: 3, modo: 'refrigeracion' });
+    assert.match(a.de, /oportunidad/);
+    // Desde la ventana de una oportunidad (`oportunidadComoExpediente`) o un
+    // expediente sin `instalacion.aires`, de los inputs de su oportunidad.
+    assert.equal(F.airesDelCliente({ instalacion: {},
+        oportunidades: { datos_calculo: { inputs: { aires: { tiene: true, num: 2 } } } } }).num, 2);
+    // Lo que dice el cliente manda.
+    assert.equal(F.airesDelCliente({ instalacion: { aires: { tiene: true, num: 3 },
+        confirmacion_cliente: { aire_acondicionado: false } } }).tiene, false);
+});
 
 console.log(`\n${ok} comprobaciones correctas`);
 process.exit(0);

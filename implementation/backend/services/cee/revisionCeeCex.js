@@ -315,7 +315,7 @@ function revisarExistentes(inf, rx, cex, ctx) {
         const frio = eq.filter((e) => e.servicios.refrigeracion);
         inf.anota('aires', 'Aire acondicionado que confirmó el cliente', frio.length ? 'ok' : 'aviso', {
             dice: frio.length ? frio.map((e) => e.nombre).join(' · ') : 'ningún equipo de refrigeración',
-            esperado: `el cliente dijo tener aire acondicionado${conf.num_aires ? ` (${conf.num_aires})` : ''}`,
+            esperado: `${conf.aires_de === 'oportunidad' ? 'consta en la oportunidad' : 'el cliente dijo tener'} aire acondicionado${conf.num_aires ? ` (${conf.num_aires})` : ''}`,
             detalle: frio.length ? null : 'Son equipos existentes y el CEE los tiene que recoger (en CAE, como «Equipo de sólo refrigeración»).',
         });
     }

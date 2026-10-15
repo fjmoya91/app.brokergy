@@ -27,6 +27,7 @@ import { pctDeComision, comisionDePct } from '../logic/comisionPartner';
 import { HIBRIDACION_PROPUESTA, modoHibridacionPropuesta } from '../logic/hibridacionPropuesta';
 import { esBloque, TIPO_INMUEBLE, clasificarTipoEdificio, etiquetaTipoEdificio, avisoTipoEdificio, IRPF_EDIFICIO_REQUISITO } from '../logic/tipoInmueble';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
+import { normalizarAiresOportunidad, MAX_AIRES } from '../../expedientes/logic/confirmacionCliente';
 import { produceAcs, litrosAcsCatalogo, esConjuntoAcs } from '../../expedientes/logic/acsCatalogo';
 import { opcionDeEquipo, BUSCAR_EQUIPO } from '../../expedientes/logic/aerotermiaOpciones';
 import SearchableSelect from '../../../components/SearchableSelect';
@@ -1458,6 +1459,13 @@ export function CalculatorForm({
                                         ☀️ FV {potenciaTexto(inputs.fotovoltaica) || 'sin potencia'}
                                     </span>
                                 )}
+                                {/* Lo mismo con los aires: el CEE inicial los declara. */}
+                                {normalizarAiresOportunidad(inputs.aires)?.tiene && (
+                                    <span className="px-2 py-0.5 rounded bg-sky-500/15 text-[11px] text-sky-300 font-medium border border-sky-500/30">
+                                        ❄️ {normalizarAiresOportunidad(inputs.aires).num
+                                            ? `${normalizarAiresOportunidad(inputs.aires).num} A/A` : 'A/A'}
+                                    </span>
+                                )}
                             </div>
                         )}
                     </button>
@@ -1564,6 +1572,68 @@ export function CalculatorForm({
                                                         className="flex-1 min-w-0 bg-slate-800 border border-slate-700 focus:border-amber-500/60 rounded-lg px-3 py-2 text-white text-sm outline-none"
                                                     />
                                                     <span className="text-slate-400 text-xs font-bold shrink-0">kWp</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* Aire acondicionado que YA tiene la vivienda: la misma
+                                    pregunta que el cuestionario de la aceptación, apuntada
+                                    por nosotros. No entra en el cálculo; viaja al
+                                    expediente y al CEE inicial (regla 72: se QUEDAN como
+                                    equipos de refrigeración existentes). Lo que diga el
+                                    cliente al aceptar manda (`conAiresDeOportunidad`). */}
+                                {(() => {
+                                    const aires = normalizarAiresOportunidad(inputs.aires);
+                                    const setAires = (patch) => {
+                                        const v = { tiene: aires?.tiene ?? null, num: aires?.num ?? null, ...patch };
+                                        handleChange('aires', v.tiene === null ? null : { tiene: v.tiene, num: v.tiene ? v.num : null });
+                                    };
+                                    const opciones = [
+                                        { value: true, icon: '❄️', corto: 'Sí, tiene aire acondicionado' },
+                                        { value: false, icon: '🚫', corto: 'No tiene' },
+                                    ];
+                                    const etiqueta = aires == null ? 'Sin contestar'
+                                        : !aires.tiene ? 'No tiene'
+                                        : aires.num ? `${aires.num} ${aires.num === 1 ? 'aparato' : 'aparatos'}` : 'Sí · ¿cuántos?';
+                                    return (
+                                        <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 space-y-2">
+                                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                <Label>❄️ Aire acondicionado</Label>
+                                                <span className="text-[10px] text-slate-500">{etiqueta}</span>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                {opciones.map(o => (
+                                                    <button
+                                                        key={String(o.value)}
+                                                        type="button"
+                                                        onClick={() => setAires({ tiene: aires?.tiene === o.value ? null : o.value })}
+                                                        className={`px-2 py-1.5 rounded-lg border text-[11px] font-bold text-left transition-all ${
+                                                            aires?.tiene === o.value
+                                                                ? 'bg-sky-500/15 text-sky-300 border-sky-500/50'
+                                                                : 'bg-slate-800/50 text-slate-400 border-slate-700 hover:text-white hover:border-slate-500'
+                                                        }`}
+                                                    >
+                                                        <span className="mr-1">{o.icon}</span>{o.corto}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            {aires?.tiene === true && (
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        max={MAX_AIRES}
+                                                        step="1"
+                                                        placeholder="Nº de aparatos"
+                                                        value={aires.num ?? ''}
+                                                        onChange={e => setAires({
+                                                            num: e.target.value === '' ? null : Math.round(Number(e.target.value)) || null,
+                                                        })}
+                                                        className="flex-1 min-w-0 bg-slate-800 border border-slate-700 focus:border-sky-500/60 rounded-lg px-3 py-2 text-white text-sm outline-none"
+                                                    />
+                                                    <span className="text-slate-400 text-xs font-bold shrink-0">aparatos</span>
                                                 </div>
                                             )}
                                         </div>

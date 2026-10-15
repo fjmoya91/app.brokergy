@@ -11,7 +11,8 @@ import { emisorFinalOptions, emisorInicialOptions, esRes080, EMISOR_NINGUNO, emi
 import { esTer173, esTerciario } from '../logic/terciario';
 import { ceeBaseDocumento } from '../logic/ceeFases';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../logic/fotovoltaica';
-import { contrasteEmisor, labelEmisor, sanearConfirmacion, etiquetaAires } from '../logic/confirmacionCliente';
+import { contrasteEmisor, labelEmisor, sanearConfirmacion, etiquetaAires,
+         conAiresDeOportunidad, airesDeOportunidad } from '../logic/confirmacionCliente';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
@@ -2147,7 +2148,9 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     simulación. El CEE tiene que declararlo (regla 72: los aires que
                     ya hay se QUEDAN como equipos de refrigeración existentes). */}
                 {(() => {
-                    const conf = local.confirmacion_cliente || opDatos.confirmacion_cliente;
+                    // Sin respuesta del cliente, los apuntados en la oportunidad.
+                    const conf = conAiresDeOportunidad(local.confirmacion_cliente || opDatos.confirmacion_cliente,
+                                                       local.aires || opDatos.inputs?.aires);
                     const aires = etiquetaAires(conf);
                     if (!aires) return null;
                     const tiene = sanearConfirmacion(conf)?.aire_acondicionado === true;
@@ -2159,7 +2162,9 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     Aire acondicionado: <span className={tiene ? 'text-sky-400' : 'text-white/60'}>{aires}</span>
                                 </div>
                                 <p className="text-[10px] text-white/40 mt-0.5 leading-snug">
-                                    Lo dijo el cliente al aceptar la propuesta.
+                                    {airesDeOportunidad(conf)
+                                        ? 'Apuntado en la oportunidad (el cliente aún no lo ha confirmado).'
+                                        : 'Lo dijo el cliente al aceptar la propuesta.'}
                                     {tiene ? ' El CEE tiene que declararlos como equipos de refrigeración existentes.' : ''}
                                 </p>
                             </div>

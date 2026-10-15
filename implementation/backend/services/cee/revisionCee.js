@@ -671,7 +671,10 @@ async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase 
         getUByYearGuiaAnterior, guiaCe3x, getVentanaYACHByYear,
         fechaCertificado: rx.fechas?.certificado || null,
         anioOportunidad: Number(inputs.anio || inputs.yearBuilt) || null,
-        confirmacion: inst.confirmacion_cliente || op.datos_calculo?.confirmacion_cliente || null,
+        //: Sin respuesta del cliente sobre los aires, los apuntados en la oportunidad.
+        confirmacion: (await import('../../../frontend/src/features/expedientes/logic/confirmacionCliente.js'))
+            .conAiresDeOportunidad(inst.confirmacion_cliente || op.datos_calculo?.confirmacion_cliente || null,
+                                   inst.aires || inputs.aires),
         fotovoltaica: inst.fotovoltaica?.estado || null,
         esperado: await equipoEsperado(expediente),
     };

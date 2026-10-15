@@ -67,3 +67,28 @@ minúscula) y en los `META_KEYS` del guardado de la calculadora.
 
 ⚠️ Solo se pregunta en la ACEPTACIÓN: una propuesta ya aceptada no enseña el
 formulario, y los expedientes anteriores no tienen confirmación.
+
+### Los AIRES también se apuntan en la OPORTUNIDAD (2026-10-15)
+
+Lo pidió Fran: el CEE inicial se hace muchas veces desde la oportunidad, antes de
+que el cliente acepte, y los aires solo llegaban al CEE por la aceptación. En
+«Datos del edificio» de la calculadora, debajo de las placas, va la MISMA pregunta
+(«❄️ Aire acondicionado»: Sí / No y, con sí, cuántos aparatos), con su chip
+«❄️ 3 A/A» con el panel plegado. Se guarda en `datos_calculo.inputs.aires =
+{ tiene, num }` (no entra en el cálculo), el expediente lo hereda en
+`instalacion.aires` y la aceptación lo sella en `supuesto.aires`.
+
+**REGLA — lo que dice el CLIENTE al aceptar MANDA; lo apuntado en la oportunidad
+vale mientras no ha contestado, y se dice de dónde sale.** Fuente única:
+`conAiresDeOportunidad(confirmacion, aires)` en `confirmacionCliente.js`, que
+devuelve la confirmación con los aires de la oportunidad DEBAJO, marcados
+`aires_de: 'oportunidad'` (el saneado conserva esa marca; el formulario público no
+puede colarla). La usan el encargo al certificador (`aviso-cliente-cee`, la página
+del encargo y la rejilla del CEE), el encargo CE3X (`buildCe3xFinal`), la revisión
+del CEE (`revisionCee` → comprobación «aires» del `.cex`), Instalación y la
+envolvente (`airesDelCliente`, también desde la ventana de la oportunidad). Con
+solo los aires de la oportunidad, el encargo NO dice «lo que ha confirmado el
+cliente» sino «🏠 LO QUE CONSTA DE LA VIVIENDA», con la fila «Aire acondicionado
+(apuntado en la oportunidad)». Si al aceptar el cliente dice otra cosa, el resumen
+lo avisa («En la oportunidad constaba «Sí · 2 aparatos»»). Las pantallas del
+cliente siguen preguntando en NEUTRO: lo apuntado no se le preselecciona.

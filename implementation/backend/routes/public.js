@@ -108,6 +108,8 @@ async function confirmacionDeLaAceptacion(raw, datosCalculo) {
             fotovoltaica: inputs.fotovoltaica
                 ? normalizarFotovoltaica(inputs.fotovoltaica)
                 : fotovoltaicaDesdeFunnel(datosCalculo?.landing_funnel),
+            // Los aires apuntados en la oportunidad (`{ tiene, num }`), si se apuntaron.
+            ...(inputs.aires && typeof inputs.aires === 'object' ? { aires: inputs.aires } : {}),
         },
     };
 }

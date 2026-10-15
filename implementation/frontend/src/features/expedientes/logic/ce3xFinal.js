@@ -28,7 +28,7 @@ import {
     acsMismoEquipo, acsEquipoPropio,
 } from './aerotermiaUnits.js';
 import { normalizarFotovoltaica, tieneFotovoltaica, potenciaTexto } from './fotovoltaica.js';
-import { sanearConfirmacion } from './confirmacionCliente.js';
+import { sanearConfirmacion, conAiresDeOportunidad, airesDeOportunidad } from './confirmacionCliente.js';
 import { emisoresFinales, emisoresFinalesMixtos, generadorCe3x, emisorCorto } from './emisores.js';
 
 // Emisores que dan FRÍO: con ellos el equipo se declara en CE3X con
@@ -604,12 +604,13 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
     // Lo dice el cliente al aceptar la propuesta (no sale en ninguna simulación)
     // y se QUEDA después de la obra: regla 72, equipos de refrigeración
     // existentes. Sin el aviso, el certificador no lo ve si no lo vio en la visita.
-    const confCli = sanearConfirmacion(inst.confirmacion_cliente);
+    // Sin respuesta del cliente, los apuntados en la oportunidad (`inst.aires`).
+    const confCli = sanearConfirmacion(conAiresDeOportunidad(inst.confirmacion_cliente, inst.aires));
     if (confCli?.aire_acondicionado === true) {
         const n = confCli.num_aires;
         L.push('');
         L.push('❄️ *LA VIVIENDA TIENE AIRE ACONDICIONADO*');
-        L.push(`El cliente dijo al aceptar que tiene ${n ? `*${n} ${n === 1 ? 'aparato' : 'aparatos'}*` : 'aire acondicionado'}. Decláralos como equipos de refrigeración EXISTENTES: se quedan en la vivienda después de la obra.`);
+        L.push(`${airesDeOportunidad(confCli) ? 'Consta en la oportunidad' : 'El cliente dijo al aceptar'} que tiene ${n ? `*${n} ${n === 1 ? 'aparato' : 'aparatos'}*` : 'aire acondicionado'}. Decláralos como equipos de refrigeración EXISTENTES: se quedan en la vivienda después de la obra.`);
     }
 
     // ── La vivienda NO tenía calefacción ─────────────────────────────────────

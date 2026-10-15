@@ -71,7 +71,7 @@ paths:
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/y-el-cee-final-igual.md` — Y el CEE FINAL, igual (2026-09-16) · 2,7 KB
 - `docs/conocimiento/cee-generacion/la-medida-del-previsto-res080-va-autocontenida.md` — La medida del PREVISTO (RES080) va AUTOCONTENIDA, no como «Nuevo Edificio» (2026-10-10) · 4,7 KB
 - `docs/conocimiento/cee-generacion/los-puentes-de-las-ventanas-que-cambian.md` — Los PUENTES TÉRMICOS de las ventanas que CAMBIAN (RES080, 2026-10-05) · 3,1 KB
-- `docs/conocimiento/cee-generacion/y-llega-al-cee-la-pestana-el-encargo-y-la-envolvente.md` — Y llega al CEE: la pestaña, el encargo y la envolvente (2026-09-29) · 5,1 KB
+- `docs/conocimiento/cee-generacion/y-llega-al-cee-la-pestana-el-encargo-y-la-envolvente.md` — Y llega al CEE: la pestaña, el encargo y la envolvente (2026-09-29) · 5,3 KB
 
 ## Las «REGLA —» que contienen esos documentos
 

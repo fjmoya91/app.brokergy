@@ -262,6 +262,10 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             // simular. El expediente lo lleva consigo (MCP, skills, CE3X) y no
             // depende de ir a buscarlo a la oportunidad.
             ...(confirmacionCliente ? { confirmacion_cliente: confirmacionCliente } : {}),
+            // Aire acondicionado apuntado en la OPORTUNIDAD (`{ tiene, num }`). Lo que
+            // diga el cliente en `confirmacion_cliente` manda; esto es lo que vale
+            // mientras no ha contestado (`conAiresDeOportunidad`).
+            ...(opInputs.aires && typeof opInputs.aires === 'object' ? { aires: opInputs.aires } : {}),
             // En las fichas de HIBRIDACIÓN (RES093 · TER173) la hibridación ES la
             // actuación, no una opción: se siembra activada aunque la oportunidad no
             // lo traiga en sus inputs. Un TER173 con esto en `false` calcularía su

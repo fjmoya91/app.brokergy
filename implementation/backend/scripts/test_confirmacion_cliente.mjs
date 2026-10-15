@@ -223,5 +223,48 @@ t('sin aires, no se habla de aires', () => {
     assert.doesNotMatch(b, /refrigeración/);
     assert.match(b, /Aire acondicionado: No/);
 });
+
+// ─── Aires apuntados en la OPORTUNIDAD (2026-10-15) ──────────────────────────
+console.log('\nAires de la oportunidad');
+const { conAiresDeOportunidad, normalizarAiresOportunidad, airesDeOportunidad } = mod;
+t('se normaliza { tiene, num } y lo sin contestar es null', () => {
+    assert.deepEqual(normalizarAiresOportunidad({ tiene: true, num: '3' }), { tiene: true, num: 3 });
+    assert.deepEqual(normalizarAiresOportunidad({ tiene: false, num: 4 }), { tiene: false, num: null });
+    assert.deepEqual(normalizarAiresOportunidad({ tiene: true, num: 99 }), { tiene: true, num: null });
+    assert.equal(normalizarAiresOportunidad({ tiene: null }), null);
+    assert.equal(normalizarAiresOportunidad(null), null);
+});
+t('lo que dice el CLIENTE manda sobre lo de la oportunidad', () => {
+    const c = conAiresDeOportunidad(conf206, { tiene: false });
+    assert.equal(c, conf206);
+    assert.equal(airesDeOportunidad(c), false);
+});
+t('sin respuesta del cliente, los de la oportunidad, marcados', () => {
+    const c = conAiresDeOportunidad({ emisor: 'radiadores' }, { tiene: true, num: 2 });
+    assert.equal(c.aire_acondicionado, true);
+    assert.equal(c.num_aires, 2);
+    assert.equal(c.emisor, 'radiadores');
+    assert.ok(airesDeOportunidad(c));
+    assert.ok(airesDeOportunidad(mod.sanearConfirmacion(c)), 'la marca sobrevive al saneado');
+    assert.deepEqual(airesDeclarados({ confirmacion: c }), { tiene: true, num: 2 });
+});
+t('el formulario PÚBLICO no puede colar la marca', () => {
+    const s = mod.sanearConfirmacion({ aire_acondicionado: true, num_aires: 1, aires_de: 'otra cosa' });
+    assert.equal(s.aires_de, undefined);
+});
+t('encargo sin aceptación: no se pone en boca del cliente', () => {
+    const b = bloqueConfirmacionCertificador({ confirmacion: conAiresDeOportunidad(null, { tiene: true, num: 3 }), cae: true });
+    assert.match(b, /LO QUE CONSTA DE LA VIVIENDA/);
+    assert.doesNotMatch(b, /CONFIRMADO EL CLIENTE/);
+    assert.match(b, /Aire acondicionado \(apuntado en la oportunidad\): Sí · 3 aparatos/);
+    assert.match(b, /sólo refrigeración/);
+});
+t('al aceptar, si el cliente dice otra cosa que la oportunidad, se avisa', () => {
+    const l = mod.resumenConfirmacion({ ...conf206, supuesto: { aires: { tiene: true, num: 2 } } });
+    const aires = l.find(r => r.tema === 'Aire acondicionado');
+    assert.match(aires.aviso, /En la oportunidad constaba «Sí · 2 aparatos»/);
+    const igual = mod.resumenConfirmacion({ ...conf206, supuesto: { aires: { tiene: true, num: 5 } } });
+    assert.equal(igual.find(r => r.tema === 'Aire acondicionado').aviso, null);
+});
 console.log(`\n${ok} comprobaciones correctas`);
 process.exit(0);
