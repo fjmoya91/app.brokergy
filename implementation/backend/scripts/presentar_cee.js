@@ -292,6 +292,28 @@ async function devuelto(numero) {
         return;
     }
 
+    // Por defecto lo sube el SERVIDOR (la ruta interna de presentacionCeeRutas): es el que
+    // tiene el WhatsApp conectado y las variables de los avisos, así que llegan los mismos
+    // avisos que cuando sube el certificador. Desde el PC (`--local`) no sale ninguno.
+    if (!flag('local')) {
+        const base = (process.env.PRESENTAR_API || 'https://app.brokergy.es').replace(/\/+$/, '');
+        const negocio = origen === 'cee_directo' ? 'cee-directos' : 'expedientes';
+        const subir = async (tipo, buffer, nombre) => {
+            const fd = new FormData();
+            fd.append('file', new Blob([buffer], { type: 'application/pdf' }), nombre);
+            fd.append('quien', QUIEN.texto);
+            const r = await fetch(`${base}/api/${negocio}/${row.id}/presentacion-cee/devuelto?fase=${fase}&tipo=${tipo}`,
+                { method: 'POST', headers: { 'x-internal-key': process.env.INTERNAL_API_KEY || '' }, body: fd });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(`${base} respondió ${r.status} al subir ${tipo}: ${j.error || '¿está desplegada la ruta /presentacion-cee/devuelto?'} (con --local se sube desde el PC, sin avisos)`);
+            return j;
+        };
+        const r1 = await subir('registro', bReg, path.basename(reg));
+        console.log('REGISTRO (servidor):', r1.name, '· registrado', r1.registrado, '· fecha', r1.fecha_registro, r1.aviso_fecha ? `· ⚠️ ${r1.aviso_fecha}` : '');
+        if (bTasa) { const r2 = await subir('tasa', bTasa, path.basename(tasa)); console.log('TASA (servidor):', r2.name); }
+        return;
+    }
+
     const { subirCae, subirCeeDirecto } = require('../services/cee/subidaCeePublica');
     const r = origen === 'cee_directo'
         ? await subirCeeDirecto({ id: row.id, fase, slot: 'registro', buffer: bReg, mimetype: 'application/pdf', quien: QUIEN })

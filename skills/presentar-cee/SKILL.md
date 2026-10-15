@@ -10,9 +10,15 @@ lo que hacía una persona con el popup «📄 Presentar el CEE» delante: aquí 
 del usuario, con su certificado.
 
 - **Solo Castilla-La Mancha** (procedimiento 020264 · SIACI SJM3). Fuera de CLM `preparar` lo dice y para.
-- **El pago necesita un «sí» del usuario EN EL CHAT** para ESE expediente y ESE importe, antes de
-  pulsar «Pagar y enviar». Y la confirmación del banco (3DS en la app del banco) la hace él. Nunca se
-  escribe un número de tarjeta: se usa la tarjeta **guardada en Chrome**, la que diga el usuario.
+- **El pago se confirma UNA vez y AL PRINCIPIO, no a mitad** (decisión del usuario, 15/10/2026: «no
+  quiero que se pare»). En cuanto pide presentar, y antes de abrir la sede, un mensaje con cada
+  expediente, su titular, la tasa y la tarjeta: *«Presento 2026CEE_65 (titular) y pago 16,39 € con la
+  Mastercard ••XXXX. ¿Sí?»* (varios: uno por línea, y un sí para la lista). Con ese sí se hace TODO
+  seguido, pago incluido, sin volver a preguntar; lo único que queda en manos del usuario es el **3DS
+  en la app del banco**: si no lo autoriza, es que no quiere pagar, y se para ahí. Sin ese sí explícito
+  (expediente + importe) no se pulsa «Pagar y enviar»: lo exigen las reglas de Claude y el clasificador
+  de Claude Code, que bloqueó el pago de 2026CEE_64 con un «sí, presenta» genérico. Nunca se escribe un
+  número de tarjeta: se usa la tarjeta **guardada en Chrome**, la que diga el usuario.
 - **Lo encargado a otra persona (Eva) no se presenta sin preguntar**: si lo presentan los dos, se paga
   la tasa dos veces. `pendientes` dice a quién está encargado cada uno.
 - **Local = producción**: `devuelto --escribir` sube a Drive y marca REGISTRADO de verdad.
@@ -42,6 +48,13 @@ node scripts/presentar_cee.js pendientes
 Mismo criterio que el radar del parte («con tu visto bueno y sin registrar»): fase REVISADO, sin fecha
 de registro. Ordenado por **plazo** (un mes desde la firma; pasado el mes hay que volver a emitir el
 certificado). Si el usuario pide uno concreto que no sale aquí, dilo antes de seguir.
+
+## 1b. La confirmación (la ÚNICA pregunta)
+
+Con la lista de lo que se va a presentar delante (y después de `preparar`, que dice si está LISTO),
+pide el sí del pago tal y como se describe arriba: expediente, titular, 16,39 € (la Tarifa 18.1; si
+la sede dice otro importe, se para) y la tarjeta. La tarjeta por defecto es la que el usuario dijo la
+última vez (está en la memoria del proyecto, no en esta skill). A partir del sí, no se pregunta nada.
 
 ## 2. Prepararlo (solo lee)
 
@@ -121,11 +134,10 @@ repite: quitar, teclear, añadir y subir el XML enseguida.
 
 Para quitar uno: marca su casilla y «Quitar documento».
 
-## 7. Pagar — PARA y pide el «sí»
+## 7. Pagar — con el sí que se pidió al principio
 
-Antes de tocar nada del pago, en el chat: *«{nº} — {titular}, CEE {fase}. Todo
-rellenado y adjuntado. ¿Pago la tasa de 16,39 € y envío?»* (el importe, el que diga la sede en el
-apartado 08). Si hay más de una tarjeta guardada y el usuario no ha dicho cuál, pregúntalo. Con el sí:
+No se vuelve a preguntar. Solo se para si el importe del apartado 08 NO es el que se confirmó (entonces
+sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de Chrome.
 
 1. Marca **«Acceso a la pasarela de pago de tasas»** y pulsa **«Pagar y enviar»** → `alert` («Vas a ser
    redirigido…») → `escritorio.ps1 aviso`. Se abre otra pestaña, `plataformapagos.jccm.es`.
@@ -165,10 +177,13 @@ node scripts/presentar_cee.js devuelto 2026CEE_64 --registro "C:\Users\Usuario\D
 node scripts/presentar_cee.js devuelto 2026CEE_64 --registro … --tasa … --escribir
 ```
 
-Por las mismas funciones que la página de presentar: el justificante va a la casilla **registro** (lee
-la fecha, marca REGISTRADO, avanza el estado, en un CEE directo dispara la entrega si está cobrado) y la
-tasa a OTROS como `{nº} – TASA.pdf`. Cierra el encargo de presentación si lo había. En el historial
-figura «Fran (presentación automática)».
+Lo sube el **servidor de producción** (ruta interna `POST /:id/presentacion-cee/devuelto` de expedientes o
+cee-directos, con la clave interna del `.env`), por las mismas funciones que la página de presentar: el
+justificante va a la casilla **registro** (lee la fecha, marca REGISTRADO, avanza el estado, en un CEE
+directo dispara la entrega si está cobrado) y la tasa a OTROS como `{nº} – TASA.pdf`. Cierra el encargo de
+presentación si lo había. En el historial figura «Fran (presentación automática)». Como corre en el
+servidor que tiene el WhatsApp, **llegan los mismos avisos que cuando sube el justificante el
+certificador**. `--local` lo hace desde el PC, sin avisos (solo si el servidor no responde).
 
 ## Informe final
 

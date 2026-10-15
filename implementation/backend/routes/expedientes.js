@@ -121,6 +121,9 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     // parte diario de seguimiento (routes/acciones.js) con la clave interna, para no
     // duplicar el envío ni el sellado del historial. Su middleware es internalKeyOrAuth.
     { method: 'POST', re: /^\/[^/]+\/notify-certificador\/?$/ },
+    // Lo que devuelve la sede cuando presenta la casa (skill presentar-cee): lo sube
+    // un script con la clave interna. Su middleware propio es staffOClaveInterna.
+    { method: 'POST', re: /^\/[^/]+\/presentacion-cee\/devuelto\/?$/ },
 ];
 const PARTNER_ALLOWED_ROUTES = [
     { method: 'POST', re: /^\/?$/ }, // POST /api/expedientes → aceptar oportunidad (crea expediente)

@@ -730,11 +730,32 @@ async function ficheroPublico(negocioUrl, id, fase, token, clave) {
  */
 async function subirDevuelto(negocioUrl, id, fase, token, { tipo, buffer, mimetype, nombreOriginal }) {
     const { origen, row, fase: fz, encargo } = await abrir(negocioUrl, id, fase, token);
-    if (!buffer?.length) throw err(400, 'No ha llegado ningún fichero.');
     const quien = {
         texto: `${encargo?.nombre || 'quien presenta'} (presentación)`,
         usuario: (encargo?.nombre || 'PRESENTACIÓN').toUpperCase(),
     };
+    return devolver({ origen, row, fz, encargo, quien }, { tipo, buffer, mimetype, nombreOriginal });
+}
+
+/**
+ * Lo mismo, desde DENTRO de la casa (sesión de equipo o clave interna): lo que sube
+ * la skill `presentar-cee` cuando presenta ella. Corre en el servidor que tiene el
+ * WhatsApp conectado, así que los avisos salen como cuando sube el certificador.
+ * `quien` dice cómo se cuenta en el historial («Fran (presentación automática)»).
+ */
+async function subirDevueltoInterno(origen, id, fase, { tipo, buffer, mimetype, nombreOriginal, quien }) {
+    if (origen !== 'cee_directo' && origen !== 'expediente') throw err(400, 'Negocio no válido.');
+    const fz = normFase(fase);
+    const row = await cargarFila(origen, id);
+    const texto = String(quien || 'BROKERGY').slice(0, 60);
+    return devolver(
+        { origen, row, fz, encargo: encargoDe(row, fz), quien: { texto, usuario: texto.toUpperCase() } },
+        { tipo, buffer, mimetype, nombreOriginal },
+    );
+}
+
+async function devolver({ origen, row, fz, encargo, quien }, { tipo, buffer, mimetype, nombreOriginal }) {
+    if (!buffer?.length) throw err(400, 'No ha llegado ningún fichero.');
 
     if (tipo === 'registro') {
         if (!/\.pdf$/i.test(nombreOriginal || '') && mimetype !== 'application/pdf') {
@@ -795,4 +816,5 @@ module.exports = {
     borradorPdfPublico,
     ficheroPublico,
     subirDevuelto,
+    subirDevueltoInterno,
 };

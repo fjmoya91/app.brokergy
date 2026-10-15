@@ -74,3 +74,12 @@ documentos.
 (`subidaCeePublica.subirCae|subirCeeDirecto` con el slot `registro`, y la tasa a OTROS como
 `{nº} – TASA.pdf`), contado como «Fran (presentación automática)», y cierra el encargo
 (`presentacion[fase].registrado_at`) si lo había. `devuelto` sin `--escribir` solo lee el justificante.
+
+**REGLA — lo devuelto lo sube el SERVIDOR, no el PC** (15/10/2026). Subido desde el PC (2026CEE_63 y
+_64) no llegó ningún aviso: el «✅ … REGISTRADO» de un CEE directo sale por el WhatsApp del servidor y
+por `WHATSAPP_ADMIN_CHAT`/`ADMIN_EMAIL`, que en local no están, y un script no tiene sesión de WhatsApp.
+Ahora `devuelto --escribir` llama a `POST /api/{expedientes|cee-directos}/:id/presentacion-cee/devuelto`
+([presentacionCeeRutas.js](implementation/backend/routes/presentacionCeeRutas.js), `staffOClaveInterna`,
+y en `PUBLIC_EXPEDIENTE_ROUTES` porque el módulo de expedientes es `internalOnly` y lo llama un script)
+→ `presentacionCeeService.subirDevueltoInterno`, que comparte con `subirDevuelto` todo menos el token.
+Así llegan los mismos avisos que cuando sube el certificador. `--local` hace lo de antes, sin avisos.
