@@ -46,7 +46,7 @@ function fireDocsConfetti() {
     let shapes;
     try { shapes = ['📄', '📃', '📑', '📋'].map(text => confetti.shapeFromText({ text, scalar })); } catch { shapes = undefined; }
     const burst = (x, delay = 0) => setTimeout(() => {
-        confetti({ particleCount: 22, spread: 65, startVelocity: 34, gravity: 0.8, decay: 0.92, ticks: 220, scalar, origin: { x, y: 0.5 }, zIndex: 10000, disableForReducedMotion: true, ...(shapes ? { shapes, flat: true } : { colors: ['#f2a640', '#34d399', '#fcd34d', '#ffffff'] }) });
+        confetti({ particleCount: 22, spread: 65, startVelocity: 34, gravity: 0.8, decay: 0.92, ticks: 220, scalar, origin: { x, y: 0.5 }, zIndex: 10100, disableForReducedMotion: true, ...(shapes ? { shapes, flat: true } : { colors: ['#f2a640', '#34d399', '#fcd34d', '#ffffff'] }) });
     }, delay);
     burst(0.2, 0); burst(0.8, 140); burst(0.5, 300);
 }
@@ -144,8 +144,13 @@ export function SendActionOverlay({
     // overlay montado dentro de uno se anclaba a ESE modal: cubría su caja y no la
     // pantalla, y se veía media pantalla negra y media difuminada. Con el portal el
     // overlay es hijo del <body> y `inset-0` vuelve a ser la ventana.
+    //
+    // Y va por ENCIMA de cualquier popup: varios se abren a z-[9998]/z-[9999]
+    // (pedir la cuenta a los clientes, leer placas, enviar la propuesta). Con el
+    // overlay a z-[600] el resultado se pintaba DETRÁS del popup y solo el confeti
+    // (z 10100, por encima de este velo) asomaba: parecía que el envío no acababa.
     const overlay = (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/[0.93] backdrop-blur-xl p-4 animate-fade-in">
+        <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/[0.93] backdrop-blur-xl p-4 animate-fade-in">
             <div className="relative w-full max-w-sm bg-[#0F1013] border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-scale-in">
                 {/* Filete de marca: la firma de BROKERGY en TODO popup de envío. Va
                     arriba y a todo el ancho porque es lo primero que entra por el ojo

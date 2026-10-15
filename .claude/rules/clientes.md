@@ -35,7 +35,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/clientes/confirmacion-de-cobro-el-formulario-del-final.md` — Confirmación de cobro — el formulario del final (2026-09-07) · 20,8 KB
+- `docs/conocimiento/clientes/confirmacion-de-cobro-el-formulario-del-final.md` — Confirmación de cobro — el formulario del final (2026-09-07) · 22,2 KB
 - `docs/conocimiento/clientes/el-aviso-lo-recibe-el-comercial-o-el-tecnico.md` — El aviso lo recibe el COMERCIAL o el TÉCNICO (2026-09-09) · 13,6 KB
 - `docs/conocimiento/clientes/modulo-prescriptores-novedades.md` — Módulo Prescriptores — Novedades (2026-03-26) · 1,1 KB
 - `docs/conocimiento/clientes/patron-de-modales-clientes-y-prescriptores.md` — Patrón de Modales (Clientes y Prescriptores) · 0,5 KB
@@ -58,6 +58,8 @@ paths:
   - **REGLA — el momento es "PTE. PAGO BROKERGY A CLIENTE"**
   - **REGLA — el mensaje dice la NOTICIA, el MOTIVO (la seguridad) y la cuenta que
 tenemos ENMASCARADA**
+  - **REGLA — el ENLACE va en un SEGUNDO WhatsApp, y el mensaje lo firma Fran**
+  - **REGLA — el sello del envío se escribe lo ÚLTIMO**
   - **REGLA — el mensaje y la portada dicen LO QUE SE LE INGRESA, y solo con el ahorro
 VERIFICADO**
   - **REGLA — el ESFUERZO se cuenta con lo que DE VERDAD pasó**

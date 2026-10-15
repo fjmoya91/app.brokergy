@@ -373,8 +373,9 @@ export function componerMensajeCobro({
         if (pago) {
             const recibe = Math.max(0, b - pago.importe_sin_iva);
             importe.push(
-                `Descontando nuestros honorarios (${eurMsg(pago.importe_sin_iva)}), ${te} ingresaremos *${eurMsg(recibe)}*. `
-                + `Si ${tercero ? 'prefiere' : 'prefieres'} pagarlos aparte con factura (${eurMsg(pago.importe_total)}, IVA incluido), ${te} ingresaremos los ${eurMsg(b)} una vez abonada. Se elige en el enlace.`,
+                `• Descontando nuestros honorarios (${eurMsg(pago.importe_sin_iva)}), ${te} ingresaremos *${eurMsg(recibe)}*.`,
+                `• Si ${tercero ? 'prefiere' : 'prefieres'} pagarlos aparte con factura (${eurMsg(pago.importe_total)}, IVA incluido), ${te} ingresaremos los ${eurMsg(b)} una vez abonada.`,
+                `${tercero ? 'Lo elige' : 'Lo eliges'} en el mismo enlace donde ${tercero ? 'confirma' : 'confirmas'} la cuenta.`,
             );
         } else if (regalo) {
             importe.push(`${regalo}, así que ${tercero ? 'se la' : 'te la'} ingresaremos íntegra.`);
@@ -382,12 +383,18 @@ export function componerMensajeCobro({
             importe.push(`${tercero ? 'Se la' : 'Te la'} ingresaremos íntegra.`);
         }
     }
-    // Sin importe que anunciar, los honorarios se explican DESPUÉS del enlace:
-    // "en el mismo enlace…" delante del enlace no se entiende.
+    // Sin importe que anunciar, los honorarios se explican tras pedirle que abra
+    // el enlace: "en ese mismo enlace…" antes de nombrarlo no se entiende.
     const honorariosTras = (b == null && pago)
-        ? ['', `En el mismo enlace se elige cómo liquidar nuestros honorarios (${eurMsg(pago.importe_sin_iva)}): descontados del ingreso, o con una factura aparte de ${eurMsg(pago.importe_total)} (IVA incluido) que habría que abonar antes de recibirlo.`]
+        ? ['', `En ese mismo enlace se elige cómo liquidar nuestros honorarios (${eurMsg(pago.importe_sin_iva)}): descontados del ingreso, o con una factura aparte de ${eurMsg(pago.importe_total)} (IVA incluido) que habría que abonar antes de recibirlo.`]
         : (b == null && regalo ? ['', `${regalo}.`] : []);
 
+    // REGLA — el ENLACE va al FINAL, tras la firma, con una línea breve encima
+    // («👉 Confirma aquí tu número de cuenta:»). En WhatsApp los dos van en un
+    // SEGUNDO mensaje (`separarEnlaceCobro`): así sale con su vista previa y se
+    // pulsa sin buscarlo; metido en mitad del texto se veía como
+    // un churro de token partido en tres líneas (15/10/2026). Por eso el texto lo
+    // anuncia "a continuación 👇", que vale igual para el email.
     if (tercero) {
         return [
             nombre ? `¡Hola ${nombre}! 🎉` : '¡Hola! 🎉',
@@ -395,26 +402,29 @@ export function componerMensajeCobro({
             `${esfuerzo}: el pago de ${tu} ayuda ya nos ha llegado y vamos a hacerle el ingreso.`,
             ...importe,
             '',
-            `Por seguridad, antes de cualquier transferencia confirmamos con cada titular su número de cuenta.${(!partner && ibanMascara) ? ` La que tenemos es:\n\n*${ibanMascara}*\n` : ''}`,
-            '¿Le puedes hacer llegar este enlace para que lo confirme? Le llevará menos de un minuto:',
-            '',
-            link,
+            `🔒 Por seguridad, antes de cualquier transferencia confirmamos con cada titular su número de cuenta.${(!partner && ibanMascara) ? ` La que tenemos es:\n\n*${ibanMascara}*\n` : ''}`,
+            '¿Le puedes reenviar el enlace que te mando a continuación 👇 para que lo confirme? Le llevará menos de un minuto.',
             ...honorariosTras,
             '',
             'Cualquier duda, contesta a este mensaje.',
+            '',
+            ...FIRMA_COBRO,
+            '',
+            '👉 Enlace para que confirme su número de cuenta:',
+            link,
         ].join('\n');
     }
 
     const cuenta = ibanMascara
         ? [
-            'Por seguridad, antes de hacer cualquier transferencia confirmamos con cada cliente su número de cuenta. Este es el que tenemos:',
+            '🔒 Por seguridad, antes de cualquier transferencia confirmamos con cada cliente su número de cuenta. La que tenemos es:',
             '',
             `*${ibanMascara}*`,
             '',
-            '¿Es correcto? Confírmalo aquí, te llevará menos de un minuto:',
+            '¿Es correcta? Confírmalo en el enlace que te mando a continuación 👇 Te llevará menos de un minuto.',
         ]
         : [
-            'Por seguridad, antes de hacer la transferencia necesitamos tu número de cuenta y un justificante de que es tuya (un recibo o una captura del banco donde se vea tu nombre junto al IBAN). Indícanoslo aquí, te llevará un minuto:',
+            '🔒 Por seguridad, antes de hacer la transferencia necesitamos tu número de cuenta y un justificante de que es tuya (un recibo o una captura del banco donde se vea tu nombre junto al IBAN). Indícanoslo en el enlace que te mando a continuación 👇 Te llevará un minuto.',
         ];
 
     return [
@@ -424,14 +434,39 @@ export function componerMensajeCobro({
         ...importe,
         '',
         ...cuenta,
-        '',
-        link,
         ...honorariosTras,
         '',
-        'De paso te hacemos tres preguntas rápidas y opcionales por si podemos ahorrarte algo más. Por ejemplo, al 90 % de nuestros clientes les hemos mejorado la tarifa de la luz y ahora también pagan menos.',
+        'Y de paso, tres preguntas rápidas y opcionales por si podemos ahorrarte algo más: al 90 % de nuestros clientes les hemos mejorado la tarifa de la luz y ahora pagan menos.',
         '',
         'Cualquier duda, contesta a este mensaje.',
+        '',
+        ...FIRMA_COBRO,
+        '',
+        ibanMascara ? '👉 Confirma aquí tu número de cuenta:' : '👉 Indícanos aquí tu número de cuenta:',
+        link,
     ].join('\n');
+}
+
+/** La firma del mensaje de cobro: lo firma una persona, no "el equipo". */
+export const FIRMA_COBRO = ['Un saludo,', '*Fran Moya*', 'BROKERGY · Ingeniería Energética'];
+
+/**
+ * Parte el mensaje de cobro en DOS WhatsApp: el texto y, aparte, el enlace con
+ * la línea breve que lo presenta (la que empieza por 👉 justo encima, también si
+ * se ha retocado en el popup). El enlace se manda SIEMPRE —aunque se haya borrado
+ * al retocar el texto—, porque sin él el mensaje pide algo que no se puede hacer.
+ * @returns {{ texto: string, enlace: string|null }}
+ */
+export function separarEnlaceCobro(mensaje, link) {
+    const limpiar = (t) => t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    const original = String(mensaje || '');
+    if (!link) return { texto: limpiar(original), enlace: null };
+    const lineas = original.split('\n');
+    const i = lineas.findIndex(l => l.includes(link));
+    let rotulo = null;
+    if (i > 0 && /^\s*👉/u.test(lineas[i - 1])) rotulo = lineas.splice(i - 1, 1)[0].trim();
+    const texto = limpiar(lineas.join('\n').split(link).join(''));
+    return { texto, enlace: rotulo ? `${rotulo}\n${link}` : link };
 }
 
 /**

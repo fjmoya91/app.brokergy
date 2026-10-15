@@ -1862,8 +1862,14 @@ router.post('/:id/cobro/enviar', staffOnly, async (req, res) => {
         if (channels.includes('whatsapp')) {
             if (!tlf) return res.status(400).json({ error: 'No hay teléfono del cliente. Indica uno.' });
             botVinculos.sembrarEnDiferido(tlf, exp.oportunidad_id);
-            try { await whatsappService.sendText(tlf, mensaje); sent.push('WhatsApp'); }
-            catch (e) { console.warn('[cobro enviar] WA:', e.message); sent.push('WhatsApp (encolado)'); }
+            // Dos mensajes: el texto y, aparte, el enlace (solo, con su vista previa).
+            const { separarEnlaceCobro } = await cobroService.loadCobroForm();
+            const { texto, enlace } = separarEnlaceCobro(mensaje, link);
+            try {
+                await whatsappService.sendText(tlf, texto);
+                if (enlace) await whatsappService.sendText(tlf, enlace);
+                sent.push('WhatsApp');
+            } catch (e) { console.warn('[cobro enviar] WA:', e.message); sent.push('WhatsApp (encolado)'); }
         }
         if (channels.includes('email')) {
             if (!email) return res.status(400).json({ error: 'No hay email del cliente. Indica uno.' });
@@ -1882,20 +1888,17 @@ router.post('/:id/cobro/enviar', staffOnly, async (req, res) => {
 
         const usuario = req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR'
             : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
-        // Se sella con MERGE: el envío y la respuesta del cliente caen en momentos
-        // distintos sobre la misma clave, y un reemplazo borraría el token.
-        await cobroService.sellar(exp.id, {
-            enviado_at: new Date().toISOString(),
-            enviado_por: usuario,
-            canales: sent,
-            // Cuántas veces se le ha pedido: lo mira el parte diario para no
-            // repetir el mismo mensaje cada mañana.
-            veces: Number(exp.documentacion?.cobro?.veces || 0) + 1,
-        });
 
         // Historial del expediente — la misma trazabilidad que el resto de envíos.
-        const docObj = exp.documentacion || {};
-        const historial = docObj.historial || [];
+        // Va ANTES del sello y con lectura FRESCA: es un read-modify-write de toda
+        // `documentacion`, y escrito después con la copia de `exp` (leída antes de
+        // `ensureToken`) pisaba el sello del envío. Pasó el 15/10/2026 en los cinco
+        // de LOTE con 25RES060_57…73: salieron, pero `cobro` se quedó solo con el
+        // token y la fila seguía ofreciendo «Pedir» como si no se hubiera mandado.
+        const { data: fresco } = await supabase.from('expedientes')
+            .select('documentacion').eq('id', exp.id).maybeSingle();
+        const docObj = fresco?.documentacion || exp.documentacion || {};
+        const historial = Array.isArray(docObj.historial) ? [...docObj.historial] : [];
         historial.push({
             id: Date.now().toString() + '_cobro',
             tipo: 'solicitud_cobro',
@@ -1906,6 +1909,17 @@ router.post('/:id/cobro/enviar', staffOnly, async (req, res) => {
         await supabase.from('expedientes')
             .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
             .eq('id', exp.id);
+
+        // Se sella con MERGE y lo ÚLTIMO: el envío y la respuesta del cliente caen
+        // en momentos distintos sobre la misma clave, y un reemplazo borraría el token.
+        await cobroService.sellar(exp.id, {
+            enviado_at: new Date().toISOString(),
+            enviado_por: usuario,
+            canales: sent,
+            // Cuántas veces se le ha pedido: lo mira el parte diario para no
+            // repetir el mismo mensaje cada mañana.
+            veces: Number(docObj.cobro?.veces || 0) + 1,
+        });
 
         res.json({ ok: true, channels: sent, link, sentTo: email || tlf || null });
     } catch (e) {

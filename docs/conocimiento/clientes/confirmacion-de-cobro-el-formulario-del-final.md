@@ -115,6 +115,25 @@ banco es lo que se reconoce— y los 4 últimos). En un WhatsApp o un email el I
 NUNCA va entero: se reenvían y se quedan en móviles ajenos. Entero solo detrás del
 token. Al PARTNER que lleva el contacto del cliente no se le enseña ni la máscara.
 
+**REGLA — el ENLACE va en un SEGUNDO WhatsApp, y el mensaje lo firma Fran**
+(2026-10-15). Metido en mitad del texto, el enlace con su token se partía en tres
+líneas y no se reconocía como lo que hay que pulsar. Ahora `componerMensajeCobro`
+lo deja al FINAL, tras la firma («Un saludo, *Fran Moya* · BROKERGY · Ingeniería
+Energética», `FIRMA_COBRO`), con una línea breve encima («👉 Confirma aquí tu número
+de cuenta:»), y el texto lo anuncia «a continuación 👇»;
+`POST /api/expedientes/:id/cobro/enviar` lo parte con `separarEnlaceCobro` y manda
+el texto y, aparte, la línea 👉 con el enlace (que sale con su vista previa). El enlace se manda
+SIEMPRE, aunque se haya borrado al retocar el texto en el popup. El email va en uno
+solo, con el enlace al final. El envío desde el parte (`/acciones` →
+`solicitar-faltantes`) sigue saliendo en UN mensaje, con el enlace al final.
+
+**REGLA — el sello del envío se escribe lo ÚLTIMO** (2026-10-15). La ruta sellaba
+`cobro.enviado_at` con el merge y después reescribía `documentacion` entera para el
+historial con la copia leída al principio: el sello desaparecía. Los cinco de LOTE
+con 25RES060_57, _61, _63, _66 y _73 salieron el 15/10 a las 11:36 (el historial lo
+apunta) pero `cobro` se quedó solo con el `token`, y la fase 7 seguía ofreciendo
+«Pedir». Ahora el historial va primero, con lectura fresca, y el sello después.
+
 **REGLA — el mensaje y la portada dicen LO QUE SE LE INGRESA, y solo con el ahorro
 VERIFICADO** (`bonoVerificado`: `computeExpedienteFinancials` —la MISMA función del
 panel económico y del lote— importada en el servidor). «Tu ayuda: 1.840,00 €» y,

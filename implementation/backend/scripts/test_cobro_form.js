@@ -164,7 +164,14 @@ const expediente = (over = {}) => ({
         ok(/Por seguridad/.test(t), 'explica por qué se le pide la cuenta');
         ok(t.includes('ES59 3190 •••• •••• •••• 3118') && !t.includes('2099174643243118'), 'lleva la cuenta ENMASCARADA, nunca entera');
         ok(t.includes('250,00 €') && t.includes('302,50 €'), 'anuncia los dos importes de la gestión (base y con IVA)');
-        ok(t.indexOf('https://app/cobro/x?token=y') < t.indexOf('250,00 €'), 'el enlace va antes que la forma de pago');
+        ok(t.trim().endsWith('👉 Confirma aquí tu número de cuenta:\nhttps://app/cobro/x?token=y'), 'el enlace va al final, con su línea breve encima');
+        ok(t.indexOf('Fran Moya') > t.indexOf('Por seguridad') && t.indexOf('Fran Moya') < t.indexOf('https://app/cobro'), 'firma Fran, antes del enlace');
+        const partes = m.separarEnlaceCobro(t, 'https://app/cobro/x?token=y');
+        ok(!partes.texto.includes('https://') && !partes.texto.includes('👉') && partes.texto.endsWith('BROKERGY · Ingeniería Energética')
+            && partes.enlace === '👉 Confirma aquí tu número de cuenta:\nhttps://app/cobro/x?token=y',
+            'en WhatsApp: el texto (acaba en la firma) y, aparte, la línea breve con el enlace');
+        ok(m.separarEnlaceCobro('Hola\n\n👉 Pulsa aquí:\nL', 'L').enlace === '👉 Pulsa aquí:\nL', 'la línea retocada en el popup viaja con el enlace');
+        ok(m.separarEnlaceCobro('retocado sin enlace', 'L').enlace === 'L', 'si al retocar se borró el enlace, se manda igual');
         ok(!/\d{1,2} de [a-z]+|antes del día/i.test(t), 'no promete fecha de ingreso');
 
         const sinPago = componerMensajeCobro({ nombre: null, link: 'L', ibanMascara: 'X', pago: null });
@@ -237,7 +244,7 @@ const expediente = (over = {}) => ({
         ok(!/Descontando/.test(msg), 'y no habla de descontar honorarios');
         ok(/por tu confianza/.test(componerMensajeCobro({ nombre: 'Rosa', link: 'L', bono: 100, bonificada: 250 })), 'sin requerimientos: «por tu confianza»');
         const sinImporte = componerMensajeCobro({ nombre: 'Rosa', link: 'L', bonificada: 250 });
-        ok(sinImporte.indexOf('detalle contigo') > sinImporte.indexOf('\nL\n'), 'sin importe, el regalo va tras el enlace');
+        ok(sinImporte.indexOf('detalle contigo') > sinImporte.indexOf('a continuación'), 'sin importe, el regalo va tras pedirle el enlace');
         const ter = componerMensajeCobro({ nombre: 'Ana', link: 'L', bono: 100, bonificada: 250, tercero: true, titular: 'Rosa García' });
         ok(/detalle con Rosa García: no le cobramos/.test(ter), 'a la persona de contacto se le dice en tercera persona');
         const trf = sinNbsp(m.componerMensajeTransferencia({ nombre: 'Rosa', cuentas: [{ mascara: 'ES60 …', importe: 2642.19 }], bonificada: 250 }));
