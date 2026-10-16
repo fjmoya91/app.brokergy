@@ -57,9 +57,14 @@ opción, y la pinta el componente `Opcion`, nunca cada pantalla por su cuenta.
 Convenio de Cesión ya firmado; un justificante anterior acredita **esa** cuenta, que
 es justo la que el cliente está cambiando. Se comprueba en las dos capas (la vista
 lo pide, el POST responde 400 sin él). Si repite el IBAN que ya teníamos no se le
-pide nada: ése se acreditó al aceptar la propuesta. La comparación es **sin espacios
-y en mayúsculas** — el cliente lo escribe como se lo enseña su banco, y un cambio de
-formato no es un cambio de cuenta.
+pide nada: ése se acreditó al aceptar la propuesta. La comparación es **solo con letras
+y números, en mayúsculas** — el cliente lo escribe como se lo enseña su banco, y un
+cambio de formato no es un cambio de cuenta. **Y el MISMO criterio en las dos capas**
+(`normalizarIban` en `cobroForm.js`, `normIban` en el POST): el 16/10/2026 un cliente
+pulsó «Sí, es correcta» y le saltó «Has cambiado el número de cuenta» — su IBAN estaba
+guardado con guiones (`ES49-xxxx-…`), el navegador los quitaba y el servidor no, así
+que comparaba dos cadenas distintas de la misma cuenta. Afectaba a 21 de 291 fichas
+(20 con guiones, una con una coma al final).
 
 **REGLA — el IBAN nuevo no se pisa en silencio.** El aviso al staff (WhatsApp +
 email) empieza por el cambio, con el anterior a la vista y si trae justificante o no:

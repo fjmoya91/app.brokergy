@@ -277,8 +277,13 @@ export function contextoCobro(exp) {
     };
 }
 
-/** IBAN sin espacios y en mayúsculas: un cambio de formato no es un cambio de cuenta. */
-export const normalizarIban = (v) => String(v ?? '').replace(/[\s-]+/g, '').toUpperCase();
+/**
+ * IBAN solo con letras y números, en mayúsculas: un cambio de formato no es un
+ * cambio de cuenta. Hay fichas guardadas con guiones ("ES49-…") o una coma suelta.
+ * El backend (`normIban` de POST /public/cobro) usa EL MISMO criterio: si divergen,
+ * se le pide justificante a quien ha pulsado «Sí, es correcta».
+ */
+export const normalizarIban = (v) => String(v ?? '').replace(/[^A-Za-z0-9]+/g, '').toUpperCase();
 
 /** IBAN en bloques de cuatro, como lo enseña el banco. */
 export const ibanEnBloques = (v) => normalizarIban(v).replace(/(.{4})(?=.)/g, '$1 ');

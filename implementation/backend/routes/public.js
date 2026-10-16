@@ -2825,10 +2825,14 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
 
         const f = req.body || {};
         const limpio = (v) => String(v ?? '').trim();
-        // El IBAN se compara SIN espacios y en mayúsculas: el cliente lo escribe
-        // como se lo enseña su banco ("ES91 2100 …") y el que consta viene de otro
-        // formulario. Un cambio de formato no es un cambio de cuenta.
-        const normIban = (v) => limpio(v).replace(/\s+/g, '').toUpperCase();
+        // El IBAN se compara solo con letras y números, en mayúsculas: el cliente lo
+        // escribe como se lo enseña su banco ("ES91 2100 …") y el que consta viene de
+        // otro formulario, a veces con guiones ("ES49-…") o una coma suelta. Un cambio
+        // de formato no es un cambio de cuenta. MISMO criterio que `normalizarIban`
+        // (frontend/features/cobro/logic/cobroForm.js): si divergen, «Sí, es correcta»
+        // manda la cuenta sin guiones, aquí no se le quitan a la guardada y se le pide
+        // justificante a quien no ha cambiado nada (16/10/2026, 20 clientes con guiones).
+        const normIban = (v) => limpio(v).replace(/[^A-Za-z0-9]+/g, '').toUpperCase();
 
         const ibanNuevo = normIban(f.iban);
         if (ibanNuevo.length < 20) return res.status(400).json({ error: 'El número de cuenta no parece completo.' });
