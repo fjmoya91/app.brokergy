@@ -258,6 +258,64 @@ def test_el_deposito_del_inicial_manda_aunque_la_obra_declare_otro():
     assert any("no el de la obra (180 l)" in a for a in avisos)
 
 
+# ---------------------------------------------------------------------------
+# Y SIN deposito en el inicial, el FINAL copiado tampoco lo lleva (18/10/2026)
+#
+# 26RES060_195: caldera mixta INSTANTANEA en el inicial y, en la obra, una
+# bomba de calor de ACS de 100 l aparte. El final salia con el deposito de la
+# obra y la demanda de ACS pasaba de 11,00 a 18,09 kWh/m2.
+# ---------------------------------------------------------------------------
+
+def _base_instantanea():
+    base = _base_con_caldera()
+    base[G.SLOTS.index("mixto2")][0][8] = [False]
+    return base
+
+
+def _obra_con_bdc_de_acs():
+    return [_aerotermia("calefaccion"),
+            {"slot": "ACS", "nombre": "BOMBA DE CALOR ACS HTW 100",
+             "generador": "Bomba de Calor - Caudal Ref. Variable",
+             "combustible": "Electricidad", "superficie_acs": 120, "pct_acs": "100",
+             "rendimiento": "conocido", "rend_acs": "290",
+             "acumulacion": {"volumen": 100}}]
+
+
+def test_inicial_sin_deposito_el_final_copiado_sale_sin_deposito():
+    equipos = _obra_con_bdc_de_acs()
+    base = _base_instantanea()
+    avisos = G.heredar_del_base(equipos, base, sin_deposito_manda=True)
+    assert "acumulacion" not in equipos[1]
+    assert any("NO tiene deposito" in a and "100 l" in a for a in avisos)
+    slots, _ = G.construir_instalaciones(
+        {"instalaciones": equipos, "envolvente": {"espacio": ZONA}},
+        base, {ZONA}, retirar=G.slots_a_retirar(equipos))
+    [acs] = slots[G.SLOTS.index("ACS")]
+    assert acs[8] == [False]
+
+
+def test_sin_la_marca_del_final_la_obra_sigue_declarando_su_deposito():
+    """La medida de mejora de un inicial y el PREVISTO no cambian."""
+    equipos = _obra_con_bdc_de_acs()
+    G.heredar_del_base(equipos, _base_instantanea())
+    assert equipos[1]["acumulacion"] == {"volumen": 100}
+
+
+def test_un_fichero_sin_ningun_equipo_de_acs_no_quita_el_deposito():
+    """Sin nada con que comparar, manda la obra."""
+    equipos = _obra_con_bdc_de_acs()
+    G.heredar_del_base(equipos, [[] for _ in G.SLOTS], sin_deposito_manda=True)
+    assert equipos[1]["acumulacion"] == {"volumen": 100}
+
+
+def test_con_deposito_en_el_inicial_el_final_copiado_lo_hereda_igual():
+    """26RES060_196: los 100 l del inicial pasan al equipo de ACS de la obra."""
+    equipos = _obra_con_bdc_de_acs()
+    equipos[1]["acumulacion"] = {"volumen": 150}
+    G.heredar_del_base(equipos, _base_con_caldera(litros="100"), sin_deposito_manda=True)
+    assert equipos[1]["acumulacion_cruda"][:2] == [True, "100"]
+
+
 def test_una_SUSTITUCION_sigue_heredando_la_superficie_entera():
     """Sin reparto (100 %), nada cambia: se reescribe TAL CUAL la del fichero."""
     solo = [{"slot": "mixto2", "nombre": "AEROTERMIA", "generador":

@@ -699,7 +699,9 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
         # En la forma interna (la de la 2.3): lo que el técnico puso en la 3.1
         # —la potencia de cada equipo— se guarda en `meta` y se le devuelve.
         previas, meta = CX.instalaciones_internas(base)
-        av_sup = G.heredar_del_base(equipos, previas)
+        # El FINAL copiado tiene la demanda de ACS del inicial: si el fichero no
+        # tiene depósito, el final tampoco (aunque la obra declare litros).
+        av_sup = G.heredar_del_base(equipos, previas, sin_deposito_manda=True)
         # En una HIBRIDACIÓN la caldera NO sale: se queda dando servicio junto a
         # la bomba con `100 - C_b` de la demanda. Lo declara la ficha, que es la
         # única que sabe cuánto; cuál es la caldera lo sabe el fichero.
@@ -730,7 +732,7 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
                 avisos.append(f"La medida «{m.get('nombre')}» no declara ningún equipo:"
                               " no se escribe.")
                 continue
-            avisos.extend(G.heredar_del_base(equipos_m, slots))
+            avisos.extend(G.heredar_del_base(equipos_m, slots, sin_deposito_manda=True))
             inst_m, gens_m, av_i = G.instalaciones_de_medida(
                 equipos_m, slots, zonas, espacio, version,
                 existentes=G.generadores_de_base(meta.get("extra"), version))

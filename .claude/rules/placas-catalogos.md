@@ -63,7 +63,7 @@ paths:
 - `docs/conocimiento/placas-catalogos/la-ficha-del-catalogo-cuando-son-varios-papeles.md` — La ficha del catálogo cuando son VARIOS papeles (2026-09-11) · 5,7 KB
 - `docs/conocimiento/placas-catalogos/la-placa-de-la-caldera-se-lee-con-ia.md` — La PLACA de la caldera se lee con IA (2026-09-13) · 5,1 KB
 - `docs/conocimiento/placas-catalogos/la-placa-la-lee-tambien-el-certificador.md` — La PLACA la lee también el CERTIFICADOR · 0,9 KB
-- `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/00-las-tres-placas-de-la-obra-de-un-boton.md` — Las TRES placas de la obra, de un botón (2026-09-15) · 14,9 KB
+- `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/00-las-tres-placas-de-la-obra-de-un-boton.md` — Las TRES placas de la obra, de un botón (2026-09-15) · 19,0 KB
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/lo-que-cuesta-medido-15-09-2026.md` — Lo que cuesta, medido (15/09/2026) · 2,2 KB
 - `docs/conocimiento/placas-catalogos/un-conjunto-resuelve-el-acs-solo.md` — Un CONJUNTO resuelve el ACS solo (2026-09-13) · 10,1 KB
 
@@ -121,6 +121,8 @@ código.**
   - **REGLA — el EQUIPO lo decide el catálogo, no el modelo.**
   - **REGLA — con VARIOS candidatos no se elige ninguno, pero se PREGUNTA.**
   - **REGLA — por la INTERIOR no se casa una fila cuya exterior es OTRA de la leída**
+  - **REGLA — se tolera lo que el OCR confunde, NO lo que distingue dos equipos**
+  - **REGLA — la serie de una placa que es de OTRO equipo solo entra CON ese equipo**
   - **REGLA — el SCOP no se calcula aquí.**
   - **REGLA — se PROPONE, y al aplicar solo se rellenan HUECOS.**
   - **REGLA — al aplicar se escribe lo REVISADO, no una lectura nueva.**
@@ -128,6 +130,8 @@ código.**
   - **REGLA — UN CONJUNTO RESUELVE SU BLOQUE DE ACS ENTERO (regla 49), no a medias.**
   - **REGLA — UN BIBLOC SON DOS APARATOS, y el de dentro tiene su propia serie.**
   - **REGLA — esa placa puede ser de OTRO aparato, y se distingue por el MODELO.**
+  - **REGLA — la placa del slot «ud. interior» solo es de la bomba de calefacción si es SU
+interior**
   - **REGLA — si falta la placa de la UD. EXTERIOR se dice al leer, no al generar.**
 - `docs/conocimiento/placas-catalogos/un-conjunto-resuelve-el-acs-solo.md`
   - **REGLA — "lleva depósito" y "produce ACS" NO son lo mismo.**

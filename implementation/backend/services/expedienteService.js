@@ -6,6 +6,7 @@ const driveService = require('./driveService');
 const { syncExpedienteFolder } = require('./expedienteFolderSync');
 const { ALLOWED_PROVINCES } = require('../data/allowedProvinces');
 const { FICHAS, correlativoInicial, detectPrograma, esHibridacion } = require('../utils/fichas');
+const { fotosSinBase64 } = require('../utils/normalization');
 
 // ─── Import ESM diferido del módulo puro del frontend ────────────────────────
 // La forma canónica del autoconsumo fotovoltaico (y su normalización) es fuente
@@ -521,7 +522,11 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 memoria_rite_pdf_link: null,
                 borrador_cert_rite_link: null,
                 borrador_cert_sent_at: null,
-                photo_attachments: op.datos_calculo?.inputs?.photo_attachments || null
+                // Sin el base64 (regla 21): las oportunidades del modelo viejo lo
+                // traen en `inputs.photo_attachments`, y copiado aquí se quedaba en
+                // el expediente para siempre (26RES060_136, _164). La imagen sigue
+                // en la oportunidad; el Anexo Fotográfico lee las fotos de Drive.
+                photo_attachments: fotosSinBase64(op.datos_calculo?.inputs?.photo_attachments) || null
             },
             seguimiento: {
                 // Si el cliente aporta su CEE inicial, NO se solicita uno nuevo al certificador:

@@ -4,7 +4,7 @@
  * Generadores compartidos para Anexo I y Anexo de Cesión.
  */
 
-import { formatSeries, countUnidades, esAcumuladorAcs, datosAcumulador, acsSerieDeclarada } from '../logic/aerotermiaUnits.js';
+import { formatSeries, countUnidades, esAcumuladorAcs, esTermoElectrico, datosAcumulador, acsSerieDeclarada, acsEsOtraMaquina } from '../logic/aerotermiaUnits.js';
 import { anexoIStates, BONO_SOCIAL_LABELS } from '../logic/subvenciones.js';
 // Las @font-face auto-alojadas: la misma función que el CIFO y la propuesta.
 import { buildFontFaces, FUENTE_INTER } from '../logic/fuentesDoc.js';
@@ -557,7 +557,31 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
         : ((inst.misma_aerotermia_acs && !acsSerieDeclarada(inst))
             ? snExt
             : formatSeries(inst.aerotermia_acs, { dash, sep, prefijo: '' }));
-    const mostrarInt = hasAcs && (!acsEsAcumulador || !!snAcum);
+    // El ACS lo da OTRA máquina del catálogo (p. ej. una bomba de calor de ACS
+    // aparte junto a una aerotermia monobloc): esa serie NO es de una «ud.
+    // interior», que el monobloc no tiene. Se rotula como lo hace el CIFO («Nº
+    // serie equipo ACS») para que los dos documentos digan lo mismo. Medido en
+    // 26RES060_195 (Aerosun Advanced 12 + HTW-AT-V100MR290A). Lo decide la
+    // MÁQUINA (`acsEsOtraMaquina`), no el flag — regla 49.
+    const acsAparte = !acsEsAcumulador && acsEsOtraMaquina(inst);
+    // Y una «ud. interior» con la MISMA serie que la exterior no es un segundo
+    // aparato: es la misma máquina vista desde el nodo de ACS (el clon del flag o
+    // el autorrelleno de un conjunto). Repetirla le dice al verificador que hay
+    // dos equipos donde hay uno — medido en 26RES060_136, monobloc Aerosun Confort
+    // 12 con «Ud. interior: <serie de la exterior>». Un bibloc con la serie de la
+    // de dentro declarada (regla 12.e) no se mueve: sus dos series son distintas.
+    const normSerie = (s) => String(s || '').replace(/<br>|\n/g, '|').replace(/[^A-Za-z0-9|]/g, '').toUpperCase();
+    const serieDeVerdad = (s) => !!normSerie(s).replace(/\|/g, '');
+    const intRepiteExt = !acsAparte && !acsEsAcumulador
+        && serieDeVerdad(snExt) && normSerie(snInt) === normSerie(snExt);
+    // REGLA (usuario, 18/10/2026) — la serie del equipo de ACS se declara SIEMPRE
+    // que se actúa sobre el ACS con una bomba de calor (la de calefacción si es su
+    // ud. interior, o un aerotermo de ACS aparte) o con un ACUMULADOR del que
+    // tenemos la placa (su serie escrita). NO sale si no se actúa sobre el ACS o
+    // si lo que se pone es un TERMO ELÉCTRICO (efecto Joule, fuera del alcance):
+    // mismo criterio que `acsEnAlcance`, con el que el CIFO decide su fila.
+    const acsEsTermo = esTermoElectrico(acsAero) || esTermoElectrico(inst.aerotermia_acs);
+    const mostrarInt = hasAcs && !acsEsTermo && (!acsEsAcumulador || !!snAcum) && !intRepiteExt;
     const refCatastral = instAddr.refCatastral || dash;
     // Con una sola unidad la línea queda igual que siempre ("Ud. exterior: XXX").
     // Con varias, el rótulo lleva el recuento y las series se listan numeradas debajo.
@@ -569,7 +593,11 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
     const conValor = (linea) => !!String(linea).replace(/^[^:]*:\s*/, '').trim();
     const serialsLineas = [
         bloqueSeries('Ud. exterior', 'Uds. exteriores', nUdsCal, snExt),
-        ...(mostrarInt ? [bloqueSeries('Ud. interior', 'Uds. interiores', acsEsAcumulador ? 1 : nUdsAcs, snInt)] : []),
+        // Un aerotermo de ACS aparte o un acumulador no son una «ud. interior»:
+        // se rotulan como el CIFO («Nº serie equipo ACS»).
+        ...(mostrarInt ? [(acsAparte || acsEsAcumulador)
+            ? bloqueSeries('Equipo ACS', 'Equipos ACS', acsEsAcumulador ? 1 : nUdsAcs, snInt)
+            : bloqueSeries('Ud. interior', 'Uds. interiores', acsEsAcumulador ? 1 : nUdsAcs, snInt)] : []),
     ].filter(conValor);
     // VARIOS CEDENTES (logic/cedentes.js): cada uno firma SU Anexo I. `opts.cedente`
     // es el índice del cedente cuyo impreso se está rellenando (0 = el titular,

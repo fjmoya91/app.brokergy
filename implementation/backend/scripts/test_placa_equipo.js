@@ -10,7 +10,9 @@
  *   node implementation/backend/scripts/test_placa_equipo.js
  */
 
-const { casan, norm, serieDesdeTexto, esEan13 } = require('../services/placaEquipoOcrService');
+const {
+    casan, casanOcr, parecido, claveOcr, norm, serieDesdeTexto, esEan13,
+} = require('../services/placaEquipoOcrService');
 
 let fallos = 0;
 const ok = (cond, msg) => {
@@ -53,6 +55,37 @@ console.log('\n── El sufijo largo NO cuela ───────────
 // otra referencia, y estirar la tolerancia es empezar a adivinar.
 ok(!casan('WH-MDC07J3E5-XYZW', 'WH-MDC07J3E5'), 'cuatro caracteres de más ya es otra cosa');
 ok(casan('WHMDC07J3E5E', 'WHMDC07J3E5'), 'uno de más sí (misma familia)');
+
+console.log('\n── Lo que el OCR confunde (2026-10-18) ─────────────────────────');
+// La placa de una AEROSUN CONFORT 12 se leyó «NTI-12/1IEN» (26RES060_136) y el
+// catálogo la guarda como «CONFORT 12 (NTII-12IIEN)» (id 60): `casan` no veía
+// nada. Se tolera I/1/l, cuántas seguidas, «/», paréntesis y el nombre delante;
+// NO las cifras, que distinguen la 9 de la 12.
+const C12 = 'CONFORT 12 (NTII-12IIEN)', C9 = 'CONFORT 9 (NTII-9IIEN)', C17 = 'CONFORT 17 (NTII-17IIEN)';
+ok(!casan('NTI-12/1IEN', C12), 'la vía estricta sigue sin casarlo (no se ha aflojado `casan`)');
+ok(casanOcr('NTI-12/1IEN', C12), '«NTI-12/1IEN» casa con «CONFORT 12 (NTII-12IIEN)»');
+ok(casanOcr('NTII-12IIEN', C12), 'el código limpio casa con el que va entre paréntesis');
+ok(casanOcr('ntii-12llen', C12), 'la l minúscula por la I');
+ok(casanOcr('AEROSUN CONFORT 12 NTII-12IIEN', C12), 'con la marca y el nombre comercial delante');
+ok(!casanOcr('NTI-12/1IEN', C9), '… pero NO con la CONFORT 9 (NTII-9IIEN)');
+ok(!casanOcr('NTII-9IIEN', C12), 'la 9 no casa con la 12');
+ok(!casanOcr('NTII-12IIEN', C9), 'ni la 12 con la 9');
+ok(!casanOcr('NTII-12IIEN', C17), 'ni con la 17');
+ok(!casanOcr('NTII-112IIEN', C12), 'una cifra de más (112) no es la 12');
+ok(!casanOcr('NTII-2IIEN', C12), 'ni una de menos (2), aunque la racha de íes las iguale');
+ok(!casanOcr('5266721', '526672'), 'un numérico sigue casando solo exacto');
+ok(!casanOcr('EPGA16DAV37', 'EPGA14DAV37'), 'DAIKIN 16 ≠ 14 tampoco por la vía tolerante');
+ok(!casanOcr('ERLA14D2V3', 'ALTHERMA 3 ERLA14DV3'), 'ERLA14D2V3 ≠ ERLA14DV3 (regla 71)');
+ok(claveOcr('NTI-12/1IEN') === claveOcr('NTII-12IIEN'), 'misma clave OCR para las dos lecturas');
+
+// Una lectura PEOR («NT2-12IRFN», 26RES060_196) no casa ni tolerando: se queda
+// en PARECIDO, que solo ofrece candidatos (nunca elige solo).
+ok(!casanOcr('NT2-12IRFN', C12), '«NT2-12IRFN» no casa sola con la 12…');
+ok(parecido('NT2-12IRFN', C12) != null, '… pero se PARECE a la 12');
+ok(parecido('NTI-12IHN', C12) != null && parecido('NTI-12IHN', C9) == null, '«NTI-12IHN» se parece a la 12 y no a la 9');
+ok(parecido('NT2-12IRFN', C9) == null, 'y no se parece a la 9 (sus cifras no están)');
+ok(parecido('NT2-12IRFN', C17) == null, 'ni a la 17');
+ok(parecido('NT2-12IRFN', 'HL12HG05') == null, 'ni a la CONFORT PLUS 12 (otro código)');
 
 console.log('\n── El nº de serie, de su línea literal ─────────────────────────');
 // Las tres placas reales sobre las que se midió esto.

@@ -644,7 +644,7 @@ async function getEstadoCifo(numeroOrId) {
         const data = deriveCifoData({ expediente: exp, results: { savingsKwh } });
         ({ blocking, warnings } = buildValidation(exp, data, savingsKwh, folderId));
     }
-    warnings = [...warnings, ...await avisosFichasTecnicas(exp, tipologia === 'RES080' ? 'RES080' : 'CIFO')];
+    warnings = [...warnings, ...await avisosFichasTecnicas(exp, tipologia === 'RES080' ? 'RES080' : 'CIFO', { contarCatalogo: true })];
 
     return {
         ok: true, tipologia,
@@ -679,13 +679,30 @@ function buildValidationRes080(exp, results, folderId) {
 // Fichas técnicas que el expediente pide y no están: UNA por MODELO distinto de
 // bomba de calor (fichasTecnicas.js). Se comprueba fuera de buildValidation* porque
 // resolver los huecos exige el import ESM, y los dos validadores son síncronos.
-async function avisosFichasTecnicas(exp, docLabel) {
+//
+// `contarCatalogo` (lo usa `estado_cifo`, que NO genera): un hueco vacío cuyo
+// MODELO tiene ficha en el catálogo no falta, porque `ensureScopAnnexes` la copia
+// sola al generar. Sin esto, `estado_cifo` avisaba «Falta la ficha técnica…» de
+// fichas que el CIFO acaba llevando (26RES060_136 y _195, 18/10/2026). En la
+// generación no se pasa: ahí corre DESPUÉS de la copia y el slot ya dice la verdad.
+async function avisosFichasTecnicas(exp, docLabel, { contarCatalogo = false } = {}) {
     const doc = exp.documentacion || {};
     const { resolveFichaSlots, ftDocFields } = await loadFichasTecnicas();
     const out = [];
-    for (const slot of resolveFichaSlots(exp.instalacion)) {
-        const f = ftDocFields(slot.type);
-        if (doc[f.id] || doc[f.link]) continue;
+    const slots = resolveFichaSlots(exp.instalacion);
+    const vacios = slots.filter(s => { const f = ftDocFields(s.type); return !(doc[f.id] || doc[f.link]); });
+    let conFichaEnCatalogo = new Set();
+    if (contarCatalogo) {
+        const ids = [...new Set(vacios.map(s => s.unidad?.aerotermia_db_id).filter(Boolean))];
+        if (ids.length) {
+            const { data, error } = await supabase.from('aerotermia').select('id, ficha_tecnica').in('id', ids);
+            // Si el catálogo no responde se avisa como antes: mejor un aviso de más
+            // que callar una ficha que de verdad falta.
+            if (!error) conFichaEnCatalogo = new Set((data || []).filter(r => driveIdFromLink(r.ficha_tecnica)).map(r => String(r.id)));
+        }
+    }
+    for (const slot of vacios) {
+        if (conFichaEnCatalogo.has(String(slot.unidad?.aerotermia_db_id ?? ''))) continue;
         const queEs = slot.cubreCal && slot.cubreAcs ? 'calefacción y ACS' : slot.cubreCal ? 'calefacción' : 'ACS';
         const cual = slot.modeloLabel ? ` (${slot.modeloLabel}${slot.detalle ? ` — ${slot.detalle}` : ''})` : '';
         out.push(`Falta la ficha técnica de la aerotermia de ${queEs}${cual}: el ${docLabel} se genera sin ese anexo.`);

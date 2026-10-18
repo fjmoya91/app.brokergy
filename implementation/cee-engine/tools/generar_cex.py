@@ -1166,17 +1166,60 @@ def slots_a_retirar(equipos: list[dict]) -> set[str]:
     return {slot for slot, da in SERVICIOS_DEL_SLOT.items() if da & servicios}
 
 
-def heredar_del_base(equipos: list[dict], plantilla: list) -> list[str]:
+def heredar_del_base(equipos: list[dict], plantilla: list,
+                     sin_deposito_manda: bool = False) -> list[str]:
     """Lo que el .cex QUE SE COPIA ya dice y el equipo nuevo hereda.
 
     Dos cosas, y las dos por el mismo motivo: al copiar un fichero, lo que ya
     esta escrito en el vale mas que lo que la app deduzca, porque puede haberlo
     corregido el certificador en CE3X.
+
+    `sin_deposito_manda`: solo para el CEE FINAL que COPIA el inicial
+    (`/cex/instalaciones`). Ahi un fichero SIN deposito tambien manda, y el
+    final sale sin el (ver `_heredar_acumulacion`). En la medida de mejora de un
+    inicial y en el PREVISTO (RES080) no se pasa: alli no cambia nada.
     """
-    return _heredar_superficies(equipos, plantilla) + _heredar_acumulacion(equipos, plantilla)
+    return (_heredar_superficies(equipos, plantilla)
+            + _heredar_acumulacion(equipos, plantilla, sin_deposito_manda))
 
 
-def _heredar_acumulacion(equipos: list[dict], plantilla: list) -> list[str]:
+def _heredar_sin_deposito(equipos: list[dict], plantilla: list) -> list[str]:
+    """El CEE inicial NO tiene deposito de ACS: el final COPIADO, tampoco.
+
+    Es la otra cara de heredar el deposito (usuario, 18/10/2026): la demanda de
+    ACS del final tiene que ser la del inicial, y CE3X la calcula con las
+    perdidas del deposito. En 26RES060_195 el inicial era una caldera mixta
+    INSTANTANEA (sin acumulacion) y la obra, una bomba de calor de ACS de 100 l:
+    el final salia con 18,09 kWh/m2 de ACS frente a 11,00.
+
+    Solo si el fichero tiene de verdad un equipo que da ACS y NINGUNO lleva
+    deposito: si no declara ninguno (no hay con que comparar), manda la obra.
+    """
+    hay_acs = False
+    for i, nombre_slot in enumerate(SLOTS):
+        if "acs" not in SERVICIOS_DEL_SLOT.get(nombre_slot, set()):
+            continue
+        for viejo in (plantilla[i] if isinstance(plantilla[i], list) else []):
+            if isinstance(viejo, list) and len(viejo) > 8 and isinstance(viejo[8], list):
+                hay_acs = True
+    if not hay_acs:
+        return []
+    avisos: list[str] = []
+    for eq in equipos:
+        if "acs" not in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()):
+            continue
+        declarado = eq.pop("acumulacion", None)
+        eq.pop("acumulacion_cruda", None)
+        if declarado:
+            avisos.append(
+                f"el .cex que se copia NO tiene deposito de ACS: «{eq.get('nombre')}» sale "
+                f"sin acumulacion y no con los {_num(_numf(declarado.get('volumen')))} l de "
+                f"la obra — la demanda de ACS tiene que ser la MISMA que la del inicial.")
+    return avisos
+
+
+def _heredar_acumulacion(equipos: list[dict], plantilla: list,
+                         sin_deposito_manda: bool = False) -> list[str]:
     """El DEPOSITO de ACS es del edificio, no de la caldera.
 
     En el CEE inicial lo calienta la caldera y en el final la bomba de calor,
@@ -1205,7 +1248,7 @@ def _heredar_acumulacion(equipos: list[dict], plantilla: list) -> list[str]:
         if previa:
             break
     if not previa:
-        return avisos
+        return _heredar_sin_deposito(equipos, plantilla) if sin_deposito_manda else avisos
     for eq in equipos:
         if "acs" not in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()):
             continue

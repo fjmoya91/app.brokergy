@@ -43,6 +43,65 @@ misma cadena.
 node implementation/backend/scripts/test_serie_acs_flag.mjs
 ```
 
+### Y la segunda línea del Anexo I dice QUÉ aparato es (18/10/2026)
+
+La casilla «n serie de equipos» del impreso es una sola, y la llenaban siempre
+dos rótulos fijos, «Ud. exterior» / «Ud. interior». Fallaba por dos lados:
+
+- **ACS con OTRA máquina** (26RES060_195: monobloc Aerosun Advanced 12 + bomba de
+  calor de ACS HTW-AT-V100MR290A, otro modelo del catálogo): imprimía «Ud.
+  interior: AX24031603070524088», que es falso — el monobloc no tiene ud.
+  interior. Ahora, cuando `acsEsOtraMaquina(inst)` (la máquina, no el flag:
+  regla 49), la línea es **«Equipo ACS: …»** («Equipos ACS (n):» en cascada), el
+  mismo rótulo que la fila del CIFO («Nº serie equipo ACS»), así los dos
+  documentos dicen lo mismo. Medido: **80 expedientes** tienen el ACS en otra
+  máquina del catálogo (Aeromax, Atheria, Manantial, HTW…); el texto solo cambia
+  al regenerar su Anexo I.
+- **La «ud. interior» con la MISMA serie que la exterior** (26RES060_136: monobloc
+  Aerosun Confort 12 que da también el ACS, flag en true y el nodo de ACS sin
+  serie) imprimía la serie de la exterior dos veces, la segunda como «Ud.
+  interior». Es un aparato, no dos: esa línea ya **no se imprime**. Corrige lo
+  que arriba se daba por bueno («los 18 monoblocs … no se mueven»): el CIFO no se
+  mueve, el Anexo I deja de repetir la línea.
+
+**REGLA — la serie del equipo de ACS sale SIEMPRE que se actúa sobre el ACS
+con una bomba de calor o con un acumulador del que tenemos la placa; NO sale si
+no se actúa sobre el ACS o si se pone un termo eléctrico** (decisión del usuario,
+18/10/2026: «aunque no sea una unidad interior, si es un aerotermo debe aparecer
+también el número de serie, y si es un acumulador y tenemos fotos de la placa
+también»). Un aerotermo de ACS aparte y un acumulador se rotulan **«Equipo
+ACS»**, como la fila del CIFO; un acumulador sin serie escrita no saca línea (no
+se inventa). El termo eléctrico (efecto Joule) queda fuera con el MISMO criterio
+que `acsEnAlcance`, con el que el CIFO decide su fila — antes el Anexo I solo
+miraba `cambio_acs` e imprimía la serie del termo. Casos en
+`test_serie_acs_flag.mjs`.
+
+**Lo que NO cambia**: el bibloc con la serie de la de dentro declarada (regla
+12.e) sigue con sus dos líneas «Ud. exterior» / «Ud. interior»; sin serie en la
+exterior no se quita nada (se ve la raya de «falta el dato»). Fuente única: `deriveAnexoI` en
+[docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js)
+(`serialsLineas`), que comparten el impreso oficial (`anexoIFormulario`) y el
+clásico (`serialsHtml`). Verificado en seco con los datos reales: el 195 sale
+«Ud. exterior: IN2601309004-053 / Equipo ACS: AX24031603070524088» y el 136,
+«Ud. exterior: IN2601306006-030».
+
+⚠️ Visto al medir: 26RES060_112 declara en el nodo de ACS (HAIER HP200M7-F9) la
+MISMA serie que en la aerotermia de calefacción (SH MASTER 12), que son dos
+máquinas distintas: es un dato mal copiado, y el Anexo I lo imprime tal cual.
+
+### `estado_cifo` ya no avisa de una ficha que el CIFO SÍ lleva (18/10/2026)
+
+`estado_cifo` (MCP → `GET /cifo/estado` → `getEstadoCifo` en
+[cifoService.js](implementation/backend/services/cifoService.js)) decía «Falta la
+ficha técnica de la aerotermia … el CIFO se genera sin ese anexo» con el hueco del
+expediente vacío aunque el CATÁLOGO tuviera la ficha — y `generar_cifo` la copia
+sola al generar (`ensureScopAnnexes`). Pasó en 26RES060_136 y _195. Ahora
+`avisosFichasTecnicas(…, { contarCatalogo: true })` da por cubierto el hueco
+cuyo modelo (`aerotermia_db_id`) tiene `ficha_tecnica` en el catálogo; los huecos
+siguen saliendo de `resolveFichaSlots` (regla 8.c), sin otra decisión. Si el
+catálogo no responde se avisa como antes. En la GENERACIÓN no se usa: allí el
+aviso se calcula después de la copia y el hueco ya dice la verdad.
+
 ### El BONO SOCIAL se guardaba y la lectura lo tiraba
 
 Se marcaba «Bono social eléctrico para consumidores vulnerables», se cambiaba de

@@ -182,6 +182,114 @@ function casan(a, b) {
     return corto.length >= 6 && largo.startsWith(corto) && largo.length - corto.length <= 2;
 }
 
+// ── Lo que el OCR confunde (2026-10-18) ──────────────────────────────────────
+// La placa de una AEROSUN CONFORT 12 se leyó «NTI-12/1IEN» (26RES060_136) y
+// «NT2-12IRFN» (26RES060_196), y el catálogo la guarda como «CONFORT 12
+// (NTII-12IIEN)»: nombre comercial delante, el código entre paréntesis y una
+// racha de íes que el lector cuenta mal o convierte en unos. `casan` no veía
+// nada, no salían candidatos y el expediente se quedaba con el equipo que
+// constaba (una CONFORT 9) y la serie de la 12.
+//
+// REGLA — se tolera lo que el OCR confunde, NO lo que distingue dos equipos: la
+// I, el 1 y la l (y cuántas seguidas), separadores, «/», paréntesis y el nombre
+// comercial delante. Las CIFRAS de dos o más dígitos —la potencia, casi
+// siempre— tienen que estar enteras en los dos lados: «NTII-9IIEN» no casa con
+// «NTII-12IIEN», ni «12» con «112».
+
+//: La clave tolerante: I, 1, L y | son el mismo trazo vertical, y una racha de
+//: ellos cuenta como uno (el lector lee «NTI» donde pone «NTII»).
+const claveOcr = (s) => String(s || '').toUpperCase()
+    .replace(/[1IL|]/g, '1')
+    .replace(/[^A-Z0-9]/g, '')
+    .replace(/1+/g, '1');
+
+//: Las cifras tal como se leen: rachas de dígitos del texto SIN normalizar.
+const numerosDe = (s) => (String(s || '').match(/\d+/g) || []);
+
+//: Un código útil tiene letras Y cifras y no es demasiado corto. Los numéricos
+//: puros (THERMOR) solo casan exactos, en `casan`.
+const esCodigo = (s) => /[A-Z]/.test(claveOcr(s)) && /\d/.test(s) && claveOcr(s).length >= 5;
+
+/**
+ * Las formas en que puede venir escrito un mismo código: entero, lo de dentro
+ * del paréntesis, lo de fuera, y las piezas de «ADVANCED 12 - HM-M1-A5». En lo
+ * LEÍDO, además, sin las palabras de delante («AEROSUN CONFORT 12 NTII-12IIEN»
+ * → «NTII-12IIEN»): el nombre comercial o la marca impresos antes del modelo.
+ * Solo en lo leído: en el catálogo, quitar palabras abriría pares que no son.
+ */
+function variantesCodigo(s, { leido = false } = {}) {
+    const t = String(s || '').toUpperCase().trim();
+    if (!t) return [];
+    const v = new Set([t]);
+    for (const m of t.matchAll(/\(([^)]*)\)/g)) v.add(m[1].trim());
+    v.add(t.replace(/\([^)]*\)/g, ' ').trim());
+    for (const pieza of t.split(/\s+[-–]\s+/)) v.add(pieza.trim());
+    if (leido) {
+        for (const base of [...v]) {
+            const palabras = base.split(/\s+/).filter(Boolean);
+            for (let i = 1; i < palabras.length; i++) v.add(palabras.slice(i).join(' '));
+        }
+    }
+    return [...v].filter(esCodigo);
+}
+
+//: Las cifras de 2+ dígitos de un lado están, ENTERAS, entre las del otro.
+const mismasCifras = (a, b) => {
+    const na = numerosDe(a), nb = numerosDe(b);
+    return na.filter((n) => n.length >= 2).every((n) => nb.includes(n))
+        && nb.filter((n) => n.length >= 2).every((n) => na.includes(n));
+};
+
+/**
+ * ¿Casa lo LEÍDO en una placa con un código del CATÁLOGO, tolerando lo que el
+ * OCR confunde? Exacto o por sufijo corto como `casan`, o con la misma
+ * `claveOcr` en alguna de sus variantes y las mismas cifras. No es simétrica:
+ * el primer argumento es lo leído (el único al que se le quitan palabras).
+ */
+function casanOcr(leido, catalogo) {
+    if (casan(leido, catalogo)) return true;
+    if (/^\d+$/.test(norm(leido)) || /^\d+$/.test(norm(catalogo))) return false;
+    const vl = variantesCodigo(leido, { leido: true });
+    const vc = variantesCodigo(catalogo);
+    return vl.some((a) => vc.some((b) => claveOcr(a) === claveOcr(b) && mismasCifras(a, b)));
+}
+
+/** Distancia de edición (Levenshtein), para el último recurso: los PARECIDOS. */
+function distancia(a, b) {
+    const m = a.length, n = b.length;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+        const cur = [i];
+        for (let j = 1; j <= n; j++) {
+            cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        }
+        prev = cur;
+    }
+    return prev[n];
+}
+
+/**
+ * ¿Se PARECE lo leído a un código del catálogo? Para lecturas peores
+ * («NT2-12IRFN» por «NTII-12IIEN»): mismo arranque, TODAS las cifras del
+ * catálogo enteras en lo leído y como mucho un 35 % de caracteres distintos.
+ * Devuelve la distancia o null. Un parecido NUNCA elige solo: se ofrece como
+ * candidato para que lo confirme una persona con la foto delante.
+ */
+function parecido(leido, catalogo) {
+    let mejor = null;
+    const nl = numerosDe(leido);
+    for (const a of variantesCodigo(leido, { leido: true })) {
+        for (const b of variantesCodigo(catalogo)) {
+            const ka = claveOcr(a), kb = claveOcr(b);
+            if (ka.slice(0, 2) !== kb.slice(0, 2)) continue;
+            if (!numerosDe(b).every((n) => nl.includes(n))) continue;
+            const d = distancia(ka, kb);
+            if (d <= Math.floor(0.35 * Math.max(ka.length, kb.length)) && (mejor == null || d < mejor)) mejor = d;
+        }
+    }
+    return mejor;
+}
+
 /**
  * Qué equipo del catálogo es el que dicen las placas.
  *
@@ -221,63 +329,98 @@ async function casarConCatalogo(ext, int) {
         filas = todo.data;
     }
 
-    for (const { codigo, de, porInterior } of busquedas) {
-        for (const campo of CAMPOS) {
-            // REGLA — por la INTERIOR no se casa una fila cuya exterior es OTRA de la
-            // leída. Una misma interior se vende con varias exteriores: la Panasonic
-            // All in One WH-ADC0309K3E5 va con la UDZ03, 05, 07 y 09, y casar solo por
-            // ella declaraba el kit de 5 kW en una obra de 9 (26RES060_143). Si la
-            // exterior leída no está en el catálogo, el equipo NO está — que es lo
-            // que hay que decir, no proponer el de otra potencia.
-            const hit = (filas || []).filter((f) => casan(codigo, f[campo])
-                && !(porInterior && exteriorLeida && norm(f.modelo_ud_exterior)
-                     && !casan(exteriorLeida, f.modelo_ud_exterior)));
-            if (!hit.length) continue;
+    // Dos pasadas: primero el código tal cual (`casan`) y, solo si nada casa, el
+    // tolerante con lo que el OCR confunde (`casanOcr`). En ese orden, una
+    // lectura limpia nunca acaba casando por la vía tolerante con otra fila.
+    for (const [casa, tolerante] of [[casan, false], [casanOcr, true]]) {
+        for (const { codigo, de, porInterior } of busquedas) {
+            for (const campo of CAMPOS) {
+                // REGLA — por la INTERIOR no se casa una fila cuya exterior es OTRA de la
+                // leída. Una misma interior se vende con varias exteriores: la Panasonic
+                // All in One WH-ADC0309K3E5 va con la UDZ03, 05, 07 y 09, y casar solo por
+                // ella declaraba el kit de 5 kW en una obra de 9 (26RES060_143). Si la
+                // exterior leída no está en el catálogo, el equipo NO está — que es lo
+                // que hay que decir, no proponer el de otra potencia.
+                const hit = (filas || []).filter((f) => casa(codigo, f[campo])
+                    && !(porInterior && exteriorLeida && norm(f.modelo_ud_exterior)
+                         && !casa(exteriorLeida, f.modelo_ud_exterior)));
+                if (!hit.length) continue;
 
-            let finalistas = hit;
-            let porQue = `${de} («${codigo}»)`;
+                let finalistas = hit;
+                let porQue = `${de} («${codigo}»${tolerante ? `, leído con erratas de OCR: en el catálogo «${hit[0][campo]}»` : ''})`;
 
-            // DESEMPATE POR LA OTRA UNIDAD. Una misma unidad exterior se vende con
-            // varias interiores —medido en 26RES080_66: el DAIKIN ERLA16DAV37 casa
-            // con CINCO filas, que solo se diferencian en la interior—, así que sin
-            // esto el cruce no sirve justo con la marca más común. Lo que distingue
-            // esas filas es el otro código, y lo tenemos leído de su propia placa.
-            if (finalistas.length > 1) {
-                const otro = campo === 'modelo_ud_interior' ? ext?.modelo : int?.modelo;
-                const contra = campo === 'modelo_ud_interior' ? 'modelo_ud_exterior' : 'modelo_ud_interior';
-                const afinado = norm(otro) ? finalistas.filter((f) => casan(otro, f[contra])) : [];
-                // Solo si deja EXACTAMENTE uno. Si no casa ninguno, la ambigüedad
-                // sigue en pie: que la otra placa no cuadre con el catálogo no
-                // autoriza a elegir por el usuario.
-                if (afinado.length === 1) {
-                    finalistas = afinado;
-                    porQue = `el par de unidades («${codigo}» + «${otro}»)`;
+                // DESEMPATE POR LA OTRA UNIDAD. Una misma unidad exterior se vende con
+                // varias interiores —medido en 26RES080_66: el DAIKIN ERLA16DAV37 casa
+                // con CINCO filas, que solo se diferencian en la interior—, así que sin
+                // esto el cruce no sirve justo con la marca más común. Lo que distingue
+                // esas filas es el otro código, y lo tenemos leído de su propia placa.
+                if (finalistas.length > 1) {
+                    const otro = campo === 'modelo_ud_interior' ? ext?.modelo : int?.modelo;
+                    const contra = campo === 'modelo_ud_interior' ? 'modelo_ud_exterior' : 'modelo_ud_interior';
+                    const afinado = norm(otro) ? finalistas.filter((f) => casa(otro, f[contra])) : [];
+                    // Solo si deja EXACTAMENTE uno. Si no casa ninguno, la ambigüedad
+                    // sigue en pie: que la otra placa no cuadre con el catálogo no
+                    // autoriza a elegir por el usuario.
+                    if (afinado.length === 1) {
+                        finalistas = afinado;
+                        porQue = `el par de unidades («${codigo}» + «${otro}»)`;
+                    }
                 }
-            }
 
-            const ids = [...new Set(finalistas.map((f) => f.id))];
-            if (ids.length > 1) {
-                // REGLA — con dos candidatos NO se elige. De un modelo cuelgan el
-                // SCOP y la ficha técnica que se adjunta al certificado: coger el
-                // primero es declarar el rendimiento de otra máquina. Se devuelven
-                // para que los elija una persona de un clic, que es la diferencia
-                // entre un callejón sin salida y una elección.
-                // El tope y el número que se anuncia tienen que ser el MISMO: decir
-                // «casa con 10» y listar 8 deja al usuario buscando dos que no están.
-                const ofrecidos = finalistas.slice(0, MAX_CANDIDATOS);
-                const recortada = ids.length > ofrecidos.length;
+                const ids = [...new Set(finalistas.map((f) => f.id))];
+                if (ids.length > 1) {
+                    // REGLA — con dos candidatos NO se elige. De un modelo cuelgan el
+                    // SCOP y la ficha técnica que se adjunta al certificado: coger el
+                    // primero es declarar el rendimiento de otra máquina. Se devuelven
+                    // para que los elija una persona de un clic, que es la diferencia
+                    // entre un callejón sin salida y una elección.
+                    // El tope y el número que se anuncia tienen que ser el MISMO: decir
+                    // «casa con 10» y listar 8 deja al usuario buscando dos que no están.
+                    const ofrecidos = finalistas.slice(0, MAX_CANDIDATOS);
+                    const recortada = ids.length > ofrecidos.length;
+                    return {
+                        modelo: null, por: null, candidatos: ofrecidos,
+                        aviso: `«${codigo}» casa con ${ids.length} equipos del catálogo, que solo se `
+                            + 'diferencian en la otra unidad. Elige cuál es: no se puede adivinar.'
+                            + (recortada ? ` Se ofrecen los ${ofrecidos.length} primeros; si no está ahí, `
+                                + 'elígelo en el desplegable de Instalación.' : ''),
+                    };
+                }
                 return {
-                    modelo: null, por: null, candidatos: ofrecidos,
-                    aviso: `«${codigo}» casa con ${ids.length} equipos del catálogo, que solo se `
-                        + 'diferencian en la otra unidad. Elige cuál es: no se puede adivinar.'
-                        + (recortada ? ` Se ofrecen los ${ofrecidos.length} primeros; si no está ahí, `
-                            + 'elígelo en el desplegable de Instalación.' : ''),
+                    modelo: finalistas[0], por: porQue, candidatos: finalistas, aviso: null,
                 };
             }
-            return {
-                modelo: finalistas[0], por: porQue, candidatos: finalistas, aviso: null,
-            };
         }
+    }
+
+    // ── Último recurso: los PARECIDOS ─────────────────────────────────────
+    // Una lectura peor («NT2-12IRFN» por «NTII-12IIEN», 26RES060_196) no casa ni
+    // tolerando erratas, pero tampoco puede acabar en «no está en el catálogo»:
+    // eso deja el equipo que constaba con la serie de otro. Se OFRECEN los que
+    // se parecen —mismas cifras, mismo arranque— y NUNCA se elige ninguno solo,
+    // ni aunque sea uno: lo confirma una persona mirando la foto.
+    const parecidos = new Map();
+    for (const { codigo, porInterior } of busquedas) {
+        for (const f of filas || []) {
+            if (porInterior && exteriorLeida && norm(f.modelo_ud_exterior)
+                && parecido(exteriorLeida, f.modelo_ud_exterior) == null) continue;
+            for (const campo of CAMPOS) {
+                const d = parecido(codigo, f[campo]);
+                if (d == null) continue;
+                const previo = parecidos.get(f.id);
+                if (!previo || d < previo.d) parecidos.set(f.id, { f, d, codigo, campo });
+            }
+        }
+    }
+    if (parecidos.size) {
+        const orden = [...parecidos.values()].sort((a, b) => a.d - b.d);
+        const ofrecidos = orden.slice(0, MAX_CANDIDATOS).map((x) => x.f);
+        return {
+            modelo: null, por: null, candidatos: ofrecidos, aproximados: true,
+            aviso: `«${orden[0].codigo}» no está tal cual en el catálogo, pero se parece a `
+                + orden.slice(0, MAX_CANDIDATOS).map((x) => `«${x.f[x.campo]}» (${x.f.marca} ${x.f.modelo_comercial || ''}`.trim() + ')').join(', ')
+                + '. Compruébalo con la foto y elígelo: por un parecido no se elige solo.',
+        };
     }
 
     const leidos = busquedas.map((b) => `«${b.codigo}»`).join(' / ');
@@ -485,5 +628,5 @@ async function leerPlacasAerotermia(driveFolderId) {
 
 module.exports = {
     leerPlacasAerotermia, leerPlacasDeImagenes, leerUnidad,
-    casarConCatalogo, casan, norm, serieDesdeTexto, esEan13, UNIDADES,
+    casarConCatalogo, casan, casanOcr, parecido, claveOcr, norm, serieDesdeTexto, esEan13, UNIDADES,
 };

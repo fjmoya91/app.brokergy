@@ -54,12 +54,30 @@ final (popup «DEMANDA CEE INICIAL ≠ FINAL», incidencia GRAVE). Dos cosas la 
 |---|---|---|
 | Superficie útil de la 3.x (`[22]` de generales) al convertir un inicial de la 2.3 | La de la ficha (`ce3x31.superficie_util`) | La que tecleó el técnico en el fichero (`extra_de_cex`); la de la ficha solo si el fichero no la trae |
 | Depósito de ACS cuando la obra declara otros litros | El de la obra | El del fichero, con su UA y temperaturas (`_heredar_acumulacion`), y se avisa |
+| El inicial NO tiene depósito (caldera mixta instantánea) y la obra sí (18/10/2026) | El de la obra | Ninguno: el final sale sin acumulación (`_heredar_sin_deposito`, solo en `/cex/instalaciones`), y se avisa |
 
 Medido en **26RES060_202**: inicial de Raquel en la 2.3 con 240 m² y caldera de gasóleo con 230 l
 (80/60 °C, UA 5,4); la ficha decía 330 m² y la obra, la Daikin con el integrado de 180 l. El final
 salió con 209,36 kWh/m² × 330 = **69.089 kWh/año** frente a 50.246, y ACS 18,92 frente a 20,02.
 Rehecho: 240 m², calefacción 209,36 y ACS 20,02, C (20,73) / C (122,35). En 26RES060_198 (343 m²
 en el fichero, 214 en la ficha) pasaba lo mismo con la superficie; su depósito ya coincidía.
+
+**Y sin depósito en el inicial, el final tampoco lo lleva** (18/10/2026, **26RES060_195**). El
+inicial del técnico (CE3X 2.3) era una caldera mixta de gas natural INSTANTÁNEA (sin acumulación) y la obra, la
+AEROSUN de climatización + una bomba de calor de ACS **HTW de 100 l** aparte
+(`instalacion.aerotermia_acs.litros`). `_heredar_acumulacion` solo actuaba si el fichero traía un
+depósito, así que el `{ volumen: 100 }` que pone `equipoDeAcs` (fichaCe3x.js) llegaba al `.cex`:
+ACS **18,09 kWh/m²·año frente a 11,00**. Se esquivó a mano pasando el expediente sin litros.
+El arreglo va en el MOTOR y no en la ficha porque solo el motor ve el fichero que se copia —la ficha
+no sabe si el inicial tiene depósito— y es el mismo sitio que ya decide «lo del fichero manda». Va
+con `heredar_del_base(..., sin_deposito_manda=True)` y **solo** desde `/cex/instalaciones` (el final
+copiado y sus medidas): la medida de mejora de un inicial (`/cex`, `/cex/medida`), el PREVISTO del
+RES080 (`/cex/previsto`) y el final desde la medida no cambian. Solo actúa si el fichero tiene un
+equipo que da ACS y ninguno con depósito; sin ningún equipo de ACS en el fichero, manda la obra.
+Con depósito en el inicial nada cambia (26RES060_196: sus 100 l pasan al termo). Rehecho en seco:
+ACS **11,00**, calefacción 175,36, refrigeración 10,35 y 251 m², igual que el inicial; A (10,63) /
+B (62,78). ⚠️ El aviso de la ficha («… y depósito de 100 l») sigue saliendo, porque la ficha no
+conoce el fichero; el del motor, justo debajo, dice que sale sin él.
 **Tras generar, se mira en el XML del final `<SuperficieUtil>` y `<Demanda>` contra el inicial.**
 
 Medido en **26RES060_178** (08/10/2026): inicial del técnico en la 2.3 con caldera de gasóleo →

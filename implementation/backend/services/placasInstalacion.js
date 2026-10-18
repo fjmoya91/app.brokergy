@@ -90,9 +90,17 @@ async function proponerPlacas({
             const consta = (catalogo.candidatos || [])
                 .find((c) => String(c.id) === String(aero.aerotermia_db_id));
             if (consta) {
+                // Un PARECIDO (lectura con erratas peores que las toleradas) no
+                // confirma del todo: el equipo se queda, pero se dice que la
+                // lectura solo se parece, para que alguien mire la foto.
                 catalogo = {
                     ...catalogo, modelo: consta, candidatos: [],
-                    por: 'la placa confirma el equipo que ya consta', aviso: null,
+                    por: catalogo.aproximados
+                        ? 'la placa se parece al equipo que ya consta (lectura aproximada)'
+                        : 'la placa confirma el equipo que ya consta',
+                    aviso: catalogo.aproximados
+                        ? `La placa se lee con erratas, pero se parece al equipo que consta («${consta.modelo_ud_exterior || consta.modelo_comercial}»): se deja, compruébalo con la foto.`
+                        : null,
                 };
             }
         }
@@ -255,16 +263,90 @@ async function proponerPlacas({
         .map(Number).find((n) => n > 0) || null;
     proponer('caldera', 'potencia_caldera_kw', 'Caldera · Potencia (kW)', potActual, caldera.potencia_kw);
 
+    // ── ¿De qué aparato es la placa del slot «ud. interior»? ──────────────
+    // El slot dice dónde se subió la foto, no de qué máquina es. En un
+    // MONOBLOC no hay unidad interior, y lo que el instalador sube ahí es
+    // otra cosa: el equipo de ACS aparte (26RES060_195: la bomba de calor de
+    // ACS HTW-AT-V100MR290A junto a una Aerosun Advanced 12 monobloc) o un
+    // termo que ni es de la obra (26RES060_196: un CORBERÓ). Escribir su modelo
+    // como «ud. interior» de la bomba de calefacción le diría al CIFO y al
+    // Anexo I que esa máquina tiene dos aparatos, y uno es de otra.
+    // REGLA — la placa del slot «ud. interior» solo describe la bomba de
+    // calefacción si es SU interior (casa con la del equipo) o si el equipo
+    // puede tenerla y nada dice que sea otro aparato. Lo demás va al nodo de
+    // ACS (si es ése) o a ninguno.
+    const casaOcr = (a, b) => !!(a && b) && placaEquipoOcr.casanOcr(a, b);
+    const esLaInteriorDelEquipo = !!int?.modelo && (
+        casaOcr(int.modelo, aero.modelo_ud_interior)
+        || casaOcr(int.modelo, modeloCompleto?.modelo_ud_interior)
+    );
+    const acsAparte = inst.misma_aerotermia_acs === false;
+    // El equipo que consta (o el casado) NO tiene unidad interior: monobloc.
+    const sinUdInterior = !aero.modelo_ud_interior && !!modeloCompleto && !modeloCompleto.modelo_ud_interior;
+    // La placa es la del equipo de ACS que el expediente declara aparte.
+    const esDelAcsAparte = acsAparte && !!int?.modelo
+        && ['modelo', 'modelo_ud_interior', 'modelo_ud_exterior', 'modelo_conjunto']
+            .some((k) => casaOcr(int.modelo, acsNodoPrevio[k]));
+    // Dos marcas leídas que no tienen nada que ver: son dos aparatos.
+    const nMarca = (m) => placaEquipoOcr.norm(m);
+    const marcaDistinta = !!(nMarca(ext?.marca) && nMarca(int?.marca))
+        && !nMarca(ext.marca).includes(nMarca(int.marca)) && !nMarca(int.marca).includes(nMarca(ext.marca));
+    const intEsDeLaBomba = !!int && (esLaInteriorDelEquipo
+        || (!sinUdInterior && !esDelAcsAparte && !marcaDistinta));
+    if (int?.modelo && !intEsDeLaBomba) {
+        avisos.push(`La placa de la foto «ud. interior» («${[int.marca, int.modelo].filter(Boolean).join(' ')}») `
+            + 'no es de la bomba de calor de calefacción'
+            + (sinUdInterior ? ' (es un monobloc, sin unidad interior)' : '')
+            + (esDelAcsAparte ? ': es el equipo de ACS, y solo se usa en su bloque.'
+                : ': no se escribe en su «ud. interior».'));
+    }
+
+    // ── ¿Es la placa de la ud. exterior la del equipo que CONSTA? ─────────
+    // Si el expediente ya tiene un equipo y la placa es de OTRO (el catálogo
+    // casa la lectura con otra fila, o su código no se parece al que consta),
+    // su nº de serie no puede ir al equipo que consta: con la CONFORT 9 elegida
+    // y la placa de una CONFORT 12, aplicar dejaba la 9 con la serie de la 12
+    // (26RES060_136). Ese nº de serie va SOLO con el cambio de equipo.
+    const idConsta = aero.aerotermia_db_id ? String(aero.aerotermia_db_id) : null;
+    const idsPlaca = (catalogo.modelo ? [catalogo.modelo] : (catalogo.candidatos || [])).map((c) => String(c.id));
+    const placaDeOtroEquipo = !!ext?.modelo && (
+        idsPlaca.length
+            ? !!idConsta && !idsPlaca.includes(idConsta)
+            : !!aero.modelo_ud_exterior && !casaOcr(ext.modelo, aero.modelo_ud_exterior)
+                && placaEquipoOcr.parecido(ext.modelo, aero.modelo_ud_exterior) == null
+    );
+
     // Bomba de calor instalada. El nº de serie que el expediente guarda en el
     // nodo de CALEFACCIÓN —y el que imprimen el CIFO y el Anexo I como «nº de
     // serie ud. exterior»— es el de la UNIDAD EXTERIOR, y solo ése: el de la
     // interior es de otro aparato y ponerlo ahí sería declarar una máquina por
     // otra. Si falta la foto de la exterior, ese hueco se queda sin rellenar y
     // lo dice el aviso — que es lo correcto, no rellenarlo con lo que haya.
-    proponer('aerotermia', 'marca', 'Equipo nuevo · Marca', aero.marca, ext?.marca || int?.marca);
+    proponer('aerotermia', 'marca', 'Equipo nuevo · Marca', aero.marca, ext?.marca || (intEsDeLaBomba ? int?.marca : null));
+    const nPrevia = propuesta.length;
     proponerSerie('aerotermia', 'numero_serie', 'Equipo nuevo · Nº de serie (ud. exterior)', aero.numero_serie, ext);
-    proponer('aerotermia', 'modelo_ud_exterior', 'Equipo nuevo · Modelo ud. exterior', aero.modelo_ud_exterior, ext?.modelo);
-    proponer('aerotermia', 'modelo_ud_interior', 'Equipo nuevo · Modelo ud. interior', aero.modelo_ud_interior, int?.modelo);
+    // Un MODELO escrito que la lectura reconoce como el mismo (con sus erratas
+    // de OCR, o el del catálogo con su nombre comercial delante) no es un
+    // conflicto: «CONFORT 12 (NTII-12IIEN)» frente a «NTI-12/1IEN» es ruido, y
+    // un aviso que no hay que atender enseña a no leer los avisos.
+    const proponerModelo = (nodo, campo, etiqueta, actual, nuevo) => {
+        if (!vacio(actual) && casaOcr(nuevo, actual)) return;
+        proponer(nodo, campo, etiqueta, actual, nuevo);
+    };
+    proponerModelo('aerotermia', 'modelo_ud_exterior', 'Equipo nuevo · Modelo ud. exterior', aero.modelo_ud_exterior, ext?.modelo);
+    if (placaDeOtroEquipo) {
+        // Lo de la ud. exterior se marca: solo se escribe si se aplica también
+        // el equipo que dice la placa (`con_equipo`, ver «Aplicar»).
+        for (const p of propuesta.slice(nPrevia)) {
+            p.con_equipo = true;
+            p.etiqueta += ' — solo si se cambia el equipo';
+        }
+        avisos.push(`La placa de la ud. exterior («${ext.modelo}») no es la del equipo que consta `
+            + `(«${aero.modelo || aero.modelo_ud_exterior}»): su nº de serie solo se escribe si se cambia el equipo.`);
+    }
+    if (intEsDeLaBomba) {
+        proponerModelo('aerotermia', 'modelo_ud_interior', 'Equipo nuevo · Modelo ud. interior', aero.modelo_ud_interior, int?.modelo);
+    }
 
     // ── El nº de serie de la UNIDAD INTERIOR ──────────────────────────────
     // Un bibloc son DOS aparatos atornillados en sitios distintos, cada uno con
@@ -280,10 +362,7 @@ async function proponerPlacas({
     // la ud. interior del equipo, es la del conjunto; si es otro aparato —en
     // 26RES080_64 el slot traía un termo ARISTON «NUOS PRIMO 200 HC A+»—, es un
     // equipo de ACS distinto, y su serie es suya igualmente.
-    const esLaInteriorDelEquipo = int?.modelo && (
-        placaEquipoOcr.casan(int.modelo, aero.modelo_ud_interior)
-        || placaEquipoOcr.casan(int.modelo, modeloCompleto?.modelo_ud_interior)
-    );
+    // (`esLaInteriorDelEquipo` se calcula arriba, con la comparación tolerante.)
     // Con el ACS fuera del alcance ese nodo no describe nada de esta obra, así
     // que el dato se guarda como REGISTRO junto al modelo del mismo aparato.
     if (esLaInteriorDelEquipo && inst.cambio_acs === false) {
@@ -325,8 +404,27 @@ async function proponerPlacas({
     // donde hay uno. Medido: de los 43 conjuntos con las dos series puestas, 16
     // de 18 biblocs las tienen distintas y 18 de 25 monoblocs la misma.
     const hayUdInterior = !!(aero.modelo_ud_interior || modeloCompleto?.modelo_ud_interior);
-    const acsAparte = inst.misma_aerotermia_acs === false;
-    if (inst.cambio_acs !== false && (acsAparte || acsConjunto)
+    // ⚠️ Con el ACS aparte y su equipo YA declarado (modelo o id), una placa
+    // cuyo modelo no es el de ese equipo es de OTRO aparato —un termo que ni es
+    // de la obra— y su serie no es la del equipo de ACS. Sin modelo declarado
+    // no hay con qué comparar, y se propone como siempre.
+    const acsDeclarado = ['modelo', 'modelo_ud_interior', 'modelo_ud_exterior', 'modelo_conjunto']
+        .some((k) => !vacio(acsNodo[k]));
+    const placaAjenaAlAcs = acsAparte && !acsConjunto && acsDeclarado && !!int?.modelo
+        && !esDelAcsAparte;
+    if (placaAjenaAlAcs && inst.cambio_acs !== false) {
+        const acsConsta = acsNodo.modelo || acsNodo.modelo_ud_interior || acsNodo.modelo_conjunto;
+        avisos.push(esLaInteriorDelEquipo
+            ? `La placa de la foto «ud. interior» es la de la bomba de calefacción, no la del equipo de ACS que consta («${acsConsta}»): su nº de serie no va al bloque de ACS.`
+            : `La placa de la foto «ud. interior» («${[int.marca, int.modelo].filter(Boolean).join(' ')}») `
+                + `tampoco es la del equipo de ACS que consta («${acsConsta}»): no se escribe en ninguna parte.`);
+        // La de la propia bomba sí se guarda, como REGISTRO junto a su modelo.
+        if (esLaInteriorDelEquipo) {
+            proponerSerie('aerotermia', 'numero_serie_ud_interior', 'Equipo nuevo · Nº de serie ud. interior',
+                aero.numero_serie_ud_interior, int);
+        }
+    }
+    if (inst.cambio_acs !== false && (acsAparte || acsConjunto) && !placaAjenaAlAcs
         && (hayUdInterior || !acsConjunto) && int?.numero_serie) {
         proponerSerie('acs', 'numero_serie', 'Equipo de ACS · Nº de serie (ud. interior)',
             acsNodo.numero_serie, int);
@@ -337,7 +435,7 @@ async function proponerPlacas({
         // dice que hay instalado. `modelo_ud_interior` es descriptivo y no entra
         // en esa firma, así que sí: es el nombre del aparato de dentro.
         if (!acsConjunto) {
-            proponer('acs', 'modelo_ud_interior', 'Equipo de ACS · Modelo ud. interior',
+            proponerModelo('acs', 'modelo_ud_interior', 'Equipo de ACS · Modelo ud. interior',
                 acsNodo.modelo_ud_interior, int.modelo);
         }
     }
@@ -387,6 +485,9 @@ async function proponerPlacas({
         const nuevaAcs = { ...acsNodo };
 
         for (const p of propuesta) {
+            // Lo de una placa que es de OTRO equipo que el que consta solo entra
+            // con ese equipo: si no se cambia, se queda fuera (26RES060_136).
+            if (p.con_equipo && !aplicarEquipo) continue;
             if (p.nodo === 'caldera') {
                 if (p.campo === 'potencia_caldera_kw') {
                     nueva.potencia_caldera_kw = p.valor;

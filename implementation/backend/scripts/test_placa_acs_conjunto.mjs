@@ -107,13 +107,10 @@ const monobloc = {
     misma_aerotermia_acs: false, cambio_acs: true,
 };
 ok(serieCifoAcs(monobloc) === 'EXT-111', 'su nº de serie es el de la unidad exterior, como debe');
-// ⚠️ HALLAZGO PREEXISTENTE, no lo toca este lector: el Anexo I repite esa serie en
-// la línea «Ud. interior» de un equipo que no la tiene. El propio código dice que
-// eso «le dice al verificador que hay dos equipos donde solo hay uno», pero solo
-// lo evita para acumuladores. Se deja ANOTADO aquí para que no se pierda.
-if (lineasAnexoI(monobloc).includes('Ud. interior: EXT-111')) {
-    console.log('  ⚠ (preexistente) el Anexo I de un monobloc repite la serie en «Ud. interior»');
-}
+// El Anexo I repetía esa serie en la línea «Ud. interior» de un equipo que no la
+// tiene (lo que «le dice al verificador que hay dos equipos donde solo hay uno»).
+// Arreglado el 18/10/2026 en `deriveAnexoI` (visto en 26RES060_136).
+ok(!lineasAnexoI(monobloc).includes('Ud. interior'), `Anexo I · el monobloc no repite su serie como «Ud. interior» (${lineasAnexoI(monobloc)})`);
 
 console.log('\n── Y siguen siendo UNA máquina ─────────────────────────────────');
 // Con el mismo `aerotermia_db_id` en los dos nodos, `mismaMaquina()` los reconoce

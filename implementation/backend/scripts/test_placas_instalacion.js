@@ -125,6 +125,104 @@ const comprueba = (que, real, esperado) => {
         console.log('  --   (sin la fila WOYA100KLT en el catálogo: caso g no comprobado)');
     }
 
+    // ── 2026-10-18: lecturas con erratas de OCR y la placa del slot «ud. interior»
+    //    que es de OTRO aparato. Consultan el catálogo (solo lectura) y nunca
+    //    escriben: todo va con `simular`.
+    const { data: aerosun } = await supabase.from('aerotermia')
+        .select('id, modelo_ud_exterior').in('id', [60, 72, 163]);
+    const fila = (id) => (aerosun || []).find((x) => x.id === id);
+    if (fila(60)?.modelo_ud_exterior === 'CONFORT 12 (NTII-12IIEN)' && fila(72) && fila(163)) {
+        const sinCaldera = { leido: null, sin_fotos: true, fotos: [], avisos: [] };
+        const conNueve = { ...vacia, aerotermia_cal: {
+            aerotermia_db_id: 72, marca: 'AEROSUN', modelo: 'CONFORT 9',
+            modelo_ud_exterior: 'CONFORT 9 (NTII-9IIEN)', modelo_ud_interior: '', numero_serie: '',
+        } };
+        const ext12 = (modelo) => ({ unidades: { exterior: {
+            marca: 'AEROSUN', modelo, numero_serie: 'IN2601306006-030' } }, fotos: [], avisos: [] });
+
+        // h) 26RES060_136: «NTI-12/1IEN» casa con la CONFORT 12 (id 60).
+        const h = await proponerPlacas({ exp: { id: 'x', instalacion: conNueve }, caldera: sinCaldera,
+            equipos: ext12('NTI-12/1IEN'), simular: true, ponerEquipo: false });
+        comprueba('«NTI-12/1IEN» → propone la CONFORT 12 (id 60), sustituyendo a la 9',
+            [h.equipo_catalogo?.id, h.equipo_catalogo?.sustituye], [60, 'CONFORT 9']);
+        comprueba('sin cambiar el equipo, la serie de la 12 NO va a la CONFORT 9',
+            [h.instalacion?.aerotermia_cal?.aerotermia_db_id ?? 72, h.instalacion?.aerotermia_cal?.numero_serie || ''], [72, '']);
+        const h2 = await proponerPlacas({ exp: { id: 'x', instalacion: conNueve }, caldera: sinCaldera,
+            equipos: ext12('NTI-12/1IEN'), simular: true, ponerEquipo: true });
+        comprueba('cambiando el equipo, entran a la vez el id 60 y su serie',
+            [h2.instalacion?.aerotermia_cal?.aerotermia_db_id, h2.instalacion?.aerotermia_cal?.numero_serie],
+            [60, 'IN2601306006-030']);
+
+        // i) 26RES060_196: «NT2-12IRFN» solo se PARECE → candidato, no elección.
+        const i1 = await proponerPlacas({ exp: { id: 'x', instalacion: conNueve }, caldera: sinCaldera,
+            equipos: ext12('NT2-12IRFN'), simular: true });
+        comprueba('«NT2-12IRFN» → la 12 como candidata, sin elegirla sola',
+            [i1.equipo_catalogo, i1.catalogo_candidatos.map((c) => c.id)], [null, [60]]);
+        comprueba('… y la serie no entra en la CONFORT 9',
+            i1.instalacion?.aerotermia_cal?.numero_serie || '', '');
+        const i2 = await proponerPlacas({ exp: { id: 'x', instalacion: conNueve }, caldera: sinCaldera,
+            equipos: ext12('NT2-12IRFN'), simular: true, equipoId: 60 });
+        comprueba('eligiendo la candidata, entran el id 60 y la serie',
+            [i2.instalacion?.aerotermia_cal?.aerotermia_db_id, i2.instalacion?.aerotermia_cal?.numero_serie],
+            [60, 'IN2601306006-030']);
+        const con12 = { ...vacia, aerotermia_cal: { ...conNueve.aerotermia_cal, aerotermia_db_id: 60,
+            modelo: 'CONFORT 12', modelo_ud_exterior: 'CONFORT 12 (NTII-12IIEN)' } };
+        const i3 = await proponerPlacas({ exp: { id: 'x', instalacion: con12 }, caldera: sinCaldera,
+            equipos: ext12('NT2-12IRFN'), simular: true });
+        const i4 = await proponerPlacas({ exp: { id: 'x', instalacion: con12 }, caldera: sinCaldera,
+            equipos: ext12('NTI-12/1IEN'), simular: true });
+        comprueba('con la 12 puesta, «NTI-12/1IEN» no sale como conflicto de modelo',
+            i4.conflictos.map((c) => c.campo), []);
+        const i5 = await proponerPlacas({ exp: { id: 'x', instalacion: conNueve }, caldera: sinCaldera,
+            equipos: ext12('NTI-12IHN'), simular: true });
+        comprueba('«NTI-12IHN» (otra lectura real de 26RES060_196) → la 12 como candidata',
+            [i5.equipo_catalogo, i5.catalogo_candidatos.map((c) => c.id)], [null, [60]]);
+        comprueba('con la 12 ya puesta, el parecido la deja y la serie entra',
+            [i3.equipo_catalogo, i3.instalacion?.aerotermia_cal?.numero_serie], [null, 'IN2601306006-030']);
+
+        // j) 26RES060_195: Advanced 12 MONOBLOC (163) + bomba de ACS HTW aparte.
+        //    La placa del slot «ud. interior» es la HTW: va al nodo de ACS, NUNCA
+        //    a la «ud. interior» de la de calefacción.
+        const advanced = { ...vacia, cambio_acs: true, misma_aerotermia_acs: false,
+            aerotermia_cal: { aerotermia_db_id: 163, marca: 'AEROSUN', modelo: 'ADVANCED 12',
+                modelo_ud_exterior: 'HM-M1-A5', modelo_ud_interior: '', numero_serie: 'IN2601309004-053' },
+            aerotermia_acs: { aerotermia_db_id: 537, marca: 'HTW', modelo: 'HTW-AT-V100MR290A',
+                modelo_conjunto: 'BOMBA CALOR ACS HTW-AT-V100MR290A', modelo_ud_interior: 'HTW-AT-V100MR290A', numero_serie: '' } };
+        const j = await proponerPlacas({ exp: { id: 'x', instalacion: advanced }, caldera: sinCaldera,
+            equipos: { unidades: {
+                exterior: { marca: 'AEROSUN', modelo: 'HM-M1-A5', numero_serie: 'IN2601309004-053' },
+                interior: { marca: 'HTW', modelo: 'HTW-AT-V100MR290A', numero_serie: 'AX24031603070524088' },
+            }, fotos: [], avisos: [] }, simular: true });
+        comprueba('monobloc + ACS aparte: NO propone la HTW como «ud. interior» de la calefacción',
+            j.propuesta.some((p) => p.nodo === 'aerotermia' && p.campo === 'modelo_ud_interior'), false);
+        comprueba('… su nº de serie va al nodo de ACS',
+            j.propuesta.filter((p) => p.nodo === 'acs').map((p) => [p.campo, p.valor]),
+            [['numero_serie', 'AX24031603070524088']]);
+        comprueba('… y la «ud. interior» de la calefacción sigue vacía',
+            j.instalacion?.aerotermia_cal?.modelo_ud_interior, '');
+
+        // k) 26RES060_196: termo CORBERÓ en el slot, ACS fuera de alcance → a ninguna parte.
+        const conTermo = { ...con12, cambio_acs: false, misma_aerotermia_acs: false,
+            aerotermia_cal: { ...con12.aerotermia_cal, marca: '' },
+            aerotermia_acs: { aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '' } };
+        const termo = { marca: 'CORBERÓ', modelo: 'TERMO SE PLUS 100', numero_serie: 'CB2201234' };
+        const k = await proponerPlacas({ exp: { id: 'x', instalacion: conTermo }, caldera: sinCaldera,
+            equipos: { unidades: { interior: termo }, fotos: [], avisos: [] }, simular: true });
+        comprueba('termo ajeno en un monobloc: ni «ud. interior», ni marca, ni ACS',
+            k.propuesta.map((p) => `${p.nodo}.${p.campo}`), []);
+        comprueba('… y se dice por qué',
+            k.avisos.some((a) => /no es de la bomba de calor/.test(a)), true);
+
+        // l) Con el ACS en alcance y su equipo declarado (HTW), un termo ajeno
+        //    tampoco se cuela en el nodo de ACS.
+        const l = await proponerPlacas({ exp: { id: 'x', instalacion: advanced }, caldera: sinCaldera,
+            equipos: { unidades: { interior: termo }, fotos: [], avisos: [] }, simular: true });
+        comprueba('termo ajeno con ACS HTW declarado: nada al nodo de ACS ni a la calefacción',
+            l.propuesta.filter((p) => p.nodo !== 'caldera').map((p) => `${p.nodo}.${p.campo}`), []);
+    } else {
+        console.log('  --   (sin las filas AEROSUN 60/72/163 esperadas: casos h-l no comprobados)');
+    }
+
     console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ Todo bien');
     process.exit(fallos ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -54,6 +54,33 @@ usuario lo rechazó; rehecho: B/C, 10,61 kWp, 10.610 €.
    sin `anexo_cesion_drive_link` hasta el primer envío. Ahora llama a `onSaveDrive`
    ([AnexoCesionModal.jsx](implementation/frontend/src/features/expedientes/components/AnexoCesionModal.jsx)).
 
+### `anexos` en seco escribía (2026-10-18, 26RES060_136 y _196)
+
+**REGLA — en seco la página no escribe NADA: se cortan sus peticiones.** Abrir Documentación ya
+escribe por su cuenta, también para una persona: si todas las facturas están subidas y validadas y
+no hay PDF único, el efecto de `DocumentacionModule` lo genera solo (`POST /facturas/generar-pdf`
+→ «5. FACTURAS/{nº} - FACTURAS.pdf» + copia en «10. EXPEDIENTE CAE», creando la carpeta si no
+existe); la puerta del Convenio guarda la respuesta (`anexo_cesion_obra_finalizada`, por el PUT); y
+los módulos autoguardan. Medido: 26RES060_136 y _196 tenían guardado «terminada» por ejecuciones
+EN SECO. Ahora, sin `--escribir`, el Chrome intercepta: pasan las lecturas (GET) y el render del
+PDF (`POST /api/pdf/generate`, que no guarda); cualquier otra escritura a `/api/` o a Supabase se
+responde 409 y se LISTA al final («Lo que la app habría escrito»). Se eligió esto y no tocar la app
+porque garantiza el seco por construcción, sin depender de saber qué efecto escribe. Comprobado en
+26RES060_196: la única escritura (el PUT de la puerta) se cortó y `updated_at` no cambió.
+
+**REGLA — la puerta del Convenio no se contesta «terminada» solo por haber facturas**: no si alguna
+está marcada ANTICIPO/MATERIAL (`motivo_no_inicio`, regla 93), ni si su concepto es una
+certificación parcial o un anticipo sin marcar (26RES060_136: «1ª CERTIFICACIÓN: …», sin marca), ni
+con `--obra-en-curso`; `--obra-terminada` lo fuerza cuando una persona lo confirma. El script dice
+antes de abrir el navegador qué contestaría y por qué (`respuestaPuertaConvenio`, probado por
+`scripts/test_justificar_puerta.js`).
+
+⚠️ **Pendiente, propuesto y sin tocar**: el PDF único de facturas se crea al ABRIR la pestaña (el
+efecto corre en el montaje, no solo al validar la última factura). Para una persona es «auto-reparación»,
+pero es una escritura en Drive al mirar. Propuesta: dispararlo solo cuando la última validación ocurre
+en esa sesión (y dejar el botón «Generar PDF único» para lo demás). La SUGERENCIA de la puerta en la
+app (`sugerencia = hay facturas`) tampoco mira `motivo_no_inicio`; podría usar el mismo criterio.
+
 ### Otras cosas medidas en el caso
 
 - **El precio al cliente de una oportunidad anterior al sellado** (regla 43): la propuesta iba a
@@ -67,5 +94,6 @@ usuario lo rechazó; rehecho: B/C, 10,61 kWp, 10.610 €.
 - **Git Bash convierte `/api/…` en una ruta de Windows** al pasarlo como argumento: la orden `api`
   admite la ruta sin la barra inicial.
 
-Tras tocarlo: `node implementation/backend/scripts/test_placas_instalacion.js`,
+Tras tocarlo: `node implementation/backend/scripts/test_justificar_puerta.js`,
+`node implementation/backend/scripts/test_placas_instalacion.js`,
 `node implementation/backend/scripts/check_cifo_paginas.mjs` y `node implementation/backend/scripts/justificar.js estado <nº>` (solo lee).

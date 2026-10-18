@@ -85,6 +85,35 @@ con la UDZ03, 05, 07 y 09—, y casar solo por ella daba por bueno el kit de 5 k
 9 (26RES060_143) y, en el alta de la skill, lo tomaba por un duplicado. Si la exterior leída no
 está en el catálogo, el equipo NO está: eso es lo que se dice.
 
+**REGLA — se tolera lo que el OCR confunde, NO lo que distingue dos equipos** (2026-10-18).
+La placa de una AEROSUN CONFORT 12 se leyó «NTI-12/1IEN» (26RES060_136), «NT2-12IRFN» y
+«NTI-12IHN» (26RES060_196), y el catálogo la guarda como «CONFORT 12 (NTII-12IIEN)» (id 60):
+nombre comercial delante, el código entre paréntesis y una racha de íes que el lector cuenta
+mal o lee como unos. `casan` no veía nada, no salían candidatos y, aplicado por la ruta, el
+expediente que tuviera la CONFORT 9 (id 72) se quedaba con la 9 y la serie de la 12. Ahora el
+cruce va en tres pasadas, y solo pasa a la siguiente si la anterior no casa NADA (así una
+lectura limpia nunca acaba casando por la vía tolerante con otra fila):
+1. `casan`, como siempre (exacto o sufijo ≤2).
+2. `casanOcr`: la misma `claveOcr` —I, 1, l y | son el mismo trazo y una racha cuenta como
+   uno; fuera separadores, «/» y paréntesis— en alguna variante del código (entero, lo de
+   dentro del paréntesis, lo de fuera, las piezas de «ADVANCED 12 - HM-M1-A5» y, solo en lo
+   LEÍDO, sin las palabras de delante), **y las cifras de 2+ dígitos enteras en los dos lados**:
+   «NTII-9IIEN» ≠ «NTII-12IIEN», «12» ≠ «112», «12» ≠ «2». Casa y elige como la 1.
+3. `parecido`: mismo arranque, todas las cifras del catálogo enteras en lo leído y ≤35 % de
+   caracteres distintos. **Un parecido NUNCA elige solo**, ni siendo uno: va a `candidatos`
+   (`aproximados: true`) con un aviso que lo nombra. Si el que consta está entre ellos, se
+   queda, pero el aviso pide mirar la foto.
+Medido el 18/10/2026 sobre el catálogo (401 códigos de unidad distintos): la pasada 2 **no
+confunde ningún par**; la 3 acercaría 153 pares, por eso solo propone. Los numéricos puros
+(THERMOR) siguen casando solo exactos. Y un modelo escrito que la lectura reconoce como el
+mismo ya no sale como CONFLICTO (era ruido: «CONFORT 12 (NTII-12IIEN)» frente a «NTI-12/1IEN»).
+
+**REGLA — la serie de una placa que es de OTRO equipo solo entra CON ese equipo** (2026-10-18).
+Si el expediente ya tiene equipo y la placa de la ud. exterior es de otro (el catálogo la casa
+con otra fila, o no se parece al modelo que consta), su nº de serie y su modelo van marcados
+`con_equipo` («— solo si se cambia el equipo») y al aplicar **solo se escriben si se aplica
+también el equipo de la placa**. Casilla del equipo desmarcada → no entran, y se avisa.
+
 **REGLA — el SCOP no se calcula aquí.** El servicio devuelve el `aerotermia_db_id` y el
 SCOP lo resuelven `getScopFromModel` / `getScopSeason` de `calculation.js`, importadas por
 ESM como ya hace `cifoService`. Son las MISMAS del desplegable, así que un equipo rellenado
@@ -178,6 +207,27 @@ nodo sin firma hace que `mismaMaquina()` lea DOS máquinas donde hay una—.
 dos entran en la firma con la que `mismaMaquina()` decide si el ACS es una SEGUNDA
 máquina, y de ese veredicto cuelgan qué SCOP_dhw se declara y qué equipos imprime el CIFO.
 Rellenar un hueco no puede cambiar de paso lo que el expediente dice que hay instalado.
+
+**REGLA — la placa del slot «ud. interior» solo es de la bomba de calefacción si es SU
+interior** (2026-10-18). El slot dice dónde se subió la foto, no de qué máquina es. Con una
+aerotermia MONOBLOC y el ACS aparte, el lector proponía el modelo del equipo de ACS como
+`modelo_ud_interior` de la calefacción: en 26RES060_195 (Aerosun Advanced 12 `HM-M1-A5`, id 163,
+monobloc + bomba de ACS `HTW-AT-V100MR290A`) y, en 26RES060_196, un termo CORBERÓ que ni es de la
+obra. Ese campo lo imprimen el CIFO y el Anexo I («Ud. interior: …»): declaraba dos aparatos
+donde hay uno, y uno de otra máquina. Ahora la placa describe la bomba de calefacción solo si
+casa con su ud. interior, o si el equipo puede tenerla y nada dice que sea otro aparato:
+**no** si el equipo (el que consta o el casado) no tiene ud. interior en el catálogo, ni si
+casa con el equipo de ACS declarado aparte, ni si su marca no tiene que ver con la de la
+exterior. Entonces no se escribe ni su modelo ni su marca en la calefacción, y se avisa.
+Si es el equipo de ACS aparte, su serie va a ese nodo (como antes); si el ACS aparte YA declara
+un modelo y la placa no es ése, **no va a ninguna parte** (el termo ajeno no se cuela en el
+nodo de ACS); y si es la ud. interior de la propia bomba, su serie se guarda como registro en
+`aerotermia_cal.numero_serie_ud_interior`. Verificado leyendo de verdad las placas en Drive de
+26RES060_136, _195 y _196, sin escribir: ninguna propuesta a la «ud. interior» y los avisos dicen
+por qué. Pruebas: `test_placa_equipo.js` y `test_placas_instalacion.js` (casos h-l).
+⚠️ El popup (`Candidatos` de `LeerPlacasModal.jsx`) solo pinta la lista con **2 o más**
+candidatos, así que un único PARECIDO solo se ve en el aviso; la ruta sí acepta `equipo_id`
+con él (lo usa la skill).
 
 **REGLA — si falta la placa de la UD. EXTERIOR se dice al leer, no al generar.** Es el dato
 que imprimen el CIFO, el Anexo I y la memoria RITE, así que su hueco necesita explicación

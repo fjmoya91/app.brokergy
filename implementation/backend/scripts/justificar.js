@@ -6,7 +6,7 @@
 //   node scripts/justificar.js estado 26RES060_178          qué tiene y qué le falta (solo lee)
 //   node scripts/justificar.js api POST api/expedientes/<id>/facturas/ocr --file files=a.pdf --out r.json
 //   node scripts/justificar.js fotos --plan fotos.json [--escribir]
-//   node scripts/justificar.js anexos 26RES060_178 [anexo1,cesion] [--escribir]
+//   node scripts/justificar.js anexos 26RES060_178 [anexo1,cesion] [--obra-en-curso|--obra-terminada] [--escribir]
 //   node scripts/justificar.js bajar <driveId|enlace> salida.pdf
 //
 // `api` llama a la API de la app con la sesión del ROBOT (cuenta CLAUDE, la de
@@ -23,6 +23,20 @@
 // Documentación → «Generar» del Anexo I y del Convenio → «Guardar en Drive». El
 // Anexo I y el Convenio solo los compone el navegador (como la propuesta, regla
 // 103). NO pulsa ningún botón de envío. En seco hace captura y no guarda.
+//
+// En SECO la página no puede escribir NADA: abrir la pestaña Documentación ya
+// escribe por su cuenta (el PDF único de facturas se genera solo si todas están
+// validadas y aún no existe —«5. FACTURAS/{nº} - FACTURAS.pdf» y su copia en
+// «10. EXPEDIENTE CAE»—, la puerta del Convenio guarda la respuesta en el
+// expediente, los módulos autoguardan…). Por eso se interceptan las peticiones
+// del navegador: pasan las lecturas (GET) y el render del PDF (`POST
+// /api/pdf/generate`, que no guarda), y cualquier otra escritura a la API o a
+// Supabase se corta y se LISTA al final, para ver qué habría hecho la app.
+//
+// La puerta «¿La obra está finalizada?» NO se contesta «terminada» solo porque
+// haya facturas: no si alguna está marcada ANTICIPO/MATERIAL (`motivo_no_inicio`,
+// regla 93), ni si su concepto es una certificación parcial o un anticipo, ni con
+// `--obra-en-curso`. `--obra-terminada` lo fuerza cuando una persona lo confirma.
 //
 // Sin --escribir, `fotos` y `anexos` no tocan nada.
 const path = require('path');
@@ -196,17 +210,79 @@ async function fotos() {
 }
 
 // ─── anexos (Anexo I y Convenio desde la pantalla) ──────────────────────────
+const TXT_EN_OBRA = 'Todavía no, está en obra';
+const TXT_TERMINADA = 'Sí, la obra está terminada';
+// Concepto de una factura que NO cierra la obra aunque nadie la haya marcado en
+// «Hitos»: «1ª CERTIFICACIÓN: …» (26RES060_136), «anticipo», «a cuenta», «acopio»,
+// «entrega de material». «Certificación FINAL / ÚLTIMA» sí la cierra.
+const CONCEPTO_PARCIAL = /\b(anticipo|a\s+cuenta|acopio|entrega\s+de\s+material|provisi[oó]n\s+de\s+fondos)\b|\b(\d+\s*[ªºao]\.?\s*)?certificaci[oó]n\b(?!\s+(final|[uú]ltima))/i;
+
+/**
+ * Qué contesta el script a la puerta «¿La obra está finalizada?» del Convenio.
+ * La app solo SUGIERE (hay facturas → sí); aquí no se da por terminada una obra
+ * con una factura que no la cierra. Devuelve { terminada, motivo, avisos }.
+ */
+function respuestaPuertaConvenio(documentacion, { obraEnCurso = false, obraTerminada = false } = {}) {
+    const facturas = Array.isArray(documentacion?.facturas) ? documentacion.facturas : [];
+    const nombre = (f) => `nº ${f?.numero_factura || '?'}${f?.fecha_factura ? ` (${f.fecha_factura})` : ''}`;
+    const marcadas = facturas.filter(f => f?.motivo_no_inicio);
+    const parciales = facturas.filter(f => !f?.motivo_no_inicio && CONCEPTO_PARCIAL.test(String(f?.concepto || '')));
+    const avisos = [];
+    if (marcadas.length) avisos.push(`factura ${marcadas.map(f => `${nombre(f)} marcada ${f.motivo_no_inicio}`).join(', ')} (regla 93)`);
+    if (parciales.length) avisos.push(`factura ${parciales.map(f => `${nombre(f)} «${String(f.concepto).slice(0, 60)}…»`).join(', ')} parece una certificación parcial o un anticipo y NO está marcada en «Hitos»`);
+    const guardada = documentacion?.anexo_cesion_obra_finalizada;
+    if (guardada === true || guardada === false) avisos.push(`el expediente tiene guardado «${guardada ? 'terminada' : 'en obra'}» (anexo_cesion_obra_finalizada); la puerta lo vuelve a preguntar y, con --escribir, se guarda lo que se conteste`);
+    if (obraEnCurso && obraTerminada) throw new Error('--obra-en-curso y --obra-terminada a la vez.');
+    if (obraEnCurso) return { terminada: false, motivo: 'se ha pasado --obra-en-curso', avisos };
+    if (obraTerminada) return { terminada: true, motivo: 'se ha pasado --obra-terminada (lo confirma una persona)', avisos };
+    if (!facturas.length) return { terminada: false, motivo: 'no hay ninguna factura registrada', avisos };
+    if (marcadas.length || parciales.length) {
+        return { terminada: false, motivo: 'hay facturas que no cierran la obra; si de verdad está terminada, repite con --obra-terminada', avisos };
+    }
+    return { terminada: true, motivo: `${facturas.length} factura(s) registrada(s), ninguna marcada como anticipo o material`, avisos };
+}
+
+// Lo que la página puede pedir en SECO sin escribir: leer, y el render del PDF.
+const POST_SOLO_LECTURA = new Set(['/api/pdf/generate']);
+
 async function anexos() {
     const exp = await expedientePorNumero(args[1]);
     const docsArg = args[2] && !args[2].startsWith('--') ? args[2] : 'anexo1,cesion';
     const DOCS = docsArg.split(',');
+    const puerta = DOCS.includes('cesion')
+        ? respuestaPuertaConvenio(exp.documentacion, { obraEnCurso: args.includes('--obra-en-curso'), obraTerminada: args.includes('--obra-terminada') })
+        : null;
+    if (puerta) {
+        console.log(`\nPuerta del Convenio «¿La obra está finalizada?»: ${ESCRIBIR ? 'se contesta' : 'contestaría'} «${puerta.terminada ? TXT_TERMINADA : TXT_EN_OBRA}»`);
+        console.log(`  porque ${puerta.motivo}.`);
+        for (const a of puerta.avisos) console.log(`  ⚠ ${a}.`);
+    }
     fs.mkdirSync(SALIDA, { recursive: true });
     const foto = async (page, n) => { const f = path.join(SALIDA, `${exp.numero_expediente}-${n}.png`); try { await page.screenshot({ path: f }); } catch { /* */ } return f; };
     const sesion = await abrirSesionRobot();
     const puppeteer = require(path.join(__dirname, '../node_modules/puppeteer'));
     const browser = await puppeteer.launch({ headless: true, defaultViewport: { width: 1440, height: 1000 } });
+    const bloqueadas = [];
     try {
         const page = await browser.newPage();
+        if (!ESCRIBIR) {
+            // Sin service worker: lo que él sirviera no pasaría por la intercepción.
+            await page.setBypassServiceWorker(true);
+            await page.setRequestInterception(true);
+            page.on('request', (req) => {
+                if (req.isInterceptResolutionHandled()) return;
+                const metodo = req.method();
+                let ruta = '';
+                try { ruta = new URL(req.url()).pathname; } catch { /* data:, blob: */ }
+                const escribe = !['GET', 'HEAD', 'OPTIONS'].includes(metodo)
+                    && ((ruta.startsWith('/api/') && !POST_SOLO_LECTURA.has(ruta)) || /\/(rest|storage|functions)\/v1\//.test(ruta));
+                if (!escribe) { req.continue(); return; }
+                bloqueadas.push(`${metodo} ${ruta}`);
+                console.log(`  [en seco] cortada: ${metodo} ${ruta}`);
+                req.respond({ status: 409, contentType: 'application/json',
+                    body: JSON.stringify({ error: `EN SECO (justificar.js): no se ha escrito nada (${metodo} ${ruta}).` }) });
+            });
+        }
         await page.evaluateOnNewDocument((h, k, v) => { if (location.hostname === h && !localStorage.getItem(k)) localStorage.setItem(k, v); },
             new URL(APP).hostname, claveSesionNavegador(), JSON.stringify(sesion));
         const dialogos = [];
@@ -269,14 +345,22 @@ async function anexos() {
             await abrirDocumentacion();
             await pulsarGenerar('Anexo Cesión de Ahorro');
             await espera(1200);
-            // Puerta «¿La obra está finalizada?»: con facturas, sí (se guarda en el expediente).
-            const terminada = (exp.documentacion?.facturas || []).length > 0;
-            const [op] = await page.$$(`xpath/.//*[contains(text(),"${terminada ? 'Sí, la obra está terminada' : 'Todavía no, está en obra'}")]`);
-            if (op) { console.log(`  puerta: «${terminada ? 'Sí, la obra está terminada' : 'Todavía no, está en obra'}»`); await op.click(); await espera(1500); }
+            // Puerta «¿La obra está finalizada?» (la respuesta se guarda en el expediente;
+            // en seco ese guardado se corta). Ver `respuestaPuertaConvenio`.
+            const texto = puerta.terminada ? TXT_TERMINADA : TXT_EN_OBRA;
+            const [op] = await page.$$(`xpath/.//*[contains(text(),"${texto}")]`);
+            if (op) { console.log(`  puerta: «${texto}»`); await op.click(); await espera(1500); }
+            else console.log(`  ⚠ no aparece la puerta «${texto}» (captura: ${await foto(page, 'cesion-puerta')})`);
             if (!(await puertaValidacion('cesion'))) await guardar('cesion', 'Convenio');
         }
-        if (!ESCRIBIR) console.log('\nEN SECO: no se ha guardado nada. Repite con --escribir.');
-        else console.log('\nComprueba con «estado» que los dos borradores quedan enlazados.');
+        if (!ESCRIBIR) {
+            console.log('\nEN SECO: no se ha guardado nada. Repite con --escribir.');
+            if (bloqueadas.length) {
+                const cuenta = bloqueadas.reduce((m, b) => m.set(b, (m.get(b) || 0) + 1), new Map());
+                console.log('Lo que la app habría escrito (cortado):');
+                for (const [b, n] of cuenta) console.log(`  · ${b}${n > 1 ? ` ×${n}` : ''}`);
+            }
+        } else console.log('\nComprueba con «estado» que los dos borradores quedan enlazados.');
     } finally {
         await browser.close().catch(() => {});
         await cerrarSesionRobot(sesion);
@@ -293,14 +377,16 @@ async function bajar() {
     console.log(`${salida} (${buf.length} bytes)`);
 }
 
-(async () => {
+module.exports = { respuestaPuertaConvenio, POST_SOLO_LECTURA };
+
+if (require.main === module) (async () => {
     try {
         if (orden === 'estado') await estado();
         else if (orden === 'api') await api();
         else if (orden === 'fotos') await fotos();
         else if (orden === 'anexos') await anexos();
         else if (orden === 'bajar') await bajar();
-        else { console.log('Uso: estado <nº> | api MÉTODO ruta … | fotos --plan p.json [--escribir] | anexos <nº> [anexo1,cesion] [--escribir] | bajar <id> <salida>'); process.exitCode = 2; }
+        else { console.log('Uso: estado <nº> | api MÉTODO ruta … | fotos --plan p.json [--escribir] | anexos <nº> [anexo1,cesion] [--obra-en-curso|--obra-terminada] [--escribir] | bajar <id> <salida>'); process.exitCode = 2; }
     } catch (e) {
         console.error(`✗ ${e.message}`);
         process.exitCode = 1;

@@ -6,7 +6,7 @@ const supabase = require('../services/supabaseClient');
 const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff } = require('../middleware/auth');
 const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { getCoordinatesByRC } = require('../services/catastroService');
-const { normalizeData } = require('../utils/normalization');
+const { normalizeData, fotosSinBase64 } = require('../utils/normalization');
 const { unidadesSinSerie, countUnidades: countUnidadesAero, acsEsOtraMaquina } = require('../utils/aerotermiaUnits');
 const {
     validateMemoriaRite, resolvePotenciasCatalogo,
@@ -3665,13 +3665,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
         // eran exactamente eso: base64 en mayúsculas, indescifrable, reescrito una y
         // otra vez por el autoguardado. Ver scripts/purge_corrupt_blobs.sql.
         if (Array.isArray(docObj.photo_attachments)) {
-            docObj.photo_attachments = docObj.photo_attachments.map(p => {
-                if (!p || !p.file) return p;
-                const esDeDrive = String(p.id || '').startsWith('drive_');
-                const data = p.file.data;
-                const corrupto = typeof data === 'string' && data.startsWith('DATA:');
-                return (esDeDrive || corrupto) ? { ...p, file: { name: p.file.name } } : p;
-            });
+            docObj.photo_attachments = fotosSinBase64(docObj.photo_attachments, existing.documentacion?.photo_attachments);
         }
 
         // `cifo_attachments` son las fichas técnicas del CIFO, que viven en Drive
@@ -3683,6 +3677,11 @@ router.put('/:id', enforceAuth, async (req, res) => {
         updates.documentacion = docObj;
 
 
+        //
+        // 2026-10-18: ningún base64 NUEVO entra, venga del id que venga (regla 21):
+        // los huecos fijos del modelo viejo (`caldera_anterior`…) lo colaban porque
+        // no empiezan por `drive_`. Lo ya guardado bajo el mismo id se respeta hasta
+        // subirlo a Drive (es la única copia). Fuente única: `fotosSinBase64`.
         const { data, error } = await supabase
             .from('expedientes')
             .update(updates)

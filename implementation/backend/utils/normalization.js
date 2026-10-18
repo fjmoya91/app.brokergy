@@ -249,4 +249,41 @@ function fundirCopropietarios(nuevos, existentes) {
     });
 }
 
-module.exports = { normalizeData, normalizeCliente, sanearCopropietarios, fundirCopropietarios };
+// ---------------------------------------------------------------------------
+// FOTOS del Anexo Fotográfico (`documentacion.photo_attachments`) — regla 21
+// ---------------------------------------------------------------------------
+// REGLA — en `photo_attachments` no ENTRA base64: de cada foto se guarda el
+// nombre (y el driveId/enlace si lo trae); la imagen está en Drive y el modal la
+// vuelve a pedir a `/api/public/anexo-photos`. Medido el 18/10/2026: 3
+// expedientes (26RES060_128, _136, _164, ~420 KB) llevaban dentro las fotos de
+// los cuatro huecos fijos del modelo VIEJO (`caldera_anterior`,
+// `placa_caldera_anterior`, `unidad_exterior`, `placa_unidad_exterior`): las
+// copió el alta del expediente desde `datos_calculo.inputs.photo_attachments` de
+// su oportunidad, y el PUT las conservaba porque su id no empieza por `drive_`.
+//
+// Lo que YA está guardado con base64 en esa fila, bajo el MISMO id, se respeta
+// (`previas`): en 26RES060_136 y _164 la foto de la caldera que se retira no está
+// en Drive y esa es su única copia. Una escritura nunca AÑADE base64, pero
+// tampoco destruye la única copia hasta que se suba a Drive. Un base64 en
+// MAYÚSCULAS (`DATA:…`, el que corrompía `normalizeData`) es basura: fuera siempre.
+const esDataUri = (v) => typeof v === 'string' && /^data:/i.test(v);
+const esCorrupto = (v) => typeof v === 'string' && v.startsWith('DATA:');
+
+function fotosSinBase64(lista, previas = []) {
+    if (!Array.isArray(lista)) return lista;
+    const legado = new Map();
+    for (const p of Array.isArray(previas) ? previas : []) {
+        const id = String(p?.id || '');
+        const data = p?.file?.data;
+        if (id && !id.startsWith('drive_') && esDataUri(data) && !esCorrupto(data)) legado.set(id, p.file);
+    }
+    return lista.map(p => {
+        if (!p || !p.file || typeof p.file !== 'object' || !esDataUri(p.file.data)) return p;
+        const viejo = legado.get(String(p.id || ''));
+        if (viejo) return { ...p, file: viejo };
+        const { data, ...resto } = p.file;
+        return { ...p, file: resto };
+    });
+}
+
+module.exports = { normalizeData, normalizeCliente, sanearCopropietarios, fundirCopropietarios, fotosSinBase64 };
