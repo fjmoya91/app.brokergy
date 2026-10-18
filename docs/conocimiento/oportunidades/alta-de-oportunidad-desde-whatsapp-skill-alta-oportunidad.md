@@ -36,7 +36,17 @@ una conversación leída por esa ruta en las últimas 3 h. Se bajan también las
 (`audio/ogg` en `EXT_MIME`): el instalador dice de viva voz lo que no escribe, y la skill las
 transcribe con el mismo cliente de Gemini.
 
-**REGLA — sin emisor declarado, RADIADORES convencionales** (decisión del usuario, 2026-10-01).
+**REGLA — sin emisor declarado, RADIADORES convencionales** (decisión del usuario, 2026-10-01). Y
+una idea del cliente no es un emisor declarado (2026-10-14): en 26RES060_OP300 la clienta decía en un
+audio que quizá pondría suelo o techo radiante, sin presupuesto ni instalador; la skill puso suelo
+radiante (SCOP genérico 5,00, bono 4.220 €) y se corrigió a radiadores (4,00, bono 4.034 €).
+
+**REGLA — la edad de la caldera sale de la PLACA, nunca del año de la vivienda** (decisión del usuario,
+2026-10-14). La skill ponía, sin año en la placa, la fila de la caldera según el año de construcción de
+la casa; en casas antiguas eso daba calderas «de antes de 1985/1998» que no lo son (la caldera casi
+nunca es la original) y un η bajo que infla el ahorro. Ahora: **con placa que dice el año**, la fila de
+ese año, aunque sea antigua; **sin placa o sin año**, la fila MÁS RECIENTE de su tipo (gasóleo
+`oil_post98` u `oil_cond`; gas `gas_post98_auto` o `gas_post98_cond_auto`), dicho en `decisiones`.
 
 **REGLA — TODO lo que el Catastro declara como VIVIENDA cuenta** (decisión del usuario, 2026-10-01),
 aunque el croquis solo dibuje radiadores en una planta: `seleccionConstrucciones` no deja quitar una
@@ -45,6 +55,16 @@ fachada principal y los patios** salen del croquis o de las fotos (`orientacion`
 se corregía a mano. Medido en OP250: con las dos plantas (175 m²), N y 1 patio, la skill da al céntimo
 lo que se guardó a mano en la calculadora (96,76 kWh/m²·año · 20.284 kWh · bono 2.028,37 €); con solo
 la planta baja daba 1.594 €.
+
+**Una vivienda en VARIAS referencias, con más superficie que el Catastro** (2026-10-15, ático de
+C/ San Agustín 27, Iniesta, instaladora NÚÑEZ FONTANERÍA): tres RC de la planta 3, las tres
+«Almacén-Estacionamiento» (80 m²), que son un ático vivido de «120 habitables» según la instaladora.
+El plan admite `rcs_adicionales` (suma las construcciones privativas de las otras RC; la oportunidad
+va sobre `rc`), `superficie_declarada` (manda sobre el Catastro, se avisa: la mide el CEE; elegida por
+Fran frente a los 80 m²), `subtipo: "atico"` y `caldera.combustible: "glp"` (propano: en el funnel
+`gas`, en la calculadora `fuelType: 'glp'` + `Propano`; el bono no cambia, el ahorro en € y el CE3X
+sí). Con 120 m², ático y propano: 45,51 kWh/m²·año · 8.948 kWh · bono 894,76 €. ⚠️ Un CEE de vivienda
+sobre tres RC de almacén puede tener pegas del verificador: se avisa para regularizarlo.
 
 **REGLA — la placa de la caldera viaja con la oportunidad** (`inputs.placa_caldera`: marca, modelo, nº
 de serie, potencia útil, combustible) y `expedienteService` la hereda al aceptar — solo HUECOS, y un

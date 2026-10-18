@@ -210,8 +210,36 @@ function calificacionDe(c) {
     } : null;
 }
 
+/**
+ * Los huecos «___» que el XML trae sin completar, con dónde están: [{ elemento, texto }].
+ *
+ * REGLA — un «___» no llega a `xml2cert`: es el hueco VISIBLE que dejan los textos
+ * de la app cuando falta un dato (`ce3xTextos`, `fichaCe3x`: «SEER de ___») para que
+ * se complete en CE3X antes de emitir. `xml2cert` maqueta con typst, donde `_` abre
+ * una cursiva, y tres seguidos dejan una sin cerrar: el PDF no sale y lo único que
+ * dice es «unclosed delimiter … main.typ [pos: 108491]» (26RES093_13, 14/10/2026: la
+ * BAXI PLATINUM BC PLUS sin SEER en el catálogo). Se para antes y se dice qué falta.
+ */
+function huecosSinCompletar(buf) {
+    const txt = Buffer.isBuffer(buf) ? buf.toString('utf8') : String(buf || '');
+    const out = [];
+    for (const m of txt.matchAll(/<(\w+)>\s*(?:<!\[CDATA\[)?([^<]*?_{3,}[^<]*?)(?:\]\]>)?\s*<\/\1>/g)) {
+        const limpio = m[2].replace(/^data:text\/html,/, '').replace(/<br>/g, ' ').replace(/\s+/g, ' ');
+        const i = limpio.search(/_{3,}/);
+        const ini = Math.max(0, i - 60);
+        const fin = Math.min(limpio.length, i + 40);
+        out.push({ elemento: m[1], texto: `${ini ? '…' : ''}${limpio.slice(ini, fin).trim()}${fin < limpio.length ? '…' : ''}` });
+    }
+    return out;
+}
+
 /** El PDF oficial desde el XML (`xml2cert`), en la misma carpeta y con su nombre. */
 async function pdfDesdeXml(xml, dir) {
+    const huecos = huecosSinCompletar(fs.readFileSync(xml));
+    if (huecos.length) {
+        return { error: `el XML tiene ${huecos.length > 1 ? `${huecos.length} huecos` : 'un hueco'} «___» sin completar `
+            + `y el PDF no sale hasta rellenarlo en CE3X: ${huecos.map((h) => `«${h.texto}» (${h.elemento})`).join(' · ')}` };
+    }
     const r2 = await ejecutar(rutaXml2cert(), [xml, '-o', dir], { cwd: dir, env: process.env, plazoMs: ESPERA_PDF_MS });
     const pdfRuta = path.join(dir, `${path.basename(xml, '.xml')}.pdf`);
     if (!fs.existsSync(pdfRuta)) {
@@ -310,12 +338,15 @@ function avisosAutoconsumo(a) {
 /**
  * Califica un .cex y devuelve su XML y su PDF.
  * @param {Buffer|string} entrada  el .cex (bytes o ruta)
- * @param {{ medidas?: boolean, pdf?: boolean, ajustarAutoconsumo?: boolean }} [opts]
+ * @param {{ medidas?: boolean, pdf?: boolean, ajustarAutoconsumo?: boolean, guardarCalculado?: boolean }} [opts]
  *        `ajustarAutoconsumo` (por defecto): los meses de autoconsumo que pasan del
  *        consumo que calcula CE3X se recortan a él, y el `.cex` resultante —guardado
  *        por CE3X— vuelve en `cex` (null si no había nada que ajustar).
+ *        `guardarCalculado`: el `.cex` vuelve en `cex` guardado por CE3X SIEMPRE, ya
+ *        calculado. Para una medida puesta por el motor (`/cex/medida`), que llega
+ *        sin calcular: sin esto el `.cex` que se sube la seguiría llevando así.
  */
-async function calificarCex(entrada, { medidas = true, pdf = true, ajustarAutoconsumo = true } = {}) {
+async function calificarCex(entrada, { medidas = true, pdf = true, ajustarAutoconsumo = true, guardarCalculado = false } = {}) {
     const disp = disponible();
     if (!disp.ok) return { ok: false, noDisponible: true, error: disp.motivo };
 
@@ -334,7 +365,8 @@ async function calificarCex(entrada, { medidas = true, pdf = true, ajustarAutoco
         const r = await correrOraculo(dir, 'cex_a_xml.py', {
             CASO: cex, XML: xml, SIN_MEDIDAS: medidas ? null : '1',
             AJUSTAR_AUTOCONSUMO: ajustarAutoconsumo ? '1' : null,
-            SALIDA_CEX: ajustarAutoconsumo ? ajustado : null,
+            GUARDAR_CALCULADO: guardarCalculado ? '1' : null,
+            SALIDA_CEX: ajustarAutoconsumo || guardarCalculado ? ajustado : null,
         });
         if (r.fallo) return { ok: false, version, error: r.fallo };
         const s = r.s;
@@ -344,8 +376,10 @@ async function calificarCex(entrada, { medidas = true, pdf = true, ajustarAutoco
         const calificacion = calificacionDe(c);
         const avisos = [...(s.abrir || []), ...((c._log) || []), ...(s.medidas_log || [])].filter(ruidoCe3x);
         avisos.push(...avisosAutoconsumo(s.autoconsumo));
-        //: El `.cex` con el autoconsumo ajustado, guardado por CE3X (o null).
-        const cexAjustado = s.autoconsumo?.guardado && fs.existsSync(ajustado) ? fs.readFileSync(ajustado) : null;
+        //: El `.cex` guardado por CE3X —con el autoconsumo ajustado, o ya calculado
+        //: si se pidió `guardarCalculado`— (o null).
+        const guardado = s.autoconsumo?.guardado || (guardarCalculado && s.guardado);
+        const cexAjustado = guardado && fs.existsSync(ajustado) ? fs.readFileSync(ajustado) : null;
         if (!calificacion) {
             return { ok: false, version: s.version || version, avisos,
                      error: `CE3X no ha podido calificarlo${c._aviso ? `: ${c._aviso}` : ''}` };
@@ -516,4 +550,4 @@ function lineasCalificado(r, { esperado = null } = {}) {
     return out;
 }
 
-module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, disponiblePdf, avisosDelLog };
+module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, disponiblePdf, avisosDelLog, huecosSinCompletar };

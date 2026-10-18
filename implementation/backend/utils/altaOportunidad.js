@@ -161,7 +161,10 @@ function seleccionConstrucciones(constructions, codigos = null, soloVivienda = n
 
 // ─── El plan → las respuestas del funnel ────────────────────────────────────
 
-const COMBUSTIBLES = ['gas', 'gasoleo', 'electrica', 'carbon', 'biomasa'];
+// `glp` (propano/butano de depósito o bombona) entra en el funnel como `gas` —la
+// tabla de calderas no tiene filas propias de GLP: el formulario hace lo mismo—
+// y se distingue en los inputs (`ajustesCombustible`).
+const COMBUSTIBLES = ['gas', 'glp', 'gasoleo', 'electrica', 'carbon', 'biomasa'];
 const EMISORES = ['radiadores_convencionales', 'radiadores_baja_temp', 'suelo_radiante', 'fancoils'];
 const ACS_ACTUAL = ['misma_caldera', 'termo', 'butano', 'gas', 'gasoleo', 'solar', 'no_tengo'];
 const EDADES = ['<10', '10-20', '>20', 'no_se'];
@@ -208,7 +211,7 @@ function funnelDesdePlan(plan = {}) {
         reforma_aires_count: null,
         obra_estado: obraEstado,
         reforma_sin_caldera: sinCalefaccion,
-        combustible_actual: comb,
+        combustible_actual: comb === 'glp' ? 'gas' : comb,
         edad_caldera: sinCalefaccion ? null : edad,
         condensacion: sinCalefaccion ? null : (cal.condensacion || (edad === '>20' ? 'no' : 'no_se')),
         emisor_tipo: emisor,
@@ -228,7 +231,25 @@ function funnelDesdePlan(plan = {}) {
     };
 }
 
+/**
+ * Una caldera de GLP (propano/butano): lo que el funnel no distingue del gas
+ * natural y la calculadora sí. El bono no cambia (cuenta energía FINAL), pero sí
+ * el ahorro en euros (precio del GLP) y las emisiones, y el CE3X del expediente
+ * lee `fuelType === 'glp'` para declarar GLP (fichaCe3x.js). Caso: 26RES060 de
+ * C/ San Agustín 27, Iniesta (2026-10-15): Ferroli DOMIproject F 24 con regulador
+ * de propano.
+ */
+function ajustesCombustible(plan = {}) {
+    if (String(plan.caldera?.combustible || '').toLowerCase() !== 'glp') return {};
+    const out = { fuelType: 'glp', boilerHeatingType: 'Propano' };
+    if ((plan.acs?.actual || 'misma_caldera') === 'misma_caldera') out.boilerAcsType = 'Propano';
+    return out;
+}
+
 const ORIENTACIONES = ['media', 'N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+// Posición del piso en el edificio (el desplegable «Posición en edificio» de la
+// calculadora): un ático pierde por la cubierta y sube la demanda.
+const SUBTIPOS = ['intermedio', 'atico', 'bajo'];
 
 /**
  * Lo que el formulario no pregunta del EDIFICIO y la calculadora sí: hacia dónde
@@ -254,6 +275,11 @@ function ajustesEdificio(plan = {}) {
         const n = Number(plan.fachadas);
         if (!Number.isInteger(n) || n < 1 || n > 4) throw new Error(`fachadas «${plan.fachadas}»: un entero de 1 a 4 (las que dan al exterior).`);
         out.fachadas = n;
+    }
+    if (plan.subtipo != null) {
+        const s = String(plan.subtipo).toLowerCase().replace('á', 'a');
+        if (!SUBTIPOS.includes(s)) throw new Error(`subtipo «${plan.subtipo}»: usa ${SUBTIPOS.join(' | ')} (solo en un piso).`);
+        out.subtipo = s;
     }
     return out;
 }
@@ -448,7 +474,7 @@ async function anotarAlta(supabase, oportunidadId, { texto, meta }) {
 module.exports = {
     bloquePeticion, segundosMadrid, resumenMensaje,
     mimeDeFichero, tipoMedia,
-    seleccionConstrucciones, funnelDesdePlan, contactoDesdePlan, ajustesEdificio, ORIENTACIONES,
+    seleccionConstrucciones, funnelDesdePlan, contactoDesdePlan, ajustesEdificio, ajustesCombustible, ORIENTACIONES, SUBTIPOS,
     documentoPresupuesto, ceeDelPlan, MODOS_CEE, documentosDelPlan, textoHistorial, capitaliza,
     oportunidadesDeLaRc, resolverPartner, modeloAerotermia, idAdmin, anotarAlta,
     SLOTS_CONOCIDOS, COMBUSTIBLES, EMISORES, ACS_ACTUAL,

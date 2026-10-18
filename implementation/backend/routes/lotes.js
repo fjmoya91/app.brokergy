@@ -209,7 +209,10 @@ async function upsertFacturaSo(lote, fields, opts = {}) {
         updated_at: nowIso(),
     };
     if (opts.emit) {
-        row.estado = 'EMITIDA';
+        // Regenerar o reenviar una factura ya COBRADA no la devuelve a EMITIDA:
+        // el cobro es un hecho, y perderlo es volver a reclamarle al S.O. lo pagado.
+        const { data: prev } = await supabase.from('facturas_so').select('estado').eq('lote_id', lote.id).maybeSingle();
+        row.estado = prev?.estado === 'PAGADA' ? 'PAGADA' : 'EMITIDA';
         // Enviada sin pasar por «Generar y guardar» no hay PDF en la carpeta del
         // lote: no se pisa el enlace que ya tuviera.
         if (opts.drive_link !== undefined) {
@@ -693,6 +696,56 @@ router.post('/:id/factura-so/contabilidad', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/factura-so/contabilidad]', err.message);
         res.status(500).json({ error: err.message || 'No se pudo archivar la factura en contabilidad' });
+    }
+});
+
+// ─── POST /api/lotes/:id/factura-so/cobro — el S.O. nos ha PAGADO la factura ─────
+// Body: { cobrada: true|false, fecha_cobro: 'dd/mm/aaaa' | 'aaaa-mm-dd' }.
+// Marca (o desmarca) la factura como PAGADA con la fecha del ingreso. Es dinero:
+// adminOnly. Solo se cobra una factura que existe con su número: sin ella no hay
+// importe con el que cotejar el ingreso. El paso del lote a "PTE. PAGO BROKERGY A
+// CLIENTE" lo pide la pantalla por PATCH /estado, que tiene sus propias guardas
+// (regla 28: sin el ahorro verificado de todos no se pasa).
+router.post('/:id/factura-so/cobro', adminOnly, async (req, res) => {
+    try {
+        const cobrada = req.body?.cobrada !== false;
+        const { data: lote, error } = await supabase.from('lotes').select('id, historial').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const { data: fac, error: fErr } = await supabase.from('facturas_so').select('id, numero, estado').eq('lote_id', lote.id).maybeSingle();
+        if (fErr) throw fErr;
+        if (!fac?.numero) return res.status(409).json({ error: 'El lote aún no tiene factura al S.O.: genérala antes de marcarla como cobrada.' });
+
+        let fecha = null;
+        if (cobrada) {
+            const raw = String(req.body?.fecha_cobro || '').trim();
+            const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            const es = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (iso) fecha = `${iso[3]}/${iso[2]}/${iso[1]}`;
+            else if (es) fecha = `${es[1].padStart(2, '0')}/${es[2].padStart(2, '0')}/${es[3]}`;
+            else return res.status(400).json({ error: 'Indica la fecha del ingreso.' });
+        }
+
+        const patch = cobrada
+            ? { estado: 'PAGADA', fecha_cobro: fecha, cobrada_at: nowIso(), cobrada_por: usuarioDe(req), updated_at: nowIso() }
+            : { estado: 'EMITIDA', fecha_cobro: null, cobrada_at: null, cobrada_por: null, updated_at: nowIso() };
+        const { error: upErr } = await supabase.from('facturas_so').update(patch).eq('id', fac.id);
+        if (upErr) throw upErr;
+
+        const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+        historial.push({
+            id: `${Date.now()}_factura_cobro`, tipo: 'sistema',
+            texto: cobrada ? `Factura ${fac.numero} COBRADA del S.O. el ${fecha}.` : `Factura ${fac.numero}: se quita la marca de cobrada.`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ historial, updated_at: nowIso() }).eq('id', lote.id);
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json(enriched);
+    } catch (err) {
+        console.error('[POST /lotes/:id/factura-so/cobro]', err.message);
+        res.status(500).json({ error: err.message || 'No se pudo marcar el cobro' });
     }
 });
 
@@ -3482,8 +3535,11 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
         });
     } catch (err) {
         console.error('[POST /lotes/:id/enviar-verificador-api]', err.message);
-        const code = (err.status && err.status >= 400 && err.status < 500) ? 422 : 500;
-        res.status(code).json({ error: err.message || 'Error al enviar la solicitud por API', marwen: err.marwen || null });
+        // 503/504 = Marwen no responde (marwenService.errorDeRed): se respeta, para
+        // que no se lea como un fallo nuestro.
+        const code = (err.status === 503 || err.status === 504) ? err.status
+            : (err.status && err.status >= 400 && err.status < 500) ? 422 : 500;
+        res.status(code).json({ error: err.message || 'Error al enviar la solicitud por API', code: err.code || null, marwen: err.marwen || null });
     }
 });
 

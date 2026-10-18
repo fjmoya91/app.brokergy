@@ -46,6 +46,7 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `alta-aerotermia --json d.json [--ficha ft.pdf:1,3-4] [--eprel-fiche f.pdf] [--eprel-label l.pdf]` | Da de alta el equipo en el catálogo y guarda la ficha unida en Drive | con `--escribir` |
 | `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla). Además lo **califica con CE3X 3.2 en el PC** (≈1 min, sin abrir su ventana) y deja al lado su **`.xml` y su `.pdf` oficial** (`… _REVISAR.xml/.pdf`); `--sin-pdf` lo salta. Si el autoconsumo de algún mes pasa del consumo de ese mes, CE3X lo ajusta y el `.cex` que sube es ESE (punto 13 de «Lo que hay que poner SIEMPRE»). En seco, `--calificar` lo califica y los deja junto a la copia local | con `--escribir` |
 | `rehacer <clave> [--plan plan.json]` | **Rehace el CEE sobre lo corregido A MANO en la pizarra** (tras «Así es como está»): imprime la revisión (nota y cambios) y los huecos dibujados que quedan por medir, y aplica el plan sobre el trabajo guardado sin deshacer nada de lo dibujado (ver «Rehacer el CEE tras una corrección A MANO»). Marca la revisión como rehecha | con `--escribir` |
+| `calificar <clave> [--fase final]` · `calificar --cola` | **Lo que la VENTANA dejó «por calificar»** (el servidor no tiene CE3X): rehace el inicial desde la RECETA guardada, vuelve a medir las placas de la 2.ª medida, lo califica (XML, PDF, recorte mes a mes) y lo sella; el final solo se califica. Sin aviso al equipo. Ver «La receta y el sello» | con `--escribir` |
 | `instalacion <clave> --plan plan.json` | **Solo lo de las PLACAS a la app** (Instalación del expediente, o inputs de la oportunidad), con el mismo plan que `aplicar`: sin `.cex`, sin Drive, sin aviso al equipo. Para un CEE ya hecho al que le falta la Instalación rellena | con `--escribir` |
 | `croquis <clave> [--fase final]` | El **croquis en PDF** de lo que YA hay (trabajo guardado + `.cex` de la carpeta): plano de obra por planta con la marca de BROKERGY, a escala, con muros, huecos, cotas y zonas, y los cuadros de huecos, superficies y cerramientos (sin avisos: vale para una auditoría). `aplicar --escribir` ya lo hace solo | con `--escribir` (sube `… - CEE INICIAL_CROQUIS.pdf` junto al `.cex`) |
 
@@ -94,7 +95,8 @@ nada**: siempre primero en seco.
    (`documentacion.cuestionario`: calefacción, ACS, aires, placas) y se TECLEA en el plan
    (`ajustes.instalacion` / `ajustes.equipos_extra`), con el aviso de que no viene de una placa.
    **La versión de CE3X**: por defecto la **3.2** (la vigente desde el 08/10/2026; la 3.1 ya no
-   está en el PC); la 2.3 solo si el usuario la pide expresamente (`ajustes.version_ce3x`). Los
+   está en el PC). **Todo CEE que se FIRME después del 05/10/2026 va en 3.2** (usuario, 14/10/2026):
+   la 2.3 (`ajustes.version_ce3x`) solo para rehacer uno firmado antes de esa fecha. Los
    **Datos generales** de la 3.2 se rellenan con el criterio del punto 16 de «Lo que hay que poner
    SIEMPRE» (plantas sobre y bajo rasante: las del EDIFICIO entero).
 2. **`placas`**, y **abre las fotos de las placas** para contrastar marca, modelo, potencia y serie.
@@ -218,6 +220,21 @@ nada**: siempre primero en seco.
    `agente_ia.js terminar <clave>`.
 7. **Informe final**: el enlace del `.cex` y de la carpeta, y la lista de **lo que queda por hacer**
    (ver abajo). Nunca «listo» a secas: el `.cex` lleva `_REVISAR` porque hay que abrirlo en CE3X.
+
+## La receta y el sello (la ventana y la skill escriben el MISMO `.cex`)
+
+Desde el 15/10/2026 lo que decide el plan **se guarda en la RECETA** (`ajustes` del trabajo): las
+medidas por fase (`medidas_elegidas`), la aerotermia de la simulación, las placas MEDIDAS de la 2.ª
+medida (`autoconsumo_consumo_medida`, `autoconsumo_pvgis`, `fv_segunda`), quién firma, las fechas y
+las medidas libres. La ventana de la envolvente las enseña y las usa igual: si alguien cambia allí una
+ventana y vuelve a generar, cambia solo eso. Sin `medidas` en el plan, mandan las guardadas.
+
+- Al terminar, `aplicar` comprueba que **la ventana compondría el MISMO `.cex`** («✓ receta…»); si
+  sale «⚠ receta: la ventana compondría OTRO», dilo en el informe.
+- Cada `.cex` escrito queda **sellado** (`cee.cex_sello`): la ventana avisa si está DESFASADO, si se
+  TOCÓ a mano en CE3X o si está POR CALIFICAR.
+- Lo que genera la ventana queda **por calificar**: es la cola del PC (`calificar --cola`, y la enseña
+  `agente_ia.js cola`). Primero en seco, y con `--escribir` cuando el usuario lo diga.
 
 ## Rehacer el CEE tras una corrección A MANO (la pizarra)
 

@@ -607,12 +607,17 @@ function radiografiaXmlV30(xml) {
  */
 function compararEnvolventes(inicial, posterior, tol = 0.02) {
     const cambia = (a, b) => a !== null && b !== null && Math.abs(b - a) > Math.abs(a) * tol;
+    //: La clave para casar: sin el «- CAMBIA» que lleva en el FINAL de un RES080
+    //: lo que se reforma (regla 66) ni el guion que CE3X pega al nombre en el XML
+    //: («V1-»). Sin esto «V1-» del inicial y «V1 - CAMBIA» del final no casaban y
+    //: la revisión decía que no cambiaba ninguna ventana (26RES080_83).
+    const claveNombre = (n) => norm(n).replace(/\s*-\s*cambia\b/g, '').replace(/-+$/, '').trim();
     const comparar = (listaA, listaB) => {
-        const porNombre = new Map(listaB.map((e) => [norm(e.nombre), e]));
+        const porNombre = new Map(listaB.map((e) => [claveNombre(e.nombre), e]));
         const cambiados = [];
         const soloEnInicial = [];
         for (const a of listaA) {
-            const clave = norm(a.nombre);
+            const clave = claveNombre(a.nombre);
             const b = porNombre.get(clave);
             if (!b) { soloEnInicial.push(a); continue; }
             porNombre.delete(clave);

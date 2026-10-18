@@ -3462,8 +3462,10 @@ router.put('/:id', enforceAuth, async (req, res) => {
             // abierta desde antes, encargar el CEE al certificador reenviaba la
             // envolvente de cuando se abrió y borraba las ventanas recién
             // puestas (26RES060_222, 07/10/2026).
+            // Y el SELLO del `.cex` (`cex_sello`): qué lleva el de Drive y si
+            // está por calificar en el PC; lo escriben la ventana y la skill.
             for (const k of ['revision_inicial', 'revision_final', 'agente_ia', 'presentacion', 'envolvente_revision',
-                             'envolvente', 'envolvente_fotos', 'envolvente_imagenes']) {
+                             'envolvente', 'envolvente_fotos', 'envolvente_imagenes', 'cex_sello']) {
                 if (existing.cee && k in existing.cee) updates.cee[k] = existing.cee[k];
                 else delete updates.cee[k];
             }
@@ -3664,6 +3666,11 @@ router.put('/:id', enforceAuth, async (req, res) => {
         // mayúsculas), venga del id que venga. Los 47 MB de fotos que tumbaron la BD
         // eran exactamente eso: base64 en mayúsculas, indescifrable, reescrito una y
         // otra vez por el autoguardado. Ver scripts/purge_corrupt_blobs.sql.
+        //
+        // 2026-10-18: ningún base64 NUEVO entra, venga del id que venga (regla 21):
+        // los huecos fijos del modelo viejo (`caldera_anterior`…) lo colaban porque
+        // no empiezan por `drive_`. Lo ya guardado bajo el mismo id se respeta hasta
+        // subirlo a Drive (es la única copia). Fuente única: `fotosSinBase64`.
         if (Array.isArray(docObj.photo_attachments)) {
             docObj.photo_attachments = fotosSinBase64(docObj.photo_attachments, existing.documentacion?.photo_attachments);
         }

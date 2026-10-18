@@ -344,13 +344,16 @@ async function filaOportunidad(clave) {
               + 'ccaa:datos_calculo->ccaa, estado:datos_calculo->>estado, '
               + 'drive_folder_id:datos_calculo->>drive_folder_id, '
               + 'drive_folder_link:datos_calculo->>drive_folder_link, '
-              + 'envolvente_cee:datos_calculo->envolvente_cee')
+              + 'envolvente_cee:datos_calculo->envolvente_cee, '
+              // La demanda de la simulación: el reparto de una HIBRIDACIÓN (C_b) la
+              // necesita cuando aún no hay CEE inicial cargado (`ce3xFinal`).
+              + 'q_net:datos_calculo->result->Q_net')
         .eq(esUuid(clave) ? 'id' : 'id_oportunidad', clave)
         .order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) return null;
     const { inputs, zona, anio, provincia, ccaa, estado, drive_folder_id,
-            drive_folder_link, envolvente_cee, ...resto } = data;
+            drive_folder_link, envolvente_cee, q_net, ...resto } = data;
     return {
         ...resto,
         datos_calculo: {
@@ -359,6 +362,7 @@ async function filaOportunidad(clave) {
             ...(provincia != null ? { provincia } : {}), ...(ccaa != null ? { ccaa } : {}),
             drive_folder_id, drive_folder_link,
             envolvente_cee: envolvente_cee || {},
+            ...(q_net != null ? { result: { Q_net: q_net } } : {}),
         },
     };
 }
@@ -764,6 +768,9 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
                                     conImagenes = false, fase = 'inicial' } = {}) {
     const { fichaCe3x } = await loadFichaCe3x();
     faseDe(fase);                       // que una fase inventada falle aquí, no al guardar
+    // Quién firma y con qué fechas, si la RECETA lo dice (lo deja la skill):
+    // así la ventana y la skill escriben el MISMO `.cex`.
+    ctx = await conLaReceta(ctx, ajustes, fase);
     // `imagenesDelCex` y no `imagenesDeCatastro`: si el certificador ha puesto
     // otra foto, es la suya la que tiene que entrar en el fichero. Con las dos
     // funciones separadas, la pantalla enseñaría una imagen y el .cex llevaría
@@ -777,6 +784,10 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
         geo: { geometria }, envolvente, ajustes: aj, imagenes, fase, medidas,
     });
     let compuesta = componer(ajustes);
+    // La HUELLA de la receta: de lo que se compone con lo GUARDADO, antes de
+    // preguntar a PVGIS al generar y sin las imágenes (la previsualización no
+    // las trae). Es lo que dice si el `.cex` de Drive está al día.
+    const huella = huellaFicha(compuesta.ficha);
     // En la 3.1 y la 3.2 el autoconsumo va como «Generación renovable
     // eléctrica», mes a mes. Si nadie consultó PVGIS en la barra ⚡, se pregunta
     // aquí — solo al GENERAR: la previsualización se pide muchas veces y no
@@ -811,7 +822,7 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
     //
     // `versionCe3x`: con qué versión de CE3X se escribe y, en la 3.1, lo que
     // pide de más con su procedencia — la pantalla lo enseña y lo deja cambiar.
-    return { ficha, catalogo, faltan, equipos, aires, versionCe3x, fuente: fuenteEditable(ctx),
+    return { ficha, catalogo, faltan, equipos, aires, versionCe3x, fuente: fuenteEditable(ctx), huella,
              avisos: [...avisos, ...imagenes.avisos],
              imagenesFallidas: Object.keys(imagenes.fallos || {}) };
 }
@@ -1411,7 +1422,196 @@ function declaracionesEdificio(ajustes) {
     return { semisotano, anexos, volumenes };
 }
 
+// ─── La RECETA del `.cex` y su SELLO (2026-10-15) ────────────────────────────
+//
+// REGLA — el trabajo guardado (`cee.envolvente`) es la RECETA del `.cex`, y el
+// `.cex` sale SIEMPRE de ella: la ventana y la skill escriben el mismo fichero.
+// Lo que antes vivía solo en el plan de la skill o en la pantalla —qué medidas,
+// la aerotermia de la simulación, las placas de la 2.ª medida, quién firma, las
+// fechas, las medidas libres— va en `ajustes`. Medido en 26RES060_217: la skill
+// dejó en Drive dos medidas (aerotermia y aerotermia + 6 kWp) y la ventana no
+// enseñaba ninguna; regenerar desde ella lo habría dejado sin medidas.
+//
+// REGLA — el SELLO dice qué lleva el `.cex` de Drive (`cee.cex_sello[fase]`):
+// la huella de la receta con la que salió, su md5, quién y cuándo, las medidas
+// y, si lo calificó CE3X en el PC, su calificación. Con él la ventana sabe si
+// el fichero está AL DÍA, si se ha TOCADO a mano en CE3X (el md5 de Drive ya no
+// es el suyo) y si está POR CALIFICAR en el PC (lo escribió el servidor, que
+// no tiene CE3X: sin XML ni PDF, sin el recorte mes a mes del autoconsumo y con
+// el consumo de la 2.ª medida de la última vez). Esa es la COLA del PC
+// (`cee_inicial.js calificar --cola`).
+
+const crypto = require('crypto');
+const MOTOR = process.env.CEE_ENGINE_URL || 'http://cee-engine:8080';
+const CAMPO_SELLO = 'cex_sello';
+
+/** El técnico de la receta (`ajustes.tecnico_cex`) y las fechas del informe (`ajustes.fechas_informe`). */
+async function conLaReceta(ctx, ajustes, fase = 'inicial') {
+    let c = ctx;
+    const tec = ajustes?.tecnico_cex;
+    //: Un técnico DE VERDAD asignado en la barra manda: es quien firma. El de la
+    //: receta solo entra si no hay ninguno o es el AGENTE IA, que no firma.
+    if (tec && (!c.certificador || c.certificador.es_agente_ia)) {
+        const cert = await leerCertificador(String(tec)).catch(() => null);
+        if (cert) c = { ...c, certificador: cert };
+    }
+    const f = ajustes?.fechas_informe;
+    if (f && fase === 'inicial' && (f.emision || f.visita)) {
+        //: Las del expediente mandan; la receta solo rellena las que faltan.
+        const cee0 = c.expediente?.cee || {};
+        c = { ...c, expediente: { ...c.expediente, cee: {
+            ...cee0,
+            fecha_firma_cee_inicial: cee0.fecha_firma_cee_inicial || f.emision || null,
+            fecha_visita_cee_inicial: cee0.fecha_visita_cee_inicial || f.visita || null,
+        } } };
+    }
+    return c;
+}
+
+/** JSON con las claves ORDENADAS: la misma ficha da siempre el mismo texto. */
+function estable(v) {
+    if (Array.isArray(v)) return `[${v.map(estable).join(',')}]`;
+    if (v && typeof v === 'object') {
+        return `{${Object.keys(v).sort().filter(k => v[k] !== undefined)
+            .map(k => `${JSON.stringify(k)}:${estable(v[k])}`).join(',')}}`;
+    }
+    return JSON.stringify(v === undefined ? null : v);
+}
+
+/**
+ * La HUELLA de lo que el motor recibe, sin las dos imágenes del Catastro (la
+ * previsualización no las pide). Misma receta + mismo expediente = misma huella.
+ */
+function huellaFicha(ficha) {
+    if (!ficha) return null;
+    const g = { ...(ficha.generales || {}) };
+    delete g.foto_edificio; delete g.plano_situacion;
+    return crypto.createHash('sha1').update(estable({ ...ficha, generales: g })).digest('hex').slice(0, 16);
+}
+
+const md5 = (buf) => crypto.createHash('md5').update(buf).digest('hex');
+
+/**
+ * Las MEDIDAS LIBRES de la receta (`ajustes.medidas_libres`), las que no están
+ * en el catálogo de la ventana: con los MISMOS escritores que «Poner la medida»
+ * (`/cex/medida`). Las usan la ventana y la skill.
+ */
+async function ponerMedidasLibres(fichero, medidas, envolvente = {}) {
+    if (!Array.isArray(medidas) || !medidas.length) return { fichero, avisos: [] };
+    const fd = new FormData();
+    fd.append('fichero', new Blob([fichero]), 'x.cex');
+    fd.append('datos', JSON.stringify({ medidas, envolvente: envolvente || {} }));
+    const r = await fetch(`${MOTOR}/cex/medida`, { method: 'POST', body: fd, signal: AbortSignal.timeout(180_000) });
+    if (!r.ok) {
+        const f = await r.json().catch(() => ({}));
+        throw new Error(`El motor no ha puesto la medida libre: ${f.detail || r.status}`);
+    }
+    let avisos = [];
+    try { avisos = JSON.parse(r.headers.get('X-Cee-Avisos') || '[]'); } catch { /* sin avisos */ }
+    return { fichero: Buffer.from(await r.arrayBuffer()), avisos };
+}
+
+/** El sello guardado (`{ inicial, final }`), leído de la BD, nunca de una copia. */
+async function leerSello(ctx) {
+    const e = ctx.expediente;
+    if (esOportunidad(e)) {
+        const { data } = await supabase.from('oportunidades')
+            .select('s:datos_calculo->envolvente_cee->cex_sello').eq('id', e.id).maybeSingle();
+        return data?.s || {};
+    }
+    const { data } = await supabase.from(esCeeDirecto(e) ? 'cee_directos' : 'expedientes')
+        .select('s:cee->cex_sello').eq('id', e.id).maybeSingle();
+    return data?.s || {};
+}
+
+/**
+ * Sella el `.cex` de una fase recién guardado en Drive.
+ * `datos`: { huella, bytes, driveId, nombre, por ('ventana'|'skill'|'pc'), autor,
+ *            medidas, calificacion, por_calificar, motivo }
+ */
+async function sellar(ctx, fase, datos = {}) {
+    faseDe(fase);
+    const previo = await leerSello(ctx).catch(() => ({}));
+    const sello = {
+        huella: datos.huella || null,
+        md5: datos.bytes ? md5(datos.bytes) : null,
+        drive_id: datos.driveId || null,
+        nombre: datos.nombre || null,
+        por: datos.por || null,
+        autor: datos.autor || null,
+        at: new Date().toISOString(),
+        //: Lo que lleva, para enseñarlo sin abrir el fichero.
+        medidas: (datos.medidas || []).map(m => ({
+            id: m.id || null, nombre: m.nombre || null,
+            inversion: Number(m.inversion) || null,
+            kwp: (m.instalaciones || []).find(x => x?.potencia_pico_kwp)?.potencia_pico_kwp || null,
+            kwh: (m.instalaciones || []).find(x => x?.slot === 'renovable')?.generacion_electrica_kwh || null,
+        })),
+        calificacion: datos.calificacion || null,
+        por_calificar: !!datos.por_calificar,
+        ...(datos.motivo ? { motivo: datos.motivo } : {}),
+    };
+    await setCeeField(ctx.expediente, CAMPO_SELLO, { ...(previo || {}), [fase]: sello });
+    return sello;
+}
+
+/**
+ * El estado del `.cex` de una fase frente a su sello: `tocado` si el fichero de
+ * Drive ya no es el que se selló (se guardó en CE3X, o lo subió otra persona),
+ * `falta` si ya no está. Una sola consulta a Drive; se pide al abrir la ventana
+ * y al generar, no en cada previsualización.
+ */
+async function estadoDelCex(ctx, fase = 'inicial') {
+    const todos = await leerSello(ctx).catch(() => ({}));
+    const sello = todos?.[fase] || null;
+    if (!sello) return { sello: null };
+    let tocado = false;
+    let falta = false;
+    try {
+        const carpeta = await carpetaFase(ctx, fase);
+        const id = carpeta?.id ? await driveService.findFileByName(carpeta.id, nombreDelCex(ctx.expediente, fase)) : null;
+        if (!id) falta = true;
+        else if (sello.md5) {
+            const meta = await driveService.getFileMetadata(id, 'id, md5Checksum, modifiedTime');
+            tocado = !!meta?.md5Checksum && meta.md5Checksum !== sello.md5;
+        }
+    } catch { /* sin Drive no se afirma nada */ }
+    return { sello, tocado, falta };
+}
+
+/** La COLA del PC: lo que la ventana dejó por calificar con CE3X. */
+async function porCalificar() {
+    const out = [];
+    //: Solo escalares por JSON path (regla 22): nunca `cee` entero.
+    for (const [tabla, origen] of [['expedientes', 'cae'], ['cee_directos', 'cee']]) {
+        const { data, error } = await supabase.from(tabla)
+            .select('id, numero_expediente, s:cee->cex_sello')
+            .or('cee->cex_sello->inicial->>por_calificar.eq.true,cee->cex_sello->final->>por_calificar.eq.true');
+        if (error) throw new Error(error.message);
+        for (const r of data || []) {
+            for (const fase of ['inicial', 'final']) {
+                if (r.s?.[fase]?.por_calificar) out.push({ origen, clave: r.numero_expediente, fase, sello: r.s[fase] });
+            }
+        }
+    }
+    //: Y una OPORTUNIDAD aún sin aceptar (solo tiene inicial).
+    const { data: ops, error: eOp } = await supabase.from('oportunidades')
+        .select('id_oportunidad, s:datos_calculo->envolvente_cee->cex_sello')
+        .eq('datos_calculo->envolvente_cee->cex_sello->inicial->>por_calificar', 'true');
+    if (eOp) throw new Error(eOp.message);
+    for (const r of ops || []) out.push({ origen: 'op', clave: r.id_oportunidad, fase: 'inicial', sello: r.s.inicial });
+    return out;
+}
+
 module.exports = {
+    conLaReceta,
+    huellaFicha,
+    ponerMedidasLibres,
+    leerSello,
+    sellar,
+    estadoDelCex,
+    porCalificar,
+    CAMPO_SELLO,
     declaracionesEdificio,
     leerCertificador,
     pvgisParaAutoconsumo,

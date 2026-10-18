@@ -1799,16 +1799,22 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                               existentes = null, final = null,
                               generica = false, autoconsumoKwh = null,
                               autoconsumoFv = null, autoconsumoInversion = null,
+                              inversionFvSegunda = null,
                               consumoMedida = null } = {}) {
     const esFinal = fase === 'final';
     const catalogo = [];
     const avisos = [];
     //: Sin aerotermia en el expediente, la de la SIMULACIÓN (ver
     //: `conAerotermiaSimulada`). Solo si quien llama lo pide: la revisión del
-    //: CEE sí; la ventana de envolvente sigue mandando a rellenar Instalación.
-    if (generica && !esFinal) {
+    //: CEE, y la ventana y la skill cuando la receta lo dice
+    //: (`ajustes.aerotermia_generica`). Si no se pide pero se podría, se OFRECE
+    //: (`generica_posible`): la pestaña enseña la casilla.
+    let simulada = false;
+    let simulable = false;
+    if (!esFinal) {
         const sim = conAerotermiaSimulada(expediente);
-        if (sim.simulada) { expediente = sim.expediente; avisos.push(sim.aviso); }
+        if (sim.simulada && generica) { expediente = sim.expediente; avisos.push(sim.aviso); simulada = true; }
+        else if (sim.simulada) simulable = true;
     }
     //: Un CEE contratado SUELTO certifica el estado actual: no hay una actuación
     //: declarada de la que salga la medida de aerotermia, así que no se marca
@@ -1838,6 +1844,13 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     //: entra en apoyo. Llamarlo «sustitución» en la pestaña diría lo contrario
     //: de lo que dice el texto de la propia medida, dos líneas más abajo.
     const esHibrida = !!resolverCe3x(expediente, { modelos })?.hibridacion;
+    //: La caldera que se retira quema BIOMASA: la bomba de calor sola no mejora
+    //: la energía primaria no renovable, y su justificación no puede decir que
+    //: sí (`justificacionMedidas.js`). Mismo criterio que `instalacionExistente`:
+    //: la fila `solid_*` es de carbón O de biomasa, y lo separa `fuelType`.
+    const biomasa = combustiblePorId(expediente?.instalacion?.caldera_antigua_cal?.rendimiento_id) === null
+        && (expediente?.oportunidades?.datos_calculo?.inputs
+            || expediente?.oportunidad?.datos_calculo?.inputs || {}).fuelType === 'pellets';
     const aero = {
         id: 'aerotermia',
         titulo: esHibrida ? 'Hibridación con aerotermia' : 'Sustitución por aerotermia',
@@ -1854,6 +1867,10 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                       + 'Si la obra es ésta, márcala y teclea el equipo en Instalaciones.'
                     : (avEquipo[0] || 'El expediente no declara equipo nuevo.')),
         nota: null,
+        //: Va con la aerotermia de la SIMULACIÓN (no hay equipo elegido), o se
+        //: podría: la pestaña lo dice y ofrece la casilla.
+        generica: simulada,
+        generica_posible: simulable,
         datos: equipo ? {
             // El nombre del CONJUNTO, no el del generador: la medida es todo lo
             // que se instala, y el equipo de ACS —si va aparte— también entra.
@@ -1862,7 +1879,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             otros_datos: OTROS_DATOS_MEDIDA,
             //: «Propuesta de secuencia temporal» del Anexo III (CE3X 3.1): por qué
             //: esta medida y en qué orden. Lo escribe el motor solo en la 3.1.
-            ...justificacionMedida(esHibrida ? 'hibridacion' : 'aerotermia'),
+            ...justificacionMedida(esHibrida ? 'hibridacion' : 'aerotermia', { biomasa }),
             inversion: invers.importe,
             coste_mantenimiento: 0,
             vida_util: VIDA_UTIL_MEDIDA,
@@ -1940,9 +1957,8 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
         //: Lo que se declara de verdad: la suma de los meses (cada uno, lo menor
         //: entre producción y consumo). Null sin PVGIS.
         kwh_declarado: declarado ? declarado.anual : null,
-        //: En un CEE suelto, teclear los kWh ES pedir la medida: la elección de
-        //: la pestaña no se guarda y, sin esto, habría que volver a marcarla en
-        //: cada generación.
+        //: En un CEE suelto, teclear los kWh ES pedir la medida (sin elección
+        //: guardada en `ajustes.medidas_elegidas`, que desde el 15/10/2026 manda).
         porDefecto: (esFinal || (ceeSuelto && tecleado > 0)) && !yaTienePlacas,
         disponible: !!kwh && !yaTienePlacas,
         kwh_tecleado: tecleado || null,
@@ -2038,11 +2054,16 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     // MISMOS equipos de las dos medidas de arriba —no se recomponen—, así que no
     // pueden decir otra cosa que ellas. Sale marcada sola —en lugar de la de
     // aerotermia— cuando el trabajo declara lo que cuestan las placas: eso es
-    // que la obra las trae, y la elección de la pestaña no se guarda, así que
-    // regenerar desde la ventana no puede dejarlas fuera.
+    // que la obra las trae (sin elección guardada en `ajustes.medidas_elegidas`,
+    // que manda desde el 15/10/2026). Las placas de la 2.ª medida (aerotermia y
+    // DESPUÉS placas) van en `fv_segunda` y no la marcan por defecto.
     const ambas = aero.datos && auto.datos;
-    const invFv = Number(autoconsumoInversion) > 0 ? Math.round(Number(autoconsumoInversion)) : 0;
-    const conPlacas = !!(ambas && invFv && !esFinal);
+    const invObra = Number(autoconsumoInversion) > 0 ? Math.round(Number(autoconsumoInversion)) : 0;
+    //: Las placas de la 2.ª medida (aerotermia y DESPUÉS placas, sin placas en la
+    //: obra): su inversión cuenta en el conjunto, pero no la hace «la obra trae
+    //: placas» — eso solo lo dice `autoconsumo_inversion`.
+    const invFv = invObra || (Number(inversionFvSegunda) > 0 ? Math.round(Number(inversionFvSegunda)) : 0);
+    const conPlacas = !!(ambas && invObra && !esFinal);
     if (conPlacas) aero.porDefecto = false;
     catalogo.push({
         id: 'aerotermia_fv',
@@ -2069,7 +2090,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             instalaciones: [...aero.datos.instalaciones, ...auto.datos.instalaciones],
             //: Por qué y en qué orden (Anexo III, 3). Sola, la obra trae las dos
             //: cosas; detrás de la aerotermia es la 2.ª fase (se reescribe abajo).
-            ...justificacionMedida('aerotermia_fv', { hibrida: esHibrida }),
+            ...justificacionMedida('aerotermia_fv', { hibrida: esHibrida, biomasa }),
         } : null,
     });
 
@@ -2105,7 +2126,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             if (!m.datos) continue;
             if (m.id === 'aerotermia') {
                 m.datos = { ...m.datos,
-                    ...justificacionMedida(esHibrida ? 'hibridacion' : 'aerotermia', { conFvDespues: true }) };
+                    ...justificacionMedida(esHibrida ? 'hibridacion' : 'aerotermia', { conFvDespues: true, biomasa }) };
             } else if (m.id === 'aerotermia_fv') {
                 m.datos = { ...m.datos, ...justificacionMedida('aerotermia_fv', { secuencial: true }) };
             }
@@ -2364,17 +2385,23 @@ function nombreDelConjunto(expediente, equipo, modelos) {
  * después del inicial). La de FIRMA es la de emisión del certificado. Lo que no
  * conste se deja en blanco: una fecha inventada se imprime en el certificado.
  */
-export function informeCe3x(expediente, fase = 'inicial', { terciario = false } = {}) {
+export function informeCe3x(expediente, fase = 'inicial', { terciario = false, observaciones = null } = {}) {
     const cee = expediente?.cee || {};
     const doc = expediente?.documentacion || {};
     const suf = fase === 'final' ? 'final' : 'inicial';
     const de = (clave) => cee[clave] || doc[clave] || null;
+    // El párrafo habla del «inmueble» en todo menos en una frase, que dice
+    // «la vivienda analizada»: en un hotel o una iglesia eso es falso.
+    const pruebas = terciario
+        ? PRUEBAS_CERTIFICADOR.replace('de la vivienda analizada', 'del edificio analizado')
+        : PRUEBAS_CERTIFICADOR;
+    // Lo que el certificador quiere que conste de ESTE certificado (p. ej. que el
+    // año de construcción no es el de Catastro): `ajustes.observaciones`, en texto
+    // llano. Va al final del mismo cuadro (Anexo IV, «pruebas, comprobaciones e
+    // inspecciones»), que es la casilla de observaciones del técnico.
+    const extra = String(observaciones || '').trim();
     return {
-        // El párrafo habla del «inmueble» en todo menos en una frase, que dice
-        // «la vivienda analizada»: en un hotel o una iglesia eso es falso.
-        pruebas: terciario
-            ? PRUEBAS_CERTIFICADOR.replace('de la vivienda analizada', 'del edificio analizado')
-            : PRUEBAS_CERTIFICADOR,
+        pruebas: extra ? `${pruebas}\n\n${extra}` : pruebas,
         // La casilla «Recomendaciones para un uso eficiente» (Anexo III, 1), que
         // solo existe en CE3X 3.1. Viaja en texto llano: los `<br>` que la 3.1
         // necesita los pone el motor (`informe_a_31`), que sabe la versión.
@@ -2507,7 +2534,26 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     }
     // Las MEDIDAS DE MEJORA que el certificador haya marcado en su pestaña. Sin
     // elección manda lo que describe la fase (ver `medidasCe3x`).
-    const mejora = medidasCe3x({ expediente, superficie, fase, elegidas: medidas, modelos,
+    //
+    // REGLA — la elección se GUARDA con el trabajo, POR FASE
+    // (`ajustes.medidas_elegidas = { inicial: [...], final: [...] }`), y la
+    // usan igual la ventana y la skill (2026-10-15). Vivía solo en la pantalla
+    // y en el plan de la skill: regenerar desde la ventana un `.cex` hecho por
+    // la skill lo dejaba SIN medidas (26RES060_217). Una lista que llega por
+    // parámetro manda sobre la guardada (es la que se está eligiendo ahora).
+    const elegidas = Array.isArray(medidas) ? medidas
+        : (Array.isArray(cfg.medidas_elegidas?.[fase]) ? cfg.medidas_elegidas[fase] : null);
+    const mejora = medidasCe3x({ expediente, superficie, fase, elegidas, modelos,
+                                 //: Sin aerotermia en el expediente, la de la
+                                 //: SIMULACIÓN (`conAerotermiaSimulada`), si la
+                                 //: receta lo dice: la pone la skill o la casilla
+                                 //: de la pestaña, y vale igual para las dos.
+                                 generica: cfg.aerotermia_generica === true,
+                                 //: Lo que cuestan las placas de la 2.ª medida
+                                 //: (aerotermia + autoconsumo, 1.000 €/kWp). NO es
+                                 //: `autoconsumo_inversion`: ésa dice que la OBRA
+                                 //: trae placas y cambia la medida por defecto.
+                                 inversionFvSegunda: cfg.fv_segunda?.inversion,
                                  textos: cfg.medidas_texto,
                                  autoconsumoKwh: cfg.autoconsumo_kwh,
                                  // Lo que dijo PVGIS de este sitio (kWh por
@@ -2520,8 +2566,10 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                                  // El consumo eléctrico CON la aerotermia, mes
                                  // a mes, medido por CE3X en la medida del
                                  // inicial (`cee_inicial.js`): el tope de las
-                                 // placas de su conjunto en 2.ª fase. Solo en
-                                 // memoria: no se guarda con el trabajo.
+                                 // placas de su conjunto en 2.ª fase. Se guarda
+                                 // con el trabajo (la skill, o el PC al
+                                 // calificar): sin él la ventana no podría
+                                 // rehacer la 2.ª medida igual.
                                  consumoMedida: cfg.autoconsumo_consumo_medida,
                                  // La medida es «el edificio con la instalación
                                  // del CEE FINAL»: si en la cara del final se ha
@@ -2686,7 +2734,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         //: cada una; `filas` es solo para la pantalla (no la lee el motor).
         ...(ilum ? { iluminacion: { defecto: ilum.defecto, por_nivel: ilum.por_nivel,
                                     filas: ilum.filas } } : {}),
-        informe: informeCe3x(expediente, fase, { terciario }),
+        informe: informeCe3x(expediente, fase, { terciario, observaciones: cfg.observaciones }),
         envolvente: {
             espacio: 'auto',
             incluir_plantas: habitables.map(p => p.planta),

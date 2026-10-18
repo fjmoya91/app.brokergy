@@ -87,12 +87,14 @@ paths:
 
 114. **Una vivienda con VARIOS propietarios que PAGAN la obra: un convenio con todos, un Anexo I por cada uno y, por defecto, UN ingreso** (2026-10-06). En la aceptación solo se pregunta si el equipo lo ha habilitado en la ficha del cliente (regla 59). Cedente = quien PAGA la obra (la factura va a su nombre), no quien es propietario: un copropietario se marca «Paga también la obra» (`copropietarios[].cedente`, con `cuota_pct` opcional —sin ella, a partes iguales— y `iban` solo si cobra en cuenta propia); el que no paga es solo un contacto. Fuente única: [logic/cedentes.js](implementation/frontend/src/features/expedientes/logic/cedentes.js) (`cedentesDe`, `repartoPago`), que cargan también `public.js`, `expedientes.js` y `cobroService` por import() ESM. **Con UN solo cedente no cambia nada** (decisión del usuario): convenio de dos páginas, un Anexo I. Con varios, el Convenio pasa a TRES páginas —Reunidos en tabla, cláusula Novena de pluralidad (solidaridad, arts. 1137/1142/1143 CC: el ingreso en la cuenta designada libera a Brokergy) y página 3 solo de firmas, con casillas absolutas (`casillaFirmaConvenioPx/Pt` en `signBoxes.js`, la 0 la de Brokergy)— y el Anexo I sale una copia por cedente (`copias` en `formularioOficialService`, 4 págs cada una). Firman TODOS: Autofirma encadena documento × cedente sobre el PDF ya firmado (`cajaConvenioCedente(i)`, `anexoISignBoxCedente(i, n)`, la contrafirma de Brokergy `cajaConvenioCesionario`), y en papel o a mano se pide el DNI de cada uno (`dni_frontal_{i}` / `dni_{n}_link`, también en la cesión manuscrita montada desde la app). La factura vale a nombre de cualquier cedente (`facturaIncidencias` · TITULAR) y, si va a un propietario que no paga, se pide marcarlo. El bono va entero a la cuenta del titular salvo que un cedente dé la suya: entonces la fase 7 del lote enseña el reparto por cuenta (`fila.reparto`). La imputación en el IRPF sigue la cuota de propiedad, no quién cobra (art. 11 LIRPF) — **pendiente de revisión por un asesor**. Tras tocarlo: `node implementation/backend/scripts/test_copropietarios.mjs`, `test_facturas_incidencias.js`, `check_anexo_cesion_2pag.mjs` y `test_impresos_oficiales.mjs`.
 
+137. **En el CEE final de un RES080 lo que se reforma se IDENTIFICA, y el inicial y el final se casan SIN el «- CAMBIA»** (2026-10-14, Fran): el hueco que cambia se llama «V1 - CAMBIA» (y sus puentes) en el `.cex`/`.xml`/PDF del final y en el Certificado RES080, y el croquis del final lo marca. Para emparejar inicial ↔ final, `claveNombre` quita el sufijo en [res080Doc.js](implementation/frontend/src/features/expedientes/logic/res080Doc.js), su espejo `CertificadoRes080Modal.jsx` y `radiografiaCee.compararEnvolventes`; sin eso la tabla de huecos sale vacía y la revisión da NO APTO. Tras tocarlo: `node implementation/backend/scripts/check_res080_paginas.mjs` y `test_revision_cee.js`. Ver "El final IDENTIFICA lo que cambia".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/documentos/convenio-de-cesion-se-firma-antes-de-terminar-la-obra.md` — Convenio de Cesión — se firma ANTES de terminar la obra (2026-08-12) · 4,0 KB
-- `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md` — El Certificado RES080 con VENTANAS: la comparativa en hoja propia y las fichas del marco y del vidrio (2026-10-13) · 2,3 KB
+- `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md` — El Certificado RES080 con VENTANAS: la comparativa en hoja propia y las fichas del marco y del vidrio (2026-10-13) · 4,4 KB
 - `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md` — El CIFO en PDF — las hojas son FIJAS y hay que medirlas (2026-08-25) · 3,6 KB
 - `docs/conocimiento/documentos/hitos-de-la-actuacion-la-factura-que-no-abre-la-obra.md` — HITOS DE LA ACTUACIÓN — la factura que NO abre la obra (2026-09-30) · 7,3 KB
 - `docs/conocimiento/documentos/la-placa-de-la-unidad-exterior-dentro-del-certificado.md` — La PLACA de la unidad exterior, dentro del certificado (2026-09-17) · 7,9 KB
@@ -115,6 +117,8 @@ paths:
 - `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md`
   - **REGLA — la comparativa de marco y vidrio va SIEMPRE en una hoja propia**
   - **REGLA — el generador del servidor adjunta TODAS las fichas, como el modal**
+  - **REGLA — en el final de un RES080, lo que se reforma lleva «- CAMBIA» en el nombre**
+  - **REGLA — el inicial y el final se casan por nombre SIN el sufijo.**
 - `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md`
   - **REGLA — una hoja por bloque; el corte NO es condicional.**
   - **REGLA — la PISCINA encabeza la hoja de variables, no la de instalación.**

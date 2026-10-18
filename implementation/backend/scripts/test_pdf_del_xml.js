@@ -86,4 +86,16 @@ caso('el PDF anterior va a OLD/ con la hora, nunca se pisa; sin anterior no crea
     } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
 
+caso('un «___» sin completar se dice antes de xml2cert, que con él solo da «unclosed delimiter» (26RES093_13)', () => {
+    const { huecosSinCompletar } = require('../services/cee/cexAPdf');
+    const xml = '<Medida><Nombre>FBS1 ESPACIO_LIBRE_PARCELA</Nombre><Descripcion><![CDATA[data:text/html,'
+        + 'Sustitución de la caldera por una AEROTERMIA con SCOP de 7,00 y SEER de ___ y una bomba de calor para ACS.]]>'
+        + '</Descripcion><PlazoRecuperacion>&lt;5</PlazoRecuperacion></Medida>';
+    const h = huecosSinCompletar(Buffer.from(xml));
+    assert.strictEqual(h.length, 1, JSON.stringify(h));
+    assert.strictEqual(h[0].elemento, 'Descripcion');
+    assert.match(h[0].texto, /SEER de ___/);
+    assert.deepStrictEqual(huecosSinCompletar(xml.replace('___', '4,50')), [], 'completado, nada que decir');
+});
+
 console.log(`\n${ok} casos OK`);

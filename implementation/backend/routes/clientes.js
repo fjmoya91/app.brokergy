@@ -5,6 +5,7 @@ const { enforceAuth, adminOnly, isStaff } = require('../middleware/auth');
 const { normalizeData, normalizeCliente } = require('../utils/normalization');
 const { cargarRelaciones } = require('../services/clientesRelaciones');
 const { PARTNER_CONTACT_FIELDS, contactoClienteDesdePartner } = require('../services/notifyContacts');
+const { desvioDelPartner } = require('../services/avisosAlPartner');
 
 const esSi = v => v === true || v === 'true';
 
@@ -260,6 +261,10 @@ router.post('/', enforceAuth, async (req, res) => {
         if (payload.contacto_es_partner) {
             const err = await aplicarContactoPartner(payload, finalPrescriptorId);
             if (err) return res.status(400).json({ error: err });
+        } else {
+            // El partner pide que TODOS los avisos de sus clientes le lleguen a él.
+            const d = await desvioDelPartner(finalPrescriptorId);
+            if (d) Object.assign(payload, d);
         }
 
         const { data, error } = await supabase.from('clientes').insert([normalizeCliente(payload)]).select().single();
@@ -441,6 +446,12 @@ router.put('/:id', enforceAuth, async (req, res) => {
         // que ya tenía) la copia se rehace en cada guardado — también al cambiar
         // de prescriptor, que es cuando más fácil se quedaría apuntando al anterior.
         if (body.contacto_es_partner !== undefined) updates.contacto_es_partner = esSi(body.contacto_es_partner);
+        // Al pasar a un partner que pide TODOS los avisos de sus clientes, el
+        // cliente entra con el desvío (luego se le puede quitar a él solo).
+        const cambiaPartner = updates.prescriptor_id !== undefined && updates.prescriptor_id !== existingData.prescriptor_id;
+        if (cambiaPartner && !updates.contacto_es_partner && await desvioDelPartner(updates.prescriptor_id)) {
+            updates.contacto_es_partner = true;
+        }
         const marcaPartner = updates.contacto_es_partner ?? esSi(existingData.contacto_es_partner);
         if (marcaPartner) {
             const presId = updates.prescriptor_id !== undefined ? updates.prescriptor_id : existingData.prescriptor_id;

@@ -119,13 +119,26 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
 - **Sin emisor declarado, RADIADORES convencionales** (55 °C, el SCOP más prudente). Solo se cambia si
   lo dice el instalador o los papeles: suelo radiante, fancoils, «radiadores de baja temperatura».
   Un croquis con elementos por estancia o un presupuesto con «circuito de radiadores» confirman radiadores.
-- **La fila de la caldera la decide su EDAD real, no el «más de 20 años» del formulario.** En gasóleo,
-  el formulario lleva «>20» a «anterior a 1985» (η 0,65) aunque la caldera sea de 2005. Usa
-  `rendimiento_id` de `BOILER_EFFICIENCIES` (`calculation.js`) con lo que diga la placa (año) o, si
-  no lo dice, el AÑO DE LA VIVIENDA (una caldera no es anterior a la casa en que se instaló):
-  gas `gas_post98_auto` (0,73) / `gas_post98_cond_auto` (0,83) / `gas_pre98_mural` (0,65);
-  gasóleo `oil_post98` (0,79) / `oil_85_97` (0,70) / `oil_pre85` (0,65) / `oil_cond` (0,83).
-  Y `edad` del funnel coherente con ella (`<10`, `10-20`, `>20`).
+  **Una idea del cliente NO es un emisor declarado** (2026-10-14, 26RES060_OP300): «quiero poner suelo
+  radiante, o a lo mejor techo, no sé por dónde pillarlo» sin presupuesto ni instalador → RADIADORES, y
+  se apunta en `decisiones` que lo está pensando. Solo cuenta lo decidido: un presupuesto, el instalador
+  o el cliente diciendo lo que TIENE o lo que se va a instalar.
+- **La fila de la caldera (`rendimiento_id` de `BOILER_EFFICIENCIES`, `calculation.js`) la decide la
+  PLACA, nunca el año de la vivienda** (regla del usuario, 2026-10-14). Las casas son antiguas, pero la
+  caldera casi nunca es la original: poner una caldera «de la época de la casa» hunde el η y infla el
+  ahorro.
+  - **Con placa que dice el año** (fecha de fabricación, el código de fecha de Junkers/Bosch, el año
+    del marcado CE): la fila de ESE año, aunque sea antigua. Si la placa dice 1994, va de antes de
+    1998.
+  - **Sin placa, o la placa no dice el año**: la fila MÁS RECIENTE de su tipo (combustible,
+    condensación o no, mural o de pie según la foto): gasóleo `oil_post98` (0,79) o `oil_cond` (0,83);
+    gas `gas_post98_auto` (0,73) o `gas_post98_cond_auto` (0,83). Y se dice en `decisiones` («sin año
+    en la placa → ≥ 1998»). El año de construcción de la vivienda **no** cuenta.
+  - Filas antiguas, solo con placa que lo diga: `oil_85_97` (0,70), `oil_pre85` (0,65),
+    `gas_pre98_mural` (0,65), `gas_79_97` (0,65)…
+  - Lo mismo frente al formulario: su «más de 20 años» en gasóleo cae en «anterior a 1985» (η 0,65);
+    manda `rendimiento_id`. Y `edad` del funnel coherente con ella (`<10`, `10-20`, `>20`; sin año,
+    `no_se`).
 - **La potencia es la ÚTIL de la placa** (`Pn`, «potencia térmica/útil», *Output*), no el consumo.
 - **El nº de serie de la caldera solo si está rotulado como tal.** En Junkers/Bosch «FD 583 …» es el
   código de FECHA de fabricación: se guarda con `serie_dudosa: true` (no se hereda al expediente).

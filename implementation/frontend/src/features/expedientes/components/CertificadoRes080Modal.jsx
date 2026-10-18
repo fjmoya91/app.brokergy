@@ -1128,10 +1128,14 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     const hInitArr = huecosInit.length > 0 ? huecosInit : getHuecosFromXml(cee.xml_inicial).filter(e => e.tipo === 'Hueco');
     const hFinArr = huecosFin.length > 0 ? huecosFin : getHuecosFromXml(cee.xml_final).filter(e => e.tipo === 'Hueco');
 
+    // Mismo emparejamiento que res080Doc.js (`claveNombre`): el «- CAMBIA» de lo
+    // que se reforma (regla 66) no cuenta para casar el inicial con el final.
+    const claveNombre = (n) => String(n || '').trim().toLowerCase()
+        .replace(/\s*-\s*cambia\b/g, '').trim();
     const changedHuecos = hFinArr.filter(hFin => {
-        const nameFin = hFin.nombre.trim().toLowerCase();
+        const nameFin = claveNombre(hFin.nombre);
         const original = hInitArr.find(hIni => {
-            const nameIni = hIni.nombre.trim().toLowerCase();
+            const nameIni = claveNombre(hIni.nombre);
             const sameName = nameFin === nameIni || nameFin.startsWith(nameIni) || nameIni.startsWith(nameFin);
             const diffTrans = Math.abs(hIni.transmitancia - hFin.transmitancia) > 0.01;
             return sameName && diffTrans;
@@ -1139,17 +1143,17 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         return !!original;
     }).map(hFin => ({
         initial: hInitArr.find(hIni => {
-            const nameIni = hIni.nombre.trim().toLowerCase();
-            const nameFin = hFin.nombre.trim().toLowerCase();
+            const nameIni = claveNombre(hIni.nombre);
+            const nameFin = claveNombre(hFin.nombre);
             return nameFin === nameIni || nameFin.startsWith(nameIni) || nameIni.startsWith(nameFin);
         }),
         final: hFin
     }));
 
     const changedOpacos = opacosFin.filter(oFin => {
-        const nameFin = oFin.nombre.trim().toLowerCase();
+        const nameFin = claveNombre(oFin.nombre);
         const original = opacosInit.find(oIni => {
-            const nameIni = oIni.nombre.trim().toLowerCase();
+            const nameIni = claveNombre(oIni.nombre);
             const sameName = nameFin === nameIni || nameFin.startsWith(nameIni) || nameIni.startsWith(nameFin);
             const diffTrans = Math.abs(oIni.transmitancia - oFin.transmitancia) > 0.01;
             return sameName && diffTrans;
@@ -1157,8 +1161,8 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         return !!original;
     }).map(oFin => ({
         initial: opacosInit.find(oIni => {
-            const nameIni = oIni.nombre.trim().toLowerCase();
-            const nameFin = oFin.nombre.trim().toLowerCase();
+            const nameIni = claveNombre(oIni.nombre);
+            const nameFin = claveNombre(oFin.nombre);
             return nameFin === nameIni || nameFin.startsWith(nameIni) || nameIni.startsWith(nameFin);
         }),
         final: oFin

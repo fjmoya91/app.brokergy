@@ -130,6 +130,17 @@ const prueba = async (nombre, fn) => {
         assert.throws(() => alta.ajustesEdificio({ orientacion: 'norte' }));
         assert.throws(() => alta.ajustesEdificio({ patios: 7 }));
     });
+    await prueba('posición del piso: ático (el desplegable de la calculadora)', () => {
+        assert.deepStrictEqual(alta.ajustesEdificio({ subtipo: 'Ático' }), { subtipo: 'atico' });
+        assert.throws(() => alta.ajustesEdificio({ subtipo: 'buhardilla' }), /subtipo/);
+    });
+    await prueba('caldera de PROPANO: gas en el funnel, GLP en la calculadora', () => {
+        const plan = { caldera: { combustible: 'glp', edad: 'no_se', condensacion: 'no' } };
+        assert.strictEqual(alta.funnelDesdePlan(plan).combustible_actual, 'gas');
+        assert.deepStrictEqual(alta.ajustesCombustible(plan), { fuelType: 'glp', boilerHeatingType: 'Propano', boilerAcsType: 'Propano' });
+        assert.deepStrictEqual(alta.ajustesCombustible({ ...plan, acs: { actual: 'termo' } }), { fuelType: 'glp', boilerHeatingType: 'Propano' });
+        assert.deepStrictEqual(alta.ajustesCombustible({ caldera: { combustible: 'gas' } }), {});
+    });
 
     console.log('El plan → el funnel');
     await prueba('sin emisor declarado, RADIADORES convencionales; sustitución de caldera', () => {

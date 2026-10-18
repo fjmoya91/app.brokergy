@@ -116,3 +116,12 @@ corpus de 1.188 `.cex`: normativa `Anterior` · `NBE-CT-79` · `C.T.E.` ·
 CTE 2013 aunque su U sea la de nZEB), municipio `Otro` + el nombre en texto, y
 la provincia capitalizada ("Ciudad Real", no "CIUDAD REAL") o CE3X la deja
 vacía.
+
+### Año de construcción distinto del de Catastro, y observaciones del técnico (2026-10-13)
+
+Cuando las escrituras o la visita contradicen el año de Catastro (26RES060_225: Catastro
+dice 2008, la casa es de 1974), el año se corrige en `ajustes.anio` (también desde el plan de
+`generar-cee-inicial`): de él salen la normativa del `.cex` y las transmitancias de la Guía.
+Y **tiene que constar en el certificado**: `ajustes.observaciones` (texto llano, latin-1) se
+añade al final del cuadro de «pruebas, comprobaciones e inspecciones» (Anexo IV), que es la
+casilla de observaciones del técnico (`informeCe3x`, en `fichaCe3x.js`).

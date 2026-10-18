@@ -478,7 +478,7 @@ router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req
 
         const fase = req.body?.fase || 'inicial';
         const { ficha, catalogo, faltan, avisos, fuente, equipos, aires,
-                versionCe3x } = await cex.componerFicha(ctx, {
+                versionCe3x, huella } = await cex.componerFicha(ctx, {
             geometria, envolvente: req.body?.envolvente, ajustes: req.body?.ajustes,
             medidas: req.body?.medidas, fase,
         });
@@ -490,11 +490,32 @@ router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req
         // compuesto de la ficha no se puede escribir.
         // ires: los que dijo tener el cliente al aceptar, para el bloque de
         // Instalaciones que los declara de un clic.
+        // `huella`: la de la receta que se está viendo. Si no es la del SELLO
+        // del `.cex` de Drive, el fichero está DESFASADO (lo dice la ventana).
         res.json({ ficha, avisos, fase, medidas: catalogo, faltan, fuente, equipos, aires,
-                   version_ce3x: versionCe3x,
+                   version_ce3x: versionCe3x, huella,
                    nombre: cex.nombreDelCex(ctx.expediente, fase) });
     } catch (e) {
         console.error('[ceeEnvolvente] ficha:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/**
+ * GET /api/cee-envolvente/:expedienteId/estado-cex?fase=inicial
+ *
+ * Qué lleva el `.cex` de Drive de esa fase (su SELLO: medidas, quién, cuándo,
+ * calificación, si está por calificar en el PC) y si se ha TOCADO a mano desde
+ * que se selló. Una consulta a Drive: la ventana la pide al abrir y al generar.
+ */
+router.get('/:expedienteId/estado-cex', internalOnly, staffSiOportunidad, async (req, res) => {
+    try {
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
+        const fase = req.query?.fase === 'final' ? 'final' : 'inicial';
+        res.json({ fase, ...(await cex.estadoDelCex(ctx, fase)) });
+    } catch (e) {
+        console.error('[ceeEnvolvente] estado del .cex:', e.message);
         res.status(e.status || 500).json({ error: e.message });
     }
 });
@@ -852,7 +873,22 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
 
         // Con imágenes solo al generar el INICIAL: son peticiones al mismo WAF
         // del que depende el buscador, y el final las hereda del fichero copiado.
-        const { ficha, avisos: avisosFicha, imagenesFallidas = [] } = await cex.componerFicha(ctx, {
+        // El `.cex` de Drive se ha TOCADO a mano desde que se selló (se guardó en
+        // CE3X, o lo subió otra persona): regenerar se lo lleva a OLD y lo que se
+        // cambió allí no vuelve. Se pregunta antes; `forzar` es el «sí».
+        if (!req.body?.forzar) {
+            const est = await cex.estadoDelCex(ctx, fase).catch(() => ({}));
+            if (est.tocado) {
+                return res.status(409).json({
+                    tocado: true,
+                    error: `El «${est.sello?.nombre || cex.nombreDelCex(ctx.expediente, fase)}» de Drive se ha `
+                         + 'guardado a mano (en CE3X o subido por otra persona) después de generarlo. Si lo '
+                         + 'vuelves a generar, ese irá a OLD y lo que se cambió en CE3X no pasa a la app.',
+                });
+            }
+        }
+
+        const { ficha, avisos: avisosFicha, imagenesFallidas = [], huella } = await cex.componerFicha(ctx, {
             geometria, envolvente: req.body?.envolvente, ajustes: req.body?.ajustes,
             medidas: req.body?.medidas, conImagenes: !esFinal, fase,
         });
@@ -878,8 +914,16 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
                         avisos: avisosFicha });
         }
 
-        const crudo = Buffer.from(await r.arrayBuffer());
+        let crudo = Buffer.from(await r.arrayBuffer());
         const avisos = [...avisosFicha, ...leerCabecera(r, 'X-Cee-Avisos')];
+        // Las MEDIDAS LIBRES de la receta (las que no están en el catálogo de la
+        // pestaña): con los MISMOS escritores que la skill.
+        const libres = !esFinal ? req.body?.ajustes?.medidas_libres : null;
+        if (Array.isArray(libres) && libres.length) {
+            const ml = await cex.ponerMedidasLibres(crudo, libres, ficha.envolvente);
+            crudo = ml.fichero;
+            avisos.push(...ml.avisos);
+        }
         if (esFinal) avisos.unshift(`Hecho sobre «${partida.nombre}»: lo único que cambia `
                                     + 'es el generador. Todo lo demás viene de él.');
         const contraste = leerCabecera(r, 'X-Cee-Contraste', {});
@@ -893,6 +937,22 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
                 avisos, contraste,
             });
         }
+        // El SELLO: qué lleva, con qué receta, y que está POR CALIFICAR en el PC
+        // (aquí no hay CE3X: ni XML ni PDF, ni el recorte mes a mes del
+        // autoconsumo, y la 2.ª medida va con el consumo de la última vez).
+        const conFv2 = (ficha.medidas || []).some(m => m.id === 'aerotermia_fv')
+            && (ficha.medidas || []).some(m => m.id === 'aerotermia');
+        await cex.sellar(ctx, fase, {
+            huella, bytes: crudo, driveId: guardado.driveId, nombre: guardado.nombre,
+            por: 'ventana', autor: req.user?.nombre || req.user?.email || null,
+            medidas: ficha.medidas || [], por_calificar: true,
+            motivo: `Generado desde la ventana: sin XML ni PDF${conFv2
+                ? ' y con las placas de la 2.ª medida medidas con el consumo de la última vez' : ''}. `
+                + 'Lo califica CE3X en el PC (cola «por calificar»).',
+        }).catch(e => avisos.push(`No se ha podido sellar el .cex: ${e.message}`));
+        avisos.push('Queda POR CALIFICAR en el PC: CE3X sacará su XML y su PDF'
+            + (conFv2 ? ', volverá a medir las placas de la 2.ª medida' : '')
+            + ' y recortará el autoconsumo mes a mes si hace falta.');
         if (guardado.archivados_otros?.length) {
             avisos.unshift(`Se ha archivado en OLD ${guardado.archivados_otros.map(n => `«${n}»`)
                 .join(', ')}: es el que se generó cuando era una oportunidad.`);

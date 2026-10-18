@@ -5,7 +5,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { LOTE_ESTADOS, loteEstadoBadge } from '../loteConstants';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
-import { computeLoteEco } from '../logic/loteEco';
+import { computeLoteEco, totalCobroSo, IVA_FACTURA_SO } from '../logic/loteEco';
 import { estimar, tarifaPara, comparar } from '../logic/tarifasVerificacion';
 import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
 import { AnexoListadoModal } from './AnexoListadoModal';
@@ -23,6 +23,9 @@ const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency',
 const mwh = (n) => `${((Number(n) || 0) / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh`;
 // Verificado en kWh (= CAEs): la factura al S.O. se emite medida en kWh.
 const kwh = (n) => `${Math.round(Number(n) || 0).toLocaleString('es-ES')} kWh`;
+// Con céntimos: es la cifra que se coteja contra el ingreso del banco.
+const eur2 = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const hoyIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 // El nº de ACTUACIÓN dentro del envío (E1..En). No es un adorno: rotula el anexo
 // del MITECO de ese expediente y da nombre a todos los ficheros de su ZIP
@@ -191,6 +194,10 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     //   beneficioLote = ofertaLote(€/MWh) × ahorro(MWh) − pagoCliente(€)
     //   beneficioActual = Σ profitBrokergy por expediente (el "antes", sin oferta de lote)
     const eco = useMemo(() => computeLoteEco(lote), [lote?.expedientes, lote?.coste_verificacion, lote?.oferta_lote]);
+    // Lo que el S.O. nos tiene que ingresar (la factura, si ya existe): con él se
+    // coteja la transferencia. Y la fecha del ingreso para marcarla cobrada.
+    const cobroSo = useMemo(() => totalCobroSo(lote, eco), [lote?.factura_so, eco]); // eslint-disable-line
+    const [fechaCobro, setFechaCobro] = useState(hoyIso);
 
     // ─── Lo que la TARIFA del verificador dice que debería costar ────────────
     // No sustituye a nada: `coste_verificacion` sigue siendo lo que de verdad se
@@ -300,6 +307,27 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
         finally { setBusy(false); }
     };
 
+    // El S.O. nos ha ingresado la factura. Marcarla cobrada es lo que significa
+    // salir de "CAE EMITIDO – PTE PAGO BROKERGY", así que el lote avanza solo a
+    // "PTE. PAGO BROKERGY A CLIENTE" — por la ruta de siempre, con su guarda del
+    // ahorro verificado (regla 28): si no pasa, se dice y el cobro queda anotado.
+    const marcarCobro = async (cobrada) => {
+        if (!cobrada) {
+            const ok = await showConfirm('¿Quitar la marca de cobrada de la factura al S.O.? El estado del lote no cambia.', 'Deshacer cobro', 'warning');
+            if (!ok) return;
+        }
+        setBusy(true);
+        let hecho = false;
+        try {
+            await axios.post(`/api/lotes/${loteId}/factura-so/cobro`, { cobrada, fecha_cobro: fechaCobro });
+            await refresh();
+            onChanged?.();
+            hecho = true;
+        } catch (err) { showAlert(err.response?.data?.error || 'No se pudo marcar el cobro', 'Error', 'error'); }
+        finally { setBusy(false); }
+        if (hecho && cobrada && lote?.estado === 'CAE EMITIDO – PTE PAGO BROKERGY') await changeEstado('PTE. PAGO BROKERGY A CLIENTE');
+    };
+
     const borrarLote = async () => {
         const ok = await showConfirm('¿Seguro que quieres borrar este lote? Los expedientes quedarán sin lote (no se borran).', 'Borrar lote', 'warning');
         if (!ok) return;
@@ -395,6 +423,61 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                 </div>
                                 )}
                             </div>
+
+                            {/* ── TOTAL que nos ingresa el S.O. ───────────────────────
+                                Es la cifra que se coteja con la transferencia del banco
+                                (por eso con céntimos), y donde se marca cobrada. Es
+                                dinero de Brokergy: solo ADMIN. */}
+                            {canSeeMargin && cobroSo && (() => {
+                                const f = lote.factura_so;
+                                const pagada = f?.estado === 'PAGADA';
+                                return (
+                                    <div className={`rounded-2xl border px-4 py-3 flex items-center justify-between gap-4 flex-wrap ${
+                                        pagada ? 'border-emerald-500/30 bg-emerald-500/[0.06]' : 'border-white/[0.10] bg-white/[0.03]'}`}>
+                                        <div className="min-w-0">
+                                            <p className="text-[9px] uppercase tracking-[0.2em] font-black text-white/40">Total a cobrar del S.O.</p>
+                                            <p className="flex items-baseline gap-2 mt-0.5">
+                                                <span className="text-xl font-black text-white">{eur2(cobroSo.base)}</span>
+                                                <span className="text-[10px] font-black text-white/35 uppercase">sin IVA</span>
+                                            </p>
+                                            <p className="text-[11px] text-white/55">
+                                                {eur2(cobroSo.total)} <span className="text-white/30">con IVA ({Math.round(IVA_FACTURA_SO * 100)} %)</span>
+                                            </p>
+                                            <p className="text-[9px] text-white/30 mt-1 leading-snug">
+                                                {cobroSo.fuente === 'factura'
+                                                    ? <>Factura <b className="text-white/50">{cobroSo.numero}</b>{cobroSo.kwh != null && cobroSo.precioMwh != null && ` · ${kwh(cobroSo.kwh)} × ${Number(cobroSo.precioMwh).toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh`}</>
+                                                    : <>{cobroSo.fuente === 'verificado' ? 'Sobre el ahorro verificado' : <span className="text-amber-300/70">Estimado: falta el ahorro verificado</span>} · sin factura todavía</>}
+                                            </p>
+                                        </div>
+                                        <div className="shrink-0 text-right">
+                                            {pagada ? (
+                                                <>
+                                                    <p className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-black uppercase tracking-wider">
+                                                        ✓ Cobrado {f.fecha_cobro ? `el ${f.fecha_cobro}` : ''}
+                                                    </p>
+                                                    <button type="button" disabled={busy} onClick={() => marcarCobro(false)}
+                                                        className="block ml-auto mt-1 text-[9px] text-white/25 hover:text-white/60 underline disabled:opacity-50">
+                                                        deshacer
+                                                    </button>
+                                                </>
+                                            ) : f?.numero ? (
+                                                <div className="flex items-center gap-2">
+                                                    <input type="date" value={fechaCobro} max={hoyIso()} disabled={busy}
+                                                        onChange={e => setFechaCobro(e.target.value)}
+                                                        title="Fecha del ingreso"
+                                                        className="bg-bkg-surface border border-white/[0.08] rounded-xl px-2 py-1.5 text-xs text-white focus:border-emerald-400/40 focus:outline-none [color-scheme:dark]" />
+                                                    <button type="button" disabled={busy || !fechaCobro} onClick={() => marcarCobro(true)}
+                                                        className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-black hover:bg-emerald-500/25 transition-colors disabled:opacity-50">
+                                                        Marcar cobrado
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <p className="text-[10px] text-white/30 max-w-[11rem]">Se marca cobrado cuando esté emitida la factura al S.O.</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {/* Inputs manuales. El coste y la oferta son MARGEN (solo ADMIN);
                                 el nº de expediente del verificador es un dato de gestión que

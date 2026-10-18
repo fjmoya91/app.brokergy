@@ -1617,7 +1617,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 docs: [
                     p.facturaSo?.drive_link ? (
                         <Fila key="factura_so" doc={{
-                            label: `Factura de Brokergy al S.O. ${p.facturaSo.numero || ''}`.trim(),
+                            // El cobro se marca en el Resumen; aquí solo se dice.
+                            label: `Factura de Brokergy al S.O. ${p.facturaSo.numero || ''}`.trim()
+                                + (p.facturaSo.estado === 'PAGADA' ? ` · ✓ cobrada${p.facturaSo.fecha_cobro ? ` el ${p.facturaSo.fecha_cobro}` : ''}` : ''),
                             draft_link: p.facturaSo.drive_link,
                             uploaded_at: p.facturaSo.fecha,
                         }} />

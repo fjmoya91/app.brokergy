@@ -2075,7 +2075,7 @@ info@brokergy.es · 623 926 179`;
             if (sendResp.data?.ok) {
                 // AUTOMATIZACIÓN: Cambiar estado a ENVIADA al enviar por WhatsApp
                 try {
-                    await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' });
+                    await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA', porEnvio: true });
                     console.log(`[StatusUpdate] Oportunidad ${inputs.id_oportunidad} marcada como ENVIADA automáticamente.`);
                 } catch (stErr) {
                     console.error('Error actualizando estado automático (WA):', stErr);
@@ -2462,10 +2462,10 @@ info@brokergy.es · 623 926 179`;
             }
         }
 
-        // 6. Marcar como ENVIADA si se envió al cliente con éxito
-        if (selectedModes.includes('CLIENTE') && results.some(r => r.ok)) {
+        // 6. ENVIADA con cualquier envío que salga bien, también solo al instalador (2026-10-14)
+        if (results.some(r => r.ok)) {
             try {
-                await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' });
+                await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA', porEnvio: true });
             } catch (e) { console.warn('[WA] No se pudo actualizar estado:', e.message); }
         }
 
@@ -2938,9 +2938,9 @@ info@brokergy.es · 623 926 179`;
             }
         }
 
-        // 5. Marcar como ENVIADA si cliente recibió con éxito
-        if (selectedModes.includes('CLIENTE') && results.some(r => r.ok)) {
-            try { await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' }); } catch (e) { console.warn('[Email] No se pudo actualizar estado'); }
+        // 5. ENVIADA con cualquier envío que salga bien, también solo al instalador (2026-10-14)
+        if (results.some(r => r.ok)) {
+            try { await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA', porEnvio: true }); } catch (e) { console.warn('[Email] No se pudo actualizar estado'); }
         }
 
         // 6. Log manual recipient in history
@@ -3033,7 +3033,7 @@ info@brokergy.es · 623 926 179`;
                 }).catch(() => { });
                 // Mismo camino que el envío: es la ruta que además mueve la
                 // carpeta de Drive al estado que toca.
-                await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' }).catch(() => { });
+                await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA', porEnvio: true }).catch(() => { });
                 setVersionInfo(prev => ({
                     ...(prev || {}),
                     versiones: [...(prev?.versiones || []), { v, fecha: new Date().toISOString(), canales: ['enlace'] }],

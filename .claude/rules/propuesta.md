@@ -34,11 +34,14 @@ paths:
 
 133. **Caldera de BIOMASA (combustible sólido que no es carbón): la deducción del IRPF exige placas solares; el Bono CAE no** (2026-10-10, decisión del usuario, 26RES060_OP274/OP288). Pasar de pellets o leña a aerotermia no reduce la energía primaria NO renovable, que es el requisito de la deducción; el CAE sale del ahorro de energía final y se obtiene igual. Sin placas (ya puestas o en esta obra; «en el futuro» no cuenta) y con deducción en juego, la calculadora lo avisa (`ResultsPanel`), la propuesta lleva un recuadro bajo la tabla y el envío lo manda como **ÚLTIMO mensaje APARTE** (WhatsApp: burbuja tras el PDF y el enlace, por `textoDespues` en LISTA; email: al final del cuerpo; programado: `whatsapps[].avisoFinal`), **diciendo las dos cosas**. Biomasa = `fuelType` pellets/leña, o caldera `solid_*` que el funnel o la placa dicen de biomasa aunque el desplegable diga carbón (lo pone por defecto). Fuente única: [logic/irpfBiomasa.js](implementation/frontend/src/features/calculator/logic/irpfBiomasa.js). Tras tocarlo: `node implementation/backend/scripts/test_irpf_biomasa.mjs` y `test_propuesta_programada.js`. Ver "Caldera de BIOMASA: la deducción del IRPF exige placas solares".
 
+136. **La oportunidad pasa a ENVIADA con CUALQUIER envío que salga bien, también solo al instalador, y la lista dice A QUIÉN le ha llegado** (2026-10-14, decisión del usuario, 26RES060_OP295). Antes solo contaba el cliente, y lo mandado por WhatsApp al partner se quedaba en PTE ENVIAR (18 casos). Los envíos llaman a `PATCH /:id/estado` con `porEnvio: true`: así un reenvío **no hace retroceder** una oportunidad ENVIADA, PRE-ACEPTADO o ACEPTADA. Bajo la chapa sale «→ al cliente», «→ cliente + instalador» o «→ solo al instalador» (este en ámbar). **Se CALCULA de `propuesta_versiones`, no se guarda aparte**: cada línea de `envios` lleva su `modo` y las antiguas se casan por la etiqueta. El listado devuelve solo `propuesta_entregada`. Fuente única: [utils/entregaPropuesta.js](implementation/backend/utils/entregaPropuesta.js). Tras tocarlo: `node implementation/backend/scripts/test_entrega_propuesta.js` y `test_propuesta_programada.js`. Ver "ENVIADA con cualquier envío, y la lista dice A QUIÉN le ha llegado".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/propuesta/biomasa-la-deduccion-del-irpf-exige-placas-solares.md` — Caldera de BIOMASA: la deducción del IRPF exige placas solares; el CAE no (2026-10-10) · 3,8 KB
+- `docs/conocimiento/propuesta/enviada-con-cualquier-envio-y-a-quien-le-ha-llegado.md` — ENVIADA con cualquier envío, y la lista dice A QUIÉN le ha llegado (2026-10-14) · 2,7 KB
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01) · 2,7 KB
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 2,4 KB
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,3 KB
@@ -56,6 +59,11 @@ paths:
   - **REGLA — placas que cuentan:**
   - **REGLA — sin deducción en juego no se avisa**
   - **REGLA — el aviso NO va dentro del texto largo: va el último, aparte.**
+- `docs/conocimiento/propuesta/enviada-con-cualquier-envio-y-a-quien-le-ha-llegado.md`
+  - **REGLA — cualquier envío que salga bien pasa la oportunidad a ENVIADA**
+  - **REGLA — un reenvío no hace retroceder la oportunidad.**
+  - **REGLA — la lista dice A QUIÉN le ha llegado**
+  - **REGLA — se CALCULA de `propuesta_versiones`, no se guarda aparte**
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md`
   - **REGLA — quien prepara la propuesta elige qué cifra es el PRECIO**
   - **REGLA — retirar la caldera es DESMONTARLA Y SACARLA DE LA VIVIENDA.**

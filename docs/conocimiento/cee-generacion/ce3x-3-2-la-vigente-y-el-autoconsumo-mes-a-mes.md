@@ -136,6 +136,24 @@ fichero hay que devolver `FRAME.filename` al de entrada o el XML no aparece dond
   occurred — The logfile … could not be opened: Permission denied». Tras la reinstalación del
   08/10/2026 faltaba (se creó a mano: `reg add "HKU\.DEFAULT\Software\CE3X3.2" /v idioma /t REG_SZ /d es /f`,
   como administrador). Con el valor puesto, el oráculo ya no lo registra.
+- ⚠️ **Un «___» en un texto del XML tumba el PDF** (14/10/2026, 26RES093_13): `xml2cert` maqueta con
+  typst, donde `_` abre una cursiva, y los tres del hueco VISIBLE que dejan los textos de la app
+  cuando falta un dato («SEER de ___»: la BAXI PLATINUM BC PLUS, id 578, sin SEER en el catálogo)
+  dejan una sin cerrar. Lo único que sale es el `.log` con «unclosed delimiter … main.typ [pos: …]».
+  Con el hueco completado el mismo XML da el PDF sin marca de agua. **REGLA — `cexAPdf.pdfDesdeXml`
+  no llama a `xml2cert` con un «___» dentro** (`huecosSinCompletar`): para y dice el texto y el
+  elemento, en `pdfDeXml`, `calificarCex`, `ponerPrevistoComoMedida` y el vigilante `pdf_del_xml.js`.
+  El PDF que se hace desde la propia CE3X (Informe) no pasa por aquí: ahí sigue saliendo el error
+  de typst, y el remedio es el mismo, completar el hueco en la medida.
+  En 26RES093_13 el hueco escondía algo más: sin SEER, la medida se había escrito **sin
+  refrigeración** (regla 72). Con el SEER documentado (8,94, catálogo de Baxi 14es_02; ηs,c 355,1 %
+  a 18 °C en su «Datos técnicos», pág. 46) y la medida repuesta por `/cex/medida`, la refrigeración
+  de la medida pasa de C/D a A/A y su ahorro total de 92,6 % a 93,8 %; el edificio actual no cambia.
+- **Una medida puesta por el motor (`/cex/medida`) llega SIN calcular, y CE3X la calcula solo en
+  memoria** (14/10/2026): el XML y el PDF salen bien, pero el `.cex` seguía sin calcular (su pickle
+  de medidas, 24 KB frente a los 691 KB del calculado). Para subir ese `.cex`, que lo **guarde
+  CE3X**: `calificarCex(…, { guardarCalculado: true })` → `GUARDAR_CALCULADO` en `cex_a_xml.py`, y
+  el fichero vuelve en `cex`, como el del autoconsumo ajustado.
 
 ```bash
 python -m pytest implementation/cee-engine/tests/test_version_ce3x.py implementation/cee-engine/tests/test_generador_electrico.py
@@ -143,5 +161,6 @@ node implementation/backend/scripts/test_autoconsumo_mensual.mjs
 node implementation/backend/scripts/test_version_ce3x_app.mjs
 node implementation/backend/scripts/test_programa_cee.mjs
 node implementation/backend/scripts/test_revision_cee_cex.js
+node implementation/backend/scripts/test_pdf_del_xml.js
 node implementation/backend/scripts/cex_a_pdf.js "<.cex>" --en-seco     # califica con la 3.2 y dice si ajusta el autoconsumo
 ```

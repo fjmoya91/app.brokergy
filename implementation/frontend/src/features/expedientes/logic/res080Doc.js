@@ -361,15 +361,22 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     const hInitArr = huecosInit.length > 0 ? huecosInit : parseX(cee.xml_inicial).filter(e => e.tipo === 'Hueco');
     const hFinArr = huecosFin.length > 0 ? huecosFin : parseX(cee.xml_final).filter(e => e.tipo === 'Hueco');
 
+    // El nombre para EMPAREJAR un elemento del inicial con el del final. En el
+    // final de un RES080 lo que se reforma lleva «- CAMBIA» (regla 66: «V1 - CAMBIA»,
+    // que CE3X escribe en el XML como «V1 - CAMBIA-»), y el inicial del técnico no:
+    // sin quitar el sufijo, «v1-» no casaba con «v1 - cambia-» y la tabla de huecos
+    // del certificado salía VACÍA justo en la obra que cambia ventanas (26RES080_83).
+    const claveNombre = (n) => String(n || '').trim().toLowerCase()
+        .replace(/\s*-\s*cambia\b/g, '').trim();
     const matchByName = (arr, ref) => arr.find(x => {
-        const a = (x.nombre || '').trim().toLowerCase();
-        const b = (ref.nombre || '').trim().toLowerCase();
+        const a = claveNombre(x.nombre);
+        const b = claveNombre(ref.nombre);
         return b === a || b.startsWith(a) || a.startsWith(b);
     });
     const changedHuecos = hFinArr.filter(hFin => {
         const orig = hInitArr.find(hIni => {
-            const a = (hIni.nombre || '').trim().toLowerCase();
-            const b = (hFin.nombre || '').trim().toLowerCase();
+            const a = claveNombre(hIni.nombre);
+            const b = claveNombre(hFin.nombre);
             const sameName = b === a || b.startsWith(a) || a.startsWith(b);
             return sameName && Math.abs(hIni.transmitancia - hFin.transmitancia) > 0.01;
         });
@@ -377,8 +384,8 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     }).map(hFin => ({ initial: matchByName(hInitArr, hFin), final: hFin }));
     const changedOpacos = opacosFin.filter(oFin => {
         const orig = opacosInit.find(oIni => {
-            const a = (oIni.nombre || '').trim().toLowerCase();
-            const b = (oFin.nombre || '').trim().toLowerCase();
+            const a = claveNombre(oIni.nombre);
+            const b = claveNombre(oFin.nombre);
             const sameName = b === a || b.startsWith(a) || a.startsWith(b);
             return sameName && Math.abs(oIni.transmitancia - oFin.transmitancia) > 0.01;
         });

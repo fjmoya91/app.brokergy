@@ -158,7 +158,16 @@ las fechas de visita y emisión; lo demás está decidido (usuario, 08/10/2026, 
 - **RES060: se COPIA el CEE inicial del técnico y se le cambian las INSTALACIONES por las
   instaladas** (las del expediente) — no se hace «desde la medida» que tecleó el técnico:
   `node scripts/cee_final_copiando.js <nº> --fecha=AAAA-MM-DD` en seco → `--escribir`
-  (`cee_final.js` con un RES060 lleva ahí solo). En CE3X **3.2**.
+  (`cee_final.js` con un RES060 lleva ahí solo). En CE3X **3.2**: todo CEE que se firme después del
+  05/10/2026 va en 3.2, aunque se haya pedido o empezado en 2.3 (usuario, 14/10/2026).
+- **El vidrio que se declara es el de la ETIQUETA del vidrio** (foto del después), con el Ug y la g
+  del informe del fabricante para ESA composición y con la capa en la cara que dice la etiqueta; se
+  da de alta en el catálogo con su informe.
+- **RES080 (solo RES080): el final IDENTIFICA lo que cambia** — huecos «V1 - CAMBIA» (y sus puentes,
+  con ψ 0,02 / 0,65), ventilación 0,53 y masa «Ligera», y el CROQUIS del final con esas ventanas
+  marcadas (el croquis de la APP, nunca el del técnico). Es la lista «Lo que NO puede faltar en el final de un RES080» de `generar-cee-final`: se
+  repasa entera. **En un RES060 el final solo cambia la aerotermia**: la envolvente del inicial no se
+  toca.
 - **Sin placas, la medida es el AUTOCONSUMO máximo MES A MES**, dimensionado con el XML del PROPIO
   final (el script lo califica primero sin medida): kWp de PVGIS para el 90 % del consumo eléctrico
   anual del final, cada mes lo menor entre producción y consumo, y CE3X recorta al calificar lo que

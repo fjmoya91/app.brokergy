@@ -100,7 +100,7 @@ paths:
 - `docs/conocimiento/envolvente-ce3x/autoconsumo-con-pvgis-kwp-kwh-ano-y-su-reparto-mensual.md` — AUTOCONSUMO con PVGIS — kWp ⇄ kWh/año y su reparto mensual (2026-10-02) · 7,2 KB
 - `docs/conocimiento/envolvente-ce3x/deshacer-en-la-envolvente-y-quien-puede-leer-la-placa.md` — DESHACER en la envolvente, y quién puede leer la placa (2026-09-16) · 4,7 KB
 - `docs/conocimiento/envolvente-ce3x/el-boton-que-metia-su-propio-evento-dentro-del-post.md` — El botón que metía su propio EVENTO dentro del POST (2026-09-18) · 5,9 KB
-- `docs/conocimiento/envolvente-ce3x/el-cex-de-la-envolvente-donde-acaba-y-con-que-transmitancias.md` — El `.cex` de la envolvente: dónde acaba y con qué transmitancias (2026-09-13) · 7,9 KB
+- `docs/conocimiento/envolvente-ce3x/el-cex-de-la-envolvente-donde-acaba-y-con-que-transmitancias.md` — El `.cex` de la envolvente: dónde acaba y con qué transmitancias (2026-09-13) · 8,5 KB
 - `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-a-mano-alzada-se-dice-donde-los-m-los-pone-catastro.md` — El CROQUIS a mano alzada — se dice DÓNDE, los m² los pone Catastro (2026-09-29) · 3,9 KB
 - `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-catastral-por-plantas-de-la-sede.md` — El CROQUIS CATASTRAL POR PLANTAS, de la Sede (2026-10-05) · 6,6 KB
 - `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-se-propone-solo.md` — El croquis se PROPONE solo (2026-09-30) · 3,5 KB
@@ -118,6 +118,7 @@ paths:
 - `docs/conocimiento/envolvente-ce3x/la-envolvente-vale-tambien-para-los-cee-directos.md` — La envolvente vale también para los CEE DIRECTOS (2026-09-16) · 6,1 KB
 - `docs/conocimiento/envolvente-ce3x/la-ficha-del-expediente-ya-no-pisa-la-envolvente.md` — La FICHA del expediente ya no pisa la ENVOLVENTE (2026-10-07) · 2,5 KB
 - `docs/conocimiento/envolvente-ce3x/la-foto-real-de-cada-cerramiento.md` — La FOTO REAL de cada cerramiento (2026-09-15) · 11,1 KB
+- `docs/conocimiento/envolvente-ce3x/la-receta-del-cex-y-su-sello.md` — La RECETA del `.cex` y su SELLO: la ventana y la skill escriben el mismo fichero (2026-10-15) · 5,8 KB
 - `docs/conocimiento/envolvente-ce3x/lo-que-el-certificador-no-tiene-que-ver-ni-tocar.md` — Lo que el CERTIFICADOR no tiene que ver ni tocar (2026-09-14) · 1,3 KB
 - `docs/conocimiento/envolvente-ce3x/lo-que-se-reforma-en-la-envolvente-cambia.md` — Lo que se REFORMA en la envolvente: «- CAMBIA» (2026-09-19) · 10,3 KB
 - `docs/conocimiento/envolvente-ce3x/los-administrativos-se-corrigen-desde-la-ventana-en-su-fuente.md` — Los administrativos se CORRIGEN desde la ventana, en su fuente (2026-09-14) · 3,5 KB
@@ -331,6 +332,10 @@ está ese UUID.**
   - **REGLA — al aplicar una lectura se FUNDE; desde el visor, NO.**
   - **REGLA — las marcas se escriben AL MOMENTO, no al cerrar.**
   - **REGLA — el COLOR es el del PLANO**
+- `docs/conocimiento/envolvente-ce3x/la-receta-del-cex-y-su-sello.md`
+  - **REGLA — el trabajo guardado es la RECETA del `.cex`, y el `.cex` sale SIEMPRE de ella.**
+  - **REGLA — las placas de la 2.ª medida NO son «la obra trae placas».**
+  - **REGLA — cada `.cex` escrito queda SELLADO**
 - `docs/conocimiento/envolvente-ce3x/lo-que-se-reforma-en-la-envolvente-cambia.md`
   - **REGLA — SOLO el nombre (decisión del usuario, 2026-09-19).**
   - **REGLA — el sufijo es UNO y lo escriben los DOS lados igual.**

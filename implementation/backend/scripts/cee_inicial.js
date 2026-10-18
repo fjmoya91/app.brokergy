@@ -24,6 +24,16 @@
 //            [--sin-pdf] [--calificar]
 //   node scripts/cee_inicial.js instalacion <clave> --plan plan.json [--escribir]
 //            (solo lo de las PLACAS a la app: sin .cex, sin Drive y sin avisar)
+//   node scripts/cee_inicial.js calificar <clave> [--fase final] [--escribir]
+//   node scripts/cee_inicial.js calificar --cola [--escribir]
+//            (lo que la VENTANA dejó «por calificar»: se rehace desde la receta,
+//             se vuelven a medir las placas de la 2.ª medida y lo califica CE3X)
+//
+// LA RECETA: lo que decide el plan (medidas, aerotermia de la simulación, quién
+// firma, fechas, medidas libres, las placas medidas de la 2.ª medida) se GUARDA
+// en `ajustes` del trabajo, y el `.cex` sale siempre de ahí: el de la ventana y
+// el de la skill son el mismo. Cada `.cex` escrito queda SELLADO
+// (`cee.cex_sello`, `services/ceeEnvolventeCex.js`).
 //
 // Con --escribir, además del .cex deja su XML y su PDF OFICIAL al lado
 // (`… _REVISAR.xml/.pdf`), calificados por CE3X 3.2 sin abrir su ventana
@@ -1640,8 +1650,16 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     //     `TECNICO_POR_DEFECTO`. Otro técnico, con `"tecnico": "<id_empresa>"`;
     //     ninguno, con `"tecnico": false`. Un técnico DE VERDAD asignado en la
     //     barra no se sustituye: es quien firma (y el agente no le quita nada).
-    const tecnicoPlan = plan.tecnico === false || plan.tecnico === null ? null
-        : (plan.tecnico || TECNICO_POR_DEFECTO);
+    //:
+    //: REGLA — quién firma y las fechas van a la RECETA (`ajustes.tecnico_cex`,
+    //: `ajustes.fechas_informe`, 2026-10-15): la ventana las lee igual y
+    //: regenerar desde ella no deja el `.cex` sin técnico ni sin fechas. Al
+    //: CALIFICAR en el PC (`_calificar`) no se estrena nada: manda lo guardado.
+    const tecnicoPlan = 'tecnico' in plan
+        ? (plan.tecnico === false || plan.tecnico === null ? null : plan.tecnico)
+        : (ajustes.tecnico_cex || (plan._calificar ? null : TECNICO_POR_DEFECTO));
+    if (tecnicoPlan) ajustes.tecnico_cex = String(tecnicoPlan);
+    else delete ajustes.tecnico_cex;
     if (tecnicoPlan && (!ctx.certificador || ctx.certificador.es_agente_ia)) {
         const delAgente = !!ctx.certificador;
         ctx.certificador = await cex.leerCertificador(String(tecnicoPlan));
@@ -1650,43 +1668,51 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             + (delAgente ? '(el encargo es del AGENTE IA, que no firma: en la barra sigue el agente).'
                 : '(la oportunidad no tiene uno asignado).'));
     }
+    //: Las FECHAS: las del plan van a la receta; las del expediente mandan
+    //: (las aplica `conLaReceta` al componer, igual que en la ventana).
     if (plan.fechas && (plan.fechas.emision || plan.fechas.visita)) {
-        const cee0 = ctx.expediente.cee || {};
-        ctx.expediente = { ...ctx.expediente, cee: {
-            ...cee0,
-            fecha_firma_cee_inicial: cee0.fecha_firma_cee_inicial || plan.fechas.emision || null,
-            fecha_visita_cee_inicial: cee0.fecha_visita_cee_inicial || plan.fechas.visita || null,
-        } };
+        ajustes.fechas_informe = { emision: plan.fechas.emision || null, visita: plan.fechas.visita || null };
     }
 
     // 6b. Sin aerotermia ELEGIDA, la medida puede ir con la GENÉRICA de la
     //     simulación (`aerotermia_generica: true`): la MISMA función que usa la
     //     revisión del CEE (`conAerotermiaSimulada`), con el SCOP, el SCOP_dhw y la
-    //     potencia de la oportunidad. Lo que se teclee en `ajustes.instalacion_final`
-    //     (el uso, el SEER) se le aplica igual que en la ventana.
-    if (plan.aerotermia_generica) {
-        const { conAerotermiaSimulada } = await esm('cee-envolvente/logic/fichaCe3x.js');
-        let exp = ctx.expediente;
-        if (!exp.oportunidad?.datos_calculo && !exp.oportunidades?.datos_calculo) {
-            const idOp = ctx.origen === 'op' ? exp.id : exp.oportunidad_id;
-            const { data } = await supabase.from('oportunidades')
-                .select('scopHeating:datos_calculo->inputs->scopHeating, scopAcs:datos_calculo->inputs->scopAcs, '
-                        + 'potenciaBomba:datos_calculo->inputs->potenciaBomba, changeAcs:datos_calculo->inputs->changeAcs')
-                .eq('id', idOp).maybeSingle();
-            exp = { ...exp, oportunidad: { datos_calculo: { inputs: data || {} } } };
-        }
-        const sim = conAerotermiaSimulada(exp);
-        if (sim.simulada) { ctx.expediente = sim.expediente; avisos.push(sim.aviso); }
-        else avisos.push('aerotermia_generica: el expediente ya declara su aerotermia (o la simulación no tiene SCOP): se usa la suya.');
+    //     potencia de la oportunidad. Va a la RECETA (`ajustes.aerotermia_generica`)
+    //     y la aplica la ficha (`medidasCe3x`), así que la ventana hace lo mismo.
+    if (plan.aerotermia_generica === true) ajustes.aerotermia_generica = true;
+    else if (plan.aerotermia_generica === false) delete ajustes.aerotermia_generica;
+    // 6c. Las MEDIDAS que pide el plan y las LIBRES, también a la receta (por
+    //     fase): sin `medidas` en el plan, las ya guardadas.
+    if (Array.isArray(plan.medidas)) {
+        ajustes.medidas_elegidas = { ...(ajustes.medidas_elegidas || {}), inicial: plan.medidas };
     }
+    if (Array.isArray(plan.medidas_libres)) {
+        if (plan.medidas_libres.length) ajustes.medidas_libres = plan.medidas_libres;
+        else delete ajustes.medidas_libres;
+    }
+    //: La 2.ª medida (aerotermia y DESPUÉS placas, SKILL punto 20) se vuelve a
+    //: MEDIR cada vez: la ficha se compone primero con la aerotermia sola y
+    //: `segundaMedidaFv` añade la otra con el consumo que calcule CE3X ahora. Si
+    //: no se puede medir, se escribe lo que dice la receta (con el consumo de la
+    //: última vez) y queda POR CALIFICAR.
+    const PAR_FV2 = ['aerotermia', 'aerotermia_fv'];
+    const guardadas = ajustes.medidas_elegidas?.inicial;
+    const esParFv2 = Array.isArray(guardadas) && guardadas.length === 2
+        && PAR_FV2.every(id => guardadas.includes(id));
+    if (plan.fv_segunda === false && esParFv2) {
+        ajustes.medidas_elegidas = { ...ajustes.medidas_elegidas, inicial: ['aerotermia'] };
+        delete ajustes.fv_segunda;
+    }
+    const medirFv2 = plan.fv_segunda !== false && !plan.previsto && esParFv2;
 
     // 6. La ficha, por el MISMO camino que el botón.
     // `let`: la 2.ª medida (aerotermia + placas) la rehace más abajo (7a).
-    let { ficha, avisos: avFicha, imagenesFallidas = [] } = await cex.componerFicha(ctx, {
+    let { ficha, avisos: avFicha, imagenesFallidas = [], huella } = await cex.componerFicha(ctx, {
         geometria: geo.geometria, envolvente, ajustes, conImagenes: true, fase: 'inicial',
-        //: Las medidas de mejora que se piden (`["autoconsumo"]`). Sin esta clave
-        //: mandan las que trae marcadas la fase, como en la ventana.
-        medidas: Array.isArray(plan.medidas) ? plan.medidas : null,
+        //: Las medidas salen de la RECETA (`ajustes.medidas_elegidas`, puestas
+        //: arriba desde el plan si las trae), como en la ventana. Solo para volver
+        //: a MEDIR la 2.ª medida se compone primero con la aerotermia sola.
+        medidas: medirFv2 ? ['aerotermia'] : null,
     });
     avisos.push(...avFicha);
     const g = ficha.generales;
@@ -1725,6 +1751,9 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     //     10/10/2026). Sus placas se dimensionan con lo que CE3X calcula que
     //     consume la vivienda con la aerotermia (su medida en el XML).
     const fv2 = await segundaMedidaFv(ctx, { plan, ficha, fichero, ajustes, envolvente, geo });
+    //: Si estaba en la receta y ahora no se ha podido medir, el `.cex` sale con
+    //: lo que dice la receta (el consumo de la última vez) y queda por calificar.
+    let fv2Medida = false;
     if (fv2.ficha) {
         const r2 = await alMotor('/cex', { geometria: geo.geometria, datos: fv2.ficha }, 180_000);
         if (!r2.ok) {
@@ -1733,9 +1762,25 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
                 + 'El .cex va solo con la aerotermia.');
         } else {
             ficha = fv2.ficha;
+            huella = fv2.huella;
             fichero = Buffer.from(await r2.arrayBuffer());
             avMotor = JSON.parse(r2.headers.get('X-Cee-Avisos') || '[]');
             decisiones.push(fv2.decision);
+            //: Lo MEDIDO va a la receta: la ventana lo compone igual.
+            Object.assign(ajustes, fv2.ajustes);
+            fv2Medida = true;
+        }
+    }
+    if (medirFv2 && !fv2Medida) {
+        const de = await cex.componerFicha(ctx, { geometria: geo.geometria, envolvente, ajustes,
+                                                  conImagenes: true, fase: 'inicial' });
+        const r3 = await alMotor('/cex', { geometria: geo.geometria, datos: de.ficha }, 180_000);
+        if (r3.ok) {
+            ficha = de.ficha; huella = de.huella;
+            fichero = Buffer.from(await r3.arrayBuffer());
+            avMotor = JSON.parse(r3.headers.get('X-Cee-Avisos') || '[]');
+            avisos.push('La 2.ª medida va con las placas medidas la ÚLTIMA vez (no se han podido volver a medir): '
+                + 'queda POR CALIFICAR en el PC.');
         }
     }
     avisos.push(...fv2.avisos);
@@ -1744,25 +1789,21 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     //     caldera, dos aires frío-calor, un termo y placas»). Se pone con los
     //     MISMOS escritores que «Poner la medida» (`/cex/medida`): los equipos
     //     que asumen un servicio retiran el generador que lo daba.
-    if (Array.isArray(plan.medidas_libres) && plan.medidas_libres.length) {
-        const fdm = new FormData();
-        fdm.append('fichero', new Blob([fichero]), 'x.cex');
-        fdm.append('datos', JSON.stringify({ medidas: plan.medidas_libres, envolvente: ficha.envolvente || {} }));
-        const rm = await fetch(`${MOTOR}/cex/medida`, { method: 'POST', body: fdm });
-        if (!rm.ok) {
-            const f = await rm.json().catch(() => ({}));
-            throw new Error(`El motor no ha puesto la medida libre: ${f.detail || rm.status}`);
-        }
-        fichero = Buffer.from(await rm.arrayBuffer());
-        avMotor.push(...JSON.parse(rm.headers.get('X-Cee-Avisos') || '[]'));
-        for (const m of plan.medidas_libres) {
+    //     Salen de la RECETA (`ajustes.medidas_libres`), con la MISMA función que
+    //     la ventana (`ponerMedidasLibres`).
+    if (Array.isArray(ajustes.medidas_libres) && ajustes.medidas_libres.length) {
+        const ml = await cex.ponerMedidasLibres(fichero, ajustes.medidas_libres, ficha.envolvente || {});
+        fichero = ml.fichero;
+        avMotor.push(...ml.avisos);
+        for (const m of ajustes.medidas_libres) {
             console.log(`  medida libre «${m.nombre}»: ${(m.instalaciones || []).map(x => `[${x.slot}] ${x.nombre}`).join(' · ')}`);
         }
     }
     const fd = new FormData();
     fd.append('fichero', new Blob([fichero]), 'x.cex');
     const leido = await (await fetch(`${MOTOR}/leer-cex`, { method: 'POST', body: fd })).json();
-    console.log(`\n.cex · ${kb(fichero.length)} · releído ${leido.version} · errores ${leido.errores?.length ?? '?'}`);
+    console.log(`\n.cex · ${kb(fichero.length)} · releído ${leido.version} · errores ${leido.errores?.length ?? '?'}`
+        + ` · receta ${huella || '—'}`);
     console.log(`  ${JSON.stringify(leido.resumen_envolvente)}`);
     if (imagenesFallidas.length) avisos.push(`Sin ${imagenesFallidas.join(' ni ')}: Catastro no ha respondido.`);
 
@@ -1775,6 +1816,21 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     fs.mkdirSync(CACHE, { recursive: true });
     fs.writeFileSync(local, fichero);
     console.log(`  copia local: ${local}`);
+    // La COMPROBACIÓN de la receta: lo que compondría la VENTANA con el
+    // expediente tal y como está en la BD y lo que se va a guardar. Si la huella
+    // no es la misma, regenerar desde la ventana daría OTRO .cex: se dice.
+    try {
+        const fresco = await cargar(POS[0]);
+        const st2 = estadoDeTrabajo(geo, trabajo);
+        const comoVentana = await cex.componerFicha(fresco, {
+            geometria: geo.geometria, envolvente: senaladoDe(st2, ajustes, { lienzoAMundo: st2.lienzoAMundo }),
+            ajustes, conImagenes: false, fase: 'inicial',
+        });
+        console.log(comoVentana.huella === huella
+            ? '  ✓ receta: la ventana compondría el MISMO .cex'
+            : `  ⚠ receta: la ventana compondría OTRO (${comoVentana.huella} ≠ ${huella})${ESCRIBIR ? ''
+                : ' — en seco puede ser lo que aún no se ha escrito en la app (placas, aerotermia)'}`);
+    } catch (e) { console.log(`  · receta sin comprobar: ${e.message}`); }
 
     if (!ESCRIBIR) {
         await hacerCroquis(ctx, { geo, trabajo, cexBytes: fichero, avisos: [...avisos, ...avMotor], decisiones });
@@ -1902,6 +1958,11 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         }
         // Su XML y su PDF oficial, calificados por CE3X 3.2 en este PC, junto al
         // .cex (`cee/cexAPdf.js`). Sin CE3X se dice y se sigue: el .cex ya está.
+        //: El SELLO del .cex que queda en Drive: el último que se sube (el que
+        //: guardó CE3X tras el recorte mes a mes, si lo hubo).
+        let selloBytes = fichero;
+        let selloId = gd.driveId;
+        let calificacion = null;
         if (res080?.med?.ok) {
             // Ya calificado por CE3X con la medida dentro: se suben su XML y su PDF.
             const g2 = await cex.guardarCalificadoEnDrive(ctx, 'inicial', gd.nombre,
@@ -1909,19 +1970,39 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             console.log(`CE3X lo califica: ${cexAPdf.textoCalificacion(res080.med.calificacion)}`);
             if (g2.ok) for (const s of g2.subidos) console.log(`✓ ${s.nombre}\n  ${s.link}`);
             else avisos.push(`XML/PDF del inicial calificados pero no subidos: ${g2.error}`);
+            calificacion = res080.med.calificacion || null;
         } else if (!RESTO.includes('--sin-pdf')) {
             console.log('\nCalificando con CE3X 3.2 y generando el PDF (≈1 min)…');
             const cal = await cexAPdf.calificarYGuardar(ctx, 'inicial', gd.nombre, fichero);
             for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
+            if (cal?.ok && cal.calificacion) {
+                calificacion = { ...cal.calificacion,
+                                 medidas: (cal.medidas || []).map(m => ({ nombre: m.nombre, ahorro: m.ahorro })) };
+            }
+            const subidoCex = (cal?.guardado?.subidos || []).find(s => /\.cex$/i.test(s.nombre));
+            if (cal?.cex && subidoCex) { selloBytes = cal.cex; selloId = subidoCex.driveId; }
         }
+        try {
+            const sello = await cex.sellar(ctx, 'inicial', {
+                huella, bytes: selloBytes, driveId: selloId, nombre: gd.nombre,
+                por: plan._calificar ? 'pc' : 'skill', autor: 'skill generar-cee-inicial',
+                medidas: [...(ficha.medidas || []), ...(ajustes.medidas_libres || [])],
+                calificacion, por_calificar: !calificacion,
+                ...(!calificacion ? { motivo: 'Sin calificar con CE3X (--sin-pdf o CE3X no ha respondido).' } : {}),
+            });
+            console.log(`✓ Sello del .cex: receta ${sello.huella} · ${sello.por_calificar ? 'POR CALIFICAR en el PC' : 'calificado'}`);
+        } catch (e) { avisos.push(`No se ha podido sellar el .cex: ${e.message}`); }
         if (previsto) await guardarPrevistoYFinal(ctx, previsto, res080, avisos);
         // El AGENTE IA termina: la fase queda «pendiente de revisión» y se avisa
         // al equipo, como cuando un técnico sube su .cex. Va AQUÍ y no en la skill
         // para que no se pueda olvidar; `--sin-aviso` lo calla al relanzar.
-        await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial', decisiones);
+        // Al CALIFICAR en el PC (la cola de la ventana) no: el `.cex` lo generó
+        // una persona desde la ventana y aquí solo se califica.
+        if (!plan._calificar) await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial', decisiones);
         // Si se estaba REHACIENDO sobre una revisión a mano («Así es como está»),
         // queda hecho: la ventana deja de decir «Claude lo está rehaciendo».
-        if (await revisionPlano.marcarRehecho({ clave: ctx.expediente.id, origen: ctx.origen, fichero: gd.nombre })) {
+        if (!plan._calificar
+            && await revisionPlano.marcarRehecho({ clave: ctx.expediente.id, origen: ctx.origen, fichero: gd.nombre })) {
             console.log('✓ Revisión a mano del plano: REHECHA.');
         }
     }
@@ -2017,7 +2098,21 @@ async function segundaMedidaFv(ctx, { plan, ficha, fichero, ajustes, envolvente,
     }
     const kwp = de('autoconsumo').kwp_pvgis;
     const inversion = kwp ? Math.round(kwp * EUR_POR_KWP) : 0;
-    f = await componer({ ...aj, autoconsumo_inversion: inversion });
+    //: Lo que se GUARDA en la receta, y la ficha compuesta SOLO desde ella (sin
+    //: lista de medidas por parámetro): así es exactamente lo que compondrá la
+    //: ventana, y su huella la misma. `fv_segunda.inversion` y no
+    //: `autoconsumo_inversion`, que diría que la OBRA trae placas.
+    const receta = {
+        autoconsumo_pvgis: pv.especifica,
+        autoconsumo_consumo_medida: { meses: consumo.meses, anual: consumo.anual,
+                                      medido_at: new Date().toISOString(), de: 'CE3X, medida de la aerotermia' },
+        fv_segunda: { inversion, kwp },
+        medidas_elegidas: { ...(ajustes?.medidas_elegidas || {}), inicial: ['aerotermia', 'aerotermia_fv'] },
+    };
+    f = await cex.componerFicha(ctx, {
+        geometria: geo.geometria, envolvente, ajustes: { ...(ajustes || {}), ...receta },
+        conImagenes: false, fase: 'inicial',
+    });
     const medidas = f.ficha.medidas || [];
     if (medidas.length !== 2) return sinElla('La 2.ª medida (aerotermia + autoconsumo) no ha salido: se deja solo la aerotermia.');
     const auto = de('autoconsumo');
@@ -2030,6 +2125,8 @@ async function segundaMedidaFv(ctx, { plan, ficha, fichero, ajustes, envolvente,
         + `${n(consumo.anual)} kWh/año (CE3X) · ${n(pv.especifica.anual)} kWh/kWp (PVGIS)`);
     return {
         ficha: { ...ficha, medidas },
+        huella: f.huella,
+        ajustes: receta,
         decision: `2.ª medida «${medidas[1].nombre}»: ${String(kwp).replace('.', ',')} kWp (${n(kwh)} kWh/año, el 90 % `
             + `del consumo eléctrico con la aerotermia, ${n(consumo.anual)} kWh/año según CE3X) y ${n(inversion)} € de placas `
             + '(1.000 €/kWp). Va detrás de la aerotermia: las placas se dimensionan con sus consumos reales.',
@@ -3291,11 +3388,81 @@ async function rehacer() {
     await aplicar({ ...plan, _rehacer: true });
 }
 
+// ─── calificar: la COLA del PC (lo que la ventana dejó por calificar) ────────
+
+/**
+ * `calificar <clave> [--fase final] [--escribir]` · `calificar --cola [--escribir]`
+ *
+ * La ventana escribe el `.cex` en el servidor, que no tiene CE3X: queda
+ * POR CALIFICAR en su sello (`cee.cex_sello[fase].por_calificar`). Aquí, en el
+ * PC con CE3X 3.2:
+ *   · INICIAL → se rehace desde la RECETA guardada (`aplicar` con un plan vacío:
+ *     no estrena nada), se vuelven a MEDIR las placas de la 2.ª medida con lo
+ *     que CE3X calcula ahora, se califica (XML, PDF, recorte mes a mes) y se
+ *     sella como calificado. Sin aviso al equipo: el `.cex` lo hizo una persona.
+ *   · FINAL → se califica el fichero tal cual (el final se COPIA del inicial,
+ *     no se rehace) y se sella.
+ * En seco solo dice qué haría.
+ */
+async function calificar() {
+    if (!cexAPdf.disponible().ok) {
+        throw new Error(`En este equipo no hay CE3X 3.2 (${cexAPdf.disponible().error}): la cola se califica en el PC.`);
+    }
+    const lista = RESTO.includes('--cola')
+        ? await cex.porCalificar()
+        : [{ clave: POS[0], fase: opt('fase') === 'final' ? 'final' : 'inicial' }];
+    if (!lista.length || !lista[0].clave) {
+        console.log(RESTO.includes('--cola') ? 'La cola está vacía: nada por calificar.'
+            : 'Uso: calificar <clave> [--fase final] [--escribir]  ·  calificar --cola [--escribir]');
+        return;
+    }
+    console.log(`\nPOR CALIFICAR (${lista.length}):`);
+    for (const it of lista) {
+        console.log(`  · ${it.clave} · ${it.fase}${it.sello ? ` · generado ${it.sello.at?.slice(0, 16) || '—'} por ${
+            it.sello.autor || it.sello.por || '—'}` : ''}${it.sello?.motivo ? `\n      ${it.sello.motivo}` : ''}`);
+    }
+    if (!ESCRIBIR) {
+        console.log('\nEN SECO: no se ha tocado nada. Con --escribir se rehace, se califica con CE3X y se sube.');
+        return;
+    }
+    if (!RESTO.includes('--sin-aviso')) RESTO.push('--sin-aviso');
+    for (const it of lista) {
+        console.log(`\n══ ${it.clave} · ${it.fase} ══`);
+        try {
+            if (it.fase === 'inicial') {
+                POS[0] = it.clave;
+                await aplicar({ _rehacer: true, _calificar: true });
+                continue;
+            }
+            const ctx = await cargar(it.clave);
+            const leido = await cex.leerCexDeFase(ctx, 'final');
+            if (!leido) { console.log('✗ No hay .cex final en la carpeta.'); continue; }
+            const cal = await cexAPdf.calificarYGuardar(ctx, 'final', leido.nombre, leido.bytes);
+            for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
+            if (!cal?.ok) continue;
+            const subido = (cal.guardado?.subidos || []).find(s => /\.cex$/i.test(s.nombre));
+            const previo = (await cex.leerSello(ctx))?.final || {};
+            await cex.sellar(ctx, 'final', {
+                huella: previo.huella || null, bytes: cal.cex || leido.bytes,
+                driveId: subido?.driveId || leido.driveId, nombre: leido.nombre,
+                por: 'pc', autor: previo.autor || null,
+                medidas: (previo.medidas || []).map(m => ({ ...m, instalaciones: [] })),
+                calificacion: { ...cal.calificacion,
+                                medidas: (cal.medidas || []).map(m => ({ nombre: m.nombre, ahorro: m.ahorro })) },
+                por_calificar: false,
+            });
+            console.log('✓ Sello del .cex final: calificado.');
+        } catch (e) {
+            console.log(`✗ ${it.clave}: ${e.message}`);
+        }
+    }
+}
+
 // ─── main ───────────────────────────────────────────────────────────────────
 
 const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel, keymark,
                   'alta-aerotermia': altaAerotermia, aplicar, croquis, video,
-                  'pedir-fotos': pedirFotos, streetview, rehacer, instalacion };
+                  'pedir-fotos': pedirFotos, streetview, rehacer, instalacion, calificar };
 
 (async () => {
     const f = ORDENES[ORDEN];

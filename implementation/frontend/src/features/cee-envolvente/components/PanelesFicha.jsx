@@ -1650,6 +1650,77 @@ function Editable({ rotulo, unidad, suyo, onDeshacer, ancho, children }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// El SELLO del `.cex` que está en Drive (`cee.cex_sello[fase]`, 2026-10-15).
+//
+// REGLA — se dice qué LLEVA el fichero y si está AL DÍA con lo que se ve aquí,
+// sin abrirlo: lo escribió la skill o la ventana, con qué medidas, kWp e
+// inversión, y si CE3X ya lo calificó. Tres avisos distintos, porque se
+// arreglan distinto: DESFASADO (se ha cambiado algo aquí: vuelve a generar),
+// TOCADO (alguien lo guardó en CE3X: al regenerar se pierde eso) y POR
+// CALIFICAR (lo escribió el servidor, sin CE3X: lo termina el PC).
+// ─────────────────────────────────────────────────────────────────────────────
+const POR_QUIEN = { ventana: 'desde esta ventana', skill: 'la skill (Agente IA)', pc: 'el PC con CE3X' };
+
+export function SelloCex({ estado, huella = null, fase = 'inicial' }) {
+    const s = estado?.sello;
+    if (!s) {
+        return (
+            <p className="text-[11px] leading-snug text-white/35">
+                Aún no hay un .cex {fase === 'final' ? 'FINAL' : 'INICIAL'} sellado: se sella al generarlo,
+                desde aquí o con la skill.
+            </p>
+        );
+    }
+    const desfasado = !!(huella && s.huella && huella !== s.huella);
+    const avisos = [];
+    if (estado.falta) avisos.push(['text-red-300', 'ya no está en la carpeta de Drive']);
+    else if (estado.tocado) avisos.push(['text-amber-300', 'se ha guardado a mano (en CE3X) después de generarlo']);
+    if (desfasado) avisos.push(['text-amber-300', 'DESFASADO: lo de aquí ha cambiado desde que se generó — vuelve a generarlo']);
+    if (s.por_calificar) avisos.push(['text-sky-200/85', 'POR CALIFICAR en el PC (sin XML ni PDF todavía)']);
+    const cuando = s.at ? new Date(s.at).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+    const c = s.calificacion;
+    return (
+        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">
+                    El .cex de Drive
+                </p>
+                <span className="text-[10.5px] text-white/35">
+                    {cuando} · {POR_QUIEN[s.por] || s.por || '—'}{s.autor ? ` (${s.autor})` : ''}
+                </span>
+            </div>
+            {avisos.length ? avisos.map(([tono, t]) => (
+                <p key={t} className={`mt-1 text-[11.5px] font-semibold leading-snug ${tono}`}>⚠ {t}</p>
+            )) : (
+                <p className="mt-1 text-[11.5px] font-semibold text-emerald-300">✓ Al día con lo que se ve aquí</p>
+            )}
+            <ul className="mt-1.5 space-y-0.5">
+                {(s.medidas || []).length ? s.medidas.map((m, i) => (
+                    <li key={`${m.id || m.nombre}-${i}`} className="text-[11px] leading-snug text-white/60">
+                        {i + 1}. {m.nombre || m.id}
+                        {m.kwp ? ` · ${String(m.kwp).replace('.', ',')} kWp` : ''}
+                        {m.kwh ? ` · ${miles(m.kwh)} kWh/año` : ''}
+                        {m.inversion ? ` · ${miles(m.inversion)} €` : ''}
+                        {/* El último de los seis de CE3X: las emisiones GLOBALES. */}
+                        {c?.medidas?.[i]?.ahorro?.length ? (
+                            <span className="text-white/35">
+                                {' · '}ahorro de emisiones {String(c.medidas[i].ahorro.at(-1)).replace('.', ',')} %
+                            </span>
+                        ) : null}
+                    </li>
+                )) : <li className="text-[11px] text-amber-300/80">Sin medidas de mejora.</li>}
+            </ul>
+            {c && (c.emisiones != null || c.epnr != null) && (
+                <p className="mt-1 text-[11px] text-white/45">
+                    CE3X: emisiones {String(c.emisiones ?? '—').replace('.', ',')} {c.emisiones_letra || ''}
+                    {' · '}EPNR {String(c.epnr ?? '—').replace('.', ',')} {c.epnr_letra || ''}
+                </p>
+            )}
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Las MEDIDAS DE MEJORA que se escriben en el .cex.
 //
 // Se ELIGEN, no se rellenan solas: un certificado puede proponer una, las dos o
@@ -1671,7 +1742,8 @@ function Editable({ rotulo, unidad, suyo, onDeshacer, ancho, children }) {
 export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', onFase,
                                textos = {}, onTexto, dosFases = true,
                                autoconsumoKwh = null, onAutoconsumo,
-                               ubicacionFv = null, onAutoconsumoPvgis = null }) {
+                               ubicacionFv = null, onAutoconsumoPvgis = null,
+                               sello = null, generica = false, onGenerica = null }) {
     const [abierta, setAbierta] = useState(null);
     const [verPvgis, setVerPvgis] = useState(false);
     // Sin elección a mano manda lo que trae marcado la fase.
@@ -1686,6 +1758,10 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
         <Ventana titulo="Medidas de mejora">
             <SelectorFase fase={fase} onFase={onFase} dosFases={dosFases} />
 
+            {/* Lo que lleva el .cex que YA está en Drive (la elección de aquí es
+                la RECETA: se guarda con el trabajo y la usa también la skill). */}
+            {sello}
+
             <div>
                 <div className="flex items-baseline justify-between gap-3">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">
@@ -1694,6 +1770,13 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
                     <span className={`text-[10.5px] ${n ? 'text-white/35' : 'text-amber-400/80'}`}>
                         {n === 0 ? 'ninguna: el .cex sale sin medidas'
                             : n === 1 ? '1 se escribe' : `${n} se escriben`}
+                        {elegidas && (
+                            <button type="button" onClick={() => onElegir(null)}
+                                    title="Volver a las que marca la fase por defecto"
+                                    className="ml-2 underline decoration-dotted hover:text-white/70">
+                                las de por defecto
+                            </button>
+                        )}
                     </span>
                 </div>
 
@@ -1745,6 +1828,18 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
                                     )}
                                 </div>
 
+                                {/* Sin aerotermia elegida en el expediente, la de la
+                                    SIMULACIÓN (SCOP, SCOP_dhw y potencia simulados),
+                                    como hace la skill: queda en la receta. */}
+                                {m.id === 'aerotermia' && onGenerica && (m.generica || m.generica_posible) && (
+                                    <label className="mt-1.5 flex cursor-pointer items-center gap-2 pl-6 text-[10.5px]
+                                                      text-white/50">
+                                        <input type="checkbox" checked={generica}
+                                               onChange={(e) => onGenerica(e.target.checked)}
+                                               className="h-3 w-3 accent-[var(--brand)]" />
+                                        Con la aerotermia de la SIMULACIÓN (aún no hay equipo elegido en Instalación)
+                                    </label>
+                                )}
                                 {/* Los kWh del AUTOCONSUMO se teclean: sin un CEE
                                     cargado (todo CEE directo) no hay de dónde sacar
                                     el máximo, y con él el certificador puede declarar

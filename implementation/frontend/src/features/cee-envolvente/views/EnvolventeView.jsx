@@ -32,7 +32,7 @@ import { DetalleAgenteIa, ListaPendientes, PildoraAgenteIa } from '../components
 import { AsiEsComoEstaModal, BandaRevision } from '../components/AsiEsComoEsta';
 import { pendientesDe, selloAgente } from '../logic/pendientes';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
-         PanelMedidas, Ventana, VersionCe3x } from '../components/PanelesFicha';
+         PanelMedidas, SelloCex, Ventana, VersionCe3x } from '../components/PanelesFicha';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envolvente térmica — la superficie del certificador.
@@ -1025,24 +1025,60 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
     //: Las MEDIDAS DE MEJORA que se van a escribir. `null` = las que marca la
     //: fase por defecto (la aerotermia en el inicial, el autoconsumo en el
-    //: final); un array = lo que el certificador ha elegido a mano. Se suelta al
-    //: cambiar de fase: lo que procede proponer en cada certificado es distinto,
-    //: y arrastrar la elección del inicial al final propondría instalar un
-    //: equipo que ya está puesto.
-    const [medidasSel, setMedidasSel] = useState(null);
-    const cambiarFicha = (f) => { setFichaFase(f); setMedidasSel(null); };
+    //: final); un array = lo que se ha elegido. Van POR FASE —lo que procede
+    //: proponer en cada certificado es distinto— y se GUARDAN con el trabajo
+    //: (`ajustes.medidas_elegidas`, 2026-10-15): es la RECETA del `.cex`, la
+    //: misma que deja la skill. Antes vivían solo aquí y se perdían al cerrar,
+    //: así que la ventana no enseñaba las medidas que la skill había escrito.
+    const medidasSel = Array.isArray(ajustes.medidas_elegidas?.[fichaFase])
+        ? ajustes.medidas_elegidas[fichaFase] : null;
+    const setMedidasSel = (lista) => setAjustes(a => {
+        const todas = { ...(a.medidas_elegidas || {}) };
+        if (Array.isArray(lista)) todas[fichaFase] = lista; else delete todas[fichaFase];
+        const n = { ...a, medidas_elegidas: todas };
+        if (!Object.keys(todas).length) delete n.medidas_elegidas;
+        return n;
+    });
+    const cambiarFicha = (f) => setFichaFase(f);
+
+    //: Lo SEÑALADO, también en la previsualización (antes solo al generar): la
+    //: ficha que se ve es entonces exactamente la que se escribiría, y su HUELLA
+    //: se puede comparar con la del `.cex` de Drive. Va como TEXTO a las
+    //: dependencias: el objeto se rehace en cada pintado.
+    const senaladoTxt = geo?.geometria
+        ? JSON.stringify(plano.loSenalado(ajustes, { lienzoAMundo: lienzoAMundo(geo.georef) }))
+        : null;
 
     useEffect(() => {
         if (!geo?.geometria || !id) return;
         let vivo = true;
         const t = setTimeout(() => {
             axios.post(api(id, 'ficha'), { geometria: geo.geometria, ajustes,
+                                              envolvente: senaladoTxt ? JSON.parse(senaladoTxt) : undefined,
                                               fase: fichaFase, medidas: medidasSel })
                 .then(({ data }) => { if (vivo) setFicha(data); })
                 .catch(() => { /* se verá al generar, que es quien manda */ });
         }, 500);
         return () => { vivo = false; clearTimeout(t); };
-    }, [geo, id, ajustes, refrescoFicha, fichaFase, medidasSel]);
+        // `medidasSel` sale de `ajustes`: ya está en las dependencias.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [geo, id, ajustes, refrescoFicha, fichaFase, senaladoTxt]);
+
+    //: El SELLO del `.cex` de Drive de la fase que se ve: qué lleva, si está por
+    //: calificar en el PC y si se ha tocado a mano. Una consulta a Drive: al
+    //: abrir, al cambiar de fase y al generar — nunca en cada tecla.
+    const [estadoCex, setEstadoCex] = useState({});
+    const [refrescoEstado, setRefrescoEstado] = useState(0);
+    useEffect(() => {
+        if (!id) return;
+        let vivo = true;
+        axios.get(api(id, 'estado-cex', { fase: fichaFase }))
+            .then(({ data }) => { if (vivo) setEstadoCex(e => ({ ...e, [fichaFase]: data })); })
+            .catch(() => { /* sin sello que enseñar */ });
+        return () => { vivo = false; };
+    }, [id, fichaFase, refrescoEstado]);
+    //: La huella de lo que se VE ahora, solo si la ficha es de esta fase.
+    const huellaVista = ficha?.fase === fichaFase ? (ficha?.huella || null) : null;
 
     // ── Lo POR CONFIRMAR y el CROQUIS ───────────────────────────────────────
     // La lista sale de lo MISMO que cuenta la cabecera (`resumen.dudosos`), y
@@ -1229,8 +1265,13 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         else generarCex(fase);
     }
 
-    async function generarCex(fase = 'inicial', respuestas = null) {
+    //: El `.cex` de Drive se guardó a mano en CE3X después de generarlo: el
+    //: backend no lo pisa sin un «sí» (`forzar`). Aquí se guarda la pregunta.
+    const [tocadoCex, setTocadoCex] = useState(null);   // { fase, respuestas, texto }
+
+    async function generarCex(fase = 'inicial', respuestas = null, forzar = false) {
         setPreguntando(null);
+        setTocadoCex(null);
         // Lo contestado se guarda como AJUSTE del trabajo, que es lo que ya se
         // persiste en el expediente: se pregunta una vez, no en cada generación.
         const cfg = respuestas ? { ...ajustes, ...respuestas } : ajustes;
@@ -1248,8 +1289,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 // las medidas que se eligieron para el contrario.
                 medidas: fase === fichaFase ? medidasSel : null,
                 ajustes: cfg, fase,
+                ...(forzar ? { forzar: true } : {}),
             }, { haciendo: 'generar el .cex' });
             setGuardado(data);
+            setRefrescoEstado(n => n + 1);
             setAvisos(data.avisos || null);
             // El enlace de la carpeta es el FINAL del recorrido: es lo que se le
             // pasa al certificador. Sale solo, y no en una línea al pie de la
@@ -1260,6 +1303,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             // 422 = el motor NO ha escrito el fichero a propósito. Es una
             // respuesta, no una caída: lleva dentro qué le falta.
             const d = e.datos || e.response?.data;
+            // 409 con `tocado`: no es un fallo, es una PREGUNTA (¿pisar lo que se
+            // guardó en CE3X?). Se enseña al lado del botón con su «sí».
+            if (d?.tocado) {
+                setTocadoCex({ fase, respuestas, texto: d.error });
+                return;
+            }
             setError(e.mensaje || d?.error || 'No se pudo generar el .cex.');
             if (d?.avisos?.length) setAvisos(d.avisos);
         } finally {
@@ -2073,6 +2122,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             {activa === 'medidas' && (
                 <PanelMedidas catalogo={ficha?.medidas} elegidas={medidasSel}
                               onElegir={setMedidasSel} {...fase}
+                              sello={<SelloCex estado={estadoCex[fichaFase]} huella={huellaVista} fase={fichaFase} />}
+                              generica={ajustes.aerotermia_generica === true}
+                              onGenerica={(v) => cambiarAjuste('aerotermia_generica', v ? true : null)}
                               textos={ajustes.medidas_texto || {}}
                               onTexto={cambiarTextoMedida}
                               autoconsumoKwh={ajustes.autoconsumo_kwh ?? null}
@@ -2105,6 +2157,26 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         01/10/2026. Un final se puede hacer con la 3.1 sobre un
                         inicial de la 2.3: se convierte al copiarlo. */}
                     <VersionCe3x version={versionVista} onCambiar={cambiarVersion} compacto />
+                    {/* Lo que lleva el .cex que YA está en Drive, y si está al
+                        día con lo que se ve aquí. */}
+                    <SelloCex estado={estadoCex[fichaFase]} huella={huellaVista} fase={fichaFase} />
+                    {tocadoCex && (
+                        <div className="rounded-lg border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2.5">
+                            <p className="text-[12px] leading-snug text-amber-200/90">{tocadoCex.texto}</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                <button onClick={() => generarCex(tocadoCex.fase, tocadoCex.respuestas, true)}
+                                        className="rounded-lg bg-amber-400/90 px-3 py-1.5 text-[11px] font-black
+                                                   uppercase tracking-widest text-black hover:brightness-110">
+                                    Generar igualmente
+                                </button>
+                                <button onClick={() => setTocadoCex(null)}
+                                        className="rounded-lg border border-white/15 px-3 py-1.5 text-[11px]
+                                                   font-bold uppercase tracking-widest text-white/60 hover:bg-white/5">
+                                    No, lo dejo
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {/* El FINAL no se levanta de cero: se COPIA el inicial y se le
                         cambia el generador, que es como se hace a mano. Verificado
                         sobre 26RES060_186 contra el .cex que guardó el certificador

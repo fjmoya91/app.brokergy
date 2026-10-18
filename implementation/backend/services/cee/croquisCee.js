@@ -665,15 +665,18 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
     //: en ninguna hoja y la planta decía «0 huecos» con las ventanas dibujadas.
     const zonaDeCerr = new Map((env.cerramientos || []).map(x => [String(x.nombre || '').trim(), x.zona]));
     const plantaDeZona = (z) => (z ? (plantas.find(p => p.id === z || p.nombre === z) || {}).id || null : null);
+    const plantaUnica = plantas.length === 1 ? plantas[0].id : null;
     const huecos = huecosRx.length ? huecosRx.map((h) => ({
         planta: plantaDeMuro(h.cerramiento)
-            || plantaDeZona(zonaDeCerr.get(String(h.cerramiento || '').trim())),
+            || plantaDeZona(zonaDeCerr.get(String(h.cerramiento || '').trim())) || plantaUnica,
         nombre: h.nombre, muro: nombreCorto(h.cerramiento), orient: h.orientacion,
         //: La `superficie` de CE3X YA va multiplicada (3 ventanas de 1,00 × 1,30
         //: guardan 3,90): multiplicarla otra vez daba 11,70 m² (26RES080_66).
         ancho: h.ancho, alto: h.alto, mult: Number(h.multiplicador) || 1,
         sup: Number(h.superficie) || (Number(h.ancho) || 0) * (Number(h.alto) || 0) * (Number(h.multiplicador) || 1),
-        marco: h.marco, vidrio: h.vidrio, porc: h.porc_marco, persiana: conCaja.has(String(h.nombre || '').trim()),
+        marco: h.marco || (h.u_marco != null ? `Conocido · Uf ${num(h.u_marco)}` : null),
+        vidrio: h.vidrio || (h.u_vidrio != null ? `Ug ${num(h.u_vidrio)}${h.g_vidrio != null ? ` · g ${num(h.g_vidrio)}` : ''}` : null),
+        porc: h.porc_marco, persiana: conCaja.has(String(h.nombre || '').trim()),
     })) : muros.filter(m => !G.esFuera(m)).flatMap(m => (m.huecos || []).map((h) => {
         const k = carp(h);
         return {
@@ -690,11 +693,12 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
     const CAB_HUECOS = ['Hueco', 'Muro', 'Orient.', 'Ancho × alto (m)', 'Sup. (m²)', 'Marco', 'Vidrio', '% marco', 'Persiana'];
     const totHue = huecos.reduce((s, h) => s + (Number(h.sup) || 0), 0);
 
+    const enPlanta = (h, p, i) => h.planta === p.id || (!h.planta && i === 0);
     const hojasPlanos = plantas.map((p, i) => {
         const ms = muros.filter(m => (m.planta || null) === p.id);
         const zs = zonasLienzo.filter(z => Number(z.nivel) === Number(p.nivel));
         const primera = i === 0;
-        const hs = huecos.filter(h => h.planta === p.id);
+        const hs = huecos.filter(h => enPlanta(h, p, i));
         // El plano se lleva el sitio que deja el cuadro de huecos de su planta.
         const alto = (primera ? 175 : 222) - Math.min(14, hs.length) * 6.2 - (hs.length ? 16 : 0);
         const eqs = equipos.filter(e => e.nivel === p.nivel);
@@ -767,10 +771,10 @@ ${pie(n)}</section>`;
     };
     // Cuántas líneas ocupa cada fila de superficies: una por uso que no es vivienda.
     const lineasSup = [];
-    const filasSup = plantas.map((p) => {
+    const filasSup = plantas.map((p, i) => {
         const zs = (trabajo?.zonas_fuera || []).filter(z => Number(z.nivel) === Number(p.nivel));
         const nombre = /^planta/i.test(p.nombre || '') ? p.nombre : `Planta ${p.nombre || p.id}`;
-        const hs = huecos.filter(h => h.planta === p.id);
+        const hs = huecos.filter(h => enPlanta(h, p, i));
         lineasSup.push(Math.max(1, porUso(zs).length));
         return `<tr><td class="nw"><b>${esc(nombre)}</b></td><td class="n">${num(supPlanta(p), 1)}</td>`
             + `<td>${porUso(zs).map(([uso, a]) => `${esc(ROTULO_ZONA[uso] || uso)} ${num(a, 1)} m²`).join('<br>') || '—'}</td>`

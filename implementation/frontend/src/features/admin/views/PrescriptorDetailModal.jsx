@@ -698,6 +698,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         // Apoderados ADICIONALES que pueden firmar (S.O.): [{nombre,apellidos,nif,cargo}].
         representantes: [],
         comision_activa: false, comision_tipo: 'eur', comision_valor: '',
+        avisos_al_partner: false,
         ccaa: '', provincia: '', provincia_cod: '', municipio: '',
         codigo_postal: '', direccion: '', es_autonomo: false, logo_empresa: '',
         marcas_aerotermia: [],
@@ -745,6 +746,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     const [form, setForm] = useState(emptyForm);
     const [loading, setLoading] = useState(false);
     const [saved, setSaved] = useState(false);
+    // Cuántos clientes ha tocado el último cambio de «avisos al partner».
+    const [avisosAplicados, setAvisosAplicados] = useState(null);
     const [error, setError] = useState(null);
     const [offerAssocData, setOfferAssocData] = useState(null);
     const [togglingAcceso, setTogglingAcceso] = useState(false);
@@ -910,6 +913,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 comision_activa:      !!p.comision_activa,
                 comision_tipo:        p.comision_tipo || 'eur',
                 comision_valor:       p.comision_valor ?? '',
+                avisos_al_partner:    !!p.avisos_al_partner,
                 codigo_identificacion: p.codigo_identificacion ?? '',
                 ccaa:                 p.ccaa || '',
                 provincia:            p.provincia || '',
@@ -1188,6 +1192,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 landing_email_contacto:       form.landing_email_contacto.trim().toLowerCase() || null,
                 // Notas internas: el backend solo las acepta de ADMIN/TRABAJADOR.
                 ...(isStaff ? { notas: form.notas.trim() || null } : {}),
+                // A quién le escribimos lo decide el equipo, no el partner. Solo se
+                // manda si se ha CAMBIADO: la ficha se abre desde sitios que no traen
+                // el campo, y un `false` por omisión le quitaría el desvío a todos
+                // sus clientes al guardar cualquier otra cosa.
+                ...(isStaff && !!form.avisos_al_partner !== !!p?.avisos_al_partner
+                    ? { avisos_al_partner: !!form.avisos_al_partner } : {}),
                 // slug + activación SOLO las envía el admin (backend también lo refuerza).
                 ...(isAdmin ? {
                     landing_slug:   form.landing_slug.trim().toLowerCase() || null,
@@ -1228,6 +1238,9 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                     ...(form.usuario_password ? { usuario_password: form.usuario_password } : {}),
                 };
                 const res = await axios.patch(`/api/prescriptores/${p.id_empresa}`, patchPayload);
+                setAvisosAplicados(res.data?.avisos_al_partner_clientes != null
+                    ? { activo: !!res.data.avisos_al_partner, n: res.data.avisos_al_partner_clientes }
+                    : null);
                 const updated = { ...p, ...res.data,
                     nombre_responsable: form.nombre_responsable,
                     apellidos_responsable: form.apellidos_responsable,
@@ -1562,6 +1575,20 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             <FV label="Marca Principal" value={p.marca_referencia} />
                                             <FV label="Marca Secundaria" value={p.marca_secundaria} />
                                         </>
+                                    )}
+                                    {isStaff && (p.avisos_al_partner || avisosAplicados) && (
+                                        <div className="col-span-1 sm:col-span-2 p-3 rounded-xl bg-sky-500/[0.04] border border-sky-500/20">
+                                            <p className="text-[9.5px] uppercase tracking-[0.16em] font-bold text-sky-400/80">
+                                                {p.avisos_al_partner ? 'Los avisos de sus clientes le llegan al partner' : 'Avisos de sus clientes: a cada cliente'}
+                                            </p>
+                                            {avisosAplicados && (
+                                                <p className="text-[11px] text-emerald-400 mt-1">
+                                                    {avisosAplicados.activo
+                                                        ? `Activado en ${avisosAplicados.n} ${avisosAplicados.n === 1 ? 'cliente' : 'clientes'}; los nuevos entran ya con él.`
+                                                        : `Retirado de ${avisosAplicados.n} ${avisosAplicados.n === 1 ? 'cliente' : 'clientes'}.`}
+                                                </p>
+                                            )}
+                                        </div>
                                     )}
 
                                     {p.tipo_empresa === 'DISTRIBUIDOR' && form.instaladores_asociados?.length > 0 && (
@@ -2134,7 +2161,37 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             })()}
                                         </div>
                                     )}
-                                    
+
+                                    {/* ── Avisos de sus clientes, al partner ──────────────────────
+                                        Enciende en TODOS sus clientes «¿Los avisos los recibe el
+                                        partner?» (la de la ficha del cliente), y los nuevos nacen con
+                                        él. Lo decide el equipo; el backend lo repite. */}
+                                    {isStaff && (
+                                        <div className="sm:col-span-2 p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2">
+                                            <label className="flex items-center gap-4 cursor-pointer w-full">
+                                                <div className="relative h-6 w-11 shrink-0">
+                                                    <input type="checkbox" checked={!!form.avisos_al_partner}
+                                                        onChange={e => upd({ avisos_al_partner: e.target.checked })}
+                                                        className="sr-only peer" />
+                                                    <div className="w-full h-full bg-transparent border border-orange-500 peer-focus:ring-2 peer-focus:ring-brand/50 rounded-full peer peer-checked:after:translate-x-[20px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500 shadow-inner"></div>
+                                                </div>
+                                                <div>
+                                                    <span className="font-black text-white text-xs uppercase tracking-wider block">Los avisos de sus clientes, al partner</span>
+                                                    <span className="text-[10px] text-white/30 block mt-0.5">
+                                                        Los WhatsApp, emails y peticiones de documentación que irían a sus clientes le llegan a su comercial (o al teléfono y email de esta ficha). Los documentos siguen a nombre del titular.
+                                                    </span>
+                                                </div>
+                                            </label>
+                                            {!!form.avisos_al_partner !== !!p?.avisos_al_partner && p?.id_empresa && (
+                                                <p className="text-[10px] text-amber-400/90 leading-relaxed">
+                                                    {form.avisos_al_partner
+                                                        ? 'Al guardar se activa en TODOS sus clientes, y los que se den de alta o se le asignen a partir de ahora entran ya con él. Un cliente concreto se puede excluir desde su ficha.'
+                                                        : 'Al guardar se retira de todos sus clientes que lo tengan: los avisos vuelven a ir a cada cliente.'}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {form.tipo_empresa === 'DISTRIBUIDOR' && (
                                         <div className="sm:col-span-2">
                                             <FI label="Instaladores Asociados (Multi-selección)">

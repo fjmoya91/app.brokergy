@@ -33,6 +33,7 @@ GRAVE se reserva para lo que está **mal, incoherente o ausente cuando ya deber�
 - Literales, rótulos o nombres de plantilla mal puestos en documentos ya firmados (p. ej. un anexo fotográfico que rotula "ventanas" una puerta) → **LEVE** con acción de regenerar y volver a firmar. Solo sube a GRAVE si el literal contradice un DATO de cálculo o de identificación (importe, superficie, nº de serie, referencia catastral).
 - **Ahorro del Anexo de Cesión distinto al del CIFO → NO es incidencia** (es una estimación firmada antes del cálculo definitivo). Ver el criterio completo en Severidades.
 - Estados de la app desactualizados (`estado_relleno` en `revisar` sobre algo que ya está resuelto) → LEVE con la acción de ponerlo en `ok`.
+- **RES060: SCOP del CEE final distinto del SCOP del CIFO → LEVE** (el ahorro sale del CIFO, no del CEE final). En **RES080 sí es GRAVE**, porque ahí el ahorro sale de los CEE. Ver la matriz de cruces (punto 4, SCOP calefacción).
 
 ## Entrada
 Expediente por `numero_expediente` (ej. `25RES060_61`) o `drive_folder_id`. Si no se deduce, confirma RES060 (solo aerotermia) o RES080 (envolvente + instalaciones térmicas).
@@ -58,7 +59,11 @@ Lee el expediente en Supabase (cliente, instalador FK, equipos, `documentacion`,
 - **Nº serie equipos**: CIFO↔informe fotográfico↔Anexo I → ERROR. ⚠️ **Serie ACS ≠ serie unidad exterior de calefacción** (el CIFO da las dos por separado, aunque sean misma marca/modelo).
   - **Assert duro:** `select numero_expediente from expedientes where id=:exp_id and instalacion->>'cambio_acs'='true' and instalacion->'aerotermia_acs'->>'numero_serie' = instalacion->'aerotermia_cal'->>'numero_serie';` debe dar **0 filas**. Si devuelve el expediente → la serie ACS está copiada de la de calefacción = ERROR/GRAVE (caso real 25RES060_57). Contrasta la serie ACS con la factura/placa del equipo o depósito ACS del informe fotográfico.
   - ⚠️ **ACS por la MISMA aerotermia + acumulador separado** (p.ej. SHP M PRO 010 + acumulador LAGO 100): NO es un termo independiente con modelo propio. `aerotermia_acs.aerotermia_db_id` apunta a la MISMA aerotermia de calefacción, `metodo_scop='independiente'` (Anexo VI/Caso 3) y SCOPdhw = COP_A7/55 × Fc. La serie del "equipo ACS" del CIFO es la del acumulador (distinta de la U. exterior). Caso real 25RES060_68.
-- **SCOP calefacción**: CIFO↔Ficha↔CEE(%)↔FT (a Tª correcta: 35 suelo radiante / 55 radiadores) → ERROR
+- **SCOP calefacción**: CIFO↔Ficha↔FT (a Tª correcta: 35 suelo radiante / 55 radiadores) → ERROR
+  - **SCOP del CEE FINAL ≠ SCOP del CIFO — depende de la ficha (Fran, 15/10/2026):** el rendimiento estacional (%) que declara el XML del CEE final para la aerotermia, frente al SCOP del CIFO (equivalencia % ↔ decimal = OK).
+    - **RES060 → WARNING/LEVE.** El ahorro sale de la fórmula del CIFO (`Dcal × S × (1/ηi − 1/SCOP)`) y el SCOP del CEE final no entra en él: es calidad del CEE, no inexactitud del ahorro. Acción: que el certificador lo corrija si se vuelve a registrar el CEE final; si no, anotar de dónde sale cada cifra. (25RES060_79: 4,74 vs 4,47 y 26RES060_100: 4,84 vs 4,72 se registraron GRAVE el 14/10/2026, antes de este criterio.)
+    - **RES080 → ERROR/GRAVE.** El ahorro sale de la diferencia entre el CEE inicial y el final (por uso o por vector), así que otro SCOP en el final cambia el ahorro declarado. Acción: corregir el `.cex` del final con el SCOP del CIFO, recalcular y volver a registrar; si cambia el ahorro, reemitir CIFO y ficha.
+    - Las demás fichas (RES093, TER100, TER173) siguen como ERROR mientras no se decida otra cosa.
 - **SCOPdhw**: CIFO↔Ficha↔Anexo IV/VI ficha RES060 → ERROR
 - **Tª impulsión↔emisor** (35 suelo radiante / 55 radiadores, verificado con RITE/factura) → ERROR
 - **Dcal**: CIFO↔CEE → ERROR · **DACS (+XML si el CIFO lo marca)**: CIFO↔Ficha↔solicitud = DACS del **CEE INICIAL** (↔XML inicial) → ERROR

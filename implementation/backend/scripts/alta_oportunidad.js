@@ -349,6 +349,29 @@ async function crear() {
     const raw = await cat.getByRC(rc);
     if (!raw?.constructions) throw new Error(`El Catastro no devuelve el inmueble ${rc}.`);
 
+    // Una vivienda repartida en VARIAS referencias (un ático hecho con tres
+    // «almacenes» de la planta 3, cada uno con su RC): `rcs_adicionales`. Sus
+    // construcciones privativas (no los elementos comunes, cuyo código se repite)
+    // se suman a las de `rc` y cuentan. Se piden EN SERIE (Catastro: nunca en
+    // paralelo). La oportunidad lleva `rc`; las demás quedan en el historial.
+    const rcsExtra = (plan.rcs_adicionales || []).map(r => String(r).toUpperCase().replace(/[^A-Z0-9]/g, ''));
+    for (const r of rcsExtra) {
+        if (r.length !== 20 || r === rc) throw new Error(`rcs_adicionales: «${r}» no es otra referencia de 20 caracteres.`);
+        // eslint-disable-next-line no-await-in-loop
+        const otro = await cat.getByRC(r);
+        if (!otro?.constructions) throw new Error(`El Catastro no devuelve el inmueble ${r}.`);
+        if (r.slice(0, 14) !== rc.slice(0, 14)) avisos.push(`${r} es de OTRA parcela que ${rc}.`);
+        const propias = otro.constructions.filter(c => !/COMUNES/i.test(`${c.type || ''} ${c.originalType || ''}`));
+        for (const c of propias) {
+            if (raw.constructions.some(x => String(x.code || '').trim() === String(c.code || '').trim())) {
+                throw new Error(`rcs_adicionales: el código ${c.code} de ${r} ya está en ${rc}.`);
+            }
+        }
+        raw.constructions = [...raw.constructions, ...propias];
+        plan.construcciones = [...new Set([...(plan.construcciones || []), ...propias.map(c => String(c.code).trim())])];
+        avisos.push(`Se suma ${r} (${propias.map(c => `${c.code} ${c.originalType || c.type} ${c.surface} m²`).join(' · ')}).`);
+    }
+
     // Una construcción que solo se calienta EN PARTE (la mitad del sótano): se
     // cuenta con los m² que dice el plan y se añade a `construcciones`. Se
     // escribe sobre la construcción misma para que la selección, el desglose
@@ -390,6 +413,19 @@ async function crear() {
     Object.assign(inputs, { uMuro: u.wall, uCubierta: u.roof, ventanaU: va.ventanaU, ach: va.ach });
     // Orientación de la fachada principal y patios interiores (del croquis o las fotos).
     Object.assign(inputs, alta.ajustesEdificio(plan));
+    if (inputs.subtipo && inputs.tipo !== 'piso') avisos.push(`subtipo «${inputs.subtipo}» no cuenta: el inmueble no es un piso (${inputs.tipo}).`);
+    // Propano/butano: el funnel lo lleva como gas; la calculadora, como GLP.
+    Object.assign(inputs, alta.ajustesCombustible(plan));
+
+    // La superficie que DECLARAN (el instalador, el cliente) cuando el Catastro no
+    // la recoge entera (una ampliación, un ático sin regularizar). Manda sobre la
+    // suma de construcciones y se dice: el CEE la medirá.
+    if (plan.superficie_declarada != null) {
+        const m2 = Number(plan.superficie_declarada);
+        if (!(m2 > 0)) throw new Error(`superficie_declarada «${plan.superficie_declarada}»: los m² calefactables.`);
+        avisos.push(`Superficie DECLARADA ${m2} m², no la del Catastro (${sel.superficie} m²): la medirá el CEE.`);
+        Object.assign(inputs, { superficie: m2, superficieCalefactable: m2 });
+    }
 
     // 3. La caldera que hay: la fila de la tabla la decide la PLACA (año) o el
     //    plan, no el «más de 20 años» del funnel — que en gasóleo cae en «anterior
@@ -603,6 +639,8 @@ async function crear() {
     for (const d of docs) if (!fs.existsSync(d.ruta)) throw new Error(`No existe el fichero ${d.ruta}.`);
 
     const previas = await alta.oportunidadesDeLaRc(supabase, rc);
+    // eslint-disable-next-line no-await-in-loop
+    for (const r of rcsExtra) previas.push(...await alta.oportunidadesDeLaRc(supabase, r));
     let clientePrevio = null;
     if (contacto.dni) {
         const { data } = await supabase.from('clientes').select('id_cliente, nombre_razon_social, apellidos')
@@ -622,8 +660,9 @@ async function crear() {
     console.log(`              año ${inputs.anio} · zona ${inputs.zona} · ${inputs.tipo} · calefactable ${inputs.superficieCalefactable} m²`
         + ` (${desglose.construcciones.map(c => `${c.codigo} ${c.uso} P${c.planta} ${c.superficie}m²${c.cuenta ? ' ✓' : ' ✗'}`).join(' · ')})`);
     console.log(`Edificio:     fachada principal ${inputs.orientacion === 'media' ? 'sin orientación (media)' : `al ${inputs.orientacion}`} · `
-        + `${inputs.patios || 0} patio(s) interior(es) · ${inputs.fachadas} fachada(s) al exterior · ${inputs.plantas} planta(s)`);
-    console.log(`Caldera:      ${funnel.combustible_actual || 'sin calefacción'} · ${inputs.boilerId} (η ${inputs.boilerEff})`
+        + `${inputs.patios || 0} patio(s) interior(es) · ${inputs.fachadas} fachada(s) al exterior · ${inputs.plantas} planta(s)`
+        + (inputs.tipo === 'piso' ? ` · piso ${inputs.subtipo}` : ''));
+    console.log(`Caldera:      ${funnel.combustible_actual || 'sin calefacción'}${inputs.fuelType === 'glp' ? ' (GLP/propano)' : ''} · ${inputs.boilerId} (η ${inputs.boilerEff})`
         + `${inputs.placa_caldera ? ` · ${inputs.placa_caldera.marca || ''} ${inputs.placa_caldera.modelo || ''} ${inputs.placa_caldera.potencia_kw || '?'} kW` : ''}`);
     console.log(`Emisor:       ${inputs.emitterType} (${temp} °C)`);
     console.log(`ACS:          actual ${funnel.boiler_acs_type || '—'} → ${inputs.boilerAcsType} · se cambia: ${inputs.changeAcs ? 'SÍ' : 'no'}`

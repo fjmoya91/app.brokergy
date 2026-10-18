@@ -362,7 +362,11 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
     let cbPct = null;
     if (hib) {
         const supHib = superficie || parseFloat(cee.cee_final?.superficieHabitable) || 0;
-        const demandAnnual = (demandaCal * supHib) || parseFloat(opDatos.Q_net) || 0;
+        // Sin CEE inicial cargado (el inicial que hace el Agente IA) vale la de la
+        // SIMULACIÓN, que es la del C_b declarado: vive en `result.Q_net`, y la raíz
+        // solo la tienen las oportunidades viejas (26RES093_12 salía sin reparto).
+        const demandAnnual = (demandaCal * supHib) || parseFloat(opDatos.Q_net)
+            || parseFloat(opDatos.result?.Q_net) || 0;
         const r = calculateHybridization({
             demandAnnual,
             zone: opDatos.zona || 'D3',

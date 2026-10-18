@@ -13,6 +13,7 @@ const anexoFotograficoService = require('../services/anexoFotograficoService');
 const uploadNotifier = require('../services/uploadNotifier');
 const { buildCertClienteData } = require('../services/certClienteData');
 const cobroService = require('../services/cobroService');
+const { marcarSiElPartnerLoPide } = require('../services/avisosAlPartner');
 const { normalizeCliente, fundirCopropietarios } = require('../utils/normalization');
 // El nombre llega del formulario del cliente: puede traer espacios (que rompen
 // la *negrita* de WhatsApp: "*JESÚS *" no se marca) y va en MAYÚSCULAS.
@@ -486,6 +487,10 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
                 console.error("[Public] Error creando nuevo cliente:", createErr?.message || 'Error desconocido');
             }
         }
+
+        // Si el partner de la oportunidad pide TODOS los avisos de sus clientes,
+        // este también (antes del acuse de aceptación, que ya debe ir a él).
+        if (id_cliente) await marcarSiElPartnerLoPide(id_cliente);
 
         // 1. Marcar la oportunidad como ACEPTADA (si no lo está ya)
         const currentHistorial = opp.datos_calculo?.historial || [];

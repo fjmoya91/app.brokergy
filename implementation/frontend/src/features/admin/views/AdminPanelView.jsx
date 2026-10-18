@@ -11,6 +11,7 @@ import { VincularClienteModal } from '../../clientes/components/VincularClienteM
 // cuadro de mando, para que las tres pantallas no puedan pintar la misma ficha
 // de dos colores ni quedarse una sin la nueva.
 import { FICHAS, fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
+import { EntregaPropuestaTag } from '../components/EntregaPropuestaTag';
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -1623,6 +1624,7 @@ export function AdminPanelView({
 
                                             <td className="p-3.5 align-top" onClick={e => e.stopPropagation()}>
                                                 <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <div className="flex flex-col items-start gap-1">
                                                     {loMandaElExpediente(op) ? (
                                                         <span
                                                             title="Lo marca su expediente: se pone EN CURSO al asignarle certificador y FINALIZADO al terminarlo."
@@ -1648,6 +1650,8 @@ export function AdminPanelView({
                                                         <option value="RECHAZADA" className="bg-slate-800 text-red-500">RECHAZADA</option>
                                                     </select>
                                                     )}
+                                                    <EntregaPropuestaTag op={op} estado={estadoDe(op)} className="pl-1" />
+                                                    </div>
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); setHistoryModalOp(op); }}
                                                         className="text-white/15 hover:text-white p-1 rounded-lg hover:bg-white/[0.06] transition-all"
@@ -1859,6 +1863,7 @@ export function AdminPanelView({
                                         <option value="RECHAZADA" className="bg-slate-800 text-red-500">RECHAZADA</option>
                                     </select>
                                     )}
+                                    <EntregaPropuestaTag op={op} estado={estado} className="order-last basis-full pl-1" />
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setHistoryModalOp(op); }}
                                         className="w-9 h-9 flex items-center justify-center text-white/40 hover:text-white rounded-lg hover:bg-white/[0.06] transition-all"

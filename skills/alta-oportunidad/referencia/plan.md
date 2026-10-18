@@ -27,7 +27,7 @@ relativas a esa carpeta.
   "patios": 1,
   "caldera": {
     "combustible": "gasoleo",
-    "edad": "10-20",
+    "edad": "no_se",
     "condensacion": "no",
     "rendimiento_id": "oil_post98",
     "marca": "JUNKERS",
@@ -50,7 +50,7 @@ relativas a esa carpeta.
   "decisiones": [
     "Superficie: las dos plantas de VIVIENDA del Catastro (141 + 34 = 175 m²)",
     "Fachada principal al NORTE y 1 patio interior (croquis: «C/ HERNAN CORTES (NORTE)» y «PATIO»)",
-    "Caldera de gasóleo de una vivienda de 2008 → «Gasóleo ≥1998 sin condensación» (η 0,79)"
+    "Caldera de gasóleo sin condensación y la placa no dice el año → la fila más reciente: «Gasóleo ≥1998 sin condensación» (η 0,79)"
   ]
 }
 ```
@@ -65,14 +65,17 @@ relativas a esa carpeta.
 | `rc` | referencia de la VIVIENDA (20) | Con una de 14 (parcela) `crear` se niega |
 | `construcciones` | códigos `escalera/planta/puerta` que se AÑADEN | Todas las VIVIENDA cuentan SIEMPRE (no se pueden quitar). Aquí solo va lo que el Catastro no da como vivienda y se vive. `catastro <RC>` los lista |
 | `vivienda_construcciones` | códigos `escalera/planta/puerta` de ESTA vivienda | SOLO cuando la RC agrupa VARIAS viviendas (parcela sin división horizontal: el bajo y el 1º con la misma RC). Cuenta solo esas y deja fuera las demás viviendas, avisándolo. Tiene que incluir una VIVIENDA. Con varias viviendas, la segunda oportunidad lleva además `permitir_duplicado` (caso 26RES060_OP256/OP257) |
+| `rcs_adicionales` | otras RC (20) de la MISMA vivienda | Una vivienda repartida en varias referencias (un ático hecho con tres «almacenes», cada uno con su RC). Se suman sus construcciones privativas (no los comunes); la oportunidad va sobre `rc`. Dilo en `decisiones` con las tres. Caso: ático de C/ San Agustín 27, Iniesta (2026-10-15) |
+| `superficie_declarada` | m² calefactables | Solo cuando el Catastro no la recoge entera (ático o ampliación sin regularizar) y el instalador o el cliente la dan. Manda sobre la suma de construcciones y se avisa: la medirá el CEE |
+| `subtipo` | `intermedio` · `atico` · `bajo` | Posición del PISO en el edificio («Posición en edificio» de la calculadora). Sin dato, `intermedio`. Un ático sube la demanda |
 | `orientacion` | `media` · `N` · `NE` · `E` · `SE` · `S` · `SO` · `O` · `NO` | Hacia dónde mira la FACHADA PRINCIPAL (la de la calle). Del croquis o las fotos. Sin dato, `media` |
 | `patios` | 0 a 4 | Patios interiores (el croquis los rotula). Sin dato, 0 |
 | `fachadas` | 1 a 4 | Fachadas al exterior. Solo si consta (una casa entre medianeras); si no, la de la calculadora |
 | `permitir_duplicado` | `true` | Solo si la vivienda ya tiene oportunidad y de verdad es otra alta. Dilo en `decisiones` |
-| `caldera.combustible` | `gas` · `gasoleo` · `electrica` · `carbon` · `biomasa` | `"caldera": null` = la vivienda no tiene calefacción |
+| `caldera.combustible` | `gas` · `glp` · `gasoleo` · `electrica` · `carbon` · `biomasa` | `"caldera": null` = la vivienda no tiene calefacción. `glp` = propano o butano (regulador, depósito, bombonas): en el funnel va como gas (misma fila de la tabla) y en la calculadora como GLP (precio, emisiones, CE3X) |
 | `caldera.edad` | `<10` · `10-20` · `>20` · `no_se` | Coherente con `rendimiento_id` |
 | `caldera.condensacion` | `si` · `no` · `no_se` | |
-| `caldera.rendimiento_id` | fila de `BOILER_EFFICIENCIES` | **Manda** sobre la que deduce el formulario por la edad |
+| `caldera.rendimiento_id` | fila de `BOILER_EFFICIENCIES` | **Manda** sobre la que deduce el formulario por la edad. Por el AÑO DE LA PLACA; sin placa o sin año, la fila más reciente de su tipo (gasóleo `oil_post98`, gas `gas_post98_auto`). Nunca por el año de la vivienda |
 | `caldera.potencia_kw` | potencia **útil** de la placa | Va a `inputs.potenciaCaldera` |
 | `caldera.marca` / `modelo` / `numero_serie` / `serie_dudosa` | la placa | `inputs.placa_caldera`: el expediente la hereda al aceptarse (solo huecos; un serie dudoso no) |
 | `emisor` | `radiadores_convencionales` (por defecto) · `radiadores_baja_temp` · `suelo_radiante` · `fancoils` | Fija la temperatura del SCOP (55 · 45 · 35 °C) |

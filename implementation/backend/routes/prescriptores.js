@@ -3,6 +3,7 @@ const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const { requireAuth, enforceAuth, adminOnly, staffOnly } = require('../middleware/auth');
 const { normalizeContactos, PARTNER_CONTACT_FIELDS, contactoClienteDesdePartner } = require('../services/notifyContacts');
+const { aplicarATodosSusClientes } = require('../services/avisosAlPartner');
 const { normalizeCliente } = require('../utils/normalization');
 
 // Rehace la persona de contacto de los clientes que tienen a este partner como
@@ -823,7 +824,10 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             titulacion: payload.titulacion,
             colegio_profesional: payload.colegio_profesional,
             numero_colegiado: payload.numero_colegiado,
-            registro_tecnico_competente: payload.registro_tecnico_competente
+            registro_tecnico_competente: payload.registro_tecnico_competente,
+            // Recién creado no tiene clientes: solo vale para los que vengan (y lo
+            // decide el equipo, ver PATCH).
+            avisos_al_partner: esInterno(req) && (payload.avisos_al_partner === true || payload.avisos_al_partner === 'true'),
         };
 
         console.log(`[Avanzado] Creando Empresa:`, empresaPayload);
@@ -1252,6 +1256,19 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             prescriptorPayload.notas = (payload.notas || '').toString().trim() || null;
         }
 
+        // «Todos los avisos de sus clientes, al partner»: lo decide el equipo, no el
+        // partner (es a quién le escribimos). Solo se aplica a los clientes cuando
+        // CAMBIA: guardar la ficha otra vez no puede deshacer las excepciones que se
+        // hayan hecho en un cliente concreto (ver services/avisosAlPartner.js).
+        let avisosAlPartnerCambia = null;
+        if (payload.avisos_al_partner !== undefined && esInterno(req)) {
+            const nuevo = payload.avisos_al_partner === true || payload.avisos_al_partner === 'true';
+            const { data: cur } = await supabase.from('prescriptores')
+                .select('avisos_al_partner').eq('id_empresa', req.params.id).maybeSingle();
+            prescriptorPayload.avisos_al_partner = nuevo;
+            if (!!cur?.avisos_al_partner !== nuevo) avisosAlPartnerCambia = nuevo;
+        }
+
         // Limpiar undefined
         Object.keys(prescriptorPayload).forEach(key => prescriptorPayload[key] === undefined && delete prescriptorPayload[key]);
 
@@ -1274,6 +1291,20 @@ router.patch('/:id', enforceAuth, async (req, res) => {
         }
 
         console.log(`[PATCH] Prescriptor actualizado OK:`, presData);
+
+        if (avisosAlPartnerCambia !== null) {
+            // Sin teléfono ni email no hay a quién desviar: se deshace la marca y se
+            // dice, como en la ficha del cliente (`aplicarContactoPartner`).
+            if (avisosAlPartnerCambia && !contactoClienteDesdePartner(presData)) {
+                await supabase.from('prescriptores').update({ avisos_al_partner: false }).eq('id_empresa', req.params.id);
+                return res.status(400).json({
+                    error: 'Para que los avisos de sus clientes le lleguen al partner, su ficha necesita un teléfono o un email.',
+                    code: 'AVISOS_PARTNER_SIN_CANAL',
+                });
+            }
+            presData.avisos_al_partner_clientes = await aplicarATodosSusClientes(req.params.id, avisosAlPartnerCambia);
+            console.log(`[PATCH] avisos_al_partner=${avisosAlPartnerCambia} → ${presData.avisos_al_partner_clientes} clientes`);
+        }
 
         // 2.5 Sincronizar instaladores asociados (si se proporcionan)
         if (payload.instaladores_asociados && Array.isArray(payload.instaladores_asociados)) {

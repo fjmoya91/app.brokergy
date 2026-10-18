@@ -36,6 +36,7 @@ const axios = require('axios');
 const supabase = require('./supabaseClient');
 const whatsappService = require('./whatsappService');
 const emailService = require('./emailService');
+const { algunEnvioOk } = require('../utils/entregaPropuesta');
 
 const TABLA = 'propuestas_programadas';
 
@@ -185,8 +186,8 @@ async function enviar(fila) {
         return { estado: 'ERROR', version, envios: [], error: 'No se pudo preparar el PDF de la propuesta.' };
     }
 
-    let clienteOk = false;
-
+    // Cada línea lleva su `modo` (cliente / instalador): lo lee el listado
+    // para decir a quién le ha llegado (utils/entregaPropuesta.js).
     for (const grupo of (plan.grupos || [])) {
         // ── EMAIL: uno por empresa, con copia real ──────────────────────────
         if (grupo.email?.to) {
@@ -204,12 +205,11 @@ async function enviar(fila) {
                     customMessage: grupo.email.mensaje || null,
                 }, { headers: cabeceraInterna(), timeout: 120000 });
                 out.push({
-                    channel: 'email', status: 'ok',
+                    channel: 'email', status: 'ok', modo: grupo.modo,
                     text: `${grupo.email.label || grupo.email.userName || grupo.email.to} → ${grupo.email.to}${grupo.email.cc?.length ? ` (+${grupo.email.cc.length} en copia)` : ''}`,
                 });
-                if (grupo.modo === 'CLIENTE' || grupo.modo === 'TITULAR') clienteOk = true;
             } catch (e) {
-                out.push({ channel: 'email', status: 'fail', text: `${grupo.email.label || grupo.email.to}: ${e.response?.data?.message || e.response?.data?.error || e.message}` });
+                out.push({ channel: 'email', status: 'fail', modo: grupo.modo, text: `${grupo.email.label || grupo.email.to}: ${e.response?.data?.message || e.response?.data?.error || e.message}` });
             }
         }
 
@@ -231,15 +231,14 @@ async function enviar(fila) {
                       textoDespues: [w.mensajeAceptacion, w.avisoFinal].filter(Boolean) }
                 );
                 if (r && r.ok === false) throw new Error(r.error || 'WhatsApp no confirmó la entrega');
-                out.push({ channel: 'whatsapp', status: 'ok', text: `${w.label || w.phone} → ${w.phone}` });
+                out.push({ channel: 'whatsapp', status: 'ok', modo: grupo.modo, text: `${w.label || w.phone} → ${w.phone}` });
                 if (r?.despues && r.despues.ok === false) {
                     const nombres = [w.mensajeAceptacion && 'el enlace para aceptar', w.avisoFinal && 'el aviso final'].filter(Boolean);
                     const faltan = (r.despues.partes || []).map((p, i) => (p.ok ? null : nombres[i])).filter(Boolean);
-                    out.push({ channel: 'whatsapp', status: 'fail', text: `${w.label || w.phone}: llegó la propuesta, pero NO ${faltan.join(' ni ') || 'el mensaje de después del PDF'} (${r.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
+                    out.push({ channel: 'whatsapp', status: 'fail', modo: grupo.modo, text: `${w.label || w.phone}: llegó la propuesta, pero NO ${faltan.join(' ni ') || 'el mensaje de después del PDF'} (${r.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
                 }
-                if (grupo.modo === 'CLIENTE' || grupo.modo === 'TITULAR') clienteOk = true;
             } catch (e) {
-                out.push({ channel: 'whatsapp', status: 'fail', text: `${w.label || w.phone}: ${e.message}` });
+                out.push({ channel: 'whatsapp', status: 'fail', modo: grupo.modo, text: `${w.label || w.phone}: ${e.message}` });
             }
         }
     }
@@ -253,13 +252,13 @@ async function enviar(fila) {
         } catch (e) { console.warn('[PropProg] sellado de la versión:', e.message); }
     }
 
-    // 3. ENVIADA si le llegó al cliente. Por la ruta, que además mueve la
-    //    carpeta de Drive (regla 2) — replicarlo aquí la dejaría en
-    //    "01. OPORTUNIDADES" con la propuesta ya entregada.
-    if (clienteOk) {
+    // 3. ENVIADA si le llegó a ALGUIEN (cliente o instalador, 2026-10-14). Por
+    //    la ruta, que además mueve la carpeta de Drive (regla 2) — replicarlo
+    //    aquí la dejaría en "01. OPORTUNIDADES" con la propuesta ya entregada.
+    if (algunEnvioOk(out)) {
         try {
             await axios.patch(`${API()}/oportunidades/${encodeURIComponent(idLegible)}/estado`,
-                { nuevo_estado: 'ENVIADA', usuario: plan.usuario || fila.creada_por || null },
+                { nuevo_estado: 'ENVIADA', porEnvio: true, usuario: plan.usuario || fila.creada_por || null },
                 { headers: cabeceraInterna(), timeout: 60000 });
         } catch (e) { console.warn('[PropProg] paso a ENVIADA:', e.message); }
     }

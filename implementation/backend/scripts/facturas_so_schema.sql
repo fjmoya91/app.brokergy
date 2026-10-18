@@ -58,3 +58,10 @@ CREATE INDEX IF NOT EXISTS idx_facturas_so_estado ON public.facturas_so(estado);
 ALTER TABLE public.facturas_so ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
   ON public.facturas_so TO anon, authenticated, service_role;
+
+-- 2026-10-15 — El COBRO: cuándo nos ingresó el S.O. la factura (estado PAGADA).
+-- Se marca desde el Resumen del lote (POST /api/lotes/:id/factura-so/cobro).
+ALTER TABLE public.facturas_so
+  ADD COLUMN IF NOT EXISTS fecha_cobro  VARCHAR(10),   -- dd/mm/aaaa del ingreso
+  ADD COLUMN IF NOT EXISTS cobrada_at   TIMESTAMPTZ,   -- cuándo se marcó en la app
+  ADD COLUMN IF NOT EXISTS cobrada_por  VARCHAR(200);

@@ -1,5 +1,6 @@
 const express = require('express');
 const { estadoDesdeExpediente } = require('../utils/estadoOportunidad');
+const { entregaPropuesta } = require('../utils/entregaPropuesta');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
@@ -626,6 +627,7 @@ const listaSelect = (conFicha = true) => `
     dc_reformaType:datos_calculo->>reformaType,
     dc_hibridacion:datos_calculo->hibridacion,
     dc_historial:datos_calculo->historial,
+    dc_versiones:datos_calculo->propuesta_versiones,
     in_isReforma:datos_calculo->inputs->isReforma,
     in_reformaType:datos_calculo->inputs->>reformaType,
     in_hibridacion:datos_calculo->inputs->hibridacion,
@@ -677,6 +679,9 @@ function filaListado(o) {
             reformaType: o.dc_reformaType,
             hibridacion: o.dc_hibridacion,
             historial: o.dc_historial || [],
+            // A quién le ha llegado (cliente / instalador): se pinta bajo la
+            // chapa ENVIADA. Las versiones NO viajan (pesan ~1 KB por fila).
+            propuesta_entregada: entregaPropuesta(o.dc_versiones),
             inputs: {
                 isReforma: o.in_isReforma,
                 reformaType: o.in_reformaType,
@@ -1252,6 +1257,15 @@ router.patch('/:id/estado', internalKeyOrAuth, suyaSiPartner, async (req, res) =
         const usuarioName = nombreUsuario(req);
 
         const prevEstado = dc.estado || 'BORRADOR';
+
+        // Lo pide un ENVÍO de la propuesta (`porEnvio`), no el desplegable: desde
+        // 2026-10-14 cualquier envío que salga bien la pasa a ENVIADA, también
+        // uno solo al instalador. Un reenvío NO puede hacerla retroceder: si ya
+        // está enviada, pre-aceptada o aceptada, se queda como está.
+        if (req.body?.porEnvio && nuevo_estado === 'ENVIADA'
+            && ['ENVIADA', 'PRE-ACEPTADO', 'ACEPTADA'].includes(prevEstado)) {
+            return res.json({ success: true, sinCambios: true, estado: prevEstado });
+        }
 
         // --- GENERACIÓN BAJO DEMANDA si no existe carpeta ---
         let folderId = dc.drive_folder_id;

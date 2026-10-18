@@ -23,6 +23,8 @@
 // ============================================================
 
 const axios = require('axios');
+const http = require('http');
+const https = require('https');
 const geoCcaa = require('./geoCcaa');
 
 const BASE_URL = (process.env.MARWEN_API_URL || 'https://pruebascae.marwen.es').replace(/\/+$/, '');
@@ -35,17 +37,84 @@ function isConfigured() {
     return !!API_KEY;
 }
 
-function client() {
+// Un agente por llamada que APUNTA si la conexión TCP llegó a abrirse. Es lo que
+// separa "Marwen no responde" (no conectó: no ha podido recibir NADA, así que no
+// hay solicitud creada) de "Marwen no ha contestado a tiempo" (conectó y se le
+// mandó la petición: la solicitud PUDO crearse). Con solo el "timeout of 30000ms
+// exceeded" de axios no hay forma de saberlo, y reintentar en el segundo caso
+// puede duplicar la solicitud en el verificador.
+// Medido el 15/10/2026: cae.marwen.es y pruebascae.marwen.es no aceptaban
+// conexiones ni desde el VPS ni desde la oficina (www.marwen.es daba 503), y la
+// pantalla solo decía "timeout of 30000ms exceeded".
+function agenteVigilado(estado) {
+    const agente = BASE_URL.startsWith('http:') ? new http.Agent() : new https.Agent();
+    const crear = agente.createConnection.bind(agente);
+    agente.createConnection = (...args) => {
+        const s = crear(...args);
+        if (s && typeof s.once === 'function') s.once('connect', () => { estado.conectado = true; });
+        return s;
+    };
+    return agente;
+}
+
+function client(estado = {}) {
     if (!API_KEY) throw new Error('MARWEN_API_KEY no está configurada en el backend (.env)');
+    const agente = agenteVigilado(estado);
     return axios.create({
         baseURL: BASE_URL,
         timeout: 30000,
+        httpAgent: agente,
+        httpsAgent: agente,
         headers: {
             'X-API-KEY': API_KEY,
             'Accept': 'application/json',
             'User-Agent': USER_AGENT,
         },
     });
+}
+
+const HOST = (() => { try { return new URL(BASE_URL).host; } catch { return BASE_URL; } })();
+
+// Error de RED (sin respuesta HTTP) → mensaje que dice de quién es el fallo.
+//   code 'MARWEN_NO_RESPONDE'  → no llegó a conectar: no se ha enviado nada. 503.
+//   code 'MARWEN_SIN_RESPUESTA' → conectó pero no contestó: la solicitud PUDO
+//                                 crearse; hay que mirarlo antes de reintentar. 504.
+function errorDeRed(err, estado, { esEnvio = false } = {}) {
+    const causa = { ECONNABORTED: 'tiempo agotado', ETIMEDOUT: 'tiempo agotado', ECONNREFUSED: 'conexión rechazada',
+        ECONNRESET: 'conexión cortada', ENOTFOUND: 'dirección no encontrada', EAI_AGAIN: 'dirección no encontrada',
+        EHOSTUNREACH: 'servidor inalcanzable', ENETUNREACH: 'servidor inalcanzable' }[err.code]
+        || (/timeout/i.test(err.message) ? 'tiempo agotado' : (err.code || err.message));
+    let e;
+    if (!estado.conectado) {
+        e = new Error(`El servidor del verificador (${HOST}) no responde (${causa}): es un fallo de Marwen, no de la app. `
+            + (esEnvio ? 'No se ha creado ninguna solicitud. ' : 'No se ha enviado nada. ')
+            + 'Vuelve a intentarlo más tarde.');
+        e.code = 'MARWEN_NO_RESPONDE';
+        e.status = 503;
+    } else if (esEnvio) {
+        e = new Error(`El servidor del verificador (${HOST}) recibió la solicitud pero no ha contestado (${causa}). `
+            + 'PUEDE que la solicitud se haya creado: compruébalo en beCAE antes de volver a enviarla, para no duplicarla.');
+        e.code = 'MARWEN_SIN_RESPUESTA';
+        e.status = 504;
+    } else {
+        e = new Error(`El servidor del verificador (${HOST}) no ha contestado (${causa}): es un fallo de Marwen, no de la app. No se ha enviado nada. Vuelve a intentarlo más tarde.`);
+        e.code = 'MARWEN_NO_RESPONDE';
+        e.status = 503;
+    }
+    e.causa = err.message;
+    return e;
+}
+
+// GET a un catálogo, con el error de red traducido.
+async function getCatalogo(ruta) {
+    const estado = { conectado: false };
+    try {
+        const { data } = await client(estado).get(ruta);
+        return data;
+    } catch (err) {
+        if (!err.response) throw errorDeRed(err, estado);
+        throw new Error(`Marwen (${err.response.status}) al leer ${ruta}: ${err.message}`);
+    }
 }
 
 // ── Caché en memoria de catálogos (cambian rarísima vez) ──────────────────────
@@ -59,7 +128,7 @@ function freshEnough(entry) {
 
 async function getProvincias() {
     if (freshEnough(_provincias)) return _provincias.data;
-    const { data } = await client().get('/api/provincias/all');
+    const data = await getCatalogo('/api/provincias/all');
     const list = Array.isArray(data && data.data) ? data.data : [];
     _provincias = { at: Date.now(), data: list };
     return list;
@@ -69,7 +138,7 @@ async function getLocalidades(provinciaId) {
     const key = String(provinciaId);
     const cached = _localidades.get(key);
     if (freshEnough(cached)) return cached.data;
-    const { data } = await client().get(`/api/localidades/${encodeURIComponent(provinciaId)}`);
+    const data = await getCatalogo(`/api/localidades/${encodeURIComponent(provinciaId)}`);
     const list = Array.isArray(data && data.localidades) ? data.localidades : [];
     _localidades.set(key, { at: Date.now(), data: list });
     return list;
@@ -198,8 +267,9 @@ function formatMarwenError(data) {
 // Envía la solicitud estandarizada. Devuelve los datos de la respuesta (201) o
 // lanza Error con el mensaje devuelto por Marwen (400/401/422…).
 async function enviarSolicitudEstandarizada(payload) {
+    const estado = { conectado: false };
     try {
-        const { data } = await client().post('/api/v1/solicitud/estandarizada', payload, {
+        const { data } = await client(estado).post('/api/v1/solicitud/estandarizada', payload, {
             headers: { 'Content-Type': 'application/json' },
         });
         return data; // { message, num_solicitud, tipo_solicitud }
@@ -213,7 +283,7 @@ async function enviarSolicitudEstandarizada(payload) {
             e.status = r.status;
             throw e;
         }
-        throw new Error(`No se pudo contactar con Marwen: ${err.message}`);
+        throw errorDeRed(err, estado, { esEnvio: true });
     }
 }
 
@@ -221,6 +291,7 @@ module.exports = {
     BASE_URL,
     isConfigured,
     formatMarwenError,
+    errorDeRed,
     getProvincias,
     getLocalidades,
     resolveProvincia,

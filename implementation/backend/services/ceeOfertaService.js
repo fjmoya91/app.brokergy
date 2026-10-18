@@ -24,6 +24,7 @@ const whatsappService = require('./whatsappService');
 const driveService = require('./driveService');
 const ceeDirectos = require('./ceeDirectoService');
 const { normalizeCliente } = require('../utils/normalization');
+const { marcarSiElPartnerLoPide } = require('./avisosAlPartner');
 
 const TABLA = 'cee_ofertas';
 const FRONTEND = () => process.env.FRONTEND_URL || 'https://app.brokergy.es';
@@ -137,6 +138,8 @@ async function crear(datos = {}, { usuarioId = null, usuarioNombre = null } = {}
             prescriptor_id: datos.prescriptor_id || null
         })).select('id_cliente').single();
         if (eCli) throw new Error(`No se pudo dar de alta al cliente: ${eCli.message}`);
+        // Si su partner pide TODOS los avisos de sus clientes, nace con el desvío.
+        await marcarSiElPartnerLoPide(nuevo.id_cliente);
         datos = { ...datos, cliente_id: nuevo.id_cliente };
         clienteCreado = true;
     }

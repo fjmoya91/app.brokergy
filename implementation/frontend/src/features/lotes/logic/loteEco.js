@@ -138,3 +138,36 @@ export function computeLoteEco(lote) {
         costeSoMwh, ahorroSoMwh, ahorroSoTotal, ahorroSoPct,
     };
 }
+
+// IVA de la factura de venta de CAEs al S.O. (el mismo que imprime FacturaSoModal).
+export const IVA_FACTURA_SO = 0.21;
+
+/**
+ * Lo que el S.O. nos tiene que INGRESAR por el lote, para cotejarlo con la
+ * transferencia: sin IVA (base) y con IVA.
+ *
+ * Si la factura ya está emitida, manda LA FACTURA: es el importe que el S.O. ha
+ * recibido y el que va a pagar, aunque el cálculo de hoy diera unos céntimos
+ * distintos. Si no, oferta × ahorro (el verificado si lo tienen todos los
+ * expedientes, que es sobre lo que se factura; si no, el estimado, y se dice).
+ * Base = pago al cliente + beneficio del lote, por construcción.
+ */
+export function totalCobroSo(lote, eco = computeLoteEco(lote)) {
+    const f = lote?.factura_so;
+    if (f?.numero && f.base != null) {
+        const base = Number(f.base) || 0;
+        const iva = f.iva != null ? Number(f.iva) : Math.round(base * IVA_FACTURA_SO * 100) / 100;
+        return {
+            fuente: 'factura', numero: f.numero, base, iva,
+            total: f.total != null ? Number(f.total) : base + iva,
+            kwh: f.unidades_kwh != null ? Number(f.unidades_kwh) : null,
+            precioMwh: f.precio_kwh != null ? Number(f.precio_kwh) * 1000 : eco.ofertaLote,
+        };
+    }
+    if (eco.ofertaLote == null) return null;
+    const usaVerif = eco.fullyVerif && eco.ahorroKwhVerif > 0;
+    const kwh = usaVerif ? eco.ahorroKwhVerif : eco.ahorroKwh;
+    const base = Math.round(eco.ofertaLote * kwh / 1000 * 100) / 100;
+    const iva = Math.round(base * IVA_FACTURA_SO * 100) / 100;
+    return { fuente: usaVerif ? 'verificado' : 'estimado', numero: null, base, iva, total: base + iva, kwh, precioMwh: eco.ofertaLote };
+}

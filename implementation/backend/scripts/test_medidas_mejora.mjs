@@ -258,6 +258,26 @@ const solaFv = medidasCe3x({ expediente: expediente({}, { cee_final: null }), su
 comprueba('SOLA (la obra trae las placas) no habla de una «segunda fase»',
           /segunda fase/.test(solaFv.medidas[0].justificacion), false);
 
+// ── Con una caldera de BIOMASA la aerotermia sola NO mejora la EPnr (14/10/2026)
+// 26RES060_233 (pellets): CE3X daba −358 % de EPnr y −25 % de emisiones para la
+// medida 1, y la justificación decía que era «la que más las reduce».
+console.log('\n10. Caldera de BIOMASA: la justificación no promete lo que no hay');
+comprueba('con CARBÓN (misma fila solid_*) sigue el texto de siempre',
+          /que más reduce el consumo de energía primaria/.test(dos.medidas[0].justificacion), true);
+const conPellets = expediente({}, { cee_final: null });
+conPellets.oportunidades.datos_calculo.inputs.fuelType = 'pellets';
+const bio = medidasCe3x({ expediente: conPellets, superficie: 165, fase: 'inicial',
+                          elegidas: ['aerotermia', 'aerotermia_fv'], autoconsumoFv: PVGIS,
+                          consumoMedida: { meses: MESES, anual: 10585 } });
+comprueba('con PELLETS dice que sola no reduce la EPnr ni el CO2 y que la completan las placas',
+          /por sí sola\s+no reduce el consumo de energía primaria no renovable[\s\S]*autoconsumo fotovoltaico/
+              .test(bio.medidas[0].justificacion), true);
+comprueba('y no dice que sea la que más los reduce',
+          /que más reduce/.test(bio.medidas[0].justificacion), false);
+comprueba('sigue fijando el consumo de las placas (orden 1 → 2)',
+          /dimensionará después la instalación fotovoltaica/.test(bio.medidas[0].justificacion), true);
+comprueba('en latin-1', /^[\x00-\xff]*$/.test(bio.medidas[0].justificacion), true);
+
 
 console.log(fallos ? `\n${fallos} FALLAN` : '\nTodo correcto.');
 process.exit(fallos ? 1 : 0);

@@ -11,7 +11,9 @@ Cuando el usuario pide el CEE final de un **RES060**, el procedimiento es SIEMPR
 preguntarlo (solo se preguntan las fechas de visita y emisión):
 
 1. **Se copia el CEE INICIAL del técnico** (el `.cex` de «1. CEE / CEE INICIAL» sin `_REVISAR`): su
-   envolvente, sus datos, su técnico y sus imágenes, tal cual.
+   envolvente, sus datos, su técnico y sus imágenes, tal cual. **En un RES060 SOLO cambia la
+   aerotermia** (las instalaciones): ni huecos, ni nombres «- CAMBIA», ni puentes térmicos, ni
+   ventilación, ni masa, ni croquis de cambios. Todo eso es SOLO del RES080 (apartado de abajo).
 2. **Se cambian las INSTALACIONES por las que se han INSTALADO de verdad**: las del expediente, ya
    corregidas por placas y facturas (no las de la medida de mejora que tecleó el técnico). El
    generador viejo se retira; el ACS de otra máquina va como segundo equipo con el depósito.
@@ -26,6 +28,12 @@ preguntarlo (solo se preguntan las fechas de visita y emisión):
    `PATCH /api/aerotermia/:id/datos-rite`, campo `seer`): con suelo radiante o splits la bomba da
    frío y sin SEER saldría sin refrigeración (regla 72).
 6. **En la versión vigente de CE3X (3.2)**. Un inicial de la 2.3 o la 3.1 se convierte al copiarlo.
+   **Todo CEE que se FIRME después del 05/10/2026 va en CE3X 3.2** (usuario, 14/10/2026), aunque el
+   inicial, el encargo o un borrador anterior sean de la 2.3 y aunque alguien pida la 2.3 para ese
+   expediente: manda la FECHA DE FIRMA del final. La 2.3 solo para un CEE que se firmó antes de esa
+   fecha (rehacer o corregir uno ya firmado). Si la petición dice «2.3» y la firma es posterior, se
+   hace en 3.2 y se dice en una línea. Caso: 26RES080_83 — pedido en 2.3 el 02/10, firmado el 14/10:
+   rehecho en 3.2 y el borrador 2.3 archivado en OLD.
 
 ```bash
 # desde implementation/backend · motor levantado · CE3X 3.2 en el PC
@@ -66,10 +74,77 @@ hecho DE VERDAD:
 - **Fechas de visita y emisión del final** y, si no hay placas, **la medida de AUTOCONSUMO máximo mes
   a mes** con el XML de ese final, a 1.000 €/kWp, como en el RES060. En CE3X 3.2.
 
+### Lo que NO puede faltar en el final de un RES080 (Fran, 14/10/2026: «siempre»)
+
+**SOLO RES080.** En un RES060 nada de esta lista: allí solo cambia la aerotermia. Se comprueba en el
+`.xml` y en el PDF del final ANTES de decir que está hecho:
+
+1. **Las ventanas que cambian se IDENTIFICAN**: el hueco se llama «V1 - CAMBIA» (`G.con_cambia`) en
+   el `.cex`, y así sale en la tabla «Huecos y lucernarios» del PDF de CE3X y en la tabla de huecos
+   del Certificado RES080. Si el inicial es del técnico y no lo lleva, se le pone en el final. Sus
+   puentes, igual («PT Contorno de hueco-V1 - CAMBIA»). Igual para un cerramiento que se aísla.
+2. **Sus PUENTES TÉRMICOS mejorados** (regla 135): contorno de hueco → ψ 0,02 y caja de persiana →
+   ψ 0,65, con `previsto._mejorar_puentes_de_huecos`. Compruébalo en el `.xml` (puentes «… - CAMBIA»).
+3. **Ventilación 0,53 y masa «Ligera»** (`previsto.aplicar_generales`). La lupa avisa contra la guía
+   del inicial: con 0,53 en un final RES080 es un falso aviso.
+4. **El vidrio y el marco, los de la ETIQUETA / ficha** (punto 3 de abajo), con la permeabilidad de la
+   ficha del marco (clase 4 = 3 m³/h·m²; clase 3 = 9) y la ficha de los dos en el catálogo.
+5. **Demanda de ACS y superficie útil IGUALES al inicial.**
+6. **El CROQUIS del final, SIEMPRE el de la APP** (el de la envolvente: plano de Catastro con muros,
+   huecos y cotas + cuadros del `.cex`), nunca el croquis a mano del técnico (Fran, 14/10/2026).
+   `node scripts/cee_inicial.js croquis <nº> --fase final --escribir` → `{nº} - CEE FINAL_CROQUIS.pdf`
+   junto al `.cex` (el anterior a OLD). Necesita el TRABAJO de envolvente del expediente:
+   - si ya lo tiene, basta con que las ventanas que cambian lleven `cambia: true`;
+   - si el inicial lo hizo el técnico en CE3X y la app no tiene trabajo: `paredes <nº>` → un plan
+     con los huecos de SU `.cex` en la pared que toca (mismas medidas; los que cambian con
+     `"nombre": "V1", "cambia": true`; solo `huecos`, `lucernarios`, `ventanas` y `entrada`, NADA de
+     aerotermia ni caldera) → `aplicar <nº> --plan plan.json --sin-pdf` **EN SECO** (deja
+     `trabajo_plan.json` en `%TEMP%/brokergy-cee-inicial/<nº>/` sin escribir `.cex` ni avisar) → a
+     las puertas, el nombre del `.cex` (el plan solo admite letras+número: P1 → PE) → guardar SOLO
+     ese trabajo con `cex.guardarTrabajo(id, trabajo, origen)` → `croquis --fase final --escribir`.
+   - Los cuadros salen del `.cex` del final: los huecos «Conocidas» enseñan «Conocido · Uf» y
+     «Ug · g», y un `.cex` a mano (cerramientos «FNO», no «FBNO3») ya no deja el croquis en
+     «0 huecos» (arreglado en `croquisCee.js` el 14/10/2026, en local).
+7. **La revisión de la app** (`revisarYGuardar`) dice que cambian las ventanas (punto «Elementos de
+   envolvente que se sustituyen» en OK). Si dice «ningún cerramiento cambia», el emparejamiento de
+   nombres inicial ↔ final está roto.
+
 Hoy no hay un comando único para el final de un RES080: se hace el previsto con los datos reales
 sobre el inicial REVISADO del técnico (ver `generar-cee-inicial`, «RES080: el INICIAL y el
 PREVISTO»), y las fechas y la medida de autoconsumo se ponen después. **Dilo** en el informe y
 pregunta antes de improvisar otro camino.
+
+Cómo se hizo en **26RES080_83** (14/10/2026, 2 ventanas + aerotermia monobloc, ACS por un termo
+eléctrico que ya estaba), sin código nuevo:
+1. **Base** = el `.cex` inicial del técnico con SOLO los huecos cambiados: `previsto._hueco_conocido`
+   en V1/V2 (Uf, Ug y g del vidrio REAL, 20 % de marco, clase 3) y `previsto._mejorar_puentes_de_huecos`
+   (contorno ψ 0,02 y caja de persiana ψ 0,65, regla 135), y **`previsto.aplicar_generales(…, {})`:
+   ventilación 0,53 y masa «Ligera»** (regla 117; olvidarlo deja la 0,83 del inicial y fue el fallo
+   que cazó la auditoría); `editar_cex.sustituir_pickles` con la envolvente y los generales. La lupa
+   avisa de la ventilación contra la guía del inicial: con 0,53 en un final RES080 es un falso aviso. Los módulos del motor se importan con `tools/` en `sys.path` (`import leer_cex`), no
+   como `tools.leer_cex`: es otro módulo y `Opaco` no casa.
+2. **Instalaciones + autoconsumo** = la secuencia de `ceeFinalCopiando.js` con esa base (`componerFicha`
+   → `/cex/instalaciones` → `calificarCex` sin medida → PVGIS con el XML del propio final →
+   segunda vuelta con la medida). Un equipo que no está en el expediente (el termo) va en
+   `ajustes.equipos_extra_final`. `version_ce3x: '3.2'`.
+3. **El vidrio es el de la ETIQUETA del vidrio** (foto del después), no el que se dijo de palabra: su
+   Ug y g del Performance Calculator del fabricante para ESA composición (cámara incluida) y con la
+   capa en la CARA que dice la etiqueta: el nombre de la capa va junto al vidrio que la lleva
+   («06MM INCOLORO / CFN14 / 04MM CLIMAGUARD» = capa en el de 4 mm interior, cara 3). En el 83 se
+   calculó primero un Guardian Sun en cara 2 (g 0,43) y la etiqueta decía ClimaGuard 1.0+ T en cara 3
+   (g 0,53): lo cazó la auditoría. Se da de alta en `ventanas_cristales` con su informe en
+   «02. CRISTALES» (`guardarFichaEnCatalogo`) y la ficha del expediente se sustituye con
+   `asegurarFichaTecnica(exp, 'cristal', { force: true })`.
+4. Comprobado: D_ACS (22,17) y superficie útil (105) iguales al inicial. Subido con `subirCae` (fase
+   final) + PDF sin firmar, `cee_final` cargado con `leerXml` y `revisarYGuardar`. `subirCae` puede
+   dejar un segundo PDF «… CEE FINAL (1).pdf»: en la carpeta queda UN `.cex`, UN `.xml` y UN `.pdf`;
+   lo demás a OLD.
+5. Huecos y puentes renombrados «- CAMBIA» en la base (el técnico los llamaba «V1», «V2») y croquis
+   del final con la APP (trabajo montado desde su `.cex`: FBNO3 con V1 - CAMBIA, PE y V2 - CAMBIA;
+   FBSE3 con PP; L1-L3; los dos cuerpos de Catastro dentro porque el técnico certificó 105 m²). Para que el certificado y la revisión los casen con el inicial,
+   el emparejamiento por nombre quita el sufijo (`claveNombre` en `res080Doc.js`,
+   `CertificadoRes080Modal.jsx` y `radiografiaCee.compararEnvolventes`, 14/10/2026, en local: hasta
+   desplegarlo, el RES080 se genera con el código local, `require('services/cifoService').generarCifo`).
 
 ## RES093 (hibridación): desde la medida de mejora del inicial
 
@@ -109,7 +184,8 @@ el final. Es como se hace a mano, y la app lo hace igual:
   al lado del `.cex` su **`.xml` y su `.pdf` oficial** (`… CEE FINAL_REVISAR.xml/.pdf`), con las
   medidas calculadas (en la 3.2 van en el Anexo III del propio certificado, no en un PDF aparte). Si
   no hay CE3X en el equipo, lo dice y el `.cex` se queda igual.
-- **Sale en CE3X 3.2** (la vigente desde el 08/10/2026; la 2.3 solo si el usuario la pide). Un inicial
+- **Sale en CE3X 3.2** (la vigente; todo lo que se firme después del 05/10/2026, en 3.2 — ver punto 6
+  arriba; la 2.3 solo para rehacer un CEE firmado antes de esa fecha). Un inicial
   del técnico hecho en la 3.1 o la 2.3 se convierte al copiarlo: de la 3.1 solo cambia la cabecera y
   calcula igual. Todo lleva `_REVISAR` (la rejilla no
   lo toma por la entrega del técnico) y nunca se dice «listo» a secas: falta revisarlo y firmarlo.

@@ -37,8 +37,10 @@ paths:
 
 ## Documentos del área (nivel 3)
 
+- `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15) · 2,1 KB
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md` — El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08) · 14,2 KB
+- `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md` — El TOTAL que nos ingresa el S.O., y marcarlo COBRADO (2026-10-15) · 2,7 KB
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09) · 13,6 KB
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/las-tarifas-del-verificador-en-su-ficha.md` — Las TARIFAS del verificador, en su ficha (2026-09-14) · 3,7 KB
@@ -49,6 +51,9 @@ paths:
 
 > Son sus frases en negrita, copiadas tal cual. El porqué y los casos, en el documento.
 
+- `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md`
+  - **REGLA — un fallo de red de Marwen se dice con su nombre, y dice si se ha creado algo.**
+  - **REGLA — tras un 504 NO se reintenta a ciegas.**
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md`
   - **REGLA — no se REPLICA el impreso: se RELLENA el oficial.**
   - **REGLA — el título de la ficha se ELIGE del catálogo.**
@@ -78,6 +83,11 @@ llegar.**
   - **REGLA — "Subir firmado" de una fila entra por el MISMO sitio.**
   - **REGLA — si la firma que falta es la NUESTRA, se firma desde la propia fila.**
   - **REGLA — se registra por `guardarDocFirmado`, no por un camino nuevo.**
+- `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md`
+  - **REGLA — con la factura emitida, el total es EL DE LA FACTURA.**
+  - **REGLA — solo se cobra una factura que EXISTE.**
+  - **REGLA — marcarla cobrada mueve el lote a «PTE. PAGO BROKERGY A CLIENTE».**
+  - **REGLA — regenerar o reenviar una factura COBRADA no la devuelve a EMITIDA.**
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md`
   - **REGLA — el contenido NO depende de la ficha.**
   - **REGLA — la FICHA TÉCNICA va dos veces, y tienen que ser LA MISMA.**

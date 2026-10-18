@@ -655,8 +655,9 @@ export function EnviarPropuestaModal({
         const waPdf = pdfBase64, waGenError = pdfGenError;
 
         const emailHtml = doEmail ? getEmailHtml() : null;
+        // Cada línea lleva su `modo`: es lo que dice luego, en el listado, si la
+        // propuesta la tiene el cliente o solo el instalador (entregaPropuesta.js).
         const out = [];
-        let clienteOk = false;
 
         // Sin PDF no sale nada. Mandar una propuesta que no queda archivada es
         // justo el agujero que este flujo cierra: mismo criterio que el CIFO,
@@ -702,19 +703,18 @@ export function EnviarPropuestaModal({
                         customMessage: msg,
                     }, undefined, { timeout: 90000 });   // 3º arg = showConfirm; el config va en el 4º
                     out.push({
-                        channel: 'email', status: 'ok',
+                        channel: 'email', status: 'ok', modo: mode,
                         text: `${principal.label} → ${principal.email}${copia.length ? ` (+${copia.length} en copia)` : ''}`,
                     });
-                    if (mode === 'CLIENTE' || mode === 'TITULAR') clienteOk = true;
                 } catch (err) {
-                    out.push({ channel: 'email', status: 'fail', text: `${principal.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
+                    out.push({ channel: 'email', status: 'fail', modo: mode, text: `${principal.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
                 }
             }
             // ── WHATSAPP: no tiene copia, así que va uno a cada persona ─────
             for (const c of grupo) {
                 if (!doWa || !canalDe(c).whatsapp) continue;
                 if (!waPdf) {
-                    out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${waGenError || 'No se pudo generar el PDF'}` });
+                    out.push({ channel: 'whatsapp', status: 'fail', modo: mode, text: `${c.label}: ${waGenError || 'No se pudo generar el PDF'}` });
                     continue;
                 }
                 try {
@@ -727,18 +727,17 @@ export function EnviarPropuestaModal({
                         // último, el aviso que no se puede perder.
                         textoDespues: [aceptacionFor(c), avisoFinalFor(c)].filter(Boolean),
                     });
-                    out.push({ channel: 'whatsapp', status: 'ok', text: `${c.label} → ${c.phone}` });
+                    out.push({ channel: 'whatsapp', status: 'ok', modo: mode, text: `${c.label} → ${c.phone}` });
                     // El PDF llegó pero el enlace (o el aviso) no: se dice, porque
                     // es justo lo que le va a faltar. No se reintenta: el texto y
                     // el PDF ya están en el chat y repetirlos los duplica.
                     if (wa?.despues && wa.despues.ok === false) {
                         const nombres = [aceptacionFor(c) && 'el enlace para aceptar', avisoFinalFor(c) && 'el aviso final'].filter(Boolean);
                         const faltan = (wa.despues.partes || []).map((p, i) => (p.ok ? null : nombres[i])).filter(Boolean);
-                        out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: llegó la propuesta, pero NO ${faltan.join(' ni ') || 'el mensaje de después del PDF'} (${wa.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
+                        out.push({ channel: 'whatsapp', status: 'fail', modo: mode, text: `${c.label}: llegó la propuesta, pero NO ${faltan.join(' ni ') || 'el mensaje de después del PDF'} (${wa.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
                     }
-                    if (mode === 'CLIENTE' || mode === 'TITULAR') clienteOk = true;
                 } catch (err) {
-                    out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${err.response?.data?.error || err.message}` });
+                    out.push({ channel: 'whatsapp', status: 'fail', modo: mode, text: `${c.label}: ${err.response?.data?.error || err.message}` });
                 }
             }
         }
@@ -761,9 +760,12 @@ export function EnviarPropuestaModal({
             }
         }
 
-        // Marcar la oportunidad como ENVIADA si la propuesta llegó al cliente.
-        if (clienteOk && expedienteId) {
-            try { await axios.patch(`/api/oportunidades/${expedienteId}/estado`, { nuevo_estado: 'ENVIADA' }); } catch (e) { /* no romper */ }
+        // ENVIADA con CUALQUIER envío que salga bien, también solo al instalador
+        // (2026-10-14: antes solo contaba el cliente, y lo mandado al partner se
+        // quedaba en PTE ENVIAR). A quién llegó lo dice el listado. `porEnvio`:
+        // un reenvío no hace retroceder una oportunidad ya aceptada.
+        if (anyOk && expedienteId) {
+            try { await axios.patch(`/api/oportunidades/${expedienteId}/estado`, { nuevo_estado: 'ENVIADA', porEnvio: true }); } catch (e) { /* no romper */ }
         }
 
         // Guardar la nota adicional en el historial del expediente (siempre que

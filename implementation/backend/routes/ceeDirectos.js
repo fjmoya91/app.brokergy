@@ -571,9 +571,10 @@ router.put('/:id', internalOnly, async (req, res) => {
             // Y lo que escribe la ventana de la envolvente desde OTRA pestaña: el
             // trabajo, sus fotos e imágenes y qué construcciones cuentan. La copia
             // de la ficha es la de cuando se abrió y borraría lo puesto después.
+            // Y el SELLO del `.cex` (`cex_sello`), que escriben la ventana y la skill.
             for (const k of ['agente_ia', 'presentacion', 'envolvente_revision',
                              'envolvente', 'envolvente_fotos', 'envolvente_imagenes',
-                             'construcciones_elegidas', 'construcciones_elegidas_detalle']) {
+                             'construcciones_elegidas', 'construcciones_elegidas_detalle', 'cex_sello']) {
                 if (row.cee && k in row.cee) patch.cee[k] = row.cee[k];
                 else delete patch.cee[k];
             }

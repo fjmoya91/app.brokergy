@@ -3,7 +3,13 @@
 # «Calcular medidas» y «Generar XML». El PDF lo hace despues xml2cert.exe.
 #
 #   CASO=C:\ruta\x.cex XML=C:\ruta\x.xml [SIN_MEDIDAS=1] RESULTADO=C:\ruta\r.json
-#   [AJUSTAR_AUTOCONSUMO=1 SALIDA_CEX=C:\ruta\ajustado.cex]
+#   [AJUSTAR_AUTOCONSUMO=1 SALIDA_CEX=C:\ruta\ajustado.cex] [GUARDAR_CALCULADO=1]
+#
+# GUARDAR_CALCULADO (14/10/2026): el .cex se guarda en SALIDA_CEX aunque no haya
+# autoconsumo que ajustar. Una medida puesta por el motor (`/cex/medida`) llega
+# SIN calcular y CE3X solo la calcula en memoria: sin guardarlo, el .cex que se
+# sube la sigue llevando sin calcular (26RES093_13: el pickle de medidas pasaba de
+# 691 KB a 24 KB). `guardado` del resultado dice si se guardo.
 #
 # EL AUTOCONSUMO MES A MES (CE3X 3.2, 08/10/2026): CE3X solo usa el TOTAL anual
 # de la «Generacion renovable electrica», pero avisa (`mensajeAviso` del
@@ -157,12 +163,13 @@ try:
             SALIDA['medidas'].append({'nombre': _txt(st.get('nombre')),
                                       'ahorro': [_txt(x) for x in (st.get('ahorro') or [])]})
 
-    if ajustado and os.environ.get('SALIDA_CEX'):
+    if (ajustado or os.environ.get('GUARDAR_CALCULADO')) and os.environ.get('SALIDA_CEX'):
         # Guardado por el PROPIO CE3X, como si se pulsara «Guardar».
         del LOG[:]
         FRAME.filename = os.environ['SALIDA_CEX']
         FRAME.OnMenuFileSaveMenu(None)
-        SALIDA['autoconsumo']['guardado'] = os.path.exists(os.environ['SALIDA_CEX'])
+        SALIDA['guardado'] = os.path.exists(os.environ['SALIDA_CEX'])
+        SALIDA['autoconsumo']['guardado'] = ajustado and SALIDA['guardado']
         # CE3X 3.2 deja el XML junto al .cex que tiene abierto y con su nombre:
         # se vuelve al de entrada para que salga donde lo espera quien llama
         # (es el mismo edificio: lo que hay en memoria es lo ajustado).

@@ -57,6 +57,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
+- `docs/conocimiento/placas-catalogos/aerosun-advanced-es-hm-y-confort-plus-es-hl.md` — AEROSUN: la ADVANCED es la serie HM; la CONFORT PLUS, la HL (2026-10-14) · 3,1 KB
 - `docs/conocimiento/placas-catalogos/el-catalogo-de-ventanas-marcos-y-vidrios.md` — El CATÁLOGO DE VENTANAS — marcos y vidrios (2026-09-07) · 7,6 KB
 - `docs/conocimiento/placas-catalogos/el-n-de-serie-de-una-placa-dos-lecturas-y-lo-decide-el-codigo.md` — El Nº DE SERIE de una placa: dos lecturas, y lo decide el código (2026-09-30) · 5,4 KB
 - `docs/conocimiento/placas-catalogos/el-n-de-serie-repetido-se-avisa.md` — El Nº DE SERIE repetido entre expedientes se AVISA (2026-10-08) · 3,5 KB
@@ -71,6 +72,8 @@ paths:
 
 > Son sus frases en negrita, copiadas tal cual. El porqué y los casos, en el documento.
 
+- `docs/conocimiento/placas-catalogos/aerosun-advanced-es-hm-y-confort-plus-es-hl.md`
+  - **REGLA — una Aerosun se identifica por el CÓDIGO de la placa, no por el nombre comercial.**
 - `docs/conocimiento/placas-catalogos/el-catalogo-de-ventanas-marcos-y-vidrios.md`
   - **REGLA — la MARCA es el fabricante del SISTEMA; el CARPINTERO va aparte.**
   - **REGLA — el Uf es de la serie EN SU APERTURA, no de la serie.**

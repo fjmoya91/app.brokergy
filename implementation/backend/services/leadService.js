@@ -20,6 +20,7 @@
 
 const supabase = require('./supabaseClient');
 const { normalizeCliente } = require('../utils/normalization');
+const { marcarSiElPartnerLoPide } = require('./avisosAlPartner');
 
 // ============================================================================
 // LEAD SCORING — Heurística para priorizar leads en panel admin
@@ -283,6 +284,9 @@ async function upsertClienteFromLanding({ nombre, apellidos, email, tlf, dni, pr
         }
         throw new Error(`No se pudo crear el cliente: ${insErr.message}`);
     }
+
+    // Si su partner pide TODOS los avisos de sus clientes, este nace con el desvío.
+    await marcarSiElPartnerLoPide(inserted.id_cliente);
 
     return { id_cliente: inserted.id_cliente, created: true };
 }

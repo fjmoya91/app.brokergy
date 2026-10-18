@@ -50,14 +50,19 @@ const TEXTOS = {
         + 'las pérdidas por transmisión y por infiltración, limita las ganancias solares en verano, '
         + `elimina las condensaciones y mejora el aislamiento acústico. ${DESPUES_ENVOLVENTE}`,
 
-    aerotermia: ({ conFvDespues }) => 'El generador de combustión actual, de bajo rendimiento estacional, concentra '
+    //: Con una caldera de BIOMASA el texto general diría lo contrario de lo que
+    //: calcula CE3X: la biomasa es renovable y casi no emite, así que la bomba
+    //: de calor sola EMPEORA la energía primaria no renovable y las emisiones
+    //: (26RES060_233: −358 % y −25 %). Se justifica por lo que sí mejora y se
+    //: dice que lo completan las placas.
+    aerotermia: ({ conFvDespues, biomasa }) => (biomasa ? TEXTO_BIOMASA(conFvDespues) : 'El generador de combustión actual, de bajo rendimiento estacional, concentra '
         + 'la mayor parte del consumo de energía primaria no renovable y de las emisiones de CO2 del '
         + 'edificio. Su sustitución por una bomba de calor aerotérmica, que aprovecha la energía '
         + 'renovable contenida en el aire exterior con un rendimiento estacional (SCOP) varias veces '
         + 'superior al de una caldera, es la medida que más reduce el consumo de energía primaria no '
         + 'renovable y las emisiones de todas las analizadas, y se integra en la instalación existente '
         + 'sin modificar los emisores. Se ejecuta después de las mejoras de la envolvente, si las hay, '
-        + `para dimensionar el equipo a la demanda ya reducida.${conFvDespues ? ANTES_DE_LA_FV : ''}`,
+        + `para dimensionar el equipo a la demanda ya reducida.${conFvDespues ? ANTES_DE_LA_FV : ''}`),
 
     hibridacion: ({ conFvDespues }) => 'La calefacción del edificio depende de una caldera de combustión que '
         + 'concentra la mayor parte de su consumo de energía primaria no renovable. Incorporar una '
@@ -94,7 +99,7 @@ const TEXTOS = {
     //:   10/10/2026): es la SEGUNDA fase, y el porqué es dimensionar las placas
     //:   con los consumos reales de la aerotermia.
     //: · si no, la obra trae las dos cosas a la vez y es la única medida.
-    aerotermia_fv: ({ secuencial, hibrida } = {}) => (secuencial
+    aerotermia_fv: ({ secuencial, hibrida, biomasa } = {}) => (secuencial
         ? 'Se propone como segunda fase, una vez instalada y en funcionamiento la bomba de calor de la '
           + 'medida anterior. Con la electrificación de la calefacción y del agua caliente sanitaria, la '
           + 'aerotermia pasa a ser el principal consumidor eléctrico de la vivienda, y su consumo real '
@@ -109,11 +114,23 @@ const TEXTOS = {
           + 'calor alimentada en parte con energía solar generada en el propio edificio, es el que más '
           + 'reduce el consumo de energía primaria no renovable y las emisiones de CO2 de todos los '
           + 'analizados.'
-        : `${TEXTOS[hibrida ? 'hibridacion' : 'aerotermia']({})} `
+        : `${TEXTOS[hibrida ? 'hibridacion' : 'aerotermia']({ biomasa })} `
           + TEXTOS.autoconsumo({ conAerotermia: true })
               .replace(/ Se propone en último lugar[^.]*\.$/, ' Se ejecuta junto con la bomba de calor, '
                   + 'dimensionada al consumo eléctrico que ésta va a tener.')),
 };
+
+const TEXTO_BIOMASA = (conFvDespues) => 'La calefacción y el agua caliente sanitaria dependen hoy '
+    + 'de una caldera de biomasa, un combustible renovable y de bajas emisiones de CO2, pero con un '
+    + 'rendimiento estacional bajo y que exige almacenar y cargar el combustible, retirar las cenizas y '
+    + 'limpiar periódicamente la caldera. Su sustitución por una bomba de calor aerotérmica, con un '
+    + 'rendimiento estacional (SCOP) varias veces superior, reduce de forma notable la energía final '
+    + 'que consume el edificio, elimina las emisiones de partículas de la combustión y, con emisores que '
+    + 'lo permitan, añade la refrigeración. Al pasar el consumo a ser eléctrico, esta medida por sí sola '
+    + 'no reduce el consumo de energía primaria no renovable ni las emisiones de CO2 respecto a la '
+    + 'biomasa: para ello se completa con la instalación de autoconsumo fotovoltaico. Se ejecuta '
+    + 'después de las mejoras de la envolvente, si las hay, para dimensionar el equipo a la demanda ya '
+    + `reducida.${conFvDespues ? ANTES_DE_LA_FV : ''}`;
 
 //: Lo que se añade a la aerotermia cuando detrás va su conjunto con placas.
 const ANTES_DE_LA_FV = ' Es la primera actuación de la secuencia porque fija el nuevo consumo '

@@ -56,12 +56,22 @@ async function cola() {
     const filas = await agenteIa.cola();
     if (!filas.length) {
         console.log('\nEl AGENTE IA no tiene nada encargado ni pendiente de revisar.');
-        return;
+    } else {
+        console.log(`\nAGENTE IA · ${filas.length} CEE\n`);
+        for (const f of filas) {
+            console.log(`  ${(f.numero || '').padEnd(15)} ${f.fase.padEnd(8)} ${f.situacion.padEnd(34)}`
+                + ` ${f.cliente || '—'}${f.desde ? ` · desde ${fecha(f.desde)}` : ''}${f.fichero ? `\n${' '.repeat(18)}📄 ${f.fichero}` : ''}`);
+        }
     }
-    console.log(`\nAGENTE IA · ${filas.length} CEE\n`);
-    for (const f of filas) {
-        console.log(`  ${(f.numero || '').padEnd(15)} ${f.fase.padEnd(8)} ${f.situacion.padEnd(34)}`
-            + ` ${f.cliente || '—'}${f.desde ? ` · desde ${fecha(f.desde)}` : ''}${f.fichero ? `\n${' '.repeat(18)}📄 ${f.fichero}` : ''}`);
+    // Y lo que la VENTANA generó en el servidor (sin CE3X) y está POR CALIFICAR
+    // en el PC: `cee_inicial.js calificar --cola --escribir` (sello del `.cex`).
+    const porCal = await require('../services/ceeEnvolventeCex').porCalificar().catch(() => []);
+    if (porCal.length) {
+        console.log(`\nPOR CALIFICAR EN EL PC · ${porCal.length}  (node scripts/cee_inicial.js calificar --cola --escribir)\n`);
+        for (const p of porCal) {
+            console.log(`  ${String(p.clave || '').padEnd(15)} ${p.fase.padEnd(8)} generado ${fecha(p.sello?.at)}`
+                + ` por ${p.sello?.autor || p.sello?.por || '—'}`);
+        }
     }
 }
 

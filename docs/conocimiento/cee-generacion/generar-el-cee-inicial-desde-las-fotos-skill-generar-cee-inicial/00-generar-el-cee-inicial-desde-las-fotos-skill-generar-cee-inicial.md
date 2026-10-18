@@ -98,3 +98,13 @@ con placas en la obra es una sola medida (`aerotermia_fv` sola, con el texto com
 la medida es el previsto. `fv_segunda: false` la quita. Medido en seco sobre el plan de 26RES060_188:
 19.703 kWh/año con la aerotermia → 10,78 kWp, 11.257 kWh/año declarados, ahorro de EPnr 86,4 % →
 94,2 %. Está en la skill, «Lo que hay que poner SIEMPRE», punto 20.
+
+**Con una caldera de BIOMASA la justificación de la aerotermia es otra** (2026-10-14, 26RES060_233,
+pellets): la biomasa es renovable y casi no emite, así que la bomba de calor SOLA empeora la energía
+primaria no renovable y las emisiones (CE3X: −358 % y −25 % en la medida 1; +56 % de emisiones con las
+placas en la 2.ª), y el texto general decía que era «la medida que más las reduce». Ahora
+(`TEXTO_BIOMASA` en `justificacionMedidas.js`) se justifica por lo que sí mejora —energía final,
+partículas, mantenimiento, frío— y dice que por sí sola no reduce la EPnr ni el CO2 y que la completa
+el autoconsumo. Biomasa = fila `solid_*` con `fuelType: 'pellets'` (el mismo criterio que
+`instalacionExistente`: el carbón comparte fila y sigue con el texto de siempre). Prueba:
+`test_medidas_mejora.mjs`, bloque 10.

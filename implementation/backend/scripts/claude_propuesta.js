@@ -118,8 +118,14 @@ async function enviar() {
     const op = args[1];
     if (!op || !/^\d\dRES|^\d\dTER/.test(op)) throw new Error('Falta el nº de oportunidad (p. ej. 26RES060_OP217).');
     const pedidos = (opcion('--a') || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    if (!pedidos.length || pedidos.some(p => !MODOS[p])) throw new Error('Indica a quién: --a cliente,instalador (también: partner, titular).');
-    const quiero = new Set(pedidos.map(p => MODOS[p]));
+    if (!pedidos.length || pedidos.some(p => !MODOS[p] && p !== 'otro')) throw new Error('Indica a quién: --a cliente,instalador (también: partner, titular, otro).');
+    const quiero = new Set(pedidos.filter(p => p !== 'otro').map(p => MODOS[p]));
+    // «Otro contacto…» del popup: alguien que no está en la app (el constructor de
+    // la obra). Va con su nombre y su teléfono y/o email, tecleados como una persona.
+    const otro = pedidos.includes('otro')
+        ? { name: opcion('--nombre') || '', phone: opcion('--tel') || '', email: opcion('--email') || '' }
+        : null;
+    if (otro && (!otro.name || (!otro.phone && !otro.email))) throw new Error('--a otro necesita --nombre y --tel (o --email).');
     const deVerdad = bandera('--enviar');
     fs.mkdirSync(SALIDA, { recursive: true });
     // La captura NUNCA lanza: si la página se cae a mitad de envío, el fallo de la
@@ -232,6 +238,26 @@ async function enviar() {
         }
         const faltan = [...quiero].filter(q => !modos.some(m => m.modo === q && m.on));
         if (faltan.length) throw new Error(`En el popup no hay destinatario ${faltan.join(', ')} (hay: ${modos.map(m => m.modo).join(', ') || 'ninguno'}).`);
+        if (otro) {
+            // La fila «Otro contacto…» no lleva `data-robot` (la app desplegada aún no
+            // lo trae): se busca por su TEXTO y los campos por su placeholder.
+            const [fila] = await page.$$('xpath/.//button[.//span[normalize-space()="Otro contacto…"]]');
+            if (!fila) throw new Error(`No encuentro «Otro contacto…» en el popup (captura: ${await foto(page, '3-otro')}).`);
+            await fila.click();
+            await espera(800);
+            for (const [ph, v] of [['Nombre', otro.name], ['Teléfono', otro.phone], ['Email', otro.email]]) {
+                if (!v) continue;
+                const ok = await page.$eval(`input[placeholder="${ph}"]`, (el, val) => {
+                    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    set.call(el, val);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    return el.value === val;
+                }, v).catch(() => false);
+                if (!ok) throw new Error(`No se pudo escribir «${ph}» del otro contacto (captura: ${await foto(page, '3-otro')}).`);
+                await espera(300);
+            }
+            console.log(`  (otro contacto: ${otro.name}${otro.phone ? ` · ${otro.phone}` : ''}${otro.email ? ` · ${otro.email}` : ''})`);
+        }
         await espera(1200);
 
         const leerCanales = () => page.$$eval('[data-robot^="canal-"]', els => els.map(e => ({
