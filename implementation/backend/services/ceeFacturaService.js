@@ -222,7 +222,20 @@ async function generarPdf(row, reg) {
         } catch (e) { console.warn('[factura cee] copia en el expediente:', e.message); }
     }
 
-    const pdf = { driveId: guardado.driveId, link: guardado.link, nombre: guardado.nombre, copiaId: copia, at: new Date().toISOString() };
+    // Y en CONTABILIDAD: «ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS / {año} /
+    // {n. MES}» por la fecha de la factura, con el mismo nombre (decisión del
+    // usuario, 2026-10-19; la de «CAE» es solo para los Sujetos Obligados).
+    let contabilidad = null;
+    try {
+        const { archivarFacturaIngenieria } = require('./facturaContabilidad');
+        const r = await archivarFacturaIngenieria({ pdf: buffer, fecha: reg.fecha, fileName: guardado.nombre });
+        contabilidad = { id: r.id, ruta: r.ruta };
+    } catch (e) {
+        console.warn('[factura cee] contabilidad:', e.message);
+        contabilidad = { error: e.message };
+    }
+
+    const pdf = { driveId: guardado.driveId, link: guardado.link, nombre: guardado.nombre, copiaId: copia, contabilidad, at: new Date().toISOString() };
     await svc.mergeDoc(row.id, CAMPO, { [reg.numero]: { ...reg, pdf } });
     return pdf;
 }
@@ -299,8 +312,9 @@ async function cambiarFecha(id, numero, { fecha, usuario = null } = {}) {
     try { pdf = await generarPdf(row, nuevo); }
     catch (e) { errorPdf = e.message; console.error('[factura cee] PDF tras cambiar la fecha:', e.message); }
     if (pdf && anterior.pdf) {
-        for (const viejo of [anterior.pdf.driveId, anterior.pdf.copiaId]) {
-            if (!viejo || viejo === pdf.driveId || viejo === pdf.copiaId) continue;
+        // También la de contabilidad: con otra fecha puede haber caído en otro MES.
+        for (const viejo of [anterior.pdf.driveId, anterior.pdf.copiaId, anterior.pdf.contabilidad?.id]) {
+            if (!viejo || viejo === pdf.driveId || viejo === pdf.copiaId || viejo === pdf.contabilidad?.id) continue;
             try { await driveService.deleteFile(viejo); } catch { /* ya no estaba */ }
         }
     }

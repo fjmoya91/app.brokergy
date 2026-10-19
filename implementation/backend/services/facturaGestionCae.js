@@ -7,9 +7,10 @@
 // (facturaSheetService): la MISMA serie {YY}ING_{n} que los CEE directos, así que
 // esta app tampoco numera aquí — lee la hoja, reserva escribiendo la fila y
 // relee. El PDF es el MISMO de la factura de un CEE (buildFacturaCeeHtml, réplica
-// de AppSheet) y va a la carpeta FACTURAS de la hoja. No se copia a la carpeta del
-// expediente: su «5. FACTURAS» es de las facturas de la OBRA y de ahí tira el
-// paquete del S.O.
+// de AppSheet) y se guarda en TRES sitios: la carpeta FACTURAS de la hoja,
+// contabilidad (ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS / año / mes) y
+// «5. FACTURAS» del expediente, con nombre propio para no confundirse con las de
+// la OBRA, de las que tira el paquete del S.O.
 //
 // El registro vive en `documentacion.cobro.factura_gestion` (metadatos, RPC de
 // merge, objeto ENTERO: la RPC solo funde el primer nivel de `cobro`).
@@ -240,7 +241,7 @@ async function generarPdf(exp, reg) {
     // falla, falla el PDF: es la copia que manda.
     const g = await hoja.guardarPdf({ id: reg.sheet_id, numero: reg.numero, razonSocial: reg.receptor.razon_social, buffer });
     // 2 y 3 · Contabilidad y el expediente: best-effort, cada una dice si falló.
-    const contabilidad = await copiaContabilidad(exp, reg, buffer);
+    const contabilidad = await copiaContabilidad(reg, buffer, g.nombre);
     const expediente = await copiaExpediente(exp, reg, buffer);
     const pdf = { driveId: g.driveId, link: g.link, nombre: g.nombre, at: new Date().toISOString(), contabilidad, expediente };
     await cobroService.sellar(exp.id, { factura_gestion: { ...reg, pdf } });
@@ -248,17 +249,15 @@ async function generarPdf(exp, reg) {
 }
 
 /**
- * Copia en CONTABILIDAD: FACTURAS VENTAS / {año} / {n. MES} de «CAE - SERVICIOS
- * CAE», la MISMA carpeta (y la misma función) que la factura al S.O. El mes es el
- * de la FECHA DE LA FACTURA. Nombre: «{nº} - {expediente} - {a quién}.pdf».
+ * Copia en CONTABILIDAD: «ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS / {año} /
+ * {n. MES}», con el MISMO nombre que en AppSheet. No la de «CAE - SERVICIOS CAE»:
+ * esa es SOLO para las facturas a los Sujetos Obligados (decisión del usuario,
+ * 2026-10-19). El mes es el de la FECHA DE LA FACTURA.
  */
-async function copiaContabilidad(exp, reg, buffer) {
+async function copiaContabilidad(reg, buffer, nombre) {
     try {
-        const { archivarFacturaVenta } = require('./facturaContabilidad');
-        const r = await archivarFacturaVenta({
-            pdf: buffer, numero: reg.numero, fecha: reg.fecha,
-            codigoLote: exp.numero_expediente, acronimoSo: reg.receptor.razon_social,
-        });
+        const { archivarFacturaIngenieria } = require('./facturaContabilidad');
+        const r = await archivarFacturaIngenieria({ pdf: buffer, fecha: reg.fecha, fileName: nombre });
         return { id: r.id, link: r.link, ruta: r.ruta, nombre: r.fileName };
     } catch (e) {
         console.warn('[factura gestión] contabilidad:', e.message);

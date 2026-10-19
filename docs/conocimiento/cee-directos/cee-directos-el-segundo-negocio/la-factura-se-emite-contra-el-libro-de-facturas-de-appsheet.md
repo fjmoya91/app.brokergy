@@ -72,6 +72,19 @@ anterior y hay que reenviársela. Una fecha que rompe el orden correlativo de la
 serie (una anterior con fecha posterior, o al revés) se AVISA y no se bloquea
 (`fechasDeLaSerie`). Probado contra la copia en `test_factura_cee.js` (paso 6b).
 
+**REGLA — el PDF se guarda en TRES sitios** (2026-10-19): la carpeta FACTURAS de la
+hoja, «3. PRESUPUESTO Y FACTURAS» del expediente y **contabilidad**, en «00. S2E2 / 04.
+CONTABILIDAD / ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS / {año} / {n. MES}» por la
+fecha de la factura y con el mismo nombre (`archivarFacturaIngenieria` en
+[facturaContabilidad.js](implementation/backend/services/facturaContabilidad.js);
+variable opcional `CONTABILIDAD_FACTURAS_ING_FOLDER_ID`). La de «CAE - SERVICIOS CAE» es
+SOLO para las facturas a los Sujetos Obligados. Al cambiar la fecha, la copia del mes
+anterior se retira. El popup dice qué copia no se pudo guardar.
+
+**REGLA — el `id` que se escribe en la hoja lleva siempre una letra a-d o f.** Con
+USER_ENTERED, un id de solo cifras o con una «e» entre cifras se convierte en NÚMERO
+(«399e4412» → 3,99E+44, visto el 19/10/2026) y la factura no se vuelve a encontrar.
+
 **Desde el 19/10/2026 emite también en esta serie la fase 7 del lote** (la factura de
 los honorarios de gestión CAE, al cliente o a su instalador: `facturaGestionCae.js`,
 ver «Confirmación de cobro»). Usa el mismo `facturaSheetService.emitir` y el mismo

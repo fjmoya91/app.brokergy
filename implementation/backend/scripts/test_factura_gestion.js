@@ -29,7 +29,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALLO: ' + m); console.log('  �
         process.env.APPSHEET_FACTURAS_SHEET_ID = copiaId;
         process.env.APPSHEET_FACTURAS_FOLDER_ID = carpetaId;
         // Contabilidad, a la carpeta de prueba (se lee al cargar facturaContabilidad).
-        process.env.CONTABILIDAD_FACTURAS_CAE_FOLDER_ID = carpetaId;
+        process.env.CONTABILIDAD_FACTURAS_ING_FOLDER_ID = carpetaId;
 
         const enviados = [];
         const stub = (file, mod) => { const p = require.resolve(path.join(B, file)); require.cache[p] = { id: p, filename: p, loaded: true, exports: mod }; };
@@ -66,7 +66,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALLO: ' + m); console.log('  �
         });
         ok(/^\d{2}ING_\d+$/.test(r.numero) && r.numero === b.proximoNumero, `número de la serie: ${r.numero}`);
         ok(!!r.pdf?.driveId, 'PDF guardado en la carpeta (de prueba)');
-        ok(r.pdf.contabilidad?.ruta === 'FACTURAS VENTAS / 2026 / 10. OCTUBRE' && !!r.pdf.contabilidad.id,
+        ok(r.pdf.contabilidad?.ruta === 'ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS / 2026 / 10. OCTUBRE' && !!r.pdf.contabilidad.id,
             `copia en contabilidad: ${r.pdf.contabilidad?.ruta || r.pdf.contabilidad?.error} · ${r.pdf.contabilidad?.nombre}`);
         ok(!!r.pdf.expediente?.id, `copia en «5. FACTURAS» del expediente: ${r.pdf.expediente?.nombre || r.pdf.expediente?.error}`);
         const enDrive = async (id) => (await drive.files.get({ fileId: id, fields: 'parents, trashed' })).data;

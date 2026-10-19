@@ -331,9 +331,11 @@ El PDF es el mismo de AppSheet (`buildFacturaCeeHtml`).
 **REGLA — el PDF se guarda en TRES sitios** (decisión del usuario, 2026-10-19):
 1. la carpeta **FACTURAS** del libro de AppSheet, con su nombre `{nº} - {razón social}.pdf`
    (de ahí la abre su app; si esto falla, falla el PDF);
-2. **contabilidad**: `CAE - SERVICIOS CAE / FACTURAS VENTAS / {año} / {n. MES}`, por la
-   FECHA DE LA FACTURA, con `archivarFacturaVenta` (la misma que la factura al S.O.):
-   «26ING_87 - 25RES060_26 - {a quién}.pdf»;
+2. **contabilidad**: `ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS / {año} / {n. MES}`,
+   por la FECHA DE LA FACTURA, con `archivarFacturaIngenieria` y el MISMO nombre que en
+   AppSheet («26ING_87 - {a quién}.pdf»), como las que ya se copiaban a mano. **No** en
+   «CAE - SERVICIOS CAE»: esa es solo para las facturas a los Sujetos Obligados
+   (decisión del usuario, 2026-10-19);
 3. **«5. FACTURAS» del expediente**, con nombre PROPIO
    («26ING_87 - HONORARIOS GESTION CAE BROKERGY - {a quién}.pdf»): esa carpeta es la de
    las facturas de la OBRA y el paquete del S.O. coge las que se llaman «… - facturas»,

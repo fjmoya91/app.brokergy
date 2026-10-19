@@ -10,10 +10,10 @@
 | `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 29,3 KB | 8 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 34,9 KB | 20 |
-| `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,7 KB | 26 |
+| `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 42,6 KB | 13 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 7,2 KB | 2 |
-| `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 19,4 KB | 7 |
+| `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 19,5 KB | 7 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 35,6 KB | 10 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 90,1 KB | 35 |
@@ -23,7 +23,7 @@
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 6,4 KB | 2 |
-| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 20,4 KB | 9 |
+| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 20,7 KB | 9 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 14,8 KB | 5 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,3 KB | 10 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 18,0 KB | 7 |

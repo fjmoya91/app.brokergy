@@ -194,6 +194,13 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                 { texto: `Factura ${data.numero} · ${fmtEur(data.total)} anotada en la hoja de facturas`, tono: 'ok' },
                 data.pdf ? { texto: `PDF guardado: ${data.pdf.nombre}`, tono: 'ok' }
                     : { texto: `El PDF no se pudo generar (${data.errorPdf}). La factura está emitida: rehazlo desde aquí.`, tono: 'aviso' },
+                // Las copias: contabilidad (ING, por mes) y la carpeta del expediente.
+                ...(data.pdf ? [
+                    data.pdf.contabilidad?.ruta ? { texto: `Copia en contabilidad: ${data.pdf.contabilidad.ruta}`, tono: 'ok' }
+                        : { texto: `Sin copia en contabilidad: ${data.pdf.contabilidad?.error || 'desconocido'}`, tono: 'aviso' },
+                    data.pdf.copiaId ? { texto: 'Copia en «3. PRESUPUESTO Y FACTURAS» del expediente', tono: 'ok' }
+                        : { texto: 'Sin copia en la carpeta del expediente (no tiene carpeta o no se pudo guardar)', tono: 'aviso' },
+                ] : []),
                 ...(data.clienteCreadoEnHoja ? [{ texto: 'Cliente dado de alta en la hoja (no estaba)', tono: 'ok' }] : []),
             ];
             let enviadoOk = true;

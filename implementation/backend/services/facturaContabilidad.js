@@ -23,7 +23,12 @@
 const driveService = require('./driveService');
 
 // Carpeta "FACTURAS VENTAS" de CAE - SERVICIOS CAE (cuenta de Drive de la app).
+// REGLA — aquí van SOLO las facturas a los SUJETOS OBLIGADOS (decisión del usuario,
+// 2026-10-19). Las de la serie {YY}ING_{n} —CEE directos y honorarios de gestión
+// CAE a clientes o instaladores— van a la de INGENIERÍA (`archivarFacturaIngenieria`).
 const RAIZ = process.env.CONTABILIDAD_FACTURAS_CAE_FOLDER_ID || '1NG1w-QW0YGzqOXazwMVmVNT7HCXSWFpf';
+// "00. S2E2 / 04. CONTABILIDAD / ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS".
+const RAIZ_ING = process.env.CONTABILIDAD_FACTURAS_ING_FOLDER_ID || '1M-SVjCAhDXDqbugXCBDWH0nUvYYLvFdh';
 
 const MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO',
     'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
@@ -60,13 +65,26 @@ async function subcarpeta(padre, nombre) {
  * @returns {Promise<{ link, id, ruta, fileName }>}
  */
 async function archivarFacturaVenta({ pdf, numero, fecha, codigoLote, acronimoSo }) {
+    return archivarEn(RAIZ, { pdf, fecha, fileName: nombreFichero(numero, codigoLote, acronimoSo) }, 'FACTURAS VENTAS');
+}
+
+/**
+ * Las facturas de la serie {YY}ING_{n} (CEE directos y honorarios de gestión CAE),
+ * en «ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS / {año} / {n. MES}», con el
+ * MISMO nombre que en la carpeta de AppSheet («26ING_80 - MANUEL CARNICER
+ * RAMÍREZ.pdf»), que es como ya estaban las que se copiaban a mano.
+ */
+async function archivarFacturaIngenieria({ pdf, fecha, fileName }) {
+    return archivarEn(RAIZ_ING, { pdf, fecha, fileName }, 'ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS');
+}
+
+async function archivarEn(raiz, { pdf, fecha, fileName }, etiqueta) {
     const am = anioMesDe(fecha);
     if (!am || am.mes < 1 || am.mes > 12) throw new Error(`La fecha de la factura no es válida (${fecha || 'vacía'}).`);
-    const idAnio = await subcarpeta(RAIZ, String(am.anio));
+    const idAnio = await subcarpeta(raiz, String(am.anio));
     const nombreMes = carpetaMes(am.mes);
     const idMes = await subcarpeta(idAnio, nombreMes);
 
-    const fileName = nombreFichero(numero, codigoLote, acronimoSo);
     const previo = await driveService.findFileByName(idMes, fileName).catch(() => null);
     const saved = await driveService.saveFileToFolder(idMes, fileName, 'application/pdf', pdf);
     if (!saved?.id) throw new Error('Drive no devolvió el fichero guardado.');
@@ -74,7 +92,7 @@ async function archivarFacturaVenta({ pdf, numero, fecha, codigoLote, acronimoSo
     // carpeta no se quedaría sin la factura.
     if (previo && previo !== saved.id) await driveService.deleteFile(previo).catch(() => { });
 
-    return { id: saved.id, link: saved.link, fileName, ruta: `FACTURAS VENTAS / ${am.anio} / ${nombreMes}` };
+    return { id: saved.id, link: saved.link, fileName, ruta: `${etiqueta} / ${am.anio} / ${nombreMes}` };
 }
 
-module.exports = { archivarFacturaVenta, anioMesDe, carpetaMes, nombreFichero };
+module.exports = { archivarFacturaVenta, archivarFacturaIngenieria, anioMesDe, carpetaMes, nombreFichero };

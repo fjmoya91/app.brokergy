@@ -27,6 +27,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALLO: ' + m); console.log('  �
         copiaId = cp.data.id;
         process.env.APPSHEET_FACTURAS_SHEET_ID = copiaId;
         process.env.APPSHEET_FACTURAS_FOLDER_ID = carpetaId;
+        // La copia de contabilidad (ING), también a la carpeta de prueba.
+        process.env.CONTABILIDAD_FACTURAS_ING_FOLDER_ID = carpetaId;
         console.log('   copia', copiaId);
 
         const enviados = [];
@@ -71,6 +73,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALLO: ' + m); console.log('  �
         ok(r.numero === ESPERADO, `número reservado ${r.numero} (el ${OCUPADO} lo tenía otra fila)`);
         ok(r.total === 298.98, `total ${r.total}`);
         ok(!!r.pdf?.driveId && !r.errorPdf, `PDF: ${r.pdf?.nombre}`);
+        ok(r.pdf.contabilidad?.ruta === 'ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS / 2026 / 9. SEPTIEMBRE' && !!r.pdf.contabilidad.id,
+            `copia en contabilidad: ${r.pdf.contabilidad?.ruta || r.pdf.contabilidad?.error}`);
         ok(r.clienteCreadoEnHoja === true, 'cliente nuevo dado de alta en CLIENTES');
 
         console.log('4 · Lo escrito en la hoja, al lado de lo que escribe AppSheet');
@@ -120,6 +124,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALLO: ' + m); console.log('  �
         ok(vivos.length === 1 && vivos[0].id === cf.pdf.driveId, 'en la carpeta solo queda el PDF nuevo');
         const viejoMeta = (await drive.files.get({ fileId: pdfViejo, fields: 'trashed' })).data;
         ok(viejoMeta.trashed === true, 'el PDF viejo está en la papelera');
+        const mesCont = (await drive.files.get({ fileId: cf.pdf.contabilidad.id, fields: 'parents' })).data.parents[0];
+        const enMes = (await drive.files.list({ q: `'${mesCont}' in parents and trashed=false`, fields: 'files(id)' })).data.files;
+        ok(enMes.length === 1 && enMes[0].id === cf.pdf.contabilidad.id, 'en contabilidad queda UNA copia, la nueva');
         let igual = null; try { await svc.cambiarFecha('e2e', ESPERADO, { fecha: '2026-09-20' }); } catch (e2) { igual = e2; }
         ok(igual?.status === 400, 'la misma fecha otra vez → 400');
 

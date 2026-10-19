@@ -74,7 +74,16 @@ const telefono = (v) => {
     const d = t.replace(/[\s.-]/g, '').replace(/^(\+|00)34(?=\d{9}$)/, '');
     return /^\d{9}$/.test(d) ? d : texto(t);
 };
-const nuevoId = () => crypto.randomBytes(4).toString('hex');   // 8 hex, como UNIQUEID() de AppSheet
+// 8 hex, como UNIQUEID() de AppSheet. Pero con USER_ENTERED la hoja convierte en
+// NÚMERO un id de solo cifras («12345678») o con una sola «e» entre cifras
+// («399e4412» → 3,99E+44, visto en CLIENTES el 19/10/2026), y entonces la factura
+// no se vuelve a encontrar por su id. Se exige una letra a-d o f: así nunca es número.
+const nuevoId = () => {
+    for (;;) {
+        const id = crypto.randomBytes(4).toString('hex');
+        if (/[a-df]/.test(id)) return id;
+    }
+};
 
 /** Columna en letras (0 → A, 26 → AA). */
 function letra(i) {
