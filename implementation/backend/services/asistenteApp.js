@@ -166,7 +166,7 @@ async function resolverReferencia(referencia) {
     }
     const r = await resolverExpediente(s);
     if (!r.exp) return { error: r.error, ambiguo: r.ambiguo };
-    return { tipo: 'expediente', numero: r.exp.numero_expediente, enlace: enlaceExpediente(r.exp.id, r.exp.numero_expediente) };
+    return { tipo: 'expediente', id: r.exp.id, numero: r.exp.numero_expediente, enlace: enlaceExpediente(r.exp.id, r.exp.numero_expediente) };
 }
 
 // ─── El manual (docs/conocimiento), troceado por apartados ────────────────────
@@ -239,34 +239,42 @@ function buscarEnManual(consulta, cuantos = 4) {
 const TAREAS = {
     cee_inicial: {
         etiqueta: 'Generar el CEE inicial',
+        que: 'el CEE inicial',
         instruccion: (n) => `Genera el CEE INICIAL de ${n} con la skill generar-cee-inicial (desde sus fotos o su vídeo). Lo que no se pueda saber no se inventa: si faltan fotos o datos, prepárame el WhatsApp para pedirlos, en seco.`,
     },
     cee_final: {
         etiqueta: 'Generar el CEE final',
+        que: 'el CEE final',
         instruccion: (n) => `Genera el CEE FINAL de ${n} con la skill generar-cee-final.`,
     },
     revisar_cee: {
         etiqueta: 'Revisar el CEE entregado',
+        que: 'la revisión del CEE',
         instruccion: (n) => `Revisa el CEE que ha entregado el técnico en ${n} con la skill revisar-cee y dame el veredicto con la evidencia. No des el visto bueno ni avises al certificador.`,
     },
     justificar: {
         etiqueta: 'Justificar el expediente',
+        que: 'la justificación',
         instruccion: (n) => `Justifica el expediente ${n} con la skill justificar-expediente y déjalo preparado para firma.`,
     },
     auditar: {
         etiqueta: 'Auditar el expediente',
+        que: 'la auditoría',
         instruccion: (n) => `Audita el expediente ${n} con la skill auditar-expediente y dame el veredicto (APTO / NO APTO) con lo que haya que corregir.`,
     },
     anexo_fotografico: {
         etiqueta: 'Generar el anexo fotográfico',
+        que: 'el anexo fotográfico',
         instruccion: (n) => `Genera el anexo fotográfico de ${n} con la skill generar-anexo-fotografico.`,
     },
     cifo: {
         etiqueta: 'Generar el CIFO',
+        que: 'el CIFO',
         instruccion: (n) => `Genera el CIFO de ${n} con la skill generar-anexo-cifo.`,
     },
     otra: {
         etiqueta: 'Otra tarea',
+        que: 'lo que me has pedido',
         instruccion: (n, detalle) => `${detalle} (sobre ${n}).`,
     },
 };
@@ -284,21 +292,36 @@ async function encargar({ referencia, tarea, detalle, usuario }) {
     if (tarea === 'otra' && !det) return { ok: false, codigo: 400, motivo: 'Falta decir qué tiene que hacer.' };
     const ref = await resolverReferencia(referencia);
     if (ref.error) return { ok: false, codigo: 400, motivo: ref.error };
+    // Un CEE que el Agente IA YA está haciendo no se encarga otra vez: la cola del
+    // vigilante solo junta lo que aún no ha cogido, y un segundo clic lo repetiría.
+    if (ref.tipo === 'expediente' && (tarea === 'cee_inicial' || tarea === 'cee_final')) {
+        const fase = tarea === 'cee_inicial' ? 'inicial' : 'final';
+        const { data } = await supabase.from('expedientes').select('agente:cee->agente_ia').eq('id', ref.id).maybeSingle();
+        const marca = data?.agente?.[fase];
+        if (marca?.estado === 'trabajando') {
+            const desde = marca.empezado_at
+                ? new Date(marca.empezado_at).toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' })
+                : null;
+            return { ok: false, codigo: 409, motivo: `El CEE ${fase} de ${ref.numero} ya se está preparando${desde ? ` (desde las ${desde})` : ''}. Te avisaremos por WhatsApp cuando esté listo.` };
+        }
+    }
     const texto = [
         `Encargo desde el ASISTENTE DE LA APP: lo pide ${nombreDe(usuario)} y lo ha confirmado pulsando «Encargar».`,
         def.instruccion(ref.numero, det),
         det && tarea !== 'otra' ? `Indicaciones: ${det}` : '',
         'Al acabar, cuéntalo por aquí. Lo dudoso se pregunta, y nada sale a terceros sin el «sí» de Fran.',
     ].filter(Boolean).join(' ');
-    const { pedirTarea } = require('./asistenteCanal');
+    const { pedirTarea, estadoAsistente } = require('./asistenteCanal');
+    // ¿Está ya con otro trabajo? Entonces este espera su turno, y la tarjeta lo dice.
+    const antes = await estadoAsistente();
     const r = await pedirTarea({
         texto,
         clave: `app-asistente:${ref.numero}:${tarea}`,
-        acuse: `Me pongo con ello: ${def.etiqueta.toLowerCase()} de ${ref.numero} (pedido desde la app).`,
+        acuse: `Me pongo con ${def.que} de ${ref.numero} (me lo has pedido desde la app). Te aviso cuando esté listo.`,
     });
     if (!r.ok) return { ok: false, codigo: 503, motivo: r.motivo };
     console.log(`[asistente-app] Encargo a Claude: ${def.etiqueta} · ${ref.numero} · ${nombreDe(usuario)}`);
-    return { ok: true, referencia: ref.numero, etiqueta: def.etiqueta };
+    return { ok: true, referencia: ref.numero, etiqueta: def.etiqueta, enCola: !!antes.trabajando };
 }
 
 // ─── Las herramientas ─────────────────────────────────────────────────────────
@@ -407,7 +430,7 @@ const HERRAMIENTAS = [
                 e.cliente_id ? supabase.from('clientes').select('nombre_razon_social, apellidos, municipio, provincia').eq('id_cliente', e.cliente_id).maybeSingle() : { data: null },
                 // Una sola fila: leer estos trozos del JSONB es barato (regla 22 va de listados).
                 supabase.from('expedientes')
-                    .select('incidencias:documentacion->incidencias, caldera:instalacion->caldera_antigua_cal, oportunidades(uploads:datos_calculo->reforma_uploads)')
+                    .select('incidencias:documentacion->incidencias, caldera:instalacion->caldera_antigua_cal, agente:cee->agente_ia, oportunidades(uploads:datos_calculo->reforma_uploads)')
                     .eq('id', e.id).maybeSingle(),
                 filasRadar().catch(() => null),
             ]);
@@ -430,6 +453,9 @@ const HERRAMIENTAS = [
                 alta: e.created_at, ultimo_cambio: e.updated_at,
                 ciclo_de_vida: ciclo,
                 material_cee_inicial: materialParaElCee(inc.data?.oportunidades?.uploads, inc.data?.caldera),
+                // { inicial: { estado: 'trabajando' | …, empezado_at } }: el Claude del WhatsApp
+                // (el «Agente IA») con ese CEE entre manos. Entonces no se vuelve a proponer.
+                agente_ia: inc.data?.agente || null,
                 anomalias_documentos: pend.data?.anomalias_docs || [],
                 pistas: pistas.data || null,
                 en_el_parte: filas
@@ -617,7 +643,7 @@ async function emitirMarcas(texto, emitir) {
         if (ref.error) { console.warn('[asistente-app] encargo sin referencia válida:', e.referencia, ref.error); continue; }
         // eslint-disable-next-line no-await-in-loop
         if (!asistente) asistente = await require('./asistenteCanal').estadoAsistente();
-        emitir({ t: 'encargo', referencia: ref.numero, enlace: ref.enlace, tarea: e.tarea, etiqueta: def.etiqueta,
+        emitir({ t: 'encargo', referencia: ref.numero, enlace: ref.enlace, tarea: e.tarea, etiqueta: def.etiqueta, que: def.que,
                  detalle: e.detalle ? e.detalle.slice(0, 1500) : null, asistente });
     }
     if (opciones.length) emitir({ t: 'sugerencias', opciones });
@@ -644,7 +670,7 @@ BOTONES. Consulta primero todo lo que necesites y escribe la respuesta entera al
 >> ENCARGO otra <referencia> | qué tiene que hacer
   (tarjeta con el botón «Encargar»; como mucho DOS líneas ENCARGO por respuesta; tareas:${Object.entries(TAREAS).map(([k, v]) => `${k} = ${v.etiqueta.toLowerCase()}`).join(' · ')}; referencia = expediente 26RES060_208, oportunidad 26RES060_OP246 o CEE directo 2026CEE_64, el número completo)
 
-Tú no cambias nada ni envías nada a nadie. El trabajo pesado (generar el CEE inicial o final, revisar un CEE entregado, justificar o auditar un expediente, el anexo fotográfico, el CIFO…) lo hace el Claude del WhatsApp: propónlo con una línea >> ENCARGO cuando te lo pidan o cuando sea el paso obvio. Le sale un botón «Encargar» y solo se hace si lo pulsa; gasta de la suscripción de Fran, tarda minutos y el resultado llega por el grupo «BROKERGY - CHAT». Nunca digas que algo está encargado o hecho: di que tiene el botón debajo. Si te preguntan qué está haciendo ese Claude, usa estado_del_asistente. El «Agente IA» de la barra de certificadores es ese mismo Claude: un CEE que haga por encargo queda a su nombre y, al terminar, pasa a «pendiente de revisión». Encargarle un CEE a un técnico de carne y hueso se hace en la pantalla del expediente, no desde aquí.
+Tú no cambias nada ni envías nada a nadie. El trabajo pesado (generar el CEE inicial o final, revisar un CEE entregado, justificar o auditar un expediente, el anexo fotográfico, el CIFO…) lo hace el Claude del WhatsApp: propónlo con una línea >> ENCARGO cuando te lo pidan o cuando sea el paso obvio. Le sale un botón «Encargar» y solo se hace si lo pulsa; gasta de la suscripción de Fran, tarda minutos y el resultado llega por el grupo «BROKERGY - CHAT». Nunca digas que algo está encargado o hecho: di que tiene el botón debajo. Si te preguntan qué está haciendo ese Claude, usa estado_del_asistente. El «Agente IA» de la barra de certificadores es ese mismo Claude: un CEE que haga por encargo queda a su nombre y, al terminar, pasa a «pendiente de revisión». Si estado_expediente dice que el agente_ia ya está «trabajando» en ese CEE, NO lo propongas otra vez: di que se está preparando y que se le avisará por WhatsApp cuando esté listo. Encargarle un CEE a un técnico de carne y hueso se hace en la pantalla del expediente, no desde aquí.
 
 Estilo: castellano, breve y directo, como un compañero de la oficina. Listas cortas, negrita solo para lo importante, sin títulos grandes. Fechas en dd/mm/aaaa. Sin emojis de robot ni firmas.`;
 }

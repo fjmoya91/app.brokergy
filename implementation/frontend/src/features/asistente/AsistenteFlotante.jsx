@@ -141,8 +141,23 @@ function IconoAsistente({ className = 'w-6 h-6' }) {
 
 function TarjetaEncargo({ encargo, estado, onEncargar, onEnlace }) {
     const a = encargo.asistente || {};
-    const hecho = estado === 'ok';
+    // `encargo.hecho` va guardado en el mensaje (sessionStorage): al recargar, la tarjeta
+    // sigue diciendo que se está preparando y no invita a encargarlo dos veces.
+    const hecho = estado === 'ok' || !!encargo.hecho;
     const bloqueado = a.conectado === false;
+    if (hecho) {
+        return (
+            <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.07] p-3">
+                <div className="text-sm font-bold text-white">
+                    Se está preparando {encargo.que || 'el encargo'} de <TextoEnlace texto={encargo.enlace} onEnlace={onEnlace} />
+                </div>
+                <div className="mt-1 text-xs text-white/70">
+                    Te avisaremos por WhatsApp cuando esté listo.
+                    {encargo.enCola ? ' Ahora está terminando otro trabajo: empieza en cuanto acabe.' : ''}
+                </div>
+            </div>
+        );
+    }
     return (
         <div className="mt-3 rounded-xl border border-brand/30 bg-brand/[0.06] p-3">
             <div className="text-[10px] font-black uppercase tracking-widest text-brand/80">Encargo al Claude del WhatsApp</div>
@@ -157,14 +172,10 @@ function TarjetaEncargo({ encargo, estado, onEncargar, onEnlace }) {
             {bloqueado && <div className="mt-1.5 text-[11px] text-amber-400">No se puede encargar desde aquí: {a.motivo}</div>}
             {estado === 'error' && <div className="mt-1.5 text-[11px] text-red-400">No se ha encargado. Puedes volver a intentarlo.</div>}
             <div className="mt-2.5 flex justify-end">
-                {hecho ? (
-                    <span className="text-xs font-bold text-emerald-400">✓ Encargado</span>
-                ) : (
-                    <button type="button" disabled={bloqueado || estado === 'enviando'} onClick={onEncargar}
-                        className="px-4 py-1.5 rounded-lg bg-brand text-bkg-deep text-xs font-black uppercase tracking-wider hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed">
-                        Encargar
-                    </button>
-                )}
+                <button type="button" disabled={bloqueado || estado === 'enviando'} onClick={onEncargar}
+                    className="px-4 py-1.5 rounded-lg bg-brand text-bkg-deep text-xs font-black uppercase tracking-wider hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed">
+                    Encargar
+                </button>
             </div>
         </div>
     );
@@ -296,10 +307,14 @@ export default function AsistenteFlotante({ onAbrir }) {
         setEncargos(prev => ({ ...prev, [encargo.id]: 'enviando' }));
         setOverlay({ phase: 'sending', encargo });
         try {
-            await axios.post('/api/asistente-app/encargo', {
+            const { data } = await axios.post('/api/asistente-app/encargo', {
                 referencia: encargo.referencia, tarea: encargo.tarea, detalle: encargo.detalle,
             });
             setEncargos(prev => ({ ...prev, [encargo.id]: 'ok' }));
+            // Se marca en el MENSAJE (que se guarda) para que sobreviva a una recarga.
+            setMensajes(prev => prev.map(m => (m.encargos || []).some(x => x.id === encargo.id)
+                ? { ...m, encargos: m.encargos.map(x => (x.id === encargo.id ? { ...x, hecho: true, enCola: !!data?.enCola } : x)) }
+                : m));
             setOverlay({ phase: 'done', ok: true, encargo });
         } catch (e) {
             setEncargos(prev => ({ ...prev, [encargo.id]: 'error' }));
@@ -436,11 +451,11 @@ export default function AsistenteFlotante({ onAbrir }) {
             icon="send"
             subtitle={`${overlay.encargo.etiqueta} · ${overlay.encargo.referencia}`}
             sendingTitle="Encargando al Claude del WhatsApp…"
-            okTitle="Encargado"
+            okTitle="Se está preparando"
             errorTitle="No se ha podido encargar"
             items={overlay.ok ? [
                 `${overlay.encargo.etiqueta} · ${overlay.encargo.referencia}`,
-                { texto: 'Te contestará por el grupo «BROKERGY - CHAT» cuando acabe', tono: 'info' },
+                'Te avisaremos por WhatsApp cuando esté listo',
             ] : []}
             errorText={overlay.error}
             onClose={() => setOverlay(null)}

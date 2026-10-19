@@ -37,6 +37,19 @@ un CEE y contesta por el grupo «BROKERGY - CHAT». Ese clic pasa por el `SendAc
 `otra` con indicaciones). La ruta `/encargo` vuelve a validar la tarea y la referencia (que exista
 el expediente, la OP o el CEE): no se da por bueno lo que propuso el modelo solo porque llegue del
 popup. La misma tarea sobre la misma referencia pedida dos veces se queda con la última (la `clave`).
+Y un CEE que el Agente IA YA está haciendo (`cee.agente_ia[fase].estado = 'trabajando'`) no se
+vuelve a encargar: `/encargo` responde 409 «ya se está preparando (desde las HH:MM)» —la cola del
+vigilante solo junta lo que aún no ha cogido— y el modelo lo ve en `estado_expediente` y no lo propone.
+
+**Lo que ve quien encarga es poco, a propósito** (decisión de Fran, 19/10/2026: «tampoco necesito
+saber tanto»): al pulsar, «Se está preparando el CEE inicial de 26RES093_15. Te avisaremos por
+WhatsApp cuando esté listo» (y «está terminando otro trabajo» si el vigilante estaba ocupado). Queda
+guardado en el mensaje, así que al recargar no vuelve a ofrecer «Encargar». El acuse del WhatsApp
+dice lo mismo («Me pongo con el CEE inicial de … Te aviso cuando esté listo»): cada tarea lleva su
+frase (`TAREAS[k].que`). Ojo: si el WhatsApp del servidor está caído (p. ej. justo tras un
+despliegue, hasta que el vigilante de `whatsappService` lo reinicia), el vigilante del asistente NO
+arranca nada —lee el grupo antes de atender la cola—; lo coge solo en cuanto vuelve (medido el
+19/10: pedido a las 20:52, cogido a las 20:56, Agente IA en el expediente a las 20:57).
 
 **REGLA — los botones van en el TEXTO, no en herramientas.** Con Opus 5.5 el texto que el modelo
 escribe ANTES de llamar a una herramienta, a partir de la segunda vuelta, vuelve como nota de
