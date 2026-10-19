@@ -141,11 +141,25 @@ const skillsRepo = () => fs.readdirSync(SKILLS, { withFileTypes: true })
 
 // ── Lo instalado en la cuenta ─────────────────────────────────────────────────
 
-function carpetasInstaladas() {
+// La app de escritorio es un paquete MSIX: lo que escribe en %APPDATA%\Claude vive de verdad en
+// %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude. Los procesos que lanza la app ven la
+// ruta virtual; una terminal normal (la del panel, PowerShell) solo ve la real. Se miran las dos.
+function basesSkillsPlugin() {
+    const sub = path.join('Claude', 'local-agent-mode-sessions', 'skills-plugin');
     const appdata = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-    const base = path.join(appdata, 'Claude', 'local-agent-mode-sessions', 'skills-plugin');
+    const local = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    const bases = [path.join(appdata, sub)];
+    try {
+        for (const p of fs.readdirSync(path.join(local, 'Packages')).filter(n => /^Claude_/i.test(n)))
+            bases.push(path.join(local, 'Packages', p, 'LocalCache', 'Roaming', sub));
+    } catch { /* sin Packages */ }
+    return bases.filter(b => fs.existsSync(b));
+}
+
+function carpetasInstaladas() {
+    const base = basesSkillsPlugin()[0];   // si se ven las dos, son la misma carpeta
     const res = [];
-    if (!fs.existsSync(base)) return res;
+    if (!base) return res;
     for (const a of fs.readdirSync(base)) for (const b of fs.readdirSync(path.join(base, a)).filter(x => !x.startsWith('.'))) {
         const m = path.join(base, a, b, 'manifest.json');
         try { res.push({ dir: path.join(base, a, b, 'skills'), manifest: JSON.parse(fs.readFileSync(m, 'utf8')) }); } catch { /* no es una cuenta */ }
