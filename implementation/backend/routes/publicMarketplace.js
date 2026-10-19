@@ -222,8 +222,87 @@ router.get('/instaladores/:slug', async (req, res) => {
 // ── GET /instalaciones  (mapa de instalaciones ANÓNIMAS a nivel municipio) ──
 // Privacidad: NUNCA coords de vivienda. Se usa el centroide del municipio + un
 // desplazamiento DETERMINISTA (estable) por expediente para que no se apilen.
-// Solo instalaciones de instaladores VISIBLES (mismo gate de consentimiento).
+// Salen TODOS los expedientes (menos los rechazados), en cualquier fase. El nombre
+// y el enlace del instalador solo salen si es VISIBLE (gate de consentimiento);
+// si no lo es, o no hay instalador asignado, la obra sale igual pero anónima.
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+
+// Fase de la obra para el filtro del mapa. Manda el estado del expediente; el
+// seguimiento de los CEE solo decide en los estados que no la dicen por sí solos.
+const ESTADOS_FINALIZADA = new Set([
+  'PTE FIN EXPTE', 'DOC. COMPLETA', 'SUBIDO A MITECO', 'ENVIADO A VERIFICADOR',
+  'REQUERIMIENTO VERIFICADOR', 'REQUERIMIENTO BROKERGY', 'CAE EMITIDO – PTE PAGO BROKERGY',
+  'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO',
+]);
+const ESTADOS_ESTUDIO = new Set([
+  'PTE. CEE INICIAL', 'EN CERTIFICADOR CEE INICIAL', 'PENDIENTE REVISIÓN (INICIAL)', 'REVISADO Y LISTO (INICIAL)',
+]);
+function faseDe(e) {
+  if (ESTADOS_FINALIZADA.has(e.estado) || e.seguimiento?.cee_final === 'REGISTRADO') return 'finalizada';
+  if (ESTADOS_ESTUDIO.has(e.estado)) return 'en_estudio';
+  if (e.estado === 'PTE. FIN OBRA' || e.seguimiento?.cee_inicial === 'REGISTRADO') return 'en_ejecucion';
+  return 'en_estudio';
+}
+
+// Clave para casar municipios escritos de formas distintas: sin tildes, con el
+// artículo delante ("SOLANA (LA)" = "La Solana") y solo letras y números
+// ("Chinchilla de Monte-Aragón" = "CHINCHILLA DE MONTEARAGON").
+function muniKey(m) {
+  let s = String(m || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const art = s.match(/^(.*?)\s*\((el|la|los|las|l'|els|les|o|a|os|as)\)$/);
+  if (art) s = `${art[2]} ${art[1]}`;
+  return s.replace(/[^a-z0-9]/g, '');
+}
+
+// Códigos INE de provincia → nombre, para geocodificar sin ambigüedad
+// (hay "San Pedro" o "Villanueva" en media España).
+const PROVINCIAS_INE = {
+  '01': 'Álava', '02': 'Albacete', '03': 'Alicante', '04': 'Almería', '05': 'Ávila', '06': 'Badajoz',
+  '07': 'Illes Balears', '08': 'Barcelona', '09': 'Burgos', '10': 'Cáceres', '11': 'Cádiz', '12': 'Castellón',
+  '13': 'Ciudad Real', '14': 'Córdoba', '15': 'A Coruña', '16': 'Cuenca', '17': 'Girona', '18': 'Granada',
+  '19': 'Guadalajara', '20': 'Gipuzkoa', '21': 'Huelva', '22': 'Huesca', '23': 'Jaén', '24': 'León',
+  '25': 'Lleida', '26': 'La Rioja', '27': 'Lugo', '28': 'Madrid', '29': 'Málaga', '30': 'Murcia',
+  '31': 'Navarra', '32': 'Ourense', '33': 'Asturias', '34': 'Palencia', '35': 'Las Palmas', '36': 'Pontevedra',
+  '37': 'Salamanca', '38': 'Santa Cruz de Tenerife', '39': 'Cantabria', '40': 'Segovia', '41': 'Sevilla',
+  '42': 'Soria', '43': 'Tarragona', '44': 'Teruel', '45': 'Toledo', '46': 'Valencia', '47': 'Valladolid',
+  '48': 'Bizkaia', '49': 'Zamora', '50': 'Zaragoza', '51': 'Ceuta', '52': 'Melilla',
+};
+const provNombre = (p) => {
+  const s = String(p || '').trim();
+  return /^\d{1,2}$/.test(s) ? (PROVINCIAS_INE[s.padStart(2, '0')] || '') : s;
+};
+
+// Municipios que Google no supo situar: no se reintentan hasta reiniciar el backend.
+const geoFallidos = new Set();
+const GEOCODE_MAX_POR_PETICION = 60;
+
+// Sitúa con Google los municipios que aún no están en municipio_geo y los guarda,
+// así cada municipio se geocodifica UNA sola vez y no en cada petición.
+async function geocodificarFaltantes(faltan, geoBy) {
+  const lista = [...faltan.values()].filter((f) => !geoFallidos.has(f.key)).slice(0, GEOCODE_MAX_POR_PETICION);
+  const nuevos = [];
+  for (let i = 0; i < lista.length; i += 5) {
+    await Promise.all(lista.slice(i, i + 5).map(async (f) => {
+      const results = await googleService.searchAddress([f.municipio, provNombre(f.provincia), 'España'].filter(Boolean).join(', '));
+      const r = results && results[0];
+      if (!r || !r.location || String(r.place_id || '').startsWith('mock')) { geoFallidos.add(f.key); return; }
+      const provincia = String(f.provincia || '').trim();
+      const row = {
+        clave: `${f.municipio.toLowerCase()}|${provincia.toLowerCase()}`,
+        municipio: f.municipio.toUpperCase(),
+        provincia: provincia || null,
+        lat: r.location.lat, lng: r.location.lng,
+        updated_at: new Date().toISOString(),
+      };
+      geoBy.set(f.key, row);
+      nuevos.push(row);
+    }));
+  }
+  if (nuevos.length) {
+    const { error } = await supabase.from('municipio_geo').upsert(nuevos, { onConflict: 'clave' });
+    if (error) console.error('[marketplace/instalaciones] guardando municipio_geo:', error.message);
+  }
+}
 function jitter(seed) {
   // Hash simple del id → offset reproducible en ~±700 m.
   let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
@@ -239,26 +318,24 @@ function tipoDe(numero) {
 
 router.get('/instalaciones', async (req, res) => {
   try {
-    // Instaladores visibles (consentidos) → nombre + slug + marcas.
+    // Instaladores visibles (consentidos) → nombre + slug + marcas. Solo ellos salen
+    // con nombre; las obras del resto salen anónimas.
     const { data: visibles } = await supabase
       .from('prescriptores').select('id_empresa, acronimo, razon_social, marketplace_slug')
       .eq('visible_marketplace', true).eq('tipo_empresa', 'INSTALADOR');
     const visSet = new Map((visibles || []).filter((p) => !isBlocked(p)).map((p) => [p.id_empresa, p]));
-    if (!visSet.size) { res.set('Cache-Control', 'public, max-age=300'); return res.json({ instalaciones: [] }); }
 
-    const { data: marcasRows } = await supabase
-      .from('instalador_marcas').select('instalador_id, marca_nombre').in('instalador_id', [...visSet.keys()]);
+    const { data: marcasRows } = visSet.size
+      ? await supabase.from('instalador_marcas').select('instalador_id, marca_nombre').in('instalador_id', [...visSet.keys()])
+      : { data: [] };
     const marcasBy = new Map();
     (marcasRows || []).forEach((m) => { if (!marcasBy.has(m.instalador_id)) marcasBy.set(m.instalador_id, []); marcasBy.get(m.instalador_id).push(m.marca_nombre); });
 
     const { data: exps } = await supabase
       .from('expedientes')
       .select('id, numero_expediente, instalacion, oportunidad_id, cliente_id, seguimiento, estado, instalador_asociado_id')
-      .in('instalador_asociado_id', [...visSet.keys()]);
-
-    const verif = (e) => e.seguimiento?.cee_inicial === 'REGISTRADO' || e.seguimiento?.cee_final === 'REGISTRADO'
-      || ['DOC. COMPLETA', 'ENVIADO A VERIFICADOR', 'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'].includes(e.estado);
-    const vlist = (exps || []).filter(verif);
+      .neq('estado', 'RECHAZADO');
+    const vlist = exps || [];
 
     // Municipio del cliente (dato coarse, permitido) como fuente de respaldo —
     // muchos expedientes solo tienen el municipio ahí. NO se expone nada más del cliente.
@@ -272,23 +349,33 @@ router.get('/instalaciones', async (req, res) => {
       .in('id', [...new Set(vlist.map((e) => e.oportunidad_id).filter(Boolean))]);
     const opBy = new Map((ops || []).map((o) => [o.id, o]));
 
-    // Indexar por MUNICIPIO (nombre en minúsculas): la provincia venía como código
+    // Indexar por MUNICIPIO normalizado (muniKey): la provincia venía como código
     // INE en unos sitios y como nombre en otros, así que casar por municipio es lo fiable.
     const { data: geos } = await supabase.from('municipio_geo').select('municipio, lat, lng');
-    const geoBy = new Map((geos || []).map((g) => [(g.municipio || '').trim().toLowerCase(), g]));
-    const gkey = (m) => (m || '').trim().toLowerCase();
+    const geoBy = new Map((geos || []).map((g) => [muniKey(g.municipio), g]));
 
-    const out = [];
-    for (const e of vlist) {
+    const filas = vlist.map((e) => {
       const dc = opBy.get(e.oportunidad_id)?.datos_calculo || {};
-      const f = dc.result?.financials || {};
       const cli = cliBy.get(e.cliente_id) || {};
       const municipio = (dc.inputs?.municipio || e.instalacion?.municipio || cli.municipio || '').trim();
-      let provincia = (e.instalacion?.provincia || dc.inputs?.provincia_nombre || cli.provincia || '').trim();
-      if (/^\d+$/.test(provincia)) provincia = '';   // nunca mostrar el código INE
-      const geo = geoBy.get(gkey(municipio));
+      const provRaw = String(e.instalacion?.provincia || dc.inputs?.provincia_nombre || cli.provincia || dc.inputs?.provincia || '').trim();
+      return { e, dc, municipio, provRaw, key: muniKey(municipio) };
+    });
+
+    // Municipios que aún no tienen centroide → se geocodifican y quedan guardados.
+    const faltan = new Map();
+    filas.forEach(({ municipio, provRaw, key }) => {
+      if (key && !geoBy.has(key) && !faltan.has(key)) faltan.set(key, { key, municipio, provincia: provRaw });
+    });
+    if (faltan.size) await geocodificarFaltantes(faltan, geoBy);
+
+    const out = [];
+    for (const { e, dc, municipio, provRaw, key } of filas) {
+      const f = dc.result?.financials || {};
+      const provincia = provNombre(provRaw);   // nunca mostrar el código INE
+      const geo = geoBy.get(key);
       if (!geo) continue; // sin centroide → no lo pintamos
-      const p = visSet.get(e.instalador_asociado_id);
+      const p = visSet.get(e.instalador_asociado_id) || null;   // null → obra anónima
       const j = jitter(e.id);
       const tipo = tipoDe(e.numero_expediente);
       // Marca+modelo REALMENTE instalado (equipo del expediente), no la genérica del
@@ -304,6 +391,7 @@ router.get('/instalaciones', async (req, res) => {
         id: e.id,                                   // opaco (uuid); no se expone nº expediente ni cliente
         lat: Number(geo.lat) + j.dLat, lng: Number(geo.lng) + j.dLng,
         tipo: tipo.key, tipo_label: tipo.label,
+        fase: faseDe(e),                            // finalizada | en_ejecucion | en_estudio
         municipio: titleCase(municipio), provincia: titleCase(provincia),
         ayuda_cae: num(f.caeBonus) != null ? Math.round(num(f.caeBonus)) : null,
         irpf_deduccion: num(f.irpfDeduction) != null ? Math.round(num(f.irpfDeduction)) : null,
@@ -311,11 +399,11 @@ router.get('/instalaciones', async (req, res) => {
         // Coste de obra / coste final NO se publican (decisión comercial 2026-07-07):
         // revelarían los precios del instalador. El % subvencionado + ayudas venden igual.
         pct_cubierto: num(f.porcentajeCubierto) != null ? Math.round(num(f.porcentajeCubierto)) : null,
-        instalador_nombre: (p.acronimo || p.razon_social || '').trim(),
-        instalador_slug: p.marketplace_slug,
+        instalador_nombre: p ? (p.acronimo || p.razon_social || '').trim() : null,
+        instalador_slug: p ? p.marketplace_slug : null,
         marca_instalada: marcaInst,
         modelo_instalado: modeloInst,
-        marcas: (marcasBy.get(e.instalador_asociado_id) || []).slice(0, 3),
+        marcas: p ? (marcasBy.get(e.instalador_asociado_id) || []).slice(0, 3) : [],
       });
     }
     assertAnonymous(out, 'instalaciones');

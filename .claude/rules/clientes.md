@@ -37,6 +37,7 @@ paths:
 
 - `docs/conocimiento/clientes/confirmacion-de-cobro-el-formulario-del-final.md` — Confirmación de cobro — el formulario del final (2026-09-07) · 22,7 KB
 - `docs/conocimiento/clientes/el-aviso-lo-recibe-el-comercial-o-el-tecnico.md` — El aviso lo recibe el COMERCIAL o el TÉCNICO (2026-09-09) · 13,6 KB
+- `docs/conocimiento/clientes/el-mapa-del-escaparate-ensena-todas-las-obras.md` — El MAPA del escaparate enseña TODAS las obras (2026-10-19) · 2,0 KB
 - `docs/conocimiento/clientes/los-avisos-de-sus-clientes-al-partner.md` — Los avisos de sus clientes, al PARTNER (2026-10-15) · 3,7 KB
 - `docs/conocimiento/clientes/modulo-prescriptores-novedades.md` — Módulo Prescriptores — Novedades (2026-03-26) · 1,1 KB
 - `docs/conocimiento/clientes/patron-de-modales-clientes-y-prescriptores.md` — Patrón de Modales (Clientes y Prescriptores) · 0,5 KB
@@ -95,6 +96,10 @@ VERIFICADO**
   - **REGLA — dos personas de la MISMA empresa reciben UN correo con copia real.**
   - **REGLA — el mensaje saluda a quien va en el "Para".**
   - **REGLA — el CANAL se elige POR DESTINATARIO, no solo para el envío entero.**
+- `docs/conocimiento/clientes/el-mapa-del-escaparate-ensena-todas-las-obras.md`
+  - **REGLA — el nombre y el enlace del instalador solo salen si es VISIBLE (consentimiento).**
+  - **REGLA — cero datos del cliente**
+  - **REGLA — cada municipio se geocodifica UNA vez.**
 - `docs/conocimiento/clientes/los-avisos-de-sus-clientes-al-partner.md`
   - **REGLA — la marca del partner no es un tercer modo de elegir destinatario: solo
 ENCIENDE `contacto_es_partner` en sus clientes.**

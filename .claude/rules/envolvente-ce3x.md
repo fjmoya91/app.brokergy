@@ -122,7 +122,7 @@ paths:
 - `docs/conocimiento/envolvente-ce3x/lo-que-el-certificador-no-tiene-que-ver-ni-tocar.md` — Lo que el CERTIFICADOR no tiene que ver ni tocar (2026-09-14) · 1,3 KB
 - `docs/conocimiento/envolvente-ce3x/lo-que-se-reforma-en-la-envolvente-cambia.md` — Lo que se REFORMA en la envolvente: «- CAMBIA» (2026-09-19) · 10,3 KB
 - `docs/conocimiento/envolvente-ce3x/los-administrativos-se-corrigen-desde-la-ventana-en-su-fuente.md` — Los administrativos se CORRIGEN desde la ventana, en su fuente (2026-09-14) · 3,5 KB
-- `docs/conocimiento/envolvente-ce3x/los-puentes-termicos-se-miran-ya-no-se-listan.md` — Los PUENTES TÉRMICOS se miran, ya no se listan (2026-09-19) · 7,2 KB
+- `docs/conocimiento/envolvente-ce3x/los-puentes-termicos-se-miran-ya-no-se-listan.md` — Los PUENTES TÉRMICOS se miran, ya no se listan (2026-09-19) · 8,3 KB
 - `docs/conocimiento/envolvente-ce3x/los-valores-por-defecto-de-ce3x-3-2-por-epoca-y-zona.md` — Los valores POR DEFECTO de CE3X 3.2, por época y zona (2026-10-08) · 8,6 KB
 - `docs/conocimiento/envolvente-ce3x/que-plantas-se-miden-lo-marco-una-persona-no-catastro/00-que-plantas-se-miden-lo-marco-una-persona-no-catastro.md` — Qué PLANTAS se miden lo marcó una persona, no Catastro (2026-09-14) · 6,0 KB
 - `docs/conocimiento/envolvente-ce3x/que-plantas-se-miden-lo-marco-una-persona-no-catastro/la-cartografia-del-catastro-debajo-del-plano.md` — La CARTOGRAFÍA del Catastro, debajo del plano (2026-09-14) · 3,3 KB
@@ -367,6 +367,8 @@ se dice con su nombre.**
 - `docs/conocimiento/envolvente-ce3x/los-puentes-termicos-se-miran-ya-no-se-listan.md`
   - **REGLA — los que se llaman «encuentro de fachada con…» NO van sobre la
 fachada.**
+  - **REGLA — con VARIAS cubiertas (o soleras) en la misma planta, el contorno se cuenta UNA vez,
+no una por cubierta**
   - **REGLA — no se pregunta NADA más.**
   - **REGLA — no BLOQUEA, y sin contestar sale lo de siempre**
   - **REGLA — viene CONTESTADO con lo que dicen las fotos ya leídas.**

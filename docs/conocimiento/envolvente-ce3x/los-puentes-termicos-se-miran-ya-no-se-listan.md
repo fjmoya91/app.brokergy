@@ -35,6 +35,19 @@ Su longitud es el **contorno vertical de esa planta, medianeras incluidas**: la
 cubierta se apoya igual sobre la medianera del vecino. Contra ese perímetro la
 mediana del corpus es **1,00**; contra el de solo las fachadas al aire, 1,19.
 
+**REGLA — con VARIAS cubiertas (o soleras) en la misma planta, el contorno se cuenta UNA vez,
+no una por cubierta** (código del 15/10/2026, subido por decisión del usuario el 19/10/2026).
+Cada una recibía el contorno ENTERO de la planta: en 26RES060_OP304 la planta baja tiene dos
+cubiertas (99,62 y 23,50 m²) y salían dos encuentros de 64,40 m, unos 67 W/K de más. Ahora,
+con una sola cubierta, el contorno como siempre; con varias, cada una el perímetro de SU
+polígono (lo que hacen los certificadores: medido en las 22 zonas del corpus con dos o más,
+mediana 1,06 veces el perímetro de un cuadrado de su superficie); y con varias y alguna sin
+trazado, el contorno REPARTIDO por superficie, con aviso. ⚠️ Cambia los W/K de todo `.cex`
+NUEVO con más de una cubierta o solera por planta; los ya generados no se tocan. Fuente:
+`largos_de_encuentro` en [puentes.py](implementation/cee-engine/tools/puentes.py); la superficie
+escrita de cada cerramiento la pasa `construir_envolvente` (`generar_cex.py`). Tras tocarlo:
+`python -m pytest implementation/cee-engine/tests/test_puentes.py`.
+
 ⚠️ Faltaba el ψ de `Encuentro de fachada con suelo en contacto con el aire`:
 **0,97**, de los 10 casos del corpus, todos iguales. Los otros siete ya estaban y
 coinciden valor a valor con el valor dominante del corpus.

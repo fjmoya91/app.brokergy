@@ -245,6 +245,60 @@ def perimetro_del_nivel(paredes, nivel) -> float:
     return round(total, 2)
 
 
+def perimetro_propio(p) -> float | None:
+    """Cuanto mide el contorno de ESTA cubierta (o de este suelo): el de su
+    poligono, patios interiores incluidos. `None` si no trae trazado.
+
+    Es lo que escribe el certificador cuando una planta tiene VARIAS: medido
+    sobre las 22 zonas del corpus con dos o mas cubiertas que lo llevan, cada
+    una lleva el contorno de SU trozo (mediana 1,06 veces el perimetro de un
+    cuadrado de su superficie) y ninguna el de la planta entera.
+    """
+    wkt = p.get("wkt")
+    if not wkt:
+        return None
+    try:
+        from shapely import wkt as _wkt
+        g = _wkt.loads(str(wkt))
+    except Exception:  # noqa: BLE001 — sin shapely o trazado roto: no hay medida
+        return None
+    if g.is_empty or g.geom_type not in ("Polygon", "MultiPolygon"):
+        return None
+    return round(float(g.length), 2) or None
+
+
+def largos_de_encuentro(grupo, contorno) -> tuple[list[float], str | None]:
+    """La longitud del encuentro de cada cubierta (o suelo) de UNA planta.
+
+    REGLA — el contorno de la planta se cuenta UNA vez, no una por cubierta.
+    Hasta 2026-10-15 cada una recibia el contorno ENTERO: en 26RES060_OP304 la
+    planta baja tiene dos cubiertas (99,62 y 23,50 m2) y salian dos encuentros
+    de 64,40 m, unos 67 W/K de mas.
+
+    - UNA sola: el contorno de la planta, como siempre (regla 64, mediana 1,00).
+    - VARIAS: cada una el perimetro de SU poligono, que es lo que hacen los
+      certificadores. Suman algo distinto del contorno —las paredes de la
+      planta de arriba que apoyan en esa cubierta tambien la tocan— y eso es
+      una medida, no un error.
+    - VARIAS y alguna sin trazado: el contorno REPARTIDO en proporcion a la
+      superficie, y se dice: nunca suma mas que la planta.
+    """
+    if len(grupo) == 1:
+        return [contorno], None
+    propios = [perimetro_propio(p) for p in grupo]
+    if all(propios):
+        return propios, None
+    sups = [_float(p.get("superficie")) or 0.0 for p in grupo]
+    total = sum(sups)
+    cuotas = [s / total for s in sups] if total > 0 else [1 / len(grupo)] * len(grupo)
+    largos = [round(contorno * c, 2) for c in cuotas]
+    aviso = (
+        f"{len(grupo)} encuentros en la misma planta ({', '.join(p['nombre'] for p in grupo)}) "
+        f"sin el trazado de cada uno: los {contorno:g} m del contorno se reparten "
+        f"por superficie. Es una aproximacion; comprueba cuanto apoya en cada uno.")
+    return largos, aviso
+
+
 # --------------------------------------------------------------------------
 # El barrido
 # --------------------------------------------------------------------------
@@ -255,7 +309,9 @@ def construir(paredes, huecos, cfg=None) -> tuple[list[list], list[str]]:
     `paredes` son los cerramientos ya medidos, cada uno con su `nombre` (el que
     va al `.cex`), `ident` (el de Catastro, que es la clave de todo lo demas),
     `clase`, `destino`, `largo`, `alto`, `espacio` y `nivel`; las verticales,
-    ademas, con su `wkt`.
+    ademas, con su `wkt` (el trazado), y las cubiertas y los suelos con su
+    `wkt` (el poligono) y su `superficie`, que es lo que hace falta cuando una
+    planta tiene varias.
 
     `huecos` son los ya escritos: `id`, `muro`, `espacio`, `ancho`, `alto` y si
     tiene `persiana`.
@@ -362,12 +418,29 @@ def construir(paredes, huecos, cfg=None) -> tuple[list[list], list[str]]:
     # --- FACHADA CON CUBIERTA, CON SOLERA Y CON SUELO AL AIRE --------------
     # Cuelgan de la CUBIERTA y del SUELO, no de una fachada: es lo que hacen
     # los 74 encuentros del corpus, sin una excepcion. Su longitud es el
-    # contorno vertical de esa planta.
+    # contorno vertical de esa planta — UNA vez por planta y tipo: con varias
+    # cubiertas (o soleras) en la misma, cada una lleva el contorno de SU
+    # trozo (`largos_de_encuentro`), nunca el de la planta entera repetido.
+    grupos: dict = {}
+    for p in paredes:
+        tipo = _encuentro_horizontal(p)
+        if tipo:
+            grupos.setdefault((p.get("nivel"), tipo), []).append(p)
+    largos: dict = {}
+    for (nivel, tipo), grupo in grupos.items():
+        contorno = perimetro_del_nivel(paredes, nivel)
+        if not contorno:
+            continue
+        reparto, aviso = largos_de_encuentro(grupo, contorno)
+        if aviso:
+            avisos.append(aviso)
+        for p, largo in zip(grupo, reparto):
+            largos[id(p)] = largo
     for p in paredes:
         tipo = _encuentro_horizontal(p)
         if not tipo:
             continue
-        largo = perimetro_del_nivel(paredes, p.get("nivel"))
+        largo = largos.get(id(p))
         if not largo:
             avisos.append(
                 f"{p['nombre']}: sin su «{tipo.lower()}». No hay ninguna pared "
@@ -403,6 +476,13 @@ def _pos(v) -> bool:
         return float(v) > 0
     except (TypeError, ValueError):
         return False
+
+
+def _float(v):
+    try:
+        return float(str(v).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
 
 
 def _entero(v):

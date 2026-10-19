@@ -2018,6 +2018,9 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
             "destino": str(cerr[-1]), "espacio": str(cerr[-2]),
             "nivel": el.get("nivel"), "wkt": el.get("geometria_wkt"),
             "largo": medida(el, "largo"), "alto": medida(el, "alto"),
+            # La escrita, no la de Catastro: con varias cubiertas en una planta
+            # y sin poligono, el contorno se reparte por ella (`puentes.py`).
+            "superficie": cerr[2],
         })
 
     for el in elementos:

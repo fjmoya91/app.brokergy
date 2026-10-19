@@ -325,6 +325,54 @@ def test_cada_cubierta_mide_el_contorno_de_SU_planta():
     assert largos == [12.0, 32.0]
 
 
+def test_dos_cubiertas_en_UNA_planta_no_cuentan_dos_veces_el_contorno():
+    """26RES060_OP304: la planta baja con dos cubiertas llevaba DOS encuentros
+    con el contorno entero (64,40 m cada uno, 67 W/K de mas). Medido en el
+    corpus: con varias cubiertas en una zona, cada una lleva el contorno de SU
+    trozo (22 zonas, mediana 1,06 veces el de un cuadrado de su superficie) y
+    ninguna el de la planta repetido.
+
+    Aqui: planta baja de 10 x 6 (contorno 32) con la planta 1 encima de la
+    franja central (x de 4 a 6). Le quedan dos trozos de tejado de 4 x 6."""
+    paredes = RECTANGULO + [
+        dict(horizontal("CUB1 CUBIERTA", "CUBIERTA", "aire"),
+             wkt="POLYGON ((0 0, 4 0, 4 6, 0 6, 0 0))", superficie="24"),
+        dict(horizontal("CUB2 CUBIERTA", "CUBIERTA", "aire"),
+             wkt="POLYGON ((6 0, 10 0, 10 6, 6 6, 6 0))", superficie="24"),
+    ]
+    pts, avisos = PT.construir(paredes, [])
+    enc = de_tipo(pts, "Encuentro de fachada con cubierta")
+    assert [(p[7], p[4]) for p in enc] == [("CUB1 CUBIERTA", "20"), ("CUB2 CUBIERTA", "20")]
+    assert sum(float(p[4]) for p in enc) < 2 * 32       # antes: 32 + 32
+    assert not any("reparten" in a for a in avisos)     # es una medida
+
+
+def test_varias_SIN_trazado_reparten_el_contorno_por_superficie_y_lo_dicen():
+    """Sin poligono no se sabe que tramo apoya en cada una: el contorno se
+    reparte por superficie —nunca suma mas que la planta— y se avisa."""
+    paredes = RECTANGULO + [
+        dict(horizontal("SUB1 SUELO EN TERRENO", "SUELO", "terreno"), superficie="45"),
+        dict(horizontal("SUB2 SUELO EN TERRENO", "SUELO", "terreno"), superficie="15"),
+    ]
+    pts, avisos = PT.construir(paredes, [])
+    enc = de_tipo(pts, "Encuentro de fachada con solera")
+    assert [p[4] for p in enc] == ["24", "8"]
+    assert sum(float(p[4]) for p in enc) == 32
+    assert any("se reparten por superficie" in a for a in avisos)
+
+
+def test_una_cubierta_y_una_solera_en_la_misma_planta_llevan_CADA_UNA_el_contorno():
+    """Son encuentros DISTINTOS (arriba y abajo de la pared): repartir es solo
+    entre los del mismo tipo."""
+    paredes = RECTANGULO + [
+        horizontal("CUB1 CUBIERTA", "CUBIERTA", "aire"),
+        horizontal("SUB1 SUELO EN TERRENO", "SUELO", "terreno"),
+    ]
+    pts, _ = PT.construir(paredes, [])
+    assert de_tipo(pts, "Encuentro de fachada con cubierta")[0][4] == "32"
+    assert de_tipo(pts, "Encuentro de fachada con solera")[0][4] == "32"
+
+
 def test_una_cubierta_sobre_una_planta_SIN_paredes_medidas_no_se_inventa():
     paredes = [horizontal("CUB1 CUBIERTA", "CUBIERTA", "aire", nivel=9)]
     pts, avisos = PT.construir(paredes, [])
