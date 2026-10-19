@@ -62,6 +62,13 @@ commiteado. `deploy.sh` no lo reconstruye: `docker compose build asistente && do
 asistente` (tras construir el backend). Claude se autentica con `CLAUDE_CODE_OAUTH_TOKEN` del `.env`
 (de `claude setup-token`, un año); `IS_SANDBOX=1` le deja saltarse permisos como root.
 
+**REGLA — Node 22 ANTES de instalar Claude Code, y se actualiza con `--no-cache`** (2026-10-19). Claude
+Code exige Node ≥ 22 y el Dockerfile lo instalaba con el Node 20 de la imagen del backend: npm se quedaba
+con la última versión COMPATIBLE (la 2.1.197, que trabajaba con Opus 4.8) aunque la publicada era la
+2.1.303. Con el orden arreglado, `docker compose build --no-cache asistente && docker compose up -d
+asistente` (con el asistente libre) deja la última; medido: 2.1.303 y los alias `opus`/`sonnet` ya
+responden con Opus 5.5 / Sonnet 5.5.
+
 ⚠️ **Antes de reconstruir o reiniciar `asistente`, mira `docker logs brokergy-asistente`**: un trabajo
 en marcha se corta y su mensaje ya consta como atendido. Para relanzarlo: en `vigia.json` restar 1 a
 `visto`, quitar el último id de `atendidos` y `POST /aviso` con `x-internal-key`.

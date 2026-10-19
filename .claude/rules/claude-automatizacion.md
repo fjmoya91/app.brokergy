@@ -34,7 +34,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/claude-automatizacion/el-asistente-de-fran-por-whatsapp-canal-siempre-abierto.md` — El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05) · 9,2 KB
+- `docs/conocimiento/claude-automatizacion/el-asistente-de-fran-por-whatsapp-canal-siempre-abierto.md` — El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05) · 9,8 KB
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19) · 7,8 KB
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08) · 7,6 KB
 - `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 5,8 KB
@@ -47,6 +47,7 @@ paths:
   - **REGLA — con el WhatsApp caído, lo de la APP se atiende igual y nada de lo que se dice se pierde**
   - **REGLA — nada sale a un tercero sin el «envíala» de Fran para ESA oportunidad.**
   - **REGLA — el número de Fran va en el `.env` (`ASISTENTE_WHATSAPP_TEL`), nunca en el repo**
+  - **REGLA — Node 22 ANTES de instalar Claude Code, y se actualiza con `--no-cache`**
   - **REGLA — el filtro VE las fotos**
   - **REGLA — Claude arranca FUERA del repo**
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md`
