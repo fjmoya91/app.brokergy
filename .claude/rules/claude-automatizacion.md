@@ -6,6 +6,7 @@ paths:
   - "implementation/backend/services/asistenteCanal.js"
   - "implementation/backend/{services,routes}/asistenteApp.js"
   - "implementation/frontend/src/features/asistente/**"
+  - "tools/windows/pc_trabajos.vbs"
   - ".claude/hooks/**"
   - "scripts/{skills,conocimiento}.mjs"
   - "scripts/conocimiento/**"
@@ -27,6 +28,8 @@ paths:
 
 144. **El ASISTENTE DENTRO DE LA APP solo LEE, va por la API y lo pesado se ENCARGA con un clic** (2026-10-19). Botón flotante ([AsistenteFlotante.jsx](implementation/frontend/src/features/asistente/AsistenteFlotante.jsx)) → [routes/asistenteApp.js](implementation/backend/routes/asistenteApp.js) (`adminOnly`) → [services/asistenteApp.js](implementation/backend/services/asistenteApp.js): Opus 5.5 por la API de Anthropic (`ANTHROPIC_API_KEY`), **no** con el token de la suscripción (`claude -p` tarda minutos y corre como root con todos los permisos: no se abre a una página web). Sus herramientas solo consultan (búsqueda, estado del expediente, radar del parte, pistas, resumen, partner, el manual `docs/conocimiento`). Generar o revisar un CEE, justificar, auditar, anexo fotográfico o CIFO se PROPONE y solo se hace si se pulsa «Encargar»: entonces va al Claude del WhatsApp por `pedirTarea` (`/tarea`), con un texto que compone el SERVIDOR de un catálogo cerrado (`TAREAS`) y tras volver a validar tarea y referencia. **Los botones van en el TEXTO** (líneas `>> …` que lee `leerMarcas`), no en herramientas: con Opus 5.5 lo escrito antes de una llamada a herramienta vuelve oculto y la respuesta se perdía. Solo ADMIN hasta que cada herramienta filtre «lo suyo» (regla 102). En producción: `ANTHROPIC_API_KEY` en el `.env` del VPS y `./docs/conocimiento` montado en el backend (`CONOCIMIENTO_DIR`). Tras tocarlo: `node implementation/backend/scripts/auditar_rutas_sin_guardian.js`, `node implementation/frontend/scripts/check-hooks.mjs` y una pregunta de prueba en local. Ver "El ASISTENTE dentro de la app".
 
+146. **«Preséntalo» por WhatsApp: el Claude del servidor PREGUNTA, el PC de Fran PRESENTA** (2026-10-19). El VPS no tiene CE3X, ni el certificado, ni el Chrome con AutoFirma y la tarjeta, así que [scripts/asistente_pc.js](implementation/backend/scripts/asistente_pc.js) reparte: en el VPS, `presentar <nº>` le hace a Fran UNA pregunta (expediente, titular, tasa, tarjeta) y `confirmar <nº> --texto "<su respuesta literal>"` deja el encargo en la cola (`scratch/asistente/tareas_pc.json`) con la pregunta y la respuesta, que son la autorización de firmar y de pagar (skill `presentar-cee`, 1b); sin pregunta previa no hay encargo. En el PC, la tarea programada «Brokergy Trabajos PC» ([pc_trabajos.vbs](tools/windows/pc_trabajos.vbs), cada 2 min, solo con sesión iniciada, `IgnoreNew`) da el latido y lanza `claude -p --chrome` (calificar con `cee_inicial.js listo`, firmar con `firmar_cee.js`, la skill entera) **con la sesión de claude.ai de Fran: la vuelta QUITA `ANTHROPIC_API_KEY` del entorno** (con ella Claude Code apaga Chrome y cobra a la API) y **elige el perfil BROKERGY** (`PC_CHROME_DEVICE`; hay dos navegadores conectados). La vuelta espera al trabajo (un `claude -p` desligado muere al salir quien lo lanzó) y el mensaje FINAL lo manda ella. Un encargo que falla no se reintenta solo. Claude Code tiene que estar instalado FUERA de la app de la Store (su `AppData\Roaming` es virtual). El PC, encendido, sin suspender y desbloqueado. Tras tocarlo: `asistente_pc.js probar --enviar` desde el PC y una `vuelta` en una terminal normal. Ver "«Preséntalo» por WhatsApp".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -34,6 +37,7 @@ paths:
 - `docs/conocimiento/claude-automatizacion/el-asistente-de-fran-por-whatsapp-canal-siempre-abierto.md` — El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05) · 8,2 KB
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19) · 7,4 KB
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08) · 7,6 KB
+- `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 5,2 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -56,5 +60,10 @@ paths:
   - **REGLA — el CEE final de la justificación no se pregunta más que las fechas**
   - **REGLA — en seco la página no escribe NADA: se cortan sus peticiones.**
   - **REGLA — la puerta del Convenio no se contesta «terminada» solo por haber facturas**
+- `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md`
+  - **REGLA — UNA pregunta y al principio, y el «sí» viaja con el encargo.**
+  - **REGLA — el PC trabaja con la sesión de claude.ai de Fran, nunca con una clave de API.**
+  - **REGLA — la vuelta no suelta el trabajo.**
+  - **REGLA — el mensaje final lo manda el script, no Claude.**
 
 <!-- generado:fin -->

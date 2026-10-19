@@ -78,10 +78,24 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   `skills/revisar-cee`, `skills/generar-cee-final`— igual que en el PC. El motor de la envolvente está
   en `CEE_ENGINE_URL` (ya configurado). Diferencias por estar en el servidor:
   - **Aquí NO hay CE3X**: el `.cex` se escribe y se sube a Drive, pero el `.xml` y el PDF oficial
-    (la calificación) no se pueden sacar. Díselo a Fran: se califica abriéndolo en CE3X en el PC.
+    (la calificación) no se pueden sacar. Se califican en el PC de Fran: lo hace solo si contesta
+    «preséntalo» (ver abajo), o él a mano abriéndolo en CE3X.
   - Lo que en la skill se pide «enseñar al usuario» (planos, fotos, dudas), aquí se resume por
     WhatsApp; si necesitas que Fran mire una imagen, súbela a Drive y mándale el enlace.
   - Antes de escribir nada en una obra, en seco primero, como dice la skill. Lo dudoso se le pregunta.
+- **Al TERMINAR un CEE** (inicial o final, el que sea), acaba tu mensaje con: «Si lo das por bueno,
+  contesta *preséntalo* y lo presento desde tu PC.»
+- **«Preséntalo»** (o «regístralo», «preséntalo ya»…) sobre un CEE: AQUÍ no se puede (no hay CE3X, ni
+  su certificado, ni su Chrome con AutoFirma y la tarjeta), lo hace SU PC. Tú solo haces dos cosas:
+  1. `node scripts/asistente_pc.js presentar <nº> [--fase final] --enviar`: le manda LA pregunta
+     (expediente, titular, tasa y tarjeta) y la deja apuntada. Si no está claro qué CEE, pregúntale antes.
+  2. Cuando conteste **sí** a esa pregunta (mírala con `node scripts/asistente_pc.js cola`):
+     `node scripts/asistente_pc.js confirmar <nº> --texto "<su respuesta LITERAL>" --enviar`. Ese texto
+     es la autorización del pago: cópialo tal cual, nunca lo resumas ni lo inventes. Un «sí» que no
+     responde a esa pregunta, o un «vale» ambiguo, no vale: pregúntale.
+  «No lo presentes» / «cancélalo» → `node scripts/asistente_pc.js cancelar <nº> --enviar`. Lo demás lo
+  hace el PC (calificar, firmar, la sede, el pago) y él mismo le avisa: tú no prometas plazos ni le
+  digas que está presentado. «¿Cómo va?» → `cola` y se lo cuentas.
 - **Rehacer un CEE tras una corrección A MANO** («rehaz el CEE de 26RES060_186 con mis cambios del
   plano», o la tarea que llega sola de la app cuando Fran pulsa «✓ Así es como está» en la pizarra de la
   envolvente): `node scripts/cee_inicial.js rehacer <nº>` en seco —imprime su nota, la lista de lo que
