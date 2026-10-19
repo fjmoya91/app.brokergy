@@ -127,9 +127,33 @@ async function estadoAsistente() {
         const r = await fetch(`${URL}/estado`, { signal: AbortSignal.timeout(3000) });
         if (!r.ok) return { conectado: false, motivo: `El asistente ha respondido ${r.status}.` };
         const d = await r.json().catch(() => ({}));
-        return { conectado: true, trabajando: !!d.trabajando };
+        return { conectado: true, trabajando: !!d.trabajando, pc: d.pc || null };
     } catch (e) {
         return { conectado: false, motivo: `El asistente no responde (${e.message}).` };
+    }
+}
+
+/**
+ * «Presentar» pulsado en el asistente de la app: el vigilante lo mete en la cola del PC de Fran
+ * (scripts/asistente_pc.js encolarPresentacion), que es quien califica, firma y presenta. La cola vive
+ * en el contenedor «asistente» (repo montado): el backend no la ve, por eso pasa por aquí. Nunca lanza.
+ *
+ * @returns {Promise<{ ok: boolean, duplicado?: boolean, pc?: { vivo: boolean, texto: string }, motivo?: string }>}
+ */
+async function encargarAlPc(datos) {
+    if (!URL) return { ok: false, motivo: 'esto es la app en local y la cola del PC vive en el servidor. En app.brokergy.es este botón funciona.' };
+    try {
+        const r = await fetch(`${URL}/pc`, {
+            method: 'POST',
+            headers: { 'x-internal-key': process.env.INTERNAL_API_KEY || '', 'Content-Type': 'application/json' },
+            body: JSON.stringify(datos),
+            signal: AbortSignal.timeout(10_000),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) return { ok: false, motivo: d.motivo || `El asistente ha respondido ${r.status}.` };
+        return { ok: true, duplicado: !!d.duplicado, pc: d.pc || null };
+    } catch (e) {
+        return { ok: false, motivo: `El asistente no responde (${e.message}).` };
     }
 }
 
@@ -142,4 +166,4 @@ function start() {
     console.log(`[asistente] Canal con Fran activo: avisa a ${URL} cuando escribe ${TEL}${GRUPO ? ` en el grupo ${GRUPO}` : ""}.`);
 }
 
-module.exports = { start, pedirTarea, estadoAsistente };
+module.exports = { start, pedirTarea, estadoAsistente, encargarAlPc };

@@ -277,11 +277,42 @@ const TAREAS = {
         que: 'lo que me has pedido',
         instruccion: (n, detalle) => `${detalle} (sobre ${n}).`,
     },
+    // Esta NO va al Claude del WhatsApp: va a la cola del PC de Fran (scripts/asistente_pc.js), que es
+    // quien tiene CE3X, el certificado y su Chrome con AutoFirma y la tarjeta. La tarjeta lleva LA
+    // pregunta del pago (la misma que por WhatsApp) y el clic en «Presentar y pagar» es el «sí».
+    presentar: {
+        etiqueta: 'Presentar el CEE en el Registro',
+        que: 'la presentación del CEE',
+        pc: true,
+    },
 };
+
+// La pregunta, la tasa y la tarjeta de presentar: la fuente es la misma que la del WhatsApp.
+const presentarPc = () => require('../scripts/asistente_pc');
 
 function nombreDe(usuario) {
     const p = usuario?.perfilCompleto || {};
     return [p.nombre, p.apellidos].filter(Boolean).join(' ').trim() || usuario?.email || 'alguien del equipo';
+}
+
+/**
+ * «Presentar y pagar» pulsado: se vuelve a comprobar el CEE (que exista, que no esté registrado ni
+ * a medias del Agente IA), se compone LA pregunta y el clic queda como la respuesta. Va a la cola del
+ * PC por el vigilante (asistenteCanal.encargarAlPc).
+ */
+async function encargarPresentacion({ referencia, usuario }) {
+    const pc = presentarPc();
+    let c;
+    try { c = await pc.localizarCee(referencia); } catch (e) { return { ok: false, codigo: 400, motivo: e.message }; }
+    const cuando = new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const r = await require('./asistenteCanal').encargarAlPc({
+        numero: c.numero, fase: c.fase, titular: c.titular, importe: pc.TASA, tarjeta: pc.TARJETA,
+        pregunta: pc.preguntaPresentar(c),
+        respuesta: `Ha pulsado «Presentar y pagar ${pc.TASA} €» en esa misma pregunta, en el asistente de la app (${nombreDe(usuario)}, ${cuando}).`,
+    });
+    if (!r.ok) return { ok: false, codigo: 503, motivo: r.motivo };
+    console.log(`[asistente-app] Presentación encargada al PC: ${c.numero} (${c.fase}) · ${nombreDe(usuario)}`);
+    return { ok: true, referencia: c.numero, etiqueta: TAREAS.presentar.etiqueta, duplicado: r.duplicado, pc: r.pc, enCola: false };
 }
 
 /** Lo que hace el botón «Encargar»: valida otra vez y se lo pasa al Claude del WhatsApp. */
@@ -290,6 +321,7 @@ async function encargar({ referencia, tarea, detalle, usuario }) {
     if (!def) return { ok: false, codigo: 400, motivo: 'Tarea desconocida.' };
     const det = String(detalle || '').trim().slice(0, 1500);
     if (tarea === 'otra' && !det) return { ok: false, codigo: 400, motivo: 'Falta decir qué tiene que hacer.' };
+    if (def.pc) return encargarPresentacion({ referencia, usuario });
     const ref = await resolverReferencia(referencia);
     if (ref.error) return { ok: false, codigo: 400, motivo: ref.error };
     // Un CEE que el Agente IA YA está haciendo no se encarga otra vez: la cola del
@@ -641,10 +673,21 @@ async function emitirMarcas(texto, emitir) {
         // eslint-disable-next-line no-await-in-loop
         const ref = await resolverReferencia(e.referencia).catch(err => ({ error: err.message }));
         if (ref.error) { console.warn('[asistente-app] encargo sin referencia válida:', e.referencia, ref.error); continue; }
+        // Presentar: la tarjeta ES la pregunta del pago, así que se compone aquí, con el CEE comprobado
+        // (no se ofrece si está registrado o el Agente IA aún lo está haciendo).
+        let presentacion = null;
+        if (def.pc) {
+            try {
+                const pc = presentarPc();
+                // eslint-disable-next-line no-await-in-loop
+                const c = await pc.localizarCee(ref.numero);
+                presentacion = { pregunta: pc.preguntaPresentar(c), importe: pc.TASA, tarjeta: pc.TARJETA, fase: c.fase };
+            } catch (err) { console.warn('[asistente-app] presentar no procede:', ref.numero, err.message); continue; }
+        }
         // eslint-disable-next-line no-await-in-loop
         if (!asistente) asistente = await require('./asistenteCanal').estadoAsistente();
         emitir({ t: 'encargo', referencia: ref.numero, enlace: ref.enlace, tarea: e.tarea, etiqueta: def.etiqueta, que: def.que,
-                 detalle: e.detalle ? e.detalle.slice(0, 1500) : null, asistente });
+                 detalle: e.detalle ? e.detalle.slice(0, 1500) : null, asistente, ...(presentacion ? { presentacion } : {}) });
     }
     if (opciones.length) emitir({ t: 'sugerencias', opciones });
 }
@@ -669,6 +712,8 @@ BOTONES. Consulta primero todo lo que necesites y escribe la respuesta entera al
 >> ENCARGO <tarea> <referencia>
 >> ENCARGO otra <referencia> | qué tiene que hacer
   (tarjeta con el botón «Encargar»; como mucho DOS líneas ENCARGO por respuesta; tareas:${Object.entries(TAREAS).map(([k, v]) => `${k} = ${v.etiqueta.toLowerCase()}`).join(' · ')}; referencia = expediente 26RES060_208, oportunidad 26RES060_OP246 o CEE directo 2026CEE_64, el número completo)
+
+PRESENTAR un CEE en el Registro de la JCCM (>> ENCARGO presentar <referencia>) no lo hace el Claude del WhatsApp sino el PC de Fran (califica en CE3X, firma con su certificado y paga la tasa con su tarjeta): propónlo cuando el CEE esté terminado y sin registrar. La tarjeta ya le enseña la pregunta del pago (tasa y tarjeta) y el botón es «Presentar y pagar»; tú no repitas importes ni digas que está presentado.
 
 Tú no cambias nada ni envías nada a nadie. El trabajo pesado (generar el CEE inicial o final, revisar un CEE entregado, justificar o auditar un expediente, el anexo fotográfico, el CIFO…) lo hace el Claude del WhatsApp: propónlo con una línea >> ENCARGO cuando te lo pidan o cuando sea el paso obvio. Le sale un botón «Encargar» y solo se hace si lo pulsa; gasta de la suscripción de Fran, tarda minutos y el resultado llega por el grupo «BROKERGY - CHAT». Nunca digas que algo está encargado o hecho: di que tiene el botón debajo. Si te preguntan qué está haciendo ese Claude, usa estado_del_asistente. El «Agente IA» de la barra de certificadores es ese mismo Claude: un CEE que haga por encargo queda a su nombre y, al terminar, pasa a «pendiente de revisión». Si estado_expediente dice que el agente_ia ya está «trabajando» en ese CEE, NO lo propongas otra vez: di que se está preparando y que se le avisará por WhatsApp cuando esté listo. Encargarle un CEE a un técnico de carne y hueso se hace en la pantalla del expediente, no desde aquí.
 

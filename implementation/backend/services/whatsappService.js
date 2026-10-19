@@ -1216,6 +1216,12 @@ const AUTO = {
     checkMs: parseInt(process.env.WWA_WATCHDOG_MS || '20000', 10),
     // Un intento que no alcanza READY/QR en este tiempo se considera atascado.
     stuckMs: parseInt(process.env.WWA_STUCK_MS || '240000', 10),
+    // …salvo AUTHENTICATED, que tiene su propio plazo, mucho más corto. Cuando va bien pasa a READY en
+    // segundos (medido el 19/10/2026: «Autenticado» y «Cliente listo» en el mismo segundo tras el
+    // reinicio). Tras CADA despliegue el primer intento se queda colgado ahí y solo lo arregla el
+    // reinicio: con 240 s eran ~4,5 min sin WhatsApp (y el asistente parado) en cada deploy. El margen
+    // largo sigue valiendo para INITIALIZING, que es el arranque en frío de Chrome tras `build --no-cache`.
+    stuckAuthMs: parseInt(process.env.WWA_STUCK_AUTH_MS || '75000', 10),
     // Espera entre reintentos (ms). Se queda en el último valor indefinidamente.
     backoff: [5_000, 15_000, 45_000, 120_000, 300_000, 600_000],
     // Tras N fallos seguidos (≈15 min con el backoff de arriba) se avisa al admin.
@@ -1394,7 +1400,7 @@ async function watchdogTick() {
         // Estados transitorios: darles margen y, si se cuelgan, resetear.
         // AUTHENTICATED sin llegar a READY es un cuelgue real y antes no lo veía nadie.
         if (state === 'INITIALIZING' || state === 'AUTHENTICATED') {
-            if (stateAgeMs > AUTO.stuckMs) {
+            if (stateAgeMs > (state === 'AUTHENTICATED' ? AUTO.stuckAuthMs : AUTO.stuckMs)) {
                 await hardReset(`atascado en ${state} durante ${Math.round(stateAgeMs / 1000)}s`);
             }
             return;

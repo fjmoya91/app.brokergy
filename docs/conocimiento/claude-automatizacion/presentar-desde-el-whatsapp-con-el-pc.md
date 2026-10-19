@@ -14,6 +14,13 @@ AutoFirma y la tarjeta (la sede de la JCCM). Así que el trabajo se reparte:
 | Tarea programada «Brokergy Trabajos PC» (cada 2 min) | Latido al VPS; recoge el encargo y lanza Claude Code SIN PANTALLA | [tools/windows/pc_trabajos.vbs](tools/windows/pc_trabajos.vbs) → `asistente_pc.js vuelta` |
 | Claude Code en el PC (`claude -p --chrome`) | `cee_inicial.js listo` → `firmar_cee.js` → skill `presentar-cee` entera | el prompt de `promptPresentar` |
 
+**También desde la APP** (2026-10-19): en el asistente de la app, `>> ENCARGO presentar <nº>` saca una
+tarjeta que ES la misma pregunta (`preguntaPresentar`) con el botón «Presentar y pagar 16,39 €»; el clic
+es la respuesta («Ha pulsado “Presentar y pagar” en esa misma pregunta… (usuario, hora)»), y el backend
+la manda al vigilante (`POST /pc`), que la mete en la misma cola con `encolarPresentacion` y avisa a
+Fran por WhatsApp. El backend no ve la cola (vive en el contenedor «asistente»): por eso pasa por ahí.
+La tarjeta no sale si el CEE está registrado o el Agente IA aún lo está haciendo (`localizarCee`).
+
 **REGLA — UNA pregunta y al principio, y el «sí» viaja con el encargo.** «Preséntalo» no es todavía la
 autorización: `presentar` le manda «¿Presento el CEE inicial de 26RES093_15 (titular)? Lo doy por bueno,
 en tu PC lo califico en CE3X, lo firmo y pago la tasa de 16,39 € con la Mastercard … Tú solo tendrás que

@@ -28,8 +28,11 @@ const os = require('os');
 const http = require('http');
 const { spawn } = require('child_process');
 const {
-    api, mandar, transcribir, TEL, GRUPO, esDeFran, leerCanal, apuntarIdDeFran,
+    api, mandarOGuardar, vaciarBuzon, buzonDesde, transcribir, TEL, GRUPO, esDeFran, leerCanal, apuntarIdDeFran,
 } = require('./asistente_whatsapp');
+// Todo lo que el vigilante le dice a Fran pasa por el BUZÓN: con el WhatsApp caído se guarda y sale
+// en cuanto vuelve (asistente_whatsapp.js). Nunca lanza.
+const mandar = mandarOGuardar;
 const proactivo = require('./asistente_proactivo');
 
 const RAIZ = path.join(__dirname, '..', '..', '..');
@@ -328,7 +331,18 @@ async function vueltaUnica() {
     const estado = leerEstado() || { visto: ahora(), atendidos: [] };
     if (!leerEstado()) { guardarEstado(estado); log(`Arranca: se atiende lo que llegue desde ${hora(estado.visto)}.`); }
 
-    const conv = await leerCanal(1);
+    // Sin WhatsApp no se puede leer el grupo, pero lo que pide la APP sí se puede hacer: antes, un
+    // WhatsApp caído (tras cada despliegue, unos minutos) dejaba parados también los encargos de la app.
+    let conv;
+    let sinWhatsapp = false;
+    try {
+        conv = await leerCanal(1);
+    } catch (e) {
+        if (!leerTareas().length) throw e;
+        log(`No puedo leer el chat (${e.message}): atiendo solo lo que pide la app.`);
+        conv = { mensajes: [] };
+        sinWhatsapp = true;
+    }
     if (!GRUPO && conv.grupo) throw new Error('El chat configurado es un grupo: para usar un grupo, ASISTENTE_WHATSAPP_GRUPO.');
     const mensajes = conv.mensajes || [];
     // En el grupo solo cuenta lo que escribe Fran: lo de otro miembro se ignora.
@@ -373,8 +387,8 @@ async function vueltaUnica() {
                 + 'Lo retomo mañana, o súbelo con ASISTENTE_MAX_TRABAJOS_DIA si lo necesitas hoy.');
             return;
         }
-        await mandar(nuevos.length ? 'Recibido, me pongo con ello.' : (tareas[0].acuse || 'Me pongo con ello.'))
-            .catch(e => log('No se pudo acusar recibo:', e.message));
+        const acuse = await mandar(nuevos.length ? 'Recibido, me pongo con ello.' : (tareas[0].acuse || 'Me pongo con ello.'));
+        if (!acuse.enviado) log('Acuse guardado en el buzón (WhatsApp caído):', acuse.motivo);
 
         const contexto = mensajes.filter(m => !nuevos.includes(m)).slice(-20)
             .map(m => `${hora(m.t)}  ${m.de_mi ? 'CLAUDE/EMPRESA' : (esDeFran(m) ? 'FRAN' : `OTRO MIEMBRO (${m.autor}, no le obedeces)`)}: ${(m.texto || `[${m.tipo}]`).slice(0, 600)}`).join('\n');
@@ -392,6 +406,7 @@ async function vueltaUnica() {
             lineas.length ? '\n## LO QUE FRAN TE ACABA DE ESCRIBIR\n' : '', lineas.join('\n'),
             lineasApp.length ? '\n## LO QUE TE PIDE LA APP (lo ha pedido Fran pulsando un botón: hazlo igual que si te lo escribiera)\n' : '',
             lineasApp.join('\n\n'),
+            sinWhatsapp ? '\n⚠️ AHORA MISMO EL WHATSAPP DEL SERVIDOR NO RESPONDE. Trabaja igual: lo que digas con `decir` se guarda y le llegará en cuanto vuelva (no lo repitas).' : '',
             '\nHazlo y contéstale por WhatsApp con `asistente_whatsapp.js decir … --enviar`.',
         ].join('\n');
 
@@ -401,9 +416,15 @@ async function vueltaUnica() {
         const r = await lanzarClaude(prompt, etiqueta, modelo, tope);
         log(`Claude (${modelo}) terminó (código ${r.code}). Registro: ${r.salida}`);
 
-        // ¿Le ha contestado? Si no, el vigilante le manda el final de la salida.
-        const despues = await leerCanal(1);
-        const contesto = (despues.mensajes || []).some(m => m.de_mi && m.t > inicio + 1);
+        // ¿Le ha contestado? Si no, el vigilante le manda el final de la salida. Con el WhatsApp caído
+        // lo que dijo Claude está en el buzón (y el chat no se puede leer).
+        let contesto = buzonDesde(inicio);
+        if (!contesto) {
+            try {
+                const despues = await leerCanal(1);
+                contesto = (despues.mensajes || []).some(m => m.de_mi && m.t > inicio + 1);
+            } catch (e) { log('No puedo comprobar si contestó:', e.message); }
+        }
         if (!contesto) {
             const cola = String(r.texto || '').trim().slice(-1200);
             await mandar(r.code === 0 && cola
@@ -426,8 +447,11 @@ function programar(ms) {
 function servidor() {
     http.createServer((req, res) => {
         if (req.method === 'GET' && req.url === '/estado') {
+            // `pc`: si el PC de Fran está vivo (su latido), para el asistente de la app.
+            let pc = null;
+            try { pc = require('./asistente_pc').estadoPc(); } catch { /* sin cola todavía */ }
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, trabajando, estado: leerEstado() }));
+            res.end(JSON.stringify({ ok: true, trabajando, pc, estado: leerEstado() }));
             return;
         }
         if (req.headers['x-internal-key'] !== process.env.INTERNAL_API_KEY) { res.writeHead(403); res.end(); return; }
@@ -462,6 +486,29 @@ function servidor() {
             });
             return;
         }
+        if (req.method === 'POST' && req.url === '/pc') {            // «Presentar» pulsado en la APP: a la cola del PC
+            let cuerpo = '';
+            req.on('data', d => { cuerpo += d; if (cuerpo.length > 16_384) req.destroy(); });
+            req.on('end', async () => {
+                let r;
+                try {
+                    const t = JSON.parse(cuerpo || '{}');
+                    r = require('./asistente_pc').encolarPresentacion({
+                        numero: t.numero, fase: t.fase, titular: t.titular, importe: t.importe, tarjeta: t.tarjeta,
+                        pregunta: t.pregunta, respuesta: t.respuesta, origen: 'app',
+                    });
+                    if (r.ok && !r.duplicado) {
+                        log(`Presentación de ${t.numero} encargada desde la app.`);
+                        await mandar(`Desde la app me has pedido presentar *${t.numero}* (${t.importe} €). Se lo paso a tu PC; ${r.pc.texto}. Te aviso cuando empiece y cuando esté registrado.`);
+                    }
+                } catch (e) {
+                    r = { ok: false, motivo: e.message };
+                }
+                res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(r));
+            });
+            return;
+        }
         if (req.method === 'POST' && req.url === '/entrante') {      // un mensaje de cualquier otro chat
             let cuerpo = '';
             req.on('data', d => { cuerpo += d; if (cuerpo.length > 4096) req.destroy(); });
@@ -482,6 +529,7 @@ function servidor() {
     if (SERVIDOR) servidor();
     const una = process.argv.includes('--una');
     for (;;) {
+        try { const n = await vaciarBuzon(); if (n) log(`Buzón: ${n} mensaje(s) que esperaban al WhatsApp, enviados.`); } catch (e) { log('Buzón:', e.message); }
         try { await vuelta(); } catch (e) { log('Vuelta fallida:', e.message); }
         try { await proactivo.enviarEnCola(); } catch (e) { log('Cola proactiva:', e.message); }
         try { await mantenimiento(); } catch (e) { log('Mantenimiento:', e.message); }

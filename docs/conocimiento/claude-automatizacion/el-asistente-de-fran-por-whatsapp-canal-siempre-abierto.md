@@ -34,7 +34,18 @@ Repaso de respaldo cada 2 min. Un trabajo cada vez, tope de 120 min. Registros e
 **Tareas que pide la APP** (`POST /tarea`, `asistenteCanal.pedirTarea`): se atienden como si Fran las
 hubiera escrito. Hoy, «Así es como está» en la pizarra de la envolvente y los ENCARGOS del asistente
 de la app (botón «Encargar»); ver "El ASISTENTE dentro de la app". `GET /estado` dice si está
-trabajando (`asistenteCanal.estadoAsistente`).
+trabajando y si el PC de Fran está vivo (`pc`, su latido); `POST /pc` mete en la cola del PC una
+presentación confirmada en la app (ver "«Preséntalo» por WhatsApp").
+
+**REGLA — con el WhatsApp caído, lo de la APP se atiende igual y nada de lo que se dice se pierde**
+(2026-10-19). Antes, si el vigilante no podía leer el grupo (tras cada despliegue, unos minutos) no
+atendía NADA, tampoco los encargos de la app: el CEE de 26RES093_15 esperó 4 minutos en la cola. Ahora
+lee el chat si puede; si no y hay tareas de la app, trabaja sin el chat y se lo dice a Claude en el
+prompt. Y TODO lo que se le dice a Fran (el acuse, el final, los recordatorios, el `decir` de Claude, el
+mensaje final del PC) pasa por el **buzón de salida** (`mandarOGuardar` de
+[asistente_whatsapp.js](implementation/backend/scripts/asistente_whatsapp.js)): si no sale, se guarda en
+`scratch/asistente/por_enviar.json` y `vaciarBuzon` lo manda en cuanto vuelve, en orden y con «(con
+retraso: era de las HH:MM)». Cada máquina tiene el suyo (VPS y PC) y lo vacía en cada vuelta.
 
 **REGLA — nada sale a un tercero sin el «envíala» de Fran para ESA oportunidad.** Tras un alta se le
 manda el resumen (`avisar`) y se espera; «la reviso yo» deja la OP en PTE ENVIAR. Enviar es

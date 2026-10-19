@@ -41,6 +41,11 @@ Y un CEE que el Agente IA YA está haciendo (`cee.agente_ia[fase].estado = 'trab
 vuelve a encargar: `/encargo` responde 409 «ya se está preparando (desde las HH:MM)» —la cola del
 vigilante solo junta lo que aún no ha cogido— y el modelo lo ve en `estado_expediente` y no lo propone.
 
+**PRESENTAR no va al Claude del WhatsApp sino al PC de Fran** (`TAREAS.presentar`, `pc: true`): la
+tarjeta es la pregunta del pago con el botón «Presentar y pagar», y el encargo va a la cola del PC por
+el vigilante (`asistenteCanal.encargarAlPc` → `POST /pc`). Ver "«Preséntalo» por WhatsApp". Con un CEE
+pendiente de revisión, el asistente avisa y ofrece «Preséntalo igualmente» antes de sacar la tarjeta.
+
 **Lo que ve quien encarga es poco, a propósito** (decisión de Fran, 19/10/2026: «tampoco necesito
 saber tanto»): al pulsar, «Se está preparando el CEE inicial de 26RES093_15. Te avisaremos por
 WhatsApp cuando esté listo» (y «está terminando otro trabajo» si el vigilante estaba ocupado). Queda

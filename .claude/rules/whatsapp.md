@@ -46,6 +46,7 @@ paths:
 - `docs/conocimiento/whatsapp/lo-que-whatsapp-rompio-y-hay-que-saber.md` — Lo que WhatsApp rompió, y hay que saber (2026-08-25) · 3,0 KB
 - `docs/conocimiento/whatsapp/modulo-whatsapp-novedades.md` — Módulo WhatsApp — Novedades (2026-04-17) · 2,2 KB
 - `docs/conocimiento/whatsapp/rutas-y-esquema.md` — Rutas y esquema · 1,0 KB
+- `docs/conocimiento/whatsapp/tras-un-despliegue-el-whatsapp-vuelve-solo.md` — Tras un despliegue el WhatsApp vuelve SOLO: el supervisor y sus plazos (2026-07-23 · 2026-10-19) · 2,0 KB
 - `docs/conocimiento/whatsapp/un-mensaje-con-el-reloj-no-esta-enviado.md` — Un mensaje con el RELOJ no está enviado (2026-09-08) · 7,7 KB
 - `docs/conocimiento/whatsapp/whatsapp-en-el-dia-a-dia-nombre-bandeja-mensajes-y-altas.md` — WhatsApp en el día a día: nombre, bandeja, mensajes, audios y altas (2026-10-13) · 8,9 KB
 
@@ -89,6 +90,8 @@ pensar EN LA MISMA VUELTA.**
   - **REGLA — se etiquetan TODOS los teléfonos que constan**
   - **REGLA — esto NUNCA tumba lo que lo llamó.**
   - **REGLA — el repaso va a TROZOS.**
+- `docs/conocimiento/whatsapp/tras-un-despliegue-el-whatsapp-vuelve-solo.md`
+  - **REGLA — «autenticado» y «arrancando» no tienen el mismo plazo.**
 - `docs/conocimiento/whatsapp/un-mensaje-con-el-reloj-no-esta-enviado.md`
   - **REGLA — lo único que dice que un mensaje ha salido es el ACK**
   - **REGLA — el fallo del texto previo en `sendMedia` NO se traga cuando es de

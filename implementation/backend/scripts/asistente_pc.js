@@ -104,8 +104,32 @@ function estadoPc() {
 
 async function decir(texto) {
     if (!bandera('enviar')) { console.log(`\n[EN SECO] Le diría a Fran:\n${texto}\n`); return; }
-    await require('./asistente_whatsapp').mandar(texto);
-    console.log(`Enviado a Fran:\n${texto}`);
+    const r = await require('./asistente_whatsapp').mandarOGuardar(texto);
+    console.log(r.enviado ? `Enviado a Fran:\n${texto}` : `WhatsApp caído: guardado en el buzón, saldrá en cuanto vuelva:\n${texto}`);
+}
+
+// LA pregunta del pago: la misma por WhatsApp («preséntalo») y en la tarjeta del asistente de la app.
+const preguntaPresentar = c => `¿Presento el CEE ${c.fase} de *${c.numero}* (${c.titular})? Lo doy por bueno, en tu PC lo califico en CE3X, lo firmo y pago la tasa de *${TASA} €* con ${TARJETA}. Tú solo tendrás que autorizar el pago en la app del banco.`;
+
+/**
+ * Mete en la cola del PC una presentación YA CONFIRMADA (la usan `confirmar` y el «Presentar» de la
+ * app, por el vigilante). Si ya hay una igual pendiente o en marcha, no la duplica.
+ */
+function encolarPresentacion(d) {
+    if (!d.numero || !d.fase || !d.pregunta || !d.respuesta) throw new Error('Faltan datos del encargo (número, fase, pregunta o respuesta).');
+    const lista = cola();
+    const pc = estadoPc();
+    const ya = lista.find(t => t.numero === d.numero && t.fase === d.fase && ['pendiente', 'en_curso'].includes(t.estado));
+    if (ya) return { ok: true, duplicado: true, tarea: ya, pc };
+    const tarea = {
+        id: `pres-${d.numero}-${d.fase}-${ahora()}`, tipo: 'presentar', numero: d.numero, fase: d.fase,
+        titular: d.titular || null, importe: d.importe || TASA, tarjeta: d.tarjeta || TARJETA,
+        pregunta: d.pregunta, pregunta_at: d.pregunta_at || ahora(), respuesta: String(d.respuesta).slice(0, 500),
+        confirmado_at: ahora(), origen: d.origen || 'whatsapp', estado: 'pendiente', creado_at: ahora(),
+    };
+    escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
+    escribir('pendiente', (leer('pendiente') || []).filter(x => !(x.numero === d.numero && x.fase === d.fase)));
+    return { ok: true, tarea, pc };
 }
 
 // ─── El CEE que se quiere presentar ───────────────────────────────────────────
@@ -146,7 +170,7 @@ async function presentar() {
         return;
     }
     const pc = estadoPc();
-    const pregunta = `¿Presento el CEE ${c.fase} de *${c.numero}* (${c.titular})? Lo doy por bueno, en tu PC lo califico en CE3X, lo firmo y pago la tasa de *${TASA} €* con ${TARJETA}. Tú solo tendrás que autorizar el pago en la app del banco.`;
+    const pregunta = preguntaPresentar(c);
     const pendientes = (leer('pendiente') || []).filter(p => !(p.numero === c.numero && p.fase === c.fase));
     pendientes.push({ numero: c.numero, fase: c.fase, titular: c.titular, importe: TASA, tarjeta: TARJETA, pregunta, at: ahora() });
     if (bandera('enviar')) escribir('pendiente', pendientes);
@@ -162,23 +186,13 @@ async function confirmar() {
     const p = pendientes.find(x => norm(x.numero).endsWith(n) && (!opt('fase') || x.fase === opt('fase')));
     if (!p) throw new Error(`No hay ninguna pregunta de presentar pendiente para «${POS[0]}»: primero \`presentar ${POS[0]}\`.`);
     if (ahora() - p.at > 24 * 3600) throw new Error(`La pregunta de ${p.numero} es de hace más de 24 h: vuelve a hacerla con \`presentar\`.`);
-    const lista = cola();
-    if (lista.some(t => t.numero === p.numero && t.fase === p.fase && ['pendiente', 'en_curso'].includes(t.estado))) {
-        await decir(`*${p.numero}* ya está en la cola de tu PC.`);
+    if (!bandera('enviar')) {
+        console.log(`[EN SECO] Encolaría la presentación de ${p.numero} (${p.fase}) con la respuesta «${texto}».`);
         return;
     }
-    const tarea = {
-        id: `pres-${p.numero}-${p.fase}-${ahora()}`, tipo: 'presentar', numero: p.numero, fase: p.fase,
-        titular: p.titular, importe: p.importe, tarjeta: p.tarjeta,
-        pregunta: p.pregunta, pregunta_at: p.at, respuesta: texto.slice(0, 500), confirmado_at: ahora(),
-        estado: 'pendiente', creado_at: ahora(),
-    };
-    if (bandera('enviar')) {
-        escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
-        escribir('pendiente', pendientes.filter(x => x !== p));
-    }
-    const pc = estadoPc();
-    await decir(`Hecho: se lo paso a tu PC; ${pc.texto}. Te aviso cuando empiece y cuando esté registrado.`);
+    const r = encolarPresentacion({ ...p, pregunta_at: p.at, respuesta: texto, origen: 'whatsapp' });
+    await decir(r.duplicado ? `*${p.numero}* ya está en la cola de tu PC.`
+        : `Hecho: se lo paso a tu PC; ${r.pc.texto}. Te aviso cuando empiece y cuando esté registrado.`);
 }
 
 async function cancelar() {
@@ -230,7 +244,7 @@ function promptPresentar(t) {
     const faseOpt = t.fase === 'final' ? ' --fase final' : '';
     return `Trabajas SIN nadie delante en el PC de Fran: te ha lanzado la tarea programada «Brokergy Trabajos PC». Encargo ${t.id}: PRESENTAR en el Registro de la JCCM el CEE ${t.fase} de ${t.numero} (titular: ${t.titular}).
 
-LA AUTORIZACIÓN, de Fran por WhatsApp (el sistema solo deja pasar mensajes cuyo autor es él):
+LA AUTORIZACIÓN, de Fran ${t.origen === 'app' ? 'en el asistente de la app (solo lo ven los ADMIN, con su sesión)' : 'por WhatsApp (el sistema solo deja pasar mensajes cuyo autor es él)'}:
 - Pregunta que se le hizo (${hora(t.pregunta_at)}): «${t.pregunta}»
 - Su respuesta (${hora(t.confirmado_at)}): «${t.respuesta}»
 Es su «doy por válido» para FIRMAR este CEE y su «sí» al PAGO de esa tasa (${t.importe} €, ${t.tarjeta}) para ESTE expediente: la confirmación del apartado 1b de la skill presentar-cee. No vuelvas a preguntar. Si la sede pide OTRO importe, o esa tarjeta no está en Chrome, PARA y avísale.
@@ -326,7 +340,7 @@ async function terminar(actual, motivoCorte = null) {
     escribir('cola', lista.map(t => (t.id === actual.id ? { ...t, estado: ok ? 'hecha' : 'fallida', terminado_at: ahora(), resumen } : t)));
     const cab = actual.tipo === 'prueba' ? 'PC · prueba' : `PC · presentar ${actual.numero}`;
     const pie = ok || actual.tipo === 'prueba' ? '' : '\n\n_No lo reintento solo: si llegó a pagar, hay que mirarlo antes (la referencia 046)._';
-    await require('./asistente_whatsapp').mandar(`*${cab}*${ok ? '' : ' — NO ha terminado'}\n${resumen}${pie}`);
+    await require('./asistente_whatsapp').mandarOGuardar(`*${cab}*${ok ? '' : ' — NO ha terminado'}\n${resumen}${pie}`);
     fs.renameSync(ACTUAL, path.join(DIR_PC, `${actual.id}.fin.json`));
     log(`Terminado ${actual.id}: ${ok ? 'OK' : 'FALLÓ'}`);
 }
@@ -334,6 +348,8 @@ async function terminar(actual, motivoCorte = null) {
 async function vuelta() {
     fs.mkdirSync(DIR_PC, { recursive: true });
     const seco = bandera('seco');
+    // Lo que no salió porque el WhatsApp estaba caído (el mensaje final de un trabajo, p. ej.).
+    if (!seco) { try { const n = await require('./asistente_whatsapp').vaciarBuzon(); if (n) log(`Buzón: ${n} mensaje(s) enviados con retraso.`); } catch { /* sigue caído */ } }
     const actual = fs.existsSync(ACTUAL) ? JSON.parse(fs.readFileSync(ACTUAL, 'utf8')) : null;
     const estaBloqueado = bloqueado();
     // 1. El latido: el Claude del WhatsApp lo mira para decirle a Fran si el PC está.
@@ -377,4 +393,4 @@ if (require.main === module) {
     })().catch((e) => { console.error(`ERROR: ${e.message}`); process.exit(1); });
 }
 
-module.exports = { estadoPc };
+module.exports = { estadoPc, localizarCee, preguntaPresentar, encolarPresentacion, TASA, TARJETA };

@@ -100,6 +100,46 @@ async function mandar(texto) {
     return out;
 }
 
+// ─── El BUZÓN DE SALIDA: lo que no se pudo mandar porque el WhatsApp estaba caído ─────────────
+// Tras cada despliegue el WhatsApp del servidor tarda en volver (y a veces se cae solo). Un «Me pongo
+// con ello» o el resultado de un trabajo que salen en ese rato se perdían. Ahora se guardan aquí y se
+// mandan en cuanto vuelve (`vaciarBuzon`, en cada vuelta del vigilante y del PC), diciendo la hora.
+// Cada máquina tiene el suyo (VPS y PC), en su scratch/asistente/.
+const BUZON = process.env.ASISTENTE_BUZON || path.join(__dirname, '..', 'scratch', 'asistente', 'por_enviar.json');
+const leerBuzon = () => { try { return JSON.parse(fs.readFileSync(BUZON, 'utf8')); } catch { return []; } };
+function guardarBuzon(lista) {
+    fs.mkdirSync(path.dirname(BUZON), { recursive: true });
+    fs.writeFileSync(`${BUZON}.tmp`, JSON.stringify(lista.slice(-30), null, 1));
+    fs.renameSync(`${BUZON}.tmp`, BUZON);
+}
+
+/** Manda; si el WhatsApp no responde, lo guarda en el buzón. Nunca lanza. */
+async function mandarOGuardar(texto) {
+    try {
+        await mandar(texto);
+        return { enviado: true };
+    } catch (e) {
+        guardarBuzon([...leerBuzon(), { t: Math.floor(Date.now() / 1000), texto, motivo: String(e.message).slice(0, 200) }]);
+        return { enviado: false, guardado: true, motivo: e.message };
+    }
+}
+
+/** Manda lo que esperaba en el buzón, en orden; para en el primer fallo. Devuelve cuántos salieron. */
+async function vaciarBuzon() {
+    let lista = leerBuzon();
+    let n = 0;
+    while (lista.length) {
+        const m = lista[0];
+        try { await mandar(`_(con retraso: era de las ${hora(m.t).split(', ')[1]})_\n${m.texto}`); } catch { break; }
+        lista = lista.slice(1);
+        guardarBuzon(lista);
+        n += 1;
+    }
+    return n;
+}
+/** ¿Se ha guardado algo en el buzón después de `t`? (el vigilante lo mira para saber si Claude contestó) */
+const buzonDesde = t => leerBuzon().some(m => m.t > t);
+
 // ─── El resumen de una oportunidad ──────────────────────────────────────────
 
 const MODOS = { partner: 'al instalador (partner)', cliente: 'al cliente', instalador: 'al instalador asociado' };
@@ -170,8 +210,9 @@ async function decir() {
     if (!texto) throw new Error('Uso: decir "texto" [--enviar]');
     console.log(`Para: ${CANAL}\n${texto}`);
     if (!bandera('enviar')) { console.log('EN SECO.'); return; }
-    await mandar(texto);
-    console.log('✓ Enviado.');
+    const r = await mandarOGuardar(texto);
+    console.log(r.enviado ? '✓ Enviado.'
+        : `⏳ El WhatsApp no responde (${r.motivo}): queda GUARDADO y saldrá solo en cuanto vuelva. No lo repitas.`);
 }
 
 // ─── Leer la respuesta ──────────────────────────────────────────────────────
@@ -233,7 +274,7 @@ async function leer() {
     }
 }
 
-module.exports = { api, mandar, transcribir, TEL, GRUPO, CANAL, esDeFran, leerCanal, apuntarIdDeFran, idsDeFran };
+module.exports = { api, mandar, mandarOGuardar, vaciarBuzon, buzonDesde, transcribir, TEL, GRUPO, CANAL, esDeFran, leerCanal, apuntarIdDeFran, idsDeFran };
 
 const ORDENES = { avisar, decir, leer };
 if (require.main === module) (async () => {

@@ -145,6 +145,44 @@ function TarjetaEncargo({ encargo, estado, onEncargar, onEnlace }) {
     // sigue diciendo que se está preparando y no invita a encargarlo dos veces.
     const hecho = estado === 'ok' || !!encargo.hecho;
     const bloqueado = a.conectado === false;
+    const pres = encargo.presentacion;          // «presentar»: la tarjeta ES la pregunta del pago
+    if (hecho && pres) {
+        return (
+            <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.07] p-3">
+                <div className="text-sm font-bold text-white">
+                    Encargado a tu PC: presentar <TextoEnlace texto={encargo.enlace} onEnlace={onEnlace} />
+                </div>
+                <div className="mt-1 text-xs text-white/70">
+                    {encargo.pcTexto ? `${encargo.pcTexto.charAt(0).toUpperCase()}${encargo.pcTexto.slice(1)}. ` : ''}
+                    Te avisaremos por WhatsApp cuando empiece y cuando esté registrado; tú solo tendrás que autorizar el pago en la app del banco.
+                </div>
+            </div>
+        );
+    }
+    if (pres) {
+        const pc = a.pc || null;
+        return (
+            <div className="mt-3 rounded-xl border border-brand/40 bg-brand/[0.07] p-3">
+                <div className="text-[10px] font-black uppercase tracking-widest text-brand/80">Presentar en el Registro · lo hace tu PC</div>
+                {/* Los *negritas* de WhatsApp de la pregunta, en el markdown del popup. */}
+                <div className="mt-1 text-sm text-white leading-relaxed">
+                    {enLinea(pres.pregunta.replace(/\*([^*]+)\*/g, '**$1**'), onEnlace, 'pres')}
+                </div>
+                <div className="mt-1.5 text-[11px] leading-snug text-white/50">
+                    Tu PC lo califica en CE3X, lo firma con tu certificado y lo presenta con tu Chrome. Gasta de tu suscripción de Claude.
+                </div>
+                {pc && !pc.vivo && <div className="mt-1.5 text-[11px] text-amber-400">Ojo: {pc.texto}.</div>}
+                {bloqueado && <div className="mt-1.5 text-[11px] text-amber-400">No se puede encargar desde aquí: {a.motivo}</div>}
+                {estado === 'error' && <div className="mt-1.5 text-[11px] text-red-400">No se ha encargado. Puedes volver a intentarlo.</div>}
+                <div className="mt-2.5 flex justify-end">
+                    <button type="button" disabled={bloqueado || estado === 'enviando'} onClick={onEncargar}
+                        className="px-4 py-1.5 rounded-lg bg-brand text-bkg-deep text-xs font-black uppercase tracking-wider hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed">
+                        Presentar y pagar {pres.importe} €
+                    </button>
+                </div>
+            </div>
+        );
+    }
     if (hecho) {
         return (
             <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.07] p-3">
@@ -313,7 +351,7 @@ export default function AsistenteFlotante({ onAbrir }) {
             setEncargos(prev => ({ ...prev, [encargo.id]: 'ok' }));
             // Se marca en el MENSAJE (que se guarda) para que sobreviva a una recarga.
             setMensajes(prev => prev.map(m => (m.encargos || []).some(x => x.id === encargo.id)
-                ? { ...m, encargos: m.encargos.map(x => (x.id === encargo.id ? { ...x, hecho: true, enCola: !!data?.enCola } : x)) }
+                ? { ...m, encargos: m.encargos.map(x => (x.id === encargo.id ? { ...x, hecho: true, enCola: !!data?.enCola, pcTexto: data?.pc?.texto || null } : x)) }
                 : m));
             setOverlay({ phase: 'done', ok: true, encargo });
         } catch (e) {
@@ -450,12 +488,14 @@ export default function AsistenteFlotante({ onAbrir }) {
             ok={overlay.ok}
             icon="send"
             subtitle={`${overlay.encargo.etiqueta} · ${overlay.encargo.referencia}`}
-            sendingTitle="Encargando al Claude del WhatsApp…"
-            okTitle="Se está preparando"
+            sendingTitle={overlay.encargo.presentacion ? 'Pasándoselo a tu PC…' : 'Encargando al Claude del WhatsApp…'}
+            okTitle={overlay.encargo.presentacion ? 'Encargado a tu PC' : 'Se está preparando'}
             errorTitle="No se ha podido encargar"
             items={overlay.ok ? [
                 `${overlay.encargo.etiqueta} · ${overlay.encargo.referencia}`,
-                'Te avisaremos por WhatsApp cuando esté listo',
+                overlay.encargo.presentacion
+                    ? 'Te avisaremos por WhatsApp cuando empiece y cuando esté registrado'
+                    : 'Te avisaremos por WhatsApp cuando esté listo',
             ] : []}
             errorText={overlay.error}
             onClose={() => setOverlay(null)}
