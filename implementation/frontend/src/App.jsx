@@ -47,6 +47,7 @@ import { FirmarLoteView } from './features/public/views/FirmarLoteView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { ConfirmarCobroView } from './features/cobro/views/ConfirmarCobroView';
 import { RespuestasCobroView } from './features/cobro/views/RespuestasCobroView';
+import AsistenteFlotante from './features/asistente/AsistenteFlotante';
 import { PortalLoginView } from './features/public/views/PortalLoginView';
 import { MiExpedienteView } from './features/public/views/MiExpedienteView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
@@ -1136,6 +1137,26 @@ function App() {
     }
   };
 
+  // Los enlaces del asistente (?exp= / ?cee= / ?op=) se abren aquí dentro, igual que
+  // un deep-link: el nonce remonta la vista para que abra ESE aunque hubiera otro abierto.
+  const abrirDesdeAsistente = ({ exp, cee, op }) => {
+    if (exp) {
+      setActiveTab('expedientes');
+      setStep('ADMIN');
+      setPendingRestoreExp(exp);
+      setNavNonce(n => n + 1);
+    } else if (cee) {
+      setActiveTab('cee-directos');
+      setStep('ADMIN');
+      setPendingCeeDirecto(cee);
+      setNavNonce(n => n + 1);
+    } else if (op) {
+      axios.get(`/api/oportunidades/${encodeURIComponent(op)}`)
+        .then(r => { if (r.data && r.data.id_oportunidad) loadOpportunity(r.data); })
+        .catch(e => setError(`No se ha podido abrir la oportunidad ${op}: ${e.response?.data?.error || e.message}`));
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -1320,6 +1341,8 @@ function App() {
                 </div>
               </div>
             )}
+            {/* Asistente (botón flotante): solo ADMIN, como su ruta del backend. */}
+            {isAdminUser && <AsistenteFlotante onAbrir={abrirDesdeAsistente} />}
             {step === 'ADMIN' && activeTab === 'dashboard' && isAdminUser ? (
               <DashboardView key={`dash-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'seguimiento' && isStaffUser ? (

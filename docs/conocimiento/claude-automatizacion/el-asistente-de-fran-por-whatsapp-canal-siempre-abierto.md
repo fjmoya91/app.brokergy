@@ -31,6 +31,11 @@ con `asistente_whatsapp.js decir`; si acaba sin hacerlo, el vigilante le manda e
 Repaso de respaldo cada 2 min. Un trabajo cada vez, tope de 120 min. Registros en
 `backend/scratch/asistente/log/`.
 
+**Tareas que pide la APP** (`POST /tarea`, `asistenteCanal.pedirTarea`): se atienden como si Fran las
+hubiera escrito. Hoy, «Así es como está» en la pizarra de la envolvente y los ENCARGOS del asistente
+de la app (botón «Encargar»); ver "El ASISTENTE dentro de la app". `GET /estado` dice si está
+trabajando (`asistenteCanal.estadoAsistente`).
+
 **REGLA — nada sale a un tercero sin el «envíala» de Fran para ESA oportunidad.** Tras un alta se le
 manda el resumen (`avisar`) y se espera; «la reviso yo» deja la OP en PTE ENVIAR. Enviar es
 `claude_propuesta.js` (la llave de Claude, regla 103). Tampoco despliega, ni hace push, ni borra.

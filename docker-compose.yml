@@ -21,9 +21,13 @@ services:
       # Timbre del canal de trabajo con Fran: avisa al contenedor «asistente» cuando él escribe.
       # Su número va en el .env (ASISTENTE_WHATSAPP_TEL), nunca aquí: el repo es público.
       - ASISTENTE_URL=http://asistente:8091
+      # El manual que consulta el asistente de la app (services/asistenteApp.js). La imagen se
+      # construye desde ./implementation y no lo lleva: va montado, y un `git pull` lo actualiza.
+      - CONOCIMIENTO_DIR=/conocimiento
     volumes:
       - whatsapp_auth:/app/.wwebjs_auth
       - whatsapp_cache:/app/.wwebjs_cache
+      - ./docs/conocimiento:/conocimiento:ro
     networks:
       - brokergy
 

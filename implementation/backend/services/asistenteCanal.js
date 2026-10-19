@@ -84,8 +84,10 @@ async function alMensaje(msg) {
 }
 
 /**
- * Una TAREA que pide la APP, no Fran por WhatsApp: hoy, «Así es como está» en la
- * pizarra del plano de la envolvente (rehacer el CEE sobre lo dibujado a mano).
+ * Una TAREA que pide la APP, no Fran por WhatsApp: «Así es como está» en la
+ * pizarra del plano de la envolvente (rehacer el CEE sobre lo dibujado a mano) y
+ * los ENCARGOS del asistente de la app (services/asistenteApp.js) que se
+ * confirman con su botón «Encargar».
  * El vigilante la atiende como si Fran se la hubiera escrito, y le contesta por
  * el mismo chat.
  *
@@ -111,6 +113,26 @@ async function pedirTarea({ texto, clave = null, acuse = null } = {}) {
     }
 }
 
+/**
+ * ¿Está el Claude del WhatsApp trabajando ahora? (GET /estado del vigilante). Lo
+ * pregunta el asistente de la app antes de proponer un encargo. Nunca lanza.
+ *
+ * @returns {Promise<{ conectado: boolean, trabajando?: boolean, motivo?: string }>}
+ */
+async function estadoAsistente() {
+    // En LOCAL no hay ASISTENTE_URL a propósito: el contenedor solo escucha dentro de la
+    // red de docker del VPS. Se dice tal cual, para que no parezca una avería.
+    if (!URL) return { conectado: false, motivo: 'esto es la app en local y el Claude del WhatsApp solo vive en el servidor. En app.brokergy.es este botón funciona.' };
+    try {
+        const r = await fetch(`${URL}/estado`, { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) return { conectado: false, motivo: `El asistente ha respondido ${r.status}.` };
+        const d = await r.json().catch(() => ({}));
+        return { conectado: true, trabajando: !!d.trabajando };
+    } catch (e) {
+        return { conectado: false, motivo: `El asistente no responde (${e.message}).` };
+    }
+}
+
 function start() {
     if (!URL || !TEL) {
         console.log('[asistente] Canal con Fran desactivado (sin ASISTENTE_URL / ASISTENTE_WHATSAPP_TEL).');
@@ -120,4 +142,4 @@ function start() {
     console.log(`[asistente] Canal con Fran activo: avisa a ${URL} cuando escribe ${TEL}${GRUPO ? ` en el grupo ${GRUPO}` : ""}.`);
 }
 
-module.exports = { start, pedirTarea };
+module.exports = { start, pedirTarea, estadoAsistente };
