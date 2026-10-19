@@ -367,6 +367,9 @@ async function filaCobro(exp, { conBorrador = false, ibanCompleto = false } = {}
             veces: Number(cobro.veces || 0),
             completado_at: cobro.completado_at || null,
             origen: cobro.origen || null,
+            // Confirmada A MANO desde la fase 7 (cliente que desconfía del enlace):
+            // quién, cuándo y la nota de cómo se confirmó.
+            validado_manual: cobro.validado_manual || null,
             iban_cambiado: !!cobro.iban_cambiado,
             iban_anterior_mascara: mascaraIban(cobro.iban_anterior),
             forma_pago: cobro.respuestas?.forma_pago || null,

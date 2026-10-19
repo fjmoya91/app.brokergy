@@ -974,6 +974,61 @@ router.post('/:id/cobros/:expId/gestion-bonificada', adminOnly, async (req, res)
     }
 });
 
+// ─── POST /api/lotes/:id/cobros/:expId/validar-manual — confirmar la cuenta POR él
+// { validar: true|false, forma_pago?: 'descuento'|'factura', nota? }. Para el cliente
+// que desconfía del enlace («¿esto es un timo?») y la confirma por teléfono: se sella
+// como si hubiera contestado el formulario (`completado_at`), con `origen: 'manual'`
+// y quién y cuándo, para que la remesa lo lleve. Solo la cuenta que YA consta en la
+// ficha: una cuenta nueva exige justificante (se cambia en la ficha y se sube allí).
+// Cuentas y dinero → adminOnly. Con la remesa generada ya no se deshace.
+router.post('/:id/cobros/:expId/validar-manual', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const cobro = exp.documentacion?.cobro || {};
+        const cobroService = require('../services/cobroService');
+        const { ibanValido, normalizarIban } = require('../utils/justificanteBancario');
+
+        if (req.body?.validar === false) {
+            if (cobro.origen !== 'manual') return res.status(409).json({ error: 'Esta cuenta la confirmó el propio cliente: no se deshace desde aquí.' });
+            if (cobro.remesa) return res.status(409).json({ error: 'Ya está en una remesa SEPA: no se puede deshacer.' });
+            await cobroService.sellar(exp.id, { completado_at: null, origen: null, validado_manual: null });
+            await apuntarEnLote(req.params.id, `${exp.numero_expediente}: se deshace la confirmación de cuenta hecha a mano.`, usuarioDe(req)).catch(() => {});
+            return res.json({ ok: true, validada: false });
+        }
+
+        if (cobro.completado_at) return res.status(409).json({ error: 'El cliente ya ha confirmado su cuenta.' });
+        const iban = normalizarIban(exp.clientes?.numero_cuenta);
+        if (!iban) return res.status(400).json({ error: 'No hay cuenta en la ficha del cliente: ponla allí (con su justificante) y valida después.' });
+        if (!ibanValido(iban)) return res.status(400).json({ error: `La cuenta de la ficha no pasa el dígito de control (${iban}): corrígela antes.` });
+
+        // La forma de pago, solo a quien asume la gestión (la misma regla del formulario).
+        const ctx = await cobroService.contextoDe(exp);
+        const forma = req.body?.forma_pago;
+        if (ctx.clienteAsumeCoste && !['descuento', 'factura'].includes(forma)) {
+            return res.status(400).json({ error: 'Elige cómo liquida la gestión: descontada del ingreso o con factura.' });
+        }
+        const nota = String(req.body?.nota || '').trim().slice(0, 300) || null;
+        const ahora = nowIso();
+        await cobroService.sellar(exp.id, {
+            completado_at: ahora,
+            origen: 'manual',
+            validado_manual: { at: ahora, por: usuarioDe(req), nota },
+            // `respuestas` se funde ENTERO (la RPC solo funde el primer nivel de `cobro`).
+            respuestas: { ...(cobro.respuestas || {}), ...(ctx.clienteAsumeCoste ? { forma_pago: forma } : {}) },
+            iban_anterior: iban,
+            iban_cambiado: false,
+        });
+        await apuntarEnLote(req.params.id,
+            `${exp.numero_expediente}: cuenta confirmada A MANO (${iban.slice(0, 4)} … ${iban.slice(-4)})${ctx.clienteAsumeCoste ? `, gestión por ${forma}` : ''}${nota ? ` — ${nota}` : ''}.`,
+            usuarioDe(req)).catch(() => {});
+        res.json({ ok: true, validada: true });
+    } catch (err) {
+        console.error('[POST validar-manual]', err.message);
+        res.status(500).json({ error: 'No se pudo validar la cuenta del cliente' });
+    }
+});
+
 // ─── Aviso a los INSTALADORES de que sus clientes ya han cobrado ───────────────
 // UN mensaje por instalador y lote, cuando todos sus clientes están transferidos
 // (services/avisoInstaladoresCobro.js). Lleva lo que cobra cada cliente → adminOnly.

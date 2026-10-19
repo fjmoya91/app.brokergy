@@ -277,6 +277,32 @@ que hay que reenviarle el mensaje para que lo sepa.
 ⚠️ El margen de Brokergy NO baja con el regalo en el panel económico ni en el
 listado (no leen `documentacion.cobro`): son 250 € menos que la cifra que enseñan.
 
+### Validar la cuenta A MANO desde el lote (2026-10-19)
+
+Muchos clientes desconfían del enlace («¿esto es un timo?, ¿es ciberseguridad?») y
+llaman en vez de pulsarlo. Botón **«✓ Validar a mano»** en la fila de cada cliente
+sin confirmar de la fase 7 (solo ADMIN, `POST /api/lotes/:id/cobros/:expId/validar-manual`
+`{ validar, forma_pago, nota }`). Abre un popup con la cuenta ENTERA que consta, la
+forma de pago (solo si asume la gestión y no se le ha regalado; por defecto
+«descontada») y una nota («Confirmada por teléfono con el cliente»).
+
+Sella `documentacion.cobro` con la RPC de merge como si hubiera contestado:
+`completado_at`, `origen: 'manual'`, `validado_manual = { at, por, nota }`,
+`respuestas.forma_pago`, `iban_anterior` = la de la ficha e `iban_cambiado: false`,
+y lo apunta en el historial del lote. La chapa dice «✓ Confirmada a mano» y la fila,
+quién y cuándo. Con eso la remesa lo lleva igual que a los demás.
+
+**REGLA — a mano solo se confirma la cuenta que YA consta.** Si el cliente da otra,
+se cambia en su ficha con el justificante de titularidad (la regla del IBAN nuevo
+sigue en pie) y después se valida. Sin cuenta en la ficha o con una que no pasa el
+dígito de control, la ruta responde 400.
+
+**REGLA — se puede deshacer solo lo validado a mano y sin remesa** (409 si no): lo
+que confirmó el propio cliente no se borra desde aquí.
+
+Medido en seco el 19/10/2026 sobre el lote de 25RES060_26 (8 pendientes de 9): los 8
+entrarían en la remesa; 25RES060_29, con la gestión regalada, por el bono íntegro.
+
 ### Avisar al INSTALADOR de que sus clientes ya han cobrado (2026-10-14)
 
 Hasta aquí el instalador no se enteraba de nada: ni al pedir la cuenta ni al

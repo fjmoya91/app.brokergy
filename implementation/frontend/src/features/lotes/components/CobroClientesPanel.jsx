@@ -36,7 +36,7 @@ function estadoCobro(f) {
     const c = f.cobro || {};
     if (c.completado_at) {
         if (c.iban_cambiado) return { t: '⚠ Cuenta cambiada', c: 'bg-amber-500/15 text-amber-300 border-amber-500/35', orden: 1 };
-        return { t: `✓ Confirmada${c.origen === 'tally' ? ' (Tally)' : ''}`, c: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35', orden: 3 };
+        return { t: `✓ Confirmada${c.origen === 'tally' ? ' (Tally)' : c.origen === 'manual' ? ' a mano' : ''}`, c: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35', orden: 3 };
     }
     if (c.enviado_at) {
         const d = diasDesde(c.enviado_at);
@@ -117,6 +117,20 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
             setError(e.response?.data?.error || 'No se pudo cambiar la gestión del cliente.');
         } finally {
             setRegalando(null);
+        }
+    };
+
+    // Confirmar la cuenta POR el cliente (el que desconfía del enlace y lo dice por
+    // teléfono). Solo ADMIN: es la cuenta a la que se transfiere.
+    const [validar, setValidar] = useState(null);   // fila que se valida (abre el popup)
+    const deshacerValidacion = async (f) => {
+        if (!window.confirm(`¿Deshacer la confirmación a mano de ${f.numero_expediente}?`)) return;
+        setError('');
+        try {
+            await axios.post(`/api/lotes/${lote.id}/cobros/${f.id}/validar-manual`, { validar: false });
+            refrescar();
+        } catch (e) {
+            setError(e.response?.data?.error || 'No se pudo deshacer la validación.');
         }
     };
 
@@ -322,6 +336,13 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                             {f.cobro?.enviado_at ? '↻ Reenviar' : '📤 Pedir'}
                                         </button>
                                     )}
+                                    {canSeeMargin && !f.cobro?.completado_at && (
+                                        <button type="button" onClick={() => setValidar(f)}
+                                            title="El cliente la ha confirmado por teléfono (o desconfía del enlace): se marca como confirmada y entra en la remesa"
+                                            className="px-2.5 py-1 rounded-lg border border-emerald-400/30 text-[10px] font-bold text-emerald-300/85 hover:bg-emerald-400/10 transition-all">
+                                            ✓ Validar a mano
+                                        </button>
+                                    )}
                                     {f.link && (
                                         <button type="button" onClick={() => copiar(f)}
                                             className="px-2.5 py-1 rounded-lg border border-white/10 text-[10px] font-bold text-white/45 hover:text-white/80 transition-all">
@@ -333,8 +354,19 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                             último envío {fecha(f.cobro.enviado_at)}{f.cobro.canales?.length ? ` · ${f.cobro.canales.join(' + ')}` : ''}
                                         </span>
                                     )}
-                                    {f.cobro?.completado_at && (
+                                    {f.cobro?.completado_at && f.cobro.origen !== 'manual' && (
                                         <span className="text-[9px] text-white/25">contestado {fecha(f.cobro.completado_at)}</span>
+                                    )}
+                                    {f.cobro?.completado_at && f.cobro.origen === 'manual' && (
+                                        <span className="text-[9px] text-white/35">
+                                            validada a mano {fecha(f.cobro.completado_at)}
+                                            {f.cobro.validado_manual?.por ? ` por ${f.cobro.validado_manual.por}` : ''}
+                                            {f.cobro.validado_manual?.nota ? ` · ${f.cobro.validado_manual.nota}` : ''}
+                                            {canSeeMargin && !f.pago?.remesa && (
+                                                <button type="button" onClick={() => deshacerValidacion(f)}
+                                                    className="ml-1.5 text-white/40 hover:text-white underline">Deshacer</button>
+                                            )}
+                                        </span>
                                     )}
                                 </div>
                             )}
@@ -356,6 +388,12 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
             {avisoInst && <AvisoInstaladoresModal lote={lote} onClose={() => setAvisoInst(false)} onEnviado={refrescar} />}
             {aviso && aviso.length > 0 && (
                 <AvisoTransferenciaModal lote={lote} filas={aviso} onClose={() => setAviso(null)} onEnviado={refrescar} />
+            )}
+
+            {validar && (
+                <ValidarCuentaModal lote={lote} f={validar}
+                    onClose={() => setValidar(null)}
+                    onHecho={() => { setValidar(null); refrescar(); }} />
             )}
 
             {envio && (
@@ -404,6 +442,107 @@ function EstadoPago({ f, admin, onAvisar, onCancelarResena }) {
             {r?.cancelada_at && <span className="px-1.5 py-0.5 rounded-md border border-white/10 text-white/30">reseña cancelada</span>}
             {r?.error && !r.enviada_at && <span className="px-1.5 py-0.5 rounded-md border border-red-400/30 text-red-300">⚠ reseña: {r.error}</span>}
         </div>
+    );
+}
+
+/**
+ * Validar A MANO la cuenta de un cliente: el que desconfía del enlace («¿esto es un
+ * timo?») y la confirma por teléfono. Se sella como si hubiera contestado
+ * (`origen: 'manual'`, con quién y la nota) y así entra en la remesa. Solo la cuenta
+ * que YA consta: una distinta se cambia antes en la ficha, con su justificante.
+ */
+function ValidarCuentaModal({ lote, f, onClose, onHecho }) {
+    const pideForma = !!f.coste && !f.gestion_bonificada;
+    const [forma, setForma] = useState(pideForma ? 'descuento' : null);
+    const [nota, setNota] = useState('Confirmada por teléfono con el cliente');
+    const [guardando, setGuardando] = useState(false);
+    const [error, setError] = useState('');
+    const sinCuenta = !f.iban && !f.iban_mascara;
+
+    const confirmar = async () => {
+        setGuardando(true);
+        setError('');
+        try {
+            await axios.post(`/api/lotes/${lote.id}/cobros/${f.id}/validar-manual`, {
+                validar: true, nota, ...(pideForma ? { forma_pago: forma } : {}),
+            });
+            onHecho();
+        } catch (e) {
+            setError(e.response?.data?.error || 'No se pudo validar la cuenta.');
+            setGuardando(false);
+        }
+    };
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9998] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6">
+            <div className="w-full sm:max-w-md bg-bkg-surface border border-white/10 rounded-t-3xl sm:rounded-3xl overflow-hidden">
+                <div className="px-5 pt-5 pb-3 border-b border-white/[0.06] flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand">Pago a los clientes</p>
+                        <h3 className="text-lg font-black text-white leading-tight mt-0.5">Validar la cuenta a mano</h3>
+                        <p className="text-[11px] text-white/45 mt-1 leading-snug">
+                            {f.numero_expediente} · {f.cliente || '—'}
+                        </p>
+                    </div>
+                    <button type="button" onClick={onClose} className="text-white/40 hover:text-white text-xl leading-none px-1">✕</button>
+                </div>
+
+                <div className="px-5 py-4 space-y-3">
+                    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/35">Cuenta que consta en la ficha</p>
+                        <p className="font-mono text-[13px] text-white mt-0.5">{f.iban || f.iban_mascara || 'sin cuenta en la ficha'}</p>
+                        {Array.isArray(f.reparto) && f.reparto.length > 1 && (
+                            <p className="text-[10px] text-amber-300/80 mt-1">El ingreso se reparte en {f.reparto.length} cuentas: se validan todas las de la ficha.</p>
+                        )}
+                    </div>
+                    <p className="text-[11px] text-white/50 leading-snug">
+                        Úsalo solo si el cliente te ha confirmado ESTA cuenta (por teléfono, en persona…). Queda marcada como
+                        confirmada a tu nombre y entra en la remesa SEPA. Si te da otra cuenta, cámbiala antes en su ficha
+                        con el justificante de titularidad.
+                    </p>
+
+                    {pideForma && (
+                        <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-white/35 mb-1.5">
+                                Cómo liquida la gestión ({eur(f.coste.sin_iva)} + IVA)
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { v: 'descuento', t: '✂️ Descontada del ingreso', d: `se le descuentan ${eur(f.coste.sin_iva)}` },
+                                    { v: 'factura', t: '🧾 Con factura', d: `${eur(f.coste.total)}, antes del ingreso` },
+                                ].map(o => (
+                                    <button key={o.v} type="button" onClick={() => setForma(o.v)}
+                                        className={`text-left px-3 py-2 rounded-xl border transition-all ${forma === o.v
+                                            ? 'border-brand/60 bg-brand/[0.08] text-white' : 'border-white/10 text-white/60 hover:border-white/25'}`}>
+                                        <span className="block text-[11px] font-bold">{o.t}</span>
+                                        <span className="block text-[9px] text-white/40 mt-0.5">{o.d}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/35 mb-1.5">Cómo se ha confirmado</p>
+                        <input type="text" value={nota} maxLength={300} onChange={e => setNota(e.target.value)}
+                            className="w-full bg-black/25 border border-white/10 rounded-xl px-3 py-2 text-[12px] text-white/85 outline-none focus:border-brand/50 no-uppercase" />
+                    </div>
+
+                    {error && <p className="text-[11px] text-red-400">{error}</p>}
+                </div>
+
+                <div className="px-5 py-3 border-t border-white/[0.06] flex items-center gap-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                    <button type="button" onClick={onClose}
+                        className="px-4 py-2.5 rounded-xl border border-white/15 text-[12px] font-bold text-white/70 hover:text-white">Cancelar</button>
+                    <div className="flex-1" />
+                    <button type="button" disabled={guardando || sinCuenta || (pideForma && !forma)} onClick={confirmar}
+                        className="px-5 py-2.5 rounded-xl bg-emerald-400 text-black text-[12px] font-black uppercase tracking-wider disabled:opacity-40 hover:brightness-110 transition-all">
+                        {guardando ? 'Guardando…' : '✓ Confirmar la cuenta'}
+                    </button>
+                </div>
+            </div>
+        </div>,
+        document.body,
     );
 }
 
