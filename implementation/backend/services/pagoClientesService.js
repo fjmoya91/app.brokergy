@@ -113,7 +113,11 @@ async function pagoDeExpediente(exp, { facturaCobrada = false } = {}) {
     if (!cobro.completado_at) { out.motivo = 'No ha confirmado su cuenta'; return out; }
     if (bono == null) { out.motivo = 'Sin ahorro verificado: no hay importe que transferir'; return out; }
     if (ctx.clienteAsumeCoste && !forma) { out.motivo = 'No ha elegido cómo liquidar la gestión'; return out; }
-    if (forma === 'factura' && ctx.clienteAsumeCoste && !facturaCobrada) {
+    // La factura de gestión emitida desde la fase 7 y marcada PAGADA cuenta como
+    // cobrada (facturaGestionCae.marcarPagada); el check del popup sigue valiendo
+    // para las que se cobraron por fuera.
+    const facturaPagada = facturaCobrada || cobro.factura_gestion?.estado === 'PAGADA';
+    if (forma === 'factura' && ctx.clienteAsumeCoste && !facturaPagada) {
         out.motivo = 'Pidió factura: el ingreso sale cuando esté cobrada';
         out.factura_pendiente = true;
         return out;

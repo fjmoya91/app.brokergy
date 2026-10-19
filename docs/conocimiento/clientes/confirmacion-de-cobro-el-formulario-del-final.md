@@ -303,6 +303,64 @@ que confirmó el propio cliente no se borra desde aquí.
 Medido en seco el 19/10/2026 sobre el lote de 25RES060_26 (8 pendientes de 9): los 8
 entrarían en la remesa; 25RES060_29, con la gestión regalada, por el bono íntegro.
 
+### La FACTURA de la gestión, al cliente o a su INSTALADOR (2026-10-19)
+
+Cuando el cliente pide factura de los honorarios, o el INSTALADOR pide que se le
+facture a él (pasa mucho), botón **«🧾 Emitir factura de la gestión»** en la fila de
+la fase 7 (solo ADMIN; resaltado en ámbar si el cliente eligió «factura»). El popup
+([FacturaGestionModal.jsx](implementation/frontend/src/features/lotes/components/FacturaGestionModal.jsx))
+pregunta **a quién se factura** —cliente o instalador, con sus datos fiscales
+editables— y la emite y envía con el mensaje a la vista.
+
+| Qué | Dónde |
+|---|---|
+| Línea, observaciones y los dos mensajes (fuente única) | [logic/facturaGestion.js](implementation/frontend/src/features/lotes/logic/facturaGestion.js) |
+| Emitir, PDF, enviar, marcar cobrada | [facturaGestionCae.js](implementation/backend/services/facturaGestionCae.js) |
+| Rutas (adminOnly) | `GET|POST /api/lotes/:id/cobros/:expId/factura-gestion` · `POST …/enviar` · `POST …/pagada` · `GET …/pdf` |
+| Registro | `documentacion.cobro.factura_gestion` (objeto entero, RPC de merge) |
+| Prueba (contra una COPIA del libro; sella en memoria) | `node implementation/backend/scripts/test_factura_gestion.js [nº]` |
+
+**REGLA — va al MISMO libro de facturas que los CEE directos** (hoja «APP PPTO Y
+FACTURAS», serie `{YY}ING_{n}`, `facturaSheetService`): esta app no numera; lee la
+hoja, reserva escribiendo la fila y relee, así AppSheet y la app nunca repiten
+número ni rompen el orden de fechas. El concepto es el artículo que YA existía en el
+catálogo de la hoja, **«Gestión técnica y administrativa ayuda BONO ENERGÉTICO CAE»**
+(`529a035b`, 250 € + 21 %); el precio, los honorarios del expediente (`bloquePago`).
+El PDF es el mismo de AppSheet (`buildFacturaCeeHtml`).
+
+**REGLA — el PDF se guarda en TRES sitios** (decisión del usuario, 2026-10-19):
+1. la carpeta **FACTURAS** del libro de AppSheet, con su nombre `{nº} - {razón social}.pdf`
+   (de ahí la abre su app; si esto falla, falla el PDF);
+2. **contabilidad**: `CAE - SERVICIOS CAE / FACTURAS VENTAS / {año} / {n. MES}`, por la
+   FECHA DE LA FACTURA, con `archivarFacturaVenta` (la misma que la factura al S.O.):
+   «26ING_87 - 25RES060_26 - {a quién}.pdf»;
+3. **«5. FACTURAS» del expediente**, con nombre PROPIO
+   («26ING_87 - HONORARIOS GESTION CAE BROKERGY - {a quién}.pdf»): esa carpeta es la de
+   las facturas de la OBRA y el paquete del S.O. coge las que se llaman «… - facturas»,
+   así que la nuestra no se confunde con ellas.
+
+Las dos últimas son best-effort: el popup dice cuál no se pudo guardar. Rehacer el
+PDF sustituye las tres (mismo nombre).
+
+**REGLA — emitirla FIJA la forma de pago en «factura».** Si no, la remesa descontaría
+además los 250 € del ingreso y se cobrarían dos veces. Una factura por expediente
+(409 a la segunda); con la remesa generada o la gestión regalada no se emite, y con
+la factura emitida ya no se puede regalar.
+
+**REGLA — «✓ Marcar cobrada» la marca PAGADA también en la hoja** (ESTADO + FECHA DE
+PAGO) y es lo que deja entrar al cliente en la remesa, con la ayuda ÍNTEGRA. Sin
+cobrar, la remesa lo deja fuera diciendo por qué (el check del popup de la remesa
+sigue valiendo para facturas cobradas por fuera).
+
+**REGLA — al instalador, tono profesional** (sin emojis, sin el nº de expediente; el
+cliente se nombra con la obra), a su contacto COMERCIAL (regla 44). Las observaciones
+de su factura dicen de qué cliente y qué obra es. Al cliente se le dice que la
+ayuda se ingresa al cobrarla, sin fecha.
+
+Probado el 19/10/2026 contra una copia del libro con 25RES060_26 facturado al
+instalador: 26ING_87, fila y línea con el artículo, PDF, envío, 409 a la segunda,
+fuera de la remesa sin cobrar y dentro (2.642,19 € íntegros) tras marcarla cobrada.
+
 ### Avisar al INSTALADOR de que sus clientes ya han cobrado (2026-10-14)
 
 Hasta aquí el instalador no se enteraba de nada: ni al pedir la cuenta ni al

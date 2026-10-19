@@ -360,6 +360,20 @@ async function filaCobro(exp, { conBorrador = false, ibanCompleto = false } = {}
         gestion_bonificada: ctx.gestionBonificada
             ? { importe: ctx.gestionBonificada, at: cobro.gestion_bonificada?.at || null, por: cobro.gestion_bonificada?.por || null }
             : null,
+        // La factura de los honorarios de gestión (facturaGestionCae), si se emitió:
+        // a quién, en qué estado y —solo ADMIN— el importe y el PDF.
+        factura_gestion: cobro.factura_gestion?.numero ? {
+            numero: cobro.factura_gestion.numero,
+            destino: cobro.factura_gestion.destino,
+            receptor: cobro.factura_gestion.receptor?.razon_social || null,
+            estado: cobro.factura_gestion.estado || 'ENVIADA',
+            emitida_at: cobro.factura_gestion.emitida_at || null,
+            pagada_at: cobro.factura_gestion.pagada_at || null,
+            enviada_at: (cobro.factura_gestion.envios || []).map(e => e.at).sort().pop() || null,
+            total: ibanCompleto ? cobro.factura_gestion.total : null,
+            link: ibanCompleto ? (cobro.factura_gestion.pdf?.link || null) : null,
+            sin_pdf: !cobro.factura_gestion.pdf,
+        } : null,
         cobro: {
             enviado_at: cobro.enviado_at || null,
             enviado_por: cobro.enviado_por || null,

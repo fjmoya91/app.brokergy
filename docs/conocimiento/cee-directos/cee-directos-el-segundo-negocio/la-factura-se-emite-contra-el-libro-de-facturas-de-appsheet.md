@@ -72,6 +72,11 @@ anterior y hay que reenviársela. Una fecha que rompe el orden correlativo de la
 serie (una anterior con fecha posterior, o al revés) se AVISA y no se bloquea
 (`fechasDeLaSerie`). Probado contra la copia en `test_factura_cee.js` (paso 6b).
 
+**Desde el 19/10/2026 emite también en esta serie la fase 7 del lote** (la factura de
+los honorarios de gestión CAE, al cliente o a su instalador: `facturaGestionCae.js`,
+ver «Confirmación de cobro»). Usa el mismo `facturaSheetService.emitir` y el mismo
+PDF: cualquier cambio aquí le afecta, y se prueba con `test_factura_gestion.js`.
+
 La Sheets API tiene que estar activa en el proyecto de GCP del OAuth
 (651872791732) — se activó el 23/09/2026. Variables opcionales:
 `APPSHEET_FACTURAS_SHEET_ID`, `APPSHEET_FACTURAS_FOLDER_ID`, `APPSHEET_USUARIO`.

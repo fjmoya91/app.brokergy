@@ -25,6 +25,7 @@ import { CanalChip } from '../../../components/CanalChip';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { eurEs } from '../../cobro/logic/cobroForm';
 import { RemesaSepaModal, JustificanteModal, AvisoTransferenciaModal, AvisoInstaladoresModal } from './PagoClientesModals';
+import { FacturaGestionModal } from './FacturaGestionModal';
 import { resumenPago } from '../logic/pagoClientes';
 
 const eur = eurEs;
@@ -123,6 +124,21 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
     // Confirmar la cuenta POR el cliente (el que desconfía del enlace y lo dice por
     // teléfono). Solo ADMIN: es la cuenta a la que se transfiere.
     const [validar, setValidar] = useState(null);   // fila que se valida (abre el popup)
+    // La factura de los honorarios de gestión (al cliente o a su instalador). Solo ADMIN.
+    const [facturaG, setFacturaG] = useState(null); // fila cuya factura se emite / reenvía
+    const [cobrandoF, setCobrandoF] = useState(null);
+    const marcarFacturaPagada = async (f, pagada) => {
+        setCobrandoF(f.id);
+        setError('');
+        try {
+            await axios.post(`/api/lotes/${lote.id}/cobros/${f.id}/factura-gestion/pagada`, { pagada });
+            refrescar();
+        } catch (e) {
+            setError(e.response?.data?.error || 'No se pudo marcar la factura.');
+        } finally {
+            setCobrandoF(null);
+        }
+    };
     const deshacerValidacion = async (f) => {
         if (!window.confirm(`¿Deshacer la confirmación a mano de ${f.numero_expediente}?`)) return;
         setError('');
@@ -284,13 +300,47 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                         )}
                                     </p>
                                 )}
-                                {canSeeMargin && f.coste && !f.pago?.remesa && (
-                                    <p className="sm:col-span-2">
+                                {canSeeMargin && f.coste && !f.pago?.remesa && !f.factura_gestion && (
+                                    <p className="sm:col-span-2 flex items-center gap-1.5 flex-wrap">
                                         <button type="button" disabled={regalando === f.id} onClick={() => regalarGestion(f, true)}
                                             title="No se le cobran los honorarios de gestión: la remesa no los descuenta y el mensaje se lo cuenta como un regalo"
                                             className="px-2 py-0.5 rounded-md border border-fuchsia-400/30 text-fuchsia-200/80 text-[10px] font-bold hover:bg-fuchsia-400/10 disabled:opacity-40 transition-all">
                                             {regalando === f.id ? 'Guardando…' : `🎁 No cobrarle la gestión (${eur(f.coste.sin_iva)})`}
                                         </button>
+                                        <button type="button" onClick={() => setFacturaG(f)}
+                                            title="Factura de los honorarios de gestión, al cliente o a su instalador, en la serie del libro de AppSheet"
+                                            className={`px-2 py-0.5 rounded-md border text-[10px] font-bold transition-all ${f.cobro?.forma_pago === 'factura'
+                                                ? 'border-amber-400/50 text-amber-200 bg-amber-400/10 hover:bg-amber-400/20' : 'border-white/15 text-white/60 hover:text-white hover:border-white/30'}`}>
+                                            🧾 Emitir factura de la gestión ({eur(f.coste.total)})
+                                        </button>
+                                    </p>
+                                )}
+                                {/* La factura de gestión ya EMITIDA: a quién, estado, y cobrarla. */}
+                                {f.factura_gestion && (
+                                    <p className="sm:col-span-2 text-[10px] text-white/55 flex items-center gap-1.5 flex-wrap">
+                                        <span className={`px-1.5 py-0.5 rounded-md border ${f.factura_gestion.estado === 'PAGADA'
+                                            ? 'border-emerald-400/30 text-emerald-300' : 'border-amber-400/35 text-amber-200'}`}>
+                                            🧾 Factura {f.factura_gestion.numero}
+                                            {f.factura_gestion.total != null ? ` · ${eur(f.factura_gestion.total)}` : ''}
+                                            {' · '}{f.factura_gestion.estado === 'PAGADA' ? '✓ cobrada' : 'pendiente de cobro'}
+                                        </span>
+                                        <span className="text-white/40">
+                                            a {f.factura_gestion.destino === 'instalador' ? 'el instalador' : 'el cliente'}
+                                            {f.factura_gestion.receptor ? ` (${f.factura_gestion.receptor})` : ''}
+                                            {f.factura_gestion.enviada_at ? ` · enviada ${fecha(f.factura_gestion.enviada_at)}` : ' · sin enviar'}
+                                        </span>
+                                        {canSeeMargin && (
+                                            <>
+                                                <button type="button" onClick={() => setFacturaG(f)} className="text-white/45 hover:text-white underline">Ver / reenviar</button>
+                                                {!f.pago?.remesa && (
+                                                    <button type="button" disabled={cobrandoF === f.id}
+                                                        onClick={() => marcarFacturaPagada(f, f.factura_gestion.estado !== 'PAGADA')}
+                                                        className={f.factura_gestion.estado === 'PAGADA' ? 'text-white/35 hover:text-white underline' : 'px-1.5 py-0.5 rounded-md border border-emerald-400/40 text-emerald-300 font-bold hover:bg-emerald-400/10'}>
+                                                        {cobrandoF === f.id ? '…' : f.factura_gestion.estado === 'PAGADA' ? 'Desmarcar cobrada' : '✓ Marcar cobrada'}
+                                                    </button>
+                                                )}
+                                            </>
+                                        )}
                                     </p>
                                 )}
                                 {/* VARIOS CEDENTES con cuenta propia: el ingreso se parte. */}
@@ -390,6 +440,12 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                 <AvisoTransferenciaModal lote={lote} filas={aviso} onClose={() => setAviso(null)} onEnviado={refrescar} />
             )}
 
+            {facturaG && (
+                <FacturaGestionModal lote={lote} f={facturaG}
+                    onClose={() => setFacturaG(null)}
+                    onHecho={refrescar} />
+            )}
+
             {validar && (
                 <ValidarCuentaModal lote={lote} f={validar}
                     onClose={() => setValidar(null)}
@@ -452,7 +508,8 @@ function EstadoPago({ f, admin, onAvisar, onCancelarResena }) {
  * que YA consta: una distinta se cambia antes en la ficha, con su justificante.
  */
 function ValidarCuentaModal({ lote, f, onClose, onHecho }) {
-    const pideForma = !!f.coste && !f.gestion_bonificada;
+    // Con la factura de gestión ya emitida, la forma de pago es esa (la fija el servidor).
+    const pideForma = !!f.coste && !f.gestion_bonificada && !f.factura_gestion;
     const [forma, setForma] = useState(pideForma ? 'descuento' : null);
     const [nota, setNota] = useState('Confirmada por teléfono con el cliente');
     const [guardando, setGuardando] = useState(false);

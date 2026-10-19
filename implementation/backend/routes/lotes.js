@@ -959,6 +959,9 @@ router.post('/:id/cobros/:expId/gestion-bonificada', adminOnly, async (req, res)
         if (cobro.remesa) {
             return res.status(409).json({ error: 'Ya está en una remesa SEPA: el importe que se transfiere no se puede cambiar.' });
         }
+        if (cobro.factura_gestion?.numero && req.body?.bonificada === true) {
+            return res.status(409).json({ error: `Ya se le emitió la factura ${cobro.factura_gestion.numero} por la gestión: no se puede regalar.` });
+        }
         const bonificada = req.body?.bonificada === true;
         const cobroService = require('../services/cobroService');
         await cobroService.sellar(exp.id, {
@@ -1004,7 +1007,8 @@ router.post('/:id/cobros/:expId/validar-manual', adminOnly, async (req, res) => 
 
         // La forma de pago, solo a quien asume la gestión (la misma regla del formulario).
         const ctx = await cobroService.contextoDe(exp);
-        const forma = req.body?.forma_pago;
+        // Con la factura de gestión ya emitida, la forma de pago es esa (o se cobraría dos veces).
+        const forma = cobro.factura_gestion?.numero ? 'factura' : req.body?.forma_pago;
         if (ctx.clienteAsumeCoste && !['descuento', 'factura'].includes(forma)) {
             return res.status(400).json({ error: 'Elige cómo liquida la gestión: descontada del ingreso o con factura.' });
         }
@@ -1026,6 +1030,95 @@ router.post('/:id/cobros/:expId/validar-manual', adminOnly, async (req, res) => 
     } catch (err) {
         console.error('[POST validar-manual]', err.message);
         res.status(500).json({ error: 'No se pudo validar la cuenta del cliente' });
+    }
+});
+
+// ─── La FACTURA de los honorarios de gestión (services/facturaGestionCae.js) ────
+// Al cliente que la pide o a su INSTALADOR, contra el libro de facturas de la hoja
+// de AppSheet (serie {YY}ING_{n}, la misma de los CEE directos). Dinero → adminOnly.
+const facturaGestion = require('../services/facturaGestionCae');
+
+router.get('/:id/cobros/:expId/factura-gestion', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        res.json(await facturaGestion.borrador(exp));
+    } catch (err) {
+        console.error('[GET factura-gestion]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo preparar la factura' });
+    }
+});
+
+// Emite y, si se pide, la envía en el mismo gesto.
+// Body: { destino: 'cliente'|'instalador', fecha, receptor?, enviar?: { canales, tlf, email, mensaje } }
+router.post('/:id/cobros/:expId/factura-gestion', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const r = await facturaGestion.emitir(exp, req.body || {}, { usuario: usuarioDe(req) });
+        await apuntarEnLote(req.params.id,
+            `${exp.numero_expediente}: factura de gestión ${r.numero} emitida a ${r.destino === 'instalador' ? 'el instalador' : 'el cliente'} (${r.receptor}).`,
+            usuarioDe(req)).catch(() => {});
+        let envio = null;
+        const e = req.body?.enviar;
+        if (e && Array.isArray(e.canales) && e.canales.length && !r.errorPdf) {
+            try {
+                const fresco = await require('../services/cobroService').cargarExpediente(exp.id);
+                // El mensaje se compuso con el nº que TOCABA: si salió otro, se cambia.
+                const mensaje = e.mensaje && e.numero_previsto && e.numero_previsto !== r.numero
+                    ? String(e.mensaje).split(e.numero_previsto).join(r.numero) : e.mensaje;
+                envio = await facturaGestion.enviar(fresco, { ...e, mensaje, usuario: usuarioDe(req) });
+            } catch (er) { envio = { error: er.message }; }
+        }
+        const { pdf, ...resto } = r;
+        res.json({
+            ...resto, envio,
+            pdf: pdf ? { link: pdf.link, nombre: pdf.nombre, contabilidad: pdf.contabilidad || null, expediente: pdf.expediente || null } : null,
+        });
+    } catch (err) {
+        console.error('[POST factura-gestion]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo emitir la factura' });
+    }
+});
+
+router.post('/:id/cobros/:expId/factura-gestion/enviar', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        res.json(await facturaGestion.enviar(exp, { ...(req.body || {}), usuario: usuarioDe(req) }));
+    } catch (err) {
+        console.error('[POST factura-gestion/enviar]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo enviar la factura' });
+    }
+});
+
+// Marcarla PAGADA (en la hoja también) deja entrar al cliente en la remesa con la ayuda íntegra.
+router.post('/:id/cobros/:expId/factura-gestion/pagada', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const pagada = req.body?.pagada !== false;
+        const r = await facturaGestion.marcarPagada(exp, pagada, { usuario: usuarioDe(req) });
+        await apuntarEnLote(req.params.id, `${exp.numero_expediente}: factura de gestión ${r.numero} ${pagada ? 'COBRADA' : 'vuelve a pendiente de cobro'}.`, usuarioDe(req)).catch(() => {});
+        res.json(r);
+    } catch (err) {
+        console.error('[POST factura-gestion/pagada]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo marcar la factura' });
+    }
+});
+
+// El PDF (para verlo o descargarlo desde el popup); si no estaba, se rehace con el MISMO número.
+router.get('/:id/cobros/:expId/factura-gestion/pdf', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const { buffer, filename } = await facturaGestion.pdfDe(exp);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        res.send(buffer);
+    } catch (err) {
+        console.error('[GET factura-gestion/pdf]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo obtener el PDF' });
     }
 });
 
