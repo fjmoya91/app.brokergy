@@ -76,6 +76,12 @@ Compone el MISMO borrador del popup y deja en `scratch/presentar-cee/<nº>_<fase
 Lee los **AVISOS**. «Sexo supuesto por el nombre» es normal (decisión del usuario: si la ficha no lo
 dice, se supone; fallar no es grave). «Falta en Drive» o «NO LISTO» → para y dilo.
 
+**«⛔ CERTIFICADO INCOMPLETO» → NO se presenta, nunca** (26RES060_195, 19/10/2026): `preparar`
+valida el XML con `xml2cert` y, si no valida, el PDF lleva la marca de agua «certificado incompleto»
+y el Registro lo rechazaría con la tasa ya pagada. Para y díselo al usuario con el motivo. Si avisa
+de que no lo ha podido validar en este equipo, **abre el PDF** y mira que no lleve la marca antes de
+seguir. Ver [comun/cee-incompleto.md](comun/cee-incompleto.md).
+
 ## 3. El vigilante, en segundo plano
 
 ```powershell

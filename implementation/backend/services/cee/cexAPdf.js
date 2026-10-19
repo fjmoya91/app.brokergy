@@ -45,6 +45,16 @@
 // `ajustarAutoconsumo` (por defecto) esos meses se recortan a SU consumo, se
 // recalcula y se devuelve el `.cex` guardado por CE3X en `cex` para subirlo en
 // lugar del otro.
+//
+// REGLA — un XML que NO VALIDA no sale de aquí como bueno (2026-10-19,
+// 26RES060_195). `xml2cert` saca el PDF igual, pero con la marca de agua
+// «certificado incompleto», y ese PDF no se puede registrar. Lo único que lo dice
+// es su `.log`: por eso `calificarCex` pasa SIEMPRE el XML por `xml2cert` (≈4 s,
+// también con `pdf: false`) y, si no valida, devuelve `ok: false` con
+// `incompleto` (los motivos) y SIN el PDF. Y `guardarCalificadoEnDrive` lo vuelve a
+// comprobar antes de subir nada (`validarXml`). Caso: el inicial del técnico, de
+// la 2.3, sin NINGÚN hueco; la 2.3 lo aceptaba, la 3.2 escribe un hueco vacío
+// («99999999.99», sin cerramiento) y su propio esquema lo rechaza.
 // ============================================================================
 const fs = require('fs');
 const os = require('os');
@@ -233,6 +243,68 @@ function huecosSinCompletar(buf) {
     return out;
 }
 
+//: Con lo que CE3X rellena un dato que no existe (un hueco que no hay, un nº que falta).
+const RELLENO_CE3X = '99999999.99';
+
+/**
+ * Lo que deja INCOMPLETO un XML del CEE y se ve sin `xml2cert`: hoy, el edificio
+ * SIN NINGÚN HUECO. CE3X no deja la lista vacía: escribe un hueco de relleno con
+ * todo a «99999999.99» (y en el v3.0, sin `<Construccion>` ni `<Opaco>`). El
+ * esquema 3.0 lo rechaza y el PDF sale con la marca «certificado incompleto»; el
+ * v2.0 (CE3X 2.3) lo aceptaba, así que un inicial de la 2.3 sin ventanas pasaba
+ * y su final en la 3.2 no. Sin distinguir mayúsculas: el XML guardado en la BD
+ * va en MAYÚSCULAS (regla 32). Devuelve los motivos, en frases ([] si nada).
+ */
+function incompletoDelXml(buf) {
+    const txt = Buffer.isBuffer(buf) ? buf.toString('utf8') : String(buf || '');
+    const motivos = [];
+    const v30 = /<Huecos>([\s\S]*?)<\/Huecos>/i.exec(txt);
+    const v20 = /<HuecosyLucernarios>([\s\S]*?)<\/HuecosyLucernarios>/i.exec(txt);
+    const bloque = (v30 || v20 || [])[1] || '';
+    const relleno = new RegExp(`<Nombre>\\s*${RELLENO_CE3X.replace('.', '\\.')}\\s*</Nombre>`, 'i');
+    if (bloque && relleno.test(bloque)) {
+        motivos.push('el edificio no tiene NINGÚN hueco (ni ventanas ni puertas): CE3X escribe en su lugar un hueco '
+            + 'vacío («99999999.99», sin cerramiento), su XML no valida y el PDF sale con la marca «certificado '
+            + 'incompleto». Hay que meter los huecos en el CEE (si es un final copiado, en el INICIAL del que sale).');
+    }
+    return motivos;
+}
+
+/**
+ * ¿VALIDA el XML? Lo dice `xml2cert` en su `.log` (el esquema que aplica es el de
+ * CE3X) más `incompletoDelXml`. Sin `xml2cert` en el equipo solo se puede mirar lo
+ * segundo, y se dice (`comprobado: false`).
+ * Devuelve { ok, errores: [frases], comprobado, pdf (el que ha salido, con marca si
+ * no valida), error (si xml2cert no ha podido) }.
+ */
+async function validarXml(entrada) {
+    const buf = Buffer.isBuffer(entrada) ? entrada : fs.readFileSync(entrada);
+    const errores = incompletoDelXml(buf);
+    //: xml2cert solo sabe del esquema 3.0 (CE3X 3.x): el v2.0 de la 2.3 solo se mira por dentro.
+    const v = (/<DatosEnergeticosDelEdificio[^>]*\bversion="([^"]+)"/i.exec(buf.subarray(0, 4096).toString('utf8')) || [])[1];
+    if (!disponiblePdf().ok || !String(v || '').startsWith('3')) return { ok: !errores.length, errores, comprobado: false };
+    const dir = carpetaTemporal();
+    const xml = path.join(dir, 'cee.xml');
+    try {
+        fs.writeFileSync(xml, buf);
+        const p = await pdfDesdeXml(xml, dir);
+        errores.push(...avisosDelLogDe(xml).filter((e) => !errores.includes(e)));
+        return { ok: !errores.length, errores, comprobado: !p.error || errores.length > 0, pdf: p.pdf || null, error: p.error || null };
+    } finally {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temporal */ }
+    }
+}
+
+/** Los fallos de validación que dejó `xml2cert` junto al XML (`<nombre>.log`). */
+function avisosDelLogDe(rutaXml) {
+    const ruta = rutaXml.replace(/\.xml$/i, '.log');
+    return fs.existsSync(ruta) ? avisosDelLog(fs.readFileSync(ruta, 'utf8')) : [];
+}
+
+/** El texto que se le dice a quien genera, con los motivos. */
+const textoIncompleto = (motivos) => `el XML NO VALIDA y el PDF saldría con la marca «certificado incompleto» `
+    + `(no se puede registrar), así que no se da por bueno ni se sube: ${motivos.join(' · ')}`;
+
 /** El PDF oficial desde el XML (`xml2cert`), en la misma carpeta y con su nombre. */
 async function pdfDesdeXml(xml, dir) {
     const huecos = huecosSinCompletar(fs.readFileSync(xml));
@@ -287,9 +359,8 @@ async function pdfDeXml(entrada) {
     try {
         fs.writeFileSync(xml, buf);
         const p = await pdfDesdeXml(xml, dir);
-        const ruta = path.join(dir, 'cee.log');
-        const log = fs.existsSync(ruta) ? fs.readFileSync(ruta, 'utf8') : '';
-        const avisos = avisosDelLog(log);
+        //: Lo que se ve sin xml2cert va delante: dice POR QUÉ con palabras de la casa.
+        const avisos = [...incompletoDelXml(buf), ...avisosDelLogDe(xml)];
         if (p.error) return { ok: false, version, avisos, error: avisos.length ? `XML no válido: ${avisos[0]}` : p.error };
         const pendientes = /<MedidasPendientes\b/.test(buf.toString('utf8'));
         if (pendientes) avisos.push('el XML tiene las medidas de mejora pendientes');
@@ -401,8 +472,16 @@ async function calificarCex(entrada, { medidas = true, pdf = true, ajustarAutoco
             cex: cexAjustado,
             xml: fs.readFileSync(xml), pdf: null,
         };
-        if (!pdf) return resultado;
+        //: SIEMPRE por xml2cert, también sin PDF: es quien VALIDA el XML (ver la
+        //: REGLA de arriba). Un XML que no valida vuelve con `incompleto` y sin PDF,
+        //: y quien llama no sube nada.
         const p = await pdfDesdeXml(xml, dir);
+        const incompleto = [...incompletoDelXml(resultado.xml)];
+        for (const e of avisosDelLogDe(xml)) if (!incompleto.includes(e)) incompleto.push(e);
+        if (incompleto.length) {
+            return { ...resultado, ok: false, incompleto, marcaDeAgua: true, error: textoIncompleto(incompleto) };
+        }
+        if (!pdf) return resultado;
         if (p.error) return { ...resultado, ok: false, error: p.error };
         resultado.pdf = p.pdf;
         return resultado;
@@ -489,8 +568,13 @@ async function ponerPrevistoComoMedida(inicial, previsto, textos = {}, { pdf = t
             return { ...resultado, ok: false, error: `CE3X no ha escrito el XML${porQue ? `: ${porQue}` : ''}` };
         }
         resultado.xml = fs.readFileSync(xml);
-        if (!pdf) return resultado;
         const p = await pdfDesdeXml(xml, dir);
+        const incompleto = [...incompletoDelXml(resultado.xml)];
+        for (const e of avisosDelLogDe(xml)) if (!incompleto.includes(e)) incompleto.push(e);
+        if (incompleto.length) {
+            return { ...resultado, ok: false, incompleto, marcaDeAgua: true, error: textoIncompleto(incompleto) };
+        }
+        if (!pdf) return resultado;
         if (p.error) return { ...resultado, ok: false, error: p.error };
         resultado.pdf = p.pdf;
         return resultado;
@@ -514,7 +598,8 @@ function textoCalificacion(c) {
  */
 async function calificarYGuardar(ctx, fase, nombreCex, buffer, { escribir = true, medidas = true } = {}) {
     const r = await calificarCex(buffer, { medidas });
-    if (!escribir || (!r.xml && !r.pdf)) return r;
+    //: Un XML que no valida no se sube: ni él ni su PDF (con marca de agua).
+    if (!escribir || r.incompleto || (!r.xml && !r.pdf)) return r;
     //: Con el autoconsumo ajustado, el `.cex` que vale es el que guardó CE3X: va
     //: a Drive en lugar del otro (que se archiva en OLD), junto a su XML y PDF.
     const guardado = await require('../ceeEnvolventeCex')
@@ -546,8 +631,9 @@ function lineasCalificado(r, { esperado = null } = {}) {
     for (const a of r.avisos || []) out.push(`  ⚠ CE3X: ${String(a).split('\n')[0]}`);
     if (r.guardado?.ok) for (const s of r.guardado.subidos) out.push(`✓ ${s.nombre}${s.archivado ? ' (el anterior, a OLD)' : ''}\n  ${s.link}`);
     if (r.guardado && !r.guardado.ok) out.push(`✗ XML/PDF calificados pero no se han subido a Drive: ${r.guardado.error}`);
-    if (!r.ok) out.push(`✗ ${r.error}`);
+    if (r.incompleto) out.push(`⛔ CERTIFICADO INCOMPLETO — ${r.error}`);
+    else if (!r.ok) out.push(`✗ ${r.error}`);
     return out;
 }
 
-module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, disponiblePdf, avisosDelLog, huecosSinCompletar };
+module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, disponiblePdf, avisosDelLog, huecosSinCompletar, incompletoDelXml, validarXml, textoIncompleto };

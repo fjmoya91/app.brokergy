@@ -23,7 +23,7 @@ const { envolventeDeclarada } = require('../docsAlcance');
 const { combustibleDeclarado, familiaCombustible, NOMBRE_FAMILIA } = require('../../utils/combustibleCaldera');
 const { norm, ACUMULACION_SOLO_EN_CEX } = require('./radiografiaCee');
 const { fechaFirmaCee } = require('../../utils/ceeFechas');
-const { revisarConCex, revisarTransmitancias } = require('./revisionCeeCex');
+const { revisarConCex, revisarTransmitancias, HUECOS_CERO } = require('./revisionCeeCex');
 
 /** Holgura relativa. La misma que ya se aplica al cruzar los dos CEE (regla 32). */
 const HOLGURA_PCT = 2;
@@ -708,6 +708,15 @@ async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase 
     revisarDemanda(inf, rx, ctx);
     if (cex) revisarConCex(inf, rx, cex, ctx);
     else {
+        //: Con el `.cex` lo mira `revisarHuecosPuentes`; con solo el `.xml`, aquí.
+        //: El hueco de relleno de CE3X ya no cuenta (`radiografiaCee.esRelleno`).
+        if (rx.envolvente && !(rx.envolvente.huecos || []).length) {
+            inf.anota('huecos', 'Huecos (ventanas y puertas)', 'falla', {
+                dice: 'el certificado no declara ningún hueco',
+                esperado: 'las ventanas y puertas de la vivienda',
+                detalle: HUECOS_CERO,
+            });
+        }
         revisarTransmitancias(inf, rx, null, ctx);
         if (fase === 'inicial') {
             inf.anota('medida', 'Medida de mejora', 'no_comprobable', {

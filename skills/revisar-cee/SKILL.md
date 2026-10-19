@@ -92,6 +92,13 @@ lista de puntos, pero el veredicto lo estás dando tú y no el código.
 Empieza por el **veredicto y lo que lo decide**, no por la lista entera. Después los puntos que no
 están en verde, con su evidencia. Lo correcto va al final y en una línea: es lo que no hay que mirar.
 
+**«Huecos (ventanas y puertas): no declara ningún hueco» es NO APTO, siempre** (26RES060_195,
+19/10/2026): el inicial se dio por bueno sin ventanas, se registró en la 2.3 y su CEE final, en la
+3.2, salió con la marca «certificado incompleto». Ese punto se dice el primero. Con solo el `.xml`, el
+hueco de relleno de CE3X («99999999.99») ya no cuenta como ventana. Y un XML de la 3.x que no valida
+(`node scripts/test_cee_incompleto.js "<ruta.xml>"`) tampoco se aprueba. Ver
+[comun/cee-incompleto.md](comun/cee-incompleto.md).
+
 Si sale **NO APTO**, di en una frase qué hay que pedirle al certificador. No se lo escribas ni lo
 envíes salvo que el usuario lo pida: para eso está el popup del módulo CEE, que ya sella el
 seguimiento y el historial.

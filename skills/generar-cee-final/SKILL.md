@@ -5,6 +5,13 @@ description: 'GENERA el CEE FINAL (.cex de CE3X 3.2, con su XML y su PDF) de un 
 
 # Generar el CEE final
 
+> ⛔ **Nunca un CEE «incompleto»** (26RES060_195, 19/10/2026): si el XML no valida, el PDF sale con
+> la marca de agua «certificado incompleto» y no se puede registrar. **Antes de generar**, el inicial
+> que se copia tiene que tener sus ventanas y puertas (si no, `cee_final_copiando.js` para con 422: no
+> lo fuerces con `--base`). Si el informe dice **«⛔ CERTIFICADO INCOMPLETO»**, el final **no está
+> hecho**: no se ha subido XML ni PDF y no se ha avisado; díselo al usuario con el motivo. Todo, en
+> [comun/cee-incompleto.md](comun/cee-incompleto.md).
+
 ## RES060: se COPIA el inicial (decisión del usuario, 08/10/2026 — «grabado a fuego»)
 
 Cuando el usuario pide el CEE final de un **RES060**, el procedimiento es SIEMPRE este, sin
@@ -318,6 +325,8 @@ cubierta que guardó CE3X para 26RES093_11.
   por la app (sin calcular, y se avisa), cuando él la calculó pero guardó el fichero antes.
 - **Con varias medidas manda la que imprime su informe**; si no se sabe cuál, se pregunta.
 - **No se genera sobre un CEE final ya REGISTRADO.**
+- **Nunca se da por hecho un final cuyo XML no valida** («⛔ CERTIFICADO INCOMPLETO»): ni se sube a
+  mano ni se avisa al técnico. Ver [comun/cee-incompleto.md](comun/cee-incompleto.md).
 - **Al escribir, avisa al equipo** (WhatsApp + email, como un técnico que sube su archivo) y lo anota
   en el historial. **La fase solo cambia si el CEE final está encargado al AGENTE IA**; con un técnico
   asignado, no se toca. `--sin-aviso` lo calla al relanzar.

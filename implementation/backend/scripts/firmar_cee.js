@@ -136,6 +136,15 @@ async function vistaPrevia(buffer, png) {
     const { buffer, nombre, xml } = await pdfAFirmar(origen, row);
     console.log(`${numero} (${origen}) · ${FASE} · firmo «${nombre}»`);
     if (leerFirmasPdf(buffer).firmada) throw new Error(`«${nombre}» ya lleva firma electrónica: no se firma otra vez.`);
+    // REGLA — no se firma un CEE cuyo XML no VALIDA (2026-10-19, 26RES060_195): su PDF lleva
+    // la marca «certificado incompleto» y firmarlo no la quita.
+    if (xml) {
+        const cexAPdf = require('../services/cee/cexAPdf');
+        const v = await cexAPdf.validarXml(Buffer.from(xml, 'latin1'));
+        if (!v.ok) throw new Error(`NO se firma: ${cexAPdf.textoIncompleto(v.errores)}`);
+    } else {
+        console.log('⚠️ Sin el XML al lado no se puede validar: comprueba que el PDF NO lleva la marca «certificado incompleto».');
+    }
 
     // La fecha: AutoFirma sella con el reloj de este PC. La sede compara la emisión con la
     // <FechaGeneracion> del XML; si no es hoy, se avisa (lo bueno es regenerar en CE3X hoy).

@@ -241,6 +241,14 @@ async function hacer(rutaXml, { forzar = false } = {}) {
         avisar('PDF del CEE: no se ha podido', `${path.basename(rutaXml)}\n${r.error}`.slice(0, 250));
         return 'fallo';
     }
+    // REGLA — un PDF con la marca «certificado incompleto» NO se deja en la carpeta
+    // (2026-10-19, 26RES060_195): la carpeta es de Drive y se comparte con el
+    // técnico, que lo firmaba y lo intentaba presentar. Se avisa de por qué.
+    if (r.marcaDeAgua) {
+        anotar(`⛔ ${corta(rutaXml)}: XML INCOMPLETO, no se deja el PDF: ${r.avisos.join(' · ')}`);
+        avisar('CEE INCOMPLETO: no se hace el PDF', `${path.basename(rutaXml)}\n${r.avisos[0]}`.slice(0, 250));
+        return 'incompleto-xml';
+    }
     // Entre medias pudo bajar de Drive el suyo (el del Agente IA): no se pisa.
     if (!forzar && pdfAlDia(rutaXml, bytes)) { anotar(`= ${corta(rutaXml)}: llegó su PDF mientras se hacía`); return 'al-dia'; }
     let viejo = null;
@@ -257,13 +265,8 @@ async function hacer(rutaXml, { forzar = false } = {}) {
     apuntarHecho(destino, bytes);
     const seg = ((Date.now() - t0) / 1000).toFixed(1).replace('.', ',');
     if (viejo) anotar(`  el anterior, a OLD/${path.basename(viejo)}`);
-    if (r.marcaDeAgua) {
-        anotar(`⚠ ${corta(destino)} (${seg} s) CON MARCA DE AGUA: ${r.avisos.join(' · ')}`);
-        avisar('PDF del CEE con MARCA DE AGUA', `${nombre}\nEl XML está incompleto: ${r.avisos[0]}`.slice(0, 250), destino);
-    } else {
-        anotar(`✓ ${corta(destino)} (${seg} s)`);
-        avisar('PDF del CEE listo', `${nombre}\n${obraDe(destino)}`, destino);
-    }
+    anotar(`✓ ${corta(destino)} (${seg} s)`);
+    avisar('PDF del CEE listo', `${nombre}\n${obraDe(destino)}`, destino);
     return 'hecho';
 }
 

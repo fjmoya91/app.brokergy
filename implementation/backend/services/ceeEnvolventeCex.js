@@ -1026,9 +1026,19 @@ async function guardarEnDrive(ctx, buffer, fase = 'inicial') {
  *
  * El `_REVISAR` los aparta de la rejilla (`matchSlot`): son el borrador
  * calificado, no la entrega del técnico. Nunca lanza: el `.cex` ya está.
+ *
+ * REGLA — antes de subir, el XML se VALIDA (`cexAPdf.validarXml`, 2026-10-19,
+ * 26RES060_195): uno que no valida no sube, ni él ni su PDF ni su `.cex`, porque
+ * el PDF lleva la marca «certificado incompleto» y nadie debe firmarlo ni
+ * presentarlo. Es la última puerta de todos los caminos que suben un calificado.
  */
 async function guardarCalificadoEnDrive(ctx, fase, nombreCex, { xml = null, pdf = null, cex = null } = {}) {
     if (!ctx.driveFolderId && !esCeeDirecto(ctx.expediente)) return { ok: false, error: 'el expediente no tiene carpeta de Drive' };
+    if (xml) {
+        const cexAPdf = require('./cee/cexAPdf');
+        const v = await cexAPdf.validarXml(xml);
+        if (!v.ok) return { ok: false, incompleto: v.errores, error: cexAPdf.textoIncompleto(v.errores) };
+    }
     try {
         const { id: carpeta } = await carpetaFase(ctx, fase);
         if (!carpeta) throw new Error('no se ha podido resolver la carpeta de la fase');

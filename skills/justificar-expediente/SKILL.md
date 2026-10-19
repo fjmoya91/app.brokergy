@@ -153,7 +153,11 @@ Cada imagen, UNA vez. Un apartado vacío se deja vacío (no se rellena con otra 
    €/kWh e importe, cuenta, fotos en su sitio y sin repetir.
 
 ### 10. CEE final
-Con la skill **`generar-cee-final`**, con los equipos YA corregidos en el paso 7. Solo se preguntan
+Con la skill **`generar-cee-final`**, con los equipos YA corregidos en el paso 7. **Antes**, el CEE
+inicial del que se copia tiene que tener sus ventanas y puertas: sin ningún hueco el final sale con la
+marca «certificado incompleto» (26RES060_195; [comun/cee-incompleto.md](comun/cee-incompleto.md)).
+Si el script dice «⛔ CERTIFICADO INCOMPLETO», el CEE final **no está preparado**: va a las preguntas
+del final, nunca como hecho. Solo se preguntan
 las fechas de visita y emisión; lo demás está decidido (usuario, 08/10/2026, «grabado a fuego»):
 - **RES060: se COPIA el CEE inicial del técnico y se le cambian las INSTALACIONES por las
   instaladas** (las del expediente) — no se hace «desde la medida» que tecleó el técnico:

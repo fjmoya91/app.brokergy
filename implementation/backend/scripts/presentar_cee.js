@@ -229,8 +229,21 @@ async function preparar(numero) {
         }
     }
 
+    // REGLA — un CEE cuyo XML no VALIDA no se presenta (2026-10-19, 26RES060_195): su PDF
+    // lleva la marca «certificado incompleto» y el Registro lo rechaza — con la tasa pagada.
+    let incompleto = null;
+    if (ficheros.xml) {
+        const v = await require('../services/cee/cexAPdf').validarXml(fs.readFileSync(ficheros.xml));
+        if (!v.ok) {
+            incompleto = v.errores;
+            avisos.unshift(`⛔ CERTIFICADO INCOMPLETO, NO se presenta: ${v.errores.join(' · ')}`);
+        } else if (!v.comprobado) {
+            avisos.push('El XML no se ha podido validar con xml2cert en este equipo: abre el PDF y comprueba que NO lleva la marca «certificado incompleto».');
+        }
+    }
+
     if (yaRegistrado) avisos.unshift(`${numero} (${fase}) YA ESTÁ REGISTRADO: no se presenta otra vez (sería otra tasa).`);
-    const listo = !yaRegistrado && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
+    const listo = !yaRegistrado && !incompleto && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
     const plan = {
         numero, origen, fase, listo: !!listo,
         sede: 'http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S',

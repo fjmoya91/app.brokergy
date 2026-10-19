@@ -189,6 +189,14 @@ async function main() {
                     { xml: cal.xml, pdf: cal.pdf, cex: cal.cex });
             }
             for (const l of cexAPdf.lineasCalificado(cal, { esperado })) console.log(`  ${l}`);
+            //: Un final cuyo XML no valida NO está terminado: ni XML ni PDF han subido
+            //: y no se avisa a nadie de que está listo (el PDF llevaría «certificado
+            //: incompleto»). El `.cex` queda como borrador _REVISAR para corregirlo.
+            if (cal.incompleto) {
+                console.log('\n  ⛔ NO se marca como hecho ni se avisa: corrige el .cex y vuelve a generarlo.');
+                process.exitCode = 1;
+                return;
+            }
         }
         // El AGENTE IA termina: «pendiente de revisión» si el encargo es suyo (si
         // hay un técnico asignado, no cambia de fase) y aviso al equipo, como un

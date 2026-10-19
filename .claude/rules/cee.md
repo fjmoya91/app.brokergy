@@ -49,6 +49,8 @@ paths:
 
 138. **El CEE se PRESENTA en la sede de la JCCM sin tocar el PC: skill `presentar-cee`** (2026-10-15). `node scripts/presentar_cee.js pendientes | preparar <nº> | devuelto <nº> --registro --tasa [--escribir]` + Claude en Chrome. La firma (DOS: identificarse y enviar) la acepta `vigilante_autofirma.ps1` **solo si AutoFirma muestra el almacén NSS** —el de Firefox, con UN certificado: el de quien presenta—; nunca el de Windows, que tiene certificados de varias personas. En la sede: **«Es representante» antes de rellenar** (si no, el solicitante es quien se identifica), **«Añadir Referencia»** tras la catastral (si no, rechaza el XML) y los ficheros **con su nombre ORIGINAL**, porque la sede antepone el NIF ella sola. **El pago necesita el «sí» del usuario en el chat** por expediente e importe, con la tarjeta guardada en Chrome que él diga (nunca se teclea una tarjeta) y su 3DS. Lo devuelto entra por `subidaCeePublica` como en la página de presentar, y lo sube el SERVIDOR (`POST /:id/presentacion-cee/devuelto`, clave interna) para que salgan los mismos avisos que con el certificador; desde el PC no sale ninguno. El pago se confirma UNA vez, al principio, con expediente e importe; después no se para salvo que el usuario no autorice el 3DS. Y el CEE se FIRMA sin ventanas con `scripts/firmar_cee.js` (solo con un «doy por válido» del usuario): certificado de REPRESENTANTE de Brokergy por huella, última página debajo del rótulo con el logo estampado, comprobado con `leerFirmasPdf` antes de subirlo como `_fdo.pdf`. Ver "PRESENTARLO sin tocar el PC" y "FIRMAR el CEE sin ventanas".
 
+140. **Un CEE cuyo XML NO VALIDA no se da por bueno, ni se sube, ni se firma, ni se presenta** (2026-10-19, 26RES060_195: inicial de la 2.3 sin NINGÚN hueco → final de la 3.2 con la marca «certificado incompleto»; la 3.x escribe un hueco de relleno «99999999.99» que su esquema rechaza). `xml2cert` es quien valida y solo lo dice en su `.log`: `cexAPdf.calificarCex` lo pasa SIEMPRE por él y, si no valida, devuelve `ok:false` + `incompleto` y SIN PDF; `guardarCalificadoEnDrive` lo vuelve a validar antes de subir (`validarXml`); `ceeFinalCopiando` para con 422 si el inicial no tiene huecos; `cee_inicial.js`/`cee_final.js` no avisan, `firmar_cee.js` no firma, `presentar_cee.js` deja NO LISTO y el vigilante `pdf_del_xml.js` no deja el PDF con marca. En la revisión, sin huecos es NO APTO también con solo el `.xml` (`radiografiaCee.esRelleno`). Tras tocarlo: `node implementation/backend/scripts/test_cee_incompleto.js [<xml>]` y `test_revision_cee.js`. Ver "Un CEE «incompleto» no se da por bueno ni se sube".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -72,6 +74,7 @@ paths:
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/en-la-app-el-boton-revisar-del-modulo-cee-fase-2-2026-09-29.md` — En la app: el botón «Revisar» del módulo CEE (fase 2, 2026-09-29) · 2,1 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/la-revision-previa-al-subir-el-tecnico-fase-3-2026-09-30.md` — La revisión PREVIA al subir el técnico (fase 3, 2026-09-30) · 4,9 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/lo-que-hay-que-saber-del-xml-medido-sobre-462-certificados-reale.md` — Lo que hay que saber del `.xml` (MEDIDO sobre 462 certificados reales) · 6,6 KB
+- `docs/conocimiento/cee/un-cee-incompleto-no-se-da-por-bueno-ni-se-sube.md` — Un CEE «incompleto» no se da por bueno ni se sube (2026-10-19) · 4,5 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -202,5 +205,11 @@ REVISAR**
   - **REGLA — la revisión al subir lee el `.xml` de DRIVE, no el de la BD**
   - **REGLA — los textos están escritos para Brokergy y al técnico se le habla de tú**
   - **REGLA — no bloquea.**
+- `docs/conocimiento/cee/un-cee-incompleto-no-se-da-por-bueno-ni-se-sube.md`
+  - **REGLA — un XML que no VALIDA no sale de `cexAPdf` como bueno.**
+  - **REGLA — la última puerta es la subida.**
+  - **REGLA — un final no se copia de un inicial sin huecos.**
+  - **REGLA — lo incompleto no se da por terminado.**
+  - **REGLA — sin huecos es NO APTO en la revisión**
 
 <!-- generado:fin -->

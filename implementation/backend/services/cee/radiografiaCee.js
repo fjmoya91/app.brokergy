@@ -241,6 +241,15 @@ function leerGenerador(xml, servicio) {
  * CEE inicial y el posterior: es lo que permite decir QUÉ ventana se cambia
  * (ver `compararEnvolventes`), que en un RES080 es el punto que se revisa.
  */
+/**
+ * El hueco de RELLENO de CE3X: sin huecos en el edificio no deja la lista vacía,
+ * escribe uno con todo a «99999999.99» (nombre, superficie, U). En la 3.x su
+ * esquema lo rechaza y el PDF sale «certificado incompleto» (26RES060_195).
+ */
+function esRelleno(item) {
+    return String(item.nombre).trim() === '99999999.99' || item.superficie === 99999999.99;
+}
+
 function leerEnvolvente(xml) {
     const huecos = [];
     const opacos = [];
@@ -267,6 +276,9 @@ function leerEnvolvente(xml) {
             transmitancia_conocida: modo === null ? null : esConocido(modo),
         };
         if (esHueco) {
+            //: El hueco de RELLENO que CE3X escribe cuando no hay ninguno no es una
+            //: ventana: contarlo diría «1 hueco» de un edificio sin huecos (195).
+            if (esRelleno(item)) continue;
             item.factor_solar = numero(el, 'FactorSolar');
             item.modo_factor_solar = texto(el, 'ModoDeObtencionFactorSolar');
             huecos.push(item);
@@ -473,6 +485,7 @@ function envolventeV30(env) {
     for (const h of env.huecos) {
         if (norm(h.tipo) === 'hueco') {
             const item = itemDe(h, modoV30(h.porDefecto, 'transmitancia'));
+            if (esRelleno(item)) continue;   // ver `esRelleno`
             item.factor_solar = h.factorSolar;
             item.modo_factor_solar = modoV30(h.porDefecto, 'factorsolar');
             huecos.push(item);

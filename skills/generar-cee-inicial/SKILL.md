@@ -318,6 +318,11 @@ como su medida de mejora. Ahora lo hace `aplicar` con el bloque **`previsto`** d
 
 ## Reglas que no se rompen
 
+- **Nunca un CEE «incompleto»** (26RES060_195, 19/10/2026): un inicial **sin NINGÚN hueco** (ni
+  ventanas ni puertas) deja el XML de la 3.x sin validar y el PDF con la marca «certificado
+  incompleto» — y el final, que se copia de él, igual. Si `aplicar` dice «⛔ CERTIFICADO INCOMPLETO»,
+  no se ha subido XML ni PDF ni se ha avisado: el CEE **no está hecho**. Ver
+  [comun/cee-incompleto.md](comun/cee-incompleto.md).
 - **Lo dibujado a mano en la pizarra MANDA** sobre las fotos y sobre Catastro: solo se miden sus
   huecos (`medir`). Ver «Rehacer el CEE tras una corrección A MANO».
 - **En CE3X 3.x (3.1 y 3.2) las RECOMENDACIONES DE USO van SIEMPRE** (Anexo III, apartado 1,
@@ -666,6 +671,8 @@ node scripts/firmar_cee.js 26RES060_231 --escribir   # firma y sube «{nº} – 
 - La firma va en la **última página**, debajo de «Firma del/la técnico/a certificador/a»: logo de
   Brokergy a la izquierda y, a la derecha, NIF, nombre, CIF, fecha y hora. Igual que la firma a mano.
 - Comprueba que el PDF queda firmado, ÍNTEGRO y por Fran. Si no, no sube nada.
+- **No firma un CEE cuyo XML no valida** (el PDF llevaría «certificado incompleto»): para y lo dice.
+  Ver [comun/cee-incompleto.md](comun/cee-incompleto.md).
 - Enseña al usuario `scratch/firmar-cee/<nº>_inicial/ultima_pagina.png` (en seco) antes del `--escribir`
   la primera vez de cada sesión.
 - ⚠️ La fecha de firma es la del PC. Si el XML se generó otro día, lo avisa: lo correcto es regenerar en

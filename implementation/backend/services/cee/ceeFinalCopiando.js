@@ -104,6 +104,17 @@ async function finalCopiandoInicial(ctx, { fechaEmision, fechaVisita = null, ver
     if (!base) throw error(409, 'No hay ningún CEE inicial (.cex) que copiar en «1. CEE / CEE INICIAL».');
     if (base.aMano) avisos.push(`Se copia un .cex indicado a mano («${base.nombre}»).`);
 
+    // REGLA — un inicial SIN NINGÚN HUECO no se copia (2026-10-19, 26RES060_195).
+    // La 2.3 lo admitía; la 3.2 escribe un hueco vacío, su XML no valida y el PDF
+    // del final sale con «certificado incompleto». Se para aquí, antes de pasar
+    // dos veces por CE3X. Si el motor no puede leerlo, lo caza la validación del XML.
+    const rxBase = await revisionCex.radiografiaCex(base.bytes).catch(() => null);
+    if (rxBase && !(rxBase.envolvente?.huecos || []).length) {
+        throw error(422, `El CEE inicial que se copia («${base.nombre}») no tiene NINGÚN hueco (ni ventanas ni puertas). `
+            + 'En CE3X 3.2 eso deja el XML sin validar y el PDF del final con la marca «certificado incompleto». '
+            + 'Hay que meter los huecos de la vivienda en el inicial antes de hacer el final.');
+    }
+
     // ── 2. La ficha del final: la del botón de la envolvente ─────────────────
     // Con las fechas del FINAL en memoria (el informe las toma de ahí) y la
     // versión vigente. La geometría solo hace falta para componerla: el motor
@@ -129,6 +140,7 @@ async function finalCopiandoInicial(ctx, { fechaEmision, fechaVisita = null, ver
     }
     const v1 = await copiarConInstalaciones(base.bytes, f1.ficha);
     const c1 = await cexAPdf.calificarCex(v1.bytes, { medidas: false, pdf: false, ajustarAutoconsumo: false });
+    if (c1.incompleto) throw error(422, `El CEE final no se puede emitir: ${c1.error}`);
     if (!c1.ok || !c1.xml) {
         throw error(502, `CE3X no ha calificado el final sin medida: ${c1.error || 'sin XML'}. Sin su XML no se `
             + 'puede saber el consumo de cada mes.');
@@ -164,6 +176,9 @@ async function finalCopiandoInicial(ctx, { fechaEmision, fechaVisita = null, ver
     // y el `.cex` que vale es el que guarda él (regla 126). Se sube UNA vez,
     // ya ajustado, con su XML y su PDF al lado.
     const calificado = await cexAPdf.calificarCex(v2.bytes, { pdf: escribir });
+    //: Un final cuyo XML no valida NO se sube (ni el .cex): su PDF saldría con la
+    //: marca «certificado incompleto» y el certificador lo firmaría tal cual.
+    if (calificado.incompleto) throw error(422, `El CEE final no se puede emitir: ${calificado.error}`);
     const definitivo = calificado.cex || v2.bytes;
     const resultado = {
         base: base.nombre, nombre: cex.nombreDelCex(exp, 'final'), version: v2.version,

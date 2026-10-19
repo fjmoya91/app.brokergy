@@ -36,6 +36,11 @@ const TOL_U = 0.02;
 
 //: Huecos sobre fachada. Medido sobre los 142 aprobados: p2 = 6,7 %, p98 = 45 %.
 const HUECOS_MIN = 0.06;
+//: Por qué un CEE sin huecos es NO APTO aunque CE3X 2.3 lo calificara (2026-10-19,
+//: 26RES060_195: el inicial se registró así y su final en la 3.2 salió «incompleto»).
+const HUECOS_CERO = 'Una vivienda sin ventanas ni puertas no es real, y además CE3X 3.x escribe en su lugar un '
+    + 'hueco vacío que su propio esquema rechaza: el PDF sale con la marca «certificado incompleto» y no se '
+    + 'puede registrar. El CEE final, que se copia de este inicial, heredaría el fallo.';
 const HUECOS_MAX = 0.45;
 
 //: Los puentes térmicos que llevan casi todos: forjado (140/143), contorno de
@@ -343,6 +348,7 @@ function revisarHuecosPuentes(inf, rx, cex) {
         inf.anota('huecos', 'Huecos (ventanas y puertas)', 'falla', {
             dice: 'el certificado no declara ningún hueco',
             esperado: 'las ventanas y puertas de la vivienda',
+            detalle: HUECOS_CERO,
         });
     } else if (fach > 0) {
         const r = sup / fach;
@@ -528,5 +534,5 @@ module.exports = {
     revisarConCex,
     revisarTransmitancias,
     revisarVersion,
-    FECHA_GUIA, FECHA_GUIA_CE3X, FECHA_CE3X_31, HUECOS_MIN, HUECOS_MAX, PUENTES_BASE, TOL_SCOP_PCT,
+    FECHA_GUIA, FECHA_GUIA_CE3X, FECHA_CE3X_31, HUECOS_MIN, HUECOS_MAX, HUECOS_CERO, PUENTES_BASE, TOL_SCOP_PCT,
 };

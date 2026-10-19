@@ -1963,6 +1963,8 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         let selloBytes = fichero;
         let selloId = gd.driveId;
         let calificacion = null;
+        //: Los motivos si el XML NO valida (`cexAPdf`): ni XML ni PDF suben y no se avisa.
+        let incompleto = null;
         if (res080?.med?.ok) {
             // Ya calificado por CE3X con la medida dentro: se suben su XML y su PDF.
             const g2 = await cex.guardarCalificadoEnDrive(ctx, 'inicial', gd.nombre,
@@ -1975,6 +1977,7 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             console.log('\nCalificando con CE3X 3.2 y generando el PDF (≈1 min)…');
             const cal = await cexAPdf.calificarYGuardar(ctx, 'inicial', gd.nombre, fichero);
             for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
+            if (cal?.incompleto) incompleto = cal.incompleto;
             if (cal?.ok && cal.calificacion) {
                 calificacion = { ...cal.calificacion,
                                  medidas: (cal.medidas || []).map(m => ({ nombre: m.nombre, ahorro: m.ahorro })) };
@@ -1998,7 +2001,12 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         // para que no se pueda olvidar; `--sin-aviso` lo calla al relanzar.
         // Al CALIFICAR en el PC (la cola de la ventana) no: el `.cex` lo generó
         // una persona desde la ventana y aquí solo se califica.
-        if (!plan._calificar) await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial', decisiones);
+        //: Un inicial cuyo XML no valida NO está terminado: su PDF llevaría
+        //: «certificado incompleto». No se avisa de que está listo.
+        if (incompleto) {
+            avisos.push(`⛔ CERTIFICADO INCOMPLETO: no se avisa ni se da por terminado. ${incompleto.join(' · ')}`);
+            process.exitCode = 1;
+        } else if (!plan._calificar) await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial', decisiones);
         // Si se estaba REHACIENDO sobre una revisión a mano («Así es como está»),
         // queda hecho: la ventana deja de decir «Claude lo está rehaciendo».
         if (!plan._calificar

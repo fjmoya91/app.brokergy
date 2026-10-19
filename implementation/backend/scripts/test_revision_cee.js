@@ -68,7 +68,8 @@ function bloqueCorpus() {
 
 /** Un `.xml` mínimo, con los nodos que de verdad escribe CE3X. */
 function xmlDe({ rc = '9034325VJ9393S0001SS', zona = 'D3', sup = 164.8, demanda = 180.83, anio = 1995,
-    calefaccion = [], acs = [], opacos = [], huecos = [],
+    //: Una ventana por defecto, como todo CEE real: sin ninguna es NO APTO (26RES060_195).
+    calefaccion = [], acs = [], opacos = [], huecos = [{ nombre: 'V1', u: 3.3, sup: 2 }],
     fecha = ce3x(FECHA_CERT), visita = ce3x(FECHA_VISITA),
     nifCert = '71355161F', nombreCert = 'RAQUEL MONCAYO TERRIZA' } = {}) {
     const gen = (g) => `<RendimientoNominal>99999999.99</RendimientoNominal>`
@@ -211,6 +212,16 @@ async function bloqueJuicio() {
         expediente: expedienteDe(), fase: 'inicial',
     });
     ok(punto(res, 'generador_inicial').estado === 'falla', 'sin generador en el certificado, en un RES060 → falla');
+
+    // 4-0 — sin NINGÚN hueco (26RES060_195): CE3X escribe uno de RELLENO, que no
+    //        cuenta como ventana, y el certificado es NO APTO (en la 3.x, «incompleto»).
+    const relleno = { nombre: '99999999.99', u: '99999999.99', sup: '99999999.99' };
+    res = await revisarCee({
+        radiografia: radiografiaXml(xmlDe({ calefaccion: [CALDERA_GAS], acs: [CALDERA_GAS], huecos: [relleno] })),
+        expediente: expedienteDe(), fase: 'inicial',
+    });
+    ok(punto(res, 'huecos')?.estado === 'falla' && res.veredicto === 'NO APTO',
+        'sin ningún hueco (solo el de relleno de CE3X) → NO APTO', punto(res, 'huecos')?.dice);
 
     // 4-bis — …pero en un RES080 eso NO tumba el certificado: allí la actuación
     //         es la envolvente. Medido: los 3 casos reales de producción
