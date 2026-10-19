@@ -19,7 +19,7 @@ import { buildCe3xFinal, CE3X_FALTA, POTENCIA_CAMPOS } from '../logic/ce3xFinal'
 import { bloqueConfirmacionCertificador, conAiresDeOportunidad } from '../logic/confirmacionCliente';
 import { getUnidades } from '../logic/aerotermiaUnits';
 import { hayCee, patchVaciarCee, textoVaciarCee } from '../logic/ceeFases';
-import { resolveDacs, ACS_METHOD } from '../logic/demandaAcs';
+import { resolveDacs, litrosDelCertificado, ACS_METHOD } from '../logic/demandaAcs';
 import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
@@ -1483,7 +1483,13 @@ Según el documento:
         num_rooms: numRooms,
         dacs_manual: dacsManual,
         dacs_litros_dia: dacsLitrosDia,
+        // Los dos certificados, para que en L/D manden SUS litros/día (criterio
+        // de los verificadores, 19/10/2026) y no lo tecleado.
+        ...ceeVivo,
     };
+    // Los litros/día que declara el certificado (el inicial, o el final si solo
+    // los trae ese). Con ellos la casilla L/D no se teclea: es un dato del CEE.
+    const litrosCee = litrosDelCertificado(ceeVivo);
 
     // El modo MANUAL de D_ACS solo se ofrece en el TERCIARIO (TER100 · TER173): en un
     // hotel, una residencia o un gimnasio la demanda de ACS va por plaza/servicio
@@ -2042,15 +2048,24 @@ Según el documento:
                                         {isLitros && (
                                             <div className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded-lg border border-white/5">
                                                 <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">L/día:</span>
+                                                {litrosCee.litros > 0 ? (
+                                                    <span
+                                                        title={`Demanda diaria de ACS a 60 °C que declara el CEE ${litrosCee.fase.toUpperCase()} (.xml). Es la que piden los verificadores, así que no se teclea.`}
+                                                        className="w-12 max-md:w-20 text-[10px] text-brand font-mono font-bold text-center"
+                                                    >
+                                                        {litrosCee.litros.toLocaleString('es-ES', { maximumFractionDigits: 2 })}
+                                                    </span>
+                                                ) : (
                                                 <input
                                                     type="number"
                                                     step="any"
                                                     value={dacsLitrosDia ?? ''}
                                                     placeholder="0"
-                                                    title="Demanda diaria de ACS a 60 °C, tal y como la declara el certificado"
+                                                    title="Demanda diaria de ACS a 60 °C, tal y como la declara el certificado. Se teclea solo si lo cargado no la trae (un CEE leído de un PDF sin ella)."
                                                     onChange={e => onManualUpdate({ dacs_litros_dia: e.target.value })}
                                                     className="w-12 max-md:w-20 bg-transparent text-[10px] text-brand font-mono font-bold focus:outline-none border-0 p-0 text-center"
                                                 />
+                                                )}
                                             </div>
                                         )}
                                         {isDacsManual && (

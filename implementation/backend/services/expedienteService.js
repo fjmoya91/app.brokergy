@@ -392,7 +392,11 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             // el terciario va por plaza o la da el proyecto, y sin esto el expediente
             // caería al CTE por habitaciones y daría otro ahorro que el prometido.
             // Fuente única de la derivación: logic/demandaAcs.js.
-            acs_method: opInputs.acsMethod || undefined,
+            // Desde el 19/10/2026 (criterio de los verificadores) todo expediente
+            // NUEVO calcula la D_ACS con los LITROS/DÍA del certificado ('litros');
+            // solo el kWh/año tecleado del terciario ('manual') se hereda tal cual.
+            // Hasta que llegue el CEE inicial, `resolveDacs` enseña lo simulado.
+            acs_method: opInputs.acsMethod === 'manual' ? 'manual' : 'litros',
             dacs_manual: parseFloat(opInputs.dacsManual) || undefined,
             num_rooms: parseInt(opInputs.numRooms, 10) || undefined,
         };

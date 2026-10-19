@@ -15,7 +15,7 @@ import { EQUIPO_NUEVO, RENDIMIENTO_JOULE, countUnidades }
     from '../../expedientes/logic/aerotermiaUnits.js';
 import { contactoCliente, deQuienEs } from '../../../utils/contactoCliente.js';
 import { esCeeDirecto } from './ceeDirecto.js';
-import { resolveDacs, CTE_ACS, ACS_METHOD } from '../../expedientes/logic/demandaAcs.js';
+import { resolveDacs, litrosDia, CTE_ACS, ACS_METHOD } from '../../expedientes/logic/demandaAcs.js';
 import { versionCe3xDe, normativa31, normativaDeVersion, datosCe3x31, esModerna,
          plantasDelEdificio } from './versionCe3x.js';
 
@@ -362,7 +362,7 @@ export function iluminacionCe3x(cfg, plantas = []) {
  */
 export function litrosAcsDelExpediente(expediente) {
     const cee = expediente?.cee || {};
-    if (Number(cee.dacs_litros_dia) > 0) return Number(cee.dacs_litros_dia);
+    if (litrosDia(cee) > 0) return litrosDia(cee);
     const modo = cee.acs_method || ACS_METHOD.XML;
     if (modo !== ACS_METHOD.MANUAL && modo !== ACS_METHOD.XML) return null;
     const r = resolveDacs(cee, cee.cee_final || cee.cee_inicial || {});
@@ -2297,9 +2297,9 @@ function acumulacionYaDicha(cfg) {
     return i.acumulacion === true && Number(i.litros_acumulacion) > 0;
 }
 
-/** Los litros/día que el propio certificado declara (el toggle L/D del CEE). */
+/** ¿Declara el certificado sus litros/día? (los del `.xml` o, si no, el toggle L/D). */
 function litrosDiaDelCee(expediente) {
-    return Number(expediente?.cee?.dacs_litros_dia) > 0;
+    return litrosDia(expediente?.cee || {}) > 0;
 }
 
 //: Dónde vive lo tecleado en Instalaciones para cada fase. El INICIAL conserva
@@ -2602,8 +2602,8 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     const litrosTer = terciario ? litrosAcsDelExpediente(expediente) : null;
     const demandaAcs = ajustes?.demanda_acs > 0
         ? dato(Number(ajustes.demanda_acs), 'DECISIÓN del certificador')
-        : (Number(expediente?.cee?.dacs_litros_dia) > 0
-            ? dato(Number(expediente.cee.dacs_litros_dia),
+        : (litrosDia(expediente?.cee || {}) > 0
+            ? dato(litrosDia(expediente.cee),
                    'los litros/día que declara el Certificado de Eficiencia Energética')
             : terciario
                 ? dato(litrosTer, litrosTer

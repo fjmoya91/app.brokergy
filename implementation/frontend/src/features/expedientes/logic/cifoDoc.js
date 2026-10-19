@@ -248,6 +248,12 @@ export function deriveCifoData({ expediente, results }) {
     const acsFaseStr = (ceeHayFinal && ceeHayInicial && acsResolved.acsFase)
         ? ` ${acsResolved.acsFase === 'final' ? 'final' : 'inicial'}`
         : '';
+    // Lo mismo para los litros/día: con los dos certificados cargados se dice de
+    // cuál salen (el inicial, salvo que solo los declare el final).
+    const litrosFaseStr = (ceeHayFinal && ceeHayInicial
+        && ['inicial', 'final'].includes(acsResolved.litrosFase))
+        ? ` ${acsResolved.litrosFase}`
+        : '';
     const numRooms = parseInt(cee.num_rooms) || 4;
     const numPeople = acsResolved.personas;
     const litrosDiaAcs = acsResolved.litrosDia;
@@ -512,7 +518,7 @@ export function deriveCifoData({ expediente, results }) {
         isHybrid, isTerciario, isTer173, cbAnexo, cbIncompleto, numexpte, zoneStr, zoneLabel, climaScopCal,
         // variables de la fórmula
         dcal, dcalRaw, sStr, sRaw, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
-        acsPorM2Str, acsSupStr, acsFaseStr,
+        acsPorM2Str, acsSupStr, acsFaseStr, litrosFaseStr,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
         aeKwh, aeKwhVal, beneficioStr, savingsKwhDoc, terciarioSavingsKwh,
         // localización / propietario
@@ -719,7 +725,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         inst, cli, ceeFinal,
         isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel, climaScopCal,
         dcal, sStr, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
-        acsPorM2Str, acsSupStr, acsFaseStr,
+        acsPorM2Str, acsSupStr, acsFaseStr, litrosFaseStr,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
         aeKwh, aeKwhVal,
         locCA, locFullDir, locRefCat, locUtmX, locUtmY, facturasList,
@@ -1232,7 +1238,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             // dónde sale (el CEE aportado), que es lo que lo separa de una estimación.
             : acsMode === ACS_METHOD.LITROS
             ? `
-            <p style="margin:0 0 10px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda diaria de agua caliente sanitaria es de <b style="color:#1A1A1A;">${litrosDiaStr} litros/día a 60 °C</b>, valor que consta en el <b style="color:#1A1A1A;">Certificado de Eficiencia Energética</b> aportado a este expediente CAE (apartado <i>«Instalaciones de Agua Caliente Sanitaria»</i>), elaborado y firmado por técnico competente de acuerdo con lo dispuesto en el RD 390/2021, de 1 de junio. A partir de ella, la demanda anual se obtiene según el Anejo F del documento de Ahorro de Energía HE, del Código Técnico de la Edificación (año 2022):</p>
+            <p style="margin:0 0 10px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda diaria de agua caliente sanitaria es de <b style="color:#1A1A1A;">${litrosDiaStr} litros/día a 60 °C</b>, valor que consta en el <b style="color:#1A1A1A;">Certificado de Eficiencia Energética${litrosFaseStr}</b> aportado a este expediente CAE (apartado <i>«Instalaciones de Agua Caliente Sanitaria»</i>), elaborado y firmado por técnico competente de acuerdo con lo dispuesto en el RD 390/2021, de 1 de junio. A partir de ella, la demanda anual se obtiene según el Anejo F del documento de Ahorro de Energía HE, del Código Técnico de la Edificación (año 2022):</p>
             <div style="text-align:center;margin:10px 0;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;">D<sub>ACS</sub> = D<sub>L/D</sub> · C<sub>e</sub> · 365 · ΔT</div>
             ${rowsBox(`
                 ${kv('D<sub>ACS</sub>', 'Demanda de energía anual para ACS (kWh/año)')}

@@ -191,7 +191,9 @@ export async function extractCeeFromFiles(fileList, opts = {}) {
 // como si se hubiera subido el .xml real (mismo consumidor: CeeDocumentsGrid, AcsCell...).
 //
 // OJO: el OCR no extrae la "Demanda ACS" en kWh/m²·año (solo litros/día, acs_litros_dia);
-// ese campo queda null — igual que un XML antiguo que no lo tuviera informado.
+// ese campo queda null — igual que un XML antiguo que no lo tuviera informado. Los
+// litros/día SÍ viajan (`acsLitrosDia`, el mismo nombre que deja parseCeeXml): desde
+// el 19/10/2026 son los que mandan en la D_ACS (demandaAcs.js · litrosDelCertificado).
 export function ceeToXmlShape(data) {
   if (!data) return null;
   const num = (v) => { const n = Number(v); return isFinite(n) ? n : null; };
@@ -200,6 +202,7 @@ export function ceeToXmlShape(data) {
     demandaACS: num(data.demandas?.acs_kwh_m2_ano),
     demandaRefrigeracion: num(data.demandas?.refrigeracion_kwh_m2_ano),
     demandaGlobal: null,
+    acsLitrosDia: num(data.acs_litros_dia) > 0 ? num(data.acs_litros_dia) : null,
     emisionesCalefaccion: num(data.emisiones?.calefaccion),
     emisionesACS: num(data.emisiones?.acs),
     emisionesRefrigeracion: num(data.emisiones?.refrigeracion),

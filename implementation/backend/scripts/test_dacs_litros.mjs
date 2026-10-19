@@ -22,7 +22,8 @@
  *   node implementation/backend/scripts/test_dacs_litros.mjs
  */
 const F = '../../frontend/src/features/expedientes';
-const { resolveDacs, dacsLitros, dacsCte, ACS_METHOD, CTE_ACS } = await import(`${F}/logic/demandaAcs.js`);
+const { resolveDacs, dacsLitros, dacsCte, ACS_METHOD, CTE_ACS, litrosDelCertificado, litrosDeXmlTexto, ajusteAcsLitros } = await import(`${F}/logic/demandaAcs.js`);
+const { ceeToXmlShape } = await import('../../frontend/src/features/cee/ceeExtract.js');
 const { deriveCifoData, buildCifoHtml } = await import(`${F}/logic/cifoDoc.js`);
 const { deriveFichaRes060 } = await import(`${F}/logic/fichaRes060Html.js`);
 const { deriveFichaRes093 } = await import(`${F}/logic/fichaRes093Html.js`);
@@ -128,6 +129,63 @@ const sinAcs = base(); sinAcs.instalacion.cambio_acs = false;
 const htmlSinAcs = buildCifoHtml({ data: deriveCifoData({ expediente: sinAcs, results: res }), appUrl: '' });
 check(htmlSinAcs.includes('No se actúa sobre el ACS'), 'el documento dice "no aplica"…');
 check(!htmlSinAcs.includes('litros/día a 60 °C'), '…y no enseña la demanda diaria');
+
+console.log('\n7. CRITERIO DE LOS VERIFICADORES (19/10/2026): mandan los litros/día del CERTIFICADO');
+{
+    // 26RES060_113: 112 l/día en los dos certificados y la demanda por m² casi al doble.
+    const cee = {
+        acs_method: ACS_METHOD.LITROS, dacs_litros_dia: 140,
+        cee_inicial: { demandaACS: 13.23, superficieHabitable: 100, acsLitrosDia: 112 },
+        cee_final:   { demandaACS: 22.90, superficieHabitable: 100, acsLitrosDia: 112 },
+    };
+    const r = resolveDacs(cee, cee.cee_final);
+    check(casi(r.value, 112 * CTE_ACS.CALOR_ESPECIFICO * CTE_ACS.DIAS * CTE_ACS.SALTO_TERMICO),
+        'los del certificado mandan sobre lo tecleado', r.value);
+    check(r.litrosDia === 112 && r.litrosFase === 'inicial', 'y se dice que salen del INICIAL', r.litrosFase);
+    const soloFin = { ...cee, cee_inicial: { demandaACS: 13.23, superficieHabitable: 100 } };
+    check(litrosDelCertificado(soloFin).fase === 'final', 'si el inicial no los trae, los del final');
+    const sinNada = { acs_method: ACS_METHOD.LITROS, dacs_litros_dia: 120,
+        cee_inicial: { demandaACS: 5, superficieHabitable: 100 } };
+    check(resolveDacs(sinNada, {}).litrosFase === 'tecleado', 'sin litros en el CEE, lo tecleado');
+
+    // Recién creado (ya en L/D) y sin ningún CEE: lo simulado, no un 0.
+    check(resolveDacs({ acs_method: ACS_METHOD.LITROS }, {}, { demandAcsFallback: 2731.4 }).value === 2731.4,
+        'expediente nuevo sin CEE: enseña la D_ACS simulada');
+    // Con un CEE cargado que no los dice, 0 (la puerta del documento lo para).
+    const sinLitros = { acs_method: ACS_METHOD.LITROS, cee_inicial: { demandaACS: 5, superficieHabitable: 100 } };
+    check(resolveDacs(sinLitros, {}, { demandAcsFallback: 2731.4 }).value === 0,
+        'con un CEE que no los declara, 0: no se inventa');
+
+    // El ajuste al cargar un certificado.
+    const xmlDif = { acs_method: ACS_METHOD.XML, cee_inicial: cee.cee_inicial, cee_final: cee.cee_final };
+    const aj = ajusteAcsLitros(xmlDif);
+    check(aj?.acs_method === ACS_METHOD.LITROS && aj?.dacs_litros_dia === 112,
+        'XML con las demandas distintas → pasa a L/D con 112', JSON.stringify(aj));
+    check(ajusteAcsLitros({ ...xmlDif, acs_method: ACS_METHOD.CTE })?.acs_method === ACS_METHOD.LITROS,
+        'CTE con las demandas distintas → L/D');
+    const iguales = { acs_method: ACS_METHOD.XML,
+        cee_inicial: { demandaACS: 13.23, acsLitrosDia: 112 }, cee_final: { demandaACS: 13.30, acsLitrosDia: 112 } };
+    check(ajusteAcsLitros(iguales) === null, 'XML con las demandas iguales → no se toca');
+    check(ajusteAcsLitros({ ...xmlDif, acs_method: ACS_METHOD.MANUAL }) === null, 'el manual del terciario no se toca');
+    const litrosVacio = { acs_method: ACS_METHOD.LITROS, cee_inicial: { acsLitrosDia: 90 } };
+    check(ajusteAcsLitros(litrosVacio)?.dacs_litros_dia === 90, 'L/D sin cifra → copia la del certificado');
+    check(ajusteAcsLitros({ ...litrosVacio, dacs_litros_dia: 90 }) === null, 'L/D ya al día → nada');
+
+    // Los litros del .xml crudo, que en la BD está en MAYÚSCULAS.
+    check(litrosDeXmlTexto('<X><DEMANDADIARIAACS>168.00</DEMANDADIARIAACS></X>') === 168, 'se leen del .xml en MAYÚSCULAS');
+    check(litrosDeXmlTexto('<DemandaDiariaACS>140,5</DemandaDiariaACS>') === 140.5, 'y con coma decimal');
+    check(litrosDeXmlTexto('') === 0, 'sin .xml, 0');
+
+    // Un CEE leído por OCR del PDF también los lleva.
+    const ocr = ceeToXmlShape({ acs_litros_dia: 140, demandas: {}, emisiones: {}, identificacion: {} });
+    check(ocr.acsLitrosDia === 140, 'el CEE leído por OCR lleva sus litros/día');
+
+    // El CIFO nombra el certificado del que salen, con los dos cargados.
+    const e = base();
+    e.cee.cee_inicial.acsLitrosDia = 120;
+    const h = buildCifoHtml({ data: deriveCifoData({ expediente: e, results: res }), appUrl: '' });
+    check(h.includes('Certificado de Eficiencia Energética inicial</b> aportado'), 'el CIFO dice «certificado … inicial»');
+}
 
 console.log(`\n═══ ${ok} bien · ${ko} mal ═══\n`);
 process.exit(ko ? 1 : 0);

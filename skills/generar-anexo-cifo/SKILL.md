@@ -94,7 +94,7 @@ Lo que no sea deducible → `registrar_incidencia` (GRAVE si bloquea el CIFO) y 
 | Equipo nuevo cal.: marca/modelo/serie ud. exterior | `instalacion.aerotermia_cal` | placa DESPUÉS > CIFO/factura > presupuesto |
 | SCOPbdc + método | `aerotermia_cal.scop`, `metodo_scop` | ver paso 2 |
 | DCAL, S | del CEE (los verifica el backend contra `datos_calculo`) | CEE inicial |
-| DACS | Demanda de ACS del **CEE INICIAL** (XML inicial `Demanda/EdificioObjeto/ACS` × S; en un XML de CE3X 3.x (3.1 o 3.2, esquema v3.0), `Indicadores/Demanda/Acs`) **solo si** el método marcado es XML; si no, **CTE Anejo F** (habitaciones→personas→l/día×0,001162×365×46). Nunca la del CEE final | XML inicial / CTE |
+| DACS | **LITROS/DÍA del CEE** (`<DemandaDiariaACS>` del XML inicial; si no, del final) · 0,001162 · 365 · 46, sin N_P, si el método es **L/D** — obligatorio cuando la demanda de ACS del inicial ≠ final y por defecto en los expedientes nuevos (verificadores, 19/10/2026). Con el método XML (solo si las dos demandas coinciden): demanda de ACS del **CEE INICIAL** (XML inicial `Demanda/EdificioObjeto/ACS` × S; en un XML de CE3X 3.x (3.1 o 3.2, esquema v3.0), `Indicadores/Demanda/Acs`); si no, **CTE Anejo F** (habitaciones→personas→l/día×0,001162×365×46). Nunca la del CEE final | XML inicial / CTE |
 | Instalador (razón social, CIF, domicilio, rep. legal) | `prescriptores` vía FK | CIFO previo/RITE |
 
 **Bloque ACS — regla de oro `cambio_acs`:**
@@ -243,9 +243,11 @@ Para cada equipo del CIFO (cal y ACS si aplica), localiza su fila (`aerotermia_d
    calefacción por defecto.
 11. **Cabeceras y referencias cruzadas de la plantilla**: el Anexo I no puede citar "ficha RES060"
    si la tipología es RES093/RES080. Comprueba que todo texto impreso cita la ficha `tp` correcta.
-12. **DACS (método XML) ≠ demanda de ACS del CEE INICIAL × S → ERROR.** Si la demanda de ACS del CEE final
-   es distinta de la del inicial → WARNING «DACS CEE inicial X ≠ CEE final Y → se usa la inicial» (no bloquea:
-   se genera con la inicial).
+12. **DACS — criterio de los verificadores (19/10/2026).** Si la demanda de ACS del CEE final es distinta de la
+   del inicial (> 2 %), el método TIENE que ser **L/D** (litros/día del certificado): en XML o CTE → ERROR, no se
+   genera; pásalo a L/D en la rejilla del CEE (la app lo hace sola al cargar el `.xml`). En L/D, los litros
+   impresos = `<DemandaDiariaACS>` del XML inicial (o del final si el inicial no los trae) → si no, ERROR.
+   Con las dos demandas iguales vale el método XML: DACS = demanda de ACS del CEE INICIAL × S → si no, ERROR.
 Cualquier assert fallido → incidencia + informe; genera SOLO si todo pasa.
 
 ### 5. Generar (modo A si hay backend; si no, modo B con el script local)
@@ -282,7 +284,7 @@ skill no envía a firmar salvo que el usuario lo pida.
   sale limpio por construcción).
 - **Coincidencia EXACTA** en variables de cálculo (SCOP, DACS, DCAL, S, ηi, Cb): el valor impreso = el
   valor de la app = el valor del documento justificante.
-- **DACS = CEE INICIAL** (criterio fijo, 17/09/2026): la demanda de ACS debe ser igual en CEE inicial y final. Si difiere, el CIFO imprime la del CEE inicial y se registra un WARNING «DACS CEE inicial X ≠ CEE final Y → se usa la inicial». Nunca imprimas la del CEE final.
+- **DACS por LITROS/DÍA** (verificadores, 19/10/2026; sustituye al «DACS = CEE inicial» del 17/09): con las demandas de ACS del CEE inicial y final distintas, la DACS sale de los litros/día que declara el CEE (`D_ACS = L/D · C_e · 365 · ΔT`, sin N_P) y el CIFO dice de qué certificado salen. Con las dos iguales vale la del XML inicial × S. Nunca imprimas la del CEE final.
 - **cambio_acs manda**: solo calefacción → ACS "no aplica" en el CIFO, sin FT ACS ni SCOPdhw.
 - **ηi por placa** (año real, condensación por modelo), nunca `default`.
 - **Serie ACS ≠ serie calefacción** (si cambio_acs).

@@ -96,7 +96,7 @@ hecho DE VERDAD:
    del inicial: con 0,53 en un final RES080 es un falso aviso.
 4. **El vidrio y el marco, los de la ETIQUETA / ficha** (punto 3 de abajo), con la permeabilidad de la
    ficha del marco (clase 4 = 3 m³/h·m²; clase 3 = 9) y la ficha de los dos en el catálogo.
-5. **Demanda de ACS y superficie útil IGUALES al inicial.**
+5. **Demanda de ACS y superficie útil IGUALES al inicial**, y los MISMOS **litros/día** de ACS (`<DemandaDiariaACS>`): desde el 19/10/2026 los verificadores calculan la D_ACS con ellos.
 6. **El CROQUIS del final, SIEMPRE el de la APP** (el de la envolvente: plano de Catastro con muros,
    huecos y cotas + cuadros del `.cex`), nunca el croquis a mano del técnico (Fran, 14/10/2026).
    `node scripts/cee_inicial.js croquis <nº> --fase final --escribir` → `{nº} - CEE FINAL_CROQUIS.pdf`

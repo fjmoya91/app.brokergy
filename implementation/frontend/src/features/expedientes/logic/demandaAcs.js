@@ -15,8 +15,11 @@
 //                28 l/persona·día · N_P · C_e (0,001162 kWh/kg·°C) · 365 · ΔT(46°C),
 //                con N_P = nº de habitaciones + 1.
 //   · 'litros' → los LITROS/DÍA que declara el propio certificado ("Demanda diaria
-//                de ACS a 60°", en su apartado de instalaciones de ACS), tecleados
-//                por el técnico. Misma fórmula del Anejo F, pero SIN el tramo de
+//                de ACS a 60°", en su apartado de instalaciones de ACS): se leen
+//                del `.xml` (`cee_{fase}.acsLitrosDia`) y solo si el CEE no los
+//                trae, de lo tecleado. Es el modo POR DEFECTO desde el 19/10/2026
+//                (criterio de los verificadores, ver `litrosDelCertificado`).
+//                Misma fórmula del Anejo F, pero SIN el tramo de
 //                ocupación: la demanda diaria ya viene medida para el edificio, así
 //                que multiplicarla otra vez por el nº de personas la multiplicaría
 //                por cinco. Es el modo bueno cuando el certificado la trae, porque
@@ -114,9 +117,84 @@ export function dacsCte(cee = {}) {
     return LITROS_PERSONA_DIA * personasCte(cee) * CALOR_ESPECIFICO * DIAS * SALTO_TERMICO;
 }
 
-/** Litros/día a 60 °C declarados por el certificado (modo 'litros'). */
+// ─── Los LITROS/DÍA, del certificado ─────────────────────────────────────────
+// CRITERIO DE LOS VERIFICADORES (2026-10-19): la D_ACS se calcula SIEMPRE con los
+// litros/día que declara el CEE («Demanda diaria de ACS a 60°»), no con su
+// demanda en kWh/m²·año. La razón está medida: con los MISMOS litros/día, CE3X
+// 2.3 y 3.x dan demandas de ACS distintas (26RES060_113: 112 l/día en los dos
+// certificados y 13,23 frente a 22,90 kWh/m²·año), así que la cifra por m² no es
+// un dato estable del edificio y los litros sí.
+//
+// Por eso, cuando el certificado los trae, MANDAN sobre lo tecleado: lo tecleado
+// solo cubre al CEE que no los dice (uno leído por OCR de un PDF que no los
+// imprima, o un `.xml` antiguo). De los dos certificados, el INICIAL, por la
+// misma regla que la demanda por m² (`baseAcs`).
+
+/** Litros/día que declara el `.xml` crudo. Sin DOM y sin distinguir mayúsculas:
+ *  el `.xml` guardado en la BD está en MAYÚSCULAS (`normalizeData`). */
+export function litrosDeXmlTexto(texto) {
+    const m = /<DemandaDiariaACS>\s*([\d.,]+)/i.exec(String(texto || ''));
+    const v = m ? parseFloat(m[1].replace(',', '.')) : NaN;
+    return v > 0 && v < 9999999 ? v : 0;
+}
+
+/**
+ * Los litros/día que declaran los certificados: los del INICIAL si los trae; si
+ * no, los del final. `fase` dice de cuál han salido (null si ninguno los trae).
+ */
+export function litrosDelCertificado(cee = {}) {
+    const c = cee || {};
+    // Lo leído al cargar el `.xml` (`acsLitrosDia`) y, si no está —un `.xml`
+    // cargado antes de que el lector lo guardara—, el propio `.xml` crudo, que
+    // solo viene en el DETALLE del expediente (los listados no lo traen: regla 22).
+    const de = (fase) => parseFloat((c[`cee_${fase}`] || {}).acsLitrosDia)
+        || (c[`cee_${fase}`] ? litrosDeXmlTexto(c[`xml_${fase}`]) : 0)
+        || 0;
+    const ini = de('inicial');
+    if (ini > 0) return { litros: ini, fase: 'inicial' };
+    const fin = de('final');
+    if (fin > 0) return { litros: fin, fase: 'final' };
+    return { litros: 0, fase: null };
+}
+
+/** Litros/día a 60 °C con los que se calcula (modo 'litros'): los del
+ *  certificado si los declara; si no, los tecleados. */
 export function litrosDia(cee = {}) {
-    return parseFloat(cee.dacs_litros_dia) || 0;
+    return litrosDelCertificado(cee).litros || parseFloat(cee.dacs_litros_dia) || 0;
+}
+
+/** De dónde salen los litros/día: 'inicial' · 'final' (del certificado),
+ *  'tecleado' o null si no hay ninguno. */
+export function litrosFase(cee = {}) {
+    const { fase } = litrosDelCertificado(cee);
+    if (fase) return fase;
+    return parseFloat(cee.dacs_litros_dia) > 0 ? 'tecleado' : null;
+}
+
+/**
+ * Qué hay que cambiar en el `cee` para seguir el criterio de los litros/día,
+ * o null si nada. Se llama al cargar un certificado (y desde el script que pone
+ * al día los expedientes en marcha):
+ *   · en modo 'litros' sin cifra tecleada, se copia la del certificado (para que
+ *     la casilla L/D la enseñe y quede en la BD);
+ *   · en 'xml' o 'cte', si los DOS certificados declaran demandas de ACS
+ *     distintas, se pasa a 'litros' — es justo el caso que el verificador ya no
+ *     acepta. Si coinciden, no se toca: ahí da igual una cifra que la otra.
+ *   · 'manual' (terciario) no se toca nunca.
+ */
+export function ajusteAcsLitros(cee = {}) {
+    const mode = (cee || {}).acs_method || ACS_METHOD.XML;
+    if (mode === ACS_METHOD.MANUAL) return null;
+    const { litros } = litrosDelCertificado(cee);
+    if (!(litros > 0)) return null;
+    const tecleado = parseFloat(cee.dacs_litros_dia) || 0;
+    if (mode === ACS_METHOD.LITROS) {
+        return tecleado === litros ? null : { dacs_litros_dia: litros };
+    }
+    if (baseAcs(cee, {}).difiere) {
+        return { acs_method: ACS_METHOD.LITROS, dacs_litros_dia: litros };
+    }
+    return null;
 }
 
 /**
@@ -150,10 +228,17 @@ export function resolveDacs(cee = {}, ceeBase = {}, extra = {}) {
     const dacsPorM2 = parseFloat(acs.base.demandaACS) || 0;
 
     let value;
+    // Sin NINGÚN certificado cargado todavía (expediente recién creado, ya en
+    // 'litros' por defecto) no hay litros que leer: hasta que llegue el CEE
+    // inicial se enseña la D_ACS simulada. Con un certificado cargado que no los
+    // diga, en cambio, la cifra se queda en 0 y la puerta del documento lo para.
+    const sinCertificado = !(acs.porM2Ini > 0 || acs.porM2Fin > 0)
+        && !((cee || {}).cee_inicial || (cee || {}).cee_final);
     if (mode === ACS_METHOD.MANUAL) {
         value = parseFloat(cee.dacs_manual) || 0;
     } else if (mode === ACS_METHOD.LITROS) {
-        value = dacsLitros(cee);
+        value = dacsLitros(cee)
+            || (sinCertificado ? parseFloat(extra.demandAcsFallback) || 0 : 0);
     } else if (mode === ACS_METHOD.CTE) {
         value = dacsCte(cee);
     } else {
@@ -162,7 +247,7 @@ export function resolveDacs(cee = {}, ceeBase = {}, extra = {}) {
 
     return {
         value, mode, dacsPorM2, superficie,
-        personas: personasCte(cee), litrosDia: litrosDia(cee),
+        personas: personasCte(cee), litrosDia: litrosDia(cee), litrosFase: litrosFase(cee),
         acsFase: acs.fase, acsDifiere: acs.difiere, acsHayDos: acs.hayDos,
         acsPorM2Ini: acs.porM2Ini, acsPorM2Fin: acs.porM2Fin,
     };

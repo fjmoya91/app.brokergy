@@ -235,7 +235,7 @@ Debe devolver **0 filas**. Si devuelve el expediente → la serie ACS está copi
 
 **c) Facturas completas y enlazadas.** Todas las facturas existentes archivadas y con `documentacion.facturas[].drive_link` no nulo; Σ bases s/IVA = inversión.
 
-**d) DACS = demanda de ACS del CEE INICIAL.** Lee la demanda de ACS (kWh/m²·año) de los XML de los dos CEE (`Demanda/EdificioObjeto/ACS` en los de CE3X 2.3; `Indicadores/Demanda/Acs` en los de CE3X 3.x —3.1 o 3.2, esquema v3.0, `version="3.0"`—). Iguales → ok. Distintas → `revisar` + incidencia LEVE «DACS CEE inicial X ≠ CEE final Y → se usa la inicial», y comprueba que `dacs` (método XML) = demanda inicial × S. Si `dacs` sale de la final → corrígelo a la inicial y avísalo en el chat (cambia el ahorro).
+**d) DACS por LITROS/DÍA del CEE (verificadores, 19/10/2026).** Lee la demanda de ACS (kWh/m²·año) de los XML de los dos CEE (`Demanda/EdificioObjeto/ACS` en los de CE3X 2.3; `Indicadores/Demanda/Acs` en los de CE3X 3.x —3.1 o 3.2, esquema v3.0, `version="3.0"`—) y sus litros/día (`<DemandaDiariaACS>`). Iguales → ok, vale el método que tenga. Distintas → el expediente va en **L/D** (`cee.acs_method = 'litros'`, `cee.dacs_litros_dia` = litros del inicial, o del final si el inicial no los trae): si está en XML o CTE, cámbialo y avísalo en el chat (cambia el ahorro, y si el CIFO/Anexo I/Convenio ya están firmados hay que regenerarlos y volver a firmarlos). Litros distintos en los dos CEE → `revisar` + incidencia LEVE.
 
 ### 6. Informe hecho / pendiente
 Devuelve al usuario, de forma breve:
@@ -263,6 +263,6 @@ Cierra indicando qué documento concreto debe subir para cerrar lo pendiente, de
 - **Precio CAE** = €/MWh de la cláusula Cuarta del Anexo Cesión (convierte si viene en €/kWh) → `instalacion.economico_override.cae_client_rate`. El total € es derivado.
 - **Envolvente (RES080)** del Certificado de Fin de Obra / Ficha RES080 → `documentacion.envolvente`. En RES060 es N/A.
 - Coincidencia exacta en variables de cálculo (SCOP, DACS, DCAL, S); identificadores idénticos; direcciones = WARNING.
-- **DACS = CEE INICIAL (criterio fijo, 17/09/2026).** La demanda de ACS debe ser igual en el CEE inicial y en el final. Al cargar `dacs` / `xmlDemandData` usa SIEMPRE la del CEE inicial (× S). Si la del CEE final es distinta, NO la sustituyas: marca `revisar` (WARNING) con los dos valores «DACS CEE inicial X ≠ CEE final Y → se usa la inicial» y regístralo como LEVE. Si el CEE final aún no está registrado, avisa para que el certificador la iguale.
+- **DACS por LITROS/DÍA (verificadores, 19/10/2026; sustituye al «DACS = CEE inicial» del 17/09).** Con las demandas de ACS del CEE inicial y final distintas, la DACS va por los litros/día del certificado (modo L/D); con las dos iguales vale la del XML inicial × S. Nunca la del CEE final por m². Los expedientes nuevos nacen en L/D. Si el CEE final aún no está registrado, avisa para que el certificador declare los MISMOS litros/día que el inicial.
 - Idempotencia: clave `numero_expediente`. No dupliques; actualiza. No tocar `datos_calculo.result` (lo calcula el motor de la app).
 - **Copia de documentos**: el MCP de Drive solo copia/crea (no mueve ni borra). Copia a la subcarpeta correcta lo que falte (idempotente por título, sin plantillas/calculadoras) y enlaza el slot; la limpieza de duplicados/basura la hace la app/el usuario.

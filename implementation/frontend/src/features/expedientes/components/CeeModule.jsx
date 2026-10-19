@@ -34,6 +34,7 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import RevisionCeeModal from './RevisionCeeModal';
 import CeeFinalDesdeMedidaModal from './CeeFinalDesdeMedidaModal';
 import { getFicha } from '../logic/expedienteTaxonomia';
+import { ajusteAcsLitros } from '../logic/demandaAcs';
 
 // ─── Componentes de Celda ──────────────────────────────────────────────────
 function TableCell({ value, onChange, readOnly, type = 'number', highlight = false }) {
@@ -360,6 +361,17 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
         }
     };
 
+    // Criterio de los verificadores (19/10/2026): la D_ACS sale de los LITROS/DÍA
+    // que declara el certificado. Al cargar uno se copian a la casilla L/D y, si
+    // las demandas de ACS del inicial y del final no coinciden, el método pasa a
+    // L/D solo (ver `ajusteAcsLitros`). Fuera de la reforma: el RES080 no usa la
+    // D_ACS del Anejo F.
+    const conLitrosAcs = (next) => {
+        if (isReforma) return next;
+        const ajuste = ajusteAcsLitros(next);
+        return ajuste ? { ...next, ...ajuste } : next;
+    };
+
     const processXmlFile = (file, isFinal = false) => {
         if (!file) return;
         if (!file.name.toLowerCase().endsWith('.xml')) {
@@ -374,7 +386,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 const xmlContent = e.target.result;
                 const parsed = parseCeeXml(xmlContent);
                 parsed._fileName = file.name;
-                const nextLocal = {
+                const nextLocal = conLitrosAcs({
                     ...local,
                     [isFinal ? 'xml_final' : 'xml_inicial']: xmlContent,
                     [isFinal ? 'cee_final' : 'cee_inicial']: parsed,
@@ -382,7 +394,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     [isFinal ? 'fecha_firma_cee_final' : 'fecha_firma_cee_inicial']: parsed.fechaFirma || local[isFinal ? 'fecha_firma_cee_final' : 'fecha_firma_cee_inicial'],
                     [isFinal ? 'comb_acs_final' : 'comb_acs_inicial']: parsed.combustibleACS || local[isFinal ? 'comb_acs_final' : 'comb_acs_inicial'],
                     [isFinal ? 'comb_cal_final' : 'comb_cal_inicial']: parsed.combustibleCalefaccion || local[isFinal ? 'comb_cal_final' : 'comb_cal_inicial'],
-                };
+                });
                 setLocal(nextLocal);
                 onSave({ cee: nextLocal });
 
@@ -837,14 +849,14 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
 
         if (!isReforma) {
             const xmlShaped = ceeToXmlShape(data);
-            const nextLocal = {
+            const nextLocal = conLitrosAcs({
                 ...local,
                 [isFinal ? 'cee_final' : 'cee_inicial']: xmlShaped,
                 [isFinal ? 'fecha_visita_cee_final' : 'fecha_visita_cee_inicial']: xmlShaped.fechaVisita || local[isFinal ? 'fecha_visita_cee_final' : 'fecha_visita_cee_inicial'],
                 [isFinal ? 'fecha_firma_cee_final' : 'fecha_firma_cee_inicial']: xmlShaped.fechaFirma || local[isFinal ? 'fecha_firma_cee_final' : 'fecha_firma_cee_inicial'],
                 [isFinal ? 'comb_acs_final' : 'comb_acs_inicial']: xmlShaped.combustibleACS || local[isFinal ? 'comb_acs_final' : 'comb_acs_inicial'],
                 [isFinal ? 'comb_cal_final' : 'comb_cal_inicial']: xmlShaped.combustibleCalefaccion || local[isFinal ? 'comb_cal_final' : 'comb_cal_inicial'],
-            };
+            });
             setLocal(nextLocal);
             onSave({ cee: nextLocal });
             return;

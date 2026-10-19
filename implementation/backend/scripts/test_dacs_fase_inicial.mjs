@@ -151,8 +151,8 @@ console.log('\n6. Los avisos previos a generar dicen lo que va a pasar');
     const avisos = avisosCeeDocumento(base());
     const dif = avisos.find(a => a.id === AVISO.ACS_DIFIERE);
     check(!!dif && dif.nivel === 'warn', 'con las dos cifras distintas, aviso');
-    check(!!dif && /del INICIAL/.test(dif.texto), 'y dice que se usa la del INICIAL');
-    check(!!dif && /criterio del\s+verificador/.test(dif.texto), 'y por qué');
+    check(!!dif && /del INICIAL/.test(dif.texto), 'y dice cuáles son las dos cifras');
+    check(!!dif && /LITROS\/DÍA/.test(dif.texto), 'y que los verificadores piden los litros/día (19/10/2026)');
     check(!avisos.some(a => a.id === AVISO.ACS_DESDE_FINAL), 'y no el contrario');
 
     // Coinciden (dentro del 2 %): no hay nada que decir.
@@ -188,8 +188,15 @@ console.log('\n8. Los otros modos no dependen de la fase');
     check(casi(resolveDacs(litros.cee, {}).value, 2341.1976), 'en modo L/D, los litros del certificado');
     const manual = base(); manual.cee.acs_method = ACS_METHOD.MANUAL; manual.cee.dacs_manual = 20000;
     check(resolveDacs(manual.cee, {}).value === 20000, 'en modo manual, lo tecleado');
-    check(!avisosCeeDocumento(cte).some(a => a.id === AVISO.ACS_DIFIERE),
-        'y no se avisa de una diferencia entre certificados que el documento no usa');
+    // Desde el 19/10/2026, con las demandas distintas los verificadores piden L/D
+    // también frente a la estimación por dormitorios: se avisa en CTE…
+    check(avisosCeeDocumento(cte).some(a => a.id === AVISO.ACS_DIFIERE),
+        'en CTE con las demandas distintas también se avisa: toca L/D');
+    // …y no en L/D ni en manual, que ya no dependen de la demanda por m².
+    check(!avisosCeeDocumento(litros).some(a => a.id === AVISO.ACS_DIFIERE),
+        'en L/D no se avisa: ya es el criterio');
+    check(!avisosCeeDocumento(manual).some(a => a.id === AVISO.ACS_DIFIERE),
+        'en manual (terciario) no se avisa');
 }
 
 console.log('\n9. `baseAcs` fuera de un expediente no inventa nada');

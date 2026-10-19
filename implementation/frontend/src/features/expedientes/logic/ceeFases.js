@@ -24,7 +24,7 @@
 // ============================================================================
 
 import { acsEnAlcance, acsComputaAhorro } from './aerotermiaUnits.js';
-import { baseAcs } from './demandaAcs.js';
+import { baseAcs, litrosDelCertificado } from './demandaAcs.js';
 
 // Se re-exporta para que quien pregunte "¿hay que avisar del ACS?" no tenga que
 // saber que la respuesta vive con los equipos. La función es UNA.
@@ -196,14 +196,23 @@ export function avisosCeeDocumento(expediente) {
         // aviso: con dos criterios, la pantalla diría una cosa y el documento
         // imprimiría otra.
         const { fase: faseAcs, difiere: acsDifiere, porM2Ini: dAcsIni, porM2Fin: dAcsFin } = baseAcs(cee, fin);
-        if (acs && acsDelCee && acsDifiere) {
+        // Desde el 19/10/2026 los verificadores piden que, si las dos demandas no
+        // coinciden, la D_ACS salga de los LITROS/DÍA del certificado (modo L/D),
+        // no de la demanda por m² ni de los dormitorios. Al cargar el certificado
+        // la app ya cambia sola a L/D (`ajusteAcsLitros`); si aquí sigue en otro
+        // modo es que alguien lo cambió a mano o el CEE no declara los litros.
+        const modoAcs = cee.acs_method || 'xml';
+        if (acs && acsDifiere && (modoAcs === 'xml' || modoAcs === 'cte')) {
+            const { litros } = litrosDelCertificado(cee);
             out.push({
                 id: AVISO.ACS_DIFIERE,
                 nivel: 'warn',
                 texto: `La demanda de ACS del CEE FINAL (${fmt(dAcsFin)}) no coincide con la del INICIAL `
-                    + `(${fmt(dAcsIni)} kWh/m²·año). Debería ser la misma —la actuación no cambia el consumo de agua `
-                    + `caliente—, así que el documento se genera con la del INICIAL, que es el criterio del `
-                    + `verificador. Compruébalo antes de firmar.`,
+                    + `(${fmt(dAcsIni)} kWh/m²·año). Con las demandas distintas, los verificadores piden calcular `
+                    + `la D_ACS con los LITROS/DÍA del certificado: `
+                    + (litros > 0
+                        ? `cambia el método de la demanda de ACS a L/D (el CEE declara ${fmt(litros)} l/día).`
+                        : `el certificado no los declara en lo cargado; súbelo con su .xml o teclea los litros en L/D.`),
             });
         }
         // El inicial no declara su demanda de ACS (es el caso de un CEE leído por

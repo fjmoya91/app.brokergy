@@ -73,7 +73,9 @@ BROKERGY.
   consumos de los XML inicial/final)
 
 **Anexo I — justificación (RES060/RES093):** FP=1 por ficha; DCAL y S del CEE; DACS según el método
-marcado (XML: "calculada según el archivo .xml ... <valor kWh/m²·año> × S = <DACS>"; CTE: tabla del
+marcado (L/D —por defecto desde el 19/10/2026 y obligatorio con las demandas de ACS de los dos CEE
+distintas—: "<litros> litros/día a 60 °C, valor que consta en el Certificado de Eficiencia Energética
+[inicial] aportado … D_ACS = D_L/D · C_e · 365 · ΔT"; XML: "calculada según el archivo .xml ... <valor kWh/m²·año> × S = <DACS>"; CTE: tabla del
 Anejo F con habitaciones/personas/l·p/d/Ce/365/ΔT); ηi con el literal del criterio 24/11.03 y el tramo
 aplicado; SCOPbdc según `metodo_scop`:
 - `eprel` → bloque Anexo IV: `SCOP = CC · (ηs,h + F(1) + F(2))` con CC=2,5, ηs,h de EPREL (clima
