@@ -634,6 +634,17 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
      RES080 la medida es el previsto. `"fv_segunda": false` en el plan la quita si el usuario lo pide.
    - Si dudas de qué justificar o de si procede la 2.ª medida en un caso que no está aquí,
      **pregunta** en vez de suponer.
+21. **VARIAS aerotermias (cascada): en el `.cex` va CADA máquina, a partes iguales** (Fran,
+   20/10/2026, 26RES060_226: dos viviendas con UNA referencia catastral, un expediente, una SIME
+   de 8 kW y otra de 10 kW y un aerotermo Johnson en cada una; «a efectos reales son dos casos:
+   tienen que aparecer las dos»). Se declaran en la **Instalación del expediente como cascada**
+   (`aerotermia_cal.equipos_extra`, y `aerotermia_acs.equipos_extra` si el ACS también va
+   doble), con la potencia de CADA una (la del presupuesto o la placa); no en el plan. La ficha
+   escribe entonces un generador por máquina, con **SU SCOP y SU potencia** (no la suma ni el del
+   peor) y la demanda **repartida a partes iguales** (2 → 50/50, 3 → 34/33/33); los de ACS, cada
+   uno con su depósito, y un nombre repetido lleva « (2)». El SCOP aplicado al AHORRO CAE sigue
+   siendo el menor (`scopAplicado`): el bono no cambia. En una hibridación no se reparte así
+   (manda el C_b). Regla 148 de `cee-generacion`.
 
 ## Lo que el informe final dice SIEMPRE
 

@@ -57,6 +57,8 @@ paths:
 
 145. **El botón CE3X pregunta cómo se hace el CEE inicial: con IA (la cola del PC) o a mano en la envolvente** (2026-10-19, Fran). La app APUNTA el encargo en `cee_ia_trabajos` y el vigilante del PC (`tools/banco-cee-api/banco.mjs atender`, `atender.cmd`) lo toma con un UPDATE condicionado y corre el agente de la API, escribiendo su progreso; el PC late en `cee_ia_vigilantes` y el popup dice si hay uno atendiendo. UN trabajo vivo por CEE y fase (índice único parcial); EN_CURSO sin latido en 10 min = atascado y se puede repedir. «Ya lo hizo la IA» lo dice el SELLO del `.cex` (`autor = 'skill generar-cee-inicial'`), no la tabla: entonces el botón abre la envolvente directamente y «🤖 Hecho con IA» deja rehacerlo (vuelve a costar, `rehacer`). Con la IA trabajando, popup con su progreso y «Parar» (entre vueltas, `debeParar`), y aviso en la envolvente. No se pide con el inicial REGISTRADO, en una oportunidad ACEPTADA ni para el FINAL; solo staff. Fuente única: [services/ceeIa.js](implementation/backend/services/ceeIa.js) + [features/cee-ia/](implementation/frontend/src/features/cee-ia). Tras tocarlo: `node implementation/backend/scripts/test_cee_ia.mjs` y `auditar_rutas_sin_guardian.js`. Ver "Generar el CEE inicial con IA desde el botón CE3X".
 
+148. **Una CASCADA de aerotermias son VARIOS generadores en el `.cex`, cada uno con SU SCOP y SU potencia, y la demanda a PARTES IGUALES** (2026-10-20, Fran, 26RES060_226: dos viviendas con una referencia catastral, una SIME de 8 kW y otra de 10 kW y un aerotermo Johnson en cada una; «a efectos reales son dos casos: tienen que aparecer las dos»). Se escribía UN generador con el nombre de todas, la potencia SUMADA y el SCOP del PEOR. Ahora `instalacionNueva` ([fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js)) escribe uno por máquina con lo de cada unidad que da `resolverCe3x` (`unidadesCal`, `unidadesAcs` en [ce3xFinal.js](implementation/frontend/src/features/expedientes/logic/ce3xFinal.js)), con `partesIguales` (2 → 50/50, 3 → 34/33/33), y el ACS en cascada igual, cada uno con su depósito. Vale para la medida del inicial y para el CEE final. **El SCOP del AHORRO CAE no se mueve**: `aero.scop` sigue siendo el menor (`scopAplicado`). Un nombre repetido lleva « (2)» (`nombresUnicos`: en el árbol de CE3X dos iguales no se distinguen) y el título del conjunto, «(×2)». En una HIBRIDACIÓN no: manda el C_b (48.g). Las máquinas se declaran en la Instalación como cascada (`equipos_extra`), con la potencia de cada una. Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs` y `test_hibridacion.mjs`. Ver "Una CASCADA son VARIOS generadores en el `.cex`".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -74,6 +76,7 @@ paths:
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/y-el-cee-final-igual.md` — Y el CEE FINAL, igual (2026-09-16) · 2,7 KB
 - `docs/conocimiento/cee-generacion/la-medida-del-previsto-res080-va-autocontenida.md` — La medida del PREVISTO (RES080) va AUTOCONTENIDA, no como «Nuevo Edificio» (2026-10-10) · 4,7 KB
 - `docs/conocimiento/cee-generacion/los-puentes-de-las-ventanas-que-cambian.md` — Los PUENTES TÉRMICOS de las ventanas que CAMBIAN (RES080, 2026-10-05) · 3,1 KB
+- `docs/conocimiento/cee-generacion/una-cascada-son-varios-generadores-en-el-cex.md` — Una CASCADA son VARIOS generadores en el `.cex`, a partes iguales (2026-10-20) · 3,8 KB
 - `docs/conocimiento/cee-generacion/y-llega-al-cee-la-pestana-el-encargo-y-la-envolvente.md` — Y llega al CEE: la pestaña, el encargo y la envolvente (2026-09-29) · 5,3 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -165,6 +168,11 @@ PROPIO final.**
 - `docs/conocimiento/cee-generacion/los-puentes-de-las-ventanas-que-cambian.md`
   - **REGLA — en el PREVISTO (y en el CEE final de un RES080, que sale de él) los puentes de cada ventana
 «- CAMBIA» pasan a los ψ de la «Mejora de Puentes Térmicos» del propio CE3X 3.2:**
+- `docs/conocimiento/cee-generacion/una-cascada-son-varios-generadores-en-el-cex.md`
+  - **REGLA — en el `.cex`, cada máquina de una cascada es UN generador con SU SCOP y SU potencia, y
+la demanda se reparte a PARTES IGUALES.**
+  - **REGLA — el SCOP del AHORRO CAE no se mueve.**
+  - **REGLA — dos equipos con el MISMO nombre en el `.cex` no se distinguen en el árbol de CE3X**
 - `docs/conocimiento/cee-generacion/y-llega-al-cee-la-pestana-el-encargo-y-la-envolvente.md`
   - **REGLA — los aires existentes se declaran según el NEGOCIO, y lo decide una
 persona.**

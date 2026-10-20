@@ -192,5 +192,44 @@ comprueba('los ajustes a mano NO le quitan el ACS ni el frío a un mixto3',
           [aj.slot, aj.superficie_acs, aj.superficie_refrigeracion, aj.rend_acs],
           ['mixto3', 165, 165, '300']);
 
+// ── 7. Una CASCADA son N generadores, al 50 % cada uno ───────────────────────
+// 26RES060_226 (2026-10-20): dos viviendas con una referencia, una SIME de 8 kW
+// y otra de 10 kW, y un aerotermo Johnson en cada una. Iba UN equipo con el
+// nombre de las dos, la potencia sumada y el SCOP del peor.
+console.log('\n7. Cascada: un generador por máquina, a partes iguales');
+const cascada = instalacionNueva({
+    expediente: expediente({
+        misma_aerotermia_acs: false,
+        aerotermia_cal: { aerotermia_db_id: 162, marca: 'SIME', modelo: 'SHP M PRO 008',
+                          scop: 4.74, scop_propio: 4.74, potencia: 8,
+                          equipos_extra: [{ aerotermia_db_id: 15, marca: 'SIME',
+                                            modelo: 'SHP M PRO 010', scop: 4.91, potencia: 10 }] },
+        aerotermia_acs: { aerotermia_db_id: 499, marca: 'JOHNSON', modelo: 'MANANTIAL110RPLUSV',
+                          scop: 3.74, litros: '110',
+                          equipos_extra: [{ aerotermia_db_id: 499, marca: 'JOHNSON',
+                                            modelo: 'MANANTIAL110RPLUSV', scop: 3.74, litros: '110' }] },
+    }), superficie: 351 });
+const [b2, acs1, acs2] = cascada.extras;
+comprueba('la 1.ª máquina, con SU nombre, SU SCOP y SU potencia',
+          [cascada.equipo.nombre, cascada.equipo.rend_calefaccion, cascada.equipo.potencia_calefaccion],
+          ['AEROTERMIA SIME SHP M PRO 008', '474', '8']);
+comprueba('la 2.ª, igual (no el SCOP del peor)',
+          [b2?.nombre, b2?.rend_calefaccion, b2?.potencia_calefaccion],
+          ['AEROTERMIA SIME SHP M PRO 010', '491', '10']);
+comprueba('cada una cubre el 50 % y la mitad de la superficie',
+          [cascada.equipo.pct_calefaccion, b2?.pct_calefaccion,
+           cascada.equipo.superficie_calefaccion, b2?.superficie_calefaccion],
+          ['50', '50', 175.5, 175.5]);
+comprueba('el ACS, un aerotermo por máquina al 50 %',
+          [acs1?.slot, acs1?.pct_acs, acs2?.slot, acs2?.pct_acs], ['ACS', '50', 'ACS', '50']);
+comprueba('  cada uno con su depósito', [acs1?.acumulacion, acs2?.acumulacion],
+          [{ volumen: 110 }, { volumen: 110 }]);
+comprueba('  y sin dos nombres iguales en el .cex', acs2?.nombre,
+          'BOMBA DE CALOR ACS JOHNSON MANANTIAL110RPLUSV (2)');
+comprueba('se dice', cascada.avisos.some(a => a.startsWith('CASCADA')), true);
+// Sin cascada, nada cambia: el caso 1 sigue siendo UN equipo al 100 %.
+comprueba('una sola máquina sigue al 100 %', [equipo.pct_calefaccion, (instalacionNueva({
+    expediente: expediente(), superficie: 165 }).extras || []).length], ['100', 0]);
+
 console.log(fallos ? `\n${fallos} FALLAN` : '\nTodo correcto.');
 process.exit(fallos ? 1 : 0);

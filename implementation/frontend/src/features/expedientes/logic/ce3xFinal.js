@@ -25,7 +25,7 @@ import { BOILER_EFFICIENCIES, esSinCalefaccion, calculateHybridization, resolveH
 import {
     getUnidades, countUnidades, modeloUnidad, refExtVisible, formatSeries,
     tipoEquipoNuevo, esTermoElectrico, datosAcumulador, EQUIPO_NUEVO,
-    acsMismoEquipo, acsEquipoPropio,
+    acsMismoEquipo, acsEquipoPropio, scopPropioUnidad1,
 } from './aerotermiaUnits.js';
 import { normalizarFotovoltaica, tieneFotovoltaica, potenciaTexto } from './fotovoltaica.js';
 import { sanearConfirmacion, conAiresDeOportunidad, airesDeOportunidad } from './confirmacionCliente.js';
@@ -119,10 +119,12 @@ function nombreEquipo(aero, prefijo = 'AEROTERMIA ', { udExterior = true, conteo
  * hace falta que la lleven en el TÍTULO, porque el párrafo de características
  * los describe entero.
  */
-export function nombreAcsCe3x({ acsTipo, acsNode } = {}) {
+export function nombreAcsCe3x({ acsTipo, acsNode, conteo = false } = {}) {
     if (acsTipo === EQUIPO_NUEVO.TERMO) return 'TERMO ELÉCTRICO PARA ACS';
     if (acsTipo === EQUIPO_NUEVO.ACUMULADOR) return 'ACUMULACIÓN DE ACS';
-    const n = nombreEquipo(acsNode, '', { udExterior: false, conteo: false });
+    //: `conteo` solo en el TÍTULO del conjunto: dos aerotermos iguales en
+    //: cascada son «… (×2)»; la casilla «Nombre» de cada uno, no.
+    const n = nombreEquipo(acsNode, '', { udExterior: false, conteo });
     return n ? `BOMBA DE CALOR ACS ${n}` : 'BOMBA DE CALOR PARA ACS';
 }
 
@@ -132,7 +134,7 @@ export function nombreAcsCe3x({ acsTipo, acsNode } = {}) {
  * repetirla daría «AEROTERMIA X + AEROTERMIA X».
  */
 function sufijoConjunto({ acsAparte, acsTipo, acsNode, acsConjunto }) {
-    if (acsAparte) return ` + ${nombreAcsCe3x({ acsTipo, acsNode })}`;
+    if (acsAparte) return ` + ${nombreAcsCe3x({ acsTipo, acsNode, conteo: true })}`;
     //: Un CONJUNTO (el depósito de ACS va dentro de la propia máquina) también
     //: se nombra con su ACS: es como lo escribe Brokergy en CE3X (26RES060_202,
     //: DAIKIN ERLA11DAV3 + EBVX11S23DJ6V con 230 l integrados). Sin él, el
@@ -431,6 +433,25 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
         tipoBdc: aireAire ? 0 : 1,
         series: formatSeries(cal, { dash: '', sep: ' / ' }),
         seriesAcs: formatSeries(inst.aerotermia_acs, { dash: '', sep: ' / ' }),
+        //: Cada MÁQUINA de una cascada, con lo suyo (2026-10-20, 26RES060_226):
+        //: en CE3X cada una es un generador, con su SCOP y su potencia, no una
+        //: suma con el SCOP del peor. La unidad 1 lleva su SCOP PROPIO
+        //: (`scop_propio`): en `scop` está el aplicado al ahorro, que es el menor.
+        unidadesCal: getUnidades(cal).map((u, i) => ({
+            nombre: nombreEquipo(u, prefijoNombre),
+            scop: parseFloat(i === 0 ? scopPropioUnidad1(cal) : u?.scop) || scopCal,
+            potencia: potenciaBloque(u, modelos, 'potencia_calefaccion'),
+            potenciaFrio: conFrio ? potenciaBloque(u, modelos, 'potencia_frigorifica', 'potencia_frio') : null,
+            seer: conFrio ? seerBloque(u, modelos) : null,
+        })),
+        unidadesAcs: acsAparte
+            ? getUnidades(inst.aerotermia_acs).map((u, i) => ({
+                nombre: nombreAcsCe3x({ acsTipo, acsNode: u }),
+                scop: parseFloat(i === 0 ? scopPropioUnidad1(inst.aerotermia_acs) : u?.scop) || scopAcs,
+                potencia: potenciaBloque(u, modelos, 'potencia_calefaccion'),
+                litros: parseFloat(u?.litros) || 0,
+            }))
+            : [],
     };
 }
 

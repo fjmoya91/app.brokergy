@@ -1410,6 +1410,46 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
               + 'popup «Datos del equipo» y el encargo al certificador).',
     };
 
+    // ── Una CASCADA son N generadores en CE3X, no uno ───────────────────────
+    // REGLA — cada máquina se escribe con SU SCOP y SU potencia, y la demanda
+    // se reparte a PARTES IGUALES (2026-10-20, Fran, 26RES060_226: dos
+    // viviendas con una referencia catastral, una SIME de 8 kW y otra de 10 kW;
+    // «a efectos reales son dos casos: tienen que aparecer las dos»). Iba UN
+    // equipo con el nombre de las dos, la potencia sumada y el SCOP del peor
+    // (el aplicado al ahorro CAE, que sigue siéndolo). En una HIBRIDACIÓN no:
+    // el reparto con la caldera ya es el C_b y se queda como estaba.
+    const unidades = !d.hibridacion && (d.unidadesCal || []).length > 1 ? d.unidadesCal : null;
+    const bombas = unidades ? unidades.map((u, i) => {
+        const p = partesIguales(unidades.length)[i];
+        const supU = reparteSuperficie(superficie, p);
+        const rendU = Math.round((u.scop || d.scopCal || 0) * 100) || rendCal;
+        const rendRefU = conFrio ? (Math.round((Number(u.seer) || Number(d.seer) || 0) * 100) || rendRef) : 0;
+        const { acumulacion: _dep, ...sinDeposito } = bomba;
+        return {
+            ...sinDeposito,
+            nombre: u.nombre || bomba.nombre,
+            rend_calefaccion: String(rendU),
+            superficie_calefaccion: supU,
+            pct_calefaccion: String(p),
+            ...(mixto ? { superficie_acs: supU, pct_acs: String(p) } : {}),
+            ...(conFrio ? { rend_refrigeracion: String(rendRefU), superficie_refrigeracion: supU,
+                            pct_refrigeracion: String(p) } : {}),
+            //: El depósito es UNO y va con la primera (el expediente declara
+            //: unos litros, no unos por máquina).
+            ...(acumulacion && i === 0 ? { acumulacion } : {}),
+            ...potenciasDe({ potencia_calefaccion: u.potencia,
+                             potencia_acs: mixto ? u.potencia : null,
+                             potencia_refrigeracion: conFrio ? u.potenciaFrio : null,
+                             tipo_bdc: d.tipoBdc },
+                           tipoEquipo(slotBomba).servicios),
+        };
+    }) : null;
+    if (bombas) {
+        avisos.push(`CASCADA: ${bombas.length} aerotermias, cada una como un generador con su `
+            + `SCOP y su potencia, repartiéndose la demanda a partes iguales `
+            + `(${bombas.map(b => `${b.nombre} ${b.pct_calefaccion} %`).join(' · ')}).`);
+    }
+
     // La caldera que se queda. En una MEDIDA DE MEJORA se copia la que escribe
     // el CEE de esa fase; en el CEE FINAL no viaja aquí — la conserva el motor
     // del propio fichero que se está copiando.
@@ -1446,10 +1486,11 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
         }
     }
 
+    const acsEquipos = acs.equipos || (acs.equipo ? [acs.equipo] : []);
+    const [principal, ...nuevos] = nombresUnicos([...(bombas || [bomba]), ...acsEquipos]);
     return {
-        extras: [...(acs.equipo ? [acs.equipo] : []), ...(caldera ? [caldera] : []),
-                 ...(termo ? [termo] : [])],
-        equipo: bomba,
+        extras: [...nuevos, ...(caldera ? [caldera] : []), ...(termo ? [termo] : [])],
+        equipo: principal,
         //: Lo que el motor necesita para NO retirar el generador del fichero.
         //: Va en estructura, no dentro de un aviso.
         ...(d.hibridacion && delFichero
@@ -1507,6 +1548,31 @@ export function equiposDelExpediente(expediente, { modelos = {} } = {}) {
 //: La superficie servida se reparte con el MISMO porcentaje, y con el REDONDEADO:
 //: así los dos trozos suman exactamente el total. Medido en el `.cex` de
 //: 26RES093_8: 123 m² → 25,83 (21 %) + 97,17 (79 %).
+/**
+ * El reparto de una CASCADA: N partes iguales que suman 100 (lo que sobra del
+ * redondeo, a las primeras): 2 → [50, 50]; 3 → [34, 33, 33].
+ */
+export function partesIguales(n) {
+    const k = Math.max(1, Math.floor(Number(n) || 1));
+    const base = Math.floor(100 / k);
+    return Array.from({ length: k }, (_, i) => base + (i < 100 - base * k ? 1 : 0));
+}
+
+/**
+ * Dos equipos con el MISMO nombre en el `.cex` son dos entradas que no se
+ * distinguen en el árbol de CE3X (pasó con los puentes, regla 64): el que se
+ * repite lleva « (2)», « (3)»… — como ya se escribe una segunda caldera.
+ */
+export function nombresUnicos(equipos) {
+    const vistos = new Map();
+    return (equipos || []).map((e) => {
+        if (!e?.nombre) return e;
+        const n = (vistos.get(e.nombre) || 0) + 1;
+        vistos.set(e.nombre, n);
+        return n > 1 ? { ...e, nombre: `${e.nombre} (${n})` } : e;
+    });
+}
+
 function reparteSuperficie(superficie, pct) {
     const total = Number(superficie) || 0;
     if (!total || pct >= 100) return total;
@@ -1569,6 +1635,36 @@ function calderaHibrida(existentes, superficie, pct, avisos) {
  * rendimiento. Se dice, y el certificador lo pone en CE3X.
  */
 function equipoDeAcs(d, superficie) {
+    //: Una CASCADA de ACS (dos aerotermos, uno por vivienda): uno por máquina,
+    //: con lo suyo y la demanda a partes iguales — la MISMA regla que la
+    //: calefacción en `instalacionNueva`. Cada uno con SU depósito.
+    const unidades = d.acsAparte && !d.hibridacion && (d.unidadesAcs || []).length > 1
+        ? d.unidadesAcs : null;
+    if (!unidades) return equipoDeAcsUno(d, superficie);
+    const partes = partesIguales(unidades.length);
+    const hechos = unidades.map((u, i) => {
+        const r = equipoDeAcsUno({ ...d, nombreAcs: u.nombre || d.nombreAcs,
+                                   scopAcs: u.scop || d.scopAcs,
+                                   potenciaAcs: u.potencia || null,
+                                   litros: u.litros || d.litros },
+                                 reparteSuperficie(superficie, partes[i]));
+        return r.equipo ? { ...r, equipo: { ...r.equipo, pct_acs: String(partes[i]) } } : r;
+    });
+    const equipos = hechos.map(h => h.equipo).filter(Boolean);
+    return {
+        equipo: equipos[0] || null,
+        equipos,
+        avisos: [
+            ...hechos.flatMap(h => h.avisos.filter(a => !a.startsWith('ACS aparte:'))),
+            ...(equipos.length ? [`ACS aparte en CASCADA: ${equipos.length} equipos, `
+                + equipos.map(e => `«${e.nombre}» ${e.pct_acs} %`
+                    + (e.acumulacion ? ` con ${e.acumulacion.volumen} l` : ' sin depósito')).join(' · ')
+                + '. Compruébalo con su ficha técnica.'] : []),
+        ],
+    };
+}
+
+function equipoDeAcsUno(d, superficie) {
     if (!d.acsAparte) return { equipo: null, avisos: [] };
 
     const nombre = d.nombreAcs || 'EQUIPO DE ACS';
