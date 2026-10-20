@@ -26,6 +26,7 @@ import realCasesData from '../data/real_cases_db.json';
 import { DocsAdminModal } from './DocsAdminModal';
 import { ErrorBoundary } from '../../../components/ErrorBoundary';
 import { HistorialModal } from '../../../components/HistorialModal';
+import { useBotonCe3x } from '../../cee-ia/useBotonCe3x';
 
 const formatNumber = (val, decimals = null) => {
     const num = typeof val === 'number' ? val : parseFloat(val);
@@ -625,6 +626,16 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
         }
     };
 
+    // El botón CE3X pregunta antes cómo hacer el CEE inicial: con IA (la cola del
+    // PC) o a mano en la envolvente; si la IA ya lo hizo, abre la envolvente.
+    // Va AQUÍ, encima del `return` de «Esperando cálculo» (regla 62).
+    const ce3x = useBotonCe3x({
+        negocio: 'op', id: inputs?.id_oportunidad || null,
+        activo: getRoleFlags(user).isStaff && !!inputs?.id_oportunidad,
+        // `abrirEnvolvente` se declara más abajo; aquí solo se llama al pulsar.
+        abrirEnvolvente: () => abrirEnvolvente(),
+    });
+
     if (!result) {
         return (
             <SectionCard className="h-full flex flex-col items-center justify-center text-center p-8 opacity-50">
@@ -704,6 +715,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
         const id = encodeURIComponent(inputs.id_oportunidad);
         window.open(`/envolvente/${id}?origen=op`, `envolvente-op-${id}`, 'noopener');
     };
+    const pulsarCe3x = () => {
+        if (!inputs.id_oportunidad) { setShowSaveOpportunity(true); return; }
+        ce3x.onClick();
+    };
 
     // Ejecuta la acción ya validada (no comprueba guardado).
     const runAction = (action) => {
@@ -754,15 +769,30 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                             {isStaff && (
                                 <button
                                     type="button"
-                                    onClick={abrirEnvolvente}
-                                    className="p-1.5 mr-1 rounded-full bg-brand/10 hover:bg-brand/20 border border-brand/30 transition-all hover:scale-110 active:scale-90"
-                                    title={inputs.id_oportunidad
-                                        ? 'Envolvente CE3X (se abre en otra pestaña). Lo que señales se guarda en la oportunidad y pasa al expediente al aceptarla.'
-                                        : 'Envolvente CE3X — guarda antes la oportunidad'}
+                                    onClick={pulsarCe3x}
+                                    className="relative p-1.5 mr-1 rounded-full bg-brand/10 hover:bg-brand/20 border border-brand/30 transition-all hover:scale-110 active:scale-90"
+                                    title={!inputs.id_oportunidad ? 'CEE inicial (CE3X) — guarda antes la oportunidad'
+                                        : ce3x.trabajando ? `IA: ${ce3x.rotulo}`
+                                            : ce3x.hechoPorIa ? 'Generado con IA · abre la envolvente (se abre en otra pestaña)'
+                                                : 'CEE inicial: con IA o en la envolvente. Lo que señales se guarda en la oportunidad y pasa al expediente al aceptarla.'}
                                 >
                                     <img src="/logo-ce3x.svg" alt="CE3X" className="w-7 h-7" />
+                                    {/* La IA trabajando (pulso) o ya hecho por ella (🤖): sin abrir nada. */}
+                                    {(ce3x.trabajando || ce3x.hechoPorIa) && (
+                                        <span className={`absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 text-[9px] leading-none
+                                            ${ce3x.trabajando ? 'bg-violet-400 animate-pulse' : 'bg-violet-400/80'}`}
+                                              aria-label={ce3x.trabajando ? 'La IA está trabajando' : 'Hecho con IA'}>🤖</span>
+                                    )}
                                 </button>
                             )}
+                            {isStaff && ce3x.hechoPorIa && !ce3x.trabajando && (
+                                <button type="button" onClick={ce3x.abrirMenu}
+                                    className="mr-1 rounded-full border border-violet-400/40 bg-violet-400/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-violet-200 hover:bg-violet-400/20"
+                                    title="Este CEE lo generó la IA: ver cuándo, o rehacerlo">
+                                    IA
+                                </button>
+                            )}
+                            {ce3x.modal}
 
                             {driveFolderLink(inputs) && user?.rol?.toUpperCase() === 'ADMIN' && (
                                 <button

@@ -2,7 +2,7 @@
 paths:
   - "implementation/frontend/src/features/lotes/**"
   - "implementation/backend/routes/lotes.js"
-  - "implementation/backend/services/{lote*,anexoActuacionService,solicitudCaeService,envioGestorService,firmadosSo,tarifasVerificacion,facturaContabilidad,marwenService}.js"
+  - "implementation/backend/services/{lote*,anexoActuacionService,solicitudCaeService,envioGestorService,firmadosSo,firmadosSoCorreo,tarifasVerificacion,facturaContabilidad,marwenService}.js"
   - "implementation/backend/utils/{zipStore,codigosCae,consultaLotes,ceeEcoFields}.js"
 ---
 # Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura (nivel 2)
@@ -33,6 +33,8 @@ paths:
 
 104. **La factura de Brokergy al S.O. se archiva en CONTABILIDAD al generarla y al enviarla** (2026-10-02): al pulsar «Generar / Regenerar y guardar» (el mismo PDF que va a la carpeta del lote) y al enviarla bien por email o WhatsApp, su PDF se guarda en `00. S2E2 / 04. CONTABILIDAD / CAE - SERVICIOS CAE / FACTURAS VENTAS / {año} / {n. MES}` como `{nº} - {lote} - {acrónimo del S.O.}.pdf` (el nombre de la carpeta del lote sin su prefijo: «F-2026CAE_9 - LOTE-2025-003 - INTERALCO.pdf»). **Esa carpeta («CAE - SERVICIOS CAE») es SOLO para las facturas a los Sujetos Obligados** (decisión del usuario, 2026-10-19): las de la serie {YY}ING_{n} —CEE directos y honorarios de gestión CAE a clientes o instaladores— van a «ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS» (`archivarFacturaIngenieria`) (`POST /api/lotes/:id/factura-so/contabilidad`, adminOnly; [facturaContabilidad.js](implementation/backend/services/facturaContabilidad.js), raíz en `CONTABILIDAD_FACTURAS_CAE_FOLDER_ID`). El mes es el de la FECHA DE LA FACTURA, no el del envío; si no se llega a la carpeta del mes se FALLA (nunca se deja en la de arriba, que es lo que haría `getOrCreateSubfolder`), y la misma factura reenviada sustituye a la anterior. El resultado sale como una línea «Drive» en el popup de envío (`onAfterSend` de `EnviarLoteDocModal`); un fallo ahí no deshace el envío. **El nº de factura sale SOLO de `facturas_so`** (`nextFacturaNumero`, máximo + 1), así que **una factura ENVIADA queda registrada como EMITIDA aunque no se pulsara «Generar y guardar»**: «Enviar al S.O.» registra antes el número (y no abre el envío si ya es de otro lote: `NUMERO_FACTURA_OCUPADO`, 409, que también comprueban el borrador y el generar) y la ruta de contabilidad lo marca EMITIDA. Medido el 10/10/2026: LOTE-2025-003 (02/10) y LOTE-2025-001 (10/10) se ENVIARON sin generar, ninguno quedó en `facturas_so` y los dos salieron como **F-2026CAE_9**.
 
+141. **Los FIRMADOS que el S.O. devuelve por CORREO se registran SOLOS, y solo lo limpio** (2026-10-19, decisión del usuario): cada 15 min el servidor lee en SOLO LECTURA el buzón al que contesta el S.O. (franciscojavier.moya@brokergy.es en Hostinger, la cuenta `LOTE_SO_SMTP_*`) y pasa los PDF de un correo de un contacto del S.O. de ESE lote, con el código del lote en el asunto, por **`procesarFirmados`, el MISMO camino que la suelta a mano** (regla 40) — nunca por uno nuevo. **Lo que pediría confirmación (otro firmante, Anexo I con una firma, un PDF sin identificar) NO se fuerza**: se queda sin registrar y se avisa (WhatsApp + email al admin) con el motivo y lo que sigue faltando. **Lo ya firmado no se reemplaza** (`noReemplazar`), **y un PDF que llegó ANTES de mandar a firmar la versión vigente es de una ronda anterior** (`recibidoAt` contra `sent_at`) — sin ese candado, la `_rev1` de 25RES060_59 del 05/10 se habría registrado como la `_rev2` pedida el 19/10 por un requerimiento; un `_revN` distinto del enviado tampoco se registra solo. Los correos vistos van en `app_settings`; un fallo no marca nada visto. **Nace APAGADO** (`FIRMADOS_SO_CORREO_ENABLED`, solo `true` en el VPS). Fuente única: [firmadosSoCorreo.js](implementation/backend/services/firmadosSoCorreo.js). Tras tocarlo: `node implementation/backend/scripts/test_firmados_correo.js`, `test_firmados_so.js` y, en seco contra el buzón real, `probar_firmados_correo.js`. Ver "Los FIRMADOS del S.O. llegan por CORREO".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -44,6 +46,7 @@ paths:
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09) · 13,6 KB
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/las-tarifas-del-verificador-en-su-ficha.md` — Las TARIFAS del verificador, en su ficha (2026-09-14) · 3,7 KB
+- `docs/conocimiento/lotes/los-firmados-del-so-llegan-por-correo-y-se-registran-solos.md` — Los FIRMADOS del S.O. llegan por CORREO y se registran solos (2026-10-19) · 5,5 KB
 - `docs/conocimiento/lotes/pedirle-cosas-al-sujeto-obligado-desde-el-cuadro-de-mando.md` — Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01 · ofertas 2026-09-10) · 9,3 KB
 - `docs/conocimiento/lotes/quien-firma-por-el-sujeto-obligado-y-la-ficha-que-no-viajaba.md` — Quién FIRMA por el SUJETO OBLIGADO, y la ficha que no viajaba (2026-09-19) · 4,3 KB
 
@@ -122,6 +125,14 @@ pantalla.**
   - **REGLA — la columna que se compara es el €/ACTUACIÓN, no el total.**
   - **REGLA — entre tramos se INTERPOLA; fuera de tabla se DICE que se está fuera.**
   - **REGLA — con varias tarifas NO se adivina cuál aplica**
+- `docs/conocimiento/lotes/los-firmados-del-so-llegan-por-correo-y-se-registran-solos.md`
+  - **REGLA — el buzón se LEE, no se toca.**
+  - **REGLA — solo cuenta un correo de un CONTACTO del S.O. de ESE lote**
+  - **REGLA — se registra solo lo LIMPIO.**
+  - **REGLA — lo ya firmado NO se reemplaza**
+  - **REGLA — un PDF que llegó ANTES de mandar a firmar la versión vigente es de una ronda
+anterior**
+  - **REGLA — nace APAGADO**
 - `docs/conocimiento/lotes/pedirle-cosas-al-sujeto-obligado-desde-el-cuadro-de-mando.md`
   - **REGLA — el ORDEN es de prioridad, y se pintan TODAS las aplicables.**
   - **REGLA — un lote al que TODAVÍA NO LE TOCA no se cuenta ni se nombra.**

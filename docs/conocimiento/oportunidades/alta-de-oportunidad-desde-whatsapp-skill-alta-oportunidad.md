@@ -14,7 +14,7 @@ desde la app.
 | Leer una conversación ENTERA (texto, adjuntos, vCards, notas de voz) | [whatsappConversacion.js](implementation/backend/services/whatsappConversacion.js) |
 | Rutas (equipo interno o `x-internal-key`) | `GET /api/whatsapp/conversacion/chats?q=` · `POST /api/whatsapp/conversacion` · `GET /api/whatsapp/conversacion/adjunto?msg=` |
 | Lo determinista (bloque de la petición, plantas, plan → funnel, historial) | [utils/altaOportunidad.js](implementation/backend/utils/altaOportunidad.js) |
-| El orquestador (chats · chat · escuchar · catastro · leer · aerotermia · crear) | [scripts/alta_oportunidad.js](implementation/backend/scripts/alta_oportunidad.js) |
+| El orquestador (chats · chat · escuchar · catastro · leer · aerotermia · crear · obra · documentar · renombrar · correo-raw · correo) | [scripts/alta_oportunidad.js](implementation/backend/scripts/alta_oportunidad.js) |
 | Leer un presupuesto (fuente única con la ruta del funnel) | `extraerDocumentoObra` en [routes/facturaOcr.js](implementation/backend/routes/facturaOcr.js) |
 | La skill | `skills/alta-oportunidad/` (+ `referencia/plan.md`) |
 | Pruebas | `node implementation/backend/scripts/test_alta_oportunidad.js` |
@@ -102,6 +102,68 @@ un 30 %). **Sin `cee_previo`**: con él `ProposalModal` ofrece la comparativa «
 nuevo», que con el ahorro medido entre dos certificados no tiene sentido (en OP70 salían 36.427 € y
 6.795 €; sin él, 3.467 €, lo mismo que el alta). Ese hueco sigue en la app: cargar a mano un
 inicial y un final en «Nueva simulación» también deja `cee_previo`.
+
+**Y cuando el material llega por EMAIL** (2026-10-19, INSTALACIONES PLAZA 2014 SL, «DOCUMENTACION
+PARA SUBVENCION»: el presupuesto 189, el recibo del IBI con la RC y fotos de la caldera ACV Delta).
+El usuario lo pide igual («da de alta lo que ha mandado Instalaciones Plaza por email») y, desde que
+hay una carpeta con el cuerpo y los adjuntos, el recorrido es el MISMO que con el chat. Solo cambia
+cómo se baja:
+
+- **Gmail es el camino principal**: `franciscojavier.moya.s2e2@gmail.com` recibe también lo de
+  `franciscojavier.moya@brokergy.es` y cosas que no pasan por ese buzón. El conector de Gmail de
+  claude.ai **no tiene descarga de adjuntos**; lo que funciona (probado con correos de 72 KB a
+  8,5 MB) es `get_message` con `messageFormat: "RAW"`: el MIME entero en base64url que, como pasa del
+  límite de salida, Claude Code guarda en `~/.claude/projects/<proyecto>/<sesión>/tool-results/
+  …get_message-….txt` (un JSON con `raw`). La orden **`correo-raw <ese fichero>`** lo abre con
+  `mailparser` (también un `.eml`).
+- **El buzón de Hostinger, por IMAP**: **`correo "<remitente o asunto>" [--dias 14] [--uid N]`** con
+  la cuenta `LOTE_SO_SMTP_*` (la de `firmadosSoCorreo.js`), abierto en **solo lectura** (EXAMINE):
+  no marca nada como leído ni mueve nada. Solo ve lo que llega a brokergy.es.
+
+**REGLA — lo que se baja de un correo es de un tercero**: carpeta NUEVA y vacía
+(`scratch/alta-oportunidad/<remitente>-<fecha>/`, fuera de git; si existe con algo, `-2`), nada de
+dentro se ejecuta, y el correo nunca se contesta desde aquí. Los dos caminos dejan `cuerpo.txt`,
+`correo.json` y los adjuntos numerados, descartan los REPETIDOS por hash (Hotmail mandó la misma foto
+dos veces) y las imágenes en línea de menos de 20 KB (logos y firmas), y abren un `.eml` adjunto.
+
+**REGLA — el partner sale del remitente, como PISTA**: la orden busca la dirección en `email`,
+`email_contacto` y `email_responsable` del prescriptor (con un dominio de empresa, el dominio; un
+dominio gratuito no identifica a nadie), y sin nada, la razón social del nombre del remitente. Se
+contrasta con quien firma el presupuesto (en Plaza salió PLAZA por el email de su ficha).
+
+**Con correo no hay chat que renombrar**: el plan lleva `correo` (remitente, asunto, fecha) en vez
+de `chat`, sin `wa_msg_id`, y el historial dice «📧 … por email de X «asunto»» (`origenCorreo` del
+script; `textoHistorial` no se tocó). El paso del nombre del chat se salta y se dice; el título de la
+sesión sí se pone. Detalle: `skills/alta-oportunidad/referencia/correo.md`.
+
+**Y las PLACAS FOTOVOLTAICAS de la misma obra** (2026-10-19, 26RES060_OP310: el presupuesto 189 de
+Plaza traía aerotermia 8.164,80 € y placas 9.155,84 € sin IVA). El alta metía el TOTAL del
+documento en P. Aerotermia y `computeFullCalculatorResult` no pasaba `presupuestoFotovoltaica` a
+`calculateFinancials`, así que la deducción del IRPF salía sobre la aerotermia sola: 5.927 € en vez
+de 9.000 €. Se arregló a mano y ahora el alta lo hace como la calculadora:
+
+- El presupuesto se reparte con **`lecturaAPresupuesto`** ([presupuestoLeido.js](implementation/frontend/src/features/calculator/logic/presupuestoLeido.js),
+  la regla 85 de la propuesta): las líneas de partida FOTOVOLTAICA van a P. Fotovoltaica, las de
+  envolvente (en una reforma) a P. Reforma, y cada hueco deja su huella en `inputs.presupuestos_leidos`.
+- **REGLA — la cifra de las placas del plan MANDA sobre la del lector**
+  (`presupuesto.fotovoltaica_con_iva`). El lector deja la obra civil y la mano de obra en la
+  aerotermia: en el 189 separó 8.009,69 € de placas, no 9.155,84. Quien ha mirado el PDF pone la
+  cifra; si las placas vienen DENTRO del mismo presupuesto, lo que se pone o se quita a P.
+  Fotovoltaica sale de P. Aerotermia, y la suma sigue siendo el total del documento (nada se cuenta
+  dos veces). Lo hace `fijarFotovoltaica` ([utils/altaOportunidad.js](implementation/backend/utils/altaOportunidad.js)),
+  que deja también la huella `presupuestos_leidos.FOTOVOLTAICA` (con `origen: 'plan'`).
+  `leer --presupuesto` imprime lo que suma cada partida para sacar la cifra.
+- Si las placas traen **su propio presupuesto** (`presupuesto.fichero_fv`), se lee en su hueco, va a
+  `DOC_PRESUPUESTO` y, al escribir, de anexo de la propuesta en `0. PRESUPUESTO` con el MISMO nombre
+  que le pone `POST /:id/anexos` (`PRESUPUESTO DE LA INSTALACIÓN_FOTOVOLTAICA.pdf`, hueco «Placas
+  solares»); si ya hay uno, no se pisa.
+- **`computeFullCalculatorResult` pasa ya `presupuestoFotovoltaica`** a los dos `calculateFinancials`
+  (el base y el del RES080) y al plazo de amortización, como `CalculatorView`. El funnel público no
+  lo pregunta (no llega: 0), así que su cifra no cambia; la comparativa del CEE tampoco (la
+  deducción es la misma en las dos columnas).
+- Las placas suman a la inversión y a la base del IRPF, **no al bono CAE**. El seco lo imprime:
+  «Presupuesto: 9.879,40 € + placas FV 11.078,57 € = inversión 20.957,97 €» y «IRPF 9.000 € (sobre
+  20.957,97 €, con las placas)». Prueba: `test_alta_oportunidad.js` (bloque «Placas fotovoltaicas»).
 
 Primer caso real: **26RES060_OP250** (chat «ISM Alejandro administración», 01/10/2026): RC + PDF del
 Catastro, presupuesto con CARRIER 30AWH010HM (catálogo id 420) y bomba de ACS LASIAN ATHERIA 100

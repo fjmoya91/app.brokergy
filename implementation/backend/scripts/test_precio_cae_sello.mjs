@@ -15,6 +15,35 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { sellarPrecioCae } = require('../utils/precioCae');
 
+// Supabase de MENTIRA para recorrer `createLead` entero sin tocar la BD: toda
+// consulta devuelve vacío salvo lo que `bd` diga, y los insert/update se apuntan.
+const bd = { previas: [], clientes: [], escrito: null };
+const consulta = (tabla) => {
+    const q = { tabla, op: 'select', payload: null, uno: false };
+    const resolver = () => {
+        if (q.op === 'insert' || q.op === 'update') {
+            const fila = Array.isArray(q.payload) ? q.payload[0] : q.payload;
+            if (tabla === 'oportunidades') bd.escrito = { op: q.op, fila };
+            return { data: { id: 'uuid-test', id_oportunidad: fila.id_oportunidad || 'OP-PREVIA', id_cliente: 'cli-test' }, error: null };
+        }
+        if (tabla === 'oportunidades') return { data: q.uno ? null : bd.previas, error: null };
+        if (tabla === 'clientes') return { data: q.uno ? null : bd.clientes, error: null };
+        return { data: q.uno ? null : [], error: null };
+    };
+    const b = {
+        then: (ok, ko) => Promise.resolve(resolver()).then(ok, ko),
+        insert: (p) => { q.op = 'insert'; q.payload = p; return b; },
+        update: (p) => { q.op = 'update'; q.payload = p; return b; },
+        single: () => { q.uno = true; return b; },
+        maybeSingle: () => { q.uno = true; return b; },
+    };
+    for (const m of ['select', 'eq', 'ilike', 'like', 'in', 'order', 'limit', 'neq', 'is', 'or']) b[m] = () => b;
+    return b;
+};
+const rutaSupabase = require.resolve('../services/supabaseClient');
+require.cache[rutaSupabase] = { id: rutaSupabase, filename: rutaSupabase, loaded: true, exports: { from: consulta } };
+const { createLead } = require('../services/leadService');
+
 const C = await import('../../frontend/src/features/calculator/logic/calculation.js');
 const { CAE_PRECIO_CLIENTE_NUEVAS, CAE_PRECIO_CLIENTE_ANTERIOR } = C;
 const F = '../../frontend/src/features/expedientes';
@@ -131,6 +160,72 @@ console.log('\n6. RES080 conserva SU respaldo, que no es el mismo');
     check(CAE_PRECIO_CLIENTE_ANTERIOR.res080 === 60 && CAE_PRECIO_CLIENTE_ANTERIOR.estandar === 95,
         'los respaldos siguen siendo 95 y 60 €/MWh (lo ya calculado no se mueve)',
         JSON.stringify(CAE_PRECIO_CLIENTE_ANTERIOR));
+}
+
+console.log('\n7. Toda ALTA nace sellada: pasa por createLead (landing, «Nueva simulación», skill)');
+{
+    // El fallo medido el 20/10/2026: 140 de 141 oportunidades nuevas sin sello. El
+    // sello solo se escribía en POST /oportunidades, que en un alta ya encuentra la
+    // fila creada por createLead y, sin sello, no puede estrenarlo.
+    const base = (extra = {}) => ({
+        contacto: { nombre: 'PRUEBA', email: 'prueba@ejemplo.test', rgpd_aceptado: true },
+        catastro: { ref_catastral: '0000000AA0000A0001AA' },
+        funnel: {},
+        calculatorInputs: { caePriceClient: 100 },
+        geoContext: { provinceCode: '13', provincia: 'Ciudad Real', ccaa: 'Castilla-La Mancha' },
+        partnerSlug: null, prescriptorId: null, ...extra,
+    });
+    const altaDe = async (args) => { bd.escrito = null; await createLead(args); return bd.escrito; };
+
+    bd.previas = []; bd.clientes = [];
+    let w = await altaDe(base({ mode: 'internal', creatorUser: { rol_nombre: 'ADMIN', id_usuario: 'u1' } }));
+    check(w?.op === 'insert' && w.fila.datos_calculo.inputs.cae_client_rate === 100,
+        '«Nueva simulación» (interna) nace con cae_client_rate = 100', w?.fila?.datos_calculo?.inputs?.cae_client_rate);
+
+    w = await altaDe(base({ calculatorInputs: { caePriceClient: 110 } }));
+    check(w?.op === 'insert' && w.fila.datos_calculo.inputs.cae_client_rate === 110,
+        'la landing pública también, con su precio', w?.fila?.datos_calculo?.inputs?.cae_client_rate);
+
+    // Re-envío del funnel sobre un LEAD previo del mismo titular: manda la regla.
+    const leadPrevio = (inputs) => [{ id: 'uuid-previa', id_oportunidad: '26RES060_OP1', cliente_id: 'cli-1',
+        created_at: '2026-08-01', datos_calculo: { estado: 'LEAD', inputs } }];
+    bd.clientes = [{ id_cliente: 'cli-1', email: 'prueba@ejemplo.test' }];
+
+    bd.previas = leadPrevio({ caePriceClient: 95 });
+    w = await altaDe(base());
+    check(w?.op === 'update' && w.fila.datos_calculo.inputs.cae_client_rate === undefined,
+        'un LEAD ANTERIOR sin sello no lo estrena al re-enviarse', w?.fila?.datos_calculo?.inputs?.cae_client_rate);
+
+    bd.previas = leadPrevio({ caePriceClient: 100, cae_client_rate: 100 });
+    w = await altaDe(base({ calculatorInputs: { caePriceClient: 105 } }));
+    check(w?.op === 'update' && w.fila.datos_calculo.inputs.cae_client_rate === 105,
+        'un LEAD ya sellado lo mantiene al día', w?.fila?.datos_calculo?.inputs?.cae_client_rate);
+    bd.previas = []; bd.clientes = [];
+}
+
+console.log('\n8. Un RES080 SELLADO calcula con su sello, no con el respaldo de 60');
+{
+    const cee = (cal, acs) => ({
+        demandaCalefaccion: cal, superficieHabitable: 100, demandaACS: acs,
+        emisionesCalefaccion: cal, emisionesACS: acs, emisionesRefrigeracion: 0,
+    });
+    const exp080 = (inputs) => ({
+        numero_expediente: '26RES080_999',
+        oportunidades: { ficha: 'RES080', datos_calculo: { inputs } },
+        instalacion: {},
+        cee: {
+            cee_inicial: cee(30, 5), cee_final: cee(10, 2),
+            comb_cal_inicial: 'Gasoleo Calefacción', comb_cal_final: 'Electricidad peninsular',
+            comb_acs_inicial: 'Gasoleo Calefacción', comb_acs_final: 'Electricidad peninsular',
+        },
+    });
+    const fin = computeExpedienteFinancials(exp080({ caePriceClient: 100, cae_client_rate: 100 }));
+    check(Math.abs(fin.cae - (fin.savingsKwh / 1000) * 100) < 5,
+        'en el panel / listado (frontend): a 100 EUR/MWh', Math.round(fin.cae));
+    const { computeExpedienteFinancialsNode } = require('../services/expedienteFinancialsNode');
+    const e080 = exp080({ caePriceClient: 100, cae_client_rate: 100 });
+    const finNode = await computeExpedienteFinancialsNode(e080, e080.oportunidades);
+    check(Math.abs(finNode.cae - fin.cae) < 0.01, 'y su gemelo de Node da lo mismo', `${finNode.cae} vs ${fin.cae}`);
 }
 
 console.log(`\n═══ ${ok} correctas · ${ko} fallos ═══`);

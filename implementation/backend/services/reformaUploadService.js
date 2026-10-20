@@ -913,6 +913,16 @@ async function ensureUploadLink(oportunidadUuid) {
 }
 
 /**
+ * El mismo enlace, SIN crear el token si falta (2026-10-19): para quien solo mira
+ * y no puede escribir, como la ronda de WhatsApp en seco. null si no hay token.
+ */
+async function uploadLinkSiExiste(oportunidadUuid) {
+    const { data } = await supabase.from('oportunidades')
+        .select('upload_token:datos_calculo->>upload_token').eq('id', oportunidadUuid).maybeSingle();
+    return data?.upload_token ? buildUploadLink(oportunidadUuid, data.upload_token) : null;
+}
+
+/**
  * Genera y persiste el token de subida en datos_calculo (merge no destructivo)
  * e inicializa reforma_uploads. Devuelve { token, datosCalculo }.
  */
@@ -1997,6 +2007,7 @@ module.exports = {
     generateUploadToken,
     buildUploadLink,
     ensureUploadLink,
+    uploadLinkSiExiste,
     attachUploadToken,
     ensureDriveFolder,
     sendReformaUploadNotifications

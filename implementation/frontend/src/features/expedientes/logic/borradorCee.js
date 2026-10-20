@@ -423,10 +423,17 @@ export function buildBorradorCee(ctx = {}, { fase = 'inicial', hoy = null } = {}
     const certNif = limpio(cert?.nif_responsable) || (certAutonomo ? limpio(cert?.cif) : '');
     const viaCert = trocearVia(cert?.direccion);
 
+    // Con el AGENTE IA en la barra, quien firma y presenta es un certificador REAL
+    // (el de la casa, salvo que se diga otro): lo decide `borradorCeeService` y aquí
+    // solo se dice, para que nadie crea que el 02 se ha rellenado con el asignado.
+    const sustituido = ctx.certificadorSustituido || null;
+    const nombreSustituido = limpio(sustituido?.razon_social) || 'el técnico asignado';
     const apRepresentante = {
         id: '02',
         titulo: '02 Representante',
-        nota: 'El técnico certificador asignado al expediente.',
+        nota: sustituido
+            ? `${certPersona || 'El certificador'}, que firma el certificado: el asignado (${nombreSustituido}) no firma ni presenta.`
+            : 'El técnico certificador asignado al expediente.',
         campos: [
             dato('NIF', certNif),
             ...camposNombre(limpio(cert?.nombre_responsable), limpio(cert?.apellidos_responsable)),
@@ -438,6 +445,10 @@ export function buildBorradorCee(ctx = {}, { fase = 'inicial', hoy = null } = {}
         ],
         original: viaCert.original || null,
     };
+    if (sustituido && cert) {
+        avisos.push(`El certificado lo tiene asignado ${nombreSustituido}, que no firma: en el 02 va `
+            + `${certPersona || 'el certificador de la casa'}. Si lo firma otro técnico, cámbialo antes de presentar.`);
+    }
     if (!cert) {
         avisos.push('No hay certificador asignado al expediente: el apartado 02 (Representante) va vacío.');
     } else if (!certNif) {

@@ -127,7 +127,10 @@ function PropietarioEdit({ value, index, onChange, onRemove }) {
     );
 }
 // ─── Modal principal ────────────────────────────────────────────────────────
-export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped, catastroData = null }) {
+// `onUpdated(cliente)` = se ha GUARDADO la ficha (hay quien cierra el popup ahí).
+// `onCambio(cliente|null)` = ha cambiado algo SIN guardar la ficha (el justificante
+// subido y leído): el popup sigue abierto, el padre solo refresca lo suyo.
+export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onCambio, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped, catastroData = null }) {
     const { user } = useAuth();
     const userRole = (user?.rol || '').toUpperCase();
     const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
@@ -197,8 +200,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
     const recargarCliente = () => {
         const id = clienteId || clienteProp?.id_cliente || cliente?.id_cliente;
         if (!id) return;
-        axios.get(`/api/clientes/${id}`).then(r => setCliente(r.data)).catch(() => {});
-        if (onUpdated) onUpdated();
+        axios.get(`/api/clientes/${id}`).then(r => { setCliente(r.data); if (onCambio) onCambio(r.data); }).catch(() => {});
     };
 
     // Admin: prescriptores
@@ -664,8 +666,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     {isAdmin && (
                                         <JustificanteCliente clienteId={cliente.id_cliente} expedienteId={expedienteId || null}
                                             iban={cliente.numero_cuenta || ''}
-                                            onRellenar={() => recargarCliente()}
-                                            onSubido={() => { if (onUpdated) onUpdated(); }} />
+                                            onSubido={() => recargarCliente()} />
                                     )}
                                     {cliente.prescriptores?.acronimo && <FieldView label="Prescriptor" value={cliente.prescriptores.acronimo || cliente.prescriptores.razon_social} />}
                                     {cliente.contacto_es_partner && (
@@ -1009,7 +1010,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                             iban={form.numero_cuenta || ''}
                                             clienteForm={{ numero_cuenta: form.numero_cuenta || '', nombre_razon_social: form.nombre_razon_social || '', apellidos: form.apellidos || '', es_empresa: !!form.es_empresa, representante_nombre: form.representante_nombre || '', representante_apellidos: form.representante_apellidos || '', copropietarios: form.copropietarios || [] }}
                                             onRellenar={iban => { if (!String(form.numero_cuenta || '').trim()) updateForm({ numero_cuenta: iban }); }}
-                                            onSubido={() => { if (onUpdated) onUpdated(); }} />
+                                            onSubido={() => { if (onCambio) onCambio(null); }} />
                                     )}
                                     <div className="sm:col-span-2 pt-2">
                                         <label className="flex items-center gap-3 cursor-pointer group w-fit">

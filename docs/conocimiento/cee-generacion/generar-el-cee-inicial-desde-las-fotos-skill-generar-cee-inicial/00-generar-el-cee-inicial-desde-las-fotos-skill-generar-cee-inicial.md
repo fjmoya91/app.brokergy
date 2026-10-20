@@ -108,3 +108,17 @@ partículas, mantenimiento, frío— y dice que por sí sola no reduce la EPnr n
 el autoconsumo. Biomasa = fila `solid_*` con `fuelType: 'pellets'` (el mismo criterio que
 `instalacionExistente`: el carbón comparte fila y sigue con el texto de siempre). Prueba:
 `test_medidas_mejora.mjs`, bloque 10.
+
+**Y de `_REVISAR` a LISTO PARA FIRMAR, una orden: `listo`** (2026-10-19, sustituye a los scripts sueltos
+de 26RES060_188, _231 y _237). Cuando Fran pide «dámelo listo para firmar»: CE3X 3.2 califica el
+`_REVISAR.cex` de Drive, CALCULA las medidas y guarda el `.cex` calculado (`calificarCex(…,
+{ guardarCalculado: true })`; si el XML no valida, para — regla 140); con `--escribir`, `.cex` y `.xml`
+con nombre canónico por la MISMA subida que el técnico (`subidaCeePublica`, lo anterior a OLD), el PDF
+SIN firmar como `{nº} – CEE INICIAL.pdf` (el que busca `firmar_cee.js`) y el XML en la app como «Cargar
+CEE» (`cee_{fase}`, `xml_{fase}`, combustibles, fechas en `cee` y en `documentacion` por la RPC de valor
+suelto, y `ajusteAcsLitros` fuera de RES080). Vale para expediente, CEE directo (`subirCeeDirecto`;
+en uno de un solo certificado el rótulo es «CEE») y `--fase final`; en una oportunidad solo califica.
+Con un `_fdo.pdf` en la carpeta o la fase REGISTRADA no escribe sin `--forzar`. **No firma**. El agente
+de la API (`tools/banco-cee-api`) la corre solo en seco y deja los canónicos en su carpeta de trabajo.
+Probado en seco sobre 26RES060_237 (detecta los canónicos ya subidos y el firmado), 26RES060_OP300 y
+2026CEE_55 (registrado: para).

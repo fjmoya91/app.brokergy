@@ -1,7 +1,8 @@
 ---
 paths:
-  - "implementation/backend/services/{whatsapp*,bot*}.js"
+  - "implementation/backend/services/{whatsapp*,bot*,ronda*}.js"
   - "implementation/backend/routes/whatsapp.js"
+  - "implementation/backend/scripts/*ronda*"
   - "implementation/backend/utils/{adjuntoWhatsapp,nombreContactoCliente}.js"
   - "implementation/backend/scripts/*{bot,whatsapp}*"
   - "implementation/frontend/src/features/whatsapp/**"
@@ -31,6 +32,8 @@ paths:
 
 94. **El nombre del cliente en la AGENDA de WhatsApp lleva su nº de obra** (2026-09-30): «RES080 Irene Lopez (Gonzagarri)» pasa a «RES080_87 Irene Lopez (Gonzagarri)» — con expediente, su nº sin el año; sin él, su oportunidad (`RES060_OP246`); un CEE directo, `CEE_54`. Botón en el panel de WhatsApp («Nombres de clientes en la agenda», en seco primero) y `POST /api/whatsapp/contactos/renombrar-clientes` (adminOnly o `x-internal-key`, `dryRun` por defecto, a trozos con cursor por teléfono). **Es la EXCEPCIÓN a `guardarSiFalta`**: solo se toca el PREFIJO que la casa escribe delante (`RES060`, `RES080 -`, `26RES080_78`, `CEEI`…; nunca «Termia», «Teresa» ni «RESERVAS») y lo de detrás se conserva letra a letra; un contacto sin prefijo no se renombra. Se casa por teléfono contra titular, persona de contacto y copropietarios; un número en VARIOS clientes no se toca, varias obras abiertas de la misma ficha se preguntan, y **lo que cambiaría la ficha que ya dice el nombre (RES080 → RES060_143) se aparta a «revisar»** — suele ser un teléfono casado con otra persona de la ficha. `saveContactAction` EDITA el contacto (el `@c.us` y su `@lid`), no lo duplica. ⚠️ **WhatsApp LIMITA las ediciones de la agenda**: medido el 30/09/2026, una cada 1,5 s aguantó ~41 y después respondió **429 `rate-overlimit`** a todas (la sesión siguió sana). Va a una cada 20 s (`WA_CONTACTOS_PAUSA_MS`), dos por petición, y **se para al primer 429** (`err.limitado` en `whatsappContactos.guardar`, que ahora devuelve el error como dato: cruzando `evaluate` llegaba minificado como «t»). Fuente única: [utils/nombreContactoCliente.js](implementation/backend/utils/nombreContactoCliente.js) + [whatsappNombresClientes.js](implementation/backend/services/whatsappNombresClientes.js). Tras tocarlo: `node implementation/backend/scripts/test_nombre_contacto_cliente.js`. **Un número que NO está en la agenda se GUARDA solo si se le da el nombre** (2026-10-10, 26RES060_OP264): `renombrarUno({ nombre })` / `alta_oportunidad.js renombrar --nombre "Nombre Apellido (Partner)"` lo guarda como `{nº de obra} {nombre}`; sin `nombre` sigue siendo `sin_agenda` (no se inventa cómo llamar a nadie) y un nombre ya guardado nunca se pisa con el que se pase. Tras tocarlo: `test_renombrar_contacto.js`.
 
+143. **La RONDA de WhatsApp la hace una TAREA PROGRAMADA de Claude Code y, en FASE 1, solo INFORMA a Fran** (2026-10-19): desde la decisión del usuario del 19/10 por la noche, la ANALIZA Claude Code con la suscripción (tarea «ronda-whatsapp», 8:10), leyendo del WhatsApp del VPS con [scripts/ronda_cc.js](implementation/backend/scripts/ronda_cc.js) (`preparar` → `resultado.json` por chat según `ronda_cc_instrucciones.md` → `informe`), con la sesión de producción leída con cuidado (pausa, 3 días, reutilizar). La versión del backend con Gemini sigue hecha y apagada. Lo de abajo vale para las dos: cada noche lee los chats con mensajes nuevos de quien tiene algo vivo (cliente, instalador o certificador con expediente, oportunidad o CEE directo), asigna cada adjunto a su obra, propone su apartado (el repartidor de siempre), saca preguntas sin contestar y promesas, y redacta borradores; a las 9:00 manda el informe por EMAIL y un resumen CORTO al chat del asistente, **que no invita a contestar «sí C1»** (el asistente lee su chat como contexto). **Nace APAGADA** (`WA_RONDA_ENABLED`, solo `true` en el VPS) y no coloca, no anota ni escribe a nadie: lo único que escribe es su estado en `app_settings` y sus ficheros en `scratch/ronda/`; el checklist y el dossier van con `soloLectura` (sin backfill del justificante ni token nuevo). **Los ENLACES y los PÁRRAFOS del borrador los pone el CÓDIGO** (marcas `{ENLACE_*}` y `parrafos[]`): copiados por el modelo, 7 de 41 enlaces salían rotos. Una oportunidad sin propuesta ENVIADA no recibe enlace de aceptar; lo que manda la APP (`whatsapp_queue` o la firma) no cuenta como promesa; un código de obra fuera de la lista es «dudoso». **Se PIENSA solo con varias obras en el chat** (el razonamiento era el 60 % del gasto) y lo nuevo que es solo cortesía no se analiza; el modelo es `WA_RONDA_MODELO` y uno más barato solo entra tras `comparar_rondas.js` contra la pasada de referencia (los 3.6/3.8-flash doblan precio el 01/01/2027). Fuente única: [rondaWhatsapp.js](implementation/backend/services/rondaWhatsapp.js) + [rondaWhatsappIA.js](implementation/backend/services/rondaWhatsappIA.js) + [rondaWhatsappInforme.js](implementation/backend/services/rondaWhatsappInforme.js); rutas `GET/POST /api/whatsapp/ronda…` (**adminOInterno**). Tras tocarlo: `node implementation/backend/scripts/test_ronda_whatsapp.js`; para verla entera, en seco: `ronda_whatsapp_seco.js --dias 1`. Ver "La RONDA NOCTURNA de WhatsApp".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -42,6 +45,7 @@ paths:
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js) · 1,7 KB
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13) · 7,6 KB
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md` — La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09) · 5,4 KB
+- `docs/conocimiento/whatsapp/la-ronda-nocturna-de-whatsapp.md` — La RONDA NOCTURNA de WhatsApp — fase 1, en seco (2026-10-19) · 10,5 KB
 - `docs/conocimiento/whatsapp/lo-que-llega-con-el-backend-parado-recuperarperdidos.md` — Lo que llega con el backend PARADO — `recuperarPerdidos()` · 1,4 KB
 - `docs/conocimiento/whatsapp/lo-que-whatsapp-rompio-y-hay-que-saber.md` — Lo que WhatsApp rompió, y hay que saber (2026-08-25) · 3,0 KB
 - `docs/conocimiento/whatsapp/modulo-whatsapp-novedades.md` — Módulo WhatsApp — Novedades (2026-04-17) · 2,2 KB
@@ -90,6 +94,18 @@ pensar EN LA MISMA VUELTA.**
   - **REGLA — se etiquetan TODOS los teléfonos que constan**
   - **REGLA — esto NUNCA tumba lo que lo llamó.**
   - **REGLA — el repaso va a TROZOS.**
+- `docs/conocimiento/whatsapp/la-ronda-nocturna-de-whatsapp.md`
+  - **REGLA — la ronda la ANALIZA Claude Code con la suscripción de Fran y lee del WhatsApp del VPS.**
+  - **REGLA — a la sesión de PRODUCCIÓN se la lee con cuidado**
+  - **REGLA — FASE 1 = EN SECO.**
+  - **REGLA — nace APAGADA**
+  - **REGLA — el WhatsApp es CORTO y en fase 1 NO invita a contestar.**
+  - **REGLA — los ENLACES del borrador los pone el CÓDIGO, nunca el modelo.**
+  - **REGLA — los PÁRRAFOS también los junta el código.**
+  - **REGLA — solo se acepta una propuesta que se ENVIÓ.**
+  - **REGLA — lo que manda la APP no es una promesa de nadie.**
+  - **REGLA — el modelo mira, el código VALIDA.**
+  - **REGLA — se PIENSA solo donde hace falta.**
 - `docs/conocimiento/whatsapp/tras-un-despliegue-el-whatsapp-vuelve-solo.md`
   - **REGLA — «autenticado» y «arrancando» no tienen el mismo plazo.**
 - `docs/conocimiento/whatsapp/un-mensaje-con-el-reloj-no-esta-enviado.md`

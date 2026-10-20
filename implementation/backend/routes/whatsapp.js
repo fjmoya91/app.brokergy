@@ -515,6 +515,40 @@ router.get('/conversacion/adjunto', staffOInterno, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RONDA — la lectura nocturna de los chats (services/rondaWhatsapp.js). FASE 1:
+// en seco, solo informa a Fran. ADMIN o clave interna: el informe lleva las
+// conversaciones de clientes reales.
+// ─────────────────────────────────────────────────────────────────────────────
+const ronda = require('../services/rondaWhatsapp');
+
+// GET → si está encendida, cómo va la que corre y el resumen de la última
+router.get('/ronda', adminOInterno, (req, res) => res.json(ronda.estado()));
+
+// POST { dias?, telefono?, enviar? } → lanza una ronda a mano (202, no se espera).
+// Sin `enviar: true` no sale nada: solo deja el informe.
+router.post('/ronda/ejecutar', adminOInterno, (req, res) => {
+    try {
+        const dias = req.body?.dias != null ? Number(req.body.dias) : null;
+        // `modelo`, para COMPARAR a mano (solo un nombre de Gemini; la programada usa el del .env).
+        const modelo = /^gemini-[a-z0-9.-]{1,40}$/.test(String(req.body?.modelo || '')) ? req.body.modelo : null;
+        res.status(202).json(ronda.lanzar({
+            dias: Number.isFinite(dias) && dias > 0 ? dias : null,
+            telefono: req.body?.telefono || null,
+            enviar: req.body?.enviar === true,
+            modelo,
+        }));
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// GET ?formato=md|html|whatsapp → el informe de la última ronda
+router.get('/ronda/informe', adminOInterno, (req, res) => {
+    const formato = ['md', 'html', 'whatsapp'].includes(req.query.formato) ? req.query.formato : 'md';
+    const txt = ronda.informe(formato);
+    if (txt == null) return res.status(404).json({ error: 'Todavía no hay ninguna ronda hecha en este servidor.' });
+    res.type(formato === 'html' ? 'html' : 'text').send(txt);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BOT — el asistente que contesta a los chats etiquetados.
 //
 // Todo ADMIN: aquí se ve lo que una máquina le ha dicho a clientes reales en

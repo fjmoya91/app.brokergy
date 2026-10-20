@@ -1,0 +1,14 @@
+{
+  "name": "banco-cee-api",
+  "private": true,
+  "description": "Banco de pruebas EN SECO: la skill generar-cee-inicial como agente propio sobre la API de Claude, para medir coste y calidad (Opus 5.5 frente a Sonnet 5.5).",
+  "type": "module",
+  "scripts": {
+    "estimar": "node banco.mjs estimar",
+    "correr": "node banco.mjs correr",
+    "comparar": "node banco.mjs comparar"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0"
+  }
+}

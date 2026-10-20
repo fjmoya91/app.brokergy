@@ -28,6 +28,9 @@
 //   node scripts/cee_inicial.js calificar --cola [--escribir]
 //            (lo que la VENTANA dejó «por calificar»: se rehace desde la receta,
 //             se vuelven a medir las placas de la 2.ª medida y lo califica CE3X)
+//   node scripts/cee_inicial.js listo <clave> [--fase final] [--cex ruta] [--out DIR] [--escribir] [--forzar]
+//            (el `_REVISAR` LISTO PARA FIRMAR: medidas calculadas por CE3X, nombre
+//             canónico, PDF sin firmar y el XML cargado en la app; no firma)
 //
 // LA RECETA: lo que decide el plan (medidas, aerotermia de la simulación, quién
 // firma, fechas, medidas libres, las placas medidas de la 2.ª medida) se GUARDA
@@ -1454,7 +1457,11 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     for (const [id, lista] of Object.entries(plan.huecos || {})) {
         const m = porId[id];
         if (!m) throw new Error(`La pared ${id} no está en el plano.`);
-        if ((lista || []).length && !admiteHuecos({ ...m })) throw new Error(`${id} es ${m.tipo}: no admite huecos (solo fachadas).`);
+        // El tipo que vale es el corregido (`tipos` del plan o el ya guardado), no el
+        // de Catastro: una partición contra el soportal abierto que el plan pasa a
+        // FACHADA admite sus huecos (26RES060_OP301, PVBN1).
+        const tipo = plan.tipos?.[id] || prev?.tipos?.[id] || m.tipo;
+        if ((lista || []).length && !admiteHuecos({ ...m, tipo })) throw new Error(`${id} es ${tipo}: no admite huecos (solo fachadas).`);
         huecos[id] = (lista || []).map((h) => {
             const tipo = h.tipo === 'puerta' ? 'puerta' : 'ventana';
             const uid = nuevoUid();
@@ -3466,11 +3473,206 @@ async function calificar() {
     }
 }
 
+// ─── listo: el CEE del agente, LISTO PARA FIRMAR ─────────────────────────────
+
+/**
+ * `listo <clave> [--fase final] [--cex <ruta>] [--out DIR] [--escribir] [--forzar]`
+ *
+ * Lo que faltaba entre «el agente ha dejado el `_REVISAR`» y «Fran lo firma con
+ * firmar_cee.js». Probado a mano en 26RES060_237 (19/10/2026) y hecho orden para
+ * que lo usen igual Claude Code y el agente de la API:
+ *   1. CE3X 3.2 califica el `_REVISAR.cex`, CALCULA las medidas y lo GUARDA
+ *      (`calificarCex(…, { guardarCalculado: true })`) → `.cex` + XML + PDF. Si el
+ *      XML no valida (regla 140) se para aquí: ni se sube ni se firma.
+ *   2. `.cex` y `.xml` con su NOMBRE CANÓNICO por la subida del técnico
+ *      (`subidaCeePublica`: `cee_files` + la validación vuelve a ámbar); lo que ya
+ *      hubiera con ese nombre se versiona a OLD.
+ *   3. El PDF SIN firmar como `{nº} – CEE INICIAL.pdf` en la carpeta de la fase:
+ *      es el que busca `firmar_cee.js`.
+ *   4. El XML en la app como «Cargar CEE»: `cee_{fase}`, `xml_{fase}`, los
+ *      combustibles, las FECHAS de firma y visita (en `cee` y, valor suelto, en
+ *      `documentacion` — nunca con el merge, que vuelve lista una fecha) y, fuera
+ *      del RES080, la D_ACS por litros/día (`ajusteAcsLitros`). Se relee.
+ * En una OPORTUNIDAD no hay subida canónica: no hay certificado del técnico
+ * hasta aceptarla, así que solo califica y deja la copia. NO FIRMA nunca.
+ * En seco deja la copia en `scratch/cee-inicial/<nº>/listo` (o `--out`).
+ */
+async function listo() {
+    const fase = opt('fase') === 'final' ? 'final' : 'inicial';
+    const ctx = await cargar(POS[0]);
+    const e = ctx.expediente;
+    const num = e.numero_expediente;
+    const esOp = ctx.origen === 'op';
+    const esCee = ctx.origen === 'cee';
+    const ceeDirectoUploads = esCee ? require('../services/ceeDirectoUploadService') : null;
+    if (esCee && fase === 'final' && String(e.alcance || 'UNICO').toUpperCase() !== 'DOBLE') {
+        throw new Error(`${num} es un encargo de UN solo certificado: no tiene CEE final.`);
+    }
+    //: El rótulo canónico de la fase: «CEE INICIAL» / «CEE FINAL»; en un CEE
+    //: directo de un solo certificado, «CEE» a secas (`sectionLabel`).
+    const rotulo = esCee ? ceeDirectoUploads.sectionLabel(e, fase) : (fase === 'final' ? 'CEE FINAL' : 'CEE INICIAL');
+    const canon = ext => `${num} – ${rotulo}.${ext}`;
+    console.log(`\n${num} · ${esOp ? 'OPORTUNIDAD' : esCee ? 'CEE DIRECTO' : 'EXPEDIENTE CAE'} · ${rotulo}`);
+
+    //: Antes de nada: sin carpeta de Drive no se sube nada. `ensureCeeSectionFolder(null)`
+    //: CREARÍA «1. CEE» en la raíz de Mi unidad (pasó en 26RES060_231).
+    if (!ctx.driveFolderId) throw new Error('Sin carpeta de Drive: no hay de dónde leer ni dónde subir.');
+    const disp = cexAPdf.disponible();
+    if (!disp.ok) throw new Error(`En este equipo no hay CE3X 3.2 (${disp.error}): esto se hace en el PC.`);
+
+    // 0. La fase en la app: lo registrado o firmado no se vuelve a dejar «listo».
+    if (!esOp) {
+        const { data: fila } = await supabase.from(esCee ? 'cee_directos' : 'expedientes')
+            .select('seguimiento').eq('id', e.id).maybeSingle();
+        const estadoFase = fila?.seguimiento?.[`cee_${fase}`] || null;
+        if (estadoFase) console.log(`  fase en la app: ${estadoFase}`);
+        if (estadoFase === 'REGISTRADO' && !RESTO.includes('--forzar')) {
+            throw new Error(`El ${rotulo} ya está REGISTRADO: no se rehace (--forzar si de verdad hay que hacerlo).`);
+        }
+    }
+
+    // 1. El `_REVISAR.cex`: el de Drive (el que se selló y el que se revisa en la
+    //    ventana); la copia local de `aplicar` si en Drive no hay; `--cex` manda.
+    const rCex = opt('cex');
+    let fuente = null;
+    if (rCex && rCex !== true) {
+        fuente = { bytes: fs.readFileSync(rCex), nombre: path.basename(rCex), de: rCex };
+    } else {
+        const leido = await cex.leerCexDeFase(ctx, fase);
+        if (leido) fuente = { ...leido, de: 'Drive' };
+        const local = path.join(CACHE, cex.nombreDelCex(e, fase));
+        if (fs.existsSync(local)) {
+            const bl = fs.readFileSync(local);
+            if (!fuente) fuente = { bytes: bl, nombre: path.basename(local), de: local };
+            else if (!bl.equals(Buffer.from(fuente.bytes))) {
+                console.log(`  ⚠ La copia local (${local}) NO es la de Drive: se usa la de Drive. --cex <ruta> para la otra.`);
+            }
+        }
+    }
+    if (!fuente) throw new Error(`No hay «${cex.nombreDelCex(e, fase)}» ni en Drive ni en ${CACHE}: primero hay que generarlo.`);
+    console.log(`  .cex de partida: ${fuente.nombre} (${fuente.de}) · ${kb(fuente.bytes.length)}`);
+    const crypto = require('crypto');
+    const sello = (await cex.leerSello(ctx).catch(() => ({})))?.[fase];
+    if (sello) {
+        const tocado = fuente.de === 'Drive' && sello.md5
+            && crypto.createHash('md5').update(Buffer.from(fuente.bytes)).digest('hex') !== sello.md5;
+        console.log(`  sello: ${sello.por || '—'} · ${String(sello.at || '').slice(0, 16)}`
+            + `${tocado ? ' · TOCADO después (se guardó en CE3X o lo subió otra persona)' : ''}`
+            + `${sello.por_calificar ? ' · POR CALIFICAR' : ''}`);
+    }
+
+    // 2. Lo que ya hay en la carpeta con el nombre canónico: subir otra vez lo versiona a OLD.
+    //    En seco se BUSCA la carpeta, no se crea (ni se toca su permiso).
+    const raizCee = esCee ? ctx.driveFolderId : await driveService.findSubfolderByName(ctx.driveFolderId, '1. CEE');
+    const nombreCarpeta = esCee ? require('../services/ceeDirectoFolders').subcarpetaFase(e.alcance, fase) : rotulo;
+    const carpeta = esOp ? null
+        : ESCRIBIR ? await cex.carpetaFase(ctx, fase)
+        : { id: raizCee ? await driveService.findSubfolderByName(raizCee, nombreCarpeta) : null };
+    const ya = {};
+    if (carpeta?.id) {
+        const nombres = new Set((await driveService.listFiles(carpeta.id) || []).map(f => f.name));
+        for (const ext of ['cex', 'xml', 'pdf']) ya[ext] = nombres.has(canon(ext));
+        ya.fdo = nombres.has(`${num} – ${rotulo}_fdo.pdf`);
+        const hay = ['cex', 'xml', 'pdf'].filter(x => ya[x]).map(x => canon(x));
+        console.log(hay.length
+            ? `  YA ESTÁN en la carpeta: ${hay.join(' · ')} → subir otra vez los manda a OLD (no se borra nada).`
+            : '  En la carpeta aún no hay ningún canónico de esta fase.');
+        if (ya.fdo) {
+            console.log(`  ⚠ Ya hay un «${num} – ${rotulo}_fdo.pdf» (FIRMADO): dejarlo «listo» otra vez obliga a volver a firmar.`);
+        }
+    }
+
+    // 3. CE3X 3.2: califica, CALCULA las medidas y guarda el `.cex` calculado.
+    console.log('\nCE3X 3.2: califica, calcula las medidas y guarda el .cex calculado (≈1 min)…');
+    const cal = await cexAPdf.calificarCex(Buffer.from(fuente.bytes), { guardarCalculado: true });
+    for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
+    if (!cal.ok || cal.incompleto) throw new Error(`CE3X no lo da por bueno: ${cal.error || 'certificado incompleto'}. No se sube nada.`);
+    if (!cal.cex || !cal.xml || !cal.pdf) throw new Error(`Falta algo: .cex ${!!cal.cex} · .xml ${!!cal.xml} · .pdf ${!!cal.pdf}. No se sube nada.`);
+
+    const xmlTexto = Buffer.isBuffer(cal.xml) ? cal.xml.toString('utf8') : String(cal.xml);
+    const parsed = await previstoSrv.leerXml(xmlTexto);
+    parsed._fileName = canon('xml');
+    console.log(`  XML: ${parsed.superficieHabitable} m² · dem. cal ${parsed.demandaCalefaccion} · ACS ${parsed.demandaACS}`
+        + ` · ${parsed.emisionesLetra || '—'}/${parsed.epnrLetra || '—'} · firma ${parsed.fechaFirma || '—'} · visita ${parsed.fechaVisita || '—'}`);
+    if (!parsed.fechaFirma) console.log('  ⚠ El XML no trae fecha de firma: se cargará sin ella.');
+
+    const out = opt('out') && opt('out') !== true ? opt('out') : path.join(__dirname, '..', 'scratch', 'cee-inicial', num, 'listo');
+    fs.mkdirSync(out, { recursive: true });
+    for (const ext of ['cex', 'xml', 'pdf']) fs.writeFileSync(path.join(out, canon(ext)), cal[ext]);
+    console.log(`  copia local: ${out}`);
+
+    if (esOp) {
+        console.log('\nOPORTUNIDAD: la subida con nombre canónico NO APLICA (no hay certificado del técnico hasta aceptarla).'
+            + ' Al aceptarla, `listo` sobre el nº del expediente.');
+        return;
+    }
+    if (!ESCRIBIR) {
+        console.log(`\nEN SECO: no se ha subido nada. Con --escribir: ${canon('cex')} y ${canon('xml')} por la subida del técnico,`
+            + ` ${canon('pdf')} sin firmar, y el XML cargado en la app (cee_${fase}, xml_${fase}, combustibles y fechas).`);
+        return;
+    }
+    if (ya.fdo && !RESTO.includes('--forzar')) {
+        throw new Error('Hay un PDF FIRMADO en la carpeta: no se sustituye sin --forzar (y habría que volver a firmar).');
+    }
+
+    // 4. `.cex` y `.xml` canónicos por la MISMA subida que el técnico.
+    const { subirCae, subirCeeDirecto } = require('../services/cee/subidaCeePublica');
+    const QUIEN = { texto: 'Claude (Agente IA)', usuario: 'CLAUDE' };
+    for (const [slot, mime] of [['cex', 'application/octet-stream'], ['xml', 'application/xml']]) {
+        const r = esCee
+            ? await subirCeeDirecto({ id: e.id, fase, slot, buffer: cal[slot], mimetype: mime, quien: QUIEN })
+            : await subirCae({ expedienteId: e.id, fase, slot, buffer: cal[slot], mimetype: mime, quien: QUIEN });
+        console.log(`✓ ${r.name} → ${r.link}`);
+    }
+    // 5. El PDF SIN firmar con su nombre canónico (el `_fdo` lo pone firmar_cee.js).
+    const nombrePdf = canon('pdf');
+    const previo = await driveService.findFileByName(carpeta.id, nombrePdf);
+    if (previo) await driveService.archiveExistingToOld(carpeta.id, previo, nombrePdf);
+    const pdf = await driveService.saveFileToFolder(carpeta.id, nombrePdf, 'application/pdf', cal.pdf, { throwOnError: true });
+    console.log(`✓ ${nombrePdf} → ${pdf.id}`);
+
+    // 6. El XML en la app, como «Cargar CEE»: lo que leen el ahorro, el CIFO y la revisión.
+    await cex.setCeeField(e, `cee_${fase}`, parsed);
+    await cex.setCeeField(e, `xml_${fase}`, xmlTexto);
+    if (parsed.combustibleACS) await cex.setCeeField(e, `comb_acs_${fase}`, parsed.combustibleACS);
+    if (parsed.combustibleCalefaccion) await cex.setCeeField(e, `comb_cal_${fase}`, parsed.combustibleCalefaccion);
+    for (const [campo, valor] of [[`fecha_firma_cee_${fase}`, parsed.fechaFirma], [`fecha_visita_cee_${fase}`, parsed.fechaVisita]]) {
+        if (!valor) continue;
+        await cex.setCeeField(e, campo, valor);
+        //: Valor SUELTO por la RPC de clave: `merge_*_doc_json` vuelve lista una fecha.
+        const { error } = esCee
+            ? await supabase.rpc('set_cee_directo_doc_field', { p_id: e.id, p_field: campo, p_value: valor })
+            : await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: e.oportunidad_id, p_field: campo, p_value: valor });
+        if (error) throw new Error(`${campo}: ${error.message}`);
+    }
+    //: La D_ACS por los litros/día del certificado (criterio del 19/10/2026), la
+    //: MISMA función que al cargar un CEE en el módulo. No en un RES080.
+    const esReforma = e.oportunidades?.ficha === 'RES080' || e.cee?.is_reforma || /RES080/i.test(num);
+    if (!esCee && !esReforma) {
+        const { data: c } = await supabase.from('expedientes')
+            .select('acs_method:cee->acs_method, dacs_litros_dia:cee->dacs_litros_dia, cee_inicial:cee->cee_inicial, cee_final:cee->cee_final')
+            .eq('id', e.id).maybeSingle();
+        const { ajusteAcsLitros } = await esm('expedientes/logic/demandaAcs.js');
+        const ajuste = ajusteAcsLitros({ ...(c || {}) });
+        for (const [k, v] of Object.entries(ajuste || {})) await cex.setCeeField(e, k, v);
+        if (ajuste) console.log(`  D_ACS por litros/día: ${JSON.stringify(ajuste)}`);
+    }
+
+    // 7. Releer: lo que de verdad ha quedado en la BD.
+    const { data: comp } = await supabase.from(esCee ? 'cee_directos' : 'expedientes')
+        .select(`ficheros:cee->cee_files->${fase}, firma:documentacion->fecha_firma_cee_${fase},`
+            + ` visita:documentacion->fecha_visita_cee_${fase}, sup:cee->cee_${fase}->superficieHabitable`)
+        .eq('id', e.id).maybeSingle();
+    console.log(`  BD: ${JSON.stringify(comp)}`);
+    console.log(`\n✓ ${rotulo} LISTO PARA FIRMAR. Firmar es otro paso, con el «doy por válido»:`
+        + `\n  node scripts/firmar_cee.js ${num}${fase === 'final' ? ' --fase final' : ''}`);
+}
+
 // ─── main ───────────────────────────────────────────────────────────────────
 
 const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel, keymark,
                   'alta-aerotermia': altaAerotermia, aplicar, croquis, video,
-                  'pedir-fotos': pedirFotos, streetview, rehacer, instalacion, calificar };
+                  'pedir-fotos': pedirFotos, streetview, rehacer, instalacion, calificar, listo };
 
 (async () => {
     const f = ORDENES[ORDEN];

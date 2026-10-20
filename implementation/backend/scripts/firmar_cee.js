@@ -38,7 +38,11 @@ const numero = args[0];
 const opt = (k) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : null; };
 const flag = (k) => args.includes(`--${k}`);
 const fase = (opt('fase') || 'inicial').toLowerCase() === 'final' ? 'final' : 'inicial';
-const FASE = fase === 'final' ? 'CEE FINAL' : 'CEE INICIAL';
+//: El rótulo del fichero. En un CEE directo de UN solo certificado es «CEE» a secas
+//: (`ceeDirectoUploadService.sectionLabel`): se fija al localizarlo.
+let FASE = fase === 'final' ? 'CEE FINAL' : 'CEE INICIAL';
+//: `{nº} – {FASE}.{ext}` y no otro que acabe igual («CEE.pdf» casaría con «…_REVISAR CEE.pdf»).
+const esCanonico = (nombre, ext, cola = '') => new RegExp(`[–-] ?${FASE}${cola}\\.${ext}$`, 'i').test(String(nombre).replace(/\s+/g, ' '));
 const SCRATCH = path.join(__dirname, '..', 'scratch', 'firmar-cee');
 const FE = path.join(__dirname, '..', '..', 'frontend');
 const CLI = process.env.AUTOFIRMA_CLI || 'C:\\Program Files\\AutoFirma\\Autofirma\\AutofirmaCommandLine.exe';
@@ -73,8 +77,8 @@ async function pdfAFirmar(origen, row) {
     const carpeta = await carpetaDeFase(origen, row);
     if (!carpeta) throw new Error(`${numero}: no encuentro la carpeta «${FASE}» en Drive`);
     const files = (await driveService.listFiles(carpeta)).filter(f => f.mimeType !== 'application/vnd.google-apps.folder');
-    const pdfs = files.filter(f => /\.pdf$/i.test(f.name) && new RegExp(`${FASE}\\.pdf$`, 'i').test(f.name.replace(/\s+/g, ' ')));
-    if (files.some(f => /_fdo\.pdf$/i.test(f.name) && f.name.toUpperCase().includes(FASE))) {
+    const pdfs = files.filter(f => esCanonico(f.name, 'pdf'));
+    if (files.some(f => esCanonico(f.name, 'pdf', '_fdo'))) {
         console.log(`⚠️ Ya hay un «…_fdo.pdf» en la carpeta: se firmará otra vez y SUSTITUIRÁ al anterior (va a OLD).`);
     }
     if (!pdfs.length) {
@@ -84,7 +88,7 @@ async function pdfAFirmar(origen, row) {
             : `${numero}: no hay «${numero} – ${FASE}.pdf» en Drive.`);
     }
     const f = pdfs.sort((a, b) => String(b.modifiedTime).localeCompare(String(a.modifiedTime)))[0];
-    const xmlF = files.find(x => new RegExp(`${FASE}\\.xml$`, 'i').test(x.name.replace(/\s+/g, ' ')) && !/revisar/i.test(x.name));
+    const xmlF = files.find(x => esCanonico(x.name, 'xml') && !/revisar/i.test(x.name));
     const xml = xmlF ? Buffer.from(await driveService.getFileContent(xmlF.id)).toString('latin1') : null;
     return { buffer: Buffer.from(await driveService.getFileContent(f.id)), nombre: f.name, xml };
 }
@@ -133,6 +137,12 @@ async function vistaPrevia(buffer, png) {
         process.exit(1);
     }
     const { origen, row } = await localizar(numero);
+    if (origen === 'cee_directo') {
+        if (fase === 'final' && String(row.alcance || 'UNICO').toUpperCase() !== 'DOBLE') {
+            throw new Error(`${numero} es un encargo de UN solo certificado: no tiene CEE final.`);
+        }
+        FASE = require('../services/ceeDirectoUploadService').sectionLabel(row, fase);
+    }
     const { buffer, nombre, xml } = await pdfAFirmar(origen, row);
     console.log(`${numero} (${origen}) · ${FASE} · firmo «${nombre}»`);
     if (leerFirmasPdf(buffer).firmada) throw new Error(`«${nombre}» ya lleva firma electrónica: no se firma otra vez.`);

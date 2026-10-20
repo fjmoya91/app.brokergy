@@ -31,6 +31,22 @@ de SOLICITANTE a quien se identifica, con su NIF fijo. La casilla «Es represent
 01) recarga la página: el solicitante pasa a ser editable —el titular, como dice el borrador— y quien
 presenta queda en el 02.
 
+**REGLA — en el 02 va quien FIRMA, nunca el AGENTE IA** (2026-10-19). Los CEE iniciales que hace el
+Agente IA lo dejan de certificador asignado, pero él no firma ni presenta: los firma Fran con el
+certificado de representante de Brokergy. El borrador tomaba el 02 del asignado, la ficha del agente no
+tiene NIF, dirección, teléfono ni correo, y la sede rechazó «Pagar y enviar» con «En 02 Representante:
+Cumplimente los campos obligatorios» (26RES060_189, registro 4212311/2026: se rellenó a mano). Ahora
+`borradorCeeService.representanteDe` pone, si el asignado es el agente (`es_agente_ia`), al certificador
+de la casa —el MISMO técnico por defecto de `cee_inicial.js`, `CEE_TECNICO_POR_DEFECTO`— y el borrador
+lo DICE (nota del 02 y un aviso), en el popup de la app y en `preparar`. Decisión del usuario: «aunque
+ponga agente IA, siempre debe haber un certificador real; si no digo nada, seré yo, Fran Moya, y si no,
+preguntarme por otro» → `preparar <nº> --certificador <id_empresa | NIF | nombre>`. Un técnico de
+VERDAD sin NIF o sin dirección **no** se cambia por Fran (presentar como suyo un CEE que firma otro
+sería falso): se queda con su aviso y se completa su ficha. `preparar` cuenta los datos del 02 (tipo
+de vía, vía, nº, CP, municipio, móvil, correo) entre los obligatorios —sin ellos, NO LISTO— y
+`rellenar.js` dice `NO TOMA`/`VACÍO` si una casilla no se queda con su valor, en vez de descubrirlo
+al pagar. Prueba: `test_borrador_cee.mjs` («Agente IA asignado»).
+
 **REGLA — tras escribir la referencia catastral se pulsa «Añadir Referencia».** La sede valida el XML
 contra las referencias AÑADIDAS a la lista, no contra la casilla: sin el botón, el XML se rechaza
 («No ha pulsado el botón 'Añadir Referencia' o ninguna de las referencias… coincide con las del XML»).
@@ -82,6 +98,15 @@ JavaScript): se acepta con `escritorio.ps1 aviso`.
 «SOAP:Server: Server Error» y los «Id. de firma» de los adjuntos vacíos, con el registro y la firma del
 formulario bien: parece lo normal de la sede. Pendiente de ver que la copia por correo trae los cuatro
 documentos.
+
+**REGLA — una solicitud perdida tras pagar se rehace con la referencia 046, sin volver a pagar**
+(19/10/2026, 26RES060_217, registro 4217566/2026). Mientras el usuario autorizaba el 3DS, Chrome
+descartó la pestaña de la sede (estaba detrás) y al volver salió «Confirmar reenvío del formulario»
+(ERR_CACHE_MISS): la solicitud ya no existía. Reenviar repetiría «Pagar y enviar». Se bajó el
+justificante de la tasa, se empezó de cero y en el 08 se marcó «Indique la referencia 046 del pago ya
+realizado» con el nº de documento (13 dígitos) del pago hecho: registró a la primera. Y con el usuario
+usando el PC a la vez, un Intro o un clic real se comprueban contra la ventana que está DELANTE antes
+de mandarlos (sus clics le devuelven el foco a Word).
 
 **REGLA — la ETIQUETA y las resoluciones se recogen en notifica.jccm.es, y se COMPRUEBAN antes de
 subirlas** (2026-10-15, primer caso 2026CEE_64). Tres notificaciones por certificado (Resolución de

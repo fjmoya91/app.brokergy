@@ -50,6 +50,54 @@ movería el bono de 66 expedientes en marcha, 27 de ellos RES080 que pasarían d
 95-150 €/MWh (con el S.O. en 140, alguno daría margen negativo). Si algún día se
 quiere, es sembrarles el sello con su `caePriceClient`.
 
+### Y el sello no llegaba a NACER (2026-10-20)
+
+Medido el 20/10/2026: de las **141 oportunidades creadas desde el 09/09, solo 2 tenían
+el sello** (una de ellas puesta a mano: 26RES060_OP301 → 26RES060_239, que daba
+4.691,38 € de bono en vez de 4.938,29). El sello se escribía únicamente en el guardado
+de la calculadora (`POST /api/oportunidades`), y **ninguna alta nace ahí**: la landing,
+«Nueva simulación» (`/internal-simulation`), el marketplace y la skill
+`alta-oportunidad` crean la fila con `createLead`
+([leadService.js](implementation/backend/services/leadService.js)). Cuando después se
+guardaba en la calculadora, el POST ya encontraba la fila **sin** sello y, por la propia
+regla, no podía estrenarlo. Las nuevas quedaban tratadas como anteriores.
+
+**REGLA — el sello se pone al NACER, en `createLead`**, que es el punto por el que pasa
+toda alta; el POST solo lo mantiene al día. En el re-envío del funnel sobre un LEAD
+previo manda la misma regla (`sellarPrecioCae(inputs, leadPrevio)`). Las oportunidades
+sintéticas de los expedientes MIGRADOS (`migrateExpedienteFromXml`) no se sellan: son
+anteriores por definición.
+
+**REGLA — el RES080 también lee el sello.** La rama RES080 de la economía
+(`expedienteFinancials.js`, su gemelo `expedienteFinancialsNode.js` y la copia de
+`ExpedientesView.jsx`) iba directa al respaldo de 60: aunque se sellara a 100, el
+listado y el portal calculaban a 60 (el panel del detalle sí leía el sello). Ahora es
+`override ?? sello ?? 60`. No movió ninguna cifra: el 20/10/2026 no había ningún RES080
+sellado.
+
+Lo que **no** cambia: el Anexo I y el Convenio de Cesión imprimen `caePriceClient`
+(`getClientCaeRate`, en `docGenerators.js`), no el sello, así que lo firmado ya lleva el
+precio de la propuesta — el fallo era que el panel decía otra cosa que el papel.
+
+De las 139 que nacieron sin sello (50 con expediente), **el 20/10/2026 se sellaron
+18, con el «sí» de Fran**: las que tienen expediente CON CEE y SIN override, que son
+las únicas en las que el sello cambia el bono (17 suben, 26RES093_9 baja de 6.184,85 a
+5.533,81 €; en total +14.743 €). Se comprobó antes que los dos casos raros eran el
+precio de la propuesta ACEPTADA: 26RES060_215 a 130 €/MWh (193.735 kWh → 25.186 €,
+aceptada el 05/10) y 26RES093_9 a 85 (48.374 kWh → 4.112 €, aceptada el 24/09). Ninguna
+tenía nada firmado. Las otras 121 (las sin CEE, las de override y las que aún no son
+expediente) siguen sin sello: al llegar su CEE o al aceptarse calcularán al respaldo.
+El informe, en seco, con el bono de hoy y el que daría el sello por expediente:
+
+```bash
+node implementation/backend/scripts/precio_cae_sello_pendientes.mjs            # en seco
+node implementation/backend/scripts/precio_cae_sello_pendientes.mjs --escribir --solo 26RES060_191
+```
+
+Escribe con la RPC atómica `oportunidad_merge_inputs` (solo toca `inputs`). Con un
+`economico_override.cae_client_rate` en el expediente el sello no mueve nada, y sin CEE
+el panel hereda la propuesta guardada, que ya se hizo a su precio.
+
 ```bash
 node implementation/backend/scripts/test_precio_cae_sello.mjs
 ```

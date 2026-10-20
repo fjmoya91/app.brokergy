@@ -55,14 +55,17 @@ paths:
 
 135. **En un RES080, cada ventana que CAMBIA resuelve sus PUENTES TÉRMICOS** (2026-10-05, Fran): en el previsto —y en el CEE final que sale de él— contorno de hueco ψ 0,55 → **0,02** y caja de persiana 1,49 → **0,65**, los de la «Mejora de Puentes Térmicos» del PROPIO CE3X 3.2 (nunca inventados); la medida del inicial lleva esa pieza. `previsto.puentes_huecos: false` lo apaga. Fuente única: `tools/previsto.py` + `medida_previsto.py`. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_previsto.py`. Ver "Los PUENTES TÉRMICOS de las ventanas que CAMBIAN".
 
+145. **El botón CE3X pregunta cómo se hace el CEE inicial: con IA (la cola del PC) o a mano en la envolvente** (2026-10-19, Fran). La app APUNTA el encargo en `cee_ia_trabajos` y el vigilante del PC (`tools/banco-cee-api/banco.mjs atender`, `atender.cmd`) lo toma con un UPDATE condicionado y corre el agente de la API, escribiendo su progreso; el PC late en `cee_ia_vigilantes` y el popup dice si hay uno atendiendo. UN trabajo vivo por CEE y fase (índice único parcial); EN_CURSO sin latido en 10 min = atascado y se puede repedir. «Ya lo hizo la IA» lo dice el SELLO del `.cex` (`autor = 'skill generar-cee-inicial'`), no la tabla: entonces el botón abre la envolvente directamente y «🤖 Hecho con IA» deja rehacerlo (vuelve a costar, `rehacer`). Con la IA trabajando, popup con su progreso y «Parar» (entre vueltas, `debeParar`), y aviso en la envolvente. No se pide con el inicial REGISTRADO, en una oportunidad ACEPTADA ni para el FINAL; solo staff. Fuente única: [services/ceeIa.js](implementation/backend/services/ceeIa.js) + [features/cee-ia/](implementation/frontend/src/features/cee-ia). Tras tocarlo: `node implementation/backend/scripts/test_cee_ia.mjs` y `auditar_rutas_sin_guardian.js`. Ver "Generar el CEE inicial con IA desde el botón CE3X".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/cee-generacion/ce3x-2-3-y-3-1-se-certifica-con-las-dos.md` — CE3X 2.3 y 3.1 — se certifica con las DOS (2026-10-02) · 13,6 KB
-- `docs/conocimiento/cee-generacion/ce3x-3-2-la-vigente-y-el-autoconsumo-mes-a-mes.md` — CE3X 3.2 — la vigente desde el 08/10/2026, y el AUTOCONSUMO mes a mes · 13,5 KB
+- `docs/conocimiento/cee-generacion/ce3x-3-2-la-vigente-y-el-autoconsumo-mes-a-mes.md` — CE3X 3.2 — la vigente desde el 08/10/2026, y el AUTOCONSUMO mes a mes · 14,6 KB
 - `docs/conocimiento/cee-generacion/el-acs-que-hace-otra-maquina-tambien-se-escribe.md` — El ACS que hace OTRA máquina también se escribe (2026-09-14) · 3,8 KB
-- `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29) · 9,6 KB
+- `docs/conocimiento/cee-generacion/generar-el-cee-con-ia-desde-el-boton-ce3x.md` — Generar el CEE inicial con IA desde el botón CE3X (2026-10-19) · 4,4 KB
+- `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29) · 10,8 KB
 - `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/con-un-video-en-vez-de-fotos-y-si-no-se-puede-se-pregunta.md` — Con un VÍDEO en vez de fotos — y si no se puede, se PREGUNTA (2026-10-06) · 7,9 KB
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/00-la-medida-de-mejora-de-una-hibridacion.md` — La medida de mejora de una HIBRIDACIÓN (2026-09-16) · 4,2 KB
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-de-un-res060-copiando-el-inicial.md` — El CEE FINAL de un RES060: se COPIA el inicial (2026-10-08) · 7,5 KB
@@ -94,12 +97,22 @@ paths:
   - **REGLA — en la 3.2 las placas van SIEMPRE como «Generación renovable eléctrica»**
   - **REGLA — cada mes se declara lo MENOR entre la producción de PVGIS y el consumo de ese mes**
   - **REGLA — en el PC manda CE3X**
+  - **REGLA — cada mes avisado se deja un 1 % POR DEBAJO de su consumo**
+  - **REGLA — en el INICIAL, la medida «aerotermia + placas» no se recorta con el XML del propio
+inicial**
   - **REGLA — `cexAPdf.pdfDesdeXml`
   no llama a `xml2cert` con un «___» dentro**
 - `docs/conocimiento/cee-generacion/el-acs-que-hace-otra-maquina-tambien-se-escribe.md`
   - **REGLA — una obra con el ACS APARTE son DOS equipos, y los dos se escriben.**
   - **REGLA — en el slot ACS, la casilla [6] manda sobre la FORMA del [7]**
   - **REGLA — el DEPÓSITO cuelga de la máquina que calienta el agua.**
+- `docs/conocimiento/cee-generacion/generar-el-cee-con-ia-desde-el-boton-ce3x.md`
+  - **REGLA — la app APUNTA, el PC GENERA.**
+  - **REGLA — un CEE tiene como mucho UN trabajo vivo por fase**
+  - **REGLA — «ya lo ha hecho la IA» lo dice el SELLO del `.cex`**
+  - **REGLA — qué hace el botón:**
+  - **REGLA — no se pide**
+  - **REGLA — parar es entre vueltas**
 - `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md`
   - **REGLA — `loSenalado` es UNA función y vive fuera de React.**
   - **REGLA — el modelo solo LEE; el plan lo escribe quien ha mirado las fotos.**

@@ -805,7 +805,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     const fin = calculateFinancials({
                         presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
                         savingsKwh: res080.ahorroEnergiaFinalTotal,
-                        caePriceClient: overrides.cae_client_rate ?? CAE_PRECIO_CLIENTE_ANTERIOR.res080,
+                        caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || CAE_PRECIO_CLIENTE_ANTERIOR.res080),
                         caePriceSO: overrides.cae_so_rate ?? 140,
                         includeIrpf: true
                     });

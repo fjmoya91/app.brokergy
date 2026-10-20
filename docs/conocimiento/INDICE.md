@@ -7,30 +7,30 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 29,3 KB | 8 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 31,3 KB | 9 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
-| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 34,9 KB | 20 |
+| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 35,3 KB | 20 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
-| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 42,6 KB | 13 |
-| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 12,3 KB | 4 |
+| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 44,5 KB | 14 |
+| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 12,7 KB | 5 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 19,5 KB | 7 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 35,6 KB | 10 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 90,1 KB | 35 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 90,7 KB | 35 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
-| `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,7 KB | 2 |
+| `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,8 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 6,4 KB | 2 |
-| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 20,7 KB | 9 |
-| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 14,8 KB | 5 |
+| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 22,8 KB | 10 |
+| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 15,8 KB | 5 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,3 KB | 10 |
-| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 18,0 KB | 7 |
+| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 18,7 KB | 7 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 7,0 KB | 0 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 5,3 KB | 3 |
-| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 14,0 KB | 14 |
+| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 17,3 KB | 15 |
 
 ## Reglas numeradas → dónde están
 
@@ -217,14 +217,20 @@
 - **136** → `.claude/rules/propuesta.md` — La oportunidad pasa a ENVIADA con CUALQUIER envío que salga bien, también solo al instalador, y la lista dic…
 - **137** → `.claude/rules/documentos.md` — En el CEE final de un RES080 lo que se reforma se IDENTIFICA, y el inicial y el final se casan SIN el «- CAM…
 - **138** → `.claude/rules/cee.md` — El CEE se PRESENTA en la sede de la JCCM sin tocar el PC: skill `presentar-cee`
+- **139** → `.claude/rules/envolvente-ce3x.md` — El trabajo guardado es la RECETA del `.cex`, y cada `.cex` queda SELLADO
 - **140** → `.claude/rules/cee.md` — Un CEE cuyo XML NO VALIDA no se da por bueno, ni se sube, ni se firma, ni se presenta
+- **141** → `.claude/rules/lotes.md` — Los FIRMADOS que el S.O. devuelve por CORREO se registran SOLOS, y solo lo limpio
+- **142** → `.claude/rules/calculo.md` — El ahorro anual en € paga cada kWh al precio de lo que lo produce
+- **143** → `.claude/rules/whatsapp.md` — La RONDA de WhatsApp la hace una TAREA PROGRAMADA de Claude Code y, en FASE 1, solo INFORMA a Fran
 - **144** → `.claude/rules/claude-automatizacion.md` — El ASISTENTE DENTRO DE LA APP solo LEE, va por la API y lo pesado se ENCARGA con un clic
+- **145** → `.claude/rules/cee-generacion.md` — El botón CE3X pregunta cómo se hace el CEE inicial: con IA (la cola del PC) o a mano en la envolvente
 - **146** → `.claude/rules/claude-automatizacion.md` — «Preséntalo» por WhatsApp: el Claude del servidor PREGUNTA, el PC de Fran PRESENTA
 
 ## Documentos por área
 
 ### calculo
 
+- `docs/conocimiento/calculo/ahorro-anual-en-euros-con-hibridacion.md` — El ahorro anual en € reparte el consumo por VECTOR: la bomba a precio de luz, la caldera al de su combustible (2026-10-19)
 - `docs/conocimiento/calculo/ahorro-res080-metodo-simplificado-por-vector-energetico.md` — Ahorro RES080 — método SIMPLIFICADO, por vector energético (2026-08-10)
 - `docs/conocimiento/calculo/bloques-de-viviendas-el-edificio-completo-como-objeto.md` — BLOQUES de viviendas — el edificio completo como objeto (2026-09-11)
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md` — El CEE que MANDA, y qué se avisa antes de generar (2026-09-03)
@@ -296,6 +302,7 @@
 - `docs/conocimiento/cee-generacion/ce3x-2-3-y-3-1-se-certifica-con-las-dos.md` — CE3X 2.3 y 3.1 — se certifica con las DOS (2026-10-02)
 - `docs/conocimiento/cee-generacion/ce3x-3-2-la-vigente-y-el-autoconsumo-mes-a-mes.md` — CE3X 3.2 — la vigente desde el 08/10/2026, y el AUTOCONSUMO mes a mes
 - `docs/conocimiento/cee-generacion/el-acs-que-hace-otra-maquina-tambien-se-escribe.md` — El ACS que hace OTRA máquina también se escribe (2026-09-14)
+- `docs/conocimiento/cee-generacion/generar-el-cee-con-ia-desde-el-boton-ce3x.md` — Generar el CEE inicial con IA desde el botón CE3X (2026-10-19)
 - `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)
 - `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/con-un-video-en-vez-de-fotos-y-si-no-se-puede-se-pregunta.md` — Con un VÍDEO en vez de fotos — y si no se puede, se PREGUNTA (2026-10-06)
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/00-la-medida-de-mejora-de-una-hibridacion.md` — La medida de mejora de una HIBRIDACIÓN (2026-09-16)
@@ -311,6 +318,7 @@
 
 - `docs/conocimiento/claude-automatizacion/el-asistente-de-fran-por-whatsapp-canal-siempre-abierto.md` — El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05)
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19)
+- `docs/conocimiento/claude-automatizacion/el-cee-inicial-por-la-api-banco-de-pruebas-y-coste.md` — El CEE inicial por la API de Claude: banco de pruebas y coste medido (2026-10-19)
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08)
 - `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19)
 
@@ -450,6 +458,7 @@
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09)
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01)
 - `docs/conocimiento/lotes/las-tarifas-del-verificador-en-su-ficha.md` — Las TARIFAS del verificador, en su ficha (2026-09-14)
+- `docs/conocimiento/lotes/los-firmados-del-so-llegan-por-correo-y-se-registran-solos.md` — Los FIRMADOS del S.O. llegan por CORREO y se registran solos (2026-10-19)
 - `docs/conocimiento/lotes/pedirle-cosas-al-sujeto-obligado-desde-el-cuadro-de-mando.md` — Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01 · ofertas 2026-09-10)
 - `docs/conocimiento/lotes/quien-firma-por-el-sujeto-obligado-y-la-ficha-que-no-viajaba.md` — Quién FIRMA por el SUJETO OBLIGADO, y la ficha que no viajaba (2026-09-19)
 
@@ -510,6 +519,7 @@
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js)
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13)
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md` — La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09)
+- `docs/conocimiento/whatsapp/la-ronda-nocturna-de-whatsapp.md` — La RONDA NOCTURNA de WhatsApp — fase 1, en seco (2026-10-19)
 - `docs/conocimiento/whatsapp/lo-que-llega-con-el-backend-parado-recuperarperdidos.md` — Lo que llega con el backend PARADO — `recuperarPerdidos()`
 - `docs/conocimiento/whatsapp/lo-que-whatsapp-rompio-y-hay-que-saber.md` — Lo que WhatsApp rompió, y hay que saber (2026-08-25)
 - `docs/conocimiento/whatsapp/modulo-whatsapp-novedades.md` — Módulo WhatsApp — Novedades (2026-04-17)

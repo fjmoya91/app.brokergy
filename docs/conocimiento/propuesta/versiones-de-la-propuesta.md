@@ -83,3 +83,39 @@ la anterior: inversión 12.400 € → 11.900 €" — antes solo decía "ENVIAD
 destinatario ni canal, así que no servía para reconstruir la conversación. Los importes
 (`inversion`, `caeBonus`, `irpfDeduction`, `totalAyuda`) se sellan por versión para poder
 decir qué cambió sin recalcular ni rasterizar nada.
+
+### Los importes sellados son los de la opción que IMPRIME el PDF (2026-10-19)
+
+**REGLA — con reforma, se sella la rama que el PDF enseña.** El `result` de una
+oportunidad con reforma lleva dos economías: `financials` (solo aerotermia) y
+`financialsRes080` (aerotermia + envolvente). La propuesta de SOLO reforma
+(`comparativaReforma === false`) imprime la segunda y la comparativa imprime las dos,
+pero `importesDe` leía siempre la primera. Medido el 19/10/2026: **las 36 versiones de
+las 28 oportunidades con reforma** habían sellado el bono de solo aerotermia. En
+26RES080_OP76 v1 se selló 2.255 € (la rama de aerotermia, recalculada al abrir) con un
+PDF que decía 5.262 €; el `result` guardado decía además 3.094 €, la misma rama pero del
+último guardado. Ahora `importes` lleva `rama` (`aerotermia` · `reforma` ·
+`comparativa`); en la comparativa, los de la reforma van en `importes.reforma`. Es el
+mismo criterio que el PDF (`isOnlyReforma`/`isBoth` en `ProposalModal`) y que el
+expediente (`propuestaGuardada.js`).
+
+**REGLA — el historial solo resta cifras de la MISMA opción.** Si de una versión a otra
+cambia la rama, se dice («propuesta comparativa aerotermia / reforma → solo reforma») y
+se comparan solo las opciones que están en las dos. Restar el bono de la reforma al de
+solo aerotermia no es un cambio de precio, es otra propuesta. Una versión antigua sin
+`rama` se lee como solo aerotermia, que es lo que de verdad sellaba.
+
+**REGLA — la inversión es la de la portada: presupuesto + fotovoltaica.** Se leía de
+`investment`, un campo que no existe, y las 200 versiones guardadas hasta el 19/10/2026
+tienen `inversion: null`: el «inversión 12.400 € → 11.900 €» nunca llegó a salir.
+
+Fuente única: [utils/importesPropuesta.js](implementation/backend/utils/importesPropuesta.js),
+que es puro, sin BD ni Drive. Lo único que lee `importes` es la línea del historial de un
+reenvío: el listado y el expediente eligen la rama por su cuenta. Las versiones ya
+guardadas se corrigen con el PDF archivado en Drive delante, no con el `result` actual,
+que puede haber cambiado después del envío:
+
+```bash
+node implementation/backend/scripts/test_importes_propuesta.js
+node implementation/backend/scripts/reparar_importes_versiones.js          # EN SECO
+```

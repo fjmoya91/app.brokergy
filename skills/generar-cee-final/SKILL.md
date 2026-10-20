@@ -289,6 +289,11 @@ cubierta que guardó CE3X para 26RES093_11.
 - El plazo de amortización NO se escribe: sin la inversión no hay forma de calcularlo; si el usuario
   lo quiere, que lo diga y va en «Otros datos».
 
+- **Sin NADA de ACS en el presupuesto ni en las facturas, el ACS del final es el TERMO ELÉCTRICO (efecto
+  Joule) del inicial**, que se QUEDA; el equipo nuevo es solo de calefacción (Fran, 19/10/2026,
+  26RES060_237). Si la Instalación trae un equipo de ACS nuevo sin modelo, no se escribe: la
+  Instalación tiene que estar en «ACS — no se actúa» + «Termo eléctrico», y eso se PREGUNTA (saca el
+  ACS del ahorro CAE).
 - La retirada **no se decide por la ficha sino mirando el fichero**: un equipo del inicial cuya parte
   de un servicio BAJA en la medida es el generador en apoyo; el equipo nuevo que comparte ese servicio
   con él es la bomba. Una caldera **mixta** que sigue con el ACS se queda, con la calefacción a 0.

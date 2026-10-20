@@ -19,6 +19,8 @@
 //   node scripts/alta_oportunidad.js obra <26RES080_OP52|26RES080_87>
 //   node scripts/alta_oportunidad.js documentar --op <nº> --plan docs.json [--escribir]
 //   node scripts/alta_oportunidad.js renombrar --op <nº> --tel <tel> [--anteponer] [--nombre "Nombre (Partner)"] [--escribir]
+//   node scripts/alta_oportunidad.js correo-raw <get_message RAW .txt|.eml> [--out DIR]   (Gmail de claude.ai)
+//   node scripts/alta_oportunidad.js correo "<remitente o asunto>" [--dias 14] [--uid N] [--out DIR]   (IMAP Hostinger)
 //
 // REGLAS (ver skills/alta-oportunidad/SKILL.md):
 //   · El chat se LEE en el servidor (la sesión de WhatsApp vive en el VPS) por
@@ -87,6 +89,8 @@ const miles = (n, dec = 0) => {
 };
 const eur = n => (n === null || n === undefined || n === '' ? '—' : `${miles(n, 2)} €`);
 const dosDec = n => (n === null || n === undefined || n === '' ? '—' : Number(n).toFixed(2).replace('.', ','));
+// El anexo de la propuesta para el presupuesto de las placas (hueco «Placas solares»).
+const ANEXO_FV = 'PRESUPUESTO DE LA INSTALACIÓN_FOTOVOLTAICA.pdf';
 
 // ─── Argumentos ─────────────────────────────────────────────────────────────
 
@@ -300,6 +304,20 @@ async function leer() {
         const { extraerDocumentoObra } = require('../routes/facturaOcr');
         const r = await extraerDocumentoObra(ficherosDe(opt('presupuesto')), 'presupuesto');
         console.log(JSON.stringify({ doc: r.doc, equipos: r.equipos }, null, 1));
+        // Lo que suma cada partida (líneas SIN IVA): las placas (FOTOVOLTAICA) van a
+        // P. Fotovoltaica, no a P. Aerotermia (presupuesto.fotovoltaica_con_iva).
+        const porPartida = {};
+        for (const l of r.ocr?.lineas || []) {
+            const k = String(l?.partida || 'OTROS').trim().toUpperCase() || 'OTROS';
+            porPartida[k] = (porPartida[k] || 0) + (Number(l?.importe_total) || 0);
+        }
+        if (Object.keys(porPartida).length) {
+            console.log(`\nPor partida (sin IVA): ${Object.entries(porPartida).map(([k, v]) => `${k} ${eur(v)}`).join(' · ')}`);
+            if (porPartida.FOTOVOLTAICA > 0) {
+                console.log(`  ⚠ Trae PLACAS: van a P. Fotovoltaica. Con IVA ${dosDec(r.doc.iva_pct || 21)} % ≈ ${eur(porPartida.FOTOVOLTAICA * (1 + (Number(r.doc.iva_pct) || 21) / 100))}`
+                    + ' → compruébalo en el PDF y ponlo en presupuesto.fotovoltaica_con_iva.');
+            }
+        }
         const { casarConCatalogo } = require('../services/placaEquipoOcrService');
         for (const e of r.equipos.filter(x => ['AEROTERMIA', 'ACS'].includes(x.partida) && x.modelo)) {
             // eslint-disable-next-line no-await-in-loop
@@ -333,6 +351,18 @@ async function aerotermia() {
 }
 
 // ─── crear ──────────────────────────────────────────────────────────────────
+
+/**
+ * Con `correo` en el plan (el material llegó por EMAIL, órdenes `correo-raw` /
+ * `correo`), el historial dice de qué correo salió y no «WhatsApp». Un plan con
+ * `chat` sale tal cual.
+ */
+function origenCorreo(texto, plan) {
+    const c = plan?.correo;
+    if (!c || plan.chat) return texto;
+    const desc = `email de ${c.de || c.remitente || '—'}${c.asunto ? ` «${c.asunto}»` : ''}${c.cuando ? ` (${c.cuando})` : ''}`;
+    return texto.replace(/^📲 (Alta automática con lo recibido|Documentación recibida) por WhatsApp/u, (m, que) => `📧 ${que} por ${desc}`);
+}
 
 async function crear() {
     const fPlan = opt('plan');
@@ -486,36 +516,58 @@ async function crear() {
         }
     }
 
-    // 6. El presupuesto: se LEE (mismo lector que «docs_obra» del funnel) y manda
-    //    el total CON IVA en la economía; la fila completa va a docs_ocr.
+    // 6. El presupuesto: se LEE (mismo lector que «docs_obra» del funnel) y se
+    //    reparte como en la calculadora (`lecturaAPresupuesto`, logic/presupuestoLeido.js):
+    //    las líneas de las PLACAS van a P. Fotovoltaica y las de la envolvente (en
+    //    una reforma) a P. Reforma, cada una con su huella en `presupuestos_leidos`.
+    //    La fila completa va a docs_ocr.
     let docsOcr = null;
     const docPresu = alta.documentoPresupuesto(plan);
-    if (docPresu?.fichero) {
+    const fvPlan = alta.fotovoltaicaDelPlan(plan);
+    const { lecturaAPresupuesto, ivaDeLaSimulacion } = await esm('features/calculator/logic/presupuestoLeido.js');
+    const leerPresupuesto = async (fichero, hueco) => {
         const { extraerDocumentoObra } = require('../routes/facturaOcr');
-        const fpath = path.resolve(base, docPresu.fichero);
-        const r = await extraerDocumentoObra(ficherosDe(fpath), 'presupuesto');
-        const conIva = Number(r.doc.importe_total) || 0;
-        if (conIva > 0) {
-            funnel.presupuesto_modo = 'documento';
-            funnel.presupuesto_eur = Math.round(conIva);
-            inputs.presupuesto = Math.round(conIva);
-            inputs.presupuestoEstimado = false;
-        }
-        if (r.doc.iva_estimado) avisos.push('El presupuesto no declara el IVA: se ha supuesto el 21 %.');
-        docsOcr = {
-            documentos: [{ ...r.doc, slot: 'DOC_PRESUPUESTO', files_count: 1 }],
-            equipos: r.equipos || [],
-            leido_at: new Date().toISOString(),
-        };
-        console.log(`\nPRESUPUESTO leído: ${r.doc.numero_factura || 's/n'} · ${eur(r.doc.importe_sin_iva)} + IVA ${dosDec(r.doc.iva_pct)} % = ${eur(conIva)}`
+        const r = await extraerDocumentoObra(ficherosDe(path.resolve(base, fichero)), 'presupuesto');
+        const lec = lecturaAPresupuesto(r, inputs, { hueco });
+        if (lec.patch) Object.assign(inputs, lec.patch);
+        avisos.push(...(lec.avisos || []));
+        if (!docsOcr) docsOcr = { documentos: [], equipos: [], leido_at: new Date().toISOString() };
+        docsOcr.documentos.push({ ...r.doc, slot: 'DOC_PRESUPUESTO', files_count: 1 });
+        docsOcr.equipos.push(...(r.equipos || []));
+        console.log(`\nPRESUPUESTO ${hueco === 'FOTOVOLTAICA' ? 'de las PLACAS ' : ''}leído: ${r.doc.numero_factura || 's/n'}`
+            + ` · ${eur(r.doc.importe_sin_iva)} + IVA ${dosDec(r.doc.iva_pct)} % = ${eur(r.doc.importe_total)}`
             + ` · emisor ${r.doc.emisor_nombre || '—'} · cliente ${r.doc.cliente_nombre || '—'}`);
+        console.log(`  → ${lec.titular}${lec.extras?.length ? ` · ${lec.extras.join(' · ')}` : ''}`);
+        return lec;
+    };
+    if (docPresu?.fichero) {
+        const lec = await leerPresupuesto(docPresu.fichero, 'AEROTERMIA');
+        if (lec.patch && Number(inputs.presupuesto) > 0) {
+            funnel.presupuesto_modo = 'documento';
+            funnel.presupuesto_eur = Math.round(Number(inputs.presupuesto));
+        }
     } else if (Number(plan.presupuesto?.importe_con_iva) > 0) {
+        // Lo tecleado es P. Aerotermia: las placas van aparte (fotovoltaica_con_iva).
         funnel.presupuesto_modo = 'tengo';
         funnel.presupuesto_eur = Math.round(Number(plan.presupuesto.importe_con_iva));
         inputs.presupuesto = funnel.presupuesto_eur;
         inputs.presupuestoEstimado = false;
-    } else {
+    }
+    if (inputs.presupuestoEstimado) {
         avisos.push(`Sin presupuesto: la propuesta irá con el ESTIMADO de ${eur(inputs.presupuesto)} (y lo dirá).`);
+    }
+    // 6.a Las PLACAS de esta obra: su presupuesto aparte se lee en SU hueco; la cifra
+    //     del plan manda sobre lo que haya separado el lector.
+    if (fvPlan?.fichero) await leerPresupuesto(fvPlan.fichero, 'FOTOVOLTAICA');
+    {
+        const { patch, avisos: av } = alta.fijarFotovoltaica(inputs, {
+            importe: fvPlan?.importe ?? null,
+            dentroDeAerotermia: !fvPlan?.fichero && !!docPresu?.fichero,
+            conIva: ivaDeLaSimulacion(inputs).conIva,
+        });
+        if (patch) Object.assign(inputs, patch);
+        avisos.push(...av);
+        if (patch?.presupuesto != null) funnel.presupuesto_eur = Math.round(Number(inputs.presupuesto));
     }
 
     // 6b. El CEE que aporta el cliente (el más reciente). Se LEE con el mismo OCR que
@@ -583,7 +635,12 @@ async function crear() {
         if (rcXml && rcXml.slice(0, 14) !== rc.slice(0, 14)) avisos.push(`El CEE inicial es de OTRA referencia catastral (${rcXml}), no de ${rc}.`);
     }
     if (Number(plan.presupuesto?.envolvente_con_iva) > 0) {
+        const delLector = Number(inputs.presupuestoEnvolvente) || 0;
         inputs.presupuestoEnvolvente = Math.round(Number(plan.presupuesto.envolvente_con_iva));
+        if (delLector > 0 && Math.abs(delLector - inputs.presupuestoEnvolvente) >= 1) {
+            avisos.push(`P. Reforma: el presupuesto de la instalación traía ${eur(delLector)} de envolvente; manda el plan (${eur(inputs.presupuestoEnvolvente)}).`
+                + ' Si son de documentos distintos, súmalos en envolvente_con_iva.');
+        }
     }
     // La deducción del IRPF se puede dejar fuera de la propuesta (la obra ya tuvo otra
     // ayuda, o ya se la aplicó): `"incluir_irpf": false`.
@@ -670,9 +727,13 @@ async function crear() {
     console.log(`Aerotermia:   ${aero.modelo ? `${aero.modelo.marca} ${aero.modelo.modelo_comercial} (id ${aero.modelo.id}, ${aero.modelo.potencia_calefaccion} kW)` : (aero.custom ? `${aero.custom.marca} ${aero.custom.modelo} (fuera de catálogo)` : 'genérica')}`
         + ` · SCOP ${dosDec(inputs.scopHeating)} (${inputs.scopTemporada || '—'})`);
     console.log(`Placas FV:    ${inputs.fotovoltaica?.estado || 'sin declarar'}`);
-    console.log(`Presupuesto:  ${eur(inputs.presupuesto)}${inputs.presupuestoEstimado ? ' (ESTIMADO)' : ''}`);
+    const pFv = Number(inputs.presupuestoFotovoltaica) || 0;
+    console.log(`Presupuesto:  ${eur(inputs.presupuesto)}${inputs.presupuestoEstimado ? ' (ESTIMADO)' : ''}`
+        + (pFv > 0 ? ` + placas FV ${eur(pFv)} = inversión ${eur((Number(inputs.presupuesto) || 0) + pFv)}` : '')
+        + (Number(inputs.presupuestoEnvolvente) > 0 ? ` · P. Reforma ${eur(inputs.presupuestoEnvolvente)}` : ''));
     console.log(`RESULTADO:    demanda ${dosDec(result?.q_net)} kWh/m²·año · ahorro ${miles(sav.savingsKwh || 0)} kWh/año`
-        + ` · bono CAE ${eur(fin.caeBonus)} · IRPF ${eur(fin.irpfDeduction)} · ayuda total ${eur(fin.totalAyuda)}`);
+        + ` · bono CAE ${eur(fin.caeBonus)} · IRPF ${eur(fin.irpfDeduction)}`
+        + `${fin.presupuestoFotovoltaica > 0 ? ` (sobre ${eur(fin.presupuestoTotal)}, con las placas)` : ''} · ayuda total ${eur(fin.totalAyuda)}`);
     if (ceeLeido) {
         const ep = ceeLeido.energia_primaria_no_renovable || {};
         console.log(`CEE cliente:  ${ceeLeido.fecha_certificado || 's/f'} · RC ${ceeLeido.referencia_catastral || '?'} · ${dosDec(ceeLeido.superficie_habitable_m2)} m²`
@@ -698,7 +759,8 @@ async function crear() {
         console.log(`RES080:       ${r8.metodoAhorro || 'detallado'} · ${r8.fuenteDatos || 'estimado'} · E. final ${dosDec(r8.totalEnergiaInicialM2)} → ${dosDec(r8.totalEnergiaFinalM2)} kWh/m²`
             + ` × ${dosDec(r8.superficieAplicada)} m² · ahorro ${miles(r8.ahorroEnergiaFinalTotal || 0)} kWh/año`
             + ` · bono CAE ${eur(f8.caeBonus)} · IRPF ${eur(f8.irpfDeduction)} · ayuda total ${eur(f8.totalAyuda)}`
-            + ` · presupuesto ${eur((inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0))}`);
+            + ` · presupuesto ${eur((inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0))}`
+            + (f8.presupuestoFotovoltaica > 0 ? ` + placas FV ${eur(f8.presupuestoFotovoltaica)}` : ''));
     }
     // Los apartados que tendrá la oportunidad, con la MISMA función que valida la
     // subida (sin expediente detrás, el alcance es el de la simulación).
@@ -710,6 +772,9 @@ async function crear() {
         const ok = slotsDisponibles.has(d.slot);
         console.log(`  ${ok ? '✓' : '✗'} ${d.slot.padEnd(26)} ← ${path.basename(d.ruta)}${d.wa_msg_id ? ' (WhatsApp)' : ''}`
             + (ok ? '' : '   ⚠ ese apartado no existe para esta oportunidad: no se subirá'));
+    }
+    if (fvPlan?.fichero) {
+        console.log(`  ✓ ${'ANEXO PROPUESTA'.padEnd(26)} ← ${path.basename(fvPlan.fichero)} → «0. PRESUPUESTO/${ANEXO_FV}» (hueco Placas solares)`);
     }
     // REGLA — una vivienda que ya tiene oportunidad PARA: casi siempre es un
     // cambio (otro presupuesto) de una simulación ya hecha, no un alta. Solo se
@@ -769,7 +834,7 @@ async function crear() {
 
     // El rastro: de dónde salió y qué decidió quien la dio de alta.
     await alta.anotarAlta(supabase, creado.oportunidad_uuid, {
-        texto: alta.textoHistorial(plan, { avisos }),
+        texto: origenCorreo(alta.textoHistorial(plan, { avisos }), plan),
         meta: plan.chat ? {
             chat_id: plan.chat.chatId || null, chat_nombre: plan.chat.nombre || null,
             mensajes: (plan.chat.mensajes || []).slice(0, 60), at: new Date().toISOString(),
@@ -810,6 +875,27 @@ async function crear() {
         const whatsappMedia = require('../services/whatsappMedia');
         const r = await whatsappMedia.registrarColocadas({ id: creado.oportunidad_uuid }, colocadas, 'skill alta-oportunidad');
         console.log(`  (${r.registradas} adjuntos de WhatsApp apuntados como colocados)`);
+    }
+    // El presupuesto de las PLACAS, de anexo de la propuesta en su hueco «Placas
+    // solares»: el MISMO nombre que le pone POST /:id/anexos con budgetSlot FOTOVOLTAICA.
+    if (fvPlan?.fichero) {
+        try {
+            const driveService = require('../services/driveService');
+            const { data: o } = await supabase.from('oportunidades')
+                .select('drive_folder_id:datos_calculo->>drive_folder_id').eq('id', creado.oportunidad_uuid).single();
+            if (!o?.drive_folder_id) throw new Error('la oportunidad no tiene carpeta de Drive');
+            const carpeta = await driveService.getOrCreateSubfolder(o.drive_folder_id, '0. PRESUPUESTO');
+            const ruta = path.resolve(base, fvPlan.fichero);
+            const mime = alta.mimeDeFichero(ruta);
+            const buffer = mime.startsWith('image/')
+                ? await require('../services/pdfService').imageToPdf(fs.readFileSync(ruta).toString('base64'), mime)
+                : fs.readFileSync(ruta);
+            if (await driveService.findFileByName(carpeta, ANEXO_FV)) throw new Error(`ya hay un «${ANEXO_FV}»: no se pisa`);
+            await driveService.saveFileToFolder(carpeta, ANEXO_FV, 'application/pdf', buffer);
+            console.log(`  ✓ ANEXO PROPUESTA → 0. PRESUPUESTO/${ANEXO_FV}`);
+        } catch (e) {
+            console.log(`  ✗ anexo de las placas: ${e.message}. Adjúntalo en la propuesta (hueco Placas solares).`);
+        }
     }
 
     const { data: fin2 } = await supabase.from('oportunidades')
@@ -962,7 +1048,7 @@ async function documentar() {
     if (resumen.length) {
         const chat = plan.chat?.nombre ? `chat «${plan.chat.nombre}»` : 'WhatsApp';
         await alta.anotarAlta(supabase, o.opp.id, {
-            texto: [`📲 Documentación recibida por ${chat}${plan.chat?.cuando ? ` (${plan.chat.cuando})` : ''} colocada por la skill alta-oportunidad: ${resumen.join(' · ')}.`,
+            texto: [origenCorreo(`📲 Documentación recibida por ${chat}${plan.chat?.cuando ? ` (${plan.chat.cuando})` : ''} colocada por la skill alta-oportunidad: ${resumen.join(' · ')}.`, plan),
                 ...(plan.decisiones?.length ? [`Notas: ${plan.decisiones.join(' · ')}`] : [])].join('\n'),
             meta: null,
         });
@@ -1000,9 +1086,207 @@ async function renombrar() {
     }
 }
 
+// ─── correo-raw / correo (el material llega por EMAIL) ──────────────────────
+//
+// El conector de Gmail de claude.ai no baja adjuntos: `get_message` con
+// `messageFormat: "RAW"` devuelve el MIME entero en base64url y, como pasa del
+// límite, Claude Code lo guarda en `…/tool-results/…get_message-….txt` (JSON con
+// `raw`). `correo-raw` lo abre y deja cuerpo y adjuntos donde `chat` deja los
+// suyos. `correo` hace lo mismo leyendo el buzón de Hostinger por IMAP, en solo
+// lectura. Lo que se baja es de un tercero: carpeta NUEVA y vacía, y no se
+// ejecuta nada de dentro.
+
+// Un dominio gratuito no identifica a una empresa: ahí solo vale la dirección exacta.
+const DOMINIOS_PUBLICOS = /^(gmail|googlemail|hotmail|outlook|live|msn|yahoo|ymail|icloud|me|aol|gmx|proton|protonmail|telefonica|movistar)\./i;
+
+/** El MIME de lo que se le pase: el JSON de `get_message` (RAW) o un `.eml`. */
+function mimeDeFichero(f) {
+    const buf = fs.readFileSync(f);
+    const txt = buf.slice(0, 64).toString('utf8').trimStart();
+    if (!txt.startsWith('{') && !txt.startsWith('[')) return { mime: buf, meta: {} };   // .eml tal cual
+    let j = JSON.parse(buf.toString('utf8'));
+    // Por si llega envuelto en bloques de contenido ([{ type: 'text', text: '{…}' }]).
+    if (Array.isArray(j)) j = JSON.parse((j.find(b => b && typeof b.text === 'string') || {}).text || '{}');
+    if (!j.raw) throw new Error(`${path.basename(f)} no trae «raw»: pide el correo con get_message y messageFormat "RAW".`);
+    return {
+        mime: Buffer.from(String(j.raw), 'base64'),   // Node acepta base64 y base64url
+        meta: { gmail_id: j.id || null, thread_id: j.threadId || null,
+            fecha_gmail: j.internalDate ? new Date(Number(j.internalDate)).toISOString() : null },
+    };
+}
+
+const limpiarNombre = s => String(s || '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').replace(/\s+/g, ' ').trim();
+
+/** Carpeta NUEVA y vacía: si ya existe con algo, `-2`, `-3`… (nunca se mezcla con lo de otro correo). */
+function carpetaNueva(base) {
+    for (let i = 1; i < 100; i++) {
+        const dir = i === 1 ? base : `${base}-${i}`;
+        if (!fs.existsSync(dir) || !fs.readdirSync(dir).length) { fs.mkdirSync(dir, { recursive: true }); return dir; }
+    }
+    throw new Error(`Demasiadas carpetas ${base}-N`);
+}
+
+/** El partner por el remitente: la dirección exacta, o su dominio si es de empresa. Solo PISTA. */
+async function partnerDeRemitente(email, nombre) {
+    const e = String(email || '').trim().toLowerCase();
+    if (!e.includes('@')) return [];
+    const dominio = e.split('@')[1];
+    const campos = 'id_empresa, acronimo, razon_social';
+    const cols = ['email', 'email_contacto', 'email_responsable'];
+    const patron = DOMINIOS_PUBLICOS.test(dominio) ? e : `%@${dominio}`;
+    const { data, error } = await supabase.from('prescriptores').select(campos)
+        .or(cols.map(c => `${c}.ilike.${patron}`).join(','));
+    if (error) throw new Error(`prescriptores: ${error.message}`);
+    const out = (data || []).map(p => ({ ...p, por: DOMINIOS_PUBLICOS.test(dominio) ? 'email' : 'dominio' }));
+    // Sin email en ninguna ficha, la razón social del nombre que muestra el correo («INSTALACIONES PLAZA 2014 SL»).
+    const n = String(nombre || '').replace(/\b(S\.?L\.?U?|S\.?A\.?|SLU|SL|SA|C\.?B\.?)\b\.?/gi, '').replace(/\d{4}/g, '').trim();
+    if (!out.length && n.length >= 5) {
+        const { data: d2 } = await supabase.from('prescriptores').select(campos).ilike('razon_social', `%${n}%`);
+        (d2 || []).forEach(p => out.push({ ...p, por: 'nombre' }));
+    }
+    return out;
+}
+
+/**
+ * Deja el correo en una carpeta como la de `chat`: `cuerpo.txt`, `correo.json` y los
+ * adjuntos numerados (`01_…`). Descarta los duplicados (mismo contenido, por hash) y
+ * las imágenes en línea pequeñas (logos y firmas). Un `.eml` adjunto (correo
+ * reenviado como adjunto) se abre y sus adjuntos salen también.
+ */
+async function guardarCorreo(mime, { meta = {}, origen }) {
+    const { simpleParser } = require('mailparser');
+    const crypto = require('crypto');
+    const parsed = await simpleParser(mime);
+    const de = parsed.from?.value?.[0] || {};
+    const remitente = String(de.address || '').toLowerCase();
+    const fecha = parsed.date || (meta.fecha_gmail ? new Date(meta.fecha_gmail) : new Date());
+    const fechaMadrid = fecha.toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' });
+    const slug = (remitente.split('@')[0] || 'correo').replace(/[^a-z0-9._-]+/gi, '_').slice(0, 40);
+    const out = opt('out') && opt('out') !== true ? carpetaNueva(path.resolve(opt('out')))
+        : carpetaNueva(path.join(SCRATCH, `${slug}-${fechaMadrid}`));
+
+    const adjuntos = [];
+    const vistos = new Map();   // sha256 → fichero
+    const descartados = [];
+    let n = 0;
+    async function recorrer(lista, prefijo = '') {
+        for (const a of lista || []) {
+            const tipo = String(a.contentType || '').toLowerCase();
+            if (tipo === 'message/rfc822') {
+                // eslint-disable-next-line no-await-in-loop
+                const dentro = await simpleParser(a.content);
+                // eslint-disable-next-line no-await-in-loop
+                await recorrer(dentro.attachments, `${prefijo}reenviado_`);
+                continue;
+            }
+            const bytes = a.content?.length || 0;
+            const nombreOrig = limpiarNombre(a.filename) || `adjunto.${(tipo.split('/')[1] || 'bin').replace(/[^a-z0-9]/g, '')}`;
+            if (a.related && /^image\//.test(tipo) && bytes < 20_000) {
+                descartados.push(`${nombreOrig} (${miles(bytes / 1024, 0)} KB, imagen en línea: logo o firma)`);
+                continue;
+            }
+            const sha = crypto.createHash('sha256').update(a.content).digest('hex');
+            if (vistos.has(sha)) { descartados.push(`${nombreOrig} (duplicado de ${vistos.get(sha)})`); continue; }
+            n += 1;
+            const fichero = `${String(n).padStart(2, '0')}_${prefijo}${nombreOrig}`;
+            fs.writeFileSync(path.join(out, fichero), a.content);
+            vistos.set(sha, fichero);
+            adjuntos.push({ fichero, nombre: a.filename || null, tipo, bytes, sha256: sha, en_linea: !!a.related });
+        }
+    }
+    await recorrer(parsed.attachments);
+
+    const texto = (parsed.text || '').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    const correo = {
+        origen, ...meta,
+        message_id: parsed.messageId || null,
+        de: de.name ? `${de.name} <${remitente}>` : remitente,
+        remitente, remitente_nombre: de.name || null,
+        para: parsed.to?.text || null, cc: parsed.cc?.text || null,
+        asunto: parsed.subject || '', fecha: fecha.toISOString(),
+        cuando: hora(Math.floor(fecha.getTime() / 1000)),
+        texto, adjuntos, descartados,
+    };
+    fs.writeFileSync(path.join(out, 'cuerpo.txt'), `De: ${correo.de}\nPara: ${correo.para || '—'}\nFecha: ${correo.cuando}\nAsunto: ${correo.asunto}\n\n${texto}\n`);
+    fs.writeFileSync(path.join(out, 'correo.json'), JSON.stringify(correo, null, 1));
+
+    console.log(`\nCORREO  ${correo.de}  ·  ${correo.cuando}`);
+    console.log(`Asunto: ${correo.asunto}`);
+    console.log('─'.repeat(100));
+    console.log(texto.length > 4000 ? `${texto.slice(0, 4000)}\n… (sigue en cuerpo.txt)` : (texto || '(sin texto)'));
+    console.log('─'.repeat(100));
+    console.log(`\nBAJADOS en ${out}:`);
+    for (const a of adjuntos) console.log(`  ${a.fichero}   (${a.tipo} · ${miles(a.bytes / 1024, 0)} KB${a.en_linea ? ' · en línea' : ''})`);
+    if (!adjuntos.length) console.log('  (ningún adjunto)');
+    for (const d of descartados) console.log(`  – descartado: ${d}`);
+
+    try {
+        const partners = await partnerDeRemitente(remitente, de.name);
+        if (!partners.length) console.log(`\nPARTNER: ninguna ficha con ${remitente}: sale del presupuesto o se pregunta.`);
+        for (const p of partners) console.log(`\nPARTNER (por ${p.por}): ${p.acronimo || '—'} / ${p.razon_social} (${p.id_empresa})`);
+    } catch (e) {
+        console.log(`\nPARTNER: no se ha podido buscar (${e.message})`);
+    }
+    console.log(`\ncorreo.json → ${path.join(out, 'correo.json')}`);
+    console.log('Con correo no hay chat que renombrar: el plan lleva "correo" en vez de "chat".');
+    return { out, correo };
+}
+
+async function correoRaw() {
+    const f = POS[0];
+    if (!f) throw new Error('Uso: correo-raw <fichero .txt/.json de get_message RAW | .eml> [--out carpeta]');
+    const { mime, meta } = mimeDeFichero(path.resolve(f));
+    await guardarCorreo(mime, { meta, origen: meta.gmail_id ? 'gmail' : 'eml' });
+}
+
+async function correo() {
+    const q = POS.join(' ').trim();
+    const uid = opt('uid') && opt('uid') !== true ? Number(opt('uid')) : null;
+    if (!q && !uid) throw new Error('Uso: correo "<remitente o asunto>" [--dias 14] [--uid N] [--out carpeta]');
+    const user = process.env.LOTE_SO_SMTP_USER;
+    const pass = process.env.LOTE_SO_SMTP_PASS;
+    if (!user || !pass) throw new Error('Faltan LOTE_SO_SMTP_USER / LOTE_SO_SMTP_PASS en el .env: no se puede leer el buzón.');
+    const { ImapFlow } = require('imapflow');
+    const client = new ImapFlow({
+        host: process.env.LOTE_SO_IMAP_HOST || 'imap.hostinger.com',
+        port: Number(process.env.LOTE_SO_IMAP_PORT || 993),
+        secure: true, auth: { user, pass }, logger: false,
+    });
+    await client.connect();
+    try {
+        // SOLO LECTURA (EXAMINE): no se marca nada como leído ni se mueve.
+        const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+        try {
+            let uids;
+            if (uid) uids = [uid];
+            else {
+                const dias = Number(opt('dias')) || 14;
+                uids = await client.search({ since: new Date(Date.now() - dias * 864e5), or: [{ from: q }, { subject: q }] }, { uid: true });
+            }
+            if (!uids?.length) { console.log(`Ningún correo de «${q}» (remitente o asunto) en ${user}.`); return; }
+            const lista = [];
+            for await (const m of client.fetch(uids, { uid: true, envelope: true, bodyStructure: true }, { uid: true })) lista.push(m);
+            const cuentaAdj = (nodo) => (!nodo ? 0 : ((nodo.disposition === 'attachment' || nodo.dispositionParameters?.filename) ? 1 : 0)
+                + (nodo.childNodes || []).reduce((s, c) => s + cuentaAdj(c), 0));
+            if (lista.length > 1 || !uid) {
+                console.log(`\n${user} · «${q || uid}»:`);
+                for (const m of lista) {
+                    const de = m.envelope?.from?.[0] || {};
+                    console.log(`  uid ${m.uid}  ·  ${m.envelope?.date ? hora(Math.floor(new Date(m.envelope.date).getTime() / 1000)) : '—'}  ·  `
+                        + `${de.name ? `${de.name} <${de.address}>` : de.address}  ·  «${m.envelope?.subject || ''}»  ·  ${cuentaAdj(m.bodyStructure)} adj.`);
+                }
+            }
+            if (lista.length !== 1) { console.log('\nElige uno y repítelo con --uid N.'); return; }
+            const msg = await client.fetchOne(String(lista[0].uid), { source: true }, { uid: true });
+            await guardarCorreo(msg.source, { meta: { imap_uid: lista[0].uid, buzon: user }, origen: 'imap' });
+        } finally { lock.release(); }
+    } finally { await client.logout().catch(() => {}); }
+}
+
 // ─── main ───────────────────────────────────────────────────────────────────
 
-const ORDENES = { chats, chat, escuchar, catastro, leer, aerotermia, crear, obra, documentar, renombrar };
+const ORDENES = { chats, chat, escuchar, catastro, leer, aerotermia, crear, obra, documentar, renombrar,
+    'correo-raw': correoRaw, correo };
 
 // Se sale DEJANDO que el proceso acabe solo: en Windows (Node 25) un
 // `process.exit` con conexiones de fetch todavía abiertas aborta con «Assertion

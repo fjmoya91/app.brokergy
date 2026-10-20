@@ -334,6 +334,9 @@ const limpia = (v) => { const s = String(v ?? '').trim(); return s && !/^[-—.]
 async function llamarGemini(imagenes, {
     prompt = PROMPT, schema = SCHEMA, etiqueta = 'placaOcr', deadline = DEADLINE_MS,
     pensar = false, modelo = GEMINI_MODEL, resolucion = null, maxTokens = null, temperatura = 0,
+    // Opcional: quien necesite contar lo que gasta (la ronda de WhatsApp) recibe
+    // los tokens de cada llamada. No cambia nada para quien no lo pase.
+    onUso = null,
 } = {}) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('Falta GEMINI_API_KEY en el entorno.');
@@ -358,7 +361,9 @@ async function llamarGemini(imagenes, {
             // Ver el aviso de la cabecera: sin razonar es lo correcto para transcribir,
             // y es un bloqueo seguro para lo que hay que razonar. Qué parámetro se
             // manda a cada modelo lo decide `ajustesGemini`.
-            ...ajustesGemini(modelo, { pensamiento: pensar ? null : 0, temperatura }),
+            // `pensar` también admite un NÚMERO: un tope de tokens de razonamiento
+            // (lo usa la ronda de WhatsApp, donde pensar era el 60 % del gasto).
+            ...ajustesGemini(modelo, { pensamiento: typeof pensar === 'number' ? pensar : (pensar ? null : 0), temperatura }),
             ...(resolucion ? { mediaResolution: resolucion } : {}),
             // Un TOPE de salida. Lo que se pide son unas decenas de campos cortos
             // (~300 tokens), y sin tope una lectura puede entrar en BUCLE: medido el
@@ -409,6 +414,11 @@ async function llamarGemini(imagenes, {
     let data;
     try { data = JSON.parse(text); } catch { throw new Error('Respuesta de Gemini no es JSON.'); }
     const uso = data?.usageMetadata || {};
+    if (typeof onUso === 'function') {
+        try {
+            onUso({ modelo, in: uso.promptTokenCount || 0, out: uso.candidatesTokenCount || 0, think: uso.thoughtsTokenCount || 0 });
+        } catch { /* contar no puede tumbar la lectura */ }
+    }
     console.log(`[${etiqueta}] Gemini ${modelo} ${((Date.now() - t0) / 1000).toFixed(1)}s · `
         + `${imagenes.length} foto(s) · in=${uso.promptTokenCount ?? '?'} out=${uso.candidatesTokenCount ?? '?'}`
         + (uso.thoughtsTokenCount ? ` think=${uso.thoughtsTokenCount}` : ''));

@@ -224,5 +224,21 @@ ok(titularDe({ nif: '99999999R', nombre: 'OTRO' }).length === 1, 'a un tercero: 
 ok(titularDe({ nif: '87654321X', nombre: 'ANA' }, { nombre_razon_social: 'JUAN', dni: '12345678Z' }).length === 1,
     'con un solo propietario, nada cambia');
 
+// ── SOBREFINANCIACIÓN: el CAE solo puede superar la obra; con otra ayuda, no ──
+console.log('\nSobrefinanciación (usuario, 19/10/2026)');
+const sobre = (subvenciones, caeEstimado = 4649.61, base = 4296.7) => detectarIncidenciasFactura({
+    ocr: { totales: { base_imponible: base }, lineas: [] },
+    exp: { numero_expediente: '26RES060_208', instalacion: {}, documentacion: subvenciones ? { subvenciones } : {} },
+    op: {}, cliente: null, instalador: null, caeEstimado,
+}).filter(i => i.codigo === 'SOBREFINANCIACION');
+
+let s = sobre(null);
+ok(s.length === 1 && s[0].severidad === 'LEVE', 'CAE > inversión SIN otra ayuda: LEVE (no bloquea)', JSON.stringify(s));
+s = sobre({ solicitada: true, ayuda: { estado: 'CONCEDIDA', cuantia_eur: '1.000,00' } }, 3500);
+ok(s.length === 1 && s[0].severidad === 'GRAVE', 'CAE + otra ayuda > inversión: GRAVE', JSON.stringify(s));
+s = sobre({ solicitada: true, ayuda: { estado: 'DENEGADA', cuantia_eur: '1000' } });
+ok(s.length === 1 && s[0].severidad === 'LEVE', 'una ayuda DENEGADA no cuenta', JSON.stringify(s));
+ok(sobre(null, 3000).length === 0, 'CAE por debajo de la inversión: nada');
+
 console.log(fallos ? `\n${fallos} comprobación(es) FALLA(N)\n` : '\nTodo correcto.\n');
 process.exit(fallos ? 1 : 0);

@@ -308,6 +308,22 @@ test('Avisa de lo que impide presentar', () => {
     eq('dentro de plazo, no molesta', b6.avisos, []);
 });
 
+// ─── 5.b El AGENTE IA en la barra ────────────────────────────────────────────
+// 26RES060_189 (19/10/2026): con el agente asignado el 02 iba vacío y la sede no
+// dejaba «Pagar y enviar». `borradorCeeService` pone al certificador REAL (el de la
+// casa) y deja al agente en `certificadorSustituido`; aquí solo se comprueba que el
+// 02 sale completo y que se DICE.
+test('Agente IA asignado: el 02 va con el certificador real, y se dice', () => {
+    const b = buildBorradorCee({ ...CTX, certificadorSustituido: { razon_social: 'AGENTE IA', es_agente_ia: true } },
+        { fase: 'inicial', hoy: '2026-09-20' });
+    eq('NIF del real', campo(b, '02', 'NIF'), '06282551D');
+    eq('dirección troceada', ['Tipo vía', 'Nombre de la vía', 'N.º Calle', 'Planta', 'Puerta', 'Código Postal']
+        .map(c => campo(b, '02', c)), ['Calle', 'DON SERGIO', '12', '1', 'E', '13700']);
+    eq('ningún aviso de NIF', b.avisos.some(a => /NIF/.test(a)), false);
+    eq('avisa de quién va en lugar del agente', b.avisos.some(a => /AGENTE IA.*no firma/.test(a)), true);
+    eq('la nota del 02 lo dice', /AGENTE IA/.test(b.apartados.find(a => a.id === '02').nota), true);
+});
+
 // ─── 6. Cliente EMPRESA ──────────────────────────────────────────────────────
 test('Cliente persona jurídica: comparece su representante legal', () => {
     const emp = JSON.parse(JSON.stringify(CTX));

@@ -310,7 +310,10 @@ facture a él (pasa mucho), botón **«🧾 Emitir factura de la gestión»** en
 la fase 7 (solo ADMIN; resaltado en ámbar si el cliente eligió «factura»). El popup
 ([FacturaGestionModal.jsx](implementation/frontend/src/features/lotes/components/FacturaGestionModal.jsx))
 pregunta **a quién se factura** —cliente o instalador, con sus datos fiscales
-editables— y la emite y envía con el mensaje a la vista.
+editables— y la emite y envía con el mensaje a la vista. **«Vista previa»** la enseña
+antes de emitir con el MISMO visor y el MISMO HTML que la de los CEE directos
+(`VistaPreviaA4` + `buildFacturaCeeHtml`, con lo escrito en ese momento y el nº que
+tocaría); una vez emitida, «Ver PDF» abre el de verdad.
 
 | Qué | Dónde |
 |---|---|

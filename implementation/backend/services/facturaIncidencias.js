@@ -212,6 +212,20 @@ function superficieLinea(l) {
     return n && n > 0 ? n : null;
 }
 
+/**
+ * Otra ayuda pública declarada sobre la actuación (€). Espejo de
+ * `importeAyudaDeclarada` de frontend/.../logic/subvenciones.js: una DENEGADA no
+ * suma, y los enums pueden venir en MAYÚSCULAS (ver `leerSubvenciones`).
+ */
+function importeAyudaDeclarada(doc) {
+    const raw = doc?.subvenciones;
+    if (!raw || typeof raw !== 'object' || !raw.solicitada) return 0;
+    const ayuda = raw.ayuda || {};
+    if (String(ayuda.estado || '').trim().toUpperCase() === 'DENEGADA') return 0;
+    const n = Number(String(ayuda.cuantia_eur ?? '').replace(/\./g, '').replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 // ─── Reglas ──────────────────────────────────────────────────────────────────
 
 /**
@@ -488,15 +502,28 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
         }
     }
 
-    // ── GRAVE · SOBREFINANCIACION ────────────────────────────────────────────
-    // El CAE no puede superar la inversión ejecutada (contando TODAS las facturas).
+    // ── SOBREFINANCIACION (GRAVE solo con otra ayuda pública) ────────────────
+    // El CAE SOLO puede valer más que la obra (usuario, 19/10/2026): el ahorro se
+    // paga por lo que ahorra, no por lo que costó. Lo que no cabe es que CAE +
+    // OTRA subvención pública (pestaña Subvenciones, la que declara el Anexo I)
+    // pasen de la inversión → GRAVE. Sin otra ayuda es un LEVE: que se vea, por si
+    // la diferencia delata una factura que falta o un importe mal leído.
+    // Inversión = TODAS las facturas (las registradas + la que se lee ahora).
     const inversionTotal = (facturasExistentes || [])
         .reduce((s, f) => s + (numOrNull(f?.importe_sin_iva) || 0), 0) + (baseFac || 0);
-    if (caeEstimado != null && inversionTotal > 0 && caeEstimado > inversionTotal) {
-        add('SOBREFINANCIACION', 'GRAVE',
-            'El bono CAE supera la inversión facturada',
-            `El CAE estimado del cliente es ${fmtEur(caeEstimado)} y la inversión acumulada de las facturas es ${fmtEur(inversionTotal)}. No puede haber sobrefinanciación: o falta alguna factura por registrar, o el importe leído no es correcto.`,
-            `CAE ${fmtEur(caeEstimado)} > inversión ${fmtEur(inversionTotal)}`);
+    const ayudaPublica = importeAyudaDeclarada(doc);
+    if (caeEstimado != null && inversionTotal > 0 && caeEstimado + ayudaPublica > inversionTotal) {
+        if (ayudaPublica > 0) {
+            add('SOBREFINANCIACION', 'GRAVE',
+                'El bono CAE más la otra subvención superan la inversión facturada',
+                `El CAE estimado del cliente es ${fmtEur(caeEstimado)} y hay declarada otra ayuda pública de ${fmtEur(ayudaPublica)} para la misma actuación: suman ${fmtEur(caeEstimado + ayudaPublica)} y la inversión acumulada de las facturas es ${fmtEur(inversionTotal)}. Con otra subvención no puede haber sobrefinanciación: o falta alguna factura, o el importe leído no es correcto, o hay que ajustar el bono.`,
+                `CAE ${fmtEur(caeEstimado)} + ayuda ${fmtEur(ayudaPublica)} > inversión ${fmtEur(inversionTotal)}`);
+        } else {
+            add('SOBREFINANCIACION', 'LEVE',
+                'El bono CAE supera la inversión facturada',
+                `El CAE estimado del cliente es ${fmtEur(caeEstimado)} y la inversión acumulada de las facturas es ${fmtEur(inversionTotal)} (${fmtEur(caeEstimado - inversionTotal)} más). Sin otra subvención el CAE puede superar a la obra, así que no bloquea; tenlo en cuenta por si falta alguna factura o el importe leído no es correcto.`,
+                `CAE ${fmtEur(caeEstimado)} > inversión ${fmtEur(inversionTotal)} · sin otra ayuda pública declarada`);
+        }
     }
 
     // ── LEVE · SIN_EQUIPO (marca / modelo / nº de serie) ─────────────────────

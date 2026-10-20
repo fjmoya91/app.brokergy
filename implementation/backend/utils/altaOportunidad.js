@@ -316,6 +316,91 @@ function documentoPresupuesto(plan = {}) {
     return p && p.fichero ? { fichero: p.fichero, wa_msg_id: p.wa_msg_id || null, t: p.t || null } : null;
 }
 
+/**
+ * Las PLACAS FOTOVOLTAICAS de ESTA obra, cuando el instalador las presupuesta con
+ * la aerotermia: `presupuesto.fotovoltaica_con_iva` (el importe que ha leído quien
+ * miró el PDF) y/o `presupuesto.fichero_fv` (su presupuesto aparte, que se lee y
+ * va de anexo a la propuesta). Van a P. Fotovoltaica, como en la calculadora: suman
+ * a la inversión y a la base de la deducción del IRPF, no al bono CAE. Caso:
+ * 26RES060_OP310 (19/10/2026), la deducción pasó de 5.927 € a 9.000 €.
+ */
+function fotovoltaicaDelPlan(plan = {}) {
+    const p = plan.presupuesto || {};
+    const tieneImporte = p.fotovoltaica_con_iva != null && p.fotovoltaica_con_iva !== '';
+    if (!tieneImporte && !p.fichero_fv) return null;
+    const importe = tieneImporte ? Number(p.fotovoltaica_con_iva) : null;
+    if (tieneImporte && !(importe > 0)) {
+        throw new Error(`presupuesto.fotovoltaica_con_iva «${p.fotovoltaica_con_iva}»: el importe de las placas CON IVA, en euros.`);
+    }
+    if (p.fichero_fv && /\.(xml|cex)$/i.test(p.fichero_fv)) throw new Error('presupuesto.fichero_fv: el PDF (o la foto) del presupuesto de las placas.');
+    return {
+        importe,
+        fichero: p.fichero_fv || null,
+        wa_msg_id: p.wa_msg_id_fv || null,
+        t: p.t_fv || null,
+    };
+}
+
+const r2 = n => Math.round(n * 100) / 100;
+const eur2 = n => `${(Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true })} €`;
+
+/**
+ * Deja P. Fotovoltaica y su huella (`presupuestos_leidos.FOTOVOLTAICA`, con la forma
+ * de `logic/presupuestoLeido.js`) después de leer los presupuestos. `importe` es el
+ * del plan y MANDA sobre lo que haya separado el lector (quien ha mirado el PDF ha
+ * visto las líneas). Si las placas vienen DENTRO del presupuesto de la aerotermia,
+ * lo que se pone o se quita a P. Fotovoltaica sale de P. Aerotermia: la suma sigue
+ * siendo el total del documento y nada se cuenta dos veces. Sin `importe`, solo se
+ * deja la huella de lo que el lector ya separó. Devuelve `{ patch, avisos }`.
+ */
+function fijarFotovoltaica(inputs = {}, { importe = null, dentroDeAerotermia = false, conIva = true, ahora = new Date().toISOString() } = {}) {
+    const leido = Number(inputs.presupuestoFotovoltaica) || 0;
+    const fv = importe != null ? r2(Number(importe)) : leido;
+    if (!(fv > 0)) return { patch: null, avisos: [] };
+    // Leído de SU documento y sin cifra del plan: la huella ya es la del lector.
+    if (importe == null && inputs.presupuestos_leidos?.FOTOVOLTAICA) return { patch: null, avisos: [] };
+    const patch = { presupuestoFotovoltaica: fv };
+    const avisos = [];
+    const memoria = { ...(inputs.presupuestos_leidos || {}) };
+    if (importe != null && dentroDeAerotermia && Math.abs(leido - fv) >= 0.01) {
+        const aero = r2((Number(inputs.presupuesto) || 0) + leido - fv);
+        if (!(aero > 0)) {
+            throw new Error(`fotovoltaica_con_iva ${eur2(fv)} no cabe en el presupuesto leído (P. Aerotermia ${eur2(inputs.presupuesto)}`
+                + ` + P. Fotovoltaica ${eur2(leido)}). Si las placas tienen presupuesto aparte, pon presupuesto.fichero_fv.`);
+        }
+        patch.presupuesto = aero;
+        if (memoria.AEROTERMIA) {
+            memoria.AEROTERMIA = {
+                ...memoria.AEROTERMIA, importe: aero,
+                partes: { ...(memoria.AEROTERMIA.partes || {}), aerotermia: aero, fotovoltaica: fv },
+            };
+        }
+    }
+    if (importe != null && leido > 0 && Math.abs(leido - fv) >= 1) {
+        avisos.push(`P. Fotovoltaica: el lector separó ${eur2(leido)}; manda el plan (${eur2(fv)})`
+            + `${dentroDeAerotermia ? ', y la diferencia sale de P. Aerotermia' : ''}.`);
+    }
+    if (!conIva) avisos.push('La simulación va SIN IVA (empresa): P. Fotovoltaica tiene que ser la BASE, no el total con IVA.');
+    // La huella: la del documento de las placas si lo hubo; si venían dentro del de
+    // la aerotermia, los datos de ese documento.
+    const doc = memoria.FOTOVOLTAICA || (dentroDeAerotermia ? memoria.AEROTERMIA : null) || {};
+    memoria.FOTOVOLTAICA = {
+        importe: fv,
+        partes: { aerotermia: 0, fotovoltaica: fv, envolvente: 0 },
+        total_documento: doc.total_documento ?? fv,
+        con_iva: doc.con_iva ?? conIva,
+        iva_pct: doc.iva_pct ?? null,
+        iva_estimado: !!doc.iva_estimado,
+        numero: doc.numero ?? null,
+        fecha: doc.fecha ?? null,
+        emisor: doc.emisor ?? null,
+        at: ahora,
+        ...(importe != null ? { origen: 'plan' } : {}),
+    };
+    patch.presupuestos_leidos = memoria;
+    return { patch, avisos };
+}
+
 const MODOS_CEE = ['comparativa', 'cee'];
 
 /**
@@ -359,6 +444,12 @@ function documentosDelPlan(plan = {}, base = '.') {
     const pre = documentoPresupuesto(plan);
     if (pre && !out.some(d => d.slot === 'DOC_PRESUPUESTO')) {
         out.push({ ruta: path.resolve(base, pre.fichero), slot: 'DOC_PRESUPUESTO', wa_msg_id: pre.wa_msg_id, t: pre.t, label: null });
+    }
+    // El de las placas, si viene aparte, también es un presupuesto de la obra.
+    const fv = fotovoltaicaDelPlan(plan);
+    if (fv?.fichero) {
+        const ruta = path.resolve(base, fv.fichero);
+        if (!out.some(d => d.ruta === ruta)) out.push({ ruta, slot: 'DOC_PRESUPUESTO', wa_msg_id: fv.wa_msg_id, t: fv.t, label: null });
     }
     const cee = ceeDelPlan(plan);
     for (const f of cee?.ficheros || []) {
@@ -475,7 +566,7 @@ module.exports = {
     bloquePeticion, segundosMadrid, resumenMensaje,
     mimeDeFichero, tipoMedia,
     seleccionConstrucciones, funnelDesdePlan, contactoDesdePlan, ajustesEdificio, ajustesCombustible, ORIENTACIONES, SUBTIPOS,
-    documentoPresupuesto, ceeDelPlan, MODOS_CEE, documentosDelPlan, textoHistorial, capitaliza,
+    documentoPresupuesto, fotovoltaicaDelPlan, fijarFotovoltaica, ceeDelPlan, MODOS_CEE, documentosDelPlan, textoHistorial, capitaliza,
     oportunidadesDeLaRc, resolverPartner, modeloAerotermia, idAdmin, anotarAlta,
     SLOTS_CONOCIDOS, COMBUSTIBLES, EMISORES, ACS_ACTUAL,
 };

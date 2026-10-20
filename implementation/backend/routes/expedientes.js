@@ -815,7 +815,9 @@ router.get('/:id', enforceAuth, async (req, res) => {
 // Solo lectura. Las fotos salen de los slots REALES de la app (buildDocChecklist).
 // Cómputo reutilizable del barrido. Devuelve { numero_expediente, grupos, objetivos }.
 // Lo usan GET /:id/checklist y la lógica de "solicitar lo que falta".
-async function buildChecklistData(exp, cli, op) {
+// `soloLectura` (2026-10-19, la ronda de WhatsApp en seco): consultar no escribe
+// nada — se salta el backfill del justificante de más abajo.
+async function buildChecklistData(exp, cli, op, { soloLectura = false } = {}) {
     const c = cli || {};
     const doc = exp.documentacion || {};
     const datos = op?.datos_calculo || {};
@@ -912,7 +914,7 @@ async function buildChecklistData(exp, cli, op) {
                     justifLink = match.webViewLink || match.link || null;
                     justifOk = !!justifLink;
                     // Backfill atómico del campo (self-healing): la próxima vez ya no se escanea Drive.
-                    if (justifLink && exp.oportunidad_id) {
+                    if (justifLink && exp.oportunidad_id && !soloLectura) {
                         supabase.rpc('set_expediente_doc_field', {
                             p_oportunidad_id: exp.oportunidad_id,
                             p_field: 'justificante_titularidad_link',

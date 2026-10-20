@@ -1932,10 +1932,16 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     //: edificio consume de electricidad ese mes (`consumoMensualDelCee`, del
     //: XML que manda). Sin XML no hay tope: va la producción y se dice; en el PC
     //: lo ajusta después CE3X con su consumo exacto (`cexAPdf`).
+    //: En el INICIAL, con una aerotermia en la obra y sin `consumoMedida`, el XML
+    //: cargado es el del propio inicial: la caldera, que casi no gasta luz. Recortar
+    //: con él deja las placas de la medida en nada (26RES060_239: 12.284 → 1.422
+    //: kWh). Sin tope aquí: va la producción y CE3X la ajusta en el PC al consumo
+    //: de la vivienda CON la medida (`cexAPdf`, regla 126).
+    const sinTopeInicial = !esFinal && !conMedida && !!equipo;
     const consumoMes = conMedida
         ? { meses: consumoMedida.meses, anual: Number(consumoMedida.anual),
             fase: 'con la aerotermia (su medida de mejora)' }
-        : consumoMensualDelCee(expediente);
+        : (sinTopeInicial ? null : consumoMensualDelCee(expediente));
     const declarado = kwpFv ? autoconsumoMensual(mensualDe(pvgis, kwh), consumoMes?.meses || null) : null;
     const yaTienePlacas = fv.estado === 'si';
     const nombreFv = campoDe(MEDIDA_AUTOCONSUMO, 'Nombre conjunto medidas mejora');
@@ -2002,7 +2008,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
         const partes = [];
         if (tecleado) {
             partes.push(`${miles(kwh)} kWh/año TECLEADOS por el certificador.`);
-            if (maxCee && tecleado > maxCee) {
+            if (maxCee && tecleado > maxCee && !sinTopeInicial) {
                 partes.push(`Pasan del máximo declarable del CEE ${techo.fase} `
                             + `(${miles(maxCee)} kWh/año): no se puede declarar más `
                             + 'autoconsumo que electricidad gasta el edificio.');

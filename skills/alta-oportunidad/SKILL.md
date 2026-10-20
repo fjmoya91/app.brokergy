@@ -1,11 +1,12 @@
 ---
 name: alta-oportunidad
-description: 'Lleva a la app de BROKERGY lo que un instalador o un cliente manda por WHATSAPP. (1) DA DE ALTA la oportunidad sin rellenar el formulario: lee el chat (texto, fotos, PDF, contactos, notas de voz), saca la referencia catastral, la caldera y su PLACA, el croquis, el presupuesto y el titular, y la crea por las MISMAS funciones que «Nueva simulación» (con su CEE, la comparativa). (2) Si la oportunidad o el expediente YA EXISTE, la DOCUMENTA: fotos, vídeos y CEE a sus apartados de «12. DOCUMENTOS PARA CEE», ventana por ventana. En los dos casos pone el nº de obra en el nombre del chat de WhatsApp (RES080_OP52 …) y en el título de la sesión. Úsalo con "da de alta lo que ha mandado ISM", "crea la oportunidad con lo del WhatsApp de X", "guarda la documentación del chat de X en la OP52", "26RES080_OP52: guarda lo que ha mandado". Sin emisor declarado, RADIADORES. Primero en seco; lo dudoso se pregunta o se marca para revisar. La propuesta se envía desde la app.'
+description: 'Lleva a la app de BROKERGY lo que un instalador o un cliente manda por WHATSAPP o por EMAIL (Gmail). (1) DA DE ALTA la oportunidad sin rellenar el formulario: lee el chat o el correo (texto, fotos, PDF, notas de voz), saca la referencia catastral, la caldera y su PLACA, el croquis, el presupuesto y el titular, y la crea por las MISMAS funciones que «Nueva simulación». (2) Si la oportunidad o el expediente YA EXISTE, la DOCUMENTA: fotos, vídeos y CEE a sus apartados de «12. DOCUMENTOS PARA CEE», ventana por ventana. Pone el nº de obra en el título de la sesión y, si vino por WhatsApp, en el nombre del chat (RES080_OP52 …). Úsalo con "da de alta lo que ha mandado ISM", "crea la oportunidad con lo del WhatsApp de X", "da de alta lo que ha mandado Instalaciones Plaza por email", "revisa el email de X y guárdalo para la simulación", "26RES080_OP52: guarda lo que ha mandado". Sin emisor declarado, RADIADORES. Primero en seco; lo dudoso se pregunta o se marca para revisar. La propuesta se envía desde la app.'
 ---
 
-# Alta de oportunidad desde WhatsApp
+# Alta de oportunidad desde WhatsApp o email
 
-El instalador pide una simulación por WhatsApp y manda, en una ráfaga de mensajes, casi siempre lo mismo:
+El instalador pide una simulación por WhatsApp (o por email) y manda, en una ráfaga de mensajes o en
+un correo con adjuntos, casi siempre lo mismo:
 la **referencia catastral** (escrita, en captura o en el PDF del Catastro), la **foto de la caldera**,
 la **foto de su placa**, a veces si son **radiadores** o no, y de vez en cuando un **croquis** o el
 **presupuesto**. Con eso esta skill hace lo que antes era rellenar «Nueva simulación» a mano:
@@ -16,7 +17,8 @@ documentos en sus apartados de Drive.
   `computeFullCalculatorResult`, `createLead`, `subirFicherosASlot`): la oportunidad de la skill y la del
   formulario no pueden diferir.
 - **El chat se LEE en el servidor** (la sesión de WhatsApp vive en el VPS): solo lectura — no se envía
-  nada, no se marca nada como leído, no se crea ningún chat.
+  nada, no se marca nada como leído, no se crea ningún chat. **El correo, igual**: se baja y se lee,
+  nunca se contesta ni se marca (ver «Si llega por EMAIL»).
 - **El modelo solo LEE; el plan lo escribe quien ha mirado cada foto.** Las lecturas con IA (placa,
   presupuesto, RC, notas de voz) son una ayuda: se contrastan con el fichero antes de entrar en el plan.
 - **No se inventa**: lo que no se puede afirmar se PREGUNTA (una frase concreta) o se escribe en
@@ -44,14 +46,20 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
 | `obra <26RES080_OP52\|26RES080_87>` | Una oportunidad o expediente que YA existe: cliente, Drive, nº para el chat y sus apartados (con lo ya subido) | nada |
 | `documentar --op <nº> --plan docs.json [--escribir]` | Coloca fotos, vídeos y documentos del chat en los apartados de ESA obra («12. DOCUMENTOS PARA CEE»), ventana por ventana, y lo anota en su historial | con `--escribir` |
 | `renombrar --op <nº> --tel <tel> [--anteponer] [--escribir]` | Pone el nº de obra en el nombre del chat («RES080 Maria José…» → «RES080_OP52 Maria José…») y dice el título de la sesión | con `--escribir` |
+| `correo-raw <fichero> [--out DIR]` | Abre el correo que bajó el conector de Gmail (`get_message` RAW, guardado en `tool-results/…`) o un `.eml`: cuerpo, adjuntos numerados (sin duplicados ni logos) y el partner del remitente, en `scratch/alta-oportunidad/<remitente>-<fecha>/` | nada (solo ficheros locales) |
+| `correo "<remitente o asunto>" [--dias 14] [--uid N]` | Lo mismo leyendo el buzón de Hostinger (franciscojavier.moya@brokergy.es) por IMAP, en SOLO LECTURA: lista y, con uno (o `--uid`), lo baja | nada (solo ficheros locales) |
 
 **Sin `--escribir` no se toca nada**: siempre primero en seco.
 
 ## El recorrido
 
-1. **Encontrar el chat.** El usuario lo nombra como lo ve en el móvil («el WhatsApp de ISM Alejandro
-   Administración»): `chats "ism alejandro"`. Si sale más de uno, pregunta cuál.
-2. **`chat <tel>`**. Lee el listado entero, no solo el bloque ▶: la petición puede venir en dos días
+1. **Encontrar el material.**
+   - **WhatsApp**: el usuario nombra el chat como lo ve en el móvil («el WhatsApp de ISM Alejandro
+     Administración»): `chats "ism alejandro"`. Si sale más de uno, pregunta cuál.
+   - **Email** («lo que ha mandado X por email», «revisa el correo de X»): conector de Gmail →
+     `get_message` RAW → `correo-raw`, o `correo` por IMAP. Ver **«Si llega por EMAIL»**; deja la
+     carpeta con el cuerpo y los adjuntos, y se sigue en el **paso 3** (el cuerpo se lee como el chat).
+2. **`chat <tel>`** (solo WhatsApp). Lee el listado entero, no solo el bloque ▶: la petición puede venir en dos días
    (la RC el lunes, las fotos el martes) → `--desde`. Y hay chats con varias obras mezcladas (un
    instalador manda cosas de varios clientes): quédate con lo que es de ESTE cliente.
    - Las **notas de voz** se transcriben (`escuchar`): el instalador dice de viva voz lo que no escribe
@@ -64,6 +72,10 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
      marca, modelo, potencia y combustible con la foto.
    - la caldera entera, el croquis, el presupuesto, la captura/PDF del Catastro.
    - El presupuesto → `leer --presupuesto` (importe CON IVA, la aerotermia y el ACS en el catálogo).
+     Si trae **placas fotovoltaicas** de esta obra, su importe CON IVA (sácalo de las líneas del
+     PDF: el lector deja la obra civil en la aerotermia) va a `presupuesto.fotovoltaica_con_iva`, y
+     su presupuesto aparte, si lo hay, a `presupuesto.fichero_fv`: P. Fotovoltaica, que sube la
+     deducción del IRPF (26RES060_OP310: de 5.927 € a 9.000 €). Ver `referencia/plan.md`.
    - Un **CEE** (PDF): mira su fecha, la demanda de calefacción, la superficie y los equipos
      (`pdftotext -layout` basta para leerlo). Va a `cee` del plan (ver la regla del CEE).
 4. **`catastro <RC> --dni <DNI>`**.
@@ -76,8 +88,41 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
    una a una — van al historial de la oportunidad y son lo que se revisa.
 6. **`crear --plan plan.json`** en seco. Revisa la ficha que imprime (superficie, caldera y η, emisor,
    ACS, aerotermia y SCOP, presupuesto, ahorro y bono) y que cada documento tiene ✓. Luego `--escribir`.
-7. **Nombre del chat y de la sesión** (ver «Al terminar, SIEMPRE»).
+7. **Nombre del chat y de la sesión** (ver «Al terminar, SIEMPRE»). Por email no hay chat: se dice.
 8. **Informe final** (abajo).
+
+## Si llega por EMAIL
+
+El correo llega a Gmail (`franciscojavier.moya.s2e2@gmail.com`, que recibe también lo de
+`franciscojavier.moya@brokergy.es`). Detalle, alternativa en Python y el caso completo en
+[referencia/correo.md](referencia/correo.md).
+
+1. **Encontrarlo y bajarlo** — dos caminos; los dos dejan `cuerpo.txt`, `correo.json` y los adjuntos
+   numerados en `scratch/alta-oportunidad/<remitente>-<fecha>/`, como `chat`:
+   - **a) Gmail, el principal** (ahí está todo). El conector de claude.ai **no baja adjuntos**:
+     `search_threads` (`from:… has:attachment newer_than:7d`) → `get_message` con
+     `messageFormat: "RAW"`. Como pasa del límite, Claude Code guarda la salida en
+     `~/.claude/projects/<proyecto>/<sesión>/tool-results/…get_message-….txt` (JSON con `raw` = el
+     MIME en base64url) → `correo-raw "<ese fichero>"`. Probado el 19/10/2026 con correos de 72 KB a
+     8,5 MB.
+   - **b) IMAP del buzón de Hostinger** (solo lo que llega a brokergy.es): `correo "plaza" --dias 14`
+     lista; con uno solo lo baja, con varios `--uid N`. En solo lectura: no marca nada como leído.
+2. **Mismo recorrido desde el paso 3**: mirar cada fichero, `leer`, `catastro`, plan, `crear` (o
+   `documentar`) en seco y `--escribir`. Lo que cambia:
+   - **El cuerpo del correo se lee como los mensajes del chat** (el aviso legal y la firma no cuentan).
+   - **El partner sale del remitente**: la orden lo busca en la ficha del prescriptor (su email, el
+     dominio si es de empresa, o la razón social del nombre) y lo imprime; se contrasta con quien firma
+     el presupuesto. Si escribe el propio cliente, el partner es el instalador del presupuesto.
+   - **Adjuntos duplicados** (mismo contenido, por hash) y logos en línea **se descartan solos** y se
+     listan. Los nombres («WhatsApp Image … .jpeg») no dicen lo que son: se mira cada uno.
+   - **En el plan va `correo` en vez de `chat`**, sin `wa_msg_id` (`referencia/plan.md`): el
+     historial dice «📧 … por email de X «asunto»».
+   - **No hay chat que renombrar**: ese paso se salta y se dice; el título de la sesión, sí.
+
+Ejemplo: INSTALACIONES PLAZA 2014 SL (`correo-del-instalador@hotmail.com`), 19/10/2026, «DOCUMENTACION
+PARA SUBVENCION»: el presupuesto 189 (PDF), el recibo del IBI con la RC y fotos de la caldera ACV
+Delta —el esquema eléctrico de la tapa, no la placa: sin placa, la fila más reciente de su tipo y se
+pide la placa—; una foto repetida, descartada; el partner PLAZA, por el email de su ficha.
 
 ## Si la oportunidad o el expediente YA EXISTE — `documentar`
 
@@ -88,7 +133,8 @@ documentación del chat de María José»).
 1. **`obra <nº>`**: de quién es, su carpeta y los apartados que tiene ESA obra (un RES080 con
    ventanas tiene `FOTO_VENTANAS_ANTES`; un RES060 no) con lo que ya hay subido.
 2. **`chats` + `chat <tel> --bajar todo`** (o `--desde`): baja lo que mandó. Comprueba que el chat
-   es de ESE cliente (nombre del chat, lo que escribe, la dirección del CEE).
+   es de ESE cliente (nombre del chat, lo que escribe, la dirección del CEE). Por email,
+   `correo-raw` / `correo` (arriba), y la misma comprobación con el cuerpo y los adjuntos.
 3. **Mira cada fichero** y decide su apartado (tabla en `referencia/plan.md`). Un CEE: que su
    referencia catastral sea la de la obra. Lo que contradiga la simulación (el CEE dice que el agua la
    da un termo y la simulación, la caldera) **no se corrige**: va a `decisiones`.
@@ -103,14 +149,16 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
 1. **La documentación en su sitio**: todo lo que mandó, en los apartados de la obra («12. DOCUMENTOS
    PARA CEE» en Drive), nunca suelto en la raíz ni en el escritorio.
 2. **El nº de obra en el nombre del chat de WhatsApp**: `renombrar --op <nº> --tel <tel>` en seco y
-   luego `--escribir`. Con expediente, su nº (`RES080_87`); sin él, la oportunidad (`RES080_OP52`).
+   luego `--escribir`. **Si vino por EMAIL no hay chat**: se salta y el informe lo dice (el chat de
+   WhatsApp de un instalador nunca se renombra con el nº de una obra). Con expediente, su nº (`RES080_87`); sin él, la oportunidad (`RES080_OP52`).
    Solo se toca el PREFIJO de la casa y lo de detrás se conserva letra a letra.
    - Si el nombre dice OTRA ficha (RES060 frente a RES080), no se toca: suele ser el chat de otra
      persona. `--forzar-ficha` solo si se ha comprobado.
    - Sin prefijo (`sin_prefijo`): `--anteponer` **solo si es el chat del PROPIO cliente**. El chat de
      un INSTALADOR lleva veinte obras y **nunca** se renombra con el nº de una.
    - Un número que no está en la agenda no se guarda desde aquí: se dice.
-3. **El mismo nombre en el título de la sesión de Claude** (lo imprime `renombrar`): en Claude Code,
+3. **El mismo nombre en el título de la sesión de Claude** (lo imprime `renombrar`; por email, el «Nº
+   de obra para el chat» que imprime `obra <nº>` y el cliente): en Claude Code,
    `set_session_title` con `session_id: "self"`; donde no exista esa herramienta (Cowork), se le dice
    al usuario para que lo ponga a mano. Así se sabe de qué obra es cada conversación.
 
@@ -198,7 +246,8 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
   y **bono CAE**. Con CEE, las **dos cifras de la comparativa** (con su CEE · CEE nuevo BROKERGY).
 - Las **decisiones** tomadas y **lo que hay que revisar** (equipo fuera de catálogo, superficie
   parcial, nº de serie dudoso, teléfono que falta…).
-- El **nombre nuevo del chat** de WhatsApp y el **título de la sesión**, o por qué no se ha tocado.
+- El **nombre nuevo del chat** de WhatsApp y el **título de la sesión**, o por qué no se ha tocado (por
+  email: no hay chat). De dónde salió: el chat, o el correo (remitente, fecha y asunto).
 - Que la **propuesta (PDF) se revisa y se envía desde la app** — la skill no envía nada.
 
 ## Después del alta: preguntarle a Fran por WhatsApp (costumbre desde 2026-10-05)
@@ -227,11 +276,14 @@ recibe el aviso del backend cuando Fran escribe a la empresa y lanza a Claude co
 
 - Escribiendo `/alta-oportunidad` seguido de lo que hay que hacer:
   `/alta-oportunidad 26RES080_OP52 guarda lo que ha mandado María José` ·
-  `/alta-oportunidad da de alta lo último de ISM Alejandro`.
+  `/alta-oportunidad da de alta lo último de ISM Alejandro` ·
+  `/alta-oportunidad da de alta lo que ha mandado Instalaciones Plaza por email`.
 - O sin barra, en lenguaje normal: «26RES080_OP52: guarda la documentación del chat RES080 Maria José
-  Valdepeñas», «crea la oportunidad con lo que ha mandado X por WhatsApp». La skill se carga sola.
+  Valdepeñas», «crea la oportunidad con lo que ha mandado X por WhatsApp», «revisa el email de X y
+  guárdalo para la simulación». La skill se carga sola.
 - Lo único que hace falta darle: el **nº de obra** (si ya existe) y **el chat** (como se ve en el
-  móvil, o el teléfono). Si hay varios chats parecidos, pregunta cuál.
+  móvil, o el teléfono) **o el correo** (quién lo manda, o el asunto). Si hay varios parecidos,
+  pregunta cuál.
 
 ## Pruebas
 
@@ -249,3 +301,7 @@ node implementation/backend/scripts/test_renombrar_contacto.js # el nº de obra 
 (Ajustes → WhatsApp). Si dice que la ruta no está desplegada, hay que desplegar el backend. Mientras,
 el usuario puede reenviar los ficheros o dejarlos en una carpeta: el resto de órdenes trabaja con
 ficheros locales.
+
+**Por email**: si `get_message` RAW sale en línea en vez de guardarse en fichero, el correo es tan
+pequeño que no trae nada que bajar (se lee con `get_message` normal); el base64 no se copia a mano.
+Si `correo` (IMAP) no entra, revisa `LOTE_SO_SMTP_USER/PASS` en el `.env`; Gmail sigue valiendo.

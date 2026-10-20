@@ -16,7 +16,7 @@ paths:
 
 5. **PDF Propuestas**: El encabezado usa **CSS Grid**. No cambiar a Flexbox para evitar desbordamientos.
 
-25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".
+25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). **Los `importes` sellados son los de la opción que IMPRIME el PDF** (2026-10-19): con reforma, `financialsRes080` en la de solo reforma y las dos ramas en la comparativa, nunca `financials` a ciegas. Las 36 versiones con reforma habían sellado el bono de solo aerotermia (26RES080_OP76: 2.255 € con un PDF de 5.262 €), y la inversión salía null en todas. Fuente única: [utils/importesPropuesta.js](implementation/backend/utils/importesPropuesta.js). Tras tocarlo: `node implementation/backend/scripts/test_importes_propuesta.js`. Ver "Versiones de la PROPUESTA".
 
 31. **Una propuesta con presupuesto ESTIMADO lo dice, y dice a qué afecta**: el flujo interno pregunta el dinero UNA vez (`StepDocsObra`: documento · importe a mano · estimar 15.000 €) y la marca viaja en `inputs.presupuestoEstimado` hasta la portada, la tabla, el recuadro y el mensaje de envío (la nota al pie que lo repetía se retiró). El **bono CAE no cambia** (sale del ahorro certificado) y **la deducción del IRPF sí** (es un % del coste con IVA); sin deducción en juego, ese párrafo no se escribe. Fuente única del texto y de la cifra: [logic/presupuestoEstimado.js](implementation/frontend/src/features/calculator/logic/presupuestoEstimado.js), que carga también el backend (`leadMessages`) por import() ESM. Cualquier presupuesto tecleado en la calculadora LEVANTA la marca. **La portada nunca esconde texto bajo el pie**: si ni los huecos ni el compacto bastan, el cuerpo se reduce con `zoom` (bisección, suelo 0,72) ya en la vista previa, y el servidor parte de ese zoom. Tras tocar la portada: `node implementation/backend/scripts/revisar_portadas_propuestas.js`. Ver "Presupuesto ESTIMADO" y "La portada de la propuesta NUNCA esconde texto".
 
@@ -46,7 +46,7 @@ paths:
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 2,4 KB
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,3 KB
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19) · 4,9 KB
-- `docs/conocimiento/propuesta/versiones-de-la-propuesta.md` — Versiones de la PROPUESTA (2026-08-25) · 6,0 KB
+- `docs/conocimiento/propuesta/versiones-de-la-propuesta.md` — Versiones de la PROPUESTA (2026-08-25) · 8,2 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -101,5 +101,8 @@ colaboración con {empresa}, te adjuntamos…»**
   - **REGLA — la marca va IMPRESA en el documento, no solo en el nombre del fichero.**
   - **REGLA — qué versión aceptó el cliente se SELLA.**
   - **REGLA — copiar el enlace de aceptación ES ENTREGAR la propuesta, y cuenta como tal.**
+  - **REGLA — con reforma, se sella la rama que el PDF enseña.**
+  - **REGLA — el historial solo resta cifras de la MISMA opción.**
+  - **REGLA — la inversión es la de la portada: presupuesto + fotovoltaica.**
 
 <!-- generado:fin -->

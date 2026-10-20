@@ -574,8 +574,12 @@ export function ClientesView({
                 onOpenOportunidad={onLoadOpportunity}
                 onOpenExpediente={(exp) => onNavigate('expedientes', { expediente_id: exp.id })}
                 onUpdated={(updated) => {
-                    setClientes(prev => prev.map(c => c.id_cliente === updated.id_cliente ? { ...c, ...updated } : c));
+                    if (updated) setClientes(prev => prev.map(c => c.id_cliente === updated.id_cliente ? { ...c, ...updated } : c));
                     setClienteDetail(null);
+                }}
+                // El justificante subido y leído: se refresca la fila, el popup sigue abierto.
+                onCambio={(fresco) => {
+                    if (fresco) setClientes(prev => prev.map(c => c.id_cliente === fresco.id_cliente ? { ...c, ...fresco } : c));
                 }}
             />
 

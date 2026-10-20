@@ -157,7 +157,43 @@ async function ficherosDe(exp, origen, borrador) {
 
 // ─── Carga ───────────────────────────────────────────────────────────────────
 
-async function cargar(origen, id, fase) {
+// El certificador REAL de la casa: el que firma con el certificado de representante
+// de Brokergy (Francisco Javier Moya López). Es el MISMO técnico por defecto que
+// `scripts/cee_inicial.js` (decisión del usuario, 2026-10-06); `CEE_TECNICO_POR_DEFECTO`
+// lo cambia en los dos.
+const CERTIFICADOR_CASA = () => process.env.CEE_TECNICO_POR_DEFECTO || 'c05b23c1-aa81-4a9a-bd6b-b59cb65775c5';
+
+/**
+ * Quién va en el apartado 02 (Representante).
+ *
+ * REGLA — el AGENTE IA no firma ni presenta: siempre hay un certificador REAL detrás.
+ * Si el asignado es el agente (`es_agente_ia`), va el de la casa, salvo que quien
+ * presenta diga otro (`representanteId`). Medido el 19/10/2026 en 26RES060_189: con
+ * el agente en la barra el 02 salía vacío y la sede no dejaba «Pagar y enviar» («En 02
+ * Representante: Cumplimente los campos obligatorios»).
+ *
+ * Un técnico de verdad al que le falte el NIF NO se sustituye: presentar como Fran
+ * un CEE que firma otro sería falso. Se queda con su aviso.
+ */
+async function representanteDe(certificador, { representanteId = null } = {}) {
+    const leer = async (idEmpresa) => {
+        const { data, error } = await supabase.from('prescriptores').select('*').eq('id_empresa', idEmpresa).maybeSingle();
+        if (error) throw new Error(error.message);
+        return data;
+    };
+    if (representanteId) {
+        const elegido = await leer(representanteId);
+        if (!elegido) throw new Error(`No existe el certificador ${representanteId} en Prescriptores`);
+        return { certificador: elegido, sustituye: certificador?.id_empresa !== elegido.id_empresa ? certificador : null };
+    }
+    if (certificador?.es_agente_ia === true) {
+        const casa = await leer(CERTIFICADOR_CASA());
+        if (casa) return { certificador: casa, sustituye: certificador };
+    }
+    return { certificador, sustituye: null };
+}
+
+async function cargar(origen, id, fase, opts = {}) {
     const tabla = origen === 'cee_directo' ? 'cee_directos' : 'expedientes';
     const { data: exp, error } = await supabase
         .from(tabla)
@@ -171,7 +207,7 @@ async function cargar(origen, id, fase) {
     if (!exp) { const e = new Error('Expediente no encontrado'); e.status = 404; throw e; }
 
     const certId = exp.cee?.certificador_id || null;
-    const [{ data: cliente }, { data: certificador }, { data: oportunidad }] = await Promise.all([
+    const [{ data: cliente }, { data: asignado }, { data: oportunidad }] = await Promise.all([
         exp.cliente_id
             ? supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle()
             : Promise.resolve({ data: null }),
@@ -183,8 +219,9 @@ async function cargar(origen, id, fase) {
             : Promise.resolve({ data: null }),
     ]);
 
+    const { certificador, sustituye } = await representanteDe(asignado, opts);
     const expediente = { ...exp, cee: await conCalificaciones(exp.cee || {}, fase) };
-    return { expediente, cliente, certificador, oportunidad };
+    return { expediente, cliente, certificador, certificadorSustituido: sustituye, oportunidad };
 }
 
 /**
@@ -195,17 +232,17 @@ async function cargar(origen, id, fase) {
  * @param {string} id
  * @param {'inicial'|'final'} fase
  */
-async function componer(origen, id, fase) {
-    const { borrador, html } = await componerConCtx(origen, id, fase);
+async function componer(origen, id, fase, opts = {}) {
+    const { borrador, html } = await componerConCtx(origen, id, fase, opts);
     return { borrador, html };
 }
 
 // Lo mismo, pero con el expediente cargado: lo necesita quien GUARDA el PDF en su
 // carpeta. `componer` no lo devuelve porque su salida va tal cual a la respuesta
 // HTTP, y ahí el expediente entero no tiene nada que hacer.
-async function componerConCtx(origen, id, fase) {
+async function componerConCtx(origen, id, fase, opts = {}) {
     const { buildBorradorCee, buildBorradorCeeHtml } = await cargarLogica();
-    const ctx = await cargar(origen, id, fase);
+    const ctx = await cargar(origen, id, fase, opts);
     const borrador = buildBorradorCee(ctx, { fase });
 
     // El estado en Drive solo se consulta si hay borrador que enseñar: fuera de
@@ -218,9 +255,9 @@ async function componerConCtx(origen, id, fase) {
 }
 
 /** Un fichero concreto, descargado de Drive y con el nombre del Registro. */
-async function fichero(origen, id, fase, claveDoc) {
+async function fichero(origen, id, fase, claveDoc, opts = {}) {
     const { buildBorradorCee } = await cargarLogica();
-    const ctx = await cargar(origen, id, fase);
+    const ctx = await cargar(origen, id, fase, opts);
     const borrador = buildBorradorCee(ctx, { fase });
     const lista = await ficherosDe(ctx.expediente, origen, borrador);
 

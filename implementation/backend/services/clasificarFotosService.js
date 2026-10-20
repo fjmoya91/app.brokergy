@@ -149,7 +149,7 @@ function trocear(arr, n) {
  * @returns {Promise<Array<{indice, slot, label, que_se_ve, confianza}>>}
  *          Un elemento por imagen, en el mismo orden. `slot: null` = sin clasificar.
  */
-async function clasificar(imagenes, slots) {
+async function clasificar(imagenes, slots, { onUso = null } = {}) {
     const validos = new Map(slots.map(s => [s.key, s]));
     // Un apartado "Otros" no se propone nunca: es el cajón de lo que no encaja, y
     // proponerlo sería vestir de acierto un "no lo sé".
@@ -173,7 +173,7 @@ async function clasificar(imagenes, slots) {
         try {
             lectura = await llamarGemini(
                 tanda.map(i => ({ buffer: i.buffer, mimeType: i.mimeType })),
-                { prompt, schema: SCHEMA, etiqueta: 'clasificarFotos', pensar: true, deadline: DEADLINE_MS }
+                { prompt, schema: SCHEMA, etiqueta: 'clasificarFotos', pensar: true, deadline: DEADLINE_MS, onUso }
             );
         } catch (e) {
             // Una tanda que falla deja sus fotos SIN CLASIFICAR, no tira la

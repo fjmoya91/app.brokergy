@@ -1,8 +1,9 @@
 # El plan de `crear`
 
-Un JSON escrito por quien ha mirado el chat y cada fichero. Va en la carpeta que dejó `chat`
-(`scratch/alta-oportunidad/<tel>-<fecha>/`, fuera de git: lleva el DNI). Las rutas de los ficheros son
-relativas a esa carpeta.
+Un JSON escrito por quien ha mirado el chat (o el correo) y cada fichero. Va en la carpeta que dejó
+`chat` (`scratch/alta-oportunidad/<tel>-<fecha>/`) o `correo-raw` / `correo`
+(`scratch/alta-oportunidad/<remitente>-<fecha>/`), fuera de git: lleva el DNI. Las rutas de los
+ficheros son relativas a esa carpeta.
 
 ```json
 {
@@ -58,6 +59,7 @@ relativas a esa carpeta.
 | Clave | Qué es | Notas |
 |---|---|---|
 | `chat` | de dónde salió | Va a `datos_calculo.alta_whatsapp` y al historial. `mensajes` = ids del bloque |
+| `correo` | de dónde salió, si llegó por EMAIL (en vez de `chat`) | `{ "de": "INSTALACIONES PLAZA 2014 SL <correo-del-instalador@hotmail.com>", "asunto": "DOCUMENTACION PARA SUBVENCION", "cuando": "19/10/2026, 13:07", "message_id": "…" }`, copiado de `correo.json`. Va al historial («📧 … por email de …»). Con `correo`, ningún documento lleva `wa_msg_id`. Ver `correo.md` |
 | `prescriptor` | acrónimo, razón social o id del partner que trae la obra | Tiene que casar con UNO. `null` = BROKERGY |
 | `cliente.nombre` / `apellidos` / `dni` | el TITULAR | Obligatorio el nombre. Si el DNI ya es de un cliente, se reutiliza esa ficha |
 | `cliente.tlf` / `email` | solo si son SUYOS | Un teléfono de otra persona (el marido, el instalador) va en `decisiones` |
@@ -84,7 +86,9 @@ relativas a esa carpeta.
 | `acs.equipo` | `{ aerotermia_id }` o `{ marca, modelo, scop? }` | Solo si el ACS lo hace OTRA máquina (bomba de calor de ACS). Sin él, el ACS lo da la aerotermia principal |
 | `aerotermia` | `{ aerotermia_id }` o `{ marca, modelo, scop?, potencia_kw? }` | `{marca, modelo}` se casa con el catálogo por el código; con varios candidatos pide el id |
 | `placas` | `"si"` · `"futuro"` · `"no"` · `null` · o `{ "estado": "si", "kwp": 3.5 }` | Placas fotovoltaicas QUE YA TIENE. `null` = sin declarar |
-| `presupuesto` | `{ fichero }` (se lee con OCR) o `{ importe_con_iva }` | Sin él, la propuesta va con el ESTIMADO de 15.000 € y lo dice |
+| `presupuesto` | `{ fichero }` (se lee con OCR) o `{ importe_con_iva }` | Sin él, la propuesta va con el ESTIMADO de 15.000 € y lo dice. El `fichero` se reparte como en la calculadora (`lecturaAPresupuesto`): las líneas de PLACAS van a P. Fotovoltaica y, en una reforma, las de envolvente a P. Reforma. `importe_con_iva` es solo P. Aerotermia |
+| `presupuesto.fotovoltaica_con_iva` | importe CON IVA de las placas de ESTA obra | P. Fotovoltaica: suma a la inversión y a la base de la deducción del IRPF (no al bono CAE). **Manda** sobre lo que separe el lector, que deja la obra civil y la mano de obra en la aerotermia: si las placas van DENTRO del `fichero`, la diferencia sale de P. Aerotermia y la suma sigue siendo el total del documento. Sácalo de las líneas del PDF (`leer --presupuesto` imprime lo que suma cada partida). Caso: 26RES060_OP310 |
+| `presupuesto.fichero_fv` (+ `wa_msg_id_fv`) | el presupuesto de las placas, si viene APARTE | Se lee en su hueco (P. Fotovoltaica), va a `DOC_PRESUPUESTO` y, al escribir, de anexo de la propuesta: `0. PRESUPUESTO/PRESUPUESTO DE LA INSTALACIÓN_FOTOVOLTAICA.pdf` (hueco «Placas solares»; si ya hay uno, no se pisa). Con `fotovoltaica_con_iva` a la vez, manda la cifra |
 | `cee` | `{ fichero, modo, wa_msg_id }` | El CEE que aporta el cliente, el MÁS RECIENTE (PDF o fotos separadas por comas; no `.xml`). Se lee con el OCR de «Nueva simulación» y va solo a `DOC_CEE_EXISTENTE`. `modo`: `comparativa` (por defecto: la simulación sigue estimada y la propuesta ofrece «con tu CEE / CEE nuevo BROKERGY») o `cee` (la simulación usa el certificado; sin comparativa). El seco imprime las dos cifras |
 | `documentos[]` | `{ fichero, slot, wa_msg_id? }` | Apartados: `FOTO_CALDERA_ANTES`, `FOTO_PLACA_CALDERA_ANTES`, `FOTO_EMISORES_ANTES`, `FOTO_ACS_ANTES`, `FOTO_FACHADA_PRINCIPAL`, `FOTO_PATIOS_INTERIORES`, `VIDEO_VIVIENDA`, `DOC_PLANOS`, `DOC_CEE_EXISTENTE`, `DOC_PRESUPUESTO`, `OTROS_ANTES`. El presupuesto entra solo |
 | `decisiones[]` | lo que se ha decidido y por qué | Al historial. Es lo que revisa una persona |
@@ -133,6 +137,7 @@ apartados de ESA obra (con el alcance ya podado) y cuántas fotos tiene ya cada 
 | Clave | Qué es | Notas |
 |---|---|---|
 | `obra` | nº de oportunidad (`26RES080_OP52`) o de expediente (`26RES080_87`) | `--op` en la orden manda sobre éste |
+| `chat` / `correo` | de dónde salió | Como en el plan de `crear`. Con `correo`, el historial dice «📧 Documentación recibida por email de …» |
 | `documentos[].slot` | cualquier apartado que `obra` liste para ESA obra | Se valida contra su checklist real: uno podado por el alcance no se acepta |
 | `documentos[].ventana` | `"nueva"` o `"V3"` | Solo en `FOTO_VENTANAS_ANTES/_DESPUES`: una ventana por foto. `nueva` numera detrás de las que ya tienen foto; en el DESPUÉS se usa el id de la ventana de antes que corresponde |
 | `documentos[].ventana_nombre` | «Puerta de entrada», «Cocina»… | Solo si se ve sin duda; si no, sin nombre (se pone en la app) |

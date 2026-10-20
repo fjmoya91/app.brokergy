@@ -55,17 +55,25 @@ def meses_que_superan(aviso):
     return out
 
 
+#: Cada mes avisado se deja un 1 % POR DEBAJO de su consumo: recortado justo al
+#: consumo, CE3X 3.2 sigue avisando de ese mes (26RES060_239, 20/10/2026: cinco
+#: meses avisados tras el ajuste). Decision del usuario: «si da aviso, bajalo
+#: ligeramente».
+MARGEN = 0.99
+
+
 def recortar(gens, supera):
-    """Cada mes avisado, al consumo de ese mes (a prorrata si hay varios
-    generadores). Devuelve lo cambiado: [(mes, antes, despues)]."""
+    """Cada mes avisado, a un 1 % por debajo del consumo de ese mes (a prorrata
+    si hay varios generadores). Devuelve lo cambiado: [(mes, antes, despues)]."""
     hechos = []
     gens = [g for g in (gens or []) if g is not None]
     for i, cons in sorted(supera.items()):
         m = MESES_GEN[i]
         total = sum(float(getattr(g, m, 0) or 0) for g in gens)
-        if total <= cons or total <= 0:
+        objetivo = cons * MARGEN
+        if total <= objetivo or total <= 0:
             continue
-        k = cons / total
+        k = objetivo / total
         for g in gens:
             antes = float(getattr(g, m, 0) or 0)
             # Hacia abajo: el aviso salta con «supera», y un redondeo hacia

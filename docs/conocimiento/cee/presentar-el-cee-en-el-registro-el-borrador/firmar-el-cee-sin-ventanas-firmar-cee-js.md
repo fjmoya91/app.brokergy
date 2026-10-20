@@ -17,7 +17,8 @@ el PDF de CE3X se firma desde el PC sin abrir AutoFirma ni elegir certificado, y
 
 **REGLA — solo con un «doy por válido» del usuario, y nunca un `_REVISAR` ni un PDF ya firmado.** Firmar
 con el certificado de la casa es un acto de quien firma. El script se niega con un `_REVISAR` (primero
-se sube con el nombre canónico) y con un PDF que ya lleva firma electrónica.
+se sube con el nombre canónico: desde el 19/10/2026, `cee_inicial.js listo <nº> --escribir`) y con un PDF que ya
+lleva firma electrónica.
 
 **REGLA — se firma con el certificado de REPRESENTANTE de Brokergy**, que es con el que firma Fran sus
 CEE (medido en el `_fdo` de 2026CEE_63: «NIF FRANCISCO JAVIER MOYA (R: B19350222)»), no con el personal.
@@ -33,6 +34,12 @@ dentro el texto pisaba el logo: el logo se ESTAMPA en la página antes de firmar
 caja de la firma lleva solo el texto, a la derecha. `obfuscateCertText=false` (si no, «***8255**») y
 Helvetica. Coordenadas en enteros. La rúbrica no puede ir en `-config`: su base64 no cabe en la línea de
 órdenes de Windows (32.767).
+
+⚠️ En un CEE DIRECTO de UN solo certificado el fichero no se llama «CEE INICIAL» sino `{nº} – CEE.pdf`
+(`ceeDirectoUploadService.sectionLabel`): hasta el 19/10/2026 el script buscaba siempre «CEE INICIAL.pdf»
+y ahí no encontraba nada. Ahora toma el rótulo de ese servicio, casa solo el nombre canónico
+(`{nº} – {rótulo}.pdf`, nunca algo que solo acabe igual) y con `--fase final` en uno de un solo
+certificado para y lo dice.
 
 ⚠️ `CEE_SIGN_ANCHOR` de [signBoxes.js](implementation/frontend/src/features/expedientes/logic/signBoxes.js)
 (`'firma del tecnico certificador^above'`) NO encuentra el rótulo de CE3X 3.2 ni pone la firma donde la

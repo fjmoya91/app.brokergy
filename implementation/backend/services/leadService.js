@@ -21,6 +21,7 @@
 const supabase = require('./supabaseClient');
 const { normalizeCliente } = require('../utils/normalization');
 const { marcarSiElPartnerLoPide } = require('./avisosAlPartner');
+const { sellarPrecioCae } = require('../utils/precioCae');
 
 // ============================================================================
 // LEAD SCORING — Heurística para priorizar leads en panel admin
@@ -448,6 +449,15 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
         ...(calculatorInputs || {}),
         referenciaCliente: referenciaCliente || ''
     };
+
+    // El PRECIO CAE queda SELLADO aquí, al NACER (utils/precioCae.js): toda alta
+    // —landing, «Nueva simulación», marketplace, skill alta-oportunidad— pasa por
+    // esta función, y el guardado posterior de la calculadora (POST /oportunidades)
+    // ya encuentra la fila y, si no trae el sello, no puede estrenarlo. Sin esto,
+    // 140 de las 141 oportunidades del 09/09 al 20/10/2026 nacieron sin él y sus
+    // expedientes calculaban a 95 €/MWh con la propuesta a 100. En el re-envío del
+    // funnel sobre un LEAD previo manda la misma regla: se sella si aquél ya lo estaba.
+    sellarPrecioCae(inputsConRef, leadPrevio || null);
 
     const datosCalculo = {
         estado: estadoLead,

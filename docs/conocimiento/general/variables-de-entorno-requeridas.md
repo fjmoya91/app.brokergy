@@ -46,4 +46,18 @@ SEPA_ORDENANTE_NOMBRE=SOLUCIONES SOSTENIBLES PARA EFICIENCIA ENERGETICA SL
 GOOGLE_RESENA_URL=                 ← enlace «escribir una reseña» de la ficha de Google. Sin él no se programa ninguna
 RESENA_PROGRAMADA_ENABLED=false    ← despachador de reseñas. En LOCAL, APAGADO: saldría a un cliente REAL
 RESENA_DIAS_HABILES=2              ← cuándo se propone pedirla: N días hábiles tras transferir, a las 11:00
+
+# Ronda nocturna de WhatsApp (ver "La RONDA NOCTURNA de WhatsApp")
+WA_RONDA_ENABLED=false             ← solo true en el VPS. En LOCAL, APAGADA: misma cuenta de WhatsApp y BD de producción
+WA_RONDA_HORA=5                    ← desde qué hora (Madrid) se leen los chats
+WA_RONDA_HORA_AVISO=9              ← desde qué hora se le manda a Fran (email + chat del asistente)
+WA_RONDA_DESTINO=                  ← opcional; si no, ASISTENTE_WHATSAPP_GRUPO y si no WHATSAPP_ADMIN_CHAT
+WA_RONDA_MAX_CHATS=300             ← tope de chats con mensajes nuevos por ronda
+WA_RONDA_MAX_ADJUNTOS=30           ← tope de adjuntos por chat
+WA_RONDA_MODELO=                   ← modelo del análisis; vacío = GEMINI_MODEL. Cambiarlo solo tras comparar_rondas.js
+WA_RONDA_MODELO_BORRADOR=          ← modelo de los borradores; vacío = el de arriba
+
+# Firmados del S.O. que llegan por CORREO (ver "Los FIRMADOS del S.O. llegan por correo")
+FIRMADOS_SO_CORREO_ENABLED=false   ← lector del buzón. Solo true en el VPS: en LOCAL registraría en la Supabase y el Drive de producción
+LOTE_SO_IMAP_HOST=imap.hostinger.com ← opcional (y LOTE_SO_IMAP_PORT=993); la cuenta es la de LOTE_SO_SMTP_USER/PASS
 ```

@@ -2032,6 +2032,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     }}
                     onClose={() => setShowClienteModal(false)}
                     onUpdated={() => fetchExpediente(true)}
+                    onCambio={() => fetchExpediente(true)}
                     onClienteSwapped={() => { setShowClienteModal(false); fetchExpediente(true); }}
                 />
             )}

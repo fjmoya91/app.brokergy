@@ -5,7 +5,7 @@
 // a la app cuando la sede devuelve el justificante.
 //
 //   node scripts/presentar_cee.js pendientes
-//   node scripts/presentar_cee.js preparar <nº> [--fase inicial|final]
+//   node scripts/presentar_cee.js preparar <nº> [--fase inicial|final] [--certificador <id|NIF|nombre>]
 //   node scripts/presentar_cee.js devuelto <nº> --registro <pdf> [--tasa <pdf>] [--fase …] [--escribir]
 //
 // NO rellena el formulario ni paga: eso lo hace Claude en el navegador con lo que
@@ -123,11 +123,35 @@ function casillasEdificio(apEdificio) {
     return null;
 }
 
+// ─── Quién firma, si no es el asignado ───────────────────────────────────────
+// Con el AGENTE IA en la barra el representante es el certificador de la casa (Fran)
+// sin decir nada (`borradorCeeService.representanteDe`); `--certificador` lo cambia
+// por otro de Prescriptores: su id_empresa, su NIF/CIF o un trozo de su nombre.
+async function resolverCertificador(q) {
+    if (!q) return null;
+    const t = String(q).trim();
+    if (/^[0-9a-f-]{36}$/i.test(t)) return t;
+    const nif = t.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const { data: porNif } = await supabase.from('prescriptores').select('id_empresa, razon_social')
+        .eq('tipo_empresa', 'CERTIFICADOR').or(`cif.eq.${nif},nif_responsable.eq.${nif}`);
+    let lista = porNif || [];
+    if (!lista.length) {
+        const { data } = await supabase.from('prescriptores').select('id_empresa, razon_social')
+            .eq('tipo_empresa', 'CERTIFICADOR').ilike('razon_social', `%${t.replace(/[%_,()]/g, ' ')}%`);
+        lista = data || [];
+    }
+    if (lista.length !== 1) {
+        throw new Error(`--certificador «${t}»: ${lista.length ? `${lista.length} posibles (${lista.map(p => p.razon_social).join(' · ')})` : 'ninguno'} en Prescriptores. Dalo por su id_empresa.`);
+    }
+    return lista[0].id_empresa;
+}
+
 async function preparar(numero) {
     const svc = require('../services/borradorCeeService');
     const { esRevisar } = require('../services/presentacionCeeService');
     const { origen, row } = await localizar(numero);
-    const { borrador } = await svc.componer(origen, row.id, fase);
+    const optsRep = { representanteId: await resolverCertificador(opt('certificador')) };
+    const { borrador } = await svc.componer(origen, row.id, fase, optsRep);
     if (!borrador.aplica) throw new Error(`${numero}: no es de Castilla-La Mancha (${borrador.motivo || 'sin plantilla'}). Esta skill solo presenta en la JCCM.`);
 
     // Presentar dos veces es pagar dos tasas: si la fase ya está registrada, no se prepara para enviar.
@@ -191,7 +215,12 @@ async function preparar(numero) {
     }
     const faltan = ['NIFCIF', 'NOMBRE', 'APELL1', 'SOL_VIVIENDA', 'SOL_NCALLE_VIVIENDA', 'CODPOS', 'TMOVIL', 'EMAIL',
         'USO_EDIFICIO', 'VIVIENDA_EDIFICIO', 'NCALLE_EDIFICIO', 'CODPOS_EDIFICIO', 'VIV_IDENT_REFCATASTRAL1',
-        'FECH_EMISION', 'FECH_VISITA', 'CAL_EMISIONES', 'CAL_CONSUMO'].filter(k => !valores[k]);
+        'FECH_EMISION', 'FECH_VISITA', 'CAL_EMISIONES', 'CAL_CONSUMO',
+        // 02 Representante: la sede los exige por casillas y, vacíos, no deja «Pagar y enviar»
+        // («En 02 Representante: Cumplimente los campos obligatorios», 26RES060_189).
+        'REP_TIPVIA_VIVIENDA', 'DOMICILIOREPR', 'NUMCALLEREP', 'CODPOSREPR', 'TMOVILREPR', 'EMAILREPR',
+    ].filter(k => !valores[k]);
+    if (!texto.ORT01REPR) faltan.push('ORT01REPR');
     if (faltan.length) avisos.push(`Faltan datos obligatorios: ${faltan.join(', ')}`);
 
     // ── Ficheros: se bajan de Drive y se guardan con su NOMBRE ORIGINAL. La sede
@@ -203,7 +232,7 @@ async function preparar(numero) {
     const pre = borrador.nif ? `${borrador.nif}_` : '';
     for (const f of borrador.ficheros || []) {
         if (!f.presente) { if (f.clave !== 'mejoras') avisos.push(`Falta en Drive: ${f.titulo || f.clave}`); continue; }
-        const { buffer, filename } = await svc.fichero(origen, row.id, fase, f.clave);
+        const { buffer, filename } = await svc.fichero(origen, row.id, fase, f.clave, optsRep);
         const nombre = filename.startsWith(pre) ? filename.slice(pre.length) : filename;
         if (esRevisar(nombre)) { avisos.push(`«${nombre}» lleva REVISAR en el nombre: no se presenta.`); continue; }
         const destino = path.join(dir, nombre);
@@ -263,6 +292,10 @@ async function preparar(numero) {
 
     console.log(`${numero} · fase ${fase} · ${origen} · ${listo ? 'LISTO para presentar' : 'NO LISTO'}`);
     console.log(`Solicitante: ${sol['Nombre']} ${sol['Apellido 1']} ${sol['Apellido 2'] || ''} (${calidadSol}) · Edificio: ${edi['Uso del Edificio']} · RC ${edi['Referencia catastral']}`);
+    console.log(`Representante: ${[rep['Nombre'], rep['Apellido 1'], rep['Apellido 2']].filter(Boolean).join(' ') || '—'} (${rep['NIF'] || 'sin NIF'}) · `
+        + `${[valores.REP_TIPVIA_VIVIENDA,valores.DOMICILIOREPR, valores.NUMCALLEREP].filter(Boolean).join(' ')}`
+        + `${valores.PLANTAREP ? ` planta ${valores.PLANTAREP}` : ''}${valores.PUERTAREP ? ` puerta ${valores.PUERTAREP}` : ''}`
+        + ` · ${valores.CODPOSREPR || ''} ${texto.ORT01REPR || ''}`);
     console.log(`Certificado: emitido ${cer['Fecha de emisión del certificado']} · ${cer['Calificación Consumo Energía Primaria']}/${cer['Calificación Emisiones CO2']}`);
     console.log('Adjuntos:'); for (const a of plan.adjuntos) console.log(`  [${a.categoria}] ${a.que}: ${path.basename(a.fichero)}`);
     if (avisos.length) { console.log('AVISOS:'); for (const a of avisos) console.log(`  ⚠️ ${a}`); }
@@ -309,6 +342,11 @@ for (const n of ['TIPO_VIVIENDA','TIPO_BLOQUE','TIPO_TERCIARIO']) if (V[n]) { co
 const chk = (n, on) => { const e = el(n)[0]; if (e && e.checked !== on) e.click(); };
 chk('ACR_CIERTO_1', true); chk('AUTORIZA1', false);
 for (const n of ['DOC_1','DOC_2','DOC_3','DOC_4']) chk(n, true); chk('DOC_5', false);
+// Lo que no ha tomado su valor (un tipo de vía sin esa opción, una casilla que la sede
+// deshabilita) se dice aquí: si no, se descubre en «Pagar y enviar» (26RES060_189, el 02).
+for (const [n, v] of Object.entries(V)) { const e = el(n)[0]; if (!e || e.type === 'radio' || e.type === 'checkbox') continue;
+  if (String(e.value) !== String(v)) out.push('NO TOMA ' + n + '=' + v + ' (queda «' + e.value + '»)'); }
+for (const n of ['BLANDREPR','ORT01REPR']) { const e = el(n)[0]; if (e && (T[n] || T[n + '_COD']) && !e.value) out.push('VACÍO ' + n); }
 return out.length ? 'REVISAR: ' + out.join(' | ') : 'OK: rellenado';
 })()`;
 }

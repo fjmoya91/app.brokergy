@@ -2007,14 +2007,18 @@ export function calculateAnnualSavingsTheoretical({
     const consumoTotalActual = consumoCalefActual + consumoACSActual;
     const costeAnualActual = consumoTotalActual * fuelPrice;
 
-    // Consumo final nuevo (electricidad + aerotermia)
-    // En modo híbrido, el consumo es la mezcla de HP (cb) y Boiler (1-cb)
-    const consumoCalefNuevo = (demandaCalefaccion * cb / scopCalefaccion) + (demandaCalefaccion * (1 - cb) / boilerEff);
-    
-    const effACSNuevo = changeACS ? scopACS : boilerEff;
-    const consumoACSNuevo = demandaACS / effACSNuevo;
-    const consumoTotalNuevo = consumoCalefNuevo + consumoACSNuevo;
-    const costeAnualNuevo = consumoTotalNuevo * electricityPrice;
+    // Consumo final nuevo, separado por VECTOR: lo que mueve la bomba es
+    // electricidad; lo que sigue quemando la caldera (la parte 1 − cb de la
+    // calefacción en una hibridación, y el ACS si no cambia) es su combustible
+    // y se paga a SU precio. Antes se cobraba todo a precio de luz y una
+    // hibridación salía con ahorro negativo (26RES060_OP310: −2.945 €/año
+    // frente a +2.802). Ver docs/conocimiento/calculo/ahorro-anual-en-euros-con-hibridacion.md
+    const consumoElectricoNuevo = (demandaCalefaccion * cb / scopCalefaccion)
+        + (changeACS ? demandaACS / scopACS : 0);
+    const consumoCombustibleNuevo = (demandaCalefaccion * (1 - cb) / boilerEff)
+        + (changeACS ? 0 : demandaACS / boilerEff);
+    const consumoTotalNuevo = consumoElectricoNuevo + consumoCombustibleNuevo;
+    const costeAnualNuevo = consumoElectricoNuevo * electricityPrice + consumoCombustibleNuevo * fuelPrice;
 
     // Ahorro
     const ahorroAnual = costeAnualActual - costeAnualNuevo;
@@ -2023,6 +2027,8 @@ export function calculateAnnualSavingsTheoretical({
         consumoActual: consumoTotalActual,
         costeActual: costeAnualActual,
         consumoNuevo: consumoTotalNuevo,
+        consumoElectricoNuevo,
+        consumoCombustibleNuevo,
         costeNuevo: costeAnualNuevo,
         ahorroAnual,
         fuelLabel: prices[fuelType]?.label || 'Combustible'

@@ -815,7 +815,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 gastoAnual: sanitizedInputs.gastoAnualReal,
                 fuelType: sanitizedInputs.fuelType,
                 boilerEff: sanitizedInputs.boilerEff,
-                scopCalefaccion: sanitizedInputs.scopHeating
+                scopCalefaccion: sanitizedInputs.scopHeating,
+                // Sin el C_b el modo «gasto real» trataba una hibridación como
+                // una sustitución total: todo el gasto pasaba a la bomba.
+                cb: cb
             });
         } else {
             annualSavingsRes = calculateAnnualSavingsTheoretical({

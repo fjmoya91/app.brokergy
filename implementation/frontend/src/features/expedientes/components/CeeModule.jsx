@@ -16,6 +16,7 @@ import { ConfirmadoPorCliente } from './ConfirmadoPorCliente';
 import { TecnicoPicker } from './TecnicoPicker';
 import { EncargoCertificadorModal } from './EncargoCertificadorModal';
 import { AgenteIaEstado } from './AgenteIaEstado';
+import { useBotonCe3x } from '../../cee-ia/useBotonCe3x';
 import { esAgenteIa } from '../../../utils/agenteIa';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
 import { BorradorCeeModal } from './BorradorCeeModal';
@@ -244,6 +245,15 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
         const cee = String(apiBase || '').includes('cee-directos') ? '?origen=cee' : '';
         window.open(`/envolvente/${id}${cee}`, `envolvente-${id}`, 'noopener');
     };
+    // El botón CE3X pregunta antes cómo hacer el CEE inicial: con IA (la cola
+    // del PC) o a mano en la envolvente; si la IA ya lo hizo, abre la envolvente.
+    // Solo el equipo interno: cuesta dinero de la API y lo decide Brokergy.
+    const ce3x = useBotonCe3x({
+        negocio: String(apiBase || '').includes('cee-directos') ? 'cee' : 'cae',
+        id: expediente?.id || null,
+        activo: isStaff,
+        abrirEnvolvente: () => abrirEnvolvente(expediente?.id),
+    });
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);
     // Autoguardado: el módulo siempre está editable, sin botón "Editar Módulo".
@@ -1738,9 +1748,12 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         columna del modulo no se distingue una pared de otra. */}
                     <button
                         type="button"
-                        onClick={() => abrirEnvolvente(expediente?.id)}
-                        title="Abrir la envolvente y generar el .cex (se abre en otra pestaña)"
-                        className="flex items-center gap-2 px-3 py-2 rounded-xl border border-brand/40 bg-brand/10 text-[9px] font-black uppercase tracking-widest text-brand hover:bg-brand hover:text-black transition-colors max-md:w-full max-md:justify-center max-md:py-3.5 max-md:text-[10px]"
+                        onClick={isStaff ? ce3x.onClick : () => abrirEnvolvente(expediente?.id)}
+                        title={ce3x.trabajando ? `IA: ${ce3x.rotulo}`
+                            : ce3x.hechoPorIa ? 'Generado con IA · abre la envolvente (se abre en otra pestaña)'
+                                : isStaff ? 'Hacer el CEE inicial: con IA o en la envolvente'
+                                    : 'Abrir la envolvente y generar el .cex (se abre en otra pestaña)'}
+                        className="relative flex items-center gap-2 px-3 py-2 rounded-xl border border-brand/40 bg-brand/10 text-[9px] font-black uppercase tracking-widest text-brand hover:bg-brand hover:text-black transition-colors max-md:w-full max-md:justify-center max-md:py-3.5 max-md:text-[10px]"
                     >
                         {/* El logo de CE3X: es la herramienta que se va a abrir, y
                             con él el botón se reconoce sin leerlo. No se tiñe con
@@ -1749,7 +1762,23 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         <img src="/logo-ce3x.svg" alt="" aria-hidden="true"
                              className="h-5 w-5 shrink-0" />
                         <span>CE3X</span>
+                        {/* La IA trabajando en este CEE: se ve sin abrir nada. */}
+                        {ce3x.trabajando && (
+                            <span className="flex items-center gap-1 normal-case tracking-normal text-violet-200">
+                                <span className="h-1.5 w-1.5 rounded-full bg-violet-300 animate-pulse" aria-hidden />IA
+                            </span>
+                        )}
                     </button>
+                    {/* Hecho por la IA: el botón abre la envolvente; aquí se ve
+                        cuándo y se puede rehacer. */}
+                    {isStaff && ce3x.hechoPorIa && !ce3x.trabajando && (
+                        <button type="button" onClick={ce3x.abrirMenu}
+                            title="Este CEE lo generó la IA: ver cuándo, o rehacerlo"
+                            className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-violet-400/40 bg-violet-400/10 text-[9px] font-black uppercase tracking-widest text-violet-200 hover:bg-violet-400/20 transition-colors max-md:w-full max-md:justify-center max-md:py-3.5">
+                            <span aria-hidden>🤖</span><span>Hecho con IA</span>
+                        </button>
+                    )}
+                    {ce3x.modal}
                     {/* «Presentar CEE» ya NO vive aquí: salía siempre, también con el
                         certificado sin hacer o ya inscrito. Ahora es una tarea en la FILA
                         de la fase que toca presentar (entregado + visto bueno, sin

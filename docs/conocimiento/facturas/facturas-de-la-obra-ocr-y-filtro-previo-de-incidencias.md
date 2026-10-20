@@ -28,8 +28,8 @@ evidencia literal citada, para que cualquiera pueda reproducir por qué saltó.
   asociado, que es quien firma el CIFO — ver abajo: en RES080 solo si la factura lleva la
   TÉRMICA) · `ALCANCE` (partida fuera de la ficha) ·
   `ALCANCE_SIN_EQUIPO` (única factura sin la bomba de calor) · `DUPLICADA` · `SERIE_DISTINTA` ·
-  `FECHA` (futura) · `SOBREFINANCIACION`.
-- **LEVE**: `SIN_EQUIPO` (falta marca / modelo / nº de serie — lo ideal es que la factura lo cite) ·
+  `FECHA` (futura) · `SOBREFINANCIACION` **solo si hay OTRA ayuda pública** (ver abajo).
+- **LEVE**: `SOBREFINANCIACION` sin otra ayuda · `SIN_EQUIPO` (falta marca / modelo / nº de serie — lo ideal es que la factura lo cite) ·
   `SIN_DESGLOSE` · `DIRECCION` · `SIN_CLIENTE` · `SIN_FECHA`.
 - **El `EMISOR` de un RES080 solo se exige en la factura de la TÉRMICA.** Una rehabilitación la
   ejecutan VARIOS gremios: la bomba de calor la pone el instalador, las ventanas el carpintero, la
@@ -53,6 +53,16 @@ evidencia literal citada, para que cualquiera pueda reproducir por qué saltó.
   **diciéndolo** y se pide rellenarla. La cascada de dónde sale esa fecha —`cee.fecha_firma_cee_*`,
   el `fechaFirma` del certificado parseado y el espejo en `documentacion`— es fuente única en
   [utils/ceeFechas.js](implementation/backend/utils/ceeFechas.js).
+
+**REGLA — el CAE SOLO puede superar la inversión; con OTRA subvención, no (usuario, 19/10/2026).**
+El ahorro se paga por lo que ahorra, no por lo que costó la obra: sin otra ayuda pública, un bono
+mayor que la suma de las bases de las facturas es legítimo y sale como **LEVE** —que se vea, por si
+la diferencia delata una factura que falta o un importe mal leído—. Es **GRAVE** solo cuando
+CAE + la ayuda declarada en la pestaña Subvenciones (la del Anexo I; una DENEGADA no suma) pasan de
+la inversión. Antes era GRAVE siempre y paraba expedientes buenos: 26RES060_208, bono 4.649,61 € con
+una obra de 4.296,70 € y sin otra ayuda. `importeAyudaDeclarada` de
+[facturaIncidencias.js](implementation/backend/services/facturaIncidencias.js) es espejo del de
+`logic/subvenciones.js`. Tras tocarlo: `node implementation/backend/scripts/test_facturas_incidencias.js`.
 
 **Las incidencias se PROPONEN, no se registran solas.** El modal las lista con casilla, GRAVES
 primero; solo las marcadas se dan de alta vía `POST /:id/incidencias` con `procedencia: AGENTE_IA`.

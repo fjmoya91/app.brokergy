@@ -255,5 +255,64 @@ const prueba = async (nombre, fn) => {
         assert.strictEqual(Math.round(c.conCee.cae), Math.round(c.ceeNuevo.cae));
     });
 
+    console.log('\nPlacas fotovoltaicas de la obra (P. Fotovoltaica)');
+    // 26RES060_OP310 (19/10/2026): presupuesto 189 de Plaza con aerotermia 8.164,80 € y
+    // placas 9.155,84 € sin IVA, en el MISMO documento.
+    const AERO_310 = 9879.41;   // 8.164,80 × 1,21
+    const FV_310 = 11078.57;    // 9.155,84 × 1,21
+    const { lecturaAPresupuesto } = await import(pathToFileURL(path.join(FRONT, 'calculator/logic/presupuestoLeido.js')).href);
+    const lectura310 = (lineas) => ({
+        doc: { importe_total: AERO_310 + FV_310, importe_sin_iva: 17320.64, iva_pct: 21, numero_factura: '189', emisor_nombre: 'INSTALACIONES PLAZA' },
+        ocr: { lineas },
+    });
+    await prueba('el plan: fotovoltaica_con_iva y fichero_fv; sin ellos, nada', () => {
+        assert.strictEqual(alta.fotovoltaicaDelPlan({ presupuesto: { fichero: 'p.pdf' } }), null);
+        assert.deepStrictEqual(alta.fotovoltaicaDelPlan({ presupuesto: { fotovoltaica_con_iva: FV_310 } }),
+            { importe: FV_310, fichero: null, wa_msg_id: null, t: null });
+        assert.throws(() => alta.fotovoltaicaDelPlan({ presupuesto: { fotovoltaica_con_iva: 0 } }), /CON IVA/);
+        const docs = alta.documentosDelPlan({ presupuesto: { fichero: 'p.pdf', fichero_fv: 'fv.pdf' } }, '/tmp');
+        assert.deepStrictEqual(docs.map(d => [path.basename(d.ruta), d.slot]), [['p.pdf', 'DOC_PRESUPUESTO'], ['fv.pdf', 'DOC_PRESUPUESTO']]);
+    });
+    await prueba('el lector separa las líneas de las placas: P. Fotovoltaica y su huella, sin contarlas dos veces', () => {
+        const inputs = { ...inputsCasa(), presupuestoEstimado: true };
+        const lec = lecturaAPresupuesto(lectura310([
+            { partida: 'AEROTERMIA', importe_total: 8164.80 }, { partida: 'FOTOVOLTAICA', importe_total: 9155.84 },
+        ]), inputs, { hueco: 'AEROTERMIA' });
+        Object.assign(inputs, lec.patch);
+        assert.strictEqual(inputs.presupuesto, AERO_310);
+        assert.strictEqual(inputs.presupuestoFotovoltaica, FV_310);
+        const { patch } = alta.fijarFotovoltaica(inputs, { dentroDeAerotermia: true });
+        assert.strictEqual(patch.presupuesto, undefined, 'sin cifra del plan, la aerotermia no se toca');
+        assert.strictEqual(patch.presupuestos_leidos.FOTOVOLTAICA.importe, FV_310);
+        assert.strictEqual(patch.presupuestos_leidos.FOTOVOLTAICA.numero, '189');
+    });
+    await prueba('el lector NO separa las placas: la cifra del plan las saca de P. Aerotermia (la suma es el documento)', () => {
+        const inputs = { ...inputsCasa(), presupuestoEstimado: true };
+        Object.assign(inputs, lecturaAPresupuesto(lectura310([{ partida: 'AEROTERMIA', importe_total: 17320.64 }]), inputs, { hueco: 'AEROTERMIA' }).patch);
+        assert.strictEqual(inputs.presupuesto, AERO_310 + FV_310);
+        const { patch, avisos } = alta.fijarFotovoltaica(inputs, { importe: FV_310, dentroDeAerotermia: true });
+        assert.strictEqual(patch.presupuesto, AERO_310);
+        assert.strictEqual(patch.presupuestoFotovoltaica, FV_310);
+        assert.strictEqual(patch.presupuestos_leidos.AEROTERMIA.importe, AERO_310);
+        assert.strictEqual(patch.presupuestos_leidos.FOTOVOLTAICA.origen, 'plan');
+        assert.deepStrictEqual(avisos, []);
+        assert.throws(() => alta.fijarFotovoltaica(inputs, { importe: 30000, dentroDeAerotermia: true }), /no cabe/);
+    });
+    await prueba('placas con presupuesto APARTE (o importe tecleado): P. Aerotermia no se toca', () => {
+        const { patch } = alta.fijarFotovoltaica({ presupuesto: AERO_310 }, { importe: FV_310, dentroDeAerotermia: false });
+        assert.strictEqual(patch.presupuesto, undefined);
+        assert.strictEqual(patch.presupuestoFotovoltaica, FV_310);
+        assert.strictEqual(alta.fijarFotovoltaica({ presupuesto: AERO_310 }, {}).patch, null, 'sin placas, nada');
+    });
+    await prueba('el resultado guardado lleva las placas: deducción del IRPF de 5.927 € a 9.000 € (OP310)', () => {
+        const sin = computeFullCalculatorResult({ ...inputsCasa(), presupuesto: AERO_310 });
+        const con = computeFullCalculatorResult({ ...inputsCasa(), presupuesto: AERO_310, presupuestoFotovoltaica: FV_310 });
+        assert.strictEqual(Math.round(sin.financials.irpfDeduction), 5928);
+        assert.strictEqual(Math.round(con.financials.irpfDeduction), 9000);
+        assert.strictEqual(con.financials.presupuestoFotovoltaica, FV_310);
+        assert.strictEqual(Math.round(con.financials.presupuestoTotal), Math.round(AERO_310 + FV_310));
+        assert.strictEqual(con.financials.caeBonus, sin.financials.caeBonus, 'las placas no mueven el bono CAE');
+    });
+
     console.log(`\n${ok} pruebas correctas${process.exitCode ? ' — HAY FALLOS' : ''}`);
 })();

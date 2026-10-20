@@ -462,6 +462,7 @@ export function CeeDirectoDetailView({ id, onBack }) {
                     }}
                     onClose={() => { setShowCliente(false); cargar(true); }}
                     onUpdated={() => { setShowCliente(false); cargar(true); }}
+                    onCambio={() => cargar(true)}
                 />
             )}
 

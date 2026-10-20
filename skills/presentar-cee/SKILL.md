@@ -76,6 +76,18 @@ Compone el MISMO borrador del popup y deja en `scratch/presentar-cee/<nº>_<fase
 Lee los **AVISOS**. «Sexo supuesto por el nombre» es normal (decisión del usuario: si la ficha no lo
 dice, se supone; fallar no es grave). «Falta en Drive» o «NO LISTO» → para y dilo.
 
+**El REPRESENTANTE (apartado 02) es quien FIRMA el CEE, nunca el AGENTE IA** (26RES060_189,
+19/10/2026). Los CEE que hace el Agente IA lo dejan asignado en la barra, pero él no firma: siempre
+hay un certificador real detrás. **Si el usuario no dice nada, es Fran** (su ficha de certificador,
+la del técnico por defecto de `cee_inicial.js`) y `preparar` lo avisa: «El certificado lo tiene
+asignado AGENTE IA, que no firma: en el 02 va FRANCISCO JAVIER MOYA LÓPEZ». Si lo firma otro, se le
+pregunta al usuario y se repite con `--certificador <id_empresa | NIF | trozo del nombre>`. Comprueba
+la línea **«Representante:»** de la salida: nombre, NIF y la dirección TROCEADA (tipo de vía, nombre,
+nº, planta, puerta, CP y municipio), que la sede exige casilla a casilla. Si falta alguna, `preparar`
+dice «Faltan datos obligatorios: …REPR…» y NO LISTO: sin ellas la sede no deja «Pagar y enviar» («En
+02 Representante: Cumplimente los campos obligatorios»). Un técnico de verdad sin NIF o sin dirección
+NO se sustituye por Fran: se completa su ficha en Prescriptores.
+
 **«⛔ CERTIFICADO INCOMPLETO» → NO se presenta, nunca** (26RES060_195, 19/10/2026): `preparar`
 valida el XML con `xml2cert` y, si no valida, el PDF lleva la marca de agua «certificado incompleto»
 y el Registro lo rechazaría con la tasa ya pagada. Para y díselo al usuario con el motivo. Si avisa
@@ -115,7 +127,10 @@ escribe `ALMACEN_EQUIVOCADO` y sale sin tocar nada → para y avisa. Su salida d
 ## 5. Rellenar
 
 1. Pega el contenido de `rellenar.js` en `javascript_tool` de la pestaña. Devuelve `OK: rellenado` o
-   `REVISAR: …` (un campo que no existe o una opción que no encuentra): resuélvelo antes de seguir.
+   `REVISAR: …` (un campo que no existe, una opción que no encuentra, `NO TOMA` un valor que la casilla
+   no ha aceptado o `VACÍO` la provincia/municipio del representante): resuélvelo antes de seguir.
+   Escribe también el 02 por casillas: `REP_TIPVIA_VIVIENDA`, `DOMICILIOREPR`, `NUMCALLEREP`,
+   `PLANTAREP`, `PUERTAREP`, `CODPOSREPR`, `BLANDREPR`/`ORT01REPR`, `TMOVILREPR`, `EMAILREPR`, `SEXOREPR`.
 2. Comprueba por JavaScript que tras las recargas sigue todo (nombre del solicitante, «Es
    representante» marcado, municipios, fechas, Unifamiliar…). Las recargas de la sede conservan lo
    escrito, pero se comprueba.
@@ -255,5 +270,8 @@ supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
 | `escritorio.ps1 aviso` dice `SIN_VENTANA` y la página no responde | El `alert` está en una pestaña de FONDO (el usuario usa Chrome): captura la pantalla, clic real en la pestaña de la sede y entonces `aviso`. Nunca Intro a ciegas: iría a la pestaña que esté delante |
 | «La Fecha de emisión del certificado no coincide con la del xml» | La sede compara con `<FechaGeneracion>` del XML; `preparar` ya declara esa y lo avisa. Si aun así falla (la calificación y la generación son de días distintos), **se para**: el usuario regenera el CEE en CE3X con la fecha buena, firma de nuevo el PDF y sube XML/PDF/.cex (decisión del usuario, 15/10/2026); después `preparar` otra vez y se adjunta lo nuevo |
 | «SIN OPCION ORT01=LA SOLANA» | La sede escribe «Solana (La)»: `rellenar.js` ya prueba las dos formas |
+| Al volver del pago, la sede dice «Confirmar reenvío del formulario» (ERR_CACHE_MISS) | Chrome DESCARTÓ la pestaña de la sede mientras estaba detrás (26RES060_217, 19/10/2026: cambió de `tabId` durante el 3DS) y la solicitud se pierde. **No se reenvía** (repetiría «Pagar y enviar» y otra 046). Se baja el justificante de la tasa, se empieza de cero (sesión limpia, identificarse, rellenar, adjuntar) y en el 08 se marca **«Indique la referencia 046 del pago ya realizado»** con el nº de documento 046 ya pagado, sin volver a la pasarela (idea del usuario) |
+| El `alert` o la tarjeta, con el usuario usando el PC | Sus clics devuelven el foco a su ventana: un Intro o un clic «real» caería en ella. Antes de cada tecla o clic real, traer Chrome delante (pulsación de Alt + `SetForegroundWindow`) y COMPROBAR que la ventana de delante es la de la sede/Redsys; esperar a que lleve unos segundos sin tocar el teclado (`GetLastInputInfo`). Si sigue trabajando, pedirle que suelte el PC un minuto |
+| «En 02 Representante: Cumplimente los campos obligatorios» al pagar | El 02 iba vacío porque el asignado era el AGENTE IA (26RES060_189). `preparar` ya pone a Fran (o `--certificador`): vuelve a prepararlo y pega el `rellenar.js` nuevo |
 
 Detalle y porqué: `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md`.

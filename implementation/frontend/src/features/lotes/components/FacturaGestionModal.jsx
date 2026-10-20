@@ -17,6 +17,11 @@ import axios from 'axios';
 import SendActionOverlay from '../../../components/SendActionOverlay';
 import { CanalChip } from '../../../components/CanalChip';
 import { eurEs } from '../../cobro/logic/cobroForm';
+// El visor es el de las facturas de los CEE directos, con el MISMO HTML del que sale
+// el PDF (buildFacturaCeeHtml): lo que se ve es lo que se emite.
+import { VistaPreviaA4 } from '../../cee-directo/components/VistaPreviaA4';
+import { buildFacturaCeeHtml, isoAEs, sumarDias } from '../../cee-directo/logic/facturaCee';
+import { VENCIMIENTO_DIAS_GESTION } from '../logic/facturaGestion';
 
 const CAMPOS = [
     ['razon_social', 'Nombre / razón social', 'sm:col-span-2'],
@@ -39,8 +44,9 @@ export function FacturaGestionModal({ lote, f, onClose, onHecho }) {
     const [email, setEmail] = useState('');
     const [mensaje, setMensaje] = useState('');
     const [overlay, setOverlay] = useState(null);
+    const [preview, setPreview] = useState(false);
 
-    const base = `/api/lotes/${lote.id}/cobros/${f.id}/factura-gestion`;
+    const base =`/api/lotes/${lote.id}/cobros/${f.id}/factura-gestion`;
 
     // Al elegir destino se cargan SUS datos, su contacto, sus observaciones y su mensaje.
     const elegir = (data, k) => {
@@ -257,6 +263,10 @@ export function FacturaGestionModal({ lote, f, onClose, onHecho }) {
                         </>
                     ) : (
                         <>
+                            <button type="button" disabled={!b || !destino || !(b.lineas || []).length} onClick={() => setPreview(true)}
+                                className="px-4 py-2.5 rounded-xl border border-white/15 text-[12px] font-bold text-white/75 hover:text-white disabled:opacity-40">
+                                Vista previa
+                            </button>
                             <button type="button" disabled={!puedeEmitir} onClick={() => emitir(false)}
                                 className="px-4 py-2.5 rounded-xl border border-white/15 text-[12px] font-bold text-white/75 hover:text-white disabled:opacity-40">
                                 Solo emitir
@@ -269,6 +279,19 @@ export function FacturaGestionModal({ lote, f, onClose, onHecho }) {
                     )}
                 </div>
             </div>
+
+            {/* La factura tal como va a salir: con lo escrito ahora (a quién, fecha,
+                observaciones) y el nº que TOCARÍA; el de verdad se reserva al emitir. */}
+            {preview && b && (
+                <VistaPreviaA4 capa="z-[10000]" titulo="Vista previa de la factura" onClose={() => setPreview(false)}
+                    rotulo={`Vista previa · el nº ${b.proximoNumero ? `(${b.proximoNumero}) ` : ''}se reserva al emitir`}
+                    html={buildFacturaCeeHtml({
+                        numero: b.proximoNumero || 'BORRADOR',
+                        fecha: isoAEs(fecha),
+                        vencimiento: fecha ? isoAEs(sumarDias(fecha, VENCIMIENTO_DIAS_GESTION)) : '',
+                        cliente: receptor, lineas: b.lineas, expediente: f.numero_expediente, observaciones,
+                    })} />
+            )}
 
             <SendActionOverlay
                 phase={overlay?.phase || null}

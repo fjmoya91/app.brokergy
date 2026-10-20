@@ -50,7 +50,9 @@ import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalacione
 //: A qué negocio pertenece este expediente —CAE o CEE directo— y cómo se
 //: compone cada URL con ello. Sale de la dirección de la ventana, no del
 //: expediente cargado (ver `apiEnvolvente.js`).
-import { api, esCeeDirecto as enCeeDirecto, esOportunidad as enOportunidad } from '../logic/apiEnvolvente';
+import { api, esCeeDirecto as enCeeDirecto, esOportunidad as enOportunidad, ORIGEN } from '../logic/apiEnvolvente';
+import { useCeeIa } from '../../cee-ia/useCeeIa';
+import { lineaTrabajo, haceCuanto } from '../../cee-ia/logic/ceeIa';
 //: Las dos peticiones LARGAS de esta ventana —medir el edificio y escribir el
 //: `.cex`— pasan por aquí: repite sola la que no llegó a salir y devuelve el
 //: fallo ya redactado, en vez de la misma frase para seis causas distintas.
@@ -110,6 +112,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //    sabe su nº de colegiado.
     const { user } = useAuth();
     const { isStaff: esStaff } = getRoleFlags(user);
+    //: ¿Lo está haciendo (o lo hizo) la IA? Mientras trabaja, lo que se toque
+    //: aquí lo puede pisar al escribir: se avisa arriba. Se refresca solo.
+    const ceeIa = useCeeIa({ negocio: ORIGEN, id, activo: esStaff && !!id });
     const suFicha = !!user?.prescriptor_id
         && String(user.prescriptor_id) === String(expediente?.cee?.certificador_id || '');
     // La RC vive en distinto sitio segun el negocio. Mismo orden que usan los
@@ -1769,6 +1774,22 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                                    abierto={verAgente}
                                                    onAlternar={() => setVerAgente(v => !v)} />} />
 
+                {/* La IA trabajando en ESTE CEE (cola del PC, botón CE3X): lo que
+                    se cambie aquí lo puede pisar cuando escriba. */}
+                {ceeIa.trabajando && fichaFase !== 'final' && (
+                    <div className="rounded-lg border border-violet-400/40 bg-violet-400/[0.08] px-3 py-2 text-[12px] text-violet-100">
+                        <b>🤖 La IA está generando este CEE</b> · {lineaTrabajo(ceeIa.estado.trabajo)}.
+                        <span className="text-white/60"> No lo toques hasta que acabe: al escribir, lo suyo sustituye a lo de aquí. Esta línea se actualiza sola.</span>
+                    </div>
+                )}
+                {/* Hecho por la IA en una OPORTUNIDAD: no tiene sello del agente
+                    (no hay certificador), así que la píldora no sale; se dice aquí. */}
+                {!ceeIa.trabajando && ceeIa.estado?.ia?.hecho && !selloAgente(expediente, fichaFase) && fichaFase !== 'final' && (
+                    <div className="rounded-lg border border-violet-400/30 bg-violet-400/[0.05] px-3 py-1.5 text-[12px] text-violet-100/90">
+                        🤖 Este CEE lo generó la IA {haceCuanto(ceeIa.estado.ia.at)}{ceeIa.estado.ia.pdf ? ' · con XML y PDF' : ''}.
+                        <span className="text-white/55"> Lo que cambies aquí y vuelvas a generar deja de ser suyo.</span>
+                    </div>
+                )}
                 {verAgente && selloAgente(expediente, fichaFase) && (
                     <DetalleAgenteIa sello={selloAgente(expediente, fichaFase)}
                                      onCerrar={() => setVerAgente(false)} />

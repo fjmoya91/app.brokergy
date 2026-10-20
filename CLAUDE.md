@@ -77,6 +77,10 @@ Resumen de [docs/conocimiento/COMO-TRABAJAMOS.md](docs/conocimiento/COMO-TRABAJA
 - **Hasta dónde, si no se dice**: se hace en local, se verifica y se enseña. **Sin** commit, push ni
   deploy. **Nada** sale a terceros (WhatsApp, email, Sujeto Obligado) sin un «sí» para ESE envío. Los
   scripts que escriben van primero en seco: **local escribe en la Supabase y el Drive de PRODUCCIÓN**.
+- **El borrador se ENSEÑA entero antes de las opciones**: un WhatsApp o email por enviar (o el informe
+  del que depende una decisión) va COMPLETO como último texto del turno, con la pregunta escrita al
+  final. Nunca solo dentro de la caja de botones del `wrap_up`: el texto que va antes de esa caja el
+  usuario no lo ve (26RES060_180, 19/10/2026).
 - Palabras que cambian el alcance: «mira / analiza / en seco» → solo leer · «hazlo / arréglalo» → cambio
   local verificado · «súbelo / haz commit» → commit · «despliega / a producción» → push + `deploy.sh` ·
   «mándalo / envíalo» → envío, tras enseñar el borrador.
@@ -107,7 +111,7 @@ Resumen de [docs/conocimiento/COMO-TRABAJAMOS.md](docs/conocimiento/COMO-TRABAJA
 - Con la BD caída se responde **503**, nunca una cifra a cero. (38)
 - **Local = datos de producción**. En el `.env` local, apagados: `REVISION_ALERTA_ENABLED`,
   `CEE_ENTREGA_AUTO`, `BOT_WHATSAPP_ENABLED`, `PROPUESTA_PROGRAMADA_ENABLED`, `WA_SYNC_INSTALADORES`,
-  `RESENA_PROGRAMADA_ENABLED`.
+  `RESENA_PROGRAMADA_ENABLED`, `FIRMADOS_SO_CORREO_ENABLED`, `WA_RONDA_ENABLED`.
 - **WhatsApp**: un mensaje con el reloj no está enviado (manda el ACK); nunca `getChatById` ni `sendSeen`
   en el camino de envío. (39)
 - **Drive**: los enlaces, solo para ADMIN; la carpeta de cada expediente la decide `driveFolders.js`. (1)

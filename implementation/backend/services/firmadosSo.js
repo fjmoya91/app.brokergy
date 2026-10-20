@@ -37,6 +37,9 @@ const {
 } = require('./loteDocs');
 
 const nowIso = () => new Date().toISOString();
+const fechaCorta = (d) => new Date(d).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit' });
+// La revisión que lleva el nombre ("…_rev2.pdf"); sin sufijo, la original (0).
+const revDe = (nombre) => Number((String(nombre || '').match(/_rev(\d+)/i) || [])[1] || 0);
 
 // Solo letras y dígitos: el nombre del fichero llega con guiones, espacios,
 // "(1)", "_signed" y lo que le añada el gestor de correo de cada uno.
@@ -162,10 +165,27 @@ async function firmanteCesionario() {
  *   - `forzar`   string[]  nombres de fichero que se registran a pesar de los
  *                avisos (firma de otra persona, o reemplazo de un firmado previo).
  *   - `dryRun`   solo analiza: no escribe en Drive ni en la base de datos.
+ *   - `noReemplazar`  lo que ya tiene firmado se SALTA (`ya_registrado`) en vez
+ *                de proponer reemplazarlo. Es el modo del buzón (firmadosSoCorreo):
+ *                sin nadie delante, un reenvío del mismo correo no puede pisar lo
+ *                registrado. Una re-firma por requerimiento no choca con esto: al
+ *                pedirla se borra el `signed_link` del documento.
+ *   - `origen`   de dónde vienen los ficheros ("correo de x@y, 17/10/2026"); se
+ *                añade a la línea del historial.
+ *   - `recibidoAt`  cuándo llegaron (fecha del correo). Con ella, lo que llegó
+ *                ANTES de que se mandara a firmar la versión vigente es de una
+ *                ronda anterior (`anterior`, se salta), y un `_revN` que no es la
+ *                revisión que se mandó no se registra solo. Medido el 19/10/2026:
+ *                la ficha de 25RES060_59 se volvió a pedir esa mañana como _rev2 y
+ *                el correo del 05/10 traía la _rev1 firmada, que casaba por el nº
+ *                de expediente y se habría registrado como la nueva.
  * @returns informe por fichero + lo que queda pendiente de firmar
  */
 async function procesarFirmados(loteId, ficheros, opts = {}) {
-    const { asignar = {}, forzar = [], dryRun = false, usuario = 'SISTEMA' } = opts;
+    const {
+        asignar = {}, forzar = [], dryRun = false, usuario = 'SISTEMA',
+        noReemplazar = false, origen = '', recibidoAt = null,
+    } = opts;
     if (!Array.isArray(ficheros) || !ficheros.length) throw new Error('No se ha recibido ningún fichero');
 
     const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', loteId).maybeSingle();
@@ -265,6 +285,18 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
             resultados.push(res);
             continue;
         }
+        if (recibidoAt && doc.sent_at && new Date(recibidoAt) < new Date(doc.sent_at)) {
+            res.estado = 'anterior';
+            res.avisos.push(`Llegó el ${fechaCorta(recibidoAt)}, antes de que se mandara a firmar la versión vigente (${fechaCorta(doc.sent_at)}): es de una ronda anterior.`);
+            resultados.push(res);
+            continue;
+        }
+        if (noReemplazar && doc.signed_link) {
+            res.estado = 'ya_registrado';
+            usados.add(doc.key);
+            resultados.push(res);
+            continue;
+        }
 
         // 3) ¿Firman quienes tienen que firmar?
         const esperados = firmantesEsperados(doc.key, repsSo, cesionario,
@@ -293,6 +325,13 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
         if (doc.signed_link) {
             res.avisos.push('Este documento ya tenía un firmado registrado: al aplicarlo se reemplaza.');
         }
+        if (recibidoAt) {
+            const revFichero = revDe(f.nombre);
+            const revDoc = Number.isFinite(Number(doc.rev)) && doc.rev !== null ? Number(doc.rev) : revDe(doc.file_name);
+            if (revFichero !== revDoc) {
+                res.avisos.push(`Es la ${revFichero ? `rev${revFichero}` : 'versión original'} y la que se mandó a firmar es la ${revDoc ? `rev${revDoc}` : 'original'}.`);
+            }
+        }
 
         res.estado = res.avisos.length ? 'revisar' : 'listo';
         usados.add(doc.key);
@@ -310,6 +349,7 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
                 historial.push({
                     id: `${Date.now()}_fdo_${doc.key}`, tipo: 'sistema',
                     texto: `Registrado firmado de "${res.etiqueta}" desde "${f.nombre}"`
+                        + `${origen ? ` (${origen})` : ''}`
                         + ` · firma${firmas.n > 1 ? 's' : ''}: ${firmas.firmantes.map(x => x.nombre || x.cn || '¿?').join(' + ')}`,
                     fecha: nowIso(), usuario,
                 });

@@ -60,42 +60,9 @@ function vigente(datosCalculo) {
 }
 
 // Importes que definen la propuesta. Se sellan por versión para poder decir QUÉ
-// cambió de una a otra sin volver a rasterizar ni recalcular nada.
-const IMPORTES = ['inversion', 'caeBonus', 'irpfDeduction', 'totalAyuda'];
-
-function importesDe(result, inputs) {
-    const f = result?.financials || {};
-    const num = (x) => (Number.isFinite(Number(x)) ? Math.round(Number(x)) : null);
-    return {
-        inversion: num(inputs?.investment ?? inputs?.inversion ?? f.investment),
-        caeBonus: num(f.caeBonus),
-        irpfDeduction: num(f.irpfDeduction),
-        totalAyuda: num(f.totalAyuda),
-    };
-}
-
-const ETIQUETA_IMPORTE = {
-    inversion: 'inversión',
-    caeBonus: 'bono CAE',
-    irpfDeduction: 'deducción IRPF',
-    totalAyuda: 'ayuda total',
-};
-
-const eur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0, useGrouping: true }).format(n)} €`;
-
-/**
- * Qué cambió entre dos versiones, en lenguaje de persona.
- * Devuelve '' si no hay importes con los que comparar (una versión antigua sin
- * sellar no puede afirmar que "no cambió nada": no lo sabe).
- */
-function describirCambios(anterior, actual) {
-    const a = anterior?.importes, b = actual?.importes;
-    if (!a || !b) return '';
-    const difs = IMPORTES
-        .filter(k => Number.isFinite(a[k]) && Number.isFinite(b[k]) && a[k] !== b[k])
-        .map(k => `${ETIQUETA_IMPORTE[k]} ${eur(a[k])} → ${eur(b[k])}`);
-    return difs.length ? difs.join('; ') : 'sin cambios en los importes';
-}
+// cambió de una a otra sin volver a rasterizar ni recalcular nada. Los de la
+// opción que IMPRIME el PDF: con reforma, la rama que toque (ver el módulo).
+const { importesDe, describirCambios } = require('../utils/importesPropuesta');
 
 /** Rasteriza el HTML de la propuesta a PDF A4. Mismos ajustes que /api/pdf/*. */
 async function renderPdf(html) {

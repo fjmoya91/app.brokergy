@@ -22,7 +22,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/facturas/facturacion-del-certificador-conciliacion-mensual.md` — Facturación del certificador — conciliación mensual (2026-08-03) · 8,5 KB
-- `docs/conocimiento/facturas/facturas-de-la-obra-ocr-y-filtro-previo-de-incidencias.md` — Facturas de la obra — OCR y filtro previo de incidencias (2026-08-03) · 7,3 KB
+- `docs/conocimiento/facturas/facturas-de-la-obra-ocr-y-filtro-previo-de-incidencias.md` — Facturas de la obra — OCR y filtro previo de incidencias (2026-08-03) · 8,2 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -42,6 +42,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
   - **REGLA — los avisos se agrupan por texto.**
 - `docs/conocimiento/facturas/facturas-de-la-obra-ocr-y-filtro-previo-de-incidencias.md`
   - **REGLA — la IA solo LEE; el juicio es de las reglas.**
+  - **REGLA — el CAE SOLO puede superar la inversión; con OTRA subvención, no (usuario, 19/10/2026).**
   - **REGLA — el combinado se construye desde `documentacion.facturas[]`, NUNCA listando la carpeta.**
 
 <!-- generado:fin -->

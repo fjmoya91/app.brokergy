@@ -47,6 +47,7 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla). Además lo **califica con CE3X 3.2 en el PC** (≈1 min, sin abrir su ventana) y deja al lado su **`.xml` y su `.pdf` oficial** (`… _REVISAR.xml/.pdf`); `--sin-pdf` lo salta. Si el autoconsumo de algún mes pasa del consumo de ese mes, CE3X lo ajusta y el `.cex` que sube es ESE (punto 13 de «Lo que hay que poner SIEMPRE»). En seco, `--calificar` lo califica y los deja junto a la copia local | con `--escribir` |
 | `rehacer <clave> [--plan plan.json]` | **Rehace el CEE sobre lo corregido A MANO en la pizarra** (tras «Así es como está»): imprime la revisión (nota y cambios) y los huecos dibujados que quedan por medir, y aplica el plan sobre el trabajo guardado sin deshacer nada de lo dibujado (ver «Rehacer el CEE tras una corrección A MANO»). Marca la revisión como rehecha | con `--escribir` |
 | `calificar <clave> [--fase final]` · `calificar --cola` | **Lo que la VENTANA dejó «por calificar»** (el servidor no tiene CE3X): rehace el inicial desde la RECETA guardada, vuelve a medir las placas de la 2.ª medida, lo califica (XML, PDF, recorte mes a mes) y lo sella; el final solo se califica. Sin aviso al equipo. Ver «La receta y el sello» | con `--escribir` |
+| `listo <clave> [--fase final] [--cex ruta] [--out DIR]` | **Deja el `_REVISAR` LISTO PARA FIRMAR** (cuando Fran lo pide, tras revisarlo): CE3X 3.2 lo califica, **calcula las medidas y guarda el `.cex` calculado**; si el XML no valida, para. Con `--escribir`: `{nº} – CEE INICIAL.cex/.xml` por la subida del técnico (`cee_files`, validación en ámbar), `{nº} – CEE INICIAL.pdf` sin firmar (el que busca `firmar_cee.js`), lo anterior con esos nombres a OLD, y el XML cargado como «Cargar CEE» (`cee_inicial`, `xml_inicial`, combustibles, fechas de firma y visita, D_ACS por litros/día). Parte del `_REVISAR` de Drive (o de la copia local si en Drive no hay; `--cex` manda). En seco deja la copia en `scratch/cee-inicial/<nº>/listo`. En una oportunidad solo califica (la subida no aplica hasta aceptarla); con un PDF ya FIRMADO en la carpeta o la fase REGISTRADA no escribe sin `--forzar`. **No firma** | con `--escribir` |
 | `instalacion <clave> --plan plan.json` | **Solo lo de las PLACAS a la app** (Instalación del expediente, o inputs de la oportunidad), con el mismo plan que `aplicar`: sin `.cex`, sin Drive, sin aviso al equipo. Para un CEE ya hecho al que le falta la Instalación rellena | con `--escribir` |
 | `croquis <clave> [--fase final]` | El **croquis en PDF** de lo que YA hay (trabajo guardado + `.cex` de la carpeta): plano de obra por planta con la marca de BROKERGY, a escala, con muros, huecos, cotas y zonas, y los cuadros de huecos, superficies y cerramientos (sin avisos: vale para una auditoría). `aplicar --escribir` ya lo hace solo | con `--escribir` (sube `… - CEE INICIAL_CROQUIS.pdf` junto al `.cex`) |
 
@@ -220,6 +221,23 @@ nada**: siempre primero en seco.
    `agente_ia.js terminar <clave>`.
 7. **Informe final**: el enlace del `.cex` y de la carpeta, y la lista de **lo que queda por hacer**
    (ver abajo). Nunca «listo» a secas: el `.cex` lleva `_REVISAR` porque hay que abrirlo en CE3X.
+   Dejarlo listo para firmar es OTRO paso, cuando Fran lo pide: orden `listo` (ver «Cuando el usuario
+   lo da por VÁLIDO»).
+
+## La receta y el sello (la ventana y la skill escriben el MISMO `.cex`)
+
+Desde el 15/10/2026 lo que decide el plan **se guarda en la RECETA** (`ajustes` del trabajo): las
+medidas por fase (`medidas_elegidas`), la aerotermia de la simulación, las placas MEDIDAS de la 2.ª
+medida (`autoconsumo_consumo_medida`, `autoconsumo_pvgis`, `fv_segunda`), quién firma, las fechas y
+las medidas libres. La ventana de la envolvente las enseña y las usa igual: si alguien cambia allí una
+ventana y vuelve a generar, cambia solo eso. Sin `medidas` en el plan, mandan las guardadas.
+
+- Al terminar, `aplicar` comprueba que **la ventana compondría el MISMO `.cex`** («✓ receta…»); si
+  sale «⚠ receta: la ventana compondría OTRO», dilo en el informe.
+- Cada `.cex` escrito queda **sellado** (`cee.cex_sello`): la ventana avisa si está DESFASADO, si se
+  TOCÓ a mano en CE3X o si está POR CALIFICAR.
+- Lo que genera la ventana queda **por calificar**: es la cola del PC (`calificar --cola`, y la enseña
+  `agente_ia.js cola`). Primero en seco, y con `--escribir` cuando el usuario lo diga.
 
 ## La receta y el sello (la ventana y la skill escriben el MISMO `.cex`)
 
@@ -569,6 +587,14 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    100 Litros») se puso en `instalacion.aerotermia_acs.litros` con un `jsonb_set` atómico, como lo
    llevan los demás expedientes (MANANTIAL 110 → 110). El depósito de INERCIA de calefacción no es de
    ACS: no va. Lo que el presupuesto no dice (la potencia de la bomba de ACS) no se inventa: se dice.
+   - **Si el presupuesto NO trae NADA de ACS, el ACS es un TERMO ELÉCTRICO (efecto Joule) en el CEE
+     inicial Y en el final** (Fran, 19/10/2026, 26RES060_237): la caldera va `da_acs: false` y el
+     termo en `acs_aparte`, y la medida es la aerotermia SOLO de calefacción (el termo se queda: regla
+     72). Si la Instalación del expediente trae un equipo de ACS nuevo (p. ej. «BOMBA DE CALOR PARA
+     ACS» sin modelo, heredado de la simulación), la medida lo pondría con huecos «___» y CE3X no saca
+     el PDF: la Instalación tiene que pasar a **«ACS — no se actúa» + «Termo eléctrico»** (lo mismo que
+     en su pestaña). **Eso saca el ACS del ahorro CAE** (un termo no es actuación): no se cambia en
+     silencio, se PREGUNTA con la cifra de antes y la de después.
 19. **Un PATIO que Catastro no dibuja** (26RES060_225: los vídeos enseñan dos patios y Catastro solo
    uno de 6 m²; el otro, la «terraza» del croquis del cliente, lo cuenta como vivienda). La
    superficie NO se recorta (mandan los m² de Catastro); sus huecos van a la fachada de su
@@ -658,10 +684,13 @@ python -m pytest implementation/cee-engine/tests/test_previsto.py       # RES080
 
 Solo con un «doy por válido el CEE inicial de NNN» explícito, nunca por iniciativa propia: firmar es
 un acto de quien firma. Antes, el `.cex/.xml/.pdf` tienen que estar en Drive con su NOMBRE CANÓNICO
-(`{nº} – CEE INICIAL.*`, sin `_REVISAR`; ver la memoria «CEE del agente listo para firmar»).
+(`{nº} – CEE INICIAL.*`, sin `_REVISAR`) y con las medidas CALCULADAS: eso lo hace **`listo`** (una
+orden, no un script suelto; igual en Claude Code y en el agente de la API, que solo la corre en seco).
 
 ```bash
 cd implementation/backend
+node scripts/cee_inicial.js listo 26RES060_237              # en seco: CE3X, y dice qué subiría y qué iría a OLD
+node scripts/cee_inicial.js listo 26RES060_237 --escribir   # sube los canónicos y carga el XML en la app
 node scripts/firmar_cee.js 26RES060_231              # en seco: firma una copia, la comprueba y deja la vista
 node scripts/firmar_cee.js 26RES060_231 --escribir   # firma y sube «{nº} – CEE INICIAL_fdo.pdf» a su casilla
 ```

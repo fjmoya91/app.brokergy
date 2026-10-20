@@ -13,7 +13,9 @@ import { createPortal } from 'react-dom';
 // Si hace falta leer un detalle, el navegador del móvil deja ampliar con dos dedos.
 const ANCHO_A4 = 794;
 
-export function VistaPreviaA4({ html, titulo, rotulo, onClose }) {
+// `capa`: el z-index. Por defecto el de la ficha del CEE; abierta desde un popup que
+// ya va a z-[9998] (la factura de la gestión, fase 7 del lote) tiene que ir encima.
+export function VistaPreviaA4({ html, titulo, rotulo, onClose, capa = 'z-[70]' }) {
     const marco = useRef(null);
     const iframe = useRef(null);
     const [escala, setEscala] = useState(1);
@@ -42,7 +44,7 @@ export function VistaPreviaA4({ html, titulo, rotulo, onClose }) {
     };
 
     return createPortal(
-        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-stretch md:items-center justify-center md:p-6" onClick={onClose}>
+        <div className={`fixed inset-0 ${capa} bg-black/80 backdrop-blur-sm flex items-stretch md:items-center justify-center md:p-6`} onClick={onClose}>
             <div className="bg-bkg-surface w-full md:max-w-[860px] h-[100dvh] md:h-[92vh] md:rounded-xl overflow-hidden flex flex-col"
                 onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-white/10 shrink-0"

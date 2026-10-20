@@ -674,6 +674,8 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
         //: guardan 3,90): multiplicarla otra vez daba 11,70 m² (26RES080_66).
         ancho: h.ancho, alto: h.alto, mult: Number(h.multiplicador) || 1,
         sup: Number(h.superficie) || (Number(h.ancho) || 0) * (Number(h.alto) || 0) * (Number(h.multiplicador) || 1),
+        //: Un hueco «Conocidas» (la ventana nueva de un RES080) no tiene TIPO de
+        //: marco ni de vidrio, tiene sus VALORES: se enseñan, o la fila sale «—».
         marco: h.marco || (h.u_marco != null ? `Conocido · Uf ${num(h.u_marco)}` : null),
         vidrio: h.vidrio || (h.u_vidrio != null ? `Ug ${num(h.u_vidrio)}${h.g_vidrio != null ? ` · g ${num(h.g_vidrio)}` : ''}` : null),
         porc: h.porc_marco, persiana: conCaja.has(String(h.nombre || '').trim()),
@@ -691,9 +693,10 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
         + `<td>${esc(h.marco || '—')}</td><td>${esc(h.vidrio || '—')}</td><td class="n">${h.porc != null && h.porc !== '' ? `${num(h.porc, 0)} %` : '—'}</td>`
         + `<td>${h.persiana ? 'Sí' : 'No'}</td></tr>`;
     const CAB_HUECOS = ['Hueco', 'Muro', 'Orient.', 'Ancho × alto (m)', 'Sup. (m²)', 'Marco', 'Vidrio', '% marco', 'Persiana'];
+    //: Un hueco sin planta (`plantaUnica` no aplica: hay varias) va a la PRIMERA hoja.
+    const enPlanta = (h, p, i) => h.planta === p.id || (!h.planta && i === 0);
     const totHue = huecos.reduce((s, h) => s + (Number(h.sup) || 0), 0);
 
-    const enPlanta = (h, p, i) => h.planta === p.id || (!h.planta && i === 0);
     const hojasPlanos = plantas.map((p, i) => {
         const ms = muros.filter(m => (m.planta || null) === p.id);
         const zs = zonasLienzo.filter(z => Number(z.nivel) === Number(p.nivel));

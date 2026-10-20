@@ -100,6 +100,20 @@ el `.cex` con el propio CE3X (sale con cabecera 3.2). Ese `.cex` ajustado es el 
 dice. Comprobado de punta a punta con 2026CEE_58: 6 meses recortados, 45,9 %, XML y PDF; recalificado
 el ajustado, ningún aviso. `cex_a_pdf.js --sin-ajustar` solo avisa.
 
+**REGLA — cada mes avisado se deja un 1 % POR DEBAJO de su consumo** (`MARGEN = 0.99` en
+`recortar`, decisión del usuario del 20/10/2026: «si con el autoconsumo CE3X da aviso, bájalo
+ligeramente»). Recortado JUSTO al consumo, CE3X 3.2 seguía avisando de esos meses al recalificar:
+en 26RES060_239 la orden `listo` encontró cinco meses avisados (mayo, junio, julio, agosto, octubre)
+con lo declarado ya igual al consumo, y el oráculo no los tocaba porque no lo pasaban. Con el margen,
+el `listo` siguiente salió sin ningún aviso.
+
+**REGLA — en el INICIAL, la medida «aerotermia + placas» no se recorta con el XML del propio
+inicial** (`sinTopeInicial` en `medidasCe3x`, 20/10/2026). Con el CEE inicial ya cargado en la app,
+`consumoMensualDelCee` devolvía el consumo eléctrico del edificio CON LA CALDERA —casi nada— y la
+medida se quedaba sin placas: en 26RES060_239, 12.284 kWh de producción pasaban a 1.422. Ese tope solo
+vale para el FINAL (o con `consumoMedida`, el de la 2.ª medida): en el inicial va la producción y CE3X
+la recorta en el PC al consumo de la vivienda CON la medida (8.376 → 4.790 kWh en ese caso).
+
 ⚠️ CE3X 3.2 deja el XML junto al `.cex` que tiene abierto y con su nombre: tras guardar en otro
 fichero hay que devolver `FRAME.filename` al de entrada o el XML no aparece donde se espera.
 

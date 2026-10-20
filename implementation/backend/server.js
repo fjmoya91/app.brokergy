@@ -91,6 +91,8 @@ app.use('/api/landing', require('./routes/landing'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/cee-ocr', require('./routes/ceeOcr'));
 app.use('/api/cee-envolvente', require('./routes/ceeEnvolvente'));
+// Generar el CEE inicial con IA: la app lo apunta y lo atiende el PC (banco.mjs atender).
+app.use('/api/cee-ia', require('./routes/ceeIa'));
 // Producción fotovoltaica de un sitio (PVGIS, JRC): kWp ⇄ kWh/año y su reparto
 // mensual para el autoconsumo de los CEE.
 app.use('/api/pvgis', require('./routes/pvgis'));
@@ -224,6 +226,23 @@ if (require.main === module) {
       require('./services/pagoClientesService').start();
     } catch (err) {
       console.warn('[reseña] no se pudo iniciar el despachador:', err.message);
+    }
+    // La RONDA DE WHATSAPP: lee de madrugada los chats con mensajes nuevos de quien
+    // tiene algo vivo y a las 9:00 le manda a Fran el informe (email) y un resumen
+    // corto (chat del asistente). Fase 1, en seco: no coloca ni escribe a nadie.
+    // Nace APAGADA (WA_RONDA_ENABLED): en local la sesión es la misma cuenta.
+    try {
+      require('./services/rondaWhatsapp').start();
+    } catch (err) {
+      console.warn('[ronda] no se pudo iniciar:', err.message);
+    }
+    // Los FIRMADOS que el S.O. devuelve por correo se registran solos en su lote,
+    // por el mismo camino que soltarlos en la fase 2. Nace APAGADO
+    // (FIRMADOS_SO_CORREO_ENABLED): dos servidores leyendo el mismo buzón.
+    try {
+      require('./services/firmadosSoCorreo').start();
+    } catch (err) {
+      console.warn('[FirmadosCorreo] no se pudo iniciar:', err.message);
     }
   });
 }

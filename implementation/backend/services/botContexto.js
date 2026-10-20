@@ -252,7 +252,9 @@ function pendientesParaCliente(checklist, traducir = (k, l) => l) {
  *     es adelantarle trabajo que todavía no sirve para nada.
  *   · Con expediente → el trámite está vivo y hay un checklist real.
  */
-async function dossierDeAsunto(asunto) {
+// `soloLectura` (2026-10-19, la ronda de WhatsApp en seco): ni siembra el token
+// del enlace de subida ni deja que el checklist haga su backfill.
+async function dossierDeAsunto(asunto, { soloLectura = false } = {}) {
     const base = {
         // `oportunidad_id` / `expediente_id` NO se le enseñan al asistente
         // (`redactarDossier` no los imprime): son para el log, que sin ellos no
@@ -311,7 +313,7 @@ async function dossierDeAsunto(asunto) {
 
     let checklist = null;
     try {
-        checklist = await buildChecklistData(expRow, cli, opp);
+        checklist = await buildChecklistData(expRow, cli, opp, { soloLectura });
     } catch (e) {
         console.warn('[bot/contexto] checklist:', e.message);
     }
@@ -339,7 +341,11 @@ async function dossierDeAsunto(asunto) {
     // manos del cliente.
     let enlaceSubida = null;
     if (expRow.oportunidad_id) {
-        try { enlaceSubida = await reformaUploadService.ensureUploadLink(expRow.oportunidad_id); }
+        try {
+            enlaceSubida = soloLectura
+                ? await reformaUploadService.uploadLinkSiExiste(expRow.oportunidad_id)
+                : await reformaUploadService.ensureUploadLink(expRow.oportunidad_id);
+        }
         catch (e) { console.warn('[bot/contexto] ensureUploadLink:', e.message); }
     }
 

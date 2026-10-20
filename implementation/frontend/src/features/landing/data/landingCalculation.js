@@ -258,9 +258,13 @@ export function computeFullCalculatorResult(inputs) {
         cb
     });
 
-    // 4. Financieros base
+    // 4. Financieros base. La FOTOVOLTAICA de la obra (P. Fotovoltaica) suma a la
+    // inversión y a la base de la deducción del IRPF, como en CalculatorView. El
+    // funnel público no la pregunta (no llega `presupuestoFotovoltaica`: 0); la
+    // usan el alta desde WhatsApp/email y las oportunidades que se recalculan.
     const financialRes = calculateFinancials({
         presupuesto: inputs.presupuesto,
+        presupuestoFotovoltaica: inputs.presupuestoFotovoltaica,
         savingsKwh: savingsRes.savingsKwh,
         caePriceClient: inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS,
         caePriceSO: inputs.caePriceSO || 160,
@@ -303,7 +307,7 @@ export function computeFullCalculatorResult(inputs) {
 
     // 6. Payback
     const paybackRes = calculatePayback({
-        presupuesto: inputs.presupuesto,
+        presupuesto: (parseFloat(inputs.presupuesto) || 0) + (parseFloat(inputs.presupuestoFotovoltaica) || 0),
         totalAyuda: financialRes.totalAyuda,
         ahorroAnual: annualSavingsRes.ahorroAnual
     });
@@ -336,6 +340,7 @@ export function computeFullCalculatorResult(inputs) {
         if (res080Data) {
             financialsRes080 = calculateFinancials({
                 presupuesto: (inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0),
+                presupuestoFotovoltaica: inputs.presupuestoFotovoltaica,
                 savingsKwh: res080Data.ahorroEnergiaFinalTotal,
                 caePriceClient: inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS,
                 caePriceSO: inputs.caePriceSO || 160,
