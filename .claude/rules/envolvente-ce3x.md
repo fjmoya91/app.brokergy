@@ -134,7 +134,7 @@ paths:
 - `docs/conocimiento/envolvente-ce3x/que-plantas-se-miden-lo-marco-una-persona-no-catastro/la-vista-aerea-satelite-debajo-del-plano-y-bajo-el-3d.md` — La VISTA AÉREA (satélite), debajo del plano y bajo el 3D (2026-09-30) · 5,2 KB
 - `docs/conocimiento/envolvente-ce3x/que-plantas-se-miden-lo-marco-una-persona-no-catastro/las-imagenes-del-certificado-se-ven-solas-y-se-pueden-sustituir.md` — Las IMÁGENES del certificado se ven solas, y se pueden sustituir · 3,8 KB
 - `docs/conocimiento/envolvente-ce3x/un-certificador-firma-como-persona-y-puede-ejercer-en-una-empres.md` — Un certificador FIRMA como persona, y puede ejercer en una empresa (2026-09-15) · 3,7 KB
-- `docs/conocimiento/envolvente-ce3x/un-garaje-dentro-de-la-casa-y-lo-que-se-movia-al-volver-a-medir.md` — Un GARAJE dentro de la casa, y lo que se movía al volver a medir (2026-09-28) · 7,2 KB
+- `docs/conocimiento/envolvente-ce3x/un-garaje-dentro-de-la-casa-y-lo-que-se-movia-al-volver-a-medir.md` — Un GARAJE dentro de la casa, y lo que se movía al volver a medir (2026-09-28) · 8,0 KB
 - `docs/conocimiento/envolvente-ce3x/un-sotano-muros-contra-el-terreno-y-suelos-solo-de-la-vivienda.md` — Un SÓTANO: muros contra el TERRENO y suelos solo de la VIVIENDA (2026-10-01) · 3,8 KB
 - `docs/conocimiento/envolvente-ce3x/una-edificacion-entera-se-quita-de-un-clic.md` — Una EDIFICACIÓN entera se quita de un clic (2026-09-16 · POR PLANTA 2026-09-21) · 10,5 KB
 
@@ -415,6 +415,8 @@ OPORTUNIDAD.**
   - **REGLA — el trabajo dice EN QUÉ LIENZO se dibujó**
   - **REGLA — la identidad de paredes es POR PLANTA, y reconoce la recortada y renombrada**
   - **REGLA — un hueco cuya pared ya no existe no desaparece en silencio.**
+  - **REGLA — una zona del MISMO uso que una construcción no vivienda marcada como vivienda se resta
+de SUS m²**
 - `docs/conocimiento/envolvente-ce3x/un-sotano-muros-contra-el-terreno-y-suelos-solo-de-la-vivienda.md`
   - **REGLA — los muros de una planta bajo rasante son «Muro en contacto con el terreno»**
   - **REGLA — ese muro va «Por defecto»**

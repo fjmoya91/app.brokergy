@@ -1374,6 +1374,38 @@ def leer_zonas(modelo: Modelo, zonas) -> list[dict]:
     return salida
 
 
+def _restar_zonas_de_marcadas(modelo: Modelo, zonas) -> None:
+    """Una construccion NO vivienda marcada como vivienda, con un TROZO dibujado
+    aparte que sigue siendo de su uso: su superficie es la que QUEDA.
+
+    EL CASO — 2015019VJ9321N (26RES060_OP285): Catastro da la planta primera
+    como ALMACEN de 94 m2 y se usa como vivienda la mitad. Se marca como vivienda
+    (`aplicar_seleccion`) y la otra mitad se dibuja como zona ALMACEN: la huella
+    se restaba, pero la superficie de la planta —la del espacio, que es la de
+    Catastro— seguia en 94, y el .cex declaraba la zona entera.
+
+    Solo cuando la zona es del MISMO uso que la construccion marcada: un garaje
+    dibujado en una planta de VIVIENDA de Catastro ya esta fuera de sus m2 (es
+    otra construccion), y restarlo lo contaria dos veces.
+    """
+    for z in zonas or []:
+        uso = str(z.get("uso") or "").upper()
+        marcadas = [s for s in modelo.spaces
+                    if str(s.floor) == str(z["nivel"]) and (s.attrs or {}).get("habitable")
+                    and str(s.use or "").upper() == uso and uso != "VIVIENDA"]
+        if not marcadas:
+            continue
+        s = max(marcadas, key=lambda x: float(x.area or 0))
+        antes = float(s.area or 0)
+        s.area = round(max(0.0, antes - float(z["area_m2"])), 2)
+        s.attrs.setdefault("area_catastro", antes)
+        modelo.diagnostics.add(
+            "ZONAS_FUERA",
+            f"{s.attrs.get('codigo') or s.use} consta como {s.use} de {antes:.0f} m2 y "
+            f"cuenta como vivienda; se ha dibujado aparte {z['area_m2']:.0f} m2 de "
+            f"{s.use} en {_nombre_nivel(z['nivel'])}: cuenta lo que queda, {s.area:.0f} m2")
+
+
 def excluir_cuerpos(modelo: Modelo, ids, inventario=None, zonas=None) -> list[str]:
     """Saca de la envolvente los CUERPOS que el certificador dice que no cuentan.
 
@@ -1450,6 +1482,7 @@ def excluir_cuerpos(modelo: Modelo, ids, inventario=None, zonas=None) -> list[st
         fuera_por_nivel.setdefault(z["nivel"], []).append(
             {"geom": z["geom"], "uso": z["uso"], "dibujada": True})
         dichas_zonas.append(f"{z['uso']} de {z['area_m2']:.0f} m2 en {_nombre_nivel(z['nivel'])}")
+    _restar_zonas_de_marcadas(modelo, zonas)
 
     if not fuera_por_nivel:
         return []

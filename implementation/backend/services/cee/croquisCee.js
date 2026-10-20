@@ -46,6 +46,7 @@ const M = {
 const P = {
     muro: M.negro, medianera: '#8A9099', particion: M.lima, fuera: '#B8BEC6',
     vidrio: '#2A8FD8', puerta: '#6B4A2B', cota: M.naranja, zona: '#9AA0A8',
+    lucernario: '#DCEEFB',
     //: El hueco que la obra SUSTITUYE («- CAMBIA», regla 66): un color que no es
     //: de ningún otro elemento del plano (5,8:1 sobre blanco, se lee impreso).
     cambia: '#C2185B',
@@ -178,6 +179,7 @@ function simbolo(tipo) {
         + `<line x1="4" y1="7" x2="4" y2="0" stroke="${P.puerta}" stroke-width="1.2"/><path d="M 4 0 A 18 18 0 0 1 22 7" fill="none" stroke="${P.puerta}" stroke-width=".7" stroke-dasharray="1.6 1"/>`);
     case 'cota': return caja(`<line x1="2" y1="5" x2="24" y2="5" stroke="${M.naranja}" stroke-width="1"/><line x1="2" y1="2" x2="2" y2="8" stroke="${M.naranja}" stroke-width="1"/><line x1="24" y1="2" x2="24" y2="8" stroke="${M.naranja}" stroke-width="1"/>`);
     case 'acceso': return caja(`<line x1="2" y1="5" x2="18" y2="5" stroke="${M.naranja}" stroke-width="1.3"/><polygon points="24,5 17,1.5 17,8.5" fill="${M.naranja}"/>`);
+    case 'lucernario': return caja(`<rect x="7" y="1" width="12" height="8" fill="${P.lucernario}" stroke="${P.vidrio}" stroke-width=".9" stroke-dasharray="2 1"/><line x1="7" y1="1" x2="19" y2="9" stroke="${P.vidrio}" stroke-width=".5"/><line x1="19" y1="1" x2="7" y2="9" stroke="${P.vidrio}" stroke-width=".5"/>`);
     default: return '';
     }
 }
@@ -193,7 +195,7 @@ const DEFS_LEYENDA = `<svg width="0" height="0" style="position:absolute"><defs>
  * MILÍMETROS de papel, así que la escala que se rotula es la de verdad.
  */
 function planoPlanta(G, { muros: murosIn, zonas: zonasIn, entrada, contexto: ctxIn,
-                         equipos: equiposIn = [],
+                         equipos: equiposIn = [], lucernarios = [], vivienda = null,
                          giro = 0, centroGiro = [0, 0], anchoMm = 178, altoMm = 196 }) {
     // Todo se gira a la vez (ver `giroDeLaCasa`); la flecha del norte, también.
     const rot = girador(giro, centroGiro);
@@ -257,6 +259,36 @@ function planoPlanta(G, { muros: murosIn, zonas: zonasIn, entrada, contexto: ctx
         if ((Number(z.area_m2) || 0) < 5) continue;
         capas.push(`<text x="${zx}" y="${zy - fsSub * 0.2}" font-size="${fsSub}" text-anchor="middle" fill="#4B5260" font-weight="700" ${halo}>${esc(rotulo)}</text>`);
         capas.push(`<text x="${zx}" y="${zy + fsSub * 1.05}" font-size="${fsMin}" text-anchor="middle" fill="#6B7280" ${halo}>${num(z.area_m2, 1)} m² · ${exterior ? 'exterior' : 'no habitable'}</text>`);
+    }
+    // 2b · La VIVIENDA de esta planta —la parte calefactada— rotulada en el
+    //      centro de sus muros, y sus LUCERNARIOS. Un lucernario no está en
+    //      ningún muro (va en la cubierta) y el trabajo no guarda DÓNDE: se
+    //      dibuja en el centro de la planta, en planta y a su tamaño; como la
+    //      posición de un hueco a lo largo del muro, es orientativa.
+    const vivosPlanta = muros.filter(m => !G.esFuera(m));
+    if (vivosPlanta.length && (vivienda || lucernarios.length)) {
+        const [vx, vy] = G.centroide(vivosPlanta.flatMap(m => m.svg || []));
+        const conLuc = lucernarios.length > 0;
+        if (vivienda) {
+            const ly = conLuc ? vy + 1.3 : vy;
+            capas.push(`<text x="${vx}" y="${ly - fsSub * 0.2}" font-size="${fsSub}" text-anchor="middle" fill="${M.naranja}" font-weight="700" ${halo}>VIVIENDA CALEFACTADA</text>`);
+            if (vivienda.superficie) {
+                capas.push(`<text x="${vx}" y="${ly + fsSub * 1.05}" font-size="${fsMin}" text-anchor="middle" fill="#4B5260" ${halo}>${num(vivienda.superficie, 1)} m² habitables</text>`);
+            }
+        }
+        const sep = 0.5;
+        const anchoTotal = lucernarios.reduce((s, l) => s + (Number(l.ancho) || 0.8), 0) + sep * (lucernarios.length - 1);
+        let x = vx - anchoTotal / 2;
+        for (const l of lucernarios) {
+            const a = Number(l.ancho) || 0.8, b = Number(l.alto) || 1.2;
+            const x0 = x, y0 = vy - 1.1 - b;
+            capas.push(`<rect x="${x0}" y="${y0}" width="${a}" height="${b}" fill="${P.lucernario}" stroke="${P.vidrio}" stroke-width="${mm(0.35)}" stroke-dasharray="${mm(1.2)} ${mm(0.6)}"/>`);
+            capas.push(`<line x1="${x0}" y1="${y0}" x2="${x0 + a}" y2="${y0 + b}" stroke="${P.vidrio}" stroke-width="${mm(0.18)}"/>`);
+            capas.push(`<line x1="${x0 + a}" y1="${y0}" x2="${x0}" y2="${y0 + b}" stroke="${P.vidrio}" stroke-width="${mm(0.18)}"/>`);
+            capas.push(`<text x="${x0 + a / 2}" y="${y0 - fsMin * 1.6}" font-size="${fsSub}" text-anchor="middle" font-weight="700" fill="${P.vidrio}" ${halo}>${esc(l.nombre || 'L')}</text>`);
+            capas.push(`<text x="${x0 + a / 2}" y="${y0 - fsMin * 0.45}" font-size="${fsMin}" text-anchor="middle" fill="#4B5260" ${halo}>lucernario ${num(a)} × ${num(b)}</text>`);
+            x += a + sep;
+        }
     }
     // 3 · Los MUROS. Primero el contorno negro de todos (las esquinas se unen
     //     como en un plano de obra) y encima el relleno de los que van rayados.
@@ -609,10 +641,10 @@ async function componerCroquisHtml({ cabecera = {}, geo, trabajo, rx = null }) {
         .map(t => `<span>${iconoLeyenda(t.id)}${esc(t.etiqueta)}</span>`).join('') : '');
     //: «Hueco que se sustituye» solo en la hoja que tiene alguno: en una planta
     //: que la obra no toca sería una entrada de leyenda sin nada que señalar.
-    const leyenda = (lista = [], conCambia = false) => `<div class="leyenda">
+    const leyenda = (lista = [], conCambia = false, conLuc = false) => `<div class="leyenda">
   <span>${simbolo('fachada')}Muro al exterior</span><span>${simbolo('medianera')}Medianera</span>
   <span>${simbolo('particion')}Partición con espacio no habitable</span><span>${simbolo('zona')}No es vivienda</span>
-  <span>${simbolo('ventana')}Ventana</span><span>${simbolo('puerta')}Puerta</span>
+  <span>${simbolo('ventana')}Ventana</span><span>${simbolo('puerta')}Puerta</span>${conLuc ? `<span>${simbolo('lucernario')}Lucernario (en cubierta)</span>` : ''}
   ${conCambia ? `<span class="cambia">${simbolo('cambia')}Hueco que se sustituye («- CAMBIA»)</span>` : ''}
   <span>${simbolo('cota')}Cota (m)</span><span>${simbolo('acceso')}Acceso</span>${leyendaEquipos(lista)}
 </div>`;
@@ -666,10 +698,17 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
     const zonaDeCerr = new Map((env.cerramientos || []).map(x => [String(x.nombre || '').trim(), x.zona]));
     const plantaDeZona = (z) => (z ? (plantas.find(p => p.id === z || p.nombre === z) || {}).id || null : null);
     const plantaUnica = plantas.length === 1 ? plantas[0].id : null;
+    //: Los LUCERNARIOS van en la cubierta, no en un muro: su planta la dice el
+    //: trabajo (`lucernarios` por planta). En el .cex cuelgan de una cubierta
+    //: («CU11») que no es ninguna pared del plano (26RES060_240).
+    const lucernariosDe = (pid) => (st.lucernarios?.[pid] || []);
+    const plantaDeLuc = new Map(Object.entries(st.lucernarios || {})
+        .flatMap(([pid, ls]) => (ls || []).map(l => [String(l.nombre || '').trim(), pid])));
     const huecos = huecosRx.length ? huecosRx.map((h) => ({
-        planta: plantaDeMuro(h.cerramiento)
+        planta: plantaDeMuro(h.cerramiento) || plantaDeLuc.get(String(h.nombre || '').trim())
             || plantaDeZona(zonaDeCerr.get(String(h.cerramiento || '').trim())) || plantaUnica,
-        nombre: h.nombre, muro: nombreCorto(h.cerramiento), orient: h.orientacion,
+        nombre: h.nombre, muro: nombreCorto(h.cerramiento),
+        orient: plantaDeLuc.has(String(h.nombre || '').trim()) ? 'Lucernario' : h.orientacion,
         //: La `superficie` de CE3X YA va multiplicada (3 ventanas de 1,00 × 1,30
         //: guardan 3,90): multiplicarla otra vez daba 11,70 m² (26RES080_66).
         ancho: h.ancho, alto: h.alto, mult: Number(h.multiplicador) || 1,
@@ -687,7 +726,14 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
             ancho: h.ancho, alto: h.alto, sup: (Number(h.ancho) || 0) * (Number(h.alto) || 0),
             marco: k.marco, vidrio: k.opaca ? null : k.vidrio, porc: k.porc_marco, persiana: !!k.persiana,
         };
-    }));
+    })).concat(Object.entries(st.lucernarios || {}).flatMap(([pid, ls]) => (ls || []).map((l) => {
+        const k = carp(l);
+        return {
+            planta: pid, nombre: l.nombre, muro: 'Cubierta', orient: 'Lucernario',
+            ancho: l.ancho, alto: l.alto, sup: (Number(l.ancho) || 0) * (Number(l.alto) || 0),
+            marco: k.marco, vidrio: k.vidrio, porc: k.porc_marco, persiana: false,
+        };
+    })));
     const filaHueco = (h) => `<tr${esCambia(null, h.nombre) ? ' class="cambia"' : ''}><td><b>${esc(h.nombre)}</b></td><td>${esc(h.muro)}</td><td>${esc(h.orient || '—')}</td>`
         + `<td class="n">${num(h.ancho)} × ${num(h.alto)}${h.mult > 1 ? ` (×${num(h.mult, 0)})` : ''}</td><td class="n">${num(h.sup)}</td>`
         + `<td>${esc(h.marco || '—')}</td><td>${esc(h.vidrio || '—')}</td><td class="n">${h.porc != null && h.porc !== '' ? `${num(h.porc, 0)} %` : '—'}</td>`
@@ -705,9 +751,11 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
         // El plano se lleva el sitio que deja el cuadro de huecos de su planta.
         const alto = (primera ? 175 : 222) - Math.min(14, hs.length) * 6.2 - (hs.length ? 16 : 0);
         const eqs = equipos.filter(e => e.nivel === p.nivel);
+        const lucs = lucernariosDe(p.id);
         const { svg, escala } = planoPlanta(G, {
             muros: ms, zonas: zs, entrada: st.entrada, contexto: geo.contexto,
             equipos: eqs, giro, centroGiro, altoMm: Math.max(110, alto),
+            lucernarios: lucs, vivienda: { superficie: Number(p.superficie) || null },
         });
         const nombre = /^planta/i.test(p.nombre || '') ? p.nombre : `Planta ${p.nombre || p.id}`;
         const sup = supPlanta(p);
@@ -727,7 +775,7 @@ ${rx ? `<tr><th>Superficie útil</th><td>${num(g.superficie)} m² · ${num(g.pla
         return `<section class="hoja">${cabeceraHoja()}
 ${primera ? `<div class="portada"><div class="kicker">${esc(c.fase || 'CEE INICIAL')} · CROQUIS DE LA ENVOLVENTE TÉRMICA</div>${meta}</div>` : ''}
 ${titulo(i + 1, nombre, sub)}
-${leyenda(eqs, nCambia > 0)}
+${leyenda(eqs, nCambia > 0, lucs.length > 0)}
 <div class="plano">${svg}</div>
 ${hs.length ? `<h3>Huecos de esta planta <small>· ${nHuecos} · ${num(supH)} m²</small></h3>${tabla(CAB_HUECOS, hs.map(filaHueco), { clase: 'huecos' })}` : ''}
 ${pie(i + 1)}</section>`;

@@ -79,6 +79,19 @@ adosado»** y a decir que vale para TODAS las plantas, dentro del mismo mando
 `ViviendaPlantaControl` ([PanelZonas.jsx](implementation/frontend/src/features/cee-envolvente/components/PanelZonas.jsx)),
 que va bajo la barra de cada plano.
 
+### Y un ALMACÉN marcado como vivienda EN PARTE (2026-10-20, 26RES060_OP285)
+
+Catastro da la planta primera como ALMACÉN de 94 m² y se usa como vivienda la mitad. Se marca
+como vivienda (qué construcciones cuentan, regla 50) y la mitad que sigue siendo almacén se
+dibuja como zona `ALMACEN`. La huella se restaba bien, pero la SUPERFICIE de la planta —la del
+espacio, que es la de Catastro— seguía en 94 y el `.cex` declaraba la zona entera (250 m² en vez
+de 203).
+
+**REGLA — una zona del MISMO uso que una construcción no vivienda marcada como vivienda se resta
+de SUS m²** (`_restar_zonas_de_marcadas` en `pipeline.py`, con su diagnóstico `ZONAS_FUERA`).
+Un garaje dibujado en una planta de VIVIENDA de Catastro NO se resta: ya es otra construcción y
+sus m² no están dentro de los de la vivienda.
+
 | Qué | Dónde |
 |---|---|
 | Almacenes por eliminación | `_casar_por_eliminacion` en [gis/cuerpos.py](implementation/cee-engine/src/gis/cuerpos.py) |

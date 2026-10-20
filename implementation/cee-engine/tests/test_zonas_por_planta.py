@@ -202,3 +202,27 @@ def test_la_apertura_no_se_come_vivienda():
     assert _abrir(grande).area == grande.area
     # Una pieza entera de 3 cm no es una aguja pegada a nada: se conserva.
     assert _abrir(fino) is not None
+
+
+# ------------------------------- un almacen marcado como vivienda, en parte
+def test_el_trozo_de_almacen_se_resta_de_la_construccion_marcada():
+    """26RES060_OP285: la planta que Catastro da como ALMACEN cuenta como
+    vivienda (la marco una persona) y la mitad que sigue siendo almacen se
+    dibuja aparte. La superficie que cuenta es la que QUEDA, no la de Catastro."""
+    spaces = _lcons()
+    spaces[2].attrs["habitable"] = True           # el almacen de la baja cuenta
+    m = _modelo(spaces=spaces)
+    inv = cu.inventario(m)
+    z = pipeline.leer_zonas(m, [{"nivel": 0, "uso": "ALMACEN", "poligono": GARAJE}])
+    pipeline.excluir_cuerpos(m, [], inventario=inv, zonas=z)
+    assert abs(spaces[2].area - (106.0 - z[0]["area_m2"])) < 0.05
+    assert spaces[2].attrs["area_catastro"] == 106.0
+    # La VIVIENDA de Catastro no se toca: el trozo no sale de sus m2.
+    assert spaces[0].area == 119.0
+
+
+def test_un_garaje_en_planta_de_vivienda_no_resta_de_la_vivienda():
+    """El garaje dibujado en una planta de VIVIENDA es otra construccion: sus
+    m2 ya estan fuera de los de la vivienda, y restarlos los contaria dos veces."""
+    m, _, _ = _plantas_con([{"nivel": 0, "uso": "GARAJE", "poligono": GARAJE}])
+    assert [s.area for s in m.spaces] == [119.0, 117.0, 106.0]
