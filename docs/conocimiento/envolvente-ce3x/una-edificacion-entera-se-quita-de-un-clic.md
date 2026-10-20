@@ -22,7 +22,7 @@ acertando con cuáles eran las suyas. Medido en 9412508VJ8691S: 71 m² de garaje
 | API | `POST /envolvente` con `cuerpos_excluidos`; `cuerpos[].niveles_fuera` en la respuesta |
 | Lo mismo, dicho para la pantalla (puro) | [logic/cuerposEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/cuerposEnvolvente.js) |
 | El gesto | `Cuerpos` en [PlanoPlanta.jsx](implementation/frontend/src/features/cee-envolvente/components/PlanoPlanta.jsx) + `CuerpoModal`/`AvisoCuerpos` en `EnvolventeView` |
-| Dónde se guarda | `cee.envolvente.cuerpos_fuera`, con el resto del trabajo |
+| Dónde se guarda | `cee.envolvente.cuerpos_fuera`, con el resto del trabajo — por su CLAVE (`…@x,y`), nunca por el «_partN» de Catastro, que cambia de una lectura a otra: ver [el-numero-de-un-cuerpo-de-catastro-no-es-estable.md](docs/conocimiento/envolvente-ce3x/el-numero-de-un-cuerpo-de-catastro-no-es-estable.md) (2026-10-20) |
 | Pruebas | `python -m pytest implementation/cee-engine/tests/test_garaje_por_planta.py implementation/cee-engine/tests/test_cuerpos.py` · `node implementation/backend/scripts/test_cuerpo_por_planta.mjs` |
 
 **REGLA — se quita POR PLANTA, nunca el cuerpo entero (2026-09-21).** Un garaje

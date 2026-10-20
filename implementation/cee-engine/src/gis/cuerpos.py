@@ -24,6 +24,8 @@ vivienda y porches cerrados que son estar.
 """
 from __future__ import annotations
 
+import math
+
 from shapely.geometry import Point
 
 #: Cuanto se pueden parecer una parte y una construccion para darlas por la
@@ -38,8 +40,114 @@ TOLERANCIA = 0.08
 CERCA_M = 0.10
 
 
+#: Cuanto puede moverse el centro de un cuerpo entre dos lecturas de Catastro y
+#: seguir siendo el mismo. La misma geometria da la misma clave al decimetro;
+#: esto es para un retoque de la cartografia, no para otro cuerpo (dos
+#: BuildingParts de una parcela no comparten centro).
+CERCA_CLAVE_M = 1.0
+
+
 def _codigo(parte) -> str:
-    return parte.original_id or ""
+    """El id del cuerpo hacia fuera: su CLAVE estable (`floors.clave_de`).
+
+    Era `original_id` («…_part3»), y ese numero lo reparte Catastro de nuevo en
+    cada lectura: lo guardado en `cuerpos_fuera` acababa quitando otro cuerpo.
+    """
+    return getattr(parte, "clave", None) or parte.original_id or ""
+
+
+def _xy(clave: str):
+    """`(prefijo, x, y)` de una clave `…@x,y`; `None` si no lo es."""
+    base, arroba, resto = str(clave).rpartition("@")
+    if not arroba:
+        return None
+    try:
+        x, y = (float(v) for v in resto.split(","))
+    except ValueError:
+        return None
+    return base, x, y
+
+
+def resolver(partes, pedidos) -> tuple[list[str], list[dict]]:
+    """Lo que se pidio dejar FUERA, traducido a los cuerpos de HOY.
+
+    Devuelve las claves de hoy y, por cada cosa pedida, como se ha casado
+    (`como`): «igual» (la misma clave), «movido» (la clave mas cercana a menos
+    de `CERCA_CLAVE_M`), «por_numero» (un id antiguo «…_partN», casado por el
+    numero de la lectura de HOY, que puede no ser el de cuando se guardo),
+    «dudoso» (dos candidatos: no se elige) o «no_esta».
+
+    REGLA — un id ANTIGUO («_partN») se sigue aceptando, pero se DICE. Los
+    trabajos guardados antes del 20/10/2026 solo tienen eso, y casi siempre la
+    cache del motor que los midio sigue sirviendo la misma numeracion: negarse
+    a usarlo les devolveria a todos el aparcamiento a la envolvente. Lo que no
+    se hace es darlo por bueno en silencio (`sospechas`).
+    """
+    por_clave = {_codigo(p): p for p in partes if _codigo(p)}
+    por_numero = {p.original_id: p for p in partes if p.original_id}
+    hoy: list[str] = []
+    traduccion: list[dict] = []
+    for pedido in dict.fromkeys(str(x).strip() for x in (pedidos or ()) if str(x).strip()):
+        clave, como = None, "no_esta"
+        if pedido in por_clave:
+            clave, como = pedido, "igual"
+        elif _xy(pedido):
+            base, x, y = _xy(pedido)
+            cerca = []
+            for k in por_clave:
+                c = _xy(k)
+                if c and c[0] == base and math.hypot(c[1] - x, c[2] - y) <= CERCA_CLAVE_M:
+                    cerca.append(k)
+            if len(cerca) == 1:
+                clave, como = cerca[0], "movido"
+            elif cerca:
+                como = "dudoso"
+        elif pedido in por_numero:
+            clave, como = _codigo(por_numero[pedido]), "por_numero"
+        if clave and clave not in hoy:
+            hoy.append(clave)
+        traduccion.append({"pedido": pedido, "clave": clave, "como": como})
+    return hoy, traduccion
+
+
+def sospechas(inventario: list[dict], traduccion: list[dict], zonas=None) -> list[str]:
+    """Lo que delata que un cuerpo guardado por su NUMERO ya no es el que era.
+
+    Dos senales, las dos medidas en 26RES060_226 (el `_part3` guardado el
+    09/10/2026 era el aparcamiento de 7 m2; el 20/10 era la casa):
+      · se deja fuera un cuerpo que Catastro dice que es VIVIENDA;
+      · hay ZONAS dibujadas (garaje, porche) DENTRO de un cuerpo que esta fuera
+        en esa misma planta: nadie dibuja el garaje dentro de lo que ya quito.
+    Solo se miran los casados «por_numero»: una clave nueva se eligio viendo
+    el plano.
+    """
+    por_id = {c["id"]: c for c in inventario}
+    out: list[str] = []
+    for t in traduccion:
+        c = por_id.get(t.get("clave")) if t.get("como") == "por_numero" else None
+        if not c:
+            continue
+        cons = c.get("construccion") or {}
+        if c.get("habitable") is True:
+            out.append(
+                f"{t['pedido']} se guardo por su NUMERO de Catastro y hoy ese numero es "
+                f"{cons.get('uso') or 'VIVIENDA'} de {c['superficie']:g} m2, que Catastro "
+                "dice que se vive. Si el numero ha cambiado se esta quitando otro cuerpo: "
+                "comprueba que es el que se queria dejar fuera (hay quien quita una "
+                "vivienda a proposito, la otra de la parcela).")
+        geom = c.get("_geom")
+        fuera = set(c.get("niveles_fuera") or [])
+        dentro = [z for z in (zonas or []) if geom is not None and z.get("geom") is not None
+                  and z.get("nivel") in fuera
+                  and z["geom"].area > 0
+                  and z["geom"].intersection(geom).area >= 0.5 * z["geom"].area]
+        if dentro:
+            out.append(
+                f"{t['pedido']} se guardo por su NUMERO de Catastro y hoy hay "
+                f"{len(dentro)} zona(s) dibujada(s) DENTRO de el en una planta donde esta "
+                "fuera: no se dibuja un garaje dentro de lo que ya se ha quitado. El "
+                "numero ha cambiado: comprueba cual se queria dejar fuera.")
+    return out
 
 
 def niveles_de(parte, por_defecto: int = 1) -> list[int]:
@@ -319,6 +427,9 @@ def inventario(modelo, excluidos=()) -> list[dict]:
         c = casadas.get(pid)
         out.append({
             "id": pid,
+            # El numero con el que lo ha servido Catastro HOY. Solo para
+            # rastrear: cambia de una lectura a otra (ver `floors.clave_de`).
+            "catastro_id": p.original_id,
             "superficie": round(p.geometry.area, 2),
             "plantas_sobre": p.plantas_sobre_rasante,
             "plantas_bajo": p.plantas_bajo_rasante,

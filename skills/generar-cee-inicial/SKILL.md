@@ -131,7 +131,9 @@ nada**: siempre primero en seco.
      CUERPO) y propone las zonas con sus polígonos EXACTOS. Mira su **fecha** (la imprime `paredes`):
      si las fotos enseñan una obra posterior (un garaje convertido en salón), mandan las fotos, y se dice.
    - Si el croquis catastral está, **lo que dice MANDA**: los cuerpos que «sobran» (`→ sobra en los
-     niveles…`) van a `cuerpos_fuera`, y la PROPUESTA marcada «DEL CROQUIS CATASTRAL (exacta)» va a
+     niveles…`) van a `cuerpos_fuera` **por su CLAVE estable** (`ES.SDGC.BU.<RC>@x,y`, la que
+     imprime `paredes` en la línea CUERPO), **nunca por `_partN`**: Catastro renumera las partes en cada
+     lectura y el número acaba quitando otro cuerpo (26RES060_226, regla 147); y la PROPUESTA marcada «DEL CROQUIS CATASTRAL (exacta)» va a
      **`zonas_fuera` tal cual** (sus m² ya son los de Catastro: no a `croquis`, que los reajusta).
    - **Mira también la VISTA AÉREA**: `satelite.png` (la foto sola, para leer los tejados sin rayas
      encima) y `plano_satelite.png` (las paredes encima). Es la ortofoto del PNOA (IGN), la misma capa

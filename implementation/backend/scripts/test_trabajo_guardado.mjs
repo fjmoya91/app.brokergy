@@ -8,7 +8,7 @@
  * pasó a fachada; al recargar volvía como partición con sus tres ventanas, el
  * autoguardado borraba el cambio de la BD y el .cex no se podía escribir.
  */
-import { aplicarTrabajo } from '../../frontend/src/features/cee-envolvente/logic/trabajoGuardado.js';
+import { aplicarTrabajo, cuerposDeHoy } from '../../frontend/src/features/cee-envolvente/logic/trabajoGuardado.js';
 import { lectorDeIds } from '../../frontend/src/features/cee-envolvente/logic/identidadParedes.js';
 
 let fallos = 0;
@@ -139,6 +139,24 @@ const medidos = () => ({
        'con su tipo en regla, su % de marco y su cubierta');
     const vacio = aplicarTrabajo(medidos(), {}, lectorDeIds(nuevo, nuevo), deps);
     ok(JSON.stringify(vacio.lucernarios) === '{}', 'sin lucernarios guardados, ninguno');
+}
+
+// ── 6. Los CUERPOS fuera, con la clave de HOY (2026-10-20, 26RES060_226) ─────
+// Catastro renumera los «_partN» en cada lectura: el motor nombra cada cuerpo
+// por dónde está y dice cómo ha casado lo pedido. Lo guardado se traduce.
+{
+    const viejo = 'ES.SDGC.BU.9302601VJ7190S_part3';
+    const clave = 'ES.SDGC.BU.9302601VJ7190S@479243.7,4309945.4';
+    const tr = [{ pedido: viejo, clave, como: 'por_numero' },
+                { pedido: 'X_part9', clave: null, como: 'no_esta' }];
+    ok(JSON.stringify(cuerposDeHoy([viejo], tr)) === JSON.stringify([clave]),
+       'un «_partN» guardado pasa a la clave que da el motor');
+    ok(JSON.stringify(cuerposDeHoy([viejo, 'X_part9'], tr)) === JSON.stringify([clave, 'X_part9']),
+       'lo que el motor no casa se queda como estaba (no se borra en silencio)');
+    ok(JSON.stringify(cuerposDeHoy([clave, viejo], tr)) === JSON.stringify([clave]),
+       'sin repetidos');
+    ok(cuerposDeHoy(null, null).length === 0 && cuerposDeHoy(['a'], 'basura')[0] === 'a',
+       'sin lista o sin traducción, no se rompe nada');
 }
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : '\nTodo en orden.');

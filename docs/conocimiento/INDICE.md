@@ -16,7 +16,7 @@
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 19,5 KB | 7 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 35,6 KB | 10 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 90,7 KB | 35 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 92,6 KB | 36 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,8 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
@@ -225,6 +225,7 @@
 - **144** → `.claude/rules/claude-automatizacion.md` — El ASISTENTE DENTRO DE LA APP solo LEE, va por la API y lo pesado se ENCARGA con un clic
 - **145** → `.claude/rules/cee-generacion.md` — El botón CE3X pregunta cómo se hace el CEE inicial: con IA (la cola del PC) o a mano en la envolvente
 - **146** → `.claude/rules/claude-automatizacion.md` — «Preséntalo» por WhatsApp: el Claude del servidor PREGUNTA, el PC de Fran PRESENTA
+- **147** → `.claude/rules/envolvente-ce3x.md` — Un CUERPO se guarda por DÓNDE está, nunca por el número que le pone Catastro
 
 ## Documentos por área
 
@@ -384,6 +385,7 @@
 - `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/y-el-contorno-del-adosado-desde-el-mismo-enlace.md` — Y el CONTORNO del ADOSADO, desde el mismo enlace (2026-10-01)
 - `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/y-se-puede-pintar-desde-el-movil-viendolo-aqui-en-tiempo-real.md` — Y se puede PINTAR DESDE EL MÓVIL, viéndolo aquí en tiempo real (2026-09-29)
 - `docs/conocimiento/envolvente-ce3x/el-croquis-marca-los-huecos-que-se-sustituyen.md` — El CROQUIS marca los huecos que se SUSTITUYEN (2026-10-12)
+- `docs/conocimiento/envolvente-ce3x/el-numero-de-un-cuerpo-de-catastro-no-es-estable.md` — El número de un CUERPO de Catastro («_part3») no es estable: se guarda por DÓNDE está (2026-10-20)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/00-el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir.md` — El plano de la envolvente: lo que hace falta VER para decidir (2026-09-13)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-coma-y-el-punto-valen-igual-al-teclear-una-medida.md` — La COMA y el PUNTO valen igual al teclear una medida (2026-09-21)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-geometria-se-puede-corregir-y-eso-se-mide-y-se-declara.md` — La GEOMETRÍA se puede corregir, y eso se mide y se declara (2026-09-14)

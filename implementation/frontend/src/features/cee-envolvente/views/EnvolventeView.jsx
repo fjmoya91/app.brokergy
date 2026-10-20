@@ -18,7 +18,7 @@ import { useDeshacer } from '../logic/useDeshacer';
 import { MidiendoElEdificio } from '../components/MidiendoElEdificio';
 import { ETIQUETA_USO_ZONA } from '../logic/zonasFuera';
 import { useCroquisMovil } from '../logic/useCroquisMovil';
-import { deltaLienzo } from '../logic/trabajoGuardado';
+import { cuerposDeHoy, deltaLienzo } from '../logic/trabajoGuardado';
 import { CroquisMovilModal } from '../components/CroquisMovilModal';
 import { planoParaElMovil, respuestaParaElMovil } from '../logic/croquisMovilPuente';
 import { contornoAlMundo, contraParaReclasificar, lineasResumen, resumenParedes } from '../logic/contornoMovil';
@@ -465,6 +465,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 // tiene cacheado—, así que una petición que no ha llegado se
                 // puede volver a mandar sin consecuencias.
                 { haciendo: 'construir la envolvente', repetible: true });
+            // Lo pedido, con la CLAVE que le da hoy el motor (un «_partN»
+            // guardado se traduce): la siguiente medición la manda ya así.
+            cuerposPedidos.current = cuerposDeHoy(cuerposPedidos.current, data?.cuerpos_traduccion);
             setGeo(data);
             // La respuesta, y no un `true`: quien ajusta un croquis necesita los
             // polígonos que devuelve el motor. Sigue siendo «verdadero».

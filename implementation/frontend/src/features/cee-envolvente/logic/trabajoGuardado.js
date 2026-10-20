@@ -108,6 +108,27 @@ export function lucernariosValidos(mapa, rescatarHueco = (h) => h) {
     return out;
 }
 
+/**
+ * Los cuerpos que se dejaron FUERA, con el nombre que les da HOY el motor.
+ *
+ * POR QUÉ EXISTE — 26RES060_226 (20/10/2026): se guardaban por el número que
+ * Catastro pone a cada parte («…_part3») y Catastro lo reparte de nuevo en cada
+ * lectura: el `_part3` del aparcamiento pasó a ser la CASA y se quitó la casa.
+ * El motor nombra ahora cada cuerpo por DÓNDE está (`…@x,y`) y devuelve cómo ha
+ * casado cada cosa pedida (`cuerpos_traduccion`: `{pedido, clave, como}`). Se
+ * traduce aquí para que el plano marque como «NO CUENTA» lo que de verdad ha
+ * quitado y el siguiente guardado escriba ya la clave. Lo que el motor no ha
+ * casado se queda como estaba: borrarlo en silencio devolvería el cuerpo a la
+ * envolvente sin que nadie lo decidiera.
+ */
+export function cuerposDeHoy(lista, traduccion) {
+    const fuera = Array.isArray(lista) ? lista.filter(x => typeof x === 'string') : [];
+    const mapa = new Map((Array.isArray(traduccion) ? traduccion : [])
+        .filter(t => t && typeof t.pedido === 'string' && typeof t.clave === 'string' && t.clave)
+        .map(t => [t.pedido, t.clave]));
+    return [...new Set(fuera.map(x => mapa.get(x) || x))];
+}
+
 /** Las zonas que no cuentan, las que tienen con qué medirse (nivel + vértices). */
 export function zonasValidas(zs) {
     return (Array.isArray(zs) ? zs : []).filter(z => z && Number.isInteger(z.nivel)

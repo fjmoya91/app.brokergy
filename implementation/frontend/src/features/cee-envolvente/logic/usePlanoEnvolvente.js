@@ -3,7 +3,7 @@ import { largo as largoDe, LARGO_MINIMO_PARED, lienzoAMundo, rumbosDeLaPared } f
 import { traduccionDeIds } from './identidadParedes.js';
 import { esFuera, esMedianera, esParticion, tipoDe } from './tiposPared.js';
 import { mudarHueco, paredesParaHueco } from './huecosEnParedes.js';
-import { aplicarTrabajo, deltaLienzo, trasladarMuros, trasladarTrabajo } from './trabajoGuardado.js';
+import { aplicarTrabajo, cuerposDeHoy, deltaLienzo, trasladarMuros, trasladarTrabajo } from './trabajoGuardado.js';
 import { alMundo, equiposEnLienzo, ponEquipo, quitaEquipo } from './equiposPlano.js';
 // Lo que se manda al motor y lo que hace falta para montarlo vive en un módulo
 // PURO (`senalado.js`): la skill `generar-cee-inicial` lo usa desde Node, y con
@@ -175,7 +175,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 setEntrada(r.entrada);
                 setSel(r.sel);
                 setGeometria(r.geometria);
-                setCuerposFuera(r.cuerposFuera);
+                // Con la CLAVE de hoy: lo guardado puede ser un «_partN» antiguo
+                // (ver `cuerposDeHoy`).
+                setCuerposFuera(cuerposDeHoy(r.cuerposFuera, geo?.cuerpos_traduccion));
                 setRecorte(r.recorte);
                 setZonasFuera(r.zonasFuera);
                 setCubiertas(r.cubiertas);

@@ -220,8 +220,13 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         # Los CUERPOS del edificio, ANTES de quitar ninguno: la lista tiene que
         # seguir enseñando el que se ha dejado fuera, o no habria forma de
         # volver a meterlo — desapareceria del plano y del popup a la vez.
-        inventario = cuerpos_mod.inventario(
-            modelo, excluidos=payload.get("cuerpos_excluidos"))
+        # Lo guardado se TRADUCE a los cuerpos de hoy: el numero «_partN» lo
+        # reparte Catastro de nuevo en cada lectura, y con el se quitaba otro
+        # cuerpo (26RES060_226: la casa en vez del aparcamiento). Ver
+        # `cuerpos.resolver`; lo de hoy vuelve en la respuesta para guardarlo.
+        fuera_hoy, traduccion = cuerpos_mod.resolver(
+            modelo.partes, payload.get("cuerpos_excluidos"))
+        inventario = cuerpos_mod.inventario(modelo, excluidos=fuera_hoy)
         # Un aparcamiento adosado no es la envolvente de la vivienda. Se quita
         # el CUERPO y se vuelve a medir: la pared que lo separaba de la casa
         # aparece entonces como lo que es, en vez de quedarse la casa abierta
@@ -238,7 +243,22 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
             ajustar=payload.get("croquis_ajustar", True) is not False)
         zonas = pipeline.leer_zonas(
             modelo, list(payload.get("zonas_fuera") or []) + croquis_zonas)
-        pipeline.excluir_cuerpos(modelo, payload.get("cuerpos_excluidos"),
+        for aviso in cuerpos_mod.sospechas(inventario, traduccion, zonas):
+            modelo.diagnostics.add("CUERPO_FUERA_DUDOSO", aviso)
+        dudosos = [t["pedido"] for t in traduccion if t["como"] == "dudoso"]
+        if dudosos:
+            modelo.diagnostics.add(
+                "CUERPOS_EXCLUIDOS",
+                "no se sabe cual de dos cuerpos es " + ", ".join(dudosos)
+                + ": no se deja fuera ninguno")
+        perdidos = [t["pedido"] for t in traduccion if t["como"] == "no_esta"]
+        if perdidos:
+            # Lo mismo que decia `excluir_cuerpos` cuando recibia lo pedido tal cual.
+            modelo.diagnostics.add(
+                "CUERPOS_EXCLUIDOS",
+                "se pidio dejar fuera " + ", ".join(perdidos)
+                + ", y ninguno esta entre los cuerpos que devuelve Catastro hoy")
+        pipeline.excluir_cuerpos(modelo, fuera_hoy,
                                  inventario=inventario, zonas=zonas)
         res = pipeline.analizar(o, modelo)
         pipeline.escribir_salidas(o, res, rc)
@@ -303,6 +323,12 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
             # construccion que les corresponde. Es lo que permite decir «esta
             # edificacion no cuenta» de una vez, en vez de pared por pared.
             "cuerpos": dibujo["cuerpos"],
+            # Los cuerpos que se han dejado fuera, con su CLAVE de hoy: es lo
+            # que hay que guardar en `cuerpos_fuera`. Y como se ha casado cada
+            # cosa pedida ({pedido, clave, como}): un «por_numero» es un id
+            # antiguo «_partN» que hay que volver a guardar con su clave.
+            "cuerpos_fuera": fuera_hoy,
+            "cuerpos_traduccion": traduccion,
             # Las zonas dibujadas que se han APLICADO, con lo que de verdad
             # restan de su planta (`indice` es su posicion en lo pedido). Las
             # que no sirven no vienen y el diagnostico dice por que.

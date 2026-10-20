@@ -14,6 +14,7 @@ De ahi salen, por interseccion vertical:
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from shapely.geometry import Polygon
@@ -40,6 +41,39 @@ class ParteEdificio:
     #: propietario y hace de colindante —medianera en sus paredes, forjado
     #: adiabatico en su techo—.
     hasta_nivel: int | None = None
+    #: Con que se nombra este cuerpo FUERA del motor (lo que se guarda en
+    #: `cuerpos_fuera`). Se fija al crearla, con la geometria de CATASTRO: un
+    #: recorte posterior (`replace(p, geometry=…)`) no la mueve. Ver `clave_de`.
+    clave: str | None = None
+
+    def __post_init__(self):
+        if self.clave is None:
+            self.clave = clave_de(self.original_id, self.geometry)
+
+
+#: El numero de la parte («…_part3»). Lo pone Catastro al SERVIR el WFS, en el
+#: orden en que salen ese dia, y NO es un identificador: medido en
+#: 9302601VJ7190S (26RES060_226) el 20/10/2026, a las 10:54 `_part3` era la
+#: casa de 166,47 m2 y a las 11:03 el aparcamiento de 7,10 m2, con la parcela
+#: sin tocar desde 2019 (`beginLifespanVersion`).
+_NUMERO_DE_PARTE = re.compile(r"_part\d+$")
+
+
+def clave_de(original_id: str | None, geometry: BaseGeometry | None) -> str | None:
+    """El nombre ESTABLE de un BuildingPart: `<id sin _partN>@<x>,<y>`.
+
+    REGLA — un cuerpo se nombra por DONDE esta, no por su numero. Es el
+    centroide de su huella, al decimetro, en el CRS metrico del modelo
+    (EPSG:25830 en la peninsula): la misma geometria da siempre la misma clave,
+    lea Catastro las partes en el orden que las lea. Lo que no lleva numero de
+    parte (los volumenes del proyecto, `PROYECTO_n`) se queda con su id.
+    """
+    if not original_id:
+        return None
+    if not _NUMERO_DE_PARTE.search(original_id) or geometry is None or geometry.is_empty:
+        return original_id
+    c = geometry.centroid
+    return f"{_NUMERO_DE_PARTE.sub('', original_id)}@{c.x:.1f},{c.y:.1f}"
 
 
 def plantas_sobre(p: "ParteEdificio", por_defecto: int = 1) -> int:

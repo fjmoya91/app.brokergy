@@ -1405,6 +1405,10 @@ def excluir_cuerpos(modelo: Modelo, ids, inventario=None, zonas=None) -> list[st
         return []
 
     from .gis import cuerpos as cuerpos_mod
+    # Un id antiguo («…_partN») se lleva a la CLAVE del cuerpo (ver
+    # `cuerpos.resolver`); lo que no casa se queda como vino, para decirlo.
+    hoy, traduccion = cuerpos_mod.resolver(modelo.partes, sorted(fuera))
+    fuera = set(hoy) | {t["pedido"] for t in traduccion if not t["clave"]}
     inv = inventario if inventario is not None else cuerpos_mod.inventario(modelo)
     por_id = {c["id"]: c for c in inv}
 

@@ -633,6 +633,15 @@ async function paredes() {
                                        recorte: t?.recorte_vivienda || null,
                                        altura: t?.ajustes?.altura_libre_planta || null });
     const { admiteHuecos } = await esm('cee-envolvente/logic/tiposPared.js');
+    // Lo guardado por el NÚMERO de Catastro («_partN») se casa con el de HOY,
+    // que puede no ser el mismo cuerpo (26RES060_226): se dice cuál ha cogido.
+    for (const tr of geo.cuerpos_traduccion || []) {
+        if (tr.como === 'igual') continue;
+        const c = (geo.cuerpos || []).find(x => x.id === tr.clave);
+        console.log(`⚠ cuerpos_fuera: ${tr.pedido} → ${tr.clave || 'NINGUNO'} (${tr.como})`
+            + (c ? ` = ${c.construccion?.uso || 'sin uso'} de ${fmt(c.superficie)} m², niveles ${JSON.stringify(c.niveles)}` : '')
+            + (tr.como === 'por_numero' ? '. Es el número de HOY: comprueba que es el que se quería quitar.' : ''));
+    }
     console.log(`\n${rcDe(ctx)} · ${geo.plantas.length} planta(s) · lienzo ${fmt(geo.ancho)} × ${fmt(geo.alto)} m`);
     console.log(`altura de planta ${fmt(alturaMedida(geo))} m`
         + (t?.ajustes?.altura_libre_planta ? ' (la guardada en el trabajo)'
@@ -1611,7 +1620,11 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         orientaciones: { ...(prev?.orientaciones || {}), ...(plan.orientaciones || {}) },
         pilares: { ...(prev?.pilares || {}), ...(plan.pilares || {}) },
         paredes: prev?.paredes || { movidas: {}, dibujadas: [] },
-        cuerpos_fuera: cuerpos || [], recorte_vivienda: recorte,
+        // Con la CLAVE que les da hoy el motor (`…@x,y`), nunca el «_partN»
+        // de Catastro, que cambia de una lectura a otra (26RES060_226).
+        cuerpos_fuera: (await esm('cee-envolvente/logic/trabajoGuardado.js'))
+            .cuerposDeHoy(cuerpos || [], geo.cuerpos_traduccion),
+        recorte_vivienda: recorte,
         zonas_fuera: zonas || [],
         // Lo dibujado en la pizarra y lo que ha tocado una persona: si se
         // perdiera aquí, la próxima pasada de la skill ya no lo respetaría.
