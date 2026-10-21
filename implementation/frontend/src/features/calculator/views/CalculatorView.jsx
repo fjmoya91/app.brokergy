@@ -764,6 +764,33 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             ? financierosDe(ahorroCon(1).savingsKwh)
             : null;
 
+        // 3.1.b Con hibridación, el bono MANTENIENDO la caldera por los DOS criterios
+        // de cobertura, elija el que elija el selector: el que defendemos (demanda)
+        // y el que puede exigir el verificador (potencia de la caldera). La propuesta
+        // los manda al cliente en un mensaje aparte (logic/hibridacionPropuesta.js).
+        // La potencia es la tecleada o, si no, la de la PLACA. No cambia lo que se guarda.
+        const hipotesisHibridacion = (() => {
+            if (!hybridizationRes) return null;
+            const pCaldera = sanitizedInputs.potenciaCaldera || parseFloat(inputs.placa_caldera?.potencia_kw) || 0;
+            const conMetodo = (method) => {
+                const hyb = calculateHybridization({
+                    demandAnnual: demandRes.Q_net,
+                    zone: sanitizedInputs.zona,
+                    heatPumpPower: sanitizedInputs.potenciaBomba,
+                    method,
+                    boilerPower: pCaldera,
+                    climateSeason: resolveClimateSeason({}, sanitizedInputs, sanitizedInputs.zona)
+                });
+                const sav = ahorroCon(hyb.cb);
+                return { cb: hyb.cb, coverage: hyb.coverage, savingsKwh: sav.savingsKwh,
+                         caeBonus: financierosDe(sav.savingsKwh).caeBonus };
+            };
+            return {
+                demanda: conMetodo('demanda'),
+                caldera: pCaldera > 0 ? { ...conMetodo('caldera'), potenciaCaldera: pCaldera } : null,
+            };
+        })();
+
         // 3.2 Con hibridación en zona cálida, el MISMO cálculo con el SCOP de cada
         // CLIMA (botón «Clima del SCOP»): el cálido sube el SCOP pero también la carga
         // de diseño (1.336 h frente a 2.066), así que no siempre gana. Sale del
@@ -1012,6 +1039,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             savings: savingsRes,
             financials: financialRes,
             financialsSinCaldera,
+            hipotesisHibridacion,
             comparativaClima,
             annualSavings: annualSavingsRes,
             payback: paybackRes,

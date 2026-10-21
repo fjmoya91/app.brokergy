@@ -42,3 +42,44 @@ se enseña nada.
 
 ⚠️ `normalizeData` pasa los enums a MAYÚSCULAS: `modoHibridacionPropuesta` compara
 sin distinguir mayúsculas.
+
+## Y manteniendo la caldera, el cliente sabe que el bono puede bajar (2026-10-21)
+
+Manteniendo la caldera, la cobertura de la bomba se puede medir de dos maneras y el
+bono cambia mucho: sobre la **carga de diseño** (demanda y horas: es el criterio que
+defendemos, con algún expediente ya favorable) o sobre la **potencia de la caldera
+instalada** (el que nos pueden exigir en la verificación). En el caso que lo motivó:
+2.308 € por demanda, 1.438 € por la caldera de 37,8 kW, 2.422 € retirándola.
+
+**REGLA — las DOS hipótesis se le dicen al cliente ANTES de aceptar, por escrito,
+en un mensaje APARTE** (decisión de Fran: «que no nos pueda decir un cliente que no
+se lo habíamos dicho»):
+
+- 1️⃣ lo que vamos a defender → lo solicitaremos por X €;
+- 2️⃣ si no nos lo dan por válido y piden justificarlo con la potencia de la caldera
+  instalada (N kW) → el bono bajaría a Y €;
+- y, si hay comparativa, que retirándola esto no aplica y el bono sería Z €.
+
+El porqué de las horas NO se explica: solo las cifras. Va por el mismo camino que el
+aviso de biomasa (`buildAvisoFinal`): WhatsApp, la ÚLTIMA burbuja tras el enlace;
+email, al final del cuerpo; envío programado, `whatsapps[].avisoFinal`. Al partner,
+en tercera persona. Si sale también el de biomasa, van en la misma burbuja. Además,
+el recuadro de hibridación del PDF lleva un párrafo con las dos cifras (la versión
+sellada lo conserva).
+
+| Qué | Dónde |
+|---|---|
+| Los dos bonos (`result.hipotesisHibridacion`), con el MISMO SCOP y clima | `handleCalculate` en [CalculatorView.jsx](implementation/frontend/src/features/calculator/views/CalculatorView.jsx) |
+| Cifras, mensaje y párrafo del recuadro | `hipotesisHibridacion` · `mensajeHipotesisHibridacion` · `avisoHibridacion` en [hibridacionPropuesta.js](implementation/frontend/src/features/calculator/logic/hibridacionPropuesta.js) |
+| «Hipótesis 1 · Hipótesis 2» y P. CALDERA siempre visible | panel de hibridación de [CalculatorForm.jsx](implementation/frontend/src/features/calculator/components/CalculatorForm.jsx) |
+
+⚠️ Se calculan los DOS métodos elija lo que elija «Base del % de cobertura»; el
+mensaje dice cuál de las dos lleva la propuesta adjunta (con «Retirando», ninguna).
+
+⚠️ La potencia es la tecleada en P. CALDERA (ahora siempre a la vista: con «Demanda»
+no mueve el C_b) o, sin teclear, la de la PLACA (`inputs.placa_caldera.potencia_kw`).
+**Sin ninguna de las dos no sale el mensaje** y el panel lo dice en ámbar («falta la
+potencia de la caldera»): hay que teclearla antes de enviar. Tampoco sale si el
+criterio de la caldera no da menos, ni en reforma.
+
+Tras tocarlo: `node implementation/backend/scripts/test_hipotesis_hibridacion.mjs`.

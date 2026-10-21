@@ -26,7 +26,7 @@
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 22,8 KB | 10 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 15,8 KB | 5 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,3 KB | 10 |
-| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 18,7 KB | 7 |
+| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 20,0 KB | 7 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 7,0 KB | 0 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 5,3 KB | 3 |
@@ -228,6 +228,7 @@
 - **147** → `.claude/rules/envolvente-ce3x.md` — Un CUERPO se guarda por DÓNDE está, nunca por el número que le pone Catastro
 - **148** → `.claude/rules/cee-generacion.md` — Una CASCADA de aerotermias son VARIOS generadores en el `.cex`, cada uno con SU SCOP y SU potencia, y la dem…
 - **153** → `.claude/rules/calculo.md` — En una HIBRIDACIÓN el clima del SCOP se ELIGE (cálido o medio) con un botón, y con el medio TODO sale en medio
+- **154** → `.claude/rules/propuesta.md` — Hibridación manteniendo la caldera: el cliente recibe por escrito, en un mensaje APARTE, las DOS hipótesis d…
 
 ## Documentos por área
 

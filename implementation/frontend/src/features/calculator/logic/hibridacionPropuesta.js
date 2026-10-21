@@ -88,17 +88,89 @@ export function lineaTablaHibridacion(op) {
         : { tono: 'mas', texto: `Si retira la caldera: ${fmt(op.sinCaldera.caeBonus)} € — ${fmt(op.diferencia)} € más` };
 }
 
+/**
+ * MANTENIENDO LA CALDERA, EL BONO DEPENDE DEL CRITERIO QUE ACEPTE EL VERIFICADOR
+ * (2026-10-21, decisión del usuario). La cobertura de la bomba se puede medir
+ * sobre la carga de diseño (demanda y horas: el criterio que DEFENDEMOS, con
+ * expedientes ya favorables) o sobre la potencia de la caldera instalada (el que
+ * pueden exigir, y da bastante menos). Las dos cifras se le dicen al cliente
+ * ANTES de aceptar, en un mensaje aparte, para que nadie pueda decir que no lo
+ * sabía. El porqué de las horas no se explica: solo las dos cifras.
+ *
+ * Sale de `result.hipotesisHibridacion` (CalculatorView, los dos métodos con el
+ * mismo SCOP y clima), elija lo que elija el selector «Base del % de cobertura».
+ * null si no hay hibridación, en reforma, sin potencia de la caldera (ni tecleada
+ * ni en la placa) o si el criterio de la caldera no da menos.
+ */
+export function hipotesisHibridacion(result, inputs) {
+    if (!cierto(inputs?.hibridacion) || cierto(inputs?.isReforma)) return null;
+    const h1 = result?.hipotesisHibridacion?.demanda;
+    const h2 = result?.hipotesisHibridacion?.caldera;
+    if (!h1 || !h2) return null;
+    const defendida = Math.round(h1.caeBonus || 0);
+    const potencia = Math.round(h2.caeBonus || 0);
+    if (defendida <= potencia) return null;
+    const sin = Math.round(result?.financialsSinCaldera?.caeBonus || 0);
+    // Qué cifra lleva la propuesta adjunta, si es una de las dos (con «retirando»
+    // es la de sin caldera y no se cita).
+    const conCaldera = Math.round(result?.financials?.caeBonus || 0);
+    const enPropuesta = modoHibridacionPropuesta(inputs) === HIBRIDACION_PROPUESTA.RETIRA ? null
+        : conCaldera === defendida ? 1 : conCaldera === potencia ? 2 : null;
+    return {
+        defendida,
+        potencia,
+        potenciaCaldera: h2.potenciaCaldera,
+        sinCaldera: sin > defendida ? sin : null,
+        enPropuesta,
+    };
+}
+
+const kw = (n) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(Number(n) || 0);
+
 /** El recuadro que explica las dos opciones, debajo de la tabla. */
-export function avisoHibridacion(op) {
-    if (!op) return null;
-    const titulo = op.retira
-        ? 'Bono calculado RETIRANDO la caldera'
-        : 'Bono calculado MANTENIENDO la caldera en apoyo';
-    const cifras = op.retira
-        ? `El Bono Energético CAE de esta propuesta (${fmt(op.sinCaldera.caeBonus)} €) supone retirar la caldera actual y que la aerotermia cubra toda la calefacción. Si decide mantenerla funcionando en apoyo (hibridación), el bono sería de ${fmt(op.conCaldera.caeBonus)} €: ${fmt(op.diferencia)} € menos.`
-        : `El Bono Energético CAE de esta propuesta (${fmt(op.conCaldera.caeBonus)} €) supone mantener la caldera actual funcionando en apoyo de la aerotermia (hibridación). Si decide retirarla, el bono subiría a ${fmt(op.sinCaldera.caeBonus)} €: ${fmt(op.diferencia)} € más.`;
-    const retirar = 'Retirar la caldera significa desmontarla y sacarla de la vivienda: no vale dejarla en casa, aunque esté desconectada. Para justificarlo hay que aportar una foto del hueco con la caldera instalada y otra del mismo hueco una vez quitada.';
-    return { titulo, parrafos: [cifras, retirar] };
+export function avisoHibridacion(op, hip = null) {
+    if (!op && !hip) return null;
+    const parrafos = [];
+    let titulo = 'Bono manteniendo la caldera en apoyo';
+    if (op) {
+        titulo = op.retira
+            ? 'Bono calculado RETIRANDO la caldera'
+            : 'Bono calculado MANTENIENDO la caldera en apoyo';
+        parrafos.push(op.retira
+            ? `El Bono Energético CAE de esta propuesta (${fmt(op.sinCaldera.caeBonus)} €) supone retirar la caldera actual y que la aerotermia cubra toda la calefacción. Si decide mantenerla funcionando en apoyo (hibridación), el bono sería de ${fmt(op.conCaldera.caeBonus)} €: ${fmt(op.diferencia)} € menos.`
+            : `El Bono Energético CAE de esta propuesta (${fmt(op.conCaldera.caeBonus)} €) supone mantener la caldera actual funcionando en apoyo de la aerotermia (hibridación). Si decide retirarla, el bono subiría a ${fmt(op.sinCaldera.caeBonus)} €: ${fmt(op.diferencia)} € más.`);
+    }
+    if (hip) {
+        parrafos.push(`Manteniendo la caldera, el importe depende del criterio que se acepte en la verificación del expediente: lo solicitaremos por ${fmt(hip.defendida)} €, pero si se exige justificarlo con la potencia de la caldera instalada (${kw(hip.potenciaCaldera)} kW), el bono bajaría a ${fmt(hip.potencia)} €.`);
+    }
+    if (op) {
+        parrafos.push('Retirar la caldera significa desmontarla y sacarla de la vivienda: no vale dejarla en casa, aunque esté desconectada. Para justificarlo hay que aportar una foto del hueco con la caldera instalada y otra del mismo hueco una vez quitada.');
+    }
+    return { titulo, parrafos };
+}
+
+/**
+ * El mensaje APARTE con las dos hipótesis (WhatsApp: burbuja propia, la última;
+ * email: al final del cuerpo). `b2b`: al partner, en tercera persona para que
+ * pueda reenviárselo al cliente.
+ */
+export function mensajeHipotesisHibridacion(hip, { b2b = false } = {}) {
+    if (!hip) return '';
+    const t = b2b
+        ? { si: 'Si el cliente mantiene su caldera', suya: 'que tiene instalada', retira: 'Si el cliente retira la caldera', cierre: 'No sabremos cuál de los dos aplican hasta que revisen el expediente; por eso os lo indicamos ya, para que el cliente lo tenga claro antes de decidir.' }
+        : { si: 'Si decides mantener tu caldera', suya: 'que tienes instalada', retira: 'Si retiras la caldera', cierre: 'No sabremos cuál de los dos aplican hasta que revisen el expediente; por eso te lo indicamos ya desde ahora, para que lo tengas en cuenta al decidir.' };
+    const nota = (n) => (hip.enPropuesta === n ? ' _(es la cifra de la propuesta adjunta)_' : '');
+    const lineas = [
+        '⚠️ *Importante: el bono si se mantiene la caldera*',
+        `${t.si} funcionando junto a la aerotermia, el importe del Bono Energético CAE depende del criterio que se acepte en la verificación del expediente:`,
+        `1️⃣ *Criterio que vamos a defender:* lo solicitaremos por *${fmt(hip.defendida)} €*${nota(1)}. Ya hemos tenido expedientes favorables con este criterio.`,
+        `2️⃣ *Si no nos lo dan por válido* y nos piden justificarlo con la potencia de la caldera ${t.suya} (${kw(hip.potenciaCaldera)} kW), el bono bajaría a *${fmt(hip.potencia)} €*${nota(2)}.`,
+        t.cierre,
+    ];
+    if (hip.sinCaldera) {
+        lineas.push(`${t.retira} (desmontarla y sacarla de la vivienda), esto no aplica: el bono sería de *${fmt(hip.sinCaldera)} €*.`);
+    }
+    return lineas.join('\n\n');
 }
 
 /** Las líneas del mensaje de envío (WhatsApp / email). `b2b`: al partner, en tercera persona. */

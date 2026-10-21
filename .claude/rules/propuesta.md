@@ -36,13 +36,15 @@ paths:
 
 136. **La oportunidad pasa a ENVIADA con CUALQUIER envío que salga bien, también solo al instalador, y la lista dice A QUIÉN le ha llegado** (2026-10-14, decisión del usuario, 26RES060_OP295). Antes solo contaba el cliente, y lo mandado por WhatsApp al partner se quedaba en PTE ENVIAR (18 casos). Los envíos llaman a `PATCH /:id/estado` con `porEnvio: true`: así un reenvío **no hace retroceder** una oportunidad ENVIADA, PRE-ACEPTADO o ACEPTADA. Bajo la chapa sale «→ al cliente», «→ cliente + instalador» o «→ solo al instalador» (este en ámbar). **Se CALCULA de `propuesta_versiones`, no se guarda aparte**: cada línea de `envios` lleva su `modo` y las antiguas se casan por la etiqueta. El listado devuelve solo `propuesta_entregada`. Fuente única: [utils/entregaPropuesta.js](implementation/backend/utils/entregaPropuesta.js). Tras tocarlo: `node implementation/backend/scripts/test_entrega_propuesta.js` y `test_propuesta_programada.js`. Ver "ENVIADA con cualquier envío, y la lista dice A QUIÉN le ha llegado".
 
+154. **Hibridación manteniendo la caldera: el cliente recibe por escrito, en un mensaje APARTE, las DOS hipótesis del bono** (2026-10-21, decisión de Fran: «que no nos pueda decir un cliente que no se lo habíamos dicho»). 1️⃣ el criterio que defendemos (cobertura sobre la demanda) → «lo solicitaremos por X €»; 2️⃣ si piden justificarlo con la potencia de la caldera instalada → «bajaría a Y €»; y retirándola, Z €. Sin explicar las horas. Se calculan los DOS métodos elija lo que elija «Base del % de cobertura» (`result.hipotesisHibridacion` en `CalculatorView`, mismo SCOP y clima) y sale por el camino del aviso de biomasa (`buildAvisoFinal`: última burbuja de WhatsApp, final del email, `whatsapps[].avisoFinal` en el programado), más un párrafo en el recuadro del PDF. La potencia es la tecleada en P. CALDERA (siempre visible) o la de la placa; **sin ninguna no sale** y el panel lo dice en ámbar. Fuente única: [logic/hibridacionPropuesta.js](implementation/frontend/src/features/calculator/logic/hibridacionPropuesta.js). Tras tocarlo: `node implementation/backend/scripts/test_hipotesis_hibridacion.mjs`. Ver "Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/propuesta/biomasa-la-deduccion-del-irpf-exige-placas-solares.md` — Caldera de BIOMASA: la deducción del IRPF exige placas solares; el CAE no (2026-10-10) · 3,8 KB
 - `docs/conocimiento/propuesta/enviada-con-cualquier-envio-y-a-quien-le-ha-llegado.md` — ENVIADA con cualquier envío, y la lista dice A QUIÉN le ha llegado (2026-10-14) · 2,7 KB
-- `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01) · 2,7 KB
+- `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01) · 5,4 KB
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 2,4 KB
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,3 KB
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19) · 4,9 KB
@@ -67,6 +69,8 @@ paths:
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md`
   - **REGLA — quien prepara la propuesta elige qué cifra es el PRECIO**
   - **REGLA — retirar la caldera es DESMONTARLA Y SACARLA DE LA VIVIENDA.**
+  - **REGLA — las DOS hipótesis se le dicen al cliente ANTES de aceptar, por escrito,
+en un mensaje APARTE**
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md`
   - **REGLA — con los avisos desviados, el titular es una fila más: `TITULAR`.**
   - **REGLA — si la oportunidad viene de un colaborador, al titular se le escribe «En

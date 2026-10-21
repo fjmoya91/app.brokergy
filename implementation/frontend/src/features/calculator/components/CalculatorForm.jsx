@@ -2516,6 +2516,18 @@ export function CalculatorForm({
                                                     </button>
                                                 ))}
                                             </div>
+                                            {/* Las DOS hipótesis manteniendo la caldera, elija lo que elija
+                                                arriba: van al cliente en un mensaje aparte con la propuesta
+                                                (logic/hibridacionPropuesta.js). */}
+                                            {!inputs.isReforma && result?.hipotesisHibridacion?.demanda && (
+                                                <span className="text-[10px] font-bold text-slate-400 tabular-nums" title="Se le avisa al cliente en un mensaje aparte al enviar la propuesta">
+                                                    Hipótesis 1 (demanda) <span className="text-white">{Math.round(result.hipotesisHibridacion.demanda.caeBonus).toLocaleString('es-ES')} €</span>
+                                                    {' · '}Hipótesis 2 (P. caldera){' '}
+                                                    {result.hipotesisHibridacion.caldera
+                                                        ? <span className="text-amber-400">{Math.round(result.hipotesisHibridacion.caldera.caeBonus).toLocaleString('es-ES')} €</span>
+                                                        : <span className="text-amber-400">falta la potencia de la caldera</span>}
+                                                </span>
+                                            )}
                                         </div>
 
                                         {/* Clima en el que se DECLARA el SCOP. En una hibridación el
@@ -2625,19 +2637,21 @@ export function CalculatorForm({
                                                             className="h-9 text-sm bg-slate-950/50 border-brand/30 focus:border-brand font-mono font-bold"
                                                         />
                                                     </div>
-                                                    {inputs.hibridacionMetodo === 'caldera' && (
-                                                        <div className="flex-1 animate-fade-in">
-                                                            <Label htmlFor="potenciaCaldera" className="text-[9px] text-slate-500 mb-1 font-bold">P. CALDERA (kW)</Label>
-                                                            <Input
-                                                                id="potenciaCaldera"
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                value={formatDisplay(inputs.potenciaCaldera)}
-                                                                onChange={e => handleSmartNumberChange('potenciaCaldera', e.target.value)}
-                                                                className="h-9 text-sm bg-slate-950/50 border-brand/30 focus:border-brand font-mono font-bold"
-                                                            />
-                                                        </div>
-                                                    )}
+                                                    {/* Siempre a la vista: con «Demanda» no mueve el C_b, pero
+                                                        da la hipótesis 2 que se le avisa al cliente. Sin teclear,
+                                                        la de la placa. */}
+                                                    <div className="flex-1 animate-fade-in">
+                                                        <Label htmlFor="potenciaCaldera" className="text-[9px] text-slate-500 mb-1 font-bold">P. CALDERA (kW)</Label>
+                                                        <Input
+                                                            id="potenciaCaldera"
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            value={formatDisplay(inputs.potenciaCaldera)}
+                                                            placeholder={inputs.placa_caldera?.potencia_kw ? `${String(inputs.placa_caldera.potencia_kw).replace('.', ',')} (placa)` : ''}
+                                                            onChange={e => handleSmartNumberChange('potenciaCaldera', e.target.value)}
+                                                            className="h-9 text-sm bg-slate-950/50 border-brand/30 focus:border-brand font-mono font-bold"
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
 

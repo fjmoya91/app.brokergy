@@ -15,7 +15,7 @@ import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
 // se factura hasta un mensaje nuevo confirmándolo. Fuente única — ver
 // `logic/avisoCeeInicial.js`. Va SIEMPRE, no depende de ningún caso.
 import { lineaAvisoCeeInicial } from '../logic/avisoCeeInicial';
-import { opcionesHibridacion, resultParaPropuesta, lineaTablaHibridacion, avisoHibridacion, mensajeHibridacion } from '../logic/hibridacionPropuesta';
+import { opcionesHibridacion, resultParaPropuesta, lineaTablaHibridacion, avisoHibridacion, mensajeHibridacion, hipotesisHibridacion, mensajeHipotesisHibridacion } from '../logic/hibridacionPropuesta';
 import { comisionEurMwh, pctDeComision, lineaComisionPartner } from '../logic/comisionPartner';
 // El enlace para ACEPTAR va en un mensaje aparte, después del PDF — ver
 // `logic/mensajeAceptacion.js`.
@@ -588,6 +588,9 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
         [resultCalculo, inputs]
     );
     const opHibrida = useMemo(() => opcionesHibridacion(resultCalculo, inputs), [resultCalculo, inputs]);
+    // Manteniendo la caldera, el bono por el criterio que defendemos y por el de la
+    // potencia de la caldera: va en el recuadro y en un mensaje APARTE.
+    const hipHibrida = useMemo(() => hipotesisHibridacion(resultCalculo, inputs), [resultCalculo, inputs]);
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const proposalRef = useRef(null);
@@ -2341,8 +2344,13 @@ info@brokergy.es · 623 926 179`;
 
     // El aviso de BIOMASA no va dentro del texto largo: sale como ÚLTIMO mensaje
     // (WhatsApp: burbuja aparte tras el enlace; email: al final del cuerpo), para
-    // que no se pierda — decisión del usuario, 2026-10-10.
-    const buildAvisoFinal = useCallback(() => (irpfBiomasa ? lineaIrpfBiomasa() : null), [irpfBiomasa]);
+    // que no se pierda — decisión del usuario, 2026-10-10. Por el mismo camino, las
+    // DOS hipótesis del bono manteniendo la caldera (2026-10-21): si coinciden las
+    // dos, en la misma burbuja.
+    const buildAvisoFinal = useCallback((mode) => [
+        hipHibrida ? mensajeHipotesisHibridacion(hipHibrida, { b2b: esB2B(mode) }) : null,
+        irpfBiomasa ? lineaIrpfBiomasa() : null,
+    ].filter(Boolean).join('\n\n') || null, [hipHibrida, irpfBiomasa]);
 
     const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);
@@ -2455,7 +2463,7 @@ info@brokergy.es · 623 926 179`;
             const caption = customMessages[mode] || buildCaption(mode, name);
             setConfirmConfig({ title: `Enviando ${i + 1}/${recipients.length}...`, message: `Entregando a ${name} (${toPhone})...`, confirmText: null, cancelText: null });
             try {
-                const r = await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption, media: { base64: pdfBase64, filename, mimetype: 'application/pdf' }, asDocument: true, textoDespues: [buildAceptacion(mode), buildAvisoFinal()].filter(Boolean) });
+                const r = await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption, media: { base64: pdfBase64, filename, mimetype: 'application/pdf' }, asDocument: true, textoDespues: [buildAceptacion(mode), buildAvisoFinal(mode)].filter(Boolean) });
                 results.push({ name, ok: r.data?.ok === true && r.data?.despues?.ok !== false });
             } catch (e) {
                 results.push({ name, ok: false, error: e.response?.data?.error || e.message });
@@ -2740,7 +2748,7 @@ info@brokergy.es · 623 926 179`;
         : null;
     const avisoBiomasa = irpfBiomasa ? avisoIrpfBiomasa() : null;
     const lineaHibrida = lineaTablaHibridacion(opHibrida);
-    const avisoHibrida = avisoHibridacion(opHibrida);
+    const avisoHibrida = avisoHibridacion(opHibrida, hipHibrida);
 
     // Trío de indicadores de la portada (ayuda total · % cubierto · inversión neta).
     // Solo se pinta cuando hay UNA opción: en la comparativa a dos columnas esos tres
@@ -3559,8 +3567,8 @@ info@brokergy.es · 623 926 179`;
                                     {/* Hibridación: las dos cifras (caldera retirada / mantenida)
                                         y qué significa retirarla de verdad. */}
                                     {avisoHibrida && (
-                                        <div className={`prop-est ${opHibrida.retira ? '' : 'hib-mas'}`}>
-                                            <h4>{opHibrida.retira ? '⚠' : '💡'} {avisoHibrida.titulo}</h4>
+                                        <div className={`prop-est ${opHibrida?.retira ? '' : 'hib-mas'}`}>
+                                            <h4>{opHibrida?.retira ? '⚠' : '💡'} {avisoHibrida.titulo}</h4>
                                             {avisoHibrida.parrafos.map((p, i) => <p key={i}>{p}</p>)}
                                         </div>
                                     )}
