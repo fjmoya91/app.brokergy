@@ -25,7 +25,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/instalador-rite/al-instalador-se-le-pide-todo-de-una-vez.md` — Al instalador se le pide TODO de una vez (2026-08-27) · 9,0 KB
+- `docs/conocimiento/instalador-rite/al-instalador-se-le-pide-todo-de-una-vez.md` — Al instalador se le pide TODO de una vez (2026-08-27) · 10,3 KB
 - `docs/conocimiento/instalador-rite/el-certificado-rite-se-lee-al-subirlo.md` — El Certificado RITE se LEE al subirlo (2026-09-03) · 5,5 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -44,6 +44,8 @@ paths:
   - **REGLA — "firmado" y "firmado de ESTA versión" no son lo mismo, y se dice.**
   - **REGLA — el radar cuenta la re-firma como firma pendiente.**
   - **REGLA — la superficie de cada tarea es la MISMA que la de su página suelta.**
+  - **REGLA — lo que se revisa es LO QUE SALE, byte a byte.**
+  - **REGLA — si en el visor se ve algo mal, se SALE a corregirlo.**
 - `docs/conocimiento/instalador-rite/el-certificado-rite-se-lee-al-subirlo.md`
   - **REGLA — solo se envían a leer las DOS PRIMERAS PÁGINAS.**
   - **REGLA — el modelo solo LEE; el juicio es del código.**

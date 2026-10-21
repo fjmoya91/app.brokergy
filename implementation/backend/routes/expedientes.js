@@ -6038,6 +6038,40 @@ router.post('/:id/memoria-rite/files', enforceAuth, async (req, res) => {
     }
 });
 
+// El CIFO que viaja al instalador es el borrador GUARDADO EN DRIVE (el que le
+// sirve su enlace de firma), no uno rasterizado de nuevo. Fuente única del envío
+// (/instalador/enviar) y de su vista previa (/instalador/cifo-borrador): lo que
+// se revisa y lo que se adjunta son los mismos bytes.
+async function descargarCifoBorrador(link) {
+    if (!link) return { status: 422, error: 'No hay un Certificado CIFO generado que enviar. Genéralo primero desde el expediente.' };
+    const m = String(link).match(/\/file\/d\/([A-Za-z0-9_-]+)/) || String(link).match(/[?&]id=([A-Za-z0-9_-]+)/);
+    if (!m) return { status: 422, error: 'No se pudo resolver el fichero del CIFO en Drive' };
+    let buffer;
+    try { buffer = await require('../services/driveService').getFileContent(m[1]); }
+    catch (e) { buffer = null; }
+    if (!buffer || !buffer.length) return { status: 502, error: 'No se pudo descargar el CIFO desde Drive.' };
+    return { buffer: Buffer.from(buffer) };
+}
+
+// ─── GET /api/expedientes/:id/instalador/cifo-borrador ────────────────────────
+// El PDF del CIFO tal y como se va a mandar, para el visor del popup «Enviar al
+// instalador» que se abre desde la documentación RITE. No toca Drive ni BD.
+router.get('/:id/instalador/cifo-borrador', staffOnly, async (req, res) => {
+    try {
+        const { data: exp, error } = await supabase
+            .from('expedientes').select('numero_expediente, documentacion').eq('id', req.params.id).maybeSingle();
+        if (error) return res.status(503).json({ error: 'No se pudo leer el expediente' });
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { estadoInstalador } = await loadInstaladorPendientes();
+        const r = await descargarCifoBorrador(estadoInstalador(exp.documentacion || {}).cifo.borrador);
+        if (r.error) return res.status(r.status).json({ error: r.error });
+        res.json({ name: `${exp.numero_expediente || req.params.id} - Certificado_CIFO.pdf`, base64: r.buffer.toString('base64') });
+    } catch (err) {
+        console.error('Error GET expedientes/:id/instalador/cifo-borrador:', err);
+        res.status(500).json({ error: 'Error al leer el CIFO', details: err.message });
+    }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/expedientes/:id/instalador/enviar
 // ─────────────────────────────────────────────────────────────────────────────
@@ -6093,18 +6127,11 @@ router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
         if (wants.includes('cifo')) {
             // El enlace que acaba de guardar el modal manda sobre el del expediente:
             // el PUT que lo persiste puede no haber aterrizado todavía.
-            const link = cifoDriveLink || estado.cifo.borrador;
-            if (!link) {
-                return res.status(422).json({ error: 'No hay un Certificado CIFO generado que enviar. Genéralo primero desde el expediente.' });
+            const r = await descargarCifoBorrador(cifoDriveLink || estado.cifo.borrador);
+            if (r.error) {
+                return res.status(r.status).json({ error: r.status === 502 ? `${r.error} No se ha enviado nada.` : r.error });
             }
-            const m = String(link).match(/\/file\/d\/([A-Za-z0-9_-]+)/) || String(link).match(/[?&]id=([A-Za-z0-9_-]+)/);
-            if (!m) return res.status(422).json({ error: 'No se pudo resolver el fichero del CIFO en Drive' });
-            let buffer;
-            try { buffer = await driveService.getFileContent(m[1]); }
-            catch (e) { buffer = null; }
-            if (!buffer || !buffer.length) {
-                return res.status(502).json({ error: 'No se pudo descargar el CIFO desde Drive. No se ha enviado nada.' });
-            }
+            const buffer = r.buffer;
             adjuntos.push({
                 filename: `${numexpte} - Certificado_CIFO.pdf`,
                 content: Buffer.from(buffer),

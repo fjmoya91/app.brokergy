@@ -17,6 +17,8 @@ import { DocumentoOficialPreview } from './DocumentoOficialPreview';
 //   · `sinVista`→ texto cuando el documento no se puede pintar (un Word).
 // `grupo` es lo que se marca/desmarca: la documentación RITE son dos pestañas
 // (borrador del certificado y memoria) y UN solo documento a efectos del envío.
+// `editar` = { etiqueta, onClick } (opcional): salir del envío a corregir el
+// documento cuando en el visor se ve algo mal. Lo decide el popup que lo abre.
 //
 // Las pestañas se montan todas a la vez para que cambiar de una a otra no vuelva
 // a generar el PDF. Portaleado a body: los popups llevan backdrop-blur y un
@@ -109,14 +111,23 @@ export function VisorDocumentosEnvio({ docs = [], activo, onActivo, onClose, onT
                     ))}
                 </div>
 
-                {/* Pie: incluir/quitar este documento y seguir */}
+                {/* Pie: incluir/quitar este documento, salir a corregirlo y seguir */}
                 <div className="shrink-0 px-4 sm:px-5 py-3 border-t border-white/[0.07] bg-white/[0.02] flex flex-wrap items-center justify-between gap-2">
-                    {onToggle && actual.estado !== 'bloqueado' ? (
-                        <button type="button" onClick={() => onToggle(grupo)}
-                            className={`px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${actual.estado === 'sale' ? 'border-white/10 text-white/50 hover:text-white hover:border-white/30' : 'border-brand/40 text-brand hover:bg-brand/10'}`}>
-                            {actual.estado === 'sale' ? 'Quitar del envío' : 'Incluir en el envío'}
-                        </button>
-                    ) : <span />}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {onToggle && actual.estado !== 'bloqueado' && (
+                            <button type="button" onClick={() => onToggle(grupo)}
+                                className={`px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${actual.estado === 'sale' ? 'border-white/10 text-white/50 hover:text-white hover:border-white/30' : 'border-brand/40 text-brand hover:bg-brand/10'}`}>
+                                {actual.estado === 'sale' ? 'Quitar del envío' : 'Incluir en el envío'}
+                            </button>
+                        )}
+                        {actual.editar && (
+                            <button type="button" onClick={actual.editar.onClick}
+                                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-amber-400/30 text-amber-300/90 text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/10 hover:border-amber-400/50 transition-all">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                {actual.editar.etiqueta}
+                            </button>
+                        )}
+                    </div>
                     <div className="flex items-center gap-2">
                         <button type="button" onClick={onClose}
                             className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${siguiente ? 'border border-white/10 text-white/50 hover:text-white hover:border-white/30' : 'bg-brand text-black hover:brightness-110 active:scale-95'}`}>

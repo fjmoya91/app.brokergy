@@ -3204,6 +3204,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     return next;
                 })}
                 onUploaded={onBorradorUploaded}
+                /* «Modificar» desde el visor del envío: el CIFO se corrige en su
+                   modal (regenera y desde allí se manda, con el RITE si falta); las
+                   estancias, en su popup, que al confirmar vuelve a este envío. */
+                onEditarCifo={() => isReforma ? setShowCertificadoRes080(true) : setShowCertificadoCifo(true)}
+                onEditarRite={abrirLocales}
             />
 
             {/* Indicador de autoguardado: los datos se persisten solos (al cambiar fechas

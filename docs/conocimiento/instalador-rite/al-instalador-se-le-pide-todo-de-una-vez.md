@@ -138,3 +138,25 @@ firmar por el camino que no lo comprueba.
 **La memoria firmada solo se le pide si alguna vez le mandamos una** (`pide_memoria`):
 pedirle "la memoria que os enviamos, firmada" a quien no ha recibido ninguna es pedirle
 un documento que no existe.
+
+### Se ve antes de enviarse, entre por donde se entre (2026-10-21)
+
+El popup del CIFO ya tenía su «Ver» (el visor compartido `VisorDocumentosEnvio`); el que se
+abre desde la documentación RITE (`EnviarBorradorRiteModal`, el mismo envío conjunto) no,
+así que según por dónde se entrase se podía o no revisar lo que salía.
+
+**REGLA — lo que se revisa es LO QUE SALE, byte a byte.** En el popup del RITE el CIFO no
+se construye: se manda el borrador GUARDADO en Drive. Por eso su vista previa lo pide a
+`GET /:id/instalador/cifo-borrador` (staffOnly), que lo descarga con la MISMA función que
+`/instalador/enviar` (`descargarCifoBorrador`). La documentación RITE sale de
+`/memoria-rite/files`, igual que en el popup del CIFO.
+
+**REGLA — si en el visor se ve algo mal, se SALE a corregirlo.** Cada documento puede
+llevar `editar: { etiqueta, onClick }`: «Modificar el CIFO» cierra el envío y abre su
+modal (regenera y desde allí se manda, con el RITE si falta); «Modificar estancias» abre
+`LocalesRiteModal`, que al confirmar vuelve a este envío. Fechas, equipos y titular salen
+del expediente y se corrigen allí: lo dice el aviso del visor.
+
+⚠️ En local el generador RITE y el motor CE3X piden los dos el puerto 8090; con el motor
+arrancado la vista previa del RITE dice «servicio no disponible». Y sin LibreOffice la
+memoria no sale en PDF (solo el Word); en el contenedor sí.

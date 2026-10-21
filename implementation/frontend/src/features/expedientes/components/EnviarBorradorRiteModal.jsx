@@ -12,6 +12,8 @@ import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
 // Quién firma cada documento, y poder arreglarlo sin salir del envío.
 import { FirmantesEnvio } from './FirmantesEnvio';
+// Revisar lo que sale antes de enviarlo: el mismo visor que el CIFO y los anexos.
+import { VisorDocumentosEnvio } from './VisorDocumentosEnvio';
 
 // Documentación RITE: Memoria (.docx + .pdf) + Borrador del Certificado (.pdf).
 // Acciones: Descargar · Subir a Drive · Enviar al instalador (Email / WhatsApp /
@@ -23,7 +25,13 @@ import { FirmantesEnvio } from './FirmantesEnvio';
 // (fuente única: logic/instaladorPendientes.js). Al instalador le llegaban dos
 // avisos distintos para dos tareas que hace del tirón, y de la segunda no se
 // enteraba nadie hasta que alguien la reclamaba por teléfono.
-export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMessage, onSent, onUploaded }) {
+//
+// Desde 2026-10-21 cada documento tiene su «Ver» (VisorDocumentosEnvio): el CIFO
+// es el borrador de Drive —el que se adjunta y el que sirve el enlace de firma—
+// y la documentación RITE sale de /memoria-rite/files, la misma generación que
+// el envío. Si en el visor se ve algo mal, `onEditarCifo` / `onEditarRite` sacan
+// del envío al sitio donde se corrige.
+export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMessage, onSent, onUploaded, onEditarCifo = null, onEditarRite = null }) {
     const pres = expediente?.prescriptores || {};
     const numexpte = expediente?.numero_expediente || '';
     const doc = expediente?.documentacion || {};
@@ -94,9 +102,17 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     const [channels, setChannels] = useState({ email: true, whatsapp: true });
     const [sendPhase, setSendPhase] = useState(null);       // null | 'sending' | 'done' → overlay de envío
     const [sendResults, setSendResults] = useState([]);     // [{ channel, status: 'ok'|'fail'|'unavailable', text }]
+    // Visor: null | 'cifo' | 'rite_borrador' | 'rite_memoria'. Lo que enseña se
+    // pide al abrirlo y se olvida al cerrar el popup (puede haber cambiado algo).
+    const [verDoc, setVerDoc] = useState(null);
+    const [riteFiles, setRiteFiles] = useState({ estado: 'idle', files: [], error: '' });
+    const [cifoFile, setCifoFile] = useState({ estado: 'idle', base64: '', error: '' });
 
     useEffect(() => {
         if (!isOpen) return;
+        setVerDoc(null);
+        setRiteFiles({ estado: 'idle', files: [], error: '' });
+        setCifoFile({ estado: 'idle', base64: '', error: '' });
         setStatus(null);
         setBusy(null);
         setSendPhase(null);
@@ -193,6 +209,35 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         const a = document.createElement('a');
         a.href = url; a.download = f.name; document.body.appendChild(a); a.click();
         document.body.removeChild(a); URL.revokeObjectURL(url);
+    };
+
+    // Lo que enseña el visor, pedido solo la primera vez que hace falta.
+    const cargarRiteFiles = async () => {
+        if (riteFiles.estado === 'cargando' || riteFiles.estado === 'ok') return;
+        setRiteFiles({ estado: 'cargando', files: [], error: '' });
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/memoria-rite/files`);
+            setRiteFiles({ estado: 'ok', files: data?.files || [], error: '' });
+        } catch (e) {
+            setRiteFiles({ estado: 'error', files: [], error: e.response?.data?.error || e.message || 'No se pudo generar la documentación RITE' });
+        }
+    };
+    const cargarCifo = async () => {
+        if (bloqueos.cifo || cifoFile.estado === 'cargando' || cifoFile.estado === 'ok') return;
+        setCifoFile({ estado: 'cargando', base64: '', error: '' });
+        try {
+            const { data } = await axios.get(`/api/expedientes/${expediente.id}/instalador/cifo-borrador`);
+            setCifoFile({ estado: 'ok', base64: data?.base64 || '', error: '' });
+        } catch (e) {
+            setCifoFile({ estado: 'error', base64: '', error: e.response?.data?.error || e.message || 'No se pudo leer el CIFO de Drive' });
+        }
+    };
+    // 'rite' abre la primera de sus pestañas. Se cargan los dos de paso: así se
+    // pasa de una pestaña a otra sin esperar.
+    const abrirVisor = (k) => {
+        cargarRiteFiles();
+        cargarCifo();
+        setVerDoc(k === 'rite' ? 'rite_borrador' : k);
     };
 
     const handleDownload = async () => {
@@ -347,6 +392,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                         bloqueos={bloqueos}
                         pendientes={estado.pendientes}
                         onToggle={toggleDoc}
+                        onVer={abrirVisor}
                     />
 
                     {/* Quién firma CADA documento de los que se mandan (no es la
@@ -358,8 +404,9 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                         pres={presFirmante}
                         /* La memoria la genera el BACKEND (/memoria-rite/generate)
                            leyendo la BD, así que lo que se edite aquí ya viaja en
-                           ella: no hay que cortar el envío ni regenerar nada. */
-                        onFichaActualizada={() => { }}
+                           ella: no hay que cortar el envío ni regenerar nada. Solo
+                           la que se vio en el visor deja de valer. */
+                        onFichaActualizada={() => setRiteFiles({ estado: 'idle', files: [], error: '' })}
                     />
 
                     {/* Acciones sobre los documentos */}
@@ -464,6 +511,61 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                         </button>
                     </div>
                 </div>
+
+                {/* ── VISOR: lo que va a salir, sin salir del envío ──────────────
+                    El CIFO es el borrador de Drive (lo que adjunta /instalador/enviar
+                    y lo que firma desde su enlace); la documentación RITE, la misma
+                    generación que el envío. «Volver al envío» deja todo como estaba. */}
+                {verDoc && (() => {
+                    const U = (f) => (f?.name || '').toUpperCase();
+                    const rf = riteFiles.files || [];
+                    const borrador = rf.find(f => U(f).includes('BORRADOR_CERTIFICADO'));
+                    const memoriaPdf = rf.find(f => U(f).includes('MEMORIA_RITE') && U(f).endsWith('.PDF'));
+                    const memoriaDocx = rf.find(f => U(f).endsWith('.DOCX'));
+                    const riteSale = docs.includes('rite') ? 'sale' : 'fuera';
+                    const cargandoRite = riteFiles.estado === 'idle' || riteFiles.estado === 'cargando';
+                    const falloRite = riteFiles.estado === 'error' ? riteFiles.error : '';
+                    const pdfDe = (f, nombre) => cargandoRite || falloRite ? {}
+                        : f && U(f).endsWith('.PDF') ? { pdf: f.base64 }
+                            : { sinVista: `El servicio RITE no ha devuelto ${nombre} en PDF.` };
+                    // Salir a corregir: se cierra el envío entero (lo que se mande
+                    // después tiene que salir del documento corregido).
+                    const salirA = (fn) => fn ? () => { setVerDoc(null); onClose?.(); fn(); } : null;
+                    const editarRite = onEditarRite ? { etiqueta: 'Modificar estancias', onClick: salirA(onEditarRite) } : null;
+                    const docsVisor = [
+                        ...(bloqueos.cifo ? [] : [{
+                            key: 'cifo', grupo: 'cifo', titulo: 'Certificado CIFO',
+                            estado: docs.includes('cifo') ? 'sale' : 'fuera',
+                            pendiente: cifoFile.estado === 'idle' || cifoFile.estado === 'cargando',
+                            fallo: cifoFile.estado === 'error' ? cifoFile.error : '',
+                            ...(cifoFile.estado === 'ok' ? { pdf: cifoFile.base64 } : {}),
+                            aviso: 'Es el borrador guardado en Drive: el que se adjunta y el que firma desde su enlace. Si algo está mal, se corrige y se vuelve a generar.',
+                            editar: onEditarCifo ? { etiqueta: 'Modificar el CIFO', onClick: salirA(onEditarCifo) } : null,
+                        }]),
+                        {
+                            key: 'rite_borrador', grupo: 'rite', titulo: 'Borrador certificado RITE', estado: riteSale,
+                            pendiente: cargandoRite, fallo: falloRite, ...pdfDe(borrador, 'el borrador del certificado'),
+                            aviso: 'Es el borrador para copiar en la plataforma de Industria: lo registra el instalador. Fechas, equipos y titular salen del expediente: se corrigen allí.',
+                            editar: editarRite,
+                        },
+                        {
+                            key: 'rite_memoria', grupo: 'rite', titulo: 'Memoria RITE', estado: riteSale,
+                            pendiente: cargandoRite, fallo: falloRite, ...pdfDe(memoriaPdf, 'la memoria'),
+                            aviso: memoriaDocx ? 'La memoria va también en Word, para que la pueda editar antes de firmarla.' : null,
+                            descargas: memoriaDocx ? [{ nombre: memoriaDocx.name, base64: memoriaDocx.base64, mimetype: memoriaDocx.mimetype, etiqueta: 'Descargar el Word' }] : [],
+                            editar: editarRite,
+                        },
+                    ];
+                    return (
+                        <VisorDocumentosEnvio
+                            docs={docsVisor}
+                            activo={verDoc}
+                            onActivo={(k) => { if (k.startsWith('rite')) cargarRiteFiles(); else cargarCifo(); setVerDoc(k); }}
+                            onClose={() => setVerDoc(null)}
+                            onToggle={toggleDoc}
+                        />
+                    );
+                })()}
 
                 {/* ── OVERLAY DE ENVÍO (wow): enviando → enviado, estado por canal ── */}
                 {sendPhase && (() => {
