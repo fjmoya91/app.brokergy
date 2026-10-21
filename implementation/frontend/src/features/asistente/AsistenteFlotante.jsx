@@ -130,12 +130,31 @@ function Girando({ className = 'w-3.5 h-3.5' }) {
     );
 }
 
-function IconoAsistente({ className = 'w-6 h-6' }) {
+// La mascota (la gota de «energía») es la cara del asistente. El original es un SVG de
+// 720 KB con un PNG dentro (Drive: 02. MARKETING/…/LOGOS/BROKERGY_mascota_01_energia.svg);
+// aquí va recortada a la cabeza, a 192 px y en WebP (4,5 KB).
+const MASCOTA = '/mascota-gota.webp';
+
+function CaraAsistente({ className = 'w-8 h-8' }) {
     return (
-        <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
-            <path d="M12 8.2l.9 1.9 1.9.9-1.9.9-.9 1.9-.9-1.9-1.9-.9 1.9-.9z" fill="currentColor" stroke="none" />
-        </svg>
+        <span className={`${className} rounded-full bg-white overflow-hidden flex-shrink-0`}>
+            <img src={MASCOTA} alt="" draggable={false} className="w-full h-full object-cover" />
+        </span>
+    );
+}
+
+// El botón es una burbuja de chat blanca (círculo + rabito abajo a la izquierda) con la
+// mascota dentro. Un solo SVG para el contorno: así la sombra rodea círculo y rabito juntos.
+function BurbujaMascota() {
+    return (
+        <>
+            <svg className="absolute inset-0 w-full h-full text-white drop-shadow-[0_6px_14px_rgba(0,0,0,0.45)]" viewBox="0 0 64 64" aria-hidden="true">
+                <circle cx="33" cy="30" r="28" fill="currentColor" />
+                <path d="M21 55 Q13 59 5 61 Q10 54 10 45 Z" fill="currentColor" />
+            </svg>
+            <img src={MASCOTA} alt="" draggable={false}
+                className="absolute left-[7px] top-[4px] w-[52px] h-[52px] rounded-full object-cover" />
+        </>
     );
 }
 
@@ -368,9 +387,7 @@ export default function AsistenteFlotante({ onAbrir }) {
             role="dialog" aria-label="Asistente de BROKERGY">
             {/* Cabecera */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.08] bg-bkg-deep pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-3">
-                <div className="w-8 h-8 rounded-full bg-brand/15 text-brand flex items-center justify-center flex-shrink-0">
-                    <IconoAsistente className="w-[18px] h-[18px]" />
-                </div>
+                <CaraAsistente className="w-9 h-9" />
                 <div className="flex-1 min-w-0">
                     <div className="text-sm font-black text-white leading-tight">Asistente</div>
                     <div className="text-[10px] text-white/40 truncate">Contesta con los datos de la app en vivo · solo lee</div>
@@ -474,11 +491,15 @@ export default function AsistenteFlotante({ onAbrir }) {
     const boton = (
         <button type="button" onClick={() => setAbierto(v => !v)}
             title={abierto ? 'Cerrar el asistente' : 'Asistente'} aria-label="Asistente"
-            className={`fixed z-[9300] right-5 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] w-14 h-14 rounded-full bg-brand text-bkg-deep shadow-xl shadow-brand/20 flex items-center justify-center hover:bg-brand-400 active:scale-95 transition ${abierto ? 'max-md:hidden' : ''}`}>
+            className={`fixed z-[9300] right-5 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] w-16 h-16 flex items-center justify-center active:scale-95 transition ${abierto ? 'max-md:hidden' : 'hover:scale-105 hover:-translate-y-0.5'}`}>
             {abierto
-                ? <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" d="M6 9l6 6 6-6" /></svg>
-                : <IconoAsistente />}
-            {!abierto && enviando && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-bkg-deep animate-pulse" />}
+                ? (
+                    <span className="w-14 h-14 rounded-full bg-brand text-bkg-deep shadow-xl shadow-brand/20 flex items-center justify-center hover:bg-brand-400">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" d="M6 9l6 6 6-6" /></svg>
+                    </span>
+                )
+                : <BurbujaMascota />}
+            {!abierto && enviando && <span className="absolute top-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-bkg-deep animate-pulse" />}
         </button>
     );
 

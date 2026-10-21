@@ -6,6 +6,13 @@ Fran quería preguntarle a la app como a un compañero («¿cómo está el 208?�
 le llevara al expediente y que, si falta algo pesado («hazme el CEE inicial»), se lo pudiera pedir
 ahí mismo. Es un botón flotante abajo a la derecha que abre un chat.
 
+Su cara es la **mascota de la gota** («energía», la primera de las tres de marketing; 2026-10-21): el
+botón es una burbuja de chat blanca con la gota dentro, y la misma gota va en la cabecera del chat. El
+original es un SVG de 720 KB que por dentro es un PNG (Drive: `02. MARKETING/…/01. IMAGENES/LOGOS/
+BROKERGY_mascota_01_energia.svg`); a la app va recortada a la cabeza, 192 px, WebP de 4,5 KB:
+`implementation/frontend/public/mascota-gota.webp`. Las otras dos (aerotermia y casa) están en la
+misma carpeta por si se cambia.
+
 | Qué | Dónde |
 |---|---|
 | El popup (botón, chat, enlaces, tarjeta «Encargar») | [AsistenteFlotante.jsx](implementation/frontend/src/features/asistente/AsistenteFlotante.jsx), montado en `App.jsx` solo para ADMIN |
