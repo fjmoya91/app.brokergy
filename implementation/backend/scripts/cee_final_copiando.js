@@ -15,7 +15,8 @@
 //   --version=3.2|3.1|2.3      sin decirla, la vigente (3.2)
 //   --base=ruta.cex            copia ESE inicial y no el que entregó el técnico
 //   --guardar=ruta.cex         deja además una copia local del final
-//   --escribir                 .cex + .xml + .pdf a «1. CEE / CEE FINAL» (lo anterior, a OLD)
+//   --escribir                 .cex + .xml + .pdf a «1. CEE / CEE FINAL» (lo anterior, a OLD),
+//                              el XML CARGADO en el expediente («Cargar CEE», cargarXmlCee.js)
 //                              y, como `cee_final.js`, termina el encargo del AGENTE IA y
 //                              avisa al equipo (WhatsApp + email)
 //   --sin-aviso                con --escribir, no avisa
@@ -30,6 +31,7 @@ const path = require('path');
 const cex = require('../services/ceeEnvolventeCex');
 const { finalCopiandoInicial } = require('../services/cee/ceeFinalCopiando');
 const cexAPdf = require('../services/cee/cexAPdf');
+const { cargarXmlEnApp, lineasCarga } = require('../services/cee/cargarXmlCee');
 
 function args(argv) {
     const o = { clave: null, escribir: false };
@@ -69,6 +71,7 @@ async function main() {
     console.log('Instalaciones del final (las instaladas):');
     for (const i of r.instalaciones) console.log(`  ${i}`);
     if (r.sin_medida) console.log(`Sin medida, CE3X: ${cexAPdf.textoCalificacion(r.sin_medida)}`);
+    if (r.demanda) console.log(`Demanda inicial → final (kWh/m²·año): ${r.demanda.texto} · ${r.demanda.cuadra ? '✓ cuadra' : '⛔ NO CUADRA'}`);
     if (r.medida) {
         const m = r.medida;
         console.log(`Medida de AUTOCONSUMO: ${String(m.kwp).replace('.', ',')} kWp · `
@@ -88,6 +91,18 @@ async function main() {
     if (!o.escribir) {
         console.log('\n(en seco: no se ha subido nada; con --escribir va a «1. CEE / CEE FINAL»)');
         return;
+    }
+    // Su XML, CARGADO en el expediente como «Cargar CEE» (decisión del usuario,
+    // 21/10/2026). No pisa el CEE final cargado de un técnico.
+    if (r.calificado?.xml && r.calificado?.guardado?.ok !== false) {
+        try {
+            const carga = await cargarXmlEnApp(ctx, 'final', r.calificado.xml,
+                { fileName: r.guardado.nombre.replace(/\.cex$/i, '.xml'), escribir: true });
+            for (const l of lineasCarga(carga, 'final')) console.log(l);
+        } catch (e) {
+            console.log(`✗ XML del final NO cargado en la app: ${e.message}`
+                + `\n  Reintenta con: node scripts/cee_inicial.js cargar ${ctx.expediente.numero_expediente} --fase final --escribir`);
+        }
     }
     // Como `cee_final.js`: el AGENTE IA termina («pendiente de revisión» si el
     // encargo es suyo) y avisa al equipo, salvo --sin-aviso. Un fallo aquí no

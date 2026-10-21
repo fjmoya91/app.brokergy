@@ -80,6 +80,23 @@ B (62,78). ⚠️ El aviso de la ficha («… y depósito de 100 l») sigue sali
 conoce el fichero; el del motor, justo debajo, dice que sale sin él.
 **Tras generar, se mira en el XML del final `<SuperficieUtil>` y `<Demanda>` contra el inicial.**
 
+**REGLA — sobre el inicial de la 2.3 se hace el final de la 3.2 SIN cambiar nada de la envolvente:
+solo las instalaciones** (usuario, 20/10/2026, 26RES060_186: «se debe trabajar sobre el 2.3 y que no
+cambie nada en el 3.2, para que no cambie la demanda; solo se cambian instalaciones. Eso es muy
+importante»). Medido: el MISMO inicial del técnico, sin tocar nada y solo convertido, daba en la 3.2
+**196,84** kWh/m² de calefacción frente a los **215,19** registrados con la 2.3. No era la conversión
+(cerramientos, huecos, U, ψ y datos generales idénticos): **la 2.3 añade al CALCULAR puentes térmicos
+«por defecto» que no van en el fichero** —pilares integrados, encuentro con la solera, con la
+cubierta y cajas de persiana: 18 en el 186, 40 en su XML frente a 22 en el `.cex`— y **la 3.2 no**.
+Ahora `ceeFinalCopiando.js` saca los puentes del XML del inicial (`puentesDelXml23`; el
+`cee.xml_inicial` de la BD llega en MAYÚSCULAS) y el motor escribe los que faltan con SU ψ y SU
+longitud (`completar_puentes_23` en `tools/convertir_cex.py`, solo si el inicial es de la 2.3 y el
+final de la 3.x, solo por nombre y sobre un cerramiento que exista). Sin XML se avisa con ⛔. Y la
+comparación ya no es a ojo: `compararDemanda` califica el final sin medida, compara calefacción y ACS
+(kWh/m²) con `cee.cee_inicial` y, si no cuadra (> 0,5 %), **con `--escribir` no se sube** (422) y en
+seco sale ⛔. Rehecho el 186: 40 puentes, calefacción 215,19, ACS 27,52, refrigeración 16,80, igual
+que el inicial; C (22,23) / C (131,22), autoconsumo 5,96 kWp.
+
 Medido en **26RES060_178** (08/10/2026): inicial del técnico en la 2.3 con caldera de gasóleo →
 ALFEA EXTENSA S 10 (453 % calefacción, 280 % refrigeración con el EER 2,8 de la FT, suelo radiante)
 + AEROMAX VS R290 200 de ACS (354 %, 200 l). Sin medida: **B (19,3 kgCO₂/m²) / C (113,92 kWh/m²)**.

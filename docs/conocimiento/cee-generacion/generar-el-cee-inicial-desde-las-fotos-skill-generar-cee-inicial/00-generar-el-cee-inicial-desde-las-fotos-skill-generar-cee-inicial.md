@@ -45,6 +45,9 @@ que «Leer la placa» de la calculadora (`aerothermiaModel`, `scopHeating`, `sco
 `oportunidad_merge_inputs`): el resultado de la propuesta queda DESFASADO hasta que se abra la
 calculadora y se guarde, y se anota en el historial. En un EXPEDIENTE no se toca: la aerotermia se
 cambia desde Instalación («Leer placas»), que recalcula el ahorro.
+Con el ACS en OTRA máquina (un aerotermo, `aerothermiaModelAcs`) el `scopAcs` NO se pisa con el de la
+aerotermia de calefacción (2026-10-21, 26RES060_OP318: el MIDEA RSJ-15/185 de 3,45 pasaba a 3,00), y
+en seco su marca y modelo salen del catálogo como en `ceeEnvolventeCex` (sin ellos la medida llevaba «___»).
 
 **Placas — dos lecturas que fallaban, medidas en OP246**: una SERRA CALOR italiana con la tabla
 multilingüe *Input 49,8 / Output 43* salía a 49,8 kW (consumo) — `elegirPotencia` reconoce ya

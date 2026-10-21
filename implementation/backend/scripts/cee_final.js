@@ -197,6 +197,19 @@ async function main() {
                 process.exitCode = 1;
                 return;
             }
+            // Su XML, CARGADO en el expediente como «Cargar CEE» (decisión del
+            // usuario, 21/10/2026). No pisa el CEE final cargado de un técnico.
+            if (cal.xml && cal.guardado?.ok) {
+                try {
+                    const { cargarXmlEnApp, lineasCarga } = require('../services/cee/cargarXmlCee');
+                    const carga = await cargarXmlEnApp(ctx, 'final', cal.xml,
+                        { fileName: r.guardado.nombre.replace(/\.cex$/i, '.xml'), escribir: true });
+                    for (const l of lineasCarga(carga, 'final')) console.log(`  ${l}`);
+                } catch (e) {
+                    console.log(`  ✗ XML del final NO cargado en la app: ${e.message}`
+                        + `\n    Reintenta con: node scripts/cee_inicial.js cargar ${ctx.expediente.numero_expediente} --fase final --escribir`);
+                }
+            }
         }
         // El AGENTE IA termina: «pendiente de revisión» si el encargo es suyo (si
         // hay un técnico asignado, no cambia de fase) y aviso al equipo, como un

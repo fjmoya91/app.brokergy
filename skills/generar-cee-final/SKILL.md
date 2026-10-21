@@ -12,6 +12,15 @@ description: 'GENERA el CEE FINAL (.cex de CE3X 3.2, con su XML y su PDF) de un 
 > hecho**: no se ha subido XML ni PDF y no se ha avisado; díselo al usuario con el motivo. Todo, en
 > [comun/cee-incompleto.md](comun/cee-incompleto.md).
 
+> **SIEMPRE se CARGA el XML del final en el expediente** (Fran, 21/10/2026: «siempre que hagas un CEE
+> inicial o final, carga el XML»): con `--escribir`, `cee_final_copiando.js` y `cee_final.js` lo
+> cargan SOLOS como «Cargar CEE» (`cee_final`, `xml_final`, combustibles, fechas de firma y visita;
+> `services/cee/cargarXmlCee.js`), sin dejarlo listo para firmar. Busca en la salida **«✓ XML del CEE
+> final CARGADO en la app»**; si no sale, `node scripts/cee_inicial.js cargar <nº> --fase final
+> --escribir`. Un CEE final de un TÉCNICO ya cargado no se pisa sin `--forzar`. En el informe, **di
+> cuánto sale** con él (ahorro y bono de la app). En un RES080 el XML del final es el del PREVISTO
+> rehecho, y ya se cargaba (`cargarComoFinal`).
+
 ## RES060: se COPIA el inicial (decisión del usuario, 08/10/2026 — «grabado a fuego»)
 
 Cuando el usuario pide el CEE final de un **RES060**, el procedimiento es SIEMPRE este, sin
@@ -45,7 +54,7 @@ preguntarlo (solo se preguntan las fechas de visita y emisión):
 ```bash
 # desde implementation/backend · motor levantado · CE3X 3.2 en el PC
 node scripts/cee_final_copiando.js 26RES060_178 --fecha=2026-10-08            # en seco (califica, no sube)
-node scripts/cee_final_copiando.js 26RES060_178 --fecha=2026-10-08 --escribir # .cex/.xml/.pdf a Drive + aviso
+node scripts/cee_final_copiando.js 26RES060_178 --fecha=2026-10-08 --escribir # .cex/.xml/.pdf a Drive + XML cargado en la app + aviso
 ```
 
 `node scripts/cee_final.js <RES060>` lleva aquí solo (con los mismos argumentos); `--desde-medida`
@@ -229,7 +238,7 @@ node scripts/cee_final.js 26RES093_11 --fecha=2026-09-30 --escribir \
 | `--cubierta=SOLUCION[:CM]` | Aislamiento de cubierta: `lana_forjado` (por defecto, 12 cm) · `xps_invertida` (8) · `insuflado_cubierta` (10) |
 | `--fachada=SOLUCION[:CM]` | Aislamiento de fachada: `sate` (por defecto, 8 cm) · `insuflado_camara` (5) · `trasdosado` (5) |
 | `--nombre="…"` `--caracteristicas="…"` | Reescribe el texto de la medida de retirada |
-| `--escribir` | Lo deja en «1. CEE / CEE FINAL» como `{nº} - CEE FINAL_REVISAR.cex` (el anterior va a OLD) **y avisa** al equipo |
+| `--escribir` | Lo deja en «1. CEE / CEE FINAL» como `{nº} - CEE FINAL_REVISAR.cex` (el anterior va a OLD), **carga su XML en el expediente** («Cargar CEE») **y avisa** al equipo |
 | `--sin-aviso` | Con `--escribir`, no avisa (al relanzar en la misma sesión) |
 | `--sin-pdf` | Con `--escribir`, no lo califica ni deja su `.xml`/`.pdf` |
 | `--calificar` | Sin `--escribir`: lo califica igual y dice si cuadra (con `--guardar`, deja el `.xml` y el `.pdf` junto a la copia local) |

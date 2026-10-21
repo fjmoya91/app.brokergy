@@ -23,6 +23,15 @@ la envolvente (`/envolvente/:id`), donde el certificador lo abre y confirma lo q
   del expediente: al EMPEZAR se marca (`agente_ia.js empezar`) y al ESCRIBIR el `.cex` la fase pasa
   a «pendiente de revisión» y llega un aviso por WhatsApp + email, igual que cuando un técnico sube
   su archivo. Así se sabe siempre si está hecho o no (ver «El agente» más abajo).
+- **SIEMPRE se CARGA el XML en el expediente** (Fran, 21/10/2026, 26RES060_241: «siempre que hagas
+  un CEE inicial o final, carga el XML»). Sin él el expediente no tiene ahorro propio y nadie sabe
+  cuánto sale. `aplicar --escribir` lo hace SOLO, como «Cargar CEE» (`cee_inicial`, `xml_inicial`,
+  combustibles, fechas de firma y visita, D_ACS por litros/día), sin dejarlo listo para firmar.
+  Comprueba en la salida la línea **«✓ XML del CEE inicial CARGADO en la app»**; si sale «NO
+  cargado», cárgalo con `cargar <clave> --escribir` (o dilo: un CEE de un TÉCNICO ya cargado no se
+  pisa sin `--forzar`; en una oportunidad se carga al aceptarla). Después, **di cuánto sale**: el
+  ahorro y el bono que calcula la app frente a los de la propuesta, y si la oportunidad no tiene el
+  sello del precio (`cae_client_rate`), que el panel calcula al respaldo de 95 €/MWh.
 - **Dónde se ejecuta — Claude Code o Cowork:** los comandos son los MISMOS y van SIEMPRE en el PC
   (repo + `.env` + motor). En Code, por la shell; en **Cowork, por Desktop Commander, nunca en el
   sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
@@ -48,6 +57,7 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `rehacer <clave> [--plan plan.json]` | **Rehace el CEE sobre lo corregido A MANO en la pizarra** (tras «Así es como está»): imprime la revisión (nota y cambios) y los huecos dibujados que quedan por medir, y aplica el plan sobre el trabajo guardado sin deshacer nada de lo dibujado (ver «Rehacer el CEE tras una corrección A MANO»). Marca la revisión como rehecha | con `--escribir` |
 | `calificar <clave> [--fase final]` · `calificar --cola` | **Lo que la VENTANA dejó «por calificar»** (el servidor no tiene CE3X): rehace el inicial desde la RECETA guardada, vuelve a medir las placas de la 2.ª medida, lo califica (XML, PDF, recorte mes a mes) y lo sella; el final solo se califica. Sin aviso al equipo. Ver «La receta y el sello» | con `--escribir` |
 | `listo <clave> [--fase final] [--cex ruta] [--out DIR]` | **Deja el `_REVISAR` LISTO PARA FIRMAR** (cuando Fran lo pide, tras revisarlo): CE3X 3.2 lo califica, **calcula las medidas y guarda el `.cex` calculado**; si el XML no valida, para. Con `--escribir`: `{nº} – CEE INICIAL.cex/.xml` por la subida del técnico (`cee_files`, validación en ámbar), `{nº} – CEE INICIAL.pdf` sin firmar (el que busca `firmar_cee.js`), lo anterior con esos nombres a OLD, y el XML cargado como «Cargar CEE» (`cee_inicial`, `xml_inicial`, combustibles, fechas de firma y visita, D_ACS por litros/día). Parte del `_REVISAR` de Drive (o de la copia local si en Drive no hay; `--cex` manda). En seco deja la copia en `scratch/cee-inicial/<nº>/listo`. En una oportunidad solo califica (la subida no aplica hasta aceptarla); con un PDF ya FIRMADO en la carpeta o la fase REGISTRADA no escribe sin `--forzar`. **No firma** | con `--escribir` |
+| `cargar <clave> [--fase final] [--xml ruta] [--forzar]` | **Solo el XML del `_REVISAR` en la app**, como «Cargar CEE» (`services/cee/cargarXmlCee.js`, la MISMA función que usan `aplicar --escribir`, `listo` y el CEE final). Lee el `.xml` de Drive (o la copia local; `--xml` manda). No sube, no renombra y no lo deja listo para firmar. No pisa el CEE cargado de un técnico sin `--forzar`. Para un CEE ya generado o para reintentar | con `--escribir` |
 | `instalacion <clave> --plan plan.json` | **Solo lo de las PLACAS a la app** (Instalación del expediente, o inputs de la oportunidad), con el mismo plan que `aplicar`: sin `.cex`, sin Drive, sin aviso al equipo. Para un CEE ya hecho al que le falta la Instalación rellena | con `--escribir` |
 | `croquis <clave> [--fase final]` | El **croquis en PDF** de lo que YA hay (trabajo guardado + `.cex` de la carpeta): plano de obra por planta con la marca de BROKERGY, a escala, con muros, huecos, cotas y zonas, y los cuadros de huecos, superficies y cerramientos (sin avisos: vale para una auditoría). `aplicar --escribir` ya lo hace solo | con `--escribir` (sube `… - CEE INICIAL_CROQUIS.pdf` junto al `.cex`) |
 
@@ -220,26 +230,13 @@ nada**: siempre primero en seco.
    que viven en la ventana), la carpeta y lo que queda por hacer. Si lo
    relanzas en la misma sesión para corregir algo menor, añade `--sin-aviso` (o el usuario recibirá
    otro aviso «actualizado»). Si el aviso falla, el `.cex` ya está guardado: dilo y reintenta con
-   `agente_ia.js terminar <clave>`.
-7. **Informe final**: el enlace del `.cex` y de la carpeta, y la lista de **lo que queda por hacer**
+   `agente_ia.js terminar <clave>`. **Y carga el XML en el expediente** (lo hace solo; mira la línea
+   «✓ XML del CEE inicial CARGADO en la app» y, si no sale, `cargar <clave> --escribir`).
+7. **Informe final**: el enlace del `.cex` y de la carpeta, **cuánto sale con el XML cargado** (ahorro
+   en kWh y bono de la app frente a la propuesta), y la lista de **lo que queda por hacer**
    (ver abajo). Nunca «listo» a secas: el `.cex` lleva `_REVISAR` porque hay que abrirlo en CE3X.
    Dejarlo listo para firmar es OTRO paso, cuando Fran lo pide: orden `listo` (ver «Cuando el usuario
    lo da por VÁLIDO»).
-
-## La receta y el sello (la ventana y la skill escriben el MISMO `.cex`)
-
-Desde el 15/10/2026 lo que decide el plan **se guarda en la RECETA** (`ajustes` del trabajo): las
-medidas por fase (`medidas_elegidas`), la aerotermia de la simulación, las placas MEDIDAS de la 2.ª
-medida (`autoconsumo_consumo_medida`, `autoconsumo_pvgis`, `fv_segunda`), quién firma, las fechas y
-las medidas libres. La ventana de la envolvente las enseña y las usa igual: si alguien cambia allí una
-ventana y vuelve a generar, cambia solo eso. Sin `medidas` en el plan, mandan las guardadas.
-
-- Al terminar, `aplicar` comprueba que **la ventana compondría el MISMO `.cex`** («✓ receta…»); si
-  sale «⚠ receta: la ventana compondría OTRO», dilo en el informe.
-- Cada `.cex` escrito queda **sellado** (`cee.cex_sello`): la ventana avisa si está DESFASADO, si se
-  TOCÓ a mano en CE3X o si está POR CALIFICAR.
-- Lo que genera la ventana queda **por calificar**: es la cola del PC (`calificar --cola`, y la enseña
-  `agente_ia.js cola`). Primero en seco, y con `--escribir` cuando el usuario lo diga.
 
 ## La receta y el sello (la ventana y la skill escriben el MISMO `.cex`)
 
@@ -376,6 +373,13 @@ como su medida de mejora. Ahora lo hace `aplicar` con el bloque **`previsto`** d
   planta. Lo comprueba el propio `aplicar` («CROQUIS ajustado … (Catastro …)»).
 - **El ACS que da otro aparato** (un termo): la caldera va `da_acs: false` y el termo en `acs_aparte`.
   Sin eso la caldera sale mixta y el termo no aparece. Lo dice el funnel (`boilerAcsType`).
+- **La caldera que se retira se declara según la FICHA** (Fran, 21/10/2026, 26RES060_190; lo hace
+  la ficha sola, no se pone en el plan): en un **RES080**, «Sin aislamiento» y el rendimiento de
+  combustión de la tabla; en un **RES060/RES093** (y terciario y CEE directos), «Antigua con
+  aislamiento medio» y **85 %** de combustión (o el de la tabla si es mayor). Y si la **medida lleva
+  acumulación de ACS** (p. ej. un acumulador de 200 l), la caldera del inicial lleva ese **mismo**
+  depósito, que después hereda el CEE final. Compruébalo en el resumen de `aplicar` («Instalación
+  existente: … aislamiento …» y «Depósito de ACS de la caldera: N l»). Regla 151.
 - **En una OPORTUNIDAD, `aplicar` cambia la aerotermia de la simulación** (los mismos campos que
   «Leer la placa» de la calculadora): el SCOP pasa del genérico al del catálogo, así que el
   **resultado de la propuesta queda desfasado** hasta que alguien abra la calculadora y guarde. Se

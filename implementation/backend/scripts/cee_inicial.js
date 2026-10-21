@@ -31,6 +31,9 @@
 //   node scripts/cee_inicial.js listo <clave> [--fase final] [--cex ruta] [--out DIR] [--escribir] [--forzar]
 //            (el `_REVISAR` LISTO PARA FIRMAR: medidas calculadas por CE3X, nombre
 //             canónico, PDF sin firmar y el XML cargado en la app; no firma)
+//   node scripts/cee_inicial.js cargar <clave> [--fase final] [--xml ruta] [--escribir] [--forzar]
+//            (solo el XML del `_REVISAR` en la app, como «Cargar CEE»: lo que hacen
+//             ya solos `aplicar --escribir` y el CEE final; no sube ni renombra nada)
 //
 // LA RECETA: lo que decide el plan (medidas, aerotermia de la simulación, quién
 // firma, fechas, medidas libres, las placas medidas de la 2.ª medida) se GUARDA
@@ -45,6 +48,9 @@
 //
 // Con --escribir, al terminar avisa como el AGENTE IA (services/agenteIa.js):
 // fase «pendiente de revisión» y WhatsApp + email al equipo. --sin-aviso lo calla.
+// Y su XML queda CARGADO en el expediente como «Cargar CEE» (decisión del
+// usuario, 21/10/2026: así se sabe cuánto sale), salvo que ya haya cargado el
+// CEE de un técnico (`services/cee/cargarXmlCee.js`).
 //
 // DOCUMENTOS DEL CATASTRO (`paredes` y `catastro`): de la Sede del Catastro se
 // bajan el CROQUIS CATASTRAL POR PLANTAS (PDF), su FXCC (DXF + ASC: cada local
@@ -124,6 +130,7 @@ const TECNICO_POR_DEFECTO = process.env.CEE_TECNICO_POR_DEFECTO || 'c05b23c1-aa8
 const cexAPdf = require('../services/cee/cexAPdf');
 const previstoSrv = require('../services/cee/previstoRes080');
 const revisionPlano = require('../services/cee/revisionPlano');
+const { cargarXmlEnApp, lineasCarga } = require('../services/cee/cargarXmlCee');
 const { respetarLoDibujado, medirHuecos } = require('../utils/loDibujadoAMano');
 
 /** De qué negocio es la clave. Se deduce del formato; `--origen` manda. */
@@ -1243,12 +1250,16 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             //: de la simulación: de él cuelgan la temperatura del SCOP y si la medida da frío.
             const emisor = plan.emisor || inp.emitterType || 'radiadores_convencionales';
             const temp = emisor === 'radiadores_convencionales' ? 55 : (emisor === 'radiadores_baja_temp' ? 45 : 35);
+            //: Con el ACS en OTRA máquina (un aerotermo, `aerothermiaModelAcs`), su SCOP_dhw es
+            //: el de esa máquina: el de la aerotermia de calefacción no lo pisa (26RES060_OP318).
+            const acsAparte = inp.changeAcs === true && inp.aerothermiaModelAcs
+                && String(inp.aerothermiaModelAcs) !== String(mod.id);
             patchInputs = {
                 aerothermiaModel: String(mod.id),
                 customModelName: '',
                 scopHeating: calc.getScopFromModel(mod, inp.zona, temp),
                 scopTemporada: calc.getScopSeason(mod, inp.zona, temp),
-                scopAcs: calc.getScopAcsFromModel(mod, inp.zona),
+                ...(acsAparte ? {} : { scopAcs: calc.getScopAcsFromModel(mod, inp.zona) }),
                 //: Varias unidades iguales (splits de un RES080): la potencia es la suma.
                 potenciaBomba: Math.round((Number(mod.potencia_calefaccion) || Number(inp.potenciaBomba) || 0)
                     * (Number(plan.unidades) > 1 ? Number(plan.unidades) : 1) * 100) / 100,
@@ -1327,6 +1338,16 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             exp.instalacion.aerotermia_cal = { ...exp.instalacion.aerotermia_cal, marca: mod.marca,
                 modelo: mod.modelo_comercial || mod.modelo_conjunto || mod.modelo_ud_exterior || '' };
             ctx.modelos = { ...ctx.modelos, [mod.id]: mod };
+        }
+        //: El equipo de ACS aparte, igual que lo completa `ceeEnvolventeCex` al cargar la
+        //: oportunidad: sin marca ni modelo la medida sale con «___» en el seco.
+        const acs = exp.instalacion.aerotermia_acs;
+        const mAcs = acs?.aerotermia_db_id && !acs.marca && (ctx.modelos?.[acs.aerotermia_db_id]
+            || (await supabase.from('aerotermia').select('*').eq('id', acs.aerotermia_db_id).maybeSingle()).data);
+        if (mAcs) {
+            exp.instalacion.aerotermia_acs = { ...acs, marca: mAcs.marca || '',
+                modelo: mAcs.modelo_comercial || mAcs.modelo_conjunto || mAcs.modelo_ud_exterior || '' };
+            ctx.modelos = { ...ctx.modelos, [mAcs.id]: mAcs };
         }
     }
 
@@ -1619,7 +1640,11 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         // quiebro de 30 cm no tiene pilares integrados, y el mínimo estimado es 2).
         orientaciones: { ...(prev?.orientaciones || {}), ...(plan.orientaciones || {}) },
         pilares: { ...(prev?.pilares || {}), ...(plan.pilares || {}) },
-        paredes: prev?.paredes || { movidas: {}, dibujadas: [] },
+        // `paredes` del plan: `{ movidas: { F1NO1: [[x,y],[x,y]] }, dibujadas: [] }`,
+        // los dos extremos en el LIENZO (los `svg` de la geometría). Es lo mismo que
+        // mover la pared en la ventana: la pared entre dos cuerpos de Catastro sale
+        // entera como fachada «SIN_DETERMINAR» y solo un trozo da al patio.
+        paredes: plan.paredes ?? prev?.paredes ?? { movidas: {}, dibujadas: [] },
         // Con la CLAVE que les da hoy el motor (`…@x,y`), nunca el «_partN»
         // de Catastro, que cambia de una lectura a otra (26RES060_226).
         cuerpos_fuera: (await esm('cee-envolvente/logic/trabajoGuardado.js'))
@@ -1985,6 +2010,8 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         let calificacion = null;
         //: Los motivos si el XML NO valida (`cexAPdf`): ni XML ni PDF suben y no se avisa.
         let incompleto = null;
+        //: El XML que se carga en la app («Cargar CEE»): el que acaba de subir.
+        let xmlParaApp = null;
         if (res080?.med?.ok) {
             // Ya calificado por CE3X con la medida dentro: se suben su XML y su PDF.
             const g2 = await cex.guardarCalificadoEnDrive(ctx, 'inicial', gd.nombre,
@@ -1993,6 +2020,7 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             if (g2.ok) for (const s of g2.subidos) console.log(`✓ ${s.nombre}\n  ${s.link}`);
             else avisos.push(`XML/PDF del inicial calificados pero no subidos: ${g2.error}`);
             calificacion = res080.med.calificacion || null;
+            if (g2.ok && res080.med.xml) xmlParaApp = res080.med.xml;
         } else if (!RESTO.includes('--sin-pdf')) {
             console.log('\nCalificando con CE3X 3.2 y generando el PDF (≈1 min)…');
             const cal = await cexAPdf.calificarYGuardar(ctx, 'inicial', gd.nombre, fichero);
@@ -2004,6 +2032,18 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             }
             const subidoCex = (cal?.guardado?.subidos || []).find(s => /\.cex$/i.test(s.nombre));
             if (cal?.cex && subidoCex) { selloBytes = cal.cex; selloId = subidoCex.driveId; }
+            if (cal?.ok && cal.xml && !cal.incompleto) xmlParaApp = cal.xml;
+        }
+        // El XML, CARGADO en el expediente como «Cargar CEE» (decisión del usuario,
+        // 21/10/2026: «siempre que hagas un CEE inicial o final, carga el XML»).
+        // No pisa el CEE cargado de un técnico; en una oportunidad no se carga.
+        if (xmlParaApp && !incompleto) {
+            try {
+                const carga = await cargarXmlEnApp(ctx, 'inicial', xmlParaApp,
+                    { fileName: gd.nombre.replace(/\.cex$/i, '.xml'), escribir: true });
+                for (const l of lineasCarga(carga, 'inicial')) console.log(l);
+                if (!carga.cargado && carga.omitido) avisos.push(`XML del inicial no cargado en la app: ${carga.omitido}`);
+            } catch (e) { avisos.push(`XML del inicial NO cargado en la app: ${e.message} (node scripts/cee_inicial.js cargar ${ctx.expediente.numero_expediente} --escribir)`); }
         }
         try {
             const sello = await cex.sellar(ctx, 'inicial', {
@@ -3645,31 +3685,9 @@ async function listo() {
     console.log(`✓ ${nombrePdf} → ${pdf.id}`);
 
     // 6. El XML en la app, como «Cargar CEE»: lo que leen el ahorro, el CIFO y la revisión.
-    await cex.setCeeField(e, `cee_${fase}`, parsed);
-    await cex.setCeeField(e, `xml_${fase}`, xmlTexto);
-    if (parsed.combustibleACS) await cex.setCeeField(e, `comb_acs_${fase}`, parsed.combustibleACS);
-    if (parsed.combustibleCalefaccion) await cex.setCeeField(e, `comb_cal_${fase}`, parsed.combustibleCalefaccion);
-    for (const [campo, valor] of [[`fecha_firma_cee_${fase}`, parsed.fechaFirma], [`fecha_visita_cee_${fase}`, parsed.fechaVisita]]) {
-        if (!valor) continue;
-        await cex.setCeeField(e, campo, valor);
-        //: Valor SUELTO por la RPC de clave: `merge_*_doc_json` vuelve lista una fecha.
-        const { error } = esCee
-            ? await supabase.rpc('set_cee_directo_doc_field', { p_id: e.id, p_field: campo, p_value: valor })
-            : await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: e.oportunidad_id, p_field: campo, p_value: valor });
-        if (error) throw new Error(`${campo}: ${error.message}`);
-    }
-    //: La D_ACS por los litros/día del certificado (criterio del 19/10/2026), la
-    //: MISMA función que al cargar un CEE en el módulo. No en un RES080.
-    const esReforma = e.oportunidades?.ficha === 'RES080' || e.cee?.is_reforma || /RES080/i.test(num);
-    if (!esCee && !esReforma) {
-        const { data: c } = await supabase.from('expedientes')
-            .select('acs_method:cee->acs_method, dacs_litros_dia:cee->dacs_litros_dia, cee_inicial:cee->cee_inicial, cee_final:cee->cee_final')
-            .eq('id', e.id).maybeSingle();
-        const { ajusteAcsLitros } = await esm('expedientes/logic/demandaAcs.js');
-        const ajuste = ajusteAcsLitros({ ...(c || {}) });
-        for (const [k, v] of Object.entries(ajuste || {})) await cex.setCeeField(e, k, v);
-        if (ajuste) console.log(`  D_ACS por litros/día: ${JSON.stringify(ajuste)}`);
-    }
+    //    `forzar`: el canónico que se va a firmar manda sobre lo que hubiera cargado.
+    const carga = await cargarXmlEnApp(ctx, fase, xmlTexto, { fileName: canon('xml'), escribir: true, forzar: true });
+    for (const l of lineasCarga(carga, fase)) console.log(l);
 
     // 7. Releer: lo que de verdad ha quedado en la BD.
     const { data: comp } = await supabase.from(esCee ? 'cee_directos' : 'expedientes')
@@ -3681,11 +3699,53 @@ async function listo() {
         + `\n  node scripts/firmar_cee.js ${num}${fase === 'final' ? ' --fase final' : ''}`);
 }
 
+// ─── cargar: solo el XML del `_REVISAR` en la app ───────────────────────────
+
+/**
+ * `cargar <clave> [--fase final] [--xml <ruta>] [--escribir] [--forzar]`
+ *
+ * El XML del borrador `_REVISAR` de la fase, cargado en la app como «Cargar
+ * CEE» (`services/cee/cargarXmlCee.js`). Es lo que hacen solos `aplicar
+ * --escribir` y el CEE final; esto es para uno ya generado o para reintentarlo.
+ * No sube, no renombra ni deja nada listo para firmar. Lee el `.xml` de Drive
+ * (el que se llama como el `.cex` de la fase), o la copia local de `aplicar`;
+ * `--xml` manda. No pisa el CEE cargado de un técnico sin `--forzar`.
+ */
+async function cargarXml() {
+    const fase = opt('fase') === 'final' ? 'final' : 'inicial';
+    const ctx = await cargar(POS[0]);
+    const e = ctx.expediente;
+    const nombre = cex.nombreDelCex(e, fase).replace(/\.cex$/i, '.xml');
+    let fuente = null;
+    const r = opt('xml');
+    if (r && r !== true) fuente = { bytes: fs.readFileSync(r), de: r, nombre: path.basename(r) };
+    if (!fuente && ctx.driveFolderId) {
+        const raiz = ctx.origen === 'cee' ? ctx.driveFolderId
+            : await driveService.findSubfolderByName(ctx.driveFolderId, '1. CEE');
+        const sub = ctx.origen === 'cee'
+            ? require('../services/ceeDirectoFolders').subcarpetaFase(e.alcance, fase)
+            : (fase === 'final' ? 'CEE FINAL' : 'CEE INICIAL');
+        const carpeta = raiz ? await driveService.findSubfolderByName(raiz, sub) : null;
+        const id = carpeta ? await driveService.findFileByName(carpeta, nombre) : null;
+        if (id) fuente = { bytes: await driveService.getFileContent(id), de: 'Drive', nombre };
+    }
+    const local = path.join(CACHE, nombre);
+    if (!fuente && fs.existsSync(local)) fuente = { bytes: fs.readFileSync(local), de: local, nombre };
+    if (!fuente?.bytes?.length) throw new Error(`No hay «${nombre}» ni en Drive ni en ${CACHE}: --xml <ruta>.`);
+    console.log(`\n${e.numero_expediente} · XML del CEE ${fase}: ${fuente.nombre} (${fuente.de})`);
+    const carga = await cargarXmlEnApp(ctx, fase, Buffer.from(fuente.bytes),
+        { fileName: fuente.nombre, escribir: ESCRIBIR, forzar: RESTO.includes('--forzar') });
+    for (const l of lineasCarga(carga, fase)) console.log(l);
+    if (carga.bd) console.log(`  BD: ${JSON.stringify(carga.bd)}`);
+    if (!ESCRIBIR && carga.omitido === 'en seco') console.log('\nEN SECO: no se ha cargado nada. Pásale --escribir.');
+}
+
 // ─── main ───────────────────────────────────────────────────────────────────
 
 const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel, keymark,
                   'alta-aerotermia': altaAerotermia, aplicar, croquis, video,
-                  'pedir-fotos': pedirFotos, streetview, rehacer, instalacion, calificar, listo };
+                  'pedir-fotos': pedirFotos, streetview, rehacer, instalacion, calificar, listo,
+                  cargar: cargarXml };
 
 (async () => {
     const f = ORDENES[ORDEN];

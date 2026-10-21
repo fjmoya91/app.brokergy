@@ -35,7 +35,11 @@ de la envolvente y «Generar CEE final» desde la medida del técnico).
 **REGLA — el CÁLCULO es el mismo.** Medido con el motor de la 3.1 sobre el mismo
 fichero que dio la 2.3: idénticas demandas, emisiones y calificación (26RES093_9: 35,23 D
 / 134,37 C). Ni la normativa ni el tipo de bomba mueven un decimal: un inicial de la 2.3
-y un final de la 3.1 siguen siendo comparables.
+y un final de la 3.1 siguen siendo comparables. ⚠️ **Salvo los puentes térmicos que la 2.3
+pone POR SU CUENTA al calcular** (pilares integrados, solera, cubierta, cajas de persiana) cuando el
+fichero no los lleva: la 3.x no los añade y la demanda baja (26RES060_186, 20/10/2026: 215,19 → 196,84).
+Al convertir para el final se escriben los del XML del inicial (`completar_puentes_23`); ver «El
+CEE FINAL de un RES060: se COPIA el inicial».
 
 **REGLA — los escritores del motor siguen en la forma de la 2.3** (medidos sobre 1.600
 `.cex` reales) y la versión se aplica en las FRONTERAS: `elevar` al escribir una 3.1, e

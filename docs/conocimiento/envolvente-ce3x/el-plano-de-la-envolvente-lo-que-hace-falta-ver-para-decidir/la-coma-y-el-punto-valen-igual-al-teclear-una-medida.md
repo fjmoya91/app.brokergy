@@ -70,8 +70,11 @@ leerlo, que es justo cuando se pierde algo.
 `rendimiento_id` (el `boilerId` del funnel) da el rendimiento de combustión de
 la MISMA tabla que usó la simulación, `misma_caldera_acs` decide si el equipo es
 `mixto2` o solo calefacción, y las superficies salen de la habitable. El
-aislamiento va al caso DESFAVORABLE («Sin aislamiento»), que es lo que pusieron
-los certificadores en los dos expedientes reales, y sale dicho.
+aislamiento iba al caso DESFAVORABLE («Sin aislamiento»), que es lo que pusieron
+los certificadores en los dos expedientes reales, y sale dicho. **Desde el
+21/10/2026 eso es solo en un RES080**: en lo demás, «Antigua con aislamiento
+medio» y al menos un 85 % de combustión, y el depósito de la medida — ver
+[la caldera existente según la ficha](docs/conocimiento/cee-generacion/la-caldera-existente-segun-la-ficha-y-el-deposito-de-la-medida.md).
 
 ⚠️ **El `boilerId` del carbón y el de la biomasa son el MISMO** (`solid_*`): lo
 que los separa es `inputs.fuelType`, que la oportunidad sí guarda (comprobado en
