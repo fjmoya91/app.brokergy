@@ -1,10 +1,12 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 
-// Popup de desglose de la ficha RES060FC (propuesta de nueva normativa).
+// Popup de desglose de la ficha con FACTOR DE CORRECCIÓN (borrador): RES060FC, o la
+// RES09xFC de la zona si hay hibridación (logic/res060fc.js).
 // Estilo del prototipo `prototypes/calculadora-cae-res060fc`: panel oscuro, acento
 // naranja→lima, número en degradado, badge TECHO TÉCNICO / TOPE 70%·CEF, comparativa
-// con barras y desglose del cálculo. Solo lectura.
+// con barras, desglose del cálculo y los AVISOS de elegibilidad, que van siempre
+// con la cifra (es un borrador). Solo lectura.
 //
 // Se renderiza por PORTAL a document.body: cualquier ancestro con `backdrop-filter`
 // (p. ej. el panel económico sticky del expediente) crea un containing block que
@@ -45,10 +47,13 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
     const diffKwh = fc.cae - actKwh;
     const diffEur = fcEur - actEur;
     const acsIncluido = inputs?.changeAcs || inputs?.incluir_acs;
+    const avisos = fc.avisos || [];
+    const cefDe = fc.cefFuente === 'cee' ? 'del CEE inicial' : (fc.cefFuente === 'estimado' ? 'estimado' : 'sin dato');
+    const topeLabel = fc.hibridacion ? 'TOPE 70%·CEF CALEF.' : 'TOPE 70%·CEF';
 
     const entradas = [
         ['Provincia', fc.provinciaNombre],
-        ['Año', fc.yearLabel],
+        ['Año', fc.anioSupuesto ? `${fc.yearLabel} (supuesto)` : fc.yearLabel],
         ['Tipología', fc.tipologiaLabel],
         ['Superficie', `${n0(fc.superficie)} m²`],
         ['SCOP calef.', n2(parseFloat(inputs?.scopHeating) || 0)],
@@ -59,15 +64,21 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
 
     const rows = [
         ['Valor Anexo IV', `${n1(fc.q)} kWh/m²·año`],
-        ['η_i caldera (Anexo II)', `${n0(fc.eta * 100)} %`],
-        ['f_C aplicado', n2(fc.fc)],
+        [`η_i caldera (Anexo II del borrador)${fc.etaApp && Math.abs(fc.eta - fc.etaApp) > 1e-9 ? ` · vigente ${n0(fc.etaApp * 100)} %` : ''}`, `${n0(fc.eta * 100)} %`],
+        ['f_C', n2(fc.fc)],
         ['Demanda (Anexo IV × S)', `${n0(fc.dem)} kWh/año`],
         ['Ahorro calefacción', `${n0(fc.ahc)} kWh/año`],
-        ['Ahorro ACS × f_C', `${n0(fc.ahaFC)} kWh/año`],
+        ['Ahorro ACS', `${n0(fc.aha)} kWh/año`],
+        ...(fc.hibridacion ? [[`C_b (Anexo V, zona ${fc.zonaCb})`, n2(fc.cb * 100) + ' %']] : []),
         ['AES (techo técnico)', `${n0(fc.aes)} kWh/año`],
-        ['CEF previo (consumo actual)', `${n0(fc.cef)} kWh/año`],
-        ['Tope 0,70·CEF', `${n0(fc.tope)} kWh/año`],
+        [`CEF ${fc.hibridacion ? 'de calefacción ' : ''}(${cefDe})`, fc.cef ? `${n0(fc.cef)} kWh/año` : '—'],
+        ['Tope 0,70·CEF', fc.tope != null ? `${n0(fc.tope)} kWh/año` : 'sin tope'],
     ];
+    const TONO = {
+        bloquea: { c: '#f87171', bg: 'rgba(248,113,113,0.10)', t: 'No se puede pedir' },
+        aviso: { c: ORANGE, bg: 'rgba(243,146,0,0.10)', t: 'Ojo' },
+        info: { c: INK_MUTED, bg: 'rgba(255,255,255,0.03)', t: 'A cumplir' },
+    };
 
     const modal = (
         <div
@@ -87,7 +98,7 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                 <div className="px-5 py-3 flex justify-between items-center" style={{ borderBottom: `1px solid ${LINE}` }}>
                     <h3 className="font-black uppercase tracking-widest flex items-center gap-2.5 text-[13px]" style={{ color: '#ffffff' }}>
                         <span className="w-6 h-6 rounded-md flex items-center justify-center text-xs" style={{ background: GRAD }}>⚡</span>
-                        Ficha RES060FC
+                        Ficha {fc.ficha || 'RES060FC'}
                     </h3>
                     <button
                         onClick={onClose}
@@ -110,18 +121,36 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                             <span className="text-[11px] font-bold uppercase" style={{ color: 'rgba(255,255,255,0.7)' }}>kWh/año</span>
                             <span className="text-lg font-black tabular-nums ml-1" style={{ color: LIME }}>· {n0(fcEur)} €</span>
                         </div>
-                        <div
-                            className="inline-block mt-2 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest"
-                            style={{ background: fc.limitedByTope ? ORANGE : LIME, color: fc.limitedByTope ? '#2b1600' : '#1b2b06' }}
-                        >
-                            {fc.limitedByTope ? 'TOPE 70%·CEF' : 'TECHO TÉCNICO'}
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                            <div
+                                className="inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest"
+                                style={{ background: fc.limitedByTope ? ORANGE : LIME, color: fc.limitedByTope ? '#2b1600' : '#1b2b06' }}
+                            >
+                                {fc.limitedByTope ? topeLabel : 'TECHO TÉCNICO'}
+                            </div>
+                            {fc.elegible === false && (
+                                <div className="inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest" style={{ background: '#f87171', color: '#2b0606' }}>
+                                    NO ELEGIBLE
+                                </div>
+                            )}
                         </div>
                     </div>
 
-                    {/* COMPARATIVA (lo primero que importa: cuánto sube vs RES060 actual) */}
+                    {/* LO QUE IMPIDE PEDIRLO o cambia la cifra: antes que la comparativa */}
+                    {avisos.some((a) => a.tono !== 'info') && (
+                        <div className="space-y-1.5">
+                            {avisos.filter((a) => a.tono !== 'info').map((a, i) => (
+                                <div key={i} className="rounded-lg px-3 py-2 text-[11px] leading-snug" style={{ background: TONO[a.tono].bg, borderLeft: `3px solid ${TONO[a.tono].c}`, color: '#ffffff' }}>
+                                    <b style={{ color: TONO[a.tono].c }}>{TONO[a.tono].t}: </b>{a.texto}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* COMPARATIVA (lo primero que importa: cuánto sube vs la ficha vigente) */}
                     <div className="rounded-xl p-3.5" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${LINE}` }}>
                         <div className="flex items-center justify-between mb-2.5">
-                            <span className="text-[9px] font-black uppercase tracking-[0.2em]" style={{ color: LIME }}>vs RES060 actual</span>
+                            <span className="text-[9px] font-black uppercase tracking-[0.2em]" style={{ color: LIME }}>vs ficha vigente</span>
                             <span className="text-lg font-black tabular-nums" style={{ color: diffEur >= 0 ? LIME : '#f87171' }}>
                                 {ratio > 0 ? `${n2(ratio)}×` : '—'}
                             </span>
@@ -179,17 +208,31 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                             </tbody>
                         </table>
                         <div className="mt-2 flex items-baseline justify-between gap-3 flex-wrap">
-                            <span className="text-[10px] font-mono" style={{ color: INK_MUTED }}>mín({n0(fc.aes)} ; {n0(fc.tope)}) × {n2(fc.fc)}</span>
-                            <span className="text-base font-black" style={{ color: LIME }}>= {n0(fcEur)} €</span>
+                            <span className="text-[10px] font-mono" style={{ color: INK_MUTED }}>
+                                {fc.tope != null ? `mín(${n0(fc.aes)} ; ${n0(fc.tope)})` : n0(fc.aes)} × {n2(fc.fc)} = {n0(fc.cae)} kWh
+                            </span>
+                            <span className="text-base font-black" style={{ color: LIME }}>{n0(fcEur)} €</span>
                         </div>
                     </div>
+
+                    {/* LO QUE HAY QUE CUMPLIR (siempre) */}
+                    {avisos.some((a) => a.tono === 'info') && (
+                        <div>
+                            <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-1.5" style={{ color: ORANGE }}>Lo que pide el borrador</h4>
+                            <ul className="space-y-1">
+                                {avisos.filter((a) => a.tono === 'info').map((a, i) => (
+                                    <li key={i} className="text-[10.5px] leading-snug" style={{ color: INK_MUTED }}>· {a.texto}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
 
                     <p className="text-[9.5px] italic leading-relaxed" style={{ color: INK_MUTED }}>
                         <b style={{ color: fc.limitedByTope ? ORANGE : LIME }}>{fc.limitedByTope ? 'Tope 70%·CEF' : 'Techo técnico'}:</b>{' '}
                         {fc.limitedByTope
-                            ? 'lo limita el consumo real (CEF); mejorar SCOP o demanda no da más CAE.'
+                            ? 'lo limita el consumo de partida (CEF); mejorar SCOP o demanda no da más CAE.'
                             : 'importan demanda, superficie, η y SCOP.'}{' '}
-                        Demanda del Anexo IV con el mismo η y SCOP que el cálculo actual. Borrador en consulta pública: puede cambiar.
+                        Demanda del Anexo IV con el mismo SCOP que el cálculo actual; f_C aplicado una vez. Borrador en consulta pública: puede cambiar.
                     </p>
                 </div>
             </div>

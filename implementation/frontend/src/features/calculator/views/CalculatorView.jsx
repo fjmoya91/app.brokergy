@@ -42,7 +42,7 @@ import { esBloque, TIPO_INMUEBLE } from '../logic/tipoInmueble';
 import { resolveDacs, ACS_METHOD } from '../../expedientes/logic/demandaAcs';
 import { ceeToEmisionesInputs, ceeFinalToEmisionesInputs } from '../logic/ceeSeed';
 import { demandaDeCalculo } from '../../cee/ceeAvisos';
-import { calculateRes060FC } from '../logic/res060fc';
+import { calculateRes060FC, contextoCalderaFc } from '../logic/res060fc';
 import { Res060FCModal } from '../components/Res060FCModal';
 import axios from 'axios';
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
@@ -822,9 +822,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             return out;
         })();
 
-        // 3.5 Ficha RES060FC (propuesta de nueva normativa) — comparativa en tiempo real.
-        // Usa la demanda del ANEXO IV (provincia + año + tipología), el MISMO η/SCOP que
-        // el cálculo actual, y CEF = consumo de energía final previo ya calculado.
+        // 3.5 Fichas con FACTOR DE CORRECCIÓN (borrador) — comparativa en tiempo real.
+        // RES060FC, o la RES09xFC de la zona si hay hibridación (logic/res060fc.js).
+        // Demanda del ANEXO IV, el MISMO η/SCOP que el cálculo actual, y el CEF del
+        // CEE inicial si está cargado (sin él, estimado con la demanda de la app).
         // La superficie es la misma que aplica el cálculo vigente (CEE si hay, si no la calefactable).
         const supRes060FC = sanitizedInputs.manualSuperficie > 0
             ? sanitizedInputs.manualSuperficie
@@ -833,13 +834,22 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             provinciaCode: inputs.provincia || inputs.provinceCode,
             anio: sanitizedInputs.anio || inputs.anio,
             tipo: sanitizedInputs.tipo,
+            bloque: esBloqueCalc,
+            plantasEdificio: inputs.fcPlantasEdificio,
+            zona: sanitizedInputs.zona,
             superficie: supRes060FC,
             boilerEff: sanitizedInputs.boilerEff,
+            boilerId: inputs.boilerId,
             scopHeating: sanitizedInputs.scopHeating,
             scopAcs: sanitizedInputs.scopAcs,
             changeAcs: sanitizedInputs.changeAcs,
             dacs: sanitizedInputs.dacs,
-            cef: savingsRes.finalEnergyOld,
+            qCalefaccion: demandRes.Q_net,
+            ceeInicial: inputs.xmlDemandData,
+            hibridacion: hybridizationRes
+                ? { coverage: hybridizationRes.coverage, refPower: hybridizationRes.refPower, cb: hybridizationRes.cb }
+                : null,
+            contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal },
         });
 
         // Financieros RES060FC con las mismas reglas (precio CAE, prescriptor, IVA...)
@@ -1069,6 +1079,13 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 const fmt = (n) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
                 const fmtMwh = (n) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(n / 1000);
                 const currentFinancials = showOnlyReforma ? result.financialsRes080 : result.financials;
+                // Chip «FC»: la ficha que toca (RES060FC o la de hibridación de la zona) y,
+                // si algo impide pedirlo, tachado y con el porqué en el título.
+                const fcNoElegible = result.res060fc?.elegible === false;
+                const fcTitulo = fcNoElegible
+                    ? `No se puede pedir: ${(result.res060fc.avisos || []).find(a => a.tono === 'bloquea')?.texto || ''}`
+                    : `Ver desglose de la ficha ${result.res060fc?.ficha || 'RES060FC'}`;
+                const fcClase = `relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer${fcNoElegible ? ' line-through opacity-60' : ''}`;
                 return (
                 <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] py-2 px-3 md:py-2 md:px-4 flex justify-center pointer-events-none">
                     {/* Gradient border frame */}
@@ -1094,8 +1111,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                             <button
                                                 type="button"
                                                 onClick={() => setShowRes060FCDetail(true)}
-                                                title="Ver desglose de la ficha RES060FC"
-                                                className="relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer"
+                                                title={fcTitulo}
+                                                className={fcClase}
                                             >
                                                 FC {fmt(result.financialsRes060FC.caeBonus)} €
                                             </button>
@@ -1137,8 +1154,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                             <button
                                                 type="button"
                                                 onClick={() => setShowRes060FCDetail(true)}
-                                                title="Ver desglose de la ficha RES060FC"
-                                                className="relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer"
+                                                title={fcTitulo}
+                                                className={fcClase}
                                             >
                                                 FC {fmt(result.financialsRes060FC.profitBrokergy)} €
                                             </button>
@@ -1179,8 +1196,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                             <button
                                                 type="button"
                                                 onClick={() => setShowRes060FCDetail(true)}
-                                                title="Ver desglose de la ficha RES060FC"
-                                                className="relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer"
+                                                title={fcTitulo}
+                                                className={fcClase}
                                             >
                                                 FC {fmtMwh(result.res060fc.cae)} MWh/a
                                             </button>

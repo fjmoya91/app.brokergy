@@ -30,6 +30,16 @@ columna para bombas **geotérmicas e hidrotérmicas** (al 50 %: 86,38 % frente a
 80,45 %) que **no se implementa**: la app solo trabaja con aerotermia y un selector
 que nadie usa envejece sin que nadie lo compruebe.
 
+**REGLA — por debajo del 20 % de cobertura NO hay C_b (vale 0)** (2026-10-21). La tabla del
+Anexo III de la RES093 (BOE 18/07/2024, pág. 91480) pone «N/A» en el 5, el 10 y el 15 % y
+empieza en el 20 % (39,46 %). Solo se interpola ENTRE valores de la tabla, así que del 15 al
+20 % no hay entre qué. `getCb` cortaba en el 15 %, y del 16 al 19 % no caía en ningún tramo:
+devolvía el 0,984 del final, como si la bomba lo cubriera casi todo. La calculadora ya avisaba
+«MIN 20 %». Medido ese día: ninguna oportunidad (17 con hibridación) ni expediente (13) tenía
+una cobertura en ese tramo, así que no cambió ninguna cifra guardada. Desde el 95 % sigue
+saliendo el máximo de la tabla (0,9838, que con tres decimales es 0,984), que es lo que dice
+el CIFO.
+
 **REGLA — el impreso oficial NO tiene casilla para el C_b.** Su tabla de resultado es
 AE_C · AE_ACS · AE_CAP · AE_TOTAL · D_i, así que **el total impreso no cuadra con la
 suma de los tres sumandos impresos** — y eso es lo primero que cruza un verificador.

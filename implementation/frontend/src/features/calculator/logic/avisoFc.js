@@ -31,10 +31,11 @@
 export const FC_ENTRADA_VIGOR = 'enero de 2027';
 
 /**
- * Desde cuándo podrían acogerse las actuaciones YA EJECUTADAS, según el borrador.
+ * Desde cuándo podrían acogerse las actuaciones YA EJECUTADAS, según el borrador
+ * (las INICIADAS desde esa fecha, con facturas posteriores: FC_INICIO_ACTUACIONES).
  * Es lo que permite decirle al cliente que no tiene que esperar para hacer la obra.
  */
-export const FC_ACTUACIONES_DESDE = 'marzo de 2026';
+export const FC_ACTUACIONES_DESDE = '22 de marzo de 2026';
 
 // Mismo formato que el resto del mensaje (`formatNumber` de ProposalModal):
 // `useGrouping` explícito, porque el es-ES por defecto NO agrupa los números de
@@ -79,6 +80,10 @@ export function estadoFc(result, inputs) {
     if (!fc) return no('falta la provincia de la vivienda, y la demanda del Anexo IV va por provincia');
     if (fc.noAnexoData) return no(`el Anexo IV del borrador no trae datos para ${fc.provinciaNombre || 'esta provincia'}`);
     if (!(fc.cae > 0) || !result?.financialsRes060FC) return no('con esta ficha el ahorro computable sale a cero');
+    // Lo que impide pedirlo (sin caldera, letra del CEE…) lo decide el motor: un
+    // bono que no se puede pedir no se anuncia, aunque salga más alto.
+    const bloquea = (fc.avisos || []).find((a) => a.tono === 'bloquea');
+    if (fc.elegible === false && bloquea) return no(`con la ficha nueva no se podría pedir (${bloquea.texto})`);
 
     const actual = Math.round(result?.financials?.caeBonus || 0);
     const conFc = Math.round(result.financialsRes060FC.caeBonus || 0);
@@ -119,9 +124,9 @@ export function lineaFactorCorreccion({ actual = 0, fc = 0, tuteo = true, dosOpc
 
     const p1 = `📅 *Cambio de normativa previsto — el bono podría ser mayor.* El Ministerio tiene en consulta pública una revisión de la ficha con la que se calcula este Bono Energético (incorpora un factor de corrección). Si se aprueba tal y como está el borrador, el bono ${cual} pasaría de *${fmt(actual)} €* a unos *${fmt(fc)} €*.`;
 
-    const p2 = `Su entrada en vigor está prevista para ${FC_ENTRADA_VIGOR}, y el borrador contempla que puedan acogerse también las actuaciones ejecutadas desde ${FC_ACTUACIONES_DESDE} en adelante. Esta obra entra en ese supuesto, así que ${t('no tienes que esperar a nada: puedes ejecutarla cuando te venga bien', 'el cliente no tiene que esperar a nada: la obra puede ejecutarse cuando os venga bien')} y, si finalmente se aprueba y ${t('te', 'le')} resulta más beneficioso, ${t('tramitaríamos tu bono', 'tramitaríamos el bono')} en ${FC_ENTRADA_VIGOR.split(' ')[0]} con la ficha nueva.`;
+    const p2 = `Su entrada en vigor está prevista para ${FC_ENTRADA_VIGOR}, y el borrador contempla que puedan acogerse también las actuaciones iniciadas desde el ${FC_ACTUACIONES_DESDE} en adelante. Esta obra entra en ese supuesto, así que ${t('no tienes que esperar a nada: puedes ejecutarla cuando te venga bien', 'el cliente no tiene que esperar a nada: la obra puede ejecutarse cuando os venga bien')} y, si finalmente se aprueba y ${t('te', 'le')} resulta más beneficioso, ${t('tramitaríamos tu bono', 'tramitaríamos el bono')} en ${FC_ENTRADA_VIGOR.split(' ')[0]} con la ficha nueva.`;
 
-    const p3 = `Es un borrador en consulta pública: puede cambiar o no llegar a aprobarse, así que esa cifra no está garantizada. El importe firme de esta propuesta es el de *${fmt(actual)} €*.`;
+    const p3 = `Es un borrador en consulta pública: puede cambiar o no llegar a aprobarse, y tendrá un cupo limitado, así que esa cifra no está garantizada. El importe firme de esta propuesta es el de *${fmt(actual)} €*.`;
 
     return `${p1}\n\n${p2}\n\n${p3}`;
 }

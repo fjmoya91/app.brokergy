@@ -149,10 +149,19 @@ export const BIVALENCE_TABLE = [
 /**
  * Obtiene el coeficiente de bivalencia Cb mediante interpolación
  * @param {number} coverage - Porcentaje de cobertura (0 a 1)
+ *
+ * REGLA — por debajo del 20 % NO hay C_b (0). La tabla del Anexo III de la RES093
+ * (BOE 18/07/2024, pág. 91480) dice «N/A» en el 5, el 10 y el 15 % y empieza en el
+ * 20 %, y solo se interpola ENTRE valores de la tabla: del 15 al 20 % no hay entre
+ * qué. Hasta el 21/10/2026 el corte estaba en el 15 %, y una cobertura del 16 al
+ * 19 % no caía en ningún tramo y salía con el 0,984 del final: una bomba pequeña
+ * contaba casi como una sustitución completa. (La calculadora ya avisaba «MIN 20 %».)
  */
 export function getCb(coverage) {
-    if (coverage <= 0.15) return 0;
-    if (coverage >= 0.95) return 0.984; 
+    const c = Number(coverage);
+    if (!(c >= BIVALENCE_TABLE[0].coverage - 1e-9)) return 0;
+    coverage = c;
+    if (coverage >= 0.95) return 0.984;
     
     // Si la cobertura es exactamente uno de los puntos clave (o muy cercana), evitamos errores de redondeo excesivos
     for (let i = 0; i < BIVALENCE_TABLE.length; i++) {

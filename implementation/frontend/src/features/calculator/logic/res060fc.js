@@ -1,24 +1,46 @@
 import { redondeaScop } from './calculation.js';
+import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping.js';
+import { esCalderaBiomasa } from './irpfBiomasa.js';
 /**
  * ============================================================================
- * FICHA RES060FC (PROPUESTA) — CAEs MÁXIMOS CON FACTOR DE CORRECCIÓN
+ * FICHAS CON FACTOR DE CORRECCIÓN (BORRADOR DGPLACE) — CAEs CON f_C
  * ============================================================================
  *
- * Adaptación del prototipo `prototypes/calculadora-cae-res060fc` a la app.
+ * Borrador en consulta pública: «Propuesta de Resolución DGPLACE bombas de
+ * calor» (173 págs.), que trae la RES060FC, la RES062FC y la familia
+ * RES090FC…RES099FC. Aquí se calculan las dos que nos tocan:
  *
- * Fórmula del borrador:
- *   AE_TOTAL = Mínimo( AES ; 0,70 · CEF ) × f_C
- *   AES      = (D_CAL · S)·(1/η_i − 1/SCOP_bdc) + [ D_ACS·(1/η_i − 1/SCOP_dhw) ]·f_C
+ *   RES060FC — sustitución de la caldera por bomba de calor:
+ *     AE  = mín( AES ; 0,70 · CEF ) · f_C
+ *     AES = (D_CAL·S)·(1/η_i − 1/SCOP_bdc) + D_ACS·(1/η_i − 1/SCOP_dhw)
  *
- * - D_CAL sale del ANEXO IV (kWh/m²·año) por provincia + intervalo de año de
- *   construcción + tipología. NO usa la demanda estimada/CEE de la app: ese es
- *   precisamente el cambio de la ficha nueva.
- * - η_i y SCOPs: los MISMOS que el cálculo RES060 actual de la app (a propósito,
- *   igual que hace el prototipo, para que la comparativa sea limpia).
- * - El f_C multiplica el término de ACS dentro de AES Y de nuevo todo el mínimo.
- *   Es el literal del borrador (probable errata) y se respeta a propósito.
- * - CEF = consumo de energía final previo (kWh/año). La app lo deriva del
- *   consumo actual calculado (calefacción + ACS con la caldera vieja).
+ *   RES090FC…RES094FC — hibridación en PARALELO, UNA FICHA POR ZONA
+ *   (A3-A4 · B3-B4 · C · D1-D3 · E1), cada una con su tabla de C_b (Anexo V):
+ *     AE  = mín( AES ; 0,70 · CEF_calefacción ) · f_C
+ *     AES = (D_CAL·S)·(1/η_i − 1/SCOP_bdc)·C_b + D_ACS·(1/η_i − 1/SCOP_dhw)·C_b
+ *
+ * REGLA — el f_C se aplica UNA vez. La RES060FC escribe además un «· f_C» al
+ * final de su AES (el ACS saldría multiplicado por f_C²), pero las otras once
+ * fichas del MISMO borrador lo aplican una sola vez sobre el mínimo: es una
+ * errata. Hasta el 21/10/2026 se respetaba el literal y el FC salía un 9 % más
+ * alto en el conjunto de los expedientes.
+ *
+ * REGLA — la demanda es la del ANEXO IV (provincia + año de construcción +
+ * tipología), no la del CEE: ese es el cambio de la ficha nueva. El CEE solo
+ * entra por el TOPE, y entra por su CONSUMO de energía final (CEF), que es el del
+ * CEE INICIAL: Σ <EnergiaFinalVectores> × superficie. Sin CEE se estima con la
+ * demanda de la app ÷ η de la tabla, y se dice: CE3X declara las calderas viejas
+ * al 25-69 %, así que el CEF real sale de mediana 1,45 veces el estimado.
+ *
+ * REGLA — en una HIBRIDACIÓN la ficha es la de su zona, no la RES060FC (que exige
+ * retirar la caldera o dejarla en preinstalación sin hibridar), y el tope es el
+ * CEF de CALEFACCIÓN, no el total.
+ *
+ * - η_i: la del cálculo vigente, salvo las dos filas de gas de condensación, que
+ *   el Anexo II del borrador da al revés que la tabla de la ficha vigente.
+ * - SCOP: los MISMOS que el cálculo vigente, para que la comparativa sea limpia.
+ * - Nada de esto es firme: devuelve también los avisos de elegibilidad
+ *   (`avisos`, `elegible`) para que ninguna pantalla enseñe la cifra sin ellos.
  */
 
 // Intervalos de año de construcción del Anexo IV (columnas de las tablas)
@@ -41,15 +63,51 @@ const ANEXO_IV = {
 
 /** Código INE ('01'..'52') → índice de fila del Anexo IV. -1 si no válido. */
 export function provIndexFromCode(code) {
-    const n = parseInt(code, 10);
-    if (!Number.isFinite(n) || n < 1 || n > 52) return -1;
+    const s = String(code ?? '').trim();
+    if (!/^\d{1,2}$/.test(s)) return -1;
+    const n = parseInt(s, 10);
+    if (n < 1 || n > 52) return -1;
     return n >= 51 ? 50 : n - 1; // Ceuta (51) y Melilla (52) comparten fila
 }
 
-/** Año de construcción → índice del intervalo del Anexo IV. */
+const normNombre = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z]/g, '');
+
+// Nombre de provincia (en cualquiera de sus formas) → índice del Anexo IV.
+const PROVINCIA_POR_NOMBRE = (() => {
+    const m = new Map();
+    RES060FC_PROVINCES.forEach((nombre, i) => {
+        for (const parte of nombre.split('/')) {
+            const coma = parte.match(/^(.*),\s*(.*)$/); // «Coruña, A» → «A Coruña»
+            for (const v of coma ? [coma[1], `${coma[2]} ${coma[1]}`] : [parte]) m.set(normNombre(v), i);
+        }
+    });
+    for (const [code, d] of Object.entries(PROVINCE_CLIMATE_MAP)) {
+        const i = provIndexFromCode(code);
+        if (i >= 0) m.set(normNombre(d.name), i);
+    }
+    // Los nombres en castellano que no salen de ninguna de las dos listas.
+    [['ALAVA', 0], ['GUIPUZCOA', 19], ['VIZCAYA', 47], ['GERONA', 16], ['LERIDA', 24], ['ORENSE', 31],
+        ['BALEARES', 6], ['ISLASBALEARES', 6], ['LACORUNA', 14], ['SANTACRUZDETENERIFE', 37],
+        ['CEUTA', 50], ['MELILLA', 50]].forEach(([k, i]) => m.set(k, i));
+    return m;
+})();
+
+/**
+ * Provincia → índice del Anexo IV, o -1. Acepta el código INE o el NOMBRE: 68
+ * oportunidades la guardan como «CIUDAD REAL» y, con solo el código, se quedaban
+ * sin cifra y sin decir por qué.
+ */
+export function provIndex(valor) {
+    const i = provIndexFromCode(valor);
+    if (i >= 0) return i;
+    return PROVINCIA_POR_NOMBRE.get(normNombre(valor)) ?? -1;
+}
+
+/** Año de construcción → índice del intervalo del Anexo IV, o -1 si no consta. */
 export function yearIntervalIndex(anio) {
     const y = parseInt(anio, 10);
-    if (!Number.isFinite(y) || y <= 0) return 3; // fallback razonable: 1981-2007
+    if (!Number.isFinite(y) || y < 1000 || y > 2100) return -1;
     if (y <= 1940) return 0;
     if (y <= 1960) return 1;
     if (y <= 1980) return 2;
@@ -59,71 +117,301 @@ export function yearIntervalIndex(anio) {
     return 6;
 }
 
-// Tipología de la app → tabla del Anexo IV y f_C de la ficha.
-// 'hilera' (adosada) es unifamiliar a efectos de la ficha. Para 'piso' usamos la
-// tabla de bloques de 1-3 plantas (la app no registra las plantas del edificio);
-// f_C de piso = 2,5 según la ficha (2 en el cuerpo de la Resolución).
-function tipologiaFC(tipo) {
-    if (tipo === 'piso') return { table: 'P13', fc: 2.5, label: 'Piso en bloque (1-3 pl.)' };
-    return { table: 'UNI', fc: 2, label: tipo === 'hilera' ? 'Unifamiliar (adosada)' : 'Unifamiliar' };
+/** Plantas del EDIFICIO (no de la vivienda) → '1-3' | '4+' | null si no consta. */
+export function plantasEdificioFc(valor) {
+    const s = String(valor ?? '').trim();
+    if (s === '1-3' || s === '4+') return s;
+    const n = parseInt(s, 10);
+    if (Number.isFinite(n) && n > 0) return n >= 4 ? '4+' : '1-3';
+    return null;
+}
+
+// Tipología → tabla del Anexo IV y f_C. 'hilera' (adosada) es unifamiliar. El
+// piso y el bloque van por la tabla de su EDIFICIO (1-3 o ≥4 plantas): la de ≥4
+// da hasta un 28 % menos, así que sin el dato se usa la de 1-3 y se avisa con la
+// cifra de la otra. El tipo se compara en minúsculas: `normalizeData` guarda
+// 'PISO', y en mayúsculas un piso cobraba como unifamiliar.
+function tipologiaFC({ tipo, bloque, plantasEdificio }) {
+    const t = String(tipo || '').toLowerCase();
+    const pl = plantasEdificioFc(plantasEdificio);
+    const table = pl === '4+' ? 'P4' : 'P13';
+    const edificio = pl === '4+' ? '4 o más plantas' : '1-3 plantas';
+    if (bloque) return { clase: 'bloque', table, fc: 3, label: `Bloque colectivo (${edificio})`, faltanPlantas: !pl };
+    if (t === 'piso') return { clase: 'piso', table, fc: 2.5, label: `Piso (edificio de ${edificio})`, faltanPlantas: !pl };
+    return { clase: 'unifamiliar', table: 'UNI', fc: 2, label: t === 'hilera' ? 'Unifamiliar (adosada)' : 'Unifamiliar', faltanPlantas: false };
+}
+
+// Anexo II del borrador: las dos filas de gas de condensación van AL REVÉS que en
+// la tabla de la ficha vigente (BOILER_EFFICIENCIES, 85 % y 83 %). El resto coincide.
+const ETA_ANEXO_II_FC = { gas_pre98_cond: 0.83, gas_post98_cond_auto: 0.85 };
+
+// Anexo V de cada ficha de hibridación en PARALELO (aerotermia): % de la potencia
+// de la bomba sobre la necesaria → C_b. Hasta el primer punto, 0; entre puntos se
+// interpola linealmente; con el 100 % o más, 1. La de D1-D3 es la BIVALENCE_TABLE
+// de la ficha vigente más el tramo del 95 al 100 %.
+const CB_PARALELO = {
+    A: { ficha: 'RES090FC', zonas: 'A3-A4', puntos: [[0.10, 0], [0.15, 0.4560], [0.20, 0.5730], [0.25, 0.6718], [0.30, 0.7558], [0.35, 0.8213], [0.40, 0.8701], [0.45, 0.9092], [0.50, 0.9392], [0.55, 0.9574], [0.60, 0.9707], [0.65, 0.9805], [0.70, 0.9864], [0.75, 0.9915], [0.80, 0.9940], [0.85, 0.9963], [0.90, 0.9975], [0.95, 0.9987], [1, 1]] },
+    B: { ficha: 'RES091FC', zonas: 'B3-B4', puntos: [[0.10, 0], [0.15, 0.3856], [0.20, 0.4932], [0.25, 0.5889], [0.30, 0.6747], [0.35, 0.7476], [0.40, 0.8057], [0.45, 0.8547], [0.50, 0.8948], [0.55, 0.9220], [0.60, 0.9434], [0.65, 0.9606], [0.70, 0.9722], [0.75, 0.9826], [0.80, 0.9881], [0.85, 0.9935], [0.90, 0.9957], [0.95, 0.9980], [1, 1]] },
+    C: { ficha: 'RES092FC', zonas: 'C1-C4', puntos: [[0.10, 0], [0.15, 0.3527], [0.20, 0.4559], [0.25, 0.5496], [0.30, 0.6331], [0.35, 0.7061], [0.40, 0.7678], [0.45, 0.8190], [0.50, 0.8597], [0.55, 0.8935], [0.60, 0.9180], [0.65, 0.9378], [0.70, 0.9546], [0.75, 0.9656], [0.80, 0.9752], [0.85, 0.9821], [0.90, 0.9876], [0.95, 0.9919], [1, 1]] },
+    D: { ficha: 'RES093FC', zonas: 'D1-D3', puntos: [[0.15, 0], [0.20, 0.3946], [0.25, 0.4828], [0.30, 0.5644], [0.35, 0.6380], [0.40, 0.7022], [0.45, 0.7567], [0.50, 0.8045], [0.55, 0.8457], [0.60, 0.8808], [0.65, 0.9081], [0.70, 0.9299], [0.75, 0.9480], [0.80, 0.9608], [0.85, 0.9707], [0.90, 0.9784], [0.95, 0.9838], [1, 1]] },
+    E: { ficha: 'RES094FC', zonas: 'E1', puntos: [[0.15, 0], [0.20, 0.3600], [0.25, 0.4398], [0.30, 0.5151], [0.35, 0.5847], [0.40, 0.6479], [0.45, 0.7040], [0.50, 0.7536], [0.55, 0.7974], [0.60, 0.8359], [0.65, 0.8678], [0.70, 0.8952], [0.75, 0.9192], [0.80, 0.9377], [0.85, 0.9527], [0.90, 0.9650], [0.95, 0.9737], [1, 1]] },
+};
+
+const letraZona = (zona) => {
+    const l = String(zona || '').trim().toUpperCase().charAt(0);
+    return 'ABCDE'.includes(l) && l ? l : null;
+};
+
+/** C_b de la ficha FC de la zona (tres decimales, como pide la ficha), o null. */
+export function cbParaleloFc(zona, coverage) {
+    const t = CB_PARALELO[letraZona(zona)];
+    const c = Number(coverage);
+    if (!t || !Number.isFinite(c)) return null;
+    const p = t.puntos;
+    if (c <= p[0][0]) return 0;
+    if (c >= 1) return 1;
+    for (let i = 0; i < p.length - 1; i++) {
+        const [x0, y0] = p[i];
+        const [x1, y1] = p[i + 1];
+        if (c <= x1) return Math.round((y0 + ((c - x0) / (x1 - x0)) * (y1 - y0)) * 1000) / 1000;
+    }
+    return 1;
 }
 
 /**
- * Calcula los CAEs máximos según la propuesta de ficha RES060FC.
- * Devuelve null si no hay provincia (el Anexo IV es por provincia).
+ * CEF del CEE INICIAL (kWh/año): Σ <EnergiaFinalVectores> × superficie, en total y
+ * solo de calefacción. null si el certificado no lo declara (un CEE leído por OCR).
+ */
+export function cefDelCee(cee) {
+    const vec = cee?.energiaFinalVectores;
+    const S = parseFloat(cee?.superficieHabitable) || 0;
+    if (!vec || typeof vec !== 'object' || !(S > 0)) return null;
+    let total = 0;
+    let calefaccion = 0;
+    for (const v of Object.values(vec)) {
+        total += Number(v?.global) || 0;
+        calefaccion += Number(v?.calefaccion) || 0;
+    }
+    if (!(total > 0)) return null;
+    return { total: total * S, calefaccion: calefaccion * S };
+}
+
+// ── Elegibilidad (borrador de Resolución, apartados Primero y Cuarto) ──────────
+export const FC_INICIO_ACTUACIONES = '2026-03-22';
+export const FC_FIN_ACTUACIONES = '2027-11-30';
+
+const ESTADOS_PRESENTADO = ['SUBIDO A MITECO', 'REQUERIMIENTO G.A.', 'CAE EMITIDO', 'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'];
+const ESTADOS_VERIFICACION = ['ENVIADO A VERIFICADOR', 'REQUERIMIENTO VERIFICADOR', 'PTE. SUBIDA MITECO'];
+
+/**
+ * Dónde está la tramitación del expediente, a efectos del FC: 'presentado' (ya
+ * subido a MITECO con la ficha vigente: lo resuelto no puede volver a pedirlo),
+ * 'verificacion' (en lote o en el verificador: aún se puede esperar) o null.
+ */
+export function tramiteFc(estado, loteId) {
+    const e = String(estado || '').toUpperCase().trim();
+    if (ESTADOS_PRESENTADO.some((x) => e.startsWith(x))) return 'presentado';
+    if (ESTADOS_VERIFICACION.includes(e) || loteId) return 'verificacion';
+    return null;
+}
+
+const fechaEs = (iso) => String(iso || '').slice(0, 10).split('-').reverse().join('/');
+const n1 = (v) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(v || 0);
+
+/**
+ * Avisos del FC, de más a menos grave: 'bloquea' (con esto no se puede pedir),
+ * 'aviso' (la cifra puede ser otra) e 'info' (lo que hay que cumplir).
+ *
+ * REGLA — la cifra del FC no se enseña sin sus avisos: es un borrador y la
+ * mitad de lo que decide si se cobra (fechas, letra del CEE, inercia, vivienda
+ * habitual) no está en la fórmula.
+ */
+function avisosFc(r, ctx) {
+    const av = [];
+    const add = (tono, texto) => av.push({ tono, texto });
+    const z = letraZona(ctx.zona);
+
+    if (ctx.sinCalefaccion) add('bloquea', 'No hay caldera que sustituir ni hibridar: el factor de corrección es para cambiar (o hibridar) una caldera existente.');
+    if (ctx.tramite === 'presentado') add('bloquea', 'Ya se ha presentado a MITECO con la ficha vigente: lo resuelto desde el RDL 7/2026 no puede volver a pedir el factor de corrección.');
+    if (ctx.inicioObra && String(ctx.inicioObra).slice(0, 10) < FC_INICIO_ACTUACIONES) {
+        add('bloquea', `La actuación empezó el ${fechaEs(ctx.inicioObra)}: solo entran las iniciadas desde el 22/03/2026, con facturas posteriores a esa fecha.`);
+    }
+    if (ctx.finObra && String(ctx.finObra).slice(0, 10) > FC_FIN_ACTUACIONES) {
+        add('bloquea', `La última factura es del ${fechaEs(ctx.finObra)}: tienen que ser anteriores al 01/12/2027.`);
+    }
+    if (r.ficha === 'RES060FC' && (z === 'D' || z === 'E')) {
+        const letras = [ctx.ceeFinal?.emisionesLetra, ctx.ceeFinal?.epnrLetra]
+            .filter(Boolean).map((l) => String(l).trim().toUpperCase());
+        const fuera = letras.filter((l) => l === 'F' || l === 'G');
+        if (fuera.length) add('bloquea', `En zona ${ctx.zona} el CEE tiene que acreditar una letra de la A a la E, y el CEE final tiene una ${fuera[0]}.`);
+        else if (!letras.length) add('info', `En zona ${ctx.zona} el CEE tiene que quedar con una letra de la A a la E (aún no hay CEE final con la que comprobarlo).`);
+    }
+
+    if (ctx.tramite === 'verificacion') add('aviso', 'Está en un lote o en verificación: si se sube a MITECO con la ficha vigente antes de 2027, pierde el factor de corrección.');
+    if (r.anioSupuesto) add('aviso', 'Falta el año de construcción: se ha tomado el tramo 1981-2007 del Anexo IV, y con el año real la demanda puede ser muy distinta.');
+    if (r.faltanPlantas) add('aviso', `Falta cuántas plantas tiene el edificio: se ha usado la tabla de 1-3 plantas (${n1(r.q)} kWh/m²); con 4 o más serían ${n1(r.qOtraTabla)} kWh/m².`);
+    if (r.cefFuente === 'estimado') {
+        if (r.limitedByTope) add('aviso', 'Lo limita el tope del 70 % y el CEF está ESTIMADO (demanda ÷ η de la tabla). La ficha pide el del CEE inicial, que en nuestros certificados sale de mediana 1,45 veces mayor: con el CEE cargado la cifra puede subir.');
+        else add('info', 'CEF estimado (demanda ÷ η de la tabla): la ficha pide el del CEE inicial. Aquí no limita.');
+    }
+    if (r.cefFuente == null) add('aviso', 'Sin consumo de partida no se puede aplicar el tope del 70 %: la cifra puede estar alta.');
+    if (r.hibridacion && ctx.sinZona) add('aviso', 'No consta la zona climática: se ha usado la ficha de la zona D (RES093FC).');
+    if (r.hibridacion && ctx.cbSinPotencias) add('aviso', 'Faltan las potencias de la bomba o de la caldera: el C_b no sale de la tabla de la ficha y la cifra puede estar alta.');
+    if (ctx.combustible === 'biomasa' || ctx.combustible === 'electrica') {
+        const cual = ctx.combustible === 'biomasa' ? 'una caldera de biomasa' : 'una caldera eléctrica';
+        add('aviso', `La Resolución habla de calderas de combustible FÓSIL y la ficha, «de combustión o eléctrica»: con ${cual} no es seguro que se admita.`);
+    }
+    if (r.clase === 'piso') add('info', 'f_C de piso: 2,5 en la ficha y 2 en el cuerpo de la Resolución. Se usa 2,5.');
+
+    add('info', 'Se presenta del 02/01/2027 al 01/01/2028, pidiéndolo expresamente en la solicitud. Hay un cupo (10 % de las obligaciones de 2027) que se reparte por orden de resolución: no está garantizado.');
+    add('info', r.hibridacion
+        ? 'Requisitos: funcionamiento bivalente en paralelo; depósito de inercia de 15 L por kW de la bomba (salvo bloques centralizados); contrato de mantenimiento; vivienda habitual (facturas del 1/11 al 31/3 del invierno anterior con más de 75 kWh/mes de media); consentimiento informado sobre el IRPF.'
+        : 'Requisitos: bomba hidrónica (aire-agua, agua-agua o tierra-agua); depósito de inercia de 15 L por kW; contrato de mantenimiento de 2 años; certificado de baja tensión con el aumento de potencia; CEE final registrado; vivienda habitual (facturas del 1/11 al 31/3 del invierno anterior con más de 75 kWh/mes de media); consentimiento informado sobre el IRPF. Si la caldera se queda, en preinstalación y sin hibridar.');
+
+    const orden = { bloquea: 0, aviso: 1, info: 2 };
+    return av.sort((a, b) => orden[a.tono] - orden[b.tono]);
+}
+
+/**
+ * Calcula los CAEs según la ficha con factor de corrección que toque: RES060FC,
+ * o la RES09xFC de su zona si hay hibridación. Devuelve null sin provincia (el
+ * Anexo IV es por provincia).
  */
 export function calculateRes060FC({
-    provinciaCode,   // código INE '01'..'52' (inputs.provincia)
-    anio,            // año de construcción
-    tipo,            // 'unifamiliar' | 'piso' | 'hilera'
-    superficie,      // S (m²) — la misma que usa el cálculo actual
-    boilerEff,       // η_i de la caldera sustituida (Anexo II)
-    scopHeating,     // SCOP_bdc
-    scopAcs,         // SCOP_dhw
-    changeAcs = false, // incluir ACS en el ahorro
-    dacs = 2731.4,   // D_ACS (kWh/año)
-    cef = 0,         // consumo de energía final previo (kWh/año)
-    vulnerable = false // consumidor vulnerable severo (×1,5)
+    provinciaCode,      // código INE '01'..'52' o nombre de la provincia
+    anio,               // año de construcción
+    tipo,               // 'unifamiliar' | 'piso' | 'hilera' (en cualquier caja)
+    bloque = false,     // edificio completo (tipoInmueble 'bloque')
+    plantasEdificio = null, // '1-3' | '4+' | nº de plantas del EDIFICIO (piso y bloque)
+    zona = null,        // zona climática CTE ('D3'…): ficha de hibridación y letra del CEE
+    superficie,         // S (m²) — la misma que usa el cálculo actual
+    boilerEff,          // η_i del cálculo vigente
+    boilerId = null,    // fila de BOILER_EFFICIENCIES (para el Anexo II del borrador)
+    scopHeating,        // SCOP_bdc
+    scopAcs,            // SCOP_dhw
+    changeAcs = false,  // incluir ACS en el ahorro
+    dacs = 2731.4,      // D_ACS (kWh/año)
+    qCalefaccion = 0,   // demanda de calefacción de la app (kWh/año): solo para ESTIMAR el CEF
+    ceeInicial = null,  // CEE inicial parseado: su consumo de energía final ES el CEF
+    cef = null,         // CEF ya resuelto (kWh/año), si se quiere forzar
+    hibridacion = null, // { coverage, refPower, cb } de calculateHybridization, o null
+    vulnerable = false, // consumidor vulnerable severo (×1,5, fichas -S)
+    contexto = {},      // { sinCalefaccion, combustible, ceeFinal, inicioObra, finObra, tramite }
 }) {
-    const pi = provIndexFromCode(provinciaCode);
+    const pi = provIndex(provinciaCode);
     if (pi < 0) return null;
 
-    const yi = yearIntervalIndex(anio);
-    const { table, fc: fcBase, label: tipologiaLabel } = tipologiaFC(tipo);
-    const q = ANEXO_IV[table][pi][yi] || 0;
-    const fc = fcBase * (vulnerable ? 1.5 : 1);
+    const yiReal = yearIntervalIndex(anio);
+    const anioSupuesto = yiReal < 0;
+    const yi = anioSupuesto ? 3 : yiReal;
+    const tip = tipologiaFC({ tipo, bloque, plantasEdificio });
+    const q = ANEXO_IV[tip.table][pi][yi] || 0;
+    const qOtraTabla = tip.faltanPlantas ? (ANEXO_IV.P4[pi][yi] || 0) : null;
+    const fc = tip.fc * (vulnerable ? 1.5 : 1);
 
     const S = parseFloat(superficie) || 0;
-    const eta = parseFloat(boilerEff) || 0;
+    const etaApp = parseFloat(boilerEff) || 0;
+    const eta = ETA_ANEXO_II_FC[boilerId] ?? etaApp;
     const scopB = redondeaScop(scopHeating) || 0;
     const scopD = redondeaScop(scopAcs) || 0;
-    const cefNum = Math.max(0, parseFloat(cef) || 0);
+    const dacsNum = Math.max(0, parseFloat(dacs) || 0);
+
+    // Hibridación → la ficha de SU zona, con el C_b de SU tabla.
+    const esHib = !!hibridacion;
+    const sinZona = esHib && !letraZona(zona);
+    const zonaCb = sinZona ? 'D' : zona;
+    const tablaCb = esHib ? CB_PARALELO[letraZona(zonaCb)] : null;
+    let cb = 1;
+    let cbSinPotencias = false;
+    if (esHib) {
+        const deTabla = hibridacion.refPower > 0 ? cbParaleloFc(zonaCb, hibridacion.coverage) : null;
+        cbSinPotencias = deTabla == null;
+        cb = deTabla ?? (Number.isFinite(hibridacion.cb) ? hibridacion.cb : 1);
+    }
 
     const dem = q * S; // D_CAL · S (kWh/año)
     const ahc = eta > 0 && scopB > 0 ? dem * (1 / eta - 1 / scopB) : 0;
-    const ahaFC = (changeAcs && eta > 0 && scopD > 0 ? dacs * (1 / eta - 1 / scopD) : 0) * fc;
-    const aes = ahc + ahaFC;
-    const tope = 0.70 * cefNum;
-    const cae = Math.max(0, Math.min(aes, tope) * fc);
+    const aha = changeAcs && eta > 0 && scopD > 0 ? dacsNum * (1 / eta - 1 / scopD) : 0;
+    const aes = (ahc + aha) * cb;
 
-    return {
+    // CEF: el del CEE inicial; sin él, estimado con la demanda y el η de la app.
+    const delCee = cefDelCee(ceeInicial);
+    const qCal = Math.max(0, parseFloat(qCalefaccion) || 0);
+    let cefTotal = null;
+    let cefCal = null;
+    let cefFuente = null;
+    if (cef != null && parseFloat(cef) > 0) {
+        cefTotal = cefCal = parseFloat(cef);
+        cefFuente = 'dado';
+    } else if (delCee) {
+        cefTotal = delCee.total;
+        cefCal = delCee.calefaccion;
+        cefFuente = 'cee';
+    } else if (etaApp > 0 && qCal > 0) {
+        cefTotal = (qCal + dacsNum) / etaApp;
+        cefCal = qCal / etaApp;
+        cefFuente = 'estimado';
+    }
+    const cefAplicado = esHib ? cefCal : cefTotal;
+    const tope = cefAplicado > 0 ? 0.70 * cefAplicado : null;
+    const limitedByTope = tope != null && aes > tope;
+    const cae = Math.max(0, (limitedByTope ? tope : aes) * fc);
+
+    const r = {
+        ficha: esHib ? tablaCb.ficha : 'RES060FC',
+        hibridacion: esHib,
+        cb,
+        zonaCb: tablaCb?.zonas || null,
         cae,                 // CAEs = kWh/año de ahorro computable
-        aes,
-        tope,
-        limitedByTope: aes > tope, // true → manda el 70%·CEF; false → techo técnico
-        q,                   // valor Anexo IV (kWh/m²·año)
-        dem,
+        aes,                 // techo técnico, SIN f_C
         ahc,
-        ahaFC,
+        aha,
+        tope,
+        limitedByTope,       // true → manda el 70 %·CEF; false → techo técnico
+        q,                   // valor Anexo IV (kWh/m²·año)
+        qOtraTabla,
+        dem,
         fc,
         eta,
+        etaApp,
         superficie: S,
-        cef: cefNum,
+        cef: cefAplicado,
+        cefTotal,
+        cefCalefaccion: cefCal,
+        cefFuente,           // 'cee' | 'estimado' | 'dado' | null
         provinciaIndex: pi,
         provinciaNombre: RES060FC_PROVINCES[pi],
         yearLabel: RES060FC_YEARS[yi],
-        tipologiaLabel,
+        anioSupuesto,
+        tipologiaLabel: tip.label,
+        clase: tip.clase,
+        faltanPlantas: tip.faltanPlantas,
         // Provincias sin datos en el Anexo IV del borrador (Canarias, Ceuta y Melilla)
         noAnexoData: q <= 0,
     };
+    r.avisos = avisosFc(r, { ...contexto, zona, sinZona, cbSinPotencias });
+    r.elegible = !r.avisos.some((a) => a.tono === 'bloquea');
+    return r;
+}
+
+/**
+ * Contexto de elegibilidad desde los inputs de la calculadora / la oportunidad:
+ * sin calefacción y combustible de la caldera. Lo comparten la calculadora y el
+ * expediente, que lee los inputs de su oportunidad.
+ *
+ * REGLA — manda la FILA DE CALDERA elegida (`rendimiento_id` / `boilerId`); el
+ * desplegable de tipo solo cuenta cuando no hay ninguna. 24 oportunidades dicen
+ * «No tiene Calefacción» en el tipo con una caldera de gasóleo o de gas elegida
+ * en el rendimiento: leído a pelo, el FC las daba a todas por no elegibles.
+ */
+export function contextoCalderaFc(inputs = {}, rendimientoId = null) {
+    const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    const id = rendimientoId || inputs.boilerId || '';
+    const conFila = id && id !== 'default';
+    const tipo = norm(inputs.boilerHeatingType);
+    const sinCalefaccion = id === 'sin_calefaccion' || (!conFila && tipo === 'no tiene calefaccion');
+    let combustible = 'fosil';
+    if (id === 'electric' || (!conFila && (tipo === 'electricidad' || tipo === 'termo'))) combustible = 'electrica';
+    else if ((!conFila || id.startsWith('solid_')) && esCalderaBiomasa({ ...inputs, boilerId: id })) combustible = 'biomasa';
+    return { sinCalefaccion, combustible };
 }

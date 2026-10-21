@@ -25,7 +25,8 @@ import {
     resolveHybridInputs,
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
-import { calculateRes060FC } from '../../calculator/logic/res060fc';
+import { calculateRes060FC, contextoCalderaFc, tramiteFc } from '../../calculator/logic/res060fc';
+import { calcCifo } from '../logic/calcCifo';
 import { acsComputaAhorro } from '../logic/aerotermiaUnits';
 import { ceeBaseDocumento } from '../logic/ceeFases';
 import { resolveDacs } from '../logic/demandaAcs';
@@ -744,12 +745,13 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 const scopAcs = inst.misma_aerotermia_acs ? scopHeating : (parseFloat(inst.aerotermia_acs?.scop) || 2.5);
                 // LOGICA HIBRIDACION
                 let cb = 1;
+                let hybridRes = null;
                 const calcInputs = op.datos_calculo?.inputs || {};
                 // El toggle explícito (activado/desactivado por el usuario) manda sobre el default de la ficha.
                 // Solo si no hay toggle explícito guardado, RES093 activa hibridación por defecto.
                 const hibridActive = (inst.hibridacion ?? calcInputs.hibridacion) ?? (ficha === 'RES093');
                 if (hibridActive) {
-                    const hybridRes = calculateHybridization({
+                    hybridRes = calculateHybridization({
                         demandAnnual: q_net_heating,
                         zone: op.datos_calculo?.zona || 'D3',
                         ...resolveHybridInputs(inst, calcInputs, op.datos_calculo?.zona)
@@ -771,21 +773,38 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     changeAcs: changeAcsFlag
                 });
 
-                // ── Ficha RES060FC (propuesta) con las variables reales del expediente ──
-                // Demanda del Anexo IV (provincia + año + tipología), mismo η y SCOP,
-                // CEF = consumo previo estimado (finalEnergyOld del cálculo de ahorro).
+                // ── Ficha con factor de corrección (borrador) con las variables reales ──
+                // RES060FC, o la RES09xFC de la zona si hibrida. Demanda del Anexo IV,
+                // mismo η y SCOP, CEF del CEE INICIAL (sin él, estimado) y los avisos de
+                // elegibilidad con las fechas de la obra y el estado de la tramitación.
                 const tipoFC = opInputs.tipo || (opInputs.housing_type === 'flat' ? 'piso' : 'unifamiliar');
+                const fechasObra = calcCifo(liveDoc || expediente.documentacion || {});
                 res060fcRaw = calculateRes060FC({
                     provinciaCode: opInputs.provincia || opInputs.provinceCode,
                     anio: opInputs.anio || op.datos_calculo?.anio,
                     tipo: tipoFC,
+                    bloque: String(opInputs.tipoInmueble || '').toLowerCase() === 'bloque',
+                    plantasEdificio: opInputs.fcPlantasEdificio,
+                    zona: op.datos_calculo?.zona || opInputs.zona || cee.cee_inicial?.zonaClimatica,
                     superficie,
                     boilerEff: boilerEffValue,
+                    boilerId: boilerEffId,
                     scopHeating,
                     scopAcs,
                     changeAcs: changeAcsFlag,
                     dacs,
-                    cef: savings.finalEnergyOld,
+                    qCalefaccion: q_net_heating,
+                    ceeInicial: cee.cee_inicial,
+                    hibridacion: hybridRes
+                        ? { coverage: hybridRes.coverage, refPower: hybridRes.refPower, cb: hybridRes.cb }
+                        : null,
+                    contexto: {
+                        ...contextoCalderaFc(opInputs, boilerEffId),
+                        ceeFinal: cee.cee_final,
+                        inicioObra: fechasObra.inicio,
+                        finObra: fechasObra.fin,
+                        tramite: tramiteFc(expediente.estado, expediente.lote_id),
+                    },
                 });
                 // Contexto para el popup de desglose (mismas unidades que la calculadora).
                 res060fcCtx = { scopHeating, scopAcs, changeAcs: changeAcsFlag, dacs };
@@ -962,7 +981,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 caePriceClient: finArgs.caePriceClient,
             } : null,
         };
-    }, [expediente, liveCee, liveInst]);
+    }, [expediente, liveCee, liveInst, liveDoc]);
 
     // Mientras no haya CEE cargado el expediente no tiene ahorro propio, pero SÍ
     // hereda como supuesto la economía que se le presentó al cliente en la

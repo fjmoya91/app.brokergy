@@ -95,6 +95,13 @@ console.log('\n2. La tabla del C_b coincide con el Anexo IV del PDF oficial');
     check(casi(getCb(0.50), 0.8045, 1e-6), 'al 50 % de cobertura, C_b = 0,8045', getCb(0.50));
     // Interpolación lineal entre 50 % (0,8045) y 55 % (0,8457): a mitad, 0,8251.
     check(casi(getCb(0.525), 0.8251, 0.0005), 'interpola linealmente entre escalones', getCb(0.525));
+    // Por debajo del 20 % la tabla dice «N/A» (5, 10 y 15 %): no hay C_b. Del 16 al 19 %
+    // daba 0,984 —no casaba con ningún tramo y caía al valor del final—.
+    const bajos = [0.10, 0.15, 0.16, 0.17, 0.18, 0.19, 0.199].filter((c) => getCb(c) !== 0);
+    check(bajos.length === 0, 'por debajo del 20 % de cobertura, C_b = 0 (la tabla dice N/A)', JSON.stringify(bajos.map((c) => [c, getCb(c)])));
+    check(getCb(0.20) === 0.3946 && getCb(0.2 - 1e-12) === 0.3946, 'al 20 % justo, el primer escalón (0,3946)', getCb(0.20));
+    check(getCb(0.95) === 0.984 && getCb(1) === 0.984, 'desde el 95 %, el máximo de la tabla (0,9838 → 0,984)', getCb(1));
+    check(getCb(NaN) === 0 && getCb(undefined) === 0, 'sin cobertura, 0 (antes salía 0,984)', getCb(NaN));
 }
 
 // ── 3. El C_b pondera los TRES servicios (apartado 4 de la ficha) ───────────

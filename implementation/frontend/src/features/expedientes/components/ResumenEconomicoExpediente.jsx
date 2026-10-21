@@ -170,14 +170,18 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', chip = 'bg-whit
                     </RefRow>
                 )}
 
-                {/* RES060FC: proyección de la nueva normativa. Clic → popup de desglose. */}
+                {/* Ficha con factor de corrección (RES060FC o la RES09xFC de la zona):
+                    proyección de la nueva normativa. Clic → popup de desglose. Si algo
+                    impide pedirlo (fechas, ya presentado, letra del CEE) se dice aquí. */}
                 {fc && fc.value != null && (
                     <RefRow
-                        labelText="RES060FC"
-                        labelClass="bg-violet-400/10 text-violet-300"
+                        labelText={fc.elegible === false ? `${fc.ficha} · NO` : fc.ficha}
+                        labelClass={fc.elegible === false ? 'bg-red-400/10 text-red-300' : 'bg-violet-400/10 text-violet-300'}
                         clickable
                         onClick={(e) => { e.stopPropagation(); fc.onClick && fc.onClick(); }}
-                        title="Ver desglose de la ficha RES060FC (propuesta de nueva normativa)"
+                        title={fc.elegible === false
+                            ? `No se puede pedir el factor de corrección: ${fc.motivo}`
+                            : `Ver desglose de la ficha ${fc.ficha} (propuesta de nueva normativa)`}
                         trailing={(
                             <svg className="w-3 h-3 text-violet-400/50 group-hover/ref:text-violet-300 transition-colors shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -260,6 +264,14 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
     } = results;
 
     const hasFc = !!(res060fc && res060fc.cae > 0 && financialsRes060FC);
+    // Fila «FC» de cada métrica: la ficha que toca y, si algo impide pedirlo, el porqué.
+    const fcRef = (value) => (hasFc ? {
+        value,
+        onClick: () => setShowFcModal(true),
+        ficha: res060fc.ficha || 'RES060FC',
+        elegible: res060fc.elegible,
+        motivo: (res060fc.avisos || []).find((a) => a.tono === 'bloquea')?.texto,
+    } : null);
     // Result con la forma que espera Res060FCModal: la comparativa "actual" usa el ESTIMADO.
     const fcModalResult = hasFc ? {
         res060fc,
@@ -404,7 +416,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 editable: !ahorroHeredado,
                 ...verifEditProps,
             },
-            fc: hasFc ? { value: fmtMwh(res060fc.cae), onClick: () => setShowFcModal(true) } : null,
+            fc: hasFc ? fcRef(fmtMwh(res060fc.cae)) : null,
             color: 'text-green-400',
             icon: (
                 <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -430,7 +442,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 diff: fmtEur(caeBonusVerificado) !== fmtEur(caeBonus),
                 editable: false,
             } : null,
-            fc: hasFc ? { value: fmtEur(financialsRes060FC.caeBonus), onClick: () => setShowFcModal(true) } : null,
+            fc: hasFc ? fcRef(fmtEur(financialsRes060FC.caeBonus)) : null,
             color: 'text-brand',
             icon: (
                 <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -479,7 +491,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 diff: fmtEur(profitBrokergyVerificado) !== fmtEur(profitBrokergy),
                 editable: false,
             } : null,
-            fc: hasFc ? { value: fmtEur(financialsRes060FC.profitBrokergy), onClick: () => setShowFcModal(true) } : null,
+            fc: hasFc ? fcRef(fmtEur(financialsRes060FC.profitBrokergy)) : null,
             color: 'text-cyan-400',
             icon: (
                 <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
