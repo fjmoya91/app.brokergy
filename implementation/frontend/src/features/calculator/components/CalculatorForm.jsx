@@ -15,7 +15,11 @@ import {
     getScopFromModel,
     getScopSeason,
     getScopAcsFromModel,
-    calculateRes080FromEmissions
+    calculateRes080FromEmissions,
+    climaScopForzado,
+    scopsParaClima,
+    zoneClimateSeason,
+    CLIMA_SCOP,
 } from '../logic/calculation';
 import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
 // El SECTOR decide la ficha, y con ella cómo se reparte el ahorro. La derivación
@@ -253,13 +257,15 @@ export function CalculatorForm({
 
         if (selectedModel) {
             const temp = inputs.emitterType === 'radiadores_convencionales' ? 55 : (inputs.emitterType === 'radiadores_baja_temp' ? 45 : 35);
-            const newScop = getScopFromModel(selectedModel, inputs.zona, temp);
+            // El clima del SCOP elegido en una hibridación (null = el de la zona).
+            const clima = climaScopForzado(inputs);
+            const newScop = getScopFromModel(selectedModel, inputs.zona, temp, 'ficha', clima);
             const power = parseFloat(selectedModel.potencia_calefaccion) || parseFloat(selectedModel.potencia_nominal_35) || 0;
 
             const updates = {};
             // La temporada de la que sale el SCOP viaja con él: el Cb de la RES093 usa
             // las horas equivalentes de esa misma temporada, y el expediente la hereda.
-            const newSeason = getScopSeason(selectedModel, inputs.zona, temp);
+            const newSeason = getScopSeason(selectedModel, inputs.zona, temp, 'ficha', clima);
             if (newSeason !== inputs.scopTemporada) updates.scopTemporada = newSeason;
             if (!dirtyScopHeating && newScop !== inputs.scopHeating) updates.scopHeating = newScop;
             if (!dirtyPotenciaBomba && power > 0 && power !== inputs.potenciaBomba) updates.potenciaBomba = power;
@@ -268,7 +274,7 @@ export function CalculatorForm({
             if (!dirtyScopAcs) {
                 if (!inputs.changeAcs) {
                     // ACS Integrado: usar el mismo modelo
-                    const newScopAcs = getScopAcsFromModel(selectedModel, inputs.zona);
+                    const newScopAcs = getScopAcsFromModel(selectedModel, inputs.zona, 'ficha', clima);
                     if (newScopAcs !== inputs.scopAcs) updates.scopAcs = newScopAcs;
                 } else {
                     // ACS Dedicado: usar el modelo de ACS específico
@@ -276,7 +282,7 @@ export function CalculatorForm({
                     if (modelIdAcs && modelIdAcs !== 'custom') {
                         const selectedModelAcs = dbModels.find(m => String(m.id) === String(modelIdAcs));
                         if (selectedModelAcs) {
-                            const newScopAcs = getScopAcsFromModel(selectedModelAcs, inputs.zona);
+                            const newScopAcs = getScopAcsFromModel(selectedModelAcs, inputs.zona, 'ficha', clima);
                             if (newScopAcs !== inputs.scopAcs) updates.scopAcs = newScopAcs;
                         }
                     }
@@ -287,7 +293,32 @@ export function CalculatorForm({
                 onInputChange(prev => ({ ...prev, ...updates }));
             }
         }
-    }, [inputs.zona, inputs.emitterType, inputs.aerothermiaModel, inputs.aerothermiaModelAcs, inputs.changeAcs, dbModels, inputs.hibridacion, dirtyScopHeating, dirtyScopAcs, dirtyPotenciaBomba]);
+    }, [inputs.zona, inputs.emitterType, inputs.aerothermiaModel, inputs.aerothermiaModelAcs, inputs.changeAcs, dbModels, inputs.hibridacion, inputs.scopClima, dirtyScopHeating, dirtyScopAcs, dirtyPotenciaBomba]);
+
+    // ── Clima del SCOP en una HIBRIDACIÓN (botón «Clima del SCOP») ───────────────
+    // Cambiar de clima es una decisión EXPLÍCITA: los SCOP se vuelven a sacar del
+    // catálogo aunque se hubieran tocado a mano (el efecto de arriba respeta lo
+    // tecleado y no los movería en una oportunidad ya guardada). También al apagar la
+    // hibridación con el medio elegido: sin hibridación vuelve lo de siempre. No se
+    // dispara al abrir la oportunidad (ref con el valor de partida).
+    const climaForzado = climaScopForzado(inputs);
+    const climaPrevio = useRef(climaForzado);
+    useEffect(() => {
+        if (climaPrevio.current === climaForzado) return;
+        climaPrevio.current = climaForzado;
+        const modelo = dbModels.find(m => String(m.id) === String(inputs.aerothermiaModel));
+        if (!modelo) return;
+        const idAcs = inputs.changeAcs ? inputs.aerothermiaModelAcs : inputs.aerothermiaModel;
+        const modeloAcs = dbModels.find(m => String(m.id) === String(idAcs)) || null;
+        const temp = inputs.emitterType === 'radiadores_convencionales' ? 55 : (inputs.emitterType === 'radiadores_baja_temp' ? 45 : 35);
+        const s = scopsParaClima({ modelo, modeloAcs, zona: inputs.zona, temp, clima: climaForzado });
+        onInputChange(prev => ({
+            ...prev,
+            scopHeating: s.scopHeating,
+            scopTemporada: s.scopTemporada,
+            ...(s.scopAcs != null ? { scopAcs: s.scopAcs } : {}),
+        }));
+    }, [climaForzado]); // eslint-disable-line react-hooks/exhaustive-deps
     const [isPriceLocked, setIsPriceLocked] = useState(true);
 
     // Estado local para el filtro de marcas
@@ -427,9 +458,9 @@ export function CalculatorForm({
             ...prev,
             aerothermiaModel: String(modelo.id),
             customModelName: '',
-            scopHeating: getScopFromModel(enCatalogo, prev.zona, temp),
-            scopTemporada: getScopSeason(enCatalogo, prev.zona, temp),
-            scopAcs: getScopAcsFromModel(enCatalogo, prev.zona),
+            scopHeating: getScopFromModel(enCatalogo, prev.zona, temp, 'ficha', climaScopForzado(prev)),
+            scopTemporada: getScopSeason(enCatalogo, prev.zona, temp, 'ficha', climaScopForzado(prev)),
+            scopAcs: getScopAcsFromModel(enCatalogo, prev.zona, 'ficha', climaScopForzado(prev)),
             potenciaBomba: enCatalogo.potencia_calefaccion || prev.potenciaBomba || 0,
             // La lectura se guarda con la oportunidad para que el EXPEDIENTE nazca
             // con el nº de serie —el dato que imprimen el CIFO, el Anexo I y la
@@ -2077,8 +2108,8 @@ export function CalculatorForm({
 
                                                     if (selectedModel && currentModelId !== 'custom') {
                                                         const temp = type === 'radiadores_convencionales' ? 55 : (type === 'radiadores_baja_temp' ? 45 : 35);
-                                                        newScop = getScopFromModel(selectedModel, inputs.zona, temp);
-                                                        newScopTemporada = getScopSeason(selectedModel, inputs.zona, temp);
+                                                        newScop = getScopFromModel(selectedModel, inputs.zona, temp, 'ficha', climaScopForzado(inputs));
+                                                        newScopTemporada = getScopSeason(selectedModel, inputs.zona, temp, 'ficha', climaScopForzado(inputs));
                                                     }
 
                                                     onInputChange(prev => ({
@@ -2231,9 +2262,9 @@ export function CalculatorForm({
 
                                                             if (selectedModel && modelId !== 'custom') {
                                                                 const temp = currentEmitter === 'radiadores_convencionales' ? 55 : (currentEmitter === 'radiadores_baja_temp' ? 45 : 35);
-                                                                updates.scopHeating = getScopFromModel(selectedModel, inputs.zona, temp);
-                                                                updates.scopTemporada = getScopSeason(selectedModel, inputs.zona, temp);
-                                                                updates.scopAcs = getScopAcsFromModel(selectedModel, inputs.zona);
+                                                                updates.scopHeating = getScopFromModel(selectedModel, inputs.zona, temp, 'ficha', climaScopForzado(inputs));
+                                                                updates.scopTemporada = getScopSeason(selectedModel, inputs.zona, temp, 'ficha', climaScopForzado(inputs));
+                                                                updates.scopAcs = getScopAcsFromModel(selectedModel, inputs.zona, 'ficha', climaScopForzado(inputs));
                                                                 updates.potenciaBomba = selectedModel.potencia_calefaccion || selectedModel.potencia_nominal_35 || 0;
                                                                 setDirtyScopHeating(false);
                                                                 setDirtyScopAcs(false);
@@ -2487,6 +2518,55 @@ export function CalculatorForm({
                                             </div>
                                         </div>
 
+                                        {/* Clima en el que se DECLARA el SCOP. En una hibridación el
+                                            cálido no siempre gana: su SCOP es más alto, pero sus horas
+                                            suben la carga de diseño y bajan el C_b. Se elige aquí, viaja
+                                            al expediente (instalacion.scop_clima) y con el medio TODO
+                                            —calefacción, ACS, C_b, CIFO— sale en clima medio. Solo en
+                                            zona cálida: en E1 ya es el medio. */}
+                                        {zoneClimateSeason(inputs.zona) === CLIMA_SCOP.CALIDO && (
+                                            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                                <Label className="text-[9px] text-slate-500 font-bold uppercase tracking-widest shrink-0">Clima del SCOP</Label>
+                                                <div className="flex gap-1.5 p-1 bg-slate-950/50 border border-brand/20 rounded-xl">
+                                                    {[
+                                                        { id: CLIMA_SCOP.CALIDO, label: 'Clima cálido', hint: 'el de la zona: SCOP más alto, C_b con 1.336 h' },
+                                                        { id: CLIMA_SCOP.MEDIO, label: 'Clima medio', hint: 'SCOP más bajo, pero C_b con 2.066 h; el Anexo III lo admite siempre' },
+                                                    ].map(opt => (
+                                                        <button
+                                                            key={opt.id}
+                                                            type="button"
+                                                            title={opt.hint}
+                                                            onClick={() => handleChange('scopClima', opt.id === CLIMA_SCOP.MEDIO ? CLIMA_SCOP.MEDIO : null)}
+                                                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border
+                                                                ${(climaForzado || CLIMA_SCOP.CALIDO) === opt.id
+                                                                    ? 'bg-brand text-bkg-deep border-brand'
+                                                                    : 'text-slate-500 border-transparent hover:text-white'}`}
+                                                        >
+                                                            {opt.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {result?.comparativaClima && (
+                                                    <span className="text-[10px] font-bold text-slate-400 tabular-nums" title="Calculado con los SCOP del catálogo de cada clima">
+                                                        {[CLIMA_SCOP.CALIDO, CLIMA_SCOP.MEDIO].map((c, i) => {
+                                                            const v = result.comparativaClima[c];
+                                                            if (!v) return null;
+                                                            const otro = result.comparativaClima[c === CLIMA_SCOP.CALIDO ? CLIMA_SCOP.MEDIO : CLIMA_SCOP.CALIDO];
+                                                            const gana = otro && v.caeBonus > otro.caeBonus;
+                                                            return (
+                                                                <React.Fragment key={c}>
+                                                                    {i > 0 && ' · '}
+                                                                    {c === CLIMA_SCOP.CALIDO ? 'Cálido' : 'Medio'}{' '}
+                                                                    <span className={gana ? 'text-emerald-400' : 'text-white'}>{Math.round(v.caeBonus).toLocaleString('es-ES')} €</span>
+                                                                    <span className="text-slate-500"> (SCOP {String(v.scopHeating).replace('.', ',')} · C_b {(v.cb * 100).toFixed(1).replace('.', ',')} %)</span>
+                                                                </React.Fragment>
+                                                            );
+                                                        })}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+
                                         {/* Qué precio va como PRINCIPAL en la propuesta; el otro se cita
                                             al lado en color (logic/hibridacionPropuesta.js). No mueve el
                                             cálculo ni la ficha: solo cómo se presenta. */}
@@ -2723,7 +2803,7 @@ export function CalculatorForm({
                                                                     let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
                                                                     let updates = { aerothermiaModelAcs: modelId, customModelAcsName: '' };
                                                                     if (selectedModel && modelId !== 'custom') {
-                                                                        updates.scopAcs = getScopAcsFromModel(selectedModel, inputs.zona);
+                                                                        updates.scopAcs = getScopAcsFromModel(selectedModel, inputs.zona, 'ficha', climaScopForzado(inputs));
                                                                         setDirtyScopAcs(false);
                                                                         setShowScopAcsPopup(false);
                                                                     } else if (modelId === 'custom') {

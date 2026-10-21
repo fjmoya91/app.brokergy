@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BOILER_EFFICIENCIES, SIN_CALEFACCION_ID, esSinCalefaccion, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES, SIN_CALEFACCION_ID, esSinCalefaccion, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, climaScopForzado, scopsParaClima, zoneClimateSeason, CLIMA_SCOP } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE, acsEquipoPropio, getUnidades, mismaMaquina } from '../logic/aerotermiaUnits';
 import { esConjuntoAcs, produceAcs, metodoAcsDelModelo, litrosAcsCatalogo, nodoAcsDesdeConjunto, FALTA_ACS } from '../logic/acsCatalogo';
@@ -18,6 +18,7 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 import EprelAcsModal from './EprelAcsModal';
 import { SeriesRepetidasProvider, AvisoSerieRepetida, ResumenSeriesRepetidas } from './AvisoSerieRepetida';
+import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
 
 // Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
 // CIFO y el RES080), y la capa de "inicial vs finales" en logic/emisores.js. Las
@@ -569,8 +570,48 @@ function EquipoRefLinks({ model, data, metodoScop = null }) {
     );
 }
 
+// ─── Clima del SCOP de una HIBRIDACIÓN ────────────────────────────────────────
+// La Instalación con los SCOP de ese clima, releídos del CATÁLOGO con
+// `scopsParaClima` (la misma función que la calculadora). La usan el botón «Clima
+// del SCOP» y su comparativa. Un equipo que no está en el catálogo no se toca; el
+// acumulador (Anexo VI, F_c por zona) y el termo eléctrico no dependen del clima.
+function instalacionConClima(p, clima, { modelosPorMarca, zona }) {
+    const sig = { ...p, scop_clima: clima === CLIMA_SCOP.MEDIO ? CLIMA_SCOP.MEDIO : null };
+    const c = climaScopForzado(sig);
+    const temp = getEmitterTemp(p.tipo_emisor);
+    const modeloDe = (u) => (u?.aerotermia_db_id
+        ? (modelosPorMarca[u.marca?.toUpperCase()] || []).find(m => String(m.id) === String(u.aerotermia_db_id))
+        : null);
+    const recalcUnidad = (u, keys) => {
+        const f = modeloDe(u);
+        if (!f) return u;
+        const s = scopsParaClima({ modelo: f, zona, temp, metodoCal: u.metodo_scop || 'ficha', clima: c });
+        return { ...u, scop_temporada: s.scopTemporada, ...Object.fromEntries(keys.map(k => [k, s.scopHeating])) };
+    };
+    const recalcCal = (aero) => {
+        if (!aero) return aero;
+        const extras = Array.isArray(aero.equipos_extra) ? aero.equipos_extra : [];
+        const base = recalcUnidad(aero, extras.length ? ['scop', 'scop_propio'] : ['scop']);
+        if (!extras.length) return base;
+        const unidades = extras.map(u => recalcUnidad(u, ['scop']));
+        const todasCalido = [base, ...unidades].every(u => u?.scop_temporada === 'calido');
+        return withScopAplicado({ ...base, scop_temporada: todasCalido ? 'calido' : 'medio', equipos_extra: unidades });
+    };
+    const recalcAcs = (aero) => {
+        const tipo = aero ? tipoEquipoNuevo(aero) : null;
+        if (!aero || tipo === EQUIPO_NUEVO.ACUMULADOR || tipo === EQUIPO_NUEVO.TERMO) return aero;
+        const f = modeloDe(aero);
+        if (!f) return aero;
+        const s = scopsParaClima({ modeloAcs: f, zona, temp, metodoAcs: aero.metodo_scop || 'ficha', clima: c });
+        return { ...aero, scop: s.scopAcs };
+    };
+    const newCal = recalcCal(p.aerotermia_cal);
+    const newAcs = p.misma_aerotermia_acs ? cloneAero(newCal) : recalcAcs(p.aerotermia_acs);
+    return { ...sig, aerotermia_cal: newCal, aerotermia_acs: newAcs };
+}
+
 // ─── Sección Aerotermia Nueva ─────────────────────────────────────────────────
-function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, zona = 'D3', isAcs = false, readOnly = false, calData = null, emisorPorUnidad = false, numeroExpediente = '', onCompletarCatalogo = null }) {
+function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, zona = 'D3', isAcs = false, readOnly = false, calData = null, emisorPorUnidad = false, numeroExpediente = '', onCompletarCatalogo = null, climaScop = null }) {
     // Zona climática REAL de la instalación (la de la oportunidad). El Anexo III de
     // la ficha RES060 la equipara a la temporada europea del Rgto. 813/2013: A3-D3
     // → cálidas, E1 → medias. De ahí sale qué columna del catálogo se aplica, así
@@ -728,7 +769,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 const method = u?.metodo_scop || data?.metodo_scop || 'ficha';
                 const temp = tempUnidad(u);
                 siguiente = siguiente.map((x, i) => (i === idx
-                    ? { ...x, scop: getScopFromModel(found, zonaCE, temp, method), scop_temporada: getScopSeason(found, zonaCE, temp, method) }
+                    ? { ...x, scop: getScopFromModel(found, zonaCE, temp, method, climaScop), scop_temporada: getScopSeason(found, zonaCE, temp, method, climaScop) }
                     : x));
             }
         }
@@ -750,11 +791,11 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         // expediente: son equipos independientes y cada uno tiene su impulsión.
         const temp = tempUnidad(extras[idx]);
         const scop = isAcs
-            ? getScopAcsFromModel(found, zonaCE, method)
-            : getScopFromModel(found, zonaCE, temp, method);
+            ? getScopAcsFromModel(found, zonaCE, method, climaScop)
+            : getScopFromModel(found, zonaCE, temp, method, climaScop);
         handleExtraChange(idx, {
             // Temporada de la que sale ese SCOP: viaja con el número (ver abajo).
-            scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, temp, method),
+            scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, temp, method, climaScop),
             aerotermia_db_id: found.id,
             // El snapshot nace con la marca de que su `modelo` puede traer ya la
             // referencia de la ud. exterior: la celda "Modelo" del CIFO no la repite
@@ -782,10 +823,10 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             const method = data?.metodo_scop || 'ficha';
             let scop;
             if (isAcs) {
-                scop = getScopAcsFromModel(found, zonaCE, method);
+                scop = getScopAcsFromModel(found, zonaCE, method, climaScop);
             } else {
                 const temp = getEmitterTemp(tipoEmisor);
-                scop = getScopFromModel(found, zonaCE, temp, method);
+                scop = getScopFromModel(found, zonaCE, temp, method, climaScop);
             }
 
             emit({
@@ -795,7 +836,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 // equivalentes de esa misma temporada, y el CIFO la declara. Se
                 // guarda aquí, en el mismo sitio y con los mismos argumentos que
                 // el número, para que no puedan divergir.
-                scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, getEmitterTemp(tipoEmisor), method),
+                scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, getEmitterTemp(tipoEmisor), method, climaScop),
                 aerotermia_db_id: found.id,
                 // El snapshot nace con la marca de que su `modelo` puede traer ya la
                 // referencia de la ud. exterior: la celda "Modelo" del CIFO no la repite
@@ -831,16 +872,16 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         if (found) {
             let scop;
             if (isAcs) {
-                scop = getScopAcsFromModel(found, zonaCE, method);
+                scop = getScopAcsFromModel(found, zonaCE, method, climaScop);
             } else {
                 const temp = getEmitterTemp(tipoEmisor);
-                scop = getScopFromModel(found, zonaCE, temp, method);
+                scop = getScopFromModel(found, zonaCE, temp, method, climaScop);
             }
             emit({
                 ...data,
                 metodo_scop: method,
                 scop,
-                scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, getEmitterTemp(tipoEmisor), method),
+                scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, getEmitterTemp(tipoEmisor), method, climaScop),
                 // El enlace EPREL/KEYMARK/ficha se persiste también al cambiar de
                 // método (no solo al elegir modelo): el certificado los lee del
                 // snapshot del expediente, no del catálogo. Sin esto, poner método
@@ -1858,11 +1899,11 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 const modelos = modelosPorMarca[u.marca?.toUpperCase()] || [];
                 const found = modelos.find(m => m.id === u.aerotermia_db_id);
                 if (!found) return u;
-                const scop = getScopFromModel(found, zonaInstalacion, temp);
+                const scop = getScopFromModel(found, zonaInstalacion, temp, 'ficha', climaScopForzado(p));
                 // El emisor cambia la temperatura de impulsión y con ella la columna
                 // del catálogo: un modelo puede tener dato de clima cálido a 35 °C y
                 // no a 55 °C. La temporada se vuelve a sellar con el SCOP nuevo.
-                const scop_temporada = getScopSeason(found, zonaInstalacion, temp);
+                const scop_temporada = getScopSeason(found, zonaInstalacion, temp, 'ficha', climaScopForzado(p));
                 return { ...u, scop_temporada, ...Object.fromEntries(scopKeys.map(k => [k, scop])) };
             };
             // En cascada hay que recalcular TODAS las unidades y volver a derivar el
@@ -1887,6 +1928,17 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
             const newAcs = p.misma_aerotermia_acs ? cloneAero(newCal) : recalcScop(p.aerotermia_acs);
             return { ...p, tipo_emisor, aerotermia_cal: newCal, aerotermia_acs: newAcs };
         });
+    };
+
+    // ── Clima del SCOP de una HIBRIDACIÓN (botón «Clima del SCOP») ─────────────
+    // Con el MEDIO elegido, TODO sale en clima medio: el SCOP de calefacción y su
+    // temporada (las horas del C_b), el SCOP_dhw y, con ellos, el CIFO y el resto
+    // de documentos (Fran, 21/10/2026, 26RES060_122: nunca una máquina en cálido y
+    // la otra en medio). Se relee del CATÁLOGO con `scopsParaClima`, igual que la
+    // calculadora; un equipo que no está en el catálogo no se toca. El acumulador
+    // (Anexo VI, F_c por zona) y el termo eléctrico no dependen del clima.
+    const handleClimaScopChange = (clima) => {
+        setLocal(p => instalacionConClima(p, clima, { modelosPorMarca, zona: zonaInstalacion }));
     };
 
     const handleMismaCalderaAcsChange = (val) => {
@@ -1968,6 +2020,19 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         ...hybridInputs
     }) : null;
     const esCoberturaPorCaldera = hybridInputs.method === HYBRID_METHODS.CALDERA;
+
+    // Comparativa del botón «Clima del SCOP»: el bono con cada clima, calculado por
+    // la MISMA función que el panel Económico sobre la Instalación con los SCOP de
+    // ese clima. Solo con hibridación en zona cálida (en E1 ya es el medio).
+    const comparativaClima = (local.hibridacion && zoneClimateSeason(zonaInstalacion) === CLIMA_SCOP.CALIDO && expediente?.oportunidades)
+        ? Object.fromEntries([CLIMA_SCOP.CALIDO, CLIMA_SCOP.MEDIO].map(c => {
+            const inst = instalacionConClima(local, c, { modelosPorMarca, zona: zonaInstalacion });
+            const fin = computeExpedienteFinancials({ ...expediente, instalacion: inst });
+            const hyb = calculateHybridization({ demandAnnual, zone: opDatos.zona || 'D3', ...resolveHybridInputs(inst, opDatos, opDatos.zona) });
+            return [c, { cae: fin.cae, savingsKwh: fin.savingsKwh, cb: hyb?.cb, scop: inst.aerotermia_cal?.scop }];
+        }))
+        : null;
+    const climaActual = climaScopForzado(local) || CLIMA_SCOP.CALIDO;
 
     return (
         <SeriesRepetidasProvider expedienteId={expediente?.id} instalacion={local} activo={isStaff}>
@@ -2464,6 +2529,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         modelosPorMarca={modelosPorMarca}
                         tipoEmisor={local.tipo_emisor}
                         zona={zonaInstalacion}
+                        climaScop={climaScopForzado(local)}
                         emisorPorUnidad={emisorPorUnidad}
                         numeroExpediente={expediente?.numero_expediente}
                         onCompletarCatalogo={(model, modo) => setEprelGate({ model, modo })}
@@ -2478,6 +2544,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                             modelosPorMarca={modelosPorMarca}
                             tipoEmisor={local.tipo_emisor}
                             zona={zonaInstalacion}
+                            climaScop={climaScopForzado(local)}
                             isAcs={true}
                             onCompletarCatalogo={(model, modo) => setEprelGate({ model, modo })}
                             // El acumulador lo calienta la BdC de calefacción: de ahí
@@ -2561,6 +2628,47 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                                 {opt.label}
                                             </button>
                                         ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Clima en el que se DECLARA el SCOP (calefacción y ACS). El
+                                cálido no siempre gana: su SCOP es más alto, pero sus horas
+                                suben la carga de diseño y bajan el C_b. Con el medio, el C_b,
+                                el CIFO y los demás documentos salen en clima medio. */}
+                            {local.hibridacion && zoneClimateSeason(zonaInstalacion) === CLIMA_SCOP.CALIDO && (
+                                <div className="flex flex-col gap-2 animate-in slide-in-from-left duration-500">
+                                    <span className="text-[10px] font-black text-amber-500/60 uppercase tracking-widest pl-1">Clima del SCOP</span>
+                                    <div className="flex items-center gap-1 p-1 bg-slate-900 rounded-xl border border-white/5">
+                                        {[
+                                            { id: CLIMA_SCOP.CALIDO, label: 'Cálido', hint: 'el de la zona: SCOP más alto, C_b con 1.336 h' },
+                                            { id: CLIMA_SCOP.MEDIO, label: 'Medio', hint: 'SCOP más bajo, pero C_b con 2.066 h; el Anexo III lo admite siempre' },
+                                        ].map(opt => {
+                                            const v = comparativaClima?.[opt.id];
+                                            const otro = comparativaClima?.[opt.id === CLIMA_SCOP.CALIDO ? CLIMA_SCOP.MEDIO : CLIMA_SCOP.CALIDO];
+                                            const gana = v?.cae != null && otro?.cae != null && v.cae > otro.cae;
+                                            return (
+                                                <button
+                                                    key={opt.id}
+                                                    type="button"
+                                                    disabled={readOnly}
+                                                    title={`${opt.hint}${v?.cae != null ? ` · bono ${Math.round(v.cae).toLocaleString('es-ES')} € · ${Math.round(v.savingsKwh || 0).toLocaleString('es-ES')} kWh/año · SCOP ${v.scop} · C_b ${((v.cb || 0) * 100).toFixed(2)} %` : ''}`}
+                                                    onClick={() => handleClimaScopChange(opt.id)}
+                                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border flex flex-col items-center leading-tight ${
+                                                        climaActual === opt.id
+                                                            ? 'bg-amber-500 text-bkg-deep border-amber-400'
+                                                            : 'text-slate-500 border-transparent hover:text-white'
+                                                    }`}
+                                                >
+                                                    <span>{opt.label}</span>
+                                                    {v?.cae != null && (
+                                                        <span className={`text-[9px] tabular-nums normal-case tracking-normal ${climaActual === opt.id ? '' : (gana ? 'text-emerald-400' : 'text-slate-400')}`}>
+                                                            {Math.round(v.cae).toLocaleString('es-ES')} €
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}

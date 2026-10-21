@@ -230,6 +230,7 @@ function buildDocMeta(exp, cliente, op) {
         logoSrc: getLogoDataUri(),
         clienteNombre: [cliente?.nombre_razon_social, cliente?.apellidos].filter(Boolean).join(' '),
         clienteDni: cliente?.dni || cliente?.nif || '',
+        hibridacion: !!inst.hibridacion || /RES093|TER173/i.test(exp.numero_expediente || ''),
     };
 }
 

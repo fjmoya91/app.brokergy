@@ -26,6 +26,9 @@ import {
     CAE_PRECIO_CLIENTE_NUEVAS,
     calculateTerciario,
     redondeaScop,
+    scopsParaClima,
+    zoneClimateSeason,
+    CLIMA_SCOP,
 } from '../logic/calculation';
 // El SECTOR (residencial / terciario) decide la ficha y, con ella, cómo se
 // reparte el ahorro. Fuente única con el backend y con el resto de pantallas.
@@ -688,14 +691,15 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         // calefacción dentro del alcance las dos vías dan EXACTAMENTE lo mismo
         // (comprobado en test_ter173.mjs); lo que añade `calculateTerciario` es
         // poder dejar un servicio fuera y poder sumar la piscina.
-        const ahorroCon = (cb) => esTerciarioCalc
+        // `sc` deja calcular el MISMO ahorro con otros SCOP (comparativa de clima).
+        const ahorroCon = (cb, sc = {}) => esTerciarioCalc
             ? calculateTerciario({
                 q_net_heating: demandRes.Q_net,
                 dacs: sanitizedInputs.dacs,
                 dcap: parseFloat(inputs.dcap) || 0,
                 boilerEff: sanitizedInputs.boilerEff,
-                scopHeating: sanitizedInputs.scopHeating,
-                scopAcs: sanitizedInputs.scopAcs,
+                scopHeating: sc.scopHeating ?? sanitizedInputs.scopHeating,
+                scopAcs: sc.scopAcs ?? sanitizedInputs.scopAcs,
                 scopPool: parseFloat(inputs.scopPool) || 0,
                 changeHeating: inputs.changeHeating !== false,
                 changeAcs: sanitizedInputs.changeAcs,
@@ -706,8 +710,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 q_net_heating: demandRes.Q_net,
                 dacs: sanitizedInputs.dacs,
                 boilerEff: sanitizedInputs.boilerEff,
-                scopHeating: sanitizedInputs.scopHeating,
-                scopAcs: sanitizedInputs.scopAcs,
+                scopHeating: sc.scopHeating ?? sanitizedInputs.scopHeating,
+                scopAcs: sc.scopAcs ?? sanitizedInputs.scopAcs,
                 changeAcs: sanitizedInputs.changeAcs,
                 // El alcance de la calefacción SOLO se pregunta en un bloque. En una
                 // vivienda la actuación ES cambiar la caldera, así que un `changeHeating`
@@ -759,6 +763,37 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         const financialsSinCaldera = hybridizationRes
             ? financierosDe(ahorroCon(1).savingsKwh)
             : null;
+
+        // 3.2 Con hibridación en zona cálida, el MISMO cálculo con el SCOP de cada
+        // CLIMA (botón «Clima del SCOP»): el cálido sube el SCOP pero también la carga
+        // de diseño (1.336 h frente a 2.066), así que no siempre gana. Sale del
+        // catálogo con `scopsParaClima`, igual que el botón y que el expediente. No
+        // cambia nada de lo que se guarda.
+        const comparativaClima = (() => {
+            if (!hybridizationRes || zoneClimateSeason(sanitizedInputs.zona) !== CLIMA_SCOP.CALIDO) return null;
+            const modelo = dbModels.find(m => String(m.id) === String(inputs.aerothermiaModel));
+            if (!modelo) return null;
+            const idAcs = inputs.changeAcs ? inputs.aerothermiaModelAcs : inputs.aerothermiaModel;
+            const modeloAcs = dbModels.find(m => String(m.id) === String(idAcs)) || null;
+            const temp = inputs.emitterType === 'radiadores_convencionales' ? 55 : (inputs.emitterType === 'radiadores_baja_temp' ? 45 : 35);
+            const out = {};
+            for (const clima of [CLIMA_SCOP.CALIDO, CLIMA_SCOP.MEDIO]) {
+                const s = scopsParaClima({ modelo, modeloAcs, zona: sanitizedInputs.zona, temp,
+                                           clima: clima === CLIMA_SCOP.MEDIO ? CLIMA_SCOP.MEDIO : null });
+                const hyb = calculateHybridization({
+                    demandAnnual: demandRes.Q_net,
+                    zone: sanitizedInputs.zona,
+                    heatPumpPower: sanitizedInputs.potenciaBomba,
+                    method: sanitizedInputs.hibridacionMetodo,
+                    boilerPower: sanitizedInputs.potenciaCaldera,
+                    climateSeason: s.scopTemporada,
+                });
+                const sav = ahorroCon(hyb.cb, { scopHeating: s.scopHeating, scopAcs: s.scopAcs ?? undefined });
+                out[clima] = { scopHeating: s.scopHeating, scopAcs: s.scopAcs, cb: hyb.cb,
+                               savingsKwh: sav.savingsKwh, caeBonus: financierosDe(sav.savingsKwh).caeBonus };
+            }
+            return out;
+        })();
 
         // 3.5 Ficha RES060FC (propuesta de nueva normativa) — comparativa en tiempo real.
         // Usa la demanda del ANEXO IV (provincia + año + tipología), el MISMO η/SCOP que
@@ -977,6 +1012,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             savings: savingsRes,
             financials: financialRes,
             financialsSinCaldera,
+            comparativaClima,
             annualSavings: annualSavingsRes,
             payback: paybackRes,
             res080: res080Data,

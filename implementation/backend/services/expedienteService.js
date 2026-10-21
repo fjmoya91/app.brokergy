@@ -190,6 +190,19 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             )
             : { ...aerotermiaCal };
 
+        // ── Clima del SCOP elegido en una HIBRIDACIÓN ───────────────────────
+        // Si la simulación se hizo con el clima MEDIO (botón «Clima del SCOP»), el
+        // expediente nace igual: los SCOP ya vienen del medio, y se sella la
+        // temporada en las dos máquinas para que el C_b, el CIFO y el resto de
+        // documentos digan «medio» — nunca una en cálido y la otra en medio.
+        // Mismo criterio que `climaScopForzado` (calculation.js).
+        const climaMedio = opInputs.hibridacion === true
+            && String(opInputs.scopClima || '').toLowerCase() === 'medio';
+        if (climaMedio) {
+            aerotermiaCal.scop_temporada = 'medio';
+            aerotermiaAcs.scop_temporada = 'medio';
+        }
+
         // ── Autoconsumo fotovoltaico ya existente ────────────────────────────
         // Lo contestó el cliente en la captación y desde aquí acompaña al
         // expediente: el CEE tiene que declarar la generación que hay en la
@@ -278,6 +291,7 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             // caldera, su potencia nominal. Se heredan de la oportunidad.
             hibridacion_metodo: String(opInputs.hibridacionMetodo || '').toLowerCase() === 'caldera' ? 'caldera' : 'demanda',
             potencia_caldera: opInputs.potenciaCaldera != null && opInputs.potenciaCaldera !== '' ? Number(opInputs.potenciaCaldera) : 0,
+            ...(climaMedio ? { scop_clima: 'medio' } : {}),
             instalador_id: op.prescriptor_id || null,
             // Fechas que el cliente indicó al aceptar la propuesta (las que le dio su
             // instalador). La de inicio fija el plazo del CEE inicial: debe estar

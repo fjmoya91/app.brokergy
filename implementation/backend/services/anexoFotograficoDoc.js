@@ -99,6 +99,18 @@ const OTROS_ACTUACION = {
     despues: [],
 };
 
+// En una HIBRIDACIÓN (RES093/TER173, o un RES060 con `instalacion.hibridacion`)
+// la caldera NO se retira: rotular «Sustitución… Retirada del sistema existente»
+// describiría otra obra (26RES060_122, 20/10/2026). Lo decide quien compone `meta`.
+const AEROTERMIA_HIBRIDACION = {
+    titulo: 'Hibridación de la caldera con aerotermia',
+    desc: 'Instalación de un sistema de aerotermia de alta eficiencia energética que trabaja en hibridación con la caldera existente, que se mantiene como generador de apoyo.',
+};
+
+function rotuloActuacion(act, meta) {
+    return (meta?.hibridacion && act.id === 'aerotermia') ? { ...act, ...AEROTERMIA_HIBRIDACION } : act;
+}
+
 const ALL_SLOTS = ANEXO_ACTUACIONES.flatMap(a => [...a.antes, ...a.despues]);
 
 // Deducción del slot canónico desde el id de fila `drive_FOTO_XXX[_N].ext`
@@ -448,7 +460,7 @@ function buildFasePages(act, fase, rows, ctx) {
  *                comentarios?: {SLOT: 'texto explicativo'} }
  */
 function buildAnexoPages(rows, meta, opts = {}) {
-    const actuaciones = groupRowsIntoActuaciones(rows);
+    const actuaciones = groupRowsIntoActuaciones(rows).map(a => rotuloActuacion(a, meta));
     const pages = [buildCoverPage(actuaciones, meta)];
     const ctx = { meta, opts, firstPhotoPage: true };
     for (const act of actuaciones) {

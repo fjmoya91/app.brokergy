@@ -394,6 +394,28 @@ def test_un_generador_que_YA_compartia_servicio_se_reparte_proporcional():
     assert _plano(mixtos[0][5])[1] == ["25.83", "21"]      # calefaccion: 100 % x 21 %
 
 
+def test_hibridacion_con_el_ACS_en_un_termo_aparte_deja_la_caldera_sin_ACS():
+    """26RES060_122: bomba de SOLO calefaccion al C_b y un termo de ACS al 100 %.
+    La caldera mixta que se queda comparte la calefaccion, pero el ACS es entero
+    del termo: al 21 % + 100 % CE3X no califica («La instalacion de ACS no esta
+    bien definida»)."""
+    equipos = [
+        {"slot": "calefaccion", "nombre": "AEROTERMIA SH MASTER 14", "generador":
+         "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+         "rendimiento": "conocido", "rend_calefaccion": "458",
+         "superficie_calefaccion": 97.17, "pct_calefaccion": "79"},
+        {"slot": "ACS", "nombre": "BOMBA DE CALOR ACS HAIER", "generador":
+         "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+         "rendimiento": "conocido", "rend_acs": "363", "superficie_acs": 123,
+         "pct_acs": "100"},
+    ]
+    mixtos, avisos = _final(equipos, _base_con_caldera(), conservar=21)
+    assert [m[0] for m in mixtos] == ["CALDERA DOMUSA"]
+    assert _plano(mixtos[0][5])[0] == ["0.0", "0"]         # ACS: del termo
+    assert _plano(mixtos[0][5])[1] == ["25.83", "21"]      # calefaccion: 100 % - C_b
+    assert any("lo asume entero" in a for a in avisos)
+
+
 # ---------------------------------------------------------------------------
 # La AEROTERMIA QUE DA FRIO (suelo radiante): mixto3 y climatizacion
 #

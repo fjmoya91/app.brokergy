@@ -51,6 +51,8 @@ paths:
 
 142. **El ahorro anual en € paga cada kWh al precio de lo que lo produce** (2026-10-19): en `calculateAnnualSavingsTheoretical` ([calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js)) la bomba (calefacción `C_b/SCOP` y el ACS si cambia) va a precio de **electricidad**, y lo que sigue quemando la caldera (calefacción `(1 − C_b)/η` y el ACS si NO cambia) a precio de **su combustible**. Antes TODO iba a precio de luz y una hibridación salía con ahorro negativo (26RES060_OP310: −2.945 €/año frente a +2.802). Con C_b = 1 y el ACS dentro da lo mismo que antes; con el ACS fuera, ese ACS se cancela. El modo «gasto real» recibe también el C_b. Esto es el COSTE: el C_b del ahorro CAE (regla 42) no se toca. Tras tocarlo: `node implementation/backend/scripts/test_ahorro_anual_hibrido.mjs`. Ver "El ahorro anual en € reparte el consumo por VECTOR".
 
+153. **En una HIBRIDACIÓN el clima del SCOP se ELIGE (cálido o medio) con un botón, y con el medio TODO sale en medio** (2026-10-21, Fran, 26RES060_122). El cálido no siempre da más: su SCOP es más alto, pero sus 1.336 h suben la carga de diseño y bajan el C_b (26RES060_122: medio 42.784 kWh frente a 37.279). Botón «Clima del SCOP» junto a «Base del % de cobertura», en la calculadora (`inputs.scopClima`) y en «Análisis de Hibridación» del expediente (`instalacion.scop_clima`), con el bono de cada clima al lado; solo con la hibridación activa y en zona cálida (en E1 ya es el medio); sin hibridación no cambia nada. Con el medio, el SCOP de calefacción, su temporada (las horas del C_b) y el SCOP_dhw salen de las columnas del medio del catálogo, y el CIFO rotula los dos en medio (`climaScopAcs`, regla del documento «El ACS en el MISMO clima»). El expediente lo HEREDA al aceptar (`expedienteService`: `scop_clima` + `scop_temporada: 'medio'` en las dos máquinas). Fuente única: `climaScopForzado` y `scopsParaClima` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js), que llevan también el parámetro `clima` de `getScopFromModel`/`getScopSeason`/`getScopAcsFromModel`; la comparativa del expediente usa `computeExpedienteFinancials`, la del Económico. El F_c del Anexo VI es de la ZONA y no cambia. Tras tocarlo: `node implementation/backend/scripts/test_clima_scop.mjs` y `test_temporada_scop.mjs`. Ver "El ACS se declara en el MISMO clima que la calefacción".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -58,6 +60,7 @@ paths:
 - `docs/conocimiento/calculo/ahorro-anual-en-euros-con-hibridacion.md` — El ahorro anual en € reparte el consumo por VECTOR: la bomba a precio de luz, la caldera al de su combustible (2026-10-19) · 3,7 KB
 - `docs/conocimiento/calculo/ahorro-res080-metodo-simplificado-por-vector-energetico.md` — Ahorro RES080 — método SIMPLIFICADO, por vector energético (2026-08-10) · 9,5 KB
 - `docs/conocimiento/calculo/bloques-de-viviendas-el-edificio-completo-como-objeto.md` — BLOQUES de viviendas — el edificio completo como objeto (2026-09-11) · 8,6 KB
+- `docs/conocimiento/calculo/el-acs-en-el-mismo-clima-que-la-calefaccion.md` — El ACS se declara en el MISMO clima que la calefacción (2026-10-21) · 3,3 KB
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md` — El CEE que MANDA, y qué se avisa antes de generar (2026-09-03) · 8,7 KB
 - `docs/conocimiento/calculo/el-coste-del-informe-de-verificacion-ya-en-la-simulacion.md` — El COSTE DEL INFORME DE VERIFICACIÓN, ya en la simulación (2026-09-11) · 3,2 KB
 - `docs/conocimiento/calculo/ficha-ter100-sector-terciario.md` — Ficha TER100 — Sector TERCIARIO (2026-07-30) · 5,1 KB
@@ -89,6 +92,9 @@ paths:
   - **REGLA — ni `tipo: 'piso'` ni una participación heredada < 100 la bajan al
   40 %**
   - **REGLA — el requisito se dice en pantalla.**
+- `docs/conocimiento/calculo/el-acs-en-el-mismo-clima-que-la-calefaccion.md`
+  - **REGLA — el SCOP_dhw y el SCOP de calefacción salen de la MISMA temporada.**
+  - **REGLA — en una hibridación el clima se ELIGE, y lo elegido viaja de la oportunidad al expediente.**
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md`
   - **REGLA — la demanda de ACS tiene que ser LA MISMA en los dos certificados, y si no
 lo es, se usa la del CEE INICIAL.**

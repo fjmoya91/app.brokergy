@@ -27,3 +27,12 @@ unidad interior lo dice, o el cliente busca un depósito aparte que no existe.
 (dos huecos no son "el mismo equipo"). Pero eso no es una declaración: para afirmar
 que son dos aparatos hay que tener IDENTIFICADO el de ACS, o un expediente sin
 rellenar diría "dos" con la misma autoridad que uno comprobado.
+
+## Y el ANEXO de una hibridación no dice «Sustitución» (2026-10-20)
+
+El Anexo Fotográfico rotulaba la actuación de aerotermia siempre como «Sustitución de caldera por
+aerotermia — Retirada del sistema de calefacción existente…», también en los RES093 y en un RES060
+que hibrida (26RES060_122): describía otra obra. Con `meta.hibridacion` (lo compone
+`buildDocMeta` en el servidor y `docMeta` en `AnexoFotograficoModal`: `instalacion.hibridacion` o
+número RES093/TER173) se rotula «Hibridación de la caldera con aerotermia», con la caldera como
+generador de apoyo (`rotuloActuacion`, en los DOS espejos de `anexoFotograficoDoc.js`).

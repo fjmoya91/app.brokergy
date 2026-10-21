@@ -73,7 +73,7 @@ paths:
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-de-un-res060-copiando-el-inicial.md` — El CEE FINAL de un RES060: se COPIA el inicial (2026-10-08) · 7,5 KB
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-desde-la-medida-de-mejora-del-inicial-del-tecnico.md` — El CEE FINAL desde la MEDIDA DE MEJORA del inicial del técnico (2026-09-30) · 8,1 KB
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-se-hace-copiando-el-inicial.md` — El CEE FINAL se hace COPIANDO el inicial (2026-09-13) · 6,2 KB
-- `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/y-el-cee-final-igual.md` — Y el CEE FINAL, igual (2026-09-16) · 2,7 KB
+- `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/y-el-cee-final-igual.md` — Y el CEE FINAL, igual (2026-09-16) · 3,6 KB
 - `docs/conocimiento/cee-generacion/la-medida-del-previsto-res080-va-autocontenida.md` — La medida del PREVISTO (RES080) va AUTOCONTENIDA, no como «Nuevo Edificio» (2026-10-10) · 4,7 KB
 - `docs/conocimiento/cee-generacion/los-puentes-de-las-ventanas-que-cambian.md` — Los PUENTES TÉRMICOS de las ventanas que CAMBIAN (RES080, 2026-10-05) · 3,1 KB
 - `docs/conocimiento/cee-generacion/una-cascada-son-varios-generadores-en-el-cex.md` — Una CASCADA son VARIOS generadores en el `.cex`, a partes iguales (2026-10-20) · 3,8 KB
@@ -162,6 +162,8 @@ PROPIO final.**
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/y-el-cee-final-igual.md`
   - **REGLA — la caldera del CEE final es la del FICHERO, no una recompuesta.**
   - **REGLA — el porcentaje se ESCALA sobre el que ya tenía, no lo sustituye.**
+  - **REGLA — la caldera que se conserva comparte solo lo que la bomba reparte por el C_b; lo que otro
+equipo nuevo asume ENTERO se le pone a 0.**
 - `docs/conocimiento/cee-generacion/la-medida-del-previsto-res080-va-autocontenida.md`
   - **REGLA — la medida del previsto es UN conjunto AUTOCONTENIDO**
   - **REGLA — la fachada se aísla «por el INTERIOR» salvo que el plan diga `exterior: true`**

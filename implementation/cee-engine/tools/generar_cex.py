@@ -1514,6 +1514,19 @@ def construir_instalaciones(datos: dict, plantilla: list,
            for eq in datos.get("instalaciones", [])):
         asumidos_retira = set(asumidos)
 
+    # En una HIBRIDACION la caldera comparte con la bomba lo que la bomba
+    # reparte por el C_b, pero NO lo que otro equipo nuevo asume ENTERO: con el
+    # ACS en un termo aparte al 100 %, la caldera mixta que se queda tiene que
+    # dejar su ACS a 0 (26RES060_122, 20/10/2026: salia al 31 % + el termo al
+    # 100 % = 131 % y CE3X no calificaba). La refrigeracion no retira nada.
+    enteros: set[str] = set()
+    if conservar is not None:
+        for eq in datos.get("instalaciones", []):
+            for s in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()) - {"refrigeracion"}:
+                pct = _numf(eq.get(_PCT_DEL_SERVICIO.get(s, "")))
+                if pct is None or pct >= 100:
+                    enteros.add(s)
+
     # Lo retirado se dice CON SU NOMBRE. Que de un .cex desaparezca un generador
     # no puede ser un efecto silencioso: es la actuacion entera.
     for nombre_slot in sorted(retirar or ()):
@@ -1522,11 +1535,17 @@ def construir_instalaciones(datos: dict, plantilla: list,
             quedan = []
             for viejo in slots[i]:
                 reg, av = _con_reparto(viejo, conservar)
+                fuera = enteros & SERVICIOS_DEL_SLOT.get(nombre_slot, set())
+                if fuera:
+                    reg, av2 = _sin_servicios(reg, fuera)
+                    av = av + av2
                 quedan.append(reg)
                 avisos.append(
                     f"NO se retira {str(viejo[0])!r}: es una HIBRIDACION y sigue dando "
                     f"servicio. Se conserva tal cual venia en el .cex y solo se le cambia "
-                    f"su parte de la demanda.")
+                    f"su parte de la demanda"
+                    + (f"; {' y '.join(sorted(_ROTULO_SERVICIO[s] for s in fuera))} a 0: "
+                       f"lo asume entero el equipo nuevo." if fuera else "."))
                 avisos.extend(av)
             slots[i] = quedan
             continue

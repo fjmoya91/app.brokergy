@@ -37,7 +37,7 @@ paths:
 - `docs/conocimiento/documentacion-fotos/el-buzon-medido.md` — El buzón, medido (2026-09-21) · 2,9 KB
 - `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/00-el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir.md` — El gestor de FOTOGRAFÍAS: subir en tanda, pegar y repartir (2026-09-21) · 1,4 KB
 - `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/ctrl-v-pega-en-el-apartado-que-senala-el-raton.md` — Ctrl+V pega en el apartado que señala el ratón · 0,9 KB
-- `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/dos-huecos-del-alcance.md` — Dos huecos del alcance · 2,0 KB
+- `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/dos-huecos-del-alcance.md` — Dos huecos del alcance · 2,7 KB
 - `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/el-buzon-se-sueltan-todas-y-se-reparten.md` — El BUZÓN: se sueltan todas y se reparten · 2,1 KB
 - `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/la-subida-va-en-tanda-no-foto-a-foto.md` — La subida va en TANDA, no foto a foto · 2,5 KB
 - `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/las-ventanas-ventana-por-ventana.md` — Las VENTANAS, ventana por ventana (2026-09-30) · 4,8 KB

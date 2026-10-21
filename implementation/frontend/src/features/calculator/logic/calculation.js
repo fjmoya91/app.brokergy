@@ -2084,8 +2084,8 @@ export function calculateAnnualSavingsFromSpending({
  * @param {number} temp - La temperatura de impulsión (35, 45, 55)
  * @param {string} method - Método de obtención: 'ficha' (directo) o 'eprel' (calculado por eta_s)
  */
-export function getScopFromModel(model, zone, temp, method = 'ficha') {
-    return resolveScop(model, zone, temp, method).value;
+export function getScopFromModel(model, zone, temp, method = 'ficha', clima = null) {
+    return resolveScop(model, zone, temp, method, clima).value;
 }
 
 /**
@@ -2098,8 +2098,8 @@ export function getScopFromModel(model, zone, temp, method = 'ficha') {
  * rendimiento y la carga de diseño salen de temporadas distintas y la
  * comparación deja de estar en igualdad de condiciones.
  */
-export function getScopSeason(model, zone, temp, method = 'ficha') {
-    return resolveScop(model, zone, temp, method).season;
+export function getScopSeason(model, zone, temp, method = 'ficha', clima = null) {
+    return resolveScop(model, zone, temp, method, clima).season;
 }
 
 /**
@@ -2108,6 +2108,41 @@ export function getScopSeason(model, zone, temp, method = 'ficha') {
  */
 export function zoneClimateSeason(zone) {
     return String(zone || 'D3').toUpperCase() === 'E1' ? 'medio' : 'calido';
+}
+
+export const CLIMA_SCOP = Object.freeze({ CALIDO: 'calido', MEDIO: 'medio' });
+
+/**
+ * El clima en el que se DECLARA el SCOP de una HIBRIDACIÓN cuando se elige a mano
+ * (botón «Clima del SCOP», oportunidad `inputs.scopClima` · expediente
+ * `instalacion.scop_clima`). En una hibridación el clima cálido no siempre da más
+ * ahorro: su SCOP es más alto, pero sus horas (1.336 frente a 2.066) suben la carga
+ * de diseño y bajan el C_b — en 26RES060_122 el medio daba 42.784 kWh frente a
+ * 37.279. El Anexo III de la ficha admite siempre el medio.
+ *
+ * Solo cuenta con la hibridación ACTIVA: sin ella todo sigue como siempre (la zona).
+ * Devuelve 'medio' o null (null = lo de siempre, que en zona cálida es el cálido).
+ * Va en minúsculas por si el expediente lo guardó en MAYÚSCULAS (`normalizeData`).
+ */
+export function climaScopForzado(src = {}) {
+    const hib = src?.hibridacion === true || src?.hibridacion === 'true';
+    const clima = String(src?.scopClima ?? src?.scop_clima ?? '').toLowerCase();
+    return hib && clima === CLIMA_SCOP.MEDIO ? CLIMA_SCOP.MEDIO : null;
+}
+
+/**
+ * Los SCOP de un clima sacados del CATÁLOGO, de una vez: el de calefacción, la
+ * temporada de la que sale (la que fija las horas del C_b) y el de ACS. Lo usan el
+ * botón «Clima del SCOP» y su comparativa, en la calculadora y en el expediente,
+ * para que los dos lados no puedan dar números distintos para el mismo equipo.
+ * Un valor es null si no hay modelo del catálogo del que sacarlo.
+ */
+export function scopsParaClima({ modelo, modeloAcs, zona, temp, metodoCal = 'ficha', metodoAcs = 'ficha', clima = null } = {}) {
+    return {
+        scopHeating: modelo ? getScopFromModel(modelo, zona, temp, metodoCal, clima) : null,
+        scopTemporada: modelo ? getScopSeason(modelo, zona, temp, metodoCal, clima) : null,
+        scopAcs: modeloAcs ? getScopAcsFromModel(modeloAcs, zona, metodoAcs, clima) : null,
+    };
 }
 
 /**
@@ -2136,10 +2171,12 @@ export function redondeaScop(v) {
 // 'calido' si TODOS los valores usados vienen de las columnas de clima cálido;
 // en cuanto uno cae al dato medio (columna vacía o dato basura del catálogo),
 // es 'medio' — que es justo lo que hay que declarar en el certificado.
-function resolveScop(model, zone, temp, method = 'ficha') {
+function resolveScop(model, zone, temp, method = 'ficha', clima = null) {
     if (!model) return { value: 3.2, season: HE_DEFAULT_SEASON };
 
-    const warmZone = zoneClimateSeason(zone) === 'calido';
+    // Con el clima MEDIO elegido (hibridación) se leen las columnas del medio
+    // aunque la zona sea cálida: valor y temporada salen juntos de aquí.
+    const warmZone = clima !== CLIMA_SCOP.MEDIO && zoneClimateSeason(zone) === 'calido';
     const season = (warm) => (warm ? 'calido' : HE_DEFAULT_SEASON);
 
     // CASO 1: Cálculo mediante EPREL (eficiencia estacional eta_s)
@@ -2210,11 +2247,13 @@ const FC_BY_ZONE = {
  * method: 'ficha' | 'conjunto' (Anexo IV, depósito integrado) | 'independiente' (Anexo VI, depósito separado)
  * Retrocompat: 'eprel' legacy → trata como 'ficha'
  */
-export function getScopAcsFromModel(model, zone, method = 'ficha') {
+export function getScopAcsFromModel(model, zone, method = 'ficha', clima = null) {
     if (!model) return 3.0;
 
     const normalizedZone = zone?.toUpperCase() || 'D3';
-    const isWarm = normalizedZone !== 'E1';
+    // El ACS en el MISMO clima que la calefacción (Fran, 21/10/2026): con el medio
+    // elegido, el η_wh / SCOP_dhw del medio. El F_c del Anexo VI sigue siendo de la ZONA.
+    const isWarm = clima !== CLIMA_SCOP.MEDIO && normalizedZone !== 'E1';
 
     // CASO: Depósito como conjunto — Anexo IV RES060
     // SCOP = CC × ηhw = 2,5 × (eta_acs / 100)

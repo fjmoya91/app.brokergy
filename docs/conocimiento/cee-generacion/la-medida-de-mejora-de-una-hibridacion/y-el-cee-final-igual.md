@@ -40,3 +40,15 @@ separarlas**: al final le llega del propio `.cex` que copia
 
 ⚠️ En el mensaje de WhatsApp se escribe **«Cb»** sin guion bajo: `_texto_` es la
 cursiva de WhatsApp, y un `C_b` dentro la cierra a media frase.
+
+## Con el ACS en OTRA máquina, la caldera conservada se queda sin ACS (2026-10-20)
+
+**REGLA — la caldera que se conserva comparte solo lo que la bomba reparte por el C_b; lo que otro
+equipo nuevo asume ENTERO se le pone a 0.** En 26RES060_122 (SH MASTER 14 de solo calefacción al
+69 % + termo Haier HP200M7-F9 al 100 % del ACS) la caldera mixta SH 40 S se conservaba al 31 % en
+calefacción **y en ACS**: 131 % de ACS y CE3X no calificaba («La instalación de ACS no está bien
+definida»). Ahora `construir_instalaciones` (rama `conservar`) mira el % que declara cada equipo
+nuevo por servicio y, si es 100, pasa ese servicio de la caldera a `['0.0','0']` con
+`_sin_servicios` —como en una sustitución—. Con una bomba MIXTA al C_b no cambia nada (no hay
+servicio entero). La refrigeración sigue sin retirar nada (regla 72). Prueba:
+`test_hibridacion_con_el_ACS_en_un_termo_aparte_deja_la_caldera_sin_ACS` (`tests/test_equipos.py`).

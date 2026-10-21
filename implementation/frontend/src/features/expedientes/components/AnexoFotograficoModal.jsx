@@ -570,6 +570,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         logoSrc: logoDocSrc,
         clienteNombre: [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' '),
         clienteDni: cli.dni || cli.nif || '',
+        hibridacion: !!inst.hibridacion || /RES093|TER173/i.test(numexpte || ''),
     };
 
     // Las fotos quitadas del anexo no entran en el documento (siguen en Drive).

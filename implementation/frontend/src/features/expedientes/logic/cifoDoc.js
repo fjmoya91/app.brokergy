@@ -208,6 +208,10 @@ export function deriveCifoData({ expediente, results }) {
     const climaScopCal = temporadaCal
         ? ({ calido: 'Cálido', medio: 'Medio', frio: 'Frío' }[normalizeClimateSeason(temporadaCal)] || zoneLabel)
         : zoneLabel;
+    // El ACS se declara en el MISMO clima que la calefacción (Fran, 21/10/2026,
+    // 26RES060_122): no se dice que una máquina está en clima cálido y la otra en
+    // medio. Con la temporada sellada manda ella; sin sello, la zona como siempre.
+    const climaScopAcs = temporadaCal ? climaScopCal : zoneLabel;
 
     const numexpte = exp.numero_expediente || '';
     const facturasList = (doc.facturas || []).map(f => f.numero_factura).filter(Boolean).join(', ') || '—';
@@ -515,7 +519,7 @@ export function deriveCifoData({ expediente, results }) {
         // objetos crudos usados directamente en el HTML
         inst, cli, ceeFinal,
         // identificación / cabecera
-        isHybrid, isTerciario, isTer173, cbAnexo, cbIncompleto, numexpte, zoneStr, zoneLabel, climaScopCal,
+        isHybrid, isTerciario, isTer173, cbAnexo, cbIncompleto, numexpte, zoneStr, zoneLabel, climaScopCal, climaScopAcs,
         // variables de la fórmula
         dcal, dcalRaw, sStr, sRaw, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
         acsPorM2Str, acsSupStr, acsFaseStr, litrosFaseStr,
@@ -723,7 +727,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     const placaRecorte = placaAcs?.recorte || null;
     const {
         inst, cli, ceeFinal,
-        isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel, climaScopCal,
+        isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel, climaScopCal, climaScopAcs,
         dcal, sStr, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
         acsPorM2Str, acsSupStr, acsFaseStr, litrosFaseStr,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
@@ -1306,7 +1310,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             `Justificación del SCOP en ${label} — ${anexoRef}`,
             `SCOP = CC · (${etaVar} + F(1) + F(2))`,
             `${svRow('CC', 'Coeficiente de conversión', '2,5')}
-             ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${(isAcs ? zoneLabel : climaScopCal).toLowerCase()}${isAcs ? ' y perfil ACS' : emitterScopContext(inst.tipo_emisor)})`, `${etaValue}%`)}
+             ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${(isAcs ? climaScopAcs : climaScopCal).toLowerCase()}${isAcs ? ' y perfil ACS' : emitterScopContext(inst.tipo_emisor)})`, `${etaValue}%`)}
              ${svRow('F(1)', 'Factor de corrección por tecnología (bombas de calor aerotérmicas)', '3%')}
              ${svRow('F(2)', 'Factor de corrección por clima (bombas de calor aerotérmicas)', '0%')}
              ${scopResult(`Cálculo: SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}% &nbsp;→&nbsp; SCOP en ${label}`, scopStr)}`
@@ -1339,7 +1343,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 `Justificación del SCOP en ACS — ${isTerciario ? `Anexo II ficha ${cifoLabel}` : 'Anexo IV ficha RES060'} (depósito ACS en conjunto con la BdC)`,
                 `SCOP<sub>dhw</sub> = CC · η<sub>wh</sub>`,
                 `${svRow('CC', 'Coeficiente de conversión', '2,5')}
-                 ${svRow('η<sub>wh</sub>', `Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()} y perfil ACS)`, `${etaWh}%`)}
+                 ${svRow('η<sub>wh</sub>', `Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${climaScopAcs.toLowerCase()} y perfil ACS)`, `${etaWh}%`)}
                  ${scopResult(`Cálculo: SCOP<sub>dhw</sub> = ${calculo} &nbsp;→&nbsp; SCOP en ACS`, scopAcsStr)}`
             );
         }
