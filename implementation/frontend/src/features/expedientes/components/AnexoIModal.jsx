@@ -6,6 +6,7 @@ import { anexoIStates } from '../logic/subvenciones';
 // docGenerators se conserva como formato CLÁSICO (y es la que permite marcar las
 // casillas a mano en pantalla).
 import { anexoIFormulario } from '../logic/anexoIFormulario';
+import { representacionDe } from '../logic/representacion';
 import { DocumentoOficialPreview, FormatoDocumentoSwitch } from './DocumentoOficialPreview';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
@@ -408,6 +409,17 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
                         exactamente lo que se descarga, se guarda y se envía. Las casillas
                         se marcan en la pestaña Subvenciones del expediente (o a mano en el
                         formato clásico, que sigue siendo interactivo). */}
+                    {/* Representación declarada a medias: el apartado 3 saldría con
+                        huecos o prometiendo una copia que no va en el expediente. */}
+                    {(() => {
+                        const rep = representacionDe(expediente?.clientes);
+                        if (!rep.hay || !rep.falta.length) return null;
+                        return (
+                            <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-200">
+                                <b>Representación incompleta</b> ({rep.esEmpresa ? 'representante legal' : 'titular representado'}) — falta en la ficha del cliente: {rep.falta.join(' · ')}.
+                            </div>
+                        );
+                    })()}
                     {formato === 'oficial' && (
                         <div className="flex-1 min-h-0">
                             <DocumentoOficialPreview formulario={formularioOficial()} titulo="Anexo I"

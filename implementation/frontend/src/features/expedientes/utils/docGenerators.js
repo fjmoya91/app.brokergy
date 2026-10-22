@@ -9,6 +9,7 @@ import { anexoIStates, BONO_SOCIAL_LABELS } from '../logic/subvenciones.js';
 // Las @font-face auto-alojadas: la misma función que el CIFO y la propuesta.
 import { buildFontFaces, FUENTE_INTER } from '../logic/fuentesDoc.js';
 import { cedentesDe, repartoPago, cuotaTxt } from '../logic/cedentes.js';
+import { representacionDe } from '../logic/representacion.js';
 import { casillaFirmaConvenioPx } from '../logic/signBoxes.js';
 
 // Node-safe: este módulo también se importa server-side (cifoService vía cifoDoc).
@@ -607,12 +608,16 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
     const ced = cedentes[Math.min(Math.max(0, opts.cedente || 0), cedentes.length - 1)];
     const nombrePropietario = ced.nombre || dash;
     const nif = ced.dni || dash;
-    // Persona jurídica: el propietario del ahorro sigue siendo la sociedad, pero
-    // quien firma es su representante legal (apartado 3 del Anexo I).
+    // Apartado 3 — REPRESENTACIÓN (logic/representacion.js). Una empresa la tiene
+    // siempre (su representante legal) y un particular solo si está marcado como
+    // representado (un poder). Sin ella el apartado va en blanco y SIN casillas:
+    // el titular firma en su nombre. El propietario del ahorro no cambia.
+    const rep = representacionDe(ced);
     const esEmpresa = !!ced.es_empresa;
-    const nombreRepresentante = [ced.representante_nombre, ced.representante_apellidos].filter(Boolean).join(' ');
-    const dniRepresentante = ced.representante_dni || '';
-    const firmante = esEmpresa && nombreRepresentante ? nombreRepresentante : nombrePropietario;
+    const hayRepresentante = rep.hay;
+    const nombreRepresentante = rep.nombre;
+    const dniRepresentante = rep.dni;
+    const firmante = hayRepresentante && nombreRepresentante ? nombreRepresentante : nombrePropietario;
     const domicilio = [cliente.direccion, cliente.codigo_postal, cliente.municipio].filter(Boolean).join(', ') || dash;
     const municipioFirma = (cliente.municipio || dash).toUpperCase();
     const fechaFirma = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -639,10 +644,15 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
         email: ced.email || cliente.email || dash,
         nCedentes: cedentes.length,
         hasAcs,
-        esEmpresa, nombreRepresentante, dniRepresentante, firmante,
-        // El "otro documento" que acredita la representación: SIEMPRE el convenio de
-        // cesión de este expediente, que es lo que de verdad se adjunta.
-        otroDocumento: `${numexpte} - ANEXO CESIÓN AHORRO`,
+        esEmpresa, hayRepresentante, nombreRepresentante, dniRepresentante, firmante,
+        // Con qué título se acredita: poder notarial (fecha + protocolo) u otro
+        // documento (título + fecha). Sin representación, ninguna casilla.
+        poderNotarial: rep.tipo === 'NOTARIAL',
+        poderFecha: rep.tipo === 'NOTARIAL' ? rep.fecha : '',
+        poderProtocolo: rep.tipo === 'NOTARIAL' ? rep.protocolo : '',
+        otroDoc: rep.tipo === 'OTRO',
+        otroDocumento: rep.otroDocumento,
+        faltaRepresentacion: rep.falta,
         municipioFirma, fechaFirma, fechaPartes,
         bonoSocial, noSolicitado, seSolicitado, ayudaOptions, ayudaFields,
     };
@@ -665,7 +675,8 @@ const paginasAnexoI = (expediente, results, states, isForPdf, cedente) => {
     const {
         numexpte, nombreActuacion, codigoFicha, ccaa, dirActuacion, refCatastral,
         nombrePropietario, nif, domicilio, telefono, email,
-        esEmpresa, nombreRepresentante, dniRepresentante, firmante,
+        hayRepresentante, nombreRepresentante, dniRepresentante, firmante,
+        poderNotarial, poderFecha, poderProtocolo, otroDoc, otroDocumento,
         municipioFirma, fechaFirma,
         bonoSocial, noSolicitado, seSolicitado, ayudaOptions, ayudaFields,
     } = d;
@@ -709,14 +720,14 @@ const paginasAnexoI = (expediente, results, states, isForPdf, cedente) => {
         <div class="doc-page">
             <div class="doc-sec-title">3. Identificación del representante del propietario inicial del ahorro (a indicar únicamente en caso de representación)</div>
             <table class="doc-table">
-                <tr><td class="lbl">Representante (Nombre y apellidos / Razón social)</td><td colspan="2">${esEmpresa ? nombreRepresentante : ''}</td><td style="width:10%">NIF/NIE</td><td>${esEmpresa ? dniRepresentante : ''}</td></tr>
+                <tr><td class="lbl">Representante (Nombre y apellidos / Razón social)</td><td colspan="2">${hayRepresentante ? nombreRepresentante : ''}</td><td style="width:10%">NIF/NIE</td><td>${hayRepresentante ? dniRepresentante : ''}</td></tr>
                 <tr><td class="lbl">Domicilio</td><td colspan="4"></td></tr>
                 <tr><td class="lbl">Teléfono</td><td colspan="4"></td></tr>
                 <tr><td class="lbl">Correo electrónico</td><td colspan="4"></td></tr>
             </table>
             <div class="doc-p">Ostentando poderes suficientes según:</div>
-            <div class="doc-check-row"><div class="doc-check-box"></div> <span>Poder Notarial de fecha ______________ y número de protocolo ______________. Se adjunta copia a la presente.</span></div>
-            <div class="doc-check-row"><div class="doc-check-box">X</div> <span>Otro documento (identificar título y fecha de formalización): <b>${numexpte} - ANEXO CESIÓN AHORRO</b>. Se adjunta copia a la presente.</span></div>
+            <div class="doc-check-row"><div class="doc-check-box">${cb(poderNotarial)}</div> <span>Poder Notarial de fecha ${poderFecha ? `<b>${poderFecha}</b>` : '______________'} y número de protocolo ${poderProtocolo ? `<b>${poderProtocolo}</b>` : '______________'}. Se adjunta copia a la presente.</span></div>
+            <div class="doc-check-row"><div class="doc-check-box">${cb(otroDoc)}</div> <span>Otro documento (identificar título y fecha de formalización): ${otroDocumento ? `<b>${otroDocumento}</b>` : '______________'}. Se adjunta copia a la presente.</span></div>
             <div class="doc-p" style="margin-top:10px">Manifestando que dichos poderes no se encuentran revocados, modificados ni limitados.</div>
             <div class="doc-sec-title">4. Indicación de si el propietario inicial del ahorro o el beneficiario son perceptores del bono social, en sus modalidades eléctrico o térmico.</div>
             <table class="doc-table">
@@ -771,7 +782,7 @@ const paginasAnexoI = (expediente, results, states, isForPdf, cedente) => {
             <div class="doc-p" style="margin-top: 15px">Y para que así conste, firma la presente en <b>${municipioFirma}</b>, a <b>${fechaFirma}</b>.</div>
             <div class="doc-signature">
                 <div>Fdo.: <b>${firmante}</b></div>
-                ${esEmpresa && nombreRepresentante ? `<div style="font-size: 10pt">En representación de <b>${nombrePropietario}</b></div>` : ''}
+                ${hayRepresentante && nombreRepresentante ? `<div style="font-size: 10pt">En representación de <b>${nombrePropietario}</b></div>` : ''}
                 <div style="font-size: 9pt; margin-top: 5px">(Firma del propietario inicial del ahorro o representante del mismo).</div>
             </div>
         </div>
@@ -803,7 +814,14 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     const esEmpresa = !!cliente.es_empresa;
     const nombreRepresentante = [cliente.representante_nombre, cliente.representante_apellidos].filter(Boolean).join(' ') || '___________';
     const dniRepresentante = cliente.representante_dni || '___________';
-    const firmanteCedente = esEmpresa ? nombreRepresentante : nombreCedente;
+    // Particular REPRESENTADO (logic/representacion.js): comparece y firma su
+    // representante, con el título que lo acredita — lo mismo que el Anexo I.
+    const repCed = representacionDe(cliente);
+    const particularRepresentado = !esEmpresa && repCed.hay;
+    const tituloRepresentacion = repCed.tipo === 'NOTARIAL'
+        ? `poder notarial de fecha ${repCed.fecha || '___________'}${repCed.protocolo ? ` y número de protocolo ${repCed.protocolo}` : ''}`
+        : (repCed.otroDocumento || '___________');
+    const firmanteCedente = (esEmpresa || particularRepresentado) ? nombreRepresentante : nombreCedente;
     const dirCedente = [cliente.direccion, cliente.codigo_postal, `${cliente.municipio} (${cliente.provincia})`].filter(Boolean).join(', ').toUpperCase() || '___________';
     const telCedente = cliente.tlf || cliente.telefono || '___________';
     const emailCedente = cliente.email || '___________';
@@ -943,7 +961,7 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     const reunidosVarios = !varios ? '' : `
             <p class="conv-p">De una parte, las personas que se indican a continuación, que ${previo ? 'van a llevar' : 'han llevado'} a cabo conjuntamente la inversión de la actuación objeto de este convenio, en la proporción que se indica:</p>
             <table class="conv-tabla-pago"><tr><th>Cedente</th><th>Documento de identificación</th><th>Parte de la inversión</th></tr>
-            ${cedentes.map(x => `<tr><td><strong>${x.nombre || '___________'}</strong>${x.es_empresa ? `, representada por Dª/D. ${[x.representante_nombre, x.representante_apellidos].filter(Boolean).join(' ') || '___________'} (${x.representante_dni || '___________'})` : ''}</td><td>${x.dni || '___________'}</td><td>${cuotaTxt(x.cuota_pct)} %</td></tr>`).join('')}
+            ${cedentes.map(x => `<tr><td><strong>${x.nombre || '___________'}</strong>${representacionDe(x).hay ? `, representada por Dª/D. ${[x.representante_nombre, x.representante_apellidos].filter(Boolean).join(' ') || '___________'} (${x.representante_dni || '___________'})` : ''}</td><td>${x.dni || '___________'}</td><td>${cuotaTxt(x.cuota_pct)} %</td></tr>`).join('')}
             </table>
             <p class="conv-p">Todos ellos mayores de edad (o, en el caso de las entidades, debidamente representadas) y con domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante, conjuntamente, el <strong>Cedente</strong> o los <strong>Cedentes</strong>.</p>`;
     const clPluralidad = !varios ? '' : `
@@ -1005,6 +1023,8 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
             <div class="conv-subtitle">REUNIDOS</div>
             ${varios ? reunidosVarios : `<p class="conv-p">${esEmpresa
                 ? `De una parte, Dª/D. <strong>${nombreRepresentante}</strong>, mayor de edad, con documento de identificación <strong>${dniRepresentante}</strong>, actuando en nombre y representación de la entidad <strong>${nombreCedente}</strong>, con código de identificación NIF <strong>${dniCedente}</strong> y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.`
+                : particularRepresentado
+                ? `De una parte, Dª/D. <strong>${nombreCedente}</strong>, mayor de edad, con documento de identificación <strong>${dniCedente}</strong>, representada/o en este acto por Dª/D. <strong>${nombreRepresentante}</strong>, con documento de identificación <strong>${dniRepresentante}</strong>, en virtud de ${tituloRepresentacion}, y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.`
                 : `De una parte, Dª/D. <strong>${nombreCedente}</strong>, mayor de edad, con documento de identificación <strong>${dniCedente}</strong> y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.`
             }</p>`}
             <p class="conv-p">De otra parte, Dª/D. ${FIRMANTE_CESIONARIO.nombre} mayor de edad, con documento de identificación ${FIRMANTE_CESIONARIO.nif}, actuando en nombre y representación de la entidad ${FIRMANTE_CESIONARIO.empresa} (<strong>BROKERGY</strong>), con código de identificación NIF ${FIRMANTE_CESIONARIO.cif} y domicilio a efectos de notificaciones en C/ Don Sergio, 12 – 1ºL de 13700 Tomelloso (Ciudad Real), en adelante el <strong>Cesionario</strong>.</p>
@@ -1056,7 +1076,7 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
                   <div class="conv-sign-lbl">El Cedente</div>
                   <div class="conv-sign-box"></div>
                   <div class="conv-sign-name">Dª/D. ${firmanteCedente}</div>
-                  ${esEmpresa ? `<div class="conv-sign-name" style="margin-top:2px">En representación de <strong>${nombreCedente}</strong></div>` : ''}
+                  ${(esEmpresa || particularRepresentado) ? `<div class="conv-sign-name" style="margin-top:2px">En representación de <strong>${nombreCedente}</strong></div>` : ''}
                 </div>
                 <div class="conv-sign-col">
                   <div class="conv-sign-lbl">El Cesionario</div>
@@ -1086,8 +1106,8 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
               i + 1,
               `Cedente ${i + 1} de ${cedentes.length} · ${cuotaTxt(x.cuota_pct)} %`,
               '',
-              `Dª/D. ${x.es_empresa ? ([x.representante_nombre, x.representante_apellidos].filter(Boolean).join(' ') || '___________') : (x.nombre || '___________')} · ${x.es_empresa ? x.representante_dni || '' : x.dni || ''}`,
-              x.es_empresa ? ` · en representación de ${x.nombre}` : '',
+              `Dª/D. ${representacionDe(x).hay ? ([x.representante_nombre, x.representante_apellidos].filter(Boolean).join(' ') || '___________') : (x.nombre || '___________')} · ${representacionDe(x).hay ? x.representante_dni || '' : x.dni || ''}`,
+              representacionDe(x).hay ? ` · en representación de ${x.nombre}` : '',
           )).join('')}
           ${footer(3)}
         </div>`;

@@ -58,6 +58,13 @@ salían ficheros llamados `E1-3-1 - … - Ficha RES firmada por el S.O..pdf`.
   dictamen favorable (`E{n}-2`) y los escritos del lote (`E{n}-5-x`). Es el que se
   sube a MITECO, y su botón solo aparece con el dictamen ya subido.
 
+**La copia del PODER va como `4-8` (2026-10-22).** Cuando el titular está representado
+—una empresa, o un particular con poder— el Anexo I declara «Se adjunta copia a la
+presente», así que la copia viaja: pieza `4-8 · ACREDITACION REPRESENTACION`, sacada de
+la ficha del CLIENTE (`clientes.representacion_doc_link`). Sin representación «no
+procede». Es un código nuevo, no reproducido de un lote anterior: ninguno de los ya
+presentados tenía representante. Ver "La REPRESENTACIÓN del titular en el Anexo I".
+
 **El CERTIFICADO RITE pasa a `3-2`.** En los lotes ya enviados comparte el `3-6` con
 el justificante de registro del CEE final —dos ficheros con el mismo código— y el
 `3-2` estaba libre en todos ellos. Se cambia en `COD_RITE` y en ningún otro sitio.

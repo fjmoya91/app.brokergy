@@ -15,6 +15,9 @@ import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
 import { inmuebleDeCliente } from '../../../utils/enlacesInmueble';
 // El partner como persona de contacto: fuente única con el alta de cliente.
 import { PartnerComoContacto } from './PartnerComoContacto';
+// Representación del titular (apartado 3 del Anexo I): fuente única con el alta.
+import { RepresentacionCliente } from './RepresentacionCliente';
+import { representacionDe, payloadRepresentacion } from '../../expedientes/logic/representacion';
 
 // Helpers de dirección catastral: fuente única en utils/direccionCatastral.js
 // ─── Sub-componentes ────────────────────────────────────────────────────────
@@ -236,6 +239,13 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             representante_nombre: cliente.representante_nombre || '',
             representante_apellidos: cliente.representante_apellidos || '',
             representante_dni: cliente.representante_dni || '',
+            // Representación del titular (logic/representacion.js).
+            representado: !!cliente.representado,
+            representacion_tipo: cliente.representacion_tipo || '',
+            representacion_fecha: cliente.representacion_fecha || '',
+            representacion_protocolo: cliente.representacion_protocolo || '',
+            representacion_documento: cliente.representacion_documento || '',
+            representacion_doc_link: cliente.representacion_doc_link || '',
             ccaa: (cliente.ccaa || '').toUpperCase(),
             provincia: (cliente.provincia || '').toUpperCase(),
             provincia_cod: cod,
@@ -337,11 +347,9 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                 direccion: form.direccion.trim() || null,
                 codigo_postal: form.codigo_postal.trim() || null,
                 numero_cuenta: form.numero_cuenta.trim() || null,
-                // Persona jurídica: quien firma es el representante legal, no la sociedad.
-                es_empresa: !!form.es_empresa,
-                representante_nombre: form.es_empresa ? (form.representante_nombre?.trim() || null) : null,
-                representante_apellidos: form.es_empresa ? (form.representante_apellidos?.trim() || null) : null,
-                representante_dni: form.es_empresa ? (form.representante_dni?.trim() || null) : null,
+                // Quien firma: el representante legal de una sociedad, o el apoderado
+                // de un particular marcado como representado (logic/representacion.js).
+                ...payloadRepresentacion(form, !!form.es_empresa),
                 ...(isAdmin ? { prescriptor_id: form.prescriptor_id || null } : {}),
                 persona_contacto_nombre: form.persona_contacto_nombre?.trim() || null,
                 persona_contacto_tlf: form.persona_contacto_tlf?.trim() || null,
@@ -646,12 +654,24 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 [&_p.text-sm]:uppercase">
                                     <FieldView label={cliente.es_empresa ? 'Razón Social' : 'Nombre / Razón Social'} value={`${cliente.nombre_razon_social || ''}${cliente.apellidos ? ` ${cliente.apellidos}` : ''}`} />
                                     <FieldView label={cliente.es_empresa ? 'CIF' : 'DNI / CIF'} value={cliente.dni} />
-                                    {cliente.es_empresa && (
-                                        <>
-                                            <FieldView label="Representante legal" value={[cliente.representante_nombre, cliente.representante_apellidos].filter(Boolean).join(' ')} />
-                                            <FieldView label="DNI Representante" value={cliente.representante_dni} />
-                                        </>
-                                    )}
+                                    {(cliente.es_empresa || cliente.representado) && (() => {
+                                        const rep = representacionDe(cliente);
+                                        const titulo = rep.tipo === 'NOTARIAL'
+                                            ? `Poder notarial${rep.fecha ? ` de ${rep.fecha}` : ''}${rep.protocolo ? ` · protocolo ${rep.protocolo}` : ''}`
+                                            : rep.tipo === 'OTRO' ? rep.otroDocumento : null;
+                                        return (
+                                            <>
+                                                <FieldView label={cliente.es_empresa ? 'Representante legal' : 'Representado por'} value={rep.nombre} />
+                                                <FieldView label="DNI Representante" value={rep.dni} />
+                                                <div className="sm:col-span-2">
+                                                    <FieldView label="Acredita la representación" value={titulo} />
+                                                    {isStaff && (rep.docLink
+                                                        ? <a href={rep.docLink} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:text-emerald-300">✓ Copia del poder ↗</a>
+                                                        : <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-amber-400/80">⚠ Falta la copia del poder</p>)}
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
                                     <FieldView label="Sexo" value={cliente.sexo === 'HOMBRE' ? 'Hombre' : cliente.sexo === 'MUJER' ? 'Mujer' : null} />
                                     <FieldView label="Email" value={cliente.email?.toLowerCase()} valueClassName="!lowercase" />
                                     <FieldView label="Teléfono" value={cliente.tlf} />
@@ -968,31 +988,15 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                             </div>
                                         </FieldInput>
                                     )}
-                                    {/* Representante legal: quien firma los anexos en nombre de la sociedad */}
-                                    {form.es_empresa && (
-                                        <div className="sm:col-span-2 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl space-y-3">
-                                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Representante legal</p>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                <FieldInput label="Nombre">
-                                                    <Input placeholder="MARINA" uppercase
-                                                        value={form.representante_nombre || ''}
-                                                        onChange={e => updateForm({ representante_nombre: e.target.value })} />
-                                                </FieldInput>
-                                                <FieldInput label="Apellidos">
-                                                    <Input placeholder="CARRASCO GARCÍA" uppercase
-                                                        value={form.representante_apellidos || ''}
-                                                        onChange={e => updateForm({ representante_apellidos: e.target.value })} />
-                                                </FieldInput>
-                                                <FieldInput label="DNI / NIE">
-                                                    <Input placeholder="12345678A" uppercase
-                                                        value={form.representante_dni || ''}
-                                                        onChange={e => updateForm({ representante_dni: e.target.value })} />
-                                                </FieldInput>
-                                            </div>
-                                            <p className="text-[10px] text-white/25">
-                                                Firma los anexos en nombre de la sociedad. Se usa en el Convenio de Cesión de Ahorros y en el Anexo I.
-                                            </p>
-                                        </div>
+                                    {/* Representación: el representante legal de la sociedad, o el
+                                        apoderado de un particular (apartado 3 del Anexo I). */}
+                                    {isStaff && (
+                                        <RepresentacionCliente form={form} onChange={updateForm} esEmpresa={!!form.es_empresa}
+                                            clienteId={cliente.id_cliente} expedienteId={expedienteId || null}
+                                            onDocSubido={(link) => setCliente(c => ({ ...c, representacion_doc_link: link }))} />
+                                    )}
+                                    {!isStaff && form.es_empresa && (
+                                        <RepresentacionCliente form={form} onChange={updateForm} esEmpresa />
                                     )}
                                     <FieldInput label="Email">
                                         <Input type="email" value={form.email} onChange={e => updateForm({ email: e.target.value.toLowerCase() })} />

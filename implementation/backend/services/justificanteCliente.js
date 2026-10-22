@@ -209,4 +209,4 @@ async function subirDesdeCliente(clienteId, { base64, mimeType, clienteForm, exp
     };
 }
 
-module.exports = { NOMBRE, estadoJustificante, subirJustificante, subirDesdeCliente, destinosDeCliente };
+module.exports = { NOMBRE, estadoJustificante, subirJustificante, subirDesdeCliente, destinosDeCliente, destinoPrincipal, carpetaDeOportunidad };

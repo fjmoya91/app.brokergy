@@ -107,6 +107,9 @@ parecida: se pide a `/api/pdf/generate` y se enseña en un iframe. Una réplica 
 pantalla volvería a abrir la puerta a que lo que se revisa y lo que se manda no sean
 el mismo documento.
 
+⚠️ Las casillas de REPRESENTACIÓN (apartado 3) salen de la ficha del cliente, no de
+aquí: ver "La REPRESENTACIÓN del titular en el Anexo I" (2026-10-22).
+
 ⚠️ Las casillas del Anexo I **se marcan en la pestaña Subvenciones**; el formato
 clásico conserva su edición en pantalla (contenteditable + casillas) y lo que se
 toque ahí se refleja en el oficial, porque el estado es el mismo. La nota del popup

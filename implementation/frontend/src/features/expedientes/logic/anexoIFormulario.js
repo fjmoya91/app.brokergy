@@ -109,16 +109,21 @@ function anexoIFormularioDe(expediente, results, states, cedente) {
         // coincide con el propietario, y el expediente no distingue esa figura —
         // rellenarlo con el propietario diría que son dos personas distintas.
 
-        // 3. Representante (solo si el titular es una persona jurídica: entonces
-        // quien comparece y firma es su representante legal).
-        'Representante': d.esEmpresa ? d.nombreRepresentante : '',
-        'NIFNIE-1': d.esEmpresa ? d.dniRepresentante : '',
+        // 3. Representante: solo si lo hay (empresa → su representante legal;
+        // particular → si está marcado como representado, logic/representacion.js).
+        // Un particular que firma en su nombre deja el apartado EN BLANCO y sin
+        // ninguna casilla marcada.
+        'Representante': d.hayRepresentante ? d.nombreRepresentante : '',
+        'NIFNIE-1': d.hayRepresentante ? d.dniRepresentante : '',
 
-        // Título que acredita la representación. Es siempre el convenio de cesión
-        // de este expediente, que es lo que de verdad se adjunta.
-        'Poder Notarial de fecha': false,
-        'Otro': true,
-        'Otro documento': d.otroDocumento,
+        // Título que acredita la representación: poder notarial (fecha y nº de
+        // protocolo) u otro documento (título y fecha de formalización). Su copia
+        // va en el paquete de la actuación ("Se adjunta copia a la presente").
+        'Poder Notarial de fecha': !!d.poderNotarial,
+        'Poder Notarial de fecha-0': d.poderFecha || '',
+        'Número de protocolo': d.poderProtocolo || '',
+        'Otro': !!d.otroDoc,
+        'Otro documento': d.otroDocumento || '',
 
         // 4. Bono social
         ...Object.fromEntries(CASILLAS_BONO.map((c, i) => [c, !!d.bonoSocial[i]])),

@@ -1,13 +1,35 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
-const { enforceAuth, adminOnly, isStaff } = require('../middleware/auth');
+const { enforceAuth, adminOnly, staffOnly, isStaff } = require('../middleware/auth');
 const { normalizeData, normalizeCliente } = require('../utils/normalization');
 const { cargarRelaciones } = require('../services/clientesRelaciones');
 const { PARTNER_CONTACT_FIELDS, contactoClienteDesdePartner } = require('../services/notifyContacts');
 const { desvioDelPartner } = require('../services/avisosAlPartner');
 
 const esSi = v => v === true || v === 'true';
+
+/**
+ * Los campos de la REPRESENTACIÓN del titular que vengan en el body
+ * (frontend/.../logic/representacion.js): solo los presentes, saneados. El
+ * enlace del documento NO se acepta aquí: lo escribe la subida
+ * (`POST /:id/representacion`), igual que el justificante.
+ */
+function camposRepresentacion(body) {
+    const out = {};
+    if (body.representado !== undefined) out.representado = esSi(body.representado);
+    if (body.representacion_tipo !== undefined) {
+        const t = String(body.representacion_tipo || '').toUpperCase();
+        out.representacion_tipo = (t === 'NOTARIAL' || t === 'OTRO') ? t : null;
+    }
+    if (body.representacion_fecha !== undefined) {
+        const f = String(body.representacion_fecha || '').slice(0, 10);
+        out.representacion_fecha = /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : null;
+    }
+    if (body.representacion_protocolo !== undefined) out.representacion_protocolo = String(body.representacion_protocolo || '').trim().slice(0, 40) || null;
+    if (body.representacion_documento !== undefined) out.representacion_documento = String(body.representacion_documento || '').trim().slice(0, 300) || null;
+    return out;
+}
 
 /**
  * Si el cliente tiene al PARTNER como persona de contacto, rellena en `payload`
@@ -66,7 +88,7 @@ router.get('/', enforceAuth, async (req, res) => {
         // Máscara de seguridad para no-admins
         const processedClientes = clientes.map(c => {
             if (!isStaff(req)) {
-                return { ...c, numero_cuenta: c.numero_cuenta ? '**** **** **** ****' : null };
+                return { ...c, numero_cuenta: c.numero_cuenta ? '**** **** **** ****' : null, representacion_doc_link: null };
             }
             return c;
         });
@@ -177,6 +199,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
         // Máscara de seguridad para no-staff (partners)
         if (!isStaff(req)) {
             data.numero_cuenta = data.numero_cuenta ? '**** **** **** ****' : null;
+            data.representacion_doc_link = null;   // enlace de Drive: solo el equipo
         }
 
         res.json({ 
@@ -242,6 +265,8 @@ router.post('/', enforceAuth, async (req, res) => {
             representante_nombre: representante_nombre || null,
             representante_apellidos: representante_apellidos || null,
             representante_dni: representante_dni || null,
+            // Representación del titular: poder notarial u otro documento.
+            ...camposRepresentacion(body),
             persona_contacto_nombre: persona_contacto_nombre || null,
             persona_contacto_tlf: persona_contacto_tlf || null,
             // El correo del contacto se editaba en la ficha y NO se guardaba por
@@ -365,6 +390,33 @@ router.post('/:id/justificante', adminOnly, async (req, res) => {
     }
 });
 
+// ─── Documento que ACREDITA LA REPRESENTACIÓN del titular ───────────────────
+// Poder notarial u otro documento: la copia que el Anexo I dice adjuntar y que va
+// en el paquete de la actuación (services/representacionCliente.js).
+router.post('/:id/representacion', staffOnly, async (req, res) => {
+    try {
+        const { base64, mimeType, expediente } = req.body || {};
+        if (!base64 || String(base64).trim() === '') return res.status(400).json({ error: 'Archivo requerido' });
+        const { subirRepresentacion } = require('../services/representacionCliente');
+        const r = await subirRepresentacion(req.params.id, { base64, mimeType, expedienteId: expediente || null });
+        res.json({ success: true, ...r });
+    } catch (e) {
+        console.error('[clientes/representacion] POST:', e);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error al subir el documento' });
+    }
+});
+
+router.delete('/:id/representacion', staffOnly, async (req, res) => {
+    try {
+        const { quitarRepresentacion } = require('../services/representacionCliente');
+        await quitarRepresentacion(req.params.id);
+        res.json({ success: true });
+    } catch (e) {
+        console.error('[clientes/representacion] DELETE:', e);
+        res.status(500).json({ error: 'No se pudo quitar el documento' });
+    }
+});
+
 router.put('/:id', enforceAuth, async (req, res) => {
     try {
         const body = normalizeData(req.body);
@@ -420,6 +472,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (representante_nombre !== undefined) updates.representante_nombre = representante_nombre;
         if (representante_apellidos !== undefined) updates.representante_apellidos = representante_apellidos;
         if (representante_dni !== undefined) updates.representante_dni = representante_dni;
+        Object.assign(updates, camposRepresentacion(body));
         if (persona_contacto_nombre !== undefined) updates.persona_contacto_nombre = persona_contacto_nombre;
         if (persona_contacto_tlf !== undefined) updates.persona_contacto_tlf = persona_contacto_tlf;
         // Ver la nota del POST: el modal lo edita desde siempre y esta ruta no lo

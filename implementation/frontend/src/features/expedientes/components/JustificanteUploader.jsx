@@ -25,7 +25,10 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 // IBAN de la ficha ya no es el del justificante).
 // `archivo` = un fichero que llega de FUERA (p. ej. elegido en el WhatsApp del
 // cliente): en cuanto cambia se sube por el mismo camino que uno soltado encima.
-export function JustificanteUploader({ expedienteId, endpoint = null, extraBody = null, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria', huella = null, cliente = null, deshabilitado = null, aviso = null, detalle = null, archivo = null }) {
+export function JustificanteUploader({ expedienteId, endpoint = null, extraBody = null, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria', huella = null, cliente = null, deshabilitado = null, aviso = null, detalle = null, archivo = null, textos = null }) {
+    // `textos` rotula el slot cuando no es el justificante (p. ej. el poder de
+    // representación de la ficha del cliente). Sin él, los de siempre.
+    const T = { tengo: 'Tenemos el justificante', falta: 'No tenemos el justificante', subiendo: 'Anexando y leyendo…', error: 'No se pudo subir el justificante.', ...(textos || {}) };
     const [link, setLink] = useState(currentLink || null);
     const [comprobacion, setComprobacion] = useState(null);
     const [uploading, setUploading] = useState(false);
@@ -48,7 +51,7 @@ export function JustificanteUploader({ expedienteId, endpoint = null, extraBody 
             setComprobacion(comp);
             if (data?.link) { setLink(data.link); if (onUploaded) onUploaded(data.link, comp, data); }
         } catch (e) {
-            setError(e.response?.data?.error || 'No se pudo subir el justificante.');
+            setError(e.response?.data?.error || T.error);
         } finally { setUploading(false); }
     };
 
@@ -115,7 +118,7 @@ export function JustificanteUploader({ expedienteId, endpoint = null, extraBody 
                         <div className="flex-1 space-y-1.5">
                             <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-brand">
                                 <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
-                                Anexando y leyendo…
+                                {T.subiendo}
                             </span>
                             <Bar />
                         </div>
@@ -125,7 +128,7 @@ export function JustificanteUploader({ expedienteId, endpoint = null, extraBody 
                         <>
                             <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                             <span className="flex-1 min-w-0">
-                                <span className="block text-[11px] font-black uppercase tracking-wider text-emerald-400">Tenemos el justificante</span>
+                                <span className="block text-[11px] font-black uppercase tracking-wider text-emerald-400">{T.tengo}</span>
                                 <span className="block text-[10px] text-white/35 truncate">{detalle || 'Arrastra otro para sustituirlo'}</span>
                             </span>
                             <a href={link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
@@ -135,7 +138,7 @@ export function JustificanteUploader({ expedienteId, endpoint = null, extraBody 
                         <>
                             <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4" /></svg>
                             <span className="flex-1 min-w-0">
-                                <span className="block text-[11px] font-black uppercase tracking-wider text-amber-300">No tenemos el justificante</span>
+                                <span className="block text-[11px] font-black uppercase tracking-wider text-amber-300">{T.falta}</span>
                                 <span className="block text-[10px] text-white/40 truncate">{deshabilitado || detalle || 'Arrastra el PDF o la foto, o pulsa'}</span>
                             </span>
                         </>

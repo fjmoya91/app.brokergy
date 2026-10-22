@@ -164,6 +164,17 @@ const INDICE = [
     { cod: '4-4', etiqueta: 'CEE inicial · etiqueta energética',   obligatorio: false, de: 'cee', fase: 'inicial', slot: 'etiqueta', nombre: 'CEE INICIAL_ETQ' },
     { cod: '4-5', etiqueta: 'Anexo I firmado por el titular',     obligatorio: true,  de: 'doc_exp',  campo: 'anexo_i_signed_link', nombre: 'ANEXO I_fdo' },
     { cod: '4-6', etiqueta: 'CEE inicial · XML',                  obligatorio: true,  de: 'cee', fase: 'inicial', slot: 'xml',      nombre: 'CEE INICIAL_XML', ext: '.xml' },
+    // La copia del poder o documento que acredita la REPRESENTACIÓN del titular
+    // (empresa → su representante legal; particular representado → su apoderado).
+    // Es lo que el Anexo I declara «Se adjunta copia a la presente» en su
+    // apartado 3, así que sin ella el Anexo I promete un papel que no va. Vive en
+    // la ficha del CLIENTE (`clientes.representacion_doc_link`): el mismo poder
+    // vale para todas sus obras. Un particular que firma en su nombre no la tiene
+    // ni la necesita. Ver frontend/.../logic/representacion.js.
+    { cod: '4-8', etiqueta: 'Acreditación de la representación del titular', obligatorio: true, de: 'representacion', nombre: 'ACREDITACION REPRESENTACION',
+      // Mismo criterio que `representacionDe().hay` (es síncrono aquí: `exenta` no espera).
+      exenta: (ctx) => !(ctx.exp.clientes?.es_empresa || ctx.exp.clientes?.representado),
+      motivoExenta: 'el titular firma en su nombre (sin representante)' },
     // Este papel NO es del proceso: se escribe para contestar a una inexactitud
     // concreta. Apareció UNA vez en las 20 actuaciones ya presentadas —LOTE-2025-003,
     // actuación 3, cuando el verificador objetó que el emisor de la factura no era
@@ -318,6 +329,10 @@ async function resolverPieza(pieza, ctx) {
             }
             case 'doc_exp': {
                 const id = driveIdDe(doc[pieza.campo]);
+                return id ? { fileId: id } : null;
+            }
+            case 'representacion': {
+                const id = driveIdDe(exp.clientes?.representacion_doc_link);
                 return id ? { fileId: id } : null;
             }
             case 'facturas': {
@@ -716,7 +731,8 @@ async function construirPaquete(loteId, { modo = 'expediente', dryRun = false, z
 
     const { data: exps } = await supabase
         .from('expedientes')
-        .select('id, numero_expediente, oportunidad_id, documentacion, instalacion')
+        // El cliente, para la pieza de la REPRESENTACIÓN (4-8): solo sus escalares.
+        .select('id, numero_expediente, oportunidad_id, documentacion, instalacion, clientes!cliente_id(es_empresa, representado, representacion_doc_link)')
         .eq('lote_id', lote.id)
         .order('numero_expediente', { ascending: true });
     if (!exps || !exps.length) throw new Error('El lote no tiene expedientes');

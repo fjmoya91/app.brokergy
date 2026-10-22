@@ -135,6 +135,7 @@ console.log('\n6. Cliente empresa: el apartado 3 y el "Fdo." son del representan
         clientes: {
             es_empresa: true, nombre_razon_social: 'CONSTRUCCIONES MARIANO 1999, SL', dni: 'B13123456',
             representante_nombre: 'MARIANO', representante_apellidos: 'GARCÍA DE LA HOZ', representante_dni: '05123456X',
+            representacion_tipo: 'NOTARIAL', representacion_fecha: '2019-03-14', representacion_protocolo: '1.234',
             direccion: 'CL MAYOR 1', codigo_postal: '13700', municipio: 'Tomelloso', tlf: '600111222', email: 'obras@ejemplo.es',
         },
     });
@@ -144,6 +145,29 @@ console.log('\n6. Cliente empresa: el apartado 3 y el "Fdo." son del representan
     check(escritos['Representante'] === 'MARIANO GARCÍA DE LA HOZ', 'el representante va en el apartado 3', escritos['Representante']);
     check(escritos['NIFNIE-1'] === '05123456X', 'con su propio NIF', escritos['NIFNIE-1']);
     check(form.fdo === 'MARIANO GARCÍA DE LA HOZ', 'y es quien firma ("Fdo.")', form.fdo);
+    check(escritos['Poder Notarial de fecha'] === true, 'marca «Poder Notarial»');
+    check(escritos['Poder Notarial de fecha-0'] === '14/03/2019', 'con su fecha en dd/mm/aaaa', escritos['Poder Notarial de fecha-0']);
+    check(escritos['Número de protocolo'] === '1.234', 'y su nº de protocolo', escritos['Número de protocolo']);
+    check(escritos['Otro'] === false, 'y NO marca «Otro documento»');
+}
+
+// ── 6.b Particular REPRESENTADO (poder a favor del cónyuge): firma el representante
+console.log('\n6.b Particular representado: apartado 3, «Otro documento» y el "Fdo." del representante');
+{
+    const exp = con({
+        clientes: {
+            ...base.clientes, representado: true,
+            representante_nombre: 'JUAN', representante_apellidos: 'PÉREZ GÓMEZ', representante_dni: '06111222B',
+            representacion_tipo: 'OTRO', representacion_documento: 'AUTORIZACIÓN DE REPRESENTACIÓN', representacion_fecha: '2026-10-01',
+        },
+    });
+    const form = anexoIFormulario(exp, {}, {});
+    const { escritos } = await generar(form);
+    check(escritos['Representante'] === 'JUAN PÉREZ GÓMEZ', 'el representante va en el apartado 3', escritos['Representante']);
+    check(escritos['NIFNIE-1'] === '06111222B', 'con su NIF', escritos['NIFNIE-1']);
+    check(escritos['Otro'] === true && escritos['Poder Notarial de fecha'] === false, 'marca «Otro documento» y no el poder');
+    check(escritos['Otro documento'] === 'AUTORIZACIÓN DE REPRESENTACIÓN de 01/10/2026', 'título y fecha de formalización', escritos['Otro documento']);
+    check(form.fdo === 'JUAN PÉREZ GÓMEZ', 'firma el representante', form.fdo);
 }
 
 // ── 7. Subvención declarada: casillas y tabla del apartado de ayudas ────────
@@ -182,8 +206,10 @@ console.log('\n8. Sin nada declarado: "NO SE HA SOLICITADO" y "ninguno de los an
     const { escritos } = await generar(anexoIFormulario(base, {}, {}));
     check(escritos['No se ha solicitado ayuda o subvención'] === true, 'marca "NO SE HA SOLICITADO"');
     check(escritos['Ninguno de los anteriores'] === true, 'marca "ninguno de los anteriores"');
-    check(escritos['Otro'] === true, 'y el título de representación es el convenio de cesión');
-    check(escritos['Otro documento'] === '26RES060_999 - ANEXO CESIÓN AHORRO', 'con el nº de expediente', escritos['Otro documento']);
+    // Particular que firma en su nombre: el apartado 3 en BLANCO y sin casillas
+    // (antes marcaba siempre «Otro documento: … ANEXO CESIÓN AHORRO»).
+    check(escritos['Otro'] === false && escritos['Poder Notarial de fecha'] === false, 'particular sin representante: ninguna casilla de representación');
+    check(!escritos['Otro documento'] && !escritos['Representante'] && !escritos['NIFNIE-1'], 'y el apartado 3 en blanco', JSON.stringify([escritos['Otro documento'], escritos['Representante']]));
 }
 
 // ── 9. La CCAA se ELIGE del desplegable, la escriba como la escriba la BD ───

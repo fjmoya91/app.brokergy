@@ -49,6 +49,13 @@ export function cedentesDe(cliente) {
         representante_nombre: c.representante_nombre || '',
         representante_apellidos: c.representante_apellidos || '',
         representante_dni: c.representante_dni || '',
+        // Representación del titular (logic/representacion.js): poder o documento.
+        representado: !!c.representado,
+        representacion_tipo: c.representacion_tipo || '',
+        representacion_fecha: c.representacion_fecha || '',
+        representacion_protocolo: c.representacion_protocolo || '',
+        representacion_documento: c.representacion_documento || '',
+        representacion_doc_link: c.representacion_doc_link || '',
         email: c.email || '', tlf: c.tlf || c.telefono || '',
         iban: limpiaIban(c.numero_cuenta),
         cuenta_propia: true,

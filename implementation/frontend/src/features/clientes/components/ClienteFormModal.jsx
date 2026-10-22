@@ -4,6 +4,9 @@ import { useAuth } from '../../../context/AuthContext';
 import InstaladorFormModal from './InstaladorFormModal';
 // El partner como persona de contacto: fuente única con la ficha del cliente.
 import { PartnerComoContacto } from './PartnerComoContacto';
+// Representación del titular (apartado 3 del Anexo I): fuente única con la ficha.
+import { RepresentacionCliente } from './RepresentacionCliente';
+import { payloadRepresentacion } from '../../expedientes/logic/representacion';
 // La agenda de WhatsApp como origen del alta: fuente única con el selector de cliente.
 import { ContactosWhatsapp } from '../../../components/AgendaWhatsapp';
 import { useAgendaWhatsapp, tlfDeContacto } from '../../../utils/agendaWhatsapp';
@@ -517,11 +520,9 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                 tlf: txt(form.tlf) || null,
                 dni: txt(form.dni) || null,
                 sexo: esEmpresa ? null : (form.sexo || null),
-                // Persona jurídica: quien firma los anexos es el representante legal.
-                es_empresa: esEmpresa,
-                representante_nombre: esEmpresa ? (txt(form.representante_nombre) || null) : null,
-                representante_apellidos: esEmpresa ? (txt(form.representante_apellidos) || null) : null,
-                representante_dni: esEmpresa ? (txt(form.representante_dni) || null) : null,
+                // Quien firma los anexos: el representante legal de una sociedad o el
+                // apoderado de un particular representado (logic/representacion.js).
+                ...payloadRepresentacion(form, esEmpresa),
                 ccaa: form.ccaa || null,
                 provincia: form.provincia || null,
                 municipio: form.municipio || null,
@@ -752,28 +753,11 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                         <Input placeholder={esEmpresa ? 'B12345678' : '12345678A'} uppercase
                                             value={form.dni} onChange={e => updateForm({ dni: e.target.value })} />
                                     </Field>
-                                    {/* Representante legal: quien firma los anexos por la sociedad */}
-                                    {esEmpresa && (
-                                        <div className="sm:col-span-2 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl space-y-3">
-                                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Representante legal</p>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                <Field label="Nombre">
-                                                    <Input placeholder="MARINA" uppercase value={form.representante_nombre}
-                                                        onChange={e => updateForm({ representante_nombre: e.target.value })} />
-                                                </Field>
-                                                <Field label="Apellidos">
-                                                    <Input placeholder="CARRASCO GARCÍA" uppercase value={form.representante_apellidos}
-                                                        onChange={e => updateForm({ representante_apellidos: e.target.value })} />
-                                                </Field>
-                                                <Field label="DNI / NIE">
-                                                    <Input placeholder="12345678A" uppercase value={form.representante_dni}
-                                                        onChange={e => updateForm({ representante_dni: e.target.value })} />
-                                                </Field>
-                                            </div>
-                                            <p className="text-[10px] text-white/25">
-                                                Firma los anexos en nombre de la sociedad. Se usa en el Convenio de Cesión de Ahorros y en el Anexo I.
-                                            </p>
-                                        </div>
+                                    {/* Representación: el representante legal de la sociedad o el
+                                        apoderado de un particular (apartado 3 del Anexo I). La copia
+                                        del poder se sube después, desde la ficha. */}
+                                    {(esEmpresa || isStaff) && (
+                                        <RepresentacionCliente form={form} onChange={updateForm} esEmpresa={esEmpresa} />
                                     )}
                                     <Field label="Email">
                                         <Input type="email" placeholder="cliente@email.com"

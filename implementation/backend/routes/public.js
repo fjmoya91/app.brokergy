@@ -3018,7 +3018,7 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
         const { expedienteId } = req.params;
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos, email, tlf, dni, numero_cuenta, notificaciones_contacto_activas, persona_contacto_email, persona_contacto_tlf, es_empresa, representante_nombre, representante_apellidos, copropietarios)')
+            .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos, email, tlf, dni, numero_cuenta, notificaciones_contacto_activas, persona_contacto_email, persona_contacto_tlf, es_empresa, representado, representante_nombre, representante_apellidos, copropietarios)')
             .eq('id', expedienteId)
             .maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
@@ -3029,7 +3029,8 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
         try {
             const { cedentesDe } = await loadCedentes();
             cedentes = cedentesDe(exp.clientes || {}).map(c => ({
-                nombre: c.es_empresa ? ([c.representante_nombre, c.representante_apellidos].filter(Boolean).join(' ') || c.nombre) : c.nombre,
+                // Empresa o particular representado: firma su representante.
+                nombre: (c.es_empresa || c.representado) ? ([c.representante_nombre, c.representante_apellidos].filter(Boolean).join(' ') || c.nombre) : c.nombre,
             }));
         } catch (e) { console.warn('[anexos-upload info] cedentes:', e.message); }
         // Anexos rechazados por Brokergy. Mientras el borrador corregido no esté

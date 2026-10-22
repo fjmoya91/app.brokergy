@@ -44,6 +44,11 @@ const sinIban = (e) => ({ ...e, clientes: { ...e.clientes, numero_cuenta: '' } }
 const empresa = (e) => ({ ...e, clientes: { ...e.clientes, es_empresa: true,
     representante_nombre: 'FRANCISCO JAVIER', representante_apellidos: 'MOYA LÓPEZ DE LA TORRE',
     representante_dni: '06282551D' } });
+// Particular REPRESENTADO por poder notarial: el párrafo del Cedente crece una línea y pico.
+const representado = (e) => ({ ...e, clientes: { ...e.clientes, representado: true,
+    representante_nombre: 'FRANCISCO JAVIER', representante_apellidos: 'MOYA LÓPEZ DE LA TORRE',
+    representante_dni: '06282551D', representacion_tipo: 'NOTARIAL', representacion_fecha: '2019-03-14',
+    representacion_protocolo: '1.234' } });
 const ficha = (e, f) => ({ ...e, numero_expediente: `26${f}_9` });
 // VARIOS cedentes (copropietarios que pagan la obra): el convenio pasa a TRES
 // hojas — la tercera, de firmas con casillas fijas. Nombres largos a propósito.
@@ -64,6 +69,8 @@ const casos = [
     ['prevista · RES080',       ficha(empresa(stress), 'RES080'), RC, true],
     ['prevista · RES093',       ficha(empresa(stress), 'RES093'), RC, true],
     ['prevista · TER100',       ficha(empresa(stress), 'TER100'), RC, true],
+    ['ejecutada · representado',ficha(representado(stress), 'TER100'), RC, false],
+    ['prevista · representado', ficha(representado(stress), 'RES080'), RC, true],
     ['2 cedentes · real',       varios(real, 2),           R,  true,  3],
     ['2 cedentes · peor caso',  varios(ficha(empresa(stress), 'RES080'), 2, { cuentas: true }), RC, false, 3],
     ['5 cedentes · peor caso',  varios(ficha(stress, 'RES080'), 5, { cuentas: true }), RC, true, 3],
