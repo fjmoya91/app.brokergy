@@ -117,21 +117,25 @@ function cuentaAbono(ultimos4) {
 
 // ─── Datos del expediente ────────────────────────────────────────────────────
 
-let _dirMod = null;
-const loadDireccion = () => (_dirMod ??= import(pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/direccionInstalacion.js')).href));
 let _finMod = null;
 const loadFinancials = () => (_finMod ??= import(pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/expedienteFinancials.js')).href));
 
 const limpia = (s) => String(s || '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
 
-/** «C/ HUERTO PEDRERO, 20 · CAMPO DE CRIPTANA»: la dirección de la OBRA (regla 149). */
+/**
+ * «C/ HUERTO PEDRERO, 20 · CAMPO DE CRIPTANA»: la dirección de la OBRA. Con «¿misma
+ * dirección que el cliente? → Sí» manda la ficha del cliente, en vivo; con «No», la de la
+ * instalación. Espejo de `buildDocMeta` (anexoFotograficoService), escrito AQUÍ: el
+ * contenedor del backend solo lleva lo que está en el repo.
+ */
 async function direccionVivienda(exp, cli) {
-    const { usaDireccionCliente, direccionDelCliente } = await loadDireccion();
     const inst = exp.instalacion || {};
     const dc = exp.oportunidades?.datos_calculo || {};
     const op = { ...dc, ...(dc.inputs || {}) };
-    const sigue = usaDireccionCliente(inst) ? direccionDelCliente(cli) : null;
-    const calle = limpia(sigue?.calle || [inst.direccion, inst.num].filter(Boolean).join(' ') || op.direccion || op.address);
+    const md = String(inst.misma_direccion ?? '').trim().toUpperCase();
+    const usaCli = !(inst.misma_direccion === false || md === 'NO' || md === 'FALSE');
+    const sigue = usaCli && String(cli?.direccion || '').trim() ? cli : null;
+    const calle = limpia(sigue?.direccion || [inst.direccion, inst.num].filter(Boolean).join(' ') || op.direccion || op.address);
     const muni = limpia(sigue?.municipio || inst.municipio || op.municipio);
     return [calle, muni].filter(Boolean).join(' · ').toUpperCase() || null;
 }
