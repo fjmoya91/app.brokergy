@@ -16,7 +16,7 @@ misma carpeta por si se cambia.
 | Qué | Dónde |
 |---|---|
 | El popup (botón, chat, enlaces, tarjeta «Encargar») | [AsistenteFlotante.jsx](implementation/frontend/src/features/asistente/AsistenteFlotante.jsx), montado en `App.jsx` solo para ADMIN |
-| Las rutas (`/estado`, `/preguntar`, `/encargo`), todas `adminOnly` | [routes/asistenteApp.js](implementation/backend/routes/asistenteApp.js) |
+| Las rutas (`/estado`, `/pantalla`, `/preguntar`, `/encargo`), todas `adminOnly` | [routes/asistenteApp.js](implementation/backend/routes/asistenteApp.js) |
 | El modelo, las herramientas, el manual y el encargo | [services/asistenteApp.js](implementation/backend/services/asistenteApp.js) |
 | El paso al Claude del WhatsApp | `pedirTarea` y `estadoAsistente` de [asistenteCanal.js](implementation/backend/services/asistenteCanal.js) → `POST /tarea` del vigilante |
 
@@ -70,6 +70,22 @@ pendiente de revisar hoy?» acababa sin una sola línea de respuesta (medido el 
 modelo termina la respuesta con líneas `>> opción | opción` y `>> ENCARGO <tarea> <referencia>`; el
 servidor las lee al final (`leerMarcas`), valida los encargos y emite los botones, y el popup no
 pinta las líneas `>>`. Como mucho dos tarjetas de encargo y cuatro respuestas rápidas.
+
+**REGLA — el asistente SABE QUÉ TIENES ABIERTO, y una orden sin número es de eso** (2026-10-22).
+Fran, con el 26RES060_221 en pantalla: «¿sabes en qué expediente estoy?» → «No, no sé qué pantalla
+tienes abierta». Ahora `App.jsx` le pasa al popup `pantalla = { tab, exp, cee, op }` (los mismos ids que
+`?exp=` / `?cee=` / `?op=`: `openExpedienteId`, `openCeeDirecto`, `openOportunidadId`), el popup la manda
+en cada `/preguntar` y el servidor la resuelve (`describirPantalla`: número, cliente y estado; un id que
+no existe = sin contexto) y la pone **delante de la última pregunta**, no en las instrucciones (van
+cacheadas): «[La app te dice, no lo ha escrito él: tiene ABIERTO en pantalla el expediente …]». Con eso,
+«genera el CIFO», «haz el CEE final», «termina / justifica el expediente» o «preséntalo» van a ESE, sin
+preguntar si está seguro: mira `estado_expediente` y saca la tarjeta `>> ENCARGO` (si nombra otro
+número, manda el que nombra). La cabecera del popup dice «Viendo 26RES060_221 · CLIENTE» (`GET
+/pantalla`) y las sugerencias de inicio cambian a las del expediente. **El clic en «Encargar» sigue
+siendo el «sí»**: lo que hace el trabajo es el Claude del WhatsApp, con la suscripción de Fran.
+Medido el 22/10/2026 con 26RES060_221: «¿sabes en qué expediente estoy?» → lo nombra con su cliente y
+estado (0,026 $); «genera el CIFO» → dice que está sin generar, qué más falta (CEE final fuera de plazo,
+anexos) y la tarjeta `cifo 26RES060_221` (0,054 $).
 
 **REGLA — solo ADMIN** (ruta `adminOnly` y botón solo con `isAdmin`): contesta con datos de TODA la
 cartera, sin el filtro de «lo suyo» que exige un partner (regla 102), y el botón «Encargar» gasta de

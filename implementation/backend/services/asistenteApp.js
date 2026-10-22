@@ -169,6 +169,57 @@ async function resolverReferencia(referencia) {
     return { tipo: 'expediente', id: r.exp.id, numero: r.exp.numero_expediente, enlace: enlaceExpediente(r.exp.id, r.exp.numero_expediente) };
 }
 
+// ─── Lo que tiene abierto en la pantalla ──────────────────────────────────────
+// El popup manda en cada pregunta qué hay abierto en la app (`{ tab, exp, cee, op }`,
+// los mismos ids que los deep-links). Aquí se resuelve a su número y su cliente: el
+// modelo nunca ve un uuid, y si el id no existe (o no es de nada) no hay contexto.
+const PESTANAS = {
+    expedientes: 'Expedientes', 'cee-directos': 'CEE directos', oportunidades: 'Oportunidades',
+    seguimiento: 'Seguimiento (el parte diario)', dashboard: 'Cuadro de mando', clientes: 'Clientes',
+    lotes: 'Lotes', prescriptores: 'Partners',
+};
+const idValido = (v) => (typeof v === 'string' && /^[\w-]{1,64}$/.test(v) ? v : null);
+
+async function describirPantalla(pantalla) {
+    const p = pantalla && typeof pantalla === 'object' ? pantalla : {};
+    const pestana = PESTANAS[p.tab] || null;
+    try {
+        if (idValido(p.exp)) {
+            const { data } = await supabase.from('expedientes')
+                .select('id, numero_expediente, estado, cliente_id').eq('id', p.exp).maybeSingle();
+            if (data) {
+                const cli = (await clientesPorId([data.cliente_id])).get(data.cliente_id);
+                return { tipo: 'expediente', numero: data.numero_expediente, cliente: nombreCliente(cli), estado: data.estado,
+                         enlace: enlaceExpediente(data.id, data.numero_expediente), pestana };
+            }
+        }
+        if (idValido(p.cee)) {
+            const { data } = await supabase.from('cee_directos')
+                .select('id, numero_expediente, estado, nombre').eq('id', p.cee).maybeSingle();
+            if (data) return { tipo: 'CEE directo', numero: data.numero_expediente, cliente: data.nombre || null, estado: data.estado,
+                               enlace: enlaceCee(data.id, data.numero_expediente), pestana };
+        }
+        if (idValido(p.op)) {
+            const { data } = await supabase.from('oportunidades')
+                .select('id_oportunidad, estado, referencia_cliente').eq('id_oportunidad', p.op).maybeSingle();
+            if (data) return { tipo: 'oportunidad', numero: data.id_oportunidad, cliente: data.referencia_cliente || null, estado: data.estado,
+                               enlace: enlaceOportunidad(data.id_oportunidad), pestana: 'la calculadora de la oportunidad' };
+        }
+    } catch (e) {
+        // Un id raro (p. ej. no es un uuid) hace fallar el `eq`: sin contexto, no sin respuesta.
+        console.warn('[asistente-app] pantalla:', e.message);
+    }
+    return pestana ? { tipo: null, pestana } : null;
+}
+
+// Va delante de la ÚLTIMA pregunta (no en las instrucciones, que van cacheadas).
+function notaPantalla(d) {
+    if (!d) return null;
+    if (!d.tipo) return `[La app te dice, no lo ha escrito él: está en la pantalla ${d.pestana}, sin nada abierto.]`;
+    const quien = [d.cliente, d.estado ? `estado ${d.estado}` : null].filter(Boolean).join(', ');
+    return `[La app te dice, no lo ha escrito él: tiene ABIERTO en pantalla ${d.tipo === 'oportunidad' ? 'la' : 'el'} ${d.tipo} ${d.numero}${quien ? ` (${quien})` : ''} → ${d.enlace}]`;
+}
+
 // ─── El manual (docs/conocimiento), troceado por apartados ────────────────────
 const VACIAS = new Set(('que como cual cuales para por con sin los las del una uno unos unas este esta esto ese esa eso '
     + 'hay hace hacer tiene tengo ser son esta estan pero mas muy cuando donde quien algo app brokergy se le lo la el '
@@ -704,6 +755,10 @@ Cómo trabajas:
 - Cada vez que nombres un expediente, oportunidad o CEE, pon su ENLACE tal cual te lo da la herramienta (markdown): al pulsarlo se abre en la app.
 - Para «¿cómo funciona…?» o «¿por qué…?» sobre la app, usa consultar_manual y cita el documento.
 
+LA PANTALLA. La última pregunta puede llegar con una nota entre corchetes «[La app te dice… tiene ABIERTO en pantalla el expediente …]»: es lo que está mirando AHORA, no algo que haya escrito. Si dice «este», «aquí», «el que tengo abierto», o da una orden sin número («genera el CIFO», «haz el CEE final»), es ESE. Si nombra otro número, manda el que nombra. No repitas la nota ni le digas que «la app te lo ha dicho»: úsala y ya.
+
+ÓRDENES. Si te pide HACER algo del catálogo de encargos («genera el CIFO», «hazme el CEE final», «revisa el CEE», «termina / cierra / justifica el expediente» = justificar, «audítalo», «el anexo fotográfico», «preséntalo»), no le preguntes si está seguro: mira el expediente con estado_expediente (para no proponer algo ya en marcha o imposible), di en una o dos líneas cómo está lo que hace falta para eso y saca la tarjeta con >> ENCARGO. Si falta algo que lo impide de verdad (p. ej. no hay CEE que presentar), dilo y no la saques.
+
 Al revisar un expediente: una línea con el estado y la fase; lo que le falta y de quién es la pelota, con los días; las incidencias abiertas si las hay; y termina preguntando qué quiere hacer, con 2-4 opciones.
 
 BOTONES. Consulta primero todo lo que necesites y escribe la respuesta entera al final. Para poner botones, acaba la respuesta con estas líneas (el popup no las enseña como texto, las convierte en botones):
@@ -768,11 +823,16 @@ function mensajeDeError(e) {
  *   { t: 'error', mensaje }
  *   { t: 'fin', uso }             — tokens y coste aproximado
  */
-async function conversar({ mensajes, usuario, emitir, signal }) {
+async function conversar({ mensajes, pantalla, usuario, emitir, signal }) {
     const api = anthropic();
     if (!api) { emitir({ t: 'error', mensaje: 'Falta ANTHROPIC_API_KEY en el .env del servidor: el asistente no puede contestar.' }); return; }
     let historial;
     try { historial = limpiarHistorial(mensajes); } catch (e) { emitir({ t: 'error', mensaje: e.message }); return; }
+    const nota = notaPantalla(await describirPantalla(pantalla));
+    if (nota) {
+        const ultima = historial[historial.length - 1];
+        ultima.content = `${nota}\n\n${ultima.content}`;
+    }
 
     const sistema = textoSistema(usuario);
     const uso = { entrada: 0, salida: 0, cache_lectura: 0, cache_escritura: 0, vueltas: 0 };
@@ -859,4 +919,4 @@ function configuracion() {
     return { disponible: !!process.env.ANTHROPIC_API_KEY, modelo: MODELO, esfuerzo: ESFUERZO, tareas: Object.fromEntries(Object.entries(TAREAS).map(([k, v]) => [k, v.etiqueta])) };
 }
 
-module.exports = { conversar, encargar, configuracion, buscarEnManual, HERRAMIENTAS, TAREAS, _resolverReferencia: resolverReferencia };
+module.exports = { conversar, encargar, configuracion, buscarEnManual, describirPantalla, HERRAMIENTAS, TAREAS, _resolverReferencia: resolverReferencia, _notaPantalla: notaPantalla };

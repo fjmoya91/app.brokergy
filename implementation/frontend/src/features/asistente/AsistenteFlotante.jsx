@@ -14,7 +14,9 @@ import SendActionOverlay from '../../components/SendActionOverlay';
 // encarga sin ese clic.
 //
 // La conversación vive en el navegador (sessionStorage): al backend viaja solo el
-// texto de los mensajes en cada pregunta. Solo se monta para ADMIN (App.jsx).
+// texto de los mensajes en cada pregunta, y `pantalla` ({ tab, exp, cee, op }: lo que
+// está abierto en la app), que el servidor resuelve a su número y le cuenta al modelo.
+// Así «genera el CIFO» con un expediente abierto es de ESE. Solo se monta para ADMIN (App.jsx).
 
 const CLAVE_SESION = 'brokergy.asistente.v1';
 const SUGERENCIAS_INICIO = [
@@ -22,6 +24,13 @@ const SUGERENCIAS_INICIO = [
     '¿Qué CEE tengo sin revisar?',
     '¿Cómo vamos con la cartera?',
     '¿Cómo funciona el parte diario?',
+];
+// Con un expediente abierto, lo que se le suele pedir sobre él.
+const SUGERENCIAS_EXPEDIENTE = [
+    '¿Qué le falta a este expediente?',
+    'Genera el CIFO',
+    'Genera el CEE final',
+    'Justifica el expediente',
 ];
 
 const nuevoId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -242,8 +251,9 @@ function TextoEnlace({ texto, onEnlace }) {
     return <>{enLinea(String(texto || ''), onEnlace, 'enc')}</>;
 }
 
-export default function AsistenteFlotante({ onAbrir }) {
+export default function AsistenteFlotante({ onAbrir, pantalla }) {
     const [abierto, setAbierto] = useState(false);
+    const [vista, setVista] = useState(null);            // pantalla resuelta: { tipo, numero, cliente, … }
     const [mensajes, setMensajes] = useState(leerSesion);
     const [entrada, setEntrada] = useState('');
     const [enviando, setEnviando] = useState(false);
@@ -264,6 +274,22 @@ export default function AsistenteFlotante({ onAbrir }) {
             .then(r => setConfig(r.data))
             .catch(() => setConfig({ disponible: false, error: true }));
     }, [abierto, config]);
+
+    // Qué tiene abierto, para la cabecera. Primitivos en las dependencias: el objeto
+    // `pantalla` es nuevo en cada render de App.
+    const pTab = pantalla?.tab || null;
+    const pExp = pantalla?.exp || null;
+    const pCee = pantalla?.cee || null;
+    const pOp = pantalla?.op || null;
+    useEffect(() => {
+        if (!abierto) return undefined;
+        if (!pExp && !pCee && !pOp) { setVista(null); return undefined; }
+        let vivo = true;
+        axios.get('/api/asistente-app/pantalla', { params: { tab: pTab, exp: pExp, cee: pCee, op: pOp } })
+            .then(r => { if (vivo) setVista(r.data?.pantalla?.tipo ? r.data.pantalla : null); })
+            .catch(() => { if (vivo) setVista(null); });
+        return () => { vivo = false; };
+    }, [abierto, pTab, pExp, pCee, pOp]);
 
     useEffect(() => {
         if (abierto) finalRef.current?.scrollIntoView({ block: 'end' });
@@ -320,7 +346,7 @@ export default function AsistenteFlotante({ onAbrir }) {
             const r = await fetch('/api/asistente-app/preguntar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: axios.defaults.headers.common.Authorization || '' },
-                body: JSON.stringify({ mensajes: historial }),
+                body: JSON.stringify({ mensajes: historial, pantalla: { tab: pTab, exp: pExp, cee: pCee, op: pOp } }),
                 signal: corte.signal,
             });
             if (!r.ok || !r.body) {
@@ -350,7 +376,7 @@ export default function AsistenteFlotante({ onAbrir }) {
             setEnviando(false);
             corteRef.current = null;
         }
-    }, [enviando, mensajes, actualizar]);
+    }, [enviando, mensajes, actualizar, pTab, pExp, pCee, pOp]);
 
     const parar = () => corteRef.current?.abort();
 
@@ -390,7 +416,13 @@ export default function AsistenteFlotante({ onAbrir }) {
                 <CaraAsistente className="w-9 h-9" />
                 <div className="flex-1 min-w-0">
                     <div className="text-sm font-black text-white leading-tight">Asistente</div>
-                    <div className="text-[10px] text-white/40 truncate">Contesta con los datos de la app en vivo · solo lee</div>
+                    {vista ? (
+                        <div className="text-[10px] text-white/40 truncate" title={`Sabe que tienes abierto ${vista.numero}: «genera el CIFO» será de este.`}>
+                            Viendo <span className="font-bold text-brand">{vista.numero}</span>{vista.cliente ? ` · ${vista.cliente}` : ''}
+                        </div>
+                    ) : (
+                        <div className="text-[10px] text-white/40 truncate">Contesta con los datos de la app en vivo</div>
+                    )}
                 </div>
                 <button type="button" onClick={nueva} title="Nueva conversación"
                     className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider text-white/50 hover:text-white hover:bg-white/[0.06]">
@@ -413,11 +445,13 @@ export default function AsistenteFlotante({ onAbrir }) {
                     <div className="pt-2">
                         <div className="text-white font-bold">¿En qué te ayudo?</div>
                         <p className="mt-1 text-xs text-white/50 leading-relaxed">
-                            Pregúntame por un expediente («¿cómo está el 208?»), por lo pendiente o por cómo funciona algo de la app.
-                            Lo pesado, como generar un CEE, te lo dejo listo para encargárselo al Claude del WhatsApp.
+                            {vista?.tipo === 'expediente'
+                                ? <>Estás en <strong className="text-white/80">{vista.numero}</strong>: pregúntame qué le falta o pídeme que genere algo («genera el CIFO», «haz el CEE final»).</>
+                                : <>Pregúntame por un expediente («¿cómo está el 208?»), por lo pendiente o por cómo funciona algo de la app.</>}
+                            {' '}Lo pesado te lo dejo listo con un botón «Encargar», y lo hace el Claude del WhatsApp con tu suscripción.
                         </p>
                         <div className="mt-4 flex flex-wrap gap-2">
-                            {SUGERENCIAS_INICIO.map(s => (
+                            {(vista?.tipo === 'expediente' ? SUGERENCIAS_EXPEDIENTE : SUGERENCIAS_INICIO).map(s => (
                                 <button key={s} type="button" onClick={() => enviar(s)} disabled={noDisponible}
                                     className="px-3 py-1.5 rounded-full border border-white/10 bg-white/[0.03] text-xs text-white/75 hover:border-brand/50 hover:text-white disabled:opacity-40">
                                     {s}

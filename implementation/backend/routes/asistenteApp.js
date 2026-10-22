@@ -14,7 +14,16 @@ router.get('/estado', adminOnly, (req, res) => {
     res.json(asistente.configuracion());
 });
 
-// ─── POST /api/asistente-app/preguntar — { mensajes: [{ role, content }] } ─────────
+// ─── GET /api/asistente-app/pantalla?tab=&exp=&cee=&op= — qué tiene abierto ────────
+// Para la cabecera del popup («Viendo 26RES060_221 · CLIENTE»): lo mismo que se le
+// cuenta al modelo en cada pregunta.
+router.get('/pantalla', adminOnly, async (req, res) => {
+    const { tab, exp, cee, op } = req.query || {};
+    res.json({ pantalla: await asistente.describirPantalla({ tab, exp, cee, op }) });
+});
+
+// ─── POST /api/asistente-app/preguntar — { mensajes: [{ role, content }], pantalla } ─
+// `pantalla` = { tab, exp, cee, op }: lo que tiene abierto en la app (ver describirPantalla).
 // La respuesta va saliendo según se escribe: una línea JSON por evento (NDJSON).
 // `no-transform` para que `compression` no la retenga y `X-Accel-Buffering` para nginx.
 router.post('/preguntar', adminOnly, async (req, res) => {
@@ -28,7 +37,7 @@ router.post('/preguntar', adminOnly, async (req, res) => {
     res.on('close', () => { if (!res.writableEnded) corte.abort(); });
     const emitir = (ev) => { if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(ev)}\n`); };
     try {
-        await asistente.conversar({ mensajes: req.body?.mensajes, usuario: req.user, emitir, signal: corte.signal });
+        await asistente.conversar({ mensajes: req.body?.mensajes, pantalla: req.body?.pantalla, usuario: req.user, emitir, signal: corte.signal });
     } catch (e) {
         console.error('[asistente-app/preguntar]', e);
         emitir({ t: 'error', mensaje: e.message });

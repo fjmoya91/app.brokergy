@@ -1342,7 +1342,13 @@ function App() {
               </div>
             )}
             {/* Asistente (botón flotante): solo ADMIN, como su ruta del backend. */}
-            {isAdminUser && <AsistenteFlotante onAbrir={abrirDesdeAsistente} />}
+            {/* `pantalla`: lo que está abierto AHORA, para que «genera el CIFO» sepa de cuál. */}
+            {isAdminUser && <AsistenteFlotante onAbrir={abrirDesdeAsistente} pantalla={{
+              tab: activeTab,
+              exp: activeTab === 'expedientes' ? openExpedienteId : null,
+              cee: activeTab === 'cee-directos' ? openCeeDirecto : null,
+              op: openOportunidadId,
+            }} />}
             {step === 'ADMIN' && activeTab === 'dashboard' && isAdminUser ? (
               <DashboardView key={`dash-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'seguimiento' && isStaffUser ? (
