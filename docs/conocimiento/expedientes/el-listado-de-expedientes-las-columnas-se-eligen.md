@@ -147,6 +147,15 @@ expedientes se los tragaba sin pintar ni uno—, así que pintarlos no cuesta un
 petición más; pero la cuenta pendiente es guardar una MINIATURA aparte y que el
 listado lea esa.
 
+**Desde el 22/10/2026 hay un camino ligero, y lo usa Clientes**:
+`POST /api/prescriptores/logos` (`{ ids, tengo }`) devuelve cada logo con su
+huella y [useLogosEmpresas.js](implementation/frontend/src/components/useLogosEmpresas.js)
+lo reduce a 64 px en el navegador y lo guarda (`brokergy.logos.mini.v1`); la
+siguiente visita manda las huellas y solo vuelve el logo que haya cambiado. El
+servidor guarda logos y huellas 10 min (el PATCH del logo vacía su entrada). Un
+partner solo recibe el de su empresa. El listado de expedientes sigue leyendo
+`/api/prescriptores` entero: pasarlo a este camino es la mejora pendiente.
+
 ### La columna INSTALADOR y su cascada
 
 **REGLA — UNA cascada, y la del listado coincide con la de la FICHA.** El primer

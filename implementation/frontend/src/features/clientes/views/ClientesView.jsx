@@ -4,6 +4,9 @@ import { useAuth } from '../../../context/AuthContext';
 import { ClienteFormModal } from '../components/ClienteFormModal';
 import { ClienteDetailModal } from '../components/ClienteDetailModal';
 import { PendientesWhatsapp } from '../components/PendientesWhatsapp';
+import { FiltroPartner } from '../components/FiltroPartner';
+import { LogoEmpresa } from '../../../components/LogoEmpresa';
+import { useLogosEmpresas } from '../../../components/useLogosEmpresas';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAccesos';
 import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
@@ -60,8 +63,8 @@ function Badge({ children, color = 'default' }) {
 const CLAVE_FILTROS = 'brokergy.clientes.filtros';
 const SIN_PARTNER = '__directo__';
 const partnerDe = (c) => c.prescriptor_id
-    ? { id: c.prescriptor_id, label: c.prescriptores?.acronimo || c.prescriptores?.razon_social || 'Partner' }
-    : { id: SIN_PARTNER, label: 'Directo (sin partner)' };
+    ? { id: c.prescriptor_id, label: c.prescriptores?.acronimo || c.prescriptores?.razon_social || 'Partner', razon: c.prescriptores?.razon_social || '' }
+    : { id: SIN_PARTNER, label: 'Directo (sin partner)', razon: '' };
 
 // Exporta a CSV EXACTAMENTE lo que se está viendo (filtros y búsqueda incluidos):
 // un botón que exporta "todo" mientras la pantalla enseña otra cosa es la forma
@@ -204,17 +207,21 @@ export function ClientesView({
         && (salvo === 'partner' || !filtroPartner || partnerDe(c).id === filtroPartner);
 
     const cuentaTipos = {}, cuentaEstados = {}, cuentaPartners = {};
-    const partners = new Map(); // id -> etiqueta
+    const partners = new Map(); // id -> { label, razon }
+    let totalPartner = 0; // los que salen con «Todos» los partners
     for (const c of enriquecidos) {
         if (pasa(c, 'tipo')) for (const t of c._tipos) cuentaTipos[t.tipo] = (cuentaTipos[t.tipo] || 0) + 1;
         if (pasa(c, 'estado')) cuentaEstados[c._estado] = (cuentaEstados[c._estado] || 0) + 1;
         const pa = partnerDe(c);
-        partners.set(pa.id, pa.label);
-        if (pasa(c, 'partner')) cuentaPartners[pa.id] = (cuentaPartners[pa.id] || 0) + 1;
+        partners.set(pa.id, pa);
+        if (pasa(c, 'partner')) { cuentaPartners[pa.id] = (cuentaPartners[pa.id] || 0) + 1; totalPartner++; }
     }
-    // Directo (sin partner) al final; los demás por orden alfabético.
-    const opcionesPartner = [...partners.entries()]
-        .sort(([a, la], [b, lb]) => (a === SIN_PARTNER) - (b === SIN_PARTNER) || la.localeCompare(lb, 'es'));
+    // El orden (nombre o nº de clientes) lo pone el propio desplegable.
+    const opcionesPartner = [...partners.values()].map(p => ({ ...p, count: cuentaPartners[p.id] || 0 }));
+    // Logos en miniatura de los partners que aparecen en el listado.
+    const logos = useLogosEmpresas(useMemo(
+        () => [...new Set(clientes.map(c => c.prescriptor_id).filter(Boolean))],
+        [clientes]));
 
     const coincide = (c) => {
         if (!tokens.length) return true;
@@ -328,16 +335,14 @@ export function ClientesView({
                     </div>
                     <div className="flex items-center gap-1.5">
                         <span className="text-[9px] text-white/30 font-black uppercase tracking-[0.2em] mr-1">Partner</span>
-                        <select
-                            value={filtroPartner || ''}
-                            onChange={e => { setFiltroPartner(e.target.value || null); setCurrentPage(1); }}
-                            className={`bg-bkg-surface border rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-widest focus:outline-none ${
-                                filtroPartner ? 'border-brand/40 text-brand' : 'border-white/[0.06] text-white/50'}`}>
-                            <option value="">Todos</option>
-                            {opcionesPartner.map(([id, label]) => (
-                                <option key={id} value={id}>{label} · {cuentaPartners[id] || 0}</option>
-                            ))}
-                        </select>
+                        <FiltroPartner
+                            opciones={opcionesPartner}
+                            value={filtroPartner}
+                            onChange={id => { setFiltroPartner(id); setCurrentPage(1); }}
+                            logos={logos}
+                            total={totalPartner}
+                            idDirecto={SIN_PARTNER}
+                        />
                     </div>
                     <div className="flex items-center gap-3 ml-auto">
                         {hayFiltro && (
@@ -444,8 +449,16 @@ export function ClientesView({
                                                 {cliente.apellidos && ` ${cliente.apellidos}`}
                                             </span>
                                             {cliente.dni && <Badge>{cliente.dni}</Badge>}
-                                            {cliente.prescriptores?.acronimo && (
-                                                <Badge color="brand">{cliente.prescriptores.acronimo}</Badge>
+                                            {/* El partner, con su logo: pulsarlo deja solo sus clientes. */}
+                                            {cliente.prescriptor_id && (cliente.prescriptores?.acronimo || cliente.prescriptores?.razon_social) && (
+                                                <button type="button"
+                                                    onClick={(e) => { e.stopPropagation(); setFiltroPartner(cliente.prescriptor_id); setCurrentPage(1); }}
+                                                    title={`${cliente.prescriptores.razon_social || cliente.prescriptores.acronimo} — ver solo sus clientes`}
+                                                    className="inline-flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border bg-brand/10 text-brand border-brand/20 hover:bg-brand/20 hover:border-brand/40 transition-colors">
+                                                    <LogoEmpresa logo={logos[cliente.prescriptor_id] || null}
+                                                        nombre={cliente.prescriptores.acronimo || cliente.prescriptores.razon_social} size={16} />
+                                                    {cliente.prescriptores.acronimo || cliente.prescriptores.razon_social}
+                                                </button>
                                             )}
                                             {cliente._tipos.map(t => <TipoChip key={t.tipo} etiqueta={t} />)}
                                             {cliente.oportunidades?.length > 0 ? (

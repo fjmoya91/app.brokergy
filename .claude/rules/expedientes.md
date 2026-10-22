@@ -27,7 +27,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/expedientes/carpetas-de-drive-por-estado.md` — Carpetas de Drive por estado (2026-07-24) · 2,7 KB
-- `docs/conocimiento/expedientes/el-listado-de-expedientes-las-columnas-se-eligen.md` — El listado de expedientes: las columnas se ELIGEN (2026-09-15) · 11,2 KB
+- `docs/conocimiento/expedientes/el-listado-de-expedientes-las-columnas-se-eligen.md` — El listado de expedientes: las columnas se ELIGEN (2026-09-15) · 11,9 KB
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md` — Módulo Lifecycle de Expedientes (2026-05-20) · 6,7 KB
 
 ## Las «REGLA —» que contienen esos documentos

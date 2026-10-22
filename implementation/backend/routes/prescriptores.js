@@ -160,6 +160,56 @@ router.get('/', enforceAuth, async (req, res) => {
     }
 });
 
+// POST /api/prescriptores/logos { ids: [a, b], tengo: { a: h1 } } -> { a: { h, src? }, b: { h: null } }
+//
+// Los logos para PINTAR A 24 px en un listado (filtro y filas de Clientes). Los
+// originales pesan 8 MB entre todos (data URL a tamaño de papel: se imprimen en
+// las propuestas), así que el navegador los reduce UNA vez, se queda la miniatura
+// y la próxima vez manda su huella en `tengo`: solo vuelve `src` del logo que ha
+// cambiado. Es POST porque con 50 partners los ids y sus huellas no caben con
+// holgura en una URL (ver «.in() por lotes»). `h: null` = esa empresa no tiene
+// logo (que pinte las iniciales).
+// La huella y el logo se guardan aquí 10 minutos para no pedirle a Supabase los
+// 8 MB en cada visita; el PATCH del logo vacía su entrada.
+const crypto = require('crypto');
+const LOGOS_TTL_MS = 10 * 60 * 1000;
+const cacheLogos = new Map(); // id_empresa -> { h, src, at }
+router.post('/logos', enforceAuth, async (req, res) => {
+    try {
+        let ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(s => String(s).trim())
+            .filter(s => /^[\w-]{1,64}$/.test(s));
+        ids = [...new Set(ids)].slice(0, 300);
+        // Un partner solo ve a sus clientes, y esos solo llevan SU empresa.
+        if (!esInterno(req)) ids = ids.filter(id => String(id) === String(req.user.prescriptor_id || ''));
+        if (!ids.length) return res.json({});
+
+        const ahora = Date.now();
+        const faltan = ids.filter(id => !(cacheLogos.get(id)?.at > ahora - LOGOS_TTL_MS));
+        if (faltan.length) {
+            const { data, error } = await supabase.from('prescriptores')
+                .select('id_empresa, logo_empresa').in('id_empresa', faltan);
+            if (error) throw error;
+            const porId = new Map((data || []).map(p => [String(p.id_empresa), p.logo_empresa]));
+            for (const id of faltan) {
+                const src = porId.get(id) || null;
+                const h = src ? crypto.createHash('md5').update(src).digest('hex').slice(0, 12) : null;
+                cacheLogos.set(id, { h, src, at: ahora });
+            }
+        }
+
+        const tengo = req.body?.tengo && typeof req.body.tengo === 'object' ? req.body.tengo : {};
+        const out = {};
+        for (const id of ids) {
+            const { h, src } = cacheLogos.get(id);
+            out[id] = (h && tengo[id] !== h) ? { h, src } : { h };
+        }
+        res.json(out);
+    } catch (err) {
+        console.error('Error POST logos de prescriptores:', err.message);
+        res.status(503).json({ error: 'No se pudieron leer los logos' });
+    }
+});
+
 // GET /api/prescriptores/:id/instaladores -> Listar instaladores de un distribuidor
 router.get('/:id/instaladores', enforceAuth, async (req, res) => {
     try {
@@ -1112,6 +1162,7 @@ router.patch('/:id', enforceAuth, async (req, res) => {
 
         if (payload.logo_empresa !== undefined) {
             prescriptorPayload.logo_empresa = payload.logo_empresa;
+            cacheLogos.delete(String(id));
             console.log(`[PATCH] Logo recibido en payload (Size: ${payload.logo_empresa?.length || 0})`);
         }
 
