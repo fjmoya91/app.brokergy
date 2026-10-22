@@ -7,13 +7,14 @@ le llevara al expediente y que, si falta algo pesado («hazme el CEE inicial»),
 ahí mismo. Es un botón flotante abajo a la derecha que abre un chat.
 
 Su cara es la **mascota de la gota** («energía», la primera de las tres de marketing; 2026-10-21): el
-botón es una burbuja de chat blanca con la gota dentro, y la misma gota va en la cabecera del chat. El
+botón es la gota misma, y la misma gota va en la cabecera del chat. El
 original es un SVG de 720 KB que por dentro es un PNG (Drive: `02. MARKETING/…/01. IMAGENES/LOGOS/
 BROKERGY_mascota_01_energia.svg`); a la app va **entera** (de la hoja a los pies), sin el fondo
-blanco (quitado rellenando desde los bordes, para no vaciar el blanco de los ojos), a 216 px de alto,
-WebP de 10 KB: `implementation/frontend/public/mascota-gota.webp`. Recortada a la cabeza se veía
-cortada por arriba y por abajo (22/10/2026). Las otras dos (aerotermia y casa) están en la misma
-carpeta por si se cambia. **Está animada** (`index.css`, `.mascota-saluda` / `.mascota-piensa`): cada
+blanco ni la sombra del suelo (quitados rellenando desde los bordes, para no vaciar el blanco de los
+ojos), a 240 px de alto, WebP de 11 KB: `implementation/frontend/public/mascota-gota.webp`. **El
+botón ES la mascota**, sola, sin fondo ni bocadillo, con una sombra para despegarla de la pantalla:
+recortada a la cabeza se veía cortada, y metida en un bocadillo blanco quedaba diminuta (22/10/2026).
+Las otras dos (aerotermia y casa) están en la misma carpeta por si se cambia. **Está animada** (`index.css`, `.mascota-saluda` / `.mascota-piensa`): cada
 7 s da un saltito y se balancea girando desde los pies, como quien saluda (quieta el resto, para que
 no distraiga); saluda al pasar el ratón y, mientras contesta con el chat cerrado, va dando botes. Con
 «reducir movimiento» del sistema se queda quieta.
