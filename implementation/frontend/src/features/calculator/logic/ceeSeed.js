@@ -175,12 +175,17 @@ export function ceeFinalToEmisionesInputs(ceeFinal) {
  *   5. `cee_ahorro_origen` = 'medido' | 'estimado' — lo lee la UI para no presentar
  *      como medido un ahorro que en realidad se estimó.
  */
-export function seedInputsFromCees({ inicial = null, final = null, inputs = {} }) {
+export function seedInputsFromCees({ inicial = null, final = null, inputs = {}, propio = false }) {
   if (!inicial && !final) return {};
   const patch = { demandMode: 'manual' };
 
   // El objeto normalizado se guarda SIN el PDF (pesado): el fichero va a Drive.
-  const limpio = (c) => { if (!c) return null; const { pdfBase64, ...resto } = c; return resto; };
+  // `propio`: el CEE lo hemos hecho NOSOTROS (ver `ceeEsPropio`).
+  const limpio = (c) => {
+    if (!c) return null;
+    const { pdfBase64, ...resto } = c;
+    return propio ? { ...resto, origen: CEE_ORIGEN_BROKERGY } : resto;
+  };
   patch.cee_previo = limpio(inicial) || limpio(final);   // el "de partida" que ya conocía la app
   patch.cee_final = limpio(final);
   patch.cee_ahorro_origen = final ? 'medido' : 'estimado';
@@ -218,6 +223,18 @@ export function seedInputsFromCees({ inicial = null, final = null, inputs = {} }
   }
 
   return patch;
+}
+
+/**
+ * Un CEE que ha hecho BROKERGY (la skill `generar-cee-inicial`) y se carga en la
+ * simulación lleva `origen: 'brokergy'`. REGLA — con él NO hay comparativa «con tu
+ * CEE / CEE nuevo BROKERGY» (Fran, 22/10/2026, 26RES060_OP321): esa comparativa es
+ * para el CEE que APORTA el cliente; con el nuestro las dos cifras serían la misma
+ * cosa contada dos veces y la propuesta le diría al cliente «con tu CEE…».
+ */
+export const CEE_ORIGEN_BROKERGY = 'brokergy';
+export function ceeEsPropio(cee) {
+  return cee?.origen === CEE_ORIGEN_BROKERGY;
 }
 
 /**

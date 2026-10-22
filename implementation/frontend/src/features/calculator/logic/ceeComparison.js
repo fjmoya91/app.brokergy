@@ -13,6 +13,7 @@
 import { calculateRes080FromEmissions, calculateFinancials, calculateSavings, CAE_PRECIO_CLIENTE_NUEVAS } from './calculation';
 import { computeFullCalculatorResult } from '../../landing/data/landingCalculation';
 import { demandaDeCalculo } from '../../cee/ceeAvisos';
+import { ceeEsPropio } from './ceeSeed';
 
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
 
@@ -40,6 +41,8 @@ function financialParams(inputs, savingsKwh, presupuesto) {
  */
 export function computeCeeComparison(inputs) {
   if (!inputs || !inputs.cee_previo) return null;
+  // Un CEE NUESTRO no es «tu CEE»: sin comparativa (ceeSeed.ceeEsPropio).
+  if (ceeEsPropio(inputs.cee_previo)) return null;
   const cee = inputs.cee_previo;
   const isReforma = !!inputs.isReforma;
 

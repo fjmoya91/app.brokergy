@@ -254,6 +254,21 @@ const prueba = async (nombre, fn) => {
         const c = computeCeeComparison(inputs);
         assert.strictEqual(Math.round(c.conCee.cae), Math.round(c.ceeNuevo.cae));
     });
+    await prueba('un CEE NUESTRO (propio) va marcado y NUNCA da comparativa «con tu CEE» (26RES060_OP321)', () => {
+        // Mismo CEE, simulación estimada: con el del cliente hay comparativa; con el nuestro, no.
+        const delCliente = { ...inputsCasa(), ...seed.ceeParaComparativa(ceeCliente) };
+        assert.ok(computeCeeComparison(delCliente), 'el del cliente tiene que seguir dando comparativa');
+        const inputs = inputsCasa();
+        Object.assign(inputs, seed.seedInputsFromCees({ inicial: ceeCliente, inputs, propio: true }));
+        assert.strictEqual(inputs.cee_previo.origen, seed.CEE_ORIGEN_BROKERGY);
+        assert.ok(seed.ceeEsPropio(inputs.cee_previo));
+        assert.ok(!('pdfBase64' in inputs.cee_previo), 'el PDF no puede ir al JSONB (regla 21)');
+        assert.strictEqual(computeFullCalculatorResult(inputs).q_net, 133.4);
+        assert.strictEqual(computeCeeComparison(inputs), null);
+        assert.strictEqual(computeCeeComparison({ ...delCliente, cee_previo: { ...delCliente.cee_previo, origen: 'brokergy' } }), null);
+        // Sin `propio`, el de siempre: sin marca.
+        assert.ok(!seed.ceeEsPropio(seed.seedInputsFromCees({ inicial: ceeCliente, inputs: inputsCasa() }).cee_previo));
+    });
 
     console.log('\nPlacas fotovoltaicas de la obra (P. Fotovoltaica)');
     // 26RES060_OP310 (19/10/2026): presupuesto 189 de Plaza con aerotermia 8.164,80 € y

@@ -88,6 +88,17 @@ placas de diciembre de 2023): estimado 4.392 € de bono frente a 3.294 € con 
 ⚠️ `CalculatorForm.applyCeePrevio` (cargar el CEE en la calculadora) guarda el **PDF en base64**
 dentro de `inputs.cee_previo` —hasta 2,6 MB (OP139)—, contra la regla 21; `ceeParaComparativa` no.
 
+**REGLA — un CEE NUESTRO no da la comparativa «con tu CEE / CEE nuevo BROKERGY»** (Fran,
+22/10/2026, 26RES060_OP321). Esa comparativa es para el CEE que APORTA el cliente. Al cargar en la
+simulación el CEE inicial que hicimos nosotros (skill `generar-cee-inicial`), la propuesta y el envío
+le decían al cliente «con tu CEE sale a tanto», porque bastaba con que hubiera `cee_previo` y que
+las dos cifras no redondearan igual. Ahora entra con `seedInputsFromCees({ propio: true })`, que lo
+marca `cee_previo.origen = 'brokergy'`, y `computeCeeComparison` devuelve null con él (`ceeEsPropio`
+en [ceeSeed.js](implementation/frontend/src/features/calculator/logic/ceeSeed.js)): sin comparativa en
+la propuesta, en el popup de envío ni en la calculadora, cuyo recuadro dice «CEE inicial de BROKERGY
+cargado» en vez de «Este cliente aportó un CEE inicial». Tras tocarlo:
+`node implementation/backend/scripts/test_alta_oportunidad.js`.
+
 **Y un RES080 con los DOS certificados en `.xml`** (2026-10-08, 26RES080_OP70: reforma integral
 ya ejecutada con ayudas FEDER, CEE del estado previo registrado con la 2.3). El plan admite
 `reforma` (qué se toca de la envolvente → `isReforma`), `obra_estado: "ejecutada"`, `cee_xml:

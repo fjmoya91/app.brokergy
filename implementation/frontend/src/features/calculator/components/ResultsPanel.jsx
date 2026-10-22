@@ -19,7 +19,7 @@ import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO, FUEL_OPTIONS_SIN_ELECTRICIDAD } from './EfficiencyTable';
 import ComparativaCeeModal from '../../cee/ComparativaCeeModal';
 import CeeUploadModal from '../../cee/CeeUploadModal';
-import { ceeToColumn } from '../logic/ceeSeed';
+import { ceeToColumn, ceeEsPropio } from '../logic/ceeSeed';
 import { computeCeeComparison } from '../logic/ceeComparison';
 import { avisarIrpfBiomasa } from '../logic/irpfBiomasa';
 import realCasesData from '../data/real_cases_db.json';
@@ -996,6 +996,18 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                               // igual es lo que hace que alguien prometa como cierto un número
                               // que todavía es una hipótesis.
                               const medido = !!inputs?.cee_final;
+                              // El CEE lo hemos hecho NOSOTROS: no es «tu CEE» y no hay
+                              // comparativa que enviar (ceeSeed.ceeEsPropio).
+                              if (!medido && ceeEsPropio(inputs.cee_previo)) {
+                                return (
+                                  <div className="mb-5 rounded-2xl border border-emerald-500/35 bg-emerald-500/10 p-4">
+                                    <div className="text-sm font-bold text-white">CEE inicial de BROKERGY cargado</div>
+                                    <div className="text-xs text-white/50">
+                                      El cálculo usa la demanda de nuestro certificado. Sin comparativa: no es un CEE que aporte el cliente.
+                                    </div>
+                                  </div>
+                                );
+                              }
                               return (
                                 <div className={`mb-5 rounded-2xl border p-4 flex flex-col sm:flex-row items-center justify-between gap-3 ${
                                     medido ? 'border-emerald-500/35 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10'
