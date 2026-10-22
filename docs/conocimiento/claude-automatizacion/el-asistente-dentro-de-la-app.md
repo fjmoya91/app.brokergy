@@ -11,7 +11,10 @@ botón es la gota misma, y la misma gota va en la cabecera del chat. El
 original es un SVG de 720 KB que por dentro es un PNG (Drive: `02. MARKETING/…/01. IMAGENES/LOGOS/
 BROKERGY_mascota_01_energia.svg`); a la app va **entera** (de la hoja a los pies), sin el fondo
 blanco ni la sombra del suelo (quitados rellenando desde los bordes, para no vaciar el blanco de los
-ojos), a 240 px de alto, WebP de 11 KB: `implementation/frontend/public/mascota-gota.webp`. **El
+ojos), a 240 px de alto, WebP de 11 KB: `implementation/frontend/src/assets/mascota-gota.webp`,
+**importada** y no en `public/` (nginx sirve lo estático con caché de un año «immutable»: con un
+nombre fijo el navegador seguía pintando la primera versión, la cabeza con fondo blanco; importada,
+Vite le pone una huella y cada imagen nueva es una URL nueva). **El
 botón ES la mascota**, sola, sin fondo ni bocadillo, con una sombra para despegarla de la pantalla:
 recortada a la cabeza se veía cortada, y metida en un bocadillo blanco quedaba diminuta (22/10/2026).
 Las otras dos (aerotermia y casa) están en la misma carpeta por si se cambia. **Está animada** (`index.css`, `.mascota-saluda` / `.mascota-piensa`): cada

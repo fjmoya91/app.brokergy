@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import SendActionOverlay from '../../components/SendActionOverlay';
+import mascotaGota from '../../assets/mascota-gota.webp';
 
 // ─── El asistente de la app ──────────────────────────────────────────────────
 // Botón flotante (abajo a la derecha) que abre un chat con Claude. Contesta con
@@ -144,7 +145,10 @@ function Girando({ className = 'w-3.5 h-3.5' }) {
 // aquí va ENTERA (de la hoja a los pies), sin fondo y sin la sombra del suelo, a 240 px de
 // alto y en WebP (11 KB). Recortada a la cabeza se veía cortada, y dentro de un bocadillo
 // blanco quedaba diminuta: por eso va SOLA, sin fondo ni bocadillo (22/10/2026).
-const MASCOTA = '/mascota-gota.webp';
+// Se IMPORTA (src/assets) y no va en public/: nginx sirve lo estático con caché de un año
+// «immutable», así que con un nombre fijo el navegador seguía pintando la primera versión.
+// Importada, Vite le pone una huella al nombre y cada cambio de imagen es una URL nueva.
+const MASCOTA = mascotaGota;
 
 function CaraAsistente({ className = 'h-9' }) {
     return <img src={MASCOTA} alt="" draggable={false} className={`${className} w-auto flex-shrink-0`} />;
