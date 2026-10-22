@@ -231,6 +231,46 @@ body {
   }
 }
 
+/* La gota del asistente (AsistenteFlotante): cada 7 s da un saltito y se balancea,
+   como quien saluda; quieta el resto del tiempo, para que no distraiga. Al pasar el
+   ratón saluda en el momento, y mientras contesta con el chat cerrado va dando botes.
+   Gira desde los pies, que es lo que la hace parecer viva y no un icono que tiembla. */
+@keyframes mascotaSaluda {
+  0%, 78%, 100% { transform: translateY(0) rotate(0); }
+  81%  { transform: translateY(-5px) rotate(-9deg); }
+  85%  { transform: translateY(-5px) rotate(9deg); }
+  89%  { transform: translateY(-3px) rotate(-7deg); }
+  93%  { transform: translateY(0) rotate(4deg); }
+  96%  { transform: translateY(0) scaleY(0.94) rotate(0); }
+}
+
+@keyframes mascotaSaludaYa {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  20%  { transform: translateY(-5px) rotate(-10deg); }
+  45%  { transform: translateY(-5px) rotate(10deg); }
+  70%  { transform: translateY(-2px) rotate(-6deg); }
+  88%  { transform: translateY(0) scaleY(0.94) rotate(0); }
+}
+
+@keyframes mascotaPiensa {
+  0%, 100% { transform: translateY(0) scaleY(0.96); }
+  45%  { transform: translateY(-6px) scaleY(1.03); }
+}
+
+.mascota-saluda {
+  transform-origin: 50% 100%;
+  animation: mascotaSaluda 7s ease-in-out 1.5s infinite;
+}
+
+.group:hover .mascota-saluda {
+  animation: mascotaSaludaYa 0.9s ease-in-out;
+}
+
+.mascota-piensa {
+  transform-origin: 50% 100%;
+  animation: mascotaPiensa 0.7s ease-in-out infinite;
+}
+
 .animate-fade-in {
   animation: fadeIn var(--transition-normal) ease-out forwards;
 }
@@ -296,6 +336,12 @@ body {
   .animate-incidencia-leve {
     animation: none;
     box-shadow: 0 0 16px 2px rgba(239, 68, 68, 0.6);
+  }
+
+  .mascota-saluda,
+  .group:hover .mascota-saluda,
+  .mascota-piensa {
+    animation: none;
   }
 }
 
