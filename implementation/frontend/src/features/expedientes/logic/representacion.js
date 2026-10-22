@@ -50,6 +50,10 @@ export function payloadRepresentacion(form, esEmpresa) {
         representante_nombre: v('representante_nombre'),
         representante_apellidos: v('representante_apellidos'),
         representante_dni: v('representante_dni'),
+        // Vacíos = los del titular (ver `representacionDe`).
+        representante_domicilio: v('representante_domicilio'),
+        representante_tlf: v('representante_tlf'),
+        representante_email: hay ? (txt(f.representante_email).toLowerCase() || null) : null,
         representacion_tipo: hay && (tipo === 'NOTARIAL' || tipo === 'OTRO') ? tipo : null,
         representacion_fecha: v('representacion_fecha'),
         representacion_protocolo: hay && tipo === 'NOTARIAL' ? (txt(f.representacion_protocolo) || null) : null,
@@ -73,7 +77,7 @@ export function representacionDe(c) {
     const esEmpresa = !!x.es_empresa;
     const hay = esEmpresa || !!x.representado;
     const vacia = {
-        hay: false, esEmpresa, nombre: '', dni: '', tipo: '', fecha: '', protocolo: '',
+        hay: false, esEmpresa, nombre: '', dni: '', domicilio: '', tlf: '', email: '', tipo: '', fecha: '', protocolo: '',
         documento: '', docLink: '', otroDocumento: '', falta: [],
     };
     if (!hay) return vacia;
@@ -86,6 +90,15 @@ export function representacionDe(c) {
     const protocolo = txt(x.representacion_protocolo);
     const documento = txt(x.representacion_documento);
     const docLink = txt(x.representacion_doc_link);
+    // Domicilio, teléfono y email del REPRESENTANTE (apartado 3 del Anexo I): los
+    // suyos si se han puesto; si no, los del titular — en una empresa, su sede y su
+    // contacto; en un particular, la casa y el contacto que constan en la ficha
+    // (que con un apoderado suelen ser ya los suyos). Fran, 22/10/2026: el Anexo I
+    // salía con esas tres filas en blanco.
+    const domicilioTitular = [x.direccion, x.codigo_postal, x.municipio].map(txt).filter(Boolean).join(', ');
+    const domicilio = txt(x.representante_domicilio) || domicilioTitular;
+    const tlf = txt(x.representante_tlf) || txt(x.tlf) || txt(x.telefono);
+    const email = (txt(x.representante_email) || txt(x.email)).toLowerCase();
     const otroDocumento = tipo === 'OTRO'
         ? [documento, fecha ? `de ${fecha}` : ''].filter(Boolean).join(' ')
         : '';
@@ -105,5 +118,5 @@ export function representacionDe(c) {
     }
     if (!docLink) falta.push('copia del documento que acredita la representación');
 
-    return { hay, esEmpresa, nombre, dni, tipo, fecha, protocolo, documento, docLink, otroDocumento, falta };
+    return { hay, esEmpresa, nombre, dni, domicilio, tlf, email, tipo, fecha, protocolo, documento, docLink, otroDocumento, falta };
 }

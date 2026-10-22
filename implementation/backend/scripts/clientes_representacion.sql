@@ -26,3 +26,14 @@ COMMENT ON COLUMN public.clientes.representacion_fecha IS 'Fecha del poder notar
 COMMENT ON COLUMN public.clientes.representacion_protocolo IS 'Nº de protocolo del poder notarial.';
 COMMENT ON COLUMN public.clientes.representacion_documento IS 'Título del documento que acredita la representación cuando no es un poder notarial (escritura de constitución, nombramiento de administrador…).';
 COMMENT ON COLUMN public.clientes.representacion_doc_link IS 'Copia del documento que acredita la representación (Drive). Va en el paquete de la actuación.';
+
+-- 2026-10-22 (2): domicilio, teléfono y email del REPRESENTANTE (apartado 3 del
+-- Anexo I). Vacíos = los del titular (en una empresa, su sede y su contacto).
+ALTER TABLE public.clientes
+  ADD COLUMN IF NOT EXISTS representante_domicilio VARCHAR(300),
+  ADD COLUMN IF NOT EXISTS representante_tlf VARCHAR(30),
+  ADD COLUMN IF NOT EXISTS representante_email VARCHAR(200);
+
+COMMENT ON COLUMN public.clientes.representante_domicilio IS 'Domicilio del representante si no es el del titular (vacío = el del titular).';
+COMMENT ON COLUMN public.clientes.representante_tlf IS 'Teléfono del representante si no es el del titular (vacío = el del titular).';
+COMMENT ON COLUMN public.clientes.representante_email IS 'Email del representante si no es el del titular (vacío = el del titular).';

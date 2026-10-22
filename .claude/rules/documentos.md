@@ -91,6 +91,8 @@ paths:
 
 149. **«¿Misma dirección que el cliente? → Sí» imprime la dirección del CLIENTE, en vivo; y «Sí» solo se pone si ES la misma vivienda** (2026-10-20). Con «Sí» los documentos (Anexo I, Convenio, CIFO, RES080, Anexo Fotográfico, ficha del certificador, mensaje de cobro) toman la calle, el CP, el municipio y la provincia de la ficha del cliente: se cambia allí y cambia en todos. Solo sin calle en el cliente se cae a la de la instalación o el Catastro. La RC y las UTM siguen siendo las de la obra, y con «No» el cliente no se usa nunca. Para que no vuelva lo de 26RES060_89 (domicilio impreso como obra), el alta del expediente pone «No» con la dirección del Catastro cuando el cliente vive en otra calle (`mismaVivienda`: el nombre de la calle y el municipio deciden, el número no). Los 12 que ya estaban en «Sí» siendo otra casa se pasan a «No» conservando lo que imprimían (`direccion_instalacion_otra_casa.mjs`, en seco; `--escribir`). Fuente única: [logic/direccionInstalacion.js](implementation/frontend/src/features/expedientes/logic/direccionInstalacion.js); `anexoFotograficoService.buildDocMeta` y `certClienteData` llevan su espejo. Tras tocarlo: `node implementation/backend/scripts/test_direccion_instalacion.mjs`. Ver "«¿Misma dirección que el cliente? → Sí» sigue la ficha del CLIENTE".
 
+160. **El apartado 3 del Anexo I (REPRESENTACIÓN) solo se rellena si HAY representante, y entonces COMPLETO y con su título** (2026-10-22, Fran). Un particular que firma en su nombre deja el apartado EN BLANCO y SIN NINGUNA CASILLA (antes salía siempre «Otro documento: {nº} - ANEXO CESIÓN AHORRO», que declara una representación que no existe). Hay representación si es EMPRESA (su representante legal) o un particular marcado `clientes.representado` (un poder a favor del cónyuge: Eusebia, 25RES060_88): entonces el representante va en el apartado 3 con nombre, NIF, domicilio, teléfono y correo —estos tres, los suyos (`representante_domicilio/_tlf/_email`) o, vacíos, los del titular—, es el «Fdo.» y comparece y firma el Convenio. El título es **poder notarial** (fecha + nº de protocolo) u **otro documento** (título + fecha) —`representacion_tipo/_fecha/_protocolo/_documento`—, y la COPIA es del cliente (`representacion_doc_link`, `POST /api/clientes/:id/representacion`) y va al paquete de la actuación como pieza **`4-8`** (obligatoria con representación, «no procede» sin ella). Fuente única: [logic/representacion.js](implementation/frontend/src/features/expedientes/logic/representacion.js) (`representacionDe`, `payloadRepresentacion`). Tras tocarlo: `node implementation/backend/scripts/test_impresos_oficiales.mjs` y `check_anexo_cesion_2pag.mjs`. Ver "La REPRESENTACIÓN del titular en el Anexo I".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -100,7 +102,7 @@ paths:
 - `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md` — El CIFO en PDF — las hojas son FIJAS y hay que medirlas (2026-08-25) · 3,6 KB
 - `docs/conocimiento/documentos/hitos-de-la-actuacion-la-factura-que-no-abre-la-obra.md` — HITOS DE LA ACTUACIÓN — la factura que NO abre la obra (2026-09-30) · 7,3 KB
 - `docs/conocimiento/documentos/la-placa-de-la-unidad-exterior-dentro-del-certificado.md` — La PLACA de la unidad exterior, dentro del certificado (2026-09-17) · 7,9 KB
-- `docs/conocimiento/documentos/la-representacion-del-titular-en-el-anexo-i.md` — La REPRESENTACIÓN del titular en el Anexo I: poder notarial u otro documento (2026-10-22) · 3,9 KB
+- `docs/conocimiento/documentos/la-representacion-del-titular-en-el-anexo-i.md` — La REPRESENTACIÓN del titular en el Anexo I: poder notarial u otro documento (2026-10-22) · 4,5 KB
 - `docs/conocimiento/documentos/las-coordenadas-utm-se-rotulan-etrs89-huso-30-n.md` — Las coordenadas UTM se rotulan «ETRS89 · huso 30 N» (2026-10-22) · 2,4 KB
 - `docs/conocimiento/documentos/las-fichas-y-el-anexo-i-se-rellenan-ya-no-se-redibujan.md` — Las FICHAS y el ANEXO I se RELLENAN, ya no se redibujan (2026-09-08) · 7,1 KB
 - `docs/conocimiento/documentos/lo-que-el-flag-esconde-y-lo-que-mayusculas-borra.md` — Lo que el FLAG esconde y lo que MAYÚSCULAS borra (2026-09-16) · 8,8 KB
@@ -150,6 +152,7 @@ ordenado como el PROCESO**
 - `docs/conocimiento/documentos/la-representacion-del-titular-en-el-anexo-i.md`
   - **REGLA — un particular sin representante deja el apartado 3 EN BLANCO y SIN CASILLAS.**
   - **REGLA — hay representación en dos casos, y solo en dos.**
+  - **REGLA — el apartado 3 sale COMPLETO: domicilio, teléfono y correo del representante.**
   - **REGLA — el título se elige: PODER NOTARIAL (fecha + nº de protocolo) u OTRO documento
 (título + fecha de formalización).**
   - **REGLA — la COPIA del poder es del CLIENTE y va en el expediente que se presenta.**

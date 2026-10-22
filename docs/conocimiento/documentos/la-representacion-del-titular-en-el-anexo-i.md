@@ -18,6 +18,14 @@ representante legal, `representante_*`), y un PARTICULAR marcado «Está represe
 del Anexo I y comparece y firma el Convenio de Cesión («representada/o en este acto por
 D. … en virtud de poder notarial de fecha … y número de protocolo …»).
 
+**REGLA — el apartado 3 sale COMPLETO: domicilio, teléfono y correo del representante.**
+Son los suyos si se ponen en la ficha (`representante_domicilio`, `representante_tlf`,
+`representante_email`); vacíos, los del TITULAR —en una empresa, su sede y su contacto;
+con un apoderado, la casa y el contacto de la ficha, que suelen ser ya los suyos—. El
+primer Anexo I de Eusebia (25RES060_88) salió con esas tres filas en blanco (Fran,
+22/10/2026). En el impreso son `Domicilio-1`, `Teléfono-1` y `Correo electrónico-1`
+(los `-0` son del beneficiario, que se deja en blanco).
+
 **REGLA — el título se elige: PODER NOTARIAL (fecha + nº de protocolo) u OTRO documento
 (título + fecha de formalización).** Se marca la casilla que toca y se rellenan sus campos
 del impreso (`Poder Notarial de fecha` + `Poder Notarial de fecha-0` + `Número de

@@ -56,6 +56,11 @@ export function cedentesDe(cliente) {
         representacion_protocolo: c.representacion_protocolo || '',
         representacion_documento: c.representacion_documento || '',
         representacion_doc_link: c.representacion_doc_link || '',
+        representante_domicilio: c.representante_domicilio || '',
+        representante_tlf: c.representante_tlf || '',
+        representante_email: c.representante_email || '',
+        // El domicilio del titular: es el del representante si no se ha puesto otro.
+        direccion: c.direccion || '', codigo_postal: c.codigo_postal || '', municipio: c.municipio || '',
         email: c.email || '', tlf: c.tlf || c.telefono || '',
         iban: limpiaIban(c.numero_cuenta),
         cuenta_propia: true,

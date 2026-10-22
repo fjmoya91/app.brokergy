@@ -645,6 +645,11 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
         nCedentes: cedentes.length,
         hasAcs,
         esEmpresa, hayRepresentante, nombreRepresentante, dniRepresentante, firmante,
+        // Domicilio, teléfono y email del representante (los del titular si no
+        // tiene otros: logic/representacion.js).
+        domicilioRepresentante: rep.domicilio,
+        tlfRepresentante: rep.tlf,
+        emailRepresentante: rep.email,
         // Con qué título se acredita: poder notarial (fecha + protocolo) u otro
         // documento (título + fecha). Sin representación, ninguna casilla.
         poderNotarial: rep.tipo === 'NOTARIAL',
@@ -676,6 +681,7 @@ const paginasAnexoI = (expediente, results, states, isForPdf, cedente) => {
         numexpte, nombreActuacion, codigoFicha, ccaa, dirActuacion, refCatastral,
         nombrePropietario, nif, domicilio, telefono, email,
         hayRepresentante, nombreRepresentante, dniRepresentante, firmante,
+        domicilioRepresentante, tlfRepresentante, emailRepresentante,
         poderNotarial, poderFecha, poderProtocolo, otroDoc, otroDocumento,
         municipioFirma, fechaFirma,
         bonoSocial, noSolicitado, seSolicitado, ayudaOptions, ayudaFields,
@@ -721,9 +727,9 @@ const paginasAnexoI = (expediente, results, states, isForPdf, cedente) => {
             <div class="doc-sec-title">3. Identificación del representante del propietario inicial del ahorro (a indicar únicamente en caso de representación)</div>
             <table class="doc-table">
                 <tr><td class="lbl">Representante (Nombre y apellidos / Razón social)</td><td colspan="2">${hayRepresentante ? nombreRepresentante : ''}</td><td style="width:10%">NIF/NIE</td><td>${hayRepresentante ? dniRepresentante : ''}</td></tr>
-                <tr><td class="lbl">Domicilio</td><td colspan="4"></td></tr>
-                <tr><td class="lbl">Teléfono</td><td colspan="4"></td></tr>
-                <tr><td class="lbl">Correo electrónico</td><td colspan="4"></td></tr>
+                <tr><td class="lbl">Domicilio</td><td colspan="4">${hayRepresentante ? domicilioRepresentante : ''}</td></tr>
+                <tr><td class="lbl">Teléfono</td><td colspan="4">${hayRepresentante ? tlfRepresentante : ''}</td></tr>
+                <tr><td class="lbl">Correo electrónico</td><td colspan="4">${hayRepresentante ? emailRepresentante : ''}</td></tr>
             </table>
             <div class="doc-p">Ostentando poderes suficientes según:</div>
             <div class="doc-check-row"><div class="doc-check-box">${cb(poderNotarial)}</div> <span>Poder Notarial de fecha ${poderFecha ? `<b>${poderFecha}</b>` : '______________'} y número de protocolo ${poderProtocolo ? `<b>${poderProtocolo}</b>` : '______________'}. Se adjunta copia a la presente.</span></div>

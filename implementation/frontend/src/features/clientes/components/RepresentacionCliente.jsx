@@ -20,6 +20,7 @@ export function RepresentacionCliente({ form, onChange, esEmpresa, clienteId = n
     const hay = esEmpresa || representado;
     const rep = representacionDe({ ...form, es_empresa: esEmpresa });
     const tipo = (form.representacion_tipo || '').toUpperCase();
+    const domicilioTitular = [form.direccion, form.codigo_postal, form.municipio].filter(Boolean).join(', ');
 
     const boton = (valor) => (
         <button key={valor} type="button" onClick={() => onChange({ representacion_tipo: tipo === valor ? '' : valor })}
@@ -64,6 +65,31 @@ export function RepresentacionCliente({ form, onChange, esEmpresa, clienteId = n
                             <Input placeholder="12345678A" uppercase value={form.representante_dni || ''}
                                 onChange={e => onChange({ representante_dni: e.target.value })} />
                         </FieldInput>
+                    </div>
+
+                    {/* Contacto del representante (apartado 3 del Anexo I). Vacío = el del
+                        titular, que es lo que se enseña como sugerencia. */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-3">
+                            <FieldInput label="Domicilio del representante">
+                                <Input uppercase placeholder={domicilioTitular || 'CALLE, NÚMERO, CP, MUNICIPIO'}
+                                    value={form.representante_domicilio || ''}
+                                    onChange={e => onChange({ representante_domicilio: e.target.value })} />
+                            </FieldInput>
+                        </div>
+                        <FieldInput label="Teléfono">
+                            <Input placeholder={form.tlf || '600 000 000'} value={form.representante_tlf || ''}
+                                onChange={e => onChange({ representante_tlf: e.target.value })} />
+                        </FieldInput>
+                        <div className="sm:col-span-2">
+                            <FieldInput label="Email">
+                                <Input type="email" placeholder={form.email || 'representante@email.com'} value={form.representante_email || ''}
+                                    onChange={e => onChange({ representante_email: e.target.value.toLowerCase() })} />
+                            </FieldInput>
+                        </div>
+                        <p className="sm:col-span-3 text-[10px] text-white/30 -mt-1">
+                            Si se dejan en blanco, el Anexo I usa los del titular{esEmpresa ? ' (la sede y el contacto de la empresa)' : ''}: {[rep.domicilio, rep.tlf, rep.email].filter(Boolean).join(' · ') || 'la ficha no tiene ninguno'}.
+                        </p>
                     </div>
 
                     <div>

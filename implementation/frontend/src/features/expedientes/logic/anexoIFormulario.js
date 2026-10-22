@@ -115,6 +115,11 @@ function anexoIFormularioDe(expediente, results, states, cedente) {
         // ninguna casilla marcada.
         'Representante': d.hayRepresentante ? d.nombreRepresentante : '',
         'NIFNIE-1': d.hayRepresentante ? d.dniRepresentante : '',
+        // Sus datos de contacto: los "-1" son los del representante (los "-0", del
+        // beneficiario, que se deja en blanco).
+        'Domicilio-1': d.hayRepresentante ? (d.domicilioRepresentante || '') : '',
+        'Teléfono-1': d.hayRepresentante ? (d.tlfRepresentante || '') : '',
+        'Correo electrónico-1': d.hayRepresentante ? (d.emailRepresentante || '') : '',
 
         // Título que acredita la representación: poder notarial (fecha y nº de
         // protocolo) u otro documento (título y fecha de formalización). Su copia

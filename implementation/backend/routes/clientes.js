@@ -28,6 +28,10 @@ function camposRepresentacion(body) {
     }
     if (body.representacion_protocolo !== undefined) out.representacion_protocolo = String(body.representacion_protocolo || '').trim().slice(0, 40) || null;
     if (body.representacion_documento !== undefined) out.representacion_documento = String(body.representacion_documento || '').trim().slice(0, 300) || null;
+    // Contacto del representante (vacío = el del titular, logic/representacion.js).
+    if (body.representante_domicilio !== undefined) out.representante_domicilio = String(body.representante_domicilio || '').trim().slice(0, 300) || null;
+    if (body.representante_tlf !== undefined) out.representante_tlf = String(body.representante_tlf || '').trim().slice(0, 30) || null;
+    if (body.representante_email !== undefined) out.representante_email = String(body.representante_email || '').trim().toLowerCase().slice(0, 200) || null;
     return out;
 }
 

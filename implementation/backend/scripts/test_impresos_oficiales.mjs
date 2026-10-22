@@ -168,6 +168,13 @@ console.log('\n6.b Particular representado: apartado 3, «Otro documento» y el 
     check(escritos['Otro'] === true && escritos['Poder Notarial de fecha'] === false, 'marca «Otro documento» y no el poder');
     check(escritos['Otro documento'] === 'AUTORIZACIÓN DE REPRESENTACIÓN de 01/10/2026', 'título y fecha de formalización', escritos['Otro documento']);
     check(form.fdo === 'JUAN PÉREZ GÓMEZ', 'firma el representante', form.fdo);
+    // Sin contacto propio, el del titular (Fran, 22/10/2026: salían en blanco).
+    const domTit = [base.clientes.direccion, base.clientes.codigo_postal, base.clientes.municipio].filter(Boolean).join(', ');
+    check(!!escritos['Domicilio-1'] && escritos['Domicilio-1'] === domTit, 'su domicilio: el del titular', escritos['Domicilio-1']);
+    check(!!escritos['Teléfono-1'] && !!escritos['Correo electrónico-1'], 'su teléfono y su email', `${escritos['Teléfono-1']} · ${escritos['Correo electrónico-1']}`);
+    const propio = anexoIFormulario(con({ clientes: { ...exp.clientes, representante_domicilio: 'CL OTRA 2, 13700, TOMELLOSO', representante_tlf: '699000111', representante_email: 'Juan@Ejemplo.es' } }), {}, {});
+    check(propio.campos['Domicilio-1'] === 'CL OTRA 2, 13700, TOMELLOSO' && propio.campos['Teléfono-1'] === '699000111' && propio.campos['Correo electrónico-1'] === 'juan@ejemplo.es',
+        'con contacto propio, el suyo', JSON.stringify([propio.campos['Domicilio-1'], propio.campos['Teléfono-1'], propio.campos['Correo electrónico-1']]));
 }
 
 // ── 7. Subvención declarada: casillas y tabla del apartado de ayudas ────────
@@ -209,7 +216,8 @@ console.log('\n8. Sin nada declarado: "NO SE HA SOLICITADO" y "ninguno de los an
     // Particular que firma en su nombre: el apartado 3 en BLANCO y sin casillas
     // (antes marcaba siempre «Otro documento: … ANEXO CESIÓN AHORRO»).
     check(escritos['Otro'] === false && escritos['Poder Notarial de fecha'] === false, 'particular sin representante: ninguna casilla de representación');
-    check(!escritos['Otro documento'] && !escritos['Representante'] && !escritos['NIFNIE-1'], 'y el apartado 3 en blanco', JSON.stringify([escritos['Otro documento'], escritos['Representante']]));
+    check(!escritos['Otro documento'] && !escritos['Representante'] && !escritos['NIFNIE-1'] && !escritos['Domicilio-1'] && !escritos['Teléfono-1'],
+        'y el apartado 3 en blanco', JSON.stringify([escritos['Otro documento'], escritos['Representante'], escritos['Domicilio-1']]));
 }
 
 // ── 9. La CCAA se ELIGE del desplegable, la escriba como la escriba la BD ───
