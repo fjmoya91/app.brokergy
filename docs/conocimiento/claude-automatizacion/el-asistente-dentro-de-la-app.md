@@ -87,6 +87,22 @@ Medido el 22/10/2026 con 26RES060_221: «¿sabes en qué expediente estoy?» →
 estado (0,026 $); «genera el CIFO» → dice que está sin generar, qué más falta (CEE final fuera de plazo,
 anexos) y la tarjeta `cifo 26RES060_221` (0,054 $).
 
+**REGLA — UNA tarjeta, la que lo hace todo; y lo que falta se CONTESTA, no se encarga** (2026-10-22).
+Con el 221 abierto, «Termina todo: CEE final, números de serie y equipos, genera el RITE y dime lo
+que me falta para pedírselo al cliente o al instalador» salió como DOS tarjetas: «Generar el CEE
+final» y una «Otra tarea» de texto libre con todo lo demás, y el CIFO y el anexo «en la siguiente».
+Mal por tres lados: `justificar` ya hace todo eso; pulsando las dos, el CEE final podía calcularse
+antes de corregir los equipos; y «lo que falta» lo tenía el propio asistente en segundos. Causa: el
+catálogo solo le daba la ETIQUETA de cada tarea. Ahora cada `TAREAS[k]` lleva `incluye` (lo que
+hace de verdad su skill) y las instrucciones lo listan, con dos reglas: una petición que cubre varias
+cosas del cierre es UNA tarjeta `justificar` (las sueltas, solo cuando pide solo eso; `otra`, solo
+para lo que ninguna cubre), y lo que falta se contesta en la misma respuesta con `estado_expediente`,
+por persona, diciendo quién firma qué (cliente: Anexo I y Convenio; instalador: CIFO y el RITE;
+certificador: el CEE final). Medido en el 221: una sola tarjeta `justificar`, lo que falta por
+persona (0,068 $); «genera solo el CIFO» → la tarjeta del CIFO y el aviso de que los números de serie
+aún no están (0,059 $). Lo que hace `justificar` al acabar (la Memoria RITE si el instalador no la
+mandó y la lista por persona con sus WhatsApp en borrador): en "JUSTIFICAR un expediente".
+
 **REGLA — solo ADMIN** (ruta `adminOnly` y botón solo con `isAdmin`): contesta con datos de TODA la
 cartera, sin el filtro de «lo suyo» que exige un partner (regla 102), y el botón «Encargar» gasta de
 la suscripción de Fran. Abrirlo a TRABAJADOR o a partners es otro paso, herramienta a herramienta.

@@ -287,45 +287,56 @@ function buscarEnManual(consulta, cuantos = 4) {
 
 // ─── Lo que se puede ENCARGAR al Claude del WhatsApp ──────────────────────────
 // Un catálogo cerrado: el texto que le llega lo compone el SERVIDOR, no el modelo.
+// `incluye` es lo que hace de verdad la skill: el modelo lo ve en sus instrucciones
+// para no partir en varias tarjetas lo que UNA ya hace (22/10/2026: «termina todo»
+// salió como «CEE final» + «Otra tarea», cuando justificar hace las dos cosas y en orden).
 const TAREAS = {
     cee_inicial: {
         etiqueta: 'Generar el CEE inicial',
         que: 'el CEE inicial',
+        incluye: 'el .cex del estado ANTES de la obra, desde las fotos o el vídeo de la vivienda; si falta material, el WhatsApp para pedirlo (en seco)',
         instruccion: (n) => `Genera el CEE INICIAL de ${n} con la skill generar-cee-inicial (desde sus fotos o su vídeo). Lo que no se pueda saber no se inventa: si faltan fotos o datos, prepárame el WhatsApp para pedirlos, en seco.`,
     },
     cee_final: {
         etiqueta: 'Generar el CEE final',
         que: 'el CEE final',
+        incluye: 'SOLO el CEE final, con los equipos que YA estén en el expediente; si aún no se han pasado los equipos y números de serie de la obra, el que toca es justificar',
         instruccion: (n) => `Genera el CEE FINAL de ${n} con la skill generar-cee-final.`,
     },
     revisar_cee: {
         etiqueta: 'Revisar el CEE entregado',
         que: 'la revisión del CEE',
+        incluye: 'el veredicto sobre el CEE que ha subido un técnico, sin darle el visto bueno',
         instruccion: (n) => `Revisa el CEE que ha entregado el técnico en ${n} con la skill revisar-cee y dame el veredicto con la evidencia. No des el visto bueno ni avises al certificador.`,
     },
     justificar: {
         etiqueta: 'Justificar el expediente',
         que: 'la justificación',
+        incluye: 'TODO el cierre de la obra y en orden: facturas, equipos con marca, modelo y nº de serie desde sus placas, certificado RITE (y, si el instalador no mandó la Memoria RITE, la genera para mandársela), fotos en su apartado, cedentes, precio y fechas, CIFO, Anexo Fotográfico, Anexo I, Convenio de Cesión y CEE final; acaba con lo que falta y a quién pedírselo, con los WhatsApp en borrador',
         instruccion: (n) => `Justifica el expediente ${n} con la skill justificar-expediente y déjalo preparado para firma.`,
     },
     auditar: {
         etiqueta: 'Auditar el expediente',
         que: 'la auditoría',
+        incluye: 'el veredicto APTO / NO APTO antes de mandarlo a verificación',
         instruccion: (n) => `Audita el expediente ${n} con la skill auditar-expediente y dame el veredicto (APTO / NO APTO) con lo que haya que corregir.`,
     },
     anexo_fotografico: {
         etiqueta: 'Generar el anexo fotográfico',
         que: 'el anexo fotográfico',
+        incluye: 'solo el Anexo Fotográfico (justificar ya lo hace)',
         instruccion: (n) => `Genera el anexo fotográfico de ${n} con la skill generar-anexo-fotografico.`,
     },
     cifo: {
         etiqueta: 'Generar el CIFO',
         que: 'el CIFO',
+        incluye: 'solo el CIFO con sus anexos (justificar ya lo hace)',
         instruccion: (n) => `Genera el CIFO de ${n} con la skill generar-anexo-cifo.`,
     },
     otra: {
         etiqueta: 'Otra tarea',
         que: 'lo que me has pedido',
+        incluye: 'lo que no encaje en ninguna de las anteriores, con su texto; sin las garantías de una skill',
         instruccion: (n, detalle) => `${detalle} (sobre ${n}).`,
     },
     // Esta NO va al Claude del WhatsApp: va a la cola del PC de Fran (scripts/asistente_pc.js), que es
@@ -334,6 +345,7 @@ const TAREAS = {
     presentar: {
         etiqueta: 'Presentar el CEE en el Registro',
         que: 'la presentación del CEE',
+        incluye: 'calificar, firmar, pagar la tasa y presentar un CEE terminado en el Registro de la JCCM (lo hace el PC de Fran)',
         pc: true,
     },
 };
@@ -766,7 +778,14 @@ BOTONES. Consulta primero todo lo que necesites y escribe la respuesta entera al
   (respuestas rápidas: frases cortas, como las diría la persona; al pulsar una se envía tal cual)
 >> ENCARGO <tarea> <referencia>
 >> ENCARGO otra <referencia> | qué tiene que hacer
-  (tarjeta con el botón «Encargar»; como mucho DOS líneas ENCARGO por respuesta; tareas:${Object.entries(TAREAS).map(([k, v]) => `${k} = ${v.etiqueta.toLowerCase()}`).join(' · ')}; referencia = expediente 26RES060_208, oportunidad 26RES060_OP246 o CEE directo 2026CEE_64, el número completo)
+  (tarjeta con el botón «Encargar»; como mucho DOS líneas ENCARGO por respuesta; referencia = expediente 26RES060_208, oportunidad 26RES060_OP246 o CEE directo 2026CEE_64, el número completo)
+
+LAS TAREAS que se pueden encargar, y lo que hace de verdad cada una:
+${Object.entries(TAREAS).map(([k, v]) => `- ${k} (${v.etiqueta.toLowerCase()}): ${v.incluye}`).join('\n')}
+
+UNA TARJETA, LA QUE LO HACE TODO. Antes de sacar tarjetas, mira qué tarea ya incluye lo que te pide. «Termina todo», «ciérralo», «déjalo listo para firmar», o una lista de varias cosas del cierre (CEE final, números de serie, equipos, RITE, CIFO, anexos…) es UNA sola tarjeta justificar: no la partas en cee_final + otra, que además haría el CEE final antes de corregir los equipos. Una tarea suelta (cifo, anexo_fotografico, cee_final) solo cuando pide SOLO eso. «otra» solo para lo que no cubre ninguna; nunca para repetir con texto libre lo que ya hace una del catálogo.
+
+LO QUE FALTA SE CONTESTA, NO SE ENCARGA. «Dime qué falta», «qué le pido al cliente o al instalador»: contéstalo tú en la misma respuesta con estado_expediente (pistas, ciclo de vida, material, incidencias), separado por persona (cliente, instalador, certificador, nosotros). No lo metas en un encargo: tú tardas segundos y el encargo, minutos. Quién firma qué: el CLIENTE (y cada cedente) el Anexo I y el Convenio de Cesión; el INSTALADOR el CIFO, y registra el RITE en Industria con la Memoria RITE (la suya o la que le mandamos) y nos devuelve el certificado; el CEE final, el certificador. No le atribuyas a nadie otra firma que no te diga una herramienta.
 
 PRESENTAR un CEE en el Registro de la JCCM (>> ENCARGO presentar <referencia>) no lo hace el Claude del WhatsApp sino el PC de Fran (califica en CE3X, firma con su certificado y paga la tasa con su tarjeta): propónlo cuando el CEE esté terminado y sin registrar. La tarjeta ya le enseña la pregunta del pago (tasa y tarjeta) y el botón es «Presentar y pagar»; tú no repitas importes ni digas que está presentado.
 

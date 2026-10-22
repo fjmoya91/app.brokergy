@@ -1,6 +1,6 @@
 ---
 name: justificar-expediente
-description: 'JUSTIFICA un expediente CAE de BROKERGY cuando la obra ha terminado: coge lo que manda el instalador (zip, carpeta, WhatsApp o email con facturas, certificado y memoria RITE, fotos de antes y después) y lo lleva a la app como lo haría una persona en la pantalla — facturas leídas y validadas, RITE enlazado con sus fechas, cada foto en su apartado, equipos reales desde sus placas (alta en el catálogo si falta), copropietarios que pagan la obra, precio CAE y fechas — y deja PREPARADOS para firma el Anexo I (uno por cedente), el Convenio de Cesión, el CIFO y el Anexo Fotográfico, con el mismo formato que si se pulsara «Generar», y el CEE final (skill generar-cee-final). Úsalo con "justifica el expediente NNN", "en Descargas está la documentación del instalador de NNN, organízala", "deja NNN listo para firmar", "cierra la obra de NNN". No envía nada a nadie: lo dudoso se pregunta al final, de una vez.'
+description: 'JUSTIFICA un expediente CAE de BROKERGY cuando la obra ha terminado: coge lo que manda el instalador (zip, carpeta, WhatsApp o email con facturas, RITE, fotos) y lo lleva a la app como una persona en la pantalla — facturas validadas, RITE con sus fechas, fotos en su apartado, equipos y series desde sus placas, cedentes, precio y fechas — y deja PREPARADOS para firma el Anexo I, el Convenio, el CIFO y el Anexo Fotográfico (como al pulsar «Generar»), el CEE final y, si el instalador no mandó la Memoria RITE, la genera para mandársela. Acaba con lo que falta POR PERSONA (cliente, instalador, certificador) y sus WhatsApp en borrador. Úsalo con "justifica el expediente NNN", "en Descargas está la documentación del instalador de NNN, organízala", "deja NNN listo para firmar", "cierra la obra de NNN". No envía nada a nadie: lo dudoso se pregunta al final, de una vez.'
 ---
 
 # Justificar un expediente al terminar la obra
@@ -83,6 +83,38 @@ catálogo) y **`generar-cee-final`** (el CEE final).
   api/expedientes/<id>/documents/upload` con `{base64, fileName: "{nº} - Memoria RITE_fdo.pdf",
   mimeType, subfolders: ["7. LEGALIZACION RITE"]}` y después `PUT` con
   `documentacion.cert_rite_signed_link`.
+
+### 3.b Si el instalador NO manda la memoria: la generamos nosotros
+Entonces la hace BROKERGY para que el instalador la presente en Industria (decisión de Fran,
+22/10/2026). Mira antes `estado`: si ya hay `memoria_rite_docx_link` (se generó otra vez) no se
+repite; si el instalador mandó la suya, no se genera ninguna. Es la MISMA cadena que el botón
+«Memoria RITE» de Documentación, y ningún paso se salta:
+1. `api GET api/expedientes/<id>/memoria-rite/check` → `missing` (datos que faltan: se arreglan
+   por su ruta o van a las preguntas), `fechaPruebas` (si no es null, la fecha es ambigua: se
+   pregunta con su propuesta y se guarda en `documentacion.fecha_pruebas_cert_instalacion`),
+   `potencias` (frío del MODELO: `PATCH api/aerotermia/<id>/datos-rite` con lo que diga su ficha;
+   si no lo dice, se pregunta), `situadoEn` (dónde está el generador de frío: se pregunta) y
+   `locales`.
+2. **Titular**: sexo en la ficha del cliente (`PUT api/clientes/<id>` con `sexo`) o
+   `es_empresa: true` si es una sociedad. Si falta, va a las preguntas con la propuesta por el
+   nombre.
+3. **Estancias por planta** (tabla de cargas térmicas): la pantalla las enseña SIEMPRE para
+   confirmar, así que aquí también. Si `locales.guardado` es null, propónlas con
+   `proponerLocales` / `resolverLocales` / `paraGuardar` de
+   `implementation/frontend/src/features/expedientes/logic/localesRite.js` (import() ESM),
+   corrígelas con lo que se ve en el vídeo o el croquis, y van a las preguntas. Con el «sí»:
+   `api PUT api/expedientes/<id>/memoria-rite/locales --json` con lo que devuelve `paraGuardar`.
+4. Con todo resuelto: `api POST api/expedientes/<id>/memoria-rite/generate` (Word + PDF de la
+   memoria y borrador del certificado, a «7. LEGALIZACION RITE») y guarda lo que devuelve, como la
+   pantalla: `PUT` con `documentacion.memoria_rite_docx_link`, `memoria_rite_pdf_link` y
+   `borrador_cert_rite_link`. **Nunca en `cert_rite_drive_link`**: ese es el CERTIFICADO que
+   devuelve el instalador, y llenarlo con nuestra memoria da el RITE por recibido (y deja emitir el
+   CIFO sin él).
+5. Revisa el PDF (`bajar`): titular, emplazamiento, equipos y series, potencias, fechas y firmante
+   (el habilitado; si es otra empresa que la que factura, la habilitada, regla 26.b).
+- **No se envía.** Se manda desde la app con el envío conjunto al instalador (Documentación →
+  Memoria RITE → Enviar): va en el MISMO mensaje que el CIFO para firmar, y con ella su enlace de
+  subida del certificado registrado. Va en el informe final, en lo que falta del instalador.
 
 ### 4. Instalador
 Si el instalador solo consta en `instalacion.instalador_id` (pasa en ~66 expedientes), enlaza
@@ -189,9 +221,24 @@ las fechas de visita y emisión; lo demás está decidido (usuario, 08/10/2026, 
 - Va bien en un subagente (motor + CE3X tardan), pero el encargo le copia ESTAS reglas.
 
 ### 11. Informe final
-Qué se ha subido y dónde, qué datos se han escrito, los cuatro documentos con su enlace, las
-decisiones tomadas (y quién las tomó) y lo que queda: revisar/validar en la app, enviar a firma
-(cliente: Anexo I + Convenio; instalador: CIFO), firmar el Anexo Fotográfico, el CEE final.
+Qué se ha subido y dónde, qué datos se han escrito, los documentos con su enlace, las decisiones
+tomadas (y quién las tomó) y, al final, **LO QUE FALTA, POR PERSONA** (22/10/2026: Fran lo pidió
+así, «dime lo que me falta para pedírselo al cliente o al instalador»). Una lista por cada uno que
+tenga algo, y nada más:
+
+| Quién | Lo típico |
+|---|---|
+| **Cliente** | Firmar el Anexo I y el Convenio; su email o su DNI si faltan; una foto que solo puede hacer él |
+| **Instalador** | Firmar el CIFO; registrar el RITE con la Memoria que le mandamos (3.b) y devolver el certificado; facturas, fotos o placas que falten |
+| **Certificador** | El CEE final si lo hace un técnico, o su visto bueno |
+| **Nosotros (Fran)** | Revisar y validar en la app, mandar a firmar el Anexo Fotográfico, las preguntas de abajo |
+
+Lo que se pide con un DOCUMENTO de la app (Anexo I + Convenio, CIFO + Memoria RITE) se manda
+**desde la app**, con su envío —lleva el enlace de firma o de subida que corresponde—: se dice
+qué botón. Lo que se pide con PALABRAS (una foto, un dato, una factura que no llegó) va con su
+**borrador de WhatsApp** redactado con la skill `enviar-whatsapp`, al destinatario real (la
+persona de contacto si la hay), uno por persona y con todo lo suyo junto. **Solo borrador**: se
+enseñan enteros, y se mandan con el «sí» de Fran para ESE envío.
 
 ## Las preguntas que suelen salir (se hacen juntas, al final)
 

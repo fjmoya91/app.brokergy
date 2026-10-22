@@ -81,6 +81,25 @@ pero es una escritura en Drive al mirar. Propuesta: dispararlo solo cuando la ú
 en esa sesión (y dejar el botón «Generar PDF único» para lo demás). La SUGERENCIA de la puerta en la
 app (`sugerencia = hay facturas`) tampoco mira `motivo_no_inicio`; podría usar el mismo criterio.
 
+### La Memoria RITE, si el instalador no la manda, y lo que falta POR PERSONA (2026-10-22)
+
+**REGLA — si el instalador no manda la Memoria RITE, la generamos nosotros para que la presente**
+(decisión de Fran: se la mandamos nosotros). La skill sigue la MISMA cadena que el botón «Memoria RITE» de
+Documentación: `GET /memoria-rite/check` (datos que faltan, fecha de pruebas ambigua, potencias de
+frío del modelo, dónde está el generador de frío), el titular (sexo o persona jurídica) y las
+ESTANCIAS por planta, que la pantalla enseña SIEMPRE para confirmar (propuestas con
+`logic/localesRite.js`, a las preguntas del final); con todo resuelto, `POST /memoria-rite/generate`
+y sus enlaces a `memoria_rite_docx_link` / `memoria_rite_pdf_link` / `borrador_cert_rite_link`,
+**nunca** a `cert_rite_drive_link` (ese es el certificado que devuelve el instalador: llenarlo con
+nuestra memoria da el RITE por recibido y deja emitir el CIFO sin él). No se envía: va con el CIFO
+en el envío conjunto al instalador, desde la app.
+
+**REGLA — el informe acaba con lo que falta, por persona.** Cliente, instalador, certificador y
+nosotros, cada uno con lo suyo. Lo que se pide con un documento de la app se manda desde la app (se
+dice qué botón); lo que se pide con palabras va con su borrador de WhatsApp (skill `enviar-whatsapp`),
+uno por persona, enseñado entero y sin enviar. Fran lo pidió así desde el asistente de la app («dime
+lo que me falta para pedírselo al cliente o al instalador»).
+
 ### Otras cosas medidas en el caso
 
 - **El precio al cliente de una oportunidad anterior al sellado** (regla 43): la propuesta iba a
