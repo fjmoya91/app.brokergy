@@ -857,8 +857,9 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     const coordX = inst.coord_x || opInputs.coordX || opInputs.coord_x || '___________';
     const coordY = inst.coord_y || opInputs.coordY || opInputs.coord_y || '___________';
     // Las coordenadas se capturan del Catastro (referencia catastral) en
-    // EPSG:25830, que es huso 30 ETRS89. Se indica siempre el huso.
-    const husoSuffix = ' (huso 30 ETRS89)';
+    // EPSG:25830, que es huso 30 ETRS89. Se indica siempre el huso, y con el
+    // MISMO rótulo en todos los documentos: «ETRS89 · huso 30 N».
+    const husoSuffix = ' (ETRS89 · huso 30 N)';
 
     const numexp = expediente.numero_expediente || '';
     const fichaType = numexp.includes('RES080') ? 'RES080'

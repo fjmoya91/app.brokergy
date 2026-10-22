@@ -162,7 +162,7 @@ export function buildAnexoListadoHtml(lote, opts = {}) {
         <col style="width:6%"><col style="width:4%"><col style="width:7%"><col style="width:4%">
       </colgroup>
       <thead><tr>
-        <th>Nº</th><th>Código actuación</th><th>Dirección</th><th>Ref. catastral</th><th>Coordenadas UTM</th>
+        <th>Nº</th><th>Código actuación</th><th>Dirección</th><th>Ref. catastral</th><th>Coordenadas UTM (ETRS89 · huso 30 N)</th>
         <th>Fecha inicio</th><th>Fecha fin</th><th>Código ficha</th><th>Título descriptivo de la actuación</th>
         <th>Inversión (€)</th><th>Vida útil (años)</th><th>Ahorro energ. estimado (kWh/año)</th><th>Precio (€/MWh)</th>
       </tr></thead><tbody>${filasHtml}</tbody></table>

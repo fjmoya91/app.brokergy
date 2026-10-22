@@ -1020,7 +1020,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ${kv('Comunidad autónoma', locCA)}
                 ${kv('Dirección postal', locFullDir)}
                 ${kv('Referencia catastral', locRefCat)}
-                ${kv('Coordenadas UTM', `X: ${locUtmX} · Y: ${locUtmY}`)}
+                ${kv('Coordenadas UTM', `X: ${locUtmX} · Y: ${locUtmY} (ETRS89 · huso 30 N)`)}
                 ${kv('Facturas asociadas', facturasList)}
                 ${kv('Fecha de inicio de la actuación', fechaInicio)}
                 ${kv('Fecha de fin de la actuación', fechaFin, true)}

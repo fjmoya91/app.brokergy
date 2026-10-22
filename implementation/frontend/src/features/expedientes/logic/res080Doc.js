@@ -976,7 +976,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
                 ${kv('Comunidad autónoma', locCA)}
                 ${kv('Dirección postal', locDir)}
                 ${kv('Referencia catastral', locCat)}
-                ${kv('Coordenadas UTM', `X: ${utmX} · Y: ${utmY}`)}
+                ${kv('Coordenadas UTM', `X: ${utmX} · Y: ${utmY} (ETRS89 · huso 30 N)`)}
                 ${kv('Breve descripción', eb('descripcion_actuacion'), true)}
             `)}
 

@@ -182,7 +182,7 @@ def build_core(payload, out_path):
             ("Comunidad autónoma", payload.get("comunidad","")),
             ("Dirección postal instalación", payload.get("direccion","")),
             ("Referencia catastral", payload.get("ref_catastral","")),
-            ("Coordenadas UTM (ETRS89)", f"X: {payload.get('utm_x','')} ; Y: {payload.get('utm_y','')}"),
+            ("Coordenadas UTM", f"X: {payload.get('utm_x','')} ; Y: {payload.get('utm_y','')} (ETRS89 · huso 30 N)"),
             ("Facturas asociadas", payload.get("facturas","")),
           ])]
     # --- Propietario ---
@@ -325,7 +325,7 @@ def build_res080(payload, doc, E):
             ("Comunidad autónoma", payload.get("comunidad","")),
             ("Dirección postal", payload.get("direccion","")),
             ("Referencia catastral", payload.get("ref_catastral","")),
-            ("Coordenadas UTM", f"X: {payload.get('utm_x','')} ; Y: {payload.get('utm_y','')}"),
+            ("Coordenadas UTM", f"X: {payload.get('utm_x','')} ; Y: {payload.get('utm_y','')} (ETRS89 · huso 30 N)"),
           ]),
           section("IDENTIFICACIÓN DEL PROPIETARIO INICIAL DEL AHORRO"),
           kv_table([("Propietario / Razón social", payload.get("propietario","")),

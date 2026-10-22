@@ -174,9 +174,9 @@ def _render(datos, output, esc=1.0):
     grid([[C("Municipio", e['localidad']), C("Provincia", e['provincia']),
            C("Código Postal", e['cp'])]], [80 * mm, 62 * mm, 40 * mm])
     grid([[C("Referencia Catastral", e['ref_catastral']),
-           C("Coordenada UTM X (ETRS89)", e.get('utm_x') or ''),
-           C("Coordenada UTM Y (ETRS89)", e.get('utm_y') or '')]],
-         [82 * mm, 50 * mm, 50 * mm])
+           C("Coordenada UTM X (ETRS89 · huso 30 N)", e.get('utm_x') or ''),
+           C("Coordenada UTM Y (ETRS89 · huso 30 N)", e.get('utm_y') or '')]],
+         [70 * mm, 56 * mm, 56 * mm])
 
     # ── 3. Datos de la instalación ─────────────────────────────────────────
     seccion("DATOS DE LA INSTALACIÓN")

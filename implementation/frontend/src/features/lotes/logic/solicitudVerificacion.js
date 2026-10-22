@@ -167,7 +167,7 @@ export function buildSolicitudVerificacionHtml(lote, opts = {}) {
           <table class="kv"><tbody>
             ${row('Comunidad Autónoma en la que se ejecutó la actuación', l.ccaa)}
             ${row('Dirección postal de la instalación en que se ejecutó la actuación', addr.full)}
-            ${row('Coordenadas UTM', `X: ${inst.coord_x || ''}, Y: ${inst.coord_y || ''}`)}
+            ${row('Coordenadas UTM (ETRS89 · huso 30 N)', `X: ${inst.coord_x || ''}, Y: ${inst.coord_y || ''}`)}
             ${row('Referencia catastral', refCat)}
           </tbody></table>`;
 

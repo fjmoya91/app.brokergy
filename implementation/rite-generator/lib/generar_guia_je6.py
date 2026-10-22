@@ -89,7 +89,7 @@ def build(datos, output):
             ("Provincia", e['provincia']),
             ("Localidad", e['localidad']),
             ("Ref. Catastral", e['ref_catastral']),
-            ("Coordenadas UTM (ETRS89)", f"X: {e.get('utm_x') or ''}    Y: {e.get('utm_y') or ''}")])
+            ("Coordenadas UTM (ETRS89 · huso 30 N)", f"X: {e.get('utm_x') or ''}    Y: {e.get('utm_y') or ''}")])
 
     dt=datos['tecnicos']; p=datos['potencia']
     seccion("3 · DATOS TÉCNICOS DE LA INSTALACIÓN")
