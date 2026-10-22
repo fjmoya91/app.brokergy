@@ -304,7 +304,7 @@ export const generateBrokergyReport = async (data) => {
         const advantages = [
             ['MÁXIMO BENEFICIO', 'Conseguimos los mejores precios al vender en volumen.'],
             ['GESTIÓN INTEGRAL', 'Nos ocupamos de la parte técnica, legal y administrativa.'],
-            ['RAPIDEZ', 'Procesos automatizados para cobrar lo antes posible (3-6 meses).'],
+            ['RAPIDEZ', 'Procesos automatizados para cobrar lo antes posible (3-9 meses).'],
             ['SIN RIESGOS', 'Solo firmas dos documentos: cesión de ahorros y encargo.'],
             ['EXPERIENCIA', 'Expertos en el sector energético y subvenciones.']
         ];

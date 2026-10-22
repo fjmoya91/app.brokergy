@@ -3681,7 +3681,7 @@ info@brokergy.es · 623 926 179`;
 
                                     <div className="prop-agrid">
                                         <div className="prop-ac grn"><div className="prop-ai">🏆</div><div className="prop-at">100% de éxito</div><div className="prop-as">Todos los expedientes tramitados resueltos favorablemente</div></div>
-                                        <div className="prop-ac"><div className="prop-ai">💸</div><div className="prop-at">Cobro 3-6 meses</div><div className="prop-as">Pago íntegro en plazo garantizado</div></div>
+                                        <div className="prop-ac"><div className="prop-ai">💸</div><div className="prop-at">Cobro 3-9 meses</div><div className="prop-as">Pago íntegro en plazo garantizado</div></div>
                                         <div className="prop-ac"><div className="prop-ai">📋</div><div className="prop-at">Solo 2 firmas</div><div className="prop-as">Mínima participación por su parte</div></div>
                                         <div className="prop-ac ora"><div className="prop-ai">🎯</div><div className="prop-at">Sin adelantos</div><div className="prop-as">Cobramos a éxito del expediente</div></div>
                                     </div>

@@ -27,7 +27,7 @@ const FAQ = [
     },
     {
         q: '¿Cuánto se tarda en cobrar?',
-        a: 'Entre 3 y 6 meses desde la finalización de la obra. BROKERGY no realiza adelantos — cobramos a éxito una vez los sujetos obligados validan y pagan el expediente. El pago es íntegro y en el plazo garantizado, sin sorpresas.'
+        a: 'Entre 3 y 9 meses desde la finalización de la obra. BROKERGY no realiza adelantos — cobramos a éxito una vez los sujetos obligados validan y pagan el expediente. El pago es íntegro y en el plazo garantizado, sin sorpresas.'
     },
     {
         q: '¿Qué tengo que hacer yo?',
