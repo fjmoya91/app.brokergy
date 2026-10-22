@@ -41,21 +41,9 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), 
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { registerHooks } = require('node:module');
 
-// Los módulos del funnel importan sin extensión (`'./boilerMapping'`), que es lo
-// que hace Vite y Node no. Solo se toca lo relativo que no se resuelve tal cual.
-registerHooks({
-    resolve(specifier, context, nextResolve) {
-        try { return nextResolve(specifier, context); } catch (e) {
-            if (!/^\.\.?\//.test(specifier) || /\.[cm]?jsx?$/.test(specifier)) throw e;
-            for (const suf of ['.js', '.jsx', '/index.js']) {
-                try { return nextResolve(specifier + suf, context); } catch { /* siguiente */ }
-            }
-            throw e;
-        }
-    },
-});
+// Los módulos del funnel importan sin extensión (`'./boilerMapping'`).
+require('../utils/esmSinExtension');
 
 const supabase = require('../services/supabaseClient');
 const alta = require('../utils/altaOportunidad');

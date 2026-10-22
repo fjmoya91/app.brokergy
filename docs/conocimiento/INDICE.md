@@ -11,7 +11,7 @@
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 35,3 KB | 20 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
-| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 46,6 KB | 15 |
+| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 50,1 KB | 17 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 14,0 KB | 5 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 19,5 KB | 7 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
@@ -227,6 +227,7 @@
 - **146** → `.claude/rules/claude-automatizacion.md` — «Preséntalo» por WhatsApp: el Claude del servidor PREGUNTA, el PC de Fran PRESENTA
 - **147** → `.claude/rules/envolvente-ce3x.md` — Un CUERPO se guarda por DÓNDE está, nunca por el número que le pone Catastro
 - **148** → `.claude/rules/cee-generacion.md` — Una CASCADA de aerotermias son VARIOS generadores en el `.cex`, cada uno con SU SCOP y SU potencia, y la dem…
+- **152** → `.claude/rules/cee-generacion.md` — Todo CEE que genera la casa (inicial o final) deja su XML CARGADO en el expediente
 - **153** → `.claude/rules/calculo.md` — En una HIBRIDACIÓN el clima del SCOP se ELIGE (cálido o medio) con un botón, y con el medio TODO sale en medio
 - **154** → `.claude/rules/propuesta.md` — Hibridación manteniendo la caldera: el cliente recibe por escrito, en un mensaje APARTE, las DOS hipótesis d…
 - **155** → `.claude/rules/calculo.md` — El FC (borrador DGPLACE) se calcula con la ficha que TOCA, el f_C UNA vez, el CEF del CEE INICIAL, y nunca s…
@@ -310,9 +311,11 @@
 - `docs/conocimiento/cee-generacion/ce3x-2-3-y-3-1-se-certifica-con-las-dos.md` — CE3X 2.3 y 3.1 — se certifica con las DOS (2026-10-02)
 - `docs/conocimiento/cee-generacion/ce3x-3-2-la-vigente-y-el-autoconsumo-mes-a-mes.md` — CE3X 3.2 — la vigente desde el 08/10/2026, y el AUTOCONSUMO mes a mes
 - `docs/conocimiento/cee-generacion/el-acs-que-hace-otra-maquina-tambien-se-escribe.md` — El ACS que hace OTRA máquina también se escribe (2026-09-14)
+- `docs/conocimiento/cee-generacion/el-xml-del-cee-que-hacemos-se-carga-siempre.md` — El XML del CEE que hacemos se CARGA siempre en el expediente (2026-10-21)
 - `docs/conocimiento/cee-generacion/generar-el-cee-con-ia-desde-el-boton-ce3x.md` — Generar el CEE inicial con IA desde el botón CE3X (2026-10-19)
 - `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)
 - `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/con-un-video-en-vez-de-fotos-y-si-no-se-puede-se-pregunta.md` — Con un VÍDEO en vez de fotos — y si no se puede, se PREGUNTA (2026-10-06)
+- `docs/conocimiento/cee-generacion/la-caldera-existente-segun-la-ficha-y-el-deposito-de-la-medida.md` — La caldera EXISTENTE según la ficha, y el depósito de la MEDIDA (2026-10-21)
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/00-la-medida-de-mejora-de-una-hibridacion.md` — La medida de mejora de una HIBRIDACIÓN (2026-09-16)
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-de-un-res060-copiando-el-inicial.md` — El CEE FINAL de un RES060: se COPIA el inicial (2026-10-08)
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-desde-la-medida-de-mejora-del-inicial-del-tecnico.md` — El CEE FINAL desde la MEDIDA DE MEJORA del inicial del técnico (2026-09-30)

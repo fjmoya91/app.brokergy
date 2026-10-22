@@ -2036,7 +2036,8 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         }
         // El XML, CARGADO en el expediente como «Cargar CEE» (decisión del usuario,
         // 21/10/2026: «siempre que hagas un CEE inicial o final, carga el XML»).
-        // No pisa el CEE cargado de un técnico; en una oportunidad no se carga.
+        // No pisa el CEE cargado de un técnico; en una oportunidad va a su
+        // SIMULACIÓN (22/10/2026, 26RES060_OP321: cargarCeeOportunidad.js).
         if (xmlParaApp && !incompleto) {
             try {
                 const carga = await cargarXmlEnApp(ctx, 'inicial', xmlParaApp,
@@ -3702,11 +3703,13 @@ async function listo() {
 // ─── cargar: solo el XML del `_REVISAR` en la app ───────────────────────────
 
 /**
- * `cargar <clave> [--fase final] [--xml <ruta>] [--escribir] [--forzar]`
+ * `cargar <clave> [--fase final] [--xml <ruta>] [--escribir] [--forzar] [--precio <€/MWh>]`
  *
  * El XML del borrador `_REVISAR` de la fase, cargado en la app como «Cargar
  * CEE» (`services/cee/cargarXmlCee.js`). Es lo que hacen solos `aplicar
  * --escribir` y el CEE final; esto es para uno ya generado o para reintentarlo.
+ * En una OPORTUNIDAD va a su simulación (`cargarCeeOportunidad.js`) y `--precio`
+ * fija a la vez el precio CAE al cliente de la propuesta.
  * No sube, no renombra ni deja nada listo para firmar. Lee el `.xml` de Drive
  * (el que se llama como el `.cex` de la fase), o la copia local de `aplicar`;
  * `--xml` manda. No pisa el CEE cargado de un técnico sin `--forzar`.
@@ -3733,8 +3736,10 @@ async function cargarXml() {
     if (!fuente && fs.existsSync(local)) fuente = { bytes: fs.readFileSync(local), de: local, nombre };
     if (!fuente?.bytes?.length) throw new Error(`No hay «${nombre}» ni en Drive ni en ${CACHE}: --xml <ruta>.`);
     console.log(`\n${e.numero_expediente} · XML del CEE ${fase}: ${fuente.nombre} (${fuente.de})`);
+    const precio = opt('precio');
     const carga = await cargarXmlEnApp(ctx, fase, Buffer.from(fuente.bytes),
-        { fileName: fuente.nombre, escribir: ESCRIBIR, forzar: RESTO.includes('--forzar') });
+        { fileName: fuente.nombre, escribir: ESCRIBIR, forzar: RESTO.includes('--forzar'),
+          precioCliente: precio && precio !== true ? Number(String(precio).replace(',', '.')) : null });
     for (const l of lineasCarga(carga, fase)) console.log(l);
     if (carga.bd) console.log(`  BD: ${JSON.stringify(carga.bd)}`);
     if (!ESCRIBIR && carga.omitido === 'en seco') console.log('\nEN SECO: no se ha cargado nada. Pásale --escribir.');

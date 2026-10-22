@@ -16,7 +16,9 @@
 // técnico renombra a ése (26RES080_41). `listo` carga con `forzar`: lo que se va
 // a firmar manda. El borrador del agente es una propuesta; lo que subió y cargó
 // un certificador manda.
-// REGLA — en una OPORTUNIDAD no se carga: el XML va al expediente al aceptarla.
+// REGLA — en una OPORTUNIDAD el inicial se carga en su SIMULACIÓN (Fran,
+// 22/10/2026, 26RES060_OP321): `cargarCeeOportunidad.js`. El expediente lo hereda
+// al aceptarla (`xmlDemandData`).
 // ─────────────────────────────────────────────────────────────────────────────
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -47,10 +49,14 @@ function esNuestro(nombre) {
  * @param {boolean} [o.forzar]    pisar un CEE cargado de la entrega de un técnico
  * @returns {{ cargado, omitido?, parsed?, campos?, bd? }}
  */
-async function cargarXmlEnApp(ctx, fase, xml, { fileName = null, escribir = false, forzar = false } = {}) {
+async function cargarXmlEnApp(ctx, fase, xml,
+    { fileName = null, escribir = false, forzar = false, precioCliente = null } = {}) {
     const e = ctx.expediente;
     if (cex.esOportunidad(e) || ctx.origen === 'op') {
-        return { cargado: false, omitido: 'oportunidad: el XML se carga en el expediente al aceptarla' };
+        if (fase !== 'inicial') return { cargado: false, omitido: 'oportunidad: solo se carga el CEE inicial' };
+        const { cargarCeeEnOportunidad } = require('./cargarCeeOportunidad');
+        const r = await cargarCeeEnOportunidad(e.id, textoXml(xml), { fileName, escribir, forzar, precioCliente });
+        return { ...r, oportunidad: true };
     }
     const esCee = cex.esCeeDirecto(e) || ctx.origen === 'cee';
     const tabla = esCee ? 'cee_directos' : 'expedientes';
@@ -111,6 +117,15 @@ function lineasCarga(r, fase) {
     const p = r.parsed || {};
     const dice = `${p.superficieHabitable ?? '—'} m² · dem. cal ${p.demandaCalefaccion ?? '—'} · ACS ${p.demandaACS ?? '—'}`
         + ` · ${p.emisionesLetra || '—'}/${p.epnrLetra || '—'} · firma ${p.fechaFirma || '—'} · visita ${p.fechaVisita || '—'}`;
+    if (r.oportunidad && r.antes && r.despues) {
+        const eur = n => `${Math.round(n).toLocaleString('es-ES')} €`;
+        const kwh = n => `${Math.round(n).toLocaleString('es-ES')} kWh`;
+        const cuanto = `ahorro ${kwh(r.antes.ahorroKwh)} → ${kwh(r.despues.ahorroKwh)} · bono ${eur(r.antes.bono)} → ${eur(r.despues.bono)}`
+            + ` · ayuda total ${eur(r.antes.total)} → ${eur(r.despues.total)}`
+            + (r.despues.precio !== r.antes.precio ? ` · precio CAE ${r.antes.precio} → ${r.despues.precio} €/MWh` : ` · precio CAE ${r.despues.precio} €/MWh`);
+        if (r.cargado) return [`✓ XML del CEE inicial CARGADO en la SIMULACIÓN de la oportunidad: ${dice}`, `  ${cuanto}`];
+        if (r.omitido === 'en seco') return [`+ con --escribir se cargará el XML del CEE inicial en la simulación: ${dice}`, `  ${cuanto}`];
+    }
     if (r.cargado) return [`✓ XML del CEE ${fase} CARGADO en la app («Cargar CEE»): ${dice}`
         + `${Object.keys(r.ajuste || {}).length ? ` · D_ACS ${JSON.stringify(r.ajuste)}` : ''}`];
     if (r.omitido === 'en seco') return [`+ con --escribir se cargará el XML del CEE ${fase} en la app: ${dice}`];

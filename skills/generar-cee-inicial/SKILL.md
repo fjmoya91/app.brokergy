@@ -29,9 +29,19 @@ la envolvente (`/envolvente/:id`), donde el certificador lo abre y confirma lo q
   combustibles, fechas de firma y visita, D_ACS por litros/día), sin dejarlo listo para firmar.
   Comprueba en la salida la línea **«✓ XML del CEE inicial CARGADO en la app»**; si sale «NO
   cargado», cárgalo con `cargar <clave> --escribir` (o dilo: un CEE de un TÉCNICO ya cargado no se
-  pisa sin `--forzar`; en una oportunidad se carga al aceptarla). Después, **di cuánto sale**: el
+  pisa sin `--forzar`). Después, **di cuánto sale**: el
   ahorro y el bono que calcula la app frente a los de la propuesta, y si la oportunidad no tiene el
   sello del precio (`cae_client_rate`), que el panel calcula al respaldo de 95 €/MWh.
+- **En una OPORTUNIDAD el XML va a su SIMULACIÓN, también SIEMPRE** (Fran, 22/10/2026,
+  26RES060_OP321: «siempre que te pida que hagas el CEE lo cargas en el XML de la oportunidad»).
+  `aplicar --escribir` lo hace solo (línea **«✓ XML del CEE inicial CARGADO en la SIMULACIÓN de la
+  oportunidad»**, con el ahorro, el bono y la ayuda total de ANTES → DESPUÉS); a mano, `cargar <op>
+  --escribir`. La propuesta pasa a calcular con la demanda del certificado y el expediente lo hereda
+  al aceptarla. Va marcado como CEE NUESTRO: **sin la comparativa «con tu CEE / CEE nuevo
+  BROKERGY»**, que es solo para el CEE que aporta el cliente (sobre ese no carga sin `--forzar`). No
+  en un RES080 (su ahorro sale del inicial Y el previsto). Si Fran pide ajustar el bono («bájale el
+  precio para que salga entre X e Y €»), `cargar <op> --precio <€/MWh> --escribir`: bono = MWh de
+  ahorro × precio; en seco primero.
 - **Dónde se ejecuta — Claude Code o Cowork:** los comandos son los MISMOS y van SIEMPRE en el PC
   (repo + `.env` + motor). En Code, por la shell; en **Cowork, por Desktop Commander, nunca en el
   sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
@@ -57,7 +67,7 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `rehacer <clave> [--plan plan.json]` | **Rehace el CEE sobre lo corregido A MANO en la pizarra** (tras «Así es como está»): imprime la revisión (nota y cambios) y los huecos dibujados que quedan por medir, y aplica el plan sobre el trabajo guardado sin deshacer nada de lo dibujado (ver «Rehacer el CEE tras una corrección A MANO»). Marca la revisión como rehecha | con `--escribir` |
 | `calificar <clave> [--fase final]` · `calificar --cola` | **Lo que la VENTANA dejó «por calificar»** (el servidor no tiene CE3X): rehace el inicial desde la RECETA guardada, vuelve a medir las placas de la 2.ª medida, lo califica (XML, PDF, recorte mes a mes) y lo sella; el final solo se califica. Sin aviso al equipo. Ver «La receta y el sello» | con `--escribir` |
 | `listo <clave> [--fase final] [--cex ruta] [--out DIR]` | **Deja el `_REVISAR` LISTO PARA FIRMAR** (cuando Fran lo pide, tras revisarlo): CE3X 3.2 lo califica, **calcula las medidas y guarda el `.cex` calculado**; si el XML no valida, para. Con `--escribir`: `{nº} – CEE INICIAL.cex/.xml` por la subida del técnico (`cee_files`, validación en ámbar), `{nº} – CEE INICIAL.pdf` sin firmar (el que busca `firmar_cee.js`), lo anterior con esos nombres a OLD, y el XML cargado como «Cargar CEE» (`cee_inicial`, `xml_inicial`, combustibles, fechas de firma y visita, D_ACS por litros/día). Parte del `_REVISAR` de Drive (o de la copia local si en Drive no hay; `--cex` manda). En seco deja la copia en `scratch/cee-inicial/<nº>/listo`. En una oportunidad solo califica (la subida no aplica hasta aceptarla); con un PDF ya FIRMADO en la carpeta o la fase REGISTRADA no escribe sin `--forzar`. **No firma** | con `--escribir` |
-| `cargar <clave> [--fase final] [--xml ruta] [--forzar]` | **Solo el XML del `_REVISAR` en la app**, como «Cargar CEE» (`services/cee/cargarXmlCee.js`, la MISMA función que usan `aplicar --escribir`, `listo` y el CEE final). Lee el `.xml` de Drive (o la copia local; `--xml` manda). No sube, no renombra y no lo deja listo para firmar. No pisa el CEE cargado de un técnico sin `--forzar`. Para un CEE ya generado o para reintentar | con `--escribir` |
+| `cargar <clave> [--fase final] [--xml ruta] [--forzar] [--precio €/MWh]` | **Solo el XML del `_REVISAR` en la app**, como «Cargar CEE» (`services/cee/cargarXmlCee.js`, la MISMA función que usan `aplicar --escribir`, `listo` y el CEE final). Lee el `.xml` de Drive (o la copia local; `--xml` manda). No sube, no renombra y no lo deja listo para firmar. No pisa el CEE cargado de un técnico sin `--forzar`. En una OPORTUNIDAD lo carga en su SIMULACIÓN (sin comparativa «con tu CEE») y `--precio` fija a la vez el precio CAE al cliente. Para un CEE ya generado o para reintentar | con `--escribir` |
 | `instalacion <clave> --plan plan.json` | **Solo lo de las PLACAS a la app** (Instalación del expediente, o inputs de la oportunidad), con el mismo plan que `aplicar`: sin `.cex`, sin Drive, sin aviso al equipo. Para un CEE ya hecho al que le falta la Instalación rellena | con `--escribir` |
 | `croquis <clave> [--fase final]` | El **croquis en PDF** de lo que YA hay (trabajo guardado + `.cex` de la carpeta): plano de obra por planta con la marca de BROKERGY, a escala, con muros, huecos, cotas y zonas, y los cuadros de huecos, superficies y cerramientos (sin avisos: vale para una auditoría). `aplicar --escribir` ya lo hace solo | con `--escribir` (sube `… - CEE INICIAL_CROQUIS.pdf` junto al `.cex`) |
 

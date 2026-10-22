@@ -44,7 +44,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/oportunidades/al-aceptar-el-cliente-confirma-sus-emisores-placas-y-aires.md` — Al ACEPTAR, el cliente confirma sus EMISORES, PLACAS y AIRES (2026-09-29) · 6,7 KB
-- `docs/conocimiento/oportunidades/alta-de-oportunidad-desde-whatsapp-skill-alta-oportunidad.md` — Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01) · 14,4 KB
+- `docs/conocimiento/oportunidades/alta-de-oportunidad-desde-whatsapp-skill-alta-oportunidad.md` — Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01) · 15,3 KB
 - `docs/conocimiento/oportunidades/el-mismo-vecino-volviendo-al-funnel-no-estrena-oportunidad.md` — El mismo vecino volviendo al funnel NO estrena oportunidad (2026-09-11) · 3,8 KB
 - `docs/conocimiento/oportunidades/nueva-simulacion-con-cee-inicial-y-final.md` — Nueva simulación con CEE inicial y final (2026-08-10) · 8,2 KB
 - `docs/conocimiento/oportunidades/tienes-placas-solares-se-pregunta-una-vez-y-acompana-al-inmueble.md` — ¿Tienes placas solares? — se pregunta UNA vez y acompaña al inmueble (2026-09-07) · 3,8 KB
@@ -71,6 +71,7 @@ vale mientras no ha contestado, y se dice de dónde sale.**
   - **REGLA — la placa de la caldera viaja con la oportunidad**
   - **REGLA — una vivienda que ya tiene oportunidad PARA la skill y se pregunta**
   - **REGLA — el CEE que aporta el cliente entra para la COMPARATIVA, no para el cálculo**
+  - **REGLA — un CEE NUESTRO no da la comparativa «con tu CEE / CEE nuevo BROKERGY»**
   - **REGLA — la superficie es la del CEE, no la de vivienda del Catastro**
   - **REGLA — lo que se baja de un correo es de un tercero**
   - **REGLA — el partner sale del remitente, como PISTA**
