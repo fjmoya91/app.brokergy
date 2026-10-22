@@ -252,7 +252,7 @@ export function buildSolicitudVerificacionPayload(lote, opts = {}) {
             SE_comunidad_autonoma: l.ccaa || '',
             SE_direccion_instalacion: addr.full || '',
             SE_referencia_catastral: refCat,
-            SE_coordenadas_utm: `X: ${inst.coord_x || ''}, Y: ${inst.coord_y || ''}`,
+            SE_coordenadas_utm: `X: ${inst.coord_x || ''}, Y: ${inst.coord_y || ''} (ETRS89 · huso 30 N)`,
             numero_actuacion: i, // 0-based
         });
     });

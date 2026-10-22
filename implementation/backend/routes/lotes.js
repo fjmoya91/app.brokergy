@@ -3487,7 +3487,10 @@ function validarActuaciones(step2, step3) {
 
         if (!String(emp.SE_direccion_instalacion || '').trim()) problemas.push(`${quien}: falta la dirección de la instalación.`);
         if (!String(emp.SE_referencia_catastral || '').trim()) problemas.push(`${quien}: falta la referencia catastral.`);
-        if (!String(emp.SE_coordenadas_utm || '').replace(/[^0-9]/g, '')) problemas.push(`${quien}: faltan las coordenadas UTM.`);
+        // Se mira la X y la Y, no "alguna cifra": el rótulo «(ETRS89 · huso 30 N)»
+        // ya trae cifras y daría por buenas unas coordenadas vacías.
+        const utm = String(emp.SE_coordenadas_utm || '');
+        if (!/X:\s*\d/.test(utm) || !/Y:\s*\d/.test(utm)) problemas.push(`${quien}: faltan las coordenadas UTM.`);
         if (!String(emp.SE_comunidad_autonoma || '').trim()) problemas.push(`${quien}: el lote no tiene comunidad autónoma.`);
 
         // Con ayuda pública declarada, Marwen exige los seis campos del programa:

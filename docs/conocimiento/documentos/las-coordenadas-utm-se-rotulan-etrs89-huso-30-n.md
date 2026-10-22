@@ -16,6 +16,7 @@ EPSG:25830 (ETRS89 / UTM huso 30 norte), así que el rótulo es fijo.
 | Certificado RES080 | `expedientes/logic/res080Doc.js` y su espejo `CertificadoRes080Modal.jsx` | detrás del valor |
 | Anexo Fotográfico | `anexoFotograficoDoc.js` (frontend y backend) | en el rótulo |
 | Solicitud de verificación (PDF) | `lotes/logic/solicitudVerificacion.js` | en el rótulo |
+| Solicitud de verificación por API (Marwen) | `solicitudVerificacion.js` → `SE_coordenadas_utm` | detrás del valor: «X: …, Y: … (ETRS89 · huso 30 N)» (2026-10-22, lo pidió el usuario) |
 | Listado del Anexo del lote | `lotes/logic/anexoListado.js` | cabecera de la columna |
 | Borrador del certificado RITE y guía JE6 | `rite-generator/lib/generar_borrador_certificado.py`, `generar_guia_je6.py` | en el rótulo |
 | CIFO de la skill | `skills/generar-anexo-cifo/scripts/generar_cifo.py` | detrás del valor |
@@ -25,6 +26,10 @@ fijo y la columna del rótulo es estrecha; en el valor cabe en la misma línea. 
 `check_cifo_paginas.mjs`, `check_res080_paginas.mjs` y `check_anexo_cesion_2pag.mjs`: ninguna
 hoja desborda.
 
-**Lo que NO lleva el rótulo:** `SE_coordenadas_utm` del payload a Marwen (es un dato de su API,
-no un texto impreso) y el Anexo del MITECO (`anexoActuacionService.js`), que es el impreso
-oficial y tiene su propia casilla «Huso».
+**REGLA — la comprobación de la API mira la X y la Y, no «alguna cifra».** `validarActuaciones`
+([routes/lotes.js](implementation/backend/routes/lotes.js)) daba por buenas las coordenadas si el
+texto tenía cualquier dígito; con el rótulo («89», «30») habría dejado pasar unas vacías. Ahora
+exige `X: <cifra>` y `Y: <cifra>`.
+
+**Lo que NO lleva el rótulo:** el Anexo del MITECO (`anexoActuacionService.js`), que es el
+impreso oficial y tiene su propia casilla «Huso».
