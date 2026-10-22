@@ -63,6 +63,29 @@ nada y el latido lo dice). Si el PC no da latido en 5 min, el Claude del WhatsAp
 preguntarle y al confirmar, y el encargo espera en la cola. Chrome: la vuelta abre una ventana del perfil
 BROKERGY antes de lanzar, para que la extensión esté conectada.
 
-**Órdenes:** VPS `presentar <nº> [--fase final]` · `confirmar <nº> --texto "…"` · `cancelar <nº>` ·
+### Los trabajos con CE3X también van a la cola del PC (2026-10-22)
+
+El Claude del WhatsApp se paraba en el CEE final («aquí no hay CE3X… en tu PC sería `node
+scripts/cee_final_copiando.js …`»), porque el final de un RES060 se califica DOS veces con CE3X (la
+segunda, con el autoconsumo mes a mes sacado del XML de la primera). Contestarle no servía de nada.
+Ahora lo deja en la MISMA cola: `asistente_pc.js ce3x <nº> --trabajo cee_final|calificar [--fase final]
+[--fecha AAAA-MM-DD] --texto "<lo que ha decidido Fran>" --enviar`, y la vuelta del PC lo lanza.
+
+**REGLA — un trabajo con CE3X es de un CATÁLOGO cerrado y va SIN Chrome.** `TRABAJOS_CE3X` (hoy
+`cee_final` y `calificar`) dice qué pasos se le piden al Claude del PC; las decisiones de Fran
+(hibridación, ACS, depósito, fechas) viajan como DATOS en `indicaciones`, no como órdenes libres. No
+paga ni firma, así que no lleva pregunta, pero tampoco `--chrome` ni sus herramientas: con solo
+scripts, la sede y la tarjeta quedan fuera de su alcance. Lo que no esté en sus decisiones y cambie el
+resultado, el PC no lo decide: para y se lo pregunta en su respuesta final. No se encarga un RES080
+(su final no tiene comando único) ni un CEE ya REGISTRADO (`comprobarNumero`, que a diferencia de
+`localizarCee` no para por el Agente IA «trabajando»: es justo quien lo encarga). Sin `--fecha`, la de
+hoy. Un trabajo que falla no se reintenta solo («cuando lo mires, pídemelo otra vez»).
+
+Primer caso: 26RES060_122 (calefacción hibridada, ACS con la Haier HP200M7-F9). Ese día **PVGIS
+estaba en mantenimiento** (403 con su página «Maintenance», también desde el VPS) y sin sus doce meses
+el autoconsumo no se puede declarar en la 3.2: el CEE final espera a que vuelva. La consulta de PVGIS
+solo se guarda en memoria (`pvgisService`, LRU con caducidad), así que no hay copia de la que tirar.
+
+**Órdenes:** VPS `presentar <nº> [--fase final]` · `ce3x <nº> --trabajo …` · `confirmar <nº> --texto "…"` · `cancelar <nº>` ·
 `probar` · `cola` (todas en seco sin `--enviar`); PC `vuelta [--seco]` · `estado`. Registros del PC en
 `backend/scratch/pc_trabajos/` (`vuelta.log`, `<id>.jsonl`, `<id>.prompt.txt`).

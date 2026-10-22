@@ -300,7 +300,7 @@ const TAREAS = {
     cee_final: {
         etiqueta: 'Generar el CEE final',
         que: 'el CEE final',
-        incluye: 'SOLO el CEE final, con los equipos que YA estén en el expediente; si aún no se han pasado los equipos y números de serie de la obra, el que toca es justificar',
+        incluye: 'SOLO el CEE final, con los equipos que YA estén en el expediente (el Claude del WhatsApp lo prepara y lo califica el PC de Fran, que tiene CE3X); si aún no se han pasado los equipos y números de serie de la obra, el que toca es justificar',
         instruccion: (n) => `Genera el CEE FINAL de ${n} con la skill generar-cee-final.`,
     },
     revisar_cee: {

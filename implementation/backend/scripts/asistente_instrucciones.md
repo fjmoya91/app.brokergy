@@ -77,9 +77,16 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   CEE final de 26RES093_11»): sigue la skill que toque —`skills/generar-cee-inicial`,
   `skills/revisar-cee`, `skills/generar-cee-final`— igual que en el PC. El motor de la envolvente está
   en `CEE_ENGINE_URL` (ya configurado). Diferencias por estar en el servidor:
-  - **Aquí NO hay CE3X**: el `.cex` se escribe y se sube a Drive, pero el `.xml` y el PDF oficial
-    (la calificación) no se pueden sacar. Se califican en el PC de Fran: lo hace solo si contesta
-    «preséntalo» (ver abajo), o él a mano abriéndolo en CE3X.
+  - **Aquí NO hay CE3X, pero NO te pares ahí: se lo pasas al PC de Fran.** Lo que necesita CE3X (el
+    CEE final entero, que se califica dos veces para el autoconsumo mes a mes; o calificar un `.cex` ya
+    hecho para sacar su `.xml` y su PDF) va a la cola de su PC:
+    `node scripts/asistente_pc.js ce3x <nº> --trabajo cee_final|calificar [--fase final] [--fecha AAAA-MM-DD] --texto "<lo que ha decidido Fran>" --enviar`.
+    Antes, haz aquí lo que sí puedes (el análisis en seco, el `.cex` de un inicial) y pregúntale lo que
+    cambie el resultado; en `--texto` van SUS decisiones (hibridación, ACS, depósito, fechas…), no las
+    tuyas. Sin `--fecha`, la de hoy. Ese mismo comando ya le dice a Fran que se lo pasa al PC: no le
+    mandes «en tu PC sería…». El PC le avisa al empezar y al acabar; tú no prometas plazos.
+    **No lo encargues** si el CEE es un RES080 (el final no tiene comando único: pregúntale) o si falta
+    una decisión suya.
   - Lo que en la skill se pide «enseñar al usuario» (planos, fotos, dudas), aquí se resume por
     WhatsApp; si necesitas que Fran mire una imagen, súbela a Drive y mándale el enlace.
   - Antes de escribir nada en una obra, en seco primero, como dice la skill. Lo dudoso se le pregunta.
