@@ -17,6 +17,7 @@ import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
 import { lineaAvisoCeeInicial } from '../logic/avisoCeeInicial';
 import { opcionesHibridacion, resultParaPropuesta, lineaTablaHibridacion, avisoHibridacion, mensajeHibridacion, hipotesisHibridacion, mensajeHipotesisHibridacion } from '../logic/hibridacionPropuesta';
 import { comisionEurMwh, pctDeComision, lineaComisionPartner } from '../logic/comisionPartner';
+import { cifrasPropuesta, costesServicio } from '../logic/cifrasPropuesta';
 // El enlace para ACEPTAR va en un mensaje aparte, después del PDF — ver
 // `logic/mensajeAceptacion.js`.
 import { lineaEnlaceDebajo, mensajeAceptacion, esB2B } from '../logic/mensajeAceptacion';
@@ -196,6 +197,19 @@ const baseCss = `
         .prop-cobrand-cta .d + .d { margin-top: 4px; }
         .prop-cobrand-cta .d b { color: var(--dark); font-weight: 800; }
         .prop-cobrand-cta a { color: var(--orange-dark); font-weight: 700; text-decoration: none; }
+        /* Bonificación de los servicios: dentro de la tarjeta del colaborador, o en
+           su propia franja si no hay colaborador. */
+        .prop-copromo { margin-top: 7px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px; border-radius: 8px; background: var(--green-light); border: 1px solid rgba(0,200,83,0.35); border-left: 4px solid var(--green); }
+        .prop-copromo-t { font-size: 9.5px; font-weight: 800; color: var(--green-dark); text-transform: uppercase; letter-spacing: 0.6px; }
+        .prop-copromo-d { font-size: 10px; color: var(--g700); margin-top: 1px; line-height: 1.35; }
+        .prop-copromo-v { text-align: right; white-space: nowrap; line-height: 1; flex: none; }
+        .prop-copromo-v s { display: block; font-size: 10px; color: var(--g400); margin-bottom: 2px; }
+        .prop-copromo-v span { font-size: 22px; font-weight: 900; color: var(--green-dark); }
+        .prop-promo { margin-top: 8px; display: flex; align-items: center; gap: 14px; padding: 9px 16px; border-radius: 10px; background: var(--green-light); border: 1px solid rgba(0,200,83,0.35); border-left: 5px solid var(--green); }
+        .prop-promo-ico { font-size: 22px; line-height: 1; }
+        .prop-promo-txt { flex: 1; min-width: 0; }
+        .prop-promo-t { font-size: 11px; font-weight: 800; color: var(--green-dark); text-transform: uppercase; letter-spacing: 0.5px; }
+        .prop-promo-d { font-size: 10px; color: var(--g700); margin-top: 2px; line-height: 1.4; }
 
         /* Trío de indicadores: ayuda total · % cubierto · inversión neta */
         .prop-kpis { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: var(--e-kpis); }
@@ -383,6 +397,8 @@ const baseCss = `
         .prop-crow.ctot span:last-child { white-space: nowrap; }
         .prop-crow em { font-style: normal; color: var(--green-dark); font-weight: 700; }
         .prop-crow s { color: var(--g400); font-weight: 400; }
+        .prop-crow.chead { background: var(--g50); font-size: 8.5px; font-weight: 800; color: var(--g500); text-transform: uppercase; letter-spacing: 0.6px; padding: 5px 14px; }
+        .prop-crow.cpromo { background: var(--green-light); color: var(--green-dark); font-weight: 700; }
         .prop-cnet { background: var(--green-light); border: 1px solid rgba(0,200,83,0.25); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 14px; margin-top: 7px; }
         .prop-cnet-l { font-size: 11px; font-weight: 800; color: var(--green-dark); }
         .prop-cnet-v { font-size: 17px; font-weight: 900; color: var(--green-dark); white-space: nowrap; }
@@ -1061,7 +1077,7 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
     // estimado" — la portada cambia de alto con la vista previa ya abierta.
     useLayoutEffect(() => {
         setFit(FIT_INICIAL);
-    }, [isOpen, includeCeeComp, cobrand, marcaVersion, fachadaFoto,
+    }, [isOpen, includeCeeComp, cobrand, marcaVersion, fachadaFoto, result?.discountCertificates,
         inputs?.presupuesto, inputs?.presupuestoFotovoltaica, inputs?.presupuestoEnvolvente, inputs?.presupuestoEstimado]);
 
     // Huecos que se estiran o encogen, en orden de aparición. `encoge` es la
@@ -1935,8 +1951,8 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
             setConfirmConfig({ title: 'Enviando...', message: `PDF generado con éxito. Entregando a WhatsApp para el número ${toPhone}...`, confirmText: null, cancelText: null });
 
             const f = result || {};
-            const fAero = f.financials || {};
-            const fReforma = f.financialsRes080 || {};
+            const fAero = cifrasPropuesta(f.financials) || {};
+            const fReforma = cifrasPropuesta(f.financialsRes080) || {};
             
             const firstName = nombreSaludo(targetName);
             const saludo = `¡Hola ${firstName || 'cliente'}!`;
@@ -2167,8 +2183,8 @@ info@brokergy.es · 623 926 179`;
 
     const buildCaptionBase = useCallback((mode, targetName, opts = {}) => {
         const f = result || {};
-        const fAero = f.financials || {};
-        const fReforma = f.financialsRes080 || {};
+        const fAero = cifrasPropuesta(f.financials) || {};
+        const fReforma = cifrasPropuesta(f.financialsRes080) || {};
         const isReforma = !!inputs?.isReforma;
         const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
         const isBoth = isReforma && inputs?.comparativaReforma !== false;
@@ -2262,8 +2278,8 @@ info@brokergy.es · 623 926 179`;
         const eurMwh = comisionEurMwh(inputs);
         if (eurMwh <= 0) return { pct: 0, opciones: [] };
         const pct = pctDeComision(eurMwh, inputs?.caePriceClient);
-        const fAero = result?.financials || {};
-        const fReforma = result?.financialsRes080 || {};
+        const fAero = cifrasPropuesta(result?.financials) || {};
+        const fReforma = cifrasPropuesta(result?.financialsRes080) || {};
         const isReforma = !!inputs?.isReforma;
         const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
         const isBoth = isReforma && inputs?.comparativaReforma !== false;
@@ -2589,8 +2605,8 @@ info@brokergy.es · 623 926 179`;
     };
     const buildPropSummaryData = (mode) => {
         const f = result || {};
-        const fAero = f.financials || {};
-        const f80 = f.financialsRes080 || {};
+        const fAero = cifrasPropuesta(f.financials) || {};
+        const f80 = cifrasPropuesta(f.financialsRes080) || {};
         const isReforma = !!inputs?.isReforma;
         const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
         const isBoth = isReforma && inputs?.comparativaReforma !== false;
@@ -2683,7 +2699,8 @@ info@brokergy.es · 623 926 179`;
         }
     };
 
-    const f = result.financials;
+    // Las cifras IMPRESAS: cada total es la suma de lo que se ve (cifrasPropuesta.js).
+    const f = cifrasPropuesta(result.financials);
     const discountCerts = result.discountCertificates || false;
     const date = new Date();
     const formattedDate = date.toLocaleDateString('es-ES');
@@ -2694,23 +2711,23 @@ info@brokergy.es · 623 926 179`;
 
     const totalPages = 4 + attachments.reduce((acc, a) => acc + (a.file?.data?.length || 0), 0);
 
-    const f80 = result.financialsRes080;
+    const f80 = cifrasPropuesta(result.financialsRes080);
     const isReforma = !!inputs?.isReforma;
     const isBoth = isReforma && inputs?.comparativaReforma !== false;
     const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
 
-    // Costs - conditional on discount toggle
-    const costeCEE = discountCerts ? 0 : 220;
-    const costeTasas = discountCerts ? 0 : 32.78;
-    const costeGestion = 0; // Always 100% DTO
-    const totalDescuentoGestion = costeCEE + costeTasas + costeGestion;
+    // Lo que cuestan nuestros servicios: el MISMO importe en la tabla de la
+    // portada, en la cláusula 2 y en el Convenio de Cesión (`caeMaintenanceCost`).
+    // Con «Descuento Certificados» y un colaborador, la bonificación es suya.
+    const servicio = costesServicio({ fin: isOnlyReforma ? (f80 || f) : f, descuentoCertificados: discountCerts, colaborador: cobrand?.name || null });
+    const fmtEur2 = (v) => `${new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)} €`;
 
     // El neto de la cláusula 2 sale del MISMO bono que se imprime en la portada.
     // Leía siempre `result.financials` (la rama de aerotermia), así que en una
     // propuesta de SOLO reforma imprimía el bono de la otra opción: 2.330 € de
     // neto frente a los 1.795 € de la tabla, y el cliente llamaba preguntando
     // cuál era el bueno (26RES080_OP46).
-    const caeNetoDe = (fin) => Math.max(0, (fin?.caeBonus || 0) - totalDescuentoGestion);
+    const caeNetoDe = (fin) => Math.max(0, (fin?.caeBonus || 0) - (fin?.caeMaintenanceCost || 0));
     const caeNeto = caeNetoDe(isOnlyReforma ? (f80 || f) : f);
 
     // Etiquetas de IVA. Para empresa/autónomo en modo "Sin IVA" las cifras van en neto,
@@ -2784,7 +2801,9 @@ info@brokergy.es · 623 926 179`;
             ? (fin.irpfDeductionPerOwner || fin.irpfDeduction || 0) * Math.max(1, fin.numOwners || 1)
             : 0;
         const pct = Math.max(0, Math.min(100, Math.round(fin.porcentajeCubierto || 0)));
-        const desglose = [`CAE ${formatNumber(fin.caeBonus)} €`];
+        // Con impuestos por el cobro del CAE, la ayuda total suma el CAE NETO: el
+        // subtítulo tiene que sumar lo mismo que la cifra que lleva encima.
+        const desglose = [fin.irpfCaeAmount > 0 ? `CAE neto ${formatNumber(fin.caeNeto)} €` : `CAE ${formatNumber(fin.caeBonus)} €`];
         if (irpfTotal > 0) desglose.push(`IRPF ${formatNumber(irpfTotal)} €`);
 
         return (
@@ -2913,8 +2932,8 @@ info@brokergy.es · 623 926 179`;
         const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${FUENTES_PROPUESTA}<style>${baseCss} body{margin:0;padding:0;background:#e5e7eb;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;font-family:'Inter',sans-serif;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.web-document-container{width:100%;min-height:1123px;background:white;margin:0;}@media screen{.web-document-container{max-width:794px;margin:40px auto;box-shadow:0 20px 25px -5px rgba(0,0,0,.1);border-radius:8px;overflow:hidden;}}@media print{body{background:white;display:block;}.web-document-container{margin:0;max-width:100%;width:100%;border-radius:0;}}</style></head><body><div class="web-document-container"><div class="prop-wrapper-inner">${element.innerHTML}</div></div></body></html>`;
 
         const f = result || {};
-        const fAero = f.financials || {};
-        const f80 = f.financialsRes080 || {};
+        const fAero = cifrasPropuesta(f.financials) || {};
+        const f80 = cifrasPropuesta(f.financialsRes080) || {};
         const isReforma = !!inputs?.isReforma;
         const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
         const isBoth = isReforma && inputs?.comparativaReforma !== false;
@@ -3363,6 +3382,18 @@ info@brokergy.es · 623 926 179`;
                                                 <div className="prop-cobrand-txt">
                                                     {cobrand.name && <div className="prop-cobrand-name">{cobrand.name}</div>}
                                                     <div className="prop-cobrand-sub">{cobrand.esInstalador ? 'Instalador colaborador' : 'Colaborador'} de la red BROKERGY · propuesta conjunta</div>
+                                                    {/* La bonificación va DENTRO de la tarjeta del colaborador: es
+                                                        lo que la colaboración le da al cliente, y ahí no suma alto
+                                                        (la tarjeta la marcan los 92 px de los logos). */}
+                                                    {servicio.gratis && (
+                                                        <div className="prop-copromo">
+                                                            <div>
+                                                                <div className="prop-copromo-t">🎁 Ventaja por esta colaboración</div>
+                                                                <div className="prop-copromo-d">Certificados energéticos, tasas y gestión del CAE</div>
+                                                            </div>
+                                                            <div className="prop-copromo-v"><s>{fmtEur2(servicio.tarifa)}</s><span>0 €</span></div>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </>
                                         ) : (
@@ -3373,6 +3404,19 @@ info@brokergy.es · 623 926 179`;
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* Sin colaborador la promoción no tiene tarjeta donde ir: va
+                                        en su propia franja, debajo. */}
+                                    {servicio.gratis && !cobrand && (
+                                        <div className="prop-promo">
+                                            <div className="prop-promo-ico">🎁</div>
+                                            <div className="prop-promo-txt">
+                                                <div className="prop-promo-t">{servicio.promocion}</div>
+                                                <div className="prop-promo-d">Le hacemos sin coste los certificados energéticos inicial y final, sus tasas de registro y toda la gestión del Bono CAE.</div>
+                                            </div>
+                                            <div className="prop-copromo-v"><s>{fmtEur2(servicio.tarifa)}</s><span>0 €</span></div>
+                                        </div>
+                                    )}
 
                                     {/* En la comparativa a dos columnas no hay un único "total": los KPIs
                                         se quedan en el pie de cada tabla para poder compararlos. */}
@@ -3429,7 +3473,7 @@ info@brokergy.es · 623 926 179`;
 
                                                     {f.caeMaintenanceCost > 0 && (
                                                         <div className="prop-ftr">
-                                                            <span className="prop-fl">Gestión tramitación Expediente CAE</span>
+                                                            <span className="prop-fl">Certificados energéticos y gestión del CAE <small>(se descuenta del bono · tarifa {fmtEur2(servicio.tarifa)})</small></span>
                                                             <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f.caeMaintenanceCost)} €</span>
                                                         </div>
                                                     )}
@@ -3493,7 +3537,7 @@ info@brokergy.es · 623 926 179`;
 
                                                     {f80.caeMaintenanceCost > 0 && (
                                                         <div className="prop-ftr">
-                                                            <span className="prop-fl">Gestión tramitación Expediente CAE</span>
+                                                            <span className="prop-fl">Certificados energéticos y gestión del CAE <small>(se descuenta del bono · tarifa {fmtEur2(servicio.tarifa)})</small></span>
                                                             <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f80.caeMaintenanceCost)} €</span>
                                                         </div>
                                                     )}
@@ -3828,13 +3872,20 @@ info@brokergy.es · 623 926 179`;
                                     </div>
 
                                     <div className="prop-cl-box grn">
-                                        <h4>Cláusula 2 — Cobro a éxito y desglose de costes</h4>
-                                        <p>El cliente no deberá realizar ningún pago anticipado. Los costes serán descontados directamente del importe obtenido por la venta de los CAE, una vez resuelto favorablemente:</p>
+                                        <h4>Cláusula 2 — Cobro a éxito y coste de nuestros servicios</h4>
+                                        {/* La MISMA cifra que la tabla de la portada y que el Convenio
+                                            de Cesión (`caeMaintenanceCost`): antes aquí salían 220 +
+                                            32,78 € «+ IVA» mientras la portada y el convenio decían 250 €. */}
+                                        <p>{servicio.gratis
+                                            ? <>El cliente no paga nada por nuestros servicios, ni por adelantado ni al final: {servicio.porColaboracion ? <>gracias a la colaboración con <strong>{cobrand.name}</strong>, BROKERGY</> : 'BROKERGY'} asume íntegramente su coste y el cliente recibe el Bono Energético CAE completo.</>
+                                            : 'El cliente no realiza ningún pago anticipado. El coste de nuestros servicios se descuenta del Bono Energético CAE, una vez resuelto favorablemente:'}</p>
                                         <div className="prop-cgrid">
-                                            <div className="prop-crow"><span>Certificados de Eficiencia Energética (inicial + final){discountCerts && <em> (PROMOCIÓN BROKERGY 100% DTO.)</em>}</span><strong>{discountCerts ? <><span style={{ color: 'var(--g400)', fontWeight: 'normal', fontSize: '10px', marginRight: '6px' }}>(Coste sin dto: 220,00 €)</span>0,00 €</> : '220,00 €'}</strong></div>
-                                            <div className="prop-crow"><span>Tasas registro de certificados de eficiencia energética{discountCerts && <em> (PROMOCIÓN BROKERGY 100% DTO.)</em>}</span><strong>{discountCerts ? <><span style={{ color: 'var(--g400)', fontWeight: 'normal', fontSize: '10px', marginRight: '6px' }}>(Coste sin dto: 32,78 €)</span>0,00 €</> : '32,78 €'}</strong></div>
-                                            <div className="prop-crow"><span>Gestión técnica y adm. expediente CAE <em>(PROMOCIÓN BROKERGY 100% DTO.)</em></span><strong><span style={{ color: 'var(--g400)', fontWeight: 'normal', fontSize: '10px', marginRight: '6px' }}>(Coste sin dto: 450,00 €)</span>0,00 €</strong></div>
-                                            <div className="prop-crow prop-ctot"><span>Total a descontar del importe del CAE</span><span>{formatNumber(totalDescuentoGestion)} € + IVA</span></div>
+                                            <div className="prop-crow chead"><span>Servicio</span><span>Tarifa</span></div>
+                                            {servicio.lineas.map(l => (
+                                                <div key={l.clave} className="prop-crow"><span>{l.concepto}</span><strong>{fmtEur2(l.importe)}</strong></div>
+                                            ))}
+                                            <div className="prop-crow cpromo"><span>🎁 {servicio.promocion}</span><strong>– {fmtEur2(servicio.descuento)}</strong></div>
+                                            <div className="prop-crow ctot"><span>{servicio.gratis ? 'Coste de nuestros servicios para el cliente' : 'Total a descontar del Bono Energético CAE'}</span><span>{fmtEur2(servicio.aPagar)}</span></div>
                                         </div>
                                         {/* En la comparativa hay DOS bonos: un único neto no diría de
                                             cuál de las dos opciones es. */}
@@ -3855,7 +3906,7 @@ info@brokergy.es · 623 926 179`;
                                                 <span className="prop-cnet-v">{formatNumber(caeNeto)} €*</span>
                                             </div>
                                         )}
-                                        <p className="prop-cnote">* Importe estimado resultante de descontar los costes de gestión del Bono Energético CAE.</p>
+                                        <p className="prop-cnote">* Importe estimado: {servicio.gratis ? 'el Bono Energético CAE íntegro, sin ningún descuento' : `el Bono Energético CAE menos ${fmtEur2(servicio.aPagar)} de nuestros servicios`}. Tarifa de los servicios sin IVA.</p>
                                     </div>
 
                                     <div className="prop-cl-box">
@@ -3865,13 +3916,11 @@ info@brokergy.es · 623 926 179`;
 
                                     <div className="prop-cl-box red">
                                         <h4>Cláusula 4 — Penalización por incumplimiento</h4>
-                                        <p>Si los CEE son realizados por BROKERGY pero no se utilizan para gestionar el expediente CAE a través de BROKERGY —por causas ajenas a esta—, el cliente abonará en un máximo de 15 días naturales el importe total sin descuentos, en concepto de compensación:</p>
+                                        {/* La tarifa ya va desglosada en la cláusula 2: aquí se cita
+                                            su total, no se repiten sus tres líneas. */}
+                                        <p>Si los CEE son realizados por BROKERGY pero no se utilizan para gestionar el expediente CAE a través de BROKERGY —por causas ajenas a esta—, el cliente abonará en un máximo de 15 días naturales, en concepto de compensación, la tarifa completa de los servicios sin bonificación (desglosada en la cláusula 2):</p>
                                         <div className="prop-ptable">
-                                            <div className="prop-pthead">Desglose de penalización por incumplimiento</div>
-                                            <div className="prop-ptrow"><span className="prop-pl">Certificados de Eficiencia Energética (inicial + final)</span><span className="prop-pv">220,00 €</span></div>
-                                            <div className="prop-ptrow"><span className="prop-pl">Tasas registro de certificados de eficiencia energética</span><span className="prop-pv">32,78 €</span></div>
-                                            <div className="prop-ptrow"><span className="prop-pl">Gestión técnica y adm. expediente CAE (sin dto.)</span><span className="prop-pv">450,00 €</span></div>
-                                            <div className="prop-ptrow ptt"><span className="prop-pl">Total penalización</span><span className="prop-pv">702,78 € + IVA</span></div>
+                                            <div className="prop-ptrow ptt"><span className="prop-pl">Total penalización</span><span className="prop-pv">{fmtEur2(servicio.tarifa)} + IVA</span></div>
                                         </div>
                                     </div>
 

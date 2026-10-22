@@ -36,13 +36,25 @@ const RAMA = {
 
 const num = (x) => (x != null && x !== '' && Number.isFinite(Number(x)) ? Math.round(Number(x)) : null);
 
+// La deducción y la ayuda total, como las IMPRIME el PDF (frontend
+// `logic/cifrasPropuesta.js`): la deducción por propietario redondeada × los
+// propietarios, y la ayuda total como SUMA de lo impreso — redondeando el total
+// a pelo, 26RES060_OP279 habría sellado 10.932 € con un PDF que dice
+// 5.161 + 5.772 = 10.933 (22/10/2026).
 function importesDeRama(f = {}) {
     const pres = num(f.presupuesto), fv = num(f.presupuestoFotovoltaica);
+    const cae = num(f.caeBonus);
+    const owners = Math.max(1, parseInt(f.numOwners, 10) || 1);
+    const porPropietario = num(f.irpfDeductionPerOwner);
+    const irpf = porPropietario != null ? porPropietario * owners : num(f.irpfDeduction);
+    const totalAyuda = cae == null && irpf == null
+        ? num(f.totalAyuda)
+        : Math.max(0, (cae || 0) - (num(f.irpfCaeAmount) || 0)) + (irpf || 0);
     return {
         inversion: pres == null && fv == null ? null : (pres || 0) + (fv || 0),
-        caeBonus: num(f.caeBonus),
-        irpfDeduction: num(f.irpfDeduction),
-        totalAyuda: num(f.totalAyuda),
+        caeBonus: cae,
+        irpfDeduction: irpf,
+        totalAyuda,
     };
 }
 
