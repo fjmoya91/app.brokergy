@@ -885,10 +885,13 @@ router.post('/:id/transferencia', adminOnly, async (req, res) => {
         if (!saved) throw new Error('No se pudo guardar el justificante en Drive');
         const hechos = await pagoClientes.registrarTransferencia(lote, { ids, link: saved.link, usuario: usuarioDe(req) });
         if (!hechos.length) return res.status(409).json({ error: 'Ninguno de los elegidos está en una remesa: genera antes la remesa SEPA.' });
+        const numeros = hechos.map(h => h.numero_expediente);
         await apuntarEnLote(lote.id,
-            `Justificante de la transferencia subido (${nombre}${fileName ? `, original «${fileName}»` : ''}): ${hechos.join(', ')}.`,
+            `Justificante de la transferencia subido (${nombre}${fileName ? `, original «${fileName}»` : ''}): ${numeros.join(', ')}.`,
             usuarioDe(req));
-        res.json({ ok: true, expedientes: hechos, link: saved.link, file_name: nombre });
+        // La carta de pago de cada uno (y, con CARTA_PAGO_ENVIO_AUTO, su envío).
+        const cartas = await pagoClientes.cartasDeTransferencia(hechos, { usuario: usuarioDe(req) });
+        res.json({ ok: true, expedientes: numeros, cartas, link: saved.link, file_name: nombre });
     } catch (err) {
         console.error('[POST /lotes/:id/transferencia]', err.message);
         res.status(err.status || 500).json({ error: err.message || 'No se pudo registrar la transferencia' });
@@ -925,11 +928,40 @@ router.post('/:id/transferencia/:expId/avisar', adminOnly, async (req, res) => {
         const channels = idsDe(req.body?.channels);
         if (!channels.length) return res.status(400).json({ error: 'Selecciona al menos un canal' });
         res.json(await pagoClientes.avisarTransferencia(exp, {
-            channels, mensaje: req.body?.mensaje, resena: req.body?.resena || null, usuario: usuarioDe(req),
+            channels, mensaje: req.body?.mensaje, mensajeEmail: req.body?.mensaje_email, asunto: req.body?.asunto,
+            resena: req.body?.resena || null, usuario: usuarioDe(req),
         }));
     } catch (err) {
         console.error('[POST transferencia/avisar]', err.message);
         res.status(err.status || 500).json({ error: err.message || 'No se pudo enviar el aviso' });
+    }
+});
+
+// La CARTA DE PAGO: generarla (o rehacerla con el MISMO número) y verla.
+router.post('/:id/transferencia/:expId/carta-pago', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const g = await require('../services/cartaPagoService').generar(exp, { usuario: usuarioDe(req) });
+        res.json({ numero: g.numero, nombre: g.nombre, link: g.link });
+    } catch (err) {
+        console.error('[POST transferencia/carta-pago]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo generar la carta de pago', fallos: err.fallos || null });
+    }
+});
+
+router.get('/:id/transferencia/:expId/carta-pago.pdf', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        if (!exp.documentacion?.cobro?.carta_pago?.numero) return res.status(404).json({ error: 'Este expediente aún no tiene carta de pago' });
+        const pdf = await require('../services/cartaPagoService').pdfDe(exp, { usuario: usuarioDe(req) });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${pdf.nombre}"`);
+        res.send(pdf.buffer);
+    } catch (err) {
+        console.error('[GET transferencia/carta-pago.pdf]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo abrir la carta de pago' });
     }
 });
 

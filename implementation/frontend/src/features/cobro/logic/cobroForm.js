@@ -567,6 +567,102 @@ export function componerMensajeResena({ nombre, tercero = false, enlace, requeri
     ].join('\n');
 }
 
+/**
+ * Los mensajes que acompañan a la CARTA DE PAGO (PDF adjunto): el WhatsApp, y el
+ * asunto y el cuerpo del email. FUENTE ÚNICA del texto (2026-10-22, textos de Fran).
+ *
+ * REGLA — la cuenta, solo por sus 4 ÚLTIMAS cifras; nunca el IBAN entero.
+ *
+ * REGLA — el texto PIDE ya la reseña: con la carta no se programa además la
+ * petición de reseña de `componerMensajeResena`, o se le pediría dos veces. Al
+ * PARTNER no se le pide (es una reseña de BROKERGY en nombre de su cliente).
+ *
+ * @param {object} p
+ *   @param {string}   p.nombre    a quién se saluda (quien RECIBE el mensaje)
+ *   @param {number}   p.importe   lo transferido (verificado − honorarios)
+ *   @param {string[]} p.ultimos4  las 4 últimas cifras de cada cuenta de abono
+ *   @param {string}   p.numero    nº de la carta (CP-2026-0001)
+ *   @param {string}   p.expediente nº de expediente: ENCABEZA el asunto (decisión de Fran, 22/10)
+ *   @param {string}   p.enlace    enlace de la reseña en Google (null → sin petición)
+ *   @param {boolean}  p.tercero   lo lee su persona de contacto, no el titular
+ *   @param {string}   p.titular   nombre del titular (con `tercero`)
+ *   @param {boolean}  p.partner   el contacto es el partner
+ *   @param {object}   p.detalle   { fecha_pago, titular_nombre, vivienda_direccion, actuacion,
+ *                                   ahorro_kwh, instalador }: el texto plano del email
+ *                                   cuenta lo mismo que su HTML (emailCartaPago)
+ */
+export function componerMensajeCartaPago({
+    nombre, importe, ultimos4 = [], numero, expediente = null, enlace = null, tercero = false, titular = null,
+    partner = false, detalle = null,
+}) {
+    const hola = nombre ? `Hola, ${nombre}` : 'Hola';
+    const bono = tercero ? `el Bono CAE de ${titular || 'el titular'}` : 'tu Bono CAE';
+    const cuentas = (ultimos4 || []).filter(Boolean);
+    const enCuenta = partner || !cuentas.length ? ''
+        : `, en la cuenta terminada en ${cuentas.join(' y ')}`;
+    const conResena = !!enlace && !partner;
+
+    const whatsapp = [
+        `${hola} 👋 Ya ${tercero ? 'hemos transferido' : 'te hemos transferido'} ${bono} de ${eurMsg(importe)}. ${tercero ? 'Os dejamos' : 'Te dejamos'} la carta de pago adjunta como justificante.`,
+        ...(conResena ? [`Si ${tercero ? 'estáis contentos' : 'estás contento'} con el trabajo, ¿nos ${tercero ? 'dejáis' : 'dejas'} una reseña en Google? Nos ayuda un montón 🙏 ${enlace}`] : []),
+    ].join('\n');
+
+    // Con `detalle` (el email con su HTML de diseño, al TITULAR): el mismo contenido
+    // que el HTML, en texto plano. Sin él (persona de contacto o partner), el corto.
+    const email = detalle && !tercero && !partner ? [
+        `${hola}:`,
+        '',
+        '¡Buenas noticias! Ya te hemos transferido tu Bono CAE. El ahorro energético de tu reforma ya es dinero en tu bolsillo.',
+        '',
+        `IMPORTE ABONADO: ${eurMsg(importe)}`,
+        `Transferencia del ${detalle.fecha_pago}${cuentas.length ? ` · cuenta terminada en ${cuentas.join(' y ')}` : ''}`,
+        `Carta de pago nº ${numero}`,
+        '',
+        'DETALLE DEL PAGO',
+        `Titular: ${detalle.titular_nombre}`,
+        `Vivienda: ${detalle.vivienda_direccion}`,
+        `Actuación: ${detalle.actuacion}`,
+        `Ahorro certificado: ${detalle.ahorro_kwh} kWh`,
+        `Instalador: ${detalle.instalador}`,
+        `Expediente: ${expediente}`,
+        '',
+        'Tu carta de pago va adjunta a este email. Es tu justificante oficial del cobro: guárdala junto a la documentación de tu instalación.',
+        ...(conResena ? [
+            '',
+            '¿Te hemos ayudado? Cuéntalo.',
+            'Tu reseña ayuda a que más familias de tu zona descubran que pueden cobrar por ahorrar energía. Te lleva menos de un minuto y para nosotros vale muchísimo:',
+            enlace,
+        ] : []),
+        '',
+        'Gracias por confiar en nosotros. Cualquier duda, me tienes a un mensaje.',
+        'Un abrazo,',
+        '',
+        'Fran Moya',
+        'CEO · BROKERGY · Ingeniería energética',
+        '623 926 179 · franciscojavier.moya@brokergy.es · brokergy.es',
+    ].join('\n') : [
+        `${hola}:`,
+        '',
+        `¡Buenas noticias! Ya ${tercero ? 'hemos transferido' : 'te hemos transferido'} ${bono}: ${eurMsg(importe)}${enCuenta}.`,
+        '',
+        `${tercero ? 'Os adjuntamos' : 'Te adjuntamos'} la carta de pago como justificante. ${tercero ? 'Guardadla' : 'Guárdala'} junto a la documentación de ${tercero ? 'la' : 'tu'} instalación.`,
+        ...(conResena ? ['', `Si ${tercero ? 'os ha gustado' : 'te ha gustado'} cómo lo hemos llevado, nos ayudaría muchísimo una reseña en Google (${tercero ? 'os lleva' : 'te lleva'} un minuto): ${enlace}`] : []),
+        '',
+        'Un abrazo,',
+        'Fran Moya · BROKERGY',
+    ].join('\n');
+
+    // El nº de EXPEDIENTE delante (Fran, 22/10/2026) y la cifra, para que se abra.
+    const asunto = tercero || partner
+        ? `El Bono CAE de ${eurMsg(importe)} ya está en la cuenta`
+        : `Tu Bono CAE de ${eurMsg(importe)} ya está en tu cuenta`;
+    return {
+        whatsapp,
+        email,
+        asunto: [expediente, asunto].filter(Boolean).join(' · '),
+    };
+}
+
 // Palabras que en un nombre propio o una calle van en minúscula.
 const MINUSCULAS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en', 'a', 'al']);
 

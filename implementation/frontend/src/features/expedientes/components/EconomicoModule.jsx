@@ -1,6 +1,7 @@
 import React from 'react';
 import { Input, Label, SectionCard } from '../../calculator/components/UIComponents';
 import { CAE_PRECIO_CLIENTE_ANTERIOR } from '../../calculator/logic/calculation';
+import { CartaPagoBloque } from './CartaPagoBloque';
 
 export function EconomicoModule({ expediente, liveInst, results, onSave, onLiveUpdate, saving }) {
     const op = expediente.oportunidades || {};
@@ -223,6 +224,8 @@ export function EconomicoModule({ expediente, liveInst, results, onSave, onLiveU
                 </div>
             </div>
             
+            {expediente.id && <CartaPagoBloque expedienteId={expediente.id} />}
+
             <div className="flex justify-between items-center text-[10px] text-white/20 uppercase tracking-widest font-bold">
                  <p>Modo: Vista previa en tiempo real</p>
                  <p>Status: {results ? 'Calculando...' : 'Pendiente'}</p>

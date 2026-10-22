@@ -43,8 +43,12 @@ SEPA_ORDENANTE_BIC=BBVAESMMXXX
 SEPA_ORDENANTE_NIF=B19350222
 SEPA_ORDENANTE_SUFIJO=000          ← sufijo del ordenante (el de la remesa que BBVA aceptó el 02/10/2026)
 SEPA_ORDENANTE_NOMBRE=SOLUCIONES SOSTENIBLES PARA EFICIENCIA ENERGETICA SL
-GOOGLE_RESENA_URL=                 ← enlace «escribir una reseña» de la ficha de Google. Sin él no se programa ninguna
+GOOGLE_RESENA_URL=                 ← enlace «escribir una reseña» de la ficha de Google. Sin él, el de la carta de pago
+                                     (placeid ChIJW00n1QqKXGMRLwQXmfKJU-U, cartaPagoService.RESENA_URL_DEFECTO)
 RESENA_PROGRAMADA_ENABLED=false    ← despachador de reseñas. En LOCAL, APAGADO: saldría a un cliente REAL
+CARTA_PAGO_ASSETS_URL=https://app.brokergy.es/email/carta-pago  ← dónde están las imágenes del email (por defecto, esa)
+CARTA_PAGO_ENVIO_AUTO=false        ← la carta de pago sale SOLA al subir el justificante. Apagado = se revisa en el popup.
+                                     En LOCAL, siempre APAGADO: saldría a un cliente REAL
 RESENA_DIAS_HABILES=2              ← cuándo se propone pedirla: N días hábiles tras transferir, a las 11:00
 
 # Ronda nocturna de WhatsApp (ver "La RONDA NOCTURNA de WhatsApp")

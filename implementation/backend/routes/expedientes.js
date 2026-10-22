@@ -9272,6 +9272,54 @@ router.delete('/:id/whatsapp-chats/:telefono', staffOnly, async (req, res) => {
     }
 });
 
+// ─── CARTA DE PAGO del Bono CAE (cartaPagoService) — SOLO ADMIN: lleva importes ──
+// GET  /api/expedientes/:id/carta-pago      → su estado (número, cuándo, si se envió)
+// POST /api/expedientes/:id/carta-pago      → generarla, o rehacerla con el MISMO número
+// GET  /api/expedientes/:id/carta-pago.pdf  → el PDF
+router.get('/:id/carta-pago', adminOnly, async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('expedientes')
+            .select('carta:documentacion->cobro->carta_pago, transferencia:documentacion->cobro->transferencia')
+            .eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!data) return res.status(404).json({ error: 'Expediente no encontrado' });
+        res.json({
+            carta: data.carta || null,
+            transferencia_at: data.transferencia?.at || null,
+        });
+    } catch (e) {
+        console.error('[GET carta-pago]', e.message);
+        res.status(503).json({ error: 'No se pudo leer la carta de pago' });
+    }
+});
+
+router.post('/:id/carta-pago', adminOnly, async (req, res) => {
+    try {
+        const usuario = req.user?.perfilCompleto?.nombre || req.user?.email || 'ADMIN';
+        const g = await require('../services/cartaPagoService').generar(req.params.id, { usuario });
+        res.json({ numero: g.numero, nombre: g.nombre, link: g.link });
+    } catch (e) {
+        console.error('[POST carta-pago]', e.message);
+        res.status(e.status || 500).json({ error: e.message || 'No se pudo generar la carta de pago', fallos: e.fallos || null });
+    }
+});
+
+router.get('/:id/carta-pago.pdf', adminOnly, async (req, res) => {
+    try {
+        const exp = await require('../services/cobroService').cargarExpediente(req.params.id);
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!exp.documentacion?.cobro?.carta_pago?.numero) return res.status(404).json({ error: 'Este expediente aún no tiene carta de pago' });
+        const usuario = req.user?.perfilCompleto?.nombre || req.user?.email || 'ADMIN';
+        const pdf = await require('../services/cartaPagoService').pdfDe(exp, { usuario });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${pdf.nombre}"`);
+        res.send(pdf.buffer);
+    } catch (e) {
+        console.error('[GET carta-pago.pdf]', e.message);
+        res.status(e.status || 500).json({ error: e.message || 'No se pudo abrir la carta de pago' });
+    }
+});
+
 module.exports = router;
 // Expuesto para pruebas y para quien necesite el barrido sin pasar por HTTP
 // (p. ej. el MCP al responder "qué falta en el expediente NNN").

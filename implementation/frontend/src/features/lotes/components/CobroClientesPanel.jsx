@@ -59,6 +59,7 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
     const [remesa, setRemesa] = useState(false);
     const [justif, setJustif] = useState(false);
     const [aviso, setAviso] = useState(null);       // filas a las que se avisa (abre el popup)
+    const [cartasSubida, setCartasSubida] = useState([]); // cartas de pago generadas al subir el justificante
     const [avisoInst, setAvisoInst] = useState(false); // aviso a los instaladores (abre el popup)
 
     const cargar = useCallback(async () => {
@@ -428,16 +429,19 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
             {remesa && <RemesaSepaModal lote={lote} onClose={() => setRemesa(false)} onHecho={refrescar} />}
             {justif && (
                 <JustificanteModal lote={lote} filas={filas} onClose={() => setJustif(false)}
-                    onSubido={(ids) => {
+                    onSubido={(ids, cartas) => {
                         setJustif(false);
                         refrescar();
-                        // Subido el justificante, lo siguiente es avisar: se abre ya.
+                        // Subido el justificante (y generadas las cartas de pago), lo
+                        // siguiente es avisar: se abre ya.
+                        setCartasSubida(cartas || []);
                         setAviso(filas.filter(f => ids.includes(f.id)));
                     }} />
             )}
             {avisoInst && <AvisoInstaladoresModal lote={lote} onClose={() => setAvisoInst(false)} onEnviado={refrescar} />}
             {aviso && aviso.length > 0 && (
-                <AvisoTransferenciaModal lote={lote} filas={aviso} onClose={() => setAviso(null)} onEnviado={refrescar} />
+                <AvisoTransferenciaModal lote={lote} filas={aviso} cartas={cartasSubida}
+                    onClose={() => { setAviso(null); setCartasSubida([]); }} onEnviado={refrescar} />
             )}
 
             {facturaG && (
@@ -484,6 +488,14 @@ function EstadoPago({ f, admin, onAvisar, onCancelarResena }) {
                 </span>
             ) : (
                 <span className="px-1.5 py-0.5 rounded-md border border-white/10 text-white/35">falta el justificante</span>
+            )}
+            {admin && p.carta_pago && (
+                <span className={`px-1.5 py-0.5 rounded-md border ${p.carta_pago.enviada_at ? 'border-emerald-400/30 text-emerald-300' : 'border-white/15 text-white/60'}`}>
+                    📄 {p.carta_pago.link
+                        ? <a href={p.carta_pago.link} target="_blank" rel="noreferrer" className="underline">{p.carta_pago.numero}</a>
+                        : p.carta_pago.numero}
+                    {p.carta_pago.enviada_at ? ` · enviada ${fecha(p.carta_pago.enviada_at)}` : ''}
+                </span>
             )}
             {p.transferencia && (p.transferencia.aviso_at
                 ? <span className="px-1.5 py-0.5 rounded-md border border-emerald-400/30 text-emerald-300">✓ Avisado {fecha(p.transferencia.aviso_at)}</span>

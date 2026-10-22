@@ -9,7 +9,9 @@
 //   2. JUSTIFICANTE. Hecha la transferencia en el banco, se sube su justificante
 //      a la carpeta de documentación del lote y queda marcada en cada expediente.
 //   3. AVISO. A cada cliente, que ya se le ha transferido (importe, cuenta
-//      enmascarada y concepto). Sale desde el popup, con visto bueno.
+//      enmascarada y concepto). Sale desde el popup, con visto bueno. Desde el
+//      22/10/2026 lleva la CARTA DE PAGO en PDF (cartaPagoService), que se genera
+//      sola al subir el justificante; con ella el texto es el de la carta.
 //   4. RESEÑA. En el mismo popup se PROGRAMA el mensaje que pide la reseña en
 //      Google, para cuando la transferencia ya debería haber llegado. Lo despacha
 //      el barrido de este fichero.
@@ -50,8 +52,12 @@ function ordenante() {
     };
 }
 
-/** El enlace para escribir la reseña en Google (ficha de Google Business). */
-const enlaceResena = () => String(process.env.GOOGLE_RESENA_URL || '').trim() || null;
+/**
+ * El enlace para escribir la reseña en Google (ficha de Google Business). Fuente
+ * única en cartaPagoService: `GOOGLE_RESENA_URL` o, sin ella, el de la ficha de
+ * BROKERGY que lleva la carta de pago (22/10/2026).
+ */
+const enlaceResena = () => require('./cartaPagoService').enlaceResena();
 
 const resenaActiva = () => String(process.env.RESENA_PROGRAMADA_ENABLED || '').toLowerCase() === 'true';
 
@@ -276,9 +282,39 @@ async function registrarTransferencia(lote, { ids = [], link, usuario }) {
         });
         await apuntarHistorial(exp, 'transferencia_cliente',
             `Transferencia de la ayuda al cliente realizada (${eur(cobro.remesa.importe)}, remesa ${cobro.remesa.msg_id}). Justificante subido.`, usuario);
-        hechos.push(exp.numero_expediente);
+        hechos.push({ id: exp.id, numero_expediente: exp.numero_expediente });
     }
     return hechos;
+}
+
+/**
+ * Con la transferencia registrada, la CARTA DE PAGO de cada uno (cartaPagoService).
+ * Una que falla no para a las demás: queda su incidencia en el expediente y el
+ * motivo vuelve en `error`. Con `CARTA_PAGO_ENVIO_AUTO`, además se manda sola por
+ * los canales que tenga el cliente; si no, espera al popup.
+ */
+async function cartasDeTransferencia(hechos, { usuario } = {}) {
+    const cartaPago = require('./cartaPagoService');
+    const out = [];
+    for (const h of hechos) {
+        try {
+            const g = await cartaPago.generar(h.id, { usuario });
+            const fila = { ...h, numero: g.numero, link: g.link };
+            if (cartaPago.envioAuto()) {
+                const exp = await cobroService.cargarExpediente(h.id);
+                const contacto = cobroService.contactoCliente(exp);
+                const channels = [...(contacto.tlf ? ['whatsapp'] : []), ...(contacto.email ? ['email'] : [])];
+                try {
+                    fila.enviada = (await avisarTransferencia(exp, { channels, usuario: usuario || 'SISTEMA' })).channels;
+                } catch (e) { fila.error_envio = e.message; }
+            }
+            out.push(fila);
+        } catch (e) {
+            console.warn('[carta de pago]', h.numero_expediente, e.message);
+            out.push({ ...h, error: e.message });
+        }
+    }
+    return out;
 }
 
 const eur = (n) => (n == null ? '—' : `${Number(n).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`);
@@ -312,7 +348,18 @@ async function borradoresAviso(exp) {
     const cuentas = cobro.remesa?.cuentas || [];
     const enlace = enlaceResena();
     const { gestionBonificada } = await cobroService.contextoDe(exp);
+    // Con CARTA DE PAGO, el aviso es el suyo (PDF adjunto) y ya pide la reseña: la
+    // programada sale propuesta pero DESMARCADA (`resena_con_carta`).
+    const cp = cobro.carta_pago;
+    let carta = null;
+    if (cp?.numero) {
+        // WhatsApp, asunto, texto plano y —al titular— el email de diseño (`html`).
+        const textos = await require('./cartaPagoService').mensajesDe(exp, { numero: cp.numero, fechaEmision: cp.fecha_emision });
+        carta = { numero: cp.numero, nombre: cp.nombre, link: cp.link, at: cp.at, enviada_at: cp.enviada_at || null, ...textos };
+    }
     return {
+        carta,
+        resena_con_carta: !!carta,
         contacto: cobroService.contactoCliente(exp),
         transferencia: componerMensajeTransferencia({
             nombre, tercero, titular, partner, cuentas, concepto: conceptoTransferencia(exp.numero_expediente),
@@ -352,19 +399,45 @@ async function mandar({ tlf, email, asunto, texto, channels }) {
  * Envía el aviso de transferencia y, si se pide, PROGRAMA la reseña con el texto
  * revisado en el popup (el despachador no recompone nada: manda lo que se vio).
  */
-async function avisarTransferencia(exp, { channels = [], mensaje, resena = null, usuario }) {
+async function avisarTransferencia(exp, { channels = [], mensaje, mensajeEmail, asunto, resena = null, usuario }) {
     const cobro = exp?.documentacion?.cobro || {};
     if (!cobro.transferencia?.at) { const e = new Error('Primero sube el justificante de la transferencia'); e.status = 409; throw e; }
     const contacto = cobroService.contactoCliente(exp);
-    const texto = String(mensaje || '').trim() || (await borradoresAviso(exp)).transferencia;
-    const sent = await mandar({
-        tlf: contacto.tlf, email: contacto.email, channels, texto,
-        asunto: `Ya te hemos transferido tu ayuda (${exp.numero_expediente})`,
-    });
-    if (!sent.length) { const e = new Error('No se pudo enviar por los canales elegidos (sin teléfono o sin email)'); e.status = 400; throw e; }
+    const borr = await borradoresAviso(exp);
+    let sent;
+    const patch = {};
+    if (borr.carta) {
+        // Con carta de pago: el PDF adjunto, por WhatsApp como documento con el
+        // mensaje de pie y por email como adjunto. Lo revisado en el popup MANDA.
+        const cartaPago = require('./cartaPagoService');
+        const pdf = await cartaPago.pdfDe(exp, { usuario });
+        const r = await cartaPago.enviar({
+            buffer: pdf.buffer, nombre: pdf.nombre, tlf: contacto.tlf, email: contacto.email, channels,
+            textos: {
+                whatsapp: String(mensaje || '').trim() || borr.carta.whatsapp,
+                // Con el email de diseño, el cuerpo es el suyo (y su texto plano): en
+                // el popup solo se toca el asunto.
+                email: (!borr.carta.html && String(mensajeEmail || '').trim()) || borr.carta.email,
+                html: borr.carta.html,
+                asunto: String(asunto || '').trim() || borr.carta.asunto,
+            },
+        });
+        sent = r.sent;
+        if (!sent.length) {
+            const e = new Error(r.errores.join(' · ') || 'No se pudo enviar por los canales elegidos (sin teléfono o sin email)');
+            e.status = r.errores.length ? 502 : 400; throw e;
+        }
+        patch.carta_pago = { ...cobro.carta_pago, enviada_at: new Date().toISOString(), enviada_canales: sent, envio_errores: r.errores.length ? r.errores : null };
+    } else {
+        const texto = String(mensaje || '').trim() || borr.transferencia;
+        sent = await mandar({
+            tlf: contacto.tlf, email: contacto.email, channels, texto,
+            asunto: `Ya te hemos transferido tu ayuda (${exp.numero_expediente})`,
+        });
+        if (!sent.length) { const e = new Error('No se pudo enviar por los canales elegidos (sin teléfono o sin email)'); e.status = 400; throw e; }
+    }
 
-    const transferencia = { ...cobro.transferencia, aviso_at: new Date().toISOString(), aviso_por: usuario || null, aviso_canales: sent };
-    const patch = { transferencia };
+    patch.transferencia = { ...cobro.transferencia, aviso_at: new Date().toISOString(), aviso_por: usuario || null, aviso_canales: sent };
     let resenaProg = null;
     if (resena?.programar && String(resena.mensaje || '').trim()) {
         const at = new Date(resena.at);
@@ -390,6 +463,8 @@ async function avisarTransferencia(exp, { channels = [], mensaje, resena = null,
     await cobroService.sellar(exp.id, patch);
     await apuntarHistorial(exp, 'aviso_transferencia',
         `Aviso de transferencia enviado al cliente${contacto.nombre ? ` (${contacto.nombre})` : ''} vía ${sent.join(' + ')}`
+        + (borr.carta ? `, con la carta de pago ${borr.carta.numero} adjunta` : '')
+        + (patch.carta_pago?.envio_errores ? ` (no salió por: ${patch.carta_pago.envio_errores.join(' · ')})` : '')
         + (resenaProg ? `. Petición de reseña programada para el ${fechaEs(resenaProg.programada_para)}` : ''), usuario);
     return { channels: sent, resena: resenaProg };
 }
@@ -486,6 +561,7 @@ module.exports = {
     previsualizarRemesa,
     generarRemesa,
     registrarTransferencia,
+    cartasDeTransferencia,
     borradoresAviso,
     avisarTransferencia,
     cancelarResena,

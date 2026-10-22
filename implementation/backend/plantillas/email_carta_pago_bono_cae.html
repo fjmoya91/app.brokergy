@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<meta name="x-apple-disable-message-reformatting">
+<title>Tu Bono CAE ya está en tu cuenta · BROKERGY</title>
+<!--
+  PLANTILLA EMAIL BROKERGY · Carta de pago Bono CAE
+  Variables entre llaves dobles: las de la carta de pago (cartaPagoService.mensajesDe). Diseño APROBADO: no se cambia.
+  Las imágenes (logo-brokergy.png, logo-circular.png, qr-resena.png) se alojan en frontend/public/email/carta-pago (assets_url).
+  Gmail no carga imágenes en base64 ni fuentes web: todo va maquetado en tablas con estilos en línea.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@700&display=swap" rel="stylesheet">
+<style>
+  body{margin:0!important;padding:0!important;width:100%!important;background:#f1f1ee}
+  table{mso-table-lspace:0;mso-table-rspace:0}
+  img{border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;display:block}
+  a{text-decoration:none}
+  /* Gmail y Apple Mail convierten la dirección en un enlace azul a Maps: se pinta como el texto. */
+  .sin-enlace a,.sin-enlace a:link,.sin-enlace a:visited{color:#141111!important;text-decoration:none!important;font-weight:bold!important}
+  a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important;font-size:inherit!important;font-family:inherit!important;font-weight:inherit!important;line-height:inherit!important}
+  /* LOGO en modo oscuro: el cliente oscurece el email pero NO las imágenes, y el logo es negro.
+     Apple Mail / Outlook avisan del modo oscuro: se cambia por el blanco.
+     Gmail NO avisa: invierte los colores pero no las imágenes. En las APPS de Gmail va el logo
+     blanco con mix-blend-mode:difference, que sobre fondo claro se ve NEGRO y sobre oscuro
+     BLANCO. Solo en pantalla de móvil: Gmail del ORDENADOR no admite mix-blend-mode y el
+     logo blanco quedaba invisible (probado el 22/10/2026). */
+  @media (prefers-color-scheme: dark){
+    .logo-claro{display:none!important}
+    .logo-oscuro{display:block!important;max-height:none!important;overflow:visible!important}
+  }
+  [data-ogsc] .logo-claro{display:none!important}
+  [data-ogsc] .logo-oscuro{display:block!important;max-height:none!important;overflow:visible!important}
+  @media only screen and (max-width:620px){
+    u + .body .logo-claro{display:none!important}
+    u + .body .logo-oscuro{display:block!important;max-height:none!important;overflow:visible!important}
+    u + .body .logo-oscuro img{mix-blend-mode:difference!important}
+  }
+  @media only screen and (max-width:620px){
+    .container{width:100%!important}
+    .px{padding-left:22px!important;padding-right:22px!important}
+    .h1{font-size:30px!important;line-height:34px!important}
+    .amount{font-size:44px!important;line-height:48px!important}
+    .stack{display:block!important;width:100%!important}
+    .hide-mobile{display:none!important;max-height:0!important;overflow:hidden!important}
+    .center-mobile{text-align:left!important}
+    .btn a{display:block!important;text-align:center!important;font-size:12px!important;letter-spacing:.5px!important;padding:14px 12px!important}
+    .lbl{width:112px!important}
+    .h1 span{white-space:normal!important}
+  }
+</style>
+<!--[if mso]><style>.h1,.amount{font-family:Arial,sans-serif!important}</style><![endif]-->
+</head>
+<body class="body" style="margin:0;padding:0;background:#f1f1ee;">
+
+<!-- Preheader (texto de vista previa en la bandeja) -->
+<div style="display:none;font-size:1px;color:#f1f1ee;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+  Ya te hemos transferido {{importe}} €. Dentro tienes tu carta de pago y un regalo para nosotros: tu reseña.&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f1f1ee" style="background:#f1f1ee;">
+<tr><td align="center" style="padding:28px 12px;">
+
+<table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #e4e4df;border-collapse:separate;">
+
+  <!-- Barra degradado de eficiencia (naranja → verde) -->
+  <tr><td style="padding:0;font-size:0;line-height:0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td height="7" width="20%" bgcolor="#fca508" style="font-size:0;line-height:0;">&nbsp;</td>
+      <td height="7" width="20%" bgcolor="#eaaf14" style="font-size:0;line-height:0;">&nbsp;</td>
+      <td height="7" width="20%" bgcolor="#d8ba20" style="font-size:0;line-height:0;">&nbsp;</td>
+      <td height="7" width="20%" bgcolor="#c7c42c" style="font-size:0;line-height:0;">&nbsp;</td>
+      <td height="7" width="20%" bgcolor="#b5cf38" style="font-size:0;line-height:0;">&nbsp;</td>
+    </tr></table>
+  </td></tr>
+
+  <!-- Cabecera, con el DINERO CAYENDO de fondo (GIF transparente, 22/10/2026). Un fondo
+       tiene que ir ALOJADO (no admite CID). Outlook de escritorio no pinta fondos: ahí sale
+       la cabecera de siempre. -->
+  <tr><td class="px" background="{{assets_url}}/dinero-cayendo.gif" style="padding:26px 40px 8px 40px;background-image:url('{{assets_url}}/dinero-cayendo.gif');background-repeat:no-repeat;background-position:center center;background-size:cover;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td valign="middle" class="stack" style="padding-bottom:6px;">
+        <img class="logo-claro" src="{{assets_url}}/logo-brokergy.png" width="190" height="37" alt="BROKERGY · Ingeniería energética" style="width:190px;height:auto;">
+        <!--[if !mso]><!--><div class="logo-oscuro" style="display:none;max-height:0;overflow:hidden;"><img src="{{assets_url}}/logo-brokergy-blanco.png" width="190" height="37" alt="BROKERGY · Ingeniería energética" style="width:190px;height:auto;"></div><!--<![endif]-->
+      </td>
+      <td valign="middle" align="right" class="stack center-mobile" style="font-family:Arial,Helvetica,sans-serif;">
+        <div style="font-size:10px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase;color:#51545f;">Carta de pago</div>
+        <div style="font-size:14px;font-weight:bold;color:#141111;padding-top:2px;">Nº {{numero_carta}}</div>
+      </td>
+    </tr></table>
+  </td></tr>
+
+  <!-- Estado + titular -->
+  <tr><td class="px" style="padding:18px 40px 0 40px;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td bgcolor="#b1d13e" style="white-space:nowrap;background:#b1d13e;border-radius:999px;padding:6px 13px;font-size:11px;font-weight:bold;letter-spacing:1.3px;text-transform:uppercase;color:#08090c;">&#10003;&nbsp; Pago realizado</td>
+      <td class="hide-mobile" style="padding-left:12px;font-size:11px;font-weight:bold;letter-spacing:1.3px;text-transform:uppercase;color:#51545f;">Bono CAE · RD 36/2023</td>
+    </tr></table>
+  </td></tr>
+  <tr><td class="px" style="padding:14px 40px 0 40px;">
+    <h1 class="h1" style="margin:0;font-family:Antonio,'Arial Narrow','Roboto Condensed',Arial,sans-serif;font-stretch:condensed;font-weight:700;font-size:36px;line-height:42px;color:#141111;">Tu Bono CAE ya está <span style="background:#c7f601;padding:0 6px;white-space:nowrap;">en tu cuenta</span></h1>
+  </td></tr>
+  <tr><td class="px" style="padding:14px 40px 0 40px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:24px;color:#3d3f47;">
+    Hola, <strong style="color:#141111;">{{nombre_saludo}}</strong>:<br>
+    ¡Buenas noticias! Ya te hemos transferido tu Bono CAE. El ahorro energético de tu reforma <strong style="color:#141111;">ya es dinero en tu bolsillo</strong>.
+  </td></tr>
+
+  <!-- Bloque importe -->
+  <tr><td class="px" style="padding:24px 40px 0 40px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#141111" style="background:#141111;border-radius:16px;overflow:hidden;border-collapse:separate;">
+      <tr><td style="padding:22px 26px 20px 26px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+          <td valign="middle" style="font-family:Arial,Helvetica,sans-serif;">
+            <div style="font-size:11px;font-weight:bold;letter-spacing:1.8px;text-transform:uppercase;color:#ffa000;">Importe abonado</div>
+            <div class="amount" style="font-family:Antonio,'Arial Narrow','Roboto Condensed',Arial,sans-serif;font-stretch:condensed;font-weight:700;font-size:56px;line-height:62px;color:#ffffff;padding-top:4px;">{{importe}}&nbsp;€</div>
+            <div style="font-size:13px;line-height:19px;color:#c3c5cc;padding-top:4px;">Transferencia del {{fecha_pago}} · cuenta terminada en <strong style="color:#ffffff;">{{iban_ultimos4}}</strong></div>
+          </td>
+          <td valign="middle" align="center" width="84" class="hide-mobile" style="width:84px;font-family:Arial,Helvetica,sans-serif;">
+            <div style="width:54px;height:54px;margin:0 auto;border:3px solid #b1d13e;border-radius:50%;text-align:center;font-size:28px;line-height:54px;font-weight:bold;color:#b1d13e;">&#10003;</div>
+            <div style="font-size:10px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase;color:#b1d13e;padding-top:8px;">Pagado</div>
+          </td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="padding:0;font-size:0;line-height:0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+          <td height="5" width="20%" bgcolor="#fca508" style="font-size:0;line-height:0;">&nbsp;</td>
+          <td height="5" width="20%" bgcolor="#eaaf14" style="font-size:0;line-height:0;">&nbsp;</td>
+          <td height="5" width="20%" bgcolor="#d8ba20" style="font-size:0;line-height:0;">&nbsp;</td>
+          <td height="5" width="20%" bgcolor="#c7c42c" style="font-size:0;line-height:0;">&nbsp;</td>
+          <td height="5" width="20%" bgcolor="#b5cf38" style="font-size:0;line-height:0;">&nbsp;</td>
+        </tr></table>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Detalle -->
+  <tr><td class="px" style="padding:26px 40px 0 40px;font-family:Arial,Helvetica,sans-serif;">
+    <div style="font-size:11px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase;color:#4d6b0f;padding-bottom:8px;border-bottom:2px solid #141111;">Detalle del pago</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;line-height:20px;border-collapse:collapse;">
+      <tr><td width="150" class="lbl" style="width:150px;padding:10px 12px 10px 0;border-bottom:1px solid #e6e7ea;color:#51545f;">Titular</td><td style="padding:10px 0;border-bottom:1px solid #e6e7ea;color:#141111;font-weight:bold;">{{titular_nombre}}</td></tr>
+      <tr><td width="150" class="lbl" style="width:150px;padding:10px 12px 10px 0;border-bottom:1px solid #e6e7ea;color:#51545f;">Vivienda</td><td class="sin-enlace" style="padding:10px 0;border-bottom:1px solid #e6e7ea;color:#141111;font-weight:bold;"><span class="sin-enlace" style="color:#141111;text-decoration:none;">{{vivienda_direccion}}</span></td></tr>
+      <tr><td width="150" class="lbl" style="width:150px;padding:10px 12px 10px 0;border-bottom:1px solid #e6e7ea;color:#51545f;">Actuación</td><td style="padding:10px 0;border-bottom:1px solid #e6e7ea;color:#141111;font-weight:bold;">{{actuacion}}</td></tr>
+      <tr><td width="150" class="lbl" style="width:150px;padding:10px 12px 10px 0;border-bottom:1px solid #e6e7ea;color:#51545f;">Ahorro certificado</td><td style="padding:10px 0;border-bottom:1px solid #e6e7ea;color:#141111;font-weight:bold;">{{ahorro_kwh}} kWh</td></tr>
+      <tr><td width="150" class="lbl" style="width:150px;padding:10px 12px 10px 0;border-bottom:1px solid #e6e7ea;color:#51545f;">Instalador</td><td style="padding:10px 0;border-bottom:1px solid #e6e7ea;color:#141111;font-weight:bold;">{{instalador}}</td></tr>
+      <tr><td width="150" class="lbl" style="width:150px;padding:10px 12px 10px 0;border-bottom:1px solid #e6e7ea;color:#51545f;">Expediente</td><td style="padding:10px 0;border-bottom:1px solid #e6e7ea;color:#141111;font-weight:bold;">{{expediente}}</td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Adjunto -->
+  <tr><td class="px" style="padding:20px 40px 0 40px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px dashed #c9cbd2;border-radius:12px;border-collapse:separate;">
+      <tr>
+        <td width="52" valign="middle" style="padding:14px 0 14px 16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td width="38" height="44" align="center" valign="middle" bgcolor="#bf360c" style="width:38px;height:44px;border-radius:6px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:bold;color:#ffffff;letter-spacing:.5px;">PDF</td>
+          </tr></table>
+        </td>
+        <td valign="middle" style="padding:14px 16px 14px 12px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:19px;color:#3d3f47;">
+          <strong style="color:#141111;">Tu carta de pago va adjunta a este email.</strong><br>
+          Es tu justificante oficial del cobro: guárdala junto a la documentación de tu instalación.
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+
+  <!-- Reseña -->
+  <tr><td class="px" style="padding:26px 40px 0 40px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#faf9f7" style="background:#faf9f7;border:1px solid #e4e4df;border-radius:16px;border-collapse:separate;">
+      <tr>
+        <td valign="middle" style="padding:22px 22px 22px 24px;font-family:Arial,Helvetica,sans-serif;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td bgcolor="#c7f601" style="background:#c7f601;padding:4px 9px;font-size:10px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:#141111;">Tu opinión suma</td>
+            <td style="padding-left:10px;font-size:20px;line-height:20px;color:#ffa000;letter-spacing:2px;">&#9733;&#9733;&#9733;&#9733;&#9733;</td>
+          </tr></table>
+          <div style="font-family:Antonio,'Arial Narrow','Roboto Condensed',Arial,sans-serif;font-stretch:condensed;font-weight:700;font-size:28px;line-height:32px;color:#141111;padding-top:12px;">¿Te hemos ayudado? <span style="color:#bf360c;">Cuéntalo.</span></div>
+          <div style="font-size:14px;line-height:21px;color:#3d3f47;padding-top:8px;">Tu reseña ayuda a que más familias de tu zona descubran que pueden <strong style="color:#141111;">cobrar por ahorrar energía</strong>. Te lleva menos de un minuto y para nosotros vale muchísimo.</div>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" class="btn" style="margin-top:16px;"><tr>
+            <td bgcolor="#ffa000" style="background:#ffa000;border-radius:12px;">
+              <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="{{resena_url}}" style="height:46px;v-text-anchor:middle;width:280px;" arcsize="26%" stroke="f" fillcolor="#ffa000"><w:anchorlock/><center style="color:#08090c;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;">DEJAR MI RESEÑA EN GOOGLE &#8594;</center></v:roundrect><![endif]-->
+              <!--[if !mso]><!-- --><a href="{{resena_url}}" target="_blank" style="display:inline-block;white-space:nowrap;padding:14px 22px;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#08090c;text-decoration:none;border-radius:12px;">Dejar mi reseña en Google &nbsp;&#8594;</a><!--<![endif]-->
+            </td>
+          </tr></table>
+        </td>
+        <td valign="middle" align="center" width="150" class="hide-mobile" style="width:150px;padding:22px 24px 22px 0;font-family:Arial,Helvetica,sans-serif;">
+          <a href="{{resena_url}}" target="_blank" style="display:block;border:3px solid #b1d13e;border-radius:14px;background:#ffffff;padding:8px;">
+            <img src="{{assets_url}}/qr-resena.png" width="104" height="104" alt="QR para dejar una reseña en Google" style="width:104px;height:104px;">
+          </a>
+          <div style="font-size:10px;font-weight:bold;letter-spacing:1.3px;text-transform:uppercase;color:#4d6b0f;padding-top:8px;">Escanéalo con el móvil</div>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+
+  <!-- Firma -->
+  <tr><td class="px" style="padding:28px 40px 30px 40px;font-family:Arial,Helvetica,sans-serif;">
+    <div style="font-size:15px;line-height:24px;color:#3d3f47;padding-bottom:16px;">Gracias por confiar en nosotros. Cualquier duda, me tienes a un mensaje.<br>Un abrazo,</div>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td valign="middle" width="64" style="width:64px;padding-right:14px;">
+        <img src="{{assets_url}}/logo-circular.png" width="56" height="56" alt="BROKERGY" style="width:56px;height:56px;border-radius:50%;">
+      </td>
+      <td valign="middle" style="border-left:3px solid #ffa000;padding-left:14px;font-size:13px;line-height:19px;color:#51545f;">
+        <div style="font-size:15px;font-weight:bold;color:#141111;">Fran Moya</div>
+        <div>CEO · BROKERGY · Ingeniería energética</div>
+        <div>Colegiado nº 1779 · COGITI Albacete</div>
+        <div style="padding-top:4px;">
+          <a href="tel:+34623926179" style="color:#bf360c;font-weight:bold;">623 926 179</a> &nbsp;·&nbsp;
+          <a href="mailto:franciscojavier.moya@brokergy.es" style="color:#bf360c;">franciscojavier.moya@brokergy.es</a> &nbsp;·&nbsp;
+          <a href="https://brokergy.es" style="color:#bf360c;">brokergy.es</a>
+        </div>
+      </td>
+    </tr></table>
+  </td></tr>
+
+  <!-- Pie -->
+  <tr><td class="px" bgcolor="#141111" style="background:#141111;padding:20px 40px;font-family:Arial,Helvetica,sans-serif;">
+    <div style="font-size:13px;font-weight:bold;color:#ffffff;">BROKERGY · Ingeniería energética</div>
+    <div style="font-size:12px;font-weight:bold;color:#ffa000;padding-top:3px;">Ahorra energía, gana dinero, ayuda al planeta</div>
+    <div style="font-size:11px;line-height:17px;color:#a3a5ae;padding-top:12px;">Soluciones Sostenibles para Eficiencia Energética SL · CIF B19350222 · Tomelloso (Ciudad Real).<br>Recibes este email porque BROKERGY gestiona tu expediente de Certificados de Ahorro Energético (CAE).</div>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

@@ -246,9 +246,130 @@ lleva los nombres, cuentas e importes de todos los del lote.
 canal se fijan al programarla (como `propuestaProgramada`); el despachador no
 recompone nada. Solo sale entre las 9:00 y las 21:00 de Madrid, y nace APAGADO
 (`RESENA_PROGRAMADA_ENABLED`): el backend del portátil escribiría a clientes reales.
-Sin `GOOGLE_RESENA_URL` no se programa ninguna, y al PARTNER no se le pide.
+Sin `GOOGLE_RESENA_URL` se usa el enlace de la ficha de Google que lleva la carta de
+pago (desde el 22/10/2026; antes no se programaba ninguna), y al PARTNER no se le pide.
 El esfuerzo se cuenta con los requerimientos que CONSTAN (`requerimientosDe`), como
 la enhorabuena: sin ninguno se cuenta el proceso, no se inventan.
+
+### La CARTA DE PAGO del Bono CAE (2026-10-22)
+
+Al subir el justificante del banco, cada cliente transferido tiene su **carta de pago**:
+un PDF de UNA hoja (diseño cerrado de Claude Design, aprobado por Fran) con el importe,
+la fecha de la transferencia, titular, vivienda, RC, instalador, actuación, ahorro
+VERIFICADO, la cuenta por sus 4 últimas cifras y la petición de reseña (botón + QR). Va
+adjunta al aviso de transferencia, por WhatsApp (documento con el mensaje de pie) y por
+email (adjunto), con los textos de Fran. Antes de llevarlo a la app se probó con
+25RES060_29 (Antonio Manjavacas) enviado SOLO a Fran por los dos canales.
+
+| Qué | Dónde |
+|---|---|
+| Plantilla (no se rediseña: solo `{{variables}}`) | [plantillas/carta_pago_bono_cae.html](implementation/backend/plantillas/carta_pago_bono_cae.html) |
+| Datos, render, control de calidad, número, Drive, envío | [cartaPagoService.js](implementation/backend/services/cartaPagoService.js) |
+| Textos (WhatsApp, asunto y cuerpo del email) | `componerMensajeCartaPago` en [cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) |
+| Numeración y registro | tabla `cartas_pago` + RPC `carta_pago_numero` ([cartas_pago_schema.sql](implementation/backend/scripts/cartas_pago_schema.sql)) |
+| Se genera | al subir el justificante (`POST /api/lotes/:id/transferencia` → `cartasDeTransferencia`) |
+| A mano (adminOnly) | popup de aviso «Generar / Rehacer» · ficha del expediente, «Datos Económicos» (`/api/expedientes/:id/carta-pago`) |
+| Pruebas | `node implementation/backend/scripts/test_carta_pago.js` |
+
+**REGLA — la plantilla NO se rediseña.** Sale de la exportación de Claude Design
+desempaquetada: las fuentes (Antonio e Inter, solo latino), el logo y el QR van
+incrustados como data URI, así que renderiza sin red y no pide nada a Google (regla
+25.b). Lo único añadido son las clases de recorte de las celdas.
+
+**REGLA — la carta no se guarda ni se envía si no pasa el control de calidad**: 1
+página, el contenido cabe en 1123 px, las fuentes cargadas, ninguna `{{` suelta y el
+enlace de la reseña CLICABLE dentro del PDF. Una variable sin dato es un error, nunca
+un hueco. Si falla, queda una incidencia LEVE en el expediente
+(`expediente_incidencia_append`, atómica) y el popup lo dice con «⚠ Sin carta de pago».
+
+**REGLA — lo largo se RECORTA, el diseño no se toca.** Titular, vivienda e instalador
+admiten 2 líneas (la dirección casi nunca cabe en una: «C/ HUERTO PEDRERO, 20 · CAMPO DE
+CRIPTANA»); si la hoja no cabe, se prueba con solo la vivienda a 2 líneas y, por último,
+todo a una con elipsis. Probado con nombre y dirección muy largos e importe de 6 cifras.
+
+**REGLA — el número no cambia.** `CP-AAAA-NNNN`, correlativo por año, una fila por
+expediente (`expediente_id` único): rehacer o reenviar conserva número y fecha de
+emisión. La RPC bloquea por año (advisory lock) para que dos cartas a la vez no saquen
+el mismo.
+
+**REGLA — los datos son los de la REMESA, no un recálculo**: el importe es el que se
+transfirió (`cobro.transferencia.importe` / `remesa.importe`: verificado − honorarios),
+la fecha la de ejecución de la remesa y la cuenta, las 4 últimas cifras de sus máscaras.
+El IBAN entero no se lee en este servicio ni sale en logs. Con varios cedentes, todas
+las terminaciones. El ahorro es el VERIFICADO.
+
+**REGLA — con la carta, la reseña programada sale DESMARCADA**: el texto de la carta
+ya la pide, y con las dos se le pediría dos veces. Al partner, ni reseña ni cuenta.
+
+**El EMAIL tiene su propio diseño** (Fran, 22/10/2026: «el que teníamos era una castaña»):
+[plantillas/email_carta_pago_bono_cae.html](implementation/backend/plantillas/email_carta_pago_bono_cae.html),
+en tablas con estilos en línea (Gmail, Outlook, Apple Mail, móvil), con su texto plano
+(`multipart/alternative`, mismo contenido). Remitente «Fran Moya · BROKERGY»
+`<franciscojavier.moya@brokergy.es>`, y las respuestas le llegan a él.
+
+**REGLA — el asunto lleva el nº de EXPEDIENTE delante y la cifra**:
+«25RES060_29 · Tu Bono CAE de 3.030,62 € ya está en tu cuenta». El encargo del diseño
+proponía el asunto sin expediente; Fran lo quiso delante. El nº de carta va dentro.
+
+**REGLA — las imágenes del email van ALOJADAS** (Gmail no enseña base64) en
+`frontend/public/email/carta-pago/`, que sirve nginx en `https://app.brokergy.es/email/carta-pago`
+(`CARTA_PAGO_ASSETS_URL`). Antes de enviar se comprueba que respondan 200; si no, van
+incrustadas como CID desde la copia de `plantillas/email_carta_pago/`, así que el email
+nunca sale con imágenes rotas. Las dos copias tienen que ser IGUALES (lo comprueba el test).
+
+**Monedas y billetes cayendo DETRÁS de la cabecera** (logo + nº de carta; croquis de Fran,
+22/10/2026): `dinero-cayendo.gif`, 900×144 (1,5× de 600×96), 32 fotogramas, ~250 KB,
+generada con `scripts/gif_dinero_cayendo.py` (Pillow), como fondo de la celda de la
+cabecera (`background` + `background-image`, `cover`). Primero se probó como tira encima
+del importe; Fran la quiso detrás del logo y el importe arriba, como estaba. NO como fondo
+de todo el email (pesaría MB). Outlook de escritorio no pinta fondos: ahí sale la cabecera
+de siempre.
+
+**REGLA — un FONDO no se incrusta**: las imágenes en `<img>` caen a CID si no están
+alojadas, pero un fondo CID no lo pinta Gmail. Para probar el email antes de un deploy, las
+imágenes se suben a mano a `/opt/brokergy/implementation/frontend/dist/email/carta-pago/`
+del VPS (se hizo el 22/10/2026); el deploy las regenera desde `public/`.
+
+**REGLA — las imágenes del email se ven en MODO OSCURO**: el cliente oscurece el email
+pero no las imágenes. Por eso el GIF va con fondo TRANSPARENTE (1 bit: el borde se corta
+al 50 % con el color del propio canto, sin halo blanco; `disposal=2`). Con fondo blanco
+la tira salía como un rectángulo blanco sobre el email oscuro.
+
+**REGLA — en oscuro, el logo BLANCO (sin contorno ni relieve, Fran 22/10/2026)**: el
+logo es negro sobre transparente y desaparecía. Van dos (`logo-claro` negro, visible;
+`logo-oscuro` blanco, oculto). Apple Mail y Outlook avisan del modo oscuro
+(`prefers-color-scheme`, `[data-ogsc]`) y se cambian. Gmail NO avisa: invierte los colores
+(el bloque negro del importe sale blanco) pero no las imágenes. En las APPS de Gmail
+(`u + .body`, con `class="body"` en el `<body>`, y SOLO dentro de `max-width:620px`) va el
+logo blanco con `mix-blend-mode: difference`: sobre fondo claro se ve negro y sobre oscuro
+blanco. **Solo en móvil, porque Gmail del ORDENADOR no admite `mix-blend-mode`**: sin el
+límite de ancho ocultó el logo negro y el blanco quedó invisible (22/10/2026). Y el
+contorno blanco se descartó: Fran lo vio «con relieve».
+
+⚠️ Las imágenes subidas a mano al `dist/` del VPS **las borra el siguiente deploy de
+cualquier sesión** (reconstruye `dist/` desde `public/`): pasó a los 40 min. Hasta el
+commit, antes de cada prueba se comprueba que responden 200.
+
+**REGLA — Gmail pinta la dirección como enlace azul a Maps**: un carácter invisible no
+basta; la celda lleva la clase `sin-enlace` y el `<style>` del email pinta su enlace del
+color del texto (y `a[x-apple-data-detectors]` para Apple Mail).
+
+**Las PRUEBAS, a un Gmail, no a franciscojavier.moya@brokergy.es**: el 22/10/2026 de 7
+pruebas enviadas de ese buzón a sí mismo, Hostinger aceptó las 7 (250, sin el 451 de la
+cuota) y solo entregó 4 en su propio INBOX (comprobado por IMAP, solo lectura); la
+misma a franciscojavier.moya.s2e2@gmail.com llegó en segundos a la bandeja de entrada.
+
+**REGLA — el diseño le habla al TITULAR**: a su persona de contacto o al partner sale el
+texto corto, sin HTML. En el popup, con el email de diseño, se ve el email tal cual
+llega (vista previa) y solo se edita el asunto.
+
+**REGLA — el envío nace con visto bueno.** La carta se genera sola; el envío espera al
+popup (WhatsApp y email marcados por defecto). `CARTA_PAGO_ENVIO_AUTO=true` lo
+manda solo al subir el justificante; en local, siempre apagado.
+
+El PDF se guarda en «5. FACTURAS» del expediente como
+`CARTA_PAGO_{expediente}_{numero}.pdf`; en `documentacion.cobro.carta_pago`, solo
+metadatos (número, enlace, sha256, fecha, envío), por la RPC de merge.
 
 ### Regalarle la gestión desde el lote (2026-10-14)
 

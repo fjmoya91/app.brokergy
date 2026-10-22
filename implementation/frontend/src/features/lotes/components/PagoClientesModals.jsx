@@ -14,7 +14,7 @@
 // pueden retocar antes de mandar.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import SendActionOverlay from '../../../components/SendActionOverlay';
@@ -243,8 +243,10 @@ export function JustificanteModal({ lote, filas, onClose, onSubido }) {
                 r.readAsDataURL(fichero);
             });
             const ids = [...marcadas];
-            await axios.post(`/api/lotes/${lote.id}/transferencia`, { base64, fileName: fichero.name, ids });
-            onSubido(ids);
+            const { data } = await axios.post(`/api/lotes/${lote.id}/transferencia`, { base64, fileName: fichero.name, ids });
+            // Con la transferencia registrada se generan las CARTAS DE PAGO; las que
+            // fallen viajan al popup de aviso con su motivo.
+            onSubido(ids, data?.cartas || []);
         } catch (e) {
             setError(e.response?.data?.error || e.message || 'No se pudo subir el justificante.');
             setSubiendo(false);
@@ -266,7 +268,7 @@ export function JustificanteModal({ lote, filas, onClose, onSubido }) {
                     {error && <span className="w-full text-[10px] text-red-400">{error}</span>}
                     <button type="button" disabled={!fichero || !marcadas.size || subiendo} onClick={subir}
                         className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-brand text-black text-[12px] font-black uppercase tracking-wider disabled:opacity-40 hover:brightness-110 transition-all">
-                        {subiendo ? 'Subiendo…' : 'Subir y preparar los avisos'}
+                        {subiendo ? 'Subiendo y generando las cartas de pago…' : 'Subir y preparar los avisos'}
                     </button>
                 </>
             )}
@@ -289,34 +291,74 @@ export function JustificanteModal({ lote, filas, onClose, onSubido }) {
 }
 
 // ─── 3 · Aviso de transferencia + reseña programada ──────────────────────────
-export function AvisoTransferenciaModal({ lote, filas, onClose, onEnviado }) {
+export function AvisoTransferenciaModal({ lote, filas, cartas = [], onClose, onEnviado }) {
     const [borr, setBorr] = useState({});           // id → borradores del backend
-    const [txt, setTxt] = useState({});             // id → { transferencia, resena }
+    const [txt, setTxt] = useState({});             // id → { transferencia, email, asunto, resena }
     const [resenaOn, setResenaOn] = useState({});   // id → bool
     const [resenaAt, setResenaAt] = useState({});   // id → datetime-local
     const [abierto, setAbierto] = useState(filas.length === 1 ? filas[0].id : null);
-    const [canales, setCanales] = useState({ whatsapp: true, email: false });
+    // Con la carta de pago salen los DOS: el PDF por WhatsApp y por email.
+    const [canales, setCanales] = useState({ whatsapp: true, email: true });
     const [overlay, setOverlay] = useState(null);
     const [error, setError] = useState('');
+    const [generando, setGenerando] = useState(null);   // id del que se está generando
+    // Lo que falló al generar la carta al subir el justificante (id → motivo).
+    const [errCarta, setErrCarta] = useState(() => Object.fromEntries(cartas.filter(c => c.error).map(c => [c.id, c.error])));
+
+    const cargarBorrador = useCallback(async (f) => {
+        const { data } = await axios.get(`/api/lotes/${lote.id}/transferencia/${f.id}/borradores`);
+        setBorr(p => ({ ...p, [f.id]: data }));
+        // Con carta, el texto es el SUYO (pide ya la reseña) y la reseña programada
+        // se propone desmarcada para no pedírsela dos veces.
+        setTxt(p => ({
+            ...p,
+            [f.id]: {
+                transferencia: data.carta ? data.carta.whatsapp : data.transferencia,
+                email: data.carta?.email || '',
+                asunto: data.carta?.asunto || '',
+                resena: data.resena || '',
+            },
+        }));
+        setResenaOn(p => ({ ...p, [f.id]: !!data.resena && !data.resena_con_carta }));
+        setResenaAt(p => ({ ...p, [f.id]: isoALocal(data.resena_at) }));
+    }, [lote.id]);
 
     useEffect(() => {
         let vivo = true;
         (async () => {
             for (const f of filas) {
                 try {
-                    const { data } = await axios.get(`/api/lotes/${lote.id}/transferencia/${f.id}/borradores`);
                     if (!vivo) return;
-                    setBorr(p => ({ ...p, [f.id]: data }));
-                    setTxt(p => ({ ...p, [f.id]: { transferencia: data.transferencia, resena: data.resena || '' } }));
-                    setResenaOn(p => ({ ...p, [f.id]: !!data.resena }));
-                    setResenaAt(p => ({ ...p, [f.id]: isoALocal(data.resena_at) }));
+                    await cargarBorrador(f);
                 } catch (e) {
                     if (vivo) setError(e.response?.data?.error || 'No se pudieron preparar los mensajes.');
                 }
             }
         })();
         return () => { vivo = false; };
-    }, [lote.id, filas]);
+    }, [filas, cargarBorrador]);
+
+    const generarCarta = async (f) => {
+        setGenerando(f.id);
+        try {
+            await axios.post(`/api/lotes/${lote.id}/transferencia/${f.id}/carta-pago`);
+            setErrCarta(p => ({ ...p, [f.id]: null }));
+            await cargarBorrador(f);
+        } catch (e) {
+            setErrCarta(p => ({ ...p, [f.id]: e.response?.data?.error || 'No se pudo generar la carta de pago' }));
+        } finally {
+            setGenerando(null);
+        }
+    };
+
+    const verCarta = async (f) => {
+        try {
+            const { data } = await axios.get(`/api/lotes/${lote.id}/transferencia/${f.id}/carta-pago.pdf`, { responseType: 'blob' });
+            window.open(URL.createObjectURL(data), '_blank', 'noopener');
+        } catch {
+            setErrCarta(p => ({ ...p, [f.id]: 'No se pudo abrir el PDF de la carta' }));
+        }
+    };
 
     const listas = filas.filter(f => borr[f.id]);
     const conTlf = listas.filter(f => borr[f.id].contacto?.tlf).length;
@@ -346,9 +388,11 @@ export function AvisoTransferenciaModal({ lote, filas, onClose, onEnviado }) {
                 const { data } = await axios.post(`/api/lotes/${lote.id}/transferencia/${f.id}/avisar`, {
                     channels,
                     mensaje: txt[f.id]?.transferencia,
+                    mensaje_email: b.carta?.html ? undefined : (txt[f.id]?.email || undefined),
+                    asunto: txt[f.id]?.asunto || undefined,
                     resena: programar ? { programar: true, at: at.toISOString(), mensaje: txt[f.id].resena } : null,
                 });
-                items.push(`${f.numero_expediente} · ${b.contacto?.nombre || f.cliente || ''} · ${(data.channels || []).join(' + ')}${data.resena ? ` · reseña el ${fechaLarga(data.resena.programada_para)}` : ''}`);
+                items.push(`${f.numero_expediente} · ${b.contacto?.nombre || f.cliente || ''} · ${(data.channels || []).join(' + ')}${b.carta ? ` · carta ${b.carta.numero}` : ''}${data.resena ? ` · reseña el ${fechaLarga(data.resena.programada_para)}` : ''}`);
             } catch (e) {
                 fallos++;
                 items.push({ texto: `${f.numero_expediente}: ${e.response?.data?.error || 'no se pudo enviar'}`, tono: 'aviso' });
@@ -367,7 +411,7 @@ export function AvisoTransferenciaModal({ lote, filas, onClose, onEnviado }) {
             <Marco
                 subtitulo="Pago a los clientes"
                 titulo="Avisar de la transferencia"
-                explicacion="A cada cliente: que ya está transferido, cuánto, a qué cuenta (enmascarada) y con qué concepto. Y, programada, la petición de reseña en Google para cuando el dinero ya le haya llegado."
+                explicacion="A cada cliente: que ya está transferido y cuánto, con su CARTA DE PAGO en PDF adjunta (por WhatsApp y por email). El texto ya le pide la reseña en Google, así que la reseña programada sale desmarcada."
                 onClose={onClose}
                 pie={(
                     <>
@@ -414,12 +458,50 @@ export function AvisoTransferenciaModal({ lote, filas, onClose, onEnviado }) {
                                     </button>
                                 )}
                             </div>
+                            {b && (
+                                <div className="px-3 pb-2 -mt-1 flex items-center gap-2 flex-wrap text-[10px]">
+                                    {b.carta ? (
+                                        <>
+                                            <span className="px-1.5 py-0.5 rounded-md border border-emerald-400/30 text-emerald-300">📄 Carta de pago {b.carta.numero}</span>
+                                            <button type="button" onClick={() => verCarta(f)} className="font-bold text-white/55 hover:text-white underline">Ver PDF</button>
+                                            <button type="button" onClick={() => generarCarta(f)} disabled={generando === f.id}
+                                                className="font-bold text-white/40 hover:text-white disabled:opacity-40">{generando === f.id ? 'Rehaciendo…' : 'Rehacer'}</button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="px-1.5 py-0.5 rounded-md border border-amber-400/40 text-amber-300">⚠ Sin carta de pago{errCarta[f.id] ? `: ${errCarta[f.id]}` : ''}</span>
+                                            <button type="button" onClick={() => generarCarta(f)} disabled={generando === f.id}
+                                                className="font-bold text-brand hover:brightness-110 disabled:opacity-40">{generando === f.id ? 'Generando…' : 'Generar carta de pago'}</button>
+                                        </>
+                                    )}
+                                    {b.carta && errCarta[f.id] && <span className="text-red-400">{errCarta[f.id]}</span>}
+                                </div>
+                            )}
                             {abierto === f.id && b && (
                                 <div className="px-3 pb-3 space-y-2">
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Ahora · transferencia hecha</p>
-                                    <textarea value={t.transferencia || ''} rows={8}
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-white/40">
+                                        {b.carta ? 'WhatsApp · con la carta adjunta' : 'Ahora · transferencia hecha'}
+                                    </p>
+                                    <textarea value={t.transferencia || ''} rows={b.carta ? 5 : 8}
                                         onChange={e => setTxt(p => ({ ...p, [f.id]: { ...p[f.id], transferencia: e.target.value } }))}
                                         className="w-full bg-black/25 border border-white/10 rounded-xl p-3 text-[12px] text-white/85 leading-relaxed outline-none focus:border-brand/50 no-uppercase font-sans" />
+                                    {b.carta && (
+                                        <>
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Email · con la carta adjunta</p>
+                                            <input value={t.asunto || ''}
+                                                onChange={e => setTxt(p => ({ ...p, [f.id]: { ...p[f.id], asunto: e.target.value } }))}
+                                                className="w-full bg-black/25 border border-white/10 rounded-xl px-3 py-2 text-[12px] text-white/85 outline-none focus:border-brand/50 no-uppercase font-sans" />
+                                            {b.carta.html ? (
+                                                // El email de DISEÑO: se ve tal cual llega; el cuerpo no se edita.
+                                                <iframe title={`Email ${f.numero_expediente}`} srcDoc={b.carta.html} sandbox=""
+                                                    className="w-full h-[460px] rounded-xl border border-white/10 bg-white" />
+                                            ) : (
+                                                <textarea value={t.email || ''} rows={11}
+                                                    onChange={e => setTxt(p => ({ ...p, [f.id]: { ...p[f.id], email: e.target.value } }))}
+                                                    className="w-full bg-black/25 border border-white/10 rounded-xl p-3 text-[12px] text-white/85 leading-relaxed outline-none focus:border-brand/50 no-uppercase font-sans" />
+                                            )}
+                                        </>
+                                    )}
                                     {b.resena ? (
                                         <>
                                             <div className="flex items-center gap-2 flex-wrap">

@@ -406,6 +406,13 @@ async function filaCobro(exp, { conBorrador = false, ibanCompleto = false } = {}
                 cancelada_at: cobro.resena.cancelada_at || null,
                 error: cobro.resena.error || null,
             } : null,
+            // La carta de pago (cartaPagoService). El enlace de Drive, solo al ADMIN.
+            carta_pago: cobro.carta_pago ? {
+                numero: cobro.carta_pago.numero,
+                at: cobro.carta_pago.at || null,
+                enviada_at: cobro.carta_pago.enviada_at || null,
+                link: ibanCompleto ? (cobro.carta_pago.link || null) : null,
+            } : null,
         },
         forma_pago,
         resumen: lineas,
