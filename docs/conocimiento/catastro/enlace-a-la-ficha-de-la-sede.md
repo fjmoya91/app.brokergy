@@ -18,7 +18,7 @@ de la Sede) daba el error. El enlace que a él SÍ le abría la ficha era la dir
 | Qué pide la Sede (delegación, municipio, referencia de 20, si hay varios inmuebles) | `codigosSede` en [catastroService.js](implementation/backend/services/catastroService.js) |
 | A qué página se va (pura, sin red) | `urlSedeCatastro` en el mismo fichero |
 | La ruta | `GET /api/catastro/sede/:rc` → 302 ([routes/catastro.js](implementation/backend/routes/catastro.js)) |
-| Todos los iconos del frontend | `enlaceSedeCatastro` en [utils/enlacesInmueble.js](implementation/frontend/src/utils/enlacesInmueble.js) (`EnlacesInmueble`: clientes, ficha técnica, envolvente) |
+| Todos los iconos del frontend | `enlaceSedeCatastro` en [utils/enlacesInmueble.js](implementation/frontend/src/utils/enlacesInmueble.js) (`EnlacesInmueble`: clientes, ficha técnica, envolvente y, desde el 23/10/2026, la cabecera del expediente junto al nombre del cliente — también para el certificador) |
 | El «Ver en Catastro» de la página del encargo | `comoLlegar` en [services/encargoTecnico.js](implementation/backend/services/encargoTecnico.js) |
 | Prueba | `node implementation/backend/scripts/test_enlace_sede_catastro.js` (`--en-vivo`: contra el Catastro, en serie) |
 

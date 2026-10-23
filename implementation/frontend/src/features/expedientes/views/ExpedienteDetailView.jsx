@@ -51,6 +51,7 @@ import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import SearchableSelect from '../../../components/SearchableSelect';
 import { nombrePartner, tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 import { AvisoFotosWhatsapp } from '../../whatsapp/components/AvisoFotosWhatsapp';
+import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
 
 // Pausa de inactividad antes de persistir los cambios de "Instalación". Los
 // campos de texto emiten en cada pulsación: sin este margen saldría un PUT
@@ -1456,6 +1457,29 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                                     </span>
                                 </div>
                             )}
+
+                            {/* Dónde está: la ficha del Catastro y la dirección de la vivienda en
+                                Google Maps, los mismos iconos que en clientes. También para el
+                                certificador, que es quien va a la visita. Sin dato, sin botón. */}
+                            <EnlacesInmueble
+                                soloIconos
+                                rc={op.ref_catastral || opInputs.ref_catastral || opInputs.rc || expediente.instalacion?.ref_catastral || null}
+                                direccion={(() => {
+                                    // La dirección del Catastro ya suele traer CP y municipio
+                                    // («… 02600 VILLARROBLEDO (ALBACETE)»): solo se añade lo que
+                                    // falta, y la provincia si es un nombre y no su código («02»).
+                                    const calle = String(opInputs.direccion || opInputs.address || '').trim();
+                                    const muni = opInputs.municipio || cliente.municipio || '';
+                                    const prov = opInputs.provincia || cliente.provincia || '';
+                                    const tiene = (t) => t && calle.toUpperCase().includes(String(t).toUpperCase());
+                                    return [
+                                        calle,
+                                        !tiene(muni) && [opInputs.cp || cliente.codigo_postal, muni].filter(Boolean).join(' '),
+                                        !/^\d+$/.test(String(prov).trim()) && !tiene(prov) && prov,
+                                    ].filter(Boolean).join(', ') || null;
+                                })()}
+                                className="ml-1"
+                            />
                         </div>
 
                         {/* Dirección Housing (Vivienda) */}
