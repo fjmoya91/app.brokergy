@@ -91,8 +91,10 @@ INEXACTITUDES del verificador se registran solas».
 **Medido el 23/10/2026: en el VPS el barrido NO ha corrido nunca** — `app_settings` no tiene
 `firmados_so_correo:vistos`, y los correos de Jesús de las 08:15 seguían sin registrar a las
 09:30. Hay que comprobar `FIRMADOS_SO_CORREO_ENABLED=true` en el `.env` del VPS y que esté
-desplegado. (Desde el 23/10 esa clave ya existe: la escribió el registro a mano con
-`--aplicar` desde local.)
+desplegado. **La variable no estaba en el `.env` del VPS**: se añadió el 23/10/2026 (copia en
+`.env.bak.firmadoscorreo.*`) con el deploy de `71a8624`; el log dice «vigilando el buzón de
+firmados del S.O. (cada 15 min)» y el primer barrido miró 9 correos atrasados sin nada nuevo
+que registrar.
 
 ### Lo que enseñó la prueba en seco (19/10/2026, últimos 30 días)
 
