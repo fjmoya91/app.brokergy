@@ -870,6 +870,140 @@ async function colocarRefirmados(loteId, docKeys, { seco = false, usuario = 'SIS
     return out;
 }
 
+// Los firmados del EXPEDIENTE que contestan una inexactitud: el campo donde llega la
+// firma → el slot de la incidencia y la pieza del paquete (envioGestorService.INDICE).
+const FIRMADOS_EXPEDIENTE = {
+    anexo_i_signed_link:           { slot: 'anexo_i',           cod: '4-5', etiqueta: 'Anexo I' },
+    anexo_cesion_signed_link:      { slot: 'anexo_cesion',      cod: '1-2', etiqueta: 'Convenio de Cesión' },
+    anexo_fotografico_signed_link: { slot: 'anexo_fotografico', cod: '3-4', etiqueta: 'Anexo Fotográfico' },
+    cert_cifo_signed_link:         { slot: 'cert_cifo',         cod: '3-5', etiqueta: 'CIFO' },
+};
+
+/**
+ * Qué campos firmados han cambiado entre dos `documentacion`. Puro.
+ * @returns {string[]}
+ */
+function firmadosCambiados(antes, despues) {
+    return Object.keys(FIRMADOS_EXPEDIENTE)
+        .filter(c => (despues?.[c] || null) && (despues?.[c] || null) !== (antes?.[c] || null));
+}
+
+/**
+ * Qué colocar de lo que acaba de llegar firmado: solo lo que tiene una inexactitud
+ * ABIERTA (no subsanada ni descartada) colgada de su slot, agrupado por lote y ronda.
+ * El Convenio con firma ELECTRÓNICA del cliente espera la contrafirma de Brokergy
+ * (`cesion_firmado_brokergy`): sin ella no es el documento que se contesta. Puro.
+ *
+ * @returns {{ grupos: Array<{ lote_id, ronda, desde, cods, campos, incs }>, esperando: string[] }}
+ */
+function planCorregidosExpediente(doc, campos) {
+    const abiertas = (doc?.incidencias || [])
+        .filter(i => i?.inexactitud?.lote_id && i.estado !== 'SUBSANADA' && !esDescartada(i));
+    const grupos = new Map();
+    const esperando = [];
+    for (const campo of campos || []) {
+        const f = FIRMADOS_EXPEDIENTE[campo];
+        if (!f || !doc?.[campo]) continue;
+        const incs = abiertas.filter(i => slotsDe(i).includes(f.slot));
+        if (!incs.length) continue;
+        if (campo === 'anexo_cesion_signed_link' && doc.anexo_cesion_firma_tipo === 'electronica' && !doc.cesion_firmado_brokergy) {
+            esperando.push(`${f.etiqueta}: falta la firma de Brokergy`);
+            continue;
+        }
+        for (const i of incs) {
+            const ronda = Number(i.inexactitud.ronda) || 1;
+            const k = `${i.inexactitud.lote_id}|${ronda}`;
+            if (!grupos.has(k)) grupos.set(k, { lote_id: i.inexactitud.lote_id, ronda, desde: null, cods: new Set(), campos: new Set(), incs: new Map() });
+            const g = grupos.get(k);
+            g.cods.add(f.cod);
+            g.campos.add(campo);
+            g.incs.set(i.id, i);
+            const t = Date.parse(i.inexactitud.desde || '') || 0;
+            if (t && (!g.desde || t < Date.parse(g.desde))) g.desde = i.inexactitud.desde;
+        }
+    }
+    return {
+        grupos: [...grupos.values()].map(g => ({ ...g, cods: [...g.cods], campos: [...g.campos], incs: [...g.incs.values()] })),
+        esperando,
+    };
+}
+
+/**
+ * Lo que el CLIENTE (o quien sea) vuelve a firmar con una inexactitud ABIERTA va
+ * solo a su "E{n}" (la anterior, a "E{n}/OLD") y a "{ronda}. REQUERIMIENTO", y la
+ * incidencia SIGUE ABIERTA: se deja una nota en su hilo y la cierra una persona al
+ * revisarlo (decisión del usuario, 23/10/2026). Al subsanarla después, la copia ya
+ * está y no se repite (copiarPiezas compara el md5).
+ *
+ * La llaman, aparte y sin esperar, los caminos por los que entra una firma del
+ * expediente: el enlace del cliente (/anexos-upload), la cesión manuscrita montada
+ * en la app y el PUT del expediente (subidas de DocsManager y la contrafirma de la
+ * cesión). No lanza.
+ *
+ * @param {string} expedienteId
+ * @param {string[]} campos  los `*_signed_link` que acaban de cambiar
+ */
+async function colocarCorregidosExpediente(expedienteId, campos, { usuario = 'SISTEMA', seco = false } = {}) {
+    const out = { copiados: [], omitidos: [], esperando: [], texto: '' };
+    try {
+        if (!Array.isArray(campos) || !campos.some(c => FIRMADOS_EXPEDIENTE[c])) return out;
+        const supabase = require('./supabaseClient');
+        const driveService = require('./driveService');
+        const { data: exp, error } = await supabase.from('expedientes')
+            .select('id, numero_expediente, oportunidad_id, instalacion, documentacion').eq('id', expedienteId).maybeSingle();
+        if (error) throw error;
+        if (!exp) return out;
+        const plan = planCorregidosExpediente(exp.documentacion || {}, campos);
+        out.esperando = plan.esperando;
+        if (!plan.grupos.length) return out;
+
+        const notas = new Map();   // id incidencia → texto
+        for (const g of plan.grupos) {
+            const { data: lote } = await supabase.from('lotes')
+                .select('id, codigo, drive_folder_id, documentos_so').eq('id', g.lote_id).maybeSingle();
+            if (!lote) continue;
+            const carpeta = seco
+                ? await driveService.findSubfolderByName(lote.drive_folder_id, CARPETA_REQUERIMIENTO(g.ronda))
+                : await carpetaDelRequerimiento(lote, g.ronda);
+            const listado = carpeta
+                ? (await driveService.listFiles(carpeta) || []).filter(f => f.mimeType !== 'application/vnd.google-apps.folder')
+                : [];
+            const previas = await carpetasRondasPrevias(lote, g.ronda);
+            const r = await copiarPiezas({ lote, exp, cods: g.cods, desde: g.desde, carpeta, listado, ronda: g.ronda, previas, seco });
+            out.copiados.push(...r.copiados);
+            out.omitidos.push(...r.omitidos);
+            const n = exp.instalacion?.verificacion?.orden_actuacion;
+            const nuevos = r.copiados.filter(c => !c.yaEstaba || c.enE);
+            if (!nuevos.length) continue;
+            const texto = `Ha llegado firmado ${g.campos.map(c => FIRMADOS_EXPEDIENTE[c].etiqueta).join(' y ')}: `
+                + `${nuevos.map(c => `«${c.nombre}»`).join(', ')} copiado a «${CARPETA_REQUERIMIENTO(g.ronda)}» de ${lote.codigo}`
+                + `${nuevos.some(c => c.enE) ? ` y a E${n} (la versión anterior, a E${n}/OLD)` : ''}. `
+                + 'La incidencia sigue ABIERTA: ciérrala cuando lo hayas revisado.';
+            for (const i of g.incs) notas.set(i.id, texto);
+        }
+        out.texto = [...new Set(notas.values())].join(' ');
+
+        // La nota en el hilo de cada incidencia abierta. Se relee justo antes de
+        // escribir (la copia tarda): mismo patrón que la ruta de resolver.
+        if (!seco && notas.size) {
+            const { data: fresh } = await supabase.from('expedientes').select('documentacion').eq('id', exp.id).single();
+            const doc = fresh?.documentacion || {};
+            doc.incidencias = (doc.incidencias || []).map(i => {
+                if (!notas.has(i.id)) return i;
+                const c = { ...i, comentarios: [...(i.comentarios || [])] };
+                pushComentario(c, notas.get(i.id), usuario === 'SISTEMA' ? 'Sistema' : usuario, 'NOTA');
+                return c;
+            });
+            await supabase.from('expedientes').update({ documentacion: doc, updated_at: nowIso() }).eq('id', exp.id);
+        }
+    } catch (err) {
+        console.warn('[inexactitudes] colocar corregidos del expediente:', err.message);
+        out.texto = `No se pudo colocar lo firmado en el paquete: ${err.message}`;
+        out.error = err.message;
+    }
+    return out;
+}
+
 /**
  * Deja la carpeta "{ronda}. REQUERIMIENTO" lista para contestar:
  *   · los documentos de cada incidencia SUBSANADA de esa ronda que hayan cambiado
@@ -985,5 +1119,9 @@ module.exports = {
     prepararCarpetaRequerimiento,
     colocarRefirmados,
     rondaDelRefirmado,
+    colocarCorregidosExpediente,
+    planCorregidosExpediente,
+    firmadosCambiados,
+    FIRMADOS_EXPEDIENTE,
     copiarPiezas,
 };

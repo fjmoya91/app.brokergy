@@ -129,3 +129,29 @@ Primer uso, 23/10/2026: Jesús devolvió por correo las fichas `_rev1` de 25RES0
 `probar_firmados_correo.js --dias 1 --aplicar` → cada `E{n}` con la re-firmada y la `_fdo`
 anterior en OLD; «1. REQUERIMIENTO» de LOTE-2025-010 creada con las cuatro. Los dos Anexo I
 venían solo con la firma de Pedro José: falta la de Brokergy y no se registran solos.
+
+### Lo que el CLIENTE vuelve a firmar, también solo (2026-10-23)
+
+Decisión del usuario, el mismo día: «que lo que el cliente vuelve a firmar con una inexactitud
+abierta vaya solo a su E{n} y al requerimiento, dejando la incidencia abierta para que yo la
+cierre». Caso: Eusebia (25RES060_88, por su representante notarial) y Javier Panduro
+(25RES060_85) volvieron a firmar el Anexo I desde su enlace a las 08:43 y 08:49; el firmado
+estaba en la app pero la `E{n}` seguía con el viejo hasta pulsar «Subsanar».
+
+| Qué | Dónde |
+|---|---|
+| Qué se coloca (puro) | `planCorregidosExpediente` / `firmadosCambiados` en [inexactitudesLote.js](implementation/backend/services/inexactitudesLote.js) |
+| Colocarlo | `colocarCorregidosExpediente(expedienteId, campos)` |
+| Quién lo llama, aparte | `/anexos-upload` (enlace del cliente), la subida del CIFO por el instalador, `cesion-manuscrita` y el `PUT /expedientes/:id` (DocsManager y la contrafirma) |
+
+Documentos: Anexo I (`4-5`), Convenio (`1-2`), Anexo Fotográfico (`3-4`) y CIFO (`3-5`), cada
+uno solo si tiene una inexactitud ABIERTA colgada de su slot. Mismo motor que «Subsanar»
+(`copiarPiezas`, md5 contra lo que vio el verificador), así que subsanar después no duplica.
+
+**REGLA — la incidencia SIGUE ABIERTA**: se deja una NOTA en su hilo («ha llegado firmado…,
+copiado a… ciérrala cuando lo hayas revisado»). Que llegue firmado no prueba que esté bien.
+
+**REGLA — el Convenio con firma ELECTRÓNICA del cliente espera la contrafirma de Brokergy**
+(`cesion_firmado_brokergy`): sin ella no es el documento que se contesta. La contrafirma puede
+dejar el MISMO enlace (Drive reemplaza el fichero), así que el PUT cuenta también que
+`cesion_firmado_brokergy` pase a true.

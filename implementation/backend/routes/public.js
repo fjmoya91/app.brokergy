@@ -2457,6 +2457,10 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
 
         res.json({ success: true, fileLink, rev });
 
+        // Si contesta una INEXACTITUD abierta, va solo a su E{n} y al requerimiento.
+        setImmediate(() => require('../services/inexactitudesLote')
+            .colocarCorregidosExpediente(expedienteId, ['cert_cifo_signed_link']).catch(() => {}));
+
         // Notificaciones en background
         setImmediate(async () => {
             const instalador = instaladorNombre;
@@ -3745,6 +3749,11 @@ router.post('/anexos-upload/:expedienteId',
             await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', expedienteId);
 
             res.json({ success: true, recibido });
+
+            // Si contesta una INEXACTITUD abierta, va solo a su E{n} y al requerimiento
+            // (la incidencia sigue abierta). Aparte: el cliente no espera a Drive.
+            setImmediate(() => require('../services/inexactitudesLote')
+                .colocarCorregidosExpediente(expedienteId, camposSubidos).catch(() => {}));
 
             // Notificación al admin (background)
             setImmediate(async () => {

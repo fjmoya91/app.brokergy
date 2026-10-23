@@ -19,6 +19,7 @@
 const {
     documentosDeInexactitud, severidadDe, actuacionesDe, casarInexactitudes,
     rondaDeKey, planIncidencias, conRevision, rondaDelRefirmado,
+    planCorregidosExpediente, firmadosCambiados,
 } = require('../services/inexactitudesLote');
 
 let fallos = 0;
@@ -117,6 +118,33 @@ ok(rondaDelRefirmado(docsLote, docsLote[2]) === 1, 'pedido 2 min después del in
 ok(rondaDelRefirmado(docsLote, { requerimiento_at: '2026-11-06T09:00:00.000Z' }) === 2, 'pedido tras el informe 2 → ronda 2');
 ok(rondaDelRefirmado(docsLote, { requerimiento_at: '2026-10-01T09:00:00.000Z' }) === null, 'pedido antes de cualquier informe → sin ronda (no viene de una inexactitud)');
 ok(rondaDelRefirmado(docsLote, { requerimiento_ronda: '1792591067346' }) === null, 'el `requerimiento_ronda` (marca de tiempo del envío) NO es el nº de ronda');
+
+console.log('\nLo que el cliente vuelve a firmar con una inexactitud abierta (25RES060_88, 23/10)');
+const incE3 = (n, slots, estado = 'ABIERTA', extra = {}) => ({
+    id: `i${n}`, estado, slots, inexactitud: { lote_id: 'L12', ronda: 1, n, desde: '2026-10-21T22:00:00.000Z', ...extra },
+});
+const docE3 = {
+    anexo_i_signed_link: 'https://drive.google.com/file/d/NUEVO_I/view',
+    anexo_cesion_signed_link: 'https://drive.google.com/file/d/NUEVO_C/view',
+    anexo_cesion_firma_tipo: 'electronica', cesion_firmado_brokergy: false,
+    incidencias: [
+        incE3(1, ['anexo_i']),
+        incE3(3, ['cert_cifo', 'anexo_cesion', 'anexo_fotografico', 'anexo_i']),
+        incE3(6, ['cert_cifo', 'anexo_cesion', 'anexo_fotografico']),
+        incE3(9, ['anexo_i'], 'SUBSANADA'),
+        { id: 'manual', estado: 'ABIERTA', slot: 'anexo_i' },
+    ],
+};
+const pE3 = planCorregidosExpediente(docE3, ['anexo_i_signed_link', 'anexo_cesion_signed_link']);
+ok(pE3.grupos.length === 1 && igual(pE3.grupos[0].cods, ['4-5']), 'el Anexo I va (pieza 4-5) a la ronda 1 de su lote');
+ok(igual(pE3.grupos[0].incs.map(i => i.id).sort(), ['i1', 'i3']), '…con nota en las abiertas que hablan de él (no en la subsanada ni en una incidencia que no es de inexactitud)');
+ok(pE3.esperando.length === 1 && /Brokergy/.test(pE3.esperando[0]), 'el Convenio con firma electrónica del cliente ESPERA la contrafirma de Brokergy');
+const pE3b = planCorregidosExpediente({ ...docE3, cesion_firmado_brokergy: true }, ['anexo_cesion_signed_link']);
+ok(pE3b.grupos.length === 1 && igual(pE3b.grupos[0].cods, ['1-2']) && igual(pE3b.grupos[0].incs.map(i => i.id).sort(), ['i3', 'i6']), 'contrafirmado, el Convenio va (1-2), con nota en la nº3 y la nº6');
+ok(!planCorregidosExpediente({ ...docE3, incidencias: [incE3(1, ['anexo_i'], 'SUBSANADA')] }, ['anexo_i_signed_link']).grupos.length, 'sin inexactitud abierta de ese documento no se coloca nada (se hace al subsanar, como siempre)');
+ok(!planCorregidosExpediente({ ...docE3, incidencias: [incE3(1, ['anexo_i'], 'ABIERTA', { descartada: true })] }, ['anexo_i_signed_link']).grupos.length, 'una descartada no cuenta');
+ok(igual(firmadosCambiados({ anexo_i_signed_link: 'A', cert_cifo_signed_link: 'C' }, { anexo_i_signed_link: 'B', cert_cifo_signed_link: 'C', anexo_fotografico_signed_link: 'F' }).sort(), ['anexo_fotografico_signed_link', 'anexo_i_signed_link']), 'firmadosCambiados: lo que llega o cambia, no lo que sigue igual');
+ok(!firmadosCambiados({ anexo_i_signed_link: 'A' }, { anexo_i_signed_link: null }).length, '…y quitar un firmado no es que haya llegado uno');
 
 console.log(fallos ? `\n✗ ${fallos} fallo(s)\n` : '\n✓ Todo correcto\n');
 process.exit(fallos ? 1 : 0);

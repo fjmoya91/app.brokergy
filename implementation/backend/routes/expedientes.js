@@ -2699,6 +2699,9 @@ router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) =
             faltan,
             documentacion: newDoc,
         });
+        // Si contesta una INEXACTITUD abierta, va solo a su E{n} y al requerimiento.
+        setImmediate(() => require('../services/inexactitudesLote')
+            .colocarCorregidosExpediente(req.params.id, ['anexo_cesion_signed_link'], { usuario }).catch(() => {}));
     } catch (err) {
         console.error('[cesion-manuscrita]', err.message);
         res.status(500).json({ error: 'No se pudo montar el Anexo de Cesión', details: err.message });
@@ -3708,6 +3711,21 @@ router.put('/:id', enforceAuth, async (req, res) => {
         const certAsignado = !existing.cee?.certificador_id && !!data.cee?.certificador_id;
         if (estadoCambio || certAsignado) {
             syncExpedienteFolderAsync(data, { motivo: certAsignado ? 'certificador asignado' : 'cambio de estado' });
+        }
+
+        // ── Firmado que contesta una INEXACTITUD abierta → su E{n} y el requerimiento ──
+        // Subidas de DocsManager y la contrafirma de la cesión pasan por aquí. La
+        // contrafirma puede dejar el MISMO enlace (Drive reemplaza el fichero), así que
+        // también cuenta que `cesion_firmado_brokergy` acabe de ponerse a true.
+        {
+            const inex = require('../services/inexactitudesLote');
+            const campos = inex.firmadosCambiados(existing.documentacion, docObj);
+            if (docObj?.cesion_firmado_brokergy && !existing.documentacion?.cesion_firmado_brokergy
+                && !campos.includes('anexo_cesion_signed_link')) campos.push('anexo_cesion_signed_link');
+            if (campos.length) {
+                const quien = req.user?.esRobot ? 'CLAUDE' : (req.user?.acronimo || req.user?.razon_social || 'Sistema');
+                setImmediate(() => inex.colocarCorregidosExpediente(req.params.id, campos, { usuario: quien }).catch(() => {}));
+            }
         }
 
         // ── Envolvente → apartados de foto (RES080) ──────────────────────────
