@@ -140,6 +140,10 @@ ${ctx.expedienteLink}${ctx.driveLink ? `\n📂 Carpeta de Drive:\n${ctx.driveLin
         } catch (e) { console.warn('[UploadNotify] Email admin:', e.message); }
 
         console.log(`[UploadNotify] Resumen enviado — ${ctx.numExp}: ${total} archivo(s).`);
+
+        // Si el agente le había pedido documentación tras la aceptación, que la
+        // revise y siga (pedir lo que aún falte o hacer el CEE inicial).
+        await require('./aceptacionAgente').retomarTrasSubida(oportunidadUuid);
     } catch (e) {
         console.error('[UploadNotify] vaciar:', e.message);
     }

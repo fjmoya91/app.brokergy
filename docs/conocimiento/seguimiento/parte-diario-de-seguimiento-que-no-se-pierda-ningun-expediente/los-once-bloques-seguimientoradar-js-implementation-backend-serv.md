@@ -15,7 +15,7 @@ la reinsistencia viven en el mapa `BLOQUES` (todos con variable de entorno).
 | `SIN_LOTEAR` | `loteService.ESTADOS_COMPLETO` sin `lote_id` >15 d | BROKERGY | — (meterlo en un lote) |
 | `REGISTRO` | `cee_* = REVISADO` **sin fecha de registro** >2 d | CERTIFICADOR | Recordar el registro |
 | `CERT_SIN_ENTREGAR` | `ASIGNADO/EN_TRABAJO/PTE_PRESENTACION` >10 d | CERTIFICADOR | Pedir fecha |
-| `SIN_ENCARGAR` | encargo sin salir, **con técnico o sin él** (plazo 0) | BROKERGY | — |
+| `SIN_ENCARGAR` | encargo sin salir, **con técnico o sin él** (plazo 0); si el agente revisa su documentación tras la aceptación, el detalle dice qué hace (`detalleAgente`, regla 158) | BROKERGY | — |
 | `MIGRADO_SIN_REVISAR` | `PENDIENTE REVISAR EXPTE` >15 d | BROKERGY | — |
 | `FIRMA_PENDIENTE` | `_sent_at` sin `_signed_link` >7 d | CLIENTE/INSTALADOR | Recordar la firma |
 | `FIN_OBRA` | CEE ini. registrado, sin señales de obra >30 d | CLIENTE/INSTALADOR | ¿Cómo va la obra? |

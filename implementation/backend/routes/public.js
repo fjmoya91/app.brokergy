@@ -656,6 +656,7 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
             // VICENTE RUIZ SL) le llega a ella, aunque el cliente haya escrito su
             // propio móvil al aceptar — medido en 26RES060_202: salió al 649396849
             // del titular. Sin desvío, lo de siempre: lo que tecleó el cliente.
+            const aceptacionAgente = require('../services/aceptacionAgente');
             let dest = {
                 tlf: formFields.telefono || null,
                 email: formFields.email || null,
@@ -663,28 +664,36 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
                 titular: null,
             };
             try {
-                if (id_cliente) {
-                    const { data: cli } = await supabase.from('clientes')
-                        .select('nombre_razon_social, apellidos, notificaciones_contacto_activas, persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email')
-                        .eq('id_cliente', id_cliente).maybeSingle();
-                    const desvio = cli?.notificaciones_contacto_activas === true || cli?.notificaciones_contacto_activas === 'true';
-                    if (desvio && (cli.persona_contacto_tlf || cli.persona_contacto_email)) {
-                        dest = {
-                            tlf: cli.persona_contacto_tlf || null,
-                            email: cli.persona_contacto_email || null,
-                            saludo: cli.persona_contacto_nombre || '',
-                            titular: require('../services/recordatorios').capitalizar(
-                                `${cli.nombre_razon_social || formFields.nombre_razon_social || ''} ${cli.apellidos || formFields.apellidos || ''}`.trim()),
-                        };
-                    }
-                }
+                dest = await aceptacionAgente.destinatarioCliente(id_cliente, dest);
             } catch (e) { console.warn('[Public] resolviendo destinatario del acuse:', e.message); }
+
+            // La DOCUMENTACIÓN la revisa el agente (decisión de Fran, 22/10/2026):
+            // mira lo que ya tenemos y pide solo lo que falte, o hace el CEE inicial.
+            // Solo en la primera aceptación. Si no se le ha podido encargar (apagado,
+            // CEE aportado, Claude del WhatsApp caído), el acuse lleva la lista de siempre.
+            const agente = prevEstado !== 'ACEPTADA'
+                ? await aceptacionAgente.encargarTrasAceptacion(numeroExpediente, { ceeAportado: ceeDecision === 'usar_cee_aportado' })
+                : { ok: false, motivo: 'reaceptación' };
+            console.log(`[Public] Revisión de la documentación por el agente: ${agente.ok ? 'encargada' : `no (${agente.motivo})`}`);
 
             // La foto de la caldera y la de su placa se piden al SIMULAR: si ya
             // están en Drive no se vuelven a pedir. `null` = no se pudo comprobar
             // → se pide "si no nos la has enviado ya".
-            const caldera = await reformaUploadService.calderaPendiente(opp);
+            const caldera = agente.ok ? null : await reformaUploadService.calderaPendiente(opp);
             const listaDocs = (tu) => emailService.documentacionAceptacionTexto(tu, caldera);
+            const bloqueDocs = (tu) => (agente.ok
+                ? `📁 ${aceptacionAgente.acuseRevision(tu)}
+
+🔗 Si ya ${tu ? 'tienes' : 'tenéis'} algo a mano, ${tu ? 'puedes subirlo' : 'se puede subir'} aquí:
+${uploadLink}`
+                : `📁 *Para poder hacer el CEE inicial necesitamos:*
+${listaDocs(tu).necesarios}
+
+Además, nos sirve de ayuda si ${tu ? 'los tienes' : 'los tenéis'}:
+${listaDocs(tu).ayuda}
+
+🔗 *${tu ? 'Puedes subir tu documentación aquí' : 'Se puede subir aquí'}:*
+${uploadLink}`);
 
             // 3. Email
             if (dest.email) try {
@@ -695,6 +704,7 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
                     uploadLink,
                     titular: dest.titular,
                     caldera,
+                    revisaAgente: agente.ok,
                 });
                 console.log(`[Public] Email de aceptación enviado${dest.titular ? ' (a la persona de contacto)' : ''}.`);
             } catch (emailErr) {
@@ -713,14 +723,7 @@ El número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
 
 A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que quede presentado *antes de que se presente ninguna factura de la obra*: os avisaremos en cuanto lo esté.
 
-📁 *Para poder hacer el CEE inicial necesitamos:*
-${listaDocs(false).necesarios}
-
-Además, nos sirve de ayuda si los tenéis:
-${listaDocs(false).ayuda}
-
-🔗 *Se puede subir aquí:*
-${uploadLink}
+${bloqueDocs(false)}
 
 ¡Quedamos a vuestra disposición para cualquier duda!
 *¡Muchas gracias por confiar en nosotros!*
@@ -737,14 +740,7 @@ Tu número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
 
 A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que quede presentado *antes de que te presenten ninguna factura de la obra*: te avisaremos en cuanto lo esté.
 
-📁 *Para poder hacer el CEE inicial necesitamos:*
-${listaDocs(true).necesarios}
-
-Además, nos sirve de ayuda si los tienes:
-${listaDocs(true).ayuda}
-
-🔗 *Puedes subir tu documentación aquí:*
-${uploadLink}
+${bloqueDocs(true)}
 
 ¡Quedamos a tu disposición para cualquier duda!
 *¡Muchas gracias por confiar en nosotros!*
@@ -801,7 +797,7 @@ ${uploadLink}
                         return `• ${nom}${p.dni ? ` (${p.dni})` : ''}${ced}${cuenta}`;
                     }).join('\n');
                 }
-                const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n🏦 ${justificanteStr}${propietariosStr}${viviendaStr}\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
+                const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n🏦 ${justificanteStr}${agente.ok ? '\n🤖 La documentación la revisa Claude: pedirá lo que falte o hará el CEE inicial.' : ''}${propietariosStr}${viviendaStr}\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
                 whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg).catch(e => console.warn('[Public] Error WhatsApp Admin:', e.message));
 
                 await emailService.sendAdminNotificationEmail({

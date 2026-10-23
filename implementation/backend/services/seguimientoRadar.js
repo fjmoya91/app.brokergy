@@ -291,6 +291,21 @@ function detectarCertSinEntregar(e, out) {
     }
 }
 
+/**
+ * Lo que está haciendo el agente con la documentación tras la aceptación
+ * (services/aceptacionAgente.js), dicho para quien lee el parte. null si nada.
+ */
+function detalleAgente(aa) {
+    if (!aa?.revision_at) return null;
+    const f = (iso) => new Date(iso).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit' });
+    const a = aa.pedido_quien === 'instalador' ? 'al instalador' : 'al cliente';
+    if (aa.programado?.para) return `Claude le pide ${a} lo que falta el ${f(aa.programado.para)} a las 9:00`;
+    if (aa.pedido_at && aa.pedido_at > aa.revision_at) {
+        return `Claude le pidió ${a} el ${f(aa.pedido_at)}: ${(aa.pedido || []).join(' · ').slice(0, 160)}`;
+    }
+    return `Claude revisa su documentación desde el ${f(aa.revision_at)}`;
+}
+
 /** D · Expediente aceptado cuyo encargo nunca ha salido de Brokergy. */
 function detectarSinEncargar(e, out) {
     // Un MIGRADO no necesita encargo: su CEE ya se hizo en el sistema antiguo. Lo que
@@ -312,7 +327,8 @@ function detectarSinEncargar(e, out) {
     const d = dias(desde);
     out.push(fila(e, 'SIN_ENCARGAR', {
         scope: 'inicial', desde, d,
-        detalle: e.certificador_id ? 'Técnico asignado, encargo SIN ENVIAR' : 'Sin certificador asignado',
+        detalle: detalleAgente(e.aceptacion_agente)
+            || (e.certificador_id ? 'Técnico asignado, encargo SIN ENVIAR' : 'Sin certificador asignado'),
         responsable: 'BROKERGY',
         // Con qué va a trabajar el técnico. Viaja en la fila para que la pestaña
         // Seguimiento diga, antes de encargar, si ya se le puede mandar o si antes
@@ -687,7 +703,8 @@ async function escanear(opts = {}) {
             cert_cifo_at:documentacion->>cert_cifo_drive_at,
             docs_rechazados:documentacion->docs_rechazados,
             cobro:documentacion->cobro,
-            recordatorios:documentacion->recordatorios
+            recordatorios:documentacion->recordatorios,
+            aceptacion_agente:documentacion->aceptacion_agente
         `.replace(/\s+/g, ''))
         .not('estado', 'in', `(${ESTADOS_FUERA.map(s => `"${s}"`).join(',')})`);
 
@@ -970,4 +987,5 @@ function silenciadaPor(f) {
 module.exports = {
     escanear, agruparPorBloque, agruparPorDestinatario, silenciadaPor,
     BLOQUES, dias, POSPONER_DIAS,
+    detalleAgente,
 };

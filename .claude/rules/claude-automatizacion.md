@@ -30,6 +30,8 @@ paths:
 
 146. **«Preséntalo» por WhatsApp: el Claude del servidor PREGUNTA, el PC de Fran PRESENTA** (2026-10-19). El VPS no tiene CE3X, ni el certificado, ni el Chrome con AutoFirma y la tarjeta, así que [scripts/asistente_pc.js](implementation/backend/scripts/asistente_pc.js) reparte: en el VPS, `presentar <nº>` le hace a Fran UNA pregunta (expediente, titular, tasa, tarjeta) y `confirmar <nº> --texto "<su respuesta literal>"` deja el encargo en la cola (`scratch/asistente/tareas_pc.json`) con la pregunta y la respuesta, que son la autorización de firmar y de pagar (skill `presentar-cee`, 1b); sin pregunta previa no hay encargo. En el PC, la tarea programada «Brokergy Trabajos PC» ([pc_trabajos.vbs](tools/windows/pc_trabajos.vbs), cada 2 min, solo con sesión iniciada, `IgnoreNew`) da el latido y lanza `claude -p --chrome` (calificar con `cee_inicial.js listo`, firmar con `firmar_cee.js`, la skill entera) **con la sesión de claude.ai de Fran: la vuelta QUITA `ANTHROPIC_API_KEY` del entorno** (con ella Claude Code apaga Chrome y cobra a la API) y **elige el perfil BROKERGY** (`PC_CHROME_DEVICE`; hay dos navegadores conectados). La vuelta espera al trabajo (un `claude -p` desligado muere al salir quien lo lanzó) y el mensaje FINAL lo manda ella. Un encargo que falla no se reintenta solo. **También desde la app**: `TAREAS.presentar` (tarjeta = la misma pregunta, botón «Presentar y pagar») → `asistenteCanal.encargarAlPc` → `POST /pc` del vigilante → `encolarPresentacion`, la misma cola. **Y lo que necesita CE3X** (2026-10-22): `ce3x <nº> --trabajo cee_final|calificar --texto "<decisiones de Fran>"` lo deja en la misma cola en vez de pararse; es un catálogo cerrado (`TRABAJOS_CE3X`), las decisiones viajan como datos y en el PC va **SIN `--chrome`** (solo scripts: ni sede ni tarjeta). Claude Code tiene que estar instalado FUERA de la app de la Store (su `AppData\Roaming` es virtual). El PC, encendido, sin suspender y desbloqueado. Tras tocarlo: `asistente_pc.js probar --enviar` desde el PC y una `vuelta` en una terminal normal. Ver "«Preséntalo» por WhatsApp".
 
+158. **Tras la ACEPTACIÓN, el agente revisa la documentación: pide lo que falta o hace el CEE inicial** (2026-10-22, decisión de Fran; huecos cerrados el 23/10). En la primera aceptación —por el enlace del cliente (`routes/public.js`) **o marcada por el equipo** (`PATCH /oportunidades/:id/estado`, sin acuse al cliente)—, sin CEE aportado y con `ACEPTACION_AGENTE_ENABLED=true`, se le encarga la revisión al Claude del WhatsApp (`aceptacionAgente.encargarTrasAceptacion` → `pedirTarea`, texto compuesto por el SERVIDOR) y, solo si el encargo entra, el acuse al cliente (WhatsApp y email) cambia la lista genérica por «revisaremos la documentación que ya tenemos y nos volveremos a poner en contacto para pedir lo que falte»; si no entra, sale la lista de siempre. El agente usa [scripts/aceptacion.js](implementation/backend/scripts/aceptacion.js): `estado` (solo lee) y `pedir --texto … [--slots …] --enviar`, **la ÚNICA excepción a la regla 113**: sale al cliente sin el «envíala» de Fran, con los topes en el script (ACEPTADA, sin CEE aportado, CEE inicial sin encargar, una vez por ronda, `MAX_RONDAS`) y con saludo, destinatario (el de la ficha), enlace y firma puestos por el script. `--a instalador` lo pide al contacto COMERCIAL del instalador. **Fuera de 9 a 21 h no sale: se programa** (`programado`) y lo manda la `vuelta` del servidor. Sin nada que pedir, `generar-cee-inicial`, **partiendo del borrador** si el Agente IA ya lo dejó en la oportunidad. Cuando llega lo pedido —por el enlace (`uploadNotifier`) o como fotos al WhatsApp (`alMensajeEntrante`, tras 10 min de silencio)— se vuelve a encargar la revisión (`retomar`, hasta 4 rondas). **Vigilante**: 24 h después de un encargo sin pedido ni CEE, aviso al chat de administración; el parte lo dice en «Aceptados y sin encargar» (`detalleAgente`). El estado, en `documentacion.aceptacion_agente` (CLAVES_PROTEGIDAS, RPC de merge); lo que está en marcha, en el índice `app_settings.aceptacion_agente_seguimiento` (nunca se busca por `documentacion`). Apagado en local. Tras tocarlo: `node implementation/backend/scripts/test_aceptacion_agente.js` y `auditar_rutas_sin_guardian.js`. Ver "Tras la ACEPTACIÓN, el agente revisa la documentación".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -39,6 +41,7 @@ paths:
 - `docs/conocimiento/claude-automatizacion/el-cee-inicial-por-la-api-banco-de-pruebas-y-coste.md` — El CEE inicial por la API de Claude: banco de pruebas y coste medido (2026-10-19) · 3,7 KB
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08) · 9,1 KB
 - `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 7,7 KB
+- `docs/conocimiento/claude-automatizacion/tras-la-aceptacion-el-agente-revisa-y-pide-lo-que-falta.md` — Tras la ACEPTACIÓN, el agente revisa la documentación y pide lo que falta, o hace el CEE inicial (2026-10-22) · 9,8 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -76,5 +79,15 @@ paths:
   - **REGLA — la vuelta no suelta el trabajo.**
   - **REGLA — el mensaje final lo manda el script, no Claude.**
   - **REGLA — un trabajo con CE3X es de un CATÁLOGO cerrado y va SIN Chrome.**
+- `docs/conocimiento/claude-automatizacion/tras-la-aceptacion-el-agente-revisa-y-pide-lo-que-falta.md`
+  - **REGLA — `aceptacion.js pedir --enviar` es la ÚNICA cosa que el agente manda a un tercero sin el
+«envíala» de Fran, y lleva sus topes.**
+  - **REGLA — fuera de 9 a 21 h (Madrid) no se le escribe a nadie: se PROGRAMA.**
+  - **REGLA — a quién: al CLIENTE por defecto, al INSTALADOR cuando lo tiene él**
+  - **REGLA — el agente dice QUÉ falta; el saludo, el destinatario, el enlace y la firma los pone el
+script.**
+  - **REGLA — un encargo que se calla AVISA.**
+  - **REGLA — el estado vive en `documentacion.aceptacion_agente` y es clave PROTEGIDA**
+  - **REGLA — lo que está en marcha se busca en un ÍNDICE, no en `documentacion`.**
 
 <!-- generado:fin -->

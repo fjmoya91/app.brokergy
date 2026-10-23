@@ -618,10 +618,13 @@ const documentacionAceptacionTexto = (tu = true, caldera = null, vineta = '•')
 
 // `titular`: solo cuando lo recibe la PERSONA DE CONTACTO del cliente (o el partner
 // que lleva la relación): entonces la propuesta aceptada es la de ese titular.
-const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente, uploadLink, titular = null, caldera = null }) => {
+// `revisaAgente`: el agente revisa lo que ya tenemos y pide solo lo que falte
+// (aceptacionAgente.js), así que no va la lista genérica de documentos.
+const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente, uploadLink, titular = null, caldera = null, revisaAgente = false }) => {
     const subject = `Aceptación recibida [Exp ${numeroExpediente || ''}] — Brokergy`;
     const docsAcept = documentacionAceptacion(!titular, caldera);
     const docsAceptTxt = documentacionAceptacionTexto(!titular, caldera, '-');
+    const revision = revisaAgente ? require('./aceptacionAgente').acuseRevision(!titular) : null;
 
     const whatsAppLink = `https://wa.me/34623926179?text=${encodeURIComponent(titular
         ? `Hola, soy ${userName}. Os envío la documentación del expediente ${numeroExpediente || 'A consultar'} de ${titular}.`
@@ -637,13 +640,16 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
                 ? `Hemos recibido correctamente la aceptación de la propuesta de <strong>${escapeHtml(titular)}</strong>. <strong>Muchas gracias por confiar en Brokergy.</strong>`
                 : 'Hemos recibido correctamente la aceptación de tu propuesta. <strong>Muchas gracias por confiar en Brokergy.</strong>', { color: BRAND.muted, mb: 15 }) +
             (numeroExpediente ? emailBox(emailP(`${titular ? 'El' : 'Tu'} número de expediente asignado es: <strong style="color:${BRAND.orangeDark};">${escapeHtml(numeroExpediente)}</strong>`, { mb: 0 }), { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }) : '') +
-            emailP('A partir de este momento nos ponemos con el <strong>Certificado de Eficiencia Energética (CEE)</strong>: de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo — en cuanto la tengamos, nos ponemos manos a la obra.', { color: BRAND.muted, mb: 15 }) +
+            emailP(revision
+                ? `A partir de este momento nos ponemos con el <strong>Certificado de Eficiencia Energética (CEE)</strong>: de prepararlo y presentarlo nos encargamos nosotros. ${escapeHtml(revision)}`
+                : 'A partir de este momento nos ponemos con el <strong>Certificado de Eficiencia Energética (CEE)</strong>: de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo — en cuanto la tengamos, nos ponemos manos a la obra.', { color: BRAND.muted, mb: 15 }) +
             emailBox(
                 emailP('⚠️ Muy importante antes de empezar la obra', { size: 14, bold: true, color: BRAND.orangeDark, mb: 10 }) +
                 emailP('No dejes que te presenten ninguna factura de la obra hasta que te avisemos con un <strong>nuevo mensaje confirmando que el CEE ya está presentado</strong> — es la condición para no perder la ayuda.', { size: 14, color: BRAND.text, mb: 10 }) +
                 emailP('Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: hablando se entiende la gente, y preferimos que preguntes antes de que se cuele una factura.', { size: 13, color: BRAND.muted, mb: 0 }),
                 { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
             ) +
+            (revision ? '' :
             emailBox(
                 emailP('📁 Para poder hacer el CEE inicial necesitamos', { size: 14, bold: true, color: BRAND.orangeDark, mb: 6 }) +
                 emailP('Sin esto no podemos preparar el certificado, y sin certificado la ayuda no sale adelante.', { size: 13, color: BRAND.muted, mb: 12 }) +
@@ -653,8 +659,8 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
                 { mb: 22 }
             ) +
             emailP('No hace falta que nos lo envíes todo de una sola vez; puedes mandarlo poco a poco conforme lo vayas recopilando.', { size: 14, color: BRAND.muted, mb: 15 }) +
-            emailP('<strong>Importante:</strong> procura que las fotos tengan buena luz y que las placas de características se vean perfectamente, para evitar retrasos en la tramitación.', { size: 14, color: BRAND.orangeDark, mb: 22 }) +
-            emailHeading('Puedes enviarlo por:', { mb: 15 }) +
+            emailP('<strong>Importante:</strong> procura que las fotos tengan buena luz y que las placas de características se vean perfectamente, para evitar retrasos en la tramitación.', { size: 14, color: BRAND.orangeDark, mb: 22 })) +
+            emailHeading(revision ? 'Si ya tienes algo a mano, puedes enviarlo por:' : 'Puedes enviarlo por:', { mb: 15 }) +
             (uploadLink ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;"><tr><td align="center">${emailButton(uploadLink, '📂 Subir documentación aquí')}</td></tr></table>` : '') +
             `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr>
                <td width="48%" style="background:${BRAND.soft};border:1px solid ${BRAND.border};border-radius:10px;padding:15px;text-align:center;">
@@ -667,11 +673,13 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
                  <a href="${whatsAppLink}" style="color:${BRAND.text};text-decoration:none;font-weight:700;font-size:14px;">623 926 179</a>
                </td>
              </tr></table>` +
-            emailP('En cuanto recibamos la documentación, continuaremos con la tramitación de tu expediente.', { size: 14, color: BRAND.muted, center: true, mb: 0 }),
+            (revision ? '' : emailP('En cuanto recibamos la documentación, continuaremos con la tramitación de tu expediente.', { size: 14, color: BRAND.muted, center: true, mb: 0 })),
         footerNote: `Un saludo, Equipo BROKERGY · <a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
     });
 
-    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo.\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\nPara poder hacer el CEE inicial necesitamos (sin esto no podemos preparar el certificado):\n${docsAceptTxt.necesarios}\n\nAdemás, nos sirve de ayuda si lo tienes:\n${docsAceptTxt.ayuda}\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
+    const text = revision
+        ? `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. ${revision}\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\n${uploadLink ? `Si ya tienes algo a mano, puedes subirlo aquí:\n${uploadLink}\n\nO también p` : `Si ya tienes algo a mano, p`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`
+        : `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo.\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\nPara poder hacer el CEE inicial necesitamos (sin esto no podemos preparar el certificado):\n${docsAceptTxt.necesarios}\n\nAdemás, nos sirve de ayuda si lo tienes:\n${docsAceptTxt.ayuda}\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
 
     return sendMail({ to, subject, html, text });
 };

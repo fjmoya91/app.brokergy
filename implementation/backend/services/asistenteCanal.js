@@ -78,6 +78,9 @@ async function alMensaje(msg) {
         // decide allí si es una petición de un instalador).
         if (await esDeFran(chatId)) { if (!GRUPO) tocarTimbre('/aviso'); return; }
         tocarTimbre('/entrante', { chatId });
+        // Fotos de alguien a quien el agente le pidió documentación tras la
+        // aceptación: retoma la revisión cuando la ráfaga calle (aceptacionAgente.js).
+        require('./aceptacionAgente').alMensajeEntrante(msg);
     } catch (e) {
         console.warn('[asistente] aviso de mensaje entrante:', e.message);
     }

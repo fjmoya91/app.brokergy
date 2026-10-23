@@ -1358,6 +1358,12 @@ router.patch('/:id/estado', internalKeyOrAuth, suyaSiPartner, async (req, res) =
                     if (client?.notas) notesStr = `[NOTA CLIENTE]: ${client.notas}\n` + (notesStr ? `\n[HISTORIAL]:\n${notesStr}` : '');
                     if (!notesStr) notesStr = 'Sin notas adicionales.';
                     const deepLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente}`;
+                    // La documentación la revisa el agente también cuando la aceptación
+                    // la marca el equipo (services/aceptacionAgente.js): pide lo que
+                    // falte o hace el CEE inicial. Aquí no sale acuse al cliente.
+                    const agente = await require('../services/aceptacionAgente')
+                        .encargarTrasAceptacion(numeroExpediente, { ceeAportado: dc.cee_decision === 'usar_cee_aportado' });
+                    console.log(`[StatusUpdate] Revisión de la documentación por el agente: ${agente.ok ? 'encargada' : `no (${agente.motivo})`}`);
                     const adminMsg =
 `*${id} – ACEPTACIÓN DE EXPEDIENTE*
 
@@ -1366,7 +1372,7 @@ Se ha marcado como ACEPTADA la oportunidad por *${usuarioName}*:
 
 *Cliente:* ${client?.nombre_razon_social || op.referencia_cliente || 'S/N'} ${client?.apellidos || ''}
 *Expediente:* ${numeroExpediente}
-*Instalador:* ${installerName}
+*Instalador:* ${installerName}${agente.ok ? '\n🤖 La documentación la revisa Claude: pedirá lo que falte o hará el CEE inicial.' : ''}
 
 *NOTAS:*
 ${notesStr}

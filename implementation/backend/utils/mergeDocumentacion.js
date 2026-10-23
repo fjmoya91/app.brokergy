@@ -58,6 +58,11 @@ const CLAVES_PROTEGIDAS = [
     // scripts, con la RPC de MERGE; una copia vieja del navegador borraría, p. ej.,
     // la marca de no cobrarle la gestión y la remesa le descontaría los 250 €.
     'cobro',
+    // Lo que el agente revisó y le pidió al cliente tras la ACEPTACIÓN (rondas,
+    // fechas y el texto enviado). Lo escriben solo `aceptacionAgente.sellar` y
+    // `scripts/aceptacion.js`, con la RPC de MERGE: una copia vieja lo borraría y
+    // la subida siguiente del cliente ya no reabriría la revisión.
+    'aceptacion_agente',
 ];
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');
