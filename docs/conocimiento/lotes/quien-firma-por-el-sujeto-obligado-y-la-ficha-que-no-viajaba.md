@@ -60,9 +60,21 @@ justo a quien está a punto de firmar— y, cuando el PDF vuelve, `firmadosSo`
 comprueba contra ÉL. Sin sello (lotes anteriores) vale cualquiera de los
 declarados: se avisa solo si no firma ninguno, y el aviso los nombra a todos.
 
-**REGLA — la SOLICITUD de emisión sale a nombre del que firmó las fichas.** Se
-toma del sello del lote, no se vuelve a preguntar: una carátula a nombre de uno
-con sus adjuntos firmados por otro es lo primero que cruza quien la revisa.
+**REGLA — el apoderado de la SOLICITUD de emisión se ELIGE al generarla** (cambiado
+el 23/10/2026 por decisión del usuario; hasta entonces salía siempre a nombre del
+que firmó las fichas, sin preguntar). «Generar la solicitud y los anexos» (fase 5)
+abre un popup ([SolicitudEmisionModal.jsx](implementation/frontend/src/features/lotes/components/SolicitudEmisionModal.jsx))
+con los apoderados de la ficha; **de entrada propone el que firmó las fichas** (el
+sello, marcado «Firmó las fichas») y, si se elige a otro, lo AVISA en ámbar: una
+carátula a nombre de uno con sus adjuntos firmados por otro es lo primero que
+cruza quien la revisa. Con un solo apoderado se enseña, sin elegir. La ruta
+(`POST /api/lotes/:id/anexos-actuacion`, `rep_nif`) **coteja el NIF con la ficha
+del S.O. ANTES de generar nada** —un NIF que llega del navegador no se imprime en
+un impreso oficial— y responde 400 si no consta; sin `rep_nif`, el sello o el
+representante de la ficha, como antes. El anexo de cada actuación no lleva
+representante: el apoderado solo va en la solicitud. Probado en seco el 23/10/2026
+con LOTE-2025-001: «JESÚS ANTONIO ALMODÓVAR FUENTES · 06236833S» en
+«Representante legal».
 
 ⚠️ `deriveSoEnvio` pasa a resolver el representante con `representantesSo`, que sí
 mira `representante_distinto` —antes leía `nombre_responsable` a pelo mientras la

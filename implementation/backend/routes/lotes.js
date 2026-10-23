@@ -1740,6 +1740,31 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
         if (expErr) throw new Error(`No se pudieron leer los expedientes: ${expErr.message}`);
         if (!(exps || []).length) return res.status(409).json({ error: 'El lote no tiene expedientes.' });
 
+        // ── Quién firma la SOLICITUD ─────────────────────────────────────────
+        // El apoderado que se ELIGE en el popup (23/10/2026, decisión del usuario),
+        // y solo si consta en la ficha del S.O.: un NIF que llega del navegador no
+        // se imprime en un impreso oficial sin cotejarlo. Se resuelve ANTES de
+        // generar nada, para no dejar los anexos subidos y la solicitud sin hacer.
+        // Sin elección (llamadas antiguas), el que se selló al mandar a firmar las
+        // fichas de ESTE lote (`documentos_so[].rep_*`).
+        const { data: soSolicitud } = await supabase.from('prescriptores')
+            .select('razon_social, cif, codigo_identificacion, nombre_responsable, apellidos_responsable, nif_responsable, municipio, representante_distinto, representante_nombre, representante_apellidos, representante_dni, representantes')
+            .eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
+        const nifLimpio = (v) => String(v || '').replace(/[\s.-]/g, '').toUpperCase();
+        let rep = null;
+        if (nifLimpio(req.body?.rep_nif)) {
+            const { representantesDe } = require('../services/firmadosSo');
+            const r = (await representantesDe(soSolicitud)).find(x => nifLimpio(x.nif) === nifLimpio(req.body.rep_nif));
+            if (!r) {
+                return res.status(400).json({ error: 'Ese apoderado no consta en la ficha del Sujeto Obligado: añádelo allí antes de generar.' });
+            }
+            rep = { nombre: r.nombre, nif: r.nif };
+        } else {
+            const repSellado = (Array.isArray(lote.documentos_so) ? lote.documentos_so : [])
+                .find(x => x && (x.rep_nombre || x.rep_nif));
+            rep = repSellado ? { nombre: repSellado.rep_nombre || '', nif: repSellado.rep_nif || '' } : null;
+        }
+
         // ── Lo que falta, se LEE de los documentos que ya están subidos ────────
         // Los dos datos que no vienen del expediente —el nº de actuación y la
         // identificación del dictamen— están en el informe y en el dictamen del
@@ -1863,17 +1888,7 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
         let solicitud_error = null;
         if (generados.length && !incompletos.length) {
             try {
-                const { data: so } = await supabase.from('prescriptores')
-                    .select('razon_social, cif, codigo_identificacion, nombre_responsable, apellidos_responsable, nif_responsable, municipio')
-                    .eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
-
-                // Quién firma: el apoderado con el que se mandaron a firmar las
-                // fichas de ESTE lote (se sella en `documentos_so`). Con varios
-                // apoderados en la ficha del S.O., la carátula no puede salir a
-                // nombre de uno distinto del que firma sus adjuntos.
-                const repSellado = (Array.isArray(lote.documentos_so) ? lote.documentos_so : [])
-                    .find(x => x && (x.rep_nombre || x.rep_nif));
-                const rep = repSellado ? { nombre: repSellado.rep_nombre || '', nif: repSellado.rep_nif || '' } : null;
+                const so = soSolicitud;
 
                 const d = solicitudCae.datosDesdeLote(lote, generados.map(g => ({
                     numero_expediente: g.numero_expediente,
@@ -1891,6 +1906,7 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
                     solicitud = {
                         fileName: nombre, link: saved?.link || null,
                         ahorro_total: d.ahorro_total, n_actuaciones: d.actuaciones.length,
+                        representante: d.representante, representante_dni: d.representante_dni,
                     };
                 }
             } catch (e) {
@@ -1910,7 +1926,7 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
                 id: `${Date.now()}_anexos`, tipo: 'sistema',
                 texto: `Generados ${generados.length} anexo${generados.length === 1 ? '' : 's'} de actuación para MITECO: `
                     + generados.map(g => `E${g.n_actuacion} (${g.numero_expediente})`).join(' · ')
-                    + (solicitud ? `. Solicitud de emisión de CAE por ${solicitud.ahorro_total} kWh.` : '.')
+                    + (solicitud ? `. Solicitud de emisión de CAE por ${solicitud.ahorro_total} kWh, a nombre de ${solicitud.representante}.` : '.')
                     + (incompletos.length ? ` ${incompletos.length} sin generar por datos incompletos.` : ''),
                 fecha: nowIso(), usuario: usuarioDe(req),
             });

@@ -101,11 +101,12 @@ function datosDesdeLote(lote, actuaciones, so, rep) {
         codigo_lote: lote?.codigo || '',
         razon_social: p.razon_social || '',
         nif: p.cif || '',
-        // REGLA — la solicitud la firma el MISMO apoderado que firmó las fichas del
-        // lote. Una empresa puede tener varios, y una carátula a nombre de uno con
-        // las fichas firmadas por otro es lo primero que cruza quien la revisa. Se
-        // toma de lo que se selló al mandarlas a firmar (`documentos_so[].rep_*`);
-        // sin sello (lotes anteriores), el representante de la ficha.
+        // REGLA — el apoderado de la solicitud se ELIGE al generarla (23/10/2026) y
+        // la ruta lo coteja con la ficha del S.O. De entrada se propone el que
+        // firmó las fichas del lote: una carátula a nombre de uno con las fichas
+        // firmadas por otro es lo primero que cruza quien la revisa, así que el
+        // popup lo avisa si se cambia. Sin elección, el sellado al mandarlas a
+        // firmar (`documentos_so[].rep_*`); sin sello, el representante de la ficha.
         representante: (rep && rep.nombre) || [p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ').trim(),
         representante_dni: (rep && rep.nif) || p.nif_responsable || '',
         // Para un sujeto obligado el código es "SO-" + su NIF (nota 2 del impreso).

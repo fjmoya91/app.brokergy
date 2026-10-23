@@ -38,7 +38,9 @@ const fechaLarga = (v) => {
         : '—';
 };
 
-function Marco({ titulo, subtitulo, explicacion, onClose, children, pie }) {
+// El marco de los popups del lote (pago a los clientes, solicitud de emisión): la
+// misma cabecera, el mismo cuerpo con scroll y el mismo pie con los botones.
+export function Marco({ titulo, subtitulo, explicacion, onClose, children, pie }) {
     return (
         <div className="fixed inset-0 z-[9998] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6">
             <div className="w-full sm:max-w-2xl max-h-[92dvh] flex flex-col bg-bkg-surface border border-white/10 rounded-t-3xl sm:rounded-3xl overflow-hidden">

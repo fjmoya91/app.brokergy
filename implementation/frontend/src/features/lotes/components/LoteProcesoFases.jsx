@@ -9,6 +9,7 @@ import { FirmadosSoModal } from './FirmadosSoModal';
 import SendActionOverlay from '../../../components/SendActionOverlay';
 import { BotonCarpetaLocal } from './BotonCarpetaLocal';
 import { CobroClientesPanel } from './CobroClientesPanel';
+import { SolicitudEmisionModal } from './SolicitudEmisionModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El proceso del lote, por FASES, en el orden real del trámite. Sustituye a los
@@ -449,6 +450,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const [leyendoInex, setLeyendoInex] = useState(null);      // key del informe de inexactitudes
     const [preparandoReq, setPreparandoReq] = useState(null);  // ronda del requerimiento
     const [generandoAnexos, setGenerandoAnexos] = useState(false);
+    // Popup que pregunta a nombre de qué apoderado sale la solicitud de emisión.
+    const [eligiendoFirmante, setEligiendoFirmante] = useState(false);
     // Los PDF que acaba de soltar el usuario, a la espera de que el modal los
     // analice. Se guardan los File tal cual: el modal los sube dos veces (analizar
     // y aplicar) y así no hay que volver a pedirlos.
@@ -1186,15 +1189,18 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         if (onChanged) onChanged();
     };
 
-    const generarAnexos = async () => {
+    // `rep`: el apoderado elegido en el popup ({ nombre, nif }); el servidor lo
+    // coteja con la ficha del S.O. antes de imprimirlo en la solicitud.
+    const generarAnexos = async (rep = null) => {
+        setEligiendoFirmante(false);
         setError('');
         setGenerandoAnexos(true);
         setLectura({
             phase: 'sending', sendingTitle: 'Generando el papeleo del MITECO…',
-            subtitle: 'La solicitud de emisión y un anexo por expediente',
+            subtitle: `La solicitud de emisión${rep?.nombre ? ` a nombre de ${rep.nombre}` : ''} y un anexo por expediente`,
         });
         try {
-            const { data } = await axios.post(`/api/lotes/${lote.id}/anexos-actuacion`);
+            const { data } = await axios.post(`/api/lotes/${lote.id}/anexos-actuacion`, rep?.nif ? { rep_nif: rep.nif } : {});
             const n = data.generados?.length || 0;
             const mal = data.incompletos || [];
             const sol = data.solicitud;
@@ -1207,7 +1213,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 // resto de adjuntos de esa actuación.
                 subtitle: `${lote?.codigo} · la solicitud en la documentación del lote, cada anexo en su carpeta E{n}`,
                 items: [
-                    ...(sol ? [`Solicitud de emisión · ${sol.n_actuaciones} actuaciones · ${Number(sol.ahorro_total).toLocaleString('es-ES')} kWh`] : []),
+                    ...(sol ? [`Solicitud de emisión · ${sol.n_actuaciones} actuaciones · ${Number(sol.ahorro_total).toLocaleString('es-ES')} kWh`
+                        + (sol.representante ? ` · a nombre de ${sol.representante} (${sol.representante_dni})` : '')] : []),
                     ...(data.generados?.map(g => `E${g.n_actuacion} · ${g.numero_expediente} (${g.ficha})`) || []),
                 ],
                 // Lo que falta se dice por expediente y con nombre: es lo que hay
@@ -1737,7 +1744,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 f: f5,
                 faltan: faltanDe(esp5),
                 tareas: canSeeMargin ? [
-                    <BotonAccion key="anx" onClick={generarAnexos} disabled={generandoAnexos}>
+                    <BotonAccion key="anx" onClick={() => setEligiendoFirmante(true)} disabled={generandoAnexos}>
                         {generandoAnexos ? 'Generando…' : '📄 Generar la solicitud y los anexos'}
                     </BotonAccion>,
                     <BotonAccion key="pq5" onClick={() => pedirPaquete('expediente', true)}>
@@ -1831,6 +1838,10 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     onClose={() => setDocAEnviar(null)}
                     onSent={() => { if (onChanged) onChanged(); }}
                 />
+            )}
+
+            {eligiendoFirmante && (
+                <SolicitudEmisionModal lote={lote} onClose={() => setEligiendoFirmante(false)} onGenerar={generarAnexos} />
             )}
 
             {/* Overlay ESTÁNDAR de la app mientras se lee un PDF: leer un informe
