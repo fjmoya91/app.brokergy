@@ -103,6 +103,11 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
     const conFactura = confirmadas.filter(f => f.cobro?.forma_pago === 'factura');
     const cambiadas = confirmadas.filter(f => f.cobro?.iban_cambiado);
     const pago = resumenPago(filas);
+    const porPagar = confirmadas.filter(f => !f.pago?.transferencia);
+    // El botón relleno del bloque «Pagar»: lo primero que queda pendiente.
+    const siguientePago = pago.sinAvisar.length ? 'avisar'
+        : pago.enRemesa.length > pago.transferidas.length ? 'justificante'
+            : porPagar.length ? 'remesa' : null;
     const todasConfirmadas = filas.length > 0 && pendientes.length === 0;
     const refrescar = () => { cargar(); if (onChanged) onChanged(); };
 
@@ -178,7 +183,7 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
             {error && <p className="text-[10px] text-red-400">{error}</p>}
 
             {filas.length > 0 && (
-                <p className="text-[10px] text-white/45 leading-snug">
+                <p className="text-[11px] text-white/55 leading-snug">
                     <span className="text-emerald-300/90 font-bold">{confirmadas.length} de {filas.length}</span> han confirmado su cuenta
                     {pendientes.length > 0 && <> · <span className="text-white/70">{pendientes.length} pendiente{pendientes.length > 1 ? 's' : ''}</span></>}
                     {cambiadas.length > 0 && <> · <span className="text-amber-300">{cambiadas.length} con la cuenta cambiada</span></>}
@@ -196,47 +201,49 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                 </div>
             )}
 
-            {activo && canSeeMargin && confirmadas.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                    <button type="button" onClick={() => setRemesa(true)}
-                        className={`px-3.5 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${todasConfirmadas && !pago.enRemesa.length
-                            ? 'bg-brand text-black hover:brightness-110' : 'border border-white/15 text-white/75 hover:border-brand/50 hover:text-white'}`}>
-                        🏦 Remesa SEPA (BBVA)
+            {/* Los pasos en su ORDEN (pedir la cuenta → pagar), cada uno en su bloque y
+                con UN solo botón relleno: el siguiente que toca. */}
+            {activo && pendientes.length > 0 && (
+                <Paso n={1} titulo="Pedir la cuenta"
+                    ayuda="Un WhatsApp de enhorabuena por cliente, con la cuenta que tenemos y su enlace.">
+                    <button type="button" onClick={() => setEnvio(pendientes)}
+                        className={confirmadas.length ? BTN_SEC : BTN_PRI}>
+                        🏦 Pedir la confirmación de cuenta a {pendientes.length === filas.length ? 'todos' : pendientes.length} ({pendientes.length})
                     </button>
-                    {pago.enRemesa.length > 0 && (
+                </Paso>
+            )}
+
+            {activo && canSeeMargin && confirmadas.length > 0 && (
+                <Paso n={pendientes.length ? 2 : 1} titulo="Pagar"
+                    ayuda={!todasConfirmadas ? `Aún faltan ${pendientes.length} por confirmar: la remesa solo lleva a los que ya lo han hecho.` : null}>
+                    {/* Los ya pagados (justificante subido) no vuelven a ninguna remesa. */}
+                    {porPagar.length > 0 && (
+                        <button type="button" onClick={() => setRemesa(true)}
+                            title="Eliges a quién pagar y se descarga el fichero para BBVA"
+                            className={siguientePago === 'remesa' ? BTN_PRI : BTN_SEC}>
+                            🏦 Remesa SEPA (BBVA) · {porPagar.length} por pagar
+                        </button>
+                    )}
+                    {pago.enRemesa.length > pago.transferidas.length && (
                         <button type="button" onClick={() => setJustif(true)}
-                            className={`px-3.5 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${pago.enRemesa.length > pago.transferidas.length
-                                ? 'bg-brand text-black hover:brightness-110' : 'border border-white/15 text-white/75 hover:border-brand/50 hover:text-white'}`}>
+                            className={siguientePago === 'justificante' ? BTN_PRI : BTN_SEC}>
                             📎 Subir justificante de la transferencia
                         </button>
                     )}
                     {pago.sinAvisar.length > 0 && (
                         <button type="button" onClick={() => setAviso(pago.sinAvisar)}
-                            className="px-3.5 py-2 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-wider hover:brightness-110 transition-all">
+                            className={siguientePago === 'avisar' ? BTN_PRI : BTN_SEC}>
                             📣 Avisar de la transferencia ({pago.sinAvisar.length})
                         </button>
                     )}
                     {pago.transferidas.length > 0 && (
                         <button type="button" onClick={() => setAvisoInst(true)}
                             title="Un mensaje por instalador: qué clientes suyos ya han cobrado"
-                            className="px-3.5 py-2 rounded-xl border border-white/15 text-white/75 text-[11px] font-black uppercase tracking-wider hover:border-brand/50 hover:text-white transition-all">
+                            className={BTN_SEC}>
                             📣 Avisar a los instaladores
                         </button>
                     )}
-                    {!todasConfirmadas && (
-                        <span className="text-[9px] text-white/30">Aún faltan {pendientes.length} por confirmar: la remesa solo lleva a los que ya lo han hecho.</span>
-                    )}
-                </div>
-            )}
-
-            {activo && pendientes.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                    <button type="button" onClick={() => setEnvio(pendientes)}
-                        className="px-3.5 py-2 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-wider hover:brightness-110 transition-all">
-                        🏦 Pedir la confirmación de cuenta a {pendientes.length === filas.length ? 'todos' : pendientes.length} ({pendientes.length})
-                    </button>
-                    <span className="text-[9px] text-white/30">Un WhatsApp de enhorabuena por cliente, con la cuenta que tenemos y su enlace.</span>
-                </div>
+                </Paso>
             )}
             {!activo && (
                 <p className="text-[10px] text-white/30 italic">
@@ -257,15 +264,26 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                     const b = bonos[f.id];
                     const descuento = f.cobro?.forma_pago === 'descuento' && f.coste ? f.coste.sin_iva : 0;
                     return (
-                        <div key={f.id} className="p-2.5 rounded-xl border border-white/[0.07] bg-white/[0.02]">
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[11px] font-black text-white">{f.numero_expediente}</span>
-                                <span className="text-[11px] text-white/55 truncate max-w-[16rem]">{f.cliente || '—'}</span>
-                                <span className={`ml-auto px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${est.c}`}>{est.t}</span>
+                        <div key={f.id} className={`p-3.5 rounded-2xl border transition-colors ${f.pago?.transferencia
+                            ? 'border-cyan-400/20 bg-cyan-400/[0.03]'
+                            : f.cobro?.completado_at ? 'border-white/[0.09] bg-white/[0.025]' : 'border-white/[0.07] bg-white/[0.015]'}`}>
+                            <div className="flex items-start gap-3">
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[13px] font-black text-white leading-tight">{f.numero_expediente}</p>
+                                    <p className="text-[12px] text-white/65 truncate">{f.cliente || '—'}</p>
+                                </div>
+                                {/* Lo que se le va a ingresar, bien a la vista: es lo que se viene a mirar. */}
+                                {canSeeMargin && b && f.cobro?.completado_at && (
+                                    <div className="text-right shrink-0">
+                                        <p className="text-[9px] font-black uppercase tracking-wider text-white/40">{f.pago?.transferencia ? 'Transferido' : 'A transferir'}</p>
+                                        <p className="text-[15px] font-black text-emerald-300 leading-tight">{eur(f.pago?.transferencia?.importe ?? (b.bono - descuento))}</p>
+                                    </div>
+                                )}
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border shrink-0 ${est.c}`}>{est.t}</span>
                             </div>
-                            <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[10px]">
-                                <p className="text-white/40">
-                                    Cuenta: <span className="font-mono text-white/75">{f.iban || f.iban_mascara || 'sin cuenta en la ficha'}</span>
+                            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+                                <p className="text-white/50">
+                                    Cuenta: <span className="font-mono text-white/85">{f.iban || f.iban_mascara || 'sin cuenta en la ficha'}</span>
                                     {f.cobro?.iban_cambiado && f.cobro?.iban_anterior_mascara && (
                                         <span className="block text-amber-300/70">antes {f.cobro.iban_anterior_mascara}</span>
                                     )}
@@ -273,10 +291,10 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                         <a href={f.justificante_link} target="_blank" rel="noreferrer" className="ml-1.5 text-cyan-300/80 hover:underline">justificante</a>
                                     )}
                                 </p>
-                                <p className="text-white/40">
+                                <p className="text-white/50 sm:text-right">
                                     {f.contacto?.nombre ? `${f.contacto.nombre}` : 'Sin contacto'}
                                     {f.contacto?.tlf ? ` · ${f.contacto.tlf}` : ''}
-                                    {f.tercero && <span className="text-white/30"> (persona de contacto)</span>}
+                                    {f.tercero && <span className="text-white/40"> (persona de contacto)</span>}
                                 </p>
                                 {f.forma_pago && (
                                     <p className={f.forma_pago.tono === 'aviso' ? 'text-amber-300' : 'text-emerald-300/80'}>
@@ -284,7 +302,7 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                     </p>
                                 )}
                                 {!f.coste && !f.gestion_bonificada && f.cobro?.completado_at && (
-                                    <p className="text-white/35">Gestión asumida por Brokergy: no se descuenta nada.</p>
+                                    <p className="text-white/50">Gestión asumida por Brokergy: no se descuenta nada.</p>
                                 )}
                                 {/* La gestión REGALADA: no se le cobra y los mensajes se lo dicen. */}
                                 {canSeeMargin && f.gestion_bonificada && (
@@ -302,15 +320,15 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                     </p>
                                 )}
                                 {canSeeMargin && f.coste && !f.pago?.remesa && !f.factura_gestion && (
-                                    <p className="sm:col-span-2 flex items-center gap-1.5 flex-wrap">
+                                    <p className="sm:col-span-2 flex items-center gap-2 flex-wrap mt-0.5">
                                         <button type="button" disabled={regalando === f.id} onClick={() => regalarGestion(f, true)}
                                             title="No se le cobran los honorarios de gestión: la remesa no los descuenta y el mensaje se lo cuenta como un regalo"
-                                            className="px-2 py-0.5 rounded-md border border-fuchsia-400/30 text-fuchsia-200/80 text-[10px] font-bold hover:bg-fuchsia-400/10 disabled:opacity-40 transition-all">
+                                            className="px-3 py-1.5 rounded-lg border border-fuchsia-400/30 text-fuchsia-200/90 text-[11px] font-bold hover:bg-fuchsia-400/10 disabled:opacity-40 transition-all">
                                             {regalando === f.id ? 'Guardando…' : `🎁 No cobrarle la gestión (${eur(f.coste.sin_iva)})`}
                                         </button>
                                         <button type="button" onClick={() => setFacturaG(f)}
                                             title="Factura de los honorarios de gestión, al cliente o a su instalador, en la serie del libro de AppSheet"
-                                            className={`px-2 py-0.5 rounded-md border text-[10px] font-bold transition-all ${f.cobro?.forma_pago === 'factura'
+                                            className={`px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all ${f.cobro?.forma_pago === 'factura'
                                                 ? 'border-amber-400/50 text-amber-200 bg-amber-400/10 hover:bg-amber-400/20' : 'border-white/15 text-white/60 hover:text-white hover:border-white/30'}`}>
                                             🧾 Emitir factura de la gestión ({eur(f.coste.total)})
                                         </button>
@@ -360,12 +378,10 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                     </div>
                                 )}
                                 {canSeeMargin && b && (
-                                    <p className="text-white/40">
-                                        Bono{b.verificado ? ' verificado' : ' (estimado)'}: <span className="text-white/75">{eur(b.bono)}</span>
-                                        {f.cobro?.completado_at && (
-                                            <> · a transferir <span className="font-bold text-emerald-300">{eur(b.bono - descuento)}</span>
-                                                {f.cobro?.forma_pago === 'factura' && <span className="text-amber-300/80"> tras cobrar la factura</span>}</>
-                                        )}
+                                    <p className="text-white/50">
+                                        Bono{b.verificado ? ' verificado' : ' (estimado)'}: <span className="text-white/85">{eur(b.bono)}</span>
+                                        {f.cobro?.completado_at && descuento > 0 && <> − honorarios {eur(descuento)}</>}
+                                        {f.cobro?.completado_at && f.cobro?.forma_pago === 'factura' && <span className="text-amber-300/90"> · se transfiere tras cobrar la factura</span>}
                                     </p>
                                 )}
                             </div>
@@ -380,36 +396,36 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                             )}
                             <EstadoPago f={f} admin={canSeeMargin} onAvisar={() => setAviso([f])} onCancelarResena={() => cancelarResena(f)} />
                             {activo && (
-                                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex items-center gap-2 flex-wrap">
                                     {!f.cobro?.completado_at && (
                                         <button type="button" onClick={() => setEnvio([f])}
-                                            className="px-2.5 py-1 rounded-lg border border-white/15 text-[10px] font-bold text-white/70 hover:border-brand/50 hover:text-white transition-all">
+                                            className="px-3 py-1.5 rounded-lg border border-brand/40 bg-brand/[0.12] text-[11px] font-bold text-brand hover:bg-brand/20 transition-all">
                                             {f.cobro?.enviado_at ? '↻ Reenviar' : '📤 Pedir'}
                                         </button>
                                     )}
                                     {canSeeMargin && !f.cobro?.completado_at && (
                                         <button type="button" onClick={() => setValidar(f)}
                                             title="El cliente la ha confirmado por teléfono (o desconfía del enlace): se marca como confirmada y entra en la remesa"
-                                            className="px-2.5 py-1 rounded-lg border border-emerald-400/30 text-[10px] font-bold text-emerald-300/85 hover:bg-emerald-400/10 transition-all">
+                                            className="px-3 py-1.5 rounded-lg border border-emerald-400/35 text-[11px] font-bold text-emerald-300 hover:bg-emerald-400/10 transition-all">
                                             ✓ Validar a mano
                                         </button>
                                     )}
                                     {f.link && (
                                         <button type="button" onClick={() => copiar(f)}
-                                            className="px-2.5 py-1 rounded-lg border border-white/10 text-[10px] font-bold text-white/45 hover:text-white/80 transition-all">
+                                            className="px-3 py-1.5 rounded-lg border border-white/[0.12] text-[11px] font-bold text-white/60 hover:text-white hover:border-white/25 transition-all">
                                             {copiado === f.id ? '✓ Copiado' : '🔗 Copiar enlace'}
                                         </button>
                                     )}
                                     {f.cobro?.enviado_at && (
-                                        <span className="text-[9px] text-white/25">
+                                        <span className="text-[10px] text-white/40">
                                             último envío {fecha(f.cobro.enviado_at)}{f.cobro.canales?.length ? ` · ${f.cobro.canales.join(' + ')}` : ''}
                                         </span>
                                     )}
                                     {f.cobro?.completado_at && f.cobro.origen !== 'manual' && (
-                                        <span className="text-[9px] text-white/25">contestado {fecha(f.cobro.completado_at)}</span>
+                                        <span className="text-[10px] text-white/40">contestado {fecha(f.cobro.completado_at)}</span>
                                     )}
                                     {f.cobro?.completado_at && f.cobro.origen === 'manual' && (
-                                        <span className="text-[9px] text-white/35">
+                                        <span className="text-[10px] text-white/45">
                                             validada a mano {fecha(f.cobro.completado_at)}
                                             {f.cobro.validado_manual?.por ? ` por ${f.cobro.validado_manual.por}` : ''}
                                             {f.cobro.validado_manual?.nota ? ` · ${f.cobro.validado_manual.nota}` : ''}
@@ -467,30 +483,46 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
     );
 }
 
+const BTN_PRI = 'px-3.5 py-2 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-wider hover:brightness-110 transition-all';
+const BTN_SEC = 'px-3.5 py-2 rounded-xl border border-white/15 bg-white/[0.03] text-white/80 text-[11px] font-black uppercase tracking-wider hover:border-brand/50 hover:text-white transition-all';
+
+/** Un paso del pago (pedir la cuenta, pagar): su título, sus botones y una línea de ayuda. */
+function Paso({ n, titulo, ayuda = null, children }) {
+    return (
+        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-2.5">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/50">
+                <span className="text-brand">{n}</span> · {titulo}
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">{children}</div>
+            {ayuda && <p className="text-[11px] text-white/45 leading-snug">{ayuda}</p>}
+        </div>
+    );
+}
+
 /** Remesa → transferido → avisado → reseña, en una línea por cliente. */
 function EstadoPago({ f, admin, onAvisar, onCancelarResena }) {
     const p = f.pago || {};
     if (!p.remesa && !p.transferencia) return null;
     const r = p.resena;
     return (
-        <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[9px]">
+        <div className="mt-2.5 flex items-center gap-1.5 flex-wrap text-[10px]">
             {p.remesa && (
-                <span className="px-1.5 py-0.5 rounded-md border border-white/15 text-white/55">
+                <span className="px-2 py-1 rounded-lg border border-white/15 text-white/55">
                     🏦 Remesa {fecha(p.remesa.at)}{admin && p.remesa.importe != null ? ` · ${eur(p.remesa.importe)}` : ''}
                 </span>
             )}
             {p.transferencia ? (
-                <span className="px-1.5 py-0.5 rounded-md border border-cyan-400/30 text-cyan-300">
+                <span className="px-2 py-1 rounded-lg border border-cyan-400/30 text-cyan-300">
                     💸 Transferido {fecha(p.transferencia.at)}
                     {p.transferencia.justificante_link && (
                         <a href={p.transferencia.justificante_link} target="_blank" rel="noreferrer" className="ml-1 underline">justificante</a>
                     )}
                 </span>
             ) : (
-                <span className="px-1.5 py-0.5 rounded-md border border-white/10 text-white/35">falta el justificante</span>
+                <span className="px-2 py-1 rounded-lg border border-amber-400/30 text-amber-300/90">falta el justificante</span>
             )}
             {admin && p.carta_pago && (
-                <span className={`px-1.5 py-0.5 rounded-md border ${p.carta_pago.enviada_at ? 'border-emerald-400/30 text-emerald-300' : 'border-white/15 text-white/60'}`}>
+                <span className={`px-2 py-1 rounded-lg border ${p.carta_pago.enviada_at ? 'border-emerald-400/30 text-emerald-300' : 'border-white/15 text-white/60'}`}>
                     📄 {p.carta_pago.link
                         ? <a href={p.carta_pago.link} target="_blank" rel="noreferrer" className="underline">{p.carta_pago.numero}</a>
                         : p.carta_pago.numero}
@@ -498,17 +530,17 @@ function EstadoPago({ f, admin, onAvisar, onCancelarResena }) {
                 </span>
             )}
             {p.transferencia && (p.transferencia.aviso_at
-                ? <span className="px-1.5 py-0.5 rounded-md border border-emerald-400/30 text-emerald-300">✓ Avisado {fecha(p.transferencia.aviso_at)}</span>
-                : admin && <button type="button" onClick={onAvisar} className="px-1.5 py-0.5 rounded-md border border-brand/40 text-brand font-bold hover:bg-brand/10">📣 Avisar</button>)}
-            {r?.enviada_at && <span className="px-1.5 py-0.5 rounded-md border border-emerald-400/30 text-emerald-300">⭐ Reseña pedida {fecha(r.enviada_at)}</span>}
+                ? <span className="px-2 py-1 rounded-lg border border-emerald-400/30 text-emerald-300">✓ Avisado {fecha(p.transferencia.aviso_at)}</span>
+                : admin && <button type="button" onClick={onAvisar} className="px-2 py-1 rounded-lg border border-brand/40 text-brand font-bold hover:bg-brand/10">📣 Avisar</button>)}
+            {r?.enviada_at && <span className="px-2 py-1 rounded-lg border border-emerald-400/30 text-emerald-300">⭐ Reseña pedida {fecha(r.enviada_at)}</span>}
             {r && !r.enviada_at && !r.cancelada_at && r.programada_para && (
-                <span className="px-1.5 py-0.5 rounded-md border border-white/15 text-white/60">
+                <span className="px-2 py-1 rounded-lg border border-white/15 text-white/60">
                     ⭐ Reseña el {new Date(r.programada_para).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     {admin && <button type="button" onClick={onCancelarResena} className="ml-1 text-white/40 hover:text-red-300" title="No pedirla">✕</button>}
                 </span>
             )}
-            {r?.cancelada_at && <span className="px-1.5 py-0.5 rounded-md border border-white/10 text-white/30">reseña cancelada</span>}
-            {r?.error && !r.enviada_at && <span className="px-1.5 py-0.5 rounded-md border border-red-400/30 text-red-300">⚠ reseña: {r.error}</span>}
+            {r?.cancelada_at && <span className="px-2 py-1 rounded-lg border border-white/10 text-white/30">reseña cancelada</span>}
+            {r?.error && !r.enviada_at && <span className="px-2 py-1 rounded-lg border border-red-400/30 text-red-300">⚠ reseña: {r.error}</span>}
         </div>
     );
 }

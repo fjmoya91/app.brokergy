@@ -239,6 +239,17 @@ guion bajo del nº de expediente pasa a guion. Por eso el concepto es
 en su banco. Con varios cedentes con cuenta propia el ingreso se parte por cuotas
 en céntimos y el resto va a la última cuenta.
 
+**REGLA — la remesa se hace con los que SE ELIJAN, y el que ya tiene justificante no
+vuelve a salir** (23/10/2026, decisión del usuario al empezar a pagar): el popup de la
+remesa es una lista para marcar («Marcar todos / Ninguno», «N de M»), así se puede
+pagar a unos hoy y a otros otro día. Con el justificante subido (`cobro.transferencia`)
+el cliente está PAGADO: no sale en la lista de la remesa ni en la del justificante
+(solo se cuenta, «No salen los N que ya están pagados»), el servidor lo deja fuera con
+el motivo «Ya transferido el …» aunque alguien lo pida por la API, y el botón del panel
+dice cuántos quedan por pagar y desaparece cuando no queda nadie. Lo que va en una
+remesa SIN justificante sí sigue saliendo: el banco pudo no ejecutarla, y generarla otra
+vez la sustituye.
+
 **REGLA — el justificante del banco NO se le manda al cliente**: el de una remesa
 lleva los nombres, cuentas e importes de todos los del lote.
 

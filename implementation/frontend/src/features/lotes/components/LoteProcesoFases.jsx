@@ -44,7 +44,7 @@ const ESTADOS_DOC = {
     ok:       { label: 'OK ✓',    cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' },
     recibido: { label: 'Recibido', cls: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30' },
     enviado:  { label: 'Enviado',  cls: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
-    borrador: { label: 'Borrador', cls: 'bg-white/[0.04] text-white/30 border-white/10' },
+    borrador: { label: 'Borrador', cls: 'bg-white/[0.04] text-white/50 border-white/15' },
 };
 
 export const estadoDeDoc = (doc) => {
@@ -57,7 +57,30 @@ export const estadoDeDoc = (doc) => {
 
 // Un papel que llega de FUERA y no se firma (plan, informes, dictamen, certificado
 // CAE) no es un "borrador": está recibido y guardado, y no le queda ningún paso.
-const GUARDADO = { label: 'Guardado', cls: 'bg-emerald-500/[0.06] text-emerald-400/70 border-emerald-500/20' };
+const GUARDADO = { label: 'Guardado', cls: 'bg-emerald-500/[0.06] text-emerald-400/80 border-emerald-500/25' };
+
+// El icono de un documento, en una baldosa del color de su estado: de un vistazo
+// se ve qué está bien (verde), qué ha vuelto (cian), qué salió (ámbar) y qué falta.
+const TONO_ICONO = {
+    ok: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+    recibido: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/25',
+    enviado: 'bg-amber-500/10 text-amber-300 border-amber-500/25',
+    borrador: 'bg-white/[0.04] text-white/55 border-white/10',
+    falta: 'bg-amber-500/[0.06] text-amber-300/80 border-amber-500/25',
+    vacio: 'bg-white/[0.02] text-white/35 border-white/10',
+};
+const IconoDoc = ({ tono = 'borrador', mas = false }) => (
+    <span className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${TONO_ICONO[tono] || TONO_ICONO.borrador}`}>
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d={mas
+                ? 'M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'
+                : 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'} />
+        </svg>
+    </span>
+);
+
+// Botón pequeño y discreto dentro de una fila (Ver, Abrir, Sustituir).
+const ENLACE_FILA = 'px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-white/60 hover:text-white hover:bg-white/[0.06] transition-all';
 
 const EstadoPill = ({ doc }) => {
     const estado = estadoDeDoc(doc);
@@ -83,12 +106,10 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                 : estado === 'recibido' ? 'bg-cyan-500/[0.04] border-cyan-500/20'
                     : 'bg-white/[0.02] border-white/[0.05] hover:border-white/10'}`}>
             <div className="flex items-center gap-3 px-3 py-2.5">
-                <svg className="w-4 h-4 text-white/25 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
+                <IconoDoc tono={estado} />
                 <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-bold text-white/80 truncate">{doc.label || doc.file_name}</p>
-                    <p className="text-[9px] text-white/25">
+                    <p className="text-[12px] font-bold text-white/90 leading-snug line-clamp-2 break-words">{doc.label || doc.file_name}</p>
+                    <p className="text-[10px] text-white/45">
                         {[doc.sent_at ? `Enviado ${fecha}` : (fecha ? `Subido ${fecha}` : null),
                           doc.importe ? eur(doc.importe) : null].filter(Boolean).join(' · ') || '—'}
                     </p>
@@ -98,7 +119,7 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                         nunca salió. Una vez COBRADA pierde el ámbar de "pendiente":
                         pasa a ser el historial de cómo se llegó a cobrar. */}
                     {doc.pago_solicitado_at && (
-                        <p className={`text-[9px] ${doc.pagado_at ? 'text-white/25' : 'text-amber-400/60'}`}>
+                        <p className={`text-[10px] ${doc.pagado_at ? 'text-white/40' : 'text-amber-400/80'}`}>
                             ✓ Pago pedido {fmtFecha(doc.pago_solicitado_at)}
                             {doc.pago_solicitado_to ? ` a ${doc.pago_solicitado_to}` : ''}
                             {Number(doc.pago_solicitado_veces) > 1 ? ` · ${doc.pago_solicitado_veces} veces` : ''}
@@ -108,23 +129,21 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                 <EstadoPill doc={doc} />
                 <div className="flex items-center gap-1.5 shrink-0">
                     {doc.draft_link && (
-                        <a href={doc.draft_link} target="_blank" rel="noopener noreferrer"
-                            className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider text-white/40 hover:text-white hover:bg-white/5 transition-all">Ver</a>
+                        <a href={doc.draft_link} target="_blank" rel="noopener noreferrer" className={ENLACE_FILA}>Ver</a>
                     )}
                     {/* Reemplazar es gestionar ESTE documento, así que va en su fila y
                         no como un botón suelto de la fase. */}
                     {onReemplazar && (
                         <label title="Sustituir por otro PDF"
-                            className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
-                                ocupado ? 'opacity-40 cursor-not-allowed text-white/30' : 'cursor-pointer text-white/40 hover:text-white hover:bg-white/5'}`}>
+                            className={`${ENLACE_FILA} ${ocupado ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
                             ↻
                             <input type="file" accept="application/pdf" className="hidden" disabled={ocupado}
                                 onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onReemplazar(f); }} />
                         </label>
                     )}
                     {onBorrar && (
-                        <button type="button" onClick={onBorrar} title="Quitar del lote"
-                            className="px-1.5 py-1 rounded-lg text-[11px] text-white/20 hover:text-red-400 transition-all">✕</button>
+                        <button type="button" onClick={onBorrar} title="Quitar del lote" aria-label="Quitar del lote"
+                            className="w-7 h-7 rounded-lg text-[12px] text-white/35 hover:text-red-400 hover:bg-red-500/10 transition-all">✕</button>
                     )}
                 </div>
             </div>
@@ -137,17 +156,15 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
             {doc.signed_link && (
                 <div className={`mx-3 mb-2.5 rounded-lg border px-2.5 py-2 flex items-center gap-2 flex-wrap ${
                     estado === 'ok' ? 'bg-emerald-500/[0.07] border-emerald-500/25' : 'bg-cyan-500/[0.07] border-cyan-500/25'}`}>
-                    <span className={`text-[9px] font-black uppercase tracking-wider ${estado === 'ok' ? 'text-emerald-400' : 'text-cyan-300'}`}>
+                    <span className={`text-[10px] font-black uppercase tracking-wider ${estado === 'ok' ? 'text-emerald-400' : 'text-cyan-300'}`}>
                         ↩ Firmado recibido
                     </span>
-                    <span className="text-[9px] text-white/30">{fmtFecha(doc.signed_at) || ''}</span>
-                    <a href={doc.signed_link} target="_blank" rel="noopener noreferrer"
-                        className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-white/50 hover:text-white hover:bg-white/5 transition-all">Abrir</a>
+                    <span className="text-[10px] text-white/45">{fmtFecha(doc.signed_at) || ''}</span>
+                    <a href={doc.signed_link} target="_blank" rel="noopener noreferrer" className={ENLACE_FILA}>Abrir</a>
                     {/* Sustituir el firmado es gestión DE ESTE firmado: va en su línea. */}
                     {onSubirFirmado && (
                         <label title="Sustituir el firmado por otro PDF"
-                            className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider transition-all ${
-                                ocupado ? 'opacity-40 cursor-not-allowed text-white/30' : 'cursor-pointer text-white/35 hover:text-white hover:bg-white/5'}`}>
+                            className={`${ENLACE_FILA} ${ocupado ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
                             ↻ Sustituir
                             <input type="file" accept="application/pdf" className="hidden" disabled={ocupado}
                                 onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onSubirFirmado(f); }} />
@@ -155,16 +172,16 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                     )}
                     <div className="flex-1" />
                     {doc.validado_at ? (
-                        <span className="text-[9px] text-emerald-400/70 font-bold">
+                        <span className="text-[10px] text-emerald-400/80 font-bold">
                             OK{doc.validado_por ? ` · ${doc.validado_por}` : ''}
                             {onValidar && (
                                 <button type="button" onClick={() => onValidar(false)} disabled={ocupado}
-                                    className="ml-2 text-white/25 hover:text-amber-400 transition-colors">quitar</button>
+                                    className="ml-2 text-white/40 hover:text-amber-400 transition-colors">quitar</button>
                             )}
                         </span>
                     ) : onValidar ? (
                         <button type="button" onClick={() => onValidar(true)} disabled={ocupado}
-                            className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 transition-all">
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-emerald-500/35 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40 transition-all">
                             ✓ Marcar OK
                         </button>
                     ) : null}
@@ -178,11 +195,10 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                 con el resto del papeleo del lote, no en un correo. */}
             {doc.pagado_at && (
                 <div className="mx-3 mb-2.5 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.07] px-2.5 py-2 flex items-center gap-2 flex-wrap">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400">€ Pagada</span>
-                    <span className="text-[9px] text-white/30">{fmtFecha(doc.pagado_at)}</span>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">€ Pagada</span>
+                    <span className="text-[10px] text-white/45">{fmtFecha(doc.pagado_at)}</span>
                     {doc.pago_justificante_link ? (
-                        <a href={doc.pago_justificante_link} target="_blank" rel="noopener noreferrer"
-                            className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-white/50 hover:text-white hover:bg-white/5 transition-all">
+                        <a href={doc.pago_justificante_link} target="_blank" rel="noopener noreferrer" className={ENLACE_FILA}>
                             Ver justificante
                         </a>
                     ) : onJustificantePago ? (
@@ -198,7 +214,7 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                     )}
                     {onMarcarPagada && (
                         <button type="button" onClick={() => onMarcarPagada(false)} disabled={ocupado}
-                            className="text-[9px] text-white/25 hover:text-amber-400 disabled:opacity-40 transition-colors">quitar</button>
+                            className="text-[10px] text-white/40 hover:text-amber-400 disabled:opacity-40 transition-colors">quitar</button>
                     )}
                 </div>
             )}
@@ -219,7 +235,7 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                     )}
                     {!doc.pagado_at && onMarcarPagada && (
                         <button type="button" onClick={() => onMarcarPagada(true)} disabled={ocupado}
-                            className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 transition-all">
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-emerald-500/35 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40 transition-all">
                             € Marcar pagada
                         </button>
                     )}
@@ -232,10 +248,10 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
 
 // Botón-etiqueta para subir un PDF a un slot.
 const BotonSubir = ({ children, disabled, onFile, destacado = false }) => (
-    <label className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border transition-all ${
-        disabled ? 'opacity-40 cursor-not-allowed border-white/10 text-white/30'
-            : destacado ? 'cursor-pointer border-brand/30 bg-brand/10 text-brand hover:bg-brand/20'
-                : 'cursor-pointer border-dashed border-white/15 text-white/45 hover:text-white/80 hover:border-brand/40'}`}>
+    <label className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold border whitespace-nowrap shrink-0 transition-all ${
+        disabled ? 'opacity-40 cursor-not-allowed border-white/10 text-white/40'
+            : destacado ? 'cursor-pointer border-brand bg-brand text-black hover:brightness-110'
+                : 'cursor-pointer border-white/15 bg-white/[0.03] text-white/75 hover:text-white hover:border-brand/50 hover:bg-brand/10'}`}>
         {children}
         <input type="file" accept="application/pdf" className="hidden" disabled={disabled}
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
@@ -298,12 +314,12 @@ const pdfsDe = (lista) => Array.from(lista || []).filter(f => /\.pdf$/i.test(f.n
 // descargar, un portátil con panel táctil).
 const PistaSuelta = ({ arrastrando, texto, onFiles }) => (
     <label className={`flex items-center gap-2 rounded-xl border border-dashed px-3 py-2 cursor-pointer transition-all ${
-        arrastrando ? 'border-brand/60 bg-brand/[0.06] text-brand' : 'border-white/12 text-white/40 hover:border-brand/40 hover:text-white/70'}`}>
-        <span className="text-[11px] shrink-0">{arrastrando ? '⬇' : '↓'}</span>
-        <span className="text-[10px] font-bold flex-1 min-w-0">
+        arrastrando ? 'border-brand/60 bg-brand/[0.06] text-brand' : 'border-white/15 text-white/55 hover:border-brand/40 hover:text-white/80 hover:bg-white/[0.02]'}`}>
+        <span className="text-[13px] shrink-0">{arrastrando ? '⬇' : '↓'}</span>
+        <span className="text-[11px] font-semibold flex-1 min-w-0">
             {arrastrando ? 'Suéltalos en cualquier parte de este bloque' : texto}
         </span>
-        <span className="text-[9px] font-black uppercase tracking-wider text-white/30 shrink-0">o elígelos</span>
+        <span className="text-[10px] font-bold text-white/50 shrink-0 underline underline-offset-2">o elígelos</span>
         <input type="file" accept="application/pdf" multiple className="hidden"
             onChange={(e) => { const fs = pdfsDe(e.target.files); e.target.value = ''; if (fs.length) onFiles(fs); }} />
     </label>
@@ -312,9 +328,9 @@ const PistaSuelta = ({ arrastrando, texto, onFiles }) => (
 // Botón de acción de una fase (abre un modal del lote).
 const BotonAccion = ({ children, onClick, disabled, title, tono = 'brand' }) => (
     <button type="button" onClick={onClick} disabled={disabled} title={title}
-        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
-            tono === 'amber' ? 'border-amber-400/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
-                : 'border-brand/30 bg-brand/10 text-brand hover:bg-brand/20'}`}>
+        className={`px-3.5 py-2 rounded-xl text-[11px] font-bold border transition-all disabled:opacity-35 disabled:cursor-not-allowed ${
+            tono === 'amber' ? 'border-amber-400/35 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
+                : 'border-brand/40 bg-brand/[0.12] text-brand hover:bg-brand/20 hover:border-brand/60'}`}>
         {children}
     </button>
 );
@@ -323,7 +339,7 @@ const BotonAccion = ({ children, onClick, disabled, title, tono = 'brand' }) => 
 // la fila del documento, con el mismo tamaño que "Subir firmado" o "Marcar OK".
 const BotonFila = ({ children, onClick, disabled, title }) => (
     <button type="button" onClick={onClick} disabled={disabled} title={title}
-        className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border border-brand/30 bg-brand/10 text-brand hover:bg-brand/20 disabled:opacity-40 transition-all">
+        className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-brand/40 bg-brand/[0.12] text-brand hover:bg-brand/20 disabled:opacity-40 transition-all">
         {children}
     </button>
 );
@@ -357,14 +373,14 @@ const Hueco = ({ label, hint = null, requerido = false, opcional = false, siguie
     } : {};
     const estado = requerido
         ? (siguiente ? { t: 'Falta', c: 'bg-amber-500/10 text-amber-400 border-amber-500/30' }
-            : { t: 'Falta', c: 'bg-white/[0.04] text-white/40 border-white/10' })
-        : opcional ? { t: 'Opcional', c: 'bg-white/[0.02] text-white/25 border-white/[0.08]' }
-            : { t: 'Pendiente', c: 'bg-white/[0.02] text-white/30 border-white/[0.08]' };
+            : { t: 'Falta', c: 'bg-white/[0.04] text-white/55 border-white/15' })
+        : opcional ? { t: 'Opcional', c: 'bg-white/[0.02] text-white/45 border-white/10' }
+            : { t: 'Pendiente', c: 'bg-white/[0.02] text-white/50 border-white/10' };
     if (compacto) {
         return (
-            <div {...dnd} className={`rounded-xl border border-dashed px-3 py-1.5 flex items-center gap-2 transition-all ${
-                arrastrando && onFile ? 'border-brand/40' : 'border-white/[0.07]'}`}>
-                <span className="text-[10px] text-white/35 flex-1 min-w-0 truncate">{label}</span>
+            <div {...dnd} className={`rounded-xl border border-dashed px-3 py-2 flex items-center gap-2 transition-all ${
+                arrastrando && onFile ? 'border-brand/40' : 'border-white/[0.12] hover:border-white/20'}`}>
+                <span className="text-[11px] text-white/55 flex-1 min-w-0 truncate">{label}</span>
                 {onFile && (
                     <BotonSubir disabled={ocupado} onFile={onFile}>{ocupado ? textoOcupado : textoBoton}</BotonSubir>
                 )}
@@ -373,15 +389,13 @@ const Hueco = ({ label, hint = null, requerido = false, opcional = false, siguie
     }
     return (
         <div {...dnd} className={`rounded-xl border border-dashed transition-all ${
-            arrastrando && onFile ? 'border-brand/40 bg-brand/[0.03]'
-                : siguiente ? 'border-amber-500/30 bg-amber-500/[0.03]' : 'border-white/[0.08]'}`}>
+            arrastrando && onFile ? 'border-brand/50 bg-brand/[0.04]'
+                : siguiente ? 'border-amber-500/40 bg-amber-500/[0.04]' : 'border-white/[0.12] hover:border-white/20'}`}>
             <div className="flex items-center gap-3 px-3 py-2.5">
-                <svg className="w-4 h-4 text-white/15 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
+                <IconoDoc tono={siguiente ? 'falta' : 'vacio'} mas />
                 <div className="min-w-0 flex-1">
-                    <p className={`text-[11px] font-bold truncate ${siguiente ? 'text-white/70' : 'text-white/45'}`}>{label}</p>
-                    {hint && <p className="text-[9px] text-white/25">{arrastrando && onFile ? 'Suéltalo aquí' : hint}</p>}
+                    <p className={`text-[12px] font-bold leading-snug line-clamp-2 break-words ${siguiente ? 'text-white/90' : 'text-white/65'}`}>{label}</p>
+                    {hint && <p className="text-[10px] leading-snug text-white/45">{arrastrando && onFile ? 'Suéltalo aquí' : hint}</p>}
                 </div>
                 <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shrink-0 ${estado.c}`}>{estado.t}</span>
                 {onFile && (
@@ -449,8 +463,18 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     // visible, así que vuelve a pulsar. Nunca un showAlert pelado (ver el estándar
     // en components/SendActionOverlay.jsx).
     const [lectura, setLectura] = useState(null);
-    // Override manual del plegado de cada fase (por número de fase).
-    const [fasesAbiertas, setFasesAbiertas] = useState({});
+    // Acordeón: UNA fase abierta a la vez. undefined = la que toca (la actual);
+    // null = todas plegadas; un número = la que se abrió a mano.
+    const [faseAbierta, setFaseAbierta] = useState(undefined);
+    // Al abrir una fase a mano se lleva a la vista; al montar, no.
+    const refsFase = useRef({});
+    const faseALaVista = useRef(null);
+    useEffect(() => {
+        const n = faseALaVista.current;
+        if (n == null) return;
+        faseALaVista.current = null;
+        refsFase.current[n]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, [faseAbierta]);
 
 
     const p = useMemo(() => analizarProceso(lote), [lote]);
@@ -1267,9 +1291,11 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     //     CON un documento (verlo, sustituirlo, subir su firmado, darle el OK,
     //     marcarlo pagado, releerlo) va en SU fila.
     //
-    // Las fases YA HECHAS van PLEGADAS a una línea; plegada sigue diciendo lo suyo
-    // (cuántos documentos, si falta alguno, si hay algo por revisar). El plegado es
-    // solo VISUAL: los lotes viejos traen firmados de fuera y hay que llegar a ellos.
+    // ACORDEÓN: solo una fase abierta (de entrada, la actual); abrir otra pliega la
+    // anterior y la trae a la vista. Plegada sigue diciendo lo suyo (cuántos
+    // documentos, si falta alguno, si hay algo por revisar o pendiente). El plegado
+    // es solo VISUAL: los lotes viejos traen firmados de fuera y hay que llegar a
+    // ellos, y la fase entera acepta la suelta también plegada.
     //
     // Se llama como función (no <Fase/>) por lo mismo que `docEsperado`.
     const faseBloque = ({ f, pendiente = false, soltar = null, pista = null, tareas = null,
@@ -1277,12 +1303,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         const esActual = p.faseActual === f.n;
         const bloqueada = !!f.bloqueo && !f.hecha;
         const porRevisar = (f.docs || []).filter(d => d?.signed_link && !d?.validado_at).length;
-        // Abierta si es la actual, si no está hecha, o si le queda algo PENDIENTE
-        // aunque el papeleo esté completo (fase 4: el ahorro verificado o la factura
-        // del verificador). Un firmado "por revisar" NO la abre: se anuncia plegada.
-        const abierta = fasesAbiertas[f.n] !== undefined
-            ? fasesAbiertas[f.n]
-            : (esActual || !f.hecha || pendiente);
+        // Lo pendiente (fase 4: el ahorro verificado o la factura del verificador) y
+        // un firmado "por revisar" NO la abren: se anuncian en la línea plegada.
+        const abierta = (faseAbierta === undefined ? faseAuto : faseAbierta) === f.n;
         // La fase ENTERA recibe los firmados (también plegada). Las filas-hueco
         // capturan su propia suelta antes que ella.
         const dnd = soltar ? {
@@ -1300,66 +1323,83 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         const tareasVisibles = (tareas || []).filter(Boolean);
         const docsVisibles = (docs || []).filter(Boolean);
         return (
-            <div key={`fase_${f.n}`} {...dnd} className={`rounded-2xl border transition-all ${abierta ? 'p-4' : 'px-4 py-2.5'} ${
+            <div key={`fase_${f.n}`} {...dnd} ref={el => { refsFase.current[f.n] = el; }}
+                className={`rounded-2xl border transition-all scroll-mt-2 ${abierta ? 'p-4' : 'px-4 py-3'} ${
                 soltar && arrastrando ? 'border-dashed border-brand/45 bg-brand/[0.05]'
-                    : f.hecha ? 'border-emerald-500/20 bg-emerald-500/[0.03]'
-                        : esActual ? 'border-brand/30 bg-brand/[0.04]'
-                            : 'border-white/[0.06] bg-white/[0.01]'}`}>
+                    : f.hecha ? 'border-emerald-500/20 bg-emerald-500/[0.03] hover:border-emerald-500/35'
+                        : esActual ? 'border-brand/35 bg-brand/[0.05] shadow-[0_0_0_1px_rgba(255,160,0,0.06)]'
+                            : 'border-white/[0.08] bg-white/[0.015] hover:border-white/15 hover:bg-white/[0.025]'}`}>
                 <button type="button"
-                    onClick={() => setFasesAbiertas(prev => ({ ...prev, [f.n]: !abierta }))}
-                    className={`w-full flex items-center gap-2.5 text-left ${abierta ? 'mb-3' : ''}`}>
-                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
-                        f.hecha ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                            : esActual ? 'bg-brand/15 text-brand border border-brand/40'
-                                : 'bg-white/[0.04] text-white/25 border border-white/10'}`}>
+                    onClick={() => {
+                        if (!abierta) faseALaVista.current = f.n;
+                        setFaseAbierta(abierta ? null : f.n);
+                    }}
+                    aria-expanded={abierta}
+                    className={`w-full flex items-center gap-3 text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${abierta ? 'mb-4' : ''}`}>
+                    <span className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${
+                        f.hecha ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/35'
+                            : esActual ? 'bg-brand text-black'
+                                : 'bg-white/[0.05] text-white/50 border border-white/[0.12]'}`}>
                         {f.hecha ? '✓' : f.n}
                     </span>
-                    <p className={`text-[11px] font-black uppercase tracking-[0.15em] flex-1 min-w-0 truncate ${
-                        f.hecha ? 'text-emerald-400/80' : esActual ? 'text-white' : 'text-white/35'}`}>
+                    <p className={`text-[12px] font-black uppercase tracking-[0.12em] flex-1 min-w-0 truncate ${
+                        f.hecha ? 'text-emerald-400/90' : esActual ? 'text-white' : bloqueada ? 'text-white/45' : 'text-white/70'}`}>
                         {f.titulo}
                     </p>
                     {porRevisar > 0 && (
-                        <span className="text-[9px] font-black uppercase tracking-wider text-cyan-300 shrink-0">
+                        <span className="px-2 py-0.5 rounded-full border border-cyan-400/30 bg-cyan-500/10 text-[10px] font-bold text-cyan-300 shrink-0">
                             {porRevisar} por revisar
                         </span>
                     )}
                     {!abierta && faltan > 0 && !bloqueada && (
-                        <span className="text-[9px] font-black uppercase tracking-wider text-amber-400/80 shrink-0">
-                            falta{faltan > 1 ? 'n' : ''} {faltan}
+                        <span className="px-2 py-0.5 rounded-full border border-amber-400/30 bg-amber-500/10 text-[10px] font-bold text-amber-300 shrink-0">
+                            Falta{faltan > 1 ? 'n' : ''} {faltan}
+                        </span>
+                    )}
+                    {!abierta && pendiente && !(faltan > 0) && (
+                        <span className="px-2 py-0.5 rounded-full border border-amber-400/30 bg-amber-500/10 text-[10px] font-bold text-amber-300 shrink-0">
+                            Pendiente
                         </span>
                     )}
                     {!abierta && (f.docs || []).length > 0 && (
-                        <span className="text-[9px] text-white/25 shrink-0">{f.docs.length} doc.</span>
+                        <span className="hidden sm:inline text-[10px] text-white/45 shrink-0">{f.docs.length} doc.</span>
                     )}
                     {soltar && arrastrando && (
-                        <span className="text-[9px] font-black uppercase tracking-wider text-brand shrink-0">suelta aquí</span>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-brand shrink-0">suelta aquí</span>
                     )}
-                    {esActual && !(soltar && arrastrando) && <span className="text-[9px] font-black uppercase tracking-wider text-brand shrink-0">← ahora</span>}
+                    {esActual && !(soltar && arrastrando) && (
+                        <span className="px-2 py-0.5 rounded-full bg-brand/15 border border-brand/40 text-[10px] font-black uppercase tracking-wider text-brand shrink-0">Ahora</span>
+                    )}
                     {bloqueada && (
-                        <svg className="w-3.5 h-3.5 text-white/20 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <svg className="w-3.5 h-3.5 text-white/35 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                            aria-label="Aún no le toca">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                         </svg>
                     )}
-                    <svg className={`w-3.5 h-3.5 text-white/25 shrink-0 transition-transform ${abierta ? 'rotate-180' : ''}`}
+                    <svg className={`w-4 h-4 text-white/45 shrink-0 transition-transform ${abierta ? 'rotate-180' : ''}`}
                         fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                     </svg>
                 </button>
                 {!abierta ? null : (
-                <div className="space-y-3 pl-8">
+                <div className="space-y-4 sm:pl-10">
                     {/* El aviso de "aún no toca" NO impide actuar: los lotes de antes
                         de la app traen documentos de fuera y hay que poder
                         registrarlos igual. Se avisa, no se bloquea. */}
-                    {bloqueada && <p className="text-[10px] text-white/30 italic">{f.bloqueo}</p>}
+                    {bloqueada && (
+                        <p className="text-[11px] text-white/55 rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2">
+                            🔒 {f.bloqueo} <span className="text-white/40">Puedes registrar documentos igualmente.</span>
+                        </p>
+                    )}
                     {tareasVisibles.length > 0 && (
-                        <div className="space-y-1.5">
-                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-white/25">Qué hacer</p>
+                        <div className="space-y-2">
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Qué hacer</p>
                             <div className="flex items-center gap-2 flex-wrap">{tareasVisibles}</div>
                         </div>
                     )}
                     {docsVisibles.length > 0 && (
-                        <div className="space-y-1.5">
-                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-white/25">Documentos</p>
+                        <div className="space-y-2">
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Documentos</p>
                             {docsVisibles}
                         </div>
                     )}
@@ -1374,6 +1414,10 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     };
 
     const [f1, f2, f3, f4, f5, f6, f7] = p.fases;
+    // La fase que se abre de entrada: la actual; con todo hecho, la 4 si le queda
+    // el ahorro verificado o la factura del verificador.
+    const pendiente4 = canSeeMargin && (!verif.completo || !p.facturaVerificador);
+    const faseAuto = p.faseActual ?? (pendiente4 ? 4 : null);
     const nExps = (lote?.expedientes || []).length;
     const api = lote?.verificacion_api || null;
     // El primer documento que falta de la fase EN CURSO se marca en ámbar: es lo
@@ -1411,12 +1455,17 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     return (
         <div className="space-y-2.5">
             <div className="flex items-center justify-between">
-                <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Proceso del lote</p>
+                <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.2em]">
+                    Proceso del lote
+                    <span className="ml-2 normal-case tracking-normal font-semibold text-white/40">
+                        {p.fases.filter(x => x.hecha).length} de {p.fases.length} fases hechas
+                    </span>
+                </p>
                 {lote?.drive_folder_id && (
                     <div className="flex items-center gap-2">
                         <BotonCarpetaLocal loteId={lote.id} compacto onError={setError} />
                         <a href={`https://drive.google.com/drive/folders/${lote.drive_folder_id}`} target="_blank" rel="noopener noreferrer"
-                            className="text-[9px] font-black uppercase tracking-widest text-brand/70 hover:text-brand transition-colors">
+                            className="text-[10px] font-black uppercase tracking-widest text-brand/80 hover:text-brand transition-colors">
                             Abrir carpeta Drive →
                         </a>
                     </div>
@@ -1551,7 +1600,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 fila, con su botón de volver a leerlo. */}
             {faseBloque({
                 f: f4,
-                pendiente: canSeeMargin && (!verif.completo || !p.facturaVerificador),
+                pendiente: pendiente4,
                 faltan: faltanDe(esp4),
                 docs: [
                     // Lo primero que manda el verificador con la oferta aceptada.

@@ -46,11 +46,12 @@ function Marco({ titulo, subtitulo, explicacion, onClose, children, pie }) {
                     <div className="min-w-0 flex-1">
                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand">{subtitulo}</p>
                         <h3 className="text-lg font-black text-white leading-tight mt-0.5">{titulo}</h3>
-                        {explicacion && <p className="text-[11px] text-white/40 mt-1 leading-snug">{explicacion}</p>}
+                        {explicacion && <p className="text-[12px] text-white/55 mt-1.5 leading-snug">{explicacion}</p>}
                     </div>
-                    <button type="button" onClick={onClose} className="text-white/40 hover:text-white text-xl leading-none px-1">✕</button>
+                    <button type="button" onClick={onClose} aria-label="Cerrar"
+                        className="w-9 h-9 -mr-1.5 -mt-1 rounded-xl text-white/50 hover:text-white hover:bg-white/[0.06] text-lg leading-none shrink-0 transition-all">✕</button>
                 </div>
-                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">{children}</div>
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2.5">{children}</div>
                 <div className="px-5 py-3 border-t border-white/[0.06] flex items-center gap-2 flex-wrap pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                     {pie}
                 </div>
@@ -89,18 +90,23 @@ export function RemesaSepaModal({ lote, onClose, onHecho }) {
         return () => { vivo = false; };
     }, [lote.id, facturaCobrada]);
 
-    const filas = datos?.filas || [];
+    // Los que ya tienen el justificante subido están PAGADOS: no salen en la lista
+    // (el servidor tampoco los deja entrar), solo se cuentan.
+    const filas = (datos?.filas || []).filter(f => !f.transferencia);
+    const pagadas = (datos?.filas || []).filter(f => f.transferencia);
+    const incluibles = filas.filter(f => f.incluible);
     const elegidas = filas.filter(f => marcadas?.has(f.id) && f.incluible);
     const total = elegidas.reduce((s, f) => s + (f.importe || 0), 0);
     const nTransf = elegidas.reduce((s, f) => s + (f.pagos?.length || 0), 0);
-    const yaEnRemesa = elegidas.filter(f => f.remesa && !f.transferencia);
-    const yaTransferidas = elegidas.filter(f => f.transferencia);
+    const yaEnRemesa = elegidas.filter(f => f.remesa);
 
     const toggle = (id) => setMarcadas(prev => {
         const s = new Set(prev);
         if (s.has(id)) s.delete(id); else s.add(id);
         return s;
     });
+    const todasMarcadas = incluibles.length > 0 && elegidas.length === incluibles.length;
+    const marcarTodas = () => setMarcadas(todasMarcadas ? new Set() : new Set(incluibles.map(f => f.id)));
 
     const generar = async () => {
         setGenerando(true);
@@ -160,43 +166,58 @@ export function RemesaSepaModal({ lote, onClose, onHecho }) {
         >
             {!datos && !error && <p className="text-[11px] text-white/35">Preparando la remesa…</p>}
             {datos && (
-                <p className="text-[10px] text-white/40">
+                <p className="text-[11px] text-white/50">
                     Cargo en <span className="font-mono text-white/70">{datos.ordenante.iban.replace(/(.{4})(?=.)/g, '$1 ')}</span> ({datos.ordenante.bic}) ·
                     ordenante {datos.ordenante.nif}{datos.ordenante.sufijo}
                 </p>
             )}
+            {datos && incluibles.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-[12px] text-white/65 flex-1">
+                        Marca a quién pagar en esta remesa · <span className="text-white/80 font-bold">{elegidas.length} de {incluibles.length}</span>
+                    </p>
+                    <button type="button" onClick={marcarTodas}
+                        className="px-3 py-1.5 rounded-lg border border-brand/35 text-[11px] font-bold text-brand hover:bg-brand/10 transition-all">
+                        {todasMarcadas ? 'Ninguno' : 'Marcar todos'}
+                    </button>
+                </div>
+            )}
+            {datos && !filas.length && (
+                <p className="text-[11px] text-emerald-300">✓ No queda nadie por pagar en este lote.</p>
+            )}
             {filas.map(f => {
                 const on = !!marcadas?.has(f.id) && f.incluible;
                 return (
-                    <div key={f.id} className={`rounded-2xl border px-3 py-2.5 ${on ? 'border-brand/35 bg-brand/[0.04]' : 'border-white/[0.07] bg-white/[0.015]'}`}>
-                        <div className="flex items-center gap-2.5">
+                    <div key={f.id} className={`rounded-2xl border px-3.5 py-3 transition-colors ${on ? 'border-brand/45 bg-brand/[0.06]'
+                        : f.incluible ? 'border-white/[0.09] bg-white/[0.02] hover:border-white/20' : 'border-white/[0.06] bg-white/[0.01]'}`}>
+                        {/* Toda la fila marca y desmarca: es lo que se hace aquí, cliente a cliente. */}
+                        <label className={`flex items-center gap-3 ${f.incluible ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
                             <input type="checkbox" checked={on} disabled={!f.incluible} onChange={() => toggle(f.id)}
-                                className="w-4 h-4 accent-amber-400 shrink-0" />
+                                className="w-5 h-5 accent-amber-400 shrink-0" />
                             <div className="min-w-0 flex-1">
-                                <p className="text-[12px] font-bold text-white truncate">{f.numero_expediente} · {f.cliente || '—'}</p>
+                                <p className={`text-[13px] font-bold truncate ${f.incluible ? 'text-white' : 'text-white/55'}`}>{f.numero_expediente} · {f.cliente || '—'}</p>
                                 {f.incluible ? (
-                                    <p className="text-[10px] text-white/45">
+                                    <p className="text-[11px] text-white/55">
                                         Ayuda {eur(f.bono)}{f.descuento ? ` − honorarios ${eur(f.descuento)}` : ''}
                                         {f.forma_pago === 'asumida' && ' · gestión asumida por Brokergy'}
                                         {f.forma_pago === 'factura' && ' · factura ya cobrada'}
                                     </p>
                                 ) : (
-                                    <p className="text-[10px] text-amber-300/80">{f.motivo}</p>
+                                    <p className="text-[11px] text-amber-300/90">{f.motivo}</p>
                                 )}
                             </div>
-                            {f.incluible && <span className="text-[13px] font-black text-emerald-300 shrink-0">{eur(f.importe)}</span>}
-                        </div>
+                            {f.incluible && <span className={`text-[15px] font-black shrink-0 ${on ? 'text-emerald-300' : 'text-white/40'}`}>{eur(f.importe)}</span>}
+                        </label>
                         {f.incluible && (f.pagos || []).map((p, i) => (
-                            <p key={i} className="mt-1 ml-6 text-[10px] text-white/50">
+                            <p key={i} className="mt-1.5 ml-8 text-[11px] text-white/55">
                                 → {p.nombre} · <span className="font-mono text-white/70">{p.iban.replace(/(.{4})(?=.)/g, '$1 ')}</span>
                                 {f.pagos.length > 1 && <> · {String(p.cuota_pct).replace('.', ',')} % · <span className="text-white/75">{eur(p.importe)}</span></>}
                             </p>
                         ))}
-                        {f.aviso && <p className="mt-1 ml-6 text-[10px] text-amber-300">⚠ {f.aviso}</p>}
-                        {f.transferencia && <p className="mt-1 ml-6 text-[10px] text-cyan-300/80">Ya transferido el {new Date(f.transferencia.at).toLocaleDateString('es-ES')}</p>}
-                        {!f.transferencia && f.remesa && <p className="mt-1 ml-6 text-[10px] text-cyan-300/70">Ya va en la remesa {f.remesa.msg_id} ({new Date(f.remesa.at).toLocaleDateString('es-ES')}): generarla otra vez la sustituye</p>}
+                        {f.aviso && <p className="mt-1 ml-8 text-[11px] text-amber-300">⚠ {f.aviso}</p>}
+                        {f.remesa && <p className="mt-1 ml-8 text-[11px] text-cyan-300/80">Ya va en la remesa {f.remesa.msg_id} ({new Date(f.remesa.at).toLocaleDateString('es-ES')}), sin justificante: generarla otra vez la sustituye</p>}
                         {f.factura_pendiente && (
-                            <label className="mt-1.5 ml-6 flex items-center gap-1.5 text-[10px] text-white/55">
+                            <label className="mt-2 ml-8 flex items-center gap-2 text-[11px] text-white/65 cursor-pointer">
                                 <input type="checkbox" className="accent-amber-400" checked={facturaCobrada.includes(f.id)}
                                     onChange={e => setFacturaCobrada(prev => (e.target.checked ? [...prev, f.id] : prev.filter(x => x !== f.id)))} />
                                 La factura ya está cobrada: ingresar la ayuda entera
@@ -205,11 +226,13 @@ export function RemesaSepaModal({ lote, onClose, onHecho }) {
                     </div>
                 );
             })}
-            {yaTransferidas.length > 0 && (
-                <p className="text-[10px] text-amber-300">⚠ {yaTransferidas.map(f => f.numero_expediente).join(', ')} ya {yaTransferidas.length > 1 ? 'están transferidos' : 'está transferido'}: se le{yaTransferidas.length > 1 ? 's' : ''} pagaría dos veces.</p>
+            {pagadas.length > 0 && (
+                <p className="text-[11px] text-white/45">
+                    {pagadas.length === 1 ? 'No sale el que ya está pagado' : `No salen los ${pagadas.length} que ya están pagados`} (con el justificante subido): {pagadas.map(f => f.numero_expediente).join(', ')}.
+                </p>
             )}
             {yaEnRemesa.length > 0 && (
-                <p className="text-[10px] text-white/40">Si ya subiste la remesa anterior al banco, no subas esta también con los mismos clientes.</p>
+                <p className="text-[11px] text-white/50">Si ya subiste la remesa anterior al banco, no subas esta también con los mismos clientes.</p>
             )}
             {elegidas.length > 0 && (
                 <p className="text-[11px] text-white/60">
@@ -224,9 +247,11 @@ export function RemesaSepaModal({ lote, onClose, onHecho }) {
 
 // ─── 2 · El justificante del banco ───────────────────────────────────────────
 export function JustificanteModal({ lote, filas, onClose, onSubido }) {
-    // Por defecto, los que van en una remesa y aún no tienen la transferencia.
-    const candidatas = filas.filter(f => f.pago?.remesa);
-    const [marcadas, setMarcadas] = useState(() => new Set(candidatas.filter(f => !f.pago?.transferencia).map(f => f.id)));
+    // Los que van en una remesa y aún no tienen la transferencia; los ya pagados no
+    // salen (subirles otro justificante los volvería a dar por pagados).
+    const candidatas = filas.filter(f => f.pago?.remesa && !f.pago?.transferencia);
+    const nPagadas = filas.filter(f => f.pago?.transferencia).length;
+    const [marcadas, setMarcadas] = useState(() => new Set(candidatas.map(f => f.id)));
     const [fichero, setFichero] = useState(null);
     const [subiendo, setSubiendo] = useState(false);
     const [error, setError] = useState('');
@@ -261,7 +286,8 @@ export function JustificanteModal({ lote, filas, onClose, onSubido }) {
             onClose={onClose}
             pie={(
                 <>
-                    <label className="flex-1 min-w-0 cursor-pointer rounded-xl border border-dashed border-white/20 hover:border-brand/50 px-3 py-2 text-[11px] text-white/60 truncate">
+                    <label className={`flex-1 min-w-0 cursor-pointer rounded-xl border border-dashed px-3.5 py-2.5 text-[12px] truncate transition-all ${fichero
+                        ? 'border-emerald-400/40 bg-emerald-400/[0.05] text-emerald-200' : 'border-white/25 text-white/70 hover:border-brand/50 hover:bg-brand/[0.04]'}`}>
                         <input type="file" accept="application/pdf" className="hidden" onChange={e => setFichero(e.target.files?.[0] || null)} />
                         {fichero ? `📄 ${fichero.name}` : '📎 Elegir el PDF del banco…'}
                     </label>
@@ -273,18 +299,25 @@ export function JustificanteModal({ lote, filas, onClose, onSubido }) {
                 </>
             )}
         >
-            <p className="text-[11px] text-white/50">¿A qué clientes corresponde?</p>
+            <p className="text-[12px] text-white/65">¿A qué clientes corresponde? <span className="text-white/45">Marca los que aparecen en el PDF del banco.</span></p>
             {candidatas.map(f => (
-                <label key={f.id} className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2 text-[12px] text-white">
-                    <input type="checkbox" className="w-4 h-4 accent-amber-400" checked={marcadas.has(f.id)}
+                <label key={f.id} className={`flex items-center gap-3 rounded-2xl border px-3.5 py-3 text-[13px] text-white cursor-pointer transition-colors ${marcadas.has(f.id)
+                    ? 'border-brand/45 bg-brand/[0.06]' : 'border-white/[0.09] bg-white/[0.02] hover:border-white/20'}`}>
+                    <input type="checkbox" className="w-5 h-5 accent-amber-400 shrink-0" checked={marcadas.has(f.id)}
                         onChange={() => setMarcadas(prev => { const s = new Set(prev); if (s.has(f.id)) s.delete(f.id); else s.add(f.id); return s; })} />
                     <span className="font-bold">{f.numero_expediente}</span>
                     <span className="text-white/55 truncate">{f.cliente}</span>
                     {f.pago?.remesa?.importe != null && <span className="ml-auto text-emerald-300 font-bold">{eur(f.pago.remesa.importe)}</span>}
-                    {f.pago?.transferencia && <span className="text-[9px] text-cyan-300/80">ya subido</span>}
                 </label>
             ))}
-            {!candidatas.length && <p className="text-[11px] text-amber-300">Ningún cliente va en una remesa todavía: genera antes la remesa SEPA.</p>}
+            {!candidatas.length && (
+                <p className="text-[11px] text-amber-300">
+                    {nPagadas ? 'Todos los que iban en una remesa ya tienen su justificante.' : 'Ningún cliente va en una remesa todavía: genera antes la remesa SEPA.'}
+                </p>
+            )}
+            {nPagadas > 0 && candidatas.length > 0 && (
+                <p className="text-[10px] text-white/35">No salen los {nPagadas} que ya tienen el justificante subido.</p>
+            )}
         </Marco>,
         document.body,
     );

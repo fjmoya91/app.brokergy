@@ -27,6 +27,11 @@
 // REGLA — un cliente que pidió FACTURA no entra en la remesa salvo que se diga que
 // la factura ya está cobrada: el ingreso no sale hasta que esté abonada.
 //
+// REGLA — la remesa se hace con los que SE ELIJAN, y uno con el justificante subido
+// (`cobro.transferencia`) ya no entra en ninguna otra: se pagaría dos veces. Los
+// que van en una remesa SIN justificante sí siguen saliendo (generarla otra vez la
+// sustituye: el banco pudo no ejecutarla).
+//
 // REGLA — la reseña nace APAGADA (`RESENA_PROGRAMADA_ENABLED`), como el envío
 // programado de las propuestas: el backend del portátil y el del VPS barren la
 // misma base, y desde LOCAL saldría con su WhatsApp a clientes reales.
@@ -78,6 +83,8 @@ function horaMadridAIso(dia, hhmm) {
     }
     return new Date(`${dia}T09:00:00Z`).toISOString();
 }
+
+const fechaCorta = (iso) => (iso ? new Date(iso).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' }) : '—');
 
 const nombreTitular = (c = {}) => `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.replace(/\s+/g, ' ').trim();
 
@@ -154,6 +161,14 @@ async function pagoDeExpediente(exp, { facturaCobrada = false } = {}) {
         return out;
     }
     if (cobro.iban_cambiado) out.aviso = 'Ha cambiado de cuenta: revisa su justificante antes de ordenar';
+    // Con el justificante del banco subido ya está PAGADO: no vuelve a ninguna
+    // remesa (se le pagaría dos veces). Va al final para que `pagos` siga lleno
+    // (la carta de pago de prueba lo lee).
+    if (cobro.transferencia) {
+        out.motivo = `Ya transferido el ${fechaCorta(cobro.transferencia.at)}`;
+        out.transferida = true;
+        return out;
+    }
     out.incluible = true;
     return out;
 }

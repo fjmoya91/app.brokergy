@@ -122,7 +122,15 @@ al intentar cambiar el estado.
 **Menos scroll en Documentación**: las fases YA HECHAS van plegadas a una línea —que
 sigue diciendo cuántos documentos guarda y si hay alguno por revisar— y se abren con un
 clic. Con las seis abiertas, un lote en la fase 5 obligaba a bajar por cuatro bloques de
-papeleo terminado. **Una fase con algo PENDIENTE no se pliega** aunque su papeleo esté
-completo (la 4, mientras falte el ahorro verificado o la factura): plegarla escondería
-justo lo único que hay que hacer. Un firmado "por revisar" no abre la fase — se anuncia
-en la línea plegada, y abrirla entera devolvería el scroll que esto viene a quitar.
+papeleo terminado. Un firmado "por revisar" no abre la fase — se anuncia en la línea
+plegada, y abrirla entera devolvería el scroll que esto viene a quitar.
+
+**Y desde el 23/10/2026 es un ACORDEÓN: una sola fase abierta.** Seguía habiendo
+demasiado scroll: las fases NO hechas (aunque estuvieran bloqueadas) también se abrían,
+así que en un lote de antes de la app con la fase 1 sin cerrar salían abiertas la 1, 2,
+3, 4, 6 y 7, y para llegar al «Pago a los clientes» había que bajar por todas. Ahora de
+entrada se abre solo la ACTUAL (con todo hecho, la 4 si le queda el ahorro verificado o
+la factura del verificador); abrir otra pliega la anterior y la trae a la vista. Lo
+pendiente ya no mantiene la fase abierta: la línea plegada dice «falta N» o «pendiente»
+en ámbar, que es lo que antes justificaba no plegarla. La suelta de PDF sigue valiendo
+sobre la fase plegada.
