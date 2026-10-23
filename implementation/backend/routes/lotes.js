@@ -26,6 +26,7 @@ const {
 } = require('../services/loteDocs');
 const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion, leerCertificadoCae } = require('../services/loteOcrService');
 const { comprobarRangoCae } = require('../utils/codigosCae');
+const inexactitudesLote = require('../services/inexactitudesLote');
 const { archivarFacturaVenta } = require('../services/facturaContabilidad');
 const anexoActuacion = require('../services/anexoActuacionService');
 const solicitudCae = require('../services/solicitudCaeService');
@@ -1568,6 +1569,21 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
 
         await supabase.from('lotes').update(update).eq('id', lote.id);
 
+        // El INFORME DE INEXACTITUDES: cada inexactitud pasa a ser una incidencia
+        // del expediente de cada actuación que cita, colgada de su documento
+        // (services/inexactitudesLote.js). Va DESPUÉS de guardar la entrada, que es
+        // de donde sale su ronda y su fecha. Nunca tumba la subida.
+        let inexactitudes = null;
+        if (slot === 'informe_inexactitudes' && !esFirmado) {
+            try {
+                inexactitudes = await inexactitudesLote.registrarInexactitudes(
+                    { ...lote, documentos_so: docs }, key, buffer, { usuario: usuarioDe(req) });
+            } catch (err) {
+                console.warn('[lotes] inexactitudes:', err.message);
+                inexactitudes = { leido: false, error: err.message };
+            }
+        }
+
         // Un informe de inexactitudes REABRE el lote aunque ya estuviera VERIFICADO:
         // es el único paso atrás legítimo del proceso.
         await sincronizarEstadoLote(lote.id, {
@@ -1583,10 +1599,51 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, lote: scrubLoteForUser(enriched, req) });
+        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, inexactitudes, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
         console.error('[POST /lotes/:id/documentos/:slot]', err.message);
         res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });
+    }
+});
+
+// ─── POST /api/lotes/:id/documentos/:key/inexactitudes ───────────────────────
+// Relee un informe de inexactitudes YA subido y registra sus incidencias. Es
+// idempotente (la identidad es lote + nº de inexactitud): sirve para los informes
+// subidos antes de que la app supiera leerlos y para volver a mirarlo. Con
+// `seco: true` solo dice lo que haría.
+router.post('/:id/documentos/:key/inexactitudes', staffOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        if (!inexactitudesLote.rondaDeKey(req.params.key)) {
+            return res.status(400).json({ error: 'Ese documento no es un informe de inexactitudes.' });
+        }
+        const r = await inexactitudesLote.registrarInexactitudes(lote, req.params.key, null, {
+            usuario: usuarioDe(req), seco: req.body?.seco === true,
+        });
+        if (!r.leido) return res.status(502).json({ error: r.error || 'No se pudo leer el informe.' });
+        res.json(r);
+    } catch (err) {
+        console.error('[POST /lotes/:id/documentos/:key/inexactitudes]', err.message);
+        res.status(500).json({ error: err.message || 'Error al registrar las inexactitudes' });
+    }
+});
+
+// ─── POST /api/lotes/:id/requerimiento/:ronda/carpeta ────────────────────────
+// Deja "{ronda}. REQUERIMIENTO" lista para contestar: copia lo corregido de las
+// incidencias subsanadas que aún no estuviera, las fichas y el Anexo I del lote
+// vueltos a firmar, y un ZIP con todo. Dice qué incidencias siguen abiertas.
+router.post('/:id/requerimiento/:ronda/carpeta', staffOnly, async (req, res) => {
+    try {
+        const ronda = Number(req.params.ronda);
+        if (!Number.isInteger(ronda) || ronda < 1) return res.status(400).json({ error: 'Ronda no válida' });
+        const r = await inexactitudesLote.prepararCarpetaRequerimiento(req.params.id, ronda, {
+            zip: req.body?.zip !== false, seco: req.body?.seco === true,
+        });
+        res.json(r);
+    } catch (err) {
+        console.error('[POST /lotes/:id/requerimiento/:ronda/carpeta]', err.message);
+        res.status(500).json({ error: err.message || 'Error al preparar la carpeta del requerimiento' });
     }
 });
 
@@ -2204,10 +2261,14 @@ router.post('/:id/documentos/:key/firmado', staffOnly, async (req, res) => {
         });
         await supabase.from('lotes').update({ documentos_so: docsSo, historial, updated_at: nowIso() }).eq('id', lote.id);
         await sincronizarEstadoLote(lote.id, { docs: docsSo, usuario: usuarioDe(req), motivo: `firmado de ${entry.label || req.params.key}` });
+        // Re-firmado por un requerimiento → sustituye en la E{n} y va al requerimiento.
+        const paquete = entry.requerimiento_at
+            ? await require('../services/inexactitudesLote').colocarRefirmados(lote.id, [req.params.key], { usuario: usuarioDe(req) })
+            : null;
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, documento: entry, lote: scrubLoteForUser(enriched, req) });
+        res.json({ ok: true, documento: entry, paquete, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
         console.error('[POST /lotes/:id/documentos/:key/firmado]', err.message);
         res.status(500).json({ error: err.message || 'Error al registrar el documento firmado' });

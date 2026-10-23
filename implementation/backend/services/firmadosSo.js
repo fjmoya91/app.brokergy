@@ -369,6 +369,16 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
         await sincronizarEstadoLote(lote.id, { docs: docsActuales, usuario, motivo: 'firmados del S.O. registrados' });
     }
 
+    // Lo que se volvió a pedir por un requerimiento SUSTITUYE en el paquete en
+    // cuanto se registra: la "E{n}" con la última versión firmada (la anterior, a
+    // OLD) y la copia en "{ronda}. REQUERIMIENTO". No lanza.
+    let paquete = null;
+    const refirmados = registrados.map(r => r.doc).filter(k => docsActuales.find(d => d.key === k)?.requerimiento_at);
+    if (refirmados.length) {
+        const { colocarRefirmados } = require('./inexactitudesLote');
+        paquete = await colocarRefirmados(lote.id, refirmados, { usuario });
+    }
+
     // Lo que sigue faltando, para poder decirlo en la misma pantalla en vez de
     // obligar a cerrar y contar las filas a mano.
     const pendientes = identificables
@@ -388,6 +398,7 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
         firmante_brokergy: cesionario ? { nombre: cesionario.nombre, nif: cesionario.nif } : null,
         resultados,
         registrados: registrados.length,
+        paquete,
         pendientes,
         destinos: identificables.map(d => ({
             key: d.key,

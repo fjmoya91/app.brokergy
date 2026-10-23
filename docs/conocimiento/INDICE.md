@@ -23,7 +23,7 @@
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 6,6 KB | 2 |
-| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 22,8 KB | 10 |
+| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 26,0 KB | 11 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 15,9 KB | 5 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,3 KB | 10 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 21,8 KB | 8 |
@@ -235,6 +235,7 @@
 - **156** → `.claude/rules/propuesta.md` — La colaboración se VE en la portada y el coste de los servicios es UNA cifra
 - **157** → `.claude/rules/clientes.md` — La CARTA DE PAGO del Bono CAE se GENERA al subir el justificante y viaja ADJUNTA al aviso
 - **158** → `.claude/rules/claude-automatizacion.md` — Tras la ACEPTACIÓN, el agente revisa la documentación: pide lo que falta o hace el CEE inicial
+- **159** → `.claude/rules/lotes.md` — Las INEXACTITUDES del verificador se registran SOLAS como incidencias, y la RESPUESTA se arma al subsanar
 - **160** → `.claude/rules/documentos.md` — El apartado 3 del Anexo I (REPRESENTACIÓN) solo se rellena si HAY representante, y entonces COMPLETO y con s…
 
 ## Documentos por área
@@ -477,6 +478,7 @@
 - `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md` — El TOTAL que nos ingresa el S.O., y marcarlo COBRADO (2026-10-15)
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09)
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01)
+- `docs/conocimiento/lotes/las-inexactitudes-del-verificador-se-registran-y-la-respuesta-se-arma-sola.md` — Las INEXACTITUDES del verificador se registran solas, y la RESPUESTA se arma al subsanar (2026-10-22)
 - `docs/conocimiento/lotes/las-tarifas-del-verificador-en-su-ficha.md` — Las TARIFAS del verificador, en su ficha (2026-09-14)
 - `docs/conocimiento/lotes/los-firmados-del-so-llegan-por-correo-y-se-registran-solos.md` — Los FIRMADOS del S.O. llegan por CORREO y se registran solos (2026-10-19)
 - `docs/conocimiento/lotes/pedirle-cosas-al-sujeto-obligado-desde-el-cuadro-de-mando.md` — Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01 · ofertas 2026-09-10)

@@ -60,11 +60,14 @@ export function IncidenciasSlotPanel({ expedienteId, slot, incidencias, onCambio
     const esAside = variant === 'aside';
     const graves = incidencias.filter(i => i.severidad === 'GRAVE').length;
 
-    const subsanar = async (inc, resolucion) => {
+    // `descartada`: la de una inexactitud del verificador NO se copia a la carpeta
+    // del requerimiento (no hay nada corregido con lo que contestar).
+    const subsanar = async (inc, resolucion, { descartada = false } = {}) => {
         setBusyId(inc.id); setError('');
         try {
             await axios.patch(`/api/expedientes/${expedienteId}/incidencias/${inc.id}/resolver`, {
                 resolucion: (resolucion ?? texto).trim(),
+                ...(descartada ? { descartada: true } : {}),
             });
             setResolviendo(null); setTexto('');
             onCambio?.();
@@ -174,6 +177,16 @@ export function IncidenciasSlotPanel({ expedienteId, slot, incidencias, onCambio
 
                         <p className="text-[12px] text-white/75 leading-relaxed whitespace-pre-line">{inc.texto}</p>
 
+                        {/* La de una INEXACTITUD del verificador: al subsanarla, el
+                            documento corregido va solo a la carpeta del requerimiento
+                            del lote. Se dice aquí, que es donde se pulsa. */}
+                        {!inc.detectada && inc.inexactitud?.lote_id && (
+                            <p className="mt-1.5 text-[10px] text-cyan-300/70">
+                                Al subsanarla, el documento corregido se copia a «{inc.inexactitud.ronda || 1}. REQUERIMIENTO» de {inc.inexactitud.lote_codigo || 'su lote'}
+                                {' '}(solo si ha cambiado desde el informe).
+                            </p>
+                        )}
+
                         {inc.detectada ? (
                             <div className="mt-2.5 space-y-2">
                                 <p className="text-[10px] text-sky-300/70">
@@ -266,7 +279,7 @@ export function IncidenciasSlotPanel({ expedienteId, slot, incidencias, onCambio
                                 {/* DESCARTAR — la que no procede se cierra con un clic, sin
                                     obligar a redactar un motivo que nadie va a leer. */}
                                 <button
-                                    onClick={() => subsanar(inc, 'Descartada al revisar el documento: no procede.')}
+                                    onClick={() => subsanar(inc, 'Descartada al revisar el documento: no procede.', { descartada: true })}
                                     disabled={busy}
                                     title="No procede — se cierra dejando la traza"
                                     className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/12 text-white/50 text-[9px] font-black uppercase tracking-widest hover:bg-white/10 hover:text-white/85 transition-all disabled:opacity-40"

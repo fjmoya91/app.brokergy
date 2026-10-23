@@ -475,10 +475,88 @@ async function leerCertificadoCae(pdfBuffer) {
     };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 5) INFORME DE INEXACTITUDES (requerimiento del verificador)
+//
+// Una lista de "Inexactitud nº N" con su clasificación ("Inexactitud
+// importante"), su estado ("Abierto"/"Cerrado"), las ACTUACIONES a las que
+// afecta ("1,2,3,4,5" — el nº de actuación de la solicitud, el mismo que
+// `verificacion.orden_actuacion`) y el "Hecho encontrado". A qué expediente y a
+// qué documento va cada una lo decide `inexactitudesLote.js`, no el modelo.
+// ─────────────────────────────────────────────────────────────────────────────
+const PROMPT_INEXACTITUDES = `Eres un lector de documentos. Extrae LITERALMENTE los datos de este INFORME DE INEXACTITUDES emitido por una entidad verificadora de Certificados de Ahorro Energético (CAE).
+
+Extrae de la cabecera:
+- expediente_cae: el código de expediente, con formato "CAE-1234".
+- fecha: la fecha del informe, tal cual.
+- verificador: el verificador jefe o la entidad, tal cual.
+
+Y UNA entrada por cada inexactitud ("Inexactitud nº 1", "Inexactitud nº 2"…), en el orden del documento:
+- numero: el número de la inexactitud, tal cual ("1").
+- clasificacion: el valor de "Clasificación", tal cual ("Inexactitud importante").
+- estado: el valor de "Estado", tal cual ("Abierto", "Cerrado").
+- actuaciones: el valor de "Actuaciones relacionadas", tal cual ("1,2,3,4,5"). Si no aparece, null.
+- hecho: el texto COMPLETO del "Hecho encontrado", palabra por palabra, sin resumir.
+- fecha: la "Fecha inexactitud", tal cual.
+
+Reglas:
+- Transcribe, no interpretes. Si un dato no aparece, null. NUNCA inventes una inexactitud ni completes un texto.
+- No mezcles los textos de dos inexactitudes: cada "Hecho encontrado" va con su número.
+- Ignora el pie de página (dirección, teléfono, web del verificador).`;
+
+const SCHEMA_INEXACTITUDES = {
+    type: 'OBJECT',
+    properties: {
+        expediente_cae: { type: 'STRING', nullable: true },
+        fecha: { type: 'STRING', nullable: true },
+        verificador: { type: 'STRING', nullable: true },
+        inexactitudes: {
+            type: 'ARRAY',
+            items: {
+                type: 'OBJECT',
+                properties: {
+                    numero: { type: 'STRING', nullable: true },
+                    clasificacion: { type: 'STRING', nullable: true },
+                    estado: { type: 'STRING', nullable: true },
+                    actuaciones: { type: 'STRING', nullable: true },
+                    hecho: { type: 'STRING', nullable: true },
+                    fecha: { type: 'STRING', nullable: true },
+                },
+            },
+        },
+    },
+};
+
+/**
+ * Lee el informe de inexactitudes.
+ * @returns {Promise<{expediente_cae, fecha, verificador, inexactitudes: Array<{n:number|null, clasificacion, estado, actuaciones:string|null, hecho, fecha}>}>}
+ */
+async function leerInformeInexactitudes(pdfBuffer) {
+    if (!pdfBuffer || !pdfBuffer.length) throw new Error('PDF vacío.');
+    const r = await leerConGemini(pdfBuffer, PROMPT_INEXACTITUDES, SCHEMA_INEXACTITUDES, 'inexactitudes') || {};
+    const inexactitudes = (Array.isArray(r.inexactitudes) ? r.inexactitudes : [])
+        .map((x, i) => ({
+            n: numeroEs(x?.numero) ?? (i + 1),
+            clasificacion: txt(x?.clasificacion),
+            estado: txt(x?.estado),
+            actuaciones: txt(x?.actuaciones),
+            hecho: txt(x?.hecho),
+            fecha: txt(x?.fecha),
+        }))
+        .filter(x => x.hecho);
+    return {
+        expediente_cae: txt(r.expediente_cae),
+        fecha: txt(r.fecha),
+        verificador: txt(r.verificador),
+        inexactitudes,
+    };
+}
+
 module.exports = {
     numeroEs,
     leerFacturaVerificador,
     leerInformeVerificacion,
     leerDictamenVerificacion,
     leerCertificadoCae,
+    leerInformeInexactitudes,
 };

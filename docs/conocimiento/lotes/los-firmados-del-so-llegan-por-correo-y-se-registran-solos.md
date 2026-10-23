@@ -81,6 +81,19 @@ el firmante del S.O., 17/10/2026 10:39)»), con usuario `CORREO S.O.`.
 escribe en la Supabase y el Drive de producción, y dos servidores leyendo el mismo buzón
 registrarían dos veces.
 
+### Lo re-firmado por un requerimiento, al paquete (2026-10-23)
+
+Si lo registrado se había vuelto a pedir por un requerimiento (`requerimiento_at`),
+`procesarFirmados` llama a `colocarRefirmados`: la `E{n}` queda con la última versión firmada y
+la copia va a `{ronda}. REQUERIMIENTO`. El aviso lo cuenta en una línea «📦». Ver «Las
+INEXACTITUDES del verificador se registran solas».
+
+**Medido el 23/10/2026: en el VPS el barrido NO ha corrido nunca** — `app_settings` no tiene
+`firmados_so_correo:vistos`, y los correos de Jesús de las 08:15 seguían sin registrar a las
+09:30. Hay que comprobar `FIRMADOS_SO_CORREO_ENABLED=true` en el `.env` del VPS y que esté
+desplegado. (Desde el 23/10 esa clave ya existe: la escribió el registro a mano con
+`--aplicar` desde local.)
+
 ### Lo que enseñó la prueba en seco (19/10/2026, últimos 30 días)
 
 - LOTE-2025-010, 011 y 012 (17/10): todo `ya_registrado` (se subieron a mano). No haría nada.

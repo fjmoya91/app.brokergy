@@ -3967,6 +3967,12 @@ router.post('/lote-firma/:loteId/firmar', async (req, res) => {
         await require('../services/loteDocs').sincronizarEstadoLote(lote.id, {
             docs: docsSo, usuario: 'Sujeto Obligado', motivo: 'firma del S.O.',
         });
+        // Re-firmado por un requerimiento → sustituye en la E{n} y va a la carpeta
+        // del requerimiento. Aparte: la firma en cadena no espera a Drive.
+        if (docsSo[idx]?.requerimiento_at) {
+            setImmediate(() => require('../services/inexactitudesLote')
+                .colocarRefirmados(lote.id, [docKey], { usuario: 'Sujeto Obligado' }).catch(() => {}));
+        }
 
         // La OFERTA DE VERIFICACIÓN se avisa aparte y siempre: es el hito que
         // desbloquea la verificación, y llega tanto si el S.O. la firma con su

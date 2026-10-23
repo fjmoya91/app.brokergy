@@ -821,4 +821,9 @@ module.exports = {
     CARPETA_GESTOR,
     fichaDe,
     construirPaquete,
+    // Los usa la carpeta del REQUERIMIENTO (inexactitudesLote.js): la pieza que se
+    // copia allí se encuentra y se llama igual que en el paquete.
+    resolverPieza,
+    buscarEnCarpeta,
+    nombreFinal,
 };

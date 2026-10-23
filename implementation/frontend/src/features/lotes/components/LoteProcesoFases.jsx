@@ -432,6 +432,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const [modoRevision, setModoRevision] = useState('informe');
     const [leyendoInforme, setLeyendoInforme] = useState(false);
     const [leyendoDictamen, setLeyendoDictamen] = useState(false);
+    const [leyendoInex, setLeyendoInex] = useState(null);      // key del informe de inexactitudes
+    const [preparandoReq, setPreparandoReq] = useState(null);  // ronda del requerimiento
     const [generandoAnexos, setGenerandoAnexos] = useState(false);
     // Los PDF que acaba de soltar el usuario, a la espera de que el modal los
     // analice. Se guardan los File tal cual: el modal los sube dos veces (analizar
@@ -730,6 +732,95 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         } finally {
             setLeyendoInforme(false);
         }
+    };
+
+    // ── Fase 4 · el INFORME DE INEXACTITUDES se convierte en incidencias ─────
+    // Cada inexactitud pasa a ser una incidencia del expediente de cada actuación
+    // que cita, colgada de su documento (backend: services/inexactitudesLote.js).
+    // Se subsanan desde el visor de cada documento, y al subsanarlas lo corregido
+    // va solo a la carpeta "{n}. REQUERIMIENTO" del lote.
+    const resultadoInexactitudes = (r, error = null) => {
+        if (!r?.leido) {
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'No se ha podido leer',
+                subtitle: 'El informe está guardado en el lote',
+                errorText: `No se han podido leer las inexactitudes${(error || r?.error) ? ` (${error || r.error})` : ''}. `
+                    + 'Puedes volver a intentarlo con "Registrar incidencias" en su fila.',
+            });
+            return;
+        }
+        const t = r.totales || {};
+        const cambios = (x) => [
+            x.nuevas ? `${x.nuevas} nueva${x.nuevas === 1 ? '' : 's'}` : null,
+            x.reabiertas ? `${x.reabiertas} reabierta${x.reabiertas === 1 ? '' : 's'}` : null,
+            x.cerradas ? `${x.cerradas} cerrada${x.cerradas === 1 ? '' : 's'} por el verificador` : null,
+            x.movidas ? `${x.movidas} pasa${x.movidas === 1 ? '' : 'n'} a esta ronda` : null,
+        ].filter(Boolean).join(', ') || 'ya estaban registradas';
+        setLectura({
+            phase: 'done', ok: true,
+            okTitle: (t.nuevas || t.reabiertas) ? 'Incidencias registradas' : 'Sin cambios',
+            subtitle: `${r.items?.length || 0} inexactitud${r.items?.length === 1 ? '' : 'es'}${r.expediente_cae ? ` · ${r.expediente_cae}` : ''}${r.fecha ? ` · ${r.fecha}` : ''}`,
+            items: [
+                ...(r.porExpediente || []).map(x => ({
+                    texto: `${x.numero_expediente}${x.actuacion ? ` (E${x.actuacion})` : ''} · nº ${x.inexactitudes.join(', ')} → ${cambios(x)}`,
+                    tono: 'ok',
+                })),
+                ...(r.sin_casar || []).map(s => ({ texto: `Inexactitud nº${s.n}: ${s.motivo}`, tono: 'aviso' })),
+                { texto: `Se subsanan en el visor de cada documento del expediente; lo corregido va a «${r.carpeta}».`, tono: 'info' },
+            ],
+        });
+    };
+
+    const subirInexactitudes = async (file) => {
+        setLectura({ phase: 'sending', sendingTitle: 'Leyendo las inexactitudes…', subtitle: 'Cada una irá como incidencia a su expediente' });
+        const r = await subir('informe_inexactitudes', file);
+        if (!r?.documento) { setLectura(null); return; }
+        resultadoInexactitudes(r.inexactitudes);
+    };
+
+    const releerInexactitudes = async (d) => {
+        setError('');
+        setLeyendoInex(d.key);
+        setLectura({ phase: 'sending', sendingTitle: 'Leyendo las inexactitudes…', subtitle: 'Cada una irá como incidencia a su expediente' });
+        try {
+            const { data } = await axios.post(`/api/lotes/${lote.id}/documentos/${d.key}/inexactitudes`);
+            resultadoInexactitudes(data);
+            if (onChanged) onChanged();
+        } catch (err) {
+            resultadoInexactitudes(null, err.response?.data?.error || 'No se pudo leer el informe.');
+        } finally { setLeyendoInex(null); }
+    };
+
+    // Deja "{n}. REQUERIMIENTO" lista para contestar y dice lo que falta.
+    const prepararRequerimiento = async (ronda) => {
+        setError('');
+        setPreparandoReq(ronda);
+        setLectura({ phase: 'sending', sendingTitle: 'Preparando la respuesta…', subtitle: `Copiando lo corregido a «${ronda}. REQUERIMIENTO»` });
+        try {
+            const { data } = await axios.post(`/api/lotes/${lote.id}/requerimiento/${ronda}/carpeta`);
+            const nuevos = (data.copiados || []).filter(c => !c.yaEstaba);
+            const pend = data.pendientes || [];
+            setLectura({
+                phase: 'done', ok: true,
+                okTitle: pend.length ? 'Faltan incidencias por subsanar' : 'Respuesta preparada',
+                subtitle: `«${data.carpeta?.nombre}» · ${(data.ficheros || []).length} documento${(data.ficheros || []).length === 1 ? '' : 's'}`,
+                items: [
+                    ...nuevos.map(c => ({ texto: `Copiado: ${c.nombre}`, tono: 'ok' })),
+                    ...(nuevos.length ? [] : [{ texto: 'Nada nuevo que copiar: lo corregido ya estaba en la carpeta.', tono: 'info' }]),
+                    ...(data.zip ? [{ texto: `${data.zip.nombre} (${data.zip.ficheros} documentos)`, tono: 'ok' }] : []),
+                    ...(data.omitidos || []).map(o => ({ texto: `${o.etiqueta}: ${o.motivo}`, tono: 'aviso' })),
+                    ...pend.map(p => ({ texto: `Sigue abierta en ${p.numero_expediente}: inexactitud nº${p.n}`, tono: 'aviso' })),
+                ],
+                accion: data.carpeta?.link
+                    ? { etiqueta: 'Abrir la carpeta', onClick: () => window.open(data.carpeta.link, '_blank', 'noopener') }
+                    : null,
+            });
+        } catch (err) {
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'No se pudo preparar',
+                errorText: err.response?.data?.error || 'Error al preparar la carpeta del requerimiento.',
+            });
+        } finally { setPreparandoReq(null); }
     };
 
     // ── Fase 5 · el CERTIFICADO CAE trae el rango de códigos emitidos ─────────
@@ -1123,6 +1214,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         solicitud_verificacion: subirSolicitud,
         oferta_verificacion: subirOferta,
         informe_verificacion: subirInforme,
+        informe_inexactitudes: subirInexactitudes,
         dictamen_favorable: subirDictamen,
         factura_verificador: subirFacturaVerificador,
         certificado_cae: subirCertificadoCae,
@@ -1467,13 +1559,50 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         slot: 'plan_verificacion', doc: p.planVerificacion,
                         hint: 'Lo manda el verificador al aceptar la oferta.',
                     }),
-                    ...p.inexactitudes.map(d => <Fila key={d.key} doc={d} {...propsFila(d)} />),
+                    // Cada informe, con lo que se ha registrado de él y el botón que
+                    // arma la carpeta de la respuesta ("{n}. REQUERIMIENTO").
+                    ...p.inexactitudes.map(d => {
+                        const ronda = Number(String(d.key).split('_').pop()) || 1;
+                        const leido = d.inexactitudes;
+                        return (
+                            <Fila key={d.key} doc={d} {...propsFila(d)}>
+                                <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/[0.04] px-2.5 py-1.5 space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-[10px] font-black text-cyan-300/90">
+                                            {leido
+                                                ? `${leido.items?.length || 0} inexactitud${leido.items?.length === 1 ? '' : 'es'} → incidencias en sus expedientes`
+                                                : 'Sin registrar como incidencias'}
+                                        </span>
+                                        <div className="flex-1" />
+                                        <BotonFila onClick={() => releerInexactitudes(d)} disabled={!!leyendoInex}
+                                            title="Leer el informe y registrar cada inexactitud como incidencia de su expediente (no duplica)">
+                                            {leyendoInex === d.key ? 'Leyendo…' : (leido ? '↻ Volver a leer' : '⌕ Registrar incidencias')}
+                                        </BotonFila>
+                                        <BotonFila onClick={() => prepararRequerimiento(ronda)} disabled={!!preparandoReq}
+                                            title={`Copiar lo ya corregido a «${ronda}. REQUERIMIENTO», hacer el ZIP y decir qué falta`}>
+                                            {preparandoReq === ronda ? 'Preparando…' : `📁 Preparar ${ronda}. REQUERIMIENTO`}
+                                        </BotonFila>
+                                    </div>
+                                    {(leido?.items || []).map(it => (
+                                        <p key={it.n} className="text-[9px] text-white/40 leading-snug">
+                                            <span className="font-black text-white/55">nº{it.n}</span>
+                                            {it.actuaciones ? <span className="text-white/30"> · act. {it.actuaciones}</span> : null}
+                                            {' · '}{it.hecho}
+                                        </p>
+                                    ))}
+                                    {(leido?.sin_casar || []).map(s => (
+                                        <p key={`sc_${s.n}`} className="text-[9px] text-amber-300/70">nº{s.n}: {s.motivo}</p>
+                                    ))}
+                                </div>
+                            </Fila>
+                        );
+                    }),
                     <Hueco key="hueco_inex" compacto={p.inexactitudes.length > 0} opcional
                         label={p.inexactitudes.length ? '+ Otro informe de inexactitudes' : 'Informe de inexactitudes'}
-                        hint="Solo si el verificador detecta inexactitudes. Puede haber varios."
+                        hint="Solo si el verificador detecta inexactitudes. Puede haber varios. Cada una se registra como incidencia de su expediente."
                         textoBoton={p.inexactitudes.length ? '+ Añadir' : '↑ Subir PDF'}
                         ocupado={subiendo === 'informe_inexactitudes'} arrastrando={arrastrando}
-                        onFile={(f) => subir('informe_inexactitudes', f)} />,
+                        onFile={subirInexactitudes} />,
                     docEsperado({
                         slot: 'informe_verificacion', doc: p.informeVerificacion, requerido: true,
                         siguiente: sig4 === 'informe_verificacion',

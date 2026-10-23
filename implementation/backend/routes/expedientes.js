@@ -4234,6 +4234,33 @@ router.patch('/:id/incidencias/:incId/resolver', staffOnly, async (req, res) => 
         inc.resolucion = resolucion || null;
         pushComentario(inc, resolucion, usuario, 'RESOLUCION');
 
+        // Si viene de una INEXACTITUD del verificador, el documento corregido se
+        // copia a la carpeta "{ronda}. REQUERIMIENTO" del lote, con el nombre del
+        // paquete, y lo que pase queda en el hilo (services/inexactitudesLote.js).
+        // DESCARTAR no copia: no hay nada corregido que contestar.
+        if (inc.inexactitud?.lote_id) {
+            const descartada = req.body?.descartada === true || /^descartada/i.test(resolucion);
+            inc.inexactitud = { ...inc.inexactitud, descartada };
+            if (!descartada) {
+                const { copiarAlSubsanar } = require('../services/inexactitudesLote');
+                const copia = await copiarAlSubsanar({ expedienteId: req.params.id, inc });
+                inc.inexactitud.copia = { at: new Date().toISOString(), ficheros: copia.copiados.map(c => c.nombre) };
+                pushComentario(inc, copia.texto, 'Sistema', 'NOTA');
+            }
+        }
+
+        // Se RELEE justo antes de escribir: la copia a Drive tarda unos segundos y
+        // en ese rato se ha podido registrar o subsanar otra incidencia.
+        if (inc.inexactitud?.copia) {
+            const fresh = await loadIncidencias(req.params.id);
+            if (fresh) {
+                const i = fresh.incidencias.findIndex(x => x.id === inc.id);
+                if (i >= 0) fresh.incidencias[i] = inc;
+                loaded.docObj = fresh.docObj;
+                loaded.incidencias = fresh.incidencias;
+            }
+        }
+
         const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
         if (!saved) return res.status(500).json({ error: 'Error al actualizar la incidencia.' });
         res.status(200).json(saved);

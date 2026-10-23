@@ -135,6 +135,7 @@ function textoAviso(correo, informe) {
             rev.length ? `⚠️ Sin registrar, para revisar (${rev.length}):` : null,
             ...rev.map(r => `  · ${r.fichero}${r.expediente ? ` (${r.expediente})` : ''} — ${r.avisos.join(' ') || r.estado}`),
             rev.length ? '  Si son buenos, suéltalos en la fase 2 del lote para confirmarlos.' : null,
+            informe.paquete?.texto ? `📦 ${informe.paquete.texto}` : null,
             ya.length ? `ℹ️ Ya estaban registrados: ${ya.length}` : null,
             anteriores.length ? `ℹ️ De una ronda de firma anterior, no se usan: ${anteriores.map(nombre).join(' · ')}` : null,
             informe.pendientes.length

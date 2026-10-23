@@ -103,13 +103,28 @@ export function slotDeIncidencia(inc) {
     return casan.size === 1 ? [...casan][0] : null;
 }
 
+/**
+ * TODOS los slots de una incidencia. Una inexactitud del verificador puede hablar
+ * de varios documentos a la vez ("el nº de serie del Anexo I difiere del de la
+ * placa del informe fotográfico") y no se sabe cuál se corrige hasta corregirlo:
+ * la guarda en `slots` y sale en CADA uno, en vez de colgarla del primero y dejar
+ * el otro en verde (backend: services/inexactitudesLote.js).
+ * @returns {string[]}
+ */
+export function slotsDeIncidencia(inc) {
+    const varios = (Array.isArray(inc?.slots) ? inc.slots : []).filter(esSlotValido);
+    if (!esSlotValido(inc?.slot) && varios.length) return [...new Set(varios)];
+    const uno = slotDeIncidencia(inc);
+    return uno ? [uno] : [];
+}
+
 const abierta = (inc) => inc && inc.estado !== 'SUBSANADA';
 
 /** Las incidencias ABIERTAS de un slot, las graves primero. */
 export function incidenciasDeSlot(incidencias, slot) {
     if (!slot) return [];
     return (incidencias || [])
-        .filter(i => abierta(i) && slotDeIncidencia(i) === slot)
+        .filter(i => abierta(i) && slotsDeIncidencia(i).includes(slot))
         .sort((a, b) => (b.severidad === 'GRAVE') - (a.severidad === 'GRAVE'));
 }
 
@@ -125,7 +140,7 @@ export function resumenSlot(incidencias, slot) {
 
 /** Las que no se han sabido encajar en ningún slot: siguen saliendo arriba. */
 export function incidenciasSinSlot(incidencias) {
-    return (incidencias || []).filter(i => abierta(i) && !slotDeIncidencia(i));
+    return (incidencias || []).filter(i => abierta(i) && !slotsDeIncidencia(i).length);
 }
 
 /** Todas las abiertas repartidas por slot, para pintar la cabecera de un vistazo. */
