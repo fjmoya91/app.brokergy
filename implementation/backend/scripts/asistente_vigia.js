@@ -48,6 +48,16 @@ const CADA_MS = Number(process.env.ASISTENTE_VIGIA_MS) || (SERVIDOR ? 120_000 : 
 const SILENCIO_S = Number(process.env.ASISTENTE_SILENCIO_S) || 20;       // ráfaga: espera a que pare de escribir
 const PLAZO_MS = Number(process.env.ASISTENTE_PLAZO_MIN || 45) * 60_000; // tope de un trabajo
 const CLAUDE = process.env.ASISTENTE_CLAUDE_CMD || 'claude';
+// Claude Code trabaja con la SUSCRIPCIÓN de Fran (CLAUDE_CODE_OAUTH_TOKEN), nunca con la clave de la
+// API: el contenedor carga el .env del backend, que lleva ANTHROPIC_API_KEY para el asistente de la
+// app, y con ella en el entorno `claude -p` cobra a la API. Medido el 22-23/10/2026: siete encargos
+// (CEE final, justificar, el agente de la aceptación) facturados a la API, ~4,6 $.
+const CLAVES_API = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
+function entornoClaude(base = process.env) {
+    const env = { ...base };
+    for (const k of CLAVES_API) delete env[k];
+    return env;
+}
 // Claude trabaja desde una carpeta FUERA del repo y con acceso a él (--add-dir). Desde dentro carga
 // entero el CLAUDE.md de la raíz (1,1 MB ≈ 490.000 tokens) en CADA trabajo: medido el 05/10/2026, un
 // «contesta ok» costaba 514.000 tokens desde el repo y 31.000 desde fuera.
@@ -182,7 +192,7 @@ function lanzarClaude(prompt, etiqueta, modelo, tope) {
             '--model', modelo, '--add-dir', `"${RAIZ}"`, '--no-session-persistence',
             '--max-budget-usd', String(tope), ...(modelo === 'opus' ? ['--fallback-model', 'sonnet'] : [])];
         const inicio = Date.now();
-        const hijo = spawn(CLAUDE, args, { cwd: TRABAJO, shell: true, windowsHide: true, env: process.env });
+        const hijo = spawn(CLAUDE, args, { cwd: TRABAJO, shell: true, windowsHide: true, env: entornoClaude() });
         let json = '';
         let error = '';
         hijo.stdout.on('data', d => { json += d; });

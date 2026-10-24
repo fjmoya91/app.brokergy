@@ -29,7 +29,10 @@ const { materialCee } = require('../utils/materialCee');
 
 const Anthropic = AnthropicMod.default || AnthropicMod;
 
-const MODELO = process.env.ASISTENTE_APP_MODELO || 'claude-opus-5-5';
+// Sonnet por defecto (24/10/2026): con las mismas tres preguntas contestó igual que Opus a la
+// mitad (~0,03 $ frente a ~0,06 $); Haiku costaba ~0,002 $ pero atribuía firmas a quien no era y
+// se dejaba enlaces. Se cambia con ASISTENTE_APP_MODELO.
+const MODELO = process.env.ASISTENTE_APP_MODELO || 'claude-sonnet-5-5';
 // Chat con herramientas: con esfuerzo bajo contesta antes y gasta menos. Se sube
 // con ASISTENTE_APP_ESFUERZO si las respuestas se quedan cortas.
 const ESFUERZO = process.env.ASISTENTE_APP_ESFUERZO || 'low';

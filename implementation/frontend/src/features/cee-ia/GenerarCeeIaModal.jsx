@@ -1,8 +1,10 @@
 // ============================================================================
 // GenerarCeeIaModal.jsx — el popup del botón CE3X: ¿cómo se hace el CEE inicial?
 //
-//   1. Con IA: el agente (Claude Opus por la API) lo hace entero con lo que hay
-//      en la app y avisa al equipo. Lo atiende el PC (cola `cee_ia_trabajos`).
+//   1. Con IA: la skill generar-cee-inicial lo hace entero con lo que hay en la
+//      app y avisa al equipo. Por defecto la corre el Claude del WhatsApp con la
+//      suscripción (`estado.via = 'whatsapp'`); con CEE_IA_VIA=api, el agente
+//      por la API en el PC (cola `cee_ia_trabajos`).
 //   2. A mano, en la envolvente: por código, como siempre.
 //
 // Si la IA está trabajando, dice en qué va (se refresca solo) y deja cancelar.
@@ -12,7 +14,7 @@
 // ============================================================================
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { esVivo, haceCuanto, fmtUsd, queHace } from './logic/ceeIa';
+import { esVivo, haceCuanto, fmtUsd, queHace, EQUIPO_WA } from './logic/ceeIa';
 
 const Tarjeta = ({ icono, titulo, children, accion, tono = 'neutro' }) => (
     <div className={`rounded-xl border p-4 ${tono === 'ia' ? 'border-violet-400/35 bg-violet-400/[0.06]' : 'border-white/10 bg-white/[0.03]'}`}>
@@ -37,6 +39,11 @@ const Boton = ({ children, onClick, disabled, primario = false, peligro = false 
 
 function LineaPc({ vigilante }) {
     if (!vigilante) return null;
+    if (vigilante.via === 'whatsapp') {
+        return vigilante.listo
+            ? <p className="text-emerald-300/90">✓ El Claude del WhatsApp está conectado{vigilante.trabajando ? ' (ahora con otro trabajo: este espera su turno)' : ''}.</p>
+            : <p className="text-amber-300/90">⚠ El Claude del WhatsApp no responde: {vigilante.motivo}</p>;
+    }
     if (vigilante.listo) {
         return <p className="text-emerald-300/90">✓ El PC ({vigilante.equipo}) está atendiendo la cola · visto {haceCuanto(vigilante.visto_at)}</p>;
     }
@@ -53,6 +60,13 @@ function Progreso({ t }) {
     const p = t.progreso || {};
     if (t.estado === 'EN_COLA') {
         return <p>⏳ <b className="text-white">En cola</b> desde {haceCuanto(t.pedido_at)}{t.pedido_por ? ` · lo pidió ${t.pedido_por}` : ''}.</p>;
+    }
+    if (t.equipo === EQUIPO_WA) {
+        return (
+            <p>🤖 <b className="text-white">Lo tiene el Claude del WhatsApp</b> desde {haceCuanto(t.tomado_at)}
+               {t.pedido_por ? ` · lo pidió ${t.pedido_por}` : ''}. Avisa por el grupo «BROKERGY - CHAT» al terminar y
+               esta ventana lo verá sola. Va con la suscripción: no gasta de la API.</p>
+        );
     }
     return (
         <>
@@ -108,6 +122,7 @@ export function GenerarCeeIaModal({ estado, onAbrirEnvolvente, onPedir, onCancel
     const vivo = esVivo(t);
     const ia = estado?.ia || {};
     const vig = estado?.vigilante || null;
+    const porWhatsapp = estado?.via === 'whatsapp';
 
     const hacer = async (fn) => {
         setOcupado(true); setError(null);
@@ -130,7 +145,8 @@ export function GenerarCeeIaModal({ estado, onAbrirEnvolvente, onPedir, onCancel
         cuerpo = (
             <Tarjeta icono="🤖" titulo="La IA está con este CEE" tono="ia"
                 accion={<Boton peligro onClick={() => hacer(onCancelar)} disabled={ocupado || t.cancelar}>
-                    {t.cancelar ? 'Parando… (al acabar la vuelta)' : t.estado === 'EN_COLA' ? 'Quitar de la cola' : 'Parar la IA'}
+                    {t.cancelar ? 'Parando… (al acabar la vuelta)' : t.estado === 'EN_COLA' ? 'Quitar de la cola'
+                        : t.equipo === EQUIPO_WA ? 'Quitarlo de la app' : 'Parar la IA'}
                 </Boton>}>
                 <Progreso t={t} />
                 <p className="text-amber-200/80">No toques la envolvente mientras trabaja: lo que cambies ahí puede pisarlo al escribir.</p>
@@ -141,7 +157,8 @@ export function GenerarCeeIaModal({ estado, onAbrirEnvolvente, onPedir, onCancel
         cuerpo = (
             <div className="space-y-3">
                 {t && !['HECHO'].includes(t.estado) && <Resultado t={t} />}
-                {t?.atascado && <p className="text-[12px] text-amber-300">⚠ El último intento se quedó a medias: el PC dejó de responder. Puedes pedirlo otra vez.</p>}
+                {t?.atascado && <p className="text-[12px] text-amber-300">⚠ El último intento se quedó a medias: {t.equipo === EQUIPO_WA
+                    ? 'en 3 h no ha aparecido el CEE del Claude del WhatsApp' : 'el PC dejó de responder'}. Puedes pedirlo otra vez.</p>}
                 <Tarjeta icono="🤖" titulo={ia.hecho ? 'Rehacer con IA' : 'Generar con IA'} tono="ia"
                     accion={ia.hecho && !confirmarRehacer
                         ? <Boton onClick={() => setConfirmarRehacer(true)} disabled={ocupado}>Rehacer con IA…</Boton>
@@ -150,13 +167,16 @@ export function GenerarCeeIaModal({ estado, onAbrirEnvolvente, onPedir, onCancel
                           </Boton>}>
                     {ia.hecho ? (
                         <p>La IA ya lo hizo {haceCuanto(ia.at)}{ia.pdf ? ' (con XML y PDF)' : ' (sin PDF todavía)'}. Rehacerlo
-                           escribe un borrador nuevo (el anterior va a OLD) y <b className="text-white">vuelve a costar</b>.</p>
+                           escribe un borrador nuevo (el anterior va a OLD) y <b className="text-white">vuelve a gastar</b>{porWhatsapp ? ' (de la suscripción)' : ''}.</p>
                     ) : (
-                        <p>El agente de IA (Claude Opus, esfuerzo alto) hace el CEE con lo que ya hay en la app —fotos, vídeos,
+                        <p>{porWhatsapp ? 'El Claude del WhatsApp (Opus, la skill generar-cee-inicial)' : 'El agente de IA (Claude Opus, esfuerzo alto)'} hace
+                           el CEE con lo que ya hay en la app —fotos, vídeos,
                            placas, presupuesto y Catastro—: envolvente, <span className="font-mono text-[11px]">.cex</span>, XML y PDF con
                            medidas de mejora y justificación. Al terminar avisa al equipo y queda pendiente de revisión.</p>
                     )}
-                    <p className="text-white/45">Cuesta ~1,2–1,9 $ (hasta ~4 $ con vídeos), con tope de 10 $. Tarda 20–40 min.</p>
+                    <p className="text-white/45">{porWhatsapp
+                        ? 'Va con la suscripción de Fran: no gasta de la API. Tarda 20–40 min.'
+                        : 'Por la API: ~1,2–1,9 $ (hasta ~4 $ con vídeos), con tope de 10 $. Tarda 20–40 min.'}</p>
                     <LineaPc vigilante={vig} />
                 </Tarjeta>
                 <Tarjeta icono="✏️" titulo="Hacerlo yo en la envolvente"

@@ -11,6 +11,19 @@ CEE) abría la envolvente a ciegas. Ahora **pregunta cómo se hace el CEE inicia
    como siempre (`agenteIa.terminar`). Coste medido: ~1,2–1,9 $ por CEE, ~4 $ con vídeos; tope 10 $.
 2. **✏️ Hacerlo yo en la envolvente** — por código, como hasta ahora. No gasta nada de la API.
 
+**REGLA — desde el 24/10/2026 «Generar con IA» va por la SUSCRIPCIÓN, con el Claude del WhatsApp**
+(para gastar lo mínimo de la API). Hasta entonces la cola no se había usado nunca (`cee_ia_trabajos`
+vacía, el PC visto por última vez el 19/10). Ahora `pedir` apunta la fila ya **EN_CURSO** con
+`equipo = 'Claude del WhatsApp'` —antes de encargar, para que el índice único siga impidiendo
+pedirlo dos veces— y se lo pasa por `asistenteCanal.pedirTarea` con el texto de
+`TAREAS.cee_inicial` del asistente de la app (lo compone el SERVIDOR; `textoEncargo`). Ese Claude
+no escribe en la tabla: el trabajo pasa a HECHO cuando `estado` ve un sello de la IA posterior a la
+petición (`cerrarSiYaEsta`), se da por perdido a las **3 h** sin él (su tope por trabajo es de 2 h;
+no hay latido) y «Quitarlo de la app» lo retira de aquí sin pararlo (para eso, el chat). El popup lo
+dice: quién lo tiene, que va con la suscripción y si el Claude del WhatsApp está conectado. En local
+no hay ASISTENTE_URL: pedirlo da 503 y la fila queda en ERROR. **`CEE_IA_VIA=api`** en el `.env`
+vuelve a la cola del PC por la API (lo de abajo), que sigue intacta.
+
 | Qué | Dónde |
 |---|---|
 | La cola y el latido del PC | `cee_ia_trabajos` + `cee_ia_vigilantes` ([scripts/cee_ia_trabajos.sql](implementation/backend/scripts/cee_ia_trabajos.sql), aplicado 19/10/2026) |

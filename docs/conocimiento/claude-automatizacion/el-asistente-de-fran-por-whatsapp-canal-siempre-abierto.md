@@ -62,6 +62,15 @@ commiteado. `deploy.sh` no lo reconstruye: `docker compose build asistente && do
 asistente` (tras construir el backend). Claude se autentica con `CLAUDE_CODE_OAUTH_TOKEN` del `.env`
 (de `claude setup-token`, un año); `IS_SANDBOX=1` le deja saltarse permisos como root.
 
+**REGLA — el Claude del WhatsApp trabaja con la SUSCRIPCIÓN, nunca con la clave de la API**
+(2026-10-24). El contenedor carga el `.env` del backend, que desde el 19/10 lleva `ANTHROPIC_API_KEY`
+para el asistente de la app, y con esa clave en el entorno `claude -p` la usa antes que el
+`CLAUDE_CODE_OAUTH_TOKEN`: medido el 22-23/10/2026, siete trabajos (dos CEE finales y un justificar
+encargados desde la app, y cuatro del agente de la aceptación) salieron en la consola de Anthropic
+como Opus 5.5 / Sonnet 5.5, ~4,6 $ que debían ir a la suscripción. `lanzarClaude` le quita
+`ANTHROPIC_API_KEY` y `ANTHROPIC_AUTH_TOKEN` (`entornoClaude`), igual que `asistente_pc.js` en el PC.
+Comprobado en el contenedor: sin la clave, `claude -p` contesta con el token de la suscripción.
+
 **REGLA — Node 22 ANTES de instalar Claude Code, y se actualiza con `--no-cache`** (2026-10-19). Claude
 Code exige Node ≥ 22 y el Dockerfile lo instalaba con el Node 20 de la imagen del backend: npm se quedaba
 con la última versión COMPATIBLE (la 2.1.197, que trabajaba con Opus 4.8) aunque la publicada era la

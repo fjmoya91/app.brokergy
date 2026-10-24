@@ -50,4 +50,9 @@ solo entonces se lanza el agente.
 **Desde la app** (2026-10-19): el botón CE3X ofrece «Generar con IA» y lo apunta en la cola
 `cee_ia_trabajos`; `banco.mjs atender` (o `atender.cmd`) la atiende en el PC con la MISMA pasada que
 `banco.mjs generar` (`generarReal`). Ver «Generar el CEE inicial con IA desde el botón CE3X» en
-`docs/conocimiento/cee-generacion/`.
+`docs/conocimiento/cee-generacion/`. **Desde el 24/10/2026 el botón va por la suscripción** (el
+Claude del WhatsApp); la cola del PC solo con `CEE_IA_VIA=api`.
+
+**Lo que costó el banco** (consola de Anthropic, 19/10/2026): ~13,8 M tokens de entrada —más del
+90 % lecturas de caché— y ~13 $: cinco pasadas con Opus (~10,7 $) y tres con Sonnet (~1,6 $). Fue
+el pico del mes; no se ha vuelto a lanzar.

@@ -11,8 +11,8 @@
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 35,3 KB | 20 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
-| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 50,1 KB | 17 |
-| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 17,6 KB | 6 |
+| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 50,7 KB | 17 |
+| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 18,1 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 22,6 KB | 7 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 39,5 KB | 12 |
@@ -223,7 +223,7 @@
 - **142** → `.claude/rules/calculo.md` — El ahorro anual en € paga cada kWh al precio de lo que lo produce
 - **143** → `.claude/rules/whatsapp.md` — La RONDA de WhatsApp la hace una TAREA PROGRAMADA de Claude Code y, en FASE 1, solo INFORMA a Fran
 - **144** → `.claude/rules/claude-automatizacion.md` — El ASISTENTE DENTRO DE LA APP solo LEE, va por la API y lo pesado se ENCARGA con un clic
-- **145** → `.claude/rules/cee-generacion.md` — El botón CE3X pregunta cómo se hace el CEE inicial: con IA (la cola del PC) o a mano en la envolvente
+- **145** → `.claude/rules/cee-generacion.md` — El botón CE3X pregunta cómo se hace el CEE inicial: con IA o a mano en la envolvente
 - **146** → `.claude/rules/claude-automatizacion.md` — «Preséntalo» por WhatsApp: el Claude del servidor PREGUNTA, el PC de Fran PRESENTA
 - **147** → `.claude/rules/envolvente-ce3x.md` — Un CUERPO se guarda por DÓNDE está, nunca por el número que le pone Catastro
 - **148** → `.claude/rules/cee-generacion.md` — Una CASCADA de aerotermias son VARIOS generadores en el `.cex`, cada uno con SU SCOP y SU potencia, y la dem…

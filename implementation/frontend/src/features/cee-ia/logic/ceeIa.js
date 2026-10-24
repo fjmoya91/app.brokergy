@@ -9,6 +9,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const VIVOS = ['EN_COLA', 'EN_CURSO'];
+/** El `equipo` de un trabajo que hace el Claude del WhatsApp (con la suscripción). */
+export const EQUIPO_WA = 'Claude del WhatsApp';
 export const esVivo = (t) => !!t && VIVOS.includes(t.estado) && !t.atascado;
 
 /** Lo que hace el botón al pulsarlo: abrir la envolvente o el popup. */
@@ -48,12 +50,14 @@ export function lineaTrabajo(t) {
     if (!t) return null;
     if (t.estado === 'EN_COLA') return `En cola ${haceCuanto(t.pedido_at)}`;
     if (t.estado === 'EN_CURSO') {
+        if (t.equipo === EQUIPO_WA) return t.atascado ? 'En 3 h no ha aparecido el CEE del Claude del WhatsApp'
+            : `Generando con el Claude del WhatsApp · desde ${haceCuanto(t.tomado_at)}`;
         if (t.atascado) return 'El PC ha dejado de responder a medias';
         const p = t.progreso || {};
         return `Generando · ${queHace(p.ultima)} · ${p.vueltas || 0} vueltas · ${fmtUsd(p.coste_usd || 0)}`;
     }
     const r = t.resultado || {};
-    if (t.estado === 'HECHO') return `Hecho ${haceCuanto(t.terminado_at)} · ${fmtUsd(r.coste_usd)}`;
+    if (t.estado === 'HECHO') return `Hecho ${haceCuanto(t.terminado_at)}${r.coste_usd != null ? ` · ${fmtUsd(r.coste_usd)}` : ''}`;
     if (t.estado === 'PARCIAL') return `A medias ${haceCuanto(t.terminado_at)} · ${(r.preguntas || []).length} preguntas`;
     if (t.estado === 'CANCELADO') return `Cancelado ${haceCuanto(t.terminado_at || t.pedido_at)}`;
     return `No ha podido ${haceCuanto(t.terminado_at)}`;

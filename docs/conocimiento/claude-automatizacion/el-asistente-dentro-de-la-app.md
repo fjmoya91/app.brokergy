@@ -33,8 +33,14 @@ no distraiga); saluda al pasar el ratón y, mientras contesta con el chat cerrad
 del WhatsApp): `claude -p` arranca un Claude Code entero por pregunta (de 20 s a minutos), corre como
 root con todos los permisos en el VPS —no se abre detrás de una página web— y la suscripción es
 personal, mientras que la API vale para cualquiera del equipo. Va con `ANTHROPIC_API_KEY` (pago por
-uso), Opus 5.5 con esfuerzo bajo (`ASISTENTE_APP_MODELO`, `ASISTENTE_APP_ESFUERZO`) y el respaldo
+uso), **Sonnet 5.5** con esfuerzo bajo (`ASISTENTE_APP_MODELO`, `ASISTENTE_APP_ESFUERZO`) y el respaldo
 automático de la API si el modelo declina (`fallbacks: "default"`).
+
+**Por qué Sonnet y no Opus ni Haiku** (2026-10-24, para gastar lo mínimo): las mismas tres preguntas
+(«¿qué tengo pendiente de revisar?», «¿cómo va el 190 y qué le pido a quién?», «justifica el 178»)
+con los tres modelos. Opus ~0,05–0,07 $ por pregunta; **Sonnet ~0,03 $**, con respuestas igual de
+buenas (enlaces, reparto por persona y la tarjeta de justificar); Haiku ~0,002 $, pero le atribuía al
+instalador el envío de los anexos y se dejaba el enlace del expediente. Hasta el 23/10 iba con Opus.
 
 **REGLA — el asistente de la app solo LEE; lo pesado se ENCARGA, y solo con un clic.** Sus
 herramientas consultan: `buscar` (número o nombre; expedientes, oportunidades y CEE directos),

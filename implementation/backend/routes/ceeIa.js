@@ -3,13 +3,14 @@
 //
 //   GET  /api/cee-ia/:negocio/:id                 en qué está: lo hecho por la IA,
 //                                                 el último trabajo y el PC
-//   POST /api/cee-ia/:negocio/:id   { rehacer }   lo apunta en la cola del PC
+//   POST /api/cee-ia/:negocio/:id   { rehacer }   se lo encarga al Claude del WhatsApp
+//                                                 (o, con CEE_IA_VIA=api, a la cola del PC)
 //   POST /api/cee-ia/trabajo/:trabajoId/cancelar
 //
 // :negocio = cae | cee | op · :id = uuid o clave legible.
 //
-// staffOnly: cuesta dinero (la API de Claude) y escribe el CEE en Drive y en la
-// app. El certificador no lo pide: es Brokergy quien decide generarlo así.
+// staffOnly: gasta (suscripción o API de Claude) y escribe el CEE en Drive y en
+// la app. El certificador no lo pide: es Brokergy quien decide generarlo así.
 
 const express = require('express');
 const router = express.Router();
