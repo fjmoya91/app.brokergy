@@ -86,13 +86,14 @@ const ok = (cond, texto) => { total++; if (!cond) fallos++; console.log(`${cond 
 
         // ── Beta: mismo email = NO se pisa (certapp_beta_apuntar) ──────────────
         const b1 = await beta.apuntar({ nombre: 'Prueba Beta', email, consentimiento: true, perfil: 'autonomo', software: ['CE3X'], web: '', form_token: 'x' }, { ip: '127.0.0.1', userAgent: 'test' });
-        const b2 = await beta.apuntar({ nombre: 'Prueba Beta 2', email: email.toUpperCase(), telefono: '600000000', consentimiento: true, cee_mes: '6-15' }, { ip: '127.0.0.1', userAgent: 'test' });
+        // Sin cifras: el nombre se sanea (nombreSeguro) y «Prueba Beta 2» quedaría en «Prueba Beta».
+        const b2 = await beta.apuntar({ nombre: 'Prueba Beta Dos', email: email.toUpperCase(), telefono: '600000000', consentimiento: true, cee_mes: '6-15' }, { ip: '127.0.0.1', userAgent: 'test' });
         const { data: sols } = await supabase.from('certapp_beta_solicitudes').select('id, nombre, telefono, perfil, cee_mes, ip_hash, respuestas').eq('email', email);
         ok(JSON.stringify(b1) === '{"ok":true}' && JSON.stringify(b2) === '{"ok":true}' && sols?.length === 1, 'beta: la respuesta es siempre { ok: true } y el mismo email no duplica');
         const sol = sols?.[0] || {};
         ok(sol.nombre === 'Prueba Beta' && sol.cee_mes === '6-15' && sol.telefono === '600000000' && sol.perfil === 'AUTONOMO',
             'beta: la segunda vez NO pisa el nombre; solo rellena lo que estaba vacío (cee_mes, teléfono)');
-        ok(Array.isArray(sol.respuestas?.revisiones) && sol.respuestas.revisiones.length === 1 && sol.respuestas.revisiones[0].nombre === 'Prueba Beta 2',
+        ok(Array.isArray(sol.respuestas?.revisiones) && sol.respuestas.revisiones.length === 1 && sol.respuestas.revisiones[0].nombre === 'Prueba Beta Dos',
             'beta: lo que llegó la segunda vez queda en respuestas.revisiones');
         ok(sol.ip_hash && sol.ip_hash !== '127.0.0.1' && !('web' in (sol.respuestas || {})) && !('form_token' in (sol.respuestas || {})), 'beta: guarda el crudo, la IP solo en hash y sin el honeypot ni el form_token');
 
