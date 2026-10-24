@@ -1,0 +1,366 @@
+// ─── demo.js — datos SIMULADOS para ver la app sin backend (solo desarrollo) ─
+// Se carga con `?demo=1` (dev/flag.js) y SOLO en `vite` (import.meta.env.DEV):
+// en el build de producción ni se importa. Sustituye el adaptador de axios para
+// /api/certapp*, /api/certapp-admin*, /api/public/certapp* y las rutas públicas
+// del Catastro que usa la app, con un estado en memoria (se pierde al recargar
+// salvo las obras, que van a sessionStorage para poder recargar la ficha).
+// Nada sale a ningún servidor: ni Supabase, ni el Catastro, ni Drive.
+import axios from 'axios';
+import { sanearCuestionario, barrido, SLOT_IDS } from '../logic/cuestionario';
+
+const CLAVE = 'certapp_demo_estado';
+const ahora = () => new Date().toISOString();
+const hace = (min) => new Date(Date.now() - min * 60000).toISOString();
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `demo-${Math.random().toString(16).slice(2)}-${Date.now()}`);
+
+// Una miniatura dibujada (SVG en data: — no pesa y no sale a la red).
+const miniatura = (texto, color = '#e9e3d6') => `data:image/svg+xml;utf8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="${color}"/><text x="100" y="108" font-family="Arial" font-size="22" text-anchor="middle" fill="#55585f">${texto}</text></svg>`,
+)}`;
+
+function estadoInicial() {
+    const cuenta = {
+        id: 'demo-cuenta', email: 'tecnico.demo@example.com', nombre: 'Laura', apellidos: 'Gómez Prieto',
+        nif: '', telefono: '600000000', empresa: null, empresa_nif: null, titulacion: '', num_colegiado: null,
+        colegio: null, provincia: 'Ciudad Real', municipio: 'Tomelloso', direccion: null, codigo_postal: null,
+        estado: 'ACTIVA', creditos: 4, creditos_usados: 1, ultimo_acceso_at: ahora(), created_at: hace(60 * 24 * 3),
+    };
+    const base = (o) => ({
+        cuenta_id: cuenta.id, titular: {}, cuestionario: {}, documentacion: { reforma_uploads: {} },
+        proposito: null, en_vivienda: null, zona_climatica: 'D3', uso: 'Residencial', ccaa: 'Castilla-La Mancha',
+        provincia: 'Ciudad Real', created_at: hace(60), updated_at: hace(30), ...o,
+    });
+    const obras = [
+        base({
+            id: 'demo-obra-1', numero_expediente: '2026EXT_3', nombre: 'María López Ruiz', estado: 'BORRADOR',
+            ref_catastral: '1234567VJ1213S0001AB', direccion: 'CALLE DON VÍCTOR PEÑASCO 12', municipio: 'Tomelloso',
+            codigo_postal: '13700', superficie_catastro: 118, anio_construccion: 1978, proposito: 'COMPRAVENTA', en_vivienda: false,
+            titular: { nombre: 'María', apellidos: 'López Ruiz', telefono: '611111111' },
+            cuestionario: { tipo_edificio: 'UNIFAMILIAR_ADOSADA', cubierta: 'INCLINADA', calefaccion: 'gasoleo', colinda_no_calefactado: null },
+            documentacion: { reforma_uploads: { FOTO_FACHADA_PRINCIPAL: [{ driveId: 'demo-f1', nombre: 'fachada.jpg', mime: 'image/jpeg', subido_at: hace(40), por: 'certificador' }] } },
+        }),
+        base({
+            id: 'demo-obra-2', numero_expediente: '2026EXT_2', nombre: 'Antonio Ruiz', estado: 'EN_PREPARACION',
+            ref_catastral: '9876543VJ1293N0012XY', direccion: 'AVENIDA ANTONIO HUERTAS 41 3º B', municipio: 'Tomelloso',
+            codigo_postal: '13700', superficie_catastro: 86, anio_construccion: 1995, proposito: 'ALQUILER', en_vivienda: true,
+            titular: { nombre: 'Antonio', apellidos: 'Ruiz' }, pedido_at: hace(50),
+            cuestionario: { tipo_edificio: 'PISO', posicion_piso: 'INTERMEDIO', colinda_no_calefactado: false, calefaccion: 'gas', acs: 'misma_caldera', termo_extra: false, aire_acondicionado: false, placas_fv: 'NO' },
+        }),
+        base({
+            id: 'demo-obra-3', numero_expediente: '2026EXT_1', nombre: 'Carmen Díaz', estado: 'LISTO',
+            ref_catastral: '5554443VJ1253S0001ZZ', direccion: 'CALLE SOCUÉLLAMOS 7', municipio: 'Tomelloso',
+            codigo_postal: '13700', superficie_catastro: 142, anio_construccion: 1968, proposito: 'IRPF_AEROTERMIA', en_vivienda: false,
+            titular: { nombre: 'Carmen', apellidos: 'Díaz' }, pedido_at: hace(60 * 26), entregado_at: hace(60 * 3),
+            cuestionario: { tipo_edificio: 'UNIFAMILIAR_AISLADA', cubierta: 'INCLINADA', colinda_no_calefactado: true, colindantes: ['GARAJE'], calefaccion: 'gasoleo', acs: 'misma_caldera' },
+        }),
+    ];
+    const eventos = {
+        'demo-obra-2': [
+            { id: 'e1', created_at: hace(50), tipo: 'GENERAR', texto: 'Certificado pedido (quedan 4 créditos)', por: 'certificador' },
+            { id: 'e0', created_at: hace(70), tipo: 'CATASTRO', texto: 'Datos del Catastro (9876543VJ1293N0012XY)', por: 'certificador' },
+        ],
+        'demo-obra-3': [
+            { id: 'e5', created_at: hace(60 * 3), tipo: 'ENTREGA', texto: 'Certificado entregado; carpeta compartida con el certificador', por: 'BROKERGY' },
+            { id: 'e4', created_at: hace(60 * 26), tipo: 'GENERAR', texto: 'Certificado pedido (quedan 5 créditos)', por: 'certificador' },
+        ],
+    };
+    const beta = [
+        { id: 'demo-b1', created_at: hace(90), nombre: 'Javier Martín', email: 'javier.demo@example.com', telefono: '622222222', provincia: 'Toledo', perfil: 'AUTONOMO', empresa: null, cee_mes: '6-15', minutos_cee: '60-120', minutos_presentar: '10-20', interes_ia_presentar: 'SI', software: ['CE3X'], comunidades: ['Castilla-La Mancha'], comentarios: 'Medir y dibujar la envolvente.', acepta_comunicaciones: true, origen: 'landing', estado: 'NUEVA' },
+        { id: 'demo-b2', created_at: hace(60 * 30), nombre: 'Certifica Sur SL', email: 'info.demo@example.com', telefono: '633333333', provincia: 'Sevilla', perfil: 'EMPRESA_SUBCONTRATA', empresa: 'Certifica Sur', cee_mes: '40+', minutos_cee: '30-60', minutos_presentar: '<10', interes_ia_presentar: 'QUIZA', coste_subcontrata_eur: 45, software: ['CE3X', 'CYPETHERM'], comunidades: ['Andalucía'], comentarios: '', acepta_comunicaciones: false, origen: 'compartido', estado: 'NUEVA' },
+    ];
+    const feedback = [
+        { id: 'demo-fb1', created_at: hace(20), tipo: 'MEJORA', texto: 'Estaría bien poder dictar las notas por voz.', pantalla: '/obra/demo-obra-1 · Obra', estado: 'NUEVA', cuenta: { nombre: 'Laura', apellidos: 'Gómez Prieto', email: cuenta.email }, obra_id: 'demo-obra-1' },
+    ];
+    return { cuenta, obras, eventos, beta, feedback, asistenteUsos: 0 };
+}
+
+let S = null;
+function cargarEstado() {
+    try { const j = JSON.parse(sessionStorage.getItem(CLAVE) || 'null'); if (j?.obras) return j; } catch { /* nuevo */ }
+    return estadoInicial();
+}
+const guardarEstado = () => { try { sessionStorage.setItem(CLAVE, JSON.stringify(S)); } catch { /* lleno */ } };
+
+class ErrorDemo extends Error {
+    constructor(status, data) { super(data?.error || `HTTP ${status}`); this.status = status; this.data = data; }
+}
+const fallo = (status, error, code, extra = {}) => { throw new ErrorDemo(status, { error, code, ...extra }); };
+
+const obraDe = (id) => S.obras.find(o => o.id === id) || fallo(404, 'No encuentro esa obra.', 'OBRA_NO_ENCONTRADA');
+const vista = (o) => {
+    const up = o.documentacion?.reforma_uploads || {};
+    const slots = {};
+    for (const id of SLOT_IDS) {
+        slots[id] = (up[id] || []).map(e => ({ ...e, link: e.thumb || miniatura(e.nombre || id), thumb: /^(image|video)\//.test(e.mime || '') ? miniatura(e.nombre || id) : null }));
+    }
+    return { slots };
+};
+const paraCertificador = (o) => {
+    const { portal_token, cuenta_id, ...resto } = o; // eslint-disable-line no-unused-vars
+    return resto;
+};
+const enlaces = (o) => (['LISTO', 'VALIDADO'].includes(o.estado) ? {
+    pdf: miniatura('CEE PDF', '#fff'), cex: null, xml: miniatura('XML', '#fff'), croquis: null,
+    carpeta: 'https://drive.google.com/', envolvente: `/obra/${o.id}/envolvente?origen=ext`,
+} : null);
+const listaObra = (o) => ({
+    id: o.id, numero_expediente: o.numero_expediente, nombre: o.nombre, direccion: o.direccion, municipio: o.municipio,
+    provincia: o.provincia, ref_catastral: o.ref_catastral, estado: o.estado, proposito: o.proposito, en_vivienda: o.en_vivienda,
+    created_at: o.created_at, updated_at: o.updated_at, pedido_at: o.pedido_at || null, entregado_at: o.entregado_at || null,
+});
+const evento = (obraId, tipo, texto, por = 'certificador') => {
+    (S.eventos[obraId] ||= []).unshift({ id: uuid(), created_at: ahora(), tipo, texto, por });
+};
+
+// ── Las rutas simuladas ──────────────────────────────────────────────────────
+const RUTAS = [
+    // Perfil
+    ['GET', /^\/api\/certapp\/me$/, () => ({ cuenta: S.cuenta, esAdmin: true })],
+    ['PUT', /^\/api\/certapp\/me$/, (b) => { Object.assign(S.cuenta, b); return { cuenta: S.cuenta }; }],
+    // Obras
+    ['GET', /^\/api\/certapp\/obras$/, () => ({ obras: S.obras.filter(o => o.estado !== 'ARCHIVADA').map(listaObra) })],
+    ['POST', /^\/api\/certapp\/obras$/, (b) => {
+        const n = S.obras.length + 1;
+        const o = {
+            id: uuid(), cuenta_id: S.cuenta.id, numero_expediente: `2026EXT_${n + 1}`, nombre: b.ref_catastral || null, estado: 'BORRADOR',
+            ref_catastral: b.ref_catastral || null, titular: {}, cuestionario: {}, documentacion: { reforma_uploads: {} },
+            created_at: ahora(), updated_at: ahora(),
+        };
+        S.obras.unshift(o);
+        return { __status: 201, obra: paraCertificador(o), drive: { ok: true } };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/catastro$/, (b, [, id]) => {
+        const o = obraDe(id);
+        const rc = String(b.rc || o.ref_catastral || '').toUpperCase();
+        if (rc.length === 14) {
+            fallo(409, 'Esa referencia es de un edificio con varias viviendas: elige cuál.', 'PARCELA', {
+                parcela: { rc, direccion: 'AV ANTONIO HUERTAS 41 TOMELLOSO (CIUDAD REAL)' },
+                viviendas: ['1º A', '1º B', '2º A', '2º B'].map((pp, i) => ({ rc: `${rc}000${i + 1}XY`, direccion: `AV ANTONIO HUERTAS 41 Es:1 Pl:0${(i >> 1) + 1} Pt:${pp}`, escalera: '1', planta: pp.slice(0, 2), puerta: pp.slice(-1), uso: 'Residencial', superficie: 80 + i * 4, anio: 1995, vivienda: true }))
+                    .concat([{ rc: `${rc}0009ZZ`, direccion: 'AV ANTONIO HUERTAS 41 Es:1 Pl:-1 Pt:12', escalera: '1', planta: '-1', puerta: '12', uso: 'Almacén-Estacionamiento', superficie: 24, anio: 1995, vivienda: false }]),
+            });
+        }
+        if (rc.startsWith('0000')) fallo(404, 'El Catastro no encuentra esa referencia.', 'RC_NO_EXISTE');
+        Object.assign(o, {
+            ref_catastral: rc, direccion: 'CALLE DOCTOR FLEMING 23', municipio: 'Tomelloso', provincia: 'Ciudad Real', codigo_postal: '13700',
+            superficie_catastro: 104, anio_construccion: 1982, zona_climatica: 'D3', uso: 'Residencial', updated_at: ahora(),
+        });
+        evento(o.id, 'CATASTRO', `Datos del Catastro (${rc})`);
+        return { obra: paraCertificador(o) };
+    }],
+    ['GET', /^\/api\/certapp\/obras\/([^/]+)$/, (b, [, id]) => {
+        const o = obraDe(id);
+        return { obra: paraCertificador(o), barrido: barrido(o, S.cuenta), eventos: S.eventos[id] || [], enlaces: enlaces(o) };
+    }],
+    ['PUT', /^\/api\/certapp\/obras\/([^/]+)$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (o.estado !== 'BORRADOR') fallo(409, 'El certificado ya está pedido: los datos de la obra ya no se cambian.', 'OBRA_CERRADA');
+        const patch = { ...b };
+        if ('cuestionario' in patch) patch.cuestionario = sanearCuestionario(patch.cuestionario || {});
+        if (patch.titular) {
+            patch.titular = Object.fromEntries(Object.entries(patch.titular).filter(([, v]) => v));
+            const n = [patch.titular.nombre, patch.titular.apellidos].filter(Boolean).join(' ');
+            if (n) patch.nombre = n;
+        }
+        Object.assign(o, patch, { updated_at: ahora() });
+        return { obra: paraCertificador(o) };
+    }],
+    ['GET', /^\/api\/certapp\/obras\/([^/]+)\/docs$/, (b, [, id]) => vista(obraDe(id))],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/docs\/([^/]+)$/, (b, [, id, slot]) => {
+        const o = obraDe(id);
+        const files = b instanceof FormData ? b.getAll('files') : [];
+        const up = (o.documentacion.reforma_uploads ||= {});
+        const nuevos = files.map(f => ({ driveId: uuid(), nombre: f.name, mime: f.type || 'image/jpeg', subido_at: ahora(), por: 'certificador' }));
+        up[slot] = [...(up[slot] || []), ...nuevos];
+        return { ok: true, subidos: nuevos, rechazados: [], errores: [], slots: vista(o).slots, __espera: 900 };
+    }],
+    ['DELETE', /^\/api\/certapp\/obras\/([^/]+)\/docs\/([^/]+)\/([^/]+)$/, (b, [, id, slot, driveId]) => {
+        const o = obraDe(id);
+        const up = o.documentacion.reforma_uploads || {};
+        up[slot] = (up[slot] || []).filter(e => e.driveId !== decodeURIComponent(driveId));
+        return { ok: true, ...vista(o) };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/enlace-cliente$/, (b, [, id]) => {
+        const o = obraDe(id);
+        o.portal_token ||= 'demotoken';
+        return { url: `${window.location.origin}/subir/${o.id}?token=${o.portal_token}` };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/enlace-cliente\/rotar$/, (b, [, id]) => {
+        const o = obraDe(id);
+        o.portal_token = `demo${Math.random().toString(36).slice(2, 10)}`;
+        evento(o.id, 'PORTAL', 'Enlace del propietario regenerado');
+        return { ok: true, url: `${window.location.origin}/subir/${o.id}?token=${o.portal_token}`, __espera: 500 };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/generar$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (o.estado !== 'BORRADOR') fallo(409, 'Este certificado ya está pedido.', 'YA_PEDIDO');
+        const r = barrido(o, S.cuenta);
+        if (!r.listo) fallo(422, 'Falta algo para poder pedir el certificado.', 'BARRIDO', { barrido: r });
+        if (S.cuenta.creditos <= 0) fallo(402, 'No te quedan certificados.', 'SIN_CREDITOS');
+        S.cuenta.creditos -= 1; S.cuenta.creditos_usados += 1;
+        Object.assign(o, { estado: 'EN_PREPARACION', pedido_at: ahora() });
+        evento(o.id, 'GENERAR', `Certificado pedido (quedan ${S.cuenta.creditos} créditos)`);
+        return { ok: true, obra: paraCertificador(o), creditos: S.cuenta.creditos, ia: { auto: false, ok: null }, __espera: 1400 };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/validar$/, (b, [, id]) => {
+        const o = obraDe(id); o.estado = 'VALIDADO'; evento(o.id, 'VALIDADO', 'El certificador da el certificado por bueno');
+        return { ok: true, obra: paraCertificador(o) };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/revisar-de-nuevo$/, (b, [, id]) => {
+        const o = obraDe(id);
+        // Tope de regeneraciones (como el servidor): en la demo, una por obra.
+        if ((o.revisiones || 0) >= 1) fallo(409, 'Ya has pedido las regeneraciones que incluye este certificado.', 'SIN_REVISIONES');
+        o.revisiones = (o.revisiones || 0) + 1;
+        o.estado = 'EN_PREPARACION'; evento(o.id, 'REVISAR', b?.nota ? `Pide revisar de nuevo: ${b.nota}` : 'Pide revisar de nuevo');
+        return { ok: true, obra: paraCertificador(o) };
+    }],
+    ['POST', /^\/api\/certapp\/feedback$/, (b) => { S.feedback.unshift({ id: uuid(), created_at: ahora(), estado: 'NUEVA', cuenta: S.cuenta, ...b }); return { __status: 201, ok: true }; }],
+    ['GET', /^\/api\/certapp\/asistente\/cupo$/, () => ({ disponible: true, usados_hoy: S.asistenteUsos, max_dia: 20, restantes: 20 - S.asistenteUsos })],
+    ['POST', /^\/api\/certapp\/asistente$/, () => {
+        S.asistenteUsos += 1;
+        return { texto: '(Demo) En CE3X 3.2, una partición con un garaje no calefactado se introduce como «Partición interior horizontal en contacto con espacio no habitable». ¿Te ayudo con algo más del certificado?', cupo: { disponible: true, usados_hoy: S.asistenteUsos, max_dia: 20, restantes: 20 - S.asistenteUsos }, __espera: 900 };
+    }],
+
+    // Públicas
+    ['GET', /^\/api\/public\/certapp\/beta\/token$/, () => ({ token: `demo.${Date.now()}` })],
+    ['POST', /^\/api\/public\/certapp\/beta$/, (b) => {
+        // Como el servidor: sin token, o con menos de 3 s, 400 FORM_TOKEN.
+        const t = Number(String(b?.form_token || '').split('.')[1]);
+        if (!t || Date.now() - t < 3000) fallo(400, 'El formulario ha caducado. Vuelve a enviarlo.', 'FORM_TOKEN');
+        return { ok: true, __espera: 700 };
+    }],
+    ['GET', /^\/api\/public\/certapp\/activar\/(.+)$/, (b, [, token]) => (token === 'caducado'
+        ? fallo(410, 'El enlace ha caducado. Pide otro.', 'TOKEN_CADUCADO')
+        : { ok: true, tipo: 'activar', email: S.cuenta.email, nombre: S.cuenta.nombre, preexistente: token === 'crm' })],
+    ['POST', /^\/api\/public\/certapp\/activar$/, () => ({ ok: true, email: S.cuenta.email })],
+    ['POST', /^\/api\/public\/certapp\/recuperar$/, () => ({ ok: true })],
+    ['GET', /^\/api\/public\/certapp\/subir\/([^/]+)$/, (b, [, id], cfg) => {
+        const o = S.obras.find(x => x.id === id);
+        if (cfg.params?.token === 'caducado') fallo(410, 'Este enlace ha caducado.', 'ENLACE_CADUCADO');
+        if (!o || (cfg.params?.token || '') !== (o.portal_token || 'demotoken')) fallo(404, 'Este enlace no es válido.', 'ENLACE_INVALIDO');
+        return vistaCliente(o);
+    }],
+    ['POST', /^\/api\/public\/certapp\/subir\/([^/]+)\/([^/]+)$/, (b, [, id, slot]) => {
+        const o = obraDe(id);
+        const files = b instanceof FormData ? b.getAll('files') : [];
+        const up = (o.documentacion.reforma_uploads ||= {});
+        up[slot] = [...(up[slot] || []), ...files.map(f => ({ driveId: uuid(), nombre: f.name, mime: f.type || 'image/jpeg', subido_at: ahora(), por: 'cliente' }))];
+        return { ok: true, subidos: files.length, rechazados: [], errores: [], ...vistaCliente(o), __espera: 900 };
+    }],
+
+    // Admin
+    ['GET', /^\/api\/certapp-admin\/resumen$/, () => ({
+        beta: { NUEVA: S.beta.filter(x => x.estado === 'NUEVA').length, CONTACTADA: 0, INVITADA: S.beta.filter(x => x.estado === 'INVITADA').length, DESCARTADA: 0 },
+        cuentas: { PENDIENTE: 0, ACTIVA: 1, BLOQUEADA: 0 },
+        obras: Object.fromEntries(['BORRADOR', 'EN_PREPARACION', 'LISTO', 'VALIDADO', 'ARCHIVADA'].map(e => [e, S.obras.filter(o => o.estado === e).length])),
+        feedback_nuevo: S.feedback.filter(f => f.estado === 'NUEVA').length,
+        creditos: { disponibles: S.cuenta.creditos, usados: S.cuenta.creditos_usados },
+        asistente: { gastado_mes_usd: 0.42, tope_mes_usd: 20, encendido: true },
+        drive: { raiz_configurada: true }, config: { avisos: false, ia_auto: false, entrega_auto: false, url: 'http://cee.localhost:5181' },
+    })],
+    ['GET', /^\/api\/certapp-admin\/beta$/, (b, m, cfg) => ({ solicitudes: S.beta.filter(x => !cfg.params?.estado || x.estado === cfg.params.estado) })],
+    ['GET', /^\/api\/certapp-admin\/beta\/([^/]+)$/, (b, [, id]) => ({ solicitud: S.beta.find(x => x.id === id) || fallo(404, 'No encuentro esa solicitud.', 'NO_ENCONTRADO') })],
+    ['PATCH', /^\/api\/certapp-admin\/beta\/([^/]+)$/, (b, [, id]) => { const s = S.beta.find(x => x.id === id); Object.assign(s, b); return { solicitud: s }; }],
+    ['POST', /^\/api\/certapp-admin\/beta\/([^/]+)\/invitar$/, (b, [, id]) => {
+        const s = S.beta.find(x => x.id === id); s.estado = 'INVITADA';
+        return { ok: true, cuenta: { id: uuid(), email: s.email, nombre: s.nombre, creditos: b.creditos }, enlace: `${window.location.origin}/activar?token=demo`, preexistente: false, reinvitada: false, email: { seco: true, canales: [] }, drive: null };
+    }],
+    ['GET', /^\/api\/certapp-admin\/cuentas$/, () => ({ cuentas: [S.cuenta] })],
+    ['POST', /^\/api\/certapp-admin\/cuentas$/, (b) => ({ __status: 201, ok: true, cuenta: { id: uuid(), ...b }, enlace: `${window.location.origin}/activar?token=demo`, preexistente: false, reinvitada: false, email: { seco: true, canales: [] } })],
+    ['PATCH', /^\/api\/certapp-admin\/cuentas\/([^/]+)$/, (b) => { Object.assign(S.cuenta, b); return { cuenta: S.cuenta }; }],
+    ['GET', /^\/api\/certapp-admin\/obras$/, (b, m, cfg) => ({ obras: S.obras.filter(o => !cfg.params?.estado || o.estado === cfg.params.estado).map(o => ({ ...listaObra(o), cuenta: S.cuenta })) })],
+    ['GET', /^\/api\/certapp-admin\/obras\/([^/]+)$/, (b, [, id]) => {
+        const o = obraDe(id);
+        return { obra: o, cuenta: S.cuenta, barrido: barrido(o, S.cuenta), eventos: S.eventos[id] || [], enlaces: { ...(enlaces(o) || {}), ficheros: {} }, docs: vista(o), enlace_cliente: o.portal_token ? `${window.location.origin}/subir/${o.id}?token=${o.portal_token}` : null };
+    }],
+    ['POST', /^\/api\/certapp-admin\/obras\/([^/]+)\/pedir-ia$/, () => ({ ok: true, trabajo: { id: 'demo' } })],
+    ['POST', /^\/api\/certapp-admin\/obras\/([^/]+)\/entregar$/, (b, [, id]) => {
+        const o = obraDe(id); o.estado = 'LISTO'; o.entregado_at = ahora(); evento(o.id, 'ENTREGA', 'Certificado entregado (demo)', 'ADMIN');
+        return { ok: true, obra: o, enlaces: enlaces(o), compartida: { ok: true }, aviso: { seco: true } };
+    }],
+    ['POST', /^\/api\/certapp-admin\/obras\/([^/]+)\/devolver-credito$/, (b, [, id]) => {
+        const o = obraDe(id); S.cuenta.creditos += 1; if (o.estado === 'EN_PREPARACION') o.estado = 'BORRADOR';
+        evento(o.id, 'CREDITO_DEVUELTO', b?.motivo || 'Crédito devuelto', 'ADMIN');
+        return { ok: true, creditos: S.cuenta.creditos, obra: o };
+    }],
+    ['GET', /^\/api\/certapp-admin\/feedback$/, (b, m, cfg) => ({ feedback: S.feedback.filter(f => !cfg.params?.estado || f.estado === cfg.params.estado) })],
+    ['PATCH', /^\/api\/certapp-admin\/feedback\/([^/]+)$/, (b, [, id]) => { const f = S.feedback.find(x => x.id === id); Object.assign(f, b); return { feedback: f }; }],
+
+    // Catastro (públicas, usadas por «Nueva obra»): simuladas para no consultar al Catastro.
+    ['GET', /^\/api\/catastro\/autocomplete$/, (b, m, cfg) => ([
+        { place_id: 'demo-p1', description: `${cfg.params?.input || 'Calle'} 12, Tomelloso, Ciudad Real` },
+        { place_id: 'demo-p2', description: `${cfg.params?.input || 'Calle'} 14, Tomelloso, Ciudad Real` },
+    ])],
+    ['GET', /^\/api\/catastro\/place-details$/, () => ({ lat: 39.1577, lng: -3.0207 })],
+    ['POST', /^\/api\/catastro\/reverse-geocode$/, () => ({
+        rc: '1234567VJ1213S', address: 'AV ANTONIO HUERTAS 41 TOMELLOSO', isParcela: true,
+        dwellings: [
+            { rc: '1234567VJ1213S0001AB', address: 'AV ANTONIO HUERTAS 41 Pl:01 Pt:A', floor: '01', door: 'A', use: 'Residencial', surface: 82, isResidential: true },
+            { rc: '1234567VJ1213S0002BC', address: 'AV ANTONIO HUERTAS 41 Pl:01 Pt:B', floor: '01', door: 'B', use: 'Residencial', surface: 86, isResidential: true },
+        ],
+        __espera: 800,
+    })],
+    ['GET', /^\/api\/catastro\/property-data$/, (b, m, cfg) => ({ rc: cfg.params?.rc, address: 'AV ANTONIO HUERTAS 41', isParcela: false })],
+];
+
+function vistaCliente(o) {
+    const { slots } = vista(o);
+    // Mismos apartados que el servidor (slotsAplicables): aquí, los de una casa normal.
+    const ids = ['FOTO_FACHADA_PRINCIPAL', 'FOTO_FACHADAS', 'VIDEO_VIVIENDA', 'FOTO_CALDERA', 'FOTO_PLACA_CALDERA', 'FOTO_VENTANAS', 'DOC_PLANOS'];
+    const label = { FOTO_FACHADA_PRINCIPAL: 'Fachada principal', FOTO_FACHADAS: 'Resto de fachadas', VIDEO_VIVIENDA: 'Vídeo de la vivienda', FOTO_CALDERA: 'Caldera', FOTO_PLACA_CALDERA: 'Placa de la caldera', FOTO_VENTANAS: 'Ventanas por dentro', DOC_PLANOS: 'Planos o croquis' };
+    return {
+        obra: { id: o.id, numero_expediente: o.numero_expediente, direccion: o.direccion, municipio: o.municipio, titular: o.titular?.nombre || null, cerrada: ['LISTO', 'VALIDADO'].includes(o.estado) },
+        apartados: ids.map(id => ({
+            id, label: label[id], ayuda: id === 'FOTO_PLACA_CALDERA' ? 'La pegatina con marca, modelo y potencia, que se lea.' : null,
+            multiple: id !== 'FOTO_CALDERA' && id !== 'FOTO_PLACA_CALDERA', video: id === 'VIDEO_VIVIENDA', documento: id === 'DOC_PLANOS', placa: id === 'FOTO_PLACA_CALDERA',
+            ficheros: slots[id] || [],
+        })),
+    };
+}
+
+export function instalarDemo() {
+    S = cargarEstado();
+    window.__CERTAPP_DEMO__ = true;
+    const original = axios.getAdapter(axios.defaults.adapter);
+    axios.defaults.adapter = async (config) => {
+        const url = new URL(config.url, window.location.origin);
+        const metodo = String(config.method || 'get').toUpperCase();
+        const ruta = RUTAS.find(([m, re]) => m === metodo && re.test(url.pathname));
+        if (!ruta) {
+            if (/^\/api\//.test(url.pathname)) {
+                // Cualquier otra /api en la demo: como si el servidor no estuviera.
+                return Promise.reject(Object.assign(new axios.AxiosError('Demo: ruta no simulada', 'ERR_BAD_RESPONSE', config, null, {
+                    status: 503, statusText: 'Demo', headers: {}, config, data: { error: 'En la demo esto no está simulado.', code: 'DEMO' },
+                }), {}));
+            }
+            return original(config);
+        }
+        const params = { ...Object.fromEntries(url.searchParams), ...(config.params || {}) };
+        let body = config.data;
+        if (typeof body === 'string') { try { body = JSON.parse(body); } catch { /* tal cual */ } }
+        const m = url.pathname.match(ruta[1]);
+        let status = 200;
+        let data;
+        try {
+            data = ruta[2](body || {}, m, { ...config, params });
+            if (data && typeof data === 'object' && !Array.isArray(data)) {
+                if (data.__status) { status = data.__status; delete data.__status; }
+                if (data.__espera) {
+                    const ms = data.__espera; delete data.__espera;
+                    if (config.onUploadProgress) {
+                        for (let i = 1; i <= 4; i++) { await new Promise(r => setTimeout(r, ms / 5)); config.onUploadProgress({ loaded: i, total: 4 }); }
+                    } else await new Promise(r => setTimeout(r, ms));
+                } else await new Promise(r => setTimeout(r, 160));
+            }
+            guardarEstado();
+        } catch (e) {
+            if (!(e instanceof ErrorDemo)) throw e;
+            await new Promise(r => setTimeout(r, 200));
+            const response = { status: e.status, statusText: 'Demo', headers: {}, config, data: e.data };
+            throw new axios.AxiosError(e.message, 'ERR_BAD_REQUEST', config, null, response);
+        }
+        return { data: JSON.parse(JSON.stringify(data ?? null)), status, statusText: 'OK', headers: {}, config, request: null };
+    };
+    console.info('[certapp] DEMO activa: datos simulados, nada sale a ningún servidor. `?demo=0` para salir.');
+}
+
+export default instalarDemo;

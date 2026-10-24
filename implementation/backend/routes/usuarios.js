@@ -13,6 +13,12 @@ router.get('/me', requireAuth, (req, res) => {
     if (!req.user) {
         return res.status(401).json({ error: 'No autorizado' });
     }
+    // Sesión sin perfil en `usuarios`: un certificador de la app de cee.brokergy.es
+    // que entra en el CRM. Mismo corte que `enforceAuth`, con el sitio al que ir.
+    if (!req.user.id_usuario) {
+        return res.status(403).json({ error: 'Esta cuenta es de la app de certificadores: entra en cee.brokergy.es.',
+                                      code: 'SIN_PERFIL_CRM' });
+    }
     // req.user ya viene enriquecido desde Supabase por nuestro middleware auth.js
     res.json(req.user);
 });

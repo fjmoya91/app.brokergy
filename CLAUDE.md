@@ -142,6 +142,7 @@ Cada una tiene su regla `.claude/rules/<área>.md` y su carpeta `docs/conocimien
 | `envolvente-ce3x` | Plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del `.cex`, PVGIS |
 | `cee-generacion` | Generar el `.cex` inicial/final y el previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo, PDF sin CE3X |
 | `cee-directos` | El segundo negocio: alta, encargo, entrega, oferta y factura |
+| `certificadores-app` | La app para certificadores externos (cee.brokergy.es): beta, obras, cuestionario, generar con IA, entrega |
 | `lotes` | Verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados del S.O., factura |
 | `seguimiento` | Parte diario, radar, enlaces de acción, envío en bloque |
 | `clientes` | Fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada |

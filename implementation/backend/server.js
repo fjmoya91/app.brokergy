@@ -31,6 +31,13 @@ process.on('unhandledRejection', (reason) => {
 const allowedOrigins = (process.env.FRONTEND_URL || 'https://app.brokergy.es')
   .split(',')
   .map(s => s.trim());
+// La app de certificadores (cee.brokergy.es) llama a esta MISMA API desde su
+// origen. No va en FRONTEND_URL, que es además la base de los enlaces del CRM:
+// su origen sale de CERTAPP_URL (mismo valor por defecto que services/certapp/comun.js).
+try {
+  const origenCertapp = new URL(String(process.env.CERTAPP_URL || 'https://cee.brokergy.es').trim()).origin;
+  if (!allowedOrigins.includes(origenCertapp)) allowedOrigins.push(origenCertapp);
+} catch { /* CERTAPP_URL mal escrita: la app de certificadores no podrá llamar a la API */ }
 // En DESARROLLO se admite también la IP privada del propio equipo: es como se
 // abre la hoja de firma desde el móvil (`/firma-movil/:token`), que no puede
 // entrar por `localhost` porque ahí localhost es el teléfono. Solo rangos
@@ -81,6 +88,8 @@ app.use('/api/public/portal', require('./routes/portal'));
 // Escaparate público de instaladores (instaladores.brokergy.es). El frontend vive
 // en un repo aparte (C:/Proyectos/marketplace); aquí solo servimos su API pública.
 app.use('/api/public/marketplace', require('./routes/publicMarketplace'));
+// App de certificadores (cee.brokergy.es), lo público: beta, activar, fotos del propietario. ANTES de /api/public.
+app.use('/api/public/certapp', require('./routes/certappPublic'));
 app.use('/api/public', require('./routes/public'));
 // Servlets de almacenamiento intermedio de Autofirma (@firma) para firmar/recuperar
 // ficheros GRANDES. Montados bajo /api para reutilizar el proxy nginx existente
@@ -113,6 +122,9 @@ app.use('/api/cee-directos', require('./routes/ceeDirectos'));
 // El asistente de la app (botón flotante, solo ADMIN): contesta por la API de
 // Anthropic con datos en vivo y propone encargos al Claude del WhatsApp.
 app.use('/api/asistente-app', require('./routes/asistenteApp'));
+// App de certificadores (cee.brokergy.es): la API del certificador (certappOnly) y el panel de BROKERGY (adminOnly).
+app.use('/api/certapp', require('./routes/certapp'));
+app.use('/api/certapp-admin', require('./routes/certappAdmin'));
 
 // WhatsApp (opcional): cargar e inicializar de forma automática al arrancar
 try {

@@ -144,15 +144,22 @@ const requireAuth = async (req, res, next) => {
 };
 
 /**
- * Middleware estricto para rutas que solo admin/prescriptores deberían tocar
- */
-/**
- * Middleware estricto para rutas que solo admin/prescriptores deberían tocar
+ * Middleware estricto para rutas que solo admin/prescriptores deberían tocar.
+ *
+ * Una sesión de Supabase SIN fila en `usuarios` no es del CRM y se corta con 403
+ * (2026-10-24): los certificadores de la app de cee.brokergy.es tienen sesión de
+ * Supabase pero solo `certapp_cuentas`, y con `enforceAuth` a secas entraban en
+ * las ~100 rutas que no miran el rol (crear clientes, por ejemplo). Medido ese
+ * día: ninguna otra cuenta de Auth está sin perfil (el robot de Claude tiene el
+ * suyo). Sus rutas van con `certappOnly`, y la envolvente `ext` con su guardián.
  */
 const enforceAuth = (req, res, next) => {
     requireAuth(req, res, () => {
         if (!req.user) {
             return res.status(401).json({ error: 'Debes iniciar sesión para realizar esta acción' });
+        }
+        if (!req.user.id_usuario) {
+            return res.status(403).json({ error: 'Esta cuenta no tiene acceso a esta aplicación.', code: 'SIN_PERFIL_CRM' });
         }
         next();
     });

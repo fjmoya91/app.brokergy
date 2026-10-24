@@ -1,0 +1,17 @@
+{
+  "name": "BROKERGY CEE · Certificados energéticos con IA",
+  "short_name": "BROKERGY CEE",
+  "description": "El CEE inicial preparado por IA desde la referencia catastral y el cuestionario. Tú lo revisas y lo firmas.",
+  "id": "/panel",
+  "start_url": "/panel",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "es",
+  "background_color": "#faf9f7",
+  "theme_color": "#faf9f7",
+  "icons": [
+    { "src": "/certificadores/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/certificadores/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

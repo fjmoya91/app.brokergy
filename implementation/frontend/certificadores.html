@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es" class="theme-light">
+
+<head>
+  <meta charset="UTF-8" />
+  <!-- App de certificadores (cee.brokergy.es). Segunda entrada del build de Vite
+       (ver vite.config.js). Va SIEMPRE en claro, con el estilo «carta de pago»
+       (regla 164): papel crema, tinta y tarjetas blancas. La clase `theme-light`
+       se siembra antes de pintar porque las piezas que se reutilizan del CRM
+       (Catastro, mapa, overlay de envío) leen su tema de esa clase. -->
+  <script>
+    (function () {
+      try { document.documentElement.classList.add('theme-light'); } catch (e) { /* noop */ }
+    })();
+  </script>
+  <meta name="color-scheme" content="light" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#faf9f7" />
+  <link rel="icon" type="image/png" href="/logo-brokergy-circular.png" />
+  <link rel="apple-touch-icon" href="/certificadores/apple-touch-icon.png" />
+  <link rel="manifest" href="/certificadores/manifest.webmanifest" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="BROKERGY CEE" />
+  <title>BROKERGY CEE · El CEE inicial preparado por IA</title>
+  <meta name="description"
+    content="Para certificadores energéticos: el CEE inicial preparado por IA desde la referencia catastral y un cuestionario. Tú lo revisas y lo firmas. .cex de CE3X 3.2, XML, PDF y croquis." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="BROKERGY CEE · El CEE inicial preparado por IA" />
+  <meta property="og:description"
+    content="Tú visitas, revisas y firmas; la IA prepara el .cex de CE3X 3.2. Beta gratuita para certificadores." />
+  <meta property="og:image" content="https://cee.brokergy.es/og-whatsapp.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:url" content="https://cee.brokergy.es" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <!-- Tipografías auto-alojadas (regla 25.b): Inter para el texto, Antonio para
+       titulares y cifras. Se precargan las dos que pinta la primera pantalla. -->
+  <link rel="preload" href="/fonts/Inter-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/Antonio-700-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <style>
+    html, body { background: #faf9f7; margin: 0; color-scheme: light; }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/certificadores/main.jsx"></script>
+</body>
+
+</html>

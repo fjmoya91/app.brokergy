@@ -10,6 +10,7 @@ const ROLES = { 'tok-admin': 'ADMIN', 'tok-trab': 'TRABAJADOR', 'tok-partner': '
 let ultimoToken = null;
 function qb(table) {
   const res = () => {
+    if (table === 'usuarios' && ultimoToken === 'tok-ext') return { data: null, error: null };   // certificador de la app: sin perfil
     if (table === 'usuarios') return { data: { id_usuario: 'u-1', id_rol: 1, activo: true, roles: { nombre_rol: ROLES[ultimoToken] } }, error: null };
     if (table === 'prescriptores' && ultimoToken === 'tok-partner') return { data: { id_empresa: 'p-1', razon_social: 'X' }, error: null };
     return { data: null, error: null };
@@ -21,7 +22,7 @@ function qb(table) {
   } });
   return p;
 }
-const fake = { auth: { getUser: async (t) => { ultimoToken = t; return ROLES[t] ? { data: { user: { id: 'a-' + t, email: t + '@x' } }, error: null } : { data: { user: null }, error: { message: 'bad' } }; } },
+const fake = { auth: { getUser: async (t) => { ultimoToken = t; return (ROLES[t] || t === 'tok-ext') ? { data: { user: { id: 'a-' + t, email: t + '@x' } }, error: null } : { data: { user: null }, error: { message: 'bad' } }; } },
   from: (t) => qb(t), rpc: () => qb('rpc'), storage: { from: () => qb('st') } };
 const sc = require.resolve(path.join(B, 'services/supabaseClient.js'));
 require.cache[sc] = { id: sc, filename: sc, loaded: true, exports: fake };
@@ -60,6 +61,11 @@ const srv = app.listen(0, async () => {
   q('tok-partner', 'GET', '/api/expedientes/X/fichas-tecnicas/cal', 403);
   q('anónimo', 'POST', '/api/expedientes/X/cert-ack', 400, {});
   q('anónimo', 'GET', '/api/expedientes/X/approve-cee-from-email', 'no 401/403');
+  // Una sesión de Supabase SIN fila en `usuarios` (certificador de cee.brokergy.es) no entra al CRM.
+  q('tok-ext', 'GET', '/api/oportunidades', 403);
+  q('tok-ext', 'POST', '/api/oportunidades', 403, {});
+  q('tok-ext', 'GET', '/api/expedientes/X/fichas-tecnicas/cal', 403);
+  q('tok-ext', 'POST', '/api/whatsapp/send-text', 403, {});
   let fallos = 0;
   for (const c of casos) {
     const h = { 'Content-Type': 'application/json' };

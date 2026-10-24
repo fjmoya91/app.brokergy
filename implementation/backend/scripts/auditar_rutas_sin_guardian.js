@@ -19,10 +19,16 @@ const GUARDIANES = new Set([
     'sesionOClaveInterna', 'staffOClaveInterna', 'internalKeyOrAuth',
     'staffSiOportunidad', 'suyoSiCertificador', 'adminOInterno', 'staffOInterno',
     'requireBot', 'comprobarFirma',
+    // App de certificadores (middleware/certappAuth.js): cortan sin sesión con 401.
+    // `internoOExtSuyo`: el equipo interno, o un certificador externo con una obra SUYA (envolvente con origen ext).
+    'certappOnly', 'certappOAdmin', 'internoOExtSuyo',
 ]);
 
 // Routers públicos POR DISEÑO: cada ruta valida su token, firma o enlace dentro.
-const ROUTERS_PUBLICOS = new Set(['public', 'portal', 'publicMarketplace', 'landing', 'afirmaStorage', 'acciones']);
+// · certappPublic (/api/public/certapp): lista de espera (honeypot + límite por IP + Turnstile),
+//   activar/recuperar con token HMAC de un solo uso, subida del propietario con el portal_token de
+//   la obra, y miniaturas/ficheros con firma HMAC que caduca.
+const ROUTERS_PUBLICOS = new Set(['public', 'portal', 'publicMarketplace', 'landing', 'afirmaStorage', 'acciones', 'certappPublic']);
 
 // Rutas sueltas abiertas a propósito, con el motivo.
 const ABIERTAS = {

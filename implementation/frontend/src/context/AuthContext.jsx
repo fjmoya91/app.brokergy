@@ -2,7 +2,11 @@ import React, { createContext, useContext, useEffect, useState, useRef } from 'r
 import { supabase } from '../services/supabaseClient';
 import axios from 'axios';
 
-const AuthContext = createContext({});
+// Exportado para que la app de certificadores (cee.brokergy.es) le dé a las
+// piezas del CRM que llaman a `useAuth()` —la ventana de la envolvente— un valor
+// COMPATIBLE sin montar este provider (su perfil sale de `usuarios`, que un
+// certificador externo no tiene). Ver `src/certificadores/envolvente/EnvolventeCertapp.jsx`.
+export const AuthContext = createContext({});
 const PROFILE_CACHE_KEY = 'brokergy_user_profile';
 
 export const useAuth = () => useContext(AuthContext);
