@@ -1,5 +1,6 @@
 // ─── BotonGoogle — «Continuar con Google» y la raya «o» ─────────────────────
 // La «G» de colores es la que pide Google para su botón de entrar.
+// Quien lo pinta mira antes `useGoogleActivo()` (./googleActivo.js).
 import { useState } from 'react';
 import { useCertappAuth } from '../auth/CertappAuth';
 import { Spinner } from '../ui/Iconos';

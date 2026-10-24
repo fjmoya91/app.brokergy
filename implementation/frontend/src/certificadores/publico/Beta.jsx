@@ -26,6 +26,7 @@ import { BotonCopiar, CabeceraPublica, Campo, CargandoPantalla, Firma, Papel } f
 import { CheckDibujado, IcoAtras, IcoCheck, IcoFlecha, Spinner } from '../ui/Iconos';
 import { DOMINIO } from '../marca';
 import { BotonGoogle, RayaO } from './BotonGoogle';
+import { useGoogleActivo } from './googleActivo';
 
 const BORRADOR = 'certapp_beta_borrador';
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
@@ -140,6 +141,7 @@ function Opciones({ lista, valor, onElegir, multi = false, cols }) {
 export default function Beta({ query }) {
     const movil = useIsMobile();
     const { session, cuenta, loading, refrescar } = useCertappAuth();
+    const googleActivo = useGoogleActivo();
     // Con sesión (de Google) y sin cuenta: el email es el de la sesión.
     const conSesion = !!session && !cuenta;
     const emailSesion = conSesion ? String(session.user?.email || '').toLowerCase() : '';
@@ -348,7 +350,7 @@ export default function Beta({ query }) {
             case 'datos':
                 return (
                     <>
-                        {!conSesion && (
+                        {!conSesion && googleActivo && (
                             <div style={{ gridColumn: '1 / -1' }}>
                                 <BotonGoogle vuelta="/beta?con=google" onError={setErrorEnvio} />
                                 <RayaO texto="o con tu email" />

@@ -12,6 +12,7 @@ import { Enlace, navegar } from '../router';
 import { CabeceraPublica, Campo, CargandoPantalla, Firma, Papel } from '../ui/piezas';
 import { CheckDibujado, IcoFlecha, Spinner } from '../ui/Iconos';
 import { BotonGoogle, RayaO } from './BotonGoogle';
+import { useGoogleActivo } from './googleActivo';
 
 /** Solo se vuelve a rutas internas (nada de `//otro-sitio`). */
 function vueltaSegura(v) {
@@ -21,6 +22,7 @@ const emailValido = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e || '').
 
 export default function Entrar({ query }) {
     const { session, cuenta, esAdmin, loading, sinCuenta, errorMe, signIn, entrarConEnlace } = useCertappAuth();
+    const googleActivo = useGoogleActivo();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [conPassword, setConPassword] = useState(false);
@@ -122,10 +124,14 @@ export default function Entrar({ query }) {
                     <div className="ca-filete" />
                     <p className="ca-eyebrow">Tu cuenta</p>
                     <h1 className="ca-display ca-h2" style={{ marginTop: 8 }}>Entrar</h1>
-                    <div style={{ marginTop: 18 }}>
-                        <BotonGoogle vuelta={`/entrar?con=google${vuelta ? `&vuelta=${encodeURIComponent(vuelta)}` : ''}`} onError={setError} />
-                    </div>
-                    <RayaO texto="o con tu email" />
+                    {googleActivo && (
+                        <>
+                            <div style={{ marginTop: 18 }}>
+                                <BotonGoogle vuelta={`/entrar?con=google${vuelta ? `&vuelta=${encodeURIComponent(vuelta)}` : ''}`} onError={setError} />
+                            </div>
+                            <RayaO texto="o con tu email" />
+                        </>
+                    )}
                     <Campo etiqueta="Email">
                         <input className="ca-input" type="email" inputMode="email" autoComplete="username" value={email}
                             onChange={e => setEmail(e.target.value)} />

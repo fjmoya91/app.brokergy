@@ -24,7 +24,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md` — La app de certificadores — cee.brokergy.es (2026-10-24) · 23,5 KB
-- `docs/conocimiento/certificadores-app/alta-directa-google-y-email.md` — El alta: al momento, con Google o con el email (2026-10-24) · 6,3 KB
+- `docs/conocimiento/certificadores-app/alta-directa-google-y-email.md` — El alta: al momento, con Google o con el email (2026-10-24) · 6,6 KB
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24) · 3,5 KB
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24) · 3,0 KB
 

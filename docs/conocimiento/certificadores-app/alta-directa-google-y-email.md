@@ -65,7 +65,10 @@ confirmado en Auth (403 `EMAIL_SIN_CONFIRMAR`). Un email que ya es de otra cuent
 - **Authentication → Providers → Google**: activado, con el Client ID y el secreto de un cliente OAuth
   de Google Cloud (tipo «Aplicación web», URI de redirección
   `https://okfeopwetlxdffrsbfqw.supabase.co/auth/v1/callback`). El secreto lo pega Fran: no se escribe en
-  el repo ni lo teclea Claude.
+  el repo ni lo teclea Claude. **Mientras Google no esté activado, el botón no sale** en `/entrar` ni en
+  `/beta` ([googleActivo.js](implementation/frontend/src/certificadores/publico/googleActivo.js) lee
+  `external.google` de `/auth/v1/settings`, público con la clave anon): con él apagado, `signInWithOAuth`
+  lleva a una página de error de Supabase. Al activarlo aparece solo, sin desplegar.
 - **Authentication → URL Configuration → Redirect URLs**: `https://cee.brokergy.es/**` y, para probar en
   local, `http://cee.localhost:5195/**`. Sin ellas, Google vuelve a la Site URL (el CRM).
 - **«Allow new users to sign up»** encendido (Google crea el usuario al primer acceso) y **«Confirm
