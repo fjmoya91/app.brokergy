@@ -335,6 +335,8 @@ drop function if exists public.certapp_devolver_credito(uuid);
 
 -- Gasta el crédito de la obra. Devuelve los que le quedan a la cuenta,
 -- -1 si no tenía, o -2 si la obra YA tenía su crédito gastado (no se cobra otra vez).
+-- OJO (24/10/2026): al final del script («Mis gastos») se redefinen las dos para
+-- que además apunten su fila en certapp_movimientos. La que queda es aquella.
 create or replace function public.certapp_consumir_credito_obra(p_obra_id uuid)
 returns integer language plpgsql
 set search_path = public, pg_temp
@@ -577,5 +579,168 @@ grant execute on function public.certapp_docs_replace_slot(uuid, text, jsonb)   
 grant execute on function public.certapp_consumir_credito_obra(uuid)                    to service_role;
 grant execute on function public.certapp_devolver_credito_obra(uuid, text, text, text, text) to service_role;
 grant execute on function public.certapp_beta_apuntar(jsonb, jsonb, integer)            to service_role;
+
+notify pgrst, 'reload schema';
+
+-- ── Incidencias (24/10/2026): el certificador ve la respuesta de BROKERGY ──
+-- El buzón de sugerencias pasa a «Incidencias y sugerencias»: el certificador ve
+-- las suyas (de una obra o de la app) con su estado y la respuesta, y le llega
+-- un email al responder. `respuesta_at` es lo que ve él («te respondimos el…»);
+-- `respuesta_por` (quién del equipo) solo lo ve el admin. Idempotente.
+alter table public.certapp_feedback add column if not exists respuesta_at  timestamptz;
+alter table public.certapp_feedback add column if not exists respuesta_por text;
+
+create index if not exists idx_certapp_feedback_cuenta on public.certapp_feedback (cuenta_id, created_at desc);
+create index if not exists idx_certapp_feedback_obra   on public.certapp_feedback (obra_id) where obra_id is not null;
+
+notify pgrst, 'reload schema';
+
+-- ── Mis gastos (24/10/2026): el libro de movimientos de cada cuenta ──────
+-- Lo pidió Fran: «que puedan ver el gasto que llevan en qué expedientes». Cada
+-- certificado que entra o sale de una cuenta deja UNA fila con el saldo que queda:
+--   ALTA       los de regalo al crear la cuenta (cuentas.crearCuenta, desde Node)
+--   COMPRA     los que paga (la pasarela vendrá después; importe_eur y factura_id)
+--   GASTO      -1 al pedir el certificado de una obra (certapp_consumir_credito_obra)
+--   DEVOLUCION +1 si no se ha podido hacer (certapp_devolver_credito_obra)
+--   AJUSTE     lo que el admin pone a mano (PATCH /api/certapp-admin/cuentas/:id)
+-- El saldo de verdad sigue siendo certapp_cuentas.creditos; esto es su historia.
+-- GASTO y DEVOLUCION se apuntan DENTRO de las RPC, en la misma transacción que el
+-- saldo: no puede haber un crédito gastado sin su fila ni una fila sin su crédito.
+-- `por` (quién: certificador, el email del admin, «automático») es interno: la
+-- API del certificador no lo devuelve.
+create table if not exists public.certapp_movimientos (
+    id             bigint generated always as identity primary key,
+    created_at     timestamptz not null default now(),
+    cuenta_id      uuid not null references public.certapp_cuentas(id) on delete cascade,
+    obra_id        uuid references public.certapp_obras(id) on delete set null,
+    tipo           text not null check (tipo in ('ALTA', 'COMPRA', 'GASTO', 'DEVOLUCION', 'AJUSTE')),
+    creditos       integer not null,                 -- + entran · - salen
+    saldo_despues  integer not null,                 -- certapp_cuentas.creditos justo después
+    importe_eur    numeric(10,2),                    -- solo COMPRA (en la beta, nada)
+    concepto       text,                             -- lo que lee el certificador
+    por            text,                             -- interno
+    factura_id     text                              -- la factura de una COMPRA, cuando la haya
+);
+
+create index if not exists idx_certapp_movimientos_cuenta on public.certapp_movimientos (cuenta_id, created_at desc, id desc);
+create index if not exists idx_certapp_movimientos_obra   on public.certapp_movimientos (obra_id) where obra_id is not null;
+
+comment on table public.certapp_movimientos is
+  'App de certificadores: entradas y salidas de certificados de cada cuenta (Mis gastos). El saldo es certapp_cuentas.creditos.';
+
+alter table public.certapp_movimientos enable row level security;
+revoke all on public.certapp_movimientos from anon, authenticated;
+grant select, insert, update, delete on public.certapp_movimientos to service_role;
+grant usage, select on sequence public.certapp_movimientos_id_seq to service_role;
+revoke all on sequence public.certapp_movimientos_id_seq from anon, authenticated;
+
+-- Las dos RPC del crédito, con su movimiento. MISMA firma y MISMOS valores de
+-- vuelta que antes (routes/certapp.js y certappAdmin.js no cambian):
+--   consumir → créditos que quedan · -1 sin saldo · -2 la obra ya lo tenía gastado
+--   devolver → créditos que quedan · -2 la obra no tenía crédito gastado
+-- En -1/-2 no se apunta nada: no se ha movido ningún crédito.
+create or replace function public.certapp_consumir_credito_obra(p_obra_id uuid)
+returns integer language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+    v_cuenta uuid;
+    v_quedan integer;
+begin
+    -- El FOR UPDATE serializa dos pedidos de la misma obra: el segundo ve la marca.
+    select cuenta_id into v_cuenta from public.certapp_obras
+    where id = p_obra_id and not credito_consumido
+    for update;
+    if not found then return -2; end if;
+
+    update public.certapp_cuentas
+    set creditos = creditos - 1, creditos_usados = creditos_usados + 1
+    where id = v_cuenta and creditos > 0
+    returning creditos into v_quedan;
+    if v_quedan is null then return -1; end if;
+
+    update public.certapp_obras
+    set credito_consumido = true, credito_consumido_at = now()
+    where id = p_obra_id;
+
+    insert into public.certapp_movimientos (cuenta_id, obra_id, tipo, creditos, saldo_despues, concepto, por)
+    values (v_cuenta, p_obra_id, 'GASTO', -1, v_quedan, 'Certificado pedido', 'certificador');
+
+    return v_quedan;
+end;
+$$;
+
+create or replace function public.certapp_devolver_credito_obra(
+    p_obra_id       uuid,
+    p_por           text default 'BROKERGY',
+    p_texto         text default null,
+    p_por_detalle   text default null,
+    p_nota_interna  text default null)
+returns integer language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+    v_cuenta uuid;
+    v_quedan integer;
+begin
+    select cuenta_id into v_cuenta from public.certapp_obras
+    where id = p_obra_id and credito_consumido
+    for update;
+    if not found then return -2; end if;
+
+    update public.certapp_obras
+    set credito_consumido = false,
+        credito_consumido_at = null,
+        estado    = case when estado = 'EN_PREPARACION' then 'BORRADOR' else estado end,
+        pedido_at = case when estado = 'EN_PREPARACION' then null else pedido_at end
+    where id = p_obra_id;
+
+    update public.certapp_cuentas
+    set creditos = creditos + 1, creditos_usados = greatest(creditos_usados - 1, 0)
+    where id = v_cuenta
+    returning creditos into v_quedan;
+
+    insert into public.certapp_eventos (obra_id, cuenta_id, tipo, texto, por, por_detalle, nota_interna)
+    values (p_obra_id, v_cuenta, 'CREDITO_DEVUELTO', coalesce(p_texto, 'Crédito devuelto'),
+            coalesce(p_por, 'BROKERGY'), p_por_detalle, p_nota_interna);
+
+    -- La nota interna NO va al movimiento (lo lee el certificador).
+    if v_quedan is not null then
+        insert into public.certapp_movimientos (cuenta_id, obra_id, tipo, creditos, saldo_despues, concepto, por)
+        values (v_cuenta, p_obra_id, 'DEVOLUCION', 1, v_quedan, coalesce(p_texto, 'Crédito devuelto'),
+                coalesce(p_por_detalle, p_por, 'BROKERGY'));
+    end if;
+
+    return coalesce(v_quedan, -1);
+end;
+$$;
+
+revoke execute on function public.certapp_consumir_credito_obra(uuid)                        from public, anon, authenticated;
+revoke execute on function public.certapp_devolver_credito_obra(uuid, text, text, text, text) from public, anon, authenticated;
+grant  execute on function public.certapp_consumir_credito_obra(uuid)                        to service_role;
+grant  execute on function public.certapp_devolver_credito_obra(uuid, text, text, text, text) to service_role;
+
+-- Las cuentas que ya existían (sin ninguna fila): su historia hasta hoy, para que
+-- «Mis gastos» cuadre con su saldo. Un ALTA con todo lo recibido (lo que tiene +
+-- lo que ha usado) y un GASTO por cada obra con el crédito gastado. Una sola
+-- sentencia (las dos inserciones ven la misma foto): se puede volver a pasar.
+with sin_historia as (
+    select c.id, c.created_at, c.creditos + c.creditos_usados as recibidos
+    from public.certapp_cuentas c
+    where not exists (select 1 from public.certapp_movimientos m where m.cuenta_id = c.id)
+), altas as (
+    insert into public.certapp_movimientos (cuenta_id, created_at, tipo, creditos, saldo_despues, concepto, por)
+    select id, created_at, 'ALTA', recibidos, recibidos, 'Certificados de regalo de la beta', 'BROKERGY'
+    from sin_historia
+    returning cuenta_id
+)
+insert into public.certapp_movimientos (cuenta_id, obra_id, created_at, tipo, creditos, saldo_despues, concepto, por)
+select o.cuenta_id, o.id, coalesce(o.credito_consumido_at, o.pedido_at, o.created_at), 'GASTO', -1,
+       (s.recibidos - (row_number() over (partition by o.cuenta_id
+                                          order by coalesce(o.credito_consumido_at, o.pedido_at, o.created_at), o.id)))::integer,
+       'Certificado pedido', 'certificador'
+from public.certapp_obras o
+join sin_historia s on s.id = o.cuenta_id
+where o.credito_consumido;
 
 notify pgrst, 'reload schema';

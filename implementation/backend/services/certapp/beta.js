@@ -1,7 +1,14 @@
-// ─── certapp/beta.js — la lista de espera de la beta (certapp_beta_solicitudes) ─
+// ─── certapp/beta.js — el formulario de la beta (certapp_beta_solicitudes) ───
 // Formulario público de cee.brokergy.es. Un email, una solicitud. Se guarda
 // también el formulario crudo (`respuestas`): las preguntas cambiarán durante
 // la beta.
+//
+// Desde el 24/10/2026 (Fran: «al momento, con preguntas») el formulario DA DE
+// ALTA: con CERTAPP_ALTA_DIRECTA (encendida si no se apaga) cada solicitud
+// crea su cuenta con 1 certificado gratis (cuentas.altaDirecta, por email, o
+// cuentas.altaConSesion, con Google) y la solicitud queda INVITADA. Hay que
+// aceptar las condiciones (`acepta_condiciones`). Con la variable a `false`
+// vuelve a ser la lista de espera de antes.
 //
 // REGLA — una solicitud que ya existe NO se pisa: el formulario es público y
 // cualquiera puede escribir el email de otro. Solo se rellenan los campos que
@@ -26,13 +33,15 @@
 const supabase = require('../supabaseClient');
 const avisos = require('./avisos');
 const tokens = require('./tokens');
-const { fallo, errorBd, texto, textoLargo, numero, esEmail, nombreApp, certappUrl, numEnv, inicioDiaMadrid } = require('./comun');
+const { fallo, errorBd, texto, textoLargo, numero, esEmail, nombreApp, certappUrl, numEnv, inicioDiaMadrid, altaDirectaActiva } = require('./comun');
 
 const PERFILES = ['AUTONOMO', 'EMPRESA_PROPIA', 'EMPRESA_SUBCONTRATA', 'OTRO'];
 const ESTADOS = ['NUEVA', 'CONTACTADA', 'INVITADA', 'DESCARTADA'];
 const MAX_REVISIONES = 10;
 
 const hashIp = (ip) => (ip ? tokens.huella(`ip:${ip}`) : null);
+// En diferido: las pruebas de filaDe/avisosQueTocan no cargan Drive.
+const cuentas = () => require('./cuentas');
 
 /** Nombre apto para un saludo: solo letras, espacios, guiones y apóstrofos (≤ 60). */
 function nombreSeguro(v) {
@@ -62,6 +71,9 @@ function filaDe(body = {}, { ip, userAgent } = {}) {
     if (!esEmail(email)) throw fallo(400, 'El email no es válido.', 'EMAIL_INVALIDO');
     if (!(body.consentimiento === true || body.consentimiento === 'true' || body.acepta_privacidad === true)) {
         throw fallo(400, 'Para apuntarte tienes que aceptar la política de privacidad.', 'FALTA_CONSENTIMIENTO');
+    }
+    if (altaDirectaActiva() && !(body.acepta_condiciones === true || body.acepta_condiciones === 'true')) {
+        throw fallo(400, 'Para crear tu cuenta tienes que aceptar las condiciones de uso.', 'FALTA_CONDICIONES');
     }
     const perfil = String(body.perfil || '').toUpperCase();
     const coste = numero(body.coste_subcontrata_eur);
@@ -129,28 +141,87 @@ function avisosQueTocan(n) {
     return { email: n <= maxEmails, whatsapp };
 }
 
+/** El WhatsApp al equipo por una solicitud o un alta nueva, con los topes del día. */
+async function avisarEquipoAlta(fila, n, { alta }) {
+    const toca = avisosQueTocan(n);
+    const perfilTxt = { AUTONOMO: 'autónomo', EMPRESA_PROPIA: 'empresa con técnicos', EMPRESA_SUBCONTRATA: 'empresa que subcontrata', OTRO: 'otro' }[fila.perfil] || 's/ perfil';
+    const que = alta ? `Nueva cuenta en la beta de la app de certificadores (${alta === 'google' ? 'con Google' : 'por email'})` : 'Nueva solicitud en la beta de la app de certificadores';
+    const cuerpo = {
+        uno: `🆕 ${que}: ${fila.nombre} (${perfilTxt}${fila.provincia ? `, ${fila.provincia}` : ''}${fila.cee_mes ? `, ${fila.cee_mes} CEE/mes` : ''}). ${certappUrl()}/admin/${alta ? 'cuentas' : 'beta'}`,
+        agrupado: `🆕 Ya van ${n} altas hoy en la beta de la app de certificadores: no aviso de cada una más. Están en ${certappUrl()}/admin/beta`,
+        resumen: `🆕 Van ${n} altas hoy en la beta de la app de certificadores: ${certappUrl()}/admin/beta`,
+    }[toca.whatsapp];
+    if (cuerpo) await avisos.avisarEquipo({ asunto: 'Beta de la app de certificadores', cuerpo, soloWhatsapp: true });
+    return toca;
+}
+
+async function solicitudDe(email) {
+    const { data, error } = await supabase.from('certapp_beta_solicitudes').select('id, estado').eq('email', email).maybeSingle();
+    if (error) throw errorBd(error, 'beta: solicitud');
+    return data || null;
+}
+
+async function marcarInvitada(solicitud) {
+    if (!solicitud?.id || !['NUEVA', 'CONTACTADA'].includes(solicitud.estado)) return;
+    const { error } = await supabase.from('certapp_beta_solicitudes').update({ estado: 'INVITADA' }).eq('id', solicitud.id);
+    if (error) console.warn('[certapp beta] solicitud sin marcar como INVITADA:', error.message);
+}
+
 /**
- * Alta en la lista de espera (o revisión de una que ya existe, sin pisarla).
- * @returns {{ ok: true }}   siempre lo mismo
+ * El formulario de la beta: guarda la solicitud (o la revisión de una que ya
+ * existe, sin pisarla) y, con el alta directa, crea la cuenta.
+ * · Sin `sesion` (POST /api/public/certapp/beta): por email; responde SIEMPRE
+ *   `{ ok: true }`, haya o no cuenta con ese email.
+ * · Con `sesion` ({ authId, email }, POST /api/certapp/alta): el email es el de
+ *   la sesión, ponga lo que ponga el formulario; devuelve la cuenta.
+ * @returns {{ ok: true, cuenta?: object, nueva?: boolean }}
  */
-async function apuntar(body = {}, { ip, userAgent } = {}) {
-    const fila = filaDe(body, { ip, userAgent });
+async function apuntar(body = {}, { ip, userAgent, sesion = null } = {}) {
+    const fila = filaDe(sesion ? { ...body, email: sesion.email } : body, { ip, userAgent });
     const { data: nueva, error } = await supabase.rpc('certapp_beta_apuntar', {
         p_fila: fila, p_revision: revisionDe(fila), p_max_revisiones: MAX_REVISIONES,
     });
     if (error) throw errorBd(error, 'beta: apuntar');
+    const directa = altaDirectaActiva();
+
+    // ── Con sesión (Google): la cuenta, al momento ──────────────────────────
+    if (sesion) {
+        if (!directa) throw fallo(403, 'Ahora mismo las altas están cerradas: te escribiremos cuando tengas plaza.', 'ALTAS_CERRADAS');
+        const solicitud = await solicitudDe(fila.email);
+        const r = await cuentas().altaConSesion(sesion, fila, { solicitud });
+        if (r.nueva) {
+            await marcarInvitada(solicitud);
+            await avisarEquipoAlta(fila, await altasDeHoy(), { alta: 'google' });
+        }
+        return { ok: true, cuenta: r.cuenta, nueva: r.nueva };
+    }
+
+    // ── Sin sesión, con el alta directa: la cuenta y el email para entrar ───
+    if (directa) {
+        const n = await altasDeHoy();
+        const toca = avisosQueTocan(n);
+        const solicitud = await solicitudDe(fila.email);
+        const r = await cuentas().altaDirecta(fila, { solicitud, mandarEmail: toca.email });
+        if (!r.nueva) return { ok: true };   // ya tenía cuenta: ni se dice ni se manda nada
+        await marcarInvitada(solicitud);
+        await avisarEquipoAlta(fila, n, { alta: 'email' });
+        if (!toca.email) {
+            console.log(`[certapp beta] tope diario de emails alcanzado (${n ?? '¿?'} altas hoy): ${fila.email} sin el email para entrar`);
+            await avisos.avisarEquipo({
+                asunto: 'Beta: tope de emails',
+                cuerpo: `⚠️ Tope diario de emails de la beta: la cuenta de ${fila.nombre} se ha creado pero no se le ha mandado el enlace para entrar. Que pida uno mañana en ${certappUrl()}/entrar.`,
+                soloWhatsapp: true,
+            });
+        }
+        return { ok: true };
+    }
+
+    // ── La lista de espera de antes (CERTAPP_ALTA_DIRECTA=false) ────────────
     if (nueva !== true) return { ok: true };   // ya estaba: queda como revisión, sin avisos
 
     // Avisos (en seco sin CERTAPP_AVISOS_ENABLED). Nunca rompen el alta.
     const n = await altasDeHoy();
-    const toca = avisosQueTocan(n);
-    const perfilTxt = { AUTONOMO: 'autónomo', EMPRESA_PROPIA: 'empresa con técnicos', EMPRESA_SUBCONTRATA: 'empresa que subcontrata', OTRO: 'otro' }[fila.perfil] || 's/ perfil';
-    const cuerpo = {
-        uno: `🆕 Nueva solicitud en la beta de la app de certificadores: ${fila.nombre} (${perfilTxt}${fila.provincia ? `, ${fila.provincia}` : ''}${fila.cee_mes ? `, ${fila.cee_mes} CEE/mes` : ''}). ${certappUrl()}/admin/beta`,
-        agrupado: `🆕 Ya van ${n} solicitudes hoy en la beta de la app de certificadores: no aviso de cada una más. Están en ${certappUrl()}/admin/beta`,
-        resumen: `🆕 Van ${n} solicitudes hoy en la beta de la app de certificadores: ${certappUrl()}/admin/beta`,
-    }[toca.whatsapp];
-    if (cuerpo) await avisos.avisarEquipo({ asunto: 'Beta de la app de certificadores', cuerpo, soloWhatsapp: true });
+    const toca = await avisarEquipoAlta(fila, n, { alta: null });
 
     if (toca.email) {
         const p = {
@@ -172,4 +243,4 @@ async function apuntar(body = {}, { ip, userAgent } = {}) {
     return { ok: true };
 }
 
-module.exports = { apuntar, filaDe, revisionDe, nombreSeguro, avisosQueTocan, hashIp, PERFILES, ESTADOS, MAX_REVISIONES };
+module.exports = { apuntar, avisarEquipoAlta, filaDe, revisionDe, nombreSeguro, avisosQueTocan, hashIp, PERFILES, ESTADOS, MAX_REVISIONES };

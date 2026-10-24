@@ -103,6 +103,26 @@ async function certappOnly(req, res, next) {
 }
 
 /**
+ * Guardián del ALTA con Google (POST /api/certapp/alta): una sesión válida de
+ * Supabase, tenga o no cuenta. Deja `req.certappSesion = { authId, email, cuenta, token }`.
+ */
+async function certappSesion(req, res, next) {
+    try {
+        const id = await identificarCertapp(req);
+        if (!id) return res.status(401).json({ error: 'Debes iniciar sesión.', code: 'SIN_SESION' });
+        if (!id.ok) return res.status(id.status).json({ error: id.error, code: id.code });
+        if (id.cuenta?.estado === 'BLOQUEADA') {
+            return res.status(403).json({ error: 'Tu cuenta está bloqueada. Escríbenos si crees que es un error.', code: 'CERTAPP_BLOQUEADA' });
+        }
+        req.certappSesion = { authId: id.authId, email: id.email, cuenta: id.cuenta, token: tokenDe(req) };
+        next();
+    } catch (e) {
+        console.error('[certappAuth] Error:', e.message);
+        res.status(500).json({ error: 'Error interno en autenticación' });
+    }
+}
+
+/**
  * Guardián de `/api/certapp/me` y de lo que comparten las dos vistas: pasa un
  * certificador (req.certapp) o un ADMIN de BROKERGY (req.user), o los dos.
  */
@@ -153,6 +173,7 @@ module.exports = {
     identificarCertapp,
     certappOnly,
     certappOAdmin,
+    certappSesion,
     obraDeLaCuenta,
     olvidarToken,
     olvidarCuenta,

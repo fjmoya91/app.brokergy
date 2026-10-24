@@ -1,7 +1,13 @@
-// ─── Beta — la lista de espera (cee.brokergy.es/beta) ───────────────────────
+// ─── Beta — el alta en la beta (cee.brokergy.es/beta) ───────────────────────
 // Se puede mandar el enlace suelto a la gente. En el móvil, una pregunta por
 // pantalla (tocar una opción avanza); en el ordenador, todo en una tarjeta.
-// → POST /api/public/certapp/beta (honeypot `web`, origen y utm de la URL).
+// Desde el 24/10/2026 el formulario DA DE ALTA (1 certificado gratis):
+//   · Con Google («Continuar con Google» en la primera pregunta): vuelve aquí
+//     con sesión (`?con=google`), el email es el de Google y no se puede tocar,
+//     y al terminar → POST /api/certapp/alta → dentro, en el panel.
+//   · Con email: → POST /api/public/certapp/beta (honeypot `web`, origen y utm
+//     de la URL) → «mira tu email»: le llega el enlace para entrar.
+// Hay que aceptar las condiciones de uso (/condiciones) y la privacidad.
 // Antirrobots: al montar, GET /beta/token → { token }, que va como `form_token`
 // (el servidor lo quiere con ≥ 3 s y ≤ 2 h de vida; si responde 400 FORM_TOKEN
 // se pide otro y se deja reintentar sin perder nada). Turnstile SOLO si existe
@@ -11,13 +17,15 @@
 // a medias); al enviarlo se borra.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { API_PUB, errorDe, mensajeError } from '../api';
-import { Enlace } from '../router';
+import { API, API_PUB, errorDe, mensajeError } from '../api';
+import { useCertappAuth } from '../auth/CertappAuth';
+import { Enlace, navegar } from '../router';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { CCAA_LIST, PROV_NOMBRE } from '../../utils/direccionCatastral';
-import { BotonCopiar, CabeceraPublica, Campo, Firma, Papel } from '../ui/piezas';
+import { COMUNIDADES, PROVINCIAS, SOFTWARE } from '../ui/listas';
+import { BotonCopiar, CabeceraPublica, Campo, CargandoPantalla, Firma, Papel } from '../ui/piezas';
 import { CheckDibujado, IcoAtras, IcoCheck, IcoFlecha, Spinner } from '../ui/Iconos';
 import { DOMINIO } from '../marca';
+import { BotonGoogle, RayaO } from './BotonGoogle';
 
 const BORRADOR = 'certapp_beta_borrador';
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
@@ -86,16 +94,6 @@ const INTERES = [
     { value: 'QUIZA', label: 'Quizá, depende de cómo' },
     { value: 'NO', label: 'No, prefiero hacerlo yo' },
 ];
-const SOFTWARE = [
-    { value: 'CE3X', label: 'CE3X' }, { value: 'HULC', label: 'HULC' },
-    { value: 'CYPETHERM', label: 'CYPETHERM' }, { value: 'OTRO', label: 'Otro' },
-];
-const MINUS = new Set(['de', 'la', 'y', 'del', 'las', 'los']);
-const titulo = (s) => String(s || '').toLowerCase().split(' ')
-    .map((w, i) => (i > 0 && MINUS.has(w) ? w : w.replace(/(^|-)(\p{L})/gu, (m, a, b) => a + b.toUpperCase())))
-    .join(' ').replace(/^S\.c\./, 'S.C.');
-const PROVINCIAS = Object.values(PROV_NOMBRE).map(titulo).sort((a, b) => a.localeCompare(b, 'es'));
-const COMUNIDADES = CCAA_LIST.map(c => ({ value: c, label: titulo(c) }));
 
 const VACIO = {
     nombre: '', email: '', telefono: '', provincia: '', perfil: '', empresa: '',
@@ -108,7 +106,7 @@ const emailValido = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e || '').
 
 // Una pregunta por pantalla en el móvil. `auto`: tocar una opción avanza.
 const PASOS = [
-    { id: 'datos', titulo: 'Para empezar, ¿quién eres?', ayuda: 'Para escribirte cuando tengas plaza.' },
+    { id: 'datos', titulo: 'Para empezar, ¿quién eres?', ayuda: 'Para crear tu cuenta. Son dos minutos y entras al momento.' },
     { id: 'perfil', titulo: '¿Cómo trabajas?', auto: true },
     { id: 'empresa', titulo: '¿Cómo se llama la empresa?', cuando: f => f.perfil && f.perfil !== 'AUTONOMO', opcional: true },
     { id: 'cee_mes', titulo: '¿Cuántos CEE haces o encargas al mes?', auto: true },
@@ -141,6 +139,10 @@ function Opciones({ lista, valor, onElegir, multi = false, cols }) {
 
 export default function Beta({ query }) {
     const movil = useIsMobile();
+    const { session, cuenta, loading, refrescar } = useCertappAuth();
+    // Con sesión (de Google) y sin cuenta: el email es el de la sesión.
+    const conSesion = !!session && !cuenta;
+    const emailSesion = conSesion ? String(session.user?.email || '').toLowerCase() : '';
     const [f, setF] = useState(() => {
         try { return { ...VACIO, ...JSON.parse(localStorage.getItem(BORRADOR) || '{}'), web: '' }; } catch { return VACIO; }
     });
@@ -149,6 +151,7 @@ export default function Beta({ query }) {
     const [enviando, setEnviando] = useState(false);
     const [errorEnvio, setErrorEnvio] = useState(null);
     const [hecho, setHecho] = useState(false);
+    const [reenvio, setReenvio] = useState(null); // null · 'enviando' · 'enviado'
     const [tsToken, setTsToken] = useState(null);
     const [tsVuelta, setTsVuelta] = useState(0); // al fallar un envío, el Turnstile se pinta de nuevo
     const formToken = useRef({ token: null, at: 0 });
@@ -163,6 +166,16 @@ export default function Beta({ query }) {
         return formToken.current;
     }, []);
     useEffect(() => { pedirFormToken(); }, [pedirFormToken]);
+
+    // De vuelta de Google: su email (fijo) y, si no lo había escrito, su nombre.
+    useEffect(() => {
+        if (!emailSesion) return;
+        const meta = session?.user?.user_metadata || {};
+        setF(x => ({ ...x, email: emailSesion, nombre: x.nombre.trim() ? x.nombre : String(meta.full_name || meta.name || '').slice(0, 120) }));
+    }, [emailSesion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Quien ya tiene cuenta no tiene nada que hacer aquí.
+    useEffect(() => { if (!loading && session && cuenta) navegar('/panel', { replace: true }); }, [loading, session, cuenta]);
 
     // Origen y campaña: lo que traiga la URL (el enlace suelto también cuenta).
     const origen = useMemo(() => {
@@ -203,7 +216,7 @@ export default function Beta({ query }) {
             if (!emailValido(f.email)) e.email = 'Revisa el email: así no nos llegaría.';
         }
         if (ids.includes('perfil') && !f.perfil) e.perfil = 'Elige la que más se parezca.';
-        if (ids.includes('enviar') && !f.consentimiento) e.consentimiento = 'Necesitamos tu permiso para guardar tus datos y escribirte.';
+        if (ids.includes('enviar') && !f.consentimiento) e.consentimiento = 'Para crear tu cuenta tienes que aceptar las condiciones y la privacidad.';
         if (ids.includes('enviar') && TURNSTILE_SITE_KEY && !tsToken) e.turnstile = 'Espera a que termine la comprobación de seguridad del recuadro.';
         setErrores(e);
         return Object.keys(e).length === 0;
@@ -237,9 +250,9 @@ export default function Beta({ query }) {
         const respuestas = { ...f, software };
         delete respuestas.web; delete respuestas.consentimiento;
         try {
-            await axios.post(`${API_PUB}/beta`, {
+            await axios.post(conSesion ? `${API}/alta` : `${API_PUB}/beta`, {
                 nombre: f.nombre.trim(),
-                email: f.email.trim().toLowerCase(),
+                email: conSesion ? emailSesion : f.email.trim().toLowerCase(),
                 telefono: f.telefono.trim() || null,
                 provincia: f.provincia || null,
                 perfil: f.perfil || null,
@@ -254,6 +267,7 @@ export default function Beta({ query }) {
                 comunidades: f.comunidades,
                 comentarios: f.comentarios.trim() || null,
                 consentimiento: true,
+                acepta_condiciones: true,
                 acepta_comunicaciones: !!f.acepta_comunicaciones,
                 web: f.web, // trampa para robots: una persona no la ve
                 form_token: tk.token || undefined,
@@ -263,13 +277,19 @@ export default function Beta({ query }) {
                 respuestas,
             });
             try { localStorage.removeItem(BORRADOR); } catch { /* noop */ }
+            if (conSesion) {
+                // Con Google la cuenta ya está: dentro.
+                await refrescar();
+                navegar('/panel?bienvenida=1', { replace: true });
+                return;
+            }
             setHecho(true);
             window.scrollTo({ top: 0 });
         } catch (err) {
             if (TURNSTILE_SITE_KEY) { setTsToken(null); setTsVuelta(v => v + 1); } // el de Turnstile es de un solo uso
             if (err.response?.status === 400 && errorDe(err).code === 'FORM_TOKEN') {
                 await pedirFormToken();
-                setErrorEnvio('Por seguridad hemos renovado el formulario. Lo que has escrito sigue aquí: vuelve a pulsar «Apuntarme».');
+                setErrorEnvio('Por seguridad hemos renovado el formulario. Lo que has escrito sigue aquí: vuelve a pulsar «Crear mi cuenta».');
             } else {
                 setErrorEnvio(mensajeError(err, 'No se ha podido enviar. Vuelve a intentarlo en un momento.'));
             }
@@ -277,6 +297,14 @@ export default function Beta({ query }) {
             setEnviando(false);
         }
     };
+
+    const reenviar = async () => {
+        setReenvio('enviando');
+        try { await axios.post(`${API_PUB}/enlace`, { email: f.email.trim().toLowerCase() }); } catch { /* responde siempre lo mismo */ }
+        setReenvio('enviado');
+    };
+
+    if (loading && query.get('con') === 'google') return <CargandoPantalla />;
 
     if (hecho) {
         const enlace = `https://${DOMINIO}/beta?origen=compartido`;
@@ -287,11 +315,17 @@ export default function Beta({ query }) {
                     <div className="ca-card ca-pad ca-in">
                         <div className="ca-filete" />
                         <CheckDibujado />
-                        <p className="ca-eyebrow ca-eyebrow-verde" style={{ marginTop: 16 }}>Apuntado</p>
-                        <h1 className="ca-display ca-h2" style={{ marginTop: 8 }}>Ya estás en la <span className="ca-mark">lista</span></h1>
+                        <p className="ca-eyebrow ca-eyebrow-verde" style={{ marginTop: 16 }}>Cuenta creada</p>
+                        <h1 className="ca-display ca-h2" style={{ marginTop: 8 }}>Mira tu <span className="ca-mark">email</span></h1>
                         <p className="ca-txt">
-                            Gracias, <b>{f.nombre.split(' ')[0]}</b>. Abrimos plazas poco a poco: cuando tengas la tuya te escribimos
-                            con el enlace para crear tu contraseña{f.telefono ? ' (por email y WhatsApp)' : ''}.
+                            Gracias, <b>{f.nombre.split(' ')[0]}</b>. Te hemos mandado a <b>{f.email.trim().toLowerCase()}</b> el
+                            enlace para entrar. Tienes <b>un certificado gratis</b> para probar la app.
+                        </p>
+                        <p className="ca-peq" style={{ marginTop: 8 }}>
+                            ¿No te llega? Mira en spam o{' '}
+                            {reenvio === 'enviado'
+                                ? <b>te lo hemos vuelto a mandar.</b>
+                                : <button type="button" className="ca-link" onClick={reenviar} disabled={reenvio === 'enviando'}>{reenvio === 'enviando' ? 'enviando…' : 'pídelo otra vez'}</button>}
                         </p>
                         <div className="ca-crema" style={{ marginTop: 18 }}>
                             <p className="ca-peq" style={{ margin: 0 }}>¿Conoces a otro certificador al que le pueda servir? Pásale el enlace:</p>
@@ -314,15 +348,22 @@ export default function Beta({ query }) {
             case 'datos':
                 return (
                     <>
+                        {!conSesion && (
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <BotonGoogle vuelta="/beta?con=google" onError={setErrorEnvio} />
+                                <RayaO texto="o con tu email" />
+                            </div>
+                        )}
                         <Campo etiqueta="Nombre y apellidos">
                             <input className="ca-input" value={f.nombre} onChange={e => set('nombre', e.target.value)} autoComplete="name" aria-invalid={!!errores.nombre} maxLength={120} />
                         </Campo>
                         {errores.nombre && <p className="ca-error" style={{ gridColumn: '1 / -1' }}>{errores.nombre}</p>}
-                        <Campo etiqueta="Email">
-                            <input className="ca-input" type="email" inputMode="email" value={f.email} onChange={e => set('email', e.target.value)} autoComplete="email" aria-invalid={!!errores.email} maxLength={160} />
+                        <Campo etiqueta="Email" ayuda={conSesion ? 'El de tu cuenta de Google.' : undefined}>
+                            <input className="ca-input" type="email" inputMode="email" value={conSesion ? emailSesion : f.email} readOnly={conSesion}
+                                onChange={e => set('email', e.target.value)} autoComplete="email" aria-invalid={!!errores.email} maxLength={160} />
                         </Campo>
                         {errores.email && <p className="ca-error" style={{ gridColumn: '1 / -1' }}>{errores.email}</p>}
-                        <Campo etiqueta="Teléfono o WhatsApp" opcional>
+                        <Campo etiqueta="Teléfono o WhatsApp" opcional ayuda={conSesion ? 'Para avisarte cuando tu certificado esté listo.' : 'Para avisarte por WhatsApp. Lo confirmas al entrar.'}>
                             <input className="ca-input" type="tel" inputMode="tel" value={f.telefono} onChange={e => set('telefono', e.target.value)} autoComplete="tel" maxLength={30} />
                         </Campo>
                         <Campo etiqueta="Provincia" opcional>
@@ -380,7 +421,7 @@ export default function Beta({ query }) {
                     <>
                         <label className="ca-check">
                             <input type="checkbox" checked={f.consentimiento} onChange={e => set('consentimiento', e.target.checked)} />
-                            <span>He leído la <Enlace to="/privacidad" target="_blank" rel="noopener">política de privacidad</Enlace> y acepto que BROKERGY guarde estos datos para gestionar la lista de espera de la beta y escribirme sobre ella.</span>
+                            <span>He leído y acepto las <Enlace to="/condiciones" target="_blank" rel="noopener">condiciones de uso de la beta</Enlace> y la <Enlace to="/privacidad" target="_blank" rel="noopener">política de privacidad</Enlace>.</span>
                         </label>
                         {errores.consentimiento && <p className="ca-error">{errores.consentimiento}</p>}
                         <label className="ca-check">
@@ -414,7 +455,7 @@ export default function Beta({ query }) {
                     <CabeceraPublica derecha={<span className="ca-pill">{idx + 1} / {pasos.length}</span>} />
                     <div className="ca-barra" aria-hidden="true"><i style={{ width: `${Math.round(100 * (idx + 1) / pasos.length)}%` }} /></div>
                     <div className="ca-in" key={actual.id} style={{ marginTop: 22 }}>
-                        {idx === 0 && <p className="ca-eyebrow">Lista de espera de la beta</p>}
+                        {idx === 0 && <p className="ca-eyebrow">Beta · tu primer certificado, gratis</p>}
                         <h1 className="ca-display ca-pregunta" style={{ marginTop: idx === 0 ? 8 : 0 }}>{actual.titulo}</h1>
                         {actual.ayuda && <p className="ca-preg-ayuda">{actual.ayuda}</p>}
                         <div style={{ marginTop: 18 }}>{bloque(actual.id)}</div>
@@ -427,7 +468,7 @@ export default function Beta({ query }) {
                         )}
                         {ultimo ? (
                             <button type="button" className="ca-btn ca-btn-pri" onClick={enviar} disabled={enviando}>
-                                {enviando ? <><Spinner /> Enviando…</> : 'Apuntarme'}
+                                {enviando ? <><Spinner /> Creando tu cuenta…</> : 'Crear mi cuenta'}
                             </button>
                         ) : (
                             <button type="button" className="ca-btn ca-btn-pri" onClick={siguiente}>
@@ -445,14 +486,14 @@ export default function Beta({ query }) {
         <Papel>
             <div className="ca-col" style={{ maxWidth: 720 }}>
                 <CabeceraPublica derecha={<Enlace to="/entrar" className="ca-link">Entrar</Enlace>} />
-                <p className="ca-eyebrow">Lista de espera de la beta</p>
-                <h1 className="ca-display ca-h1">Apúntate a la <span className="ca-mark">beta</span></h1>
-                <p className="ca-sub">Unas preguntas sobre cómo trabajas, para preparar la app con lo que de verdad te quita tiempo. Son dos minutos.</p>
+                <p className="ca-eyebrow">Beta · tu primer certificado, gratis</p>
+                <h1 className="ca-display ca-h1">Crea tu cuenta en la <span className="ca-mark">beta</span></h1>
+                <p className="ca-sub">Unas preguntas sobre cómo trabajas, para preparar la app con lo que de verdad te quita tiempo. Son dos minutos y entras al momento.</p>
                 <div className="ca-card ca-pad ca-stack">
                     <div className="ca-filete" />
                     {pasos.map((p, i) => (
                         <section key={p.id} style={{ marginTop: i === 0 ? 0 : 30 }}>
-                            <h2 className="ca-display ca-h3">{p.id === 'enviar' ? 'Tus permisos' : p.titulo}</h2>
+                            <h2 className="ca-display ca-h3">{p.id === 'enviar' ? 'Condiciones' : p.titulo}</h2>
                             {p.ayuda && p.id !== 'datos' && <p className="ca-preg-ayuda">{p.ayuda}</p>}
                             <div style={{ marginTop: 14 }}>
                                 {p.id === 'datos' ? (
@@ -463,7 +504,7 @@ export default function Beta({ query }) {
                     ))}
                     <div className="ca-btns">
                         <button type="button" className="ca-btn ca-btn-pri" onClick={enviar} disabled={enviando}>
-                            {enviando ? <><Spinner /> Enviando…</> : <>Apuntarme a la beta <IcoFlecha /></>}
+                            {enviando ? <><Spinner /> Creando tu cuenta…</> : <>Crear mi cuenta <IcoFlecha /></>}
                         </button>
                     </div>
                 </div>

@@ -23,15 +23,17 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md` — La app de certificadores — cee.brokergy.es (2026-10-24) · 16,4 KB
-- `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24) · 3,2 KB
-- `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24) · 2,5 KB
+- `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md` — La app de certificadores — cee.brokergy.es (2026-10-24) · 23,5 KB
+- `docs/conocimiento/certificadores-app/alta-directa-google-y-email.md` — El alta: al momento, con Google o con el email (2026-10-24) · 6,3 KB
+- `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24) · 3,5 KB
+- `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24) · 3,0 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
 > Son sus frases en negrita, copiadas tal cual. El porqué y los casos, en el documento.
 
 - `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md`
+  - **REGLA — el saldo de verdad sigue siendo `certapp_cuentas.creditos`**
   - **REGLA — mismo repo, mismo backend, mismo Supabase; tablas propias.**
   - **REGLA — el origen `ext` se ADAPTA, no se bifurca**
   - **REGLA — cada certificador toca SOLO lo suyo, y lo ajeno es 404.**
@@ -46,6 +48,12 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
   - **REGLA — el enlace del propietario caduca**
   - **REGLA — lo interno no llega al certificador**
   - **REGLA — sin `CERTAPP_TOKEN_SECRET` en producción, la app se cierra**
+- `docs/conocimiento/certificadores-app/alta-directa-google-y-email.md`
+  - **REGLA — el enlace para entrar sirve UNA vez**
+  - **REGLA — el alta por email no copia el teléfono**
+  - **REGLA — la respuesta pública es siempre la misma**
+  - **REGLA — sin aceptar las condiciones no hay alta**
+  - **REGLA — el alta con sesión toma el email de la SESIÓN, nunca el del formulario**
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md`
   - **REGLA — el nginx.conf del VPS no está en git**
   - **REGLA — `index certificadores.html` en ese server**

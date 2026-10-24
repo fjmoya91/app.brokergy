@@ -1,7 +1,9 @@
 // ─── /api/certapp-admin — el panel de BROKERGY de la app de certificadores ───
 // `adminOnly` (middleware/auth.js) EN CADA RUTA, en línea: lo vigila
-// scripts/auditar_rutas_sin_guardian.js. Lista de espera, cuentas y créditos,
-// obras (pedir a la IA, entregar, devolver el crédito) y sugerencias.
+// scripts/auditar_rutas_sin_guardian.js. Lista de espera, cuentas y créditos
+// (cambiarlos a mano apunta un AJUSTE en «Mis gastos»), obras (pedir a la IA,
+// entregar, devolver el crédito) e incidencias (estado y respuesta, que llega al
+// certificador por email).
 //
 // Listados sin JSONB enteros (regla 22); BD caída → 503 (regla 38).
 //
@@ -22,6 +24,8 @@ const entrega = require('../services/certapp/entrega');
 const asistente = require('../services/certapp/asistente');
 const beta = require('../services/certapp/beta');
 const drive = require('../services/certapp/drive');
+const incidencias = require('../services/certapp/incidencias');
+const movimientos = require('../services/certapp/movimientos');
 const { cuestionario: logica } = require('../services/certapp/logica');
 const { responderError, fallo, errorBd, esUuid, cuentaPublica, evento, texto, textoLargo, certappUrl } = require('../services/certapp/comun');
 
@@ -155,6 +159,12 @@ router.post('/cuentas', adminOnly, async (req, res) => {
     } catch (e) { return responderError(res, e, 'POST /cuentas'); }
 });
 
+/**
+ * Créditos (el saldo nuevo, absoluto) y estado. Si cambian los créditos, se apunta
+ * un AJUSTE en «Mis gastos» por la diferencia (`concepto` opcional: lo lee el
+ * certificador). El update va condicionado al saldo leído: si entretanto ha
+ * pedido un certificado, 409 `CREDITOS_CAMBIADOS` en vez de pisarlo a ciegas.
+ */
 router.patch('/cuentas/:id', adminOnly, async (req, res) => {
     try {
         const id = uuid(req);
@@ -170,12 +180,38 @@ router.patch('/cuentas/:id', adminOnly, async (req, res) => {
             patch.estado = e;
         }
         if (!Object.keys(patch).length) throw fallo(400, 'No hay nada que guardar.', 'SIN_CAMBIOS');
-        const { data, error } = await supabase.from('certapp_cuentas').update(patch).eq('id', id).select(COLS_CUENTA).maybeSingle();
+
+        let antes = null;
+        if ('creditos' in patch) {
+            const { data: a, error: errA } = await supabase.from('certapp_cuentas').select('creditos').eq('id', id).maybeSingle();
+            if (errA) throw errorBd(errA, 'leer créditos');
+            if (!a) throw fallo(404, 'No encuentro esa cuenta.', 'NO_ENCONTRADO');
+            antes = Number(a.creditos ?? 0);
+        }
+        let q = supabase.from('certapp_cuentas').update(patch).eq('id', id);
+        if (antes !== null) q = q.eq('creditos', antes);
+        const { data, error } = await q.select(COLS_CUENTA).maybeSingle();
         if (error) throw errorBd(error, 'actualizar cuenta');
-        if (!data) throw fallo(404, 'No encuentro esa cuenta.', 'NO_ENCONTRADO');
+        if (!data) {
+            if (antes !== null) throw fallo(409, 'Los créditos de esta cuenta acaban de cambiar. Recarga y vuelve a ponerlos.', 'CREDITOS_CAMBIADOS');
+            throw fallo(404, 'No encuentro esa cuenta.', 'NO_ENCONTRADO');
+        }
         // Bloquear o cambiar créditos se nota ya (la caché del guardián dura 2 min).
         olvidarCuenta(id);
-        return res.json({ cuenta: data });
+
+        let movimiento = null;
+        const diferencia = antes === null ? 0 : Number(data.creditos) - antes;
+        if (diferencia) {
+            const n = Math.abs(diferencia);
+            const porDefecto = diferencia > 0
+                ? `BROKERGY te ha dado ${n} ${n === 1 ? 'certificado' : 'certificados'}`
+                : `Ajuste de BROKERGY: ${n} ${n === 1 ? 'certificado' : 'certificados'} menos`;
+            movimiento = await movimientos.apuntar({
+                cuentaId: id, tipo: 'AJUSTE', creditos: diferencia, saldoDespues: Number(data.creditos),
+                concepto: texto(req.body?.concepto, 200) || porDefecto, por: quien(req),
+            });
+        }
+        return res.json({ cuenta: data, movimiento: movimiento ? { id: movimiento.id ?? null, creditos: diferencia } : null });
     } catch (e) { return responderError(res, e, 'PATCH /cuentas/:id'); }
 });
 
@@ -286,35 +322,70 @@ router.post('/obras/:id/devolver-credito', adminOnly, async (req, res) => {
     } catch (e) { return responderError(res, e, 'POST /obras/:id/devolver-credito'); }
 });
 
-// ── Sugerencias ─────────────────────────────────────────────────────────────
+// ── Incidencias y sugerencias ───────────────────────────────────────────────
+// El certificador las ve en «Mis incidencias» con el estado en palabras llanas
+// (NUEVA → Recibida, VISTA → En revisión, HECHA → Resuelta, DESCARTADA → Cerrada)
+// y la respuesta. Quién contestó (`respuesta_por`) solo lo ve este panel.
+const COLS_FEEDBACK = 'id, created_at, cuenta_id, obra_id, tipo, texto, pantalla, user_agent, estado, respuesta, respuesta_at, respuesta_por, '
+    + 'cuenta:certapp_cuentas(id, email, nombre, apellidos), obra:certapp_obras(numero_expediente)';
+
 router.get('/feedback', adminOnly, async (req, res) => {
     try {
-        let q = supabase.from('certapp_feedback')
-            .select('id, created_at, cuenta_id, obra_id, tipo, texto, pantalla, user_agent, estado, respuesta, cuenta:certapp_cuentas(id, email, nombre, apellidos)')
+        let q = supabase.from('certapp_feedback').select(COLS_FEEDBACK)
             .order('created_at', { ascending: false }).limit(2000);
         const estado = String(req.query.estado || '').toUpperCase();
-        if (['NUEVA', 'VISTA', 'HECHA', 'DESCARTADA'].includes(estado)) q = q.eq('estado', estado);
+        if (incidencias.ESTADOS.includes(estado)) q = q.eq('estado', estado);
         const { data, error } = await q;
         if (error) throw errorBd(error, 'listar feedback');
         return res.json({ feedback: data || [] });
     } catch (e) { return responderError(res, e, 'GET /feedback'); }
 });
 
-router.patch('/feedback/:id', adminOnly, async (req, res) => {
+/**
+ * Estado y/o respuesta de una incidencia `{ estado?, respuesta?, avisar? }`.
+ * Una respuesta NUEVA (distinta de la que había, no vacía) apunta `respuesta_at` y
+ * `respuesta_por`, pasa una NUEVA a VISTA si no se dice otro estado, y avisa al
+ * certificador por email con el enlace a «Mis incidencias» (salvo `avisar: false`;
+ * con CERTAPP_AVISOS_ENABLED apagado, en seco). Guardar lo mismo no cambia nada
+ * ni manda nada. → `{ feedback, aviso }` (aviso null si no tocaba avisar).
+ */
+async function guardarFeedback(req, res) {
     try {
+        const id = uuid(req);
+        const b = req.body || {};
+        if (!('estado' in b) && !('respuesta' in b)) throw fallo(400, 'No hay nada que guardar.', 'SIN_CAMBIOS');
+        const { data: antes, error: errAntes } = await supabase.from('certapp_feedback').select(COLS_FEEDBACK).eq('id', id).maybeSingle();
+        if (errAntes) throw errorBd(errAntes, 'incidencia');
+        if (!antes) throw fallo(404, 'No encuentro esa incidencia.', 'NO_ENCONTRADO');
+
         const patch = {};
-        if ('estado' in (req.body || {})) {
-            const e = String(req.body.estado || '').toUpperCase();
-            if (!['NUEVA', 'VISTA', 'HECHA', 'DESCARTADA'].includes(e)) throw fallo(400, 'Estado desconocido.', 'ESTADO_INVALIDO');
-            patch.estado = e;
+        if ('estado' in b) {
+            const e = String(b.estado || '').toUpperCase();
+            if (!incidencias.ESTADOS.includes(e)) throw fallo(400, 'Estado desconocido.', 'ESTADO_INVALIDO');
+            if (e !== antes.estado) patch.estado = e;
         }
-        if ('respuesta' in (req.body || {})) patch.respuesta = textoLargo(req.body.respuesta, 4000);
-        if (!Object.keys(patch).length) throw fallo(400, 'No hay nada que guardar.', 'SIN_CAMBIOS');
-        const { data, error } = await supabase.from('certapp_feedback').update(patch).eq('id', uuid(req)).select('id, estado, respuesta').maybeSingle();
+        let respuestaNueva = false;
+        if ('respuesta' in b) {
+            const r = textoLargo(b.respuesta, 4000) || null;
+            if (r !== (antes.respuesta || null)) {
+                patch.respuesta = r;
+                patch.respuesta_at = r ? new Date().toISOString() : null;
+                patch.respuesta_por = r ? quien(req) : null;
+                respuestaNueva = !!r;
+            }
+        }
+        // Contestar es haberla visto: que el certificador no lea «Recibida» con la respuesta debajo.
+        if (respuestaNueva && !('estado' in patch) && antes.estado === 'NUEVA') patch.estado = 'VISTA';
+        if (!Object.keys(patch).length) return res.json({ feedback: antes, aviso: null });
+
+        const { data, error } = await supabase.from('certapp_feedback').update(patch).eq('id', id).select(COLS_FEEDBACK).maybeSingle();
         if (error) throw errorBd(error, 'actualizar feedback');
-        if (!data) throw fallo(404, 'No encuentro esa sugerencia.', 'NO_ENCONTRADO');
-        return res.json({ feedback: data });
-    } catch (e) { return responderError(res, e, 'PATCH /feedback/:id'); }
-});
+        if (!data) throw fallo(404, 'No encuentro esa incidencia.', 'NO_ENCONTRADO');
+        const aviso = respuestaNueva && b.avisar !== false ? await incidencias.avisarRespuesta(data) : null;
+        return res.json({ feedback: data, aviso });
+    } catch (e) { return responderError(res, e, `${req.method} /feedback/:id`); }
+}
+router.put('/feedback/:id', adminOnly, guardarFeedback);
+router.patch('/feedback/:id', adminOnly, guardarFeedback);   // el nombre de antes; mismo comportamiento
 
 module.exports = router;

@@ -1,7 +1,8 @@
 // App de certificadores — contra la Supabase de VERDAD (la de producción).
-//   node scripts/test_certapp_bd.js              cuentas, activación, beta, créditos, cupo del asistente
+//   node scripts/test_certapp_bd.js              cuentas, activación, beta, alta directa (email y
+//                                                con sesión), enlace para entrar, Mis gastos, créditos
 //   node scripts/test_certapp_bd.js --con-obra   además una obra (gasta un número {AAAA}EXT_n de la secuencia)
-// Crea una cuenta de prueba (usuario de Auth incluido) con un email @example.com
+// Crea tres cuentas de prueba (usuarios de Auth incluidos) con emails @example.com
 // y lo BORRA TODO al acabar, pase lo que pase. Sin Drive (CERTAPP_DRIVE_ROOT_ID
 // vacío) y con los avisos en seco: no sale nada a nadie.
 // Si el SQL (scripts/certapp_schema.sql) aún no está aplicado, dice PENDIENTE.
@@ -21,7 +22,7 @@ const ok = (cond, texto) => { total++; if (!cond) fallos++; console.log(`${cond 
 (async () => {
     // ── ¿Está el SQL aplicado? ──────────────────────────────────────────────
     const pendientes = [];
-    for (const t of ['certapp_cuentas', 'certapp_beta_solicitudes', 'certapp_obras', 'certapp_eventos', 'certapp_feedback', 'certapp_asistente_uso']) {
+    for (const t of ['certapp_cuentas', 'certapp_beta_solicitudes', 'certapp_obras', 'certapp_eventos', 'certapp_feedback', 'certapp_asistente_uso', 'certapp_movimientos']) {
         const { error } = await supabase.from(t).select('id').limit(1);
         if (error && tablaPendiente(error)) pendientes.push(t);
         else if (error) { console.error(`✗ ${t}: ${error.message}`); process.exit(1); }
@@ -42,8 +43,11 @@ const ok = (cond, texto) => { total++; if (!cond) fallos++; console.log(`${cond 
     const tokens = require(path.join(B, 'services/certapp/tokens'));
     const beta = require(path.join(B, 'services/certapp/beta'));
     const asistente = require(path.join(B, 'services/certapp/asistente'));
-    const email = `certapp.prueba.${Date.now()}@example.com`;
-    const creado = { cuentaId: null, authId: null, obraId: null, betaEmail: email };
+    const ts = Date.now();
+    const email = `certapp.prueba.${ts}@example.com`;
+    const emailDirecta = `certapp.prueba.directa.${ts}@example.com`;   // alta desde el formulario, por email
+    const emailSesion = `certapp.prueba.google.${ts}@example.com`;     // alta con sesión (como Google)
+    const creado = { cuentaId: null, authId: null, obraId: null, cuentas: [], auths: [], betaEmails: [email, emailDirecta, emailSesion] };
 
     try {
         // ── Alta de la cuenta ───────────────────────────────────────────────
@@ -85,9 +89,10 @@ const ok = (cond, texto) => { total++; if (!cond) fallos++; console.log(`${cond 
         ok(cupo.usados_hoy === 0 && cupo.max_dia > 0, 'cupo del asistente: se cuenta en certapp_asistente_uso');
 
         // ── Beta: mismo email = NO se pisa (certapp_beta_apuntar) ──────────────
-        const b1 = await beta.apuntar({ nombre: 'Prueba Beta', email, consentimiento: true, perfil: 'autonomo', software: ['CE3X'], web: '', form_token: 'x' }, { ip: '127.0.0.1', userAgent: 'test' });
+        // El email ya tiene cuenta: con el alta directa, ni se crea otra ni se dice nada.
+        const b1 = await beta.apuntar({ nombre: 'Prueba Beta', email, consentimiento: true, acepta_condiciones: true, perfil: 'autonomo', software: ['CE3X'], web: '', form_token: 'x' }, { ip: '127.0.0.1', userAgent: 'test' });
         // Sin cifras: el nombre se sanea (nombreSeguro) y «Prueba Beta 2» quedaría en «Prueba Beta».
-        const b2 = await beta.apuntar({ nombre: 'Prueba Beta Dos', email: email.toUpperCase(), telefono: '600000000', consentimiento: true, cee_mes: '6-15' }, { ip: '127.0.0.1', userAgent: 'test' });
+        const b2 = await beta.apuntar({ nombre: 'Prueba Beta Dos', email: email.toUpperCase(), telefono: '600000000', consentimiento: true, acepta_condiciones: true, cee_mes: '6-15' }, { ip: '127.0.0.1', userAgent: 'test' });
         const { data: sols } = await supabase.from('certapp_beta_solicitudes').select('id, nombre, telefono, perfil, cee_mes, ip_hash, respuestas').eq('email', email);
         ok(JSON.stringify(b1) === '{"ok":true}' && JSON.stringify(b2) === '{"ok":true}' && sols?.length === 1, 'beta: la respuesta es siempre { ok: true } y el mismo email no duplica');
         const sol = sols?.[0] || {};
@@ -96,6 +101,59 @@ const ok = (cond, texto) => { total++; if (!cond) fallos++; console.log(`${cond 
         ok(Array.isArray(sol.respuestas?.revisiones) && sol.respuestas.revisiones.length === 1 && sol.respuestas.revisiones[0].nombre === 'Prueba Beta Dos',
             'beta: lo que llegó la segunda vez queda en respuestas.revisiones');
         ok(sol.ip_hash && sol.ip_hash !== '127.0.0.1' && !('web' in (sol.respuestas || {})) && !('form_token' in (sol.respuestas || {})), 'beta: guarda el crudo, la IP solo en hash y sin el honeypot ni el form_token');
+        ok((await cuentas.cuentaPorEmail(email))?.id === r.cuenta.id, 'beta con un email que ya tiene cuenta: no crea otra');
+        const { data: movAlta } = await supabase.from('certapp_movimientos').select('tipo, creditos, saldo_despues, por').eq('cuenta_id', r.cuenta.id);
+        ok(movAlta?.length === 1 && movAlta[0].tipo === 'ALTA' && movAlta[0].creditos === 1 && movAlta[0].saldo_despues === 1, 'Mis gastos: la invitación apunta su ALTA con los créditos');
+
+        // ── Alta directa por email (el formulario de la beta crea la cuenta) ──
+        try { await beta.apuntar({ nombre: 'Sin Condiciones', email: emailDirecta, consentimiento: true }, { ip: '127.0.0.1', userAgent: 'test' }); ok(false, 'alta directa sin aceptar las condiciones: 400'); }
+        catch (e) { ok(e.status === 400 && e.code === 'FALTA_CONDICIONES', 'alta directa sin aceptar las condiciones: 400 FALTA_CONDICIONES'); }
+        ok(!(await cuentas.cuentaPorEmail(emailDirecta)), '…y no se crea nada');
+        const bd = await beta.apuntar({ nombre: 'Prueba Directa', email: emailDirecta, telefono: '600111222', provincia: 'Toledo', consentimiento: true, acepta_condiciones: true,
+            comunidades: ['CASTILLA-LA MANCHA'], software: ['CE3X'] }, { ip: '127.0.0.1', userAgent: 'test' });
+        const cd = await cuentas.cuentaPorEmail(emailDirecta);
+        creado.cuentas.push(cd?.id); creado.auths.push(cd?.auth_user_id);
+        ok(JSON.stringify(bd) === '{"ok":true}' && cd?.estado === 'PENDIENTE' && cd.auth_user_id && cd.creditos === cuentas.creditosBeta(),
+            `alta directa: cuenta PENDIENTE con su usuario de Auth y ${cuentas.creditosBeta()} crédito(s) de la beta`);
+        ok(cd?.telefono === null && cd.prefs?.telefono_por_confirmar === '600111222', 'alta directa: el teléfono NO se copia; queda por confirmar en el perfil');
+        ok(cd?.prefs?.condiciones?.version === cuentas.CONDICIONES_VERSION && cd.prefs.condiciones.at && cd.prefs.alta?.via === 'email', 'alta directa: guarda la versión y la fecha de las condiciones aceptadas');
+        ok(cd?.prefs?.perfil?.comunidades?.[0] === 'CASTILLA-LA MANCHA' && cd.prefs.perfil.software?.[0] === 'CE3X', 'alta directa: comunidades y programas al perfil');
+        ok(cd?.nombre === 'Prueba' && cd.apellidos === 'Directa', `alta directa: «Nombre y apellidos» partido en la cuenta [${cd?.nombre} | ${cd?.apellidos}]`);
+        const { data: solD } = await supabase.from('certapp_beta_solicitudes').select('estado, cuenta_id').eq('email', emailDirecta).maybeSingle();
+        ok(solD?.estado === 'INVITADA', 'alta directa: la solicitud queda INVITADA');
+        const { data: movD } = await supabase.from('certapp_movimientos').select('tipo, creditos').eq('cuenta_id', cd?.id);
+        ok(movD?.length === 1 && movD[0].tipo === 'ALTA' && movD[0].creditos === cuentas.creditosBeta(), 'alta directa: su ALTA en Mis gastos');
+        const bdOtra = await beta.apuntar({ nombre: 'Prueba Directa', email: emailDirecta.toUpperCase(), consentimiento: true, acepta_condiciones: true }, { ip: '127.0.0.1', userAgent: 'test' });
+        const { count: nCd } = await supabase.from('certapp_cuentas').select('id', { count: 'exact', head: true }).ilike('email', emailDirecta);
+        ok(JSON.stringify(bdOtra) === '{"ok":true}' && nCd === 1, 'alta directa dos veces (en mayúsculas): la misma respuesta y una sola cuenta');
+
+        // ── El enlace para entrar (`e`): un solo uso ────────────────────────
+        const tokE = tokens.firmarCuenta('e', cd.id, cd.prefs.pwd_nonce);
+        const can = await cuentas.canjearEnlace(tokE);
+        ok(can.ok && can.email === emailDirecta && typeof can.token_hash === 'string' && can.token_hash.length > 20, 'POST /enlace/canjear: da el token_hash del enlace mágico de Supabase');
+        try { await cuentas.canjearEnlace(tokE); ok(false, 'el mismo enlace otra vez: no vale'); }
+        catch (e) { ok(e.status === 400 && e.code === 'TOKEN_INVALIDO', 'el mismo enlace otra vez: no vale (un solo uso)'); }
+        try { await cuentas.activar(tokens.firmarCuenta('e', cd.id, (await cuentas.cuentaPorId(cd.id)).prefs.pwd_nonce), 'Clave-Larga-123'); ok(false, 'un enlace de entrar no sirve para poner contraseña'); }
+        catch (e) { ok(e.status === 400, 'un enlace de entrar no sirve para poner contraseña'); }
+        ok((await cuentas.mandarEnlaceEntrar(emailDirecta)).ok === true && (await cuentas.mandarEnlaceEntrar('nadie.nunca@example.com')).ok === true, 'POST /enlace: la misma respuesta haya cuenta o no (en seco)');
+
+        // ── Alta con sesión (lo que hace «Continuar con Google») ───────────
+        const { data: uG, error: uGErr } = await supabase.auth.admin.createUser({ email: emailSesion, email_confirm: true });
+        if (uGErr) throw uGErr;
+        creado.auths.push(uG.user.id);
+        const sesion = { authId: uG.user.id, email: emailSesion };
+        try { await beta.apuntar({ nombre: 'Prueba Google', consentimiento: true }, { ip: '127.0.0.1', userAgent: 'test', sesion }); ok(false, 'alta con sesión sin condiciones: 400'); }
+        catch (e) { ok(e.status === 400 && e.code === 'FALTA_CONDICIONES', 'alta con sesión sin condiciones: 400'); }
+        const bg = await beta.apuntar({ nombre: 'Prueba Google', email: 'otro.distinto@example.com', telefono: '600333444', consentimiento: true, acepta_condiciones: true },
+            { ip: '127.0.0.1', userAgent: 'test', sesion });
+        creado.cuentas.push(bg.cuenta?.id);
+        ok(bg.ok && bg.nueva === true && bg.cuenta?.estado === 'ACTIVA' && bg.cuenta.email === emailSesion && bg.cuenta.auth_user_id === uG.user.id,
+            'alta con sesión: cuenta ACTIVA con el email de la SESIÓN (no el del formulario), vinculada a su usuario');
+        ok(bg.cuenta?.telefono === '600333444', 'alta con sesión: el teléfono se copia');
+        const bg2 = await beta.apuntar({ nombre: 'Prueba Google', consentimiento: true, acepta_condiciones: true }, { ip: '127.0.0.1', userAgent: 'test', sesion });
+        ok(bg2.nueva === false && bg2.cuenta?.id === bg.cuenta?.id, 'alta con sesión otra vez: devuelve la misma cuenta');
+        try { await beta.apuntar({ nombre: 'Prueba Google', consentimiento: true, acepta_condiciones: true }, { ip: '127.0.0.1', userAgent: 'test', sesion: { authId: uG.user.id, email: emailDirecta } }); ok(false, 'sesión con un email que ya es de otra cuenta: 409'); }
+        catch (e) { ok(e.status === 409 && e.code === 'CUENTA_YA_EXISTE', 'sesión con un email que ya es de otra cuenta: 409'); }
 
         // ── Obra (opcional: gasta un número de la secuencia) ────────────────
         if (CON_OBRA) {
@@ -128,6 +186,10 @@ const ok = (cond, texto) => { total++; if (!cond) fallos++; console.log(`${cond 
             ok(d1.data === 1 && d2.data === -2, `devolver: vuelve a 1; la segunda devolución no hace nada (-2) [${d1.data}, ${d2.data}]`);
             const { data: evDev } = await supabase.from('certapp_eventos').select('tipo, por, por_detalle, nota_interna').eq('obra_id', obra.id).eq('tipo', 'CREDITO_DEVUELTO');
             ok(evDev?.length === 1 && evDev[0].por === 'BROKERGY' && evDev[0].nota_interna === 'motivo interno', 'devolver apunta UN evento CREDITO_DEVUELTO, con la nota interna aparte');
+            const { data: movObra } = await supabase.from('certapp_movimientos').select('tipo, creditos, saldo_despues, concepto').eq('obra_id', obra.id).order('id');
+            ok(movObra?.length === 2 && movObra[0].tipo === 'GASTO' && movObra[0].creditos === -1 && movObra[0].saldo_despues === 0
+                && movObra[1].tipo === 'DEVOLUCION' && movObra[1].creditos === 1 && movObra[1].saldo_despues === 1 && !/interno/.test(movObra[1].concepto || ''),
+                'Mis gastos: un GASTO y una DEVOLUCION (los -2 no apuntan nada) y la nota interna no va al concepto');
             const visibles = await obras.eventos(obra.id);
             ok(visibles.every(e => !('nota_interna' in e) && !('por_detalle' in e)), 'los eventos del certificador no traen ni la nota interna ni quién del equipo');
             await supabase.from('certapp_cuentas').update({ creditos: 0 }).eq('id', r.cuenta.id);
@@ -149,8 +211,20 @@ const ok = (cond, texto) => { total++; if (!cond) fallos++; console.log(`${cond 
             borrado.push(`cuenta ${error ? `✗ ${error.message}` : '✓'}`);
         }
         if (creado.authId) { const { error } = await supabase.auth.admin.deleteUser(creado.authId); borrado.push(`usuario de Auth ${error ? `✗ ${error.message}` : '✓'}`); }
-        { const { error } = await supabase.from('certapp_beta_solicitudes').delete().eq('email', creado.betaEmail); borrado.push(`solicitud de la beta ${error ? `✗ ${error.message}` : '✓'}`); }
-        console.log(`\nLimpieza (${email}): ${borrado.join(' · ')}`);
+        // Las del alta directa y con sesión (sus movimientos se van con la cuenta: on delete cascade).
+        for (const id of [...new Set(creado.cuentas.filter(Boolean))]) {
+            await supabase.from('certapp_beta_solicitudes').update({ cuenta_id: null }).eq('cuenta_id', id);
+            const { error } = await supabase.from('certapp_cuentas').delete().eq('id', id);
+            borrado.push(`cuenta ${error ? `✗ ${error.message}` : '✓'}`);
+        }
+        for (const id of [...new Set(creado.auths.filter(Boolean))]) {
+            const { error } = await supabase.auth.admin.deleteUser(id);
+            borrado.push(`usuario de Auth ${error ? `✗ ${error.message}` : '✓'}`);
+        }
+        { const { error } = await supabase.from('certapp_beta_solicitudes').delete().in('email', creado.betaEmails); borrado.push(`solicitudes de la beta ${error ? `✗ ${error.message}` : '✓'}`); }
+        const { count: quedanMov } = await supabase.from('certapp_movimientos').select('id', { count: 'exact', head: true }).in('cuenta_id', [creado.cuentaId, ...creado.cuentas].filter(Boolean));
+        borrado.push(`movimientos que quedan: ${quedanMov ?? '¿?'}`);
+        console.log(`\nLimpieza (${email} y las otras dos): ${borrado.join(' · ')}`);
         console.log(`${total - fallos}/${total} correctas`);
         process.exit(fallos ? 1 : 0);
     }

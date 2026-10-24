@@ -1,6 +1,6 @@
 // ─── App.jsx — las pantallas de la app de certificadores, por ruta ──────────
 // Enrutado a mano por pathname (como el CRM). Tres vistas:
-//   PÚBLICA      /, /beta, /entrar, /activar, /recuperar, /privacidad
+//   PÚBLICA      /, /beta, /entrar, /activar, /recuperar, /privacidad, /condiciones
 //   CLIENTE      /subir/:id?token=  (el propietario sube fotos sin cuenta)
 //   CERTIFICADOR /panel, /obra/nueva, /obra/:id, /obra/:id/envolvente, /perfil
 //   ADMIN        /admin, /admin/{beta|cuentas|obras|sugerencias}, /admin/obras/:id
@@ -21,11 +21,14 @@ import Entrar from './publico/Entrar';
 import Activar from './publico/Activar';
 import Recuperar from './publico/Recuperar';
 import Privacidad from './publico/Privacidad';
+import Condiciones from './publico/Condiciones';
 import SubirCliente from './publico/SubirCliente';
 import Panel from './panel/Panel';
 import NuevaObra from './obra/NuevaObra';
 import Ficha from './obra/Ficha';
 import Perfil from './perfil/Perfil';
+import MisIncidencias from './incidencias/MisIncidencias';
+import MisGastos from './gastos/MisGastos';
 
 // Lo pesado o lo que es de otros, en diferido.
 const EnvolventeCertapp = lazy(() => import('./envolvente/EnvolventeCertapp.jsx'));
@@ -88,10 +91,18 @@ function Protegida({ acceso, children }) {
                     accion={<button type="button" className="ca-btn ca-btn-pri" onClick={() => navegar('/admin')}>Ir a la administración</button>} />
             );
         }
+        if (errorMe?.code === 'CERTAPP_SIN_CUENTA') {
+            // Sesión de Google sin alta todavía: le falta el formulario (dos minutos).
+            return (
+                <SinAcceso titulo="Aún no tienes cuenta"
+                    texto="Contesta unas preguntas sobre cómo trabajas (dos minutos) y entras al momento, con tu primer certificado gratis."
+                    accion={<button type="button" className="ca-btn ca-btn-pri" onClick={() => navegar('/beta?con=google')}>Crear mi cuenta</button>} />
+            );
+        }
         return (
             <SinAcceso titulo="Esta cuenta no tiene acceso"
-                texto={errorMe?.mensaje || 'Tu usuario no tiene una cuenta de certificador activa. Si te has apuntado a la beta, te escribiremos cuando tengas plaza.'}
-                accion={<button type="button" className="ca-btn ca-btn-pri" onClick={() => navegar('/beta')}>Apuntarme a la beta</button>} />
+                texto={errorMe?.mensaje || 'Tu usuario no tiene una cuenta de certificador activa.'}
+                accion={<button type="button" className="ca-btn ca-btn-pri" onClick={() => navegar('/beta')}>Crear mi cuenta</button>} />
         );
     }
     if (acceso === 'admin' && !esAdmin) {
@@ -159,12 +170,15 @@ function resolver(path) {
     if (path === '/activar') return { id: 'activar', titulo: 'Activa tu cuenta' };
     if (path === '/recuperar') return { id: 'recuperar', titulo: 'Recuperar la contraseña' };
     if (path === '/privacidad') return { id: 'privacidad', titulo: 'Privacidad' };
+    if (path === '/condiciones') return { id: 'condiciones', titulo: 'Condiciones de uso' };
     if ((p = casar('/subir/:id', path))) return { id: 'subir', params: p, titulo: 'Subir fotos' };
     if (path === '/panel') return { id: 'panel', acceso: 'cuenta', titulo: 'Mis obras' };
     if (path === '/obra/nueva') return { id: 'nueva', acceso: 'cuenta', titulo: 'Nueva obra' };
     if ((p = casar('/obra/:id/envolvente', path))) return { id: 'envolvente', acceso: 'sesion', params: p, titulo: 'Envolvente' };
     if ((p = casar('/obra/:id', path))) return { id: 'obra', acceso: 'cuenta', params: p, titulo: 'Obra' };
     if (path === '/perfil') return { id: 'perfil', acceso: 'cuenta', titulo: 'Mi perfil' };
+    if (path === '/incidencias') return { id: 'incidencias', acceso: 'cuenta', titulo: 'Mis incidencias' };
+    if (path === '/gastos') return { id: 'gastos', acceso: 'cuenta', titulo: 'Mis gastos' };
     // /admin, /admin/beta, /admin/cuentas, /admin/obras, /admin/obras/:id, /admin/sugerencias
     // (las da por hechas el backend en sus avisos); las pestañas las resuelve Admin.
     if (path === '/admin' || path.startsWith('/admin/')) return { id: 'admin', acceso: 'admin', titulo: 'Administración' };
@@ -196,11 +210,14 @@ export default function App() {
         case 'activar': pantalla = <Activar query={query} />; break;
         case 'recuperar': pantalla = <Recuperar />; break;
         case 'privacidad': pantalla = <Privacidad />; break;
+        case 'condiciones': pantalla = <Condiciones />; break;
         case 'subir': pantalla = <SubirCliente id={ruta.params.id} token={query.get('token') || ''} />; break;
         case 'panel': pantalla = <Marco activo="panel"><Panel /></Marco>; break;
         case 'nueva': pantalla = <Marco activo="panel"><NuevaObra /></Marco>; break;
         case 'obra': pantalla = <Marco activo="panel" obraId={ruta.params.id}><Ficha key={ruta.params.id} id={ruta.params.id} /></Marco>; break;
         case 'perfil': pantalla = <Marco activo="perfil"><Perfil /></Marco>; break;
+        case 'incidencias': pantalla = <Marco activo="incidencias"><MisIncidencias /></Marco>; break;
+        case 'gastos': pantalla = <Marco activo="gastos"><MisGastos /></Marco>; break;
         case 'admin':
             pantalla = (
                 <Marco activo="admin" ancho>

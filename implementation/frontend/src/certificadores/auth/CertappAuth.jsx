@@ -6,8 +6,9 @@
 // su perfil se lee de `usuarios`, que un certificador no tiene.
 //
 // Contrato (lo usan otros agentes, p. ej. la envolvente):
-//   useCertappAuth() → { session, token, cuenta, esAdmin, loading,
-//                        signIn(email, password), signOut(), refrescar() }
+//   useCertappAuth() → { session, token, cuenta, esAdmin, loading, sinCuenta,
+//                        signIn(email, password), entrarConGoogle(vuelta),
+//                        entrarConEnlace(token), signOut(), refrescar() }
 //   + `axios.defaults.headers.common.Authorization = 'Bearer …'` con la sesión,
 //     porque la envolvente (del CRM) llama con el axios global.
 //
@@ -15,12 +16,21 @@
 // del CRM): si Supabase no contesta, el usuario igualmente sale.
 // REGLA — con el servidor caído (503 / sin red) NO se trata como «sin cuenta»:
 // se dice que no se ha podido cargar y se ofrece reintentar (regla 38).
+//
+// Entrar sin contraseña (alta directa, 24/10/2026):
+//   · Google: signInWithOAuth vuelve a `vuelta` con la sesión en la URL, que
+//     supabase-js recoge solo (detectSessionInUrl). Si ese usuario aún no tiene
+//     cuenta, `/me` da 403 CERTAPP_SIN_CUENTA → `sinCuenta`, y se le lleva al
+//     formulario de la beta para darse de alta.
+//   · Enlace del email (`/entrar?t=`): el servidor cambia el token por el
+//     token_hash de un enlace mágico y aquí se canjea con verifyOtp.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { supabase } from '../../services/supabaseClient';
-import { API, errorDe, mensajeError } from '../api';
+import { API, API_PUB, errorDe, mensajeError } from '../api';
 import { demoActiva } from '../dev/flag';
+import { navegar } from '../router';
 
 const Ctx = createContext(null);
 
@@ -187,6 +197,53 @@ export function CertappAuthProvider({ children }) {
         }
     }, [demo, cargarMe, ponerToken]);
 
+    /** Abre la sesión que llega del servidor o de Supabase y mira quién es. */
+    const abrirSesion = useCallback(async (s) => {
+        setSession(s);
+        ponerToken(s?.access_token);
+        userIdRef.current = s?.user?.id || null;
+        return cargarMe();
+    }, [cargarMe, ponerToken]);
+
+    /** «Continuar con Google». `vuelta`: ruta interna a la que vuelve con la sesión. */
+    const entrarConGoogle = useCallback(async (vuelta = '/entrar?con=google') => {
+        if (demo) {
+            // En la demo no se sale a Google: una sesión simulada SIN cuenta, para ver el alta.
+            const s = { access_token: 'demo-google', user: { id: 'demo-google', email: 'tecnica.google@ejemplo.es', app_metadata: { provider: 'google' }, user_metadata: { full_name: 'Marta Ruiz Prieto' } } };
+            try { sessionStorage.setItem('certapp_demo_sesion', JSON.stringify(s)); } catch { /* noop */ }
+            await abrirSesion(s);
+            navegar(vuelta, { replace: true });
+            return { ok: true };
+        }
+        try {
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: { redirectTo: `${window.location.origin}${vuelta}`, queryParams: { prompt: 'select_account' } },
+            });
+            if (error) return { ok: false, error: 'No hemos podido abrir Google. Vuelve a intentarlo o entra con tu email.' };
+            return { ok: true };   // el navegador se va a Google
+        } catch {
+            return { ok: false, error: 'No hemos podido conectar. Revisa la conexión y vuelve a intentarlo.' };
+        }
+    }, [demo, abrirSesion]);
+
+    /** El enlace del email (`/entrar?t=`): token → token_hash → sesión. */
+    const entrarConEnlace = useCallback(async (t) => {
+        try {
+            const { data } = await axios.post(`${API_PUB}/enlace/canjear`, { token: t });
+            if (demo) {
+                const s = { access_token: 'demo', user: { id: 'demo', email: data?.email || 'demo@ejemplo.es' } };
+                try { sessionStorage.setItem('certapp_demo_sesion', JSON.stringify(s)); } catch { /* noop */ }
+                return { ok: true, me: await abrirSesion(s) };
+            }
+            const { data: v, error } = await supabase.auth.verifyOtp({ token_hash: data?.token_hash, type: 'magiclink' });
+            if (error || !v?.session) return { ok: false, error: 'No hemos podido abrir la sesión con este enlace. Pide otro.' };
+            return { ok: true, me: await abrirSesion(v.session) };
+        } catch (err) {
+            return { ok: false, error: mensajeError(err, 'Este enlace no vale. Pide otro.'), code: errorDe(err).code || null };
+        }
+    }, [demo, abrirSesion]);
+
     const signOut = useCallback(async () => {
         await limpiarLocal();
     }, [limpiarLocal]);
@@ -201,12 +258,16 @@ export function CertappAuthProvider({ children }) {
         esAdmin,
         loading,
         errorMe,
+        // Sesión válida (p. ej. de Google) pero sin cuenta en la app: le falta el alta.
+        sinCuenta: !!session && !cuenta && !esAdmin && errorMe?.code === 'CERTAPP_SIN_CUENTA',
         recuperando,
         terminarRecuperacion: () => setRecuperando(false),
         signIn,
+        entrarConGoogle,
+        entrarConEnlace,
         signOut,
         refrescar,
-    }), [session, cuenta, esAdmin, loading, errorMe, recuperando, signIn, signOut, refrescar]);
+    }), [session, cuenta, esAdmin, loading, errorMe, recuperando, signIn, entrarConGoogle, entrarConEnlace, signOut, refrescar]);
 
     return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

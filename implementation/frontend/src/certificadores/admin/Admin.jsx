@@ -3,7 +3,7 @@
 //   /admin            resumen + lista de espera
 //   /admin/beta       lista de espera   ·  /admin/cuentas  ·  /admin/obras
 //   /admin/obras/:id  detalle de una obra (pedir a la IA, entregar, devolver crédito)
-//   /admin/sugerencias
+//   /admin/sugerencias  incidencias y sugerencias: estado y respuesta (le llega al certificador por email)
 // API /api/certapp-admin/* (adminOnly). Más sobria que el resto, mismos tokens.
 // Los enlaces de activación y el WhatsApp los abre el ADMIN desde su móvil
 // (wa.me): desde aquí no se envía nada por WhatsApp.
@@ -22,12 +22,13 @@ const PESTANAS = [
     { id: 'beta', label: 'Lista de espera' },
     { id: 'cuentas', label: 'Cuentas' },
     { id: 'obras', label: 'Obras' },
-    { id: 'sugerencias', label: 'Sugerencias' },
+    { id: 'sugerencias', label: 'Incidencias' },   // la ruta sigue siendo /admin/sugerencias (la usan los avisos)
 ];
 const ESTADOS_BETA = ['NUEVA', 'CONTACTADA', 'INVITADA', 'DESCARTADA'];
 const CHIP_BETA = { NUEVA: 'ca-chip-naranja', CONTACTADA: 'ca-chip-gris', INVITADA: 'ca-chip-verde', DESCARTADA: 'ca-chip-gris' };
 const CHIP_CUENTA = { PENDIENTE: 'ca-chip-naranja', ACTIVA: 'ca-chip-verde', BLOQUEADA: 'ca-chip-ambar' };
 const ESTADOS_FB = ['NUEVA', 'VISTA', 'HECHA', 'DESCARTADA'];
+const ESTADO_LLANO = { NUEVA: 'Recibida', VISTA: 'En revisión', HECHA: 'Resuelta', DESCARTADA: 'Cerrada' };   // lo que lee el certificador
 const PERFIL_TXT = { AUTONOMO: 'Autónomo', EMPRESA_PROPIA: 'Empresa con técnicos', EMPRESA_SUBCONTRATA: 'Empresa que subcontrata', OTRO: 'Otro' };
 const nombreCuenta = (c) => [c?.nombre, c?.apellidos].filter(Boolean).join(' ') || c?.email || '—';
 
@@ -60,7 +61,7 @@ function Resumen() {
         { label: 'En lista de espera', v: d.beta?.NUEVA },
         { label: 'Cuentas activas', v: d.cuentas?.ACTIVA },
         { label: 'En preparación', v: d.obras?.EN_PREPARACION },
-        { label: 'Sugerencias nuevas', v: d.feedback_nuevo },
+        { label: 'Incidencias nuevas', v: d.feedback_nuevo },
     ];
     return (
         <>
@@ -212,7 +213,11 @@ function Cuentas() {
             await axios.patch(`${API_ADMIN}/cuentas/${c.id}`, cambios);
             toast(ok);
             await recargar({ silencioso: true });
-        } catch (err) { toast(mensajeError(err)); } finally { setOcupado(null); }
+        } catch (err) {
+            toast(mensajeError(err));
+            // 409 CREDITOS_CAMBIADOS: ha pedido un certificado entretanto; se trae el saldo de ahora.
+            if (err?.response?.status === 409) recargar({ silencioso: true });
+        } finally { setOcupado(null); }
     };
     const crear = async (e) => {
         e.preventDefault();
@@ -469,20 +474,82 @@ function ObraAdmin({ id }) {
     );
 }
 
-/* ── Sugerencias ─────────────────────────────────────────────────────────── */
-function Sugerencias() {
+/* ── Incidencias y sugerencias ───────────────────────────────────────────── */
+// El certificador las ve en «Mis incidencias» con el estado en palabras llanas y la
+// respuesta. Guardar una respuesta NUEVA le manda un email (PUT /feedback/:id; con
+// los avisos apagados, en seco) y pasa una «nueva» a «vista».
+function IncidenciaAdmin({ f, onGuardada }) {
     const toast = useToast();
+    const [estado, setEstado] = useState(f.estado);
+    const [respuesta, setRespuesta] = useState(f.respuesta || '');
+    const [avisar, setAvisar] = useState(true);
+    const [ocupado, setOcupado] = useState(false);
+    const [error, setError] = useState(null);
+    const cambiaResp = respuesta.trim() !== (f.respuesta || '').trim();
+    const avisara = cambiaResp && !!respuesta.trim() && avisar;
+    const hayCambios = cambiaResp || estado !== f.estado;
+
+    const guardar = async () => {
+        setOcupado(true); setError(null);
+        try {
+            const cuerpo = {};
+            if (estado !== f.estado) cuerpo.estado = estado;
+            if (cambiaResp) { cuerpo.respuesta = respuesta.trim(); cuerpo.avisar = avisar; }
+            const { data } = await axios.put(`${API_ADMIN}/feedback/${f.id}`, cuerpo);
+            const a = data?.aviso;
+            toast(!a ? 'Guardado.'
+                : a.seco ? 'Guardado. El email ha ido EN SECO (avisos apagados en este entorno).'
+                    : a.canales?.includes('email') ? 'Guardado y avisado por email.' : 'Guardado, pero el email no ha salido.');
+            await onGuardada?.();
+        } catch (err) { setError(mensajeError(err, 'No se ha podido guardar.')); } finally { setOcupado(false); }
+    };
+
+    return (
+        <article className="ca-card ca-pad">
+            <div className="ca-fila-top">
+                <span className="ca-chip ca-chip-gris">{f.tipo}</span>
+                <span className="ca-peq" title={fecha(f.created_at, true)}>{haceCuanto(f.created_at)}</span>
+            </div>
+            <p className="ca-txt" style={{ whiteSpace: 'pre-wrap' }}>{f.texto}</p>
+            <p className="ca-peq">
+                {nombreCuenta(f.cuenta)}
+                {f.obra_id ? <> · <Enlace to={`/admin/obras/${f.obra_id}`}>{f.obra?.numero_expediente || 'obra'}</Enlace></> : ' · de la app en general'}
+                {f.pantalla ? ` · ${f.pantalla}` : ''}
+            </p>
+            <label className="ca-campo">
+                <span className="ca-label">Estado <small>· el certificador ve «{ESTADO_LLANO[estado] || estado}»</small></span>
+                <select className="ca-input" value={estado} onChange={e => setEstado(e.target.value)}>
+                    {ESTADOS_FB.map(e => <option key={e} value={e}>{ESTADO_LLANO[e]} ({e.toLowerCase()})</option>)}
+                </select>
+            </label>
+            <label className="ca-campo">
+                <span className="ca-label">Respuesta al certificador <small>· la ve en «Mis incidencias»</small></span>
+                <textarea className="ca-input" rows={3} maxLength={4000} value={respuesta} onChange={e => setRespuesta(e.target.value)}
+                    placeholder="Qué hemos hecho o qué le pedimos. Le llega por email al guardar." />
+            </label>
+            {f.respuesta_at && <p className="ca-peq" style={{ marginTop: 6 }}>Respondida el {fecha(f.respuesta_at, true)}{f.respuesta_por ? ` por ${f.respuesta_por}` : ''}.</p>}
+            {cambiaResp && !!respuesta.trim() && (
+                <label className="ca-check">
+                    <input type="checkbox" checked={avisar} onChange={e => setAvisar(e.target.checked)} />
+                    <span>Avisarle por email{f.cuenta?.email ? ` (${f.cuenta.email})` : ''}</span>
+                </label>
+            )}
+            {error && <p className="ca-error" role="alert">{error}</p>}
+            <div className="ca-btns">
+                <button type="button" className="ca-btn ca-btn-pri ca-btn-peq" disabled={!hayCambios || ocupado} onClick={guardar}>
+                    {ocupado && <Spinner />} {avisara ? 'Guardar y avisar' : 'Guardar'}
+                </button>
+            </div>
+        </article>
+    );
+}
+
+function Incidencias() {
     const [estado, setEstado] = useState('NUEVA');
-    const [ocupado, setOcupado] = useState(null);
     const { datos, error, cargando, recargar } = useCarga(async () => {
         const { data } = await axios.get(`${API_ADMIN}/feedback`, { params: estado ? { estado } : {} });
         return comoLista(data, 'feedback');
     }, [estado]);
-    const poner = async (f, e) => {
-        setOcupado(f.id);
-        try { await axios.patch(`${API_ADMIN}/feedback/${f.id}`, { estado: e }); toast('Hecho.'); await recargar({ silencioso: true }); }
-        catch (err) { toast(mensajeError(err)); } finally { setOcupado(null); }
-    };
     return (
         <>
             <div className="ca-chips" style={{ marginBottom: 12 }}>
@@ -490,23 +557,10 @@ function Sugerencias() {
                     <button key={e || 'todas'} type="button" className={`ca-chipbtn${estado === e ? ' ca-chipbtn-sel' : ''}`} onClick={() => setEstado(e)}>{e ? e.toLowerCase() : 'todas'}</button>
                 ))}
             </div>
-            {cargando && !datos ? <Esqueleto alto={80} n={3} /> : error && !datos ? <ErrorRed error={error} onReintentar={() => recargar()} compacto /> : !(datos || []).length ? <p className="ca-peq">No hay sugerencias.</p> : (
+            {cargando && !datos ? <Esqueleto alto={80} n={3} /> : error && !datos ? <ErrorRed error={error} onReintentar={() => recargar()} compacto /> : !(datos || []).length ? <p className="ca-peq">No hay incidencias.</p> : (
                 <div className="ca-stack" style={{ gap: 10 }}>
-                    {datos.map(f => (
-                        <article key={f.id} className="ca-card ca-pad">
-                            <div className="ca-fila-top">
-                                <span className="ca-chip ca-chip-gris">{f.tipo}</span>
-                                <span className="ca-peq" title={fecha(f.created_at, true)}>{haceCuanto(f.created_at)}</span>
-                            </div>
-                            <p className="ca-txt" style={{ whiteSpace: 'pre-wrap' }}>{f.texto}</p>
-                            <p className="ca-peq">{nombreCuenta(f.cuenta)}{f.pantalla ? ` · ${f.pantalla}` : ''}{f.obra_id ? <> · <Enlace to={`/admin/obras/${f.obra_id}`}>obra</Enlace></> : null}</p>
-                            <div className="ca-chips">
-                                {ESTADOS_FB.filter(e => e !== f.estado).map(e => (
-                                    <button key={e} type="button" className="ca-chipbtn" disabled={ocupado === f.id} onClick={() => poner(f, e)}>{e.toLowerCase()}</button>
-                                ))}
-                            </div>
-                        </article>
-                    ))}
+                    {/* La clave cambia al guardarse: la tarjeta vuelve a partir de lo guardado. */}
+                    {datos.map(f => <IncidenciaAdmin key={`${f.id}-${f.estado}-${f.respuesta_at || ''}`} f={f} onGuardada={() => recargar({ silencioso: true })} />)}
                 </div>
             )}
         </>
@@ -534,7 +588,7 @@ export default function Admin() {
             {pObra ? <ObraAdmin id={pObra.id} />
                 : tab === 'cuentas' ? <Cuentas />
                     : tab === 'obras' ? <Obras cuentaId={query.get('cuenta')} />
-                        : tab === 'sugerencias' ? <Sugerencias />
+                        : tab === 'sugerencias' ? <Incidencias />
                             : <ListaEspera />}
         </div>
     );

@@ -8,6 +8,8 @@
 // Desde que la obra deja BORRADOR, el inmueble, el titular y el cuestionario
 // quedan CONGELADOS en el servidor (PUT → 409 OBRA_CERRADA): aquí solo se leen.
 // `revisar-de-nuevo` tiene tope (409 SIN_REVISIONES): se dice con calma.
+// Debajo del certificado, «¿Algo mal en este certificado? Avísanos» y lo que nos ha
+// contado de esta obra con nuestra respuesta (incidencias/Incidencias.jsx).
 import { useState } from 'react';
 import axios from 'axios';
 import { API, errorDe, fecha, haceCuanto, mensajeError, urlDe } from '../api';
@@ -19,6 +21,7 @@ import {
 } from '../ui/Iconos';
 import { estadoDe } from './comun';
 import { FotosObra } from './Fotos';
+import { IncidenciasObra } from '../incidencias/Incidencias';
 
 const DESCARGAS = [
     { k: 'pdf', label: 'Certificado', sub: 'PDF', Ico: IcoDoc },
@@ -140,6 +143,8 @@ export function ObraCerrada({ o, resumen = [] }) {
                     <button type="button" className="ca-link" onClick={abrirRevisar}>He tocado la envolvente: regeneradlo</button>
                 </Aviso>
             )}
+
+            <IncidenciasObra obraId={obra.id} numero={obra.numero_expediente} className="ca-stack" />
 
             {eventos?.length > 0 && (
                 <>

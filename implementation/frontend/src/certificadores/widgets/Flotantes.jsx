@@ -1,5 +1,9 @@
-// ─── Flotantes.jsx — sugerencias/errores y el asistente (botones flotantes) ─
-// Los dos se PORTALEAN a <body> (regla 29.b). El asistente:
+// ─── Flotantes.jsx — incidencias/sugerencias y el asistente (botones flotantes)
+// Los dos se PORTALEAN a <body> (regla 29.b).
+// «Incidencias y sugerencias» es el aviso GENERAL, de la app en su conjunto: no
+// lleva obra (la pantalla sí se guarda). El de un certificado concreto está en la
+// ficha de su obra («¿Algo mal en este certificado?», incidencias/Incidencias.jsx).
+// El asistente:
 //   · dice que es una IA y que puede equivocarse;
 //   · enseña el cupo que queda (`GET /asistente/cupo`);
 //   · si el servidor dice que está apagado (503) —o la ruta aún no existe—, se
@@ -10,15 +14,9 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { API, mensajeError, noDisponible } from '../api';
-import { Aviso, Hoja, useToast } from '../ui/piezas';
-import { IcoBombilla, IcoChispa, IcoFlecha, Spinner } from '../ui/Iconos';
-
-const TIPOS = [
-    { value: 'SUGERENCIA', label: 'Sugerencia' },
-    { value: 'MEJORA', label: 'Mejora' },
-    { value: 'ERROR', label: 'Algo no va' },
-    { value: 'OTRO', label: 'Otro' },
-];
+import { Aviso, Hoja } from '../ui/piezas';
+import { IcoChat, IcoChispa, IcoFlecha, Spinner } from '../ui/Iconos';
+import { FormIncidencia } from '../incidencias/Incidencias';
 
 /** El cupo puede venir con varios nombres: se normaliza a { quedan, max } o null (apagado). */
 function normalizarCupo(d) {
@@ -34,61 +32,6 @@ function textoRespuesta(d) {
     if (!d) return '';
     if (typeof d === 'string') return d;
     return d.respuesta || d.texto || d.text || d.content || d.mensaje?.content || d.mensaje || '';
-}
-
-function Sugerencias({ abierta, onCerrar, obraId }) {
-    const toast = useToast();
-    const [tipo, setTipo] = useState('SUGERENCIA');
-    const [texto, setTexto] = useState('');
-    const [enviando, setEnviando] = useState(false);
-    const [error, setError] = useState(null);
-
-    const enviar = async () => {
-        if (texto.trim().length < 3) { setError('Cuéntanos un poco más.'); return; }
-        setEnviando(true); setError(null);
-        try {
-            await axios.post(`${API}/feedback`, {
-                tipo,
-                texto: texto.trim(),
-                pantalla: `${window.location.pathname}${window.location.search} · ${document.title}`,
-                obra_id: obraId || undefined,
-            });
-            setTexto('');
-            onCerrar();
-            toast('Gracias. Lo leemos todo.');
-        } catch (err) {
-            setError(mensajeError(err, 'No se ha podido enviar. Vuelve a intentarlo.'));
-        } finally {
-            setEnviando(false);
-        }
-    };
-
-    return (
-        <Hoja abierta={abierta} titulo="Sugerencias y errores" onCerrar={onCerrar}
-            pie={(
-                <button type="button" className="ca-btn ca-btn-pri" onClick={enviar} disabled={enviando}>
-                    {enviando ? <><Spinner /> Enviando…</> : 'Enviar'}
-                </button>
-            )}>
-            <p className="ca-txt" style={{ marginTop: 0 }}>
-                Estamos en <b>beta</b>: cualquier cosa que te sobre, te falte o no funcione nos ayuda. Se guarda con la pantalla en la que estás.
-            </p>
-            <div className="ca-chips" role="radiogroup" aria-label="Tipo">
-                {TIPOS.map(t => (
-                    <button key={t.value} type="button" role="radio" aria-checked={tipo === t.value}
-                        className={`ca-chipbtn${tipo === t.value ? ' ca-chipbtn-sel' : ''}`} onClick={() => setTipo(t.value)}>
-                        {t.label}
-                    </button>
-                ))}
-            </div>
-            <label className="ca-campo">
-                <span className="ca-label">Cuéntanos</span>
-                <textarea className="ca-input" rows={5} value={texto} onChange={e => setTexto(e.target.value)} maxLength={3000}
-                    placeholder={tipo === 'ERROR' ? 'Qué estabas haciendo y qué ha pasado' : 'Qué cambiarías o qué echas de menos'} />
-            </label>
-            {error && <p className="ca-error">{error}</p>}
-        </Hoja>
-    );
 }
 
 function Asistente({ abierta, onCerrar, obraId, cupo, setCupo, onApagado }) {
@@ -177,8 +120,8 @@ export default function Flotantes({ obraId }) {
         <>
             {createPortal(
                 <div className="ca-fabs">
-                    <button type="button" className="ca-fab ca-fab-peq" onClick={() => setAbierto('feedback')} aria-label="Sugerencias y errores">
-                        <IcoBombilla size={18} /><span className="ca-solo-pc">Sugerencias</span>
+                    <button type="button" className="ca-fab ca-fab-peq" onClick={() => setAbierto('feedback')} aria-label="Incidencias y sugerencias">
+                        <IcoChat size={18} /><span className="ca-solo-pc">Incidencias y sugerencias</span>
                     </button>
                     {cupo && (
                         <button type="button" className="ca-fab ca-fab-tinta" onClick={() => setAbierto('asistente')} aria-label="Abrir el asistente">
@@ -188,7 +131,7 @@ export default function Flotantes({ obraId }) {
                 </div>,
                 document.body,
             )}
-            <Sugerencias abierta={abierto === 'feedback'} onCerrar={() => setAbierto(null)} obraId={obraId} />
+            <FormIncidencia abierta={abierto === 'feedback'} onCerrar={() => setAbierto(null)} />
             {cupo && (
                 <Asistente abierta={abierto === 'asistente'} onCerrar={() => setAbierto(null)} obraId={obraId}
                     cupo={cupo} setCupo={setCupo} onApagado={() => { setAbierto(null); setCupo(null); }} />

@@ -23,7 +23,9 @@ function estadoInicial() {
         id: 'demo-cuenta', email: 'tecnico.demo@example.com', nombre: 'Laura', apellidos: 'Gómez Prieto',
         nif: '', telefono: '600000000', empresa: null, empresa_nif: null, titulacion: '', num_colegiado: null,
         colegio: null, provincia: 'Ciudad Real', municipio: 'Tomelloso', direccion: null, codigo_postal: null,
-        estado: 'ACTIVA', creditos: 4, creditos_usados: 1, ultimo_acceso_at: ahora(), created_at: hace(60 * 24 * 3),
+        estado: 'ACTIVA', creditos: 4, creditos_usados: 2, ultimo_acceso_at: ahora(), created_at: hace(60 * 24 * 3),
+        comunidades: ['CASTILLA-LA MANCHA'], software: ['CE3X'], condiciones: { version: '2026-10-24', at: hace(60 * 24 * 3) },
+        telefono_por_confirmar: null,
     };
     const base = (o) => ({
         cuenta_id: cuenta.id, titular: {}, cuestionario: {}, documentacion: { reforma_uploads: {} },
@@ -68,17 +70,56 @@ function estadoInicial() {
         { id: 'demo-b1', created_at: hace(90), nombre: 'Javier Martín', email: 'javier.demo@example.com', telefono: '622222222', provincia: 'Toledo', perfil: 'AUTONOMO', empresa: null, cee_mes: '6-15', minutos_cee: '60-120', minutos_presentar: '10-20', interes_ia_presentar: 'SI', software: ['CE3X'], comunidades: ['Castilla-La Mancha'], comentarios: 'Medir y dibujar la envolvente.', acepta_comunicaciones: true, origen: 'landing', estado: 'NUEVA' },
         { id: 'demo-b2', created_at: hace(60 * 30), nombre: 'Certifica Sur SL', email: 'info.demo@example.com', telefono: '633333333', provincia: 'Sevilla', perfil: 'EMPRESA_SUBCONTRATA', empresa: 'Certifica Sur', cee_mes: '40+', minutos_cee: '30-60', minutos_presentar: '<10', interes_ia_presentar: 'QUIZA', coste_subcontrata_eur: 45, software: ['CE3X', 'CYPETHERM'], comunidades: ['Andalucía'], comentarios: '', acepta_comunicaciones: false, origen: 'compartido', estado: 'NUEVA' },
     ];
+    const delCertificador = { nombre: 'Laura', apellidos: 'Gómez Prieto', email: cuenta.email };
     const feedback = [
-        { id: 'demo-fb1', created_at: hace(20), tipo: 'MEJORA', texto: 'Estaría bien poder dictar las notas por voz.', pantalla: '/obra/demo-obra-1 · Obra', estado: 'NUEVA', cuenta: { nombre: 'Laura', apellidos: 'Gómez Prieto', email: cuenta.email }, obra_id: 'demo-obra-1' },
+        { id: 'demo-fb1', created_at: hace(20), tipo: 'MEJORA', texto: 'Estaría bien poder dictar las notas por voz.', pantalla: '/panel · Mis obras', estado: 'NUEVA', cuenta: delCertificador, obra_id: null },
+        { id: 'demo-fb2', created_at: hace(60 * 2), tipo: 'ERROR', texto: 'En el certificado la fachada trasera sale orientada al norte y da al sur.', pantalla: '/obra/demo-obra-3 · Obra', estado: 'HECHA', cuenta: delCertificador, obra_id: 'demo-obra-3',
+            respuesta: 'Tenías razón: la orientación venía mal del plano. Lo hemos corregido y regenerado; ya tienes el certificado nuevo en la obra.', respuesta_at: hace(60), respuesta_por: 'fran@brokergy.es' },
+        { id: 'demo-fb3', created_at: hace(60 * 30), tipo: 'SUGERENCIA', texto: 'Que el PDF del croquis salga también en A3.', pantalla: '/obra/demo-obra-3 · Obra', estado: 'VISTA', cuenta: delCertificador, obra_id: null,
+            respuesta: 'Lo apuntamos para la próxima versión. Te avisamos cuando esté.', respuesta_at: hace(60 * 26), respuesta_por: 'fran@brokergy.es' },
     ];
-    return { cuenta, obras, eventos, beta, feedback, asistenteUsos: 0 };
+    return { cuenta, obras, eventos, beta, feedback, movimientos: movimientosIniciales(cuenta), asistenteUsos: 0 };
+}
+
+// «Mis gastos»: 5 de regalo al darse de alta, 1 más a mano y los 2 certificados
+// pedidos (los de demo-obra-3 y demo-obra-2) → quedan 4, como la cuenta.
+function movimientosIniciales(cuenta) {
+    return [
+        { id: 4, created_at: hace(50), cuenta_id: cuenta.id, obra_id: 'demo-obra-2', tipo: 'GASTO', creditos: -1, saldo_despues: 4, importe_eur: null, concepto: 'Certificado pedido' },
+        { id: 3, created_at: hace(60 * 26), cuenta_id: cuenta.id, obra_id: 'demo-obra-3', tipo: 'GASTO', creditos: -1, saldo_despues: 5, importe_eur: null, concepto: 'Certificado pedido' },
+        { id: 2, created_at: hace(60 * 24 * 2), cuenta_id: cuenta.id, obra_id: null, tipo: 'AJUSTE', creditos: 1, saldo_despues: 6, importe_eur: null, concepto: 'BROKERGY te ha dado 1 certificado' },
+        { id: 1, created_at: hace(60 * 24 * 3), cuenta_id: cuenta.id, obra_id: null, tipo: 'ALTA', creditos: 5, saldo_despues: 5, importe_eur: null, concepto: 'Certificados de regalo de la beta' },
+    ];
 }
 
 let S = null;
 function cargarEstado() {
-    try { const j = JSON.parse(sessionStorage.getItem(CLAVE) || 'null'); if (j?.obras) return j; } catch { /* nuevo */ }
+    try {
+        const j = JSON.parse(sessionStorage.getItem(CLAVE) || 'null');
+        if (j?.obras) { j.movimientos ||= movimientosIniciales(j.cuenta); return j; }
+    } catch { /* nuevo */ }
     return estadoInicial();
 }
+/** Un movimiento de «Mis gastos», como lo apuntan las RPC del crédito y el admin. */
+const apuntarMov = (tipo, creditos, concepto, obraId = null) => {
+    const id = Math.max(0, ...S.movimientos.map(m => Number(m.id) || 0)) + 1;
+    S.movimientos.unshift({ id, created_at: ahora(), cuenta_id: S.cuenta.id, obra_id: obraId, tipo, creditos, saldo_despues: S.cuenta.creditos, importe_eur: null, concepto });
+};
+/** GET /api/certapp/movimientos, como el servidor (services/certapp/movimientos.js): sin `por`. */
+const misGastos = () => {
+    const obra = (id) => { const o = S.obras.find(x => x.id === id); return o ? { id: o.id, numero_expediente: o.numero_expediente, direccion: o.direccion, municipio: o.municipio } : null; };
+    const compras = S.movimientos.filter(m => m.tipo === 'COMPRA');
+    const comprados = compras.reduce((s, m) => s + m.creditos, 0);
+    return {
+        resumen: {
+            disponibles: S.cuenta.creditos, usados: S.cuenta.creditos_usados, comprados,
+            recibidos_gratis: Math.max(S.cuenta.creditos + S.cuenta.creditos_usados - comprados, 0),
+            gastado_eur: compras.reduce((s, m) => s + (Number(m.importe_eur) || 0), 0), compras_abiertas: false,
+        },
+        movimientos: [...S.movimientos].sort((a, b) => (b.created_at > a.created_at ? 1 : b.created_at < a.created_at ? -1 : b.id - a.id))
+            .map(m => ({ id: m.id, created_at: m.created_at, tipo: m.tipo, creditos: m.creditos, saldo_despues: m.saldo_despues, importe_eur: m.importe_eur, concepto: m.concepto, factura_id: null, obra: m.obra_id ? obra(m.obra_id) : null })),
+    };
+};
 const guardarEstado = () => { try { sessionStorage.setItem(CLAVE, JSON.stringify(S)); } catch { /* lleno */ } };
 
 class ErrorDemo extends Error {
@@ -95,6 +136,7 @@ const vista = (o) => {
     }
     return { slots };
 };
+const sinAltaGoogle = (cfg) => !S.altaGoogle && /demo-google/.test(String(cfg?.headers?.Authorization || cfg?.headers?.authorization || ''));
 const paraCertificador = (o) => {
     const { portal_token, cuenta_id, ...resto } = o; // eslint-disable-line no-unused-vars
     return resto;
@@ -111,11 +153,48 @@ const listaObra = (o) => ({
 const evento = (obraId, tipo, texto, por = 'certificador') => {
     (S.eventos[obraId] ||= []).unshift({ id: uuid(), created_at: ahora(), tipo, texto, por });
 };
+// Una incidencia como la ve el certificador (services/certapp/incidencias.js → paraCertificador).
+const incidencia = (f) => ({
+    id: f.id, created_at: f.created_at, tipo: f.tipo, texto: f.texto, obra_id: f.obra_id || null,
+    numero_expediente: S.obras.find(o => o.id === f.obra_id)?.numero_expediente || null,
+    estado: f.estado, respuesta: f.respuesta || null, respuesta_at: f.respuesta_at || null,
+});
+// Y como la ve el admin (con la obra embebida, como el select del servidor).
+const incidenciaAdmin = (f) => ({ ...f, obra: f.obra_id ? { numero_expediente: S.obras.find(o => o.id === f.obra_id)?.numero_expediente || null } : null });
+/** PUT/PATCH del admin: como el servidor (respuesta nueva → respuesta_at/por, NUEVA → VISTA, email en seco). */
+const guardarIncidencia = (b, [, id]) => {
+    const f = S.feedback.find(x => x.id === id) || fallo(404, 'No encuentro esa incidencia.', 'NO_ENCONTRADO');
+    let nueva = false;
+    if ('estado' in b) f.estado = String(b.estado).toUpperCase();
+    if ('respuesta' in b) {
+        const r = String(b.respuesta || '').trim() || null;
+        if (r !== (f.respuesta || null)) { f.respuesta = r; f.respuesta_at = r ? ahora() : null; f.respuesta_por = r ? 'demo@brokergy.es' : null; nueva = !!r; }
+    }
+    if (nueva && !('estado' in b) && f.estado === 'NUEVA') f.estado = 'VISTA';
+    return { feedback: incidenciaAdmin(f), aviso: nueva && b.avisar !== false ? { seco: true, canales: [] } : null };
+};
 
 // ── Las rutas simuladas ──────────────────────────────────────────────────────
 const RUTAS = [
     // Perfil
-    ['GET', /^\/api\/certapp\/me$/, () => ({ cuenta: S.cuenta, esAdmin: true })],
+    // La sesión de «Continuar con Google» de la demo (token demo-google) no tiene cuenta hasta el alta.
+    ['GET', /^\/api\/certapp\/me$/, (b, m, cfg) => {
+        if (sinAltaGoogle(cfg)) fallo(403, 'Esta cuenta no tiene acceso a la app de certificadores.', 'CERTAPP_SIN_CUENTA');
+        return { cuenta: S.cuenta, esAdmin: true };
+    }],
+    ['POST', /^\/api\/certapp\/alta$/, (b) => {
+        if (!b.acepta_condiciones) fallo(400, 'Para crear tu cuenta tienes que aceptar las condiciones de uso.', 'FALTA_CONDICIONES');
+        S.altaGoogle = true;
+        // Como cuentas.altaConSesion: el email de la sesión, el teléfono copiado y las condiciones con su fecha.
+        const [nombre, ...ap] = String(b.nombre || '').trim().split(/\s+/);
+        Object.assign(S.cuenta, {
+            email: 'tecnica.google@ejemplo.es', nombre: nombre || S.cuenta.nombre, apellidos: ap.join(' ') || S.cuenta.apellidos,
+            telefono: b.telefono || S.cuenta.telefono, provincia: b.provincia || S.cuenta.provincia,
+            comunidades: Array.isArray(b.comunidades) ? b.comunidades : [], software: Array.isArray(b.software) ? b.software : [],
+            condiciones: { version: '2026-10-24', at: ahora() },
+        });
+        return { __status: 201, ok: true, nueva: true, cuenta: S.cuenta };
+    }],
     ['PUT', /^\/api\/certapp\/me$/, (b) => { Object.assign(S.cuenta, b); return { cuenta: S.cuenta }; }],
     // Obras
     ['GET', /^\/api\/certapp\/obras$/, () => ({ obras: S.obras.filter(o => o.estado !== 'ARCHIVADA').map(listaObra) })],
@@ -197,6 +276,7 @@ const RUTAS = [
         if (!r.listo) fallo(422, 'Falta algo para poder pedir el certificado.', 'BARRIDO', { barrido: r });
         if (S.cuenta.creditos <= 0) fallo(402, 'No te quedan certificados.', 'SIN_CREDITOS');
         S.cuenta.creditos -= 1; S.cuenta.creditos_usados += 1;
+        apuntarMov('GASTO', -1, 'Certificado pedido', o.id);
         Object.assign(o, { estado: 'EN_PREPARACION', pedido_at: ahora() });
         evento(o.id, 'GENERAR', `Certificado pedido (quedan ${S.cuenta.creditos} créditos)`);
         return { ok: true, obra: paraCertificador(o), creditos: S.cuenta.creditos, ia: { auto: false, ok: null }, __espera: 1400 };
@@ -213,7 +293,20 @@ const RUTAS = [
         o.estado = 'EN_PREPARACION'; evento(o.id, 'REVISAR', b?.nota ? `Pide revisar de nuevo: ${b.nota}` : 'Pide revisar de nuevo');
         return { ok: true, obra: paraCertificador(o) };
     }],
-    ['POST', /^\/api\/certapp\/feedback$/, (b) => { S.feedback.unshift({ id: uuid(), created_at: ahora(), estado: 'NUEVA', cuenta: S.cuenta, ...b }); return { __status: 201, ok: true }; }],
+    ['POST', /^\/api\/certapp\/feedback$/, (b) => {
+        if (!String(b.texto || '').trim()) fallo(400, 'Cuéntanos qué pasa.', 'FALTA_TEXTO');
+        if (b.obra_id) obraDe(b.obra_id);
+        const f = { id: uuid(), created_at: ahora(), estado: 'NUEVA', cuenta: S.cuenta, tipo: String(b.tipo || 'SUGERENCIA').toUpperCase(), texto: String(b.texto).trim(), pantalla: b.pantalla || null, obra_id: b.obra_id || null, respuesta: null, respuesta_at: null };
+        S.feedback.unshift(f);
+        return { __status: 201, ok: true, id: f.id, incidencia: incidencia(f) };
+    }],
+    // Solo las del certificador (en la demo, todas lo son); una obra que no existe → 404, como el servidor.
+    ['GET', /^\/api\/certapp\/feedback$/, (b, m, cfg) => {
+        const obraId = cfg.params?.obra_id;
+        if (obraId) obraDe(obraId);
+        return { incidencias: S.feedback.filter(f => !obraId || f.obra_id === obraId).map(incidencia) };
+    }],
+    ['GET', /^\/api\/certapp\/movimientos$/, () => misGastos()],
     ['GET', /^\/api\/certapp\/asistente\/cupo$/, () => ({ disponible: true, usados_hoy: S.asistenteUsos, max_dia: 20, restantes: 20 - S.asistenteUsos })],
     ['POST', /^\/api\/certapp\/asistente$/, () => {
         S.asistenteUsos += 1;
@@ -233,6 +326,10 @@ const RUTAS = [
         : { ok: true, tipo: 'activar', email: S.cuenta.email, nombre: S.cuenta.nombre, preexistente: token === 'crm' })],
     ['POST', /^\/api\/public\/certapp\/activar$/, () => ({ ok: true, email: S.cuenta.email })],
     ['POST', /^\/api\/public\/certapp\/recuperar$/, () => ({ ok: true })],
+    ['POST', /^\/api\/public\/certapp\/enlace$/, () => ({ ok: true })],
+    ['POST', /^\/api\/public\/certapp\/enlace\/canjear$/, (b) => (b.token === 'caducado'
+        ? fallo(410, 'El enlace ha caducado. Pide otro.', 'TOKEN_CADUCADO')
+        : { ok: true, email: S.cuenta.email, token_hash: 'demo' })],
     ['GET', /^\/api\/public\/certapp\/subir\/([^/]+)$/, (b, [, id], cfg) => {
         const o = S.obras.find(x => x.id === id);
         if (cfg.params?.token === 'caducado') fallo(410, 'Este enlace ha caducado.', 'ENLACE_CADUCADO');
@@ -266,7 +363,13 @@ const RUTAS = [
     }],
     ['GET', /^\/api\/certapp-admin\/cuentas$/, () => ({ cuentas: [S.cuenta] })],
     ['POST', /^\/api\/certapp-admin\/cuentas$/, (b) => ({ __status: 201, ok: true, cuenta: { id: uuid(), ...b }, enlace: `${window.location.origin}/activar?token=demo`, preexistente: false, reinvitada: false, email: { seco: true, canales: [] } })],
-    ['PATCH', /^\/api\/certapp-admin\/cuentas\/([^/]+)$/, (b) => { Object.assign(S.cuenta, b); return { cuenta: S.cuenta }; }],
+    ['PATCH', /^\/api\/certapp-admin\/cuentas\/([^/]+)$/, (b) => {
+        const antes = S.cuenta.creditos;
+        Object.assign(S.cuenta, b);
+        const dif = S.cuenta.creditos - antes;
+        if (dif) apuntarMov('AJUSTE', dif, b.concepto || (dif > 0 ? `BROKERGY te ha dado ${dif} ${dif === 1 ? 'certificado' : 'certificados'}` : `Ajuste de BROKERGY: ${-dif} ${dif === -1 ? 'certificado' : 'certificados'} menos`));
+        return { cuenta: S.cuenta, movimiento: dif ? { creditos: dif } : null };
+    }],
     ['GET', /^\/api\/certapp-admin\/obras$/, (b, m, cfg) => ({ obras: S.obras.filter(o => !cfg.params?.estado || o.estado === cfg.params.estado).map(o => ({ ...listaObra(o), cuenta: S.cuenta })) })],
     ['GET', /^\/api\/certapp-admin\/obras\/([^/]+)$/, (b, [, id]) => {
         const o = obraDe(id);
@@ -278,12 +381,15 @@ const RUTAS = [
         return { ok: true, obra: o, enlaces: enlaces(o), compartida: { ok: true }, aviso: { seco: true } };
     }],
     ['POST', /^\/api\/certapp-admin\/obras\/([^/]+)\/devolver-credito$/, (b, [, id]) => {
-        const o = obraDe(id); S.cuenta.creditos += 1; if (o.estado === 'EN_PREPARACION') o.estado = 'BORRADOR';
+        const o = obraDe(id); S.cuenta.creditos += 1; S.cuenta.creditos_usados = Math.max(S.cuenta.creditos_usados - 1, 0);
+        if (o.estado === 'EN_PREPARACION') o.estado = 'BORRADOR';
+        apuntarMov('DEVOLUCION', 1, 'Te hemos devuelto el crédito de esta obra', o.id);
         evento(o.id, 'CREDITO_DEVUELTO', b?.motivo || 'Crédito devuelto', 'ADMIN');
         return { ok: true, creditos: S.cuenta.creditos, obra: o };
     }],
-    ['GET', /^\/api\/certapp-admin\/feedback$/, (b, m, cfg) => ({ feedback: S.feedback.filter(f => !cfg.params?.estado || f.estado === cfg.params.estado) })],
-    ['PATCH', /^\/api\/certapp-admin\/feedback\/([^/]+)$/, (b, [, id]) => { const f = S.feedback.find(x => x.id === id); Object.assign(f, b); return { feedback: f }; }],
+    ['GET', /^\/api\/certapp-admin\/feedback$/, (b, m, cfg) => ({ feedback: S.feedback.filter(f => !cfg.params?.estado || f.estado === cfg.params.estado).map(incidenciaAdmin) })],
+    ['PUT', /^\/api\/certapp-admin\/feedback\/([^/]+)$/, guardarIncidencia],
+    ['PATCH', /^\/api\/certapp-admin\/feedback\/([^/]+)$/, guardarIncidencia],
 
     // Catastro (públicas, usadas por «Nueva obra»): simuladas para no consultar al Catastro.
     ['GET', /^\/api\/catastro\/autocomplete$/, (b, m, cfg) => ([

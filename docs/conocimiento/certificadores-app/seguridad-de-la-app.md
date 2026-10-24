@@ -31,6 +31,15 @@ como «[certapp seco]»; si no se puede leer, cuenta como apagado.
 
 Tras tocarlo: `node implementation/backend/scripts/test_origen_ext.mjs`.
 
+### El alta al momento (24/10/2026)
+
+Abrir el alta sin aprobación a mano trae sus riesgos (cuentas con el email de otro, WhatsApp a números
+que no ha dado su dueño, saber quién está dado de alta, un usuario de Supabase que intente entrar al
+CRM). Lo decidido para cada uno está en
+[alta-directa-google-y-email.md](docs/conocimiento/certificadores-app/alta-directa-google-y-email.md):
+enlace de un uso, teléfono por confirmar, respuesta pública siempre igual, condiciones obligatorias y el
+email de la sesión, nunca el del formulario.
+
 ### Fuera de la app
 
 **REGLA — una sesión de Supabase sin fila en `usuarios` no entra en el CRM** y **el CORS de cee.brokergy.es

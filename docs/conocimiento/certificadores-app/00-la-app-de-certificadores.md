@@ -6,14 +6,18 @@ Lo pidió Fran: una aplicación **independiente del CRM pero hecha con sus pieza
 certificadores energéticos (autónomos y empresas tipo Fessa) hagan sus CEE con lo que BROKERGY ya
 tiene —las skills de generar el CEE inicial, la envolvente, el Catastro, los cuestionarios— y para
 monetizarla. Las ideas de partida están en `C:\Proyectos\IDEAS PARA APP EXTENRA CEE.docx`. Nombre
-comercial: **pendiente** (en el código, la constante `NOMBRE_APP` de `src/certificadores/marca.js`).
+comercial: **«CEE by BROKERGY»** (decidido con Fran el 24/10/2026; en el código, `NOMBRE_APP` de
+`src/certificadores/marca.js`).
 
 ### El flujo
 
-1. **Lista de espera de la beta** (pública): `cee.brokergy.es/` y `/beta`. Preguntas: perfil
+1. **Alta en la beta** (pública): `cee.brokergy.es/` y `/beta`. Preguntas: perfil
    (autónomo · empresa con técnicos · empresa que subcontrata), CEE al mes, tiempo por CEE, tiempo en
    presentarlo, interés en que una IA lo presente, lo que paga por CEE si subcontrata, programa,
-   comunidades. BROKERGY aprueba y se crea la cuenta (`/activar?token=` para poner la contraseña).
+   comunidades, y aceptar las condiciones. **Desde el 24/10/2026 la cuenta se crea AL MOMENTO**, con
+   Google o con un enlace al email, y trae 1 certificado gratis: ver
+   [alta-directa-google-y-email.md](docs/conocimiento/certificadores-app/alta-directa-google-y-email.md).
+   La invitación a mano desde el admin (`/activar?token=` para poner la contraseña) sigue existiendo.
 2. **Panel del certificador** → «Nueva obra»: referencia catastral (o dirección, mapa, GPS) →
    «Traer datos del Catastro» (superficie, año, uso, dirección, vivienda dentro del edificio) →
    titular (opcional al principio) → **«¿Estás en la vivienda?»** → el cuestionario.
@@ -32,9 +36,59 @@ comercial: **pendiente** (en el código, la constante `NOMBRE_APP` de `src/certi
 7. **Validar**: con el PDF tal cual, o cambiando cosas en la envolvente y validando allí (se vuelve a
    generar). **Lo que se cambie a mano en el `.cex` con CE3X no vuelve a la envolvente**: se le dice.
 
-Vistas: **CERTIFICADOR** (panel, obras, perfil), **CLIENTE** (`/subir/:obraId?token=`: el
+Vistas: **CERTIFICADOR** (panel, obras, perfil, `/incidencias`, `/gastos`), **CLIENTE** (`/subir/:obraId?token=`: el
 propietario sube fotos sin cuenta) y **ADMIN** (`/admin`, ADMIN de BROKERGY: lista de espera,
-cuentas y créditos, obras, entregas, sugerencias).
+cuentas y créditos, obras, entregas, incidencias —la ruta sigue siendo `/admin/sugerencias`—).
+
+### Incidencias y sugerencias (24/10/2026)
+
+Lo pidió Fran: «que el certificador nos pueda dejar incidencias para mejorar, tanto en cada CEE porque
+puede haber algo puntual como en general en la app». No se rehízo nada: se **amplió el buzón
+`certapp_feedback`** que ya existía (botón flotante de sugerencias), porque el problema no era recoger
+—eso ya funcionaba— sino que el certificador **no veía qué había pasado con lo que mandó** y no podía
+decir «esto, en ESTE certificado».
+
+- **En la ficha de cada obra** (también en la cerrada): «¿Algo mal en este certificado? Avísanos»
+  abre el mismo formulario con la obra puesta y el tipo ERROR, y debajo, lo que ya nos ha contado de
+  esa obra. El botón flotante pasa a llamarse **«Incidencias y sugerencias»** y es GENERAL (sin
+  obra; la pantalla sí se guarda).
+- **«Mis incidencias»** (`/incidencias`, en el menú): fecha, tipo, texto, nº de obra, estado y la
+  respuesta. `?id=` lleva a una y la resalta (es el enlace del email).
+- **Estados en palabras llanas** (el certificador nunca ve los códigos): NUEVA = Recibida · VISTA =
+  En revisión · HECHA = Resuelta · DESCARTADA = Cerrada. Contestar una NUEVA la pasa sola a VISTA.
+- **Respuesta desde el admin** (pestaña «Incidencias»): estado + respuesta; al guardar una respuesta
+  NUEVA se le avisa por email (`avisos.avisarPersona` + `plantilla`, botón «Ver mis incidencias»),
+  salvo que se desmarque «Avisarle por email». En local, en seco como todos los avisos.
+- Columnas `respuesta_at` y `respuesta_por` (al final de `certapp_schema.sql`). `respuesta_por` (quién
+  del equipo) **no** llega al certificador. Lógica común en `services/certapp/incidencias.js`.
+
+### Mis gastos (24/10/2026)
+
+Lo pidió Fran: «que puedan ver el gasto que llevan en qué expedientes». En la beta los certificados son
+de regalo y la pasarela de pago vendrá después, pero el libro se monta ya para que, cuando se cobre,
+cada compra y cada certificado gastado tengan su sitio sin rehacer nada.
+
+- **`certapp_movimientos`** (al final de `certapp_schema.sql`): una fila por cada certificado que entra o
+  sale, con `saldo_despues`. Tipos: **ALTA** (los de regalo al crear la cuenta) · **COMPRA** (pasarela,
+  más adelante: `importe_eur`, `factura_id`) · **GASTO** (−1 al pedir una obra) · **DEVOLUCION** (+1 si no
+  se ha podido hacer) · **AJUSTE** (lo que el admin pone a mano).
+- **REGLA — el saldo de verdad sigue siendo `certapp_cuentas.creditos`**; el libro es su historia.
+  **GASTO y DEVOLUCION los apuntan las propias RPC** (`certapp_consumir_credito_obra` /
+  `certapp_devolver_credito_obra`, `create or replace` con la MISMA firma y los mismos -1/-2) en la misma
+  transacción que el saldo: no puede quedar un crédito gastado sin su fila. Desde Node,
+  `services/certapp/movimientos.js` → `apuntar()` para ALTA (lo llaman `cuentas.crearCuenta`, `altaDirecta` y `altaConSesion`) y AJUSTE
+  (`PATCH /api/certapp-admin/cuentas/:id`, por la diferencia); `apuntar()` nunca lanza: si falla, log
+  y sigue (el saldo ya está cambiado).
+- **`por`** (quién: `certificador`, el email del admin, `automático`) es interno: la API del certificador
+  no lo devuelve. La nota interna de una devolución tampoco va al movimiento.
+- Las cuentas que ya existían reciben su historia al pasar el SQL (un ALTA con lo recibido y un GASTO por
+  cada obra con el crédito gastado), solo si no tenían ninguna fila: se puede volver a pasar.
+- **Pantalla `/gastos`** (menú «Mis gastos»; el contador de créditos de la barra lleva aquí): arriba,
+  disponibles · usados · recibidos gratis · gastado en € (en la beta, «0 €» dicho en claro); un hueco
+  «Comprar certificados — muy pronto» sin pasarela; debajo, cada movimiento con fecha, concepto, la obra
+  (nº y dirección, enlace a su ficha), +/− y lo que quedaba.
+- Las cifras salen del saldo de la cuenta y de TODAS sus compras, no de la página de la lista:
+  `recibidos_gratis = disponibles + usados − comprados`.
 
 ### Arquitectura
 
@@ -43,7 +97,8 @@ cuentas y créditos, obras, entregas, sugerencias).
 | Esquema (tablas `certapp_*`, RPC, cola `ext`) | [scripts/certapp_schema.sql](implementation/backend/scripts/certapp_schema.sql) |
 | Quién llama (guardianes `certappOnly`, `certappOAdmin`, `obraDeLaCuenta`) | [middleware/certappAuth.js](implementation/backend/middleware/certappAuth.js) |
 | Cuestionario, fotos, barrido, resumen para la IA | [src/certificadores/logic/cuestionario.js](implementation/frontend/src/certificadores/logic/cuestionario.js) |
-| API pública (beta, activar, recuperar, fotos del cliente) | `routes/certappPublic.js` → `/api/public/certapp` |
+| API pública (beta y alta, enlace para entrar, activar, recuperar, fotos del cliente) | `routes/certappPublic.js` → `/api/public/certapp` |
+| Alta con sesión (Google) | `routes/certappAlta.js` → `/api/certapp/alta` (montada ANTES que `/api/certapp`) |
 | API del certificador | `routes/certapp.js` → `/api/certapp` |
 | API del admin | `routes/certappAdmin.js` → `/api/certapp-admin` |
 | Servicios | `services/certapp/*.js` |
@@ -89,9 +144,11 @@ Todas las respuestas en JSON; errores `{ error, code }` (a veces con más campos
 | Ruta | Qué |
 |---|---|
 | `GET /beta/token` | → `{ token }`: el `form_token` del formulario (HMAC con la hora; `{seg}.{nonce}.{firma}`). Se pide al ABRIR el formulario. Límite por IP |
-| `POST /beta` `{ …, form_token, web, turnstile_token? }` | Alta en la lista de espera. Honeypot `web` (relleno → `{ ok }` sin guardar), límite de 6/h por IP, y `form_token` de entre **3 s y 2 h** y de **un solo uso**: si no, 400 `FORM_TOKEN` con `motivo` `formato` · `firma` · `pronto` · `caducado` · `usado` (un 400 de un campo o un 503 no gastan el token). Turnstile solo si `TURNSTILE_ENABLED`, hay `TURNSTILE_SECRET_KEY` **y** llega `turnstile_token` (403 `CAPTCHA_FALLIDO`). Un email que ya estaba **no se pisa**. → SIEMPRE `{ ok: true }` (ya no hay `nueva`) |
+| `POST /beta` `{ …, acepta_condiciones, form_token, web, turnstile_token? }` | Alta en la beta: guarda la solicitud y **crea la cuenta** (`cuentas.altaDirecta`, PENDIENTE, email con `/entrar?t=`); con `CERTAPP_ALTA_DIRECTA=false`, solo la lista de espera. Sin `acepta_condiciones`: 400 `FALTA_CONDICIONES`. Honeypot `web` (relleno → `{ ok }` sin guardar), límite de 6/h por IP, y `form_token` de entre **3 s y 2 h** y de **un solo uso**: si no, 400 `FORM_TOKEN` con `motivo` `formato` · `firma` · `pronto` · `caducado` · `usado` (un 400 de un campo o un 503 no gastan el token). Turnstile solo si `TURNSTILE_ENABLED`, hay `TURNSTILE_SECRET_KEY` **y** llega `turnstile_token` (403 `CAPTCHA_FALLIDO`). Un email que ya estaba **no se pisa**. → SIEMPRE `{ ok: true }` (ya no hay `nueva`) |
 | `GET /activar/:token` · `POST /activar` `{ token, password }` | Invitación: ver a quién es y poner la contraseña |
 | `POST /recuperar` `{ email }` | Enlace para cambiar la contraseña: responde YA `{ ok }` y envía después |
+| `POST /enlace` `{ email }` | «Mándame un enlace para entrar» (1 h). SIEMPRE `{ ok }`, haya cuenta o no. Límite por IP |
+| `POST /enlace/canjear` `{ token }` | Token `e` → `{ ok, email, token_hash }` para `verifyOtp` en el navegador. Un uso (rota el nonce): usado 400 `TOKEN_INVALIDO`, caducado 410 `TOKEN_CADUCADO` |
 | `GET /subir/:id?token=` | Vista CLIENTE: `{ obra: { …, cerrada, caduca_at }, apartados: [{ id, label, …, cubierto, ficheros }] }`. `ficheros` = solo lo que subió el PROPIETARIO; `cubierto` = un apartado de un solo archivo que ya tiene el del certificador. Token malo 404 `ENLACE_INVALIDO`; caducado **410 `ENLACE_CADUCADO`** |
 | `POST /subir/:id/:slot?token=` (multipart `files`) | Subir con el enlace. 400 `SLOT_NO_APLICA` (apartado que no toca a esa vivienda) · **409 `YA_LO_TIENE_EL_CERTIFICADOR`** · 409 `OBRA_CERRADA` · 400 `TIPO_NO_ADMITIDO` (en DOC_*, solo PDF o fotos: nunca un `.cex`) |
 | `GET /thumb/:id/:driveId?t=&sz=` | Miniatura con firma de MINIATURA (12 h); `sz` se lleva a 200/400/800 |
@@ -110,8 +167,9 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 
 | Ruta | Qué |
 |---|---|
-| `GET /me` (`certappOAdmin`) | `{ cuenta, esAdmin }` |
-| `PUT /me` | Perfil (nombre, NIF, titulación, colegiado, teléfono, empresa…) |
+| `POST /alta` (`certappSesion`: sesión de Supabase, con o sin cuenta) | Alta con Google: el formulario de la beta → `cuentas.altaConSesion` (email de la sesión) → 201 `{ ok, cuenta, nueva: true }`; si ya tenía cuenta, 200 `nueva: false`. 400 `FALTA_CONDICIONES` · 403 `EMAIL_SIN_CONFIRMAR` · 409 `CUENTA_YA_EXISTE` · 429 |
+| `GET /me` (`certappOAdmin`) | `{ cuenta, esAdmin }`. Sesión sin cuenta: 403 `CERTAPP_SIN_CUENTA` (el frontend la lleva al formulario). `cuenta` trae además `comunidades`, `software`, `condiciones` y `telefono_por_confirmar` |
+| `PUT /me` | Perfil (nombre, NIF, titulación, colegiado, teléfono, empresa…, `comunidades` y `software`, a `prefs.perfil`). Guardar el teléfono limpia `telefono_por_confirmar` |
 | `GET /obras` | Lista (solo escalares: nº, nombre, dirección, estado, fechas) |
 | `POST /obras` | Alta `{ ref_catastral?, titular?, en_vivienda? }` → `{ obra }`; crea la carpeta de Drive |
 | `GET /obras/:id` | `{ obra, barrido, eventos, enlaces, revisiones: { hechas, max } }` (enlaces: pdf, cex, xml, croquis, carpeta, envolvente). En `eventos`, `por` es `certificador` · `cliente` · `BROKERGY` · `IA`: nunca el nombre de quién del equipo ni el motivo interno |
@@ -126,21 +184,28 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 | `POST /obras/:id/generar` `{ genericos? }` | 422 `{ barrido }` si bloquea · 402 `SIN_CREDITOS` · 409 `YA_PEDIDO` · → `{ ok, obra, creditos }`. Gasta el crédito DE ESA OBRA (si ya lo tenía gastado, no cobra otra vez) |
 | `POST /obras/:id/validar` | LISTO → VALIDADO |
 | `POST /obras/:id/revisar-de-nuevo` `{ nota }` | Tras tocar la envolvente: pide regenerar (aviso a BROKERGY) sin cambiar ningún dato. Máximo `CERTAPP_REVISIONES_MAX` (2) por obra: luego **409 `SIN_REVISIONES`** `{ revisiones: { hechas, max } }`. → `{ ok, obra, revisiones }` |
-| `POST /feedback` `{ tipo, texto, pantalla, obra_id? }` | Botón de sugerencias |
+| `POST /feedback` `{ tipo, texto, pantalla, obra_id? }` | Incidencia o sugerencia (`tipo` ERROR · MEJORA · SUGERENCIA · OTRO; con `obra_id`, una obra SUYA o 404) → 201 `{ ok, id, incidencia }`. Texto vacío: 400 `FALTA_TEXTO` |
+| `GET /feedback[?obra_id=]` | → `{ incidencias: [{ id, created_at, tipo, texto, obra_id, numero_expediente, estado, respuesta, respuesta_at }] }`: SOLO las suyas (las 200 últimas). Obra ajena o id que no es uuid: 404 sin tocar la tabla |
+| `GET /movimientos` | Mis gastos → `{ resumen: { disponibles, usados, comprados, recibidos_gratis, gastado_eur, compras_abiertas }, movimientos: [{ id, created_at, tipo, creditos, saldo_despues, importe_eur, concepto, factura_id, obra: { id, numero_expediente, direccion, municipio } \| null }] }`: SOLO los suyos (los 500 últimos), sin `por`. BD caída: 503 |
 | `POST /asistente` `{ mensajes, obra_id? }` · `GET /asistente/cupo` | Asistente capado |
 
 **Admin** (`/api/certapp-admin`, `adminOnly`): `GET /resumen` · `GET /beta` · `PATCH /beta/:id` ·
 `POST /beta/:id/invitar { creditos }` (crea la cuenta y devuelve el enlace de activación) ·
-`GET /cuentas` · `POST /cuentas` · `PATCH /cuentas/:id { creditos, estado }` · `GET /obras` ·
+`GET /cuentas` · `POST /cuentas` · `PATCH /cuentas/:id { creditos, estado, concepto? }` (créditos = saldo
+nuevo; si cambia, AJUSTE en Mis gastos por la diferencia → `{ cuenta, movimiento }`; el update va
+condicionado al saldo leído: si entretanto ha gastado uno, **409 `CREDITOS_CAMBIADOS`**) · `GET /obras` ·
 `GET /obras/:id` (eventos con `por_detalle` y `nota_interna`, que SOLO ve el admin; `enlace_cliente`
 solo si está vigente, con `enlace_cliente_caduca_at`) · `POST /obras/:id/pedir-ia` ·
 `POST /obras/:id/entregar` · `POST /obras/:id/enlace-cliente/rotar` →`{ url, caduca_at }` ·
 `POST /obras/:id/devolver-credito { motivo }` (el motivo va a la nota interna; sin crédito gastado o
-ya devuelto, **409 `SIN_CREDITO_GASTADO`**) · `GET /feedback` · `PATCH /feedback/:id`.
+ya devuelto, **409 `SIN_CREDITO_GASTADO`**) · `GET /feedback[?estado=]` (con cuenta, obra,
+`respuesta_por`) · `PUT /feedback/:id { estado?, respuesta?, avisar? }` (`PATCH`, alias) →
+`{ feedback, aviso }`: sin nada que cambiar 400 `SIN_CAMBIOS`, estado raro 400 `ESTADO_INVALIDO`, 404 si
+no existe; una respuesta nueva pone `respuesta_at`/`respuesta_por` y avisa por email salvo `avisar:false`.
 
 **Códigos nuevos (24/10/2026):** 400 `FORM_TOKEN` (+`motivo`) · 409 `OBRA_CERRADA` (también en PUT y
 catastro) · 409 `SIN_REVISIONES` · 410 `ENLACE_CADUCADO` · 409 `YA_LO_TIENE_EL_CERTIFICADOR` · 400
-`SLOT_NO_APLICA` · 409 `SIN_CREDITO_GASTADO` · 503 `CERTAPP_SIN_SECRETO` (producción sin
+`SLOT_NO_APLICA` · 409 `SIN_CREDITO_GASTADO` · 409 `CREDITOS_CAMBIADOS` (admin) · 503 `CERTAPP_SIN_SECRETO` (producción sin
 `CERTAPP_TOKEN_SECRET`). Las columnas que falten en la BD también dan 503 `CERTAPP_SIN_TABLAS`.
 
 ### Seguridad del backend (revisión del 24/10/2026)
@@ -158,7 +223,8 @@ nuevo» no cambia datos y tiene un máximo por obra (contador `revisiones`).
 
 **REGLA — el crédito va LIGADO A LA OBRA** (`credito_consumido`): solo lo cambian las RPC
 `certapp_consumir_credito_obra` / `certapp_devolver_credito_obra`, en una transacción con el saldo;
-devolver apunta `CREDITO_DEVUELTO` y no se puede dos veces. Las RPC por cuenta se retiraron.
+devolver apunta `CREDITO_DEVUELTO` y no se puede dos veces. Las RPC por cuenta se retiraron. Desde el
+24/10/2026 las dos apuntan además su GASTO / DEVOLUCION en `certapp_movimientos` (Mis gastos).
 
 **REGLA — la IP de los límites es la de verdad**: `X-Real-IP` (la pone nginx con `$remote_addr`) si el
 que conecta es la red interna de Docker; si no, la del socket. **Nunca** la primera de
@@ -194,7 +260,8 @@ Tras tocarlo: `node implementation/backend/scripts/test_certapp_unidad.js`,
 | `CERTAPP_AVISOS_ENABLED` | WhatsApp y email de verdad | **apagado** | `true` |
 | `CERTAPP_IA_AUTO` | Encargar solo al Claude del WhatsApp | apagado | según la beta |
 | `CERTAPP_ENTREGA_AUTO` | Entregar al certificador sin revisar | apagado | apagado en la beta |
-| `CERTAPP_CREDITOS_BETA` | Créditos al invitar | 5 | 5 |
+| `CERTAPP_CREDITOS_BETA` | Créditos al darse de alta (y por defecto al invitar) | 1 | 1 |
+| `CERTAPP_ALTA_DIRECTA` | El formulario de la beta crea la cuenta al momento. `false` = la lista de espera de antes | encendido (por defecto) | encendido (por defecto) |
 | `CERTAPP_ASISTENTE_ENABLED` · `_MODELO` · `_MAX_DIA` · `_TOPE_USD_MES` | El asistente y sus topes | apagado | `true` · Haiku · 20 · 30 |
 | `CERTAPP_TOKEN_SECRET` | Clave de TODAS las firmas (activar, recuperar, miniaturas, ficheros, `form_token`). **Obligatoria en producción**: sin ella, 503 | la del `.env` | 64 hex al azar (`openssl rand -hex 32`) |
 | `CERTAPP_PORTAL_DIAS` | Días que vale el enlace del propietario | 30 | 30 |

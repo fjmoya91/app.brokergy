@@ -6,6 +6,8 @@
 //   · Ordenador: los pasos en una columna, cada uno en su tarjeta, y a la derecha
 //     el avance, los pasos y «Generar certificado».
 // EN_PREPARACION / LISTO / VALIDADO: ObraCerrada (historial, descargas, validar).
+// En todas, «¿Algo mal en este certificado? Avísanos» y lo que el certificador nos
+// ha contado de esa obra (IncidenciasObra; en el móvil, no dentro de una pregunta).
 // El guardado es de useObra (autoguardado sin trampa: compara valores).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { avance, barrido as calcularBarrido, resumenCuestionario } from '../logic/cuestionario';
@@ -21,6 +23,7 @@ import { FotosObra } from './Fotos';
 import { Generar } from './Generar';
 import { ObraCerrada } from './ObraCerrada';
 import { estadoDe, obraParaBarrido } from './comun';
+import { IncidenciasObra } from '../incidencias/Incidencias';
 
 /** Estado de cada paso a partir del barrido: falta (bloquea) · aviso · ok · pendiente. */
 function estadoPasos(form, b) {
@@ -252,6 +255,7 @@ export default function Ficha({ id }) {
                 <h2 className="ca-sec">Los pasos</h2>
                 <ListaPasos estados={estados} onPaso={irAPaso} />
                 {!b.listo && <div className="ca-btns" style={{ marginTop: 16 }}>{generar({ className: 'ca-btn ca-btn-sec' })}</div>}
+                <IncidenciasObra obraId={id} numero={obra.numero_expediente} className="ca-stack" />
                 <p className="ca-peq" style={{ textAlign: 'center', marginTop: 18 }}>Se guarda solo mientras rellenas.</p>
             </div>
         );
@@ -327,6 +331,7 @@ export default function Ficha({ id }) {
                             </dl>
                         </details>
                     )}
+                    <IncidenciasObra obraId={id} numero={obra.numero_expediente} className="ca-stack" />
                     <p className="ca-peq" style={{ textAlign: 'center', marginTop: 14 }}>
                         Se guarda solo. <button type="button" className="ca-link ca-link-gris" onClick={() => o.cargar({ silencioso: true })}><IcoRecargar size={13} /> Recargar</button>
                     </p>

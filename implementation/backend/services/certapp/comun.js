@@ -20,6 +20,8 @@ const certappUrl = () => String(process.env.CERTAPP_URL || 'https://cee.brokergy
 // El nombre comercial está PENDIENTE (NOMBRE_APP en src/certificadores/marca.js);
 // en los emails sale este hasta que se decida.
 const nombreApp = () => process.env.CERTAPP_NOMBRE_APP || 'CEE by BROKERGY';
+// El formulario de la beta da de alta al momento salvo CERTAPP_ALTA_DIRECTA=false.
+const altaDirectaActiva = () => String(process.env.CERTAPP_ALTA_DIRECTA ?? 'true').trim().toLowerCase() !== 'false';
 
 const esUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
 const esEmail = (v) => /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$/.test(String(v || ''));
@@ -139,6 +141,11 @@ function cuentaPublica(c) {
     if (!c) return null;
     const out = {};
     for (const k of CAMPOS_CUENTA) out[k] = c[k] ?? null;
+    // De `prefs` solo sale esto (nunca el nonce de los enlaces).
+    out.comunidades = Array.isArray(c.prefs?.perfil?.comunidades) ? c.prefs.perfil.comunidades : [];
+    out.software = Array.isArray(c.prefs?.perfil?.software) ? c.prefs.perfil.software : [];
+    out.condiciones = c.prefs?.condiciones || null;
+    out.telefono_por_confirmar = c.telefono ? null : (c.prefs?.telefono_por_confirmar || null);
     return out;
 }
 
@@ -237,7 +244,7 @@ if (typeof reloj.unref === 'function') reloj.unref();   // no retiene el proceso
 const nombreCompleto = (o) => [o?.nombre, o?.apellidos].map(s => String(s || '').trim()).filter(Boolean).join(' ');
 
 module.exports = {
-    encendido, numEnv, certappUrl, nombreApp,
+    encendido, numEnv, certappUrl, nombreApp, altaDirectaActiva,
     esUuid, esEmail, texto, textoLargo, numero, escapeHtml, ipDe, esIpPrivada, inicioDiaMadrid,
     tablaPendiente, ErrorCertapp, fallo, errorBd, responderError,
     cuentaPublica, evento, nuevoToken, nombreCompleto, limitador, unaVez, limpiarLimitadores,

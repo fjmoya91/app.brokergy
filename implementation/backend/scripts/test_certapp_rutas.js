@@ -9,6 +9,9 @@
 // Y lo de la revisión de seguridad (24/10/2026): tipo por los bytes y cabeceras
 // de /fichero (#1), obra congelada y revisiones (#2-B), IP de verdad y
 // form_token (#3), la beta no pisa (#4), firmas y portal (#6), crédito por obra (#8).
+// Y el alta directa (24/10/2026): el formulario crea la cuenta (por email, sin
+// copiar el teléfono; con Google, con el email de la sesión), /enlace y
+// /enlace/canjear (entrar sin contraseña) y POST /api/certapp/alta.
 const path = require('path');
 const { Readable } = require('stream');
 const B = path.join(__dirname, '..');
@@ -23,6 +26,7 @@ const CUENTA = { id: 'c0000000-0000-4000-8000-000000000001', auth_user_id: 'a-to
 const OBRA_SUYA = 'b0000000-0000-4000-8000-000000000001';
 const OBRA_AJENA = 'b0000000-0000-4000-8000-000000000002';
 const TOKEN_PORTAL = 'tok-portal-0123456789abcdef';
+const FB_SUYA = 'f0000000-0000-4000-8000-000000000001';   // una incidencia del certificador
 const ROLES = { 'tok-admin': 'ADMIN', 'tok-trab': 'TRABAJADOR', 'tok-partner': 'INSTALADOR' };
 const hace = (dias) => new Date(Date.now() - dias * 86400000).toISOString();
 let ultimoToken = null;
@@ -32,7 +36,23 @@ let ultimoToken = null;
 let caida = false;
 let obraCaso = {};
 let rpcCaso = {};
+let fbCaso = {};
+let ctaCaso = {};
 let ops = [];
+
+const movBase = () => [
+    { id: 2, created_at: hace(1), cuenta_id: CUENTA.id, obra_id: OBRA_SUYA, tipo: 'GASTO', creditos: -1, saldo_despues: 2, importe_eur: null,
+        concepto: 'Certificado pedido', por: 'certificador', factura_id: null,
+        obra: { id: OBRA_SUYA, numero_expediente: '2026EXT_1', direccion: 'CL MAYOR 1', municipio: 'TOLEDO' } },
+    { id: 1, created_at: hace(3), cuenta_id: CUENTA.id, obra_id: null, tipo: 'ALTA', creditos: 3, saldo_despues: 3, importe_eur: null,
+        concepto: 'Certificados de regalo de la beta', por: 'fran@brokergy.es', factura_id: null, obra: null },
+];
+
+const fbBase = () => ({
+    id: FB_SUYA, created_at: hace(1), cuenta_id: CUENTA.id, obra_id: OBRA_SUYA, tipo: 'ERROR', texto: 'La fachada trasera sale al norte',
+    pantalla: '/obra/x', user_agent: 'ua', estado: 'NUEVA', respuesta: null, respuesta_at: null, respuesta_por: null,
+    obra: { numero_expediente: '2026EXT_1' }, cuenta: { id: CUENTA.id, email: CUENTA.email }, ...fbCaso,
+});
 
 const obraBase = () => ({
     id: OBRA_SUYA, cuenta_id: CUENTA.id, numero_expediente: '2026EXT_1', estado: 'BORRADOR', titular: {}, cuestionario: {},
@@ -52,8 +72,23 @@ function respuesta(op, unico) {
             : { data: null, error: null };   // el certificador externo NO es un `usuarios`
     }
     if (tabla === 'certapp_cuentas') {
-        const c = filtros.auth_user_id === CUENTA.auth_user_id || filtros.id === CUENTA.id || filtros.email === CUENTA.email ? CUENTA : null;
+        // Un alta: devuelve lo insertado (con su id), como la BD.
+        if (op.tipo === 'insert') {
+            const nueva = { id: 'c0000000-0000-4000-8000-0000000000aa', creditos: 0, ...op.payload };
+            return { data: unico ? nueva : [nueva], error: null };
+        }
+        const suya = filtros.auth_user_id === CUENTA.auth_user_id || filtros.id === CUENTA.id || filtros.email === CUENTA.email;
+        // Un update condicionado al saldo (`.eq('creditos', n)`) solo cuadra con el saldo de la cuenta;
+        // `cta.carrera`: entre la lectura y el update ha gastado uno (el update no encuentra la fila).
+        let c = suya && (!('creditos' in filtros) || filtros.creditos === CUENTA.creditos) ? CUENTA : null;
+        if (c && op.tipo === 'update') c = ctaCaso.carrera && 'creditos' in filtros ? null : { ...c, ...op.payload };
         return { data: unico ? c : (c ? [c] : []), error: null };
+    }
+    if (tabla === 'certapp_movimientos') {
+        // Los de la cuenta (con `por`, que la API NO debe devolver); ninguna COMPRA en la beta.
+        if (op.tipo === 'insert') return { data: unico ? { id: 99, ...op.payload } : [{ id: 99, ...op.payload }], error: null };
+        const filas = filtros.cuenta_id === CUENTA.id && !filtros.tipo ? movBase() : [];
+        return { data: unico ? (filas[0] || null) : filas, error: null };
     }
     if (tabla === 'certapp_obras') {
         // La obra SUYA solo aparece si se pide con su cuenta (obraDeLaCuenta) o por id,
@@ -62,6 +97,15 @@ function respuesta(op, unico) {
         let obra = filtros.id === OBRA_SUYA && cuadra(o, filtros) ? o : null;
         if (obra && op.tipo === 'update') obra = { ...obra, ...op.payload };
         return { data: unico ? obra : (obra ? [obra] : []), error: null };
+    }
+    if (tabla === 'certapp_feedback') {
+        // La incidencia FB_SUYA: por id (admin) o en el listado SOLO si se pide con su cuenta.
+        const f = fbBase();
+        let filas;
+        if (op.tipo === 'insert') filas = [{ ...f, id: 'f0000000-0000-4000-8000-0000000000ff', estado: 'NUEVA', ...op.payload }];
+        else if (filtros.id !== undefined) filas = filtros.id === FB_SUYA ? [op.tipo === 'update' ? { ...f, ...op.payload } : f] : [];
+        else filas = filtros.cuenta_id === CUENTA.id && (!('obra_id' in filtros) || filtros.obra_id === f.obra_id) ? [f] : [];
+        return { data: unico ? (filas[0] || null) : filas, error: null };
     }
     return { data: unico ? null : [], error: null, count: 0 };
 }
@@ -97,10 +141,21 @@ const fake = {
     auth: {
         getUser: async (t) => {
             ultimoToken = t;
-            if (ROLES[t] || t === 'tok-ext') return { data: { user: { id: `a-${t}`, email: `${t}@x.es`, app_metadata: {} } }, error: null };
+            // tok-google: sesión de Google SIN cuenta en la app · tok-sinconf: con el email sin confirmar
+            if (ROLES[t] || ['tok-ext', 'tok-google', 'tok-sinconf'].includes(t)) return { data: { user: { id: `a-${t}`, email: `${t}@x.es`, app_metadata: {} } }, error: null };
             return { data: { user: null }, error: { message: 'token malo' } };
         },
-        admin: {},
+        admin: {
+            createUser: async (p) => { ops.push({ tabla: 'auth', tipo: 'createUser', payload: p }); return { data: { user: { id: `a-nuevo-${p.email}` } }, error: null }; },
+            getUserById: async (id) => {
+                ops.push({ tabla: 'auth', tipo: 'getUserById', payload: id });
+                const email = id === CUENTA.auth_user_id ? CUENTA.email : `${String(id).replace(/^a-/, '')}@x.es`;
+                return { data: { user: { id, email, email_confirmed_at: id === 'a-tok-sinconf' ? null : hace(1), app_metadata: { provider: 'google', providers: ['google'] } } }, error: null };
+            },
+            generateLink: async (p) => { ops.push({ tabla: 'auth', tipo: 'generateLink', payload: p }); return { data: { properties: { hashed_token: 'hash-de-prueba' } }, error: null }; },
+            deleteUser: async () => ({ error: null }),
+            listUsers: async () => ({ data: { users: [] }, error: null }),
+        },
     },
     from: (t) => qb(t),
     rpc,
@@ -134,6 +189,7 @@ const express = require(path.join(B, 'node_modules/express'));
 const app = express();
 app.use(express.json());
 app.use('/api/public/certapp', require(path.join(B, 'routes/certappPublic')));
+app.use('/api/certapp/alta', require(path.join(B, 'routes/certappAlta')));
 app.use('/api/certapp', require(path.join(B, 'routes/certapp')));
 app.use('/api/certapp-admin', require(path.join(B, 'routes/certappAdmin')));
 
@@ -155,13 +211,13 @@ const srv = app.listen(0, async () => {
         ['DELETE', `/obras/${OBRA_SUYA}/docs/FOTO_CALDERA/abcdefghijkl`], ['POST', `/obras/${OBRA_SUYA}/enlace-cliente`],
         ['POST', `/obras/${OBRA_SUYA}/enlace-cliente/rotar`],
         ['GET', `/obras/${OBRA_SUYA}/barrido`], ['POST', `/obras/${OBRA_SUYA}/generar`], ['POST', `/obras/${OBRA_SUYA}/validar`],
-        ['POST', `/obras/${OBRA_SUYA}/revisar-de-nuevo`], ['POST', '/feedback'], ['POST', '/asistente'], ['GET', '/asistente/cupo'],
+        ['POST', `/obras/${OBRA_SUYA}/revisar-de-nuevo`], ['POST', '/feedback'], ['GET', '/feedback'], ['GET', '/movimientos'], ['POST', '/asistente'], ['GET', '/asistente/cupo'],
     ];
     const DEL_ADMIN = [
         ['GET', '/resumen'], ['GET', '/beta'], ['GET', `/beta/${OBRA_SUYA}`], ['PATCH', `/beta/${OBRA_SUYA}`], ['POST', `/beta/${OBRA_SUYA}/invitar`],
         ['GET', '/cuentas'], ['POST', '/cuentas'], ['PATCH', `/cuentas/${CUENTA.id}`], ['GET', '/obras'], ['GET', `/obras/${OBRA_SUYA}`],
         ['POST', `/obras/${OBRA_SUYA}/pedir-ia`], ['POST', `/obras/${OBRA_SUYA}/entregar`], ['POST', `/obras/${OBRA_SUYA}/devolver-credito`],
-        ['POST', `/obras/${OBRA_SUYA}/enlace-cliente/rotar`], ['GET', '/feedback'], ['PATCH', `/feedback/${OBRA_SUYA}`],
+        ['POST', `/obras/${OBRA_SUYA}/enlace-cliente/rotar`], ['GET', '/feedback'], ['PATCH', `/feedback/${OBRA_SUYA}`], ['PUT', `/feedback/${FB_SUYA}`],
     ];
     for (const [m, r] of DEL_CERTIFICADOR) q('anónimo', m, `/api/certapp${r}`, 401, {});
     for (const [m, r] of DEL_ADMIN) q('anónimo', m, `/api/certapp-admin${r}`, 401, {});
@@ -270,36 +326,159 @@ const srv = app.listen(0, async () => {
         },
     });
 
+    // Incidencias (24/10/2026): el certificador ve SOLO las suyas, sin lo interno; una obra ajena es 404
+    const SIN_INTERNO = (i) => i && !('respuesta_por' in i) && !('user_agent' in i) && !('pantalla' in i) && !('cuenta_id' in i) && !('cuenta' in i);
+    const consultaFb = (ctx) => opsDe(ctx, 'certapp_feedback', 'select')[0] || {};
+    q('tok-ext', 'GET', '/api/certapp/feedback', 200, null, {
+        cuerpo: (j, ctx) => j.incidencias?.length === 1 && j.incidencias[0].numero_expediente === '2026EXT_1' && SIN_INTERNO(j.incidencias[0])
+            && consultaFb(ctx).filtros?.cuenta_id === CUENTA.id && !/respuesta_por|user_agent|pantalla/.test(consultaFb(ctx).cols || ''),
+    });
+    q('tok-ext', 'GET', `/api/certapp/feedback?obra_id=${OBRA_SUYA}`, 200, null, {
+        cuerpo: (j, ctx) => j.incidencias?.length === 1 && consultaFb(ctx).filtros?.obra_id === OBRA_SUYA && consultaFb(ctx).filtros?.cuenta_id === CUENTA.id,
+    });
+    q('tok-ext', 'GET', `/api/certapp/feedback?obra_id=${OBRA_AJENA}`, 404, null, { cuerpo: (j, ctx) => j.code === 'OBRA_NO_ENCONTRADA' && !opsDe(ctx, 'certapp_feedback').length });
+    q('tok-ext', 'GET', '/api/certapp/feedback?obra_id=no-es-un-uuid', 404);
+    q('tok-ext', 'GET', '/api/certapp/feedback', 503, null, { caida: true });
+    q('tok-ext', 'POST', '/api/certapp/feedback', 201, { tipo: 'error', texto: 'La orientación sale mal', obra_id: OBRA_SUYA }, {
+        cuerpo: (j, ctx) => {
+            const ins = opsDe(ctx, 'certapp_feedback', 'insert')[0]?.payload || {};
+            return ins.cuenta_id === CUENTA.id && ins.obra_id === OBRA_SUYA && ins.tipo === 'ERROR'
+                && j.incidencia?.numero_expediente === '2026EXT_1' && j.incidencia.estado === 'NUEVA' && SIN_INTERNO(j.incidencia);
+        },
+    });
+    q('tok-ext', 'POST', '/api/certapp/feedback', 400, { texto: '   ' }, { cuerpo: (j) => j.code === 'FALTA_TEXTO' });
+    // El equipo responde: respuesta_at/por, NUEVA → VISTA y email al certificador (en seco aquí)
+    const updFb = (ctx) => opsDe(ctx, 'certapp_feedback', 'update')[0]?.payload;
+    q('tok-admin', 'PUT', `/api/certapp-admin/feedback/${FB_SUYA}`, 200, { respuesta: 'Corregido: ya sale al sur.' }, {
+        cuerpo: (j, ctx) => {
+            const u = updFb(ctx) || {};
+            return u.respuesta === 'Corregido: ya sale al sur.' && u.respuesta_at && u.respuesta_por && u.estado === 'VISTA'
+                && j.feedback?.respuesta === 'Corregido: ya sale al sur.' && j.aviso?.seco === true;
+        },
+    });
+    q('tok-admin', 'PUT', `/api/certapp-admin/feedback/${FB_SUYA}`, 200, { respuesta: 'Resuelto', estado: 'HECHA', avisar: false }, {
+        cuerpo: (j, ctx) => updFb(ctx)?.estado === 'HECHA' && j.aviso === null,
+    });
+    q('tok-admin', 'PUT', `/api/certapp-admin/feedback/${FB_SUYA}`, 200, { respuesta: 'Ya está' }, {
+        fb: { respuesta: 'Ya está', estado: 'HECHA' }, cuerpo: (j, ctx) => !updFb(ctx) && j.aviso === null,   // lo mismo: ni se escribe ni se avisa
+    });
+    q('tok-admin', 'PATCH', `/api/certapp-admin/feedback/${FB_SUYA}`, 200, { estado: 'descartada' }, { cuerpo: (j, ctx) => updFb(ctx)?.estado === 'DESCARTADA' && !('respuesta' in updFb(ctx)) && j.aviso === null });
+    q('tok-admin', 'PUT', `/api/certapp-admin/feedback/${FB_SUYA}`, 400, { estado: 'RARO' }, { cuerpo: (j) => j.code === 'ESTADO_INVALIDO' });
+    q('tok-admin', 'PUT', `/api/certapp-admin/feedback/${FB_SUYA}`, 400, {}, { cuerpo: (j) => j.code === 'SIN_CAMBIOS' });
+    q('tok-admin', 'PUT', `/api/certapp-admin/feedback/${OBRA_AJENA}`, 404, { respuesta: 'x' });
+
+    // Mis gastos (24/10/2026): SOLO los de su cuenta, sin `por`; las cifras del saldo de la cuenta
+    const movs = (ctx) => opsDe(ctx, 'certapp_movimientos', 'select');
+    q('tok-ext', 'GET', '/api/certapp/movimientos', 200, null, {
+        cuerpo: (j, ctx) => {
+            const r = j.resumen || {};
+            const [g, a] = j.movimientos || [];
+            return r.disponibles === 2 && r.usados === 0 && r.recibidos_gratis === 2 && r.gastado_eur === 0 && r.compras_abiertas === false
+                && j.movimientos.length === 2 && g.tipo === 'GASTO' && g.creditos === -1 && g.obra?.numero_expediente === '2026EXT_1'
+                && g.obra.direccion === 'CL MAYOR 1' && a.obra === null && j.movimientos.every(m => !('por' in m) && !('cuenta_id' in m))
+                && movs(ctx).length === 2 && movs(ctx).every(o => o.filtros.cuenta_id === CUENTA.id && !/\bpor\b/.test(o.cols || ''));
+        },
+    });
+    q('tok-ext', 'GET', '/api/certapp/movimientos', 503, null, { caida: true });
+    q('tok-trab', 'GET', '/api/certapp/movimientos', 403);
+    // El admin cambia los créditos a mano → AJUSTE por la diferencia, con el saldo leído como condición
+    const insMov = (ctx) => opsDe(ctx, 'certapp_movimientos', 'insert')[0]?.payload;
+    q('tok-admin', 'PATCH', `/api/certapp-admin/cuentas/${CUENTA.id}`, 200, { creditos: 5 }, {
+        cuerpo: (j, ctx) => {
+            const m = insMov(ctx) || {};
+            const u = opsDe(ctx, 'certapp_cuentas', 'update')[0] || {};
+            return u.filtros?.creditos === 2 && u.payload?.creditos === 5 && m.tipo === 'AJUSTE' && m.creditos === 3 && m.saldo_despues === 5
+                && m.cuenta_id === CUENTA.id && /3 certificados/.test(m.concepto) && m.por && j.movimiento?.creditos === 3;
+        },
+    });
+    q('tok-admin', 'PATCH', `/api/certapp-admin/cuentas/${CUENTA.id}`, 200, { creditos: 1, concepto: 'Uno de más por error' }, {
+        cuerpo: (j, ctx) => insMov(ctx)?.creditos === -1 && insMov(ctx)?.concepto === 'Uno de más por error' && j.movimiento?.creditos === -1,
+    });
+    q('tok-admin', 'PATCH', `/api/certapp-admin/cuentas/${CUENTA.id}`, 200, { creditos: 2 }, { cuerpo: (j, ctx) => !insMov(ctx) && j.movimiento === null });
+    q('tok-admin', 'PATCH', `/api/certapp-admin/cuentas/${CUENTA.id}`, 200, { estado: 'bloqueada' }, {
+        cuerpo: (j, ctx) => !insMov(ctx) && !opsDe(ctx, 'certapp_cuentas', 'update')[0]?.filtros?.creditos && j.movimiento === null,
+    });
+    q('tok-admin', 'PATCH', `/api/certapp-admin/cuentas/${CUENTA.id}`, 409, { creditos: 7 }, {
+        cta: { carrera: true }, cuerpo: (j, ctx) => j.code === 'CREDITOS_CAMBIADOS' && !insMov(ctx),
+    });
+    q('tok-admin', 'PATCH', `/api/certapp-admin/cuentas/${OBRA_AJENA}`, 404, { creditos: 3 }, { cuerpo: (j, ctx) => !insMov(ctx) });
+
     // Lo público valida lo suyo
     q('anónimo', 'POST', '/api/public/certapp/beta', 200, { web: 'soy-un-bot', nombre: 'x', email: 'x@y.es' }, { cuerpo: (j) => j.ok === true });
     q('anónimo', 'GET', '/api/public/certapp/beta/token', 200, null, { cuerpo: (j) => /^\d+\.[0-9a-f]{16}\.[0-9a-f]{32}$/.test(j.token || '') });
     // #3 — form_token: sin él, recién pedido (bot), caducado o inventado → 400 FORM_TOKEN
-    const ANA = { nombre: 'Ana', email: 'ana@y.es', consentimiento: true };
+    const ANA = { nombre: 'Ana', email: 'ana@y.es', consentimiento: true, acepta_condiciones: true };
     q('anónimo', 'POST', '/api/public/certapp/beta', 400, ANA, { cuerpo: (j, ctx) => j.code === 'FORM_TOKEN' && j.motivo === 'formato' && !llamada(ctx, 'certapp_beta_apuntar') });
     q('anónimo', 'POST', '/api/public/certapp/beta', 400, () => ({ ...ANA, form_token: tokens.firmarFormulario() }), { cuerpo: (j) => j.code === 'FORM_TOKEN' && j.motivo === 'pronto' });
     q('anónimo', 'POST', '/api/public/certapp/beta', 400, () => ({ ...ANA, form_token: tokens.firmarFormulario(Date.now() - 3 * 3600_000) }), { cuerpo: (j) => j.code === 'FORM_TOKEN' && j.motivo === 'caducado' });
     q('anónimo', 'POST', '/api/public/certapp/beta', 400, () => ({ ...ANA, form_token: FORM_OK().replace(/[0-9a-f]{32}$/, 'f'.repeat(32)) }), { cuerpo: (j) => j.code === 'FORM_TOKEN' && j.motivo === 'firma' });
     q('anónimo', 'POST', '/api/public/certapp/beta', 400, () => ({ nombre: 'Ana', email: 'no-es-email', consentimiento: true, form_token: FORM_OK() }), { cuerpo: (j) => j.code === 'EMAIL_INVALIDO' });
     q('anónimo', 'POST', '/api/public/certapp/beta', 400, () => ({ nombre: 'Ana', email: 'ana@y.es', form_token: FORM_OK() }), { cuerpo: (j) => j.code === 'FALTA_CONSENTIMIENTO' });
+    q('anónimo', 'POST', '/api/public/certapp/beta', 400, () => ({ nombre: 'Ana', email: 'ana@y.es', consentimiento: true, form_token: FORM_OK() }), { cuerpo: (j, ctx) => j.code === 'FALTA_CONDICIONES' && !llamada(ctx, 'certapp_beta_apuntar') });
     // #3/#4 — alta nueva y solicitud existente: la MISMA respuesta, y la existente no se pisa desde aquí
     const FORM_UNO = FORM_OK();
-    q('anónimo', 'POST', '/api/public/certapp/beta', 200, { ...ANA, nombre: 'Ana <a href="https://malo.es">pincha</a>', form_token: FORM_UNO, web: '' }, {
+    q('anónimo', 'POST', '/api/public/certapp/beta', 200, { ...ANA, nombre: 'Ana <a href="https://malo.es">pincha</a>', telefono: '600111222', form_token: FORM_UNO, web: '' }, {
         rpc: { certapp_beta_apuntar: true }, texto: '{"ok":true}',
         cuerpo: (j, ctx) => {
             const f = llamada(ctx, 'certapp_beta_apuntar')?.payload?.p_fila || {};
-            return f.email === 'ana@y.es' && !/[<>:/]/.test(f.nombre) && !('form_token' in (f.respuestas || {})) && !('web' in (f.respuestas || {}));
+            // Alta directa: la cuenta PENDIENTE con 1 certificado, las condiciones y SIN el teléfono
+            // del formulario (queda por confirmar); el usuario de Auth con ese email; el ALTA en «Mis gastos».
+            const c = opsDe(ctx, 'certapp_cuentas', 'insert')[0]?.payload || {};
+            const auth = opsDe(ctx, 'auth', 'createUser')[0]?.payload || {};
+            const mov = opsDe(ctx, 'certapp_movimientos', 'insert')[0]?.payload || {};
+            return f.email === 'ana@y.es' && !/[<>:/]/.test(f.nombre) && !('form_token' in (f.respuestas || {})) && !('web' in (f.respuestas || {}))
+                && auth.email === 'ana@y.es' && c.email === 'ana@y.es' && c.estado === 'PENDIENTE' && c.creditos === 1 && c.telefono === null
+                && c.prefs?.telefono_por_confirmar === '600111222' && c.prefs?.condiciones?.version && c.prefs?.alta?.via === 'email'
+                && mov.tipo === 'ALTA' && mov.creditos === 1;
         },
     });
     q('anónimo', 'POST', '/api/public/certapp/beta', 400, { ...ANA, form_token: FORM_UNO }, { cuerpo: (j) => j.code === 'FORM_TOKEN' && j.motivo === 'usado' });
-    q('anónimo', 'POST', '/api/public/certapp/beta', 200, () => ({ ...ANA, nombre: 'Suplantador', telefono: '699999999', form_token: FORM_OK() }), {
+    q('anónimo', 'POST', '/api/public/certapp/beta', 200, () => ({ ...ANA, email: CUENTA.email, nombre: 'Suplantador', telefono: '699999999', form_token: FORM_OK() }), {
         rpc: { certapp_beta_apuntar: false }, texto: '{"ok":true}',
-        // ya estaba: ni un insert/update directo a la tabla, ni avisos (ni siquiera se cuentan las altas)
-        cuerpo: (j, ctx) => llamada(ctx, 'certapp_beta_apuntar') && !opsDe(ctx, 'certapp_beta_solicitudes').length,
+        // ya tenía solicitud y cuenta: la misma respuesta, sin tocar su cuenta ni su solicitud ni crear usuario
+        cuerpo: (j, ctx) => llamada(ctx, 'certapp_beta_apuntar') && !opsDe(ctx, 'certapp_beta_solicitudes').some(o => o.tipo !== 'select')
+            && !opsDe(ctx, 'certapp_cuentas').some(o => o.tipo !== 'select') && !opsDe(ctx, 'auth', 'createUser').length,
     });
     // #3 — X-Forwarded-For inventado no salta el límite (6 envíos/hora por IP): manda la IP de verdad
     for (let i = 1; i <= 7; i++) {
         q('anónimo', 'POST', '/api/public/certapp/beta', i <= 6 ? 400 : 429, ANA, { sinRealIp: true, headers: { 'X-Forwarded-For': `203.0.113.${i}` } });
     }
+
+    // Entrar sin contraseña: /enlace responde siempre lo mismo; /enlace/canjear solo con un token `e` bueno
+    q('anónimo', 'POST', '/api/public/certapp/enlace', 200, { email: 'no-existe@y.es' }, { texto: '{"ok":true}' });
+    q('anónimo', 'POST', '/api/public/certapp/enlace', 200, { email: CUENTA.email }, { texto: '{"ok":true}' });
+    q('anónimo', 'POST', '/api/public/certapp/enlace/canjear', 200, () => ({ token: tokens.firmarCuenta('e', CUENTA.id, CUENTA.prefs?.pwd_nonce) }), {
+        cuerpo: (j, ctx) => j.token_hash === 'hash-de-prueba' && j.email === CUENTA.email
+            && opsDe(ctx, 'auth', 'generateLink')[0]?.payload?.type === 'magiclink'
+            && opsDe(ctx, 'certapp_cuentas', 'update').some(o => o.payload?.prefs?.pwd_nonce),   // se rota: un solo uso
+    });
+    q('anónimo', 'POST', '/api/public/certapp/enlace/canjear', 400, () => ({ token: tokens.firmarCuenta('a', CUENTA.id, CUENTA.prefs?.pwd_nonce) }), {
+        cuerpo: (j, ctx) => j.code === 'TOKEN_INVALIDO' && !opsDe(ctx, 'auth', 'generateLink').length,   // el de activar no abre sesión
+    });
+    q('anónimo', 'POST', '/api/public/certapp/enlace/canjear', 410, () => ({ token: tokens.firmarCuenta('e', CUENTA.id, CUENTA.prefs?.pwd_nonce, -60_000) }), { cuerpo: (j) => j.code === 'TOKEN_CADUCADO' });
+    q('anónimo', 'POST', '/api/public/certapp/enlace/canjear', 400, { token: 'basura' }, { cuerpo: (j) => j.code === 'TOKEN_INVALIDO' });
+    q('anónimo', 'GET', `/api/public/certapp/activar/${tokens.firmarCuenta('e', CUENTA.id, CUENTA.prefs?.pwd_nonce)}`, 400, null, { cuerpo: (j) => j.code === 'TOKEN_INVALIDO' });
+
+    // Alta con la sesión de Google (POST /api/certapp/alta)
+    const FORM_GOOGLE = { nombre: 'Marta Ruiz', email: 'otro@malo.es', telefono: '600333444', consentimiento: true, acepta_condiciones: true, perfil: 'AUTONOMO', comunidades: ['CASTILLA-LA MANCHA'] };
+    q('anónimo', 'POST', '/api/certapp/alta', 401, FORM_GOOGLE);
+    q('tok-malo', 'POST', '/api/certapp/alta', 401, FORM_GOOGLE);
+    q('tok-ext', 'POST', '/api/certapp/alta', 200, FORM_GOOGLE, {
+        cuerpo: (j, ctx) => j.nueva === false && j.cuenta?.id === CUENTA.id && !llamada(ctx, 'certapp_beta_apuntar'),   // ya tiene cuenta: nada
+    });
+    q('tok-google', 'POST', '/api/certapp/alta', 400, { ...FORM_GOOGLE, acepta_condiciones: false }, { cuerpo: (j, ctx) => j.code === 'FALTA_CONDICIONES' && !opsDe(ctx, 'certapp_cuentas', 'insert').length });
+    q('tok-google', 'POST', '/api/certapp/alta', 201, FORM_GOOGLE, {
+        cuerpo: (j, ctx) => {
+            const c = opsDe(ctx, 'certapp_cuentas', 'insert')[0]?.payload || {};
+            const f = llamada(ctx, 'certapp_beta_apuntar')?.payload?.p_fila || {};
+            // El email es el de la sesión (no el del formulario), ACTIVA, con el teléfono y 1 certificado
+            return j.nueva === true && j.cuenta?.email === 'tok-google@x.es' && f.email === 'tok-google@x.es'
+                && c.auth_user_id === 'a-tok-google' && c.estado === 'ACTIVA' && c.creditos === 1 && c.telefono === '600333444'
+                && c.prefs?.alta?.via === 'google' && c.prefs?.perfil?.comunidades?.[0] === 'CASTILLA-LA MANCHA'
+                && !opsDe(ctx, 'auth', 'createUser').length && !('prefs' in j.cuenta);
+        },
+    });
+    q('tok-sinconf', 'POST', '/api/certapp/alta', 403, FORM_GOOGLE, { cuerpo: (j, ctx) => j.code === 'EMAIL_SIN_CONFIRMAR' && !opsDe(ctx, 'certapp_cuentas', 'insert').length });
 
     q('anónimo', 'POST', '/api/public/certapp/recuperar', 200, { email: 'no-existe@y.es' }, { cuerpo: (j) => j.ok === true });
     q('anónimo', 'POST', '/api/public/certapp/recuperar', 200, { email: 'basura' }, { cuerpo: (j) => j.ok === true });
@@ -359,6 +538,8 @@ const srv = app.listen(0, async () => {
         caida = !!c.caida;
         obraCaso = c.obra || {};
         rpcCaso = c.rpc || {};
+        fbCaso = c.fb || {};
+        ctaCaso = c.cta || {};
         ops = [];
         const h = { ...(c.headers || {}) };
         // Cada caso, su IP (como la pone nginx): así los límites de un caso no tocan a otro.

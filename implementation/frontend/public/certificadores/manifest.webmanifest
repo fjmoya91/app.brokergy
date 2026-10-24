@@ -1,6 +1,6 @@
 {
-  "name": "BROKERGY CEE · Certificados energéticos con IA",
-  "short_name": "BROKERGY CEE",
+  "name": "CEE by BROKERGY · Certificados energéticos con IA",
+  "short_name": "CEE by BROKERGY",
   "description": "El CEE inicial preparado por IA desde la referencia catastral y el cuestionario. Tú lo revisas y lo firmas.",
   "id": "/panel",
   "start_url": "/panel",

@@ -404,6 +404,37 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-creditos-ed b{min-width:24px;text-align:center;font:700 18px 'Antonio','Inter',sans-serif}
 .ca-admin-slot{padding:12px 0;border-top:1px solid var(--linea)}
 .ca-admin-slot:first-of-type{border-top:0}
+/* incidencias (lo que nos cuenta el certificador y lo que le respondemos) */
+.ca-inc-lista{display:grid;gap:10px}
+.ca-inc{background:#fff;border:1px solid var(--linea);border-radius:20px;box-shadow:0 1px 2px rgba(20,17,17,.04);padding:16px;scroll-margin-top:84px;transition:box-shadow .3s ease,border-color .3s ease}
+.ca-inc.ca-resaltado{border-color:var(--naranja);box-shadow:0 0 0 4px rgba(255,160,0,.18)}
+.ca-inc-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ca-inc-txt{margin:10px 0 0;font-size:15px;line-height:1.55;color:var(--tinta);white-space:pre-wrap;overflow-wrap:anywhere}
+.ca-inc-meta{margin:4px 0 0;font-size:13px;line-height:1.5;color:var(--gris);display:flex;align-items:center;flex-wrap:wrap;gap:0 6px}
+.ca-inc-obra{font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700}
+.ca-inc-resp{margin-top:12px;padding:12px 14px;border-radius:16px;background:rgba(177,209,62,.12);border:1px solid rgba(177,209,62,.35)}
+.ca-inc-resp .ca-eyebrow{margin:0}
+.ca-inc-resp-txt{margin:6px 0 0;font-size:14.5px;line-height:1.55;color:#2f3a12;white-space:pre-wrap;overflow-wrap:anywhere}
+.ca-inc-espera{margin:10px 0 0}
+/* mis gastos (certificados que entran y salen) */
+.ca-gastos-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:16px}
+.ca-gastos-kpis .ca-kpi{padding:12px;border-radius:16px;min-width:0}
+.ca-gastos-kpis .ca-kpi span{font-size:10.5px;letter-spacing:.09em;line-height:1.25}
+.ca-gastos-kpis .ca-kpi b{font-size:28px;white-space:nowrap}
+.ca-gastos-comprar{margin-top:12px;background:var(--crema);border-style:dashed}
+.ca-gastos-comprar .ca-fila-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ca-mov-lista{list-style:none;margin:0;padding:4px 16px}
+.ca-mov{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 0;border-top:1px solid var(--linea)}
+.ca-mov:first-child{border-top:0}
+.ca-mov-txt{min-width:0;display:grid;gap:3px}
+.ca-mov-txt b{font-size:15px;line-height:1.35;color:var(--tinta);overflow-wrap:anywhere}
+.ca-mov-meta{font-size:13px;line-height:1.45;color:var(--gris);overflow-wrap:anywhere}
+.ca-mov-obra{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;color:var(--tinta)}
+.ca-mov-num{flex:none;text-align:right;display:grid;gap:2px}
+.ca-mov-num b{font:700 26px/1 'Antonio','Inter',sans-serif}
+.ca-mov-num small{font-size:12px;color:var(--gris);white-space:nowrap}
+.ca-mov-mas{color:var(--verde-txt)}
+.ca-mov-menos{color:var(--tinta)}
 /* móvil */
 @media (max-width:767px){
   .ca-solo-pc{display:none!important}

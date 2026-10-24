@@ -123,6 +123,8 @@ app.use('/api/cee-directos', require('./routes/ceeDirectos'));
 // Anthropic con datos en vivo y propone encargos al Claude del WhatsApp.
 app.use('/api/asistente-app', require('./routes/asistenteApp'));
 // App de certificadores (cee.brokergy.es): la API del certificador (certappOnly) y el panel de BROKERGY (adminOnly).
+// El alta con Google (sesión sin cuenta) va ANTES: /api/certapp exige cuenta.
+app.use('/api/certapp/alta', require('./routes/certappAlta'));
 app.use('/api/certapp', require('./routes/certapp'));
 app.use('/api/certapp-admin', require('./routes/certappAdmin'));
 

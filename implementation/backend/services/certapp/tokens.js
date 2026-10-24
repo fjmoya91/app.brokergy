@@ -7,6 +7,9 @@
 //   `{a|r}.{cuentaId}.{expiraMin}.{firma}`. Lo firmado incluye un NONCE que vive
 //   en `certapp_cuentas.prefs.pwd_nonce` y se ROTA al poner la contraseña: el
 //   enlace sirve UNA vez, y uno viejo deja de valer en cuanto se usa otro.
+// · Entrar sin contraseña (`e`, 1 h; el del alta, 7 días): el mismo formato y el
+//   mismo nonce. Se canjea en el servidor por una sesión de Supabase
+//   (cuentas.canjearEnlace), y al canjearlo se rota: también sirve UNA vez.
 // · Miniaturas y ficheros de una obra (12 h): `{expiraMin}.{firma}` sobre
 //   obraId + driveId, para un <img>/<a> que no puede llevar la cabecera de sesión.
 //   REGLA — la firma de una MINIATURA no vale para el FICHERO (propósitos
@@ -51,7 +54,9 @@ function secreto() {
 const VIGENCIA = {
     a: Number(process.env.CERTAPP_INVITACION_DIAS || 14) * 86400000,   // activar (invitación)
     r: 2 * 3600000,                                                       // recuperar contraseña
+    e: 3600000,                                                           // entrar sin contraseña
 };
+const VIGENCIA_ALTA_MS = 7 * 86400000;                                    // el enlace del email del alta
 const VIGENCIA_FICHERO_MS = 12 * 3600000;
 const FORMULARIO = { minMs: 3000, maxMs: 2 * 3600000 };
 
@@ -71,18 +76,18 @@ function iguales(a, b) {
 const payloadCuenta = (tipo, cuentaId, nonce, expiraMin) => `certapp:${tipo}:${cuentaId}:${nonce || '-'}:${expiraMin}`;
 
 /**
- * Firma el enlace de activar ('a') o de recuperar ('r') la contraseña.
+ * Firma el enlace de activar ('a'), de recuperar ('r') la contraseña o de entrar ('e').
  * @returns {string} token
  */
 function firmarCuenta(tipo, cuentaId, nonce, vigenciaMs = VIGENCIA[tipo]) {
-    if (!['a', 'r'].includes(tipo)) throw new Error(`Tipo de token desconocido: ${tipo}`);
+    if (!['a', 'r', 'e'].includes(tipo)) throw new Error(`Tipo de token desconocido: ${tipo}`);
     const expiraMin = aMinutos(Date.now() + vigenciaMs);
     return `${tipo}.${cuentaId}.${expiraMin}.${hmac(payloadCuenta(tipo, cuentaId, nonce, expiraMin))}`;
 }
 
 /** Trocea el token sin validarlo (para saber de qué cuenta es). */
 function leerCuenta(token) {
-    const m = String(token || '').trim().match(/^([ar])\.([0-9a-f-]{36})\.(\d{6,10})\.([0-9a-f]{32})$/i);
+    const m = String(token || '').trim().match(/^([are])\.([0-9a-f-]{36})\.(\d{6,10})\.([0-9a-f]{32})$/i);
     if (!m) return null;
     return { tipo: m[1], cuentaId: m[2].toLowerCase(), expiraMin: Number(m[3]), firma: m[4].toLowerCase() };
 }
@@ -156,5 +161,5 @@ module.exports = {
     firmarCuenta, leerCuenta, verificarCuenta,
     firmarFichero, verificarFichero, firmarMiniatura, verificarMiniatura,
     firmarFormulario, verificarFormulario, huella, nuevoNonce,
-    VIGENCIA, FORMULARIO,
+    VIGENCIA, VIGENCIA_ALTA_MS, FORMULARIO,
 };

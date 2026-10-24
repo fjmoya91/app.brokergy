@@ -21,12 +21,13 @@ const GUARDIANES = new Set([
     'requireBot', 'comprobarFirma',
     // App de certificadores (middleware/certappAuth.js): cortan sin sesión con 401.
     // `internoOExtSuyo`: el equipo interno, o un certificador externo con una obra SUYA (envolvente con origen ext).
-    'certappOnly', 'certappOAdmin', 'internoOExtSuyo',
+    // `certappSesion`: una sesión válida aunque aún no tenga cuenta (solo el alta con Google).
+    'certappOnly', 'certappOAdmin', 'internoOExtSuyo', 'certappSesion',
 ]);
 
 // Routers públicos POR DISEÑO: cada ruta valida su token, firma o enlace dentro.
 // · certappPublic (/api/public/certapp): lista de espera (honeypot + límite por IP + Turnstile),
-//   activar/recuperar con token HMAC de un solo uso, subida del propietario con el portal_token de
+//   activar/recuperar/entrar con token HMAC de un solo uso, subida del propietario con el portal_token de
 //   la obra, y miniaturas/ficheros con firma HMAC que caduca.
 const ROUTERS_PUBLICOS = new Set(['public', 'portal', 'publicMarketplace', 'landing', 'afirmaStorage', 'acciones', 'certappPublic']);
 

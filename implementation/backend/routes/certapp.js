@@ -13,6 +13,11 @@
 // créditos ni se le devuelve dos veces. Pedida la obra, sus datos se congelan
 // (obras.exigirBorrador) y «revisar de nuevo» tiene un máximo (CERTAPP_REVISIONES_MAX).
 //
+// Incidencias (`/feedback`): el certificador lista SOLO las suyas (`cuenta_id`) y
+// una obra ajena en `obra_id` es 404, como en todo lo demás.
+// Mis gastos (`/movimientos`): SOLO los de su cuenta; GASTO/DEVOLUCION los apuntan
+// las propias RPC del crédito (services/certapp/movimientos.js).
+//
 // Contrato: docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md
 // ─────────────────────────────────────────────────────────────────────────────
 const express = require('express');
@@ -25,11 +30,13 @@ const ia = require('../services/certapp/ia');
 const entrega = require('../services/certapp/entrega');
 const asistente = require('../services/certapp/asistente');
 const avisos = require('../services/certapp/avisos');
+const incidencias = require('../services/certapp/incidencias');
+const movimientos = require('../services/certapp/movimientos');
 const { datosDelCatastro } = require('../services/certapp/catastro');
 const { cuestionario: logica } = require('../services/certapp/logica');
 const {
     responderError, fallo, errorBd, cuentaPublica, evento, limitador, textoLargo, texto,
-    nombreCompleto, numEnv,
+    nombreCompleto, numEnv, certappUrl,
 } = require('../services/certapp/comun');
 
 const maxRevisiones = () => numEnv('CERTAPP_REVISIONES_MAX', 2);
@@ -310,29 +317,65 @@ router.post('/obras/:id/revisar-de-nuevo', certappOnly, async (req, res) => {
     } catch (e) { return responderError(res, e, 'POST /obras/:id/revisar-de-nuevo'); }
 });
 
-// ── Sugerencias ─────────────────────────────────────────────────────────────
-const TIPOS_FEEDBACK = ['SUGERENCIA', 'MEJORA', 'ERROR', 'OTRO'];
+// ── Incidencias y sugerencias ───────────────────────────────────────────────
+// De una obra (el acceso «¿Algo mal en este certificado?» de su ficha) o de la app
+// en general (el botón flotante). El certificador ve las SUYAS en «Mis incidencias»
+// con el estado en palabras llanas y la respuesta de BROKERGY (services/certapp/incidencias.js).
 router.post('/feedback', certappOnly, async (req, res) => {
     try {
         const cuenta = req.certapp.cuenta;
-        if (!limiteFeedback(cuenta.id)) return res.status(429).json({ error: 'Muchas sugerencias seguidas: espera un rato.', code: 'DEMASIADAS_SUGERENCIAS' });
+        if (!limiteFeedback(cuenta.id)) return res.status(429).json({ error: 'Muchos avisos seguidos: espera un rato.', code: 'DEMASIADAS_SUGERENCIAS' });
         const textoFb = textoLargo(req.body?.texto, 4000);
-        if (!textoFb) throw fallo(400, 'Escribe la sugerencia.', 'FALTA_TEXTO');
-        const tipo = TIPOS_FEEDBACK.includes(String(req.body?.tipo || '').toUpperCase()) ? String(req.body.tipo).toUpperCase() : 'SUGERENCIA';
+        if (!textoFb) throw fallo(400, 'Cuéntanos qué pasa.', 'FALTA_TEXTO');
+        const tipo = incidencias.TIPOS.includes(String(req.body?.tipo || '').toUpperCase()) ? String(req.body.tipo).toUpperCase() : 'SUGERENCIA';
         let obraId = req.body?.obra_id || null;
         if (obraId && !(await obraDeLaCuenta(obraId, cuenta.id))) throw fallo(404, 'No encuentro esa obra.', 'OBRA_NO_ENCONTRADA');
         const { data, error } = await supabase.from('certapp_feedback').insert({
             cuenta_id: cuenta.id, obra_id: obraId, tipo, texto: textoFb,
             pantalla: texto(req.body?.pantalla, 200), user_agent: texto(req.headers['user-agent'], 300),
-        }).select('id').single();
+        }).select(incidencias.COLS_CERTIFICADOR).single();
         if (error) throw errorBd(error, 'feedback');
+        const num = data?.obra?.numero_expediente;
         await avisos.avisarEquipo({
-            asunto: 'Sugerencia en la app de certificadores',
-            cuerpo: `💬 ${tipo} de ${nombreCompleto(cuenta) || cuenta.email} en la app de certificadores${req.body?.pantalla ? ` (${texto(req.body.pantalla, 80)})` : ''}: ${textoFb.slice(0, 300)}${textoFb.length > 300 ? '…' : ''}`,
+            asunto: 'Incidencia en la app de certificadores',
+            cuerpo: `💬 ${tipo} de ${nombreCompleto(cuenta) || cuenta.email}${num ? ` en ${num}` : ' en la app de certificadores'}${req.body?.pantalla ? ` (${texto(req.body.pantalla, 80)})` : ''}: ${textoFb.slice(0, 300)}${textoFb.length > 300 ? '…' : ''}\nContestar: ${certappUrl()}/admin/sugerencias`,
             soloWhatsapp: true,
         });
-        return res.status(201).json({ ok: true, id: data.id });
+        return res.status(201).json({ ok: true, id: data.id, incidencia: incidencias.paraCertificador(data) });
     } catch (e) { return responderError(res, e, 'POST /feedback'); }
+});
+
+/**
+ * Las incidencias DEL certificador (nunca las de otro), las más nuevas primero.
+ * `?obra_id=` → solo las de esa obra, que tiene que ser suya: si no, 404.
+ */
+router.get('/feedback', certappOnly, async (req, res) => {
+    try {
+        const cuenta = req.certapp.cuenta;
+        const obraId = req.query.obra_id != null && req.query.obra_id !== '' ? String(req.query.obra_id) : null;
+        // La propiedad, antes de leer nada de la tabla.
+        if (obraId && !(await obraDeLaCuenta(obraId, cuenta.id))) throw fallo(404, 'No encuentro esa obra.', 'OBRA_NO_ENCONTRADA');
+        let q = supabase.from('certapp_feedback').select(incidencias.COLS_CERTIFICADOR).eq('cuenta_id', cuenta.id);
+        if (obraId) q = q.eq('obra_id', obraId);
+        const { data, error } = await q.order('created_at', { ascending: false }).limit(200);
+        if (error) throw errorBd(error, 'listar incidencias');
+        return res.json({ incidencias: (data || []).map(incidencias.paraCertificador) });
+    } catch (e) { return responderError(res, e, 'GET /feedback'); }
+});
+
+// ── Mis gastos ──────────────────────────────────────────────────────────────
+/**
+ * Sus certificados: las cifras (disponibles, usados, recibidos gratis, gastado en €)
+ * y los movimientos, SOLO los de su cuenta, con la obra (nº y dirección) de cada
+ * gasto. Sin `por` (quién del equipo). BD caída → 503, nunca un 0.
+ */
+router.get('/movimientos', certappOnly, async (req, res) => {
+    try {
+        const cuentaId = req.certapp.cuenta.id;
+        const resumen = await movimientos.resumen(cuentaId);
+        const lista = await movimientos.listar(cuentaId);
+        return res.json({ resumen, movimientos: lista });
+    } catch (e) { return responderError(res, e, 'GET /movimientos'); }
 });
 
 // ── Asistente capado ────────────────────────────────────────────────────────

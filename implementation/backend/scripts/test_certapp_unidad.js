@@ -201,9 +201,26 @@ function ok(cond, texto) {
     const ns = beta.nombreSeguro('Ana <a href="https://malo.es/x">pincha aquí</a> ' + 'x'.repeat(100));
     ok(!/[<>:/."=]/.test(ns) && ns.length <= 60 && ns.startsWith('Ana'), `nombre saneado para el email: sin enlaces ni signos («${ns.slice(0, 30)}…»)`);
     ok(beta.nombreSeguro("María-José O'Neil Núñez") === "María-José O'Neil Núñez", 'nombre saneado: respeta tildes, guiones y apóstrofos');
-    const fila = beta.filaDe({ nombre: 'Ana', email: 'ANA@x.es', consentimiento: true, web: '', form_token: ft, turnstile_token: 't' }, { ip: '83.1.2.3', userAgent: 'UA' });
+    const fila = beta.filaDe({ nombre: 'Ana', email: 'ANA@x.es', consentimiento: true, acepta_condiciones: true, web: '', form_token: ft, turnstile_token: 't' }, { ip: '83.1.2.3', userAgent: 'UA' });
     ok(fila.email === 'ana@x.es' && !('form_token' in fila.respuestas) && !('web' in fila.respuestas) && !('turnstile_token' in fila.respuestas) && fila.ip_hash && !fila.ip_hash.includes('83.1'),
         'beta: la fila sin honeypot ni tokens, la IP solo como huella');
+    // Alta directa (24/10/2026): sin aceptar las condiciones no hay alta; con la lista de espera de antes, no se piden
+    try { beta.filaDe({ nombre: 'Ana', email: 'ana@x.es', consentimiento: true }); ok(false, 'beta: sin condiciones, 400 FALTA_CONDICIONES'); }
+    catch (err) { ok(err.status === 400 && err.code === 'FALTA_CONDICIONES', 'beta: sin condiciones, 400 FALTA_CONDICIONES'); }
+    process.env.CERTAPP_ALTA_DIRECTA = 'false';
+    ok(!!beta.filaDe({ nombre: 'Ana', email: 'ana@x.es', consentimiento: true }).email, 'beta: con CERTAPP_ALTA_DIRECTA=false (lista de espera) no se piden las condiciones');
+    delete process.env.CERTAPP_ALTA_DIRECTA;
+    // «Nombre y apellidos» en un campo → nombre | apellidos en la cuenta
+    const { partirNombre } = require(path.join(B, 'services/certapp/cuentas'));
+    const pn = (s) => { const r = partirNombre(s); return `${r.nombre}|${r.apellidos}`; };
+    ok(pn('María José García López') === 'María José|García López' && pn('Ana Pérez') === 'Ana|Pérez' && pn('Laura Gómez Prieto') === 'Laura|Gómez Prieto',
+        'alta: el nombre completo se parte en nombre y apellidos (los dos últimos)');
+    ok(pn('Juan de la Fuente Pérez') === 'Juan|de la Fuente Pérez' && pn('  Ana  ') === 'Ana|null' && pn('') === 'null|null',
+        'alta: las partículas (de, la…) van con su apellido; una palabra, sin apellidos');
+    const te = tokens.firmarCuenta('e', '11111111-1111-4111-8111-111111111111', 'n1');
+    const de = tokens.leerCuenta(te);
+    ok(de?.tipo === 'e' && tokens.verificarCuenta(de, 'n1').ok && !tokens.verificarCuenta(de, 'n2').ok,
+        'enlace para entrar (`e`): vale con el nonce de la cuenta y deja de valer al rotarlo');
     const av = (n) => beta.avisosQueTocan(n);
     ok(av(1).whatsapp === 'uno' && av(10).whatsapp === 'uno' && av(11).whatsapp === 'agrupado' && av(12).whatsapp === null && av(25).whatsapp === 'resumen',
         'beta: un WhatsApp por alta hasta 10 al día; luego uno que lo dice y uno cada 25');

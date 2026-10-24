@@ -13,7 +13,8 @@ lleva sus rutas. Lo que se hace UNA vez:
 | 3. Variables del backend | `.env` del VPS (`/opt/brokergy/implementation/backend/.env`) | las `CERTAPP_*` de la tabla de «La app de certificadores», y `CERTAPP_TOKEN_SECRET` propio (`openssl rand -hex 32`): en producción sin él lo que firma tokens falla cerrado |
 | 4. nginx + certificado | VPS | los dos bloques de [nginx/cee.brokergy.es.conf](nginx/cee.brokergy.es.conf): primero el :80, `certbot certonly --webroot -w /var/www/certbot -d cee.brokergy.es`, luego el :443. Copia de seguridad del nginx.conf antes (`nginx.conf.bak.pre-cee.<fecha>`), `nginx -t` y reload |
 | 5. Código | como siempre | probado en local → `git push origin main` → `bash scripts/deploy.sh` |
-| 6. Comprobar | | `https://cee.brokergy.es` (landing), `/beta` (alta de prueba y borrarla), `/entrar` con una cuenta de prueba |
+| 6. Supabase Auth (para «Continuar con Google») | Fran, en el panel de Supabase y en Google Cloud | proveedor Google con su cliente OAuth, las Redirect URLs de cee.brokergy.es y «Allow new users to sign up»: ver [alta-directa-google-y-email.md](docs/conocimiento/certificadores-app/alta-directa-google-y-email.md). El alta por email no lo necesita |
+| 7. Comprobar | | `https://cee.brokergy.es` (landing), `/beta` (alta de prueba con Google y con email, y borrarla con todo lo suyo), `/entrar` con el enlace |
 
 **REGLA — el nginx.conf del VPS no está en git**: se edita allí, con copia de seguridad fechada al
 lado (es lo que se ha hecho con qr, factura y hostelería), y la copia de referencia del bloque vive en

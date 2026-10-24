@@ -1,6 +1,6 @@
 // ─── Landing — cee.brokergy.es/ sin sesión ───────────────────────────────────
 // Qué es, cómo funciona, qué entrega, para quién y las dudas, con la llamada a
-// apuntarse a la beta. Sin testimonios, cifras ni logos inventados: lo que se
+// crear la cuenta (alta al momento, 1 certificado gratis). Sin testimonios, cifras ni logos inventados: lo que se
 // dice aquí es lo que la app hace (docs/conocimiento/certificadores-app/).
 import { useState } from 'react';
 import { Enlace } from '../router';
@@ -18,7 +18,7 @@ const FAQS = [
     },
     {
         q: '¿Cuánto cuesta?',
-        a: 'Durante la beta es gratis: cada cuenta tiene unos certificados de prueba. El precio de después aún no está decidido; te lo contaremos antes de que tengas que pagar nada.',
+        a: 'Durante la beta, tu primer certificado es gratis. Los siguientes serán de pago: te diremos el precio antes, y no se te cobra nada que no hayas aceptado.',
     },
     {
         q: '¿Y mis datos y los de mis clientes?',
@@ -60,10 +60,10 @@ export default function Landing() {
                         Te devolvemos el <b>.cex de CE3X 3.2</b> hecho, con su XML, su PDF y el croquis, para que lo revises.
                     </p>
                     <div className="ca-btns">
-                        <Enlace to="/beta?origen=landing" className="ca-btn ca-btn-pri">Apuntarme a la beta <IcoFlecha /></Enlace>
+                        <Enlace to="/beta?origen=landing" className="ca-btn ca-btn-pri">Crear mi cuenta gratis <IcoFlecha /></Enlace>
                         <Enlace to="/entrar" className="ca-btn ca-btn-sec">Ya tengo cuenta</Enlace>
                     </div>
-                    <p className="ca-peq" style={{ margin: '12px 4px 0', textAlign: 'center' }}>Beta gratuita, con certificados de prueba.</p>
+                    <p className="ca-peq" style={{ margin: '12px 4px 0', textAlign: 'center' }}>Entras al momento, con Google o con tu email. Tu primer certificado es gratis.</p>
                 </section>
 
                 <h2 className="ca-sec">Cómo funciona</h2>
@@ -135,10 +135,10 @@ export default function Landing() {
 
                 <div className="ca-card ca-pad" style={{ marginTop: 24 }}>
                     <div className="ca-filete" />
-                    <h2 className="ca-display ca-h2">¿Te <span className="ca-mark">apuntas</span>?</h2>
-                    <p className="ca-txt">Son unas preguntas sobre cómo trabajas. Abrimos plazas poco a poco y te escribimos cuando tengas la tuya.</p>
+                    <h2 className="ca-display ca-h2">¿Lo <span className="ca-mark">pruebas</span>?</h2>
+                    <p className="ca-txt">Contestas unas preguntas sobre cómo trabajas (dos minutos) y entras al momento, con Google o con tu email. Tu primer certificado es gratis.</p>
                     <div className="ca-btns">
-                        <Enlace to="/beta?origen=landing" className="ca-btn ca-btn-pri">Apuntarme a la beta <IcoFlecha /></Enlace>
+                        <Enlace to="/beta?origen=landing" className="ca-btn ca-btn-pri">Crear mi cuenta gratis <IcoFlecha /></Enlace>
                     </div>
                 </div>
 

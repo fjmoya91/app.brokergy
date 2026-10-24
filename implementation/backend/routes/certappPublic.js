@@ -7,6 +7,9 @@
 //   · /activar       token HMAC firmado con caducidad y de un solo uso (services/certapp/tokens.js)
 //   · /recuperar     responde YA y SIEMPRE { ok } (no se confirma qué emails tienen cuenta,
 //                    ni por lo que tarda: el envío va después, con setImmediate)
+//   · /enlace        «mándame un enlace para entrar»: lo mismo que /recuperar
+//   · /enlace/canjear el token `e` (HMAC, 1 h o 7 días el del alta, un solo uso) por
+//                    el token_hash de un enlace mágico de Supabase
 //   · /subir         el `portal_token` de la obra (enlace del propietario), que CADUCA
 //                    (CERTAPP_PORTAL_DIAS) y se puede rotar
 //   · /thumb         firma HMAC de MINIATURA sobre obra + fichero, 12 h (no vale para /fichero)
@@ -41,6 +44,8 @@ const formularioUsado = unaVez(tokens.FORMULARIO.maxMs + 60 * 1000);
 const limiteActivar = limitador(20, 15 * 60 * 1000);      // probar tokens a lo bruto
 const limiteRecuperarIp = limitador(8, 60 * 60 * 1000);
 const limiteRecuperarEmail = limitador(3, 60 * 60 * 1000);
+const limiteEnlaceIp = limitador(8, 60 * 60 * 1000);
+const limiteEnlaceEmail = limitador(3, 60 * 60 * 1000);
 const limiteSubidaCliente = limitador(60, 10 * 60 * 1000);
 
 // ── Lista de espera de la beta ──────────────────────────────────────────────
@@ -121,6 +126,29 @@ router.post('/recuperar', (req, res) => {
         if (!(limiteRecuperarIp(ip) && limiteRecuperarEmail(email))) return;
         cuentas.recuperar(email).catch((e) => console.warn('[certapp] recuperar:', e.message));
     });
+});
+
+// ── Entrar sin contraseña: el enlace por email ──────────────────────────────
+// Igual que /recuperar: se responde YA y SIEMPRE { ok } (ni el tiempo ni el
+// límite dicen si ese email tiene cuenta), y el envío va después.
+router.post('/enlace', (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const ip = ipDe(req);
+    res.json({ ok: true });
+    setImmediate(() => {
+        if (!(limiteEnlaceIp(ip) && limiteEnlaceEmail(email))) return;
+        cuentas.mandarEnlaceEntrar(email).catch((e) => console.warn('[certapp] enlace para entrar:', e.message));
+    });
+});
+
+// El token `e` del email → el token_hash de un enlace mágico de Supabase, que el
+// navegador canjea con verifyOtp (y así no hace falta configurar redirecciones).
+router.post('/enlace/canjear', async (req, res) => {
+    try {
+        if (!limiteActivar(ipDe(req))) return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos.', code: 'DEMASIADOS_INTENTOS' });
+        res.set('Cache-Control', 'no-store');
+        return res.json(await cuentas.canjearEnlace(req.body?.token));
+    } catch (e) { return responderError(res, e, 'POST /enlace/canjear'); }
 });
 
 // ── Vista CLIENTE: el propietario sube fotos con el enlace ──────────────────
