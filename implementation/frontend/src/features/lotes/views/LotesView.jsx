@@ -10,6 +10,7 @@ import { PedirAlSoModal } from '../components/PedirAlSoModal';
 import { BotonCarpetaLocal } from '../components/BotonCarpetaLocal';
 import { loteEstadoBadge } from '../loteConstants';
 import { computeLoteEco } from '../logic/loteEco';
+import { puntoPagoClientes } from '../logic/pagoClientesLote';
 
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -178,7 +179,7 @@ export function LotesView({ onNavigate }) {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {visibles.map(l => { const eco = computeLoteEco(l); return (
+                    {visibles.map(l => { const eco = computeLoteEco(l); const pago = puntoPagoClientes(l); return (
                         // Div y no button: dentro va el botón de carpeta local, y un
                         // <button> anidado en otro <button> es HTML inválido.
                         <div key={l.id} role="button" tabIndex={0}
@@ -201,16 +202,27 @@ export function LotesView({ onNavigate }) {
                                         {l.anio_actuacion ? `${l.anio_actuacion}` : 'Año pendiente'} · {l.ccaa || 'CCAA pendiente'}
                                     </p>
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                    {/* Carpeta del lote en el Explorador (espejo local de Drive).
-                                        Solo si ya tiene carpeta: se crea al enviar el 1er documento. */}
-                                    {l.drive_folder_id && (
-                                        <BotonCarpetaLocal loteId={l.id} compacto
-                                            onError={(m) => showAlert(m, 'Carpeta local', 'error')} />
+                                <div className="flex flex-col items-end gap-1 shrink-0 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        {/* Carpeta del lote en el Explorador (espejo local de Drive).
+                                            Solo si ya tiene carpeta: se crea al enviar el 1er documento. */}
+                                        {l.drive_folder_id && (
+                                            <BotonCarpetaLocal loteId={l.id} compacto
+                                                onError={(m) => showAlert(m, 'Carpeta local', 'error')} />
+                                        )}
+                                        {/* En pago a clientes, la chapa dice si ya están PAGADOS (el
+                                            estado del lote no se mueve al transferir): pagoClientesLote. */}
+                                        <span title={pago?.etiqueta ? l.estado : undefined}
+                                            className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border ${pago?.badge || loteEstadoBadge(l.estado)}`}>
+                                            {pago?.etiqueta || l.estado}
+                                        </span>
+                                    </div>
+                                    {pago?.detalle && (
+                                        <span title={pago.titulo || undefined}
+                                            className={`text-[10px] font-bold leading-tight text-right max-w-[260px] truncate ${pago.tono}`}>
+                                            {pago.detalle}
+                                        </span>
                                     )}
-                                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border ${loteEstadoBadge(l.estado)}`}>
-                                        {l.estado}
-                                    </span>
                                 </div>
                             </div>
                             {/* S.O. y verificador en UNA línea con sus logos: son dos datos de

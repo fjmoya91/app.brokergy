@@ -173,6 +173,42 @@ async function pagoDeExpediente(exp, { facturaCobrada = false } = {}) {
     return out;
 }
 
+// ─── En qué punto está el pago, para la TARJETA del lote ─────────────────────
+// La tarjeta del listado decía «PTE. PAGO BROKERGY A CLIENTE» con los cinco ya
+// transferidos (LOTE-2025-001, 24/10/2026): el estado del lote no se mueve al
+// pagar, así que el punto de verdad se lee de los sellos de `cobro` de cada
+// expediente. Solo PASOS y números de expediente: ni importes ni cuentas (la lista
+// la ve todo el staff) — y `cobro` entero no sale de aquí (lleva el token).
+const PASOS_PAGO = ['sin_pedir', 'pedida', 'confirmada', 'remesa', 'pagado'];
+
+/** El paso más avanzado de UN expediente según sus sellos de `documentacion.cobro`. */
+function pasoPago(cobro) {
+    const c = cobro || {};
+    if (c.transferencia?.at) return 'pagado';
+    if (c.remesa?.at) return 'remesa';
+    if (c.completado_at) return 'confirmada';
+    if (c.enviado_at) return 'pedida';
+    return 'sin_pedir';
+}
+
+/**
+ * El resumen del lote: cuántos hay en cada paso, cuántos pagados ya avisados y
+ * los que faltan por pagar con su paso. `exps`: [{ numero_expediente, cobro }].
+ */
+function resumenPagoLote(exps = []) {
+    const n = Object.fromEntries(PASOS_PAGO.map(p => [p, 0]));
+    let avisados = 0;
+    const pendientes = [];
+    for (const e of exps) {
+        const paso = pasoPago(e.cobro);
+        n[paso]++;
+        if (paso === 'pagado') { if (e.cobro?.transferencia?.aviso_at) avisados++; }
+        else pendientes.push({ numero_expediente: e.numero_expediente, paso });
+    }
+    pendientes.sort((a, b) => String(a.numero_expediente).localeCompare(String(b.numero_expediente), 'es', { numeric: true }));
+    return { total: exps.length, ...n, avisados, pendientes };
+}
+
 let _cedentesMod = null;
 async function loadCedentes() {
     if (!_cedentesMod) {
@@ -587,6 +623,8 @@ module.exports = {
     cuandoResena,
     horaMadridAIso,
     pagoDeExpediente,
+    pasoPago,
+    resumenPagoLote,
     previsualizarRemesa,
     generarRemesa,
     registrarTransferencia,

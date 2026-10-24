@@ -240,8 +240,10 @@ async function enrichLotes(lotes) {
         // `cee` se pide por campos (sin el XML crudo) y de `documentacion` solo la
         // fecha del CIFO, que es lo único que mira geoCcaa.resolveAnioActuacion.
         // Traer ambas columnas enteras costaba 1,5 s y descomprimía toda la tabla.
+        // `cobro` (metadatos pequeños) para el punto del pago a los clientes; no sale
+        // al navegador: se resume en `pago_clientes` y se descarta.
         supabase.from('expedientes')
-            .select(`id, lote_id, numero_expediente, instalacion, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, ${CEE_ECO_SELECT}`)
+            .select(`id, lote_id, numero_expediente, instalacion, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, doc_cobro:documentacion->cobro, ${CEE_ECO_SELECT}`)
             .in('lote_id', loteIds),
         supabase.from('facturas_so').select('*').in('lote_id', loteIds),
     ]);
@@ -259,13 +261,15 @@ async function enrichLotes(lotes) {
         ecoOpMap = Object.fromEntries((ecoOps || []).map(o => [o.id, o]));
     }
     const expByLote = {};
+    const cobrosByLote = {};
     for (const e of allExps) {
         // Rehacemos `cee` y `documentacion` con la forma de siempre a partir de los
         // campos aplanados del select ligero: los consumidores no se enteran del cambio.
-        const { doc_fecha_fin_cifo, ...resto } = e;
+        const { doc_fecha_fin_cifo, doc_cobro, ...resto } = e;
         const fila = rebuildCee(resto);
         fila.documentacion = { fecha_fin_cifo: doc_fecha_fin_cifo ?? null };
         (expByLote[e.lote_id] = expByLote[e.lote_id] || []).push({ ...fila, oportunidades: ecoOpMap[e.oportunidad_id] || null });
+        (cobrosByLote[e.lote_id] = cobrosByLote[e.lote_id] || []).push({ numero_expediente: e.numero_expediente, cobro: doc_cobro });
     }
 
     return lotes.map(l => {
@@ -277,6 +281,9 @@ async function enrichLotes(lotes) {
             verificador: verObj ? { ...verObj, notify_email: resolveNotifyEmail(verObj) } : null,
             num_expedientes: countByLote[l.id] || 0,
             expedientes_eco: expByLote[l.id] || [],
+            // En qué punto está el pago a los clientes (pasos, sin importes): la
+            // tarjeta lo pinta encima del estado, que no se mueve al pagar.
+            pago_clientes: pagoClientes.resumenPagoLote(cobrosByLote[l.id] || []),
             // Factura al S.O. desde el registro `facturas_so` (una por lote). Sustituye al
             // antiguo JSONB lotes.factura_so (que queda vestigial).
             factura_so: facturaMap.get(l.id) || null,

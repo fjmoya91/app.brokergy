@@ -262,6 +262,25 @@ pago (desde el 22/10/2026; antes no se programaba ninguna), y al PARTNER no se l
 El esfuerzo se cuenta con los requerimientos que CONSTAN (`requerimientosDe`), como
 la enhorabuena: sin ninguno se cuenta el proceso, no se inventan.
 
+### El punto del pago, en la TARJETA del lote (2026-10-24)
+
+El estado del lote no se mueve al pagar, así que el listado de Lotes decía «PTE. PAGO
+BROKERGY A CLIENTE» en LOTE-2025-001 con los cinco transferidos y el justificante subido.
+Ahora `GET /api/lotes` trae `pago_clientes` (`resumenPagoLote` en
+[pagoClientesService.js](implementation/backend/services/pagoClientesService.js): cuántos
+hay en cada paso —sin pedir · pedida · confirmada · remesa · pagado— y los que faltan con
+su paso) y la tarjeta lo pinta con
+[logic/pagoClientesLote.js](implementation/frontend/src/features/lotes/logic/pagoClientesLote.js):
+todos con justificante → chapa **«PAGADO A CLIENTES»** (y si falta avisar a alguno);
+alguno → **«PAGADO EXCEPTO N»** y quién falta con su paso; ninguno → la chapa de siempre
+con el **subestado** debajo («📨 Cuenta pedida · 0/5 confirmadas», «🏦 Remesa generada ·
+falta subir el justificante»…).
+
+**REGLA — es una LECTURA de los sellos, no un cambio de estado**: el lote sigue en «PTE.
+PAGO BROKERGY A CLIENTE» (lo usan la remesa, el radar y las carpetas de Drive) y pasar a
+FINALIZADO sigue siendo a mano. **Sin importes ni cuentas** (la lista la ve todo el staff)
+y `cobro` no sale al navegador: lleva el token del formulario.
+
 ### La CARTA DE PAGO del Bono CAE (2026-10-22)
 
 Al subir el justificante del banco, cada cliente transferido tiene su **carta de pago**:

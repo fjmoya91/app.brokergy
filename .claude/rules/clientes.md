@@ -78,6 +78,7 @@ VERIFICADO**
 vuelve a salir**
   - **REGLA — el justificante del banco NO se le manda al cliente**
   - **REGLA — la reseña: lo que se vio es lo que sale.**
+  - **REGLA — es una LECTURA de los sellos, no un cambio de estado**
   - **REGLA — la plantilla NO se rediseña.**
   - **REGLA — la carta no se guarda ni se envía si no pasa el control de calidad**
   - **REGLA — lo largo se RECORTA, el diseño no se toca.**
