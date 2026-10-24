@@ -354,7 +354,9 @@ export function AvisoTransferenciaModal({ lote, filas, cartas = [], onClose, onE
                 resena: data.resena || '',
             },
         }));
-        setResenaOn(p => ({ ...p, [f.id]: !!data.resena && !data.resena_con_carta }));
+        // Con carta, lo programado es el RECORDATORIO «¿te ha llegado?» (no repite la
+        // petición de la carta) y sale MARCADO, como cualquier otra reseña programada.
+        setResenaOn(p => ({ ...p, [f.id]: !!data.resena }));
         setResenaAt(p => ({ ...p, [f.id]: isoALocal(data.resena_at) }));
     }, [lote.id]);
 
@@ -482,7 +484,7 @@ export function AvisoTransferenciaModal({ lote, filas, cartas = [], onClose, onE
                                     <p className="text-[10px] text-white/40 truncate">
                                         {b ? ([b.contacto?.tlf, b.contacto?.email].filter(Boolean).join(' · ') || 'Sin teléfono ni email') : 'Preparando…'}
                                         {b && (resenaOn[f.id]
-                                            ? <span className="text-emerald-300/80"> · reseña el {fechaLarga(resenaAt[f.id])}</span>
+                                            ? <span className="text-emerald-300/80"> · {b.recordatorio_asunto ? 'recordatorio' : 'reseña'} el {fechaLarga(resenaAt[f.id])}</span>
                                             : <span className="text-white/30"> · sin reseña{b.resena_motivo ? ` (${b.resena_motivo})` : ''}</span>)}
                                     </p>
                                 </div>
@@ -543,7 +545,7 @@ export function AvisoTransferenciaModal({ lote, filas, cartas = [], onClose, onE
                                                 <label className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-white/40">
                                                     <input type="checkbox" className="accent-amber-400" checked={!!resenaOn[f.id]}
                                                         onChange={e => setResenaOn(p => ({ ...p, [f.id]: e.target.checked }))} />
-                                                    Programada · reseña en Google
+                                                    {b.recordatorio_asunto ? 'Programado · recordatorio «¿te ha llegado?» + reseña + documentación' : 'Programada · reseña en Google'}
                                                 </label>
                                                 <input type="datetime-local" value={resenaAt[f.id] || ''} disabled={!resenaOn[f.id]}
                                                     onChange={e => setResenaAt(p => ({ ...p, [f.id]: e.target.value }))}

@@ -382,6 +382,87 @@ El PDF se guarda en «5. FACTURAS» del expediente como
 `CARTA_PAGO_{expediente}_{numero}.pdf`; en `documentacion.cobro.carta_pago`, solo
 metadatos (número, enlace, sha256, fecha, envío), por la RPC de merge.
 
+### «¿Te ha llegado?» — el RECORDATORIO, la reseña y la documentación para la Renta (2026-10-24)
+
+Fran no sabía quién dejaba reseña tras la carta. Ahora el flujo se cierra: a los **2 días
+hábiles** de la carta sale un recordatorio (WhatsApp + email) con el enlace
+`/cobro/:id/recibido?token=` (el token del cobro):
+
+1. **«✅ Sí, me ha llegado» / «Todavía no»** → `cobro.recepcion`; «todavía no» avisa al
+   equipo en el momento (`WHATSAPP_ADMIN_CHAT` + `ADMIN_EMAIL`).
+2. **La reseña**, que pasa a ser la protagonista AL CONFIRMAR el ingreso (el momento de
+   más alegría; a quien dice «todavía no» no se le pide), con el texto de Fran
+   condensado: muchas familias en su misma situación esperan su ingreso; su reseña es
+   lo que más les ayuda a confiar en que, aunque se retrase, sale adelante. Debajo, la
+   prueba social REAL («Más de 60 familias ya han cobrado su Bono CAE con BROKERGY»,
+   `familiasCobradas`: FINALIZADOS + transferidos de los lotes en pago, redondeado a la
+   decena hacia abajo; por debajo de 20 no se dice). «Ya la he dejado» → `cobro.resena_cliente`.
+3. **Su documentación**: el enlace a su portal (`/mi-expediente`), SIEMPRE a la vista.
+
+**El enlace del mensaje es CORTO** (`app.brokergy.es/r/K7M2Q9XA`, [enlaceCorto.js](implementation/backend/services/enlaceCorto.js)):
+el largo con token parece un timo en un WhatsApp. Se guarda en `app_settings` (`r:<código>`,
+sin tabla nueva) y se sella en `cobro.enlace_recibido`. **El código ES el secreto**: 8
+caracteres de un alfabeto sin 0/O/1/I/L (se dictan) y la ruta que lo resuelve
+(`GET /api/public/r/:codigo`) frena a 30 fallos por IP cada 10 min; solo redirige DENTRO de
+la app (rutas que empiezan por `/`, nunca `//`).
+
+**La estética es la de la CARTA** (24/10/2026, Fran: «que sea TOP TOP»): crema, tinta,
+tarjetas blancas, Antonio 700 auto-alojada (`/fonts/Antonio-700-latin.woff2`, sacada de la
+carta) para cifras y titulares, el degradado naranja→verde y una sola palabra en lima. El
+cliente viene de la carta en PDF y del email: la página es su continuación, no el CRM oscuro.
+Sin emojis. El importe protagonista y, al confirmar, un check que se DIBUJA (SVG + keyframes).
+
+En la fase 7 cada cliente lleva «💶 Le ha llegado» · «⚠ Dice que NO le ha llegado» ·
+«⭐ Dice que dejó reseña». El despachador (el de las reseñas programadas) no lo manda a
+quien ya confirmó Y dejó reseña.
+
+| Qué | Dónde |
+|---|---|
+| Página, acciones y aviso al equipo | [recepcionCobroService.js](implementation/backend/services/recepcionCobroService.js) · `GET/POST /api/public/cobro/:id/recibido` |
+| Textos (recordatorio, reseña, campaña de la Renta) | `componerMensajeRecordatorioCobro`, `textoPeticionResena`, `componerMensajeCampanaRenta` en [cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) |
+| La página | [RecibidoCobroView.jsx](implementation/frontend/src/features/cobro/views/RecibidoCobroView.jsx) · demo en `/cobro/demo/recibido` |
+| Programarlo | el popup del aviso de transferencia (sale MARCADO con carta) → `pagoClientesService.barrer` |
+| Campaña de la Renta (marzo), en seco | `node implementation/backend/scripts/campana_renta.js [--anio 2026] [--solo <nº>]` |
+
+**REGLA — la reseña NO es la llave de los documentos.** Fran lo planteó como «un
+chantaje que no lo parezca» y se descartó: Google prohíbe pedir reseñas a cambio de algo
+(puede borrarlas o penalizar la ficha), los certificados son del cliente y retenerlos en
+campaña de Renta es una reclamación, y «Ya la he dejado» no se puede comprobar. Se hace
+con RECIPROCIDAD: la reseña se pide en el momento de alegría (al confirmar el ingreso) y la
+documentación está SIEMPRE visible, haga lo que haga con la reseña.
+
+**REGLA — «dejó reseña» es lo que DICE el cliente**: Google no dice quién escribe cada
+reseña. Se rotula «dice que dejó reseña».
+
+**El portal, «Para tu declaración de la Renta»** (24/10/2026): una tarjeta en la portada
+que abre la MISMA guía que se envía (`guiaIrpfService.paraCliente` →
+`resumenRentaCliente` en [logic/guiaIrpf.js](implementation/frontend/src/features/expedientes/logic/guiaIrpf.js)):
+la deducción, dónde se marca en Renta Web, los datos con sus rótulos LITERALES, los
+certificados antes/después, la guía en PDF —**generada al momento** si nunca se le envió
+(`/portal/doc/:uuid/guia_irpf`), sin guardarla— y sus papeles. Cada CEE sale ahora en sus
+TRES papeles (certificado, etiqueta y justificante de registro); antes solo el primero que
+hubiera. Mismo candado que los certificados: hasta 'DOC. COMPLETA' no se enseña. Medido
+con 26RES060_131: 60 %, G → A, B22966733, 10.404,25 €.
+
+Y el portal entero, con la misma estética de la carta (24/10/2026):
+- **Cobrado es cobrado**: el DTO trae `cobro: { pagado, importe, fecha }` (de
+  `documentacion.cobro`, nada más: ni token ni cuentas) y, pagado, la tarjeta dice «Bono
+  CAE cobrado», el importe con céntimos y «Transferido el …», sin «Estimado». Antes decía
+  «que cobrarás · Estimado» a quien ya había cobrado.
+- **El IRPF sin porcentaje fijo**: decía «(60 % de la obra)» a todos, y a un piso le
+  corresponde el 40 %.
+- **«Copiar» en cada dato de Renta Web** (`resumenRentaCliente` trae `copiar` por fila:
+  lo que se TECLEA — la clave `1`, la RC, solo el NIF, la cantidad como `10404,25`);
+  antes/después en dos tarjetas con la LETRA grande; los papeles AGRUPADOS por certificado.
+- **«Descargar todo (ZIP)»**: `GET /api/public/portal/zip/:uuid?token=` con lo DISPONIBLE de
+  `buildDocumentos` (lo bloqueado no entra) + la guía, con nombres legibles y numerados
+  (`crearZip`). Medido con 26RES060_131: 11 ficheros, 8 MB, ~12 s.
+- La tarjeta de la Renta es la PROTAGONISTA de la portada con la documentación completa
+  o cobrado («Tu documentación, lista para la Renta», 60 % · G→A · lo pagado).
+- ⚠️ Un papel cuyo enlace apunta a un fichero BORRADO de Drive se lista igual y falla al
+  bajarlo (el ZIP lo salta): en 26RES060_131, el CIFO y el Anexo I firmados (24/10/2026). La campaña de la Renta le tocaría
+hoy a 79 clientes (los dos CEE registrados y la documentación completa).
+
 ### Regalarle la gestión desde el lote (2026-10-14)
 
 Botón **«🎁 No cobrarle la gestión (250 €)»** en la fila de cada cliente de la fase 7

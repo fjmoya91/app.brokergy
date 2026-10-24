@@ -634,6 +634,49 @@ const LINE = '#e6e8e3';
  * @param {object} [opts]
  * @param {string} [opts.appUrl] de dónde se sirven las fuentes (Puppeteer rasteriza sobre about:blank)
  */
+/**
+ * Lo mismo que la guía en PDF, para la PANTALLA del cliente (portal, «Para tu Renta»,
+ * 24/10/2026): qué deducción, dónde se marca en Renta Web y los datos que pide, con
+ * los MISMOS rótulos literales que el PDF. Sin facturas una a una (van en el PDF).
+ * Con `puede: false`, solo el motivo: no se le enseña una deducción que no tiene.
+ */
+export function resumenRentaCliente(g) {
+    if (!g?.puede || !g.modalidad) return { puede: false, motivo: g?.motivo || null };
+    const m = MODALIDADES[g.modalidad];
+    const ini = g.certificados?.anterior || {};
+    const fin = g.certificados?.posterior || {};
+    const obra = (o) => (o ? [o.nif, o.nombre].filter(Boolean).join(' · ') : null);
+    // `copiar` (24/10/2026, portal): lo que el cliente TECLEA en esa casilla de Renta
+    // Web, sin el rótulo ni el nombre de la empresa — el botón «Copiar» del portal.
+    // La cantidad, sin separador de miles y con coma decimal, como la admite el campo.
+    const cantidad = g.total > 0 && !g.soloCertificados ? Number(g.total).toFixed(2).replace('.', ',') : null;
+    const filas = [
+        g.modalidad === '60' ? { k: 'Contribuyente titular', v: 'El propietario de la vivienda que hace la declaración' } : null,
+        { k: 'Situación (clave)', v: '1 · vivienda con referencia catastral en territorio común', copiar: '1' },
+        { k: 'Referencia catastral', v: g.vivienda?.refCatastral || null, mono: true, copiar: g.vivienda?.refCatastral || null },
+        { k: 'NIF/NIE de quien ha realizado las obras (1)', v: obra(g.obras?.[0]), copiar: g.obras?.[0]?.nif || null },
+        g.obras?.[1] ? { k: 'NIF/NIE de quien ha realizado las obras (2)', v: obra(g.obras[1]), copiar: g.obras[1].nif || null } : null,
+        {
+            k: g.total > 0 ? `Cantidades satisfechas en ${g.anio || '—'}` : 'Cantidades satisfechas',
+            v: cantidad ? `${eur(g.total)} (IVA incluido)` : 'La suma de tus facturas de la obra, IVA incluido',
+            copiar: cantidad,
+        },
+    ].filter(Boolean);
+    const porDemanda = m?.indicador === 'demanda';
+    return {
+        puede: true,
+        pct: m.pct,
+        nombre: m.nombre,
+        ruta: [...RUTA_RENTA, m.opcionRenta],
+        filas,
+        certificados: {
+            rotulo: porDemanda ? 'Demanda de calefacción y refrigeración (kWh/m²·año)' : 'Consumo de energía primaria no renovable (kWh/m²·año)',
+            anterior: { fecha: fechaEs(ini.fecha), valor: porDemanda ? ini.demanda : ini.consumo, letra: porDemanda ? null : ini.letra || null },
+            posterior: { fecha: fechaEs(fin.fecha), valor: porDemanda ? fin.demanda : fin.consumo, letra: porDemanda ? null : fin.letra || null },
+        },
+    };
+}
+
 export function buildGuiaIrpfHtml(guia, { appUrl = origenApp() } = {}) {
     const g = guia || {};
     const m = g.modalidad ? MODALIDADES[g.modalidad] : null;

@@ -67,6 +67,30 @@ async function buildClientMoney(op, exp) {
 }
 
 // ---------------------------------------------------------------------------
+// COBRO — ¿se le ha TRANSFERIDO ya el bono? (24/10/2026)
+// El portal decía «Bono CAE que cobrarás · Estimado» también a quien ya lo tenía
+// en la cuenta. Se lee de los sellos del pago (`documentacion.cobro`), los MISMOS
+// de la carta de pago (cartaPagoService.datosDe): pagado = hay justificante
+// (`transferencia.at`), importe = lo transferido (con céntimos) y fecha = la de
+// ejecución de la remesa. LISTA BLANCA: `cobro` lleva el token del formulario,
+// cuentas e IBAN enmascarados — nada de eso sale al navegador.
+// ---------------------------------------------------------------------------
+function buildCobro(documentacion) {
+    const c = documentacion?.cobro || {};
+    const t = c.transferencia || {};
+    const r = c.remesa || {};
+    const pagado = !!t.at;
+    if (!pagado) return { pagado: false, importe: null, fecha: null };
+    const imp = Number(t.importe ?? r.importe);
+    const fecha = String(r.fecha_ejecucion || t.at || '').slice(0, 10);
+    return {
+        pagado: true,
+        importe: Number.isFinite(imp) ? Math.round(imp * 100) / 100 : null,
+        fecha: /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : null,
+    };
+}
+
+// ---------------------------------------------------------------------------
 // ESTADO — mapea los 18 estados internos del expediente a 6 hitos cliente.
 // Usa coincidencia por palabra clave (robusto ante el guión largo de
 // "CAE EMITIDO – PTE PAGO BROKERGY").
@@ -171,9 +195,16 @@ function buildRequerimiento(documentacion) {
 // trabajo (xml/cex) ni borradores sin firma.
 // `certificado: true` = documento que NO se entrega hasta que el expediente esté
 // documentalmente COMPLETO. Ver `certificadosLiberados()`.
+// Cada CEE en sus TRES papeles (24/10/2026): en campaña de Renta piden el
+// certificado, la etiqueta y el justificante de registro, y antes solo salía el
+// primero que hubiera (`ceeFileLink` cogía pdf || registro || etiqueta).
 const DOC_MAP = {
-    cee_inicial:       { label: 'Certificado energético inicial', cee: 'inicial', certificado: true },
-    cee_final:         { label: 'Certificado energético final',   cee: 'final',   certificado: true },
+    cee_inicial:            { label: 'Certificado energético inicial',             cee: 'inicial', archivo: 'pdf',      certificado: true },
+    cee_inicial_etiqueta:   { label: 'Etiqueta energética inicial',                cee: 'inicial', archivo: 'etiqueta', certificado: true },
+    cee_inicial_registro:   { label: 'Justificante de registro del CEE inicial',   cee: 'inicial', archivo: 'registro', certificado: true },
+    cee_final:              { label: 'Certificado energético final',               cee: 'final',   archivo: 'pdf',      certificado: true },
+    cee_final_etiqueta:     { label: 'Etiqueta energética final',                  cee: 'final',   archivo: 'etiqueta', certificado: true },
+    cee_final_registro:     { label: 'Justificante de registro del CEE final',     cee: 'final',   archivo: 'registro', certificado: true },
     anexo_i:           { label: 'Anexo I firmado',                fields: ['anexo_i_signed_link'] },
     cesion:            { label: 'Anexo de Cesión de Ahorros',     fields: ['anexo_cesion_signed_link'] },
     cifo:              { label: 'Certificado CIFO',               fields: ['cert_cifo_signed_link'], certificado: true },
@@ -215,17 +246,23 @@ function extractDriveId(v) {
     return m ? m[0] : null;
 }
 
-/** Enlace del CERTIFICADO CEE real (pdf/registro/etiqueta). NUNCA cex/xml (ficheros de trabajo). */
-function ceeFileLink(exp, fase) {
+/**
+ * Enlace de UN papel del CEE (pdf/registro/etiqueta). NUNCA cex/xml (ficheros de
+ * trabajo). El `pdf`, si falta, cae al registro o a la etiqueta como antes: el
+ * «Certificado energético» sigue saliendo en los expedientes que solo tienen uno.
+ */
+function ceeFileLink(exp, fase, archivo = 'pdf') {
     const slot = exp?.cee?.cee_files?.[fase] || {};
-    for (const k of ['pdf', 'registro', 'etiqueta']) {
+    const de = (k) => {
         const v = slot[k];
         if (typeof v === 'string' && v) return v;
         if (v && typeof v === 'object' && (v.link || v.url || v.driveId || v.drive_id)) {
             return v.link || v.url || v.driveId || v.drive_id;
         }
-    }
-    return null;
+        return null;
+    };
+    if (archivo !== 'pdf') return de(archivo);
+    return de('pdf') || de('registro') || de('etiqueta');
 }
 
 /** Resuelve { driveId, name } de un docKey para el proxy de descarga. */
@@ -244,7 +281,7 @@ function resolveDocLink(exp, docKey) {
     if (!def) return null;
     // CEE
     if (def.cee) {
-        const link = ceeFileLink(exp, def.cee);
+        const link = ceeFileLink(exp, def.cee, def.archivo);
         const driveId = extractDriveId(link);
         return driveId ? { driveId, name: `${docKey}.pdf`, label: def.label } : null;
     }
@@ -272,10 +309,14 @@ function buildDocumentos(exp, flags = {}) {
     const lista = [];
     const bloqueados = [];
     const liberados = certificadosLiberados(flags.estado);
+    const vistos = new Set();   // el mismo fichero no sale dos veces (pdf que cae al registro)
     for (const key of Object.keys(DOC_MAP)) {
-        if (key === 'cee_inicial' && !flags.ceeIniOk) continue;
-        if (key === 'cee_final' && !flags.ceeFinOk) continue;
-        if (!resolveDocLink(exp, key)) continue;
+        if (DOC_MAP[key].cee === 'inicial' && !flags.ceeIniOk) continue;
+        if (DOC_MAP[key].cee === 'final' && !flags.ceeFinOk) continue;
+        const r = resolveDocLink(exp, key);
+        if (!r) continue;
+        if (vistos.has(r.driveId)) continue;
+        vistos.add(r.driveId);
         if (DOC_MAP[key].certificado && !liberados) {
             bloqueados.push({ key, label: DOC_MAP[key].label });
             continue;
@@ -292,7 +333,58 @@ function buildDocumentos(exp, flags = {}) {
     return { lista, bloqueados };
 }
 
+// ---------------------------------------------------------------------------
+// ZIP «Descargar todo» (24/10/2026) — los nombres con los que el cliente se
+// encuentra cada papel al abrir el ZIP. Numerados en el orden en que se los pide
+// el asesor (certificados de antes y después, facturas, guía, anexos), en vez
+// de la clave interna (`cee_inicial_registro.pdf`). La extensión la pone quien descarga, por los
+// primeros bytes (una etiqueta puede ser una imagen).
+// ---------------------------------------------------------------------------
+const NOMBRES_ZIP = {
+    cee_inicial:           '01 CEE inicial (antes de la obra) - Certificado',
+    cee_inicial_etiqueta:  '02 CEE inicial (antes de la obra) - Etiqueta',
+    cee_inicial_registro:  '03 CEE inicial (antes de la obra) - Justificante de registro',
+    cee_final:             '04 CEE final (después de la obra) - Certificado',
+    cee_final_etiqueta:    '05 CEE final (después de la obra) - Etiqueta',
+    cee_final_registro:    '06 CEE final (después de la obra) - Justificante de registro',
+    guia_irpf:             '08 Guía para la deducción en la Renta',
+    cifo:                  '09 Certificado CIFO',
+    rite:                  '10 Certificado RITE',
+    anexo_i:               '11 Anexo I firmado',
+    cesion:                '12 Anexo de Cesión de Ahorros',
+    anexo_fotografico:     '13 Anexo Fotográfico',
+};
+
+/** Nombre legible (sin extensión) de un docKey dentro del ZIP. */
+function nombreZip(docKey, total = 1) {
+    if (docKey.startsWith('factura_')) {
+        const i = parseInt(docKey.slice('factura_'.length), 10) + 1;
+        return total > 1 ? `07 Factura ${i}` : '07 Factura';
+    }
+    return NOMBRES_ZIP[docKey] || docKey;
+}
+
+/** Extensión por los primeros bytes; `.pdf` por defecto. */
+function extensionDe(buf) {
+    if (!buf || buf.length < 4) return '.pdf';
+    if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return '.pdf';
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return '.png';
+    if (buf[0] === 0xFF && buf[1] === 0xD8) return '.jpg';
+    return '.pdf';
+}
+
+/** «FRANCISCO JAVIER» → «Francisco Javier»; null si no hay apellidos (empresa). */
+function saludoDe(cli) {
+    const nombre = String(cli?.nombre_razon_social || '').trim();
+    if (!nombre || !String(cli?.apellidos || '').trim()) return null;
+    return nombre.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, sep, l) => sep + l.toUpperCase());
+}
+
 module.exports = {
+    buildCobro,
+    saludoDe,
+    nombreZip,
+    extensionDe,
     certificadosLiberados,
     esCertificado: (docKey) => !!DOC_MAP[docKey]?.certificado,
     normalizeDni,

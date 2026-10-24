@@ -138,8 +138,17 @@ router.get('/expediente/:uuid', async (req, res) => {
             identidad: {
                 numeroExpediente: exp.numero_expediente,
                 nombre: [cli?.nombre_razon_social, cli?.apellidos].filter(Boolean).join(' ').trim() || null,
+                // «Hola, Francisco Javier»: solo el nombre de pila de una PERSONA (con
+                // apellidos); a una empresa no se la saluda por su razón social.
+                saludo: portal.saludoDe(cli),
             },
             dinero: await portal.buildClientMoney(opp, exp),
+            // ¿Ya se le ha transferido? Con `pagado`, la tarjeta del dinero dice
+            // «cobrado», con el importe real y la fecha, y no «Estimado».
+            cobro: portal.buildCobro(exp.documentacion),
+            // «Para tu Renta» pasa a ser lo primero de la portada en cuanto se
+            // puede abrir (el mismo candado que los certificados).
+            rentaDisponible: portal.certificadosLiberados(exp.estado),
             estado: {
                 hitoIndex: hito.hitoIndex,
                 hitoLabel: hito.hitoLabel,
@@ -173,6 +182,33 @@ router.get('/expediente/:uuid', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/public/portal/renta/:uuid?token= → «Para tu Renta» (24/10/2026)
+// La MISMA guía que se le envía (guiaIrpfService.paraCliente → resumenRentaCliente):
+// qué deducción, dónde se marca en Renta Web y los datos que pide. Con el mismo
+// candado que los certificados: hasta 'DOC. COMPLETA' pueden volver a emitirse.
+// ---------------------------------------------------------------------------
+router.get('/renta/:uuid', async (req, res) => {
+    try {
+        const { uuid } = req.params;
+        const { error } = await loadOppByToken(uuid, req.query.token);
+        if (error === 404) return res.status(404).json({ error: 'Expediente no encontrado.' });
+        if (error === 403) return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        const { data: exp } = await supabase
+            .from('expedientes').select('id, estado')
+            .eq('oportunidad_id', uuid).order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (!exp) return res.status(404).json({ error: 'Aún no hay expediente para esta solicitud.' });
+        if (!portal.certificadosLiberados(exp.estado)) {
+            return res.json({ disponible: false, motivo: 'La tendrás aquí en cuanto la documentación de tu expediente esté completa.' });
+        }
+        const { resumen } = await require('../services/guiaIrpfService').paraCliente('expediente', exp.id);
+        return res.json({ disponible: !!resumen.puede, resumen });
+    } catch (e) {
+        console.error('[portal/renta]', e.message);
+        return res.json({ disponible: false, motivo: 'Ahora mismo no podemos preparar tu guía. Escríbenos y te la mandamos.' });
+    }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/public/portal/doc/:uuid/:docKey?token= → proxy de descarga (Drive)
 // ---------------------------------------------------------------------------
 function guessMime(name) {
@@ -193,12 +229,23 @@ router.get('/doc/:uuid/:docKey', async (req, res) => {
 
         const { data: exp } = await supabase
             .from('expedientes')
-            .select('estado, documentacion, cee')
+            .select('id, estado, documentacion, cee')
             .eq('oportunidad_id', uuid)
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
         if (!exp) return res.status(404).end();
+
+        // La GUÍA de la Renta que nunca se le envió se genera al momento (la misma
+        // que se envía), sin guardarla: «Para tu Renta» la ofrece siempre.
+        if (docKey === 'guia_irpf' && !portal.resolveDocLink(exp, docKey)) {
+            if (!portal.certificadosLiberados(exp.estado)) return res.status(409).json({ error: 'La guía estará disponible cuando la documentación del expediente esté completa.' });
+            const g = await require('../services/guiaIrpfService').pdf('expediente', exp.id);
+            res.set('Content-Type', 'application/pdf');
+            res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(g.filename)}`);
+            res.set('Cache-Control', 'private, max-age=600');
+            return res.send(g.buffer);
+        }
 
         // El candado se repite AQUÍ, no solo al listar: la URL de descarga es
         // adivinable (`/doc/:uuid/cee_inicial`) y quien la tenga de un expediente
@@ -221,6 +268,86 @@ router.get('/doc/:uuid/:docKey', async (req, res) => {
     } catch (e) {
         console.error('[portal/doc]', e.message);
         return res.status(500).end();
+    }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/public/portal/zip/:uuid?token= → «Descargar todo» (24/10/2026)
+// Un ZIP con LO MISMO que el cliente puede descargar uno a uno: los documentos
+// de `buildDocumentos` (con su candado: lo bloqueado NO entra) + la guía de la
+// Renta (la sellada o, si nunca se le envió, generada al momento, sin guardarla,
+// como en /doc/.../guia_irpf). Solo lectura: no escribe nada en BD ni en Drive.
+// Un papel que Drive no devuelve se salta (el resto sale); sin ninguno, 404.
+// ---------------------------------------------------------------------------
+router.get('/zip/:uuid', async (req, res) => {
+    try {
+        const { uuid } = req.params;
+        const { error } = await loadOppByToken(uuid, req.query.token);
+        if (error === 404) return res.status(404).json({ error: 'Expediente no encontrado.' });
+        if (error === 403) return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, estado, documentacion, cee')
+            .eq('oportunidad_id', uuid)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (!exp) return res.status(404).json({ error: 'Aún no hay expediente para esta solicitud.' });
+
+        const { data: lc } = await supabase
+            .from('v_expedientes_lifecycle')
+            .select('cee_ini_registro_ok, cee_fin_registro_ok')
+            .eq('numero_expediente', exp.numero_expediente)
+            .maybeSingle();
+        const { lista } = portal.buildDocumentos(exp, {
+            ceeIniOk: lc?.cee_ini_registro_ok,
+            ceeFinOk: lc?.cee_fin_registro_ok,
+            estado: exp.estado,
+        });
+        const nFacturas = lista.filter(d => d.key.startsWith('factura_')).length;
+
+        // De Drive, de dos en dos: son pocos ficheros y no merece la pena más presión.
+        const entradas = [];
+        const cola = lista.slice();
+        const bajar = async () => {
+            while (cola.length) {
+                const d = cola.shift();
+                try {
+                    const r = portal.resolveDocLink(exp, d.key);
+                    if (!r) continue;
+                    // Un documento bloqueado no entra aunque alguien lo hubiera colado.
+                    if (portal.esCertificado(d.key) && !portal.certificadosLiberados(exp.estado)) continue;
+                    const buf = await driveService.getFileContent(r.driveId);
+                    if (buf && buf.length) entradas.push({ name: portal.nombreZip(d.key, nFacturas) + portal.extensionDe(buf), data: buf });
+                } catch (e) {
+                    console.warn('[portal/zip] sin', d.key, e.message);
+                }
+            }
+        };
+        await Promise.all([bajar(), bajar()]);
+
+        // La guía de la Renta: la sellada ya ha entrado si estaba en la lista.
+        if (!entradas.some(e => e.name.startsWith(portal.nombreZip('guia_irpf'))) && portal.certificadosLiberados(exp.estado)) {
+            try {
+                const g = await require('../services/guiaIrpfService').pdf('expediente', exp.id);
+                if (g?.buffer) entradas.push({ name: `${portal.nombreZip('guia_irpf')}.pdf`, data: g.buffer });
+            } catch (e) {
+                console.warn('[portal/zip] guía:', e.message);   // sin deducción no hay guía
+            }
+        }
+        if (!entradas.length) return res.status(404).json({ error: 'Aún no hay documentos para descargar.' });
+
+        entradas.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+        const zip = require('../utils/zipStore').crearZip(entradas);
+        const nombre = `${exp.numero_expediente} - Documentos BROKERGY.zip`;
+        res.set('Content-Type', 'application/zip');
+        res.set('Content-Disposition', `attachment; filename="${nombre.replace(/[^\x20-\x7E]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(nombre)}`);
+        res.set('Cache-Control', 'private, no-store');
+        return res.send(zip);
+    } catch (e) {
+        console.error('[portal/zip]', e.message);
+        return res.status(500).json({ error: 'No hemos podido preparar el ZIP. Descarga los documentos uno a uno o escríbenos.' });
     }
 });
 

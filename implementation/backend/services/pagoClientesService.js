@@ -372,16 +372,21 @@ async function borradoresAviso(exp) {
         const textos = await require('./cartaPagoService').mensajesDe(exp, { numero: cp.numero, fechaEmision: cp.fecha_emision });
         carta = { numero: cp.numero, nombre: cp.nombre, link: cp.link, at: cp.at, enviada_at: cp.enviada_at || null, ...textos };
     }
+    // Con carta, lo programado es el RECORDATORIO «¿te ha llegado?» (24/10/2026,
+    // recepcionCobroService): lleva a la página que confirma, pide la reseña y da su
+    // documentación. Sale MARCADO: ya no repite la petición de la carta.
+    const recordatorio = carta && !partner ? await require('./recepcionCobroService').recordatorioDe(exp) : null;
     return {
         carta,
         resena_con_carta: !!carta,
+        recordatorio_asunto: recordatorio?.asunto || null,
         contacto: cobroService.contactoCliente(exp),
         transferencia: componerMensajeTransferencia({
             nombre, tercero, titular, partner, cuentas, concepto: conceptoTransferencia(exp.numero_expediente),
             bonificada: gestionBonificada,
         }),
         // Al PARTNER no se le pide una reseña de BROKERGY en nombre de su cliente.
-        resena: partner ? null : (enlace ? componerMensajeResena({
+        resena: partner ? null : recordatorio ? recordatorio.whatsapp : (enlace ? componerMensajeResena({
             nombre, tercero, enlace, requerimientos: await cobroService.requerimientosDe(exp),
         }) : null),
         resena_motivo: partner ? 'El contacto es el partner: no se le pide la reseña'
@@ -467,6 +472,9 @@ async function avisarTransferencia(exp, { channels = [], mensaje, mensajeEmail, 
             tlf: channels.includes('whatsapp') ? contacto.tlf : null,
             email: channels.includes('email') ? contacto.email : null,
             canales: channels,
+            // El recordatorio «¿te ha llegado?» lleva su propio asunto.
+            asunto: borr.recordatorio_asunto || null,
+            recordatorio: !!borr.recordatorio_asunto,
             programada_por: usuario || null,
             programada_at: new Date().toISOString(),
             enviada_at: null,
@@ -530,16 +538,22 @@ async function barrer() {
             const r = e.cobro?.resena;
             if (!r || r.enviada_at || r.cancelada_at || r.enviando_at || !r.programada_para) continue;
             if (new Date(r.programada_para).getTime() > ahora) continue;
+            // Quien ya ha confirmado el ingreso Y dice que dejó la reseña no necesita
+            // el recordatorio (recepcionCobroService): se anula diciendo por qué.
+            if (e.cobro?.recepcion?.estado === 'recibido' && e.cobro?.resena_cliente?.declarada_at) {
+                await cobroService.sellar(e.id, { resena: { ...r, cancelada_at: new Date().toISOString(), cancelada_por: 'SISTEMA', motivo: 'Ya confirmó el ingreso y dejó la reseña' } });
+                continue;
+            }
             // Se marca ANTES de mandar: si el envío tarda y el barrido siguiente
             // llega, no lo repite.
             await cobroService.sellar(e.id, { resena: { ...r, enviando_at: new Date().toISOString() } });
             try {
                 const sent = await mandar({
                     tlf: r.tlf, email: r.email, channels: r.canales || [], texto: r.mensaje,
-                    asunto: '¿Nos ayudas con una reseña? — BROKERGY',
+                    asunto: r.asunto || '¿Nos ayudas con una reseña? — BROKERGY',
                 });
                 await cobroService.sellar(e.id, { resena: { ...r, enviando_at: null, enviada_at: new Date().toISOString(), enviada_canales: sent } });
-                await apuntarHistorial(e, 'resena_enviada', `Petición de reseña en Google enviada vía ${sent.join(' + ') || '—'}`, 'SISTEMA');
+                await apuntarHistorial(e, 'resena_enviada', `${r.recordatorio ? 'Recordatorio «¿te ha llegado el ingreso?» (reseña + documentación)' : 'Petición de reseña en Google'} enviado vía ${sent.join(' + ') || '—'}`, 'SISTEMA');
                 hechos.push(e.numero_expediente);
             } catch (err) {
                 console.error('[reseña] envío', e.numero_expediente, err.message);
@@ -580,6 +594,7 @@ module.exports = {
     borradoresAviso,
     avisarTransferencia,
     cancelarResena,
+    apuntarHistorial,
     mandar,
     barrer,
     start,

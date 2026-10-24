@@ -46,6 +46,8 @@ import EncargoTecnicoView from './features/encargo/EncargoTecnicoView';
 import { FirmarLoteView } from './features/public/views/FirmarLoteView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { ConfirmarCobroView } from './features/cobro/views/ConfirmarCobroView';
+import { RecibidoCobroView } from './features/cobro/views/RecibidoCobroView';
+import { EnlaceCortoView } from './features/public/views/EnlaceCortoView';
 import { RespuestasCobroView } from './features/cobro/views/RespuestasCobroView';
 import AsistenteFlotante from './features/asistente/AsistenteFlotante';
 import { PortalLoginView } from './features/public/views/PortalLoginView';
@@ -190,12 +192,20 @@ function App() {
   // Confirmación de datos de cobro: /cobro/:expedienteId?token=...
   // Lleva token porque detrás se puede REESCRIBIR el IBAN del cliente — no basta
   // con conocer el id del expediente, como en /subir-cifo.
+  // Enlace corto de los mensajes al cliente: /r/:codigo (EnlaceCortoView, enlaceCorto.js).
+  const [enlaceCorto] = useState(() => {
+    const m = window.location.pathname.match(/^\/r\/([A-Za-z0-9]{6,12})\/?$/);
+    return m ? m[1].toUpperCase() : null;
+  });
+
   const [cobroData] = useState(() => {
     const path = window.location.pathname;
     if (!path.startsWith('/cobro/')) return null;
     const id = path.split('/cobro/')[1]?.split('/')[0] || null;
     if (!id) return null;
-    return { id, token: new URLSearchParams(window.location.search).get('token') || '' };
+    // /cobro/:id/recibido — el recordatorio «¿te ha llegado el ingreso?» (RecibidoCobroView).
+    const recibido = path.split('/cobro/')[1]?.split('/')[1] === 'recibido';
+    return { id, recibido, token: new URLSearchParams(window.location.search).get('token') || '' };
   });
 
   const [riteUploadId] = useState(() => {
@@ -1167,8 +1177,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || enlaceCorto || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1215,8 +1225,12 @@ function App() {
           <SubirDocsReformaView uuid={reformaDocsData.uuid} token={reformaDocsData.token} rol={reformaDocsData.rol} need={reformaDocsData.need} />
         ) : instaladorId ? (
           <SubirInstaladorView expedienteId={instaladorId} />
+        ) : enlaceCorto ? (
+          <EnlaceCortoView codigo={enlaceCorto} />
         ) : cobroData ? (
-          <ConfirmarCobroView expedienteId={cobroData.id} token={cobroData.token} />
+          cobroData.recibido
+            ? <RecibidoCobroView expedienteId={cobroData.id} token={cobroData.token} />
+            : <ConfirmarCobroView expedienteId={cobroData.id} token={cobroData.token} />
         ) : cifoUploadId ? (
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : riteUploadId ? (

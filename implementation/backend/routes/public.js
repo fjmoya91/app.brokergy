@@ -2819,6 +2819,77 @@ router.get('/cobro/:expedienteId', async (req, res) => {
     }
 });
 
+// ─── Enlace CORTO — /r/:codigo (enlaceCorto.js) ───────────────────────────────
+// El código ES el secreto (lleva a la página con su token), así que se frena a quien
+// pruebe códigos: 30 intentos fallidos por IP cada 10 minutos.
+const _cortoFallos = new Map();
+router.get('/r/:codigo', async (req, res) => {
+    try {
+        const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '?';
+        const ahora = Date.now();
+        const fallos = (_cortoFallos.get(ip) || []).filter(t => ahora - t < 10 * 60e3);
+        if (fallos.length >= 30) return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos.' });
+        const destino = await require('../services/enlaceCorto').resolver(String(req.params.codigo || '').toUpperCase());
+        if (!destino) {
+            fallos.push(ahora);
+            _cortoFallos.set(ip, fallos);
+            if (_cortoFallos.size > 5000) _cortoFallos.clear();
+            return res.status(404).json({ error: 'Este enlace no existe o ha caducado.' });
+        }
+        res.set('Cache-Control', 'no-store');
+        res.json({ destino });
+    } catch (e) {
+        console.error('[enlace corto]', e.message);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+// ─── ¿Le ha LLEGADO el ingreso? — /cobro/:expedienteId/recibido?token= ─────────
+// La página del recordatorio que sale a los 2 días hábiles de la carta de pago:
+// confirma el ingreso, pide la reseña y da su documentación (recepcionCobroService).
+// Mismo token que el formulario de cobro, comparado en tiempo constante.
+async function expedienteRecibido(req, res) {
+    const exp = await cobroService.cargarExpediente(req.params.expedienteId);
+    if (!exp) { res.status(404).json({ error: 'Expediente no encontrado' }); return null; }
+    const guardado = exp.documentacion?.cobro?.token;
+    if (!guardado || !cobroService.tokenValido(guardado, req.query.token || req.body?.token)) {
+        res.status(403).json({ error: 'Enlace no válido o caducado' });
+        return null;
+    }
+    if (!exp.documentacion?.cobro?.transferencia?.at) {
+        res.status(409).json({ error: 'Todavía no hemos hecho la transferencia: te avisaremos en cuanto salga.' });
+        return null;
+    }
+    return exp;
+}
+
+router.get('/cobro/:expedienteId/recibido', async (req, res) => {
+    try {
+        const exp = await expedienteRecibido(req, res);
+        if (!exp) return;
+        res.json(await require('../services/recepcionCobroService').vista(exp));
+    } catch (e) {
+        console.error('[cobro recibido GET]', e.message);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+// Body: { token, accion: 'recibido' | 'no_llegado' | 'resena' }
+router.post('/cobro/:expedienteId/recibido', async (req, res) => {
+    try {
+        const exp = await expedienteRecibido(req, res);
+        if (!exp) return;
+        const recepcion = require('../services/recepcionCobroService');
+        const { apuntarHistorial } = require('../services/pagoClientesService');
+        await recepcion.registrar(exp, String(req.body?.accion || ''), { apuntarHistorial });
+        const fresco = await cobroService.cargarExpediente(exp.id);
+        res.json(await recepcion.vista(fresco));
+    } catch (e) {
+        console.error('[cobro recibido POST]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error del servidor' });
+    }
+});
+
 router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, res) => {
     try {
         const exp = await cobroService.cargarExpediente(req.params.expedienteId);

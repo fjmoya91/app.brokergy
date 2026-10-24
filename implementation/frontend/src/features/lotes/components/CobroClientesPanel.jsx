@@ -532,7 +532,7 @@ function EstadoPago({ f, admin, onAvisar, onCancelarResena }) {
             {p.transferencia && (p.transferencia.aviso_at
                 ? <span className="px-2 py-1 rounded-lg border border-emerald-400/30 text-emerald-300">✓ Avisado {fecha(p.transferencia.aviso_at)}</span>
                 : admin && <button type="button" onClick={onAvisar} className="px-2 py-1 rounded-lg border border-brand/40 text-brand font-bold hover:bg-brand/10">📣 Avisar</button>)}
-            {r?.enviada_at && <span className="px-2 py-1 rounded-lg border border-emerald-400/30 text-emerald-300">⭐ Reseña pedida {fecha(r.enviada_at)}</span>}
+            {r?.enviada_at && <span className="px-2 py-1 rounded-lg border border-emerald-400/30 text-emerald-300">{r.recordatorio ? '🔔 Recordatorio enviado' : '⭐ Reseña pedida'} {fecha(r.enviada_at)}</span>}
             {r && !r.enviada_at && !r.cancelada_at && r.programada_para && (
                 <span className="px-2 py-1 rounded-lg border border-white/15 text-white/60">
                     ⭐ Reseña el {new Date(r.programada_para).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -541,6 +541,11 @@ function EstadoPago({ f, admin, onAvisar, onCancelarResena }) {
             )}
             {r?.cancelada_at && <span className="px-2 py-1 rounded-lg border border-white/10 text-white/30">reseña cancelada</span>}
             {r?.error && !r.enviada_at && <span className="px-2 py-1 rounded-lg border border-red-400/30 text-red-300">⚠ reseña: {r.error}</span>}
+            {/* Lo que contesta el cliente en /cobro/:id/recibido (recepcionCobroService). La
+                reseña es lo que él DICE: Google no nos dice quién ha escrito cada una. */}
+            {p.recepcion?.estado === 'recibido' && <span className="px-2 py-1 rounded-lg border border-emerald-400/30 text-emerald-300">💶 Le ha llegado {fecha(p.recepcion.at)}</span>}
+            {p.recepcion?.estado === 'no_llegado' && <span className="px-2 py-1 rounded-lg border border-red-400/40 text-red-300 font-bold">⚠ Dice que NO le ha llegado ({fecha(p.recepcion.at)})</span>}
+            {p.resena_declarada_at && <span className="px-2 py-1 rounded-lg border border-amber-400/40 text-amber-300">⭐ Dice que dejó reseña {fecha(p.resena_declarada_at)}</span>}
         </div>
     );
 }

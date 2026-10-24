@@ -663,6 +663,94 @@ export function componerMensajeCartaPago({
     };
 }
 
+/**
+ * El RECORDATORIO que sale a los 2 días hábiles de la carta de pago (24/10/2026, Fran).
+ * Un flujo cerrado: ¿te ha llegado? → la reseña → tu documentación. FUENTE ÚNICA.
+ *
+ * REGLA — la reseña NO es la llave de los documentos. Pedir una reseña a cambio de
+ * algo lo prohíbe Google (puede borrarlas o penalizar la ficha) y los certificados
+ * son del cliente. El mensaje da primero (la confirmación y su espacio con la
+ * documentación para la Renta) y en el mismo sitio pide; la página pone la reseña
+ * ARRIBA y la documentación DEBAJO.
+ *
+ * @param {object} p
+ *   @param {string}  p.nombre   a quién se saluda (quien RECIBE el mensaje)
+ *   @param {number}  p.importe  lo transferido
+ *   @param {string}  p.enlace   la página «¿te ha llegado?» (/cobro/:id/recibido?token=)
+ *   @param {boolean} p.tercero  lo lee su persona de contacto, no el titular
+ *   @param {string}  p.titular  nombre del titular (con `tercero`)
+ */
+export function componerMensajeRecordatorioCobro({ nombre, importe, enlace, tercero = false, titular = null }) {
+    const hola = nombre ? `Hola, ${nombre}` : 'Hola';
+    const bono = tercero ? `el Bono CAE de ${titular || 'el titular'}` : 'tu Bono CAE';
+    const cifra = Number(importe) > 0 ? ` (${eurMsg(importe)})` : '';
+    const whatsapp = [
+        `${hola} 👋 ¿${tercero ? 'Os ha llegado' : 'Te ha llegado'} ya el ingreso de ${bono}${cifra}? Confírmanoslo con un toque aquí:`,
+        enlace,
+        '',
+        `Ahí mismo ${tercero ? 'tenéis' : 'tienes'} también ${tercero ? 'vuestro' : 'tu'} espacio con toda la documentación del expediente (certificados energéticos, etiqueta, facturas…), que ${tercero ? 'os' : 'te'} vendrá bien para la declaración de la Renta 📄`,
+    ].join('\n');
+    const email = [
+        `${hola}:`,
+        '',
+        `¿${tercero ? 'Os ha llegado' : 'Te ha llegado'} ya el ingreso de ${bono}${cifra}? Confírmanoslo con un toque en este enlace:`,
+        enlace,
+        '',
+        `En la misma página ${tercero ? 'tenéis' : 'tienes'} ${tercero ? 'vuestro' : 'tu'} espacio con toda la documentación del expediente: los certificados energéticos, la etiqueta, las facturas y la guía con los datos para la deducción en la Renta.`,
+        '',
+        'Un abrazo,',
+        'Fran Moya · BROKERGY',
+    ].join('\n');
+    return {
+        whatsapp,
+        email,
+        asunto: `¿${tercero ? 'Os ha llegado' : 'Te ha llegado'} el ingreso? · Tu documentación para la Renta`,
+    };
+}
+
+/**
+ * La petición de reseña de la página «¿te ha llegado?», con la idea de Fran
+ * (24/10/2026): hay muchas familias en su misma situación, esperando su ingreso;
+ * queremos que confíen en que, aunque se retrase, sale adelante, y su reseña es lo
+ * que hace que sigan confiando. Condensada a dos frases (24/10/2026) para el móvil.
+ * Sin emojis: la página los pinta con iconos propios. FUENTE ÚNICA (la página y el demo).
+ */
+export function textoPeticionResena({ tercero = false } = {}) {
+    return {
+        titulo: tercero ? '¿Nos ayudáis con una reseña?' : '¿Nos ayudas con una reseña?',
+        cuerpo: tercero
+            ? 'Muchas familias en vuestra misma situación están esperando su ingreso. Vuestra reseña es lo que más les ayuda a confiar en que, aunque se retrase, sale adelante, como el vuestro.'
+            : 'Muchas familias en tu misma situación están esperando su ingreso. Tu reseña es lo que más les ayuda a confiar en que, aunque se retrase, sale adelante, como el tuyo.',
+        boton: 'Dejar mi reseña en Google',
+        hecho: 'Ya la he dejado',
+        gracias: tercero ? 'Mil gracias. Nos ayudáis muchísimo.' : 'Mil gracias. Nos ayudas muchísimo.',
+        pie: tercero ? 'Os lleva menos de un minuto.' : 'Te lleva menos de un minuto.',
+    };
+}
+
+/**
+ * El aviso de la CAMPAÑA DE LA RENTA (marzo): «aquí tienes tus documentos». Va a
+ * quien tiene expediente con los certificados entregables; si aún no ha dejado
+ * reseña (por lo que nos ha dicho), se le pide de paso. FUENTE ÚNICA.
+ */
+export function componerMensajeCampanaRenta({ nombre, enlace, anio, conResena = false, enlaceResena = null, tercero = false }) {
+    const hola = nombre ? `Hola, ${nombre}` : 'Hola';
+    const a = Number(anio) || new Date().getFullYear() - 1;
+    const whatsapp = [
+        `${hola} 👋 Empieza la campaña de la Renta ${a} y ${tercero ? 'os' : 'te'} dejamos a mano toda la documentación de ${tercero ? 'vuestro' : 'tu'} expediente: los certificados energéticos, la etiqueta, las facturas y una guía con los datos exactos que pide Renta Web para la deducción por la reforma.`,
+        '',
+        `📄 ${enlace}`,
+        ...(conResena && enlaceResena ? [
+            '',
+            `Y si ${tercero ? 'estáis contentos' : 'estás contento'} con cómo lo llevamos, una reseña en Google nos ayuda muchísimo: ${enlaceResena}`,
+        ] : []),
+    ].join('\n');
+    return {
+        whatsapp,
+        asunto: `Tu documentación para la Renta ${a} · BROKERGY`,
+    };
+}
+
 // Palabras que en un nombre propio o una calle van en minúscula.
 const MINUSCULAS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en', 'a', 'al']);
 

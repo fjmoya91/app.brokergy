@@ -332,6 +332,18 @@ async function componerCtx(ctx, ajustes) {
     return { guia, html: guia.puede ? buildGuiaIrpfHtml(guia) : null };
 }
 
+/**
+ * La guía del PORTAL del cliente («Para tu Renta», 24/10/2026): la misma que se
+ * envía, compuesta con los ajustes GUARDADOS, sin escribir nada. Devuelve el
+ * resumen para la pantalla (`resumenRentaCliente`) y la guía.
+ */
+async function paraCliente(origen, id) {
+    const ctx = await cargarCtx(origen, id);
+    const { guia } = await componerCtx(ctx, ajustesDe(ctx, null));
+    const { resumenRentaCliente } = await logica();
+    return { guia, resumen: resumenRentaCliente(guia) };
+}
+
 // ─── Estado (lo que pinta el popup) ──────────────────────────────────────────
 
 /**
@@ -708,6 +720,6 @@ async function sellarGuiaEntregada(g, buffer, { canales = [], destinatario = {},
 }
 
 module.exports = {
-    estado, pdf, guardar, guardarAjustes, enviar, sanearAjustes, nombreGuia, CAMPO,
+    estado, pdf, paraCliente, guardar, guardarAjustes, enviar, sanearAjustes, nombreGuia, CAMPO,
     guiaDeEntrega, guiaDeEntregaPublica, pdfGuiaDeEntrega, sellarGuiaEntregada,
 };
