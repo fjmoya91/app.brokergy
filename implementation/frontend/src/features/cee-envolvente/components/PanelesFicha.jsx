@@ -142,18 +142,36 @@ export function PanelAdministrativos({ datos, fuente, puedeCliente = false,
                                        puedeTecnico = false,
                                        onGuardarCliente, onGuardarTecnico,
                                        version = null, terciario = false,
-                                       ce3x31Puestos = {}, onCambiarCe3x31 }) {
+                                       ce3x31Puestos = {}, onCambiarCe3x31,
+                                       obraExt = false }) {
     const a = datos?.ficha?.administrativos || {};
     const t = datos?.ficha?.tecnico;
     const v = (x) => x?.valor ?? null;
     //: El `de:` solo se enseña cuando NO es lo obvio: «ficha del cliente»
     //: repetido en siete filas es ruido, y lo que hay que ver es la excepción.
     const salvoObvio = (d) => (d && d !== 'ficha del cliente' ? d : null);
+    //: La obra de un certificador EXTERNO (app de certificadores, origen `ext`)
+    //: no tiene ficha de cliente ni de Prescriptores: el titular es de la obra y
+    //: el técnico es su perfil. Se dice dónde se corrige cada uno.
+    const pies = obraExt ? {
+        ventana: 'Salen de la obra y de Catastro. No queda una copia dentro del .cex: '
+                 + 'si algo no está bien, corrígelo en su sitio y vuelve a generarlo.',
+        cliente: 'El titular se corrige en la ficha de la obra.',
+        tecnico: 'Son los datos de tu perfil: se corrigen en «Perfil» y valen para todos tus certificados.',
+        sinTecnico: 'No constan los datos del técnico: completa tu perfil (nombre, NIF y titulación) '
+                    + 'para que salgan en el .cex, o ponlos después en CE3X.',
+    } : {
+        ventana: 'Salen del expediente y de Catastro. Lo que se edita aquí se guarda en la '
+                 + 'ficha del cliente y en la de Prescriptores, que es de donde lo lee todo '
+                 + 'lo demás: no queda una copia dentro del .cex.',
+        cliente: 'Se escribe en la ficha del cliente, la misma que abre el expediente.',
+        tecnico: 'Se escribe en su ficha de Prescriptores: vale para todos los certificados que '
+                 + 'firme, no solo para éste. Sin empresa declarada, la casilla «Razón social» la '
+                 + 'ocupa el nombre de su ficha — que es lo correcto en un autónomo.',
+        sinTecnico: null,
+    };
     return (
-        <Ventana titulo="Datos administrativos"
-                 pie="Salen del expediente y de Catastro. Lo que se edita aquí se guarda en la
-                      ficha del cliente y en la de Prescriptores, que es de donde lo lee todo
-                      lo demás: no queda una copia dentro del .cex.">
+        <Ventana titulo="Datos administrativos" pie={pies.ventana}>
             <Grupo titulo="Localización e identificación del edificio">
                 <Fila rotulo="Nombre del edificio" v={v(a.nombre_edificio)} ancho />
                 <Fila rotulo="Dirección" v={v(a.direccion)} ancho />
@@ -166,7 +184,7 @@ export function PanelAdministrativos({ datos, fuente, puedeCliente = false,
             <GrupoFicha titulo="Datos del cliente" campos={CLIENTE}
                         valores={fuente?.cliente} puede={puedeCliente}
                         onGuardar={onGuardarCliente}
-                        pie="Se escribe en la ficha del cliente, la misma que abre el expediente.">
+                        pie={pies.cliente}>
                 <Fila rotulo="Nombre o razón social" v={v(a.cliente_nombre)} ancho />
                 <Fila rotulo="Dirección" v={v(a.cliente_direccion)} ancho />
                 <Fila rotulo="Provincia" v={v(a.cliente_provincia)} />
@@ -185,10 +203,7 @@ export function PanelAdministrativos({ datos, fuente, puedeCliente = false,
             <GrupoFicha titulo="Datos del técnico certificador" campos={TECNICO}
                         valores={fuente?.tecnico} puede={puedeTecnico && !!t}
                         onGuardar={onGuardarTecnico}
-                        pie="Se escribe en su ficha de Prescriptores: vale para todos los
-                             certificados que firme, no solo para éste. Sin empresa declarada,
-                             la casilla «Razón social» la ocupa el nombre de su ficha — que es
-                             lo correcto en un autónomo.">
+                        pie={pies.tecnico}>
                 {t ? (
                     <>
                         <Fila rotulo="Nombre y apellidos" v={t.nombre} />
@@ -203,6 +218,8 @@ export function PanelAdministrativos({ datos, fuente, puedeCliente = false,
                         <Fila rotulo="E-mail" v={t.email} ancho />
                         <Fila rotulo="Titulación habilitante" v={t.titulacion} ancho />
                     </>
+                ) : pies.sinTecnico ? (
+                    <p className="text-[12px] text-amber-300/90">{pies.sinTecnico}</p>
                 ) : (
                     <p className="text-[12px] text-amber-300/90">
                         El expediente no tiene certificador asignado: el <code>.cex</code> sale

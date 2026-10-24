@@ -21,8 +21,9 @@
 //        Quién es el certificador y qué consta del agente en ese CEE.
 //
 // <clave> = nº del expediente (26RES060_186), de un CEE directo (2026CEE_55) o de
-// una oportunidad (26RES060_OP246); el negocio se deduce del formato y se puede
-// forzar con --origen cae|cee|op.
+// una oportunidad (26RES060_OP246) o de una obra de la app de certificadores
+// (2026EXT_3); el negocio se deduce del formato y se puede forzar con
+// --origen cae|cee|op|ext.
 // ============================================================================
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true });
 
@@ -40,12 +41,17 @@ function opt(nombre) {
     return sig && !sig.startsWith('--') ? sig : true;
 }
 
-/** De qué negocio es la clave. Mismo criterio que cee_inicial.js. */
+/**
+ * De qué negocio es la clave. Mismo criterio que cee_inicial.js: los patrones
+ * del MAPA de orígenes (`ORIGENES` de ceeEnvolventeCex), y `--origen` manda.
+ */
 function negocioDe(clave) {
+    const { ORIGENES, origenNorm } = require('../services/ceeEnvolventeCex');
     const o = opt('origen');
-    if (o && o !== true) return o;
-    if (/_OP\d+$/i.test(clave)) return 'op';
-    if (/^\d{4}CEE_\d+$/i.test(clave)) return 'cee';
+    if (o && o !== true) return origenNorm(o);
+    for (const m of Object.values(ORIGENES)) {
+        if (m.patron && m.patron.test(String(clave || '').trim())) return m.negocio;
+    }
     return 'cae';
 }
 const faseOpt = () => agenteIa.normFase(opt('fase') === true ? 'inicial' : (opt('fase') || 'inicial'));
@@ -116,7 +122,8 @@ async function estado() {
         console.log('\nUna OPORTUNIDAD no tiene certificador ni fases: mira `cola` cuando sea expediente.');
         return;
     }
-    const tabla = negocio === 'cee' ? 'cee_directos' : 'expedientes';
+    const tabla = require('../services/ceeEnvolventeCex').ORIGENES[negocio].tabla;
+    if (negocio === 'ext') console.log('\nOBRA de la app de certificadores: la firma su certificador; el agente solo le prepara el CEE.');
     const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(clave);
     const { data: f, error } = await supabase.from(tabla)
         .select('numero_expediente, estado, seguimiento, cert:cee->>certificador_id, agente_ia:cee->agente_ia')
@@ -124,8 +131,8 @@ async function estado() {
     if (error) throw new Error(error.message);
     if (!f) throw new Error(`No encuentro ${clave}.`);
     const ag = await agenteIa.agente();
-    let tecnico = '— sin asignar';
-    if (f.cert) {
+    let tecnico = negocio === 'ext' ? 'el de la cuenta de la app (externo)' : '— sin asignar';
+    if (f.cert && negocio !== 'ext') {
         const { data: p } = await supabase.from('prescriptores')
             .select('razon_social, es_agente_ia').eq('id_empresa', f.cert).maybeSingle();
         tecnico = p?.es_agente_ia ? '🤖 AGENTE IA' : (p?.razon_social || f.cert);

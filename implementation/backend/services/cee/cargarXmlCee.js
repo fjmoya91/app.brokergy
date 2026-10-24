@@ -58,8 +58,12 @@ async function cargarXmlEnApp(ctx, fase, xml,
         const r = await cargarCeeEnOportunidad(e.id, textoXml(xml), { fileName, escribir, forzar, precioCliente });
         return { ...r, oportunidad: true };
     }
-    const esCee = cex.esCeeDirecto(e) || ctx.origen === 'cee';
-    const tabla = esCee ? 'cee_directos' : 'expedientes';
+    //: De qué negocio es: lo dice la marca del expediente cargado y, si no trae
+    //: ninguna, el origen del ctx. Tabla y RPC salen del MAPA de orígenes
+    //: (`cex.ORIGENES`): aquí no se escribe el nombre de ninguna.
+    const o = cex.negocioDe(e) !== 'cae' ? cex.negocioDe(e) : cex.origenNorm(ctx.origen);
+    const ef = { ...e, ...cex.expedienteStub(o, e.id) };
+    const tabla = cex.tablaDe(o);
     const xmlTexto = textoXml(xml);
     const parsed = await previstoSrv.leerXml(xmlTexto);
     if (fileName) parsed._fileName = fileName;
@@ -85,7 +89,8 @@ async function cargarXmlEnApp(ctx, fase, xml,
     const num = e.numero_expediente || '';
     const esReforma = e.oportunidades?.ficha === 'RES080' || fila?.is_reforma || /RES080/i.test(num);
     let ajuste = {};
-    if (!esCee && !esReforma) {
+    //: Solo en el CAE: un CEE suelto (directo u obra de la app) no tiene ahorro CAE.
+    if (o === 'cae' && !esReforma) {
         const { ajusteAcsLitros } = await import(pathToFileURL(path.join(__dirname,
             '../../../frontend/src/features/expedientes/logic/demandaAcs.js')).href);
         ajuste = ajusteAcsLitros({ ...(fila || {}), [`cee_${fase}`]: parsed }) || {};
@@ -93,16 +98,14 @@ async function cargarXmlEnApp(ctx, fase, xml,
     const resumen = { campos: campos.map(([k]) => k), fechas: Object.fromEntries(fechas), ajuste };
     if (!escribir) return { cargado: false, omitido: 'en seco', parsed, ...resumen };
 
-    for (const [k, v] of campos) await cex.setCeeField(e, k, v);
+    for (const [k, v] of campos) await cex.setCeeField(ef, k, v);
     for (const [k, v] of fechas) {
-        await cex.setCeeField(e, k, v);
+        await cex.setCeeField(ef, k, v);
         //: Valor SUELTO por la RPC de clave: `merge_*_doc_json` vuelve lista una fecha.
-        const { error } = esCee
-            ? await supabase.rpc('set_cee_directo_doc_field', { p_id: e.id, p_field: k, p_value: v })
-            : await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: e.oportunidad_id, p_field: k, p_value: v });
-        if (error) throw new Error(`${k}: ${error.message}`);
+        try { await cex.setDocField(ef, k, v); }
+        catch (err) { throw new Error(`${k}: ${err.message}`); }
     }
-    for (const [k, v] of Object.entries(ajuste)) await cex.setCeeField(e, k, v);
+    for (const [k, v] of Object.entries(ajuste)) await cex.setCeeField(ef, k, v);
 
     const { data: bd } = await supabase.from(tabla)
         .select(`sup:cee->cee_${fase}->superficieHabitable, dem:cee->cee_${fase}->demandaCalefaccion,`

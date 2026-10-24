@@ -98,7 +98,7 @@ async function catalogoFinal(ctx, analisis, params = {}) {
     //: se importa de `medidasCe3x`, no se recompone aquí.
     try {
         const { medidasCe3x } = await cex.loadFichaCe3x();
-        const trabajo = await cex.leerTrabajo(ctx.expediente.id).catch(() => null);
+        const trabajo = await cex.leerTrabajo(ctx.expediente.id, cex.negocioDe(ctx.expediente)).catch(() => null);
         //: En la 3.1 y la 3.2 el autoconsumo va como «Generación renovable
         //: eléctrica», MES A MES: los meses salen de PVGIS (lo guardado en la
         //: barra ⚡, o se pregunta aquí; cacheado 30 días por sitio).
@@ -184,7 +184,7 @@ async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fecha
                                      version = null, cexBase = null } = {}) {
     const exp = ctx?.expediente;
     if (!exp) throw error(404, 'Expediente no encontrado');
-    if (cex.esCeeDirecto(exp) || cex.esOportunidad(exp)) {
+    if (cex.esExt(exp) || cex.esCeeDirecto(exp) || cex.esOportunidad(exp)) {
         throw error(422, 'El CEE final desde la medida del inicial es de los expedientes CAE.');
     }
     const ficha = fichaFromNumero(exp.numero_expediente) || 'RES060';

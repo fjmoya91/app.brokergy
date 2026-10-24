@@ -298,7 +298,13 @@ const TAREAS = {
         etiqueta: 'Generar el CEE inicial',
         que: 'el CEE inicial',
         incluye: 'el .cex del estado ANTES de la obra, desde las fotos o el vídeo de la vivienda; si falta material, el WhatsApp para pedirlo (en seco)',
-        instruccion: (n) => `Genera el CEE INICIAL de ${n} con la skill generar-cee-inicial (desde sus fotos o su vídeo). Lo que no se pueda saber no se inventa: si faltan fotos o datos, prepárame el WhatsApp para pedirlos, en seco.`,
+        // La OBRA de un certificador externo (app de certificadores, origen `ext`,
+        // nº `AAAAEXT_n`) se hace con la MISMA skill, pero ahí no hay propietario
+        // al que escribir: el titular es cliente del certificador, no nuestro.
+        //: El formato del número lo dice el MAPA de orígenes, no se repite aquí.
+        instruccion: (n) => (require('./ceeEnvolventeCex').ORIGENES.ext.patron.test(String(n || '').trim())
+            ? `Genera el CEE INICIAL de ${n} con la skill generar-cee-inicial. Es la OBRA de un CERTIFICADOR EXTERNO de la app de certificadores (origen ext), no un cliente de BROKERGY: el certificador lo firma y el titular es cliente suyo. NO se escribe a nadie de fuera (ni al titular ni al certificador, ni WhatsApp ni email): lo que falte o sea dudoso va al informe y se avisa al equipo. \`aplicar --escribir\` deja el .cex en «1. CEE» (con su .xml y su PDF si hay CE3X; si no, queda POR CALIFICAR y se califica en el PC con \`calificar --cola\`) y carga el XML en la obra; la entrega al certificador la hace la app.`
+            : `Genera el CEE INICIAL de ${n} con la skill generar-cee-inicial (desde sus fotos o su vídeo). Lo que no se pueda saber no se inventa: si faltan fotos o datos, prepárame el WhatsApp para pedirlos, en seco.`),
     },
     cee_final: {
         etiqueta: 'Generar el CEE final',

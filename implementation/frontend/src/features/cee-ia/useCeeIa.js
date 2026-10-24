@@ -6,8 +6,10 @@ import { esVivo } from './logic/ceeIa';
 const SONDEO_MS = 10_000;
 
 /**
- * @param {{ negocio: 'cae'|'cee'|'op', id: string|null, activo?: boolean }} p
+ * @param {{ negocio: 'cae'|'cee'|'op'|'ext', id: string|null, activo?: boolean }} p
  *   `activo` en false no pide nada (oportunidad sin guardar, certificador…).
+ *   `ext` = la obra de la app de certificadores: solo la pide el equipo interno
+ *   (la ruta es `staffOnly`); al certificador externo no se le enseña.
  */
 export function useCeeIa({ negocio, id, activo = true }) {
     const [estado, setEstado] = useState(null);

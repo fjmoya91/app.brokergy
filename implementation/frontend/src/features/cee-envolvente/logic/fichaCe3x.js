@@ -661,7 +661,11 @@ export function airesDelCliente(expediente) {
     } else if (q && (q.aire_acondicionado === true || q.aire_acondicionado === false)) {
         tiene = q.aire_acondicionado;
         num = Number(q.num_aires) || null;
-        de = 'lo que contestó el cliente al aceptar la oferta';
+        //: En la obra de un certificador externo (origen `ext`) el cuestionario
+        //: lo contesta él en la app, no el cliente al aceptar una oferta.
+        de = expediente?.es_ext
+            ? 'lo que contestó el certificador en el cuestionario de la obra'
+            : 'lo que contestó el cliente al aceptar la oferta';
     } else if (!directo) {
         const op = normalizarAiresOportunidad(expediente?.instalacion?.aires
             || expediente?.oportunidades?.datos_calculo?.inputs?.aires);

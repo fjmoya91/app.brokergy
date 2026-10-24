@@ -5,12 +5,13 @@ import { EnvolventeView } from './EnvolventeView';
 import { PestanasCe3x } from '../components/PestanasCe3x';
 import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
 import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
-import { esCeeDirecto, esOportunidad } from '../logic/apiEnvolvente';
+import { esCeeDirecto, esOportunidad, esExt, ORIGEN, ORIGEN_DESCONOCIDO } from '../logic/apiEnvolvente';
 import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
 import { useAuth } from '../../../context/AuthContext';
-import { getRoleFlags } from '../../../utils/roleFlags';
+import { quienMira } from '../logic/quienMira';
 import { ceeDirectoComoExpediente } from '../logic/ceeDirecto';
 import { oportunidadComoExpediente } from '../logic/oportunidad';
+import { certappObraComoExpediente } from '../logic/certappObra';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La envolvente en su PROPIA VENTANA (`/envolvente/:expedienteId`).
@@ -23,11 +24,43 @@ import { oportunidadComoExpediente } from '../logic/oportunidad';
 //
 // Es una ruta INTERNA, no pública: exige sesión igual que el expediente. Si se
 // abre sin sesión, sale el login de siempre y al entrar se aterriza aquí.
+//
+// La monta TAMBIÉN la app de certificadores (cee.brokergy.es,
+// `/obra/:id/envolvente?origen=ext`, `EnvolventeCertapp`) para la obra de un
+// certificador EXTERNO: la fila se ADAPTA (`certappObraComoExpediente`) y a él
+// no se le enseña nada interno de BROKERGY (`quienMira`). `volverA` lo pone
+// quien la monta allí: el enlace de vuelta a SU ficha de obra.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function EnvolventeVentana({ expedienteId }) {
+/**
+ * La obra de la app de certificadores. El certificador la pide por SU ruta
+ * (`/api/certapp/obras/:id`, lo ajeno es 404); un ADMIN de BROKERGY sin cuenta de
+ * certificador —o mirando la obra de otro— no pasa ese guardián y entra por la
+ * del admin.
+ */
+async function cargarObraExt(obraId, esStaff) {
+    const id = encodeURIComponent(obraId);
+    try {
+        const { data } = await axios.get(`/api/certapp/obras/${id}`);
+        if (data?.obra) return data.obra;
+        throw Object.assign(new Error('La respuesta no trae la obra.'), { sinObra: true });
+    } catch (e) {
+        const st = e.response?.status;
+        if (!esStaff || !(st === 403 || st === 404)) throw e;
+        const { data } = await axios.get(`/api/certapp-admin/obras/${id}`);
+        const obra = data?.obra || (data?.id ? data : null);
+        if (!obra) throw e;
+        return obra;
+    }
+}
+
+export function EnvolventeVentana({ expedienteId, volverA = null }) {
     const [expediente, setExpediente] = useState(null);
-    const [error, setError] = useState(null);
+    //: Con un `?origen=` que no se conoce no se carga NADA (`apiEnvolvente.js`):
+    //: tomarlo por el CAE escribiría el trabajo en otro negocio.
+    const [error, setError] = useState(() => (ORIGEN ? null
+        : `Esta ventana se ha abierto con un origen que no se conoce («${ORIGEN_DESCONOCIDO}»). `
+          + 'Vuelve a abrirla desde el botón CE3X de su ficha.'));
     const [aviso, setAviso] = useState(null);
     // Los apartados de CE3X y a dónde lleva cada uno. Se pintan aquí —pegados a
     // la cabecera, como en CE3X— pero lo que dicen y lo que hacen solo se sabe
@@ -37,8 +70,10 @@ export function EnvolventeVentana({ expedienteId }) {
     //: La carpeta LOCAL es del equipo interno: su ruta la sirve una ruta
     //: `staffOnly` y al CERTIFICADOR no se le ofrece (le daria un 403 y ademas
     //: no es su sitio — el trabaja contra la carpeta que se le comparte).
+    //: En la app de certificadores `useAuth()` lo da `EnvolventeCertapp`, con
+    //: un usuario compatible: el certificador externo no es ningún rol del CRM.
     const { user } = useAuth();
-    const { isStaff: esStaff, isAdmin: esAdmin } = getRoleFlags(user);
+    const { isStaff: esStaff, isAdmin: esAdmin, veInterno } = quienMira(user);
 
     // Lo que MIDE la cabecera pegajosa (cabecera + barra de apartados). Lo que
     // se pega debajo —el panel de la pared— lo lee de `--alto-cabecera` en vez
@@ -85,6 +120,20 @@ export function EnvolventeVentana({ expedienteId }) {
     // saldrían de sitios distintos.
     useEffect(() => {
         let vivo = true;
+        if (!ORIGEN) return undefined;
+        // La OBRA de un certificador externo (app de certificadores): un CEE
+        // suelto de alcance único, adaptado con el MISMO adaptador que usa el
+        // backend para componer el `.cex`.
+        if (esExt) {
+            cargarObraExt(expedienteId, esStaff)
+                .then(obra => { if (vivo) setExpediente(certappObraComoExpediente(obra)); })
+                .catch(e => {
+                    if (vivo) setError(e.response?.status === 404
+                        ? 'Esa obra no existe o no es tuya.'
+                        : (e.response?.data?.error || 'No se ha podido abrir la obra.'));
+                });
+            return () => { vivo = false; };
+        }
         // Una OPORTUNIDAD (se abre desde la calculadora). Si ya se aceptó, su
         // envolvente vive en el EXPEDIENTE —se le volcó al nacer— y esta ventana
         // salta allí: seguir escribiendo en la oportunidad dejaría dos
@@ -121,15 +170,18 @@ export function EnvolventeVentana({ expedienteId }) {
                     : (e.response?.data?.error || 'No se ha podido abrir el expediente.'));
             });
         return () => { vivo = false; };
-    }, [expedienteId]);
+    }, [expedienteId, esStaff]);
 
     // El título de la pestaña dice DE QUÉ expediente es: con dos o tres
     // abiertas, «BROKERGY» en todas no distingue ninguna.
     useEffect(() => {
+        //: En la app de certificadores se deja el título que tenía (es otra app,
+        //: con su nombre); en el CRM, el de siempre.
+        const antes = document.title;
         if (expediente?.numero_expediente) {
             document.title = `Envolvente · ${expediente.numero_expediente}`;
         }
-        return () => { document.title = 'BROKERGY · Ingeniería Energética'; };
+        return () => { document.title = esExt ? antes : 'BROKERGY · Ingeniería Energética'; };
     }, [expediente]);
 
     // El icono de la pestaña, también el de CE3X: con el expediente abierto en
@@ -154,7 +206,7 @@ export function EnvolventeVentana({ expedienteId }) {
         return (
             <Centro>
                 <p className="animate-pulse text-xs font-bold uppercase tracking-widest text-brand">
-                    Cargando el expediente…
+                    {esExt ? 'Cargando la obra…' : 'Cargando el expediente…'}
                 </p>
             </Centro>
         );
@@ -250,8 +302,10 @@ export function EnvolventeVentana({ expedienteId }) {
                         sidebar: para ver la app en claro había que salir. Y es
                         justo aquí donde se mira el contraste, con el plano
                         delante. */}
-                    {/* La de una oportunidad la sirve una ruta de ADMIN. */}
-                    {esStaff && (!esOportunidad || esAdmin) && (
+                    {/* La de una oportunidad la sirve una ruta de ADMIN. La obra de
+                        un certificador externo no tiene carpeta local (su Drive
+                        es SUYO, compartido con su email). */}
+                    {veInterno && !esExt && (!esOportunidad || esAdmin) && (
                         <button onClick={irALaCarpeta} disabled={abriendo}
                                 title="Abrir en el Explorador la carpeta de este expediente"
                                 className="shrink-0 rounded-lg border border-white/10 px-3 py-2
@@ -261,11 +315,24 @@ export function EnvolventeVentana({ expedienteId }) {
                             {abriendo ? 'Abriendo…' : '📁 Carpeta local'}
                         </button>
                     )}
-                    <ThemeToggle collapsed className="!h-9 !w-9" />
-                    {/* ⚠ El deep-link de un CEE directo es `?cee=`, no `?exp=`:
+                    {/* La app de certificadores va SIEMPRE en claro (estilo
+                        «carta de pago», `certificadores.html`) y no monta el
+                        proveedor del tema: el botón no haría nada. */}
+                    {!esExt && <ThemeToggle collapsed className="!h-9 !w-9" />}
+                    {/* En la app de certificadores, de vuelta a SU ficha de obra
+                        (lo decide quien monta la ventana allí); nunca al CRM. */}
+                    {esExt ? (volverA?.href && (
+                        <a href={volverA.href}
+                           className="shrink-0 rounded-lg border border-white/10
+                                      px-3 py-2 text-[10px] font-black uppercase tracking-widest
+                                      text-white/45 hover:border-white/30 hover:text-white">
+                            {volverA.texto || '← Volver a la obra'}
+                        </a>
+                    )) : (
+                    /* ⚠ El deep-link de un CEE directo es `?cee=`, no `?exp=`:
                         son dos tablas y el mismo UUID no vale en las dos, así
                         que el enlace equivocado no lleva a otro expediente —
-                        no lleva a ninguno. */}
+                        no lleva a ninguno. */
                     <a href={esOportunidad
                                 ? `/?op=${encodeURIComponent(expediente.id_oportunidad || expedienteId)}`
                                 : esCeeDirecto
@@ -277,6 +344,7 @@ export function EnvolventeVentana({ expedienteId }) {
                         {esOportunidad ? 'Ver la oportunidad ↗'
                             : esCeeDirecto ? 'Ver el encargo ↗' : 'Ver el expediente ↗'}
                     </a>
+                    )}
                 </header>
                 <PestanasCe3x {...(barra || {})} />
             </div>
@@ -293,6 +361,18 @@ export function EnvolventeVentana({ expedienteId }) {
                         donde lo dejes. El <b>.cex</b> ya se puede generar: sale con el número
                         de la oportunidad y sin técnico, y al aceptarla se regenera desde el
                         expediente.
+                    </div>
+                )}
+                {/* La obra de un certificador externo: la envolvente es la
+                    RECETA del .cex, y lo que se toque a mano en CE3X se queda
+                    en el fichero (docs/conocimiento/certificadores-app). */}
+                {esExt && (
+                    <div className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10
+                                    px-4 py-3 text-[12px] leading-snug text-amber-100">
+                        <b>Lo que cambies a mano en el .cex con CE3X no vuelve a esta ventana.</b>{' '}
+                        Si algo no está bien, corrígelo aquí —las paredes, las ventanas, las
+                        instalaciones— y vuelve a generar el .cex: si lo corriges solo en CE3X,
+                        al generarlo de nuevo desde aquí se pierde.
                     </div>
                 )}
                 <EnvolventeView expediente={expediente} onAviso={setAviso}

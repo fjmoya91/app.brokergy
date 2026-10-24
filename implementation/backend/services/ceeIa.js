@@ -42,7 +42,9 @@ const COLUMNAS = 'id, negocio, ref_id, clave, fase, estado, modelo, esfuerzo, to
     + 'pedido_at, tomado_at, equipo, latido_at, terminado_at, cancelar, cancelado_por, progreso, resultado, error';
 
 const esUuid = (v) => /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(v || ''));
-const NEGOCIOS = ['cae', 'cee', 'op'];
+//: 'ext' = la OBRA de un certificador externo (app de certificadores): la pide
+//: services/certapp/ia.js por esta misma cola. Su tabla, por el mapa de orígenes.
+const NEGOCIOS = ['cae', 'cee', 'op', 'ext'];
 
 function fallo(status, error, extra = {}) {
     return Object.assign(new Error(error), { status, extra });
@@ -111,15 +113,20 @@ async function filaDe(negocio, id) {
         return { negocio, ref_id: data.id, clave: data.id_oportunidad, sello: data.sello || null, ag: null,
                  subestado: null, expediente: exp || null };
     }
-    const tabla = negocio === 'cee' ? 'cee_directos' : 'expedientes';
-    const { data, error } = await supabase.from(tabla)
+    // CAE, CEE directo y obra externa: la tabla y la clave las dice el MAPA de
+    // orígenes (ceeEnvolventeCex.ORIGENES), nunca se repiten aquí.
+    const m = require('./ceeEnvolventeCex').ORIGENES[negocio];
+    const ext = negocio === 'ext';
+    const { data, error } = await supabase.from(m.tabla)
         .select('id, numero_expediente, sub:seguimiento->>cee_inicial, '
-                + 'sello:cee->cex_sello->inicial, ag:cee->agente_ia->inicial')
-        .eq(esUuid(id) ? 'id' : 'numero_expediente', id).maybeSingle();
-    if (error) throw fallo(503, 'No se puede leer el expediente ahora mismo.');
-    if (!data) throw fallo(404, 'No encuentro ese expediente.');
+                + 'sello:cee->cex_sello->inicial, ag:cee->agente_ia->inicial'
+                + (ext ? ', estado' : ''))
+        .eq(esUuid(id) ? 'id' : m.clave, id).maybeSingle();
+    if (error) throw fallo(503, ext ? 'No se puede leer la obra ahora mismo.' : 'No se puede leer el expediente ahora mismo.');
+    if (!data) throw fallo(404, ext ? 'No encuentro esa obra.' : 'No encuentro ese expediente.');
     return { negocio, ref_id: data.id, clave: data.numero_expediente, sello: data.sello || null,
-             ag: data.ag || null, subestado: data.sub ? String(data.sub).toUpperCase() : null, expediente: null };
+             ag: data.ag || null, subestado: data.sub ? String(data.sub).toUpperCase() : null, expediente: null,
+             ...(ext ? { obraEstado: data.estado || null } : {}) };
 }
 
 async function ultimoTrabajo(negocio, refId, fase = 'inicial') {
@@ -174,13 +181,18 @@ async function cerrarSiYaEsta(t, ia) {
 }
 
 /** El texto del encargo: lo compone el SERVIDOR, el mismo que el del asistente de la app. */
-function textoEncargo({ clave, usuario, rehacer }) {
+function textoEncargo({ clave, usuario, rehacer, negocio = null }) {
     const { TAREAS } = require('./asistenteApp');
+    // La obra de un certificador externo: ni es un cliente nuestro ni hay a
+    // quién escribirle; lo que falte va al informe (TAREAS.cee_inicial lo dice).
+    const ext = negocio === 'ext';
     return [
-        `Encargo desde el BOTÓN CE3X de la app («Generar con IA»): lo pide ${usuario || 'alguien del equipo'}.`,
+        ext ? `Encargo de la APP DE CERTIFICADORES: lo pide ${usuario || 'un certificador externo'}.`
+            : `Encargo desde el BOTÓN CE3X de la app («Generar con IA»): lo pide ${usuario || 'alguien del equipo'}.`,
         TAREAS.cee_inicial.instruccion(clave),
         rehacer ? 'Ya había un CEE inicial hecho por la IA y se pide REHACERLO: el anterior va a OLD.' : '',
-        'Al acabar, cuéntalo por aquí. Lo dudoso se pregunta, y nada sale a terceros sin el «sí» de Fran.',
+        ext ? 'Al acabar, cuéntalo por aquí. Lo dudoso va al informe, y a terceros no sale NADA (ni al titular ni al certificador).'
+            : 'Al acabar, cuéntalo por aquí. Lo dudoso se pregunta, y nada sale a terceros sin el «sí» de Fran.',
     ].filter(Boolean).join(' ');
 }
 
@@ -199,6 +211,9 @@ async function pedir({ negocio, id, usuario, rehacer = false, fase = 'inicial' }
     }
     if (f.subestado === 'REGISTRADO') {
         throw fallo(409, 'El CEE inicial ya está REGISTRADO: no se vuelve a generar.', { code: 'REGISTRADO' });
+    }
+    if (f.negocio === 'ext' && f.obraEstado === 'ARCHIVADA') {
+        throw fallo(409, 'Esa obra está ARCHIVADA: no se genera su CEE.', { code: 'ARCHIVADA' });
     }
     const vivo = await ultimoTrabajo(f.negocio, f.ref_id);
     if (vivo && VIVOS.includes(vivo.estado) && !atascado(vivo)) {
@@ -233,9 +248,11 @@ async function pedir({ negocio, id, usuario, rehacer = false, fase = 'inicial' }
     }
     if (!porWhatsapp) return data;
     const r = await require('./asistenteCanal').pedirTarea({
-        texto: textoEncargo({ clave: f.clave, usuario, rehacer: data.rehacer }),
+        texto: textoEncargo({ clave: f.clave, usuario, rehacer: data.rehacer, negocio: f.negocio }),
         clave: `ce3x:${f.clave}:cee_inicial`,
-        acuse: `Me pongo con el CEE inicial de ${f.clave} (me lo han pedido con el botón CE3X de la app). Te aviso cuando esté listo.`,
+        acuse: f.negocio === 'ext'
+            ? `Me pongo con el CEE inicial de ${f.clave} (obra de la app de certificadores). Te aviso cuando esté listo.`
+            : `Me pongo con el CEE inicial de ${f.clave} (me lo han pedido con el botón CE3X de la app). Te aviso cuando esté listo.`,
     });
     if (!r.ok) {
         await supabase.from('cee_ia_trabajos')

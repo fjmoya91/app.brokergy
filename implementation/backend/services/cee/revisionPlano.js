@@ -50,7 +50,9 @@ function limpiarCambios(lista) {
  * cambiado y lo que NO puede hacer.
  */
 function textoParaClaude({ numero, origen, fase, nota, cambios, por = '' }) {
-    const que = origen === 'op' ? `de la oportunidad ${numero}` : `del expediente ${numero}`;
+    const que = origen === 'op' ? `de la oportunidad ${numero}`
+        : origen === 'ext' ? `de la obra ${numero} (app de certificadores: es de un certificador externo, no se escribe a terceros)`
+        : `del expediente ${numero}`;
     const quien = por && !/^(sistema|equipo|administrador)$/i.test(por) ? ` (lo ha hecho ${por})` : '';
     const lineas = [
         `Se ha corregido a mano el plano de la envolvente ${que} (CEE ${fase}) en la PIZARRA de la app`
@@ -80,12 +82,18 @@ async function filaOportunidad(clave) {
     return data || null;
 }
 
-async function filaCee(tabla, clave) {
-    const { data } = await supabase.from(tabla)
-        .select('id, numero_expediente, rev:cee->envolvente_revision, agente_ia:cee->agente_ia')
-        .eq(esUuid(clave) ? 'id' : 'numero_expediente', clave).maybeSingle();
+//: La fila de un negocio con `cee` propio (CAE, CEE directo, obra de la app de
+//: certificadores): tabla y columna, del mapa de orígenes. Solo dos claves de
+//: `cee` (regla 22).
+async function filaCee(origen, clave) {
+    const m = cex.ORIGENES[origen];
+    const { data } = await supabase.from(m.tabla)
+        .select(`id, numero_expediente:${m.clave}, rev:cee->envolvente_revision, agente_ia:cee->agente_ia`)
+        .eq(esUuid(clave) ? 'id' : m.clave, clave).maybeSingle();
     return data || null;
 }
+
+const filaDe = (o, clave) => (o === 'op' ? filaOportunidad(clave) : filaCee(o, clave));
 
 /** Una línea en el historial del negocio que toque. Nunca lanza. */
 async function anotar(origen, id, texto, por) {
@@ -104,6 +112,9 @@ async function anotar(origen, id, texto, por) {
                 .update({ datos_calculo: { ...dc, historial: hist } }).eq('id', id);
             return;
         }
+        //: La obra de un certificador externo no tiene historial de BROKERGY: la
+        //: revisión queda sellada en su `cee` y nada más.
+        if (origen === 'ext') return;
         if (origen === 'cee') {
             await require('../ceeDirectoService').anotarHistorial(id, {
                 tipo: 'COMENTARIO', usuario: por || 'Sistema', texto: texto.toUpperCase() });
@@ -130,10 +141,10 @@ async function registrar({ clave, origen = 'cae', fase = 'inicial', nota = '', c
                            por = '', avisarClaude = false }) {
     const o = cex.origenNorm(origen);
     const f = String(fase || '').toLowerCase() === 'final' ? 'final' : 'inicial';
-    const fila = o === 'op' ? await filaOportunidad(clave)
-        : await filaCee(o === 'cee' ? 'cee_directos' : 'expedientes', clave);
+    const fila = await filaDe(o, clave);
     if (!fila) {
-        const e = new Error(o === 'op' ? 'Esa oportunidad no existe.' : 'Ese expediente no existe.');
+        const e = new Error(o === 'op' ? 'Esa oportunidad no existe.'
+            : o === 'ext' ? 'Esa obra no existe.' : 'Ese expediente no existe.');
         e.status = 404;
         throw e;
     }
@@ -175,7 +186,7 @@ async function registrar({ clave, origen = 'cae', fase = 'inicial', nota = '', c
     }
 
     // 1. El sello.
-    const stub = { id: fila.id, es_cee_directo: o === 'cee', es_oportunidad: o === 'op' };
+    const stub = cex.expedienteStub(o, fila.id);
     await cex.setCeeField(stub, CAMPO, revision);
 
     // 2. El historial.
@@ -211,10 +222,9 @@ async function registrar({ clave, origen = 'cae', fase = 'inicial', nota = '', c
 async function marcarRehecho({ clave, origen = 'cae', fichero = null }) {
     try {
         const o = cex.origenNorm(origen);
-        const fila = o === 'op' ? await filaOportunidad(clave)
-            : await filaCee(o === 'cee' ? 'cee_directos' : 'expedientes', clave);
+        const fila = await filaDe(o, clave);
         if (!fila?.rev) return false;
-        const stub = { id: fila.id, es_cee_directo: o === 'cee', es_oportunidad: o === 'op' };
+        const stub = cex.expedienteStub(o, fila.id);
         await cex.setCeeField(stub, CAMPO, { ...fila.rev, estado: 'REHECHO',
                                              rehecho_at: new Date().toISOString(),
                                              ...(fichero ? { fichero: recortar(fichero, 200) } : {}) });
@@ -228,8 +238,7 @@ async function marcarRehecho({ clave, origen = 'cae', fichero = null }) {
 /** La revisión vigente de un expediente, para quien la lea (la skill). */
 async function leer({ clave, origen = 'cae' }) {
     const o = cex.origenNorm(origen);
-    const fila = o === 'op' ? await filaOportunidad(clave)
-        : await filaCee(o === 'cee' ? 'cee_directos' : 'expedientes', clave);
+    const fila = await filaDe(o, clave);
     return fila?.rev || null;
 }
 

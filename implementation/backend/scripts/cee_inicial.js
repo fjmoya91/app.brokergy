@@ -69,8 +69,20 @@
 // con su «sí»). Los fotogramas entran en el plan como `frame:H3`.
 //
 // <clave> = el nº de la oportunidad (26RES060_OP246), el del expediente
-// (26RES060_186) o el de un CEE directo (2026CEE_55); el origen se deduce del
-// formato y se puede forzar con --origen op|cae|cee.
+// (26RES060_186), el de un CEE directo (2026CEE_55) o el de la OBRA de un
+// certificador externo de la app de certificadores (2026EXT_3); el origen se
+// deduce del formato y se puede forzar con --origen op|cae|cee|ext.
+//
+// La OBRA EXTERNA (origen `ext`) es un CEE suelto de alcance ÚNICO cuyo
+// certificador es de FUERA: lo firma él (sus datos de la cuenta de la app) y el
+// titular es cliente SUYO. Por eso en ext no sale NADA a terceros —ni WhatsApp
+// al propietario, ni enlace de subida por WhatsApp, ni entrega de CEE directos
+// ni factura—: lo que falte va al informe y se avisa al equipo; `listo` deja los
+// ficheros en «1. CEE» y carga el XML en la obra, y la entrega la hace la app
+// (`certapp/entrega.alTerminarIa`, que solo se llama con el `.cex` CALIFICADO:
+// sin .xml ni PDF se avisa al equipo de que falta calificarlo en el PC).
+// `pedir-fotos` en ext no escribe a nadie (ni con --enviar): imprime las paredes
+// y el enlace de subida de la app (`CERTAPP_URL/subir/:id?token=`) para el informe.
 //
 // REGLAS (las mismas de la app; ver CLAUDE.md, «Generar el CEE inicial»):
 //   · Todo sale por las MISMAS funciones que la ventana de la envolvente
@@ -133,14 +145,25 @@ const revisionPlano = require('../services/cee/revisionPlano');
 const { cargarXmlEnApp, lineasCarga } = require('../services/cee/cargarXmlCee');
 const { respetarLoDibujado, medirHuecos } = require('../utils/loDibujadoAMano');
 
-/** De qué negocio es la clave. Se deduce del formato; `--origen` manda. */
+/**
+ * De qué negocio es la clave. Se deduce del formato (los patrones son los del
+ * MAPA de orígenes, `cex.ORIGENES`); `--origen` manda, y uno desconocido es un
+ * error, nunca el CAE.
+ */
+//: El origen que trae cada fila de la cola (`calificar --cola`): manda sobre el
+//: formato y sobre `--origen`, porque es la tabla de la que salió la fila.
+let ORIGEN_FORZADO = null;
 function origenDe(clave) {
+    if (ORIGEN_FORZADO) return ORIGEN_FORZADO;
     const o = opt('origen');
-    if (o && o !== true) return o;
-    if (/_OP\d+$/i.test(clave)) return 'op';
-    if (/^\d{4}CEE_\d+$/i.test(clave)) return 'cee';
+    if (o && o !== true) return cex.origenNorm(o);
+    for (const m of Object.values(cex.ORIGENES)) {
+        if (m.patron && m.patron.test(String(clave || '').trim())) return m.negocio;
+    }
     return 'cae';
 }
+/** ¿Es la OBRA de un certificador externo (app de certificadores)? */
+const esExtCtx = (ctx) => ctx?.origen === 'ext';
 
 const esm = f => import(pathToFileURL(path.join(FRONT, f)).href);
 const kb = n => `${Math.round((n || 0) / 1024)} KB`;
@@ -395,8 +418,22 @@ async function estado() {
     // El título de la sesión de Claude: «{nº} - {CLIENTE}», como la cabecera de
     // la ficha. Así se sabe de qué obra es cada conversación.
     console.log(`  título de la sesión: ${e.numero_expediente}${titular ? ` - ${titular.toUpperCase()}` : ''}`);
-    console.log(`  RC: ${rcDe(ctx) || '— NO TIENE'} · zona ${inp.zona || e.zona_climatica || '—'} · año ${inp.anio || '—'}`);
+    if (esExtCtx(ctx)) {
+        // La OBRA de un certificador externo: él firma y el titular es cliente SUYO.
+        const c = ctx.cuenta;
+        console.log(`  OBRA DE LA APP DE CERTIFICADORES · certificador: ${c ? `${[c.nombre, c.apellidos].filter(Boolean).join(' ') || '—'}`
+            + `${c.empresa ? ` · ${c.empresa}` : ''}${c.email ? ` (${c.email})` : ''}` : '— SIN CUENTA'}`);
+        console.log('  ⚠ NO se escribe a nadie de fuera (ni al titular ni al certificador): lo que falte va al informe y se avisa al equipo.');
+    }
+    console.log(`  RC: ${rcDe(ctx) || '— NO TIENE'} · zona ${inp.zona || e.zona_climatica || '—'} · año ${inp.anio || e.anio_construccion || '—'}`);
     console.log(`  carpeta de Drive: ${ctx.driveFolderId || '— NO TIENE (no hay dónde dejar el .cex)'}`);
+    // Lo que declaró el certificador en el CUESTIONARIO de la app (fuente única:
+    // `resumenCuestionario` de src/certificadores/logic/cuestionario.js).
+    if (esExtCtx(ctx)) {
+        const texto = String(ctx.cuestionario?.texto || '').trim();
+        console.log(`  cuestionario del certificador: ${texto ? '' : '— SIN CONTESTAR'}`);
+        for (const l of texto ? texto.split('\n') : []) console.log(`    ${l}`);
+    }
     console.log(`  caldera: ${inst.caldera_antigua_cal?.rendimiento_id || '—'} · combustible ${inp.fuelType || '—'}`
                 + ` · potencia ${inst.potencia_caldera_kw || inst.potencia_caldera || inp.potenciaCaldera || '— sin declarar'}`);
     console.log(`  ACS actual: ${inp.boilerAcsType || '—'} · ¿la obra cambia el ACS? ${inp.changeAcs ? 'sí' : 'no'}`);
@@ -416,7 +453,7 @@ async function estado() {
     } else console.log('  trabajo guardado: NINGUNO (envolvente sin empezar)');
     // Para MIRAR no se crea ni se hace pública ninguna carpeta (`carpetaFase` lo
     // hace, y es lo correcto al generar, no aquí). Mismo criterio que la revisión.
-    if (ctx.driveFolderId && ctx.origen !== 'cee') {
+    if (ctx.driveFolderId && !cex.esCeeDirecto(ctx.expediente)) {
         const raiz = await driveService.findSubfolderByName(ctx.driveFolderId, '1. CEE');
         const ini = raiz && await driveService.findSubfolderByName(raiz, 'CEE INICIAL');
         const cexs = ini ? (await driveService.listFiles(ini) || [])
@@ -428,8 +465,41 @@ async function estado() {
 
 // ─── placas ─────────────────────────────────────────────────────────────────
 
+/**
+ * La placa de la caldera de una OBRA EXTERNA: el certificador la sube al apartado
+ * `FOTO_PLACA_CALDERA` de la app (en el CAE es `FOTO_PLACA_CALDERA_ANTES` de
+ * «12. DOCUMENTOS PARA CEE»). Se lee con el MISMO lector pasándole esas fotos, y
+ * NO se escribe en ningún sitio: una obra no tiene `instalacion` ni aerotermia
+ * nueva; lo leído es para el plan (el equipo existente se declara en él).
+ */
+const COMBUSTIBLE_CUESTIONARIO = { gas: 'gas_natural', glp: 'glp', gasoleo: 'gasoleo', biomasa: 'pellets',
+                                   carbon: 'carbon', electrica: 'electricidad' };
+async function placasExt(ctx) {
+    const e = ctx.expediente;
+    const cal = e.cuestionario?.calefaccion || e.documentacion?.cuestionario?.calefaccion || null;
+    const combustible = COMBUSTIBLE_CUESTIONARIO[cal] || null;
+    const lista = (e.documentacion?.reforma_uploads?.FOTO_PLACA_CALDERA || [])
+        .filter(f => f?.driveId && /^image\//.test(f.mimeType || f.mime || 'image/'));
+    console.log(`\nCALDERA (obra de la app · cuestionario: ${cal || '— sin declarar'} → combustible ${combustible || '—'})`);
+    if (!lista.length) {
+        console.log('  Sin fotos en el apartado «Placa de la caldera» de la obra: el equipo existente se declara con el cuestionario.');
+        return;
+    }
+    const ficheros = [];
+    for (const f of lista.slice(0, 3)) {
+        const buf = await driveService.getFileContent(f.driveId).catch(() => null);
+        if (buf?.length) ficheros.push({ buffer: buf, mimetype: f.mimeType || f.mime || 'image/jpeg', originalname: f.name || f.nombre || f.driveId });
+    }
+    if (!ficheros.length) { console.log('  Las fotos de la placa no se pueden bajar de Drive.'); return; }
+    const c = await placaOcr.leerPlacaCaldera(ficheros, { combustible });
+    console.log(JSON.stringify({ leido: c.leido, potencia_kw: c.potencia_kw, base: c.potencia_base,
+                                 fotos: ficheros.map(f => f.originalname), avisos: c.avisos }, null, 1));
+    console.log('\nNo se escribe nada (una obra no tiene Instalación). Lo leído va al PLAN, comprobado contra la FOTO.');
+}
+
 async function placas() {
     const ctx = await cargar(POS[0]);
+    if (esExtCtx(ctx)) return placasExt(ctx);
     const inst = ctx.expediente.instalacion || {};
     const combustible = placaOcr.combustibleDeclarado(inst, inputsDe(ctx));
     console.log(`\nCALDERA (combustible declarado: ${combustible || '— sin declarar'})`);
@@ -507,7 +577,7 @@ async function fotos() {
     // En un CEE directo la documentación vive en «4. DOCUMENTACIÓN PARA CEE»
     // (no hay obra ni slots `FOTO_*`): la misma carpeta que mira `candidatas`.
     const raiz = ctx.driveFolderId;
-    const subNombre = ctx.origen === 'cee' ? '4. DOCUMENTACIÓN PARA CEE' : placaOcr.SUBCARPETA_DOCS;
+    const subNombre = cex.esCeeDirecto(ctx.expediente) ? '4. DOCUMENTACIÓN PARA CEE' : placaOcr.SUBCARPETA_DOCS;
     const sub = raiz && await driveService.findSubfolderByName(raiz, subNombre);
     const todas = sub ? (await driveService.listFiles(sub) || [])
         .filter(f => /^image\//.test(f.mimeType || '')) : [];
@@ -1700,7 +1770,14 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     //: `ajustes.fechas_informe`, 2026-10-15): la ventana las lee igual y
     //: regenerar desde ella no deja el `.cex` sin técnico ni sin fechas. Al
     //: CALIFICAR en el PC (`_calificar`) no se estrena nada: manda lo guardado.
-    const tecnicoPlan = 'tecnico' in plan
+    //: En una OBRA EXTERNA firma SU certificador (la cuenta de la app, que ya
+    //: trae `ctx.certificador`): ni el de por defecto ni el del plan, y nada de
+    //: `tecnico_cex` en su receta.
+    if (esExtCtx(ctx)) {
+        if (plan.tecnico) avisos.push('Obra de la app de certificadores: el «tecnico» del plan NO se usa (firma el certificador de la obra).');
+        if (!ctx.certificador) avisos.push('La obra no tiene la cuenta de su certificador: el .cex sale SIN los datos del técnico.');
+    }
+    const tecnicoPlan = esExtCtx(ctx) ? null : 'tecnico' in plan
         ? (plan.tecnico === false || plan.tecnico === null ? null : plan.tecnico)
         : (ajustes.tecnico_cex || (plan._calificar ? null : TECNICO_POR_DEFECTO));
     if (tecnicoPlan) ajustes.tecnico_cex = String(tecnicoPlan);
@@ -2067,7 +2144,12 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         if (incompleto) {
             avisos.push(`⛔ CERTIFICADO INCOMPLETO: no se avisa ni se da por terminado. ${incompleto.join(' · ')}`);
             process.exitCode = 1;
-        } else if (!plan._calificar) await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial', decisiones);
+        } else if (!plan._calificar) {
+            // En una obra EXTERNA, sin calificar (sin .xml ni PDF) la app no la
+            // entrega: se avisa al equipo de que falta calificarla en el PC.
+            await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial', decisiones,
+                               { entregable: !!calificacion });
+        }
         // Si se estaba REHACIENDO sobre una revisión a mano («Así es como está»),
         // queda hecho: la ventana deja de decir «Claude lo está rehaciendo».
         if (!plan._calificar
@@ -2294,13 +2376,13 @@ async function guardarPrevistoYFinal(ctx, previsto, res080, avisos) {
  * suyo) y aviso al equipo por WhatsApp + email (`services/agenteIa.js`). Un
  * fallo aquí NUNCA deshace lo escrito: el `.cex` ya está en Drive.
  */
-async function avisarAgente(ctx, gd, avisos, fase, decisiones = null) {
+async function avisarAgente(ctx, gd, avisos, fase, decisiones = null, { entregable = true } = {}) {
     try {
         const r = await require('../services/agenteIa').terminar({
             negocio: ctx.origen, clave: ctx.clave, fase,
             fichero: { nombre: gd.nombre, link: gd.link, carpeta_link: gd.carpeta_link,
                        croquis_link: gd.croquis_link || null },
-            avisos, decisiones, aviso: !RESTO.includes('--sin-aviso'),
+            avisos, decisiones, aviso: !RESTO.includes('--sin-aviso'), entregable,
         });
         require('./agente_ia').informeTerminar(r);
     } catch (e) {
@@ -2569,7 +2651,8 @@ async function instalacion() {
             }
         }
     } else {
-        throw new Error('Un CEE directo no tiene Instalación: lo de la placa va solo al .cex (ajustes.instalacion).');
+        throw new Error(`${esExtCtx(ctx) ? 'Una obra de la app de certificadores' : 'Un CEE directo'} no tiene `
+            + 'Instalación: lo de la placa va solo al .cex (ajustes.instalacion).');
     }
     if (avisos.length) console.log(`\nAVISOS (${avisos.length})\n  ⚠ ${avisos.join('\n  ⚠ ')}`);
     console.log(ESCRIBIR ? '\n✓ Escrito en la app.' : '\nEN SECO: no se ha guardado nada. Pásale --escribir.');
@@ -2767,7 +2850,7 @@ const carpetaVideo = (ctx) => (opt('out') && opt('out') !== true ? opt('out')
 /** Los vídeos de ANTES de la obra que hay en la carpeta de documentación. */
 async function videosDeDrive(ctx) {
     const raiz = ctx.driveFolderId;
-    const subNombre = ctx.origen === 'cee' ? '4. DOCUMENTACIÓN PARA CEE' : placaOcr.SUBCARPETA_DOCS;
+    const subNombre = cex.esCeeDirecto(ctx.expediente) ? '4. DOCUMENTACIÓN PARA CEE' : placaOcr.SUBCARPETA_DOCS;
     const sub = raiz && await driveService.findSubfolderByName(raiz, subNombre);
     if (!sub) return [];
     return (await driveService.listFiles(sub) || [])
@@ -3158,11 +3241,24 @@ async function video() {
 const SLOT_DE_TOMA = (tipo) => (tipo === 'CALLE' ? 'FOTO_FACHADA_PRINCIPAL' : 'FOTO_PATIOS_INTERIORES');
 
 async function enlaceSubida(ctx, slots) {
+    // Una OBRA de la app de certificadores sube por SU página, con el token de
+    // la obra; aquí no se crea nunca (el token lo da la app). Sin token, ninguno.
+    if (esExtCtx(ctx)) {
+        let tok = ctx.expediente.portal_token || null;
+        if (!tok) {
+            const { data } = await supabase.from(cex.tablaDe('ext')).select('portal_token')
+                .eq('id', ctx.expediente.id).maybeSingle();
+            tok = data?.portal_token || null;
+        }
+        if (!tok) return null;
+        const base = String(process.env.CERTAPP_URL || 'https://cee.brokergy.es').trim().replace(/\/+$/, '');
+        return `${base}/subir/${ctx.expediente.id}?token=${encodeURIComponent(tok)}`;
+    }
     // Sin --enviar no se crea ningún token: solo se usa el que ya exista.
     if (ctx.origen === 'cee') {
         const row = { id: ctx.expediente.id, portal_token: ctx.expediente.portal_token || null };
         if (!row.portal_token) {
-            const { data } = await supabase.from('cee_directos').select('portal_token').eq('id', row.id).maybeSingle();
+            const { data } = await supabase.from(cex.tablaDe('cee')).select('portal_token').eq('id', row.id).maybeSingle();
             row.portal_token = data?.portal_token || null;
         }
         if (!row.portal_token && !RESTO.includes('--enviar')) return null;
@@ -3194,7 +3290,14 @@ async function apiInterna(ruta, cuerpo) {
 
 async function pedirFotos() {
     const ctx = await cargar(POS[0]);
-    const enviar = RESTO.includes('--enviar');
+    // En una obra EXTERNA el propietario es cliente del certificador, no
+    // nuestro: aquí no se le escribe NUNCA (ni con --enviar). Las paredes que
+    // faltan van al informe y el certificador las pide desde su app.
+    const enviar = RESTO.includes('--enviar') && !esExtCtx(ctx);
+    if (esExtCtx(ctx) && RESTO.includes('--enviar')) {
+        console.log('⚠ Obra de la app de certificadores: --enviar no vale aquí. No se escribe a nadie; '
+            + 'lo que falte va al informe y el certificador lo pide desde su app.');
+    }
     const conPlanos = !RESTO.includes('--sin-planos');
     const man = manifiestoVideo(ctx);
     let paredes = opt('paredes') && opt('paredes') !== true
@@ -3219,9 +3322,10 @@ async function pedirFotos() {
 
     // A quién: el titular o su persona de contacto, con el MISMO criterio que el
     // resto de avisos al cliente (`ceeDirectoService.contactoCliente`).
-    const cli = ctx.cliente;
+    const cli = ctx.cliente || (esExtCtx(ctx) ? {} : null);
     if (!cli) throw new Error('Esta obra no tiene cliente vinculado: no hay a quién escribir.');
-    const contacto = require('../services/ceeDirectoService').contactoCliente(cli);
+    const contacto = esExtCtx(ctx) ? { nombre: null, tlf: null, tercero: false }
+        : require('../services/ceeDirectoService').contactoCliente(cli);
     const titular = [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ');
     const { buildInstalacionAddress } = await esm('expedientes/utils/docGenerators.js').catch(() => ({}));
     const dirObj = buildInstalacionAddress ? buildInstalacionAddress({ ...ctx.expediente, clientes: cli }) : null;
@@ -3254,6 +3358,30 @@ async function pedirFotos() {
         planos.push({ archivo: f, b64, caption: `${i + 1}. ${p.titulo}` });
     });
     const tomas = peticiones;
+
+    if (esExtCtx(ctx)) {
+        // Obra EXTERNA: ni mensaje ni destinatario. Lo que falta, al INFORME.
+        console.log(`\nOBRA DE LA APP DE CERTIFICADORES · ${ctx.expediente.numero_expediente}${titular ? ` · ${titular}` : ''}`);
+        console.log('No se escribe a nadie: estas paredes van al INFORME para el equipo, y el certificador '
+            + 'las pide desde su app.');
+        console.log(`\nPAREDES QUE FALTAN:\n${tomas.map((t, i) => `  ${i + 1}. ${t.titulo}`
+            + `${t.subtitulo ? ` — ${t.subtitulo}` : ''}  (${t.muros.join('+')})`).join('\n')}`);
+        console.log(`\nENLACE DE SUBIDA (app de certificadores): ${url || '— (la obra aún no tiene token de subida)'}`);
+        if (conPlanos && planos.length) {
+            console.log(`\n${planos.length} plano(s) con la pared en rojo, para el informe:\n${planos.map(p => `  ${p.archivo}`).join('\n')}`);
+        }
+        if (!RESTO.includes('--escribir')) {
+            console.log('\nEN SECO: no se ha anotado nada. Con --escribir el CEE queda «esperando las fotos».');
+            return;
+        }
+        try {
+            await require('../services/agenteIa').esperar({ negocio: 'ext', clave: ctx.clave,
+                que: `las fotos de ${tomas.length} pared${tomas.length > 1 ? 'es' : ''} de fuera `
+                    + `(al informe, para el certificador: ${paredes.join(', ')})` });
+            console.log('✓ Anotado: el CEE de la obra queda «esperando las fotos».');
+        } catch (e) { console.log(`  (no se ha podido anotar: ${e.message})`); }
+        return;
+    }
 
     const tel = String(contacto.tlf || '');
     console.log(`\nTITULAR: ${titular || '—'}`);
@@ -3496,11 +3624,21 @@ async function calificar() {
     }
     if (!RESTO.includes('--sin-aviso')) RESTO.push('--sin-aviso');
     for (const it of lista) {
-        console.log(`\n══ ${it.clave} · ${it.fase} ══`);
+        console.log(`\n══ ${it.clave} · ${it.fase}${it.origen ? ` · ${it.origen}` : ''} ══`);
+        // La fila dice de qué tabla es (`porCalificar`): no se deduce del número.
+        ORIGEN_FORZADO = it.origen ? cex.origenNorm(it.origen) : null;
         try {
+            if (it.fase === 'final' && ORIGEN_FORZADO === 'ext') {
+                console.log('✗ Una obra de la app de certificadores no tiene CEE final: se salta.');
+                continue;
+            }
             if (it.fase === 'inicial') {
                 POS[0] = it.clave;
                 await aplicar({ _rehacer: true, _calificar: true });
+                if (ORIGEN_FORZADO === 'ext') {
+                    console.log('  · Obra de la app de certificadores: los ficheros nuevos ya están en «1. CEE» y el '
+                        + 'certificador los ve en su obra; entregar (o reentregar) es cosa de la app.');
+                }
                 continue;
             }
             const ctx = await cargar(it.clave);
@@ -3523,6 +3661,8 @@ async function calificar() {
             console.log('✓ Sello del .cex final: calificado.');
         } catch (e) {
             console.log(`✗ ${it.clave}: ${e.message}`);
+        } finally {
+            ORIGEN_FORZADO = null;
         }
     }
 }
@@ -3551,9 +3691,97 @@ async function calificar() {
  * hasta aceptarla, así que solo califica y deja la copia. NO FIRMA nunca.
  * En seco deja la copia en `scratch/cee-inicial/<nº>/listo` (o `--out`).
  */
+/**
+ * `listo` de una OBRA de la app de certificadores (origen `ext`): rama APARTE y
+ * limpia. Ni la subida del técnico (`subidaCeePublica`: eso es la rejilla de un
+ * expediente nuestro), ni la entrega de un CEE directo, ni factura, ni
+ * `firmar_cee.js`: lo firma su certificador. CE3X califica y calcula, y el
+ * `.cex`, el `.xml` y el PDF calculados SUSTITUYEN a los `_REVISAR` de «1. CEE»
+ * (lo anterior, a OLD), que son los que elige la entrega de la app
+ * (`certapp/entrega.elegirFicheros`); el XML se carga en la obra como «Cargar
+ * CEE». Entregar es otro paso, de la app.
+ */
+async function listoExt(ctx, fase) {
+    const e = ctx.expediente;
+    const num = e.numero_expediente;
+    if (fase === 'final') throw new Error(`${num} es una obra de la app de certificadores: un solo certificado, sin CEE final.`);
+    console.log(`\n${num} · OBRA DE LA APP DE CERTIFICADORES · CEE`);
+    if (!ctx.driveFolderId) throw new Error('La obra no tiene carpeta de Drive: no hay de dónde leer ni dónde dejarlo.');
+    const disp = cexAPdf.disponible();
+    if (!disp.ok) throw new Error(`En este equipo no hay CE3X 3.2 (${disp.error}): esto se hace en el PC.`);
+
+    // 0. El estado de la obra: una archivada no se toca; una validada por su
+    //    certificador, solo con --forzar.
+    const { data: fila, error } = await supabase.from(cex.tablaDe('ext')).select('estado').eq('id', e.id).maybeSingle();
+    if (error) throw new Error(error.message);
+    const estadoObra = fila?.estado || null;
+    if (estadoObra) console.log(`  estado de la obra: ${estadoObra}`);
+    if (estadoObra === 'ARCHIVADA') throw new Error('La obra está ARCHIVADA: no se rehace.');
+    if (estadoObra === 'VALIDADO' && !RESTO.includes('--forzar')) {
+        throw new Error('El certificador ya lo ha VALIDADO: no se rehace (--forzar si de verdad hay que hacerlo).');
+    }
+    if (estadoObra === 'LISTO') console.log('  ⚠ Ya está ENTREGADO: lo nuevo sustituye a lo que ve el certificador.');
+
+    // 1. El `_REVISAR.cex` de «1. CEE» (o la copia local de `aplicar`; --cex manda).
+    const nombreCex = cex.nombreDelCex(e, fase);
+    const nombreDe = ext => nombreCex.replace(/\.cex$/i, `.${ext}`);
+    const rCex = opt('cex');
+    let fuente = null;
+    if (rCex && rCex !== true) fuente = { bytes: fs.readFileSync(rCex), nombre: path.basename(rCex), de: rCex };
+    else {
+        const leido = await cex.leerCexDeFase(ctx, fase);
+        if (leido) fuente = { ...leido, de: 'Drive' };
+        const local = path.join(CACHE, nombreCex);
+        if (!fuente && fs.existsSync(local)) fuente = { bytes: fs.readFileSync(local), nombre: nombreCex, de: local };
+    }
+    if (!fuente) throw new Error(`No hay «${nombreCex}» ni en Drive ni en ${CACHE}: primero hay que generarlo.`);
+    console.log(`  .cex de partida: ${fuente.nombre} (${fuente.de}) · ${kb(fuente.bytes.length)}`);
+
+    // 2. CE3X 3.2: califica, CALCULA las medidas y guarda el `.cex` calculado.
+    console.log('\nCE3X 3.2: califica, calcula las medidas y guarda el .cex calculado (≈1 min)…');
+    const cal = await cexAPdf.calificarCex(Buffer.from(fuente.bytes), { guardarCalculado: true });
+    for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
+    if (!cal.ok || cal.incompleto) throw new Error(`CE3X no lo da por bueno: ${cal.error || 'certificado incompleto'}. No se deja nada.`);
+    if (!cal.cex || !cal.xml || !cal.pdf) throw new Error(`Falta algo: .cex ${!!cal.cex} · .xml ${!!cal.xml} · .pdf ${!!cal.pdf}. No se deja nada.`);
+    const xmlTexto = Buffer.isBuffer(cal.xml) ? cal.xml.toString('utf8') : String(cal.xml);
+
+    const out = opt('out') && opt('out') !== true ? opt('out') : path.join(__dirname, '..', 'scratch', 'cee-inicial', num, 'listo');
+    fs.mkdirSync(out, { recursive: true });
+    for (const ext of ['cex', 'xml', 'pdf']) fs.writeFileSync(path.join(out, nombreDe(ext)), cal[ext]);
+    console.log(`  copia local: ${out}`);
+    if (!ESCRIBIR) {
+        console.log(`\nEN SECO: no se ha tocado nada. Con --escribir: ${nombreDe('cex')}, .xml y .pdf calculados en «1. CEE»`
+            + ' (lo anterior a OLD) y el XML cargado en la obra. Sin subida del técnico, sin entrega y sin factura.');
+        return;
+    }
+
+    // 3. Los tres, en «1. CEE» de la obra (la carpeta que da el mapa: `carpetaFase`).
+    const carpeta = await cex.carpetaFase(ctx, fase);
+    if (!carpeta?.id) throw new Error('No se ha podido abrir «1. CEE» de la obra: no se deja nada.');
+    const MIME = { cex: 'application/octet-stream', xml: 'application/xml', pdf: 'application/pdf' };
+    for (const ext of ['cex', 'xml', 'pdf']) {
+        const nombre = nombreDe(ext);
+        const previo = await driveService.findFileByName(carpeta.id, nombre);
+        if (previo) await driveService.archiveExistingToOld(carpeta.id, previo, nombre);
+        const r = await driveService.saveFileToFolder(carpeta.id, nombre, MIME[ext], cal[ext], { throwOnError: true });
+        console.log(`✓ ${nombre} → ${r.id}${previo ? ' (el anterior, a OLD)' : ''}`);
+    }
+
+    // 4. El XML en la obra, como «Cargar CEE» (`cargarXmlCee` escribe por el mapa).
+    const carga = await cargarXmlEnApp(ctx, fase, xmlTexto, { fileName: nombreDe('xml'), escribir: true, forzar: true });
+    for (const l of lineasCarga(carga, fase)) console.log(l);
+    const { data: comp } = await supabase.from(cex.tablaDe('ext'))
+        .select(`firma:documentacion->fecha_firma_cee_${fase}, sup:cee->cee_${fase}->superficieHabitable`)
+        .eq('id', e.id).maybeSingle();
+    console.log(`  BD: ${JSON.stringify(comp)}`);
+    console.log('\n✓ CEE de la obra LISTO en «1. CEE». Lo firma su certificador: entregarlo es cosa de la app '
+        + '(«Entregar» en su admin, o sola con CERTAPP_ENTREGA_AUTO).');
+}
+
 async function listo() {
     const fase = opt('fase') === 'final' ? 'final' : 'inicial';
     const ctx = await cargar(POS[0]);
+    if (esExtCtx(ctx)) return listoExt(ctx, fase);
     const e = ctx.expediente;
     const num = e.numero_expediente;
     const esOp = ctx.origen === 'op';
@@ -3576,7 +3804,7 @@ async function listo() {
 
     // 0. La fase en la app: lo registrado o firmado no se vuelve a dejar «listo».
     if (!esOp) {
-        const { data: fila } = await supabase.from(esCee ? 'cee_directos' : 'expedientes')
+        const { data: fila } = await supabase.from(cex.tablaDe(ctx.origen))
             .select('seguimiento').eq('id', e.id).maybeSingle();
         const estadoFase = fila?.seguimiento?.[`cee_${fase}`] || null;
         if (estadoFase) console.log(`  fase en la app: ${estadoFase}`);
@@ -3691,7 +3919,7 @@ async function listo() {
     for (const l of lineasCarga(carga, fase)) console.log(l);
 
     // 7. Releer: lo que de verdad ha quedado en la BD.
-    const { data: comp } = await supabase.from(esCee ? 'cee_directos' : 'expedientes')
+    const { data: comp } = await supabase.from(cex.tablaDe(ctx.origen))
         .select(`ficheros:cee->cee_files->${fase}, firma:documentacion->fecha_firma_cee_${fase},`
             + ` visita:documentacion->fecha_visita_cee_${fase}, sup:cee->cee_${fase}->superficieHabitable`)
         .eq('id', e.id).maybeSingle();
@@ -3717,16 +3945,19 @@ async function listo() {
 async function cargarXml() {
     const fase = opt('fase') === 'final' ? 'final' : 'inicial';
     const ctx = await cargar(POS[0]);
+    if (esExtCtx(ctx) && fase === 'final') throw new Error('Una obra de la app de certificadores no tiene CEE final.');
     const e = ctx.expediente;
     const nombre = cex.nombreDelCex(e, fase).replace(/\.cex$/i, '.xml');
     let fuente = null;
     const r = opt('xml');
     if (r && r !== true) fuente = { bytes: fs.readFileSync(r), de: r, nombre: path.basename(r) };
     if (!fuente && ctx.driveFolderId) {
-        const raiz = ctx.origen === 'cee' ? ctx.driveFolderId
+        // Un CEE directo y una obra de la app (los dos, `esCeeDirecto`) cuelgan la
+        // sección de la raíz; el CAE, de «1. CEE».
+        const raiz = cex.esCeeDirecto(e) ? ctx.driveFolderId
             : await driveService.findSubfolderByName(ctx.driveFolderId, '1. CEE');
-        const sub = ctx.origen === 'cee'
-            ? require('../services/ceeDirectoFolders').subcarpetaFase(e.alcance, fase)
+        const sub = cex.esCeeDirecto(e)
+            ? require('../services/ceeDirectoFolders').subcarpetaFase(e.alcance || 'UNICO', fase)
             : (fase === 'final' ? 'CEE FINAL' : 'CEE INICIAL');
         const carpeta = raiz ? await driveService.findSubfolderByName(raiz, sub) : null;
         const id = carpeta ? await driveService.findFileByName(carpeta, nombre) : null;

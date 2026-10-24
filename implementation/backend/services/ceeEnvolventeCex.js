@@ -51,13 +51,15 @@ function faseDe(fase) {
 
 // ─── De qué NEGOCIO es este expediente ──────────────────────────────────────
 //
-// La envolvente vale para los dos: el expediente CAE y el CEE contratado suelto
-// (`cee_directos`). Lo que cambia entre ellos no es la geometría ni la ficha
-// —eso es el mismo edificio— sino DÓNDE se escribe el trabajo y EN QUÉ carpeta
-// acaba el `.cex`. Se decide aquí, en cuatro funciones, y no con un `if`
-// repartido por el fichero.
+// La envolvente vale para CUATRO: el expediente CAE, el CEE contratado suelto
+// (`cee_directos`), la OPORTUNIDAD sin aceptar y la OBRA de un certificador
+// externo (app de certificadores, `certapp_obras`). Lo que cambia entre ellos no
+// es la geometría ni la ficha —eso es el mismo edificio— sino DÓNDE se escribe
+// el trabajo y EN QUÉ carpeta acaba el `.cex`. Se decide aquí, con el MAPA de
+// orígenes de abajo, y no con un `if` repartido por el fichero ni con el nombre
+// de una tabla o de una RPC copiado en cada satélite.
 //
-// La marca la pone `ceeDirectoComoExpediente` al cargar: no se deduce de que
+// La marca la pone el adaptador de cada negocio al cargar: no se deduce de que
 // falte `oportunidad_id`, porque de esto depende en qué TABLA se escribe.
 const esCeeDirecto = (e) => !!e?.es_cee_directo;
 
@@ -67,25 +69,142 @@ const esCeeDirecto = (e) => !!e?.es_cee_directo;
 //: `expedientes.cee`, y `expedienteService` lo vuelca al expediente al aceptar.
 const esOportunidad = (e) => !!e?.es_oportunidad;
 
-/** 'cae' · 'cee' · 'op' — cualquier otra cosa es el CAE de siempre. */
+//: La OBRA de un certificador externo (`certappObraComoExpediente`). Es un CEE
+//: suelto de alcance ÚNICO, así que lleva TAMBIÉN `es_cee_directo` (carpetas,
+//: nombre del fichero, sin fase final, sin placa): se ADAPTA, no se bifurca.
+//: ⚠️ Por eso quien decide la TABLA, los AVISOS o los AUTOMATISMOS mira
+//: `es_ext` ANTES que `es_cee_directo`: con solo la segunda, el trabajo de una
+//: obra iría a `cee_directos` con un uuid que allí no existe, y el aviso al
+//: «cliente» saldría hacia el cliente de OTRO certificador.
+//: Vale la marca o el `negocio` del stub/adaptador (las dos las pone él).
+const esExt = (e) => !!e?.es_ext || e?.negocio === 'ext';
+
+/**
+ * El MAPA de orígenes: dónde vive el trabajo de cada negocio. Fuente ÚNICA de
+ * los nombres de tabla y de RPC de la envolvente y del generador: los satélites
+ * (agente, cola de la IA, carga del XML, revisión del plano, fotos…) lo leen de
+ * aquí (`ORIGENES[negocioDe(e)]`, `setCeeField`, `setDocField`, `tablaDe`).
+ *
+ *   tabla / clave       dónde está la fila y por qué columna se busca un número
+ *   rutaCee             el JSON con las claves de `cee` (para proyectar en un select)
+ *   rpcCee / paramIdCee la RPC que escribe UNA clave de `cee` (regla 19)
+ *   rpcDoc / paramIdDoc / idDoc   la que escribe UNA clave de `documentacion`
+ *                                 y con qué columna de la fila se llama
+ *   patron              cómo se reconoce su número (`origenDe` del generador)
+ */
+const ORIGENES = Object.freeze({
+    cae: Object.freeze({
+        negocio: 'cae', tabla: 'expedientes', clave: 'numero_expediente', rutaCee: 'cee',
+        rpcCee: 'set_expediente_cee_field', paramIdCee: 'p_expediente_id',
+        // El `documentacion` del CAE es de la OPORTUNIDAD (la RPC va por su id).
+        rpcDoc: 'set_expediente_doc_field', paramIdDoc: 'p_oportunidad_id', idDoc: 'oportunidad_id',
+        patron: null,
+    }),
+    cee: Object.freeze({
+        negocio: 'cee', tabla: 'cee_directos', clave: 'numero_expediente', rutaCee: 'cee',
+        rpcCee: 'set_cee_directo_cee_field', paramIdCee: 'p_cee_directo_id',
+        rpcDoc: 'set_cee_directo_doc_field', paramIdDoc: 'p_id', idDoc: 'id',
+        patron: /^\d{4}CEE_\d+$/i,
+    }),
+    ext: Object.freeze({
+        negocio: 'ext', tabla: 'certapp_obras', clave: 'numero_expediente', rutaCee: 'cee',
+        rpcCee: 'set_certapp_obra_cee_field', paramIdCee: 'p_obra_id',
+        rpcDoc: 'set_certapp_obra_doc_field', paramIdDoc: 'p_obra_id', idDoc: 'id',
+        patron: /^\d{4}EXT_\d+$/i,
+    }),
+    op: Object.freeze({
+        negocio: 'op', tabla: 'oportunidades', clave: 'id_oportunidad',
+        rutaCee: 'datos_calculo->envolvente_cee',
+        rpcCee: 'set_oportunidad_cee_field', paramIdCee: 'p_oportunidad_id',
+        // Una oportunidad no tiene `documentacion` propia que escribir aquí.
+        rpcDoc: null, paramIdDoc: null, idDoc: null,
+        patron: /_OP\d+$/i,
+    }),
+});
+
+/** 'ext' · 'op' · 'cee' · 'cae' — de qué negocio es un expediente YA cargado. */
+function negocioDe(e) {
+    if (esExt(e)) return 'ext';               // antes que `es_cee_directo` (ver arriba)
+    if (esOportunidad(e)) return 'op';
+    if (esCeeDirecto(e)) return 'cee';
+    return 'cae';
+}
+
+/**
+ * 'cae' · 'cee' · 'op' · 'ext'. Sin origen, el CAE de siempre (así llaman todos
+ * los caminos viejos). Un valor DESCONOCIDO es un error (400), nunca 'cae': con
+ * el CAE por defecto, una errata en `?origen=` escribiría en `expedientes` lo
+ * que era de otro negocio.
+ */
 function origenNorm(origen) {
-    const o = String(origen || 'cae').toLowerCase();
-    return o === 'cee' || o === 'op' ? o : 'cae';
+    if (origen == null || origen === '') return 'cae';
+    const o = String(origen).trim().toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(ORIGENES, o)) return o;
+    const e = new Error(`Origen desconocido: «${origen}» (los que hay: ${Object.keys(ORIGENES).join(', ')}).`);
+    e.status = 400;
+    e.code = 'ORIGEN_DESCONOCIDO';
+    throw e;
+}
+
+/** El origen de un expediente cargado o de un valor de `?origen=`. */
+const origenDeAlgo = (x) => (x && typeof x === 'object' ? negocioDe(x) : origenNorm(x));
+
+/** La tabla de un origen o de un expediente cargado. */
+const tablaDe = (x) => ORIGENES[origenDeAlgo(x)].tabla;
+
+/**
+ * El «expediente» mínimo de un origen y un id: lo que necesitan `setCeeField` y
+ * compañía cuando no hace falta cargar la fila entera. Mismas marcas que pone
+ * cada adaptador (la obra ext lleva las dos, como su adaptador).
+ */
+function expedienteStub(origen, id) {
+    const o = origenNorm(origen);
+    return {
+        id,
+        negocio: o,
+        es_cee_directo: o === 'cee' || o === 'ext',
+        es_ext: o === 'ext',
+        es_oportunidad: o === 'op',
+    };
+}
+
+//: La tabla o la función todavía no existen en la BD (la app de certificadores
+//: llega con su SQL aparte): PostgREST lo dice con estos códigos.
+const noExisteEnBd = (error) => ['PGRST205', 'PGRST202', '42P01', '42883'].includes(error?.code);
+
+function errorDeBd(error, mapa) {
+    if (noExisteEnBd(error)) {
+        const e = new Error(`La tabla o la función de «${mapa.negocio}» (${mapa.tabla}) aún no existe en `
+                            + `la base de datos: falta aplicar su SQL. (${error.message})`);
+        e.status = 503;
+        e.code = 'ORIGEN_SIN_ESQUEMA';
+        return e;
+    }
+    return new Error(error.message);
 }
 
 const esUuid = (v) => /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(v));
 
 /** Escribe UNA clave de `cee` en la tabla que toque. Reemplaza, no funde. */
 async function setCeeField(expediente, campo, valor) {
-    const { error } = esOportunidad(expediente)
-        ? await supabase.rpc('set_oportunidad_cee_field', {
-            p_oportunidad_id: expediente.id, p_field: campo, p_value: valor })
-        : esCeeDirecto(expediente)
-        ? await supabase.rpc('set_cee_directo_cee_field', {
-            p_cee_directo_id: expediente.id, p_field: campo, p_value: valor })
-        : await supabase.rpc('set_expediente_cee_field', {
-            p_expediente_id: expediente.id, p_field: campo, p_value: valor });
-    if (error) throw new Error(error.message);
+    const o = ORIGENES[negocioDe(expediente)];
+    const { error } = await supabase.rpc(o.rpcCee, {
+        [o.paramIdCee]: expediente.id, p_field: campo, p_value: valor });
+    if (error) throw errorDeBd(error, o);
+}
+
+/**
+ * Escribe UNA clave de `documentacion` en la tabla que toque (regla 19: nunca
+ * leer y reescribir el JSONB entero). En el CAE la RPC va por el id de la
+ * OPORTUNIDAD; en los demás, por el de la fila. Una oportunidad no tiene.
+ */
+async function setDocField(expediente, campo, valor) {
+    const o = ORIGENES[negocioDe(expediente)];
+    if (!o.rpcDoc) throw new Error(`«${o.negocio}» no tiene documentación que escribir.`);
+    const id = expediente?.[o.idDoc];
+    if (!id) throw new Error(`Sin «${o.idDoc}» no se puede escribir la documentación de «${o.negocio}».`);
+    const { error } = await supabase.rpc(o.rpcDoc, { [o.paramIdDoc]: id, p_field: campo, p_value: valor });
+    if (error) throw errorDeBd(error, o);
 }
 
 /**
@@ -98,10 +217,32 @@ async function setCeeField(expediente, campo, valor) {
  */
 async function carpetaFase(ctx, fase) {
     const f = faseDe(fase);
+    if (esExt(ctx.expediente)) return carpetaFaseExt(ctx, f.seccion);   // antes que el CEE directo
     if (esCeeDirecto(ctx.expediente)) {
         return ceeDirectoUploadService.ensureSectionFolder(ctx.expediente, f.seccion);
     }
     const { id, link } = await ceeUploadService.ensureCeeSectionFolder(ctx.driveFolderId, f.seccion);
+    return { id, link };
+}
+
+/**
+ * La carpeta de una OBRA de la app de certificadores: la MISMA estructura que un
+ * CEE directo de alcance único (`1. CEE`, de `ceeDirectoFolders`), pero SIN
+ * hacerla pública. La de un CEE directo se abre «a cualquiera con el enlace»
+ * para mandársela al certificador y al cliente; la de una obra ya está
+ * compartida con el EMAIL del certificador, y dentro hay datos de SU cliente
+ * (docs/conocimiento/certificadores-app). `getOrCreateSubfolder` devuelve el
+ * PADRE si falla: eso no es la carpeta de la fase, y se dice.
+ */
+async function carpetaFaseExt(ctx, seccion) {
+    const raiz = ctx.driveFolderId || ctx.expediente?.drive_folder_id || null;
+    if (!raiz) return { id: null, link: null };
+    const { subcarpetaFase } = require('./ceeDirectoFolders');
+    const nombre = subcarpetaFase('UNICO', seccion);
+    const id = await driveService.getOrCreateSubfolder(raiz, nombre);
+    if (!id || id === raiz) return { id: null, link: null };
+    let link = null;
+    try { link = await driveService.getWebViewLink(id); } catch { /* sin enlace, la carpeta vale */ }
     return { id, link };
 }
 
@@ -261,6 +402,26 @@ function loadOportunidad() {
     return loadEsm(OPORTUNIDAD_JS, _oportunidad);
 }
 
+//: La OBRA de la app de certificadores leída como expediente (`certappObraComoExpediente`,
+//: `titularComoCliente`, `cuentaComoCertificador`). Fuente única con la ventana.
+const CERTAPP_OBRA_JS = path.join(
+    __dirname, '../../frontend/src/features/cee-envolvente/logic/certappObra.js');
+const _certappObra = { sello: null, promesa: null };
+
+function loadCertappObra() {
+    return loadEsm(CERTAPP_OBRA_JS, _certappObra);
+}
+
+//: El cuestionario de la app (`resumenCuestionario`, `resumenTexto`): lo que el
+//: certificador contestó, en palabras, para el contexto del agente.
+const CUESTIONARIO_JS = path.join(
+    __dirname, '../../frontend/src/certificadores/logic/cuestionario.js');
+const _cuestionario = { sello: null, promesa: null };
+
+function loadCuestionario() {
+    return loadEsm(CUESTIONARIO_JS, _cuestionario);
+}
+
 /**
  * Expediente + cliente + carpeta de Drive: lo que la ficha necesita.
  * `clave` es el id o el número de expediente.
@@ -272,8 +433,10 @@ function loadOportunidad() {
  * equivocado. Mismo criterio que `?cee=` frente a `?exp=` en los enlaces.
  */
 async function cargarExpediente(clave, origen = 'cae') {
-    if (origenNorm(origen) === 'cee') return cargarCeeDirecto(clave);
-    if (origenNorm(origen) === 'op') return cargarOportunidad(clave);
+    const o = origenNorm(origen);
+    if (o === 'cee') return cargarCeeDirecto(clave);
+    if (o === 'op') return cargarOportunidad(clave);
+    if (o === 'ext') return cargarCertapp(clave);
     const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
     // Con la oportunidad: de ella salen la zona climática y el año con los que
     // se simuló, que son los que fijaron las transmitancias de la propuesta.
@@ -326,6 +489,82 @@ async function cargarCeeDirecto(clave) {
         // sella la instalación del expediente, y aquí no hay instalación: el
         // equipo, si lo hay, se teclea. Sin ids que buscar, nada que traer.
         modelos: {},
+    };
+}
+
+//: Las columnas de la CUENTA del certificador que hacen falta: las de
+//: `cuentaComoCertificador` (los once campos del técnico en el `.cex`) y las del
+//: aviso al equipo. Nada de créditos ni de estado de pago.
+const CUENTA_CERTAPP_SELECT = 'id, email, nombre, apellidos, nif, empresa, empresa_nif, telefono, '
+    + 'direccion, municipio, provincia, codigo_postal, titulacion, colegio, num_colegiado, estado';
+
+/**
+ * Lo mismo para la OBRA de un certificador externo (`certapp_obras`, origen `ext`).
+ *
+ * Se compone como un CEE directo (mismo adaptador, `certappObraComoExpediente`)
+ * y solo cambia lo que es distinto:
+ *   · el CLIENTE sale del `titular` de la obra (no hay ficha en `clientes`);
+ *   · el TÉCNICO es la CUENTA del certificador, con la forma de `prescriptores`
+ *     que lee `tecnicoCe3x`: el `.cex` lleva SU nombre y SU colegiado, nunca el
+ *     de un técnico de BROKERGY (ni el AGENTE IA, ni el de por defecto);
+ *   · `documentacion.cuestionario` se COMPONE del cuestionario de la app (no se
+ *     guarda), y su resumen en palabras viaja en `ctx.cuestionario` para el agente.
+ *
+ * `clave` es el uuid o el número `{AAAA}EXT_{n}`. Si la tabla aún no existe
+ * (su SQL va aparte) se dice con un 503 claro, no con un «no encontrado».
+ */
+async function cargarCertapp(clave) {
+    const o = ORIGENES.ext;
+    const { data: obra, error } = await supabase.from(o.tabla).select('*')
+        .eq(esUuid(clave) ? 'id' : o.clave, clave).maybeSingle();
+    if (error) {
+        const e = errorDeBd(error, o);
+        e.status = e.status || 503;
+        throw e;
+    }
+    if (!obra) return null;
+
+    let cuenta = null;
+    if (obra.cuenta_id) {
+        const { data, error: errCuenta } = await supabase.from('certapp_cuentas')
+            .select(CUENTA_CERTAPP_SELECT).eq('id', obra.cuenta_id).maybeSingle();
+        if (errCuenta) {
+            const e = errorDeBd(errCuenta, o);
+            e.status = e.status || 503;
+            throw e;
+        }
+        cuenta = data || null;
+    }
+
+    const { certappObraComoExpediente, titularComoCliente, cuentaComoCertificador } = await loadCertappObra();
+    const cliente = titularComoCliente(obra.titular);
+    const expediente = { ...certappObraComoExpediente({ ...obra, cliente }), negocio: 'ext' };
+
+    let cuestionario = { lineas: [], texto: '' };
+    try {
+        const { resumenCuestionario, resumenTexto } = await loadCuestionario();
+        cuestionario = {
+            lineas: resumenCuestionario(obra) || [],
+            texto: resumenTexto(obra) || '',
+        };
+    } catch (e) {
+        console.warn('[cee-envolvente] resumen del cuestionario de la obra:', e.message);
+    }
+
+    return {
+        expediente,
+        cliente,
+        certificador: cuentaComoCertificador(cuenta),
+        driveFolderId: obra.drive_folder_id || null,
+        // Igual que un CEE directo: sin `instalacion` sellada, nada que buscar en el catálogo.
+        modelos: {},
+        // De quién es la obra: para los avisos al equipo y el registro de eventos.
+        cuenta: cuenta ? {
+            id: cuenta.id, email: cuenta.email || null, nombre: cuenta.nombre || null,
+            apellidos: cuenta.apellidos || null, empresa: cuenta.empresa || null,
+            telefono: cuenta.telefono || null,
+        } : null,
+        cuestionario,
     };
 }
 
@@ -501,14 +740,18 @@ async function construccionesElegidas(clave, origen = 'cae') {
         const lista = data?.elegidas;
         return Array.isArray(lista) && lista.length ? lista : null;
     }
-    // En un CEE directo no hay oportunidad —no hay ficha técnica que marcar—,
-    // así que lo elegido vive en el propio encargo. Es la misma lista y la mira
-    // el mismo motor; lo único que cambia es dónde está escrita.
-    if (String(origen).toLowerCase() === 'cee') {
-        const { data } = await supabase.from('cee_directos')
-            .select('cee')
-            .eq(esUuid(clave) ? 'id' : 'numero_expediente', clave).maybeSingle();
-        const lista = data?.cee?.[CAMPO_CONSTRUCCIONES];
+    // En un CEE directo (y en la obra de un certificador externo) no hay
+    // oportunidad —no hay ficha técnica que marcar—, así que lo elegido vive en
+    // el propio encargo. Es la misma lista y la mira el mismo motor; lo único que
+    // cambia es dónde está escrita. Solo esa clave: `cee` lleva el XML (regla 22).
+    const o = origenNorm(origen);
+    if (o === 'cee' || o === 'ext') {
+        const m = ORIGENES[o];
+        const { data, error } = await supabase.from(m.tabla)
+            .select(`elegidas:cee->${CAMPO_CONSTRUCCIONES}`)
+            .eq(esUuid(clave) ? 'id' : m.clave, clave).maybeSingle();
+        if (error && o === 'ext') throw errorDeBd(error, m);
+        const lista = data?.elegidas;
         return Array.isArray(lista) && lista.length ? lista : null;
     }
     const { data } = await supabase
@@ -546,19 +789,30 @@ async function guardarConstrucciones(clave, elegidas, desglose, origen = 'cae') 
         cuenta: codigos.includes(c.codigo),
     }));
 
+    // En la OBRA de un certificador externo, igual que en un CEE directo: en la
+    // propia obra y por su RPC de clave. Sin historial de BROKERGY que anotar.
+    if (origenNorm(origen) === 'ext') {
+        const fila = await expedienteBasico(clave, 'id', 'ext');
+        if (!fila) throw alto('Esa obra no existe.', 404);
+        const codigos = codigosDe(elegidas);
+        const lista = listaDe(desglose, codigos);
+        const stub = expedienteStub('ext', fila.id);
+        await setCeeField(stub, CAMPO_CONSTRUCCIONES, codigos);
+        await setCeeField(stub, `${CAMPO_CONSTRUCCIONES}_detalle`, lista);
+        return { elegidas: codigos, construcciones: lista };
+    }
+
     // En un CEE directo lo elegido se escribe en el propio encargo: no hay
     // oportunidad, y por tanto tampoco las cifras de una propuesta firmada a las
     // que esto no puede tocar. Queda anotado en su historial por el mismo
     // motivo: cambia la superficie que mide el certificado.
-    if (String(origen).toLowerCase() === 'cee') {
+    if (origenNorm(origen) === 'cee') {
         const fila = await ceeDirectoService.cargar(clave, { conRelaciones: false });
         if (!fila) throw alto('Ese encargo de CEE no existe.', 404);
         const codigos = codigosDe(elegidas);
         const lista = listaDe(desglose, codigos);
-        await setCeeField({ id: fila.id, es_cee_directo: true },
-                          CAMPO_CONSTRUCCIONES, codigos);
-        await setCeeField({ id: fila.id, es_cee_directo: true },
-                          `${CAMPO_CONSTRUCCIONES}_detalle`, lista);
+        await setCeeField(expedienteStub('cee', fila.id), CAMPO_CONSTRUCCIONES, codigos);
+        await setCeeField(expedienteStub('cee', fila.id), `${CAMPO_CONSTRUCCIONES}_detalle`, lista);
         const cuentan = lista.filter(c => c.cuenta);
         try {
             await ceeDirectoService.anotarHistorial(fila.id, {
@@ -690,10 +944,10 @@ async function expedienteBasico(clave, columnas, origen = 'cae') {
         if (error) throw new Error(error.message);
         return data || null;
     }
-    const tabla = String(origen).toLowerCase() === 'cee' ? 'cee_directos' : 'expedientes';
-    const { data, error } = await supabase.from(tabla).select(columnas)
-        .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
-    if (error) throw new Error(error.message);
+    const m = ORIGENES[origenNorm(origen)];
+    const { data, error } = await supabase.from(m.tabla).select(columnas)
+        .eq(esUuid ? 'id' : m.clave, clave).maybeSingle();
+    if (error) throw errorDeBd(error, m);
     return data || null;
 }
 
@@ -707,6 +961,12 @@ const alto = (msg, status) => Object.assign(new Error(msg), { status });
  * la otra, y `provinciaCe3x` —que es un desplegable de CE3X— dejaría de casar.
  */
 async function guardarCliente(clave, campos, origen = 'cae') {
+    // La obra de un certificador externo no tiene ficha en `clientes`: su titular
+    // vive en la propia obra y lo corrige él en la app de certificadores.
+    if (origenNorm(origen) === 'ext') {
+        throw alto('El titular de una obra de la app de certificadores se corrige en la ficha de la '
+                   + 'obra (app de certificadores), no aquí.', 409);
+    }
     const exp = await expedienteBasico(clave, 'id, numero_expediente, cliente_id', origen);
     if (!exp) throw alto('Expediente no encontrado.', 404);
     if (!exp.cliente_id) {
@@ -735,6 +995,12 @@ async function guardarTecnico(clave, campos, { soloSuyo = null, origen = 'cae' }
     if (origenNorm(origen) === 'op') {
         throw alto('Una oportunidad todavía no tiene técnico certificador: se le asigna '
                    + 'en el módulo CEE cuando sea expediente.', 409);
+    }
+    // En una obra de la app el técnico es la CUENTA del certificador: sus datos se
+    // corrigen en su perfil de la app, nunca en una ficha de `prescriptores`.
+    if (origenNorm(origen) === 'ext') {
+        throw alto('Los datos del técnico de una obra de la app de certificadores son los del '
+                   + 'perfil del certificador: se corrigen en su perfil de la app.', 409);
     }
     const exp = await expedienteBasico(
         clave, 'id, numero_expediente, certificador_id:cee->>certificador_id', origen);
@@ -953,6 +1219,10 @@ async function pedirImagen(traer) {
 }
 
 function rcDe(ctx, geometria) {
+    //: Obra `ext`: la RC es SIEMPRE la de la BD; una geometría del navegador no
+    //: puede llevar las imágenes del Catastro a otro edificio (la obra se paga
+    //: por edificio).
+    if (esExt(ctx?.expediente)) return ctx.expediente.instalacion?.ref_catastral || ctx.expediente.ref_catastral || null;
     return geometria?.referencia_catastral?.inmueble
         || geometria?.referencia_catastral?.completa
         || ctx?.expediente?.instalacion?.ref_catastral
@@ -1190,10 +1460,14 @@ async function leerTrabajo(id, origen = 'cae') {
             .order('created_at', { ascending: false }).limit(1).maybeSingle();
         return data?.trabajo || null;
     }
-    const tabla = String(origen).toLowerCase() === 'cee' ? 'cee_directos' : 'expedientes';
-    const { data } = await supabase.from(tabla)
-        .select('cee').eq('id', id).maybeSingle();
-    return data?.cee?.[CAMPO_TRABAJO] || null;
+    // Por el id de la fila (el uuid): así lo llaman la ventana y el generador.
+    // Solo esa clave de `cee`: el resto lleva el XML del certificado (regla 22).
+    const o = origenNorm(origen);
+    const m = ORIGENES[o];
+    const { data, error } = await supabase.from(m.tabla)
+        .select(`trabajo:cee->${CAMPO_TRABAJO}`).eq('id', id).maybeSingle();
+    if (error && o === 'ext' && noExisteEnBd(error)) throw errorDeBd(error, m);
+    return data?.trabajo || null;
 }
 
 /**
@@ -1216,8 +1490,7 @@ async function guardarTrabajo(id, trabajo, origen = 'cae') {
         }
         id = fila.id;
     }
-    await setCeeField({ id, es_cee_directo: o === 'cee', es_oportunidad: o === 'op' },
-                      CAMPO_TRABAJO,
+    await setCeeField(expedienteStub(o, id), CAMPO_TRABAJO,
                       { ...trabajo, guardado_at: new Date().toISOString() });
     return true;
 }
@@ -1461,7 +1734,9 @@ async function conLaReceta(ctx, ajustes, fase = 'inicial') {
     const tec = ajustes?.tecnico_cex;
     //: Un técnico DE VERDAD asignado en la barra manda: es quien firma. El de la
     //: receta solo entra si no hay ninguno o es el AGENTE IA, que no firma.
-    if (tec && (!c.certificador || c.certificador.es_agente_ia)) {
+    //: En la obra de un certificador externo NUNCA: firma él (su cuenta), y un
+    //: técnico de BROKERGY en su `.cex` sería firmar por otro.
+    if (tec && !esExt(c.expediente) && (!c.certificador || c.certificador.es_agente_ia)) {
         const cert = await leerCertificador(String(tec)).catch(() => null);
         if (cert) c = { ...c, certificador: cert };
     }
@@ -1524,13 +1799,9 @@ async function ponerMedidasLibres(fichero, medidas, envolvente = {}) {
 /** El sello guardado (`{ inicial, final }`), leído de la BD, nunca de una copia. */
 async function leerSello(ctx) {
     const e = ctx.expediente;
-    if (esOportunidad(e)) {
-        const { data } = await supabase.from('oportunidades')
-            .select('s:datos_calculo->envolvente_cee->cex_sello').eq('id', e.id).maybeSingle();
-        return data?.s || {};
-    }
-    const { data } = await supabase.from(esCeeDirecto(e) ? 'cee_directos' : 'expedientes')
-        .select('s:cee->cex_sello').eq('id', e.id).maybeSingle();
+    const m = ORIGENES[negocioDe(e)];
+    const { data } = await supabase.from(m.tabla)
+        .select(`s:${m.rutaCee}->${CAMPO_SELLO}`).eq('id', e.id).maybeSingle();
     return data?.s || {};
 }
 
@@ -1592,15 +1863,23 @@ async function estadoDelCex(ctx, fase = 'inicial') {
 /** La COLA del PC: lo que la ventana dejó por calificar con CE3X. */
 async function porCalificar() {
     const out = [];
-    //: Solo escalares por JSON path (regla 22): nunca `cee` entero.
-    for (const [tabla, origen] of [['expedientes', 'cae'], ['cee_directos', 'cee']]) {
-        const { data, error } = await supabase.from(tabla)
-            .select('id, numero_expediente, s:cee->cex_sello')
-            .or('cee->cex_sello->inicial->>por_calificar.eq.true,cee->cex_sello->final->>por_calificar.eq.true');
+    //: Solo escalares por JSON path (regla 22): nunca `cee` entero. Los orígenes
+    //: con `cee` propio (todos menos la oportunidad, que va abajo), por el mapa.
+    for (const origen of ['cae', 'cee', 'ext']) {
+        const m = ORIGENES[origen];
+        const { data, error } = await supabase.from(m.tabla)
+            .select(`id, ${m.clave}, s:cee->${CAMPO_SELLO}`)
+            .or(`cee->${CAMPO_SELLO}->inicial->>por_calificar.eq.true,cee->${CAMPO_SELLO}->final->>por_calificar.eq.true`);
+        //: La tabla de la app de certificadores llega con su SQL aparte: si aún
+        //: no está, la cola de los demás sigue (y se dice), no se cae entera.
+        if (error && noExisteEnBd(error)) {
+            console.warn(`[cee-envolvente] porCalificar: ${m.tabla} aún no existe, se salta.`);
+            continue;
+        }
         if (error) throw new Error(error.message);
         for (const r of data || []) {
             for (const fase of ['inicial', 'final']) {
-                if (r.s?.[fase]?.por_calificar) out.push({ origen, clave: r.numero_expediente, fase, sello: r.s[fase] });
+                if (r.s?.[fase]?.por_calificar) out.push({ origen, clave: r[m.clave], fase, sello: r.s[fase] });
             }
         }
     }
@@ -1627,9 +1906,17 @@ module.exports = {
     pvgisParaAutoconsumo,
     esCeeDirecto,
     esOportunidad,
+    esExt,
+    rcDe,
+    ORIGENES,
+    negocioDe,
     origenNorm,
+    tablaDe,
+    expedienteStub,
+    noExisteEnBd,
     datosOportunidad,
     setCeeField,
+    setDocField,
     carpetaFase,
     guardarCalificadoEnDrive,
     guardarDocsCatastro,

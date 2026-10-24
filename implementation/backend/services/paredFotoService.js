@@ -41,7 +41,6 @@ const driveService = require('./driveService');
 const reformaUploadService = require('./reformaUploadService');
 const ceeUploadService = require('./ceeUploadService');
 const ceeDirectoUploadService = require('./ceeDirectoUploadService');
-const supabase = require('./supabaseClient');
 
 //: De que NEGOCIO es. La marca la pone `ceeDirectoComoExpediente` al cargar: un
 //: CEE contratado suelto tiene la misma forma que un expediente, pero su `cee`
@@ -105,16 +104,10 @@ async function escribir(expediente, todas) {
     //: vive en `datos_calculo.envolvente_cee` y pasa al expediente al aceptar.
     //: La carpeta es la misma que tendrá el expediente, así que las fotos no se
     //: mueven. Se escribe por la misma función que el resto de la envolvente.
-    if (expediente?.es_oportunidad) {
-        await require('./ceeEnvolventeCex').setCeeField(expediente, CAMPO, todas);
-    } else {
-        const { error } = esCeeDirecto(expediente)
-            ? await supabase.rpc('set_cee_directo_cee_field', {
-                p_cee_directo_id: expediente.id, p_field: CAMPO, p_value: todas })
-            : await supabase.rpc('set_expediente_cee_field', {
-                p_expediente_id: expediente.id, p_field: CAMPO, p_value: todas });
-        if (error) throw new Error(error.message);
-    }
+    //: Todos los negocios por la MISMA función (el mapa de orígenes de
+    //: `ceeEnvolventeCex`): aquí no se repite el nombre de ninguna tabla ni RPC.
+    //: (Carga diferida: aquel módulo es el que carga el expediente.)
+    await require('./ceeEnvolventeCex').setCeeField(expediente, CAMPO, todas);
     //: Lo escrito queda también en el objeto que se tiene en la mano. Cada
     //: escritura REEMPLAZA la clave entera desde `fotosDe(expediente)`, así que
     //: dos seguidas sobre el mismo objeto —pegar varias fotos desde un script—
@@ -219,7 +212,13 @@ async function candidatas(expediente) {
  * subir una foto a un cerramiento no funcionaba nunca.
  */
 async function carpeta(expediente) {
-    const seccion = esCeeDirecto(expediente)
+    //: La OBRA de un certificador externo lleva también `es_cee_directo`, pero su
+    //: carpeta NO se hace pública (la del CEE directo sí): va por `carpetaFase`,
+    //: que la resuelve sin abrirla. Se mira ANTES.
+    const seccion = expediente?.es_ext
+        ? await require('./ceeEnvolventeCex').carpetaFase(
+            { expediente, driveFolderId: expediente.drive_folder_id || null }, 'inicial')
+        : esCeeDirecto(expediente)
         ? await ceeDirectoUploadService.ensureSectionFolder(expediente, 'inicial')
         : await ceeUploadService.ensureCeeSectionFolder(
             await ceeUploadService.resolveDriveFolderId(expediente), 'inicial');

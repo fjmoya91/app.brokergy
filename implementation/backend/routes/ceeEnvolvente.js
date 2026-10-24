@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const { internalOnly, staffOnly, isStaff } = require('../middleware/auth');
+const { internalOnly, staffOnly, isStaff, requireAuth } = require('../middleware/auth');
+const { identificarCertapp, obraDeLaCuenta } = require('../middleware/certappAuth');
 const cex = require('../services/ceeEnvolventeCex');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -16,22 +17,31 @@ const cex = require('../services/ceeEnvolventeCex');
 //
 // Acceso: `internalOnly`, no `staffOnly`. El CERTIFICADOR es quien usa esto —es
 // su herramienta de trabajo— y con `staffOnly` se quedaba fuera. Los partners
-// (PRESCRIPTOR / INSTALADOR / DISTRIBUIDOR) no entran: no es su ámbito.
+// (PRESCRIPTOR / INSTALADOR / DISTRIBUIDOR) no entran: no es su ámbito. Y el
+// certificador EXTERNO de la app de certificadores entra solo a SUS obras
+// (`origen=ext`): ver `internoOExtSuyo`, el guardián de las rutas con id.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MOTOR = process.env.CEE_ENGINE_URL || 'http://cee-engine:8080';
 
 /**
- * De qué NEGOCIO es el id que llega: el expediente CAE de siempre o un CEE
- * contratado suelto (`cee_directos`).
+ * De qué NEGOCIO es el id que llega: el expediente CAE de siempre, un CEE
+ * contratado suelto (`cee`), una oportunidad (`op`) o la obra de un certificador
+ * externo (`ext`). El mapa de dónde vive cada uno: `cex.ORIGENES`.
  *
  * REGLA — viaja EXPLÍCITO desde el navegador (`?origen=cee`), nunca se busca «a
- * ver en qué tabla está ese UUID». Son dos tablas y el mismo id no vale en las
- * dos: una búsqueda a ciegas es la forma de escribir el trabajo del certificador
+ * ver en qué tabla está ese UUID». Son varias tablas y el mismo id no vale en
+ * todas: una búsqueda a ciegas es la forma de escribir el trabajo del certificador
  * en el negocio equivocado. Es el mismo criterio que `?cee=` frente a `?exp=` en
- * los enlaces que ya viajan en los mensajes.
+ * los enlaces que ya viajan en los mensajes. Un origen desconocido es 400.
  */
-const origenDe = (req) => cex.origenNorm(req.query?.origen || req.body?.origen);
+//: ⚠️ El origen que vale es el que vio el GUARDIÁN (`req._origenEnvolvente`). En
+//: una subida multipart el cuerpo lo lee `multer` DESPUÉS del guardián: con el
+//: origen en el cuerpo y no en la query, el guardián vería «cae» (y dejaría pasar
+//: a un CERTIFICADOR del CRM) y el handler, «ext». El navegador lo manda siempre
+//: en la query (`apiEnvolvente.api`).
+const origenDe = (req) => req._origenEnvolvente
+    || cex.origenNorm(req.query?.origen || req.body?.origen);
 
 /**
  * `origen=op` — una OPORTUNIDAD aún sin aceptar: la envolvente se empieza desde
@@ -42,12 +52,212 @@ const origenDe = (req) => cex.origenNorm(req.query?.origen || req.body?.origen);
  * (y la oportunidad lleva el margen de Brokergy dentro).
  */
 const staffSiOportunidad = (req, res, next) => {
-    if (origenDe(req) === 'op' && !isStaff(req)) {
+    let origen;
+    try { origen = origenDe(req); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+    if (origen === 'op' && !isStaff(req)) {
         return res.status(403).json({
             error: 'La envolvente de una oportunidad es del equipo interno.' });
     }
     next();
 };
+
+/**
+ * El guardián de toda ruta con `:expedienteId` (salvo las `staffOnly`).
+ *
+ *   · `origen` cae / cee / op → `internalOnly`, exactamente como hasta ahora.
+ *   · `origen=ext` (la OBRA de un certificador externo, app de certificadores):
+ *       - el equipo interno (ADMIN / TRABAJADOR) pasa, como a todo;
+ *       - un certificador de la app pasa SOLO a una obra SUYA (`obraDeLaCuenta`);
+ *         si no lo es —o no existe, o no tiene cuenta—, 404: no se confirma que
+ *         exista (docs/conocimiento/certificadores-app, «lo ajeno es 404»);
+ *       - un CERTIFICADOR del CRM es un técnico de BROKERGY, no el dueño de la
+ *         obra: sin una cuenta de la app que sea la dueña, 404 igual;
+ *       - sin sesión, 401; con la BD caída, 503 (regla 38), nunca «no es tuya».
+ *   · un `origen` que no existe, 400 (nunca se trata como CAE).
+ *
+ * Un certificador de la app NO pasa por aquí a nada que no sea `origen=ext`:
+ * no tiene fila en `usuarios`, así que `internalOnly` le responde 403.
+ * Deja `req.certapp` (la cuenta) cuando entra un certificador de la app.
+ */
+const internoOExtSuyo = (req, res, next) => {
+    let origen;
+    try { origen = origenDe(req); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+    req._origenEnvolvente = origen;                 // fijado: el handler usa ESTE
+    if (origen !== 'ext') return internalOnly(req, res, next);
+
+    const noEncontrada = () => res.status(404).json({ error: 'Obra no encontrada.', code: 'OBRA_NO_ENCONTRADA' });
+    requireAuth(req, res, async () => {
+        try {
+            if (!req.user) return res.status(401).json({ error: 'Debes iniciar sesión.', code: 'SIN_SESION' });
+            if (isStaff(req)) return next();
+            const id = await identificarCertapp(req);
+            if (!id) return res.status(401).json({ error: 'Debes iniciar sesión.', code: 'SIN_SESION' });
+            if (!id.ok) return res.status(id.status).json({ error: id.error, code: id.code });
+            const cuenta = id.cuenta;
+            if (!cuenta) return noEncontrada();
+            if (cuenta.estado === 'BLOQUEADA') {
+                return res.status(403).json({ error: 'Tu cuenta está bloqueada. Escríbenos si crees que es un error.',
+                                              code: 'CERTAPP_BLOQUEADA' });
+            }
+            if (!(await obraDeLaCuenta(req.params.expedienteId, cuenta.id))) return noEncontrada();
+            req.certapp = { authId: id.authId, email: id.email, cuenta };
+            return next();
+        } catch (e) {
+            if (e.status === 503) {
+                return res.status(503).json({ error: 'No hemos podido comprobar la obra. Vuelve a intentarlo en '
+                                                     + 'unos segundos.', code: 'OBRA_NO_DISPONIBLE' });
+            }
+            console.error('[ceeEnvolvente] guardián ext:', e.message);
+            return res.status(500).json({ error: 'Error interno en autenticación' });
+        }
+    });
+};
+
+// ─── Origen `ext`: la RC fijada, la obra pedida y un tope por CUENTA ─────────
+//
+// La obra de un certificador externo se PAGA por edificio (un crédito al pasar
+// de BORRADOR a EN_PREPARACION). Tres cosas lo hacen valer:
+//   · la RC sale SIEMPRE de `certapp_obras.ref_catastral` (`rcFijadaExt`): la del
+//     cuerpo de la petición se ignora (`pedirGeometria`, `rcDe` en el servicio);
+//   · el `.cex` (y el croquis) solo con la obra PEDIDA (`obraSinPedir`) y sobre
+//     una geometría de ESA RC (`geometriaDeOtraRc`);
+//   · un TOPE por cuenta en lo que cuesta: Catastro (reglas 15-17: en serie,
+//     nunca en ráfaga; su WAF es el mismo del que depende el CRM) y Gemini.
+// El equipo interno y los orígenes cae / cee / op no pasan por aquí.
+
+/** La RC de una obra `ext`, de la BD y normalizada (14 o 20 caracteres). */
+function rcFijadaExt(ctx) {
+    return String(ctx?.expediente?.ref_catastral || ctx?.expediente?.instalacion?.ref_catastral || '')
+        .replace(/[\s./-]+/g, '').toUpperCase();
+}
+
+//: Los estados en que la obra NO está pedida. Sin estado se trata como BORRADOR:
+//: ante la duda, no se regala un certificado.
+const ESTADOS_SIN_PEDIR = ['BORRADOR', 'ARCHIVADA'];
+
+/** `null` si la obra está pedida; si no, `{ status: 409, code: 'OBRA_SIN_PEDIR', error }`. */
+function obraSinPedir(expediente) {
+    const estado = String(expediente?.estado || 'BORRADOR').toUpperCase();
+    if (!ESTADOS_SIN_PEDIR.includes(estado)) return null;
+    return {
+        status: 409, code: 'OBRA_SIN_PEDIR',
+        error: estado === 'ARCHIVADA'
+            ? 'Esta obra está archivada: ya no se puede generar su certificado. Si la necesitas, escríbenos.'
+            : 'Esta obra todavía es un borrador: el certificado se genera cuando la pides (es entonces '
+              + 'cuando se usa el crédito). Pídela desde la ficha de la obra y vuelve a intentarlo.',
+    };
+}
+
+/**
+ * ¿La geometría que manda el navegador es de OTRA referencia catastral? El motor
+ * la devuelve con su `referencia_catastral` (`refcat_parcela`, `refcat_inmueble`,
+ * `entrada`): tiene que ser la de la obra —la parcela (14) y, si las dos llevan
+ * la vivienda, la vivienda (20)—. Devuelve el motivo, o `null` si casa.
+ */
+function geometriaDeOtraRc(geometria, rcObra) {
+    const obra = String(rcObra || '').replace(/[\s./-]+/g, '').toUpperCase();
+    if (obra.length < 14) return 'La obra no tiene una referencia catastral válida.';
+    const r = geometria?.referencia_catastral || {};
+    const vistas = [r.refcat_parcela, r.refcat_inmueble, r.inmueble, r.completa, r.entrada]
+        .filter(v => v != null && String(v).trim())
+        .map(v => String(v).replace(/[\s./-]+/g, '').toUpperCase());
+    if (!vistas.length) {
+        return 'La geometría no dice de qué referencia catastral es: vuelve a traer la envolvente y genera otra vez.';
+    }
+    const otra = vistas.some(v => (v.length >= 20 && obra.length >= 20)
+        ? v.slice(0, 20) !== obra.slice(0, 20)
+        : v.slice(0, 14) !== obra.slice(0, 14));
+    return otra
+        ? 'Esa geometría es de otra referencia catastral, no de la de esta obra. Vuelve a traer la envolvente y genera otra vez.'
+        : null;
+}
+
+/** La puerta del `.cex` de una obra `ext`: pedida, y con la geometría de SU RC. */
+function cortaCexExt(ctx, geometria) {
+    const sinPedir = obraSinPedir(ctx?.expediente);
+    if (sinPedir) return sinPedir;
+    const motivo = geometriaDeOtraRc(geometria, rcFijadaExt(ctx));
+    return motivo ? { status: 409, code: 'RC_NO_COINCIDE', error: motivo } : null;
+}
+
+//: Topes por CUENTA (en memoria: un reinicio los vacía, y es aceptable — son un
+//: freno, no una factura). `serie`: una sola a la vez por cuenta (Catastro).
+const HORA_MS = 60 * 60 * 1000;
+const LIMITES_EXT = {
+    geometria:     { max: 20, ventanaMs: HORA_MS,      serie: true, que: 'mediciones del edificio', plazo: 'una hora' },
+    croquis:       { max: 20, ventanaMs: HORA_MS,      serie: true, que: 'croquis', plazo: 'una hora' },
+    imagenes:      { max: 30, ventanaMs: HORA_MS,      que: 'consultas de las imágenes del Catastro', plazo: 'una hora' },
+    cartografia:   { max: 60, ventanaMs: HORA_MS,      que: 'mapas del Catastro', plazo: 'una hora' },
+    croquis_movil: { max: 20, ventanaMs: HORA_MS,      que: 'enlaces para el móvil', plazo: 'una hora' },
+    cex:           { max: 10, ventanaMs: HORA_MS,      que: 'certificados generados', plazo: 'una hora' },
+    fotos_leer:    { max: 30, ventanaMs: 24 * HORA_MS, que: 'lecturas de fotos', plazo: 'un día' },
+};
+const usosExt = new Map();       // `${tipo}|${cuentaId}` → [instantes]
+const enCursoExt = new Set();    // `${tipo}|${cuentaId}` con una petición en marcha
+
+/**
+ * Cuenta un uso de `tipo` para la cuenta, o dice por qué no. Puro salvo el mapa.
+ * @returns {{ ok: true } | { ok: false, esperaS: number, error: string }}
+ */
+function tomarTurnoExt(tipo, cuentaId, ahora = Date.now()) {
+    const lim = LIMITES_EXT[tipo];
+    if (!lim) throw new Error(`Tope desconocido: ${tipo}`);
+    const k = `${tipo}|${cuentaId}`;
+    const vivos = (usosExt.get(k) || []).filter(t => ahora - t < lim.ventanaMs);
+    if (vivos.length >= lim.max) {
+        usosExt.set(k, vivos);
+        const esperaS = Math.max(1, Math.ceil((vivos[0] + lim.ventanaMs - ahora) / 1000));
+        const min = Math.ceil(esperaS / 60);
+        return {
+            ok: false, esperaS,
+            error: `Has llegado al máximo de ${lim.max} ${lim.que} en ${lim.plazo}. Es un freno para no `
+                 + `saturar al Catastro: vuelve a intentarlo en ${min > 1 ? `${min} minutos` : 'un minuto'}. `
+                 + 'Si lo necesitas antes, escríbenos.',
+        };
+    }
+    vivos.push(ahora);
+    usosExt.set(k, vivos);
+    return { ok: true };
+}
+
+/**
+ * Middleware: el tope de `tipo` para un CERTIFICADOR DE LA APP (`req.certapp`,
+ * que pone `internoOExtSuyo`) en `origen=ext`. Al equipo interno y a los demás
+ * orígenes no les toca. Fuera de tope: 429 `DEMASIADAS`.
+ */
+function limiteExt(tipo) {
+    const lim = LIMITES_EXT[tipo];
+    if (!lim) throw new Error(`Tope desconocido: ${tipo}`);
+    return (req, res, next) => {
+        const cuentaId = req.certapp?.cuenta?.id;
+        let origen;
+        try { origen = origenDe(req); } catch { return next(); }   // el 400 ya lo dio el guardián
+        if (origen !== 'ext' || !cuentaId) return next();
+        const k = `${tipo}|${cuentaId}`;
+        if (lim.serie && enCursoExt.has(k)) {
+            return res.status(429).set('Retry-After', '30').json({
+                code: 'DEMASIADAS', reintentar_en_s: 30,
+                error: 'Ya hay una medición en marcha en tu cuenta: espera a que termine (tarda hasta tres '
+                     + 'minutos) antes de pedir otra.',
+            });
+        }
+        const turno = tomarTurnoExt(tipo, cuentaId);
+        if (!turno.ok) {
+            return res.status(429).set('Retry-After', String(turno.esperaS))
+                .json({ code: 'DEMASIADAS', reintentar_en_s: turno.esperaS, error: turno.error });
+        }
+        if (lim.serie) {
+            enCursoExt.add(k);
+            let suelto = false;
+            const soltar = () => { if (!suelto) { suelto = true; enCursoExt.delete(k); } };
+            res.on('finish', soltar);
+            res.on('close', soltar);
+        }
+        return next();
+    };
+}
 
 // La envolvente de una parcela tarda: son varias peticiones a Catastro EN
 // SERIE —nunca en ráfaga, porque al otro lado está el mismo WAF del que
@@ -236,8 +446,21 @@ function croquisSaneado(cs) {
  * generar el .cex): dos caminos que midieran distinto dibujarían otra casa.
  * Devuelve `{ status, datos }` con la respuesta del motor tal cual.
  */
-async function pedirGeometria(expedienteId, origen, body = {}) {
-    const rc = (body?.referencia_catastral || '').trim();
+async function pedirGeometria(expedienteId, origen, body = {}, { ctx: ctxDado = undefined } = {}) {
+    // REGLA (origen `ext`) — la RC de la obra de un certificador externo sale
+    // SIEMPRE de la BD (`certapp_obras.ref_catastral`, también la de 20
+    // caracteres de la vivienda); lo que mande el navegador se IGNORA. La obra
+    // se paga por edificio: con la RC del cuerpo se mediría otro, y con `/cex`
+    // se sacaría su certificado gratis, tantas veces como se quisiera.
+    let ctx = ctxDado;
+    let rc;
+    if (origen === 'ext') {
+        if (ctx === undefined) ctx = await cex.cargarExpediente(expedienteId, origen);
+        if (!ctx) return { status: 404, datos: { detail: 'Obra no encontrada.' } };
+        rc = rcFijadaExt(ctx);
+    } else {
+        rc = (body?.referencia_catastral || '').trim();
+    }
     if (!rc) return { status: 400, datos: { detail: 'Falta la referencia catastral.' } };
 
     // Qué plantas cuentan lo marcó una persona en la ficha técnica de la
@@ -251,7 +474,7 @@ async function pedirGeometria(expedienteId, origen, body = {}) {
     // puerta de garaje. Un fallo aquí solo quita la pista, nunca la medición.
     let pistasCroquis = null;
     try {
-        const ctx = await cex.cargarExpediente(expedienteId, origen);
+        if (ctx === undefined) ctx = await cex.cargarExpediente(expedienteId, origen);
         if (ctx) pistasCroquis = fotos.pistasCroquis(ctx.expediente);
     } catch (e) { console.warn('[ceeEnvolvente] pistas del croquis:', e.message); }
 
@@ -269,7 +492,14 @@ async function pedirGeometria(expedienteId, origen, body = {}) {
     }
     // El SEMISÓTANO y las unidades de OTRA parcela: los declara el
     // certificador en su trabajo y se leen AQUÍ, no del navegador.
-    const { semisotano, anexos, volumenes } = cex.declaracionesEdificio(trabajo?.ajustes);
+    const { semisotano, anexos: anexosDeclarados, volumenes } = cex.declaracionesEdificio(trabajo?.ajustes);
+    // Las unidades de OTRA parcela son otras RC que el motor pide a Catastro: en
+    // una obra `ext` (lo pagado es UN edificio, el de su RC) no se miden.
+    const anexos = origen === 'ext' ? [] : anexosDeclarados;
+    if (origen === 'ext' && anexosDeclarados.length) {
+        console.warn(`[ceeEnvolvente] obra ext ${expedienteId}: ${anexosDeclarados.length} unidad(es) de otra `
+                     + 'parcela declaradas y NO medidas (la obra es de una sola RC).');
+    }
 
     const r = await alMotor('/envolvente', {
         referencia_catastral: rc,
@@ -323,12 +553,13 @@ async function pedirGeometria(expedienteId, origen, body = {}) {
     return { status: r.status, datos: await r.json() };
 }
 
-router.post('/:expedienteId/geometria', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/geometria', internoOExtSuyo, staffSiOportunidad, limiteExt('geometria'), async (req, res) => {
     try {
         const { status, datos } = await pedirGeometria(req.params.expedienteId, origenDe(req), req.body || {});
         if (status === 400 && datos?.detail === 'Falta la referencia catastral.') {
             return res.status(400).json({ error: datos.detail });
         }
+        if (status === 404) return res.status(404).json({ error: datos.detail, code: 'OBRA_NO_ENCONTRADA' });
         if (status < 200 || status >= 300) {
             // 502 del motor = ha fallado Catastro, no nosotros. Se deja pasar
             // tal cual para que el front no invite a reintentar contra el WAF.
@@ -353,6 +584,12 @@ async function croquisDesdeTrabajo(expedienteId, origen, { fase = 'inicial', avi
     const croq = require('../services/cee/croquisCee');
     const ctx = await cex.cargarExpediente(expedienteId, origen);
     if (!ctx) return { ok: false, status: 404, error: 'Expediente no encontrado.' };
+    // El croquis es un ENTREGABLE (plano de obra con la marca): en una obra
+    // `ext`, como el `.cex`, solo con la obra ya pedida.
+    if (origen === 'ext') {
+        const corte = obraSinPedir(ctx.expediente);
+        if (corte) return { ok: false, ...corte };
+    }
     if (!ctx.driveFolderId) return { ok: false, status: 409, error: 'No tiene carpeta de Drive: no hay dónde dejar el croquis.' };
     const t = await cex.leerTrabajo(expedienteId, origen);
     if (!t) return { ok: false, status: 409, error: 'Todavía no hay nada señalado en la envolvente.' };
@@ -363,7 +600,7 @@ async function croquisDesdeTrabajo(expedienteId, origen, { fase = 'inicial', avi
         zonas_fuera: t.zonas_fuera || null,
         altura_planta: t.ajustes?.altura_libre_planta || null,
         tipo_edificio_ce3x: t.ajustes?.tipo_ce3x || null,
-    });
+    }, { ctx });
     if (status < 200 || status >= 300) {
         return { ok: false, status: status === 502 ? 502 : 400,
                  error: `No se ha podido medir el edificio: ${geo?.detail || status}` };
@@ -372,12 +609,12 @@ async function croquisDesdeTrabajo(expedienteId, origen, { fase = 'inicial', avi
     return r.ok ? r : { ...r, status: 502 };
 }
 
-router.post('/:expedienteId/croquis', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/croquis', internoOExtSuyo, staffSiOportunidad, limiteExt('croquis'), async (req, res) => {
     try {
         const fase = req.body?.fase === 'final' ? 'final' : 'inicial';
         const r = await croquisDesdeTrabajo(req.params.expedienteId, origenDe(req),
             { fase, autor: req.user?.nombre || req.user?.email || null });
-        if (!r.ok) return res.status(r.status || 500).json({ error: r.error });
+        if (!r.ok) return res.status(r.status || 500).json({ error: r.error, ...(r.code ? { code: r.code } : {}) });
         res.json(r);
     } catch (e) {
         console.error('[ceeEnvolvente] croquis:', e.message);
@@ -394,7 +631,7 @@ router.post('/:expedienteId/croquis', internalOnly, staffSiOportunidad, async (r
  * siga otra persona— y aquí hay trabajo de verdad: las ventanas se ponen una a
  * una.
  */
-router.get('/:expedienteId/trabajo', internalOnly, staffSiOportunidad, async (req, res) => {
+router.get('/:expedienteId/trabajo', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         res.json({ trabajo: await cex.leerTrabajo(req.params.expedienteId, origenDe(req)) });
     } catch (e) {
@@ -403,7 +640,7 @@ router.get('/:expedienteId/trabajo', internalOnly, staffSiOportunidad, async (re
     }
 });
 
-router.put('/:expedienteId/trabajo', internalOnly, staffSiOportunidad, async (req, res) => {
+router.put('/:expedienteId/trabajo', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const t = req.body?.trabajo;
         if (!t || typeof t !== 'object') {
@@ -429,7 +666,7 @@ router.put('/:expedienteId/trabajo', internalOnly, staffSiOportunidad, async (re
  * Pedírselo a Claude es del EQUIPO INTERNO: el asistente es el de Fran, y un
  * certificador de fuera no le encarga trabajo.
  */
-router.get('/:expedienteId/revision', internalOnly, staffSiOportunidad, async (req, res) => {
+router.get('/:expedienteId/revision', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const revision = await require('../services/cee/revisionPlano')
             .leer({ clave: req.params.expedienteId, origen: origenDe(req) });
@@ -440,7 +677,7 @@ router.get('/:expedienteId/revision', internalOnly, staffSiOportunidad, async (r
     }
 });
 
-router.post('/:expedienteId/revision', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/revision', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const b = req.body || {};
         const u = req.user;
@@ -469,7 +706,7 @@ router.post('/:expedienteId/revision', internalOnly, staffSiOportunidad, async (
  * dónde sale, y eso es lo que el certificador revisa antes de generar: aquí se
  * ve si una transmitancia o un año no son los que él daría por buenos.
  */
-router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/ficha', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const { geometria } = req.body || {};
         if (!geometria) return res.status(400).json({ error: 'Falta `geometria`.' });
@@ -508,7 +745,7 @@ router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req
  * calificación, si está por calificar en el PC) y si se ha TOCADO a mano desde
  * que se selló. Una consulta a Drive: la ventana la pide al abrir y al generar.
  */
-router.get('/:expedienteId/estado-cex', internalOnly, staffSiOportunidad, async (req, res) => {
+router.get('/:expedienteId/estado-cex', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -532,7 +769,7 @@ router.get('/:expedienteId/estado-cex', internalOnly, staffSiOportunidad, async 
  * cuando alguien las pide, y el helper las cachea por referencia catastral, así
  * que mirarlas no cuesta una petición más al generar después.
  */
-router.post('/:expedienteId/imagenes', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/imagenes', internoOExtSuyo, staffSiOportunidad, limiteExt('imagenes'), async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -559,7 +796,7 @@ router.post('/:expedienteId/imagenes', internalOnly, staffSiOportunidad, async (
  * por rectángulo: encender y apagar el fondo no puede ser una petición cada vez
  * al WMS del que depende el buscador de la app.
  */
-router.post('/:expedienteId/cartografia', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/cartografia', internoOExtSuyo, staffSiOportunidad, limiteExt('cartografia'), async (req, res) => {
     try {
         res.json(await cex.cartografia(req.body?.georef));
     } catch (e) {
@@ -585,7 +822,7 @@ const croquisMovil = require('../services/croquisMovil');
  * helper cacheado del plano (cero peticiones de más si ya se veía en pantalla):
  * pintar dónde está el garaje sin ver la parcela es pintar a ciegas.
  */
-router.post('/:expedienteId/croquis-movil', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/croquis-movil', internoOExtSuyo, staffSiOportunidad, limiteExt('croquis_movil'), async (req, res) => {
     try {
         let cartografia = null;
         if (req.body?.georef) {
@@ -624,7 +861,7 @@ router.post('/:expedienteId/croquis-movil', internalOnly, staffSiOportunidad, as
  * versión `v`, o a los 20 s con lo que haya. Es lo que hace que el croquis se
  * vea AQUÍ según se pinta allí, sin la cadencia a saltos de una encuesta.
  */
-router.get('/:expedienteId/croquis-movil/:token/esperar', internalOnly, staffSiOportunidad, async (req, res) => {
+router.get('/:expedienteId/croquis-movil/:token/esperar', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     let soltar = null;
     req.on('close', () => soltar?.());
     const datos = await croquisMovil.esperar(req.params.token, req.params.expedienteId,
@@ -633,7 +870,7 @@ router.get('/:expedienteId/croquis-movil/:token/esperar', internalOnly, staffSiO
 });
 
 /** POST …/croquis-movil/:token/resultado — cómo ha ido el ajuste que pidió el teléfono. */
-router.post('/:expedienteId/croquis-movil/:token/resultado', internalOnly, staffSiOportunidad, (req, res) => {
+router.post('/:expedienteId/croquis-movil/:token/resultado', internoOExtSuyo, staffSiOportunidad, (req, res) => {
     const ok = croquisMovil.responder(req.params.token, req.params.expedienteId, req.body || {});
     res.status(ok ? 200 : 410).json({ ok });
 });
@@ -642,7 +879,7 @@ router.post('/:expedienteId/croquis-movil/:token/resultado', internalOnly, staff
  * POST …/croquis-movil/:token/resultado-huecos — el ordenador ha puesto (o no)
  * en el plano los huecos que se revisaron en el teléfono.
  */
-router.post('/:expedienteId/croquis-movil/:token/resultado-huecos', internalOnly, staffSiOportunidad, (req, res) => {
+router.post('/:expedienteId/croquis-movil/:token/resultado-huecos', internoOExtSuyo, staffSiOportunidad, (req, res) => {
     const ok = croquisMovil.responderHuecos(req.params.token, req.params.expedienteId, req.body || {});
     res.status(ok ? 200 : 410).json({ ok });
 });
@@ -651,7 +888,7 @@ router.post('/:expedienteId/croquis-movil/:token/resultado-huecos', internalOnly
  * POST …/croquis-movil/:token/paredes — cómo están las paredes AHORA en el plano
  * del ordenador (huecos, nombre, si admiten ventanas), para que el teléfono lo vea.
  */
-router.post('/:expedienteId/croquis-movil/:token/paredes', internalOnly, staffSiOportunidad, (req, res) => {
+router.post('/:expedienteId/croquis-movil/:token/paredes', internoOExtSuyo, staffSiOportunidad, (req, res) => {
     const ok = croquisMovil.actualizarParedes(req.params.token, req.params.expedienteId, req.body?.paredes);
     res.status(ok ? 200 : 410).json({ ok });
 });
@@ -660,7 +897,7 @@ router.post('/:expedienteId/croquis-movil/:token/paredes', internalOnly, staffSi
  * POST …/croquis-movil/:token/resultado-contra — el ordenador ha aplicado (o no)
  * lo que se dijo desde el teléfono de una pared (contra qué da).
  */
-router.post('/:expedienteId/croquis-movil/:token/resultado-contra', internalOnly, staffSiOportunidad, (req, res) => {
+router.post('/:expedienteId/croquis-movil/:token/resultado-contra', internoOExtSuyo, staffSiOportunidad, (req, res) => {
     const ok = croquisMovil.responderContra(req.params.token, req.params.expedienteId, req.body || {});
     res.status(ok ? 200 : 410).json({ ok });
 });
@@ -669,7 +906,7 @@ router.post('/:expedienteId/croquis-movil/:token/resultado-contra', internalOnly
  * POST …/croquis-movil/:token/resultado-pizarra — el ordenador ha aplicado (o
  * no) lo dibujado en la pizarra del teléfono.
  */
-router.post('/:expedienteId/croquis-movil/:token/resultado-pizarra', internalOnly, staffSiOportunidad, (req, res) => {
+router.post('/:expedienteId/croquis-movil/:token/resultado-pizarra', internoOExtSuyo, staffSiOportunidad, (req, res) => {
     const ok = croquisMovil.responderPizarra(req.params.token, req.params.expedienteId, req.body || {});
     res.status(ok ? 200 : 410).json({ ok });
 });
@@ -679,13 +916,13 @@ router.post('/:expedienteId/croquis-movil/:token/resultado-pizarra', internalOnl
  * cuenta: la planta del teléfono se pone al día (paredes, zonas, contorno), ya
  * en el lienzo del teléfono.
  */
-router.post('/:expedienteId/croquis-movil/:token/plano', internalOnly, staffSiOportunidad, (req, res) => {
+router.post('/:expedienteId/croquis-movil/:token/plano', internoOExtSuyo, staffSiOportunidad, (req, res) => {
     const ok = croquisMovil.actualizarPlano(req.params.token, req.params.expedienteId, req.body || {});
     res.status(ok ? 200 : 410).json({ ok });
 });
 
 /** DELETE …/croquis-movil/:token — el ordenador cierra; el teléfono lo verá. */
-router.delete('/:expedienteId/croquis-movil/:token', internalOnly, staffSiOportunidad, (req, res) => {
+router.delete('/:expedienteId/croquis-movil/:token', internoOExtSuyo, staffSiOportunidad, (req, res) => {
     res.json({ ok: croquisMovil.cerrar(req.params.token, req.params.expedienteId) });
 });
 
@@ -700,7 +937,7 @@ router.delete('/:expedienteId/croquis-movil/:token', internalOnly, staffSiOportu
  *
  * Después hay que volver a TRAER la envolvente: el motor mide con esto puesto.
  */
-router.put('/:expedienteId/construcciones', internalOnly, staffSiOportunidad, async (req, res) => {
+router.put('/:expedienteId/construcciones', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const r = await cex.guardarConstrucciones(
             req.params.expedienteId, req.body?.elegidas, req.body?.construcciones,
@@ -745,7 +982,7 @@ router.put('/:expedienteId/cliente', staffOnly, staffSiOportunidad, async (req, 
  * ficha de otro: se comprueba contra el que está ASIGNADO a este expediente,
  * que es el único cuyo nombre va a salir en este `.cex`.
  */
-router.put('/:expedienteId/tecnico', internalOnly, staffSiOportunidad, async (req, res) => {
+router.put('/:expedienteId/tecnico', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         // `soloSuyo` a null = sin restricción (equipo interno). Un CERTIFICADOR
         // sin empresa queda en 0, que no casa con ningún id: 403.
@@ -770,7 +1007,7 @@ router.put('/:expedienteId/tecnico', internalOnly, staffSiOportunidad, async (re
  * El fichero va a DRIVE, a la misma carpeta que el `.cex`; en la BD solo queda
  * su id (regla 21).
  */
-router.post('/:expedienteId/imagenes/:cual', internalOnly, staffSiOportunidad, upload.single('file'),
+router.post('/:expedienteId/imagenes/:cual', internoOExtSuyo, staffSiOportunidad, upload.single('file'),
     async (req, res) => {
         try {
             const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
@@ -783,7 +1020,7 @@ router.post('/:expedienteId/imagenes/:cual', internalOnly, staffSiOportunidad, u
         }
     });
 
-router.delete('/:expedienteId/imagenes/:cual', internalOnly, staffSiOportunidad, async (req, res) => {
+router.delete('/:expedienteId/imagenes/:cual', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -814,13 +1051,21 @@ router.delete('/:expedienteId/imagenes/:cual', internalOnly, staffSiOportunidad,
  * navegador viejo —o cualquiera con la sesión— podría escribir un certificado
  * con las U que quisiera.
  */
-router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/cex', internoOExtSuyo, staffSiOportunidad, limiteExt('cex'), async (req, res) => {
     try {
         const { geometria } = req.body || {};
         if (!geometria) return res.status(400).json({ error: 'Falta `geometria`.' });
 
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
+
+        // Obra `ext`: solo PEDIDA (el crédito se consume al pasar de BORRADOR a
+        // EN_PREPARACION) y siempre sobre SU referencia catastral. Regenerar al
+        // validar sigue valiendo: la obra ya está pedida y la RC es la fijada.
+        if (origenDe(req) === 'ext') {
+            const corte = cortaCexExt(ctx, geometria);
+            if (corte) return res.status(corte.status).json({ error: corte.error, code: corte.code });
+        }
 
         const fase = req.body?.fase || 'inicial';
         const esFinal = fase === 'final';
@@ -1037,7 +1282,7 @@ const quienEs = (req) => req.user?.email || req.user?.nombre || null;
  * peor forma de estrenar esto, y además la suya es la buena: es de antes de la
  * obra.
  */
-router.get('/:expedienteId/fotos', internalOnly, staffSiOportunidad, async (req, res) => {
+router.get('/:expedienteId/fotos', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -1053,7 +1298,7 @@ router.get('/:expedienteId/fotos', internalOnly, staffSiOportunidad, async (req,
 });
 
 /** POST /:expedienteId/fotos?clave=FBS3 — sube fotos nuevas a ese cerramiento. */
-router.post('/:expedienteId/fotos', internalOnly, staffSiOportunidad, uploadFotos.array('files', 6),
+router.post('/:expedienteId/fotos', internoOExtSuyo, staffSiOportunidad, uploadFotos.array('files', 6),
     async (req, res) => {
         try {
             const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
@@ -1080,7 +1325,7 @@ router.post('/:expedienteId/fotos', internalOnly, staffSiOportunidad, uploadFoto
     });
 
 /** POST /:expedienteId/fotos/adoptar — pega una que YA está en el expediente. */
-router.post('/:expedienteId/fotos/adoptar', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/fotos/adoptar', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -1094,7 +1339,7 @@ router.post('/:expedienteId/fotos/adoptar', internalOnly, staffSiOportunidad, as
 });
 
 /** DELETE /:expedienteId/fotos?clave=FBS3&drive_id=… — la despega. */
-router.delete('/:expedienteId/fotos', internalOnly, staffSiOportunidad, async (req, res) => {
+router.delete('/:expedienteId/fotos', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -1113,7 +1358,7 @@ router.delete('/:expedienteId/fotos', internalOnly, staffSiOportunidad, async (r
  * Dónde cae cada hueco DENTRO de esta foto. Se escribe al aplicar una lectura
  * —el modelo ya ha mirado dónde está cada ventana— y al señalar una a mano.
  */
-router.put('/:expedienteId/fotos/marcas', internalOnly, staffSiOportunidad, async (req, res) => {
+router.put('/:expedienteId/fotos/marcas', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -1137,7 +1382,7 @@ router.put('/:expedienteId/fotos/marcas', internalOnly, staffSiOportunidad, asyn
  * Solo sirve fotos de ESTE expediente —pegadas a un cerramiento o candidatas—:
  * el driveId llega del navegador y esto no puede ser un proxy de la Drive API.
  */
-router.get('/:expedienteId/fotos/:driveId/contenido', internalOnly, staffSiOportunidad, async (req, res) => {
+router.get('/:expedienteId/fotos/:driveId/contenido', internoOExtSuyo, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).send('Expediente no encontrado');
@@ -1163,7 +1408,7 @@ router.get('/:expedienteId/fotos/:driveId/contenido', internalOnly, staffSiOport
  * la que el certificador puede haber corregido moviendo la pared. Con ella el
  * código pone la escala; el modelo solo da proporciones.
  */
-router.post('/:expedienteId/fotos/leer', internalOnly, staffSiOportunidad, async (req, res) => {
+router.post('/:expedienteId/fotos/leer', internoOExtSuyo, staffSiOportunidad, limiteExt('fotos_leer'), async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -1215,3 +1460,9 @@ function leerCabecera(r, nombre, porDefecto = []) {
 }
 
 module.exports = router;
+//: Para las pruebas (`scripts/test_origen_ext.mjs`): lo de `ext`, sin montar Express.
+module.exports._pruebasExt = {
+    rcFijadaExt, obraSinPedir, geometriaDeOtraRc, cortaCexExt, tomarTurnoExt, limiteExt,
+    pedirGeometria, LIMITES_EXT,
+    reiniciar: () => { usosExt.clear(); enCursoExt.clear(); },
+};

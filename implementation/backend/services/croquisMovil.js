@@ -409,13 +409,20 @@ function abrir(o = {}) {
         : null;
 
     const token = randomBytes(16).toString('hex');
-    const negocio = ['cae', 'cee', 'op'].includes(o.negocio) ? o.negocio : 'cae';
+    //: Los orígenes que existen, del MAPA central (carga diferida: aquel módulo
+    //: carga muchas cosas y este se usa también desde la página pública).
+    //: Uno desconocido no se trata como CAE: no se abre el enlace.
+    const { ORIGENES } = require('./ceeEnvolventeCex');
+    const negocio = o.negocio == null || o.negocio === '' ? 'cae' : String(o.negocio);
+    if (!Object.prototype.hasOwnProperty.call(ORIGENES, negocio)) {
+        throw Object.assign(new Error(`Origen desconocido: «${negocio}».`), { status: 400 });
+    }
     const expediente = String(o.expediente || '');
     const ahora = Date.now();
     const s = {
         expediente,
-        //: De qué negocio es (`cae` · `cee` · `op`): las fotos se escriben en la
-        //: tabla que toque, igual que desde la ventana del ordenador.
+        //: De qué negocio es (`cae` · `cee` · `op` · `ext`): las fotos se escriben
+        //: en la tabla que toque, igual que desde la ventana del ordenador.
         negocio,
         //: Para recuperar en el teléfono lo pintado con un enlace anterior de
         //: ESTA planta (ver cabecera): una clave estable y el marco del lienzo.

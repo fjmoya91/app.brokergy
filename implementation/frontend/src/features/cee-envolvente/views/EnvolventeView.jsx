@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
-import { getRoleFlags } from '../../../utils/roleFlags';
+import { quienMira } from '../logic/quienMira';
 import { LeyendaPlano, PlanoPlanta } from '../components/PlanoPlanta';
 import { EquiposControl, PlanoCubierta } from '../components/EquiposPlano';
 import { NIVEL_CUBIERTA, TIPOS_EQUIPO, faldonesCubierta } from '../logic/equiposPlano';
@@ -50,7 +50,8 @@ import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalacione
 //: A qué negocio pertenece este expediente —CAE o CEE directo— y cómo se
 //: compone cada URL con ello. Sale de la dirección de la ventana, no del
 //: expediente cargado (ver `apiEnvolvente.js`).
-import { api, esCeeDirecto as enCeeDirecto, esOportunidad as enOportunidad, ORIGEN } from '../logic/apiEnvolvente';
+import { api, esCeeDirecto as enCeeDirecto, esOportunidad as enOportunidad, esExt as enExt,
+         esCeeSuelto as enCeeSuelto, ORIGEN } from '../logic/apiEnvolvente';
 import { useCeeIa } from '../../cee-ia/useCeeIa';
 import { lineaTrabajo, haceCuanto } from '../../cee-ia/logic/ceeIa';
 //: Las dos peticiones LARGAS de esta ventana —medir el edificio y escribir el
@@ -111,10 +112,14 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //  · el TÉCNICO, el equipo interno y ÉL MISMO — son sus datos, y es él quien
     //    sabe su nº de colegiado.
     const { user } = useAuth();
-    const { isStaff: esStaff } = getRoleFlags(user);
+    //: `esExterno`: el certificador de la app de certificadores (origen `ext`).
+    //: A él no se le enseña nada interno de BROKERGY —el rastro del Agente IA y
+    //: de Claude, PVGIS, corregir titular o técnico—; `veInterno` es el equipo.
+    //: En el CRM `veInterno` es exactamente `esStaff` (ver `quienMira.js`).
+    const { isStaff: esStaff, esCertificadorExterno: esExterno, veInterno } = quienMira(user);
     //: ¿Lo está haciendo (o lo hizo) la IA? Mientras trabaja, lo que se toque
     //: aquí lo puede pisar al escribir: se avisa arriba. Se refresca solo.
-    const ceeIa = useCeeIa({ negocio: ORIGEN, id, activo: esStaff && !!id });
+    const ceeIa = useCeeIa({ negocio: ORIGEN, id, activo: veInterno && !!id });
     const suFicha = !!user?.prescriptor_id
         && String(user.prescriptor_id) === String(expediente?.cee?.certificador_id || '');
     // La RC vive en distinto sitio segun el negocio. Mismo orden que usan los
@@ -785,7 +790,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (accion.accion === 'asi_es') {
             try {
                 const r = await confirmarAsiEs({ nota: accion.nota || '',
-                                                 avisarClaude: !!accion.avisar_claude && esStaff });
+                                                 avisarClaude: !!accion.avisar_claude && veInterno });
                 const t = [`Revisión${r?.revision?.n ? ` nº ${r.revision.n}` : ''} guardada y anotada.`];
                 if (r?.claude?.pedido) t.push('Claude se ha puesto a rehacer el CEE con tus cambios.');
                 else if (r?.claude) t.push(`Claude no se ha enterado: ${r.claude.motivo || 'el asistente no responde'}.`);
@@ -1728,8 +1733,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     // hay un después —por eso su fichero se llama «CEE» a secas— y el «final»
     // acabaría con el MISMO nombre en la MISMA carpeta, archivando en OLD el
     // que se acaba de generar. Se comprueba también en el backend.
-    const dosFases = !enCeeDirecto
-        || String(expediente?.alcance || 'UNICO').toUpperCase() === 'DOBLE';
+    // La obra de un certificador EXTERNO (origen `ext`) es SIEMPRE de un solo
+    // certificado: ni se mira su `alcance`.
+    const dosFases = !enExt && (!enCeeDirecto
+        || String(expediente?.alcance || 'UNICO').toUpperCase() === 'DOBLE');
     const fase = { fase: fichaFase, onFase: cambiarFicha, dosFases };
 
     return (
@@ -1745,7 +1752,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 {/* La revisión A MANO del plano («Así es como está»): en qué está.
                     Y si hay cambios dibujados sin confirmar, la salida para hacerlo. */}
                 <BandaRevision revision={revision} onRecargar={recargarTrabajo}
-                               onAbrir={() => setVerAsiEs(true)} />
+                               onAbrir={() => setVerAsiEs(true)} sinClaude={esExterno} />
                 {!!plano.pizarra?.cambios?.length && (
                     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-400/40
                                     bg-violet-500/[0.07] px-3 py-2 text-[12.5px] text-violet-100">
@@ -1760,7 +1767,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     </div>
                 )}
                 <AsiEsComoEstaModal abierto={verAsiEs} cambios={plano.pizarra?.cambios || []}
-                                    fase={fichaFase} puedeClaude={esStaff}
+                                    fase={fichaFase} puedeClaude={veInterno} sinClaude={esExterno}
                                     onCerrar={() => setVerAsiEs(false)} onConfirmar={confirmarAsiEs} />
 
                 <Cabecera resumen={resumen} entrada={entrada}
@@ -1773,7 +1780,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                           // Lo del AGENTE IA es UNA píldora más de esta tira, no
                           // una banda aparte: la banda repetía «12 por confirmar»,
                           // que esta tira ya cuenta. Lo suyo se abre debajo.
-                          agente={<PildoraAgenteIa sello={selloAgente(expediente, fichaFase)}
+                          // Al certificador EXTERNO no: es el rastro interno del
+                          // agente (sus avisos, el .cex y la carpeta de BROKERGY).
+                          agente={<PildoraAgenteIa sello={esExterno ? null : selloAgente(expediente, fichaFase)}
                                                    abierto={verAgente}
                                                    onAlternar={() => setVerAgente(v => !v)} />} />
 
@@ -1793,7 +1802,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         <span className="text-white/55"> Lo que cambies aquí y vuelvas a generar deja de ser suyo.</span>
                     </div>
                 )}
-                {verAgente && selloAgente(expediente, fichaFase) && (
+                {verAgente && !esExterno && selloAgente(expediente, fichaFase) && (
                     <DetalleAgenteIa sello={selloAgente(expediente, fichaFase)}
                                      onCerrar={() => setVerAgente(false)} />
                 )}
@@ -2077,7 +2086,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 ficha
                     ? <PanelAdministrativos
                           datos={ficha} fuente={ficha.fuente}
-                          puedeCliente={esStaff} puedeTecnico={esStaff || suFicha}
+                          // En la obra de un certificador externo no hay ficha de
+                          // `clientes` ni de `prescriptores` que corregir: el
+                          // titular es de la obra y el técnico, su perfil (app).
+                          puedeCliente={esStaff && !enExt}
+                          puedeTecnico={!enExt && (esStaff || suFicha)}
+                          obraExt={enExt}
                           onGuardarCliente={guardarFuente(
                               'cliente', 'Ficha del cliente actualizada.')}
                           onGuardarTecnico={guardarFuente(
@@ -2140,7 +2154,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         404 es peor que no tenerlo. */}
                     <Instalacion equipo={ficha?.ficha?.instalaciones?.[0]} placa={placa}
                                  fase={fichaFase} leyendo={leyendoPlaca} onLeer={leerPlaca}
-                                 puedeLeerPlaca={!enCeeDirecto && !enOportunidad} />
+                                 puedeLeerPlaca={!enCeeSuelto && !enOportunidad} />
                 </PanelInstalaciones>)}
 
             {activa === 'medidas' && (
@@ -2153,7 +2167,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                               onTexto={cambiarTextoMedida}
                               autoconsumoKwh={ajustes.autoconsumo_kwh ?? null}
                               onAutoconsumo={(n) => cambiarAjuste('autoconsumo_kwh', n)}
-                              ubicacionFv={ubicacionFv}
+                              // PVGIS es una ruta interna (`internalOnly`): al
+                              // certificador externo le daría un 403. Sin la
+                              // consulta, el backend la hace al generar.
+                              ubicacionFv={esExterno ? null : ubicacionFv}
                               onAutoconsumoPvgis={(e) => cambiarAjuste('autoconsumo_pvgis', pvgisParaGuardar(e))} />)}
 
             {activa === 'economico' && <PanelEconomico />}
@@ -2231,6 +2248,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         )}
                         <span className="max-w-[26rem] text-[11px] leading-snug text-white/40">
                             {!entrada ? 'Señala primero por dónde se entra.'
+                                : enExt
+                                    ? 'Esta obra es de UN solo certificado: el .cex va a la carpeta '
+                                      + 'de Drive de la obra como «… - CEE_REVISAR.cex», para abrirlo '
+                                      + 'en CE3X y comprobarlo.'
                                 : !dosFases
                                     ? 'Este encargo es de UN solo certificado: el .cex va a su '
                                       + 'carpeta «1. CEE» como «… - CEE_REVISAR.cex», para abrirlo '
@@ -2347,7 +2368,9 @@ function Arranque({ rc, cargando, error, onTraer, retomando }) {
 //: llegado: un autoguardado mudo no se distingue de no guardar.
 const GUARDADO = {
     guardando: { texto: 'Guardando…', color: 'text-white/40' },
-    guardado: { texto: enOportunidad ? '✓ Guardado en la oportunidad' : '✓ Guardado en el expediente', color: 'text-emerald-400' },
+    guardado: { texto: enOportunidad ? '✓ Guardado en la oportunidad'
+                    : enExt ? '✓ Guardado en la obra' : '✓ Guardado en el expediente',
+                color: 'text-emerald-400' },
     error: { texto: '⚠ No se ha podido guardar — no cierres la pestaña', color: 'text-red-300' },
 };
 

@@ -39,6 +39,9 @@ const { enlaceCarpetaLocal } = require('../utils/carpetaLocalEnlace');
 
 const NOMBRE = 'AGENTE IA';
 const FRONT = () => String(process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/+$/, '');
+//: La app de certificadores (origen `ext`): su admin es donde se ENTREGA la obra.
+const CERTAPP = () => String(process.env.CERTAPP_URL || 'https://cee.brokergy.es').trim().replace(/\/+$/, '');
+const encendido = (n) => String(process.env[n] || '').trim().toLowerCase() === 'true';
 const adminPhone = () => process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
 const adminEmail = () => process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
 
@@ -129,13 +132,16 @@ const attr = (s) => escapar(s).replace(/"/g, '&quot;');
  * marca. Puro: compone HTML, no envía nada.
  */
 function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes,
-                        avisosCortos, masAvisos, delAgente, tecnicoHumano, reenvio }) {
+                        avisosCortos, masAvisos, delAgente, tecnicoHumano, reenvio, externo = null }) {
     const {
         brandEmailShell, emailP, emailBox, emailButton, emailOutlineButton, emailDataTable, BRAND, FONT,
     } = require('./emailService');
     const MONO = "font-family:Consolas,'Courier New',monospace;";
 
-    const pill = !delAgente
+    const pill = externo
+        ? { emoji: '🤖', text: externo.entregado ? 'Agente IA · entregado al certificador' : 'Agente IA · app de certificadores',
+            bg: BRAND.orangeTint, color: BRAND.orangeDark }
+        : !delAgente
         ? { emoji: '🤖', text: 'Agente IA · borrador para el técnico', bg: BRAND.grayTint, color: BRAND.grayText }
         : { emoji: '🤖', text: reenvio ? 'Agente IA · versión actualizada' : 'Agente IA · pendiente de revisión',
             bg: BRAND.orangeTint, color: BRAND.orangeDark };
@@ -150,13 +156,22 @@ function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes
         + `<strong style="color:${BRAND.orangeDark};">${escapar(numero)}</strong>`
         + `${cliente ? ` de <strong>${escapar(cliente)}</strong>` : ''}.`,
         { color: BRAND.muted, mb: 10 },
-    ) + emailP(delAgente
+    ) + emailP(externo
+        ? `Es una obra de la <strong>app de certificadores</strong>, del certificador <strong>${escapar(externo.certificador || 'externo')}</strong>: `
+          + 'lo firma él y el titular es cliente suyo. '
+          + (externo.entregado ? 'Se le ha <strong>entregado sola</strong>.'
+              : externo.porCalificar ? 'Aún <strong>no está calificado con CE3X</strong> (falta el .xml y el PDF): se califica en el PC y después se entrega desde el admin de la app.'
+              : 'Revísalo y <strong>entrégaselo desde el admin</strong> de la app.')
+        : delAgente
         ? 'Queda <strong>pendiente de tu revisión</strong>: el agente no firma, así que después hay que pasárselo al técnico que lo firma y lo registra.'
         : `El certificador asignado sigue siendo <strong>${escapar(tecnicoHumano || 'otro técnico')}</strong>: el expediente no cambia de fase. El borrador es para él.`,
     { color: BRAND.muted, mb: 22 });
 
     // La ficha del borrador: de quién es, en qué queda y qué fichero dejó.
-    const estado = delAgente
+    const estado = externo
+        ? (externo.entregado ? 'Entregado al certificador'
+            : `<span style="color:${BRAND.orangeDark};">${externo.porCalificar ? 'Pendiente de calificar (PC)' : 'Pendiente de entregar'}</span>`)
+        : delAgente
         ? `<span style="color:${BRAND.orangeDark};">Pendiente de revisión</span>`
         : `Sigue con ${escapar(tecnicoHumano || 'el técnico asignado')}`;
     const ficha = emailBox(
@@ -166,6 +181,7 @@ function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes
             ['Expediente', escapar(numero)],
             cliente ? ['Cliente', escapar(cliente)] : null,
             ['Fase', escapar(faseLabel)],
+            externo ? ['Certificador', escapar(externo.certificador || 'externo')] : null,
             ['Estado', estado],
             fichero ? ['Fichero', `<span style="${MONO}font-size:12px;font-weight:400;">${escapar(fichero)}</span>`] : null,
         ]),
@@ -224,16 +240,18 @@ function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes
                   + filaBoton(emailP('Se abre en el Explorador de este PC (con <strong>brokergylocal</strong> instalado).',
                                      { size: 11, color: BRAND.muted, center: true, mb: 0 }), enlaces.app ? 14 : 0)
                   + (enlaces.app ? filaBoton(emailOutlineButton(attr(enlaces.app), '🔗 Abrir en la app'), 0) : '')
-                : filaBoton(emailButton(attr(enlaces.app), '🔗 Abrir en la app', BRAND.orange), 0)
+                : filaBoton(emailButton(attr(enlaces.app), externo ? '🔗 Abrir en el admin de la app' : '🔗 Abrir en la app', BRAND.orange), 0)
         }</table>`
         : '';
 
     const preheader = `El Agente IA ha dejado el borrador del ${faseLabel} de ${numero}${cliente ? ` (${cliente})` : ''}`
-        + (delAgente ? ' · pendiente de revisión.' : ` para ${tecnicoHumano || 'el técnico asignado'}.`);
+        + (externo ? ` · app de certificadores${externo.entregado ? ' · entregado'
+            : externo.porCalificar ? ' · pendiente de calificar' : ' · pendiente de entregar'}.`
+            : delAgente ? ' · pendiente de revisión.' : ` para ${tecnicoHumano || 'el técnico asignado'}.`);
 
     return brandEmailShell({
         preheader,
-        title: delAgente ? `${faseLabel} listo para revisar` : `Borrador del ${faseLabel} listo`,
+        title: externo ? `${faseLabel} ${externo.porCalificar ? 'por calificar en el PC' : 'listo para entregar'}` : delAgente ? `${faseLabel} listo para revisar` : `Borrador del ${faseLabel} listo`,
         pill,
         contentHtml: reenvioHtml + intro + ficha + pasos + avisosHtml + botones + accesosHtml,
         footerNote: 'Aviso interno del Agente IA · se envía al terminar un borrador de CEE.',
@@ -248,7 +266,7 @@ function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes
  */
 function componerAviso({ numero, cliente = '', faseLabel, fichero = null, enlaces = {},
                          pendientes = [], avisos = [], delAgente = true, tecnicoHumano = null,
-                         reenvio = false }) {
+                         reenvio = false, externo = null }) {
     const avisosCortos = avisos.slice(0, 4).map(a => recortar(a));
     const masAvisos = avisos.length > 4 ? avisos.length - 4 : 0;
     const clienteTxt = cliente ? ` del cliente *${cliente}*` : '';
@@ -256,12 +274,19 @@ function componerAviso({ numero, cliente = '', faseLabel, fichero = null, enlace
     const lineasAv = avisosCortos.map(a => `⚠ ${a}`).join('\n')
         + (masAvisos ? `\n⚠ … y ${masAvisos} aviso${masAvisos === 1 ? '' : 's'} más (en el resumen de la skill)` : '');
     const fase = `*${faseLabel}*`;
-    const nota = delAgente
+    // `externo`: la OBRA de un certificador de la app de certificadores (origen
+    // `ext`). No es un cliente nuestro ni hay fase que mover: se entrega en su admin.
+    const nota = externo
+        ? `Es una obra de la *APP DE CERTIFICADORES*, del certificador *${externo.certificador || 'externo'}* (lo firma él). `
+          + (externo.entregado ? 'Se le ha *ENTREGADO* sola.'
+              : externo.porCalificar ? 'Aún *NO está calificado con CE3X* (falta el .xml y el PDF): se califica en el PC y después se entrega desde el admin.'
+              : `Queda *PENDIENTE DE ENTREGAR* desde el admin${externo.motivoEntrega ? ` (la entrega automática ha fallado: ${externo.motivoEntrega})` : ''}.`)
+        : delAgente
         ? `Queda *PENDIENTE DE REVISIÓN*${reenvio ? ' (ya lo estaba: es una versión nueva)' : ''}.`
         : `El certificador asignado sigue siendo *${tecnicoHumano || 'otro técnico'}*: el expediente no cambia de fase.`;
 
     const whatsapp =
-`🤖 *${faseLabel} LISTO · AGENTE IA*${reenvio ? ' *(actualizado)*' : ''}
+`🤖 *${faseLabel} LISTO · AGENTE IA*${externo ? ' · *APP DE CERTIFICADORES*' : ''}${reenvio ? ' *(actualizado)*' : ''}
 
 El *Agente IA* ha terminado el borrador del ${fase} de *${numero}*${clienteTxt}.
 ${nota}
@@ -269,13 +294,13 @@ ${fichero ? `\n📄 ${fichero}\n` : ''}
 *Queda por hacer:*
 ${lineasPend}
 ${lineasAv ? `\n${lineasAv}\n` : ''}
-${enlaces.croquis ? `📐 Croquis (PDF): ${enlaces.croquis}\n` : ''}${enlaces.local ? `📂 Carpeta local (PC): ${enlaces.local}\n` : ''}${enlaces.app ? `🔗 Ver: ${enlaces.app}\n` : ''}${enlaces.carpeta ? `📁 Carpeta en Drive: ${enlaces.carpeta}\n` : ''}${enlaces.envolvente ? `🧱 Envolvente: ${enlaces.envolvente}\n` : ''}
+${enlaces.croquis ? `📐 Croquis (PDF): ${enlaces.croquis}\n` : ''}${enlaces.local ? `📂 Carpeta local (PC): ${enlaces.local}\n` : ''}${enlaces.app ? `🔗 ${externo ? 'Entregar (admin de la app)' : 'Ver'}: ${enlaces.app}\n` : ''}${enlaces.carpeta ? `📁 Carpeta en Drive: ${enlaces.carpeta}\n` : ''}${enlaces.envolvente ? `🧱 Envolvente: ${enlaces.envolvente}\n` : ''}
 *BROKERGY · Ingeniería Energética*`;
 
     const html = componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes,
-                                avisosCortos, masAvisos, delAgente, tecnicoHumano, reenvio });
+                                avisosCortos, masAvisos, delAgente, tecnicoHumano, reenvio, externo });
 
-    const asunto = `🤖 ${faseLabel} listo (Agente IA) — ${numero}${cliente ? ` · ${cliente}` : ''}${reenvio ? ' · actualizado' : ''}`;
+    const asunto = `🤖 ${faseLabel} listo (Agente IA${externo ? ' · app de certificadores' : ''}) — ${numero}${cliente ? ` · ${cliente}` : ''}${reenvio ? ' · actualizado' : ''}`;
     return { whatsapp, html, asunto, text: whatsapp.replace(/\*/g, '') };
 }
 
@@ -297,8 +322,13 @@ async function cargarCae(clave) {
     return data;
 }
 
+//: La tabla de cada negocio sale del MAPA de orígenes (`ceeEnvolventeCex`), no
+//: se escribe a mano (lo vigila scripts/test_origen_ext.mjs). Diferido: ese
+//: módulo es grande y no hace falta para componer un aviso.
+const tablaDe = (negocio) => require('./ceeEnvolventeCex').ORIGENES[negocio].tabla;
+
 async function cargarCee(clave) {
-    const { data, error } = await supabase.from('cee_directos')
+    const { data, error } = await supabase.from(tablaDe('cee'))
         .select('id, numero_expediente, estado, alcance, seguimiento, '
                 + 'cert:cee->>certificador_id, agente_ia:cee->agente_ia, cliente_id')
         .eq(esUuid(clave) ? 'id' : 'numero_expediente', clave).maybeSingle();
@@ -327,12 +357,48 @@ async function cargarOp(clave) {
     return data;
 }
 
-/** Escribe UNA clave de `cee` (reemplaza, no funde). Mismo RPC que la envolvente. */
+/**
+ * La OBRA de un certificador externo (app de certificadores, origen `ext`):
+ * un CEE suelto de alcance ÚNICO cuyo certificador es de FUERA. El agente le
+ * prepara el borrador, pero ni se pone de certificador ni mueve fases: la obra
+ * la entrega la app (`services/certapp/entrega`). La tabla, por el mapa.
+ */
+async function cargarExt(clave) {
+    const m = require('./ceeEnvolventeCex').ORIGENES.ext;
+    const { data, error } = await supabase.from(m.tabla)
+        .select('id, numero_expediente, estado, cuenta_id, nombre, drive_folder_link, '
+                + 'tit_nombre:titular->>nombre, tit_apellidos:titular->>apellidos, agente_ia:cee->agente_ia')
+        .eq(esUuid(clave) ? 'id' : m.clave, clave).maybeSingle();
+    if (error) throw Object.assign(new Error(`No se puede leer la obra ${clave}: ${error.message}`), { status: 503 });
+    if (!data) return null;
+    data.clientes = { nombre_razon_social: data.tit_nombre || data.nombre || null, apellidos: data.tit_apellidos || null };
+    data.cuenta = null;
+    if (data.cuenta_id) {
+        const { data: c } = await supabase.from('certapp_cuentas')
+            .select('id, email, nombre, apellidos, empresa').eq('id', data.cuenta_id).maybeSingle();
+        data.cuenta = c || null;
+    }
+    return data;
+}
+
+/** El certificador externo de una obra, para los avisos: «Nombre Apellidos (email)». */
+const nombreCuenta = (c) => {
+    if (!c) return null;
+    const n = [c.nombre, c.apellidos].filter(Boolean).join(' ').trim();
+    return [n || null, c.empresa ? `· ${c.empresa}` : null, c.email ? `(${c.email})` : null].filter(Boolean).join(' ') || null;
+};
+
+/**
+ * Escribe UNA clave de `cee` (reemplaza, no funde). La MISMA función que la
+ * envolvente (`setCeeField`): la tabla y la RPC las dice el mapa de orígenes.
+ */
 async function setCee(negocio, id, campo, valor) {
-    const { error } = negocio === 'cee'
-        ? await supabase.rpc('set_cee_directo_cee_field', { p_cee_directo_id: id, p_field: campo, p_value: valor })
-        : await supabase.rpc('set_expediente_cee_field', { p_expediente_id: id, p_field: campo, p_value: valor });
-    if (error) throw new Error(`No se ha podido guardar cee.${campo}: ${error.message}`);
+    const cex = require('./ceeEnvolventeCex');
+    try {
+        await cex.setCeeField(cex.expedienteStub(negocio, id), campo, valor);
+    } catch (e) {
+        throw Object.assign(new Error(`No se ha podido guardar cee.${campo}: ${e.message}`), { status: e.status, code: e.code });
+    }
 }
 
 /** Una línea en el historial del expediente CAE (lectura fresca, como guiaIrpf). */
@@ -378,6 +444,11 @@ function enlacesDe(negocio, fila) {
     if (negocio === 'cee') {
         return { app: `${FRONT()}/?cee=${fila.id}`, envolvente: `${FRONT()}/envolvente/${fila.id}?origen=cee` };
     }
+    if (negocio === 'ext') {
+        // «Ver» lleva al ADMIN de la app de certificadores, que es donde se entrega.
+        return { app: `${CERTAPP()}/admin/obras/${fila.id}`, envolvente: `${FRONT()}/envolvente/${fila.id}?origen=ext`,
+                 carpeta: fila.drive_folder_link || null };
+    }
     return { app: `${FRONT()}/?exp=${fila.id}`, envolvente: `${FRONT()}/envolvente/${fila.id}`,
              carpeta: fila.cee_folder_link || null };
 }
@@ -386,6 +457,189 @@ function registradaCae(fila, fase) {
     const k = claveFase(fase);
     return !!(normFase(fase) === 'final' ? fila.reg_fin : fila.reg_ini)
         || !!fila.seguimiento?.[`${k}_ts`]?.REGISTRADO;
+}
+
+/** El sello `cee.agente_ia[fase]` al TERMINAR: el mismo en todos los negocios. */
+function selloTerminado(prevSello, { delAgente, ahora, fichero = {}, avisos = [], decisiones = null }) {
+    return {
+        ...prevSello, estado: 'terminado', delAgente,
+        empezado_at: prevSello.empezado_at || null,
+        terminado_at: ahora,
+        // Lo que se esperaba del propietario ya no se espera: el CEE está hecho.
+        esperando: null,
+        // Y si se le había pedido REHACERLO (alguien corrigió el plano a mano y
+        // pulsó «Así es como está»), queda hecho: la cola deja de pedirlo.
+        ...(prevSello.rehacer && !prevSello.rehacer.hecho_at
+            ? { rehacer: { ...prevSello.rehacer, hecho_at: ahora } } : {}),
+        fichero: fichero.nombre || prevSello.fichero || null,
+        fichero_link: fichero.link || prevSello.fichero_link || null,
+        carpeta_link: fichero.carpeta_link || prevSello.carpeta_link || null,
+        croquis_link: fichero.croquis_link || prevSello.croquis_link || null,
+        // Los AVISOS del borrador, para que la ventana de la envolvente los
+        // enseñe: el WhatsApp los corta a cuatro y aquí es donde se revisan.
+        // Solo texto y con tope (regla 21).
+        avisos: (avisos || []).slice(0, 20).map(a => recortar(a, 300)),
+        // CÓMO lo ha hecho: el porqué que no se ve en el plano (del plan) y
+        // el resumen de lo escrito. Un `terminar` a mano no las trae: se
+        // conservan las de la pasada anterior.
+        decisiones: Array.isArray(decisiones)
+            ? decisiones.slice(0, 30).map(d => recortar(d, 300))
+            : (prevSello.decisiones || []),
+    };
+}
+
+// ─── La OBRA de un certificador externo (origen `ext`) ───────────────────────
+//
+// Un CEE suelto de alcance ÚNICO cuyo certificador es de FUERA (app de
+// certificadores). El agente le prepara el certificado y deja su sello, pero:
+//   · NO se pone de certificador (lo firma el externo) y NO mueve fases: la obra
+//     la ENTREGA la app (`services/certapp/entrega`);
+//   · ni `ceeDirectoService` ni historial del CRM: su rastro son los eventos de
+//     la obra (`certapp_eventos`, IA_HECHA);
+//   · al terminar se llama a `alTerminarIa` de la app, que con
+//     CERTAPP_ENTREGA_AUTO=true la entrega sola y, si no, manda al equipo su
+//     WhatsApp corto «revísalo y pulsa Entregar» — ese WhatsApp no se repite
+//     aquí; el email con el detalle (avisos, croquis, enlaces) va siempre;
+//   · fuera de la cola del agente (`cola`) y del radar del parte: su cola es el
+//     admin de la app.
+
+/** Lo que queda tras el borrador de una obra externa. */
+function pendientesExt({ entregado = false, porCalificar = false } = {}) {
+    if (porCalificar) {
+        return ['CALIFICARLO en el PC con CE3X 3.2 (node scripts/cee_inicial.js calificar --cola --escribir): sin el .xml y el PDF no se entrega',
+                'Revisar el CROQUIS y lo que está en ÁMBAR (por confirmar) en la ventana de la envolvente',
+                'Después, entregarlo al certificador desde el admin de la app («Entregar»)'];
+    }
+    return entregado
+        ? ['Ya está ENTREGADO: el certificador lo revisa en la app y lo valida, o lo corrige en la envolvente (se vuelve a generar)',
+           'Mirar los avisos del borrador por si hay que decirle algo al certificador']
+        : ['Revisar el CROQUIS y lo que está en ÁMBAR (por confirmar) en la ventana de la envolvente',
+           'Comprobar el .cex, el .xml y el PDF de «1. CEE» (calificación y avisos)',
+           'Entregarlo al certificador desde el admin de la app («Entregar»)'];
+}
+
+async function empezarExt({ clave, fase }) {
+    if (normFase(fase) === 'final') throw new Error('Una obra de la app de certificadores es de UN solo certificado: no tiene fase final.');
+    const fila = await cargarExt(clave);
+    if (!fila) throw new Error(`No encuentro la obra ${clave}.`);
+    const ahora = new Date().toISOString();
+    const prev = fila.agente_ia?.inicial || {};
+    const sello = { ...(fila.agente_ia || {}),
+                    inicial: { ...prev, estado: 'trabajando', delAgente: false,
+                               empezado_at: prev.estado === 'trabajando' ? prev.empezado_at || ahora : ahora } };
+    await setCee('ext', fila.id, 'agente_ia', sello);
+    return { ok: true, negocio: 'ext', numero: fila.numero_expediente, delAgente: false, humano: nombreCuenta(fila.cuenta),
+             cambios: [],
+             nota: 'Es la OBRA de un certificador externo (app de certificadores): el agente le prepara el certificado, '
+                 + 'no se pone de certificador ni mueve fases. La entrega la hace la app.' };
+}
+
+/** El interruptor de los avisos de la app de certificadores; si no se puede leer, APAGADO. */
+function avisosCertappActivos() {
+    try { return !!require('./certapp/avisos').activos(); }
+    catch (e) {
+        console.warn('[agenteIa] interruptor de avisos de la app de certificadores:', e.message);
+        return false;
+    }
+}
+
+async function terminarExt({ clave, fase, fichero = {}, pendientes = null, avisos = [], decisiones = null,
+                             aviso = true, entregable = true }) {
+    if (normFase(fase) === 'final') throw new Error('Una obra de la app de certificadores es de UN solo certificado: no tiene fase final.');
+    const ahora = new Date().toISOString();
+    const fila = await cargarExt(clave);
+    if (!fila) throw new Error(`No encuentro la obra ${clave}.`);
+    const numero = fila.numero_expediente;
+    const cliente = nombreCliente(fila.clientes);
+    const certificador = nombreCuenta(fila.cuenta);
+    const faseLabel = 'CEE';
+    const enlaces = { ...enlacesDe('ext', fila) };
+    const prevSello = fila.agente_ia?.inicial || {};
+    if (fichero.carpeta_link || prevSello.carpeta_link) enlaces.carpeta = fichero.carpeta_link || prevSello.carpeta_link;
+    const reenvio = prevSello.estado === 'terminado';
+    const sello = { ...(fila.agente_ia || {}),
+                    inicial: selloTerminado(prevSello, { delAgente: false, ahora, fichero, avisos, decisiones }) };
+    await setCee('ext', fila.id, 'agente_ia', sello);
+
+    const fallos = [];
+    // El rastro de la obra en la app. Sin enlaces de Drive: los eventos los puede
+    // ver el certificador, y los enlaces de Drive son solo del equipo.
+    try {
+        const { error } = await supabase.from('certapp_eventos').insert({
+            obra_id: fila.id, cuenta_id: fila.cuenta_id || null, tipo: 'IA_HECHA', por: 'IA',
+            texto: `La IA ha dejado el certificado${fichero.nombre ? ` (${fichero.nombre})` : ''} en «1. CEE»`
+                + (reenvio ? ' · versión nueva' : '') + '.',
+            datos: { fase: 'inicial', reenvio, fichero: sello.inicial.fichero || null, avisos: (avisos || []).length },
+        });
+        if (error) fallos.push(`Evento IA_HECHA: ${error.message}`);
+    } catch (e) { fallos.push(`Evento IA_HECHA: ${e.message}`); }
+
+    // La app decide: con CERTAPP_ENTREGA_AUTO=true entrega sola (y avisa ELLA al
+    // certificador); si no, avisa al equipo. `aviso: false` (relanzar en la misma
+    // sesión) no entrega ni avisa. Nunca deshace el trabajo.
+    // `entregable: false` = el `.cex` aún no lo ha calificado CE3X (sin .xml ni
+    // PDF): no se llama a la app —entregaría un certificado a medias— y el aviso
+    // al equipo lo manda este servicio, diciendo que falta calificarlo.
+    let entrega = null;
+    if (aviso && entregable) {
+        try {
+            const r = await require('./certapp/entrega').alTerminarIa(fila.id);
+            entrega = { auto: !!r?.auto, ok: r?.auto ? r.ok !== false : null, motivo: r?.error || null };
+            if (entrega.auto && !entrega.ok) fallos.push(`Entrega automática: ${entrega.motivo || 'falló'}`);
+        } catch (e) {
+            entrega = { auto: null, ok: false, motivo: e.message };
+            fallos.push(`Entrega: ${e.message}`);
+        }
+    }
+    const externo = { certificador, entregado: !!(entrega?.auto && entrega.ok), porCalificar: !entregable,
+                      motivoEntrega: entrega?.auto && !entrega.ok ? entrega.motivo : null };
+
+    if (fichero.link) enlaces.fichero = fichero.link;
+    if (fichero.croquis_link) enlaces.croquis = fichero.croquis_link;
+    const lista = Array.isArray(pendientes) && pendientes.length ? pendientes
+        : pendientesExt(externo);
+    const msg = componerAviso({ numero, cliente, faseLabel, fichero: fichero.nombre || null, enlaces,
+                                pendientes: lista, avisos, delAgente: false, tecnicoHumano: certificador,
+                                reenvio, externo });
+    const canales = [];
+    // REGLA — nada sale a terceros desde local: lo de la app de certificadores va
+    // con CERTAPP_AVISOS_ENABLED, el MISMO interruptor que `certapp/avisos.js`
+    // (`activos()`). Apagado, el aviso se escribe en el log y no sale nada.
+    if (aviso && !avisosCertappActivos()) {
+        console.log(`[certapp seco] equipo — ${msg.asunto}\n${String(msg.text || '').slice(0, 1500)}`);
+        canales.push('ninguno: CERTAPP_AVISOS_ENABLED apagado (en el log)');
+    } else if (aviso) {
+        // `alTerminarIa` sin entrega automática ya le ha mandado al equipo su WhatsApp.
+        if (entrega?.auto !== false) {
+            try {
+                await require('./whatsappService').sendText(adminPhone(), msg.whatsapp);
+                canales.push('WhatsApp');
+            } catch (e) { fallos.push(`WhatsApp: ${e.message}`); }
+        } else {
+            canales.push('WhatsApp (el de la app)');
+        }
+        try {
+            const emailService = require('./emailService');
+            await emailService.sendMail({
+                to: adminEmail(),
+                from: process.env.ALERT_EMAIL_FROM || emailService.getFallbackSender() || undefined,
+                subject: msg.asunto, html: msg.html, text: msg.text,
+            });
+            canales.push('Email');
+        } catch (e) { fallos.push(`Email: ${e.message}`); }
+    }
+    return { ok: true, negocio: 'ext', numero, delAgente: false, humano: certificador, reenvio, cambios: [],
+             canales, fallos, entrega, aviso: aviso ? msg : null };
+}
+
+async function esperarExt({ clave, fase, que }) {
+    if (normFase(fase) === 'final') throw new Error('Una obra de la app de certificadores no tiene fase final.');
+    const fila = await cargarExt(clave);
+    if (!fila) throw new Error(`No encuentro la obra ${clave}.`);
+    const sello = { ...(fila.agente_ia || {}) };
+    sello.inicial = { ...(sello.inicial || {}), esperando: { que, desde: new Date().toISOString() } };
+    await setCee('ext', fila.id, 'agente_ia', sello);
+    return { sellado: true };
 }
 
 // ─── Los dos pasos ───────────────────────────────────────────────────────────
@@ -398,6 +652,7 @@ function registradaCae(fila, fase) {
  * @returns {{ ok, negocio, numero, delAgente, humano, cambios: string[] }}
  */
 async function empezar({ negocio, clave, fase = 'inicial', reasignar = false }) {
+    if (negocio === 'ext') return empezarExt({ clave, fase });
     fase = normFase(fase);
     if (negocio === 'op') {
         // Una oportunidad no tiene certificador ni fases: no hay nada que marcar.
@@ -482,7 +737,7 @@ async function empezar({ negocio, clave, fase = 'inicial', reasignar = false }) 
  * subir su .cex. `aviso: false` lo calla (relanzar en la misma sesión).
  *
  * @param {object} p
- * @param {'cae'|'cee'|'op'} p.negocio
+ * @param {'cae'|'cee'|'op'|'ext'} p.negocio
  * @param {string} p.clave   nº o uuid
  * @param {'inicial'|'final'} [p.fase]
  * @param {{nombre?, link?, carpeta_link?}} [p.fichero]  lo que devolvió `guardarEnDrive`
@@ -492,7 +747,8 @@ async function empezar({ negocio, clave, fase = 'inicial', reasignar = false }) 
  * @param {boolean} [p.aviso=true]
  */
 async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendientes = null,
-                          avisos = [], decisiones = null, aviso = true }) {
+                          avisos = [], decisiones = null, aviso = true, entregable = true }) {
+    if (negocio === 'ext') return terminarExt({ clave, fase, fichero, pendientes, avisos, decisiones, aviso, entregable });
     fase = normFase(fase);
     const ahora = new Date().toISOString();
     const cambios = [];
@@ -535,31 +791,7 @@ async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendie
         const prevSello = fila.agente_ia?.[fase] || {};
         reenvio = prevSello.estado === 'terminado';
         const sello = { ...(fila.agente_ia || {}) };
-        sello[fase] = {
-            ...prevSello, estado: 'terminado', delAgente,
-            empezado_at: prevSello.empezado_at || null,
-            terminado_at: ahora,
-            // Lo que se esperaba del propietario ya no se espera: el CEE está hecho.
-            esperando: null,
-            // Y si se le había pedido REHACERLO (alguien corrigió el plano a mano y
-            // pulsó «Así es como está»), queda hecho: la cola deja de pedirlo.
-            ...(prevSello.rehacer && !prevSello.rehacer.hecho_at
-                ? { rehacer: { ...prevSello.rehacer, hecho_at: ahora } } : {}),
-            fichero: fichero.nombre || prevSello.fichero || null,
-            fichero_link: fichero.link || prevSello.fichero_link || null,
-            carpeta_link: fichero.carpeta_link || prevSello.carpeta_link || null,
-            croquis_link: fichero.croquis_link || prevSello.croquis_link || null,
-            // Los AVISOS del borrador, para que la ventana de la envolvente los
-            // enseñe: el WhatsApp los corta a cuatro y aquí es donde se revisan.
-            // Solo texto y con tope (regla 21).
-            avisos: (avisos || []).slice(0, 20).map(a => recortar(a, 300)),
-            // CÓMO lo ha hecho: el porqué que no se ve en el plano (del plan) y
-            // el resumen de lo escrito. Un `terminar` a mano no las trae: se
-            // conservan las de la pasada anterior.
-            decisiones: Array.isArray(decisiones)
-                ? decisiones.slice(0, 30).map(d => recortar(d, 300))
-                : (prevSello.decisiones || []),
-        };
+        sello[fase] = selloTerminado(prevSello, { delAgente, ahora, fichero, avisos, decisiones });
         await setCee(negocio, fila.id, 'agente_ia', sello);
 
         if (delAgente) {
@@ -670,7 +902,7 @@ async function cola() {
             .select('id, numero_expediente, estado, seguimiento, agente_ia:cee->agente_ia, clientes!cliente_id(nombre_razon_social, apellidos)')
             .eq('cee->>certificador_id', id)
             .not('estado', 'in', `(${FUERA.map(s => `"${s}"`).join(',')})`),
-        supabase.from('cee_directos')
+        supabase.from(tablaDe('cee'))
             .select('id, numero_expediente, estado, alcance, seguimiento, agente_ia:cee->agente_ia, cliente_id')
             .eq('cee->>certificador_id', id)
             .neq('estado', 'FINALIZADO'),
@@ -738,6 +970,7 @@ async function cola() {
  * sello (no tiene certificador): ahí solo queda la línea del historial.
  */
 async function esperar({ negocio, clave, fase = 'inicial', que }) {
+    if (negocio === 'ext') return esperarExt({ clave, fase, que });
     fase = normFase(fase);
     const ahora = new Date().toISOString();
     if (negocio === 'op') {
@@ -765,5 +998,5 @@ async function esperar({ negocio, clave, fase = 'inicial', que }) {
 module.exports = {
     NOMBRE, esAgenteIa, agente, cola, empezar, terminar, esperar, anotarOportunidad,
     // puros (pruebas)
-    decidirCertificador, siguienteSubestado, estadoGlobalDe, pendientesPorDefecto, componerAviso, normFase,
+    decidirCertificador, siguienteSubestado, estadoGlobalDe, pendientesPorDefecto, pendientesExt, componerAviso, normFase,
 };
