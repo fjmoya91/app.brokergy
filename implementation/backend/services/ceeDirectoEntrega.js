@@ -71,7 +71,7 @@ const nombreCliente = (cli) => cli
  */
 function destinatarioEntrega(row) {
     const facs = Object.values(row.documentacion?.facturas_emitidas || {})
-        .filter(f => f && typeof f === 'object')
+        .filter(f => f && typeof f === 'object' && f.estado !== 'RECTIFICADA')
         .sort((a, b) => String(a.emitida_at || '').localeCompare(String(b.emitida_at || '')));
     const ultima = facs[facs.length - 1];
     if (ultima?.destino === 'partner' && row.prescriptor) {

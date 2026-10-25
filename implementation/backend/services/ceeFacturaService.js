@@ -78,8 +78,15 @@ function contactoEnvio(row, destino) {
 
 function emitidas(row) {
     const e = row.documentacion?.[CAMPO];
-    return e && typeof e === 'object' ? Object.values(e).sort((a, b) => String(a.emitida_at).localeCompare(String(b.emitida_at))) : [];
+    // Una anulada por su rectificativa ya no es «la factura del encargo».
+    return e && typeof e === 'object'
+        ? Object.values(e).filter(f => f && f.estado !== 'RECTIFICADA').sort((a, b) => String(a.emitida_at).localeCompare(String(b.emitida_at)))
+        : [];
 }
+
+/** Hecha en la pestaña Facturación: su PDF, su fecha y su número son de allí. */
+const deFacturacion = (reg) => !!reg?.factura_id;
+const noDesdeAqui = (reg, que) => error(409, `La factura ${reg.numero} se hizo en Facturación: ${que} desde allí`);
 
 // ── Lo que necesita el popup ───────────────────────────────────────────────
 
@@ -102,7 +109,7 @@ async function contextoMensaje(row) {
         }
         if (!row.cobrado) enlacePago = await proceso.enlacePago(row);
     } catch (e) { console.warn('[factura cee] contexto del mensaje:', e.message); }
-    return { enlacePago, certificado, doble };
+    return { enlacePago, certificado, doble, finalRegistrado: doble && row.seguimiento?.cee_final === 'REGISTRADO' };
 }
 
 async function borrador(id) {
@@ -263,6 +270,7 @@ async function registroDe(id, numero) {
 /** Rehace el PDF de una factura YA emitida (mismo número, sin tocar la hoja). */
 async function rehacerPdf(id, numero) {
     const { row, reg } = await registroDe(id, numero);
+    if (deFacturacion(reg)) throw noDesdeAqui(reg, 'su PDF se rehace');
     return generarPdf(row, reg);
 }
 
@@ -283,6 +291,7 @@ async function cambiarFecha(id, numero, { fecha, usuario = null } = {}) {
     const fechaIso = /^\d{4}-\d{2}-\d{2}$/.test(fecha || '') ? fecha : null;
     if (!fechaIso) throw error(400, 'Falta la nueva fecha de la factura');
     const { row, reg } = await registroDe(id, numero);
+    if (deFacturacion(reg)) throw noDesdeAqui(reg, 'una emitida no cambia de fecha aquí; se rectifica');
     if (reg.fecha === fechaIso) throw error(400, 'La factura ya tiene esa fecha');
     const m = await modulo();
 
@@ -341,6 +350,11 @@ async function cambiarFecha(id, numero, { fecha, usuario = null } = {}) {
 /** El PDF archivado; si no está (o no baja), se rehace con el mismo número. */
 async function pdfDe(id, numero) {
     const { row, reg } = await registroDe(id, numero);
+    if (deFacturacion(reg)) {
+        // El PDF es el de la pestaña (su plantilla y su archivo), nunca uno rehecho aquí.
+        const r = await facturasApp().pdfDe(reg.factura_id);
+        return { buffer: r.buffer, filename: r.filename, reg, row };
+    }
     let buffer = reg.pdf?.driveId ? await driveService.getFileContent(reg.pdf.driveId) : null;
     if (!buffer?.length) {
         await generarPdf(row, reg);
@@ -449,7 +463,121 @@ async function anotarEnvio(id, numero, envio) {
     await facturasApp().actualizarRegistrada(reg.numero, { envio });
 }
 
+// ── Las facturas hechas en la pestaña Facturación ─────────────────────────
+//
+// Una factura de la pestaña que es de un CEE directo (nació de su presupuesto, o
+// lleva su nº de expediente) se REFLEJA en la ficha del CEE, con la misma forma
+// que las emitidas aquí: el procedimiento, el aviso de «toca facturar», a quién
+// se entrega, el «ya tiene factura» y el cobro leen `documentacion.facturas_emitidas`.
+// Sin el reflejo, 2026CEE_61 seguía en «toca emitir la factura» con la 26ING_89
+// ya enviada desde la pestaña (25/10/2026). La factura manda en la tabla; esto
+// es su copia de metadatos, que se reescribe entera en cada cambio.
+
+/** A quién se emitió: al partner que trae el encargo si lleva su CIF; si no, al cliente. */
+function destinoDeFactura(row, cliente = {}) {
+    const cif = txt(cliente.cif).toUpperCase();
+    return row.prescriptor && cif && cif === txt(row.prescriptor.cif).toUpperCase() ? 'partner' : 'cliente';
+}
+
+/**
+ * El envío de una factura de la pestaña que es de este CEE: el MISMO mensaje y
+ * el mismo destinatario que si saliera del popup del CEE, con el enlace para que
+ * el cliente SUBA EL JUSTIFICANTE (al subirlo nos llega «Confirmar cobro»). El
+ * mensaje genérico de la pestaña no lo llevaba: la 26ING_89 salió sin él.
+ */
+async function envioDeFacturacion(f) {
+    if (!f?.cee_directo_id || f.tipo !== 'F1') return null;
+    const row = await svc.cargar(f.cee_directo_id);
+    if (!row) return null;
+    const m = await modulo();
+    const contacto = contactoEnvio(row, destinoDeFactura(row, f.cliente || {}));
+    const mensaje = m.mensajeFactura({
+        nombre: contacto.nombre, numero: f.numero, total: Number(f.total) || 0, expediente: row.numero_expediente,
+        esEmpresa: contacto.esEmpresa, lineas: f.lineas || [], ...(await contextoMensaje(row)),
+    });
+    return { destino: { nombre: contacto.nombre, email: contacto.email, tlf: contacto.tlf }, mensaje, expediente: row.numero_expediente };
+}
+
+/** Escribe (o reescribe) el reflejo de una fila de `facturas_emitidas`. */
+async function reflejarDeFacturacion(f, { usuario = null } = {}) {
+    if (!f?.cee_directo_id || !f.numero || f.tipo !== 'F1' || f.origen !== 'APP') return { omitida: true };
+    const row = await svc.cargar(f.cee_directo_id);
+    if (!row) return { omitida: true };
+    const previo = row.documentacion?.[CAMPO]?.[f.numero] || null;
+    const cli = f.cliente || {};
+    const destino = destinoDeFactura(row, cli);
+    const envios = Array.isArray(f.envios) ? f.envios : [];
+    const registro = {
+        numero: f.numero, sheet_id: f.hoja_id || null, destino,
+        cliente: { ...cli, esEmpresa: !!cli.es_empresa },
+        fecha: f.fecha, vencimiento: f.vencimiento, observaciones: f.observaciones || '',
+        lineas: (f.lineas || []).map(l => ({ descripcion: l.descripcion, uds: l.uds, precio: l.precio, dtoPct: l.dtoPct, ivaPct: l.ivaPct, suplido: !!l.suplido })),
+        neto: Number(f.neto) || 0, iva: Number(f.iva) || 0, descuento: Number(f.descuento) || 0, total: Number(f.total) || 0,
+        estado: f.estado === 'PAGADA' ? 'PAGADA' : f.estado === 'RECTIFICADA' ? 'RECTIFICADA' : 'ENVIADA',
+        emitida_at: f.emitida_at || previo?.emitida_at || null, emitida_por: previo?.emitida_por || usuario,
+        pdf: f.pdf || null, envios,
+        origen: 'FACTURACION', factura_id: f.id,
+    };
+    await svc.mergeDoc(row.id, CAMPO, { [f.numero]: registro });
+    const m = await modulo();
+    if (!previo) {
+        await svc.anotarHistorial(row.id, {
+            tipo: 'FACTURA', texto: `FACTURA ${f.numero} EMITIDA DESDE FACTURACIÓN (${m.fmtEur(registro.total)}) A ${txt(cli.razon_social).toUpperCase()}`, usuario
+        });
+    }
+    for (const e of envios.slice((previo?.envios || []).length)) {
+        await svc.anotarHistorial(row.id, { tipo: 'FACTURA', texto: `FACTURA ${f.numero} ENVIADA POR ${(e.canales || []).join(' Y ').toUpperCase()}`, usuario: e.usuario || usuario });
+    }
+    return { expediente: row.numero_expediente, nueva: !previo };
+}
+
 // ── Cobro ──────────────────────────────────────────────────────────────────
+
+/**
+ * Marca el CEE directo COBRADO (o lo deshace): lo que hace «Marcar cobrado» de
+ * la ficha y también «Cobrada» de una factura suya en la pestaña Facturación,
+ * que es el mismo hecho. Pone sus facturas PAGADAS en la hoja (en diferido) y,
+ * con el registro subido, dispara la entrega de los certificados
+ * (ceeDirectoEntrega, que respeta CEE_ENTREGA_AUTO).
+ */
+async function cobrarExpediente(id, cobrado, { usuarioId = null, usuarioEmail = null, fecha = null } = {}) {
+    const row = await svc.cargar(id, { conRelaciones: false });
+    if (!row) throw error(404, 'Expediente no encontrado');
+    // Cobrado otro día (desde la pestaña): ese día, a mediodía de Madrid.
+    const cobradoAt = !cobrado ? null
+        : /^\d{4}-\d{2}-\d{2}$/.test(fecha || '') && fecha !== hoyMadrid() ? new Date(`${fecha}T12:00:00+01:00`).toISOString()
+        : new Date().toISOString();
+    const { data, error: e } = await supabase.from(svc.TABLA).update({
+        cobrado, cobrado_at: cobradoAt, cobrado_por: cobrado ? usuarioId : null, updated_at: new Date().toISOString()
+    }).eq('id', row.id).select('id, cobrado, cobrado_at').single();
+    if (e) throw new Error(e.message);
+
+    await svc.anotarHistorial(row.id, {
+        tipo: 'COBRO',
+        texto: cobrado ? 'MARCADO COMO COBRADO — SE PUEDE ENTREGAR AL CLIENTE' : 'SE RETIRA LA MARCA DE COBRADO',
+        usuario: usuarioEmail
+    });
+
+    // Sus facturas pasan a PAGADA (o vuelven a ENVIADA) en el libro de
+    // facturas: es el mismo hecho, y en diferido — la hoja no puede tumbar el cobro.
+    setImmediate(() => sincronizarCobro(row.id, cobrado, data.cobrado_at)
+        .catch(err => console.warn('[cee-directos cobro→factura]', err.message)));
+
+    // La otra mitad de la condición. Se prueba con TODAS las fases ya
+    // registradas: en un encargo doble puede tocar entregar las dos de golpe
+    // si el pago llega al final.
+    const fases = [];
+    if (cobrado) {
+        const entrega = require('./ceeDirectoEntrega');
+        for (const [k, fase] of [['cee_inicial', 'inicial'], ['cee_final', 'final']]) {
+            if (row.seguimiento?.[k] === 'REGISTRADO') {
+                entrega.intentarEntregaAsync(row.id, fase, 'marcado cobrado');
+                fases.push(fase);
+            }
+        }
+    }
+    return { ...data, numero_expediente: row.numero_expediente, entrega: fases };
+}
 
 /**
  * Marcar el expediente como cobrado marca PAGADAS sus facturas en la hoja (y al
@@ -476,6 +604,6 @@ async function sincronizarCobro(id, cobrado, cobradoAt) {
 }
 
 module.exports = {
-    borrador, emitir, rehacerPdf, cambiarFecha, pdfDe, enviar, sincronizarCobro,
-    facturaParaAviso, facturaDelAviso, anotarEnvio, CAMPO
+    borrador, emitir, rehacerPdf, cambiarFecha, pdfDe, enviar, sincronizarCobro, cobrarExpediente,
+    reflejarDeFacturacion, envioDeFacturacion, facturaParaAviso, facturaDelAviso, anotarEnvio, CAMPO
 };

@@ -221,6 +221,29 @@ async function detalle(id) {
     };
 }
 
+// ── El CEE directo de la factura ────────────────────────────────────────────
+
+/** El CEE directo de un nº de expediente `{AAAA}CEE_{n}` (o null). */
+async function ceeDeExpediente(expediente) {
+    const n = txt(expediente).toUpperCase();
+    if (!/^\d{4}CEE_\d+$/.test(n)) return null;
+    const { data } = await supabase.from('cee_directos').select('id').eq('numero_expediente', n).maybeSingle();
+    return data?.id || null;
+}
+
+/**
+ * Una factura de un CEE directo hecha aquí se ve también en la ficha del CEE
+ * (procedimiento, entrega, cobro): ceeFacturaService.reflejarDeFacturacion.
+ * Best-effort: nunca tumba la emisión, el envío ni el cobro.
+ */
+async function reflejarEnCee(id, usuario = null) {
+    try {
+        const f = await cargar(id);
+        if (f?.cee_directo_id && f.origen === 'APP') return await require('./ceeFacturaService').reflejarDeFacturacion(f, { usuario });
+    } catch (e) { console.warn('[factura] reflejo en el CEE directo:', e.message); }
+    return null;
+}
+
 // ── Borrador ────────────────────────────────────────────────────────────────
 
 async function filaBorrador(datos = {}, base = {}) {
@@ -254,7 +277,9 @@ async function crear(datos = {}, { usuarioId = null, usuarioNombre = null, orige
         fecha: s.fecha || hoyMadrid(), vencimiento: s.vencimiento, fecha_operacion: s.fecha_operacion,
         cliente_id, cliente: s.cliente, cliente_propio, lineas: s.lineas, irpf_pct: s.irpf_pct,
         observaciones: s.observaciones, expediente: s.expediente,
-        presupuesto_id: datos.presupuesto_id || null, cee_directo_id: datos.cee_directo_id || null,
+        presupuesto_id: datos.presupuesto_id || null,
+        // Con el nº de un CEE directo en «expediente», es de ese CEE aunque no venga de su presupuesto.
+        cee_directo_id: datos.cee_directo_id || await ceeDeExpediente(s.expediente),
         origen, ...derivados,
         historial: anota(null, 'Borrador creado', usuarioNombre), created_by: usuarioId,
     };
@@ -285,6 +310,7 @@ async function actualizar(id, datos = {}, { usuarioNombre = null } = {}) {
         serie: s.serie, fecha: s.fecha, vencimiento: s.vencimiento, fecha_operacion: s.fecha_operacion,
         cliente_id, cliente: s.cliente, cliente_propio, lineas: s.lineas, irpf_pct: s.irpf_pct, observaciones: s.observaciones,
         expediente: s.expediente, ...derivados,
+        ...(!f.cee_directo_id && s.expediente !== f.expediente ? { cee_directo_id: await ceeDeExpediente(s.expediente) } : {}),
         ...(datos.motivo_rectificacion !== undefined ? { motivo_rectificacion: txt(datos.motivo_rectificacion).slice(0, 500) || null } : {}),
         updated_at: new Date().toISOString(), historial: anota(f, 'Borrador editado', usuarioNombre),
     };
@@ -555,6 +581,7 @@ async function emitir(id, { usuario = null } = {}) {
                 // dos (sería falso), se le deja escrito en sus observaciones.
                 if (orig.hoja_id) hoja.actualizar(orig.hoja_id, { 'OBSERVACIONES': hoja._internos.texto(`${orig.observaciones ? `${orig.observaciones} · ` : ''}RECTIFICADA POR ${numero}`) }, orig.serie)
                     .catch(e => console.warn('[factura] rectificada en la hoja:', e.message));
+                await reflejarEnCee(orig.id, usuario);
             }
         }
 
@@ -563,7 +590,10 @@ async function emitir(id, { usuario = null } = {}) {
         try { pdf = await generarPdf(emitida); }
         catch (e) { errorPdf = e.message; console.error('[factura] PDF:', e.message); }
 
-        return { id: f.id, numero, total: t.total, pdf, errorPdf, avisos };
+        // 6 · Si es de un CEE directo, su ficha la ve (y deja de pedir que se facture).
+        const cee = await reflejarEnCee(f.id, usuario);
+
+        return { id: f.id, numero, total: t.total, pdf, errorPdf, avisos, cee: cee?.expediente || null };
     } finally {
         enCurso.delete(id);
     }
@@ -708,6 +738,14 @@ async function previsualizarEnvio(id) {
     const f = await cargar(id);
     if (!f) throw error('Factura no encontrada', 404);
     const L = await logica();
+    // La de un CEE directo sale con el mensaje del CEE: el que lleva el enlace
+    // para subir el justificante de pago (y dice en qué punto está el certificado).
+    if (f.cee_directo_id) {
+        try {
+            const c = await require('./ceeFacturaService').envioDeFacturacion(f);
+            if (c) return { numero: f.numero, estado: f.estado, total: Number(f.total), destino: c.destino, mensaje: c.mensaje, expediente: c.expediente, adjunto: L.nombrePdfFactura(f.numero, f.cliente?.razon_social) };
+        } catch (e) { console.warn('[factura] mensaje del CEE directo, va el general:', e.message); }
+    }
     const ficha = f.cliente_id ? await fichaCliente(f.cliente_id) : null;
     const ofertas = require('./ceeOfertaService');
     const destino = ficha ? ofertas.destinoDe(ficha) : { nombre: f.cliente?.razon_social || '', email: f.cliente?.email || '', tlf: f.cliente?.tlf || '' };
@@ -737,7 +775,7 @@ async function enviar(id, { canales = [], email, tlf, mensaje, usuario = null } 
     if (quiereEmail) {
         try {
             await require('./emailService').sendDocumentEmail({
-                to: txt(email), subject: `Factura ${f.numero}`, title: `Factura ${f.numero}`, message: texto,
+                to: txt(email), subject: `Factura ${f.numero}${prev.expediente ? ` · ${prev.expediente}` : ''}`, title: `Factura ${f.numero}`, message: texto,
                 attachments: [{ filename, content: buffer, contentType: 'application/pdf' }],
                 pill: { tone: 'info', text: `Factura ${f.numero}`, emoji: '🧾' },
             });
@@ -758,6 +796,7 @@ async function enviar(id, { canales = [], email, tlf, mensaje, usuario = null } 
             envios: [...(Array.isArray(f.envios) ? f.envios : []), envio], enviada_at: at, updated_at: at,
             historial: anota(f, `Enviada por ${canalesOk.join(' y ')}`, usuario),
         }).eq('id', f.id);
+        await reflejarEnCee(f.id, usuario);
     }
     return { resultados, canalesOk };
 }
@@ -769,10 +808,27 @@ async function cobro(id, { pagada = true, fecha = null, usuario = null } = {}) {
     const f = await cargar(id);
     if (!f) throw error('Factura no encontrada', 404);
     if (!['EMITIDA', 'PAGADA'].includes(f.estado)) throw error(`La factura está ${f.estado.toLowerCase()}: no se cobra`, 409);
-    // La de un CEE directo o de la gestión CAE se cobra en su expediente: allí
-    // está el candado del cobro (y la remesa), que esto se saltaría.
-    if (DE_OTRO[f.origen]) throw error(`Esta factura es ${DE_OTRO[f.origen]} ${f.expediente || ''}: márcala cobrada desde allí`.replace(/\s+:/, ':'), 409);
+    // La de la gestión CAE se cobra en su expediente: allí está la remesa, que
+    // esto se saltaría. La de un CEE directo (de su popup o de aquí) cobra su CEE:
+    // es el mismo hecho que «Marcar cobrado» de la ficha, con su candado y su
+    // entrega de los certificados (ceeFacturaService.cobrarExpediente).
+    const ceeId = f.tipo === 'F1' ? f.cee_directo_id : null;
+    if (DE_OTRO[f.origen] && !(f.origen === 'CEE_DIRECTO' && ceeId)) throw error(`Esta factura es ${DE_OTRO[f.origen]} ${f.expediente || ''}: márcala cobrada desde allí`.replace(/\s+:/, ':'), 409);
     const fechaPago = pagada ? (/^\d{4}-\d{2}-\d{2}$/.test(fecha || '') ? fecha : hoyMadrid()) : null;
+    let cee = null;
+    if (ceeId) {
+        // El CEE solo sabe «cobrado» o no: con otra factura suya sin cobrar, esta
+        // sola no lo cobra (la daría por pagada a ella también).
+        const { data: otras, error: eo } = await supabase.from(TABLA).select('numero').eq('cee_directo_id', ceeId)
+            .eq('tipo', 'F1').eq('estado', 'EMITIDA').neq('id', f.id);
+        if (eo) throw error(eo.message, 503);
+        if (pagada && otras?.length) {
+            throw error(`El CEE ${f.expediente || ''} tiene otra factura sin cobrar (${otras.map(x => x.numero).join(', ')}): márcalo cobrado desde el CEE`.replace(/\s+\(/, ' ('), 409);
+        }
+        if (f.origen === 'APP') await reflejarEnCee(f.id, usuario);   // por si se emitió antes del enlace
+        const r = await require('./ceeFacturaService').cobrarExpediente(ceeId, pagada, { usuarioEmail: usuario, fecha: fechaPago });
+        cee = { expediente: r.numero_expediente, cobrado: r.cobrado, entrega: r.entrega };
+    }
     const { error: e } = await supabase.from(TABLA).update({
         estado: pagada ? 'PAGADA' : 'EMITIDA', fecha_pago: fechaPago, updated_at: new Date().toISOString(),
         historial: anota(f, pagada ? `Cobrada el ${aHoja(fechaPago)}` : 'Cobro deshecho', usuario),
@@ -783,7 +839,7 @@ async function cobro(id, { pagada = true, fecha = null, usuario = null } = {}) {
         try { await hoja.actualizar(f.hoja_id, { 'ESTADO': pagada ? 'PAGADA' : 'ENVIADA', 'FECHA DE PAGO': pagada ? aHoja(fechaPago) : '' }, f.serie); }
         catch (err) { avisoHoja = `No se ha marcado en la hoja de AppSheet: ${err.message}`; }
     }
-    return { ok: true, estado: pagada ? 'PAGADA' : 'EMITIDA', fecha_pago: fechaPago, avisoHoja };
+    return { ok: true, estado: pagada ? 'PAGADA' : 'EMITIDA', fecha_pago: fechaPago, avisoHoja, cee };
 }
 
 // ── Lo que emiten otros servicios ───────────────────────────────────────────

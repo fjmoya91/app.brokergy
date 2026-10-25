@@ -723,44 +723,15 @@ router.post('/:id/ampliar-doble', staffOnly, async (req, res) => {
 // Solo ADMIN: es lo que abre la descarga al cliente y toca dinero.
 router.patch('/:id/cobrado', adminOnly, async (req, res) => {
     try {
-        const cobrado = req.body?.cobrado === true;
-        const row = await svc.cargar(req.params.id, { conRelaciones: false });
-        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
-
-        const { data, error } = await supabase.from(svc.TABLA).update({
-            cobrado,
-            cobrado_at: cobrado ? new Date().toISOString() : null,
-            cobrado_por: cobrado ? (req.user?.id_usuario || null) : null,
-            updated_at: new Date().toISOString()
-        }).eq('id', row.id).select('id, cobrado, cobrado_at').single();
-        if (error) throw new Error(error.message);
-
-        await svc.anotarHistorial(row.id, {
-            tipo: 'COBRO',
-            texto: cobrado ? 'MARCADO COMO COBRADO — SE PUEDE ENTREGAR AL CLIENTE' : 'SE RETIRA LA MARCA DE COBRADO',
-            usuario: req.user?.email || null
+        // Lo mismo que «Cobrada» de una factura suya en la pestaña Facturación:
+        // una sola función (ceeFacturaService.cobrarExpediente).
+        const r = await facturas.cobrarExpediente(req.params.id, req.body?.cobrado === true, {
+            usuarioId: req.user?.id_usuario || null, usuarioEmail: req.user?.email || null,
         });
-
-        // Sus facturas pasan a PAGADA (o vuelven a ENVIADA) en el libro de
-        // facturas: es el mismo hecho, y en diferido — la hoja no puede tumbar el cobro.
-        setImmediate(() => facturas.sincronizarCobro(row.id, cobrado, data.cobrado_at)
-            .catch(e => console.warn('[cee-directos cobro→factura]', e.message)));
-
-        // La otra mitad de la condición. Se prueba con TODAS las fases ya
-        // registradas: en un encargo doble puede tocar entregar las dos de golpe
-        // si el pago llega al final.
-        if (cobrado) {
-            for (const [k, fase] of [['cee_inicial', 'inicial'], ['cee_final', 'final']]) {
-                if (row.seguimiento?.[k] === 'REGISTRADO') {
-                    entrega.intentarEntregaAsync(row.id, fase, 'marcado cobrado');
-                }
-            }
-        }
-
-        res.json(data);
+        res.json({ id: r.id, cobrado: r.cobrado, cobrado_at: r.cobrado_at });
     } catch (err) {
         console.error('[cee-directos cobrado]', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 

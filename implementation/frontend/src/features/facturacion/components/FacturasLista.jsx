@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
-import { FacturaModal, ChipEstado, EtiquetaOrigen, CobroDialog, RectificarDialog, cobroExterno, hrefOrigen, irAlOrigen, textoOrigen } from './FacturaModal';
+import { FacturaModal, ChipEstado, EtiquetaOrigen, CobroDialog, RectificarDialog, cobroExterno, hrefOrigen, irAlOrigen, textoOrigen, textoCobroCee } from './FacturaModal';
 import { MenuAcciones, useAvisoFx, abrirPdf, ICO_EXTRA } from './PresupuestoModal';
 import { SERIES, normalizarTexto } from '../logic/factura';
 import { Ico, Importe, eur, ErrorApi, errorDeApi, fechaEs, hoyMadridFx, diasEntreFx, AvisoFx } from '../estilo';
@@ -223,7 +223,7 @@ export function FacturasLista({ onNavigate = null }) {
             const fecha = data?.fecha_pago || hoy;
             const cobrada = { ...f, estado: 'PAGADA', fecha_pago: fecha, visible: { clave: 'PAGADA', texto: 'Cobrada' } };
             parchear(f.id, { estado: 'PAGADA', fecha_pago: fecha, visible: cobrada.visible });
-            avisar(`${f.numero} · ${eur(f.total)}: cobrada hoy.${data?.avisoHoja ? ` ${data.avisoHoja}` : ''}`, {
+            avisar(`${f.numero} · ${eur(f.total)}: cobrada hoy.${data?.avisoHoja ? ` ${data.avisoHoja}` : ''}${textoCobroCee(data)}`, {
                 tono: data?.avisoHoja ? 'aviso' : 'ok',
                 acciones: [
                     { label: 'Cambiar fecha', onClick: () => setDialogo({ tipo: 'cobro', fila: cobrada }) },
@@ -579,7 +579,7 @@ export function FacturasLista({ onNavigate = null }) {
                         const f = dialogo.fila;
                         setDialogo(null);
                         parchear(f.id, { estado: 'PAGADA', fecha_pago: r?.fecha_pago || f.fecha_pago, visible: { clave: 'PAGADA', texto: 'Cobrada' } });
-                        avisar(r?.avisoHoja ? `${f.numero}: cobrada. ${r.avisoHoja}` : `${f.numero}: cobrada el ${fechaEs(String(r?.fecha_pago || '').slice(0, 10))}.`, { tono: r?.avisoHoja ? 'aviso' : 'ok' });
+                        avisar((r?.avisoHoja ? `${f.numero}: cobrada. ${r.avisoHoja}` : `${f.numero}: cobrada el ${fechaEs(String(r?.fecha_pago || '').slice(0, 10))}.`) + textoCobroCee(r), { tono: r?.avisoHoja ? 'aviso' : 'ok' });
                         cargar();
                     }} />
             )}

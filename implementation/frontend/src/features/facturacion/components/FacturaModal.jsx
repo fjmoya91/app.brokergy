@@ -90,6 +90,18 @@ export function cobroExterno(f = {}) {
     return null;
 }
 
+/**
+ * Lo que añade al aviso el cobro de una factura de un CEE directo: cobrarla cobra
+ * su CEE, y con el certificado registrado eso lanza la entrega al cliente.
+ */
+export function textoCobroCee(r) {
+    if (!r?.cee?.expediente) return '';
+    if (!r.cee.cobrado) return ` ${r.cee.expediente} vuelve a «sin cobrar».`;
+    return r.cee.entrega?.length
+        ? ` ${r.cee.expediente} queda cobrado y se lanza la entrega de los certificados.`
+        : ` ${r.cee.expediente} queda cobrado: los certificados se entregarán al registrarse.`;
+}
+
 /** El enlace al sitio donde se cobra una factura de otro módulo (o null). */
 export function hrefOrigen(f = {}) {
     if (f.origen === 'CEE_DIRECTO' && f.cee_directo_id) return `/?cee=${encodeURIComponent(f.cee_directo_id)}`;
@@ -846,7 +858,7 @@ export function FacturaModal({ isOpen, onClose, onSaved, onAbrir, facturaId = nu
         try {
             const { data } = await axios.post(`${API}/facturas/${id}/cobro`, { pagada: false });
             await cargarDetalle(id, { silencioso: true });
-            avisar(data?.avisoHoja ? `Cobro deshecho. ${data.avisoHoja}` : 'Cobro deshecho: vuelve a estar pendiente.', { tono: data?.avisoHoja ? 'aviso' : 'ok' });
+            avisar((data?.avisoHoja ? `Cobro deshecho. ${data.avisoHoja}` : 'Cobro deshecho: vuelve a estar pendiente.') + textoCobroCee(data), { tono: data?.avisoHoja ? 'aviso' : 'ok' });
             onSaved?.(null);
         } catch (err) {
             mostrarError(textoError(err, 'deshacer el cobro'));
@@ -1369,7 +1381,7 @@ export function FacturaModal({ isOpen, onClose, onSaved, onAbrir, facturaId = nu
                     onHecho={async (r) => {
                         setDialogo(null);
                         await cargarDetalle(id, { silencioso: true });
-                        avisar(r?.avisoHoja ? `Marcada como cobrada. ${r.avisoHoja}` : `${doc.numero}: cobrada el ${isoAEs(r?.fecha_pago)}.`, { tono: r?.avisoHoja ? 'aviso' : 'ok' });
+                        avisar((r?.avisoHoja ? `Marcada como cobrada. ${r.avisoHoja}` : `${doc.numero}: cobrada el ${isoAEs(r?.fecha_pago)}.`) + textoCobroCee(r), { tono: r?.avisoHoja ? 'aviso' : 'ok' });
                         onSaved?.(null);
                     }} />
             )}

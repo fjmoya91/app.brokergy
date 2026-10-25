@@ -92,9 +92,36 @@ servidor.
 a `facturaService.registrarEmitida` (origen CEE_DIRECTO / GESTION_CAE; encadena VERI*FACTU); su PDF, sus
 envíos y un cambio de fecha se anotan con `actualizarRegistrada` (un cambio de fecha deja dicho en el
 registro que hay que subsanarlo) y su cobro con `marcarCobroPorNumero`. Todo best-effort: nunca tumba la
-emisión. Esas facturas **se cobran y se rehacen desde su expediente** (allí está el candado del cobro y
-la remesa): desde la pestaña, 409. Con una COPIA del libro (las pruebas fijan
+emisión. Esas facturas **se rehacen desde su expediente**; las de la gestión CAE también se cobran
+allí (la remesa): desde la pestaña, 409. Con una COPIA del libro (las pruebas fijan
 `APPSHEET_FACTURAS_SHEET_ID`) no se registra nada: `ES_LIBRO_REAL`.
+
+**REGLA — una factura de un CEE directo es del CEE, se haga donde se haga, y cobrarla COBRA el CEE**
+(25/10/2026, Fran: «tiene que haber vinculación entre uno y otro para saber que pertenece a lo mismo»).
+Caso: la 26ING_89 nació en la pestaña del presupuesto 2026PCEE_5 y se envió desde aquí; la ficha de
+2026CEE_61 seguía en «Factura enviada — Toca emitirla», porque todo el CEE (procedimiento, «toca
+facturar», a quién se entrega, el «ya tiene factura» de su popup, el cobro) lee
+`documentacion.facturas_emitidas`, y eso solo lo escribía su popup. Ahora:
+- **El enlace**: `cee_directo_id`, que pone el presupuesto (`desdePresupuesto`) o, si no, el nº de
+  expediente `{AAAA}CEE_{n}` escrito en la factura (`ceeDeExpediente`, al crear y al editar el borrador).
+- **El reflejo**: al emitir, enviar o quedar rectificada, `reflejarEnCee` reescribe su copia de
+  metadatos en la ficha del CEE (`ceeFacturaService.reflejarDeFacturacion`: `origen: 'FACTURACION'`,
+  `factura_id`, envíos, PDF, estado) y anota el historial. Su PDF se sirve desde la pestaña; rehacerlo o
+  cambiarle la fecha desde el popup del CEE, 409 (es de aquí). Una anulada por rectificativa no cuenta
+  como la factura del encargo.
+- **El cobro**: «Cobrada» de una factura con `cee_directo_id` (de la pestaña o del popup del CEE) llama a
+  `ceeFacturaService.cobrarExpediente`, la MISMA función que «Marcar cobrado» de la ficha: el CEE queda
+  cobrado (con la fecha elegida), sus facturas PAGADAS en la hoja y, con el registro subido, sale la
+  entrega de los certificados (respeta `CEE_ENTREGA_AUTO`). El aviso lo dice («2026CEE_61 queda cobrado y
+  se lanza la entrega»). Si el CEE tiene OTRA factura sin cobrar, 409: el CEE solo sabe «cobrado» o no y
+  la daría por pagada también. «Deshacer» le quita la marca al CEE.
+- **El mensaje**: al enviarla desde la pestaña sale el MISMO mensaje y al mismo destinatario que desde
+  el popup del CEE (`previsualizarEnvio` → `ceeFacturaService.envioDeFacturacion`): dice en qué punto
+  está el certificado y lleva el **enlace para subir el justificante de pago**. El genérico no lo
+  llevaba y la 26ING_89 salió sin él. Al subirlo, el equipo recibe «Confirmar cobro» con el fichero: se
+  mira en el banco y UN clic cobra el CEE y lanza la entrega. Subirlo **no** lo da por pagado (regla del
+  procedimiento de los CEE directos: un justificante equivocado o falso soltaría los certificados).
+La 26ING_89 se reflejó a mano el 25/10/2026 (era la única factura de la pestaña con CEE y sin reflejo).
 
 **REGLA — con una COPIA del libro tampoco se archiva en la contabilidad REAL, y una prueba manda a la
 papelera TODO lo que emite.** El 24/10/2026 aparecieron dos PDF «26ING_87» en «ING / FACTURAS VENTAS /
