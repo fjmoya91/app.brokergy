@@ -9,6 +9,10 @@
 //   node scripts/asistente_whatsapp.js avisar 26RES060_OP267 --enviar                      lo manda
 //   node scripts/asistente_whatsapp.js leer [--desde "AAAA-MM-DD HH:MM"] [--esperar 20]    lee lo que ha contestado
 //   node scripts/asistente_whatsapp.js decir "texto" [--enviar]                            un mensaje suelto
+//   node scripts/asistente_whatsapp.js enviar-fichero <ruta> ["texto"] [--despues "…"] [--enviar]
+//        un FICHERO (el PDF de un presupuesto o una factura) al canal: el texto antes, el
+//        fichero y, si se da, `--despues` en su burbuja detrás (la pregunta). También pasa
+//        por el buzón: con el WhatsApp caído se guarda la RUTA y sale al volver.
 //
 // - El destinatario es el chat del móvil personal de Fran (ASISTENTE_WHATSAPP_TEL),
 //   el que lleva la etiqueta MOIA. Nunca otro: este canal no habla con clientes.
@@ -124,13 +128,62 @@ async function mandarOGuardar(texto) {
     }
 }
 
+// ─── Un FICHERO al canal (el PDF de un presupuesto o una factura) ────────────
+// Por /api/whatsapp/send-media con la clave interna, igual que el texto. Un adjunto
+// NO entra en la cola de la BD (el texto sí): con el WhatsApp caído la ruta da 503
+// o «no listo» y no ha salido nada, así que se guarda en el buzón la RUTA del
+// fichero (el PDF vive en scratch/, fuera de git) y sale al volver. Si el fallo es
+// OTRO (sin ACK, un plazo), puede que el texto ya haya salido: no se guarda, para no
+// mandarlo dos veces; se dice.
+const MIMES = { '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+const MAX_FICHERO = 15 * 1024 * 1024;
+
+async function mandarFichero(ruta, texto = '', despues = '') {
+    if (!TEL) throw new Error('Falta ASISTENTE_WHATSAPP_TEL en el .env (el móvil personal de Fran).');
+    const abs = path.resolve(ruta);
+    const st = fs.statSync(abs);                         // lanza si no existe
+    if (st.size > MAX_FICHERO) throw new Error(`${path.basename(abs)} pasa de 15 MB: no se manda por aquí.`);
+    const out = await api('/api/whatsapp/send-media', {
+        method: 'POST', ms: 240_000,
+        body: {
+            phone: CANAL, caption: String(texto || '').trim() || undefined, asDocument: true,
+            media: { base64: fs.readFileSync(abs).toString('base64'), filename: path.basename(abs), mimetype: MIMES[path.extname(abs).toLowerCase()] || 'application/octet-stream' },
+            ...(String(despues || '').trim() ? { textoDespues: String(despues).trim() } : {}),
+        },
+    });
+    if (out && out.ok === false) throw new Error(out.error || 'WhatsApp no lo ha aceptado');
+    return out;
+}
+
+/** ¿El fallo dice que no ha salido NADA? (servicio caído, sesión no lista, backend inalcanzable) */
+const noSalioNada = e => /→ 503|no listo|deshabilitad|no disponible|fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(String(e?.message || e));
+
+/** Manda el fichero; con el WhatsApp caído lo guarda en el buzón. Nunca lanza. */
+async function mandarFicheroOGuardar(ruta, texto = '', despues = '') {
+    const abs = path.resolve(ruta);
+    try {
+        const out = await mandarFichero(abs, texto, despues);
+        return { enviado: true, despues: out?.despues };
+    } catch (e) {
+        if (!fs.existsSync(abs)) return { enviado: false, guardado: false, motivo: `No existe ${abs}` };
+        if (!noSalioNada(e)) return { enviado: false, guardado: false, motivo: e.message, dudoso: true };
+        guardarBuzon([...leerBuzon(), { t: Math.floor(Date.now() / 1000), texto, fichero: abs, despues: despues || undefined, motivo: String(e.message).slice(0, 200) }]);
+        return { enviado: false, guardado: true, motivo: e.message };
+    }
+}
+
 /** Manda lo que esperaba en el buzón, en orden; para en el primer fallo. Devuelve cuántos salieron. */
 async function vaciarBuzon() {
     let lista = leerBuzon();
     let n = 0;
     while (lista.length) {
         const m = lista[0];
-        try { await mandar(`_(con retraso: era de las ${hora(m.t).split(', ')[1]})_\n${m.texto}`); } catch { break; }
+        const cab = `_(con retraso: era de las ${hora(m.t).split(', ')[1]})_`;
+        try {
+            if (m.fichero && fs.existsSync(m.fichero)) await mandarFichero(m.fichero, `${cab}\n${m.texto || ''}`.trim(), m.despues);
+            else if (m.fichero) await mandar(`${cab}\n${m.texto || ''}\n(El fichero ${path.basename(m.fichero)} ya no está: pídemelo otra vez.)`.trim());
+            else await mandar(`${cab}\n${m.texto}`);
+        } catch { break; }
         lista = lista.slice(1);
         guardarBuzon(lista);
         n += 1;
@@ -274,11 +327,26 @@ async function leer() {
     }
 }
 
-module.exports = { api, mandar, mandarOGuardar, vaciarBuzon, buzonDesde, transcribir, TEL, GRUPO, CANAL, esDeFran, leerCanal, apuntarIdDeFran, idsDeFran };
+async function enviarFicheroOrden() {
+    const ruta = POS[0];
+    if (!ruta) throw new Error('Uso: enviar-fichero <ruta> ["texto"] [--despues "pregunta"] [--enviar]');
+    const abs = path.resolve(ruta);
+    if (!fs.existsSync(abs)) throw new Error(`No existe ${abs}`);
+    const texto = POS.slice(1).join(' ').trim();
+    const despues = opt('despues') || '';
+    console.log(`Para: ${CANAL}\n${texto ? `${texto}\n` : ''}📎 ${path.basename(abs)} (${Math.round(fs.statSync(abs).size / 1024)} KB)${despues ? `\n${despues}` : ''}`);
+    if (!bandera('enviar')) { console.log('EN SECO.'); return; }
+    const r = await mandarFicheroOGuardar(abs, texto, despues);
+    if (r.enviado) console.log(`✓ Enviado.${r.despues && !r.despues.ok ? ` (El texto de después NO salió: ${r.despues.error}.)` : ''}`);
+    else if (r.guardado) console.log(`⏳ El WhatsApp no responde (${r.motivo}): queda GUARDADO y saldrá solo en cuanto vuelva. No lo repitas.`);
+    else { console.log(`✗ No ha salido (${r.motivo}).${r.dudoso ? ' Puede que el texto sí: mira el chat antes de repetirlo.' : ''}`); process.exitCode = 1; }
+}
 
-const ORDENES = { avisar, decir, leer };
+module.exports = { api, mandar, mandarOGuardar, mandarFichero, mandarFicheroOGuardar, vaciarBuzon, buzonDesde, transcribir, TEL, GRUPO, CANAL, esDeFran, leerCanal, apuntarIdDeFran, idsDeFran };
+
+const ORDENES = { avisar, decir, leer, 'enviar-fichero': enviarFicheroOrden };
 if (require.main === module) (async () => {
     const f = ORDENES[ORDEN];
-    if (!f) { console.log('Órdenes: avisar <OP> · leer · decir "texto"   (ver la cabecera del fichero)'); return; }
+    if (!f) { console.log('Órdenes: avisar <OP> · leer · decir "texto" · enviar-fichero <ruta> ["texto"]   (ver la cabecera del fichero)'); return; }
     try { await f(); } catch (e) { console.error(`✗ ${e.message}`); process.exitCode = 1; }
 })();

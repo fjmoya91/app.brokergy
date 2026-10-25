@@ -54,6 +54,40 @@ manda el resumen (`avisar`) y se espera; «la reviso yo» deja la OP en PTE ENVI
 **REGLA — el número de Fran va en el `.env` (`ASISTENTE_WHATSAPP_TEL`), nunca en el repo**, que es
 público. Sin él, ni el timbre ni el vigilante arrancan.
 
+**PRESUPUESTOS Y FACTURAS desde el grupo** (2026-10-24). Fran dicta «presupuesto a Juan Pérez, CEE
+más legalización de placas, vivienda» y sale en el momento. El asistente usa
+[scripts/facturacion_cli.js](implementation/backend/scripts/facturacion_cli.js), **no el MCP**: el Claude
+del contenedor no tiene el conector de claude.ai, y un CLI se prueba en seco desde la terminal. Va por
+la MISMA API que la pestaña Facturación (`/api/facturacion`, `x-internal-key`), importa el cálculo de
+`logic/presupuesto.js` y `logic/factura.js` (regla 165/166) y copia el criterio del MCP para casar lo
+dictado con el catálogo (sinónimos «placas» → FV, «casa» → vivienda; nunca elige entre empatados). Los
+clientes los lee de Supabase como el MCP: no hay ruta de clientes con clave interna. Órdenes, el formato
+del JSON y el paso a paso: la sección «PRESUPUESTOS Y FACTURAS» de
+[asistente_instrucciones.md](implementation/backend/scripts/asistente_instrucciones.md).
+
+**REGLA — preparar no escribe; crear gasta número; enviar y emitir son «sí» distintos, cada uno a SU
+documento.** `presupuesto preparar` / `factura preparar` van en seco (un BORRADOR de presupuesto ya
+consume el siguiente `P-26ING_n`, así que se prepara antes y los cambios van con `presupuesto cambiar`,
+mismo número). `crear --a-fran` le manda al grupo el borrador ENTERO (partidas, total, a quién y por
+dónde, el mensaje que recibiría el cliente), el PDF y la pregunta. `enviar … --enviar` y `factura emitir
+… --emitir` exigen que ESE texto (o esa revisión, con el nº que le tocará) se haya sacado en las últimas
+24 h y `--si "<respuesta literal de Fran>"`; cada uno queda en `scratch/asistente/facturacion/
+registro.jsonl`. Un artículo a 0 € o una partida fuera del catálogo sin precio dicho por Fran PARA la
+línea: el asistente pregunta, no pone un precio. Teléfonos, emails y NIF salen enmascarados.
+
+**El PDF al grupo**: `asistente_whatsapp.js enviar-fichero` (texto, fichero y la pregunta detrás) por
+`/api/whatsapp/send-media`, que ya admitía el id del grupo. También pasa por el **buzón**: con el
+WhatsApp caído se guarda la RUTA del fichero y `vaciarBuzon` lo manda al volver; si lo que falla no es
+la conexión (pudo salir el texto), no se guarda, para no duplicarlo.
+
+**¿Un grupo aparte para facturación? No: el mismo «BROKERGY - CHAT».** El timbre y el vigilante
+escuchan UN grupo (`ASISTENTE_WHATSAPP_GRUPO`); otro grupo pediría tocar `asistenteCanal`,
+`asistente_vigia` y `asistente_whatsapp` y llevar dos lecturas de chat, dos buzones y dos contextos.
+El «sí» tiene que leerse en el chat que el asistente lee con el borrador delante, y trabaja de uno en
+uno igualmente. Meter a más gente no ayuda: solo cuentan los mensajes de Fran. Si una gestoría tiene
+que recibir las facturas, se le mandan por email desde la app, no por un grupo. Se revisa solo si el
+volumen ensucia el chat.
+
 **El contenedor** se construye SOBRE `brokergy-backend` (Node, Chrome, `/app/node_modules`) con Claude
 Code, **Node 22** copiado de `node:22-slim` (`alta_oportunidad.js` usa `registerHooks`), Pillow y
 fuentes (plano del CEE) y `chrome-nosandbox` (Chrome como root). El repo va **montado** en `/repo`:
