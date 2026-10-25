@@ -7,7 +7,7 @@
 // aparece cuando se contesta la anterior: así no hay scroll.
 // Sin visita: lo mismo para subir de la galería, o el enlace al propietario.
 import { useState } from 'react';
-import { ORIGENES, SLOTS, estadoEquipos, slotsAplicables } from '../logic/cuestionario';
+import { ORIGENES, SLOTS, estadoEquipos, siguienteDeLaVisita, slotsAplicables } from '../logic/cuestionario';
 import { Aviso } from '../ui/piezas';
 import { IcoCamara, IcoCheck, IcoChevron } from '../ui/Iconos';
 import { BloqueEquipo, EnlacePropietario, SlotFoto } from './Fotos';
@@ -55,8 +55,7 @@ export function FaseFotos({ ctx, obraId }) {
     const c = form.cuestionario;
     const visita = form.en_vivienda === true;
     const aplican = slotsAplicables(c);
-    const conFotos = (id) => (slots?.[id] || []).length > 0;
-    const guiaId = visita && editable ? aplican.find(s => !s.documento && !s.video && !conFotos(s.id))?.id : null;
+    const guiaId = visita && editable ? siguienteDeLaVisita(aplican, c, slots) : null;
     const slot = (id) => (aplican.some(s => s.id === id) ? SLOTS.find(s => s.id === id) : null);
     const vivienda = ['FOTO_FACHADA_PRINCIPAL', 'FOTO_FACHADAS', 'FOTO_PATIOS_INTERIORES', 'FOTO_VENTANAS', 'FOTO_CUBIERTA', 'VIDEO_VIVIENDA'].map(slot).filter(Boolean);
     const docs = aplican.filter(s => s.documento);

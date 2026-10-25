@@ -191,7 +191,11 @@ function textoEncargo({ clave, usuario, rehacer, negocio = null }) {
             : `Encargo desde el BOTÓN CE3X de la app («Generar con IA»): lo pide ${usuario || 'alguien del equipo'}.`,
         TAREAS.cee_inicial.instruccion(clave),
         rehacer ? 'Ya había un CEE inicial hecho por la IA y se pide REHACERLO: el anterior va a OLD.' : '',
-        ext ? 'Al acabar, cuéntalo por aquí. Lo dudoso va al informe, y a terceros no sale NADA (ni al titular ni al certificador).'
+        // Fran, 25/10/2026: «no quiero que me vaya actualizando el proceso». En una
+        // obra de la app el aviso es UNO, el de «listo para revisar», y lo manda la
+        // app cuando el PC lo ha calificado (agenteIa.terminarExt).
+        ext ? 'NO le escribas a Fran por WhatsApp, ni al empezar, ni a mitad, ni al acabar: el aviso de «listo para revisar» lo manda la app cuando CE3X lo haya calificado en el PC. '
+              + 'Solo si algo te PARA y necesitas que decida él, díselo en un mensaje. Lo dudoso va al informe, y a terceros no sale NADA (ni al titular ni al certificador).'
             : 'Al acabar, cuéntalo por aquí. Lo dudoso se pregunta, y nada sale a terceros sin el «sí» de Fran.',
     ].filter(Boolean).join(' ');
 }
@@ -250,9 +254,10 @@ async function pedir({ negocio, id, usuario, rehacer = false, fase = 'inicial' }
     const r = await require('./asistenteCanal').pedirTarea({
         texto: textoEncargo({ clave: f.clave, usuario, rehacer: data.rehacer, negocio: f.negocio }),
         clave: `ce3x:${f.clave}:cee_inicial`,
-        acuse: f.negocio === 'ext'
-            ? `Me pongo con el CEE inicial de ${f.clave} (obra de la app de certificadores). Te aviso cuando esté listo.`
-            : `Me pongo con el CEE inicial de ${f.clave} (me lo han pedido con el botón CE3X de la app). Te aviso cuando esté listo.`,
+        // Una obra de la app de certificadores va SIN acuse y en silencio: el
+        // encargo ya se lo ha dicho la app al equipo (certapp/ia.textoEncargo).
+        ...(f.negocio === 'ext' ? { silencioso: true }
+            : { acuse: `Me pongo con el CEE inicial de ${f.clave} (me lo han pedido con el botón CE3X de la app). Te aviso cuando esté listo.` }),
     });
     if (!r.ok) {
         await supabase.from('cee_ia_trabajos')

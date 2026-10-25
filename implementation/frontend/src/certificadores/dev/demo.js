@@ -161,9 +161,30 @@ const paraCertificador = (o) => {
     return resto;
 };
 const enlaces = (o) => (['LISTO', 'VALIDADO'].includes(o.estado) ? {
-    pdf: miniatura('CEE PDF', '#fff'), cex: null, xml: miniatura('XML', '#fff'), croquis: null,
+    pdf: miniatura('CEE PDF', '#fff'), firmado: o.firmado ? miniatura('CEE FIRMADO', '#fff') : null, cex: null, xml: miniatura('XML', '#fff'), croquis: null,
     carpeta: 'https://drive.google.com/', envolvente: `/obra/${o.id}/envolvente?origen=ext`,
 } : null);
+// Como firma.resumenParaCertificador: la calificación y la firma, sin enlaces.
+const ceeDe = (o) => (['LISTO', 'VALIDADO'].includes(o.estado) ? {
+    calificacion: { consumo: 'E', emisiones: 'D' }, firma: o.firmado || null,
+} : null);
+// Un PDF de una página con el rótulo de CE3X, para ver el modal de firma colocado.
+const pdfDemo = () => {
+    const txt = 'BT /F1 16 Tf 60 770 Td (CERTIFICADO DE EFICIENCIA ENERGETICA - DEMO) Tj ET BT /F1 10 Tf 330 170 Td (Firma del tecnico certificador:) Tj ET';
+    const objs = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+        `<< /Length ${txt.length} >>\nstream\n${txt}\nendstream`,
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ];
+    let out = '%PDF-1.4\n';
+    const offs = objs.map((ob, i) => { const n = out.length; out += `${i + 1} 0 obj\n${ob}\nendobj\n`; return n; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map(n => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}`
+        + `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    return btoa(out);
+};
 const listaObra = (o) => ({
     id: o.id, numero_expediente: o.numero_expediente, nombre: o.nombre, direccion: o.direccion, municipio: o.municipio,
     provincia: o.provincia, ref_catastral: o.ref_catastral, estado: o.estado, proposito: o.proposito, en_vivienda: o.en_vivienda,
@@ -248,7 +269,31 @@ const RUTAS = [
     }],
     ['GET', /^\/api\/certapp\/obras\/([^/]+)$/, (b, [, id]) => {
         const o = obraDe(id);
-        return { obra: paraCertificador(o), barrido: barrido(o, S.cuenta), eventos: S.eventos[id] || [], enlaces: enlaces(o) };
+        return { obra: paraCertificador(o), barrido: barrido(o, S.cuenta), eventos: S.eventos[id] || [], enlaces: enlaces(o), cee: ceeDe(o) };
+    }],
+    // Firma y definitivo (services/certapp/firma.js). AutoFirma no corre en la
+    // demo: el modal se abre con el recuadro colocado, pero no firma.
+    ['GET', /^\/api\/certapp\/obras\/([^/]+)\/cee\/para-firmar$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (!['LISTO', 'VALIDADO'].includes(o.estado)) fallo(409, 'Aún no está listo.', 'NO_ENTREGADA');
+        return { nombre: `${o.numero_expediente} - CEE.pdf`, base64: pdfDemo() };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/cee\/firmado$/, (b, [, id]) => {
+        const o = obraDe(id);
+        o.firmado = { at: ahora(), firmante: `${S.cuenta.nombre || 'Certificador'} ${S.cuenta.apellidos || ''}`.trim(), via: 'autofirma' };
+        if (o.estado === 'LISTO') o.estado = 'VALIDADO';
+        evento(o.id, 'FIRMA', 'El certificador ha firmado el certificado con AutoFirma');
+        return { ok: true, estado: o.estado, firma: o.firmado, avisos: [] };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/cee\/definitivo$/, (b, [, id]) => {
+        const o = obraDe(id);
+        const f = b instanceof FormData ? b.get('fichero') : null;
+        const nombre = String(f?.name || '').toLowerCase();
+        if (nombre.endsWith('.cex')) fallo(415, 'El .cex no se sube: guárdalo tú. Para el registro cuentan el XML y el PDF.', 'CEX_NO');
+        if (!/\.(xml|pdf)$/.test(nombre)) fallo(415, 'Sube el XML del certificado (de CE3X) o el PDF.', 'TIPO_NO_VALE');
+        const tipo = nombre.endsWith('.xml') ? 'xml' : 'pdf';
+        evento(o.id, 'DEFINITIVO', `El certificador ha subido el ${tipo.toUpperCase()} definitivo`);
+        return { ok: true, tipo, fichero: `${o.numero_expediente} - CEE.${tipo}`, estado: o.estado, __espera: 900 };
     }],
     ['PUT', /^\/api\/certapp\/obras\/([^/]+)$/, (b, [, id]) => {
         const o = obraDe(id);
@@ -412,7 +457,7 @@ const RUTAS = [
         feedback_nuevo: S.feedback.filter(f => f.estado === 'NUEVA').length,
         creditos: { disponibles: S.cuenta.creditos, usados: S.cuenta.creditos_usados },
         asistente: { gastado_mes_usd: 0.42, tope_mes_usd: 20, encendido: true },
-        drive: { raiz_configurada: true }, config: { avisos: false, ia_auto: false, entrega_auto: false, url: 'http://cee.localhost:5181' },
+        drive: { raiz_configurada: true, raiz_link: 'https://drive.google.com/drive/folders/demo' }, config: { avisos: false, ia_auto: false, entrega_auto: false, url: 'http://cee.localhost:5181' },
     })],
     ['GET', /^\/api\/certapp-admin\/beta$/, (b, m, cfg) => ({ solicitudes: S.beta.filter(x => !cfg.params?.estado || x.estado === cfg.params.estado) })],
     ['GET', /^\/api\/certapp-admin\/beta\/([^/]+)$/, (b, [, id]) => ({ solicitud: S.beta.find(x => x.id === id) || fallo(404, 'No encuentro esa solicitud.', 'NO_ENCONTRADO') })],

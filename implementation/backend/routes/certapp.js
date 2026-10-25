@@ -21,6 +21,7 @@
 // Contrato: docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md
 // ─────────────────────────────────────────────────────────────────────────────
 const express = require('express');
+const multer = require('multer');
 const supabase = require('../services/supabaseClient');
 const { certappOnly, certappOAdmin, obraDeLaCuenta, olvidarCuenta } = require('../middleware/certappAuth');
 const cuentas = require('../services/certapp/cuentas');
@@ -33,6 +34,7 @@ const vistoIa = require('../services/certapp/vistoIa');
 const avisos = require('../services/certapp/avisos');
 const incidencias = require('../services/certapp/incidencias');
 const movimientos = require('../services/certapp/movimientos');
+const firma = require('../services/certapp/firma');
 const { datosDelCatastro } = require('../services/certapp/catastro');
 const { cuestionario: logica } = require('../services/certapp/logica');
 const {
@@ -115,6 +117,8 @@ router.get('/obras/:id', certappOnly, async (req, res) => {
         return res.json({
             obra: obras.obraParaCertificador(obra), barrido: barrido(obra, req.certapp.cuenta), eventos, enlaces,
             revisiones: { hechas: Number(obra.revisiones) || 0, max: maxRevisiones() },
+            // La calificación del XML cargado y la firma (sin el JSONB `cee`).
+            cee: enlaces ? firma.resumenParaCertificador(obra) : null,
         });
     } catch (e) { return responderError(res, e, 'GET /obras/:id'); }
 });
@@ -339,6 +343,41 @@ router.post('/obras/:id/revisar-de-nuevo', certappOnly, async (req, res) => {
         });
         return res.json({ ok: true, obra: obras.obraParaCertificador(data[0]), revisiones: { hechas: hechas + 1, max } });
     } catch (e) { return responderError(res, e, 'POST /obras/:id/revisar-de-nuevo'); }
+});
+
+// ── Firmar el CEE y subir lo definitivo (services/certapp/firma.js) ─────────
+// Con el certificado entregado (LISTO / VALIDADO). Firma con AutoFirma en SU
+// ordenador: aquí se da el PDF y se recibe el firmado (422 si la firma no cubre
+// el documento). Lo definitivo hecho en su CE3X: el XML (se carga en la obra) o
+// el PDF; el .cex no.
+const subidaUna = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+function recibirUno(req, res, next) {
+    subidaUna.single('fichero')(req, res, (err) => {
+        if (!err) return next();
+        if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'El archivo es demasiado grande (máximo 25 MB).', code: 'FICHERO_GRANDE' });
+        return res.status(400).json({ error: 'No se ha podido leer el archivo. Vuelve a intentarlo.', code: 'SUBIDA_ILEGIBLE' });
+    });
+}
+
+router.get('/obras/:id/cee/para-firmar', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        return res.json(await firma.pdfParaFirmar(obra));
+    } catch (e) { return responderError(res, e, 'GET /obras/:id/cee/para-firmar'); }
+});
+
+router.post('/obras/:id/cee/firmado', certappOnly, obraSuyaAntes, recibirUno, async (req, res) => {
+    try {
+        const r = await firma.guardarFirmado(req.obra, req.certapp.cuenta, req.file?.buffer, { via: 'autofirma' });
+        return res.json(r);
+    } catch (e) { return responderError(res, e, 'POST /obras/:id/cee/firmado'); }
+});
+
+router.post('/obras/:id/cee/definitivo', certappOnly, obraSuyaAntes, recibirUno, async (req, res) => {
+    try {
+        const r = await firma.subirDefinitivo(req.obra, req.certapp.cuenta, req.file);
+        return res.json(r);
+    } catch (e) { return responderError(res, e, 'POST /obras/:id/cee/definitivo'); }
 });
 
 // ── Incidencias y sugerencias ───────────────────────────────────────────────

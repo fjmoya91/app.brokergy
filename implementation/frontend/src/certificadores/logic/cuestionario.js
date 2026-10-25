@@ -217,7 +217,9 @@ export const MEDIDAS = [
 
 // ── Fotos y documentos que se piden ─────────────────────────────────────────
 // `cuando(c)`: si aplica a esta vivienda. `equipo`: la decisión subir / después
-// / genérica se guarda por equipo en `c.fotos_decision[equipo]`.
+// / genérica se guarda por equipo en `c.fotos_decision[equipo]`. `opcional`: ayuda
+// pero no hace falta; se puede dejar con «Ahora no» (`c.fotos_omitidas`).
+// Ninguna foto bloquea: lo que falta lo pone la IA (Street View, su época…).
 export const SLOTS = [
     {
         id: 'FOTO_FACHADA_PRINCIPAL', label: 'Fachada principal', multiple: true,
@@ -235,10 +237,11 @@ export const SLOTS = [
     },
     {
         id: 'VIDEO_VIVIENDA', label: 'Vídeo de la vivienda', multiple: true, video: true,
-        ayuda: 'Opcional: un recorrido despacio por dentro, ventana a ventana. Sustituye a muchas fotos.',
+        opcional: true,
+        ayuda: 'Un recorrido despacio por dentro, ventana a ventana. Sustituye a muchas fotos.',
     },
     {
-        id: 'FOTO_CALDERA', label: 'Caldera', equipo: 'CALDERA',
+        id: 'FOTO_CALDERA', label: 'Caldera', equipo: 'CALDERA', opcional: true,
         ayuda: 'La caldera entera.',
         cuando: c => equipoCalefaccion(c) === 'CALDERA',
     },
@@ -248,7 +251,7 @@ export const SLOTS = [
         cuando: c => equipoCalefaccion(c) === 'CALDERA',
     },
     {
-        id: 'FOTO_AEROTERMIA', label: 'Aerotermia (unidad exterior)', equipo: 'AEROTERMIA',
+        id: 'FOTO_AEROTERMIA', label: 'Aerotermia (unidad exterior)', equipo: 'AEROTERMIA', opcional: true,
         ayuda: 'La máquina exterior entera.',
         cuando: c => equipoCalefaccion(c) === 'AEROTERMIA' || c.acs === 'aerotermia',
     },
@@ -258,7 +261,7 @@ export const SLOTS = [
         cuando: c => equipoCalefaccion(c) === 'AEROTERMIA' || c.acs === 'aerotermia',
     },
     {
-        id: 'FOTO_TERMO', label: 'Termo o calentador', equipo: 'TERMO',
+        id: 'FOTO_TERMO', label: 'Termo o calentador', equipo: 'TERMO', opcional: true,
         ayuda: 'El termo eléctrico o el calentador entero.',
         cuando: c => c.acs === 'termo' || c.acs === 'calentador' || c.termo_extra === true,
     },
@@ -268,7 +271,7 @@ export const SLOTS = [
         cuando: c => c.acs === 'termo' || c.acs === 'calentador' || c.termo_extra === true,
     },
     {
-        id: 'FOTO_AIRE_EXTERIOR', label: 'Aire acondicionado (unidad exterior)', equipo: 'AIRE', multiple: true,
+        id: 'FOTO_AIRE_EXTERIOR', label: 'Aire acondicionado (unidad exterior)', equipo: 'AIRE', multiple: true, opcional: true,
         ayuda: 'Las unidades exteriores.',
         cuando: c => c.aire_acondicionado === true || c.calefaccion === 'bomba_aire',
     },
@@ -283,26 +286,36 @@ export const SLOTS = [
         cuando: c => c.placas_fv === 'SI' || c.acs === 'solar',
     },
     {
-        id: 'FOTO_VENTANAS', label: 'Ventanas por dentro', multiple: true,
-        ayuda: 'Opcional: una ventana de cada tipo, de cerca, que se vea el marco y el vidrio.',
+        id: 'FOTO_VENTANAS', label: 'Ventanas por dentro', multiple: true, opcional: true,
+        ayuda: 'Una ventana de cada tipo, de cerca, que se vea el marco y el vidrio.',
     },
     {
-        id: 'FOTO_CUBIERTA', label: 'Cubierta o tejado', multiple: true,
-        ayuda: 'Opcional: el tejado o la azotea.',
+        id: 'FOTO_CUBIERTA', label: 'Cubierta o tejado', multiple: true, opcional: true,
+        ayuda: 'El tejado o la azotea.',
         cuando: c => c.tipo_edificio !== 'PISO' || c.posicion_piso === 'ULTIMO',
     },
-    { id: 'DOC_PLANOS', label: 'Planos o croquis', multiple: true, documento: true, ayuda: 'Opcional: planos, un croquis a mano o la escritura.' },
-    { id: 'DOC_CEE_EXISTENTE', label: 'Certificado anterior', multiple: true, documento: true, ayuda: 'Opcional: si la vivienda ya tenía un CEE (PDF, XML o .cex).' },
-    { id: 'OTROS', label: 'Otros', multiple: true, documento: true, ayuda: 'Cualquier otra cosa útil.' },
+    { id: 'DOC_PLANOS', label: 'Planos o croquis', multiple: true, documento: true, opcional: true, ayuda: 'Planos, un croquis a mano o la escritura.' },
+    { id: 'DOC_CEE_EXISTENTE', label: 'Certificado anterior', multiple: true, documento: true, opcional: true, ayuda: 'Si la vivienda ya tenía un CEE (PDF, XML o .cex).' },
+    { id: 'OTROS', label: 'Otros', multiple: true, documento: true, opcional: true, ayuda: 'Cualquier otra cosa útil.' },
 ];
 
 export const SLOT_IDS = SLOTS.map(s => s.id);
+const SLOT_OPCIONALES = SLOTS.filter(s => s.opcional).map(s => s.id);
 
 export const DECISION_FOTO = [
     { value: 'SUBIR', label: 'La subo ahora' },
-    { value: 'DESPUES', label: 'La subo después' },
+    { value: 'DESPUES', label: 'Ahora no, la subo luego' },
     { value: 'GENERICA', label: 'Usar un equipo genérico' },
 ];
+
+// La antigüedad de un equipo genérico, con las mismas opciones que CE3X en
+// «Rendimiento estacional: Estimado según instalación» (bombas de calor).
+export const ANTIGUEDAD_EQUIPO = [
+    { value: 'POSTERIOR_2013', label: 'Posterior a 2013' },
+    { value: 'ENTRE_1994_2013', label: 'Entre 1994 y 2013' },
+    { value: 'ANTERIOR_1994', label: 'Anterior a 1994' },
+];
+export const EQUIPOS_CON_ANTIGUEDAD = ['AIRE', 'AEROTERMIA'];
 
 export const CUESTIONARIO_VACIO = {
     // la vivienda
@@ -327,6 +340,8 @@ export const CUESTIONARIO_VACIO = {
     medidas: [],                // las que se meten en el CEE
     // fotos: equipo → SUBIR · DESPUES · GENERICA
     fotos_decision: {},
+    fotos_antiguedad: {},       // equipo genérico → ANTIGUEDAD_EQUIPO (como en CE3X)
+    fotos_omitidas: [],         // apartados opcionales dejados con «Ahora no» (ids de SLOTS)
     notas: '',
     // de dónde sale cada dato deducido (clave → ORIGENES); sin origen = lo contestó él
     origen: {},
@@ -376,21 +391,46 @@ export function cuentaSlot(uploads, id) {
     return Array.isArray(uploads?.[id]) ? uploads[id].length : 0;
 }
 
-/** Qué equipos necesitan foto y si la tienen o se decidió usar uno genérico. */
+/** ¿Este apartado opcional se dejó con «Ahora no»? */
+export function fotoOmitida(c = {}, id) {
+    return Array.isArray(c.fotos_omitidas) && c.fotos_omitidas.includes(id);
+}
+
+/** Marca o desmarca un apartado opcional como «Ahora no» (devuelve el cuestionario nuevo). */
+export function omitirFoto(c = {}, id, si = true) {
+    const antes = Array.isArray(c.fotos_omitidas) ? c.fotos_omitidas.filter(x => x !== id) : [];
+    return { ...c, fotos_omitidas: si && SLOT_OPCIONALES.includes(id) ? [...antes, id] : antes };
+}
+
+/**
+ * El siguiente apartado que falta en la visita guiada: ni documentos ni vídeo, ni
+ * los opcionales dejados con «Ahora no», ni la placa de un equipo que se sube luego
+ * o va con uno genérico.
+ */
+export function siguienteDeLaVisita(aplican, c, slots) {
+    return aplican.find(s => !s.documento && !s.video && !(slots?.[s.id] || []).length
+        && !fotoOmitida(c, s.id) && !(s.placa && c.fotos_decision?.[s.equipo]))?.id || null;
+}
+
+/**
+ * Qué equipos necesitan foto y si la tienen o se decidió usar uno genérico.
+ * Completo = con su placa; un equipo sin apartado de placa (las placas solares),
+ * con cualquier foto suya.
+ */
 export function estadoEquipos(c = {}, uploads = {}) {
     const porEquipo = {};
     for (const s of slotsAplicables(c)) {
         if (!s.equipo) continue;
-        const e = porEquipo[s.equipo] || (porEquipo[s.equipo] = { equipo: s.equipo, slots: [], fotos: 0, placa: 0 });
+        const e = porEquipo[s.equipo] || (porEquipo[s.equipo] = { equipo: s.equipo, slots: [], fotos: 0, placa: 0, conPlaca: false });
         e.slots.push(s.id);
         const n = cuentaSlot(uploads, s.id);
         e.fotos += n;
-        if (s.placa) e.placa += n;
+        if (s.placa) { e.placa += n; e.conPlaca = true; }
     }
-    return Object.values(porEquipo).map(e => ({
+    return Object.values(porEquipo).map(({ conPlaca, ...e }) => ({
         ...e,
         decision: c.fotos_decision?.[e.equipo] || null,
-        completo: e.placa > 0,
+        completo: conPlaca ? e.placa > 0 : e.fotos > 0,
     }));
 }
 
@@ -513,7 +553,7 @@ export function barrido(obra = {}, cuenta = null) {
     // Equipos sin placa: subir ahora, después o genérico
     const equiposSinFoto = estadoEquipos(c, uploads).filter(e => !e.completo && e.decision !== 'GENERICA');
     for (const e of equiposSinFoto) {
-        A(`placa_${e.equipo}`, `Falta la placa de ${NOMBRE_EQUIPO[e.equipo] || e.equipo}: se usará un equipo genérico si no la subes.`, 'fotos');
+        A(`placa_${e.equipo}`, `Falta ${placaDe(e.equipo)}: se usará un equipo genérico si no la subes.`, 'fotos');
     }
 
     // El certificador (sale en el .cex como técnico; lo puede poner luego en CE3X)
@@ -533,6 +573,21 @@ export const NOMBRE_EQUIPO = {
     SOLAR: 'las placas solares',
 };
 
+/** Los equipos genéricos en palabras: «el aire acondicionado (antigüedad en CE3X: entre 1994 y 2013)». */
+export function genericosDe(c = {}) {
+    return Object.entries(c.fotos_decision || {}).filter(([, d]) => d === 'GENERICA').map(([e]) => {
+        const a = labelDe(ANTIGUEDAD_EQUIPO, c.fotos_antiguedad?.[e]);
+        return `${NOMBRE_EQUIPO[e] || e}${a ? ` (antigüedad en CE3X: ${a.toLowerCase()})` : ''}`;
+    });
+}
+
+/** «la placa del aire acondicionado», «la placa de la caldera»; las placas solares, «una foto de las placas solares». */
+export function placaDe(equipo) {
+    const n = NOMBRE_EQUIPO[equipo] || String(equipo || '').toLowerCase();
+    if (equipo === 'SOLAR') return `una foto de ${n}`;
+    return `la placa ${n.startsWith('el ') ? `del ${n.slice(3)}` : `de ${n}`}`;
+}
+
 // ── Lo que se deduce sin preguntar ──────────────────────────────────────────
 // Lo que la IA puede dar por sabido. Cada uno, con su origen; lo que contestó
 // el certificador (valor sin origen) no se toca nunca.
@@ -546,7 +601,7 @@ export const DEDUCIBLES = [
 
 // Cuánto vale cada origen: uno peor no pisa a uno mejor (lo de la época no
 // pisa lo visto en una foto).
-const RANGO_ORIGEN = { HABITUAL: 1, EPOCA: 2, STREETVIEW: 3, FOTO: 4, CATASTRO: 5, PLACA: 5 };
+export const RANGO_ORIGEN = { HABITUAL: 1, EPOCA: 2, STREETVIEW: 3, FOTO: 4, CATASTRO: 5, PLACA: 5 };
 
 // Los valores de lista que admite cada clave (también para sanear).
 const LISTAS_VALOR = {
@@ -850,7 +905,7 @@ export function resumenCuestionario(obra = {}) {
     const medidas = vacio(c.medidas) ? medidasSugeridas(c, propositosDe(obra)) : c.medidas;
     P('Medidas de mejora', medidas.map(m => labelDe(MEDIDAS, m) || m).join(' · '));
 
-    const genericos = Object.entries(c.fotos_decision || {}).filter(([, d]) => d === 'GENERICA').map(([e]) => NOMBRE_EQUIPO[e] || e);
+    const genericos = genericosDe(c);
     if (genericos.length) P('Equipo genérico (sin placa)', genericos.join(', '));
     if (c.visto_ia?.confirmado_at) P('Lo deducido', 'Revisado y confirmado por el certificador antes de pedirlo');
     else if (Object.keys(c.origen || {}).length) P('Lo deducido', 'SIN confirmar por el certificador: compruébalo con las fotos');
@@ -906,6 +961,11 @@ export function sanearCuestionario(raw = {}) {
     for (const [e, d] of Object.entries(raw.fotos_decision || {})) {
         if (NOMBRE_EQUIPO[e] && en(DECISION_FOTO, d)) out.fotos_decision[e] = d;
     }
+    out.fotos_antiguedad = {};
+    for (const [e, a] of Object.entries(raw.fotos_antiguedad || {})) {
+        if (EQUIPOS_CON_ANTIGUEDAD.includes(e) && en(ANTIGUEDAD_EQUIPO, a)) out.fotos_antiguedad[e] = a;
+    }
+    out.fotos_omitidas = Array.isArray(raw.fotos_omitidas) ? [...new Set(raw.fotos_omitidas.filter(id => SLOT_OPCIONALES.includes(id)))] : [];
     if (out.acs !== 'misma_caldera') out.termo_extra = null;
     if (out.aire_acondicionado !== true) { out.num_aires = ''; out.tipo_aire = ''; }
     if (out.colinda_no_calefactado !== true) { out.colindantes = []; out.colindantes_nota = ''; }

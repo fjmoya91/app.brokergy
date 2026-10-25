@@ -48,6 +48,20 @@ origen lo contestó el certificador y nada lo pisa nunca.** Cuánto vale cada or
   preguntando si es aislada, pareada o adosada (`duda()` y `esCasa` en `deduccionesCatastro`).
 - Al generador le llega el valor con su origen en palabras («Casa adosada (visto en las fotos)»).
 
+### La pantalla: el guion de CE3X (25/10/2026, segunda vuelta)
+
+Fran, con la primera versión delante: «que siga el mismo guion que con CE3X para que la curva de
+aprendizaje sea más rápida» y «menos preguntas, ir más a lo directo». La fase 5 ya no es una lista de
+preguntas: son **las pestañas de CE3X** (`PESTANAS_CE3X` en
+[fasesFicha.js](implementation/frontend/src/certificadores/obra/fasesFicha.js)) —Datos generales ·
+Envolvente térmica (Cubierta, Muro de fachada, Partición interior, Suelo, Huecos) · Instalaciones
+(el equipo de calefacción con el nombre que le da CE3X según sea solo calefacción, mixto o bomba de
+calor; ACS; refrigeración; contribuciones)— con **UNA línea por elemento** (`lineaElemento`: lo que
+hay en una frase, sus notas y el origen menos fiable). «Cambiar» abre las preguntas de ese elemento
+(las mismas de `pasos.js`, por `PREGUNTA_POR_CLAVE`); un elemento sin nada dice «Sin dato: CE3X pondrá
+lo de su año». Las dudas (las de la IA primero; las del Catastro si la IA no pregunta ya lo mismo)
+van arriba, cortas y con foto. En [VistoIa.jsx](implementation/frontend/src/certificadores/obra/VistoIa.jsx).
+
 Lo del Catastro y la época lo deduce la pantalla (`deduccionesCatastro`, puro, sin red); lo que hay
 que VER lo mira el servidor (abajo). `aplicarDeducciones` mete los dos en el formulario y se guarda
 con el autoguardado; `contestar` escribe la respuesta a una duda (sin origen: la contestó él).

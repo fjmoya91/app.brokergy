@@ -477,7 +477,8 @@ async function listFiles(folderId) {
     try {
         const response = await drive.files.list({
             q: `'${folderId}' in parents and trashed = false`,
-            fields: 'files(id, name, mimeType, webViewLink)',
+            // modifiedTime: la entrega de la app de certificadores elige el más reciente.
+            fields: 'files(id, name, mimeType, webViewLink, modifiedTime)',
             orderBy: 'name'
         });
         const allFiles = response.data.files || [];

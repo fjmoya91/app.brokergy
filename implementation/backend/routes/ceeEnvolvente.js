@@ -1195,9 +1195,22 @@ router.post('/:expedienteId/cex', internoOExtSuyo, staffSiOportunidad, limiteExt
                 ? ' y con las placas de la 2.ª medida medidas con el consumo de la última vez' : ''}. `
                 + 'Lo califica CE3X en el PC (cola «por calificar»).',
         }).catch(e => avisos.push(`No se ha podido sellar el .cex: ${e.message}`));
-        avisos.push('Queda POR CALIFICAR en el PC: CE3X sacará su XML y su PDF'
-            + (conFv2 ? ', volverá a medir las placas de la 2.ª medida' : '')
-            + ' y recortará el autoconsumo mes a mes si hace falta.');
+        // Una OBRA de la app de certificadores no espera a que alguien lance la
+        // cola: se encarga al PC sola y en silencio (lo mismo que hace
+        // agenteIa.terminarExt con lo que deja el agente). Calificada, producción
+        // manda el aviso de «listo para revisar» (POST /certapp-admin/interno/calificada).
+        if (origenDe(req) === 'ext' && !esFinal) {
+            const pc = await require('../services/asistenteCanal')
+                .encargarCalificarExt({ numero: ctx.expediente?.numero_expediente, obraId: ctx.expediente?.id });
+            avisos.push(pc.ok
+                ? 'Ahora se calcula con CE3X (unos minutos): saldrán el XML y el PDF nuevos y os avisamos cuando esté.'
+                : `Queda POR CALIFICAR: CE3X sacará su XML y su PDF en el PC (no se ha podido encargar solo: ${pc.motivo}).`);
+            if (!pc.ok) console.warn(`[ceeEnvolvente] calificar ${ctx.expediente?.numero_expediente} en el PC:`, pc.motivo);
+        } else {
+            avisos.push('Queda POR CALIFICAR en el PC: CE3X sacará su XML y su PDF'
+                + (conFv2 ? ', volverá a medir las placas de la 2.ª medida' : '')
+                + ' y recortará el autoconsumo mes a mes si hace falta.');
+        }
         if (guardado.archivados_otros?.length) {
             avisos.unshift(`Se ha archivado en OLD ${guardado.archivados_otros.map(n => `«${n}»`)
                 .join(', ')}: es el que se generó cuando era una oportunidad.`);

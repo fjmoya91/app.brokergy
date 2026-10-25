@@ -213,12 +213,14 @@ const srv = app.listen(0, async () => {
         ['GET', `/obras/${OBRA_SUYA}/barrido`], ['POST', `/obras/${OBRA_SUYA}/generar`], ['POST', `/obras/${OBRA_SUYA}/validar`],
         ['POST', `/obras/${OBRA_SUYA}/revisar-de-nuevo`], ['POST', '/feedback'], ['GET', '/feedback'], ['GET', '/movimientos'], ['POST', '/asistente'], ['GET', '/asistente/cupo'],
         ['POST', `/obras/${OBRA_SUYA}/visto-ia`], ['GET', '/municipios?prov=13'],
+        ['GET', `/obras/${OBRA_SUYA}/cee/para-firmar`], ['POST', `/obras/${OBRA_SUYA}/cee/firmado`], ['POST', `/obras/${OBRA_SUYA}/cee/definitivo`],
     ];
     const DEL_ADMIN = [
         ['GET', '/resumen'], ['GET', '/beta'], ['GET', `/beta/${OBRA_SUYA}`], ['PATCH', `/beta/${OBRA_SUYA}`], ['POST', `/beta/${OBRA_SUYA}/invitar`],
         ['GET', '/cuentas'], ['POST', '/cuentas'], ['PATCH', `/cuentas/${CUENTA.id}`], ['GET', '/obras'], ['GET', `/obras/${OBRA_SUYA}`],
         ['POST', `/obras/${OBRA_SUYA}/pedir-ia`], ['POST', `/obras/${OBRA_SUYA}/entregar`], ['POST', `/obras/${OBRA_SUYA}/devolver-credito`],
         ['POST', `/obras/${OBRA_SUYA}/enlace-cliente/rotar`], ['GET', '/feedback'], ['PATCH', `/feedback/${OBRA_SUYA}`], ['PUT', `/feedback/${FB_SUYA}`],
+        ['POST', '/interno/calificada'],
     ];
     for (const [m, r] of DEL_CERTIFICADOR) q('anónimo', m, `/api/certapp${r}`, 401, {});
     for (const [m, r] of DEL_ADMIN) q('anónimo', m, `/api/certapp-admin${r}`, 401, {});
@@ -250,6 +252,14 @@ const srv = app.listen(0, async () => {
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/generar`, 422, {}, { cuerpo: (j) => j.code === 'BARRIDO' && j.barrido?.bloqueantes?.length > 0 });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/generar`, 409, {}, { obra: { estado: 'EN_PREPARACION' }, cuerpo: (j) => j.code === 'YA_PEDIDO' });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/validar`, 409, {});
+    // Firma y definitivo (25/10/2026): obra ajena 404 (también antes de recibir el fichero); sin entregar, 409
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_AJENA}/cee/para-firmar`, 404);
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/cee/firmado`, 404, null, { multipart: true });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/cee/definitivo`, 404, null, { multipart: true });
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/cee/para-firmar`, 409, null, { cuerpo: (j) => j.code === 'ESTADO_NO_FIRMABLE' });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/cee/firmado`, 409, {}, { cuerpo: (j) => j.code === 'ESTADO_NO_FIRMABLE' });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/cee/definitivo`, 409, {}, { cuerpo: (j) => j.code === 'ESTADO_NO_FIRMABLE' });
+    q('tok-trab', 'POST', '/api/certapp-admin/interno/calificada', 403, { numero: '2026EXT_1' });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/docs/NO_EXISTE`, 400, null, { multipart: true, cuerpo: (j) => j.code === 'SLOT_DESCONOCIDO' });
     for (const [m, r] of DEL_ADMIN) q('tok-ext', m, `/api/certapp-admin${r}`, 403, {});
     for (const t of ['tok-trab', 'tok-partner']) q(t, 'GET', '/api/certapp-admin/resumen', 403);

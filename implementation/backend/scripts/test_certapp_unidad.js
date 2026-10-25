@@ -57,6 +57,46 @@ function ok(cond, texto) {
         { id: '5', name: '2026EXT_7 - CEE_REVISAR.xml' },
     ], '2026EXT_7');
     ok(e.cex?.id === '1' && e.pdf?.id === '3' && e.croquis?.id === '4' && e.xml?.id === '5', 'entrega: elige .cex, PDF, croquis y XML (no el _OLD)');
+    // Lo que sube el certificador convive con lo nuestro: gana el MÁS RECIENTE.
+    const t0 = '2026-10-25T10:00:00Z', t1 = '2026-10-25T11:00:00Z', t2 = '2026-10-25T12:00:00Z';
+    const e2 = elegirFicheros([
+        { id: 'a', name: '2026EXT_7 - CEE_REVISAR.pdf', modifiedTime: t0 }, { id: 'b', name: '2026EXT_7 - CEE.pdf', modifiedTime: t1 },
+        { id: 'c', name: '2026EXT_7 - CEE_fdo.pdf', modifiedTime: t2 }, { id: 'd', name: 'CATASTRO 1234567.pdf', modifiedTime: t2 },
+        { id: 'e', name: '2026EXT_7 - CEE_REVISAR.xml', modifiedTime: t0 }, { id: 'f', name: '2026EXT_7 - CEE.xml', modifiedTime: t1 },
+    ], '2026EXT_7');
+    ok(e2.pdf?.id === 'b' && e2.xml?.id === 'f', 'entrega: de cada clase gana el más reciente (el definitivo que sube el certificador)');
+    ok(e2.firmado?.id === 'c', 'entrega: el firmado posterior al PDF vale');
+    ok(!['c', 'd'].includes(e2.pdf?.id), 'entrega: el PDF del certificado no es el firmado ni un PDF sin «CEE» (el del Catastro)');
+    const e3 = elegirFicheros([
+        { id: 'c', name: '2026EXT_7 - CEE_fdo.pdf', modifiedTime: t0 }, { id: 'b', name: '2026EXT_7 - CEE_REVISAR.pdf', modifiedTime: t1 },
+    ], '2026EXT_7');
+    ok(e3.pdf?.id === 'b' && e3.firmado === null, 'entrega: un firmado ANTERIOR al PDF actual no cuenta (se regeneró después)');
+
+    // ── Los mensajes: uno de encargo y uno de «listo» ───────────────────────
+    const obraMsg = { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', numero_expediente: '2026EXT_7', titular: { nombre: 'Carmen', apellidos: 'Díaz' },
+        direccion: 'CALLE MAYOR 1', municipio: 'Tomelloso', cee: { cee_inicial: { epnrLetra: 'E', emisionesLetra: 'D' } } };
+    const cuentaMsg = { nombre: 'Laura', apellidos: 'Gómez', email: 'laura@example.com' };
+    const enc = require(path.join(B, 'services/certapp/ia')).textoEncargo(obraMsg, cuentaMsg, { iaAuto: true });
+    ok(/Encargo de CEE · 2026EXT_7/.test(enc) && /Certificador: Laura Gómez/.test(enc) && /Cliente: Carmen Díaz/.test(enc) && !/IA automática/.test(enc),
+        'encargo: un mensaje con el nº, el certificador y el cliente (sin partes del proceso)');
+    const listo = require(path.join(B, 'services/certapp/entrega')).textoListoEquipo(obraMsg, cuentaMsg);
+    ok(/listo para revisar · 2026EXT_7/.test(listo) && /consumo E · emisiones D/.test(listo) && /envolvente/i.test(listo) && !/drive\.google/.test(listo),
+        'listo: el nº, la calificación y la envolvente, sin enlaces de Drive');
+
+    // ── La calificación en el PC: solo vale si aparece la marca ────────────
+    const pc = require(path.join(B, 'scripts/asistente_pc'));
+    const os = require('os');
+    const logOk = path.join(os.tmpdir(), `calext-ok-${process.pid}.log`);
+    const logMal = path.join(os.tmpdir(), `calext-mal-${process.pid}.log`);
+    require('fs').writeFileSync(logOk, `calificado\n${pc.MARCA_CALIFICADA} 2026EXT_7\n`);
+    require('fs').writeFileSync(logMal, 'CE3X no responde\n');
+    ok(pc._resultadoCalificarExt(logOk).ok === true, 'PC: con la marca @@CALIFICADA_OK la calificación vale');
+    ok(pc._resultadoCalificarExt(logMal).ok === false && /CE3X no responde/.test(pc._resultadoCalificarExt(logMal).texto), 'PC: sin la marca, falla y cuenta por qué');
+    ok(pc._resultadoCalificarExt(logOk, 'cortado a los 20 min').ok === false, 'PC: cortado por tiempo no vale aunque haya marca');
+    require('fs').rmSync(logOk, { force: true }); require('fs').rmSync(logMal, { force: true });
+    let lanzo = null;
+    try { pc.encolarCalificarExt({ numero: '26RES060_187' }); } catch (err) { lanzo = err; }
+    ok(lanzo && /no es el número/.test(lanzo.message), 'PC: solo se encarga calificar una obra EXT');
 
     // ── La lógica del cuestionario, la MISMA que el navegador ──────────────
     const { cuestionario } = require(path.join(B, 'services/certapp/logica'));
@@ -75,6 +115,54 @@ function ok(cond, texto) {
     ok(!('inventado' in saneado) && saneado.notas.length === 2000 && saneado.fotos_decision.CALDERA === 'GENERICA' && !saneado.fotos_decision.MALO, 'sanearCuestionario quita lo desconocido y recorta');
     const placa = L.SLOTS.find(s => s.id === 'FOTO_PLACA_CALDERA');
     ok(`${placa.label.toUpperCase()} 1.jpg` === 'PLACA DE LA CALDERA 1.jpg', 'nombre de la foto: «PLACA DE LA CALDERA 1.jpg»');
+
+    // ── Fotos opcionales con «Ahora no» y genérico con la antigüedad de CE3X (25/10/2026) ──
+    const so = L.sanearCuestionario({
+        fotos_omitidas: ['FOTO_VENTANAS', 'FOTO_VENTANAS', 'FOTO_FACHADA_PRINCIPAL', 'FOTO_PLACA_AIRE', 'NO_EXISTE'],
+        fotos_decision: { AIRE: 'GENERICA', CALDERA: 'GENERICA' },
+        fotos_antiguedad: { AIRE: 'ENTRE_1994_2013', CALDERA: 'ANTERIOR_1994', AEROTERMIA: 'DEL_1900' },
+    });
+    ok(so.fotos_omitidas.join() === 'FOTO_VENTANAS', '«Ahora no»: solo apartados opcionales, sin repetir (ni la fachada principal ni una placa)');
+    ok(so.fotos_antiguedad.AIRE === 'ENTRE_1994_2013' && !('CALDERA' in so.fotos_antiguedad) && !('AEROTERMIA' in so.fotos_antiguedad),
+        'antigüedad del genérico: solo bombas de calor y con las opciones de CE3X');
+    ok(L.omitirFoto({}, 'FOTO_CUBIERTA').fotos_omitidas.join() === 'FOTO_CUBIERTA' && L.omitirFoto({ fotos_omitidas: ['FOTO_CUBIERTA'] }, 'FOTO_CUBIERTA', false).fotos_omitidas.length === 0
+        && L.omitirFoto({}, 'FOTO_PLACA_CALDERA').fotos_omitidas.length === 0, 'omitirFoto marca y desmarca, y no deja omitir una placa');
+    ok(L.placaDe('AIRE') === 'la placa del aire acondicionado' && L.placaDe('CALDERA') === 'la placa de la caldera' && L.placaDe('SOLAR') === 'una foto de las placas solares',
+        'placaDe: «del aire acondicionado», nunca «de el»');
+    ok(L.genericosDe(so).join(' | ') === 'el aire acondicionado (antigüedad en CE3X: entre 1994 y 2013) | la caldera', 'genericosDe: con la antigüedad al generador');
+    const solar = L.estadoEquipos({ placas_fv: 'SI' }, { FOTO_PLACAS_SOLARES: [{ id: 'x' }] }).find(e => e.equipo === 'SOLAR');
+    ok(solar?.completo === true, 'las placas solares (sin apartado de placa) quedan completas con su foto');
+    const cv = { calefaccion: 'gas', fotos_omitidas: ['FOTO_CALDERA'], fotos_decision: {} };
+    const conFachadas = { FOTO_FACHADA_PRINCIPAL: [{ id: 'a' }], FOTO_FACHADAS: [{ id: 'b' }] };
+    ok(L.siguienteDeLaVisita(L.slotsAplicables(cv), cv, conFachadas) === 'FOTO_PLACA_CALDERA', 'visita guiada: se salta lo dejado con «Ahora no»');
+    const cd = { ...cv, fotos_decision: { CALDERA: 'DESPUES' } };
+    ok(L.siguienteDeLaVisita(L.slotsAplicables(cd), cd, conFachadas) === 'FOTO_VENTANAS', 'visita guiada: y la placa que se sube luego o va con un genérico');
+
+    // ── «Lo que ha visto la IA» con el guion de CE3X: una línea por elemento ──
+    // Las pantallas importan sin extensión (como Vite): el mismo gancho que test_alta_oportunidad.js.
+    require('node:module').registerHooks({
+        resolve(specifier, context, nextResolve) {
+            try { return nextResolve(specifier, context); } catch (e) {
+                if (!/^\.\.?\//.test(specifier) || /\.[cm]?jsx?$/.test(specifier)) throw e;
+                return nextResolve(`${specifier}.js`, context);
+            }
+        },
+    });
+    const FF = await import(require('url').pathToFileURL(path.join(B, '..', 'frontend/src/certificadores/obra/fasesFicha.js')).href);
+    ok(FF.PESTANAS_CE3X.map(t => t.titulo).join(' · ') === 'Datos generales · Envolvente térmica · Instalaciones', 'fase 5: las pestañas de CE3X, en su orden');
+    const ce = {
+        tipo_edificio: 'UNIFAMILIAR_AISLADA', plantas: '2', cubierta: 'INCLINADA', aislamiento_cubierta: '', calefaccion: 'gasoleo', emisor: 'RADIADORES',
+        acs: 'misma_caldera', aire_acondicionado: true, num_aires: '3', colinda_no_calefactado: true, colindantes: ['GARAJE'],
+        fotos_decision: { AIRE: 'GENERICA' }, fotos_antiguedad: { AIRE: 'ANTERIOR_1994' }, origen: { cubierta: 'HABITUAL', plantas: 'CATASTRO' },
+    };
+    const inst = FF.elementosVisibles(FF.PESTANAS_CE3X[2], ce);
+    ok(inst[0].titulo === 'Equipo mixto de calefacción y ACS', 'fase 5: caldera que también da el agua → «Equipo mixto de calefacción y ACS»');
+    const refri = FF.lineaElemento(inst.find(e => e.id === 'refrigeracion'), ce);
+    ok(refri.texto === '3 aparatos · equipo genérico (anterior a 1994)' && refri.origen === 'TU', `fase 5: el aire, con sus aparatos y la antigüedad del genérico («${refri.texto}»)`);
+    const cub = FF.lineaElemento(FF.elementosVisibles(FF.PESTANAS_CE3X[1], ce).find(e => e.id === 'cubierta'), ce);
+    ok(cub.origen === 'HABITUAL' && cub.supuesto, 'fase 5: un supuesto en el elemento se ve como supuesto');
+    const part = FF.lineaElemento(FF.elementosVisibles(FF.PESTANAS_CE3X[1], ce).find(e => e.id === 'particion'), ce);
+    ok(/^Linda con garaje/i.test(part.texto) && !/algo sin calefacción/.test(part.texto), `fase 5: la partición dice con qué linda, sin repetir el «sí» («${part.texto}»)`);
 
     // ── Barrido que no frena (Fran, 25/10/2026) y lo deducido ───────────────
     // Solo bloquean ref. catastral, dirección, titular y «para qué»; lo demás lo

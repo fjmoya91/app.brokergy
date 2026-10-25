@@ -500,6 +500,13 @@ function selloTerminado(prevSello, { delAgente, ahora, fichero = {}, avisos = []
 //     CERTAPP_ENTREGA_AUTO=true la entrega sola y, si no, manda al equipo su
 //     WhatsApp corto «revísalo y pulsa Entregar» — ese WhatsApp no se repite
 //     aquí; el email con el detalle (avisos, croquis, enlaces) va siempre;
+//   · REGLA — sin calificar (el servidor no tiene CE3X) NO se avisa a nadie: se
+//     encarga al PC en silencio (`asistenteCanal.encargarCalificarExt` → cola del
+//     PC → `cee_inicial.js calificar`), y el PC, al acabar, llama a producción
+//     (`POST /api/certapp-admin/interno/calificada`), que vuelve aquí con
+//     `calificada: true`. Así Fran recibe UN aviso, el de «listo para revisar»
+//     (25/10/2026: «no quiero que me vaya actualizando el proceso»). Si el PC no
+//     se puede encargar, se avisa como antes de que falta calificarlo;
 //   · fuera de la cola del agente (`cola`) y del radar del parte: su cola es el
 //     admin de la app.
 
@@ -544,7 +551,7 @@ function avisosCertappActivos() {
 }
 
 async function terminarExt({ clave, fase, fichero = {}, pendientes = null, avisos = [], decisiones = null,
-                             aviso = true, entregable = true }) {
+                             aviso = true, entregable = true, calificada = false }) {
     if (normFase(fase) === 'final') throw new Error('Una obra de la app de certificadores es de UN solo certificado: no tiene fase final.');
     const ahora = new Date().toISOString();
     const fila = await cargarExt(clave);
@@ -556,30 +563,48 @@ async function terminarExt({ clave, fase, fichero = {}, pendientes = null, aviso
     const enlaces = { ...enlacesDe('ext', fila) };
     const prevSello = fila.agente_ia?.inicial || {};
     if (fichero.carpeta_link || prevSello.carpeta_link) enlaces.carpeta = fichero.carpeta_link || prevSello.carpeta_link;
-    const reenvio = prevSello.estado === 'terminado';
+    // Tras calificar en el PC, los avisos del borrador son los de la pasada del agente.
+    if (calificada && !(avisos || []).length) avisos = prevSello.avisos || [];
+    // Una pasada que se quedó «por calificar» no cuenta como versión entregada.
+    const reenvio = prevSello.estado === 'terminado' && !prevSello.por_calificar;
     const sello = { ...(fila.agente_ia || {}),
-                    inicial: selloTerminado(prevSello, { delAgente: false, ahora, fichero, avisos, decisiones }) };
+                    inicial: { ...selloTerminado(prevSello, { delAgente: false, ahora, fichero, avisos, decisiones }),
+                               por_calificar: !entregable } };
     await setCee('ext', fila.id, 'agente_ia', sello);
 
     const fallos = [];
+    // Sin calificar: al PC, en silencio (ver la REGLA de arriba). Ni evento (el
+    // certificador aún no tiene nada que ver) ni WhatsApp ni email.
+    if (aviso && !entregable) {
+        const pc = await require('./asistenteCanal').encargarCalificarExt({ numero, obraId: fila.id });
+        if (pc.ok) {
+            return { ok: true, negocio: 'ext', numero, delAgente: false, humano: certificador, reenvio, cambios: [],
+                     canales: [`ninguno: calificación encargada al PC${pc.duplicado ? ' (ya estaba en cola)' : ''}`],
+                     fallos, entrega: null, aviso: null, pc };
+        }
+        fallos.push(`No se ha podido encargar la calificación al PC: ${pc.motivo}`);
+    }
     // El rastro de la obra en la app. Sin enlaces de Drive: los eventos los puede
     // ver el certificador, y los enlaces de Drive son solo del equipo.
-    try {
-        const { error } = await supabase.from('certapp_eventos').insert({
-            obra_id: fila.id, cuenta_id: fila.cuenta_id || null, tipo: 'IA_HECHA', por: 'IA',
-            texto: `La IA ha dejado el certificado${fichero.nombre ? ` (${fichero.nombre})` : ''} en «1. CEE»`
-                + (reenvio ? ' · versión nueva' : '') + '.',
-            datos: { fase: 'inicial', reenvio, fichero: sello.inicial.fichero || null, avisos: (avisos || []).length },
-        });
-        if (error) fallos.push(`Evento IA_HECHA: ${error.message}`);
-    } catch (e) { fallos.push(`Evento IA_HECHA: ${e.message}`); }
+    if (entregable) {
+        try {
+            const { error } = await supabase.from('certapp_eventos').insert({
+                obra_id: fila.id, cuenta_id: fila.cuenta_id || null, tipo: 'IA_HECHA', por: 'IA',
+                texto: `La IA ha dejado el certificado${fichero.nombre ? ` (${fichero.nombre})` : ''} en «1. CEE»`
+                    + (reenvio ? ' · versión nueva' : '') + '.',
+                datos: { fase: 'inicial', reenvio, fichero: sello.inicial.fichero || null, avisos: (avisos || []).length },
+            });
+            if (error) fallos.push(`Evento IA_HECHA: ${error.message}`);
+        } catch (e) { fallos.push(`Evento IA_HECHA: ${e.message}`); }
+    }
 
     // La app decide: con CERTAPP_ENTREGA_AUTO=true entrega sola (y avisa ELLA al
     // certificador); si no, avisa al equipo. `aviso: false` (relanzar en la misma
     // sesión) no entrega ni avisa. Nunca deshace el trabajo.
     // `entregable: false` = el `.cex` aún no lo ha calificado CE3X (sin .xml ni
-    // PDF): no se llama a la app —entregaría un certificado a medias— y el aviso
-    // al equipo lo manda este servicio, diciendo que falta calificarlo.
+    // PDF) y el PC no se ha podido encargar: no se llama a la app —entregaría un
+    // certificado a medias— y el aviso al equipo lo manda este servicio, diciendo
+    // que falta calificarlo.
     let entrega = null;
     if (aviso && entregable) {
         try {

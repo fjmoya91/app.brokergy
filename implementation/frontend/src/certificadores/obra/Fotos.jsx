@@ -8,12 +8,14 @@
 //     caduca (410 ENLACE_CADUCADO); con «Generar un enlace nuevo»
 //     (POST /obras/:id/enlace-cliente/rotar → { url, caduca_at }) el anterior
 //     deja de funcionar.
-//   · Equipo sin placa: «La subo ahora · Después · Usar un equipo genérico»
-//     (cuestionario.fotos_decision[equipo]); la foto que falta NO bloquea.
+//   · Equipo sin placa: «La subo ahora · Ahora no, la subo luego · Usar un equipo
+//     genérico» (cuestionario.fotos_decision[equipo]); la foto que falta NO bloquea.
+//   · Apartado opcional (slot.opcional): chip «Opcional» y «Ahora no», que lo pliega
+//     (cuestionario.fotos_omitidas) hasta que se pulse «Subirla».
 import { useState } from 'react';
 import axios from 'axios';
 import {
-    DECISION_FOTO, NOMBRE_EQUIPO, SLOTS, estadoEquipos, slotsAplicables,
+    ANTIGUEDAD_EQUIPO, DECISION_FOTO, EQUIPOS_CON_ANTIGUEDAD, NOMBRE_EQUIPO, SLOTS, estadoEquipos, fotoOmitida, omitirFoto, placaDe, siguienteDeLaVisita, slotsAplicables,
 } from '../logic/cuestionario';
 import { API, alPortapapeles, enlaceWhatsApp, errorDe, mensajeError } from '../api';
 import { Aviso, useToast } from '../ui/piezas';
@@ -49,7 +51,7 @@ function Miniatura({ f, onQuitar, puedeQuitar }) {
  * `visita`: en la vivienda (la cámara manda). `guia`: es el siguiente que falta.
  */
 export function SlotFoto({ slot, ctx, visita, guia = false }) {
-    const { slots, subir, quitar, subiendo, editable } = ctx;
+    const { slots, subir, quitar, subiendo, editable, form, setCuestionario } = ctx;
     const toast = useToast();
     const [error, setError] = useState(null);
     const ficheros = slots?.[slot.id] || [];
@@ -78,13 +80,34 @@ export function SlotFoto({ slot, ctx, visita, guia = false }) {
     const camara = !slot.documento;
     const idBase = `f-${slot.id}`;
     const ocupado = pct != null;
+    const puedeOmitir = slot.opcional && editable && !!setCuestionario;
+    const omitir = (si) => setCuestionario(c => omitirFoto(c, slot.id, si));
+    const opcional = slot.opcional && <span className="ca-chip ca-chip-gris" style={{ marginLeft: 8, verticalAlign: 'middle' }}>Opcional</span>;
+
+    // «Ahora no»: plegado, con la vuelta atrás a mano.
+    if (puedeOmitir && n === 0 && !ocupado && fotoOmitida(form?.cuestionario, slot.id)) {
+        return (
+            <div className="ca-slot ca-slot-omitido" id={`slot-${slot.id}`}>
+                <div className="ca-slot-top">
+                    <div className="ca-ico-tile ca-tile-crema" aria-hidden="true">{ico}</div>
+                    <span>
+                        <b>{slot.label}{opcional}</b>
+                        <small>Ahora no. No hace falta para pedir el certificado.</small>
+                    </span>
+                    <button type="button" className="ca-btn ca-btn-sec ca-btn-peq" style={{ width: 'auto', flex: 'none' }} onClick={() => omitir(false)}>
+                        {slot.documento ? 'Subirlo' : slot.video ? 'Subirlo' : 'Subirla'}
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className={`ca-slot${guia ? ' ca-guia' : ''}`} id={`slot-${slot.id}`}>
             <div className="ca-slot-top">
                 <div className={`ca-ico-tile ${n ? 'ca-tile-verde' : guia ? 'ca-tile-naranja' : 'ca-tile-crema'}`} aria-hidden="true">{n ? <IcoCheck /> : ico}</div>
                 <span>
-                    <b>{slot.label}{guia && <span className="ca-chip ca-chip-naranja" style={{ marginLeft: 8, verticalAlign: 'middle' }}>Ahora</span>}</b>
+                    <b>{slot.label}{guia && <span className="ca-chip ca-chip-naranja" style={{ marginLeft: 8, verticalAlign: 'middle' }}>Ahora</span>}{!guia && opcional}</b>
                     <small>{!visita && slot.ayudaRemota ? `${slot.ayuda} ${slot.ayudaRemota}` : slot.ayuda}</small>
                 </span>
                 <span className={`ca-cuenta${n ? '' : ' ca-cuenta-0'}`}>{n ? `${n} ✓` : '—'}</span>
@@ -117,19 +140,27 @@ export function SlotFoto({ slot, ctx, visita, guia = false }) {
                         <input id={`${idBase}-gal`} className="ca-input-fichero" type="file" accept={acepta}
                             multiple={!!slot.multiple} onChange={alElegir} disabled={ocupado} />
                     </label>
+                    {puedeOmitir && n === 0 && (
+                        <button type="button" className="ca-btn ca-btn-peq ca-btn-ahora-no" disabled={ocupado} onClick={() => omitir(true)}>
+                            Ahora no
+                        </button>
+                    )}
                 </div>
             )}
         </div>
     );
 }
 
-/** «La subo ahora · Después · Usar un equipo genérico» para un equipo sin placa. */
+/** «La subo ahora · Ahora no, la subo luego · Usar un equipo genérico» para un equipo sin placa. */
 export function DecisionEquipo({ equipo, ctx }) {
-    const { form, setDecision, editable } = ctx;
+    const { form, setDecision, setCuestionario, editable } = ctx;
     const d = form.cuestionario.fotos_decision?.[equipo] || null;
+    const antiguedad = form.cuestionario.fotos_antiguedad?.[equipo] || null;
+    const conAntiguedad = d === 'GENERICA' && EQUIPOS_CON_ANTIGUEDAD.includes(equipo) && !!setCuestionario;
+    const setAntiguedad = (v) => setCuestionario(c => ({ ...c, fotos_antiguedad: { ...(c.fotos_antiguedad || {}), [equipo]: v } }));
     return (
         <div className="ca-decision">
-            <p className="ca-peq" style={{ margin: '0 0 8px' }}>¿Y si ahora no tienes la placa de {NOMBRE_EQUIPO[equipo] || equipo}?</p>
+            <p className="ca-peq" style={{ margin: '0 0 8px' }}>¿No puedes subir ahora {placaDe(equipo)}?</p>
             <div className="ca-chips" role="radiogroup" aria-label={`Placa de ${NOMBRE_EQUIPO[equipo] || equipo}`}>
                 {DECISION_FOTO.map(o => (
                     <button key={o.value} type="button" disabled={!editable} role="radio" aria-checked={d === o.value}
@@ -141,8 +172,25 @@ export function DecisionEquipo({ equipo, ctx }) {
             </div>
             {d === 'GENERICA' && (
                 <p className="ca-peq" style={{ marginTop: 8 }}>
-                    Se pondrá un equipo genérico de la época. El resultado puede salir peor que con la placa; lo puedes cambiar después en CE3X.
+                    {conAntiguedad
+                        ? 'Se pondrá un equipo genérico con su rendimiento estimado según la antigüedad, como en CE3X. El resultado puede salir peor que con la placa.'
+                        : 'Se pondrá un equipo genérico de la época. El resultado puede salir peor que con la placa; lo puedes cambiar después en CE3X.'}
                 </p>
+            )}
+            {conAntiguedad && (
+                <>
+                    <p className="ca-peq" style={{ margin: '10px 0 8px' }}><b>Antigüedad del equipo</b></p>
+                    <div className="ca-chips" role="radiogroup" aria-label={`Antigüedad de ${NOMBRE_EQUIPO[equipo] || equipo}`}>
+                        {ANTIGUEDAD_EQUIPO.map(o => (
+                            <button key={o.value} type="button" disabled={!editable} role="radio" aria-checked={antiguedad === o.value}
+                                className={`ca-chipbtn${antiguedad === o.value ? ' ca-chipbtn-sel' : ''}`}
+                                onClick={() => setAntiguedad(antiguedad === o.value ? null : o.value)}>
+                                {o.label}
+                            </button>
+                        ))}
+                    </div>
+                    {!antiguedad && <p className="ca-peq" style={{ marginTop: 8 }}>Si no lo sabes, déjalo así: se pondrá la de la época de la vivienda.</p>}
+                </>
             )}
             {d === 'DESPUES' && <p className="ca-peq" style={{ marginTop: 8 }}>Te lo recordaremos antes de generar el certificado.</p>}
         </div>
@@ -291,7 +339,7 @@ export function FotosObra({ ctx, obraId, soloVer = false }) {
     const docs = aplican.filter(s => s.documento);
     const equipos = estadoEquipos(c, slots).filter(e => !soloVer || e.fotos > 0);
     // En la visita, el siguiente apartado que falta (fotos de la vivienda y equipos, en orden).
-    const guiaId = visita && editable ? aplican.find(s => !s.documento && !s.video && !(slots?.[s.id] || []).length)?.id : null;
+    const guiaId = visita && editable ? siguienteDeLaVisita(aplican, c, slots) : null;
 
     return (
         <div className="ca-stack">

@@ -102,14 +102,23 @@ function botonEmail(href, label) {
         + `</td></tr></table>`;
 }
 
+/** El segundo enlace, si lo hay: con borde y sin relleno, para que el naranja siga siendo UNO. */
+function boton2Email(href, label) {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:-8px auto 22px;"><tr>`
+        + `<td style="border:1.5px solid ${C.tinta};border-radius:14px;padding:13px 24px;text-align:center;">`
+        + `<a href="${href}" style="${F}font-size:15px;line-height:19px;font-weight:700;color:${C.tinta};text-decoration:none;display:inline-block;">${label}</a>`
+        + `</td></tr></table>`;
+}
+
 /**
  * Email con el estilo de la app.
  * @param {{ titulo, preheader?, eyebrow?, saludo?, parrafos?: string[],
  *           cifra?: { valor: string|number, texto: string },
- *           pasos?: Array<[string, string]>, boton?: { href, label }, nota?, firma?: boolean }} p
- *        Todo en TEXTO (se escapa aquí).
+ *           pasos?: Array<[string, string]>, boton?: { href, label }, boton2?: { href, label },
+ *           nota?, firma?: boolean }} p
+ *        Todo en TEXTO (se escapa aquí). `boton2`: un segundo destino, más discreto.
  */
-function plantilla({ titulo, preheader, eyebrow, saludo, parrafos = [], cifra, pasos, boton, nota, firma = true }) {
+function plantilla({ titulo, preheader, eyebrow, saludo, parrafos = [], cifra, pasos, boton, boton2, nota, firma = true }) {
     const e = escapeHtml;
     const cifraHtml = cifra
         ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 22px;"><tr><td style="background:${C.crema};border:1px solid ${C.linea};border-radius:18px;padding:18px 20px;">`
@@ -133,6 +142,7 @@ function plantilla({ titulo, preheader, eyebrow, saludo, parrafos = [], cifra, p
         + parrafos.filter(Boolean).map(p => pEmail(nl2br(e(p)))).join('')
         + cifraHtml + pasosHtml
         + (boton ? botonEmail(e(boton.href), e(boton.label)) : '')
+        + (boton2 ? boton2Email(e(boton2.href), e(boton2.label)) : '')
         + (nota ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;"><tr><td style="background:${C.crema};border:1px solid ${C.linea};border-radius:14px;padding:12px 16px;">${pEmail(e(nota), { size: 13, color: C.gris2, mb: 0, center: true })}</td></tr></table>` : '')
         + (boton ? pEmail(`Si el botón no funciona, copia este enlace en el navegador:<br><a href="${e(boton.href)}" style="color:${C.tinta};text-decoration:underline;word-break:break-all;">${e(boton.href)}</a>`, { size: 12, color: C.gris2, mb: 0, center: true }) : '')
         + (firma
@@ -178,12 +188,12 @@ ${contenido}
 }
 
 /** El mismo mensaje en texto plano (para el `text` del email y el log en seco). */
-function textoPlano({ titulo, saludo, parrafos = [], cifra, pasos, boton, nota }) {
+function textoPlano({ titulo, saludo, parrafos = [], cifra, pasos, boton, boton2, nota }) {
     return [
         titulo, '', saludo, ...parrafos,
         cifra ? `${cifra.valor} ${cifra.texto}` : null,
         ...(pasos || []).map(([t, d], i) => `${i + 1}. ${t}: ${d}`),
-        boton ? `${boton.label}: ${boton.href}` : '', nota, '', nombreApp(),
+        boton ? `${boton.label}: ${boton.href}` : '', boton2 ? `${boton2.label}: ${boton2.href}` : null, nota, '', nombreApp(),
     ].filter(v => v != null).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 

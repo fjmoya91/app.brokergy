@@ -25,7 +25,7 @@
 //   node scripts/cee_inicial.js instalacion <clave> --plan plan.json [--escribir]
 //            (solo lo de las PLACAS a la app: sin .cex, sin Drive y sin avisar)
 //   node scripts/cee_inicial.js calificar <clave> [--fase final] [--escribir]
-//   node scripts/cee_inicial.js calificar --cola [--escribir]
+//   node scripts/cee_inicial.js calificar --cola [--escribir] [--sin-avisar-app]
 //            (lo que la VENTANA dejó «por calificar»: se rehace desde la receta,
 //             se vuelven a medir las placas de la 2.ª medida y lo califica CE3X)
 //   node scripts/cee_inicial.js listo <clave> [--fase final] [--cex ruta] [--out DIR] [--escribir] [--forzar]
@@ -3599,6 +3599,9 @@ async function rehacer() {
  *     sella como calificado. Sin aviso al equipo: el `.cex` lo hizo una persona.
  *   · FINAL → se califica el fichero tal cual (el final se COPIA del inicial,
  *     no se rehace) y se sella.
+ *   · Una OBRA de la app de certificadores (inicial) SÍ avisa: calificada, se
+ *     pide a producción el aviso de «listo para revisar» (`avisarCalificadaExt`).
+ *     Es lo que lanza la cola del PC (`asistente_pc.js`, trabajo `calificar_ext`).
  * En seco solo dice qué haría.
  */
 async function calificar() {
@@ -3634,10 +3637,16 @@ async function calificar() {
             }
             if (it.fase === 'inicial') {
                 POS[0] = it.clave;
+                // `aplicar` marca el fallo (certificado incompleto) en process.exitCode:
+                // se mira el de ESTA obra, sin perder el de las anteriores de la cola.
+                const codigoAntes = process.exitCode;
+                process.exitCode = undefined;
                 await aplicar({ _rehacer: true, _calificar: true });
-                if (ORIGEN_FORZADO === 'ext') {
-                    console.log('  · Obra de la app de certificadores: los ficheros nuevos ya están en «1. CEE» y el '
-                        + 'certificador los ve en su obra; entregar (o reentregar) es cosa de la app.');
+                const fallida = !!process.exitCode;
+                process.exitCode = process.exitCode || codigoAntes;
+                if (origenDe(it.clave) === 'ext') {
+                    if (fallida) console.log('✗ Obra de la app de certificadores: no ha quedado bien calificada; no se avisa.');
+                    else await avisarCalificadaExt(it.clave);
                 }
                 continue;
             }
@@ -3664,6 +3673,38 @@ async function calificar() {
         } finally {
             ORIGEN_FORZADO = null;
         }
+    }
+}
+
+/**
+ * Tras calificar una OBRA de la app de certificadores: si el sello dice que ya
+ * está calificada, se le pide a PRODUCCIÓN el aviso de «listo para revisar»
+ * (`POST /api/certapp-admin/interno/calificada` → `agenteIa.terminarExt`), porque
+ * aquí, en el PC, los avisos de la app están apagados a propósito (el .env local)
+ * y CERTAPP_URL es la de local. Imprime MARCA_CALIFICADA para la cola del PC
+ * (`asistente_pc.js`); sin ella, la cola lo da por fallido y se lo dice a Fran.
+ * `--sin-avisar-app` lo calla.
+ */
+async function avisarCalificadaExt(clave) {
+    const ctx = await cargar(clave);
+    const sello = (await cex.leerSello(ctx).catch(() => ({})))?.inicial || {};
+    if (sello.por_calificar !== false || !sello.calificacion) {
+        console.log(`✗ ${ctx.expediente.numero_expediente}: sigue POR CALIFICAR (${sello.motivo || 'sin calificación en el sello'}): no se avisa.`);
+        process.exitCode = 1;
+        return;
+    }
+    if (RESTO.includes('--sin-avisar-app')) {
+        console.log('  · --sin-avisar-app: calificada, sin aviso. Entregar es cosa de la app.');
+        return;
+    }
+    try {
+        const r = await apiInterna('/api/certapp-admin/interno/calificada', { numero: ctx.expediente.numero_expediente });
+        console.log(`✓ Aviso de «listo para revisar» pedido a producción: ${(r.canales || []).join(', ') || 'sin canales'}`
+            + `${r.fallos?.length ? ` · fallos: ${r.fallos.join(' · ')}` : ''}${r.omitido ? ` · ${r.omitido}` : ''}`);
+        console.log(`${require('./asistente_pc').MARCA_CALIFICADA} ${ctx.expediente.numero_expediente}`);
+    } catch (e) {
+        console.log(`✗ Calificada, pero el aviso a producción ha fallado: ${e.message}`);
+        process.exitCode = 1;
     }
 }
 

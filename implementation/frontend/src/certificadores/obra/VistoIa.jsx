@@ -10,13 +10,13 @@
 //     una pregunta corta.
 // Lo deducido se ESCRIBE en el cuestionario al confirmar (fasesFicha.js → Fases), no
 // al pintar: abrir la fase no guarda nada.
+// Ordenado como CE3X (PESTANAS_CE3X): una línea por elemento, no por pregunta.
 import { useMemo, useState } from 'react';
 import { haceCuanto } from '../api';
 import { ORIGENES, contestar } from '../logic/cuestionario';
 import { Aviso } from '../ui/piezas';
 import { IcoAlerta, IcoChispa, IcoRecargar, Spinner } from '../ui/Iconos';
-import { ETIQUETA_DATO, GRUPOS_DATOS, PREGUNTA_POR_CLAVE, claveVisible, textoRespuesta } from './fasesFicha';
-import { contestada, valorDe } from './pasos';
+import { PESTANAS_CE3X, PREGUNTA_POR_CLAVE, elementosVisibles, lineaElemento } from './fasesFicha';
 import { Pregunta } from './Pregunta';
 import { conDeducciones } from './useVistoIa';
 
@@ -49,34 +49,33 @@ function Duda({ d, ctx, onResponder }) {
     );
 }
 
-function Dato({ k, ctx }) {
+/** Un elemento de CE3X (la cubierta, los huecos, un equipo…) en una línea; «Cambiar» abre sus preguntas. */
+function Elemento({ el, ctx }) {
     const [abierto, setAbierto] = useState(false);
-    const p = PREGUNTA_POR_CLAVE[k];
     const c = ctx.form.cuestionario;
-    const o = ORIGENES[c.origen?.[k]];
-    const tiene = contestada(p, ctx.form);
-    const nota = o ? c.visto_ia?.notas?.[k] : null;
-    const seElige = ['opciones', 'sino', 'chips'].includes(p.tipo);
+    const l = lineaElemento(el, c);
+    const o = l.origen === 'TU' ? null : ORIGENES[l.origen];
     return (
         <li className="ca-dato">
             <div className="ca-dato-fila">
                 <span className="ca-dato-txt">
-                    <small>{ETIQUETA_DATO[k] || p.titulo}</small>
-                    <b className={tiene ? '' : 'ca-dato-vacio'}>{tiene ? textoRespuesta(p, valorDe(p, ctx.form)) : 'Sin dato'}</b>
-                    {nota && <em>{nota}</em>}
+                    <small>{el.titulo}</small>
+                    <b className={l.texto ? '' : 'ca-dato-vacio'}>{l.texto || 'Sin dato: CE3X pondrá lo de su año'}</b>
+                    {l.notas.length > 0 && <em>{l.notas.join(' ')}</em>}
                 </span>
-                <span className={`ca-origen${o ? (o.fiable ? '' : ' ca-origen-supuesto') : tiene ? ' ca-origen-tu' : ' ca-origen-no'}`}>
-                    {o ? o.label : tiene ? 'Tú' : 'Por defecto'}
+                <span className={`ca-origen${o ? (l.supuesto ? ' ca-origen-supuesto' : '') : l.origen ? ' ca-origen-tu' : ' ca-origen-no'}`}>
+                    {o ? o.label : l.origen ? 'Tú' : 'Por defecto'}
                 </span>
                 {ctx.editable && (
                     <button type="button" className="ca-link" onClick={() => setAbierto(a => !a)}>
-                        {abierto ? 'Listo' : tiene ? 'Cambiar' : 'Ponerlo'}
+                        {abierto ? 'Listo' : l.texto ? 'Cambiar' : 'Ponerlo'}
                     </button>
                 )}
             </div>
             {abierto && (
-                <div className="ca-dato-preg">
-                    <Pregunta p={p} ctx={ctx} onElegido={seElige ? () => setAbierto(false) : undefined} />
+                <div className="ca-dato-preg ca-stack" style={{ gap: 14 }}>
+                    {el.claves.map(k => <Pregunta key={k} p={PREGUNTA_POR_CLAVE[k]} ctx={ctx} />)}
+                    <button type="button" className="ca-btn ca-btn-sec ca-btn-peq" style={{ alignSelf: 'flex-start' }} onClick={() => setAbierto(false)}>Listo</button>
                 </div>
             )}
         </li>
@@ -151,20 +150,20 @@ export function VistoIa({ ctx, ia }) {
                 </section>
             )}
 
-            {GRUPOS_DATOS.map(g => {
-                const claves = g.claves.filter(k => claveVisible(k, cv));
-                if (!claves.length) return null;
+            {PESTANAS_CE3X.map(t => {
+                const elementos = elementosVisibles(t, cv);
+                if (!elementos.length) return null;
                 return (
-                    <section key={g.id}>
-                        <h3 className="ca-sec">{g.titulo}</h3>
+                    <section key={t.id}>
+                        <h3 className="ca-sec">{t.titulo}</h3>
                         <ul className="ca-datos">
-                            {claves.map(k => <Dato key={k} k={k} ctx={ctxVista} />)}
+                            {elementos.map(el => <Elemento key={el.id} el={el} ctx={ctxVista} />)}
                         </ul>
                     </section>
                 );
             })}
             <p className="ca-peq">
-                Nada de esto gasta tu certificado. «Por defecto» = CE3X pondrá el valor de su año. Cuando lo veas bien, confirma.
+                En el orden de CE3X. Nada de esto gasta tu certificado; «Por defecto» = CE3X pondrá el valor de su año. Cuando lo veas bien, confirma.
             </p>
         </div>
     );

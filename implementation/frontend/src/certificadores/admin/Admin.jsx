@@ -16,7 +16,7 @@ import {
     IcoAtras, IcoCarpeta, IcoChevron, IcoChispa, IcoEnlace, IcoMas, IcoMenos, IcoPlano, IcoRecargar, IcoWhatsApp, Spinner,
 } from '../ui/Iconos';
 import { estadoDe, nombreObra } from '../obra/comun';
-import { NOMBRE_EQUIPO, resumenCuestionario, slotsAplicables } from '../logic/cuestionario';
+import { genericosDe, resumenCuestionario, slotsAplicables } from '../logic/cuestionario';
 
 const PESTANAS = [
     { id: 'beta', label: 'Lista de espera' },
@@ -75,6 +75,13 @@ function Resumen() {
                 {d.drive && !d.drive.raiz_configurada ? ' · ⚠ falta CERTAPP_DRIVE_ROOT_ID' : ''}
                 {d.config?.url ? ` · ${d.config.url}` : ''}
             </p>
+            {d.drive?.raiz_link && (
+                <a className="ca-fila" style={{ marginTop: 10 }} href={d.drive.raiz_link} target="_blank" rel="noreferrer">
+                    <span className="ca-ico-tile ca-tile-crema"><IcoCarpeta /></span>
+                    <span><b>Carpetas de los certificados en Drive</b><small>Una por certificador y, dentro, una por obra (el CEE en «1. CEE») · Solo ADMIN</small></span>
+                    <IcoChevron />
+                </a>
+            )}
         </>
     );
 }
@@ -368,7 +375,9 @@ function ObraAdmin({ id }) {
     const enl = d.enlaces || {};
     const docs = d.docs?.slots || {};
     const aplican = slotsAplicables(obra.cuestionario || {});
-    const genericos = Object.entries(obra.cuestionario?.fotos_decision || {}).filter(([, v]) => v === 'GENERICA').map(([k]) => NOMBRE_EQUIPO[k] || k);
+    const genericos = genericosDe(obra.cuestionario || {});
+    const calif = { consumo: obra.cee?.cee_inicial?.epnrLetra || null, emisiones: obra.cee?.cee_inicial?.emisionesLetra || null };
+    const firmaCee = obra.cee?.firma || null;
 
     return (
         <div className="ca-stack">
@@ -411,10 +420,16 @@ function ObraAdmin({ id }) {
 
             <section className="ca-card ca-pad">
                 <h2 className="ca-display ca-h3" style={{ margin: 0 }}>Certificado</h2>
+                {(calif.consumo || calif.emisiones || firmaCee) && (
+                    <p className="ca-peq" style={{ marginTop: 8 }}>
+                        {calif.consumo || calif.emisiones ? `Calificación ${calif.consumo || '—'} en consumo · ${calif.emisiones || '—'} en emisiones` : ''}
+                        {firmaCee ? `${calif.consumo || calif.emisiones ? ' · ' : ''}${enl.firmado ? 'Firmado' : 'Firma anterior al PDF actual'} el ${fecha(firmaCee.at, true)}${firmaCee.firmante?.nombre ? ` por ${firmaCee.firmante.nombre}` : ''}${firmaCee.coincide === false ? ' (⚠ no parece el certificador)' : ''}` : ''}
+                    </p>
+                )}
                 <div className="ca-descargas">
-                    {['pdf', 'cex', 'xml', 'croquis'].map(k => urlDe(enl[k])
-                        ? <a key={k} className="ca-desc" href={urlDe(enl[k])} target="_blank" rel="noreferrer">{k.toUpperCase()}<small>{enl.ficheros?.[k]?.nombre || 'Abrir'}</small></a>
-                        : <span key={k} className="ca-desc ca-desc-no">{k.toUpperCase()}<small>No está</small></span>)}
+                    {['pdf', 'firmado', 'cex', 'xml', 'croquis'].map(k => urlDe(enl[k])
+                        ? <a key={k} className="ca-desc" href={urlDe(enl[k])} target="_blank" rel="noreferrer">{k === 'firmado' ? 'PDF FIRMADO' : k.toUpperCase()}<small>{enl.ficheros?.[k]?.nombre || 'Abrir'}</small></a>
+                        : k === 'firmado' ? null : <span key={k} className="ca-desc ca-desc-no">{k.toUpperCase()}<small>No está</small></span>)}
                 </div>
                 {urlDe(enl.carpeta) && <a className="ca-fila" style={{ marginTop: 10 }} href={urlDe(enl.carpeta)} target="_blank" rel="noreferrer"><span className="ca-ico-tile ca-tile-crema"><IcoCarpeta /></span><span><b>Carpeta de la obra en Drive</b><small>Solo ADMIN</small></span><IcoChevron /></a>}
                 {d.enlace_cliente && (

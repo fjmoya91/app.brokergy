@@ -81,6 +81,17 @@ resultado, el PC no lo decide: para y se lo pregunta en su respuesta final. No s
 `localizarCee` no para por el Agente IA «trabajando»: es justo quien lo encarga). Sin `--fecha`, la de
 hoy. Un trabajo que falla no se reintenta solo («cuando lo mires, pídemelo otra vez»).
 
+**`calificar_ext`: calificar el CEE de una obra de la app de certificadores, sin Claude**
+(2026-10-25). El agente del VPS deja el `.cex` de una obra `{año}EXT_{n}` por calificar y la app lo
+encarga sola (`/pc-calificar` → `encolarCalificarExt`, deduplicada). La vuelta del PC levanta el motor
+si hace falta (`asegurarMotor`: uvicorn en el 8090, hasta 90 s) y lanza `node scripts/cee_inicial.js
+calificar <nº> --escribir`: no hay nada que decidir, así que va sin Claude y sin Chrome. Al terminar,
+`cee_inicial.js` avisa a producción (`/api/certapp-admin/interno/calificada`) e imprime
+`@@CALIFICADA_OK <nº>`; **sin esa marca la tarea ha fallado** y solo entonces se le escribe a Fran.
+Si sale bien, no se dice nada: el aviso «listo para revisar» lo manda producción.
+`comprobarNumero` admite los EXT (`certapp_obras`; archivada, error) y `ce3x <nº>` de un EXT solo
+acepta `--trabajo calificar`.
+
 Primer caso: 26RES060_122 (calefacción hibridada, ACS con la Haier HP200M7-F9). Ese día **PVGIS
 estaba en mantenimiento** (403 con su página «Maintenance», también desde el VPS) y sin sus doce meses
 el autoconsumo no se puede declarar en la 3.2: el CEE final espera a que vuelva. La consulta de PVGIS

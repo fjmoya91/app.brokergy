@@ -1,6 +1,8 @@
 // ─── /api/certapp-admin — el panel de BROKERGY de la app de certificadores ───
 // `adminOnly` (middleware/auth.js) EN CADA RUTA, en línea: lo vigila
-// scripts/auditar_rutas_sin_guardian.js. Lista de espera, cuentas y créditos
+// scripts/auditar_rutas_sin_guardian.js. La única excepción, `POST
+// /interno/calificada` (el PC avisa de que ha calificado), lleva `adminOInterno`:
+// un ADMIN o la clave interna. Lista de espera, cuentas y créditos
 // (cambiarlos a mano apunta un AJUSTE en «Mis gastos»), obras (pedir a la IA,
 // entregar, devolver el crédito) e incidencias (estado y respuesta, que llega al
 // certificador por email).
@@ -14,7 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const express = require('express');
 const supabase = require('../services/supabaseClient');
-const { adminOnly } = require('../middleware/auth');
+const { adminOnly, esClaveInterna } = require('../middleware/auth');
 const { olvidarCuenta } = require('../middleware/certappAuth');
 const cuentas = require('../services/certapp/cuentas');
 const obras = require('../services/certapp/obras');
@@ -67,7 +69,9 @@ router.get('/resumen', adminOnly, async (req, res) => {
                 usados: (cred || []).reduce((s, r) => s + (r.creditos_usados || 0), 0),
             },
             asistente: { gastado_mes_usd: c._gastado_mes_usd, tope_mes_usd: c._tope_mes_usd, encendido: c.disponible },
-            drive: { raiz_configurada: !!drive.raiz() },
+            // La carpeta donde se van guardando los certificados (una por certificador y,
+            // dentro, una por obra). Solo la ve un ADMIN (regla 1).
+            drive: { raiz_configurada: !!drive.raiz(), raiz_link: drive.raiz() ? `https://drive.google.com/drive/folders/${drive.raiz()}` : null },
             config: {
                 avisos: process.env.CERTAPP_AVISOS_ENABLED === 'true',
                 ia_auto: process.env.CERTAPP_IA_AUTO === 'true',
@@ -287,6 +291,39 @@ router.post('/obras/:id/pedir-ia', adminOnly, async (req, res) => {
             { trabajo_id: trabajo?.id || null }, { porDetalle: quien(req), notaInterna: 'Encargado a la IA desde el admin' });
         return res.json({ ok: true, trabajo: trabajo || null });
     } catch (e) { return responderError(res, e, 'POST /obras/:id/pedir-ia'); }
+});
+
+/**
+ * El PC ha calificado con CE3X el `.cex` de una obra (scripts/cee_inicial.js
+ * calificar, lanzado por la cola del PC). El aviso sale de AQUÍ, de producción:
+ * en el PC los avisos de la app están apagados y su CERTAPP_URL es la de local.
+ * `agenteIa.terminarExt` con el certificado ya entregable → evento IA_HECHA,
+ * `alTerminarIa` (entrega sola o el WhatsApp de «listo para revisar» al equipo) y
+ * el email con el detalle. Con la clave interna (el PC) o un ADMIN.
+ */
+const adminOInterno = (req, res, next) => (esClaveInterna(req) ? next() : adminOnly(req, res, next));
+
+router.post('/interno/calificada', adminOInterno, async (req, res) => {
+    try {
+        const numero = texto(req.body?.numero, 40);
+        if (!numero) throw fallo(400, 'Falta el número de la obra.', 'SIN_NUMERO');
+        const { data: fila, error } = await supabase.from('certapp_obras').select('id').eq('numero_expediente', numero).maybeSingle();
+        if (error) throw errorBd(error, 'obra calificada');
+        if (!fila) throw fallo(404, `No encuentro la obra ${numero}.`, 'OBRA_NO_ENCONTRADA');
+        const obra = await obras.cargar(fila.id);
+        if (!['EN_PREPARACION', 'LISTO'].includes(obra?.estado)) {
+            return res.json({ ok: true, omitido: `la obra está ${obra?.estado || '—'}: no se avisa` });
+        }
+        const enl = await entrega.enlaces(obra, { admin: true });
+        if (!enl.ficheros.pdf || !enl.ficheros.xml) {
+            throw fallo(409, 'En «1. CEE» no están el PDF y el XML: no está calificada.', 'SIN_CALIFICAR');
+        }
+        const r = await require('../services/agenteIa').terminarExt({
+            clave: obra.id, fase: 'inicial', aviso: true, entregable: true, calificada: true,
+            fichero: { nombre: enl.ficheros.cex?.nombre || null, link: enl.cex, carpeta_link: enl.carpeta, croquis_link: enl.croquis },
+        });
+        return res.json({ ok: true, canales: r.canales, fallos: r.fallos, entrega: r.entrega });
+    } catch (e) { return responderError(res, e, 'POST /interno/calificada'); }
 });
 
 router.post('/obras/:id/entregar', adminOnly, async (req, res) => {

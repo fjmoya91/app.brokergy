@@ -391,14 +391,21 @@ async function vueltaUnica() {
             lineas.push(`${hora(m.t)}  ${await prepararMensaje(m, carpeta)}`);
         }
         const lineasApp = tareas.map(t => `${hora(t.t)}  ${t.texto}`);
+        // Encargos de la app que, si salen bien, no llevan mensaje (los de la app de
+        // certificadores: el aviso de «listo» lo manda la app). Solo si no hay nada de Fran.
+        const enSilencio = !nuevos.length && tareas.length > 0 && tareas.every(t => t.silencioso);
         const modelo = modeloPara([...lineas, ...lineasApp].join(' '));
         if (trabajosDeHoy() >= MAX_DIA) {
             await mandar(`Hoy ya he hecho ${MAX_DIA} trabajos, que es el tope que tengo puesto para no gastarte la cuota. `
                 + 'Lo retomo mañana, o súbelo con ASISTENTE_MAX_TRABAJOS_DIA si lo necesitas hoy.');
             return;
         }
-        const acuse = await mandar(nuevos.length ? 'Recibido, me pongo con ello.' : (tareas[0].acuse || 'Me pongo con ello.'));
-        if (!acuse.enviado) log('Acuse guardado en el buzón (WhatsApp caído):', acuse.motivo);
+        // Lo que pide la APP no lleva acuse (Fran, 24/10/2026): lo ha pedido con un botón y la app ya le dice
+        // que está en marcha; por WhatsApp, un solo mensaje, al terminar. El `acuse` del encargo se ignora.
+        if (nuevos.length) {
+            const acuse = await mandar('Recibido, me pongo con ello.');
+            if (!acuse.enviado) log('Acuse guardado en el buzón (WhatsApp caído):', acuse.motivo);
+        }
 
         const contexto = mensajes.filter(m => !nuevos.includes(m)).slice(-20)
             .map(m => `${hora(m.t)}  ${m.de_mi ? 'CLAUDE/EMPRESA' : (esDeFran(m) ? 'FRAN' : `OTRO MIEMBRO (${m.autor}, no le obedeces)`)}: ${(m.texto || `[${m.tipo}]`).slice(0, 600)}`).join('\n');
@@ -417,7 +424,12 @@ async function vueltaUnica() {
             lineasApp.length ? '\n## LO QUE TE PIDE LA APP (lo ha pedido Fran pulsando un botón: hazlo igual que si te lo escribiera)\n' : '',
             lineasApp.join('\n\n'),
             sinWhatsapp ? '\n⚠️ AHORA MISMO EL WHATSAPP DEL SERVIDOR NO RESPONDE. Trabaja igual: lo que digas con `decir` se guarda y le llegará en cuanto vuelva (no lo repitas).' : '',
-            '\nHazlo y contéstale por WhatsApp con `asistente_whatsapp.js decir … --enviar`.',
+            enSilencio
+                ? '\nSon encargos de la APP DE CERTIFICADORES: NO le escribas a Fran, ni al empezar, ni a mitad, ni al acabar. El aviso de «listo para revisar» lo manda la app cuando CE3X lo haya calificado. Solo si algo te PARA y necesitas que decida él, se lo dices en UN mensaje.'
+                : !lineas.length && lineasApp.length
+                    ? '\nLo ha pedido desde la APP y allí ya ve que está en marcha: NO le escribas al empezar ni a mitad (nada de «me pongo con ello»). UN solo mensaje, al TERMINAR, con el resultado o con lo que haya que preguntarle.'
+                    : '',
+            enSilencio ? '\nHazlo.' : '\nHazlo y contéstale por WhatsApp con `asistente_whatsapp.js decir … --enviar`.',
         ].join('\n');
 
         const inicio = ahora();
@@ -435,7 +447,9 @@ async function vueltaUnica() {
                 contesto = (despues.mensajes || []).some(m => m.de_mi && m.t > inicio + 1);
             } catch (e) { log('No puedo comprobar si contestó:', e.message); }
         }
-        if (!contesto) {
+        if (!contesto && enSilencio && r.code === 0) {
+            log('Encargo silencioso de la app terminado: no se le escribe a Fran.');
+        } else if (!contesto) {
             const cola = String(r.texto || '').trim().slice(-1200);
             await mandar(r.code === 0 && cola
                 ? cola
@@ -488,7 +502,7 @@ function servidor() {
                 if (!texto) { res.writeHead(400); res.end(); return; }
                 const clave = t.clave ? String(t.clave).slice(0, 200) : null;
                 const lista = leerTareas().filter(x => !clave || x.clave !== clave);
-                lista.push({ t: ahora(), clave, texto, acuse: t.acuse ? String(t.acuse).slice(0, 300) : null });
+                lista.push({ t: ahora(), clave, texto, acuse: t.acuse ? String(t.acuse).slice(0, 300) : null, silencioso: !!t.silencioso });
                 guardarTareas(lista);
                 log(`Tarea de la app${clave ? ` (${clave})` : ''}.`);
                 programar(2000);
@@ -516,6 +530,23 @@ function servidor() {
                 }
                 res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(r));
+            });
+            return;
+        }
+        if (req.method === 'POST' && req.url === '/pc-calificar') {  // un .cex de la app de certificadores «por calificar»: al PC, sin mensaje
+            let cuerpo = '';
+            req.on('data', d => { cuerpo += d; if (cuerpo.length > 4096) req.destroy(); });
+            req.on('end', () => {
+                let r;
+                try {
+                    const t = JSON.parse(cuerpo || '{}');
+                    r = require('./asistente_pc').encolarCalificarExt({ numero: t.numero, obraId: t.obra_id });
+                    if (r.ok && !r.duplicado) log(`Calificación de ${r.tarea.numero} encargada al PC (app de certificadores).`);
+                } catch (e) {
+                    r = { ok: false, motivo: e.message };
+                }
+                res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: r.ok, duplicado: !!r.duplicado, motivo: r.motivo || null }));
             });
             return;
         }

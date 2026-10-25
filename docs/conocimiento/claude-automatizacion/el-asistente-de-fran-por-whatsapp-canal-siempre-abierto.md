@@ -37,6 +37,15 @@ de la app (botón «Encargar»); ver "El ASISTENTE dentro de la app". `GET /esta
 trabajando y si el PC de Fran está vivo (`pc`, su latido); `POST /pc` mete en la cola del PC una
 presentación confirmada en la app (ver "«Preséntalo» por WhatsApp").
 
+**Tareas en silencio** (2026-10-25): una tarea con `silencioso: true` (hoy, el CEE de una obra de la
+app de certificadores, `ceeIa.pedir` con negocio `ext`) no lleva acuse; si TODAS las de la vuelta lo
+son y no hay mensajes de Fran, el prompt le dice a Claude que no escriba (solo si algo le para) y, si
+acaba bien sin contestar, el vigía solo lo apunta en el registro. Fran pidió UN mensaje de encargo y
+ninguno de «voy por aquí». Y `POST /pc-calificar { numero, obraId }` (con la clave interna) mete en la
+cola del PC una tarea `calificar_ext` sin decir nada (ver "Los trabajos con CE3X también van a la cola
+del PC"). El circuito entero, en
+[el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md](docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md).
+
 **REGLA — con el WhatsApp caído, lo de la APP se atiende igual y nada de lo que se dice se pierde**
 (2026-10-19). Antes, si el vigilante no podía leer el grupo (tras cada despliegue, unos minutos) no
 atendía NADA, tampoco los encargos de la app: el CEE de 26RES093_15 esperó 4 minutos en la cola. Ahora

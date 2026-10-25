@@ -99,14 +99,16 @@ async function alMensaje(msg) {
  *
  * @returns {Promise<{ ok: boolean, motivo?: string }>}
  */
-async function pedirTarea({ texto, clave = null, acuse = null } = {}) {
+async function pedirTarea({ texto, clave = null, acuse = null, silencioso = false } = {}) {
     if (!URL) return { ok: false, motivo: 'El asistente no está conectado en este servidor (falta ASISTENTE_URL).' };
     if (!String(texto || '').trim()) return { ok: false, motivo: 'Tarea vacía.' };
     try {
         const r = await fetch(`${URL}/tarea`, {
             method: 'POST',
             headers: { 'x-internal-key': process.env.INTERNAL_API_KEY || '', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ texto: String(texto).slice(0, 6000), clave, acuse }),
+            // `silencioso`: si sale bien, el vigilante no le manda nada a Fran (el
+            // aviso lo da quien termina el trabajo; p. ej. la app de certificadores).
+            body: JSON.stringify({ texto: String(texto).slice(0, 6000), clave, acuse, silencioso: !!silencioso }),
             signal: AbortSignal.timeout(5000),
         });
         if (r.status === 202 || r.ok) return { ok: true };
@@ -160,6 +162,33 @@ async function encargarAlPc(datos) {
     }
 }
 
+/**
+ * Calificar con CE3X el `.cex` de una OBRA de la app de certificadores que el
+ * servidor ha dejado «por calificar» (el agente, o la ventana de la envolvente):
+ * el vigilante lo mete en la cola del PC (`asistente_pc.encolarCalificarExt`) y
+ * NO le escribe a Fran: el aviso es el de «listo para revisar», cuando el PC
+ * acaba. Nunca lanza.
+ *
+ * @returns {Promise<{ ok: boolean, duplicado?: boolean, motivo?: string }>}
+ */
+async function encargarCalificarExt({ numero, obraId = null }) {
+    if (!URL) return { ok: false, motivo: 'la cola del PC vive en el servidor (aquí no hay ASISTENTE_URL)' };
+    if (!numero) return { ok: false, motivo: 'falta el número de la obra' };
+    try {
+        const r = await fetch(`${URL}/pc-calificar`, {
+            method: 'POST',
+            headers: { 'x-internal-key': process.env.INTERNAL_API_KEY || '', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ numero, obra_id: obraId }),
+            signal: AbortSignal.timeout(10_000),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) return { ok: false, motivo: d.motivo || `El asistente ha respondido ${r.status}.` };
+        return { ok: true, duplicado: !!d.duplicado };
+    } catch (e) {
+        return { ok: false, motivo: `El asistente no responde (${e.message}).` };
+    }
+}
+
 function start() {
     if (!URL || !TEL) {
         console.log('[asistente] Canal con Fran desactivado (sin ASISTENTE_URL / ASISTENTE_WHATSAPP_TEL).');
@@ -169,4 +198,4 @@ function start() {
     console.log(`[asistente] Canal con Fran activo: avisa a ${URL} cuando escribe ${TEL}${GRUPO ? ` en el grupo ${GRUPO}` : ""}.`);
 }
 
-module.exports = { start, pedirTarea, estadoAsistente, encargarAlPc };
+module.exports = { start, pedirTarea, estadoAsistente, encargarAlPc, encargarCalificarExt };

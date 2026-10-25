@@ -25,6 +25,8 @@ export function useObra(id) {
     const [obra, setObra] = useState(null);
     const [eventos, setEventos] = useState([]);
     const [enlaces, setEnlaces] = useState({});
+    // La calificación y la firma del CEE entregado: { calificacion, firma } | null.
+    const [cee, setCee] = useState(null);
     const [barridoServidor, setBarridoServidor] = useState(null);
     const [form, setForm] = useState(null);
     const [slots, setSlots] = useState({});
@@ -84,6 +86,7 @@ export function useObra(id) {
             setForm(f);
             setEventos(Array.isArray(data?.eventos) ? data.eventos : []);
             setEnlaces(data?.enlaces || {});
+            setCee(data?.cee || null);
             setBarridoServidor(data?.barrido || null);
             // Si `/obras/:id` ya trae las fotos, se usan; `/docs` trae miniaturas firmadas.
             if (o.documentacion?.reforma_uploads) setSlots(s => (Object.keys(s).length ? s : normalizarSlots(o.documentacion.reforma_uploads)));
@@ -230,7 +233,7 @@ export function useObra(id) {
     }, [id]);
 
     return {
-        obra, setObra, eventos, enlaces, barridoServidor, setBarridoServidor,
+        obra, setObra, eventos, enlaces, cee, barridoServidor, setBarridoServidor,
         form, setCampo, setC, setCuestionario, setTitular, setDecision,
         slots, docsError, recargarDocs, subir, quitar, subiendo,
         error, cargando, cargar, guardar, guardado, editable,

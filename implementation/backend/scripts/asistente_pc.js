@@ -30,6 +30,12 @@
 //   a mes) o calificar un .cex. El Claude del WhatsApp se paraba ahí («en tu PC sería…»); ahora los
 //   deja en la MISMA cola. No pagan ni firman nada, así que no llevan pregunta: llevan lo que Fran ya
 //   ha decidido. Y en el PC van SIN Chrome: solo scripts, ni la sede ni la tarjeta a su alcance.
+// - CALIFICAR UNA OBRA DE LA APP DE CERTIFICADORES (`calificar_ext`, 2026-10-25): lo que el servidor
+//   deja «por calificar» (el agente o la ventana de la envolvente) llega SOLO a la cola por el
+//   vigilante (`/pc-calificar` → `encolarCalificarExt`). Es un trabajo FIJO: sin Claude, se lanza
+//   `cee_inicial.js calificar <nº> --escribir` (con el motor levantado), que al acabar llama a
+//   producción para el aviso de «listo para revisar». EN SILENCIO: a Fran solo se le escribe si
+//   falla («no quiero que me vaya actualizando el proceso», 25/10/2026).
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -138,6 +144,23 @@ function encolarPresentacion(d) {
     return { ok: true, tarea, pc };
 }
 
+/**
+ * Mete en la cola del PC la calificación de una OBRA de la app de certificadores (la usan el
+ * vigilante, por `/pc-calificar`, y `ce3x <nº> --trabajo calificar` con un nº EXT). Sin mensaje a
+ * nadie. Si ya hay una igual pendiente o en marcha, no la duplica.
+ */
+function encolarCalificarExt({ numero, obraId = null } = {}) {
+    const n = norm(numero);
+    if (!/^\d{4}EXT_\d+$/.test(n)) throw new Error(`«${numero}» no es el número de una obra de la app de certificadores.`);
+    const lista = cola();
+    const ya = lista.find(t => t.tipo === 'calificar_ext' && t.numero === n && ['pendiente', 'en_curso'].includes(t.estado));
+    if (ya) return { ok: true, duplicado: true, tarea: ya };
+    const tarea = { id: `calext-${n}-${ahora()}`, tipo: 'calificar_ext', numero: n, obra_id: obraId || null,
+        fase: 'inicial', origen: 'app', estado: 'pendiente', creado_at: ahora() };
+    escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
+    return { ok: true, tarea };
+}
+
 // ─── El CEE que se quiere presentar ───────────────────────────────────────────
 async function localizarCee(numero, faseOpt) {
     const { createClient } = require(path.join(__dirname, '../node_modules/@supabase/supabase-js'));
@@ -243,6 +266,16 @@ async function ce3x() {
     const fecha = opt('fecha') || new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new Error(`--fecha tiene que ser AAAA-MM-DD («${fecha}»).`);
     const numero = await comprobarNumero(POS[0], fase);
+    // Una obra de la app de certificadores no lleva Claude en el PC: su trabajo es fijo.
+    if (/EXT_\d+$/.test(numero)) {
+        if (opt('trabajo') !== 'calificar') throw new Error(`${numero} es una obra de la app de certificadores: solo se califica (un solo certificado, sin CEE final).`);
+        if (!bandera('enviar')) { console.log(`[EN SECO] Encolaría la calificación de ${numero} (calificar_ext).`); return; }
+        const r = encolarCalificarExt({ numero });
+        const pc = estadoPc();
+        await decir(r.duplicado ? `La calificación de *${numero}* ya está en la cola de tu PC.`
+            : `Le paso a tu PC la calificación de *${numero}*; ${pc.texto}. Cuando esté, te llega el aviso de la app de «listo para revisar».`);
+        return;
+    }
     const lista = cola();
     const ya = lista.find(t => t.tipo === 'ce3x' && t.numero === numero && t.trabajo === opt('trabajo') && ['pendiente', 'en_curso'].includes(t.estado));
     if (ya) { await decir(`${def.que.charAt(0).toUpperCase()}${def.que.slice(1)} de *${numero}* ya está encargado a tu PC (${ya.estado === 'en_curso' ? 'lo está haciendo ahora' : 'en cola'}).`); return; }
@@ -256,12 +289,20 @@ async function ce3x() {
     await decir(`Aquí no hay CE3X: le paso ${def.que} de *${numero}* a tu PC; ${pc.texto}. Te aviso cuando esté.`);
 }
 
-// Que el número exista (expediente o CEE directo) y que esa fase no esté ya REGISTRADA. A diferencia
-// de `localizarCee`, NO para si el Agente IA lo tiene «trabajando»: es justo quien lo encarga.
+// Que el número exista (expediente, CEE directo u obra de la app de certificadores) y que esa fase no
+// esté ya REGISTRADA. A diferencia de `localizarCee`, NO para si el Agente IA lo tiene «trabajando»:
+// es justo quien lo encarga.
 async function comprobarNumero(numero, fase) {
     const { createClient } = require(path.join(__dirname, '../node_modules/@supabase/supabase-js'));
     const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
     const n = norm(numero);
+    if (/^\d{4}EXT_\d+$/.test(n)) {
+        const { data: obra, error: e } = await sb.from('certapp_obras').select('numero_expediente, estado').eq('numero_expediente', n).maybeSingle();
+        if (e) throw new Error(e.message);
+        if (!obra) throw new Error(`No encuentro la obra «${numero}» de la app de certificadores.`);
+        if (obra.estado === 'ARCHIVADA') throw new Error(`La obra ${n} está ARCHIVADA: no se califica.`);
+        return obra.numero_expediente;
+    }
     const directo = /CEE_?\d+$/.test(n);
     const { data, error } = await sb.from(directo ? 'cee_directos' : 'expedientes').select('numero_expediente, seguimiento')
         .ilike('numero_expediente', `%${n.replace(/CEE_?/, 'CEE_')}`).limit(5);
@@ -348,7 +389,52 @@ function promptPrueba() {
 
 const promptDe = t => (t.tipo === 'prueba' ? promptPrueba() : t.tipo === 'ce3x' ? promptCe3x(t) : promptPresentar(t));
 const cabecera = t => (t.tipo === 'prueba' ? 'PC · prueba'
-    : t.tipo === 'ce3x' ? `PC · ${TRABAJOS_CE3X[t.trabajo]?.que || t.trabajo} de ${t.numero}` : `PC · presentar ${t.numero}`);
+    : t.tipo === 'ce3x' ? `PC · ${TRABAJOS_CE3X[t.trabajo]?.que || t.trabajo} de ${t.numero}`
+        : t.tipo === 'calificar_ext' ? `PC · calificar ${t.numero} (app de certificadores)` : `PC · presentar ${t.numero}`);
+
+// ─── calificar_ext: un trabajo FIJO, sin Claude ──────────────────────────────
+// La línea con la que `cee_inicial.js calificar` dice que lo ha calificado Y que producción ha
+// mandado el aviso. Se busca en su salida: vale también si la vuelta que lo vigilaba murió.
+const MARCA_CALIFICADA = '@@CALIFICADA_OK';
+const MOTOR = process.env.CEE_ENGINE_URL || 'http://127.0.0.1:8090';
+
+async function motorVivo() {
+    try { return (await fetch(`${MOTOR}/health`, { signal: AbortSignal.timeout(4000) })).ok; } catch { return false; }
+}
+// El motor (cee-engine) tiene que responder: `calificar` rehace el .cex desde la receta. Si no está,
+// se levanta como dice su README y se espera hasta 90 s.
+async function asegurarMotor() {
+    if (await motorVivo()) return null;
+    spawn(process.env.PC_PYTHON || 'python', ['-m', 'uvicorn', 'server:app', '--host', '127.0.0.1', '--port', '8090'],
+        { cwd: path.join(REPO, 'implementation', 'cee-engine'), detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    for (let i = 0; i < 45; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(r => setTimeout(r, 2000));
+        // eslint-disable-next-line no-await-in-loop
+        if (await motorVivo()) return null;
+    }
+    return `el motor (cee-engine) no responde en ${MOTOR} ni arrancándolo`;
+}
+
+function lanzarCalificarExt(t) {
+    fs.mkdirSync(DIR_PC, { recursive: true });
+    const logF = path.join(DIR_PC, `${t.id}.log`);
+    const out = fs.openSync(logF, 'w');
+    const hijo = spawn(process.execPath, [path.join(__dirname, 'cee_inicial.js'), 'calificar', t.numero, '--escribir'],
+        { cwd: BACKEND, windowsHide: true, stdio: ['ignore', out, out] });
+    const actual = { id: t.id, tipo: t.tipo, trabajo: null, numero: t.numero, pid: hijo.pid, inicio: ahora(), log: logF };
+    fs.writeFileSync(ACTUAL, JSON.stringify(actual, null, 1));
+    return { hijo, actual };
+}
+
+/** Cómo acabó: bien solo si su salida trae la MARCA (calificado y avisado). */
+function resultadoCalificarExt(logF, motivoCorte) {
+    let txt = '';
+    try { txt = fs.readFileSync(logF, 'utf8'); } catch { /* sin salida */ }
+    const ok = !motivoCorte && txt.includes(MARCA_CALIFICADA);
+    const cola = txt.split(/\r?\n/).filter(l => l.trim() && !l.includes(MARCA_CALIFICADA)).slice(-12).join('\n');
+    return { ok, texto: motivoCorte || cola || 'sin salida' };
+}
 
 function asegurarChrome() {
     // Sin Chrome abierto no hay extensión con la que hablar. Abre (o trae) una ventana del perfil BROKERGY.
@@ -417,16 +503,18 @@ function leerResultado(logF) {
 }
 
 async function terminar(actual, motivoCorte = null) {
-    const res = motivoCorte ? null : leerResultado(actual.log);
+    const fijo = actual.tipo === 'calificar_ext';
+    const res = fijo ? resultadoCalificarExt(actual.log, motivoCorte) : (motivoCorte ? null : leerResultado(actual.log));
     const ok = !!res?.ok && !motivoCorte;
     const resumen = (res?.texto || motivoCorte || 'el trabajo se ha cortado sin dar respuesta').slice(0, 1500);
     const lista = cola();
     escribir('cola', lista.map(t => (t.id === actual.id ? { ...t, estado: ok ? 'hecha' : 'fallida', terminado_at: ahora(), resumen } : t)));
     const cab = cabecera(actual);
     const pie = ok || actual.tipo === 'prueba' ? ''
-        : actual.tipo === 'ce3x' ? '\n\n_No lo reintento solo: cuando lo mires, pídemelo otra vez._'
+        : actual.tipo === 'ce3x' || fijo ? '\n\n_No lo reintento solo: cuando lo mires, pídemelo otra vez._'
             : '\n\n_No lo reintento solo: si llegó a pagar, hay que mirarlo antes (la referencia 046)._';
-    await require('./asistente_whatsapp').mandarOGuardar(`*${cab}*${ok ? '' : ' — NO ha terminado'}\n${resumen}${pie}`);
+    // La calificación de una obra de la app va en silencio: el aviso de «listo» lo manda producción.
+    if (!(fijo && ok)) await require('./asistente_whatsapp').mandarOGuardar(`*${cab}*${ok ? '' : ' — NO ha terminado'}\n${resumen}${pie}`);
     fs.renameSync(ACTUAL, path.join(DIR_PC, `${actual.id}.fin.json`));
     log(`Terminado ${actual.id}: ${ok ? 'OK' : 'FALLÓ'}`);
 }
@@ -444,18 +532,38 @@ async function vuelta() {
     //    suspendido, sesión cerrada). Si Claude sigue vivo, se espera; si no, se cierra con lo que haya.
     if (actual) {
         if (vivo(actual.pid)) { log(`Sigue en marcha ${actual.id} (pid ${actual.pid}), sin vuelta que lo vigile.`); return; }
-        if (!seco) await terminar(actual, leerResultado(actual.log) ? null : 'El trabajo se cortó a medias (¿se apagó, suspendió o reinició el PC?).');
+        // Un calificar_ext se juzga por su salida (la MARCA), haya o no vuelta que lo vigilara.
+        const cortado = actual.tipo === 'calificar_ext' || leerResultado(actual.log) ? null
+            : 'El trabajo se cortó a medias (¿se apagó, suspendió o reinició el PC?).';
+        if (!seco) await terminar(actual, cortado);
         return;
     }
     // 3. Nada en marcha: ¿hay encargo?
     const lista = cola();
-    const t = lista.find(x => x.estado === 'pendiente' && ['presentar', 'prueba', 'ce3x'].includes(x.tipo));
+    const t = lista.find(x => x.estado === 'pendiente' && ['presentar', 'prueba', 'ce3x', 'calificar_ext'].includes(x.tipo));
     if (!t) return;
     // Bloqueado no hay AutoFirma ni clic «real»; un trabajo con CE3X solo lanza scripts, pero CE3X es una
     // aplicación de escritorio y con la sesión bloqueada no se ha medido: espera igual.
     if (estaBloqueado) { log(`Hay encargo (${t.id}) pero el PC está bloqueado: espera.`); return; }
-    if (seco) { log(`[EN SECO] Lanzaría ${t.id}.`); console.log(promptDe(t)); return; }
+    if (seco) {
+        log(`[EN SECO] Lanzaría ${t.id}.`);
+        console.log(t.tipo === 'calificar_ext' ? `node scripts/cee_inicial.js calificar ${t.numero} --escribir` : promptDe(t));
+        return;
+    }
     escribir('cola', lista.map(x => (x.id === t.id ? { ...x, estado: 'en_curso', tomado_at: ahora(), pc: os.hostname() } : x)));
+    if (t.tipo === 'calificar_ext') {
+        const sinMotor = await asegurarMotor();
+        if (sinMotor) {
+            fs.writeFileSync(ACTUAL, JSON.stringify({ id: t.id, tipo: t.tipo, numero: t.numero, pid: 0, inicio: ahora(), log: path.join(DIR_PC, `${t.id}.log`) }, null, 1));
+            await terminar({ id: t.id, tipo: t.tipo, numero: t.numero, log: path.join(DIR_PC, `${t.id}.log`) }, `No lo he podido calificar: ${sinMotor}.`);
+            return;
+        }
+        const { hijo, actual: enMarcha } = lanzarCalificarExt(t);
+        log(`Lanzado ${t.id} (pid ${hijo.pid}): cee_inicial.js calificar ${t.numero} --escribir; lo espero.`);
+        const corte = await esperar(hijo, enMarcha);
+        await terminar(enMarcha, corte);
+        return;
+    }
     if (t.tipo !== 'ce3x') {
         const errChrome = asegurarChrome();
         if (errChrome) log(`Aviso: ${errChrome}.`);
@@ -483,4 +591,5 @@ if (require.main === module) {
     })().catch((e) => { console.error(`ERROR: ${e.message}`); process.exit(1); });
 }
 
-module.exports = { estadoPc, localizarCee, preguntaPresentar, encolarPresentacion, TASA, TARJETA, TRABAJOS_CE3X, _promptCe3x: promptCe3x };
+module.exports = { estadoPc, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, TASA, TARJETA, TRABAJOS_CE3X,
+    MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt };

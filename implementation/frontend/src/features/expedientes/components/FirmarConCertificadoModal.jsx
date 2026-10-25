@@ -36,7 +36,10 @@ const SIG_PATH = 'M18,58 C34,22 48,74 64,48 C78,26 92,72 108,48 C122,28 138,70 1
 const DEFAULT_RUBRIC_IMAGE_URL = '/logo-brokergy-circular-transparent.png';
 // Normaliza para comparar sin tildes ni mayúsculas. \p{Diacritic} (ASCII en el
 // fuente) evita que las marcas combinantes literales se corrompan al bundlear.
-const norm = (s) => String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+// Sin los «/la» y «/a»: CE3X 3.2 rotula «Firma del/la técnico/a certificador/a» y
+// el ancla del CEE es «firma del tecnico certificador» (igual que firmar_cee.js).
+const norm = (s) => String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+    .replace(/\/(la|a)\b/g, '').replace(/\s+/g, ' ');
 
 // Busca en el PDF la primera aparición de cualquiera de los textos ancla y
 // devuelve una zona de firma SUGERIDA (debajo del ancla) en puntos PDF.

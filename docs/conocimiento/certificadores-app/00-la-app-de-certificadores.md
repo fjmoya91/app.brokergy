@@ -27,18 +27,23 @@ comercial: **«CEE by BROKERGY»** (decidido con Fran el 24/10/2026; en el códi
    certificador confirma o contesta las dudas) · pedir el certificado. Todo en
    [lo-que-ha-visto-la-ia.md](docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md). Fuente
    única de preguntas, orígenes y deducciones: [cuestionario.js](implementation/frontend/src/certificadores/logic/cuestionario.js).
-   Al elegir un equipo salen sus fotos (equipo + placa): **subir ahora, después o usar uno genérico**.
+   Al elegir un equipo salen sus fotos (equipo + placa): **subir ahora, después o usar uno genérico**
+   (en una bomba de calor, con la antigüedad de CE3X). Las fotos opcionales llevan su chip y «Ahora
+   no»: [fotos-opcionales-y-equipo-generico.md](docs/conocimiento/certificadores-app/fotos-opcionales-y-equipo-generico.md).
 4. **Barrido** al pedir el certificado. **Solo bloquea** la referencia catastral, la dirección, el
    nombre del titular y «para qué»; lo demás es un aviso («la IA completará N cosas»). Lo calcula
    `barrido()` en el navegador y otra vez en el servidor.
-5. **Generar**: descuenta el crédito DE LA OBRA, la obra pasa a EN_PREPARACION (y sus datos se congelan), avisa a BROKERGY (WhatsApp +
-   email) y —con `CERTAPP_IA_AUTO=true`— se lo encarga al Claude del WhatsApp por la cola de siempre
-   (`cee_ia_trabajos`, negocio `ext`). Al certificador: «lo estamos preparando, te avisamos».
+5. **Generar**: descuenta el crédito DE LA OBRA, la obra pasa a EN_PREPARACION (y sus datos se congelan), avisa a BROKERGY con
+   **un solo mensaje de encargo** (WhatsApp + email) y —con `CERTAPP_IA_AUTO=true`— se lo encarga al Claude del WhatsApp por la
+   cola de siempre (`cee_ia_trabajos`, negocio `ext`), **en silencio**; el `.cex` lo califica después el PC de Fran con CE3X y,
+   hecho, llega al equipo «✅ CEE listo para revisar». Al certificador: «lo estamos preparando, te avisamos». Todo el circuito en
+   [el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md](docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md).
 6. **Entrega**: el `.cex`, el XML, el PDF y el croquis en SU carpeta de Drive (compartida solo con su
    email) + el enlace a la envolvente. BROKERGY pulsa «Entregar» en el admin (o sola con
-   `CERTAPP_ENTREGA_AUTO=true`): obra LISTO y aviso al certificador por email y WhatsApp.
-7. **Validar**: con el PDF tal cual, o cambiando cosas en la envolvente y validando allí (se vuelve a
-   generar). **Lo que se cambie a mano en el `.cex` con CE3X no vuelve a la envolvente**: se le dice.
+   `CERTAPP_ENTREGA_AUTO=true`): obra LISTO y aviso al certificador por email y WhatsApp (la obra y la envolvente).
+7. **Validar y firmar**: con el PDF tal cual (lo firma en la app con AutoFirma: firmar es validar), o cambiando cosas en la
+   envolvente (se vuelve a generar). Si lo termina en su CE3X, sube el XML o el PDF definitivos. **Lo que se cambie a mano en
+   el `.cex` con CE3X no vuelve a la envolvente**: se le dice.
 
 Vistas: **CERTIFICADOR** (panel, obras, perfil, `/incidencias`, `/gastos`), **CLIENTE** (`/subir/:obraId?token=`: el
 propietario sube fotos sin cuenta) y **ADMIN** (`/admin`, ADMIN de BROKERGY: lista de espera,
@@ -188,7 +193,7 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 | `PUT /me` | Perfil (nombre, NIF, titulación, colegiado, teléfono, empresa…, `comunidades` y `software`, a `prefs.perfil`). Guardar el teléfono limpia `telefono_por_confirmar` |
 | `GET /obras` | Lista (solo escalares: nº, nombre, dirección, estado, fechas) |
 | `POST /obras` | Alta `{ ref_catastral?, titular?, en_vivienda? }` → `{ obra }`; crea la carpeta de Drive |
-| `GET /obras/:id` | `{ obra, barrido, eventos, enlaces, revisiones: { hechas, max } }` (enlaces: pdf, cex, xml, croquis, carpeta, envolvente). En `eventos`, `por` es `certificador` · `cliente` · `BROKERGY` · `IA`: nunca el nombre de quién del equipo ni el motivo interno |
+| `GET /obras/:id` | `{ obra, barrido, eventos, enlaces, cee, revisiones: { hechas, max } }` (enlaces: pdf, firmado, cex, xml, croquis, carpeta, envolvente; `cee`: `{ calificacion, firma }` con la obra entregada). En `eventos`, `por` es `certificador` · `cliente` · `BROKERGY` · `IA`: nunca el nombre de quién del equipo ni el motivo interno |
 | `PUT /obras/:id` | Parcial: `titular`, columnas del inmueble, `en_vivienda`, `proposito`, `cuestionario` (saneado con `sanearCuestionario`: también `propositos`, `fases_ok`, `origen` y `visto_ia`; la columna `proposito` = el primero de `propositos`). **Solo en BORRADOR**: si no, 409 `OBRA_CERRADA` (archivada: 409 `ARCHIVADA`) |
 | `POST /obras/:id/visto-ia` | «Lo que ha visto la IA»: mira las fotos (o Street View) y PROPONE `{ at, propuesta, dudas, fuentes, uso }`; no escribe en la obra. Solo en BORRADOR. Topes y códigos en [lo-que-ha-visto-la-ia.md](docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md) |
 | `GET /municipios?prov=NN` | Los municipios de una provincia (la dirección del perfil, en cascada comunidad → provincia → municipio). Provincia mala: 400 `PROVINCIA_INVALIDA` |
@@ -201,6 +206,7 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 | `GET /obras/:id/barrido` | El barrido del servidor |
 | `POST /obras/:id/generar` `{ genericos? }` | 422 `{ barrido }` si bloquea · 402 `SIN_CREDITOS` · 409 `YA_PEDIDO` · → `{ ok, obra, creditos }`. Gasta el crédito DE ESA OBRA (si ya lo tenía gastado, no cobra otra vez) |
 | `POST /obras/:id/validar` | LISTO → VALIDADO |
+| `GET /obras/:id/cee/para-firmar` · `POST /obras/:id/cee/firmado` · `POST /obras/:id/cee/definitivo` | Firmar el PDF con AutoFirma (firmar valida) y subir el XML o el PDF definitivos; el `.cex` no (415). En [el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md](docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md) |
 | `POST /obras/:id/revisar-de-nuevo` `{ nota }` | Tras tocar la envolvente: pide regenerar (aviso a BROKERGY) sin cambiar ningún dato. Máximo `CERTAPP_REVISIONES_MAX` (2) por obra: luego **409 `SIN_REVISIONES`** `{ revisiones: { hechas, max } }`. → `{ ok, obra, revisiones }` |
 | `POST /feedback` `{ tipo, texto, pantalla, obra_id? }` | Incidencia o sugerencia (`tipo` ERROR · MEJORA · SUGERENCIA · OTRO; con `obra_id`, una obra SUYA o 404) → 201 `{ ok, id, incidencia }`. Texto vacío: 400 `FALTA_TEXTO` |
 | `GET /feedback[?obra_id=]` | → `{ incidencias: [{ id, created_at, tipo, texto, obra_id, numero_expediente, estado, respuesta, respuesta_at }] }`: SOLO las suyas (las 200 últimas). Obra ajena o id que no es uuid: 404 sin tocar la tabla |
@@ -220,6 +226,9 @@ ya devuelto, **409 `SIN_CREDITO_GASTADO`**) · `GET /feedback[?estado=]` (con cu
 `respuesta_por`) · `PUT /feedback/:id { estado?, respuesta?, avisar? }` (`PATCH`, alias) →
 `{ feedback, aviso }`: sin nada que cambiar 400 `SIN_CAMBIOS`, estado raro 400 `ESTADO_INVALIDO`, 404 si
 no existe; una respuesta nueva pone `respuesta_at`/`respuesta_por` y avisa por email salvo `avisar:false`.
+`POST /interno/calificada { numero }` (`adminOInterno`: la clave interna o ADMIN): la llama el PC de Fran al terminar de
+calificar con CE3X una obra ext; sin PDF o sin XML, 409 `SIN_CALIFICAR`; fuera de EN_PREPARACION y LISTO, `{ ok, omitido }`.
+`GET /resumen` trae `drive.raiz_link` (la carpeta de todos los certificados).
 
 **Códigos nuevos (24/10/2026):** 400 `FORM_TOKEN` (+`motivo`) · 409 `OBRA_CERRADA` (también en PUT y
 catastro) · 409 `SIN_REVISIONES` · 410 `ENLACE_CADUCADO` · 409 `YA_LO_TIENE_EL_CERTIFICADOR` · 400

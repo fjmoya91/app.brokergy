@@ -246,6 +246,9 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-slot-top > .ca-cuenta,.ca-slot-top > .ca-ico-tile,.ca-slot-top > .ca-chip{flex:none}
 .ca-slot-top b{display:block;font-size:15px;font-weight:700;line-height:1.3}
 .ca-slot-top small{display:block;font-size:13px;color:var(--gris);line-height:1.4;margin-top:2px}
+/* «Ahora no» en un apartado opcional, y el apartado ya plegado */
+.ca-btn-ahora-no{grid-column:1/-1;background:transparent;color:var(--gris);border:1.5px dashed rgba(20,17,17,.18);min-height:40px;font-weight:600}
+.ca-slot-omitido{background:transparent;border-style:dashed}
 .ca-thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .ca-thumb{position:relative;width:72px;height:72px;border-radius:12px;overflow:hidden;background:var(--crema);border:1px solid var(--linea);display:grid;place-items:center;color:var(--gris)}
 .ca-thumb img{width:100%;height:100%;object-fit:cover;display:block}
@@ -266,6 +269,11 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-hist li:last-child:after{display:none}
 .ca-hist small{display:block;font-size:12.5px;color:var(--gris2)}
 /* descargas */
+.ca-calif{display:flex;flex-wrap:wrap;gap:8px 18px;margin:12px 0 0;font-size:14px;color:var(--gris)}
+.ca-calif > span{display:inline-flex;align-items:center;gap:8px}
+.ca-letra{display:inline-flex;align-items:center;justify-content:center;width:30px;height:26px;border-radius:7px 14px 14px 7px;font:900 15px/1 'Inter',sans-serif;color:#fff}
+.ca-letra-A{background:#00a651}.ca-letra-B{background:#4cb848}.ca-letra-C{background:#bfd730;color:var(--tinta)}.ca-letra-D{background:#fff200;color:var(--tinta)}
+.ca-letra-E{background:#fdb913;color:var(--tinta)}.ca-letra-F{background:#f37021}.ca-letra-G{background:#ed1c24}
 .ca-descargas{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px}
 .ca-desc{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:6px;min-height:76px;padding:12px 14px;border-radius:16px;background:var(--crema);border:1px solid var(--linea);color:var(--tinta);text-decoration:none;font:700 14.5px/1.2 'Inter',sans-serif}
 .ca-desc small{font:500 12px 'Inter',sans-serif;color:var(--gris)}

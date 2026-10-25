@@ -11,7 +11,7 @@
 // DEDUCEN en «Lo que ha visto la IA» (fase 5) y el certificador solo confirma o
 // cambia, ANTES de gastar el crédito.
 import {
-    ACS, CALEFACCION, FASE_IDS, PROPOSITOS, cuentaSlot, propositosDe, slotsAplicables,
+    ACS, ANTIGUEDAD_EQUIPO, CALEFACCION, FASE_IDS, ORIGENES, PROPOSITOS, RANGO_ORIGEN, cuentaSlot, propositosDe, slotsAplicables,
 } from '../logic/cuestionario';
 import { PASOS } from './pasos';
 
@@ -94,21 +94,46 @@ export const PREGUNTA_POR_CLAVE = Object.fromEntries(
     PASOS.flatMap(p => p.preguntas.filter(q => q.k && !q.obra).map(q => [q.k, { ...q, pasoId: p.id }])),
 );
 
-// Lo que se enseña en «Lo que ha visto la IA», agrupado. `cuando(c)` como en pasos.js.
+// «Lo que ha visto la IA» con el GUION DE CE3X (Fran, 25/10/2026: «que siga el
+// mismo guion que CE3X para que la curva de aprendizaje sea más rápida» y «menos
+// preguntas, más directo»): las pestañas de CE3X (Datos generales · Envolvente
+// térmica · Instalaciones) y UNA línea por elemento de CE3X (la cubierta, el muro
+// de fachada, los huecos, cada equipo…), no una por pregunta. «Cambiar» abre las
+// preguntas de ese elemento.
 const esPiso = (c) => c.tipo_edificio === 'PISO';
 const tieneCubierta = (c) => !esPiso(c) || c.posicion_piso === 'ULTIMO';
-export const GRUPOS_DATOS = [
+const acsMixta = (c) => c.acs === 'misma_caldera' || (c.acs === 'aerotermia' && c.calefaccion === 'aerotermia');
+export const PESTANAS_CE3X = [
     {
-        id: 'vivienda', titulo: 'La vivienda',
-        claves: ['tipo_edificio', 'posicion_piso', 'plantas', 'sotano', 'cubierta', 'suelo', 'colinda_no_calefactado', 'colindantes', 'patios'],
+        id: 'generales', titulo: 'Datos generales',
+        elementos: [
+            { id: 'edificio', titulo: 'Tipo de edificio', claves: ['tipo_edificio', 'posicion_piso', 'plantas', 'altura_libre'] },
+        ],
     },
     {
-        id: 'envolvente', titulo: 'Fachadas y ventanas',
-        claves: ['fachada', 'aislamiento_fachada', 'aislamiento_cubierta', 'marco', 'vidrio'],
+        id: 'envolvente', titulo: 'Envolvente térmica',
+        elementos: [
+            { id: 'cubierta', titulo: 'Cubierta', claves: ['cubierta', 'aislamiento_cubierta'] },
+            { id: 'fachada', titulo: 'Muro de fachada', claves: ['fachada', 'aislamiento_fachada', 'patios'] },
+            { id: 'particion', titulo: 'Partición interior', claves: ['colinda_no_calefactado', 'colindantes'] },
+            { id: 'suelo', titulo: 'Suelo', claves: ['suelo', 'sotano'] },
+            { id: 'huecos', titulo: 'Huecos', claves: ['marco', 'vidrio', 'persianas'] },
+        ],
     },
     {
         id: 'instalaciones', titulo: 'Instalaciones',
-        claves: ['calefaccion', 'tipo_caldera', 'emisor', 'potencia_kw', 'marca_modelo_calefaccion', 'acs', 'aire_acondicionado', 'num_aires', 'placas_fv'],
+        elementos: [
+            {
+                id: 'calefaccion', equipo: 'CALDERA',
+                titulo: c => (c.calefaccion === 'no_tiene' ? 'Calefacción'
+                    : c.calefaccion === 'bomba_aire' ? 'Equipo de calefacción y refrigeración'
+                        : acsMixta(c) ? 'Equipo mixto de calefacción y ACS' : 'Equipo de sólo calefacción'),
+                claves: ['calefaccion', 'tipo_caldera', 'emisor', 'potencia_kw', 'marca_modelo_calefaccion'],
+            },
+            { id: 'acs', titulo: 'Equipo de ACS', claves: ['acs', 'termo_extra', 'litros_termo'] },
+            { id: 'refrigeracion', equipo: 'AIRE', titulo: 'Equipo de refrigeración', claves: ['aire_acondicionado', 'num_aires', 'tipo_aire'] },
+            { id: 'contribuciones', titulo: 'Contribuciones energéticas', claves: ['placas_fv', 'kwp'] },
+        ],
     },
 ];
 
@@ -129,4 +154,76 @@ export function claveVisible(k, c) {
     if (k === 'posicion_piso') return esPiso(c);
     if (k === 'aislamiento_cubierta' || k === 'cubierta') return tieneCubierta(c);
     return !p.cuando || p.cuando(c);
+}
+
+const vacio = (v) => v == null || v === '' || (Array.isArray(v) && !v.length);
+const tituloDe = (el, c) => (typeof el.titulo === 'function' ? el.titulo(c) : el.titulo);
+
+// Un sí/no dicho en una línea; null = lo dice ya otra clave más concreta.
+const FRASE_SINO = {
+    colinda_no_calefactado: ['Linda con algo sin calefacción', 'No linda con nada sin calefacción'],
+    patios: ['con patios interiores', 'sin patios interiores'],
+    persianas: ['con persianas', 'sin persianas'],
+    aire_acondicionado: ['Tiene aire acondicionado', 'No tiene aire acondicionado'],
+    termo_extra: ['y un termo eléctrico', 'sin termo eléctrico aparte'],
+};
+const LO_DICE = { colinda_no_calefactado: 'colindantes', aire_acondicionado: 'num_aires' };
+
+function fraseDato(k, p, v, c) {
+    if (p.tipo === 'sino') {
+        if (v === true && LO_DICE[k] && !vacio(c[LO_DICE[k]])) return null;
+        return FRASE_SINO[k]?.[v ? 0 : 1] || `${(ETIQUETA_DATO[k] || p.titulo).toLowerCase()}: ${v ? 'sí' : 'no'}`;
+    }
+    if (k === 'plantas') return `${v} ${Number(v) === 1 ? 'planta' : 'plantas'}`;
+    if (k === 'num_aires') return `${v} ${Number(v) === 1 ? 'aparato' : 'aparatos'}`;
+    if (k === 'altura_libre') return `${v} m de altura libre`;
+    if (k === 'colindantes') return `Linda con ${textoRespuesta(p, v).toLowerCase()}`;
+    if (k === 'aislamiento_fachada' || k === 'aislamiento_cubierta') return `aislamiento: ${textoRespuesta(p, v).toLowerCase()}`;
+    return textoRespuesta(p, v);
+}
+
+/** Las claves de un elemento que se enseñan para esta vivienda. */
+export function clavesDe(el, c) {
+    return el.claves.filter(k => claveVisible(k, c));
+}
+
+/** Los elementos de una pestaña que tienen algo que enseñar, con su título ya resuelto. */
+export function elementosVisibles(pestana, c) {
+    return pestana.elementos
+        .map(el => ({ ...el, titulo: tituloDe(el, c), claves: clavesDe(el, c) }))
+        .filter(el => el.claves.length);
+}
+
+/**
+ * La línea de un elemento: lo que hay, sus notas y de dónde sale.
+ * `origen`: el MENOS fiable de lo deducido (un supuesto se ve aunque lo demás sea dato);
+ * 'TU' si todo lo contestó él; null si no hay nada (CE3X pone lo de su año).
+ */
+export function lineaElemento(el, c) {
+    const partes = [];
+    const notas = [];
+    let peor = null;
+    let suyo = false;
+    for (const k of el.claves) {
+        const v = c[k];
+        if (vacio(v)) continue;
+        const f = fraseDato(k, PREGUNTA_POR_CLAVE[k], v, c);
+        if (f) partes.push(f);
+        const o = c.origen?.[k];
+        if (!o) { suyo = true; continue; }
+        if (!peor || (RANGO_ORIGEN[o] || 0) < (RANGO_ORIGEN[peor] || 0)) peor = o;
+        const nota = c.visto_ia?.notas?.[k];
+        if (nota && !notas.includes(nota)) notas.push(nota);
+    }
+    if (el.equipo && c.fotos_decision?.[el.equipo] === 'GENERICA') {
+        const a = ANTIGUEDAD_EQUIPO.find(x => x.value === c.fotos_antiguedad?.[el.equipo])?.label;
+        partes.push(`equipo genérico${a ? ` (${a.toLowerCase()})` : ''}`);
+    }
+    const texto = partes.join(' · ');
+    return {
+        texto: texto ? texto.charAt(0).toUpperCase() + texto.slice(1) : '',
+        notas,
+        origen: peor || (suyo ? 'TU' : null),
+        supuesto: !!peor && ORIGENES[peor]?.fiable === false,
+    };
 }
