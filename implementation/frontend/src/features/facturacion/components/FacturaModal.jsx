@@ -14,7 +14,7 @@ import { EmisoresModal } from './EmisoresModal';
 import { lineasDeArticulo, totalesLineas, MAX_LINEAS } from '../logic/presupuesto';
 import {
     SERIES, calcularFactura, revisarParaEmitir, estadoVisible, payloadPdf, buildFacturaHtml, validarNif,
-    sanearCliente, hoyIso, isoAEs, sumarDias, yyDe, VENCIMIENTO_DIAS, MAX_OBS_FACTURA, lineasRectificativa,
+    sanearCliente, hoyIso, isoAEs, sumarDias, yyDe, VENCIMIENTO_DIAS, MAX_OBS_FACTURA, lineasRectificativa, nombrePdfFactura,
 } from '../logic/factura';
 import { Ico, Importe, eur, AvisoFx } from '../estilo';
 
@@ -900,6 +900,26 @@ export function FacturaModal({ isOpen, onClose, onSaved, onAbrir, facturaId = nu
         if (e) mostrarError(e);
     };
 
+    // «Descargar PDF» del visor: una emitida baja SU PDF archivado (el que recibe el
+    // cliente); un borrador, lo que hay ahora en el editor, pintado por el servidor y sin guardar.
+    const descargarPdf = async () => {
+        try {
+            const r = emitida
+                ? await axios.get(`${API}/facturas/${id}/pdf`, { responseType: 'blob', timeout: 90000 })
+                : await axios.post(`${API}/facturas/vista-previa/pdf`, { ...borrador, id }, { responseType: 'blob', timeout: 90000 });
+            const u = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+            const a = document.createElement('a');
+            a.href = u; a.download = nombrePdfFactura(emitida ? doc?.numero : null, borrador.cliente?.razon_social);
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(u), 60000);
+            return null;
+        } catch (err) {
+            let texto = 'No se pudo preparar el PDF.';
+            try { const j = JSON.parse(await err.response?.data?.text?.()); if (j?.error) texto = j.error; } catch { /* sin cuerpo legible */ }
+            return texto;
+        }
+    };
+
     // ── Pintar ───────────────────────────────────────────────────────────────
 
     const hayIrpf = calc.irpf !== 0;     // en una rectificativa de FML, la retención también va en negativo
@@ -934,7 +954,6 @@ export function FacturaModal({ isOpen, onClose, onSaved, onAbrir, facturaId = nu
 
     // ··· del pie
     const items = editable ? [
-        { label: 'Vista previa del PDF', icono: ICO_EXTRA.ojo, onClick: () => setPreview(true), disabled: !hayPartidas },
         { label: id ? 'Guardar cambios' : 'Guardar borrador', icono: ICO_EXTRA.guardar, onClick: () => guardar(), disabled: !puedeGuardar || (!!id && !sucio), detalle: 'Sin número: no sale nada' },
         modoCliente === 'buscar' && { label: 'Cliente sin ficha: teclear sus datos', icono: ICO_EXTRA.persona, onClick: teclearAMano },
         id && { label: 'Duplicar', icono: ICO_EXTRA.copiar, onClick: duplicar, disabled: guardando },
@@ -942,8 +961,7 @@ export function FacturaModal({ isOpen, onClose, onSaved, onAbrir, facturaId = nu
         id && { sep: true },
         id && { label: 'Borrar el borrador', icono: 'borrar', peligro: true, onClick: borrar, disabled: guardando },
     ] : emitida ? [
-        { label: 'Ver el PDF', icono: 'pdf', onClick: verPdfArchivado },
-        { label: 'Vista previa', icono: ICO_EXTRA.ojo, onClick: () => setPreview(true) },
+        { label: 'Abrir el PDF archivado', icono: 'pdf', onClick: verPdfArchivado },
         { label: enviadaYa ? 'Reenviar al cliente' : 'Enviar al cliente', icono: 'enviar', onClick: () => abrirEnvio(id) },
         puedeCobrar && { label: 'Marcar cobrada', icono: 'check', onClick: () => setDialogo('cobro') },
         puedeDescobrar && { label: 'Cambiar la fecha del cobro', icono: 'calendario', onClick: () => setDialogo('cobro') },
@@ -978,6 +996,11 @@ export function FacturaModal({ isOpen, onClose, onSaved, onAbrir, facturaId = nu
             {itemsMenu.length > 0 && (
                 <button type="button" className="fx-btn fx-pie-mas" aria-label="Más acciones" aria-haspopup="menu"
                     onClick={e => setMenuPie(e.currentTarget)}><Ico n="mas3" size={22} /></button>
+            )}
+            {(emitida || (editable && hayPartidas)) && (
+                <button type="button" className="fx-btn fx-btn-sec fx-pie-ver" onClick={() => setPreview(true)} aria-label="Vista previa del PDF">
+                    <Ico d={ICO_EXTRA.ojo} size={18} /><span>Vista previa</span>
+                </button>
             )}
             {principal}
         </>
@@ -1338,7 +1361,7 @@ export function FacturaModal({ isOpen, onClose, onSaved, onAbrir, facturaId = nu
             {preview && (
                 <VistaPreviaA4 titulo="Vista previa de la factura" onClose={() => setPreview(false)} capa="z-[870]"
                     rotulo={doc?.numero ? `${esRect ? 'Rectificativa' : 'Factura'} ${doc.numero}` : 'Vista previa · borrador, sin número'}
-                    html={htmlPreview} />
+                    html={htmlPreview} onDescargar={descargarPdf} />
             )}
 
             {dialogo === 'cobro' && doc && (

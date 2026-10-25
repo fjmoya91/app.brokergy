@@ -117,6 +117,19 @@ de la primera fila (AppSheet estimaba 384) y la fila «Página 1 de N» hay que 
 recalibraron los altos y se pagina en dos pasadas. Siete estilos de 1 a 60 líneas: «Ninguna hoja
 desborda (420 facturas medidas)». Tras tocar la plantilla: el medidor y `test_factura_cee.js`.
 
+**La vista previa, a la vista y con «Descargar PDF»** (25/10/2026, Fran: «que tengamos la
+previsualización directamente del pdf, igual que el ppto»). Estaba escondida en el «···». Ahora el pie
+del editor lleva el botón «Vista previa», como el del presupuesto (en el móvil, solo el icono): en un
+borrador, en cuanto tiene una partida, y en una emitida, siempre. El visor (`VistaPreviaA4`) trae
+«Descargar PDF», que baja el PDF de verdad:
+- **una emitida**: el PDF ARCHIVADO (`GET /facturas/:id/pdf`), el mismo que recibe el cliente;
+- **un borrador**: lo que hay AHORA en el editor, sin guardar, pintado por el servidor
+  (`POST /facturas/vista-previa/pdf` → `facturaService.pdfVistaPrevia`, `adminOClaveInterna`). Sale sin
+  número, y no se guarda ni se archiva nada.
+
+Esa ruta va declarada ANTES que `POST /facturas/:id/pdf` (rehacer el PDF), o «vista-previa» se leería
+como un id. «Ver el PDF» del «···» pasa a llamarse «Abrir el PDF archivado».
+
 **El histórico de AppSheet.** `importarLibro` (botón «Importar de AppSheet» o el script) trae las dos
 series con origen APPSHEET, en seco por defecto; una que ya está no se toca salvo el cobro (mientras
 AppSheet conviva, la hoja manda en ESTADO). Las cifras que se guardan son las de la HOJA y, si sus

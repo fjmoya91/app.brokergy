@@ -25,7 +25,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/facturacion/cuadro-de-mando-y-trimestres-en-pantalla.md` — Cuadro de mando y trimestres en pantalla: el armazón de Facturación, «Hoy» y «Trimestres» (2026-10-24) · 10,7 KB
-- `docs/conocimiento/facturacion/facturas-desde-la-app.md` — Facturas desde la app: series ING y FML, rectificativas y VERI*FACTU (2026-10-24) · 16,3 KB
+- `docs/conocimiento/facturacion/facturas-desde-la-app.md` — Facturas desde la app: series ING y FML, rectificativas y VERI*FACTU (2026-10-24) · 17,2 KB
 - `docs/conocimiento/facturacion/presupuestos-con-partidas.md` — Presupuestos con PARTIDAS: la pestaña Facturación sustituye a AppSheet (2026-10-24) · 22,4 KB
 - `docs/conocimiento/facturacion/trimestres-y-contabilidad.md` — Cuadro de mando y cierre trimestral: dos contribuyentes, gastos leídos de Drive y el paquete para la gestoría (2026-10-24) · 22,2 KB
 

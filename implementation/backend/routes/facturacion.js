@@ -200,6 +200,16 @@ router.post('/facturas/desde-presupuesto/:id', adminOClaveInterna, async (req, r
     } catch (err) { falla(res, err, 'facturar presupuesto'); }
 });
 
+/** El PDF de lo que hay en el editor de un borrador, sin guardar (antes que POST /facturas/:id/pdf). */
+router.post('/facturas/vista-previa/pdf', adminOClaveInterna, async (req, res) => {
+    try {
+        const { buffer, filename } = await facturas.pdfVistaPrevia(req.body || {});
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+        res.send(buffer);
+    } catch (err) { falla(res, err, 'pdf vista previa factura'); }
+});
+
 /** Trae lo emitido en AppSheet. En SECO salvo `escribir: true`. */
 router.post('/facturas/importar', adminOnly, async (req, res) => {
     try { res.json(await facturas.importarLibro({ serie: req.body?.serie || 'ING', escribir: req.body?.escribir === true })); }

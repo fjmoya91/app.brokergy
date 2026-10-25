@@ -671,6 +671,27 @@ async function pdfDe(id) {
     return { buffer, filename: f.pdf?.nombre || L.nombrePdfFactura(f.numero, f.cliente?.razon_social), f };
 }
 
+/**
+ * El PDF de lo que hay AHORA en el editor de un borrador (nuevo o con cambios sin
+ * guardar), para descargarlo desde la vista previa. No guarda nada y no lleva número.
+ */
+async function pdfVistaPrevia(datos = {}) {
+    const L = await logica();
+    const s = L.sanearFactura(datos);
+    if (!s.lineas.length) throw error('La factura no tiene ninguna partida', 400);
+    const guardado = /^[0-9a-f-]{36}$/i.test(String(datos.id || '')) ? await cargar(datos.id) : null;
+    if (guardado && guardado.estado !== 'BORRADOR') throw error('Una factura emitida se descarga con su PDF archivado', 409);
+    const rectificada = guardado?.rectifica_id ? await cargar(guardado.rectifica_id) : null;
+    const tipo = guardado?.tipo || 'F1';
+    const f = {
+        ...s, ...L.derivados(s), tipo, numero: null,
+        rectifica_numero: guardado?.rectifica_numero || null,
+        motivo_rectificacion: tipo !== 'F1' ? String(datos.motivo_rectificacion || '').slice(0, 500) : null,
+    };
+    const html = L.buildFacturaHtml(L.payloadPdf(f, await emisor(s.serie), { rectificada }));
+    return { buffer: await htmlToPdf(html), filename: L.nombrePdfFactura(null, s.cliente?.razon_social) };
+}
+
 async function rehacerPdf(id) {
     const f = await cargar(id);
     if (!f) throw error('Factura no encontrada', 404);
@@ -921,6 +942,6 @@ async function proximoNumero(serie = 'ING', { tipo = 'F1', fecha = null } = {}) 
 
 module.exports = {
     TABLA, emisores, emisor, guardarEmisor, listar, cargar, cargarPorNumero, detalle, crear, actualizar, borrar, duplicar,
-    desdePresupuesto, facturasDelPresupuesto, rectificar, emitir, encadenar, generarPdf, pdfDe, rehacerPdf, htmlDe, previsualizarEnvio, enviar, cobro,
+    desdePresupuesto, facturasDelPresupuesto, rectificar, emitir, encadenar, generarPdf, pdfDe, pdfVistaPrevia, rehacerPdf, htmlDe, previsualizarEnvio, enviar, cobro,
     registrarEmitida, actualizarRegistrada, marcarCobroPorNumero, importarLibro, proximoNumero, clienteDeFicha,
 };
