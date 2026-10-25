@@ -131,3 +131,5 @@ Ahora `devuelto --escribir` llama a `POST /api/{expedientes|cee-directos}/:id/pr
 y en `PUBLIC_EXPEDIENTE_ROUTES` porque el módulo de expedientes es `internalOnly` y lo llama un script)
 → `presentacionCeeService.subirDevueltoInterno`, que comparte con `subirDevuelto` todo menos el token.
 Así llegan los mismos avisos que cuando sube el certificador. `--local` hace lo de antes, sin avisos.
+Y desde el 25/10/2026, con el CEE INICIAL de un expediente el aviso al cliente y al instalador sale
+SOLO, pidiendo solo las fotos que faltan: ver "El aviso de «CEE inicial presentado» pide SOLO lo que falta".

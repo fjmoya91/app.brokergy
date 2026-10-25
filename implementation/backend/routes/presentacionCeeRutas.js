@@ -49,6 +49,9 @@ function montarPresentacionCee(router, origen, { staffOnly }) {
             res.json(await presentacion.subirDevueltoInterno(origen, req.params.id, req.query.fase || req.body?.fase, {
                 tipo: req.query.tipo || req.body?.tipo,
                 buffer: req.file?.buffer, mimetype: req.file?.mimetype, nombreOriginal, quien,
+                // Lo que presenta la CASA (la skill, con clave interna) avisa solo al
+                // cliente y al instalador del CEE inicial (ceeRegistradoAviso).
+                avisar: !!req.internalCall,
             }));
         } catch (e) { responderError(res, e, 'devuelto', 'No se pudo subir lo devuelto por la sede'); }
     });

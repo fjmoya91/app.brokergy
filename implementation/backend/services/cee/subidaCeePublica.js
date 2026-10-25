@@ -24,7 +24,9 @@ function error(status, msg) { const e = new Error(msg); e.status = status; retur
  * Sube un fichero a un slot del CEE de un expediente CAE.
  * @returns {{success, slot, link, name, registrado, fecha_registro, aviso_fecha}}
  */
-async function subirCae({ expedienteId, fase, slot, buffer, mimetype, quien = QUIEN_TECNICO }) {
+// `avisoAutomatico`: el aviso al cliente lo manda quien llama (presentación de la
+// casa), así que el email al equipo va SIN el botón «Notificar al Cliente».
+async function subirCae({ expedienteId, fase, slot, buffer, mimetype, quien = QUIEN_TECNICO, avisoAutomatico = false }) {
     const ph = fase === 'final' ? 'final' : 'inicial';
     if (!buffer?.length) throw error(400, 'No se ha recibido ningún archivo');
     if (!ceeUploadService.CEE_SLOTS.find(s => s.id === slot)) throw error(400, 'Tipo de documento no válido');
@@ -52,7 +54,7 @@ async function subirCae({ expedienteId, fase, slot, buffer, mimetype, quien = QU
 
     // Al subir el REGISTRO → misma notificación/transición que la app. La fecha
     // se LEE del justificante (regla 27.c); si no se puede, se cae a hoy y se dice.
-    let registrado = false, fechaRegistro = null, avisoFecha = null;
+    let registrado = false, yaRegistrado = false, fechaRegistro = null, avisoFecha = null;
     if (slot === 'registro') {
         const { resolverFechaRegistro } = require('../registroCeeOcrService');
         const lectura = await resolverFechaRegistro(buffer);
@@ -60,12 +62,15 @@ async function subirCae({ expedienteId, fase, slot, buffer, mimetype, quien = QU
         const r = await ceeUploadService.markCeeRegistradoFromUpload(exp, ph, {
             fechaRegistro: lectura.origen === 'justificante' ? lectura.fecha : null,
             quien,
+            sinBotonAvisar: avisoAutomatico,
         });
         registrado = !!r.ok;
+        // Ya estaba REGISTRADO antes de esta subida: no es el hito, no se re-avisa.
+        yaRegistrado = !!r.already;
         fechaRegistro = r.fechaRegistro || lectura.fecha;
     }
 
-    return { success: true, slot, link: uploaded.link, name: uploaded.fileName, registrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha };
+    return { success: true, slot, link: uploaded.link, name: uploaded.fileName, registrado, ya_registrado: yaRegistrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha };
 }
 
 /**

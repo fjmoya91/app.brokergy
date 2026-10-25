@@ -216,6 +216,12 @@ presentación si lo había. En el historial figura «Fran (presentación automá
 servidor que tiene el WhatsApp, **llegan los mismos avisos que cuando sube el justificante el
 certificador**. `--local` lo hace desde el PC, sin avisos (solo si el servidor no responde).
 
+**El CEE INICIAL de un expediente avisa SOLO al cliente y al instalador** (desde el 25/10/2026): con
+`--escribir`, el servidor les manda el «CEE inicial presentado» pidiendo SOLO las fotos que faltan de la
+obra (la salida dice `AVISO (servidor): …` a quién ha llegado). **No lo mandes tú otra vez** ni ofrezcas
+mandarlo; si dice que no ha salido, se reenvía desde el módulo CEE de la app. El CEE final y los CEE
+directos siguen como siempre.
+
 ## 10. Después: la etiqueta y las resoluciones (notifica.jccm.es)
 
 Horas después del registro llega a Gmail el aviso de que se ha emitido. La JCCM lo deja en

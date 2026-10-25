@@ -255,10 +255,14 @@ async function markCeeRegistradoFromUpload(exp, phase, opts = {}) {
     else                  newEstado = avanzarEstado(fresh.estado, 'PTE FIN EXPTE');
 
     // Token one-tap (7 días) para que el admin notifique al cliente desde el email.
-    const notifyToken = crypto.randomBytes(32).toString('hex');
+    // Sin él cuando el aviso sale SOLO (`sinBotonAvisar`: el CEE inicial que presenta
+    // la casa, ceeRegistradoAviso.avisarTrasPresentar): el botón lo duplicaría.
+    const notifyToken = opts.sinBotonAvisar ? null : crypto.randomBytes(32).toString('hex');
     const tokenKey = ph === 'final' ? 'notify_client_token_final' : 'notify_client_token_inicial';
-    seguimiento[tokenKey] = notifyToken;
-    seguimiento[tokenKey + '_exp'] = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    if (notifyToken) {
+        seguimiento[tokenKey] = notifyToken;
+        seguimiento[tokenKey + '_exp'] = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    }
 
     // Quién lo ha subido: el técnico por su enlace o quien PRESENTA el CEE por el
     // suyo (presentacionCeeService). Lo que se hace es lo mismo; solo cambia cómo
@@ -305,7 +309,9 @@ async function markCeeRegistradoFromUpload(exp, phase, opts = {}) {
             const clienteFull = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : '';
             const ubicacion = cli ? `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})` : '';
             const expedienteLink = `https://app.brokergy.es/?exp=${fresh.id}`;
-            const notifyLink = `https://app.brokergy.es/api/expedientes/${fresh.id}/notify-client?token=${notifyToken}&phase=${ph}`;
+            const notifyLink = notifyToken
+                ? `https://app.brokergy.es/api/expedientes/${fresh.id}/notify-client?token=${notifyToken}&phase=${ph}`
+                : null;
             // Quién ha registrado el CEE: vive en cee.certificador_id, no como columna.
             const certNombre = await getCertificadorNombre(fresh);
             await emailService.sendCeeRegistradoStaffEmail(

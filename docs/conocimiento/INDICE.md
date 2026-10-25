@@ -9,7 +9,7 @@
 |---|---|---|---|
 | `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 35,7 KB | 11 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
-| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 35,3 KB | 20 |
+| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 37,6 KB | 21 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 52,1 KB | 17 |
 | `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 5,9 KB | 7 |
@@ -244,6 +244,7 @@
 - **165** → `.claude/rules/facturacion.md` — Un presupuesto con PARTIDAS se calcula en UN sitio y su esquema es ADITIVO
 - **166** → `.claude/rules/facturacion.md` — Una FACTURA nace BORRADOR, se EMITE con número y desde ahí NO se borra ni se cambia: se RECTIFICA; y cada em…
 - **170** → `.claude/rules/facturacion.md` — El cuadro de mando y el cierre trimestral separan a los DOS contribuyentes y todo es ESTIMADO; los gastos se…
+- **172** → `.claude/rules/cee.md` — El aviso de «CEE inicial presentado» pide SOLO lo que falta de la obra, y cuando lo presenta la CASA sale SO…
 - **172** → `.claude/rules/cee-generacion.md` — CE3X mide la demanda cubierta por los METROS que sirve cada equipo, no por su «Porcentaje»: superficie = úti…
 
 ## Documentos por área
@@ -272,6 +273,7 @@
 - `docs/conocimiento/cee/al-encargar-el-cee-el-cliente-tambien-se-entera.md` — Al encargar el CEE, el CLIENTE también se entera (2026-09-09)
 - `docs/conocimiento/cee/deduccion-del-irpf-vale-el-par-de-certificados.md` — Deducción del IRPF — ¿vale el par de certificados? (2026-08-27)
 - `docs/conocimiento/cee/el-agente-ia-un-certificador-mas.md` — El AGENTE IA, un certificador más (2026-10-01)
+- `docs/conocimiento/cee/el-aviso-de-cee-inicial-presentado-pide-solo-lo-que-falta.md` — El aviso de «CEE inicial presentado» pide SOLO lo que falta, y sale solo cuando presenta la casa (2026-10-25)
 - `docs/conocimiento/cee/el-modulo-cee-del-expediente-en-el-movil-asignar-tecnico.md` — El módulo CEE del expediente, en el MÓVIL — asignar técnico (2026-08-21)
 - `docs/conocimiento/cee/la-fecha-de-registro-del-cee-se-lee-del-justificante.md` — La FECHA DE REGISTRO del CEE se LEE del justificante (2026-09-07)
 - `docs/conocimiento/cee/la-guia-de-la-deduccion-del-irpf-para-el-cliente.md` — La GUÍA de la deducción del IRPF para el cliente (2026-10-01)

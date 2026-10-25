@@ -389,6 +389,8 @@ async function devuelto(numero) {
         };
         const r1 = await subir('registro', bReg, path.basename(reg));
         console.log('REGISTRO (servidor):', r1.name, '· registrado', r1.registrado, '· fecha', r1.fecha_registro, r1.aviso_fecha ? `· ⚠️ ${r1.aviso_fecha}` : '');
+        // CEE inicial: el servidor avisa solo al cliente y al instalador (ceeRegistradoAviso).
+        if (r1.aviso_cliente) console.log('AVISO (servidor):', r1.aviso_cliente.texto || r1.aviso_cliente.reason);
         if (bTasa) { const r2 = await subir('tasa', bTasa, path.basename(tasa)); console.log('TASA (servidor):', r2.name); }
         return;
     }

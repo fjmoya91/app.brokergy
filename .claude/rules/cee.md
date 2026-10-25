@@ -51,6 +51,8 @@ paths:
 
 140. **Un CEE cuyo XML NO VALIDA no se da por bueno, ni se sube, ni se firma, ni se presenta** (2026-10-19, 26RES060_195: inicial de la 2.3 sin NINGÚN hueco → final de la 3.2 con la marca «certificado incompleto»; la 3.x escribe un hueco de relleno «99999999.99» que su esquema rechaza). `xml2cert` es quien valida y solo lo dice en su `.log`: `cexAPdf.calificarCex` lo pasa SIEMPRE por él y, si no valida, devuelve `ok:false` + `incompleto` y SIN PDF; `guardarCalificadoEnDrive` lo vuelve a validar antes de subir (`validarXml`); `ceeFinalCopiando` para con 422 si el inicial no tiene huecos; `cee_inicial.js`/`cee_final.js` no avisan, `firmar_cee.js` no firma, `presentar_cee.js` deja NO LISTO y el vigilante `pdf_del_xml.js` no deja el PDF con marca. En la revisión, sin huecos es NO APTO también con solo el `.xml` (`radiografiaCee.esRelleno`). Tras tocarlo: `node implementation/backend/scripts/test_cee_incompleto.js [<xml>]` y `test_revision_cee.js`. Ver "Un CEE «incompleto» no se da por bueno ni se sube".
 
+172. **El aviso de «CEE inicial presentado» pide SOLO lo que falta de la obra, y cuando lo presenta la CASA sale SOLO al cliente y al instalador** (2026-10-25, Fran). La lista ya no es fija («caldera, desmontaje, aerotermia, placas»): sale del MISMO checklist que su enlace de subida (`buildDocsView`, reconciliado con Drive y con el alcance del expediente: 060, 080, 093), solo lo que justifica la actuación, partida en «antes de empezar la obra» y «durante y al terminar», diciendo lo que YA tenemos y con el enlace filtrado `?need=`; al cliente en lenguaje de casa y sin facturas, al instalador con las técnicas y las facturas. Si no se puede saber qué falta (`pendientesObra` → `null`), la lista de siempre: nunca un aviso sin fotos por un fallo. Vale para el aviso automático, el reenvío de la rejilla, el enlace del email y el popup `notify-registration`. Con el justificante subido por la ruta interna (`/presentacion-cee/devuelto`, skill `presentar-cee`) de un CEE INICIAL de expediente que ESA subida ha pasado a REGISTRADO, el aviso sale solo (`avisarTrasPresentar`), el email al equipo va sin el botón «Notificar al Cliente» y el historial dice a quién llegó; un justificante repetido no re-avisa. Apagado en local con `CEE_REGISTRO_AVISO_AUTO=false`. Fuente única: [ceeRegistradoAviso.js](implementation/backend/services/ceeRegistradoAviso.js). Tras tocarlo: `node implementation/backend/scripts/test_aviso_cee_registrado.js`, `test_presentacion_cee.js` y `probar_aviso_cee_registrado.js <nº>`. Ver "El aviso de «CEE inicial presentado» pide SOLO lo que falta".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -58,6 +60,7 @@ paths:
 - `docs/conocimiento/cee/al-encargar-el-cee-el-cliente-tambien-se-entera.md` — Al encargar el CEE, el CLIENTE también se entera (2026-09-09) · 3,1 KB
 - `docs/conocimiento/cee/deduccion-del-irpf-vale-el-par-de-certificados.md` — Deducción del IRPF — ¿vale el par de certificados? (2026-08-27) · 5,8 KB
 - `docs/conocimiento/cee/el-agente-ia-un-certificador-mas.md` — El AGENTE IA, un certificador más (2026-10-01) · 4,4 KB
+- `docs/conocimiento/cee/el-aviso-de-cee-inicial-presentado-pide-solo-lo-que-falta.md` — El aviso de «CEE inicial presentado» pide SOLO lo que falta, y sale solo cuando presenta la casa (2026-10-25) · 4,8 KB
 - `docs/conocimiento/cee/el-modulo-cee-del-expediente-en-el-movil-asignar-tecnico.md` — El módulo CEE del expediente, en el MÓVIL — asignar técnico (2026-08-21) · 7,3 KB
 - `docs/conocimiento/cee/la-fecha-de-registro-del-cee-se-lee-del-justificante.md` — La FECHA DE REGISTRO del CEE se LEE del justificante (2026-09-07) · 4,2 KB
 - `docs/conocimiento/cee/la-guia-de-la-deduccion-del-irpf-para-el-cliente.md` — La GUÍA de la deducción del IRPF para el cliente (2026-10-01) · 9,6 KB
@@ -67,7 +70,7 @@ paths:
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/firmar-el-cee-sin-ventanas-firmar-cee-js.md` — FIRMAR el CEE sin ventanas — `scripts/firmar_cee.js` (2026-10-15) · 3,7 KB
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/la-calificacion-de-emisiones-no-se-guardaba.md` — La calificación de EMISIONES no se guardaba · 1,6 KB
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/los-dos-pasos-del-certificador-presentar-cee-id-token-phase.md` — Los DOS PASOS del certificador — `/presentar-cee/:id?token=&phase=` · 3,5 KB
-- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md` — PRESENTARLO sin tocar el PC — skill `presentar-cee` (2026-10-15) · 11,0 KB
+- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md` — PRESENTARLO sin tocar el PC — skill `presentar-cee` (2026-10-15) · 11,2 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/00-revisar-el-cee-que-entrega-el-certificador.md` — REVISAR el CEE que entrega el certificador (2026-09-21) · 2,4 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/con-el-cex-delante-y-la-medida-de-mejora.md` — Con el `.cex` delante, y la MEDIDA DE MEJORA (2026-09-29) · 6,2 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/el-xml-se-lee-de-supabase-sin-bajar-nada-de-drive.md` — El `.xml` se lee de SUPABASE, sin bajar nada de Drive · 1,5 KB
@@ -100,6 +103,12 @@ paths:
   - **REGLA — al terminar AVISA, como un técnico que sube su .cex**
   - **REGLA — el agente NO FIRMA**
   - **REGLA — el sello `cee.agente_ia[fase]`**
+- `docs/conocimiento/cee/el-aviso-de-cee-inicial-presentado-pide-solo-lo-que-falta.md`
+  - **REGLA — las fotos que se piden son LAS QUE FALTAN, del mismo checklist que su enlace de subida.**
+  - **REGLA — al cliente en lenguaje de casa y sin facturas; al instalador con las etiquetas técnicas, las
+facturas y su enlace `rol=instalador`.**
+  - **REGLA — si no se puede saber qué falta, la lista de SIEMPRE.**
+  - **REGLA — el CEE INICIAL que presenta la CASA avisa SOLO, una vez, al cliente y al instalador.**
 - `docs/conocimiento/cee/el-modulo-cee-del-expediente-en-el-movil-asignar-tecnico.md`
   - **REGLA — el escritorio no cambia; todo lo móvil va en `max-md:`.**
   - **REGLA — es un BOTÓN, no una banda.**

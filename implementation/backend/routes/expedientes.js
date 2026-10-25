@@ -328,285 +328,11 @@ async function resolveLocalPathFromDriveFolder(driveFolderId) {
 }
 
 
-// ─── Helpers de notificación CEE registrado ───────────────────────────────────
-// Extraídos de los IIFE async dentro de PUT /:id para que también se puedan
-// re-disparar manualmente desde POST /:id/resend-cee-notifications.
-
-async function loadNotificationContext(expediente) {
-    const [{ data: cli }, { data: op }] = await Promise.all([
-        supabase.from('clientes').select('*').eq('id_cliente', expediente.cliente_id).single(),
-        supabase.from('oportunidades').select('*').eq('id', expediente.oportunidad_id).single()
-    ]);
-
-    let techName = 'Técnico no asignado';
-    const certId = expediente.cee?.certificador_id;
-    if (certId) {
-        const { data: certData } = await supabase.from('prescriptores').select('razon_social').eq('id_empresa', certId).maybeSingle();
-        if (certData?.razon_social) techName = certData.razon_social;
-    }
-
-    let partnerPhone = null;
-    let partnerEmail = null;
-    // Preferimos el INSTALADOR asociado de la obra; si no, el prescriptor genérico.
-    const partnerId = op?.instalador_asociado_id || op?.prescriptor_id;
-    if (partnerId && String(partnerId) !== '1') {
-        // OJO: prescriptores NO tiene columnas `telefono`/`movil` — seleccionarlas hace
-        // que supabase-js devuelva error y pData=null (el partner se quedaba sin avisar).
-        const { data: pData } = await supabase.from('prescriptores')
-            .select('tlf, tlf_contacto, tlf_responsable, landing_telefono_contacto, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas')
-            .eq('id_empresa', partnerId).maybeSingle();
-        if (pData) {
-            const useContact = pData.contacto_notificaciones_activas === true || pData.contacto_notificaciones_activas === 'true';
-            // Sin desvío activo manda la PERSONA DE CONTACTO (su propio tlf/email);
-            // si no los tiene, la empresa. Mismo criterio que partnerNotifyTargets.
-            partnerPhone = (useContact ? (pData.tlf_contacto || pData.tlf) : (pData.tlf_responsable || pData.tlf || pData.tlf_contacto)) || pData.landing_telefono_contacto || null;
-            partnerEmail = (useContact ? (pData.email_contacto || pData.email) : (pData.email_responsable || pData.email || pData.email_contacto)) || null;
-        }
-    }
-
-    return { cli, op, techName, partnerPhone, partnerEmail };
-}
-
-// Construye los textos de WhatsApp de la notificación de "CEE registrado", por
-// destinatario (CLIENTE / PARTNER / ADMIN). Lo usan el envío y la PREVISUALIZACIÓN
-// (POST resend-cee-notifications con preview:true) → única fuente de verdad.
-// Nota: el email del cliente/staff se envía con su plantilla HTML; estos textos son
-// los del canal WhatsApp (y los que se muestran en el preview).
-/**
- * A quién se SALUDA en un mensaje al cliente.
- *
- * REGLA — se saluda a QUIEN LO RECIBE. Cuando el cliente tiene el desvío activo,
- * el mensaje sale al teléfono de su PERSONA DE CONTACTO —quien lleva la obra: un
- * hijo, la pareja, el instalador— y saludar al titular delata que el texto está
- * hecho con una plantilla. Medido en 26RES060_187: el aviso de CEE presentado
- * llegaba al WhatsApp de JUAN ANTONIO empezando por «¡Hola MARIA TERESA!».
- *
- * Es solo el SALUDO: en los mensajes a staff y al partner el cliente sigue siendo
- * el titular («Obra: …»), que es de quien hablan.
- */
-function nombreParaSaludo(cli) {
-    const desvio = cli?.notificaciones_contacto_activas === true
-        || cli?.notificaciones_contacto_activas === 'true';
-    const contacto = (cli?.persona_contacto_nombre || '').trim();
-    if (desvio && contacto) return contacto;
-    return (cli?.nombre_razon_social || 'Cliente').trim();
-}
-
-/**
- * ¿El aviso "al cliente" lo lee su PERSONA DE CONTACTO (un hijo, o el partner que
- * lleva la relación, como JOSE VICENTE RUIZ SL) y no el titular? Entonces no se
- * le puede hablar de "tu expediente": se le dice de QUIÉN es. Y su email es el del
- * contacto, no el del titular — que era por donde salía el email de "CEE
- * presentado" aunque el WhatsApp sí respetara el desvío.
- */
-function avisoCliente(cli) {
-    const desvio = cli?.notificaciones_contacto_activas === true
-        || cli?.notificaciones_contacto_activas === 'true';
-    const tercero = !!(desvio && (cli?.persona_contacto_nombre || '').trim()
-        && (cli?.persona_contacto_tlf || cli?.persona_contacto_email));
-    const titular = recordatorios.capitalizar(`${cli?.nombre_razon_social || ''} ${cli?.apellidos || ''}`.trim());
-    return {
-        tercero,
-        titular,
-        email: (desvio ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
-    };
-}
-
-function buildCeeRegistradoMessages(phase, { numExp, clienteName, clienteFull, portalLink, expedienteLink, tercero = false, titular = '' }) {
-    // "de tu expediente X" al titular; "del expediente X de María Teresa…" a quien
-    // lo lee por él.
-    const delExp = tercero
-        ? `del expediente *${numExp}* de *${titular || clienteFull}*`
-        : `de tu expediente *${numExp}*`;
-    if (phase === 'final') {
-        const clientMsg = `¡Hola *${clienteName}*!\n\nTe comunicamos que ya ha sido presentado el *Certificado de Eficiencia Energética FINAL* ${delExp}.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
-        const staffMsg = `✅ *REGISTRO CEE FINAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Final al sistema.\n\nVer expediente:\n🔗 ${expedienteLink}`;
-        return { CLIENTE: clientMsg, PARTNER: staffMsg, ADMIN: staffMsg };
-    }
-    // ── CEE INICIAL ──
-    const clientMsg = `¡Hola *${clienteName}*!\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética INICIAL* ${delExp}.\n\n*Desde este momento ya se pueden emitir facturas y pagos*\n\n📸 Recuerda hacerle fotografías a todo:\n• *Caldera existente y placa de fabricación.*\n• *Desmontaje de la caldera.*\n• *Montaje de la aerotermia.*\n• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).\n\nLas fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.\n\nPuedes subirlas directamente al expediente a través de este enlace:\n🔗 ${portalLink}\n\nUna vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n📄 Y cuando quieras, puedes *consultar el estado ${tercero ? 'del expediente* y el bono que cobrará' : 'de tu expediente* y el bono que cobrarás'} aquí:\n🔗 ${(portalLink || '').replace('/subir-docs/', '/mi-expediente/')}\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
-    const staffMsg = `✅ *REGISTRO CEE INICIAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Inicial al sistema. Desde este momento ya se pueden emitir facturas y pagos.\n\nVer expediente:\n🔗 ${expedienteLink}`;
-    // Mensaje específico para el INSTALADOR: además de avisar, le pedimos las fotos
-    // de la obra terminada y la factura, con el enlace de subida acotado a su rol.
-    const installerLink = portalLink
-        ? `${portalLink}${portalLink.includes('?') ? '&' : '?'}rol=instalador`
-        : expedienteLink;
-    const partnerMsg = `✅ *CEE INICIAL REGISTRADO* — Expediente ${numExp}\nObra: ${clienteFull}\n\nYa está presentado el CEE Inicial: ya se pueden emitir facturas y pagos. 🎉\n\nPara poder seguir tramitando el expediente necesitamos que nos subas:\n\n📸 *Fotos de la obra terminada* (unidad exterior e interior ya instaladas y sus placas de fabricación).\n🧾 *Factura(s)* de la instalación.\n\nPuedes subirlo de forma rápida y sencilla aquí:\n🔗 ${installerLink}\n\n¡Gracias!\n*BROKERGY — Ingeniería Energética*`;
-    return { CLIENTE: clientMsg, PARTNER: partnerMsg, ADMIN: staffMsg };
-}
-
-async function notifyCeeInicialRegistrado(expediente, filters = {}) {
-    const targets  = filters.targets  || ['CLIENTE', 'PARTNER', 'ADMIN'];
-    const chFilter = filters.channels || ['email', 'whatsapp'];
-    const tag = `[CEE-INICIAL ${expediente.id}]`;
-    try {
-        const { cli, op, techName, partnerPhone, partnerEmail } = await loadNotificationContext(expediente);
-        if (!cli) {
-            console.warn(`${tag} cliente_id=${expediente.cliente_id} no encontrado, abortando notificaciones`);
-            return { ok: false, reason: 'cliente-not-found' };
-        }
-
-        const numExp = expediente.numero_expediente || op?.id_oportunidad || expediente.id;
-        // Se saluda a quien RECIBE el mensaje, no siempre al titular.
-        const clienteName = nombreParaSaludo(cli);
-        const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
-        const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
-        // Enlace UNIFICADO de subida de fotos/docs (/subir-docs/:uuid?token=)
-        const portalLink = op?.id
-            ? await reformaUploadService.ensureUploadLink(op.id)
-            : `https://app.brokergy.es/firma/${expediente.id}`;
-        const expedienteLink = `https://app.brokergy.es/?exp=${expediente.id}`;
-
-        const waState = whatsappService.getStatus?.()?.state || 'unknown';
-        const cliPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
-        console.log(`${tag} Disparando notificaciones (targets=[${targets}], channels=[${chFilter}], wa=${waState})`);
-
-        const channels = { whatsapp: [], email: [] };
-
-        // Textos por destinatario (compartidos con la previsualización). El admin puede
-        // sobrescribirlos desde el modal de reenvío (filters.overrides).
-        const msgs = buildCeeRegistradoMessages('inicial', { numExp, clienteName, clienteFull, portalLink, expedienteLink, ...avisoCliente(cli) });
-        const overrides = filters.overrides || {};
-        if (filters.preview) return { ok: true, preview: msgs };
-        const clientMsg = overrides.CLIENTE || msgs.CLIENTE;
-        const adminMsg  = overrides.ADMIN  || msgs.ADMIN;
-        const partnerMsg = overrides.PARTNER || msgs.PARTNER;
-
-        // --- WHATSAPP ---
-        if (chFilter.includes('whatsapp')) {
-            if (targets.includes('CLIENTE') && cliPhone) {
-                channels.whatsapp.push('cliente');
-                // Cada aviso que ya se manda le enseña al bot de WhatsApp de qué
-                // obra habla este chat. Es la pista más débil de las tres y la
-                // más abundante: no cuesta nada y va en diferido.
-                botVinculos.sembrarEnDiferido(cliPhone, expediente.oportunidad_id);
-                whatsappService.sendText(cliPhone, clientMsg)
-                    .catch(e => console.error(`${tag} WhatsApp Cliente:`, e.message));
-            } else if (targets.includes('CLIENTE') && !cliPhone) {
-                console.warn(`${tag} Cliente sin teléfono, no se envía WhatsApp`);
-            }
-
-            if (targets.includes('ADMIN')) {
-                const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
-                channels.whatsapp.push('admin');
-                whatsappService.sendText(adminPhone, adminMsg)
-                    .catch(e => console.error(`${tag} WhatsApp Admin:`, e.message));
-            }
-
-            if (targets.includes('PARTNER') && partnerPhone) {
-                channels.whatsapp.push('partner');
-                botVinculos.sembrarEnDiferido(partnerPhone, expediente.oportunidad_id);
-                whatsappService.sendText(partnerPhone, partnerMsg)
-                    .catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
-            }
-        }
-
-        // --- EMAIL ---
-        if (chFilter.includes('email')) {
-            const av = avisoCliente(cli);
-            if (targets.includes('CLIENTE') && av.email) {
-                channels.email.push('cliente');
-                await emailService.sendCeeInicialRegistradoClientEmail(av.email, clienteName, numExp, portalLink, av.tercero ? av.titular : null)
-                    .catch(e => console.error(`${tag} Email Cliente:`, e.message));
-            }
-            if (targets.includes('ADMIN')) {
-                channels.email.push('admin');
-                await emailService.sendCeeRegistradoStaffEmail('franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink)
-                    .catch(e => console.error(`${tag} Email Admin:`, e.message));
-            }
-            if (targets.includes('PARTNER') && partnerEmail) {
-                channels.email.push('partner');
-                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink)
-                    .catch(e => console.error(`${tag} Email Partner:`, e.message));
-            }
-        }
-
-        console.log(`${tag} Disparado: whatsapp=[${channels.whatsapp.join(',')}] email=[${channels.email.join(',')}]`);
-        return { ok: true, whatsappState: waState, channels };
-    } catch (err) {
-        console.error(`${tag} Error en notificaciones:`, err);
-        return { ok: false, reason: err.message };
-    }
-}
-
-async function notifyCeeFinalRegistrado(expediente, filters = {}) {
-    const targets  = filters.targets  || ['CLIENTE', 'PARTNER', 'ADMIN'];
-    const chFilter = filters.channels || ['email', 'whatsapp'];
-    const tag = `[CEE-FINAL ${expediente.id}]`;
-    try {
-        const { cli, op, techName, partnerPhone, partnerEmail } = await loadNotificationContext(expediente);
-        if (!cli) {
-            console.warn(`${tag} cliente_id=${expediente.cliente_id} no encontrado, abortando notificaciones`);
-            return { ok: false, reason: 'cliente-not-found' };
-        }
-
-        const numExp = expediente.numero_expediente || op?.id_oportunidad || expediente.id;
-        // Se saluda a quien RECIBE el mensaje, no siempre al titular.
-        const clienteName = nombreParaSaludo(cli);
-        const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
-        const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
-        const expedienteLink = `https://app.brokergy.es/?exp=${expediente.id}`;
-
-        const waState = whatsappService.getStatus?.()?.state || 'unknown';
-        const cliPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
-        console.log(`${tag} Disparando notificaciones (targets=[${targets}], channels=[${chFilter}], wa=${waState})`);
-
-        const channels = { whatsapp: [], email: [] };
-
-        // Textos por destinatario (compartidos con la previsualización) + overrides del admin.
-        const msgs = buildCeeRegistradoMessages('final', { numExp, clienteName, clienteFull, portalLink: null, expedienteLink, ...avisoCliente(cli) });
-        const overrides = filters.overrides || {};
-        if (filters.preview) return { ok: true, preview: msgs };
-        const clientMsg = overrides.CLIENTE || msgs.CLIENTE;
-        const adminMsg  = overrides.ADMIN  || msgs.ADMIN;
-        const partnerMsg = overrides.PARTNER || msgs.PARTNER;
-
-        // --- WHATSAPP ---
-        if (chFilter.includes('whatsapp')) {
-            if (targets.includes('CLIENTE') && cliPhone) {
-                channels.whatsapp.push('cliente');
-                whatsappService.sendText(cliPhone, clientMsg)
-                    .catch(e => console.error(`${tag} WhatsApp Cliente:`, e.message));
-            } else if (targets.includes('CLIENTE') && !cliPhone) {
-                console.warn(`${tag} Cliente sin teléfono, no se envía WhatsApp`);
-            }
-
-            if (targets.includes('ADMIN')) {
-                const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
-                channels.whatsapp.push('admin');
-                whatsappService.sendText(adminPhone, adminMsg)
-                    .catch(e => console.error(`${tag} WhatsApp Admin:`, e.message));
-            }
-
-            if (targets.includes('PARTNER') && partnerPhone) {
-                channels.whatsapp.push('partner');
-                whatsappService.sendText(partnerPhone, partnerMsg)
-                    .catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
-            }
-        }
-
-        // --- EMAIL ---
-        if (chFilter.includes('email')) {
-            if (targets.includes('ADMIN')) {
-                channels.email.push('admin');
-                await emailService.sendCeeRegistradoStaffEmail('franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink)
-                    .catch(e => console.error(`${tag} Email Admin:`, e.message));
-            }
-            if (targets.includes('PARTNER') && partnerEmail) {
-                channels.email.push('partner');
-                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink)
-                    .catch(e => console.error(`${tag} Email Partner:`, e.message));
-            }
-        }
-
-        console.log(`${tag} Disparado: whatsapp=[${channels.whatsapp.join(',')}] email=[${channels.email.join(',')}]`);
-        return { ok: true, whatsappState: waState, channels };
-    } catch (err) {
-        console.error(`${tag} Error en notificaciones:`, err);
-        return { ok: false, reason: err.message };
-    }
-}
-
+// ─── Aviso de CEE registrado ──────────────────────────────────────────────────
+// Vive en services/ceeRegistradoAviso.js: lo dispara también la presentación
+// AUTOMÁTICA del CEE inicial (presentacionCeeService), que no puede tirar de una ruta.
+const ceeRegistradoAviso = require('../services/ceeRegistradoAviso');
+const { nombreParaSaludo, avisoCliente, notifyCeeInicialRegistrado, notifyCeeFinalRegistrado } = ceeRegistradoAviso;
 
 // ─── Alertas: CEE entregados y sin revisar ───────────────────────────────────
 // El certificador factura al ENTREGAR, no al revisar. Estas dos rutas exponen lo
@@ -3039,27 +2765,18 @@ router.post('/:id/notify-registration', enforceAuth, async (req, res) => {
         const uploadLink = await reformaUploadService.ensureUploadLink(op.id);
         const labelType = type === 'final' ? 'Final' : 'Inicial';
 
-        const photoTextEmail = `📸 Recuerda hacerle fotografías a todo:
-• Caldera existente y placa de fabricación.
-• Desmontaje de la caldera.
-• Montaje de la aerotermia.
-• Fotos de las nuevas placas de fabricación (tanto de la unidad exterior como de la interior).
-
-Las fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.
-
-Puedes subirlas directamente al expediente a través de este enlace:
-🔗 ${uploadLink}`;
-
-        const photoTextWA = `📸 Recuerda hacerle fotografías a todo:
-• *Caldera existente y placa de fabricación.*
-• *Desmontaje de la caldera.*
-• *Montaje de la aerotermia.*
-• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).
-
-Las fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.
-
-Puedes subirlas directamente al expediente a través de este enlace:
-🔗 ${uploadLink}`;
+        // Las fotos: SOLO lo que falta de la obra, como en el aviso automático
+        // (ceeRegistradoAviso.bloqueFotos). Al cliente en lenguaje de casa; al
+        // instalador, con las facturas y su enlace.
+        const pend = type === 'final' ? null : await ceeRegistradoAviso.pendientesObra(op.id);
+        const linkFotos = pend?.link || uploadLink;
+        const fotos = (para, wa) => ceeRegistradoAviso.bloqueFotos(pend, {
+            para, wa, link: para === 'instalador' ? ceeRegistradoAviso.enlaceInstalador(linkFotos) : linkFotos,
+        }).texto;
+        const photoTextEmail = fotos('cliente', false);
+        const photoTextWA = fotos('cliente', true);
+        const photoTextEmailInst = fotos('instalador', false);
+        const photoTextWAInst = fotos('instalador', true);
 
         const closingTextEmail = `Una vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n¡Muchas gracias!\nBROKERGY — Ingeniería Energética`;
         const closingTextWA = `Una vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
@@ -3114,7 +2831,7 @@ Puedes subirlas directamente al expediente a través de este enlace:
                             const intro = `¡Hola ${partnerName}!\n\nTe informamos que ya se ha presentado el Certificado de Eficiencia Energética ${labelType} de tu cliente:`;
                             const info = `Cliente: ${clienteFull}\nDirección: ${ubicacion}\nExpediente: ${numExp}`;
                             const body = type === 'inicial'
-                                ? `${intro}\n\n${info}\n\n${photoTextEmail}\n\n${closingTextEmail}`
+                                ? `${intro}\n\n${info}\n\n${photoTextEmailInst}\n\n${closingTextEmail}`
                                 : `${intro}\n\n${info}\n\nEl proceso continúa según lo previsto.\n\n¡Muchas gracias!\nBROKERGY — Ingeniería Energética`;
                             await emailService.sendMail({ to: c.email, subject: partnerSubject, text: body }).catch(e => console.error('Error Email Partner:', e.message));
                         }
@@ -3124,7 +2841,7 @@ Puedes subirlas directamente al expediente a través de este enlace:
                             const waIntro = `¡Hola *${partnerName}*!\n\nTe informamos que ya se ha presentado el *Certificado de Eficiencia Energética ${labelType.toUpperCase()}* de tu cliente:`;
                             const waInfo = `*Cliente:* *${clienteFull}*\n*Dirección:* ${ubicacion}\n*Expediente:* ${numExp}`;
                             const waBody = type === 'inicial'
-                                ? `${waIntro}\n\n${waInfo}\n\n${photoTextWA}\n\n${closingTextWA}`
+                                ? `${waIntro}\n\n${waInfo}\n\n${photoTextWAInst}\n\n${closingTextWA}`
                                 : `${waIntro}\n\n${waInfo}\n\nEl proceso continúa según lo previsto.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
                             await whatsappService.sendText(c.tlf, waBody).catch(e => console.error('Error WA Partner:', e.message));
                         }

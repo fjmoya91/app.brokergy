@@ -742,19 +742,22 @@ async function subirDevuelto(negocioUrl, id, fase, token, { tipo, buffer, mimety
  * la skill `presentar-cee` cuando presenta ella. Corre en el servidor que tiene el
  * WhatsApp conectado, así que los avisos salen como cuando sube el certificador.
  * `quien` dice cómo se cuenta en el historial («Fran (presentación automática)»).
+ * `avisar` (la llamada con clave interna: la skill `presentar-cee`): con el CEE
+ * INICIAL de un expediente recién registrado, el aviso al cliente y al instalador
+ * sale solo (`ceeRegistradoAviso.avisarTrasPresentar`).
  */
-async function subirDevueltoInterno(origen, id, fase, { tipo, buffer, mimetype, nombreOriginal, quien }) {
+async function subirDevueltoInterno(origen, id, fase, { tipo, buffer, mimetype, nombreOriginal, quien, avisar = false }) {
     if (origen !== 'cee_directo' && origen !== 'expediente') throw err(400, 'Negocio no válido.');
     const fz = normFase(fase);
     const row = await cargarFila(origen, id);
     const texto = String(quien || 'BROKERGY').slice(0, 60);
     return devolver(
-        { origen, row, fz, encargo: encargoDe(row, fz), quien: { texto, usuario: texto.toUpperCase() } },
+        { origen, row, fz, encargo: encargoDe(row, fz), quien: { texto, usuario: texto.toUpperCase() }, avisar },
         { tipo, buffer, mimetype, nombreOriginal },
     );
 }
 
-async function devolver({ origen, row, fz, encargo, quien }, { tipo, buffer, mimetype, nombreOriginal }) {
+async function devolver({ origen, row, fz, encargo, quien, avisar = false }, { tipo, buffer, mimetype, nombreOriginal }) {
     if (!buffer?.length) throw err(400, 'No ha llegado ningún fichero.');
 
     if (tipo === 'registro') {
@@ -762,12 +765,21 @@ async function devolver({ origen, row, fz, encargo, quien }, { tipo, buffer, mim
             throw err(400, 'El justificante de registro tiene que ser un PDF.');
         }
         const { subirCae, subirCeeDirecto } = require('./cee/subidaCeePublica');
+        const aviso = require('./ceeRegistradoAviso');
+        const avisoAuto = avisar && origen === 'expediente' && fz === 'inicial' && aviso.avisoAutoActivado();
         const r = origen === 'cee_directo'
             ? await subirCeeDirecto({ id: row.id, fase: fz, slot: 'registro', buffer, mimetype, quien })
-            : await subirCae({ expedienteId: row.id, fase: fz, slot: 'registro', buffer, mimetype, quien });
+            : await subirCae({ expedienteId: row.id, fase: fz, slot: 'registro', buffer, mimetype, quien, avisoAutomatico: avisoAuto });
         if (encargo) {
             try { await guardarEncargo(origen, row.id, fz, { ...encargo, registrado_at: new Date().toISOString() }); }
             catch (e) { console.warn('[presentacion-cee] sello de registrado:', e.message); }
+        }
+        // Solo si ESTA subida es la que lo ha registrado: un justificante repetido no
+        // vuelve a escribir a nadie. Un fallo del aviso no tumba la subida: queda en el
+        // historial y se reenvía desde el módulo CEE.
+        if (avisoAuto && r.registrado && !r.ya_registrado) {
+            try { r.aviso_cliente = await aviso.avisarTrasPresentar(row.id, { quien: quien.texto }); }
+            catch (e) { console.error('[presentacion-cee] aviso al cliente:', e.message); r.aviso_cliente = { ok: false, reason: e.message }; }
         }
         return r;
     }
@@ -836,4 +848,6 @@ module.exports = {
     ficheroPublico,
     subirDevuelto,
     subirDevueltoInterno,
+    // Para test_aviso_cee_registrado.js: el disparo del aviso sin cargar la fila.
+    devolver,
 };

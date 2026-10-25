@@ -1675,8 +1675,31 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
  */
 // `titular`: solo cuando lo lee la PERSONA DE CONTACTO del cliente (o el partner):
 // entonces no es "tu expediente", es el de ese titular.
-const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, portalLink, titular = null) => {
+// `fotos`: lo que falta de la obra (`ceeRegistradoAviso.bloqueFotos`, para el cliente):
+// solo se piden esas, y se dice lo que ya tenemos. Sin él, la lista de siempre.
+const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, portalLink, titular = null, fotos = null) => {
     const subject = `✅ CEE INICIAL PRESENTADO — ${numExp}`;
+    const enlaceFotos = fotos?.link || portalLink;
+    const bloqueFotosHtml = !fotos
+        ? emailP('📸 <strong>Recuerda hacerle fotografías a todo:</strong>', { mb: 8 }) +
+          emailList([
+              'Caldera existente y placa de fabricación.',
+              'Desmontaje de la caldera.',
+              'Montaje de la aerotermia.',
+              'Fotos de las nuevas placas de fabricación (tanto de la exterior como interior).',
+          ])
+        : (fotos.tenemos?.length
+            ? emailP('✅ <strong>Ya tenemos estas fotos</strong> (no hace falta que las vuelvas a mandar):', { mb: 8 }) + emailList(fotos.tenemos.map(escapeHtml))
+            : '') +
+          (fotos.antes?.length
+            ? emailP('📸 <strong>Antes de empezar la obra</strong> necesitamos (después ya no se pueden hacer):', { mb: 8 }) + emailList(fotos.antes.map(escapeHtml))
+            : '') +
+          (fotos.despues?.length
+            ? emailP('📸 <strong>Durante y al terminar la obra</strong>, recuerda hacer fotos de:', { mb: 8 }) + emailList(fotos.despues.map(escapeHtml))
+            : '') +
+          (fotos.completo
+            ? emailP('✅ Ya tenemos todas las fotos de la obra: no tienes que mandarnos nada más por ahora. ¡Gracias!', { mb: 22 })
+            : '');
     const delExp = titular
         ? `del expediente <strong>${escapeHtml(numExp)}</strong> de <strong>${escapeHtml(titular)}</strong>`
         : `de tu expediente <strong>${escapeHtml(numExp)}</strong>`;
@@ -1691,15 +1714,10 @@ const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, porta
             emailP(`¡Hola <strong>${escapeHtml(clientName)}</strong>!`, { mb: 15 }) +
             emailP(`Te escribimos para comunicarte que ya ha sido presentado el Certificado de Eficiencia Energética INICIAL ${delExp}.`, { color: BRAND.muted, mb: 22 }) +
             emailBox(emailP('Desde este momento ya se pueden emitir facturas y pagos.', { bold: true, color: BRAND.greenDark, mb: 0 }), { bg: BRAND.greenTint, border: BRAND.green, mb: 22 }) +
-            emailP('📸 <strong>Recuerda hacerle fotografías a todo:</strong>', { mb: 8 }) +
-            emailList([
-                'Caldera existente y placa de fabricación.',
-                'Desmontaje de la caldera.',
-                'Montaje de la aerotermia.',
-                'Fotos de las nuevas placas de fabricación (tanto de la exterior como interior).',
-            ]) +
-            emailP('Las fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.', { size: 14, color: BRAND.muted, mb: 22 }) +
-            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr><td align="center">${emailButton(portalLink, 'Subir Fotografías')}</td></tr></table>` +
+            bloqueFotosHtml +
+            (fotos?.completo ? '' :
+                emailP('Las fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.', { size: 14, color: BRAND.muted, mb: 22 }) +
+                `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr><td align="center">${emailButton(enlaceFotos, 'Subir Fotografías')}</td></tr></table>`) +
             emailP('Una vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.', { size: 14, color: BRAND.muted, center: true, mb: 0 }),
     });
 
