@@ -401,11 +401,20 @@ const MOTOR = process.env.CEE_ENGINE_URL || 'http://127.0.0.1:8090';
 async function motorVivo() {
     try { return (await fetch(`${MOTOR}/health`, { signal: AbortSignal.timeout(4000) })).ok; } catch { return false; }
 }
+// REGLA — el motor se levanta en el host y el puerto de CEE_ENGINE_URL, no en un 8090 fijo. En el PC
+// el 8090 es la vista previa de la copia principal, con el código a medias de otras sesiones; el PC
+// (brokergy-pc) tiene el suyo en el 8093. Con el 8090 fijo, tras reiniciar el PC se arrancaba donde no
+// se miraba y la calificación fallaba (25/10/2026, 2026EXT_1).
+function hostPuertoMotor(url = MOTOR) {
+    const u = new URL(url);
+    return { host: u.hostname, puerto: u.port || (u.protocol === 'https:' ? '443' : '80') };
+}
 // El motor (cee-engine) tiene que responder: `calificar` rehace el .cex desde la receta. Si no está,
 // se levanta como dice su README y se espera hasta 90 s.
 async function asegurarMotor() {
     if (await motorVivo()) return null;
-    spawn(process.env.PC_PYTHON || 'python', ['-m', 'uvicorn', 'server:app', '--host', '127.0.0.1', '--port', '8090'],
+    const { host, puerto } = hostPuertoMotor();
+    spawn(process.env.PC_PYTHON || 'python', ['-m', 'uvicorn', 'server:app', '--host', host, '--port', puerto],
         { cwd: path.join(REPO, 'implementation', 'cee-engine'), detached: true, stdio: 'ignore', windowsHide: true }).unref();
     for (let i = 0; i < 45; i++) {
         // eslint-disable-next-line no-await-in-loop
@@ -592,4 +601,5 @@ if (require.main === module) {
 }
 
 module.exports = { estadoPc, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, TASA, TARJETA, TRABAJOS_CE3X,
-    MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt };
+    MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt,
+    _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor };

@@ -40,7 +40,7 @@ paths:
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19) · 12,7 KB
 - `docs/conocimiento/claude-automatizacion/el-cee-inicial-por-la-api-banco-de-pruebas-y-coste.md` — El CEE inicial por la API de Claude: banco de pruebas y coste medido (2026-10-19) · 4,1 KB
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08) · 9,1 KB
-- `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 8,5 KB
+- `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 9,2 KB
 - `docs/conocimiento/claude-automatizacion/tras-la-aceptacion-el-agente-revisa-y-pide-lo-que-falta.md` — Tras la ACEPTACIÓN, el agente revisa la documentación y pide lo que falta, o hace el CEE inicial (2026-10-22) · 9,8 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -82,6 +82,7 @@ documento.**
   - **REGLA — la vuelta no suelta el trabajo.**
   - **REGLA — el mensaje final lo manda el script, no Claude.**
   - **REGLA — un trabajo con CE3X es de un CATÁLOGO cerrado y va SIN Chrome.**
+  - **REGLA — el PC califica con SU motor, en el puerto de su `CEE_ENGINE_URL` (8093), no en el 8090.**
 - `docs/conocimiento/claude-automatizacion/tras-la-aceptacion-el-agente-revisa-y-pide-lo-que-falta.md`
   - **REGLA — `aceptacion.js pedir --enviar` es la ÚNICA cosa que el agente manda a un tercero sin el
 «envíala» de Fran, y lleva sus topes.**

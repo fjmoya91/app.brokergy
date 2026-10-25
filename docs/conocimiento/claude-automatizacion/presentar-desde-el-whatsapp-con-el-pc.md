@@ -84,11 +84,19 @@ hoy. Un trabajo que falla no se reintenta solo («cuando lo mires, pídemelo otr
 **`calificar_ext`: calificar el CEE de una obra de la app de certificadores, sin Claude**
 (2026-10-25). El agente del VPS deja el `.cex` de una obra `{año}EXT_{n}` por calificar y la app lo
 encarga sola (`/pc-calificar` → `encolarCalificarExt`, deduplicada). La vuelta del PC levanta el motor
-si hace falta (`asegurarMotor`: uvicorn en el 8090, hasta 90 s) y lanza `node scripts/cee_inicial.js
-calificar <nº> --escribir`: no hay nada que decidir, así que va sin Claude y sin Chrome. Al terminar,
-`cee_inicial.js` avisa a producción (`/api/certapp-admin/interno/calificada`) e imprime
-`@@CALIFICADA_OK <nº>`; **sin esa marca la tarea ha fallado** y solo entonces se le escribe a Fran.
-Si sale bien, no se dice nada: el aviso «listo para revisar» lo manda producción.
+si hace falta (`asegurarMotor`: uvicorn en el host y el puerto de `CEE_ENGINE_URL`, hasta 90 s) y lanza
+`node scripts/cee_inicial.js calificar <nº> --escribir`: no hay nada que decidir, así que va sin Claude
+y sin Chrome. Al terminar, `cee_inicial.js` avisa a producción (`/api/certapp-admin/interno/calificada`)
+e imprime `@@CALIFICADA_OK <nº>`; **sin esa marca la tarea ha fallado** y solo entonces se le escribe a
+Fran. Si sale bien, no se dice nada: el aviso «listo para revisar» lo manda producción.
+
+**REGLA — el PC califica con SU motor, en el puerto de su `CEE_ENGINE_URL` (8093), no en el 8090.** El
+8090 es la vista previa de la copia principal (`C:\Proyectos\app.brokergy`), con el código a medias de
+otras sesiones. `asegurarMotor` reutiliza lo que responda en `CEE_ENGINE_URL`, así que con la 2026EXT_1
+(25/10/2026) el PC iba a calificar con un motor sin el arreglo del frío por encima del 100 %. Desde
+entonces el `.env` de `C:\Proyectos\brokergy-pc` apunta al 8093 y `asegurarMotor` levanta el motor en el
+puerto de esa URL (`hostPuertoMotor`); antes lo arrancaba siempre en el 8090 y, tras reiniciar el PC,
+no lo encontraba donde miraba.
 `comprobarNumero` admite los EXT (`certapp_obras`; archivada, error) y `ce3x <nº>` de un EXT solo
 acepta `--trabajo calificar`.
 
