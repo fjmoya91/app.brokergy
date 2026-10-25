@@ -69,6 +69,12 @@ confirmado en Auth (403 `EMAIL_SIN_CONFIRMAR`). Un email que ya es de otra cuent
   `/beta` ([googleActivo.js](implementation/frontend/src/certificadores/publico/googleActivo.js) lee
   `external.google` de `/auth/v1/settings`, público con la clave anon): con él apagado, `signInWithOAuth`
   lleva a una página de error de Supabase. Al activarlo aparece solo, sin desplegar.
+  **Activado el 25/10/2026**: cliente «CEE by BROKERGY (Supabase)» (Aplicación web) en el proyecto de
+  Google Cloud **Brokergy-App**, el mismo de la marca «BROKERGY» (externa, en producción) y del cliente de
+  Escritorio de Drive/Gmail, que no se toca. Solo pide `email profile` (no sensibles: sin aviso de «app no
+  verificada» ni límite de 100 usuarios). Mientras la marca no se verifique, Google enseña «Ir a
+  okfeopwetlxdffrsbfqw.supabase.co». Comprobado: `/auth/v1/settings` da `google: true`, el botón sale en
+  `/entrar` y `/beta`, y lleva a la pantalla de Google sin error, con la vuelta a `cee.brokergy.es`.
 - **Authentication → URL Configuration → Redirect URLs**: `https://cee.brokergy.es/**` y, para probar en
   local, `http://cee.localhost:5195/**`. Sin ellas, Google vuelve a la Site URL (el CRM).
 - **«Allow new users to sign up»** encendido (Google crea el usuario al primer acceso) y **«Confirm
