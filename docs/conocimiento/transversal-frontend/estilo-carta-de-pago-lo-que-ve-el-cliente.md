@@ -142,5 +142,9 @@ pida para ella.
    (≥ 2,5 s): una captura a mitad de dibujo engaña.
 2. Que no haya scroll horizontal a 360 px, ni errores en la consola.
 3. Que los objetivos táctiles midan ≥ 44 px y el texto pequeño tenga contraste AA.
-4. Que en PC (≥ 768 px) quede en una columna de 440–480 px centrada.
+4. Que en PC (≥ 768 px) quede en una columna de 440–480 px centrada. **Excepción: una landing
+   de captación** (la de cee.brokergy.es, Fran 25/10/2026: «que en versión PC se vea mucho
+   mejor») se abre a lo ancho desde 1024 px — ver «La landing en el ordenador» en
+   `certificadores-app/00-la-app-de-certificadores.md`. Los enlaces de un expediente siguen en
+   columna.
 5. Se enseña al usuario con las capturas, antes de subir nada.

@@ -472,6 +472,94 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
   .ca-ficha{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}
   .ca-lateral{position:sticky;top:84px}
 }
+/* landing a lo ancho (publico/Landing.jsx): en el móvil, la columna de siempre;
+   desde 1024 px, portada a dos columnas con la maqueta y secciones en rejilla */
+.ca-land-nav{display:flex;align-items:center;gap:14px}
+.ca-land-nota{margin:12px 4px 0;text-align:center}
+.ca-land-cta{margin-top:24px}
+/* la palabra en lima, por DEBAJO del texto: si no, su fondo tapa los rabos de la línea de arriba («preparado») */
+.ca-hero .ca-mark{position:relative;z-index:-1}
+@media (max-width:1023px){.ca-solo-ancho{display:none!important}}
+@media (min-width:1024px) and (max-width:1199px){
+  .ca-land-hero{gap:44px!important}
+  .ca-mq-ficheros{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@media (min-width:1024px){
+  .ca-con-land .ca-halo{height:900px;background:radial-gradient(42% 55% at 80% 26%,rgba(199,246,1,.16),transparent 70%),radial-gradient(48% 50% at 18% 0%,rgba(255,160,0,.13),transparent 70%)}
+  .ca-land{max-width:1200px;padding:22px 40px 56px}
+  .ca-land .ca-head{margin:4px 0 0}
+  .ca-land .ca-logo{height:30px}
+  .ca-land-nav{gap:22px}
+  .ca-land-nav .ca-btn-peq{min-height:42px;padding:0 18px}
+  .ca-land-hero{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,.94fr);gap:72px;align-items:center;padding:64px 0 56px}
+  .ca-land .ca-hero{padding-top:0}
+  .ca-land .ca-h1{font-size:clamp(60px,5.6vw,80px);line-height:1.06;letter-spacing:-.01em;margin:16px 0 0}
+  .ca-land .ca-hero .ca-sub{font-size:18px;line-height:1.62;max-width:34em;margin:24px 0 0}
+  .ca-land .ca-hero .ca-btns{grid-auto-flow:column;justify-content:start;gap:12px;margin-top:32px}
+  .ca-land .ca-hero .ca-btn{width:auto;padding:0 28px}
+  .ca-land-nota{text-align:left;margin:16px 2px 0}
+  /* maqueta de lo que se entrega */
+  .ca-mq{position:relative;padding:30px 30px 52px 18px}
+  .ca-mq-fondo{position:absolute;inset:6px 0 26px 46px;border-radius:34px;background:linear-gradient(150deg,rgba(255,160,0,.20),rgba(238,228,117,.22) 50%,rgba(181,207,56,.24));transform:rotate(3.5deg)}
+  .ca-mq-card{position:relative;padding:26px 26px 22px;box-shadow:0 1px 2px rgba(20,17,17,.04),0 34px 70px -30px rgba(20,17,17,.32)}
+  .ca-mq-tit{font-size:32px;line-height:1.05;margin:12px 0 0}
+  .ca-mq-pasos{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:8px}
+  .ca-mq-pasos li{display:flex;align-items:center;gap:10px;font-size:13.5px;line-height:1.3;color:#3b3e45}
+  .ca-mq-pasos svg{flex:none;width:22px;height:22px;padding:4px;border-radius:999px;background:rgba(177,209,62,.25);color:var(--verde-txt)}
+  .ca-mq-plano{margin-top:16px;border-radius:16px;background:var(--crema);border:1px solid var(--linea);overflow:hidden}
+  .ca-mq-croquis{display:block;width:100%;height:auto}
+  .ca-mq-ficheros{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+  .ca-mq-ficheros span{display:flex;flex-direction:column;gap:4px;padding:10px 11px;border-radius:12px;background:var(--crema);border:1px solid var(--linea);font-size:11.5px;line-height:1.2;color:var(--gris)}
+  .ca-mq-ficheros b{font:700 18px/1 'Antonio','Inter',sans-serif;color:var(--tinta)}
+  .ca-mq-aviso{position:absolute;left:-14px;bottom:10px;display:flex;align-items:center;gap:12px;padding:12px 18px 12px 12px;background:#fff;border:1px solid var(--linea);border-radius:18px;box-shadow:0 20px 44px -20px rgba(20,17,17,.38);animation:ca-up .6s cubic-bezier(.2,.8,.2,1) .35s both}
+  .ca-mq-aviso .ca-ico-tile{width:38px;height:38px;border-radius:12px}
+  .ca-mq-aviso b{display:block;font-size:14px;line-height:1.3}
+  .ca-mq-aviso small{display:block;font-size:12px;line-height:1.35;color:var(--gris)}
+  .ca-mq-firma{position:absolute;right:4px;top:8px;display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 15px 0 12px;border-radius:999px;background:var(--tinta);color:#fff;font:700 13px 'Inter',sans-serif;box-shadow:0 14px 30px -14px rgba(20,17,17,.6);animation:ca-up .6s cubic-bezier(.2,.8,.2,1) .5s both}
+  .ca-mq-firma svg{color:var(--lima)}
+  /* lo que es, en una línea */
+  .ca-land-hechos{list-style:none;margin:0;padding:20px 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--linea);border-bottom:1px solid var(--linea)}
+  .ca-land-hechos li{display:flex;gap:12px;align-items:flex-start;padding:2px 22px}
+  .ca-land-hechos li:first-child{padding-left:4px}
+  .ca-land-hechos li + li{border-left:1px solid var(--linea)}
+  .ca-land-hechos svg{flex:none;margin-top:2px;color:var(--naranja-txt)}
+  .ca-land-hechos span{font-size:13px;line-height:1.45;color:var(--gris)}
+  .ca-land-hechos b{display:block;font-size:14.5px;color:var(--tinta)}
+  /* cabecera de cada sección */
+  .ca-land-cab{margin:96px 0 28px}
+  .ca-land-cab .ca-sec{margin:0 2px 12px}
+  .ca-land-h2{font-size:46px;line-height:1.04;margin:0;max-width:15em}
+  /* cómo funciona: tres tarjetas */
+  .ca-land .ca-pasos3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;padding:0;background:none;border:0;box-shadow:none}
+  .ca-land .ca-pasos3 li{position:relative;flex-direction:column;gap:20px;padding:28px 28px 30px;background:#fff;border:1px solid var(--linea);border-radius:24px;box-shadow:var(--sombra)}
+  .ca-land .ca-pasos3 li + li{border-top:1px solid var(--linea)}
+  .ca-land .ca-num3{width:auto;height:auto;display:block;background:none;border:0;font-size:64px;line-height:.85}
+  .ca-land .ca-pasos3 li > .ca-ico-tile{position:absolute;top:26px;right:26px}
+  .ca-land .ca-pasos3 b{font-size:19px}
+  .ca-land .ca-pasos3 p{font-size:15px;line-height:1.6;margin-top:8px}
+  /* entrega y para quién, lado a lado */
+  .ca-land-dos{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:40px;align-items:start}
+  .ca-land-entrega{padding:30px 30px 26px}
+  .ca-land-entrega .ca-lista li{font-size:15.5px;padding:12px 0}
+  .ca-land-entrega .ca-lista li + li{border-top:1px solid var(--linea)}
+  .ca-land .ca-para .ca-fila{min-height:78px;padding:16px 20px}
+  /* dudas: título fijo a la izquierda */
+  .ca-land-faq{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);gap:56px;align-items:start;margin-top:96px}
+  .ca-land-faq > .ca-land-cab{margin:0;position:sticky;top:32px}
+  .ca-land .ca-faq-q{min-height:64px;padding:16px 18px 16px 22px;font-size:16.5px}
+  .ca-land .ca-faq-a{padding:0 22px 20px;font-size:15px}
+  /* llamada final */
+  .ca-land-cta{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:48px;align-items:center;margin-top:96px;padding:46px 50px}
+  .ca-land-cta .ca-h2{font-size:52px}
+  .ca-land-cta .ca-txt{font-size:16.5px;max-width:36em;margin-top:12px}
+  .ca-land-cta .ca-btns{margin-top:0}
+  .ca-land-cta .ca-btn{width:auto;min-height:60px;padding:0 32px}
+  /* firma y pie en una fila */
+  .ca-land > footer{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-top:56px;padding-top:24px;border-top:1px solid var(--linea)}
+  .ca-land .ca-firma{margin:0;padding:0;border:0}
+  .ca-land .ca-pie{margin:0}
+}
+@media (min-width:1024px) and (prefers-reduced-motion:reduce){.ca-mq-aviso,.ca-mq-firma{animation:none}}
 /* la ficha por fases (obra/Fases.jsx) */
 .ca-col-fases{position:relative;z-index:1;max-width:760px;margin:0 auto;padding:18px 16px calc(48px + env(safe-area-inset-bottom) + var(--ca-inf))}
 .ca-col-fases > * + *,.ca-col > .ca-fase-plegada,.ca-col > .ca-fase{margin-top:12px}

@@ -99,6 +99,24 @@ cada compra y cada certificado gastado tengan su sitio sin rehacer nada.
 - Las cifras salen del saldo de la cuenta y de TODAS sus compras, no de la página de la lista:
   `recibidos_gratis = disponibles + usados − comprados`.
 
+### La landing en el ordenador (25/10/2026)
+
+Fran: «mejora la página principal para que en versión PC se vea mucho mejor». Hasta ese día la landing
+era la columna del móvil (560 px) centrada en una pantalla de 1440: mucho vacío y nada que enseñar.
+
+- **El móvil no cambia** (texto, orden y medidas). Desde **1024 px** el contenedor `.ca-land` se abre a
+  1200 px: portada a dos columnas (titular a 60–80 px y, a la derecha, la **maqueta** de lo que se
+  entrega: el CEE «listo para revisar», un croquis de muestra con sus huecos, los cuatro ficheros, el aviso
+  de WhatsApp y «lo firmas tú»), una franja de cuatro hechos, los pasos en tres tarjetas, entrega y «para
+  quién» lado a lado, las dudas con su título fijo a la izquierda y la llamada final en una fila.
+- Lo que solo existe en el PC lleva **`.ca-solo-ancho`** (oculto por debajo de 1024). Los títulos grandes de
+  cada sección son de ese tipo: en el móvil manda la etiqueta pequeña de siempre.
+- **REGLA — la maqueta y los textos nuevos dicen solo lo que la app hace**: ni cifras, ni testimonios, ni
+  una referencia catastral o un cliente de verdad. El croquis es un dibujo ilustrativo.
+- La palabra en lima del titular va **por debajo** del texto (`.ca-hero .ca-mark{z-index:-1}`): su fondo
+  tapaba los rabos de «preparado» en la línea de arriba, también en el móvil.
+- Comprobación: capturas a 1440, 1024 y 390 px sin scroll horizontal.
+
 ### Arquitectura
 
 | Qué | Dónde |
