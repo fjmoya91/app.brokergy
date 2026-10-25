@@ -34,13 +34,15 @@ import { tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 import { instaladorContacts, defaultContactIds } from '../../expedientes/utils/docContacts';
 // Las @font-face auto-alojadas: la MISMA función que usa el CIFO, para que los
 // dos documentos carguen sus tipografías por el mismo camino.
-import { buildFontFaces, FUENTE_INTER } from '../../expedientes/logic/fuentesDoc';
+import { buildFontFaces, FUENTE_PROPUESTA } from '../../expedientes/logic/fuentesDoc';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
 // Logo circular de Brokergy del co-branding de la portada — el mismo que usan el
 // resto de documentos generados (res080Doc.js, CertificadoRes080Modal.jsx).
 const BROKERGY_LOGO_PATH = '/logo-brokergy-circular.png';
+// Logotipo horizontal de la cabecera de cada hoja (estilo «carta de pago»).
+const BROKERGY_MARCA_PATH = '/logo_brokergy_dark.png';
 
 // ─── La tipografía de la propuesta se sirve DESDE LA PROPIA APP ──────────────
 //
@@ -59,7 +61,7 @@ const BROKERGY_LOGO_PATH = '/logo-brokergy-circular.png';
 // nombres de fichero en /public/fonts): el contenedor las pide a
 // `https://app.brokergy.es/fonts/…`, que es su propio nginx — 93 ms medidos y
 // sin depender de Google.
-const FUENTES_PROPUESTA = `<style>${buildFontFaces(APP_URL, FUENTE_INTER)}</style>`;
+const FUENTES_PROPUESTA = `<style>${buildFontFaces(APP_URL, FUENTE_PROPUESTA)}</style>`;
 
 const baseCss = `
         .prop-wrapper {
@@ -67,35 +69,35 @@ const baseCss = `
             /* Se aplicará scale mediante style inline */
         }
 
+        /* Estilo «carta de pago» (regla 164): papel crema, tarjetas blancas, tinta
+           casi negra, cifras y titulares en Antonio, UNA cifra protagonista, el
+           degradado naranja → verde solo como filete y UNA palabra en lima por
+           titular. Los avisos, en ámbar; nunca en rojo. */
         .prop-wrapper-inner {
-            --orange: #FF6D00;
-            --orange-dark: #E65100;
-            --orange-light: #FFF8ED;
-            --green: #00C853;
-            --green-dark: #008135;
-            --green-light: #EDF7ED;
-            --dark: #08090C;
-            --dark-mid: #13151A;
-            --g800: #171717;
-            --g700: #262626;
-            --g600: #404040;
-            --g500: #737373;
-            --g400: #A3A3A3;
-            --g300: #D4D4D4;
-            --g200: #E5E5E5;
-            --g100: #F5F5F5;
-            --g50: #FAFAFA;
-            --white: #FFFFFF;
-            --red: #EF4444;
-            --red-light: #FEF2F2;
-            --yellow: #FFA000;
-            --yellow-light: #FFFBEB;
+            --crema: #faf9f7;
+            --tinta: #141111;
+            --gris: #55585f;
+            --gris2: #6b6e76;
+            --linea: rgba(20,17,17,.08);
+            --linea2: rgba(20,17,17,.14);
+            --naranja: #ffa000;
+            --naranja-txt: #b33a0a;
+            --verde: #b1d13e;
+            --verde-txt: #4d6b0f;
+            --verde-suave: rgba(177,209,62,.16);
+            --lima: #c7f601;
+            --filete: linear-gradient(90deg, #fca508 0%, #f5c53f 30%, #eee475 55%, #c7d54c 78%, #b5cf38 100%);
+            --ambar-bg: #fff7e6;
+            --ambar-borde: #f6dca4;
+            --ambar-txt: #5c4100;
+            --display: 'Antonio', 'Inter', Impact, sans-serif;
 
+            color-scheme: light;
             font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-            color: var(--g700);
-            background: #DEE1E6;
+            color: var(--tinta);
+            background: #d9d6d0;
             -webkit-font-smoothing: antialiased;
-            line-height: 1.55;
+            line-height: 1.5;
             text-align: left;
             width: 794px; /* Ancho fijo A4 a 96 DPI */
             margin: 0 auto;
@@ -109,20 +111,20 @@ const baseCss = `
             width: 794px; /* Cambiado de 210mm a px para escalado preciso */
             height: 1123px; /* Cambiado de 297mm a px */
             margin: 0 auto;
-            background: var(--white);
-            color: var(--g700);
+            background: var(--crema);
+            color: var(--tinta);
             position: relative;
             overflow: hidden;
             page-break-after: always;
             break-after: page;
-            box-shadow: 0 4px 40px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 40px rgba(0,0,0,0.12);
             margin-bottom: 24px;
         }
 
         .prop-page:first-child { margin-top: 24px; }
         .prop-page:last-child { page-break-after: avoid; break-after: avoid; }
         /* Caja de contenido de cada página. 48px = margen del diseño original. */
-        .prop-pb { padding: 0 48px; }
+        .prop-pb { position: relative; padding: 0 48px; }
 
         /* ── Huecos elásticos de la portada ─────────────────────────────────
            La portada es una hoja A4 de altura FIJA con contenido muy variable.
@@ -131,292 +133,322 @@ const baseCss = `
            al tocarlos no cambia la altura intrínseca de nada y la cuenta sale
            clavada a la primera medición. El valor de aquí es el de reposo. */
         .prop-page {
-            --e-top: 20px;
+            --e-top: 12px;
             --e-h1sub: 7px;
-            --e-cobrand: 12px;
-            --e-kpis: 16px;
+            --e-cobrand: 10px;
+            --e-kpis: 12px;
             --e-meta: 10px;
-            --e-sec: 12px;
-            --e-nsm: 10px;
-            --e-row: 13px;
+            --e-sec: 11px;
+            --e-nsm: 6px;
+            --e-row: 7px;
             --e-cta: 13px;
         }
 
-        /* ── Barra superior negra ───────────────────────────────────────────── */
-        .prop-bar { background: var(--dark); padding: 16px 48px; display: flex; justify-content: space-between; align-items: center; }
-        .prop-bar-slim { padding: 14px 48px; }
-        .prop-bar-logo { font-size: 19px; font-weight: 900; color: var(--white); letter-spacing: 3px; line-height: 1; }
-        .prop-bar-slim .prop-bar-logo { font-size: 16px; letter-spacing: 2.6px; }
-        .prop-bar-logo span { color: var(--orange); }
-        .prop-bar-tag { color: rgba(255,255,255,0.45); font-size: 8px; letter-spacing: 2.6px; text-transform: uppercase; font-weight: 700; margin-top: 5px; }
-        .prop-bar-meta { text-align: right; color: rgba(255,255,255,0.5); font-size: 9.5px; line-height: 1.6; }
-        .prop-bar-num { color: var(--orange); font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; }
-        .prop-bar-page { color: rgba(255,255,255,0.42); font-size: 8.5px; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; }
+        /* Lo que va en Antonio: cifras y titulares. */
+        .prop-h1, .prop-h2, .prop-h3, .prop-stitle, .prop-importe, .prop-hip-v, .prop-cta h3,
+        .prop-at, .prop-ej-row b, .prop-pn, .prop-dph b, .prop-cnet-v, .prop-copromo-v span, .prop-cl h4 .n {
+            font-family: var(--display); font-weight: 700; letter-spacing: -0.005em;
+        }
+        .prop-mark { display: inline; line-height: 1.02; background: var(--lima); padding: 0 .12em; border-radius: 5px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+        .prop-card { background: #fff; border: 1px solid var(--linea); border-radius: 22px; box-shadow: 0 1px 2px rgba(20,17,17,.04), 0 8px 24px -12px rgba(20,17,17,.10); position: relative; overflow: hidden; }
+        .prop-card > .f { position: absolute; top: 0; left: 0; right: 0; height: 5px; background: var(--filete); }
+        .prop-eyebrow { font-size: 9.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--naranja-txt); }
+
+        /* ── Filete y cabecera ──────────────────────────────────────────────── */
+        .prop-filete { height: 5px; background: var(--filete); }
+        .prop-halo { position: absolute; inset: 0 0 auto 0; height: 420px; pointer-events: none;
+            background: radial-gradient(55% 60% at 30% 0%, rgba(255,160,0,.09), transparent 70%), radial-gradient(40% 50% at 92% 8%, rgba(199,246,1,.10), transparent 70%); }
+        /* Regla 5: la cabecera es CSS Grid, no Flexbox. */
+        .prop-bar { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; padding: 16px 48px 0; }
+        .prop-bar-slim { padding-top: 18px; }
+        .prop-logo { height: 28px; width: auto; display: block; }
+        .prop-bar-slim .prop-logo { height: 22px; }
+        .prop-bar-meta { text-align: right; }
+        .prop-exp { display: inline-block; font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--tinta); background: #fff; border: 1px solid var(--linea2); border-radius: 999px; padding: 7px 11px; letter-spacing: .02em; }
+        .prop-bar-fecha { font-size: 9.5px; color: var(--gris2); margin-top: 6px; line-height: 1.45; }
+        .prop-bar-fecha b { color: var(--tinta); font-weight: 700; }
 
         /* ── Portada ────────────────────────────────────────────────────────── */
-        .prop-eyebrow { font-size: 8.5px; font-weight: 800; letter-spacing: 2.4px; text-transform: uppercase; color: var(--orange-dark); }
-        .prop-h1 { margin: 6px 0 0; padding: 0; font-size: 25px; font-weight: 800; color: var(--dark); letter-spacing: -0.7px; line-height: 1.22; }
-        .prop-h1 em { font-style: normal; color: var(--orange); }
-        .prop-h1sub { color: var(--g500); font-size: 11px; margin-top: var(--e-h1sub); }
+        .prop-h1 { font-size: 30px; line-height: 1.08; margin: 6px 0 0; padding: 0; color: var(--tinta); }
+        .prop-h1sub { font-size: 11.5px; color: var(--gris); margin-top: var(--e-h1sub); }
         /* Foto oficial de fachada del Catastro, junto al titular. Es lo primero que
            el cliente reconoce —su casa— y de paso confirma que la referencia
            catastral con la que se ha calculado es la suya.
 
            La caja va ABSOLUTA y anclada arriba/abajo del bloque de texto, no como
            columna de un flex: así toma exactamente su altura sin poder aumentarla
-           —una foto apaisada estirada a 218px de ancho arrastraría la fila a 218px
-           de alto— y la portada no crece ni un pixel. Se recorta (object-fit: cover)
-           porque el Catastro devuelve fotos de proporcion muy variable y una banda
-           blanca al lado del titular canta mas que un recorte. */
+           y la portada no crece ni un pixel. Se recorta (object-fit: cover)
+           porque el Catastro devuelve fotos de proporción muy variable y una banda
+           blanca al lado del titular canta más que un recorte. */
         .prop-head { position: relative; }
-        .prop-head-txt { padding-right: 238px; }
-        .prop-headshot { position: absolute; top: 0; right: 0; bottom: 0; width: 218px; border-radius: 10px; overflow: hidden; border: 1px solid var(--g200); background: var(--g50); }
+        .prop-head-txt { padding-right: 232px; }
+        .prop-headshot { position: absolute; top: 0; right: 0; bottom: 0; width: 212px; border-radius: 18px; overflow: hidden; border: 1px solid var(--linea); background: #fff; box-shadow: 0 8px 24px -14px rgba(20,17,17,.25); }
         .prop-headshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
         /* Bloque del desglose económico, separado de la ficha de datos. */
         .prop-sec { margin-top: var(--e-sec); }
 
-        /* Co-branding con el instalador/prescriptor. El chip es blanco porque no
-           controlamos lo que sube el partner (PNG transparente, logo oscuro, logo
-           con fondo propio). El nombre se escribe SIEMPRE: hay instaladores sin
-           logo subido y el chip vacío no decía con quién se colabora. */
-        .prop-cobrand { margin-top: var(--e-cobrand); border: 1px solid var(--g200); border-radius: 12px; padding: 11px 18px; display: flex; align-items: center; gap: 22px; background: var(--g50); }
-        /* A la misma altura que el chip del instalador: la tarjeta no crece. */
-        .prop-cobrand-logo { width: 92px; height: 92px; flex: none; }
+        /* La cifra protagonista: la ayuda total, y a su lado de dónde sale. */
+        .prop-hero { margin-top: var(--e-kpis); display: grid; grid-template-columns: 1.2fr 1fr; }
+        .prop-hero.uno { grid-template-columns: 1fr; }
+        .prop-hero > .f { height: 6px; }
+        .prop-hero-a { padding: 16px 22px 13px; }
+        .prop-importe { font-size: 60px; line-height: .95; margin: 8px 0 0; display: flex; align-items: baseline; white-space: nowrap; color: var(--tinta); }
+        .prop-importe small { font-size: 29px; margin-left: 6px; }
+        .prop-hero-des { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .prop-hero-n { margin-top: 8px; font-size: 10.5px; color: var(--gris); }
+        .prop-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+        .prop-chip-verde { background: var(--verde-suave); color: var(--verde-txt); }
+        .prop-chip-crema { background: var(--crema); color: var(--tinta); border: 1px solid var(--linea); }
+        .prop-hero-b { padding: 16px 22px 10px; border-left: 1px solid var(--linea); background: linear-gradient(180deg, #fff, #fffdf8); }
+        .prop-hip-v { font-size: 36px; line-height: 1; margin-top: 10px; color: var(--verde-txt); white-space: nowrap; }
+        .prop-dl { margin: 0; }
+        .prop-dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--linea); font-size: 12px; }
+        .prop-dl > div:first-child { padding-top: 2px; }
+        .prop-dl > div:last-child { border-bottom: 0; }
+        .prop-dl > div.pct { display: block; }
+        .prop-dl > div.pct > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+        .prop-dl dt { color: var(--gris); }
+        .prop-dl dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .prop-dl .pct dd { color: var(--verde-txt); }
+        .prop-barra { height: 8px; border-radius: 99px; background: #efede9; overflow: hidden; margin: 7px 0 4px; }
+        .prop-barra i { display: block; height: 100%; border-radius: 99px; background: var(--verde); }
+        .prop-neta dd { font-size: 18px; font-weight: 800; }
+
+        /* Co-branding con el instalador/prescriptor. El logo del partner va suelto
+           sobre la tarjeta porque no controlamos lo que sube (PNG transparente,
+           logo oscuro, logo con fondo propio). El nombre se escribe SIEMPRE: hay
+           instaladores sin logo subido y el chip vacío no decía con quién se colabora. */
+        .prop-cobrand { margin-top: var(--e-cobrand); padding: 8px 18px; display: flex; align-items: center; gap: 16px; }
+        .prop-cobrand-logo { width: 54px; height: 54px; flex: none; border-radius: 50%; overflow: hidden; box-shadow: 0 2px 8px -2px rgba(20,17,17,.18); }
         .prop-cobrand-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
-        .prop-cobrand-x { font-size: 20px; color: var(--g300); font-weight: 300; }
-        /* Sin recuadro blanco: el logo del partner va suelto sobre la tarjeta. */
-        .prop-cochip { width: 168px; height: 92px; flex: none; display: flex; align-items: center; justify-content: center; }
-        .prop-cochip img { max-width: 168px; max-height: 92px; object-fit: contain; display: block; }
+        .prop-cobrand-x { font-size: 18px; color: rgba(20,17,17,.25); flex: none; }
+        .prop-cochip { width: 120px; height: 54px; flex: none; display: flex; align-items: center; justify-content: center; }
+        .prop-cochip img { max-width: 120px; max-height: 54px; object-fit: contain; display: block; }
         .prop-cobrand-txt { flex: 1; min-width: 0; }
-        .prop-cobrand-name { font-size: 17px; font-weight: 800; color: var(--dark); line-height: 1.2; letter-spacing: -0.2px; text-transform: uppercase; }
-        .prop-cobrand-sub { font-size: 10.5px; color: var(--g500); margin-top: 4px; line-height: 1.5; }
+        .prop-cobrand-name { font-size: 15px; font-weight: 800; line-height: 1.2; text-transform: uppercase; letter-spacing: -0.1px; }
+        .prop-cobrand-sub { font-size: 10px; color: var(--gris); margin-top: 3px; line-height: 1.45; }
         /* Sin instalador asociado la tarjeta no se queda coja: capta uno. */
         .prop-cobrand-cta { flex: 1; min-width: 0; }
-        .prop-cobrand-cta .t { font-size: 13px; font-weight: 800; color: var(--dark); letter-spacing: -0.2px; margin: 0 0 4px; }
-        .prop-cobrand-cta .d { font-size: 10px; color: var(--g600); line-height: 1.55; margin: 0; }
-        .prop-cobrand-cta .d + .d { margin-top: 4px; }
-        .prop-cobrand-cta .d b { color: var(--dark); font-weight: 800; }
-        .prop-cobrand-cta a { color: var(--orange-dark); font-weight: 700; text-decoration: none; }
+        .prop-cobrand-cta .t { font-size: 12.5px; font-weight: 700; margin: 0 0 3px; }
+        .prop-cobrand-cta .d { font-size: 9.5px; color: var(--gris); line-height: 1.5; margin: 0; }
+        .prop-cobrand-cta .d + .d { margin-top: 3px; }
+        .prop-cobrand-cta .d b { color: var(--tinta); font-weight: 700; }
+        .prop-cobrand-cta a { color: var(--naranja-txt); font-weight: 600; text-decoration: none; }
         /* Bonificación de los servicios: dentro de la tarjeta del colaborador, o en
            su propia franja si no hay colaborador. */
-        .prop-copromo { margin-top: 7px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px; border-radius: 8px; background: var(--green-light); border: 1px solid rgba(0,200,83,0.35); border-left: 4px solid var(--green); }
-        .prop-copromo-t { font-size: 9.5px; font-weight: 800; color: var(--green-dark); text-transform: uppercase; letter-spacing: 0.6px; }
-        .prop-copromo-d { font-size: 10px; color: var(--g700); margin-top: 1px; line-height: 1.35; }
+        .prop-copromo { margin-top: 7px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px; border-radius: 12px; background: var(--verde-suave); }
+        .prop-copromo-t { font-size: 9.5px; font-weight: 800; color: var(--verde-txt); text-transform: uppercase; letter-spacing: .08em; display: flex; align-items: center; gap: 6px; }
+        .prop-copromo-d { font-size: 10px; color: var(--gris); margin-top: 1px; line-height: 1.35; }
         .prop-copromo-v { text-align: right; white-space: nowrap; line-height: 1; flex: none; }
-        .prop-copromo-v s { display: block; font-size: 10px; color: var(--g400); margin-bottom: 2px; }
-        .prop-copromo-v span { font-size: 22px; font-weight: 900; color: var(--green-dark); }
-        .prop-promo { margin-top: 8px; display: flex; align-items: center; gap: 14px; padding: 9px 16px; border-radius: 10px; background: var(--green-light); border: 1px solid rgba(0,200,83,0.35); border-left: 5px solid var(--green); }
-        .prop-promo-ico { font-size: 22px; line-height: 1; }
+        .prop-copromo-v s { display: block; font-size: 10px; color: var(--gris2); margin-bottom: 2px; }
+        .prop-copromo-v span { font-size: 24px; color: var(--verde-txt); }
+        .prop-promo { margin-top: 8px; display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-radius: 18px; background: var(--verde-suave); }
         .prop-promo-txt { flex: 1; min-width: 0; }
-        .prop-promo-t { font-size: 11px; font-weight: 800; color: var(--green-dark); text-transform: uppercase; letter-spacing: 0.5px; }
-        .prop-promo-d { font-size: 10px; color: var(--g700); margin-top: 2px; line-height: 1.4; }
+        .prop-promo-t { font-size: 10.5px; font-weight: 800; color: var(--verde-txt); text-transform: uppercase; letter-spacing: .06em; }
+        .prop-promo-d { font-size: 10px; color: var(--gris); margin-top: 2px; line-height: 1.4; }
 
-        /* Trío de indicadores: ayuda total · % cubierto · inversión neta */
-        .prop-kpis { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: var(--e-kpis); }
-        .prop-kpi { border: 1px solid var(--g200); border-top: 4px solid var(--g300); border-radius: 10px; padding: 12px; }
-        .prop-kpi.ky { border-top-color: var(--yellow); }
-        .prop-kpi.kg { border-top-color: var(--green); display: flex; align-items: center; gap: 14px; }
-        .prop-kpi.ko { border-top-color: var(--orange); background: var(--dark); }
-        .prop-kpi.ki { border-top-color: var(--green); background: var(--green-light); }
-        /* Sin coste de obra el trío se queda en una o dos tarjetas. */
-        .prop-kpis.k1 { grid-template-columns: 1fr; }
-        .prop-kpis.k2 { grid-template-columns: 1fr 1fr; }
-        .prop-kpi-v.hip { color: var(--green-dark); font-size: 26px; }
-        .prop-kpi-l { font-size: 8px; font-weight: 800; letter-spacing: 1.8px; text-transform: uppercase; color: var(--g400); }
-        .prop-kpi.ko .prop-kpi-l { color: rgba(255,255,255,0.45); }
-        .prop-kpi-v { font-size: 32px; font-weight: 900; color: var(--dark); letter-spacing: -1.2px; margin-top: 6px; white-space: nowrap; }
-        .prop-kpi.ko .prop-kpi-v { color: var(--orange); }
-        .prop-compact .prop-kpi-v { font-size: 28px; }
-        .prop-kpi-n { font-size: 9.5px; color: var(--g500); margin-top: 2px; }
-        .prop-kpi.ko .prop-kpi-n { color: rgba(255,255,255,0.45); }
-        .prop-kpi-pl { font-size: 10.5px; color: var(--g600); line-height: 1.4; margin-top: 3px; }
-        .prop-donut { width: 66px; height: 66px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-        .prop-donut-in { width: 48px; height: 48px; border-radius: 50%; background: var(--white); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: var(--green-dark); }
+        /* Chapa "presupuesto estimado" de la portada, junto a la cifra. */
+        .prop-estbadge { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; background: var(--ambar-bg); border: 1px solid var(--ambar-borde); color: #7a4b00; font-size: 9.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 
         /* Cabecera de datos: cliente · referencia catastral · dirección */
-        .prop-meta { display: grid; grid-template-columns: 1fr 1.4fr 2.4fr; gap: 18px; margin-top: var(--e-meta); padding: 8px 0; border-top: 1px solid var(--g200); border-bottom: 1px solid var(--g200); }
-        .prop-meta-l { font-size: 7px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--g400); font-weight: 800; }
-        .prop-meta-v { font-weight: 700; font-size: 11.5px; color: var(--dark); line-height: 1.3; overflow-wrap: break-word; }
+        .prop-meta { display: grid; grid-template-columns: 1fr 1.35fr 2.4fr; gap: 18px; margin-top: var(--e-meta); padding: 0 4px; }
+        .prop-meta-l { font-size: 8.5px; text-transform: uppercase; letter-spacing: .13em; color: var(--gris2); font-weight: 800; }
+        .prop-meta-v { font-weight: 600; font-size: 11.5px; line-height: 1.35; margin-top: 2px; overflow-wrap: break-word; }
+        .prop-meta-v.mono { font: 600 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
         /* ── Secciones numeradas ────────────────────────────────────────────── */
-        .prop-stag { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 6px; }
-        .prop-sn { width: 18px; height: 18px; background: var(--orange); color: var(--white); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 800; line-height: 1; flex: none; }
-        .prop-st { font-size: 8.5px; text-transform: uppercase; letter-spacing: 2px; font-weight: 800; color: var(--orange-dark); }
-        .prop-stitle { font-size: 18px; color: var(--dark); font-weight: 800; letter-spacing: -0.3px; line-height: 1.25; }
-        .prop-compact .prop-stag { margin-bottom: 4px; }
-        .prop-compact .prop-stitle { font-size: 16px; }
-        .prop-sintro { color: var(--g500); font-size: 11px; margin: 5px 0 10px; line-height: 1.6; padding: 0; }
-        .prop-compact .prop-sintro { font-size: 10.5px; margin: 4px 0 8px; line-height: 1.5; }
+        .prop-stag { display: flex; align-items: center; gap: 8px; }
+        .prop-sn { width: 20px; height: 20px; border-radius: 7px; background: var(--tinta); color: #fff; display: inline-grid; place-items: center; font-size: 10px; font-weight: 800; line-height: 1; flex: none; }
+        .prop-st { font-size: 9.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--naranja-txt); }
+        .prop-st.ver { color: var(--verde-txt); }
+        .prop-stitle { font-size: 22px; line-height: 1.05; margin: 3px 0 0; color: var(--tinta); }
+        .prop-sintro { color: var(--gris); font-size: 10.5px; margin: 2px 0 7px; line-height: 1.55; padding: 0; }
 
         /* ── Tabla de desglose económico ────────────────────────────────────── */
-        .prop-ftable { border-radius: 10px; overflow: hidden; border: 1px solid var(--g200); }
-        .prop-ftable-title {
-            font-size: 9.5px; font-weight: 900; color: var(--dark); text-transform: uppercase;
-            letter-spacing: 0.8px; margin-bottom: 8px; padding-left: 2px; display: flex; align-items: center; gap: 6px; min-height: 28px; line-height: 1.2;
-        }
-        .prop-ftable-title i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
-        .prop-fgrid { display: flex; gap: 16px; align-items: flex-start; }
+        .prop-ftable { background: #fff; border: 1px solid var(--linea); border-radius: 22px; box-shadow: 0 1px 2px rgba(20,17,17,.04), 0 8px 24px -12px rgba(20,17,17,.10); overflow: hidden; padding-top: 4px; }
+        .prop-ftable-title { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 7px; padding-left: 4px; display: flex; align-items: center; gap: 7px; min-height: 26px; line-height: 1.2; }
+        .prop-ftable-title i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; flex: none; }
+        .prop-fgrid { display: flex; gap: 14px; align-items: flex-start; }
         .prop-fcol { flex: 1; min-width: 0; }
-        .prop-fth { background: var(--g100); padding: 8px 20px; display: flex; justify-content: space-between; }
-        .prop-fth span { color: var(--g500); font-weight: 800; font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; }
-        .prop-ftr { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: var(--e-row) 20px; border-bottom: 1px solid var(--g100); }
-        .prop-ftr:last-child { border-bottom: none; }
-        .prop-ftr .prop-fl { font-size: 12.5px; color: var(--g700); }
-        .prop-ftr .prop-fl small { color: var(--g400); font-size: 10.5px; }
-        .prop-ftr .prop-fv { font-weight: 800; font-size: 15px; text-align: right; white-space: nowrap; }
-        .prop-ftr .prop-fv.grn { color: var(--green-dark); }
-        .prop-compact .prop-ftr .prop-fl { font-size: 11.5px; }
-        .prop-compact .prop-ftr .prop-fv { font-size: 14px; }
-        /* Resumen dentro de la tabla. Solo se usa en la comparativa a dos columnas:
-           en la propuesta de una sola opción esos tres datos van en el trío de KPIs. */
-        .prop-ftaids { background: var(--yellow-light); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid var(--g200); }
-        .prop-ftaids .prop-fl { font-weight: 800; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--g800); }
-        .prop-ftaids .prop-fv { font-weight: 900; font-size: 18px; color: var(--g800); white-space: nowrap; }
-        .prop-ftpct { background: var(--green-light); padding: 9px 20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-        .prop-ftpct .prop-fl { font-weight: 800; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--green-dark); }
-        .prop-ftpct .prop-fv { font-weight: 900; font-size: 16px; color: var(--green-dark); white-space: nowrap; }
-        .prop-ftfin { background: var(--dark); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-        .prop-ftfin .prop-fl { color: var(--white); font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
-        .prop-ftfin .prop-fv { color: var(--orange); font-weight: 900; font-size: 22px; white-space: nowrap; }
+        .prop-fth { display: flex; justify-content: space-between; padding: 5px 22px 4px; }
+        .prop-fth span { font-size: 8.5px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--gris2); }
+        .prop-ftr { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: var(--e-row) 22px; border-top: 1px solid var(--linea); }
+        .prop-fcol .prop-ftr, .prop-fcol .prop-fth, .prop-fcol .prop-ftaids, .prop-fcol .prop-ftpct, .prop-fcol .prop-ftfin { padding-left: 16px; padding-right: 16px; }
+        .prop-ftr .prop-fl { font-size: 12px; color: #3b3e45; }
+        .prop-ftr .prop-fl small { color: var(--gris2); font-size: 10px; }
+        .prop-ftr .prop-fl small.est { color: var(--naranja-txt); font-weight: 800; }
+        .prop-ftr .prop-fl small.cee { color: var(--naranja-txt); font-weight: 700; }
+        .prop-ftr .prop-fl small.mas { color: var(--verde-txt); font-weight: 800; }
+        .prop-ftr .prop-fl small.menos { color: var(--naranja-txt); font-weight: 800; }
+        .prop-ftr .prop-fv { font-weight: 700; font-size: 14px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .prop-ftr .prop-fv.grn { color: var(--verde-txt); }
+        /* Resumen dentro de la tabla. La ayuda total y el % cubierto solo se usan
+           en la comparativa a dos columnas: en la propuesta de una sola opción ya
+           los dice la cifra protagonista de arriba, y la tabla cierra con la
+           inversión neta. */
+        .prop-ftaids, .prop-ftpct, .prop-ftfin { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 22px; border-top: 1px solid var(--linea); }
+        .prop-ftaids, .prop-ftfin { background: var(--crema); }
+        .prop-ftpct { background: var(--verde-suave); }
+        .prop-ftaids .prop-fl, .prop-ftpct .prop-fl, .prop-ftfin .prop-fl { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--tinta); }
+        .prop-ftpct .prop-fl, .prop-ftpct .prop-fv { color: var(--verde-txt); }
+        .prop-ftaids .prop-fv, .prop-ftpct .prop-fv { font-size: 15px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .prop-ftfin .prop-fv { font-size: 17px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-        /* Hipótesis de la deducción cuando no se muestra el coste de la obra. */
-        .prop-hip { margin-top: 10px; border: 1px solid var(--g200); border-top: 4px solid var(--green); border-radius: 10px; padding: 12px 16px; background: var(--green-light); }
-        .prop-hip h4 { margin: 0 0 5px; padding: 0; font-size: 11px; font-weight: 800; color: var(--dark); letter-spacing: -0.1px; }
-        .prop-hip p { margin: 0; padding: 0; font-size: 10px; color: var(--g600); line-height: 1.55; }
-        .prop-hip p + p { margin-top: 5px; }
-        .prop-hip strong { color: var(--dark); }
-        /* Aviso de presupuesto estimado. Naranja (advertencia) para que no se lea
-           como el recuadro verde de "además, tiene derecho a…": aquí no se está
-           añadiendo una ventaja, se está acotando lo que la propuesta afirma. */
-        .prop-est { margin-top: 10px; border: 1px solid #FFE0B2; border-top: 4px solid var(--orange); border-radius: 10px; padding: 12px 16px; background: var(--orange-light); }
-        .prop-est h4 { margin: 0 0 5px; padding: 0; font-size: 11px; font-weight: 800; color: var(--dark); letter-spacing: -0.1px; }
-        .prop-est p { margin: 0; padding: 0; font-size: 10px; color: var(--g600); line-height: 1.55; }
-        .prop-est p + p { margin-top: 5px; }
-        .prop-est strong { color: var(--dark); }
-        .prop-est.hib-mas { border-color: #C8E6C9; border-top-color: var(--green); background: var(--green-light); }
-        /* Chapa "presupuesto estimado" de la portada, junto a los indicadores. */
-        .prop-estbadge { margin-top: 8px; display: inline-block; padding: 4px 10px; border-radius: 6px; background: var(--orange-light); border: 1px solid #FFE0B2; font-size: 9.5px; font-weight: 800; color: var(--orange-dark); text-transform: uppercase; letter-spacing: 0.6px; }
-        .prop-nsm { margin-top: var(--e-nsm); display: flex; flex-direction: column; gap: 2px; }
-        .prop-nsm p { font-size: 9.5px; color: var(--g400); line-height: 1.5; margin: 0; }
-        .prop-compact .prop-nsm p { font-size: 8.5px; line-height: 1.4; }
-        .prop-nsm p b { color: var(--g600); }
-        .prop-avl { text-align: center; font-size: 8.5px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; color: var(--g400); margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--g200); }
-        .prop-compact .prop-avl { margin-top: 5px; padding-top: 5px; font-size: 8px; }
+        /* Avisos bajo la tabla: en ámbar lo que ACOTA lo que la propuesta afirma
+           (presupuesto estimado, biomasa, retirar la caldera); en verde lo que
+           AÑADE una ventaja (la deducción sin coste de obra, mantener la caldera). */
+        .prop-ambar { margin-top: 8px; display: grid; grid-template-columns: auto 1fr; gap: 12px; padding: 10px 14px; border-radius: 16px; background: var(--ambar-bg); border: 1px solid var(--ambar-borde); }
+        .prop-ambar-ico { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: #ffe9bd; color: #7a4b00; }
+        .prop-ambar h4 { margin: 1px 0 3px; padding: 0; font-size: 11.5px; font-weight: 700; color: #3d2a00; }
+        .prop-ambar p { margin: 0; padding: 0; font-size: 9.5px; line-height: 1.45; color: var(--ambar-txt); }
+        .prop-ambar p + p { margin-top: 3px; }
+        .prop-ambar strong { color: #3d2a00; }
+        .prop-ambar.ver { background: #f6f9ea; border-color: rgba(177,209,62,.45); }
+        .prop-ambar.ver .prop-ambar-ico { background: var(--verde-suave); color: var(--verde-txt); }
+        .prop-ambar.ver h4, .prop-ambar.ver strong { color: var(--tinta); }
+        .prop-ambar.ver p { color: var(--gris); }
+        .prop-nsm { margin-top: var(--e-nsm); padding: 0 4px; display: flex; flex-direction: column; gap: 1px; }
+        .prop-nsm p { font-size: 8.5px; color: var(--gris2); line-height: 1.5; margin: 0; }
+        .prop-nsm p b { color: var(--gris); }
+        .prop-nsm p.cee { background: var(--ambar-bg); border-left: 3px solid var(--naranja); padding: 6px 10px; border-radius: 8px; color: var(--ambar-txt); margin-bottom: 3px; }
+        .prop-avl { font-size: 8.5px; color: var(--gris2); margin-top: 1px; }
 
         /* ── Llamada a la acción (pie de portada y de condiciones) ──────────── */
-        .prop-cta { background: linear-gradient(145deg, var(--dark) 0%, var(--dark-mid) 100%); padding: var(--e-cta) 48px; text-align: center; position: absolute; bottom: 0; left: 0; right: 0; }
-        .prop-cta h3 { color: var(--white); font-size: 15px; font-weight: 800; margin: 0; padding: 0; }
-        .prop-csub { color: rgba(255,255,255,0.45); font-size: 10.5px; margin: 2px 0 9px; padding: 0; }
-        .prop-cta-btn { display: inline-flex; align-items: center; gap: 12px; background: var(--orange); color: var(--white); font-weight: 800; font-size: 14px; padding: 11px 18px 11px 26px; border-radius: 50px; text-decoration: none; line-height: 1; box-shadow: 0 6px 18px rgba(255,109,0,0.35); border-bottom: 3px solid var(--orange-dark); }
-        .prop-cta-arrow { width: 26px; height: 26px; border-radius: 50%; background: var(--white); color: var(--orange); display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; line-height: 1; }
-        .prop-cfn { color: rgba(255,255,255,0.45); font-size: 8.5px; margin: 8px 0 0; line-height: 1.5; }
-        .prop-cfn strong { color: var(--white); }
-        .prop-cfn-url { color: var(--orange); text-decoration: underline; }
-        .prop-cfn-min { color: rgba(255,255,255,0.25); font-size: 8px; }
+        .prop-cta { position: absolute; left: 48px; right: 48px; bottom: 20px; }
+        .prop-cta.legal { bottom: 26px; }
+        .prop-cta .prop-card { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 18px; padding: calc(var(--e-cta) + 2px) 20px calc(var(--e-cta) - 2px); }
+        .prop-cta h3 { font-size: 20px; line-height: 1.05; margin: 0; padding: 0; color: var(--tinta); }
+        .prop-csub { font-size: 9.5px; color: var(--gris); margin: 3px 0 0; padding: 0; }
+        .prop-cta-btn { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 16px 0 20px; border-radius: 14px; background: var(--naranja); color: #08090c; font-weight: 700; font-size: 13.5px; text-decoration: none; white-space: nowrap; box-shadow: 0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -10px rgba(255,160,0,.75); }
+        .prop-cfn { grid-column: 1 / -1; font-size: 8.5px; color: var(--gris2); margin: 0; padding-top: 7px; border-top: 1px solid var(--linea); line-height: 1.45; }
+        .prop-cfn strong { color: var(--tinta); }
+        .prop-cfn a { color: var(--naranja-txt); font-weight: 600; text-decoration: none; }
+        .prop-legal { position: absolute; left: 0; right: 0; bottom: 8px; font-size: 8px; color: var(--gris2); text-align: center; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; }
 
-        .prop-mfoot { position: absolute; bottom: 0; left: 0; right: 0; padding: 7px 48px; display: flex; justify-content: space-between; font-size: 8px; color: var(--g400); border-top: 1px solid var(--g200); background: var(--white); }
-        .prop-mfoot a { color: var(--orange-dark); text-decoration: none; font-weight: 600; }
+        .prop-mfoot { position: absolute; left: 48px; right: 48px; bottom: 0; padding: 9px 0 12px; display: flex; justify-content: space-between; gap: 16px; font-size: 8px; color: var(--gris2); border-top: 1px solid var(--linea); }
+        .prop-mfoot a { color: inherit; text-decoration: none; }
+        .prop-mfoot a.m { color: var(--naranja-txt); font-weight: 600; }
 
-        /* ── Bloques explicativos ───────────────────────────────────────────── */
-        .prop-ebox { border: 1px solid var(--g200); border-top: 4px solid var(--g300); border-radius: 10px; padding: 11px 16px; margin-bottom: 8px; background: var(--white); }
-        .prop-ebox.dk { border-top-color: var(--dark); }
-        .prop-ebox.ora { border-top-color: var(--orange); background: var(--orange-light); }
-        .prop-ebox.grn { border-top-color: var(--green); background: var(--green-light); }
-        .prop-ebox h4 { margin: 0 0 5px; padding: 0; font-size: 10.5px; font-weight: 800; color: var(--dark); text-transform: uppercase; letter-spacing: 0.4px; }
-        .prop-ebox p { margin: 0; padding: 0; font-size: 10px; color: var(--g600); line-height: 1.5; }
+        /* ── Hojas interiores ───────────────────────────────────────────────── */
+        .prop-h2 { font-size: 28px; line-height: 1.08; margin: 2px 0 4px; color: var(--tinta); }
+        .prop-h3 { font-size: 23px; line-height: 1.08; margin: 3px 0 5px; color: var(--tinta); }
+        .prop-sdiv { height: 1px; background: var(--linea); margin: 9px 0 8px; }
+        .prop-tile { flex: none; width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; }
+        .prop-tile.crema { background: var(--crema); border: 1px solid var(--linea); color: var(--tinta); }
+        .prop-tile.nar { background: rgba(255,160,0,.14); color: var(--naranja-txt); }
+        .prop-tile.ver { background: var(--verde-suave); color: var(--verde-txt); }
+        .prop-tile.lim { background: var(--lima); color: var(--tinta); }
+        .prop-tile.s { width: 30px; height: 30px; border-radius: 10px; }
+        .prop-ebox { display: grid; grid-template-columns: auto 1fr; gap: 14px; padding: 10px 18px; margin-top: 6px; }
+        .prop-ebox > .f { height: 4px; }
+        .prop-ebox h4 { margin: 2px 0 4px; padding: 0; font-size: 13px; font-weight: 700; }
+        .prop-ebox p { margin: 0; padding: 0; font-size: 10px; color: var(--gris); line-height: 1.55; }
         .prop-ebox p + p { margin-top: 5px; }
+        .prop-ebox strong { color: var(--tinta); }
 
-        .prop-agrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 9px; }
-        .prop-ac { border: 1px solid var(--g200); border-top: 3px solid var(--g300); border-radius: 10px; padding: 10px 8px; text-align: center; }
-        .prop-ac.grn { border-top-color: var(--green); }
-        .prop-ac.ora { border-top-color: var(--orange); }
-        .prop-ai { font-size: 20px; line-height: 1.2; }
-        .prop-at { font-size: 9.5px; font-weight: 800; color: var(--dark); margin-top: 3px; }
-        .prop-as { font-size: 8.5px; color: var(--g500); line-height: 1.35; margin-top: 2px; }
-        .prop-sdiv { height: 1px; background: var(--g200); margin: 11px 0; }
+        .prop-agrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-top: 7px; }
+        .prop-ac { padding: 9px 12px; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; align-items: center; }
+        .prop-ac .prop-tile { width: 32px; height: 32px; border-radius: 10px; }
+        .prop-at { font-size: 16px; line-height: 1.05; }
+        .prop-as { grid-column: 1 / -1; font-size: 9px; color: var(--gris); line-height: 1.4; margin-top: 5px; }
 
         /* IRPF: requisitos a la izquierda, ejemplo de prorrateo a la derecha */
-        .prop-irpf { display: grid; grid-template-columns: 1.55fr 1fr; gap: 12px; align-items: start; }
-        .prop-ibox-wrap { border: 1px solid var(--g200); border-radius: 10px; padding: 11px; }
-        .prop-ibox-title { font-size: 9.5px; font-weight: 800; color: var(--dark); margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.4px; }
-        .prop-irow { display: flex; flex-direction: column; gap: 9px; }
-        .prop-ibox { display: flex; justify-content: space-between; align-items: center; background: var(--green-light); border-radius: 7px; padding: 8px 12px; }
-        .prop-iy { font-size: 10px; color: var(--g600); font-weight: 600; }
-        .prop-ia { font-size: 16px; font-weight: 800; color: var(--green-dark); white-space: nowrap; }
-        .prop-inote { font-size: 8.5px; color: var(--g400); font-style: italic; margin: 7px 0 0; line-height: 1.4; }
+        .prop-irpf { display: grid; grid-template-columns: 1.55fr 1fr; gap: 10px; margin-top: 7px; align-items: stretch; }
+        .prop-req { padding: 12px 18px; }
+        .prop-req h4 { margin: 0 0 5px; padding: 0; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+        .prop-req p { margin: 0; padding: 0; font-size: 10px; color: var(--gris); line-height: 1.55; }
+        .prop-req p + p { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--linea); }
+        .prop-req strong { color: var(--tinta); }
+        .prop-req a { display: inline-block; margin-top: 7px; font-size: 9.5px; font-weight: 700; color: var(--verde-txt); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(77,107,15,.35); }
+        .prop-ej { padding: 14px 18px; display: flex; flex-direction: column; }
+        .prop-ej-t { font-size: 9.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--gris2); }
+        .prop-ej-rows { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+        .prop-ej-row { display: flex; justify-content: space-between; align-items: baseline; padding: 9px 14px; border-radius: 14px; background: var(--verde-suave); }
+        .prop-ej-row span { font-size: 11px; font-weight: 600; color: var(--verde-txt); }
+        .prop-ej-row b { font-size: 26px; line-height: 1; color: var(--verde-txt); }
+        .prop-ej-rows.varios .prop-ej-row { padding: 6px 14px; }
+        .prop-ej-rows.varios .prop-ej-row b { font-size: 20px; }
+        .prop-ej-n { margin: auto 0 0; padding-top: 8px; font-size: 9px; color: var(--gris2); line-height: 1.45; }
 
         /* Proceso en 7 pasos */
-        .prop-srow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 9px; }
-        .prop-ps { border: 1px solid var(--g200); border-radius: 9px; padding: 8px 5px; text-align: center; }
-        .prop-pn { width: 24px; height: 24px; border-radius: 50%; background: var(--orange); color: var(--white); font-weight: 800; font-size: 9.5px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 5px; line-height: 1; }
-        .prop-ps:nth-child(even) .prop-pn { background: var(--green); }
-        .prop-pt { font-size: 8px; font-weight: 800; color: var(--dark); text-transform: uppercase; }
-        .prop-pd { font-size: 7.5px; color: var(--g500); line-height: 1.3; margin-top: 1px; }
+        .prop-pasos { margin-top: 7px; padding: 11px 14px 9px; }
+        .prop-pasos-track { position: absolute; left: 44px; right: 44px; top: 31px; height: 4px; border-radius: 99px; background: var(--filete); }
+        .prop-srow { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; }
+        .prop-pn { width: 36px; height: 36px; margin: 0 auto; border-radius: 50%; background: #fff; border: 2px solid var(--tinta); display: grid; place-items: center; font-size: 15px; color: var(--tinta); line-height: 1; }
+        .prop-ps:last-child .prop-pn { background: var(--lima); }
+        .prop-pt { font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; margin-top: 8px; }
+        .prop-pd { font-size: 9px; color: var(--gris); line-height: 1.35; margin-top: 2px; }
 
         /* ── Checklist de documentación ─────────────────────────────────────── */
-        .prop-dcols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-        .prop-dcol { border: 1px solid var(--g200); border-top: 4px solid var(--orange); border-radius: 10px; padding: 20px; }
-        .prop-dcol.gr { border-top-color: var(--green); }
-        .prop-dph { font-size: 12px; font-weight: 800; color: var(--dark); text-transform: uppercase; letter-spacing: 0.6px; }
-        .prop-dintro { font-size: 10px; color: var(--g500); margin: 8px 0 0; line-height: 1.55; }
-        .prop-dgt { font-size: 9.5px; font-weight: 800; color: var(--g600); text-transform: uppercase; letter-spacing: 0.4px; margin: 16px 0 8px; }
-        .prop-dl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
-        .prop-dl li { font-size: 11px; color: var(--g700); padding: 0 0 0 17px; position: relative; line-height: 1.5; }
-        .prop-dl li::before { content: ''; position: absolute; left: 0; top: 3px; width: 10px; height: 10px; border: 1.5px solid var(--g300); border-radius: 2px; }
-        .prop-dl li.s { padding-left: 32px; font-size: 10px; color: var(--g600); }
-        .prop-dl li.s::before { left: 15px; width: 7px; height: 7px; border-radius: 50%; top: 4px; }
-        .prop-dsend { background: var(--green-light); border: 1px solid rgba(0,200,83,0.16); border-radius: 8px; padding: 16px 18px; margin-top: 24px; }
+        .prop-dcols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; margin-top: 18px; }
+        .prop-dcol { padding: 20px; }
+        .prop-dcol > .f { height: 4px; background: var(--naranja); }
+        .prop-dcol.gr > .f { background: var(--verde); }
+        .prop-dph { display: flex; align-items: center; gap: 8px; }
+        .prop-dph b { font-size: 20px; line-height: 1; }
+        .prop-dintro { font-size: 10px; color: var(--gris); margin: 7px 0 0; line-height: 1.5; }
+        .prop-dgt { display: flex; align-items: center; gap: 7px; font-size: 9px; font-weight: 800; color: var(--gris); text-transform: uppercase; letter-spacing: .1em; margin: 18px 0 9px; }
+        .prop-dgt svg { color: var(--naranja-txt); flex: none; }
+        .prop-dcol.gr .prop-dgt svg { color: var(--verde-txt); }
+        /* .prop-dlist y no .prop-dl: ese nombre es la lista de cifras de la portada. */
+        .prop-dlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+        .prop-dlist li { font-size: 10.5px; color: #3b3e45; padding: 0 0 0 19px; position: relative; line-height: 1.45; }
+        .prop-dlist li::before { content: ''; position: absolute; left: 0; top: 2px; width: 11px; height: 11px; border: 1.5px solid rgba(20,17,17,.28); border-radius: 4px; background: #fff; }
+        .prop-dlist li.s { padding-left: 34px; font-size: 10px; color: var(--gris); }
+        .prop-dlist li.s::before { left: 19px; top: 5px; width: 6px; height: 6px; border: 0; border-radius: 50%; background: rgba(20,17,17,.22); }
+        .prop-dsend { margin-top: 20px; padding: 14px 15px; border-radius: 16px; background: var(--crema); border: 1px solid var(--linea); }
         .prop-dsend p { margin: 0; padding: 0; }
-        .prop-dsend .t { font-size: 9.5px; font-weight: 800; color: var(--green-dark); margin-bottom: 3px; }
-        .prop-dsend .d { font-size: 9.5px; color: var(--g600); line-height: 1.5; }
-        .prop-dsend-btn { display: inline-flex; align-items: center; gap: 9px; margin-top: 10px; background: var(--green-dark); color: var(--white); font-weight: 800; font-size: 10.5px; padding: 8px 12px 8px 16px; border-radius: 50px; text-decoration: none; line-height: 1; letter-spacing: 0.3px; }
-        .prop-dsend-btn span.a { width: 18px; height: 18px; border-radius: 50%; background: var(--white); color: var(--green-dark); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; line-height: 1; }
-
-        .prop-tipbar { background: var(--yellow-light); border: 1px solid var(--g200); border-top: 4px solid var(--yellow); border-radius: 10px; padding: 18px 20px; margin-top: 26px; }
-        .prop-tipbar h5 { margin: 0 0 4px; padding: 0; font-size: 9.5px; font-weight: 800; color: var(--g800); text-transform: uppercase; letter-spacing: 0.4px; }
-        .prop-tipbar p { margin: 0; padding: 0; font-size: 9.5px; color: var(--g600); line-height: 1.55; }
-        .prop-upsell { border: 1px solid var(--g200); border-top: 4px solid var(--orange); border-radius: 10px; padding: 20px 22px; margin-top: 16px; display: flex; gap: 18px; align-items: center; background: var(--orange-light); }
-        .prop-upsell .ico { font-size: 32px; flex-shrink: 0; }
-        .prop-upsell .t { font-size: 10.5px; font-weight: 800; color: var(--dark); margin: 0 0 3px; }
-        .prop-upsell .d { font-size: 10px; color: var(--g600); line-height: 1.55; margin: 0; }
+        .prop-dsend .t { margin: 0 0 4px; font-size: 11.5px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+        .prop-dsend .d { font-size: 9.5px; color: var(--gris); line-height: 1.5; }
+        .prop-dsend .d strong { color: var(--tinta); }
+        .prop-dsend-btn { margin-top: 11px; display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 42px; border-radius: 14px; background: var(--naranja); color: #08090c; font-weight: 700; font-size: 12.5px; text-decoration: none; box-shadow: 0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -12px rgba(255,160,0,.75); }
+        .prop-prueba { margin-top: 14px; display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; padding: 14px 18px; border-radius: 18px; background: #fff; border: 1px solid var(--linea); }
+        .prop-prueba .t { margin: 0 0 3px; font-size: 12.5px; font-weight: 700; }
+        .prop-prueba .d { margin: 0; font-size: 10px; color: var(--gris); line-height: 1.55; }
+        .prop-prueba .d strong { color: var(--tinta); }
 
         /* ── Cláusulas ──────────────────────────────────────────────────────── */
-        .prop-cl-box { border: 1px solid var(--g200); border-top: 4px solid var(--g300); border-radius: 10px; padding: 11px 16px; margin-bottom: 8px; background: var(--white); }
-        .prop-cl-box.ora { border-top-color: var(--orange); }
-        .prop-cl-box.grn { border-top-color: var(--green); }
-        .prop-cl-box.red { border-top-color: var(--red); }
-        .prop-cl-box h4 { margin: 0 0 3px; padding: 0; font-size: 9.5px; font-weight: 800; color: var(--dark); text-transform: uppercase; letter-spacing: 0.4px; }
-        .prop-cl-box.red h4 { color: var(--red); }
-        .prop-cl-box p { margin: 0; padding: 0; font-size: 10.5px; color: var(--g600); line-height: 1.55; }
+        .prop-cl { padding: 10px 18px; margin-top: 6px; border-radius: 18px; }
+        .prop-cl h4 { margin: 0 0 4px; padding: 0; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+        .prop-cl h4 .n { font-size: 15px; letter-spacing: 0; color: var(--naranja-txt); }
+        .prop-cl p { margin: 0; padding: 0; font-size: 10.5px; color: var(--gris); line-height: 1.55; }
+        .prop-cl p strong { color: var(--tinta); }
+        .prop-cl.amb { background: var(--ambar-bg); border-color: var(--ambar-borde); box-shadow: none; }
+        .prop-cl.amb h4 { color: #3d2a00; }
+        .prop-cl.amb h4 .n { color: #7a4b00; }
+        .prop-cl.amb p { color: var(--ambar-txt); }
         .prop-cl2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .prop-cgrid { margin-top: 10px; border: 1px solid var(--g200); border-radius: 8px; overflow: hidden; }
-        .prop-crow { display: flex; justify-content: space-between; gap: 16px; padding: 6px 14px; font-size: 10.5px; border-bottom: 1px solid var(--g100); }
-        .prop-crow:last-child { border-bottom: none; }
-        .prop-crow strong { white-space: nowrap; }
-        .prop-crow.ctot { background: var(--g100); font-weight: 700; padding: 7px 14px; font-size: 11px; }
+        .prop-cgrid { margin-top: 9px; border: 1px solid var(--linea); border-radius: 14px; overflow: hidden; }
+        .prop-crow { display: flex; justify-content: space-between; gap: 16px; padding: 5px 14px; font-size: 10.5px; border-top: 1px solid var(--linea); color: #3b3e45; }
+        .prop-crow:first-child { border-top: 0; }
+        .prop-crow strong { white-space: nowrap; color: var(--tinta); font-variant-numeric: tabular-nums; }
+        .prop-crow.chead { background: var(--crema); font-size: 8.5px; font-weight: 800; color: var(--gris2); text-transform: uppercase; letter-spacing: .12em; padding: 6px 14px; }
+        .prop-crow.cpromo { background: var(--verde-suave); color: var(--verde-txt); font-weight: 700; }
+        .prop-crow.cpromo span { display: inline-flex; align-items: center; gap: 6px; }
+        .prop-crow.cpromo strong { color: var(--verde-txt); }
+        .prop-crow.ctot { background: var(--crema); font-weight: 700; color: var(--tinta); }
         .prop-crow.ctot span:last-child { white-space: nowrap; }
-        .prop-crow em { font-style: normal; color: var(--green-dark); font-weight: 700; }
-        .prop-crow s { color: var(--g400); font-weight: 400; }
-        .prop-crow.chead { background: var(--g50); font-size: 8.5px; font-weight: 800; color: var(--g500); text-transform: uppercase; letter-spacing: 0.6px; padding: 5px 14px; }
-        .prop-crow.cpromo { background: var(--green-light); color: var(--green-dark); font-weight: 700; }
-        .prop-cnet { background: var(--green-light); border: 1px solid rgba(0,200,83,0.25); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 14px; margin-top: 7px; }
-        .prop-cnet-l { font-size: 11px; font-weight: 800; color: var(--green-dark); }
-        .prop-cnet-v { font-size: 17px; font-weight: 900; color: var(--green-dark); white-space: nowrap; }
+        .prop-cnet { margin-top: 7px; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 16px; border-radius: 14px; background: var(--verde-suave); }
+        .prop-cnet-l { font-size: 11px; font-weight: 700; color: var(--verde-txt); }
+        .prop-cnet-v { font-size: 25px; color: var(--verde-txt); line-height: 1; white-space: nowrap; }
         /* Comparativa: los dos netos en paralelo. Uno debajo del otro se comía
-           los 24px de holgura que tiene esta página y desbordaba sobre el pie. */
+           la holgura que tiene esta página y desbordaba sobre el pie. */
         .prop-cnet2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 7px; }
-        .prop-cnet2 .prop-cnet { margin-top: 0; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 12px; }
+        .prop-cnet2 .prop-cnet { margin-top: 0; flex-direction: column; align-items: flex-start; gap: 3px; padding: 7px 14px; }
         .prop-cnet2 .prop-cnet-l { font-size: 9.5px; }
-        .prop-cnet2 .prop-cnet-v { font-size: 15px; }
-        .prop-cnote { margin: 5px 0 0; font-size: 9px; color: var(--g500); font-style: italic; }
-        .prop-ptable { background: var(--red-light); border: 1px solid rgba(239,68,68,0.14); border-radius: 8px; overflow: hidden; margin-top: 10px; }
-        .prop-pthead { background: rgba(239,68,68,0.06); padding: 7px 14px; font-size: 8.5px; font-weight: 800; color: var(--red); text-transform: uppercase; letter-spacing: 0.5px; }
-        .prop-ptrow { display: flex; justify-content: space-between; gap: 16px; padding: 6px 14px; font-size: 10.5px; border-bottom: 1px dashed rgba(239,68,68,0.12); }
-        .prop-ptrow:last-child { border-bottom: none; }
-        .prop-pl { color: var(--g600); }
-        .prop-pv { font-weight: 700; color: var(--red); white-space: nowrap; }
-        .prop-ptrow.ptt { border-top: 1.5px solid rgba(239,68,68,0.18); border-bottom: none; padding: 7px 14px; font-weight: 700; }
-        .prop-ptrow.ptt .prop-pv { font-weight: 800; font-size: 12px; }
+        .prop-cnet2 .prop-cnet-v { font-size: 21px; }
+        .prop-cnote { margin: 5px 0 0; font-size: 9px; color: var(--gris2); }
+        .prop-pen { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-radius: 12px; background: #fff; border: 1px solid var(--ambar-borde); font-size: 10.5px; font-weight: 700; color: #3d2a00; }
+        .prop-pen b { font-size: 13px; white-space: nowrap; }
+        /* Cierre de la propuesta: solo texto. Sin rúbrica, sin sello y sin nº de
+           colegiado (Fran, 25/10/2026): en una oferta no se firma, una firma
+           real en un PDF que se reenvía se puede copiar, y el colegiado es de
+           los documentos técnicos (y certifican también otros técnicos). */
+        .prop-firma { margin-top: 10px; padding: 10px 4px 0; border-top: 1px solid var(--linea); }
+        .prop-firma p { font-size: 10.5px; color: var(--gris); line-height: 1.55; margin: 0; }
+        .prop-firma b { display: block; font-size: 13px; font-weight: 700; margin-top: 6px; }
+        .prop-firma b i { font-style: normal; font-weight: 500; color: var(--gris); }
+        .prop-firma span { display: block; font-size: 10.5px; color: var(--gris); line-height: 1.4; margin-top: 1px; }
 
         /* ── Portada compacta ───────────────────────────────────────────────
            La portada es una página de altura FIJA cuyo contenido varía mucho:
@@ -427,57 +459,59 @@ const baseCss = `
            la jerarquía ni recortar información. */
         /* Último recurso, solo si estirar/encoger los huecos no basta: baja el
            reposo de cada hueco y aprieta tipografías. Hace falta para la
-           comparativa a dos columnas con ahorro anual, que se pasa >200px. */
+           comparativa a dos columnas con ahorro anual. */
         .prop-compact {
-            --e-top: 16px;
+            --e-top: 8px;
             --e-h1sub: 5px;
-            --e-cobrand: 8px;
-            --e-kpis: 10px;
-            --e-meta: 8px;
-            --e-sec: 9px;
-            --e-nsm: 6px;
-            --e-row: 8px;
+            --e-cobrand: 7px;
+            --e-kpis: 8px;
+            --e-meta: 7px;
+            --e-sec: 8px;
+            --e-nsm: 4px;
+            --e-row: 5px;
             --e-cta: 10px;
         }
-        .prop-compact .prop-h1 { font-size: 21px; }
-        .prop-compact .prop-h1sub { font-size: 10px; }
-        .prop-compact .prop-head-txt { padding-right: 206px; }
-        .prop-compact .prop-headshot { width: 190px; }
-        .prop-compact .prop-cobrand { padding: 7px 16px; gap: 16px; }
-        .prop-compact .prop-avl { margin-top: 4px; padding-top: 4px; }
-        .prop-compact .prop-cobrand-logo { width: 72px; height: 72px; }
-        .prop-compact .prop-cobrand-cta .t { font-size: 11.5px; margin-bottom: 3px; }
-        .prop-compact .prop-cobrand-cta .d { font-size: 9px; line-height: 1.45; }
-        .prop-compact .prop-cobrand-cta .d + .d { margin-top: 3px; }
-        .prop-compact .prop-cochip { width: 132px; height: 72px; }
-        .prop-compact .prop-cochip img { max-width: 120px; max-height: 60px; }
-        .prop-compact .prop-cobrand-name { font-size: 15px; }
+        .prop-compact .prop-h1 { font-size: 26px; }
+        .prop-compact .prop-h1sub { font-size: 10.5px; }
+        .prop-compact .prop-head-txt { padding-right: 200px; }
+        .prop-compact .prop-headshot { width: 184px; }
+        .prop-compact .prop-hero-a { padding: 12px 20px 10px; }
+        .prop-compact .prop-hero-b { padding: 12px 20px 8px; }
+        .prop-compact .prop-importe { font-size: 50px; }
+        .prop-compact .prop-importe small { font-size: 25px; }
+        .prop-compact .prop-hip-v { font-size: 30px; }
+        .prop-compact .prop-dl > div { padding: 5px 0; font-size: 11.5px; }
+        .prop-compact .prop-neta dd { font-size: 16px; }
+        .prop-compact .prop-cobrand { padding: 6px 16px; gap: 12px; }
+        .prop-compact .prop-cobrand-logo { width: 44px; height: 44px; }
+        .prop-compact .prop-cochip { width: 100px; height: 44px; }
+        .prop-compact .prop-cochip img { max-width: 100px; max-height: 44px; }
+        .prop-compact .prop-cobrand-name { font-size: 13.5px; }
         .prop-compact .prop-cobrand-sub { font-size: 9.5px; margin-top: 2px; }
-        .prop-compact .prop-kpis { gap: 10px; }
-        .prop-compact .prop-kpi { padding: 9px 10px; }
-        .prop-compact .prop-kpi-v { font-size: 26px; margin-top: 4px; }
-        .prop-compact .prop-donut { width: 56px; height: 56px; }
-        .prop-compact .prop-donut-in { width: 40px; height: 40px; font-size: 12px; }
-        .prop-compact .prop-meta { padding: 6px 0; }
-        .prop-compact .prop-ftable-title { min-height: 20px; margin-bottom: 6px; }
-        .prop-compact .prop-fth { padding: 7px 18px; }
-        .prop-compact .prop-ftaids, .prop-compact .prop-ftpct { padding: 7px 18px; }
-        .prop-compact .prop-ftfin { padding: 9px 18px; }
-        .prop-compact .prop-ftaids .prop-fv { font-size: 16px; }
-        .prop-compact .prop-ftpct .prop-fv { font-size: 14px; }
-        .prop-compact .prop-ftfin .prop-fv { font-size: 19px; }
-        .prop-compact .prop-cta h3 { font-size: 14px; }
-        .prop-compact .prop-csub { font-size: 10px; margin: 2px 0 7px; }
-        .prop-compact .prop-cta-btn { font-size: 13px; padding: 9px 16px 9px 22px; }
-        .prop-compact .prop-cta-arrow { width: 23px; height: 23px; font-size: 13px; }
-        .prop-compact .prop-cfn { margin-top: 6px; }
-        /* Los dos recuadros de texto largo bajo la tabla (presupuesto estimado e
-           hipótesis del IRPF) son lo que más pesa en las portadas que no caben:
-           en compacto se aprietan como el resto antes de tener que recurrir al zoom. */
-        .prop-compact .prop-est, .prop-compact .prop-hip { margin-top: 8px; padding: 9px 14px; }
-        .prop-compact .prop-est h4, .prop-compact .prop-hip h4 { font-size: 10.5px; margin-bottom: 4px; }
-        .prop-compact .prop-est p, .prop-compact .prop-hip p { font-size: 9.5px; line-height: 1.45; }
-        .prop-compact .prop-est p + p, .prop-compact .prop-hip p + p { margin-top: 3px; }
+        .prop-compact .prop-cobrand-cta .t { font-size: 11.5px; margin-bottom: 2px; }
+        .prop-compact .prop-cobrand-cta .d { font-size: 9px; line-height: 1.4; }
+        .prop-compact .prop-cobrand-cta .d + .d { margin-top: 2px; }
+        .prop-compact .prop-copromo { margin-top: 5px; padding: 4px 12px; }
+        .prop-compact .prop-stitle { font-size: 19px; }
+        .prop-compact .prop-sintro { font-size: 10px; margin: 2px 0 5px; line-height: 1.45; }
+        .prop-compact .prop-ftable-title { min-height: 20px; margin-bottom: 5px; }
+        .prop-compact .prop-ftr .prop-fl { font-size: 11.5px; }
+        .prop-compact .prop-ftr .prop-fv { font-size: 13.5px; }
+        .prop-compact .prop-ftaids, .prop-compact .prop-ftpct, .prop-compact .prop-ftfin { padding-top: 6px; padding-bottom: 6px; }
+        .prop-compact .prop-ftfin .prop-fv { font-size: 15.5px; }
+        .prop-compact .prop-nsm p { font-size: 8px; line-height: 1.4; }
+        .prop-compact .prop-cta h3 { font-size: 18px; }
+        .prop-compact .prop-csub { font-size: 9px; }
+        .prop-compact .prop-cta-btn { min-height: 40px; font-size: 13px; }
+        .prop-compact .prop-cfn { padding-top: 5px; }
+        /* Los recuadros de texto largo bajo la tabla (presupuesto estimado,
+           biomasa, hibridación e hipótesis del IRPF) son lo que más pesa en las
+           portadas que no caben: en compacto se aprietan como el resto antes de
+           tener que recurrir al zoom. */
+        .prop-compact .prop-ambar { margin-top: 6px; padding: 8px 12px; gap: 10px; }
+        .prop-compact .prop-ambar-ico { width: 28px; height: 28px; border-radius: 9px; }
+        .prop-compact .prop-ambar h4 { font-size: 10.5px; margin-bottom: 2px; }
+        .prop-compact .prop-ambar p { font-size: 9px; line-height: 1.4; }
 
         /* En pantalla las páginas se separan 24px y llevan sombra para que se lean
            como hojas sueltas. Al imprimir (puppeteer usa media print) esos márgenes
@@ -488,6 +522,44 @@ const baseCss = `
         }
     `;
 
+
+// Iconos de trazo del documento (24×24, sin emojis: en el PDF un emoji depende de
+// la fuente de color que tenga el Chrome del servidor).
+const TRAZOS = {
+    aviso: <><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></>,
+    bombilla: <><path d="M9 18h6M10 21h4" /><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" /></>,
+    regalo: <path d="M20 12v8H4v-8M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z" />,
+    flecha: <path d="M5 12h14M13 6l6 6-6 6" />,
+    rayo: <path d="M13 2L4 14h7l-1 8 9-12h-7z" />,
+    escudo: <><path d="M12 3l7 3v6c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6z" /><path d="M8.5 12l2.5 2.5 4.5-5" /></>,
+    copa: <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z" /><path d="M17 5h3a3 3 0 0 1-3 4M7 5H4a3 3 0 0 0 3 4" /></>,
+    reloj: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    lapiz: <><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></>,
+    diana: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" /></>,
+    casa: <><path d="M3 11l9-7 9 7" /><path d="M5 9.5V20h14V9.5" /></>,
+    check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+    regla: <path d="M3 21L21 3M3 21h7M3 21v-7M8 16l2 2M12 12l2 2M16 8l2 2" />,
+    ventana: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16M3 12h18" /></>,
+    mas: <path d="M12 5v14M5 12h14" />,
+    camara: <><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></>,
+    documento: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 12h6M9 16h6" /></>,
+    subir: <><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></>,
+};
+const Ico = ({ n, s = 18, w = 2 }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{TRAZOS[n]}</svg>
+);
+
+// Logo reducido e incrustado en base64. Puppeteer monta el PDF sin base URL (una
+// ruta relativa no resolvería) y el original pesa decenas de KB: a tamaño de
+// impresión (2×) son unos pocos, y el HTML se guarda en `html_propuesta`.
+const logoReducido = async (ruta, ancho) => {
+    const bmp = await createImageBitmap(await (await fetch(ruta)).blob());
+    const c = document.createElement('canvas');
+    c.width = ancho;
+    c.height = Math.round(bmp.height * ancho / bmp.width);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL('image/png');
+};
 
 const formatNumber = (val) => {
     const num = typeof val === 'number' ? val : parseFloat(val);
@@ -636,6 +708,7 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
     const [fit, setFit] = useState(FIT_INICIAL);
     const [fontsReady, setFontsReady] = useState(false);
     const [brokergyLogo, setBrokergyLogo] = useState(`${APP_URL}${BROKERGY_LOGO_PATH}`);
+    const [brokergyMarca, setBrokergyMarca] = useState(`${APP_URL}${BROKERGY_MARCA_PATH}`);
     // Foto oficial de FACHADA del Catastro (API RecuperarFotoFachada, vía proxy).
     // Muchas viviendas no la tienen registrada: el hueco no se reserva, si no llega
     // la portada queda exactamente como estaba.
@@ -985,23 +1058,19 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
     }, [isOpen, attachments.length]);
 
     // El PDF lo monta puppeteer en el backend a partir del HTML suelto, sin base
-    // URL: una ruta relativa no resolvería. Se incrusta el logo en base64 y, si la
-    // descarga falla, se queda la URL absoluta (lo que hacen los demás documentos).
+    // URL: una ruta relativa no resolvería. Se incrustan los logos en base64,
+    // reducidos a su tamaño de impresión, y si la descarga falla se queda la URL
+    // absoluta (lo que hacen los demás documentos).
     useEffect(() => {
         if (!isOpen) return;
         let cancelado = false;
         (async () => {
-            try {
-                const blob = await (await fetch(BROKERGY_LOGO_PATH)).blob();
-                const dataUrl = await new Promise(res => {
-                    const r = new FileReader();
-                    r.onloadend = () => res(r.result);
-                    r.readAsDataURL(blob);
-                });
-                if (!cancelado && typeof dataUrl === 'string' && dataUrl.startsWith('data:image')) {
-                    setBrokergyLogo(dataUrl);
-                }
-            } catch (_) { /* se queda la URL absoluta */ }
+            for (const [ruta, ancho, poner] of [[BROKERGY_LOGO_PATH, 160, setBrokergyLogo], [BROKERGY_MARCA_PATH, 320, setBrokergyMarca]]) {
+                try {
+                    const dataUrl = await logoReducido(ruta, ancho);
+                    if (!cancelado && dataUrl.startsWith('data:image')) poner(dataUrl);
+                } catch (_) { /* se queda la URL absoluta */ }
+            }
         })();
         return () => { cancelado = true; };
     }, [isOpen]);
@@ -2767,10 +2836,11 @@ info@brokergy.es · 623 926 179`;
     const lineaHibrida = lineaTablaHibridacion(opHibrida);
     const avisoHibrida = avisoHibridacion(opHibrida, hipHibrida);
 
-    // Trío de indicadores de la portada (ayuda total · % cubierto · inversión neta).
-    // Solo se pinta cuando hay UNA opción: en la comparativa a dos columnas esos tres
-    // datos siguen viviendo en el pie de cada tabla, que es donde se comparan.
-    const renderKpis = (fin) => {
+    // La cifra protagonista de la portada: la ayuda total, y a su lado de dónde
+    // sale (inversión · % cubierto · inversión neta). Solo se pinta cuando hay UNA
+    // opción: en la comparativa a dos columnas esos tres datos siguen viviendo en
+    // el pie de cada tabla, que es donde se comparan.
+    const renderHero = (fin) => {
         if (!fin) return null;
 
         // Sin coste de obra no hay "% cubierto" ni "inversión neta" que enseñar:
@@ -2779,17 +2849,18 @@ info@brokergy.es · 623 926 179`;
         if (hideBudget) {
             const conIrpf = fin.irpfCap > 0;
             return (
-                <div className={`prop-kpis ${conIrpf ? 'k2' : 'k1'}`}>
-                    <div className="prop-kpi ko">
-                        <div className="prop-kpi-l">Bono Energético CAE</div>
-                        <div className="prop-kpi-v">{formatNumber(fin.caeBonus)} €</div>
-                        <div className="prop-kpi-n">ayuda estimada para su actuación</div>
+                <div className={`prop-card prop-hero${conIrpf ? '' : ' uno'}`}>
+                    <div className="f"></div>
+                    <div className="prop-hero-a">
+                        <div className="prop-eyebrow">Bono Energético CAE</div>
+                        <div className="prop-importe">{formatNumber(fin.caeBonus)}<small>€</small></div>
+                        <div className="prop-hero-n">Ayuda estimada para su actuación</div>
                     </div>
                     {conIrpf && (
-                        <div className="prop-kpi ki">
-                            <div className="prop-kpi-l">Deducción en el IRPF</div>
-                            <div className="prop-kpi-v hip">hasta {formatNumber(fin.irpfCap)} €</div>
-                            <div className="prop-kpi-n">por propietario · sujeta a requisitos</div>
+                        <div className="prop-hero-b">
+                            <div className="prop-eyebrow" style={{ color: 'var(--verde-txt)' }}>Deducción en el IRPF</div>
+                            <div className="prop-hip-v">hasta {formatNumber(fin.irpfCap)} €</div>
+                            <div className="prop-hero-n">Por propietario · sujeta a requisitos</div>
                         </div>
                     )}
                 </div>
@@ -2801,57 +2872,74 @@ info@brokergy.es · 623 926 179`;
             ? (fin.irpfDeductionPerOwner || fin.irpfDeduction || 0) * Math.max(1, fin.numOwners || 1)
             : 0;
         const pct = Math.max(0, Math.min(100, Math.round(fin.porcentajeCubierto || 0)));
-        // Con impuestos por el cobro del CAE, la ayuda total suma el CAE NETO: el
-        // subtítulo tiene que sumar lo mismo que la cifra que lleva encima.
-        const desglose = [fin.irpfCaeAmount > 0 ? `CAE neto ${formatNumber(fin.caeNeto)} €` : `CAE ${formatNumber(fin.caeBonus)} €`];
-        if (irpfTotal > 0) desglose.push(`IRPF ${formatNumber(irpfTotal)} €`);
+        const esEmpresa = !fin.isParticular && fin.titularType !== 'particular';
 
         return (
-            <div className="prop-kpis">
-                <div className="prop-kpi ky">
-                    <div className="prop-kpi-l">Ayuda total estimada</div>
-                    <div className="prop-kpi-v">{formatNumber(fin.totalBeneficioFiscal || fin.totalAyuda)} €</div>
-                    <div className="prop-kpi-n">{desglose.join(' + ')}</div>
-                </div>
-                <div className="prop-kpi kg">
-                    <div className="prop-donut" style={{ background: `conic-gradient(var(--green) 0 ${pct}%, var(--g200) ${pct}% 100%)` }}>
-                        <div className="prop-donut-in">{pct}%</div>
-                    </div>
-                    <div>
-                        <div className="prop-kpi-l">Cubierto</div>
-                        <div className="prop-kpi-pl">de su inversión, gracias a las ayudas</div>
+            <div className="prop-card prop-hero">
+                <div className="f"></div>
+                <div className="prop-hero-a">
+                    <div className="prop-eyebrow">Ayuda total estimada</div>
+                    <div className="prop-importe">{formatNumber(fin.totalBeneficioFiscal || fin.totalAyuda)}<small>€</small></div>
+                    {/* Con impuestos por el cobro del CAE, la ayuda total suma el CAE
+                        NETO: el desglose tiene que sumar lo mismo que la cifra. */}
+                    <div className="prop-hero-des">
+                        <span className="prop-chip prop-chip-verde">{fin.irpfCaeAmount > 0 ? `CAE neto ${formatNumber(fin.caeNeto)} €` : `Bono CAE ${formatNumber(fin.caeBonus)} €`}</span>
+                        {irpfTotal > 0 && <span className="prop-chip prop-chip-crema">+ IRPF {formatNumber(irpfTotal)} €</span>}
                     </div>
                 </div>
-                <div className="prop-kpi ko">
-                    <div className="prop-kpi-l">Inversión neta final</div>
-                    <div className="prop-kpi-v">{formatNumber(fin.costeFinal)} €</div>
-                    <div className="prop-kpi-n">sobre {formatNumber(inversion)} € de inversión</div>
+                <div className="prop-hero-b">
+                    <dl className="prop-dl">
+                        <div><dt>Inversión ({esEmpresa && !fin.includeIVA ? 'sin IVA' : 'IVA incl.'})</dt><dd>{formatNumber(inversion)} €</dd></div>
+                        <div className="pct">
+                            <div><dt>Cubierto por las ayudas</dt><dd>{formatNumber(pct)} %</dd></div>
+                            <div className="prop-barra"><i style={{ width: `${pct}%` }}></i></div>
+                        </div>
+                        <div className="prop-neta"><dt>Inversión neta final</dt><dd>{formatNumber(fin.costeFinal)} €</dd></div>
+                    </dl>
                 </div>
             </div>
         );
     };
 
-    // Pie negro con el botón de firma. Se repite en portada y en condiciones.
-    const renderCta = (extraFine = null) => (
-        <div className="prop-cta">
-            <h3>¿Listo para empezar a ahorrar?</h3>
-            <p className="prop-csub">Acepte esta propuesta y comenzaremos a trabajar en su expediente de inmediato.</p>
-            <a href={`${APP_URL}/firma/${urlId}`} target="_blank" rel="noopener noreferrer" className="prop-cta-btn">
-                <span>✍️&nbsp;&nbsp;PULSE AQUÍ PARA FIRMAR Y ACEPTAR</span>
-                <span className="prop-cta-arrow">→</span>
-            </a>
-            <p className="prop-cfn">
-                Al pulsar se abre un <strong>formulario online seguro</strong> para completar sus datos y firmar digitalmente · <span className="prop-cfn-url">{signUrlPlain}</span>
-                <br /><span className="prop-cfn-min">Al firmar, acepta las condiciones descritas en este documento.{extraFine}</span>
-            </p>
-        </div>
+    // Llamada a la acción con el botón de firma. Se repite en portada y en
+    // condiciones; en condiciones lleva debajo la línea legal de la empresa.
+    const renderCta = (legal = null) => (
+        <>
+            <div className={`prop-cta${legal ? ' legal' : ''}`}>
+                <div className="prop-card">
+                    <div className="f"></div>
+                    <div>
+                        <h3>¿Listo para empezar a ahorrar?</h3>
+                        <p className="prop-csub">Acepte esta propuesta y comenzaremos a trabajar en su expediente de inmediato.</p>
+                    </div>
+                    <a href={`${APP_URL}/firma/${urlId}`} target="_blank" rel="noopener noreferrer" className="prop-cta-btn">
+                        Firmar y aceptar la propuesta <Ico n="flecha" w={2.4} />
+                    </a>
+                    <p className="prop-cfn">
+                        Al pulsar se abre un <strong>formulario online seguro</strong> para completar sus datos y firmar · <a href={`${APP_URL}/firma/${urlId}`} target="_blank" rel="noopener noreferrer">{signUrlPlain}</a> · Al firmar, acepta las condiciones descritas en este documento.
+                    </p>
+                </div>
+            </div>
+            {legal && <div className="prop-legal">{legal}</div>}
+        </>
+    );
+
+    // Cabecera de las hojas interiores: logotipo y nº de propuesta con la página.
+    const renderBarra = (pagina) => (
+        <>
+            <div className="prop-filete"></div>
+            <div className="prop-bar prop-bar-slim">
+                <img className="prop-logo" src={brokergyMarca} alt="BROKERGY" />
+                <div className="prop-bar-meta"><span className="prop-exp">{displayId}{marcaVersion ? ` · v${versionActual}` : ''} · Página {pagina}</span></div>
+            </div>
+        </>
     );
 
     // Pie de página corrido (páginas sin CTA).
     const renderFoot = () => (
         <div className="prop-mfoot">
             <span>BROKERGY — Soluciones Sostenibles para Eficiencia Energética, S.L.{cobrand?.name ? ` · en colaboración con ${cobrand.name}` : ''}</span>
-            <span><a href="mailto:info@brokergy.es">info@brokergy.es</a> · <a href="tel:623926179">623 926 179</a> · <a href="https://www.brokergy.es">brokergy.es</a></span>
+            <span><a className="m" href="mailto:info@brokergy.es">info@brokergy.es</a> · <a href="tel:623926179">623 926 179</a> · <a href="https://www.brokergy.es">brokergy.es</a></span>
         </div>
     );
 
@@ -3338,15 +3426,13 @@ info@brokergy.es · 623 926 179`;
 
                             {/* <!-- PAGINA 1 --> */}
                             <div ref={page1Ref} className={`prop-page${fit.compact ? ' prop-compact' : ''}`} style={fit.vars || undefined}>
+                                <div className="prop-filete"></div>
+                                <div className="prop-halo"></div>
                                 <div className="prop-bar">
-                                    <div>
-                                        <div className="prop-bar-logo">BROKER<span>GY</span></div>
-                                        <div className="prop-bar-tag">Ingeniería energética</div>
-                                    </div>
+                                    <img className="prop-logo" src={brokergyMarca} alt="BROKERGY" />
                                     <div className="prop-bar-meta">
-                                        <span className="prop-bar-num">Propuesta Nº {displayId}{marcaVersion ? ` · ${marcaVersion}` : ''}</span><br />
-                                        Fecha: {formattedDate} · Oferta válida hasta: {formattedValidDate}
-                                        {marcaVersion && <><br /><span style={{ fontWeight: 700 }}>Esta versión anula y sustituye a las anteriores</span></>}
+                                        <span className="prop-exp">Propuesta Nº {displayId}{marcaVersion ? ` · v${versionActual}` : ''}</span>
+                                        <div className="prop-bar-fecha"><b>{formattedDate}</b> · válida hasta <b>{formattedValidDate}</b>{marcaVersion && ' · esta versión anula y sustituye a las anteriores'}</div>
                                     </div>
                                 </div>
 
@@ -3357,7 +3443,7 @@ info@brokergy.es · 623 926 179`;
                                         <div className="prop-head">
                                             <div className="prop-head-txt">
                                                 <div className="prop-eyebrow">Propuesta de Bono Energético CAE</div>
-                                                <h2 className="prop-h1">Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2>
+                                                <h2 className="prop-h1">Propuesta de <span className="prop-mark">Bono Energético CAE</span> y servicios de eficiencia energética</h2>
                                                 <div className="prop-h1sub">Resumen personalizado de ayudas, subvenciones y deducciones fiscales</div>
                                             </div>
                                             <div className="prop-headshot"><img src={fachadaFoto} alt="Fachada del inmueble" /></div>
@@ -3365,15 +3451,30 @@ info@brokergy.es · 623 926 179`;
                                     ) : (
                                         <>
                                             <div className="prop-eyebrow">Propuesta de Bono Energético CAE</div>
-                                            <h2 className="prop-h1">Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2>
+                                            <h2 className="prop-h1">Propuesta de <span className="prop-mark">Bono Energético CAE</span> y servicios de eficiencia energética</h2>
                                             <div className="prop-h1sub">Resumen personalizado de ayudas, subvenciones y deducciones fiscales</div>
                                         </>
+                                    )}
+
+                                    {/* La cifra protagonista va ANTES del colaborador: es lo
+                                        que el cliente viene a leer. En la comparativa a dos
+                                        columnas no hay un único "total": las cifras se quedan
+                                        en el pie de cada tabla para poder compararlas. */}
+                                    {!isBoth && renderHero(isOnlyReforma ? f80 : f)}
+
+                                    {/* La chapa va JUNTO a la cifra: la inversión neta y el
+                                        "% cubierto" salen del presupuesto, y es ahí donde se
+                                        leen como cerrados. */}
+                                    {presEstimado && (
+                                        <div className="prop-estbadge">
+                                            <Ico n="aviso" s={13} w={2.4} /> Presupuesto estimado — propuesta provisional
+                                        </div>
                                     )}
 
                                     {/* Con instalador asociado la tarjeta es de co-branding; sin él, el
                                         hueco se usa para captarlo. La obra la ejecuta un instalador sí o
                                         sí, y cuanto antes hable con nosotros menos se atasca el CAE. */}
-                                    <div className="prop-cobrand">
+                                    <div className="prop-card prop-cobrand">
                                         <div className="prop-cobrand-logo"><img src={brokergyLogo} alt="BROKERGY" /></div>
                                         {cobrand ? (
                                             <>
@@ -3383,12 +3484,11 @@ info@brokergy.es · 623 926 179`;
                                                     {cobrand.name && <div className="prop-cobrand-name">{cobrand.name}</div>}
                                                     <div className="prop-cobrand-sub">{cobrand.esInstalador ? 'Instalador colaborador' : 'Colaborador'} de la red BROKERGY · propuesta conjunta</div>
                                                     {/* La bonificación va DENTRO de la tarjeta del colaborador: es
-                                                        lo que la colaboración le da al cliente, y ahí no suma alto
-                                                        (la tarjeta la marcan los 92 px de los logos). */}
+                                                        lo que la colaboración le da al cliente. */}
                                                     {servicio.gratis && (
                                                         <div className="prop-copromo">
                                                             <div>
-                                                                <div className="prop-copromo-t">🎁 Ventaja por esta colaboración</div>
+                                                                <div className="prop-copromo-t"><Ico n="regalo" s={13} w={2.4} />Ventaja por esta colaboración</div>
                                                                 <div className="prop-copromo-d">Certificados energéticos, tasas y gestión del CAE</div>
                                                             </div>
                                                             <div className="prop-copromo-v"><s>{fmtEur2(servicio.tarifa)}</s><span>0 €</span></div>
@@ -3409,7 +3509,7 @@ info@brokergy.es · 623 926 179`;
                                         en su propia franja, debajo. */}
                                     {servicio.gratis && !cobrand && (
                                         <div className="prop-promo">
-                                            <div className="prop-promo-ico">🎁</div>
+                                            <div className="prop-tile ver s"><Ico n="regalo" s={16} /></div>
                                             <div className="prop-promo-txt">
                                                 <div className="prop-promo-t">{servicio.promocion}</div>
                                                 <div className="prop-promo-d">Le hacemos sin coste los certificados energéticos inicial y final, sus tasas de registro y toda la gestión del Bono CAE.</div>
@@ -3418,28 +3518,15 @@ info@brokergy.es · 623 926 179`;
                                         </div>
                                     )}
 
-                                    {/* En la comparativa a dos columnas no hay un único "total": los KPIs
-                                        se quedan en el pie de cada tabla para poder compararlos. */}
-                                    {!isBoth && renderKpis(isOnlyReforma ? f80 : f)}
-
-                                    {/* La chapa va JUNTO a los indicadores: la inversión neta y el
-                                        "% cubierto" que hay justo encima salen del presupuesto, y es
-                                        ahí donde se leen como cerrados. */}
-                                    {presEstimado && (
-                                        <div className="prop-estbadge">
-                                            ⚠ Presupuesto estimado — propuesta provisional
-                                        </div>
-                                    )}
-
                                     <div className="prop-meta">
                                         <div><div className="prop-meta-l">Cliente</div><div className="prop-meta-v">{inputs?.referenciaCliente || 'Sin Asignar'}</div></div>
-                                        <div><div className="prop-meta-l">Ref. Catastral</div><div className="prop-meta-v">{inputs?.rc || 'MANUAL'}</div></div>
+                                        <div><div className="prop-meta-l">Ref. catastral</div><div className="prop-meta-v mono">{inputs?.rc || 'MANUAL'}</div></div>
                                         <div><div className="prop-meta-l">Dirección</div><div className="prop-meta-v">{inputs?.direccion || inputs?.address || '---'}</div></div>
                                     </div>
 
                                     <div className="prop-sec">
                                     <div className="prop-stag"><span className="prop-sn">1</span><span className="prop-st">Desglose</span></div>
-                                    <div className="prop-stitle">Análisis de subvenciones y deducciones</div>
+                                    <h3 className="prop-stitle">Análisis de subvenciones y deducciones</h3>
                                     <p className="prop-sintro">
                                         {hideBudget
                                             ? 'Hemos analizado su actuación de mejora energética y calculado la ayuda a la que puede optar. El Bono Energético CAE se calcula sobre el ahorro de energía certificado, no sobre el coste de la obra, por eso podemos darle el importe con independencia del presupuesto.'
@@ -3455,33 +3542,33 @@ info@brokergy.es · 623 926 179`;
                                         {/* TABLA 1: AEROTERMIA (Siempre que no sea OnlyReforma) */}
                                         {!isOnlyReforma && (
                                             <div className={isBoth ? 'prop-fcol' : ''}>
-                                                {isBoth && <div className="prop-ftable-title"><i style={{background:'var(--orange)'}}></i> OPCIÓN 1: AEROTERMIA</div>}
+                                                {isBoth && <div className="prop-ftable-title"><i style={{ background: 'var(--naranja)' }}></i> Opción 1: Aerotermia</div>}
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth"><span>Concepto</span><span>Importe</span></div>
-                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión sustitución de caldera por aerotermia {ivaSuffix(f)}{presEstimado && <small style={{ color: 'var(--orange-dark)', fontWeight: 800 }}> (ESTIMADA)</small>}</span><span className="prop-fv">{formatNumber(f.presupuesto)} €</span></div>}
+                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión sustitución de caldera por aerotermia {ivaSuffix(f)}{presEstimado && <small className="est"> (ESTIMADA)</small>}</span><span className="prop-fv">{formatNumber(f.presupuesto)} €</span></div>}
                                                         {!hideBudget && f.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}{lineaHibrida && (<><br /><small style={{ color: lineaHibrida.tono === 'mas' ? 'var(--green-dark)' : 'var(--red)', fontWeight: 800 }}>{lineaHibrida.texto}</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}{lineaHibrida && (<><br /><small className={lineaHibrida.tono === 'mas' ? 'mas' : 'menos'}>{lineaHibrida.texto}</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f.caeBonus)} €</span></div>
 
                                                         {f.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
                                                                 <span className="prop-fl">Impuestos aplicables por cobro de ayuda CAE <small>(Estimado)</small></span>
-                                                                <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f.irpfCaeAmount)} €</span>
+                                                                <span className="prop-fv">+ {formatNumber(f.irpfCaeAmount)} €</span>
                                                             </div>
                                                         )}
 
                                                     {f.caeMaintenanceCost > 0 && (
                                                         <div className="prop-ftr">
                                                             <span className="prop-fl">Certificados energéticos y gestión del CAE <small>(se descuenta del bono · tarifa {fmtEur2(servicio.tarifa)})</small></span>
-                                                            <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f.caeMaintenanceCost)} €</span>
+                                                            <span className="prop-fv">+ {formatNumber(f.caeMaintenanceCost)} €</span>
                                                         </div>
                                                     )}
 
                                                     {f.itpCost > 0 && (
                                                         <div className="prop-ftr">
                                                             <span className="prop-fl">Ajuste Fiscal: Notaría e ITP</span>
-                                                            <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f.itpCost)} €</span>
+                                                            <span className="prop-fv">+ {formatNumber(f.itpCost)} €</span>
                                                         </div>
                                                     )}
 
@@ -3492,22 +3579,28 @@ info@brokergy.es · 623 926 179`;
                                                         </div>
                                                     ))}
 
-                                                    {/* Los totales CIERRAN la tabla en todas las propuestas, no
-                                                        solo en la comparativa: aunque las tarjetas de arriba den
-                                                        las mismas cifras, una tabla que termina en la deducción
-                                                        se lee como cortada (petición del 24/09/2026). */}
+                                                    {/* Los totales CIERRAN la tabla en todas las propuestas: una
+                                                        tabla que termina en la deducción se lee como cortada
+                                                        (petición del 24/09/2026). Con una sola opción la ayuda
+                                                        total y el % cubierto ya son la cifra protagonista de
+                                                        arriba, así que cierra la inversión neta; en la
+                                                        comparativa van los tres, que es donde se comparan. */}
                                                     {!hideBudget && (
                                                         <>
-                                                            <div className="prop-ftaids">
-                                                                <span className="prop-fl">AYUDA TOTAL ESTIMADA</span>
-                                                                <span className="prop-fv">{formatNumber(f.totalBeneficioFiscal || f.totalAyuda)} €</span>
-                                                            </div>
-                                                            <div className="prop-ftpct">
-                                                                <span className="prop-fl">% CUBIERTO POR LAS AYUDAS</span>
-                                                                <span className="prop-fv">{formatNumber(f.porcentajeCubierto)}%</span>
-                                                            </div>
+                                                            {isBoth && (
+                                                                <>
+                                                                    <div className="prop-ftaids">
+                                                                        <span className="prop-fl">Ayuda total estimada</span>
+                                                                        <span className="prop-fv">{formatNumber(f.totalBeneficioFiscal || f.totalAyuda)} €</span>
+                                                                    </div>
+                                                                    <div className="prop-ftpct">
+                                                                        <span className="prop-fl">% cubierto por las ayudas</span>
+                                                                        <span className="prop-fv">{formatNumber(f.porcentajeCubierto)}%</span>
+                                                                    </div>
+                                                                </>
+                                                            )}
                                                             <div className="prop-ftfin">
-                                                                <span className="prop-fl">INVERSIÓN NETA FINAL</span>
+                                                                <span className="prop-fl">Inversión neta final</span>
                                                                 <span className="prop-fv">{formatNumber(f.costeFinal)} €</span>
                                                             </div>
                                                         </>
@@ -3519,33 +3612,33 @@ info@brokergy.es · 623 926 179`;
                                         {/* TABLA 2: REFORMA (Si es Both o OnlyReforma) */}
                                         {(isBoth || isOnlyReforma) && f80 && (
                                             <div className={isBoth ? 'prop-fcol' : ''}>
-                                                {isBoth && <div className="prop-ftable-title"><i style={{background:'var(--green)'}}></i> OPCIÓN 2: AEROTERMIA + REFORMA</div>}
+                                                {isBoth && <div className="prop-ftable-title"><i style={{ background: 'var(--verde)' }}></i> Opción 2: Aerotermia + reforma</div>}
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth"><span>Concepto</span><span>Importe</span></div>
-                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión Reforma de Vivienda + Aerotermia {ivaSuffix(f80)}{presEstimado && <small style={{ color: 'var(--orange-dark)', fontWeight: 800 }}> (ESTIMADA)</small>}</span><span className="prop-fv">{formatNumber(f80.presupuesto)} €</span></div>}
+                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión Reforma de Vivienda + Aerotermia {ivaSuffix(f80)}{presEstimado && <small className="est"> (ESTIMADA)</small>}</span><span className="prop-fv">{formatNumber(f80.presupuesto)} €</span></div>}
                                                         {!hideBudget && f80.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}{ceeComparison && includeCeeComp && inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f80.caeBonus)} €</span></div>
-                                                        
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}{ceeComparison && includeCeeComp && inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f80.caeBonus)} €</span></div>
+
                                                         {f80.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
                                                                 <span className="prop-fl">Impuestos aplicables por cobro de ayuda CAE <small>(Estimado)</small></span>
-                                                                <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f80.irpfCaeAmount)} €</span>
+                                                                <span className="prop-fv">+ {formatNumber(f80.irpfCaeAmount)} €</span>
                                                             </div>
                                                         )}
 
                                                     {f80.caeMaintenanceCost > 0 && (
                                                         <div className="prop-ftr">
                                                             <span className="prop-fl">Certificados energéticos y gestión del CAE <small>(se descuenta del bono · tarifa {fmtEur2(servicio.tarifa)})</small></span>
-                                                            <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f80.caeMaintenanceCost)} €</span>
+                                                            <span className="prop-fv">+ {formatNumber(f80.caeMaintenanceCost)} €</span>
                                                         </div>
                                                     )}
 
                                                     {f80.itpCost > 0 && (
                                                         <div className="prop-ftr">
                                                             <span className="prop-fl">Ajuste Fiscal: Notaría e ITP</span>
-                                                            <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f80.itpCost)} €</span>
+                                                            <span className="prop-fv">+ {formatNumber(f80.itpCost)} €</span>
                                                         </div>
                                                     )}
 
@@ -3558,16 +3651,20 @@ info@brokergy.es · 623 926 179`;
 
                                                     {!hideBudget && (
                                                         <>
-                                                            <div className="prop-ftaids">
-                                                                <span className="prop-fl">AYUDA TOTAL ESTIMADA</span>
-                                                                <span className="prop-fv">{formatNumber(f80.totalBeneficioFiscal || f80.totalAyuda)} €</span>
-                                                            </div>
-                                                            <div className="prop-ftpct">
-                                                                <span className="prop-fl">% CUBIERTO POR LAS AYUDAS</span>
-                                                                <span className="prop-fv">{formatNumber(f80.porcentajeCubierto)}%</span>
-                                                            </div>
+                                                            {isBoth && (
+                                                                <>
+                                                                    <div className="prop-ftaids">
+                                                                        <span className="prop-fl">Ayuda total estimada</span>
+                                                                        <span className="prop-fv">{formatNumber(f80.totalBeneficioFiscal || f80.totalAyuda)} €</span>
+                                                                    </div>
+                                                                    <div className="prop-ftpct">
+                                                                        <span className="prop-fl">% cubierto por las ayudas</span>
+                                                                        <span className="prop-fv">{formatNumber(f80.porcentajeCubierto)}%</span>
+                                                                    </div>
+                                                                </>
+                                                            )}
                                                             <div className="prop-ftfin">
-                                                                <span className="prop-fl">INVERSIÓN NETA FINAL</span>
+                                                                <span className="prop-fl">Inversión neta final</span>
                                                                 <span className="prop-fv">{formatNumber(f80.costeFinal)} €</span>
                                                             </div>
                                                         </>
@@ -3580,10 +3677,13 @@ info@brokergy.es · 623 926 179`;
                                         importe de la obra y de tener un CEE previo. Se explica la
                                         horquilla en vez de dar un número que no podríamos sostener. */}
                                     {hideBudget && f.irpfCap > 0 && (
-                                        <div className="prop-hip">
-                                            <h4>Además: deducción en el IRPF de hasta {formatNumber(f.irpfCap)} € por propietario</h4>
-                                            <p>Como contribuyente del IRPF puede deducirse hasta el {f.irpfRate}% de la inversión en rehabilitación energética, con un máximo de <strong>{formatNumber(f.irpfCap)} € por cada propietario</strong> de la vivienda.</p>
-                                            <p>No podemos concretar el importe en esta propuesta porque depende de dos cosas: de que exista un <strong>Certificado de Eficiencia Energética realizado y registrado ANTES de las obras</strong> y del <strong>importe final de la obra</strong>. En cuanto tengamos el presupuesto se lo calculamos exactamente.</p>
+                                        <div className="prop-ambar ver">
+                                            <div className="prop-ambar-ico"><Ico n="mas" w={2.4} /></div>
+                                            <div>
+                                                <h4>Además: deducción en el IRPF de hasta {formatNumber(f.irpfCap)} € por propietario</h4>
+                                                <p>Como contribuyente del IRPF puede deducirse hasta el {f.irpfRate}% de la inversión en rehabilitación energética, con un máximo de <strong>{formatNumber(f.irpfCap)} € por cada propietario</strong> de la vivienda.</p>
+                                                <p>No podemos concretar el importe en esta propuesta porque depende de dos cosas: de que exista un <strong>Certificado de Eficiencia Energética realizado y registrado ANTES de las obras</strong> y del <strong>importe final de la obra</strong>. En cuanto tengamos el presupuesto se lo calculamos exactamente.</p>
+                                            </div>
                                         </div>
                                     )}
 
@@ -3593,33 +3693,42 @@ info@brokergy.es · 623 926 179`;
                                         calculado, qué NO cambia (el bono CAE) y qué sí (la deducción,
                                         y solo si la hay). */}
                                     {avisoPres && (
-                                        <div className="prop-est">
-                                            <h4>⚠ {avisoPres.titulo} — propuesta provisional</h4>
-                                            {avisoPres.parrafos.map((p, i) => <p key={i}>{p}</p>)}
+                                        <div className="prop-ambar">
+                                            <div className="prop-ambar-ico"><Ico n="aviso" w={2.2} /></div>
+                                            <div>
+                                                <h4>{avisoPres.titulo} — propuesta provisional</h4>
+                                                {avisoPres.parrafos.map((p, i) => <p key={i}>{p}</p>)}
+                                            </div>
                                         </div>
                                     )}
 
                                     {/* Biomasa sin placas: la deducción del IRPF de la tabla queda
                                         condicionada a tenerlas; el bono CAE, no. */}
                                     {avisoBiomasa && (
-                                        <div className="prop-est">
-                                            <h4>⚠ {avisoBiomasa.titulo}</h4>
-                                            {avisoBiomasa.parrafos.map((p, i) => <p key={i}>{p}</p>)}
+                                        <div className="prop-ambar">
+                                            <div className="prop-ambar-ico"><Ico n="aviso" w={2.2} /></div>
+                                            <div>
+                                                <h4>{avisoBiomasa.titulo}</h4>
+                                                {avisoBiomasa.parrafos.map((p, i) => <p key={i}>{p}</p>)}
+                                            </div>
                                         </div>
                                     )}
 
                                     {/* Hibridación: las dos cifras (caldera retirada / mantenida)
                                         y qué significa retirarla de verdad. */}
                                     {avisoHibrida && (
-                                        <div className={`prop-est ${opHibrida?.retira ? '' : 'hib-mas'}`}>
-                                            <h4>{opHibrida?.retira ? '⚠' : '💡'} {avisoHibrida.titulo}</h4>
-                                            {avisoHibrida.parrafos.map((p, i) => <p key={i}>{p}</p>)}
+                                        <div className={`prop-ambar${opHibrida?.retira ? '' : ' ver'}`}>
+                                            <div className="prop-ambar-ico"><Ico n={opHibrida?.retira ? 'aviso' : 'bombilla'} w={2.2} /></div>
+                                            <div>
+                                                <h4>{avisoHibrida.titulo}</h4>
+                                                {avisoHibrida.parrafos.map((p, i) => <p key={i}>{p}</p>)}
+                                            </div>
                                         </div>
                                     )}
 
                                     <div className="prop-nsm">
                                         {ceeComparison && includeCeeComp && (
-                                            <p style={{ background: 'rgba(255,157,77,0.10)', borderLeft: '3px solid var(--orange)', padding: '6px 10px', borderRadius: '4px' }}><b>OPCIÓN CEE:</b> Has aportado un CEE inicial. Según cuál usemos, el Bono Energético y la ayuda total serían: <b>con tu CEE</b> {formatNumber(Math.round(ceeComparison.conCee.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.conCee.total))} €); <b>con un CEE nuevo BROKERGY</b> {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.ceeNuevo.total))} €). La deducción del IRPF es la misma en ambos casos. Elegirás qué CEE usar al aceptar la propuesta.</p>
+                                            <p className="cee"><b>OPCIÓN CEE:</b> Has aportado un CEE inicial. Según cuál usemos, el Bono Energético y la ayuda total serían: <b>con tu CEE</b> {formatNumber(Math.round(ceeComparison.conCee.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.conCee.total))} €); <b>con un CEE nuevo BROKERGY</b> {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.ceeNuevo.total))} €). La deducción del IRPF es la misma en ambos casos. Elegirás qué CEE usar al aceptar la propuesta.</p>
                                         )}
                                         {/* Las notas se numeran SOLAS. Escritas a mano, la del coste de
                                             obra y la del ahorro anual eran las dos "NOTA 3" y podían
@@ -3630,20 +3739,20 @@ info@brokergy.es · 623 926 179`;
                                             f.irpfCap > 0 ? 'Las deducciones en el IRPF no suponen un descuento directo, sino un derecho a deducción en la renta. El ahorro dependerá de la situación fiscal del contribuyente.' : null,
                                             hideBudget ? 'Esta propuesta no recoge el coste de la obra. El importe del Bono Energético CAE no depende de él, así que se mantiene sea cual sea el presupuesto final de la instalación.' : null,
                                             // El presupuesto ESTIMADO ya no lleva nota al pie: la
-                                            // decía palabra por palabra el recuadro naranja que hay
-                                            // justo encima, y esas dos líneas repetidas eran parte de
-                                            // lo que empujaba las notas debajo del pie negro.
+                                            // decía palabra por palabra el recuadro que hay justo
+                                            // encima, y esas dos líneas repetidas eran parte de lo
+                                            // que empujaba las notas debajo del pie.
                                             showAnnualSavings ? 'El análisis de ahorro anual es un cálculo teórico basado en datos climáticos zonales. Los resultados reales dependerán de los hábitos de uso.' : null,
                                         ].filter(Boolean).map((txt, i) => (
-                                            <p key={i}><b>NOTA {i + 1}:</b> {txt}</p>
+                                            <p key={i}><b>Nota {i + 1}:</b> {txt}</p>
                                         ))}
-                                        <div className="prop-avl">Aviso: Los cálculos son estimaciones teóricas. Los consumos reales pueden variar.</div>
+                                        <div className="prop-avl">Aviso: los cálculos son estimaciones teóricas. Los consumos reales pueden variar.</div>
                                     </div>
 
                                     {showAnnualSavings && (
                                         <div className="prop-ftable" style={{ marginTop: '10px' }}>
                                             <div className="prop-fth"><span>Análisis de ahorro y rentabilidad</span><span>Importe</span></div>
-                                            <div className="prop-ftr"><span className="prop-fl">Gasto aproximado actual con {annualSavings.fuelLabel}</span><span className="prop-fv" style={{ color: 'var(--red)' }}>{formatNumber(Math.round(annualSavings.costeActual))} €/año</span></div>
+                                            <div className="prop-ftr"><span className="prop-fl">Gasto aproximado actual con {annualSavings.fuelLabel}</span><span className="prop-fv">{formatNumber(Math.round(annualSavings.costeActual))} €/año</span></div>
                                             <div className="prop-ftr"><span className="prop-fl">Gasto estimado con Aerotermia</span><span className="prop-fv grn">{formatNumber(Math.round(annualSavings.costeNuevo))} €/año</span></div>
                                             <div className="prop-ftpct"><span className="prop-fl">Ahorro económico anual</span><span className="prop-fv">{formatNumber(Math.round(annualSavings.ahorroAnual))} €</span></div>
                                             {payback && payback.paybackYears < 100 && (
@@ -3658,53 +3767,53 @@ info@brokergy.es · 623 926 179`;
 
                             {/* <!-- PAGINA 2 --> */}
                             <div className="prop-page">
-                                <div className="prop-bar prop-bar-slim">
-                                    <div className="prop-bar-logo">BROKER<span>GY</span></div>
-                                    <div className="prop-bar-page">Propuesta Nº {displayId}{marcaVersion ? ` · v${versionActual}` : ''} · Página 2</div>
-                                </div>
-                                <div className="prop-pb" style={{ paddingTop: '18px' }}>
+                                {renderBarra(2)}
+                                <div className="prop-pb" style={{ paddingTop: '16px' }}>
                                     <div className="prop-stag"><span className="prop-sn">2</span><span className="prop-st">Bono Energético CAE</span></div>
-                                    <div className="prop-stitle">¿Qué son los Certificados de Ahorro Energético?</div>
+                                    <h2 className="prop-h2">¿Qué son los Certificados de <span className="prop-mark">Ahorro</span> Energético?</h2>
                                     <p className="prop-sintro">Los CAE son un mecanismo regulado por el Ministerio para la Transición Ecológica y el Reto Demográfico (Real Decreto 36/2023) que premia económicamente las acciones de eficiencia energética realizadas en hogares y negocios.</p>
 
-                                    <div className="prop-ebox dk">
-                                        <h4>¿Cómo funcionan?</h4>
-                                        <p>Cuando usted realiza una mejora que ahorra energía en su vivienda — como sustituir una caldera antigua por aerotermia, mejorar el aislamiento o cambiar ventanas — ese ahorro se puede cuantificar y convertir en un beneficio económico real a través de los Certificados de Ahorro Energético, dentro de un sistema oficial respaldado por el Gobierno de España.</p>
-                                        <p>Las grandes empresas energéticas (llamadas "sujetos obligados") están obligadas por ley a comprar estos certificados. Sin embargo, <strong>solo adquieren CAE en grandes volúmenes</strong> y no negocian directamente con particulares. Además, el proceso requiere documentación técnica especializada, emisión de facturas específicas y una gestión administrativa compleja.</p>
+                                    <div className="prop-card prop-ebox">
+                                        <div className="prop-tile crema"><Ico n="rayo" s={19} /></div>
+                                        <div>
+                                            <h4>¿Cómo funcionan?</h4>
+                                            <p>Cuando usted realiza una mejora que ahorra energía en su vivienda — como sustituir una caldera antigua por aerotermia, mejorar el aislamiento o cambiar ventanas — ese ahorro se puede cuantificar y convertir en un beneficio económico real a través de los Certificados de Ahorro Energético, dentro de un sistema oficial respaldado por el Gobierno de España.</p>
+                                            <p>Las grandes empresas energéticas (llamadas "sujetos obligados") están obligadas por ley a comprar estos certificados. Sin embargo, <strong>solo adquieren CAE en grandes volúmenes</strong> y no negocian directamente con particulares. Además, el proceso requiere documentación técnica especializada, emisión de facturas específicas y una gestión administrativa compleja.</p>
+                                        </div>
                                     </div>
 
-                                    <div className="prop-ebox ora">
-                                        <h4>¿Por qué elegirnos? La solución BROKERGY</h4>
-                                        <p>BROKERGY actúa como su intermediario especializado. Agrupamos su expediente con otros similares para crear paquetes atractivos para los grandes compradores, gestionamos toda la documentación técnica y administrativa, y negociamos directamente con los sujetos obligados para obtener el máximo precio por sus certificados.</p>
-                                        <p><strong>Usted no tiene que preocuparse de nada:</strong> nosotros nos encargamos de todo el proceso de principio a fin, y usted solo necesita firmar dos documentos. Sin papeleo, sin complicaciones, y con la garantía de cobro.</p>
+                                    <div className="prop-card prop-ebox">
+                                        <div className="f"></div>
+                                        <div className="prop-tile nar"><Ico n="escudo" s={19} /></div>
+                                        <div>
+                                            <h4>¿Por qué elegirnos? La solución BROKERGY</h4>
+                                            <p>BROKERGY actúa como su intermediario especializado. Agrupamos su expediente con otros similares para crear paquetes atractivos para los grandes compradores, gestionamos toda la documentación técnica y administrativa, y negociamos directamente con los sujetos obligados para obtener el máximo precio por sus certificados.</p>
+                                            <p><strong>Usted no tiene que preocuparse de nada:</strong> nosotros nos encargamos de todo el proceso de principio a fin, y usted solo necesita firmar dos documentos. Sin papeleo, sin complicaciones, y con la garantía de cobro.</p>
+                                        </div>
                                     </div>
 
                                     <div className="prop-agrid">
-                                        <div className="prop-ac grn"><div className="prop-ai">🏆</div><div className="prop-at">100% de éxito</div><div className="prop-as">Todos los expedientes tramitados resueltos favorablemente</div></div>
-                                        <div className="prop-ac"><div className="prop-ai">💸</div><div className="prop-at">Cobro 3-9 meses</div><div className="prop-as">Pago íntegro en plazo garantizado</div></div>
-                                        <div className="prop-ac"><div className="prop-ai">📋</div><div className="prop-at">Solo 2 firmas</div><div className="prop-as">Mínima participación por su parte</div></div>
-                                        <div className="prop-ac ora"><div className="prop-ai">🎯</div><div className="prop-at">Sin adelantos</div><div className="prop-as">Cobramos a éxito del expediente</div></div>
+                                        <div className="prop-card prop-ac"><div className="prop-tile ver"><Ico n="copa" s={17} /></div><div className="prop-at">100% de éxito</div><div className="prop-as">Todos los expedientes tramitados resueltos favorablemente</div></div>
+                                        <div className="prop-card prop-ac"><div className="prop-tile crema"><Ico n="reloj" s={17} /></div><div className="prop-at">Cobro 3-9 meses</div><div className="prop-as">Pago íntegro en plazo garantizado</div></div>
+                                        <div className="prop-card prop-ac"><div className="prop-tile crema"><Ico n="lapiz" s={17} /></div><div className="prop-at">Solo 2 firmas</div><div className="prop-as">Mínima participación por su parte</div></div>
+                                        <div className="prop-card prop-ac"><div className="prop-tile nar"><Ico n="diana" s={17} /></div><div className="prop-at">Sin adelantos</div><div className="prop-as">Cobramos a éxito del expediente</div></div>
                                     </div>
 
                                     {f.irpfCap > 0 && (
                                         <>
                                             <div className="prop-sdiv"></div>
 
-                                            <div className="prop-stag"><span className="prop-sn">3</span><span className="prop-st">Ahorro adicional</span></div>
-                                            <div className="prop-stitle">Deducciones en el IRPF — Hasta un 60%</div>
-                                            <p className="prop-sintro">Además del Bono Energético, como contribuyente del IRPF puede deducirse hasta el 60% de la inversión (límite 9.000 €) en su declaración de la renta.</p>
+                                            <div className="prop-stag"><span className="prop-sn">3</span><span className="prop-st ver">Ahorro adicional</span></div>
+                                            <h3 className="prop-h3">Deducciones en el IRPF — hasta un 60%</h3>
+                                            <p className="prop-sintro" style={{ marginBottom: 0 }}>Además del Bono Energético, como contribuyente del IRPF puede deducirse hasta el 60% de la inversión (límite 9.000 €) en su declaración de la renta.</p>
                                             <div className="prop-irpf">
-                                                <div className="prop-ebox grn" style={{ marginBottom: 0 }}>
+                                                <div className="prop-card prop-req">
                                                     <h4>Requisitos principales</h4>
                                                     <p>Ser contribuyente del IRPF. Disponer de CEE antes y después de la actuación. No pagar en efectivo. Declarar en el ejercicio de la obra (ej: obras 2026 → renta 2027). Máximo deducible por año: 3.000 €; el exceso se prorratea en años siguientes.</p>
-                                                    <p style={{ marginTop: '7px', borderTop: '1px solid rgba(0,200,83,0.15)', paddingTop: '7px', lineHeight: '1.55' }}>
-                                                        <b>Ámbito subjetivo:</b> Únicamente podrán aplicar la deducción los contribuyentes <b>propietarios</b> de las viviendas. Quedan excluidos nudos propietarios, usufructuarios y arrendatarios.
-                                                    </p>
-                                                    <p style={{ marginTop: '5px', fontSize: '8.5px' }}>
-                                                        <a href="https://sede.agenciatributaria.gob.es/Sede/ayuda/manuales-videos-folletos/manuales-practicos/irpf-2025/c16-deducciones-generales-cuota/deducciones-obras-mejora-eficiencia-energetica-viviendas/obras-rehabilitacion-energetica-edificios.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--green-dark)', textDecoration: 'none', fontWeight: '700' }}>
-                                                            ➜ Ampliar información en la Sede Electrónica de la Agencia Tributaria
-                                                        </a>
-                                                    </p>
+                                                    <p><strong>Ámbito subjetivo:</strong> Únicamente podrán aplicar la deducción los contribuyentes <strong>propietarios</strong> de las viviendas. Quedan excluidos nudos propietarios, usufructuarios y arrendatarios.</p>
+                                                    <a href="https://sede.agenciatributaria.gob.es/Sede/ayuda/manuales-videos-folletos/manuales-practicos/irpf-2025/c16-deducciones-generales-cuota/deducciones-obras-mejora-eficiencia-energetica-viviendas/obras-rehabilitacion-energetica-edificios.html" target="_blank" rel="noopener noreferrer">
+                                                        Ampliar información en la Sede Electrónica de la Agencia Tributaria →
+                                                    </a>
                                                 </div>
 
                                                 {(() => {
@@ -3722,14 +3831,14 @@ info@brokergy.es · 623 926 179`;
                                                     }
                                                     const prorrateo = deduction > maxPerYear;
                                                     return (
-                                                        <div className="prop-ibox-wrap">
-                                                            <p className="prop-ibox-title">{hideBudget ? `Ejemplo con la deducción máxima (${formatNumber(deduction)} €):` : `${prorrateo ? 'Ejemplo de prorrateo' : 'Ejemplo'} (deducción de ${formatNumber(deduction)} €):`}</p>
-                                                            <div className="prop-irow">
+                                                        <div className="prop-card prop-ej">
+                                                            <div className="prop-ej-t">{hideBudget ? `Ejemplo con la deducción máxima (${formatNumber(deduction)} €)` : `${prorrateo ? 'Ejemplo de prorrateo' : 'Ejemplo'} · deducción de ${formatNumber(deduction)} €`}</div>
+                                                            <div className={`prop-ej-rows${prorrateo ? ' varios' : ''}`}>
                                                                 {(prorrateo ? years : [{ year: baseYear, amount: deduction }]).map(y => (
-                                                                    <div key={y.year} className="prop-ibox"><div className="prop-iy">Renta {y.year}</div><div className="prop-ia">{formatNumber(y.amount)} €</div></div>
+                                                                    <div key={y.year} className="prop-ej-row"><span>Renta {y.year}</span><b>{formatNumber(y.amount)} €</b></div>
                                                                 ))}
                                                             </div>
-                                                            {prorrateo && <p className="prop-inote">Cuando la vivienda es de propiedad compartida, los límites se aplican por contribuyente, pudiendo duplicarse la ayuda.</p>}
+                                                            {prorrateo && <p className="prop-ej-n">Cuando la vivienda es de propiedad compartida, los límites se aplican por contribuyente, pudiendo duplicarse la ayuda.</p>}
                                                         </div>
                                                     );
                                                 })()}
@@ -3740,15 +3849,18 @@ info@brokergy.es · 623 926 179`;
                                     <div className="prop-sdiv"></div>
 
                                     <div className="prop-stag"><span className="prop-sn">{f.irpfCap > 0 ? '4' : '3'}</span><span className="prop-st">Proceso</span></div>
-                                    <div className="prop-stitle">Pasos para obtener su Bono Energético</div>
-                                    <div className="prop-srow">
-                                        <div className="prop-ps"><div className="prop-pn">01</div><div className="prop-pt">CEE Inicial</div><div className="prop-pd">Certificado antes de obra</div></div>
-                                        <div className="prop-ps"><div className="prop-pn">02</div><div className="prop-pt">Reforma</div><div className="prop-pd">Mejora energética</div></div>
-                                        <div className="prop-ps"><div className="prop-pn">03</div><div className="prop-pt">CEE Final</div><div className="prop-pd">Certificado posterior</div></div>
-                                        <div className="prop-ps"><div className="prop-pn">04</div><div className="prop-pt">Facturas</div><div className="prop-pd">Recopilar facturas</div></div>
-                                        <div className="prop-ps"><div className="prop-pn">05</div><div className="prop-pt">Expediente</div><div className="prop-pd">Tramitación CAE</div></div>
-                                        <div className="prop-ps"><div className="prop-pn">06</div><div className="prop-pt">Justificación</div><div className="prop-pd">Verificación técnica</div></div>
-                                        <div className="prop-ps"><div className="prop-pn">07</div><div className="prop-pt">Cobro</div><div className="prop-pd">Recepción importe</div></div>
+                                    <h3 className="prop-h3">Pasos para obtener su Bono Energético</h3>
+                                    <div className="prop-card prop-pasos">
+                                        <div className="prop-pasos-track"></div>
+                                        <div className="prop-srow">
+                                            <div className="prop-ps"><div className="prop-pn">01</div><div className="prop-pt">CEE Inicial</div><div className="prop-pd">Certificado antes de obra</div></div>
+                                            <div className="prop-ps"><div className="prop-pn">02</div><div className="prop-pt">Reforma</div><div className="prop-pd">Mejora energética</div></div>
+                                            <div className="prop-ps"><div className="prop-pn">03</div><div className="prop-pt">CEE Final</div><div className="prop-pd">Certificado posterior</div></div>
+                                            <div className="prop-ps"><div className="prop-pn">04</div><div className="prop-pt">Facturas</div><div className="prop-pd">Recopilar facturas</div></div>
+                                            <div className="prop-ps"><div className="prop-pn">05</div><div className="prop-pt">Expediente</div><div className="prop-pd">Tramitación CAE</div></div>
+                                            <div className="prop-ps"><div className="prop-pn">06</div><div className="prop-pt">Justificación</div><div className="prop-pd">Verificación técnica</div></div>
+                                            <div className="prop-ps"><div className="prop-pn">07</div><div className="prop-pt">Cobro</div><div className="prop-pd">Recepción importe</div></div>
+                                        </div>
                                     </div>
                                 </div>
                                 {renderFoot()}
@@ -3756,20 +3868,18 @@ info@brokergy.es · 623 926 179`;
 
                             {/* <!-- PAGINA 3 --> */}
                             <div className="prop-page">
-                                <div className="prop-bar prop-bar-slim">
-                                    <div className="prop-bar-logo">BROKER<span>GY</span></div>
-                                    <div className="prop-bar-page">Propuesta Nº {displayId}{marcaVersion ? ` · v${versionActual}` : ''} · Página 3</div>
-                                </div>
-                                <div className="prop-pb" style={{ paddingTop: '30px' }}>
+                                {renderBarra(3)}
+                                <div className="prop-pb" style={{ paddingTop: '16px' }}>
                                     <div className="prop-stag"><span className="prop-sn">5</span><span className="prop-st">Documentación</span></div>
-                                    <div className="prop-stitle">¿Qué debe preparar para continuar?</div>
-                                    <p className="prop-sintro" style={{ margin: '7px 0 20px' }}>Para agilizar la tramitación, necesitaremos la siguiente documentación. Puede enviarla por email o WhatsApp.</p>
+                                    <h2 className="prop-h2">¿Qué debe <span className="prop-mark">preparar</span> para continuar?</h2>
+                                    <p className="prop-sintro" style={{ marginBottom: 0 }}>Para agilizar la tramitación, necesitaremos la siguiente documentación. Puede enviarla por email o WhatsApp.</p>
                                     <div className="prop-dcols">
-                                        <div className="prop-dcol">
-                                            <div className="prop-dph">Antes de la obra</div>
+                                        <div className="prop-card prop-dcol">
+                                            <div className="f"></div>
+                                            <div className="prop-dph"><span className="prop-tile nar s"><Ico n="casa" s={16} w={2.2} /></span><b>Antes de la obra</b></div>
 
-                                            <div className="prop-dgt">📐 Documentación técnica de la vivienda</div>
-                                            <ul className="prop-dl">
+                                            <div className="prop-dgt"><Ico n="regla" s={14} w={2.2} />Documentación técnica de la vivienda</div>
+                                            <ul className="prop-dlist">
                                                 <li>Planos (si existen) o croquis de la vivienda</li>
                                                 <li>Fotografías de la caldera existente:</li>
                                                 <li className="s">Vista general instalada</li>
@@ -3780,8 +3890,8 @@ info@brokergy.es · 623 926 179`;
                                                 <li className="s">Suelo radiante (foto del cuadro/colector)</li>
                                             </ul>
 
-                                            <div className="prop-dgt">🏠 Documentación de envolvente</div>
-                                            <ul className="prop-dl">
+                                            <div className="prop-dgt"><Ico n="ventana" s={14} w={2.2} />Documentación de envolvente</div>
+                                            <ul className="prop-dlist">
                                                 <li>Vídeo recorriendo la vivienda mostrando:</li>
                                                 <li className="s">Ventanas, puertas y accesos a exteriores</li>
                                                 <li className="s">Estancias y distribución general</li>
@@ -3790,19 +3900,20 @@ info@brokergy.es · 623 926 179`;
                                                 <li className="s">Cerramientos singulares</li>
                                             </ul>
 
-                                            <div className="prop-dgt">➕ Mejoras que pueden aumentar la ayuda</div>
-                                            <ul className="prop-dl">
+                                            <div className="prop-dgt"><Ico n="mas" s={14} w={2.4} />Mejoras que pueden aumentar la ayuda</div>
+                                            <ul className="prop-dlist">
                                                 <li>Si valora mejorar ventanas o añadir aislamiento:</li>
                                                 <li className="s">Fotografías y/o vídeos de los elementos a sustituir</li>
                                                 <li className="s">Presupuestos disponibles (ventanas, aislamiento…)</li>
                                             </ul>
                                         </div>
-                                        <div className="prop-dcol gr">
-                                            <div className="prop-dph">Después de la obra</div>
+                                        <div className="prop-card prop-dcol gr">
+                                            <div className="f"></div>
+                                            <div className="prop-dph"><span className="prop-tile ver s"><Ico n="check" s={16} w={2.4} /></span><b>Después de la obra</b></div>
                                             <p className="prop-dintro">Una vez finalizada la instalación, debemos justificar técnicamente la actuación y emitir el CEE Final.</p>
 
-                                            <div className="prop-dgt">📸 Documentación fotográfica</div>
-                                            <ul className="prop-dl">
+                                            <div className="prop-dgt"><Ico n="camara" s={14} w={2.2} />Documentación fotográfica</div>
+                                            <ul className="prop-dlist">
                                                 <li>Fotos del desmontaje de la caldera antigua</li>
                                                 <li>Fotos de la caldera antigua ya desmontada</li>
                                                 <li>Fotos de la unidad exterior nueva:</li>
@@ -3811,15 +3922,15 @@ info@brokergy.es · 623 926 179`;
                                                 <li>Fotos de la unidad interior de ACS y/o depósitos de inercia, con sus placas identificativas</li>
                                             </ul>
 
-                                            <div className="prop-dgt">📄 Documentación obligatoria</div>
-                                            <ul className="prop-dl">
+                                            <div className="prop-dgt"><Ico n="documento" s={14} w={2.2} />Documentación obligatoria</div>
+                                            <ul className="prop-dlist">
                                                 <li>Todas las facturas de la instalación (materiales + mano de obra)</li>
                                                 <li>Certificado RITE de la instalación térmica</li>
                                                 <li>Si existen depósitos ACS, buffer o kits hidráulicos externos: fotos y placas identificativas</li>
                                             </ul>
 
                                             <div className="prop-dsend">
-                                                <p className="t">📩 ¿Cómo enviar la documentación?</p>
+                                                <p className="t"><Ico n="subir" s={15} w={2.2} />¿Cómo enviar la documentación?</p>
                                                 {uploadLink ? (
                                                     <p className="d">Lo más cómodo es subirla desde su enlace privado: la recibimos al instante y verá qué le falta en cada momento. También puede enviarla a <strong>info@brokergy.es</strong> o por WhatsApp al <strong>623 926 179</strong>. No es necesario enviarla toda de una vez.</p>
                                                 ) : (
@@ -3827,26 +3938,28 @@ info@brokergy.es · 623 926 179`;
                                                 )}
                                                 {/* Mismo enlace que se le manda por WhatsApp para pedirle las fotos
                                                     (/subir-docs/:uuid?token=). Sin oportunidad guardada no hay token:
-                                                    entonces la caja se queda como estaba, solo con email y teléfono.
-                                                    No se imprime la URL debajo, como sí hace el CTA de firma: esta
+                                                    entonces la caja se queda solo con email y teléfono. No se
+                                                    imprime la URL debajo, como sí hace el CTA de firma: esta
                                                     lleva un token de 32 caracteres que nadie va a teclear. */}
                                                 {uploadLink && (
                                                     <a href={uploadLink} target="_blank" rel="noopener noreferrer" className="prop-dsend-btn">
-                                                        <span>SUBIR MI DOCUMENTACIÓN AQUÍ</span>
-                                                        <span className="a">→</span>
+                                                        Subir mi documentación <Ico n="flecha" s={16} w={2.4} />
                                                     </a>
                                                 )}
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="prop-tipbar">
-                                        <h5>⚠️ Recomendaciones para evitar retrasos en el expediente</h5>
-                                        <p>Las placas de características deben ser completamente legibles. Las fotos deben hacerse con buena luz y evitando reflejos. Si la caldera antigua se retira antes de contactarnos, es imprescindible documentar bien el hueco donde estaba ubicada. Se debe comprobar que el modelo de aerotermia coincide exactamente con el presupuesto inicial, ya que afecta directamente al cálculo del CAE.</p>
+                                    <div className="prop-ambar" style={{ marginTop: '18px', padding: '14px 18px' }}>
+                                        <div className="prop-ambar-ico"><Ico n="aviso" w={2.2} /></div>
+                                        <div>
+                                            <h4>Recomendaciones para evitar retrasos en el expediente</h4>
+                                            <p>Las placas de características deben ser completamente legibles. Las fotos deben hacerse con buena luz y evitando reflejos. Si la caldera antigua se retira antes de contactarnos, es imprescindible documentar bien el hueco donde estaba ubicada. Se debe comprobar que el modelo de aerotermia coincide exactamente con el presupuesto inicial, ya que afecta directamente al cálculo del CAE.</p>
+                                        </div>
                                     </div>
 
-                                    <div className="prop-upsell">
-                                        <div className="ico">💡</div>
+                                    <div className="prop-prueba">
+                                        <div className="prop-tile lim" style={{ width: '40px', height: '40px' }}><Ico n="bombilla" s={19} /></div>
                                         <div>
                                             <p className="t">¿Sabía que puede aumentar considerablemente su ayuda?</p>
                                             <p className="d">Si además de la aerotermia tiene previsto mejorar las ventanas o el aislamiento térmico de su vivienda, el ahorro energético certificado será mayor, lo que se traduce en un <strong>importe CAE significativamente superior</strong>. Consúltenos sin compromiso y le realizaremos una nueva simulación incluyendo estas mejoras.</p>
@@ -3858,21 +3971,18 @@ info@brokergy.es · 623 926 179`;
 
                             {/* <!-- PAGINA 4 --> */}
                             <div className="prop-page">
-                                <div className="prop-bar prop-bar-slim">
-                                    <div className="prop-bar-logo">BROKER<span>GY</span></div>
-                                    <div className="prop-bar-page">Propuesta Nº {displayId}{marcaVersion ? ` · v${versionActual}` : ''} · Página 4</div>
-                                </div>
-                                <div className="prop-pb" style={{ paddingTop: '20px' }}>
+                                {renderBarra(4)}
+                                <div className="prop-pb" style={{ paddingTop: '16px' }}>
                                     <div className="prop-stag"><span className="prop-sn">6</span><span className="prop-st">Condiciones</span></div>
-                                    <div className="prop-stitle" style={{ marginBottom: '10px' }}>Condiciones del acuerdo y costes del servicio</div>
+                                    <h2 className="prop-h2">Condiciones del acuerdo y <span className="prop-mark">costes</span> del servicio</h2>
 
-                                    <div className="prop-cl-box ora">
-                                        <h4>Cláusula 1 — Objeto del acuerdo</h4>
+                                    <div className="prop-card prop-cl">
+                                        <h4><span className="n">01</span>Objeto del acuerdo</h4>
                                         <p>BROKERGY se compromete a realizar los Certificados de Eficiencia Energética (inicial y final) y a gestionar íntegramente el expediente del Certificado de Ahorro Energético (CAE) asociado a la actuación de mejora energética del cliente.</p>
                                     </div>
 
-                                    <div className="prop-cl-box grn">
-                                        <h4>Cláusula 2 — Cobro a éxito y coste de nuestros servicios</h4>
+                                    <div className="prop-card prop-cl">
+                                        <h4><span className="n">02</span>Cobro a éxito y coste de nuestros servicios</h4>
                                         {/* La MISMA cifra que la tabla de la portada y que el Convenio
                                             de Cesión (`caeMaintenanceCost`): antes aquí salían 220 +
                                             32,78 € «+ IVA» mientras la portada y el convenio decían 250 €. */}
@@ -3884,7 +3994,7 @@ info@brokergy.es · 623 926 179`;
                                             {servicio.lineas.map(l => (
                                                 <div key={l.clave} className="prop-crow"><span>{l.concepto}</span><strong>{fmtEur2(l.importe)}</strong></div>
                                             ))}
-                                            <div className="prop-crow cpromo"><span>🎁 {servicio.promocion}</span><strong>– {fmtEur2(servicio.descuento)}</strong></div>
+                                            <div className="prop-crow cpromo"><span><Ico n="regalo" s={13} w={2.4} />{servicio.promocion}</span><strong>– {fmtEur2(servicio.descuento)}</strong></div>
                                             <div className="prop-crow ctot"><span>{servicio.gratis ? 'Coste de nuestros servicios para el cliente' : 'Total a descontar del Bono Energético CAE'}</span><span>{fmtEur2(servicio.aPagar)}</span></div>
                                         </div>
                                         {/* En la comparativa hay DOS bonos: un único neto no diría de
@@ -3909,35 +4019,41 @@ info@brokergy.es · 623 926 179`;
                                         <p className="prop-cnote">* Importe estimado: {servicio.gratis ? 'el Bono Energético CAE íntegro, sin ningún descuento' : `el Bono Energético CAE menos ${fmtEur2(servicio.aPagar)} de nuestros servicios`}. Tarifa de los servicios sin IVA.</p>
                                     </div>
 
-                                    <div className="prop-cl-box">
-                                        <h4>Cláusula 3 — Vinculación de servicios</h4>
+                                    <div className="prop-card prop-cl">
+                                        <h4><span className="n">03</span>Vinculación de servicios</h4>
                                         <p>La presente propuesta forma parte de una promoción vinculada a la realización de los CEE necesarios para la tramitación del expediente CAE. Los certificados emitidos por BROKERGY forman parte inseparable del mismo.</p>
                                     </div>
 
-                                    <div className="prop-cl-box red">
-                                        <h4>Cláusula 4 — Penalización por incumplimiento</h4>
+                                    <div className="prop-card prop-cl amb">
+                                        <h4><span className="n">04</span>Penalización por incumplimiento</h4>
                                         {/* La tarifa ya va desglosada en la cláusula 2: aquí se cita
                                             su total, no se repiten sus tres líneas. */}
                                         <p>Si los CEE son realizados por BROKERGY pero no se utilizan para gestionar el expediente CAE a través de BROKERGY —por causas ajenas a esta—, el cliente abonará en un máximo de 15 días naturales, en concepto de compensación, la tarifa completa de los servicios sin bonificación (desglosada en la cláusula 2):</p>
-                                        <div className="prop-ptable">
-                                            <div className="prop-ptrow ptt"><span className="prop-pl">Total penalización</span><span className="prop-pv">{fmtEur2(servicio.tarifa)} + IVA</span></div>
-                                        </div>
+                                        <div className="prop-pen"><span>Total penalización</span><b>{fmtEur2(servicio.tarifa)} + IVA</b></div>
                                     </div>
 
                                     <div className="prop-cl2">
-                                        <div className="prop-cl-box" style={{ marginBottom: 0 }}>
-                                            <h4>Cláusula 5 — Vigencia de la oferta</h4>
+                                        <div className="prop-card prop-cl">
+                                            <h4><span className="n">05</span>Vigencia de la oferta</h4>
                                             <p>Propuesta válida <strong>2 meses</strong> desde la fecha de emisión. El importe estimado del Bono Energético CAE se mantendrá hasta diciembre de 2026. Transcurrido el plazo sin aceptación expresa, la propuesta quedará sin efecto.</p>
                                         </div>
 
-                                        <div className="prop-cl-box" style={{ marginBottom: 0 }}>
-                                            <h4>Cláusula 6 — Protección de datos</h4>
+                                        <div className="prop-card prop-cl">
+                                            <h4><span className="n">06</span>Protección de datos</h4>
                                             <p>BROKERGY tratará los datos personales conforme al RGPD y la LO 3/2018 exclusivamente para la gestión del expediente CAE. Derechos: info@brokergy.es.</p>
                                         </div>
                                     </div>
+
+                                    {/* Cierre solo de texto: sin rúbrica, sin sello y sin nº de
+                                        colegiado (Fran, 25/10/2026). */}
+                                    <div className="prop-firma">
+                                        <p>Quedo a su disposición para cualquier duda.</p>
+                                        <b>Fran Moya <i>· CEO de BROKERGY</i></b>
+                                        <span>623 926 179 · info@brokergy.es</span>
+                                    </div>
                                 </div>
 
-                                {renderCta(<> © {new Date().getFullYear()} BROKERGY — Soluciones Sostenibles para Eficiencia Energética, S.L. · CIF: B19350222</>)}
+                                {renderCta(<>© {new Date().getFullYear()} BROKERGY — Soluciones Sostenibles para Eficiencia Energética, S.L. · CIF: B19350222</>)}
                             </div>
 
                             {anexoPosition === 'after' && renderAnexos()}

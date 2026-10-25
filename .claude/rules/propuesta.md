@@ -49,7 +49,7 @@ paths:
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01) · 5,4 KB
 - `docs/conocimiento/propuesta/la-colaboracion-y-el-coste-de-los-servicios.md` — La colaboración se ve en la portada, y el coste de los servicios es UNO (2026-10-22) · 3,5 KB
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 2,4 KB
-- `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,3 KB
+- `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,4 KB
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19) · 4,9 KB
 - `docs/conocimiento/propuesta/versiones-de-la-propuesta.md` — Versiones de la PROPUESTA (2026-08-25) · 8,2 KB
 

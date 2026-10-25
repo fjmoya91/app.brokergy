@@ -32,6 +32,10 @@ const FONT_LATINEXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02D
  * descargando, y una cara que no se usa no se echa de menos. */
 export const FUENTE_CIFO = [['Instrument Sans', 'InstrumentSans', [400, 500, 600, 700]]];
 export const FUENTE_INTER = [['Inter', 'Inter', [400, 500, 600, 700, 800, 900]]];
+// Propuesta (estilo «carta de pago», regla 164): Inter de cuerpo y Antonio en
+// cifras y titulares. De Antonio solo hay subset latino, que cubre el castellano
+// (á, ñ, €); un carácter de fuera cae a Inter. El cuarto elemento son los subsets.
+export const FUENTE_PROPUESTA = [...FUENTE_INTER, ['Antonio', 'Antonio', [700], ['latin']]];
 // Factura al S.O.: Manrope para el cuerpo y Archivo para los rótulos gordos.
 export const FUENTE_FACTURA_SO = [
     ['Manrope', 'Manrope', [400, 500, 600, 700, 800]],
@@ -68,9 +72,9 @@ export function origenApp() {
  */
 export function buildFontFaces(appUrl = origenApp(), fams = FUENTE_CIFO) {
     let out = '';
-    for (const [name, slug, weights] of fams) {
+    for (const [name, slug, weights, subsets = ['latin', 'latinext']] of fams) {
         for (const w of weights) {
-            for (const [sub, range] of [['latin', FONT_LATIN], ['latinext', FONT_LATINEXT]]) {
+            for (const [sub, range] of [['latin', FONT_LATIN], ['latinext', FONT_LATINEXT]].filter(([s]) => subsets.includes(s))) {
                 out += `@font-face{font-family:'${name}';font-style:normal;font-weight:${w};font-display:swap;src:url('${appUrl}/fonts/${slug}-${w}-${sub}.woff2') format('woff2');unicode-range:${range};}`;
             }
         }

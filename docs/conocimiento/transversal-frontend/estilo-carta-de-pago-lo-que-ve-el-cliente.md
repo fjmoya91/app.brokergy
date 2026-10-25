@@ -211,3 +211,66 @@ pida para ella.
    `certificadores-app/00-la-app-de-certificadores.md`. Los enlaces de un expediente siguen en
    columna.
 5. Se enseña al usuario con las capturas, antes de subir nada.
+
+#### 8. La PROPUESTA en PDF (2026-10-25)
+
+Fran dio el visto bueno a la maqueta el 25/10/2026: «Aplícalo al PDF real de la propuesta,
+conservando el contenido, la paginación y el encaje de la portada». Es la primera pieza A4 del
+estilo, y no es una pantalla: **no es mobile first** (A4 de 794×1123 px y alto FIJO), y valen
+otras medidas. El código está en el `baseCss` de
+[ProposalModal.jsx](implementation/frontend/src/features/calculator/components/ProposalModal.jsx),
+con el prefijo `.prop-` de siempre.
+
+- **Lo que NO cambió**: el texto, las cifras, las cuatro hojas y los anexos, la marca de versión,
+  la cabecera en Grid (regla 5) y el ajuste de la portada en tres escalones (regla 31: huecos
+  `--e-*`, `.prop-compact` y `zoom` sobre `.prop-pb`). Tampoco las clases que miden el ajuste,
+  `encajarPortadas` y `revisar_portadas_propuestas.js`: `.prop-page`, `.prop-pb`, `.prop-cta`,
+  `.prop-mfoot` y `.prop-ftr`.
+- **Tokens propios** en `.prop-wrapper-inner`: los de §2 más `--linea2`, `--verde-suave`, el
+  ámbar (`--ambar-bg/-borde/-txt`) y `--display` (Antonio).
+- **Cabecera**: el filete arriba de cada hoja, el halo solo en la portada, el logo (una imagen
+  reducida a data URL con `logoReducido`, como el de la cabecera antigua) y la píldora del nº en
+  monoespaciada; en la portada, «Propuesta Nº … · vN» y debajo la fecha, la validez y «esta
+  versión anula y sustituye a las anteriores».
+- **La cifra protagonista es la AYUDA TOTAL** (`renderHero`, que sustituye a los KPI), con sus
+  chips de dónde sale (CAE o CAE neto + IRPF, que suman lo mismo que la cifra: regla 156) y al
+  lado una `dl` con inversión, % cubierto con su barra e inversión neta. Sin coste de obra
+  (`hideBudget`), el bono y la deducción como «hasta X €». En la comparativa no hay héroe: las
+  dos tablas ya cierran con esas cifras, que es donde se comparan.
+- **Tabla en tarjeta**: los costes en tinta (nunca en rojo) y los descuentos en verde. Con UNA
+  opción cierra solo con «Inversión neta final», porque la ayuda total y el % ya están en el
+  héroe; con dos opciones conserva sus tres filas de cierre.
+- **Avisos** (presupuesto estimado, biomasa, hibridación, hipótesis del IRPF) en ámbar; los que
+  son una buena noticia, en verde (`.prop-ambar.ver`).
+- **La llamada a la firma ya no es un pie negro**: es una tarjeta blanca con filete, UN botón
+  naranja («Firmar y aceptar la propuesta») y el enlace escrito debajo, por si se imprime.
+- **Hojas 2-4**: baldosas con iconos SVG de trazo escritos en el fichero (`TRAZOS` + `Ico`), los
+  pasos en una línea con el último en lima, las cláusulas numeradas «01…06» con la 4
+  (penalización) en ámbar. La lista de documentación es `.prop-dlist`: `.prop-dl` es la `dl` del
+  héroe.
+- **El cierre es solo texto** (Fran, 25/10/2026): «Quedo a su disposición para cualquier duda»,
+  **Fran Moya** · CEO de BROKERGY, teléfono y email. Sin rúbrica, sin sello y sin nº de
+  colegiado: en una oferta comercial, una firma dibujada parecía un documento firmado, que no lo
+  es.
+- **Antonio solo en `latin`**: `FUENTE_PROPUESTA` (en
+  [fuentesDoc.js](implementation/frontend/src/features/expedientes/logic/fuentesDoc.js)) es la de
+  Inter más Antonio 700, y la tupla acepta un cuarto elemento con los subconjuntos, porque Antonio
+  no tiene fichero `latin-ext`. `check_fuentes_documentos.mjs` lo respeta.
+
+**Medido** con el `ProposalModal` real, datos de ejemplo y la API cortada (ninguna escritura),
+impreso como el servidor (`encajarPortadas` + `page.pdf`). Holgura en px sobre el pie, por hoja:
+
+| Variante | Hoja 1 | Hoja 2 | Hoja 3 | Hoja 4 |
+|---|---|---|---|---|
+| Aerotermia con instalador y servicios regalados | 108 | 13 | 85 | 27 |
+| La más cargada (estimado, biomasa, 2 propietarios, ahorro anual) | 29, compacto, zoom 0,84 | 56 | 85 | 27 |
+| Comparativa aerotermia / reforma | 115 | 13 | 85 | 14 |
+| Sin coste de obra | 89 | 13 | 85 | 27 |
+
+El servidor no tuvo que reducir ninguna hoja. Antes, las propuestas reales entraban casi todas en
+compacto (24–29 px), así que la portada nueva deja más aire. La hoja 2 es la más justa: un
+párrafo más en el IRPF o en los pasos la desborda, y ese hueco no lo vigila el ajuste.
+
+⚠️ El `zoom` del tercer escalón también encoge el `padding` lateral de `.prop-pb` (48 px × zoom),
+así que con 0,84 el cuerpo sale unos 8 px más ancho por cada lado que la tarjeta de la firma. Ya
+pasaba con el diseño anterior, y solo se ve en la propuesta más cargada.
