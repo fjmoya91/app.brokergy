@@ -20,13 +20,17 @@ comercial: **«CEE by BROKERGY»** (decidido con Fran el 24/10/2026; en el códi
    La invitación a mano desde el admin (`/activar?token=` para poner la contraseña) sigue existiendo.
 2. **Panel del certificador** → «Nueva obra»: referencia catastral (o dirección, mapa, GPS) →
    «Traer datos del Catastro» (superficie, año, uso, dirección, vivienda dentro del edificio) →
-   titular (opcional al principio) → **«¿Estás en la vivienda?»** → el cuestionario.
-3. **El cuestionario** (fuente única: [cuestionario.js](implementation/frontend/src/certificadores/logic/cuestionario.js)):
-   para qué es el CEE, tipo de vivienda, lo que la rodea (medianeras, garajes, patios, terreno,
-   cubierta), ventanas, calefacción, ACS, refrigeración, renovables y medidas de mejora sugeridas.
+   titular (opcional al principio) → **«¿Estás en la vivienda?»** → la ficha.
+3. **La ficha, por FASES** (desde el 25/10/2026; antes, un cuestionario largo): la vivienda · el
+   titular · para qué es (varios a la vez) · las fotos · **«Lo que ha visto la IA»** (gratis: el
+   Catastro, su época, las fotos y Street View deducen lo que pueden, cada dato con su origen, y el
+   certificador confirma o contesta las dudas) · pedir el certificado. Todo en
+   [lo-que-ha-visto-la-ia.md](docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md). Fuente
+   única de preguntas, orígenes y deducciones: [cuestionario.js](implementation/frontend/src/certificadores/logic/cuestionario.js).
    Al elegir un equipo salen sus fotos (equipo + placa): **subir ahora, después o usar uno genérico**.
-4. **Barrido** al pulsar «Generar certificado»: lo que bloquea y lo que solo empeora el resultado.
-   Lo calcula `barrido()` en el navegador y otra vez en el servidor.
+4. **Barrido** al pedir el certificado. **Solo bloquea** la referencia catastral, la dirección, el
+   nombre del titular y «para qué»; lo demás es un aviso («la IA completará N cosas»). Lo calcula
+   `barrido()` en el navegador y otra vez en el servidor.
 5. **Generar**: descuenta el crédito DE LA OBRA, la obra pasa a EN_PREPARACION (y sus datos se congelan), avisa a BROKERGY (WhatsApp +
    email) y —con `CERTAPP_IA_AUTO=true`— se lo encarga al Claude del WhatsApp por la cola de siempre
    (`cee_ia_trabajos`, negocio `ext`). Al certificador: «lo estamos preparando, te avisamos».
@@ -130,6 +134,18 @@ el Drive de producción.
 global al mes (`CERTAPP_ASISTENTE_*`), y no ve nada de BROKERGY: su conocimiento es el de CE3X y el de
 la propia app, no `docs/conocimiento`.
 
+**REGLA — el asistente sabe en qué pantalla está** (25/10/2026, [asistente.js](implementation/backend/services/certapp/asistente.js)):
+el navegador manda `pantalla` (`menu` · `obra` · `envolvente`) y el servidor añade al system SOLO lo
+de esa pantalla, leído de la obra SUYA: en `obra`, zona, año, superficie, respuestas con su origen y
+lo que falta; en `envolvente`, lo dibujado (paredes, huecos por pared, m²; máx. 2500 caracteres); en
+`menu`, solo la app. Siempre lleva la **tabla de U por defecto de CE3X 3.2**
+(`transmitanciasCe3x.js`, la misma del CRM: periodos, zonas NBE, una fila por cerramiento) y sabe que
+nuestros `.cex` van con la localidad «Otro». También está en la envolvente (solo el asistente, sin el
+botón de incidencias, y con un hueco abajo para no tapar nada).
+Haiku 5.5 con `effort: 'low'` y `max_tokens` 3000: con el razonamiento adaptativo por defecto, con
+menos se quedaba pensando y volvía SIN texto (`stop_reason: max_tokens`); si pasa, se le dice «se me ha
+ido el tiempo pensándolo». Medido: ~0,001 $ por pregunta.
+
 **REGLA — la carpeta de Drive se comparte con el EMAIL del certificador**, nunca «cualquiera con el
 enlace»: dentro hay datos de su cliente. Y como **LECTOR** (24/10/2026): con escritura podía dejar en
 «1. CEE» un `.cex` que luego abre CE3X en el equipo de BROKERGY.
@@ -173,7 +189,9 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 | `GET /obras` | Lista (solo escalares: nº, nombre, dirección, estado, fechas) |
 | `POST /obras` | Alta `{ ref_catastral?, titular?, en_vivienda? }` → `{ obra }`; crea la carpeta de Drive |
 | `GET /obras/:id` | `{ obra, barrido, eventos, enlaces, revisiones: { hechas, max } }` (enlaces: pdf, cex, xml, croquis, carpeta, envolvente). En `eventos`, `por` es `certificador` · `cliente` · `BROKERGY` · `IA`: nunca el nombre de quién del equipo ni el motivo interno |
-| `PUT /obras/:id` | Parcial: `titular`, columnas del inmueble, `en_vivienda`, `proposito`, `cuestionario` (saneado con `sanearCuestionario`). **Solo en BORRADOR**: si no, 409 `OBRA_CERRADA` (archivada: 409 `ARCHIVADA`) |
+| `PUT /obras/:id` | Parcial: `titular`, columnas del inmueble, `en_vivienda`, `proposito`, `cuestionario` (saneado con `sanearCuestionario`: también `propositos`, `fases_ok`, `origen` y `visto_ia`; la columna `proposito` = el primero de `propositos`). **Solo en BORRADOR**: si no, 409 `OBRA_CERRADA` (archivada: 409 `ARCHIVADA`) |
+| `POST /obras/:id/visto-ia` | «Lo que ha visto la IA»: mira las fotos (o Street View) y PROPONE `{ at, propuesta, dudas, fuentes, uso }`; no escribe en la obra. Solo en BORRADOR. Topes y códigos en [lo-que-ha-visto-la-ia.md](docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md) |
+| `GET /municipios?prov=NN` | Los municipios de una provincia (la dirección del perfil, en cascada comunidad → provincia → municipio). Provincia mala: 400 `PROVINCIA_INVALIDA` |
 | `POST /obras/:id/catastro` `{ rc }` | El servidor trae del Catastro y rellena el inmueble (zona climática incluida). Solo en BORRADOR (409 `OBRA_CERRADA`) |
 | `GET /obras/:id/docs` | `{ slots: { [slot]: [{ driveId, nombre, mime, link, thumb, subido_at }] } }` |
 | `POST /obras/:id/docs/:slot` | multipart `files` → Drive «4. DOCUMENTACIÓN PARA CEE» + `certapp_docs_append`. El nombre y el tipo, los detectados por los bytes |
@@ -187,7 +205,7 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 | `POST /feedback` `{ tipo, texto, pantalla, obra_id? }` | Incidencia o sugerencia (`tipo` ERROR · MEJORA · SUGERENCIA · OTRO; con `obra_id`, una obra SUYA o 404) → 201 `{ ok, id, incidencia }`. Texto vacío: 400 `FALTA_TEXTO` |
 | `GET /feedback[?obra_id=]` | → `{ incidencias: [{ id, created_at, tipo, texto, obra_id, numero_expediente, estado, respuesta, respuesta_at }] }`: SOLO las suyas (las 200 últimas). Obra ajena o id que no es uuid: 404 sin tocar la tabla |
 | `GET /movimientos` | Mis gastos → `{ resumen: { disponibles, usados, comprados, recibidos_gratis, gastado_eur, compras_abiertas }, movimientos: [{ id, created_at, tipo, creditos, saldo_despues, importe_eur, concepto, factura_id, obra: { id, numero_expediente, direccion, municipio } \| null }] }`: SOLO los suyos (los 500 últimos), sin `por`. BD caída: 503 |
-| `POST /asistente` `{ mensajes, obra_id? }` · `GET /asistente/cupo` | Asistente capado |
+| `POST /asistente` `{ mensajes, obra_id?, pantalla? }` · `GET /asistente/cupo` | Asistente capado; `pantalla` ∈ `menu` · `obra` · `envolvente` (otra cosa se ignora: con obra, `obra`; sin ella, `menu`) |
 
 **Admin** (`/api/certapp-admin`, `adminOnly`): `GET /resumen` · `GET /beta` · `PATCH /beta/:id` ·
 `POST /beta/:id/invitar { creditos }` (crea la cuenta y devuelve el enlace de activación) ·
@@ -263,6 +281,7 @@ Tras tocarlo: `node implementation/backend/scripts/test_certapp_unidad.js`,
 | `CERTAPP_CREDITOS_BETA` | Créditos al darse de alta (y por defecto al invitar) | 1 | 1 |
 | `CERTAPP_ALTA_DIRECTA` | El formulario de la beta crea la cuenta al momento. `false` = la lista de espera de antes | encendido (por defecto) | encendido (por defecto) |
 | `CERTAPP_ASISTENTE_ENABLED` · `_MODELO` · `_MAX_DIA` · `_TOPE_USD_MES` | El asistente y sus topes | apagado | `true` · Haiku · 20 · 30 |
+| `CERTAPP_VISTO_IA_ENABLED` · `_MAX_DIA` · `_MAX_OBRA` | «Lo que ha visto la IA»: `false` lo apaga (503); veces por cuenta y día · por obra. Usa `GEMINI_API_KEY` y, para Street View, `GOOGLE_MAPS_KEY` | encendido · 15 · 6 | encendido · 15 · 6 |
 | `CERTAPP_TOKEN_SECRET` | Clave de TODAS las firmas (activar, recuperar, miniaturas, ficheros, `form_token`). **Obligatoria en producción**: sin ella, 503 | la del `.env` | 64 hex al azar (`openssl rand -hex 32`) |
 | `CERTAPP_PORTAL_DIAS` | Días que vale el enlace del propietario | 30 | 30 |
 | `CERTAPP_REVISIONES_MAX` | «Revisar de nuevo» por obra | 2 | 2 |

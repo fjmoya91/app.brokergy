@@ -255,20 +255,41 @@ function filaAlta(datos, { authId, email, estado, preexistente, solicitud, telef
     };
 }
 
-/** Email de bienvenida del alta directa, con el enlace para entrar (7 días). */
-async function mandarBienvenida(cuenta) {
-    const p = {
-        titulo: `Ya tienes tu cuenta en ${nombreApp()}`,
+/**
+ * El email de BIENVENIDA, en los dos caminos del alta (Fran, 25/10/2026: el de
+ * Google no recibía nada). Con el estilo de la app (avisos.plantilla): el
+ * certificado gratis destacado, cómo funciona en tres pasos y el botón para entrar.
+ *   · Por email: el botón es el enlace para entrar (7 días, un uso).
+ *   · Con Google: el botón lleva al panel (entra con su cuenta de Google).
+ */
+function mensajeBienvenida(cuenta, { conGoogle }) {
+    const n = Number(cuenta.creditos) || 0;
+    return {
+        titulo: `Bienvenido a ${nombreApp()}`,
+        eyebrow: 'Tu cuenta ya está creada',
         saludo: cuenta.nombre ? `Hola ${cuenta.nombre}:` : 'Hola:',
         parrafos: [
-            `Gracias por apuntarte a la beta. Tienes ${cuenta.creditos === 1 ? 'un certificado gratis' : `${cuenta.creditos} certificados gratis`} para probarla.`,
-            'Entra con el botón. Después puedes entrar con Google (si este email es de Gmail) o pidiendo otro enlace en la pantalla de entrar.',
+            'Gracias por apuntarte a la beta. Desde ahora nos pasas las fotos de la vivienda y cuatro datos del titular, y te devolvemos el certificado preparado por IA para que lo revises y lo firmes tú.',
         ],
-        boton: { href: enlaceEntrarCon(cuenta, tokens.VIGENCIA_ALTA_MS), label: 'Entrar en la app' },
-        nota: 'El enlace caduca en 7 días y sirve una sola vez. Si no te has apuntado tú, no hagas nada.',
+        cifra: n > 0 ? { valor: n, texto: n === 1 ? 'certificado gratis para probarla' : 'certificados gratis para probarla' } : null,
+        pasos: [
+            ['Crea la obra', 'Con la referencia catastral: traemos del Catastro la superficie, el año y lo demás.'],
+            ['Sube las fotos', 'Desde el móvil en la visita, o mándale al propietario un enlace para que las suba él.'],
+            ['Revisa y firma', 'Te entregamos el .cex de CE3X, el XML y el PDF. Lo revisas, lo firmas y lo registras tú.'],
+        ],
+        boton: conGoogle
+            ? { href: `${certappUrl()}/panel`, label: 'Entrar en la app' }
+            : { href: enlaceEntrarCon(cuenta, tokens.VIGENCIA_ALTA_MS), label: 'Entrar en la app' },
+        nota: conGoogle
+            ? 'Entras siempre con tu cuenta de Google. Si no te has dado de alta tú, escríbenos a info@brokergy.es.'
+            : 'El enlace caduca en 7 días y sirve una sola vez; después pide otro en la pantalla de entrar (o entra con Google si este email es de Gmail). Si no te has apuntado tú, no hagas nada.',
     };
+}
+
+async function mandarBienvenida(cuenta, { conGoogle = false } = {}) {
+    const p = mensajeBienvenida(cuenta, { conGoogle });
     return avisos.avisarPersona({ email: cuenta.email }, {
-        asunto: p.titulo,
+        asunto: `${p.titulo}: tu primer certificado es gratis`,
         html: avisos.plantilla({ ...p, preheader: p.parrafos[0] }),
         texto: avisos.textoPlano(p),
     });
@@ -315,6 +336,9 @@ async function altaConSesion({ authId, email: emailSesion }, datos = {}, { solic
         { authId, creadoAhora: false });
     await apuntarAltaEnMovimientos(cuenta, `automático (alta con ${provider})`);
     await drive.asegurarCarpetaCuenta(cuenta);
+    // La bienvenida también por este camino; sin esperarla (un aviso no frena el alta).
+    mandarBienvenida(cuenta, { conGoogle: provider === 'google' })
+        .catch(e => console.warn('[certapp] bienvenida sin enviar:', e.message));
     return { cuenta, nueva: true };
 }
 
@@ -469,15 +493,18 @@ async function actualizarPerfil(cuentaId, body = {}) {
             patch[k] = v;
         }
     }
-    // Dónde trabaja y con qué programa: en `prefs.perfil` (no son columnas).
+    // Dónde trabaja y con qué programa, y la comunidad de su dirección
+    // profesional (la cascada comunidad → provincia → municipio): en
+    // `prefs.perfil` (no son columnas).
     const listas = { comunidades: [25, 60], software: [10, 60] };
-    if (Object.keys(listas).some(k => k in body)) {
+    if ([...Object.keys(listas), 'ccaa'].some(k => k in body)) {
         const actual = await cuentaPorId(cuentaId);
         if (!actual) throw fallo(404, 'La cuenta no existe.', 'CUENTA_NO_EXISTE');
         const perfil = { ...(actual.prefs?.perfil || {}) };
         for (const [k, [n, max]] of Object.entries(listas)) {
             if (k in body) perfil[k] = (Array.isArray(body[k]) ? body[k] : []).map(x => texto(x, max)).filter(Boolean).slice(0, n);
         }
+        if ('ccaa' in body) perfil.ccaa = texto(body.ccaa, 60);
         patch.prefs = { ...(actual.prefs || {}), perfil };
     }
     // Al guardar el teléfono, el del formulario ya no está «por confirmar».
@@ -507,7 +534,7 @@ function apuntarAcceso(cuenta) {
 }
 
 module.exports = {
-    crearCuenta, infoActivacion, activar, recuperar, actualizarPerfil, apuntarAcceso,
+    crearCuenta, infoActivacion, activar, recuperar, actualizarPerfil, apuntarAcceso, mensajeBienvenida,
     altaDirecta, altaConSesion, mandarEnlaceEntrar, canjearEnlace, altaDirectaActiva, creditosBeta,
     cuentaPorId, cuentaPorEmail, usuarioAuthPorEmail, normEmail, nombreCompleto, partirNombre, CONDICIONES_VERSION,
 };

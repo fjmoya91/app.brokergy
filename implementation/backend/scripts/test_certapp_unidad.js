@@ -76,6 +76,54 @@ function ok(cond, texto) {
     const placa = L.SLOTS.find(s => s.id === 'FOTO_PLACA_CALDERA');
     ok(`${placa.label.toUpperCase()} 1.jpg` === 'PLACA DE LA CALDERA 1.jpg', 'nombre de la foto: «PLACA DE LA CALDERA 1.jpg»');
 
+    // ── Barrido que no frena (Fran, 25/10/2026) y lo deducido ───────────────
+    // Solo bloquean ref. catastral, dirección, titular y «para qué»; lo demás lo
+    // completa la IA y sale como aviso.
+    const minima = { ref_catastral: '1234567VK1234N0001AB', direccion: 'CALLE X 1', municipio: 'TOLEDO', titular: { nombre: 'Juan' }, cuestionario: { propositos: ['COMPRAVENTA'] } };
+    const bm = L.barrido(minima, null);
+    ok(bm.listo && bm.avisos.some(a => a.id === 'tipo_edificio'), `barrido: con ref., dirección, titular y «para qué» ya se puede pedir (bloqueantes: ${bm.bloqueantes.map(x => x.id).join(',') || 'ninguno'})`);
+    ok(!L.barrido({ ...minima, cuestionario: {} }, null).listo, 'barrido: sin «para qué» bloquea');
+    ok(L.propositosDe({ proposito: 'ALQUILER' })[0] === 'ALQUILER' && L.propositosDe({ cuestionario: { propositos: ['IRPF_AEROTERMIA', 'MALO'] } }).join() === 'IRPF_AEROTERMIA',
+        '«para qué»: la lista del cuestionario (sin lo desconocido) o, si no hay, la columna');
+    const sv = L.sanearCuestionario({
+        propositos: ['COMPRAVENTA', 'X'], fases_ok: ['inmueble', 'otra'],
+        cubierta: 'INCLINADA', origen: { cubierta: 'CATASTRO', fachada: 'FOTO', calefaccion: 'INVENTADO' },
+        visto_ia: { at: '2026-10-25T10:00:00Z', dudas: [{ id: 'd', k: 'vidrio', pregunta: '¿?', opciones: [{ label: 'Doble', valores: { vidrio: 'DOBLE', hack: 1 } }, { label: 'Mala', valores: { vidrio: 'NO_EXISTE' } }] }], fotos: { cubierta: 'ab' } },
+    });
+    ok(sv.propositos.join() === 'COMPRAVENTA' && sv.fases_ok.join() === 'inmueble', 'saneado: «para qué» y fases solo con valores conocidos');
+    ok(sv.origen.cubierta === 'CATASTRO' && !('fachada' in sv.origen) && !('calefaccion' in sv.origen), 'saneado: el origen solo de una clave CON valor y con un origen que existe');
+    ok(sv.visto_ia.dudas[0].opciones.length === 1 && !('hack' in sv.visto_ia.dudas[0].opciones[0].valores) && !sv.visto_ia.fotos.cubierta,
+        'saneado: las dudas de la IA sin valores inválidos ni claves raras; ids de foto con forma');
+    const casa = {
+        anio_construccion: 1978, cuestionario: { calefaccion: 'gasoleo' },
+        catastro: { tipo: 'Parcela construida sin división horizontal', plantas: 1, construcciones: [{ tipo: 'VIVIENDA', planta: '00', superficie: 118 }, { tipo: 'APARCAMIENTO', planta: '00', superficie: 28 }] },
+    };
+    const dc = L.deduccionesCatastro(casa);
+    ok(dc.valores.plantas === '1' && dc.origen.plantas === 'CATASTRO' && dc.valores.cubierta === 'INCLINADA' && dc.valores.vidrio === 'SIMPLE' && dc.origen.vidrio === 'EPOCA',
+        'deducciones: casa de 1978 → 1 planta (Catastro), tejado (lo habitual), vidrio simple (su época)');
+    ok(dc.dudas.some(d => d.k === 'tipo_edificio') && dc.dudas.some(d => d.k === 'colinda_no_calefactado'), 'deducciones: pregunta qué casa es y si el garaje está pegado');
+    ok(dc.valores.emisor === 'RADIADORES' && dc.valores.acs === 'misma_caldera', 'deducciones: con caldera, radiadores y el agua caliente de la misma caldera (lo habitual)');
+    const conSuya = L.aplicarDeducciones({ cubierta: 'PLANA' }, dc);
+    ok(conSuya.cubierta === 'PLANA' && !conSuya.origen?.cubierta, 'deducciones: lo que contestó el certificador no se pisa nunca');
+    const conSv = L.aplicarDeducciones({ ...casa.cuestionario }, { valores: { tipo_edificio: 'UNIFAMILIAR_ADOSADA', vidrio: 'DOBLE' }, origen: { tipo_edificio: 'STREETVIEW', vidrio: 'STREETVIEW' }, notas: {} });
+    const dc2 = L.deduccionesCatastro({ ...casa, cuestionario: conSv });
+    ok(dc2.dudas.some(d => d.k === 'tipo_edificio'), 'deducciones: lo que solo «parece» desde Street View se sigue preguntando');
+    ok(L.aplicarDeducciones(conSv, dc2).vidrio === 'DOBLE', 'deducciones: lo de su época no pisa lo visto en Street View');
+    ok(!('cubierta' in L.contestar({ cubierta: 'INCLINADA', origen: { cubierta: 'CATASTRO' } }, { cubierta: 'PLANA' }).origen), 'contestar: lo contestado pierde el origen (pasa a ser suyo)');
+
+    // ── «Lo que ha visto la IA»: convertir lo que dice Gemini ──────────────
+    const vistoIa = require(path.join(B, 'services/certapp/vistoIa'));
+    ok(vistoIa.convertir('persianas', 'sí', L) === true && vistoIa.convertir('aire_acondicionado', 'false', L) === false, 'visto IA: sí/no → true/false');
+    ok(vistoIa.convertir('potencia_kw', '24,5 kW', L) === '24,5' && vistoIa.convertir('anio_calefaccion', '1890', L) === undefined, 'visto IA: números con coma; un año imposible se descarta');
+    ok(vistoIa.convertir('cubierta', 'inclinada', L) === 'INCLINADA' && vistoIa.convertir('acs', 'MISMA_CALDERA', L) === 'misma_caldera' && vistoIa.convertir('marco', 'PLASTICO', L) === undefined,
+        'visto IA: valores de lista sin importar mayúsculas; uno que no existe, fuera');
+    const elegidas = vistoIa.elegirFotos({ documentacion: { reforma_uploads: {
+        FOTO_FACHADA_PRINCIPAL: Array.from({ length: 6 }, (_, i) => ({ driveId: `f${i}`, mime: 'image/jpeg' })),
+        VIDEO_VIVIENDA: [{ driveId: 'v', mime: 'video/mp4' }], FOTO_PLACA_CALDERA: [{ driveId: 'p', nombre: 'placa.HEIC' }],
+    } } }, L.SLOTS);
+    ok(elegidas.length === 4 && elegidas.filter(f => f.slot === 'FOTO_FACHADA_PRINCIPAL').length === 3 && elegidas.some(f => f.driveId === 'p' && f.placa) && !elegidas.some(f => f.driveId === 'v'),
+        'visto IA: 3 fotos de fachada como mucho, la placa (marcada) y ningún vídeo');
+
     // ── Titular saneado ─────────────────────────────────────────────────────
     const obras = require(path.join(B, 'services/certapp/obras'));
     const tit = obras.sanearTitular({ nombre: '  Juan  ', nif: '12.345.678-z', email: 'MAL', telefono: '600 000 000', hack: '<script>', es_empresa: true });
@@ -92,6 +140,13 @@ function ok(cond, texto) {
     const asis = require(path.join(B, 'services/certapp/asistente'));
     const h = asis.limpiarHistorial(Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(5000) })).concat([{ role: 'user', content: '¿y?' }]));
     ok(h.length <= 12 && h.every(m => m.content.length <= 2000 * 2 + 2) && h[h.length - 1].role === 'user', 'asistente: ≤12 mensajes, ≤2.000 caracteres, acaba en pregunta');
+    const tabla = await asis.tablaCe3x();
+    ok(/Muro de fachada: antes de 1980 2,38 \(168 kg\/m²\)/.test(tabla) && /E1 → Z/.test(tabla), 'asistente: lleva la tabla de U por defecto de CE3X (muro antes de 1980 = 2,38)');
+    const ctxObra = await asis.contextoObra({ numero_expediente: '2026EXT_9', estado: 'BORRADOR', anio_construccion: 1995, zona_climatica: 'E1', cuestionario: {} }, 'obra');
+    ok(/muro de fachada 1,4/.test(ctxObra) && /zona NBE Z/.test(ctxObra), 'asistente: en una obra de 1995 en E1, las U que le tocan (zona NBE Z)');
+    ok(/menú/.test(await asis.contextoObra(null, 'menu')), 'asistente: sin obra, sabe que está en el menú');
+    const env = asis.resumenEnvolvente({ huecos: { F1N1: [{ tipo: 'ventana', ancho: 1, alto: 1.2, nombre: 'V1' }, { tipo: 'puerta', ancho: 0.9, alto: 2.1, nombre: 'P1' }] }, tipos: { PV1: 'FACHADA' } });
+    ok(/1 ventanas \(1,2 m²\) y 1 puertas \(1,89 m²\) en 1 paredes/.test(env) && /PV1 → fachada/.test(env), 'asistente: en la envolvente, lo dibujado (huecos, m² y paredes cambiadas)');
     ok(Math.abs(asis.costeUsd('claude-haiku-5-5', { input_tokens: 1e6, output_tokens: 1e6 }) - 0.60) < 1e-9, 'asistente: el coste sale de la tabla PRECIOS');
     const ini = new Date(asis.inicioDiaMadrid(new Date('2026-07-15T21:30:00Z')));
     ok(ini.toISOString() === '2026-07-15T22:00:00.000Z' || ini.toISOString() === '2026-07-14T22:00:00.000Z', `asistente: el día se cuenta desde la medianoche de Madrid (${ini.toISOString()})`);

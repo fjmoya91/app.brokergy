@@ -2,7 +2,7 @@
 // Una sola pieza para el móvil (una pregunta por pantalla, en grande; tocar una
 // opción AVANZA) y el ordenador (todas las del paso en su tarjeta, sin avanzar).
 // Las opciones salen de logic/cuestionario.js a través de obra/pasos.js.
-import { MEDIDAS, medidasSugeridas } from '../logic/cuestionario';
+import { MEDIDAS, medidasSugeridas, propositosDe } from '../logic/cuestionario';
 import { Campo } from '../ui/piezas';
 import { IcoCheck } from '../ui/Iconos';
 import { valorDe } from './pasos';
@@ -145,7 +145,7 @@ export function Pregunta({ p, ctx, pasoId, grande = false, onElegido }) {
 }
 
 /* ── El inmueble (lo del Catastro, corregible) ───────────────────────────── */
-function Inmueble({ ctx }) {
+export function Inmueble({ ctx }) {
     const { form, setCampo, obra, editable } = ctx;
     const dis = !editable;
     const campo = (k, etiqueta, extra = {}) => (
@@ -177,7 +177,7 @@ function Inmueble({ ctx }) {
 }
 
 /* ── El titular del certificado ─────────────────────────────────────────── */
-function Titular({ ctx }) {
+export function Titular({ ctx }) {
     const { form, setTitular, editable } = ctx;
     const t = form.titular || {};
     const dis = !editable;
@@ -205,10 +205,10 @@ function Titular({ ctx }) {
 }
 
 /* ── Medidas de mejora (las sugeridas, marcadas y cambiables) ───────────── */
-function Medidas({ ctx, grande }) {
+export function Medidas({ ctx, grande }) {
     const { form, setC, editable } = ctx;
     const c = form.cuestionario;
-    const sugeridas = medidasSugeridas(c, form.proposito);
+    const sugeridas = medidasSugeridas(c, propositosDe(form));
     // Sin elegir nada, se ven marcadas las sugeridas (y es lo que se pondrá). Al
     // tocar una por primera vez, se parte de ellas: no se escribe nada solo por abrir.
     const elegidas = Array.isArray(c.medidas) && c.medidas.length ? c.medidas : null;

@@ -113,3 +113,5 @@ router.get('/municipios', requireAuth, (req, res) => {
 });
 
 module.exports = router;
+// La app de certificadores (cee.brokergy.es) usa la misma lista con su guardián (routes/certapp.js).
+module.exports.cargarMunicipios = loadMunicipios;

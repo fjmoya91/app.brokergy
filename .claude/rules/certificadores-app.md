@@ -23,9 +23,10 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md` — La app de certificadores — cee.brokergy.es (2026-10-24) · 23,5 KB
-- `docs/conocimiento/certificadores-app/alta-directa-google-y-email.md` — El alta: al momento, con Google o con el email (2026-10-24) · 7,2 KB
+- `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md` — La app de certificadores — cee.brokergy.es (2026-10-24) · 25,9 KB
+- `docs/conocimiento/certificadores-app/alta-directa-google-y-email.md` — El alta: al momento, con Google o con el email (2026-10-24) · 8,0 KB
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24) · 3,5 KB
+- `docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md` — «Lo que ha visto la IA» — la fase 5 de la ficha (2026-10-25) · 6,1 KB
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24) · 3,0 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -39,6 +40,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
   - **REGLA — cada certificador toca SOLO lo suyo, y lo ajeno es 404.**
   - **REGLA — nada sale a terceros desde local.**
   - **REGLA — el asistente va capado.**
+  - **REGLA — el asistente sabe en qué pantalla está**
   - **REGLA — la carpeta de Drive se comparte con el EMAIL del certificador**
   - **REGLA — el tipo de un fichero sale de sus BYTES y se sirve sin poder ejecutarse**
   - **REGLA — pedida la obra, la vivienda, el titular y el cuestionario se CONGELAN**
@@ -53,12 +55,19 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
   - **REGLA — el alta por email no copia el teléfono**
   - **REGLA — la respuesta pública es siempre la misma**
   - **REGLA — sin aceptar las condiciones no hay alta**
+  - **REGLA — el email de bienvenida sale en los DOS caminos**
   - **REGLA — el alta con sesión toma el email de la SESIÓN, nunca el del formulario**
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md`
   - **REGLA — el nginx.conf del VPS no está en git**
   - **REGLA — `index certificadores.html` en ese server**
   - **REGLA — el CORS de cee.brokergy.es sale de `CERTAPP_URL`, nunca de `FRONTEND_URL`**
   - **REGLA — un certificador de la app NO entra en el CRM**
+- `docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md`
+  - **REGLA — el barrido solo BLOQUEA referencia catastral, dirección y municipio, nombre del titular y
+«para qué».**
+  - **REGLA — no escribe en la obra: PROPONE.**
+  - **REGLA — solo lo que se VE.**
+  - **REGLA — gratis para el certificador, con tope**
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md`
   - **REGLA — en una obra `ext` la referencia catastral sale SIEMPRE de `certapp_obras.ref_catastral`**
   - **REGLA — el `.cex` (y el croquis en PDF) de una obra `ext` solo con la obra PEDIDA**

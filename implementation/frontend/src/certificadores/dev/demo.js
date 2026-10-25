@@ -8,7 +8,8 @@
 import axios from 'axios';
 import { sanearCuestionario, barrido, SLOT_IDS } from '../logic/cuestionario';
 
-const CLAVE = 'certapp_demo_estado';
+// v2 (25/10/2026): las obras traen el Catastro (deducciones) y el «para qué» múltiple.
+const CLAVE = 'certapp_demo_estado_v2';
 const ahora = () => new Date().toISOString();
 const hace = (min) => new Date(Date.now() - min * 60000).toISOString();
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `demo-${Math.random().toString(16).slice(2)}-${Date.now()}`);
@@ -17,6 +18,20 @@ const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `demo-${Math.rando
 const miniatura = (texto, color = '#e9e3d6') => `data:image/svg+xml;utf8,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="${color}"/><text x="100" y="108" font-family="Arial" font-size="22" text-anchor="middle" fill="#55585f">${texto}</text></svg>`,
 )}`;
+
+const CATASTRO_CASA = {
+    rc: '1234567VJ1213S0001AB', uso: 'Residencial', tipo: 'Parcela construida sin división horizontal', plantas: 1,
+    construcciones: [{ tipo: 'VIVIENDA', planta: '00', superficie: 118 }, { tipo: 'APARCAMIENTO', planta: '00', superficie: 28 }],
+    participacion: '100,00', anio: 1978, superficie: 146, reforma: null,
+};
+
+// Municipios de la demo (GET /municipios): unos pocos por provincia.
+const MUNICIPIOS = {
+    13: ['Alcázar de San Juan', 'Argamasilla de Alba', 'Ciudad Real', 'Daimiel', 'Manzanares', 'Puertollano', 'Socuéllamos', 'Tomelloso', 'Valdepeñas'],
+    '02': ['Albacete', 'Almansa', 'Hellín', 'La Roda', 'Villarrobledo'],
+    45: ['Illescas', 'Seseña', 'Talavera de la Reina', 'Toledo'],
+    28: ['Alcalá de Henares', 'Getafe', 'Madrid', 'Móstoles'],
+};
 
 function estadoInicial() {
     const cuenta = {
@@ -36,9 +51,13 @@ function estadoInicial() {
         base({
             id: 'demo-obra-1', numero_expediente: '2026EXT_3', nombre: 'María López Ruiz', estado: 'BORRADOR',
             ref_catastral: '1234567VJ1213S0001AB', direccion: 'CALLE DON VÍCTOR PEÑASCO 12', municipio: 'Tomelloso',
-            codigo_postal: '13700', superficie_catastro: 118, anio_construccion: 1978, proposito: 'COMPRAVENTA', en_vivienda: false,
+            codigo_postal: '13700', superficie_catastro: 146, anio_construccion: 1978, proposito: 'COMPRAVENTA', en_vivienda: false,
+            lat: 39.1577, lng: -3.0207,
+            // Como lo guarda el servidor (services/certapp/catastro.js): casa sin división
+            // horizontal, vivienda en planta baja y un garaje → dudas «qué casa» y «garaje pegado».
+            catastro: CATASTRO_CASA,
             titular: { nombre: 'María', apellidos: 'López Ruiz', telefono: '611111111' },
-            cuestionario: { tipo_edificio: 'UNIFAMILIAR_ADOSADA', cubierta: 'INCLINADA', calefaccion: 'gasoleo', colinda_no_calefactado: null },
+            cuestionario: { calefaccion: 'gasoleo', propositos: ['COMPRAVENTA'], fases_ok: ['inmueble', 'titular'] },
             documentacion: { reforma_uploads: { FOTO_FACHADA_PRINCIPAL: [{ driveId: 'demo-f1', nombre: 'fachada.jpg', mime: 'image/jpeg', subido_at: hace(40), por: 'certificador' }] } },
         }),
         base({
@@ -222,6 +241,7 @@ const RUTAS = [
         Object.assign(o, {
             ref_catastral: rc, direccion: 'CALLE DOCTOR FLEMING 23', municipio: 'Tomelloso', provincia: 'Ciudad Real', codigo_postal: '13700',
             superficie_catastro: 104, anio_construccion: 1982, zona_climatica: 'D3', uso: 'Residencial', updated_at: ahora(),
+            lat: 39.16, lng: -3.02, catastro: { ...CATASTRO_CASA, rc, anio: 1982, superficie: 104, construcciones: [{ tipo: 'VIVIENDA', planta: '00', superficie: 104 }] },
         });
         evento(o.id, 'CATASTRO', `Datos del Catastro (${rc})`);
         return { obra: paraCertificador(o) };
@@ -234,7 +254,11 @@ const RUTAS = [
         const o = obraDe(id);
         if (o.estado !== 'BORRADOR') fallo(409, 'El certificado ya está pedido: los datos de la obra ya no se cambian.', 'OBRA_CERRADA');
         const patch = { ...b };
-        if ('cuestionario' in patch) patch.cuestionario = sanearCuestionario(patch.cuestionario || {});
+        if ('cuestionario' in patch) {
+            patch.cuestionario = sanearCuestionario(patch.cuestionario || {});
+            // Como obras.actualizar: el primer «para qué» va también en la columna.
+            if (patch.cuestionario.propositos?.length) patch.proposito = patch.cuestionario.propositos[0];
+        }
         if (patch.titular) {
             patch.titular = Object.fromEntries(Object.entries(patch.titular).filter(([, v]) => v));
             const n = [patch.titular.nombre, patch.titular.apellidos].filter(Boolean).join(' ');
@@ -244,6 +268,41 @@ const RUTAS = [
         return { obra: paraCertificador(o) };
     }],
     ['GET', /^\/api\/certapp\/obras\/([^/]+)\/docs$/, (b, [, id]) => vista(obraDe(id))],
+    // «Lo que ha visto la IA», como services/certapp/vistoIa.js: PROPONE, no escribe.
+    // Con fotos de fachada mira «las fotos»; sin ellas, «Street View».
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/visto-ia$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (o.estado !== 'BORRADOR') fallo(409, 'El certificado ya está pedido: los datos de la obra ya no se cambian.', 'OBRA_CERRADA');
+        const up = o.documentacion?.reforma_uploads || {};
+        const fachada = (up.FOTO_FACHADA_PRINCIPAL || [])[0] || (up.FOTO_FACHADAS || [])[0];
+        const placa = (up.FOTO_PLACA_CALDERA || [])[0];
+        const ori = fachada ? 'FOTO' : 'STREETVIEW';
+        const valores = { plantas: '1', cubierta: 'INCLINADA', fachada: 'ENFOSCADO', persianas: true, aislamiento_fachada: 'NO' };
+        const origen = Object.fromEntries(Object.keys(valores).map(k => [k, ori]));
+        const notas = { cubierta: 'tejado de teja con su pendiente', fachada: 'fachada pintada, sin ladrillo visto', persianas: 'persianas enrollables en las ventanas', plantas: 'una sola planta sobre la calle' };
+        const fotos = fachada ? Object.fromEntries(Object.keys(valores).map(k => [k, fachada.driveId])) : {};
+        if (fachada) { valores.marco = 'METALICO'; origen.marco = 'FOTO'; notas.marco = 'perfiles de aluminio finos, sin rotura'; fotos.marco = fachada.driveId; }
+        if (placa) {
+            Object.assign(valores, { tipo_caldera: 'ESTANDAR', marca_modelo_calefaccion: 'ROCA LAIA 25 GTF', potencia_kw: '25' });
+            for (const k of ['tipo_caldera', 'marca_modelo_calefaccion', 'potencia_kw']) { origen[k] = 'PLACA'; fotos[k] = placa.driveId; }
+            notas.marca_modelo_calefaccion = 'leído en la placa de la caldera';
+        }
+        evento(o.id, 'VISTO_IA', `La IA ha mirado ${fachada ? 'las fotos' : 'Street View'}`, 'IA');
+        return {
+            at: ahora(), propuesta: { valores, origen, notas, fotos },
+            dudas: [{
+                id: 'ia_vidrio', k: 'vidrio', pregunta: '¿Las ventanas son de doble vidrio?', por_que: 'Por el reflejo parece doble, pero no se ve bien de lejos.',
+                foto: fachada?.driveId || null,
+                opciones: [{ label: 'Doble vidrio', valores: { vidrio: 'DOBLE' } }, { label: 'Vidrio simple', valores: { vidrio: 'SIMPLE' } }],
+            }],
+            fuentes: { fotos: fachada ? 1 + (placa ? 1 : 0) : 0, streetview: !fachada, placa: !!placa },
+            uso: { hoy: 1, max_dia: 15 }, __espera: 2200,
+        };
+    }],
+    ['GET', /^\/api\/certapp\/municipios$/, (b, m, cfg) => {
+        const cod = String(cfg.params?.prov || '').padStart(2, '0');
+        return { municipios: MUNICIPIOS[cod] || MUNICIPIOS[Number(cod)] || [] };
+    }],
     ['POST', /^\/api\/certapp\/obras\/([^/]+)\/docs\/([^/]+)$/, (b, [, id, slot]) => {
         const o = obraDe(id);
         const files = b instanceof FormData ? b.getAll('files') : [];
@@ -308,9 +367,10 @@ const RUTAS = [
     }],
     ['GET', /^\/api\/certapp\/movimientos$/, () => misGastos()],
     ['GET', /^\/api\/certapp\/asistente\/cupo$/, () => ({ disponible: true, usados_hoy: S.asistenteUsos, max_dia: 20, restantes: 20 - S.asistenteUsos })],
-    ['POST', /^\/api\/certapp\/asistente$/, () => {
+    ['POST', /^\/api\/certapp\/asistente$/, (b) => {
         S.asistenteUsos += 1;
-        return { texto: '(Demo) En CE3X 3.2, una partición con un garaje no calefactado se introduce como «Partición interior horizontal en contacto con espacio no habitable». ¿Te ayudo con algo más del certificado?', cupo: { disponible: true, usados_hoy: S.asistenteUsos, max_dia: 20, restantes: 20 - S.asistenteUsos }, __espera: 900 };
+        const donde = { menu: 'en el menú', obra: 'en la ficha de la obra', envolvente: 'en la envolvente' }[b.pantalla] || 'en la app';
+        return { texto: `(Demo · estás ${donde}) Para un muro de fachada de antes de 1980, CE3X 3.2 pone por defecto U = 2,38 W/m²K (168 kg/m²), sin distinguir zona.`, cupo: { disponible: true, usados_hoy: S.asistenteUsos, max_dia: 20, restantes: 20 - S.asistenteUsos }, __espera: 900 };
     }],
 
     // Públicas

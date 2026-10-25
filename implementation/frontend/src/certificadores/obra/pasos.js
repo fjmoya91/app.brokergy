@@ -6,7 +6,7 @@
 import {
     PROPOSITOS, TIPOS_EDIFICIO, POSICION_PISO, SOTANO, BAJO_CUBIERTA, CUBIERTA, SUELO,
     COLINDANTES, FACHADA, MARCO, VIDRIO, AISLAMIENTO, CALEFACCION, TIPO_CALDERA, EMISOR,
-    ACS, LITROS_TERMO, TIPO_AIRE, PLACAS_FV, REFORMA_QUE, equipoCalefaccion,
+    ACS, LITROS_TERMO, TIPO_AIRE, PLACAS_FV, REFORMA_QUE, equipoCalefaccion, propositosDe,
 } from '../logic/cuestionario';
 
 export { REFORMA_QUE };
@@ -138,7 +138,7 @@ export const PASOS = [
     {
         id: 'medidas', titulo: 'Medidas de mejora', sub: 'Las que lleva el certificado',
         preguntas: [
-            { k: 'reforma_que', tipo: 'multi', lista: REFORMA_QUE, titulo: '¿Qué se va a reformar?', ayuda: 'Para la deducción hace falta el CEE de antes y el de después.', cuando: (c, f) => f?.proposito === 'IRPF_REFORMA' },
+            { k: 'reforma_que', tipo: 'multi', lista: REFORMA_QUE, titulo: '¿Qué se va a reformar?', ayuda: 'Para la deducción hace falta el CEE de antes y el de después.', cuando: (c, f) => propositosDe(f || {}).includes('IRPF_REFORMA') },
             { tipo: 'medidas', titulo: '¿Qué medidas de mejora lleva el certificado?', ayuda: 'Marcadas, las que te sugerimos para esta vivienda. Cámbialas si quieres.' },
         ],
     },

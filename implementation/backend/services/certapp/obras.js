@@ -199,7 +199,12 @@ async function actualizar(obra, body = {}) {
         if (body.proposito && !PROPOSITO_VALUES.includes(body.proposito)) throw fallo(400, 'Propósito desconocido.', 'PROPOSITO_INVALIDO');
         patch.proposito = body.proposito || null;
     }
-    if ('cuestionario' in body) patch.cuestionario = sanearCuestionario(body.cuestionario || {});
+    if ('cuestionario' in body) {
+        patch.cuestionario = sanearCuestionario(body.cuestionario || {});
+        // Para qué pueden ser varios (cuestionario.propositos): la columna lleva
+        // el PRIMERO, que es lo que leen los listados y los avisos.
+        if (patch.cuestionario.propositos?.length) patch.proposito = patch.cuestionario.propositos[0];
+    }
 
     // La zona climática sale SIEMPRE de la dirección (como en los CEE directos):
     // a null si no se resuelve; una heredada de otro sitio es peor que ninguna.

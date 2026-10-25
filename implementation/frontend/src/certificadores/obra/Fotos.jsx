@@ -150,7 +150,7 @@ export function DecisionEquipo({ equipo, ctx }) {
 }
 
 /** Un equipo: su foto, su placa y, si falta la placa, la decisión. */
-function BloqueEquipo({ e, ctx, visita, guiaId }) {
+export function BloqueEquipo({ e, ctx, visita, guiaId }) {
     const editable = ctx.editable;
     const slots = e.slots.map(id => SLOTS.find(s => s.id === id)).filter(Boolean)
         .filter(s => editable || (ctx.slots?.[s.id] || []).length > 0);

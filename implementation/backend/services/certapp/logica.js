@@ -23,4 +23,22 @@ function cuestionario() {
     return promesa;
 }
 
-module.exports = { cuestionario, RUTA };
+// La Guía de transmitancias = los valores por defecto de CE3X 3.2 (la MISMA
+// tabla que usan la calculadora, la ficha del .cex y la revisión). La lee el
+// asistente para contestar «¿qué U pone CE3X a un muro de 1975?».
+const RUTA_U = path.join(__dirname, '..', '..', '..', 'frontend', 'src', 'features', 'calculator', 'logic', 'transmitanciasCe3x.js');
+let promesaU = null;
+
+/** @returns {Promise<typeof import('../../../frontend/src/features/calculator/logic/transmitanciasCe3x.js')>} */
+function transmitancias() {
+    if (!promesaU) {
+        promesaU = import(pathToFileURL(RUTA_U).href).catch((e) => {
+            promesaU = null;
+            console.error('[certapp] No se pudo cargar transmitanciasCe3x.js:', e.message);
+            throw e;
+        });
+    }
+    return promesaU;
+}
+
+module.exports = { cuestionario, transmitancias, RUTA, RUTA_U };

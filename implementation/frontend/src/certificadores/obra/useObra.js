@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { API, errorDe, mensajeError } from '../api';
 import { aPayload, cambiosDe, formDe, normalizarSlots, reducirTodas } from './comun';
-import { SLOTS } from '../logic/cuestionario';
+import { SLOTS, contestar } from '../logic/cuestionario';
 
 const FRENO_MS = 900;
 
@@ -180,7 +180,10 @@ export function useObra(id) {
 
     // ── Editar ───────────────────────────────────────────────────────────────
     const setCampo = useCallback((k, v) => setForm(f => (f ? { ...f, [k]: v } : f)), []);
-    const setC = useCallback((k, v) => setForm(f => (f ? { ...f, cuestionario: { ...f.cuestionario, [k]: v } } : f)), []);
+    // Lo que toca el certificador es SUYO: pierde el origen de la deducción (contestar).
+    const setC = useCallback((k, v) => setForm(f => (f ? { ...f, cuestionario: contestar(f.cuestionario, { [k]: v }) } : f)), []);
+    // Para lo que cambia varias claves a la vez (las deducciones, una duda, las fases).
+    const setCuestionario = useCallback((fn) => setForm(f => (f ? { ...f, cuestionario: fn(f.cuestionario) } : f)), []);
     const setTitular = useCallback((k, v) => setForm(f => (f ? { ...f, titular: { ...f.titular, [k]: v } } : f)), []);
     const setDecision = useCallback((equipo, d) => setForm(f => (f ? {
         ...f, cuestionario: { ...f.cuestionario, fotos_decision: { ...(f.cuestionario.fotos_decision || {}), [equipo]: d } },
@@ -228,7 +231,7 @@ export function useObra(id) {
 
     return {
         obra, setObra, eventos, enlaces, barridoServidor, setBarridoServidor,
-        form, setCampo, setC, setTitular, setDecision,
+        form, setCampo, setC, setCuestionario, setTitular, setDecision,
         slots, docsError, recargarDocs, subir, quitar, subiendo,
         error, cargando, cargar, guardar, guardado, editable,
     };

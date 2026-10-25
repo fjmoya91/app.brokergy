@@ -212,6 +212,7 @@ const srv = app.listen(0, async () => {
         ['POST', `/obras/${OBRA_SUYA}/enlace-cliente/rotar`],
         ['GET', `/obras/${OBRA_SUYA}/barrido`], ['POST', `/obras/${OBRA_SUYA}/generar`], ['POST', `/obras/${OBRA_SUYA}/validar`],
         ['POST', `/obras/${OBRA_SUYA}/revisar-de-nuevo`], ['POST', '/feedback'], ['GET', '/feedback'], ['GET', '/movimientos'], ['POST', '/asistente'], ['GET', '/asistente/cupo'],
+        ['POST', `/obras/${OBRA_SUYA}/visto-ia`], ['GET', '/municipios?prov=13'],
     ];
     const DEL_ADMIN = [
         ['GET', '/resumen'], ['GET', '/beta'], ['GET', `/beta/${OBRA_SUYA}`], ['PATCH', `/beta/${OBRA_SUYA}`], ['POST', `/beta/${OBRA_SUYA}/invitar`],
@@ -241,6 +242,10 @@ const srv = app.listen(0, async () => {
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/docs/FOTO_CALDERA`, 404, null, { multipart: true });
     q('tok-ext', 'POST', '/api/certapp/feedback', 404, { texto: 'hola', obra_id: OBRA_AJENA });
     q('tok-ext', 'POST', '/api/certapp/asistente', 503, { mensajes: [{ role: 'user', content: 'hola' }] }, { cuerpo: (j) => j.code === 'ASISTENTE_APAGADO' });
+    // «Lo que ha visto la IA» (25/10/2026): obra ajena 404; pedida, 409 (antes de mirar nada)
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/visto-ia`, 404, {});
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/visto-ia`, 409, {}, { obra: { estado: 'EN_PREPARACION' }, cuerpo: (j) => j.code === 'OBRA_CERRADA' });
+    q('tok-ext', 'GET', '/api/certapp/municipios?prov=99', 400, null, { cuerpo: (j) => j.code === 'PROVINCIA_INVALIDA' });
     q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/barrido`, 200, null, { cuerpo: (j) => j.listo === false && Array.isArray(j.bloqueantes) });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/generar`, 422, {}, { cuerpo: (j) => j.code === 'BARRIDO' && j.barrido?.bloqueantes?.length > 0 });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/generar`, 409, {}, { obra: { estado: 'EN_PREPARACION' }, cuerpo: (j) => j.code === 'YA_PEDIDO' });

@@ -7,7 +7,8 @@
 //     y al terminar → POST /api/certapp/alta → dentro, en el panel.
 //   · Con email: → POST /api/public/certapp/beta (honeypot `web`, origen y utm
 //     de la URL) → «mira tu email»: le llega el enlace para entrar.
-// Hay que aceptar las condiciones de uso (/condiciones) y la privacidad.
+// Hay que aceptar las condiciones de uso (/condiciones) y la privacidad; se leen
+// en una ventana sin salir del formulario (LeerLegal) y su «Aceptar» marca la casilla.
 // Antirrobots: al montar, GET /beta/token → { token }, que va como `form_token`
 // (el servidor lo quiere con ≥ 3 s y ≤ 2 h de vida; si responde 400 FORM_TOKEN
 // se pide otro y se deja reintentar sin perder nada). Turnstile SOLO si existe
@@ -27,6 +28,7 @@ import { CheckDibujado, IcoAtras, IcoCheck, IcoFlecha, Spinner } from '../ui/Ico
 import { DOMINIO } from '../marca';
 import { BotonGoogle, RayaO } from './BotonGoogle';
 import { useGoogleActivo } from './googleActivo';
+import { LeerLegal } from './LeerLegal';
 
 const BORRADOR = 'certapp_beta_borrador';
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
@@ -156,6 +158,7 @@ export default function Beta({ query }) {
     const [reenvio, setReenvio] = useState(null); // null · 'enviando' · 'enviado'
     const [tsToken, setTsToken] = useState(null);
     const [tsVuelta, setTsVuelta] = useState(0); // al fallar un envío, el Turnstile se pinta de nuevo
+    const [leer, setLeer] = useState(null);      // 'condiciones' · 'privacidad': la ventana para leerlas
     const formToken = useRef({ token: null, at: 0 });
 
     const pedirFormToken = useCallback(async () => {
@@ -423,7 +426,11 @@ export default function Beta({ query }) {
                     <>
                         <label className="ca-check">
                             <input type="checkbox" checked={f.consentimiento} onChange={e => set('consentimiento', e.target.checked)} />
-                            <span>He leído y acepto las <Enlace to="/condiciones" target="_blank" rel="noopener">condiciones de uso de la beta</Enlace> y la <Enlace to="/privacidad" target="_blank" rel="noopener">política de privacidad</Enlace>.</span>
+                            <span>
+                                He leído y acepto las{' '}
+                                <a href="/condiciones" onClick={e => { e.preventDefault(); setLeer('condiciones'); }}>condiciones de uso de la beta</a> y la{' '}
+                                <a href="/privacidad" onClick={e => { e.preventDefault(); setLeer('privacidad'); }}>política de privacidad</a>.
+                            </span>
                         </label>
                         {errores.consentimiento && <p className="ca-error">{errores.consentimiento}</p>}
                         <label className="ca-check">
@@ -446,6 +453,11 @@ export default function Beta({ query }) {
             default: return null;
         }
     };
+
+    // Las condiciones y la privacidad se leen en una ventana; «Aceptar» marca la casilla.
+    const ventanaLegal = (
+        <LeerLegal que={leer} onCerrar={() => setLeer(null)} onAceptar={() => set('consentimiento', true)} />
+    );
 
     // ── Móvil: una pregunta por pantalla ─────────────────────────────────────
     if (movil) {
@@ -479,6 +491,7 @@ export default function Beta({ query }) {
                         )}
                     </div>
                 </div>
+                {ventanaLegal}
             </Papel>
         );
     }
@@ -512,6 +525,7 @@ export default function Beta({ query }) {
                 </div>
                 <Firma />
             </div>
+            {ventanaLegal}
         </Papel>
     );
 }

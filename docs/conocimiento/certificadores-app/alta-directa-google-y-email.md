@@ -55,6 +55,16 @@ que ya tenía cuenta no recibe nada nuevo ni cambia nada.
 en `beta.filaDe`); la versión aceptada se guarda con su fecha. Las condiciones están en
 `/condiciones` ([Condiciones.jsx](implementation/frontend/src/certificadores/publico/Condiciones.jsx), versión
 `CONDICIONES_VERSION` en `cuentas.js`, la misma fecha en las dos). Si se cambian, se sube la versión.
+Desde el 25/10/2026 se leen **en una ventana** sin salir del formulario
+([LeerLegal.jsx](implementation/frontend/src/certificadores/publico/LeerLegal.jsx)): «Aceptar» abajo
+marca la casilla y vuelve a la misma pantalla (antes se abría otra pestaña y el formulario se quedaba
+atrás). El perfil la usa con «Cerrar».
+
+**REGLA — el email de bienvenida sale en los DOS caminos** (25/10/2026: el alta con Google no recibía
+nada). `cuentas.mandarBienvenida` con `avisos.plantilla` (el estilo de la app): el certificado gratis
+destacado, cómo funciona en tres pasos y «Entrar en la app». Por email, el botón es el enlace para
+entrar (7 días, un uso); con Google, lleva a `/panel`. En el alta con Google va sin esperar (un aviso
+no frena el alta). Como todos los avisos, en local se escribe en el log.
 
 **REGLA — el alta con sesión toma el email de la SESIÓN, nunca el del formulario**, y exige el email
 confirmado en Auth (403 `EMAIL_SIN_CONFIRMAR`). Un email que ya es de otra cuenta: 409

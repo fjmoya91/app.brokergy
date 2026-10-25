@@ -144,6 +144,7 @@ function cuentaPublica(c) {
     // De `prefs` solo sale esto (nunca el nonce de los enlaces).
     out.comunidades = Array.isArray(c.prefs?.perfil?.comunidades) ? c.prefs.perfil.comunidades : [];
     out.software = Array.isArray(c.prefs?.perfil?.software) ? c.prefs.perfil.software : [];
+    out.ccaa = c.prefs?.perfil?.ccaa || null;
     out.condiciones = c.prefs?.condiciones || null;
     out.telefono_por_confirmar = c.telefono ? null : (c.prefs?.telefono_por_confirmar || null);
     return out;

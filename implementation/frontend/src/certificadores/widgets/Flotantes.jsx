@@ -7,7 +7,9 @@
 //   · dice que es una IA y que puede equivocarse;
 //   · enseña el cupo que queda (`GET /asistente/cupo`);
 //   · si el servidor dice que está apagado (503) —o la ruta aún no existe—, se
-//     esconde: no se ofrece algo que no va a contestar.
+//     esconde: no se ofrece algo que no va a contestar;
+//   · dice en qué PANTALLA está (`pantalla`: menu · obra · envolvente) para que
+//     el servidor le cuente lo que toca (la obra, lo dibujado, o solo la app).
 // REGLA del documento: el asistente va capado (modelo barato, sin herramientas,
 // tope por cuenta y día). Su conocimiento es CE3X y esta app, no BROKERGY.
 import { useEffect, useRef, useState } from 'react';
@@ -34,7 +36,14 @@ function textoRespuesta(d) {
     return d.respuesta || d.texto || d.text || d.content || d.mensaje?.content || d.mensaje || '';
 }
 
-function Asistente({ abierta, onCerrar, obraId, cupo, setCupo, onApagado }) {
+// Los ejemplos de cada pantalla (lo primero que ve al abrirlo).
+const EJEMPLOS = {
+    menu: '«¿Qué transmitancia pone CE3X por defecto a un muro de 1975?» o «¿Cómo pido las fotos al propietario?»',
+    obra: '«¿Qué U pone CE3X a la fachada de esta casa?» o «¿Qué me falta para pedir el certificado?»',
+    envolvente: '«¿Cuántas ventanas he puesto?» o «¿Una pared con el garaje es medianera o partición?»',
+};
+
+function Asistente({ abierta, onCerrar, obraId, pantalla, cupo, setCupo, onApagado }) {
     const [mensajes, setMensajes] = useState([]);
     const [texto, setTexto] = useState('');
     const [pensando, setPensando] = useState(false);
@@ -51,7 +60,7 @@ function Asistente({ abierta, onCerrar, obraId, cupo, setCupo, onApagado }) {
         const nuevos = [...mensajes, { role: 'user', content: q }];
         setMensajes(nuevos); setTexto(''); setPensando(true); setError(null);
         try {
-            const { data } = await axios.post(`${API}/asistente`, { mensajes: nuevos.slice(-12), obra_id: obraId || undefined });
+            const { data } = await axios.post(`${API}/asistente`, { mensajes: nuevos.slice(-12), obra_id: obraId || undefined, pantalla });
             const r = textoRespuesta(data);
             setMensajes(m => [...m, { role: 'assistant', content: r || 'No he sabido contestar a eso. Prueba a preguntarlo de otra forma.' }]);
             const c = normalizarCupo(data?.cupo ? data : null);
@@ -89,7 +98,7 @@ function Asistente({ abierta, onCerrar, obraId, cupo, setCupo, onApagado }) {
             <div className="ca-chat" aria-live="polite">
                 {mensajes.length === 0 && (
                     <p className="ca-peq" style={{ margin: '4px 4px 0' }}>
-                        Por ejemplo: «¿Qué transmitancia pone CE3X por defecto a un muro de 1975?» o «¿Cómo pido las fotos al propietario?»
+                        Por ejemplo: {EJEMPLOS[pantalla] || EJEMPLOS.menu}
                     </p>
                 )}
                 {mensajes.map((m, i) => (
@@ -103,7 +112,13 @@ function Asistente({ abierta, onCerrar, obraId, cupo, setCupo, onApagado }) {
     );
 }
 
-export default function Flotantes({ obraId }) {
+/**
+ * @param pantalla  menu · obra · envolvente (por defecto: obra si hay obraId)
+ * @param soloAsistente  en la envolvente: sin el botón de incidencias (la
+ *                       ventana tiene sus propios controles abajo)
+ */
+export default function Flotantes({ obraId, pantalla, soloAsistente = false }) {
+    const dondeEsta = pantalla || (obraId ? 'obra' : 'menu');
     const [abierto, setAbierto] = useState(null);
     // undefined = preguntando · null = apagado (se esconde) · { quedan, max }
     const [cupo, setCupo] = useState(undefined);
@@ -120,9 +135,11 @@ export default function Flotantes({ obraId }) {
         <>
             {createPortal(
                 <div className="ca-fabs">
-                    <button type="button" className="ca-fab ca-fab-peq" onClick={() => setAbierto('feedback')} aria-label="Incidencias y sugerencias">
-                        <IcoChat size={18} /><span className="ca-solo-pc">Incidencias y sugerencias</span>
-                    </button>
+                    {!soloAsistente && (
+                        <button type="button" className="ca-fab ca-fab-peq" onClick={() => setAbierto('feedback')} aria-label="Incidencias y sugerencias">
+                            <IcoChat size={18} /><span className="ca-solo-pc">Incidencias y sugerencias</span>
+                        </button>
+                    )}
                     {cupo && (
                         <button type="button" className="ca-fab ca-fab-tinta" onClick={() => setAbierto('asistente')} aria-label="Abrir el asistente">
                             <IcoChispa /><span className="ca-solo-pc">Asistente</span>
@@ -131,9 +148,9 @@ export default function Flotantes({ obraId }) {
                 </div>,
                 document.body,
             )}
-            <FormIncidencia abierta={abierto === 'feedback'} onCerrar={() => setAbierto(null)} />
+            {!soloAsistente && <FormIncidencia abierta={abierto === 'feedback'} onCerrar={() => setAbierto(null)} />}
             {cupo && (
-                <Asistente abierta={abierto === 'asistente'} onCerrar={() => setAbierto(null)} obraId={obraId}
+                <Asistente abierta={abierto === 'asistente'} onCerrar={() => setAbierto(null)} obraId={obraId} pantalla={dondeEsta}
                     cupo={cupo} setCupo={setCupo} onApagado={() => { setAbierto(null); setCupo(null); }} />
             )}
         </>

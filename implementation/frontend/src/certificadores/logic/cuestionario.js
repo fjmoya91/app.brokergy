@@ -19,7 +19,16 @@
 //
 // REGLA — la foto que falta no bloquea: se sube ahora, después o se usa un
 // equipo GENÉRICO (decisión del certificador, queda escrita). Lo que bloquea
-// es lo que la IA no puede deducir ni de las fotos ni del Catastro.
+// es lo que la IA no puede deducir ni de las fotos ni del Catastro: la
+// referencia, la dirección, el titular y para qué es (25/10/2026, Fran: «al no
+// tener todas las respuestas no me deja generar»). El tipo de vivienda, lo que
+// la rodea, la calefacción y el agua caliente son AVISOS: los deduce la IA
+// (`deduccionesCatastro` + «Lo que ha visto la IA») y el certificador confirma.
+//
+// REGLA — cada dato deducido lleva su ORIGEN (`c.origen[k]`): Catastro, fotos,
+// Street View, placa, la época o lo habitual. Lo que contesta el certificador
+// no lleva origen y una deducción NUNCA lo pisa. El generador lo recibe en el
+// resumen («… (según el Catastro)») para saber qué es seguro y qué supuesto.
 //
 // Módulo JS PURO: sin React, sin fetch.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,6 +43,20 @@ export const PROPOSITOS = [
     { value: 'AYUDAS', label: 'Ayudas o subvenciones', sub: 'Programas de rehabilitación, CAE…' },
     { value: 'OTRO', label: 'Otro motivo', sub: 'Registro, informe, curiosidad…' },
 ];
+export const PROPOSITO_VALUES = PROPOSITOS.map(p => p.value);
+
+/**
+ * Para qué es, que pueden ser VARIOS (Fran, 25/10/2026: «venta y además IRPF
+ * por placas»). La lista vive en `cuestionario.propositos`; la columna
+ * `proposito` de la obra guarda el PRIMERO (listados, avisos) y es lo único que
+ * tienen las obras de antes.
+ */
+export function propositosDe(obra = {}) {
+    const lista = Array.isArray(obra.cuestionario?.propositos)
+        ? obra.cuestionario.propositos.filter(v => PROPOSITO_VALUES.includes(v)) : [];
+    if (lista.length) return [...new Set(lista)];
+    return PROPOSITO_VALUES.includes(obra.proposito) ? [obra.proposito] : [];
+}
 
 // ── La vivienda ─────────────────────────────────────────────────────────────
 export const TIPOS_EDIFICIO = [
@@ -299,12 +322,35 @@ export const CUESTIONARIO_VACIO = {
     aire_acondicionado: null, tipo_aire: '', num_aires: '',
     placas_fv: '', kwp: '',
     // para qué y medidas
+    propositos: [],             // para qué (varios); el primero va también en obra.proposito
     reforma_que: [],            // IRPF_REFORMA: qué se reforma
     medidas: [],                // las que se meten en el CEE
     // fotos: equipo → SUBIR · DESPUES · GENERICA
     fotos_decision: {},
     notas: '',
+    // de dónde sale cada dato deducido (clave → ORIGENES); sin origen = lo contestó él
+    origen: {},
+    // «Lo que ha visto la IA»: { at, notas{k}, fotos{k}, dudas[], confirmado_at }
+    visto_ia: null,
+    // las fases que el certificador dio por buenas (FASE_IDS)
+    fases_ok: [],
 };
+
+// ── De dónde sale cada dato ─────────────────────────────────────────────────
+// `texto`: cómo se le dice al generador («Casa aislada (según el Catastro)»).
+// `fiable`: si es un dato o un supuesto; un supuesto lo corrige lo que se vea.
+export const ORIGENES = {
+    CATASTRO: { label: 'Catastro', texto: 'según el Catastro', fiable: true },
+    PLACA: { label: 'Placa', texto: 'leído en la placa', fiable: true },
+    FOTO: { label: 'Fotos', texto: 'visto en las fotos', fiable: true },
+    STREETVIEW: { label: 'Street View', texto: 'visto en Street View', fiable: false },
+    EPOCA: { label: 'Su época', texto: 'lo normal de su año de construcción', fiable: false },
+    HABITUAL: { label: 'Lo habitual', texto: 'lo habitual, sin ver', fiable: false },
+};
+
+// Las fases de la ficha, en orden. La pantalla las pinta (obra/fasesFicha.js); aquí
+// solo los ids, para sanear lo que llega y para que el servidor sepa qué se vio.
+export const FASE_IDS = ['inmueble', 'titular', 'proposito', 'fotos', 'visto_ia', 'generar'];
 
 // ── Ayudas ──────────────────────────────────────────────────────────────────
 const en = (lista, v) => lista.some(o => o.value === v);
@@ -351,26 +397,31 @@ export function estadoEquipos(c = {}, uploads = {}) {
 // ── Medidas de mejora sugeridas según el propósito y lo que ya hay ──────────
 // Criterio de BROKERGY: sin placas → aerotermia y aerotermia + FV; con placas y
 // sin aerotermia → aerotermia; con aerotermia y sin placas → placas.
-export function medidasSugeridas(c = {}, proposito = '') {
+// `propositos`: la lista de propositosDe (o uno suelto, como antes).
+export function medidasSugeridas(c = {}, propositos = []) {
+    const ps = (Array.isArray(propositos) ? propositos : [propositos]).filter(Boolean);
     const tieneAerotermia = c.calefaccion === 'aerotermia';
     const tienePlacas = c.placas_fv === 'SI';
     const s = [];
     const add = (m) => { if (!s.includes(m)) s.push(m); };
 
-    if (proposito === 'IRPF_PLACAS') {
+    if (ps.includes('IRPF_PLACAS')) {
         add('PLACAS_FV');
         if (!tieneAerotermia) add('AEROTERMIA');
-    } else if (proposito === 'IRPF_AEROTERMIA') {
+    }
+    if (ps.includes('IRPF_AEROTERMIA')) {
         add('AEROTERMIA');
         if (!tienePlacas) add('AEROTERMIA_FV');
-    } else if (proposito === 'IRPF_REFORMA') {
+    }
+    if (ps.includes('IRPF_REFORMA')) {
         const r = Array.isArray(c.reforma_que) ? c.reforma_que : [];
+        const antes = s.length;
         if (r.includes('VENTANAS')) add('VENTANAS');
         if (r.includes('FACHADA')) add('AISLAMIENTO_FACHADA');
         if (r.includes('CUBIERTA')) add('AISLAMIENTO_CUBIERTA');
-        if (!s.length) add('VENTANAS');
+        if (s.length === antes) add('VENTANAS');
     }
-    if (!s.length || ['COMPRAVENTA', 'ALQUILER', 'AYUDAS', 'OTRO'].includes(proposito)) {
+    if (!s.length || ps.some(p => ['COMPRAVENTA', 'ALQUILER', 'AYUDAS', 'OTRO'].includes(p))) {
         if (!tieneAerotermia) add('AEROTERMIA');
         if (!tieneAerotermia && !tienePlacas) add('AEROTERMIA_FV');
         if (tieneAerotermia && !tienePlacas) add('PLACAS_FV');
@@ -383,9 +434,10 @@ export function medidasSugeridas(c = {}, proposito = '') {
 // `obra`: la fila de certapp_obras (titular, inmueble, cuestionario,
 // documentacion.reforma_uploads). `cuenta`: la del certificador.
 // Devuelve:
-//   bloqueantes — sin esto no se pide el CEE (el servidor lo vuelve a mirar)
-//   avisos      — se puede pedir, pero el resultado será peor o habrá que
-//                 completarlo en CE3X antes de registrar
+//   bloqueantes — sin esto no se pide el CEE (el servidor lo vuelve a mirar).
+//                 SOLO lo que la IA no puede sacar de ningún sitio: referencia,
+//                 dirección, titular y para qué (ver la REGLA de la cabecera).
+//   avisos      — se puede pedir; el texto dice qué hará la IA sin ese dato
 //   equiposSinFoto — para ofrecer «subir ahora / usar genérico» en el popup
 // Cada item: { id, texto, paso } — `paso` es la sección del formulario donde se arregla.
 export function barrido(obra = {}, cuenta = null) {
@@ -408,21 +460,22 @@ export function barrido(obra = {}, cuenta = null) {
     if (vacio(t.email) && vacio(t.telefono)) A('titular_contacto', 'Sin email ni teléfono del titular.', 'titular');
 
     // Para qué
-    if (vacio(obra.proposito)) B('proposito', 'Di para qué es el certificado (venta, alquiler, IRPF…).', 'proposito');
+    if (!propositosDe(obra).length) B('proposito', 'Di para qué es el certificado (venta, alquiler, IRPF…).', 'proposito');
 
     // La vivienda
-    if (vacio(c.tipo_edificio)) B('tipo_edificio', 'Di qué tipo de vivienda es (casa, piso…).', 'vivienda');
-    if (c.tipo_edificio === 'PISO' && vacio(c.posicion_piso)) B('posicion_piso', 'Di en qué planta está el piso (baja, intermedia, última).', 'vivienda');
+    if (vacio(c.tipo_edificio)) A('tipo_edificio', 'Sin decir qué tipo de vivienda es, la IA lo sacará del Catastro y del plano.', 'vivienda');
+    if (c.tipo_edificio === 'PISO' && vacio(c.posicion_piso)) A('posicion_piso', 'Sin la planta del piso, la IA la sacará del Catastro y de las fotos.', 'vivienda');
     if (c.tipo_edificio !== 'PISO' && vacio(c.cubierta)) A('cubierta', 'Sin el tipo de cubierta se usará el de la época.', 'vivienda');
     if (vacio(c.suelo) && !(c.tipo_edificio === 'PISO' && c.posicion_piso === 'INTERMEDIO')) {
         A('suelo', 'Sin decir sobre qué apoya el suelo se supone terreno.', 'vivienda');
     }
 
-    // Lo que la rodea: la IA no lo ve en una foto de fachada
+    // Lo que la rodea: en una foto de fachada no se ve, pero el Catastro dice
+    // si en la parcela hay garaje o almacén
     if (c.colinda_no_calefactado == null) {
-        B('colindantes', '¿Alguna pared da a un garaje, cochera, trastero, local o escalera sin calefacción?', 'entorno');
+        A('colindantes', 'No has dicho si alguna pared da a un garaje, trastero o escalera sin calefacción: la IA lo deducirá del Catastro.', 'entorno');
     } else if (c.colinda_no_calefactado === true && vacio(c.colindantes)) {
-        B('colindantes_cuales', 'Di con qué espacios sin calefacción linda la vivienda.', 'entorno');
+        A('colindantes_cuales', 'Linda con algo sin calefacción, pero no has dicho con qué: la IA supondrá un garaje.', 'entorno');
     }
     if (c.patios == null && c.tipo_edificio !== 'UNIFAMILIAR_AISLADA') {
         A('patios', '¿Tiene patios interiores? Sus paredes y ventanas cuentan.', 'entorno');
@@ -432,11 +485,11 @@ export function barrido(obra = {}, cuenta = null) {
     if (vacio(c.marco) || vacio(c.vidrio)) A('ventanas', 'Sin el tipo de ventana se usarán los valores por defecto de la época.', 'ventanas');
 
     // Instalaciones
-    if (vacio(c.calefaccion)) B('calefaccion', 'Di con qué se calienta la vivienda.', 'calefaccion');
+    if (vacio(c.calefaccion)) A('calefaccion', 'Sin decir con qué se calienta, la IA lo buscará en las fotos; si no lo ve, CE3X pondrá el sistema por defecto.', 'calefaccion');
     if (equipoCalefaccion(c) === 'CALDERA' && vacio(c.emisor)) A('emisor', 'Sin el emisor se suponen radiadores.', 'calefaccion');
-    if (vacio(c.acs)) B('acs', 'Di con qué se calienta el agua.', 'acs');
-    if (c.acs === 'misma_caldera' && !equipoCalefaccion(c)) {
-        B('acs_caldera', 'El agua caliente «de la misma caldera», pero no hay caldera en la calefacción.', 'acs');
+    if (vacio(c.acs)) A('acs', 'Sin decir con qué se calienta el agua, la IA lo buscará en las fotos; si no lo ve, CE3X pondrá el sistema por defecto.', 'acs');
+    if (c.acs === 'misma_caldera' && !equipoCalefaccion(c) && !vacio(c.calefaccion)) {
+        A('acs_caldera', 'El agua caliente sale «de la misma caldera», pero la calefacción no es una caldera: revisa las dos.', 'acs');
     }
     if (c.acs === 'misma_caldera' && c.termo_extra == null) A('termo_extra', '¿Hay además un termo eléctrico?', 'acs');
     // Con la calefacción por bomba aire-aire el aire acondicionado ya está contestado.
@@ -480,6 +533,254 @@ export const NOMBRE_EQUIPO = {
     SOLAR: 'las placas solares',
 };
 
+// ── Lo que se deduce sin preguntar ──────────────────────────────────────────
+// Lo que la IA puede dar por sabido. Cada uno, con su origen; lo que contestó
+// el certificador (valor sin origen) no se toca nunca.
+export const DEDUCIBLES = [
+    'tipo_edificio', 'posicion_piso', 'plantas', 'altura_libre', 'sotano', 'bajo_cubierta', 'cubierta', 'suelo',
+    'colinda_no_calefactado', 'colindantes', 'patios', 'fachada', 'aislamiento_fachada', 'aislamiento_cubierta',
+    'marco', 'vidrio', 'persianas', 'anio_ventanas', 'anio_reforma',
+    'calefaccion', 'tipo_caldera', 'emisor', 'anio_calefaccion', 'potencia_kw', 'marca_modelo_calefaccion',
+    'acs', 'termo_extra', 'litros_termo', 'aire_acondicionado', 'tipo_aire', 'num_aires', 'placas_fv', 'kwp',
+];
+
+// Cuánto vale cada origen: uno peor no pisa a uno mejor (lo de la época no
+// pisa lo visto en una foto).
+const RANGO_ORIGEN = { HABITUAL: 1, EPOCA: 2, STREETVIEW: 3, FOTO: 4, CATASTRO: 5, PLACA: 5 };
+
+// Los valores de lista que admite cada clave (también para sanear).
+const LISTAS_VALOR = {
+    tipo_edificio: TIPOS_EDIFICIO, posicion_piso: POSICION_PISO, sotano: SOTANO,
+    bajo_cubierta: BAJO_CUBIERTA, cubierta: CUBIERTA, suelo: SUELO, fachada: FACHADA,
+    aislamiento_fachada: AISLAMIENTO, aislamiento_cubierta: AISLAMIENTO, marco: MARCO,
+    vidrio: VIDRIO, calefaccion: CALEFACCION, tipo_caldera: TIPO_CALDERA, emisor: EMISOR,
+    acs: ACS, tipo_aire: TIPO_AIRE, placas_fv: PLACAS_FV,
+};
+const CLAVES_SI_NO = ['colinda_no_calefactado', 'patios', 'persianas', 'cobertura_parcial', 'termo_extra', 'aire_acondicionado'];
+const CLAVES_CORTAS = ['plantas', 'altura_libre', 'num_patios', 'anio_ventanas', 'anio_reforma', 'anio_calefaccion', 'potencia_kw', 'cobertura_pct', 'litros_termo', 'num_aires', 'kwp'];
+
+/** ¿Es `v` un valor que la clave `k` admite? (para lo que propone la IA) */
+export function valorValido(k, v) {
+    if (LISTAS_VALOR[k]) return en(LISTAS_VALOR[k], v);
+    if (CLAVES_SI_NO.includes(k)) return v === true || v === false;
+    if (k === 'colindantes') return Array.isArray(v) && v.length > 0 && v.every(x => en(COLINDANTES, x));
+    if (CLAVES_CORTAS.includes(k)) return !vacio(v) && String(v).length <= 12;
+    if (k === 'marca_modelo_calefaccion') return !vacio(v) && String(v).length <= 120;
+    return false;
+}
+
+/** Las ventanas normales de su año de construcción (la norma de cada época). */
+function ventanasDeLaEpoca(anio) {
+    if (!(anio > 1800)) return null;
+    if (anio < 1980) return { marco: 'METALICO', vidrio: 'SIMPLE', por: `antes de 1980 lo normal es aluminio y vidrio simple` };
+    if (anio < 2007) return { marco: 'METALICO', vidrio: 'DOBLE', por: `entre 1980 y 2006 lo normal es aluminio sin rotura y doble vidrio` };
+    if (anio < 2014) return { marco: 'METALICO_RPT', vidrio: 'DOBLE', por: `desde el CTE de 2006, aluminio con rotura y doble vidrio` };
+    return { marco: 'METALICO_RPT', vidrio: 'DOBLE_BE', por: `desde 2014, aluminio con rotura y doble vidrio bajo emisivo` };
+}
+
+const plantaNum = (p) => {
+    const s = String(p ?? '').trim().toUpperCase();
+    if (/^-?\d+$/.test(s)) return Number(s);
+    if (/^(S|SS|SM)\d*$/.test(s)) return -1;   // sótano / semisótano
+    return null;
+};
+const OTRAS_NO_CALEFACTADAS = [
+    [/APARCAMIENTO|GARAJE/, 'GARAJE', 'garaje'],
+    [/ALMAC[EÉ]N|TRASTERO/, 'TRASTERO', 'almacén'],
+    [/INDUSTRIAL|AGRARIO|NAVE/, 'LOCAL', 'nave'],
+];
+
+/**
+ * Lo que se deduce del Catastro, del año y de lo habitual, SIN preguntar.
+ * Puro: no escribe. Solo propone para las claves vacías o ya deducidas con un
+ * origen peor; lo contestado por el certificador no se toca.
+ *
+ * @returns {{ valores: object, origen: object, notas: object, dudas: Array }}
+ *   dudas: { id, k, pregunta, por_que, opciones: [{ label, valores }] } — lo
+ *   que el Catastro no resuelve y se le pregunta en corto al certificador.
+ */
+export function deduccionesCatastro(obra = {}) {
+    const c = { ...CUESTIONARIO_VACIO, ...(obra.cuestionario || {}) };
+    const cat = obra.catastro || {};
+    const anio = num(obra.anio_construccion) || num(cat.anio);
+    const valores = {}, origen = {}, notas = {}, dudas = [];
+    const actual = (k) => (k in valores ? valores[k] : c[k]);
+    const puede = (k, o) => {
+        if (vacio(c[k])) return true;
+        const antes = c.origen?.[k];
+        return !!antes && (RANGO_ORIGEN[o] || 0) >= (RANGO_ORIGEN[antes] || 0);
+    };
+    const pon = (k, v, o, nota) => {
+        if (vacio(v) || !puede(k, o) || (k in valores)) return;
+        // Ya está así y con ese origen: nada nuevo (la pantalla aplica mientras haya novedades).
+        if (JSON.stringify(c[k]) === JSON.stringify(v) && c.origen?.[k] === o) return;
+        valores[k] = v; origen[k] = o;
+        if (nota) notas[k] = nota;
+    };
+    // Se pregunta lo que está vacío y también lo que solo es un SUPUESTO (Street
+    // View, la época): «parece adosada desde la calle» no basta para darlo por hecho.
+    const duda = (id, k, pregunta, por_que, opciones) => {
+        if (k in valores) return;
+        if (!vacio(c[k]) && (!c.origen?.[k] || ORIGENES[c.origen[k]]?.fiable)) return;
+        dudas.push({ id, k, pregunta, por_que, opciones });
+    };
+
+    const cons = Array.isArray(cat.construcciones) ? cat.construcciones : [];
+    const viv = cons.filter(x => /VIVIENDA/i.test(x.tipo || ''));
+    const plantasViv = [...new Set(viv.map(x => plantaNum(x.planta)).filter(n => n != null))].sort((a, b) => a - b);
+    const sobreRasante = plantasViv.filter(n => n >= 0);
+    const tipoCat = String(cat.tipo || '');
+    const part = num(String(cat.participacion ?? '').replace(',', '.'));
+    const conDH = /varios inmuebles|con divisi[oó]n horizontal/i.test(tipoCat) || (part != null && part > 0 && part < 99.99);
+    const sinDH = !conDH && /sin divisi[oó]n horizontal/i.test(tipoCat);
+
+    // ── Casa o piso ──
+    // Lo que solo «parece» (Street View) no gana al Catastro: se vuelve a decidir.
+    const supuestoTipo = !!c.origen?.tipo_edificio && !ORIGENES[c.origen.tipo_edificio]?.fiable;
+    let esCasa = c.tipo_edificio && !supuestoTipo ? c.tipo_edificio.startsWith('UNIFAMILIAR') : null;
+    if (esCasa == null && sinDH) {
+        esCasa = true;
+        duda('tipo_casa', 'tipo_edificio', '¿Qué tipo de casa es?',
+            'El Catastro dice que es una casa (parcela sin división horizontal), pero no si tiene paredes compartidas.',
+            TIPOS_EDIFICIO.filter(t => t.value.startsWith('UNIFAMILIAR')).map(t => ({ label: t.label, sub: t.sub, valores: { tipo_edificio: t.value } })));
+    } else if (esCasa == null && conDH) {
+        if (sobreRasante.includes(0) && sobreRasante.length >= 2) {
+            duda('tipo_dh', 'tipo_edificio', '¿Es un adosado o un piso?',
+                'En el Catastro está en división horizontal, pero ocupa la planta baja y la de arriba: suele ser un adosado de una urbanización.',
+                [
+                    { label: 'Casa adosada', valores: { tipo_edificio: 'UNIFAMILIAR_ADOSADA' } },
+                    { label: 'Casa pareada', valores: { tipo_edificio: 'UNIFAMILIAR_PAREADA' } },
+                    { label: 'Piso (dúplex)', valores: { tipo_edificio: 'PISO' } },
+                ]);
+        } else {
+            esCasa = false;
+            pon('tipo_edificio', 'PISO', 'CATASTRO', 'El Catastro la tiene en un edificio con división horizontal.');
+        }
+    }
+    if (esCasa == null && c.tipo_edificio) esCasa = c.tipo_edificio.startsWith('UNIFAMILIAR');
+    const esPiso = actual('tipo_edificio') === 'PISO';
+
+    // ── Plantas y sótano ──
+    if (sobreRasante.length) pon('plantas', String(sobreRasante.length), 'CATASTRO', `El Catastro tiene vivienda en ${sobreRasante.length === 1 ? 'una planta' : `${sobreRasante.length} plantas`}.`);
+    else if (num(cat.plantas) > 0 && esCasa) pon('plantas', String(num(cat.plantas)), 'CATASTRO');
+    const bajoRasante = cons.filter(x => (plantaNum(x.planta) ?? 0) < 0);
+    if (esCasa) {
+        if (!bajoRasante.length) pon('sotano', 'NO', 'CATASTRO', 'El Catastro no tiene nada bajo rasante.');
+        else if (bajoRasante.some(x => /VIVIENDA/i.test(x.tipo || ''))) pon('sotano', 'HABITABLE', 'CATASTRO', 'El Catastro tiene vivienda bajo rasante.');
+        else pon('sotano', 'NO_HABITABLE', 'CATASTRO', `El Catastro tiene ${String(bajoRasante[0].tipo || '').toLowerCase()} bajo rasante.`);
+    }
+
+    // ── La planta del piso ──
+    if (esPiso && plantasViv.length) {
+        const p = plantasViv[0];
+        if (p <= 0) pon('posicion_piso', 'BAJO', 'CATASTRO', 'El Catastro la tiene en la planta baja.');
+        else {
+            duda('posicion_piso', 'posicion_piso', `Está en la planta ${p}: ¿hay más viviendas encima?`,
+                'El Catastro dice la planta del piso, no cuántas tiene el edificio.',
+                [
+                    { label: 'Sí, es una planta intermedia', valores: { posicion_piso: 'INTERMEDIO' } },
+                    { label: 'No, es el último piso', valores: { posicion_piso: 'ULTIMO' } },
+                ]);
+        }
+    }
+
+    // ── Lo que la rodea ──
+    if (esPiso) {
+        pon('colinda_no_calefactado', true, 'HABITUAL', 'Un piso casi siempre da a la escalera o al portal.');
+        pon('colindantes', ['ESCALERA'], 'HABITUAL');
+    } else if (esCasa) {
+        const otras = cons.filter(x => !/VIVIENDA/i.test(x.tipo || '') && (plantaNum(x.planta) ?? 0) >= 0)
+            .map(x => ({ x, t: OTRAS_NO_CALEFACTADAS.find(([re]) => re.test(String(x.tipo || '').toUpperCase())) }))
+            .filter(o => o.t);
+        if (!otras.length) {
+            pon('colinda_no_calefactado', false, 'CATASTRO', 'En la parcela solo hay vivienda.');
+        } else {
+            const o = otras[0];
+            const m2 = num(o.x.superficie);
+            const tipos = [...new Set(otras.map(q => q.t[1]))];
+            duda('colindante', 'colinda_no_calefactado',
+                `¿El ${o.t[2]}${m2 ? ` de ${m2} m²` : ''} está pegado a la vivienda?`,
+                `El Catastro tiene ${otras.map(q => `${q.t[2]}${num(q.x.superficie) ? ` (${num(q.x.superficie)} m²)` : ''}`).join(' y ')} en la parcela.`,
+                [
+                    { label: 'Sí, pared con pared', valores: { colinda_no_calefactado: true, colindantes: tipos } },
+                    { label: 'No, está separado', valores: { colinda_no_calefactado: false } },
+                ]);
+        }
+    }
+
+    // ── Cubierta y suelo ──
+    const pos = actual('posicion_piso');
+    if (esCasa) {
+        pon('cubierta', 'INCLINADA', 'HABITUAL', 'Lo normal en una casa; si en las fotos es una azotea, cámbialo.');
+        const sot = actual('sotano');
+        pon('suelo', sot === 'NO_HABITABLE' ? 'NO_CALEFACTADO' : 'TERRENO', 'HABITUAL',
+            sot === 'NO_HABITABLE' ? 'Encima del sótano.' : 'Una casa sin sótano apoya en el terreno.');
+    } else if (esPiso && (pos === 'BAJO' || pos === 'INTERMEDIO')) {
+        pon('cubierta', 'NO_APLICA', 'CATASTRO', 'Hay otra vivienda encima.');
+    }
+    if (esPiso && (pos === 'INTERMEDIO' || pos === 'ULTIMO')) pon('suelo', 'VIVIENDA', 'CATASTRO', 'Hay otra vivienda debajo.');
+
+    // ── Ventanas y aislamiento, por su año ──
+    const v = ventanasDeLaEpoca(anio);
+    if (v) {
+        const nota = `Construida en ${anio}: ${v.por}. Si en las fotos se ve otra cosa, cámbialo.`;
+        pon('marco', v.marco, 'EPOCA', nota);
+        pon('vidrio', v.vidrio, 'EPOCA', nota);
+    }
+    if (cat.reforma?.anio) pon('anio_reforma', String(cat.reforma.anio), 'CATASTRO', `El Catastro registra una reforma${cat.reforma.tipo ? ` (${cat.reforma.tipo})` : ''}.`);
+    else if (anio) {
+        const nota = 'Sin reforma en el Catastro: el aislamiento de su año (el de CE3X por defecto).';
+        pon('aislamiento_fachada', 'NO', 'EPOCA', nota);
+        if (esCasa || pos === 'ULTIMO') pon('aislamiento_cubierta', 'NO', 'EPOCA', nota);
+    }
+
+    // ── Instalaciones: lo habitual con lo que ya se sabe ──
+    const cal = CALEFACCION.find(o => o.value === actual('calefaccion'));
+    if (cal?.equipo === 'CALDERA') {
+        pon('emisor', 'RADIADORES', 'HABITUAL', 'Con caldera, lo normal son radiadores.');
+        if (cal.value !== 'biomasa' && cal.value !== 'carbon') pon('acs', 'misma_caldera', 'HABITUAL', 'Una caldera de gas o gasóleo suele dar también el agua caliente.');
+    } else if (cal?.value === 'aerotermia') {
+        pon('emisor', 'RADIADORES', 'HABITUAL', 'Sin otra cosa vista, radiadores.');
+        pon('acs', 'aerotermia', 'HABITUAL', 'La aerotermia suele dar también el agua caliente.');
+    }
+    return { valores, origen, notas, dudas };
+}
+
+/**
+ * Mete en el cuestionario lo deducido (de `deduccionesCatastro` o de la IA):
+ * valores y su origen, y las notas en `visto_ia.notas`. Lo contestado por el
+ * certificador no se toca (eso ya lo filtró quien dedujo, pero se vuelve a
+ * mirar: este es el último paso antes de guardar).
+ */
+export function aplicarDeducciones(cuestionario = {}, ded = {}) {
+    const c = { ...CUESTIONARIO_VACIO, ...cuestionario };
+    const origen = { ...(c.origen || {}) };
+    const visto = { ...(c.visto_ia || {}) };
+    const notas = { ...(visto.notas || {}) };
+    for (const [k, v] of Object.entries(ded.valores || {})) {
+        const o = ded.origen?.[k];
+        if (!DEDUCIBLES.includes(k) || !ORIGENES[o] || !valorValido(k, v)) continue;
+        if (!vacio(c[k]) && !origen[k]) continue;   // lo contestó él
+        if (!vacio(c[k]) && (RANGO_ORIGEN[o] || 0) < (RANGO_ORIGEN[origen[k]] || 0)) continue;
+        c[k] = v;
+        origen[k] = o;
+        if (ded.notas?.[k]) notas[k] = String(ded.notas[k]).slice(0, 300);
+    }
+    return { ...c, origen, visto_ia: { ...visto, notas } };
+}
+
+/**
+ * Contesta él: el valor queda como suyo (sin origen); lo que dependía de la
+ * clave lo limpia sanearCuestionario al guardar. `valores`: { clave: valor }
+ * (una duda puede fijar dos, p. ej. linda = sí + garaje).
+ */
+export function contestar(cuestionario = {}, valores = {}) {
+    const origen = { ...(cuestionario.origen || {}) };
+    for (const k of Object.keys(valores)) delete origen[k];
+    if ('colinda_no_calefactado' in valores) delete origen.colindantes;
+    return { ...cuestionario, ...valores, origen };
+}
+
 /** Avance del formulario, 0–100, para la barra de la ficha. */
 export function avance(obra = {}) {
     const { bloqueantes, avisos } = barrido(obra);
@@ -494,29 +795,34 @@ export function avance(obra = {}) {
 export function resumenCuestionario(obra = {}) {
     const c = { ...CUESTIONARIO_VACIO, ...(obra.cuestionario || {}) };
     const l = [];
-    const P = (k, v) => { if (!vacio(v)) l.push([k, String(v)]); };
+    // `k`: la clave del cuestionario, para decir de dónde sale si es deducido.
+    const P = (etiqueta, v, k = null) => {
+        if (vacio(v)) return;
+        const o = k ? ORIGENES[c.origen?.[k]] : null;
+        l.push([etiqueta, o ? `${v} (${o.texto})` : String(v)]);
+    };
 
-    P('Para qué', labelDe(PROPOSITOS, obra.proposito));
+    P('Para qué', propositosDe(obra).map(v => labelDe(PROPOSITOS, v)).join(' · '));
     P('Visita', obra.en_vivienda === true ? 'El certificador está en la vivienda' : obra.en_vivienda === false ? 'Sin visita: con fotos' : null);
-    P('Tipo', labelDe(TIPOS_EDIFICIO, c.tipo_edificio));
-    if (c.tipo_edificio === 'PISO') P('Planta', labelDe(POSICION_PISO, c.posicion_piso));
-    P('Plantas sobre rasante', c.plantas);
-    P('Altura libre (m)', c.altura_libre);
-    P('Sótano', labelDe(SOTANO, c.sotano));
-    P('Bajo cubierta', labelDe(BAJO_CUBIERTA, c.bajo_cubierta));
-    P('Cubierta', labelDe(CUBIERTA, c.cubierta));
-    P('Suelo', labelDe(SUELO, c.suelo));
-    if (c.colinda_no_calefactado === false) P('Linda con espacios sin calefacción', 'No');
+    P('Tipo', labelDe(TIPOS_EDIFICIO, c.tipo_edificio), 'tipo_edificio');
+    if (c.tipo_edificio === 'PISO') P('Planta', labelDe(POSICION_PISO, c.posicion_piso), 'posicion_piso');
+    P('Plantas sobre rasante', c.plantas, 'plantas');
+    P('Altura libre (m)', c.altura_libre, 'altura_libre');
+    P('Sótano', labelDe(SOTANO, c.sotano), 'sotano');
+    P('Bajo cubierta', labelDe(BAJO_CUBIERTA, c.bajo_cubierta), 'bajo_cubierta');
+    P('Cubierta', labelDe(CUBIERTA, c.cubierta), 'cubierta');
+    P('Suelo', labelDe(SUELO, c.suelo), 'suelo');
+    if (c.colinda_no_calefactado === false) P('Linda con espacios sin calefacción', 'No', 'colinda_no_calefactado');
     if (c.colinda_no_calefactado === true) {
-        P('Linda con espacios sin calefacción', (c.colindantes || []).map(v => labelDe(COLINDANTES, v) || v).join(', '));
+        P('Linda con espacios sin calefacción', (c.colindantes || []).map(v => labelDe(COLINDANTES, v) || v).join(', '), 'colinda_no_calefactado');
         P('Detalle de lo que linda', c.colindantes_nota);
     }
-    if (c.patios != null) P('Patios', c.patios ? `Sí${c.num_patios ? ` (${c.num_patios})` : ''}` : 'No');
-    P('Fachada', labelDe(FACHADA, c.fachada));
-    P('Aislamiento de fachada', labelDe(AISLAMIENTO, c.aislamiento_fachada));
-    P('Aislamiento de cubierta', labelDe(AISLAMIENTO, c.aislamiento_cubierta));
-    P('Marco de las ventanas', labelDe(MARCO, c.marco));
-    P('Vidrio', labelDe(VIDRIO, c.vidrio));
+    if (c.patios != null) P('Patios', c.patios ? `Sí${c.num_patios ? ` (${c.num_patios})` : ''}` : 'No', 'patios');
+    P('Fachada', labelDe(FACHADA, c.fachada), 'fachada');
+    P('Aislamiento de fachada', labelDe(AISLAMIENTO, c.aislamiento_fachada), 'aislamiento_fachada');
+    P('Aislamiento de cubierta', labelDe(AISLAMIENTO, c.aislamiento_cubierta), 'aislamiento_cubierta');
+    P('Marco de las ventanas', labelDe(MARCO, c.marco), 'marco');
+    P('Vidrio', labelDe(VIDRIO, c.vidrio), 'vidrio');
     if (c.persianas != null) P('Persianas', c.persianas ? 'Sí' : 'No');
     P('Año de las ventanas', c.anio_ventanas);
     P('Año de la última reforma', c.anio_reforma);
@@ -528,24 +834,26 @@ export function resumenCuestionario(obra = {}) {
         if (c.potencia_kw) extra.push(`${c.potencia_kw} kW`);
         if (c.anio_calefaccion) extra.push(`año ${c.anio_calefaccion}`);
         if (c.marca_modelo_calefaccion) extra.push(c.marca_modelo_calefaccion);
-        P('Calefacción', cal.label + (extra.length ? ` · ${extra.join(' · ')}` : ''));
-        P('Emisor', labelDe(EMISOR, c.emisor));
+        P('Calefacción', cal.label + (extra.length ? ` · ${extra.join(' · ')}` : ''), 'calefaccion');
+        P('Emisor', labelDe(EMISOR, c.emisor), 'emisor');
         if (c.cobertura_parcial === true) P('Cobertura de la calefacción', `Parcial${c.cobertura_pct ? ` (${c.cobertura_pct} %)` : ''}`);
     }
     const acs = labelDe(ACS, c.acs);
-    if (acs) P('Agua caliente', acs + (c.termo_extra ? ' + termo eléctrico' : '') + (c.litros_termo ? ` · ${c.litros_termo} L` : ''));
+    if (acs) P('Agua caliente', acs + (c.termo_extra ? ' + termo eléctrico' : '') + (c.litros_termo ? ` · ${c.litros_termo} L` : ''), 'acs');
     if (c.aire_acondicionado != null) {
         P('Aire acondicionado', c.aire_acondicionado
             ? `Sí${c.num_aires ? ` · ${c.num_aires}` : ''}${c.tipo_aire ? ` · ${labelDe(TIPO_AIRE, c.tipo_aire)}` : ''}`
-            : 'No');
+            : 'No', 'aire_acondicionado');
     }
-    if (c.placas_fv) P('Placas fotovoltaicas', c.placas_fv === 'SI' ? `Sí${c.kwp ? ` · ${c.kwp} kWp` : ''}` : 'No');
+    if (c.placas_fv) P('Placas fotovoltaicas', c.placas_fv === 'SI' ? `Sí${c.kwp ? ` · ${c.kwp} kWp` : ''}` : 'No', 'placas_fv');
 
-    const medidas = vacio(c.medidas) ? medidasSugeridas(c, obra.proposito) : c.medidas;
+    const medidas = vacio(c.medidas) ? medidasSugeridas(c, propositosDe(obra)) : c.medidas;
     P('Medidas de mejora', medidas.map(m => labelDe(MEDIDAS, m) || m).join(' · '));
 
     const genericos = Object.entries(c.fotos_decision || {}).filter(([, d]) => d === 'GENERICA').map(([e]) => NOMBRE_EQUIPO[e] || e);
     if (genericos.length) P('Equipo genérico (sin placa)', genericos.join(', '));
+    if (c.visto_ia?.confirmado_at) P('Lo deducido', 'Revisado y confirmado por el certificador antes de pedirlo');
+    else if (Object.keys(c.origen || {}).length) P('Lo deducido', 'SIN confirmar por el certificador: compruébalo con las fotos');
     P('Notas del certificador', c.notas);
     return l;
 }
@@ -583,18 +891,11 @@ export function aCuestionarioCee(c = {}) {
 /** Deja el cuestionario con solo claves y valores conocidos (lo que llega del navegador). */
 export function sanearCuestionario(raw = {}) {
     const out = {};
-    const listas = {
-        tipo_edificio: TIPOS_EDIFICIO, posicion_piso: POSICION_PISO, sotano: SOTANO,
-        bajo_cubierta: BAJO_CUBIERTA, cubierta: CUBIERTA, suelo: SUELO, fachada: FACHADA,
-        aislamiento_fachada: AISLAMIENTO, aislamiento_cubierta: AISLAMIENTO, marco: MARCO,
-        vidrio: VIDRIO, calefaccion: CALEFACCION, tipo_caldera: TIPO_CALDERA, emisor: EMISOR,
-        acs: ACS, tipo_aire: TIPO_AIRE, placas_fv: PLACAS_FV,
-    };
-    for (const [k, lista] of Object.entries(listas)) out[k] = en(lista, raw[k]) ? raw[k] : '';
+    for (const [k, lista] of Object.entries(LISTAS_VALOR)) out[k] = en(lista, raw[k]) ? raw[k] : '';
     const bool = (v) => (v === true || v === 'true' ? true : v === false || v === 'false' ? false : null);
-    for (const k of ['colinda_no_calefactado', 'patios', 'persianas', 'cobertura_parcial', 'termo_extra', 'aire_acondicionado']) out[k] = bool(raw[k]);
+    for (const k of CLAVES_SI_NO) out[k] = bool(raw[k]);
     const corto = (v, n = 40) => String(v ?? '').slice(0, n).trim();
-    for (const k of ['plantas', 'altura_libre', 'num_patios', 'anio_ventanas', 'anio_reforma', 'anio_calefaccion', 'potencia_kw', 'cobertura_pct', 'litros_termo', 'num_aires', 'kwp']) out[k] = corto(raw[k], 12);
+    for (const k of CLAVES_CORTAS) out[k] = corto(raw[k], 12);
     out.marca_modelo_calefaccion = corto(raw.marca_modelo_calefaccion, 120);
     out.colindantes_nota = corto(raw.colindantes_nota, 600);
     out.notas = corto(raw.notas, 2000);
@@ -608,7 +909,40 @@ export function sanearCuestionario(raw = {}) {
     if (out.acs !== 'misma_caldera') out.termo_extra = null;
     if (out.aire_acondicionado !== true) { out.num_aires = ''; out.tipo_aire = ''; }
     if (out.colinda_no_calefactado !== true) { out.colindantes = []; out.colindantes_nota = ''; }
+    out.propositos = Array.isArray(raw.propositos) ? [...new Set(raw.propositos.filter(v => PROPOSITO_VALUES.includes(v)))] : [];
+    // El origen, solo de claves deducibles que tengan valor (sin valor no hay nada que justificar).
+    out.origen = {};
+    for (const [k, o] of Object.entries(raw.origen || {})) {
+        if (DEDUCIBLES.includes(k) && ORIGENES[o] && !vacio(out[k])) out.origen[k] = o;
+    }
+    out.visto_ia = sanearVistoIa(raw.visto_ia);
+    out.fases_ok = Array.isArray(raw.fases_ok) ? [...new Set(raw.fases_ok.filter(f => FASE_IDS.includes(f)))] : [];
     return out;
 }
 
-export const PROPOSITO_VALUES = PROPOSITOS.map(p => p.value);
+const ID_DRIVE = /^[\w-]{10,120}$/;
+/** «Lo que ha visto la IA», con solo lo conocido y recortado. */
+function sanearVistoIa(v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+    const fecha = (x) => (typeof x === 'string' && !Number.isNaN(Date.parse(x)) ? new Date(x).toISOString() : null);
+    const texto = (x, n) => String(x ?? '').slice(0, n).trim();
+    const notas = {}, fotos = {};
+    for (const [k, t] of Object.entries(v.notas || {})) if (DEDUCIBLES.includes(k) && !vacio(t)) notas[k] = texto(t, 300);
+    for (const [k, id] of Object.entries(v.fotos || {})) if (DEDUCIBLES.includes(k) && ID_DRIVE.test(String(id))) fotos[k] = String(id);
+    const dudas = (Array.isArray(v.dudas) ? v.dudas : []).slice(0, 12)
+        .filter(d => d && DEDUCIBLES.includes(d.k))
+        .map(d => ({
+            id: texto(d.id || d.k, 40), k: d.k, pregunta: texto(d.pregunta, 200), por_que: texto(d.por_que, 300),
+            foto: ID_DRIVE.test(String(d.foto || '')) ? String(d.foto) : null,
+            opciones: (Array.isArray(d.opciones) ? d.opciones : []).slice(0, 6).map(o => ({
+                label: texto(o?.label, 80), sub: texto(o?.sub, 80) || undefined,
+                valores: Object.fromEntries(Object.entries(o?.valores || {}).filter(([k, x]) => DEDUCIBLES.includes(k) && valorValido(k, x))),
+            })).filter(o => o.label && Object.keys(o.valores).length),
+        }))
+        .filter(d => d.pregunta && d.opciones.length);
+    const f = v.fuentes || {};
+    return {
+        at: fecha(v.at), confirmado_at: fecha(v.confirmado_at), notas, fotos, dudas,
+        fuentes: { fotos: Math.max(0, Math.min(99, Number(f.fotos) || 0)), streetview: f.streetview === true, placa: f.placa === true },
+    };
+}

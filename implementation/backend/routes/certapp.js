@@ -29,6 +29,7 @@ const docs = require('../services/certapp/docs');
 const ia = require('../services/certapp/ia');
 const entrega = require('../services/certapp/entrega');
 const asistente = require('../services/certapp/asistente');
+const vistoIa = require('../services/certapp/vistoIa');
 const avisos = require('../services/certapp/avisos');
 const incidencias = require('../services/certapp/incidencias');
 const movimientos = require('../services/certapp/movimientos');
@@ -74,6 +75,16 @@ router.put('/me', certappOnly, async (req, res) => {
         const cuenta = await cuentas.actualizarPerfil(req.certapp.cuenta.id, req.body || {});
         return res.json({ cuenta: cuentaPublica(cuenta) });
     } catch (e) { return responderError(res, e, 'PUT /me'); }
+});
+
+/** Los municipios de una provincia (la dirección profesional del perfil, en cascada). */
+router.get('/municipios', certappOnly, (req, res) => {
+    try {
+        const cod = String(req.query.prov || '').replace(/\D/g, '').padStart(2, '0');
+        if (!/^(0[1-9]|[1-4]\d|5[0-2])$/.test(cod)) throw fallo(400, 'Provincia desconocida.', 'PROVINCIA_INVALIDA');
+        const { cargarMunicipios } = require('./geo');
+        return res.json({ municipios: cargarMunicipios()[cod] || [] });
+    } catch (e) { return responderError(res, e, 'GET /municipios'); }
 });
 
 // ── Obras ───────────────────────────────────────────────────────────────────
@@ -186,6 +197,19 @@ router.get('/obras/:id/barrido', certappOnly, async (req, res) => {
         const obra = await obraSuya(req);
         return res.json((await logica()).barrido(obra, req.certapp.cuenta));
     } catch (e) { return responderError(res, e, 'GET /obras/:id/barrido'); }
+});
+
+/**
+ * «Lo que ha visto la IA» (fase 5): mira las fotos (o Street View) y PROPONE;
+ * no escribe en la obra. Gratis para el certificador, con tope por cuenta y día
+ * y por obra (services/certapp/vistoIa.js).
+ */
+router.post('/obras/:id/visto-ia', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        obras.exigirBorrador(obra);
+        return res.json(await vistoIa.mirar(obra, req.certapp.cuenta));
+    } catch (e) { return responderError(res, e, 'POST /obras/:id/visto-ia'); }
 });
 
 // Lo que devuelven las RPC del crédito de la obra (scripts/certapp_schema.sql).
@@ -384,7 +408,8 @@ router.post('/asistente', certappOnly, async (req, res) => {
         const cuenta = req.certapp.cuenta;
         let obra = null;
         if (req.body?.obra_id) obra = await obraSuya(req, req.body.obra_id);
-        return res.json(await asistente.preguntar({ cuenta, mensajes: req.body?.mensajes, obra }));
+        const pantalla = ['menu', 'obra', 'envolvente'].includes(req.body?.pantalla) ? req.body.pantalla : null;
+        return res.json(await asistente.preguntar({ cuenta, mensajes: req.body?.mensajes, obra, pantalla }));
     } catch (e) { return responderError(res, e, 'POST /asistente'); }
 });
 

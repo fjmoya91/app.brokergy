@@ -15,9 +15,11 @@ import { Aviso, Campo, useToast } from '../ui/piezas';
 import { IcoCheck, IcoSalir, Spinner } from '../ui/Iconos';
 import { COMUNIDADES, SOFTWARE } from '../ui/listas';
 import { EMAIL_CONTACTO } from '../marca';
+import { LeerLegal } from '../publico/LeerLegal';
+import { SelectorLugar } from './SelectorLugar';
 
 const CAMPOS = ['nombre', 'apellidos', 'nif', 'telefono', 'titulacion', 'num_colegiado', 'colegio',
-    'empresa', 'empresa_nif', 'direccion', 'codigo_postal', 'municipio', 'provincia'];
+    'empresa', 'empresa_nif', 'direccion', 'codigo_postal', 'ccaa', 'municipio', 'provincia'];
 const LISTAS = ['comunidades', 'software'];
 const MAYUS = new Set(['nif', 'empresa_nif']);
 const deCuenta = (c) => ({
@@ -60,6 +62,7 @@ export default function Perfil() {
     const [base, setBase] = useState(() => deCuenta(cuenta));
     const [guardando, setGuardando] = useState(false);
     const [error, setError] = useState(null);
+    const [leer, setLeer] = useState(null);   // las condiciones, en una ventana
     const vuelta = vueltaSegura(query.get('vuelta'));
     const mostrado = useRef(f);   // lo último que se puso en el formulario sin que él lo tocara
 
@@ -124,7 +127,7 @@ export default function Perfil() {
                     <div><dt>Entras con</dt><dd>{conGoogle ? 'Google o un enlace a tu email' : 'Un enlace a tu email o tu contraseña'}</dd></div>
                     <div>
                         <dt>Condiciones</dt>
-                        <dd>{condiciones?.at ? `Aceptadas el ${fecha(condiciones.at)}` : '—'} · <Enlace to="/condiciones" target="_blank" rel="noopener">leerlas</Enlace></dd>
+                        <dd>{condiciones?.at ? `Aceptadas el ${fecha(condiciones.at)}` : '—'} · <a href="/condiciones" onClick={e => { e.preventDefault(); setLeer('condiciones'); }}>leerlas</a></dd>
                     </div>
                 </dl>
                 <p className="ca-peq" style={{ marginTop: 10 }}>
@@ -155,12 +158,11 @@ export default function Perfil() {
                 <h2 className="ca-sec">Empresa (si certificas con una)</h2>
                 <div className="ca-grid2">{campo('empresa', 'Empresa', { opcional: true })}{campo('empresa_nif', 'CIF', { max: 20, opcional: true })}</div>
                 <h2 className="ca-sec">Dirección profesional</h2>
-                {campo('direccion', 'Dirección', { max: 200, opcional: true })}
+                <SelectorLugar valor={f} onCambiar={v => setF(s => ({ ...s, ...v }))} />
+                <div style={{ marginTop: 14 }}>{campo('direccion', 'Dirección', { max: 200, opcional: true })}</div>
                 <div className="ca-grid2">
                     {campo('codigo_postal', 'Código postal', { inputMode: 'numeric', max: 10, opcional: true })}
-                    {campo('municipio', 'Municipio', { max: 80, opcional: true })}
                 </div>
-                {campo('provincia', 'Provincia', { max: 60, opcional: true })}
                 <h2 className="ca-sec">Dónde certificas</h2>
                 <p className="ca-peq" style={{ marginTop: -4 }}>Las comunidades en las que trabajas: para el registro de cada una.</p>
                 <Chips lista={COMUNIDADES} valor={f.comunidades} onCambiar={v => setF(s => ({ ...s, comunidades: v }))} />
@@ -178,6 +180,7 @@ export default function Perfil() {
             <div className="ca-btns" style={{ marginTop: 18 }}>
                 <button type="button" className="ca-btn ca-btn-sec" onClick={async () => { await signOut(); navegar('/'); }}><IcoSalir /> Cerrar sesión</button>
             </div>
+            <LeerLegal que={leer} onCerrar={() => setLeer(null)} />
         </div>
     );
 }
