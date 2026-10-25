@@ -16,7 +16,7 @@ const RAIZ = path.join(__dirname, '..');
 // Middlewares que cortan una petición sin sesión (o sin la clave interna).
 const GUARDIANES = new Set([
     'enforceAuth', 'staffOnly', 'adminOnly', 'internalOnly', 'requireAdmin',
-    'sesionOClaveInterna', 'staffOClaveInterna', 'internalKeyOrAuth',
+    'sesionOClaveInterna', 'staffOClaveInterna', 'adminOClaveInterna', 'internalKeyOrAuth',
     'staffSiOportunidad', 'suyoSiCertificador', 'adminOInterno', 'staffOInterno',
     'requireBot', 'comprobarFirma',
     // App de certificadores (middleware/certappAuth.js): cortan sin sesión con 401.

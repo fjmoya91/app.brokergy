@@ -17,6 +17,10 @@ import { driveFolderId } from '../../../utils/driveFolder';
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { RequerimientoModal } from './RequerimientoModal';
 import { JustificanteMitecoModal } from './JustificanteMitecoModal';
+import { CobroSoAlPasarModal } from './CobroSoAlPasarModal';
+
+// Estados desde los que el S.O. ya nos ha pagado (como `LOTE_PAGO_CLIENTE` del backend).
+const LOTE_YA_COBRADO = ['PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'];
 
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -114,6 +118,9 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const [showRequerimiento, setShowRequerimiento] = useState(false);
     // Popup del justificante de registro, al marcar el lote como SUBIDO A MITECO.
     const [pideJustificante, setPideJustificante] = useState(false);
+    // Popup «¿ha pagado el S.O.?», al pasar a PTE. PAGO A CLIENTE / FINALIZADO con la
+    // factura sin cobrar: el estado al que se quiere pasar (null = cerrado).
+    const [pideCobroAlPasar, setPideCobroAlPasar] = useState(null);
     const [showExpedientes, setShowExpedientes] = useState(true);
     const [soList, setSoList] = useState(soListProp || []);
     const [verList, setVerList] = useState(verListProp || []);
@@ -290,8 +297,19 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
         finally { setBusy(false); }
     };
 
-    const changeEstado = async (nuevo_estado) => {
+    const changeEstado = async (nuevo_estado, { sinPreguntar = false } = {}) => {
         if (!nuevo_estado || nuevo_estado === lote.estado) return;
+        // Pasar a "PTE. PAGO BROKERGY A CLIENTE" (o después) ES decir que el S.O. ha
+        // pagado: con la factura emitida y sin cobrar se pide la fecha del ingreso en
+        // el acto. Sin esto la factura seguía EMITIDA y Facturación la daba por debida
+        // (F-2026CAE_8/9/10, 25/10/2026). Solo ADMIN: el cobro es adminOnly; al
+        // TRABAJADOR se le deja pasar y el cuadro de mando lo avisará.
+        const fso = lote.factura_so;
+        if (!sinPreguntar && canSeeMargin && LOTE_YA_COBRADO.includes(nuevo_estado)
+            && fso?.numero && fso.estado !== 'PAGADA') {
+            setPideCobroAlPasar(nuevo_estado);
+            return;
+        }
         setBusy(true);
         try {
             await axios.patch(`/api/lotes/${loteId}/estado`, { nuevo_estado });
@@ -325,7 +343,22 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
             hecho = true;
         } catch (err) { showAlert(err.response?.data?.error || 'No se pudo marcar el cobro', 'Error', 'error'); }
         finally { setBusy(false); }
-        if (hecho && cobrada && lote?.estado === 'CAE EMITIDO – PTE PAGO BROKERGY') await changeEstado('PTE. PAGO BROKERGY A CLIENTE');
+        if (hecho && cobrada && lote?.estado === 'CAE EMITIDO – PTE PAGO BROKERGY') await changeEstado('PTE. PAGO BROKERGY A CLIENTE', { sinPreguntar: true });
+    };
+
+    // Lo que contesta el popup de «¿ha pagado el S.O.?» al pasar de estado. Con
+    // fecha, primero el cobro (un error se queda en el popup) y luego el estado, que
+    // tiene su guarda de la regla 28: si no pasa, se dice y el cobro queda anotado
+    // igual, como en «Marcar cobrado». Sin fecha, solo el estado.
+    const pasarTrasPreguntar = async (fecha) => {
+        const nuevo = pideCobroAlPasar;
+        if (fecha) {
+            await axios.post(`/api/lotes/${loteId}/factura-so/cobro`, { cobrada: true, fecha_cobro: fecha });
+            await refresh();
+            onChanged?.();
+        }
+        setPideCobroAlPasar(null);
+        await changeEstado(nuevo, { sinPreguntar: true });
     };
 
     const borrarLote = async () => {
@@ -834,6 +867,16 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                     lote={lote}
                     onClose={() => setPideJustificante(false)}
                     onSubido={() => { refresh().catch(() => {}); onChanged?.(); }}
+                />
+            )}
+            {pideCobroAlPasar && lote && (
+                <CobroSoAlPasarModal
+                    lote={lote}
+                    nuevoEstado={pideCobroAlPasar}
+                    total={cobroSo?.fuente === 'factura' ? cobroSo.total : null}
+                    onCobrar={(fecha) => pasarTrasPreguntar(fecha)}
+                    onSinCobrar={() => pasarTrasPreguntar(null)}
+                    onClose={() => setPideCobroAlPasar(null)}
                 />
             )}
         </div>

@@ -47,26 +47,42 @@ const fmtUds = (n) => num(n).toLocaleString('es-ES', { minimumFractionDigits: 0,
 const fmtPct = (n) => `${num(n).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} %`;
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** Una línea con sus importes ya calculados (lo mismo que escribe AppSheet). */
+/**
+ * Una línea con sus importes ya calculados (lo mismo que escribe AppSheet). Una
+ * línea marcada `suplido` (las de la pestaña Facturación) va sin IVA y sin
+ * descuento, como en el presupuesto; las de siempre no llevan la marca y no
+ * cambian.
+ */
 export function calcularLinea(l = {}) {
     const uds = num(l.uds ?? 1);
     const precio = r2(l.precio);
-    const dtoPct = Math.min(100, Math.max(0, num(l.dtoPct)));
-    const ivaPct = num(l.ivaPct);
+    const suplido = !!l.suplido;
+    const dtoPct = suplido ? 0 : Math.min(100, Math.max(0, num(l.dtoPct)));
+    const ivaPct = suplido ? 0 : num(l.ivaPct);
     const bruto = r2(uds * precio);
     const descuento = r2(bruto * dtoPct / 100);
     const subtotal = r2(bruto - descuento);
     const iva = r2(subtotal * ivaPct / 100);
-    return { articulo_id: l.articulo_id ?? null, descripcion: String(l.descripcion || ''), uds, precio, dtoPct, ivaPct, bruto, descuento, subtotal, iva };
+    return {
+        articulo_id: l.articulo_id ?? null, descripcion: String(l.descripcion || ''), uds, precio, dtoPct, ivaPct, bruto, descuento, subtotal, iva,
+        ...(l.detalle ? { detalle: String(l.detalle) } : {}), ...(suplido ? { suplido } : {}),
+    };
 }
 
-/** Base, IVA, descuento y total. El IVA va POR LÍNEA: la tasa suma 0. */
-export function totalesFactura(lineas = []) {
+/**
+ * Base, IVA, descuento y total. El IVA va POR LÍNEA: la tasa suma 0. Con
+ * `irpfPct` (la serie FML) la RETENCIÓN se calcula sobre la base sin suplidos y
+ * se resta: `total` es lo que se paga.
+ */
+export function totalesFactura(lineas = [], { irpfPct = 0 } = {}) {
     const ls = lineas.map(calcularLinea);
     const neto = r2(ls.reduce((s, l) => s + l.subtotal, 0));
     const iva = r2(ls.reduce((s, l) => s + l.iva, 0));
     const descuento = r2(ls.reduce((s, l) => s + l.descuento, 0));
-    return { lineas: ls, neto, iva, descuento, total: r2(neto + iva) };
+    const suplidos = r2(ls.filter(l => l.suplido).reduce((s, l) => s + l.subtotal, 0));
+    const pct = Math.min(100, Math.max(0, num(irpfPct)));
+    const irpf = pct ? r2((neto - suplidos) * pct / 100) : 0;
+    return { lineas: ls, neto, iva, descuento, suplidos, irpfPct: pct, irpf, total: r2(neto + iva - irpf) };
 }
 
 /**
@@ -77,6 +93,19 @@ export function lineasPorDefecto(expediente = {}, articulos = []) {
     const art = (id) => articulos.find(a => String(a.id) === String(id));
     const alcance = alcanceDe(expediente.alcance);
     const of = expediente.documentacion?.oferta || null;
+
+    // Presupuesto de PARTIDAS (pestaña Facturación): se factura lo aceptado,
+    // línea a línea. En la hoja cada línea lleva el ID del artículo de AppSheet
+    // (`appsheet_id`); una tasa sin él se reconoce por su importe, como siempre.
+    if (Array.isArray(of?.lineas) && of.lineas.length) {
+        return of.lineas.map(l => ({
+            articulo_id: l.appsheet_id
+                || (l.suplido ? (ARTICULO_TASA_POR_IMPORTE[String(r2(l.precio))] || null) : null)
+                || (l.genera === 'CEE_DOBLE' ? ARTICULO_CEE.DOBLE : l.genera === 'CEE_UNICO' ? ARTICULO_CEE.UNICO : null),
+            descripcion: l.descripcion,
+            uds: num(l.uds) || 1, precio: num(l.precio), dtoPct: num(l.dtoPct), ivaPct: num(l.ivaPct),
+        }));
+    }
 
     const idHon = ARTICULO_CEE[alcance];
     const aHon = art(idHon);
@@ -203,14 +232,32 @@ export function mensajeFactura({ nombre, numero, total, expediente, esEmpresa = 
  * HTML de la factura. Mismo payload que la plantilla de AppSheet:
  * { numero, fecha, vencimiento, cliente:{razon_social,direccion,cp,municipio,provincia,cif,tlf,email},
  *   lineas:[{descripcion,uds,precio,dtoPct,ivaPct}], expediente, observaciones }
+ *
+ * Y lo que usan las facturas de la pestaña Facturación (fase 2), todo opcional:
+ * sin ello sale EXACTAMENTE la réplica de siempre.
+ *   · `emisor`        otro emisor (la serie FML: Fran como profesional). Con
+ *                     `marca: false` no lleva los logos ni el lema de BROKERGY.
+ *   · `irpfPct`       retención de IRPF: una fila más en los totales, que resta.
+ *   · `fechaOperacion` «septiembre 2026», si no es la de expedición (art. 6.1.l).
+ *   · `rectifica`     { numero, fecha, motivo }: FACTURA RECTIFICATIVA (art. 15).
+ *   · `qr`            { dataUri, leyenda } de VERI*FACTU.
+ *   · `borrador`      sin número todavía: lo dice en grande.
+ *   · en las líneas, `detalle` (en gris debajo) y `suplido` (con su asterisco y su nota).
  */
 export function buildFacturaCeeHtml(payload = {}, { appUrl } = {}) {
-    const E = BROKERGY_EMISOR;
-    const { numero = '', fecha = '', vencimiento = '', cliente = {}, expediente = '', observaciones = '' } = payload;
-    const { lineas, neto, iva, total } = totalesFactura(payload.lineas || []);
+    const E = { ...BROKERGY_EMISOR, ...(payload.emisor || {}) };
+    const conMarca = E.marca !== false;
+    const etiquetaNifEmisor = E.persona_fisica ? 'NIF' : 'CIF';
+    const { numero = '', fecha = '', vencimiento = '', cliente = {}, expediente = '', observaciones = '',
+        fechaOperacion = '', rectifica = null, qr = null, borrador = false } = payload;
+    const { lineas, neto, iva, irpfPct, irpf, total } = totalesFactura(payload.lineas || [], { irpfPct: payload.irpfPct });
+    const haySuplidos = lineas.some(l => l.suplido);
+    const titulo = rectifica ? 'FACTURA RECTIFICATIVA' : 'FACTURA';
+    const numeroVisible = borrador ? 'BORRADOR' : numero;
 
     const c = cliente || {};
     const cpLine = [[c.cp, c.municipio].filter(Boolean).join(' '), c.provincia ? `(${c.provincia})` : ''].filter(Boolean).join(' ');
+    const etiquetaNifCliente = c.persona_fisica ? 'NIF' : 'CIF';
 
     const GRAD = 'linear-gradient(90deg,#F39200 0%,#F8B019 30%,#CBD64A 70%,#9DC23B 100%)';
     const GREEN = '#9DC23B';
@@ -223,26 +270,39 @@ export function buildFacturaCeeHtml(payload = {}, { appUrl } = {}) {
 
     const hairline = `<div style="height:6px; width:100%; background:${GRAD};"></div>`;
 
+    const filaCaja = (etq, val, peso = 600) => `<div style="display:flex; justify-content:space-between; gap:24px; font-size:12px; padding:3px 0;"><span style="color:${GREY2};">${etq}</span><span style="font-weight:${peso};">${esc(val)}</span></div>`;
+    // El QR de VERI*FACTU (Orden HAC/1177/2024, art. 21): al PRINCIPIO de la
+    // factura, solo en la primera hoja, arriba y centrado; de 30 a 40 mm; con
+    // «QR tributario:» ENCIMA y «VERI*FACTU» (o «Factura verificable en la sede
+    // electrónica de la AEAT») DEBAJO. El margen blanco de 2 mm lo trae la imagen.
+    const qrHtml = qr?.dataUri ? `
+        <div style="display:flex; flex-direction:column; align-items:center; gap:3px; width:34mm; flex-shrink:0;">
+          <div style="font-size:9px; line-height:1.2; color:${GREY}; font-weight:700;">QR tributario:</div>
+          <img src="${qr.dataUri}" alt="QR tributario" style="width:32mm; height:32mm; display:block;">
+          <div style="font-size:9px; line-height:1.25; color:${DARK}; text-align:center; font-weight:700;">${esc(qr.leyenda || 'VERI*FACTU')}</div>
+        </div>` : '';
+
     const fullHeader = (totalPages) => `
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; padding:24px 56px 12px;">
-        <div style="font-size:12px; line-height:1.65; color:${GREY}; max-width:340px;">
-          <img src="${BROKERGY_MARK_DATAURI}" alt="BROKERGY" style="height:42px; width:auto; object-fit:contain; display:block; margin-bottom:8px;">
-          <div style="font-weight:700; color:${DARK}; font-size:12.5px; letter-spacing:0.2px;">${esc(E.razonSocial)}</div>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:24px 56px 12px;">
+        <div style="font-size:12px; line-height:1.65; color:${GREY}; ${qrHtml ? 'flex:1; min-width:0;' : 'max-width:340px;'}">
+          ${conMarca ? `<img src="${BROKERGY_MARK_DATAURI}" alt="BROKERGY" style="height:42px; width:auto;${qrHtml ? ' max-width:100%;' : ''} object-fit:contain; object-position:left; display:block; margin-bottom:8px;">` : ''}
+          <div style="font-weight:700; color:${DARK}; font-size:${conMarca ? 12.5 : 15}px; letter-spacing:0.2px;">${esc(E.razonSocial)}</div>
           <div style="margin-top:6px;">${esc(E.direccion)} · ${esc(E.cp)} ${esc(E.municipio)} (${esc(E.provincia)})</div>
-          <div>CIF: ${esc(E.cif)} · Tlf: ${esc(E.tlf)}</div>
+          <div>${etiquetaNifEmisor}: ${esc(E.cif)}${E.tlf ? ` · Tlf: ${esc(E.tlf)}` : ''}</div>
           <div>${esc(E.email)}</div>
         </div>
-        <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:14px;">
-          <div class="arc" style="font-weight:800; font-size:34px; letter-spacing:6px; color:${DARK}; line-height:1;">FACTURA</div>
-          <div style="background:#f6f7f4; border:1px solid #ececec; border-radius:10px; padding:14px 18px; min-width:240px;">
-            <div style="display:flex; justify-content:space-between; gap:24px; font-size:12px; padding:3px 0;">
-              <span style="color:${GREY2};">Nº de factura</span><span style="font-weight:700;">${esc(numero)}</span>
+        ${qrHtml}
+        <div style="display:flex; gap:16px; align-items:flex-start;">
+          <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:14px;">
+            <div class="arc" style="font-weight:800; font-size:${rectifica ? 22 : 34}px; letter-spacing:${rectifica ? 3 : 6}px; color:${DARK}; line-height:${rectifica ? 1.15 : 1};">${rectifica ? 'FACTURA<br>RECTIFICATIVA' : titulo}</div>
+            <div style="background:#f6f7f4; border:1px solid #ececec; border-radius:10px; padding:14px 18px; min-width:240px;">
+              ${filaCaja('Nº de factura', numeroVisible, 700)}
+              ${filaCaja('Fecha de factura', fecha)}
+              ${fechaOperacion ? filaCaja('Fecha de operación', fechaOperacion) : ''}
+              ${vencimiento ? filaCaja('Vencimiento', vencimiento) : ''}
+              ${rectifica?.numero ? filaCaja('Rectifica a', rectifica.numero, 700) : ''}
+              ${totalPages > 1 ? filaCaja('Página', `1 de ${totalPages}`) : ''}
             </div>
-            <div style="display:flex; justify-content:space-between; gap:24px; font-size:12px; padding:3px 0;">
-              <span style="color:${GREY2};">Fecha de factura</span><span style="font-weight:600;">${esc(fecha)}</span>
-            </div>
-            ${vencimiento ? `<div style="display:flex; justify-content:space-between; gap:24px; font-size:12px; padding:3px 0;"><span style="color:${GREY2};">Vencimiento</span><span style="font-weight:600;">${esc(vencimiento)}</span></div>` : ''}
-            ${totalPages > 1 ? `<div style="display:flex; justify-content:space-between; gap:24px; font-size:12px; padding:3px 0;"><span style="color:${GREY2};">Página</span><span style="font-weight:600;">1 de ${totalPages}</span></div>` : ''}
           </div>
         </div>
       </div>`;
@@ -256,14 +316,14 @@ export function buildFacturaCeeHtml(payload = {}, { appUrl } = {}) {
             <div style="font-size:12px; line-height:1.65; color:${GREY}; margin-top:6px;">
               ${c.direccion ? `${esc(c.direccion)}<br>` : ''}
               ${cpLine ? `${esc(cpLine)}<br>` : ''}
-              ${c.cif ? `CIF: ${esc(c.cif)}<br>` : ''}
+              ${c.cif ? `${etiquetaNifCliente}: ${esc(c.cif)}<br>` : ''}
               ${[c.tlf ? `Tlf: ${esc(c.tlf)}` : '', c.email ? esc(c.email) : ''].filter(Boolean).join(' · ')}
             </div>
           </div>
           <div style="width:240px; background:#fbfbf9; padding:12px 24px; display:flex; flex-direction:column; justify-content:center;">
-            <div style="font-size:10.5px; font-weight:700; letter-spacing:1.4px; color:${GREY2}; text-transform:uppercase;">Importe total</div>
+            <div style="font-size:10.5px; font-weight:700; letter-spacing:1.4px; color:${GREY2}; text-transform:uppercase;">${irpf ? 'Total a pagar' : 'Importe total'}</div>
             <div class="arc" style="font-weight:800; font-size:30px; margin-top:8px; color:${DARK}; line-height:1;">${fmtEur(total)}</div>
-            <div style="font-size:11px; color:${GREY2}; margin-top:8px;">${vencimiento ? `Vence el ${esc(vencimiento)}` : 'IVA incluido'}</div>
+            <div style="font-size:11px; color:${GREY2}; margin-top:8px;">${vencimiento && total > 0 ? `Vence el ${esc(vencimiento)}` : irpf ? 'IVA incluido, IRPF retenido' : 'IVA incluido'}</div>
           </div>
         </div>
       </div>`;
@@ -271,8 +331,8 @@ export function buildFacturaCeeHtml(payload = {}, { appUrl } = {}) {
     const miniHeader = (pageNum, totalPages) => `
       <div style="display:flex; justify-content:space-between; align-items:center; padding:24px 56px 14px;">
         <div style="display:flex; align-items:center; gap:14px;">
-          <img src="${BROKERGY_MARK_DATAURI}" alt="BROKERGY" style="height:26px; width:auto; object-fit:contain;">
-          <div style="font-size:11.5px; color:${GREY2};">Factura <strong style="color:${DARK};">${esc(numero)}</strong> · continuación</div>
+          ${conMarca ? `<img src="${BROKERGY_MARK_DATAURI}" alt="BROKERGY" style="height:26px; width:auto; object-fit:contain;">` : `<div style="font-size:12px; font-weight:700; color:${DARK};">${esc(E.razonSocial)}</div>`}
+          <div style="font-size:11.5px; color:${GREY2};">Factura <strong style="color:${DARK};">${esc(numeroVisible)}</strong> · continuación</div>
         </div>
         <div style="font-size:11px; color:${GREY2}; font-weight:600;">Página ${pageNum} de ${totalPages}</div>
       </div>`;
@@ -287,9 +347,11 @@ export function buildFacturaCeeHtml(payload = {}, { appUrl } = {}) {
         <th style="padding:13px 18px; text-align:right; font-weight:700;">Importe</th>
       </tr>`;
 
+    // Un suplido lleva su asterisco (remite a la nota); el nombre del artículo no.
+    const concepto = (l) => (l.suplido && !/\*\s*$/.test(l.descripcion) ? `${l.descripcion}*` : l.descripcion);
     const rowHtml = (l) => `
       <tr>
-        <td style="padding:11px 18px; font-size:12px; line-height:1.45; font-weight:600; color:${DARK}; border-top:1px solid #ececec;">${esc(l.descripcion)}</td>
+        <td style="padding:11px 18px; font-size:12px; line-height:1.45; font-weight:600; color:${DARK}; border-top:1px solid #ececec;">${esc(concepto(l))}${l.detalle ? `<div style="font-size:11px; font-weight:500; color:${GREY}; line-height:1.45; margin-top:3px; white-space:pre-line;">${esc(l.detalle)}</div>` : ''}</td>
         <td style="padding:11px 10px; text-align:right; font-size:12px; font-weight:600; border-top:1px solid #ececec;">${fmtUds(l.uds)}</td>
         <td style="padding:11px 10px; text-align:right; font-size:12px; font-weight:600; border-top:1px solid #ececec;">${fmtEur(l.precio)}</td>
         <td style="padding:11px 10px; text-align:right; font-size:12px; color:${GREY}; border-top:1px solid #ececec;">${fmtPct(l.dtoPct)}</td>
@@ -323,11 +385,17 @@ export function buildFacturaCeeHtml(payload = {}, { appUrl } = {}) {
           <div style="display:flex; justify-content:space-between; font-size:12.5px; padding:9px 4px; color:${GREY};">
             <span>Importe neto</span><span style="font-weight:600; color:${DARK};">${fmtEur(neto)}</span>
           </div>
-          <div style="display:flex; justify-content:space-between; font-size:12.5px; padding:9px 4px; color:${GREY}; border-bottom:1px solid #ececec;">
+          <div style="display:flex; justify-content:space-between; font-size:12.5px; padding:9px 4px; color:${GREY};${irpf ? '' : ' border-bottom:1px solid #ececec;'}">
             <span>IVA</span><span style="font-weight:600; color:${DARK};">${fmtEur(iva)}</span>
           </div>
+          ${irpf ? `<div style="display:flex; justify-content:space-between; font-size:12.5px; padding:9px 4px; color:${DARK}; border-top:1px solid #ececec;">
+            <span style="font-weight:700;">Total factura</span><span style="font-weight:700;">${fmtEur(r2(neto + iva))}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:12.5px; padding:9px 4px; color:${GREY}; border-bottom:1px solid #ececec;">
+            <span>Retención IRPF (${fmtPct(irpfPct)})</span><span style="font-weight:600; color:${DARK};">${fmtEur(-irpf)}</span>
+          </div>` : ''}
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; background:${GRAD}; border-radius:10px; padding:16px 18px; color:#fff;">
-            <span style="font-size:12px; font-weight:700; letter-spacing:1px; text-transform:uppercase;">Total factura</span>
+            <span style="font-size:12px; font-weight:700; letter-spacing:1px; text-transform:uppercase;">${irpf ? 'Total a pagar' : 'Total factura'}</span>
             <span class="arc" style="font-size:21px; font-weight:800;">${fmtEur(total)}</span>
           </div>
         </div>
@@ -337,13 +405,32 @@ export function buildFacturaCeeHtml(payload = {}, { appUrl } = {}) {
         ? `<div style="padding:14px 56px 0;">
              <div style="border-left:3px solid ${GREEN}; padding:2px 0 2px 16px;">
                <div style="font-size:10.5px; font-weight:700; letter-spacing:1.4px; color:${GREY2}; text-transform:uppercase;">Observaciones</div>
-               ${observaciones ? `<div style="font-size:11.5px; color:${GREY}; line-height:1.6; margin-top:6px;">${esc(observaciones)}</div>` : ''}
+               ${observaciones ? `<div style="font-size:11.5px; color:${GREY}; line-height:1.6; margin-top:6px; white-space:pre-line;">${esc(observaciones)}</div>` : ''}
                ${expediente ? `<div style="font-size:11.5px; color:${GREY}; line-height:1.6; margin-top:${observaciones ? '4px' : '6px'};">Nº de expediente asociado: ${esc(expediente)}</div>` : ''}
              </div>
            </div>`
         : '';
 
-    const bigFooter = `
+    // La rectificativa dice A QUÉ factura rectifica y POR QUÉ (art. 15 RD 1619/2012).
+    const textoRectifica = rectifica
+        ? `Esta factura rectifica la factura nº ${rectifica.numero}${rectifica.fecha ? ` de fecha ${rectifica.fecha}` : ''}.${rectifica.motivo ? ` Motivo: ${rectifica.motivo}` : ''}`
+        : '';
+    const rectificaHtml = rectifica ? `
+      <div style="padding:14px 56px 0;">
+        <div style="border:1px solid #f1d6a8; background:#fdf7ec; border-radius:10px; padding:12px 18px;">
+          <div style="font-size:10.5px; font-weight:700; letter-spacing:1.4px; color:#b7791f; text-transform:uppercase;">Factura rectificativa</div>
+          <div style="font-size:11.5px; color:${GREY}; line-height:1.6; margin-top:6px;">${esc(textoRectifica)}</div>
+        </div>
+      </div>` : '';
+
+    const notaSuplidos = haySuplidos ? `
+      <div style="padding:10px 56px 0; font-size:10.5px; color:#9aa2a9; line-height:1.55; font-style:italic;">*Las partidas con asterisco no llevan IVA: son tasas que se abonan a la Administración en nombre del cliente, como suplido (art. 78.Tres.3º de la Ley 37/1992, del Impuesto sobre el Valor Añadido).</div>` : '';
+
+    const bigFooter = !conMarca ? `
+      <div style="margin-top:auto; padding:16px 56px; display:flex; justify-content:space-between; align-items:center; border-top:1px solid #f1f1f1;">
+        <span style="font-size:10.5px; color:#aab1b7;">${esc(E.razonSocial)} · ${etiquetaNifEmisor} ${esc(E.cif)}</span>
+        <span style="font-size:10.5px; color:#aab1b7;">Factura ${esc(numeroVisible)}</span>
+      </div>` : `
       <div style="margin-top:auto; padding:14px 56px; background:${DARK}; display:flex; justify-content:space-between; align-items:center; gap:24px;">
         <div class="arc" style="font-weight:700; font-size:14px; line-height:1.35; color:#fff; letter-spacing:0.3px;">
           LA ENERGÍA NI SE CREA NI SE DESTRUYE,<br>
@@ -354,43 +441,64 @@ export function buildFacturaCeeHtml(payload = {}, { appUrl } = {}) {
 
     const smallFooter = (pageNum, totalPages) => `
       <div style="margin-top:auto; padding:16px 56px; display:flex; justify-content:space-between; align-items:center; border-top:1px solid #f1f1f1;">
-        <span style="font-size:10.5px; color:#aab1b7;">BROKERGY · Factura ${esc(numero)}</span>
+        <span style="font-size:10.5px; color:#aab1b7;">${conMarca ? 'BROKERGY' : esc(E.razonSocial)} · Factura ${esc(numeroVisible)}</span>
         <span style="font-size:10.5px; color:#aab1b7;">Página ${pageNum} de ${totalPages}</span>
       </div>`;
 
     // ── Bloques a paginar (idéntico a la plantilla de AppSheet) ──
+    // Altos estimados POR LO ALTO; el detalle, con los caracteres por línea
+    // MEDIDOS en la misma columna (ver check_factura_paginas.mjs).
     const CHARS_PER_LINE = 32;
-    const rowH = (desc) => Math.max(1, Math.ceil(String(desc).length / CHARS_PER_LINE)) * 18 + 23;
+    const lineasTexto = (t, n) => String(t).split('\n').reduce((s, x) => s + Math.max(1, Math.ceil(x.length / n)), 0);
+    const rowH = (l) => Math.max(1, Math.ceil(String(concepto(l)).length / CHARS_PER_LINE)) * 18 + 23
+        + (l.detalle ? lineasTexto(l.detalle, 36) * 16 + 4 : 0);
     const blocks = [];
-    lineas.forEach((l) => blocks.push({ type: 'row', h: rowH(l.descripcion), html: rowHtml(l) }));
-    blocks.push({ type: 'tail', h: 150, html: pagoTotalesHtml });
+    lineas.forEach((l) => blocks.push({ type: 'row', h: rowH(l), html: rowHtml(l) }));
+    if (notaSuplidos) blocks.push({ type: 'tail', h: 44, html: notaSuplidos });
+    blocks.push({ type: 'tail', h: 156 + (irpf ? 80 : 0), html: pagoTotalesHtml });
+    if (rectificaHtml) blocks.push({ type: 'tail', h: Math.ceil(textoRectifica.length / 84) * 19 + 60, html: rectificaHtml });
     if (observaciones || expediente) {
-        const obsLen = String(observaciones || '').length + (expediente ? 40 : 0);
-        const obsLines = Math.max(1, Math.ceil(obsLen / 88)) + (observaciones && expediente ? 1 : 0);
-        blocks.push({ type: 'tail', h: obsLines * 19 + 36, html: observacionesHtml });
+        const obsLines = (observaciones ? lineasTexto(observaciones, 88) : 0) + (expediente ? 1 : 0);
+        blocks.push({ type: 'tail', h: Math.max(1, obsLines) * 19 + 38, html: observacionesHtml });
     }
 
+    // Altos MEDIDOS el 24/10/2026 (check_factura_paginas.mjs): la primera hoja
+    // gasta 432 px antes de la primera fila (filete, cabecera, «Facturar a» y la
+    // cabeza de la tabla); la plantilla de AppSheet estimaba 384 y no desbordaba
+    // solo porque las filas iban por lo alto, hasta que con 10 partidas cortas
+    // la hoja pasaba de 297 mm y el PDF salía con una hoja en blanco.
     const PAGE_H = 1122;
-    const TOP_FIRST = 384;
-    const TOP_CONT = 108;
+    const FILA_CAJA = 22;
+    // La cabecera crece con las filas de la caja (fecha de operación, «Página 1
+    // de N»), con el título de la rectificativa (dos líneas y su fila «Rectifica
+    // a»: +30 medidos) y con el QR (+20 medidos con el emisor de BROKERGY).
+    const TOP_FIRST = 434 + (fechaOperacion ? FILA_CAJA : 0) + (rectifica ? 32 : 0) + (qr?.dataUri ? 24 : 0);
+    const TOP_CONT = 114;
     const FOOT_BIG = 88;
     const SAFETY = 14;
 
-    const pages = [];
-    let cur = { items: [], first: true };
-    let used = 0;
-    for (const b of blocks) {
-        const top = cur.first ? TOP_FIRST : TOP_CONT;
-        const cap = PAGE_H - top - FOOT_BIG - SAFETY;
-        if (used + b.h > cap && used > 0) {
-            pages.push(cur);
-            cur = { items: [], first: false };
-            used = 0;
+    const paginar = (topFirst) => {
+        const out = [];
+        let cur = { items: [], first: true };
+        let used = 0;
+        for (const b of blocks) {
+            const top = cur.first ? topFirst : TOP_CONT;
+            const cap = PAGE_H - top - FOOT_BIG - SAFETY;
+            if (used + b.h > cap && used > 0) {
+                out.push(cur);
+                cur = { items: [], first: false };
+                used = 0;
+            }
+            cur.items.push(b);
+            used += b.h;
         }
-        cur.items.push(b);
-        used += b.h;
-    }
-    pages.push(cur);
+        out.push(cur);
+        return out;
+    };
+    // Con más de una hoja, la caja de la primera lleva «Página 1 de N»: se vuelve
+    // a repartir con esa fila contada (solo puede salir igual o con más hojas).
+    let pages = paginar(TOP_FIRST);
+    if (pages.length > 1) pages = paginar(TOP_FIRST + FILA_CAJA);
     const totalPages = pages.length;
 
     const sheets = pages.map((pg, idx) => {

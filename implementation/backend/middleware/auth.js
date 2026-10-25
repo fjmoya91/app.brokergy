@@ -248,6 +248,13 @@ const staffOClaveInterna = (req, res, next) => {
     return staffOnly(req, res, next);
 };
 
+// ADMIN o la clave interna: lo que lleva importes de Brokergy y además lo usa el
+// MCP (las FACTURAS emitidas: las ve y las emite solo ADMIN).
+const adminOClaveInterna = (req, res, next) => {
+    if (esClaveInterna(req)) { req.internalCall = true; return next(); }
+    return adminOnly(req, res, next);
+};
+
 module.exports = {
     requireAuth,
     enforceAuth,
@@ -262,4 +269,5 @@ module.exports = {
     esClaveInterna,
     sesionOClaveInterna,
     staffOClaveInterna,
+    adminOClaveInterna,
 };

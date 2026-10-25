@@ -119,6 +119,9 @@ app.use('/api/seguimiento', require('./routes/seguimiento'));
 // en "26. CERTIF. EFICIENCIA ENER / 1. PRODUCCION". Rutas propias a propósito —
 // no comparten tabla ni handlers con /api/expedientes.
 app.use('/api/cee-directos', require('./routes/ceeDirectos'));
+// FACTURACIÓN: catálogo de artículos y presupuestos con N partidas (sustituye a
+// la app de presupuestos de AppSheet). Ver routes/facturacion.js.
+app.use('/api/facturacion', require('./routes/facturacion'));
 // El asistente de la app (botón flotante, solo ADMIN): contesta por la API de
 // Anthropic con datos en vivo y propone encargos al Claude del WhatsApp.
 app.use('/api/asistente-app', require('./routes/asistenteApp'));

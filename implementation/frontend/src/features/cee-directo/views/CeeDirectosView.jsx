@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { NuevoCeeDirectoModal } from '../components/NuevoCeeDirectoModal';
 import { CeeDirectoDetailView } from './CeeDirectoDetailView';
-import { OfertaCeeModal } from '../components/OfertaCeeModal';
+import { PresupuestoModal } from '../../facturacion/components/PresupuestoModal';
 import { AccionesOferta } from '../components/AccionesOferta';
 import { fmtEur } from '../logic/ofertaCee';
 import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
@@ -79,7 +79,9 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
     const [verFinalizados, setVerFinalizados] = useState(false);
     const [filtroPrescriptor, setFiltroPrescriptor] = useState('');
     const [showNuevo, setShowNuevo] = useState(false);
-    const [showOferta, setShowOferta] = useState(false);
+    // { key, id? }: sin id, uno nuevo con el certificado ya puesto. El editor es
+    // el de la pestaña Facturación (un presupuesto puede llevar más partidas).
+    const [presupuesto, setPresupuesto] = useState(null);
     const [recargaOfertas, setRecargaOfertas] = useState(0);
     const [ofertas, setOfertas] = useState([]);
     const [ofertaAbierta, setOfertaAbierta] = useState(null);
@@ -205,9 +207,9 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                         {/* La OFERTA va primero: es como empieza casi todo encargo, y
                             el expediente nace solo cuando el cliente la acepta. El
                             alta a mano queda para lo que ya viene contratado. */}
-                        <button onClick={() => setShowOferta(true)}
+                        <button onClick={() => setPresupuesto({ key: Date.now() })}
                             className="min-h-[44px] px-5 rounded-xl border border-brand/40 bg-brand/10 text-brand text-[11px] font-black uppercase tracking-widest hover:bg-brand/20 transition-colors">
-                            Enviar oferta
+                            Enviar presupuesto
                         </button>
                         <button onClick={() => setShowNuevo(true)}
                             className="min-h-[44px] px-5 rounded-xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-widest hover:bg-brand-700 transition-colors">
@@ -315,7 +317,7 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                         abierta && (
                                             <tr key={`${f.id}-acciones`} className="border-b border-white/[0.04] bg-white/[0.02]">
                                                 <td colSpan={cols} className="px-4 pb-3 pt-1">
-                                                    <AccionesOferta oferta={f} onCambio={recargarTodo} />
+                                                    <AccionesOferta oferta={f} onCambio={recargarTodo} onAbrir={() => setPresupuesto({ key: Date.now(), id: f.id })} />
                                                 </td>
                                             </tr>
                                         ),
@@ -421,7 +423,7 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                     </div>
                                     {abierta && (
                                         <div className="mt-3 pt-3 border-t border-white/[0.06]">
-                                            <AccionesOferta oferta={f} onCambio={recargarTodo} />
+                                            <AccionesOferta oferta={f} onCambio={recargarTodo} onAbrir={() => setPresupuesto({ key: Date.now(), id: f.id })} />
                                         </div>
                                     )}
                                 </div>
@@ -463,12 +465,16 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                 </>
             )}
 
-            <OfertaCeeModal
-                isOpen={showOferta}
-                onClose={() => setShowOferta(false)}
-                onSent={() => setRecargaOfertas(n => n + 1)}
-                prescriptores={prescriptores}
-            />
+            {presupuesto && (
+                <PresupuestoModal
+                    key={presupuesto.key}
+                    isOpen
+                    {...(presupuesto.id ? { presupuestoId: presupuesto.id } : { inicial: { genera: 'CEE_UNICO' } })}
+                    onClose={() => { setPresupuesto(null); setRecargaOfertas(n => n + 1); }}
+                    onSaved={() => setRecargaOfertas(n => n + 1)}
+                    prescriptores={prescriptores}
+                />
+            )}
 
             <NuevoCeeDirectoModal
                 isOpen={showNuevo}

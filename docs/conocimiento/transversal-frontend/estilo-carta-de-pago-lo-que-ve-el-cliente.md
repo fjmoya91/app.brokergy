@@ -13,6 +13,14 @@ es su misma estética, llevada a pantalla.
 al CRM interno, que sigue con su tema oscuro y Tailwind. Si no está claro a qué se refiere,
 es este.
 
+**La excepción: la pestaña Facturación** (Fran, 24/10/2026: «a esta nueva pestaña quiero que le
+pases la skill de diseño con el diseño que se está generando en la carta de pago»). Es la única
+pantalla del CRM con este estilo: su área de contenido pasa a papel crema con su propio prefijo
+(`.fx-`), y el menú lateral sigue oscuro. Una pantalla de DATOS no es una carta: aquí caben varias
+cifras (el cuadro de mando), tablas densas y filtros, pero con los mismos tokens, tipografías,
+tarjetas, filete y avisos en ámbar. Ninguna otra pantalla del CRM se pasa a este estilo sin que se
+pida para ella.
+
 **Las páginas de referencia** (copiar de ahí, no reinventar):
 - [RecibidoCobroView.jsx](implementation/frontend/src/features/cobro/views/RecibidoCobroView.jsx):
   una pregunta con dos respuestas, el check que se dibuja y la reseña. Prefijo `.rc-`.
@@ -21,6 +29,15 @@ es este.
   Prefijo `.mx-`.
 - La carta y su email: [carta_pago_bono_cae.html](implementation/backend/plantillas/carta_pago_bono_cae.html)
   y [email_carta_pago_bono_cae.html](implementation/backend/plantillas/email_carta_pago_bono_cae.html).
+- La aceptación de la oferta de CEE directo, `/aceptar-cee/:token` ([AceptarOfertaCeeView.jsx](implementation/frontend/src/features/public/views/AceptarOfertaCeeView.jsx),
+  prefijo `.ac-`, demo en `/aceptar-cee/demo` y `/aceptar-cee/demo?sin-cee`, 24/10/2026): el
+  presupuesto en una tarjeta con el total como cifra protagonista (céntimos pequeños) y el PDF
+  como botón secundario; el formulario en tarjetas (datos, inmueble, climatización, domicilio)
+  y el botón naranja al final. El **gestor de fotos** que sale tras aceptar es el del CRM
+  (`DocsManager`, oscuro): va dentro de un `<div className="theme-light">`, que remapea sus
+  clases de Tailwind al tema claro sin tocar el componente. El aviso «Falta por contestar» se
+  compone en vivo: conforme el cliente contesta, la lista se acorta y se va sola. Saludo solo
+  si hay apellidos: a una empresa no se la saluda por la primera palabra de su razón social.
 
 #### 1. La idea
 

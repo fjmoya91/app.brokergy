@@ -15,11 +15,22 @@ const ANCHO_A4 = 794;
 
 // `capa`: el z-index. Por defecto el de la ficha del CEE; abierta desde un popup que
 // ya va a z-[9998] (la factura de la gestión, fase 7 del lote) tiene que ir encima.
-export function VistaPreviaA4({ html, titulo, rotulo, onClose, capa = 'z-[70]' }) {
+// `onDescargar` (opcional): async () => null | 'texto del error'. Con él, la cabecera
+// lleva «Descargar PDF»: el PDF que rasteriza el servidor, que es el que recibe el
+// cliente (lo de aquí es el HTML pintado por el navegador).
+export function VistaPreviaA4({ html, titulo, rotulo, onClose, capa = 'z-[70]', onDescargar = null }) {
     const marco = useRef(null);
     const iframe = useRef(null);
     const [escala, setEscala] = useState(1);
     const [alto, setAlto] = useState(1123);
+    const [bajando, setBajando] = useState(false);
+    const [errorPdf, setErrorPdf] = useState(null);
+    const descargar = async () => {
+        setBajando(true); setErrorPdf(null);
+        const e = await onDescargar();
+        setBajando(false);
+        if (e) setErrorPdf(e);
+    };
 
     // Ancho disponible → escala. Nunca se agranda por encima de 1: a tamaño
     // natural el documento ya se lee, y ampliarlo solo lo pixela.
@@ -49,10 +60,20 @@ export function VistaPreviaA4({ html, titulo, rotulo, onClose, capa = 'z-[70]' }
                 onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-white/10 shrink-0"
                     style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
-                    <span className="text-[11px] font-black uppercase tracking-widest text-white/60">{rotulo}</span>
-                    <button onClick={onClose} aria-label="Cerrar la vista previa"
-                        className="min-w-[44px] min-h-[44px] -mr-2 text-white/50 hover:text-white text-2xl leading-none">×</button>
+                    <span className="min-w-0 text-[11px] font-black uppercase tracking-widest text-white/60">{rotulo}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                        {onDescargar && (
+                            <button type="button" onClick={descargar} disabled={bajando}
+                                className="min-h-[40px] px-3 inline-flex items-center gap-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-60 text-white text-[13px] font-bold">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
+                                {bajando ? 'Preparando…' : 'Descargar PDF'}
+                            </button>
+                        )}
+                        <button onClick={onClose} aria-label="Cerrar la vista previa"
+                            className="min-w-[44px] min-h-[44px] -mr-2 text-white/50 hover:text-white text-2xl leading-none">×</button>
+                    </div>
                 </div>
+                {errorPdf && <div role="alert" className="px-4 py-2 text-[13px] text-amber-200 bg-amber-500/15 border-b border-white/10">{errorPdf}</div>}
                 <div ref={marco} className="flex-1 overflow-y-auto overflow-x-hidden bg-neutral-500/30"
                     style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
                     <div style={{ width: ANCHO_A4 * escala, height: alto * escala, margin: '0 auto' }}>

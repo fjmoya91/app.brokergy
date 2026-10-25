@@ -37,9 +37,9 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-direccion-se-elige-no-se-teclea.md` — La dirección se ELIGE, no se teclea · 1,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-direccion-se-trae-del-catastro-y-se-puede-corregir.md` — La dirección se trae del Catastro, y se puede corregir · 3,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-entrega-al-cliente-se-dispara-sola.md` — La entrega al cliente se dispara SOLA · 5,0 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-factura-se-emite-contra-el-libro-de-facturas-de-appsheet.md` — La FACTURA se emite contra el libro de facturas de AppSheet (2026-09-23) · 6,6 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-factura-se-emite-contra-el-libro-de-facturas-de-appsheet.md` — La FACTURA se emite contra el libro de facturas de AppSheet (2026-09-23) · 8,0 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-ficha-del-cee-es-una-linea-de-datos-no-un-formulario.md` — La ficha del CEE es UNA LÍNEA de datos, no un formulario · 2,0 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-oferta-el-paso-anterior-al-expediente.md` — La OFERTA — el paso anterior al expediente (2026-09-23) · 5,1 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/la-oferta-el-paso-anterior-al-expediente.md` — La OFERTA — el paso anterior al expediente (2026-09-23) · 6,5 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/lo-que-se-comparte-importado-y-no-copiado.md` — Lo que se comparte, IMPORTADO y no copiado · 1,4 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-avisos-al-cliente-como-en-el-cae.md` — Los avisos al CLIENTE, como en el CAE (2026-09-23) · 2,4 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-ficheros-los-coloca-el-servidor-no-el-navegador.md` — Los FICHEROS los coloca el SERVIDOR, no el navegador · 2,3 KB

@@ -26,6 +26,7 @@ import { LotesView } from './features/lotes/views/LotesView';
 import { DashboardView } from './features/dashboard/views/DashboardView';
 import { SeguimientoView } from './features/seguimiento/views/SeguimientoView';
 import { CeeDirectosView } from './features/cee-directo/views/CeeDirectosView';
+import { FacturacionView } from './features/facturacion/views/FacturacionView';
 import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
@@ -401,7 +402,7 @@ function App() {
   //    La pestaña activa vive en la URL (?tab=), igual que el expediente abierto
   //    (?exp=), para que al RECARGAR la página sigamos donde estábamos. Un efecto
   //    más abajo mantiene la URL sincronizada con el estado.
-  const TABS_VALIDAS = ['dashboard', 'seguimiento', 'oportunidades', 'expedientes', 'cee-directos', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'ventanas', 'usuarios', 'whatsapp'];
+  const TABS_VALIDAS = ['dashboard', 'seguimiento', 'oportunidades', 'expedientes', 'cee-directos', 'facturacion', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'ventanas', 'usuarios', 'whatsapp'];
   // Sin ?tab= no sabemos aún el rol (el usuario carga después), así que arrancamos
   // en 'dashboard' y el efecto de abajo redirige a quien no deba verlo. Al revés
   // —arrancar en oportunidades y saltar al panel— provocaría un parpadeo de vista.
@@ -448,6 +449,10 @@ function App() {
     // lleva importes (por eso no es admin-only como el cuadro de mando), pero enseña
     // la cartera entera, así que el certificador y los partners quedan fuera.
     if (user && activeTab === 'seguimiento' && !isStaff) {
+      setActiveTab('oportunidades');
+    }
+    // Facturación (presupuestos y artículos) es del equipo interno, como sus rutas.
+    if (user && activeTab === 'facturacion' && !isStaff) {
       setActiveTab('oportunidades');
     }
   }, [user?.id, user?.rol, user?.id_rol, activeTab]);
@@ -1305,6 +1310,7 @@ function App() {
               if (tab === 'whatsapp' && !isAdmin) return;      // ajustes globales: solo ADMIN
               if (tab === 'usuarios' && !isAdmin) return;      // gestión de usuarios: solo ADMIN
               if (tab === 'lotes' && !isStaff) return;         // operativa interna: ADMIN + TRABAJADOR
+              if (tab === 'facturacion' && !isStaff) return;   // presupuestos y artículos: ADMIN + TRABAJADOR
               if (tab === 'prescriptores' && !isStaff && uRole !== 'DISTRIBUIDOR') return;
               // El certificador tiene DOS carteras: los expedientes CAE y los CEE
               // contratados sueltos. Antes esta guarda le ignoraba el clic en
@@ -1391,6 +1397,8 @@ function App() {
                 onClearInitialSelection={() => setPendingCeeDirecto(null)}
                 onOpenChange={setOpenCeeDirecto}
               />
+            ) : step === 'ADMIN' && activeTab === 'facturacion' && isStaffUser ? (
+              <FacturacionView key={`fact-${navNonce}`} onNavigate={handleNavigate} />
             ) : step === 'ADMIN' && activeTab === 'venta-cruzada' && isStaffUser ? (
               <RespuestasCobroView key={`vc-${navNonce}`} onNavigate={handleNavigate} />
             ) : step === 'ADMIN' && activeTab === 'lotes' && isStaffUser ? (

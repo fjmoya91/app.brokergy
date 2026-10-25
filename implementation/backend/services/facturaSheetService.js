@@ -23,11 +23,22 @@
 // que regenera el PDF (`_desplazamiento`) ya lo sabe leer así.
 // Antes de escribir se comprueba que las cabeceras siguen siendo esas: si alguien
 // reordena la hoja, se para en vez de escribir importes en la columna que no es.
+//
+// La serie FML (las facturas de Fran como profesional a la sociedad, con
+// retención) tiene sus PROPIAS pestañas, FACTURAS FML y DETALLE FACTURA FML, con
+// la columna del IRPF de verdad (en negativo, como lo escribe AppSheet) y SIN el
+// desplazamiento de la ING. Todas las funciones toman la serie (por defecto ING,
+// así lo de los CEE directos y la gestión CAE no cambia) — 2026-10-24.
 // ─────────────────────────────────────────────────────────────────────────────
 const crypto = require('crypto');
 const { google } = require('googleapis');
 
-const HOJA_ID = process.env.APPSHEET_FACTURAS_SHEET_ID || '1MaVmhOcjwPJZy4EavdlYwbXZ5t89FhBPTT4WIfU2z2k';
+const HOJA_REAL = '1MaVmhOcjwPJZy4EavdlYwbXZ5t89FhBPTT4WIfU2z2k';
+const HOJA_ID = process.env.APPSHEET_FACTURAS_SHEET_ID || HOJA_REAL;
+// Las pruebas (test_factura_cee, test_factura_gestion) emiten contra una COPIA del
+// libro: lo que se emite ahí no es una factura y no entra en el registro de
+// facturas ni en la cadena de VERI*FACTU (facturaService.registrarEmitida).
+const ES_LIBRO_REAL = HOJA_ID === HOJA_REAL;
 // La cuenta con la que se hacen las facturas en AppSheet. Va en la columna
 // USUARIO de cada fila: si la app filtra por el usuario, una fila con otro no
 // se vería allí.
@@ -47,6 +58,37 @@ const CAB_FACTURAS = ['id', 'Nº FACTURA', 'Nº EXPEDIENTE ASOCIADO', 'USUARIO',
 const CAB_DETALLE = ['id', 'FACTURA', 'ARTÍCULO', 'CANTIDAD', 'PRECIO', 'IVA %', 'DESCUENTO %', 'DESCUENTO TOTAL',
     'SUB TOTAL', 'TOTAL A PAGAR', 'IVA'];
 const IRPF_FANTASMA = 0.15;
+
+/**
+ * Pestañas y forma de cada serie. `filaDetalle` escribe una línea EXACTAMENTE
+ * como AppSheet (medido sobre 26ING_70 · _75 · _77 y 26FML_10 … _18).
+ */
+const SERIES = {
+    ING: {
+        tabFacturas: TAB_FACTURAS, tabDetalle: TAB_DETALLE, re: /^(\d{2})ING_(\d+)$/,
+        cabFacturas: CAB_FACTURAS, cabDetalle: CAB_DETALLE,
+        filaDetalle: (l, idFactura) => [
+            nuevoId(), idFactura, String(l.articulo_id ?? ''), l.uds, l.precio, l.ivaPct / 100,
+            IRPF_FANTASMA, l.dtoPct / 100, l.descuento, l.subtotal, l.subtotal, l.iva,
+        ],
+    },
+    FML: {
+        tabFacturas: 'FACTURAS FML', tabDetalle: 'DETALLE FACTURA FML', re: /^(\d{2})FML_(\d+)$/,
+        cabFacturas: [...CAB_FACTURAS.slice(0, 12), 'IRPF (15%)', ...CAB_FACTURAS.slice(12)],
+        cabDetalle: ['id', 'FACTURA', 'ARTÍCULO', 'CANTIDAD', 'PRECIO', 'IVA %', 'IRPF %', 'DESCUENTO %',
+            'DESCUENTO TOTAL', 'SUB TOTAL', 'TOTAL A PAGAR', 'IVA', 'IRPF (€)'],
+        filaDetalle: (l, idFactura, irpfPct) => [
+            nuevoId(), idFactura, String(l.articulo_id ?? ''), l.uds, l.precio, l.ivaPct / 100,
+            irpfPct / 100, l.dtoPct / 100, l.descuento, l.subtotal, l.subtotal, l.iva,
+            l.suplido ? 0 : -Math.round(l.subtotal * irpfPct) / 100,
+        ],
+    },
+};
+const serieDe = (s) => {
+    const k = String(s || 'ING').toUpperCase();
+    if (!SERIES[k]) throw new Error(`La hoja de facturas no tiene la serie «${s}».`);
+    return SERIES[k];
+};
 
 const auth = new google.auth.OAuth2(process.env.GOOGLE_OAUTH_CLIENT_ID, process.env.GOOGLE_OAUTH_CLIENT_SECRET);
 auth.setCredentials({ refresh_token: process.env.GOOGLE_OAUTH_REFRESH_TOKEN });
@@ -134,34 +176,36 @@ async function articulos() {
 
 // ── Numeración ──────────────────────────────────────────────────────────────
 
-const RE_NUM = /^(\d{2})ING_(\d+)$/;
+const RE_NUM = SERIES.ING.re;
 
 /**
  * Siguiente número de la serie. El correlativo NO se reinicia en enero: la hoja
- * pasó de 25ING_37 a 26ING_38, así que manda el MAYOR de todos (de cualquier
- * año) + 1 con el prefijo del año en curso.
+ * pasó de 25ING_37 a 26ING_38 (y de 25FML_9 a 26FML_10), así que manda el MAYOR
+ * de todos (de cualquier año) + 1 con el prefijo del año en curso.
  */
-function siguienteDe(numeros, ahora = new Date()) {
+function siguienteDe(numeros, ahora = new Date(), serie = 'ING') {
+    const S = serieDe(serie);
     let max = 0;
     for (const n of numeros) {
-        const m = RE_NUM.exec(String(n || '').trim());
+        const m = S.re.exec(String(n || '').trim());
         if (m) max = Math.max(max, Number(m[2]));
     }
     const yy = new Date(ahora).toLocaleDateString('es-ES', { year: '2-digit', timeZone: 'Europe/Madrid' });
-    return { numero: `${yy}ING_${max + 1}`, correlativo: max + 1 };
+    return { numero: `${yy}${String(serie || 'ING').toUpperCase()}_${max + 1}`, correlativo: max + 1 };
 }
 
-async function columnasIdNumero() {
-    const cab = await cabeceras(TAB_FACTURAS);
-    const ix = mapaCabeceras(TAB_FACTURAS, cab, ['id', 'Nº FACTURA']);
-    const filas = await leer(`${q(TAB_FACTURAS)}!A2:${letra(Math.max(ix.id, ix['Nº FACTURA']))}`, 'FORMATTED_VALUE');
+async function columnasIdNumero(serie = 'ING') {
+    const { tabFacturas: tab } = serieDe(serie);
+    const cab = await cabeceras(tab);
+    const ix = mapaCabeceras(tab, cab, ['id', 'Nº FACTURA']);
+    const filas = await leer(`${q(tab)}!A2:${letra(Math.max(ix.id, ix['Nº FACTURA']))}`, 'FORMATTED_VALUE');
     return filas.map((f, i) => ({ fila: i + 2, id: String(f[ix.id] ?? ''), numero: String(f[ix['Nº FACTURA']] ?? '').trim() }));
 }
 
 /** El número que tocaría AHORA (para enseñarlo en la vista previa; no reserva nada). */
-async function proximoNumero() {
-    const filas = await columnasIdNumero();
-    return siguienteDe(filas.map(f => f.numero)).numero;
+async function proximoNumero(serie = 'ING') {
+    const filas = await columnasIdNumero(serie);
+    return siguienteDe(filas.map(f => f.numero), new Date(), serie).numero;
 }
 
 // ── Candado ─────────────────────────────────────────────────────────────────
@@ -213,19 +257,21 @@ async function asegurarCliente(c, { usuario = USUARIO_APPSHEET } = {}) {
 
 /**
  * Reserva el número y escribe la factura en la hoja.
- * @param {object} f  { expediente, cliente:{razon_social,cif,…}, fechaIso, vencimientoIso,
- *                      lineas:[calculadas], totales:{neto,iva,descuento,total}, observaciones, estado }
+ * @param {object} f  { serie ('ING'|'FML'), expediente, cliente:{razon_social,cif,…}, fechaIso, vencimientoIso,
+ *                      lineas:[calculadas], totales:{neto,iva,descuento,total,irpf,irpfPct}, observaciones, estado }
  * @returns {{ id, numero, fila }}
  */
 function emitir(f) {
+    const serie = String(f.serie || 'ING').toUpperCase();
+    const S = serieDe(serie);
     return enExclusiva(async () => {
-        const cabF = await cabeceras(TAB_FACTURAS);
-        const ixF = mapaCabeceras(TAB_FACTURAS, cabF, CAB_FACTURAS);
-        const cabD = await cabeceras(TAB_DETALLE);
+        const cabF = await cabeceras(S.tabFacturas);
+        const ixF = mapaCabeceras(S.tabFacturas, cabF, S.cabFacturas);
+        const cabD = await cabeceras(S.tabDetalle);
         // El orden de DETALLE FACTURA importa (ver cabecera del fichero): se
         // exige EXACTAMENTE el que hay hoy.
-        if (CAB_DETALLE.some((h, i) => norm(cabD[i]) !== norm(h))) {
-            throw new Error(`La pestaña ${TAB_DETALLE} ha cambiado de columnas (${cabD.join(' · ')}). No se escribe nada hasta revisarlo.`);
+        if (S.cabDetalle.some((h, i) => norm(cabD[i]) !== norm(h))) {
+            throw new Error(`La pestaña ${S.tabDetalle} ha cambiado de columnas (${cabD.join(' · ')}). No se escribe nada hasta revisarlo.`);
         }
 
         const id = nuevoId();
@@ -251,45 +297,46 @@ function emitir(f) {
                 'TOTAL': f.totales.total,
                 'OBSERVACIONES': texto(f.observaciones),
                 'PDF FACTURA': '',
+                ...(serie === 'FML' ? { 'IRPF (15%)': -(f.totales.irpf || 0) } : {}),
             };
             for (const [h, val] of Object.entries(v)) fila[ixF[h]] = val;
             return fila;
         };
 
-        // 1 · Número + fila de cabecera, del tirón: la fila ES la reserva.
-        let filas = await columnasIdNumero();
-        let { numero } = siguienteDe(filas.map(x => x.numero));
+        // 1 · Número + fila de cabecera, del tirón: la fila ES la reserva. Una
+        // RECTIFICATIVA trae su número (`R-26ING_1`, de su propia serie, que
+        // numera la app): solo se anota, para que el libro esté completo.
+        let filas = await columnasIdNumero(serie);
+        let { numero } = f.numero ? { numero: f.numero } : siguienteDe(filas.map(x => x.numero), new Date(), serie);
         await sheets.spreadsheets.values.append({
-            spreadsheetId: HOJA_ID, range: `${q(TAB_FACTURAS)}!A1`, valueInputOption: 'USER_ENTERED',
+            spreadsheetId: HOJA_ID, range: `${q(S.tabFacturas)}!A1`, valueInputOption: 'USER_ENTERED',
             insertDataOption: 'INSERT_ROWS', requestBody: { values: [filaFactura(numero)] }
         });
 
         // 2 · Comprobación: si otra fila (de AppSheet) se ha llevado el mismo
         // número entre la lectura y la escritura, la nuestra salta al siguiente.
         let fila = null;
-        let libre = false;
+        let libre = !!f.numero;
+        if (f.numero) fila = (await columnasIdNumero(serie)).find(x => x.id === id)?.fila ?? null;
         for (let intento = 0; intento < 4 && !libre; intento++) {
-            filas = await columnasIdNumero();
+            filas = await columnasIdNumero(serie);
             const nuestra = filas.find(x => x.id === id);
             if (!nuestra) throw new Error('La factura no aparece en la hoja después de escribirla');
             fila = nuestra.fila;
             libre = !filas.some(x => x.numero === numero && x.id !== id);
             if (libre) break;
-            ({ numero } = siguienteDe(filas.filter(x => x.id !== id).map(x => x.numero)));
+            ({ numero } = siguienteDe(filas.filter(x => x.id !== id).map(x => x.numero), new Date(), serie));
             await sheets.spreadsheets.values.update({
-                spreadsheetId: HOJA_ID, range: `${q(TAB_FACTURAS)}!${letra(ixF['Nº FACTURA'])}${fila}`,
+                spreadsheetId: HOJA_ID, range: `${q(S.tabFacturas)}!${letra(ixF['Nº FACTURA'])}${fila}`,
                 valueInputOption: 'RAW', requestBody: { values: [[numero]] }
             });
         }
-        if (!libre) throw new Error(`No se ha podido reservar un número libre: la fila ${fila} de FACTURAS quedó con ${numero} repetido. Revísala en la hoja.`);
+        if (!libre) throw new Error(`No se ha podido reservar un número libre: la fila ${fila} de ${S.tabFacturas} quedó con ${numero} repetido. Revísala en la hoja.`);
 
         // 3 · Líneas, con la forma exacta de AppSheet.
-        const lineas = f.lineas.map(l => [
-            nuevoId(), id, String(l.articulo_id ?? ''), l.uds, l.precio, l.ivaPct / 100,
-            IRPF_FANTASMA, l.dtoPct / 100, l.descuento, l.subtotal, l.subtotal, l.iva
-        ]);
+        const lineas = f.lineas.map(l => S.filaDetalle(l, id, Number(f.totales.irpfPct) || 0));
         await sheets.spreadsheets.values.append({
-            spreadsheetId: HOJA_ID, range: `${q(TAB_DETALLE)}!A1`, valueInputOption: 'USER_ENTERED',
+            spreadsheetId: HOJA_ID, range: `${q(S.tabDetalle)}!A1`, valueInputOption: 'USER_ENTERED',
             insertDataOption: 'INSERT_ROWS', requestBody: { values: lineas }
         });
 
@@ -303,36 +350,113 @@ function emitir(f) {
 }
 
 /** Fila actual de una factura por su id (puede moverse si alguien ordena la hoja). */
-async function filaDe(id) {
-    const filas = await columnasIdNumero();
+async function filaDe(id, serie = 'ING') {
+    const filas = await columnasIdNumero(serie);
     return filas.find(x => x.id === id) || null;
 }
 
 /** Escribe columnas de la cabecera de una factura ya emitida. */
-async function actualizar(id, valores = {}) {
-    const cab = await cabeceras(TAB_FACTURAS);
-    const ix = mapaCabeceras(TAB_FACTURAS, cab, Object.keys(valores));
-    const f = await filaDe(id);
+async function actualizar(id, valores = {}, serie = 'ING') {
+    const { tabFacturas: tab } = serieDe(serie);
+    const cab = await cabeceras(tab);
+    const ix = mapaCabeceras(tab, cab, Object.keys(valores));
+    const f = await filaDe(id, serie);
     if (!f) throw new Error('La factura ya no está en la hoja');
-    const data = Object.entries(valores).map(([h, v]) => ({ range: `${q(TAB_FACTURAS)}!${letra(ix[h])}${f.fila}`, values: [[v ?? '']] }));
+    const data = Object.entries(valores).map(([h, v]) => ({ range: `${q(tab)}!${letra(ix[h])}${f.fila}`, values: [[v ?? '']] }));
     await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: HOJA_ID, requestBody: { valueInputOption: 'USER_ENTERED', data } });
     return f;
 }
+
+const fechaAIso = (v) => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(v || '').trim()); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null; };
 
 /**
  * Nº y FECHA FACTURA de toda la serie, para comprobar el orden correlativo al
  * cambiar una fecha (una factura con número menor no puede ser posterior).
  */
-async function fechasDeLaSerie() {
-    const cab = await cabeceras(TAB_FACTURAS);
-    const ix = mapaCabeceras(TAB_FACTURAS, cab, ['Nº FACTURA', 'FECHA FACTURA']);
-    const filas = await leer(`${q(TAB_FACTURAS)}!A2:${letra(Math.max(ix['Nº FACTURA'], ix['FECHA FACTURA']))}`, 'FORMATTED_VALUE');
-    const aIso = (v) => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(v || '').trim()); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null; };
+async function fechasDeLaSerie(serie = 'ING') {
+    const S = serieDe(serie);
+    const cab = await cabeceras(S.tabFacturas);
+    const ix = mapaCabeceras(S.tabFacturas, cab, ['Nº FACTURA', 'FECHA FACTURA']);
+    const filas = await leer(`${q(S.tabFacturas)}!A2:${letra(Math.max(ix['Nº FACTURA'], ix['FECHA FACTURA']))}`, 'FORMATTED_VALUE');
     return filas.map(f => {
         const numero = String(f[ix['Nº FACTURA']] ?? '').trim();
-        const m = RE_NUM.exec(numero);
-        return { numero, correlativo: m ? Number(m[2]) : null, fecha: aIso(f[ix['FECHA FACTURA']]) };
+        const m = S.re.exec(numero);
+        return { numero, correlativo: m ? Number(m[2]) : null, fecha: fechaAIso(f[ix['FECHA FACTURA']]) };
     }).filter(x => x.correlativo != null && x.fecha);
+}
+
+/**
+ * El LIBRO entero de una serie, cabecera y líneas, para traer a la app lo que
+ * se emitió en AppSheet (importación y sincronización de cobros). Solo lee.
+ * @returns {Promise<Array<{ id, numero, expediente, fecha, vencimiento, cliente_nif, estado,
+ *           fecha_pago, neto, iva, irpf, descuento, total, observaciones, pdf, lineas:[…] }>>}
+ */
+async function libro(serie = 'ING') {
+    const S = serieDe(serie);
+    const [filasF, filasD] = await Promise.all([
+        leer(`${q(S.tabFacturas)}!A1:Z`, 'UNFORMATTED_VALUE'),
+        leer(`${q(S.tabDetalle)}!A1:Z`, 'UNFORMATTED_VALUE'),
+    ]);
+    const [cabF = [], ...datF] = filasF;
+    const [, ...datD] = filasD;
+    const ix = (h) => cabF.findIndex(c => norm(c) === norm(h));
+    const col = (f, h) => { const i = ix(h); return i < 0 ? '' : f[i]; };
+    // UNFORMATTED: las fechas llegan como número de serie de Sheets (días desde 1899-12-30).
+    const fecha = (v) => {
+        if (typeof v === 'number') return new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000).toISOString().slice(0, 10);
+        return fechaAIso(v);
+    };
+    const n = (v) => (typeof v === 'number' ? v : Number(String(v ?? '').replace(/\./g, '').replace(',', '.')) || 0);
+    // Columnas de DETALLE por POSICIÓN, como las escribe AppSheet (ver SERIES):
+    // en las dos series el % de descuento cae en la H (en la ING, bajo la
+    // cabecera desplazada; en la FML, detrás del IRPF %). La descripción no
+    // está en la línea: es la del artículo.
+    // El descuento es una FRACCIÓN (0,1 = 10 %), salvo en las primeras de 2025
+    // (25ING_2 a _6), que guardan el IMPORTE en euros (100 = 100 € sobre 200): con
+    // eso cuadran sus totales; leído como % eran 10.000 %.
+    const dtoDe = (d) => {
+        const v = n(d[7]);
+        if (v <= 1) return Math.round(v * 10000) / 100;
+        const bruto = n(d[3]) * n(d[4]);
+        return bruto > 0 ? Math.min(100, Math.round(v / bruto * 10000) / 100) : 0;
+    };
+    const lineasDe = (id) => datD.filter(d => String(d[1]) === String(id)).map(d => ({
+        articulo_id: String(d[2] ?? ''), uds: n(d[3]), precio: n(d[4]), ivaPct: Math.round(n(d[5]) * 10000) / 100,
+        dtoPct: dtoDe(d),
+    }));
+    return datF.filter(f => S.re.test(String(col(f, 'Nº FACTURA') ?? '').trim())).map(f => ({
+        id: String(col(f, 'id') ?? ''),
+        numero: String(col(f, 'Nº FACTURA')).trim(),
+        expediente: String(col(f, 'Nº EXPEDIENTE ASOCIADO') ?? '').trim() || null,
+        fecha: fecha(col(f, 'FECHA FACTURA')),
+        vencimiento: fecha(col(f, 'FECHA VENCIMIENTO')),
+        cliente_nif: nif(col(f, 'CLIENTE')),
+        estado: String(col(f, 'ESTADO') ?? '').trim().toUpperCase(),
+        fecha_pago: fecha(col(f, 'FECHA DE PAGO')),
+        neto: n(col(f, 'SUBTOTAL')), iva: n(col(f, 'IMPUESTOS')), irpf: Math.abs(n(col(f, 'IRPF (15%)'))),
+        descuento: n(col(f, 'DESCUENTO')), total: n(col(f, 'TOTAL')),
+        observaciones: String(col(f, 'OBSERVACIONES') ?? '').trim().replace(/^"|"$/g, '') || null,
+        pdf: String(col(f, 'PDF FACTURA') ?? '').trim() || null,
+        lineas: lineasDe(col(f, 'id')),
+    }));
+}
+
+/** Los CLIENTES de la hoja por NIF (para la importación del libro). */
+async function clientesHoja() {
+    const cab = await cabeceras(TAB_CLIENTES);
+    const filas = await leer(`${q(TAB_CLIENTES)}!A2:Z`, 'FORMATTED_VALUE');
+    const ix = (h) => cab.findIndex(c => norm(c) === norm(h));
+    const v = (f, h) => { const i = ix(h); return i < 0 ? '' : String(f[i] ?? '').trim(); };
+    const out = new Map();
+    for (const f of filas) {
+        const k = nif(v(f, 'CIF'));
+        if (!k || out.has(k)) continue;
+        out.set(k, {
+            razon_social: v(f, 'RAZON SOCIAL'), cif: v(f, 'CIF'), email: v(f, 'EMAIL'), tlf: v(f, 'TLF'),
+            direccion: v(f, 'Dirección'), cp: v(f, 'Código Postal'), municipio: v(f, 'Municipio'), provincia: v(f, 'Provincia'),
+        });
+    }
+    return out;
 }
 
 // ── PDF ─────────────────────────────────────────────────────────────────────
@@ -345,7 +469,7 @@ const nombrePdf = (numero, razon) => `${numero} - ${razon}`.replace(/[\\/<>:"|?*
  * script de AppSheet) y escribe la ruta en "PDF FACTURA", que es de donde lo
  * abre la app.
  */
-async function guardarPdf({ id, numero, razonSocial, buffer }) {
+async function guardarPdf({ id, numero, razonSocial, buffer, serie = 'ING' }) {
     const { Readable } = require('stream');
     const nombre = nombrePdf(numero, razonSocial);
     const safe = nombre.replace(/'/g, "\\'");
@@ -356,11 +480,11 @@ async function guardarPdf({ id, numero, razonSocial, buffer }) {
         media: { mimeType: 'application/pdf', body: Readable.from(buffer) },
         fields: 'id, webViewLink'
     });
-    await actualizar(id, { 'PDF FACTURA': RUTA_APP_FACTURAS + nombre });
+    await actualizar(id, { 'PDF FACTURA': RUTA_APP_FACTURAS + nombre }, serie);
     return { driveId: r.data.id, link: r.data.webViewLink, nombre };
 }
 
 module.exports = {
-    HOJA_ID, articulos, proximoNumero, siguienteDe, emitir, actualizar, filaDe, guardarPdf, nombrePdf, fechasDeLaSerie,
-    fechaHoja, _internos: { letra, mapaCabeceras, nif, texto, telefono }
+    HOJA_ID, ES_LIBRO_REAL, SERIES_HOJA: Object.keys(SERIES), articulos, proximoNumero, siguienteDe, emitir, actualizar, filaDe, guardarPdf,
+    nombrePdf, fechasDeLaSerie, libro, clientesHoja, fechaHoja, _internos: { letra, mapaCabeceras, nif, texto, telefono, SERIES }
 };

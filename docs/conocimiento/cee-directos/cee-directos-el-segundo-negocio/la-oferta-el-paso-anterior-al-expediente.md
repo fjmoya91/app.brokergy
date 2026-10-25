@@ -3,6 +3,13 @@
 
 ### La OFERTA — el paso anterior al expediente (2026-09-23)
 
+> **Desde el 24/10/2026** el botón es **«Enviar presupuesto»** y abre el EDITOR de presupuestos de la
+> pestaña Facturación con el certificado ya puesto (y su tasa), al que se le pueden añadir más
+> partidas; las filas de presupuesto del listado tienen «Abrir / editar». Lo nuevo —partidas,
+> borrador, numeración `P-{YY}ING_{n}`, PDF de varias hojas, aceptación sin CEE— está en «Presupuestos
+> con PARTIDAS» (área facturacion). Lo de abajo sigue valiendo para las ofertas antiguas y para la
+> aceptación de las que llevan un certificado.
+
 Botón **Enviar oferta** en la pestaña CEE directos (junto a "+ Nuevo CEE"). Se
 elige qué se ofrece —**un certificado (150 €)** o **inicial + final (220 €)**, sin
 IVA y editable—, la **tasa de registro por certificado** (16,39 €, la de
@@ -13,9 +20,11 @@ Desde el 13/10/2026 el cliente se elige en **una sola caja** que busca en la app
 y en la **agenda de WhatsApp**: el contacto trae su nombre (sin el prefijo de
 obra) y su móvil, o se usa lo escrito como cliente nuevo. Ver «La agenda de
 WhatsApp como origen del alta de clientes» (área whatsapp).
-Conceptos y observaciones son los de los presupuestos que ya se mandaban
+Conceptos y política de entrega son los de los presupuestos que ya se mandaban
 (P-26ING_39): "Certificado de Eficiencia Energética inicial y final, incluida su
-presentación en Industria" + "Tasa Certificado … Castilla-La Mancha". Sale como la propuesta CAE:
+presentación en Industria" + "Tasa Certificado … Castilla-La Mancha". Desde el
+25/10/2026 esa política sale siempre aparte en el PDF y las «observaciones» son
+un texto libre para el cliente (ver «Presupuestos con PARTIDAS», área facturacion). Sale como la propuesta CAE:
 **el PDF adjunto y un enlace** (`/aceptar-cee/:token`) donde el cliente completa
 sus datos y la acepta. **Al aceptar nace el expediente `{AAAA}CEE_{n}`**.
 
@@ -26,9 +35,10 @@ sus datos y la acepta. **Al aceptar nace el expediente `{AAAA}CEE_{n}`**.
 | Alta del expediente al aceptar | `crearExpediente` en `ceeDirectoService.js` |
 | Rutas staff | `GET/POST /api/cee-directos/ofertas` · `/:ofertaId/pdf` · `/enviar` · `/anular` (declaradas ANTES que `/:id`) |
 | Rutas públicas | `GET /api/public/oferta-cee/:token` · `/pdf` · `POST /aceptar` |
-| Superficies | `OfertaCeeModal` · filas del propio listado (`CeeDirectosView` + `AccionesOferta`) · `AceptarOfertaCeeView` |
+| Superficies | `PresupuestoModal` (área facturacion; hasta el 24/10/2026, `OfertaCeeModal`) · filas del propio listado (`CeeDirectosView` + `AccionesOferta`) · `AceptarOfertaCeeView` |
 | Esquema | `scripts/cee_ofertas_schema.sql` (tabla `cee_ofertas`, RLS deny-all) |
 | Prueba | `node implementation/backend/scripts/test_oferta_cee.mjs` |
+| Probarlo como el cliente, sin tocar nada | **`/aceptar-cee/demo`** (y `?sin-cee`, un presupuesto sin certificado) — datos de mentira, no llama a la API. La página va en el estilo «carta de pago» desde el 24/10/2026 (regla 164), y ese día sus condiciones pasaron a `cee-2026-10-24`: decían «Aceptar la oferta» y el botón siempre ha sido «Aceptar el presupuesto» (el resto del texto, igual) |
 
 **REGLA — en el LISTADO el presupuesto es una FILA más, no un bloque aparte.**
 Es trabajo vivo con la pelota en el cliente, así que va en la misma tabla: número
@@ -44,11 +54,13 @@ correlativo de los CEE es global y seguido desde 2024: una oferta rechazada se
 comería un número, y además aparecería en el listado, el radar y la facturación.
 Su número es `{AAAA}PCEE_{n}` y lo compone la BD en el INSERT (secuencia +
 columna generada). Si ningún canal sale, la oferta se BORRA: nunca llegó a nadie.
+(Desde el 24/10/2026 un presupuesto con partidas numera `P-{YY}ING_{n}` por un trigger, nace
+BORRADOR y, si no sale, se queda en borrador para reenviarlo.)
 
 **REGLA — el PDF es una RÉPLICA del presupuesto de AppSheet**
 (`appsheet-factura-pdf/lib/presupuestoAppsheetHtml.js`), con las fuentes
-AUTO-ALOJADAS (regla 25.b) y en una sola hoja: una oferta tiene dos líneas como
-mucho. No se guarda en BD (regla 21): se REGENERA de la fila, y al aceptar se
+AUTO-ALOJADAS (regla 25.b). Hasta el 24/10/2026 iba en una sola hoja (dos líneas
+como mucho); con partidas, en tantas hojas de alto fijo como pidan. No se guarda en BD (regla 21): se REGENERA de la fila, y al aceptar se
 archiva en `3. PRESUPUESTO Y FACTURAS` del expediente recién creado.
 
 **La tasa es un suplido, sin IVA y UNA POR CERTIFICADO** (inicial + final = dos).

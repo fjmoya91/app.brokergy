@@ -36,6 +36,11 @@ function modulo() {
 
 const error = (status, msg) => Object.assign(new Error(msg), { status });
 const txt = (v) => (v == null ? '' : String(v).trim());
+
+// El registro de TODAS las facturas (pestaña Facturación, VERI*FACTU). Se pide
+// al usarlo (facturaService tira de ceeOfertaService, que tira de los CEE
+// directos) y nunca tumba lo de aquí: cada llamada es best-effort.
+const facturasApp = () => require('./facturaService');
 const nombreDe = (c) => (c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : '');
 
 /** Los dos a los que se puede facturar: el titular y el partner que trae el encargo. */
@@ -186,6 +191,12 @@ async function emitir(id, body = {}, { usuario = null } = {}) {
         await svc.anotarHistorial(row.id, {
             tipo: 'FACTURA', texto: `FACTURA ${emit.numero} EMITIDA (${m.fmtEur(total)}) A ${cli.razon_social}`, usuario
         });
+        await facturasApp().registrarEmitida({
+            origen: 'CEE_DIRECTO', serie: 'ING', numero: emit.numero, hojaId: emit.id, fecha: fechaIso, vencimiento: vencimientoIso,
+            cliente: { ...cli, es_empresa: cli.esEmpresa }, clienteId: destino === 'cliente' ? (row.cliente?.id_cliente || null) : null,
+            lineas: registro.lineas, observaciones, expediente: row.numero_expediente, ceeDirectoId: row.id,
+            estado: registro.estado, usuario,
+        });
 
         // 2 · El PDF.
         let pdf = null, errorPdf = null;
@@ -237,6 +248,7 @@ async function generarPdf(row, reg) {
 
     const pdf = { driveId: guardado.driveId, link: guardado.link, nombre: guardado.nombre, copiaId: copia, contabilidad, at: new Date().toISOString() };
     await svc.mergeDoc(row.id, CAMPO, { [reg.numero]: { ...reg, pdf } });
+    await facturasApp().actualizarRegistrada(reg.numero, { pdf });
     return pdf;
 }
 
@@ -306,6 +318,7 @@ async function cambiarFecha(id, numero, { fecha, usuario = null } = {}) {
     await svc.anotarHistorial(row.id, {
         tipo: 'FACTURA', texto: `FACTURA ${reg.numero}: FECHA CAMBIADA DEL ${m.isoAEs(reg.fecha)} AL ${m.isoAEs(fechaIso)}`, usuario
     });
+    await facturasApp().actualizarRegistrada(reg.numero, { fecha: fechaIso, vencimiento: vencimientoIso, usuario });
 
     // PDF nuevo (sustituye por nombre al viejo) + retirar el viejo si se llamaba distinto.
     let pdf = null, errorPdf = null;
@@ -381,6 +394,7 @@ async function enviar(id, numero, { canales = [], email, tlf, mensaje, usuario =
         const envio = { at: new Date().toISOString(), canales: canalesOk, email: quiereEmail ? txt(email) : null, tlf: quiereWa ? txt(tlf) : null, usuario };
         await svc.mergeDoc(row.id, CAMPO, { [reg.numero]: { ...reg, envios: [...(reg.envios || []), envio] } });
         await svc.anotarHistorial(row.id, { tipo: 'FACTURA', texto: `FACTURA ${reg.numero} ENVIADA POR ${canalesOk.join(' Y ').toUpperCase()}`, usuario });
+        await facturasApp().actualizarRegistrada(reg.numero, { envio, usuario });
     }
     return { resultados, canalesOk };
 }
@@ -394,6 +408,7 @@ async function enviar(id, numero, { canales = [], email, tlf, mensaje, usuario =
 // una emitida, se adjunta esa: un número emitido no se repite.
 
 const hoyMadrid = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }).format(new Date());
+const hoyMadridDe = (d) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }).format(d ? new Date(d) : new Date());
 
 /** Qué factura acompañaría al aviso: la ya emitida, o la que se emitiría. Sin escribir nada. */
 async function facturaParaAviso(id) {
@@ -431,6 +446,7 @@ async function facturaDelAviso(id, { usuario = null } = {}) {
 async function anotarEnvio(id, numero, envio) {
     const { row, reg } = await registroDe(id, numero);
     await svc.mergeDoc(row.id, CAMPO, { [reg.numero]: { ...reg, envios: [...(reg.envios || []), envio] } });
+    await facturasApp().actualizarRegistrada(reg.numero, { envio });
 }
 
 // ── Cobro ──────────────────────────────────────────────────────────────────
@@ -452,6 +468,7 @@ async function sincronizarCobro(id, cobrado, cobradoAt) {
                 'FECHA DE PAGO': cobrado ? hoja.fechaHoja(cobradoAt || new Date()) : '',
             });
             await svc.mergeDoc(row.id, CAMPO, { [reg.numero]: { ...reg, estado } });
+            await facturasApp().marcarCobroPorNumero(reg.numero, { pagada: !!cobrado, fecha: cobrado ? hoyMadridDe(cobradoAt) : null });
         } catch (e) {
             console.warn(`[factura cee] ${reg.numero} → ${estado}:`, e.message);
         }

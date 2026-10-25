@@ -1733,6 +1733,7 @@ router.get('/oferta-cee/:token', async (req, res) => {
         const svc = require('../services/ceeOfertaService');
         const o = await svc.cargarPorToken(req.params.token);
         if (!o) return res.status(404).json({ error: 'Esta oferta no existe o el enlace no es correcto.' });
+        svc.marcarVisto(o);
         res.json(await svc.vistaPublica(o));
     } catch (err) {
         console.error('[oferta-cee vista]', err.message);

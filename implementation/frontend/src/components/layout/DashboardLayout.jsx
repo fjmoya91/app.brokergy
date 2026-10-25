@@ -255,6 +255,13 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                               title: 'Certificados de eficiencia energética contratados sueltos',
                               d: 'M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z' },
 
+                            // Presupuestos y catálogo de artículos (sustituye a la app de
+                            // AppSheet). Del equipo interno, como sus rutas: el certificador
+                            // ve los CEE directos que se le encargan, no lo que se cobra.
+                            { id: 'facturacion', grupo: 'cartera', label: 'Facturación', ver: isStaff,
+                              title: 'Presupuestos, catálogo de artículos y facturas',
+                              d: 'M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z' },
+
                             { id: 'lotes', grupo: 'cartera', label: 'Lotes', ver: isStaff,
                               d: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
 

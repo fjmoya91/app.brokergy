@@ -17,6 +17,12 @@ también la app de AppSheet con la MISMA serie `{YY}ING_{n}`.
 | Popup | `FacturaCeeModal.jsx` |
 | Prueba (contra una COPIA de la hoja, nunca la real) | `node implementation/backend/scripts/test_factura_cee.js` |
 
+**Desde el 24/10/2026**, si el expediente nació de un presupuesto con PARTIDAS, la factura propone
+ESAS líneas (`documentacion.oferta.lineas`) en vez de las dos de siempre. El ID ARTÍCULO de la hoja
+sale del `appsheet_id` del artículo del catálogo (o del importe de la tasa / del alcance); una
+partida cuyo artículo no existe en la hoja (la legalización FV) va con el ID vacío. Ver «Presupuestos
+con PARTIDAS» (área facturacion), que también cuenta la fase 2: las facturas desde la app.
+
 **REGLA — esta app NO tiene numeración propia.** Lee la hoja, toma el mayor
 correlativo de TODOS los años + 1 (la hoja pasó de 25ING_37 a 26ING_38: no se
 reinicia en enero) y **escribe su fila en el acto: la fila ES la reserva**.
@@ -84,6 +90,17 @@ anterior se retira. El popup dice qué copia no se pudo guardar.
 **REGLA — el `id` que se escribe en la hoja lleva siempre una letra a-d o f.** Con
 USER_ENTERED, un id de solo cifras o con una «e» entre cifras se convierte en NÚMERO
 («399e4412» → 3,99E+44, visto el 19/10/2026) y la factura no se vuelve a encontrar.
+
+**Desde el 24/10/2026 cada factura emitida aquí entra también en el REGISTRO de facturas** de la
+pestaña Facturación (`facturas_emitidas`, origen CEE_DIRECTO): `emitir` llama a
+`facturaService.registrarEmitida`, que además la encadena en VERI*FACTU; el PDF, los envíos y un
+cambio de fecha se anotan con `actualizarRegistrada`, y el cobro (`sincronizarCobro`) con
+`marcarCobroPorNumero`. Best-effort: no puede tumbar la emisión. Se sigue cobrando y rehaciendo desde
+la ficha del CEE (desde la pestaña, 409). La plantilla del PDF es ahora la de todas las facturas
+(`buildFacturaCeeHtml` admite IRPF, rectificativa, QR y fecha de operación sin cambiar una factura de
+CEE) y su paginación se recalibró con lo MEDIDO: 432 px antes de la primera fila en la primera hoja
+(AppSheet estimaba 384), la fila «Página 1 de N» contada y dos pasadas. Ver «Facturas desde la app»
+(área facturacion) y regla 166.
 
 **Desde el 19/10/2026 emite también en esta serie la fase 7 del lote** (la factura de
 los honorarios de gestión CAE, al cliente o a su instalador: `facturaGestionCae.js`,

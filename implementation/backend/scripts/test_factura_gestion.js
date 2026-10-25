@@ -20,6 +20,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALLO: ' + m); console.log('  �
 
 (async () => {
     let copiaId, carpetaId;
+    // Lo que la emisión deja FUERA de la carpeta de prueba (la copia en «5. FACTURAS»
+    // del expediente, que es real) también se manda a la papelera al terminar: el
+    // 19/10/2026 un PDF de prueba se quedó en la contabilidad de verdad como 26ING_87.
+    const salidas = [];
     try {
         console.log('0 · Copia de la hoja y carpeta de prueba');
         const tmp = await drive.files.create({ requestBody: { name: 'ZZ PRUEBA FACTURA GESTION (borrar)', mimeType: 'application/vnd.google-apps.folder' }, fields: 'id' });
@@ -64,6 +68,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALLO: ' + m); console.log('  �
             destino: 'instalador', fecha: '2026-10-19',
             enviar: undefined,
         });
+        salidas.push(r.pdf?.contabilidad?.id, r.pdf?.expediente?.id);
         ok(/^\d{2}ING_\d+$/.test(r.numero) && r.numero === b.proximoNumero, `número de la serie: ${r.numero}`);
         ok(!!r.pdf?.driveId, 'PDF guardado en la carpeta (de prueba)');
         ok(r.pdf.contabilidad?.ruta === 'ING - SERVICIOS DE INGENIERIA / FACTURAS VENTAS / 2026 / 10. OCTUBRE' && !!r.pdf.contabilidad.id,
@@ -110,7 +115,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALLO: ' + m); console.log('  �
         console.error('\n❌', e.message);
         process.exitCode = 1;
     } finally {
-        for (const id of [copiaId, carpetaId].filter(Boolean)) {
+        for (const id of [...salidas, copiaId, carpetaId].filter(Boolean)) {
             try { await drive.files.update({ fileId: id, requestBody: { trashed: true } }); } catch { /* */ }
         }
         console.log('(copia y carpeta de prueba a la papelera)');

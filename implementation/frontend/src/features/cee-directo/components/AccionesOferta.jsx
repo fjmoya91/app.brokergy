@@ -7,8 +7,9 @@ import { useModal } from '../../../context/ModalContext';
 // PDF, copiar el enlace de aceptación, reenviarlo por donde salió o anularlo.
 // Una oferta aún no es un expediente (no tiene número de CEE hasta que el
 // cliente acepta), así que su fila no abre ficha: despliega estas acciones.
+// «Abrir» lleva al editor de presupuestos (el de la pestaña Facturación).
 // ─────────────────────────────────────────────────────────────────────────────
-export function AccionesOferta({ oferta: f, onCambio }) {
+export function AccionesOferta({ oferta: f, onCambio, onAbrir = null }) {
     const { showConfirm } = useModal();
     const [ocupado, setOcupado] = useState(false);
     const [aviso, setAviso] = useState(null);   // { texto, tono }
@@ -60,6 +61,7 @@ export function AccionesOferta({ oferta: f, onCambio }) {
     return (
         <div onClick={e => e.stopPropagation()}>
             <div className="flex flex-wrap gap-1.5">
+                {onAbrir && <button className={btn} disabled={ocupado} onClick={onAbrir}>✎ {['BORRADOR', 'ENVIADA'].includes(f.estado) ? 'Abrir / editar' : 'Abrir'}</button>}
                 <button className={btn} disabled={ocupado} onClick={verPdf}>📄 Ver PDF</button>
                 {pendiente && <button className={btn} disabled={ocupado} onClick={copiarEnlace}>🔗 Copiar enlace</button>}
                 {pendiente && f.ultimo_envio && <button className={btn} disabled={ocupado} onClick={reenviar}>Reenviar</button>}

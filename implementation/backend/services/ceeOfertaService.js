@@ -53,7 +53,8 @@ function cuestionarioMod() {
 
 const urlAceptacion = (token) => `${FRONTEND()}/aceptar-cee/${token}`;
 const nombreCliente = (c) => (c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : '');
-const nombreFichero = (o) => `Oferta CEE ${o.numero}.pdf`;
+// Un presupuesto de partidas (pestaña Facturación) no tiene por qué ser de un CEE.
+const nombreFichero = (o) => (Array.isArray(o.lineas) ? `Presupuesto ${o.numero}.pdf` : `Oferta CEE ${o.numero}.pdf`);
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 /** Número suelto, admitiendo la coma decimal. */
@@ -84,14 +85,33 @@ async function cargar(id) {
 async function cargarPorToken(token) {
     if (!/^[a-f0-9]{32}$/i.test(String(token || ''))) return null;
     const { data } = await supabase.from(TABLA).select('*').eq('token', token).maybeSingle();
+    // Un BORRADOR no ha salido de casa: su enlace todavía no existe para nadie.
+    if (data?.estado === 'BORRADOR') return null;
     return conCliente(data);
 }
 
-/** Listado para la pestaña: sin JSONB pesados (aquí no los hay, pero se piden columnas). */
+/**
+ * La PRIMERA vez que el cliente abre el enlace: el listado lo enseña como
+ * «visto», que es lo que dice a quién llamar. Best-effort.
+ */
+async function marcarVisto(oferta) {
+    if (!oferta?.id || oferta.visto_at || oferta.estado !== 'ENVIADA') return;
+    try {
+        await supabase.from(TABLA).update({ visto_at: new Date().toISOString() }).eq('id', oferta.id).is('visto_at', null);
+    } catch (e) { console.warn('[presupuesto visto]', e.message); }
+}
+
+/**
+ * Listado para la pestaña CEE directos: sin JSONB pesados (se piden columnas;
+ * las partidas NO, el total ya va en su columna). Solo los presupuestos que
+ * abren un CEE (`alcance`): uno de solo legalización o consultoría vive en la
+ * pestaña Facturación y aquí sería una fila sin expediente posible.
+ */
 async function listar({ estados = ['ENVIADA'] } = {}) {
     const { data, error } = await supabase.from(TABLA)
-        .select('id, numero, token, alcance, precio, dto_pct, iva_pct, tasa, num_tasas, estado, cliente_id, prescriptor_id, municipio, direccion, envios, created_at, aceptada_at, cee_directo_id')
+        .select('id, numero, token, alcance, precio, dto_pct, iva_pct, tasa, num_tasas, total, estado, cliente_id, prescriptor_id, municipio, direccion, envios, created_at, aceptada_at, cee_directo_id')
         .in('estado', estados)
+        .not('alcance', 'is', null)
         .order('created_at', { ascending: false })
         .limit(200);
     if (error) throw new Error(error.message);
@@ -109,7 +129,7 @@ async function listar({ estados = ['ENVIADA'] } = {}) {
     return filas.map(f => ({
         ...f,
         cliente_nombre: clientes[f.cliente_id] || '',
-        total: m.totalesOferta(f).total,
+        total: f.total != null ? Number(f.total) : m.totalesOferta(f).total,
         ultimo_envio: Array.isArray(f.envios) && f.envios.length ? f.envios[f.envios.length - 1] : null,
         envios: undefined
     }));
@@ -123,6 +143,54 @@ async function listar({ estados = ['ENVIADA'] } = {}) {
  */
 async function crear(datos = {}, { usuarioId = null, usuarioNombre = null } = {}) {
     const m = await modulo();
+    const { clienteId, clienteCreado } = await resolverCliente(datos);
+    datos = { ...datos, cliente_id: clienteId };
+
+    const alcance = m.alcanceDe(datos.alcance);
+    const precio = numero(datos.precio);
+    if (!(precio > 0)) throw Object.assign(new Error('El precio tiene que ser mayor que cero'), { status: 400 });
+    const tasa = numero(datos.tasa);
+
+    const fila = {
+        cliente_id: datos.cliente_id,
+        prescriptor_id: datos.prescriptor_id || null,
+        alcance,
+        precio: r2(precio),
+        dto_pct: Math.min(100, Math.max(0, numero(datos.dto_pct) || 0)),
+        iva_pct: numero(datos.iva_pct) ?? m.IVA_DEFECTO,
+        tasa: r2(tasa ?? m.TASA_REGISTRO_CLM),
+        num_tasas: m.numTasasDe(alcance),
+        ...inmuebleDe(datos),
+        // Solo el texto libre para el cliente: la política de entrega sale sola en el PDF.
+        observaciones: m.observacionesCliente(datos.observaciones) || null,
+        token: crypto.randomBytes(16).toString('hex'),
+        estado: 'ENVIADA',
+        historial: [{ fecha: new Date().toISOString(), texto: 'Oferta creada', usuario: usuarioNombre }],
+        created_by: usuarioId
+    };
+    const { data, error } = await supabase.from(TABLA).insert(fila).select().single();
+    if (error) throw new Error(error.message);
+    return { ...(await conCliente(data)), _clienteCreado: clienteCreado };
+}
+
+/** Los campos del inmueble tal como se guardan en la fila. */
+function inmuebleDe(datos = {}) {
+    return {
+        direccion: datos.direccion || null,
+        ref_catastral: datos.ref_catastral ? String(datos.ref_catastral).toUpperCase().trim() : null,
+        ccaa: datos.ccaa || null,
+        provincia: datos.provincia || null,
+        municipio: datos.municipio || null,
+        codigo_postal: datos.codigo_postal || null,
+    };
+}
+
+/**
+ * El cliente del presupuesto: el elegido (`cliente_id`) o una ALTA RÁPIDA
+ * (`cliente_nuevo`: nombre y, si se tienen, teléfono y email). Lo usan la oferta
+ * de CEE y el presupuesto de partidas (`presupuestoService`).
+ */
+async function resolverCliente(datos = {}) {
     let clienteCreado = false;
     if (!datos.cliente_id && datos.cliente_nuevo?.nombre?.trim()) {
         // ALTA RÁPIDA: de quien pregunta por WhatsApp solo hay un nombre y un
@@ -143,39 +211,10 @@ async function crear(datos = {}, { usuarioId = null, usuarioNombre = null } = {}
         datos = { ...datos, cliente_id: nuevo.id_cliente };
         clienteCreado = true;
     }
-    if (!datos.cliente_id) throw Object.assign(new Error('Hay que indicar el cliente de la oferta'), { status: 400 });
+    if (!datos.cliente_id) throw Object.assign(new Error('Hay que indicar el cliente del presupuesto'), { status: 400 });
     const { data: cli } = await supabase.from('clientes').select('id_cliente').eq('id_cliente', datos.cliente_id).maybeSingle();
     if (!cli) throw Object.assign(new Error('El cliente indicado no existe'), { status: 400 });
-
-    const alcance = m.alcanceDe(datos.alcance);
-    const precio = numero(datos.precio);
-    if (!(precio > 0)) throw Object.assign(new Error('El precio tiene que ser mayor que cero'), { status: 400 });
-    const tasa = numero(datos.tasa);
-
-    const fila = {
-        cliente_id: datos.cliente_id,
-        prescriptor_id: datos.prescriptor_id || null,
-        alcance,
-        precio: r2(precio),
-        dto_pct: Math.min(100, Math.max(0, numero(datos.dto_pct) || 0)),
-        iva_pct: numero(datos.iva_pct) ?? m.IVA_DEFECTO,
-        tasa: r2(tasa ?? m.TASA_REGISTRO_CLM),
-        num_tasas: m.numTasasDe(alcance),
-        direccion: datos.direccion || null,
-        ref_catastral: datos.ref_catastral ? String(datos.ref_catastral).toUpperCase().trim() : null,
-        ccaa: datos.ccaa || null,
-        provincia: datos.provincia || null,
-        municipio: datos.municipio || null,
-        codigo_postal: datos.codigo_postal || null,
-        observaciones: datos.observaciones ?? m.observacionesDefecto(alcance),
-        token: crypto.randomBytes(16).toString('hex'),
-        estado: 'ENVIADA',
-        historial: [{ fecha: new Date().toISOString(), texto: 'Oferta creada', usuario: usuarioNombre }],
-        created_by: usuarioId
-    };
-    const { data, error } = await supabase.from(TABLA).insert(fila).select().single();
-    if (error) throw new Error(error.message);
-    return { ...(await conCliente(data)), _clienteCreado: clienteCreado };
+    return { clienteId: datos.cliente_id, clienteCreado };
 }
 
 /**
@@ -214,19 +253,63 @@ async function pdfDe(oferta) {
  * cambio, se informa de cada resultado — un WhatsApp caído no puede tapar un
  * email que sí salió.
  */
+/**
+ * El mensaje que acompaña al PDF. Un presupuesto de partidas cuenta QUÉ se le
+ * presupuesta (una partida por línea); la oferta antigua, su frase del CEE.
+ */
+async function mensajePorDefecto(oferta) {
+    const m = await modulo();
+    const { total, tasas } = m.totalesOferta(oferta);
+    const url = urlAceptacion(oferta.token);
+    const conLineas = Array.isArray(oferta.lineas);
+    return m.mensajeOferta({
+        nombre: destinoDe(oferta.cliente).nombre || nombreCliente(oferta.cliente),
+        numero: oferta.numero, alcance: oferta.alcance,
+        total, tasas, url, inmueble: m.direccionInmueble(oferta),
+        ...(conLineas ? { partidas: (await partidasMod()).partidasDe(oferta.lineas), abreCee: !!oferta.alcance } : {})
+    });
+}
+
+let _part = null;
+function partidasMod() {
+    if (!_part) _part = import(pathToFileURL(path.join(__dirname, '../../frontend/src/features/facturacion/logic/presupuesto.js')).href);
+    return _part;
+}
+
+/**
+ * A quién le llega: con el desvío de contacto activo, a su persona de contacto
+ * (mismo criterio que el popup y que /firma/:id).
+ */
+function destinoDe(c) {
+    if (!c) return { email: '', tlf: '', nombre: '' };
+    if (c.notificaciones_contacto_activas && (c.persona_contacto_tlf || c.persona_contacto_email)) {
+        return {
+            email: c.persona_contacto_email || c.email || '',
+            tlf: c.persona_contacto_tlf || c.tlf || '',
+            nombre: c.persona_contacto_nombre || nombreCliente(c),
+        };
+    }
+    return { email: c.email || '', tlf: c.tlf || '', nombre: nombreCliente(c) };
+}
+
 async function enviar(oferta, { canales = [], email, tlf, mensaje, usuario = null } = {}) {
-    if (oferta.estado !== 'ENVIADA') throw Object.assign(new Error(`La oferta está ${oferta.estado.toLowerCase()} y ya no se envía`), { status: 409 });
+    // Un BORRADOR se envía (y pasa a ENVIADA); uno ya enviado se REENVÍA.
+    if (!['ENVIADA', 'BORRADOR'].includes(oferta.estado)) throw Object.assign(new Error(`El presupuesto está ${oferta.estado.toLowerCase()} y ya no se envía`), { status: 409 });
+    // Sin destinatario explícito (el MCP no dicta teléfonos), el de la ficha.
+    const dest = destinoDe(oferta.cliente);
+    if (email === undefined) email = dest.email;
+    if (tlf === undefined) tlf = dest.tlf;
     const quiereEmail = canales.includes('email') && email;
     const quiereWa = canales.includes('whatsapp') && tlf;
     if (!quiereEmail && !quiereWa) throw Object.assign(new Error('No hay ningún canal con destinatario'), { status: 400 });
 
-    const m = await modulo();
-    const { total, tasas } = m.totalesOferta(oferta);
     const url = urlAceptacion(oferta.token);
-    const texto = (mensaje && String(mensaje).trim()) || m.mensajeOferta({
-        nombre: nombreCliente(oferta.cliente), numero: oferta.numero, alcance: oferta.alcance,
-        total, tasas, url, inmueble: m.direccionInmueble(oferta)
-    });
+    // Un mensaje editado en el popup ANTES de que existiera el número lleva los
+    // marcadores del borrador: aquí se cambian por el número y el enlace reales.
+    const texto = ((mensaje && String(mensaje).trim()) || await mensajePorDefecto(oferta))
+        .replace(/\(nº de (oferta|presupuesto)\)/g, oferta.numero || '')
+        .replace(/\(enlace para aceptar\)/g, url);
+    const conLineas = Array.isArray(oferta.lineas);
 
     const { buffer, filename } = await pdfDe(oferta);
 
@@ -235,11 +318,11 @@ async function enviar(oferta, { canales = [], email, tlf, mensaje, usuario = nul
         try {
             await emailService.sendDocumentEmail({
                 to: email,
-                subject: `Tu presupuesto de certificado energético · ${oferta.numero}`,
-                title: 'Tu presupuesto de certificado energético',
+                subject: conLineas ? `Tu presupuesto · ${oferta.numero}` : `Tu presupuesto de certificado energético · ${oferta.numero}`,
+                title: conLineas ? 'Tu presupuesto' : 'Tu presupuesto de certificado energético',
                 message: texto,
                 primaryLink: url,
-                primaryLabel: 'Aceptar la oferta',
+                primaryLabel: conLineas ? 'Aceptar el presupuesto' : 'Aceptar la oferta',
                 attachments: [{ filename, content: buffer, contentType: 'application/pdf' }],
                 pill: { tone: 'info', text: `Presupuesto ${oferta.numero}`, emoji: '📄' }
             });
@@ -273,16 +356,23 @@ async function enviar(oferta, { canales = [], email, tlf, mensaje, usuario = nul
         const envios = [...(Array.isArray(oferta.envios) ? oferta.envios : []), envio];
         const historial = [...(Array.isArray(oferta.historial) ? oferta.historial : []),
             { fecha: envio.at, texto: `Enviada por ${canalesOk.join(' y ')}`, usuario }];
-        await supabase.from(TABLA).update({ envios, historial, updated_at: envio.at }).eq('id', oferta.id);
+        const upd = { envios, historial, updated_at: envio.at };
+        if (oferta.estado === 'BORRADOR') upd.estado = 'ENVIADA';
+        // El paso de BORRADOR a ENVIADA solo si sigue en borrador (un envío
+        // doble no debe pisar una aceptación que haya llegado entre medias).
+        let q = supabase.from(TABLA).update(upd).eq('id', oferta.id);
+        if (upd.estado) q = q.eq('estado', 'BORRADOR');
+        await q;
+        oferta.estado = upd.estado || oferta.estado;
     }
-    return { resultados, canalesOk, url };
+    return { resultados, canalesOk, url, mensaje: texto };
 }
 
 async function anular(id, usuario = null) {
     const o = await cargar(id);
     if (!o) throw Object.assign(new Error('Oferta no encontrada'), { status: 404 });
-    if (o.estado !== 'ENVIADA') throw Object.assign(new Error(`La oferta ya está ${o.estado.toLowerCase()}`), { status: 409 });
-    const historial = [...(o.historial || []), { fecha: new Date().toISOString(), texto: 'Oferta anulada', usuario }];
+    if (!['ENVIADA', 'BORRADOR'].includes(o.estado)) throw Object.assign(new Error(`El presupuesto ya está ${o.estado.toLowerCase()}`), { status: 409 });
+    const historial = [...(o.historial || []), { fecha: new Date().toISOString(), texto: 'Anulado', usuario }];
     await supabase.from(TABLA).update({ estado: 'ANULADA', historial, updated_at: new Date().toISOString() }).eq('id', id);
     return { ok: true };
 }
@@ -310,9 +400,12 @@ async function vistaPublica(oferta) {
         fecha: oferta.created_at,
         estado: oferta.estado,
         alcance: oferta.alcance,
+        // Sin CEE no hay cuestionario de climatización ni fotos para el técnico.
+        abre_cee: !!oferta.alcance,
         concepto: m.conceptoOferta(oferta),
-        lineas: lineas.map(l => ({ descripcion: l.descripcion, uds: l.uds, precio: l.precio, iva_pct: l.ivaPct })),
+        lineas: lineas.map(l => ({ descripcion: l.descripcion, detalle: l.detalle || '', uds: l.uds, precio: l.precio, dto_pct: l.dtoPct || 0, iva_pct: l.ivaPct, suplido: !!l.suplido })),
         neto, iva, total,
+        observaciones: m.observacionesCliente(oferta.observaciones),
         aceptada_at: oferta.aceptada_at,
         aceptada_por: oferta.aceptada_por,
         numero_expediente: numeroExpediente,
@@ -397,14 +490,17 @@ async function completarCliente(oferta, f) {
  */
 async function aceptar(token, form = {}) {
     const oferta = await cargarPorToken(token);
-    if (!oferta) throw Object.assign(new Error('Esta oferta no existe o el enlace no es correcto'), { status: 404 });
+    if (!oferta || oferta.estado === 'BORRADOR') throw Object.assign(new Error('Esta oferta no existe o el enlace no es correcto'), { status: 404 });
     if (oferta.estado === 'ANULADA') throw Object.assign(new Error('Esta oferta ha sido anulada. Ponte en contacto con nosotros y te enviamos una nueva.'), { status: 409 });
+    if (oferta.estado === 'RECHAZADA') throw Object.assign(new Error('Este presupuesto está cerrado. Ponte en contacto con nosotros y te enviamos uno nuevo.'), { status: 409 });
     if (oferta.estado === 'ACEPTADA') {
         return { yaAceptada: true, numeroExpediente: (await vistaPublica(oferta)).numero_expediente };
     }
 
-    for (const [k, etiqueta] of [['nombre_razon_social', 'el nombre'], ['dni_cif', 'el DNI / CIF'], ['email', 'el email'], ['telefono', 'el teléfono'],
-        ['direccion', 'la dirección del inmueble'], ['municipio', 'el municipio del inmueble']]) {
+    // El inmueble solo es obligatorio si hay un CEE que hacer en él.
+    const obligatorios = [['nombre_razon_social', 'el nombre'], ['dni_cif', 'el DNI / CIF'], ['email', 'el email'], ['telefono', 'el teléfono'],
+        ...(oferta.alcance ? [['direccion', 'la dirección del inmueble'], ['municipio', 'el municipio del inmueble']] : [])];
+    for (const [k, etiqueta] of obligatorios) {
         if (!txt(form[k])) throw Object.assign(new Error(`Falta ${etiqueta}`), { status: 400 });
     }
     const cond = txt(form.condiciones_version);
@@ -441,6 +537,23 @@ async function aceptar(token, form = {}) {
 
         const m = await modulo();
         const { total } = m.totalesOferta(oferta);
+
+        if (!oferta.alcance) {
+            // Sin CEE (una legalización, una memoria, una consultoría…) no nace
+            // ningún expediente: el presupuesto queda ACEPTADO, con los datos del
+            // cliente ya completos para facturarle, y se avisa al equipo.
+            await supabase.from(TABLA).update({
+                cliente_id: clienteId,
+                direccion: inm.direccion, codigo_postal: inm.codigo_postal, municipio: inm.municipio,
+                provincia: inm.provincia, ref_catastral: inm.ref_catastral,
+                historial: [...(oferta.historial || []), { fecha: ahora, texto: `Aceptado por ${aceptadaPor}`, usuario: 'Cliente' }]
+            }).eq('id', oferta.id);
+            const ofertaFinal = { ...oferta, ...inm, cliente_id: clienteId };
+            setImmediate(() => avisarSinCee({ oferta: ofertaFinal, form, total, fmtEur: m.fmtEur })
+                .catch(e => console.error('[presupuesto aviso]', e.message)));
+            return { yaAceptada: false, numeroExpediente: null, sinExpediente: true };
+        }
+
         // Lo que ha contestado de climatización: viaja al expediente para que lo
         // vea el equipo y el técnico antes de la visita.
         const cq = await cuestionarioMod();
@@ -456,7 +569,12 @@ async function aceptar(token, form = {}) {
             ...inm,
             documentacion: {
                 cuestionario,
-                oferta: { id: oferta.id, numero: oferta.numero, total, precio: Number(oferta.precio), dto_pct: Number(oferta.dto_pct || 0), tasa: Number(oferta.tasa), num_tasas: oferta.num_tasas, aceptada_at: ahora }
+                // Con partidas, viajan ELLAS (la factura sale de lo aceptado: ver
+                // `facturaCee.lineasPorDefecto`); las columnas de la oferta
+                // antigua, solo si no las hay.
+                oferta: Array.isArray(oferta.lineas)
+                    ? { id: oferta.id, numero: oferta.numero, total, lineas: oferta.lineas, aceptada_at: ahora }
+                    : { id: oferta.id, numero: oferta.numero, total, precio: Number(oferta.precio), dto_pct: Number(oferta.dto_pct || 0), tasa: Number(oferta.tasa), num_tasas: oferta.num_tasas, aceptada_at: ahora }
             },
             notas: `Nace de la aceptación de la oferta ${oferta.numero} (${m.fmtEur(total)}).`
         }, {
@@ -544,7 +662,62 @@ async function avisar({ oferta, expediente, form, total, fmtEur, resumen = [] })
 
 }
 
-const CONFIRMACION_DIFERIDA_MS = Number(process.env.OFERTA_CEE_CONFIRMACION_MS) || 30 * 60 * 1000;
+/**
+ * Presupuesto SIN CEE aceptado: aviso al equipo y acuse al cliente en el acto
+ * (aquí no hay fotos que subir, así que no se espera a «He terminado»).
+ * Nunca tumba la aceptación.
+ */
+async function avisarSinCee({ oferta, form, total, fmtEur }) {
+    const nombre = `${txt(form.nombre_razon_social)} ${txt(form.apellidos)}`.trim();
+    const partidas = Array.isArray(oferta.lineas) ? (await partidasMod()).partidasDe(oferta.lineas) : [];
+    const inmueble = [oferta.direccion, oferta.municipio].filter(Boolean).join(', ');
+    const staff = [
+        '✅ *PRESUPUESTO ACEPTADO*',
+        '',
+        `Presupuesto: *${oferta.numero}* · ${fmtEur(total)}`,
+        `Cliente: ${nombre} · ${txt(form.telefono)} · ${txt(form.email)}`,
+        ...(inmueble ? [`Inmueble: ${inmueble}`] : []),
+        ...(partidas.length ? ['', ...partidas.map(p => `• ${p}`)] : []),
+        '',
+        `Siguiente paso: ponerse en marcha y facturar → ${FRONTEND()}/?tab=facturacion`
+    ].join('\n');
+    try { await whatsappService.sendText(adminPhone(), staff); } catch (e) { console.warn('[presupuesto] WA staff:', e.message); }
+    try {
+        await emailService.sendMail({
+            to: adminEmail(),
+            subject: `Presupuesto ${oferta.numero} aceptado`,
+            text: staff.replace(/\*/g, ''),
+            html: `<pre style="font-family:inherit;white-space:pre-wrap">${staff.replace(/\*/g, '').replace(/</g, '&lt;')}</pre>`
+        });
+    } catch (e) { console.warn('[presupuesto] email staff:', e.message); }
+
+    const { data: cli } = await supabase.from('clientes').select('*').eq('id_cliente', oferta.cliente_id).maybeSingle();
+    const dest = destinoDe(cli);
+    const primer = String(dest.nombre || nombre).split(/\s+/)[0] || '';
+    const texto = [
+        primer ? `¡Hola ${primer.charAt(0).toUpperCase()}${primer.slice(1).toLowerCase()}!` : '¡Hola!', '',
+        `Hemos recibido la aceptación de tu presupuesto *${oferta.numero}*. *¡Muchas gracias por confiar en Brokergy!*`, '',
+        'Nos ponemos en marcha y en breve te contamos los siguientes pasos.', '',
+        '¡Quedamos a tu disposición para cualquier duda!',
+        '*BROKERGY — Ingeniería Energética*'
+    ].join('\n');
+    if (dest.tlf) {
+        try { await whatsappService.sendText(dest.tlf, texto); } catch (e) { console.warn('[presupuesto] WA cliente:', e.message); }
+    }
+    if (dest.email) {
+        try {
+            await emailService.sendDocumentEmail({
+                to: dest.email,
+                subject: `Presupuesto ${oferta.numero} aceptado`,
+                title: 'Hemos recibido tu aceptación',
+                message: texto,
+                pill: { tone: 'success', text: 'Presupuesto aceptado' }
+            });
+        } catch (e) { console.warn('[presupuesto] email cliente:', e.message); }
+    }
+}
+
+const CONFIRMACION_DIFERIDA_MS =Number(process.env.OFERTA_CEE_CONFIRMACION_MS) || 30 * 60 * 1000;
 const confirmando = new Set();   // candado: "He terminado" y el respaldo pueden coincidir
 
 /**
@@ -635,5 +808,7 @@ async function confirmarAlCliente(token, { motivo = 'cliente' } = {}) {
 
 module.exports = {
     TABLA, urlAceptacion, cargar, cargarPorToken, listar, crear, descartar, enviar, anular,
-    htmlDe, pdfDe, vistaPublica, aceptar, confirmarAlCliente
+    htmlDe, pdfDe, vistaPublica, aceptar, confirmarAlCliente, marcarVisto,
+    // Para el presupuesto de partidas (presupuestoService):
+    conCliente, resolverCliente, inmuebleDe, destinoDe, mensajePorDefecto, nombreCliente
 };

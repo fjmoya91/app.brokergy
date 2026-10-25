@@ -220,6 +220,13 @@ async function emitir(exp, body = {}, { usuario = null } = {}) {
             factura_gestion: registro,
             respuestas: { ...(cobro.respuestas || {}), forma_pago: 'factura' },
         });
+        // Al registro de todas las facturas (Facturación, VERI*FACTU). Best-effort;
+        // se pide aquí para no cruzar los require al cargar.
+        await require('./facturaService').registrarEmitida({
+            origen: 'GESTION_CAE', serie: 'ING', numero: emit.numero, hojaId: emit.id, fecha: fechaIso, vencimiento: vencimientoIso,
+            cliente: { ...receptor, es_empresa: receptor.esEmpresa }, clienteId: destino === 'cliente' ? (exp.cliente_id || null) : null,
+            lineas: registro.lineas, observaciones, expediente: exp.numero_expediente, estado: 'EMITIDA', usuario,
+        });
 
         let pdf = null, errorPdf = null;
         try { pdf = await generarPdf(exp, registro); }
@@ -245,6 +252,7 @@ async function generarPdf(exp, reg) {
     const expediente = await copiaExpediente(exp, reg, buffer);
     const pdf = { driveId: g.driveId, link: g.link, nombre: g.nombre, at: new Date().toISOString(), contabilidad, expediente };
     await cobroService.sellar(exp.id, { factura_gestion: { ...reg, pdf } });
+    await require('./facturaService').actualizarRegistrada(reg.numero, { pdf });
     return { ...pdf, buffer };
 }
 
@@ -352,6 +360,7 @@ async function enviar(exp, { canales = [], email, tlf, mensaje, usuario = null }
         const fresco = (await cobroService.cargarExpediente(exp.id))?.documentacion?.cobro?.factura_gestion || reg;
         const envio = { at: new Date().toISOString(), canales: canalesOk, email: quiereEmail ? txt(email) : null, tlf: quiereWa ? txt(tlf) : null, usuario };
         await cobroService.sellar(exp.id, { factura_gestion: { ...fresco, envios: [...(fresco.envios || []), envio] } });
+        await require('./facturaService').actualizarRegistrada(reg.numero, { envio, usuario });
     }
     return { numero: reg.numero, resultados, canalesOk };
 }
@@ -370,6 +379,7 @@ async function marcarPagada(exp, pagada, { usuario = null } = {}) {
     await cobroService.sellar(exp.id, {
         factura_gestion: { ...reg, estado: pagada ? 'PAGADA' : 'ENVIADA', pagada_at: pagada ? at : null, pagada_por: pagada ? usuario : null },
     });
+    await require('./facturaService').marcarCobroPorNumero(reg.numero, { pagada: !!pagada, fecha: pagada ? hoyMadrid() : null });
     return { numero: reg.numero, estado: pagada ? 'PAGADA' : 'ENVIADA' };
 }
 
