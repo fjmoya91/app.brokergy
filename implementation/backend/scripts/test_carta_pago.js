@@ -63,12 +63,22 @@ const ok = (cond, msg) => { console.log(`${cond ? '✓' : '✗'} ${msg}`); if (!
     // 6. Los textos del envío: la cuenta solo por sus 4 últimas cifras.
     const { componerMensajeCartaPago } = await import(require('url').pathToFileURL(path.join(__dirname, '../../frontend/src/features/cobro/logic/cobroForm.js')).href);
     const t = componerMensajeCartaPago({ nombre: 'Antonio', importe: 1370, ultimos4: ['1234'], numero: 'CP-2026-0001', enlace: carta.RESENA_URL_DEFECTO });
-    ok(t.whatsapp.replace(/ /g, ' ').startsWith('Hola, Antonio 👋 Ya te hemos transferido tu Bono CAE de 1.370,00 €.'), 'WhatsApp: el texto del encargo');
+    // Tres WhatsApp (25/10/2026): el ingreso (con la cifra en negrita y sin la reseña),
+    // el PDF y la reseña aparte, con el enlace.
+    const wa = t.whatsapp.replace(/ /g, ' ');
+    ok(wa.startsWith('Hola, Antonio 👋') && wa.includes('*Ya te hemos transferido tu Bono CAE: 1.370,00 €*') && wa.includes('*1234*'), 'WhatsApp 1: el ingreso, con la cifra y la cuenta en negrita');
+    ok(!wa.includes('reseña') && !wa.includes('http'), 'WhatsApp 1: sin la reseña ni enlaces');
+    ok(t.whatsapp_resena && t.whatsapp_resena.includes('reseña') && t.whatsapp_resena.includes(carta.RESENA_URL_DEFECTO), 'WhatsApp 3: la reseña con su enlace');
+    // WhatsApp pliega los mensajes largos tras «Leer más»: el enlace, en la 2.ª línea y el mensaje corto.
+    ok(t.whatsapp_resena.split('\n')[1] === carta.RESENA_URL_DEFECTO && t.whatsapp_resena.length <= 400,
+        `WhatsApp 3: el enlace en la 2.ª línea y el mensaje corto (${t.whatsapp_resena.length} caracteres)`);
+    const tsin = componerMensajeCartaPago({ nombre: 'Antonio', importe: 1370, ultimos4: ['1234'], numero: 'CP-2026-0001', enlace: null });
+    ok(tsin.whatsapp_resena === null, 'sin enlace de reseña: no hay tercer WhatsApp');
     ok(t.email.includes('en la cuenta terminada en 1234') && t.email.includes(carta.RESENA_URL_DEFECTO), 'email: cuenta (4 cifras) y reseña');
     const tx = componerMensajeCartaPago({ nombre: 'Antonio', importe: 3030.62, ultimos4: ['6077'], numero: 'CP-2026-0001', expediente: '25RES060_29', enlace: carta.RESENA_URL_DEFECTO });
     ok(tx.asunto.replace(/ /g, ' ') === '25RES060_29 · Tu Bono CAE de 3.030,62 € ya está en tu cuenta', `asunto: el nº de expediente delante (${tx.asunto})`);
     const tp = componerMensajeCartaPago({ nombre: 'Juan', importe: 1000, ultimos4: ['1234'], numero: 'CP-2026-0002', enlace: carta.RESENA_URL_DEFECTO, partner: true });
-    ok(!tp.whatsapp.includes('reseña') && !tp.email.includes('1234'), 'al partner: ni reseña ni cuenta');
+    ok(!tp.whatsapp.includes('reseña') && tp.whatsapp_resena === null && !tp.whatsapp.includes('1234') && !tp.email.includes('1234'), 'al partner: ni reseña ni cuenta');
 
     // 7. El EMAIL de diseño.
     const crypto = require('crypto');

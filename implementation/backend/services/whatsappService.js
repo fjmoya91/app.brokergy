@@ -991,7 +991,7 @@ async function asegurarParcheAdjuntos() {
  * Envío de media (PDF, imagen...). Solo funciona con cliente activo.
  * Si no está listo, lanza error (media no se puede persistir fácilmente en BD).
  */
-async function sendMedia(phone, media, { caption, asDocument = true, splitCaption, textoDespues } = {}) {
+async function sendMedia(phone, media, { caption, asDocument = true, splitCaption, textoDespues, linkPreview } = {}) {
     if (!CONFIG.enabled) throw new Error('WhatsApp deshabilitado (WHATSAPP_ENABLED=false)');
     if (!media || (!media.url && !media.base64)) throw new Error('media requiere url o base64');
     if (!isReady()) throw new Error(`Cliente WhatsApp no listo (estado: ${state}). Conecta WhatsApp primero.`);
@@ -1019,6 +1019,11 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
 
     await waitForRateSlot();
 
+    // `linkPreview: false` quita la tarjeta del enlace en los TEXTOS que acompañan al
+    // adjunto (el previo y los de después). La de Google sale gris, con
+    // «search.google.com», y encima del mensaje (carta de pago, 25/10/2026).
+    const optsTexto = { waitUntilMsgSent: true, sendSeen: SEND_SEEN, ...(linkPreview === false ? { linkPreview: false } : {}) };
+
     // Si el "caption" es en realidad un MENSAJE (varias líneas o texto largo), lo
     // enviamos como mensaje de texto APARTE *antes* del adjunto y el PDF va sin
     // caption. Motivo: cuando el mensaje es largo, mucha gente no abre el PDF que
@@ -1031,7 +1036,7 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
         await sendTypingThenWait();
         try {
             const previo = await withTimeout(
-                client.sendMessage(chatId, cap, { waitUntilMsgSent: true, sendSeen: SEND_SEEN }),
+                client.sendMessage(chatId, cap, optsTexto),
                 60_000, 'sendMessage(text-previo)',
             );
             await confirmarEntrega(previo, `texto de la propuesta → ${chatId}`);
@@ -1116,7 +1121,7 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
                 await waitForRateSlot();
                 await sendTypingThenWait();
                 const r2 = await withTimeout(
-                    client.sendMessage(chatId, tras[i], { waitUntilMsgSent: true, sendSeen: SEND_SEEN }),
+                    client.sendMessage(chatId, tras[i], optsTexto),
                     60_000, 'sendMessage(texto-despues)',
                 );
                 await confirmarEntrega(r2, `texto ${i + 1} tras el adjunto → ${chatId}`);

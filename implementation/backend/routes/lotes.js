@@ -936,7 +936,8 @@ router.post('/:id/transferencia/:expId/avisar', adminOnly, async (req, res) => {
         const channels = idsDe(req.body?.channels);
         if (!channels.length) return res.status(400).json({ error: 'Selecciona al menos un canal' });
         res.json(await pagoClientes.avisarTransferencia(exp, {
-            channels, mensaje: req.body?.mensaje, mensajeEmail: req.body?.mensaje_email, asunto: req.body?.asunto,
+            channels, mensaje: req.body?.mensaje, mensajeResena: req.body?.mensaje_resena,
+            mensajeEmail: req.body?.mensaje_email, asunto: req.body?.asunto,
             resena: req.body?.resena || null, usuario: usuarioDe(req),
         }));
     } catch (err) {

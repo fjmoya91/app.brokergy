@@ -349,6 +349,8 @@ export function AvisoTransferenciaModal({ lote, filas, cartas = [], onClose, onE
             ...p,
             [f.id]: {
                 transferencia: data.carta ? data.carta.whatsapp : data.transferencia,
+                // Con carta, el 3.er WhatsApp: la reseña, detrás del PDF.
+                resenaCarta: data.carta?.whatsapp_resena || '',
                 email: data.carta?.email || '',
                 asunto: data.carta?.asunto || '',
                 resena: data.resena || '',
@@ -425,6 +427,8 @@ export function AvisoTransferenciaModal({ lote, filas, cartas = [], onClose, onE
                 const { data } = await axios.post(`/api/lotes/${lote.id}/transferencia/${f.id}/avisar`, {
                     channels,
                     mensaje: txt[f.id]?.transferencia,
+                    // Vacía a propósito = no se manda; sin reseña de la carta (partner), ni se toca.
+                    mensaje_resena: b.carta?.whatsapp_resena ? (txt[f.id]?.resenaCarta ?? '') : undefined,
                     mensaje_email: b.carta?.html ? undefined : (txt[f.id]?.email || undefined),
                     asunto: txt[f.id]?.asunto || undefined,
                     resena: programar ? { programar: true, at: at.toISOString(), mensaje: txt[f.id].resena } : null,
@@ -448,7 +452,7 @@ export function AvisoTransferenciaModal({ lote, filas, cartas = [], onClose, onE
             <Marco
                 subtitulo="Pago a los clientes"
                 titulo="Avisar de la transferencia"
-                explicacion="A cada cliente: que ya está transferido y cuánto, con su CARTA DE PAGO en PDF adjunta (por WhatsApp y por email). El texto ya le pide la reseña en Google, así que la reseña programada sale desmarcada."
+                explicacion="A cada cliente, por WhatsApp en tres mensajes: el ingreso, su CARTA DE PAGO en PDF y la petición de reseña en Google; por email, la carta adjunta. A los 2 días hábiles sale el recordatorio «¿te ha llegado?»."
                 onClose={onClose}
                 pie={(
                     <>
@@ -517,13 +521,26 @@ export function AvisoTransferenciaModal({ lote, filas, cartas = [], onClose, onE
                             {abierto === f.id && b && (
                                 <div className="px-3 pb-3 space-y-2">
                                     <p className="text-[9px] font-black uppercase tracking-widest text-white/40">
-                                        {b.carta ? 'WhatsApp · con la carta adjunta' : 'Ahora · transferencia hecha'}
+                                        {b.carta ? 'WhatsApp 1 · el ingreso' : 'Ahora · transferencia hecha'}
                                     </p>
-                                    <textarea value={t.transferencia || ''} rows={b.carta ? 5 : 8}
+                                    <textarea value={t.transferencia || ''} rows={b.carta ? 7 : 8}
                                         onChange={e => setTxt(p => ({ ...p, [f.id]: { ...p[f.id], transferencia: e.target.value } }))}
                                         className="w-full bg-black/25 border border-white/10 rounded-xl p-3 text-[12px] text-white/85 leading-relaxed outline-none focus:border-brand/50 no-uppercase font-sans" />
                                     {b.carta && (
                                         <>
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-white/40">
+                                                WhatsApp 2 · <span className="text-emerald-300/80 normal-case tracking-normal font-bold">📄 {b.carta.nombre || `carta de pago ${b.carta.numero}`}</span>
+                                            </p>
+                                            {b.carta.whatsapp_resena ? (
+                                                <>
+                                                    <p className="text-[9px] font-black uppercase tracking-widest text-white/40">
+                                                        WhatsApp 3 · la reseña <span className="normal-case tracking-normal font-normal text-white/30">(vacío = no se manda)</span>
+                                                    </p>
+                                                    <textarea value={t.resenaCarta || ''} rows={10}
+                                                        onChange={e => setTxt(p => ({ ...p, [f.id]: { ...p[f.id], resenaCarta: e.target.value } }))}
+                                                        className="w-full bg-black/25 border border-white/10 rounded-xl p-3 text-[12px] text-white/85 leading-relaxed outline-none focus:border-brand/50 no-uppercase font-sans" />
+                                                </>
+                                            ) : null}
                                             <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Email · con la carta adjunta</p>
                                             <input value={t.asunto || ''}
                                                 onChange={e => setTxt(p => ({ ...p, [f.id]: { ...p[f.id], asunto: e.target.value } }))}

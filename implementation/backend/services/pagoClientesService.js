@@ -455,7 +455,7 @@ async function mandar({ tlf, email, asunto, texto, channels }) {
  * Envía el aviso de transferencia y, si se pide, PROGRAMA la reseña con el texto
  * revisado en el popup (el despachador no recompone nada: manda lo que se vio).
  */
-async function avisarTransferencia(exp, { channels = [], mensaje, mensajeEmail, asunto, resena = null, usuario }) {
+async function avisarTransferencia(exp, { channels = [], mensaje, mensajeResena, mensajeEmail, asunto, resena = null, usuario }) {
     const cobro = exp?.documentacion?.cobro || {};
     if (!cobro.transferencia?.at) { const e = new Error('Primero sube el justificante de la transferencia'); e.status = 409; throw e; }
     const contacto = cobroService.contactoCliente(exp);
@@ -463,14 +463,16 @@ async function avisarTransferencia(exp, { channels = [], mensaje, mensajeEmail, 
     let sent;
     const patch = {};
     if (borr.carta) {
-        // Con carta de pago: el PDF adjunto, por WhatsApp como documento con el
-        // mensaje de pie y por email como adjunto. Lo revisado en el popup MANDA.
+        // Con carta de pago: por WhatsApp el ingreso, el PDF y la reseña (tres
+        // mensajes), y por email el PDF adjunto. Lo revisado en el popup MANDA; la
+        // reseña, si el popup la manda VACÍA, no sale (se ha quitado a propósito).
         const cartaPago = require('./cartaPagoService');
         const pdf = await cartaPago.pdfDe(exp, { usuario });
         const r = await cartaPago.enviar({
             buffer: pdf.buffer, nombre: pdf.nombre, tlf: contacto.tlf, email: contacto.email, channels,
             textos: {
                 whatsapp: String(mensaje || '').trim() || borr.carta.whatsapp,
+                whatsapp_resena: mensajeResena === undefined ? borr.carta.whatsapp_resena : (String(mensajeResena || '').trim() || null),
                 // Con el email de diseño, el cuerpo es el suyo (y su texto plano): en
                 // el popup solo se toca el asunto.
                 email: (!borr.carta.html && String(mensajeEmail || '').trim()) || borr.carta.email,

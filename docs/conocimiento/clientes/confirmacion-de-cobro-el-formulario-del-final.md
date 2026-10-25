@@ -46,7 +46,7 @@ cifra distinta de la que se le descontó.
 **REGLA — las dos opciones NO cuestan lo mismo, y se dice ANTES de elegir.** El
 descuento se aplica sobre la **BASE, sin IVA** (250 €); por factura hay que
 repercutirlo (302,50 €) y además el ingreso no sale hasta que esté abonada. Así que
-la factura sale marcada como lo que es: icono apagado, chapa ámbar con lo que cuesta
+la factura sale marcada como lo que es: título apagado, chapa ámbar con lo que cuesta
 de más ("Más lento y 52,50 € más caro") y el motivo —las dos consecuencias, primero
 el retraso y después el dinero— en su propio texto. **No se bloquea**: es una
 elección legítima del cliente, pero dos opciones pintadas igual se leen como
@@ -287,7 +287,7 @@ Al subir el justificante del banco, cada cliente transferido tiene su **carta de
 un PDF de UNA hoja (diseño cerrado de Claude Design, aprobado por Fran) con el importe,
 la fecha de la transferencia, titular, vivienda, RC, instalador, actuación, ahorro
 VERIFICADO, la cuenta por sus 4 últimas cifras y la petición de reseña (botón + QR). Va
-adjunta al aviso de transferencia, por WhatsApp (documento con el mensaje de pie) y por
+adjunta al aviso de transferencia, por WhatsApp (en tres mensajes, ver abajo) y por
 email (adjunto), con los textos de Fran. Antes de llevarlo a la app se probó con
 25RES060_29 (Antonio Manjavacas) enviado SOLO a Fran por los dos canales.
 
@@ -330,6 +330,25 @@ las terminaciones. El ahorro es el VERIFICADO.
 
 **REGLA — con la carta, la reseña programada sale DESMARCADA**: el texto de la carta
 ya la pide, y con las dos se le pediría dos veces. Al partner, ni reseña ni cuenta.
+(Desde el 24/10/2026 lo programado con carta es el RECORDATORIO «¿te ha llegado?», que
+sale MARCADO porque no repite la petición: ver más abajo.)
+
+**REGLA — por WhatsApp son TRES mensajes: el INGRESO, la CARTA y la RESEÑA** (Fran,
+25/10/2026, al ver el de 25RES060_66): 1) «✅ *Ya te hemos transferido tu Bono CAE:
+8.099,51 €*», la cuenta por sus 4 cifras en negrita y que la carta va detrás; 2) el PDF,
+sin pie; 3) «⭐ *¿Te ha gustado cómo lo hemos llevado?* Déjanos una reseña…», con el
+ENLACE en la SEGUNDA línea, y debajo la idea de la página «¿te ha llegado?» (las familias
+que esperan su ingreso) y la firma de Fran. **El enlace va arriba y el mensaje es corto
+(≤ 400 caracteres, lo vigila el test)**: WhatsApp pliega los mensajes largos tras «Leer
+más» y un enlace al final no se ve (Fran, 25/10/2026; le pasaba al de confirmar la cuenta). Antes era
+un solo texto de dos frases: sin formato, la reseña se comía la noticia y, como
+`sendMedia` saca un texto de varias líneas a su propia burbuja, WhatsApp le ponía ENCIMA
+la tarjeta gris de «search.google.com». Ahora los textos van con `linkPreview: false`
+(opción de `sendMedia`, solo para los textos que acompañan al adjunto) y la reseña es
+`textoDespues`. En el popup se ven los tres; la reseña se edita y, **vacía, no sale**. Si
+falla SOLO la reseña no se reintenta (duplicaría ingreso y carta): sale en
+`envio_errores` para mandarla a mano. Textos: `whatsapp` y `whatsapp_resena` de
+`componerMensajeCartaPago` (null al partner o sin enlace). El email no cambia.
 
 **El EMAIL tiene su propio diseño** (Fran, 22/10/2026: «el que teníamos era una castaña»):
 [plantillas/email_carta_pago_bono_cae.html](implementation/backend/plantillas/email_carta_pago_bono_cae.html),

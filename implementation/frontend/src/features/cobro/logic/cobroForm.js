@@ -577,6 +577,11 @@ export function componerMensajeResena({ nombre, tercero = false, enlace, requeri
  * petición de reseña de `componerMensajeResena`, o se le pediría dos veces. Al
  * PARTNER no se le pide (es una reseña de BROKERGY en nombre de su cliente).
  *
+ * REGLA — por WhatsApp son TRES mensajes (Fran, 25/10/2026): el INGRESO
+ * (`whatsapp`), el PDF de la carta y la RESEÑA (`whatsapp_resena`, null si no
+ * se pide). Juntos en uno, la reseña se comía la noticia y la tarjeta gris del
+ * enlace de Google salía encima de todo.
+ *
  * @param {object} p
  *   @param {string}   p.nombre    a quién se saluda (quien RECIBE el mensaje)
  *   @param {number}   p.importe   lo transferido (verificado − honorarios)
@@ -602,10 +607,29 @@ export function componerMensajeCartaPago({
         : `, en la cuenta terminada en ${cuentas.join(' y ')}`;
     const conResena = !!enlace && !partner;
 
+    // 1 · El INGRESO: la noticia y la cifra, en negrita; la carta va justo detrás.
+    const enCuentaWa = partner || !cuentas.length ? []
+        : [`A la cuenta terminada en ${cuentas.map(u => `*${u}*`).join(' y ')}. Según el banco, puede tardar uno o dos días hábiles en aparecer.`];
     const whatsapp = [
-        `${hola} 👋 Ya ${tercero ? 'hemos transferido' : 'te hemos transferido'} ${bono} de ${eurMsg(importe)}. ${tercero ? 'Os dejamos' : 'Te dejamos'} la carta de pago adjunta como justificante.`,
-        ...(conResena ? [`Si ${tercero ? 'estáis contentos' : 'estás contento'} con el trabajo, ¿nos ${tercero ? 'dejáis' : 'dejas'} una reseña en Google? Nos ayuda un montón 🙏 ${enlace}`] : []),
+        `${hola} 👋`,
+        '',
+        `✅ *Ya ${tercero ? 'hemos transferido' : 'te hemos transferido'} ${bono}: ${eurMsg(importe)}*`,
+        ...enCuentaWa,
+        '',
+        `📄 ${tercero ? 'Os mandamos' : 'Te mandamos'} ahora la *carta de pago*: es el justificante del cobro. ${tercero ? 'Guardadla' : 'Guárdala'} junto a la documentación de ${tercero ? 'la' : 'tu'} instalación.`,
     ].join('\n');
+
+    // 3 · La RESEÑA, en su propio mensaje y lo último del chat. La idea es la de la
+    // página «¿te ha llegado?» (textoPeticionResena): las familias que esperan.
+    // REGLA — el ENLACE va ARRIBA (segunda línea) y el mensaje es CORTO: WhatsApp
+    // pliega los largos tras «Leer más» y un enlace al final no se ve (Fran, 25/10/2026).
+    const whatsappResena = conResena ? [
+        `⭐ *¿${tercero ? 'Os ha gustado' : 'Te ha gustado'} cómo lo hemos llevado?* ${tercero ? 'Dejadnos' : 'Déjanos'} una reseña en Google, es menos de un minuto 👇`,
+        enlace,
+        '',
+        `Muchas familias en ${tercero ? 'vuestra' : 'tu'} misma situación esperan todavía su ingreso, y ${tercero ? 'vuestra' : 'tu'} opinión es lo que más les ayuda a confiar. ¡Mil gracias! 🙏`,
+        'Fran',
+    ].join('\n') : null;
 
     // Con `detalle` (el email con su HTML de diseño, al TITULAR): el mismo contenido
     // que el HTML, en texto plano. Sin él (persona de contacto o partner), el corto.
@@ -658,6 +682,7 @@ export function componerMensajeCartaPago({
         : `Tu Bono CAE de ${eurMsg(importe)} ya está en tu cuenta`;
     return {
         whatsapp,
+        whatsapp_resena: whatsappResena,
         email,
         asunto: [expediente, asunto].filter(Boolean).join(' · '),
     };

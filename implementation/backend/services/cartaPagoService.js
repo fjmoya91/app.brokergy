@@ -515,9 +515,9 @@ const htmlEmail = (texto, enlace) => {
 };
 
 /**
- * Manda la carta: por WhatsApp el PDF como documento con el mensaje de pie, y por
- * email el PDF adjunto. `destino` permite mandarla a OTRO teléfono/email (pruebas).
- * Devuelve los canales por los que ha salido.
+ * Manda la carta: por WhatsApp en TRES mensajes —el ingreso, el PDF como documento y
+ * la reseña (25/10/2026)— y por email el PDF adjunto. `destino` permite mandarla a
+ * OTRO teléfono/email (pruebas). Devuelve los canales por los que ha salido.
  */
 async function enviar({ buffer, nombre, textos, tlf, email, channels = [] }) {
     const sent = [];
@@ -525,9 +525,17 @@ async function enviar({ buffer, nombre, textos, tlf, email, channels = [] }) {
     if (channels.includes('whatsapp') && tlf) {
         try {
             const whatsappService = require('./whatsappService');
-            await whatsappService.sendMedia(tlf, { base64: buffer.toString('base64'), mimetype: 'application/pdf', filename: nombre },
-                { caption: textos.whatsapp, asDocument: true });
+            const resena = String(textos.whatsapp_resena || '').trim();
+            const r = await whatsappService.sendMedia(tlf, { base64: buffer.toString('base64'), mimetype: 'application/pdf', filename: nombre }, {
+                caption: textos.whatsapp, splitCaption: true, asDocument: true,
+                textoDespues: resena ? [resena] : undefined,
+                // Sin la tarjeta del enlace de Google: gris, «search.google.com», encima del texto.
+                linkPreview: false,
+            });
             sent.push('WhatsApp');
+            // El ingreso y la carta YA han llegado: si falla la reseña no se reintenta
+            // (duplicaría los dos primeros); se dice para mandarla a mano.
+            if (r?.despues && !r.despues.ok) errores.push(`WhatsApp (la reseña no salió: ${r.despues.error})`);
         } catch (e) { errores.push(`WhatsApp: ${e.message}`); }
     }
     if (channels.includes('email') && email) {
