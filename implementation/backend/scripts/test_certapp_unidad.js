@@ -76,9 +76,13 @@ function ok(cond, texto) {
     const obraMsg = { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', numero_expediente: '2026EXT_7', titular: { nombre: 'Carmen', apellidos: 'Díaz' },
         direccion: 'CALLE MAYOR 1', municipio: 'Tomelloso', cee: { cee_inicial: { epnrLetra: 'E', emisionesLetra: 'D' } } };
     const cuentaMsg = { nombre: 'Laura', apellidos: 'Gómez', email: 'laura@example.com' };
-    const enc = require(path.join(B, 'services/certapp/ia')).textoEncargo(obraMsg, cuentaMsg, { iaAuto: true });
-    ok(/Encargo de CEE · 2026EXT_7/.test(enc) && /Certificador: Laura Gómez/.test(enc) && /Cliente: Carmen Díaz/.test(enc) && !/IA automática/.test(enc),
-        'encargo: un mensaje con el nº, el certificador y el cliente (sin partes del proceso)');
+    const iaMod = require(path.join(B, 'services/certapp/ia'));
+    const enc = iaMod.textoEncargo(obraMsg, cuentaMsg, { iaAuto: true });
+    ok(/\*Encargo de CEE · 2026EXT_7\*/.test(enc) && /• \*Certificador:\* Laura Gómez/.test(enc) && /• \*Cliente:\* Carmen Díaz/.test(enc) && !/IA automática/.test(enc),
+        'encargo: un mensaje con el nº, el certificador y el cliente, en viñetas y con negritas');
+    ok(!/\*/.test(iaMod.sinNegritas(enc)) && /2026EXT_7/.test(iaMod.sinNegritas(enc)), 'encargo: el email va sin los asteriscos y con el nº entero');
+    const acuse = await iaMod.acuseCertificador(obraMsg, cuentaMsg);
+    ok(acuse && acuse.seco === true, 'acuse al certificador: sin CERTAPP_AVISOS_ENABLED no sale nada (seco)');
     const listo = require(path.join(B, 'services/certapp/entrega')).textoListoEquipo(obraMsg, cuentaMsg);
     ok(/listo para revisar · 2026EXT_7/.test(listo) && /consumo E · emisiones D/.test(listo) && /envolvente/i.test(listo) && !/drive\.google/.test(listo),
         'listo: el nº, la calificación y la envolvente, sin enlaces de Drive');
@@ -118,11 +122,13 @@ function ok(cond, texto) {
 
     // ── Fotos opcionales con «Ahora no» y genérico con la antigüedad de CE3X (25/10/2026) ──
     const so = L.sanearCuestionario({
-        fotos_omitidas: ['FOTO_VENTANAS', 'FOTO_VENTANAS', 'FOTO_FACHADA_PRINCIPAL', 'FOTO_PLACA_AIRE', 'NO_EXISTE'],
+        fotos_omitidas: ['FOTO_VENTANAS', 'FOTO_VENTANAS', 'FOTO_FACHADAS', 'FOTO_PLACA_AIRE', 'NO_EXISTE'],
         fotos_decision: { AIRE: 'GENERICA', CALDERA: 'GENERICA' },
         fotos_antiguedad: { AIRE: 'ENTRE_1994_2013', CALDERA: 'ANTERIOR_1994', AEROTERMIA: 'DEL_1900' },
     });
-    ok(so.fotos_omitidas.join() === 'FOTO_VENTANAS', '«Ahora no»: solo apartados opcionales, sin repetir (ni la fachada principal ni una placa)');
+    ok(so.fotos_omitidas.join() === 'FOTO_VENTANAS', '«Ahora no»: solo apartados opcionales, sin repetir (ni el resto de fachadas ni una placa)');
+    ok(L.omitirFoto({}, 'FOTO_FACHADA_PRINCIPAL').fotos_omitidas.join() === 'FOTO_FACHADA_PRINCIPAL',
+        '«Ahora no» en la fachada principal: la saca la IA de Street View (25/10/2026)');
     ok(so.fotos_antiguedad.AIRE === 'ENTRE_1994_2013' && !('CALDERA' in so.fotos_antiguedad) && !('AEROTERMIA' in so.fotos_antiguedad),
         'antigüedad del genérico: solo bombas de calor y con las opciones de CE3X');
     ok(L.omitirFoto({}, 'FOTO_CUBIERTA').fotos_omitidas.join() === 'FOTO_CUBIERTA' && L.omitirFoto({ fotos_omitidas: ['FOTO_CUBIERTA'] }, 'FOTO_CUBIERTA', false).fotos_omitidas.length === 0

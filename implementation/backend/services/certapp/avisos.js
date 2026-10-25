@@ -21,19 +21,20 @@ function seco(destino, asunto, cuerpo) {
 /**
  * Al equipo de BROKERGY (WHATSAPP_ADMIN_CHAT y ADMIN_EMAIL, los de los CEE
  * directos). `soloWhatsapp` para lo corto y frecuente (beta, sugerencias), que
- * no gaste cuota de email.
+ * no gaste cuota de email. `whatsapp`: otro texto para el WhatsApp (con sus
+ * negritas); el email lleva `cuerpo`.
  * @returns {Promise<{ seco?: true, canales: string[] }>}
  */
-async function avisarEquipo({ asunto, cuerpo, soloWhatsapp = false }) {
-    if (!activos()) { seco('equipo', asunto, cuerpo); return { seco: true, canales: [] }; }
+async function avisarEquipo({ asunto, cuerpo, whatsapp = null, soloWhatsapp = false }) {
+    if (!activos()) { seco('equipo', asunto, whatsapp || cuerpo); return { seco: true, canales: [] }; }
     try {
         if (soloWhatsapp) {
             const wa = process.env.WHATSAPP_ADMIN_CHAT;
             if (!wa) return { canales: [] };
-            await require('../whatsappService').sendText(wa, cuerpo);
+            await require('../whatsappService').sendText(wa, whatsapp || cuerpo);
             return { canales: ['whatsapp'] };
         }
-        const canales = await require('../ceeDirectoProceso').avisarEquipo({ asunto, cuerpo });
+        const canales = await require('../ceeDirectoProceso').avisarEquipo({ asunto, cuerpo, whatsapp });
         return { canales: canales || [] };
     } catch (e) {
         console.warn('[certapp] aviso al equipo sin enviar:', e.message);

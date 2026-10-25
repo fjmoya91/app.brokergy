@@ -222,9 +222,11 @@ export const MEDIDAS = [
 // Ninguna foto bloquea: lo que falta lo pone la IA (Street View, su época…).
 export const SLOTS = [
     {
-        id: 'FOTO_FACHADA_PRINCIPAL', label: 'Fachada principal', multiple: true,
+        // Opcional (Fran, 25/10/2026): la que da a la calle la saca la IA de Google
+        // Street View (`cee_inicial.js streetview`, un panorama por lado). La trasera no.
+        id: 'FOTO_FACHADA_PRINCIPAL', label: 'Fachada principal', multiple: true, opcional: true,
         ayuda: 'De frente y entera, con todas sus ventanas. Si no cabe, en dos fotos.',
-        ayudaRemota: 'Si no la tienes, la IA mirará Google Street View (menos preciso).',
+        ayudaRemota: 'Si no la tienes, la IA la saca de Google Street View (menos preciso).',
     },
     {
         id: 'FOTO_FACHADAS', label: 'Resto de fachadas', multiple: true,

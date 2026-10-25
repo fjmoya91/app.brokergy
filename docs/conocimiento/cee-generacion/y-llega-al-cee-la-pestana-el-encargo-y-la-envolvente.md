@@ -78,3 +78,62 @@ reparte la calefacción entre la caldera y los aires lo decide el certificador.
 node implementation/backend/scripts/test_aires_ce3x.mjs
 python -m pytest implementation/cee-engine/tests/test_equipos.py
 ```
+
+### CE3X cuenta los METROS, no el %: la refrigeración nunca pasa del 100 % (2026-10-25)
+
+**El caso, 2026EXT_2** (app de certificadores): caldera de gasóleo y tres aires añadidos a
+mano «al 20 %», sin superficie. La ficha (`equipoAnadido`) les daba la vivienda entera, y
+el `.cex` salió con `[['', ''], ['', ''], ['128', '20']]` en cada aire, en el edificio Y
+en la medida. Por el % suman el 60 %; por los m², 3 × 128 = 384 m² en una casa de 128,
+el **300 %**, y CE3X: «La instalación de refrigeración cubre una demanda superior al
+100%». No calificaba ni el edificio ni la medida.
+
+**REGLA — CE3X mide la demanda cubierta por los m² que sirve cada equipo, NO por su
+«Porcentaje»: la superficie servida es la útil × % / 100, y la refrigeración nunca pasa
+del 100 %.** En su pantalla los dos campos van atados; los que no cuadran los escribe la
+app. Medido con el motor de CE3X 3.2 sobre el `.cex` de 2026EXT_2 (128 m² útiles):
+
+| Cada aire | Frío por m² | CE3X |
+|---|---|---|
+| 128 m² al 20 % | 300 % | no califica |
+| 50 m² al 20 % | 117 % | no califica |
+| 42 m² al 20 % | 98 % | califica |
+| 25,6 m² al 20 % | 60 % | califica: EPNR 448,48 (F), emisiones 116,92 (G) |
+| 25,6 m² al **100 %** | 60 % | **idéntico**: el % no cuenta |
+
+En el corpus (2.044 `.cex`, 2.484 pares con un % por debajo del 100): 2.378 cuadran; 82
+sirven MENOS m² que su parte (CE3X lo admite y pone el resto por defecto); y los 24 que
+sirven MÁS son todos nuestros (2026EXT_2, 2026CEE_60 `_OLD` y 26RES080_OP72).
+
+**Qué hace el motor** (`_frio_hasta_cien`, dentro de `construir_instalaciones`: vale
+igual para el edificio, cada medida y el CEE final copiado):
+
+1. Un equipo con un % por debajo del 100 que declara más m² que su parte **baja** a
+   útil × % / 100, y se dice. Nunca sube: unos m² de menos son un dato.
+2. Los equipos de frío que **se quedan** en el fichero copiado, igual (un inicial
+   escrito antes de esto se corrige al hacer su medida o su final): «se QUEDA con su
+   20 % del frío, pero declaraba 128 m2…».
+3. Los nuevos con su parte (los aires) se la quedan; si con lo que ya hay pasan del
+   100 %, se reparten lo que queda en la misma proporción, y se dice con el mensaje de
+   CE3X.
+4. Un equipo sin parte (la aerotermia al 100 % con frío) lleva **solo el resto**: con
+   esos tres aires, un `mixto3` va al 40 % y 51,2 m².
+
+Todo a dos decimales **hacia abajo** (seis aires al 16,67 % de 128 m² serían 128,04 m²).
+La superficie útil: la de la ficha (`generales.superficie_util_habitable`), en
+`/cex/instalaciones` la del fichero que se copia (`superficie_util_del_cex`), y sin
+ninguna, la del equipo que da algo al 100 % (el edificio entero). El aviso de «suman
+más del 100 %» ya no dice que CE3X lo admite: no lo admite.
+
+**Y en el origen**: `equipoAnadido` (fichaCe3x.js), sin superficie tecleada y con un %
+por debajo del 100, pone su parte (128 × 20 % = 25,6) en vez de la vivienda entera.
+
+Comprobado de punta a punta en este PC, en seco: `cee_inicial.js rehacer 2026EXT_2
+--calificar` con el motor nuevo escribe los aires a 25,6 m² en el edificio y en la medida,
+y CE3X 3.2 califica los dos (EPNR 448,48 F · emisiones 116,92 G, y la medida con su
+ahorro calculado).
+
+```bash
+node implementation/backend/scripts/test_aires_ce3x.mjs
+python -m pytest implementation/cee-engine/tests/test_equipos.py   # los «2026EXT_2»
+```

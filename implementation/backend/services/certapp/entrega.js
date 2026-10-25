@@ -137,10 +137,17 @@ async function entregar(obraId, { por = 'BROKERGY', porDetalle = null, forzar = 
         asunto: `${p.titulo} — ${nombreApp()}`,
         html: avisos.plantilla({ ...p, preheader: p.parrafos[0] }),
         texto: avisos.textoPlano(p),
+        // En viñetas y con negritas, como el encargo (Fran, 25/10/2026).
         whatsapp: [
-            `✅ Tu certificado ${obra.numero_expediente} está listo${donde ? ` (${donde})` : ''}.`,
-            `Verlo, descargar el .cex y firmarlo: ${enlaceObra(obra)}`,
-            `Si quieres revisar o cambiar algo, en la envolvente: ${enl.envolvente}`,
+            `✅ *Tu certificado ${obra.numero_expediente} está listo*`,
+            ...(donde ? [donde] : []),
+            '',
+            '• *Revísalo:* el PDF se ve en el navegador y el .cex se descarga.',
+            '• *¿Quieres cambiar algo?* Hazlo en la envolvente y se vuelve a generar.',
+            '• *Valídalo y fírmalo* desde la app, con tu certificado digital (AutoFirma).',
+            '',
+            `👉 Ver el certificado: ${enlaceObra(obra)}`,
+            `📐 Envolvente: ${enl.envolvente}`,
         ].join('\n'),
     });
     return { obra: lista, enlaces: enl, compartida, aviso };
@@ -160,12 +167,15 @@ function textoListoEquipo(obra, cuenta) {
     const letras = [c.epnrLetra && `consumo ${c.epnrLetra}`, c.emisionesLetra && `emisiones ${c.emisionesLetra}`].filter(Boolean).join(' · ');
     const quien = [cuenta?.nombre, cuenta?.apellidos].filter(Boolean).join(' ') || cuenta?.email || null;
     return [
-        `✅ CEE listo para revisar · ${obra.numero_expediente}`,
-        [cliente && `Cliente: ${cliente}`, quien && `Certificador: ${quien}`].filter(Boolean).join(' · '),
-        letras ? `Calificación: ${letras}` : '',
-        `Revísalo y pulsa «Entregar» (PDF, .cex y carpeta): ${require('./ia').enlaceAdmin(obra)}`,
-        `Envolvente: ${enlaceEnvolvente(obra)}`,
-    ].filter(Boolean).join('\n');
+        `✅ *CEE listo para revisar · ${obra.numero_expediente}*`,
+        '',
+        ...(cliente ? [`• *Cliente:* ${cliente}`] : []),
+        ...(quien ? [`• *Certificador:* ${quien}`] : []),
+        ...(letras ? [`• *Calificación:* ${letras}`] : []),
+        '',
+        `👉 Revísalo y pulsa «Entregar» (PDF, .cex y carpeta): ${require('./ia').enlaceAdmin(obra)}`,
+        `📐 Envolvente: ${enlaceEnvolvente(obra)}`,
+    ].join('\n');
 }
 
 /**

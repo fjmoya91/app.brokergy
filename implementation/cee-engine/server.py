@@ -544,7 +544,8 @@ def cex(payload: dict = Body(...)) -> Response:
             avisos.extend(G.heredar_del_base(equipos_m, instalaciones))
             # En la 3.1 el autoconsumo va como «Generación renovable eléctrica».
             inst_m, gens_m, av_i = G.instalaciones_de_medida(
-                equipos_m, instalaciones, zonas, espacio, version)
+                equipos_m, instalaciones, zonas, espacio, version,
+                superficie_util=G.superficie_util_de(datos))
             grupo, fila, av_g = G.construir_medida(m, envolvente_, inst_m, gens_m)
             avisos.extend(av_i + av_g)
             grupos.extend(grupo)
@@ -734,13 +735,16 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
         hib = ficha.get("hibridacion") or {}
         conservar = hib.get("pct_generador_previo")
         conservar = float(conservar) if conservar not in (None, "") else None
+        # Los m2 de cada equipo se miden con la superficie útil del FICHERO, que
+        # es con la que CE3X lo califica (la refrigeración no pasa del 100 %).
+        util = G.superficie_util_del_cex(base)
         slots, avisos = G.construir_instalaciones(
             {"instalaciones": equipos,
              "envolvente": {"espacio": (ficha.get("envolvente") or {}).get("espacio", "auto")}},
             previas, zonas,
             # El generador viejo SALE: es la actuación, no un añadido.
             retirar=G.slots_a_retirar(equipos),
-            conservar=conservar)
+            conservar=conservar, superficie_util=util)
         avisos = av_sup + avisos
 
         cambios = {G.INSTALACIONES: slots}
@@ -761,7 +765,8 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
             avisos.extend(G.heredar_del_base(equipos_m, slots, sin_deposito_manda=True))
             inst_m, gens_m, av_i = G.instalaciones_de_medida(
                 equipos_m, slots, zonas, espacio, version,
-                existentes=G.generadores_de_base(meta.get("extra"), version))
+                existentes=G.generadores_de_base(meta.get("extra"), version),
+                superficie_util=util)
             grupo, fila, av_g = G.construir_medida(m, L.leer(base, G.ENVOLVENTE),
                                                    inst_m, gens_m)
             avisos.extend(av_i + av_g)

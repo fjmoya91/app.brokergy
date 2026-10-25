@@ -822,17 +822,27 @@ export function equipoAnadido(x, { superficie } = {}) {
     }
     const eq = { slot: t.valor, nombre, generador, combustible,
                  de: 'AÑADIDO A MANO por el certificador' };
-    const sup = (k) => (Number(x?.[k]) > 0 ? Number(x[k]) : superficie);
+    //: La superficie que SIRVE: la tecleada; sin ella, SU PARTE de la vivienda
+    //: (superficie × % / 100), que es como las ata la pantalla de CE3X y lo que
+    //: CE3X suma al calificar. Con la vivienda entera, tres aires «al 20 %» eran
+    //: 384 m² de frío en una casa de 128 y CE3X no calificaba (2026EXT_2,
+    //: 25/10/2026). A dos decimales HACIA ABAJO, como el motor.
+    const sup = (k, kPct) => {
+        if (Number(x?.[k]) > 0) return Number(x[k]);
+        const p = Number(x?.[kPct]);
+        return Number(superficie) > 0 && p > 0 && p < 100
+            ? Math.floor(Number(superficie) * p + 1e-6) / 100 : superficie;
+    };
     if (t.servicios.includes('acs')) {
-        eq.superficie_acs = sup('superficie_acs');
+        eq.superficie_acs = sup('superficie_acs', 'pct_acs');
         if (x?.pct_acs) eq.pct_acs = String(x.pct_acs);
     }
     if (t.servicios.includes('calefaccion')) {
-        eq.superficie_calefaccion = sup('superficie_calefaccion');
+        eq.superficie_calefaccion = sup('superficie_calefaccion', 'pct_calefaccion');
         if (x?.pct_calefaccion) eq.pct_calefaccion = String(x.pct_calefaccion);
     }
     if (t.servicios.includes('refrigeracion')) {
-        eq.superficie_refrigeracion = sup('superficie_refrigeracion');
+        eq.superficie_refrigeracion = sup('superficie_refrigeracion', 'pct_refrigeracion');
         if (x?.pct_refrigeracion) eq.pct_refrigeracion = String(x.pct_refrigeracion);
     }
     if (conocido) {

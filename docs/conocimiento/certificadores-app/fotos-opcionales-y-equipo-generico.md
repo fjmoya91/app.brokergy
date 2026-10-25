@@ -11,8 +11,12 @@ la antigüedad con el mismo patrón que lo hace en CE3X».
 `opcional: true` en `SLOTS` ([cuestionario.js](implementation/frontend/src/certificadores/logic/cuestionario.js)):
 el vídeo, las ventanas por dentro, la cubierta, los planos, el certificado anterior, «Otros» y **la
 foto del equipo entero** (caldera, aerotermia, termo, unidad exterior del aire). Del equipo lo que
-cuenta es **la placa**. No son opcionales las fachadas, los patios, las placas ni la foto de las
-placas solares (es la única de ese equipo).
+cuenta es **la placa**. Desde la 2026EXT_2 también **la fachada principal**: Fran, «la fachada la
+puede coger de la API de Google Street View, ¿no?». Sí, la que da a la calle la saca la IA con
+`cee_inicial.js streetview` (un panorama por lado de la casa, ~0,007 € la foto). La foto de fachada
+del Catastro (`catastroService`, `OVCFotoFachada`) no entra en el CEE: suele ser antigua. No son
+opcionales el resto de fachadas (la trasera no sale en Street View), los patios, las placas ni la
+foto de las placas solares (es la única de ese equipo).
 
 En pantalla ([Fotos.jsx](implementation/frontend/src/certificadores/obra/Fotos.jsx), `SlotFoto`): chip
 gris «Opcional» y, mientras está vacío, un botón **«Ahora no»** a todo lo ancho. Al pulsarlo el

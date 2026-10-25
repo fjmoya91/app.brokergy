@@ -74,13 +74,14 @@ async function tocaFacturar(row, enDrive = null) {
     return firmadoConVistoBueno(row, 'inicial', scan);
 }
 
-/** Aviso al EQUIPO (WhatsApp del chat de administración + email). Best-effort. */
-async function avisarEquipo({ asunto, cuerpo }) {
+/** Aviso al EQUIPO (WhatsApp del chat de administración + email). Best-effort.
+ *  `whatsapp`: otro texto para el WhatsApp (con negritas); si no, el mismo `cuerpo`. */
+async function avisarEquipo({ asunto, cuerpo, whatsapp = null }) {
     const wa = process.env.WHATSAPP_ADMIN_CHAT;
     const email = process.env.ADMIN_EMAIL;
     const canales = [];
     if (wa) {
-        try { await require('./whatsappService').sendText(wa, cuerpo); canales.push('whatsapp'); }
+        try { await require('./whatsappService').sendText(wa, whatsapp || cuerpo); canales.push('whatsapp'); }
         catch (e) { console.warn('[cee-proceso] WA equipo:', e.message); }
     }
     if (email) {

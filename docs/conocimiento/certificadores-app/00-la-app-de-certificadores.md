@@ -127,6 +127,17 @@ envolvente): la obra se presenta como un CEE suelto de alcance único (`es_cee_d
 toda la persistencia pasa por un mapa central de orígenes (tabla, RPC). Número `{AAAA}EXT_{n}`, que
 el generador reconoce por el formato. Un origen desconocido es un error, nunca 'cae' por defecto.
 
+**REGLA — el arranque del CRM solo monta en SU página** ([src/main.jsx](implementation/frontend/src/main.jsx),
+25/10/2026). La envolvente es del CRM, y Rollup deja en el trozo de entrada del CRM (`main-*.js`)
+piezas que comparte con ella (37 módulos: cálculo, transmitancias, la pizarra…). Al abrirla en la app,
+el navegador carga ese trozo, y con él el `createRoot` del CRM sobre el mismo `#root`: el CRM se
+montaba encima de la app y la envolvente reventaba con «Failed to execute 'removeChild'» (Fran, al
+abrirla desde el admin con la 2026EXT_2). En desarrollo no se ve: Vite sirve módulo a módulo. Por eso
+`certificadores.html` lleva `<html data-app="certificadores">` y `main.jsx` no monta ni arranca el
+puente nativo si lo ve. El coste: abrir la envolvente en la app baja también ese trozo (~1,8 MB
+comprimido). Se comprueba con un build de producción (`vite build` + `vite preview`), cargando
+`EnvolventeVentana-*.js` en `/certificadores.html`: `#root` sigue siendo el de la app.
+
 **REGLA — cada certificador toca SOLO lo suyo, y lo ajeno es 404.** Toda ruta con `:id` pasa por
 `obraDeLaCuenta`. En la envolvente, un certificador externo solo entra con `origen=ext` y una obra
 suya; el equipo interno, como siempre.

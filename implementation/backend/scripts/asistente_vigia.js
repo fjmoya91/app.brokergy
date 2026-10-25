@@ -44,6 +44,11 @@ const CONSUMO = path.join(DIR, 'consumo.jsonl');
 const INSTRUCCIONES = path.join(__dirname, 'asistente_instrucciones.md');
 const SERVIDOR = process.argv.includes('--servidor');
 const PUERTO = Number(process.env.ASISTENTE_PUERTO) || 8091;
+// REGLA — el agente que lanza este vigía hereda dónde escucha: escribe DESDE este contenedor
+// (`cee_inicial.js --escribir` → `agenteIa.terminarExt` → `asistenteCanal.encargarCalificarExt`),
+// donde no hay ASISTENTE_URL porque el vigía es este proceso. Sin ella el encargo al PC fallaba y
+// a Fran le llegaban el «por calificar» y el «Le paso a tu PC…» que sobran (2026EXT_2, 25/10/2026).
+if (SERVIDOR && !process.env.ASISTENTE_URL) process.env.ASISTENTE_URL = `http://localhost:${PUERTO}`;
 const CADA_MS = Number(process.env.ASISTENTE_VIGIA_MS) || (SERVIDOR ? 120_000 : 30_000);
 const SILENCIO_S = Number(process.env.ASISTENTE_SILENCIO_S) || 20;       // ráfaga: espera a que pare de escribir
 const PLAZO_MS = Number(process.env.ASISTENTE_PLAZO_MIN || 45) * 60_000; // tope de un trabajo

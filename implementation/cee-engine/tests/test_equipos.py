@@ -535,7 +535,8 @@ def test_los_aires_se_escriben_en_un_cex_de_verdad_y_se_releen(tmp_path):
              "superficie_calefaccion": 20, "pct_calefaccion": "10",
              "superficie_refrigeracion": 20, "pct_refrigeracion": "10"}
     slots, avisos = G.construir_instalaciones(
-        {"instalaciones": aires + [split], "envolvente": {"espacio": ZONA}},
+        {"instalaciones": aires + [split], "envolvente": {"espacio": ZONA},
+         "generales": {"superficie_util_habitable": 142}},
         [[] for _ in G.SLOTS], {ZONA})
     salida = tmp_path / "aires.cex"
     salida.write_bytes(G.montar(RAIZ / "assets" / "plantilla-virgen.cex",
@@ -543,12 +544,19 @@ def test_los_aires_se_escriben_en_un_cex_de_verdad_y_se_releen(tmp_path):
     releidos = L.leer(L.trocear(salida), G.INSTALACIONES)
     frio = releidos[G.SLOTS.index("refrigeracion")]
     assert [e[0] for e in frio] == [f"AIRE ACONDICIONADO {i}" for i in range(1, 6)]
-    assert all(e[2] == ["", "", 157.5] and e[5][2] == ["28.4", "20"] for e in frio)
+    # Refrigeracion: 5 x 20 + 10 = 110 %, y CE3X no califica por encima del
+    # 100 % (25/10/2026, 2026EXT_2). Se reparten el 100 % en la misma
+    # proporcion (a dos decimales hacia abajo), con los m2 de su parte, y se dice.
+    assert all(e[2] == ["", "", 157.5] and e[5][2] == ["25.81", "18.18"] for e in frio)
     [clima] = releidos[G.SLOTS.index("climatizacion")]
     assert clima[2] == ["", 204.3, 163.3]
     assert clima[7] == [["", "270.0", "250.0"], [True, False, False], []]
-    # Refrigeracion: 5 x 20 + 10 = 110 % -> el reparto lo dice.
-    assert any("refrigeracion" in a and "pasan del" in a for a in avisos)
+    assert clima[5][2] == ["12.9", "9.09"]
+    # Sus 20 m2 de calefaccion «al 10 %» de 142 son 14,2: lo que cuenta CE3X.
+    assert clima[5][1] == ["14.2", "10"]
+    m2_frio = sum(float(e[5][2][0]) for e in frio) + float(clima[5][2][0])
+    assert 141.9 <= m2_frio <= 142
+    assert any("refrigeracion" in a and "pasan del 100 %" in a for a in avisos)
 
 
 def test_el_estacional_sale_del_factor_medido():
@@ -671,6 +679,122 @@ def test_un_split_que_tambien_calentaba_se_queda_solo_para_el_frio():
     [split] = slots[G.SLOTS.index("climatizacion")]
     assert _plano(split[5]) == [["", ""], ["0.0", "0"], ["41.05", "15"]]
     assert _plano(slots[G.SLOTS.index("mixto3")][0][5])[2][1] == "85"
+
+
+# ---------------------------------------------------------------------------
+# La REFRIGERACION nunca pasa del 100 % — 2026EXT_2 (25/10/2026)
+#
+# CE3X mide la demanda cubierta por los m2 que sirve cada equipo, NO por su
+# «Porcentaje»: tres aires «al 20 %» con la vivienda entera cada uno (128 m2)
+# son 384 m2 de frio en una casa de 128, y CE3X contesta «La instalacion de
+# refrigeracion cubre una demanda superior al 100%» — ni el edificio ni la
+# medida se califican. Medido con su motor: a 25,6 m2 califica, y da lo mismo
+# al 20 % que al 100 %.
+# ---------------------------------------------------------------------------
+
+def _aires_2026EXT_2(sup=128.0):
+    """Los tres aires de 2026EXT_2 como los manda la ficha: al 20 % y, sin
+    superficie tecleada, con la vivienda entera."""
+    return [{"aire": True, "slot": "refrigeracion", "nombre": f"AIRE ACONDICIONADO {i}",
+             "generador": "Maquina frigorífica", "combustible": "Electricidad",
+             "rend_nominal": "250.0", "pct_refrigeracion": "20",
+             "potencia_refrigeracion": "3", "superficie_refrigeracion": sup}
+            for i in range(1, 4)]
+
+
+def _registro_aire(i, sup="128", pct="20"):
+    """Un aire tal cual quedo en el `.cex` POR CALIFICAR de 2026EXT_2."""
+    return [f"AIRE ACONDICIONADO {i}", "refrigeracion", ["", "", 157.5],
+            "Maquina frigorífica", "Electricidad", [["", ""], ["", ""], [sup, pct]],
+            "Estimado según Instalación",
+            [["", "", "250.0"], [True, False, False], [False, "1.0", "0.0"], 0], ZONA]
+
+
+def _cubierto_por_m2(slots, util, servicio=2):
+    total = 0.0
+    for lista in slots:
+        for reg in lista:
+            par = reg[5][servicio]
+            if par[0] not in ("", None):
+                total += float(par[0])
+    return round(total * 100.0 / util, 2)
+
+
+def test_2026EXT_2_los_aires_al_20_sirven_su_parte_y_no_la_casa_entera():
+    slots, avisos = G.construir_instalaciones(
+        {"instalaciones": _aires_2026EXT_2(), "envolvente": {"espacio": ZONA},
+         "generales": {"superficie_util_habitable": 128}},
+        _base_con_caldera(sup="128"), {ZONA})
+    frio = slots[G.SLOTS.index("refrigeracion")]
+    assert [_plano(e[5])[2] for e in frio] == [["25.6", "20"]] * 3
+    assert _cubierto_por_m2(slots, 128) == 60.0
+    assert sum("superficie servida" in a and "128 a 25.6" in a for a in avisos) == 3
+    # La caldera, con la vivienda entera, no se toca.
+    assert _plano(slots[G.SLOTS.index("mixto2")][0][5])[:2] == [["128", "100"]] * 2
+    # Y nadie dice que la refrigeracion pase del 100 %.
+    assert not any("pasan del 100 %" in a for a in avisos)
+
+
+def test_2026EXT_2_la_medida_lleva_los_mismos_aires_y_la_aerotermia_sin_frio():
+    """La medida «sustitucion de la caldera por aerotermia (calefaccion y ACS)»:
+    los aires se quedan con su parte y la caldera se retira."""
+    base, _ = G.construir_instalaciones(
+        {"instalaciones": _aires_2026EXT_2(), "envolvente": {"espacio": ZONA},
+         "generales": {"superficie_util_habitable": 128}},
+        _base_con_caldera(sup="128"), {ZONA})
+    aero = _aerotermia("mixto2", superficie_calefaccion=128, superficie_acs=128)
+    inst, _, avisos = G.instalaciones_de_medida([aero], base, {ZONA}, ZONA, None,
+                                                superficie_util=128)
+    assert [_plano(e[5])[2] for e in inst[G.SLOTS.index("refrigeracion")]] == [["25.6", "20"]] * 3
+    assert inst[G.SLOTS.index("mixto2")][0][0] == "AEROTERMIA DAIKIN"
+    assert len(inst[G.SLOTS.index("mixto2")]) == 1          # la caldera se va
+    assert _cubierto_por_m2(inst, 128) == 60.0
+
+
+def test_2026EXT_2_un_inicial_con_los_aires_a_128_m2_se_corrige_al_copiarlo():
+    """El `.cex` que ya se escribio (aires a 128 m2 «al 20 %») se copia para la
+    medida o el CEE final: los aires se QUEDAN con su 20 %, pero con sus m2, y
+    una aerotermia que tambien da frio lleva SOLO el resto (40 % · 51,2 m2)."""
+    base = _base_con_caldera(sup="128")
+    base[G.SLOTS.index("refrigeracion")] = [_registro_aire(i) for i in range(1, 4)]
+    aero = _aerotermia("mixto3", superficie_calefaccion=128, superficie_acs=128,
+                       superficie_refrigeracion=128)
+    inst, _, avisos = G.instalaciones_de_medida([aero], base, {ZONA}, ZONA, None,
+                                                superficie_util=128)
+    assert [_plano(e[5])[2] for e in inst[G.SLOTS.index("refrigeracion")]] == [["25.6", "20"]] * 3
+    [nuevo] = inst[G.SLOTS.index("mixto3")]
+    assert _plano(nuevo[5])[2] == ["51.2", "40"]
+    assert _cubierto_por_m2(inst, 128) == 100.0
+    assert sum("se QUEDA con su 20 %" in a for a in avisos) == 3
+    assert any("le toca el 40 % restante" in a for a in avisos)
+    # Lo demas de cada aire, TAL CUAL venia en el fichero.
+    for viejo, nuevo_aire in zip(base[G.SLOTS.index("refrigeracion")],
+                                 inst[G.SLOTS.index("refrigeracion")]):
+        assert [c for k, c in enumerate(viejo) if k != 5] == \
+               [c for k, c in enumerate(nuevo_aire) if k != 5]
+
+
+def test_aires_que_pasan_del_100_se_reparten_lo_que_queda():
+    """Seis aires al 20 % (120 %) en una casa de 128: cada uno el 16,66 %,
+    redondeado HACIA ABAJO (al 16,67 % serian 128,04 m2: mas del 100 %)."""
+    aires = _aires_2026EXT_2() + [{**a, "nombre": a["nombre"] + " B"}
+                                   for a in _aires_2026EXT_2()]
+    slots, avisos = G.construir_instalaciones(
+        {"instalaciones": aires, "envolvente": {"espacio": ZONA},
+         "generales": {"superficie_util_habitable": 128}},
+        [[] for _ in G.SLOTS], {ZONA})
+    frio = slots[G.SLOTS.index("refrigeracion")]
+    assert {tuple(_plano(e[5])[2]) for e in frio} == {("21.32", "16.66")}
+    assert 99.9 <= _cubierto_por_m2(slots, 128) <= 100
+    assert any("pasan del 100 %" in a and "cubre una demanda superior al 100%" in a
+               for a in avisos)
+
+
+def test_la_superficie_util_sale_de_la_ficha_o_del_cex():
+    assert G.superficie_util_de({"generales": {"superficie_util_habitable": {"valor": 128}}}) == 128
+    assert G.superficie_util_de({"generales": {}}) is None
+    # Sin ninguna, la del equipo que da algo al 100 %: el edificio entero.
+    assert G._superficie_de_referencia({}, _base_con_caldera(sup="128"), []) == 128
 
 
 # --------------------------------------------------------------------------

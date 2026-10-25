@@ -91,6 +91,26 @@ t('un aire solo frío se escribe con su nominal y su reparto', () => {
     assert.equal(equipo.superficie_refrigeracion, 28.4);
     assert.equal(equipo.aire, undefined, 'la marca del bloque no viaja al motor');
 });
+t('un aire «al 20 %» SIN superficie sirve su parte, no la casa entera (2026EXT_2)', () => {
+    // Lo que mandó la app de certificadores: tres aires al 20 %, sin m². Con la
+    // vivienda entera cada uno (384 de 128 m²), CE3X: «La instalación de
+    // refrigeración cubre una demanda superior al 100%».
+    const x = { aire: true, slot: 'refrigeracion', nombre: 'AIRE ACONDICIONADO 1',
+                generador: 'Maquina frigorífica', combustible: 'Electricidad',
+                rend_nominal: '250.0', pct_refrigeracion: '20', potencia_refrigeracion: '3' };
+    const { equipo, avisos } = F.equipoAnadido(x, { superficie: 128 });
+    assert.ok(equipo, avisos.join(' · '));
+    assert.equal(equipo.superficie_refrigeracion, 25.6);
+    assert.equal(equipo.pct_refrigeracion, '20');
+    // Sin porcentaje (o al 100 %), la vivienda entera, como siempre.
+    const { equipo: entero } = F.equipoAnadido({ ...x, pct_refrigeracion: undefined },
+                                               { superficie: 128 });
+    assert.equal(entero.superficie_refrigeracion, 128);
+    // Y unos m² tecleados mandan.
+    const { equipo: tecleado } = F.equipoAnadido({ ...x, superficie_refrigeracion: '30' },
+                                                 { superficie: 128 });
+    assert.equal(tecleado.superficie_refrigeracion, 30);
+});
 t('un aire frío y calor se escribe ESTIMADO con sus dos nominales', () => {
     const [x] = F.airesAcondicionados({ n: 2, modo: 'climatizacion', superficie: 142 });
     const { equipo, avisos } = F.equipoAnadido(x, { superficie: 142 });

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es" class="theme-light">
+<html lang="es" class="theme-light" data-app="certificadores">
 
 <head>
   <meta charset="UTF-8" />
@@ -7,7 +7,10 @@
        (ver vite.config.js). Va SIEMPRE en claro, con el estilo «carta de pago»
        (regla 164): papel crema, tinta y tarjetas blancas. La clase `theme-light`
        se siembra antes de pintar porque las piezas que se reutilizan del CRM
-       (Catastro, mapa, overlay de envío) leen su tema de esa clase. -->
+       (Catastro, mapa, overlay de envío) leen su tema de esa clase.
+       `data-app="certificadores"`: el arranque del CRM (src/main.jsx) no monta
+       aquí aunque se cargue con la envolvente. -->
+
   <script>
     (function () {
       try { document.documentElement.classList.add('theme-light'); } catch (e) { /* noop */ }

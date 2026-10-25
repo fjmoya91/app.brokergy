@@ -1096,6 +1096,7 @@ def generadores_de_base(extra: Any, version: str | None) -> list:
 def instalaciones_de_medida(equipos: list[dict], base: list, zonas: set[str] | None,
                             espacio: str, version: str | None,
                             existentes: list | None = None,
+                            superficie_util: float | None = None,
                             ) -> tuple[list, list, list[str]]:
     """Los 12 slots de una MEDIDA de mejora y, en la 3.1, sus generadores
     electricos (objetos listos para `construir_medida`): los que ya declara el
@@ -1120,7 +1121,7 @@ def instalaciones_de_medida(equipos: list[dict], base: list, zonas: set[str] | N
     if resto:
         inst, av = construir_instalaciones(
             {"instalaciones": resto, "envolvente": {"espacio": espacio}},
-            base, zonas, retirar=slots_a_retirar(resto))
+            base, zonas, retirar=slots_a_retirar(resto), superficie_util=superficie_util)
     else:
         inst = [list(x) if isinstance(x, list) else [] for x in (base or [[] for _ in SLOTS])]
         av = []
@@ -1367,21 +1368,215 @@ def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
     return avisos
 
 
-def _pct_refrigeracion_de(slots: list) -> float:
-    """Cuanta demanda de FRIO cubren ya los equipos que se quedan en el fichero."""
+#: Los tres servicios de un equipo de la ficha: (servicio, superficie, porcentaje).
+_CLAVES_SERVICIO = (("acs", "superficie_acs", "pct_acs"),
+                    ("calefaccion", "superficie_calefaccion", "pct_calefaccion"),
+                    ("refrigeracion", "superficie_refrigeracion", "pct_refrigeracion"))
+
+#: Holgura al comparar m2: CE3X escribe con dos decimales.
+_HOLGURA_M2 = 0.05
+
+
+def _valor_num(x: Any):
+    """`_numf` de un campo de la ficha, venga suelto o como `{"valor": …}`."""
+    return _numf(x.get("valor") if isinstance(x, dict) else x)
+
+
+def superficie_util_de(datos: dict) -> float | None:
+    """La superficie util habitable que declara la ficha (m2), o None."""
+    s = _valor_num(((datos or {}).get("generales") or {}).get("superficie_util_habitable"))
+    return s if s and s > 0 else None
+
+
+def superficie_util_del_cex(cex: Any) -> float | None:
+    """La superficie util que declara un `.cex` (datos generales, casilla 6), o None.
+
+    Es la que usa CE3X al calificar ese fichero: al copiarlo (el CEE final) manda
+    sobre la de la ficha, que puede ser otra (26RES060_202: 330 frente a 240).
+    """
+    try:
+        g = L.leer(cex, GENERALES)
+        s = _numf(g[6]) if isinstance(g, list) and len(g) > 6 else None
+    except Exception:                              # noqa: BLE001
+        return None
+    return s if s and s > 0 else None
+
+
+def _superficie_de_referencia(datos: dict, slots: list, equipos: list[dict],
+                              explicita: float | None = None) -> float | None:
+    """La superficie con la que CE3X mide la demanda CUBIERTA de cada servicio.
+
+    REGLA — CE3X no suma el «Porcentaje» de cada equipo: suma los m2 que sirve
+    y los compara con la superficie util. Medido con su propio motor sobre el
+    `.cex` de 2026EXT_2 (25/10/2026, 128 m2, tres aires al 20 %): con 128 m2
+    cada uno (384 de 128) «La instalacion de refrigeracion cubre una demanda
+    superior al 100%»; con 50 m2 (150), igual; con 42 m2 (126), califica; y con
+    25,6 m2 califica EXACTAMENTE igual al 20 % que al 100 % (448,48 kWh/m2 las
+    dos). En su pantalla los dos campos van atados (superficie / util = %), asi
+    que en lo que guarda CE3X siempre cuadran; los que no cuadran son los que
+    escribe la app.
+
+    Por orden: la que se pase (`explicita`, la del fichero que se copia), la de
+    la ficha y, sin ninguna (una medida, que no lleva datos generales), la que
+    sirve un equipo AL 100 % de algo, que es el edificio entero.
+    """
+    for s in (explicita, superficie_util_de(datos)):
+        if s and s > 0:
+            return float(s)
+    candidatos: list[float] = []
+    for lista in slots or []:
+        for reg in (lista if isinstance(lista, list) else []):
+            if not (isinstance(reg, list) and len(reg) > 5 and isinstance(reg[5], list)):
+                continue
+            for par in reg[5]:
+                if isinstance(par, list) and len(par) == 2:
+                    sup, pct = _numf(par[0]), _numf(par[1])
+                    if sup and sup > 0 and pct is not None and pct >= 100:
+                        candidatos.append(sup)
+    for eq in equipos or []:
+        da = SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set())
+        for servicio, clave, pct_clave in _CLAVES_SERVICIO:
+            if servicio not in da:
+                continue
+            sup = _valor_num(eq.get(clave + "_cruda") or eq.get(clave))
+            pct = _numf(eq.get(pct_clave))
+            if sup and sup > 0 and (pct is None or pct >= 100):
+                candidatos.append(sup)
+    return max(candidatos) if candidatos else None
+
+
+def _superficie_coherente(eq: dict, util: float | None) -> tuple[dict, list[str]]:
+    """El equipo con los m2 de SU parte: superficie = util x porcentaje / 100.
+
+    Es lo que hace la pantalla de CE3X al teclear el %, y lo que CE3X cuenta al
+    calificar (ver `_superficie_de_referencia`). El caso que lo destapo
+    (2026EXT_2, 25/10/2026): tres aires puestos «al 20 %» sin superficie, a los
+    que la ficha daba la vivienda entera (128 m2 cada uno) — 384 m2 de frio en
+    una casa de 128, «mas del 100 %» y CE3X no calificaba, ni el edificio ni la
+    medida.
+
+    Solo se BAJA: unos m2 por debajo de su parte son un dato (el certificador
+    los tecleo) y CE3X pone lo que falte con su sistema por defecto.
+    """
+    if not util:
+        return eq, []
+    nuevo, cambios = dict(eq), []
+    da = SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set())
+    for servicio, clave, pct_clave in _CLAVES_SERVICIO:
+        pct = _numf(eq.get(pct_clave))
+        if servicio not in da or pct is None or not (0 < pct < 100):
+            continue
+        objetivo = _abajo(util * pct / 100.0)
+        sup = _valor_num(eq.get(clave + "_cruda") or eq.get(clave))
+        if sup is not None and sup <= objetivo + _HOLGURA_M2:
+            continue
+        nuevo[clave] = objetivo
+        nuevo.pop(clave + "_cruda", None)
+        if sup is not None:
+            cambios.append(f"{_ROTULO_SERVICIO[servicio]} de {_num(sup)} a {_num(objetivo)} m2 "
+                           f"({_num(pct)} %)")
+    if not cambios:
+        return nuevo, []
+    return nuevo, [
+        f"{str(eq.get('nombre'))!r}: superficie servida {', '.join(cambios)} de {_num(util)} m2. "
+        f"Declaraba mas m2 que su porcentaje, y CE3X mide la demanda cubierta por los m2, "
+        f"no por el %: asi no pasa del 100 %."]
+
+
+def _cobertura(par: Any, util: float | None) -> float:
+    """El % de la demanda que CE3X cuenta para un par [superficie, porcentaje]."""
+    if not (isinstance(par, list) and len(par) == 2) or par[0] in (None, ""):
+        return 0.0
+    sup = _numf(par[0])
+    if util and sup is not None:
+        return sup * 100.0 / util
+    return _numf(par[1]) or 0.0
+
+
+def _pct_refrigeracion_de(slots: list, util: float | None = None) -> float:
+    """Cuanta demanda de FRIO cubren ya los equipos que se quedan en el fichero.
+
+    Por los m2 si se sabe la superficie util (es lo que suma CE3X); si no, por
+    el porcentaje declarado.
+    """
     total = 0.0
     for lista in slots:
         for reg in (lista if isinstance(lista, list) else []):
             if not (isinstance(reg, list) and len(reg) > 5 and isinstance(reg[5], list)
                     and len(reg[5]) > 2):
                 continue
-            par = reg[5][2]
-            if isinstance(par, list) and len(par) == 2 and par[0] not in (None, ""):
-                total += _numf(par[1]) or 0.0
+            total += _cobertura(reg[5][2], util)
     return round(total, 2)
 
 
-def _frio_repartido(eq: dict, previo: float) -> tuple[dict, list[str]]:
+def _frio_del_fichero_coherente(slots: list, util: float | None) -> list[str]:
+    """Los equipos de FRIO que se quedan en el fichero, con los m2 de su parte.
+
+    Se quedan con su parte —la que declaran—, pero un registro cuyos m2 pasan de
+    su porcentaje no lo escribe CE3X: lo escribio la app antes de saber que CE3X
+    cuenta los m2 (un inicial como el de 2026EXT_2). Copiarlo tal cual dejaria
+    el CEE final o la medida sin calificar por lo mismo. Se cambia solo ese par.
+    """
+    avisos: list[str] = []
+    if not util:
+        return avisos
+    for lista in slots:
+        if not isinstance(lista, list):
+            continue
+        for k, reg in enumerate(lista):
+            if not (isinstance(reg, list) and len(reg) > 5 and isinstance(reg[5], list)
+                    and len(reg[5]) > 2):
+                continue
+            par = reg[5][2]
+            if not (isinstance(par, list) and len(par) == 2) or par[0] in (None, ""):
+                continue
+            sup, pct = _numf(par[0]), _numf(par[1])
+            if sup is None or pct is None or not (0 < pct < 100):
+                continue
+            objetivo = _abajo(util * pct / 100.0)
+            if sup <= objetivo + _HOLGURA_M2:
+                continue
+            nuevo = list(reg)
+            bloque = [list(p) if isinstance(p, list) else p for p in reg[5]]
+            bloque[2] = [_num(objetivo), par[1]]
+            nuevo[5] = bloque
+            lista[k] = nuevo
+            avisos.append(
+                f"{str(reg[0])!r} se QUEDA con su {_num(pct)} % del frio, pero declaraba "
+                f"{_num(sup)} m2 de {_num(util)}: se le ponen {_num(objetivo)} m2 (CE3X cuenta "
+                f"los m2, y con los de antes la refrigeracion pasaba del 100 %).")
+    return avisos
+
+
+def _abajo(x: float) -> float:
+    """A dos decimales HACIA ABAJO: repartido entre varios equipos, el frio no
+    puede pasar del 100 % por un redondeo (seis aires al 16,67 % de 128 m2 son
+    21,34 m2 cada uno redondeando, 128,04 en total)."""
+    return math.floor(x * 100.0 + 1e-6) / 100.0
+
+
+def _con_frio(eq: dict, pct: float, util: float | None) -> dict:
+    """El equipo con `pct` de la refrigeracion y los m2 en la misma proporcion."""
+    nuevo = dict(eq)
+    pct = max(0.0, _abajo(pct))
+    antes = _numf(eq.get("pct_refrigeracion"))
+    antes = 100.0 if antes is None else antes
+    sup = _valor_num(eq.get("superficie_refrigeracion_cruda")
+                     or eq.get("superficie_refrigeracion"))
+    if util:
+        sup_nueva = _abajo(util * pct / 100.0)
+    elif sup is not None and antes > 0:
+        sup_nueva = _abajo(sup * pct / antes)
+    else:
+        sup_nueva = 0.0
+    nuevo["pct_refrigeracion"] = _num(pct)
+    nuevo["superficie_refrigeracion"] = sup_nueva
+    nuevo.pop("superficie_refrigeracion_cruda", None)
+    return nuevo
+
+
+def _frio_repartido(eq: dict, previo: float,
+                    util: float | None = None) -> tuple[dict, list[str]]:
     """La aerotermia cubre del FRIO lo que no cubren los aires que ya hay.
 
     Los aires acondicionados existentes se quedan con su parte (la que declara
@@ -1389,16 +1584,76 @@ def _frio_repartido(eq: dict, previo: float) -> tuple[dict, list[str]]:
     proporcion —que es como la escriben los certificadores: 104,8 m2 al 80 %
     sobre 131—. Asi la refrigeracion sigue sumando el 100 %.
     """
-    nuevo = dict(eq)
-    pct = max(0.0, round(100.0 - previo, 2))
-    base = _numf(nuevo.get("superficie_refrigeracion_cruda")
-                 or nuevo.get("superficie_refrigeracion")) or 0.0
-    nuevo["pct_refrigeracion"] = _num(pct)
-    nuevo["superficie_refrigeracion"] = round(base * pct / 100.0, 2)
-    nuevo.pop("superficie_refrigeracion_cruda", None)
+    pct = max(0.0, _abajo(100.0 - previo))
+    nuevo = _con_frio(eq, pct, util)
     return nuevo, [
-        f"los aires acondicionados que ya hay se QUEDAN y cubren el {_num(previo)} % del "
-        f"frio: a {nuevo.get('nombre')!r} le toca el {_num(pct)} % restante."]
+        f"los aires acondicionados que ya hay se QUEDAN y cubren el {_num(round(previo, 2))} % "
+        f"del frio: a {nuevo.get('nombre')!r} le toca el {_num(pct)} % restante."]
+
+
+def _frio_hasta_cien(equipos: list[dict], slots: list,
+                     util: float | None) -> tuple[list[dict], list[str]]:
+    """Los equipos que se van a escribir, con la REFRIGERACION sin pasar del 100 %.
+
+    CE3X no califica si la pasa —ni el edificio ni la medida— y la refrigeracion
+    nunca retira nada, asi que es donde se solapan los equipos: los aires que ya
+    estan y una aerotermia que tambien da frio. Por orden:
+
+      1. Cada equipo nuevo, con los m2 de su parte (`_superficie_coherente`), en
+         los tres servicios.
+      2. Los de frio que se QUEDAN en el fichero, igual
+         (`_frio_del_fichero_coherente`), y lo que cubren entre todos.
+      3. Los nuevos que declaran SU parte (< 100 %: los aires) se la quedan; si
+         con lo que ya hay pasan del 100 %, se reparten lo que queda en la misma
+         proporcion, y se dice.
+      4. Los que no declaran parte (la aerotermia, al 100 %) llevan SOLO el
+         resto (`_frio_repartido`).
+    """
+    avisos: list[str] = []
+    nuevos: list[dict] = []
+    for eq in equipos or []:
+        eq2, av = _superficie_coherente(eq, util)
+        nuevos.append(eq2)
+        avisos.extend(av)
+    avisos.extend(_frio_del_fichero_coherente(slots, util))
+
+    previo = _pct_refrigeracion_de(slots, util)
+    if previo > 100 + 0.05:
+        avisos.append(
+            f"los equipos de frio que se quedan en el fichero ya cubren el {_num(previo)} % "
+            f"de la refrigeracion: pasan del 100 % y CE3X no lo califica. Repasalos en "
+            f"Instalaciones.")
+    disponible = max(0.0, round(100.0 - previo, 2))
+
+    frio = [i for i, eq in enumerate(nuevos)
+            if "refrigeracion" in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set())]
+    parciales = [i for i in frio
+                 if (_numf(nuevos[i].get("pct_refrigeracion")) is not None
+                     and _numf(nuevos[i].get("pct_refrigeracion")) < 100)]
+    enteros = [i for i in frio if i not in parciales]
+
+    suma = round(sum(_numf(nuevos[i]["pct_refrigeracion"]) for i in parciales), 2)
+    if parciales and suma > disponible + 0.05:
+        k = disponible / suma if suma else 0.0
+        for i in parciales:
+            nuevos[i] = _con_frio(nuevos[i], _numf(nuevos[i]["pct_refrigeracion"]) * k, util)
+        reparto = ", ".join(f"{str(nuevos[i].get('nombre'))!r} {nuevos[i]['pct_refrigeracion']} %"
+                            for i in parciales)
+        avisos.append(
+            f"los equipos de refrigeracion que se escriben suman el {_num(suma)} %"
+            + (f" y los que se quedan en el fichero el {_num(previo)} %" if previo else "")
+            + f": pasan del 100 % y CE3X no lo califica («La instalacion de refrigeracion "
+            f"cubre una demanda superior al 100%»). Se reparten el {_num(disponible)} % que "
+            f"queda en la misma proporcion: {reparto}.")
+        suma = disponible
+
+    resto = max(0.0, round(disponible - suma, 2))
+    if enteros and resto < 100 - 0.005:
+        parte = _abajo(resto / len(enteros))
+        for i in enteros:
+            nuevos[i], av = _frio_repartido(nuevos[i], 100.0 - parte, util)
+            avisos.extend(av)
+    return nuevos, avisos
 
 
 _ROTULO_SERVICIO = {"acs": "ACS", "calefaccion": "calefaccion",
@@ -1475,7 +1730,8 @@ def _con_reparto(registro: list, pct: float) -> tuple[list, list[str]]:
 def construir_instalaciones(datos: dict, plantilla: list,
                             zonas: set[str] | None = None,
                             retirar: set[str] | None = None,
-                            conservar: float | None = None) -> tuple[list, list[str]]:
+                            conservar: float | None = None,
+                            superficie_util: float | None = None) -> tuple[list, list[str]]:
     """Los 12 slots del pickle 4. Lo que no se sepa se queda vacio.
 
     `retirar` vacia esos slots ANTES de escribir, y es lo que convierte "añadir
@@ -1486,6 +1742,10 @@ def construir_instalaciones(datos: dict, plantilla: list,
     `conservar` es el caso contrario, y es el de la HIBRIDACION: ahi la caldera
     y la bomba conviven DE VERDAD, asi que lo que habria que retirar se queda
     con ese porcentaje de la demanda en vez de desaparecer.
+
+    `superficie_util` es la del fichero que se copia (el CEE final): con ella se
+    miden los m2 que sirve cada equipo, que es lo que suma CE3X. Sin ella, la de
+    la ficha o la del equipo que da algo al 100 % (`_superficie_de_referencia`).
 
     OJO con la zona del equipo: es el mismo campo traicionero que en los
     cerramientos. Si apunta a una zona que no existe, **CE3X abre el fichero y
@@ -1531,6 +1791,12 @@ def construir_instalaciones(datos: dict, plantilla: list,
     # no puede ser un efecto silencioso: es la actuacion entera.
     for nombre_slot in sorted(retirar or ()):
         i = SLOTS.index(nombre_slot)
+        if (conservar is not None and nombre_slot == "refrigeracion"
+                and "refrigeracion" not in asumidos_retira):
+            # Un aire de SOLO frio no reparte nada por el C_b (la caldera que se
+            # queda no da frio): se queda TAL CUAL, como fuera de una hibridacion,
+            # y la aerotermia que tambien da frio lleva solo el resto (abajo).
+            continue
         if conservar is not None:
             quedan = []
             for viejo in slots[i]:
@@ -1575,11 +1841,15 @@ def construir_instalaciones(datos: dict, plantilla: list,
     if str(espacio).lower() == "auto":
         # los equipos van a la raiz: 604 de los 620 equipos mixtos del corpus
         espacio = "Edificio Objeto"
-    frio_previo = _pct_refrigeracion_de(slots) if conservar is None else 0.0
-    for eq in datos.get("instalaciones", []):
-        if frio_previo > 0 and "refrigeracion" in SERVICIOS_DEL_SLOT.get(eq.get("slot"), set()):
-            eq, av = _frio_repartido(eq, frio_previo)
-            avisos.extend(av)
+    # Cada equipo con los m2 de su parte y la REFRIGERACION sin pasar del 100 %:
+    # los aires que se quedan conservan lo suyo y la aerotermia que tambien da
+    # frio lleva solo el resto (2026EXT_2, 25/10/2026). Vale igual para el CEE,
+    # su medida de mejora y el final copiado: todos pasan por aqui.
+    util = _superficie_de_referencia(datos, slots, datos.get("instalaciones", []),
+                                     superficie_util)
+    equipos, av_frio = _frio_hasta_cien(datos.get("instalaciones", []), slots, util)
+    avisos.extend(av_frio)
+    for eq in equipos:
         tipo = eq.get("slot", "mixto2")
         if tipo not in SLOTS:
             raise GeneracionError(f"tipo de equipo no contemplado: {tipo!r}")
@@ -1598,7 +1868,7 @@ def construir_instalaciones(datos: dict, plantilla: list,
         avisos.extend(av)
         if eq.get("de"):
             avisos.append(f"instalacion {eq['nombre']}: {eq['de']}")
-    avisos.extend(_reparto(datos.get("instalaciones", [])))
+    avisos.extend(_reparto(equipos))
     return slots, avisos
 
 
@@ -1618,7 +1888,11 @@ def _reparto(equipos: list[dict]) -> list[str]:
     pero conviene decirlo, porque casi siempre es que falta un equipo.
 
     Se AVISA, no se aborta: quien firma puede tener un motivo, y un .cex que no
-    se escribe por un porcentaje es peor que uno que lo dice.
+    se escribe por un porcentaje es peor que uno que lo dice. (La REFRIGERACION
+    ya llega aqui recortada al 100 %: `_frio_hasta_cien`.)
+
+    ⚠️ CE3X NO lo admite: con la calefaccion o la refrigeracion por encima del
+    100 % no califica, y el ACS la quiere al 100 % justo (sus mensajes, abajo).
     """
     avisos: list[str] = []
     for servicio, clave in _PCT_DEL_SERVICIO.items():
@@ -1634,14 +1908,29 @@ def _reparto(equipos: list[dict]) -> list[str]:
         if suma > 100:
             avisos.append(
                 f"los equipos de {servicio} suman {suma} % de la demanda: pasan del "
-                f"100 %. CE3X lo admite, pero el certificado declara mas demanda "
-                f"cubierta de la que hay — repasa los porcentajes.")
+                f"100 % y CE3X no lo califica («{_MENSAJE_CE3X_REPARTO[servicio]}») — "
+                f"repasa los porcentajes.")
+        elif suma < 100 and servicio == "refrigeracion":
+            avisos.append(
+                f"los equipos de refrigeracion cubren el {suma} % de la demanda: el "
+                f"{round(100 - suma, 1)} % restante lo pone CE3X con su maquina frigorifica "
+                f"por defecto. Si hay otro aparato, anadelo.")
         elif suma < 100:
             avisos.append(
                 f"los equipos de {servicio} cubren el {suma} % de la demanda: el "
                 f"{round(100 - suma, 1)} % restante no lo da ninguno. Si hay otro "
                 f"aparato, anadelo.")
     return avisos
+
+
+#: Lo que dice CE3X 3.2 cuando el reparto de un servicio no cuadra (sacado de
+#: su `datosEdificio.pyd`).
+_MENSAJE_CE3X_REPARTO = {
+    "acs": "La instalación de ACS no está bien definida. El porcentaje de demanda "
+           "cubierta debe ser el 100 %.",
+    "calefaccion": "La instalación de calefacción cubre una demanda superior al 100%",
+    "refrigeracion": "La instalación de refrigeración cubre una demanda superior al 100%",
+}
 
 
 # --------------------------------------------------------------------------

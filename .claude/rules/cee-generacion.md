@@ -61,6 +61,8 @@ paths:
 
 152. **Todo CEE que genera la casa (inicial o final) deja su XML CARGADO en el expediente** (2026-10-21, Fran, 26RES060_241: «siempre que hagas un CEE inicial o final, carga el XML»): como «Cargar CEE» —`cee_{fase}`, `xml_{fase}`, combustibles, fechas de firma y visita (y en `documentacion`, valor suelto) y, fuera del RES080, la D_ACS por litros/día—, sin dejarlo listo para firmar. Lo hacen solos `cee_inicial.js aplicar --escribir`, `cee_final_copiando.js --escribir`, `cee_final.js --escribir` y `listo`; a mano, `cee_inicial.js cargar <nº> [--fase final] --escribir`. **No pisa el CEE cargado de un técnico** (`_fileName` sin `_REVISAR`; el nombre canónico no prueba nada, la subida del técnico renombra a él) salvo `--forzar`. **En una OPORTUNIDAD el inicial se carga en su SIMULACIÓN** (2026-10-22, Fran, 26RES060_OP321: «siempre que te pida que hagas el CEE lo cargas en el XML de la oportunidad»): por las funciones de la calculadora (`seedInputsFromCees`, modo manual) y los sellos de su guardado, con `cargar <op> --precio <€/MWh>` para fijar la tarifa a la vez; no en un RES080 ni sobre el CEE que aportó el cliente sin `--forzar` ([cargarCeeOportunidad.js](implementation/backend/services/cee/cargarCeeOportunidad.js)). **Y un CEE NUESTRO no da la comparativa «con tu CEE / CEE nuevo BROKERGY»**: va marcado `cee_previo.origen = 'brokergy'` y `computeCeeComparison` devuelve null (`ceeEsPropio`, ceeSeed.js); esa comparativa es solo para el CEE que aporta el cliente. Fuente única: [cargarXmlCee.js](implementation/backend/services/cee/cargarXmlCee.js). Tras tocarlo: `node implementation/backend/scripts/test_agente_ia.js`, `test_cex_final.mjs` y `test_alta_oportunidad.js`. Ver "El XML del CEE que hacemos se CARGA siempre en el expediente".
 
+172. **CE3X mide la demanda cubierta por los METROS que sirve cada equipo, no por su «Porcentaje»: superficie = útil × % / 100, y la REFRIGERACIÓN nunca pasa del 100 %** (2026-10-25, 2026EXT_2: tres aires «al 20 %» con la vivienda entera, 384 m² de frío en 128, y CE3X «La instalación de refrigeración cubre una demanda superior al 100%» en el edificio y en la medida). Medido con su motor: 25,6 m² califican igual al 20 % que al 100 %; 50 m² × 3, no. `construir_instalaciones` → `_frio_hasta_cien` (edificio, cada medida y CEE final copiado): un equipo con % < 100 que declara más m² que su parte BAJA a ella (nunca sube) y se avisa; los aires que SE QUEDAN en el fichero copiado, igual; los nuevos con su parte que pasan del 100 % se reparten lo que queda en proporción; la aerotermia con frío lleva solo el resto; a dos decimales HACIA ABAJO. La superficie útil: la de la ficha, la del `.cex` que se copia en `/cex/instalaciones` (`superficie_util_del_cex`) o, sin ninguna, la del equipo al 100 %. En el origen, `equipoAnadido` sin superficie tecleada pone su parte, no la vivienda. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_equipos.py` y `node implementation/backend/scripts/test_aires_ce3x.mjs`. Ver "CE3X cuenta los METROS, no el %".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -81,7 +83,7 @@ paths:
 - `docs/conocimiento/cee-generacion/la-medida-del-previsto-res080-va-autocontenida.md` — La medida del PREVISTO (RES080) va AUTOCONTENIDA, no como «Nuevo Edificio» (2026-10-10) · 4,7 KB
 - `docs/conocimiento/cee-generacion/los-puentes-de-las-ventanas-que-cambian.md` — Los PUENTES TÉRMICOS de las ventanas que CAMBIAN (RES080, 2026-10-05) · 3,1 KB
 - `docs/conocimiento/cee-generacion/una-cascada-son-varios-generadores-en-el-cex.md` — Una CASCADA son VARIOS generadores en el `.cex`, a partes iguales (2026-10-20) · 3,8 KB
-- `docs/conocimiento/cee-generacion/y-llega-al-cee-la-pestana-el-encargo-y-la-envolvente.md` — Y llega al CEE: la pestaña, el encargo y la envolvente (2026-09-29) · 5,3 KB
+- `docs/conocimiento/cee-generacion/y-llega-al-cee-la-pestana-el-encargo-y-la-envolvente.md` — Y llega al CEE: la pestaña, el encargo y la envolvente (2026-09-29) · 8,6 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -196,5 +198,8 @@ la demanda se reparte a PARTES IGUALES.**
 persona.**
   - **REGLA — un aire SOLO FRÍO enfría su estancia, no la casa**
   - **REGLA — los aires van en el CEE INICIAL.**
+  - **REGLA — CE3X mide la demanda cubierta por los m² que sirve cada equipo, NO por su
+«Porcentaje»: la superficie servida es la útil × % / 100, y la refrigeración nunca pasa
+del 100 %.**
 
 <!-- generado:fin -->

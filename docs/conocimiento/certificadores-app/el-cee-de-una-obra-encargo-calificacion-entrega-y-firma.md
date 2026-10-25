@@ -21,7 +21,7 @@ el definitivo», y que al certificador le llegue un WhatsApp y un email con la e
 
 | # | Quién | Qué pasa | Mensajes |
 |---|---|---|---|
-| 1 | Certificador | «Pedir el certificado» | **Uno** al equipo: `ia.textoEncargo` (nº, certificador con su contacto, cliente, vivienda y enlace al admin; si la IA automática está apagada, lo dice) |
+| 1 | Certificador | «Pedir el certificado» | **Uno** al equipo: `ia.textoEncargo` (nº, certificador con su contacto, cliente, vivienda y enlace al admin; si la IA automática está apagada, lo dice). Y al certificador, **su acuse** (`ia.acuseCertificador`, WhatsApp + email): recibido, qué viene (lo preparamos · lo revisamos · te avisamos) y el enlace a la obra |
 | 2 | Agente del VPS | Hace el `.cex` **en silencio**: `ceeIa.pedir` → `pedirTarea({ silencioso: true })`. Si todas las tareas son silenciosas, el vigía no acusa recibo, le dice al agente que no escriba y, si sale bien, no manda nada | ninguno |
 | 3 | Agente → PC | Deja el `.cex` por calificar → `agenteIa.terminarExt({ entregable: false })` → `asistenteCanal.encargarCalificarExt` → `POST /pc-calificar` del vigía → `asistente_pc.encolarCalificarExt` → tarea `calificar_ext` en la cola del PC | ninguno (si el encargo falla, el aviso de «por calificar» de antes, con el motivo) |
 | 4 | PC de Fran | En su vuelta (cada 2 min): `asegurarMotor` (el uvicorn del motor en el 8090) y `node scripts/cee_inicial.js calificar <nº> --escribir`, **sin Claude**. Al acabar bien, `avisarCalificadaExt` llama a producción e imprime `@@CALIFICADA_OK <nº>` | solo si falla (no aparece la marca) |
@@ -39,6 +39,19 @@ certificado que se pueda revisar; avisar en ese momento era el segundo mensaje q
 **REGLA — el PC solo da por buena la calificación si aparece `@@CALIFICADA_OK`.** Es la marca que
 imprime `cee_inicial.js` después de que producción haya contestado; sin ella, la tarea falla y el PC
 le escribe a Fran con el final del registro (`resultadoCalificarExt`).
+
+**REGLA — el agente encarga la calificación desde el contenedor del vigía, y allí ASISTENTE_URL es
+el propio vigía** ([asistente_vigia.js](implementation/backend/scripts/asistente_vigia.js): con
+`--servidor`, si falta, `http://localhost:<ASISTENTE_PUERTO>`; lo heredan Claude y los scripts que
+lanza). Con la 2026EXT_2 (25/10/2026) faltaba: `encargarCalificarExt` fallaba, salía el aviso de «por
+calificar» y el agente lo encargaba a mano con `asistente_pc.js`, que mandaba el «Le paso a tu PC…».
+Eran tres mensajes en vez de uno. Tras tocar el vigía: `docker compose restart asistente` (deploy.sh no
+lo reinicia), mirando antes `docker logs brokergy-asistente`.
+
+**Los mensajes, en viñetas y con negritas** (Fran, 25/10/2026: «que el WhatsApp salga mejor explicado,
+con viñetas, con negrita»): el encargo, el acuse, el «listo para revisar» y la entrega. El email del
+encargo lleva el mismo texto sin los asteriscos (`ia.sinNegritas`; los `_` se quedan porque van en el
+número); el del certificador es la plantilla de la app (`avisos.plantilla`).
 
 ### Lo que ve el certificador
 
