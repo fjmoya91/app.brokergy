@@ -32,7 +32,7 @@ paths:
 - `docs/conocimiento/firma/autofirma-no-falla-igual-en-todos-los-ordenadores.md` — Autofirma no falla igual en todos los ordenadores (2026-09-16) · 9,9 KB
 - `docs/conocimiento/firma/la-firma-a-mano-se-hace-con-el-movil.md` — La firma A MANO se hace CON EL MÓVIL (2026-09-06) · 11,1 KB
 - `docs/conocimiento/firma/una-firma-que-se-ve-no-siempre-cubre-el-documento.md` — Una firma que se VE no siempre CUBRE el documento (2026-09-18) · 4,2 KB
-- `docs/conocimiento/firma/y-si-se-esta-en-el-ordenador-la-firma-se-pasa-al-movil-con-un-qr.md` — Y si se está en el ORDENADOR, la firma se pasa al MÓVIL con un QR · 4,6 KB
+- `docs/conocimiento/firma/y-si-se-esta-en-el-ordenador-la-firma-se-pasa-al-movil-con-un-qr.md` — Y si se está en el ORDENADOR, la firma se pasa al MÓVIL con un QR · 5,1 KB
 
 ## Las «REGLA —» que contienen esos documentos
 

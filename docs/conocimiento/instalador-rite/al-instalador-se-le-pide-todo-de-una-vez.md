@@ -160,3 +160,9 @@ del expediente y se corrigen allí: lo dice el aviso del visor.
 ⚠️ En local el generador RITE y el motor CE3X piden los dos el puerto 8090; con el motor
 arrancado la vista previa del RITE dice «servicio no disponible». Y sin LibreOffice la
 memoria no sale en PDF (solo el Word); en el contenedor sí.
+
+**Aspecto (26/10/2026)**: las tres páginas del instalador (`/instalador`, `/subir-cifo`,
+`/subir-rite`) y sus tarjetas van en el estilo «carta de pago» (regla 164), con un solo marco y
+un solo CSS en [MarcoInstalador.jsx](implementation/frontend/src/features/public/components/MarcoInstalador.jsx)
+(prefijo `.in-`) y sus demos sin API (`/instalador/demo`, `/subir-cifo/demo`, `/subir-rite/demo`).
+Solo cambió el aspecto: lo que se pide, cuándo y cómo se sube, lo de siempre.

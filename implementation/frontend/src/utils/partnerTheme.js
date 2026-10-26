@@ -23,6 +23,7 @@ const contrast = (L1, L2) => (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.0
 const toHex = ([r, g, b]) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
 const mixWhite = ([r, g, b], t) => [r + (255 - r) * t, g + (255 - g) * t, b + (255 - b) * t];
 const BG_LUM = relLum([8, 9, 12]); // fondo oscuro de la app (#08090C)
+const CREMA_LUM = relLum([250, 249, 247]); // papel de la landing pública (#faf9f7)
 
 export function buildAccentVars(hex) {
     const rgb = hexRgb(hex);
@@ -32,10 +33,15 @@ export function buildAccentVars(hex) {
     // Aclarar el color como texto hasta contraste AA (4.5:1) sobre el fondo.
     let textRgb = rgb, t = 0;
     while (contrast(relLum(textRgb), BG_LUM) < 4.5 && t < 0.92) { t = Math.min(t + 0.08, 0.92); textRgb = mixWhite(rgb, t); }
+    // Y como texto sobre PAPEL CLARO (la landing pública en estilo «carta de pago»,
+    // regla 164): oscurecido hasta el mismo 4.5:1 sobre el crema.
+    let claroRgb = rgb, k = 0;
+    while (contrast(relLum(claroRgb), CREMA_LUM) < 4.5 && k < 0.92) { k = Math.min(k + 0.08, 0.92); claroRgb = rgb.map(v => v * (1 - k)); }
     return {
         '--accent': hex,
         '--accent-on': onAccent,
         '--accent-text': toHex(textRgb),
+        '--accent-text-claro': toHex(claroRgb),
         // Canales R,G,B para reconstruir tintes/glows con opacidad: rgba(var(--accent-rgb), .1)
         '--accent-rgb': rgb.join(', '),
     };

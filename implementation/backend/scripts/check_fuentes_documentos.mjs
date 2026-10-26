@@ -59,9 +59,9 @@ const familias = Object.entries(FUENTES).filter(([k, v]) => k.startsWith('FUENTE
 const faltan = [];
 const vistos = new Set();
 for (const [, fams] of familias) {
-    for (const [nombre, slug, pesos] of fams) {
+    for (const [nombre, slug, pesos, subsets = SUBSETS] of fams) {
         for (const w of pesos) {
-            for (const sub of SUBSETS) {
+            for (const sub of subsets) {
                 const f = `${slug}-${w}-${sub}.woff2`;
                 if (vistos.has(f)) continue;
                 vistos.add(f);

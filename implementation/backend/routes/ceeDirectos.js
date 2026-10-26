@@ -723,44 +723,15 @@ router.post('/:id/ampliar-doble', staffOnly, async (req, res) => {
 // Solo ADMIN: es lo que abre la descarga al cliente y toca dinero.
 router.patch('/:id/cobrado', adminOnly, async (req, res) => {
     try {
-        const cobrado = req.body?.cobrado === true;
-        const row = await svc.cargar(req.params.id, { conRelaciones: false });
-        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
-
-        const { data, error } = await supabase.from(svc.TABLA).update({
-            cobrado,
-            cobrado_at: cobrado ? new Date().toISOString() : null,
-            cobrado_por: cobrado ? (req.user?.id_usuario || null) : null,
-            updated_at: new Date().toISOString()
-        }).eq('id', row.id).select('id, cobrado, cobrado_at').single();
-        if (error) throw new Error(error.message);
-
-        await svc.anotarHistorial(row.id, {
-            tipo: 'COBRO',
-            texto: cobrado ? 'MARCADO COMO COBRADO — SE PUEDE ENTREGAR AL CLIENTE' : 'SE RETIRA LA MARCA DE COBRADO',
-            usuario: req.user?.email || null
+        // Lo mismo que «Cobrada» de una factura suya en la pestaña Facturación:
+        // una sola función (ceeFacturaService.cobrarExpediente).
+        const r = await facturas.cobrarExpediente(req.params.id, req.body?.cobrado === true, {
+            usuarioId: req.user?.id_usuario || null, usuarioEmail: req.user?.email || null,
         });
-
-        // Sus facturas pasan a PAGADA (o vuelven a ENVIADA) en el libro de
-        // facturas: es el mismo hecho, y en diferido — la hoja no puede tumbar el cobro.
-        setImmediate(() => facturas.sincronizarCobro(row.id, cobrado, data.cobrado_at)
-            .catch(e => console.warn('[cee-directos cobro→factura]', e.message)));
-
-        // La otra mitad de la condición. Se prueba con TODAS las fases ya
-        // registradas: en un encargo doble puede tocar entregar las dos de golpe
-        // si el pago llega al final.
-        if (cobrado) {
-            for (const [k, fase] of [['cee_inicial', 'inicial'], ['cee_final', 'final']]) {
-                if (row.seguimiento?.[k] === 'REGISTRADO') {
-                    entrega.intentarEntregaAsync(row.id, fase, 'marcado cobrado');
-                }
-            }
-        }
-
-        res.json(data);
+        res.json({ id: r.id, cobrado: r.cobrado, cobrado_at: r.cobrado_at });
     } catch (err) {
         console.error('[cee-directos cobrado]', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -2214,6 +2185,44 @@ router.post('/:id/entrega', staffOnly, async (req, res) => {
         res.json(r);
     } catch (err) {
         console.error('[cee-directos entrega POST]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── GET /:id/entrega-todo ── Los dos certificados de un DOBLE, en un mensaje ─
+// El borrador del popup «Entregar todo»: qué falta, a quién, los cinco adjuntos
+// en orden (CEE inicial, su etiqueta, CEE final, su etiqueta, guía) y el texto.
+router.get('/:id/entrega-todo', staffOnly, async (req, res) => {
+    try {
+        const b = await entrega.borradorTodo(req.params.id);
+        if (!b) return res.status(404).json({ error: 'Expediente no encontrado' });
+        res.json(b);
+    } catch (err) {
+        console.error('[cee-directos entrega-todo GET]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── POST /:id/entrega-todo ── Mandarlo todo junto ──────────────────────────
+// Mismas condiciones que la entrega por fase; el cobro solo se lo salta un ADMIN.
+router.post('/:id/entrega-todo', staffOnly, async (req, res) => {
+    try {
+        const sinCobro = req.body?.sinCobro === true;
+        if (sinCobro && !isAdmin(req)) return res.status(403).json({ error: 'Entregar sin cobrar es cosa de un administrador.' });
+        const r = await entrega.entregarTodo(req.params.id, {
+            sinCobro,
+            reenviar: req.body?.reenviar === true,
+            mensaje: req.body?.mensaje,
+            channels: req.body?.channels,
+            usuario: req.user?.email || null
+        });
+        if (!r.enviado) {
+            const codigo = r.motivo === 'NO_EXISTE' ? 404 : r.motivo === 'YA_ENTREGADO' ? 409 : 422;
+            return res.status(codigo).json(r);
+        }
+        res.json(r);
+    } catch (err) {
+        console.error('[cee-directos entrega-todo POST]', err.message);
         res.status(500).json({ error: err.message });
     }
 });

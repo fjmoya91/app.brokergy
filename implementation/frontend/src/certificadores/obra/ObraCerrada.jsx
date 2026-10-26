@@ -18,7 +18,8 @@
 // `revisar-de-nuevo` tiene tope (409 SIN_REVISIONES): se dice con calma.
 // Debajo del certificado, «¿Algo mal en este certificado? Avísanos» y lo que nos ha
 // contado de esta obra con nuestra respuesta (incidencias/Incidencias.jsx).
-import { lazy, Suspense, useRef, useState } from 'react';
+import { Suspense, useRef, useState } from 'react';
+import { lazyWithReload } from '../../utils/lazyWithReload';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { API, errorDe, fecha, haceCuanto, mensajeError, urlDe } from '../api';
@@ -33,8 +34,9 @@ import { FotosObra } from './Fotos';
 import { IncidenciasObra } from '../incidencias/Incidencias';
 import { CEE_SIGN_ANCHOR } from '../../features/expedientes/logic/signBoxes';
 
-// El modal de firma del CRM (pdf.js + AutoFirma) pesa: se carga al pulsar «Firmar».
-const FirmarConCertificadoModal = lazy(() => import('../../features/expedientes/components/FirmarConCertificadoModal'));
+// El modal de firma del CRM (pdf.js + AutoFirma) pesa: se carga al pulsar «Firmar». Con lazyWithReload
+// (ver App.jsx): tras un deploy, el trozo viejo no existe y la pestaña se recarga sola.
+const FirmarConCertificadoModal = lazyWithReload(() => import('../../features/expedientes/components/FirmarConCertificadoModal'), { name: 'certapp:firmar' });
 
 const DESCARGAS = [
     { k: 'pdf', label: 'Certificado', sub: 'PDF', Ico: IcoDoc },

@@ -95,12 +95,27 @@ USER_ENTERED, un id de solo cifras o con una «e» entre cifras se convierte en 
 pestaña Facturación (`facturas_emitidas`, origen CEE_DIRECTO): `emitir` llama a
 `facturaService.registrarEmitida`, que además la encadena en VERI*FACTU; el PDF, los envíos y un
 cambio de fecha se anotan con `actualizarRegistrada`, y el cobro (`sincronizarCobro`) con
-`marcarCobroPorNumero`. Best-effort: no puede tumbar la emisión. Se sigue cobrando y rehaciendo desde
+`marcarCobroPorNumero`. Best-effort: no puede tumbar la emisión. Se sigue rehaciendo desde
 la ficha del CEE (desde la pestaña, 409). La plantilla del PDF es ahora la de todas las facturas
 (`buildFacturaCeeHtml` admite IRPF, rectificativa, QR y fecha de operación sin cambiar una factura de
 CEE) y su paginación se recalibró con lo MEDIDO: 432 px antes de la primera fila en la primera hoja
 (AppSheet estimaba 384), la fila «Página 1 de N» contada y dos pasadas. Ver «Facturas desde la app»
 (área facturacion) y regla 166.
+
+**Desde el 25/10/2026 también al revés: la factura hecha en la pestaña Facturación se ve AQUÍ, y
+cobrarla allí cobra el CEE.** Si es de este CEE (nació de su presupuesto o lleva su nº de expediente),
+al emitirla, enviarla o rectificarla se escribe su reflejo en `documentacion.facturas_emitidas[{nº}]`
+(`reflejarDeFacturacion`, con `origen: 'FACTURACION'` y `factura_id`), así que el procedimiento, el
+«toca facturar», a quién se entrega y el popup la ven como cualquier otra. Su PDF es el de la pestaña;
+rehacerlo o cambiarle la fecha desde aquí, 409. Y «Marcar cobrado» de la ficha y «Cobrada» de la
+pestaña son la MISMA función, `cobrarExpediente` (cobro + facturas PAGADAS + entrega). Y enviarla desde
+la pestaña manda el mensaje de AQUÍ (`envioDeFacturacion`), con el enlace del justificante. Caso: 26ING_89
+de 2026CEE_61. Ver «Facturas desde la app».
+
+**El mensaje de un DOBLE con el final ya registrado** (25/10/2026, 2026CEE_61): dice que los dos
+certificados están hechos y registrados y que al pagar se le mandan los dos (`finalRegistrado` en
+`contextoMensaje` → `mensajeFactura`). Antes le pedía la factura de la instalación «cuando esté
+terminada», con la obra hecha y el final ya registrado.
 
 **Desde el 19/10/2026 emite también en esta serie la fase 7 del lote** (la factura de
 los honorarios de gestión CAE, al cliente o a su instalador: `facturaGestionCae.js`,

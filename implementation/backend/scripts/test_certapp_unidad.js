@@ -98,6 +98,13 @@ function ok(cond, texto) {
     ok(pc._resultadoCalificarExt(logMal).ok === false && /CE3X no responde/.test(pc._resultadoCalificarExt(logMal).texto), 'PC: sin la marca, falla y cuenta por qué');
     ok(pc._resultadoCalificarExt(logOk, 'cortado a los 20 min').ok === false, 'PC: cortado por tiempo no vale aunque haya marca');
     require('fs').rmSync(logOk, { force: true }); require('fs').rmSync(logMal, { force: true });
+    // Lo que las rutas de la app sacan de agenteIa con require(...).X tiene que estar exportado: la de
+    // «calificada» llamaba a un terminarExt sin exportar y daba 500 (2026EXT_3).
+    const agenteIa = require(path.join(B, 'services/agenteIa'));
+    const usadas = [...require('fs').readFileSync(path.join(B, 'routes/certappAdmin.js'), 'utf8')
+        .matchAll(/require\('\.\.\/services\/agenteIa'\)\.(\w+)/g)].map(m => m[1]);
+    ok(usadas.includes('terminarExt') && usadas.every(f => typeof agenteIa[f] === 'function'),
+        `rutas: lo que certappAdmin usa de agenteIa está exportado (${usadas.join(', ')})`);
     const hp = pc._hostPuertoMotor('http://127.0.0.1:8093');
     ok(hp.host === '127.0.0.1' && hp.puerto === '8093', 'PC: el motor se levanta en el puerto de CEE_ENGINE_URL, no en un 8090 fijo');
     ok(pc._hostPuertoMotor('http://localhost').puerto === '80', 'PC: una URL sin puerto, el de su protocolo');

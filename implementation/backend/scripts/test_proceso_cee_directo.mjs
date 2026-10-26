@@ -79,6 +79,11 @@ await t('mensaje de la factura: firmado, enlace del justificante y el final incl
     // DOBLE pero facturando solo el inicial: no promete el final.
     const soloIni = fac.mensajeFactura({ numero: 'N', total: 1, doble: true, lineas: [{ descripcion: 'Certificado de Eficiencia Energética inicial' }] });
     assert.doesNotMatch(soloIni, /certificado final/);
+    // DOBLE con el final ya registrado (2026CEE_61): los dos hechos, nada de «cuando la instalación esté terminada».
+    const ambos = fac.mensajeFactura({ numero: 'N', total: 1, lineas, enlacePago: 'https://app/x', certificado: 'registrado', doble: true, finalRegistrado: true });
+    assert.match(ambos, /inicial y final\* ya están hechos/);
+    assert.doesNotMatch(ambos, /cuando la instalación esté terminada/);
+    assert.match(ambos, /te los mandamos/);
 });
 
 await t('aviso de registrado con la factura YA enviada: la recuerda y lleva el enlace', async () => {

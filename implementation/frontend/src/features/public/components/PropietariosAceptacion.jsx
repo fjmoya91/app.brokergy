@@ -12,7 +12,9 @@
 // dice en pantalla: si no, "¿y quién firma?" se contesta suponiendo.
 // REGLA — la pregunta se contesta en NEUTRO (sin preseleccionar), salvo que la
 // ficha ya traiga otros propietarios: entonces viene en Sí y rellena.
-// REGLA — el texto secundario va a /70 como mínimo (se acepta con el móvil).
+// REGLA — el texto secundario se tiene que leer en el móvil (se acepta con él).
+// Va en el estilo «carta de pago» con las clases `.fp-` de AceptarPropuestaView:
+// solo se pinta dentro de esa página (24/10/2026).
 //
 // Lo guarda `clientes.copropietarios` (saneado en backend/utils/normalization.js).
 // La lógica (qué falta, qué se manda) vive en logic/propietariosAceptacion.js.
@@ -20,22 +22,27 @@
 
 import { MAX_PROPIETARIOS_EXTRA, propietarioNuevo, cuotaTitular } from '../logic/propietariosAceptacion';
 
-const INPUT = 'w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all font-medium';
-const LABEL = 'block text-xs font-black uppercase tracking-widest text-white/50 ml-1';
+const Ico = ({ size = 20, sw = 2, children }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {children}
+    </svg>
+);
+const IcoCheck = (p) => <Ico {...p}><path d="M5 12.5l4.5 4.5L19 7.5" /></Ico>;
+const IcoClip = (p) => <Ico {...p}><path d="M20 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L14.8 7" /></Ico>;
 
-function Campo({ label, obligatorio, children }) {
+function Campo({ label, obligatorio, opcional, children }) {
     return (
-        <div className="space-y-1.5">
-            <label className={LABEL}>{label}{obligatorio && <span className="text-brand"> *</span>}</label>
+        <label style={{ display: 'block' }}>
+            <span className="fp-k">{label}{obligatorio && <i> *</i>}{opcional && <em> (opcional)</em>}</span>
             {children}
-        </div>
+        </label>
     );
 }
 
 function Opcion({ activo, onClick, children }) {
     return (
-        <button type="button" onClick={onClick}
-            className={`flex-1 min-h-[48px] px-4 py-3 rounded-xl border text-sm font-bold transition-all ${activo ? 'border-brand bg-brand/10 text-white' : 'border-white/10 bg-bkg-elevated text-white/70 hover:border-white/25'}`}>
+        <button type="button" onClick={onClick} aria-pressed={activo}
+            className={`fp-elige${activo ? ' fp-elige-sel' : ''}`}>
             {children}
         </button>
     );
@@ -44,98 +51,94 @@ function Opcion({ activo, onClick, children }) {
 function TarjetaPropietario({ p, index, onChange, onRemove, justificante, onJustificante, conJustificante }) {
     const set = (patch) => onChange({ ...p, ...patch });
     return (
-        <div className="p-4 sm:p-5 rounded-2xl border border-white/10 bg-white/[0.02] space-y-4">
-            <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-black uppercase tracking-widest text-brand">Propietario {index + 2}</p>
-                <button type="button" onClick={onRemove}
-                    className="text-[11px] font-black uppercase tracking-widest text-red-400/80 hover:text-red-400 px-2 py-1">
+        <div className="fp-prop">
+            <div className="fp-card-head">
+                <p className="fp-eyebrow">Propietario {index + 2}</p>
+                <button type="button" onClick={onRemove} className="fp-quita-prop">
                     Quitar
                 </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="fp-campos fp-dos">
                 <Campo label="Nombre" obligatorio>
-                    <input className={`${INPUT} uppercase`} value={p.nombre} autoComplete="off"
+                    <input className="fp-input" value={p.nombre} autoComplete="off"
                         onChange={e => set({ nombre: e.target.value })} />
                 </Campo>
                 <Campo label="Apellidos">
-                    <input className={`${INPUT} uppercase`} value={p.apellidos} autoComplete="off"
+                    <input className="fp-input" value={p.apellidos} autoComplete="off"
                         onChange={e => set({ apellidos: e.target.value })} />
                 </Campo>
                 <Campo label="DNI / NIE" obligatorio>
-                    <input className={`${INPUT} uppercase`} value={p.dni} autoComplete="off"
+                    <input className="fp-input fp-input-mono" value={p.dni} autoComplete="off"
                         onChange={e => set({ dni: e.target.value })} />
                 </Campo>
                 <Campo label="Teléfono">
-                    <input type="tel" className={INPUT} value={p.tlf} autoComplete="off"
+                    <input type="tel" className="fp-input" value={p.tlf} autoComplete="off"
                         onChange={e => set({ tlf: e.target.value })} />
                 </Campo>
-                <div className="sm:col-span-2">
-                    <Campo label="Email">
-                        <input type="email" className={`${INPUT} no-uppercase`} value={p.email} autoComplete="off"
-                            onChange={e => set({ email: e.target.value.toLowerCase() })} />
-                    </Campo>
-                </div>
+            </div>
+            <div className="fp-campos">
+                <Campo label="Email">
+                    <input type="email" className="fp-input no-uppercase" value={p.email} autoComplete="off"
+                        onChange={e => set({ email: e.target.value.toLowerCase() })} />
+                </Campo>
             </div>
 
             {/* Lo que decide si es CEDENTE: quien paga la obra es el propietario
                 del ahorro (RD 36/2023). Quien no paga queda registrado como
                 propietario, pero no firma ni cobra. */}
-            <div className="space-y-2 pt-1">
-                <p className="text-sm font-bold text-white">¿Paga también la obra? <span className="text-brand">*</span></p>
-                <p className="text-[12px] text-white/70 leading-relaxed">
-                    Si paga parte de la obra, la factura tiene que ir también a su nombre y firmará los documentos de la ayuda.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2">
-                    <Opcion activo={p.cedente === true} onClick={() => set({ cedente: true })}>Sí, también paga</Opcion>
-                    <Opcion activo={p.cedente === false} onClick={() => set({ cedente: false, cuenta_propia: false })}>No, solo es propietario</Opcion>
-                </div>
+            <p className="fp-prop-q">¿Paga también la obra? <span style={{ color: 'var(--naranja-txt)' }}>*</span></p>
+            <p className="fp-ayuda" style={{ marginLeft: 0 }}>
+                Si paga parte de la obra, la factura tiene que ir también a su nombre y firmará los documentos de la ayuda.
+            </p>
+            <div className="fp-elige-par">
+                <Opcion activo={p.cedente === true} onClick={() => set({ cedente: true })}>Sí, también paga</Opcion>
+                <Opcion activo={p.cedente === false} onClick={() => set({ cedente: false, cuenta_propia: false })}>No, solo es propietario</Opcion>
             </div>
 
             {p.cedente === true && (
-                <div className="space-y-4">
-                    <Campo label="¿Qué parte de la obra paga? (%)">
-                        <input inputMode="decimal" className={INPUT} value={p.cuota_pct ?? ''} placeholder="A partes iguales" autoComplete="off"
-                            onChange={e => set({ cuota_pct: e.target.value.replace(/[^\d.,]/g, '') })} />
-                    </Campo>
-                    <div className="space-y-2">
-                        <p className="text-sm font-bold text-white">¿Dónde se le ingresa su parte de la ayuda?</p>
-                        <p className="text-[12px] text-white/70 leading-relaxed">
-                            Lo normal es ingresarla entera en una sola cuenta: ante Hacienda cada uno declara su parte, cobre quien cobre.
-                        </p>
-                        <div className="flex flex-col sm:flex-row gap-2">
-                            <Opcion activo={!p.cuenta_propia} onClick={() => set({ cuenta_propia: false })}>En la cuenta del titular</Opcion>
-                            <Opcion activo={!!p.cuenta_propia} onClick={() => set({ cuenta_propia: true })}>En su propia cuenta</Opcion>
-                        </div>
+                <>
+                    <div className="fp-campos">
+                        <Campo label="¿Qué parte de la obra paga? (%)">
+                            <input inputMode="decimal" className="fp-input" value={p.cuota_pct ?? ''} placeholder="A partes iguales" autoComplete="off"
+                                onChange={e => set({ cuota_pct: e.target.value.replace(/[^\d.,]/g, '') })} />
+                        </Campo>
                     </div>
-                </div>
+                    <p className="fp-prop-q">¿Dónde se le ingresa su parte de la ayuda?</p>
+                    <p className="fp-ayuda" style={{ marginLeft: 0 }}>
+                        Lo normal es ingresarla entera en una sola cuenta: ante Hacienda cada uno declara su parte, cobre quien cobre.
+                    </p>
+                    <div className="fp-elige-par">
+                        <Opcion activo={!p.cuenta_propia} onClick={() => set({ cuenta_propia: false })}>En la cuenta del titular</Opcion>
+                        <Opcion activo={!!p.cuenta_propia} onClick={() => set({ cuenta_propia: true })}>En su propia cuenta</Opcion>
+                    </div>
+                </>
             )}
 
             {p.cedente === true && p.cuenta_propia && (
-                <div className="space-y-4">
+                <div className="fp-campos">
                     <Campo label="Cuenta (IBAN)" obligatorio>
-                        <input className={`${INPUT} uppercase`} value={p.iban} placeholder="ESXX XXXX ..." autoComplete="off"
+                        <input className="fp-input fp-input-mono" value={p.iban} placeholder="ESXX XXXX ..." autoComplete="off"
                             onChange={e => set({ iban: e.target.value })} />
                     </Campo>
                     {conJustificante && (
-                        <div className="space-y-1.5">
-                            <label className={LABEL}>
-                                Justificante de titularidad <span className="text-white/50 font-normal normal-case tracking-normal">(opcional)</span>
-                            </label>
+                        <div>
+                            <p className="fp-k">Justificante de titularidad <em>(opcional)</em></p>
                             {p.tiene_justificante && !justificante ? (
-                                <p className="text-[12px] text-emerald-400/90 ml-1">✓ Ya nos lo enviaste. Sube otro solo si la cuenta ha cambiado.</p>
+                                <p className="fp-ayuda" style={{ color: 'var(--verde-txt)', margin: '0 2px 8px', display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <IcoCheck size={14} sw={3} /> Ya nos lo enviaste. Sube otro solo si la cuenta ha cambiado.
+                                </p>
                             ) : null}
-                            <div className="relative">
+                            <label className={`fp-file${justificante ? ' fp-file-ok' : ''}`}>
                                 <input type="file" accept="image/jpeg,image/png,application/pdf"
-                                    onChange={e => onJustificante(e.target.files[0] || null)}
-                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                                <div className={`border-2 border-dashed rounded-xl px-4 py-3.5 flex items-center gap-3 transition-all ${justificante ? 'border-brand/40 bg-brand/5' : 'border-white/10 hover:border-brand/30'}`}>
-                                    <svg className="w-4 h-4 text-white/50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                                    {justificante
-                                        ? <span className="text-xs font-bold text-brand truncate">{justificante.name}</span>
-                                        : <span className="text-xs text-white/60">Seleccionar archivo (JPG, PNG o PDF)</span>}
-                                </div>
-                            </div>
+                                    onChange={e => onJustificante(e.target.files[0] || null)} />
+                                <span className={`fp-ico-tile ${justificante ? 'fp-tile-verde' : 'fp-tile-crema'}`}>
+                                    {justificante ? <IcoCheck size={20} /> : <IcoClip size={20} />}
+                                </span>
+                                {justificante
+                                    ? <span><b>{justificante.name}</b>pulsa para cambiarlo</span>
+                                    : <span><b>Adjuntar justificante</b>JPG, PNG o PDF</span>}
+                            </label>
                         </div>
                     )}
                 </div>
@@ -160,20 +163,19 @@ export function PropietariosAceptacion({ mas, setMas, lista, setLista, justifica
         if (v && (!lista || !lista.length)) setLista([propietarioNuevo()]);
     };
     return (
-        <div className="pt-6 border-t border-white/10 space-y-4">
-            <div>
-                <p className="text-white font-bold text-sm mb-1">¿La vivienda tiene más de un propietario? <span className="text-brand">*</span></p>
-                <p className="text-white/70 text-xs leading-relaxed">
-                    Cada propietario que paga la obra puede aplicarse su parte de la deducción en la Renta y firma los documentos de la ayuda, así que necesitamos sus datos.
-                </p>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2">
+        <div>
+            <p className="fp-sec">Propietarios de la vivienda</p>
+            <p className="fp-prop-q" style={{ marginTop: 14 }}>¿La vivienda tiene más de un propietario? <span style={{ color: 'var(--naranja-txt)' }}>*</span></p>
+            <p className="fp-ayuda" style={{ marginLeft: 0 }}>
+                Cada propietario que paga la obra puede aplicarse su parte de la deducción en la Renta y firma los documentos de la ayuda, así que necesitamos sus datos.
+            </p>
+            <div className="fp-elige-par">
                 <Opcion activo={mas === false} onClick={() => elegirMas(false)}>No, solo yo</Opcion>
                 <Opcion activo={mas === true} onClick={() => elegirMas(true)}>Sí, somos más</Opcion>
             </div>
 
             {mas === true && (
-                <div className="space-y-4">
+                <div style={{ marginTop: 16 }}>
                     {(lista || []).map((p, i) => (
                         <TarjetaPropietario
                             key={p.id}
@@ -192,16 +194,17 @@ export function PropietariosAceptacion({ mas, setMas, lista, setLista, justifica
                         />
                     ))}
                     {(lista || []).length < MAX_PROPIETARIOS_EXTRA && (
-                        <button type="button" onClick={() => setLista([...(lista || []), propietarioNuevo()])}
-                            className="w-full min-h-[48px] rounded-xl border border-dashed border-brand/40 text-brand text-xs font-black uppercase tracking-widest hover:bg-brand/5 transition-all">
+                        <button type="button" onClick={() => setLista([...(lista || []), propietarioNuevo()])} className="fp-anadir">
                             + Añadir datos de otro propietario
                         </button>
                     )}
                     {(lista || []).some(p => p.cedente === true) && (
-                        <p className="text-[12px] text-white/70 leading-relaxed">
-                            Tu parte de la obra: <strong className="text-white">{String(cuotaTitular(lista)).replace('.', ',')} %</strong>.
-                            Firmaréis el Convenio de Cesión todos los que pagáis la obra, y cada uno su propio Anexo I.
-                        </p>
+                        <div className="fp-extra">
+                            <p>
+                                Tu parte de la obra: <strong>{String(cuotaTitular(lista)).replace('.', ',')} %</strong>.
+                                Firmaréis el Convenio de Cesión todos los que pagáis la obra, y cada uno su propio Anexo I.
+                            </p>
+                        </div>
                     )}
                 </div>
             )}

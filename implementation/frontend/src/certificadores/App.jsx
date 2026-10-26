@@ -5,7 +5,8 @@
 //   CERTIFICADOR /panel, /obra/nueva, /obra/:id, /obra/:id/envolvente, /perfil
 //   ADMIN        /admin, /admin/{beta|cuentas|obras|sugerencias}, /admin/obras/:id
 // ─────────────────────────────────────────────────────────────────────────────
-import { lazy, Suspense, useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
+import { lazyWithReload } from '../utils/lazyWithReload';
 import { casar, DEL_CRM, navegar, useRuta } from './router';
 import { useCertappAuth } from './auth/CertappAuth';
 import { CSS } from './ui/estilo';
@@ -31,8 +32,12 @@ import MisIncidencias from './incidencias/MisIncidencias';
 import MisGastos from './gastos/MisGastos';
 
 // Lo pesado o lo que es de otros, en diferido.
-const EnvolventeCertapp = lazy(() => import('./envolvente/EnvolventeCertapp.jsx'));
-const Admin = lazy(() => import('./admin/Admin.jsx'));
+// REGLA — lo diferido, SIEMPRE con lazyWithReload, nunca con `lazy` a secas: una pestaña abierta antes
+// de un deploy pide trozos que ya no existen (404, «Failed to fetch dynamically imported module») y
+// la pantalla se quedaba en «Algo ha fallado». Así se recarga sola una vez (Fran, 25/10/2026,
+// «Abrir envolvente» desde el admin tras dos deploys de otras sesiones).
+const EnvolventeCertapp = lazyWithReload(() => import('./envolvente/EnvolventeCertapp.jsx'), { name: 'certapp:envolvente' });
+const Admin = lazyWithReload(() => import('./admin/Admin.jsx'), { name: 'certapp:admin' });
 
 /** Navega en un efecto (nunca durante el render). */
 function Redirigir({ to }) {

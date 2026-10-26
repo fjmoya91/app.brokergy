@@ -32,7 +32,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { comprobarIrpf, UMBRAL_AHORRO } from './irpfEpnr.js';
 import { leerDatosIrpfDeTexto } from '../../calculator/logic/xmlCeeParser.js';
-import { buildFontFaces, FUENTE_FACTURA_SO, origenApp } from './fuentesDoc.js';
+import { buildFontFaces, FUENTE_INTER, origenApp } from './fuentesDoc.js';
 import { BROKERGY_MARK_DATAURI, BROKERGY_CIRCULAR_DATAURI } from '../../lotes/logic/facturaLogo.js';
 
 /** Reducción mínima de la demanda de calefacción + refrigeración (deducción del 20 %). */
@@ -619,14 +619,20 @@ export function asuntoGuiaIrpf(guia, { previa = null } = {}) {
 
 // ─── El documento ────────────────────────────────────────────────────────────
 
-const ORANGE = '#F39200';
-const GRAD = 'linear-gradient(90deg,#F39200 0%,#F8B019 30%,#CBD64A 70%,#9DC23B 100%)';
-const GREEN = '#7FA62A';
-const GREEN_BG = '#F3F8E6';
-const DARK = '#1a1f24';
-const GREY = '#5a636b';
-const GREY2 = '#7a838b';
-const LINE = '#e6e8e3';
+// Estilo «carta de pago» (regla 164, 26/10/2026): los tokens de la carta del
+// Bono CAE (plantillas/carta_pago_bono_cae.html), que es su misma hoja impresa.
+const ORANGE = '#ffa000';        // relleno (números de la ruta, filete de la tabla)
+const ORANGE_TXT = '#b33a0a';    // naranja como TEXTO sobre blanco
+const GRAD = 'linear-gradient(90deg,#fca508 0%,#f5c53f 30%,#eee475 55%,#c7d54c 78%,#b5cf38 100%)';
+const GREEN = '#b1d13e';
+const GREEN_TXT = '#4d6b0f';
+const GREEN_BG = 'rgba(177,209,62,.14)';
+const LIMA = '#c7f601';
+const DARK = '#141111';
+const CREMA = '#faf9f7';
+const GREY = '#55585f';
+const GREY2 = '#6b6e76';
+const LINE = 'rgba(20,17,17,.10)';
 
 /**
  * El HTML de la guía (A4, una página).
@@ -804,109 +810,125 @@ export function buildGuiaIrpfHtml(guia, { appUrl = origenApp() } = {}) {
         'Guarda las <b>facturas, los justificantes de pago y los certificados</b>: es lo que pide Hacienda si lo revisa.',
     ];
 
-    const cabeceraNum = [g.numeroExpediente && `Expediente ${esc(g.numeroExpediente)}`, `preparada el ${esc(fechaEs(g.hoy) || '')}`].filter(Boolean).join(' · ');
     const ruta = ['Renta Web', ...RUTA_RENTA];
 
     return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8">
 <style>
-  ${buildFontFaces(appUrl, FUENTE_FACTURA_SO)}
+  ${buildFontFaces(appUrl, FUENTE_INTER)}
+  ${'' /* Antonio solo tiene la cara latina (como en las páginas del cliente): cubre el castellano. */}
+  @font-face{font-family:'Antonio';font-style:normal;font-weight:700;font-display:swap;src:url('${appUrl}/fonts/Antonio-700-latin.woff2') format('woff2');}
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
-  body { font-family: 'Manrope', 'Segoe UI', Arial, sans-serif; color: ${DARK}; background: #fff; font-size: 10.4px; line-height: 1.4;
+  body { font-family: 'Inter', 'Segoe UI', Arial, sans-serif; color: ${DARK}; background: #fff; font-size: 10.2px; line-height: 1.4;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .arc { font-family: 'Archivo', 'Arial Black', Arial, sans-serif; }
+  .arc { font-family: 'Antonio', 'Inter', 'Arial Narrow', Arial, sans-serif; font-weight: 700; letter-spacing: -0.005em; }
   b { font-weight: 700; }
   .sheet { position: relative; width: 210mm; height: 297mm; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+  .filete { height: 6px; width: 100%; background: ${GRAD}; flex-shrink: 0; }
   .pad { padding: 0 38px; }
-  .kick { font-size: 8.5px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: ${GREEN}; }
-  .sec { margin-top: 13px; }
-  .sec-t { font-size: 8.5px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: ${GREY2}; margin: 0 0 5px; display: flex; align-items: center; gap: 8px; }
-  .sec-t::after { content: ''; flex: 1; height: 1px; background: ${LINE}; }
-  .u { font-size: 8.5px; color: ${GREY2}; font-weight: 500; }
+  .kick { font-size: 8.3px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: ${ORANGE_TXT}; }
+  .sec { margin-top: 10px; }
+  /* El rótulo de cada bloque, como «BENEFICIARIO» en la carta: naranja y un filo de tinta debajo. */
+  .sec-t { font-size: 8.3px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: ${ORANGE_TXT}; margin: 0 0 5px; padding-bottom: 3px; border-bottom: 1px solid ${DARK}; }
+  .u { font-size: 8.4px; color: ${GREY2}; font-weight: 500; }
 
-  .head { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 14px 38px 0; }
-  .head h1 { font-size: 18px; line-height: 1.1; margin: 3px 0 2px; font-weight: 800; letter-spacing: 0.1px; text-align: right; white-space: nowrap; }
-  .head .sub { font-size: 9px; color: ${GREY2}; text-align: right; }
+  .head { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 12px 38px 0; }
+  .head .ref { text-align: right; }
+  .head .ref .kick { color: ${GREY}; }
+  .head .ref .n { font-size: 11px; font-weight: 700; margin-top: 2px; }
+  .head .ref .sub { font-size: 8.6px; color: ${GREY2}; }
+  h1 { margin: 6px 0 0; font-size: 28px; line-height: 1.04; color: ${DARK}; }
+  /* UNA palabra en lima por titular; el fondo empieza al 14 % del alto (regla 164). */
+  .mark { background: linear-gradient(transparent 14%, ${LIMA} 14%); padding: 0 .12em; border-radius: 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 
-  .strip { display: flex; border: 1px solid ${LINE}; border-radius: 9px; overflow: hidden; margin-top: 11px; }
-  .strip > div { padding: 5px 11px; border-left: 1px solid ${LINE}; min-width: 0; }
-  .strip > div:first-child { border-left: 0; }
-  .strip .sk { font-size: 7.5px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: ${GREY2}; }
-  .strip .sv { font-size: 9.5px; font-weight: 700; margin-top: 1px; line-height: 1.3; }
+  .strip { display: flex; margin-top: 8px; border-top: 1px solid ${LINE}; border-bottom: 1px solid ${LINE}; }
+  .strip > div { padding: 3px 12px 4px; border-left: 1px solid ${LINE}; min-width: 0; }
+  .strip > div:first-child { border-left: 0; padding-left: 0; }
+  .strip .sk { font-size: 7.4px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: ${GREY2}; }
+  .strip .sv { font-size: 9.6px; font-weight: 600; margin-top: 1px; line-height: 1.3; }
 
-  .hero { display: flex; gap: 10px; margin-top: 10px; }
-  .ded { flex: 1.5; border: 1px solid ${LINE}; border-radius: 11px; padding: 9px 14px 10px 17px; position: relative; background: #fff; }
-  .ded::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; border-radius: 11px 0 0 11px; background: ${GRAD}; }
-  .ded-top { display: flex; align-items: center; gap: 12px; margin-top: 3px; }
-  .ded-pct { font-size: 40px; font-weight: 800; line-height: 1; color: ${ORANGE}; white-space: nowrap; }
-  .ded-nom { font-size: 12px; font-weight: 800; line-height: 1.22; }
-  .ded-nom span { display: block; font-size: 9px; font-weight: 600; color: ${GREY}; margin-top: 2px; }
-  .ded-ok { margin-top: 7px; background: ${GREEN_BG}; border-radius: 7px; padding: 6px 9px; font-size: 9.7px; color: #3d4f12; line-height: 1.35; }
-  .est { flex: 1; border-radius: 11px; padding: 9px 14px; background: ${DARK}; color: #fff; display: flex; flex-direction: column; }
-  .est-k { font-size: 8.5px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #CBD64A; }
-  .est-v { font-size: 25px; font-weight: 800; line-height: 1.05; margin-top: 3px; white-space: nowrap; }
-  .est-rep { margin-top: 4px; }
-  .est-fila { display: flex; justify-content: space-between; font-size: 9.5px; padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,0.12); }
-  .est-fila span { color: rgba(255,255,255,0.75); }
-  .est-n { margin-top: auto; padding-top: 5px; font-size: 8px; color: rgba(255,255,255,0.62); line-height: 1.32; }
+  /* La cifra protagonista, en la tarjeta de tinta de la carta («IMPORTE ABONADO»), con el filete abajo. */
+  .hero { position: relative; overflow: hidden; display: flex; margin-top: 10px; border-radius: 14px; background: ${DARK}; color: #fff; padding: 9px 18px 12px; }
+  .hero::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: ${GRAD}; }
+  .ded { flex: 1.35; padding-right: 16px; }
+  .hero .kick { color: ${ORANGE}; }
+  .ded-top { display: flex; align-items: center; gap: 13px; margin-top: 2px; }
+  .ded-pct { font-size: 46px; line-height: 1; white-space: nowrap; }
+  .ded-nom { font-size: 11.6px; font-weight: 700; line-height: 1.24; }
+  .ded-nom span { display: block; font-size: 8.8px; font-weight: 500; color: rgba(255,255,255,0.68); margin-top: 2px; }
+  .est { flex: 1; padding-left: 16px; border-left: 1px solid rgba(255,255,255,0.16); display: flex; flex-direction: column; }
+  .est-k { font-size: 8.3px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: ${GREEN}; }
+  .est-v { font-family: 'Antonio', 'Inter', 'Arial Narrow', Arial, sans-serif; font-size: 30px; line-height: 1.02; margin-top: 2px; white-space: nowrap; }
+  .est-rep { margin-top: 3px; }
+  .est-fila { display: flex; justify-content: space-between; font-size: 9.3px; padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,0.12); }
+  .est-fila span { color: rgba(255,255,255,0.72); }
+  .est-n { margin-top: auto; padding-top: 4px; font-size: 7.8px; color: rgba(255,255,255,0.62); line-height: 1.32; }
+  .ded-ok { margin-top: 7px; display: flex; gap: 7px; align-items: flex-start; background: rgba(177,209,62,.13); border-radius: 9px; padding: 5px 9px; font-size: 9.1px; color: rgba(255,255,255,0.86); line-height: 1.35; }
+  .ded-ok .ok { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: ${GREEN}; color: ${DARK}; font-size: 8.5px; font-weight: 800; margin-top: 0.5px; }
+  .ded-ok b { color: ${GREEN}; }
 
   /* Rejilla FIJA y no una cadena que se parte donde caiga: partida al azar dejaba
      un paso suelto en una línea y el 5 desplazado por su recuadro. Aquí todos los
      pasos llevan el MISMO relleno (con borde transparente los normales), así que
      los números caen en columna; el 5 ocupa la fila entera. */
-  .ruta { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 12px; border: 1px solid ${LINE}; border-radius: 9px; padding: 4px 6px; background: #fbfbf9; }
-  .ruta .p { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; line-height: 1.25; padding: 2.5px 8px 2.5px 4px; border: 1px solid transparent; border-radius: 6px; min-width: 0; }
-  .ruta .n { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: ${ORANGE}; color: #fff; font-size: 8.5px; font-weight: 800; flex-shrink: 0; }
-  .ruta .p.fin { grid-column: 1 / -1; background: #FFF1D6; border-color: #F8D49A; }
-  .ruta .p.fin .luego { margin-left: auto; padding-left: 10px; font-size: 9.5px; font-weight: 600; color: ${GREY}; white-space: nowrap; }
+  .ruta { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 12px; border: 1px solid ${LINE}; border-radius: 10px; padding: 4px 6px; background: ${CREMA}; }
+  .ruta .p { display: flex; align-items: center; gap: 6px; font-size: 9.8px; font-weight: 600; line-height: 1.25; padding: 2.5px 8px 2.5px 4px; border: 1px solid transparent; border-radius: 7px; min-width: 0; }
+  .ruta .n { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: ${ORANGE}; color: ${DARK}; font-size: 8.3px; font-weight: 800; flex-shrink: 0; }
+  .ruta .p.fin { grid-column: 1 / -1; background: #fff; border-color: ${LINE}; font-weight: 700; }
+  .ruta .p.fin .opc { background: linear-gradient(transparent 14%, ${LIMA} 14%); padding: 0 3px; border-radius: 3px; }
+  .ruta .p.fin .luego { margin-left: auto; padding-left: 10px; font-size: 9.3px; font-weight: 500; color: ${GREY}; white-space: nowrap; }
 
   table { width: 100%; border-collapse: collapse; }
-  .datos { border: 1px solid ${LINE}; border-radius: 9px; overflow: hidden; border-collapse: separate; border-spacing: 0; }
-  .datos td { padding: 4.3px 10px; border-top: 1px solid ${LINE}; vertical-align: middle; }
+  .datos { border: 1px solid ${LINE}; border-radius: 10px; overflow: hidden; border-collapse: separate; border-spacing: 0; }
+  .datos td { padding: 3.5px 10px; border-top: 1px solid ${LINE}; vertical-align: middle; }
   .datos tr:first-child td { border-top: 0; }
-  .datos td.k { width: 44%; font-size: 9.8px; color: ${GREY}; background: #fbfbf9; }
-  .datos td.v { font-size: 10.4px; }
-  .datos td.c { text-align: center; font-size: 10.5px; width: 28%; }
-  .datos tr.cab td { background: ${DARK}; color: #fff; font-size: 8.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; padding: 4px 10px; }
-  .datos tr.cab td span { font-weight: 600; letter-spacing: 0; text-transform: none; color: rgba(255,255,255,0.65); }
+  .datos td.k { width: 44%; font-size: 9.5px; color: ${GREY}; background: ${CREMA}; }
+  .datos td.v { font-size: 10.2px; }
+  .datos td.c { text-align: center; font-size: 10.3px; width: 28%; font-variant-numeric: tabular-nums; }
+  .datos tr.cab td { background: ${DARK}; color: #fff; font-size: 8.3px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; padding: 4px 10px; }
+  .datos tr.cab td span { font-weight: 500; letter-spacing: 0; text-transform: none; color: rgba(255,255,255,0.65); }
   .datos tr.sep td { border-top: 2px solid ${ORANGE}; }
   .datos .letra { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 17px; padding: 0 5px; border-radius: 4px; background: ${DARK}; color: #fff; font-weight: 800; font-size: 10px; }
   .mono { letter-spacing: 0.4px; }
   .hueco { display: inline-block; color: ${GREY2}; font-style: italic; border-bottom: 1px dotted ${GREY2}; }
 
-  .fact th { font-size: 7.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: ${GREY2}; text-align: left; padding: 2px 8px; border-bottom: 1px solid ${LINE}; }
-  .fact td { font-size: 9.6px; padding: 3px 8px; border-bottom: 1px solid #f1f2ee; }
+  .fact th { font-size: 7.4px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: ${GREY2}; text-align: left; padding: 2px 8px; border-bottom: 1px solid ${LINE}; }
+  .fact td { font-size: 9.4px; padding: 2.4px 8px; border-bottom: 1px solid rgba(20,17,17,.05); font-variant-numeric: tabular-nums; }
   .fact .r { text-align: right; white-space: nowrap; }
   .fact tfoot td { font-weight: 800; font-size: 10px; border-bottom: 0; padding-top: 3px; }
-  .mas { margin-top: 7px; border-left: 3px solid ${GREEN}; background: ${GREEN_BG}; border-radius: 0 7px 7px 0; padding: 6px 10px; font-size: 9.7px; color: #33400f; line-height: 1.35; }
+  .mas { margin-top: 7px; border: 1px solid rgba(177,209,62,.45); background: ${GREEN_BG}; border-radius: 9px; padding: 6px 10px; font-size: 9.5px; color: ${GREEN_TXT}; line-height: 1.35; }
+  .mas b { color: ${DARK}; }
 
   .notas { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; padding: 0; margin: 0; list-style: none; }
-  .notas li { font-size: 9.2px; color: ${GREY}; line-height: 1.33; padding-left: 11px; position: relative; }
+  .notas li { font-size: 9px; color: ${GREY}; line-height: 1.33; padding-left: 11px; position: relative; }
   .notas li::before { content: ''; position: absolute; left: 0; top: 4.5px; width: 5px; height: 5px; border-radius: 50%; background: ${ORANGE}; }
   .notas b { color: ${DARK}; }
 
-  .legal { margin-top: auto; padding: 9px 38px 7px; font-size: 7.6px; color: ${GREY2}; line-height: 1.38; }
+  .legal { margin-top: auto; padding: 7px 38px 6px; font-size: 7.5px; color: ${GREY2}; line-height: 1.38; }
+  /* El pie de la carta: banda de tinta con el nombre y el lema en naranja. */
   .band { padding: 9px 38px; background: ${DARK}; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
-  .band .s { font-weight: 700; font-size: 11px; line-height: 1.3; color: #fff; letter-spacing: 0.3px; }
-  .band .s span { background: linear-gradient(90deg,#F8B019,#CBD64A,#9DC23B); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-  .band .c { font-size: 8px; color: rgba(255,255,255,0.6); text-align: right; line-height: 1.45; }
+  .band .s { font-weight: 700; font-size: 10.5px; line-height: 1.35; color: #fff; }
+  .band .s span { display: block; font-size: 8.6px; font-weight: 600; color: ${ORANGE}; }
+  .band .c { font-size: 8px; color: rgba(255,255,255,0.62); text-align: right; line-height: 1.45; }
 </style></head>
 <body>
   <div class="sheet">
-    <div style="height:5px; width:100%; background:${GRAD};"></div>
+    <div class="filete"></div>
 
     <div class="head">
       <img src="${BROKERGY_MARK_DATAURI}" alt="BROKERGY" style="height:32px; width:auto; object-fit:contain; display:block;">
-      <div>
-        <div class="kick" style="text-align:right;">Guía para tu declaración de la Renta</div>
-        <h1 class="arc">Cómo aplicar tu deducción por mejora energética</h1>
-        <div class="sub">${cabeceraNum}</div>
+      <div class="ref">
+        <div class="kick">Guía para tu declaración de la Renta</div>
+        ${g.numeroExpediente ? `<div class="n">Expediente ${esc(g.numeroExpediente)}</div>` : ''}
+        <div class="sub">Preparada el ${esc(fechaEs(g.hoy) || '')}</div>
       </div>
     </div>
 
     <div class="pad">
+      <h1 class="arc">Cómo aplicar tu deducción <span class="mark">en la Renta</span></h1>
+
       <div class="strip">
         <div style="flex:1.1;"><div class="sk">Titular</div><div class="sv">${esc(g.titular?.nombre || '—')}${g.titular?.nif ? ` <span class="u">${esc(g.titular.nif)}</span>` : ''}</div></div>
         <div style="flex:1.6;"><div class="sk">Vivienda</div><div class="sv">${esc(g.vivienda?.direccion || '—')}</div></div>
@@ -921,7 +943,8 @@ export function buildGuiaIrpfHtml(guia, { appUrl = origenApp() } = {}) {
             <div class="ded-pct arc">${m.pct}&nbsp;%</div>
             <div class="ded-nom">${esc(m.nombre)}<span>de lo que has pagado por la obra, IVA incluido${g.modalidad === '60' && g.tipo === 'unifamiliar' ? ' · válida para viviendas unifamiliares' : ''}</span></div>
           </div>
-          ${acredita ? `<div class="ded-ok">✓ ${acredita}</div>` : ''}
+          ${''/* Dentro de la tarjeta, al lado de la estimación: fuera de ella la hoja no cabe. */}
+          ${acredita ? `<div class="ded-ok"><span class="ok">✓</span><span>${acredita}</span></div>` : ''}
         </div>
         <div class="est">${estimacion}</div>
       </div>` : ''}
@@ -930,7 +953,7 @@ export function buildGuiaIrpfHtml(guia, { appUrl = origenApp() } = {}) {
         <div class="sec-t">Dónde se pone en Renta Web</div>
         <div class="ruta">
           ${ruta.map((t, i) => `<div class="p"><span class="n">${i + 1}</span><span>${esc(t)}</span></div>`).join('')}
-          <div class="p fin"><span class="n">${ruta.length + 1}</span><span>${esc(m?.opcionRenta || 'La opción de tu deducción')}</span><span class="luego">→ «Alta inmueble» y copia los datos de abajo</span></div>
+          <div class="p fin"><span class="n">${ruta.length + 1}</span><span class="opc">${esc(m?.opcionRenta || 'La opción de tu deducción')}</span><span class="luego">→ «Alta inmueble» y copia los datos de abajo</span></div>
         </div>
       </div>
 
@@ -955,7 +978,7 @@ export function buildGuiaIrpfHtml(guia, { appUrl = origenApp() } = {}) {
       Guía orientativa elaborada por BROKERGY con los datos de tus certificados de eficiencia energética, conforme a la disposición adicional quincuagésima de la Ley 35/2006 del IRPF${m ? ` (vigente para obras pagadas hasta el ${esc(fechaEs(m.hasta))})` : ''}. No sustituye al asesoramiento fiscal: la deducción depende de tu situación personal —cuota del impuesto, titularidad, otras ayudas—. Ante cualquier duda, consulta con tu asesor o con el Asistente de Renta de la Agencia Tributaria.
     </div>
     <div class="band">
-      <div class="s arc">LA ENERGÍA NI SE CREA NI SE DESTRUYE,<br><span>BROKERGY LA TRANSFORMA EN DINERO.</span></div>
+      <div class="s">BROKERGY · Ingeniería energética<span>Ahorra energía, gana dinero, ayuda al planeta</span></div>
       <div style="display:flex; align-items:center; gap:11px;">
         <div class="c">info@brokergy.es · 695 615 330<br>app.brokergy.es</div>
         <img src="${BROKERGY_CIRCULAR_DATAURI}" alt="" style="height:36px; width:36px; object-fit:contain; flex-shrink:0;">

@@ -40,6 +40,12 @@ certificado que se pueda revisar; avisar en ese momento era el segundo mensaje q
 imprime `cee_inicial.js` después de que producción haya contestado; sin ella, la tarea falla y el PC
 le escribe a Fran con el final del registro (`resultadoCalificarExt`).
 
+**El paso 5 no funcionó hasta el 26/10/2026**: la ruta llamaba a `agenteIa.terminarExt` y
+`agenteIa.js` no la exportaba. Con la 2026EXT_3 el PC calificó bien (F/G, XML y PDF en «1. CEE»),
+pero producción respondió 500 («Algo ha fallado»), no salió el «listo para revisar» y la obra se
+quedó EN_PREPARACION. Ahora se exporta, y `test_certapp_unidad.js` comprueba que todo lo que
+`certappAdmin.js` saca de `agenteIa` con `require(…).X` existe.
+
 **REGLA — el agente encarga la calificación desde el contenedor del vigía, y allí ASISTENTE_URL es
 el propio vigía** ([asistente_vigia.js](implementation/backend/scripts/asistente_vigia.js): con
 `--servidor`, si falta, `http://localhost:<ASISTENTE_PUERTO>`; lo heredan Claude y los scripts que

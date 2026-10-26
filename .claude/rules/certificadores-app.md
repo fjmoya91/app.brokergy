@@ -23,10 +23,10 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md` — La app de certificadores — cee.brokergy.es (2026-10-24) · 32,0 KB
+- `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md` — La app de certificadores — cee.brokergy.es (2026-10-24) · 33,1 KB
 - `docs/conocimiento/certificadores-app/alta-directa-google-y-email.md` — El alta: al momento, con Google o con el email (2026-10-24) · 8,0 KB
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24) · 3,5 KB
-- `docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md` — El CEE de una obra: el encargo, la calificación en el PC, el aviso, la entrega y la firma (2026-10-25) · 9,6 KB
+- `docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md` — El CEE de una obra: el encargo, la calificación en el PC, el aviso, la entrega y la firma (2026-10-25) · 10,0 KB
 - `docs/conocimiento/certificadores-app/fotos-opcionales-y-equipo-generico.md` — Las fotos opcionales («Ahora no») y el equipo genérico con su antigüedad (2026-10-25) · 3,7 KB
 - `docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md` — «Lo que ha visto la IA» — la fase 5 de la ficha (2026-10-25) · 7,2 KB
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24) · 3,0 KB
@@ -42,6 +42,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
   - **REGLA — mismo repo, mismo backend, mismo Supabase; tablas propias.**
   - **REGLA — el origen `ext` se ADAPTA, no se bifurca**
   - **REGLA — el arranque del CRM solo monta en SU página**
+  - **REGLA — lo que se carga en diferido, con `lazyWithReload`, nunca con `lazy` a secas**
   - **REGLA — cada certificador toca SOLO lo suyo, y lo ajeno es 404.**
   - **REGLA — nada sale a terceros desde local.**
   - **REGLA — el asistente va capado.**

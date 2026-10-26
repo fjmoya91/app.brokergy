@@ -39,10 +39,14 @@ const enlaceApp = (id, extra = '') => `${FRONT()}/?cee=${id}${extra}`;
 
 const nombreCliente = (c) => (c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : '');
 
-/** Facturas emitidas del encargo, de la más antigua a la última. */
+/**
+ * Facturas emitidas del encargo, de la más antigua a la última: las de su
+ * popup y las de la pestaña Facturación, que se reflejan aquí
+ * (ceeFacturaService.reflejarDeFacturacion). Una anulada por rectificativa no cuenta.
+ */
 function facturas(row) {
     return Object.values(row?.documentacion?.facturas_emitidas || {})
-        .filter(f => f && typeof f === 'object')
+        .filter(f => f && typeof f === 'object' && f.estado !== 'RECTIFICADA')
         .sort((a, b) => String(a.emitida_at || '').localeCompare(String(b.emitida_at || '')));
 }
 const ultimaFactura = (row) => { const f = facturas(row); return f[f.length - 1] || null; };

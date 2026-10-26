@@ -63,7 +63,8 @@ del coste de obra y la del ahorro anual eran las dos "NOTA 3" y podían salir ju
 
 ### La portada de la propuesta NUNCA esconde texto (2026-09-28)
 
-La hoja 1 es un A4 de alto FIJO con el pie negro (`.prop-cta`) anclado abajo: lo que no
+La hoja 1 es un A4 de alto FIJO con el pie de la firma (`.prop-cta`: negro hasta el
+25/10/2026, ahora una tarjeta blanca, ver "El ESTILO «carta de pago»") anclado abajo: lo que no
 cabe no empuja a otra hoja, se queda DEBAJO del pie. El ajuste de `ProposalModal` tenía
 dos escalones —estirar/encoger los huecos elásticos y el modo compacto— y, si ni con los
 dos cabía, **se rendía**. Medido sobre las 54 últimas propuestas enviadas (su

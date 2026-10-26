@@ -79,12 +79,32 @@ function appCertificadoresDev() {
   }
 }
 
+// ─── Las TIPOGRAFÍAS de los documentos, abiertas a cualquier origen ──────────
+// El PDF lo rasteriza el Chrome del backend con `page.setContent`, desde
+// `about:blank` (origen `null`), así que cada @font-face de la propuesta, el CIFO
+// o el Convenio es una petición CROSS-ORIGIN, y Vite solo devuelve
+// `Access-Control-Allow-Origin` a su propio origen: en local el PDF salía siempre
+// con la letra de reserva. En producción lo resuelve el `location ^~ /fonts/` de
+// nginx con `*` (regla 25.b); esto es lo mismo, solo para /fonts/ y solo en dev.
+function fuentesCorsDev() {
+  return {
+    name: 'brokergy-fuentes-cors-dev',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url && req.url.startsWith('/fonts/')) res.setHeader('Access-Control-Allow-Origin', '*')
+        next()
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const BACKEND_PORT = process.env.BACKEND_PORT || env.BACKEND_PORT || 3000
 
   return {
-    plugins: [react(), appCertificadoresDev()],
+    plugins: [react(), appCertificadoresDev(), fuentesCorsDev()],
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     build: {
       rollupOptions: {

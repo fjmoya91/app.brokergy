@@ -255,6 +255,7 @@ function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes
         pill,
         contentHtml: reenvioHtml + intro + ficha + pasos + avisosHtml + botones + accesosHtml,
         footerNote: 'Aviso interno del Agente IA · se envía al terminar un borrador de CEE.',
+        firma: false,
     });
 }
 
@@ -1022,6 +1023,9 @@ async function esperar({ negocio, clave, fase = 'inicial', que }) {
 
 module.exports = {
     NOMBRE, esAgenteIa, agente, cola, empezar, terminar, esperar, anotarOportunidad,
+    // POST /certapp-admin/interno/calificada la llama directa (con `calificada`, que `terminar` no pasa).
+    // Sin exportarla, la ruta daba 500 y el «listo para revisar» no salía nunca (2026EXT_3, 25/10/2026).
+    terminarExt,
     // puros (pruebas)
     decidirCertificador, siguienteSubestado, estadoGlobalDe, pendientesPorDefecto, pendientesExt, componerAviso, normFase,
 };

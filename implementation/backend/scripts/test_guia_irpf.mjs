@@ -192,11 +192,12 @@ const casos = [
 for (const [nombre, guia] of casos) {
     await page.setContent(buildGuiaIrpfHtml(guia, { appUrl: APP_URL }), { waitUntil: 'load' });
     await page.evaluate(async () => {
-        for (const w of [400, 600, 700, 800]) await document.fonts.load(`${w} 11px Manrope`);
-        await document.fonts.load('800 20px Archivo');
+        // Estilo «carta de pago» (26/10/2026): Inter de cuerpo y Antonio en el titular y las cifras.
+        for (const w of [400, 500, 600, 700, 800]) await document.fonts.load(`${w} 11px Inter`);
+        await document.fonts.load('700 20px Antonio');
         await document.fonts.ready;
     });
-    const fuente = await page.evaluate(() => document.fonts.check('700 11px Manrope') && document.fonts.check('800 20px Archivo'));
+    const fuente = await page.evaluate(() => document.fonts.check('700 11px Inter') && document.fonts.check('700 20px Antonio'));
     if (!fuente) { console.error('  ⚠️  Las tipografías no han cargado: la medición no vale.'); fallos++; break; }
     const { hoja, natural } = await page.evaluate(() => {
         const s = document.querySelector('.sheet');

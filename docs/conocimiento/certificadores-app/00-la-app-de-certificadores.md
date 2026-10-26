@@ -184,6 +184,19 @@ puente nativo si lo ve. El coste: abrir la envolvente en la app baja también es
 comprimido). Se comprueba con un build de producción (`vite build` + `vite preview`), cargando
 `EnvolventeVentana-*.js` en `/certificadores.html`: `#root` sigue siendo el de la app.
 
+**REGLA — lo que se carga en diferido, con `lazyWithReload`, nunca con `lazy` a secas**
+([App.jsx](implementation/frontend/src/certificadores/App.jsx): la envolvente y el admin;
+[ObraCerrada.jsx](implementation/frontend/src/certificadores/obra/ObraCerrada.jsx): el modal de firmar).
+Cada build cambia el nombre de los trozos (`EnvolventeCertapp-DK1SEu_L.js`) y los viejos desaparecen
+del servidor. Una pestaña abierta antes de un deploy los sigue pidiendo: 404, «Failed to fetch
+dynamically imported module» y la pantalla en «Algo ha fallado». Le pasó a Fran el 25/10/2026 al
+pulsar «Abrir envolvente» en el admin, con la pestaña cargada antes de dos deploys de otras sesiones.
+[lazyWithReload](implementation/frontend/src/utils/lazyWithReload.js) (el del CRM) recarga la pestaña
+una vez, que trae el `certificadores.html` nuevo (nginx lo sirve sin caché); si vuelve a fallar en
+30 s no insiste y lo pinta el ErrorBoundary. Cada carga lleva su clave (`certapp:envolvente`,
+`certapp:admin`, `certapp:firmar`). Probado con el build: un import con 404 recarga una vez, el
+segundo no, y uno que carga borra la marca.
+
 **REGLA — cada certificador toca SOLO lo suyo, y lo ajeno es 404.** Toda ruta con `:id` pasa por
 `obraDeLaCuenta`. En la envolvente, un certificador externo solo entra con `origen=ext` y una obra
 suya; el equipo interno, como siempre.

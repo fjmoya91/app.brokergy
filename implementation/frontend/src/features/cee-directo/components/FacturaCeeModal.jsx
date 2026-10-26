@@ -156,7 +156,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
     // El mensaje que saldría al emitir (con el nº que tocaría ahora).
     const contactoDestino = datos?.contactos?.[destino] || {};
     // Procedimiento: el enlace del justificante y en qué punto está su certificado.
-    const ctxMensaje = { enlacePago: datos?.enlacePago || null, certificado: datos?.certificado || null, doble: !!datos?.doble };
+    const ctxMensaje = { enlacePago: datos?.enlacePago || null, certificado: datos?.certificado || null, doble: !!datos?.doble, finalRegistrado: !!datos?.finalRegistrado };
     const mensajeDe = (numero) => mensajeFactura({
         nombre: contactoDestino.nombre || cliente.razon_social, numero, total: totales.total,
         expediente: datos?.expediente?.numero, esEmpresa: contactoDestino.esEmpresa ?? !!cliente.esEmpresa, lineas,

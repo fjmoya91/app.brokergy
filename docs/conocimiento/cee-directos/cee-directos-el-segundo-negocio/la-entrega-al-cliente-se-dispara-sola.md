@@ -71,6 +71,31 @@ con la variable apagada —ahí hay una persona decidiendo, que es justo lo que 
 falta al automático— y el panel **dice en pantalla** que el automático está
 apagado: sin ese aviso uno marca cobrado, no pasa nada, y piensa que está roto.
 
+#### «Entregar todo junto» en un DOBLE (2026-10-26)
+
+Fran, 25/10/2026 (2026CEE_61, inicial y final registrados y cobrados a la vez): «un
+botón para enviar todo junto con el texto explicativo: 1. CEE inicial 2. etiqueta del
+inicial 3. CEE final 4. etiqueta del final 5. guía IRPF. Todo en un único mensaje».
+Botón «📦 Entregar todo junto» en la cabecera del panel (solo DOBLE) → popup
+[EntregaTodoModal.jsx](implementation/frontend/src/features/cee-directo/components/EntregaTodoModal.jsx)
+con lo que falta, a quién, los adjuntos en orden y el texto editable;
+`GET|POST /cee-directos/:id/entrega-todo` → `borradorTodo` / `entregarTodo` en
+[ceeDirectoEntrega.js](implementation/backend/services/ceeDirectoEntrega.js).
+
+**REGLA — «todo» son CINCO papeles y en ESE orden**: CEE inicial firmado, su etiqueta,
+CEE final firmado, su etiqueta y la guía de la Renta (`ORDEN_TODO`). **Sin** los
+justificantes de registro ni la tasa. El texto los lista numerados; por WhatsApp va el
+texto y detrás cada PDF con su número («3. CEE final firmado»); por email, UN correo
+con los cinco. Requisitos: las dos fases REGISTRADAS con su PDF firmado y su etiqueta,
+y cobrado (o «sin esperar al pago», solo ADMIN). Lo demás, como la entrega por fase:
+a quien PAGA, idempotencia primero (con las DOS fases ya entregadas no sale sin
+reenviar; con una sola sí: es el juego completo), adjuntos recomprobados al bajar (si
+uno no baja no sale nada), y la guía no frena (si no se puede preparar van cuatro y se
+manda el texto generado, aunque se hubiera editado, para no anunciar lo que no va).
+**Sella las DOS fases** (`entrega_cliente.inicial|final`, con `todo: true`): el
+automático ya no repite ninguna. Es siempre a mano. Prueba:
+`node implementation/backend/scripts/test_entrega_todo_cee_directo.js`.
+
 El panel de la ficha (`EntregaCliente.jsx`) enseña **qué falta en lenguaje de
 tarea** ("Subir el PDF del CEE firmado"), no un booleano: el automático no puede
 explicarse solo. `GET /:id/entrega` usa la MISMA función que el envío, así que la

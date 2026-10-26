@@ -186,22 +186,27 @@ export function trabajoFacturado(lineas = []) {
 //   · `enlacePago` es donde SUBE el justificante (nos llega el aviso para
 //     confirmar el cobro, y el certificado sale solo);
 //   · `doble`: la factura cubre también el final, que ya no se cobra aparte.
-export function mensajeFactura({ nombre, numero, total, expediente, esEmpresa = false, lineas = [], enlacePago = null, certificado = null, doble = false } = {}) {
+export function mensajeFactura({ nombre, numero, total, expediente, esEmpresa = false, lineas = [], enlacePago = null, certificado = null, doble = false, finalRegistrado = false } = {}) {
     const saludo = nombre ? `¡Hola ${esEmpresa ? '' : capital(primerNombre(nombre))}!`.replace('¡Hola !', '¡Hola!') : '¡Hola!';
     const trabajo = trabajoFacturado(lineas);
     const plural = trabajo.startsWith('los ');
+    // Un DOBLE con el final ya registrado: los dos están hechos y van juntos al pagar
+    // (2026CEE_61: la factura salió con la obra ya terminada).
+    const ambos = doble && finalRegistrado;
     const cert = doble ? 'certificado energético inicial' : 'certificado energético';
-    const estado = certificado === 'registrado'
-        ? [`✅ Tu *${cert}* ya está hecho, firmado y *registrado* en Industria.`, '']
-        : certificado === 'firmado'
-            ? [`✅ Tu *${cert}* ya está hecho y firmado: lo estamos presentando en el Registro de Industria.`, '']
-            : [];
-    // Solo si de verdad lo factura (las líneas dicen «inicial y final»).
-    const final = doble && /final/.test(trabajo)
+    const estado = ambos
+        ? ['✅ Tus *certificados energéticos inicial y final* ya están hechos, firmados y *registrados* en Industria.', '']
+        : certificado === 'registrado'
+            ? [`✅ Tu *${cert}* ya está hecho, firmado y *registrado* en Industria.`, '']
+            : certificado === 'firmado'
+                ? [`✅ Tu *${cert}* ya está hecho y firmado: lo estamos presentando en el Registro de Industria.`, '']
+                : [];
+    // Solo si de verdad lo factura (las líneas dicen «inicial y final») y aún falta la obra.
+    const final = doble && !ambos && /final/.test(trabajo)
         ? ['La factura incluye también el *certificado final*: cuando la instalación esté terminada nos pasas su factura y lo emitimos, sin nada más que pagar.', '']
         : [];
     // En un DOBLE, al pagar se le manda el INICIAL (el final llega con la obra).
-    const queMandamos = final.length ? 'te mandamos el certificado inicial' : `te ${plural ? 'los' : 'lo'} mandamos`;
+    const queMandamos = ambos ? 'te los mandamos' : final.length ? 'te mandamos el certificado inicial' : `te ${plural ? 'los' : 'lo'} mandamos`;
     const justificante = enlacePago
         ? [
             `📌 Por políticas de empresa, ${plural ? 'los certificados se envían' : 'el certificado se envía'} una vez abonada la factura. Cuando hagas la transferencia, *sube aquí el justificante de pago* y ${queMandamos} en cuanto lo comprobemos:`,
