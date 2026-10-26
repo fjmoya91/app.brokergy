@@ -124,6 +124,10 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     // Lo que devuelve la sede cuando presenta la casa (skill presentar-cee): lo sube
     // un script con la clave interna. Su middleware propio es staffOClaveInterna.
     { method: 'POST', re: /^\/[^/]+\/presentacion-cee\/devuelto\/?$/ },
+    // Enviar al cliente sus CEE firmados + la guía del IRPF: el WhatsApp solo vive
+    // en el backend, así que un script o el MCP entra con la clave interna. Su
+    // middleware propio es staffOClaveInterna (guiaIrpfRutas.js).
+    { method: 'POST', re: /^\/[^/]+\/guia-irpf\/enviar\/?$/ },
 ];
 const PARTNER_ALLOWED_ROUTES = [
     { method: 'POST', re: /^\/?$/ }, // POST /api/expedientes → aceptar oportunidad (crea expediente)

@@ -23,7 +23,7 @@ envío desde el popup lleva el CEE inicial Y el final firmados + la guía.
 |---|---|
 | Qué deducción, estimación, texto del mensaje y HTML del PDF (fuente única) | [logic/guiaIrpf.js](implementation/frontend/src/features/expedientes/logic/guiaIrpf.js) |
 | Cargar los dos negocios, PDF, Drive, envío y sello | [services/guiaIrpfService.js](implementation/backend/services/guiaIrpfService.js) |
-| Rutas (montadas en `expedientes` y `ceeDirectos` desde un único montador) | [routes/guiaIrpfRutas.js](implementation/backend/routes/guiaIrpfRutas.js) — `GET /:id/guia-irpf` · `POST …/estado` · `…/pdf` · `…/guardar` · `…/enviar` (**staffOnly**) |
+| Rutas (montadas en `expedientes` y `ceeDirectos` desde un único montador) | [routes/guiaIrpfRutas.js](implementation/backend/routes/guiaIrpfRutas.js) — `GET /:id/guia-irpf` · `POST …/estado` · `…/pdf` · `…/guardar` · `…/enviar` (**staffOnly**; `…/enviar` admite además la clave interna, `staffOClaveInterna`, para los envíos desde un script o el MCP — en `expedientes` está por eso en `PUBLIC_EXPEDIENTE_ROUTES`: si no, el `internalOnly` del módulo la cortaba antes con un 401, medido el 26/10/2026 con 25RES060_54) |
 | Popup (vista previa = el PDF real) | `GuiaIrpfModal.jsx` (+ `GuiaIrpfBoton`) |
 | Lector del `.xml` sin DOM para el servidor | `leerDatosIrpfDeTexto` en [xmlCeeParser.js](implementation/frontend/src/features/calculator/logic/xmlCeeParser.js) |
 | Pruebas | `node implementation/backend/scripts/test_guia_irpf.mjs` (lógica + cada hoja cabe en su A4) · `probar_guia_irpf.js <nº> [--pdf]` (expediente real, sin escribir) |
