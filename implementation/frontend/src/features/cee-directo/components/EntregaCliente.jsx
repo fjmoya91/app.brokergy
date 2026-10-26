@@ -3,6 +3,7 @@ import axios from 'axios';
 import { GuiaIrpfModal } from '../../expedientes/components/GuiaIrpfModal';
 import { eur } from '../../expedientes/logic/guiaIrpf';
 import { AvisoRegistradoModal } from './AvisoRegistradoModal';
+import { EntregaTodoModal } from './EntregaTodoModal';
 
 // El enlace del aviso «CEE registrado» (`?cee=<id>&avisar=<fase>`) abre el popup
 // de avisar al cliente. Se lee al CARGAR el módulo —App reescribe la URL al abrir
@@ -264,6 +265,9 @@ function Fila({ id, fase, etiqueta, isAdmin, onCambio }) {
 
 export function EntregaCliente({ id, esDoble, isAdmin = false, onCambio }) {
     const [auto, setAuto] = useState(null);
+    const [todo, setTodo] = useState(false);
+    // Tras «Entregar todo» las dos filas se vuelven a montar para leer sus sellos.
+    const [vuelta, setVuelta] = useState(0);
 
     useEffect(() => {
         axios.get(`${API}/${id}/entrega`, { params: { phase: 'inicial' } })
@@ -277,6 +281,14 @@ export function EntregaCliente({ id, esDoble, isAdmin = false, onCambio }) {
                 <h3 className="text-xs font-black text-white uppercase tracking-widest border-l-2 border-brand pl-4">
                     Entrega al cliente
                 </h3>
+                {/* Los dos certificados, sus etiquetas y la guía en UN mensaje. */}
+                {esDoble && (
+                    <button type="button" onClick={() => setTodo(true)}
+                        title="CEE inicial, su etiqueta, CEE final, su etiqueta y la guía de la Renta, en un solo mensaje"
+                        className="min-h-[40px] px-4 rounded-xl border border-brand/40 bg-brand/10 text-[10px] font-black uppercase tracking-widest text-brand hover:bg-brand/20 transition-colors">
+                        📦 Entregar todo junto
+                    </button>
+                )}
             </div>
 
             <p className="text-[11px] text-white/30 mb-4">
@@ -296,10 +308,15 @@ export function EntregaCliente({ id, esDoble, isAdmin = false, onCambio }) {
                 </div>
             )}
 
-            <div className="space-y-3">
+            <div className="space-y-3" key={vuelta}>
                 <Fila id={id} fase="inicial" etiqueta={esDoble ? FASES.inicial : 'Certificado'} isAdmin={isAdmin} onCambio={onCambio} />
                 {esDoble && <Fila id={id} fase="final" etiqueta={FASES.final} isAdmin={isAdmin} onCambio={onCambio} />}
             </div>
+
+            {esDoble && (
+                <EntregaTodoModal isOpen={todo} onClose={() => setTodo(false)} id={id}
+                                  onEnviado={() => { setVuelta(v => v + 1); onCambio?.(); }} />
+            )}
         </div>
     );
 }

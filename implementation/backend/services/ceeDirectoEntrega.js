@@ -553,7 +553,232 @@ async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsap
     return { enviado: true, canales, errores, ...(fac ? { factura: { numero: fac.numero, total: fac.total, emitida: fac.emitida } } : {}) };
 }
 
+// ─── «Entregar todo»: los dos certificados de un DOBLE en UN mensaje ────────
+//
+// Fran, 25/10/2026 (2026CEE_61): «un botón para enviar todo junto con el texto
+// explicativo: 1. CEE inicial 2. etiqueta del inicial 3. CEE final 4. etiqueta del
+// final 5. guía IRPF. Todo en un único mensaje». Es lo que se hace cuando las dos
+// fases llegan juntas (registradas y cobradas a la vez): en vez de dos entregas
+// con el mismo saludo, una sola, con los cinco papeles en ESE orden. Sin el
+// justificante de registro ni la tasa: el cliente no los necesita para nada.
+//
+// Mismas garantías que `entregar`: idempotencia antes que nada (con las dos fases
+// ya entregadas no sale sin `reenviar`), adjuntos recomprobados al descargar, a
+// quien PAGA, y la guía no frena el envío (si no se puede preparar, van cuatro y
+// el texto no la anuncia). Sella las DOS fases, para que el automático no repita.
+
+const ORDEN_TODO = [
+    { fase: 'inicial', slot: 'pdf', etiqueta: 'CEE inicial firmado' },
+    { fase: 'inicial', slot: 'etiqueta', etiqueta: 'etiqueta energética del CEE inicial' },
+    { fase: 'final', slot: 'pdf', etiqueta: 'CEE final firmado' },
+    { fase: 'final', slot: 'etiqueta', etiqueta: 'etiqueta energética del CEE final' },
+];
+const ETIQUETA_GUIA_TODO = 'guía para la deducción en la Renta';
+
+/** ¿Se pueden entregar ya los dos juntos? La definición que usan el popup y el envío. */
+async function estadoTodo(row, { sinCobro = false } = {}) {
+    const faltan = [];
+    const doble = estados.esDoble(row);
+    if (!doble) faltan.push('Solo para encargos con CEE inicial y final');
+    if (!row.cobrado && !sinCobro) faltan.push('Marcar el expediente como cobrado');
+
+    const enDrive = { inicial: {}, final: {} };
+    if (doble) {
+        for (const ph of ['inicial', 'final']) {
+            enDrive[ph] = row.drive_folder_id ? await uploads.scanSection(row, ph) : {};
+            if (row.seguimiento?.[`cee_${ph}`] !== 'REGISTRADO') faltan.push(`Que el CEE ${ph} esté registrado`);
+            if (!enDrive[ph].pdf) faltan.push(`Subir el PDF del CEE ${ph} firmado`);
+            if (!enDrive[ph].etiqueta) faltan.push(`Subir la etiqueta energética del CEE ${ph}`);
+        }
+    }
+
+    const dest = destinatarioEntrega(row);
+    if (!dest.email && !dest.tlf) faltan.push(dest.partner ? 'El partner no tiene ni email ni teléfono en su ficha' : 'El cliente no tiene ni email ni teléfono en su ficha');
+
+    const guiaInterna = doble ? await guiaIrpf().guiaDeEntrega(row, 'final') : { va: false };
+    const guia = guiaIrpf().guiaDeEntregaPublica(guiaInterna);
+    const adjuntos = ORDEN_TODO.map(o => ({ ...o, fichero: enDrive[o.fase]?.[o.slot]?.name || null }));
+    if (guia?.va) adjuntos.push({ fase: 'final', slot: 'guia', etiqueta: ETIQUETA_GUIA_TODO, fichero: guia.fichero });
+
+    const sellos = row.documentacion?.entrega_cliente || {};
+    return {
+        puede: faltan.length === 0,
+        faltan,
+        soloFaltaCobro: faltan.length === 1 && !row.cobrado && !sinCobro,
+        // Entregado = las DOS fases selladas. Con una sola, «todo» sigue teniendo
+        // sentido (se le manda el juego completo) y el popup lo avisa.
+        yaEntregado: sellos.inicial && sellos.final ? { inicial: sellos.inicial, final: sellos.final } : null,
+        entregadas: { inicial: sellos.inicial || null, final: sellos.final || null },
+        destinatario: { nombre: dest.nombre || nombreCliente(row.cliente), email: dest.email || null, tlf: dest.tlf || null, partner: dest.partner, factura: dest.factura || null },
+        adjuntos,
+        guia,
+        cobrado: !!row.cobrado,
+        _guia: guiaInterna,
+    };
+}
+
+/** El texto del mensaje único. Mismo tono que `mensaje`, con la lista numerada de lo que va. */
+function mensajeTodo(row, { guia = null, adjuntos = [] } = {}) {
+    const lista = adjuntos.map((a, i) => `${i + 1}. ${a.etiqueta.charAt(0).toUpperCase()}${a.etiqueta.slice(1)}`).join('\n');
+    const pagado = row.cobrado ? ' Ya está pagado: no hay nada más que abonar.' : '';
+    const dest = destinatarioEntrega(row);
+    if (dest.partner) {
+        const obra = svc.obraDe(row);
+        const deQuien = [obra.cliente ? `*${obra.cliente}*` : null, obra.direccion ? `(${obra.direccion})` : null].filter(Boolean).join(' ');
+        const parrafoGuia = guia?.va
+            ? `La guía es de una página para que ${obra.cliente ? 'el propietario' : 'vuestro cliente'} se aplique la *deducción${guia.modalidad ? ` del ${guia.modalidad} %` : ''}* en su declaración de la Renta, con los datos que le pedirá Renta Web ya rellenos. Pasádsela junto con los certificados.\n\n`
+            : '';
+        return `¡Hola!\n\n`
+            + `Ya están registrados los dos certificados energéticos${deQuien ? ` de ${deQuien}` : ''}, el *inicial* y el *final* (expediente ${row.numero_expediente}).\n\n`
+            + `Os lo mandamos todo junto, en este orden:\n${lista}\n\n`
+            + (pagado ? `${pagado.trim()}\n\n` : '')
+            + parrafoGuia
+            + `¡Gracias por confiar en nosotros!\n*BROKERGY · Ingeniería Energética*`;
+    }
+    const nombre = svc.contactoCliente(row.cliente).nombre || nombreCliente(row.cliente);
+    const p = nombre ? nombre.split(/\s+/)[0] : '';
+    const pila = p ? ` ${p.charAt(0).toUpperCase()}${p.slice(1).toLowerCase()}` : '';
+    return `¡Hola${pila}!\n\n`
+        + `Ya están registrados tus dos certificados energéticos (expediente ${row.numero_expediente}): el *inicial*, de cómo estaba la vivienda antes de la obra, y el *final*, de cómo ha quedado.\n\n`
+        + `Te lo mandamos todo junto, en este orden:\n${lista}\n\n`
+        + `Guárdalos: son los documentos que te van a pedir.${pagado}\n\n`
+        + (guia?.va && guia.texto ? `${guia.texto}\n\n` : '')
+        + `¡Gracias por confiar en nosotros!\n*BROKERGY · Ingeniería Energética*`;
+}
+
+/** Lo que enseña el popup antes de mandar nada: requisitos, a quién, los adjuntos en orden y el texto. */
+async function borradorTodo(id, { sinCobro = false } = {}) {
+    const row = await svc.cargar(id);
+    if (!row) return null;
+    const { _guia, ...st } = await estadoTodo(row, { sinCobro });  // eslint-disable-line no-unused-vars
+    return { ...st, numero: row.numero_expediente, mensaje: mensajeTodo(row, { guia: st.guia, adjuntos: st.adjuntos }) };
+}
+
+/**
+ * Entrega los dos certificados de un DOBLE (y la guía) en UN mensaje.
+ * Siempre a mano: el automático sigue entregando fase a fase.
+ *
+ * @param {string} id
+ * @param {object} opts  { reenviar, sinCobro (solo ADMIN, lo comprueba la ruta), mensaje, channels, usuario }
+ */
+async function entregarTodo(id, opts = {}) {
+    const row = await svc.cargar(id);
+    if (!row) return { enviado: false, motivo: 'NO_EXISTE' };
+    const sinCobro = !!opts.sinCobro;
+    const st = await estadoTodo(row, { sinCobro });
+
+    if (st.yaEntregado && !opts.reenviar) {
+        return { enviado: false, motivo: 'YA_ENTREGADO', entregadoAt: st.yaEntregado.final.at };
+    }
+    if (!st.puede) return { enviado: false, motivo: 'FALTAN_REQUISITOS', faltan: st.faltan };
+
+    // Los cuatro de Drive, en el orden pedido. Cinturón: si alguno no baja, no sale nada.
+    const porFase = {
+        inicial: await uploads.getSlotAttachments(row, 'inicial', ['pdf', 'etiqueta']),
+        final: await uploads.getSlotAttachments(row, 'final', ['pdf', 'etiqueta']),
+    };
+    const adjuntos = [];
+    for (const o of ORDEN_TODO) {
+        const a = porFase[o.fase].find(x => x.slot === o.slot);
+        if (!a) return { enviado: false, motivo: 'ADJUNTOS_NO_DESCARGABLES', faltan: [`No se ha podido descargar de Drive: ${o.etiqueta}`] };
+        adjuntos.push({ ...a, fase: o.fase, etiqueta: o.etiqueta });
+    }
+
+    const errores = [];
+    let guia = null;
+    let bufferGuia = null;
+    if (st._guia?.va) {
+        try {
+            const { buffer, filename } = await guiaIrpf().pdfGuiaDeEntrega(st._guia);
+            adjuntos.push({ slot: 'guia', fase: 'final', etiqueta: ETIQUETA_GUIA_TODO, filename: filename.replace(' – ', ' - '), content: buffer, contentType: 'application/pdf' });
+            guia = st._guia;
+            bufferGuia = buffer;
+        } catch (e) {
+            console.warn(`[cee-entrega todo] ${row.numero_expediente}: la guía del IRPF no se pudo preparar:`, e.message);
+            errores.push(`guía de la Renta: ${e.message}`);
+        }
+    }
+
+    // El texto editado en el popup anunciaba la guía; si al final no se ha podido
+    // preparar, dejaría al cliente buscándola: entonces manda el texto generado.
+    const editado = opts.mensaje?.trim();
+    const cuerpo = editado && (guia || !st._guia?.va)
+        ? editado
+        : mensajeTodo(row, { guia: guiaIrpf().guiaDeEntregaPublica(guia), adjuntos });
+    const usar = Array.isArray(opts.channels) && opts.channels.length ? opts.channels : ['email', 'whatsapp'];
+    const canales = [];
+
+    if (st.destinatario.email && usar.includes('email')) {
+        try {
+            await emailService.sendMail({
+                to: st.destinatario.email,
+                subject: st.destinatario.partner
+                    ? `${row.numero_expediente} — Certificados energéticos inicial y final de ${nombreCliente(row.cliente) || 'vuestro cliente'}`
+                    : `${row.numero_expediente} — Tus certificados energéticos (inicial y final)`,
+                text: cuerpo.replace(/\*/g, ''),
+                html: `<pre style="font-family:inherit;white-space:pre-wrap">${cuerpo.replace(/\*/g, '')}</pre>`,
+                attachments: adjuntos.map(a => ({ filename: a.filename, content: a.content, contentType: a.contentType }))
+            });
+            canales.push('email');
+        } catch (e) { errores.push(`email: ${e.message}`); }
+    }
+
+    if (st.destinatario.tlf && usar.includes('whatsapp')) {
+        try {
+            // El texto primero y aparte; detrás cada PDF con su número y su etiqueta.
+            await whatsappService.sendText(st.destinatario.tlf, cuerpo);
+            for (const [i, a] of adjuntos.entries()) {
+                await whatsappService.sendMedia(
+                    st.destinatario.tlf,
+                    { base64: a.content.toString('base64'), filename: a.filename, mimetype: a.contentType || 'application/pdf' },
+                    { caption: `${i + 1}. ${a.etiqueta}`, splitCaption: false }
+                );
+            }
+            canales.push('whatsapp');
+        } catch (e) { errores.push(`whatsapp: ${e.message}`); }
+    }
+
+    if (!canales.length) return { enviado: false, motivo: 'ENVIO_FALLIDO', errores };
+
+    // Las DOS fases selladas: el automático ya no repite ninguna.
+    const at = new Date().toISOString();
+    const ficheros = adjuntos.map(a => a.filename);
+    const sello = (ph) => ({
+        at, canales,
+        ficheros: adjuntos.filter(a => a.fase === ph).map(a => a.filename),
+        destinatario: { email: st.destinatario.email, tlf: st.destinatario.tlf, ...(st.destinatario.partner ? { partner: st.destinatario.nombre } : {}) },
+        automatica: false,
+        todo: true,
+        usuario: opts.usuario || null,
+        ...(sinCobro && !row.cobrado ? { sin_cobrar: true } : {}),
+        ...(errores.length ? { errores } : {})
+    });
+    await svc.mergeDoc(row.id, 'entrega_cliente', { inicial: sello('inicial'), final: sello('final') });
+
+    await svc.anotarHistorial(row.id, {
+        tipo: 'CLIENTE',
+        texto: `CEE INICIAL Y FINAL ENTREGADOS EN UN SOLO MENSAJE ${st.destinatario.partner ? `AL PARTNER (${String(st.destinatario.nombre || '').toUpperCase()}, A QUIEN SE FACTURÓ)` : 'AL CLIENTE'} POR ${canales.join(' Y ').toUpperCase()}`
+            + ` (CERTIFICADOS Y ETIQUETAS${guia ? ` + GUÍA DE LA DEDUCCIÓN DEL IRPF (${guia.modalidad} %${guia.ejemplo ? ', CON EJEMPLO' : ''})` : ''})`
+            + `${sinCobro && !row.cobrado ? ' — SIN COBRAR (DECISIÓN MANUAL)' : ''}`,
+        usuario: opts.usuario || null
+    });
+
+    if (guia) {
+        try {
+            await guiaIrpf().sellarGuiaEntregada(guia, bufferGuia, {
+                canales, destinatario: st.destinatario, ficheros, usuario: opts.usuario || null, automatica: false
+            });
+        } catch (e) { console.warn('[cee-entrega todo] no se pudo sellar la guía:', e.message); }
+    }
+
+    console.log(`[cee-entrega todo] ${row.numero_expediente} entregado por ${canales.join('+')} (${ficheros.length} adjuntos)`);
+    return { enviado: true, canales, errores, ficheros, guia: !!guia, destinatario: st.destinatario };
+}
+
 module.exports = {
+    borradorTodo,
+    entregarTodo,
+    mensajeTodo,
     avisarRegistrado,
     borradorAviso,
     SLOTS_ENTREGA,
