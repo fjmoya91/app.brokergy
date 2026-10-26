@@ -138,7 +138,7 @@ function optAll(nombre) {
 //: El técnico que FIRMA el .cex si el plan no dice otro y no hay un técnico de
 //: verdad en la barra: Francisco Javier Moya López (`prescriptores.id_empresa`).
 //: Decisión del usuario, 2026-10-06. `CEE_TECNICO_POR_DEFECTO` lo cambia.
-const TECNICO_POR_DEFECTO = process.env.CEE_TECNICO_POR_DEFECTO || 'c05b23c1-aa81-4a9a-bd6b-b59cb65775c5';
+const TECNICO_POR_DEFECTO = require('../utils/certificadorCasa').certificadorCasaId();
 const cexAPdf = require('../services/cee/cexAPdf');
 const previstoSrv = require('../services/cee/previstoRes080');
 const revisionPlano = require('../services/cee/revisionPlano');

@@ -210,11 +210,11 @@ function detectarRevision(e, out) {
             // Lo que deja el AGENTE IA es un BORRADOR (`…_REVISAR.cex`): se revisa
             // abriéndolo en CE3X, no con la lupa — y se dice para no buscar un
             // .cex de técnico que no existe.
-            detalle: e.es_agente
+            detalle: e.agente_fase?.[f.scope]
                 ? `${f.label} · borrador del Agente IA: ábrelo en CE3X`
                 : `${f.label} · ${sub === 'PRESENTADO' ? 'presentado' : 'en revisión'}`,
             responsable: 'BROKERGY',
-            accion: { tipo: 'ver', label: e.es_agente ? 'Revisarlo en CE3X' : 'Revisar y dar el visto bueno' },
+            accion: { tipo: 'ver', label: e.agente_fase?.[f.scope] ? 'Revisarlo en CE3X' : 'Revisar y dar el visto bueno' },
         }));
     }
 }
@@ -252,7 +252,7 @@ function detectarRegistro(e, out) {
             responsable: 'CERTIFICADOR',
             accion: { tipo: 'cert-registro', scope: f.scope, label: 'Recordar al certificador' },
             aviso: ultimoAviso(e.recordatorios, `cert-registro:${f.scope}`),
-            presentacion: pres?.enviado_at && !pres?.registrado_at
+            presentacion: pres?.enviado_at && !pres?.registrado_at && !pres?.retirado_at
                 ? { nombre: pres.nombre || pres.email || null, enviado_at: pres.enviado_at } : null,
         }));
     }
@@ -268,7 +268,7 @@ function detectarCertSinEntregar(e, out) {
         // un CEE que le encargamos sin saber cuándo es más sospechoso, no menos. Se
         // descartaba, y con él el único expediente en esa situación (07/09/2026).
         const d = dias(desde);
-        if (e.es_agente) {
+        if (e.agente_fase?.[f.scope]) {
             out.push(fila(e, 'AGENTE_IA', {
                 scope: f.scope, desde, d,
                 detalle: `${f.label} · ${sub === 'EN_TRABAJO' ? 'el agente está en ello' : 'encargado, sin empezar'}`,
@@ -325,16 +325,21 @@ function detectarSinEncargar(e, out) {
     // esconderse, porque en la ficha parece que está en marcha.
     const desde = desdeFase(e.seguimiento, 'cee_inicial') || e.created_at;
     const d = dias(desde);
+    // Desde el 26/10/2026 todo expediente NACE con el certificador de la casa
+    // (Fran, `utils/certificadorCasa`): tenerlo puesto no dice que se haya
+    // decidido quién lo hace, así que se lee como «sin encargar».
+    const casa = require('../utils/certificadorCasa').esCertificadorCasa(e.certificador_id);
     out.push(fila(e, 'SIN_ENCARGAR', {
         scope: 'inicial', desde, d,
         detalle: detalleAgente(e.aceptacion_agente)
-            || (e.certificador_id ? 'Técnico asignado, encargo SIN ENVIAR' : 'Sin certificador asignado'),
+            || (casa ? 'A tu nombre por defecto, sin empezar'
+                : e.certificador_id ? 'Técnico asignado, encargo SIN ENVIAR' : 'Sin certificador asignado'),
         responsable: 'BROKERGY',
         // Con qué va a trabajar el técnico. Viaja en la fila para que la pestaña
         // Seguimiento diga, antes de encargar, si ya se le puede mandar o si antes
         // hay que pedirle las fotos al cliente.
         material: materialCee(e.uploads, e.instalacion),
-        accion: { tipo: 'ver', label: e.certificador_id ? 'Enviar el encargo' : 'Encargar el CEE inicial' },
+        accion: { tipo: 'ver', label: e.certificador_id && !casa ? 'Enviar el encargo' : 'Encargar el CEE inicial' },
     }));
 }
 
@@ -675,6 +680,8 @@ async function escanear(opts = {}) {
             oportunidad_id, lote_id,
             oportunidades(instalador_asociado_id,prescriptor_id,uploads:datos_calculo->reforma_uploads),
             certificador_id:cee->>certificador_id,
+            ai_ini:cee->agente_ia->inicial->>estado,
+            ai_fin:cee->agente_ia->final->>estado,
             cee_folder_link:cee->>cee_folder_link,
             presentacion:cee->presentacion,
             fin_obra:documentacion->>fecha_fin_obra_comunicada,
@@ -738,7 +745,15 @@ async function escanear(opts = {}) {
         // cualquier guardado del lote, así que no es exacto: sirve para ordenar por
         // antigüedad, no para prometer un plazo.
         e.lote_desde = lote?.updated_at || null;
+        // `es_agente`: el agente EN LA BARRA (lo de antes del 26/10/2026), que no
+        // firma. `agente_fase`: qué fases son encargo del agente —también con el
+        // de la casa en la barra, por su sello (`esEncargoDelAgente`)—.
         e.es_agente = !!agenteId && String(e.certificador_id || '') === agenteId;
+        const { esEncargoDelAgente } = require('./agenteIa');
+        e.agente_fase = {
+            inicial: !!agenteId && esEncargoDelAgente(e.certificador_id, agenteId, { estado: e.ai_ini }),
+            final: !!agenteId && esEncargoDelAgente(e.certificador_id, agenteId, { estado: e.ai_fin }),
+        };
 
         // El instalador no vive en el expediente sino en su oportunidad. `prescriptor_id`
         // es el respaldo histórico (antes de existir instalador_asociado_id); el 1 es el
@@ -813,7 +828,7 @@ async function rellenarNombres(filas) {
             if (f.instalador_id) f.instalador_nombre = nombre(f.instalador_id);
             if (f.bloque === 'REGISTRO') {
                 f.registra = quienRegistra(f, map.get(String(f.certificador_id)));
-                if (f.registra.casa) aEva(f);
+                if (f.registra.casa) aLaCasa(f);
             }
         }
     }
@@ -832,20 +847,21 @@ const nombreCorto = (s) => {
 };
 
 /**
- * ¿A quién le toca REGISTRAR este CEE? Al técnico que lo firmó, salvo que lo firme
- * el de la CASA (Fran): eso lo presenta Eva (decisión del usuario, 2026-10-11; ver
- * «con el certificador de la CASA, Validar es encargar la presentación»). Si la
- * presentación ya se le encargó a alguien, manda a quién se le encargó.
- * `pendiente`: es de Eva y el encargo todavía no le ha salido — sin él, no lo sabe.
+ * ¿A quién le toca REGISTRAR este CEE? Al técnico que lo firmó. Si lo firma el de
+ * la CASA (Fran), lo presenta la casa: desde el 25/10/2026 Eva ya no presenta
+ * (decisión del usuario: «yo solo daré el visto bueno y desde que doy el VB se
+ * puede presentar»), y lo hace el PC con `presentar_cee.js` / la skill
+ * `presentar-cee`. Un encargo antiguo a otra persona aún sin cerrar se sigue
+ * diciendo entre paréntesis.
  */
 function quienRegistra(f, cert) {
     const casa = esDeLaCasa(cert);
     // El de la casa es «Fran» en todo el equipo; su ficha dice FRANCISCO JAVIER.
     const tecnico = casa ? 'Fran'
         : nombreCorto(cert?.nombre_responsable || cert?.razon_social || f.certificador_nombre) || 'Sin técnico';
-    const presentador = f.presentacion ? (nombreCorto(f.presentacion.nombre) || 'Presentador') : (casa ? 'Eva' : null);
+    const presentador = f.presentacion ? (nombreCorto(f.presentacion.nombre) || 'Presentador') : null;
     return {
-        // «Luis» · «Raquel» · «Fran (Eva)»: el técnico y, entre paréntesis, quién lo presenta.
+        // «Luis» · «Raquel» · «Fran»: el técnico y, si se le encargó a otra persona, quién.
         etiqueta: presentador ? `${tecnico} (${presentador})` : tecnico,
         casa,
         encargado: !!f.presentacion,
@@ -854,17 +870,14 @@ function quienRegistra(f, cert) {
 
 /**
  * Un CEE de Fran sin registrar no se le reclama a Fran —sería escribirse a sí
- * mismo—: la acción es ENCARGARLE la presentación a Eva (decisión del usuario,
- * 2026-10-11). No es un mensaje de `seguimientoLote` sino el encargo de siempre
- * (`presentacionCeeService`: correo con el borrador y los tres ficheros), uno por
- * expediente; el parte solo los junta en una tarjeta «Eva».
- * El AVISO es el propio encargo: enviado hace menos de `reinsistir` días, la fila
- * calla («avisado hace N días»); pasado, se ofrece reenviárselo.
+ * mismo— ni se le encarga a nadie: con el visto bueno ya se puede presentar, y lo
+ * presenta la casa (el PC, con la skill `presentar-cee`; firma antes si falta).
+ * No hay mensaje que despachar: la fila se queda en el bloque, sin tarjeta.
  */
-function aEva(f) {
-    f.responsable = 'PRESENTADOR';
-    f.accion = { tipo: 'presentar-cee', scope: f.scope, label: 'Enviar a presentar a Eva' };
-    f.aviso = f.presentacion ? { dias: dias(f.presentacion.enviado_at) ?? 0, target: 'PRESENTADOR' } : null;
+function aLaCasa(f) {
+    f.responsable = 'BROKERGY';
+    f.accion = { tipo: 'ver', scope: f.scope, label: 'Presentarlo (firma y tasa en el PC)' };
+    f.aviso = null;
 }
 
 /**
@@ -891,7 +904,8 @@ function agruparPorDestinatario(filas) {
         if (!f.accion || f.accion.tipo === 'ver') return null;   // no hay nada que enviar
         const dest = f.responsable === 'CERTIFICADOR'
             ? { tipo: 'CERTIFICADOR', id: f.certificador_id, nombre: f.certificador_nombre }
-            // Quien presenta los CEE de Fran (ver `aEva`): una sola tarjeta para todos.
+            // Quien presentaba los CEE de Fran (Eva, hasta el 25/10/2026; ya ninguna
+            // fila sale con este responsable: ver `aLaCasa`).
             : f.responsable === 'PRESENTADOR'
             ? { tipo: 'PRESENTADOR', id: 'presentador', nombre: f.presentacion?.nombre || 'Eva' }
             : f.responsable === 'INSTALADOR'

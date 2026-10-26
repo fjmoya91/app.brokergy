@@ -2,6 +2,11 @@
 
 ## El AGENTE IA, un certificador más (2026-10-01)
 
+> **Desde el 26/10/2026 el agente ya no se queda en la barra**: el certificador es Fran y el encargo del
+> agente vive en su sello `cee.agente_ia[fase]` (`encargado` → `trabajando` → `terminado`). Lo de abajo
+> sobre «ponerse en la barra» y «asigna el técnico que lo firma» vale solo para lo que aún lo tenga
+> asignado. Ver "El certificador POR DEFECTO de todo CEE es Fran" (regla 175).
+
 Los CEE que prepara Claude con las skills (`generar-cee-inicial`, `generar-cee-final`) se perdían
 de vista: se le pedían y después nadie sabía si estaban hechos o no. Ahora el agente es un
 **CERTIFICADOR de la tabla de siempre** —la ficha «AGENTE IA» de `prescriptores`, marcada con

@@ -64,6 +64,8 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                                    // de quien presenta. `(fase, doc, file) => Promise<{texto?}>`.
                                    onSubirDevuelto = null,
                                    // Tras enviar el encargo de presentación: refrescar el expediente.
+                                   // Sin él no hay botón «Enviar a presentar»: desde el 25/10/2026
+                                   // Eva ya no presenta y nadie lo pasa (lo presenta la casa).
                                    onEncargoEnviado = null,
                                    // `(fase) => onValidar|null`: si la fase espera el visto bueno,
                                    // encargar la presentación también la valida (ver CeeModule).
@@ -442,7 +444,7 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                             </p>
                         )}
                         <div className="shrink-0 flex items-center gap-2 max-md:w-full max-md:flex-col">
-                            {puedeDrive && (
+                            {puedeDrive && onEncargoEnviado && (
                                 <button type="button" onClick={() => setEncargar(true)}
                                         title="Manda a quien presenta (Eva) el .cex, el .xml y el PDF firmado, con un enlace sin cuenta al borrador y a dónde subir el justificante."
                                         className="shrink-0 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/15 bg-white/[0.04] text-white/70 hover:border-brand/40 hover:text-brand transition-colors max-md:w-full max-md:py-3.5">

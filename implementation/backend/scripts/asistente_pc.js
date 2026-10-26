@@ -9,6 +9,10 @@
 //   node scripts/asistente_pc.js ce3x <nº> --trabajo cee_final|calificar [--fase final] [--fecha AAAA-MM-DD]
 //        [--texto "lo que ha decidido Fran"] [--enviar]                     un trabajo que NECESITA CE3X
 //   node scripts/asistente_pc.js probar [--enviar]                          encargo de PRUEBA (no paga nada)
+//   node scripts/asistente_pc.js noche [--enviar]                           LA ronda de las 21:00: una pregunta
+//        para TODOS los CEE de la casa con visto bueno y sin registrar (la lanza el vigilante)
+//   node scripts/asistente_pc.js confirmar --lote --texto "<su respuesta>" [--excepto 207,186] [--enviar]
+//   node scripts/asistente_pc.js cancelar --lote [--enviar]
 //   node scripts/asistente_pc.js cola                                       qué hay y si el PC está vivo
 //
 //   EN EL PC (tarea programada «Brokergy Trabajos PC», cada 2 min, ver tools/windows/pc_trabajos.vbs):
@@ -30,6 +34,12 @@
 //   a mes) o calificar un .cex. El Claude del WhatsApp se paraba ahí («en tu PC sería…»); ahora los
 //   deja en la MISMA cola. No pagan ni firman nada, así que no llevan pregunta: llevan lo que Fran ya
 //   ha decidido. Y en el PC van SIN Chrome: solo scripts, ni la sede ni la tarjeta a su alcance.
+// - LA RONDA DE LAS 21:00 (2026-10-26, decisión de Fran): en vez de un «preséntalo» por CEE, una sola
+//   pregunta con la lista entera (tasa × n = total). Su «sí» encola cada CEE como un encargo propio
+//   (la misma pregunta y la misma respuesta en todos), uno detrás de otro; cada uno avisa antes de su
+//   pago (el 3DS) y al acabar, y al terminar el último llega el informe del lote. Si uno falla, los que
+//   quedan NO se empiezan (vuelven a la lista de mañana). Sin respuesta no se paga nada y la pregunta
+//   se repite la noche siguiente.
 // - CALIFICAR UNA OBRA DE LA APP DE CERTIFICADORES (`calificar_ext`, 2026-10-25): lo que el servidor
 //   deja «por calificar» (el agente o la ventana de la envolvente) llega SOLO a la cola por el
 //   vigilante (`/pc-calificar` → `encolarCalificarExt`). Es un trabajo FIJO: sin Claude, se lanza
@@ -51,11 +61,12 @@ function opt(n) {
 const POS = RESTO.filter((a, i) => !a.startsWith('--') && !(i > 0 && RESTO[i - 1].startsWith('--') && !['--enviar', '--seco'].includes(RESTO[i - 1])));
 
 // ─── Dónde ────────────────────────────────────────────────────────────────────
-const DIR = path.join(__dirname, '..', 'scratch', 'asistente');            // en el VPS: la cola
+// ASISTENTE_COLA_DIR / PC_TRABAJOS_DIR: solo para las pruebas (test_presentar_noche.js), una cola de usar y tirar.
+const DIR = process.env.ASISTENTE_COLA_DIR || path.join(__dirname, '..', 'scratch', 'asistente');   // en el VPS: la cola
 const VPS = process.env.ASISTENTE_VPS || 'root@187.77.93.213';
 const DIR_REMOTO = process.env.ASISTENTE_DIR_VPS || '/opt/brokergy/implementation/backend/scratch/asistente';
 const F = { pendiente: 'presentar_pendiente.json', cola: 'tareas_pc.json', latido: 'pc_latido.json' };
-const DIR_PC = path.join(__dirname, '..', 'scratch', 'pc_trabajos');       // en el PC: el trabajo en curso
+const DIR_PC = process.env.PC_TRABAJOS_DIR || path.join(__dirname, '..', 'scratch', 'pc_trabajos');   // en el PC: el trabajo en curso
 const REPO = path.join(__dirname, '..', '..', '..');
 const BACKEND = path.join(__dirname, '..');
 
@@ -76,7 +87,7 @@ const norm = s => String(s || '').trim().toUpperCase().replace(/\s+/g, '').repla
 // ─── Leer y escribir la cola: en el VPS directo; desde el PC, por ssh ────────
 // El VPS es Linux (contenedor «asistente», repo en /repo); el PC de Fran, Windows. Mirar si existe
 // scratch/asistente/ no vale: el PC lo tiene del vigilante que corría aquí antes.
-const enElVps = () => process.platform !== 'win32';
+const enElVps = () => !!process.env.ASISTENTE_COLA_DIR || process.platform !== 'win32';
 function ssh(cmd, entrada = null) {
     return execFileSync('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', VPS, cmd],
         { input: entrada, maxBuffer: 16 * 1024 * 1024, windowsHide: true }).toString();
@@ -138,6 +149,7 @@ function encolarPresentacion(d) {
         titular: d.titular || null, importe: d.importe || TASA, tarjeta: d.tarjeta || TARJETA,
         pregunta: d.pregunta, pregunta_at: d.pregunta_at || ahora(), respuesta: String(d.respuesta).slice(0, 500),
         confirmado_at: ahora(), origen: d.origen || 'whatsapp', estado: 'pendiente', creado_at: ahora(),
+        ...(d.lote ? { lote: d.lote, lote_n: d.lote_n } : {}),
     };
     escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
     escribir('pendiente', (leer('pendiente') || []).filter(x => !(x.numero === d.numero && x.fase === d.fase)));
@@ -207,6 +219,7 @@ async function presentar() {
 }
 
 async function confirmar() {
+    if (bandera('lote')) return confirmarLote();
     if (!POS[0]) throw new Error('Uso: confirmar <nº> --texto "<respuesta literal de Fran>" [--enviar]');
     const texto = opt('texto');
     if (!texto) throw new Error('Falta --texto con la respuesta LITERAL de Fran: es la autorización del pago.');
@@ -224,7 +237,109 @@ async function confirmar() {
         : `Hecho: se lo paso a tu PC; ${r.pc.texto}. Te aviso cuando empiece y cuando esté registrado.`);
 }
 
+// ─── La ronda de las 21:00: UNA pregunta para todos ───────────────────────────
+const euros = n => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const tasaNum = () => Number(String(TASA).replace(',', '.'));
+const corto = n => String(n).replace(/^.*_/, '');           // 26RES060_207 → 207, para «menos el 207»
+
+// Lo que se presenta esta noche: el MISMO criterio que `presentar_cee.js pendientes` (de la casa, con
+// visto bueno y sin registrar), menos lo que ya está en la cola, lo que tiene un encargo antiguo a otra
+// persona sin cerrar (podría estar presentado: dos tasas) y lo que `localizarCee` no deja presentar.
+async function listaDeLaNoche() {
+    const { listaPendientes } = require('./presentar_cee');
+    const enCola = cola().filter(t => t.tipo === 'presentar' && ['pendiente', 'en_curso'].includes(t.estado));
+    const items = [], fuera = [];
+    for (const p of (await listaPendientes()).filter(x => x.casa)) {
+        if (enCola.some(t => t.numero === p.numero && t.fase === p.fase)) { fuera.push(`${p.numero} (${p.fase}): ya está en la cola de tu PC`); continue; }
+        if (p.encargo) { fuera.push(`${p.numero} (${p.fase}): tiene un encargo de presentación antiguo sin cerrar (${p.encargo}); puede estar ya presentado`); continue; }
+        try {
+            const c = await localizarCee(p.numero, p.fase);
+            items.push({ numero: c.numero, fase: c.fase, titular: c.titular, quedan: p.plazo?.quedan ?? null, firmado: p.firmado });
+        } catch (e) { fuera.push(`${p.numero} (${p.fase}): ${e.message}`); }
+    }
+    return { items, fuera };
+}
+
+function preguntaNoche(items) {
+    const n = items.length;
+    const lineas = items.map((c, i) => `${i + 1}. *${c.numero}* · ${c.fase} · ${c.titular}${c.quedan != null ? ` · quedan ${c.quedan} días` : ''}`);
+    return `*CEE para presentar esta noche* (${n}, tuyos y con tu visto bueno):\n${lineas.join('\n')}\n\n`
+        + `Los doy por buenos y, uno detrás de otro, en tu PC los califico en CE3X si hace falta, los firmo y los presento pagando la tasa de *${TASA} €* de cada uno con ${TARJETA}: `
+        + `*${n} × ${TASA} € = ${euros(n * tasaNum())} €*. Antes de cada pago te escribo para que lo autorices en la app del banco.`;
+}
+
+async function noche() {
+    const { items, fuera } = await listaDeLaNoche();
+    const notaFuera = fuera.length ? `\n\n_Fuera de la lista:_\n${fuera.map(f => `• ${f}`).join('\n')}` : '';
+    if (!items.length) {
+        log(`Ronda de la noche: nada que presentar.${fuera.length ? ` Fuera: ${fuera.join(' | ')}` : ''}`);
+        return;
+    }
+    const pc = estadoPc();
+    const pregunta = preguntaNoche(items);
+    const lote = `noche-${new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })}`;
+    // La pregunta de esta noche sustituye a la de anoche, si no se contestó.
+    const pendientes = (leer('pendiente') || []).filter(p => !p.lote);
+    pendientes.push({ lote, items, importe: TASA, total: euros(items.length * tasaNum()), tarjeta: TARJETA, pregunta, at: ahora() });
+    if (bandera('enviar')) escribir('pendiente', pendientes);
+    await decir(`${pregunta}\n\nContesta *sí* y empiezo. Para dejar alguno fuera: «sí, menos el ${corto(items[items.length - 1].numero)}». `
+        + `Si no contestas, no presento nada y mañana te lo vuelvo a preguntar.${pc.vivo ? '' : `\n_Ojo: ${pc.texto}._`}${notaFuera}`);
+}
+
+// Con su «sí» a la pregunta de la noche: cada CEE de la lista, a la cola, con la pregunta y la respuesta.
+async function confirmarLote() {
+    const texto = opt('texto');
+    if (!texto) throw new Error('Falta --texto con la respuesta LITERAL de Fran: es la autorización de los pagos.');
+    const p = (leer('pendiente') || []).filter(x => x.lote).sort((a, b) => b.at - a.at)[0];
+    if (!p) throw new Error('No hay ninguna pregunta de la noche pendiente: primero `noche`.');
+    if (ahora() - p.at > 24 * 3600) throw new Error(`La pregunta de la noche (${p.lote}) es de hace más de 24 h: no vale como autorización.`);
+    const excepto = String(opt('excepto') || '').split(/[,\s]+/).map(norm).filter(Boolean);
+    const sobran = excepto.filter(x => !p.items.some(c => norm(c.numero).endsWith(x)));
+    if (sobran.length) throw new Error(`--excepto: ${sobran.join(', ')} no está en la lista de la noche (${p.items.map(c => c.numero).join(', ')}).`);
+    // Un «sí, menos…» sin --excepto encolaría justo lo que ha dejado fuera.
+    if (!excepto.length && /\b(menos|excepto|salvo|quita|sin el|sin la|no presentes)\b/i.test(texto)) {
+        throw new Error('Su respuesta deja algo fuera: dilo con --excepto <nº,…> (o pregúntale cuál).');
+    }
+    const van = p.items.filter(c => !excepto.some(x => norm(c.numero).endsWith(x)));
+    if (!van.length) throw new Error('Con lo que deja fuera no queda ninguno: no hay nada que encolar (usa `cancelar --lote`).');
+    if (!bandera('enviar')) {
+        console.log(`[EN SECO] Encolaría ${van.length} presentaciones (${van.map(c => c.numero).join(', ')}) con la respuesta «${texto}».`);
+        return;
+    }
+    let nuevos = 0;
+    let pc = estadoPc();
+    for (const c of van) {
+        const r = encolarPresentacion({
+            ...c, importe: p.importe, tarjeta: p.tarjeta, pregunta: p.pregunta, pregunta_at: p.at, respuesta: texto,
+            origen: 'whatsapp', lote: p.lote, lote_n: van.length,
+        });
+        if (!r.duplicado) nuevos += 1;
+        pc = r.pc;
+    }
+    escribir('pendiente', (leer('pendiente') || []).filter(x => x.lote !== p.lote));
+    await decir(`Hecho: le paso ${nuevos} CEE a tu PC, uno detrás de otro (${van.map(c => c.numero).join(', ')}); `
+        + `${pc.texto}. Te escribo antes de cada pago y, al acabar, el resumen.${excepto.length ? `\nFuera: ${p.items.filter(c => !van.includes(c)).map(c => c.numero).join(', ')}.` : ''}`);
+}
+
+async function cancelarLote() {
+    const pend = leer('pendiente') || [];
+    const lista = cola();
+    const quitarPend = pend.filter(x => x.lote);
+    const quitarCola = lista.filter(t => t.lote && t.estado === 'pendiente');
+    const enCurso = lista.find(t => t.lote && t.estado === 'en_curso');
+    if (bandera('enviar')) {
+        escribir('pendiente', pend.filter(x => !x.lote));
+        escribir('cola', lista.map(t => (quitarCola.includes(t) ? { ...t, estado: 'cancelada', cancelada_at: ahora() } : t)));
+    }
+    const partes = [];
+    if (quitarPend.length) partes.push('no presento nada de la lista de esta noche');
+    if (quitarCola.length) partes.push(`quito de la cola ${quitarCola.map(t => t.numero).join(', ')}`);
+    const enMarcha = enCurso ? ` *${enCurso.numero}* ya lo está presentando tu PC y ese no lo paro desde aquí (podría quedar a medias con la tasa pagada).` : '';
+    await decir(partes.length ? `Cancelado: ${partes.join(' y ')}.${enMarcha}` : `No había nada de la ronda de la noche pendiente.${enMarcha}`);
+}
+
 async function cancelar() {
+    if (bandera('lote')) return cancelarLote();
     if (!POS[0]) throw new Error('Uso: cancelar <nº> [--enviar]');
     const n = norm(POS[0]);
     const pend = leer('pendiente') || [];
@@ -326,7 +441,10 @@ function verCola() {
     console.log(`PC: ${pc.texto}`);
     const pend = leer('pendiente') || [];
     console.log(`\nPreguntas de presentar esperando el «sí» de Fran: ${pend.length || 'ninguna'}`);
-    for (const p of pend) console.log(`  - ${p.numero} (${p.fase}) · preguntado ${hora(p.at)} · ${p.titular}`);
+    for (const p of pend) {
+        if (p.lote) console.log(`  - RONDA DE LA NOCHE ${p.lote} · preguntado ${hora(p.at)} · ${p.items.length} CEE (${p.items.map(c => `${c.numero} ${c.fase}`).join(', ')}) · ${p.total} € → confirmar --lote`);
+        else console.log(`  - ${p.numero} (${p.fase}) · preguntado ${hora(p.at)} · ${p.titular}`);
+    }
     const lista = cola().slice(-10);
     console.log(`\nCola del PC (últimas ${lista.length}):`);
     for (const t of lista) console.log(`  - ${t.id} · ${t.estado}${t.resumen ? ` · ${t.resumen.slice(0, 120)}` : ''}`);
@@ -348,14 +466,15 @@ function promptPresentar(t) {
 LA AUTORIZACIÓN, de Fran ${t.origen === 'app' ? 'en el asistente de la app (solo lo ven los ADMIN, con su sesión)' : 'por WhatsApp (el sistema solo deja pasar mensajes cuyo autor es él)'}:
 - Pregunta que se le hizo (${hora(t.pregunta_at)}): «${t.pregunta}»
 - Su respuesta (${hora(t.confirmado_at)}): «${t.respuesta}»
-Es su «doy por válido» para FIRMAR este CEE y su «sí» al PAGO de esa tasa (${t.importe} €, ${t.tarjeta}) para ESTE expediente: la confirmación del apartado 1b de la skill presentar-cee. No vuelvas a preguntar. Si la sede pide OTRO importe, o esa tarjeta no está en Chrome, PARA y avísale.
+Es su «doy por válido» para FIRMAR este CEE y su «sí» al PAGO de esa tasa (${t.importe} €, ${t.tarjeta}) para ESTE expediente: la confirmación del apartado 1b de la skill presentar-cee. No vuelvas a preguntar. Si la sede pide OTRO importe, o esa tarjeta no está en Chrome, PARA y avísale.${t.lote ? `
+La pregunta era por la LISTA de la ronda de la noche (${t.lote}); este encargo es SOLO ${t.numero} (${t.fase}): un pago de ${t.importe} €, nunca el total. Los demás de la lista son otros encargos: no los toques. Si su respuesta deja fuera ESTE expediente, PARA sin pagar.` : ''}
 
 CÓMO LE HABLAS (desde C:\\Proyectos\\app.brokergy\\implementation\\backend): node scripts/asistente_whatsapp.js decir "texto" --enviar
 Solo tres veces: al empezar («Empiezo a presentar ${t.numero}…»), cuando toque autorizar el pago («Autoriza ahora en la app de tu banco el pago de ${t.importe} €») y si algo te para. El mensaje FINAL no lo mandes tú: escríbelo como tu respuesta final (2-4 líneas: nº de registro y fecha, o en qué punto y por qué has parado) y el sistema se lo envía.
 
 PASOS (los scripts, en C:\\Proyectos\\app.brokergy\\implementation\\backend):
 1. Lee C:\\Proyectos\\app.brokergy\\skills\\presentar-cee\\SKILL.md entero y síguelo tal cual. Montaje: comprobar_montaje.ps1 -Titular MOYA_LOPEZ; sin «MONTAJE LISTO», para.
-2. Si el CEE ${t.fase} aún no tiene el XML y el PDF oficiales (los saca CE3X): node scripts/cee_inicial.js listo ${t.numero}${faseOpt} en seco y, si califica y el XML VALIDA, con --escribir. «Certificado incompleto» o no valida: PARA.
+2. Solo si en la carpeta de la fase sigue el borrador «_REVISAR» sin su nombre definitivo (el visto bueno ya lo renombra; sin XML ni PDF oficiales): node scripts/cee_inicial.js listo ${t.numero}${faseOpt} en seco y, si califica y el XML VALIDA, con --escribir. «Certificado incompleto» o no valida: PARA.
 3. Si no hay PDF firmado (_fdo.pdf): node scripts/firmar_cee.js ${t.numero}${faseOpt} --escribir (cómo se firma: skills\\generar-cee-inicial\\SKILL.md).
 4. node scripts/presentar_cee.js preparar ${t.numero}${faseOpt}: tiene que decir LISTO. NO LISTO o CERTIFICADO INCOMPLETO: PARA.
 5. La sede, con Claude en Chrome. ANTES DE NADA select_browser con deviceId ${CHROME_DEVICE} (perfil BROKERGY, el de la tarjeta); nunca otro navegador. Vigilante de AutoFirma en segundo plano antes de abrir la sede. Lo demás, como dice la skill (sesión limpia, identificarse, «Es representante», rellenar, adjuntos, referencia catastral a mano, pago con el sí de arriba, 3DS: avisa y espera hasta 10 minutos a que la página diga autorizada; si no, para; enviar; justificante).
@@ -480,7 +599,7 @@ function lanzar(t) {
     for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_BASE_URL']) delete env[k];
     // El prompt entra por un FICHERO (stdin), no por la línea de órdenes: es largo y lleva comillas.
     const hijo = spawn(process.env.ComSpec || 'cmd.exe', args, { cwd: REPO, env, windowsHide: true, stdio: [fs.openSync(promptF, 'r'), out, out] });
-    const actual = { id: t.id, tipo: t.tipo, trabajo: t.trabajo || null, numero: t.numero || null, pid: hijo.pid, inicio: ahora(), log: logF };
+    const actual = { id: t.id, tipo: t.tipo, trabajo: t.trabajo || null, numero: t.numero || null, lote: t.lote || null, pid: hijo.pid, inicio: ahora(), log: logF };
     fs.writeFileSync(ACTUAL, JSON.stringify(actual, null, 1));
     return { hijo, actual };
 }
@@ -511,19 +630,41 @@ function leerResultado(logF) {
     return res ? { ok: res.subtype === 'success' && !res.is_error, texto: String(res.result || '').trim(), coste: res.total_cost_usd } : null;
 }
 
+// El informe del lote, cuando ya no queda ninguno por hacer (null mientras quede alguno).
+function informeLote(lista, lote) {
+    const del = lista.filter(t => t.lote === lote);
+    if (!del.length || del.some(t => ['pendiente', 'en_curso'].includes(t.estado))) return null;
+    const hechos = del.filter(t => t.estado === 'hecha');
+    const primera = s => String(s || '').split('\n').map(l => l.trim()).filter(Boolean)[0]?.slice(0, 160) || '';
+    const linea = t => (t.estado === 'hecha' ? `✓ *${t.numero}* — ${primera(t.resumen)}`
+        : t.estado === 'fallida' ? `✗ *${t.numero}* — no terminó: ${primera(t.resumen)}`
+            : `· *${t.numero}* — no empezado (${/^No empezado/.test(t.resumen || '') ? 'paré tras el fallo anterior' : 'cancelado'}): vuelve a la lista de mañana`);
+    return `*Presentación de la noche: ${hechos.length} de ${del.length}*\n${del.map(linea).join('\n')}`
+        + (hechos.length ? `\nTasas pagadas: ${hechos.length} × ${del[0].importe} € = ${euros(hechos.length * tasaNum())} €.` : '')
+        + (del.some(t => t.estado === 'fallida') ? '\n_Lo que no terminó no lo reintento: si llegó a pagar, hay que mirarlo antes (la referencia 046)._' : '');
+}
+
 async function terminar(actual, motivoCorte = null) {
     const fijo = actual.tipo === 'calificar_ext';
     const res = fijo ? resultadoCalificarExt(actual.log, motivoCorte) : (motivoCorte ? null : leerResultado(actual.log));
     const ok = !!res?.ok && !motivoCorte;
     const resumen = (res?.texto || motivoCorte || 'el trabajo se ha cortado sin dar respuesta').slice(0, 1500);
-    const lista = cola();
-    escribir('cola', lista.map(t => (t.id === actual.id ? { ...t, estado: ok ? 'hecha' : 'fallida', terminado_at: ahora(), resumen } : t)));
+    let lista = cola().map(t => (t.id === actual.id ? { ...t, estado: ok ? 'hecha' : 'fallida', terminado_at: ahora(), resumen } : t));
+    // De la ronda de la noche: si este no ha terminado, los que quedan del lote NO se empiezan (un 3DS
+    // sin autorizar o la sede caída pararían igual a los siguientes); vuelven a la lista de mañana.
+    if (actual.lote && !ok) {
+        lista = lista.map(t => (t.lote === actual.lote && t.estado === 'pendiente'
+            ? { ...t, estado: 'cancelada', cancelada_at: ahora(), resumen: `No empezado: ${actual.numero} no terminó.` } : t));
+    }
+    escribir('cola', lista);
     const cab = cabecera(actual);
     const pie = ok || actual.tipo === 'prueba' ? ''
         : actual.tipo === 'ce3x' || fijo ? '\n\n_No lo reintento solo: cuando lo mires, pídemelo otra vez._'
             : '\n\n_No lo reintento solo: si llegó a pagar, hay que mirarlo antes (la referencia 046)._';
     // La calificación de una obra de la app va en silencio: el aviso de «listo» lo manda producción.
     if (!(fijo && ok)) await require('./asistente_whatsapp').mandarOGuardar(`*${cab}*${ok ? '' : ' — NO ha terminado'}\n${resumen}${pie}`);
+    const informe = actual.lote ? informeLote(lista, actual.lote) : null;
+    if (informe) await require('./asistente_whatsapp').mandarOGuardar(informe);
     fs.renameSync(ACTUAL, path.join(DIR_PC, `${actual.id}.fin.json`));
     log(`Terminado ${actual.id}: ${ok ? 'OK' : 'FALLÓ'}`);
 }
@@ -591,15 +732,17 @@ function estado() {
     verCola();
 }
 
-const ORDENES = { presentar, confirmar, cancelar, ce3x, probar, cola: verCola, vuelta, estado };
+const ORDENES = { presentar, noche, confirmar, cancelar, ce3x, probar, cola: verCola, vuelta, estado };
 if (require.main === module) {
     (async () => {
         const f = ORDENES[ORDEN];
-        if (!f) { console.log('Órdenes: presentar · confirmar · cancelar · ce3x · probar · cola (VPS) · vuelta · estado (PC)'); process.exit(1); }
+        if (!f) { console.log('Órdenes: presentar · noche · confirmar · cancelar · ce3x · probar · cola (VPS) · vuelta · estado (PC)'); process.exit(1); }
         await f();
     })().catch((e) => { console.error(`ERROR: ${e.message}`); process.exit(1); });
 }
 
 module.exports = { estadoPc, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, TASA, TARJETA, TRABAJOS_CE3X,
     MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt,
-    _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor };
+    _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor,
+    _preguntaNoche: preguntaNoche, _informeLote: informeLote, _promptPresentar: promptPresentar,
+    _confirmarLote: confirmarLote, _cancelarLote: cancelarLote, _terminar: terminar };

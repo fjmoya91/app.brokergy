@@ -13,6 +13,10 @@ const path = require('path');
 // ── Dobles ──────────────────────────────────────────────────────────────────
 const AGENTE = { id_empresa: 'AG', razon_social: 'AGENTE IA', es_agente_ia: true };
 const RAQUEL = { id_empresa: 'RAQ', razon_social: 'RAQUEL MONCAYO TERRIZA' };
+// El certificador de la CASA (Fran): desde el 26/10/2026 es el que queda en la
+// barra cuando trabaja el agente (`utils/certificadorCasa`).
+process.env.CEE_TECNICO_POR_DEFECTO = 'FRAN';
+const FRAN = { id_empresa: 'FRAN', razon_social: 'FRANCISCO JAVIER MOYA LÓPEZ' };
 let exp;                 // fila de expedientes (con `cee` y `documentacion` completos)
 const rpcs = [];
 const wa = [];
@@ -44,7 +48,8 @@ function proyectar(fila) {
 function builder(tabla) {
     const q = { filtros: {}, patch: null };
     const b = {
-        select() { return b; }, not() { return b; }, neq() { return b; }, in() { return b; },
+        select() { return b; }, not() { return b; }, neq() { return b; },
+        in(k, v) { q.filtros[k] = v; return b; },
         eq(k, v) { q.filtros[k] = v; return b; },
         update(p) { q.patch = p; return b; },
         async maybeSingle() { return resolver(); },
@@ -58,12 +63,13 @@ function builder(tabla) {
         }
         if (tabla === 'prescriptores') {
             if (q.filtros.es_agente_ia) return { data: AGENTE, error: null };
-            const p = [AGENTE, RAQUEL].find(x => x.id_empresa === q.filtros.id_empresa) || null;
+            const p = [AGENTE, RAQUEL, FRAN].find(x => x.id_empresa === q.filtros.id_empresa) || null;
             return { data: p, error: null };
         }
         if (tabla === 'expedientes') {
             if (lista) {
-                const mio = String(exp.cee?.certificador_id || '') === String(q.filtros['cee->>certificador_id']);
+                const f = q.filtros['cee->>certificador_id'];
+                const mio = (Array.isArray(f) ? f : [f]).map(String).includes(String(exp.cee?.certificador_id || ''));
                 return { data: mio ? [proyectar(exp)] : [], error: null };
             }
             return { data: proyectar(exp), error: null };
@@ -105,10 +111,10 @@ const ultimo = () => (exp.documentacion.historial || []).filter(h => h.texto).sl
 const reset = (extra) => { exp = nuevo(extra); rpcs.length = 0; wa.length = 0; mails.length = 0; carpetas.length = 0; };
 
 (async () => {
-    console.log('\n1. Sin técnico: EMPEZAR pone al agente en la barra y la fase «en trabajo»');
+    console.log('\n1. Sin técnico: EMPEZAR pone al de la CASA en la barra y la fase «en trabajo»');
     reset();
     let r = await agenteIa.empezar({ negocio: 'cae', clave: '26RES060_999', fase: 'inicial' });
-    ok(exp.cee.certificador_id === 'AG', 'el certificador pasa a ser el AGENTE IA', exp.cee.certificador_id);
+    ok(exp.cee.certificador_id === 'FRAN', 'el certificador pasa a ser el de la CASA (el agente no figura)', exp.cee.certificador_id);
     ok(exp.seguimiento.cee_inicial === 'EN_TRABAJO', 'la fase pasa a EN_TRABAJO', exp.seguimiento.cee_inicial);
     ok(!!exp.seguimiento.cee_inicial_ts?.EN_TRABAJO, 'se sella cuándo (para el parte)');
     ok(exp.estado === 'EN CERTIFICADOR CEE INICIAL', 'el estado avanza', exp.estado);
@@ -158,12 +164,12 @@ const reset = (extra) => { exp = nuevo(extra); rpcs.length = 0; wa.length = 0; m
     ok(wa.length === 1 && /sigue siendo \*RAQUEL/.test(wa[0].msg), 'el aviso sale y dice para quién es');
     ok(exp.cee.agente_ia?.final?.delAgente === false, 'sello: preparado para el técnico');
 
-    console.log('\n6. …y con --reasignar pasa a ser del agente');
+    console.log('\n6. …y con --reasignar pasa a la CASA (el agente trabaja sin figurar)');
     reset({ cee: { certificador_id: 'RAQ' }, seguimiento: { cee_inicial: 'ASIGNADO' } });
     r = await agenteIa.empezar({ negocio: 'cae', clave: '26RES060_999', fase: 'inicial', reasignar: true });
-    ok(exp.cee.certificador_id === 'AG' && exp.seguimiento.cee_inicial === 'EN_TRABAJO', 'agente + en trabajo',
+    ok(exp.cee.certificador_id === 'FRAN' && exp.seguimiento.cee_inicial === 'EN_TRABAJO', 'la casa + en trabajo',
        [exp.cee.certificador_id, exp.seguimiento.cee_inicial]);
-    ok(r.cambios.some(c => /RAQUEL.*AGENTE IA/.test(c)), 'dice a quién se lo ha quitado', r.cambios);
+    ok(r.cambios.some(c => /RAQUEL.*FRANCISCO JAVIER/.test(c)), 'dice a quién se lo ha quitado', r.cambios);
 
     console.log('\n7. Nunca hacia atrás: un CEE ya REVISADO no vuelve a «pendiente de revisión»');
     reset({ cee: { certificador_id: 'AG' }, seguimiento: { cee_inicial: 'REVISADO' }, estado: 'REVISADO Y LISTO (INICIAL)' });

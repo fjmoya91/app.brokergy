@@ -3207,6 +3207,13 @@ router.put('/:id', enforceAuth, async (req, res) => {
                              + 'certificador de cambiar quién tiene asignado el expediente.');
                 updates.cee.certificador_id = existing.cee.certificador_id;
             }
+            // El AGENTE IA no se guarda como certificador: elegirlo en la barra es
+            // encargárselo (lo sella `notify-certificador`) y queda el de la casa.
+            if (updates.cee.certificador_id) {
+                const ag = await require('../services/agenteIa').agente().catch(() => null);
+                updates.cee.certificador_id = require('../utils/certificadorCasa')
+                    .normalizarCertificador(updates.cee.certificador_id, ag?.id_empresa);
+            }
         }
         if (instalacion !== undefined)   updates.instalacion   = { ...existing.instalacion,   ...instalacion };
         // El SCOP se GUARDA con dos decimales (redondeaScop, fuente única con las
@@ -6815,6 +6822,22 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         }
         const encargoPendiente = template === 'standard' && soloAsignar && !esDeBrokergy(cert) && !delAgente;
 
+        // El AGENTE IA no se GUARDA como certificador (26/10/2026): en la barra
+        // queda el de la casa (Fran), que firma, y el encargo del agente va a su
+        // sello `cee.agente_ia[fase]` (`encargado`), que leen su cola y el radar.
+        if (delAgente && template === 'standard') {
+            const { certificadorCasaId } = require('../utils/certificadorCasa');
+            const faseSello = phase === 'final' ? 'final' : 'inicial';
+            const prevSello = workingCee.agente_ia?.[faseSello] || {};
+            workingCee.certificador_id = certificadorCasaId();
+            workingCee.agente_ia = {
+                ...(workingCee.agente_ia || {}),
+                [faseSello]: { ...prevSello,
+                    estado: ['trabajando', 'terminado'].includes(prevSello.estado) ? prevSello.estado : 'encargado',
+                    encargado_at: new Date().toISOString() },
+            };
+        }
+
         // Automatización de estado
         // GUARD: un recordatorio al certificador nunca puede hacer retroceder el
         // expediente (ej: PENDIENTE REVISIÓN → EN CERTIFICADOR). `avanzarEstado`
@@ -7867,6 +7890,15 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
             syncExpedienteFolderAsync({ ...exp, estado: globalEstado, cee }, { motivo: 'approve-cee' });
         }
 
+        // Con el visto bueno, el borrador `_REVISAR` de la casa pasa a su nombre
+        // definitivo (lo que se firma y se presenta) ANTES de preparar adjuntos y
+        // enlaces. Nunca tumba el visto bueno.
+        let canonico = null;
+        try {
+            canonico = await require('../services/cee/canonicoAlVistoBueno')
+                .aCanonico({ negocio: 'cae', clave: req.params.id, fase: phase === 'final' ? 'final' : 'inicial' });
+        } catch (e) { canonico = { ok: false, promovidos: [], archivados: [], avisos: [e.message] }; }
+
         // Notificar al técnico que ya tiene luz verde, por los canales elegidos.
         // Esperamos los envíos para devolver el estado real de cada canal (sin esto el
         // frontend no podía saber si se envió email/WhatsApp).
@@ -7978,7 +8010,7 @@ ${presentarLink}` : '';
             }
         }
 
-        res.json({ ok: true, newEstado, seguimiento, emailSent, whatsAppSent, waReason, sentTo: emailSent ? certEmail : null, borradorDrive });
+        res.json({ ok: true, newEstado, seguimiento, emailSent, whatsAppSent, waReason, sentTo: emailSent ? certEmail : null, borradorDrive, canonico });
     } catch (err) {
         console.error('[approve-cee]', err.message);
         res.status(500).json({ error: 'Error aprobando el CEE' });
@@ -8843,6 +8875,12 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
         if (globalEstado !== exp.estado) {
             syncExpedienteFolderAsync({ ...exp, estado: globalEstado, cee }, { motivo: 'approve-cee (email)' });
         }
+
+        // El `_REVISAR` de la casa, a su nombre definitivo (igual que `approve-cee`).
+        try {
+            await require('../services/cee/canonicoAlVistoBueno')
+                .aCanonico({ negocio: 'cae', clave: req.params.id, fase: phase === 'final' ? 'final' : 'inicial' });
+        } catch (e) { console.warn('[approve-cee email] canónico:', e.message); }
 
         // Mensaje de visto bueno IDÉNTICO al que la app envía por defecto (buildCertApproveMessage)
         const ceeUploadService = require('../services/ceeUploadService');

@@ -21,11 +21,13 @@
 //
 // REGLAS (ver «El AGENTE IA, un certificador más» en CLAUDE.md):
 //   · Se reconoce por la MARCA (`es_agente_ia`), nunca por el nombre.
-//   · El agente NO FIRMA: no pone sus datos en el .cex (`tecnicoCe3x` lo
-//     descarta) y para registrar hay que asignar un técnico.
-//   · Solo mueve la fase si el encargo es SUYO. Si hay un técnico asignado, el
-//     agente le prepara el borrador, avisa y no toca ni el técnico ni la fase
-//     (salvo que se pida `reasignar`).
+//   · El agente NO FIRMA ni figura en la barra (26/10/2026): el certificador es
+//     el de la CASA (Fran, `utils/certificadorCasa`), que firma al dar el visto
+//     bueno. Encargárselo al agente es su sello `cee.agente_ia[fase]`
+//     (`encargado` → `trabajando` → `terminado`), no el `certificador_id`.
+//   · Solo mueve la fase si el encargo es de la CASA (o no hay nadie). Si hay un
+//     técnico de fuera asignado, el agente le prepara el borrador, avisa y no
+//     toca ni el técnico ni la fase (salvo que se pida `reasignar`).
 //   · Nunca hacia atrás: no rebaja una fase ya entregada, revisada o registrada.
 //   · El aviso va al equipo (WhatsApp + email), como el de un técnico que sube
 //     su .cex. Un fallo del aviso NUNCA deshace el trabajo: se devuelve dicho.
@@ -36,6 +38,7 @@ const { applyStatus } = require('./seguimientoTracking');
 const { avanzarEstado } = require('../utils/expedienteEstados');
 const { rankSubestado, esDoble, nombreFase } = require('../utils/ceeDirectoEstados');
 const { enlaceCarpetaLocal } = require('../utils/carpetaLocalEnlace');
+const { certificadorCasaId, esCertificadorCasa } = require('../utils/certificadorCasa');
 
 const NOMBRE = 'AGENTE IA';
 const FRONT = () => String(process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/+$/, '');
@@ -65,19 +68,28 @@ const normFase = (f) => (String(f || '').toLowerCase().startsWith('fin') ? 'fina
 const claveFase = (f) => (normFase(f) === 'final' ? 'cee_final' : 'cee_inicial');
 
 /**
- * ¿Quién queda como certificador, y es el encargo del agente?
- *  · Sin técnico → se le pone al agente.
- *  · Ya es el agente → se queda.
+ * ¿Quién queda como certificador, y mueve el agente la fase?
+ *
+ * Desde el 26/10/2026 el agente NO figura en la barra: el certificador es el de
+ * la CASA (Fran, `utils/certificadorCasa`) y el encargo del agente vive en su
+ * sello `cee.agente_ia[fase]`. `delAgente` = el encargo es de la casa, así que
+ * el agente mueve la fase (EN_TRABAJO → PTE_REVISION).
+ *  · Sin técnico → se le pone el de la casa.
+ *  · El agente en la barra (lo de antes) → pasa al de la casa.
+ *  · Ya es el de la casa → se queda.
  *  · Un técnico de verdad → NO se toca: el agente le prepara el borrador. Solo
- *    con `reasignar` (lo ha pedido una persona) pasa a ser del agente.
+ *    con `reasignar` (lo ha pedido una persona) pasa al de la casa.
+ * `asignarId` es lo que se escribe cuando `asignar`.
  */
-function decidirCertificador(actualId, agenteId, { reasignar = false } = {}) {
+function decidirCertificador(actualId, agenteId, { reasignar = false, casaId = certificadorCasaId() } = {}) {
     const actual = actualId ? String(actualId) : null;
     const ag = agenteId ? String(agenteId) : null;
+    const casa = casaId ? String(casaId) : null;
     if (!ag) return { asignar: false, delAgente: false, humano: actual, sinAgente: true };
-    if (!actual) return { asignar: true, delAgente: true, humano: null };
-    if (actual === ag) return { asignar: false, delAgente: true, humano: null };
-    if (reasignar) return { asignar: true, delAgente: true, humano: null, anterior: actual };
+    if (!actual) return { asignar: true, asignarId: casa, delAgente: true, humano: null };
+    if (actual === ag) return { asignar: true, asignarId: casa, delAgente: true, humano: null, anterior: actual };
+    if (actual === casa) return { asignar: false, delAgente: true, humano: null };
+    if (reasignar) return { asignar: true, asignarId: casa, delAgente: true, humano: null, anterior: actual };
     return { asignar: false, delAgente: false, humano: actual };
 }
 
@@ -99,8 +111,12 @@ function estadoGlobalDe(paso, fase) {
     return paso === 'termina' ? `PENDIENTE REVISIÓN (${F})` : `EN CERTIFICADOR CEE ${F}`;
 }
 
-/** Lo que queda por hacer tras el borrador del agente, por fase. */
-function pendientesPorDefecto(fase, { delAgente = true } = {}) {
+/**
+ * Lo que queda por hacer tras el borrador del agente, por fase. Ya no lleva
+ * «asigna el técnico que lo firma»: el encargo del agente es de la casa, y el
+ * de la casa firma al dar el visto bueno.
+ */
+function pendientesPorDefecto(fase) {
     const f = normFase(fase);
     const lista = f === 'final'
         ? ['Abrirlo en CE3X y CALIFICAR: tiene que dar lo que dijo el análisis de la skill',
@@ -110,7 +126,6 @@ function pendientesPorDefecto(fase, { delAgente = true } = {}) {
         : ['Revisar el CROQUIS (PDF junto al .cex): en ÁMBAR lo que está POR CONFIRMAR. Se corrige en la ventana de la envolvente de la app, no en CE3X',
            'Medidas de mejora → «Actualizar» (la medida va sin calcular)',
            'Exportar el .xml y el .pdf y subirlos al CEE inicial como «– CEE INICIAL»'];
-    if (delAgente) lista.push('El Agente IA no firma: asigna el técnico que lo firma y lo registra');
     return lista;
 }
 
@@ -163,7 +178,7 @@ function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes
               : externo.porCalificar ? 'Aún <strong>no está calificado con CE3X</strong> (falta el .xml y el PDF): se califica en el PC y después se entrega desde el admin de la app.'
               : 'Revísalo y <strong>entrégaselo desde el admin</strong> de la app.')
         : delAgente
-        ? 'Queda <strong>pendiente de tu revisión</strong>: el agente no firma, así que después hay que pasárselo al técnico que lo firma y lo registra.'
+        ? 'Queda <strong>pendiente de tu revisión</strong>: va a tu nombre, así que lo firmas tú al darle el visto bueno.'
         : `El certificador asignado sigue siendo <strong>${escapar(tecnicoHumano || 'otro técnico')}</strong>: el expediente no cambia de fase. El borrador es para él.`,
     { color: BRAND.muted, mb: 22 });
 
@@ -671,9 +686,9 @@ async function esperarExt({ clave, fase, que }) {
 // ─── Los dos pasos ───────────────────────────────────────────────────────────
 
 /**
- * El agente EMPIEZA a trabajar en un CEE: pone «AGENTE IA» en la barra de
- * certificadores (si no hay técnico, o si se pide `reasignar`) y la fase pasa
- * a EN_TRABAJO. Idempotente: relanzarlo no cambia nada ni anota dos veces.
+ * El agente EMPIEZA a trabajar en un CEE: pone al certificador de la CASA en la
+ * barra (si no hay técnico, si estaba el agente o si se pide `reasignar`) y la
+ * fase pasa a EN_TRABAJO. Idempotente: relanzarlo no cambia nada ni anota dos veces.
  *
  * @returns {{ ok, negocio, numero, delAgente, humano, cambios: string[] }}
  */
@@ -711,9 +726,10 @@ async function empezar({ negocio, clave, fase = 'inicial', reasignar = false }) 
                      + 'y no toca ni el técnico ni la fase. Para ponerlo a nombre del agente: --reasignar.' };
     }
     if (dec.asignar) {
-        await setCee(negocio, fila.id, 'certificador_id', ag.id_empresa);
-        cambios.push(dec.anterior ? `certificador: ${await nombreTecnico(dec.anterior) || 'anterior'} → ${NOMBRE}`
-                                  : `certificador: sin asignar → ${NOMBRE}`);
+        await setCee(negocio, fila.id, 'certificador_id', dec.asignarId);
+        const casa = await nombreTecnico(dec.asignarId) || 'el de la casa';
+        cambios.push(dec.anterior ? `certificador: ${await nombreTecnico(dec.anterior) || 'anterior'} → ${casa}`
+                                  : `certificador: sin asignar → ${casa}`);
     }
 
     const key = claveFase(fase);
@@ -804,13 +820,14 @@ async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendie
         const carpetaPrevia = fila.agente_ia?.[fase]?.carpeta_link;
         if (fichero.carpeta_link || carpetaPrevia) enlaces.carpeta = fichero.carpeta_link || carpetaPrevia;
 
-        // Si nadie lo había marcado al empezar y no hay técnico, el encargo es del
-        // agente: `decidir` sin reasignar nunca le quita el expediente a nadie.
+        // Si nadie lo había marcado al empezar y no hay técnico (o estaba el
+        // agente), el encargo es de la casa: `decidir` sin reasignar nunca le
+        // quita el expediente a un técnico.
         const dec = decidirCertificador(fila.cert, ag.id_empresa);
         delAgente = dec.delAgente;
         if (dec.asignar) {
-            await setCee(negocio, fila.id, 'certificador_id', ag.id_empresa);
-            cambios.push(`certificador: sin asignar → ${NOMBRE}`);
+            await setCee(negocio, fila.id, 'certificador_id', dec.asignarId);
+            cambios.push(`certificador: ${dec.anterior ? NOMBRE : 'sin asignar'} → ${await nombreTecnico(dec.asignarId) || 'el de la casa'}`);
         }
         if (!delAgente) humano = await nombreTecnico(dec.humano);
 
@@ -915,6 +932,17 @@ async function moverCarpeta(id) {
 const FUERA = ['FINALIZADO', 'RECHAZADO'];
 
 /**
+ * ¿Es esta fase un encargo del agente? Con el agente en la barra (lo de antes
+ * del 26/10/2026), todas; con el de la CASA, solo las que tienen su sello
+ * (`encargado`, `trabajando` o `terminado`). Lo usan la cola y el radar.
+ */
+const SELLO_ENCARGO = ['encargado', 'trabajando', 'terminado'];
+function esEncargoDelAgente(certId, agenteId, sello) {
+    if (agenteId && String(certId || '') === String(agenteId)) return true;
+    return esCertificadorCasa(certId) && SELLO_ENCARGO.includes(sello?.estado);
+}
+
+/**
  * Lo encargado al agente que NO está terminado (encargado o en trabajo), y lo
  * que dejó hecho y espera revisión. Es la respuesta a «¿qué tiene pendiente el
  * Agente IA?» y a «¿está hecho el CEE de X?».
@@ -923,14 +951,17 @@ async function cola() {
     const ag = await agente();
     if (!ag) return [];
     const id = String(ag.id_empresa);
+    // El agente en la barra (lo de antes) o el de la casa: de éstos, solo las
+    // fases con el sello del agente (`esEncargoDelAgente`).
+    const certs = [id, certificadorCasaId()];
     const [cae, cee] = await Promise.all([
         supabase.from('expedientes')
-            .select('id, numero_expediente, estado, seguimiento, agente_ia:cee->agente_ia, clientes!cliente_id(nombre_razon_social, apellidos)')
-            .eq('cee->>certificador_id', id)
+            .select('id, numero_expediente, estado, seguimiento, cert:cee->>certificador_id, agente_ia:cee->agente_ia, clientes!cliente_id(nombre_razon_social, apellidos)')
+            .in('cee->>certificador_id', certs)
             .not('estado', 'in', `(${FUERA.map(s => `"${s}"`).join(',')})`),
         supabase.from(tablaDe('cee'))
-            .select('id, numero_expediente, estado, alcance, seguimiento, agente_ia:cee->agente_ia, cliente_id')
-            .eq('cee->>certificador_id', id)
+            .select('id, numero_expediente, estado, alcance, seguimiento, cert:cee->>certificador_id, agente_ia:cee->agente_ia, cliente_id')
+            .in('cee->>certificador_id', certs)
             .neq('estado', 'FINALIZADO'),
     ]);
     if (cae.error) throw new Error(cae.error.message);
@@ -944,6 +975,7 @@ async function cola() {
                 const key = claveFase(fase);
                 const sub = String(f.seguimiento?.[key] || '').toUpperCase() || null;
                 const sello = f.agente_ia?.[fase] || null;
+                if (!esEncargoDelAgente(f.cert, id, sello)) continue;
                 let situacion = null;
                 // Corregido A MANO en la pizarra del plano («Así es como está»):
                 // hay que rehacerlo, esté como esté — lo normal es que ya lo
@@ -1022,7 +1054,7 @@ async function esperar({ negocio, clave, fase = 'inicial', que }) {
 }
 
 module.exports = {
-    NOMBRE, esAgenteIa, agente, cola, empezar, terminar, esperar, anotarOportunidad,
+    NOMBRE, esAgenteIa, agente, cola, empezar, terminar, esperar, anotarOportunidad, esEncargoDelAgente,
     // POST /certapp-admin/interno/calificada la llama directa (con `calificada`, que `terminar` no pasa).
     // Sin exportarla, la ruta daba 500 y el «listo para revisar» no salía nunca (2026EXT_3, 25/10/2026).
     terminarExt,

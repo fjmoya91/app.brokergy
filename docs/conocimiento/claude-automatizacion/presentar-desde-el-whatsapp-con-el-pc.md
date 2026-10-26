@@ -105,6 +105,37 @@ estaba en mantenimiento** (403 con su página «Maintenance», también desde el
 el autoconsumo no se puede declarar en la 3.2: el CEE final espera a que vuelva. La consulta de PVGIS
 solo se guarda en memoria (`pvgisService`, LRU con caducidad), así que no hay copia de la que tirar.
 
-**Órdenes:** VPS `presentar <nº> [--fase final]` · `ce3x <nº> --trabajo …` · `confirmar <nº> --texto "…"` · `cancelar <nº>` ·
+### La ronda de las 21:00: una pregunta para todos (2026-10-26)
+
+Fran quería que el pago se diera por autorizado («al final luego yo de todas formas tengo que validarlo
+en la app de BBVA»). Una autorización permanente no se da (el «sí» es por expedientes e importe), así
+que se acordó lo intermedio: **UN «sí» por noche para la lista entera**, y después los toques del 3DS.
+
+- **21:00** (Madrid; `PRESENTAR_NOCHE_HORA`): el vigilante (`mantenimiento`, una vez al día, con
+  `PRESENTAR_NOCHE_ENABLED=true`, apagado en local) lanza `asistente_pc.js noche --enviar`. La lista es
+  la de `presentar_cee.js pendientes` «A PRESENTAR (de la casa)» (`listaPendientes`: con visto bueno, sin
+  registrar, de Fran o del agente), menos lo que ya está en la cola, lo que tiene un encargo antiguo a
+  otra persona sin cerrar (podría estar presentado) y lo que `localizarCee` no deja (registrado, el
+  agente trabajando). Se mandan los números, titulares, días que quedan y **n × 16,39 € = total**; lo que
+  queda fuera se dice debajo. Sin nada que presentar, no escribe.
+- **Su respuesta**: `confirmar --lote --texto "<literal>"` encola cada CEE como un encargo PROPIO, con la
+  misma pregunta y la misma respuesta, en el orden de la lista (el plazo más corto primero).
+  «Sí, menos el 207» → `--excepto 207`; sin él, si la respuesta deja algo fuera, el script se niega. «No»
+  → `cancelar --lote`. La pregunta de la noche siguiente sustituye a la que no se contestó.
+- **En el PC**, uno detrás de otro: cada encargo avisa al empezar, **antes de su pago** («autoriza ahora
+  en la app de tu banco») y al acabar. Su prompt dice que el encargo es SOLO ese expediente, un pago de
+  la tasa y nunca el total, y que si la respuesta lo deja fuera, para sin pagar.
+- **Al terminar el último**, el informe del lote: ✓ con la primera línea de cada resultado (nº de
+  registro), ✗ lo que no terminó, y las tasas pagadas (n × 16,39 €).
+
+**REGLA — si un encargo del lote NO termina, los que quedan no se empiezan.** Un 3DS sin autorizar (Fran
+dormido), la sede caída o el montaje roto pararían igual a los siguientes, cada uno con su espera de
+diez minutos y con riesgo de pagos a medias. Quedan `cancelada` («No empezado: … no terminó») y vuelven
+a la lista de la noche siguiente; lo que falló no se reintenta solo (puede haber una tasa pagada).
+
+Pruebas: `node implementation/backend/scripts/test_presentar_noche.js` (cola temporal, WhatsApp de
+mentira) y, en seco contra la BD, `node implementation/backend/scripts/asistente_pc.js noche`.
+
+**Órdenes:** VPS `presentar <nº> [--fase final]` · `noche` · `confirmar --lote --texto "…" [--excepto …]` · `cancelar --lote` · `ce3x <nº> --trabajo …` · `confirmar <nº> --texto "…"` · `cancelar <nº>` ·
 `probar` · `cola` (todas en seco sin `--enviar`); PC `vuelta [--seco]` · `estado`. Registros del PC en
 `backend/scratch/pc_trabajos/` (`vuelta.log`, `<id>.jsonl`, `<id>.prompt.txt`).

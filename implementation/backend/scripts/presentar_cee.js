@@ -46,10 +46,17 @@ const claveFase = (f) => (f === 'final' ? 'cee_final' : 'cee_inicial');
 // ─── pendientes ──────────────────────────────────────────────────────────────
 // El MISMO criterio que el radar del parte («Con tu visto bueno y sin registrar»,
 // seguimientoRadar.detectarRegistro): subestado REVISADO, sin fecha de registro y
-// sin `registrado_at` en el encargo de presentación.
-async function pendientes() {
+// sin `registrado_at` en el encargo de presentación. Desde el 25/10/2026 el visto
+// bueno es lo que lo hace presentable (Eva ya no presenta): FIRMADO dice si ya
+// hay PDF firmado en su casilla; si no, se firma antes (`firmar_cee.js`).
+// REGLA — solo se PRESENTAN los de la CASA (Fran por el CIF, o el Agente IA): los
+// de un técnico de fuera son suyos, se quedan como están y los presenta él con el
+// aviso del visto bueno (Fran, 25/10/2026). Se listan aparte, para recordárselo.
+async function listaPendientes() {
     const { plazoDesdeFirma } = require('../services/presentacionCeeService');
-    const campos = 'id, numero_expediente, seguimiento, presentacion:cee->presentacion, '
+    const { esDeLaCasa } = require('../services/cee/canonicoAlVistoBueno');
+    const campos = 'id, numero_expediente, seguimiento, presentacion:cee->presentacion, ficheros:cee->cee_files, '
+        + 'cert:cee->>certificador_id, '
         + 'ffi:cee->>fecha_firma_cee_inicial, fff:cee->>fecha_firma_cee_final, '
         + 'dfi:documentacion->>fecha_firma_cee_inicial, dff:documentacion->>fecha_firma_cee_final, '
         + 'ri:documentacion->>fecha_registro_cee_inicial, rf:documentacion->>fecha_registro_cee_final';
@@ -65,20 +72,51 @@ async function pendientes() {
                 const firma = f === 'final' ? (r.fff || r.dff) : (r.ffi || r.dfi);
                 const enc = r.presentacion?.[f];
                 out.push({
-                    numero: r.numero_expediente, origen, fase: f,
+                    numero: r.numero_expediente, origen, fase: f, certId: r.cert || null,
+                    vbAt: r.seguimiento?.[`${claveFase(f)}_ts`]?.REVISADO || null,
                     plazo: plazoDesdeFirma(firma),
-                    encargo: enc?.enviado_at ? `${enc.nombre || ""} <${enc.email || "?"}> desde ${enc.enviado_at.slice(0, 10)}` : null,
+                    firmado: !!r.ficheros?.[f]?.pdf,
+                    encargo: enc?.enviado_at && !enc?.retirado_at ? `${enc.nombre || ""} <${enc.email || "?"}> desde ${enc.enviado_at.slice(0, 10)}` : null,
                 });
             }
         }
     }
-    out.sort((a, b) => (a.plazo?.quedan ?? 999) - (b.plazo?.quedan ?? 999));
-    if (!out.length) { console.log('No hay ningún CEE con visto bueno pendiente de registrar.'); return; }
-    console.log('Nº                 FASE     QUEDAN  LÍMITE      ENCARGADO A');
-    for (const p of out) {
-        console.log(`${p.numero.padEnd(18)} ${p.fase.padEnd(8)} ${String(p.plazo?.quedan ?? '¿?').padStart(6)}  ${(p.plazo?.limite || '—').padEnd(10)}  ${p.encargo || '—'}`);
+    // Quién es cada certificador: UNA consulta para todos.
+    const ids = [...new Set(out.map(p => p.certId).filter(Boolean))];
+    const certs = new Map();
+    if (ids.length) {
+        const { data } = await supabase.from('prescriptores')
+            .select('id_empresa, razon_social, cif, empresa_cif, es_agente_ia').in('id_empresa', ids);
+        for (const c of data || []) certs.set(String(c.id_empresa), c);
     }
-    console.log('\n⚠️ Si está encargado a otra persona (Eva), presentarlo aquí puede pagar la tasa DOS veces: pregunta antes.');
+    for (const p of out) {
+        const c = certs.get(String(p.certId));
+        p.casa = esDeLaCasa(c);
+        p.tecnico = c?.razon_social || 'sin técnico';
+    }
+    out.sort((a, b) => (a.plazo?.quedan ?? 999) - (b.plazo?.quedan ?? 999));
+    return out;
+}
+
+async function pendientes() {
+    const out = await listaPendientes();
+    const casa = out.filter(p => p.casa), ajenos = out.filter(p => !p.casa);
+    if (!casa.length) console.log('No hay ningún CEE de la casa con visto bueno pendiente de presentar.');
+    else {
+        console.log('A PRESENTAR (de la casa):');
+        console.log('Nº                 FASE     QUEDAN  LÍMITE      FIRMADO  ENCARGO ANTIGUO');
+        for (const p of casa) {
+            console.log(`${p.numero.padEnd(18)} ${p.fase.padEnd(8)} ${String(p.plazo?.quedan ?? '¿?').padStart(6)}  ${(p.plazo?.limite || '—').padEnd(10)}  ${(p.firmado ? 'sí' : 'NO').padEnd(7)}  ${p.encargo || '—'}`);
+        }
+        if (casa.some(p => !p.firmado)) console.log('Sin firmar: se firma antes de presentar (node scripts/firmar_cee.js <nº> [--fase final] --escribir).');
+        if (casa.some(p => p.encargo)) console.log('⚠️ Con un encargo antiguo a otra persona sin cerrar: puede que ya lo haya presentado (dos tasas). Pregunta antes.');
+    }
+    if (ajenos.length) {
+        console.log('\nLOS PRESENTA SU TÉCNICO (no se tocan ni se presentan desde aquí; se le recuerda):');
+        for (const p of ajenos) {
+            console.log(`${p.numero.padEnd(18)} ${p.fase.padEnd(8)} ${String(p.plazo?.quedan ?? '¿?').padStart(6)}  ${(p.plazo?.limite || '—').padEnd(10)}  ${p.tecnico} · visto bueno ${p.vbAt ? p.vbAt.slice(0, 10) : '¿?'}`);
+        }
+    }
 }
 
 // ─── Sexo: el de la ficha; si no consta, se SUPONE por el nombre ─────────────
@@ -144,6 +182,16 @@ async function resolverCertificador(q) {
         throw new Error(`--certificador «${t}»: ${lista.length ? `${lista.length} posibles (${lista.map(p => p.razon_social).join(' · ')})` : 'ninguno'} en Prescriptores. Dalo por su id_empresa.`);
     }
     return lista[0].id_empresa;
+}
+
+/** El nombre del técnico si el CEE NO es de la casa (Fran por el CIF o el Agente IA); si lo es, null. */
+async function tecnicoDeFuera(origen, id) {
+    const tabla = origen === 'cee_directo' ? 'cee_directos' : 'expedientes';
+    const { data: fila } = await supabase.from(tabla).select('cert:cee->>certificador_id').eq('id', id).maybeSingle();
+    if (!fila?.cert) return null;   // sin técnico asignado: lo decide quien presenta
+    const { data: c } = await supabase.from('prescriptores')
+        .select('razon_social, cif, empresa_cif, es_agente_ia').eq('id_empresa', fila.cert).maybeSingle();
+    return c && !require('../services/cee/canonicoAlVistoBueno').esDeLaCasa(c) ? (c.razon_social || 'otro técnico') : null;
 }
 
 async function preparar(numero) {
@@ -272,7 +320,10 @@ async function preparar(numero) {
     }
 
     if (yaRegistrado) avisos.unshift(`${numero} (${fase}) YA ESTÁ REGISTRADO: no se presenta otra vez (sería otra tasa).`);
-    const listo = !yaRegistrado && !incompleto && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
+    // El CEE de un técnico de FUERA lo presenta él (Fran, 25/10/2026): desde aquí, nunca.
+    const ajeno = await tecnicoDeFuera(origen, row.id);
+    if (ajeno) avisos.unshift(`${numero} (${fase}) es de ${ajeno}: lo presenta SU TÉCNICO, no la casa.`);
+    const listo = !yaRegistrado && !ajeno && !incompleto && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
     const plan = {
         numero, origen, fase, listo: !!listo,
         sede: 'http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S',
@@ -506,7 +557,9 @@ async function notificaciones(numero) {
 }
 
 // ─── main ────────────────────────────────────────────────────────────────────
-(async () => {
+// `listaPendientes` la usa también la ronda de las 21:00 (asistente_pc.js noche).
+module.exports = { listaPendientes };
+if (require.main === module) (async () => {
     if (orden === 'pendientes') await pendientes();
     else if (orden === 'preparar' && args[1]) await preparar(args[1]);
     else if (orden === 'devuelto' && args[1]) await devuelto(args[1]);

@@ -18,19 +18,24 @@ const ok = (nombre, fn) => { fn(); n += 1; console.log(`  ✓ ${nombre}`); };
 (async () => {
     console.log('\nAGENTE IA · decisiones');
 
-    ok('sin técnico → se le pone al agente', () => {
-        assert.deepEqual(a.decidirCertificador(null, 'AG'), { asignar: true, delAgente: true, humano: null });
+    // Desde el 26/10/2026 el agente NO figura en la barra: queda el de la casa.
+    const CASA = { casaId: 'FRAN' };
+    ok('sin técnico → se le pone el de la CASA (el agente no figura)', () => {
+        assert.deepEqual(a.decidirCertificador(null, 'AG', CASA), { asignar: true, asignarId: 'FRAN', delAgente: true, humano: null });
     });
-    ok('ya es el agente → se queda, sin reasignar', () => {
-        assert.deepEqual(a.decidirCertificador('AG', 'AG'), { asignar: false, delAgente: true, humano: null });
+    ok('el agente en la barra (lo de antes) → pasa al de la casa', () => {
+        assert.deepEqual(a.decidirCertificador('AG', 'AG', CASA), { asignar: true, asignarId: 'FRAN', delAgente: true, humano: null, anterior: 'AG' });
+    });
+    ok('ya es el de la casa → se queda, y el agente mueve la fase', () => {
+        assert.deepEqual(a.decidirCertificador('FRAN', 'AG', CASA), { asignar: false, delAgente: true, humano: null });
     });
     ok('un técnico de verdad → NO se le quita (el agente le prepara el borrador)', () => {
-        const d = a.decidirCertificador('RAQUEL', 'AG');
+        const d = a.decidirCertificador('RAQUEL', 'AG', CASA);
         assert.equal(d.asignar, false); assert.equal(d.delAgente, false); assert.equal(d.humano, 'RAQUEL');
     });
     ok('…salvo que se pida reasignar', () => {
-        const d = a.decidirCertificador('RAQUEL', 'AG', { reasignar: true });
-        assert.equal(d.asignar, true); assert.equal(d.delAgente, true); assert.equal(d.anterior, 'RAQUEL');
+        const d = a.decidirCertificador('RAQUEL', 'AG', { ...CASA, reasignar: true });
+        assert.equal(d.asignarId, 'FRAN'); assert.equal(d.asignar, true); assert.equal(d.delAgente, true); assert.equal(d.anterior, 'RAQUEL');
     });
     ok('sin ficha del agente no se asigna nada', () => {
         assert.equal(a.decidirCertificador(null, null).asignar, false);
@@ -87,10 +92,10 @@ const ok = (nombre, fn) => { fn(); n += 1; console.log(`  ✓ ${nombre}`); };
         assert.match(m.whatsapp, /PENDIENTE DE REVISIÓN/);
         assert.match(m.asunto, /Agente IA.*26RES060_186/);
     });
-    ok('lleva los enlaces y lo que queda por hacer (incluido asignar el técnico)', () => {
+    ok('lleva los enlaces y lo que queda por hacer (sin «asigna el técnico»: firma la casa)', () => {
         assert.match(m.whatsapp, /https:\/\/drive\/c/);
         assert.match(m.whatsapp, /envolvente/);
-        assert.match(m.whatsapp, /asigna el técnico que lo firma/);
+        assert.doesNotMatch(m.whatsapp, /asigna el técnico/);   // lo firma la casa (26/10/2026)
         assert.match(m.html, /Abrir el \.cex/);
     });
     ok('resume los avisos (4 y «… N más»), no los vuelca enteros', () => {

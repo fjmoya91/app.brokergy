@@ -312,7 +312,22 @@ async function mantenimiento() {
         guardarEstado(estado);
         if (pend.length) await mandar(`Buenos días, Fran. Esto sigue pendiente:\n${pend.join('\n')}`);
     }
-    // 3. Limpieza, una vez por hora: registros y adjuntos de más de 30 días, la carpeta de trabajo de más de 7.
+    // 3. La ronda de presentar de la noche (asistente_pc.js noche): a partir de las 21 h, una vez al día,
+    //    UNA pregunta con todos los CEE de la casa con visto bueno y sin registrar. Sin nada, calla.
+    if (estado && process.env.PRESENTAR_NOCHE_ENABLED === 'true'
+        && Number(p.hour) >= (Number(process.env.PRESENTAR_NOCHE_HORA) || 21) && estado.presentar_noche !== hoyMadrid()) {
+        estado.presentar_noche = hoyMadrid();
+        guardarEstado(estado);
+        await new Promise((resolve) => {
+            const hijo = spawn(process.execPath, [path.join(__dirname, 'asistente_pc.js'), 'noche', '--enviar'], { cwd: path.join(__dirname, '..'), windowsHide: true });
+            let salida = '';
+            hijo.stdout.on('data', d => { salida += d; });
+            hijo.stderr.on('data', d => { salida += d; });
+            hijo.on('close', (c) => { log(`Ronda de presentar de la noche (${c === 0 ? 'ok' : `error ${c}`}): ${salida.trim().slice(-400)}`); resolve(); });
+            hijo.on('error', (e) => { log('Ronda de presentar de la noche:', e.message); resolve(); });
+        });
+    }
+    // 4. Limpieza, una vez por hora: registros y adjuntos de más de 30 días, la carpeta de trabajo de más de 7.
     if (Date.now() - ultimaLimpieza > 3600_000) {
         ultimaLimpieza = Date.now();
         const borrarViejos = (dir, dias) => {

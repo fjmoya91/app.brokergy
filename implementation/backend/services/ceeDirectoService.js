@@ -317,7 +317,9 @@ async function crearExpediente(datos = {}, { createdBy = null, onCarpeta = null,
             codigo_postal: datos.codigo_postal || null,
             zona_climatica: info?.climateZone ?? null,
             altitud: info?.altitude ?? null,
-            cee: datos.certificador_id ? { certificador_id: datos.certificador_id } : {},
+            // Sin certificador dicho, el de la casa (Fran, `utils/certificadorCasa`).
+            cee: { certificador_id: datos.certificador_id
+                || require('../utils/certificadorCasa').certificadorCasaId() },
             seguimiento: { cee_inicial: 'PTE_ENVIO_CERT' },
             documentacion: datos.documentacion || {},
             portal_token: nuevoPortalToken(),

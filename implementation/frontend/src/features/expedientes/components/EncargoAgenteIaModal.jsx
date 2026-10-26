@@ -72,7 +72,7 @@ export function EncargoAgenteIaModal({
                 type: 'ok',
                 title: 'Encargado al Agente IA',
                 items: [
-                    `${numExp || 'El expediente'} queda ENCARGADO al Agente IA`,
+                    `${numExp || 'El expediente'} queda ENCARGADO al Agente IA, a tu nombre en la barra`,
                     { texto: `Para que empiece, pídeselo en Claude: «${frase}»`, tono: 'aviso' },
                     { texto: 'Al terminar te avisa por WhatsApp y email, y pasa a «pendiente de revisión»', tono: 'info' },
                 ],
@@ -102,8 +102,8 @@ export function EncargoAgenteIaModal({
                     <p className="text-xs text-white/70 leading-relaxed mb-4">
                         El Agente IA prepara el <strong className="text-white">borrador del CEE</strong> con las skills:
                         lee las placas, cuenta las ventanas de cada fachada y deja el <span className="font-mono text-[11px]">.cex</span> en
-                        la carpeta del CEE. <strong className="text-white">No firma ni registra</strong>: para eso, al
-                        terminar, asignas el técnico.
+                        la carpeta del CEE. <strong className="text-white">No firma ni registra</strong>: en la barra
+                        quedas tú, que lo firmas al darle el visto bueno.
                     </p>
 
                     <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3 mb-4">

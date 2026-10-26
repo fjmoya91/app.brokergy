@@ -20,7 +20,7 @@ import { useBotonCe3x } from '../../cee-ia/useBotonCe3x';
 import { esAgenteIa } from '../../../utils/agenteIa';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
 import { BorradorCeeModal } from './BorradorCeeModal';
-import { EncargarPresentacionModal } from './EncargarPresentacionModal';
+import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { createPortal } from 'react-dom';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
 import { MensajeEditable } from './MensajeEditable';
@@ -220,8 +220,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     // El borrador para presentar el CEE en el Registro, abierto DIRECTAMENTE desde
     // la barra del módulo (también se llega desde Ayudas CE3X).
     const [presentarCee, setPresentarCee] = useState(false);
-    // Encargar la presentación a quien presenta (Eva), directamente desde la tarea.
-    const [encargarPresentacion, setEncargarPresentacion] = useState(null);
+    // El visto bueno del certificador de la CASA, en marcha o hecho (overlay).
+    const [vbCasa, setVbCasa] = useState(null);
     // La rejilla del CEE, para que el borrador de presentación pueda subir por
     // ella el justificante de registro y el recibo de la tasa: tienen que hacer
     // lo MISMO que si se soltaran en su casilla. Solo se monta una de las dos
@@ -624,8 +624,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
 
     // Visto bueno SIN aviso al técnico: es el de la casa y escribirse a uno mismo
     // no lo lee nadie. El borrador sí se deja en Drive, como en el visto bueno de
-    // siempre. Lo usa el popup de «Enviar a presentar»: enviarle el CEE a Eva es
-    // darlo por bueno, así que se valida en el mismo gesto.
+    // siempre, y el servidor pasa el `_REVISAR` a su nombre definitivo.
     const validarSinAviso = async (fase, nota) => {
         if (!expediente?.id) throw new Error('Expediente no disponible');
         const { data } = await axios.post(`${apiBase}/${expediente.id}/approve-cee`, {
@@ -636,17 +635,33 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             guardarBorradorDrive: true,
             notaAdicional: `Sin aviso al técnico (certificador de la casa). ${nota || ''}`.trim(),
         });
-        fireSuccessConfetti();
+        // Sin confeti propio: lo lanza el overlay del resultado.
         if (onRefresh) onRefresh();
         return data;
     };
 
     // El botón «Validar»: con un técnico de fuera, el visto bueno de siempre (le
-    // llega a él con el borrador). Con el de la casa, el popup de Eva: el mensaje
-    // al certificador sería a uno mismo, y lo que toca es encargar la presentación.
-    const abrirValidar = (phase) => {
+    // llega a él con el borrador). Con el de la CASA, el visto bueno directo, sin
+    // mensaje (sería a uno mismo) y sin encargo a nadie: desde el 25/10/2026 Eva ya
+    // no presenta, y con el visto bueno ya se puede presentar (lo hace la casa).
+    const abrirValidar = async (phase) => {
         if (!isCertificador && esCertificadorDeLaCasa(selectedCert)) {
-            setEncargarPresentacion(phase === 'final' ? 'final' : 'inicial');
+            const fase = phase === 'final' ? 'final' : 'inicial';
+            setVbCasa({ phase: 'sending', fase });
+            try {
+                const data = await validarSinAviso(fase);
+                const c = data?.canonico;
+                const items = [
+                    ...(c?.promovidos || []).map(t => ({ texto: t, tono: 'ok' })),
+                    ...(c?.archivados?.length ? [{ texto: `A OLD: ${c.archivados.join(' · ')}`, tono: 'info' }] : []),
+                    ...(c?.cargaXml?.cargado ? [{ texto: 'XML cargado en la app', tono: 'ok' }] : []),
+                    ...(c?.avisos || []).map(t => ({ texto: t, tono: 'aviso' })),
+                    { texto: 'Listo para presentar: lo firma y lo presenta la casa', tono: 'info' },
+                ];
+                setVbCasa({ phase: 'done', ok: true, fase, items });
+            } catch (err) {
+                setVbCasa({ phase: 'done', ok: false, fase, error: err.response?.data?.error || err.message });
+            }
             return;
         }
         openApprovePopup(phase);
@@ -1016,7 +1031,6 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 xmlTextos={{ inicial: local.xml_inicial || null, final: local.xml_final || null }}
                 // «Presentar en el Registro» sale en la FASE que toca, no en la barra.
                 onPresentar={!isCertificador ? (fase) => setPresentarCee(fase) : null}
-                onEncargarPresentacion={!isCertificador ? (fase) => setEncargarPresentacion(fase) : null}
                 presentaLaCasa={esCertificadorDeLaCasa(selectedCert)}
             />
 
@@ -1173,7 +1187,6 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 xmlTextos={{ inicial: local.xml_inicial || null, final: local.xml_final || null }}
                 // «Presentar en el Registro» sale en la FASE que toca, no en la barra.
                 onPresentar={!isCertificador ? (fase) => setPresentarCee(fase) : null}
-                onEncargarPresentacion={!isCertificador ? (fase) => setEncargarPresentacion(fase) : null}
                 presentaLaCasa={esCertificadorDeLaCasa(selectedCert)}
             />
 
@@ -1865,26 +1878,22 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     fases={secciones}
                     faseInicial={typeof presentarCee === 'string' ? presentarCee : null}
                     gridRef={gridRef}
-                    onEncargoEnviado={onRefresh}
-                    validarAlEncargar={(fase) => pendienteVistoBueno(fase)
-                        ? (nota) => validarSinAviso(fase, nota) : null}
                 />,
                 document.body
             )}
 
-            {encargarPresentacion && !isCertificador && createPortal(
-                <EncargarPresentacionModal
-                    isOpen
-                    onClose={() => setEncargarPresentacion(null)}
-                    apiBase={apiBase}
-                    expedienteId={expediente?.id}
-                    fase={encargarPresentacion}
-                    onEnviado={onRefresh}
-                    onValidar={pendienteVistoBueno(encargarPresentacion)
-                        ? (nota) => validarSinAviso(encargarPresentacion, nota) : null}
-                />,
-                document.body
-            )}
+            <SendActionOverlay
+                phase={vbCasa?.phase || null}
+                ok={!!vbCasa?.ok}
+                icon="upload"
+                subtitle={vbCasa ? `${expediente?.numero_expediente || ''} · CEE ${vbCasa.fase === 'final' ? 'final' : 'inicial'}` : ''}
+                sendingTitle="Dando el visto bueno…"
+                okTitle="Visto bueno dado"
+                errorTitle="No se pudo dar el visto bueno"
+                items={vbCasa?.items || []}
+                errorText={vbCasa?.error || ''}
+                onClose={() => setVbCasa(null)}
+            />
 
             {/* Modal de carga de CEE (XML exacto u OCR IA) — compartido entre RES060/RES093 y
                 RES080, disparado por ceeLoadTarget desde cualquiera de los dos render paths. */}

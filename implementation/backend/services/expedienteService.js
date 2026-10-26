@@ -387,6 +387,10 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
         const clienteAportaCee = ceeDecision === 'usar_cee_aportado' && !!opInputs.cee_previo;
 
         const cee = {
+            // Todo expediente NACE con el certificador de la casa (Fran), salvo
+            // que se diga otro (26/10/2026, `utils/certificadorCasa`). Tenerlo
+            // puesto no es haberlo encargado: el subestado sigue PTE_ENVIO_CERT.
+            certificador_id: require('../utils/certificadorCasa').certificadorCasaId(),
             tipo: opInputs.demandMode === 'real' ? 'xml' : 'aportado',
             is_reforma: programa === 'RES080',
             cee_inicial: opInputs.xmlDemandData || null,
@@ -928,6 +932,9 @@ async function migrateExpedienteFromXml({
     const overrides = {
         estado: 'PENDIENTE REVISAR EXPTE',
         cee: {
+            // Un MIGRADO trae sus CEE hechos por quien los hizo en el sistema
+            // antiguo: no se le pone el de la casa (`createExpediente` lo pone).
+            certificador_id: null,
             tipo: 'xml',
             is_reforma: ficha === 'RES080',
             cee_inicial: ceeInicial || null,

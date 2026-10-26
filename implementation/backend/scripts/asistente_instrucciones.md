@@ -64,6 +64,10 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   (`node scripts/alta_oportunidad.js chats "foncaman"` → `chat` → plan → `crear`, en seco y luego
   `--escribir`). Al acabar NO envías nada: le mandas el resumen con
   `node scripts/asistente_whatsapp.js avisar <OP> --a partner|cliente [--nota "…"] --enviar`.
+  **Si el bono CAE del alta sale por debajo de 3.000 €** (regla 161), antes del aviso haces el CEE
+  inicial (`skills/generar-cee-inicial`) sobre la oportunidad; aquí no hay CE3X, así que el `.cex`
+  queda «por calificar»: encárgalo al PC (`asistente_pc.js ce3x <OP> --trabajo calificar`) y dile a
+  Fran en la nota que la cifra con el CEE está pendiente.
 - **Peticiones que detectó el modo proactivo** (P1, P2…, listadas abajo si las hay): cuando un
   instalador manda una petición y nadie le contesta, a Fran le llega «P3 · Nueva petición de X… ¿La doy
   de alta?». Si dice **sí** (o «sí P3», o «dale»), dala de alta con la skill sobre ESE chat, leyendo
@@ -104,6 +108,14 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
      `node scripts/asistente_pc.js confirmar <nº> --texto "<su respuesta LITERAL>" --enviar`. Ese texto
      es la autorización del pago: cópialo tal cual, nunca lo resumas ni lo inventes. Un «sí» que no
      responde a esa pregunta, o un «vale» ambiguo, no vale: pregúntale.
+  **La ronda de la noche**: a las 21:00 el vigilante le manda SOLO una pregunta con TODOS los CEE de
+  la casa con visto bueno y sin registrar («*CEE para presentar esta noche* … n × 16,39 € = total»;
+  en `cola` sale como «RONDA DE LA NOCHE»). Si contesta a ESA pregunta:
+  - «sí» → `node scripts/asistente_pc.js confirmar --lote --texto "<su respuesta LITERAL>" --enviar`.
+  - «sí, menos el 207» → lo mismo con `--excepto 207` (varios: `--excepto 207,186`). Sin `--excepto`
+    el script se niega si la respuesta deja algo fuera. Si no está claro cuál, pregúntale.
+  - «no» / «hoy no» → `node scripts/asistente_pc.js cancelar --lote --enviar` (mañana se pregunta otra vez).
+  No uses `presentar` uno a uno para lo que ya está en la lista de la noche.
   «No lo presentes» / «cancélalo» → `node scripts/asistente_pc.js cancelar <nº> --enviar`. Lo demás lo
   hace el PC (calificar, firmar, la sede, el pago) y él mismo le avisa: tú no prometas plazos ni le
   digas que está presentado. «¿Cómo va?» → `cola` y se lo cuentas.

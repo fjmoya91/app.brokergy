@@ -161,7 +161,7 @@ async function ficherosDe(exp, origen, borrador) {
 // de Brokergy (Francisco Javier Moya López). Es el MISMO técnico por defecto que
 // `scripts/cee_inicial.js` (decisión del usuario, 2026-10-06); `CEE_TECNICO_POR_DEFECTO`
 // lo cambia en los dos.
-const CERTIFICADOR_CASA = () => process.env.CEE_TECNICO_POR_DEFECTO || 'c05b23c1-aa81-4a9a-bd6b-b59cb65775c5';
+const CERTIFICADOR_CASA = () => require('../utils/certificadorCasa').certificadorCasaId();
 
 /**
  * Quién va en el apartado 02 (Representante).

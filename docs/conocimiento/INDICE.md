@@ -9,11 +9,11 @@
 |---|---|---|---|
 | `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 35,7 KB | 11 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
-| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 38,7 KB | 21 |
+| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 43,0 KB | 23 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 52,1 KB | 17 |
 | `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 6,2 KB | 7 |
-| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 18,3 KB | 6 |
+| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,7 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 23,3 KB | 7 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 1 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
@@ -247,6 +247,9 @@
 - **170** → `.claude/rules/facturacion.md` — El cuadro de mando y el cierre trimestral separan a los DOS contribuyentes y todo es ESTIMADO; los gastos se…
 - **172** → `.claude/rules/cee.md` — El aviso de «CEE inicial presentado» pide SOLO lo que falta de la obra, y cuando lo presenta la CASA sale SO…
 - **172** → `.claude/rules/cee-generacion.md` — CE3X mide la demanda cubierta por los METROS que sirve cada equipo, no por su «Porcentaje»: superficie = úti…
+- **173** → `.claude/rules/cee.md` — Con el VISTO BUENO el CEE ya se puede presentar, y el `_REVISAR` de esa fase pasa a su nombre DEFINITIVO
+- **175** → `.claude/rules/cee.md` — Todo CEE NACE con Fran de certificador, y el AGENTE IA trabaja SIN figurar en la barra
+- **176** → `.claude/rules/claude-automatizacion.md` — La ronda de PRESENTAR de las 21:00: UN «sí» por noche para la lista entera, y un encargo por CEE
 
 ## Documentos por área
 
@@ -275,11 +278,13 @@
 - `docs/conocimiento/cee/deduccion-del-irpf-vale-el-par-de-certificados.md` — Deducción del IRPF — ¿vale el par de certificados? (2026-08-27)
 - `docs/conocimiento/cee/el-agente-ia-un-certificador-mas.md` — El AGENTE IA, un certificador más (2026-10-01)
 - `docs/conocimiento/cee/el-aviso-de-cee-inicial-presentado-pide-solo-lo-que-falta.md` — El aviso de «CEE inicial presentado» pide SOLO lo que falta, y sale solo cuando presenta la casa (2026-10-25)
+- `docs/conocimiento/cee/el-certificador-por-defecto-es-fran.md` — El certificador POR DEFECTO de todo CEE es Fran, y el AGENTE IA trabaja sin figurar en la barra (2026-10-26)
 - `docs/conocimiento/cee/el-modulo-cee-del-expediente-en-el-movil-asignar-tecnico.md` — El módulo CEE del expediente, en el MÓVIL — asignar técnico (2026-08-21)
 - `docs/conocimiento/cee/la-fecha-de-registro-del-cee-se-lee-del-justificante.md` — La FECHA DE REGISTRO del CEE se LEE del justificante (2026-09-07)
 - `docs/conocimiento/cee/la-guia-de-la-deduccion-del-irpf-para-el-cliente.md` — La GUÍA de la deducción del IRPF para el cliente (2026-10-01)
 - `docs/conocimiento/cee/la-pagina-del-encargo-del-tecnico.md` — La PÁGINA DEL ENCARGO del técnico (2026-09-30)
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/00-presentar-el-cee-en-el-registro-el-borrador.md` — PRESENTAR el CEE en el Registro — el borrador (2026-09-15)
+- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/el-visto-bueno-deja-el-cee-listo-para-presentar.md` — El VISTO BUENO deja el CEE listo para presentar — Eva ya no presenta (2026-10-25)
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/encargar-la-presentacion-a-una-persona-de-fuera-presentar-negoci.md` — ENCARGAR la presentación a una persona de fuera — `/presentar/:negocio/:id` (2026-10-06)
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/firmar-el-cee-sin-ventanas-firmar-cee-js.md` — FIRMAR el CEE sin ventanas — `scripts/firmar_cee.js` (2026-10-15)
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/la-calificacion-de-emisiones-no-se-guardaba.md` — La calificación de EMISIONES no se guardaba

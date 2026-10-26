@@ -36,7 +36,10 @@ function Copiar({ texto }) {
 
 export function AgenteIaEstado({ expediente, certificador, secciones = ['inicial', 'final'] }) {
     const sellos = expediente?.cee?.agente_ia || {};
-    const delAgente = esAgenteIa(certificador);
+    // Encargado al agente: con él en la barra (lo de antes) o, desde el
+    // 26/10/2026, con el de la casa en la barra y el sello `encargado`.
+    const delAgente = esAgenteIa(certificador)
+        || secciones.some(f => sellos[f]?.estado === 'encargado');
     const numero = expediente?.numero_expediente || '';
     const filas = [];
 
@@ -66,7 +69,8 @@ export function AgenteIaEstado({ expediente, certificador, secciones = ['inicial
                     <span className="text-white/40">desde {cuando(s.empezado_at)}</span>
                 </div>
             );
-        } else if (delAgente && ['', 'PTE_ENVIO_CERT', 'ASIGNADO', 'EN_TRABAJO', 'PTE_PRESENTACION'].includes(sub)
+        } else if ((esAgenteIa(certificador) || s?.estado === 'encargado')
+                   && ['', 'PTE_ENVIO_CERT', 'ASIGNADO', 'EN_TRABAJO', 'PTE_PRESENTACION'].includes(sub)
                    && (fase === 'inicial' || String(expediente?.seguimiento?.cee_inicial || '').toUpperCase() === 'REGISTRADO')) {
             const frase = fraseParaClaude(numero, fase);
             filas.push(

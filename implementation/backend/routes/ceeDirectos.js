@@ -578,6 +578,13 @@ router.put('/:id', internalOnly, async (req, res) => {
                 if (row.cee && k in row.cee) patch.cee[k] = row.cee[k];
                 else delete patch.cee[k];
             }
+            // El AGENTE IA no se guarda como certificador: elegirlo es
+            // encargárselo (lo sella `notify-certificador`) y queda el de la casa.
+            if (patch.cee.certificador_id) {
+                const ag = await require('../services/agenteIa').agente().catch(() => null);
+                patch.cee.certificador_id = require('../utils/certificadorCasa')
+                    .normalizarCertificador(patch.cee.certificador_id, ag?.id_empresa);
+            }
         }
 
         if (!isStaff(req)) {
@@ -1151,6 +1158,17 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
             if (delAgente && estados.rankSubestado(seguimiento[key]) < estados.rankSubestado('ASIGNADO')) {
                 seguimiento[key] = 'ASIGNADO';
             }
+            // El AGENTE IA no se GUARDA como certificador (26/10/2026): queda el de
+            // la casa (Fran), que firma, y el encargo va al sello del agente.
+            if (delAgente) {
+                const faseSello = phase === 'final' ? 'final' : 'inicial';
+                const prevSello = cee.agente_ia?.[faseSello] || {};
+                cee.certificador_id = require('../utils/certificadorCasa').certificadorCasaId();
+                cee.agente_ia = { ...(cee.agente_ia || {}),
+                    [faseSello]: { ...prevSello,
+                        estado: ['trabajando', 'terminado'].includes(prevSello.estado) ? prevSello.estado : 'encargado',
+                        encargado_at: new Date().toISOString() } };
+            }
             const guardadoSinAviso = await svc.guardar(row.id, { seguimiento, cee }, { seguimientoPrev: row.seguimiento });
             await svc.anotarHistorial(row.id, {
                 tipo: 'CERTIFICADOR',
@@ -1346,8 +1364,8 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         if (borradorAdjunto) attachments = [...(attachments || []), borradorAdjunto];
 
         // Sin canales = visto bueno SIN AVISO: el certificador es el de la casa y
-        // la presentación se encarga a otra persona (Eva). Escribirse a uno mismo
-        // no lo lee nadie. Mismo contrato que el CAE (`sendEmail:false`).
+        // lo presenta la casa (desde el 25/10/2026, ya no Eva). Escribirse a uno
+        // mismo no lo lee nadie. Mismo contrato que el CAE (`sendEmail:false`).
         const sinAviso = canales.length === 0;
         const { enviados, errores } = sinAviso ? { enviados: [], errores: [] } : await enviar({
             canales, email: cert.email, telefono: telefonoDe(cert),
@@ -1367,6 +1385,14 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         const seguimiento = { ...(row.seguimiento || {}), [key]: 'REVISADO' };
         if (!sinAviso) seguimiento[`${key}_last_contacto_at`] = new Date().toISOString();
         const guardado = await svc.guardar(row.id, { seguimiento }, { seguimientoPrev: row.seguimiento });
+
+        // Con el visto bueno, el borrador `_REVISAR` de la casa pasa a su nombre
+        // definitivo (lo que se firma y se presenta). Nunca tumba el visto bueno.
+        let canonico = null;
+        try {
+            canonico = await require('../services/cee/canonicoAlVistoBueno')
+                .aCanonico({ negocio: 'cee', clave: row.id, fase: phase });
+        } catch (e) { canonico = { ok: false, promovidos: [], archivados: [], avisos: [e.message] }; }
 
         // Procedimiento, paso 2: firmado y con visto bueno → toca la factura.
         if (phase === 'inicial') require('../services/ceeDirectoProceso').revisarFacturaAsync(row.id, 'visto bueno');
@@ -1395,7 +1421,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
                 : !canales.includes('whatsapp') ? null
                 : !tel ? 'sin_telefono' : 'error',
             sentTo: enviados.includes('email') ? cert.email : null,
-            enviados, errores, expediente: guardado, carpetaLink, subirLink, borradorDrive
+            enviados, errores, expediente: guardado, carpetaLink, subirLink, borradorDrive, canonico
         });
     } catch (err) {
         console.error('[cee-directos approve-cee]', err.message);

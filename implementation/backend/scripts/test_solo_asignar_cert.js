@@ -169,7 +169,11 @@ async function main() {
         r = await post({ certificador_id: 'C-AGENTE', sendEmail: false, sendWhatsApp: false, phase: 'initial', template: 'standard' });
         ok(r.status === 200, 'responde 200', JSON.stringify(r.data));
         ok(emails.length === 0 && whatsapps.length === 0, 'no sale nada (no hay a quién escribirle)');
-        ok(exp.cee.certificador_id === 'C-AGENTE', 'el agente queda en la barra de certificadores');
+        // Desde el 26/10/2026 el agente no figura en la barra: queda el de la casa
+        // y el encargo va a su sello.
+        ok(exp.cee.certificador_id === require('../utils/certificadorCasa').certificadorCasaId(),
+           'en la barra queda el de la casa, no el agente', exp.cee.certificador_id);
+        ok(exp.cee.agente_ia?.inicial?.estado === 'encargado', 'el encargo va al sello del agente', JSON.stringify(exp.cee.agente_ia));
         ok(exp.seguimiento.cee_inicial === 'ASIGNADO', 'la fase pasa a ASIGNADO (encargado)', exp.seguimiento.cee_inicial);
         ok(exp.estado === 'EN CERTIFICADOR CEE INICIAL', 'el estado avanza', exp.estado);
         ok(r.data.encargoPendiente === false, 'no queda «pendiente de enviar»');
