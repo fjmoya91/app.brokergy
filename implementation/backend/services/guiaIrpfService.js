@@ -317,6 +317,18 @@ async function datosGuia(ctx, ajustes) {
         facturas: facturasConAjustes(facturasConocidas(ctx), ajustes),
         obras: ins?.cif ? [{ nif: ins.cif, nombre: ins.razon_social || ins.acronimo || '' }] : [],
         hoy: new Date().toISOString().slice(0, 10),
+        // La hoja del bono CAE (solo CAE): lo COBRADO, como en la carta de pago (cartaPagoService.datosDe).
+        cae: ctx.origen === 'cee_directo' ? null : bonoCobrado(ctx.row.documentacion?.cobro),
+    };
+}
+
+/** El bono cobrado del expediente: importe, fecha del pago y nº de la carta de pago. */
+function bonoCobrado(cobro) {
+    if (!cobro) return null;
+    return {
+        importe: cobro.transferencia?.importe ?? cobro.remesa?.importe ?? null,
+        fechaPago: cobro.remesa?.fecha_ejecucion || cobro.transferencia?.at || null,
+        carta: cobro.carta_pago?.numero || null,
     };
 }
 
@@ -721,7 +733,28 @@ async function sellarGuiaEntregada(g, buffer, { canales = [], destinatario = {},
     });
 }
 
+/**
+ * La hoja «Tu bono CAE en la Renta» SUELTA, en PDF (26/10/2026): para quien pide
+ * «el justificante de la resolución» del bono. Sin expediente sale genérica; con
+ * él, con lo cobrado y su carta de pago. Solo LEE: no guarda ni envía nada.
+ */
+async function pdfHojaBonoCae(numeroExpediente = null) {
+    const { buildHojaBonoCaeHtml, datosBonoCae } = await logica();
+    let datos = {};
+    if (numeroExpediente) {
+        const { data: row, error: e } = await supabase.from('expedientes')
+            .select('numero_expediente, cobro:documentacion->cobro')
+            .eq('numero_expediente', numeroExpediente).maybeSingle();
+        if (e) throw error(503, e.message);
+        if (!row) throw error(404, `No existe el expediente ${numeroExpediente}`);
+        datos = { numeroExpediente: row.numero_expediente, cae: datosBonoCae(bonoCobrado(row.cobro)) };
+    }
+    const buffer = await pdfService.documentoAPdf({ html: buildHojaBonoCaeHtml(datos) });
+    const filename = `${datos.numeroExpediente ? `${datos.numeroExpediente} - ` : ''}EL BONO CAE EN LA RENTA.pdf`;
+    return { buffer, filename, cae: datos.cae || null };
+}
+
 module.exports = {
     estado, pdf, paraCliente, guardar, guardarAjustes, enviar, sanearAjustes, nombreGuia, CAMPO,
-    guiaDeEntrega, guiaDeEntregaPublica, pdfGuiaDeEntrega, sellarGuiaEntregada,
+    guiaDeEntrega, guiaDeEntregaPublica, pdfGuiaDeEntrega, sellarGuiaEntregada, pdfHojaBonoCae,
 };

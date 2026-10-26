@@ -265,7 +265,7 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
                     <div className="min-w-0">
                         <h3 className="text-sm font-black text-white uppercase tracking-widest">🧾 Certificados + guía de la Renta</h3>
                         <p className="text-[10px] text-white/40 normal-case mt-1 leading-snug">
-                            Al cliente le llegan sus certificados firmados y una guía de una página con la deducción del IRPF que puede aplicarse y los datos que le pide Renta Web.
+                            Al cliente le llegan sus certificados firmados y una guía con la deducción del IRPF que puede aplicarse y los datos que le pide Renta Web{g?.cae ? ', y una segunda hoja sobre su bono CAE (no se resta; su justificante es la carta de pago)' : ''}.
                             {g?.numeroExpediente ? ` · ${g.numeroExpediente}` : ''}
                         </p>
                     </div>

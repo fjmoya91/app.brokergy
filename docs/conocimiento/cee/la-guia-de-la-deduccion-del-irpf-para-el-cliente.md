@@ -4,7 +4,8 @@
 
 Botón **🧾 Enviar al cliente: certificados + guía de la Renta** bajo la comprobación
 del IRPF del módulo CEE (solo equipo interno), en los DOS negocios. Al cliente le
-llegan sus certificados FIRMADOS y una guía de UNA página, en el estilo «carta de pago»
+llegan sus certificados FIRMADOS y una guía de UNA página (DOS en un CAE: ver «La hoja del
+bono CAE», abajo), en el estilo «carta de pago»
 (regla 164, desde el 26/10/2026; antes Manrope + Archivo), que le dice qué deducción aplicarse, dónde se marca en
 Renta Web y todos los datos que le va a pedir, ya rellenos. La guía se guarda en Drive
 y el cliente la descarga también desde su portal (`/mi-expediente`).
@@ -25,7 +26,8 @@ envío desde el popup lleva el CEE inicial Y el final firmados + la guía.
 | Rutas (montadas en `expedientes` y `ceeDirectos` desde un único montador) | [routes/guiaIrpfRutas.js](implementation/backend/routes/guiaIrpfRutas.js) — `GET /:id/guia-irpf` · `POST …/estado` · `…/pdf` · `…/guardar` · `…/enviar` (**staffOnly**) |
 | Popup (vista previa = el PDF real) | `GuiaIrpfModal.jsx` (+ `GuiaIrpfBoton`) |
 | Lector del `.xml` sin DOM para el servidor | `leerDatosIrpfDeTexto` en [xmlCeeParser.js](implementation/frontend/src/features/calculator/logic/xmlCeeParser.js) |
-| Pruebas | `node implementation/backend/scripts/test_guia_irpf.mjs` (lógica + cabe en UNA hoja) · `probar_guia_irpf.js <nº> [--pdf]` (expediente real, sin escribir) |
+| Pruebas | `node implementation/backend/scripts/test_guia_irpf.mjs` (lógica + cada hoja cabe en su A4) · `probar_guia_irpf.js <nº> [--pdf]` (expediente real, sin escribir) |
+| La hoja del bono CAE SUELTA, en PDF | `node implementation/backend/scripts/hoja_bono_cae.js [<nº>]` (genérica o con su cobro; solo lee, deja el PDF en `tmp/`) · `guiaIrpfService.pdfHojaBonoCae` |
 
 **Qué deducción** (manual de BROKERGY «MANUAL DEDUCCIONES IRPF»): consumo de energía
 primaria no renovable −30 % o letra A/B → **unifamiliar o edificio completo: 60 %**
@@ -146,3 +148,40 @@ naranja. Texto en Inter. ⚠️ Antonio se declara a mano en la guía: `buildFon
 caras latin y latin-ext, y de Antonio solo hay `Antonio-700-latin.woff2`. ⚠️ El recuadro «tus
 certificados lo acreditan» va DENTRO de la tarjeta oscura: fuera, la hoja del peor caso se
 pasaba 75 px (Inter es más ancha que Manrope).
+
+### La hoja del BONO CAE (26/10/2026)
+
+Fran: «muchos clientes y gestores se piensan que el CAE se descuenta del coste total, como en las
+subvenciones antiguas (RD 853, 477), y me piden el justificante de la resolución». En un
+expediente **CAE** la guía lleva una **segunda A4, «Tu bono CAE en la Renta»** (`hojaBonoCae`), con
+la misma cabecera y pie: «El bono CAE *no es una subvención*», la tarjeta tinta con **«No se
+resta»** a la izquierda y, a la derecha, su bono COBRADO con lo que tributa (o «19 % · 21 %» si aún
+no se ha cobrado), por qué no se resta (la ley frente a lo que es el bono), el error con números,
+el justificante y cómo se declara. La nota de la hoja 1 remite a ella y el mensaje de envío
+(`mensajeGuiaIrpf`) la anuncia. **En un CEE directo no va** (no hay bono): la guía sigue en una hoja.
+La ficha de la consulta, con las fuentes: [consultas/bono-cae-no-se-resta-y-no-hay-resolucion.md](docs/conocimiento/consultas/bono-cae-no-se-resta-y-no-hay-resolucion.md).
+
+**REGLA — el bono CAE NO se resta de las «Cantidades satisfechas»**: la DA 50ª solo descuenta lo
+«subvencionado a través de un programa de ayudas públicas» (lo que pasaba con los RD 853/2021 y
+477/2021, con su resolución de concesión). El bono es el precio que un sujeto obligado paga por
+los ahorros cedidos en el convenio (RD 36/2023): ganancia patrimonial en la base del ahorro (DGT
+V2137-25, 11/11/2025). Los dos van por separado y la deducción se calcula sobre todo lo pagado.
+
+**REGLA — no hay «resolución»: el justificante es la CARTA DE PAGO + el convenio de cesión.** Los
+datos salen de `documentacion.cobro`, igual que en `cartaPagoService.datosDe`: importe
+`transferencia.importe ?? remesa.importe`, fecha `remesa.fecha_ejecucion || transferencia.at` y
+número `carta_pago.numero` (`bonoCobrado` en el servicio → `datosBonoCae` en la lógica). Sin cobro
+la hoja va SIN cifras y dice «la carta de pago que te enviamos con la transferencia del bono».
+
+**REGLA — el impuesto del bono es APROXIMADO y se dice**: `calcularIrpfGananciaPatrimonial` (la
+misma escala del interruptor «IRPF del CAE» de la calculadora, que ahora llega al 28 % por encima
+de 300.000 €) sobre el bono SOLO; la hoja advierte que cambia si tiene otras ganancias del ahorro
+ese año. No da casillas de Renta Web (no verificadas) ni cita consultas que no se han podido
+comprobar: el año de imputación es «el del cobro», con la salvedad de consultar al asesor si
+firmó un año y cobró al siguiente.
+
+**La hoja SUELTA** (`buildHojaBonoCaeHtml`, sin «hoja 1» en el texto) es para quien pide la
+resolución sin esperar a su guía: `node scripts/hoja_bono_cae.js` (genérica) o
+`hoja_bono_cae.js 25RES060_66` (con su bono, 8.099,51 €, y su carta CP-2026-0012). El ejemplo del
+error usa una obra de 12.000 € o, si el bono es grande, el triple del bono redondeado a miles.
+Holgura medida: hoja 2 ≥ +143 px; la hoja 1 del peor caso sigue en +16 px.

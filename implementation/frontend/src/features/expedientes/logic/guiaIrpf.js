@@ -12,6 +12,11 @@
 // compusiera por su cuenta, el cliente podría leer en el mensaje un porcentaje y
 // en el PDF otro.
 //
+// En un expediente CAE la guía lleva una SEGUNDA hoja, «Tu bono CAE en la Renta»
+// (26/10/2026): el bono no se resta de la deducción y su justificante es la carta
+// de pago, no una «resolución» (ver `datosBonoCae`). Sale también suelta
+// (`buildHojaBonoCaeHtml`). En un CEE directo, la guía sigue siendo de una hoja.
+//
 // Puro ESM y sin React: el backend lo carga por import() dinámico, como cifoDoc
 // (ver project_backend_importa_frontend_esm). Por eso los imports llevan `.js`.
 //
@@ -34,6 +39,7 @@ import { comprobarIrpf, UMBRAL_AHORRO } from './irpfEpnr.js';
 import { leerDatosIrpfDeTexto } from '../../calculator/logic/xmlCeeParser.js';
 import { buildFontFaces, FUENTE_INTER, origenApp } from './fuentesDoc.js';
 import { BROKERGY_MARK_DATAURI, BROKERGY_CIRCULAR_DATAURI } from '../../lotes/logic/facturaLogo.js';
+import { calcularIrpfGananciaPatrimonial } from '../../calculator/logic/calculation.js';
 
 /** Reducción mínima de la demanda de calefacción + refrigeración (deducción del 20 %). */
 export const UMBRAL_DEMANDA = 7;
@@ -299,6 +305,35 @@ export function facturaConIva(f) {
 }
 
 /**
+ * El BONO CAE en la Renta (26/10/2026, Fran: «muchos clientes y gestores lo restan
+ * del coste de la obra, como las subvenciones de antes, y me piden el justificante
+ * de la resolución»).
+ *
+ * REGLA — el bono CAE NO se resta de las «Cantidades satisfechas». La DA 50ª solo
+ * descuenta lo «subvencionado a través de un programa de ayudas públicas» con
+ * resolución definitiva de concesión (las ayudas del RD 853/2021 o del 477/2021), y
+ * el bono no lo concede ninguna Administración: es el precio que paga un sujeto
+ * obligado por los ahorros que el cliente cede (RD 36/2023). Tributa aparte, como
+ * GANANCIA PATRIMONIAL en la base del ahorro (DGT V2137-25), con la escala de
+ * `calcularIrpfGananciaPatrimonial`. No hay resolución: el justificante es la CARTA
+ * DE PAGO (cartaPagoService), con el convenio de cesión firmado.
+ *
+ * Con el bono ya cobrado van su importe, su carta y el impuesto aproximado; sin
+ * cobrar, la hoja lo explica sin cifras (nunca un importe previsto que luego no sea).
+ */
+export function datosBonoCae(c) {
+    const importe = Number(c?.importe);
+    const cobrado = isFinite(importe) && importe > 0;
+    return {
+        importe: cobrado ? r2(importe) : null,
+        fechaPago: isoOk(c?.fechaPago) ? String(c.fechaPago).slice(0, 10) : null,
+        carta: String(c?.carta || '').trim() || null,
+        // Aproximado: el tramo depende de las OTRAS ganancias del ahorro del año.
+        impuesto: cobrado ? r2(calcularIrpfGananciaPatrimonial(importe)) : null,
+    };
+}
+
+/**
  * Compone la guía.
  *
  * @param {object} d
@@ -315,6 +350,7 @@ export function facturaConIva(f) {
  * @param {{cee, xml, fecha, rotulo}} d.posterior  certificado de después
  * @param {Array}  d.facturas  [{ id, numero, fecha, emisor, nif, importe (con IVA), ivaEstimado, incluir }]
  * @param {Array}  [d.obras]   [{ nif, nombre }] quien hizo la obra si las facturas no lo dicen
+ * @param {{importe, fechaPago, carta}} [d.cae]  el bono CAE COBRADO (del cobro del expediente); sin él, la hoja del bono va sin cifras
  * @param {string} [d.hoy]     YYYY-MM-DD
  */
 export function componerGuia(d = {}) {
@@ -454,6 +490,8 @@ export function componerGuia(d = {}) {
     return {
         numeroExpediente: d.numeroExpediente || '',
         negocio: d.negocio || 'cae',
+        // Solo en un expediente CAE: la guía lleva la hoja «Tu bono CAE en la Renta».
+        cae: (d.negocio || 'cae') === 'cae' ? datosBonoCae(d.cae) : null,
         titular: { nombre: d.titular?.nombre || '', nif: d.titular?.nif || '' },
         vivienda: {
             direccion: d.vivienda?.direccion || '',
@@ -534,10 +572,17 @@ export function mensajeGuiaIrpf(guia, { nombre = '', certificados = 2, previa = 
             `Te adjuntamos de nuevo ${certificados >= 2 ? 'tus certificados de eficiencia energética, que no cambian' : 'tu certificado de eficiencia energética, que no cambia'}, para que lo tengas todo junto.`,
         );
     } else {
-        lineas.push(`Te enviamos ${certs} y una *guía de una página* para que puedas aplicarte la deducción por obras de mejora energética en tu declaración de la Renta.`);
+        lineas.push(`Te enviamos ${certs} y una *guía${guia?.cae ? '' : ' de una página'}* para que puedas aplicarte la deducción por obras de mejora energética en tu declaración de la Renta.`);
         const ahorro = fraseAhorro(guia);
         if (ahorro) lineas.push('', ahorro);
         if (m) lineas.push('', `En la guía tienes la deducción que puedes aplicar (*${m.pct} %*), dónde se marca en Renta Web y todos los datos que te va a pedir, ya rellenos con los de tus certificados.`);
+    }
+    if (guia?.cae) {
+        // La duda que más llega de los gestores: restar el bono y pedir «la resolución».
+        const carta = guia.cae.importe > 0
+            ? `la *carta de pago*${guia.cae.carta ? ` (${guia.cae.carta})` : ''} que te enviamos con la transferencia`
+            : 'la *carta de pago* que te enviaremos con la transferencia del bono';
+        lineas.push('', `En la segunda hoja te explicamos el *bono CAE*: *no se resta* de lo que pagaste por la obra (no es una subvención) y no tiene resolución; tu justificante ${guia.cae.importe > 0 ? 'es' : 'será'} ${carta}, junto con el convenio de cesión que firmaste. Si tu gestor te pide «la resolución», enséñale esa hoja.`);
     }
     if (m) {
         const ej = fraseEjemplo(guia);
@@ -837,7 +882,7 @@ export function buildGuiaIrpfHtml(guia, { appUrl = origenApp() } = {}) {
         'Solo cuentan los pagos por <b>transferencia, tarjeta, cheque nominativo o ingreso en cuenta</b>: lo pagado en efectivo no deduce.',
         'No incluyas el coste de equipos que usen <b>combustibles fósiles</b> (calderas de gas, gasóleo…).',
         g.negocio === 'cae'
-            ? 'Si recibiste una <b>subvención</b> por esta obra, réstala. El <b>bono CAE no es una subvención</b>: no lo restes.'
+            ? 'Si recibiste una <b>subvención</b> pública, réstala. El <b>bono CAE no se resta</b>: no es una subvención (hoja 2).'
             : 'Si recibiste una <b>subvención</b> por esta obra, réstala del importe.',
         m && m.aniosExtra
             ? `Lo que pase de ${eur(m.baseAnual * m.pct / 100, 0)} al año, Renta Web te lo deja para los ${m.aniosExtra} años siguientes: decláralo en «Exceso de cantidades satisfechas».`
@@ -852,7 +897,217 @@ export function buildGuiaIrpfHtml(guia, { appUrl = origenApp() } = {}) {
 
     return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8">
-<style>
+<style>${estiloGuia(appUrl)}</style></head>
+<body>
+  <div class="sheet">
+    <div class="filete"></div>
+
+    ${cabeceraHoja('Guía para tu declaración de la Renta', g)}
+
+    <div class="pad">
+      <h1 class="arc">Cómo aplicar tu deducción <span class="mark">en la Renta</span></h1>
+
+      <div class="strip">
+        <div style="flex:1.1;"><div class="sk">Titular</div><div class="sv">${esc(g.titular?.nombre || '—')}${g.titular?.nif ? ` <span class="u">${esc(g.titular.nif)}</span>` : ''}</div></div>
+        <div style="flex:1.6;"><div class="sk">Vivienda</div><div class="sv">${esc(g.vivienda?.direccion || '—')}</div></div>
+        <div style="flex:0.7;"><div class="sk">Tipo</div><div class="sv">${esc(tipoLabel)}</div></div>
+      </div>
+
+      ${m ? `
+      <div class="hero">
+        <div class="ded">
+          <div class="kick">La deducción que puedes aplicarte</div>
+          <div class="ded-top">
+            <div class="ded-pct arc">${m.pct}&nbsp;%</div>
+            <div class="ded-nom">${esc(m.nombre)}<span>de lo que has pagado por la obra, IVA incluido${g.modalidad === '60' && g.tipo === 'unifamiliar' ? ' · válida para viviendas unifamiliares' : ''}</span></div>
+          </div>
+          ${''/* Dentro de la tarjeta, al lado de la estimación: fuera de ella la hoja no cabe. */}
+          ${acredita ? `<div class="ded-ok"><span class="ok">✓</span><span>${acredita}</span></div>` : ''}
+        </div>
+        <div class="est">${estimacion}</div>
+      </div>` : ''}
+
+      <div class="sec">
+        <div class="sec-t">Dónde se pone en Renta Web</div>
+        <div class="ruta">
+          ${ruta.map((t, i) => `<div class="p"><span class="n">${i + 1}</span><span>${esc(t)}</span></div>`).join('')}
+          <div class="p fin"><span class="n">${ruta.length + 1}</span><span class="opc">${esc(m?.opcionRenta || 'La opción de tu deducción')}</span><span class="luego">→ «Alta inmueble» y copia los datos de abajo</span></div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-t">Los datos que te va a pedir · cópialos tal cual</div>
+        ${datos}
+      </div>
+
+      <div class="sec">
+        <div class="sec-t">Facturas incluidas en «Cantidades satisfechas»</div>
+        ${facturasHtml}
+        ${masFacturas}
+      </div>
+
+      <div class="sec">
+        <div class="sec-t">Ten en cuenta</div>
+        <ul class="notas">${notas.map(t => `<li>${t}</li>`).join('')}</ul>
+      </div>
+    </div>
+
+    <div class="legal">
+      Guía orientativa elaborada por BROKERGY con los datos de tus certificados de eficiencia energética, conforme a la disposición adicional quincuagésima de la Ley 35/2006 del IRPF${m ? ` (vigente para obras pagadas hasta el ${esc(fechaEs(m.hasta))})` : ''}. No sustituye al asesoramiento fiscal: la deducción depende de tu situación personal —cuota del impuesto, titularidad, otras ayudas—. Ante cualquier duda, consulta con tu asesor o con el Asistente de Renta de la Agencia Tributaria.
+    </div>
+    ${bandaPie()}
+  </div>
+  ${g.cae ? hojaBonoCae(g) : ''}
+</body></html>`;
+}
+
+/**
+ * La hoja «Tu bono CAE en la Renta» SUELTA (26/10/2026): para mandársela a quien
+ * pide «el justificante de la resolución» sin esperar a su guía. Sin datos sale
+ * genérica; con `cae` (de `datosBonoCae`) y el expediente, con sus cifras.
+ */
+export function buildHojaBonoCaeHtml({ numeroExpediente = '', cae = null, hoy = null } = {}, { appUrl = origenApp() } = {}) {
+    const g = { numeroExpediente, hoy: hoy || new Date().toISOString().slice(0, 10), cae: cae || datosBonoCae(null), suelta: true };
+    return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<style>${estiloGuia(appUrl)}</style></head>
+<body>
+  ${hojaBonoCae(g)}
+</body></html>`;
+}
+
+function cabeceraHoja(kicker, g) {
+    return `<div class="head">
+      <img src="${BROKERGY_MARK_DATAURI}" alt="BROKERGY" style="height:32px; width:auto; object-fit:contain; display:block;">
+      <div class="ref">
+        <div class="kick">${esc(kicker)}</div>
+        ${g.numeroExpediente ? `<div class="n">Expediente ${esc(g.numeroExpediente)}</div>` : ''}
+        <div class="sub">Preparada el ${esc(fechaEs(g.hoy) || '')}</div>
+      </div>
+    </div>`;
+}
+
+function bandaPie() {
+    return `<div class="band">
+      <div class="s">BROKERGY · Ingeniería energética<span>Ahorra energía, gana dinero, ayuda al planeta</span></div>
+      <div style="display:flex; align-items:center; gap:11px;">
+        <div class="c">info@brokergy.es · 695 615 330<br>app.brokergy.es</div>
+        <img src="${BROKERGY_CIRCULAR_DATAURI}" alt="" style="height:36px; width:36px; object-fit:contain; flex-shrink:0;">
+      </div>
+    </div>`;
+}
+
+/** La hoja del bono CAE (ver `datosBonoCae`). Una A4 más, con la misma cabecera y pie. */
+function hojaBonoCae(g) {
+    const c = g.cae || {};
+    const cobrado = c.importe > 0;
+    const pasa6000 = cobrado && c.importe > 6000;
+    const escala = '<b>19 %</b> hasta 6.000 € y <b>21 %</b> de 6.000 a 50.000 €';
+    // El ejemplo del error: la obra es de EJEMPLO; el bono, el suyo si ya se cobró
+    // (y la obra, al menos el triple, que un bono de 8.100 € sobre 12.000 no es creíble).
+    const bonoEj = cobrado ? Math.round(c.importe) : 1500;
+    const OBRA_EJ = Math.max(12000, Math.ceil((bonoEj * 3) / 1000) * 1000);
+    const justificante = cobrado && c.carta
+        ? `la <b>carta de pago ${esc(c.carta)}</b> que te enviamos con la transferencia${c.fechaPago ? ` del ${esc(fechaEs(c.fechaPago))}` : ''}`
+        // Sin cobro en la guía de un expediente, aún no la tiene; la suelta no sabe si ya se pagó.
+        : `la <b>carta de pago</b> que ${g.suelta ? 'recibes' : 'te enviaremos'} con la transferencia del bono`;
+
+    const cifra = cobrado
+        ? `<div class="est-k">Tu bono CAE</div>
+          <div class="est-v arc">${eur(c.importe)}</div>
+          <div class="est-rep">
+            <div class="est-fila"><span>Tributa al</span><b>${pasa6000 ? '19 % y 21 %' : '19 %'}</b></div>
+            <div class="est-fila"><span>Impuesto aproximado</span><b>${eur(c.impuesto, 0)}</b></div>
+          </div>
+          <div class="est-n">Si este año no tienes otras ganancias del ahorro (intereses, venta de acciones…): ${pasa6000 ? 'el 19 % de los primeros 6.000 € y el 21 % del resto' : 'el 19 % del bono'}. No lleva retención: se paga en la declaración.</div>`
+        : `<div class="est-k">Cómo tributa el bono</div>
+          <div class="est-v arc">19&nbsp;% · 21&nbsp;%</div>
+          <div class="est-n" style="margin-top:6px;">Es una <b style="color:#fff;">ganancia patrimonial</b> y va a la base del ahorro: ${escala} (sumado a tus otras ganancias del ahorro del año). No lleva retención: se paga en la declaración.</div>`;
+
+    return `
+  <div class="sheet hoja2">
+    <div class="filete"></div>
+
+    ${cabeceraHoja('Tu bono CAE en la Renta', g)}
+
+    <div class="pad">
+      <h1 class="arc">El bono CAE <span class="mark">no es una subvención</span></h1>
+      <p class="lead">Muchos gestores lo tratan como las ayudas públicas de antes y lo restan de lo que pagaste por la obra. <b>Con el bono CAE no se hace así</b>, y por eso tampoco existe una «resolución» que enseñar.</p>
+
+      <div class="hero">
+        <div class="ded">
+          <div class="kick">En la deducción por la obra</div>
+          <div class="ded-top">
+            <div class="ded-pct arc" style="font-size:40px;">No se resta</div>
+          </div>
+          <div class="ded-ok"><span class="ok">✓</span><span>En «Cantidades satisfechas» va <b>todo lo que pagaste</b> por la obra, IVA incluido, sin descontar el bono. La deducción${g.suelta ? '' : ' de la hoja 1'} se calcula sobre esa cifra.</span></div>
+        </div>
+        <div class="est">${cifra}</div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-t">Por qué no se resta</div>
+        <div class="razones">
+          <div class="rz">
+            <div class="rz-t">Lo que dice la ley</div>
+            <p>La deducción solo descuenta lo <b>«subvencionado a través de un programa de ayudas públicas»</b> con su resolución de concesión (disposición adicional quincuagésima de la Ley 35/2006 del IRPF).</p>
+            <p class="u2">Es lo que pasaba con las ayudas de los programas del <b>Real Decreto 853/2021</b> (rehabilitación residencial) o del <b>477/2021</b> (autoconsumo y renovables térmicas): ahí sí se restaba lo concedido.</p>
+          </div>
+          <div class="rz">
+            <div class="rz-t">Qué es el bono CAE</div>
+            <p>No lo concede ninguna Administración. Es el <b>precio</b> que una empresa obligada a ahorrar energía paga por los ahorros que genera tu obra y que tú le <b>cediste</b> al firmar el convenio (Sistema de Certificados de Ahorro Energético, Real Decreto 36/2023).</p>
+            <p class="u2">Por eso Hacienda lo trata como una <b>ganancia patrimonial</b>, no como una subvención (Dirección General de Tributos, consulta vinculante V2137-25, de 11/11/2025).</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-t">El error más frecuente, con números · ejemplo con una obra de ${eur(OBRA_EJ, 0)}</div>
+        <div class="error">
+          <div class="mal">
+            <div class="e-k">✗ Así no</div>
+            <div class="e-v arc">${eur(OBRA_EJ - bonoEj, 0)}</div>
+            <div class="e-n">en «Cantidades satisfechas»: ${eur(OBRA_EJ, 0)} de la obra <b>menos</b> ${eur(bonoEj, 0)} del bono. Pierdes deducción.</div>
+          </div>
+          <div class="bien">
+            <div class="e-k">✓ Así sí</div>
+            <div class="e-v arc">${eur(OBRA_EJ, 0)}</div>
+            <div class="e-n">en «Cantidades satisfechas», todo lo pagado. Y los ${eur(bonoEj, 0)} del bono, <b>aparte</b>, como ganancia patrimonial.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-t">¿Y el justificante de la resolución?</div>
+        <div class="just">
+          <div class="just-i arc">CP</div>
+          <div>
+            <b>No hay resolución, porque el bono no se concede: se cobra.</b> Tu justificante es ${justificante}, junto con el <b>convenio de cesión de ahorros</b> que firmaste. Guárdalos con las facturas de la obra: es lo que enseñarás si Hacienda o tu gestor te lo piden.
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-t">Cómo se declara el bono</div>
+        <ul class="notas">
+          <li>Como <b>ganancia patrimonial derivada de la transmisión</b> de un derecho (otros elementos patrimoniales): la ganancia es lo que cobras.</li>
+          <li>Va a la <b>base del ahorro</b>: ${escala}. No a la base general.</li>
+          <li>En la Renta del año en que se cierra la cesión y lo cobras. Si firmaste un año y cobraste al siguiente, que tu asesor confirme cuál.</li>
+          <li>Son <b>dos cosas distintas</b>: el bono tributa por un lado y la deducción por la obra se aplica por otro, completa.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="legal">
+      Nota orientativa elaborada por BROKERGY conforme a la disposición adicional quincuagésima de la Ley 35/2006 del IRPF, el Real Decreto 36/2023 y la consulta vinculante V2137-25 de la Dirección General de Tributos. No sustituye al asesoramiento fiscal: lo que pagues depende de tu situación personal. Ante cualquier duda, consulta con tu asesor o con el Asistente de Renta de la Agencia Tributaria.
+    </div>
+    ${bandaPie()}
+  </div>`;
+}
+
+/** El CSS de las hojas de la guía (la del IRPF y la del bono CAE). */
+function estiloGuia(appUrl) {
+    return `
   ${buildFontFaces(appUrl, FUENTE_INTER)}
   ${'' /* Antonio solo tiene la cara latina (como en las páginas del cliente): cubre el castellano. */}
   @font-face{font-family:'Antonio';font-style:normal;font-weight:700;font-display:swap;src:url('${appUrl}/fonts/Antonio-700-latin.woff2') format('woff2');}
@@ -950,78 +1205,45 @@ export function buildGuiaIrpfHtml(guia, { appUrl = origenApp() } = {}) {
   .band .s { font-weight: 700; font-size: 10.5px; line-height: 1.35; color: #fff; }
   .band .s span { display: block; font-size: 8.6px; font-weight: 600; color: ${ORANGE}; }
   .band .c { font-size: 8px; color: rgba(255,255,255,0.62); text-align: right; line-height: 1.45; }
-</style></head>
-<body>
-  <div class="sheet">
-    <div class="filete"></div>
 
-    <div class="head">
-      <img src="${BROKERGY_MARK_DATAURI}" alt="BROKERGY" style="height:32px; width:auto; object-fit:contain; display:block;">
-      <div class="ref">
-        <div class="kick">Guía para tu declaración de la Renta</div>
-        ${g.numeroExpediente ? `<div class="n">Expediente ${esc(g.numeroExpediente)}</div>` : ''}
-        <div class="sub">Preparada el ${esc(fechaEs(g.hoy) || '')}</div>
-      </div>
-    </div>
-
-    <div class="pad">
-      <h1 class="arc">Cómo aplicar tu deducción <span class="mark">en la Renta</span></h1>
-
-      <div class="strip">
-        <div style="flex:1.1;"><div class="sk">Titular</div><div class="sv">${esc(g.titular?.nombre || '—')}${g.titular?.nif ? ` <span class="u">${esc(g.titular.nif)}</span>` : ''}</div></div>
-        <div style="flex:1.6;"><div class="sk">Vivienda</div><div class="sv">${esc(g.vivienda?.direccion || '—')}</div></div>
-        <div style="flex:0.7;"><div class="sk">Tipo</div><div class="sv">${esc(tipoLabel)}</div></div>
-      </div>
-
-      ${m ? `
-      <div class="hero">
-        <div class="ded">
-          <div class="kick">La deducción que puedes aplicarte</div>
-          <div class="ded-top">
-            <div class="ded-pct arc">${m.pct}&nbsp;%</div>
-            <div class="ded-nom">${esc(m.nombre)}<span>de lo que has pagado por la obra, IVA incluido${g.modalidad === '60' && g.tipo === 'unifamiliar' ? ' · válida para viviendas unifamiliares' : ''}</span></div>
-          </div>
-          ${''/* Dentro de la tarjeta, al lado de la estimación: fuera de ella la hoja no cabe. */}
-          ${acredita ? `<div class="ded-ok"><span class="ok">✓</span><span>${acredita}</span></div>` : ''}
-        </div>
-        <div class="est">${estimacion}</div>
-      </div>` : ''}
-
-      <div class="sec">
-        <div class="sec-t">Dónde se pone en Renta Web</div>
-        <div class="ruta">
-          ${ruta.map((t, i) => `<div class="p"><span class="n">${i + 1}</span><span>${esc(t)}</span></div>`).join('')}
-          <div class="p fin"><span class="n">${ruta.length + 1}</span><span class="opc">${esc(m?.opcionRenta || 'La opción de tu deducción')}</span><span class="luego">→ «Alta inmueble» y copia los datos de abajo</span></div>
-        </div>
-      </div>
-
-      <div class="sec">
-        <div class="sec-t">Los datos que te va a pedir · cópialos tal cual</div>
-        ${datos}
-      </div>
-
-      <div class="sec">
-        <div class="sec-t">Facturas incluidas en «Cantidades satisfechas»</div>
-        ${facturasHtml}
-        ${masFacturas}
-      </div>
-
-      <div class="sec">
-        <div class="sec-t">Ten en cuenta</div>
-        <ul class="notas">${notas.map(t => `<li>${t}</li>`).join('')}</ul>
-      </div>
-    </div>
-
-    <div class="legal">
-      Guía orientativa elaborada por BROKERGY con los datos de tus certificados de eficiencia energética, conforme a la disposición adicional quincuagésima de la Ley 35/2006 del IRPF${m ? ` (vigente para obras pagadas hasta el ${esc(fechaEs(m.hasta))})` : ''}. No sustituye al asesoramiento fiscal: la deducción depende de tu situación personal —cuota del impuesto, titularidad, otras ayudas—. Ante cualquier duda, consulta con tu asesor o con el Asistente de Renta de la Agencia Tributaria.
-    </div>
-    <div class="band">
-      <div class="s">BROKERGY · Ingeniería energética<span>Ahorra energía, gana dinero, ayuda al planeta</span></div>
-      <div style="display:flex; align-items:center; gap:11px;">
-        <div class="c">info@brokergy.es · 695 615 330<br>app.brokergy.es</div>
-        <img src="${BROKERGY_CIRCULAR_DATAURI}" alt="" style="height:36px; width:36px; object-fit:contain; flex-shrink:0;">
-      </div>
-    </div>
-  </div>
-</body></html>`;
+  /* La hoja del bono CAE (hoja 2): otra A4 detrás de la guía, o suelta. */
+  .sheet + .sheet { break-before: page; page-break-before: always; }
+  .lead { margin: 6px 0 0; font-size: 10.6px; color: ${GREY}; line-height: 1.42; }
+  .lead b { color: ${DARK}; }
+  .razones { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .rz { border: 1px solid ${LINE}; border-radius: 12px; padding: 8px 12px; background: #fff; }
+  .rz-t { font-size: 11px; font-weight: 800; margin-bottom: 3px; }
+  .rz p { margin: 0; font-size: 9.6px; line-height: 1.42; color: ${GREY}; }
+  .rz p b { color: ${DARK}; }
+  .rz p.u2 { margin-top: 5px; }
+  .just { display: flex; gap: 12px; align-items: flex-start; border: 1px solid rgba(177,209,62,.45); background: ${GREEN_BG}; border-radius: 12px; padding: 9px 12px; font-size: 10px; line-height: 1.45; color: ${DARK}; }
+  .just-i { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; background: ${DARK}; color: ${GREEN}; font-size: 15px; }
+  .error { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .error > div { border-radius: 12px; padding: 8px 12px; }
+  /* Lo que no se hace va en ÁMBAR, nunca en rojo (regla 164). */
+  .error .mal { background: #fff7e6; border: 1px solid rgba(255,160,0,.45); }
+  .error .bien { background: ${GREEN_BG}; border: 1px solid rgba(177,209,62,.45); }
+  .e-k { font-size: 8.3px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; }
+  .mal .e-k { color: ${ORANGE_TXT}; }
+  .bien .e-k { color: ${GREEN_TXT}; }
+  .e-v { font-size: 26px; line-height: 1.05; margin-top: 2px; }
+  .mal .e-v { text-decoration: line-through; text-decoration-thickness: 2px; text-decoration-color: ${ORANGE}; color: ${GREY}; }
+  .e-n { font-size: 9.4px; color: ${GREY}; line-height: 1.4; margin-top: 2px; }
+  .e-n b { color: ${DARK}; }
+  /* La hoja 2 tiene menos que contar que la 1: letra algo mayor y más aire, para que no quede media hoja en blanco. */
+  .hoja2 h1 { font-size: 34px; margin-top: 10px; }
+  .hoja2 .lead { font-size: 11.6px; margin-top: 8px; }
+  .hoja2 .hero { margin-top: 14px; padding: 12px 18px 15px; }
+  .hoja2 .ded-ok, .hoja2 .est-n { font-size: 9.6px; }
+  .hoja2 .rz { padding: 10px 14px; }
+  .hoja2 .rz-t { font-size: 12px; }
+  .hoja2 .rz p { font-size: 10.4px; }
+  .hoja2 .e-n { font-size: 10.2px; }
+  .hoja2 .just { font-size: 10.8px; padding: 11px 14px; }
+  .hoja2 .notas { grid-template-columns: 1fr; gap: 6px; }
+  .hoja2 .notas li { font-size: 10.6px; }
+  .hoja2 .notas li::before { top: 5.5px; }
+  .hoja2 .sec { margin-top: 20px; }
+  .hoja2 .sec-t { margin-bottom: 8px; }
+`;
 }

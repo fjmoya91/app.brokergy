@@ -1742,7 +1742,13 @@ export const TOTAL_CERTIFICATE_COST = CERTIFICATE_COST + CERTIFICATE_FEES;
  * - 0 a 6.000 €: 19%
  * - 6.000 a 50.000 €: 21%
  * - 50.000 a 200.000 €: 23%
- * - > 200.000 €: 27%
+ * - 200.000 a 300.000 €: 27%
+ * - > 300.000 €: 28%
+ *
+ * El bono CAE de un particular es una ganancia patrimonial por la TRANSMISIÓN de
+ * un derecho (la cesión de los ahorros), así que va a la base del AHORRO (DGT
+ * V2137-25). No es una subvención: no reduce la base de la deducción por la obra.
+ * La guía de la Renta usa esta misma escala (guiaIrpf.js · hoja del bono CAE).
  */
 export function calcularIrpfGananciaPatrimonial(importeBruto) {
     if (!importeBruto || importeBruto <= 0) return 0;
@@ -1768,9 +1774,16 @@ export function calcularIrpfGananciaPatrimonial(importeBruto) {
         resto -= tramo3;
     }
 
-    // Tramo 4: más de 200.000 € al 27%
+    // Tramo 4: desde 200.000 hasta 300.000 € al 27% (hasta 100.000 adicionales)
     if (resto > 0) {
-        impuestoTramos += resto * 0.27;
+        const tramo4 = Math.min(resto, 100000);
+        impuestoTramos += tramo4 * 0.27;
+        resto -= tramo4;
+    }
+
+    // Tramo 5: más de 300.000 € al 28%
+    if (resto > 0) {
+        impuestoTramos += resto * 0.28;
     }
 
     return impuestoTramos;

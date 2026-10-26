@@ -1,6 +1,7 @@
 /**
  * La GUÍA de la deducción del IRPF (logic/guiaIrpf.js): qué deducción elige,
- * cuánto estima y que el documento cabe en UNA página.
+ * cuánto estima y que cada hoja cabe en su A4 (la guía; y en un CAE, la hoja
+ * del bono CAE detrás).
  *
  *   node scripts/test_guia_irpf.mjs            # lógica + medición con Puppeteer
  *   node scripts/test_guia_irpf.mjs --sin-pdf  # solo la lógica
@@ -18,7 +19,9 @@ import {
     componerGuia, buildGuiaIrpfHtml, calendarioDeduccion, elegirModalidad,
     tipoViviendaDeCee, mensajeGuiaIrpf, facturaConIva, comprobarDemanda,
     textoGuiaEnEntrega, fraseEjemplo, fraseAhorro, IMPORTE_EJEMPLO, tipoAutomatico, asuntoGuiaIrpf, esCorreccion, descripcionTipo,
+    datosBonoCae, buildHojaBonoCaeHtml,
 } from '../../frontend/src/features/expedientes/logic/guiaIrpf.js';
+import { calcularIrpfGananciaPatrimonial } from '../../frontend/src/features/calculator/logic/calculation.js';
 import { leerDatosIrpfDeTexto } from '../../frontend/src/features/calculator/logic/xmlCeeParser.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -114,7 +117,7 @@ ok(!sinFact.avisos.some(a => /factura/i.test(a)), 'sin facturas: NO es un aviso 
 console.log('\n6.b · Sin facturas de la obra: EJEMPLO de ' + IMPORTE_EJEMPLO + ' €');
 eq(sinFact.ejemplo.calendario.anios.map(a => [a.anio, a.importe]), [[2026, 3000], [2027, 2400]], '60 % de 9.000 → 3.000 + 2.400 (Renta 2026 y 2027)');
 eq(sinFact.ejemplo.calendario.porPropietario, 5400, 'ejemplo 60 %: 5.400 €, de UNA persona aunque haya 2 propietarios');
-const certSolo = componerGuia({ ...base, propietarios: 1, obras: [], facturas: [{ id: 'ing', numero: '26ING_78', fecha: '2026-09-30', emisor: 'BROKERGY', nif: 'B19350222', importe_con_iva: 161.59, certificado: true }] });
+const certSolo = componerGuia({ ...base, negocio: 'cee_directo', propietarios: 1, obras: [], facturas: [{ id: 'ing', numero: '26ING_78', fecha: '2026-09-30', emisor: 'BROKERGY', nif: 'B19350222', importe_con_iva: 161.59, certificado: true }] });
 ok(certSolo.soloCertificados && certSolo.ejemplo?.importe === IMPORTE_EJEMPLO, 'solo la factura de los certificados (CEE directo) → ejemplo');
 eq(componerGuia({ ...base, tipoManual: 'piso', facturas: [] }).ejemplo.calendario.porPropietario, 3000, 'ejemplo 40 %: 9.000 topados a 7.500 → 3.000 €');
 const sinFecha = componerGuia({ ...base, facturas: [], posterior: { cee: cee(104.04, 'C', null), rotulo: 'CEE final' } });
@@ -167,16 +170,36 @@ ok(/es un piso dentro de un edificio/.test(mensajeGuiaIrpf(componerGuia({ ...bas
 ok(/Vivienda unifamiliar en hilera/.test(buildGuiaIrpfHtml(pisoCat, { appUrl: 'https://x' })), 'el PDF pone «Vivienda unifamiliar en hilera» en el tipo');
 ok(/CORREGIDA/.test(asuntoGuiaIrpf(pisoCat, { previa })) && !/CORREGIDA/.test(asuntoGuiaIrpf(pisoCat)), 'asunto de corrección');
 
+console.log('\n6.b · La hoja del bono CAE (solo CAE)');
+eq(calcularIrpfGananciaPatrimonial(6000), 1140, 'IRPF del bono: 6.000 € al 19 %');
+eq(calcularIrpfGananciaPatrimonial(350000), 1140 + 44000 * 0.21 + 150000 * 0.23 + 100000 * 0.27 + 50000 * 0.28, 'IRPF del bono: el tramo del 28 % por encima de 300.000 €');
+eq(datosBonoCae({ importe: 1370, fechaPago: '2026-09-14T10:00:00Z', carta: 'CP-2026-0012' }), { importe: 1370, fechaPago: '2026-09-14', carta: 'CP-2026-0012', impuesto: 260.3 }, 'bono cobrado: importe, fecha, carta e impuesto');
+eq(datosBonoCae(null), { importe: null, fechaPago: null, carta: null, impuesto: null }, 'sin cobro: sin cifras');
+ok(g.cae && !certSolo.cae, 'la hoja del bono solo va en un CAE, nunca en un CEE directo');
+const gCob = componerGuia({ ...base, cae: { importe: 1370, fechaPago: '2026-09-14', carta: 'CP-2026-0012' } });
+const hCob = buildGuiaIrpfHtml(gCob, { appUrl: 'https://x' });
+eq((hCob.match(/class="sheet/g) || []).length, 2, 'guía CAE: dos hojas');
+ok(/no es una subvención/.test(hCob) && /carta de pago CP-2026-0012/.test(hCob) && /14\/09\/2026/.test(hCob) && /1\.370/.test(hCob), 'la hoja 2 lleva el bono, la carta y su fecha');
+ok(/Real Decreto 853\/2021/.test(hCob) && /477\/2021/.test(hCob) && /V2137-25/.test(hCob) && /36\/2023/.test(hCob), 'cita la DA 50ª frente a los RD 853/477, el RD 36/2023 y la V2137-25');
+eq((buildGuiaIrpfHtml(certSolo, { appUrl: 'https://x' }).match(/class="sheet/g) || []).length, 1, 'guía de CEE directo: una hoja');
+ok(/bono CAE no se resta/.test(buildGuiaIrpfHtml(g, { appUrl: 'https://x' })), 'la nota de la hoja 1 remite a la hoja 2');
+const suelta = buildHojaBonoCaeHtml({}, { appUrl: 'https://x' });
+ok((suelta.match(/class="sheet/g) || []).length === 1 && !/Expediente /.test(suelta) && /la <b>carta de pago<\/b> que recibes/.test(suelta), 'la hoja suelta sale genérica, sin expediente ni cifras');
+const msgCae = mensajeGuiaIrpf(g, { nombre: 'MARÍA' });
+ok(/segunda hoja/.test(msgCae) && /\*no se resta\*/.test(msgCae) && /\*carta de pago\*/.test(msgCae) && !/de una página/.test(msgCae), 'el mensaje de la guía CAE avisa de la hoja del bono');
+ok(!/segunda hoja/.test(mensajeGuiaIrpf(certSolo, { nombre: 'MARÍA', certificados: 1 })), 'el de un CEE directo, no');
+
 if (process.argv.includes('--sin-pdf')) {
     console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ Todo bien');
     process.exit(fallos ? 1 : 0);
 }
 
 // ─── Medición: cabe en UNA página ────────────────────────────────────────────
-console.log('\n7 · Cabe en una página (Puppeteer, tipografías reales)');
+console.log('\n7 · Cada hoja cabe en su A4 (Puppeteer, tipografías reales)');
 const { default: puppeteer } = await import('puppeteer');
 const APP_URL = 'https://app.brokergy.test';
 const PUBLIC_DIR = path.join(__dirname, '../../frontend/public');
+const { PDFDocument } = await import('pdf-lib');
 const browser = await puppeteer.launch({ headless: 'new' });
 const page = await browser.newPage();
 await page.setViewport({ width: 900, height: 1300 });
@@ -201,6 +224,7 @@ const casos = [
     ['40 % · hilera (2026CEE_60, ejemplo)', pisoCat],
     ['60 % · solo factura de certificados (ejemplo, CEE directo)', certSolo],
     ['40 % · piso sin facturas (ejemplo)', componerGuia({ ...base, tipoManual: 'piso', facturas: [], obras: [] })],
+    ['60 % · CAE con el bono cobrado', gCob],
 ];
 for (const [nombre, guia] of casos) {
     await page.setContent(buildGuiaIrpfHtml(guia, { appUrl: APP_URL }), { waitUntil: 'load' });
@@ -212,8 +236,7 @@ for (const [nombre, guia] of casos) {
     });
     const fuente = await page.evaluate(() => document.fonts.check('700 11px Inter') && document.fonts.check('700 20px Antonio'));
     if (!fuente) { console.error('  ⚠️  Las tipografías no han cargado: la medición no vale.'); fallos++; break; }
-    const { hoja, natural } = await page.evaluate(() => {
-        const s = document.querySelector('.sheet');
+    const hojas = await page.evaluate(() => [...document.querySelectorAll('.sheet')].map((s) => {
         const hoja = s.getBoundingClientRect().height;
         // Altura NATURAL: la hoja sin su alto fijo. El pie lleva `margin-top:auto`,
         // que con `height:auto` vale 0, así que esto es lo que ocupa de verdad.
@@ -221,21 +244,36 @@ for (const [nombre, guia] of casos) {
         const natural = s.scrollHeight;
         s.style.height = '';
         return { hoja, natural };
+    }));
+    hojas.forEach(({ hoja, natural }, i) => {
+        const holgura = Math.round(hoja - natural);
+        ok(holgura >= 0, `${nombre}${hojas.length > 1 ? ` · hoja ${i + 1}` : ''}: holgura ${holgura} px`);
     });
-    const holgura = Math.round(hoja - natural);
-    ok(holgura >= 0, `${nombre}: holgura ${holgura} px`);
+    // Y el PDF de verdad: tantas páginas como hojas (1 en un CEE directo, 2 en un CAE).
+    const pdf = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true });
+    const nPag = (await PDFDocument.load(pdf)).getPageCount();
+    eq(nPag, guia.cae ? 2 : 1, `${nombre}: el PDF tiene ${guia.cae ? 'dos páginas' : 'una página'}`);
 }
-// Y el PDF de verdad: una sola página.
-const pdf = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true });
-const { PDFDocument } = await import('pdf-lib');
-const nPag = (await PDFDocument.load(pdf)).getPageCount();
-eq(nPag, 1, 'el PDF tiene una página');
+// La hoja del bono SUELTA (la que se manda a quien pide «la resolución»): una página.
+for (const [nombre, datos] of [['hoja del bono suelta, genérica', {}], ['hoja del bono suelta, cobrada (8.000 €)', { numeroExpediente: '26RES060_187', cae: datosBonoCae({ importe: 8000, fechaPago: '2026-09-14', carta: 'CP-2026-0012' }) }]]) {
+    await page.setContent(buildHojaBonoCaeHtml(datos, { appUrl: APP_URL }), { waitUntil: 'load' });
+    await page.evaluate(async () => { for (const w of [400, 500, 600, 700, 800]) await document.fonts.load(`${w} 11px Inter`); await document.fonts.load('700 20px Antonio'); await document.fonts.ready; });
+    const { hoja, natural } = await page.evaluate(() => { const s = document.querySelector('.sheet'); const hoja = s.getBoundingClientRect().height; s.style.height = 'auto'; const natural = s.scrollHeight; s.style.height = ''; return { hoja, natural }; });
+    ok(Math.round(hoja - natural) >= 0, `${nombre}: holgura ${Math.round(hoja - natural)} px`);
+    const nPag = (await PDFDocument.load(await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true }))).getPageCount();
+    eq(nPag, 1, `${nombre}: una página`);
+}
 if (process.argv.includes('--guardar')) {
     const out = path.join(__dirname, '../../../tmp/guia_irpf_prueba.pdf');
-    await page.setContent(buildGuiaIrpfHtml(g, { appUrl: APP_URL }), { waitUntil: 'load' });
+    await page.setContent(buildGuiaIrpfHtml(gCob, { appUrl: APP_URL }), { waitUntil: 'load' });
     await page.evaluate(async () => { await document.fonts.ready; });
     fs.writeFileSync(out, await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true }));
     console.log(`  → ${out}`);
+    const outSuelta = path.join(__dirname, '../../../tmp/hoja_bono_cae_prueba.pdf');
+    await page.setContent(buildHojaBonoCaeHtml({}, { appUrl: APP_URL }), { waitUntil: 'load' });
+    await page.evaluate(async () => { await document.fonts.ready; });
+    fs.writeFileSync(outSuelta, await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true }));
+    console.log(`  → ${outSuelta}`);
 }
 await browser.close();
 
