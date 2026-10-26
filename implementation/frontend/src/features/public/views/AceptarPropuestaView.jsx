@@ -554,9 +554,6 @@ export function AceptarPropuestaView({ idOportunidad }) {
 
     const [generatedExpediente, setGeneratedExpediente] = useState(null);
     const [displayId, setDisplayId] = useState(idOportunidad);
-    // CEE aportado: si el cliente entregó un CEE inicial, la firma le deja elegir usarlo o hacer uno nuevo.
-    const [ceeAportado, setCeeAportado] = useState(false);
-    const [ceeChoice, setCeeChoice] = useState(''); // '' | 'aportado' | 'nuevo'
     // Qué versión de la propuesta sirve HOY este enlace, y cuál se firmó si ya
     // está aceptada. El enlace no cambia al reenviar una revisión: sin decirlo,
     // el cliente firma un documento distinto del que recibió en su día.
@@ -597,7 +594,9 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 const res = await axios.get(`${API_URL}/cliente/${idOportunidad}`);
                 // Los campos de VERSIÓN se sacan del `rest` a propósito: `rest`
                 // alimenta `formData`, que es lo que se manda al aceptar, y no
-                // pintan nada en ese formulario.
+                // pintan nada en ese formulario. `cee_aportado`/`cee_decision`, igual:
+                // al aceptar ya no se le pregunta al cliente si usamos su CEE (Fran,
+                // 26/10/2026) — el inicial lo hace siempre BROKERGY.
                 const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, cee_aportado, cee_decision,
                         propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, copropietarios: copsServidor, permite_varios_propietarios, ...rest } = res.data;
 
@@ -608,8 +607,6 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 setPermiteVarios(!!permite_varios_propietarios || cops.length > 0);
                 if (cops.length) setMasPropietarios(true);
                 setVersionProp({ v: propuesta_version, fecha: propuesta_version_fecha, aceptada: propuesta_version_aceptada });
-                setCeeAportado(!!cee_aportado);
-                if (cee_decision) setCeeChoice(cee_decision === 'usar_cee_aportado' ? 'aportado' : 'nuevo');
                 if (readableId) setDisplayId(readableId);
 
                 if (estado === 'ACEPTADA') {
@@ -637,10 +634,6 @@ export function AceptarPropuestaView({ idOportunidad }) {
     // los campos `required` ya ha pasado cuando llega aquí.
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (ceeAportado && !ceeChoice) {
-            setError('Por favor, indícanos si usamos tu CEE actual o hacemos uno nuevo.');
-            return;
-        }
         const faltaProp = permiteVarios ? faltaEnPropietarios(masPropietarios, copropietarios) : null;
         if (faltaProp) {
             setError(faltaProp);
@@ -679,7 +672,6 @@ export function AceptarPropuestaView({ idOportunidad }) {
                     if (p.cuenta_propia && justificantesCop[p.id]) fd.append(`justificante_cop_${p.id}`, justificantesCop[p.id]);
                 }
             }
-            if (ceeAportado && ceeChoice) fd.append('cee_choice', ceeChoice);
             // Qué texto de condiciones tenía delante al aceptar: se sella en el historial.
             fd.append('condiciones_version', CONDICIONES_VERSION);
             // Lo que confirma de su vivienda. Va como JSON: es un multipart.
@@ -1114,30 +1106,6 @@ export function AceptarPropuestaView({ idOportunidad }) {
                             />
                         )}
                     </section>
-
-                    {/* Decisión sobre el CEE inicial (solo si el cliente aportó uno) */}
-                    {ceeAportado && (
-                        <section className="fp-card fp-in fp-in-3">
-                            <p className="fp-eyebrow"><IcoDoc size={16} /> Tu certificado energético <span aria-hidden="true">*</span></p>
-                            <p className="fp-txt">Nos has aportado un certificado energético (CEE). Indícanos qué prefieres para tu expediente:</p>
-                            <div className="fp-opcs" role="radiogroup" aria-label="Certificado energético inicial">
-                                {[
-                                    { v: 'aportado', t: 'Usar el CEE que ya tengo', d: 'Usamos el certificado que nos has aportado.' },
-                                    { v: 'nuevo', t: 'Que BROKERGY emita un CEE nuevo', d: 'Emitimos un CEE inicial nuevo antes de la obra (puede optimizar la ayuda).' },
-                                ].map(opt => (
-                                    <button key={opt.v} type="button" role="radio" aria-checked={ceeChoice === opt.v}
-                                        className={`fp-opc fp-opc-sola${ceeChoice === opt.v ? ' fp-opc-sel' : ''}`}
-                                        onClick={() => setCeeChoice(opt.v)}>
-                                        <span className="fp-opc-cuerpo">
-                                            <span className="fp-opc-label">{opt.t}</span>
-                                            <span className="fp-opc-sub">{opt.d}</span>
-                                        </span>
-                                        <span className="fp-radio">{ceeChoice === opt.v && <IcoCheck size={14} sw={3} />}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </section>
-                    )}
 
                     {/* Fechas de la obra. Opcionales: si el cliente no las
                         sabe, puede aceptar igualmente. Nos sirven para

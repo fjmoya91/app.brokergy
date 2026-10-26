@@ -104,3 +104,10 @@ bancario se COPIA en memoria al elegirlo (`copiaEnMemoria`), y sin respuesta el 
 pasa: si algún adjunto ya no se lee, que lo vuelva a elegir; si no, que revise la cobertura y vuelva
 a pulsar, sin rellenar nada otra vez. Probado en local con el backend parado: sale el aviso de
 conexión y la oportunidad no se toca.
+
+**Al aceptar ya no se pregunta si usamos el CEE del cliente** (2026-10-26, Fran: «eso fuera»). Si el
+cliente había aportado un CEE, la aceptación le enseñaba «Tu certificado energético» con «Usar el
+CEE que ya tengo» / «Que BROKERGY emita un CEE nuevo», obligatoria. Se ha quitado de
+`AceptarPropuestaView.jsx`: el formulario ya no manda `cee_choice`, así que `cee_decision` no se
+escribe y el expediente sigue el flujo normal (el CEE inicial lo hace BROKERGY). El backend sigue
+aceptando `cee_choice` y respetando un `usar_cee_aportado` ya guardado en oportunidades antiguas.
