@@ -1,4 +1,4 @@
-// ─── Vídeo promo de cee.brokergy.es — vertical 9:16, 30 s, sin sonido ───────
+// ─── Vídeo promo de cee.brokergy.es — vertical 9:16, 30 s (mudo) o con voz ──
 // Gancho («¿te imaginas…?» → «lo hemos hecho posible») → 1 los datos de la obra →
 // 2 preguntas y fotos → 3 se lo envías a la IA → 4 revisas el croquis y firmas
 // desde la web → llamada: «Crear mi cuenta gratis». Va en la portada de la
@@ -6,8 +6,9 @@
 // Los textos dicen solo lo que la app hace (como la landing: sin cifras,
 // testimonios ni logos inventados). Ver LEEME.md.
 import { useEffect, useState } from 'react';
-import { AbsoluteFill, continueRender, delayRender, Img, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Audio, continueRender, delayRender, Img, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { IcoChispa, IcoFlecha } from '../../frontend/src/certificadores/ui/Iconos';
+import DUR_VOZ from '../public/voz/duraciones.json';
 import { avance } from './anim';
 import { CSS, cargarFuentes } from './estilo';
 import { Movil, MOVIL_W } from './Movil';
@@ -43,6 +44,46 @@ const PANTALLAS = [
 ];
 const AVISO = { desde: 640, toqueEn: 24 };
 const CAMBIO = 14;
+
+/* ─── La versión con voz (PromoVerticalVoz) ──────────────────────────────────
+   Cada ventana es un tramo del vídeo mudo (fotogramas `desde`–`hasta`, uno por
+   cambio de pantalla) con su frase de src/locucion.js, que empieza `entra`
+   fotogramas después. Si la frase no cabe, el tramo se alarga estirando SOLO su
+   `pausa` (un rato tranquilo de esa pantalla, antes de que se vaya el titular):
+   los toques y lo que se escribe van a su velocidad. */
+const VENTANAS = [
+    { voz: '1-gancho', desde: 0, hasta: T.posible, entra: 6, pausa: [44, 68] },
+    { voz: '2-posible', desde: T.posible, hasta: T.p1, entra: 6, pausa: [96, 110] },
+    { voz: '3-obra', desde: T.p1, hasta: T.p2, entra: 24, pausa: [296, 320] },
+    { voz: '4-preguntas', desde: T.p2, hasta: 420, entra: 6, pausa: [384, 414] },
+    { voz: '5-fotos', desde: 420, hasta: T.p3, entra: 4, pausa: [536, 560] },
+    { voz: '6-ia', desde: T.p3, hasta: T.p4, entra: 6, pausa: [646, 660] },
+    { voz: '7-firma', desde: T.p4, hasta: T.cta, entra: 6, pausa: [766, 780] },
+    { voz: '8-llamada', desde: T.cta, hasta: DURACION, entra: 12, pausa: [850, 895], cola: 36 },
+];
+const COLA = 10; // lo que se deja entre el final de una frase y la pantalla siguiente
+
+const TRAMOS = (() => {
+    let o = 0;
+    return VENTANAS.map((v) => {
+        const voz = Math.ceil((DUR_VOZ.segundos[v.voz] || 0) * FPS);
+        const extra = Math.max(0, v.entra + voz + (v.cola ?? COLA) - (v.hasta - v.desde));
+        const t = { ...v, o, extra, len: v.hasta - v.desde + extra };
+        o += t.len;
+        return t;
+    });
+})();
+export const DURACION_VOZ = TRAMOS.at(-1).o + TRAMOS.at(-1).len;
+
+/** Fotograma del vídeo con voz → fotograma del mudo (puede tener decimales). */
+function aMudo(o) {
+    const t = TRAMOS.find(x => o < x.o + x.len) || TRAMOS.at(-1);
+    const r = o - t.o;
+    const p0 = t.pausa[0] - t.desde, p1 = t.pausa[1] - t.desde, largo = p1 - p0 + t.extra;
+    if (r <= p0) return t.desde + r;
+    if (r <= p0 + largo) return t.desde + p0 + ((r - p0) * (p1 - p0)) / largo;
+    return t.desde + r - t.extra;
+}
 
 function Titular({ f, desde, hasta, eyebrow, t, sub }) {
     if (f < desde - 1 || f > hasta + 1) return null;
@@ -122,16 +163,18 @@ function Llamada({ f }) {
     );
 }
 
-export function Promo() {
-    const f = useCurrentFrame();
-    const { fps } = useVideoConfig();
+export function Promo({ voz = false }) {
+    const fv = useCurrentFrame();
+    const f = voz ? aMudo(fv) : fv;
+    const { fps, durationInFrames } = useVideoConfig();
     const [espera] = useState(() => delayRender('Cargando las tipografías de la app'));
     useEffect(() => { cargarFuentes().then(() => continueRender(espera)); }, [espera]);
 
     const subida = spring({ frame: f - 4, fps, config: { damping: 18, mass: 0.9 } });
     const bajada = spring({ frame: f - T.cta, fps, config: { damping: 20 } });
     const movilY = 640 + (1 - subida) * 900 + bajada * 830;
-    const deriva = Math.sin((f / DURACION) * Math.PI * 2) * 30;
+    // El fondo y el móvil flotan con el reloj real: en las pausas estiradas no se paran.
+    const deriva = Math.sin((fv / durationInFrames) * Math.PI * 2) * 30;
 
     return (
         <AbsoluteFill className="ca" style={{ minHeight: 0, background: 'var(--crema)' }}>
@@ -151,6 +194,11 @@ export function Promo() {
             <Movil style={{ left: (1080 - MOVIL_W) / 2, top: movilY }}>
                 <PantallasDelMovil f={f} />
             </Movil>
+            {voz && TRAMOS.map(t => (
+                <Sequence key={t.voz} from={t.o + t.entra} layout="none">
+                    <Audio src={staticFile(`voz/${t.voz}.wav`)} />
+                </Sequence>
+            ))}
         </AbsoluteFill>
     );
 }

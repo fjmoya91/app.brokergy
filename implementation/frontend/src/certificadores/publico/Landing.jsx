@@ -13,7 +13,7 @@ import { Enlace } from '../router';
 import { CabeceraPublica, Firma, Papel } from '../ui/piezas';
 import {
     IcoAbajo, IcoCamara, IcoCheck, IcoChispa, IcoDoc, IcoEscudo, IcoFlecha, IcoLista, IcoMapa,
-    IcoSello, IcoUsuario, IcoCasa,
+    IcoRecargar, IcoSello, IcoSilencio, IcoSonido, IcoUsuario, IcoCasa,
 } from '../ui/Iconos';
 
 const FAQS = [
@@ -55,24 +55,57 @@ function Duda({ q, a }) {
     );
 }
 
+const VIDEO_MUDO = '/certificadores/promo-cee.mp4';
+const VIDEO_VOZ = '/certificadores/promo-cee-voz.mp4';
+
 /** El vídeo promo de la portada (implementation/promo-video): 30 s sin sonido, en bucle mientras se ve.
- *  Con «reducir movimiento» no arranca solo: se queda el póster y los controles. */
+ *  Con «reducir movimiento» no arranca solo: se queda el póster y los controles.
+ *  «Activar sonido» cambia a la versión CON VOZ (42 s, otro fichero: la voz pide más tiempo) y la pone
+ *  desde el principio, una sola vez: al acabar se queda en la llamada final. El cambio de fichero y el
+ *  play() van dentro del clic, que es lo que deja al navegador (Safari sobre todo) sonar. */
 function VideoPromo() {
     const ref = useRef(null);
     const [quieto] = useState(() => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+    const [voz, setVoz] = useState(false);       // ya está puesta la versión con voz
+    const [sonido, setSonido] = useState(false);
+    const [acabado, setAcabado] = useState(false);
     useEffect(() => {
         const v = ref.current;
         if (!v || quieto || !('IntersectionObserver' in window)) return;
-        const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) v.play().catch(() => {}); else v.pause(); }, { threshold: 0.35 });
+        // Al volver a verse sigue, salvo que la versión con voz ya haya terminado: no se repite sola.
+        const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { if (!v.ended) v.play().catch(() => {}); } else v.pause(); }, { threshold: 0.35 });
         io.observe(v);
         return () => io.disconnect();
     }, [quieto]);
+
+    const pulsar = () => {
+        const v = ref.current;
+        if (!v) return;
+        if (!voz || acabado) {
+            if (!voz) { v.loop = false; v.src = VIDEO_VOZ; setVoz(true); }
+            v.currentTime = 0;
+            v.muted = false;
+            setSonido(true);
+            setAcabado(false);
+            v.play().catch(() => {});
+            return;
+        }
+        v.muted = !v.muted;
+        setSonido(!v.muted);
+    };
+    const etiqueta = acabado ? 'Verlo otra vez' : sonido ? 'Quitar sonido' : 'Activar sonido';
+    const Icono = acabado ? IcoRecargar : sonido ? IcoSilencio : IcoSonido;
+
     return (
         <figure className="ca-land-vid ca-in ca-in-2">
             <div className="ca-land-vid-fondo" aria-hidden="true" />
-            <video ref={ref} src="/certificadores/promo-cee.mp4" poster="/certificadores/promo-cee.jpg" width="540" height="960"
-                muted loop playsInline preload="auto" controls={quieto}
-                aria-label="Vídeo de 30 segundos: metes los datos de la obra, contestas unas preguntas, se lo envías a la IA y revisas el croquis y firmas desde la web" />
+            <video ref={ref} src={VIDEO_MUDO} poster="/certificadores/promo-cee.jpg" width="540" height="960"
+                muted loop playsInline preload="auto" controls={quieto} onEnded={() => setAcabado(true)}
+                aria-label="Vídeo: metes los datos de la obra, contestas unas preguntas, se lo envías a la IA y revisas el croquis y firmas desde la web" />
+            <button type="button" className={`ca-land-vid-sonido${sonido && !acabado ? ' ca-on' : ''}${quieto ? ' ca-con-controles' : ''}`}
+                onClick={pulsar}>
+                <Icono size={18} sw={2.2} />{etiqueta}
+            </button>
         </figure>
     );
 }

@@ -43,7 +43,9 @@ export const IcoSello = (p) => <Ico {...p}><circle cx="12" cy="9" r="5.5" /><pat
 export const IcoCandado = (p) => <Ico {...p}><rect x="5" y="10.5" width="14" height="10" rx="2.5" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" /></Ico>;
 export const IcoLista = (p) => <Ico {...p}><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" /></Ico>;
 export const IcoPlano = (p) => <Ico {...p}><rect x="3.5" y="3.5" width="17" height="17" rx="2" /><path d="M3.5 12h7v8.5M10.5 3.5V8M14 12h6.5" /></Ico>;
-export const IcoRecargar = (p) => <Ico {...p}><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></Ico>;
+export const IcoSonido = (p) => <Ico {...p}><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="M15.5 9a4 4 0 0 1 0 6" /><path d="M18 6.5a7.5 7.5 0 0 1 0 11" /></Ico>;
+export const IcoSilencio = (p) => <Ico {...p}><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="M16 9.5l5 5M21 9.5l-5 5" /></Ico>;
+export const IcoRecargar =(p) => <Ico {...p}><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></Ico>;
 
 export function Spinner({ size = 18 }) {
     return (

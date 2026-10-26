@@ -145,6 +145,46 @@ CSS de la app** y los datos de demo (`dev/demo.js`): nada de una obra o un clien
   movimiento» no arranca solo y enseña los controles.
 - Para anuncios, el bueno es el de 1080×1920 (`out/promo-cee-9x16.mp4`, no va a git: se renderiza).
 
+#### La versión con voz en off (26/10/2026)
+
+Fran: «la misma pieza con voz en off natural en castellano, para campañas; que no suene nada robótica».
+Es otra composición, `PromoVerticalVoz` → `out/promo-cee-9x16-voz.mp4`; la muda de la landing no cambia.
+
+- **Texto**: [src/locucion.js](implementation/promo-video/src/locucion.js), una frase por cambio de pantalla
+  (8), de tú y corta. Redondea los rótulos, no los lee. La misma regla: nada de tiempos ni cifras. Se
+  escribe como se dice: «CE tres equis» (no «.cex»), «ce, e, e, punto brokergy, punto es».
+- **Voz**: **Gemini TTS** (`gemini-3.8-flash-tts`, con la `GEMINI_API_KEY` de pago del backend), voz
+  **Umbriel**. Se probaron Umbriel, Achird y Sulafat (y los modelos 2.5 Pro y 3.1 Flash TTS); el porqué
+  de la elegida, en el [LEEME](implementation/promo-video/LEEME.md). Se genera con `node scripts/voz.mjs`
+  y queda en `public/voz/*.wav` (va a git: cada toma sale distinta y cuesta dinero repetirla).
+- **Lo que se aprendió de Gemini TTS** (medido el 26/10):
+  - El tono va como **etiqueta entre corchetes** delante del texto (`[castellano de España, acento
+    peninsular, tono cercano…] `). Sin ella el acento sale **latino**; como frase («Dilo en…:») o con
+    notas largas de director, a veces **las lee en voz alta**; las instrucciones de sistema no las admite
+    (400). Aun con la etiqueta, alguna toma lee un trozo o repite la frase: por eso `voz.mjs` **escucha
+    cada toma** (la transcribe `gemini-3.8-flash`) y la repite si dice palabras de más o de menos.
+  - El modelo 3.8 mete un **pitido de ~0,1 s al principio y al final** de cada toma, separado por un
+    silencio: `voz.mjs` lo quita y recorta el silencio.
+  - Pocas peticiones por minuto: 429 → espera lo que diga `retryDelay`.
+- **Sincronía**: cada frase empieza al llegar su pantalla. Si no cabe en el tramo del vídeo mudo, el tramo
+  se alarga estirando **solo** un rato tranquilo de esa pantalla (`VENTANAS[].pausa` en `Promo.jsx`), no
+  los toques ni lo que se escribe; el fondo y el móvil siguen flotando con el reloj real. Así sale de
+  **42 s** (el gancho, las preguntas, la firma y la llamada se alargan). Sin música (no hay ninguna libre
+  de derechos en el repo). Comprobado el 26/10 sacando fotogramas y transcribiendo la pista: «sale el
+  plano» cae cuando se dibuja el plano, «WhatsApp» con el aviso y «lo firmas» con el toque de firmar.
+- Fran, 26/10: «está bien Umbriel; mételo en la landing con el botón Activar sonido».
+- **En la landing** ([Landing.jsx](implementation/frontend/src/certificadores/publico/Landing.jsx), `VideoPromo`):
+  arranca la **muda** de siempre (30 s, en bucle, sin sonido: un navegador no deja arrancar solo un vídeo
+  con sonido). Encima, una píldora negra **«Activar sonido»**: al pulsarla cambia al fichero **con voz**
+  (`promo-cee-voz.mp4`, 540×960, audio a 96 kbps) y lo pone **desde el principio**, una sola vez; al acabar
+  se queda en la llamada final con «Verlo otra vez». Mientras suena, la píldora es blanca y dice «Quitar
+  sonido». Son dos ficheros y no uno porque la versión con voz dura 42 s (con pausas pensadas para la
+  voz) y en silencio se haría lenta; el de voz solo se descarga si se pulsa.
+  - **REGLA — el cambio de fichero y el `play()` van DENTRO del clic** (no en un efecto tras el render):
+    es lo que deja sonar a Safari en el iPhone.
+  - Con «reducir movimiento» salen los controles del vídeo y la píldora sube por encima de ellos.
+- Pendiente: la música (no hay ninguna libre de derechos en el repo).
+
 ### Arquitectura
 
 | Qué | Dónde |

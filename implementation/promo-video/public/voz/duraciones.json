@@ -1,0 +1,14 @@
+{
+  "voz": "Umbriel",
+  "modelo": "gemini-3.8-flash-tts",
+  "segundos": {
+    "1-gancho": 4.72,
+    "2-posible": 0.88,
+    "3-obra": 4.46,
+    "4-preguntas": 5.6,
+    "5-fotos": 2.58,
+    "6-ia": 3.4,
+    "7-firma": 6.34,
+    "8-llamada": 4.74
+  }
+}

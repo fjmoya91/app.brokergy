@@ -483,6 +483,10 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-land-vid{position:relative;z-index:0;margin:30px auto 6px;width:min(100%,300px)}
 .ca-land-vid-fondo{position:absolute;inset:22px -16px -12px 26px;z-index:-1;border-radius:34px;background:linear-gradient(150deg,rgba(255,160,0,.22),rgba(238,228,117,.24) 50%,rgba(181,207,56,.26));transform:rotate(4deg)}
 .ca-land-vid video{display:block;width:100%;height:auto;aspect-ratio:9/16;border-radius:28px;background:var(--crema);border:1px solid var(--linea);box-shadow:0 1px 2px rgba(20,17,17,.04),0 34px 70px -30px rgba(20,17,17,.4)}
+.ca-land-vid-sonido{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 18px 0 15px;border:1px solid transparent;border-radius:999px;background:var(--tinta);color:#fff;font:600 15px/1 'Inter',sans-serif;white-space:nowrap;cursor:pointer;box-shadow:0 14px 30px -14px rgba(20,17,17,.7)}
+.ca-land-vid-sonido.ca-on{background:rgba(255,255,255,.94);color:var(--tinta);border-color:var(--linea)}
+.ca-land-vid-sonido:focus-visible{outline:3px solid var(--naranja,#ffa000);outline-offset:3px}
+.ca-land-vid-sonido.ca-con-controles{bottom:64px}
 /* la palabra en lima, por DEBAJO del texto: si no, su fondo tapa los rabos de la línea de arriba («preparado») */
 .ca-hero .ca-mark{position:relative;z-index:-1}
 @media (max-width:1023px){.ca-solo-ancho{display:none!important}}
