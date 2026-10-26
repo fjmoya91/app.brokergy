@@ -9,7 +9,7 @@
 export const NOMBRE_APP = 'CEE by BROKERGY';
 
 /** Lo que es, en una línea (cabeceras, título de la pestaña). */
-export const LEMA = 'El CEE inicial preparado por IA';
+export const LEMA = 'Tu certificado de eficiencia energética, preparado por IA';
 
 /** Dominio público (enlaces que se comparten: /beta, el del propietario). */
 export const DOMINIO = 'cee.brokergy.es';

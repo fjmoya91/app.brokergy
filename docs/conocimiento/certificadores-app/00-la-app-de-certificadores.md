@@ -112,6 +112,16 @@ era la columna del móvil (560 px) centrada en una pantalla de 1440: mucho vací
   cada sección son de ese tipo: en el móvil manda la etiqueta pequeña de siempre.
 - **REGLA — los textos de la landing dicen solo lo que la app hace**: ni cifras, ni testimonios, ni
   una referencia catastral o un cliente de verdad.
+- Titular (Fran, 26/10/2026): «Tu **certificado de eficiencia energética**, preparado por IA. Tú lo revisas
+  y lo firmas», en lugar de «Tu CEE inicial…». El mismo lema va en el `<title>`, el manifest y
+  `LEMA` de [marca.js](implementation/frontend/src/certificadores/marca.js) (que pone el título de la pestaña).
+- **REGLA — la landing lleva el descargo de responsabilidad del RD 390/2021** (Fran, 26/10/2026): es una
+  herramienta para agilizar el gabinete y **no sustituye** lo que el Real Decreto 390/2021, de 1 de junio,
+  atribuye al técnico competente (visita al inmueble, toma y comprobación de datos, cálculo, firma y
+  registro); lo que prepara la IA es un borrador y responde de él quien firma. Va dos veces: una duda
+  («¿Sustituye mi trabajo como técnico competente?») y un aviso al pie, encima de la firma (`.ca-land-legal`).
+  No cita el artículo: si se añade, comprobado en el BOE. Por lo mismo, el paso 2 ya **no dice «sin
+  visita, le mandas un enlace al propietario»**: el enlace es para la foto que falte, no para no ir.
 - La palabra en lima del titular va **por debajo** del texto (`.ca-hero .ca-mark{z-index:-1}`): su fondo
   tapaba los rabos de «preparado» en la línea de arriba, también en el móvil.
 - Junto al logo, la etiqueta **«Certifica con IA»** (`EtiquetaIa` en `ui/piezas.jsx`, la usan la cabecera
@@ -175,14 +185,14 @@ Es otra composición, `PromoVerticalVoz` → `out/promo-cee-9x16-voz.mp4`; la mu
 - Fran, 26/10: «está bien Umbriel; mételo en la landing con el botón Activar sonido».
 - **En la landing** ([Landing.jsx](implementation/frontend/src/certificadores/publico/Landing.jsx), `VideoPromo`):
   arranca la **muda** de siempre (30 s, en bucle, sin sonido: un navegador no deja arrancar solo un vídeo
-  con sonido). Encima, una píldora negra **«Activar sonido»**: al pulsarla cambia al fichero **con voz**
+  con sonido). **Debajo** del vídeo, una píldora blanca **«Activar sonido»** (encima tapaba la pantalla
+  del móvil: Fran, 26/10, con captura): al pulsarla cambia al fichero **con voz**
   (`promo-cee-voz.mp4`, 540×960, audio a 96 kbps) y lo pone **desde el principio**, una sola vez; al acabar
-  se queda en la llamada final con «Verlo otra vez». Mientras suena, la píldora es blanca y dice «Quitar
+  se queda en la llamada final con «Verlo otra vez». Mientras suena, la píldora es negra y dice «Quitar
   sonido». Son dos ficheros y no uno porque la versión con voz dura 42 s (con pausas pensadas para la
   voz) y en silencio se haría lenta; el de voz solo se descarga si se pulsa.
   - **REGLA — el cambio de fichero y el `play()` van DENTRO del clic** (no en un efecto tras el render):
     es lo que deja sonar a Safari en el iPhone.
-  - Con «reducir movimiento» salen los controles del vídeo y la píldora sube por encima de ellos.
 - Pendiente: la música (no hay ninguna libre de derechos en el repo).
 
 ### Arquitectura

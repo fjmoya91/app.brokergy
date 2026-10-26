@@ -19,7 +19,11 @@ import {
 const FAQS = [
     {
         q: '¿Firma la IA el certificado?',
-        a: 'No. La IA prepara el borrador del CEE inicial; tú lo revisas, lo cambias si hace falta y lo firmas, porque el técnico competente eres tú. Nada se registra sin ti.',
+        a: 'No. La IA prepara el borrador del certificado; tú lo revisas, lo cambias si hace falta y lo firmas, porque el técnico competente eres tú. Nada se registra sin ti.',
+    },
+    {
+        q: '¿Sustituye mi trabajo como técnico competente?',
+        a: 'No. Es una herramienta para ser más ágil en el trabajo de gabinete. El Real Decreto 390/2021, de 1 de junio, que regula la certificación de la eficiencia energética de los edificios, pone en manos del técnico competente la visita al inmueble, la toma y la comprobación de los datos, el cálculo y la firma del certificado, y todo eso sigue siendo tuyo. Lo que prepara la IA es un borrador que revisas tú; quien firma el certificado responde de él.',
     },
     {
         q: '¿Con qué programa se hace?',
@@ -102,7 +106,7 @@ function VideoPromo() {
             <video ref={ref} src={VIDEO_MUDO} poster="/certificadores/promo-cee.jpg" width="540" height="960"
                 muted loop playsInline preload="auto" controls={quieto} onEnded={() => setAcabado(true)}
                 aria-label="Vídeo: metes los datos de la obra, contestas unas preguntas, se lo envías a la IA y revisas el croquis y firmas desde la web" />
-            <button type="button" className={`ca-land-vid-sonido${sonido && !acabado ? ' ca-on' : ''}${quieto ? ' ca-con-controles' : ''}`}
+            <button type="button" className={`ca-land-vid-sonido${sonido && !acabado ? ' ca-on' : ''}`}
                 onClick={pulsar}>
                 <Icono size={18} sw={2.2} />{etiqueta}
             </button>
@@ -124,7 +128,7 @@ export default function Landing() {
                 <div className="ca-land-hero">
                     <section className="ca-hero ca-in">
                         <p className="ca-eyebrow">Beta para certificadores energéticos</p>
-                        <h1 className="ca-display ca-h1">Tu CEE inicial, preparado por IA. Tú lo <span className="ca-mark">revisas</span> y lo firmas.</h1>
+                        <h1 className="ca-display ca-h1">Tu certificado de eficiencia energética, preparado por IA. Tú lo <span className="ca-mark">revisas</span> y lo firmas.</h1>
                         <p className="ca-sub">
                             Metes la referencia catastral, contestas un cuestionario corto y subes las fotos de la visita.
                             Te devolvemos el <b>.cex de CE3X 3.2</b> hecho, con su XML, su PDF y el croquis, para que lo revises.
@@ -162,7 +166,7 @@ export default function Landing() {
                         <span className="ca-num3">2</span>
                         <div>
                             <b>Contestas unas preguntas y subes las fotos</b>
-                            <p>Lo que la IA no puede ver: con qué linda la vivienda, la calefacción, el agua caliente, las ventanas. En la visita, foto a foto con el móvil; sin visita, le mandas un enlace al propietario.</p>
+                            <p>Lo que la IA no puede ver: con qué linda la vivienda, la calefacción, el agua caliente, las ventanas. En la visita, foto a foto con el móvil; y si te falta alguna, se la pides al propietario con un enlace.</p>
                         </div>
                         <span className="ca-ico-tile ca-tile-crema ca-solo-ancho"><IcoCamara /></span>
                     </li>
@@ -253,6 +257,14 @@ export default function Landing() {
                         <Enlace to="/beta?origen=landing" className="ca-btn ca-btn-pri">Crear mi cuenta gratis <IcoFlecha /></Enlace>
                     </div>
                 </div>
+
+                {/* Descargo de responsabilidad (Fran, 26/10/2026): la herramienta no hace el trabajo que el RD 390/2021 pide al técnico. */}
+                <p className="ca-peq ca-land-legal">
+                    <b>Aviso.</b> CEE by BROKERGY es una herramienta de apoyo para agilizar el trabajo de gabinete. No sustituye
+                    los trabajos ni las obligaciones que el Real Decreto 390/2021, de 1 de junio, por el que se aprueba el procedimiento básico para la certificación de la eficiencia energética de los edificios atribuye al técnico competente: la visita al inmueble, la toma y
+                    la comprobación de los datos, la revisión del cálculo y la firma y el registro del certificado. Lo que prepara
+                    la IA es un borrador; el técnico que firma el certificado es el responsable de su contenido.
+                </p>
 
                 <Firma />
             </div>
