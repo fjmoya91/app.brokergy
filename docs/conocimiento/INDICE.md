@@ -16,7 +16,7 @@
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 18,3 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 23,3 KB | 7 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
-| `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 39,5 KB | 12 |
+| `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 39,9 KB | 12 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 92,8 KB | 36 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 16,4 KB | 4 |

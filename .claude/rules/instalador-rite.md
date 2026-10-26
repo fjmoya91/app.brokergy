@@ -25,7 +25,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/instalador-rite/al-instalador-se-le-pide-todo-de-una-vez.md` — Al instalador se le pide TODO de una vez (2026-08-27) · 10,3 KB
+- `docs/conocimiento/instalador-rite/al-instalador-se-le-pide-todo-de-una-vez.md` — Al instalador se le pide TODO de una vez (2026-08-27) · 10,8 KB
 - `docs/conocimiento/instalador-rite/el-certificado-rite-se-lee-al-subirlo.md` — El Certificado RITE se LEE al subirlo (2026-09-03) · 5,5 KB
 
 ## Las «REGLA —» que contienen esos documentos

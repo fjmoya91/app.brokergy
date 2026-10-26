@@ -256,6 +256,11 @@ con el prefijo `.prop-` de siempre.
   [fuentesDoc.js](implementation/frontend/src/features/expedientes/logic/fuentesDoc.js)) es la de
   Inter más Antonio 700, y la tupla acepta un cuarto elemento con los subconjuntos, porque Antonio
   no tiene fichero `latin-ext`. `check_fuentes_documentos.mjs` lo respeta.
+- **La vista previa del popup declara las MISMAS caras** (`CARAS_PROPUESTA`), en un `<style>`
+  hermano del nodo que se exporta, no dentro, para no duplicarlas en el HTML enviado, que ya las
+  lleva en el `<head>`. Sin eso el CRM solo tiene el Inter de Google, y los titulares salían en
+  la letra de reserva (Fran, 26/10/2026: «se ve diferente en el visor y en el PDF»). El ajuste
+  de la portada pide Antonio e Inter con `document.fonts.load` antes de medir.
 
 **Medido** con el `ProposalModal` real, datos de ejemplo y la API cortada (ninguna escritura),
 impreso como el servidor (`encajarPortadas` + `page.pdf`). Holgura en px sobre el pie, por hoja:

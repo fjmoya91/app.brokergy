@@ -49,7 +49,7 @@ paths:
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/almacenamiento-incremental-sin-esquema-nuevo.md` — Almacenamiento (incremental, sin esquema nuevo) · 0,8 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/aviso-al-staff-cuando-suben-documentacion.md` — Aviso al staff cuando suben documentación (2026-07-30) · 1,6 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/checklist-por-fases-computado-no-persistido.md` — Checklist por fases (computado, NO persistido) · 0,7 KB
-- `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/componente-nucleo-docsmanager.md` — Componente núcleo: `DocsManager` · 0,9 KB
+- `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/componente-nucleo-docsmanager.md` — Componente núcleo: `DocsManager` · 1,0 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/el-enlace-del-cliente-se-usa-con-el-movil.md` — El enlace del cliente se usa CON EL MÓVIL (2026-08-11) · 9,1 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/endpoints.md` — Endpoints · 1,0 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/migracion-sql-ya-en-produccion.md` — Migración SQL (ya en producción) · 0,4 KB

@@ -27,7 +27,7 @@ Hooks de React (lo vigila el build), overlays con portal, menú lateral, tema y 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/transversal-frontend/el-menu-lateral.md` — El menú lateral (2026-08-24) · 3,3 KB
-- `docs/conocimiento/transversal-frontend/estilo-carta-de-pago-lo-que-ve-el-cliente.md` — El ESTILO «carta de pago»: así se diseña lo que ve el CLIENTE (2026-10-24) · 9,6 KB
+- `docs/conocimiento/transversal-frontend/estilo-carta-de-pago-lo-que-ve-el-cliente.md` — El ESTILO «carta de pago»: así se diseña lo que ve el CLIENTE (2026-10-24) · 20,4 KB
 - `docs/conocimiento/transversal-frontend/y-con-el-plano-por-fin-traido-la-ventana-se-caia-entera-react-31.md` — Y con el plano por fin traído, la ventana se caía entera (React #310) · 2,6 KB
 - `docs/conocimiento/transversal-frontend/y-el-desplegable-se-leia-blanco-sobre-blanco.md` — Y el desplegable se leía BLANCO SOBRE BLANCO · 1,5 KB
 

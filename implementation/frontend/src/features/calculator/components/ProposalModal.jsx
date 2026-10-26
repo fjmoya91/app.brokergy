@@ -61,7 +61,12 @@ const BROKERGY_MARCA_PATH = '/logo_brokergy_dark.png';
 // nombres de fichero en /public/fonts): el contenedor las pide a
 // `https://app.brokergy.es/fonts/…`, que es su propio nginx — 93 ms medidos y
 // sin depender de Google.
-const FUENTES_PROPUESTA = `<style>${buildFontFaces(APP_URL, FUENTE_PROPUESTA)}</style>`;
+//
+// Las MISMAS caras se declaran en la vista previa del popup, fuera del nodo que
+// se exporta: sin ellas el CRM solo tiene el Inter de Google y los titulares en
+// Antonio salían en la letra de reserva (y el ajuste medía otra portada).
+const CARAS_PROPUESTA = buildFontFaces(APP_URL, FUENTE_PROPUESTA);
+const FUENTES_PROPUESTA = `<style>${CARAS_PROPUESTA}</style>`;
 
 const baseCss = `
         .prop-wrapper {
@@ -1126,12 +1131,16 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
 
     // Medir antes de que las webfonts estén listas da métricas de la tipografía
     // de reserva y decide el ajuste sobre una portada que no es la definitiva.
+    // `fonts.ready` solo espera a las que ya se están descargando: Antonio e Inter
+    // se piden explícitamente para no medir antes de que empiecen.
     useEffect(() => {
         if (!isOpen) return;
         let cancelado = false;
         const listo = () => { if (!cancelado) setFontsReady(true); };
-        if (document.fonts?.ready) document.fonts.ready.then(listo).catch(listo);
-        else listo();
+        if (document.fonts?.load) {
+            Promise.all(['700 20px Antonio', '400 12px Inter', '700 12px Inter'].map(f => document.fonts.load(f)))
+                .then(() => document.fonts.ready).then(listo).catch(listo);
+        } else listo();
         return () => { cancelado = true; };
     }, [isOpen]);
 
@@ -3419,6 +3428,7 @@ info@brokergy.es · 623 926 179`;
                     </div>
 
                     <div className="prop-wrapper" style={{ transform: `scale(${scale * zoomManual})`, transformOrigin: 'top center', marginBottom: (scale * zoomManual) < 1 ? `-${1123 * totalPages * (1 - scale * zoomManual)}px` : '0', height: `${1123 * totalPages + 100}px` }}>
+                        <style dangerouslySetInnerHTML={{ __html: CARAS_PROPUESTA }} />
                         <div ref={proposalRef} className="prop-wrapper-inner" style={{ fontFamily: 'var(--font-family)' }}>
                             <style dangerouslySetInnerHTML={{ __html: baseCss }} />
 
