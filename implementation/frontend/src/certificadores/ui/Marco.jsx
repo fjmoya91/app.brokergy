@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Enlace, navegar } from '../router';
 import { useCertappAuth } from '../auth/CertappAuth';
 import { LOGO, NOMBRE_APP } from '../marca';
-import { Hoja, Papel } from './piezas';
+import { EtiquetaIa, Hoja, Papel } from './piezas';
 import { IcoCasa, IcoChat, IcoChevron, IcoEscudo, IcoLista, IcoMas, IcoMenu, IcoSalir, IcoUsuario } from './Iconos';
 import Flotantes from '../widgets/Flotantes';
 
@@ -23,7 +23,7 @@ export function Marco({ activo, obraId, children }) {
                 <div className="ca-bar-in">
                     <Enlace to={cuenta ? '/panel' : '/admin'} className="ca-marca" aria-label={`${NOMBRE_APP}, inicio`}>
                         <img className="ca-logo" src={LOGO} alt="BROKERGY" width="130" height="26" />
-                        <span className="ca-marca-txt">CEE con IA</span>
+                        <EtiquetaIa />
                     </Enlace>
                     <nav className="ca-nav" aria-label="Principal">
                         {cuenta && <Enlace to="/panel" className={activo === 'panel' ? 'ca-nav-act' : ''}>Mis obras</Enlace>}

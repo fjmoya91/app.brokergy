@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { Enlace } from '../router';
 import { FIRMA, LOGO, NOMBRE_APP, SELLO } from '../marca';
 import { alPortapapeles, mensajeError } from '../api';
-import { IcoAlerta, IcoCheck, IcoCopiar, IcoRecargar, IcoX, Spinner } from './Iconos';
+import { IcoAlerta, IcoCheck, IcoChispa, IcoCopiar, IcoRecargar, IcoX, Spinner } from './Iconos';
 
 /* ── Hoja: ventana que sube desde abajo en el móvil y se centra en el PC ──── */
 // Portaleada a <body> (regla 29.b): un ancestro con backdrop-filter la recortaría.
@@ -133,6 +133,11 @@ export function Papel({ children, halo = true, className = '' }) {
     );
 }
 
+/** La etiqueta de la app junto al logo: píldora negra con la chispa en lima. */
+export function EtiquetaIa() {
+    return <span className="ca-marca-txt"><IcoChispa size={13} sw={2.4} />Certifica con IA</span>;
+}
+
 /** Cabecera de las páginas públicas: logo + nombre de la app (+ algo a la derecha). */
 export function CabeceraPublica({ derecha, enlace = '/' }) {
     return (
@@ -140,7 +145,7 @@ export function CabeceraPublica({ derecha, enlace = '/' }) {
             {enlace ? (
                 <Enlace to={enlace} className="ca-marca" aria-label={`${NOMBRE_APP}, inicio`}>
                     <img className="ca-logo" src={LOGO} alt="BROKERGY" width="130" height="26" />
-                    <span className="ca-marca-txt">CEE con IA</span>
+                    <EtiquetaIa />
                 </Enlace>
             ) : (
                 // Vista del propietario: el logo no lleva a la landing de certificadores.

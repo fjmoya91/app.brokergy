@@ -4,16 +4,16 @@
 // dice aquí es lo que la app hace (docs/conocimiento/certificadores-app/).
 //
 // En el móvil es la columna de siempre. En el ordenador (≥ 1024 px) se abre a
-// lo ancho (`.ca-land`): portada a dos columnas con la maqueta de lo que se
-// entrega, pasos en tres tarjetas, entrega y destinatarios lado a lado y las
+// lo ancho (`.ca-land`): portada a dos columnas con el vídeo promo al lado del
+// titular (en el móvil, debajo), pasos en cuatro tarjetas, entrega y destinatarios lado a lado y las
 // dudas con su título a la izquierda. Lo que solo se ve en el PC va con
-// `.ca-solo-ancho`; el texto y el orden del móvil no cambian.
-import { useState } from 'react';
+// `.ca-solo-ancho`.
+import { useEffect, useRef, useState } from 'react';
 import { Enlace } from '../router';
 import { CabeceraPublica, Firma, Papel } from '../ui/piezas';
 import {
     IcoAbajo, IcoCamara, IcoCheck, IcoChispa, IcoDoc, IcoEscudo, IcoFlecha, IcoLista, IcoMapa,
-    IcoSello, IcoUsuario, IcoCasa, IcoWhatsApp,
+    IcoSello, IcoUsuario, IcoCasa,
 } from '../ui/Iconos';
 
 const FAQS = [
@@ -55,68 +55,25 @@ function Duda({ q, a }) {
     );
 }
 
-/** Croquis de muestra: una planta en L con sus huecos y la orientación de cada fachada. Es ilustrativo. */
-function CroquisMuestra() {
+/** El vídeo promo de la portada (implementation/promo-video): 30 s sin sonido, en bucle mientras se ve.
+ *  Con «reducir movimiento» no arranca solo: se queda el póster y los controles. */
+function VideoPromo() {
+    const ref = useRef(null);
+    const [quieto] = useState(() => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+    useEffect(() => {
+        const v = ref.current;
+        if (!v || quieto || !('IntersectionObserver' in window)) return;
+        const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) v.play().catch(() => {}); else v.pause(); }, { threshold: 0.35 });
+        io.observe(v);
+        return () => io.disconnect();
+    }, [quieto]);
     return (
-        <svg className="ca-mq-croquis" viewBox="0 0 260 150" role="img" aria-label="Croquis de ejemplo de una vivienda con sus fachadas y sus huecos">
-            <defs>
-                <pattern id="ca-mq-rejilla" width="13" height="13" patternUnits="userSpaceOnUse">
-                    <path d="M13 0H0V13" fill="none" stroke="rgba(20,17,17,.06)" strokeWidth="1" />
-                </pattern>
-            </defs>
-            <rect width="260" height="150" fill="url(#ca-mq-rejilla)" />
-            <path d="M70 28H190V82H150V122H70Z" fill="#fff" stroke="#141111" strokeWidth="3.5" strokeLinejoin="round" />
-            <path d="M120 28V82H70M150 82H120" fill="none" stroke="rgba(20,17,17,.28)" strokeWidth="1.5" strokeDasharray="3 3" />
-            {/* huecos */}
-            <g stroke="#ffa000" strokeWidth="6" strokeLinecap="butt">
-                <path d="M86 28H106" /><path d="M140 28H170" />
-                <path d="M190 44V66" />
-                <path d="M88 122H112" /><path d="M150 96V112" />
-                <path d="M70 52V72" />
-            </g>
-            <g fontFamily="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" fontSize="10" fontWeight="700" fill="#55585f" textAnchor="middle">
-                <text x="130" y="16">N</text>
-                <text x="130" y="142">S</text>
-                <text x="210" y="59">E</text>
-                <text x="52" y="66">O</text>
-            </g>
-        </svg>
-    );
-}
-
-/** Maqueta de la portada en el PC: lo que recibe el certificador cuando la IA termina. */
-function Maqueta() {
-    return (
-        <div className="ca-mq ca-solo-ancho" aria-hidden="true">
-            <div className="ca-mq-fondo" />
-            <div className="ca-card ca-mq-card">
-                <div className="ca-filete" />
-                <div className="ca-fila-top">
-                    <p className="ca-eyebrow ca-eyebrow-gris" style={{ margin: 0 }}>CEE inicial</p>
-                    <span className="ca-chip ca-chip-verde"><span className="ca-punto" />Listo para revisar</span>
-                </div>
-                <p className="ca-display ca-mq-tit">Vivienda unifamiliar</p>
-                <ul className="ca-mq-pasos">
-                    <li><IcoCheck size={15} sw={3} /><span>Catastro: superficie, año y plano</span></li>
-                    <li><IcoCheck size={15} sw={3} /><span>Cuestionario y fotos de la visita</span></li>
-                    <li><IcoCheck size={15} sw={3} /><span>Envolvente y medidas de mejora</span></li>
-                </ul>
-                <div className="ca-mq-plano"><CroquisMuestra /></div>
-                <div className="ca-mq-ficheros">
-                    <span><b>.cex</b>CE3X 3.2</span>
-                    <span><b>.xml</b>Certificado</span>
-                    <span><b>.pdf</b>Informe</span>
-                    <span><b>Croquis</b>Fachadas</span>
-                </div>
-            </div>
-            <div className="ca-mq-aviso">
-                <span className="ca-ico-tile ca-tile-verde"><IcoWhatsApp size={18} /></span>
-                <span><b>Tu CEE inicial está listo</b><small>Te avisamos por WhatsApp y email</small></span>
-            </div>
-            <div className="ca-mq-firma">
-                <IcoSello size={18} /> Lo firmas tú
-            </div>
-        </div>
+        <figure className="ca-land-vid ca-in ca-in-2">
+            <div className="ca-land-vid-fondo" aria-hidden="true" />
+            <video ref={ref} src="/certificadores/promo-cee.mp4" poster="/certificadores/promo-cee.jpg" width="540" height="960"
+                muted loop playsInline preload="auto" controls={quieto}
+                aria-label="Vídeo de 30 segundos: metes los datos de la obra, contestas unas preguntas, se lo envías a la IA y revisas el croquis y firmas desde la web" />
+        </figure>
     );
 }
 
@@ -145,7 +102,7 @@ export default function Landing() {
                         </div>
                         <p className="ca-peq ca-land-nota">Entras al momento, con Google o con tu email. Tu primer certificado es gratis.</p>
                     </section>
-                    <Maqueta />
+                    <VideoPromo />
                 </div>
 
                 <ul className="ca-land-hechos ca-solo-ancho ca-in ca-in-2">
@@ -157,21 +114,21 @@ export default function Landing() {
 
                 <div className="ca-land-cab">
                     <h2 className="ca-sec">Cómo funciona</h2>
-                    <p className="ca-display ca-land-h2 ca-solo-ancho">De la referencia catastral al .cex, en tres pasos.</p>
+                    <p className="ca-display ca-land-h2 ca-solo-ancho">De la referencia catastral al certificado firmado, en cuatro pasos.</p>
                 </div>
-                <ol className="ca-pasos3 ca-in ca-in-2">
+                <ol className="ca-pasos3 ca-pasos4 ca-in ca-in-2">
                     <li>
                         <span className="ca-num3">1</span>
                         <div>
-                            <b>La referencia catastral</b>
-                            <p>O la dirección, el mapa o el GPS del móvil. Del Catastro sale la superficie, el año, el uso y el plano de la vivienda.</p>
+                            <b>Metes los datos de la obra</b>
+                            <p>La referencia catastral, o la dirección, el mapa o el GPS del móvil. Del Catastro sale la superficie, el año, el uso y el plano de la vivienda.</p>
                         </div>
                         <span className="ca-ico-tile ca-tile-crema ca-solo-ancho"><IcoMapa /></span>
                     </li>
                     <li>
                         <span className="ca-num3">2</span>
                         <div>
-                            <b>El cuestionario y las fotos</b>
+                            <b>Contestas unas preguntas y subes las fotos</b>
                             <p>Lo que la IA no puede ver: con qué linda la vivienda, la calefacción, el agua caliente, las ventanas. En la visita, foto a foto con el móvil; sin visita, le mandas un enlace al propietario.</p>
                         </div>
                         <span className="ca-ico-tile ca-tile-crema ca-solo-ancho"><IcoCamara /></span>
@@ -179,8 +136,16 @@ export default function Landing() {
                     <li>
                         <span className="ca-num3">3</span>
                         <div>
-                            <b>Revisas y firmas</b>
-                            <p>Te avisamos por WhatsApp y email cuando está listo. Lo abres en CE3X, lo revisas, lo cambias si hace falta y lo firmas tú.</p>
+                            <b>Se lo envías a la IA</b>
+                            <p>Prepara la envolvente, las instalaciones y las medidas de mejora en CE3X 3.2. Te avisamos por WhatsApp y email cuando está listo.</p>
+                        </div>
+                        <span className="ca-ico-tile ca-tile-crema ca-solo-ancho"><IcoChispa /></span>
+                    </li>
+                    <li>
+                        <span className="ca-num3">4</span>
+                        <div>
+                            <b>Revisas el croquis y lo firmas</b>
+                            <p>Te devolvemos el .cex, el XML, el PDF y el croquis. Si el croquis está bien, firmas el PDF desde la web con AutoFirma; si algo no cuadra, lo cambias en la envolvente o en tu CE3X.</p>
                         </div>
                         <span className="ca-ico-tile ca-tile-crema ca-solo-ancho"><IcoSello /></span>
                     </li>

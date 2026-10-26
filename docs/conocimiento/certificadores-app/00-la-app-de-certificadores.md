@@ -104,18 +104,46 @@ cada compra y cada certificado gastado tengan su sitio sin rehacer nada.
 Fran: «mejora la página principal para que en versión PC se vea mucho mejor». Hasta ese día la landing
 era la columna del móvil (560 px) centrada en una pantalla de 1440: mucho vacío y nada que enseñar.
 
-- **El móvil no cambia** (texto, orden y medidas). Desde **1024 px** el contenedor `.ca-land` se abre a
-  1200 px: portada a dos columnas (titular a 60–80 px y, a la derecha, la **maqueta** de lo que se
-  entrega: el CEE «listo para revisar», un croquis de muestra con sus huecos, los cuatro ficheros, el aviso
-  de WhatsApp y «lo firmas tú»), una franja de cuatro hechos, los pasos en tres tarjetas, entrega y «para
-  quién» lado a lado, las dudas con su título fijo a la izquierda y la llamada final en una fila.
+- Desde **1024 px** el contenedor `.ca-land` se abre a 1200 px: portada a dos columnas (titular a 60–80 px
+  y, a la derecha, el **vídeo promo**; hasta el 26/10 era una maqueta estática del CEE entregado), una
+  franja de cuatro hechos, los pasos en cuatro tarjetas (2×2 entre 1024 y 1199), entrega y «para quién»
+  lado a lado, las dudas con su título fijo a la izquierda y la llamada final en una fila.
 - Lo que solo existe en el PC lleva **`.ca-solo-ancho`** (oculto por debajo de 1024). Los títulos grandes de
   cada sección son de ese tipo: en el móvil manda la etiqueta pequeña de siempre.
-- **REGLA — la maqueta y los textos nuevos dicen solo lo que la app hace**: ni cifras, ni testimonios, ni
-  una referencia catastral o un cliente de verdad. El croquis es un dibujo ilustrativo.
+- **REGLA — los textos de la landing dicen solo lo que la app hace**: ni cifras, ni testimonios, ni
+  una referencia catastral o un cliente de verdad.
 - La palabra en lima del titular va **por debajo** del texto (`.ca-hero .ca-mark{z-index:-1}`): su fondo
   tapaba los rabos de «preparado» en la línea de arriba, también en el móvil.
+- Junto al logo, la etiqueta **«Certifica con IA»** (`EtiquetaIa` en `ui/piezas.jsx`, la usan la cabecera
+  pública y la barra de la app): píldora negra con la chispa en lima. Antes era «CEE con IA» en gris; Fran
+  la quería «más rompedora, con más punch» (26/10/2026). En el móvil solo se ve en la cabecera pública.
 - Comprobación: capturas a 1440, 1024 y 390 px sin scroll horizontal.
+
+### El vídeo promo (26/10/2026)
+
+Fran: «un vídeo promo, tipo tutorial, para la landing, donde se vea un móvil y los pasos, para campañas».
+Vertical 9:16, 30 s, **sin sonido** (solo textos), con las pantallas **recreadas con los componentes y el
+CSS de la app** y los datos de demo (`dev/demo.js`): nada de una obra o un cliente de verdad.
+
+- Se hace con **Remotion** en [implementation/promo-video](implementation/promo-video/LEEME.md). Importa el
+  `CSS` de `ui/estilo.js` y los iconos de la app: si cambia el aspecto de la app, se vuelve a renderizar.
+- Guion: «¿Te imaginas tener el .cex hecho sin pasar horas de gabinete?» → «Lo hemos hecho posible» →
+  1 metes los datos de la obra → 2 contestas unas preguntas y subes las fotos → 3 se lo envías a la IA
+  (aviso de WhatsApp) → 4 revisas el croquis y lo firmas desde la web → «Tu primer certificado, gratis» +
+  cee.brokergy.es. Va al lado del titular de la portada, así que **no repite** su «preparado por IA, tú lo
+  revisas y lo firmas».
+- **REGLA — el vídeo dice solo lo que la app hace**, como la landing: sin cifras de tiempo ni testimonios
+  ni logos. Fran propuso «el certificado en menos de un minuto»: **no** se puso, porque no es verdad (el
+  `.cex` se califica en el PC, que pasa cada 2 min, y el equipo lo entrega; ver
+  [el CEE de una obra](docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md)).
+  Si un día se mide de verdad, se cambia el gancho. Los botones dicen lo que dice la app («Validar y firmar
+  con AutoFirma»).
+- En la landing va en la **portada** (Fran, 26/10: «en la primera parte, es más llamativo»): a la derecha
+  del titular en el PC (360 px de ancho) y debajo de los botones en el móvil. Fichero ligero (540×960,
+  ~0,9 MB) en `frontend/public/certificadores/promo-cee.mp4` + póster `promo-cee.jpg` (el gancho, para que
+  no salte al arrancar). Arranca al verse (IntersectionObserver) y se para al salir; con «reducir
+  movimiento» no arranca solo y enseña los controles.
+- Para anuncios, el bueno es el de 1080×1920 (`out/promo-cee-9x16.mp4`, no va a git: se renderiza).
 
 ### Arquitectura
 

@@ -1,0 +1,16 @@
+{
+  "name": "brokergy-promo-video",
+  "private": true,
+  "description": "Vídeo promo de cee.brokergy.es (Remotion). Ver LEEME.md.",
+  "scripts": {
+    "studio": "remotion studio src/index.js",
+    "render": "remotion render src/index.js PromoVertical out/promo-cee-9x16.mp4",
+    "still": "remotion still src/index.js PromoVertical"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.538",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.538"
+  }
+}
