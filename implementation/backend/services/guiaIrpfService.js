@@ -662,10 +662,12 @@ async function guiaDeEntrega(row, fase) {
         const ajustes = ajustesDe(ctx, null);
         const { guia, html } = await componerCtx(ctx, ajustes);
         if (!guia.puede) return { va: false, comparable: true, motivo: guia.motivo };
-        const { textoGuiaEnEntrega } = await logica();
+        const { textoGuiaEnEntrega, fraseAhorro } = await logica();
         return {
             va: true,
             modalidad: guia.modalidad,
+            // El ahorro con sus cifras, para el mensaje al PARTNER (el del cliente ya lo lleva `texto`).
+            ahorroTercero: fraseAhorro(guia, { tercero: true }),
             ejemplo: guia.ejemplo ? { importe: guia.ejemplo.importe, deduccion: guia.ejemplo.calendario?.porPropietario || 0 } : null,
             deduccion: guia.ejemplo ? null : (guia.calendario?.porPropietario || 0),
             avisos: guia.avisos,

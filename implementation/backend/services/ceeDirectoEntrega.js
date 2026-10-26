@@ -173,7 +173,8 @@ function mensaje(row, fase, { textoGuia = '', guia = null, enlaceObra = null, co
             : '';
         const pct = guia?.modalidad || null;
         const parrafoGuia = textoGuia
-            ? `Va también una *guía de una página* para que ${obra.cliente ? 'el propietario' : 'vuestro cliente'} se aplique la *deducción${pct ? ` del ${pct} %` : ''}* en su declaración de la Renta, con los datos que le pedirá Renta Web ya rellenos. Pasádsela junto con los certificados.\n\n`
+            ? (guia?.ahorroTercero ? `${guia.ahorroTercero}\n\n` : '')
+            + `Va también una *guía de una página* para que ${obra.cliente ? 'el propietario' : 'vuestro cliente'} se aplique la *deducción${pct ? ` del ${pct} %` : ''}* en su declaración de la Renta, con los datos que le pedirá Renta Web ya rellenos. Pasádsela junto con los certificados.\n\n`
             : '';
         return `¡Hola!\n\n`
             + `Ya está registrado el *${faseLabel}*${deQuien ? ` de ${deQuien}` : ''}, expediente ${row.numero_expediente}.\n\n`
@@ -626,7 +627,8 @@ function mensajeTodo(row, { guia = null, adjuntos = [] } = {}) {
         const obra = svc.obraDe(row);
         const deQuien = [obra.cliente ? `*${obra.cliente}*` : null, obra.direccion ? `(${obra.direccion})` : null].filter(Boolean).join(' ');
         const parrafoGuia = guia?.va
-            ? `La guía es de una página para que ${obra.cliente ? 'el propietario' : 'vuestro cliente'} se aplique la *deducción${guia.modalidad ? ` del ${guia.modalidad} %` : ''}* en su declaración de la Renta, con los datos que le pedirá Renta Web ya rellenos. Pasádsela junto con los certificados.\n\n`
+            ? (guia.ahorroTercero ? `${guia.ahorroTercero}\n\n` : '')
+            + `La guía es de una página para que ${obra.cliente ? 'el propietario' : 'vuestro cliente'} se aplique la *deducción${guia.modalidad ? ` del ${guia.modalidad} %` : ''}* en su declaración de la Renta, con los datos que le pedirá Renta Web ya rellenos. Pasádsela junto con los certificados.\n\n`
             : '';
         return `¡Hola!\n\n`
             + `Ya están registrados los dos certificados energéticos${deQuien ? ` de ${deQuien}` : ''}, el *inicial* y el *final* (expediente ${row.numero_expediente}).\n\n`

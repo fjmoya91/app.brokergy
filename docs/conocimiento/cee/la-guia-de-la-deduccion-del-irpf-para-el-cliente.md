@@ -106,6 +106,19 @@ mismo popup en modo `soloRevisar` (sin «Enviar», que sería mandar el certific
 Probar sin enviar nada: `node scripts/probar_guia_irpf.js 2026CEE_60` (imprime también lo que
 llevaría la entrega).
 
+**REGLA — el MENSAJE dice el AHORRO con sus cifras, no solo la guía** (Fran, 26/10/2026,
+2026CEE_61: «me han preguntado qué y cuánto se ahorra; en la guía no se ve a la primera»).
+`fraseAhorro` en [logic/guiaIrpf.js](implementation/frontend/src/features/expedientes/logic/guiaIrpf.js)
+saca las MISMAS cifras que la frase «Tus certificados lo acreditan» del PDF —consumo de energía
+primaria no renovable antes → después, el % y las letras; o la demanda, en la del 20 %— y va
+DELANTE del párrafo de la guía en la entrega (`textoGuiaEnEntrega`: por fase, «Entregar todo» y
+automática), en el mensaje de la guía suelta (`mensajeGuiaIrpf`) y, en tercera persona
+(`ahorroTercero`, «la vivienda»), en el mensaje al PARTNER. Si acredita por LETRA y no por el
+30 %, dice la letra y no promete el 30 %. Sin cifras comparadas no se escribe nada (`null`).
+Ejemplo real: «📉 *Lo que ahorra tu vivienda:* con la obra, su consumo de energía primaria no
+renovable baja un *65,1 %*: de 189,60 a 66,08 kWh/m²·año, de la letra D a la B. Para la
+deducción se exige al menos un 30 %.»
+
 **REGLA — se envían SOLO los PDF FIRMADOS** (`…_fdo.pdf`) **y la guía**, renombrados para el
 cliente («CEE ANTES / DESPUÉS DE LA OBRA»); sin el `.xml`, el `.cex` ni el registro. Todo o
 nada: si falta un PDF no sale el mensaje. En un CEE directo de UN certificado se manda solo

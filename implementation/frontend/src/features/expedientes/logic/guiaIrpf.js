@@ -535,6 +535,8 @@ export function mensajeGuiaIrpf(guia, { nombre = '', certificados = 2, previa = 
         );
     } else {
         lineas.push(`Te enviamos ${certs} y una *guía de una página* para que puedas aplicarte la deducción por obras de mejora energética en tu declaración de la Renta.`);
+        const ahorro = fraseAhorro(guia);
+        if (ahorro) lineas.push('', ahorro);
         if (m) lineas.push('', `En la guía tienes la deducción que puedes aplicar (*${m.pct} %*), dónde se marca en Renta Web y todos los datos que te va a pedir, ya rellenos con los de tus certificados.`);
     }
     if (m) {
@@ -567,6 +569,39 @@ export function fraseEjemplo(guia) {
 }
 
 /**
+ * El AHORRO de energía que acreditan los certificados, para los MENSAJES (con *negrita*
+ * de WhatsApp). Son las cifras de la frase «Tus certificados lo acreditan» del PDF:
+ * Fran, 26/10/2026 (2026CEE_61), «me han preguntado qué y cuánto se ahorra; que vaya
+ * también en el mensaje», porque en la guía no se ve a la primera.
+ * null si la guía no lleva cifras (sin modalidad, o sin certificados comparados).
+ *
+ * @param {object} guia
+ * @param {object} [opts]
+ * @param {boolean} [opts.tercero] el mensaje es para quien NO es el propietario (partner)
+ */
+export function fraseAhorro(guia, { tercero = false } = {}) {
+    const m = guia?.modalidad ? MODALIDADES[guia.modalidad] : null;
+    if (!m) return null;
+    const viv = tercero ? 'la vivienda' : 'tu vivienda';
+    const titulo = `📉 *Lo que ahorra ${viv}:*`;
+    const de = (a, b) => `de ${n2(a)} a ${n2(b)} kWh/m²·año`;
+    const ir = guia.irpf;
+    if (m.indicador === 'epnr' && ir?.estado === 'ok') {
+        const letras = ir.letraIni && ir.letraFin && ir.letraIni !== ir.letraFin ? `, de la letra ${ir.letraIni} a la ${ir.letraFin}` : '';
+        if (ir.porAhorro) {
+            return `${titulo} con la obra, su consumo de energía primaria no renovable baja un *${n1(ir.ahorroPct)} %*: ${de(ir.consumoIni, ir.consumoFin)}${letras}. Para la deducción se exige al menos un ${UMBRAL_AHORRO} %.`;
+        }
+        const baja = ir.ahorroPct > 0 ? `baja un *${n1(ir.ahorroPct)} %* (${de(ir.consumoIni, ir.consumoFin)}) y ` : '';
+        return `${titulo} con la obra, su consumo de energía primaria no renovable ${baja}alcanza la *letra ${ir.letraFin}*, que es lo que exige la deducción (la A o la B).`;
+    }
+    const d = guia.demanda;
+    if (m.indicador === 'demanda' && d?.estado === 'ok') {
+        return `${titulo} con la obra, su demanda de calefacción y refrigeración baja un *${n1(d.ahorroPct)} %*: ${de(d.antes, d.despues)}. Para la deducción se exige al menos un ${UMBRAL_DEMANDA} %.`;
+    }
+    return null;
+}
+
+/**
  * El párrafo que se añade al mensaje de ENTREGA del certificado (CEE directo)
  * cuando la guía viaja con él. Ahí el protagonista es el certificado; la guía va
  * detrás, así que no se repite el saludo ni la despedida.
@@ -578,9 +613,12 @@ export function fraseEjemplo(guia) {
 export function textoGuiaEnEntrega(guia, { unico = false } = {}) {
     const m = guia?.modalidad ? MODALIDADES[guia.modalidad] : null;
     if (!m) return '';
-    const lineas = [
-        `Y como ${unico ? 'tu certificado, frente al que tenías de antes de la obra, acredita' : 'tus certificados acreditan'} la mejora energética de la vivienda, te mandamos también una *guía de una página* para aplicarte la *deducción del ${m.pct} %* en tu declaración de la Renta: dónde se marca en Renta Web y los datos que te va a pedir, ya rellenos.`,
-    ];
+    // El ahorro va DELANTE, con sus cifras: es lo primero que pregunta el cliente.
+    const ahorro = fraseAhorro(guia);
+    const porQue = ahorro
+        ? `Con ${unico ? 'este certificado, frente al que tenías de antes de la obra,' : 'tus certificados'} puedes aplicarte la *deducción del ${m.pct} %* en tu declaración de la Renta, así que te mandamos también una *guía de una página*: dónde se marca en Renta Web y los datos que te va a pedir, ya rellenos.`
+        : `Y como ${unico ? 'tu certificado, frente al que tenías de antes de la obra, acredita' : 'tus certificados acreditan'} la mejora energética de la vivienda, te mandamos también una *guía de una página* para aplicarte la *deducción del ${m.pct} %* en tu declaración de la Renta: dónde se marca en Renta Web y los datos que te va a pedir, ya rellenos.`;
+    const lineas = [ahorro, porQue].filter(Boolean);
     const ej = fraseEjemplo(guia);
     if (ej) lineas.push(ej);
     if (unico) lineas.push('Para la deducción necesitarás también el certificado que tenías de antes de la obra.');

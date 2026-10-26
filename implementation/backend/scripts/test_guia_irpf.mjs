@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url';
 import {
     componerGuia, buildGuiaIrpfHtml, calendarioDeduccion, elegirModalidad,
     tipoViviendaDeCee, mensajeGuiaIrpf, facturaConIva, comprobarDemanda,
-    textoGuiaEnEntrega, fraseEjemplo, IMPORTE_EJEMPLO, tipoAutomatico, asuntoGuiaIrpf, esCorreccion, descripcionTipo,
+    textoGuiaEnEntrega, fraseEjemplo, fraseAhorro, IMPORTE_EJEMPLO, tipoAutomatico, asuntoGuiaIrpf, esCorreccion, descripcionTipo,
 } from '../../frontend/src/features/expedientes/logic/guiaIrpf.js';
 import { leerDatosIrpfDeTexto } from '../../frontend/src/features/calculator/logic/xmlCeeParser.js';
 
@@ -123,8 +123,21 @@ ok(/ejemplo\*: con una obra de 9\.000 € \(IVA incluido\) te deducirías 5\.400
 eq(fraseEjemplo(g), null, 'con facturas de la obra no hay frase de ejemplo');
 ok(/ejemplo/.test(mensajeGuiaIrpf(certSolo, { nombre: 'LAURA', certificados: 1 })), 'el mensaje de la guía menciona el ejemplo');
 const entregaTxt = textoGuiaEnEntrega(certSolo, { unico: true });
-ok(/tu certificado, frente al que tenías de antes de la obra, acredita/.test(entregaTxt) && /deducción del 60 %/.test(entregaTxt) && /ejemplo/.test(entregaTxt) && /certificado que tenías de antes/.test(entregaTxt), 'párrafo de la ENTREGA (encargo único): acredita, 60 %, ejemplo y el CEE de antes');
-ok(/tus certificados acreditan/.test(textoGuiaEnEntrega(g)) && !/ejemplo/.test(textoGuiaEnEntrega(g)), 'párrafo de la ENTREGA (doble, con facturas): plural y sin ejemplo');
+ok(/este certificado, frente al que tenías de antes de la obra/.test(entregaTxt) && /deducción del 60 %/.test(entregaTxt) && /ejemplo/.test(entregaTxt) && /certificado que tenías de antes/.test(entregaTxt), 'párrafo de la ENTREGA (encargo único): frente al de antes, 60 %, ejemplo y el CEE de antes');
+ok(/Con tus certificados puedes aplicarte/.test(textoGuiaEnEntrega(g)) && !/ejemplo/.test(textoGuiaEnEntrega(g)), 'párrafo de la ENTREGA (doble, con facturas): plural y sin ejemplo');
+// El AHORRO con sus cifras, delante de la guía (Fran, 26/10/2026, 2026CEE_61).
+const ahG = fraseAhorro(g);
+ok(ahG && textoGuiaEnEntrega(g).startsWith(ahG), 'la entrega empieza por el AHORRO de energía');
+ok(ahG && textoGuiaEnEntrega(certSolo).startsWith(fraseAhorro(certSolo)), 'también en el encargo único');
+ok(mensajeGuiaIrpf(g, { nombre: 'JOSÉ', certificados: 2 }).includes(ahG), 'y en el mensaje de la guía suelta');
+const conCifras = (irpf) => fraseAhorro({ modalidad: '60', irpf });
+eq(conCifras({ estado: 'ok', porAhorro: true, ahorroPct: 65.13, consumoIni: 189.6, consumoFin: 66.08, letraIni: 'D', letraFin: 'B' }),
+    '📉 *Lo que ahorra tu vivienda:* con la obra, su consumo de energía primaria no renovable baja un *65,1 %*: de 189,60 a 66,08 kWh/m²·año, de la letra D a la B. Para la deducción se exige al menos un 30 %.',
+    'ahorro por PORCENTAJE: las cifras de 2026CEE_61, como en la guía');
+ok(/baja un \*12,0 %\* \(de 50,00 a 44,00 kWh\/m²·año\) y alcanza la \*letra B\*, que es lo que exige la deducción/.test(conCifras({ estado: 'ok', porAhorro: false, porLetra: true, ahorroPct: 12, consumoIni: 50, consumoFin: 44, letraIni: 'B', letraFin: 'B' })), 'por LETRA: no dice «se exige un 30 %» (no lo cumple), dice la letra');
+ok(/demanda de calefacción y refrigeración baja un \*9,5 %\*: de 100,00 a 90,50 kWh\/m²·año\. Para la deducción se exige al menos un 7 %/.test(fraseAhorro({ modalidad: '20', demanda: { estado: 'ok', ahorroPct: 9.5, antes: 100, despues: 90.5 } })), 'deducción del 20 %: por la DEMANDA');
+ok(/Lo que ahorra la vivienda/.test(fraseAhorro({ modalidad: '60', irpf: { estado: 'ok', porAhorro: true, ahorroPct: 40, consumoIni: 100, consumoFin: 60 } }, { tercero: true })), 'al PARTNER: «la vivienda», no «tu vivienda»');
+ok(fraseAhorro({ modalidad: '60', irpf: { estado: 'faltan_datos' } }) === null && fraseAhorro({}) === null, 'sin cifras no se inventa nada');
 const htmlEj = buildGuiaIrpfHtml(certSolo, { appUrl: 'https://x' });
 ok(/Ejemplo · obra de 9\.000 €/.test(htmlEj) && /5\.400 €/.test(htmlEj) && !/96,95/.test(htmlEj), 'el PDF rotula el ejemplo y no enseña la «estimación» de 96 € sobre la factura de los certificados');
 const unico = componerGuia({ ...base, propietarios: 1, facturas: [] });
