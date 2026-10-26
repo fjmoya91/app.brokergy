@@ -20,16 +20,21 @@
 // `revisar-de-nuevo` tiene tope (409 SIN_REVISIONES): se dice con calma.
 // Debajo del certificado, «¿Algo mal en este certificado? Avísanos» y lo que nos ha
 // contado de esta obra con nuestra respuesta (incidencias/Incidencias.jsx).
+// POR PARTES (Fran, 26/10/2026, alternativa A: «tanto scroll no»): Resumen (el
+// certificado, «Lo siguiente» y los atajos), Documentos, Fotos, Datos de la obra e
+// Historial, una cada vez con `?parte=`. En el PC van en el menú lateral (useMenuObra);
+// en el móvil, en la barra de abajo, con «Más» para el resto.
 import { Suspense, useState } from 'react';
 import { lazyWithReload } from '../../utils/lazyWithReload';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { API, errorDe, fecha, haceCuanto, mensajeError, urlDe } from '../api';
 import { EMAIL_CONTACTO } from '../marca';
-import { Enlace } from '../router';
+import { Enlace, navegar, useRuta } from '../router';
 import { Aviso, Hoja, useToast } from '../ui/piezas';
+import { useMenuObra } from '../ui/menuObra';
 import {
-    CheckDibujado, IcoCarpeta, IcoDoc, IcoPlano, IcoRecargar, IcoReloj, IcoSello, Spinner,
+    CheckDibujado, IcoCarpeta, IcoCasa, IcoCheck, IcoChevron, IcoDoc, IcoImagen, IcoMenu, IcoPlano, IcoRecargar, IcoReloj, IcoSello, Spinner,
 } from '../ui/Iconos';
 import { estadoDe } from './comun';
 import { FotosObra } from './Fotos';
@@ -37,7 +42,6 @@ import { ListaDocumentos } from './Documentos';
 import { VisorPdf } from './VisorPdf';
 import { CLASES, aBase64, autorTxt, useDocumentos } from './documentosComun';
 import { IncidenciasObra } from '../incidencias/Incidencias';
-import { IndiceSecciones } from './IndiceSecciones';
 import { CEE_SIGN_ANCHOR } from '../../features/expedientes/logic/signBoxes';
 
 // El modal de firma del CRM (pdf.js + AutoFirma) pesa: se carga al pulsar «Firmar». Con lazyWithReload
@@ -50,6 +54,8 @@ const Letra = ({ l }) => (LETRAS.includes(l) ? <span className={`ca-letra ca-let
 export function ObraCerrada({ o, resumen = [] }) {
     const { obra, form, eventos, enlaces, cee } = o;
     const toast = useToast();
+    const { query } = useRuta();
+    const [mas, setMas] = useState(false);
     const [validar, setValidar] = useState(false);
     const [revisar, setRevisar] = useState(false);
     const [nota, setNota] = useState('');
@@ -147,16 +153,43 @@ export function ObraCerrada({ o, resumen = [] }) {
         ['Email', t.email],
     ].filter(([, v]) => v != null && String(v).trim() !== '');
 
-    // El índice «Ir a…» (Fran, 26/10/2026: «hay que hacer demasiado scroll»).
+    // LAS PARTES (Fran, 26/10/2026: «no me gusta trabajar con tanto scroll»; alternativa A):
+    // una cada vez, `?parte=`. En el PC, en el menú lateral (useMenuObra); en el móvil,
+    // en la barra de abajo (Resumen · Documentos · Fotos · Más).
     const nFotos = Object.values(o.slots || {}).reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0);
-    const indice = [
-        { id: 'obra-certificado', label: entregado ? 'Certificado' : 'Estado' },
-        entregado && { id: 'documentos', label: 'Documentos' },
-        eventos?.length > 0 && { id: 'historial', label: 'Historial' },
-        (inmueble.length > 0 || titular.length > 0) && { id: 'la-obra', label: 'La obra' },
-        resumen.length > 0 && { id: 'respuestas', label: 'Lo que contestaste' },
+    const nDocs = dd ? [dd.firmado || dd.certificado, dd.xml, dd.cex, dd.croquis].filter(Boolean).length : null;
+    const hayDatos = inmueble.length > 0 || titular.length > 0 || resumen.length > 0;
+    const partes = [
+        { id: 'resumen', label: 'Resumen' },
+        entregado && { id: 'documentos', label: 'Documentos', n: nDocs || undefined },
         { id: 'fotos', label: 'Fotos', n: nFotos || undefined },
+        hayDatos && { id: 'datos', label: 'Datos de la obra' },
+        eventos?.length > 0 && { id: 'historial', label: 'Historial' },
     ].filter(Boolean);
+    const pedida = query.get('parte');
+    const parte = partes.some(p => p.id === pedida) ? pedida : 'resumen';
+    const aParte = (p) => `/obra/${obra.id}${p === 'resumen' ? '' : `?parte=${p}`}`;
+    const irA = (p) => { setMas(false); navegar(aParte(p)); };
+    useMenuObra({
+        numero: obra.numero_expediente,
+        titulo,
+        items: [
+            ...partes.map(p => ({ id: p.id, label: p.label, to: aParte(p.id), act: p.id === parte, n: p.n })),
+            entregado && { id: 'envolvente', label: 'Envolvente', to: urlEnvolvente },
+        ].filter(Boolean),
+    });
+
+    // Lo siguiente: dónde está el certificado y qué le toca (lo de «Mis obras», en grande).
+    const pasos = [
+        { t: 'Pedido', s: obra.pedido_at ? fecha(obra.pedido_at, true) : null, ok: true },
+        est === 'EN_PREPARACION'
+            ? { t: 'Lo estamos preparando', s: 'Te avisamos por WhatsApp y email', act: true }
+            : { t: 'Preparado', s: obra.entregado_at ? fecha(obra.entregado_at, true) : null, ok: true },
+        est === 'VALIDADO'
+            ? { t: firmado ? 'Revisado y firmado' : 'Validado', s: cee?.firma?.at ? fecha(cee.firma.at, true) : null, ok: true }
+            : { t: 'Revisarlo y firmarlo', s: est === 'LISTO' ? 'Ábrelo, compruébalo y fírmalo con AutoFirma' : null, act: est === 'LISTO' },
+        { t: 'Registrarlo', s: 'Con el XML y el PDF firmado; el registro lo haces tú', act: est === 'VALIDADO' },
+    ];
 
     const ctx = {
         form, obra, slots: o.slots, editable: false,
@@ -164,15 +197,40 @@ export function ObraCerrada({ o, resumen = [] }) {
         subir: async () => ({ ok: false }), quitar: async () => ({ ok: false }), subiendo: {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
     };
 
+    const sub = [obra.direccion && obra.direccion !== titulo ? obra.direccion : null, obra.municipio].filter(Boolean).join(' · ');
+    const enMas = partes.filter(p => !['resumen', 'documentos', 'fotos'].includes(p.id));
+    const tabs = [
+        { id: 'resumen', label: 'Resumen', ico: <IcoCasa size={22} /> },
+        entregado && { id: 'documentos', label: 'Documentos', ico: <IcoDoc size={22} /> },
+        { id: 'fotos', label: 'Fotos', ico: <IcoImagen size={22} /> },
+    ].filter(Boolean);
+
     return (
-        <div className="ca-col">
-            <IndiceSecciones items={indice} etiqueta="Partes de la obra" />
+        <div className="ca-pobra">
+            <header className="ca-obra-cab ca-in">
+                <div>
+                    <p className="ca-obra-miga"><Enlace to="/panel">Mis obras</Enlace> › <b>{obra.numero_expediente}</b></p>
+                    <div className="ca-obra-tit">
+                        <h1 className="ca-display">{titulo}</h1>
+                        <span className={`ca-chip ${estadoDe(est).chip}`}>{estadoDe(est).label}</span>
+                    </div>
+                    {sub && <p className="ca-sub">{sub}</p>}
+                </div>
+                {entregado && parte !== 'resumen' && (
+                    <div className="ca-obra-cab-acc ca-solo-menu">
+                        <button type="button" className={`ca-btn ${firmado ? 'ca-btn-sec' : 'ca-btn-pri'}`} disabled={!(dd?.firmado || dd?.certificado)} onClick={verCertificado}>
+                            <IcoSello /> {firmado ? 'Ver el certificado' : 'Ver y firmar'}
+                        </button>
+                    </div>
+                )}
+            </header>
+
+            {parte === 'resumen' && (
+            <div className="ca-obra-res">
+            <div className="ca-parte">
             <section className="ca-card ca-pad ca-in" id="obra-certificado">
                 <div className="ca-filete" />
-                <div className="ca-fila-top">
-                    <p className="ca-eyebrow" style={{ margin: 0 }}>{obra.numero_expediente}</p>
-                    <span className={`ca-chip ${estadoDe(est).chip}`}>{estadoDe(est).label}</span>
-                </div>
+                <p className="ca-eyebrow" style={{ margin: 0 }}>El certificado</p>
 
                 {est === 'EN_PREPARACION' && (
                     <>
@@ -207,12 +265,6 @@ export function ObraCerrada({ o, resumen = [] }) {
                                 </span>
                             </button>
                         )}
-                        {urlDe(enlaces?.carpeta) && (
-                            <a className="ca-fila" href={urlDe(enlaces.carpeta)} target="_blank" rel="noreferrer" style={{ marginTop: 10 }}>
-                                <span className="ca-ico-tile ca-tile-crema" aria-hidden="true"><IcoCarpeta /></span>
-                                <span><b>Tu carpeta en Google Drive</b><small>Compartida con tu email</small></span>
-                            </a>
-                        )}
                         <div className="ca-btns">
                             {!firmado && (
                                 <button type="button" className="ca-btn ca-btn-pri" disabled={!dd?.certificado || !!pdfFirmar} onClick={verCertificado}>
@@ -239,13 +291,66 @@ export function ObraCerrada({ o, resumen = [] }) {
                 </Aviso>
             )}
 
-            {entregado && (
-                <section className="ca-card ca-pad ca-in-2" id="documentos">
-                    <h2 className="ca-display" style={{ margin: 0, fontSize: 19 }}>Documentos</h2>
+            <IncidenciasObra obraId={obra.id} numero={obra.numero_expediente} className="ca-stack" />
+            </div>
+
+            <aside className="ca-col-lado">
+                <section className="ca-card ca-pad ca-in-2">
+                    <p className="ca-eyebrow" style={{ margin: 0 }}>Lo siguiente</p>
+                    <ol className="ca-sig">
+                        {pasos.map(p => (
+                            <li key={p.t} className={p.ok ? 'ca-sig-ok' : p.act ? 'ca-sig-act' : 'ca-sig-pend'}>
+                                <i aria-hidden="true">{p.ok && <IcoCheck size={12} sw={3} />}</i>
+                                <span>{p.act ? <b>{p.t}</b> : p.t}{p.s && <small>{p.s}</small>}</span>
+                            </li>
+                        ))}
+                    </ol>
+                </section>
+                <div className="ca-obra-atajos">
+                    {entregado && (
+                        <button type="button" className="ca-fila" onClick={() => irA('documentos')}>
+                            <span className="ca-ico-tile ca-tile-crema" aria-hidden="true"><IcoDoc /></span>
+                            <span><b>Documentos</b><small>{nDocs == null ? 'El PDF, el XML y el .cex' : `${nDocs} ${nDocs === 1 ? 'fichero' : 'ficheros'} · subir versión nueva`}</small></span>
+                            <IcoChevron />
+                        </button>
+                    )}
+                    <button type="button" className="ca-fila" onClick={() => irA('fotos')}>
+                        <span className="ca-ico-tile ca-tile-verde" aria-hidden="true"><IcoImagen /></span>
+                        <span><b>Fotos</b><small>{nFotos ? `${nFotos} ${nFotos === 1 ? 'foto o documento' : 'fotos y documentos'}` : 'Lo que subiste en la visita'}</small></span>
+                        <IcoChevron />
+                    </button>
+                    {entregado ? (
+                        <Enlace to={urlEnvolvente} className="ca-fila">
+                            <span className="ca-ico-tile ca-tile-crema" aria-hidden="true"><IcoPlano /></span>
+                            <span><b>Envolvente</b><small>El plano, los muros y las ventanas</small></span>
+                            <IcoChevron />
+                        </Enlace>
+                    ) : hayDatos && (
+                        <button type="button" className="ca-fila" onClick={() => irA('datos')}>
+                            <span className="ca-ico-tile ca-tile-crema" aria-hidden="true"><IcoCasa /></span>
+                            <span><b>Datos de la obra</b><small>El inmueble, el titular y tus respuestas</small></span>
+                            <IcoChevron />
+                        </button>
+                    )}
+                </div>
+            </aside>
+            </div>
+            )}
+
+            {parte === 'documentos' && entregado && (
+                <section className="ca-card ca-pad ca-parte ca-in" id="documentos">
+                    <h2 className="ca-display ca-parte-h">Documentos</h2>
                     <p className="ca-txt ca-txt-peq" style={{ marginTop: 4 }}>Lo que hay en la carpeta del certificado. Los PDF se ven aquí mismo.</p>
                     <ListaDocumentos d={dd} cargando={documentos.cargando} error={documentos.error} recargar={documentos.recargar}
                         onVer={verDoc} puedeFirmar={!pdfFirmar}
                         subida={{ subir: subirDefinitivo, subiendo: subiendoDef, error: errorDef }} />
+                    {urlDe(enlaces?.carpeta) && (
+                        <a className="ca-fila" href={urlDe(enlaces.carpeta)} target="_blank" rel="noreferrer" style={{ marginTop: 14 }}>
+                            <span className="ca-ico-tile ca-tile-crema" aria-hidden="true"><IcoCarpeta /></span>
+                            <span><b>Tu carpeta en Google Drive</b><small>Compartida con tu email</small></span>
+                        </a>
+                    )}
+                    {errorFirma && <p className="ca-error" role="alert">{errorFirma}</p>}
                 </section>
             )}
 
@@ -269,45 +374,78 @@ export function ObraCerrada({ o, resumen = [] }) {
                 />
             )}
 
-            <IncidenciasObra obraId={obra.id} numero={obra.numero_expediente} className="ca-stack" />
-
-            {eventos?.length > 0 && (
-                <>
-                    <h2 className="ca-sec" id="historial">Historial</h2>
-                    <div className="ca-card ca-pad">
-                        <ul className="ca-hist">
-                            {eventos.slice(0, 20).map(e => (
-                                <li key={e.id || `${e.created_at}-${e.tipo}`}>{e.texto || e.tipo}<small title={fecha(e.created_at, true)}>{haceCuanto(e.created_at)}</small></li>
-                            ))}
-                        </ul>
-                    </div>
-                </>
+            {parte === 'historial' && eventos?.length > 0 && (
+                <section className="ca-card ca-pad ca-parte ca-in" id="historial">
+                    <h2 className="ca-display ca-parte-h">Historial</h2>
+                    <ul className="ca-hist">
+                        {eventos.slice(0, 50).map(e => (
+                            <li key={e.id || `${e.created_at}-${e.tipo}`}>{e.texto || e.tipo}<small title={fecha(e.created_at, true)}>{haceCuanto(e.created_at)}</small></li>
+                        ))}
+                    </ul>
+                </section>
             )}
 
-            {(inmueble.length > 0 || titular.length > 0) && (
-                <>
-                    <h2 className="ca-sec" id="la-obra">La obra</h2>
-                    <div className="ca-card ca-pad">
-                        <dl className="ca-dl">{[...inmueble, ...titular].map(([k, v]) => <div key={k}><dt>{k}</dt><dd className={k === 'Referencia catastral' ? 'ca-mono' : undefined}>{v}</dd></div>)}</dl>
-                        <p className="ca-peq" style={{ marginTop: 12 }}>
-                            Desde que se pidió el certificado, estos datos y las respuestas ya no se cambian aquí.
-                            {entregado ? ' Si hay que corregir algo, cámbialo en la envolvente y pide que lo regeneremos.' : ''}
-                        </p>
-                    </div>
-                </>
+            {parte === 'datos' && (
+                <div className="ca-parte ca-in" id="la-obra">
+                    {(inmueble.length > 0 || titular.length > 0) && (
+                        <section className="ca-card ca-pad">
+                            <h2 className="ca-display ca-parte-h">La obra</h2>
+                            <dl className="ca-dl">{[...inmueble, ...titular].map(([k, v]) => <div key={k}><dt>{k}</dt><dd className={k === 'Referencia catastral' ? 'ca-mono' : undefined}>{v}</dd></div>)}</dl>
+                            <p className="ca-peq" style={{ marginTop: 12 }}>
+                                Desde que se pidió el certificado, estos datos y las respuestas ya no se cambian aquí.
+                                {entregado ? ' Si hay que corregir algo, cámbialo en la envolvente y pide que lo regeneremos.' : ''}
+                            </p>
+                        </section>
+                    )}
+                    {resumen.length > 0 && (
+                        <section className="ca-card ca-pad" id="respuestas">
+                            <h2 className="ca-display ca-parte-h">Lo que contestaste</h2>
+                            <dl className="ca-dl">{resumen.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+                        </section>
+                    )}
+                </div>
             )}
 
-            {resumen.length > 0 && (
-                <>
-                    <h2 className="ca-sec" id="respuestas">Lo que contestaste</h2>
-                    <div className="ca-card ca-pad">
-                        <dl className="ca-dl">{resumen.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
-                    </div>
-                </>
+            {parte === 'fotos' && (
+                <div className="ca-parte ca-in" id="fotos">
+                    <h2 className="ca-display ca-parte-h">Fotos y documentos</h2>
+                    <FotosObra ctx={ctx} obraId={obra.id} soloVer />
+                </div>
             )}
 
-            <h2 className="ca-sec" id="fotos">Fotos y documentos</h2>
-            <FotosObra ctx={ctx} obraId={obra.id} soloVer />
+            {/* Las partes, abajo (móvil y tableta): Resumen · Documentos · Fotos · Más. */}
+            <nav className="ca-partes-inf ca-sin-menu" aria-label="Partes de la obra">
+                {tabs.map(t => (
+                    <Enlace key={t.id} to={aParte(t.id)} className={`ca-parte-tab${parte === t.id ? ' ca-parte-tab-act' : ''}`} aria-current={parte === t.id ? 'page' : undefined}>
+                        {t.ico}{t.label}
+                    </Enlace>
+                ))}
+                <button type="button" className={`ca-parte-tab${enMas.some(p => p.id === parte) ? ' ca-parte-tab-act' : ''}`} onClick={() => setMas(true)} aria-haspopup="dialog">
+                    <IcoMenu size={22} />Más
+                </button>
+            </nav>
+            <Hoja abierta={mas} titulo={obra.numero_expediente || 'La obra'} onCerrar={() => setMas(false)}>
+                {enMas.map(p => (
+                    <button key={p.id} type="button" className="ca-fila" onClick={() => irA(p.id)}>
+                        <span className="ca-ico-tile ca-tile-crema" aria-hidden="true">{p.id === 'historial' ? <IcoReloj /> : <IcoCasa />}</span>
+                        <span><b>{p.label}</b><small>{p.id === 'historial' ? 'Lo que ha pasado con esta obra' : 'El inmueble, el titular y tus respuestas'}</small></span>
+                        <IcoChevron />
+                    </button>
+                ))}
+                {entregado && (
+                    <Enlace to={urlEnvolvente} className="ca-fila" onClick={() => setMas(false)}>
+                        <span className="ca-ico-tile ca-tile-crema" aria-hidden="true"><IcoPlano /></span>
+                        <span><b>Envolvente</b><small>El plano, los muros y las ventanas</small></span>
+                        <IcoChevron />
+                    </Enlace>
+                )}
+                {urlDe(enlaces?.carpeta) && (
+                    <a className="ca-fila" href={urlDe(enlaces.carpeta)} target="_blank" rel="noreferrer">
+                        <span className="ca-ico-tile ca-tile-crema" aria-hidden="true"><IcoCarpeta /></span>
+                        <span><b>Tu carpeta en Google Drive</b><small>Compartida con tu email</small></span>
+                    </a>
+                )}
+            </Hoja>
 
             <Hoja abierta={validar} titulo="Validar el certificado" onCerrar={() => setValidar(false)}
                 pie={<div className="ca-btns"><button type="button" className="ca-btn ca-btn-pri" disabled={ocupado} onClick={() => accion('validar', null, 'Certificado validado.')}>{ocupado ? <Spinner /> : <IcoSello />} Sí, lo doy por bueno</button></div>}>

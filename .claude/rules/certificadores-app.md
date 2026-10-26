@@ -30,8 +30,9 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md` — El CEE de una obra: el encargo, la calificación en el PC, el aviso, la entrega y la firma (2026-10-25) · 11,0 KB
 - `docs/conocimiento/certificadores-app/fase-5-fuera-enlace-corto-y-fachada.md` — Sin la fase 5, el enlace corto, la fachada propuesta y la numeración desde el 1 (2026-10-26) · 4,9 KB
 - `docs/conocimiento/certificadores-app/fotos-opcionales-y-equipo-generico.md` — Las fotos opcionales («Ahora no») y el equipo genérico con su antigüedad (2026-10-25) · 3,7 KB
-- `docs/conocimiento/certificadores-app/la-obra-sin-scroll-indice-y-fotos-a-mano.md` — La obra sin tanto scroll: el índice «Ir a…» y las fotos siempre a mano (2026-10-26) · 2,9 KB
+- `docs/conocimiento/certificadores-app/la-obra-sin-scroll-indice-y-fotos-a-mano.md` — La obra sin tanto scroll: el índice «Ir a…» y las fotos siempre a mano (2026-10-26) · 3,0 KB
 - `docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md` — «Lo que ha visto la IA» — la fase 5 de la ficha (2026-10-25) · 7,8 KB
+- `docs/conocimiento/certificadores-app/menu-lateral-y-partes-de-la-obra.md` — El menú lateral y las partes de la obra (2026-10-26) · 5,1 KB
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24) · 3,0 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -103,6 +104,9 @@ el propio vigía**
   - **REGLA — no escribe en la obra: PROPONE.**
   - **REGLA — solo lo que se VE.**
   - **REGLA — gratis para el certificador, con tope**
+- `docs/conocimiento/certificadores-app/menu-lateral-y-partes-de-la-obra.md`
+  - **REGLA — las partes de la obra llegan al menú SOLO por `useMenuObra`**
+  - **REGLA — la cámara y «La siguiente» usan los `input` del hueco (`f-<id>-cam` / `f-<id>-gal`)**
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md`
   - **REGLA — en una obra `ext` la referencia catastral sale SIEMPRE de `certapp_obras.ref_catastral`**
   - **REGLA — el `.cex` (y el croquis en PDF) de una obra `ext` solo con la obra PEDIDA**

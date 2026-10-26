@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { ORIGENES, SLOTS, estadoEquipos, siguienteDeLaVisita, slotsAplicables } from '../logic/cuestionario';
 import { Aviso } from '../ui/piezas';
-import { IcoCamara, IcoCheck, IcoChevron } from '../ui/Iconos';
+import { IcoCamara, IcoCheck, IcoChevron, IcoDoc, IcoVideo } from '../ui/Iconos';
 import { BloqueEquipo, EnlacePropietario, SlotFoto } from './Fotos';
 import { textoRespuesta } from './fasesFicha';
 import { PASO_POR_ID, contestada, valorDe } from './pasos';
@@ -56,6 +56,7 @@ export function FaseFotos({ ctx, obraId }) {
     const visita = form.en_vivienda === true;
     const aplican = slotsAplicables(c);
     const guiaId = visita && editable ? siguienteDeLaVisita(aplican, c, slots) : null;
+    const sGuia = guiaId ? SLOTS.find(s => s.id === guiaId) : null;
     const slot = (id) => (aplican.some(s => s.id === id) ? SLOTS.find(s => s.id === id) : null);
     const vivienda = ['FOTO_FACHADA_PRINCIPAL', 'FOTO_FACHADAS', 'FOTO_PATIOS_INTERIORES', 'FOTO_VENTANAS', 'FOTO_CUBIERTA', 'VIDEO_VIVIENDA'].map(slot).filter(Boolean);
     const docs = aplican.filter(s => s.documento);
@@ -87,11 +88,32 @@ export function FaseFotos({ ctx, obraId }) {
                         onClick={() => setCampo('en_vivienda', false)}>Lo hago con fotos</button>
                 </div>
             )}
-            {editable && visita && (
+            {editable && visita && (sGuia ? (
+                // «La siguiente» (26/10/2026, alternativa A): la foto que toca, arriba y en
+                // grande; sus botones son los del hueco (label → su input), sin bajar a buscarlo.
+                <div className="ca-siguiente ca-in" role="status">
+                    <div className="ca-siguiente-top">
+                        <span className="ca-siguiente-ico" aria-hidden="true">{sGuia.documento ? <IcoDoc size={26} /> : sGuia.video ? <IcoVideo size={26} /> : <IcoCamara size={26} />}</span>
+                        <span><small>La siguiente</small><b>{sGuia.label}</b>{sGuia.ayuda && <em>{sGuia.ayuda}</em>}</span>
+                    </div>
+                    {!sGuia.documento && (
+                        <label className="ca-btn ca-btn-pri" htmlFor={`f-${sGuia.id}-cam`}>
+                            {sGuia.video ? <IcoVideo size={20} /> : <IcoCamara size={20} />} {sGuia.video ? 'Grabar el vídeo' : 'Hacer la foto'}
+                        </label>
+                    )}
+                    <div className="ca-btns ca-btns-2">
+                        <label className="ca-btn ca-btn-sec ca-btn-peq" htmlFor={`f-${sGuia.id}-gal`}>De la galería</label>
+                        <button type="button" className="ca-btn ca-btn-sec ca-btn-peq"
+                            onClick={() => document.getElementById(`slot-${sGuia.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
+                            Ver dónde va
+                        </button>
+                    </div>
+                </div>
+            ) : (
                 <Aviso tono="info" icono={IcoCamara} titulo="Visita guiada">
-                    Ve en este orden: te marcamos en naranja la siguiente foto. «Hacer foto» abre la cámara trasera.
+                    Ya están todas las fotos de la visita. Si falta alguna pregunta de los equipos, contéstala abajo.
                 </Aviso>
-            )}
+            ))}
             {editable && form.en_vivienda === false && <EnlacePropietario obraId={obraId} form={form} />}
 
             <section>

@@ -2,13 +2,15 @@
 // GET /api/certapp/obras → { obras: [...] } (solo columnas escalares, regla 22).
 // Los créditos salen de /me (useCertappAuth) y se refrescan al entrar.
 // Con la API caída se dice («no hemos podido cargar»), NUNCA «0 obras».
+// Con el menú lateral (PC, 26/10/2026): el saludo con los créditos y «Nueva obra» se
+// quedan en el menú; aquí, el buscador y «Lo siguiente» de cada obra.
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { API, comoLista, fecha, haceCuanto, useCarga } from '../api';
 import { useCertappAuth } from '../auth/CertappAuth';
 import { Enlace, navegar, useRuta } from '../router';
 import { Aviso, ErrorRed, Esqueleto } from '../ui/piezas';
-import { IcoChevron, IcoMas, IcoUsuario } from '../ui/Iconos';
+import { IcoBuscar, IcoChevron, IcoMas, IcoUsuario } from '../ui/Iconos';
 import { estadoDe, nombreObra } from '../obra/comun';
 
 const FILTROS = [
@@ -20,6 +22,19 @@ const FILTROS = [
 
 const lugar = (o) => [o.direccion, o.municipio].filter(Boolean).join(', ') || o.ref_catastral || '—';
 const cuando = (o) => o.entregado_at || o.pedido_at || o.updated_at || o.created_at;
+// Lo que le toca a cada obra (fuerte: lo que tiene que hacer el certificador).
+const SIGUIENTE = {
+    BORRADOR: { t: 'Terminar la ficha y pedirlo', fuerte: true },
+    EN_PREPARACION: { t: 'Lo estamos preparando' },
+    LISTO: { t: 'Revisarlo y firmarlo', fuerte: true },
+    VALIDADO: { t: 'Registrarlo' },
+};
+const Siguiente = ({ o }) => {
+    const s = SIGUIENTE[o.estado];
+    return s ? <span className={`ca-sigtxt${s.fuerte ? ' ca-sigtxt-fuerte' : ''}`}>{s.t}</span> : <span className="ca-sigtxt">—</span>;
+};
+// Buscar sin tildes ni mayúsculas.
+const plano = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 export default function Panel() {
     const { cuenta, refrescar } = useCertappAuth();
@@ -35,7 +50,13 @@ export default function Panel() {
 
     const obras = useMemo(() => datos || [], [datos]);
     const listas = obras.filter(o => o.estado === 'LISTO').length;
-    const visibles = useMemo(() => obras.filter((FILTROS.find(x => x.id === filtro) || FILTROS[0]).f), [obras, filtro]);
+    const [buscar, setBuscar] = useState('');
+    const visibles = useMemo(() => {
+        const q = plano(buscar).trim();
+        return obras
+            .filter((FILTROS.find(x => x.id === filtro) || FILTROS[0]).f)
+            .filter(o => !q || plano([nombreObra(o), o.numero_expediente, lugar(o), o.ref_catastral].join(' ')).includes(q));
+    }, [obras, filtro, buscar]);
     const creditos = Number(cuenta?.creditos ?? 0);
     const perfilIncompleto = cuenta && ['nombre', 'nif', 'titulacion'].some(k => !String(cuenta[k] || '').trim());
     const bienvenida = query.get('bienvenida') === '1';
@@ -44,7 +65,8 @@ export default function Panel() {
     return (
         <div className="ca-col-ancha">
             <div className="ca-panel-cab">
-                <section className="ca-card ca-pad ca-in">
+                {/* En el PC los créditos y «Nueva obra» están en el menú lateral. */}
+                <section className="ca-card ca-pad ca-in ca-sin-menu">
                     <div className="ca-filete" />
                     <p className="ca-hola">{bienvenida ? 'Bienvenido' : 'Hola'}{nombre ? <>, <b>{nombre}</b></> : ''}</p>
                     <div className="ca-cifra" style={{ marginTop: 10 }}>
@@ -66,7 +88,7 @@ export default function Panel() {
                         </Aviso>
                     )}
                     {listas > 0 && (
-                        <Aviso tono="info" titulo={`${listas} ${listas === 1 ? 'certificado listo' : 'certificados listos'} para revisar`}>
+                        <Aviso tono="info" className="ca-sin-menu" titulo={`${listas} ${listas === 1 ? 'certificado listo' : 'certificados listos'} para revisar`}>
                             <button type="button" className="ca-link" onClick={() => setFiltro('listas')}>Verlos</button>
                         </Aviso>
                     )}
@@ -80,8 +102,15 @@ export default function Panel() {
                 </div>
             </div>
 
-            <div className="ca-fila-top" style={{ marginTop: 26, flexWrap: 'wrap' }}>
+            <div className="ca-fila-top ca-panel-obras" style={{ flexWrap: 'wrap' }}>
                 <h1 className="ca-display ca-h2" style={{ margin: 0 }}>Mis obras</h1>
+                {obras.length >= 3 && (
+                    <label className="ca-buscar">
+                        <IcoBuscar size={18} />
+                        <input type="search" value={buscar} onChange={e => setBuscar(e.target.value)}
+                            placeholder="Buscar por titular, número o dirección" aria-label="Buscar obras" />
+                    </label>
+                )}
                 {obras.length > 0 && (
                     <div className="ca-tabs" role="tablist" aria-label="Filtrar obras">
                         {FILTROS.map(x => {
@@ -121,14 +150,14 @@ export default function Panel() {
                                     </div>
                                     <b>{nombreObra(o)}</b>
                                     <small>{lugar(o)}</small>
-                                    <small>{haceCuanto(cuando(o))}</small>
+                                    <small><Siguiente o={o} /> · {haceCuanto(cuando(o))}</small>
                                 </Enlace>
                             ))}
                         </div>
                         <div className="ca-tabla-wrap ca-solo-pc">
                             <table className="ca-tabla">
                                 <thead>
-                                    <tr><th>Obra</th><th>Dirección</th><th>Estado</th><th>Actualizada</th><th aria-label="Abrir" /></tr>
+                                    <tr><th>Obra</th><th>Dirección</th><th>Estado</th><th>Lo siguiente</th><th>Actualizada</th><th aria-label="Abrir" /></tr>
                                 </thead>
                                 <tbody>
                                     {visibles.map(o => (
@@ -141,6 +170,7 @@ export default function Panel() {
                                             </td>
                                             <td className="ca-trunc">{lugar(o)}</td>
                                             <td><span className={`ca-chip ${estadoDe(o.estado).chip}`}>{estadoDe(o.estado).label}</span></td>
+                                            <td><Siguiente o={o} /></td>
                                             <td className="ca-num" title={fecha(cuando(o), true)}>{haceCuanto(cuando(o))}</td>
                                             <td style={{ width: 40, color: 'var(--gris)' }}><IcoChevron size={16} /></td>
                                         </tr>

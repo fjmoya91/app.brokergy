@@ -23,14 +23,15 @@ allí (suave, salvo con «reducir movimiento»). En el móvil la fila se desliza
 
 ### Dónde está
 
-- **La obra entregada** ([ObraCerrada.jsx](implementation/frontend/src/certificadores/obra/ObraCerrada.jsx)):
-  «Certificado» (o «Estado») · «Documentos» (si está entregada) · «Historial» · «La obra» · «Lo que
-  contestaste» · «Fotos (n)». Cada una con su `id` en el `h2`.
+> **Cambiado el mismo 26/10/2026** con el menú lateral ([menu-lateral-y-partes-de-la-obra.md](docs/conocimiento/certificadores-app/menu-lateral-y-partes-de-la-obra.md)):
+> la obra entregada ya va por partes (`?parte=`) y no lleva índice; la cámara del móvil es la redonda
+> del centro de la barra de abajo y, dentro de las fotos, abre la cámara de la siguiente que falta.
+
 - **Las fases** ([Fases.jsx](implementation/frontend/src/certificadores/obra/Fases.jsx)), las fotos a
   un toque desde cualquier fase:
-  - Móvil: un botón de **cámara** en la barra de abajo («Ir a las fotos»).
-  - PC: un botón **«Fotos»** en la cabecera, junto a «Guardado». En el móvil esa cabecera solo lo
-    enseña en «Generar», donde la barra de abajo no está.
+  - Móvil: la **cámara** de la barra de abajo.
+  - PC: un botón **«Fotos»** en la cabecera, junto a «Guardado» (y la fase en el menú lateral). En el
+    móvil esa cabecera solo lo enseña en «Generar», donde la barra de abajo no está.
   - Dentro de la fase de fotos, el índice «Ir a una foto» con cada hueco (Fachada principal, Caldera,
     Placa de la caldera…) y ✓ en las ya hechas: en la visita se salta a la que toca sin bajar.
 
@@ -39,6 +40,6 @@ que repite la visibilidad de `FaseFotos`: los huecos de la vivienda y los de equ
 cuestionario (`verAcs` / `verAire` / `verPlacas`). Si `FaseFotos` cambia qué huecos enseña, se cambia
 también ahí, o el índice lleva a un hueco que no está (y el chip no hace nada).
 
-Tras tocarlo: `npm run build` y, en la demo (`?demo=1`), a 375 px: la obra entregada con el índice
-pegado y sin desbordar en horizontal; en las fases, la cámara de abajo lleva a las fotos y «Caldera»
-del índice baja justo debajo de la barra y se marca.
+Tras tocarlo: `npm run build` y, en la demo (`?demo=1`), a 375 px: en las fases, la cámara de abajo
+lleva a las fotos y «Caldera» del índice baja justo debajo de la barra y se marca, sin desbordar en
+horizontal.

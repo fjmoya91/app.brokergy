@@ -11,11 +11,17 @@
 // cualquier fase, la cámara de la barra de abajo (en el PC, «Fotos» arriba) lleva a
 // la fase de fotos, y allí una barra fija «Ir a…» baja a cada foto, con ✓ las hechas
 // (IndiceSecciones + fotosDeLaFase).
+// CON EL MENÚ LATERAL (PC, 26/10/2026, alternativa A): las fases van en el menú, debajo
+// de «Mis obras» (useMenuObra), con ✓ las hechas y las fotos hechas/total; aquí ya
+// no salen la barra de progreso ni las fases plegadas (.ca-sin-menu). En el MÓVIL, la
+// barra de abajo es atrás · CÁMARA (redonda, en el centro) · Siguiente: fuera de las
+// fotos lleva a ellas; dentro, abre la cámara para la siguiente foto que falta.
 import { useEffect, useMemo } from 'react';
 import {
-    MEDIDAS, PROPOSITOS, medidasSugeridas, propositosDe, resumenCuestionario,
+    MEDIDAS, PROPOSITOS, medidasSugeridas, propositosDe, resumenCuestionario, siguienteDeLaVisita, slotsAplicables,
 } from '../logic/cuestionario';
 import { navegar, useRuta } from '../router';
+import { useMenuObra } from '../ui/menuObra';
 import { IcoAtras, IcoCamara, IcoCheck, IcoFlecha, Spinner } from '../ui/Iconos';
 import { IncidenciasObra } from '../incidencias/Incidencias';
 import { estadoDe, obraParaBarrido } from './comun';
@@ -95,8 +101,8 @@ function FasePara({ ctx }) {
 function FasePlegada({ f, form, obra, slots, hecha, onAbrir }) {
     const r = resumenFase(f.id, form, obra, slots);
     return (
-        <button type="button" className={`ca-fase-plegada${hecha ? '' : ' ca-fase-pend'}`} onClick={onAbrir}>
-            <span className="ca-paso-n">{hecha ? <IcoCheck size={14} strokeWidth={3} /> : FASE_POR_ID[f.id].n}</span>
+        <button type="button" className={`ca-fase-plegada ca-sin-menu${hecha ? '' : ' ca-fase-pend'}`} onClick={onAbrir}>
+            <span className="ca-paso-n">{hecha ? <IcoCheck size={14} sw={3} /> : FASE_POR_ID[f.id].n}</span>
             <span><b>{f.titulo}</b><small>{r || (hecha ? '' : 'Sin hacer')}</small></span>
             <span className="ca-link">Cambiar</span>
         </button>
@@ -111,10 +117,10 @@ export function Fases({ o, id, movil }) {
     const idx = FASES.findIndex(f => f.id === actual);
     const ok = form.cuestionario.fases_ok || [];
     const resumen = useMemo(() => resumenCuestionario(obraParaBarrido(obra, form, slots)), [obra, form, slots]);
+    const fotosFase = useMemo(() => fotosDeLaFase(form, slots), [form, slots]);
     // En la fase de fotos, el índice «Ir a…» de cada foto (la visita no va siempre en orden).
-    const indiceFotos = useMemo(() => (actual === 'fotos'
-        ? fotosDeLaFase(form, slots).map(f => ({ id: `slot-${f.id}`, label: f.label, hecho: f.hecho }))
-        : []), [actual, form, slots]);
+    const indiceFotos = actual === 'fotos' ? fotosFase.map(f => ({ id: `slot-${f.id}`, label: f.label, hecho: f.hecho })) : [];
+    const fotosHechas = fotosFase.filter(f => f.hecho).length;
 
     const ctx = {
         form, obra, slots, editable: o.editable,
@@ -154,6 +160,31 @@ export function Fases({ o, id, movil }) {
     const direccion = [form.direccion, [form.codigo_postal, form.municipio].filter(Boolean).join(' ')].filter(Boolean).join(', ');
     const f = FASE_POR_ID[actual];
 
+    // Las fases, en el menú lateral del PC.
+    useMenuObra({
+        numero: obra.numero_expediente || 'Obra nueva',
+        titulo,
+        items: FASES.map(x => ({
+            id: x.id, label: x.titulo, to: `/obra/${id}?fase=${x.id}`, num: FASE_POR_ID[x.id].n,
+            hecho: ok.includes(x.id), act: x.id === actual,
+            n: x.id === 'fotos' && fotosFase.length ? `${fotosHechas}/${fotosFase.length}` : undefined,
+        })),
+    });
+
+    // La cámara de la barra de abajo: fuera de las fotos, a las fotos; dentro, la
+    // cámara de la siguiente que falta (la de la visita guiada, si se está en la casa).
+    const camara = () => {
+        if (actual !== 'fotos') { abrir('fotos'); return; }
+        const c = form.cuestionario;
+        const sig = (form.en_vivienda === true && o.editable ? siguienteDeLaVisita(slotsAplicables(c), c, slots) : null)
+            || fotosFase.find(x => !x.hecho)?.id;
+        if (!sig) return;
+        const input = document.getElementById(`f-${sig}-cam`);
+        if (input && !input.disabled) input.click();
+        else document.getElementById(`slot-${sig}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    const faltanFotos = fotosFase.length > fotosHechas;
+
     let contenido = null;
     if (actual === 'inmueble') contenido = <><CatastroResumen obra={obra} /><Inmueble ctx={ctx} /></>;
     else if (actual === 'titular') contenido = <Titular ctx={ctx} />;
@@ -167,7 +198,10 @@ export function Fases({ o, id, movil }) {
     const botones = actual !== 'generar' && (
         <>
             <button type="button" className="ca-btn ca-btn-sec" onClick={atras} disabled={idx === 0} aria-label="Fase anterior"><IcoAtras /></button>
-            {movil && aFotos && <button type="button" className="ca-btn ca-btn-sec" onClick={aFotos} aria-label="Ir a las fotos"><IcoCamara /></button>}
+            {movil && (aFotos || faltanFotos) && (
+                <button type="button" className="ca-btn ca-inf-camara" onClick={camara}
+                    aria-label={aFotos ? 'Ir a las fotos' : 'Hacer la siguiente foto'}><IcoCamara size={26} /></button>
+            )}
             <button type="button" className="ca-btn ca-btn-pri" onClick={siguiente} disabled={!!falta}>
                 Siguiente <IcoFlecha />
             </button>
@@ -193,7 +227,7 @@ export function Fases({ o, id, movil }) {
                 </div>
                 <h1 className={`ca-display ${movil ? 'ca-h2' : 'ca-h1'}`} style={{ margin: '8px 0 0' }}>{titulo}</h1>
                 {direccion && <p className="ca-sub" style={{ marginTop: 4 }}>{direccion}</p>}
-                <ol className="ca-fases-barra" aria-label="Fases">
+                <ol className="ca-fases-barra ca-sin-menu" aria-label="Fases">
                     {FASES.map(x => (
                         <li key={x.id} className={`${ok.includes(x.id) ? 'ca-fb-hecha' : ''}${x.id === actual ? ' ca-fb-act' : ''}`}>
                             <button type="button" onClick={() => abrir(x.id)} aria-current={x.id === actual ? 'step' : undefined} aria-label={`${FASE_POR_ID[x.id].n}. ${x.titulo}`}>
