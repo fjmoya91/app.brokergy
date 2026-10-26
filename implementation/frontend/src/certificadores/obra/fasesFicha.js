@@ -13,9 +13,9 @@
 // 26/10/2026 (Fran: «nos la podemos saltar y que vaya directamente a simular»);
 // su pantalla (VistoIa.jsx) y su ruta siguen, sin usar.
 import {
-    ACS, ANTIGUEDAD_EQUIPO, CALEFACCION, FASE_IDS, ORIGENES, PROPOSITOS, RANGO_ORIGEN, cuentaSlot, propositosDe, slotsAplicables,
+    ACS, ANTIGUEDAD_EQUIPO, CALEFACCION, FASE_IDS, ORIGENES, PROPOSITOS, RANGO_ORIGEN, SLOTS, cuentaSlot, estadoEquipos, propositosDe, slotsAplicables,
 } from '../logic/cuestionario';
-import { PASOS } from './pasos';
+import { PASOS, PASO_POR_ID, contestada } from './pasos';
 
 export const FASES = [
     { id: 'inmueble', titulo: 'La vivienda', sub: 'Lo que dice el Catastro' },
@@ -221,4 +221,36 @@ export function lineaElemento(el, c) {
         origen: peor || (suyo ? 'TU' : null),
         supuesto: !!peor && ORIGENES[peor]?.fiable === false,
     };
+}
+
+/**
+ * Las fotos de la fase 4 que se ven AHORA en pantalla, en su orden (el de
+ * FaseFotos.jsx: la casa y luego cada equipo cuando se ha contestado lo anterior),
+ * con si ya tienen archivo. Es el índice «Ir a…» de la visita (Fran, 26/10/2026:
+ * «en cualquier momento debes poder ir a la foto de la fachada o de la caldera»).
+ * Si cambia cuándo sale un equipo en FaseFotos, cambia aquí también.
+ */
+export function fotosDeLaFase(form, slots) {
+    const c = form.cuestionario || {};
+    const aplican = slotsAplicables(c);
+    const porId = Object.fromEntries(SLOTS.map(s => [s.id, s]));
+    const aplica = (id) => aplican.some(s => s.id === id);
+    const hecha = (paso, k) => contestada(PASO_POR_ID[paso].preguntas.find(q => q.k === k), form);
+    const verAcs = hecha('calefaccion', 'calefaccion');
+    const verAire = verAcs && hecha('acs', 'acs');
+    const conBombaAire = c.calefaccion === 'bomba_aire';
+    const verPlacas = verAire && (conBombaAire || hecha('refrigeracion', 'aire_acondicionado'));
+    const eqCal = { gas: 'CALDERA', glp: 'CALDERA', gasoleo: 'CALDERA', biomasa: 'CALDERA', carbon: 'CALDERA', aerotermia: 'AEROTERMIA', bomba_aire: 'AIRE' }[c.calefaccion];
+    const eqAcs = { termo: 'TERMO', calentador: 'TERMO', solar: 'SOLAR' }[c.acs] || (c.acs === 'aerotermia' && c.calefaccion !== 'aerotermia' ? 'AEROTERMIA' : null);
+    const equipos = [
+        verAcs && eqCal,
+        verAcs && (eqAcs || (c.termo_extra === true ? 'TERMO' : null)),
+        verAire && c.aire_acondicionado === true && !conBombaAire && 'AIRE',
+        verPlacas && c.placas_fv === 'SI' && c.acs !== 'solar' && 'SOLAR',
+    ].filter(Boolean);
+    const deEquipos = [...new Set(equipos)].flatMap(eq => estadoEquipos(c, slots).find(e => e.equipo === eq)?.slots || []);
+    const vivienda = ['FOTO_FACHADA_PRINCIPAL', 'FOTO_FACHADAS', 'FOTO_PATIOS_INTERIORES', 'FOTO_VENTANAS', 'FOTO_CUBIERTA', 'VIDEO_VIVIENDA'].filter(aplica);
+    return [...vivienda, ...deEquipos].filter(id => porId[id]).map(id => ({
+        id, label: porId[id].label, hecho: cuentaSlot(slots, id) > 0,
+    }));
 }

@@ -10,7 +10,8 @@
 //                     cuarentena, con descargas firmadas.
 //   · ListaDocumentos el apartado: certificado (firmado o no), XML, .cex, croquis,
 //                     «Subir versión nueva», sus .cex y «Versiones anteriores».
-//   · VisorPdf        pantalla completa con pdf.js (páginas, zoom, descargar) y un
+//   · VisorPdf        (obra/VisorPdf.jsx) pantalla completa con el visor de pdf.js
+//                     (páginas, miniaturas, buscar, zoom, descargar) y un
 //                     pie que pone quien lo abre: el «Firmar con AutoFirma».
 //
 // REGLA — el PDF se pinta AQUÍ, nunca abriendo la descarga en otra pestaña: /fichero
@@ -19,13 +20,11 @@
 // pinta; los botones de «Descargar» llevan `download`.
 // pdf.js pesa: se carga al abrir el visor, como el modal de firma.
 // ─────────────────────────────────────────────────────────────────────────────
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import axios from 'axios';
-import { fecha, mensajeError, urlDe } from '../api';
+import { useRef, useState } from 'react';
+import { fecha, urlDe } from '../api';
 import { Aviso, ErrorRed, Esqueleto } from '../ui/piezas';
 import {
-    IcoAbajo, IcoCarpeta, IcoDescarga, IcoDoc, IcoMas, IcoMenos, IcoPlano, IcoSello, IcoSubir, IcoX, Spinner,
+    IcoCarpeta, IcoDescarga, IcoDoc, IcoMas, IcoMenos, IcoPlano, IcoSello, IcoSubir, Spinner,
 } from '../ui/Iconos';
 import { CLASES, autorTxt } from './documentosComun';
 
@@ -177,148 +176,5 @@ export function ListaDocumentos({ d, cargando, error, recargar, onVer, admin = f
                 </>
             )}
         </div>
-    );
-}
-
-/* ── El visor ─────────────────────────────────────────────────────────────── */
-async function cargarPdfjs() {
-    const [pdfjs, trabajador] = await Promise.all([import('pdfjs-dist'), import('pdfjs-dist/build/pdf.worker.min.mjs?url')]);
-    pdfjs.GlobalWorkerOptions.workerSrc = trabajador.default;
-    return pdfjs;
-}
-
-const ZOOMS = [0.75, 1, 1.25, 1.5, 2, 3];
-
-/**
- * El PDF a pantalla completa. Portaleado a <body> (regla 29.b). Quien lo abre le
- * pone : otro documento es otro visor (sin restos del anterior).
- * @param {object}   doc      { nombre, url, fecha, autor }
- * @param {string}   titulo
- * @param {string}   [detalle]
- * @param {(ctx: { bytes: ArrayBuffer|null, listo: boolean }) => any} [pie]  los botones de abajo
- */
-export function VisorPdf({ doc, titulo, detalle, onCerrar, pie }) {
-    const [estado, setEstado] = useState({ cargando: true, error: null });
-    const [paginas, setPaginas] = useState(0);
-    const [zoom, setZoom] = useState(1);
-    const [ancho, setAncho] = useState(0);
-    const [bytes, setBytes] = useState(null);   // la ORIGINAL: la que se firma o se descarga
-    const pdfRef = useRef(null);
-    const cuerpoRef = useRef(null);
-    const lienzos = useRef([]);
-    const cerrarRef = useRef(onCerrar);
-    useEffect(() => { cerrarRef.current = onCerrar; });
-
-    // Teclado y scroll del fondo.
-    useEffect(() => {
-        const prev = document.body.style.overflow;
-        document.body.style.overflow = 'hidden';
-        const alTeclado = (e) => { if (e.key === 'Escape') cerrarRef.current?.(); };
-        document.addEventListener('keydown', alTeclado);
-        return () => { document.body.style.overflow = prev; document.removeEventListener('keydown', alTeclado); };
-    }, []);
-
-    // El ancho disponible (y al girar el móvil).
-    useEffect(() => {
-        const el = cuerpoRef.current;
-        if (!el) return undefined;
-        const medir = () => setAncho(el.clientWidth);
-        medir();
-        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(medir) : null;
-        ro?.observe(el);
-        return () => ro?.disconnect();
-    }, []);
-
-    // Los bytes (con la descarga firmada) y el documento de pdf.js.
-    useEffect(() => {
-        let vivo = true;
-        (async () => {
-            try {
-                const { data } = await axios.get(urlDe(doc.url), { responseType: 'arraybuffer' });
-                if (!vivo) return;
-                setBytes(data);
-                const pdfjs = await cargarPdfjs();
-                // pdf.js se queda (y vacía) el búfer que recibe: le va una COPIA, la
-                // original es la que se firma o se descarga.
-                const pdf = await pdfjs.getDocument({ data: new Uint8Array(data.slice(0)) }).promise;
-                if (!vivo) { pdf.destroy(); return; }
-                pdfRef.current = pdf;
-                setPaginas(pdf.numPages);
-                setEstado({ cargando: false, error: null });
-            } catch (err) {
-                if (vivo) setEstado({ cargando: false, error: mensajeError(err, 'No se ha podido abrir el PDF.') });
-            }
-        })();
-        return () => { vivo = false; pdfRef.current?.destroy(); pdfRef.current = null; };
-    }, [doc.url]);
-
-    // Pintar las páginas: al ancho del visor (hasta 900 px) por el zoom, nítido en retina.
-    useEffect(() => {
-        const pdf = pdfRef.current;
-        if (!pdf || !paginas || !ancho) return undefined;
-        let vivo = true;
-        const tareas = [];
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        (async () => {
-            for (let i = 1; i <= paginas && vivo; i++) {
-                const pagina = await pdf.getPage(i);
-                const canvas = lienzos.current[i - 1];
-                if (!vivo || !canvas) return;
-                const base = pagina.getViewport({ scale: 1 });
-                const escala = (Math.min(ancho - 20, 900) / base.width) * zoom;
-                const vp = pagina.getViewport({ scale: escala * dpr });
-                canvas.width = Math.floor(vp.width);
-                canvas.height = Math.floor(vp.height);
-                canvas.style.width = `${Math.floor(vp.width / dpr)}px`;
-                canvas.style.height = `${Math.floor(vp.height / dpr)}px`;
-                const t = pagina.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
-                tareas.push(t);
-                try { await t.promise; } catch { /* cancelado al cambiar el zoom */ }
-            }
-        })();
-        return () => { vivo = false; tareas.forEach(t => t.cancel()); };
-    }, [paginas, ancho, zoom]);
-
-    const descargar = useCallback(() => {
-        if (!bytes) return;
-        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-        const a = document.createElement('a');
-        a.href = url; a.download = doc.nombre || 'documento.pdf'; a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
-    }, [bytes, doc.nombre]);
-
-    const iZoom = ZOOMS.indexOf(zoom);
-    return createPortal(
-        <div className="ca-visor" role="dialog" aria-modal="true" aria-label={titulo}>
-            <div className="ca-visor-cab">
-                <span className="ca-doc-txt">
-                    <b>{titulo}</b>
-                    <small>{detalle || doc.nombre}</small>
-                </span>
-                <span className="ca-visor-zoom">
-                    <button type="button" className="ca-icobtn" disabled={iZoom <= 0} onClick={() => setZoom(ZOOMS[iZoom - 1])} aria-label="Alejar"><IcoMenos size={16} /></button>
-                    <span>{Math.round(zoom * 100)} %</span>
-                    <button type="button" className="ca-icobtn" disabled={iZoom >= ZOOMS.length - 1} onClick={() => setZoom(ZOOMS[iZoom + 1])} aria-label="Acercar"><IcoMas size={16} /></button>
-                </span>
-                <button type="button" className="ca-icobtn" onClick={onCerrar} aria-label="Cerrar el visor"><IcoX /></button>
-            </div>
-            <div className="ca-visor-cuerpo" ref={cuerpoRef}>
-                {estado.cargando && <div className="ca-visor-estado"><Spinner size={26} /><span>Abriendo el PDF…</span></div>}
-                {estado.error && (
-                    <div className="ca-visor-estado">
-                        <span>{estado.error}</span>
-                        <a className="ca-btn ca-btn-sec" href={urlDe(doc.url)} download={doc.nombre}><IcoAbajo size={16} /> Descargarlo</a>
-                    </div>
-                )}
-                {Array.from({ length: paginas }, (_, i) => (
-                    <canvas key={i} ref={el => { lienzos.current[i] = el; }} aria-label={`Página ${i + 1} de ${paginas}`} />
-                ))}
-            </div>
-            <div className="ca-visor-pie">
-                {pie?.({ bytes, listo: !estado.cargando && !estado.error })}
-                <button type="button" className="ca-btn ca-btn-sec" disabled={estado.cargando || !!estado.error} onClick={descargar}><IcoDescarga size={16} /> Descargar</button>
-            </div>
-        </div>,
-        document.body,
     );
 }

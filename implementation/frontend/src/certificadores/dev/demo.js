@@ -205,14 +205,26 @@ const fachadaDemo = (fuente) => new Blob([`<svg xmlns="http://www.w3.org/2000/sv
 <rect x="180" y="215" width="70" height="70" fill="#5b7186"/><rect x="390" y="215" width="70" height="70" fill="#5b7186"/><rect x="290" y="260" width="60" height="110" fill="#6b4a2f"/>
 <text x="20" y="40" font-family="sans-serif" font-size="22" fill="#333">${fuente === 'catastro' ? 'Catastro (demo)' : 'Street View (demo)'}</text></svg>`], { type: 'image/svg+xml' });
 // Un PDF de una página con el rótulo de CE3X, para ver el modal de firma colocado.
-const pdfDemo = () => {
-    const txt = 'BT /F1 16 Tf 60 770 Td (CERTIFICADO DE EFICIENCIA ENERGETICA - DEMO) Tj ET BT /F1 10 Tf 330 170 Td (Firma del tecnico certificador:) Tj ET';
+// `paginas` > 1: un certificado de varias hojas con texto, para probar el visor
+// (ir a página, miniaturas, buscar «demanda»).
+const pdfDemo = (paginas = 1) => {
+    const hoja = (k) => (k === 1
+        ? 'BT /F1 16 Tf 60 770 Td (CERTIFICADO DE EFICIENCIA ENERGETICA - DEMO) Tj ET BT /F1 10 Tf 330 170 Td (Firma del tecnico certificador:) Tj ET'
+        : `BT /F1 14 Tf 60 770 Td (Anexo ${k - 1}) Tj ET BT /F1 11 Tf 60 730 Td (Demanda de calefaccion y consumo de energia primaria no renovable.) Tj ET`)
+        + ` BT /F1 9 Tf 480 40 Td (Pagina ${k} de ${paginas}) Tj ET`;
+    // 1 catálogo · 2 páginas · 3 fuente · y por hoja: la página y su contenido.
+    const kids = Array.from({ length: paginas }, (_, i) => `${4 + i * 2} 0 R`).join(' ');
     const objs = [
         '<< /Type /Catalog /Pages 2 0 R >>',
-        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
-        `<< /Length ${txt.length} >>\nstream\n${txt}\nendstream`,
+        `<< /Type /Pages /Kids [${kids}] /Count ${paginas} >>`,
         '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+        ...Array.from({ length: paginas }, (_, i) => {
+            const txt = hoja(i + 1);
+            return [
+                `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${5 + i * 2} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`,
+                `<< /Length ${txt.length} >>\nstream\n${txt}\nendstream`,
+            ];
+        }).flat(),
     ];
     let out = '%PDF-1.4\n';
     const offs = objs.map((ob, i) => { const n = out.length; out += `${i + 1} 0 obj\n${ob}\nendobj\n`; return n; });
@@ -323,7 +335,7 @@ const RUTAS = [
     }],
     ['GET', /^\/api\/certapp\/obras\/([^/]+)\/documentos$/, (b, [, id]) => documentosDemo(obraDe(id))],
     ['GET', /^\/api\/certapp-admin\/obras\/([^/]+)\/documentos$/, (b, [, id]) => documentosDemo(obraDe(id), true)],
-    ['GET', /^\/api\/certapp\/demo-fichero\/([^/]+)$/, () => bytesDe(pdfDemo())],
+    ['GET', /^\/api\/certapp\/demo-fichero\/([^/]+)$/, (b, [, id]) => bytesDe(pdfDemo(/croquis/.test(id) ? 1 : 6))],
     ['POST', /^\/api\/certapp\/obras\/([^/]+)\/cee\/definitivo$/, (b, [, id]) => {
         const o = obraDe(id);
         const f = b instanceof FormData ? b.get('fichero') : null;

@@ -19,7 +19,8 @@ import {
 } from '../ui/Iconos';
 import { estadoDe, nombreObra } from '../obra/comun';
 import { genericosDe, resumenCuestionario, slotsAplicables } from '../logic/cuestionario';
-import { ListaDocumentos, VisorPdf } from '../obra/Documentos';
+import { ListaDocumentos } from '../obra/Documentos';
+import { VisorPdf } from '../obra/VisorPdf';
 import { CLASES, autorTxt, useDocumentos } from '../obra/documentosComun';
 
 const PESTANAS = [

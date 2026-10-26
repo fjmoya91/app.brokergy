@@ -33,9 +33,11 @@ import {
 } from '../ui/Iconos';
 import { estadoDe } from './comun';
 import { FotosObra } from './Fotos';
-import { ListaDocumentos, VisorPdf } from './Documentos';
+import { ListaDocumentos } from './Documentos';
+import { VisorPdf } from './VisorPdf';
 import { CLASES, aBase64, autorTxt, useDocumentos } from './documentosComun';
 import { IncidenciasObra } from '../incidencias/Incidencias';
+import { IndiceSecciones } from './IndiceSecciones';
 import { CEE_SIGN_ANCHOR } from '../../features/expedientes/logic/signBoxes';
 
 // El modal de firma del CRM (pdf.js + AutoFirma) pesa: se carga al pulsar «Firmar». Con lazyWithReload
@@ -145,6 +147,17 @@ export function ObraCerrada({ o, resumen = [] }) {
         ['Email', t.email],
     ].filter(([, v]) => v != null && String(v).trim() !== '');
 
+    // El índice «Ir a…» (Fran, 26/10/2026: «hay que hacer demasiado scroll»).
+    const nFotos = Object.values(o.slots || {}).reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0);
+    const indice = [
+        { id: 'obra-certificado', label: entregado ? 'Certificado' : 'Estado' },
+        entregado && { id: 'documentos', label: 'Documentos' },
+        eventos?.length > 0 && { id: 'historial', label: 'Historial' },
+        (inmueble.length > 0 || titular.length > 0) && { id: 'la-obra', label: 'La obra' },
+        resumen.length > 0 && { id: 'respuestas', label: 'Lo que contestaste' },
+        { id: 'fotos', label: 'Fotos', n: nFotos || undefined },
+    ].filter(Boolean);
+
     const ctx = {
         form, obra, slots: o.slots, editable: false,
         setCampo: () => {}, setC: () => {}, setTitular: () => {}, setDecision: () => {},
@@ -153,7 +166,8 @@ export function ObraCerrada({ o, resumen = [] }) {
 
     return (
         <div className="ca-col">
-            <section className="ca-card ca-pad ca-in">
+            <IndiceSecciones items={indice} etiqueta="Partes de la obra" />
+            <section className="ca-card ca-pad ca-in" id="obra-certificado">
                 <div className="ca-filete" />
                 <div className="ca-fila-top">
                     <p className="ca-eyebrow" style={{ margin: 0 }}>{obra.numero_expediente}</p>
@@ -259,7 +273,7 @@ export function ObraCerrada({ o, resumen = [] }) {
 
             {eventos?.length > 0 && (
                 <>
-                    <h2 className="ca-sec">Historial</h2>
+                    <h2 className="ca-sec" id="historial">Historial</h2>
                     <div className="ca-card ca-pad">
                         <ul className="ca-hist">
                             {eventos.slice(0, 20).map(e => (
@@ -272,7 +286,7 @@ export function ObraCerrada({ o, resumen = [] }) {
 
             {(inmueble.length > 0 || titular.length > 0) && (
                 <>
-                    <h2 className="ca-sec">La obra</h2>
+                    <h2 className="ca-sec" id="la-obra">La obra</h2>
                     <div className="ca-card ca-pad">
                         <dl className="ca-dl">{[...inmueble, ...titular].map(([k, v]) => <div key={k}><dt>{k}</dt><dd className={k === 'Referencia catastral' ? 'ca-mono' : undefined}>{v}</dd></div>)}</dl>
                         <p className="ca-peq" style={{ marginTop: 12 }}>
@@ -285,14 +299,14 @@ export function ObraCerrada({ o, resumen = [] }) {
 
             {resumen.length > 0 && (
                 <>
-                    <h2 className="ca-sec">Lo que contestaste</h2>
+                    <h2 className="ca-sec" id="respuestas">Lo que contestaste</h2>
                     <div className="ca-card ca-pad">
                         <dl className="ca-dl">{resumen.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
                     </div>
                 </>
             )}
 
-            <h2 className="ca-sec">Fotos y documentos</h2>
+            <h2 className="ca-sec" id="fotos">Fotos y documentos</h2>
             <FotosObra ctx={ctx} obraId={obra.id} soloVer />
 
             <Hoja abierta={validar} titulo="Validar el certificado" onCerrar={() => setValidar(false)}

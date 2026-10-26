@@ -19,10 +19,34 @@ incluso nosotros como admin». Decidido: el apartado entero, para los dos, con e
   visor bloqueado no le dejaba comprobar nada.
 
 **REGLA — los PDF de la obra se pintan DENTRO de la app, nunca en una pestaña**: `VisorPdf`
-([Documentos.jsx](implementation/frontend/src/certificadores/obra/Documentos.jsx)) pide los bytes a
+([VisorPdf.jsx](implementation/frontend/src/certificadores/obra/VisorPdf.jsx)) pide los bytes a
 `/fichero` con axios (`arraybuffer`) y los pinta con pdf.js (cargado al abrir). Descargar es un
 `<a download>` con un blob de esos bytes. Así `/fichero` mantiene el `sandbox`. pdf.js se queda con el
 ArrayBuffer que recibe: se le pasa una copia, o «Descargar» y «Firmar» se quedan sin bytes.
+
+### El visor, «más pro» (2026-10-26, tarde)
+
+Fran: «no veo que el visor sea excesivamente profesional; falta, por ejemplo, el buscador de
+páginas». El primer visor pintaba las páginas en canvas, una debajo de otra, sin más. Ahora usa el
+visor de pdf.js (`pdfjs-dist/web/pdf_viewer.mjs`: `PDFViewer` + `PDFFindController` + `PDFLinkService`)
+y trae:
+
+- **Buscar en el texto** (lupa o Ctrl+F): resalta todas, «2 de 5», ↑/↓ o Intro/Mayús+Intro.
+- **Ir a la página**: campo «n / N», ← → y Ctrl+Inicio/Fin.
+- **Miniaturas** a la izquierda en el PC (se pintan al verse, a 104 px), con la actual marcada.
+- **Zoom**: −/+ (Ctrl −/+), «Automático», «Al ancho», «Página entera» y 50–300 %. En el móvil arranca
+  «Al ancho» y sin miniaturas; en el PC, «Automático».
+- El texto se puede seleccionar y copiar (capa de texto). Esc cierra la búsqueda y luego el visor.
+
+**REGLA — pdf.js se carga en `pdfjsCarga.js`, con el worker por import ESTÁTICO `?url`**: un
+`import('…pdf.worker.min.mjs?url')` dinámico en el `vite dev` sirve el fichero crudo, `default` llega
+`undefined` y pdf.js falla con «Invalid `workerSrc` type». Además `pdf_viewer.mjs` lee
+`globalThis.pdfjsLib` al cargarse: `pdfjsCarga.js` lo pone ANTES de importar el visor. Todo va en
+chunks aparte: no pesa en la obra hasta que se abre un PDF.
+
+Lo demás: el contenedor de `PDFViewer` tiene que ir en `position:absolute` (`.ca-visor-cuerpo`); el
+`index.css` global pone en MAYÚSCULAS los `input`/`select`, y en el visor se anula
+(`text-transform:none`) para que la búsqueda y el zoom se lean como se escriben.
 
 ### El apartado «Documentos»
 
@@ -85,4 +109,6 @@ automático.
 Tras tocarlo: `test_certapp_unidad.js` (clase y autor por el nombre, `nombreDescarga`, el `.cex` en
 cuarentena fuera de `elegirFicheros`, la subida a su subcarpeta, sin subcarpeta y llena) y
 `test_certapp_rutas.js` (`/documentos` sin sesión 401, ajena 404, BORRADOR vacío, VALIDADO sin
-enlaces de Drive, admin con `drive`, el `.cex.cuarentena` se descarga como `.cex`).
+enlaces de Drive, admin con `drive`, el `.cex.cuarentena` se descarga como `.cex`). Si se toca el
+visor: `npm run build` (salen los chunks `pdf_viewer` y `pdfjsCarga`) y, en la demo, abrir el
+certificado (6 páginas), buscar «demanda» (5 resultados) y verlo a 375 px sin desbordar.

@@ -7,16 +7,21 @@
 // deducido del Catastro con su origen y se pasa a pedir el certificado: la fase
 // «Lo que ha visto la IA» se quitó el 26/10/2026 (Fran: «nos la podemos saltar;
 // las skills deben ser capaces ya de sacar eso adelante»).
+// LAS FOTOS, SIEMPRE A MANO (26/10/2026, pensando en la visita con el móvil): desde
+// cualquier fase, la cámara de la barra de abajo (en el PC, «Fotos» arriba) lleva a
+// la fase de fotos, y allí una barra fija «Ir a…» baja a cada foto, con ✓ las hechas
+// (IndiceSecciones + fotosDeLaFase).
 import { useEffect, useMemo } from 'react';
 import {
     MEDIDAS, PROPOSITOS, medidasSugeridas, propositosDe, resumenCuestionario,
 } from '../logic/cuestionario';
 import { navegar, useRuta } from '../router';
-import { IcoAtras, IcoCheck, IcoFlecha, Spinner } from '../ui/Iconos';
+import { IcoAtras, IcoCamara, IcoCheck, IcoFlecha, Spinner } from '../ui/Iconos';
 import { IncidenciasObra } from '../incidencias/Incidencias';
 import { estadoDe, obraParaBarrido } from './comun';
-import { FASES, FASE_POR_ID, faltaEnFase, faseActual, resumenFase } from './fasesFicha';
+import { FASES, FASE_POR_ID, faltaEnFase, faseActual, fotosDeLaFase, resumenFase } from './fasesFicha';
 import { FaseFotos } from './FaseFotos';
+import { IndiceSecciones } from './IndiceSecciones';
 import { PedirCertificado } from './Generar';
 import { PASO_POR_ID } from './pasos';
 import { Inmueble, Opcion, Pregunta, Titular } from './Pregunta';
@@ -106,6 +111,10 @@ export function Fases({ o, id, movil }) {
     const idx = FASES.findIndex(f => f.id === actual);
     const ok = form.cuestionario.fases_ok || [];
     const resumen = useMemo(() => resumenCuestionario(obraParaBarrido(obra, form, slots)), [obra, form, slots]);
+    // En la fase de fotos, el índice «Ir a…» de cada foto (la visita no va siempre en orden).
+    const indiceFotos = useMemo(() => (actual === 'fotos'
+        ? fotosDeLaFase(form, slots).map(f => ({ id: `slot-${f.id}`, label: f.label, hecho: f.hecho }))
+        : []), [actual, form, slots]);
 
     const ctx = {
         form, obra, slots, editable: o.editable,
@@ -152,9 +161,13 @@ export function Fases({ o, id, movil }) {
     else if (actual === 'fotos') contenido = <FaseFotos ctx={ctx} obraId={id} />;
     else contenido = <PedirCertificado ctx={ctx} guardar={o.guardar} onIr={abrir} onHecho={() => o.cargar({ silencioso: true })} />;
 
+    // A las fotos desde cualquier fase (Fran: «en la visita, en cualquier momento
+    // debes poder ir a la foto de la fachada o de la caldera»). «Atrás» del móvil vuelve.
+    const aFotos = actual !== 'fotos' ? () => abrir('fotos') : null;
     const botones = actual !== 'generar' && (
         <>
             <button type="button" className="ca-btn ca-btn-sec" onClick={atras} disabled={idx === 0} aria-label="Fase anterior"><IcoAtras /></button>
+            {movil && aFotos && <button type="button" className="ca-btn ca-btn-sec" onClick={aFotos} aria-label="Ir a las fotos"><IcoCamara /></button>}
             <button type="button" className="ca-btn ca-btn-pri" onClick={siguiente} disabled={!!falta}>
                 Siguiente <IcoFlecha />
             </button>
@@ -169,7 +182,14 @@ export function Fases({ o, id, movil }) {
                     <p className="ca-eyebrow" style={{ margin: 0 }}>
                         {obra.numero_expediente || 'Obra nueva'}{!movil && <> · <span className={`ca-chip ${estadoDe(obra.estado).chip}`}>{estadoDe(obra.estado).label}</span></>}
                     </p>
-                    <Guardado g={o.guardado} onReintentar={o.guardar} />
+                    <span className="ca-fila-top-der">
+                        {aFotos && (!movil || actual === 'generar') && (
+                            <button type="button" className="ca-btn ca-btn-sec ca-btn-peq ca-btn-fotos" onClick={aFotos}>
+                                <IcoCamara size={16} /> Fotos
+                            </button>
+                        )}
+                        <Guardado g={o.guardado} onReintentar={o.guardar} />
+                    </span>
                 </div>
                 <h1 className={`ca-display ${movil ? 'ca-h2' : 'ca-h1'}`} style={{ margin: '8px 0 0' }}>{titulo}</h1>
                 {direccion && <p className="ca-sub" style={{ marginTop: 4 }}>{direccion}</p>}
@@ -188,6 +208,8 @@ export function Fases({ o, id, movil }) {
             {FASES.slice(0, idx).map(x => (
                 <FasePlegada key={x.id} f={x} form={form} obra={obra} slots={slots} hecha={ok.includes(x.id)} onAbrir={() => abrir(x.id)} />
             ))}
+
+            {indiceFotos.length > 1 && <IndiceSecciones items={indiceFotos} etiqueta="Ir a una foto" />}
 
             <section className="ca-card ca-pad ca-fase ca-in-2" key={actual}>
                 <p className="ca-eyebrow" style={{ margin: 0 }}>Fase {f.n} de {FASES.length}</p>

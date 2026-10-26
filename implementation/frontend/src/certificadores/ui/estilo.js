@@ -300,16 +300,54 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-docs-mas{appearance:none;background:none;border:0;padding:0;margin-top:14px;font:600 14px 'Inter',sans-serif;color:var(--tinta);cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:underline;text-underline-offset:3px}
 .ca-docs-old .ca-doc{background:var(--crema);padding:10px 10px 10px 12px}
 @media (max-width:480px){.ca-doc{flex-wrap:wrap}.ca-doc-acc{width:100%;justify-content:flex-end}}
+.ca-fila-top-der{display:flex;align-items:center;gap:10px}
+.ca-btn-fotos{width:auto;min-height:36px;padding:0 12px;font-size:13.5px}
+/* índice «Ir a…» fijo bajo la barra (obra/IndiceSecciones.jsx) */
+.ca-indice{position:sticky;z-index:30;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin-left:-16px;margin-right:-16px;padding:8px 16px;background:rgba(250,249,247,.92);-webkit-backdrop-filter:saturate(1.4) blur(10px);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--linea)}
+.ca-indice::-webkit-scrollbar{display:none}
+.ca-indice-chip{flex:none;appearance:none;min-height:38px;padding:0 14px;border-radius:999px;border:1px solid rgba(20,17,17,.12);background:#fff;color:var(--tinta);font:600 13.5px 'Inter',sans-serif;display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.ca-indice-chip small{font:700 11px 'Inter',sans-serif;color:var(--gris2)}
+.ca-indice-hecho svg{color:var(--verde-txt)}
+.ca-indice-act{background:var(--tinta);color:#fff;border-color:var(--tinta)}
+.ca-indice-act small{color:rgba(255,255,255,.7)}
+.ca-indice-act.ca-indice-hecho svg{color:var(--lima)}
 /* visor de PDF (pantalla completa) */
 .ca-visor{position:fixed;inset:0;z-index:9100;background:#3a3735;display:flex;flex-direction:column;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--tinta);animation:ca-fade .15s ease both}
-.ca-visor-cab{flex:none;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--crema);border-bottom:1px solid var(--linea)}
-.ca-visor-cab .ca-doc-txt b{font-size:15px}
-.ca-visor-zoom{display:flex;gap:4px;align-items:center}
-.ca-visor-zoom .ca-icobtn{width:38px;height:38px}
-.ca-visor-zoom span{font:600 12.5px 'Inter',sans-serif;color:var(--gris);min-width:42px;text-align:center}
-.ca-visor-cuerpo{flex:1;overflow:auto;overscroll-behavior:contain;padding:16px 10px 24px;display:flex;flex-direction:column;align-items:center;gap:12px}
-.ca-visor-cuerpo canvas{display:block;background:#fff;box-shadow:0 6px 24px -8px rgba(0,0,0,.5);max-width:none}
-.ca-visor-estado{margin:auto;color:#f1eee9;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:420px;padding:0 16px}
+.ca-visor-cab{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:8px 12px;background:var(--crema);border-bottom:1px solid var(--linea)}
+.ca-visor-cab .ca-icobtn,.ca-visor-buscar .ca-icobtn{width:38px;height:38px}
+.ca-icobtn-act{background:var(--tinta);color:#fff;border-color:var(--tinta)}
+.ca-visor-tit{flex:1 1 160px}
+.ca-visor-tit b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ca-visor-tit small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ca-visor-herr{display:flex;align-items:center;gap:14px}
+.ca-visor-grupo{display:flex;align-items:center;gap:4px}
+.ca-visor-pag{display:flex;align-items:center;gap:6px;font:600 13px 'Inter',sans-serif;color:var(--gris);white-space:nowrap}
+.ca-visor-pag input{width:46px;height:34px;border:1px solid var(--linea);border-radius:10px;background:#fff;text-align:center;font:700 14px 'Inter',sans-serif;color:var(--tinta)}
+.ca-visor-escala{height:34px;border:1px solid var(--linea);border-radius:10px;background:#fff;padding:0 8px;font:600 13px 'Inter',sans-serif;color:var(--tinta);max-width:150px}
+.ca-visor-buscar{flex:none;display:flex;align-items:center;gap:6px;padding:6px 12px;background:#fff;border-bottom:1px solid var(--linea);color:var(--gris)}
+.ca-visor-buscar input{flex:1;min-width:0;height:38px;border:0;outline:none;background:transparent;font:500 16px 'Inter',sans-serif;color:var(--tinta)}
+.ca-visor-cuenta{font:600 12.5px 'Inter',sans-serif;white-space:nowrap}
+.ca-visor-main{flex:1;min-height:0;display:flex}
+.ca-visor-mini{flex:none;width:148px;overflow-y:auto;overscroll-behavior:contain;background:#2e2c2a;padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:12px}
+.ca-visor-mini button{appearance:none;background:none;border:0;padding:0;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;color:#cfc9c1;font:600 11.5px 'Inter',sans-serif}
+.ca-visor-mini canvas{display:block;width:104px;min-height:60px;background:#fff;border:3px solid transparent;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.ca-visor-mini .ca-mini-act canvas{border-color:var(--lima)}
+.ca-visor-mini .ca-mini-act{color:#fff}
+.ca-visor-lienzo{position:relative;flex:1;min-width:0}
+.ca-visor-cuerpo{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain}
+.ca-visor .pdfViewer{padding:16px 0 24px}
+.ca-visor .pdfViewer.removePageBorders .page{margin:0 auto 14px;box-shadow:0 6px 24px -8px rgba(0,0,0,.55)}
+.ca-visor .textLayer .highlight{--highlight-bg-color:rgba(255,196,0,.5);--highlight-selected-bg-color:rgba(255,106,0,.6)}
+.ca-visor input,.ca-visor select{text-transform:none!important}
+.ca-visor-buscar input::-webkit-search-cancel-button{display:none}
+.ca-visor-estado{position:absolute;inset:0;margin:auto;height:max-content;color:#f1eee9;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:420px;padding:0 16px}
+@media (max-width:699px){
+  .ca-visor-solo-pc{display:none}
+  .ca-visor-herr{order:3;width:100%;justify-content:space-between;gap:6px}
+  .ca-visor-escala{max-width:132px}
+  .ca-visor-zoom-btn{display:none}
+  .ca-visor-pie .ca-btn{flex:1 1 auto;padding:0 12px}
+}
 .ca-visor-pie{flex:none;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;align-items:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--crema);border-top:1px solid var(--linea)}
 .ca-visor-pie .ca-btn{width:auto;min-height:44px;padding:0 18px}
 .ca-visor-pie p{flex:1 1 220px;margin:0;font-size:13px;color:var(--gris)}
