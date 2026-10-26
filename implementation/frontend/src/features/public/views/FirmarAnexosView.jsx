@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
 import AsistenteFirmaManuscrita from '../../firma/AsistenteFirmaManuscrita';
 import { cajaConvenioCedente, anexoISignBoxCedente } from '../../expedientes/logic/signBoxes';
@@ -20,6 +19,206 @@ const API_URL = '/api/public';
 
 const PDF_AND_IMG = 'application/pdf,image/*';
 
+// ── Demo sin API: /firmar-anexos/demo ─────────────────────────────────────────
+// Con `?datos` (faltan datos), `?preparando` (datos recibidos, anexos en
+// preparación), `?requerimiento`, `?rechazo` o `?varios` (dos cedentes).
+const DEMO_ID = 'demo';
+function infoDemo() {
+    const q = new URLSearchParams(window.location.search);
+    const datos = q.has('datos');
+    const preparando = q.has('preparando');
+    return {
+        numero_expediente: '26RES060_241',
+        cliente: 'MARÍA GARCÍA LÓPEZ',
+        datos_cliente: {
+            nombre_razon_social: 'MARÍA', apellidos: 'GARCÍA LÓPEZ',
+            email: datos ? '' : 'maria@ejemplo.es', telefono: '600000000',
+            dni: datos ? '' : '00000000T', iban: '',
+            falta_email: datos, falta_dni: datos, falta_iban: datos, justificante_subido: false,
+        },
+        anexo_i_enviado: !datos && !preparando, anexo_cesion_enviado: !datos && !preparando,
+        anexo_i_disponible: !datos && !preparando, anexo_cesion_disponible: !datos && !preparando && !q.has('requerimiento'),
+        anexo_i_firmado: false, anexo_cesion_firmado: false, dni_subido: false,
+        cedentes: q.has('varios') ? [{ nombre: 'MARÍA GARCÍA LÓPEZ' }, { nombre: 'JUAN PÉREZ RUIZ' }] : [{ nombre: 'MARÍA GARCÍA LÓPEZ' }],
+        rechazos: q.has('rechazo') ? [{ doc: 'anexo_i', label: 'Anexo I', preparando: false, motivo: 'la fecha de la factura no era la buena' }] : [],
+        requerimiento: q.has('requerimiento') ? { importe_anterior: 3400, importe_nuevo: 3100, fecha_limite: '2026-11-12' } : null,
+    };
+}
+
+const CSS = `
+@font-face{font-family:'Antonio';font-style:normal;font-weight:700;font-display:swap;src:url('/fonts/Antonio-700-latin.woff2') format('woff2')}
+.fa{--crema:#faf9f7;--tinta:#141111;--gris:#55585f;--gris2:#6b6e76;--linea:rgba(20,17,17,.08);--naranja:#ffa000;--naranja-txt:#b33a0a;--verde:#b1d13e;--verde-txt:#4d6b0f;--lima:#c7f601;
+  --filete:linear-gradient(90deg,#fca508 0%,#f5c53f 30%,#eee475 55%,#c7d54c 78%,#b5cf38 100%);
+  color-scheme:light;min-height:100vh;min-height:100dvh;background:var(--crema);color:var(--tinta);
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased;
+  position:relative;overflow-x:hidden}
+.fa *{box-sizing:border-box}
+.fa ::selection{background:var(--lima);color:var(--tinta)}
+.fa-filete-top{height:4px;background:var(--filete)}
+.fa-halo{position:absolute;inset:0 0 auto 0;height:520px;pointer-events:none;
+  background:radial-gradient(60% 55% at 50% 0%,rgba(255,160,0,.10),transparent 70%),radial-gradient(40% 40% at 85% 10%,rgba(199,246,1,.10),transparent 70%)}
+.fa-col{position:relative;max-width:480px;margin:0 auto;padding:18px 16px calc(36px + env(safe-area-inset-bottom))}
+.fa-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 2px 22px}
+.fa-logo{height:26px;width:auto;display:block}
+.fa-exp{font:600 11.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--gris);background:#fff;border:1px solid var(--linea);border-radius:999px;padding:7px 10px;letter-spacing:.02em;white-space:nowrap}
+.fa-hola{font-size:15px;color:var(--gris);margin:0 2px}
+.fa-hola b{color:var(--tinta);font-weight:600}
+.fa-display{font-family:'Antonio','Inter',Impact,sans-serif;font-weight:700;letter-spacing:-.005em;color:var(--tinta)}
+.fa-h1{font-size:42px;line-height:1.16;margin:6px 2px 0}
+.fa-mark{background:linear-gradient(transparent 14%,var(--lima) 14%);padding:0 .14em;border-radius:5px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.fa-sub{font-size:15.5px;line-height:1.55;color:var(--gris);margin:12px 2px 0}
+.fa-sub b{color:var(--tinta);font-weight:700}
+.fa-txt{font-size:15px;line-height:1.55;color:var(--gris);margin:10px 0 0}
+.fa-txt b{color:var(--tinta);font-weight:700}
+.fa-stack{margin-top:22px}
+.fa-stack > * + *{margin-top:14px}
+.fa-card{background:#fff;border:1px solid var(--linea);border-radius:24px;box-shadow:0 1px 2px rgba(20,17,17,.04),0 8px 24px -12px rgba(20,17,17,.10);position:relative;overflow:hidden;padding:22px 20px}
+.fa-filete-fino{position:absolute;top:0;left:0;right:0;height:4px;background:var(--filete)}
+.fa-eyebrow{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--naranja-txt);margin:0}
+.fa-eyebrow-verde{color:var(--verde-txt)}
+.fa-h2{font-size:28px;line-height:1.16;margin:8px 0 0}
+.fa-paso{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:999px;background:var(--naranja);color:#08090c;font-size:11.5px;font-weight:800;letter-spacing:0}
+.fa-ico-tile{flex:none;width:40px;height:40px;border-radius:12px;display:grid;place-items:center}
+.fa-aviso{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:16px;font-size:14.5px;line-height:1.5}
+.fa-aviso p{margin:0}
+.fa-aviso p + p{margin-top:8px}
+.fa-aviso b{font-weight:700}
+.fa-aviso-ambar{background:#fff7e6;border:1px solid #f6dca4;color:#5c4100}
+.fa-aviso-ambar .fa-ico-tile{background:#ffe9bd;color:#7a4b00}
+.fa-aviso-ok{background:rgba(177,209,62,.12);border:1px solid rgba(177,209,62,.35);color:#3c5409}
+.fa-aviso-ok .fa-ico-tile{background:rgba(177,209,62,.25);color:var(--verde-txt)}
+.fa-aviso-t{display:block;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px}
+.fa-aviso-nota{font-size:13px;opacity:.85}
+.fa-mt{margin-top:14px}
+.fa-demo{margin:0 0 16px;padding:10px 14px;border-radius:14px;border:1.5px dashed rgba(20,17,17,.22);background:#fff;font-size:12.5px;line-height:1.45;color:var(--gris)}
+.fa-demo b{color:var(--tinta)}
+.fa-hueco{padding:36px 16px;border-radius:24px;border:1.5px dashed rgba(20,17,17,.22);background:#fff;text-align:center;font-size:14px;line-height:1.5;color:var(--gris)}
+/* botones */
+.fa-btn{appearance:none;-webkit-tap-highlight-color:transparent;display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:56px;padding:0 20px;border-radius:16px;border:0;cursor:pointer;
+  font:700 16.5px/1.2 'Inter',sans-serif;text-decoration:none;text-align:center;transition:transform .12s ease,box-shadow .2s ease,filter .2s ease,border-color .2s ease}
+.fa-btn:active{transform:scale(.98)}
+.fa-btn:disabled{opacity:.5;cursor:default;transform:none}
+.fa-btn:focus-visible,.fa-link:focus-visible,.fa-opc:focus-visible,.fa-elige:focus-visible,.fa-drop:focus-visible{outline:3px solid var(--tinta);outline-offset:3px}
+.fa-btn-pri{background:var(--naranja);color:#08090c;box-shadow:0 1px 0 rgba(255,255,255,.35) inset,0 10px 22px -10px rgba(255,160,0,.75)}
+.fa-btn-pri:hover:not(:disabled){filter:brightness(1.04)}
+.fa-btn-sec{background:#fff;color:var(--tinta);border:1.5px solid rgba(20,17,17,.14);min-height:52px;font-size:15.5px}
+.fa-btn-sec:hover:not(:disabled){border-color:rgba(20,17,17,.3)}
+.fa-btns2{display:grid;gap:10px;margin-top:16px}
+.fa-link{appearance:none;background:none;border:0;cursor:pointer;padding:0;min-height:44px;font:inherit;font-size:14.5px;font-weight:700;color:var(--tinta);text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(20,17,17,.35);border-radius:6px}
+.fa-volver{display:inline-flex;align-items:center;gap:6px;color:var(--gris);text-decoration:none}
+.fa-centro{text-align:center}
+.fa-nota{font-size:12.5px;color:var(--gris2);line-height:1.45;margin:10px 2px 0;text-align:center}
+.fa-spin{animation:fa-rot .8s linear infinite}
+/* modos de firma */
+.fa-opcs{display:grid;gap:10px;margin-top:16px}
+.fa-opc{appearance:none;-webkit-tap-highlight-color:transparent;width:100%;display:flex;align-items:flex-start;gap:14px;padding:16px;text-align:left;cursor:pointer;
+  background:#fff;border:1.5px solid rgba(20,17,17,.12);border-radius:18px;color:var(--tinta);font:inherit;transition:border-color .2s ease,box-shadow .2s ease,transform .12s ease}
+.fa-opc:hover{border-color:rgba(20,17,17,.3)}
+.fa-opc:active{transform:scale(.99)}
+.fa-opc:disabled{opacity:.6;cursor:default}
+.fa-opc-dest{border-color:var(--naranja);background:#fffaf0;box-shadow:0 0 0 3px rgba(255,160,0,.14)}
+.fa-opc-dest:hover{border-color:var(--naranja)}
+.fa-opc .fa-ico-tile{background:var(--crema);color:var(--tinta)}
+.fa-opc-dest .fa-ico-tile{background:rgba(255,160,0,.18);color:#8a4b00}
+.fa-opc-cuerpo{flex:1;min-width:0}
+.fa-opc-label{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:16px;font-weight:700;line-height:1.35}
+.fa-opc-sub{display:block;font-size:13.5px;line-height:1.45;color:var(--gris);margin-top:3px}
+.fa-chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;background:var(--lima);color:var(--tinta)}
+.fa-chip-gris{background:var(--crema);border:1px solid var(--linea);color:var(--gris)}
+.fa-flecha{flex:none;align-self:center;color:var(--gris2)}
+/* campos */
+.fa-k{display:block;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--gris);margin:0 2px 8px}
+.fa-k i{font-style:normal;color:var(--naranja-txt)}
+.fa-campos{display:grid;gap:16px;margin-top:16px}
+.fa-input{appearance:none;display:block;width:100%;height:54px;padding:0 16px;border-radius:14px;border:1.5px solid rgba(20,17,17,.14);background:#fff;color:var(--tinta);
+  font:500 16px/1 'Inter',sans-serif;transition:border-color .2s ease,box-shadow .2s ease}
+.fa-input::placeholder{color:#a3a5aa;text-transform:none;letter-spacing:normal}
+.fa-input:hover{border-color:rgba(20,17,17,.28)}
+.fa-input:focus{outline:none;border-color:var(--tinta);box-shadow:0 0 0 4px rgba(255,160,0,.22)}
+.fa-input-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.04em;font-size:15px}
+/* zona de subir */
+.fa-subidas{display:grid;gap:16px;margin-top:16px}
+.fa-drop-t{display:block;font-size:14.5px;font-weight:700;line-height:1.35;margin:0 2px}
+.fa-drop-t i{font-style:normal;color:var(--naranja-txt)}
+.fa-drop-d{display:block;font-size:13px;line-height:1.45;color:var(--gris);margin:2px 2px 8px}
+.fa-drop{appearance:none;-webkit-tap-highlight-color:transparent;width:100%;display:flex;align-items:center;gap:12px;min-height:64px;padding:12px 14px;border-radius:16px;cursor:pointer;text-align:left;
+  border:1.5px dashed rgba(20,17,17,.2);background:var(--crema);color:var(--tinta);font:inherit;transition:border-color .2s ease,background-color .2s ease,transform .12s ease}
+.fa-drop:hover{border-color:rgba(20,17,17,.4)}
+.fa-drop:active{transform:scale(.99)}
+.fa-drop .fa-ico-tile{background:#fff;color:var(--gris);border:1px solid var(--linea)}
+.fa-drop-arr{border-color:var(--naranja);background:#fffaf0}
+.fa-drop-sel{border-style:solid;border-color:var(--naranja);background:#fffaf0}
+.fa-drop-sel .fa-ico-tile{background:rgba(255,160,0,.18);color:#8a4b00;border-color:transparent}
+.fa-drop-ok{border-style:solid;border-color:rgba(177,209,62,.55);background:rgba(177,209,62,.08)}
+.fa-drop-ok .fa-ico-tile{background:rgba(177,209,62,.25);color:var(--verde-txt);border-color:transparent}
+.fa-drop-main{flex:1;min-width:0}
+.fa-drop-main b{display:block;font-size:14.5px;font-weight:700;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fa-drop-main span{display:block;font-size:12.5px;color:var(--gris);margin-top:2px}
+.fa-dni-de{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--gris);margin:6px 2px 0}
+.fa-elige-par{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.fa-elige{appearance:none;-webkit-tap-highlight-color:transparent;cursor:pointer;min-height:64px;padding:10px 12px;border-radius:14px;border:1.5px solid rgba(20,17,17,.14);background:#fff;color:var(--tinta);text-align:center;
+  font:700 15px/1.3 'Inter',sans-serif;transition:border-color .2s ease,background-color .2s ease,box-shadow .2s ease}
+.fa-elige small{display:block;font-size:12px;font-weight:500;color:var(--gris);margin-top:2px}
+.fa-elige:hover{border-color:rgba(20,17,17,.3)}
+.fa-elige-sel,.fa-elige-sel:hover{border-color:var(--naranja);background:#fffaf0;box-shadow:0 0 0 3px rgba(255,160,0,.16)}
+.fa-subcaja{margin-top:16px;padding:16px;border-radius:18px;background:var(--crema);border:1px solid var(--linea)}
+.fa-subcaja-t{font-size:15px;font-weight:700;margin:0}
+/* descargas */
+.fa-descargas{display:grid;gap:10px;margin-top:14px}
+/* hecho */
+.fa-check{width:76px;height:76px;display:block}
+.fa-check circle{fill:rgba(177,209,62,.16);stroke:var(--verde);stroke-width:3;stroke-dasharray:102;stroke-dashoffset:102;animation:fa-draw .6s cubic-bezier(.65,0,.45,1) .1s forwards;transform:rotate(-90deg);transform-origin:center}
+.fa-check path{fill:none;stroke:var(--verde-txt);stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:100;stroke-dashoffset:100;animation:fa-draw .38s cubic-bezier(.65,0,.45,1) .62s forwards}
+/* firma */
+.fa-firma{display:flex;align-items:center;gap:14px;margin:28px 4px 0;padding-top:22px;border-top:1px solid var(--linea)}
+.fa-sello{flex:none;width:52px;height:52px;border-radius:50%;box-shadow:0 2px 8px -2px rgba(20,17,17,.18);background:#fff}
+.fa-firma b{display:block;font-size:15px;font-weight:700}
+.fa-firma span{display:block;font-size:12.5px;color:var(--gris);margin-top:2px;line-height:1.4}
+.fa-pie{text-align:center;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--gris2);margin:22px 0 0;font-weight:700}
+.fa-espera{min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;font-size:15px;font-weight:600;color:var(--gris)}
+.fa-espera .fa-spin{color:var(--naranja)}
+.fa-in{animation:fa-up .55s cubic-bezier(.2,.8,.2,1) both}
+.fa-in-2{animation-delay:.08s}
+.fa-in-3{animation-delay:.16s}
+@keyframes fa-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes fa-draw{to{stroke-dashoffset:0}}
+@keyframes fa-rot{to{transform:rotate(360deg)}}
+@media (max-width:360px){.fa-h1{font-size:36px}.fa-h2{font-size:25px}.fa-card{padding:20px 16px}}
+@media (min-width:768px){.fa-col{padding-top:40px}.fa-card{padding:26px}.fa-subidas-dos{grid-template-columns:1fr 1fr}.fa-descargas{grid-template-columns:1fr 1fr}}
+@media (prefers-reduced-motion:reduce){.fa-in,.fa-spin{animation:none}.fa-check circle,.fa-check path{animation:none;stroke-dashoffset:0}}
+`;
+
+const Ico = ({ size = 22, sw = 2, children }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {children}
+    </svg>
+);
+const IcoAlerta = (p) => <Ico {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5M12 16.5v.01" /></Ico>;
+const IcoEscudo = (p) => <Ico {...p}><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></Ico>;
+const IcoPluma = (p) => <Ico {...p}><path d="M4 20c3-1 5-1 7 0s4 1 6-1" /><path d="M14.5 4.5l5 5L11 18H6v-5l8.5-8.5z" /></Ico>;
+const IcoPapel = (p) => <Ico {...p}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></Ico>;
+const IcoSubir = (p) => <Ico {...p}><path d="M12 16V4M7 9l5-5 5 5M5 20h14" /></Ico>;
+const IcoBajar = (p) => <Ico {...p}><path d="M12 4v12M7 11l5 5 5-5M5 20h14" /></Ico>;
+const IcoReloj = (p) => <Ico {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7.5V12l3 2" /></Ico>;
+const IcoOk = (p) => <Ico {...p}><path d="M5 12.5l4.5 4.5L19 7.5" /></Ico>;
+const IcoFlecha = (p) => <Ico {...p}><path d="M9 6l6 6-6 6" /></Ico>;
+const IcoAtras = (p) => <Ico {...p}><path d="M15 6l-6 6 6 6" /></Ico>;
+const IcoMano = (p) => <Ico {...p}><path d="M14 4.5l5.5 5.5M5 19l3.5-.8L19 7.7a1.9 1.9 0 0 0-2.7-2.7L5.8 15.5 5 19z" /></Ico>;
+
+const Spinner = ({ size = 20 }) => (
+    <svg className="fa-spin" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity=".25" strokeWidth="3" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+);
+
+const CheckDibujado = () => (
+    <svg className="fa-check" viewBox="0 0 60 60" width="76" height="76" aria-hidden="true">
+        <circle cx="30" cy="30" r="26.5" pathLength="100" />
+        <path d="M19 31l7.5 7.5L42 23" pathLength="100" />
+    </svg>
+);
+
 // Descarga un PDF (arraybuffer) y lo devuelve en base64 (sin prefijo data:).
 async function fetchPdfBase64(url) {
     const { data } = await axios.get(url, { responseType: 'arraybuffer' });
@@ -30,75 +229,98 @@ async function fetchPdfBase64(url) {
 }
 const b64ToBlob = (b64) => new Blob([Uint8Array.from(atob(b64), c => c.charCodeAt(0))], { type: 'application/pdf' });
 
-// Zona de arrastrar y soltar (acepta PDF o imagen) con feedback + estado "ya subido".
-function DropZone({ title, desc, file, onPick, alreadyUploaded, accept = PDF_AND_IMG }) {
+// El nombre de pila en minúsculas con la inicial en mayúscula: en la ficha viene en MAYÚSCULAS.
+const nombrePila = (s) => {
+    const p = String(s || '').trim().split(/\s+/)[0] || '';
+    return p ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : '';
+};
+
+// Zona para elegir o arrastrar un fichero (PDF o imagen), con su estado: vacía,
+// elegido, o "ya recibido" (se puede reemplazar).
+function DropZone({ title, desc, file, onPick, alreadyUploaded, accept = PDF_AND_IMG, obligatorio = false }) {
     const ref = useRef();
     const [dragging, setDragging] = useState(false);
     const replaced = alreadyUploaded && !file;
+    const estado = dragging ? 'fa-drop-arr' : file ? 'fa-drop-sel' : replaced ? 'fa-drop-ok' : '';
     return (
         <div>
-            <p className="text-[11px] font-black text-white uppercase tracking-wide mb-1">{title}</p>
-            <p className="text-white/35 text-[11px] mb-2 leading-snug">{desc}</p>
-            <input ref={ref} type="file" accept={accept} className="hidden" onChange={e => onPick(e.target.files?.[0])} />
-            <div className="group">
-                <div
-                    onClick={() => ref.current?.click()}
-                    onDragEnter={e => { e.preventDefault(); setDragging(true); }}
-                    onDragOver={e => { e.preventDefault(); if (!dragging) setDragging(true); }}
-                    onDragLeave={e => { e.preventDefault(); if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
-                    onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); }}
-                    className={`cursor-pointer border-2 border-dashed rounded-xl p-5 text-center transition-all duration-150 ${
-                        dragging
-                            ? 'border-brand bg-brand/20 scale-[1.02] shadow-[0_0_25px_rgba(232,115,28,0.25)]'
-                            : file
-                                ? 'border-brand/40 bg-brand/5'
-                                : replaced
-                                    ? 'border-emerald-500/30 bg-emerald-500/5'
-                                    : 'border-white/10 group-hover:border-brand/40 group-hover:bg-brand/5'
-                    }`}
-                >
+            <span className="fa-drop-t">{title}{obligatorio && <i> *</i>}</span>
+            {desc && <span className="fa-drop-d">{desc}</span>}
+            <input ref={ref} type="file" accept={accept} hidden onChange={e => onPick(e.target.files?.[0])} />
+            <button type="button" className={`fa-drop ${estado}`}
+                onClick={() => ref.current?.click()}
+                onDragEnter={e => { e.preventDefault(); setDragging(true); }}
+                onDragOver={e => { e.preventDefault(); if (!dragging) setDragging(true); }}
+                onDragLeave={e => { e.preventDefault(); if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
+                onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); }}>
+                <span className="fa-ico-tile">{file ? <IcoPapel /> : replaced ? <IcoOk /> : <IcoSubir />}</span>
+                <span className="fa-drop-main">
                     {dragging ? (
-                        <div className="space-y-1 py-1 pointer-events-none">
-                            <svg className="w-7 h-7 text-brand mx-auto animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                            <p className="text-brand font-black text-xs uppercase tracking-widest">Suelta aquí</p>
-                        </div>
+                        <><b>Suéltalo aquí</b><span>PDF o foto</span></>
                     ) : file ? (
-                        <div className="space-y-1">
-                            <svg className="w-7 h-7 text-brand mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                            <p className="text-brand font-bold text-xs truncate px-2">{file.name}</p>
-                            <p className="text-white/30 text-[10px]">{(file.size / 1024).toFixed(0)} KB · pulsa para cambiar</p>
-                        </div>
+                        <><b>{file.name}</b><span>{(file.size / 1024).toFixed(0)} KB · pulsa para cambiarlo</span></>
                     ) : replaced ? (
-                        <div className="space-y-1">
-                            <svg className="w-7 h-7 text-emerald-400 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                            <p className="text-emerald-400 font-bold text-xs">Ya recibido ✓</p>
-                            <p className="text-white/30 text-[10px]">Pulsa o arrastra para reemplazarlo</p>
-                        </div>
+                        <><b>Ya lo tenemos</b><span>Pulsa si quieres reemplazarlo</span></>
                     ) : (
-                        <div className="space-y-1">
-                            <svg className="w-7 h-7 text-white/20 group-hover:text-brand mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                            <p className="text-xs text-white/40 font-medium">Pulsa o arrastra (PDF o foto)</p>
-                        </div>
+                        <><b>Elegir archivo</b><span>Foto con la cámara, de la galería o un PDF</span></>
                     )}
-                </div>
-            </div>
+                </span>
+            </button>
         </div>
     );
 }
 
 // Campo de texto reutilizable (a nivel de módulo para no remontar y perder foco).
-function Campo({ label, value, onChange, type = 'text', placeholder, uppercase, full, mono, center }) {
+function Campo({ label, value, onChange, type = 'text', placeholder, uppercase, mono, autoComplete }) {
     return (
-        <div className={full ? 'sm:col-span-2' : ''}>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">{label}</label>
-            <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-                className={`w-full bg-bkg-elevated border border-white/10 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:border-brand/50 transition-all ${mono ? 'font-mono text-base tracking-[0.15em]' : ''} ${center ? 'text-center' : ''} ${uppercase ? '' : 'no-uppercase'}`} />
-        </div>
+        <label>
+            <span className="fa-k">{label}<i> *</i></span>
+            <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} autoComplete={autoComplete}
+                className={`fa-input ${mono ? 'fa-input-mono' : ''} ${uppercase ? '' : 'no-uppercase'}`} />
+        </label>
     );
 }
 
+const Aviso = ({ tono = 'ambar', titulo, children }) => (
+    <div className={`fa-aviso fa-aviso-${tono}`} role={tono === 'ambar' ? 'alert' : undefined}>
+        <span className="fa-ico-tile">{tono === 'ok' ? <IcoOk size={20} /> : <IcoAlerta size={20} />}</span>
+        <div>
+            {titulo && <span className="fa-aviso-t">{titulo}</span>}
+            {children}
+        </div>
+    </div>
+);
+
+const Marco = ({ info, saludo, demo = false, children }) => (
+    <div className="fa">
+        <style>{CSS}</style>
+        <div className="fa-filete-top" />
+        <div className="fa-halo" />
+        <main className="fa-col">
+            <header className="fa-head fa-in">
+                <img className="fa-logo" src="/logo_brokergy_dark.png" alt="BROKERGY · Ingeniería Energética" width="130" height="26" />
+                {info?.numero_expediente && <span className="fa-exp">{info.numero_expediente}</span>}
+            </header>
+            {demo && <p className="fa-demo fa-in"><b>Prueba</b> · datos de mentira: no se guarda ni se envía nada.</p>}
+            {saludo && <p className="fa-hola fa-in">Hola, <b>{saludo}</b></p>}
+            {children}
+            <footer>
+                <div className="fa-firma">
+                    <img className="fa-sello" src="/logo-brokergy-circular.png" alt="" width="52" height="52" />
+                    <div>
+                        <b>Fran Moya</b>
+                        <span>CEO de BROKERGY · Ingeniero colegiado nº 1779 COGITI</span>
+                    </div>
+                </div>
+                <p className="fa-pie">BROKERGY · Ingeniería Energética</p>
+            </footer>
+        </main>
+    </div>
+);
+
 export function FirmarAnexosView({ expedienteId }) {
-    const [info, setInfo] = useState(null);
+    const esDemo = expedienteId === DEMO_ID;
+    const [info, setInfo] = useState(() => (esDemo ? infoDemo() : null));
     const [loadError, setLoadError] = useState(null);
     const [anexoI, setAnexoI] = useState(null);
     const [cesion, setCesion] = useState(null);
@@ -129,11 +351,14 @@ export function FirmarAnexosView({ expedienteId }) {
     const [savingDatos, setSavingDatos] = useState(false);
     const [datosMsg, setDatosMsg] = useState(null); // { ok, text }
 
-    const loadInfo = () => axios.get(`${API_URL}/anexos-upload/${expedienteId}`)
-        .then(r => setInfo(r.data))
-        .catch(() => setLoadError('No se ha encontrado el expediente o el enlace no es válido.'));
+    const loadInfo = () => {
+        if (esDemo) { setInfo(infoDemo()); return Promise.resolve(); }
+        return axios.get(`${API_URL}/anexos-upload/${expedienteId}`)
+            .then(r => setInfo(r.data))
+            .catch(() => setLoadError('No se ha encontrado el expediente o el enlace no es válido.'));
+    };
 
-    useEffect(() => { loadInfo(); }, [expedienteId]);
+    useEffect(() => { if (!esDemo) loadInfo(); }, [expedienteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Precarga los valores actuales del cliente cuando llega la info.
     useEffect(() => {
@@ -204,6 +429,13 @@ export function FirmarAnexosView({ expedienteId }) {
         if (errs.length) { setDatosMsg({ ok: false, text: 'Falta o es incorrecto: ' + errs.join(', ') + '.' }); return; }
 
         setSavingDatos(true); setDatosMsg(null);
+        if (esDemo) {
+            setTimeout(() => {
+                setInfo(prev => ({ ...prev, datos_cliente: { ...prev.datos_cliente, falta_email: false, falta_dni: false, falta_iban: false } }));
+                setSavingDatos(false);
+            }, 700);
+            return;
+        }
         try {
             const fd = new FormData();
             fd.append('email', datos.email);
@@ -238,6 +470,7 @@ export function FirmarAnexosView({ expedienteId }) {
         if (!puedeEnviar) return;
         setUploading(true);
         setUploadError(null);
+        if (esDemo) { setTimeout(() => { setUploading(false); setDone(true); }, 700); return; }
         try {
             const form = new FormData();
             if (anexoI) form.append('anexo_i', anexoI);
@@ -276,6 +509,7 @@ export function FirmarAnexosView({ expedienteId }) {
     };
 
     const startDigital = async () => {
+        if (esDemo) { setPrepError('En la prueba no se abre Autofirma: aquí se abriría tu Anexo I para firmarlo con tu certificado.'); return; }
         // VARIOS CEDENTES (logic/cedentes.js): firman todos los que pagan la obra,
         // cada uno con SU certificado, en su casilla del convenio y en su propio
         // Anexo I. La cola es documento × cedente, y cada firma se pone sobre el PDF
@@ -324,362 +558,327 @@ export function FirmarAnexosView({ expedienteId }) {
 
     if (!info && !loadError) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <DynamicNetworkBackground />
-                <div className="relative z-10 flex flex-col items-center gap-4">
-                    <svg className="w-8 h-8 animate-spin text-brand" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                    <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Cargando expediente...</p>
-                </div>
-            </div>
+            <Marco>
+                <div className="fa-espera"><Spinner size={24} /> Abriendo tu expediente…</div>
+            </Marco>
         );
     }
 
     if (loadError) {
         return (
-            <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-                <DynamicNetworkBackground />
-                <div className="w-full max-w-md relative z-10 bg-bkg-surface border border-white/[0.06] rounded-[2.5rem] p-10 text-center backdrop-blur-xl">
-                    <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/30">
-                        <svg className="w-10 h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <Marco>
+                <div className="fa-stack fa-in">
+                    <div className="fa-card">
+                        <span className="fa-ico-tile" style={{ background: '#ffe9bd', color: '#7a4b00', width: 48, height: 48, borderRadius: 14 }}><IcoAlerta size={24} /></span>
+                        <h1 className="fa-display fa-h2" style={{ marginTop: 14 }}>Este enlace no <span className="fa-mark">funciona</span></h1>
+                        <p className="fa-txt">{loadError} Si te lo hemos mandado nosotros, contesta al mensaje y te enviamos uno nuevo.</p>
                     </div>
-                    <h2 className="text-2xl font-black text-white mb-4 tracking-tight">Enlace no válido</h2>
-                    <p className="text-white/40 text-sm leading-relaxed">{loadError}</p>
                 </div>
-            </div>
+            </Marco>
         );
     }
 
+    // Con apellidos es una persona: se la saluda por su nombre. A una empresa no se
+    // la saluda por la primera palabra de su razón social.
+    const saludo = dc.apellidos ? nombrePila(dc.nombre_razon_social) : '';
+    const dosAnexos = nFirmar !== 1;
+
+    let eyebrow, titulo, sub;
+    if (done) {
+        eyebrow = 'Todo recibido';
+        titulo = <>Documentación <span className="fa-mark">recibida</span></>;
+        sub = null;
+    } else if (faltanDatos) {
+        eyebrow = 'Antes de firmar';
+        titulo = <>Completa tus <span className="fa-mark">datos</span></>;
+        sub = <>Necesitamos un par de datos para preparar tus anexos. <b>En cuanto los recibamos, te los enviamos</b> para que los firmes desde este mismo enlace.</>;
+    } else if (!anexosListos) {
+        eyebrow = 'Datos recibidos';
+        titulo = <>Preparando tus <span className="fa-mark">anexos</span></>;
+        sub = <>Ya tenemos tus datos. <b>Te avisaremos en breve</b> para que los firmes desde este mismo enlace.</>;
+    } else {
+        eyebrow = 'Último paso de tu parte';
+        titulo = dosAnexos ? <>Firma tus <span className="fa-mark">anexos</span></> : <>Firma tu <span className="fa-mark">anexo</span></>;
+        sub = dosAnexos
+            ? <>Son dos documentos: el <b>Anexo I</b> y el <b>Anexo de Cesión</b> de los ahorros. Con tu firma podemos tramitar tu ayuda.</>
+            : <>Solo falta el <b>{nombresFirmar[0]}</b>. Con tu firma seguimos con la tramitación.</>;
+    }
+
     return (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden selection:bg-brand selection:text-black">
-            <DynamicNetworkBackground />
-            <div className="w-full max-w-lg relative z-10 px-4 py-10">
-                <div className="text-center mb-8 relative">
-                    <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
-                        {faltanDatos ? (
-                            <>
-                                <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Completa tus</span>
-                                <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">Datos</span>
-                            </>
-                        ) : (
-                            <>
-                                <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Firma de</span>
-                                <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">Anexos</span>
-                            </>
-                        )}
-                    </h1>
-                    <p className="text-white/60 text-sm">{faltanDatos ? 'Solo necesitamos un par de datos para preparar tus anexos.' : 'Sube los anexos firmados y la foto de tu DNI por ambas caras.'}</p>
-                </div>
+        <Marco info={info} saludo={saludo} demo={esDemo}>
+            {done ? (
+                <div className="fa-in" style={{ marginTop: 6 }}><CheckDibujado /></div>
+            ) : (
+                <p className={`fa-eyebrow fa-in ${!faltanDatos && !anexosListos ? 'fa-eyebrow-verde' : ''}`} style={{ margin: '18px 2px 0' }}>{eyebrow}</p>
+            )}
+            <h1 className="fa-display fa-h1 fa-in">{titulo}</h1>
+            {sub && <p className="fa-sub fa-in fa-in-2">{sub}</p>}
 
-                <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] overflow-hidden backdrop-blur-xl relative">
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
+            <div className="fa-stack fa-in fa-in-2">
+                {/* Requerimiento: ya nos firmó, pero la cifra sobre la que firmó ha
+                    cambiado. Mismo relato que el mensaje que se le envió (fuente del
+                    tono: logic/requerimientoFirma). Quien entra aquí desde un WhatsApp
+                    de hace días no tiene el correo delante: si la página solo dice que
+                    la ayuda ha bajado, entiende que le hemos recortado algo, no que se
+                    ha evitado perderlo. */}
+                {!done && requerimiento && (
+                    <Aviso titulo="Tu expediente sigue adelante">
+                        <p>
+                            El verificador revisa cada expediente antes de conceder la ayuda, y en el tuyo ha pedido aclarar algún punto: es un <b>requerimiento</b>, no un fallo tuyo. Lo hemos revisado punto por punto y hemos defendido tu actuación con toda la documentación del expediente
+                            {requerimiento.importe_nuevo != null && requerimiento.importe_anterior != null && requerimiento.importe_nuevo < requerimiento.importe_anterior ? (
+                                <>: en lugar de decaer por completo, <b>hemos conseguido ajustarlo y mantener tu ayuda en {eurCli(requerimiento.importe_nuevo)}</b> (frente a los {eurCli(requerimiento.importe_anterior)} previstos inicialmente).</>
+                            ) : requerimiento.importe_nuevo != null ? (
+                                <>: <b>el expediente sigue adelante</b>, con la ayuda en {eurCli(requerimiento.importe_nuevo)}.</>
+                            ) : <>, y <b>el expediente sigue adelante</b>.</>}
+                        </p>
+                        <p>
+                            Para cerrar la contestación necesitamos que nos <b>vuelvas a firmar</b> {nFirmar === 1 ? <>el <b>{nombresFirmar[0]}</b> actualizado: el que firmaste antes ya no es válido</> : <>los dos anexos actualizados: los que firmaste antes ya no son válidos</>}.
+                            {requerimiento.fecha_limite && fechaCli(requerimiento.fecha_limite)
+                                ? <> Tenemos plazo <b>hasta el {fechaCli(requerimiento.fecha_limite)}</b>.</>
+                                : requerimiento.plazo_dias ? <> Tenemos un plazo de <b>{requerimiento.plazo_dias} días</b>.</> : null}
+                        </p>
+                        <p className="fa-aviso-nota">No has hecho nada mal: es un trámite del procedimiento. {nFirmar === 1 ? 'Con esta firma lo cerramos' : 'Con estas dos firmas lo cerramos'}; del resto nos ocupamos nosotros.</p>
+                    </Aviso>
+                )}
+                {!done && rechazos.map(r => (
+                    <Aviso key={r.doc} titulo={r.preparando ? `${r.label}: lo estamos corrigiendo` : `${r.label}: versión corregida`}>
+                        <p>
+                            {r.preparando ? (
+                                <>Hemos revisado el <b>{r.label}</b> que firmaste y hemos detectado un error{r.motivo ? <> ({r.motivo})</> : ''}. <b>Estamos preparando la versión corregida</b> y te la enviaremos en cuanto esté. No hace falta que hagas nada todavía.</>
+                            ) : (
+                                <>Ya está corregido el <b>{r.label}</b>{r.motivo ? <> ({r.motivo})</> : ''}. <b>Firma la versión nueva</b> que encontrarás aquí abajo: la que firmaste antes no nos sirve.</>
+                            )}
+                        </p>
+                    </Aviso>
+                ))}
 
-                    <div className="px-8 pt-8 pb-5 border-b border-white/[0.06] space-y-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-3">Detalles del expediente</p>
-                        {[['Expediente', info.numero_expediente, 'text-brand font-mono'], ['Cliente', info.cliente, 'text-white/80']].map(([label, value, cls]) => (
-                            <div key={label} className="flex items-center justify-between">
-                                <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">{label}</span>
-                                <span className={`text-sm font-bold ${cls}`}>{value || '—'}</span>
-                            </div>
-                        ))}
+                {done ? (
+                    <div className="fa-card">
+                        <p className="fa-txt" style={{ marginTop: 0 }}>Gracias. Con esto seguimos con la tramitación de tu expediente <b>{info.numero_expediente}</b>. Te avisaremos cuando haya novedades.</p>
+                        <div className="fa-btns2">
+                            <button className="fa-btn fa-btn-sec" onClick={() => { setDone(false); setModo(null); setAnexoI(null); setCesion(null); setDniFrontal(null); setDniTrasero(null); loadInfo(); }}>
+                                Subir o reemplazar otro documento
+                            </button>
+                        </div>
                     </div>
-
-                    <div className="p-8 space-y-5">
-                        {/* Aviso de anexo rechazado: el documento que firmaste tenía un error.
-                            Se muestra en cualquier fase (menos al acabar de subir) porque es lo
-                            primero que el cliente tiene que entender al volver al enlace. */}
-                        {!done && requerimiento && (
-                            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/[0.07] p-5 animate-fade-in">
-                                <p className="text-[11px] font-black uppercase tracking-[0.15em] text-amber-300 mb-2">Tu expediente sigue adelante — falta tu firma</p>
-                                {/* Mismo relato que el mensaje que se le envió (fuente del
-                                    tono: logic/requerimientoFirma). Quien entra aquí desde un
-                                    WhatsApp de hace días no tiene el correo delante: si la
-                                    página solo dice que la ayuda ha bajado, entiende que le
-                                    hemos recortado algo, no que se ha evitado perderlo. */}
-                                <p className="text-white/60 text-sm leading-relaxed">
-                                    El verificador revisa cada expediente antes de conceder la ayuda, y en el tuyo ha pedido aclarar algún punto — es un <strong className="text-white">requerimiento</strong>, no un fallo tuyo. Lo hemos trabajado a fondo: lo hemos revisado punto por punto y hemos defendido tu actuación con toda la documentación del expediente
-                                    {requerimiento.importe_nuevo != null && requerimiento.importe_anterior != null && requerimiento.importe_nuevo < requerimiento.importe_anterior ? (
-                                        <>: en lugar de decaer por completo, <strong className="text-white">hemos conseguido ajustarlo y mantener tu ayuda en {eurCli(requerimiento.importe_nuevo)}</strong> (frente a los {eurCli(requerimiento.importe_anterior)} previstos inicialmente).</>
-                                    ) : requerimiento.importe_nuevo != null ? (
-                                        <>: <strong className="text-white">el expediente sigue adelante</strong>, con la ayuda en {eurCli(requerimiento.importe_nuevo)}.</>
-                                    ) : <>, y <strong className="text-white">el expediente sigue adelante</strong>.</>}
-                                    {' '}Para cerrar la contestación necesitamos que nos <strong className="text-white">vuelvas a firmar</strong> {nFirmar === 1 ? <>el <strong className="text-white">{nombresFirmar[0]}</strong> actualizado: el que firmaste antes ya no es válido</> : <>los dos anexos actualizados: los que firmaste antes ya no son válidos</>}.
-                                    {requerimiento.fecha_limite && fechaCli(requerimiento.fecha_limite)
-                                        ? <> Tenemos plazo <strong className="text-white">hasta el {fechaCli(requerimiento.fecha_limite)}</strong>.</>
-                                        : requerimiento.plazo_dias ? <> Tenemos un plazo de <strong className="text-white">{requerimiento.plazo_dias} días</strong>.</> : null}
-                                </p>
-                                <p className="text-white/35 text-[12px] leading-relaxed mt-2">No has hecho nada mal: es un trámite del procedimiento. {nFirmar === 1 ? 'Con esta firma lo cerramos' : 'Con estas dos firmas lo cerramos'}; del resto nos ocupamos nosotros.</p>
-                            </div>
+                ) : faltanDatos ? (
+                    /* ── FASE 1: Completa tus datos (los anexos llegan después) ── */
+                    <div className="fa-card">
+                        <div className="fa-filete-fino" />
+                        <p className="fa-eyebrow">Solo lo que falta</p>
+                        <div className="fa-campos">
+                            {dc.falta_email && <Campo label="Email" type="email" value={datos.email} onChange={v => setDato('email', v)} placeholder="tucorreo@email.com" autoComplete="email" />}
+                            {!dc.telefono && <Campo label="Teléfono" type="tel" value={datos.telefono} onChange={v => setDato('telefono', v)} placeholder="600 000 000" autoComplete="tel" />}
+                            {dc.falta_dni && <Campo label="DNI / CIF" value={datos.dni_cif} onChange={v => setDato('dni_cif', v)} placeholder="00000000A" uppercase />}
+                            {dc.falta_iban && <Campo label="IBAN (nº de cuenta)" value={datos.iban} onChange={v => setDato('iban', v)} placeholder="ES00 0000 0000 0000 0000 0000" uppercase mono />}
+                            {dc.falta_iban && (
+                                <DropZone file={justificante} onPick={f => pickFile(f, setJustificante)} alreadyUploaded={dc.justificante_subido} accept="image/*,application/pdf" obligatorio
+                                    title="Justificante de titularidad bancaria" desc="Un documento del banco donde se vea tu nombre y el IBAN (PDF o foto)." />
+                            )}
+                        </div>
+                        {datosMsg && (
+                            <div className="fa-mt"><Aviso tono={datosMsg.ok ? 'ok' : 'ambar'}><p>{datosMsg.text}</p></Aviso></div>
                         )}
-                        {!done && rechazos.map(r => (
-                            <div key={r.doc} className="rounded-2xl border border-red-500/25 bg-red-500/[0.07] p-5 animate-fade-in">
-                                <p className="text-[11px] font-black uppercase tracking-[0.15em] text-red-300 mb-2">
-                                    {r.preparando ? `${r.label} — corrigiéndolo` : `${r.label} — versión corregida`}
-                                </p>
-                                <p className="text-white/60 text-sm leading-relaxed">
-                                    {r.preparando ? (
-                                        <>Hemos revisado el <strong className="text-white">{r.label}</strong> que firmaste y hemos detectado un error{r.motivo ? <> (<span className="text-white/80">{r.motivo}</span>)</> : ''}. <strong className="text-white">Estamos preparando la versión corregida</strong> y te la enviaremos en cuanto esté. No hace falta que hagas nada todavía.</>
-                                    ) : (
-                                        <>Ya está corregido el <strong className="text-white">{r.label}</strong>{r.motivo ? <> ({r.motivo})</> : ''}. <strong className="text-white">Firma la versión nueva</strong> que encontrarás aquí abajo: la que firmaste antes no nos sirve.</>
-                                    )}
-                                </p>
-                            </div>
-                        ))}
-                        {done ? (
-                            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-8 text-center animate-fade-in">
-                                <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
-                                    <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                                </div>
-                                <h2 className="text-xl font-black text-emerald-400 uppercase tracking-widest mb-3">¡Documentación recibida!</h2>
-                                <p className="text-white/50 text-sm leading-relaxed">Gracias. El equipo de Brokergy continuará con la tramitación del expediente <strong className="text-brand">{info.numero_expediente}</strong>.</p>
-                                <button onClick={() => { setDone(false); setModo(null); setAnexoI(null); setCesion(null); setDniFrontal(null); setDniTrasero(null); loadInfo(); }} className="mt-6 text-[11px] text-brand/70 hover:text-brand font-black uppercase tracking-widest underline underline-offset-4">Subir o reemplazar otro documento</button>
-                            </div>
-                        ) : faltanDatos ? (
-                            /* ── FASE 1: Completa tus datos (los anexos llegan después) ── */
-                            <>
-                                <p className="text-white/45 text-sm leading-relaxed">
-                                    Para tramitar tu ayuda necesitamos primero un par de datos. <strong className="text-white">En cuanto los recibamos, prepararemos tus anexos y te los enviaremos para que los firmes</strong> desde este mismo enlace.
-                                </p>
-                                <div className="rounded-2xl border border-amber-400/20 bg-amber-500/[0.05] p-5 space-y-4">
-                                    <div>
-                                        <p className="text-[11px] font-black uppercase tracking-[0.15em] text-amber-300">Completa tus datos</p>
-                                        <p className="text-white/45 text-[11px] mt-1 leading-snug">Solo te pedimos lo que falta.</p>
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        {dc.falta_email && <Campo label="Email *" type="email" value={datos.email} onChange={v => setDato('email', v)} placeholder="tucorreo@email.com" />}
-                                        {!dc.telefono && <Campo label="Teléfono *" type="tel" value={datos.telefono} onChange={v => setDato('telefono', v)} placeholder="600 000 000" />}
-                                        {dc.falta_dni && <Campo label="DNI / CIF *" value={datos.dni_cif} onChange={v => setDato('dni_cif', v)} placeholder="00000000A" uppercase />}
-                                        {dc.falta_iban && <Campo label="IBAN (nº de cuenta) *" value={datos.iban} onChange={v => setDato('iban', v)} placeholder="ES00 0000 0000 0000 0000 0000" uppercase full mono center />}
-                                    </div>
-                                    {dc.falta_iban && (
-                                        <DropZone file={justificante} onPick={f => pickFile(f, setJustificante)} alreadyUploaded={dc.justificante_subido} accept="image/*,application/pdf"
-                                            title="Justificante de titularidad bancaria *" desc="Documento del banco donde se vea tu nombre y el IBAN (PDF o foto)." />
-                                    )}
-                                    {datosMsg && (
-                                        <p className={`text-[11px] font-medium ${datosMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{datosMsg.ok ? '✅' : '⚠️'} {datosMsg.text}</p>
-                                    )}
-                                    <button onClick={handleGuardarDatos} disabled={savingDatos}
-                                        className="w-full py-3 bg-amber-500/15 border border-amber-400/30 text-amber-300 font-black rounded-xl uppercase tracking-widest text-xs hover:bg-amber-500 hover:text-bkg-deep transition-all disabled:opacity-40 flex items-center justify-center gap-2">
-                                        {savingDatos ? (<><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>Guardando...</>) : 'Enviar mis datos'}
+                        {uploadError && <div className="fa-mt"><Aviso><p>{uploadError}</p></Aviso></div>}
+                        <div className="fa-btns2">
+                            <button className="fa-btn fa-btn-pri" onClick={handleGuardarDatos} disabled={savingDatos}>
+                                {savingDatos ? <><Spinner /> Guardando…</> : 'Enviar mis datos'}
+                            </button>
+                        </div>
+                    </div>
+                ) : !anexosListos ? (
+                    /* ── FASE 2: datos recibidos, preparando anexos ── */
+                    <div className="fa-card">
+                        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                            <span className="fa-ico-tile" style={{ background: 'rgba(177,209,62,.2)', color: 'var(--verde-txt)' }}><IcoReloj /></span>
+                            <p className="fa-txt" style={{ marginTop: 0 }}>Estamos preparando tus anexos con los datos de tu obra. Cuando estén, te llegará un mensaje y podrás <b>firmarlos desde este mismo enlace</b>.</p>
+                        </div>
+                        <div className="fa-btns2">
+                            <button className="fa-btn fa-btn-sec" onClick={() => loadInfo()}>Comprobar si ya están</button>
+                        </div>
+                    </div>
+                ) : (
+                    /* ── FASE 3: Firma de anexos — elegir modo ── */
+                    <>
+                        {modo === null && (
+                            <div className="fa-card">
+                                <p className="fa-eyebrow">¿Cómo quieres firmar?</p>
+                                <div className="fa-opcs">
+                                    <button className="fa-opc fa-opc-dest" onClick={() => { setModo('digital'); startDigital(); }} disabled={preparing}>
+                                        <span className="fa-ico-tile"><IcoEscudo /></span>
+                                        <span className="fa-opc-cuerpo">
+                                            <span className="fa-opc-label">Con certificado digital <span className="fa-chip">Lo más rápido</span></span>
+                                            <span className="fa-opc-sub">{preparing ? 'Preparando los documentos…' : 'Firma aquí mismo con Autofirma. Te marcamos dónde firmar, sin descargar nada.'}</span>
+                                        </span>
+                                        <span className="fa-flecha"><IcoFlecha size={20} /></span>
+                                    </button>
+                                    {/* Firmar con el dedo. Va la SEGUNDA y no la última:
+                                        es la única que no pide ni certificado ni
+                                        impresora, y para la mayoría es la que se acaba
+                                        usando. */}
+                                    <button className="fa-opc" onClick={() => setModo('manual')}>
+                                        <span className="fa-ico-tile"><IcoMano /></span>
+                                        <span className="fa-opc-cuerpo">
+                                            <span className="fa-opc-label">Con el dedo, en la pantalla</span>
+                                            <span className="fa-opc-sub">Lees los anexos y los firmas aquí. Sin impresora ni escáner: solo te pediremos la foto de tu DNI.</span>
+                                        </span>
+                                        <span className="fa-flecha"><IcoFlecha size={20} /></span>
+                                    </button>
+                                    <button className="fa-opc" onClick={() => setModo('subir')}>
+                                        <span className="fa-ico-tile"><IcoPluma /></span>
+                                        <span className="fa-opc-cuerpo">
+                                            <span className="fa-opc-label">En papel <span className="fa-chip fa-chip-gris">Ya firmado</span></span>
+                                            <span className="fa-opc-sub">Descárgalos o sube el escaneo que ya tienes, con la foto del DNI por las dos caras.</span>
+                                        </span>
+                                        <span className="fa-flecha"><IcoFlecha size={20} /></span>
                                     </button>
                                 </div>
-                            </>
-                        ) : !anexosListos ? (
-                            /* ── FASE 2: datos recibidos, preparando anexos ── */
-                            <div className="text-center py-6 space-y-4 animate-fade-in">
-                                <div className="w-16 h-16 rounded-full bg-brand/10 flex items-center justify-center mx-auto border border-brand/20">
-                                    <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                </div>
-                                <h2 className="text-lg font-black text-white uppercase tracking-widest">¡Datos recibidos!</h2>
-                                <p className="text-white/50 text-sm leading-relaxed max-w-sm mx-auto">Ya tenemos tus datos. Estamos preparando tus anexos y <strong className="text-white">te avisaremos en breve</strong> para que los firmes desde este mismo enlace.</p>
-                                <button onClick={() => loadInfo()} className="text-[11px] text-brand/70 hover:text-brand font-black uppercase tracking-widest underline underline-offset-4">Actualizar</button>
+                                {prepError && <div className="fa-mt"><Aviso><p>{prepError}</p></Aviso></div>}
                             </div>
-                        ) : (
-                            /* ── FASE 3: Firma de anexos — elegir modo ── */
-                            <>
-                                {/* Selector de modo de firma */}
-                                {modo === null && (
-                                    <div className="space-y-4 animate-fade-in">
-                                        <p className="text-white/50 text-sm leading-relaxed text-center">Elige cómo quieres firmar tus anexos. <strong className="text-white">Lo más rápido es con certificado digital.</strong></p>
-                                        <button onClick={() => { setModo('digital'); startDigital(); }} disabled={preparing}
-                                            className="w-full text-left rounded-2xl border border-brand/40 bg-brand/[0.06] p-5 hover:bg-brand/[0.1] transition-all disabled:opacity-50">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-11 h-11 rounded-xl bg-brand/15 flex items-center justify-center shrink-0">
-                                                    <svg className="w-6 h-6 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="text-sm font-black text-white uppercase tracking-wide">Firma digital <span className="text-brand">· recomendado</span></p>
-                                                    <p className="text-white/45 text-[12px] leading-snug mt-0.5">{preparing ? 'Preparando documentos…' : 'Firma aquí mismo con tu certificado (Autofirma). Te marcamos dónde firmar. Sin descargar nada.'}</p>
-                                                </div>
-                                            </div>
-                                        </button>
-                                        {/* Firmar con el dedo. Va la SEGUNDA y no la última:
-                                            es la única que no pide ni certificado ni
-                                            impresora, y para la mayoría es la que se acaba
-                                            usando. */}
-                                        <button onClick={() => setModo('manual')}
-                                            className="w-full text-left rounded-2xl border border-white/15 bg-white/[0.03] p-5 hover:border-brand/40 hover:bg-brand/[0.06] transition-all">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-11 h-11 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
-                                                    <svg className="w-6 h-6 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="text-sm font-black text-white uppercase tracking-wide">Firma a mano <span className="text-white/40">· aquí mismo</span></p>
-                                                    <p className="text-white/45 text-[12px] leading-snug mt-0.5">Lee los anexos y fírmalos con el dedo en la pantalla. Sin impresora ni escáner: solo te pediremos la foto de tu DNI.</p>
-                                                </div>
-                                            </div>
-                                        </button>
-                                        <button onClick={() => setModo('subir')}
-                                            className="w-full text-left rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:border-white/20 transition-all">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
-                                                    <svg className="w-5 h-5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5-5 5 5M12 5v12" /></svg>
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="text-[13px] font-black text-white/80 uppercase tracking-wide">Ya lo tengo firmado en papel</p>
-                                                    <p className="text-white/35 text-[12px] leading-snug mt-0.5">Descárgalos o sube el escaneo que ya tienes, con la foto del DNI por ambas caras.</p>
-                                                </div>
-                                            </div>
-                                        </button>
-                                        {prepError && <p className="text-[12px] text-red-400 text-center">⚠️ {prepError}</p>}
-                                    </div>
-                                )}
+                        )}
 
-                                {/* Modo DIGITAL: firma con Autofirma */}
-                                {modo === 'digital' && (
-                                    <div className="space-y-4 animate-fade-in">
-                                        <div className="rounded-2xl border border-brand/20 bg-brand/[0.05] p-5">
-                                            <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand mb-2">Firma digital con certificado</p>
-                                            <p className="text-white/50 text-sm leading-relaxed">{nFirmar === 1 ? <>Se abrirá tu <strong className="text-white">{nombresFirmar[0]}</strong>.</> : <>Se abrirá tu <strong className="text-white">Anexo I</strong> y tu <strong className="text-white">Anexo de Cesión</strong>, uno tras otro.</>} En cada uno te <strong className="text-white">marcamos con un destello dónde firmar</strong>. Solo pulsa <strong className="text-white">Firmar con Autofirma</strong> y elige tu certificado. Necesitas tener Autofirma instalado.</p>
-                                        </div>
-                                        {prepError && <p className="text-[12px] text-red-400 text-center">⚠️ {prepError}</p>}
-                                        <button onClick={startDigital} disabled={preparing || uploading}
-                                            className="w-full py-4 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-black rounded-xl transition-all shadow-lg shadow-brand/20 disabled:opacity-40 flex items-center justify-center gap-3 text-sm uppercase tracking-widest">
-                                            {(preparing || uploading) ? (<><svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>{uploading ? 'Enviando…' : 'Preparando…'}</>) : (<>🖊️ Firmar ahora con Autofirma</>)}
-                                        </button>
-                                        <button onClick={() => { setModo(null); setPrepError(null); }} className="w-full text-[11px] text-white/40 hover:text-white/70 font-black uppercase tracking-widest">← Otra forma de firmar</button>
-                                    </div>
-                                )}
+                        {/* Modo DIGITAL: firma con Autofirma */}
+                        {modo === 'digital' && (
+                            <div className="fa-card">
+                                <div className="fa-filete-fino" />
+                                <p className="fa-eyebrow">Con certificado digital</p>
+                                <p className="fa-txt">
+                                    {nFirmar === 1 ? <>Se abrirá tu <b>{nombresFirmar[0]}</b>.</> : <>Se abrirán tu <b>Anexo I</b> y tu <b>Anexo de Cesión</b>, uno detrás de otro.</>} En cada uno te <b>marcamos con un destello dónde firmar</b>: pulsa <b>Firmar con Autofirma</b> y elige tu certificado. Necesitas tener Autofirma instalado.
+                                </p>
+                                {prepError && <div className="fa-mt"><Aviso><p>{prepError}</p></Aviso></div>}
+                                {uploadError && <div className="fa-mt"><Aviso><p>{uploadError}</p></Aviso></div>}
+                                <div className="fa-btns2">
+                                    <button className="fa-btn fa-btn-pri" onClick={startDigital} disabled={preparing || uploading}>
+                                        {(preparing || uploading) ? <><Spinner /> {uploading ? 'Enviando…' : 'Preparando…'}</> : 'Firmar ahora con Autofirma'}
+                                    </button>
+                                </div>
+                                <p className="fa-centro" style={{ margin: '8px 0 0' }}>
+                                    <button className="fa-link fa-volver" onClick={() => { setModo(null); setPrepError(null); }}><IcoAtras size={18} /> Otra forma de firmar</button>
+                                </p>
+                            </div>
+                        )}
 
-                                {/* Firma a mano EN PANTALLA: lee, firma con el dedo y
-                                    manda la foto del DNI. El documento sale rasterizado
-                                    (aspecto de escaneo) y el backend le anexa los DNI
-                                    igual que a un escaneo de papel. */}
-                                {modo === 'manual' && (
-                                    <AsistenteFirmaManuscrita
-                                        expedienteId={expedienteId}
-                                        info={infoFirma}
-                                        apiUrl={API_URL}
-                                        onHecho={() => setDone(true)}
-                                        onSalir={() => setModo(null)}
-                                    />
-                                )}
-
-                                {modo === 'subir' && (
+                        {/* Firma a mano EN PANTALLA: lee, firma con el dedo y
+                            manda la foto del DNI. El documento sale rasterizado
+                            (aspecto de escaneo) y el backend le anexa los DNI
+                            igual que a un escaneo de papel. El asistente es una
+                            pieza del CRM: en `.theme-light` se ve en claro sin
+                            tocarlo, como el gestor de fotos en /subir-docs. */}
+                        {modo === 'manual' && (
+                            esDemo ? (
                                 <>
-                                <button onClick={() => setModo(null)} className="text-[11px] text-white/40 hover:text-white/70 font-black uppercase tracking-widest mb-1">← Otra forma de firmar</button>
-                                {/* Paso 1 · Descargar para firmar */}
-                                <div className="rounded-2xl border border-brand/15 bg-brand/[0.04] p-4 space-y-3">
-                                    <div>
-                                        <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand">1 · Firma tus anexos</p>
-                                        <p className="text-white/40 text-[11px] mt-1 leading-snug">
-                                            {hayDescarga
-                                                ? 'Descarga tus anexos, fírmalos (con certificado digital o a mano) y vuelve aquí para subirlos.'
-                                                : 'Firma el anexo que te enviamos por WhatsApp/email (con certificado digital o a mano) y súbelo aquí abajo.'}
-                                        </p>
+                                    <div className="fa-hueco">Aquí va el asistente para leer los anexos y firmarlos con el dedo. En la prueba no se carga.</div>
+                                    <p className="fa-centro" style={{ margin: '4px 0 0' }}>
+                                        <button className="fa-link fa-volver" onClick={() => setModo(null)}><IcoAtras size={18} /> Otra forma de firmar</button>
+                                    </p>
+                                </>
+                            ) : (
+                                <div className="fa-card">
+                                    <div className="theme-light">
+                                        <AsistenteFirmaManuscrita
+                                            expedienteId={expedienteId}
+                                            info={infoFirma}
+                                            apiUrl={API_URL}
+                                            onHecho={() => setDone(true)}
+                                            onSalir={() => setModo(null)}
+                                        />
                                     </div>
+                                </div>
+                            )
+                        )}
+
+                        {modo === 'subir' && (
+                            <>
+                                <p style={{ margin: 0 }}>
+                                    <button className="fa-link fa-volver" onClick={() => setModo(null)}><IcoAtras size={18} /> Otra forma de firmar</button>
+                                </p>
+                                {/* Paso 1 · Descargar para firmar */}
+                                <div className="fa-card">
+                                    <p className="fa-eyebrow"><span className="fa-paso">1</span> Firma tus anexos</p>
+                                    <p className="fa-txt">
+                                        {hayDescarga
+                                            ? 'Descárgalos, fírmalos (con certificado o a mano) y vuelve aquí para subirlos.'
+                                            : 'Firma el anexo que te enviamos por WhatsApp o email (con certificado o a mano) y súbelo aquí abajo.'}
+                                    </p>
                                     {hayDescarga && (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                            {firmarI && (
-                                                <a href={descargarUrl('anexo_i')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.02] text-white/80 text-[11px] font-black uppercase tracking-wider hover:border-brand/40 hover:bg-brand/5 transition-all">
-                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
-                                                    Anexo I
-                                                </a>
-                                            )}
-                                            {firmarC && (
-                                                <a href={descargarUrl('cesion')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.02] text-white/80 text-[11px] font-black uppercase tracking-wider hover:border-brand/40 hover:bg-brand/5 transition-all">
-                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
-                                                    Anexo Cesión
-                                                </a>
-                                            )}
+                                        <div className="fa-descargas">
+                                            {firmarI && <a className="fa-btn fa-btn-sec" href={descargarUrl('anexo_i')}><IcoBajar size={20} /> Anexo I</a>}
+                                            {firmarC && <a className="fa-btn fa-btn-sec" href={descargarUrl('cesion')}><IcoBajar size={20} /> Anexo de Cesión</a>}
                                         </div>
                                     )}
                                 </div>
 
-                                <p className="text-white/40 text-sm leading-relaxed">
-                                    <strong className="text-white">2 · Sube los anexos firmados</strong> y la foto de tu DNI por ambas caras. Vale el PDF firmado o una foto/escaneo nítido.
-                                </p>
-
-                                {(firmarI || !info.anexo_i_disponible) && (
-                                <DropZone file={anexoI} onPick={f => pickFile(f, setAnexoI)} alreadyUploaded={info.anexo_i_firmado} title="Anexo I firmado" desc="La Declaración Responsable que te enviamos, firmada." />
-                                )}
-
-                                {(firmarC || !info.anexo_cesion_disponible) && (
-                                <DropZone file={cesion} onPick={f => pickFile(f, setCesion)} alreadyUploaded={info.anexo_cesion_firmado} title="Anexo de Cesión de Ahorros firmado" desc="El Convenio de Cesión que te enviamos, firmado." />
-                                )}
-
-                                {/* Tipo de firma de la Cesión */}
-                                {cesion && (
-                                    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3 animate-fade-in">
-                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">¿Cómo has firmado la Cesión?</p>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <button type="button" onClick={() => setCesionFirma('electronica')}
-                                                className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-center transition-all ${cesionFirma === 'electronica' ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                                <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                                <span className="text-[11px] font-black uppercase tracking-wider text-white">Electrónica</span>
-                                                <span className="text-[9px] text-white/40 leading-tight">Con certificado digital</span>
-                                            </button>
-                                            <button type="button" onClick={() => setCesionFirma('manuscrita')}
-                                                className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-center transition-all ${cesionFirma === 'manuscrita' ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                                <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                                                <span className="text-[11px] font-black uppercase tracking-wider text-white">A mano</span>
-                                                <span className="text-[9px] text-white/40 leading-tight">Manuscrita y escaneada</span>
-                                            </button>
-                                        </div>
-                                        {cesionManuscrita && (
-                                            <p className="text-[11px] text-amber-300/90 leading-relaxed flex gap-2">
-                                                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                                Al ser firma a mano, necesitamos la foto del DNI por ambas caras. La adjuntaremos automáticamente al Anexo de Cesión.
-                                            </p>
+                                {/* Paso 2 · Subir lo firmado y el DNI */}
+                                <div className="fa-card">
+                                    <p className="fa-eyebrow"><span className="fa-paso">2</span> Súbelos firmados</p>
+                                    <p className="fa-txt">Con la foto de tu DNI por las dos caras. Vale el PDF firmado o una foto o escaneo nítido.</p>
+                                    <div className="fa-subidas">
+                                        {(firmarI || !info.anexo_i_disponible) && (
+                                            <DropZone file={anexoI} onPick={f => pickFile(f, setAnexoI)} alreadyUploaded={info.anexo_i_firmado} title="Anexo I firmado" desc="La Declaración Responsable que te enviamos." />
+                                        )}
+                                        {(firmarC || !info.anexo_cesion_disponible) && (
+                                            <DropZone file={cesion} onPick={f => pickFile(f, setCesion)} alreadyUploaded={info.anexo_cesion_firmado} title="Anexo de Cesión firmado" desc="El Convenio de Cesión de ahorros que te enviamos." />
                                         )}
                                     </div>
-                                )}
 
-                                {/* DNI por ambas caras */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <DropZone file={dniFrontal} onPick={f => pickFile(f, setDniFrontal)} alreadyUploaded={info.dni_subido} accept="image/*,application/pdf"
-                                        title={`DNI — cara delantera${dniRequerido ? ' *' : ''}`} desc="Foto nítida del DNI por delante." />
-                                    <DropZone file={dniTrasero} onPick={f => pickFile(f, setDniTrasero)} alreadyUploaded={info.dni_subido} accept="image/*,application/pdf"
-                                        title={`DNI — cara trasera${dniRequerido ? ' *' : ''}`} desc="Foto nítida del DNI por detrás." />
-                                </div>
-                                {/* VARIOS CEDENTES: el DNI de cada uno de los demás que firman. */}
-                                {extrasIdx.map(i => (
-                                    <div key={i} className="space-y-2">
-                                        <p className="text-[11px] font-black uppercase tracking-widest text-white/60">DNI de {cedentesInfo[i].nombre}</p>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <DropZone file={dnisExtra[i]?.frontal || null} onPick={f => pickFile(f, ponDniExtra(i, 'frontal'))} accept="image/*,application/pdf"
-                                                title={`Cara delantera${dniRequerido ? ' *' : ''}`} desc={`DNI de ${cedentesInfo[i].nombre} por delante.`} />
-                                            <DropZone file={dnisExtra[i]?.trasero || null} onPick={f => pickFile(f, ponDniExtra(i, 'trasero'))} accept="image/*,application/pdf"
-                                                title={`Cara trasera${dniRequerido ? ' *' : ''}`} desc={`DNI de ${cedentesInfo[i].nombre} por detrás.`} />
+                                    {/* Tipo de firma de la Cesión */}
+                                    {cesion && (
+                                        <div className="fa-subcaja">
+                                            <p className="fa-subcaja-t">¿Cómo has firmado la Cesión?</p>
+                                            <div className="fa-elige-par">
+                                                <button type="button" className={`fa-elige ${cesionFirma === 'electronica' ? 'fa-elige-sel' : ''}`} onClick={() => setCesionFirma('electronica')}>
+                                                    Electrónica<small>Con certificado</small>
+                                                </button>
+                                                <button type="button" className={`fa-elige ${cesionFirma === 'manuscrita' ? 'fa-elige-sel' : ''}`} onClick={() => setCesionFirma('manuscrita')}>
+                                                    A mano<small>Firmada y escaneada</small>
+                                                </button>
+                                            </div>
+                                            {cesionManuscrita && (
+                                                <p className="fa-txt" style={{ fontSize: 13.5 }}>Al ser firma a mano, necesitamos la foto del DNI por las dos caras: la adjuntamos nosotros al Anexo de Cesión.</p>
+                                            )}
                                         </div>
-                                    </div>
-                                ))}
-
-                                {faltaDni && (
-                                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-[11px] font-medium flex gap-2 items-center">
-                                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
-                                        {extrasIdx.length
-                                            ? 'Para la firma a mano de la Cesión, sube el DNI de todos los que firmáis, por la cara delantera y la trasera.'
-                                            : 'Para la firma a mano de la Cesión, sube el DNI por la cara delantera y la trasera.'}
-                                    </div>
-                                )}
-
-                                {uploadError && (
-                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px] font-medium flex gap-2 items-center">
-                                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                        {uploadError}
-                                    </div>
-                                )}
-
-                                <button
-                                    onClick={handleSubmit}
-                                    disabled={!puedeEnviar}
-                                    className="w-full py-4 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-black rounded-xl transition-all shadow-lg shadow-brand/20 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-3 text-sm uppercase tracking-widest"
-                                >
-                                    {uploading ? (
-                                        <><svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>Subiendo...</>
-                                    ) : (
-                                        <>Enviar documentación<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg></>
                                     )}
-                                </button>
-                                <p className="text-[10px] text-white/20 text-center uppercase tracking-wider font-bold">PDF o foto · puedes subir lo que tengas</p>
-                                </>
-                                )}
+
+                                    {/* DNI por ambas caras */}
+                                    <div className="fa-subidas fa-subidas-dos">
+                                        <DropZone file={dniFrontal} onPick={f => pickFile(f, setDniFrontal)} alreadyUploaded={info.dni_subido} accept="image/*,application/pdf" obligatorio={dniRequerido}
+                                            title="DNI, por delante" />
+                                        <DropZone file={dniTrasero} onPick={f => pickFile(f, setDniTrasero)} alreadyUploaded={info.dni_subido} accept="image/*,application/pdf" obligatorio={dniRequerido}
+                                            title="DNI, por detrás" />
+                                    </div>
+                                    {/* VARIOS CEDENTES: el DNI de cada uno de los demás que firman. */}
+                                    {extrasIdx.map(i => (
+                                        <div key={i}>
+                                            <p className="fa-dni-de" style={{ marginTop: 18 }}>DNI de {cedentesInfo[i].nombre}</p>
+                                            <div className="fa-subidas fa-subidas-dos" style={{ marginTop: 10 }}>
+                                                <DropZone file={dnisExtra[i]?.frontal || null} onPick={f => pickFile(f, ponDniExtra(i, 'frontal'))} accept="image/*,application/pdf" obligatorio={dniRequerido}
+                                                    title="Por delante" />
+                                                <DropZone file={dnisExtra[i]?.trasero || null} onPick={f => pickFile(f, ponDniExtra(i, 'trasero'))} accept="image/*,application/pdf" obligatorio={dniRequerido}
+                                                    title="Por detrás" />
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {faltaDni && (
+                                        <div className="fa-mt">
+                                            <Aviso><p>{extrasIdx.length
+                                                ? 'Para la firma a mano de la Cesión, sube el DNI de todos los que firmáis, por delante y por detrás.'
+                                                : 'Para la firma a mano de la Cesión, sube el DNI por delante y por detrás.'}</p></Aviso>
+                                        </div>
+                                    )}
+                                    {uploadError && <div className="fa-mt"><Aviso><p>{uploadError}</p></Aviso></div>}
+
+                                    <div className="fa-btns2">
+                                        <button className="fa-btn fa-btn-pri" onClick={handleSubmit} disabled={!puedeEnviar}>
+                                            {uploading ? <><Spinner /> Subiendo…</> : 'Enviar documentación'}
+                                        </button>
+                                    </div>
+                                    <p className="fa-nota">Puedes subir lo que tengas ahora y volver después a este enlace.</p>
+                                </div>
                             </>
                         )}
-                    </div>
-                </div>
-
-                <p className="text-center mt-8 text-[10px] uppercase font-black tracking-[0.2em] text-white/20">Sistema de Gestión Brokergy &copy; {new Date().getFullYear()}</p>
+                    </>
+                )}
             </div>
 
             {/* Modal de firma con Autofirma (destello en la zona de firma).
@@ -698,7 +897,7 @@ export function FirmarAnexosView({ expedienteId }) {
                     onSigned={handleAnexoSigned}
                 />
             )}
-        </div>
+        </Marco>
     );
 }
 

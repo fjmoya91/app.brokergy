@@ -62,4 +62,9 @@ ofrece las demás con su propio QR. En producción manda el origen real.
 se ancla al ancestro más cercano con `backdrop-filter`: la "pantalla completa" se recortaba a
 esa tarjeta y la hoja salía en una franja de 200 px con los botones amontonados. El aviso
 necesita además su propio portal — vivía dentro de `#root`, que apila ANTES que el portal de
-la hoja, así que quedaba DEBAJO de ella por mucho z-index que llevara.
+la hoja, así que quedaba DEBAJO de ella por mucho z-index que llevara. Por lo mismo, desde el
+24/10/2026 también va portaleado el aviso de error al enviar la firma, que hasta entonces se
+quedaba en `#root`. Ese día las pantallas del teléfono (abrir, enviar, enviada, enlace no válido
+y el aviso de girar) pasaron al estilo «carta de pago» (regla 164); la hoja sigue igual. Demo,
+sin API: `/firma-movil/demo`. Y «Enviando…» va ENCIMA de la hoja (portaleado), no en su lugar:
+antes la desmontaba y, si el envío fallaba, había que volver a firmar.

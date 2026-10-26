@@ -3,5 +3,5 @@
 
 ### Componente núcleo: `DocsManager`
 **Fichero:** `implementation/frontend/src/features/docs/DocsManager.jsx`. Dos modos:
-- `mode="token"` → **cliente/instalador por enlace público** `/subir-docs/:uuid?token=` (subir, ver, sin validar). Envoltorio: `features/public/views/SubirDocsReformaView.jsx`.
+- `mode="token"` → **cliente/instalador por enlace público** `/subir-docs/:uuid?token=` (subir, ver, sin validar). Envoltorio: `features/public/views/SubirDocsReformaView.jsx`, en el estilo «carta de pago» desde el 24/10/2026: el gestor va dentro de `.theme-light`, que lo pinta en claro sin tocarlo (lo mismo tras aceptar en `/aceptar-cee`).
 - `mode="admin"` → **logueado** vía `features/calculator/components/DocsAdminModal.jsx` (modal in-app abierto desde el botón **"SUBIR FOTOS"** en `ResultsPanel.jsx`). Si `user.rol === 'ADMIN'` → **validar/rechazar foto a foto** y **borrar** (✕ en miniatura + 🗑 en lightbox).

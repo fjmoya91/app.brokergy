@@ -17,8 +17,10 @@ captación. Los DATOS siguen en su formulario (vienen rellenos y se repasan); su
 botón pasa a «Continuar» y el de aceptar va en la última pantalla, con el resumen
 de las respuestas y «Cambiar» en cada una (que vuelve al resumen, no a la
 siguiente pregunta). Tocar una opción AVANZA sola salvo que abra una sub-pregunta.
-El texto secundario va a `text-white/70` como mínimo: a /35 no se leía en un
-iPhone. Los dibujos son SVG propios ([IconosVivienda.jsx](implementation/frontend/src/components/IconosVivienda.jsx), compartidos con el funnel `/reforma`, cuyas tarjetas usan TODAS dibujos propios en vez de emojis — `<IconoFunnel n="gas" />`, con tamaño y color por familia en [IconosFunnel.jsx](implementation/frontend/src/features/landing/components/IconosFunnel.jsx), un solo sitio):
+El texto secundario tiene que leerse en el móvil: en el tema oscuro, a /35 no se
+leía en un iPhone. Desde el 24/10/2026 toda la aceptación (`/firma/:id`: datos,
+preguntas, resumen, popup de condiciones y pantallas de después) va en el estilo
+«carta de pago» (regla 164, prefijo `.fp-`), sin cambiar qué se pregunta ni qué se envía. Los dibujos son SVG propios ([IconosVivienda.jsx](implementation/frontend/src/components/IconosVivienda.jsx), compartidos con el funnel `/reforma`, cuyas tarjetas usan TODAS dibujos propios en vez de emojis — `<IconoFunnel n="gas" />`, con tamaño y color por familia en [IconosFunnel.jsx](implementation/frontend/src/features/landing/components/IconosFunnel.jsx), un solo sitio):
 el emoji del radiador era una ESCALERA. ⚠️ Para llevar la pantalla arriba se usa
 `window.scrollTo`, NUNCA `scrollIntoView`: desplaza también los ancestros con
 `overflow-hidden` (la página lo lleva por el fondo animado).
@@ -92,3 +94,13 @@ cliente» sino «🏠 LO QUE CONSTA DE LA VIVIENDA», con la fila «Aire acondic
 (apuntado en la oportunidad)». Si al aceptar el cliente dice otra cosa, el resumen
 lo avisa («En la oportunidad constaba «Sí · 2 aparatos»»). Las pantallas del
 cliente siguen preguntando en NEUTRO: lo apuntado no se le preselecciona.
+
+**Y si el envío no sale del móvil** (2026-10-23, 26RES060_OP323): el cliente pulsó «Confirmar» y vio
+«Ocurrió un error al procesar tu aceptación»; la petición no llegó ni a nginx y a los siete minutos,
+recargando, aceptó sin problema. Un error SIN respuesta del servidor es del móvil: corte de conexión
+o un adjunto que Chrome de Android ya no puede leer (un fichero de Google Fotos o Drive es una
+referencia que caduca con la página abierta un rato). En `AceptarPropuestaView.jsx` el justificante
+bancario se COPIA en memoria al elegirlo (`copiaEnMemoria`), y sin respuesta el aviso dice lo que
+pasa: si algún adjunto ya no se lee, que lo vuelva a elegir; si no, que revise la cobertura y vuelva
+a pulsar, sin rellenar nada otra vez. Probado en local con el backend parado: sale el aviso de
+conexión y la oportunidad no se toca.

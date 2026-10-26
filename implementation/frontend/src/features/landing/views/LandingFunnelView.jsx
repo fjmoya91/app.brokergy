@@ -44,6 +44,7 @@ import { ReformaSubFlow } from './ReformaSubFlow';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { LandingPropertyReview } from './LandingPropertyReview';
 import { buildAccentVars } from '../../../utils/partnerTheme';
+import { CSS_LANDING_CARTA } from '../estiloCarta';
 
 const CATASTRO_API = '/api/catastro';
 
@@ -569,10 +570,22 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     // remapea las utilidades amber/brand a las variables de contraste) y el fondo.
     const accentColor = (!isInternal && partnerBranding?.color_primary) || null;
     const accentVars = accentColor ? buildAccentVars(accentColor) : null;
+    // Lo que ve el visitante, en estilo «carta de pago» (regla 164; ver
+    // estiloCarta.js). La «Nueva simulación» del CRM es este mismo componente
+    // en modo interno y sigue oscura.
+    const carta = !isInternal;
     return (
-        <div className={`min-h-screen bg-slate-950 relative overflow-x-hidden ${accentVars ? 'partner-accent' : ''}`}
+        <div className={`min-h-screen bg-slate-950 relative overflow-x-hidden ${accentVars ? 'partner-accent' : ''} ${carta ? 'lf theme-light' : ''}`}
             style={accentVars || undefined}>
-            <DynamicNetworkBackground color={accentVars ? accentVars['--accent-text'] : null} />
+            {carta ? (
+                <>
+                    <style>{CSS_LANDING_CARTA}</style>
+                    <div className="lf-filete" />
+                    <div className="lf-halo" />
+                </>
+            ) : (
+                <DynamicNetworkBackground color={accentVars ? accentVars['--accent-text'] : null} />
+            )}
             <GeoLocatingOverlay stage={geoStage} />
             <CatastroStatusBanner />
 
@@ -597,6 +610,8 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                     <header className="max-w-3xl mx-auto mb-5 md:mb-8 flex flex-col items-center gap-3">
                         {partnerBranding?.logo_url ? (
                             <img src={partnerBranding.logo_url} alt={partnerBranding.nombre_comercial} className="h-20 md:h-28 w-auto object-contain" />
+                        ) : carta && !partnerBranding ? (
+                            <img src="/logo_brokergy_dark.png" alt="BROKERGY · Ingeniería Energética" className="lf-logo" width="150" height="30" />
                         ) : (
                             <div className="text-2xl md:text-3xl font-black tracking-tight">
                                 <span className="text-white">BROKER</span><span className="text-amber-400">GY</span>
@@ -819,6 +834,8 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                             </span>
                             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#FFA000', boxShadow: '0 0 8px 1px rgba(255,160,0,0.7)' }}></span>
                         </a>
+                    ) : carta ? (
+                        <p className="lf-pie">BROKERGY · Ingeniería Energética</p>
                     ) : (
                         <p className="text-white/20 text-[10px] uppercase tracking-[0.2em] font-bold">
                             Brokergy Analytics · © 2026

@@ -4,9 +4,8 @@
 
 Botón **🧾 Enviar al cliente: certificados + guía de la Renta** bajo la comprobación
 del IRPF del módulo CEE (solo equipo interno), en los DOS negocios. Al cliente le
-llegan sus certificados FIRMADOS y una guía de UNA página, con la marca de los
-documentos de cliente (la de la oferta de CEE: filete degradado, Manrope + Archivo,
-banda oscura con el lema), que le dice qué deducción aplicarse, dónde se marca en
+llegan sus certificados FIRMADOS y una guía de UNA página, en el estilo «carta de pago»
+(regla 164, desde el 26/10/2026; antes Manrope + Archivo), que le dice qué deducción aplicarse, dónde se marca en
 Renta Web y todos los datos que le va a pedir, ya rellenos. La guía se guarda en Drive
 y el cliente la descarga también desde su portal (`/mi-expediente`).
 
@@ -121,5 +120,16 @@ con la clave `guia_irpf` (`fields` admite ya rutas con punto).
 
 ⚠️ `toLocaleString('es-ES')` NO agrupa números de cuatro cifras ("7768 €"): la guía usa su
 propio formateador (`miles`). Y la hoja es de alto FIJO: tras tocar la maqueta, el test mide
-la holgura (hoy +26 px en el peor caso: 5 facturas, 2 empresas, 2 propietarios; el ejemplo
-deja más de +130).
+la holgura (hoy +16 px en el peor caso: 5 facturas, 2 empresas, 2 propietarios; el ejemplo
+deja más de +180).
+
+**Estilo «carta de pago» (26/10/2026, Fran: «aplícala también en la guía IRPF»)**: copia la
+hoja de [carta_pago_bono_cae.html](implementation/backend/plantillas/carta_pago_bono_cae.html):
+filete arriba, logo a la izquierda y expediente/fecha a la derecha, titular en Antonio con
+«en la Renta» en lima, la cifra en una tarjeta TINTA con el filete abajo (la deducción y lo
+que la acredita a la izquierda, lo estimado por año a la derecha), etiquetas de sección en
+naranja con raya tinta y la banda oscura con «BROKERGY · Ingeniería energética» y el lema en
+naranja. Texto en Inter. ⚠️ Antonio se declara a mano en la guía: `buildFontFaces` exige las
+caras latin y latin-ext, y de Antonio solo hay `Antonio-700-latin.woff2`. ⚠️ El recuadro «tus
+certificados lo acreditan» va DENTRO de la tarjeta oscura: fuera, la hoja del peor caso se
+pasaba 75 px (Inter es más ancha que Manrope).

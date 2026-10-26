@@ -1,6 +1,20 @@
+// ─── AceptarPropuestaView.jsx ────────────────────────────────────────────────
+// /firma/:id — el cliente acepta la propuesta: repasa sus datos (vienen
+// rellenos), contesta tres preguntas de su vivienda (ConfirmarVivienda) y
+// acepta. Con el estilo «carta de pago» (regla 164): papel crema, Antonio en
+// los titulares, una acción naranja por tarjeta y los avisos en ámbar.
+//
+// El CSS es el de esta página (prefijo `.fp-`) y lo usan también sus piezas,
+// que solo se pintan dentro de ella: ConfirmarVivienda y PropietariosAceptacion.
+// El popup de condiciones va portaleado a body y trae su propio tema
+// (`tema="carta"`), porque lo comparte la oferta de CEE directo.
+//
+// Solo cambió el aspecto (24/10/2026): qué se pide, qué se valida y qué se
+// envía son lo de siempre.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 import CondicionesAceptacionModal from '../components/CondicionesAceptacionModal';
 import { CONDICIONES_VERSION } from '../logic/condicionesAceptacion';
 import { ConfirmarVivienda } from '../components/ConfirmarVivienda';
@@ -12,9 +26,9 @@ import {
     CONFIRMACION_VACIA, CONFIRMACION_VERSION, faltanConfirmacion, resumenConfirmacion,
 } from '../../expedientes/logic/confirmacionCliente';
 
-// Usamos el entorno para definir dónde están las API (Vite local o Vercel)
-const isProd = import.meta.env.PROD;
-const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
+// En relativo: en local lo atiende el proxy de Vite, y así la página funciona
+// también abierta desde el móvil por la red de casa.
+const API_URL = '/api/public';
 
 // /firma/demo — el formulario tal y como lo ve el cliente, con datos de mentira.
 // No llama a la API: ni se acepta nada ni sale ningún mensaje. Sirve para
@@ -29,10 +43,335 @@ const DEMO_DATOS = {
     iban: '',
 };
 
+// En Android, un fichero elegido desde Google Fotos o Drive es una referencia
+// que caduca: con la página abierta un rato, Chrome ya no puede leerlo y la
+// petición se corta en el móvil sin llegar al servidor (26RES060_OP323,
+// 23/10/2026: «no me deja aceptar»). Se copia en memoria al elegirlo.
+async function copiaEnMemoria(file) {
+    if (!file) return null;
+    const buf = await file.arrayBuffer();
+    return new File([buf], file.name, { type: file.type, lastModified: file.lastModified });
+}
+
+// El envío no ha llegado al servidor: corte de conexión o un adjunto ilegible.
+const MSG_SIN_CONEXION = 'Tu aceptación no ha llegado a enviarse: parece que se ha cortado la conexión. '
+    + 'Comprueba que tienes cobertura o wifi y vuelve a pulsar «Confirmar y aceptar propuesta»; no hace falta rellenar nada otra vez.';
+const MSG_ADJUNTO_ILEGIBLE = 'No hemos podido leer el justificante bancario que elegiste. '
+    + 'Vuelve atrás y selecciónalo otra vez (o haz una foto), y después confirma de nuevo.';
+
+const WHATSAPP = '34623926179';
+const fechaLarga = (f) => new Date(f).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+
+/* ── Estilos: el registro de la carta de pago ─────────────────────────────── */
+
+const CSS = `
+@font-face{font-family:'Antonio';font-style:normal;font-weight:700;font-display:swap;src:url('/fonts/Antonio-700-latin.woff2') format('woff2')}
+.fp{--crema:#faf9f7;--tinta:#141111;--gris:#55585f;--gris2:#6b6e76;--linea:rgba(20,17,17,.08);--naranja:#ffa000;--naranja-txt:#b33a0a;--verde:#b1d13e;--verde-txt:#4d6b0f;--lima:#c7f601;
+  --filete:linear-gradient(90deg,#fca508 0%,#f5c53f 30%,#eee475 55%,#c7d54c 78%,#b5cf38 100%);
+  color-scheme:light;min-height:100vh;min-height:100dvh;background:var(--crema);color:var(--tinta);
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased;
+  position:relative;overflow-x:hidden}
+.fp *{box-sizing:border-box}
+.fp ::selection{background:var(--lima);color:var(--tinta)}
+.fp-filete-top{height:4px;background:var(--filete)}
+.fp-halo{position:absolute;inset:0 0 auto 0;height:520px;pointer-events:none;
+  background:radial-gradient(60% 55% at 50% 0%,rgba(255,160,0,.10),transparent 70%),radial-gradient(40% 40% at 85% 10%,rgba(199,246,1,.10),transparent 70%)}
+.fp-col{position:relative;max-width:480px;margin:0 auto;padding:18px 16px calc(36px + env(safe-area-inset-bottom))}
+.fp-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 2px 22px}
+.fp-logo{height:26px;width:auto;display:block}
+.fp-exp{font:600 11.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--gris);background:#fff;border:1px solid var(--linea);border-radius:999px;padding:7px 10px;letter-spacing:.02em;white-space:nowrap}
+.fp-hola{font-size:15px;color:var(--gris);margin:0 2px}
+.fp-hola b{color:var(--tinta);font-weight:600}
+.fp-display{font-family:'Antonio','Inter',Impact,sans-serif;font-weight:700;letter-spacing:-.005em;color:var(--tinta)}
+.fp-h1{font-size:42px;line-height:1.16;margin:6px 2px 0}
+.fp-h2{font-size:28px;line-height:1.16;margin:0}
+.fp-h3{font-size:22px;line-height:1.18;margin:0}
+/* El fondo empieza un poco por debajo del alto de la letra: cuando el titular
+   ocupa dos líneas, un fondo entero tapaba los rasgos bajos de la de arriba. */
+.fp-mark{background:linear-gradient(transparent 14%,var(--lima) 14%);padding:0 .14em;border-radius:5px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.fp-sub{font-size:15.5px;line-height:1.55;color:var(--gris);margin:12px 2px 0}
+.fp-sub b{color:var(--tinta);font-weight:600}
+.fp-txt{font-size:15px;line-height:1.55;color:var(--gris);margin:10px 0 0}
+.fp-txt b,.fp-txt strong{color:var(--tinta);font-weight:700}
+.fp-stack{margin-top:22px}
+.fp-stack > * + *{margin-top:14px}
+.fp-card{background:#fff;border:1px solid var(--linea);border-radius:24px;box-shadow:0 1px 2px rgba(20,17,17,.04),0 8px 24px -12px rgba(20,17,17,.10);position:relative;overflow:hidden;padding:22px 20px}
+.fp-filete-fino{position:absolute;top:0;left:0;right:0;height:4px;background:var(--filete)}
+.fp-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.fp-eyebrow{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--naranja-txt);margin:0}
+.fp-eyebrow-verde{color:var(--verde-txt)}
+.fp-eyebrow-gris{color:var(--gris)}
+.fp-chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px 0 8px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+.fp-chip-verde{background:rgba(177,209,62,.18);color:var(--verde-txt)}
+.fp-chip-ambar{background:#fff1d1;color:#7a4b00}
+.fp-numero{font-size:40px;line-height:1;margin:10px 0 0;letter-spacing:.01em;word-break:break-all}
+.fp-ico-tile{flex:none;width:40px;height:40px;border-radius:12px;display:grid;place-items:center}
+.fp-tile-verde{background:rgba(177,209,62,.2);color:var(--verde-txt)}
+.fp-tile-naranja{background:rgba(255,160,0,.16);color:#8a4b00}
+.fp-tile-crema{background:var(--crema);border:1px solid var(--linea);color:var(--tinta)}
+.fp-extra{display:flex;gap:12px;align-items:flex-start;margin-top:14px;padding:14px;border-radius:16px;background:var(--crema);border:1px solid var(--linea);font-size:14px;line-height:1.5;color:#3b3e45}
+.fp-extra b,.fp-extra strong{color:var(--tinta);font-weight:700}
+.fp-extra p{margin:0}
+.fp-extra p + p{margin-top:6px}
+.fp-aviso{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:16px;font-size:14.5px;line-height:1.5}
+.fp-aviso b,.fp-aviso strong{font-weight:700}
+.fp-aviso p{margin:0}
+.fp-aviso-ambar{background:#fff7e6;border:1px solid #f6dca4;color:#5c4100}
+.fp-aviso-ambar .fp-ico-tile{background:#ffe9bd;color:#7a4b00}
+.fp-aviso-ok{background:rgba(177,209,62,.12);border:1px solid rgba(177,209,62,.35);color:#3c5409}
+.fp-aviso-ok .fp-ico-tile{background:rgba(177,209,62,.25);color:var(--verde-txt)}
+.fp-mt{margin-top:16px}
+.fp-demo{display:flex;gap:10px;align-items:center;margin:0 0 16px;padding:10px 14px;border-radius:14px;border:1.5px dashed rgba(20,17,17,.22);background:#fff;font-size:12.5px;line-height:1.45;color:var(--gris)}
+.fp-demo b{color:var(--tinta)}
+/* botones */
+.fp-btn{appearance:none;-webkit-tap-highlight-color:transparent;display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:56px;padding:0 20px;border-radius:16px;border:0;cursor:pointer;
+  font:700 16.5px/1.2 'Inter',sans-serif;text-decoration:none;text-align:center;transition:transform .12s ease,box-shadow .2s ease,background-color .2s ease,filter .2s ease,border-color .2s ease}
+.fp-btn:active{transform:scale(.98)}
+.fp-btn:disabled{opacity:.55;cursor:default;transform:none}
+.fp-btn:focus-visible,.fp-link:focus-visible,.fp-opc:focus-visible,.fp-elige:focus-visible,.fp-atras:focus-visible,.fp-mini:focus-visible,.fp-file:focus-within{outline:3px solid var(--tinta);outline-offset:3px}
+.fp-btn-pri{background:var(--naranja);color:#08090c;box-shadow:0 1px 0 rgba(255,255,255,.35) inset,0 10px 22px -10px rgba(255,160,0,.75)}
+.fp-btn-pri:hover:not(:disabled){filter:brightness(1.04)}
+.fp-btn-sec{background:#fff;color:var(--tinta);border:1.5px solid rgba(20,17,17,.14);min-height:52px;font-size:15.5px}
+.fp-btn-sec:hover:not(:disabled){border-color:rgba(20,17,17,.3)}
+.fp-btn-tinta{background:var(--tinta);color:#fff}
+.fp-btns2{display:grid;gap:10px}
+.fp-mini{appearance:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:12px;border:1.5px solid rgba(20,17,17,.14);background:#fff;color:var(--tinta);font:700 13.5px 'Inter',sans-serif;white-space:nowrap}
+.fp-mini:hover{border-color:rgba(20,17,17,.3)}
+.fp-link{appearance:none;background:none;border:0;cursor:pointer;padding:0;font:inherit;font-weight:700;color:var(--tinta);text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(20,17,17,.35);border-radius:6px}
+.fp-atras{appearance:none;background:none;border:0;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 6px 0 0;font:700 14px 'Inter',sans-serif;color:var(--gris);border-radius:8px}
+.fp-atras:hover{color:var(--tinta)}
+.fp-separa{display:flex;align-items:center;gap:12px;margin:18px 0 0;font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--gris2)}
+.fp-separa::before,.fp-separa::after{content:'';flex:1;height:1px;background:var(--linea)}
+/* progreso */
+.fp-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-6px 0 10px}
+.fp-paso-n{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--gris2);margin:0}
+.fp-pasos{display:flex;gap:5px;margin:0 0 18px}
+.fp-paso{flex:1;height:8px;border-radius:999px;background:#eeece8;overflow:hidden;position:relative}
+.fp-paso i{position:absolute;inset:0;background:var(--filete);transform-origin:left;transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+/* opciones grandes */
+.fp-opcs{display:grid;gap:10px;margin-top:18px}
+.fp-opc{appearance:none;-webkit-tap-highlight-color:transparent;width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px 14px 14px;min-height:72px;text-align:left;cursor:pointer;
+  background:#fff;border:1.5px solid rgba(20,17,17,.12);border-radius:18px;color:var(--tinta);font:inherit;transition:border-color .2s ease,background-color .2s ease,box-shadow .2s ease,transform .12s ease}
+.fp-opc:hover{border-color:rgba(20,17,17,.28)}
+.fp-opc:active{transform:scale(.99)}
+.fp-opc-sel,.fp-opc-sel:hover{border-color:var(--naranja);background:#fffaf0;box-shadow:0 0 0 3px rgba(255,160,0,.16)}
+.fp-opc-dib{flex:none;width:52px;height:52px;border-radius:14px;display:grid;place-items:center}
+.fp-dib-calor{background:rgba(255,160,0,.13);color:#b35a00}
+.fp-dib-sol{background:rgba(177,209,62,.2);color:var(--verde-txt)}
+.fp-dib-aire,.fp-dib-neutro{background:var(--crema);border:1px solid var(--linea);color:#3b3e45}
+.fp-opc-sel .fp-opc-dib{background:rgba(255,160,0,.2);color:#8a4b00;border-color:transparent}
+.fp-opc-cuerpo{flex:1;min-width:0}
+.fp-opc-label{display:block;font-size:15.5px;font-weight:700;line-height:1.35}
+.fp-opc-sub{display:block;font-size:13.5px;line-height:1.45;color:var(--gris);margin-top:3px}
+.fp-radio{flex:none;width:24px;height:24px;border-radius:999px;border:2px solid rgba(20,17,17,.22);display:grid;place-items:center;color:#08090c;transition:background-color .2s ease,border-color .2s ease}
+.fp-opc-sel .fp-radio{background:var(--naranja);border-color:var(--naranja)}
+.fp-opc-sola{align-items:flex-start;min-height:64px;padding:16px}
+.fp-opc-sola .fp-radio{margin-top:1px}
+/* dos respuestas en línea (Sí / No) */
+.fp-elige-par{display:grid;gap:8px;margin-top:12px}
+.fp-elige{appearance:none;-webkit-tap-highlight-color:transparent;cursor:pointer;min-height:52px;padding:10px 16px;border-radius:14px;border:1.5px solid rgba(20,17,17,.14);background:#fff;color:var(--tinta);font:700 15px/1.3 'Inter',sans-serif;text-align:center;transition:border-color .2s ease,background-color .2s ease,box-shadow .2s ease}
+.fp-elige:hover{border-color:rgba(20,17,17,.3)}
+.fp-elige-sel,.fp-elige-sel:hover{border-color:var(--naranja);background:#fffaf0;box-shadow:0 0 0 3px rgba(255,160,0,.16)}
+/* sub-pregunta dentro de una pantalla */
+.fp-subcaja{padding:16px;border-radius:18px;background:var(--crema);border:1px solid var(--linea)}
+.fp-contador{display:flex;align-items:center;justify-content:center;gap:22px;margin-top:14px}
+.fp-contador button{appearance:none;cursor:pointer;width:56px;height:56px;border-radius:16px;border:1.5px solid rgba(20,17,17,.16);background:#fff;color:var(--tinta);font:700 26px/1 'Inter',sans-serif}
+.fp-contador button:hover{border-color:rgba(20,17,17,.32)}
+.fp-contador span{min-width:3ch;text-align:center;font-size:48px;line-height:1;font-variant-numeric:tabular-nums}
+/* campos */
+.fp-k{display:block;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--gris);margin:0 2px 8px}
+.fp-k i{font-style:normal;color:var(--naranja-txt)}
+.fp-k em{font-style:normal;font-weight:600;letter-spacing:0;text-transform:none;color:var(--gris2)}
+.fp-k-fila{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 8px}
+.fp-k-fila .fp-k{margin:0}
+.fp-campos{display:grid;gap:16px;margin-top:16px}
+.fp-dos{display:grid;gap:16px}
+.fp-sec{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--gris);margin:24px 2px 0;padding-top:20px;border-top:1px solid var(--linea)}
+.fp-input{appearance:none;display:block;width:100%;height:54px;padding:0 16px;border-radius:14px;border:1.5px solid rgba(20,17,17,.14);background:#fff;color:var(--tinta);
+  font:500 16px/1 'Inter',sans-serif;transition:border-color .2s ease,box-shadow .2s ease}
+.fp-input::placeholder{color:#a3a5aa}
+.fp-input:hover{border-color:rgba(20,17,17,.28)}
+.fp-input:focus{outline:none;border-color:var(--tinta);box-shadow:0 0 0 4px rgba(255,160,0,.22)}
+.fp-input:disabled{background:#f4f3f0;color:var(--gris2)}
+.fp-input-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em}
+.fp-input-grande{font-size:20px;font-weight:700}
+.fp-ayuda{font-size:12.5px;color:var(--gris2);line-height:1.45;margin:7px 2px 0}
+.fp-ayuda-ambar{color:#7a4b00}
+.fp-info{appearance:none;cursor:pointer;display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:0 10px;border-radius:999px;border:1px solid var(--linea);background:#fff;color:var(--gris);font:700 12px 'Inter',sans-serif}
+.fp-info[aria-expanded="true"]{background:var(--crema);color:var(--tinta)}
+/* adjuntar */
+.fp-file{position:relative;display:flex;align-items:center;gap:12px;min-height:60px;padding:12px 14px;border-radius:16px;border:1.5px dashed rgba(20,17,17,.22);background:#fff;cursor:pointer;color:var(--gris);font-size:14px;line-height:1.35;transition:border-color .2s ease,background-color .2s ease}
+.fp-file:hover{border-color:rgba(20,17,17,.4)}
+.fp-file input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.fp-file b{display:block;color:var(--tinta);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fp-file span{display:block;min-width:0}
+.fp-file-ok{border-style:solid;border-color:rgba(177,209,62,.7);background:rgba(177,209,62,.12)}
+.fp-file-ok b{color:var(--verde-txt)}
+.fp-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:150px;padding:22px 16px;text-align:center}
+.fp-drop b{white-space:normal}
+.fp-lista{display:grid;gap:8px;margin:14px 0 0;padding:0;list-style:none}
+.fp-lista li{display:flex;align-items:center;gap:10px;min-height:52px;padding:6px 6px 6px 10px;border-radius:14px;background:var(--crema);border:1px solid var(--linea);font-size:13.5px}
+.fp-lista li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fp-quitar{appearance:none;cursor:pointer;flex:none;width:40px;height:40px;border-radius:10px;border:0;background:none;color:var(--gris);display:grid;place-items:center}
+.fp-quitar:hover{background:#fff;color:var(--tinta)}
+.fp-barra{height:10px;border-radius:999px;background:#eeece8;overflow:hidden;margin-top:14px}
+.fp-barra i{display:block;height:100%;background:var(--filete);transition:width .3s ease}
+.fp-pct{font-size:44px;line-height:1;margin:6px 0 0;text-align:center}
+/* propietarios */
+.fp-prop{padding:16px;border-radius:18px;background:var(--crema);border:1px solid var(--linea)}
+.fp-prop + .fp-prop{margin-top:12px}
+.fp-prop .fp-input{background:#fff}
+.fp-prop-q{font-size:15px;font-weight:700;color:var(--tinta);margin:18px 0 0}
+.fp-quita-prop{appearance:none;cursor:pointer;background:none;border:0;min-height:40px;padding:0 4px;font:700 13px 'Inter',sans-serif;color:#7a4b00;text-decoration:underline;text-underline-offset:3px}
+.fp-anadir{appearance:none;cursor:pointer;width:100%;min-height:52px;margin-top:12px;border-radius:16px;border:1.5px dashed rgba(20,17,17,.25);background:#fff;color:var(--tinta);font:700 14.5px 'Inter',sans-serif}
+.fp-anadir:hover{border-color:rgba(20,17,17,.45)}
+/* resumen y datos */
+.fp-dl{margin:14px 0 0;padding:0}
+.fp-dl > div{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:11px 0;border-top:1px solid var(--linea)}
+.fp-dl dt{flex:none;font-size:13.5px;color:var(--gris)}
+.fp-dl dd{margin:0;min-width:0;font-size:14.5px;font-weight:600;text-align:right;overflow-wrap:anywhere}
+.fp-dl .fp-vacio{color:var(--gris2);font-weight:500;font-style:italic}
+.fp-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.01em}
+.fp-resumen{margin:18px 0 0;padding:0;list-style:none;border:1px solid var(--linea);border-radius:18px;overflow:hidden;background:#fff}
+.fp-resumen li{display:flex;align-items:center;gap:12px;padding:12px 10px 12px 12px}
+.fp-resumen li + li{border-top:1px solid var(--linea)}
+.fp-resumen .fp-opc-dib{width:44px;height:44px;border-radius:12px}
+.fp-resumen b{display:block;font-size:15px;line-height:1.35}
+.fp-resumen small{display:block;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--gris);margin-bottom:2px}
+.fp-nota{font-size:13px;color:var(--gris);text-align:center;margin:12px 4px 0;line-height:1.55}
+.fp-cops{margin:16px 0 0;padding-top:14px;border-top:1px solid var(--linea)}
+.fp-cops p{margin:8px 0 0;font-size:14px;line-height:1.45;color:var(--gris)}
+.fp-cops p b{color:var(--tinta)}
+/* hecho */
+.fp-ok{display:flex;align-items:center;gap:16px}
+.fp-check{flex:none;width:60px;height:60px}
+.fp-check circle{fill:rgba(177,209,62,.16);stroke:var(--verde);stroke-width:3;stroke-dasharray:102;stroke-dashoffset:102;animation:fp-draw .6s cubic-bezier(.65,0,.45,1) .1s forwards;transform:rotate(-90deg);transform-origin:center}
+.fp-check path{fill:none;stroke:var(--verde-txt);stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:100;stroke-dashoffset:100;animation:fp-draw .38s cubic-bezier(.65,0,.45,1) .62s forwards}
+.fp-check svg{display:block;animation:fp-pop .45s cubic-bezier(.2,1.4,.4,1) .55s both}
+/* firma */
+.fp-firma{display:flex;align-items:center;gap:14px;margin:28px 4px 0;padding-top:22px;border-top:1px solid var(--linea)}
+.fp-sello{flex:none;width:52px;height:52px;border-radius:50%;box-shadow:0 2px 8px -2px rgba(20,17,17,.18);background:#fff}
+.fp-firma b{display:block;font-size:15px;font-weight:700}
+.fp-firma span{display:block;font-size:12.5px;color:var(--gris);margin-top:2px;line-height:1.4}
+.fp-pie{text-align:center;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--gris2);margin:22px 0 0;font-weight:700}
+/* esqueleto y entradas */
+.fp-sk{background:linear-gradient(90deg,#efede9 0%,#f7f5f2 50%,#efede9 100%);background-size:200% 100%;animation:fp-shim 1.3s linear infinite;border-radius:24px}
+.fp-spin{animation:fp-rot .8s linear infinite}
+.fp-in{animation:fp-up .55s cubic-bezier(.2,.8,.2,1) both}
+.fp-in-2{animation-delay:.08s}
+.fp-in-3{animation-delay:.16s}
+.fp-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@keyframes fp-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes fp-draw{to{stroke-dashoffset:0}}
+@keyframes fp-pop{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
+@keyframes fp-shim{to{background-position:-200% 0}}
+@keyframes fp-rot{to{transform:rotate(360deg)}}
+@media (max-width:360px){.fp-h1{font-size:36px}.fp-h2{font-size:25px}.fp-numero{font-size:34px}.fp-opc-dib{width:46px;height:46px}}
+@media (min-width:640px){.fp-dos{grid-template-columns:1fr 1fr}.fp-btns2,.fp-elige-par{grid-template-columns:1fr 1fr}}
+@media (min-width:768px){.fp-col{max-width:560px;padding-top:40px}.fp-card{padding:26px}.fp-h1{font-size:46px}}
+@media (prefers-reduced-motion:reduce){
+  .fp-in,.fp-check svg,.fp-sk,.fp-spin{animation:none}
+  .fp-check circle,.fp-check path{animation:none;stroke-dashoffset:0}
+  .fp-btn,.fp-opc,.fp-elige,.fp-paso i,.fp-barra i{transition:none}
+}
+`;
+
+/* ── Iconos (trazo, 24×24) ─────────────────────────────────────────────────── */
+
+const Ico = ({ size = 20, sw = 2, children }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {children}
+    </svg>
+);
+const IcoFlecha = (p) => <Ico {...p}><path d="M5 12h14M13 6l6 6-6 6" /></Ico>;
+const IcoCheck = (p) => <Ico {...p}><path d="M5 12.5l4.5 4.5L19 7.5" /></Ico>;
+const IcoAlerta = (p) => <Ico {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5M12 16.5v.01" /></Ico>;
+const IcoCandado = (p) => <Ico {...p}><rect x="5" y="10.5" width="14" height="10" rx="2.5" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" /></Ico>;
+const IcoInfo = (p) => <Ico {...p}><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5M12 7.5v.01" /></Ico>;
+const IcoClip = (p) => <Ico {...p}><path d="M20 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L14.8 7" /></Ico>;
+const IcoSubir = (p) => <Ico {...p}><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></Ico>;
+const IcoFoto = (p) => <Ico {...p}><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><circle cx="8.5" cy="9.5" r="1.6" /><path d="M21 15.5l-5-5-9 9" /></Ico>;
+const IcoX = (p) => <Ico {...p}><path d="M6 6l12 12M18 6L6 18" /></Ico>;
+const IcoChat = (p) => <Ico {...p}><path d="M20.5 11.6a8.4 8.4 0 0 1-12.4 7.4L3.5 20.5l1.6-4.4A8.4 8.4 0 1 1 20.5 11.6z" /></Ico>;
+const IcoMail = (p) => <Ico {...p}><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="M3.5 6.5l8.5 6.5 8.5-6.5" /></Ico>;
+const IcoCalendario = (p) => <Ico {...p}><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4" /></Ico>;
+const IcoDoc = (p) => <Ico {...p}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></Ico>;
+const IcoLapiz = (p) => <Ico {...p}><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></Ico>;
+const IcoLlave = (p) => <Ico {...p}><circle cx="8" cy="15" r="4" /><path d="M11 12l9-9M16 7l3 3" /></Ico>;
+
+const Spinner = ({ size = 18 }) => (
+    <svg className="fp-spin" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity=".25" strokeWidth="3" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+);
+
+/** El check que se DIBUJA: primero el círculo, luego la palomita. */
+const CheckDibujado = () => (
+    <div className="fp-check">
+        <svg viewBox="0 0 60 60" width="60" height="60" aria-hidden="true">
+            <circle cx="30" cy="30" r="26.5" pathLength="100" />
+            <path d="M19 31l7.5 7.5L42 23" pathLength="100" />
+        </svg>
+    </div>
+);
+
+/* ── Piezas ────────────────────────────────────────────────────────────────── */
+
+function Marco({ numero, children }) {
+    return (
+        <div className="fp">
+            <style>{CSS}</style>
+            <div className="fp-filete-top" />
+            <div className="fp-halo" />
+            <main className="fp-col">
+                <header className="fp-head fp-in">
+                    <img className="fp-logo" src="/logo_brokergy_dark.png" alt="BROKERGY · Ingeniería Energética" width="130" height="26" />
+                    {numero && <span className="fp-exp">{numero}</span>}
+                </header>
+                {children}
+                <footer>
+                    <div className="fp-firma">
+                        <img className="fp-sello" src="/logo-brokergy-circular.png" alt="" width="52" height="52" />
+                        <div>
+                            <b>Fran Moya</b>
+                            <span>CEO de BROKERGY · Ingeniero colegiado nº 1779 COGITI</span>
+                        </div>
+                    </div>
+                    <p className="fp-pie">BROKERGY · Ingeniería Energética</p>
+                </footer>
+            </main>
+        </div>
+    );
+}
+
 function DemoAviso() {
     return (
-        <div className="mb-6 p-3 rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300 text-[11px] font-bold text-center leading-relaxed">
-            MODO PRUEBA · así ve el cliente el formulario. No se acepta ninguna propuesta ni se envía nada.
+        <div className="fp-demo">
+            <IcoInfo size={18} />
+            <span><b>Modo prueba</b> · así ve el cliente el formulario. No se acepta ninguna propuesta ni se envía nada.</span>
+        </div>
+    );
+}
+
+function Aviso({ tono = 'ambar', icono, children, className = '', role }) {
+    const Icono = icono || IcoAlerta;
+    return (
+        <div className={`fp-aviso fp-aviso-${tono} ${className}`} role={role}>
+            <span className="fp-ico-tile"><Icono size={20} /></span>
+            <div>{children}</div>
+        </div>
+    );
+}
+
+function Campo({ id, label, obligatorio, opcional, ayuda, children }) {
+    return (
+        <div>
+            <label className="fp-k" htmlFor={id}>
+                {label}{obligatorio && <i> *</i>}{opcional && <em> (opcional)</em>}
+            </label>
+            {children}
+            {ayuda && <p className="fp-ayuda">{ayuda}</p>}
         </div>
     );
 }
@@ -41,19 +380,23 @@ function DemoAviso() {
 function DemoResumen({ conf }) {
     const lineas = resumenConfirmacion({ ...conf, supuesto: { tipo_emisor: 'radiadores_convencionales', fotovoltaica: { estado: 'no' } } });
     return (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-3">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Lo que se guardaría en el expediente</p>
-            {lineas.map(l => (
-                <div key={l.tema} className="text-sm">
-                    <span className="text-white/40">{l.tema}: </span>
-                    <span className="text-white font-bold">{l.valor}</span>
-                    {l.aviso && <p className="mt-1 text-[11px] text-amber-300/90 leading-snug">⚠️ {l.aviso}</p>}
-                </div>
-            ))}
-            <p className="text-[10px] text-white/30 leading-snug">
+        <section className="fp-card fp-in fp-in-2">
+            <p className="fp-eyebrow fp-eyebrow-gris">Lo que se guardaría en el expediente</p>
+            <dl className="fp-dl">
+                {lineas.map(l => (
+                    <div key={l.tema}>
+                        <dt>{l.tema}</dt>
+                        <dd>
+                            {l.valor}
+                            {l.aviso && <p className="fp-ayuda fp-ayuda-ambar" style={{ textAlign: 'right' }}>{l.aviso}</p>}
+                        </dd>
+                    </div>
+                ))}
+            </dl>
+            <p className="fp-ayuda">
                 Los avisos comparan con una propuesta de ejemplo calculada con radiadores y sin placas: es lo que vería el equipo en el aviso de aceptación y en el expediente.
             </p>
-        </div>
+        </section>
     );
 }
 
@@ -71,6 +414,7 @@ function FileUploadSection({ idOportunidad, API_URL }) {
         const newFiles = Array.from(e.target.files);
         setFiles(prev => [...prev, ...newFiles].slice(0, 50)); // Limite 50
         setError(null);
+        e.target.value = '';
     };
 
     const removeFile = (index) => {
@@ -79,12 +423,11 @@ function FileUploadSection({ idOportunidad, API_URL }) {
 
     const handleUpload = async () => {
         if (files.length === 0) return;
-        
+
         setUploading(true);
         setError(null);
         setProgress(0);
 
-        let successCount = 0;
         const totalFiles = files.length;
 
         try {
@@ -104,9 +447,8 @@ function FileUploadSection({ idOportunidad, API_URL }) {
                         setProgress(Math.round(baseProgress + filePercent));
                     }
                 });
-                successCount++;
             }
-            
+
             setUploaded(true);
             setFiles([]);
             setProgress(100);
@@ -119,108 +461,66 @@ function FileUploadSection({ idOportunidad, API_URL }) {
         }
     };
 
-    if (uploaded) {
-        return (
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 text-center animate-fade-in">
-                <div className="w-12 h-12 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                </div>
-                <h4 className="text-white font-bold mb-1">¡Documentación enviada!</h4>
-                <p className="text-white/40 text-xs">Tus archivos ya están en nuestra carpeta técnica.</p>
-                <button 
-                    onClick={() => setUploaded(false)}
-                    className="mt-4 text-xs font-bold text-brand hover:underline uppercase tracking-widest"
-                >
-                    Subir más archivos
-                </button>
-            </div>
-        );
-    }
-
     return (
-        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 sm:p-6 transition-all">
-            <h3 className="text-xs font-black text-brand uppercase tracking-widest mb-4 flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                Subir Fotos de la Instalación
-            </h3>
+        <section className="fp-card fp-in fp-in-2">
+            <div className="fp-filete-fino" />
+            <p className="fp-eyebrow"><IcoFoto size={16} /> Fotos de la instalación</p>
+            <h3 className="fp-display fp-h3" style={{ marginTop: 10 }}>Mándanos las fotos de lo que tienes hoy</h3>
+            <p className="fp-txt">La caldera, su placa de características y los radiadores. Con ellas preparamos tu certificado energético.</p>
 
-            {/* Dropzone Area */}
-            {!uploading && (
-                <div className="relative group">
-                    <input 
-                        type="file" 
-                        multiple 
-                        accept="image/*,video/*"
-                        onChange={handleFileChange}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                    />
-                    <div className="border-2 border-dashed border-white/10 group-hover:border-brand/40 group-hover:bg-brand/5 rounded-xl p-8 text-center transition-all">
-                        <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
-                            <svg className="w-6 h-6 text-white/20 group-hover:text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                        </div>
-                        <p className="text-sm text-white/40 font-medium">Pulsa o arrastra tus fotos aquí</p>
-                        <p className="text-[10px] text-white/20 mt-1 uppercase tracking-wider font-bold">Máx. 50 archivos (100MB cada uno)</p>
-                    </div>
-                </div>
-            )}
-
-            {/* File List */}
-            {files.length > 0 && !uploading && (
-                <div className="mt-6 space-y-2">
-                    {files.map((file, i) => (
-                        <div key={i} className="flex items-center justify-between bg-white/[0.05] p-3 rounded-lg border border-white/5">
-                            <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-8 h-8 rounded bg-brand/10 flex items-center justify-center text-brand shrink-0">
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                    </svg>
-                                </div>
-                                <span className="text-xs text-white/60 truncate font-medium">{file.name}</span>
-                            </div>
-                            <button onClick={() => removeFile(i)} className="text-white/20 hover:text-red-400 p-1">
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                        </div>
-                    ))}
-                    
-                    <button 
-                        onClick={handleUpload}
-                        className="w-full mt-4 py-3 bg-brand text-bkg-deep font-black rounded-xl hover:bg-brand-400 transition-all flex items-center justify-center gap-2 text-xs uppercase tracking-widest shadow-lg shadow-brand/20"
-                    >
-                        Subir ahora a Brokergy
+            {uploaded ? (
+                <>
+                    <Aviso tono="ok" icono={IcoCheck} className="fp-mt">
+                        <p><b>¡Documentación enviada!</b> Tus archivos ya están en nuestra carpeta técnica.</p>
+                    </Aviso>
+                    <button type="button" className="fp-btn fp-btn-sec fp-mt" onClick={() => setUploaded(false)}>
+                        Subir más archivos
                     </button>
+                </>
+            ) : uploading ? (
+                <div className="fp-mt" aria-live="polite">
+                    <p className="fp-display fp-pct">{progress}%</p>
+                    <p className="fp-nota" style={{ marginTop: 6 }}>Enviando archivos…</p>
+                    <div className="fp-barra"><i style={{ width: `${progress}%` }} /></div>
                 </div>
-            )}
+            ) : (
+                <>
+                    <label className="fp-file fp-drop fp-mt">
+                        <input type="file" multiple accept="image/*,video/*" onChange={handleFileChange} />
+                        <span className="fp-ico-tile fp-tile-naranja"><IcoSubir size={20} /></span>
+                        <b>{files.length ? 'Añadir más fotos o vídeos' : 'Elegir fotos o vídeos'}</b>
+                        <span>Hasta 50 archivos, de 100 MB cada uno como mucho</span>
+                    </label>
 
-            {/* Progress Bar */}
-            {uploading && (
-                <div className="py-8 text-center">
-                    <div className="mb-4 flex flex-col items-center">
-                        <div className="text-brand text-2xl font-black mb-1">{progress}%</div>
-                        <div className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Enviando archivos...</div>
-                    </div>
-                    <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden border border-white/5">
-                        <div 
-                            className="bg-gradient-to-r from-brand to-brand-700 h-full transition-all duration-300"
-                            style={{ width: `${progress}%` }}
-                        ></div>
-                    </div>
-                </div>
+                    {files.length > 0 && (
+                        <>
+                            <ul className="fp-lista">
+                                {files.map((file, i) => (
+                                    <li key={i}>
+                                        <IcoFoto size={18} />
+                                        <span>{file.name}</span>
+                                        <button type="button" className="fp-quitar" onClick={() => removeFile(i)} aria-label={`Quitar ${file.name}`}>
+                                            <IcoX size={18} />
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                            <button type="button" className="fp-btn fp-btn-pri fp-mt" onClick={handleUpload}>
+                                Enviar {files.length === 1 ? 'la foto' : `las ${files.length} fotos`} <IcoFlecha size={20} sw={2.4} />
+                            </button>
+                        </>
+                    )}
+                </>
             )}
 
             {error && (
-                <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px] font-medium flex gap-2 items-center">
-                    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    {error}
-                </div>
+                <Aviso className="fp-mt" role="alert"><p>{error}</p></Aviso>
             )}
-        </div>
+        </section>
     );
 }
+
+// ─── Vista ───────────────────────────────────────────────────────────────────
 
 export function AceptarPropuestaView({ idOportunidad }) {
     const [loading, setLoading] = useState(true);
@@ -390,136 +690,124 @@ export function AceptarPropuestaView({ idOportunidad }) {
             if (res.data.numeroExpediente) setGeneratedExpediente(res.data.numeroExpediente);
             setSuccess(true);
         } catch (err) {
-            const msg = err.response?.data?.error || "Ocurrió un error al procesar tu aceptación. Por favor, inténtalo de nuevo.";
+            let msg = err.response?.data?.error || "Ocurrió un error al procesar tu aceptación. Por favor, inténtalo de nuevo.";
+            if (!err.response) {
+                // Sin respuesta: la petición no salió del móvil. Si el adjunto ya
+                // no se puede leer, es eso; si no, la conexión.
+                const adjuntos = [justificanteFile, ...Object.values(justificantesCop || {})].filter(Boolean);
+                const ilegible = (await Promise.all(adjuntos.map(f => f.slice(0, 1).arrayBuffer().then(() => false, () => true)))).some(Boolean);
+                msg = ilegible ? MSG_ADJUNTO_ILEGIBLE : MSG_SIN_CONEXION;
+            }
             setError(msg);
             if (err.response?.data?.code === 'INSTALLER_REQUIRED') setNoInstaller(true);
             setSubmitting(false);
         }
     };
 
+    // Para el saludo: el nombre de pila tal y como se dice («MARÍA» → «María»).
+    const pila = String(formData.nombre_razon_social || '').trim().split(/\s+/)[0] || '';
+    const nombre = pila ? pila.charAt(0).toLocaleUpperCase('es') + pila.slice(1).toLocaleLowerCase('es') : '';
+
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <DynamicNetworkBackground />
-                <div className="relative z-10 flex flex-col items-center gap-4">
-                    <svg className="w-8 h-8 animate-spin text-brand" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Cargando propuesta...</p>
+            <Marco>
+                <div aria-busy="true" aria-label="Cargando tu propuesta">
+                    <div className="fp-sk" style={{ height: 22, width: '45%', borderRadius: 8 }} />
+                    <div className="fp-sk" style={{ height: 96, marginTop: 14, borderRadius: 14 }} />
+                    <div className="fp-sk" style={{ height: 420, marginTop: 22 }} />
                 </div>
-            </div>
+            </Marco>
         );
     }
 
     if (noInstaller) {
         return (
-            <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-                <DynamicNetworkBackground />
-                <div className="w-full max-w-md relative z-10 bg-bkg-surface border border-white/[0.06] rounded-[2.5rem] p-10 text-center backdrop-blur-xl animate-in fade-in zoom-in-95 duration-500">
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-amber-500/40 to-transparent"></div>
-                    
-                    <div className="w-20 h-20 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-amber-500/30 shadow-[0_0_30px_rgba(245,158,11,0.1)]">
-                        <svg className="w-10 h-10 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                    </div>
-                    <h2 className="text-2xl font-black text-white mb-4 tracking-tight">Acción Pendiente</h2>
-                    <p className="text-white/60 text-sm leading-relaxed mb-8">
-                        Esta propuesta requiere la asignación de un **instalador** por parte de Brokergy antes de poder ser aceptada. 
-                        <br /><br />
-                        Por favor, contacta con tu asesor para completar este paso obligatorio.
-                    </p>
-                    <div className="pt-6 border-t border-white/5">
-                        <p className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em] mb-1">Referencia Oportunidad</p>
-                        <p className="text-lg font-mono text-white/40 font-bold">{displayId}</p>
-                    </div>
+            <Marco numero={displayId}>
+                <h1 className="fp-display fp-h1 fp-in">Falta un paso <span className="fp-mark">nuestro</span></h1>
+                <p className="fp-sub fp-in fp-in-2">Tu propuesta todavía no se puede aceptar, y no es por nada que hayas hecho tú.</p>
+                <div className="fp-stack">
+                    <section className="fp-card fp-in fp-in-2">
+                        <Aviso icono={IcoLlave}>
+                            <p>Antes de aceptarla tenemos que <b>asignarle el instalador</b> que hará la obra. Es un paso obligatorio que nos toca a nosotros.</p>
+                        </Aviso>
+                        <p className="fp-txt">Escríbenos y lo dejamos resuelto. Después podrás aceptar desde este mismo enlace.</p>
+                        <a className="fp-btn fp-btn-pri fp-mt" href={`https://wa.me/${WHATSAPP}?text=${encodeURIComponent(`Hola, quiero aceptar la propuesta ${displayId} y me dice que falta el instalador.`)}`}>
+                            <IcoChat size={20} /> Escribir por WhatsApp
+                        </a>
+                    </section>
                 </div>
-            </div>
+            </Marco>
         );
     }
 
     if (acceptanceInfo && !success) {
-        const fechaFmt = acceptanceInfo.fecha
-            ? new Date(acceptanceInfo.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })
-            : null;
+        const fechaFmt = acceptanceInfo.fecha ? fechaLarga(acceptanceInfo.fecha) : null;
         return (
-            <div className="min-h-screen bg-slate-950 flex flex-col items-center py-10 px-4 relative overflow-x-hidden selection:bg-brand selection:text-black">
-                <DynamicNetworkBackground />
-                <div className="w-full max-w-2xl relative z-10 px-4">
-                    <div className="text-center mb-8 relative">
-                        <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
-                            <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Propuesta</span>
-                            <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">BROKERGY</span>
-                        </h1>
-                    </div>
+            <Marco numero={generatedExpediente || displayId}>
+                <p className="fp-hola fp-in">{nombre ? <>Hola, <b>{nombre}</b></> : 'Hola'}</p>
+                <h1 className="fp-display fp-h1 fp-in">Tu propuesta ya está <span className="fp-mark">aceptada</span></h1>
+                <div className="fp-stack">
+                    <Aviso tono="ok" icono={IcoCheck} className="fp-in fp-in-2">
+                        <p>
+                            <b>{fechaFmt ? `La aceptaste el ${fechaFmt}` : 'La aceptaste anteriormente'}</b>
+                            {acceptanceInfo.aceptado_por ? ` · ${acceptanceInfo.aceptado_por}` : ''}. No tienes que volver a hacerlo.
+                        </p>
+                    </Aviso>
 
-                    {/* Banner de aceptación previa */}
-                    <div className="mb-6 p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex gap-3 items-start">
-                        <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        <div>
-                            <p className="text-amber-300 text-sm font-bold mb-0.5">Propuesta ya aceptada</p>
-                            <p className="text-amber-300/70 text-xs leading-relaxed">
-                                {fechaFmt ? `Aceptada el ${fechaFmt}` : 'Aceptada anteriormente'}
-                                {acceptanceInfo.aceptado_por ? ` · ${acceptanceInfo.aceptado_por}` : ''}
-                            </p>
-                        </div>
-                    </div>
-
-                    {/* Expediente badge */}
                     {generatedExpediente && (
-                        <div className="mb-6 bg-white/5 border border-brand/20 rounded-2xl p-5 text-center ring-1 ring-brand/10">
-                            <div className="text-white/30 text-[10px] font-black uppercase tracking-[0.2em] mb-1">Número de expediente</div>
-                            <div className="text-2xl font-black text-brand tracking-widest">{generatedExpediente}</div>
-                        </div>
+                        <section className="fp-card fp-in fp-in-2">
+                            <div className="fp-filete-fino" />
+                            <p className="fp-eyebrow fp-eyebrow-gris">Tu número de expediente</p>
+                            <p className="fp-display fp-numero">{generatedExpediente}</p>
+                            <p className="fp-txt">Tenlo a mano si nos escribes: con él te encontramos al momento.</p>
+                        </section>
                     )}
 
                     {/* Datos cliente — lectura o edición */}
-                    <div className="bg-bkg-surface border border-white/[0.06] rounded-[2rem] p-8 mb-6">
-                        <div className="flex items-center justify-between mb-5">
-                            <h3 className="text-xs font-black uppercase tracking-widest text-white/40">Datos del cliente</h3>
+                    <section className="fp-card fp-in fp-in-3">
+                        <div className="fp-card-head">
+                            <p className="fp-eyebrow fp-eyebrow-gris">Tus datos</p>
                             {!editing && (
                                 <button
+                                    type="button"
+                                    className="fp-mini"
                                     onClick={() => {
                                         setEditData({ ...formData });
                                         setEditCops(copropietarios.map(p => ({ ...p })));
                                         setEditMas(copropietarios.length > 0);
                                         setEditing(true); setEditSuccess(false);
                                     }}
-                                    className="px-4 py-1.5 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/20 text-brand text-[10px] font-black uppercase tracking-wider transition-all"
                                 >
-                                    Editar datos
+                                    <IcoLapiz size={16} /> Editar
                                 </button>
                             )}
                         </div>
 
                         {editSuccess && (
-                            <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
-                                Datos actualizados correctamente.
-                            </div>
+                            <Aviso tono="ok" icono={IcoCheck} className="fp-mt"><p>Datos actualizados correctamente.</p></Aviso>
                         )}
 
                         {editing ? (
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <div className="fp-campos fp-dos">
                                     {[
-                                        { name: 'nombre_razon_social', label: 'Nombre / Razón Social' },
+                                        { name: 'nombre_razon_social', label: 'Nombre / Razón social' },
                                         { name: 'apellidos', label: 'Apellidos' },
                                         { name: 'dni_cif', label: 'DNI / CIF' },
                                         { name: 'email', label: 'Email', type: 'email' },
                                         { name: 'telefono', label: 'Teléfono', type: 'tel' },
-                                        { name: 'iban', label: 'IBAN', placeholder: 'ESXX XXXX ...' },
-                                    ].map(({ name, label, type = 'text', placeholder }) => (
-                                        <div key={name} className="space-y-1">
-                                            <label className="text-[10px] font-black uppercase tracking-wider text-white/30">{label}</label>
+                                        { name: 'iban', label: 'Cuenta (IBAN)', placeholder: 'ESXX XXXX ...', mono: true },
+                                    ].map(({ name, label, type = 'text', placeholder, mono }) => (
+                                        <Campo key={name} id={`fp-ed-${name}`} label={label}>
                                             <input
+                                                id={`fp-ed-${name}`}
                                                 type={type}
                                                 value={editData[name] || ''}
                                                 onChange={e => setEditData(prev => ({ ...prev, [name]: e.target.value }))}
                                                 placeholder={placeholder || ''}
-                                                className="w-full bg-bkg-elevated border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm placeholder-white/20 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all"
+                                                className={`fp-input${mono ? ' fp-input-mono' : ''}`}
                                             />
-                                        </div>
+                                        </Campo>
                                     ))}
                                 </div>
                                 {/* Sin subida de justificante aquí: este guardado es JSON.
@@ -533,14 +821,17 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                         conJustificante={false}
                                     />
                                 )}
-                                <div className="flex gap-3 justify-end pt-2">
+                                <div className="fp-btns2 fp-mt" style={{ marginTop: 22 }}>
                                     <button
+                                        type="button"
+                                        className="fp-btn fp-btn-sec"
                                         onClick={() => { setEditing(false); setEditSuccess(false); }}
-                                        className="px-5 py-2 rounded-xl bg-white/5 border border-white/10 text-white/50 text-xs font-black uppercase tracking-wider"
                                     >
                                         Cancelar
                                     </button>
                                     <button
+                                        type="button"
+                                        className="fp-btn fp-btn-pri"
                                         disabled={savingEdit}
                                         onClick={async () => {
                                             const faltaProp = permiteVarios ? faltaEnPropietarios(editMas, editCops) : null;
@@ -562,502 +853,332 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                                 setSavingEdit(false);
                                             }
                                         }}
-                                        className="px-5 py-2 rounded-xl bg-gradient-to-r from-brand to-brand-700 text-bkg-deep text-xs font-black uppercase tracking-wider disabled:opacity-50"
                                     >
-                                        {savingEdit ? 'Guardando...' : 'Guardar cambios'}
+                                        {savingEdit ? <><Spinner /> Guardando…</> : 'Guardar cambios'}
                                     </button>
                                 </div>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                                {[
-                                    ['Nombre / Razón Social', formData.nombre_razon_social],
-                                    ['Apellidos', formData.apellidos],
-                                    ['DNI / CIF', formData.dni_cif],
-                                    ['Email', formData.email],
-                                    ['Teléfono', formData.telefono],
-                                    ['IBAN', formData.iban],
-                                ].map(([label, value]) => (
-                                    <div key={label}>
-                                        <div className="text-[10px] font-black uppercase tracking-wider text-white/30 mb-1">{label}</div>
-                                        <div className={`font-medium font-mono text-sm ${value ? 'text-white' : 'text-white/20 italic'}`}>
-                                            {value || 'Sin datos'}
+                            <>
+                                <dl className="fp-dl">
+                                    {[
+                                        ['Nombre', formData.nombre_razon_social],
+                                        ['Apellidos', formData.apellidos],
+                                        ['DNI / CIF', formData.dni_cif, true],
+                                        ['Email', formData.email],
+                                        ['Teléfono', formData.telefono],
+                                        ['Cuenta (IBAN)', formData.iban, true],
+                                    ].map(([label, value, mono]) => (
+                                        <div key={label}>
+                                            <dt>{label}</dt>
+                                            <dd className={value ? (mono ? 'fp-mono' : '') : 'fp-vacio'}>{value || 'Sin datos'}</dd>
                                         </div>
-                                    </div>
-                                ))}
+                                    ))}
+                                </dl>
                                 {copropietarios.length > 0 && (
-                                    <div className="sm:col-span-2 pt-3 border-t border-white/10 space-y-2">
-                                        <div className="text-[10px] font-black uppercase tracking-wider text-white/30">Otros propietarios</div>
+                                    <div className="fp-cops">
+                                        <p className="fp-k" style={{ margin: 0 }}>Otros propietarios</p>
                                         {copropietarios.map(p => (
-                                            <div key={p.id} className="text-sm text-white">
-                                                <span className="font-medium uppercase">{[p.nombre, p.apellidos].filter(Boolean).join(' ')}</span>
-                                                {p.dni && <span className="text-white/50 font-mono"> · {p.dni}</span>}
-                                                <div className="text-[12px] text-white/60 font-mono">
-                                                    {p.cedente !== true
-                                                        ? 'Propietario (no paga la obra)'
-                                                        : `Paga la obra${p.cuota_pct ? ` (${p.cuota_pct} %)` : ''} · ${p.iban ? `cobra en su cuenta: ${p.iban}` : 'cobra en la cuenta del titular'}`}
-                                                </div>
-                                            </div>
+                                            <p key={p.id}>
+                                                <b>{[p.nombre, p.apellidos].filter(Boolean).join(' ').toUpperCase()}</b>
+                                                {p.dni && <span className="fp-mono"> · {p.dni}</span>}
+                                                <br />
+                                                {p.cedente !== true
+                                                    ? 'Propietario (no paga la obra)'
+                                                    : `Paga la obra${p.cuota_pct ? ` (${p.cuota_pct} %)` : ''} · ${p.iban ? `cobra en su cuenta: ${p.iban}` : 'cobra en la cuenta del titular'}`}
+                                            </p>
                                         ))}
                                     </div>
                                 )}
-                            </div>
+                            </>
                         )}
-                    </div>
+                    </section>
 
                     {/* Subida de documentación */}
-                    <div className="bg-bkg-surface border border-white/5 rounded-2xl p-6">
-                        <FileUploadSection idOportunidad={idOportunidad} API_URL={API_URL} />
-                    </div>
-
-                    <p className="text-center mt-10 text-[10px] uppercase font-black tracking-[0.2em] text-white/20">
-                        Sistema de Gestión Brokergy &copy; {new Date().getFullYear()}
-                    </p>
+                    <FileUploadSection idOportunidad={idOportunidad} API_URL={API_URL} />
                 </div>
-            </div>
+            </Marco>
         );
     }
 
     if (success) {
         return (
-            <div className="min-h-screen bg-slate-950 flex flex-col items-center py-10 px-4 relative overflow-x-hidden selection:bg-brand selection:text-black">
-                <DynamicNetworkBackground />
-
-                <div className="w-full max-w-2xl relative z-10">
-                    {/* Header: EXACT match to Firma screen */}
-                    <div className="text-center mb-10 relative px-4">
-                        <div className="absolute -top-24 -left-24 w-64 h-64 bg-amber-500/10 rounded-full blur-[100px] pointer-events-none animate-pulse"></div>
-                        
-                        <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
-                             <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Propuesta</span>
-                             <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">
-                                  BROKERGY
-                             </span>
-                        </h1>
-                        <p className="text-white/60 text-sm md:text-base relative z-10">
-                             Siguientes pasos para preparar tu expediente.
-                        </p>
-                    </div>
-
-                    <div className="relative">
-                        <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-orange-600/10 rounded-full blur-[100px] pointer-events-none animate-pulse" style={{ animationDelay: '2s' }}></div>
-                        
-                        <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2.5rem] p-6 sm:p-10 relative overflow-hidden backdrop-blur-xl transition-all font-inter">
-                            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
-
-                            {demo && <DemoAviso />}
-                            {/* Success Icon & Main Title */}
-                            <div className="text-center mb-8">
-                                <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.1)]">
-                                    <svg className="w-10 h-10 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-3xl font-black text-white mb-3 tracking-tight">¡Propuesta Aceptada!</h2>
-                                <p className="text-white/40 text-sm leading-relaxed max-w-md mx-auto">
-                                    Hemos recibido la aceptación correctamente. <strong>También recibirás un email con estas indicaciones.</strong> 
-                                    Ahora prepararemos el <strong>CEE Inicial</strong> necesario para tu expediente.
-                                </p>
-                            </div>
-
-                            {/* Expediente Badge - Very visible */}
-                            <div className="bg-white/5 border border-brand/20 rounded-2xl p-6 mb-8 text-center ring-1 ring-brand/10">
-                                <div className="text-white/30 text-[10px] font-black uppercase tracking-[0.2em] mb-1">
-                                    Número de expediente asignado
-                                </div>
-                                <div className="text-3xl font-black text-brand tracking-widest">{generatedExpediente || 'PTE...'}</div>
-                            </div>
-
-                            {/* File Upload Section - Dynamic Replacement. En la
-                                prueba no hay carpeta a la que subir: se enseña
-                                en su lugar lo que se habría guardado. */}
-                            {demo ? (
-                                <DemoResumen conf={conf} />
-                            ) : (
-                                <FileUploadSection idOportunidad={idOportunidad} API_URL={API_URL} />
-                            )}
-
-                            <div className="my-8 flex items-center gap-4">
-                                <div className="h-px flex-1 bg-white/5"></div>
-                                <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em]">o bien vía</div>
-                                <div className="h-px flex-1 bg-white/5"></div>
-                            </div>
-
-                            {/* CTA Actions - Mobile Optimized Buttons */}
-                            <div className="space-y-3">
-                                <a 
-                                    href={`https://wa.me/34623926179?text=${encodeURIComponent(`Hola, soy ${formData.nombre_razon_social || ''}. Os envío documentación del expediente ${generatedExpediente}.`)}`}
-                                    className="w-full py-4 bg-[#0f8f66]/20 hover:bg-[#0f8f66]/30 border border-[#0f8f66]/40 text-[#4ade80] font-black rounded-xl transition-all shadow-lg flex items-center justify-center gap-3 text-sm uppercase tracking-widest"
-                                >
-                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                                    Asistente por WhatsApp
-                                </a>
-                                <a 
-                                    href={`mailto:info@brokergy.es?subject=Documentación expediente ${generatedExpediente}&body=Hola, os envío documentación del expediente ${generatedExpediente}.`}
-                                    className="w-full py-4 bg-white/5 border border-white/10 text-white font-black rounded-xl hover:bg-white/10 transition-all flex items-center justify-center gap-3 text-sm uppercase tracking-widest"
-                                >
-                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                                    Enviar por Email
-                                </a>
-                            </div>
-
-                            <div className="mt-8 text-center">
-                                <p className="text-[10px] text-white/20 italic">
-                                    El CEE inicial debe emitirse <strong>antes de la última factura de obra</strong>.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <p className="text-center mt-10 text-[10px] uppercase font-black tracking-[0.2em] text-white/20">
-                        Sistema de Gestión Brokergy &copy; {new Date().getFullYear()}
-                    </p>
+            <Marco numero={generatedExpediente || displayId}>
+                {demo && <DemoAviso />}
+                <div className="fp-ok fp-in">
+                    <CheckDibujado />
+                    <p className="fp-eyebrow fp-eyebrow-verde">Propuesta aceptada</p>
                 </div>
-            </div>
+                <h1 className="fp-display fp-h1 fp-in fp-in-2" style={{ marginTop: 14 }}>
+                    ¡Hecho{nombre ? `, ${nombre}` : ''}! Ya está <span className="fp-mark">en marcha</span>
+                </h1>
+                <p className="fp-sub fp-in fp-in-2">
+                    Hemos recibido tu aceptación y <b>te llegará un email</b> con estas indicaciones. Ahora preparamos el <b>certificado energético inicial</b> de tu vivienda.
+                </p>
+
+                <div className="fp-stack">
+                    {/* Expediente: lo que tiene que tener a mano a partir de hoy */}
+                    <section className="fp-card fp-in fp-in-2">
+                        <div className="fp-filete-fino" />
+                        <p className="fp-eyebrow fp-eyebrow-gris">Tu número de expediente</p>
+                        <p className="fp-display fp-numero">{generatedExpediente || 'Pendiente'}</p>
+                        <p className="fp-txt">Tenlo a mano si nos escribes: con él te encontramos al momento.</p>
+                    </section>
+
+                    {/* En la prueba no hay carpeta a la que subir: se enseña en
+                        su lugar lo que se habría guardado. */}
+                    {demo ? (
+                        <DemoResumen conf={conf} />
+                    ) : (
+                        <FileUploadSection idOportunidad={idOportunidad} API_URL={API_URL} />
+                    )}
+
+                    <section className="fp-card fp-in fp-in-3">
+                        <p className="fp-eyebrow fp-eyebrow-gris">¿Prefieres mandarlas de otra forma?</p>
+                        <div className="fp-btns2 fp-mt">
+                            <a
+                                className="fp-btn fp-btn-sec"
+                                href={`https://wa.me/${WHATSAPP}?text=${encodeURIComponent(`Hola, soy ${formData.nombre_razon_social || ''}. Os envío documentación del expediente ${generatedExpediente}.`)}`}
+                            >
+                                <IcoChat size={20} /> Por WhatsApp
+                            </a>
+                            <a
+                                className="fp-btn fp-btn-sec"
+                                href={`mailto:info@brokergy.es?subject=Documentación expediente ${generatedExpediente}&body=Hola, os envío documentación del expediente ${generatedExpediente}.`}
+                            >
+                                <IcoMail size={20} /> Por email
+                            </a>
+                        </div>
+                        <Aviso icono={IcoCalendario} className="fp-mt">
+                            <p>El certificado energético inicial tiene que estar hecho <b>antes de la última factura de la obra</b>.</p>
+                        </Aviso>
+                    </section>
+                </div>
+            </Marco>
+        );
+    }
+
+    // Enlace que no lleva a ninguna propuesta.
+    if (error && !formData.nombre_razon_social) {
+        return (
+            <Marco>
+                <section className="fp-card fp-in">
+                    <span className="fp-ico-tile fp-tile-crema"><IcoCandado size={20} /></span>
+                    <h1 className="fp-display fp-h2" style={{ marginTop: 16 }}>Este enlace no funciona</h1>
+                    <p className="fp-txt">{error}</p>
+                    <p className="fp-txt">Si crees que es un error, escríbenos y te mandamos el bueno.</p>
+                    <a className="fp-btn fp-btn-pri fp-mt" href={`https://wa.me/${WHATSAPP}`}>
+                        <IcoChat size={20} /> Escribir por WhatsApp
+                    </a>
+                </section>
+            </Marco>
         );
     }
 
     return (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-3 py-8 sm:p-4 relative overflow-hidden selection:bg-brand selection:text-black">
-            <DynamicNetworkBackground />
+        <Marco numero={displayId}>
+            {demo && <DemoAviso />}
+            {fase === 'vivienda' ? (
+                <ConfirmarVivienda
+                    conf={conf}
+                    setConf={setConf}
+                    onVolverDatos={() => { setError(null); setFase('datos'); }}
+                    onAceptar={enviarAceptacion}
+                    onVerCondiciones={() => setVerCondiciones(true)}
+                    enviando={submitting}
+                    error={error}
+                />
+            ) : (<>
+                <p className="fp-hola fp-in">{nombre ? <>Hola, <b>{nombre}</b></> : 'Hola'}</p>
+                <h1 className="fp-display fp-h1 fp-in">Acepta tu <span className="fp-mark">propuesta</span></h1>
+                <p className="fp-sub fp-in fp-in-2">
+                    Tus datos ya vienen rellenos: <b>solo comprueba que están bien</b>. Después, tres preguntas rápidas sobre tu vivienda y listo.
+                </p>
 
-            <div className="w-full max-w-2xl relative z-10 px-0 sm:px-4">
-                
-                {/* Header Style matching Login */}
-                <div className="text-center mb-10 relative">
-                    <div className="absolute -top-24 -left-24 w-64 h-64 bg-amber-500/10 rounded-full blur-[100px] pointer-events-none animate-pulse"></div>
-                    
-                    <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
-                         <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Propuesta</span>
-                         <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">
-                               BROKERGY
-                         </span>
-                    </h1>
-                    <p className="text-white/60 text-sm md:text-base relative z-10">
-                         Verifica y completa tus datos para procesar la aceptación.
-                    </p>
-                </div>
+                {/* Qué documento se está aceptando. Solo a partir de la
+                    segunda: una propuesta que solo ha salido una vez no
+                    tiene con qué confundirse, y decirlo sobra. */}
+                {versionProp.v > 1 && (
+                    <Aviso icono={IcoDoc} className="fp-mt fp-in fp-in-2">
+                        <p>
+                            Estás aceptando la <b>versión {versionProp.v}</b> de la propuesta
+                            {versionProp.fecha ? `, del ${fechaLarga(versionProp.fecha)}` : ''}.
+                        </p>
+                        <p>Sustituye a las anteriores que te hayamos enviado.</p>
+                    </Aviso>
+                )}
 
-                <div className="relative group">
-                    <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-orange-600/10 rounded-full blur-[100px] pointer-events-none animate-pulse" style={{ animationDelay: '2s' }}></div>
-                    
-                    <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] px-5 py-7 sm:p-10 relative overflow-hidden backdrop-blur-xl">
-                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
+                <form ref={formRef} onSubmit={handleSubmit} className="fp-stack" style={{ scrollMarginTop: 16 }}>
+                    {error && (
+                        <Aviso role="alert"><p>{error}</p></Aviso>
+                    )}
 
-                        {error && !formData.nombre_razon_social ? (
-                            <div className="text-center py-6 animate-fade-in">
-                                <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/30">
-                                    <svg className="w-10 h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
+                    <section className="fp-card fp-in fp-in-2">
+                        <div className="fp-filete-fino" />
+                        <div className="fp-top" style={{ margin: 0 }}>
+                            <p className="fp-eyebrow">Paso 1 de 2 · Tus datos</p>
+                        </div>
+                        <div className="fp-campos fp-dos">
+                            <Campo id="nombre_razon_social" label="Nombre / Razón social" obligatorio>
+                                <input id="nombre_razon_social" name="nombre_razon_social" type="text" required autoComplete="given-name"
+                                    value={formData.nombre_razon_social} onChange={handleChange} className="fp-input" />
+                            </Campo>
+                            <Campo id="apellidos" label="Apellidos">
+                                <input id="apellidos" name="apellidos" type="text" autoComplete="family-name"
+                                    value={formData.apellidos || ''} onChange={handleChange} className="fp-input" />
+                            </Campo>
+                            <Campo id="dni_cif" label="DNI / CIF" obligatorio>
+                                <input id="dni_cif" name="dni_cif" type="text" required
+                                    value={formData.dni_cif || ''} onChange={handleChange} className="fp-input fp-input-mono" />
+                            </Campo>
+                            <Campo id="telefono" label="Teléfono" obligatorio>
+                                <input id="telefono" name="telefono" type="tel" required autoComplete="tel"
+                                    value={formData.telefono || ''} onChange={handleChange} className="fp-input" />
+                            </Campo>
+                        </div>
+                        <div className="fp-campos">
+                            <Campo id="email" label="Email" obligatorio>
+                                <input id="email" name="email" type="email" required autoComplete="email"
+                                    value={formData.email || ''} onChange={handleChange} className="fp-input" />
+                            </Campo>
+                        </div>
+
+                        <p className="fp-sec">Dónde se te ingresa la ayuda</p>
+                        <div className="fp-campos">
+                            <div>
+                                <div className="fp-k-fila">
+                                    <label className="fp-k" htmlFor="iban">Cuenta (IBAN)</label>
+                                    <button type="button" className="fp-info" aria-expanded={showIbanInfo} aria-controls="fp-iban-info"
+                                        onClick={() => setShowIbanInfo(!showIbanInfo)}>
+                                        <IcoInfo size={14} /> ¿Por qué?
+                                    </button>
                                 </div>
-                                <h2 className="text-2xl font-black text-white mb-4 tracking-tight">Acceso No Válido</h2>
-                                <p className="text-white/40 mb-8">{error}</p>
-                                <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-white/20 text-[10px] uppercase font-bold tracking-widest">
-                                    Si crees que esto es un error, contacta con tu gestor Brokergy
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                {demo && <DemoAviso />}
-                                {fase === 'vivienda' ? (
-                                    <ConfirmarVivienda
-                                        conf={conf}
-                                        setConf={setConf}
-                                        onVolverDatos={() => { setError(null); setFase('datos'); }}
-                                        onAceptar={enviarAceptacion}
-                                        onVerCondiciones={() => setVerCondiciones(true)}
-                                        enviando={submitting}
-                                        error={error}
-                                    />
-                                ) : (<>
-                                <div className="text-center mb-10">
-                                    <h2 className="text-2xl font-black text-white mb-2 tracking-tight uppercase">
-                                        Firma de Aceptación
-                                    </h2>
-                                    <p className="text-white/40 text-xs font-bold uppercase tracking-widest">
-                                        Expediente: <span className="text-white/60">{displayId}</span>
-                                    </p>
-                                    {/* Qué documento se está aceptando. Solo a partir de la
-                                        segunda: una propuesta que solo ha salido una vez no
-                                        tiene con qué confundirse, y decirlo sobra. */}
-                                    {versionProp.v > 1 && (
-                                        <p className="mt-3 inline-block rounded-lg border border-amber-400/25 bg-amber-400/[0.07] px-3 py-2 text-[12px] text-amber-200/90">
-                                            Estás aceptando la <strong>versión {versionProp.v}</strong> de la propuesta
-                                            {versionProp.fecha ? `, del ${new Date(versionProp.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}` : ''}.
-                                            <span className="block text-amber-200/60 mt-0.5">Sustituye a las anteriores que te hayamos enviado.</span>
-                                        </p>
-                                    )}
-                                </div>
-
-                                {error && (
-                                    <div className="mb-8 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex gap-3 items-start animate-shake">
-                                        <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                        <span>{error}</span>
+                                <input id="iban" name="iban" type="text" placeholder="ESXX XXXX ..."
+                                    value={formData.iban || ''} onChange={handleChange} className="fp-input fp-input-mono" />
+                                {showIbanInfo && (
+                                    <div className="fp-extra" id="fp-iban-info">
+                                        <IcoInfo size={18} />
+                                        <div>
+                                            <p>Pedimos el <strong>IBAN</strong> porque es necesario para generar el anexo para acreditar ante el Ministerio que quien recibe el dinero es la persona que hace la inversión.</p>
+                                            <p>Ten en cuenta que posteriormente nos tendrás que aportar el <strong>justificante de titularidad bancaria</strong> (no solo el número).</p>
+                                        </div>
                                     </div>
                                 )}
+                            </div>
 
-                                <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                                        <div className="space-y-1.5">
-                                            <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1" htmlFor="nombre_razon_social">
-                                                Nombre / Razón Social <span className="text-brand">*</span>
-                                            </label>
-                                            <input 
-                                                id="nombre_razon_social"
-                                                name="nombre_razon_social"
-                                                type="text" 
-                                                required
-                                                value={formData.nombre_razon_social}
-                                                onChange={handleChange}
-                                                className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all font-medium"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                            <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1" htmlFor="apellidos">
-                                                Apellidos
-                                            </label>
-                                            <input 
-                                                id="apellidos"
-                                                name="apellidos"
-                                                type="text" 
-                                                value={formData.apellidos || ''}
-                                                onChange={handleChange}
-                                                className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all font-medium"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                            <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1" htmlFor="dni_cif">
-                                                DNI / CIF <span className="text-brand">*</span>
-                                            </label>
-                                            <input 
-                                                id="dni_cif"
-                                                name="dni_cif"
-                                                type="text" 
-                                                required
-                                                value={formData.dni_cif || ''}
-                                                onChange={handleChange}
-                                                className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all font-medium uppercase"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                            <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1" htmlFor="email">
-                                                Email <span className="text-brand">*</span>
-                                            </label>
-                                            <input 
-                                                id="email"
-                                                name="email"
-                                                type="email" 
-                                                required
-                                                value={formData.email || ''}
-                                                onChange={handleChange}
-                                                className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all font-medium"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                            <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1" htmlFor="telefono">
-                                                Teléfono <span className="text-brand">*</span>
-                                            </label>
-                                            <input 
-                                                id="telefono"
-                                                name="telefono"
-                                                type="tel" 
-                                                required
-                                                value={formData.telefono || ''}
-                                                onChange={handleChange}
-                                                className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all font-medium"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-1.5 relative">
-                                            {/* Misma altura que los rótulos de los demás campos: el
-                                                botón "i" va en línea y no puede ser más alto que el
-                                                texto (con 20 px y un margen extra, el campo quedaba
-                                                más bajo que el de al lado). */}
-                                            <div className="flex items-center gap-2 ml-1 h-4">
-                                                <label className="block text-xs font-black uppercase tracking-widest text-white/40 leading-4" htmlFor="iban">
-                                                    Cuenta (IBAN)
-                                                </label>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setShowIbanInfo(!showIbanInfo)}
-                                                    className="w-4 h-4 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[9px] font-bold leading-none text-white/40 hover:text-brand hover:border-brand/40 transition-all group"
-                                                    title="¿Por qué pedimos esto?"
-                                                >
-                                                    i
-                                                </button>
-                                            </div>
-
-                                            {showIbanInfo && (
-                                                <div className="absolute bottom-full left-0 right-0 mb-3 bg-slate-800 border border-brand/30 p-4 rounded-xl shadow-2xl z-20 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                                    <div className="text-[11px] text-white/80 leading-relaxed">
-                                                        <p className="mb-2">Pedimos el <strong>IBAN</strong> porque es necesario para generar el anexo para acreditar ante el Ministerio que quien recibe el dinero es la persona que hace la inversión.</p>
-                                                        <p>Ten en cuenta que posteriormente nos tendrás que aportar el <strong>justificante de titularidad bancaria</strong> (no solo el número).</p>
-                                                    </div>
-                                                    <div className="absolute bottom-0 left-6 translate-y-1/2 rotate-45 w-2 h-2 bg-slate-800 border-r border-b border-brand/30"></div>
-                                                </div>
-                                            )}
-
-                                            <input
-                                                id="iban"
-                                                name="iban"
-                                                type="text"
-                                                value={formData.iban || ''}
-                                                onChange={handleChange}
-                                                className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all font-medium uppercase"
-                                                placeholder="ESXX XXXX ..."
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Justificante de titularidad bancaria */}
-                                    <div className="space-y-2">
-                                        <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1">
-                                            Justificante de titularidad bancaria
-                                            <span className="ml-2 text-white/20 font-normal normal-case tracking-normal">(opcional)</span>
-                                        </label>
-                                        <p className="text-[11px] text-white/30 leading-relaxed ml-1">
-                                            Puedes descargarlo desde la app de tu banco (Certificado de Titularidad) o hacer una foto a la primera página de tu cartilla bancaria.
-                                        </p>
-                                        <div className="relative">
-                                            <input
-                                                type="file"
-                                                accept="image/jpeg,image/png,application/pdf"
-                                                onChange={e => setJustificanteFile(e.target.files[0] || null)}
-                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                            />
-                                            <div className={`border-2 border-dashed rounded-xl px-4 py-4 flex items-center gap-3 transition-all ${justificanteFile ? 'border-brand/40 bg-brand/5' : 'border-white/10 hover:border-brand/30'}`}>
-                                                <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
-                                                    <svg className="w-4 h-4 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                                                </div>
-                                                {justificanteFile ? (
-                                                    <div className="min-w-0">
-                                                        <div className="text-xs font-bold text-brand truncate">{justificanteFile.name}</div>
-                                                        <div className="text-[10px] text-white/30">{(justificanteFile.size / 1024).toFixed(0)} KB</div>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-xs text-white/30">Seleccionar archivo (JPG, PNG o PDF)</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* ¿Más de un propietario? — solo si lo hemos habilitado
-                                        desde la ficha del cliente. Si no, acepta una única persona. */}
-                                    {permiteVarios && (
-                                        <PropietariosAceptacion
-                                            mas={masPropietarios}
-                                            setMas={setMasPropietarios}
-                                            lista={copropietarios}
-                                            setLista={setCopropietarios}
-                                            justificantes={justificantesCop}
-                                            setJustificantes={setJustificantesCop}
-                                        />
+                            {/* Justificante de titularidad bancaria */}
+                            <div>
+                                <p className="fp-k">Justificante de titularidad bancaria <em>(opcional)</em></p>
+                                <label className={`fp-file${justificanteFile ? ' fp-file-ok' : ''}`}>
+                                    <input
+                                        type="file"
+                                        accept="image/jpeg,image/png,application/pdf"
+                                        onChange={async e => {
+                                            const f = e.target.files[0] || null;
+                                            try {
+                                                setJustificanteFile(await copiaEnMemoria(f));
+                                            } catch {
+                                                setJustificanteFile(null);
+                                                setError(MSG_ADJUNTO_ILEGIBLE);
+                                            }
+                                        }}
+                                    />
+                                    <span className={`fp-ico-tile ${justificanteFile ? 'fp-tile-verde' : 'fp-tile-crema'}`}>
+                                        {justificanteFile ? <IcoCheck size={20} /> : <IcoClip size={20} />}
+                                    </span>
+                                    {justificanteFile ? (
+                                        <span>
+                                            <b>{justificanteFile.name}</b>
+                                            {(justificanteFile.size / 1024).toFixed(0)} KB · pulsa para cambiarlo
+                                        </span>
+                                    ) : (
+                                        <span><b>Adjuntar justificante</b>JPG, PNG o PDF</span>
                                     )}
+                                </label>
+                                <p className="fp-ayuda">
+                                    Puedes descargarlo desde la app de tu banco (Certificado de Titularidad) o hacer una foto a la primera página de tu cartilla bancaria.
+                                </p>
+                            </div>
+                        </div>
 
-                                    {/* Decisión sobre el CEE inicial (solo si el cliente aportó uno) */}
-                                    {ceeAportado && (
-                                        <div className="space-y-3 pt-2">
-                                            <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1">
-                                                Certificado de Eficiencia Energética inicial <span className="text-brand">*</span>
-                                            </label>
-                                            <p className="text-[11px] text-white/30 leading-relaxed ml-1">Nos has aportado un CEE. Indícanos qué prefieres para tu expediente:</p>
-                                            {[
-                                                { v: 'aportado', t: 'Usar el CEE que ya tengo', d: 'Usamos el certificado que nos has aportado.' },
-                                                { v: 'nuevo', t: 'Que BROKERGY emita un CEE nuevo', d: 'Emitimos un CEE inicial nuevo antes de la obra (puede optimizar la ayuda).' },
-                                            ].map(opt => (
-                                                <label key={opt.v} className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${ceeChoice === opt.v ? 'border-brand bg-brand/10' : 'border-white/10 bg-bkg-elevated hover:border-white/20'}`}>
-                                                    <input type="radio" name="cee_choice" value={opt.v} checked={ceeChoice === opt.v} onChange={() => setCeeChoice(opt.v)} className="mt-1 accent-brand" />
-                                                    <div>
-                                                        <div className="text-sm font-bold text-white">{opt.t}</div>
-                                                        <div className="text-xs text-white/40">{opt.d}</div>
-                                                    </div>
-                                                </label>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Fechas de la obra. Opcionales: si el cliente no las
-                                        sabe, puede aceptar igualmente. Nos sirven para
-                                        priorizar el CEE inicial, que debe estar registrado
-                                        antes de que empiece la instalación. */}
-                                    <div className="pt-6 border-t border-white/10">
-                                        <p className="text-white font-bold text-sm mb-1">¿Qué fechas te ha indicado tu instalador?</p>
-                                        <p className="text-white/40 text-xs mb-4">
-                                            Opcional. Nos ayuda a tener listo tu certificado energético a tiempo. Si aún no las sabes, déjalo en blanco.
-                                        </p>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-white/50 text-[11px] font-bold uppercase tracking-widest mb-1.5">
-                                                    Inicio previsto de la obra
-                                                </label>
-                                                <input
-                                                    type="date"
-                                                    name="fecha_prevista_inicio"
-                                                    value={formData.fecha_prevista_inicio}
-                                                    onChange={handleChange}
-                                                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand/50 transition-all"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-white/50 text-[11px] font-bold uppercase tracking-widest mb-1.5">
-                                                    Fin previsto de la obra
-                                                </label>
-                                                <input
-                                                    type="date"
-                                                    name="fecha_prevista_fin"
-                                                    value={formData.fecha_prevista_fin}
-                                                    min={formData.fecha_prevista_inicio || undefined}
-                                                    onChange={handleChange}
-                                                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand/50 transition-all"
-                                                />
-                                            </div>
-                                        </div>
-                                        {formData.fecha_prevista_inicio && formData.fecha_prevista_fin
-                                            && formData.fecha_prevista_fin < formData.fecha_prevista_inicio && (
-                                            <p className="mt-2 text-[11px] text-amber-400">
-                                                El fin no puede ser anterior al inicio.
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    <div className="pt-6">
-                                        <button
-                                            type="submit"
-                                            className="w-full py-4 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-black rounded-xl transition-all shadow-lg shadow-brand/20 flex items-center justify-center gap-3 text-base uppercase tracking-widest"
-                                        >
-                                            Continuar
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                                            </svg>
-                                        </button>
-                                        <p className="mt-3 text-center text-[13px] text-white/70 leading-relaxed">
-                                            Después te hacemos 3 preguntas rápidas sobre tu vivienda y aceptas la propuesta.
-                                        </p>
-                                    </div>
-                                </form>
-                                </>)}
-                                <CondicionesAceptacionModal
-                                    open={verCondiciones}
-                                    onClose={() => setVerCondiciones(false)}
-                                    enviando={submitting}
-                                    onAceptar={() => { setVerCondiciones(false); enviarAceptacion(); }}
-                                />
-                            </>
+                        {/* ¿Más de un propietario? — solo si lo hemos habilitado
+                            desde la ficha del cliente. Si no, acepta una única persona. */}
+                        {permiteVarios && (
+                            <PropietariosAceptacion
+                                mas={masPropietarios}
+                                setMas={setMasPropietarios}
+                                lista={copropietarios}
+                                setLista={setCopropietarios}
+                                justificantes={justificantesCop}
+                                setJustificantes={setJustificantesCop}
+                            />
                         )}
-                    </div>
-                </div>
+                    </section>
 
-                <p className="text-center mt-10 text-[10px] uppercase font-black tracking-[0.2em] text-white/20">
-                    Sistema de Gestión Brokergy &copy; {new Date().getFullYear()}
-                </p>
-            </div>
-        </div>
+                    {/* Decisión sobre el CEE inicial (solo si el cliente aportó uno) */}
+                    {ceeAportado && (
+                        <section className="fp-card fp-in fp-in-3">
+                            <p className="fp-eyebrow"><IcoDoc size={16} /> Tu certificado energético <span aria-hidden="true">*</span></p>
+                            <p className="fp-txt">Nos has aportado un certificado energético (CEE). Indícanos qué prefieres para tu expediente:</p>
+                            <div className="fp-opcs" role="radiogroup" aria-label="Certificado energético inicial">
+                                {[
+                                    { v: 'aportado', t: 'Usar el CEE que ya tengo', d: 'Usamos el certificado que nos has aportado.' },
+                                    { v: 'nuevo', t: 'Que BROKERGY emita un CEE nuevo', d: 'Emitimos un CEE inicial nuevo antes de la obra (puede optimizar la ayuda).' },
+                                ].map(opt => (
+                                    <button key={opt.v} type="button" role="radio" aria-checked={ceeChoice === opt.v}
+                                        className={`fp-opc fp-opc-sola${ceeChoice === opt.v ? ' fp-opc-sel' : ''}`}
+                                        onClick={() => setCeeChoice(opt.v)}>
+                                        <span className="fp-opc-cuerpo">
+                                            <span className="fp-opc-label">{opt.t}</span>
+                                            <span className="fp-opc-sub">{opt.d}</span>
+                                        </span>
+                                        <span className="fp-radio">{ceeChoice === opt.v && <IcoCheck size={14} sw={3} />}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
+                    {/* Fechas de la obra. Opcionales: si el cliente no las
+                        sabe, puede aceptar igualmente. Nos sirven para
+                        priorizar el CEE inicial, que debe estar registrado
+                        antes de que empiece la instalación. */}
+                    <section className="fp-card fp-in fp-in-3">
+                        <p className="fp-eyebrow fp-eyebrow-gris"><IcoCalendario size={16} /> Fechas de la obra · opcional</p>
+                        <h3 className="fp-display fp-h3" style={{ marginTop: 10 }}>¿Qué fechas te ha dado tu instalador?</h3>
+                        <p className="fp-txt">Nos ayuda a tener listo tu certificado energético a tiempo. Si aún no las sabes, déjalo en blanco.</p>
+                        <div className="fp-campos fp-dos">
+                            <Campo id="fecha_prevista_inicio" label="Inicio previsto">
+                                <input id="fecha_prevista_inicio" type="date" name="fecha_prevista_inicio"
+                                    value={formData.fecha_prevista_inicio} onChange={handleChange} className="fp-input" />
+                            </Campo>
+                            <Campo id="fecha_prevista_fin" label="Fin previsto">
+                                <input id="fecha_prevista_fin" type="date" name="fecha_prevista_fin"
+                                    value={formData.fecha_prevista_fin} min={formData.fecha_prevista_inicio || undefined}
+                                    onChange={handleChange} className="fp-input" />
+                            </Campo>
+                        </div>
+                        {formData.fecha_prevista_inicio && formData.fecha_prevista_fin
+                            && formData.fecha_prevista_fin < formData.fecha_prevista_inicio && (
+                            <p className="fp-ayuda fp-ayuda-ambar">El fin no puede ser anterior al inicio.</p>
+                        )}
+                    </section>
+
+                    <div className="fp-in fp-in-3">
+                        <button type="submit" className="fp-btn fp-btn-pri">
+                            Continuar <IcoFlecha size={20} sw={2.4} />
+                        </button>
+                        <p className="fp-nota">Después te hacemos 3 preguntas rápidas sobre tu vivienda y aceptas la propuesta.</p>
+                    </div>
+                </form>
+            </>)}
+            <CondicionesAceptacionModal
+                tema="carta"
+                open={verCondiciones}
+                onClose={() => setVerCondiciones(false)}
+                enviando={submitting}
+                onAceptar={() => { setVerCondiciones(false); enviarAceptacion(); }}
+            />
+        </Marco>
     );
 }

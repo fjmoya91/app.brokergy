@@ -299,6 +299,7 @@ const sendPasswordResetEmail = async (to, resetLink, userName) => {
             ) +
             emailP(`Si el botón no funciona, copia y pega este enlace en tu navegador:<br><a href="${resetLink}" style="color:${BRAND.greenDark};text-decoration:none;word-break:break-all;">${resetLink}</a>`, { size: 12, color: BRAND.muted, mb: 0, center: true }),
         footerNote: `Brokergy Analytics &copy; ${new Date().getFullYear()}`,
+        firma: false,
     });
 
     const text = `Recuperar Contraseña — Brokergy\n\n${userName ? `Hola ${userName},\n\n` : ''}Hemos recibido una solicitud para restablecer tu contraseña. Haz clic en el siguiente enlace:\n\n${resetLink}\n\nEste enlace expira en 1 hora.\n\nSi no solicitaste este cambio, ignora este correo.\n\nBrokergy Analytics`;
@@ -526,7 +527,9 @@ const sendProposalEmail = async ({ to, cc = null, userName, pdfBuffer, tableImag
                 '<strong>Aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el Certificado Inicial antes de cualquier factura para asegurar las deducciones fiscales.',
               ], { size: 14 }));
 
-    const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr><td align="center" style="padding-bottom:12px;">${emailButton(proposalUrl, '📄 Ver propuesta online', BRAND.orange)}</td></tr><tr><td align="center">${emailButton(firmaUrl, `✍️ ${isB2B ? 'Enlace de firma para el cliente' : 'Aceptar y firmar'}`)}</td></tr></table>`;
+    // UNA acción principal (regla 164): la que cierra el trato es FIRMAR, y va en
+    // naranja; ver la propuesta queda como secundaria (blanca con borde).
+    const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr><td align="center" style="padding-bottom:12px;">${emailButton(firmaUrl, `✍️ ${isB2B ? 'Enlace de firma para el cliente' : 'Aceptar y firmar'}`, BRAND.orange)}</td></tr><tr><td align="center">${emailOutlineButton(proposalUrl, '📄 Ver propuesta online')}</td></tr></table>`;
 
     // Caja destacada con el total. Cuando hay mensaje personalizado, es lo ÚNICO
     // que se conserva de los bloques automáticos: el resto (casos, recordatorio
@@ -674,7 +677,7 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
                </td>
              </tr></table>` +
             (revision ? '' : emailP('En cuanto recibamos la documentación, continuaremos con la tramitación de tu expediente.', { size: 14, color: BRAND.muted, center: true, mb: 0 })),
-        footerNote: `Un saludo, Equipo BROKERGY · <a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
+        footerNote: `<a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
     });
 
     const text = revision
@@ -750,6 +753,7 @@ const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, addres
             emailP('Debes ponerte en contacto con el cliente para iniciar el expediente para realizar el Certificado de Eficiencia Energética.', { color: BRAND.muted, mb: 22 }) +
             `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(deepLink, '🚀 Gestionar expediente', BRAND.orange)}</td></tr></table>`,
         footerNote: 'Sistema Automático Brokergy',
+        firma: false,
     });
 
     const text = `ACEPTACIÓN DE EXPEDIENTE: ${numeroExpediente}\n\nDistribuidor: ${distributorName}\nCliente: ${clientName}\nDirección: ${address}\nInstalador: ${installerName}\n\nAcceso directo: ${deepLink}`;
@@ -826,10 +830,12 @@ const sendCertificadorNotificationEmail = async ({
     ) : '';
 
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
-        (ackLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ackLink, '✅ Aceptar Encargo')}</td></tr>` : '') +
-        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
-        (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
-        (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Acceder a Carpeta CEE')}</td></tr>` : '') +
+        filasBotones([
+            { href: ackLink, label: '✅ Aceptar Encargo' },
+            { href: encargoLink, label: '📋 Ver el encargo completo' },
+            { href: portalLink, label: '🔗 Acceder al Portal' },
+            { href: ceeFolderLink, label: '📁 Acceder a Carpeta CEE' },
+        ]) +
         `</table>` +
         (ceeFolderLink ? emailP('Tienes acceso de <strong>edición</strong> a la carpeta de documentos del expediente. Sube ahí el certificado emitido.', { size: 12, color: BRAND.muted, center: true, mb: 0 }) : '');
 
@@ -928,11 +934,14 @@ const sendCeeDirectoEncargoEmail = async ({
     // botón de "lo cojo / no puedo" hay que abrir una página para decidir algo
     // que ya estaba decidido al abrir el correo.
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
-        (acuse?.aceptar ? `<tr><td align="center" style="padding-bottom:10px;">${emailButton(acuse.aceptar, '✅ Acepto el encargo')}</td></tr>` : '') +
+        (acuse?.aceptar ? `<tr><td align="center" style="padding-bottom:10px;">${emailButton(acuse.aceptar, '✅ Acepto el encargo', BRAND.orange)}</td></tr>` : '') +
         (acuse?.rechazar ? `<tr><td align="center" style="padding-bottom:16px;"><a href="${acuse.rechazar}" style="color:${BRAND.muted};font-size:12px;text-decoration:underline;">No puedo cogerlo</a></td></tr>` : '') +
-        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
-        (expedienteLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(expedienteLink, '🔗 Abrir el expediente', BRAND.orange)}</td></tr>` : '') +
-        carpetas.map(c => `<tr><td align="center" style="padding-bottom:12px;">${emailOutlineButton(c.link, `📁 ${escapeHtml(c.nombre)}`)}</td></tr>`).join('') +
+        // Con el acuse delante, la acción principal ya es aceptar: lo demás, secundario.
+        filasBotones([
+            { href: encargoLink, label: '📋 Ver el encargo completo' },
+            { href: expedienteLink, label: '🔗 Abrir el expediente' },
+            ...carpetas.map(c => ({ href: c.link, label: `📁 ${escapeHtml(c.nombre)}` })),
+        ], { principal: !acuse?.aceptar }) +
         `</table>` +
         (carpetas.length ? emailP('Tienes acceso a esas carpetas con el enlace. Sube ahí el certificado emitido.', { size: 12, color: BRAND.muted, center: true, mb: 0 }) : '');
 
@@ -1005,9 +1014,11 @@ const sendCertificadorFinalNotificationEmail = async ({
     ) : '';
 
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
-        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
-        (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
-        (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Acceder a Carpeta CEE')}</td></tr>` : '') +
+        filasBotones([
+            { href: encargoLink, label: '📋 Ver el encargo completo' },
+            { href: portalLink, label: '🔗 Acceder al Portal' },
+            { href: ceeFolderLink, label: '📁 Acceder a Carpeta CEE' },
+        ]) +
         `</table>`;
 
     const html = brandEmailShell({
@@ -1074,10 +1085,12 @@ const sendCertificadorReminderEmail = async ({
 
     // En fase de registro el botón útil es el de subir el CEE registrado, no la carpeta.
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
-        (esRegistro && ceeUploadLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ceeUploadLink, '📤 Subir CEE registrado')}</td></tr>` : '') +
-        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
-        (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
-        (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Carpeta CEE')}</td></tr>` : '') +
+        filasBotones([
+            { href: esRegistro ? ceeUploadLink : null, label: '📤 Subir CEE registrado' },
+            { href: encargoLink, label: '📋 Ver el encargo completo' },
+            { href: portalLink, label: '🔗 Acceder al Portal' },
+            { href: ceeFolderLink, label: '📁 Carpeta CEE' },
+        ]) +
         `</table>`;
 
     const html = brandEmailShell({
@@ -1142,10 +1155,12 @@ const sendCertificadorUrgentEmail = async ({
             );
 
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
-        (esRegistro && ceeUploadLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ceeUploadLink, '📤 Subir CEE registrado')}</td></tr>` : '') +
-        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
-        (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
-        (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Carpeta CEE')}</td></tr>` : '') +
+        filasBotones([
+            { href: esRegistro ? ceeUploadLink : null, label: '📤 Subir CEE registrado' },
+            { href: encargoLink, label: '📋 Ver el encargo completo' },
+            { href: portalLink, label: '🔗 Acceder al Portal' },
+            { href: ceeFolderLink, label: '📁 Carpeta CEE' },
+        ]) +
         `</table>`;
 
     const html = brandEmailShell({
@@ -1274,6 +1289,7 @@ const sendReviewRequestEmailToAdmin = async ({
             `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
             emailP(approveLink ? 'Revisa el .CEX y, si todo es correcto, pulsa <strong>Dar Visto Bueno</strong> (o hazlo desde el portal).' : 'Una vez revisado el .CEX, pulsa <strong>Validar y Autorizar Presentación</strong> en el portal.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
         footerNote: 'Notificación automática · ERP',
+        firma: false,
     });
 
     const clienteText = clienteDataText(clienteData);
@@ -1316,6 +1332,7 @@ const sendCertifierAcceptedAdminNotification = async (expedienteId, numExp, cert
             emailBox(emailDataTable(dataRows), { mb: 22 }) +
             `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(`${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${expedienteId}`, 'Ver Expediente')}</td></tr></table>`,
         footerNote: 'Notificación automática de BROKERGY ERP',
+        firma: false,
     });
 
     const textLines = [
@@ -1350,13 +1367,23 @@ function stripCertLinkLines(text) {
 }
 
 // ── Paleta de marca (tema claro) y helpers de componentes de email ───────────
+// Registro «carta de pago» (regla 164, 24/10/2026), el del email de la carta del
+// Bono CAE: tinta casi negra, crema en las cajas, naranja y verde de la marca de
+// FONDO y sus versiones oscuras para el TEXTO (#ffa000 y #b1d13e no dan contraste
+// como letra). Los nombres de las claves no cambian: los usan 120 sitios.
 const BRAND = {
-    bg: '#F3F4F1', card: '#FFFFFF', border: '#E8E9E4', soft: '#F8F9F6',
-    text: '#1A1A1A', muted: '#667085',
-    green: '#8DC63F', greenDark: '#5C9A1B', greenTint: '#EEF6E1',
-    orange: '#F7941D', orangeDark: '#C77700', orangeTint: '#FCEFDA',
-    grayTint: '#F1F2EC', grayText: '#8A8F7A',
+    bg: '#F1F1EE', card: '#FFFFFF', border: '#E4E4DF', soft: '#FAF9F7',
+    text: '#141111', muted: '#55585F',
+    green: '#B1D13E', greenDark: '#4D6B0F', greenTint: '#F0F6DC',
+    orange: '#FFA000', orangeDark: '#B33A0A', orangeTint: '#FFF4DE',
+    grayTint: '#F1F1EE', grayText: '#55585F',
 };
+// El filete naranja → verde en cinco celdas: Outlook no pinta `linear-gradient`.
+const FILETE = ['#FCA508', '#EAAF14', '#D8BA20', '#C7C42C', '#B5CF38'];
+const filete = (alto) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${FILETE.map(c => `<td height="${alto}" width="20%" bgcolor="${c}" style="height:${alto}px;font-size:0;line-height:0;background:${c};">&nbsp;</td>`).join('')}</tr></table>`;
+// Antonio solo se ve donde el cliente la tenga; en Gmail y Outlook cae a la estrecha.
+const DISPLAY = "font-family:Antonio,'Arial Narrow','Roboto Condensed',Arial,sans-serif;font-stretch:condensed;";
+const EMAIL_ASSETS = 'https://app.brokergy.es/email/carta-pago';
 
 // ─── Outlook (Windows) ───────────────────────────────────────────────────────
 // Outlook de escritorio NO pinta el HTML con un navegador: usa el motor de Word.
@@ -1375,18 +1402,31 @@ const PILL = {
     success: (text, emoji = '✅') => ({ emoji, text, bg: BRAND.greenTint, color: BRAND.greenDark }),
     warning: (text, emoji = '⚠️') => ({ emoji, text, bg: BRAND.orangeTint, color: BRAND.orangeDark }),
     neutral: (text, emoji = '🕒') => ({ emoji, text, bg: BRAND.grayTint, color: BRAND.grayText }),
-    info:    (text, emoji = '📩') => ({ emoji, text, bg: '#E8F0FB', color: '#2563A6' }),
+    info:    (text, emoji = '📩') => ({ emoji, text, bg: BRAND.soft, color: BRAND.text }),
 };
 
-// Botón relleno (fondo de color, texto blanco). El padding va en el <td> y el
-// color de fondo también como atributo `bgcolor`: Outlook ignora el padding del
-// <a> y el texto quedaba pegado a los bordes de la caja de color.
+// Botón relleno. El padding va en el <td> y el color de fondo también como
+// atributo `bgcolor`: Outlook ignora el padding del <a> y el texto quedaba pegado
+// a los bordes de la caja de color. Sobre el naranja y el verde de la marca la
+// letra va en TINTA (en blanco no se lee); sobre cualquier otro fondo, en blanco.
 function emailButton(href, label, bg = BRAND.green) {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td bgcolor="${bg}" style="border-radius:8px;background:${bg};padding:12px 24px;text-align:center;"><a href="${href}" style="${FONT}font-size:14px;line-height:18px;font-weight:700;color:#FFFFFF;text-decoration:none;">${label}</a></td></tr></table>`;
+    const claro = bg === BRAND.orange || bg === BRAND.green;
+    const txt = claro ? '#08090C' : '#FFFFFF';
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td bgcolor="${bg}" style="border-radius:12px;background:${bg};padding:14px 24px;text-align:center;"><a href="${href}" style="${FONT}font-size:15px;line-height:19px;font-weight:700;color:${txt};text-decoration:none;">${label}</a></td></tr></table>`;
 }
-// Botón outline (borde oscuro, texto oscuro).
+// Botón secundario (blanco con borde, texto en tinta).
 function emailOutlineButton(href, label) {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td style="border-radius:8px;border:1.5px solid #1A1A1A;padding:11px 22px;text-align:center;"><a href="${href}" style="${FONT}font-size:14px;line-height:18px;font-weight:700;color:#1A1A1A;text-decoration:none;">${label}</a></td></tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td bgcolor="#FFFFFF" style="border-radius:12px;border:1.5px solid #CFCFCB;background:#FFFFFF;padding:13px 22px;text-align:center;"><a href="${href}" style="${FONT}font-size:15px;line-height:19px;font-weight:700;color:${BRAND.text};text-decoration:none;">${label}</a></td></tr></table>`;
+}
+// Pila de botones con UNA sola acción principal (regla 164): el PRIMERO que
+// exista va en naranja y los demás en blanco con borde. Antes se apilaban dos o
+// tres botones de color y el naranja era el del portal, no lo que se le pide.
+// `items`: [{ href, label }] en orden de importancia; los que no tienen href no salen.
+// `principal: false` cuando la acción principal ya va encima (p. ej. el acuse).
+function filasBotones(items, { principal = true } = {}) {
+    return items.filter(b => b && b.href).map((b, i) =>
+        `<tr><td align="center" style="padding-bottom:12px;">${principal && i === 0 ? emailButton(b.href, b.label, BRAND.orange) : emailOutlineButton(b.href, b.label)}</td></tr>`
+    ).join('');
 }
 // Alias histórico usado por el email de visto bueno.
 const certButton = (href, label, bg) => emailButton(href, label, bg);
@@ -1406,7 +1446,7 @@ function emailP(html, opts = {}) {
 function emailBox(innerHtml, opts = {}) {
     const bg = opts.bg || BRAND.soft, border = opts.border || BRAND.border;
     const mb = opts.mb != null ? opts.mb : 22;
-    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${bg};border:1px solid ${border};border-radius:10px;margin-bottom:${mb}px;"><tr><td bgcolor="${bg}" style="padding:${opts.pad || '20px 22px'};">${innerHtml}</td></tr></table>`;
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${bg};border:1px solid ${border};border-radius:16px;border-collapse:separate;margin-bottom:${mb}px;"><tr><td bgcolor="${bg}" style="border-radius:16px;padding:${opts.pad || '20px 22px'};">${innerHtml}</td></tr></table>`;
 }
 // Epígrafe dentro del cuerpo.
 function emailHeading(text, opts = {}) {
@@ -1503,12 +1543,29 @@ function emailDataTable(rows) {
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${body}</table>`;
 }
 
-// Shell de marca para TODOS los emails (cliente/instalador/certificador): barra
-// degradado, cabecera con logo + título, pill opcional, cuerpo y footer.
-// pill = { emoji, text, bg, color } | null. contentHtml = cuerpo central.
-function brandEmailShell({ preheader, title, pill, contentHtml, footerNote }) {
+// La firma de PERSONA (regla 164): se cierra con Fran, no con «El equipo». La misma
+// del email de la carta de pago y del portal del cliente.
+function emailFirma() {
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;border-top:1px solid ${BRAND.border};"><tr><td style="padding-top:22px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td valign="middle" width="64" style="width:64px;padding-right:14px;"><img src="${EMAIL_ASSETS}/logo-circular.png" width="52" height="52" alt="BROKERGY" style="display:block;width:52px;height:52px;border:0;border-radius:50%;"></td>
+        <td valign="middle" style="border-left:3px solid ${BRAND.orange};padding-left:14px;${FONT}font-size:13px;line-height:19px;color:${BRAND.muted};">
+          <div style="${FONT}font-size:15px;line-height:21px;font-weight:700;color:${BRAND.text};">Fran Moya</div>
+          <div>CEO de BROKERGY · Ingeniero colegiado nº 1779 COGITI</div>
+          <div style="padding-top:4px;"><a href="tel:+34623926179" style="color:${BRAND.orangeDark};font-weight:700;text-decoration:none;">623 926 179</a> &nbsp;·&nbsp; <a href="https://brokergy.es" style="color:${BRAND.orangeDark};text-decoration:none;">brokergy.es</a></div>
+        </td>
+      </tr></table>
+    </td></tr></table>`;
+}
+
+// Shell de marca para TODOS los emails (cliente/instalador/certificador), en el
+// registro «carta de pago» (regla 164): papel gris claro, tarjeta blanca de 18 px,
+// filete naranja → verde arriba, logo, titular en la display, pill opcional,
+// cuerpo, la firma de Fran y el pie. pill = { emoji, text, bg, color } | null.
+// `firma: false` en los avisos INTERNOS (al equipo, al ERP): ahí no firma nadie.
+function brandEmailShell({ preheader, title, pill, contentHtml, footerNote, firma = true }) {
     const note = footerNote || 'Este mensaje se ha generado automáticamente, por favor no respondas a este correo.';
-    const pillHtml = pill ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;"><tr><td bgcolor="${pill.bg}" style="background:${pill.bg};border-radius:20px;padding:6px 14px;"><span style="${FONT}font-size:12px;line-height:16px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${pill.color};">${pill.emoji} ${escapeHtml(pill.text)}</span></td></tr></table>` : '';
+    const pillHtml = pill ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:22px;"><tr><td bgcolor="${pill.bg}" style="background:${pill.bg};border-radius:999px;padding:6px 13px;"><span style="${FONT}font-size:11px;line-height:15px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:${pill.color};">${pill.emoji} ${escapeHtml(pill.text)}</span></td></tr></table>` : '';
     return `<!DOCTYPE html>
 <html lang="es" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -1521,35 +1578,41 @@ function brandEmailShell({ preheader, title, pill, contentHtml, footerNote }) {
 <xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
 <style>table,td,div,p,h1,h2,h3,ul,ol,li,span,a,strong,b,em{font-family:Arial,Helvetica,sans-serif !important;}</style>
 <![endif]-->
+<style>
+  body{margin:0!important;padding:0!important;width:100%!important;background:${BRAND.bg}}
+  a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+  @media (max-width:620px){
+    .bk-container{width:100%!important}
+    .bk-px{padding-left:22px!important;padding-right:22px!important}
+    .bk-h1{font-size:28px!important;line-height:33px!important}
+  }
+</style>
 <title>${escapeHtml(title)}</title>
 </head>
 <body style="margin:0;padding:0;background:${BRAND.bg};">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(preheader || '')}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${BRAND.bg}" style="background:${BRAND.bg};${FONT}">
-<tr><td align="center" style="padding:40px 16px;">
+<tr><td align="center" style="padding:28px 12px;">
 <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
-<tr><td height="5" bgcolor="${BRAND.greenDark}" style="height:5px;line-height:5px;font-size:0;background-color:${BRAND.greenDark};background-image:linear-gradient(90deg,${BRAND.orange},${BRAND.green});border-radius:14px 14px 0 0;">&nbsp;</td></tr>
-<tr><td bgcolor="${BRAND.card}" style="background:${BRAND.card};border:1px solid ${BRAND.border};border-top:none;border-radius:0 0 14px 14px;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid ${BRAND.border};">
-    <tr><td style="padding:28px 40px;">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-        <td valign="middle" width="52" style="width:52px;padding-right:16px;"><img src="${CERT_LOGO_URL}" width="48" height="48" alt="Brokergy" style="display:block;border:0;border-radius:50%;"></td>
-        <td valign="middle">
-          <p style="margin:0 0 2px 0;${FONT}font-size:11px;line-height:15px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:${BRAND.muted};">BROKERGY · Ingeniería Energética</p>
-          <h1 style="margin:0;${FONT}font-size:22px;line-height:28px;color:${BRAND.text};font-weight:700;">${escapeHtml(title)}</h1>
-        </td>
-      </tr></table>
-    </td></tr>
-  </table>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-    <tr><td style="padding:32px 40px 36px 40px;">
-      ${pillHtml}
-      ${contentHtml}
-    </td></tr>
-  </table>
+<table role="presentation" class="bk-container" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${BRAND.card}" style="width:600px;max-width:600px;background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:18px;overflow:hidden;border-collapse:separate;">
+<tr><td style="padding:0;font-size:0;line-height:0;">${filete(6)}</td></tr>
+<tr><td class="bk-px" style="padding:26px 40px 0 40px;">
+  <img src="${EMAIL_ASSETS}/logo-brokergy.png" width="150" height="29" alt="BROKERGY · Ingeniería energética" style="display:block;width:150px;height:auto;border:0;">
 </td></tr>
-<tr><td align="center" style="padding:28px 16px 8px;"><p style="margin:0;${FONT}font-size:12px;line-height:19px;color:${BRAND.muted};">BROKERGY · Ingeniería Energética<br>${note}</p></td></tr>
+<tr><td class="bk-px" style="padding:22px 40px 0 40px;">
+  <h1 class="bk-h1" style="margin:0;${DISPLAY}font-size:32px;line-height:38px;font-weight:700;color:${BRAND.text};">${escapeHtml(title)}</h1>
+</td></tr>
+<tr><td class="bk-px" style="padding:22px 40px 30px 40px;">
+  ${pillHtml}
+  ${contentHtml}
+  ${firma ? emailFirma() : ''}
+</td></tr>
+</table>
+<table role="presentation" class="bk-container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+<tr><td align="center" style="padding:22px 16px 8px;">
+  <p style="margin:0 0 6px 0;${FONT}font-size:11px;line-height:15px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:${BRAND.muted};">BROKERGY · Ingeniería energética</p>
+  <p style="margin:0;${FONT}font-size:12px;line-height:18px;color:${BRAND.muted};">${note}</p>
+</td></tr>
 </table>
 <!--[if mso]></td></tr></table><![endif]-->
 </td></tr>
@@ -1581,7 +1644,7 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
     const presentFolderLink = extra.presentFolderLink || null; // carpeta CEE INICIAL/FINAL (descarga)
     const ceeUploadLink = extra.ceeUploadLink || null;         // popup de subida del CEE registrado
     const attachments = Array.isArray(extra.attachments) ? extra.attachments : undefined;
-    const GREEN = '#8DC63F';
+    const GREEN = BRAND.green;
 
     // Cuerpo: el mensaje editado (sin las líneas de enlace, que van como botones) o el texto por defecto.
     const bodyText = stripCertLinkLines(customMessage || adminMessage || '');
@@ -1619,22 +1682,25 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
             <tr><td align="center" style="padding-bottom:22px;">
               ${emailP('Paso 2 · Preséntalo en el Registro', { size: 15, bold: true, center: true, mb: 8 })}
               ${emailP('Te lleva al borrador con lo que va en cada casilla del formulario y los documentos listos para anexar.', { size: 13, color: BRAND.muted, center: true, mb: 14 })}
-              ${certButton(presentarLink, '🖊️ Firmar y presentar', GREEN)}
+              ${certButton(presentarLink, '🖊️ Firmar y presentar', BRAND.orange)}
             </td></tr>
           </table>`,
         { pad: '24px 22px 2px 22px' }
     ) : '';
 
+    // Con los dos pasos guiados encima, los enlaces sueltos son secundarios: UNA
+    // acción principal por correo (regla 164).
+    const botonSuelto = (href, label) => (presentarLink ? emailOutlineButton(href, label) : certButton(href, label, GREEN));
     const stepsBox = (presentFolderLink || ceeUploadLink) ? emailBox(
         `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             ${presentFolderLink ? `<tr><td align="center" style="padding-bottom:22px;">
               ${emailP('1 · Descarga los archivos para presentarlos', { size: 14, bold: true, center: true, mb: 12 })}
-              ${certButton(presentFolderLink, `📄 Descargar CEE (${phaseLabel})`, GREEN)}
+              ${botonSuelto(presentFolderLink, `📄 Descargar CEE (${phaseLabel})`)}
             </td></tr>` : ''}
             ${ceeUploadLink ? `<tr><td align="center" style="padding-bottom:22px;">
               ${emailP('2 · Una vez presentado en Industria, puedes subirlo directamente aquí', { size: 14, bold: true, center: true, mb: 12 })}
               ${emailP('Sube el CEE registrado (etiqueta energética + justificante de registro). Se guardará automáticamente en el expediente.', { size: 13, color: BRAND.muted, center: true, mb: 14 })}
-              ${certButton(ceeUploadLink, '📤 Subir CEE registrado', GREEN)}
+              ${botonSuelto(ceeUploadLink, '📤 Subir CEE registrado')}
             </td></tr>` : ''}
           </table>`,
         { pad: '24px 22px 2px 22px' }

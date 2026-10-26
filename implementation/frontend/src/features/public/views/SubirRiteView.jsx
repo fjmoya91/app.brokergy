@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 import { SubirRiteCard } from '../components/SubirRiteCard';
+import { MarcoInstalador, CargandoInstalador, EnlaceNoValido, DatosObra, CheckDibujado } from '../components/MarcoInstalador';
 
 const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
@@ -9,98 +9,80 @@ const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
 // Página de SOLO el RITE. Sigue viva porque su enlace ya viaja en mensajes
 // enviados; la superficie de subida es la MISMA que usa /instalador/:id — ver
 // SubirRiteCard.
+//
+// Estilo «carta de pago» (regla 164), con el marco de MarcoInstalador.
+// Demo sin API: /subir-rite/demo (con `?sin-memoria` o `?subido`).
+const DEMO_ID = 'demo';
+function infoDemo() {
+    const q = new URLSearchParams(window.location.search);
+    return {
+        numero_expediente: '26RES060_241', cliente: 'MARÍA GARCÍA LÓPEZ', instalador: 'INSTALACIONES EJEMPLO SL',
+        pide_memoria: !q.has('sin-memoria'), certificado_subido: q.has('subido'), memoria_subida: false,
+    };
+}
+
 export function SubirRiteView({ expedienteId }) {
-    const [info, setInfo] = useState(null);
+    const esDemo = expedienteId === DEMO_ID;
+    const [info, setInfo] = useState(() => (esDemo ? infoDemo() : null));
     const [loadError, setLoadError] = useState(null);
     const [done, setDone] = useState(false);
 
-    const loadInfo = () => axios.get(`${API_URL}/rite-upload/${expedienteId}`)
-        .then(r => setInfo(r.data))
-        .catch(() => setLoadError('No se ha encontrado el expediente o el enlace no es válido.'));
+    const loadInfo = () => {
+        if (esDemo) return;
+        axios.get(`${API_URL}/rite-upload/${expedienteId}`)
+            .then(r => setInfo(r.data))
+            .catch(() => setLoadError('No se ha encontrado el expediente o el enlace no es válido.'));
+    };
 
-    useEffect(() => { loadInfo(); }, [expedienteId]);
+    useEffect(() => {
+        if (esDemo) return;
+        axios.get(`${API_URL}/rite-upload/${expedienteId}`)
+            .then(r => setInfo(r.data))
+            .catch(() => setLoadError('No se ha encontrado el expediente o el enlace no es válido.'));
+    }, [expedienteId, esDemo]);
 
-    if (!info && !loadError) {
-        return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <DynamicNetworkBackground />
-                <div className="relative z-10 flex flex-col items-center gap-4">
-                    <svg className="w-8 h-8 animate-spin text-brand" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                    </svg>
-                    <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Cargando expediente...</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (loadError) {
-        return (
-            <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-                <DynamicNetworkBackground />
-                <div className="w-full max-w-md relative z-10 bg-bkg-surface border border-white/[0.06] rounded-[2.5rem] p-10 text-center backdrop-blur-xl">
-                    <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/30">
-                        <svg className="w-10 h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    </div>
-                    <h2 className="text-2xl font-black text-white mb-4 tracking-tight">Enlace no válido</h2>
-                    <p className="text-white/40 text-sm leading-relaxed">{loadError}</p>
-                </div>
-            </div>
-        );
-    }
+    if (!info && !loadError) return <CargandoInstalador />;
+    if (loadError) return <EnlaceNoValido texto={loadError} />;
 
     return (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden selection:bg-brand selection:text-black">
-            <DynamicNetworkBackground />
-            <div className="w-full max-w-lg relative z-10 px-4">
-                <div className="text-center mb-8 relative">
-                    <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
-                        <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Documentación</span>
-                        <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">RITE</span>
-                    </h1>
+        <MarcoInstalador numero={info.numero_expediente} demo={esDemo}>
+            {done ? (
+                <>
+                    <div className="in-in" style={{ marginTop: 6 }}><CheckDibujado /></div>
+                    <h1 className="in-display in-h1 in-in">RITE <span className="in-mark">recibido</span></h1>
+                    <p className="in-sub in-in in-in-2">
+                        Gracias. Seguimos nosotros con la tramitación del expediente <b>{info.numero_expediente}</b>.
+                    </p>
+                    <div className="in-btns in-in in-in-2" style={{ marginTop: 22 }}>
+                        <button className="in-btn in-btn-sec" onClick={() => { setDone(false); loadInfo(); }}>Subir o reemplazar otro documento</button>
+                    </div>
+                </>
+            ) : (
+                <>
+                    <p className="in-eyebrow in-in" style={{ margin: '18px 2px 0' }}>Para el instalador</p>
+                    <h1 className="in-display in-h1 in-in">Envíanos el <span className="in-mark">RITE</span></h1>
                     {/* El subtítulo dice lo MISMO que las casillas de abajo: sin memoria
                         generada solo se pide el certificado, y anunciar aquí un documento
                         que luego no aparece hace buscarlo. */}
-                    <p className="text-white/60 text-sm">{info?.pide_memoria ? 'Sube la memoria firmada y el certificado RITE tramitado.' : 'Sube el certificado RITE tramitado.'}</p>
-                </div>
-
-                <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] overflow-hidden backdrop-blur-xl relative">
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
-
-                    <div className="px-8 pt-8 pb-5 border-b border-white/[0.06] space-y-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-3">Detalles del expediente</p>
-                        {[['Expediente', info.numero_expediente, 'text-brand font-mono'], ['Cliente', info.cliente, 'text-white/80'], ['Instalador', info.instalador, 'text-white/80']].map(([label, value, cls]) => (
-                            <div key={label} className="flex items-center justify-between">
-                                <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">{label}</span>
-                                <span className={`text-sm font-bold ${cls}`}>{value || '—'}</span>
-                            </div>
-                        ))}
+                    <p className="in-sub in-in in-in-2">
+                        {info.pide_memoria ? 'La memoria técnica firmada y el certificado RITE tramitado de esta obra.' : 'El certificado RITE tramitado de esta obra.'}
+                    </p>
+                </>
+            )}
+            <div className="in-stack in-in in-in-2">
+                {!done && (
+                    <div className="in-card">
+                        <div className="in-filete-fino" />
+                        {/* `pideMemoria` viene del backend (mismo dato que
+                            /instalador/:id): sin él, esta página ofrecía SIEMPRE la
+                            casilla de la memoria firmada aunque nunca hubiéramos
+                            generado ninguna, y el instalador acababa dejando ahí el
+                            certificado — que es el campo de la memoria. */}
+                        <SubirRiteCard expedienteId={expedienteId} demo={esDemo} info={info} pideMemoria={!!info.pide_memoria} onDone={() => { setDone(true); loadInfo(); }} />
                     </div>
-
-                    <div className="p-8">
-                        {done ? (
-                            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-8 text-center animate-fade-in">
-                                <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
-                                    <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                                </div>
-                                <h2 className="text-xl font-black text-emerald-400 uppercase tracking-widest mb-3">¡Documentación recibida!</h2>
-                                <p className="text-white/50 text-sm leading-relaxed">Gracias. El equipo de Brokergy continuará con la tramitación del expediente <strong className="text-brand">{info.numero_expediente}</strong>.</p>
-                                <button onClick={() => { setDone(false); loadInfo(); }} className="mt-6 text-[11px] text-brand/70 hover:text-brand font-black uppercase tracking-widest underline underline-offset-4">Subir o reemplazar otro documento</button>
-                            </div>
-                        ) : (
-                            /* `pideMemoria` viene del backend (mismo dato que
-                               /instalador/:id): sin él, esta página ofrecía SIEMPRE la
-                               casilla de la memoria firmada aunque nunca hubiéramos
-                               generado ninguna, y el instalador acababa dejando ahí el
-                               certificado — que es el campo de la memoria. */
-                            <SubirRiteCard expedienteId={expedienteId} info={info} pideMemoria={!!info.pide_memoria} onDone={() => { setDone(true); loadInfo(); }} />
-                        )}
-                    </div>
-                </div>
-
-                <p className="text-center mt-8 text-[10px] uppercase font-black tracking-[0.2em] text-white/20">Sistema de Gestión Brokergy &copy; {new Date().getFullYear()}</p>
+                )}
+                <DatosObra filas={[['Cliente', info.cliente], ['Instalador', info.instalador]]} />
             </div>
-        </div>
+        </MarcoInstalador>
     );
 }

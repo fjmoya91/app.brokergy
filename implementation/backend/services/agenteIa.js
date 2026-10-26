@@ -255,6 +255,7 @@ function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes
         pill,
         contentHtml: reenvioHtml + intro + ficha + pasos + avisosHtml + botones + accesosHtml,
         footerNote: 'Aviso interno del Agente IA · se envía al terminar un borrador de CEE.',
+        firma: false,
     });
 }
 

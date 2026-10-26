@@ -29,6 +29,26 @@ pida para ella.
   Prefijo `.mx-`.
 - La carta y su email: [carta_pago_bono_cae.html](implementation/backend/plantillas/carta_pago_bono_cae.html)
   y [email_carta_pago_bono_cae.html](implementation/backend/plantillas/email_carta_pago_bono_cae.html).
+- La entrada al portal, `/portal` ([PortalLoginView.jsx](implementation/frontend/src/features/public/views/PortalLoginView.jsx),
+  prefijo `.pl-`): un formulario con este registro (24/10/2026).
+- La confirmación de cobro, `/cobro/:id` ([ConfirmarCobroView.jsx](implementation/frontend/src/features/cobro/views/ConfirmarCobroView.jsx),
+  prefijo `.cc-`, demo en `/cobro/demo`): un formulario de varios PASOS con su barra de
+  avance por tramos, las opciones como tarjetas con un círculo que se marca en naranja (la
+  `desaconsejada` con el título apagado y su chapa ámbar), la cuenta en monoespaciada por
+  bloques con los dos botones «Sí, es correcta» (verde al elegirlo) y «No, es otra» (ámbar), y
+  el check que se dibuja al terminar (24/10/2026). Los emojis de las preguntas siguen en
+  `cobroForm.js` (los usa también el resumen del staff); la pantalla pinta su icono SVG por
+  el `id` del bloque. Solo cambió el aspecto: validaciones y envío, los de siempre.
+- La aceptación de la propuesta, `/firma/:id` ([AceptarPropuestaView.jsx](implementation/frontend/src/features/public/views/AceptarPropuestaView.jsx),
+  prefijo `.fp-`, demo en `/firma/demo` y `/firma/demo?varios`, 24/10/2026): el CSS de la
+  página lo usan también sus piezas ([ConfirmarVivienda.jsx](implementation/frontend/src/features/public/components/ConfirmarVivienda.jsx)
+  y [PropietariosAceptacion.jsx](implementation/frontend/src/features/public/components/PropietariosAceptacion.jsx)),
+  que solo se pintan dentro de ella. El popup de condiciones va portaleado a `body` y no
+  hereda ese CSS: trae `tema="carta"` (desde el mismo día también la oferta de CEE directo). Dos
+  cosas aprendidas aquí: el fondo lima de `.fp-mark` empieza al 14 % del alto (con el fondo
+  entero, en un titular de dos líneas tapaba los rasgos bajos de la de arriba), y el saludo
+  pone el nombre de pila en minúsculas con la inicial en mayúscula, porque en la ficha
+  viene en MAYÚSCULAS.
 - La aceptación de la oferta de CEE directo, `/aceptar-cee/:token` ([AceptarOfertaCeeView.jsx](implementation/frontend/src/features/public/views/AceptarOfertaCeeView.jsx),
   prefijo `.ac-`, demo en `/aceptar-cee/demo` y `/aceptar-cee/demo?sin-cee`, 24/10/2026): el
   presupuesto en una tarjeta con el total como cifra protagonista (céntimos pequeños) y el PDF
@@ -38,6 +58,49 @@ pida para ella.
   clases de Tailwind al tema claro sin tocar el componente. El aviso «Falta por contestar» se
   compone en vivo: conforme el cliente contesta, la lista se acorta y se va sola. Saludo solo
   si hay apellidos: a una empresa no se la saluda por la primera palabra de su razón social.
+- La subida de documentación, `/subir-docs/:uuid` y `/subir-cee-docs/:id` ([SubirDocsReformaView.jsx](implementation/frontend/src/features/public/views/SubirDocsReformaView.jsx),
+  prefijo `.sd-`, demo en `/subir-docs/demo?token=demo`, 24/10/2026): solo cambia el MARCO
+  (logo, titular, nota y firma). El gestor de dentro es `DocsManager` en `.theme-light`, como en
+  `/aceptar-cee`: cliente, instalador y CEE directo ven lo mismo de siempre, en claro.
+- La firma con el móvil, `/firma-movil/:token` ([FirmaMovilView.jsx](implementation/frontend/src/features/firma/FirmaMovilView.jsx),
+  prefijo `.fm-`, demo en `/firma-movil/demo`, 24/10/2026): las pantallas de alrededor (abrir,
+  enviar, enviada, enlace no válido y «Gira el teléfono»). La hoja (`SignaturePad`) es la del
+  ordenador y no se toca (regla 34). El aviso de error al enviar va también portaleado a
+  `body`: dentro de `#root` quedaba debajo de la hoja, igual que le pasó al de girar.
+- **TODOS los emails** salen ya con este registro (24/10/2026): `brandEmailShell` de
+  [emailService.js](implementation/backend/services/emailService.js) lleva el filete en cinco
+  celdas (Outlook no pinta degradados), el logo, el titular en la display (Antonio donde la
+  haya; en Gmail y Outlook, la estrecha del sistema), la tarjeta de 18 px y la **firma de Fran**
+  (`emailFirma`). Los avisos INTERNOS (al equipo, al ERP, el restablecer contraseña) pasan
+  `firma: false`. La paleta `BRAND` conserva los nombres de sus claves: cambian los valores. Los
+  botones sobre el naranja o el verde de la marca llevan la letra en tinta.
+  **Una sola acción principal por email** (26/10/2026): la que mueve el expediente va en naranja
+  y las demás en blanco con borde (`emailOutlineButton`). En la propuesta, la principal es
+  «Aceptar y firmar» y «Ver propuesta online» es la secundaria; en los encargos al técnico y sus
+  recordatorios, `filasBotones(items, { principal })` pone en naranja la primera de la lista
+  (en el encargo de CEE directo con acuse, la principal es «Acepto el encargo» y las demás van
+  todas en blanco); en el visto bueno del CEE, «Firmar y presentar». El aviso del Agente IA es
+  interno: `firma: false`.
+- La firma de los anexos, `/firmar-anexos/:id` ([FirmarAnexosView.jsx](implementation/frontend/src/features/public/views/FirmarAnexosView.jsx),
+  prefijo `.fa-`, demo en `/firmar-anexos/demo` con `?datos`, `?preparando`, `?requerimiento`,
+  `?rechazo` o `?varios`, 26/10/2026).
+- Las páginas del **instalador**, `/instalador/:id`, `/subir-cifo/:id` y `/subir-rite/:id`: un
+  solo marco y un solo CSS, [MarcoInstalador.jsx](implementation/frontend/src/features/public/components/MarcoInstalador.jsx)
+  (prefijo `.in-`), que usan también sus tarjetas `FirmarCifoCard` y `SubirRiteCard`. Demos:
+  `/instalador/demo` (`?refirma`…), `/subir-cifo/demo` (`?refirma`, `?bloqueado`) y
+  `/subir-rite/demo` (`?sin-memoria`, `?subido`) (26/10/2026).
+- La **landing pública** (`/reforma`, `/calcula-tu-ayuda`, `/p/:slug`) es una PIEL, no una
+  reescritura: [estiloCarta.js](implementation/frontend/src/features/landing/estiloCarta.js)
+  (prefijo `.lf`) envuelve el funnel, solo en modo público, en `.lf .theme-light`; la «Nueva
+  simulación» del CRM es el mismo componente y sigue oscura. Con partner, el acento es SU color
+  en la variante para papel claro (`--accent-text-claro`) y la palabra marcada, un tinte de él
+  (26/10/2026). Se comprueba con capturas de TODOS los pasos, no solo de la portada.
+- La **guía de la Renta** (PDF de una hoja, [guiaIrpf.js](implementation/frontend/src/features/expedientes/logic/guiaIrpf.js)):
+  la hoja de la carta de pago con la cifra en tarjeta tinta (26/10/2026). Ver «La GUÍA de la
+  deducción del IRPF para el cliente».
+- Retoques del 26/10/2026: en `/subir-docs` el gestor va con `embedded` (el titular ya lo pone
+  la página; el suyo salía repetido), y en `/firma-movil` el aviso de error se cierra al tocarlo
+  (con su ×) y solo a los 8 s mientras se firma: tapaba el botón de enviar.
 
 #### 1. La idea
 
