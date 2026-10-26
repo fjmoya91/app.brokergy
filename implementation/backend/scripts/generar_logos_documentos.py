@@ -72,6 +72,15 @@ def guardar(img, ruta):
     print(f'  {os.path.relpath(ruta, RAIZ)}  {img.size[0]}x{img.size[1]}  {os.path.getsize(ruta) // 1024} KB')
 
 
+def og_whatsapp(hd):
+    """La vista previa de los enlaces (og:image de index.html): 1200×630 sobre blanco,
+    el logo a ~87 % del ancho como el anterior, para que se lea en la tarjeta de WhatsApp."""
+    logo = en_color(encajar(hd, 1040, 208), (0, 0, 0))
+    lienzo = Image.new('RGBA', (1200, 630), (255, 255, 255, 255))
+    lienzo.alpha_composite(logo, ((1200 - 1040) // 2, (630 - 208) // 2))
+    guardar(lienzo.convert('RGB'), os.path.join(FRONT, 'public', 'og-whatsapp.png'))
+
+
 def main():
     hd = Image.open(ORIGEN).convert('RGBA')
     print(f'Origen: {os.path.relpath(ORIGEN, RAIZ)} ({hd.size[0]}x{hd.size[1]})')
@@ -81,6 +90,8 @@ def main():
     guardar(sobre_blanco(negro), os.path.join(BACK, 'assets', 'logo_brokergy_doc.png'))
     guardar(negro, os.path.join(FRONT, 'public', 'logo_brokergy_dark.png'))
     guardar(en_color(negro, (255, 255, 255)), os.path.join(FRONT, 'public', 'logo_brokergy_white.png'))
+
+    og_whatsapp(hd)
 
     marca = en_color(encajar(hd, 840, 168), (0, 0, 0))
     buf = io.BytesIO()
