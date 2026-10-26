@@ -1,7 +1,7 @@
 // ─── App.jsx — las pantallas de la app de certificadores, por ruta ──────────
 // Enrutado a mano por pathname (como el CRM). Tres vistas:
 //   PÚBLICA      /, /beta, /entrar, /activar, /recuperar, /privacidad, /condiciones
-//   CLIENTE      /subir/:id?token=  (el propietario sube fotos sin cuenta)
+//   CLIENTE      /s/:codigo → /subir/:id?token=  (el propietario sube fotos sin cuenta)
 //   CERTIFICADOR /panel, /obra/nueva, /obra/:id, /obra/:id/envolvente, /perfil
 //   ADMIN        /admin, /admin/{beta|cuentas|obras|sugerencias}, /admin/obras/:id
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,6 +177,7 @@ function resolver(path) {
     if (path === '/privacidad') return { id: 'privacidad', titulo: 'Privacidad' };
     if (path === '/condiciones') return { id: 'condiciones', titulo: 'Condiciones de uso' };
     if ((p = casar('/subir/:id', path))) return { id: 'subir', params: p, titulo: 'Subir fotos' };
+    if ((p = casar('/s/:codigo', path))) return { id: 'subir', params: p, titulo: 'Subir fotos' };
     if (path === '/panel') return { id: 'panel', acceso: 'cuenta', titulo: 'Mis obras' };
     if (path === '/obra/nueva') return { id: 'nueva', acceso: 'cuenta', titulo: 'Nueva obra' };
     if ((p = casar('/obra/:id/envolvente', path))) return { id: 'envolvente', acceso: 'sesion', params: p, titulo: 'Envolvente' };
@@ -216,7 +217,7 @@ export default function App() {
         case 'recuperar': pantalla = <Recuperar />; break;
         case 'privacidad': pantalla = <Privacidad />; break;
         case 'condiciones': pantalla = <Condiciones />; break;
-        case 'subir': pantalla = <SubirCliente id={ruta.params.id} token={query.get('token') || ''} />; break;
+        case 'subir': pantalla = <SubirCliente id={ruta.params.id} token={query.get('token') || ''} codigo={ruta.params.codigo || null} />; break;
         case 'panel': pantalla = <Marco activo="panel"><Panel /></Marco>; break;
         case 'nueva': pantalla = <Marco activo="panel"><NuevaObra /></Marco>; break;
         case 'obra': pantalla = <Marco activo="panel" obraId={ruta.params.id}><Ficha key={ruta.params.id} id={ruta.params.id} /></Marco>; break;

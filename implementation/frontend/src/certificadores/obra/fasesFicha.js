@@ -7,9 +7,11 @@
 //
 // Lo que se pregunta se ha quedado en lo que la IA NO puede sacar sola: el
 // inmueble (lo confirma, viene del Catastro), el titular, para qué es y las
-// fotos con sus equipos. El tipo de vivienda, lo que la rodea, las ventanas… se
-// DEDUCEN en «Lo que ha visto la IA» (fase 5) y el certificador solo confirma o
-// cambia, ANTES de gastar el crédito.
+// fotos con sus equipos. El tipo de vivienda, lo que la rodea, las ventanas… los
+// saca la IA al hacer el certificado (de las fotos y del Catastro). La fase
+// «Lo que ha visto la IA», donde se confirmaban antes de pedir, se QUITÓ el
+// 26/10/2026 (Fran: «nos la podemos saltar y que vaya directamente a simular»);
+// su pantalla (VistoIa.jsx) y su ruta siguen, sin usar.
 import {
     ACS, ANTIGUEDAD_EQUIPO, CALEFACCION, FASE_IDS, ORIGENES, PROPOSITOS, RANGO_ORIGEN, cuentaSlot, propositosDe, slotsAplicables,
 } from '../logic/cuestionario';
@@ -20,7 +22,6 @@ export const FASES = [
     { id: 'titular', titulo: 'El titular', sub: 'Quién pide el certificado' },
     { id: 'proposito', titulo: 'Para qué es', sub: 'Decide las medidas de mejora' },
     { id: 'fotos', titulo: 'Las fotos', sub: 'Fachadas, ventanas y equipos' },
-    { id: 'visto_ia', titulo: 'Lo que ha visto la IA', sub: 'Revisa y confirma, sin gastar' },
     { id: 'generar', titulo: 'Pedir el certificado', sub: 'Gasta 1 certificado' },
 ];
 if (FASES.map(f => f.id).join() !== FASE_IDS.join()) throw new Error('fasesFicha.js y FASE_IDS no casan');
@@ -31,8 +32,7 @@ export const FASE_POR_ID = Object.fromEntries(FASES.map((f, i) => [f.id, { ...f,
 export function faseDePaso(paso) {
     if (['inmueble', 'titular', 'proposito', 'fotos'].includes(paso)) return paso;
     if (['calefaccion', 'acs', 'refrigeracion', 'renovables'].includes(paso)) return 'fotos';
-    if (['vivienda', 'entorno', 'ventanas'].includes(paso)) return 'visto_ia';
-    return 'generar';   // medidas, notas
+    return 'generar';   // vivienda, entorno, ventanas (los saca la IA), medidas, notas
 }
 
 /** Qué le falta a una fase para poder seguir (null = puede seguir). Solo lo que bloquea. */
@@ -65,11 +65,6 @@ export function resumenFase(id, form, obra, slots) {
         const cal = labelDe(CALEFACCION, c.calefaccion);
         const acs = labelDe(ACS, c.acs);
         return [`${n} ${n === 1 ? 'archivo' : 'archivos'}`, cal, acs && `agua: ${acs.toLowerCase()}`].filter(Boolean).join(' · ');
-    }
-    if (id === 'visto_ia') {
-        const v = c.visto_ia || {};
-        const n = Object.keys(c.origen || {}).length;
-        return v.confirmado_at ? `Confirmado · ${n} ${n === 1 ? 'dato deducido' : 'datos deducidos'}` : 'Sin confirmar';
     }
     return '';
 }

@@ -19,7 +19,7 @@ const supabase = require('../supabaseClient');
 const climateService = require('../climateService');
 const drive = require('./drive');
 const { cuestionario: logica } = require('./logica');
-const { fallo, errorBd, texto, textoLargo, numero, nuevoToken, evento, esEmail, numEnv, certappUrl } = require('./comun');
+const { fallo, errorBd, texto, textoLargo, numero, tokenCorto, evento, esEmail, numEnv, certappUrl } = require('./comun');
 const { limpiarRc } = require('./catastro');
 
 const COLUMNAS_LISTA = 'id, numero_expediente, nombre, direccion, municipio, provincia, ref_catastral, estado, '
@@ -72,7 +72,10 @@ function portalCaducaAt(obra) {
     return Number.isFinite(t) ? new Date(t + diasPortal() * 86400000) : null;
 }
 const portalVigente = (obra, ahora = Date.now()) => { const c = portalCaducaAt(obra); return !!c && c.getTime() > ahora; };
-const urlPortal = (obra) => `${certappUrl()}/subir/${obra.id}?token=${encodeURIComponent(obra.portal_token)}`;
+// REGLA — el enlace que se manda es el CORTO (`/s/<token>`): la página lo
+// resuelve con GET /api/public/certapp/s/:codigo y sigue en /subir/:id?token=.
+// Los enlaces largos que ya se mandaron siguen valiendo.
+const urlPortal = (obra) => `${certappUrl()}/s/${encodeURIComponent(obra.portal_token)}`;
 
 /**
  * Token nuevo para el enlace del propietario (el anterior deja de valer).
@@ -80,7 +83,7 @@ const urlPortal = (obra) => `${certappUrl()}/subir/${obra.id}?token=${encodeURIC
  * no se pisan: la segunda se queda con el que puso la primera).
  */
 async function rotarPortal(obra, { soloSiEs } = {}) {
-    let q = supabase.from('certapp_obras').update({ portal_token: nuevoToken(), portal_token_at: new Date().toISOString() }).eq('id', obra.id);
+    let q = supabase.from('certapp_obras').update({ portal_token: tokenCorto(), portal_token_at: new Date().toISOString() }).eq('id', obra.id);
     if (soloSiEs !== undefined) q = soloSiEs ? q.eq('portal_token', soloSiEs) : q.is('portal_token', null);
     const { data, error } = await q.select('*');
     if (error) throw errorBd(error, 'rotar el enlace del propietario');
@@ -146,6 +149,20 @@ function obraParaAdmin(obra) {
 }
 
 /**
+ * El siguiente correlativo: el mayor que hay + 1. REGLA — no se usa la
+ * secuencia de la BD (el trigger solo la toma si `correlativo` llega vacío):
+ * una secuencia no vuelve atrás al borrar las obras de prueba, y Fran quería
+ * empezar desde la 1 (26/10/2026). Dos altas a la vez chocan en el `unique`
+ * de `numero_expediente` y `crear` lo reintenta con el siguiente.
+ */
+async function siguienteCorrelativo() {
+    const { data, error } = await supabase.from('certapp_obras').select('correlativo')
+        .not('correlativo', 'is', null).order('correlativo', { ascending: false }).limit(1);
+    if (error) throw errorBd(error, 'numerar la obra');
+    return (data?.[0]?.correlativo || 0) + 1;
+}
+
+/**
  * Alta de una obra. Crea la carpeta de Drive (sin bloquear: si falla, la obra
  * existe igual y la carpeta se crea en la primera subida).
  */
@@ -160,11 +177,16 @@ async function crear(cuenta, body = {}) {
         titular,
         en_vivienda: body.en_vivienda === true ? true : body.en_vivienda === false ? false : null,
         estado: 'BORRADOR',
-        portal_token: nuevoToken(),
+        portal_token: tokenCorto(),
         portal_token_at: new Date().toISOString(),
     };
-    const { data: obra, error } = await supabase.from('certapp_obras').insert(fila).select('*').single();
-    if (error) throw errorBd(error, 'crear obra');
+    let obra = null;
+    for (let intento = 0; ; intento++) {
+        const correlativo = await siguienteCorrelativo();
+        const { data, error } = await supabase.from('certapp_obras').insert({ ...fila, correlativo }).select('*').single();
+        if (!error) { obra = data; break; }
+        if (error.code !== '23505' || intento >= 4) throw errorBd(error, 'crear obra');
+    }
     await evento(obra.id, cuenta.id, 'ALTA', 'Obra creada', 'certificador');
     const carpeta = await drive.asegurarCarpetaObra(obra, cuenta);
     return { obra, drive: { ok: carpeta.ok, motivo: carpeta.motivo || null } };

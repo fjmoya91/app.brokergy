@@ -3,6 +3,8 @@
 //   /admin            resumen + lista de espera
 //   /admin/beta       lista de espera   ·  /admin/cuentas  ·  /admin/obras
 //   /admin/obras/:id  detalle de una obra (pedir a la IA, entregar, devolver crédito)
+//                     con sus DOCUMENTOS como los ve el certificador (obra/Documentos.jsx:
+//                     visor de PDF, versiones, sus .cex en cuarentena) y el Drive de cada uno
 //   /admin/sugerencias  incidencias y sugerencias: estado y respuesta (le llega al certificador por email)
 // API /api/certapp-admin/* (adminOnly). Más sobria que el resto, mismos tokens.
 // Los enlaces de activación y el WhatsApp los abre el ADMIN desde su móvil
@@ -17,6 +19,8 @@ import {
 } from '../ui/Iconos';
 import { estadoDe, nombreObra } from '../obra/comun';
 import { genericosDe, resumenCuestionario, slotsAplicables } from '../logic/cuestionario';
+import { ListaDocumentos, VisorPdf } from '../obra/Documentos';
+import { CLASES, autorTxt, useDocumentos } from '../obra/documentosComun';
 
 const PESTANAS = [
     { id: 'beta', label: 'Lista de espera' },
@@ -345,6 +349,8 @@ function ObraAdmin({ id }) {
     const [ocupado, setOcupado] = useState(null);
     const [aviso, setAviso] = useState(null);
     const { datos, error, cargando, recargar } = useCarga(async () => (await axios.get(`${API_ADMIN}/obras/${id}`)).data, [id]);
+    const documentos = useDocumentos(id, { admin: true });
+    const [visor, setVisor] = useState(null);
     const d = datos || {};
     const obra = d.obra;
     const resumen = useMemo(() => (obra ? resumenCuestionario(obra) : []), [obra]);
@@ -426,11 +432,9 @@ function ObraAdmin({ id }) {
                         {firmaCee ? `${calif.consumo || calif.emisiones ? ' · ' : ''}${enl.firmado ? 'Firmado' : 'Firma anterior al PDF actual'} el ${fecha(firmaCee.at, true)}${firmaCee.firmante?.nombre ? ` por ${firmaCee.firmante.nombre}` : ''}${firmaCee.coincide === false ? ' (⚠ no parece el certificador)' : ''}` : ''}
                     </p>
                 )}
-                <div className="ca-descargas">
-                    {['pdf', 'firmado', 'cex', 'xml', 'croquis'].map(k => urlDe(enl[k])
-                        ? <a key={k} className="ca-desc" href={urlDe(enl[k])} target="_blank" rel="noreferrer">{k === 'firmado' ? 'PDF FIRMADO' : k.toUpperCase()}<small>{enl.ficheros?.[k]?.nombre || 'Abrir'}</small></a>
-                        : k === 'firmado' ? null : <span key={k} className="ca-desc ca-desc-no">{k.toUpperCase()}<small>No está</small></span>)}
-                </div>
+                {/* Lo mismo que ve el certificador, con el visor y el enlace de Drive de cada fichero. */}
+                <ListaDocumentos d={documentos.datos} cargando={documentos.cargando} error={documentos.error} recargar={documentos.recargar}
+                    onVer={(doc) => setVisor(doc)} admin />
                 {urlDe(enl.carpeta) && <a className="ca-fila" style={{ marginTop: 10 }} href={urlDe(enl.carpeta)} target="_blank" rel="noreferrer"><span className="ca-ico-tile ca-tile-crema"><IcoCarpeta /></span><span><b>Carpeta de la obra en Drive</b><small>Solo ADMIN</small></span><IcoChevron /></a>}
                 {d.enlace_cliente && (
                     <div style={{ marginTop: 12 }}>
@@ -484,6 +488,13 @@ function ObraAdmin({ id }) {
                         {d.eventos.map(ev => <li key={ev.id}>{ev.texto || ev.tipo}<small>{fecha(ev.created_at, true)} · {ev.por || '—'}</small></li>)}
                     </ul>
                 </section>
+            )}
+
+            {visor && (
+                <VisorPdf key={visor.id} doc={visor} titulo={CLASES[visor.clase] || 'Documento'}
+                    detalle={`${visor.actual ? '' : 'Versión anterior · '}${fecha(visor.fecha, true)} · ${autorTxt(visor.autor, true)} · ${visor.nombre}`}
+                    onCerrar={() => setVisor(null)}
+                    pie={() => (visor.drive ? <a className="ca-btn ca-btn-sec" href={visor.drive} target="_blank" rel="noreferrer"><IcoCarpeta size={16} /> Abrir en Drive</a> : null)} />
             )}
         </div>
     );

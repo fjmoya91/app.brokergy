@@ -25,7 +25,7 @@ Object.assign(process.env, {
 const CUENTA = { id: 'c0000000-0000-4000-8000-000000000001', auth_user_id: 'a-tok-ext', email: 'ext@prueba.es', estado: 'ACTIVA', creditos: 2, prefs: {} };
 const OBRA_SUYA = 'b0000000-0000-4000-8000-000000000001';
 const OBRA_AJENA = 'b0000000-0000-4000-8000-000000000002';
-const TOKEN_PORTAL = 'tok-portal-0123456789abcdef';
+const TOKEN_PORTAL = 'tokPortal0123456789abcdef';
 const FB_SUYA = 'f0000000-0000-4000-8000-000000000001';   // una incidencia del certificador
 const ROLES = { 'tok-admin': 'ADMIN', 'tok-trab': 'TRABAJADOR', 'tok-partner': 'INSTALADOR' };
 const hace = (dias) => new Date(Date.now() - dias * 86400000).toISOString();
@@ -94,7 +94,9 @@ function respuesta(op, unico) {
         // La obra SUYA solo aparece si se pide con su cuenta (obraDeLaCuenta) o por id,
         // y si cuadran los demás filtros (los updates condicionales).
         const o = obraBase();
-        let obra = filtros.id === OBRA_SUYA && cuadra(o, filtros) ? o : null;
+        // El enlace corto busca por el token (sin id).
+        const porToken = !('id' in filtros) && 'portal_token' in filtros;
+        let obra = (filtros.id === OBRA_SUYA || porToken) && cuadra(o, filtros) ? o : null;
         if (obra && op.tipo === 'update') obra = { ...obra, ...op.payload };
         return { data: unico ? obra : (obra ? [obra] : []), error: null };
     }
@@ -171,7 +173,26 @@ const FICHEROS = {
     'fich-html-00001': { mimeType: 'text/html', name: 'malo.html', contenido: '<script>alert(1)</script>' },
     'fich-pdf-000001': { mimeType: 'application/pdf', name: 'CEE.pdf', contenido: '%PDF-1.4\n%prueba' },
     'fich-cex-000001': { mimeType: 'application/octet-stream', name: '2026EXT_1 - CEE.cex', contenido: "S'CE3Xv3.2 Residencial'\np0\n." },
+    'fich-cuar-00001': { mimeType: 'application/octet-stream', name: '2026EXT_1 - CEE 2026-10-26 17h30.cex.cuarentena', contenido: "S'CE3Xv3.2 Residencial'\np0\n." },
 };
+// «1. CEE» de una obra entregada (services/certapp/documentos.js): lo nuestro, el
+// firmado (posterior al PDF), OLD con una versión y la cuarentena con un .cex suyo.
+const CARPETA = 'application/vnd.google-apps.folder';
+const LISTADOS = {
+    'cee-raiz-00001': [
+        { id: 'pdf-actual-001', name: '2026EXT_1 - CEE_REVISAR.pdf', mimeType: 'application/pdf', modifiedTime: '2026-10-26T16:10:00Z', size: '444507', webViewLink: 'https://drive/pdf' },
+        { id: 'pdf-firmado-01', name: '2026EXT_1 - CEE_fdo.pdf', mimeType: 'application/pdf', modifiedTime: '2026-10-26T16:15:00Z', webViewLink: 'https://drive/fdo' },
+        { id: 'xml-actual-001', name: '2026EXT_1 - CEE_REVISAR.xml', mimeType: 'application/xml', modifiedTime: '2026-10-26T16:10:00Z' },
+        { id: 'cex-actual-001', name: '2026EXT_1 - CEE_REVISAR.cex', mimeType: 'application/octet-stream', modifiedTime: '2026-10-26T16:09:00Z' },
+        { id: 'carpeta-old-01', name: 'OLD', mimeType: CARPETA },
+        { id: 'carpeta-cuar-1', name: 'CEX DEL CERTIFICADOR (NO ABRIR)', mimeType: CARPETA },
+        { id: 'carpeta-cat-01', name: 'CATASTRO', mimeType: CARPETA },
+    ],
+    'carpeta-old-01': [{ id: 'pdf-viejo-0001', name: '2026EXT_1 - CEE_REVISAR_OLD.pdf', mimeType: 'application/pdf', modifiedTime: '2026-10-26T15:57:00Z' }],
+    'carpeta-cuar-1': [{ id: 'fich-cuar-00001', name: '2026EXT_1 - CEE 2026-10-26 17h30.cex.cuarentena', mimeType: 'application/octet-stream', modifiedTime: '2026-10-26T17:30:00Z' }],
+};
+driveCert.carpetaCeeSiExiste = async (obra) => (obra?.drive_folder_id ? 'cee-raiz-00001' : null);
+driveCert.listar = async (id) => LISTADOS[id] || [];
 driveCert.abrirFichero = async (id) => {
     const f = FICHEROS[id];
     if (!f) return null;
@@ -213,14 +234,16 @@ const srv = app.listen(0, async () => {
         ['GET', `/obras/${OBRA_SUYA}/barrido`], ['POST', `/obras/${OBRA_SUYA}/generar`], ['POST', `/obras/${OBRA_SUYA}/validar`],
         ['POST', `/obras/${OBRA_SUYA}/revisar-de-nuevo`], ['POST', '/feedback'], ['GET', '/feedback'], ['GET', '/movimientos'], ['POST', '/asistente'], ['GET', '/asistente/cupo'],
         ['POST', `/obras/${OBRA_SUYA}/visto-ia`], ['GET', '/municipios?prov=13'],
+        ['GET', `/obras/${OBRA_SUYA}/fachada-sugerida/catastro`], ['POST', `/obras/${OBRA_SUYA}/fachada-sugerida/streetview/usar`],
         ['GET', `/obras/${OBRA_SUYA}/cee/para-firmar`], ['POST', `/obras/${OBRA_SUYA}/cee/firmado`], ['POST', `/obras/${OBRA_SUYA}/cee/definitivo`],
+        ['GET', `/obras/${OBRA_SUYA}/documentos`],
     ];
     const DEL_ADMIN = [
         ['GET', '/resumen'], ['GET', '/beta'], ['GET', `/beta/${OBRA_SUYA}`], ['PATCH', `/beta/${OBRA_SUYA}`], ['POST', `/beta/${OBRA_SUYA}/invitar`],
         ['GET', '/cuentas'], ['POST', '/cuentas'], ['PATCH', `/cuentas/${CUENTA.id}`], ['GET', '/obras'], ['GET', `/obras/${OBRA_SUYA}`],
         ['POST', `/obras/${OBRA_SUYA}/pedir-ia`], ['POST', `/obras/${OBRA_SUYA}/entregar`], ['POST', `/obras/${OBRA_SUYA}/devolver-credito`],
         ['POST', `/obras/${OBRA_SUYA}/enlace-cliente/rotar`], ['GET', '/feedback'], ['PATCH', `/feedback/${OBRA_SUYA}`], ['PUT', `/feedback/${FB_SUYA}`],
-        ['POST', '/interno/calificada'],
+        ['POST', '/interno/calificada'], ['GET', `/obras/${OBRA_SUYA}/documentos`],
     ];
     for (const [m, r] of DEL_CERTIFICADOR) q('anónimo', m, `/api/certapp${r}`, 401, {});
     for (const [m, r] of DEL_ADMIN) q('anónimo', m, `/api/certapp-admin${r}`, 401, {});
@@ -247,6 +270,14 @@ const srv = app.listen(0, async () => {
     // «Lo que ha visto la IA» (25/10/2026): obra ajena 404; pedida, 409 (antes de mirar nada)
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/visto-ia`, 404, {});
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/visto-ia`, 409, {}, { obra: { estado: 'EN_PREPARACION' }, cuerpo: (j) => j.code === 'OBRA_CERRADA' });
+    // La fachada propuesta (26/10/2026): ajena 404; sin RC ni coordenadas, 404 SIN_FACHADA (sin salir a la red);
+    // fuente desconocida 400; entregada, 409 antes de pedir la foto
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_AJENA}/fachada-sugerida/catastro`, 404, null, { cuerpo: (j) => j.code === 'OBRA_NO_ENCONTRADA' });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/fachada-sugerida/catastro/usar`, 404, {});
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/fachada-sugerida/catastro`, 404, null, { cuerpo: (j) => j.code === 'SIN_FACHADA' });
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/fachada-sugerida/streetview`, 404, null, { cuerpo: (j) => j.code === 'SIN_FACHADA' });
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/fachada-sugerida/google`, 400, null, { cuerpo: (j) => j.code === 'FUENTE_INVALIDA' });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/fachada-sugerida/catastro/usar`, 409, {}, { obra: { estado: 'LISTO' }, cuerpo: (j) => j.code === 'OBRA_CERRADA' });
     q('tok-ext', 'GET', '/api/certapp/municipios?prov=99', 400, null, { cuerpo: (j) => j.code === 'PROVINCIA_INVALIDA' });
     q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/barrido`, 200, null, { cuerpo: (j) => j.listo === false && Array.isArray(j.bloqueantes) });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/generar`, 422, {}, { cuerpo: (j) => j.code === 'BARRIDO' && j.barrido?.bloqueantes?.length > 0 });
@@ -260,6 +291,22 @@ const srv = app.listen(0, async () => {
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/cee/firmado`, 409, {}, { cuerpo: (j) => j.code === 'ESTADO_NO_FIRMABLE' });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/cee/definitivo`, 409, {}, { cuerpo: (j) => j.code === 'ESTADO_NO_FIRMABLE' });
     q('tok-trab', 'POST', '/api/certapp-admin/interno/calificada', 403, { numero: '2026EXT_1' });
+    // Documentos (26/10/2026): ajena 404; sin entregar, vacío; entregada, lo actual, OLD
+    // y la cuarentena, con descargas firmadas y SIN Drive; el admin, con el Drive de cada uno.
+    const sinDrive = (j) => !JSON.stringify(j).includes('drive.google') && !JSON.stringify(j).includes('https://drive/');
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_AJENA}/documentos`, 404);
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/documentos`, 200, null, { cuerpo: (j) => j.hay === false && j.entregado === false });
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/documentos`, 200, null, {
+        obra: { estado: 'VALIDADO', drive_folder_id: 'carpeta-obra-1' },
+        cuerpo: (j) => j.entregado && j.certificado?.id === 'pdf-actual-001' && j.firmado?.id === 'pdf-firmado-01' && j.firmado.autor === 'certificador'
+            && j.xml?.id === 'xml-actual-001' && j.cex?.id === 'cex-actual-001' && j.certificado.autor === 'IA'
+            && j.anteriores.length === 1 && j.anteriores[0].id === 'pdf-viejo-0001' && !j.anteriores[0].actual
+            && j.cuarentena.length === 1 && j.cuarentena[0].nombre.endsWith('17h30.cex') && j.cuarentena[0].clase === 'cex'
+            && /^\/api\/public\/certapp\/fichero\//.test(j.certificado.url) && sinDrive(j),
+    });
+    q('tok-admin', 'GET', `/api/certapp-admin/obras/${OBRA_SUYA}/documentos`, 200, null, {
+        obra: { estado: 'LISTO', drive_folder_id: 'carpeta-obra-1' }, cuerpo: (j) => j.certificado?.drive === 'https://drive/pdf' && j.entregado === true,
+    });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/docs/NO_EXISTE`, 400, null, { multipart: true, cuerpo: (j) => j.code === 'SLOT_DESCONOCIDO' });
     for (const [m, r] of DEL_ADMIN) q('tok-ext', m, `/api/certapp-admin${r}`, 403, {});
     for (const t of ['tok-trab', 'tok-partner']) q(t, 'GET', '/api/certapp-admin/resumen', 403);
@@ -286,6 +333,10 @@ const srv = app.listen(0, async () => {
     q('anónimo', 'GET', urlFichero('fich-html-00001'), 200, null, { cabeceras: (h) => h.get('content-type') === 'application/octet-stream' && /^attachment;/.test(h.get('content-disposition') || '') && seguras(h) });
     q('anónimo', 'GET', urlFichero('fich-cex-000001'), 200, null, { cabeceras: (h) => h.get('content-type') === 'application/octet-stream' && /^attachment;/.test(h.get('content-disposition') || '') && seguras(h) });
     q('anónimo', 'GET', urlFichero('fich-pdf-000001'), 200, null, { cabeceras: (h) => h.get('content-type') === 'application/pdf' && /^inline;/.test(h.get('content-disposition') || '') && seguras(h) });
+    // Un .cex en cuarentena se baja como descarga y con su nombre `.cex`.
+    q('anónimo', 'GET', urlFichero('fich-cuar-00001'), 200, null, {
+        cabeceras: (h) => h.get('content-type') === 'application/octet-stream' && /^attachment;.*17h30\.cex"/.test(h.get('content-disposition') || '') && seguras(h),
+    });
     q('anónimo', 'GET', urlThumb('mini-jpg-000001'), 200, null, { cabeceras: (h) => h.get('content-type') === 'image/jpeg' && seguras(h) });
     q('anónimo', 'GET', urlThumb('mini-svg-000001'), 404);   // una «miniatura» que no es jpeg/png/webp no se sirve
     // #6 — la firma de la miniatura no vale para el fichero (ni al revés)
@@ -317,12 +368,15 @@ const srv = app.listen(0, async () => {
 
     // #6 — el enlace del propietario: el vigente se reutiliza; caducado o rotado, uno nuevo
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/enlace-cliente`, 200, {}, {
-        cuerpo: (j, ctx) => j.url.includes(TOKEN_PORTAL) && j.caduca_at && !opsDe(ctx, 'certapp_obras', 'update').length,
+        cuerpo: (j, ctx) => j.url.endsWith(`/s/${TOKEN_PORTAL}`) && j.caduca_at && !opsDe(ctx, 'certapp_obras', 'update').length,
     });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/enlace-cliente`, 200, {}, {
         obra: { portal_token_at: hace(40) }, cuerpo: (j) => j.url && !j.url.includes(TOKEN_PORTAL) && Date.parse(j.caduca_at) > Date.now() + 29 * 86400000,
     });
-    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/enlace-cliente/rotar`, 200, {}, { cuerpo: (j) => j.url && !j.url.includes(TOKEN_PORTAL) && j.caduca_at });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/enlace-cliente/rotar`, 200, {}, {
+        cuerpo: (j, ctx) => j.url && !j.url.includes(TOKEN_PORTAL) && j.caduca_at
+            && /^[0-9A-Za-z]{12}$/.test(opsDe(ctx, 'certapp_obras', 'update')[0]?.payload?.portal_token || ''),   // el token nuevo, corto
+    });
     q('tok-admin', 'POST', `/api/certapp-admin/obras/${OBRA_SUYA}/enlace-cliente/rotar`, 200, {}, { cuerpo: (j) => j.url && !j.url.includes(TOKEN_PORTAL) });
 
     // #8 — devolver el crédito: ligado a la obra, una sola vez
@@ -507,6 +561,11 @@ const srv = app.listen(0, async () => {
     q('anónimo', 'GET', `${PORTAL}?token=${TOKEN_PORTAL}`, 200, null, {
         cuerpo: (j) => j.obra?.numero_expediente === '2026EXT_1' && Array.isArray(j.apartados) && !('portal_token' in j.obra) && Date.parse(j.obra.caduca_at) > Date.now(),
     });
+    // El enlace CORTO (26/10/2026): el token → el id; con otro token o con caracteres raros, 404; caducado, 410
+    q('anónimo', 'GET', `/api/public/certapp/s/${TOKEN_PORTAL}`, 200, null, { cuerpo: (j) => j.id === OBRA_SUYA && Object.keys(j).length === 1 });
+    q('anónimo', 'GET', '/api/public/certapp/s/otroTokenQueNoEs123', 404, null, { cuerpo: (j) => j.code === 'ENLACE_INVALIDO' });
+    q('anónimo', 'GET', '/api/public/certapp/s/con-guiones-y-mas', 404, null, { cuerpo: (j, ctx) => j.code === 'ENLACE_INVALIDO' && !opsDe(ctx, 'certapp_obras').length });
+    q('anónimo', 'GET', `/api/public/certapp/s/${TOKEN_PORTAL}`, 410, null, { obra: { portal_token_at: hace(31) }, cuerpo: (j) => j.code === 'ENLACE_CADUCADO' });
     // #6 — caduca a los 30 días (y un token sin fecha no vale)
     q('anónimo', 'GET', `${PORTAL}?token=${TOKEN_PORTAL}`, 410, null, { obra: { portal_token_at: hace(31) }, cuerpo: (j) => j.code === 'ENLACE_CADUCADO' });
     q('anónimo', 'GET', `${PORTAL}?token=${TOKEN_PORTAL}`, 410, null, { obra: { portal_token_at: null }, cuerpo: (j) => j.code === 'ENLACE_CADUCADO' });

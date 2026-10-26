@@ -324,4 +324,4 @@ async function mirar(obra, cuenta, { dry = false } = {}) {
     }
 }
 
-module.exports = { mirar, convertir, elegirFotos, VISIBLES };
+module.exports = { mirar, convertir, elegirFotos, streetView, VISIBLES };

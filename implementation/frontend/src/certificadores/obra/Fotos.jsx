@@ -12,7 +12,10 @@
 //     genérico» (cuestionario.fotos_decision[equipo]); la foto que falta NO bloquea.
 //   · Apartado opcional (slot.opcional): chip «Opcional» y «Ahora no», que lo pliega
 //     (cuestionario.fotos_omitidas) hasta que se pulse «Subirla».
-import { useState } from 'react';
+//   · «Fachada principal» vacía: la foto del Catastro y la de Street View
+//     (GET /obras/:id/fachada-sugerida/:fuente) con «Usar esta foto»
+//     (POST …/:fuente/usar), o la suya con los botones de siempre.
+import { useEffect, useState } from 'react';
 import axios from 'axios';
 import {
     ANTIGUEDAD_EQUIPO, DECISION_FOTO, EQUIPOS_CON_ANTIGUEDAD, NOMBRE_EQUIPO, SLOTS, estadoEquipos, fotoOmitida, omitirFoto, placaDe, siguienteDeLaVisita, slotsAplicables,
@@ -42,6 +45,68 @@ function Miniatura({ f, onQuitar, puedeQuitar }) {
                     <IcoPapelera size={14} />
                 </button>
             )}
+        </div>
+    );
+}
+
+const FUENTES_FACHADA = [
+    { id: 'catastro', label: 'Del Catastro' },
+    { id: 'streetview', label: 'De Street View' },
+];
+
+/**
+ * «Fachada principal» vacía: las fotos que proponemos (Catastro y Street View).
+ * Se guarda la que elija («Usar esta foto»); si ninguna es la casa, hace o sube
+ * la suya con los botones de siempre. Las imágenes van con la sesión (blob).
+ */
+function FachadaSugerida({ obraId, usar, ocupado }) {
+    const toast = useToast();
+    const [fotos, setFotos] = useState(null);   // null = cargando · [{ id, label, url }]
+    const [usando, setUsando] = useState(null);
+
+    useEffect(() => {
+        let vivo = true;
+        const urls = [];
+        Promise.all(FUENTES_FACHADA.map(async (f) => {
+            try {
+                const { data } = await axios.get(`${API}/obras/${obraId}/fachada-sugerida/${f.id}`, { responseType: 'blob' });
+                const url = URL.createObjectURL(data);
+                urls.push(url);
+                return { ...f, url };
+            } catch { return null; }
+        })).then(r => { if (vivo) setFotos(r.filter(Boolean)); });
+        return () => { vivo = false; urls.forEach(u => URL.revokeObjectURL(u)); };
+    }, [obraId]);
+
+    if (fotos === null) {
+        return <p className="ca-txt ca-txt-peq" style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}><Spinner size={14} /> Buscando la fachada en el Catastro y en Street View…</p>;
+    }
+    if (!fotos.length) return null;
+
+    const alUsar = async (f) => {
+        setUsando(f.id);
+        const r = await usar(f.id);
+        setUsando(null);
+        toast(r.ok ? 'Foto de la fachada guardada.' : r.error);
+    };
+
+    return (
+        <div className="ca-fachada-sug">
+            <p className="ca-txt ca-txt-peq" style={{ margin: '10px 0 8px' }}>
+                {fotos.length > 1 ? 'Hemos encontrado estas fotos de la fachada.' : 'Hemos encontrado esta foto de la fachada.'} Si es la casa,
+                úsala; si no, haz una o súbela de la galería.
+            </p>
+            <div className="ca-fachada-sug-grid">
+                {fotos.map(f => (
+                    <figure key={f.id} className="ca-fachada-sug-item">
+                        <img src={f.url} alt={`Fachada ${f.label.toLowerCase()}`} />
+                        <figcaption>{f.label}</figcaption>
+                        <button type="button" className="ca-btn ca-btn-pri ca-btn-peq" disabled={ocupado || !!usando} onClick={() => alUsar(f)}>
+                            {usando === f.id ? <Spinner size={16} /> : <IcoCheck size={16} />} Usar esta foto
+                        </button>
+                    </figure>
+                ))}
+            </div>
         </div>
     );
 }
@@ -119,6 +184,9 @@ export function SlotFoto({ slot, ctx, visita, guia = false }) {
                         <Miniatura key={f.driveId || f.id || f.nombre} f={f} puedeQuitar={editable} onQuitar={() => alQuitar(f)} />
                     ))}
                 </div>
+            )}
+            {slot.id === 'FOTO_FACHADA_PRINCIPAL' && n === 0 && editable && ctx.usarFachada && ctx.obra?.id && (
+                <FachadaSugerida obraId={ctx.obra.id} usar={ctx.usarFachada} ocupado={ocupado} />
             )}
             {ocupado && <div className="ca-subiendo" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${pct}%` }} /></div>}
             {error && <p className="ca-error" role="alert">{error}</p>}

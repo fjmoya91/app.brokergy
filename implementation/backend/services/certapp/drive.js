@@ -248,6 +248,22 @@ async function abrirFichero(driveId) {
 }
 
 /**
+ * Lo que hay DIRECTAMENTE en una carpeta (sin bajar a las subcarpetas), con el
+ * tamaño y la fecha: lo que pinta «Documentos». Las carpetas vienen con su
+ * mimeType de carpeta, para encontrar OLD y la cuarentena.
+ */
+async function listar(carpetaId) {
+    const cli = clienteLectura();
+    if (!cli) return (await driveService.listFiles(carpetaId)) || [];
+    const { data } = await cli.drive.files.list({
+        q: `'${carpetaId}' in parents and trashed = false`,
+        fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink)',
+        pageSize: 200,
+    });
+    return data?.files || [];
+}
+
+/**
  * Crea UNA vez la carpeta raíz de la app en «Mi unidad» (para probar en local
  * o al montar producción). Devuelve su id: va a CERTAPP_DRIVE_ROOT_ID.
  */
@@ -261,6 +277,6 @@ async function crearRaiz(nombre = NOMBRE_RAIZ) {
 module.exports = {
     raiz, NOMBRE_RAIZ, nombreCarpetaCuenta, nombreCarpetaObra,
     asegurarCarpetaCuenta, asegurarCarpetaObra, carpetaDocs, carpetaCeeSiExiste,
-    compartirConCertificador, miniatura, tamanoMini, abrirFichero, crearRaiz,
+    compartirConCertificador, miniatura, tamanoMini, abrirFichero, listar, crearRaiz,
     SUB_CEE: SUB_CEE_UNICO, SUB_DOCS, TAMANOS_MINI,
 };

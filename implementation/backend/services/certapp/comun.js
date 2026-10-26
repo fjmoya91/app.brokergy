@@ -172,6 +172,16 @@ async function evento(obraId, cuentaId, tipo, textoEvento, por, datos = null, { 
 
 const nuevoToken = () => crypto.randomBytes(16).toString('hex');
 
+// Token del enlace del PROPIETARIO: 12 caracteres [0-9A-Za-z] (~71 bits) para
+// que el enlace que va por WhatsApp sea corto (`/s/<token>`, Fran 26/10/2026).
+// Sin sesgo: se descartan los bytes ≥ 248 (248 = 4 × 62).
+const ALFABETO_CORTO = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+function tokenCorto(n = 12) {
+    let s = '';
+    while (s.length < n) for (const b of crypto.randomBytes(n)) if (b < 248 && s.length < n) s += ALFABETO_CORTO[b % 62];
+    return s;
+}
+
 // ── Límites en memoria ──────────────────────────────────────────────────────
 // Con un solo proceso de Node basta; si se reinicia, se olvida, y no pasa nada.
 // Todos se apuntan aquí y se LIMPIAN cada 10 min (antes solo se podaban al
@@ -248,5 +258,5 @@ module.exports = {
     encendido, numEnv, certappUrl, nombreApp, altaDirectaActiva,
     esUuid, esEmail, texto, textoLargo, numero, escapeHtml, ipDe, esIpPrivada, inicioDiaMadrid,
     tablaPendiente, ErrorCertapp, fallo, errorBd, responderError,
-    cuentaPublica, evento, nuevoToken, nombreCompleto, limitador, unaVez, limpiarLimitadores,
+    cuentaPublica, evento, nuevoToken, tokenCorto, nombreCompleto, limitador, unaVez, limpiarLimitadores,
 };

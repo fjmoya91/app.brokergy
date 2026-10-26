@@ -168,6 +168,42 @@ const enlaces = (o) => (['LISTO', 'VALIDADO'].includes(o.estado) ? {
 const ceeDe = (o) => (['LISTO', 'VALIDADO'].includes(o.estado) ? {
     calificacion: { consumo: 'E', emisiones: 'D' }, firma: o.firmado || null,
 } : null);
+// «Documentos» (services/certapp/documentos.js): lo actual, una versión anterior y
+// los .cex subidos. Los PDF se sirven por /api/certapp/demo-fichero/:id (bytes).
+const CLASE_DEMO = { pdf: 'certificado', 'pdf-old': 'certificado', fdo: 'firmado', xml: 'xml', cex: 'cex', croquis: 'croquis' };
+const docDemo = (o, id, nombre, fecha, autor, actual = true) => ({
+    id: `${o.id}-${id}`, clase: CLASE_DEMO[id] || 'cex', nombre: `${o.numero_expediente} - ${nombre}`, fecha, bytes: 180000, autor, actual,
+    pdf: /\.pdf$/i.test(nombre), url: `/api/certapp/demo-fichero/${o.id}-${id}`,
+});
+const documentosDemo = (o, admin = false) => {
+    if (!['LISTO', 'VALIDADO'].includes(o.estado)) return { hay: false, entregado: false };
+    const t0 = o.listo_at || ahora();
+    const conDrive = (d) => (d && admin ? { ...d, drive: 'https://drive.google.com/' } : d);
+    const r = {
+        hay: true, entregado: true,
+        certificado: docDemo(o, 'pdf', 'CEE_REVISAR.pdf', t0, 'IA'),
+        firmado: o.firmado ? docDemo(o, 'fdo', 'CEE_fdo.pdf', o.firmado.at, 'certificador') : null,
+        xml: docDemo(o, 'xml', 'CEE_REVISAR.xml', t0, 'IA'),
+        cex: docDemo(o, 'cex', 'CEE_REVISAR.cex', t0, 'IA'),
+        croquis: docDemo(o, 'croquis', 'CEE INICIAL_CROQUIS.pdf', t0, 'IA'),
+        anteriores: [docDemo(o, 'pdf-old', 'CEE_REVISAR_OLD.pdf', new Date(Date.parse(t0) - 3600e3).toISOString(), 'IA', false)],
+        cuarentena: (o.cexSubidos || []).map((c, i) => ({ ...docDemo(o, `cuar${i}`, c.nombre, c.at, 'certificador', false), clase: 'cex' })),
+        firma: o.firmado ? { at: o.firmado.at, firmante: o.firmado.firmante, via: 'autofirma', coincide: true } : null,
+        firma_anterior: false,
+        xml_resumen: { consumo: 'E', emisiones: 'D', consumo_kwh_m2: 187.4, demanda_kwh_m2: 121.2, superficie: 128, zona: 'D3' },
+    };
+    for (const k of ['certificado', 'firmado', 'xml', 'cex', 'croquis']) r[k] = conDrive(r[k]);
+    r.anteriores = r.anteriores.map(conDrive);
+    r.cuarentena = r.cuarentena.map(conDrive);
+    return r;
+};
+const bytesDe = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
+// La fachada propuesta: un dibujo de una casa (otro cielo según la fuente).
+const fachadaDemo = (fuente) => new Blob([`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480">
+<rect width="640" height="480" fill="${fuente === 'catastro' ? '#d9d4c7' : '#bcd6ee'}"/><rect y="360" width="640" height="120" fill="#9a9a92"/>
+<rect x="140" y="170" width="360" height="200" fill="#efe6d2" stroke="#7a6f5c" stroke-width="4"/><path d="M120 175 L320 70 L520 175 Z" fill="#a8452f"/>
+<rect x="180" y="215" width="70" height="70" fill="#5b7186"/><rect x="390" y="215" width="70" height="70" fill="#5b7186"/><rect x="290" y="260" width="60" height="110" fill="#6b4a2f"/>
+<text x="20" y="40" font-family="sans-serif" font-size="22" fill="#333">${fuente === 'catastro' ? 'Catastro (demo)' : 'Street View (demo)'}</text></svg>`], { type: 'image/svg+xml' });
 // Un PDF de una página con el rótulo de CE3X, para ver el modal de firma colocado.
 const pdfDemo = () => {
     const txt = 'BT /F1 16 Tf 60 770 Td (CERTIFICADO DE EFICIENCIA ENERGETICA - DEMO) Tj ET BT /F1 10 Tf 330 170 Td (Firma del tecnico certificador:) Tj ET';
@@ -285,11 +321,20 @@ const RUTAS = [
         evento(o.id, 'FIRMA', 'El certificador ha firmado el certificado con AutoFirma');
         return { ok: true, estado: o.estado, firma: o.firmado, avisos: [] };
     }],
+    ['GET', /^\/api\/certapp\/obras\/([^/]+)\/documentos$/, (b, [, id]) => documentosDemo(obraDe(id))],
+    ['GET', /^\/api\/certapp-admin\/obras\/([^/]+)\/documentos$/, (b, [, id]) => documentosDemo(obraDe(id), true)],
+    ['GET', /^\/api\/certapp\/demo-fichero\/([^/]+)$/, () => bytesDe(pdfDemo())],
     ['POST', /^\/api\/certapp\/obras\/([^/]+)\/cee\/definitivo$/, (b, [, id]) => {
         const o = obraDe(id);
         const f = b instanceof FormData ? b.get('fichero') : null;
         const nombre = String(f?.name || '').toLowerCase();
-        if (nombre.endsWith('.cex')) fallo(415, 'El .cex no se sube: guárdalo tú. Para el registro cuentan el XML y el PDF.', 'CEX_NO');
+        if (nombre.endsWith('.cex')) {
+            const sello = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date());
+            const nombreCex = `CEE ${sello.replace(':', 'h')}.cex`;
+            o.cexSubidos = [{ nombre: nombreCex, at: ahora() }, ...(o.cexSubidos || [])];
+            evento(o.id, 'DEFINITIVO', 'El certificador ha subido su .cex (guardado aparte: no se abre ni sustituye al nuestro)');
+            return { ok: true, tipo: 'cex', fichero: `${o.numero_expediente} - ${nombreCex}`, estado: o.estado, __espera: 900 };
+        }
         if (!/\.(xml|pdf)$/.test(nombre)) fallo(415, 'Sube el XML del certificado (de CE3X) o el PDF.', 'TIPO_NO_VALE');
         const tipo = nombre.endsWith('.xml') ? 'xml' : 'pdf';
         evento(o.id, 'DEFINITIVO', `El certificador ha subido el ${tipo.toUpperCase()} definitivo`);
@@ -355,6 +400,18 @@ const RUTAS = [
         const nuevos = files.map(f => ({ driveId: uuid(), nombre: f.name, mime: f.type || 'image/jpeg', subido_at: ahora(), por: 'certificador' }));
         up[slot] = [...(up[slot] || []), ...nuevos];
         return { ok: true, subidos: nuevos, rechazados: [], errores: [], slots: vista(o).slots, __espera: 900 };
+    }],
+    // La fachada propuesta (services/certapp/fachada.js): un dibujo por fuente.
+    ['GET', /^\/api\/certapp\/obras\/([^/]+)\/fachada-sugerida\/(catastro|streetview)$/, (b, [, id, fuente]) => {
+        if (!obraDe(id).ref_catastral) fallo(404, 'No hay foto de la fachada en esta fuente.', 'SIN_FACHADA');
+        return fachadaDemo(fuente);
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/fachada-sugerida\/(catastro|streetview)\/usar$/, (b, [, id, fuente]) => {
+        const o = obraDe(id);
+        const up = (o.documentacion.reforma_uploads ||= {});
+        const nuevo = { driveId: uuid(), nombre: `FACHADA_${fuente.toUpperCase()}_${o.numero_expediente}.jpg`, mime: 'image/jpeg', subido_at: ahora(), por: 'certificador' };
+        up.FOTO_FACHADA_PRINCIPAL = [...(up.FOTO_FACHADA_PRINCIPAL || []), nuevo];
+        return { ok: true, subidos: [nuevo], rechazados: [], errores: [], slots: vista(o).slots, __espera: 700 };
     }],
     ['DELETE', /^\/api\/certapp\/obras\/([^/]+)\/docs\/([^/]+)\/([^/]+)$/, (b, [, id, slot, driveId]) => {
         const o = obraDe(id);
@@ -569,7 +626,7 @@ export function instalarDemo() {
             const response = { status: e.status, statusText: 'Demo', headers: {}, config, data: e.data };
             throw new axios.AxiosError(e.message, 'ERR_BAD_REQUEST', config, null, response);
         }
-        return { data: JSON.parse(JSON.stringify(data ?? null)), status, statusText: 'OK', headers: {}, config, request: null };
+        return { data: data instanceof Blob || data instanceof ArrayBuffer ? data : JSON.parse(JSON.stringify(data ?? null)), status, statusText: 'OK', headers: {}, config, request: null };
     };
     console.info('[certapp] DEMO activa: datos simulados, nada sale a ningún servidor. `?demo=0` para salir.');
 }

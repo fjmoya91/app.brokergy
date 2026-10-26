@@ -221,6 +221,22 @@ export function useObra(id) {
         }
     }, [id, recargarDocs]);
 
+    // La fachada propuesta (Catastro o Street View) → «Fachada principal».
+    const usarFachada = useCallback(async (fuente) => {
+        const slotId = 'FOTO_FACHADA_PRINCIPAL';
+        setSubiendo(s => ({ ...s, [slotId]: 50 }));
+        try {
+            const { data } = await axios.post(`${API}/obras/${id}/fachada-sugerida/${fuente}/usar`);
+            if (data?.slots && vivo.current) setSlots(normalizarSlots(data));
+            else await recargarDocs();
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: mensajeError(err, 'No se ha podido guardar la foto.') };
+        } finally {
+            if (vivo.current) setSubiendo(s => { const n = { ...s }; delete n[slotId]; return n; });
+        }
+    }, [id, recargarDocs]);
+
     const quitar = useCallback(async (slotId, driveId) => {
         try {
             const { data } = await axios.delete(`${API}/obras/${id}/docs/${slotId}/${encodeURIComponent(driveId)}`);
@@ -235,7 +251,7 @@ export function useObra(id) {
     return {
         obra, setObra, eventos, enlaces, cee, barridoServidor, setBarridoServidor,
         form, setCampo, setC, setCuestionario, setTitular, setDecision,
-        slots, docsError, recargarDocs, subir, quitar, subiendo,
+        slots, docsError, recargarDocs, subir, quitar, subiendo, usarFachada,
         error, cargando, cargar, guardar, guardado, editable,
     };
 }

@@ -51,6 +51,8 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
         if (paso === 'perfil') navegar('/perfil?vuelta=' + encodeURIComponent(`/obra/${obra.id}`));
         else onIr(faseDePaso(paso));
     };
+    // Lo que se arregla en esta misma pantalla (o lo saca la IA) no lleva enlace.
+    const lleva = (paso) => paso === 'perfil' || faseDePaso(paso) !== 'generar';
 
     const pedir = async () => {
         setError(null); setGuardando(true);
@@ -106,9 +108,11 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
                                 <span className="ca-ico-tile"><IcoAlerta size={18} /></span>
                                 <div>
                                     <span>{x.texto}</span>
-                                    <button type="button" className="ca-link" onClick={() => ir(x.paso)}>
-                                        Ir a {FASE_POR_ID[faseDePaso(x.paso)]?.titulo.toLowerCase() || 'arreglarlo'} <IcoChevron size={14} />
-                                    </button>
+                                    {lleva(x.paso) && (
+                                        <button type="button" className="ca-link" onClick={() => ir(x.paso)}>
+                                            Ir a {FASE_POR_ID[faseDePaso(x.paso)]?.titulo.toLowerCase() || 'arreglarlo'} <IcoChevron size={14} />
+                                        </button>
+                                    )}
                                 </div>
                             </li>
                         ))}
@@ -156,9 +160,11 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
                                 <span className="ca-ico-tile"><IcoAlerta size={18} /></span>
                                 <div>
                                     <span>{x.texto}</span>
-                                    <button type="button" className="ca-link ca-link-gris" onClick={() => ir(x.paso)}>
-                                        {x.paso === 'perfil' ? 'Mi perfil' : FASE_POR_ID[faseDePaso(x.paso)]?.titulo || 'Ir'} <IcoChevron size={14} />
-                                    </button>
+                                    {lleva(x.paso) && (
+                                        <button type="button" className="ca-link ca-link-gris" onClick={() => ir(x.paso)}>
+                                            {x.paso === 'perfil' ? 'Mi perfil' : FASE_POR_ID[faseDePaso(x.paso)]?.titulo || 'Ir'} <IcoChevron size={14} />
+                                        </button>
+                                    )}
                                 </div>
                             </li>
                         ))}

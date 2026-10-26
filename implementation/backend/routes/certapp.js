@@ -27,6 +27,7 @@ const { certappOnly, certappOAdmin, obraDeLaCuenta, olvidarCuenta } = require('.
 const cuentas = require('../services/certapp/cuentas');
 const obras = require('../services/certapp/obras');
 const docs = require('../services/certapp/docs');
+const fachada = require('../services/certapp/fachada');
 const ia = require('../services/certapp/ia');
 const entrega = require('../services/certapp/entrega');
 const asistente = require('../services/certapp/asistente');
@@ -35,6 +36,7 @@ const avisos = require('../services/certapp/avisos');
 const incidencias = require('../services/certapp/incidencias');
 const movimientos = require('../services/certapp/movimientos');
 const firma = require('../services/certapp/firma');
+const documentos = require('../services/certapp/documentos');
 const { datosDelCatastro } = require('../services/certapp/catastro');
 const { cuestionario: logica } = require('../services/certapp/logica');
 const {
@@ -174,6 +176,32 @@ router.delete('/obras/:id/docs/:slot/:driveId', certappOnly, async (req, res) =>
         const fresca = await obras.cargar(obra.id);
         return res.json({ ok: true, ...(await docs.vista(fresca || obra)) });
     } catch (e) { return responderError(res, e, 'DELETE /obras/:id/docs'); }
+});
+
+// La fachada que se PROPONE (Catastro o Street View): la imagen, y guardarla en
+// «Fachada principal» solo si el certificador la elige (services/certapp/fachada.js).
+router.get('/obras/:id/fachada-sugerida/:fuente', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        const foto = await fachada.sugerida(obra, req.params.fuente);
+        if (!foto) throw fallo(404, 'No hay foto de la fachada en esta fuente.', 'SIN_FACHADA');
+        res.set({ 'Content-Type': foto.mime, 'Cache-Control': 'private, max-age=1800', 'X-Content-Type-Options': 'nosniff' });
+        if (foto.fecha) res.set('X-Fecha-Foto', String(foto.fecha).slice(0, 20));
+        return res.send(foto.buffer);
+    } catch (e) { return responderError(res, e, 'GET /obras/:id/fachada-sugerida'); }
+});
+
+router.post('/obras/:id/fachada-sugerida/:fuente/usar', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        if (['LISTO', 'VALIDADO', 'ARCHIVADA'].includes(obra.estado)) throw fallo(409, 'El certificado ya está entregado: las fotos ya no se cambian.', 'OBRA_CERRADA');
+        const foto = await fachada.sugerida(obra, req.params.fuente);
+        if (!foto) throw fallo(404, 'No hay foto de la fachada en esta fuente.', 'SIN_FACHADA');
+        const slot = 'FOTO_FACHADA_PRINCIPAL';
+        const r = await docs.subir(obra, req.certapp.cuenta, slot, [fachada.comoFichero(foto, req.params.fuente, obra)], { por: 'certificador' });
+        const vista = await docs.vista((await obras.cargar(obra.id)) || obra);
+        return res.json({ ok: true, subidos: r.subidos, rechazados: r.rechazados, errores: r.errores, slots: vista.slots });
+    } catch (e) { return responderError(res, e, 'POST /obras/:id/fachada-sugerida/usar'); }
 });
 
 /** El enlace del propietario: el vigente, o uno nuevo si no hay o ha caducado. */
@@ -345,11 +373,22 @@ router.post('/obras/:id/revisar-de-nuevo', certappOnly, async (req, res) => {
     } catch (e) { return responderError(res, e, 'POST /obras/:id/revisar-de-nuevo'); }
 });
 
-// ── Firmar el CEE y subir lo definitivo (services/certapp/firma.js) ─────────
-// Con el certificado entregado (LISTO / VALIDADO). Firma con AutoFirma en SU
-// ordenador: aquí se da el PDF y se recibe el firmado (422 si la firma no cubre
-// el documento). Lo definitivo hecho en su CE3X: el XML (se carga en la obra) o
-// el PDF; el .cex no.
+// ── Documentos, firmar el CEE y subir lo definitivo ─────────────────────────
+// «Documentos» (services/certapp/documentos.js): lo actual de «1. CEE», las
+// versiones anteriores y sus .cex en cuarentena, con descargas firmadas y sin
+// enlaces de Drive. Con el certificado entregado (LISTO / VALIDADO;
+// services/certapp/firma.js): firma con AutoFirma en SU ordenador (aquí se da el
+// PDF y se recibe el firmado; 422 si la firma no cubre el documento) y sube lo
+// definitivo de su CE3X: el XML (se carga en la obra), el PDF o su .cex (a la
+// cuarentena: no se abre nunca).
+router.get('/obras/:id/documentos', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        if (!['LISTO', 'VALIDADO'].includes(obra.estado)) return res.json({ hay: false, entregado: false });
+        return res.json({ ...(await documentos.listar(obra)), entregado: true });
+    } catch (e) { return responderError(res, e, 'GET /obras/:id/documentos'); }
+});
+
 const subidaUna = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
 function recibirUno(req, res, next) {
     subidaUna.single('fichero')(req, res, (err) => {

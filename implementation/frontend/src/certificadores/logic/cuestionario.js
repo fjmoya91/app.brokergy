@@ -367,7 +367,7 @@ export const ORIGENES = {
 
 // Las fases de la ficha, en orden. La pantalla las pinta (obra/fasesFicha.js); aquí
 // solo los ids, para sanear lo que llega y para que el servidor sepa qué se vio.
-export const FASE_IDS = ['inmueble', 'titular', 'proposito', 'fotos', 'visto_ia', 'generar'];
+export const FASE_IDS = ['inmueble', 'titular', 'proposito', 'fotos', 'generar'];   // sin 'visto_ia' desde el 26/10/2026
 
 // ── Ayudas ──────────────────────────────────────────────────────────────────
 const en = (lista, v) => lista.some(o => o.value === v);

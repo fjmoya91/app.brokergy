@@ -1,6 +1,9 @@
 // ─── SubirCliente — /subir/:id?token= : el PROPIETARIO sube las fotos ───────
 // Lo abre el cliente del certificador desde el enlace que este le mandó por SU
 // WhatsApp. Sin cuenta: el `portal_token` de la obra es la llave.
+// El enlace que se manda es el CORTO, /s/<token> (`codigo`): primero
+//   GET  /api/public/certapp/s/:codigo               → { id }
+// y se sigue en /subir/:id?token= (replace), con los mismos errores.
 //   GET  /api/public/certapp/subir/:id?token=        → { obra, apartados }
 //   POST /api/public/certapp/subir/:id/:slot?token=  (multipart `files`)
 //        → { ok, subidos, rechazados, errores, obra, apartados }
@@ -11,7 +14,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { API_PUB, errorDe, mensajeError } from '../api';
-import { Enlace } from '../router';
+import { Enlace, navegar } from '../router';
 import { Aviso, CabeceraPublica, ErrorRed, Esqueleto, Papel, useToast } from '../ui/piezas';
 import { CheckDibujado, IcoCamara, IcoCheck, IcoDoc, IcoImagen, IcoVideo, Spinner } from '../ui/Iconos';
 import { aceptaDe, reducirTodas } from '../obra/comun';
@@ -75,7 +78,7 @@ function Apartado({ a, onSubir, pct, guia, cerrada }) {
 
 const esCaducado = (err) => err?.response?.status === 410 || errorDe(err).code === 'ENLACE_CADUCADO';
 
-export default function SubirCliente({ id, token }) {
+export default function SubirCliente({ id, token, codigo = null }) {
     const toast = useToast();
     const [datos, setDatos] = useState(null);
     const [error, setError] = useState(null);
@@ -85,14 +88,21 @@ export default function SubirCliente({ id, token }) {
 
     const cargar = useCallback(async () => {
         setCargando(true); setError(null);
+        let sigue = false;
         try {
+            if (codigo) {
+                const { data } = await axios.get(`${API_PUB}/s/${encodeURIComponent(codigo)}`);
+                sigue = true;
+                navegar(`/subir/${encodeURIComponent(data.id)}?token=${encodeURIComponent(codigo)}`, { replace: true });
+                return;
+            }
             const { data } = await axios.get(`${API_PUB}/subir/${encodeURIComponent(id)}`, { params: { token } });
             setDatos(data);
         } catch (err) {
             setError(err);
             if (esCaducado(err)) setCaducado(true);
-        } finally { setCargando(false); }
-    }, [id, token]);
+        } finally { if (!sigue) setCargando(false); }
+    }, [id, token, codigo]);
     useEffect(() => { cargar(); }, [cargar]);
 
     const subir = async (a, fileList) => {

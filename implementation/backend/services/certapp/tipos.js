@@ -110,6 +110,9 @@ function disposicion(tipoDisp, nombre) {
     return `${tipoDisp}; filename="${n.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(n)}`;
 }
 
+/** El nombre de descarga: un .cex en cuarentena (certapp/documentos.js) vuelve a ser `.cex`. */
+const nombreDescarga = (nombre) => String(nombre || '').replace(/\.cex\.cuarentena$/i, '.cex');
+
 /** Las cabeceras que llevan SIEMPRE /fichero y /thumb. */
 function cabecerasSeguras(res) {
     res.set('X-Content-Type-Options', 'nosniff');
@@ -133,6 +136,6 @@ function cabecerasFichero(res, { mime, nombre }) {
 }
 
 module.exports = {
-    detectar, motivoTipo, esXmlDeCee, cabecerasSeguras, cabecerasFichero, disposicion,
+    detectar, motivoTipo, esXmlDeCee, cabecerasSeguras, cabecerasFichero, disposicion, nombreDescarga,
     MIME_SERVIBLE, MIME_EN_LINEA, MIME_MINIATURA, TIPOS,
 };

@@ -12,6 +12,7 @@
 //                    el token_hash de un enlace mágico de Supabase
 //   · /subir         el `portal_token` de la obra (enlace del propietario), que CADUCA
 //                    (CERTAPP_PORTAL_DIAS) y se puede rotar
+//   · /s/:codigo     el enlace CORTO del propietario: el token → el id de la obra (límite por IP)
 //   · /thumb         firma HMAC de MINIATURA sobre obra + fichero, 12 h (no vale para /fichero)
 //   · /fichero       firma HMAC de FICHERO, 12 h
 // /thumb y /fichero sirven con Content-Type de una lista, nosniff y CSP sandbox
@@ -47,6 +48,7 @@ const limiteRecuperarEmail = limitador(3, 60 * 60 * 1000);
 const limiteEnlaceIp = limitador(8, 60 * 60 * 1000);
 const limiteEnlaceEmail = limitador(3, 60 * 60 * 1000);
 const limiteSubidaCliente = limitador(60, 10 * 60 * 1000);
+const limiteCorto = limitador(30, 10 * 60 * 1000);         // abrir enlaces cortos
 
 // ── Lista de espera de la beta ──────────────────────────────────────────────
 router.get('/beta/token', (req, res) => {
@@ -174,6 +176,23 @@ async function obraDelEnlace(req) {
 
 const caducaDe = (obra) => obras.portalCaducaAt(obra)?.toISOString() || null;
 
+// El enlace CORTO (/s/<token>): el token ES el secreto, así que se busca la obra
+// por él (con límite por IP para no probar a lo bruto) y se devuelve solo su id;
+// la página sigue en /subir/:id?token=, que vuelve a comprobarlo todo.
+router.get('/s/:codigo', async (req, res) => {
+    try {
+        if (!limiteCorto(ipDe(req))) return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos.', code: 'DEMASIADOS_INTENTOS' });
+        const codigo = String(req.params.codigo || '');
+        if (!/^[0-9A-Za-z]{10,64}$/.test(codigo)) throw fallo(404, 'Este enlace no es válido.', 'ENLACE_INVALIDO');
+        const { data, error } = await supabase.from('certapp_obras').select('id, portal_token, portal_token_at').eq('portal_token', codigo).limit(1);
+        if (error) throw errorBd(error, 'enlace corto');
+        const obra = data?.[0];
+        if (!obra || !tokenIgual(codigo, obra.portal_token)) throw fallo(404, 'Este enlace no es válido o ha caducado.', 'ENLACE_INVALIDO');
+        if (!obras.portalVigente(obra)) throw fallo(410, 'Este enlace ha caducado. Pide uno nuevo a quien te lo mandó.', 'ENLACE_CADUCADO');
+        return res.json({ id: obra.id });
+    } catch (e) { return responderError(res, e, 'GET /s'); }
+});
+
 router.get('/subir/:id', async (req, res) => {
     try {
         const obra = await obraDelEnlace(req);
@@ -240,7 +259,8 @@ router.get('/fichero/:id/:driveId', async (req, res) => {
         if (!f) return res.status(404).json({ error: 'No encuentro ese archivo.', code: 'FICHERO_NO_ENCONTRADO' });
         // Content-Type de la LISTA (si no, octet-stream), en línea solo imagen y
         // PDF, y siempre nosniff + CSP sandbox.
-        tipos.cabecerasFichero(res, { mime: f.meta.mimeType, nombre: f.meta.name || 'archivo' });
+        // Un .cex en cuarentena se baja con su nombre `.cex` (certapp/documentos.js).
+        tipos.cabecerasFichero(res, { mime: f.meta.mimeType, nombre: tipos.nombreDescarga(f.meta.name) || 'archivo' });
         if (f.meta.size) res.set('Content-Length', String(f.meta.size));
         res.set('Cache-Control', 'private, max-age=600');
         f.stream.on('error', (e) => { console.warn('[certapp fichero] stream:', e.message); res.destroy(e); });

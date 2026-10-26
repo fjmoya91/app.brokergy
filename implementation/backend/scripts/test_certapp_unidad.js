@@ -72,6 +72,49 @@ function ok(cond, texto) {
     ], '2026EXT_7');
     ok(e3.pdf?.id === 'b' && e3.firmado === null, 'entrega: un firmado ANTERIOR al PDF actual no cuenta (se regeneró después)');
 
+    // ── Documentos de la obra y el .cex en cuarentena (26/10/2026) ─────────
+    const documentos = require(path.join(B, 'services/certapp/documentos'));
+    const claseDe = (name) => documentos.claseDe({ name });
+    ok(claseDe('2026EXT_7 - CEE_REVISAR.pdf') === 'certificado' && claseDe('2026EXT_7 - CEE_fdo.pdf') === 'firmado'
+        && claseDe('2026EXT_7 - CEE_fdo_OLD1.pdf') === 'firmado' && claseDe('2026EXT_7 - CEE INICIAL_CROQUIS.pdf') === 'croquis'
+        && claseDe('2026EXT_7 - CEE.xml') === 'xml' && claseDe('x.cex.cuarentena') === 'cex' && claseDe('CATASTRO 123.pdf') === null && claseDe('nota.txt') === null,
+    'documentos: la clase sale del nombre (el PDF del Catastro y lo demás no se enseñan)');
+    ok(documentos.autorDe({ name: '2026EXT_7 - CEE_REVISAR_OLD2.pdf' }) === 'IA' && documentos.autorDe({ name: '2026EXT_7 - CEE.xml' }) === 'certificador'
+        && documentos.autorDe({ name: '2026EXT_7 - CEE_fdo.pdf' }) === 'certificador' && documentos.autorDe({ name: 'a.cex.cuarentena' }) === 'certificador',
+    'documentos: quién lo dejó, también en las versiones _OLD');
+    const tiposMod = require(path.join(B, 'services/certapp/tipos'));
+    ok(tiposMod.nombreDescarga('2026EXT_7 - CEE 2026-10-26 17h30.cex.cuarentena') === '2026EXT_7 - CEE 2026-10-26 17h30.cex'
+        && tiposMod.nombreDescarga('x.pdf') === 'x.pdf', 'cuarentena: se descarga con su nombre .cex');
+    ok(!elegirFicheros([{ id: 'q', name: '2026EXT_7 - CEE.cex.cuarentena', modifiedTime: t2 }], '2026EXT_7').cex,
+        'cuarentena: un .cex del certificador nunca es «el .cex actual» de la entrega');
+    // La subida: va a la subcarpeta de cuarentena con `.cex.cuarentena`; si Drive no
+    // da la subcarpeta (devuelve el padre), no se guarda en «1. CEE».
+    {
+        const driveService = require(path.join(B, 'services/driveService'));
+        const firmaMod = require(path.join(B, 'services/certapp/firma'));
+        const orig = { sub: driveService.getOrCreateSubfolder, save: driveService.saveFileToFolder, cee: drive.carpetaCeeSiExiste, listar: drive.listar };
+        const obraLista = { id: obra, cuenta_id: cuenta, numero_expediente: '2026EXT_7', estado: 'LISTO', drive_folder_id: 'carpeta-obra' };
+        const CEX_BYTES = Buffer.from("S'CE3Xv3.2 Residencial'\np0\n(dp1\n.");
+        let guardado = null;
+        drive.carpetaCeeSiExiste = async () => 'cee-raiz';
+        drive.listar = async () => [];
+        driveService.getOrCreateSubfolder = async (padre, nombre) => (nombre === documentos.CARPETA_CUARENTENA ? 'cee-cuarentena' : padre);
+        driveService.saveFileToFolder = async (carpeta, nombre) => { guardado = { carpeta, nombre }; throw new Error('PARADA'); };
+        const err1 = await firmaMod.subirDefinitivo(obraLista, {}, { buffer: CEX_BYTES, originalname: 'mio.cex' }).catch(e => e);
+        ok(err1?.message === 'PARADA' && guardado?.carpeta === 'cee-cuarentena' && /^2026EXT_7 - CEE \d{4}-\d\d-\d\d \d\dh\d\d\.cex\.cuarentena$/.test(guardado.nombre),
+            'cuarentena: el .cex va a su subcarpeta como `….cex.cuarentena` (ya no es 415)');
+        guardado = null;
+        driveService.getOrCreateSubfolder = async (padre) => padre;
+        const err2 = await firmaMod.subirDefinitivo(obraLista, {}, { buffer: CEX_BYTES }).catch(e => e);
+        ok(err2?.code === 'DRIVE_FALLO' && guardado === null, 'cuarentena: sin subcarpeta (Drive devuelve el padre) no se guarda en «1. CEE»');
+        driveService.getOrCreateSubfolder = async () => 'cee-cuarentena';
+        drive.listar = async () => Array.from({ length: documentos.MAX_CUARENTENA }, (_, i) => ({ id: `c${i}`, name: `x${i}.cex.cuarentena` }));
+        const err3 = await firmaMod.subirDefinitivo(obraLista, {}, { buffer: CEX_BYTES }).catch(e => e);
+        ok(err3?.code === 'CUARENTENA_LLENA' && guardado === null, `cuarentena: hasta ${documentos.MAX_CUARENTENA} por obra`);
+        Object.assign(driveService, { getOrCreateSubfolder: orig.sub, saveFileToFolder: orig.save });
+        Object.assign(drive, { carpetaCeeSiExiste: orig.cee, listar: orig.listar });
+    }
+
     // ── Los mensajes: uno de encargo y uno de «listo» ───────────────────────
     const obraMsg = { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', numero_expediente: '2026EXT_7', titular: { nombre: 'Carmen', apellidos: 'Díaz' },
         direccion: 'CALLE MAYOR 1', municipio: 'Tomelloso', cee: { cee_inicial: { epnrLetra: 'E', emisionesLetra: 'D' } } };
@@ -179,6 +222,28 @@ function ok(cond, texto) {
     ok(cub.origen === 'HABITUAL' && cub.supuesto, 'fase 5: un supuesto en el elemento se ve como supuesto');
     const part = FF.lineaElemento(FF.elementosVisibles(FF.PESTANAS_CE3X[1], ce).find(e => e.id === 'particion'), ce);
     ok(/^Linda con garaje/i.test(part.texto) && !/algo sin calefacción/.test(part.texto), `fase 5: la partición dice con qué linda, sin repetir el «sí» («${part.texto}»)`);
+
+    // ── Sin la fase 5 (26/10/2026): de las fotos a pedir el certificado ─────
+    ok(FF.FASES.map(f => f.id).join() === 'inmueble,titular,proposito,fotos,generar', 'fases: cinco, sin «Lo que ha visto la IA»');
+    ok(['vivienda', 'entorno', 'ventanas', 'medidas'].every(p => FF.faseDePaso(p) === 'generar') && FF.faseDePaso('calefaccion') === 'fotos',
+        'fases: lo que se veía en la fase 5 lleva a «Pedir el certificado»');
+    ok(FF.faseActual({ cuestionario: { fases_ok: ['inmueble', 'titular', 'proposito', 'fotos'] } }) === 'generar', 'fases: hechas las fotos, toca pedir');
+    ok(L.sanearCuestionario({ fases_ok: ['fotos', 'visto_ia'] }).fases_ok.join() === 'fotos', 'fases: un «visto_ia» viejo en fases_ok se cae al sanear');
+
+    // ── Enlace corto del propietario y fachada propuesta (26/10/2026) ──────
+    const comun = require(path.join(B, 'services/certapp/comun'));
+    const cortos = Array.from({ length: 200 }, () => comun.tokenCorto());
+    ok(cortos.every(t => /^[0-9A-Za-z]{12}$/.test(t)) && new Set(cortos).size === 200, 'enlace corto: tokens de 12 caracteres [0-9A-Za-z], sin repetirse');
+    const obrasSrv = require(path.join(B, 'services/certapp/obras'));
+    ok(/\/s\/abcDEF123456$/.test(obrasSrv.urlPortal({ id: 'x', portal_token: 'abcDEF123456' })), 'enlace corto: la URL es /s/<token>');
+    const fachada = require(path.join(B, 'services/certapp/fachada'));
+    const fich = fachada.comoFichero({ buffer: Buffer.from([0xFF, 0xD8, 0xFF]), mime: 'image/jpeg' }, 'streetview', { numero_expediente: '2026EXT_1' });
+    ok(fich.originalname === 'FACHADA_STREETVIEW_2026EXT_1.jpg' && fich.size === 3 && fich.mimetype === 'image/jpeg', 'fachada: el fichero con la forma de multer');
+    ok(await fachada.sugerida({ id: 'o1' }, 'catastro') === null && await fachada.sugerida({ id: 'o1' }, 'streetview') === null,
+        'fachada: sin referencia ni coordenadas no se sale a la red');
+    let fuenteMala = null;
+    try { await fachada.sugerida({ id: 'o1' }, 'google'); } catch (e) { fuenteMala = e.code; }
+    ok(fuenteMala === 'FUENTE_INVALIDA', 'fachada: solo catastro o streetview');
 
     // ── Barrido que no frena (Fran, 25/10/2026) y lo deducido ───────────────
     // Solo bloquean ref. catastral, dirección, titular y «para qué»; lo demás lo

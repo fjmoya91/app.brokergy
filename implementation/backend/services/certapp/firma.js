@@ -13,9 +13,12 @@
 //   · Lo definitivo hecho fuera (su CE3X): el `.xml` (se comprueba que es de un
 //     CEE de CE3X 3.x y se CARGA en la obra, regla 152, antes de guardarlo) y el
 //     `.pdf` (firmado → `_fdo`; sin firmar → `{nº} - CEE.pdf`, para firmarlo aquí).
-//     REGLA — el `.cex` NO se sube: CE3X lo abre con pickle en el PC de BROKERGY
-//     (por eso Drive se le comparte como LECTOR, ver drive.js). Si lo rehace en su
-//     CE3X, su .cex se lo queda él; lo que cuenta para el registro es XML + PDF.
+//     REGLA — el `.cex` se guarda en CUARENTENA y NUNCA se abre (desde el
+//     26/10/2026; antes, 415): CE3X lo abre con pickle (por eso Drive se le
+//     comparte como LECTOR, ver drive.js). Va a la subcarpeta de cuarentena de
+//     «1. CEE» como `….cex.cuarentena` (documentos.js): es SU copia, para
+//     descargarla; lo que cuenta para el registro es XML + PDF, y para regenerar,
+//     la envolvente.
 //   · Solo en LISTO o VALIDADO (lo entregado). Firmar implica darlo por bueno: una
 //     obra LISTO pasa a VALIDADO al firmar.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,9 +143,7 @@ async function subirDefinitivo(obra, cuenta, fichero) {
     if (!Buffer.isBuffer(buffer) || !buffer.length) throw fallo(400, 'No ha llegado ningún archivo.', 'SIN_FICHERO');
     if (buffer.length > MAX_BYTES) throw fallo(413, 'El archivo es demasiado grande (máximo 25 MB).', 'FICHERO_GRANDE');
     const t = tipos.detectar(buffer);
-    if (t?.ext === 'cex') {
-        throw fallo(415, 'El .cex no se sube: guárdalo tú. Para el registro cuentan el XML y el PDF.', 'CEX_NO');
-    }
+    if (t?.ext === 'cex') return guardarCexEnCuarentena(obra, buffer);
     if (t?.ext === 'pdf') {
         if (leerFirmasPdf(buffer).firmada) return { tipo: 'pdf_firmado', ...(await guardarFirmado(obra, cuenta, buffer, { via: 'subido' })) };
         const guardado = await guardar(await carpetaCee(obra), nombreDefinitivo(obra, 'pdf'), 'application/pdf', buffer);
@@ -171,6 +172,34 @@ async function subirDefinitivo(obra, cuenta, fichero) {
     await evento(obra.id, obra.cuenta_id, 'DEFINITIVO', 'El certificador ha subido el XML definitivo', 'certificador',
         { fichero: guardado.nombre, cargado: !!carga?.cargado });
     return { ok: true, tipo: 'xml', fichero: guardado.nombre, cargado: !!carga?.cargado, estado: obra.estado };
+}
+
+/**
+ * Su `.cex`, a la cuarentena (ver la REGLA de arriba): nunca sustituye al nuestro,
+ * no se lee y no se abre. Uno por subida, con la hora en el nombre; hasta
+ * MAX_CUARENTENA por obra.
+ */
+async function guardarCexEnCuarentena(obra, buffer) {
+    const documentos = require('./documentos');
+    const padre = await carpetaCee(obra);
+    let carpeta;
+    try {
+        carpeta = await driveService.getOrCreateSubfolder(padre, documentos.CARPETA_CUARENTENA);
+    } catch (e) { carpeta = null; }
+    // getOrCreateSubfolder devuelve el PADRE si falla: el .cex caería en «1. CEE».
+    if (!carpeta || carpeta === padre) throw fallo(502, 'Google Drive no responde ahora mismo. Vuelve a intentarlo en un momento.', 'DRIVE_FALLO');
+    const hay = ((await drive.listar(carpeta)) || []).length;
+    if (hay >= documentos.MAX_CUARENTENA) {
+        throw fallo(409, `Ya hay ${hay} archivos .cex guardados en esta obra. Escríbenos si necesitas guardar más.`, 'CUARENTENA_LLENA');
+    }
+    // La hora de España (el VPS va en UTC): «2026-10-26 17h53».
+    const sello = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+        .format(new Date()).replace(':', 'h');
+    const nombre = `${obra.numero_expediente} - CEE ${sello}.cex${documentos.SUFIJO_CUARENTENA}`;
+    const r = await driveService.saveFileToFolder(carpeta, nombre, 'application/octet-stream', buffer, { throwOnError: true });
+    await evento(obra.id, obra.cuenta_id, 'DEFINITIVO', 'El certificador ha subido su .cex (guardado aparte: no se abre ni sustituye al nuestro)',
+        'certificador', { fichero: nombre });
+    return { ok: true, tipo: 'cex', fichero: documentos.nombreDescarga(nombre), drive_id: r?.id || null, estado: obra.estado };
 }
 
 /** Lo que ve el certificador de la firma y la calificación (sin enlaces de Drive). */

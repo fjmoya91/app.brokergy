@@ -2,6 +2,13 @@
 
 ## «Lo que ha visto la IA» — la fase 5 de la ficha (2026-10-25)
 
+> **Fuera del flujo desde el 26/10/2026.** Fran: «¿la fase 5 realmente qué hace? Si nos la podemos
+> saltar y que vaya directamente a simular: las skills deben ser capaces ya de sacar eso adelante». La
+> ficha tiene cinco fases (sin `visto_ia`); al salir de las fotos se escribe lo deducido del Catastro
+> (`conDeducciones`) y lo demás lo saca la IA al hacer el certificado. La pantalla, la ruta y sus
+> topes siguen, sin usar. Lo de abajo cuenta cómo era. Ver
+> [fase-5-fuera-enlace-corto-y-fachada.md](docs/conocimiento/certificadores-app/fase-5-fuera-enlace-corto-y-fachada.md).
+
 Lo pidió Fran en «MEJORAS APP CEE» (`C:\Proyectos\MEJORAS APP CEE.docx`): muchas preguntas del
 cuestionario se contestan solas con el Catastro y con lo que se ve en las fotos; que la IA lo mire
 **antes de gastar el crédito**, gratis, y que el certificador solo **confirme** o conteste las dudas.

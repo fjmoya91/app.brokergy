@@ -3,9 +3,10 @@
 // «atrás» del móvil funcione), la barra de progreso arriba, «Siguiente» abajo
 // (en el móvil, fijo al pie) y lo ya hecho plegado en una línea con «Cambiar».
 // «Siguiente» apunta la fase en `cuestionario.fases_ok` (se guarda con lo
-// demás) y lleva a la primera sin hacer. Al pasar de las fotos a «Lo que ha
-// visto la IA» se le pide a la IA que mire (desde el clic); al confirmar esa
-// fase se escribe lo deducido con su origen.
+// demás) y lleva a la primera sin hacer. Al salir de las fotos se escribe lo
+// deducido del Catastro con su origen y se pasa a pedir el certificado: la fase
+// «Lo que ha visto la IA» se quitó el 26/10/2026 (Fran: «nos la podemos saltar;
+// las skills deben ser capaces ya de sacar eso adelante»).
 import { useEffect, useMemo } from 'react';
 import {
     MEDIDAS, PROPOSITOS, medidasSugeridas, propositosDe, resumenCuestionario,
@@ -19,8 +20,7 @@ import { FaseFotos } from './FaseFotos';
 import { PedirCertificado } from './Generar';
 import { PASO_POR_ID } from './pasos';
 import { Inmueble, Opcion, Pregunta, Titular } from './Pregunta';
-import { VistoIa } from './VistoIa';
-import { conDeducciones, useVistoIa } from './useVistoIa';
+import { conDeducciones } from './useVistoIa';
 
 function Guardado({ g, onReintentar }) {
     if (g.estado === 'guardando') return <span className="ca-guardado"><Spinner size={12} /> Guardando…</span>;
@@ -105,13 +105,13 @@ export function Fases({ o, id, movil }) {
     const actual = FASE_POR_ID[pedida] ? pedida : faseActual(form);
     const idx = FASES.findIndex(f => f.id === actual);
     const ok = form.cuestionario.fases_ok || [];
-    const ia = useVistoIa({ obraId: id, guardar: o.guardar, setCuestionario: o.setCuestionario });
     const resumen = useMemo(() => resumenCuestionario(obraParaBarrido(obra, form, slots)), [obra, form, slots]);
 
     const ctx = {
         form, obra, slots, editable: o.editable,
         setCampo: o.setCampo, setC: o.setC, setCuestionario: o.setCuestionario, setTitular: o.setTitular, setDecision: o.setDecision,
         subir: o.subir, quitar: o.quitar, subiendo: o.subiendo, docsError: o.docsError, recargarDocs: o.recargarDocs,
+        usarFachada: o.usarFachada,
     };
     const falta = faltaEnFase(actual, form, obra);
     const abrir = (fid) => navegar(`/obra/${id}?fase=${fid}`);
@@ -119,17 +119,15 @@ export function Fases({ o, id, movil }) {
     const siguiente = () => {
         if (falta) return;
         const nuevas = [...new Set([...ok, actual])];
-        const ahora = new Date().toISOString();
-        if (actual === 'visto_ia') {
-            // Confirmar: lo deducido del Catastro se escribe, con su origen.
+        if (actual === 'fotos') {
+            // Sin la fase 5: lo deducido del Catastro (tipo de vivienda, plantas…) se
+            // escribe ya, con su origen, y lo demás lo saca la IA de las fotos.
             const { cuestionario } = conDeducciones(obra, form, slots);
-            o.setCuestionario(() => ({ ...cuestionario, fases_ok: nuevas, visto_ia: { ...(cuestionario.visto_ia || {}), confirmado_at: ahora } }));
+            o.setCuestionario(() => ({ ...cuestionario, fases_ok: nuevas }));
         } else {
             o.setCuestionario(c => ({ ...c, fases_ok: nuevas }));
         }
         const sig = FASES.find(f => !nuevas.includes(f.id))?.id || 'generar';
-        // De las fotos a lo que ha visto la IA: que mire ya, sin otro clic.
-        if (sig === 'visto_ia' && !form.cuestionario.visto_ia?.at && o.editable) ia.mirar();
         navegar(`/obra/${id}?fase=${sig}`);
     };
     const atras = () => { if (idx > 0) navegar(`/obra/${id}?fase=${FASES[idx - 1].id}`); };
@@ -152,15 +150,13 @@ export function Fases({ o, id, movil }) {
     else if (actual === 'titular') contenido = <Titular ctx={ctx} />;
     else if (actual === 'proposito') contenido = <FasePara ctx={ctx} />;
     else if (actual === 'fotos') contenido = <FaseFotos ctx={ctx} obraId={id} />;
-    else if (actual === 'visto_ia') contenido = <VistoIa ctx={ctx} ia={ia} />;
     else contenido = <PedirCertificado ctx={ctx} guardar={o.guardar} onIr={abrir} onHecho={() => o.cargar({ silencioso: true })} />;
 
-    const etiquetaSig = actual === 'visto_ia' ? 'Confirmar y seguir' : 'Siguiente';
     const botones = actual !== 'generar' && (
         <>
             <button type="button" className="ca-btn ca-btn-sec" onClick={atras} disabled={idx === 0} aria-label="Fase anterior"><IcoAtras /></button>
-            <button type="button" className="ca-btn ca-btn-pri" onClick={siguiente} disabled={!!falta || (actual === 'visto_ia' && ia.mirando)}>
-                {etiquetaSig} {actual === 'visto_ia' ? <IcoCheck /> : <IcoFlecha />}
+            <button type="button" className="ca-btn ca-btn-pri" onClick={siguiente} disabled={!!falta}>
+                Siguiente <IcoFlecha />
             </button>
         </>
     );

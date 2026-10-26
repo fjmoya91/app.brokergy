@@ -22,10 +22,10 @@ comercial: **«CEE by BROKERGY»** (decidido con Fran el 24/10/2026; en el códi
    «Traer datos del Catastro» (superficie, año, uso, dirección, vivienda dentro del edificio) →
    titular (opcional al principio) → **«¿Estás en la vivienda?»** → la ficha.
 3. **La ficha, por FASES** (desde el 25/10/2026; antes, un cuestionario largo): la vivienda · el
-   titular · para qué es (varios a la vez) · las fotos · **«Lo que ha visto la IA»** (gratis: el
-   Catastro, su época, las fotos y Street View deducen lo que pueden, cada dato con su origen, y el
-   certificador confirma o contesta las dudas) · pedir el certificado. Todo en
-   [lo-que-ha-visto-la-ia.md](docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md). Fuente
+   titular · para qué es (varios a la vez) · las fotos (la de la fachada, PROPUESTA del Catastro y de
+   Street View) · pedir el certificado. **Cinco fases desde el 26/10/2026**: «Lo que ha visto la IA»
+   (la antigua 5) se quitó y lo deducido lo saca la IA al hacer el certificado
+   ([fase-5-fuera-enlace-corto-y-fachada.md](docs/conocimiento/certificadores-app/fase-5-fuera-enlace-corto-y-fachada.md)). Fuente
    única de preguntas, orígenes y deducciones: [cuestionario.js](implementation/frontend/src/certificadores/logic/cuestionario.js).
    Al elegir un equipo salen sus fotos (equipo + placa): **subir ahora, después o usar uno genérico**
    (en una bomba de calor, con la antigüedad de CE3X). Las fotos opcionales llevan su chip y «Ahora
@@ -45,7 +45,7 @@ comercial: **«CEE by BROKERGY»** (decidido con Fran el 24/10/2026; en el códi
    envolvente (se vuelve a generar). Si lo termina en su CE3X, sube el XML o el PDF definitivos. **Lo que se cambie a mano en
    el `.cex` con CE3X no vuelve a la envolvente**: se le dice.
 
-Vistas: **CERTIFICADOR** (panel, obras, perfil, `/incidencias`, `/gastos`), **CLIENTE** (`/subir/:obraId?token=`: el
+Vistas: **CERTIFICADOR** (panel, obras, perfil, `/incidencias`, `/gastos`), **CLIENTE** (`/s/:codigo` → `/subir/:obraId?token=`: el
 propietario sube fotos sin cuenta) y **ADMIN** (`/admin`, ADMIN de BROKERGY: lista de espera,
 cuentas y créditos, obras, entregas, incidencias —la ruta sigue siendo `/admin/sugerencias`—).
 
@@ -221,7 +221,8 @@ que leen la envolvente y el generador.
 **REGLA — el origen `ext` se ADAPTA, no se bifurca** (el mismo criterio que los CEE directos en la
 envolvente): la obra se presenta como un CEE suelto de alcance único (`es_cee_directo` + `es_ext`) y
 toda la persistencia pasa por un mapa central de orígenes (tabla, RPC). Número `{AAAA}EXT_{n}`, que
-el generador reconoce por el formato. Un origen desconocido es un error, nunca 'cae' por defecto.
+el generador reconoce por el formato; `n` = el mayor correlativo + 1 (no la secuencia: ver
+[fase-5-fuera-enlace-corto-y-fachada.md](docs/conocimiento/certificadores-app/fase-5-fuera-enlace-corto-y-fachada.md)). Un origen desconocido es un error, nunca 'cae' por defecto.
 
 **REGLA — el arranque del CRM solo monta en SU página** ([src/main.jsx](implementation/frontend/src/main.jsx),
 25/10/2026). La envolvente es del CRM, y Rollup deja en el trozo de entrada del CRM (`main-*.js`)
@@ -290,6 +291,7 @@ Todas las respuestas en JSON; errores `{ error, code }` (a veces con más campos
 | `POST /recuperar` `{ email }` | Enlace para cambiar la contraseña: responde YA `{ ok }` y envía después |
 | `POST /enlace` `{ email }` | «Mándame un enlace para entrar» (1 h). SIEMPRE `{ ok }`, haya cuenta o no. Límite por IP |
 | `POST /enlace/canjear` `{ token }` | Token `e` → `{ ok, email, token_hash }` para `verifyOtp` en el navegador. Un uso (rota el nonce): usado 400 `TOKEN_INVALIDO`, caducado 410 `TOKEN_CADUCADO` |
+| `GET /s/:codigo` | El enlace CORTO del propietario (26/10/2026): el token → `{ id }` y la página sigue en `/subir/:id?token=`. Caracteres fuera de [0-9A-Za-z] u otro token: 404 `ENLACE_INVALIDO`; caducado 410 `ENLACE_CADUCADO`; 30 por IP cada 10 min (429) |
 | `GET /subir/:id?token=` | Vista CLIENTE: `{ obra: { …, cerrada, caduca_at }, apartados: [{ id, label, …, cubierto, ficheros }] }`. `ficheros` = solo lo que subió el PROPIETARIO; `cubierto` = un apartado de un solo archivo que ya tiene el del certificador. Token malo 404 `ENLACE_INVALIDO`; caducado **410 `ENLACE_CADUCADO`** |
 | `POST /subir/:id/:slot?token=` (multipart `files`) | Subir con el enlace. 400 `SLOT_NO_APLICA` (apartado que no toca a esa vivienda) · **409 `YA_LO_TIENE_EL_CERTIFICADOR`** · 409 `OBRA_CERRADA` · 400 `TIPO_NO_ADMITIDO` (en DOC_*, solo PDF o fotos: nunca un `.cex`) |
 | `GET /thumb/:id/:driveId?t=&sz=` | Miniatura con firma de MINIATURA (12 h); `sz` se lleva a 200/400/800 |
@@ -315,7 +317,9 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 | `POST /obras` | Alta `{ ref_catastral?, titular?, en_vivienda? }` → `{ obra }`; crea la carpeta de Drive |
 | `GET /obras/:id` | `{ obra, barrido, eventos, enlaces, cee, revisiones: { hechas, max } }` (enlaces: pdf, firmado, cex, xml, croquis, carpeta, envolvente; `cee`: `{ calificacion, firma }` con la obra entregada). En `eventos`, `por` es `certificador` · `cliente` · `BROKERGY` · `IA`: nunca el nombre de quién del equipo ni el motivo interno |
 | `PUT /obras/:id` | Parcial: `titular`, columnas del inmueble, `en_vivienda`, `proposito`, `cuestionario` (saneado con `sanearCuestionario`: también `propositos`, `fases_ok`, `origen` y `visto_ia`; la columna `proposito` = el primero de `propositos`). **Solo en BORRADOR**: si no, 409 `OBRA_CERRADA` (archivada: 409 `ARCHIVADA`) |
-| `POST /obras/:id/visto-ia` | «Lo que ha visto la IA»: mira las fotos (o Street View) y PROPONE `{ at, propuesta, dudas, fuentes, uso }`; no escribe en la obra. Solo en BORRADOR. Topes y códigos en [lo-que-ha-visto-la-ia.md](docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md) |
+| `GET /obras/:id/fachada-sugerida/:fuente` | La foto de la fachada que se PROPONE (`catastro` · `streetview`), como imagen. Sin foto: 404 `SIN_FACHADA`; otra fuente: 400 `FUENTE_INVALIDA` |
+| `POST /obras/:id/fachada-sugerida/:fuente/usar` | La guarda en «Fachada principal» como una subida del certificador → `{ ok, subidos, rechazados, errores, slots }`. Entregada: 409 `OBRA_CERRADA` |
+| `POST /obras/:id/visto-ia` | (Sin usar desde el 26/10/2026: la fase se quitó del flujo.) «Lo que ha visto la IA»: mira las fotos (o Street View) y PROPONE `{ at, propuesta, dudas, fuentes, uso }`; no escribe en la obra. Solo en BORRADOR. Topes y códigos en [lo-que-ha-visto-la-ia.md](docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md) |
 | `GET /municipios?prov=NN` | Los municipios de una provincia (la dirección del perfil, en cascada comunidad → provincia → municipio). Provincia mala: 400 `PROVINCIA_INVALIDA` |
 | `POST /obras/:id/catastro` `{ rc }` | El servidor trae del Catastro y rellena el inmueble (zona climática incluida). Solo en BORRADOR (409 `OBRA_CERRADA`) |
 | `GET /obras/:id/docs` | `{ slots: { [slot]: [{ driveId, nombre, mime, link, thumb, subido_at }] } }` |
@@ -326,7 +330,8 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 | `GET /obras/:id/barrido` | El barrido del servidor |
 | `POST /obras/:id/generar` `{ genericos? }` | 422 `{ barrido }` si bloquea · 402 `SIN_CREDITOS` · 409 `YA_PEDIDO` · → `{ ok, obra, creditos }`. Gasta el crédito DE ESA OBRA (si ya lo tenía gastado, no cobra otra vez) |
 | `POST /obras/:id/validar` | LISTO → VALIDADO |
-| `GET /obras/:id/cee/para-firmar` · `POST /obras/:id/cee/firmado` · `POST /obras/:id/cee/definitivo` | Firmar el PDF con AutoFirma (firmar valida) y subir el XML o el PDF definitivos; el `.cex` no (415). En [el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md](docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md) |
+| `GET /obras/:id/cee/para-firmar` · `POST /obras/:id/cee/firmado` · `POST /obras/:id/cee/definitivo` | Firmar el PDF con AutoFirma (firmar valida) y subir el XML o el PDF definitivos; el `.cex`, a cuarentena (nunca se abre). En [el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md](docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md) |
+| `GET /obras/:id/documentos` | Los documentos de la obra entregada: lo actual, versiones anteriores, `.cex` en cuarentena y firma; sin enlaces de Drive (el admin tiene la misma ruta, con ellos). En [documentos-de-la-obra-visor-y-cex-en-cuarentena.md](docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md) |
 | `POST /obras/:id/revisar-de-nuevo` `{ nota }` | Tras tocar la envolvente: pide regenerar (aviso a BROKERGY) sin cambiar ningún dato. Máximo `CERTAPP_REVISIONES_MAX` (2) por obra: luego **409 `SIN_REVISIONES`** `{ revisiones: { hechas, max } }`. → `{ ok, obra, revisiones }` |
 | `POST /feedback` `{ tipo, texto, pantalla, obra_id? }` | Incidencia o sugerencia (`tipo` ERROR · MEJORA · SUGERENCIA · OTRO; con `obra_id`, una obra SUYA o 404) → 201 `{ ok, id, incidencia }`. Texto vacío: 400 `FALTA_TEXTO` |
 | `GET /feedback[?obra_id=]` | → `{ incidencias: [{ id, created_at, tipo, texto, obra_id, numero_expediente, estado, respuesta, respuesta_at }] }`: SOLO las suyas (las 200 últimas). Obra ajena o id que no es uuid: 404 sin tocar la tabla |
@@ -384,6 +389,7 @@ la hora (sin depender de Turnstile), nombre saneado antes de ir al email, tope g
 `respuestas.revisiones` (RPC `certapp_beta_apuntar`) y la respuesta es la misma.
 
 **REGLA — el enlace del propietario caduca** (`portal_token_at` + `CERTAPP_PORTAL_DIAS`) y se rota; el
+que se manda es el corto, `/s/<token>` (token de 12 caracteres desde el 26/10/2026); el
 propietario solo ve lo que subió él, no sube `.cex` ni reemplaza o manda a la papelera lo del
 certificador. Firmas distintas para miniatura y para fichero.
 

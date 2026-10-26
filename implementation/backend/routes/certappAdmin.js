@@ -23,6 +23,7 @@ const obras = require('../services/certapp/obras');
 const docs = require('../services/certapp/docs');
 const ia = require('../services/certapp/ia');
 const entrega = require('../services/certapp/entrega');
+const documentos = require('../services/certapp/documentos');
 const asistente = require('../services/certapp/asistente');
 const beta = require('../services/certapp/beta');
 const drive = require('../services/certapp/drive');
@@ -260,6 +261,14 @@ router.get('/obras/:id', adminOnly, async (req, res) => {
             enlace_cliente_caduca_at: obras.portalVigente(obra) ? obras.portalCaducaAt(obra).toISOString() : null,
         });
     } catch (e) { return responderError(res, e, 'GET /obras/:id'); }
+});
+
+/** «Documentos» de la obra, como los ve el certificador y con el enlace de Drive de cada uno. */
+router.get('/obras/:id/documentos', adminOnly, async (req, res) => {
+    try {
+        const { obra } = await obraYCuenta(req);
+        return res.json({ ...(await documentos.listar(obra, { admin: true })), entregado: ['LISTO', 'VALIDADO'].includes(obra.estado) });
+    } catch (e) { return responderError(res, e, 'GET /obras/:id/documentos'); }
 });
 
 /** Enlace NUEVO para el propietario de la obra: el anterior deja de valer en el acto. */

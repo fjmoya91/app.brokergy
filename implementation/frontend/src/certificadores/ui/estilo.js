@@ -253,6 +253,12 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .ca-thumb{position:relative;width:72px;height:72px;border-radius:12px;overflow:hidden;background:var(--crema);border:1px solid var(--linea);display:grid;place-items:center;color:var(--gris)}
 .ca-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.ca-txt-peq{font-size:13.5px}
+.ca-fachada-sug-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.ca-fachada-sug-item{margin:0;border:1px solid var(--linea);border-radius:14px;overflow:hidden;background:var(--crema);display:flex;flex-direction:column}
+.ca-fachada-sug-item img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
+.ca-fachada-sug-item figcaption{font-size:12.5px;color:var(--gris);padding:6px 10px 0}
+.ca-fachada-sug-item .ca-btn{margin:8px 10px 10px;width:auto}
 .ca-thumb-x{position:absolute;top:3px;right:3px;width:26px;height:26px;border-radius:999px;border:0;background:rgba(20,17,17,.72);color:#fff;display:grid;place-items:center;cursor:pointer}
 .ca-thumb-sub{border-style:dashed}
 .ca-guia{border:1.5px solid var(--tinta)}
@@ -280,6 +286,33 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-desc small{font:500 12px 'Inter',sans-serif;color:var(--gris)}
 .ca-desc:hover{background:#fff;border-color:rgba(20,17,17,.22)}
 .ca-desc-no{opacity:.55;pointer-events:none;border-style:dashed}
+/* documentos de la obra (obra/Documentos.jsx) */
+.ca-docs{list-style:none;margin:14px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.ca-doc{display:flex;align-items:center;gap:12px;padding:12px 12px 12px 14px;border:1px solid var(--linea);border-radius:18px;background:#fff}
+.ca-doc > .ca-ico-tile{flex:none}
+.ca-doc-txt{flex:1;min-width:0}
+.ca-doc-txt b{display:block;font-size:15px;font-weight:700;line-height:1.3}
+.ca-doc-txt small{display:block;font-size:12.5px;color:var(--gris);line-height:1.4;overflow-wrap:anywhere}
+.ca-doc-acc{flex:none;display:flex;gap:6px;align-items:center}
+.ca-doc-acc .ca-btn{width:auto;min-height:40px;padding:0 14px;font-size:14px}
+.ca-doc-chip{display:inline-flex;margin-top:4px}
+.ca-docs-sub{font:700 12px 'Inter',sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--gris2);margin:18px 0 0}
+.ca-docs-mas{appearance:none;background:none;border:0;padding:0;margin-top:14px;font:600 14px 'Inter',sans-serif;color:var(--tinta);cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:underline;text-underline-offset:3px}
+.ca-docs-old .ca-doc{background:var(--crema);padding:10px 10px 10px 12px}
+@media (max-width:480px){.ca-doc{flex-wrap:wrap}.ca-doc-acc{width:100%;justify-content:flex-end}}
+/* visor de PDF (pantalla completa) */
+.ca-visor{position:fixed;inset:0;z-index:9100;background:#3a3735;display:flex;flex-direction:column;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--tinta);animation:ca-fade .15s ease both}
+.ca-visor-cab{flex:none;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--crema);border-bottom:1px solid var(--linea)}
+.ca-visor-cab .ca-doc-txt b{font-size:15px}
+.ca-visor-zoom{display:flex;gap:4px;align-items:center}
+.ca-visor-zoom .ca-icobtn{width:38px;height:38px}
+.ca-visor-zoom span{font:600 12.5px 'Inter',sans-serif;color:var(--gris);min-width:42px;text-align:center}
+.ca-visor-cuerpo{flex:1;overflow:auto;overscroll-behavior:contain;padding:16px 10px 24px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.ca-visor-cuerpo canvas{display:block;background:#fff;box-shadow:0 6px 24px -8px rgba(0,0,0,.5);max-width:none}
+.ca-visor-estado{margin:auto;color:#f1eee9;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:420px;padding:0 16px}
+.ca-visor-pie{flex:none;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;align-items:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--crema);border-top:1px solid var(--linea)}
+.ca-visor-pie .ca-btn{width:auto;min-height:44px;padding:0 18px}
+.ca-visor-pie p{flex:1 1 220px;margin:0;font-size:13px;color:var(--gris)}
 /* hoja (ventana) */
 .ca-capa{position:fixed;inset:0;z-index:9000;background:rgba(20,17,17,.42);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center;animation:ca-fade .2s ease both;
   font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--tinta);font-size:15px;line-height:1.55}

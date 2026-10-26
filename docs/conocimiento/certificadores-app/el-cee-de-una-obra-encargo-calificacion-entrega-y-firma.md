@@ -63,9 +63,11 @@ número); el del certificador es la plantilla de la app (`avisos.plantilla`).
 
 [ObraCerrada.jsx](implementation/frontend/src/certificadores/obra/ObraCerrada.jsx), con la obra LISTO
 o VALIDADO: la **calificación** (las letras de consumo y emisiones, del XML cargado), el **certificado
-firmado** si lo hay (con fecha y firmante), las descargas (PDF, `.cex`, XML, croquis), su carpeta de
-Drive, **«Validar y firmar con AutoFirma»** · «Solo validar» · **«Revisar en la envolvente»**, y
-**«¿Lo has terminado en tu CE3X?»** para subir el XML o el PDF definitivos.
+firmado** si lo hay (con fecha y firmante), su carpeta de Drive, **«Ver, validar y firmar»** (el visor
+con «Firmar con AutoFirma» en el pie) · «Solo validar» · **«Revisar en la envolvente»**, y la sección
+**«Documentos»**: los ficheros, el visor, las versiones anteriores y «¿Lo has terminado en tu CE3X?»
+para subir el XML, el PDF o el `.cex` (desde el 26/10/2026:
+[documentos-de-la-obra-visor-y-cex-en-cuarentena.md](docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md)).
 
 El GET `/api/certapp/obras/:id` trae además `cee: { calificacion: { consumo, emisiones } | null,
 firma: { at, firmante, via } | null }` (`firma.resumenParaCertificador`, sin enlaces de Drive).
@@ -76,7 +78,8 @@ firma: { at, firmante, via } | null }` (`firma.resumenParaCertificador`, sin enl
 |---|---|
 | `GET /obras/:id/cee/para-firmar` | `{ nombre, base64 }`: el PDF que toca firmar (el `pdf` de `elegirFicheros`). Sin entregar, 409 `ESTADO_NO_FIRMABLE`; sin «1. CEE», 409 `SIN_CEE` |
 | `POST /obras/:id/cee/firmado` (multipart `fichero`) | El PDF firmado en el navegador → `{ ok, estado, firma, avisos }`. Lo guarda como `{nº} - CEE_fdo.pdf` |
-| `POST /obras/:id/cee/definitivo` (multipart `fichero`) | Un `.xml` (se carga en la app) o un `.pdf` (firmado: como el anterior; sin firmar: `{nº} - CEE.pdf`) → `{ ok, tipo, fichero, estado }` |
+| `POST /obras/:id/cee/definitivo` (multipart `fichero`) | Un `.xml` (se carga en la app), un `.pdf` (firmado: como el anterior; sin firmar: `{nº} - CEE.pdf`) o un `.cex` (a cuarentena) → `{ ok, tipo, fichero, estado }` |
+| `GET /obras/:id/documentos` | Lo actual, las versiones anteriores, los `.cex` en cuarentena y la firma ([documentos-de-la-obra-visor-y-cex-en-cuarentena.md](docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md)) |
 
 En la pantalla se firma con el **mismo modal del CRM** (`FirmarConCertificadoModal`, AutoFirma por el
 WebSocket local), cargado solo al pulsar (pesa 357 kB por pdf.js), con el recuadro anclado al rótulo
@@ -89,8 +92,10 @@ externo. El firmante se compara con el nombre de la cuenta solo como aviso.
 **REGLA — firmar es validar**: una obra LISTO pasa a VALIDADO al guardar el firmado (update
 condicionado al estado), con el evento `FIRMA`.
 
-**REGLA — el `.cex` no se sube** (415 `CEX_NO`): es un pickle que luego abre CE3X en el equipo de
-BROKERGY. Para el registro cuentan el XML y el PDF.
+**REGLA — el `.cex` del certificador va a CUARENTENA y nunca se abre** (hasta el 26/10/2026 era 415
+`CEX_NO`): es un pickle que luego abre CE3X en el equipo de BROKERGY. Va a «1. CEE / CEX DEL
+CERTIFICADOR (NO ABRIR)» como `….cex.cuarentena`, fuera de `elegirFicheros`. Para el registro cuentan
+el XML y el PDF. Detalle en [documentos-de-la-obra-visor-y-cex-en-cuarentena.md](docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md).
 
 **REGLA — un XML definitivo se lee en seco antes de guardarlo**: `cargarXmlEnApp(…, { escribir:
 false })`; si no se puede cargar, 422 `XML_ILEGIBLE`, y sin calificación, 422
@@ -107,6 +112,8 @@ Todo se hace en LISTO o VALIDADO (`ESTADOS_FIRMABLES`); lo que se sustituye va a
 | `{nº} - CEE INICIAL_CROQUIS.pdf` | el croquis |
 | `{nº} - CEE_fdo.pdf` | el firmado (AutoFirma en la app, o un PDF firmado que sube) |
 | `{nº} - CEE.xml` · `{nº} - CEE.pdf` | el definitivo que sube el certificador |
+| `CEX DEL CERTIFICADOR (NO ABRIR)/{nº} - CEE AAAA-MM-DD HHhMM.cex.cuarentena` | los `.cex` que sube el certificador: nunca «el `.cex`» |
+| `OLD/…_OLD{n}.…` | lo sustituido; en la app, «Versiones anteriores» |
 
 **REGLA — de cada clase gana el MÁS RECIENTE** (`elegirFicheros` en
 [entrega.js](implementation/backend/services/certapp/entrega.js), por `modifiedTime`, que ahora trae
