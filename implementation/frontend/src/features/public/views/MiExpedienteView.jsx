@@ -47,7 +47,7 @@ const paraTeclear = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Nu
 const FAQS = [
     {
         q: '¿Tengo que pagar impuestos por el bono del CAE?',
-        a: 'Sí, es un ingreso que debes declarar. Según Hacienda (consultas vinculantes V0361-23 y V2137-25) es una ganancia patrimonial que va a la base del ahorro de tu IRPF y tributa por tramos (19 % hasta 6.000 €, 21 % de 6.000 a 50.000 €…). Como el bono suele ser de unos pocos miles de euros, lo habitual es tributar al 19 %. Importante: el bono no es una subvención, así que no reduce tu deducción por la reforma. Esta información es orientativa; confirma tu caso con tu asesor fiscal.',
+        a: 'Sí, es un ingreso que debes declarar. Según Hacienda (consulta vinculante V2137-25) es una ganancia patrimonial que va a la base del ahorro de tu IRPF y tributa por tramos (19 % hasta 6.000 €, 21 % de 6.000 a 50.000 €…). Como el bono suele ser de unos pocos miles de euros, lo habitual es tributar al 19 %. Importante: el bono no es una subvención, así que no reduce tu deducción por la reforma. Esta información es orientativa; confirma tu caso con tu asesor fiscal.',
     },
     {
         q: '¿Cuáles son las fases de mi expediente?',
@@ -190,6 +190,8 @@ const CSS = `
 .mx-prev span{display:block;font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--gris)}
 .mx-prev b{display:flex;align-items:center;gap:4px;font-family:'Antonio','Inter',sans-serif;font-weight:700;font-size:24px;line-height:1.1;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mx-prev .mx-prev-peq{font-size:19px}
+.mx-prev > .mx-prev-mas{background:rgba(177,209,62,.18);border-color:rgba(177,209,62,.45)}
+.mx-prev > .mx-prev-mas span,.mx-prev > .mx-prev-mas b{color:var(--verde-txt)}
 .mx-renta-fila{appearance:none;width:100%;text-align:left;cursor:pointer;display:flex;align-items:center;gap:14px;padding:16px 16px 16px 18px;min-height:72px;background:#fff;border:1px solid var(--linea);border-radius:20px;box-shadow:0 1px 2px rgba(20,17,17,.04);color:var(--tinta);font:inherit}
 .mx-renta-fila:hover{border-color:rgba(20,17,17,.18)}
 .mx-renta-fila b{display:block;font-size:15.5px;font-weight:700}
@@ -642,6 +644,23 @@ export function MiExpedienteView({ uuid, token }) {
 
     /* ── Tarjetas de la portada ── */
 
+    // Lo de la PROPUESTA frente a lo REAL (Fran, 26/10/2026): solo cuando lo real es
+    // MAYOR; si es menor, se dice lo real y nada más. Se comparan brutos: el bono de
+    // la propuesta y el cobrado antes de descontar la gestión. Un bono calculado al
+    // vuelo (expediente migrado, sin propuesta guardada) no es «la propuesta».
+    const comparaPropuesta = (real, etiqueta) => {
+        const prop = Number(money.bonoCae);
+        if (!money.deLaPropuesta || !(prop > 0) || !(Number(real) >= prop + 1)) return null;
+        return (
+            <div className="mx-prev" aria-label="Tu bono frente al de la propuesta">
+                <div><span>Propuesta</span><b className="mx-prev-peq">{eur(prop)}</b></div>
+                <div><span>{etiqueta}</span><b className="mx-prev-peq">{eur(real)}</b></div>
+                <div className="mx-prev-mas"><span>De más</span><b className="mx-prev-peq">+{eur(real - prop)}</b></div>
+            </div>
+        );
+    };
+    const caeEmitido = estado.subestado === 'cae_emitido' || estado.subestado === 'pago';
+
     const tarjetaDinero = (
         <section key="dinero" className="mx-card mx-in" style={{ animationDelay: '60ms' }} aria-labelledby="mx-dinero">
             <div className="mx-pad" style={{ paddingBottom: 20 }}>
@@ -661,6 +680,20 @@ export function MiExpedienteView({ uuid, token }) {
                             );
                         })() : <div className="mx-display mx-importe">Cobrado</div>}
                         <p className="mx-meta mx-meta-verde">{fechaCorta(cobro.fecha) ? <>Transferido el <b>{fechaCorta(cobro.fecha)}</b></> : 'Transferido a tu cuenta'}</p>
+                        {cobro.descuento > 0 && cobro.bono != null && (
+                            <p className="mx-meta" style={{ marginTop: 4 }}>Tu bono, <b>{eur2(cobro.bono)}</b>, menos <b>{eur2(cobro.descuento)}</b> de la gestión, como elegiste.</p>
+                        )}
+                        {comparaPropuesta(cobro.bono ?? cobro.importe, 'Cobrado')}
+                    </>
+                ) : money.bonoConfirmado != null ? (
+                    <>
+                        <div className="mx-fila-top">
+                            <span id="mx-dinero" className="mx-eyebrow">Bono CAE que vas a cobrar</span>
+                            <span className="mx-chip mx-chip-verde"><IcoCheck size={13} sw={3.2} />Confirmado</span>
+                        </div>
+                        <div className="mx-display mx-importe">{eur(money.bonoConfirmado)}</div>
+                        <p className="mx-meta">{caeEmitido ? 'El CAE ya está emitido: estamos preparando tu transferencia.' : 'Con el ahorro ya verificado. Te lo transferimos cuando se emita el CAE.'}</p>
+                        {comparaPropuesta(money.bonoConfirmado, 'Confirmado')}
                     </>
                 ) : (
                     <>
@@ -671,7 +704,7 @@ export function MiExpedienteView({ uuid, token }) {
                         {money.bonoCae != null ? (
                             <>
                                 <div className="mx-display mx-importe">{eur(money.bonoCae)}</div>
-                                <p className="mx-meta">Te lo transferimos cuando se emita el CAE.</p>
+                                <p className="mx-meta">{caeEmitido ? 'El CAE ya está emitido: estamos preparando tu transferencia.' : 'Te lo transferimos cuando se emita el CAE.'}</p>
                             </>
                         ) : (
                             <p className="mx-meta" style={{ fontSize: 15 }}>Estamos calculando tu bono. Te lo confirmaremos pronto.</p>

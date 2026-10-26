@@ -487,6 +487,23 @@ Y el portal entero, con la misma estética de la carta (24/10/2026):
   `documentacion.cobro`, nada más: ni token ni cuentas) y, pagado, la tarjeta dice «Bono
   CAE cobrado», el importe con céntimos y «Transferido el …», sin «Estimado». Antes decía
   «que cobrarás · Estimado» a quien ya había cobrado.
+- **Lo de la PROPUESTA frente a lo REAL** (26/10/2026, Fran: «poner lo que se le pasó en la
+  propuesta y lo que realmente ha cobrado. Eso cuando sea más. Cuando sea menos, lo que ha
+  cobrado»). Cobrado y MAYOR que la propuesta: debajo del importe, tres casillas «Propuesta ·
+  Cobrado · De más» (la última en verde). Se comparan BRUTOS: el bono de la propuesta con el
+  cobrado ANTES de los honorarios (`cobro.bono` = transferido + `remesa.descuento`), y si se
+  descontaron se dice en una línea («Tu bono, X €, menos 250,00 € de la gestión, como
+  elegiste»). Menor o igual (o por menos de 1 €): solo lo cobrado. Solo se compara con una
+  propuesta GUARDADA (`dinero.deLaPropuesta`): el bono calculado al vuelo de un migrado sin
+  propuesta no es lo que se le dijo. Medido sobre los 13 cobrados de la app: compara en 4
+  (25RES060_53: 7.997 € → 8.027 €, +30 €).
+- **Con el CAE emitido y sin transferir**, el bono es el VERIFICADO (`dinero.bonoConfirmado`,
+  `computeExpedienteFinancials(...).caeVerificado`, el mismo de la remesa): «Bono CAE que vas a
+  cobrar · Confirmado», «El CAE ya está emitido: estamos preparando tu transferencia» y la
+  misma comparación si es mayor. Antes decía «Te lo transferimos cuando se emita el CAE» con
+  el CAE ya emitido. ⚠️ El portal sabe que está cobrado SOLO por `cobro.transferencia` (el
+  justificante subido en la fase 7): un pago hecho fuera de la app no lo ve (25RES060_54 y
+  los cuatro de «PAQUETE 1 - 2025 (PRE APP)», 26/10/2026).
 - **El IRPF sin porcentaje fijo**: decía «(60 % de la obra)» a todos, y a un piso le
   corresponde el 40 %.
 - **«Copiar» en cada dato de Renta Web** (`resumenRentaCliente` trae `copiar` por fila:

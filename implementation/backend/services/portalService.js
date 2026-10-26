@@ -42,7 +42,37 @@ function loadPropuesta() {
     return _propuestaPromise;
 }
 
+// El bono CONFIRMADO (26/10/2026, Fran): con el ahorro VERIFICADO (CAE emitido) el
+// bono ya no es una estimación. Se da aparte del de la propuesta, que se sigue
+// devolviendo como `bonoCae`: el portal enseña los dos cuando el real es MAYOR
+// («en la propuesta te estimamos… y has cobrado…»); cuando es menor, solo el real.
+// El verificado lo da `computeExpedienteFinancials` (el MISMO que la remesa, vía
+// cobroService.bonoVerificado); el espejo Node no lo calcula.
+let _finPromise = null;
+function loadFinancials() {
+    if (!_finPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/expedienteFinancials.js')).href;
+        _finPromise = import(url);
+    }
+    return _finPromise;
+}
+
 async function buildClientMoney(op, exp) {
+    const dinero = await bonoDeLaPropuesta(op, exp);
+    let bonoConfirmado = null;
+    if (exp) {
+        try {
+            const { computeExpedienteFinancials } = await loadFinancials();
+            const ef = computeExpedienteFinancials({ ...exp, oportunidades: exp.oportunidades || op });
+            if (Number(ef?.caeVerificado) > 0) bonoConfirmado = Math.round(ef.caeVerificado * 100) / 100;
+        } catch (e) {
+            console.warn('[portal] bono verificado:', e.message);
+        }
+    }
+    return { ...dinero, bonoConfirmado };
+}
+
+async function bonoDeLaPropuesta(op, exp) {
     let fin = {};
     try {
         const { propuestaGuardada } = await loadPropuesta();
@@ -52,18 +82,19 @@ async function buildClientMoney(op, exp) {
         fin = op?.datos_calculo?.result?.financials || {};
     }
     if (fin.caeBonus != null) {
-        return { bonoCae: round0(fin.caeBonus), deduccionIrpf: round0(fin.irpfDeduction), estado: 'estimado' };
+        return { bonoCae: round0(fin.caeBonus), deduccionIrpf: round0(fin.irpfDeduction), estado: 'estimado', deLaPropuesta: true };
     }
     // Sin snapshot → calcular el bono como el admin (deducción no disponible sin snapshot).
     if (exp) {
         try {
             const ef = await computeExpedienteFinancialsNode(exp, op);
-            if (ef?.cae != null) return { bonoCae: round0(ef.cae), deduccionIrpf: null, estado: 'estimado' };
+            // Calculado al vuelo: NO es lo que se le dijo en la propuesta (no se compara).
+            if (ef?.cae != null) return { bonoCae: round0(ef.cae), deduccionIrpf: null, estado: 'estimado', deLaPropuesta: false };
         } catch (e) {
             console.warn('[portal] computeExpedienteFinancialsNode:', e.message);
         }
     }
-    return { bonoCae: null, deduccionIrpf: null, estado: 'estimado' };
+    return { bonoCae: null, deduccionIrpf: null, estado: 'estimado', deLaPropuesta: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -80,13 +111,20 @@ function buildCobro(documentacion) {
     const t = c.transferencia || {};
     const r = c.remesa || {};
     const pagado = !!t.at;
-    if (!pagado) return { pagado: false, importe: null, fecha: null };
+    if (!pagado) return { pagado: false, importe: null, fecha: null, bono: null, descuento: 0 };
     const imp = Number(t.importe ?? r.importe);
     const fecha = String(r.fecha_ejecucion || t.at || '').slice(0, 10);
+    const importe = Number.isFinite(imp) ? Math.round(imp * 100) / 100 : null;
+    // Lo transferido va NETO de los honorarios si eligió descontarlos (la remesa los
+    // apunta en `descuento`): el BONO cobrado es la suma, y es lo que se compara con
+    // el de la propuesta, que también es bruto.
+    const descuento = Number(r.descuento) > 0 ? Math.round(Number(r.descuento) * 100) / 100 : 0;
     return {
         pagado: true,
-        importe: Number.isFinite(imp) ? Math.round(imp * 100) / 100 : null,
+        importe,
         fecha: /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : null,
+        bono: importe != null ? Math.round((importe + descuento) * 100) / 100 : null,
+        descuento,
     };
 }
 
