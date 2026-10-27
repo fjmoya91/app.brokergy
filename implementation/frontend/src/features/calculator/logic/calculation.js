@@ -726,6 +726,29 @@ export function getCalibrationFactor(tipo, subtipo) {
     return 0.90;
 }
 
+// ============================================================================
+// CALIBRACIÓN POR ÉPOCA — la vivienda unifamiliar de 2008 en adelante (2026-10-26)
+// ----------------------------------------------------------------------------
+// Con las U límite del CTE la calculadora se quedaba muy corta en las casas
+// nuevas: medido sobre 33 expedientes unifamiliares de 2008+ con CEE inicial,
+// la demanda de calefacción del CEE fue SIEMPRE mayor que la estimada (ratio
+// mínimo 1,26 con la Guía CE3X, mediana 1,95). El factor va por DEBAJO de ese
+// mínimo: no se promete más de lo que dio ninguno de los 33.
+//
+// Solo en simulaciones NUEVAS (`inputs.calibracion_demanda`, mismo patrón que
+// `guia_transmitancias`): lo ya simulado no se mueve. Ni pisos ni terciario ni
+// RES080 —no hay datos para ellos; en el RES080 escalaría también el ahorro—.
+// ============================================================================
+export const CALIBRACION_DEMANDA = '2026-10';
+export const FACTOR_EPOCA_RECIENTE = 1.25;
+
+export function getFactorEpoca(inputs = {}) {
+    if (!inputs.calibracion_demanda || inputs.isReforma === true || inputs.isReforma === 'true') return 1;
+    if (String(inputs.tipo || '').toLowerCase() !== 'unifamiliar') return 1;
+    if (String(inputs.sector || '').toLowerCase() === 'terciario') return 1;
+    return Number(inputs.anio) >= 2008 ? FACTOR_EPOCA_RECIENTE : 1;
+}
+
 export const ORIENTATION_CORRECTION = {
     S: 0.94, SE: 0.96, SO: 0.96,
     E: 0.98, O: 1.00, media: 0.98,
@@ -843,7 +866,8 @@ export function calculateDemand(inputs) {
     const Q_internal = (INTERNAL_GAINS_WM2 * S * 14 * heatingDays) / 1000;
 
     const kcal = getCalibrationFactor(tipo, subtipo);
-    const Qnet = Math.max(0, (Qgross * kcal) - (Q_internal * 0.5));
+    const kEpoca = getFactorEpoca(inputs);
+    const Qnet = Math.max(0, (Qgross * kcal) - (Q_internal * 0.5)) * kEpoca;
 
     const q_gross = Qgross / S;
     const q_net = Qnet / S;
@@ -867,6 +891,7 @@ export function calculateDemand(inputs) {
         },
         meta: {
             k_calibracion: kcal,
+            k_epoca: kEpoca,
             delta_u_pt: ptFactor,
             hdd
         }

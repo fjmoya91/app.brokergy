@@ -21,6 +21,7 @@ const { createLead } = require('../services/leadService');
 const { FICHAS, detectPrograma } = require('../utils/fichas');
 const { sellarPrecioCae } = require('../utils/precioCae');
 const { sellarGuiaTransmitancias } = require('../utils/guiaTransmitancias');
+const { conservarCiega, sinCiegaParaPartner, cargarLogicaCiega } = require('../utils/estimacionCiega');
 const clasificarFotos = require('../services/clasificarFotosService');
 const whatsappMedia = require('../services/whatsappMedia');
 const multer = require('multer');
@@ -415,6 +416,10 @@ router.post('/', enforceAuth, async (req, res) => {
         } else {
             delete datosCalculoFinal.envolvente_cee;
         }
+        // El CEE A CIEGAS lo escribe solo el PC (services/cee/ceeCiego.js) y la
+        // SUPERFICIE CONFIRMADA solo su ruta (staff): lo que mande el navegador no
+        // cuenta. La confirmación se cae sola si cambian los m² o las construcciones.
+        await conservarCiega(datosCalculoFinal, existingData);
 
         let payloadPrescriptorStr = prescriptor || 'BROKERGY';
         if (!prescriptor && req.user && req.user.perfilCompleto) {
@@ -545,7 +550,7 @@ router.post('/', enforceAuth, async (req, res) => {
             return res.status(500).json({ error: 'Error al guardar.', details: resultError.message });
         }
 
-        res.status(201).json(resultData);
+        res.status(201).json(sinCiegaParaPartner(resultData, isStaff(req)));
     } catch (error) {
         console.error('Error fatal POST /:', error);
         res.status(500).json({ error: 'Error del servidor.' });
@@ -1233,7 +1238,7 @@ router.post('/:id/comentarios', internalKeyOrAuth, suyaSiPartner, async (req, re
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al guardar.', details: upErr.message });
 
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.', details: error.message });
     }
@@ -1400,7 +1405,7 @@ ${notesStr}
 
         // El estado de la propuesta cambia la etiqueta de su chat (apagado salvo WA_AUTO_SYNC).
         if (op.cliente_id) require('../services/whatsappAutoSync').programarCliente(op.cliente_id, `oportunidad ${nuevo_estado}`);
-        res.status(200).json({ success: true, data: upData[0], numeroExpediente });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)), numeroExpediente });
     } catch (error) {
         console.error('[StatusUpdate] Error:', error.message);
         res.status(500).json({ error: error.message || 'Error del servidor.' });
@@ -1424,7 +1429,7 @@ router.patch('/:id/asignar', staffOnly, async (req, res) => {
             .select();
 
         if (upErr) return res.status(500).json({ error: 'Error al asignar prescriptor.', details: upErr.message });
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
     }
@@ -1556,7 +1561,7 @@ router.delete('/:id/historial', adminOnly, async (req, res) => {
         dc.historial = [];
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al borrar.' });
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
     }
@@ -1575,7 +1580,7 @@ router.delete('/:id/historial/:entryId', adminOnly, async (req, res) => {
 
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al borrar.' });
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
     }
@@ -1613,7 +1618,7 @@ router.put('/:id/historial/:entryId', enforceAuth, async (req, res) => {
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al actualizar.' });
         
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         console.error('Error PUT /historial/:entryId:', error);
         res.status(500).json({ error: 'Error del servidor.' });
@@ -1647,7 +1652,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
             console.error('[Backend] Error en búsqueda por id_oportunidad:', byId.error);
         }
         if (byId.data && byId.data.length > 0) {
-            const found = byId.data[0];
+            const found = sinCiegaParaPartner(byId.data[0], isStaff(req));
             console.log(`[Backend] Encontrada por id_oportunidad: ${found.id_oportunidad}`);
             return res.status(200).json(isNonAdmin(req) ? stripPartnerMargin(found) : found);
         }
@@ -1665,7 +1670,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
             return res.status(500).json({ error: 'Error consulta.', details: byRc.error.message });
         }
         if (byRc.data && byRc.data.length > 0) {
-            const found = byRc.data[0];
+            const found = sinCiegaParaPartner(byRc.data[0], isStaff(req));
             console.log(`[Backend] Encontrada por ref_catastral: ${found.id_oportunidad}`);
             return res.status(200).json(isNonAdmin(req) ? stripPartnerMargin(found) : found);
         }
@@ -1683,6 +1688,61 @@ router.get('/:id', enforceAuth, async (req, res) => {
 // escritorio) de la carpeta de la oportunidad, subiendo por las carpetas padre en
 // Drive. El frontend la usa para abrir la carpeta con el protocolo brokergylocal:.
 // Misma lógica que expedientes/:id/local-path. Configurable con LOCAL_DRIVE_BASE.
+// ─── El CEE A CIEGAS (solo el equipo interno) ────────────────────────────────
+// La cifra de un CEE hecho por programa, APARTE de la de la calculadora: no
+// cambia nada de lo que se ofrece. La escribe el PC (scripts/cee_ciego.js y el
+// vigilante `banco.mjs atender`); aquí solo se lee y se confirma la superficie.
+// Diseño: docs/conocimiento/calculo/cee-a-ciegas-diseno-para-la-oportunidad.md
+const SELECT_CIEGA = 'id, id_oportunidad, estimacion:datos_calculo->estimacion_ciega, '
+    + 'confirmada:datos_calculo->inputs->superficie_confirmada, '
+    + 'sup:datos_calculo->inputs->>superficieCalefactable, sup2:datos_calculo->inputs->>superficie, '
+    + 'elegidas:datos_calculo->inputs->construcciones_elegidas';
+
+async function filaCiega(id) {
+    const q = supabase.from('oportunidades').select(SELECT_CIEGA);
+    const { data, error } = await (UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id))
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (error) throw Object.assign(new Error('No se ha podido leer la oportunidad.'), { status: 503 });
+    return data;
+}
+
+router.get('/:id/estimacion-ciega', staffOnly, async (req, res) => {
+    try {
+        const fila = await filaCiega(String(req.params.id));
+        if (!fila) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        res.json({ estimacion: fila.estimacion || null, superficie_confirmada: fila.confirmada || null });
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// «✓ Confirmo N m²»: una PERSONA del equipo da por buena la superficie (y las
+// construcciones) de la simulación GUARDADA. Se cae sola al cambiar cualquiera de
+// las dos (utils/estimacionCiega.js, en el guardado).
+router.post('/:id/superficie-confirmada', staffOnly, async (req, res) => {
+    try {
+        const fila = await filaCiega(String(req.params.id));
+        if (!fila) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        const { construccionesClave, superficieSimulada } = await cargarLogicaCiega();
+        const inputsBd = { superficieCalefactable: fila.sup, superficie: fila.sup2, construcciones_elegidas: fila.elegidas };
+        const m2 = superficieSimulada(inputsBd);
+        const construcciones = construccionesClave(inputsBd);
+        const pide = Number(req.body?.m2);
+        if (!(m2 > 0)) return res.status(409).json({ error: 'La simulación guardada no tiene superficie.' });
+        if (!(Math.abs(pide - m2) <= 0.5) || String(req.body?.construcciones ?? '') !== construcciones) {
+            return res.status(409).json({ error: `Lo guardado son ${m2} m²: guarda antes la simulación y vuelve a confirmar.` });
+        }
+        const perfil = req.user?.perfilCompleto || {};
+        const por = `${perfil.nombre || ''} ${perfil.apellidos || ''}`.trim() || nombreUsuario(req);
+        const confirmada = { m2, construcciones, por, at: new Date().toISOString() };
+        const { error } = await supabase.rpc('oportunidad_merge_inputs', { p_id: fila.id, p_patch: { superficie_confirmada: confirmada } });
+        if (error) return res.status(503).json({ error: 'No se ha podido guardar la confirmación.' });
+        res.json({ superficie_confirmada: confirmada });
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
 router.get('/:id/local-path', adminOnly, async (req, res) => {
     try {
         const { id } = req.params;

@@ -21,6 +21,7 @@ import {
     FUEL_PRICES,
     getUByYear,
     GUIA_TRANSMITANCIAS,
+    CALIBRACION_DEMANDA,
     getVentanaYACHByYear,
     AEROTHERMIA_MODELS,
     CAE_PRECIO_CLIENTE_NUEVAS,
@@ -242,6 +243,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         // (su bono ya se le dio al cliente). No va en INITIAL_INPUTS: la heredarían.
         if (!initialData?.isPersistent && base.guia_transmitancias === undefined) {
             base.guia_transmitancias = GUIA_TRANSMITANCIAS;
+        }
+        // Lo mismo con la calibración por época (calculation.js, `getFactorEpoca`).
+        if (!initialData?.isPersistent && base.calibracion_demanda === undefined) {
+            base.calibracion_demanda = CALIBRACION_DEMANDA;
         }
 
         // Forzamos defaults críticos si vienen vacíos de initialData (ej: oportunidades antiguas o mal inicializadas)

@@ -202,6 +202,32 @@ async function atender() {
     };
     const latido = setInterval(() => { latir().catch(() => {}); }, 30_000);
 
+    // El CEE A CIEGAS de las oportunidades (apagado salvo CEE_CIEGO_ENABLED=true).
+    // Una por vuelta y en serie (Catastro, regla 15-17); lo que falla no se
+    // reintenta con los MISMOS datos en esta sesión del vigilante.
+    const ceeCiego = process.env.CEE_CIEGO_ENABLED === 'true' ? req('./services/cee/ceeCiego') : null;
+    const ciegasFallidas = new Set();
+    const unaCiega = async () => {
+        if (!ceeCiego) return false;
+        let lista;
+        try { lista = await ceeCiego.pendientes(); } catch (e) { console.log(`· a ciegas: ${e.message}`); return false; }
+        const o = lista.find(x => !ciegasFallidas.has(x.id));
+        if (!o) return false;
+        ocupado = `${o.id_oportunidad} (a ciegas)`;
+        try {
+            const r = await ceeCiego.calcularCiega(o.id, { escribir: true });
+            const e = r.estimacion;
+            console.log(`◌ ${o.id_oportunidad} a ciegas: ${r.omitido || `${e.demanda_ciega} kWh/m²·año × ${e.superficie} m² · bono ${e.bono} € (calculadora ${e.bono_calculadora} €)`}`);
+        } catch (e) {
+            ciegasFallidas.add(o.id);
+            console.log(`◌ ${o.id_oportunidad} a ciegas: ✗ ${e.message}`);
+        } finally {
+            ocupado = null;
+        }
+        await dormir(4000);
+        return true;
+    };
+
     // Lo que este mismo PC dejó a medias (se apagó o se cerró la ventana) no se
     // retoma solo: se marca, y la app deja pedirlo otra vez.
     await supabase.from('cee_ia_trabajos').update({
@@ -220,6 +246,9 @@ async function atender() {
             // Sin BD no se afirma «cola vacía»: se dice y se reintenta.
             if (eCola) { console.log(`· no puedo leer la cola: ${eCola.message}`); if (una) return; await dormir(cada); continue; }
             const siguiente = cola?.[0];
+            // Sin trabajos de IA, el PC adelanta UNA cifra a ciegas de la captación viva
+            // (cero tokens; docs/conocimiento/calculo/cee-a-ciegas-diseno-para-la-oportunidad.md).
+            if (!siguiente && !una && await unaCiega()) continue;
             if (!siguiente) { if (una) { console.log('La cola está vacía.'); return; } await dormir(cada); continue; }
 
             const ahora = new Date().toISOString();

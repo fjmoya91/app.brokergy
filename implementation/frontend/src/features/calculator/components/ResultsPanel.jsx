@@ -27,6 +27,7 @@ import { DocsAdminModal } from './DocsAdminModal';
 import { ErrorBoundary } from '../../../components/ErrorBoundary';
 import { HistorialModal } from '../../../components/HistorialModal';
 import { useBotonCe3x } from '../../cee-ia/useBotonCe3x';
+import { EstimacionCiega } from './EstimacionCiega';
 
 const formatNumber = (val, decimals = null) => {
     const num = typeof val === 'number' ? val : parseFloat(val);
@@ -1082,6 +1083,9 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     El <strong>bono CAE sí</strong> se obtiene. La propuesta lo avisa en su recuadro y en el mensaje de envío.
                                 </div>
                             )}
+                            {/* El CEE A CIEGAS: otra cifra, aparte, solo para el equipo. No
+                                cambia nada de lo de abajo ni de la propuesta (estimacionCiega.js). */}
+                            {isStaff && !inputs?.isReforma && <EstimacionCiega inputs={inputs} result={result} />}
                             <div className={`grid grid-cols-1 ${result.financialsRes080 && inputs?.comparativaReforma !== false ? 'xl:grid-cols-2' : ''} gap-4`}>
                                 {(inputs?.reformaType !== 'onlyReforma' && (!inputs?.isReforma || inputs?.comparativaReforma !== false)) && (
                                     <div className="glass-card overflow-hidden border-slate-700/50">
