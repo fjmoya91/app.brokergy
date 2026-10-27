@@ -110,7 +110,7 @@ async function radiografiaCex(bytes) {
  */
 async function medidasDelExpediente(ctx, { superficie, existentes = null, version = null } = {}) {
     const { medidasCe3x, claveInstalacion, claveExtras } = await cex.loadFichaCe3x();
-    const trabajo = await cex.leerTrabajo(ctx.expediente.id).catch(() => null);
+    const trabajo = await cex.leerTrabajo(ctx.expediente.id, cex.negocioDe(ctx.expediente)).catch(() => null);
     const cfg = trabajo?.ajustes || {};
     //: Lo tecleado en la cara del CEE FINAL de la ventana de envolvente: la
     //: medida es «el edificio con la instalación del final» (mismas claves que

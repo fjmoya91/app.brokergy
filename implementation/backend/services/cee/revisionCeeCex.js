@@ -343,7 +343,10 @@ function revisarHuecosPuentes(inf, rx, cex) {
     const fach = env.cerramientos.filter((c) => c.tipo === 'Fachada' && c.frontera === 'aire')
         .reduce((s, c) => s + (c.superficie || 0), 0);
     const huecos = env.huecos.filter((h) => h.tipo !== 'Lucernario');
-    const sup = huecos.reduce((s, h) => s + (h.superficie || 0) * (h.multiplicador || 1), 0);
+    //: La superficie del `.cex` YA lleva las unidades (CE3X: ancho × alto × nº; 26RES080_41,
+    //: V2 1,20 × 1,10 ×2 = 2,64): multiplicarla otra vez la doblaba (21/10/2026). Así casa
+    //: con el `.xml`, que es sobre lo que se midieron HUECOS_MIN/MAX.
+    const sup = huecos.reduce((s, h) => s + (h.superficie || 0), 0);
     if (!env.huecos.length) {
         inf.anota('huecos', 'Huecos (ventanas y puertas)', 'falla', {
             dice: 'el certificado no declara ningún hueco',

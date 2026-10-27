@@ -16,7 +16,9 @@ en la version de destino:
   · de la 3.1 o la 3.2 a la 2.3: solo si no se pierde nada que la 2.3 no sepa
     abrir (`version_ce3x.bajable`); si no, se dice y no se escribe.
 
-La envolvente (pickle 3) es igual en las dos y no se toca nunca.
+La envolvente (pickle 3) es igual en las dos y no se toca, salvo para ESCRIBIR los
+puentes térmicos que la 2.3 añade por su cuenta al calcular y la 3.x no
+(`completar_puentes_23`, con los del XML del inicial): sin ellos la demanda cambia.
 
 Y POR LINEA DE ORDENES, para un .cex suelto (el que un tecnico migro a mano, el
 de un expediente antiguo):
@@ -39,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import editar_cex as E        # noqa: E402
 import generar_cex as G       # noqa: E402
 import leer_cex as L          # noqa: E402
+import puentes as PT          # noqa: E402
 import version_ce3x as VC     # noqa: E402
 from errores import GeneracionError  # noqa: E402
 
@@ -54,6 +57,87 @@ def version_y_programa(base: Any) -> tuple[str, str]:
 def instalaciones_internas(base: Any) -> tuple[list, dict]:
     """El pickle 4 del fichero en la forma interna (2.3) y lo que se le quita."""
     return VC.instalaciones_a_23(L.leer(base, G.INSTALACIONES))
+
+
+#: Los puentes que CE3X 2.3 PONE POR SU CUENTA al calcular y que no van en el
+#: fichero: pilares integrados, encuentros con la solera y con la cubierta y
+#: cajas de persiana (26RES060_186, 20/10/2026). La 3.x no los añade, así que
+#: el MISMO inicial, sin tocar nada, daba en la 3.2 196,84 kWh/m² de
+#: calefacción frente a los 215,19 que se registraron con la 2.3.
+TIPOS_DEFECTO_23 = ("Pilar integrado en fachada", "Encuentro de fachada con solera",
+                    "Encuentro de fachada con cubierta", "Caja de Persiana",
+                    "Encuentro de fachada con suelo en contacto con el aire")
+
+
+def completar_puentes_23(base: Any, cambios: dict, puentes: list | None) -> list[str]:
+    """Escribe en el pickle 3 los puentes del XML del inicial (2.3) que no están en el fichero.
+
+    REGLA — al pasar a la 3.x un inicial de la 2.3 NO puede cambiar la demanda
+    (usuario, 20/10/2026: «sobre el 2.3 se hace el 3.2 sin cambiar nada; solo se
+    cambian instalaciones»). Lo que la 2.3 calculaba con esos puentes tiene que
+    estar escrito en el fichero para que la 3.x lo calcule igual, y se escribe
+    TAL CUAL lo declaró el XML registrado: su tipo, su ψ y su longitud. Solo se
+    añade lo que falta (por nombre) y solo sobre un cerramiento que exista.
+    `puentes`: [{nombre, tipo, psi, longitud}] del `<PuentesTermicos>` del XML.
+    """
+    p3 = cambios.get(G.ENVOLVENTE)
+    p3 = G._reemitible(L.leer(base, G.ENVOLVENTE)) if p3 is None else p3
+    if not isinstance(p3, list) or len(p3) < 3:
+        return []
+    actuales = list(p3[2] or [])
+    if not puentes:
+        faltan = [t for t in TIPOS_DEFECTO_23[:4] if not any(str(p[2]) == t for p in actuales)]
+        if not faltan:
+            return []
+        return ["⛔ El inicial es de la 2.3 y su fichero no lleva puentes «por defecto» que la 2.3 "
+                f"añade por su cuenta al calcular y la 3.x no ({', '.join(faltan)}): sin el XML del "
+                "inicial para completarlos, la DEMANDA del final puede salir más baja que la del "
+                "inicial. Compárala antes de darlo por bueno."]
+    # El XML de la BD llega en MAYÚSCULAS (normalizeData): se casa sin ellas y se
+    # escribe con los nombres y los tipos DEL FICHERO.
+    u = lambda v: str(v or "").strip().upper()  # noqa: E731
+    muros = {u(c[0]): c for c in (p3[0] or []) if isinstance(c, list) and c}
+    tipos = {u(t): t for t in PT.PSI}
+    ya = {u(p[0]) for p in actuales}
+    espacio_por_muro = {u(p[7]): str(p[8]) for p in actuales if len(p) > 8}
+    etiqueta_de = {u(str(p[0]).split("-", 1)[1]): str(p[0]).split("-", 1)[1] for p in actuales
+                   if "-" in str(p[0])}
+    muro_de_hueco = {u(str(p[0]).split("-", 1)[1]): u(p[7]) for p in actuales
+                     if len(p) > 7 and "-" in str(p[0])}
+    nuevos, saltados = [], []
+    for d in puentes:
+        nombre, tipo = str(d.get("nombre") or ""), tipos.get(u(d.get("tipo")))
+        if not nombre or u(nombre) in ya:
+            continue
+        sufijo = u(nombre.split("-", 1)[1]) if "-" in nombre else ""
+        muro = muro_de_hueco.get(sufijo, sufijo)
+        try:
+            psi, longitud = float(d.get("psi")), float(d.get("longitud"))
+        except (TypeError, ValueError):
+            saltados.append(nombre)
+            continue
+        if not tipo or muro not in muros:
+            saltados.append(nombre)
+            continue
+        espacio = espacio_por_muro.get(muro) or str(muros[muro][-2])
+        etiqueta = etiqueta_de.get(sufijo) or str(muros.get(sufijo, [sufijo])[0])
+        pt = PT.puente(tipo, longitud, str(muros[muro][0]), espacio, etiqueta=etiqueta)
+        pt[3] = psi
+        nuevos.append(pt)
+        ya.add(u(pt[0]))
+    avisos = []
+    if nuevos:
+        p3 = list(p3)
+        p3[2] = actuales + nuevos
+        cambios[G.ENVOLVENTE] = p3
+        tipos = sorted({str(p[2]) for p in nuevos})
+        avisos.append(f"El inicial es de la 2.3, que añade al calcular {len(nuevos)} puentes térmicos "
+                      f"que no van en el fichero ({', '.join(tipos)}); la 3.x no lo hace. Se han "
+                      "escrito con el ψ y la longitud del XML del inicial para que la demanda no cambie.")
+    if saltados:
+        avisos.append(f"⛔ Puentes del XML del inicial que no se han podido escribir: {', '.join(saltados)}. "
+                      "Compara la demanda del final con la del inicial.")
+    return avisos
 
 
 def a_version(base: Any, cambios: dict, destino: str, ficha: dict | None = None,
@@ -94,6 +178,7 @@ def a_version(base: Any, cambios: dict, destino: str, ficha: dict | None = None,
                 "viviendas, plantas, uso, grado de protección y la potencia de cada "
                 "equipo). Compruébalos en CE3X antes de calcular: las plantas sobre y bajo "
                 "rasante son las del EDIFICIO ENTERO (manual de la 3.2, 6.6).")
+            avisos += completar_puentes_23(base, cambios, (ficha or {}).get("puentes_inicial"))
         elif origen != destino:
             avisos.append(
                 f"El fichero estaba hecho con CE3X {origen} y sale para la {destino}: tienen la "

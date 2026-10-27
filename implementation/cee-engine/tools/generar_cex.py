@@ -1689,6 +1689,21 @@ def _sin_servicios(registro: list, quitar: set[str]) -> tuple[list, list[str]]:
     return nuevo, []
 
 
+def _sin_deposito(registro: list) -> tuple[list, list[str]]:
+    """El MISMO registro, sin el deposito de ACS (bloque [8] a `[False]`).
+
+    Para la caldera que se CONSERVA en una hibridacion cuando deja el ACS y su
+    deposito pasa al equipo nuevo que lo asume (`_heredar_acumulacion`): el
+    deposito es uno y va con quien calienta el agua.
+    """
+    if len(registro) > 8 and isinstance(registro[8], list) and registro[8] and registro[8][0] is True:
+        nuevo = list(registro)
+        nuevo[8] = [False]
+        return nuevo, [f"{str(registro[0])!r} deja el ACS: su deposito de {registro[8][1]} l pasa al "
+                       f"equipo nuevo de ACS y sale de la caldera (si no, CE3X contaria dos)."]
+    return registro, []
+
+
 def _con_reparto(registro: list, pct: float) -> tuple[list, list[str]]:
     """El MISMO registro del .cex, con SU PARTE de la demanda.
 
@@ -1805,6 +1820,15 @@ def construir_instalaciones(datos: dict, plantilla: list,
                 if fuera:
                     reg, av2 = _sin_servicios(reg, fuera)
                     av = av + av2
+                    # Y si deja el ACS y su DEPOSITO lo hereda el equipo nuevo, el
+                    # deposito sale de la caldera: el mismo deposito en dos
+                    # generadores son DOS depositos para CE3X, que suma sus
+                    # perdidas a la demanda de ACS (26RES093_16, 22/10/2026: 100 l
+                    # UA 4,3 en la caldera y en la bomba de ACS, 24,47 -> 33,41).
+                    if "acs" in fuera and any(eq.get("acumulacion_cruda")
+                                              for eq in datos.get("instalaciones", [])):
+                        reg, av3 = _sin_deposito(reg)
+                        av = av + av3
                 quedan.append(reg)
                 avisos.append(
                     f"NO se retira {str(viejo[0])!r}: es una HIBRIDACION y sigue dando "
@@ -1868,7 +1892,11 @@ def construir_instalaciones(datos: dict, plantilla: list,
         avisos.extend(av)
         if eq.get("de"):
             avisos.append(f"instalacion {eq['nombre']}: {eq['de']}")
-    avisos.extend(_reparto(equipos))
+    # En una HIBRIDACION la caldera que se conserva cubre `conservar` % de lo que
+    # comparte con la bomba: sin contarla, el aviso decia que ese % «no lo da
+    # ninguno» (26RES093_16, 22/10/2026).
+    conservado = ({s: conservar for s in asumidos_retira - enteros} if conservar is not None else {})
+    avisos.extend(_reparto(equipos, conservado))
     return slots, avisos
 
 
@@ -1879,8 +1907,11 @@ _PCT_DEL_SERVICIO = {"acs": "pct_acs", "calefaccion": "pct_calefaccion",
                      "refrigeracion": "pct_refrigeracion"}
 
 
-def _reparto(equipos: list[dict]) -> list[str]:
+def _reparto(equipos: list[dict], conservado: dict | None = None) -> list[str]:
     """Que la suma de porcentajes de cada servicio no pase del 100 %.
+
+    `conservado`: {servicio: %} que sigue dando un generador del fichero que se
+    conserva (la caldera de una hibridacion), y que tambien cuenta.
 
     Pasarse no es un detalle: significa declarar mas demanda cubierta de la que
     hay, y el certificado sale con un consumo que no cuadra con su propia
@@ -1904,7 +1935,7 @@ def _reparto(equipos: list[dict]) -> list[str]:
             suma += _numf(eq.get(clave)) if eq.get(clave) not in (None, "") else 100.0
         if not cuantos:
             continue
-        suma = round(suma, 1)
+        suma = round(suma + float((conservado or {}).get(servicio) or 0), 1)
         if suma > 100:
             avisos.append(
                 f"los equipos de {servicio} suman {suma} % de la demanda: pasan del "

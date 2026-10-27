@@ -149,6 +149,21 @@ comprueba('el TERMO se escribe por efecto Joule', termo?.generador, 'Efecto Joul
 comprueba('  …con el rendimiento ESTIMADO', termo?.rendimiento, 'estimado');
 comprueba('  …al 100 %', termo?.rend_nominal, '100');
 
+// Y con el ACS FUERA del alcance (`cambio_acs: false`) y un termo nuevo declarado,
+// el CEE FINAL (que copia el inicial) también lo lleva: si no, el motor conservaba
+// la caldera retirada solo para el ACS (26RES060_186, 26/10/2026).
+const termoFuera = instalacionNueva({
+    expediente: expediente({
+        cambio_acs: false,
+        aerotermia_acs: { tipo_equipo_nuevo: 'termo_electrico', marca: '', modelo: '', scop: 1 },
+    }), superficie: 165, delFichero: true });
+const termoF = (termoFuera.extras || []).find(e => e?.nombre === 'TERMO ELÉCTRICO');
+comprueba('ACS fuera de alcance + termo declarado: el FINAL lleva el TERMO', termoF?.slot, 'ACS');
+comprueba('  …y lo dice', termoFuera.avisos.some(a => a.includes('lo declara el expediente')), true);
+const sinTermo = instalacionNueva({
+    expediente: expediente({ cambio_acs: false, aerotermia_acs: {} }), superficie: 165, delFichero: true });
+comprueba('  …sin termo declarado, no se inventa', (sinTermo.extras || []).some(e => e?.nombre === 'TERMO ELÉCTRICO'), false);
+
 // ── 5. Lo que decide el MOTOR al copiar el .cex inicial ──────────────────────
 // (`slots_a_retirar` y `heredar_del_base` viven en Python; aquí se comprueba que
 //  la vista les manda lo que esperan y que el contrato no se ha movido.)

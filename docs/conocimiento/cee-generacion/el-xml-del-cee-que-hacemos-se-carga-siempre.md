@@ -37,6 +37,14 @@ calculadora con un `.xml`: `parseCeeXml` → `ceeFromXml` → `seedInputsFromCee
 `xmlDemandData` para que el expediente nazca con este CEE como inicial) → `computeFullCalculatorResult`.
 Los `inputs` van por `oportunidad_merge_inputs` con los mismos sellos que el guardado de la
 calculadora (SCOP a dos decimales, precio CAE, guía de transmitancias); el `result`, la nota del
+historial (cifra antes → después) y `demanda_calefaccion`, releyendo justo antes. Un RES080 no por
+este camino: su ahorro sale de DOS certificados. Al crear la oportunidad, `alta_oportunidad` con
+`cee_xml`; con la oportunidad YA creada (lo normal, porque el CEE necesita su carpeta de Drive),
+`cargarRes080EnOportunidad(id, xmlInicial, xmlPrevisto)` del mismo servicio, con las mismas
+funciones que ese `cee_xml` (modo «real», ahorro por vector, superficie del CEE, sin `cee_previo`).
+Aún no lo llama `aplicar` solo: se lanza a mano con los `.xml` del inicial y el previsto (22/10/2026,
+26RES080_OP84: 47.044 kWh estimados → 42.142 medidos, bono 4.214 € a 100 €/MWh). Y no sustituye el
+CEE que aportó el CLIENTE sin `--forzar`. Fuente única:
 historial (cifra antes → después) y `demanda_calefaccion`, releyendo justo antes. Un RES080 no: su
 ahorro sale de DOS certificados (`alta_oportunidad` con `cee_xml`). Y no sustituye el CEE que aportó
 el CLIENTE sin `--forzar`. Fuente única:

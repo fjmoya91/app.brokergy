@@ -416,6 +416,30 @@ def test_hibridacion_con_el_ACS_en_un_termo_aparte_deja_la_caldera_sin_ACS():
     assert any("lo asume entero" in a for a in avisos)
 
 
+def test_la_caldera_que_deja_el_ACS_deja_tambien_su_DEPOSITO():
+    """26RES093_16 (22/10/2026): la bomba de ACS hereda el deposito del fichero
+    (100 l, UA 4,3) y la caldera conservada se lo quedaba TAMBIEN. CE3X sumaba
+    las perdidas de los dos y la demanda de ACS del final pasaba de 24,47 a
+    33,41 kWh/m2. El deposito es uno y va con quien calienta el agua; y el
+    aviso del reparto cuenta la parte de la caldera conservada."""
+    equipos = [
+        {"slot": "calefaccion", "nombre": "AEROTERMIA SH MASTER 14", "generador":
+         "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+         "rendimiento": "conocido", "rend_calefaccion": "385",
+         "superficie_calefaccion": 100.86, "pct_calefaccion": "82"},
+        {"slot": "ACS", "nombre": "BOMBA DE CALOR ACS HAIER", "generador":
+         "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+         "rendimiento": "conocido", "rend_acs": "338", "superficie_acs": 123,
+         "pct_acs": "100"},
+    ]
+    mixtos, avisos = _final(equipos, _base_con_caldera(), conservar=18)
+    assert mixtos[0][0] == "CALDERA DOMUSA"
+    assert mixtos[0][8] == [False]                          # su deposito, fuera
+    assert equipos[1]["acumulacion_cruda"][:2] == [True, "100"]   # va con la bomba de ACS
+    assert any("sale de la caldera" in a for a in avisos)
+    assert not any("restante no lo da ninguno" in a for a in avisos)
+
+
 # ---------------------------------------------------------------------------
 # La AEROTERMIA QUE DA FRIO (suelo radiante): mixto3 y climatizacion
 #

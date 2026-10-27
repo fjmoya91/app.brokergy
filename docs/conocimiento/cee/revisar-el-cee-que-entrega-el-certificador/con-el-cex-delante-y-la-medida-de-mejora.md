@@ -83,3 +83,10 @@ La versión vigente pasa a ser la **3.2** (ver «CE3X 3.2 — la vigente desde e
   eléctrico (`generadores_electricos` de la radiografía).
 
 Pruebas: `node implementation/backend/scripts/test_revision_cee_cex.js`.
+
+**La superficie de un hueco del `.cex` YA lleva sus unidades (2026-10-21, 26RES080_41).** CE3X guarda
+`superficie = ancho × alto × multiplicador` (V2 1,20 × 1,10 × 2 = 2,64), igual que el `.xml`. La
+comprobación «Huecos sobre fachada» y el cuadro de huecos del croquis (`croquisCee.js`) la volvían a
+multiplicar: los huecos con varias unidades contaban doble (en el 41, la V6 salía con 23,76 m² en vez
+de 7,92). Ahora suman la superficie tal cual; el croquis añade «(×n)» a la medida. Los umbrales
+`HUECOS_MIN/MAX` se midieron sobre el `.xml`, donde no hay multiplicador, así que no cambian.
