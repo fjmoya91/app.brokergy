@@ -11,6 +11,7 @@ import { buildFontFaces, FUENTE_INTER } from '../logic/fuentesDoc.js';
 import { cedentesDe, repartoPago, cuotaTxt } from '../logic/cedentes.js';
 import { representacionDe } from '../logic/representacion.js';
 import { casillaFirmaConvenioPx } from '../logic/signBoxes.js';
+import { usaDireccionCliente, direccionDelCliente } from '../logic/direccionInstalacion.js';
 
 // Node-safe: este módulo también se importa server-side (cifoService vía cifoDoc).
 // En Node no existen import.meta.env ni window, así que se accede con guardas.
@@ -207,17 +208,20 @@ export const buildInstalacionAddress = (expediente) => {
     const opIn = { ...dc, ...(dc.inputs || {}) };
     const isNum = (v) => /^\d+$/.test(String(v ?? '').trim());
 
-    // Cuando la instalación comparte domicilio con el cliente (misma_direccion = SI),
-    // la dirección NO se replica en `instalacion`: vive en la ficha del cliente, que
-    // pasa a ser la fuente de respaldo. Si misma_direccion === false, la instalación
-    // tiene dirección propia y NO se debe usar la del cliente.
+    // Con «¿Misma dirección que el cliente? → Sí» MANDA la ficha del cliente, en vivo
+    // (logic/direccionInstalacion.js): se corrige allí y cambia en todos los
+    // documentos. Solo si el cliente no tiene calle se cae a la de la instalación /
+    // el Catastro. Con «No», la instalación tiene dirección propia y el cliente no
+    // se usa nunca.
     const cli = exp.clientes || {};
-    const cliAddr = inst.misma_direccion === false ? {} : cli;
+    const sigueCliente = usaDireccionCliente(inst) ? direccionDelCliente(cli) : null;
+    const cliAddr = usaDireccionCliente(inst) ? cli : {};
 
-    const calle = inst.direccion || opIn.direccion || opIn.address || cliAddr.direccion || loc.direccion || '';
-    const num = inst.num || loc.num || '';
-    const cp = inst.codigo_postal || opIn.cp || opIn.codigo_postal || cliAddr.codigo_postal || loc.cp || '';
-    const municipio = inst.municipio || opIn.municipio || cliAddr.municipio || loc.municipio || '';
+    const calle = sigueCliente?.calle || inst.direccion || opIn.direccion || opIn.address || loc.direccion || '';
+    // El nº suelto es de la dirección de la instalación: con la del cliente no se pega.
+    const num = sigueCliente ? '' : (inst.num || loc.num || '');
+    const cp = sigueCliente?.cp || inst.codigo_postal || opIn.cp || opIn.codigo_postal || cliAddr.codigo_postal || loc.cp || '';
+    const municipio = sigueCliente?.municipio || inst.municipio || opIn.municipio || cliAddr.municipio || loc.municipio || '';
 
     // Código de provincia: de un campo de código, de una provincia que llega como
     // número, o de los 2 primeros dígitos del CP.
@@ -229,7 +233,7 @@ export const buildInstalacionAddress = (expediente) => {
 
     // Nombre de provincia (nunca un código). geoContext deja el nombre en
     // datos_calculo.provincia; si no, lo derivamos del código.
-    const provincia = [inst.provincia, opIn.provincia_nombre, dc.provincia, opIn.provincia, cliAddr.provincia, loc.provincia]
+    const provincia = [sigueCliente?.provincia, inst.provincia, opIn.provincia_nombre, dc.provincia, opIn.provincia, cliAddr.provincia, loc.provincia]
         .find(v => v && !isNum(v)) || PROVINCE_CODE_TO_NAME[provCode] || '';
 
     // CCAA: el Catastro no la da; preferimos lo guardado y, si no, la derivamos

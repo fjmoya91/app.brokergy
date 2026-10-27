@@ -24,6 +24,7 @@
 // ============================================================================
 
 import { FV } from '../../expedientes/logic/fotovoltaica.js';
+import { usaDireccionCliente, direccionDelCliente } from '../../expedientes/logic/direccionInstalacion.js';
 
 /** Tipo de IVA aplicado al coste de gestión. */
 export const IVA = 0.21;
@@ -797,10 +798,12 @@ export function direccionObra(exp) {
     const inst = exp?.instalacion || {};
     const dc = exp?.oportunidades?.datos_calculo || {};
     const op = { ...dc, ...(dc.inputs || {}) };
-    const cli = inst.misma_direccion === false ? {} : (exp?.clientes || {});
+    const cli = usaDireccionCliente(inst) ? (exp?.clientes || {}) : {};
+    // Con «Sí» manda la ficha del cliente (logic/direccionInstalacion.js).
+    const sigue = direccionDelCliente(cli);
     const limpia = (s) => String(s || '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').replace(/\s+,/g, ',').trim();
-    const calle = limpia(inst.direccion || op.direccion || cli.direccion);
-    const muni = limpia(inst.municipio || op.municipio || cli.municipio);
+    const calle = limpia(sigue?.calle || inst.direccion || op.direccion);
+    const muni = limpia(sigue?.municipio || inst.municipio || op.municipio);
     const c = nombrePropio(calle).replace(/\bnº\s*/gi, 'nº ').replace(/^(c|av|avda|ctra|pza|pl)\b/i, m => m.charAt(0).toUpperCase() + m.slice(1));
     return [c, muni ? `(${nombrePropio(muni)})` : ''].filter(Boolean).join(' ') || null;
 }

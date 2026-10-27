@@ -191,19 +191,24 @@ function buildDocMeta(exp, cliente, op) {
     const opIn = { ...dc, ...(dc.inputs || {}) };
     const isNum = (v) => /^\d+$/.test(String(v ?? '').trim());
 
-    // Dirección de instalación: propia si misma_direccion === false, si no, cliente.
-    const cliAddr = inst.misma_direccion === false ? {} : (cliente || {});
-    const calle = inst.direccion || opIn.direccion || opIn.address || cliAddr.direccion || '';
-    const num = inst.num || '';
-    const cp = inst.codigo_postal || opIn.cp || opIn.codigo_postal || cliAddr.codigo_postal || '';
-    const municipio = inst.municipio || opIn.municipio || cliAddr.municipio || '';
+    // Dirección de instalación. Espejo de `buildInstalacionAddress` y de
+    // logic/direccionInstalacion.js (frontend): con «misma dirección = Sí» MANDA la
+    // ficha del cliente, en vivo; con «No», la propia de la instalación.
+    const md = String(inst.misma_direccion ?? '').trim().toUpperCase();
+    const usaCli = !(inst.misma_direccion === false || md === 'NO' || md === 'FALSE');
+    const cliAddr = usaCli ? (cliente || {}) : {};
+    const sigue = usaCli && String(cliAddr.direccion || '').trim() ? cliAddr : null;
+    const calle = sigue?.direccion || inst.direccion || opIn.direccion || opIn.address || '';
+    const num = sigue ? '' : (inst.num || '');
+    const cp = sigue?.codigo_postal || inst.codigo_postal || opIn.cp || opIn.codigo_postal || cliAddr.codigo_postal || '';
+    const municipio = sigue?.municipio || inst.municipio || opIn.municipio || cliAddr.municipio || '';
 
     const provCode = (inst.provincia_cod || opIn.provincia_cod
         || (isNum(inst.provincia) ? inst.provincia : '')
         || (isNum(opIn.provincia) ? opIn.provincia : '')
         || (cp ? String(cp).substring(0, 2) : '')) || '';
     const provCodePad = provCode ? String(provCode).padStart(2, '0') : '';
-    const provincia = [inst.provincia, opIn.provincia_nombre, dc.provincia, cliAddr.provincia]
+    const provincia = [sigue?.provincia, inst.provincia, opIn.provincia_nombre, dc.provincia, cliAddr.provincia]
         .find(v => v && !isNum(v)) || PROV_NOMBRE[provCodePad] || '';
 
     const calleFull = [calle, num].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();

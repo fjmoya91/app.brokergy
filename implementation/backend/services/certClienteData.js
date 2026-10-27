@@ -50,12 +50,17 @@ function buildCertClienteData(exp, op, cli) {
         ? `${clean(cli.nombre_razon_social)} ${clean(cli.apellidos)}`.trim()
         : '') || clean(op?.referencia_cliente) || '';
 
-    // Dirección de la INSTALACIÓN: manda el expediente, luego la calculadora.
+    // Dirección de la INSTALACIÓN. Con «misma dirección = Sí» manda la ficha del
+    // cliente, en vivo (espejo de logic/direccionInstalacion.js del frontend); si
+    // no, el expediente y luego la calculadora.
+    const md = clean(inst.misma_direccion).toUpperCase();
+    const usaCli = !(inst.misma_direccion === false || md === 'NO' || md === 'FALSE');
+    const sigue = usaCli && clean(cli?.direccion) ? cli : null;
     const direccionInstalacion = joinAddress({
-        calle: clean(inst.direccion) || clean(inputs.direccion) || clean(inputs.address),
-        cp: clean(inst.codigo_postal) || clean(inputs.cp),
-        municipio: clean(inst.municipio) || clean(inputs.municipio),
-        provincia: clean(inst.provincia) || clean(inputs.provincia),
+        calle: clean(sigue?.direccion) || clean(inst.direccion) || clean(inputs.direccion) || clean(inputs.address),
+        cp: clean(sigue?.codigo_postal) || clean(inst.codigo_postal) || clean(inputs.cp),
+        municipio: clean(sigue?.municipio) || clean(inst.municipio) || clean(inputs.municipio),
+        provincia: clean(sigue?.provincia) || clean(inst.provincia) || clean(inputs.provincia),
     });
 
     // Domicilio del CLIENTE: solo de su ficha.

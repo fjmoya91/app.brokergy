@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BOILER_EFFICIENCIES, SIN_CALEFACCION_ID, esSinCalefaccion, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, climaScopForzado, scopsParaClima, zoneClimateSeason, CLIMA_SCOP } from '../../calculator/logic/calculation';
-import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
+import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME, buildInstalacionAddress } from '../utils/docGenerators';
+import { direccionDelCliente } from '../logic/direccionInstalacion';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE, acsEquipoPropio, getUnidades, mismaMaquina } from '../logic/aerotermiaUnits';
 import { esConjuntoAcs, produceAcs, metodoAcsDelModelo, litrosAcsCatalogo, nodoAcsDesdeConjunto, FALTA_ACS } from '../logic/acsCatalogo';
 import { opcionDeEquipo, BUSCAR_EQUIPO } from '../logic/aerotermiaOpciones';
@@ -2047,6 +2048,25 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         onChange={handleMismaDireccionChange}
                         readOnly={readOnly}
                     />
+
+                    {/* Con «Sí» los documentos siguen la ficha del CLIENTE, en vivo
+                        (logic/direccionInstalacion.js): se enseña cuál, para que no
+                        haya que adivinar qué van a imprimir. */}
+                    {local.misma_direccion && (() => {
+                        const delCliente = direccionDelCliente(expediente?.clientes);
+                        const enDocs = buildInstalacionAddress({ ...expediente, instalacion: local }).full;
+                        return (
+                            <div className="pt-2 border-t border-white/5 text-[11px] leading-relaxed">
+                                <span className="text-white/40 font-bold uppercase tracking-wider text-[10px]">Dirección en los documentos</span>
+                                <div className="text-white/80 font-semibold mt-0.5">{enDocs || '—'}</div>
+                                <div className="text-white/30 mt-0.5">
+                                    {delCliente
+                                        ? 'Es la de la ficha del cliente: si la cambias allí, cambia aquí y en todos los documentos.'
+                                        : 'El cliente no tiene dirección en su ficha: se usa la del Catastro.'}
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {!local.misma_direccion && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2 border-t border-white/5 animate-fade-in">

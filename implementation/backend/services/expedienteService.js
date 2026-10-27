@@ -31,6 +31,16 @@ function loadConfirmacion() {
     return _confPromise;
 }
 
+// ¿La instalación está en el domicilio del cliente? (logic/direccionInstalacion.js)
+let _dirPromise = null;
+function loadDireccionInstalacion() {
+    if (!_dirPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/direccionInstalacion.js')).href;
+        _dirPromise = import(url);
+    }
+    return _dirPromise;
+}
+
 // Mapa inverso "nombre de provincia normalizado" -> código (para migración desde XML).
 // El CEE trae la provincia como texto ("CIUDAD REAL"); la app espera el CÓDIGO de
 // provincia en datos_calculo.inputs.provincia (lo usan getCCAA y los cálculos).
@@ -239,8 +249,27 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             }
         }
 
+        // ── ¿Misma dirección que el cliente? ─────────────────────────────────
+        // Con «Sí» los documentos siguen la ficha del cliente, así que solo se pone
+        // cuando ES la misma vivienda. Si el cliente vive en OTRA calle, nace en «No»
+        // con la dirección del Catastro (la de la obra). Sin calle en una de las dos,
+        // «Sí»: no hay nada que comparar y se cae a la del Catastro igualmente.
+        let direccionPropia = null;
+        try {
+            const { mismaVivienda } = await loadDireccionInstalacion();
+            const dirObra = opInputs.direccion || op.datos_calculo?.direccion || op.datos_calculo?.address || '';
+            const muniObra = opInputs.municipio || op.datos_calculo?.municipio || '';
+            if (mismaVivienda({ direccion: cliente.direccion, municipio: cliente.municipio },
+                              { direccion: dirObra, municipio: muniObra }) === false) {
+                direccionPropia = { misma_direccion: false, direccion: dirObra, ...(muniObra ? { municipio: muniObra } : {}) };
+            }
+        } catch (e) {
+            console.warn('[ExpedienteService] misma dirección:', e.message);
+        }
+
         const instalacion = {
             misma_direccion: true,
+            ...(direccionPropia || {}),
             ref_catastral: op.ref_catastral || '',
             coord_x: utmX,
             coord_y: utmY,
