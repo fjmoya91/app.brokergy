@@ -68,7 +68,7 @@ paths:
 - `docs/conocimiento/calculo/ficha-ter100-sector-terciario.md` — Ficha TER100 — Sector TERCIARIO (2026-07-30) · 5,1 KB
 - `docs/conocimiento/calculo/ficha-ter173-hibridacion-en-el-terciario.md` — Ficha TER173 — HIBRIDACIÓN en el terciario (2026-09-09) · 11,3 KB
 - `docs/conocimiento/calculo/fichas-con-factor-de-correccion-res060fc-y-res09xfc.md` — Fichas con FACTOR DE CORRECCIÓN: RES060FC y las de hibridación por zona (2026-10-21) · 7,3 KB
-- `docs/conocimiento/calculo/la-d-acs-por-litros-dia-del-certificado.md` — La D_ACS por LITROS/DÍA del certificado (2026-09-13) · 8,0 KB
+- `docs/conocimiento/calculo/la-d-acs-por-litros-dia-del-certificado.md` — La D_ACS por LITROS/DÍA del certificado (2026-09-13) · 8,3 KB
 - `docs/conocimiento/calculo/precio-cae-al-cliente-100-mwh-y-solo-hacia-adelante.md` — Precio CAE al cliente — 100 €/MWh, y solo hacia adelante (2026-09-09) · 6,2 KB
 
 ## Las «REGLA —» que contienen esos documentos

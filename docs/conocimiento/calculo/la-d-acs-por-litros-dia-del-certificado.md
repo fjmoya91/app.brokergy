@@ -114,7 +114,11 @@ CIFO del sistema antiguo).
 aunque las demandas coincidan. Escrito el 27/10/2026: **32 expedientes** (todos sin CIFO) +
 los litros de 25RES060_54. La D_ACS baja casi siempre: 26RES060_187 de 4.502 a 2.731,
 26RES060_173 de 5.245 a 3.278 kWh/año. Fuera, por tener ya el CIFO enviado: **26RES060_220**
-(XML, 4.389 → 2.731 kWh/año si se pasara; CIFO enviado el 27/10 a las 14:38).
+(CIFO enviado el 27/10 a las 14:38). Se probó a pasarlo a L/D (D_ACS 4.389 → 2.731 kWh/año,
+ahorro 87.653 → 85.387 kWh) y **Fran decidió dejarlo en XML**: sus dos CEE dan la MISMA demanda de
+ACS (20,04 kWh/m²·año) y así lo acepta el verificador (regla 12.f); el CIFO, el Anexo I y el
+Convenio se regeneraron otra vez en XML y coinciden con el que ya tiene el instalador. El resto de
+los en marcha se quedan en L/D.
 
 ```bash
 node implementation/backend/scripts/test_dacs_litros.mjs
