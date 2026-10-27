@@ -71,9 +71,16 @@ pendiente de revisión, el asistente avisa y ofrece «Preséntalo igualmente» a
 **Lo que ve quien encarga es poco, a propósito** (decisión de Fran, 19/10/2026: «tampoco necesito
 saber tanto»): al pulsar, «Se está preparando el CEE inicial de 26RES093_15. Te avisaremos por
 WhatsApp cuando esté listo» (y «está terminando otro trabajo» si el vigilante estaba ocupado). Queda
-guardado en el mensaje, así que al recargar no vuelve a ofrecer «Encargar». El acuse del WhatsApp
-dice lo mismo («Me pongo con el CEE inicial de … Te aviso cuando esté listo»): cada tarea lleva su
-frase (`TAREAS[k].que`). Ojo: si el WhatsApp del servidor está caído (p. ej. justo tras un
+guardado en el mensaje, así que al recargar no vuelve a ofrecer «Encargar».
+
+**REGLA — un encargo de la app NO avisa por WhatsApp al empezar: un solo mensaje, al terminar**
+(Fran, 24/10/2026: «no hace falta que me llegue un mensaje cuando se lo pido; sí cuando esté
+completada»). Hasta entonces le llegaban hasta dos al pulsar «Encargar»: el acuse del vigilante
+(«Me pongo con el CEE inicial de …», el `acuse` de cada tarea) y el «me pongo con ello» que el propio
+Claude manda en las tareas largas. Ahora el vigilante solo manda acuse si hay mensajes de Fran en el
+grupo (el `acuse` del encargo se ignora) y, cuando lo único que hay son tareas de la app, el prompt
+le dice a Claude que no escriba al empezar ni a mitad. Vale para todo lo que entra por `/tarea`: el
+asistente, el botón CE3X y el agente de la aceptación. Ojo: si el WhatsApp del servidor está caído (p. ej. justo tras un
 despliegue, hasta que el vigilante de `whatsappService` lo reinicia), el vigilante del asistente NO
 arranca nada —lee el grupo antes de atender la cola—; lo coge solo en cuanto vuelve (medido el
 19/10: pedido a las 20:52, cogido a las 20:56, Agente IA en el expediente a las 20:57).

@@ -138,3 +138,18 @@ división de siempre, que no se inventa un η. Fuente única: `etaWhAnexoIv` en
 
 ⚠️ Siguen imprimiendo la división los expedientes cuyo SCOP guardado no sale de un η entero:
 26RES060_167 y 25RES060_70 guardan 3,47 (con 139 % sería 3,48) y salen con 138,8 %.
+
+## LASIAN ATHERIA (R290, tarifa 2026) NO es la ATHERIA «S2» (2026-10-26)
+
+Son dos gamas distintas con SCOP distintos. **S2**: ids 81 (110), 90 (150), 169 (200), 170 (250),
+171 (250 S3). **ATHERIA nueva**: ids 593 (100), 603 (150), 604 (200), 605 (300), SCOP_dhw 2,63 ·
+2,89 · 2,97 · 3,02 = «SCOP a 7 °C / EN 16147» de la pág. 28 de la tarifa 2026, en clima MEDIO (Anexo
+VI caso 1; el cálido vacío cae al medio). Ficha: «FT - JUSTIFICACION SCOP LASIAN ATHERIA
+100-150-200-300.pdf» (carpeta ACS); la 100 conserva la suya, que además trae la placa (COP 2,65).
+La 593 nació el 24/10 llamándose «100 S2» por error.
+
+**REGLA — la gama la dice la PLACA, no la factura.** La nueva lleva nº de serie `…GHHBS…Q7…`
+(26RES060_172, _164); la S2, otro patrón (26RES060_141: `GKOGV…`). La factura de 26RES060_164 dice
+«ATHERIA 200 S2» y el equipo es la ATHERIA 200 nueva (Fran). Corregidos con
+`scripts/lasian_atheria_catalogo.js`: 172 (solo el nombre), 164 (S2 2,98 → 2,97 y su FT) y 225
+(sin catálogo y con un 3,0 inventado → 2,63). 26RES060_203 sigue en la 200 S2: no tiene nº de serie.

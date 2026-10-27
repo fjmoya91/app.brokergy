@@ -28,6 +28,33 @@
       "autoPort": true
     },
     {
+      "name": "backend-rite8091",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "process.env.RITE_SERVICE_URL='http://localhost:8091';process.argv[1]=require('path').resolve('server.js');require('module').runMain()"
+      ],
+      "cwd": "implementation/backend",
+      "port": 3000,
+      "autoPort": false
+    },
+    {
+      "name": "rite-generator-8091",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "server:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8091"
+      ],
+      "cwd": "implementation/rite-generator",
+      "port": 8091,
+      "autoPort": false
+    },
+    {
       "name": "frontend",
       "runtimeExecutable": "node",
       "runtimeArgs": [
@@ -111,6 +138,17 @@
       "autoPort": false
     },
     {
+      "name": "backend-sinwa-3000",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "process.env.PORT='3000';process.env.WHATSAPP_ENABLED='false';process.env.WA_MEDIA_SIMULADO='1';process.argv[1]=require('path').resolve('server.js');require('module').runMain()"
+      ],
+      "cwd": "implementation/backend",
+      "port": 3000,
+      "autoPort": false
+    },
+    {
       "name": "backend-alt2",
       "runtimeExecutable": "node",
       "runtimeArgs": [
@@ -130,6 +168,108 @@
       ],
       "cwd": "implementation/frontend",
       "port": 5182,
+      "autoPort": false
+    },
+    {
+      "name": "backend-certapp",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "process.env.PORT='3030';process.env.WHATSAPP_ENABLED='false';process.env.WA_MEDIA_SIMULADO='1';process.env.CERTAPP_URL='http://cee.localhost:5190';process.argv[1]=require('path').resolve('server.js');require('module').runMain()"
+      ],
+      "cwd": "implementation/backend",
+      "port": 3030,
+      "autoPort": false
+    },
+    {
+      "name": "frontend-certapp",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "process.env.BACKEND_PORT='3030';process.argv.splice(1,process.argv.length-1,'vite','--port','5190','--strictPort');import('./node_modules/vite/bin/vite.js')"
+      ],
+      "cwd": "implementation/frontend",
+      "port": 5190,
+      "autoPort": false
+    },
+    {
+      "name": "certapp-despliegue-back",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "const cp=require('child_process');const h=cp.spawn(process.execPath,[\"server.js\"],{cwd:'C:/Users/Usuario/AppData/Local/Temp/claude/C--Proyectos-app-brokergy/23ab3a33-d61c-4e53-80f3-ed81cd5aff67/scratchpad/despliegue/implementation/backend',env:{...process.env,...{\"PORT\":\"3035\",\"WHATSAPP_ENABLED\":\"false\",\"WA_MEDIA_SIMULADO\":\"1\",\"CERTAPP_URL\":\"http://cee.localhost:5195\"}},stdio:'inherit'});process.on('exit',()=>h.kill());h.on('exit',c=>process.exit(c||0))"
+      ],
+      "cwd": "implementation/backend",
+      "port": 3035,
+      "autoPort": false
+    },
+    {
+      "name": "certapp-despliegue-front",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "const cp=require('child_process');const h=cp.spawn(process.execPath,[\"node_modules/vite/bin/vite.js\",\"--port\",\"5195\",\"--strictPort\"],{cwd:'C:/Users/Usuario/AppData/Local/Temp/claude/C--Proyectos-app-brokergy/23ab3a33-d61c-4e53-80f3-ed81cd5aff67/scratchpad/despliegue/implementation/frontend',env:{...process.env,...{\"BACKEND_PORT\":\"3035\"}},stdio:'inherit'});process.on('exit',()=>h.kill());h.on('exit',c=>process.exit(c||0))"
+      ],
+      "cwd": "implementation/frontend",
+      "port": 5195,
+      "autoPort": false
+    },
+    {
+      "name": "crm-completo-5184",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "const cp=require('child_process');const b=cp.spawn(process.execPath,['server.js'],{cwd:require('path').resolve('../backend'),env:{...process.env,PORT:'3040',WHATSAPP_ENABLED:'false',WA_MEDIA_SIMULADO:'1'},stdio:'inherit'});process.on('exit',()=>b.kill());process.env.BACKEND_PORT='3040';process.argv.splice(1,process.argv.length-1,'vite','--port','5184','--strictPort');import('./node_modules/vite/bin/vite.js')"
+      ],
+      "cwd": "implementation/frontend",
+      "port": 5184,
+      "autoPort": false
+    },
+    {
+      "name": "fx-demo-5186",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "const cp=require('child_process'),fs=require('fs'),path=require('path');const env=fs.readFileSync(path.resolve('../backend/.env'),'utf8');const k=((env.match(/^INTERNAL_API_KEY=(.*)$/m)||[])[1]||'').trim().replace(/^['\"]|['\"]$/g,'');const b=cp.spawn(process.execPath,['server.js'],{cwd:path.resolve('../backend'),env:{...process.env,PORT:'3045',WHATSAPP_ENABLED:'false',WA_MEDIA_SIMULADO:'1'},stdio:'inherit'});process.on('exit',()=>b.kill());process.env.BACKEND_PORT='3045';process.env.VITE_FX_DEMO_KEY=k;process.argv.splice(1,process.argv.length-1,'vite','--port','5186','--strictPort');import('./node_modules/vite/bin/vite.js')"
+      ],
+      "cwd": "implementation/frontend",
+      "port": 5186,
+      "url": "http://localhost:5186",
+      "autoPort": false
+    },
+    {
+      "name": "certapp-despliegue-dist",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "const cp=require('child_process');const h=cp.spawn(process.execPath,[\"node_modules/vite/bin/vite.js\",\"preview\",\"--port\",\"5197\",\"--strictPort\"],{cwd:'C:/Users/Usuario/AppData/Local/Temp/claude/C--Proyectos-app-brokergy/23ab3a33-d61c-4e53-80f3-ed81cd5aff67/scratchpad/despliegue/implementation/frontend',stdio:'inherit'});process.on('exit',()=>h.kill());h.on('exit',c=>process.exit(c||0))"
+      ],
+      "cwd": "implementation/frontend",
+      "port": 5197,
+      "autoPort": false
+    },
+    {
+      "name": "landing-pc-5199",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "const cp=require('child_process');const h=cp.spawn(process.execPath,[\"node_modules/vite/bin/vite.js\",\"--port\",\"5199\",\"--strictPort\"],{cwd:'C:/Proyectos/app.brokergy/.claude/worktrees/certapp-landing-pc/implementation/frontend',stdio:'inherit'});process.on('exit',()=>h.kill());h.on('exit',c=>process.exit(c||0))"
+      ],
+      "cwd": "implementation/frontend",
+      "port": 5199,
+      "url": "http://cee.localhost:5199",
+      "autoPort": false
+    },
+    {
+      "name": "certapp-despliegue-nginx",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:/Users/Usuario/AppData/Local/Temp/claude/C--Proyectos-app-brokergy/23ab3a33-d61c-4e53-80f3-ed81cd5aff67/scratchpad/nginx_cee.js",
+        "C:/Users/Usuario/AppData/Local/Temp/claude/C--Proyectos-app-brokergy/23ab3a33-d61c-4e53-80f3-ed81cd5aff67/scratchpad/despliegue/implementation/frontend/dist",
+        "5198"
+      ],
+      "cwd": "implementation/frontend",
+      "port": 5198,
       "autoPort": false
     }
   ]
