@@ -177,12 +177,16 @@ export function litrosFase(cee = {}) {
  * al día los expedientes en marcha):
  *   · en modo 'litros' sin cifra tecleada, se copia la del certificado (para que
  *     la casilla L/D la enseñe y quede en la BD);
- *   · en 'xml' o 'cte', si los DOS certificados declaran demandas de ACS
- *     distintas, se pasa a 'litros' — es justo el caso que el verificador ya no
- *     acepta. Si coinciden, no se toca: ahí da igual una cifra que la otra.
+ *   · en 'xml' o 'cte' se pasa a 'litros' SIEMPRE que el certificado los
+ *     declare (Fran, 27/10/2026: «siempre se debe calcular con litros día del
+ *     CEE»). La única excepción es un expediente cuyo CIFO ya está generado o
+ *     enviado al instalador (`documentoHecho`, ver `documentoAcsHecho`): ahí
+ *     solo se cambia si las dos demandas difieren —el caso que el verificador
+ *     no acepta—, para no mover en silencio el ahorro de un documento que ya
+ *     circula.
  *   · 'manual' (terciario) no se toca nunca.
  */
-export function ajusteAcsLitros(cee = {}) {
+export function ajusteAcsLitros(cee = {}, { documentoHecho = false } = {}) {
     const mode = (cee || {}).acs_method || ACS_METHOD.XML;
     if (mode === ACS_METHOD.MANUAL) return null;
     const { litros } = litrosDelCertificado(cee);
@@ -191,10 +195,21 @@ export function ajusteAcsLitros(cee = {}) {
     if (mode === ACS_METHOD.LITROS) {
         return tecleado === litros ? null : { dacs_litros_dia: litros };
     }
-    if (baseAcs(cee, {}).difiere) {
+    if (!documentoHecho || baseAcs(cee, {}).difiere) {
         return { acs_method: ACS_METHOD.LITROS, dacs_litros_dia: litros };
     }
     return null;
+}
+
+/**
+ * ¿Hay ya un documento con la D_ACS impresa que ha salido de la app? El CIFO
+ * (o su Anexo I) generado, firmado o enviado al instalador. Recibe
+ * `expediente.documentacion` (o las mismas claves sueltas).
+ */
+export function documentoAcsHecho(doc = {}) {
+    const d = doc || {};
+    return !!(d.cert_cifo_drive_link || d.cert_cifo_signed_link || d.cert_cifo_sent_at
+        || d.anexo_i_drive_link || d.anexo_i_signed_link);
 }
 
 /**

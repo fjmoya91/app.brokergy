@@ -70,7 +70,11 @@ async function cargarXmlEnApp(ctx, fase, xml,
 
     const { data: fila, error: errFila } = await supabase.from(tabla)
         .select(`previo:cee->cee_${fase}->_fileName, acs_method:cee->acs_method, dacs_litros_dia:cee->dacs_litros_dia,`
-            + ' cee_inicial:cee->cee_inicial, cee_final:cee->cee_final, is_reforma:cee->is_reforma')
+            + ' cee_inicial:cee->cee_inicial, cee_final:cee->cee_final, is_reforma:cee->is_reforma'
+            //: Lo que dice si ya hay un CIFO generado o enviado (`documentoAcsHecho`).
+            + (o === 'cae' ? ', cert_cifo_drive_link:documentacion->>cert_cifo_drive_link,'
+                + ' cert_cifo_signed_link:documentacion->>cert_cifo_signed_link, cert_cifo_sent_at:documentacion->>cert_cifo_sent_at,'
+                + ' anexo_i_drive_link:documentacion->>anexo_i_drive_link, anexo_i_signed_link:documentacion->>anexo_i_signed_link' : ''))
         .eq('id', e.id).maybeSingle();
     if (errFila) throw new Error(`No se ha podido leer el CEE cargado: ${errFila.message}`);
     if (fila?.previo && !esNuestro(fila.previo) && !forzar) {
@@ -91,9 +95,10 @@ async function cargarXmlEnApp(ctx, fase, xml,
     let ajuste = {};
     //: Solo en el CAE: un CEE suelto (directo u obra de la app) no tiene ahorro CAE.
     if (o === 'cae' && !esReforma) {
-        const { ajusteAcsLitros } = await import(pathToFileURL(path.join(__dirname,
+        const { ajusteAcsLitros, documentoAcsHecho } = await import(pathToFileURL(path.join(__dirname,
             '../../../frontend/src/features/expedientes/logic/demandaAcs.js')).href);
-        ajuste = ajusteAcsLitros({ ...(fila || {}), [`cee_${fase}`]: parsed }) || {};
+        ajuste = ajusteAcsLitros({ ...(fila || {}), [`cee_${fase}`]: parsed },
+            { documentoHecho: documentoAcsHecho(fila) }) || {};
     }
     const resumen = { campos: campos.map(([k]) => k), fechas: Object.fromEntries(fechas), ajuste };
     if (!escribir) return { cargado: false, omitido: 'en seco', parsed, ...resumen };

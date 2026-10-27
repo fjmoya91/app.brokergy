@@ -35,7 +35,7 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import RevisionCeeModal from './RevisionCeeModal';
 import CeeFinalDesdeMedidaModal from './CeeFinalDesdeMedidaModal';
 import { getFicha } from '../logic/expedienteTaxonomia';
-import { ajusteAcsLitros } from '../logic/demandaAcs';
+import { ajusteAcsLitros, documentoAcsHecho } from '../logic/demandaAcs';
 
 // ─── Componentes de Celda ──────────────────────────────────────────────────
 function TableCell({ value, onChange, readOnly, type = 'number', highlight = false }) {
@@ -372,13 +372,13 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     };
 
     // Criterio de los verificadores (19/10/2026): la D_ACS sale de los LITROS/DÍA
-    // que declara el certificado. Al cargar uno se copian a la casilla L/D y, si
-    // las demandas de ACS del inicial y del final no coinciden, el método pasa a
-    // L/D solo (ver `ajusteAcsLitros`). Fuera de la reforma: el RES080 no usa la
-    // D_ACS del Anejo F.
+    // que declara el certificado. Al cargar uno se copian a la casilla L/D y el
+    // método pasa a L/D solo, salvo con el CIFO ya generado o enviado, donde solo
+    // cambia si las dos demandas de ACS difieren (ver `ajusteAcsLitros`). Fuera de
+    // la reforma: el RES080 no usa la D_ACS del Anejo F.
     const conLitrosAcs = (next) => {
         if (isReforma) return next;
-        const ajuste = ajusteAcsLitros(next);
+        const ajuste = ajusteAcsLitros(next, { documentoHecho: documentoAcsHecho(expediente?.documentacion) });
         return ajuste ? { ...next, ...ajuste } : next;
     };
 

@@ -75,7 +75,7 @@ solo con los dos cargados). El OCR del PDF también los trae (`ceeToXmlShape` �
 no los declara, la cifra se queda en 0 y la puerta del documento lo para.
 
 **REGLA — al CARGAR un certificado, si las dos demandas difieren, el método pasa solo a
-L/D** (`ajusteAcsLitros`, en `CeeModule` al subir el `.xml` o leer el PDF): en `xml` o
+L/D** (desde el 27/10/2026, SIEMPRE salvo con el CIFO ya fuera: ver abajo) (`ajusteAcsLitros`, en `CeeModule` al subir el `.xml` o leer el PDF): en `xml` o
 `cte` con las demandas distintas → `litros` con los del certificado; en `litros` sin
 cifra → se copia; `manual` nunca. **Si las dos demandas coinciden no se toca**: ahí da
 igual una cifra que la otra, y un expediente en marcha no tiene por qué cambiar.
@@ -91,6 +91,30 @@ cambia), y (3) solo LISTA los que ya están con el verificador o cerrados. Medid
 seco el 19/10/2026: **12 pendientes** (8 con el CIFO firmado), 3 en MITECO sin tocar
 y 11 sin litros que leer (sin `.xml` en la BD). La D_ACS casi siempre BAJA: 26RES093_6
 pasa de 4.540 a 2.731 kWh/año.
+
+### Desde el 27/10/2026: SIEMPRE por litros/día, salvo que el CIFO ya haya salido
+
+Fran (26RES060_220, que seguía en XML con las dos demandas iguales, 20,04): «cuando se dé de
+alta cualquier expediente nuevo siempre se debe calcular con litros día del CEE; de los que aún
+no se haya generado el CIFO o enviado al instalador se debe actualizar». Sustituye al «si las
+dos demandas coinciden no se toca» de arriba.
+
+**REGLA — al CARGAR un certificado que declara los litros/día, el método pasa SIEMPRE a L/D,
+salvo que el CIFO ya esté generado o enviado** (`ajusteAcsLitros(cee, { documentoHecho })`).
+`documentoAcsHecho(documentacion)` lo dice: `cert_cifo_drive_link`, `cert_cifo_signed_link`,
+`cert_cifo_sent_at` o el Anexo I (`anexo_i_drive_link` / `_signed_link`), que lleva la misma
+D_ACS. Con el documento ya fuera solo se cambia si las demandas difieren (el criterio del 19/10):
+mover en silencio el ahorro de un CIFO que ya tiene el instalador obliga a regenerarlo y
+re-firmarlo, y eso lo decide una persona. Lo aplican la rejilla (`CeeModule`) y la carga por
+servidor (`cargarXmlCee`). `manual` sigue sin tocarse; los MIGRADOS nacen en `xml` (traen el
+CIFO del sistema antiguo).
+
+**REGLA — los en marcha, con el mismo script**: ahora pasa a L/D todo pendiente (antes de
+«ENVIADO A VERIFICADOR») con CEE cargado, el ACS en alcance y SIN CIFO generado ni enviado,
+aunque las demandas coincidan. Escrito el 27/10/2026: **32 expedientes** (todos sin CIFO) +
+los litros de 25RES060_54. La D_ACS baja casi siempre: 26RES060_187 de 4.502 a 2.731,
+26RES060_173 de 5.245 a 3.278 kWh/año. Fuera, por tener ya el CIFO enviado: **26RES060_220**
+(XML, 4.389 → 2.731 kWh/año si se pasara; CIFO enviado el 27/10 a las 14:38).
 
 ```bash
 node implementation/backend/scripts/test_dacs_litros.mjs

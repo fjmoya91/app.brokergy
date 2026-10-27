@@ -1,8 +1,11 @@
 // ============================================================================
 // dacs_litros_pendientes.mjs — pone la D_ACS de los expedientes EN MARCHA al
-// criterio de los verificadores del 19/10/2026: con las demandas de ACS del CEE
-// inicial y del final DISTINTAS, la D_ACS sale de los LITROS/DÍA que declara el
-// certificado (modo 'litros'), no de su demanda por m² ni de los dormitorios.
+// criterio de los LITROS/DÍA que declara el certificado (modo 'litros'), no de
+// su demanda por m² ni de los dormitorios:
+//   · 19/10/2026 (verificadores): los que tienen las demandas de ACS del CEE
+//     inicial y del final DISTINTAS;
+//   · 27/10/2026 (Fran: «siempre con litros día del CEE»): TODOS los que aún no
+//     tienen el CIFO generado ni enviado al instalador, aunque coincidan.
 //
 //   node implementation/backend/scripts/dacs_litros_pendientes.mjs              (en seco)
 //   node implementation/backend/scripts/dacs_litros_pendientes.mjs --escribir
@@ -16,11 +19,12 @@
 //      certificado y no mueve ninguna cifra en 'xml' ni en 'cte'; se hace en
 //      TODOS para que los listados (que no traen el `.xml`) lo tengan.
 //   2. En los PENDIENTES —sin llegar al verificador: estado anterior a
-//      «ENVIADO A VERIFICADOR» y no rechazado— con el ACS en alcance y las dos
-//      demandas distintas, pasa a 'litros' con los del certificado
-//      (`ajusteAcsLitros`, la MISMA función que se aplica al cargar un CEE).
-//      Los que ya tienen el CIFO FIRMADO se cambian igual, pero se listan: su
-//      CIFO, su Anexo I y su Convenio hay que regenerarlos y volver a firmarlos.
+//      «ENVIADO A VERIFICADOR» y no rechazado— con el ACS en alcance, pasa a
+//      'litros' con los del certificado (`ajusteAcsLitros`, la MISMA función que
+//      se aplica al cargar un CEE): sin CIFO generado ni enviado
+//      (`documentoAcsHecho`), siempre; con él, solo si las dos demandas difieren,
+//      y se listan: su CIFO, su Anexo I y su Convenio hay que regenerarlos y
+//      volver a firmarlos.
 //   Lo demás (con el verificador o ya cerrado) solo se LISTA: no se toca.
 // ============================================================================
 import { createRequire } from 'node:module';
@@ -34,7 +38,7 @@ const supabase = require('../services/supabaseClient');
 const { ORDEN_ESTADOS } = require('../utils/expedienteEstados');
 
 const F = '../../frontend/src/features/expedientes/logic';
-const { ajusteAcsLitros, baseAcs, litrosDeXmlTexto, dacsLitros, resolveDacs, ACS_METHOD } = await import(`${F}/demandaAcs.js`);
+const { ajusteAcsLitros, documentoAcsHecho, baseAcs, litrosDeXmlTexto, dacsLitros, resolveDacs, ACS_METHOD } = await import(`${F}/demandaAcs.js`);
 const { ceeBaseDocumento } = await import(`${F}/ceeFases.js`);
 
 const ESCRIBIR = process.argv.includes('--escribir');
@@ -58,7 +62,8 @@ const { data, error } = await supabase
     .from('expedientes')
     .select('id, numero_expediente, estado, lote_id, cee->cee_inicial, cee->cee_final, cee->acs_method,'
         + ' cee->dacs_litros_dia, cee->num_rooms, cee->dacs_manual, cee->is_reforma,'
-        + ' instalacion->cambio_acs, documentacion->cert_cifo_signed_link');
+        + ' instalacion->cambio_acs, documentacion->cert_cifo_signed_link, documentacion->cert_cifo_drive_link,'
+        + ' documentacion->cert_cifo_sent_at, documentacion->anexo_i_drive_link, documentacion->anexo_i_signed_link');
 if (error) { console.error('No se pudieron leer los expedientes:', error.message); process.exit(1); }
 
 const rellenos = [];   // acsLitrosDia sacado del .xml
@@ -89,15 +94,17 @@ for (const e of data || []) {
     }
 
     const acs = baseAcs(cee, {});
-    if (!acs.difiere) continue;
+    const hecho = documentoAcsHecho(e);
+    if (hecho && !acs.difiere) continue;
+    if (!cee.cee_inicial && !cee.cee_final) continue;   // sin CEE: ya enseña lo simulado
     const alcance = String(e.cambio_acs) !== 'false';
     if (!alcance) continue;   // el ACS no entra en su documento («no aplica», regla 12.b)
 
     const antes = resolveDacs(cee, ceeBaseDocumento(cee).base).value;
-    const ajuste = ajusteAcsLitros(cee);
+    const ajuste = ajusteAcsLitros(cee, { documentoHecho: hecho });
     const fila = {
         id: e.id, n, estado: e.estado, modo: cee.acs_method || 'xml', ini: acs.porM2Ini, fin: acs.porM2Fin,
-        firmado: !!e.cert_cifo_signed_link, loteado: !!e.lote_id, antes, ajuste,
+        hecho, firmado: !!e.cert_cifo_signed_link, loteado: !!e.lote_id, antes, ajuste,
     };
     if (!ajuste) {
         if ((cee.acs_method || 'xml') !== ACS_METHOD.LITROS && (cee.acs_method || 'xml') !== ACS_METHOD.MANUAL) sinLitros.push(fila);
@@ -113,11 +120,13 @@ console.log(`\n${ESCRIBIR ? 'ESCRIBIENDO' : 'EN SECO (nada se escribe; --escribi
 console.log(`1. litros/día rellenados desde el .xml: ${rellenos.length}`);
 for (const r of rellenos) console.log(`   ${r.n.padEnd(14)} ${r.fase.padEnd(7)} ${r.litros} l/día`);
 
-console.log(`\n2. PENDIENTES que pasan a L/D (demandas de ACS distintas): ${cambian.length}`);
+console.log(`\n2. PENDIENTES que pasan a L/D: ${cambian.length}`
+    + ` (${cambian.filter(c => !c.hecho).length} sin CIFO generado ni enviado · ${cambian.filter(c => c.hecho).length} con CIFO y demandas distintas)`);
 for (const c of cambian) {
     console.log(`   ${c.n.padEnd(14)} ${String(c.estado).padEnd(30)} ${c.modo.toUpperCase().padEnd(4)} `
         + `ACS ${f2(c.ini)} → ${f2(c.fin)} kWh/m²·año · ${c.litros} l/día · D_ACS ${f2(c.antes)} → ${f2(c.despues)} kWh/año`
-        + `${c.firmado ? '  ⚠ CIFO FIRMADO: regenerar y volver a firmar' : ''}${c.loteado ? '  (en lote)' : ''}`);
+        + `${c.hecho ? (c.firmado ? '  ⚠ CIFO FIRMADO: regenerar y volver a firmar' : '  ⚠ CIFO GENERADO/ENVIADO: regenerar') : ''}`
+        + `${c.loteado ? '  (en lote)' : ''}`);
 }
 
 console.log(`\n3. Con el verificador o cerrados (NO se tocan): ${fuera.length}`);
@@ -125,7 +134,7 @@ for (const c of fuera) {
     console.log(`   ${c.n.padEnd(14)} ${String(c.estado).padEnd(30)} D_ACS ${f2(c.antes)} → ${f2(c.despues)} con ${c.litros} l/día`);
 }
 
-console.log(`\n4. Demandas distintas y SIN litros/día que leer (falta el .xml): ${sinLitros.length}`);
+console.log(`\n4. Por pasar a L/D y SIN litros/día que leer (falta el .xml): ${sinLitros.length}`);
 for (const c of sinLitros) console.log(`   ${c.n.padEnd(14)} ${c.estado}`);
 
 if (ESCRIBIR) {
