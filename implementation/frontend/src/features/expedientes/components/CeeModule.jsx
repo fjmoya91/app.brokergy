@@ -753,7 +753,10 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
         if (local.cee_inicial && local.cee_final) {
             // Con los dos .xml, el simplificado sale EXACTO: el propio certificado publica
             // el reparto por vector en <EmisionesCO2><ConsumoElectrico>/<ConsumoOtros>.
-            if (elegidoSimplificado) {
+            // Con la energía final en los dos, calculateRes080 la lee sola y lo dice
+            // (`metodoForzado: 'energia_final'`), elija lo que elija el selector.
+            const conEnergiaFinal = !!(local.cee_inicial.energiaFinalVectores && local.cee_final.energiaFinalVectores);
+            if (elegidoSimplificado && !conEnergiaFinal) {
                 return calculateRes080SimplificadoFromXml({
                     xmlInicial: local.cee_inicial,
                     xmlFinal: local.cee_final,
@@ -782,7 +785,10 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     // Con PLACAS en algún CEE el ahorro sale POR VECTOR aunque se haya elegido «por uso»
     // (calculation.js, autoconsumoDeXml / autoconsumoDeEmisiones): se pinta y se dice así.
     const forzadoPorPlacas = res080Data?.metodoForzado === 'autoconsumo';
-    const esSimplificado = elegidoSimplificado || forzadoPorPlacas;
+    // Con los DOS .xml declarando la energía final, el ahorro es esa energía y no hay
+    // método que elegir (calculation.js, calculateRes080 — 26RES080_OP86).
+    const forzadoEnergiaFinal = res080Data?.metodoForzado === 'energia_final';
+    const esSimplificado = elegidoSimplificado || forzadoPorPlacas || forzadoEnergiaFinal;
 
     // Mostrar con coma decimal (ES). Normalizar lo tecleado a coma.
     const ceeComma = (v) => (v === '' || v === null || v === undefined) ? '' : String(v).replace('.', ',');
@@ -1714,8 +1720,15 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         energético (simplificado). El simplificado es el único que se puede
                         aplicar cuando un mismo uso mezcla dos generadores de combustibles
                         distintos y el CEE no dice qué porcentaje es cada uno. Vale con .xml y
-                        a mano: el reparto por vector lo publica el propio XML. */}
-                    {isReforma && !isCertificador && (
+                        a mano: el reparto por vector lo publica el propio XML. Con los dos
+                        .xml declarando la energía final no hay nada que elegir. */}
+                    {isReforma && !isCertificador && forzadoEnergiaFinal && (
+                        <div className="px-4 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[9px] font-black uppercase tracking-widest text-brand max-md:w-full max-md:text-center"
+                            title="Con los dos .xml el ahorro es la energía final que declara cada certificado (EnergiaFinalVectores)">
+                            Energía final del .xml
+                        </div>
+                    )}
+                    {isReforma && !isCertificador && !forzadoEnergiaFinal && (
                         <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {[{ id: 'detallado', label: 'Por uso' }, { id: 'simplificado', label: 'Por vector' }].map(t => (
                                 <button

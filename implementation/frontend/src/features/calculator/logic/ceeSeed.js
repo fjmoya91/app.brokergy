@@ -11,7 +11,7 @@
 // en los inputs de la calculadora". Los dos consumidores de arriba la llaman; no
 // volver a escribir a mano el reparto inicial/final en ninguna vista.
 
-import { ceeToXmlShape } from '../../cee/ceeExtract';
+import { ceeToXmlShape, ceeFromXml } from '../../cee/ceeExtract';
 import { demandaDeCalculo, demandaCal, superficie as ceeSuperficie, rendimientoCalefaccion } from '../../cee/ceeAvisos';
 
 const F_ELEC = 0.331; // factor de paso Electricidad peninsular
@@ -223,6 +223,72 @@ export function seedInputsFromCees({ inicial = null, final = null, inputs = {}, 
   }
 
   return patch;
+}
+
+const tieneEnergiaFinal = (c) => !!(c?.energia_final_vectores && Object.keys(c.energia_final_vectores).length);
+
+/**
+ * El «Cálculo real» de un RES080: lo que confirma el popup `CeeRealModal` (CEE inicial,
+ * final opcional y de quién es el inicial) convertido en PARCHE de inputs.
+ *
+ * REGLA (2026-10-27, Fran, 26RES080_OP86): una sola pestaña «Cálculo real» en reforma.
+ *   - Con los DOS certificados declarando <EnergiaFinalVectores> (.xml) → `demandMode:
+ *     'real'`: el ahorro es la energía final que declara cada uno (calculateRes080 lo
+ *     fuerza, `metodoForzado: 'energia_final'`). Sin tabla, sin combustibles que elegir.
+ *   - Si alguno viene por OCR (PDF/foto, que no imprime la energía final) o no hay final →
+ *     `demandMode: 'manual'`: la tabla de emisiones de siempre, con el FINAL real si lo
+ *     hay y, si no, estimado con la aerotermia (seedInputsFromCees).
+ *   - Con CEE FINAL el ahorro está MEDIDO entre dos certificados y no hay comparativa «con
+ *     tu CEE» (26RES080_OP70, como `cargarRes080EnOportunidad`): `cee_previo` se quita y
+ *     de quién era el inicial queda en `cee_inicial_origen`.
+ *   - Lo que no se ha vuelto a subir conserva su forma de parseCeeXml (generadores, fechas):
+ *     pasarla por ceeFromXml → ceeToXmlShape la recortaría.
+ */
+export function seedCalculoRealReforma({ inicial, final = null, propio = false, cambiadoInicial = true, cambiadoFinal = true, inputs = {} }) {
+  if (!inicial) return {};
+  const patch = seedInputsFromCees({ inicial, final, inputs: { ...inputs, isReforma: true } });
+  if (!cambiadoInicial && inputs.xmlDemandData) patch.xmlDemandData = inputs.xmlDemandData;
+  if (final && !cambiadoFinal && inputs.xmlDemandDataFinal) patch.xmlDemandDataFinal = inputs.xmlDemandDataFinal;
+  if (!final) { patch.xmlDemandDataFinal = null; patch.cee_final = null; }
+
+  // La superficie del cálculo es la del CEE INICIAL (la vivienda real), como al confirmar
+  // la tabla de emisiones y en `cargarRes080EnOportunidad`: la del Catastro no vale aquí.
+  const supIni = Number(inicial.superficie_habitable_m2);
+  if (supIni > 0) patch.superficieCalefactable = supIni;
+
+  patch.cee_inicial_origen = propio ? CEE_ORIGEN_BROKERGY : 'cliente';
+  if (final) {
+    patch.cee_previo = null;
+  } else if (patch.cee_previo) {
+    const { origen: _origen, ...resto } = patch.cee_previo;
+    patch.cee_previo = propio ? { ...resto, origen: CEE_ORIGEN_BROKERGY } : resto;
+  }
+
+  if (final && tieneEnergiaFinal(inicial) && tieneEnergiaFinal(final)) {
+    patch.demandMode = 'real';
+    patch.metodoAhorroRes080 = 'simplificado';
+  }
+  return patch;
+}
+
+/**
+ * Lo que el popup del «Cálculo real» enseña como YA cargado: el CEE normalizado de cada
+ * fase, sacado de `cee_previo`/`cee_final` o, si la simulación solo tiene el .xml
+ * (`cargarRes080EnOportunidad`, la subida antigua), de `xmlDemandData`/`xmlDemandDataFinal`.
+ * Si los dos existen manda el que trae la energía final.
+ */
+export function ceesCargadosReforma(inputs = {}) {
+  const elegir = (normalizado, xml) => {
+    const deXml = xml ? ceeFromXml(xml) : null;
+    if (normalizado && (tieneEnergiaFinal(normalizado) || !tieneEnergiaFinal(deXml))) return normalizado;
+    return deXml ? { ...deXml, ...(normalizado?.origen ? { origen: normalizado.origen } : {}) } : normalizado;
+  };
+  const inicial = elegir(inputs.cee_previo, inputs.xmlDemandData);
+  const final = elegir(inputs.cee_final, inputs.xmlDemandDataFinal);
+  const propio = inputs.cee_inicial_origen
+    ? inputs.cee_inicial_origen === CEE_ORIGEN_BROKERGY
+    : (inputs.cee_previo ? ceeEsPropio(inputs.cee_previo) : !!inputs.xmlDemandData);
+  return { inicial, final, propio };
 }
 
 /**

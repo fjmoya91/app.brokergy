@@ -919,8 +919,19 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         let financialsRes080 = null;
         
         // LÓGICA DE CÁLCULO RES080
+        // REGLA (2026-10-27, 26RES080_OP86): con los DOS certificados declarando la energía
+        // final por vector, el ahorro es esa energía, venga la simulación del modo que venga
+        // (también la tabla de emisiones de una oportunidad antigua): calculateRes080 lo fuerza.
+        const dosConEnergiaFinal = inputs.demandMode !== 'estimated'
+            && !!inputs.xmlDemandData?.energiaFinalVectores && !!inputs.xmlDemandDataFinal?.energiaFinalVectores;
         if (inputs.isReforma && inputs.reformaType !== 'none') {
-            if (inputs.demandMode === 'real') {
+            if (dosConEnergiaFinal) {
+                res080Data = calculateRes080({
+                    xmlInicial: inputs.xmlDemandData,
+                    xmlFinal: inputs.xmlDemandDataFinal,
+                    superficieCustom: sanitizedInputs.superficieCalefactable
+                });
+            } else if (inputs.demandMode === 'real') {
                 // MODO REAL: Siempre usar lógica XML si el archivo final está cargado
                 if (inputs.xmlDemandDataFinal && sanitizedInputs.metodoAhorroRes080 === 'simplificado') {
                     // El .xml publica el reparto por vector energético en
@@ -1343,7 +1354,6 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         demandMode={inputs.demandMode}
                         onDemandModeChange={(mode) => setInputs(prev => ({...prev, demandMode: mode}))}
                         xmlDemandData={inputs.xmlDemandData}
-                        onXmlDemandDataChange={(data) => setInputs(prev => ({...prev, xmlDemandData: data}))}
                         onOpenEmisionesTable={() => setShowEficiencia(true)}
                         dbModels={dbModels}
                     />

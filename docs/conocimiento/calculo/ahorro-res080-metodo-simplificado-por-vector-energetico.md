@@ -127,3 +127,40 @@ emisiones.
 `EfficiencyTable` acepta `categories` (por defecto las 3 de siempre, sin cambios). Los rótulos van
 EXPLÍCITOS por fila porque los dos métodos no comparten redacción: uno habla de usos y el otro de
 vectores. `CATEGORIES_SIMPLIFICADO` es la fuente única de las dos filas nuevas.
+
+### Con los dos `.xml`, el ahorro ES la energía final que declaran (2026-10-27)
+
+**Caso: 26RES080_OP86 (JOSEFINA GUERRERO MARCHANTE).** La calculadora daba **41,18 MWh** y los dos
+`.xml` dicen **55,73**. El ahorro salía de la tabla de emisiones: la fila «otros combustibles» del
+inicial juntaba CARBÓN y el GAS NATURAL del sistema ficticio, y se dividía por UN solo factor de
+paso. Con el `.xml` no hace falta dividir nada: `<EnergiaFinalVectores>` ya trae los kWh/m² de cada
+vector.
+
+**REGLA — con los dos `.xml` (los dos con `<EnergiaFinalVectores>`, CE3X 2.3 o 3.x), el ahorro
+RES080 es Σ energía final del inicial − Σ la del final, y nada más** (Fran: «a partir de ahora, si
+el XML es el 3.0, que coja la energía final del XML; igual pasará en el expediente»). Ni factores de
+emisión, ni combustible que elegir, ni «por uso / por vector»: `calculateRes080` lo decide solo y
+devuelve `metodoForzado: 'energia_final'` (vía `calculateRes080SimplificadoFromXml`). El módulo CEE
+del expediente lo dice con el chip «Energía final del .xml» y el popup de la calculadora con una
+nota en verde, sin desplegable de método. Con un PDF o una foto (OCR, sin esa tabla) sigue la tabla
+de emisiones.
+
+**En la calculadora, «Cálculo real» es UNA pestaña con un popup** (`CeeRealModal.jsx`, diseño
+«carta de pago» de Facturación, pedido por Fran el 27/10/2026): antes había dos, «Cálculo real
+(CEE)» por `.xml` y «CEE aportado» por emisiones. El popup tiene dos huecos, **CEE inicial** y **CEE
+final · previsto o real** (`.xml`, `.cex`, PDF o fotos, por `extractCeeFromFiles`), y del inicial se
+dice **de quién es**: el del cliente o el nuestro (`inputs.cee_inicial_origen`). Lo que se hace con
+ello lo decide `seedCalculoRealReforma` en [ceeSeed.js](implementation/frontend/src/features/calculator/logic/ceeSeed.js):
+- los dos con energía final → `demandMode: 'real'` + simplificado, y `CalculatorView` pasa los dos
+  `.xml` a `calculateRes080`;
+- alguno sin ella (OCR) → tabla de emisiones;
+- sin final → el FINAL se estima con la aerotermia, y el inicial, si es del cliente, da la
+  comparativa «con tu CEE» de siempre.
+
+Con CEE FINAL **no hay comparativa** (`cee_previo` a null, como `cargarRes080EnOportunidad`): el
+final medido ya es la cifra. La superficie pasa a ser la del CEE inicial. `ceesCargadosReforma`
+reconstruye los dos CEE de lo guardado para reabrir el popup.
+
+**El expediente** ya calculaba así con los dos `.xml` (CeeModule, `cifoService`,
+`ExpedienteDetailView` dan la misma cifra); con origen MANUAL manda lo tecleado y no se ha tocado:
+medido el 27/10/2026, ningún expediente en manual tiene los dos certificados.

@@ -19,7 +19,7 @@ import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO, FUEL_OPTIONS_SIN_ELECTRICIDAD } from './EfficiencyTable';
 import ComparativaCeeModal from '../../cee/ComparativaCeeModal';
 import CeeUploadModal from '../../cee/CeeUploadModal';
-import { ceeToColumn, ceeEsPropio } from '../logic/ceeSeed';
+import { ceeToColumn, ceeEsPropio, seedCalculoRealReforma, ceesCargadosReforma } from '../logic/ceeSeed';
 import { computeCeeComparison } from '../logic/ceeComparison';
 import { avisarIrpfBiomasa } from '../logic/irpfBiomasa';
 import realCasesData from '../data/real_cases_db.json';
@@ -1721,7 +1721,11 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 // En modo emisiones la tabla es EDITABLE y se calcula desde el borrador
                 // (no del resultado), para no recalcular todo en cada tecla. Al confirmar
                 // se vuelca a inputs. En el resto de modos, tabla de solo lectura.
-                const editable = isEmisionesMode && !!emiDraft;
+                // Con los dos .xml declarando la energía final, el ahorro es ESA energía
+                // (calculation.js, metodoForzado 'energia_final'): no hay tabla que editar,
+                // aunque la oportunidad viniera de la tabla de emisiones.
+                const porEnergiaFinal = result.res080?.metodoForzado === 'energia_final';
+                const editable = isEmisionesMode && !!emiDraft && !porEnergiaFinal;
                 const elegidoSimplificado = editable
                     ? emiDraft.metodo === 'simplificado'
                     : result.res080?.metodoAhorro === 'simplificado';
@@ -1747,7 +1751,8 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 // Con PLACAS en algún CEE el cálculo sale POR VECTOR aunque se haya elegido
                 // «por uso» (calculation.js, autoconsumoDeXml): la tabla se pinta como tal.
                 const forzadoPorPlacas = draftRes?.metodoForzado === 'autoconsumo';
-                const esSimplificado = elegidoSimplificado || forzadoPorPlacas;
+                const forzadoEnergiaFinal = draftRes?.metodoForzado === 'energia_final';
+                const esSimplificado = elegidoSimplificado || forzadoPorPlacas || forzadoEnergiaFinal;
                 // Los onChange de la tabla se enrutan al bloque del método activo: el
                 // simplificado escribe en `vec`/`combOtros` y el detallado en `emi`/`comb`.
                 const setComb = (type, isFinal, value) => setEmiDraft(d => (
@@ -1785,7 +1790,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 // El método se puede elegir a mano (va con el borrador) y también con los .xml
                 // cargados, donde el reparto por vector lo publica el propio certificado.
                 const modoXml = !editable && inputs?.isReforma && inputs?.demandMode === 'real' && !!inputs?.xmlDemandDataFinal;
-                const puedeElegirMetodo = editable || modoXml;
+                const puedeElegirMetodo = (editable || modoXml) && !forzadoEnergiaFinal;
                 const setMetodoAhorro = (id) => editable
                     ? setEmiDraft(d => ({ ...d, metodo: id }))
                     : onInputChange(prev => ({ ...prev, metodoAhorroRes080: id }));
@@ -1890,6 +1895,14 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                         </p>
                                     )}
                                 </div>
+                             )}
+                             {forzadoEnergiaFinal && (
+                                <p className="mb-5 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 leading-relaxed">
+                                    <b>Energía final de cada certificado.</b> Los dos .xml declaran su energía final por
+                                    vector (<i>EnergiaFinalVectores</i>): el ahorro es la diferencia de esos kWh, tal cual.
+                                    No se reconstruye nada dividiendo emisiones ni se elige combustible.
+                                    Vectores con consumo: {(draftRes?.vectores?.inicial || []).map(v => v.nombre).join(' · ') || '—'}.
+                                </p>
                              )}
                              {editable && (
                                 <p className="mb-4 text-[11px] text-slate-500 leading-relaxed">
@@ -2029,7 +2042,9 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                              {!editable && (
                                 <div className="mt-8 p-4 bg-slate-50 rounded-xl border border-slate-200">
                                    <p className="text-[11px] text-slate-500 italic leading-relaxed text-center font-medium">
-                                       {esSimplificado
+                                       {forzadoEnergiaFinal || (esSimplificado && esDeclarada)
+                                           ? 'El ahorro es la energía final que declara cada certificado (.xml) por vector energético: la del CEE inicial menos la del final.'
+                                           : esSimplificado
                                            ? 'Método simplificado: el ahorro sale de las emisiones globales que declara el propio certificado, separadas en consumo eléctrico y otros combustibles, dividiendo cada una por su factor de paso.'
                                            : inputs?.demandMode === 'real'
                                            ? 'Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y propuesta de reforma.'
@@ -2147,6 +2162,25 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                     ? 'Sube el CEE FINAL real para rellenar la columna FINAL. El CEE inicial aportado se mantiene; se recalcula el ahorro real medido.'
                     : 'Sube el CEE (situación inicial) para rellenar la columna INICIAL: emisiones, combustible, superficie y demanda.'}
                 onLoaded={(data) => {
+                    // Si con éste los DOS certificados traen la energía final (.xml), el
+                    // ahorro es esa energía y no la tabla: se pasa al «Cálculo real» por la
+                    // MISMA función que el popup de la calculadora (ceeSeed).
+                    const ya = ceesCargadosReforma(inputs);
+                    const nuevoIni = ceeLoadTarget === 'final' ? ya.inicial : data;
+                    const nuevoFin = ceeLoadTarget === 'final' ? data : ya.final;
+                    if (inputs?.isReforma && nuevoIni?.energia_final_vectores && nuevoFin?.energia_final_vectores) {
+                        onInputChange(prev => ({
+                            ...prev,
+                            ...seedCalculoRealReforma({
+                                inicial: nuevoIni, final: nuevoFin, propio: ya.propio,
+                                cambiadoInicial: ceeLoadTarget !== 'final', cambiadoFinal: ceeLoadTarget === 'final',
+                                inputs: prev,
+                            }),
+                        }));
+                        setCeeLoadTarget(null);
+                        setShowEfficiency(false);
+                        return;
+                    }
                     applyCeeToColumn(data, ceeLoadTarget);
                     // Registrar el certificado en los inputs, no solo en el borrador de la
                     // tabla: `cee_final` es lo que hace que el ahorro pase a MEDIDO, que la

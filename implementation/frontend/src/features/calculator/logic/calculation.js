@@ -1177,6 +1177,22 @@ export function calculateRes080({
         if (r) return { ...r, metodoForzado: 'autoconsumo', autoconsumoM2: { inicial: fvIni, final: fvFin } };
     }
 
+    // REGLA (2026-10-27, Fran, 26RES080_OP86): con los DOS .xml declarando
+    // <EnergiaFinalVectores>, el ahorro es la energía final que declara cada certificado,
+    // se haya elegido el método que se haya elegido. Por uso, cada servicio se reconstruye
+    // dividiendo sus emisiones por el factor del combustible elegido, y eso falla en
+    // silencio cuando el combustible no está (factor 1: 26RES080_97 daba 28,16 MWh frente
+    // a 88,74, 26RES080_95 26,38 frente a 80,14) o cuando dos combustibles comparten fila
+    // (OP86: carbón + el gas natural del sistema ficticio, 41,18 frente a 55,73). Medido
+    // el 27/10/2026 sobre los 30 RES080 con los dos .xml: los demás no se mueven (±0,01).
+    if (xmlInicial.energiaFinalVectores && xmlFinal.energiaFinalVectores) {
+        const r = calculateRes080SimplificadoFromXml({
+            xmlInicial, xmlFinal, xmlTextoInicial, xmlTextoFinal,
+            superficieCustom, superficieInicial, superficieFinal,
+        });
+        if (r) return { ...r, metodoForzado: 'energia_final' };
+    }
+
     const getE = (val) => typeof val === 'number' ? val : 0;
 
     // Refrigeración: en España es SIEMPRE eléctrica. Muchos CEE no declaran combustible

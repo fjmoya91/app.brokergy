@@ -254,9 +254,10 @@ const resultsPorUso = calculateRes080({
         energiaFinalVectores: { a: vec('GAS NATURAL', 'GASNATURAL', 108.7, 0, 0), b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 20, 12.5, 7.5, true), c: vec('BIOMASA DENSIFICADA (PELETS)', 'BIOMASAPELLET', 80, 0, 0), d: vec('GASOLEO C', 'GasoleoC', 50, 13.9, 0) },
         generadores: [gen('cal', 'CALDERA DE GASÓLEO ROCA P-30 CON NOMBRE LARGO DE FÁBRICA', 'GasoleoC', 0.8), gen('cal', 'ESTUFA DE PELLETS DEL SALÓN', 'BiomasaPellet', 0.5), gen('cal', 'RADIADORES ELÉCTRICOS', 'ElectricidadPeninsular', 1),
                       gen('acs', 'CALDERA DE GASÓLEO ROCA P-30 CON NOMBRE LARGO DE FÁBRICA', 'GasoleoC', 0.9), gen('acs', 'TERMO ELÉCTRICO', 'ElectricidadPeninsular', 1)] },
+    // Sin la energía final del final (CEE leído por OCR): con los dos .xml el cálculo
+    // iría por vector (calculateRes080, 2026-10-27) y esta página no existiría.
     xmlFinal: { superficieHabitable: 180, demandaCalefaccion: 140, demandaACS: 25, demandaRefrigeracion: 15, emisionesACS: 2.6, emisionesCalefaccion: 11.6, emisionesRefrigeracion: 2.5, emisionesConsumoOtros: 0,
-        energiaFinalVectores: { b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 35, 8, 7.5, true) },
-        generadores: [gen('cal', 'AEROTERMIA', 'ElectricidadPeninsular', 4), gen('acs', 'AEROTERMIA', 'ElectricidadPeninsular', 3.125)] },
+        generadores:[gen('cal', 'AEROTERMIA', 'ElectricidadPeninsular', 4), gen('acs', 'AEROTERMIA', 'ElectricidadPeninsular', 3.125)] },
     combAcsInicial: 'Gasoleo Calefacción', combAcsFinal: 'Electricidad peninsular', combCalefaccionInicial: 'Gasoleo Calefacción', combCalefaccionFinal: 'Electricidad peninsular',
 });
 casos.push(['Por uso · calefacción mixta + defecto CE3X', base(), { results: resultsPorUso }]);

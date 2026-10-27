@@ -105,15 +105,21 @@ console.log('\nE) «Por uso»: la calefacción mixta y el sistema ficticio se LE
         energiaFinalVectores: { b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 33.68, 18.43, 4.65) } };
     const args = { xmlInicial: ini, xmlFinal: fin, combAcsInicial: 'Electricidad peninsular', combAcsFinal: 'Electricidad peninsular',
         combCalefaccionInicial: 'Biomasa densificada (pelets)', combCalefaccionFinal: 'Electricidad peninsular' };
-    const r = calculateRes080({ ...args, xmlTextoInicial: XML_V20.toUpperCase() });
+    // Con los DOS .xml declarando la energía final, «por uso» ya no existe: manda la
+    // energía final declarada (2026-10-27, 26RES080_OP86).
+    const forz = calculateRes080({ ...args, xmlTextoInicial: XML_V20.toUpperCase() });
+    bien(forz.metodoForzado === 'energia_final' && forz.fuenteDatos === 'energia_final_declarada', 'con los dos .xml, por la energía final declarada aunque se pida «por uso»');
+    bien(cerca(forz.ahorroEnergiaFinalTotal / 1000, 74.10, 0.01), `ahorro ${(forz.ahorroEnergiaFinalTotal / 1000).toFixed(2)} MWh/año, el mismo que «por vector»`);
+    // «Por uso» queda para cuando uno de los dos no trae la energía final (OCR, a mano).
+    const finSinVec = { ...fin, energiaFinalVectores: null };
+    const r = calculateRes080({ ...args, xmlFinal: finSinVec, xmlTextoInicial: XML_V20.toUpperCase() });
     bien(cerca(r.details.cal.energyIni, 312.68, 0.01), `calefacción inicial ${r.details.cal.energyIni.toFixed(2)} kWh/m² (190,76 + 121,92), no 1.897,78`);
     bien(r.details.cal.fuelIni === 'Biomasa densificada (pelets) · 40 % + Gas Natural · 60 % (sistema ficticio por defecto)', `«${r.details.cal.fuelIni}»`);
     bien(r.details.cal.fuelIniFijo === true && r.details.acs.fuelIniFijo === false, 'la calefacción mixta va fija; el ACS de un solo equipo se sigue eligiendo');
     bien(r.details.ref.fuelIni === 'Electricidad peninsular · 100 % (sistema ficticio por defecto)', `refrigeración: «${r.details.ref.fuelIni}»`);
-    bien(cerca(r.ahorroEnergiaFinalTotal / 1000, 74.04, 0.02), `ahorro ${(r.ahorroEnergiaFinalTotal / 1000).toFixed(2)} MWh/año (antes 492,51)`);
     bien(!!r.cobertura?.inicial && r.contraste?.declaradas?.otrosIni === 34.16, 'trae la cobertura y las emisiones declaradas para el cuadro');
     // Sin mezcla ni sistema ficticio, lo de siempre: emisiones ÷ factor del combustible elegido.
-    const solo = calculateRes080({ ...args, xmlInicial: { ...ini, emisionesCalefaccion: 3.43, energiaFinalVectores: { b: VECTORES.b, c: VECTORES.c } }, xmlTextoInicial: XML_V20.toUpperCase() });
+    const solo = calculateRes080({ ...args, xmlFinal: finSinVec, xmlInicial: { ...ini, emisionesCalefaccion: 3.43, energiaFinalVectores: { b: VECTORES.b, c: VECTORES.c } }, xmlTextoInicial: XML_V20.toUpperCase() });
     bien(!solo.details.cal.fuelIniFijo && cerca(solo.details.cal.energyIni, 3.43 / 0.018, 0.01), 'sin sistema ficticio en calefacción: emisiones ÷ factor, como antes');
 }
 

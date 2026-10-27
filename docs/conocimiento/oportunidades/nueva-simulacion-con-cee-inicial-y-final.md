@@ -38,6 +38,12 @@ FINAL de la tabla de emisiones se rellena con el certificado real en vez de esti
 el estimador "¿Aún no tienes el CEE FINAL?" **se oculta** (pulsarlo sustituiría datos medidos por una
 hipótesis) y `ResultsPanel` lo dice en verde.
 
+**En una REFORMA (RES080), desde el 27/10/2026, los dos certificados se cargan en el popup de la
+pestaña «Cálculo real»** (`CeeRealModal`): ya no hay pestaña «CEE aportado» aparte. Con los dos
+`.xml` el ahorro es su energía final declarada, sin tabla de emisiones. Ver «Con los dos `.xml`, el
+ahorro ES la energía final que declaran», en
+[el documento del método simplificado](docs/conocimiento/calculo/ahorro-res080-metodo-simplificado-por-vector-energetico.md).
+
 ### El funnel da por contestado lo que dice el certificado
 
 Con certificados aportados, `ReformaSubFlow` arranca en **`cee_resumen`**. Con los **dos** CEE el

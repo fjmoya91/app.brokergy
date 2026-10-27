@@ -37,8 +37,9 @@ import { opcionDeEquipo, BUSCAR_EQUIPO } from '../../expedientes/logic/aerotermi
 import SearchableSelect from '../../../components/SearchableSelect';
 import LeerPlacaModal from './LeerPlacaModal';
 import { useAuth } from '../../../context/AuthContext';
-import { parseCeeXml } from '../logic/xmlCeeParser';
 import CeeUploadModal from '../../cee/CeeUploadModal';
+import CeeRealModal from './CeeRealModal';
+import { seedCalculoRealReforma, ceesCargadosReforma } from '../logic/ceeSeed';
 export function CalculatorForm({
     inputs,
     onInputChange,
@@ -48,7 +49,6 @@ export function CalculatorForm({
     demandMode,
     onDemandModeChange,
     xmlDemandData,
-    onXmlDemandDataChange,
     onOpenEmisionesTable,
     dbModels = []
 }) {
@@ -60,12 +60,10 @@ export function CalculatorForm({
     // importe, se abre sola — un dato guardado no puede quedar escondido detrás de un
     // clic que nadie sabe que hay que dar.
     const [verifAbierto, setVerifAbierto] = useState(false);
-    const [showXmlModal, setShowXmlModal] = useState(false);
     const [showCeeLoad, setShowCeeLoad] = useState(false);
-    const [xmlError, setXmlError] = useState(null);
-    const [xmlFinalError, setXmlFinalError] = useState(null);
-    const [isDragging, setIsDragging] = useState(false);
-    const [isDraggingFinal, setIsDraggingFinal] = useState(false);
+    // Popup del «Cálculo real» de un RES080 (los dos certificados).
+    const [showCeeReal, setShowCeeReal] = useState(false);
+    const calculoReal = demandMode === 'manual' || demandMode === 'real';
 
     // ── Comisión por defecto del partner ────────────────────────────────────
     // Al seleccionar un prescriptor que la tiene activada en su ficha, la
@@ -620,73 +618,6 @@ export function CalculatorForm({
         }));
     };
 
-    // Handler para procesar el archivo XML
-    const handleXmlFile = (file) => {
-        if (!file) return;
-        if (!file.name.toLowerCase().endsWith('.xml')) {
-            setXmlError('Por favor, selecciona un archivo .xml válido.');
-            return;
-        }
-        setXmlError(null);
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const xmlData = parseCeeXml(e.target.result);
-                onXmlDemandDataChange(xmlData);
-                onDemandModeChange('real');
-                if (!inputs.isReforma) {
-                    setShowXmlModal(false);
-                }
-
-                // Si el XML trae superficie, actualizar los inputs
-                if (xmlData.superficieHabitable) {
-                    onInputChange(prev => ({
-                        ...prev,
-                        superficie: xmlData.superficieHabitable,
-                        superficieCalefactable: xmlData.superficieHabitable
-                    }));
-                }
-            } catch (err) {
-                setXmlError(err.message);
-            }
-        };
-        reader.onerror = () => setXmlError('Error al leer el archivo.');
-        reader.readAsText(file);
-    };
-
-    // Drag & Drop handlers
-    const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
-    const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
-    const handleDrop = (e) => {
-        e.preventDefault(); e.stopPropagation(); setIsDragging(false);
-        const file = e.dataTransfer.files?.[0];
-        handleXmlFile(file);
-    };
-
-    const handleXmlFileFinal = (file) => {
-        if (!file) return;
-        if (!file.name.toLowerCase().endsWith('.xml')) {
-            setXmlFinalError('Por favor, selecciona un archivo .xml válido.');
-            return;
-        }
-        setXmlFinalError(null);
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const xmlData = parseCeeXml(e.target.result);
-                // Usamos onInputChange para guardar el xmlDemandDataFinal en el estado unificado
-                onInputChange(prev => ({
-                    ...prev,
-                    xmlDemandDataFinal: xmlData
-                }));
-            } catch (err) {
-                setXmlFinalError(err.message);
-            }
-        };
-        reader.onerror = () => setXmlFinalError('Error al leer el archivo final.');
-        reader.readAsText(file);
-    };
-
     // ── Sector y ficha ────────────────────────────────────────────────────────
     // El sector lo declara quien simula (la calculadora nació residencial, así que
     // ése es el valor por defecto) y de él sale la ficha, con el MISMO criterio que
@@ -743,14 +674,6 @@ export function CalculatorForm({
             numViviendas: 0,
         }),
     }));
-
-    const handleDragOverFinal = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFinal(true); };
-    const handleDragLeaveFinal = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFinal(false); };
-    const handleDropFinal = (e) => {
-        e.preventDefault(); e.stopPropagation(); setIsDraggingFinal(false);
-        const file = e.dataTransfer.files?.[0];
-        handleXmlFileFinal(file);
-    };
 
     return (
         <>
@@ -1051,57 +974,58 @@ export function CalculatorForm({
                             </svg>
                             Cálculo Estimado
                         </button>
-                        {/* Botón Cálculo Real por XML completo: SOLO en modo Reforma (factores de paso
-                            inicial/final). En RES060 (sin reforma) queda unificado en el botón de abajo. */}
-                        {inputs.isReforma && (showBrokergy || demandMode === 'real') && (
-                            <button
-                                onClick={() => {
-                                    if (xmlDemandData) {
-                                        onDemandModeChange('real');
-                                    } else {
-                                        setShowXmlModal(true);
-                                    }
-                                }}
-                                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${
-                                    demandMode === 'real'
-                                        ? 'bg-gradient-to-r from-emerald-500 to-lime-600 text-white shadow-lg shadow-emerald-500/20'
-                                        : 'text-slate-500 hover:text-slate-300'
-                                }`}
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                Cálculo Real (CEE)
-                            </button>
-                        )}
+                        {/* «Cálculo real»: en RES060 es el modo 'manual' (demanda + superficie del
+                            CEE). En REFORMA es UNA pestaña que abre el popup de los dos
+                            certificados (CeeRealModal); por debajo queda en 'real' (los dos .xml
+                            con energía final) o en 'manual' (tabla de emisiones), según lo
+                            que se suba — ceeSeed.seedCalculoRealReforma. */}
                         <button
-                            onClick={() => onDemandModeChange('manual')}
+                            onClick={() => (inputs.isReforma ? setShowCeeReal(true) : onDemandModeChange('manual'))}
                             className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${
-                                demandMode === 'manual'
+                                calculoReal
                                     ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/20'
                                     : 'text-slate-500 hover:text-slate-300'
                             }`}
                         >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
-                            {inputs.isReforma ? 'CEE Aportado' : 'Cálculo Real'}
+                            Cálculo Real
                         </button>
                     </div>
 
-                    {inputs.isReforma && demandMode === 'real' && xmlDemandData && (
-                        <div className="mt-2 flex justify-end">
-                            <button
-                                onClick={() => setShowXmlModal(true)}
-                                className="text-[9px] font-bold text-emerald-400/60 hover:text-emerald-400 uppercase tracking-widest transition-colors flex items-center gap-1"
-                            >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                </svg>
-                                Cambiar Certificado XML
-                            </button>
-                        </div>
-                    )}
+                    {/* REFORMA · Cálculo real: qué certificados mandan y por qué vía sale el ahorro. */}
+                    {inputs.isReforma && calculoReal && (() => {
+                        const { inicial: cIni, final: cFin, propio } = ceesCargadosReforma(inputs);
+                        const porEnergiaFinal = demandMode === 'real'
+                            && !!inputs.xmlDemandData?.energiaFinalVectores && !!inputs.xmlDemandDataFinal?.energiaFinalVectores;
+                        const fila = (rotulo, c, extra) => (
+                            <div className="flex items-center justify-between gap-3 text-[11px]">
+                                <span className="text-slate-400 font-bold uppercase tracking-widest text-[9px]">{rotulo}</span>
+                                <span className={c ? 'text-slate-200 font-bold' : 'text-slate-500'}>
+                                    {c ? `${c.source === 'ocr' ? 'PDF/foto (OCR)' : '.xml'}${extra ? ` · ${extra}` : ''}` : 'sin cargar — se estima'}
+                                </span>
+                            </div>
+                        );
+                        return (
+                            <div className="mt-3 p-4 rounded-xl bg-slate-900/60 border border-amber-500/20 space-y-2">
+                                {fila('CEE inicial', cIni, propio ? 'nuestro' : 'aportado por el cliente')}
+                                {fila('CEE final', cFin)}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-white/5">
+                                    <span className={`text-[10px] font-black uppercase tracking-widest ${porEnergiaFinal ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                        {porEnergiaFinal ? 'Ahorro por la energía final de cada .xml' : 'Ahorro por emisiones (tabla)'}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowCeeReal(true)}
+                                        className="self-start sm:self-auto text-[10px] font-black text-amber-300 hover:text-amber-200 uppercase tracking-widest"
+                                    >
+                                        Cambiar certificados
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* CÁLCULO REAL en RES060: demanda + superficie del CEE (situación real), unificado
                         en un único modo. Cargando un CEE nuevo se puede sustituir el ya cargado. */}
@@ -1167,7 +1091,10 @@ export function CalculatorForm({
                         </div>
                     )}
 
-                    {demandMode === 'real' && inputs.isReforma && inputs.reformaType !== 'none' && (
+                    {/* Con la energía final de los dos .xml no hay combustible que elegir: cada
+                        vector viene nombrado y en kWh (calculation.js, metodoForzado 'energia_final'). */}
+                    {demandMode === 'real' && inputs.isReforma && inputs.reformaType !== 'none'
+                        && !(inputs.xmlDemandData?.energiaFinalVectores && inputs.xmlDemandDataFinal?.energiaFinalVectores) && (
                         <div className="mt-4 p-5 bg-slate-900/80 border border-cyan-500/30 rounded-xl animate-scale-in">
                             <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -3811,6 +3738,24 @@ export function CalculatorForm({
         </SectionCard>
 
 
+        {/* CÁLCULO REAL de un RES080: los dos certificados en un popup (ceeSeed.seedCalculoRealReforma) */}
+        {inputs.isReforma && (() => {
+            const ya = ceesCargadosReforma(inputs);
+            return (
+                <CeeRealModal
+                    isOpen={showCeeReal}
+                    onClose={() => setShowCeeReal(false)}
+                    inicial={ya.inicial}
+                    final={ya.final}
+                    propio={ya.propio}
+                    onConfirm={(sel) => {
+                        onInputChange(prev => ({ ...prev, ...seedCalculoRealReforma({ ...sel, inputs: prev }) }));
+                        setShowCeeReal(false);
+                    }}
+                />
+            );
+        })()}
+
         {/* CARGA DE CEE (Cálculo Real RES060): popup que lee XML/PDF/fotos */}
         <CeeUploadModal
             isOpen={showCeeLoad}
@@ -3819,148 +3764,6 @@ export function CalculatorForm({
             subtitle="Sube el CEE del cliente (.xml exacto, o PDF/fotos con OCR). Rellenaremos la demanda de calefacción y la superficie, y guardaremos sus datos para la comparativa."
             onLoaded={(data) => { applyCeePrevio(data); setShowCeeLoad(false); }}
         />
-
-        {/* PANTALLA CARGA XML (MODAL PREMIUM CENTRADO) */}
-        {showXmlModal && (
-            <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-                {/* Backdrop con Blur fuerte */}
-                <div 
-                    className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl animate-in fade-in duration-500"
-                    onClick={() => setShowXmlModal(false)}
-                />
-                
-                {/* Contenido del Modal Centrado */}
-                <div className={`relative bg-[#0F1117] border border-white/10 rounded-[2.5rem] p-10 ${inputs.isReforma ? 'max-w-2xl' : 'max-w-md'} w-full shadow-[0_30px_100px_rgba(0,0,0,0.9)] animate-in fade-in zoom-in-95 slide-in-from-bottom-5 duration-500 ring-1 ring-white/5`}>
-                    <div className="flex flex-col items-center text-center mb-8">
-                        <div className="w-16 h-16 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-2xl flex items-center justify-center shadow-xl shadow-emerald-500/20 mb-6">
-                            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                        </div>
-                        <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">Cargar Certificados CEE</h3>
-                        <p className="text-sm text-slate-400 leading-relaxed font-medium">Sube los archivos .xml generados por CE3X para realizar un <span className="text-emerald-400 font-bold">Cálculo Real</span>.</p>
-                    </div>
-                    
-                    <div className={`grid grid-cols-1 ${inputs.isReforma ? 'md:grid-cols-2' : ''} gap-6`}>
-                        {/* XML INICIAL */}
-                        <div className="flex flex-col">
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3 text-center">PASO 1: Certificado Inicial</h4>
-                            <div
-                                onDragOver={handleDragOver}
-                                onDragLeave={handleDragLeave}
-                                onDrop={handleDrop}
-                                className={`
-                                    relative group flex-1 border-2 border-dashed rounded-[2rem] p-8 text-center transition-all duration-300 cursor-pointer overflow-hidden
-                                    ${xmlDemandData 
-                                        ? 'border-emerald-500/50 bg-emerald-500/[0.03] hover:bg-emerald-500/[0.06]' 
-                                        : (isDragging ? 'border-brand bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/20')}
-                                `}
-                            >
-                                <input
-                                    type="file"
-                                    accept=".xml"
-                                    onChange={(e) => handleXmlFile(e.target.files?.[0])}
-                                    className="hidden"
-                                    id="xmlUpload"
-                                />
-                                <label htmlFor="xmlUpload" className="cursor-pointer flex flex-col items-center justify-center h-full">
-                                    {xmlDemandData ? (
-                                        <div className="animate-in zoom-in duration-300 flex flex-col items-center">
-                                            <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-emerald-500/20">
-                                                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                                </svg>
-                                            </div>
-                                            <span className="text-xs text-emerald-400 font-black uppercase tracking-widest">Inicial Cargado</span>
-                                            <span className="text-[10px] text-slate-600 mt-1 font-bold">Pulsa para cambiar</span>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-all duration-300 ${isDragging ? 'bg-brand text-black' : 'bg-white/5 text-slate-500 group-hover:bg-brand/10 group-hover:text-brand'}`}>
-                                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                                                </svg>
-                                            </div>
-                                            <span className="text-[11px] text-slate-300 font-bold uppercase tracking-wider">{isDragging ? 'Suelta el archivo' : 'XML Inicial'}</span>
-                                        </>
-                                    )}
-                                </label>
-                            </div>
-                            {xmlError && <p className="text-red-400 text-[10px] mt-2 text-center font-bold px-2">{xmlError}</p>}
-                        </div>
-
-                        {/* XML FINAL (Solo si es Reforma) */}
-                        {inputs.isReforma && (
-                            <div className="flex flex-col">
-                                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3 text-center">PASO 2: Certificado Final</h4>
-                                <div
-                                    onDragOver={handleDragOverFinal}
-                                    onDragLeave={handleDragLeaveFinal}
-                                    onDrop={handleDropFinal}
-                                    className={`
-                                        relative group flex-1 border-2 border-dashed rounded-[2rem] p-8 text-center transition-all duration-300 cursor-pointer overflow-hidden
-                                        ${inputs.xmlDemandDataFinal 
-                                            ? 'border-cyan-500/50 bg-cyan-500/[0.03] hover:bg-cyan-500/[0.06]' 
-                                            : (isDraggingFinal ? 'border-brand bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/20')}
-                                    `}
-                                >
-                                    <input
-                                        type="file"
-                                        accept=".xml"
-                                        onChange={(e) => handleXmlFileFinal(e.target.files?.[0])}
-                                        className="hidden"
-                                        id="xmlUploadFinal"
-                                    />
-                                    <label htmlFor="xmlUploadFinal" className="cursor-pointer flex flex-col items-center justify-center h-full">
-                                        {inputs.xmlDemandDataFinal ? (
-                                            <div className="animate-in zoom-in duration-300 flex flex-col items-center">
-                                                <div className="w-12 h-12 bg-cyan-500 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-cyan-500/20">
-                                                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                                    </svg>
-                                                </div>
-                                                <span className="text-xs text-cyan-400 font-black uppercase tracking-widest">Final Cargado</span>
-                                                <span className="text-[10px] text-slate-600 mt-1 font-bold">Pulsa para cambiar</span>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-all duration-300 ${isDraggingFinal ? 'bg-brand text-black' : 'bg-white/5 text-slate-500 group-hover:bg-brand/10 group-hover:text-brand'}`}>
-                                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                                                    </svg>
-                                                </div>
-                                                <span className="text-[11px] text-slate-300 font-bold uppercase tracking-wider">{isDraggingFinal ? 'Suelta el archivo' : 'XML Final'}</span>
-                                            </>
-                                        )}
-                                    </label>
-                                </div>
-                                {xmlFinalError && <p className="text-red-400 text-[10px] mt-2 text-center font-bold px-2">{xmlFinalError}</p>}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="mt-10 flex flex-col gap-4">
-                        <button
-                            onClick={() => setShowXmlModal(false)}
-                            className="w-full py-4 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-black font-black uppercase tracking-[0.2em] text-xs rounded-2xl shadow-xl shadow-brand/20 transition-all hover:scale-[1.02] active:scale-95"
-                        >
-                            Confirmar y Cerrar
-                        </button>
-                        <button
-                            onClick={() => {
-                                onXmlDemandDataChange(null);
-                                onInputChange(prev => ({ ...prev, xmlDemandDataFinal: null }));
-                                setXmlError(null);
-                                setXmlFinalError(null);
-                            }}
-                            className="py-2 text-[10px] font-black text-slate-600 hover:text-red-400 uppercase tracking-widest transition-colors text-center"
-                        >
-                            Limpiar Archivos
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
 
         {leyendoPlaca && (
             <LeerPlacaModal

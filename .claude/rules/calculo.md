@@ -55,12 +55,14 @@ paths:
 
 155. **El FC (borrador DGPLACE) se calcula con la ficha que TOCA, el f_C UNA vez, el CEF del CEE INICIAL, y nunca sin sus avisos de elegibilidad** (2026-10-21, revisión pedida por Fran). Fuente única: [res060fc.js](implementation/frontend/src/features/calculator/logic/res060fc.js) (`calculateRes060FC`), que usan la calculadora, el expediente y `avisoFc`. **RES060FC** en una sustitución; en una **hibridación, la RES09xFC de su ZONA** (A·B·C·D·E1) con SU tabla de C_b del Anexo V y tope sobre el CEF de **calefacción**: antes iba por la RES060FC sin C_b. El f_C multiplica una sola vez el mínimo: el «· f_C» final del AES de la RES060FC es errata (las otras once fichas no lo llevan), y con él el FC salía un 9 % alto y en 14 de 73 expedientes daba ganadora la ficha equivocada. El CEF es Σ `<EnergiaFinalVectores>` × S del CEE **inicial** (`cefDelCee`), que en nuestros CEE es de mediana 1,45 veces el estimado; sin CEE se estima y se avisa. Bloque → f_C 3; piso y bloque por las plantas del EDIFICIO (`inputs.fcPlantasEdificio`, tabla de 1-3 o de ≥4); el tipo en minúsculas; la provincia por código o nombre; el año que falta, supuesto 1981-2007 y avisado. Devuelve `avisos` (bloquea / aviso / info) y `elegible`: sin calefacción, ya subido a MITECO, obra anterior al 22/03/2026, facturas posteriores al 30/11/2027 o CEE final F/G en zona D/E **bloquean**; la sin calefacción la decide la FILA de caldera, no el desplegable de tipo (24 oportunidades con «No tiene Calefacción» y gasóleo elegido). Tras tocarlo: `node implementation/backend/scripts/test_res060fc.mjs`. Ver "Fichas con FACTOR DE CORRECCIÓN".
 
+179. **Con los dos `.xml` (los dos con `<EnergiaFinalVectores>`), el ahorro RES080 es la energía final que DECLARAN: Σ inicial − Σ final, sin emisiones ni método que elegir — en la calculadora y en el expediente** (2026-10-27, Fran, 26RES080_OP86: la tabla de emisiones daba 41,18 MWh y los `.xml` 55,73, porque dividía carbón + gas ficticio por UN factor). Lo decide `calculateRes080` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js) (`metodoForzado: 'energia_final'`), y lo dicen el chip del módulo CEE y el popup de la calculadora. En reforma, **«Cálculo real» es UNA pestaña** que abre `CeeRealModal` (CEE inicial y final; `.xml`, `.cex`, PDF o fotos; el inicial, del cliente o nuestro → `inputs.cee_inicial_origen`); lo sembrado lo decide `seedCalculoRealReforma` en [ceeSeed.js](implementation/frontend/src/features/calculator/logic/ceeSeed.js): con final no hay comparativa «con tu CEE» (`cee_previo` a null) y la superficie es la del inicial; con OCR, tabla de emisiones. Tras tocarlo: `node implementation/backend/scripts/test_cobertura_generadores.mjs`, `test_xml_cee_v30.mjs` y `check_res080_paginas.mjs`. Ver "Ahorro RES080 — método SIMPLIFICADO".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/calculo/ahorro-anual-en-euros-con-hibridacion.md` — El ahorro anual en € reparte el consumo por VECTOR: la bomba a precio de luz, la caldera al de su combustible (2026-10-19) · 3,7 KB
-- `docs/conocimiento/calculo/ahorro-res080-metodo-simplificado-por-vector-energetico.md` — Ahorro RES080 — método SIMPLIFICADO, por vector energético (2026-08-10) · 9,5 KB
+- `docs/conocimiento/calculo/ahorro-res080-metodo-simplificado-por-vector-energetico.md` — Ahorro RES080 — método SIMPLIFICADO, por vector energético (2026-08-10) · 12,1 KB
 - `docs/conocimiento/calculo/bloques-de-viviendas-el-edificio-completo-como-objeto.md` — BLOQUES de viviendas — el edificio completo como objeto (2026-09-11) · 8,6 KB
 - `docs/conocimiento/calculo/el-acs-en-el-mismo-clima-que-la-calefaccion.md` — El ACS se declara en el MISMO clima que la calefacción (2026-10-21) · 3,3 KB
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md` — El CEE que MANDA, y qué se avisa antes de generar (2026-09-03) · 8,7 KB
@@ -84,6 +86,8 @@ paths:
   - **REGLA — el combustible se busca en TODOS los generadores, no en el primero de cada servicio.**
   - **REGLA — en simplificado NO se estima la columna FINAL.**
   - **REGLA — el certificado RES080 tiene que EXPLICAR el método.**
+  - **REGLA — con los dos `.xml` (los dos con `<EnergiaFinalVectores>`, CE3X 2.3 o 3.x), el ahorro
+RES080 es Σ energía final del inicial − Σ la del final, y nada más**
 - `docs/conocimiento/calculo/bloques-de-viviendas-el-edificio-completo-como-objeto.md`
   - **REGLA — no hace falta ficha nueva: es la RES060.**
   - **REGLA — la dirección se compone del nodo ESTRUCTURADO (`dir`), no del `ldt`.**
