@@ -8,7 +8,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const path = require('path');
 const { pathToFileURL } = require('url');
-require('./esmSinExtension');
+// Sin `esmSinExtension`: la lógica del frontend que carga no importa nada, y el
+// gancho no existe en el Node 20 del contenedor (tumbó el arranque el 27/10/2026).
 
 const RUTA_ESM = path.join(__dirname, '../../frontend/src/features/calculator/logic/estimacionCiega.js');
 const cargar = () => import(pathToFileURL(RUTA_ESM).href);
