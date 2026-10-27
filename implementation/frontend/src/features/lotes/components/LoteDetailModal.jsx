@@ -118,6 +118,7 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const [costeVerifInput, setCosteVerifInput] = useState('');
     const [ofertaInput, setOfertaInput] = useState('');
     const [expVerifInput, setExpVerifInput] = useState('');
+    const [regMitecoInput, setRegMitecoInput] = useState('');
     // Pestañas: el lote tiene demasiada cosa para una sola columna con scroll.
     const [tab, setTab] = useState('resumen');
     const [showAnexo, setShowAnexo] = useState(false);
@@ -288,7 +289,8 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
         setCosteVerifInput(lote?.coste_verificacion ?? '');
         setOfertaInput(lote?.oferta_lote ?? '');
         setExpVerifInput(lote?.expediente_verificador ?? '');
-    }, [lote?.id, lote?.coste_verificacion, lote?.oferta_lote, lote?.expediente_verificador]);
+        setRegMitecoInput(lote?.registro_miteco ?? '');
+    }, [lote?.id, lote?.coste_verificacion, lote?.oferta_lote, lote?.expediente_verificador, lote?.registro_miteco]);
 
     // ─── Acciones ────────────────────────────────────────────────────────────────
     const patchLote = async (patch) => {
@@ -449,6 +451,9 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                 {lote.expediente_verificador && (
                                     <> · <span className="text-brand/70 font-black" title="Nº de expediente del verificador">⧉ {lote.expediente_verificador}</span></>
                                 )}
+                                {lote.registro_miteco && (
+                                    <> · <span className="text-sky-300/70 font-black break-all" title="Nº de registro de la solicitud de emisión en el MITECO">🏛 {lote.registro_miteco}</span></>
+                                )}
                             </p>
                         )}
                     </div>
@@ -571,9 +576,9 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                             })()}
 
                             {/* Inputs manuales. El coste y la oferta son MARGEN (solo ADMIN);
-                                el nº de expediente del verificador es un dato de gestión que
-                                ve y edita todo el staff. */}
-                            <div className={`grid grid-cols-1 gap-2 ${canSeeMargin ? 'sm:grid-cols-3' : ''}`}>
+                                el nº de expediente del verificador y el registro MITECO son
+                                datos de gestión que ve y edita todo el staff. */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 {canSeeMargin && (
                                 <div>
                                     <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Coste verificación (€)</label>
@@ -639,6 +644,20 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                         className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
                                     <p className="text-[9px] text-white/30 mt-1">
                                         {lote.verificador ? `Su referencia en ${presName(lote.verificador)}.` : 'Su referencia en el sistema del verificador.'}
+                                    </p>
+                                </div>
+                                {/* El nº con el que el Gestor Autonómico cita el lote en sus
+                                    requerimientos: lo único que los casa con el lote. Se lee
+                                    del justificante al subirlo; aquí solo se corrige. */}
+                                <div>
+                                    <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Nº registro MITECO</label>
+                                    <input type="text" value={regMitecoInput} disabled={busy}
+                                        onChange={e => setRegMitecoInput(e.target.value)}
+                                        onBlur={() => { if (regMitecoInput.replace(/\s+/g, '') !== String(lote.registro_miteco ?? '')) patchLote({ registro_miteco: regMitecoInput }); }}
+                                        placeholder="REGAGE… (sale del justificante)"
+                                        className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
+                                    <p className="text-[9px] text-white/30 mt-1">
+                                        El de la solicitud de emisión: así cita el lote el Gestor Autonómico.
                                     </p>
                                 </div>
                             </div>

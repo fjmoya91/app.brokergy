@@ -26,6 +26,7 @@ const {
 } = require('../services/loteDocs');
 const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion, leerCertificadoCae } = require('../services/loteOcrService');
 const { comprobarRangoCae } = require('../utils/codigosCae');
+const { leerRegage } = require('../utils/regageJustificante');
 const inexactitudesLote = require('../services/inexactitudesLote');
 const { archivarFacturaVenta } = require('../services/facturaContabilidad');
 const anexoActuacion = require('../services/anexoActuacionService');
@@ -551,7 +552,7 @@ router.patch('/:id', staffOnly, async (req, res) => {
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
-        const { sujeto_obligado_id, verificador_id, notas, coste_verificacion, oferta_lote, expediente_verificador } = req.body || {};
+        const { sujeto_obligado_id, verificador_id, notas, coste_verificacion, oferta_lote, expediente_verificador, registro_miteco } = req.body || {};
         const update = { updated_at: nowIso() };
 
         // Nº de expediente que el verificador da al lote en SU sistema. Dato manual e
@@ -559,6 +560,14 @@ router.patch('/:id', staffOnly, async (req, res) => {
         if (expediente_verificador !== undefined) {
             const v = String(expediente_verificador || '').trim();
             update.expediente_verificador = v || null;
+        }
+
+        // Nº de registro (REGAGE…) de la solicitud de emisión en el MITECO. Lo pone la
+        // subida del justificante; aquí solo se corrige a mano. Sin espacios: se copia
+        // y se pega tal cual en la sede y en las respuestas a los requerimientos.
+        if (registro_miteco !== undefined) {
+            const v = String(registro_miteco || '').replace(/\s+/g, '');
+            update.registro_miteco = v || null;
         }
 
         // La oferta del lote y el coste de verificación son MARGEN Brokergy: solo el
@@ -1571,6 +1580,28 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
             }
         }
 
+        // El JUSTIFICANTE del MITECO trae el nº de registro de la solicitud (REGAGE…),
+        // que es como el Gestor Autonómico cita el lote en sus requerimientos. Un
+        // justificante nuevo es una presentación nueva: su número MANDA sobre el que
+        // hubiera (el anterior queda en el historial).
+        let registroMiteco = null;
+        if (slot === 'justificante_miteco' && !esFirmado) {
+            registroMiteco = leerRegage(buffer);
+            if (registroMiteco) {
+                entrada.registro = registroMiteco;
+                update.documentos_so = docs;
+                if (registroMiteco !== lote.registro_miteco) {
+                    update.registro_miteco = registroMiteco;
+                    historial.push({
+                        id: `${Date.now()}_registro_miteco`, tipo: 'sistema',
+                        texto: `Nº de registro MITECO ${lote.registro_miteco ? `${lote.registro_miteco} → ` : ''}${registroMiteco} (leído del justificante).`,
+                        fecha: nowIso(), usuario: usuarioDe(req),
+                    });
+                    update.historial = historial;
+                }
+            }
+        }
+
         // El CERTIFICADO CAE: su rango de códigos se sella para la factura al S.O.
         let cae = null;
         if (slot === 'certificado_cae' && !esFirmado) {
@@ -1622,7 +1653,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, inexactitudes, lote: scrubLoteForUser(enriched, req) });
+        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, inexactitudes, registro_miteco: registroMiteco, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
         console.error('[POST /lotes/:id/documentos/:slot]', err.message);
         res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });

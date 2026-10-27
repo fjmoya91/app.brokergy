@@ -119,6 +119,13 @@ const INDICE = [
     { cod: '1-1', etiqueta: 'Anexo I · Listado de Cesión (lote)', obligatorio: true,  de: 'lote_doc', key: 'anexo_i',           nombre: 'ANEXO I LISTADO CESION_fdo', ambito: 'lote' },
     { cod: '1-2', etiqueta: 'Anexo Cesión de Ahorro del titular', obligatorio: true,  de: 'doc_exp',  campo: 'anexo_cesion_signed_link', nombre: 'ANEXO CESION AHORRO_fdo' },
     { cod: '2',   etiqueta: 'Dictamen favorable',                 obligatorio: true,  de: 'lote_doc', key: 'dictamen_favorable', nombre: 'DICTAMEN FAVORABLE', ambito: 'lote', soloGestor: true },
+    // El INFORME de verificación, detrás de su dictamen. Los lotes 001, 003 y 2026-004
+    // se cobraron sin él, pero el 26/10/2026 el Gestor de Castilla-La Mancha requirió
+    // los cinco lotes del 09/10 (E_CAE_2026_07019…07023): «se ha presentado el
+    // dictamen del verificador, pero no se ha adjuntado el informe correspondiente».
+    // No hay nombre que reproducir —ningún lote presentado lo llevaba—: `2-1` lo deja
+    // pegado al dictamen, que es de donde sale. Obligatorio: sin él, requerimiento.
+    { cod: '2-1', etiqueta: 'Informe de verificación',            obligatorio: true,  de: 'lote_doc', key: 'informe_verificacion', nombre: 'INFORME DE VERIFICACION', ambito: 'lote', soloGestor: true },
 
     { cod: '3-1', etiqueta: 'Ficha RES firmada por el S.O.',      obligatorio: true,  de: 'ficha_res',
       nombreDe: (ctx) => `Ficha ${fichaDe(ctx.exp.numero_expediente)}_fdo`,

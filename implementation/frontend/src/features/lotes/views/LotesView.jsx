@@ -198,6 +198,11 @@ export function LotesView({ onNavigate }) {
                                             </span>
                                         )}
                                     </div>
+                                    {l.registro_miteco && (
+                                        <p className="text-[10px] font-black text-sky-300/70 truncate" title="Nº de registro de la solicitud de emisión en el MITECO">
+                                            🏛 {l.registro_miteco}
+                                        </p>
+                                    )}
                                     <p className="text-[11px] text-white/40 mt-0.5">
                                         {l.anio_actuacion ? `${l.anio_actuacion}` : 'Año pendiente'} · {l.ccaa || 'CCAA pendiente'}
                                     </p>

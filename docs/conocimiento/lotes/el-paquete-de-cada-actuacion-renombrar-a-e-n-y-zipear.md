@@ -58,6 +58,16 @@ salían ficheros llamados `E1-3-1 - … - Ficha RES firmada por el S.O..pdf`.
   dictamen favorable (`E{n}-2`) y los escritos del lote (`E{n}-5-x`). Es el que se
   sube a MITECO, y su botón solo aparece con el dictamen ya subido.
 
+**El INFORME de verificación va como `2-1`, detrás del dictamen (2026-10-27).** El
+paquete `gestor` llevaba el dictamen pero no el informe, y el 26/10/2026 el Gestor de
+Castilla-La Mancha requirió los cinco lotes presentados el 09/10 por eso mismo («se ha
+presentado el dictamen del verificador, pero no se ha adjuntado el informe
+correspondiente»). Los lotes 001, 003 y 2026-004 se cobraron sin él, así que no hay
+nombre que reproducir: `E{n}-2-1 - {LOTE} - INFORME DE VERIFICACION.pdf`, sacado de
+`documentos_so` (slot `informe_verificacion`), **obligatorio** y solo en el paquete
+`gestor`. Medido en seco sobre LOTE-2025-005 y 009: entra en las cinco actuaciones.
+Ver "El Nº de REGISTRO del MITECO en el lote, y los requerimientos del Gestor".
+
 **La copia del PODER va como `4-8` (2026-10-22).** Cuando el titular está representado
 —una empresa, o un particular con poder— el Anexo I declara «Se adjunta copia a la
 presente», así que la copia viaja: pieza `4-8 · ACREDITACION REPRESENTACION`, sacada de
