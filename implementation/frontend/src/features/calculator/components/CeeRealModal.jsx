@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { extractCeeFromFiles } from '../../cee/ceeExtract';
+import { extractCeeFromFiles, ceeToXmlShape } from '../../cee/ceeExtract';
+import { calculateRes080SimplificadoFromXml } from '../logic/calculation';
 import { CSS as CSS_FX, DialogoFx, AvisoFx, Ico } from '../../facturacion/estilo';
 
 /**
@@ -26,10 +27,30 @@ import { CSS as CSS_FX, DialogoFx, AvisoFx, Ico } from '../../facturacion/estilo
 const vacio = { data: null, cambiado: false, files: [], error: null, leyendo: false, msg: '' };
 
 const tieneEnergiaFinal = (d) => !!(d?.energia_final_vectores && Object.keys(d.energia_final_vectores).length);
-const fmt = (v) => {
+const fmt = (v, dec = 2) => {
   const n = Number(v);
-  return isFinite(n) && n > 0 ? n.toLocaleString('es-ES', { maximumFractionDigits: 2 }) : '—';
+  return isFinite(n) && n > 0 ? n.toLocaleString('es-ES', { minimumFractionDigits: dec === 0 ? 0 : undefined, maximumFractionDigits: dec }) : '—';
 };
+// Σ de la energía final que declara el certificado (kWh/m²·año), todos los vectores.
+const energiaFinalM2 = (d) => tieneEnergiaFinal(d)
+  ? Object.values(d.energia_final_vectores).reduce((a, v) => a + (Number(v.global) || 0), 0)
+  : null;
+const fechaCorta = (f) => {
+  const m = String(f || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (f || '—');
+};
+
+// El ahorro que va a salir al pulsar «Calcular», con la MISMA función que la calculadora
+// (calculateRes080 → calculateRes080SimplificadoFromXml, superficie = la del inicial, que
+// es la que siembra `seedCalculoRealReforma`). No es una estimación aparte: es la cifra.
+function ahorroPrevisto(ini, fin) {
+  if (!ini || !fin) return null;
+  const sup = Number(ini.superficie_habitable_m2) || undefined;
+  const r = calculateRes080SimplificadoFromXml({
+    xmlInicial: ceeToXmlShape(ini), xmlFinal: ceeToXmlShape(fin), superficieCustom: sup,
+  });
+  return r && isFinite(r.ahorroEnergiaFinalTotal) ? r : null;
+}
 
 // Lo propio de este popup: los dos huecos y el ancho (el diálogo de Facturación mide 480 px).
 const CSS_CR = `
@@ -53,7 +74,98 @@ const CSS_CR = `
 .cr-seg{width:100%;grid-auto-columns:1fr}
 .cr-seg button{white-space:normal;line-height:1.2;text-align:center}
 .cr-leyendo{display:grid;justify-items:center;gap:10px;color:var(--gris);font-size:13px;font-weight:600}
+.cr-datos dd small{font-size:11px;font-weight:500;color:var(--gris2)}
+.cr-letra{display:inline-grid;place-items:center;min-width:22px;height:22px;margin-left:8px;padding:0 6px;border-radius:7px;background:var(--tinta);color:#fff;font:700 13px/1 var(--display)}
+.cr-res{border-radius:24px;background:#fff;border:1px solid var(--linea);box-shadow:var(--sombra-baja);padding:20px 20px 8px;margin-top:4px}
+.cr-res-cab{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:6px 16px}
+.cr-res-cifra{font:700 44px/1 var(--display);color:var(--tinta);letter-spacing:-.01em}
+.cr-res-cifra small{font:600 15px/1 var(--texto);color:var(--gris);margin-left:6px;letter-spacing:0}
+.cr-res-sub{font-size:13px;color:var(--gris)}
+.cr-res-filete{height:3px;border-radius:3px;margin:14px 0 4px;background:linear-gradient(90deg,var(--naranja),var(--verde))}
+.cr-tabla{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.cr-tabla th{padding:10px 6px 6px;text-align:right;font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--gris)}
+.cr-tabla th:first-child,.cr-tabla td:first-child{text-align:left;padding-left:0}
+.cr-tabla td{padding:8px 6px;text-align:right;border-top:1px solid var(--linea);white-space:nowrap}
+.cr-tabla td:first-child{white-space:normal;color:var(--tinta);font-weight:600}
+.cr-tabla td:last-child,.cr-tabla th:last-child{padding-right:0}
+.cr-tabla tr.cr-tot td{font-weight:700;color:var(--tinta)}
+.cr-tabla tr.cr-ano td{font-weight:800;color:var(--tinta);background:#fcfbf8}
+.cr-menos{color:#3f7d20}
+.cr-mas{color:#a45f00}
+.cr-fict{display:block;font-size:11px;font-weight:500;color:var(--gris2)}
+@media (max-width:420px){.cr-tabla{font-size:12px}.cr-res{padding:16px 14px 6px}.cr-res-cifra{font-size:38px}}
 `;
+
+// El ahorro de un vector, con su signo: la aerotermia SUBE la electricidad, y eso se ve.
+const Dif = ({ v }) => {
+  const n = Math.round(Number(v) * 100) / 100;
+  if (!isFinite(n) || n === 0) return <td>0</td>;
+  const t = Math.abs(n).toLocaleString('es-ES', { maximumFractionDigits: 2 });
+  return <td className={n > 0 ? 'cr-menos' : 'cr-mas'}>{n > 0 ? t : `−${t}`}</td>;
+};
+
+// El AHORRO que sale al pulsar «Calcular», con todo su desglose: cada vector de la energía
+// final (kWh/m²·año) en el inicial y el final, los totales y el total del año (× m²).
+function Resultado({ ini, fin }) {
+  const r = ahorroPrevisto(ini, fin);
+  if (!r) return null;
+  const porEF = r.fuenteDatos === 'energia_final_declarada';
+  const vIni = r.vectores?.inicial || [];
+  const vFin = r.vectores?.final || [];
+  const nombres = [...new Set([...vIni, ...vFin].map(v => v.nombre))];
+  const de = (lista, n) => Number(lista.find(v => v.nombre === n)?.global) || 0;
+  const cero = (v) => (Number(v) === 0 ? '0' : fmt(v));
+  // El vector que pone CE3X por su SISTEMA POR DEFECTO (la demanda que ningún generador
+  // cubre) se nombra como tal: cuenta en la energía final, pero no es un equipo de la casa.
+  const ficticios = String(r.details?.otros?.fuelIni || '').split(' + ')
+    .filter(p => /ficticio/i.test(p)).map(p => p.toLowerCase());
+  const esFicticio = (n) => ficticios.some(p => p.startsWith(String(n).toLowerCase()));
+  const filasEmi = !porEF ? [
+    ['Consumo eléctrico', r.details?.electrico],
+    [r.details?.otros?.fuelIni && r.details.otros.fuelIni !== '—' ? r.details.otros.fuelIni : 'Otros combustibles', r.details?.otros],
+  ] : [];
+  return (
+    <section className="cr-res" aria-label="Ahorro de energía final">
+      <span className="fx-sec-tit" style={{ margin: 0 }}>Ahorro de energía final</span>
+      <div className="cr-res-cab">
+        <div className="cr-res-cifra">{fmt(r.ahorroEnergiaFinalTotal / 1000, 2)}<small>MWh/año</small></div>
+        <div className="cr-res-sub">
+          {fmt(r.ahorroM2)} kWh/m²·año × {fmt(r.superficieInicialAplicada)} m²
+        </div>
+      </div>
+      <div className="cr-res-filete" />
+      <table className="cr-tabla">
+        <thead>
+          <tr><th>{porEF ? 'Vector' : 'Por emisiones'}</th><th>Inicial</th><th>Final</th><th>Ahorro</th></tr>
+        </thead>
+        <tbody>
+          {porEF ? nombres.map(n => (
+            <tr key={n}>
+              <td>{n}{esFicticio(n) && <small className="cr-fict">sistema por defecto de CE3X</small>}</td>
+              <td>{cero(de(vIni, n))}</td><td>{cero(de(vFin, n))}</td>
+              <Dif v={de(vIni, n) - de(vFin, n)} />
+            </tr>
+          )) : filasEmi.map(([n, x]) => (
+            <tr key={n}>
+              <td>{n}</td><td>{cero(x?.energyIni)}</td><td>{cero(x?.energyFin)}</td>
+              <Dif v={(x?.energyIni || 0) - (x?.energyFin || 0)} />
+            </tr>
+          ))}
+          <tr className="cr-tot">
+            <td>Total <small style={{ fontWeight: 500, color: 'var(--gris2)' }}>kWh/m²·año</small></td>
+            <td>{fmt(r.totalEnergiaInicialM2)}</td><td>{fmt(r.totalEnergiaFinalM2)}</td>
+            <td className="cr-menos">{fmt(r.ahorroM2)}</td>
+          </tr>
+          <tr className="cr-ano">
+            <td>Al año <small style={{ fontWeight: 500, color: 'var(--gris2)' }}>kWh</small></td>
+            <td>{fmt(r.totalEnergiaInicialAno, 0)}</td><td>{fmt(r.totalEnergiaFinalAno, 0)}</td>
+            <td className="cr-menos">{fmt(r.ahorroEnergiaFinalTotal, 0)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  );
+}
 
 function Hueco({ id, titulo, estado, onFiles, onQuitar, nota }) {
   const [encima, setEncima] = useState(false);
@@ -93,7 +205,19 @@ function Hueco({ id, titulo, estado, onFiles, onQuitar, nota }) {
           {estado.files?.length > 0 && <div className="cr-fich">{estado.files.join(' · ')}</div>}
           <dl className="cr-datos">
             <div className="fx-fila"><dt>Superficie</dt><dd className="fx-num">{fmt(d.superficie_habitable_m2)} m²</dd></div>
-            <div className="fx-fila"><dt>Demanda de calefacción</dt><dd className="fx-num">{fmt(d.demandas?.calefaccion_kwh_m2_ano)} kWh/m²·año</dd></div>
+            <div className="fx-fila"><dt>Demanda calefacción</dt><dd className="fx-num">{fmt(d.demandas?.calefaccion_kwh_m2_ano)} <small>kWh/m²·año</small></dd></div>
+            <div className="fx-fila"><dt>Demanda ACS</dt><dd className="fx-num">{fmt(d.demandas?.acs_kwh_m2_ano)} <small>kWh/m²·año</small></dd></div>
+            <div className="fx-fila"><dt>Energía final</dt><dd className="fx-num">{fmt(energiaFinalM2(d))} <small>kWh/m²·año</small></dd></div>
+            <div className="fx-fila">
+              <dt>E. primaria no renovable</dt>
+              <dd className="fx-num">
+                {fmt(d.energia_primaria_no_renovable?.consumo_global_kwh_m2_ano)} <small>kWh/m²·año</small>
+                {d.energia_primaria_no_renovable?.calificacion_global && (
+                  <span className="cr-letra">{d.energia_primaria_no_renovable.calificacion_global}</span>
+                )}
+              </dd>
+            </div>
+            <div className="fx-fila"><dt>Fecha · zona</dt><dd>{fechaCorta(d.fecha_certificado)} · {d.identificacion?.zona_climatica || '—'}</dd></div>
           </dl>
           <div className="cr-acc">
             <label htmlFor={id} className="fx-btn fx-btn-sec fx-btn-peq" style={{ cursor: 'pointer' }}>
@@ -196,6 +320,8 @@ export default function CeeRealModal({ isOpen, onClose, inicial = null, final = 
             <p className="fx-kpi-nota" style={{ margin: 0 }}>Opcional. Sin él, el final se estima con la aerotermia (demanda / SCOP).</p>
           )} />
       </div>
+
+      {conDos && !ini.leyendo && !fin.leyendo && <Resultado ini={ini.data} fin={fin.data} />}
 
       {ini.data && (
         porEnergiaFinal ? (

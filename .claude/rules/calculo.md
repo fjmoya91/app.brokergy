@@ -62,7 +62,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/calculo/ahorro-anual-en-euros-con-hibridacion.md` — El ahorro anual en € reparte el consumo por VECTOR: la bomba a precio de luz, la caldera al de su combustible (2026-10-19) · 3,7 KB
-- `docs/conocimiento/calculo/ahorro-res080-metodo-simplificado-por-vector-energetico.md` — Ahorro RES080 — método SIMPLIFICADO, por vector energético (2026-08-10) · 12,1 KB
+- `docs/conocimiento/calculo/ahorro-res080-metodo-simplificado-por-vector-energetico.md` — Ahorro RES080 — método SIMPLIFICADO, por vector energético (2026-08-10) · 13,1 KB
 - `docs/conocimiento/calculo/bloques-de-viviendas-el-edificio-completo-como-objeto.md` — BLOQUES de viviendas — el edificio completo como objeto (2026-09-11) · 8,6 KB
 - `docs/conocimiento/calculo/el-acs-en-el-mismo-clima-que-la-calefaccion.md` — El ACS se declara en el MISMO clima que la calefacción (2026-10-21) · 3,3 KB
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md` — El CEE que MANDA, y qué se avisa antes de generar (2026-09-03) · 8,7 KB

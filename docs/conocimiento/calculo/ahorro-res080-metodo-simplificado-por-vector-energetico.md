@@ -161,6 +161,17 @@ Con CEE FINAL **no hay comparativa** (`cee_previo` a null, como `cargarRes080EnO
 final medido ya es la cifra. La superficie pasa a ser la del CEE inicial. `ceesCargadosReforma`
 reconstruye los dos CEE de lo guardado para reabrir el popup.
 
+**El popup enseña el ahorro ANTES de pulsar «Calcular»** (Fran, 27/10/2026: «que me salga el ahorro
+final y todos los datos»). Cada hueco dice superficie, demanda de calefacción y de ACS, energía final
+(Σ vectores), energía primaria no renovable con su letra, fecha y zona. Con los dos cargados sale el
+bloque «Ahorro de energía final»: la cifra en MWh/año (`ahorroM2 × superficieInicialAplicada`) y una
+tabla vector a vector —inicial, final y ahorro en kWh/m²·año, con el total y el total del año en kWh—;
+lo que SUBE (la electricidad de la aerotermia) va en ámbar y con signo menos. Se calcula con la MISMA
+`calculateRes080SimplificadoFromXml` que usará la calculadora, sobre `ceeToXmlShape` de cada CEE, así
+que la cifra del popup es la que queda (OP86: 55,73 MWh; gas 133,36 + carbón 123,19 − electricidad
+18,40 = 238,15 kWh/m² × 234 m²). El vector que pone CE3X por su sistema ficticio se rotula «sistema
+por defecto de CE3X» (regla 111). Con un CEE por OCR la tabla es la de emisiones (eléctrico / otros).
+
 **El expediente** ya calculaba así con los dos `.xml` (CeeModule, `cifoService`,
 `ExpedienteDetailView` dan la misma cifra); con origen MANUAL manda lo tecleado y no se ha tocado:
 medido el 27/10/2026, ningún expediente en manual tiene los dos certificados.
