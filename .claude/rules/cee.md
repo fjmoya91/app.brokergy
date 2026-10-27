@@ -76,7 +76,7 @@ paths:
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/firmar-el-cee-sin-ventanas-firmar-cee-js.md` — FIRMAR el CEE sin ventanas — `scripts/firmar_cee.js` (2026-10-15) · 3,8 KB
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/la-calificacion-de-emisiones-no-se-guardaba.md` — La calificación de EMISIONES no se guardaba · 1,6 KB
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/los-dos-pasos-del-certificador-presentar-cee-id-token-phase.md` — Los DOS PASOS del certificador — `/presentar-cee/:id?token=&phase=` · 3,5 KB
-- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md` — PRESENTARLO sin tocar el PC — skill `presentar-cee` (2026-10-15) · 17,4 KB
+- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md` — PRESENTARLO sin tocar el PC — skill `presentar-cee` (2026-10-15) · 18,3 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/00-revisar-el-cee-que-entrega-el-certificador.md` — REVISAR el CEE que entrega el certificador (2026-09-21) · 2,4 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/con-el-cex-delante-y-la-medida-de-mejora.md` — Con el `.cex` delante, y la MEDIDA DE MEJORA (2026-09-29) · 6,2 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/el-xml-se-lee-de-supabase-sin-bajar-nada-de-drive.md` — El `.xml` se lee de SUPABASE, sin bajar nada de Drive · 1,5 KB

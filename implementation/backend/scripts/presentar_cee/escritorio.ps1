@@ -52,8 +52,14 @@ public static class Esc {
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte sc, uint f, UIntPtr e);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e);
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 }
 "@
+# Con la pantalla escalada (125 % en el PC nuevo), un proceso que no es «DPI-aware» captura en píxeles
+# REALES recortados a la medida escalada (1536×864 de 1920×1080) pero hace los clics en píxeles
+# ESCALADOS: el clic sobre «Número de tarjeta» caía fuera del campo (27/10/2026). Así, captura y clic
+# usan los mismos píxeles reales de la pantalla entera.
+[void][Esc]::SetProcessDPIAware()
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing, UIAutomationClient, UIAutomationTypes
 
 function Titulo([IntPtr]$h) { $sb = New-Object System.Text.StringBuilder 512; [void][Esc]::GetWindowText($h, $sb, 512); $sb.ToString() }
@@ -112,15 +118,32 @@ function Buscar-Aviso([string]$titulo, [int]$segundos) {
   return $null
 }
 
+# Si el cuadro no aparece en la accesibilidad (a veces Chrome no lo publica hasta que su ventana
+# pasa delante, 26RES080_96), se trae Chrome delante —Alt + SetForegroundWindow, sin teclas ni
+# clics— y se busca otra vez.
+function Buscar-Aviso-Insistiendo([string]$titulo, [int]$segundos) {
+  $a = Buscar-Aviso $titulo ([Math]::Max(2, [int]($segundos / 2)))
+  if ($a) { return $a }
+  $script:hallada = [IntPtr]::Zero
+  [Esc]::EnumWindows({ param($h, $l)
+      if ([Esc]::IsWindowVisible($h) -and (Titulo $h) -like "$titulo*Chrome*") { $script:hallada = $h; return $false }
+      $true }, [IntPtr]::Zero) | Out-Null
+  if ($script:hallada -ne [IntPtr]::Zero) {
+    [Esc]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [Esc]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+    [void][Esc]::SetForegroundWindow($script:hallada); Start-Sleep -Milliseconds 500
+  }
+  return Buscar-Aviso $titulo ([Math]::Max(2, [int]($segundos / 2)))
+}
+
 switch ($Accion) {
   'aviso' {
-    $a = Buscar-Aviso $Ventana $Segundos
+    $a = Buscar-Aviso-Insistiendo $Ventana $Segundos
     if (-not $a) { Write-Output "SIN_AVISO | ningún aviso abierto en «$Ventana» (o su pestaña no es la de delante en su ventana)"; exit 1 }
     $a.boton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Write-Output "AVISO_ACEPTADO | $($a.texto)"
   }
   'leer' {
-    $a = Buscar-Aviso $Ventana $Segundos
+    $a = Buscar-Aviso-Insistiendo $Ventana $Segundos
     if (-not $a) { Write-Output "SIN_AVISO | $Ventana"; exit 1 }
     Write-Output "AVISO | $($a.texto)"
   }

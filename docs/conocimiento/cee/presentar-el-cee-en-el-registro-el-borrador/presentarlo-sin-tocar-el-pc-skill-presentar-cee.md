@@ -54,6 +54,16 @@ pulsar. Para los clics reales (la tarjeta de Redsys), `frente` pulsa Alt antes d
 —sin ella Windows no cede el primer plano— y comprueba qué ventana quedó delante (`NO_DELANTE` = no se
 manda nada). Medido: con Alt, Chrome pasa delante; sin él, no.
 
+**Primera presentación SIN tocar el PC: 26RES080_96** (27/10/2026, registro 4315701/2026, tasa 046
+0466080819145): identificación, avisos, tarjeta y envío los hizo Claude; Fran solo autorizó el pago
+en la app del banco. Tres cosas medidas ese día: (a) `escritorio.ps1` tiene que ser DPI-aware —con
+Windows al 125 %, la captura salía en píxeles reales recortados y el clic en escalados, y caía fuera
+del campo de la tarjeta—; (b) la pulsación de Alt de `frente` CIERRA el desplegable de tarjetas, así
+que entre abrirlo y elegir no va ningún `frente`, y la tarjeta se elige por sus 4 últimos dígitos (en
+este PC hay dos y la de Fran salía segunda); (c) «Continuar» de la plataforma de pagos no volvió a la
+sede porque la pestaña del pago no tenía `window.opener`: se quitó el velo `SPINNER` de la sede y se
+puso la 046 en «Indique la referencia 046 del pago ya realizado», sin volver a pagar.
+
 **REGLA — la fecha de VISITA también es la del XML** (2026-10-27, 2026CEE_59). La sede compara la del
 formulario con la `<Fecha>` de `<Visita>` del XML («La Fecha visita del xml no coincide con la fecha
 visita técnico certificador introducida en el formulario»): la app decía 25/10 y el certificado 27/10.

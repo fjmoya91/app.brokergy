@@ -216,14 +216,24 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
      pantalla (la franja «Claude empezó a depurar…» mueve la página ~55 px: mide sobre una captura
      recién hecha).
    - `escritorio.ps1 clic -X … -Y …` en el campo → captura → `clic` sobre la tarjeta confirmada en el
-     desplegable. Chrome rellena número, caducidad y CVV. **No repitas esos datos en el chat.** Antes de
-     cada clic real, `frente` otra vez si el usuario ha podido tocar el PC.
+     desplegable, **reconocida por sus 4 últimos dígitos** (nunca «la primera»: el orden cambia y en este
+     PC hay más de una; 26RES080_96). Chrome rellena número, caducidad y CVV. **No repitas esos datos en
+     el chat.** Entre abrir el desplegable y elegir la tarjeta, **ningún `frente`**: su pulsación de Alt
+     lo cierra. Comprueba en una captura que los campos se han rellenado y pulsa «Pagar» con `clic`.
+   - Las coordenadas: `escritorio.ps1` es DPI-aware desde el 27/10/2026, así que la captura sale en
+     píxeles reales de la pantalla entera (1920×1080 aunque Windows esté al 125 %) y `clic` usa esos
+     mismos. Con `-Ancho` la imagen se reduce: multiplica por la escala antes de pinchar.
 4. **«Pagar»** → 3DS del banco: dile al usuario *«autoriza el pago en la app de tu banco»* y espera
    (la página cambia sola a «Ticket de pago» con «OPERACIÓN AUTORIZADA CON CÓDIGO …»).
 5. **«Continuar»** → plataforma: «El proceso de pago se ha realizado con éxito. Estado: Pagado». Pulsa el
    **icono de descarga** junto a «Obtener justificante de pago» (baja `Descargas\<nº 046>.pdf`) y luego
    **«Continuar»**: la pestaña se cierra y se vuelve al formulario. Si tras la descarga «Continuar» no hace
-   nada (pasó en 2026CEE_64), `scroll_to` al botón y púlsalo otra vez.
+   nada (pasó en 2026CEE_64), `scroll_to` al botón y púlsalo otra vez. Si sigue sin volver y la sede se
+   queda en «Procesando pago de tasas en otra pestaña» (26RES080_96: la pestaña del pago había perdido
+   su `window.opener`, y `continuarTramitacionPCO()` no tiene a quién avisar), no esperes: en la sede
+   oculta el velo (`document.getElementById('SPINNER').style.display='none'`), marca con un clic
+   «Indique la referencia 046 del pago ya realizado» (`TIPO_PAGO` = `R`, habilita la casilla), teclea el
+   nº 046 y cierra la pestaña del pago. Ya está pagado: no se vuelve a la pasarela.
 
 ## 8. Enviar
 
