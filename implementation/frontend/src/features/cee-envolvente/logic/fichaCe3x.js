@@ -706,7 +706,21 @@ export const tipoEquipo = (slot) =>
     || TIPOS_BOMBA_FRIO_CE3X.find(t => t.valor === slot)
     || TIPOS_EQUIPO_CE3X[3];
 
-const ROTULO_SERV = { calefaccion: 'calefacción', acs: 'ACS', refrigeracion: 'refrigeración' };
+//: Quién da el ACS en el edificio mejorado, para la justificación de las
+//: medidas (`justificacionMedidas.js`): 'bomba' si lo da lo que se instala,
+//: 'electrico' si se queda un termo eléctrico que ya estaba y 'combustion' si
+//: se queda una caldera. Un termo NUEVO de la medida sí electrifica el ACS:
+//: cuenta como 'bomba' (el texto de siempre). 26RES060_250, 27/10/2026.
+function acsTrasLaMedida(instalaciones, existentes) {
+    const daAcs = e => e?.slot && tipoEquipo(e.slot).servicios?.includes('acs');
+    if ((instalaciones || []).some(daAcs)) return 'bomba';
+    const queda = (existentes || []).find(daAcs);
+    if (!queda) return null;
+    const combustible = queda.combustible || tipoEquipo(queda.slot).combustible || '';
+    return /electric/i.test(combustible) ? 'electrico' : 'combustion';
+}
+
+const ROTULO_SERV ={ calefaccion: 'calefacción', acs: 'ACS', refrigeracion: 'refrigeración' };
 const CON_ARTICULO = { calefaccion: 'la calefacción', acs: 'el ACS',
                        refrigeracion: 'la refrigeración' };
 
@@ -1961,6 +1975,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     const biomasa = combustiblePorId(expediente?.instalacion?.caldera_antigua_cal?.rendimiento_id) === null
         && (expediente?.oportunidades?.datos_calculo?.inputs
             || expediente?.oportunidad?.datos_calculo?.inputs || {}).fuelType === 'pellets';
+    const acsTras = acsTrasLaMedida([equipo, ...extras, ...extrasFinal], existentes);
     const aero = {
         id: 'aerotermia',
         titulo: esHibrida ? 'Hibridación con aerotermia' : 'Sustitución por aerotermia',
@@ -2095,7 +2110,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             nombre: nombreFv,
             caracteristicas: caracteristicasFv,
             otros_datos: campoDe(MEDIDA_AUTOCONSUMO, 'Otros datos'),
-            ...justificacionMedida('autoconsumo', { conAerotermia: !!equipo }),
+            ...justificacionMedida('autoconsumo', { conAerotermia: !!equipo, acs: acsTras }),
             //: La inversión de las placas, si se ha tecleado (`autoconsumo_inversion`):
             //: sin ella CE3X da la medida por gratis («<500 €») y el plazo no se lee.
             inversion: invAutoconsumo,
@@ -2206,7 +2221,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             instalaciones: [...aero.datos.instalaciones, ...auto.datos.instalaciones],
             //: Por qué y en qué orden (Anexo III, 3). Sola, la obra trae las dos
             //: cosas; detrás de la aerotermia es la 2.ª fase (se reescribe abajo).
-            ...justificacionMedida('aerotermia_fv', { hibrida: esHibrida, biomasa }),
+            ...justificacionMedida('aerotermia_fv', { hibrida: esHibrida, biomasa, acs: acsTras }),
         } : null,
     });
 
@@ -2244,7 +2259,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                 m.datos = { ...m.datos,
                     ...justificacionMedida(esHibrida ? 'hibridacion' : 'aerotermia', { conFvDespues: true, biomasa }) };
             } else if (m.id === 'aerotermia_fv') {
-                m.datos = { ...m.datos, ...justificacionMedida('aerotermia_fv', { secuencial: true }) };
+                m.datos = { ...m.datos, ...justificacionMedida('aerotermia_fv', { secuencial: true, acs: acsTras }) };
             }
         }
     }
