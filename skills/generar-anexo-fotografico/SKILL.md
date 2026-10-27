@@ -135,8 +135,9 @@ una actuación que la factura/presupuesto **no** justifica, márcalo para exclui
      cubierta, con ventilador y rejilla; el hidrokit es una caja mural blanca dentro de la vivienda.
    - **termo de ACS colocado como unidad interior** — cilindro alto de plástico, marca Ariston/Thermor/
      Aeromax; va en `FOTO_ACS_DEPOSITO`, y su placa en `FOTO_UNIDAD_INTERIOR_PLACA`.
-   - **caldera aún montada en `FOTO_CALDERA_DESMONTADA`** — ese slot es el hueco VACÍO tras retirarla;
-     la caldera en su sitio es `FOTO_CALDERA_ANTES`.
+   - **caldera aún montada en `FOTO_CALDERA_DESMONTADA`** — ese slot es el hueco VACÍO tras retirarla
+     (o la caldera ya desconectada, o el EQUIPO NUEVO puesto en su mismo sitio: esa foto vale aquí aunque
+     también esté en su apartado — Fran, 27/10/2026); la caldera en su sitio es `FOTO_CALDERA_ANTES`.
    - **placa del equipo equivocado** — la placa manda para el modelo y el nº de serie, así que una placa
      mal rotulada arrastra un error de SCOP al CIFO.
 2. **Caza duplicados.** `md5sum FOTO_*.jpg | sort` por `device_bash`: dos hashes iguales son la misma
@@ -193,7 +194,9 @@ la imagen** (`read_file_content` / `download_file_content`) cuando el nombre no 
 
 **Slot correcto dentro de la fase** (usa las `key` que te dio `estado_anexo_fotografico`; las más
 habituales):
-- `FOTO_CALDERA_ANTES` = foto general de la caldera/generador antiguo.
+- `FOTO_CALDERA_ANTES` = foto general de la caldera/generador antiguo **INSTALADO en su sala**:
+  clara, no demasiado cerca, la caldera entera y su emplazamiento (el cuarto, tuberías, salida de
+  humos). Un primer plano del frontal no vale (regla 162): si es lo único que hay, incidencia y se pide.
 - `FOTO_PLACA_CALDERA_ANTES` = primer plano de la **placa/etiqueta** de la caldera (marca, modelo,
   potencia, nº de serie). Distínguela de la foto general: la placa es un plano cercano de la etiqueta.
 - `FOTO_ACS_ANTES` = sistema de agua caliente anterior (termo eléctrico o conexión de ACS). Solo si ACS

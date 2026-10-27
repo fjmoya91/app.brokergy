@@ -35,6 +35,12 @@ GRAVE se reserva para lo que está **mal, incoherente o ausente cuando ya deber�
 - Estados de la app desactualizados (`estado_relleno` en `revisar` sobre algo que ya está resuelto) → LEVE con la acción de ponerlo en `ok`.
 - **RES060: SCOP del CEE final distinto del SCOP del CIFO → LEVE** (el ahorro sale del CIFO, no del CEE final). En **RES080 sí es GRAVE**, porque ahí el ahorro sale de los CEE. Ver la matriz de cruces (punto 4, SCOP calefacción).
 
+### Qué NO es incidencia: no se registra ni se pide (Fran, 26/10/2026, 26RES060_186)
+No se piden más cosas de las que se necesitan para justificar lo que entra en el ahorro:
+- **Carné RITE del técnico firmante vacío («--»)**: no se le pide al instalador. El nº de carné **se saca de las MEMORIAS TÉCNICAS RITE** de esa empresa en otros expedientes (en su carpeta «7. LEGALIZACION RITE»: «D/Dña. … instalador/a con carné: NNN»; los certificados de eDICE lo traen siempre como «--», ahí no está), se guarda en su ficha (`PATCH /api/prescriptores/<id>/firmantes` con `tecnico_firmante_carnet_rite`) y se regeneran la Memoria RITE, el borrador y el CIFO. Solo si ninguna memoria lo trae se pregunta. (J.PORRERO-HIJOS: el carné del técnico estaba en las memorias de 26RES060_141 y _152.)
+- **Caldera desmontada**: una foto con la caldera **desconectada** (humos sueltos, separada de la pared) vale para `FOTO_CALDERA_DESMONTADA`, aunque siga en el cuarto. No se pide la del hueco vacío. Y si en el sitio de la caldera está ya el equipo nuevo (mismo rincón que la foto del antes, sin caldera ni chimenea), esa foto vale como caldera desmontada aunque sea la misma del equipo nuevo (Fran, 27/10/2026, 26RES060_221).
+- **ACS fuera del alcance** (`cambio_acs=false`, p. ej. un termo eléctrico): solo se justifica la calefacción. Ni placa, ni marca/modelo, ni fotos del equipo de ACS; que el CIFO diga «no aplica» basta.
+
 ## Entrada
 Expediente por `numero_expediente` (ej. `25RES060_61`) o `drive_folder_id`. Si no se deduce, confirma RES060 (solo aerotermia) o RES080 (envolvente + instalaciones térmicas).
 
@@ -84,7 +90,7 @@ Lee el expediente en Supabase (cliente, instalador FK, equipos, `documentacion`,
 
 **Los 7 nuevos — lecciones del requerimiento Marwen CAE-1602 / LOTE-2026-004 (10/08/2026):**
 
-7. **Placa de caldera ilegible o ausente → ERROR (no LEVE).** El ηi solo se sostiene con la placa de características. "Defecto de forma" = foto borrosa, cortada, sin marca/modelo/potencia legibles o con el modelo deducido. Abre la foto y **léela tú**: si tú no puedes, el verificador tampoco. Aplica también a la caldera que **se mantiene** en hibridación (RES09x). Sin placa: exige ficha técnica/homologación del fabricante + declaración responsable del titular.
+7. **Placa de caldera ilegible o ausente → ERROR (no LEVE).** El ηi solo se sostiene con la placa de características. "Defecto de forma" = foto borrosa, cortada, sin marca/modelo/potencia legibles o con el modelo deducido. Abre la foto y **léela tú**: si tú no puedes, el verificador tampoco. Aplica también a la caldera que **se mantiene** en hibridación (RES09x). Sin placa: exige ficha técnica/homologación del fabricante + declaración responsable del titular. **Y la foto de la caldera INSTALADA en su sala** (`FOTO_CALDERA_ANTES`, regla 162, 23/10/2026): clara, no demasiado cerca, la caldera entera y su emplazamiento (el cuarto, tuberías, salida de humos). Un primer plano del frontal no prueba que estuviera montada ni dónde → **ERROR**, igual que la placa.
 8. **SCOPdhw ficha ≠ SCOPdhw CIFO → ERROR.** Cruza SIEMPRE los dos documentos campo a campo (no solo el CIFO). Y si `cambio_acs=false`, ambos deben decir "no aplica": copiar el SCOP de calefacción en el hueco de ACS es el fallo típico de plantilla (caso 26RES060_105: ficha 3,70 / CIFO 2,86).
 9. **Fechas inicio y fin: ficha = CIFO = solicitud de verificación.** No basta con que la ficha y el CIFO cuadren entre sí — el trío tiene que ser idéntico (caso 26RES093_3: CIFO 29/04 vs ficha y solicitud 23/04).
 10. **Inversión: cuadrar las TRES cifras** — Σ facturas s/IVA = importe de la ficha = importe de la solicitud de verificación del lote. El verificador las suma y las compara. Si hay partidas no elegibles, deja escrito qué se excluyó y por qué (caso 26RES080_53: 37.745,20 / 38.038,87 / 39.726,41 €).

@@ -62,6 +62,10 @@ catálogo) y **`generar-cee-final`** (el CEE final).
   suele ser la MISMA foto recomprimida (md5 distinto, mismo encuadre) → no se duplica.
 - **Placa de la caldera**: recórtala, gírala y amplíala. El AÑO decide la fila de rendimiento; el
   lector de la app (`alta_oportunidad.js leer --placa`) no lo saca y a veces lee mal el modelo.
+- **Caldera en su sala + placa legible: IMPRESCINDIBLES** (regla 162, 23/10/2026). La foto de la
+  caldera INSTALADA, clara y no demasiado cerca (entera y su emplazamiento: el cuarto, tuberías,
+  salida de humos), y la de su placa que se lea (marca, modelo, potencia). Si falta alguna o no vale,
+  el expediente no se da por justificado: va lo primero en «lo que falta», con su WhatsApp en borrador.
 
 ### 2. Facturas
 1. `api POST api/expedientes/<id>/facturas/ocr --file files=<f1.pdf> --file files=<f2.pdf> --out r.json`:
@@ -111,7 +115,11 @@ repite; si el instalador mandó la suya, no se genera ninguna. Es la MISMA caden
    devuelve el instalador, y llenarlo con nuestra memoria da el RITE por recibido (y deja emitir el
    CIFO sin él).
 5. Revisa el PDF (`bajar`): titular, emplazamiento, equipos y series, potencias, fechas y firmante
-   (el habilitado; si es otra empresa que la que factura, la habilitada, regla 26.b).
+   (el habilitado; si es otra empresa que la que factura, la habilitada, regla 26.b). Si el carné
+   del técnico firmante sale «--», **sácalo de las MEMORIAS técnicas RITE de esa empresa en otros
+   expedientes** («instalador/a con carné: NNN»; el certificado de eDICE lo trae siempre como «--»),
+   guárdalo con `PATCH api/prescriptores/<id>/firmantes` `{tecnico_firmante_carnet_rite}` y regenera
+   (J.PORRERO-HIJOS, 26/10/2026: estaba en sus memorias de 26RES060_141 y _152). No se le pide al instalador salvo que no esté en ninguna.
 - **No se envía.** Se manda desde la app con el envío conjunto al instalador (Documentación →
   Memoria RITE → Enviar): va en el MISMO mensaje que el CIFO para firmar, y con ella su enlace de
   subida del certificado registrado. Va en el informe final, en lo que falta del instalador.
@@ -135,10 +143,10 @@ Corrige de paso la ficha si `direccion` lleva dentro el CP y el municipio (sale 
 |---|---|
 | Caldera antigua montada (y su sala) | `FOTO_CALDERA_ANTES` |
 | Su placa | `FOTO_PLACA_CALDERA_ANTES` |
-| El HUECO vacío tras retirarla | `FOTO_CALDERA_DESMONTADA` (nunca la caldera aún montada) |
+| El HUECO vacío tras retirarla, o la caldera ya DESCONECTADA (humos sueltos, separada de la pared) aunque siga en el cuarto, o el EQUIPO NUEVO puesto en el sitio de la caldera (el mismo rincón de la foto del antes, sin la caldera ni su chimenea) | `FOTO_CALDERA_DESMONTADA` (nunca la caldera aún montada y conectada; la desconectada basta, no se pide más — Fran, 26/10/2026. Si en su sitio está ya el equipo nuevo, esa foto vale y se pone también aquí, con un comentario del apartado que lo diga: excepción a «cada imagen, una vez» — Fran, 27/10/2026, 26RES060_221: el aerotermo de ACS donde estaba la caldera) |
 | Unidad exterior terminada | `FOTO_UNIDAD_EXTERIOR` · su placa → `_PLACA` |
 | Módulo hidráulico / unidad interior | `FOTO_UNIDAD_INTERIOR` · su placa → `_PLACA` |
-| Termo / bomba de calor de ACS aparte y su placa | `FOTO_ACS_DEPOSITO` |
+| Termo / bomba de calor de ACS aparte y su placa, **solo si el ACS entra en el CAE** (`cambio_acs=true`) | `FOTO_ACS_DEPOSITO`. Con el ACS fuera (`cambio_acs=false`, p. ej. un termo eléctrico) solo se justifica la calefacción: ni placa ni datos del termo se piden |
 | Depósito de gasóleo, desconexión, montaje, conexiones, pruebas | `OTROS_ANTES` / `OTROS_DESPUES` con `label` (no van al anexo) |
 
 Cada imagen, UNA vez. Un apartado vacío se deja vacío (no se rellena con otra foto).
@@ -248,6 +256,7 @@ enseñan enteros, y se mandan con el «sí» de Fran para ESE envío.
 | Factura de otra empresa (acometida, electricista) | Preguntar; puede que no se declare |
 | SCOP sin clima cálido documentado | Clima medio |
 | Fecha de inicio: la calculada o la que declara la factura | Preguntar |
+| Fecha de PRUEBAS sin certificado RITE (la Memoria la hacemos nosotros) | La de la FACTURA, sin preguntar al instalador (Fran, 26/10/2026) |
 | Precio CAE en una oportunidad sin sellar | El que se le dijo al cliente |
 | Email del cliente que falta | Preguntar (nunca se inventa) |
 | Fechas de visita/emisión del CEE final | Preguntar |

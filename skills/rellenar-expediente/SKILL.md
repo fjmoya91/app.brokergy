@@ -89,6 +89,7 @@ Lee `seguimiento.estado_relleno` (ver MAPA_DE_DATOS §5). Los campos en `ok` **n
 - `instalacion.aerotermia_acs.numero_serie` / `.marca` / `.modelo`
 - `instalacion.aerotermia_cal/acs.aerotermia_db_id`: mapea marca+modelo a `public.aerotermia` (`select id,marca,modelo_comercial from aerotermia where marca ilike ... and modelo_comercial ilike ...`).
 Si una placa no existe o no es legible → marca el campo como **pendiente** con motivo. **Nunca inventes un número de serie.**
+La caldera que se retira necesita **dos fotos imprescindibles** (regla 162, 23/10/2026): la caldera INSTALADA en su sala, clara y no demasiado cerca (entera y su emplazamiento), y su placa legible (marca, modelo, potencia). Sin alguna de las dos → **pendiente bloqueante** en el informe: sin ellas no hay CEE inicial ni expediente.
 
 > ⚠️ **El equipo de ACS y el de calefacción son DISTINTOS: no compartas datos entre ellos.**
 > - **Nº de serie ACS ≠ nº de serie de la unidad exterior de calefacción.** El CIFO da los dos por separado (en 25RES060_57: ud. exterior `8D00250218050019` vs equipo ACS `GKOGXLE0G0031R36UYS5`). No copies el de calefacción en el bloque ACS.
