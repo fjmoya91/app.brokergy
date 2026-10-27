@@ -376,9 +376,10 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     // (fase) => void, o null (certificador: su ruta es staffOnly).
     onPresentar = null,
     // Acceso directo a «Enviar a presentar» (encargo a quien presenta, sin cuenta).
+    // Desde el 25/10/2026 nadie lo pasa: Eva ya no presenta.
     onEncargarPresentacion = null,
-    // El certificador asignado es el de la CASA: el CEE se puede presentar en
-    // cuanto se sube, sin esperar a nuestro visto bueno.
+    // El certificador asignado es el de la CASA: lo presenta Brokergy (el PC),
+    // con el visto bueno dado como cualquier otro.
     presentaLaCasa = false,
     onApproveSend,
     onSaveInstalacion,
@@ -1627,18 +1628,17 @@ Según el documento:
 
                     // ── Presentar en el Registro: ¿toca ya? ──────────────────────
                     // Hace falta el certificado ENTREGADO (su .xml: de él salen las
-                    // casillas del borrador) y que NO esté inscrito todavía. Y que esté
-                    // listo: con el visto bueno dado (REVISADO) o, si lo ha hecho el
-                    // certificador de la CASA, en cuanto se sube — ahí no hay un técnico
-                    // de fuera esperando nuestro visto bueno para presentar.
+                    // casillas del borrador) y que NO esté inscrito todavía. Y que tenga
+                    // el visto bueno (REVISADO), también si lo hizo el certificador de la
+                    // CASA: desde el 25/10/2026 «desde que doy el VB se puede presentar»
+                    // (Fran), y el VB es lo que pasa los `_REVISAR` a su nombre definitivo.
                     const presentar = (() => {
                         if (!onPresentar) return null;
                         const entregado = !!(ceeFiles?.[section]?.xml || xmlTextos?.[section]
                             || parseFloat(sectionDemand?.demandaCalefaccion) > 0);
                         const inscrito = isRegistrado || !!ceeFiles?.[section]?.registro;
                         if (!entregado || inscrito) return null;
-                        const listo = segStatus === 'REVISADO'
-                            || (presentaLaCasa && segStatus !== 'PTE_ENVIO_CERT');
+                        const listo = segStatus === 'REVISADO';
                         if (!listo) return null;
                         // El plazo: UN MES desde la emisión (apartado 07.2 del impreso).
                         // Pasado, hay que volver a emitir el certificado — por eso se dice aquí.
@@ -1646,7 +1646,7 @@ Según el documento:
                         // Lo que dice la tarjeta es el PLAZO, que es lo que corre prisa; que
                         // tiene el visto bueno ya lo dice la chapa de estado de encima.
                         let tono = 'emerald';
-                        let detalle = segStatus === 'REVISADO' ? 'Borrador para el Registro' : 'Hecho por Brokergy: listo';
+                        let detalle = presentaLaCasa ? 'Lo presenta Brokergy' : 'Borrador para el Registro';
                         if (/^\d{4}-\d{2}-\d{2}/.test(firma || '')) {
                             const dias = Math.floor((Date.now() - new Date(`${firma.slice(0, 10)}T00:00:00`)) / 86400000);
                             const quedan = PLAZO_INSCRIPCION_DIAS - dias;

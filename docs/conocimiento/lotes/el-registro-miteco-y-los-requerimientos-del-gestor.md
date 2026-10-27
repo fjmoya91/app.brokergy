@@ -16,10 +16,45 @@ del LOTE-2025-002, bajarlo del correo de Interalco: en la app seguía el del 02/
 | E_CAE_2026_07022 / C-LM 2016-0755 | REGAGE26e00088163268 (09/10 17:33) | LOTE-2025-005 |
 | E_CAE_2026_07021 / C-LM 2016-0754 | REGAGE26e00088164963 (09/10 17:46) | LOTE-2025-006 |
 | E_CAE_2026_07020 / C-LM 2016-0753 | REGAGE26e00088168779 (09/10 18:13) | LOTE-2026-008 |
-| E_CAE_2026_07019 / C-LM 2016-0752 | REGAGE26e00088169866 | **sin casar**: no es el de ningún justificante que tengamos |
+| E_CAE_2026_07019 / C-LM 2016-0752 | REGAGE26e00088169866 | LOTE-2026-007 (lo confirmó Fran el 27/10) |
 
-LOTE-2026-007 se registró con REGAGE26e00088167025 (09/10 18:00) y no tiene requerimiento
-en esta tanda; por descarte, el 07019 sería suyo solo si se presentó dos veces.
+El 07019 no se casó por el número: el requerimiento cita REGAGE26e00088169866 y el
+LOTE-2026-007 se registró con REGAGE26e00088167025 (09/10 18:00). Fran confirmó el 27/10
+que los lotes de la tanda son el 2, 5, 6, 7 y 8, y lo cerró el justificante de la
+subsanación: la sede colgó la del 07019 de la solicitud **…167025**, la del 007. El
+`registro_miteco` del 007 se queda como estaba. **Un requerimiento se casa por el
+justificante de su subsanación, no por el número que cite.**
+
+**La subsanación (27/10/2026).** Interalco subió esa tarde el informe en cada uno. El
+justificante de una subsanación lleva DOS registros: el suyo y el de la solicitud a la que
+se aporta (es lo que lo casa con el lote).
+
+| Requerimiento | Registro de la subsanación | Solicitud | Lote |
+|---|---|---|---|
+| 07023 | REGAGE26e00092679075 | …159961 | LOTE-2025-002 |
+| 07022 | REGAGE26e00092679950 | …163268 | LOTE-2025-005 |
+| 07021 | REGAGE26e00092680498 | …164963 | LOTE-2025-006 |
+| 07020 | REGAGE26e00092681034 | …168779 | LOTE-2026-008 |
+| 07019 | REGAGE26e00092681588 | …167025 | LOTE-2026-007 |
+| (sin requerimiento) | REGAGE26e00092682715 | …91699648 | LOTE-2025-009 |
+
+El LOTE-2025-009 no tenía requerimiento: el informe se aportó como «Adjuntar
+documentación adicional» a la solicitud, que no da justificante descargable; queda la
+captura de la sede. Todo se guarda en `{LOTE} - DOC. VERIFICACIÓN` junto al requerimiento:
+`5.2 Justificante de subsanacion 1 {LOTE}.pdf` y, en el 009,
+`5.2 Aportacion del informe en la sede - captura LOTE-2025-009.png`.
+
+**Dónde se archivan.** Cada requerimiento se guardó en Drive como
+`{LOTE} - DOC. VERIFICACIÓN / 5.2 Requerimiento de la G.A. 1 {LOTE}.pdf` (el nombre del
+slot `requerimiento_ga`), copiándolo a la carpeta y **sin** subirlo por
+`POST /api/lotes/:id/documentos/requerimiento_ga`. Esa ruta pasa el lote y todos sus
+expedientes a REQUERIMIENTO G.A. y mueve sus carpetas a la de requerimientos: para un
+requerimiento que solo pide aportar el informe, que el Sujeto Obligado sube en la sede,
+no compensa. Los cinco lotes siguen SUBIDO A MITECO.
+
+El mismo 27/10 se mandó a Interalco (Jesús Almodóvar), en el hilo de cada lote, el
+informe de verificación de los cinco. El LOTE-2025-009 (presentado el 23/10, sin el
+informe) aún no tiene requerimiento.
 
 **Por qué faltaba el informe.** El paquete `gestor` ([envioGestorService.js](implementation/backend/services/envioGestorService.js), `INDICE`)
 mete el DICTAMEN (`E{n}-2`) y los escritos del lote (`E{n}-5-x`), pero no el INFORME de

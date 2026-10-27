@@ -3,6 +3,8 @@
 
 ### ENCARGAR la presentación a una persona de fuera — `/presentar/:negocio/:id` (2026-10-06)
 
+> ⚠️ **Sin entrada desde el 25/10/2026: Eva ya no presenta.** «Validar» con el certificador de la casa da el visto bueno directo y el botón «✉ Enviar a presentar» no sale; lo presenta la casa. Ver «El VISTO BUENO deja el CEE listo para presentar» en esta carpeta. Lo que sigue queda como referencia del servicio, que sigue en el código.
+
 Botón **✉ Enviar a presentar** bajo la tarjeta «Presentar el CEE» de la rejilla (acceso
 directo) y en el pie de su popup (solo equipo interno, en los DOS negocios). Manda a quien
 presenta (Eva, `evamayraverdejo@gmail.com`, sin cuenta en la app; por defecto en

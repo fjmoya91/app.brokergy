@@ -18,7 +18,9 @@ const { enLotes } = require('../utils/consultaLotes');
 
 const CAMPOS_OP = 'id, id_oportunidad, referencia_cliente, ref_catastral, cliente_id, created_at, estado:datos_calculo->>estado';
 const CAMPOS_EXP = 'id, numero_expediente, estado, created_at, cliente_id, oportunidad_id';
-const CAMPOS_CEE = 'id, numero_expediente, nombre, estado, alcance, created_at, correlativo, cliente_id, ref_catastral';
+// `cobrado`, `origen` y las facturas (metadatos pequeños, sin PDF) son para decir
+// «PTE. SOLICITAR PAGO» / «PTE. PAGO» en vez de «PTE. CEE FINAL» (clientesEtiquetas).
+const CAMPOS_CEE = 'id, numero_expediente, nombre, estado, alcance, created_at, correlativo, cliente_id, ref_catastral, cobrado, origen, facturas:documentacion->facturas_emitidas';
 
 const masReciente = (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0);
 

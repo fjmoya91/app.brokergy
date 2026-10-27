@@ -95,6 +95,24 @@ export function estadoCliente(c) {
 }
 
 /**
+ * Rótulo de un expediente o CEE directo para la fila. En un CEE DOBLE con el
+ * inicial ya registrado el estado dice «PTE. CEE FINAL», pero lo que toca es
+ * COBRAR el inicial (procedimiento, ceeDirectoProceso: factura → justificante →
+ * confirmar cobro), y el final espera a la obra del cliente. 2026CEE_67 salía
+ * «PTE. CEE FINAL» sin habérsele pedido el pago. Solo lo de la app: del
+ * histórico no sabemos si se cobró (no se afirma sin justificante).
+ */
+export function estadoVisible(x) {
+    const estado = x?.estado || null;
+    if (x?.numero_expediente && /CEE_/.test(x.numero_expediente) && x.origen === 'APP'
+        && !x.cobrado && String(estado).toUpperCase() === 'PTE. CEE FINAL') {
+        const vivas = Object.values(x.facturas || {}).filter(f => f && typeof f === 'object' && f.estado !== 'RECTIFICADA');
+        return vivas.length ? 'PTE. PAGO' : 'PTE. SOLICITAR PAGO';
+    }
+    return estado;
+}
+
+/**
  * El PUNTO en que está lo que se le tramita, para pintarlo junto al estado:
  * "EN CURSO · PTE. FIN OBRA", "PROPUESTA · ENVIADA". Sale del expediente (o CEE)
  * ABIERTO más reciente; si hay más de uno abierto, `otros` dice cuántos más, que
@@ -110,7 +128,7 @@ export function puntoCliente(c) {
             ...(c?.cee_directos || []).filter(x => !estaCerrado(x)),
         ].sort((a, b) => fecha(b) - fecha(a));
         if (abiertos.length) {
-            return { numero: abiertos[0].numero_expediente, estado: abiertos[0].estado || null, otros: abiertos.length - 1 };
+            return { numero: abiertos[0].numero_expediente, estado: estadoVisible(abiertos[0]), otros: abiertos.length - 1 };
         }
         const op = (c?.oportunidades || []).find(o => String(o.estado || '').toUpperCase() === 'ACEPTADA');
         return op ? { numero: op.id_oportunidad, estado: op.estado, otros: 0 } : null;
@@ -128,7 +146,7 @@ export function puntoCliente(c) {
 export function detalleEstado(c) {
     const lineas = [];
     for (const e of c?.expedientes || []) lineas.push(`${e.numero_expediente} · ${e.estado || '—'}`);
-    for (const x of c?.cee_directos || []) lineas.push(`${x.numero_expediente} · ${x.estado || '—'}`);
+    for (const x of c?.cee_directos || []) lineas.push(`${x.numero_expediente} · ${estadoVisible(x) || '—'}`);
     const opsConExp = new Set((c?.expedientes || []).map(e => e.oportunidad_id).filter(Boolean));
     for (const o of c?.oportunidades || []) {
         if (!opsConExp.has(o.id)) lineas.push(`${o.id_oportunidad} · ${o.estado || '—'}`);
