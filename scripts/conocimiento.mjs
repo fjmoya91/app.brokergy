@@ -194,7 +194,7 @@ export function comprobar({ silencioso = false } = {}) {
     for (const area of areas()) {
         const f = path.join(REGLAS_DIR, `${area}.md`);
         const tieneDocs = fs.existsSync(path.join(DOCS, area));
-        if (!fs.existsSync(f)) { if (area !== 'general') avisos.push(`El área «${area}» tiene documentos pero no regla de nivel 2.`); continue; }
+        if (!fs.existsSync(f)) { if (!['general', 'consultas'].includes(area)) avisos.push(`El área «${area}» tiene documentos pero no regla de nivel 2.`); continue; }
         if (!tieneDocs && !area.startsWith("transversal-")) avisos.push(`La regla ${rel(f)} no tiene carpeta docs/conocimiento/${area}/.`);
         const texto = leer(f);
         const tam = Buffer.byteLength(texto);
