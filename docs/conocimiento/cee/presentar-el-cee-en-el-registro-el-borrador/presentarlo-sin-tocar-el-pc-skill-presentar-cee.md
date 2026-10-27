@@ -12,8 +12,8 @@ registro 4169682/2026 del 15/10/2026, tasa de 16,39 €.
 |---|---|
 | Procedimiento | [skills/presentar-cee/SKILL.md](skills/presentar-cee/SKILL.md) |
 | Pendientes · plan de relleno · subir lo devuelto | [scripts/presentar_cee.js](implementation/backend/scripts/presentar_cee.js) (`pendientes` · `preparar` · `devuelto [--escribir]`) |
-| Firmar sin pulsar | `certificado.js` (lo deja `preparar`; `presentar_cee.js certificado` para probar) + [vigilante_autofirma.ps1](implementation/backend/scripts/presentar_cee/vigilante_autofirma.ps1) de red · [referencia/montaje.md](skills/presentar-cee/referencia/montaje.md) |
-| Avisos `alert()`, tarjeta guardada | [escritorio.ps1](implementation/backend/scripts/presentar_cee/escritorio.ps1) |
+| Firmar sin pulsar | `certificado.js` (identificarse) y `enviar.js` (enviar), los deja `preparar`; `presentar_cee.js certificado` para probar · [vigilante_autofirma.ps1](implementation/backend/scripts/presentar_cee/vigilante_autofirma.ps1) de red · [referencia/montaje.md](skills/presentar-cee/referencia/montaje.md) |
+| Avisos `alert()` (por accesibilidad), pestaña activa, tarjeta guardada | [escritorio.ps1](implementation/backend/scripts/presentar_cee/escritorio.ps1) (`aviso` · `leer` · `pestana` · `frente` · `captura` · `clic`) |
 | ¿Está bien montado? | [comprobar_montaje.ps1](implementation/backend/scripts/presentar_cee/comprobar_montaje.ps1) |
 
 **REGLA — la firma se automatiza FIJANDO el certificado por HUELLA, nunca pulsando a ciegas**
@@ -30,10 +30,40 @@ la llamada iba sin filtro, y la cancela. El montaje anterior —el certificado a
 **Firefox** y un Intro si el título decía NSS (15/10/2026)— queda descrito en `montaje.md`: funcionaba
 solo en un PC montado así.
 
+**REGLA — la solicitud se ENVÍA con `enviar.js`, nunca con el botón «Enviar»** (2026-10-27,
+2026CEE_59, registro 4314318/2026, primer CEE presentado en el PC nuevo). `certificado.js` bastaba para
+identificarse, pero no para enviar: al pulsar «Enviar» la sede manda el formulario y la página que
+DEVUELVE —la que trae el XML a firmar en `#xml`— llama nada más cargarse a `firmarDatosMA()` (aviso «Se
+van a firmar los datos…» + `MiniApplet.sign`). El filtro pegado antes se pierde con esa recarga, AutoFirma
+abre su ventana, el vigilante la cancela y la sede dice «No se han podido firmar los datos del
+formulario» (tres veces seguidas ese día). Llamar a `firmarDatos()` a mano tampoco vale (es el camino
+viejo del applet: avisa y reenvía sin firmar). `enviar.js` hace el mismo envío —`requestSubmit` del botón
+ENVIAR, con la codificación windows-1252 de la página: un `fetch` habría mandado las tildes en UTF-8— pero
+con `target` a un marco de la misma página, y un `setInterval` de 1 ms en la página fija el certificado en
+la `MiniApplet` del marco en cuanto existe: entre la carga de `miniapplet.js` y la llamada de la página
+hay otros tres scripts, tiempo de sobra. El resultado (nº de registro, enlace `creaPDF_Tramita_idSol.php`
+del justificante) queda en el marco: `__resultadoEnvio()` y `__bajarJustificante()`. Probado también
+contra una imitación local de la sede (tildes bien, la firma lleva `filters=thumbprint…` y `headless`).
+
+**REGLA — los avisos `alert()` se aceptan por la ACCESIBILIDAD de Windows, sin foco ni teclas**
+(2026-10-27). En el PC nuevo, con la app de Claude delante, `SetForegroundWindow` no traía Chrome y el
+Intro de `escritorio.ps1 aviso` caía en la app. Ahora `aviso` activa la pestaña por su título
+(SelectionItem de la barra de pestañas: Chrome solo enseña el aviso de la pestaña ACTIVA), busca el
+botón «Aceptar» del cuadro por UI Automation, lo pulsa (Invoke) y dice el texto; `leer` lo dice sin
+pulsar. Para los clics reales (la tarjeta de Redsys), `frente` pulsa Alt antes de `SetForegroundWindow`
+—sin ella Windows no cede el primer plano— y comprueba qué ventana quedó delante (`NO_DELANTE` = no se
+manda nada). Medido: con Alt, Chrome pasa delante; sin él, no.
+
+**REGLA — la fecha de VISITA también es la del XML** (2026-10-27, 2026CEE_59). La sede compara la del
+formulario con la `<Fecha>` de `<Visita>` del XML («La Fecha visita del xml no coincide con la fecha
+visita técnico certificador introducida en el formulario»): la app decía 25/10 y el certificado 27/10.
+`preparar` declara la del XML y avisa, como con la de emisión.
+
 **REGLA — «Es representante» se marca ANTES de rellenar.** Identificado con certificado, la sede pone
 de SOLICITANTE a quien se identifica, con su NIF fijo. La casilla «Es representante» (bajo el apartado
 01) recarga la página: el solicitante pasa a ser editable —el titular, como dice el borrador— y quien
-presenta queda en el 02.
+presenta queda en el 02. La recarga la hace la propia casilla (`RecargarPagina_PFISICA`): recargar a
+mano con `location.href` devuelve a la identificación (27/10/2026).
 
 **REGLA — en el 02 va quien FIRMA, nunca el AGENTE IA** (2026-10-19). Los CEE iniciales que hace el
 Agente IA lo dejan de certificador asignado, pero él no firma ni presenta: los firma Fran con el
@@ -94,9 +124,9 @@ recomendaciones · 3928 XML · 3929 .cex) → «Acceso a la pasarela» → «Pag
 pestaña `plataformapagos.jccm.es` → «sin identificación» → «Pago con Tarjeta» → Redsys → 3DS →
 «Continuar» → justificante de la tasa (icono de descarga, `<nº 046>.pdf`) → «Continuar» → la sede
 vuelve con «referencia 046» marcada y VACÍA: se escribe el nº de documento 046 (13 dígitos) → «Enviar»
-→ `alert` «Se van a firmar los datos» → firma 2 → «número de registro NNNNNNN/AAAA» → icono PDF →
-`NNNNNNN.pdf`. Mientras hay un `alert()` abierto la página no responde a la extensión (ni capturas ni
-JavaScript): se acepta con `escritorio.ps1 aviso`.
+(desde el 27/10/2026, `enviar.js`) → `alert` «Se van a firmar los datos» → firma 2 → «número de registro
+NNNNNNN/AAAA» → icono PDF → `NNNNNNN.pdf`. Mientras hay un `alert()` abierto la página no responde a la
+extensión (ni capturas ni JavaScript): se acepta con `escritorio.ps1 aviso`.
 
 ⚠️ En 2026CEE_63 y en 2026CEE_64 (registro 4171225/2026) la página de resultado mostró además
 «SOAP:Server: Server Error» y los «Id. de firma» de los adjuntos vacíos, con el registro y la firma del

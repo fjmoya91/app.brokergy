@@ -305,6 +305,15 @@ async function preparar(numero) {
                 + (cal && cal !== gen ? ` OJO: la calificación es del ${cal}; si la sede la rechaza, hay que regenerar el CEE con una sola fecha y firmar de nuevo el PDF.` : ''));
             valores.FECH_EMISION = gen;
         }
+        // Y la de VISITA, igual: la sede la compara con la <Fecha> de <Visita> del XML. En
+        // 2026CEE_59 la app decía 25/10 y el XML 27/10: «La Fecha visita del xml no coincide
+        // con la fecha visita técnico certificador introducida en el formulario».
+        const vis = aIso((xml.match(/<Visita>[\s\S]*?<Fecha>\s*(\d{2}\/\d{2}\/\d{4})\s*<\/Fecha>/i)
+            || xml.match(/<FechaVisita>\s*(\d{2}\/\d{2}\/\d{4})/i) || [])[1]);
+        if (vis && vis !== valores.FECH_VISITA) {
+            avisos.push(`Fecha de visita: la app dice ${valores.FECH_VISITA || '—'} pero el XML dice ${vis}. Se declara la del XML (la que compara la sede); corrígela en la app si es la buena.`);
+            valores.FECH_VISITA = vis;
+        }
     }
 
     // REGLA — un CEE cuyo XML no VALIDA no se presenta (2026-10-19, 26RES060_195): su PDF
@@ -344,7 +353,10 @@ async function preparar(numero) {
     };
     fs.writeFileSync(path.join(dir, 'plan.json'), JSON.stringify(plan, null, 2));
     fs.writeFileSync(path.join(dir, 'rellenar.js'), scriptRellenar(valores, texto));
-    if (cert) fs.writeFileSync(path.join(dir, 'certificado.js'), scriptCertificado(cert.huella));
+    if (cert) {
+        fs.writeFileSync(path.join(dir, 'certificado.js'), scriptCertificado(cert.huella));
+        fs.writeFileSync(path.join(dir, 'enviar.js'), scriptEnviar(cert.huella));
+    }
 
     console.log(`${numero} · fase ${fase} · ${origen} · ${listo ? 'LISTO para presentar' : 'NO LISTO'}`);
     console.log(`Solicitante: ${sol['Nombre']} ${sol['Apellido 1']} ${sol['Apellido 2'] || ''} (${calidadSol}) · Edificio: ${edi['Uso del Edificio']} · RC ${edi['Referencia catastral']}`);
@@ -357,7 +369,7 @@ async function preparar(numero) {
     console.log('Adjuntos:'); for (const a of plan.adjuntos) console.log(`  [${a.categoria}] ${a.que}: ${path.basename(a.fichero)}`);
     if (avisos.length) { console.log('AVISOS:'); for (const a of avisos) console.log(`  ⚠️ ${a}`); }
     console.log(`\nPlan: ${path.join(dir, 'plan.json')}\nPara el navegador: ${path.join(dir, 'rellenar.js')}`
-        + (cert ? ` y, antes de CADA firma, ${path.join(dir, 'certificado.js')}` : ''));
+        + (cert ? `; antes de identificarse, ${path.join(dir, 'certificado.js')}; y para enviar (en vez de pulsar «Enviar»), ${path.join(dir, 'enviar.js')}` : ''));
 }
 
 // ─── El certificado con el que se firma en la sede ───────────────────────────
@@ -393,36 +405,91 @@ function certificadoQuePresenta() {
 const textoCert = (c) => `${c.nombre} (${c.emisor}, hasta ${c.caduca})${c.hay > 1 ? ` · hay ${c.hay} vigentes: el que caduca más tarde` : ''}`;
 
 /**
- * El código que se ejecuta en la página de la sede JUSTO ANTES de cada firma (la de
- * identificarse y la de «Enviar»; cada recarga lo borra). Envuelve las llamadas de
- * MiniApplet/AutoScript para que lleven el filtro por huella y `headless=true`.
+ * El trozo común de certificado.js y enviar.js: `fijar(w)` envuelve las llamadas de
+ * MiniApplet/AutoScript de la ventana `w` para que lleven el filtro por huella y
+ * `headless=true`, y devuelve cuántas librerías quedan fijadas.
  */
-function scriptCertificado(huella) {
-    return `// Generado por presentar_cee.js: fija el certificado de la firma. Pegar en javascript_tool ANTES de firmar.
-(() => {
-const H = ${JSON.stringify(huella.toUpperCase())};
-const libs = [window.MiniApplet, window.AutoScript].filter(Boolean);
-if (!libs.length) return 'REVISAR: la página no tiene MiniApplet ni AutoScript';
+function codigoFijar(huella) {
+    return `const H = ${JSON.stringify(huella.toUpperCase())};
 const conFiltro = (p) => String(p || '').split('\\n').filter(l => l && !/^(filters?[=.]|headless=)/.test(l))
   .concat(['filters=thumbprint:SHA1:' + H, 'headless=true']).join('\\n');
 // Dónde va «extraParams»: justo antes del primer callback, salvo signAndSaveToFile (le sigue el nombre del fichero).
 const OPS = ['sign', 'coSign', 'cosign', 'counterSign', 'countersign', 'signBatch', 'selectCertificate', 'signAndSaveToFile'];
-let n = 0;
-for (const lib of libs) {
-  if (lib.__certFijado === H) { n++; continue; }
-  for (const op of OPS) {
-    const orig = lib[op]; if (typeof orig !== 'function') continue;
-    lib[op] = function (...a) {
-      let i = op === 'signAndSaveToFile' ? 4 : a.findIndex(x => typeof x === 'function') - 1;
-      if (i < 0) i = a.length;
-      a[i] = conFiltro(a[i]);
-      window.__firmasConFiltro = (window.__firmasConFiltro || 0) + 1;
-      return orig.apply(this, a);
-    };
+const fijar = (w) => {
+  let n = 0;
+  for (const lib of [w.MiniApplet, w.AutoScript].filter(Boolean)) {
+    if (lib.__certFijado === H) { n++; continue; }
+    for (const op of OPS) {
+      const orig = lib[op]; if (typeof orig !== 'function') continue;
+      lib[op] = function (...a) {
+        let i = op === 'signAndSaveToFile' ? 4 : a.findIndex(x => typeof x === 'function') - 1;
+        if (i < 0) i = a.length;
+        a[i] = conFiltro(a[i]);
+        w.__firmasConFiltro = (w.__firmasConFiltro || 0) + 1;
+        if (w !== window) window.__firmasConFiltro = (window.__firmasConFiltro || 0) + 1;
+        return orig.apply(this, a);
+      };
+    }
+    lib.__certFijado = H; n++;
   }
-  lib.__certFijado = H; n++;
+  return n;
+};`;
 }
+
+/**
+ * El código que se ejecuta en la página de la sede JUSTO ANTES de la firma de
+ * IDENTIFICARSE (cada recarga lo borra). Para la de «Enviar», enviar.js.
+ */
+function scriptCertificado(huella) {
+    return `// Generado por presentar_cee.js: fija el certificado de la firma. Pegar en javascript_tool ANTES de firmar.
+(() => {
+${codigoFijar(huella)}
+if (!window.MiniApplet && !window.AutoScript) return 'REVISAR: la página no tiene MiniApplet ni AutoScript';
+const n = fijar(window);
 return 'OK: certificado fijado por huella ' + H.slice(0, 6) + '… en ' + n + ' librería(s)';
+})()`;
+}
+
+/**
+ * El código que ENVÍA la solicitud (en lugar de pulsar «Enviar»), con la 046 ya escrita.
+ * REGLA — la firma de «Enviar» no la arregla certificado.js (27/10/2026, 2026CEE_59): al
+ * pulsar «Enviar» la sede manda el formulario y la página que DEVUELVE —con el XML a
+ * firmar— llama nada más cargarse a `firmarDatosMA()` (alert + MiniApplet.sign), así que
+ * el filtro pegado antes se pierde con la recarga y AutoFirma abre su ventana (el
+ * vigilante la cancela: «No se han podido firmar los datos del formulario»). Aquí el
+ * formulario se envía, con su codificación de siempre, a un MARCO de la misma página, y un
+ * vigía de 1 ms fija el certificado en la librería del marco en cuanto aparece, antes de que
+ * su página llegue a firmar. El aviso «Se van a firmar…» sale igual (escritorio.ps1 aviso);
+ * el número de registro y el enlace del justificante quedan en el marco: `__resultadoEnvio()`.
+ */
+function scriptEnviar(huella) {
+    return `// Generado por presentar_cee.js: envía la solicitud con el certificado fijado. Pegar en javascript_tool en vez de pulsar «Enviar».
+(() => {
+${codigoFijar(huella)}
+const ref = (document.getElementsByName('REFERENCIA_PAGO')[0] || {}).value || '';
+if (!/^046\\d{10}$/.test(ref)) return 'REVISAR: falta la referencia 046 del pago (13 dígitos) en REFERENCIA_PAGO';
+const f = document.FORMPROC, btn = document.getElementById('ENVIAR');
+if (!f || !btn) return 'REVISAR: no encuentro el formulario FORMPROC o el botón ENVIAR';
+let ifr = document.getElementById('__resp');
+if (!ifr) {
+  ifr = document.createElement('iframe'); ifr.name = '__resp'; ifr.id = '__resp';
+  ifr.style.cssText = 'width:100%;height:700px;border:3px solid #c00';
+  document.body.prepend(ifr);
+}
+clearInterval(window.__vigia);
+window.__vigia = setInterval(() => { try { const w = ifr.contentWindow; if (w && (w.MiniApplet || w.AutoScript)) fijar(w); } catch (e) {} }, 1);
+window.__resultadoEnvio = () => {
+  let d = null; try { d = ifr.contentDocument; } catch (e) {}
+  const t = d && d.body ? d.body.innerText : '';
+  const m = t.match(/n[uú]mero de registro\\s+(\\d+\\/\\d{4})\\s+solicitado el\\s+([\\d/]+)\\s+a las\\s+([\\d:]+)/i);
+  const pdf = d ? [...d.querySelectorAll('a')].find(a => /creaPDF/i.test(a.href || '')) : null;
+  return { firmasConFiltro: window.__firmasConFiltro || 0, registro: m ? m[1] : null, fecha: m ? m[2] : null, hora: m ? m[3] : null,
+    justificante: !!pdf, error: (t.match(/[^\\n]*(no se ha podido|error)[^\\n]*/i) || [null])[0] };
+};
+window.__bajarJustificante = () => { const d = ifr.contentDocument; const a = [...d.querySelectorAll('a')].find(a => /creaPDF/i.test(a.href || '')); if (!a) return 'SIN ENLACE'; a.click(); return 'descargando'; };
+f.target = '__resp';
+setTimeout(() => f.requestSubmit(btn), 150);
+return 'OK: solicitud enviada al marco con el certificado ' + H.slice(0, 6) + '… vigilado; acepta el aviso «Se van a firmar…» (escritorio.ps1 aviso)';
 })()`;
 }
 
@@ -642,7 +709,8 @@ if (require.main === module) (async () => {
         const c = certificadoQuePresenta();
         fs.mkdirSync(SCRATCH, { recursive: true });
         fs.writeFileSync(path.join(SCRATCH, 'certificado.js'), scriptCertificado(c.huella));
-        console.log(`Firma en la sede: ${textoCert(c)}\n${path.join(SCRATCH, 'certificado.js')}`);
+        fs.writeFileSync(path.join(SCRATCH, 'enviar.js'), scriptEnviar(c.huella));
+        console.log(`Firma en la sede: ${textoCert(c)}\n${path.join(SCRATCH, 'certificado.js')}\n${path.join(SCRATCH, 'enviar.js')}`);
     }
     else {
         console.log('Uso:\n  node scripts/presentar_cee.js pendientes\n  node scripts/presentar_cee.js certificado\n  node scripts/presentar_cee.js preparar <nº> [--fase inicial|final]\n'

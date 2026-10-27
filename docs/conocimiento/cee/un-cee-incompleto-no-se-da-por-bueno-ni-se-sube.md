@@ -52,6 +52,13 @@ avisan al equipo ni marcan la fase; `firmar_cee.js` no firma; `presentar_cee.js 
 LISTO (sin xml2cert en el equipo, avisa de mirar el PDF). El vigilante `pdf_del_xml.js` ya no deja un
 PDF con la marca en la carpeta: avisa y no lo escribe.
 
+⚠️ **Sin Java no hay validación, y eso NO es «incompleto»** (2026-10-27, PC nuevo, 2026CEE_59).
+`xml2cert` valida llamando a `java -jar jing.jar`; sin `java` en el PATH su `.log` dice `XML incorrecto
+"program not found"`, y `validarXml` lo leía como un fallo del XML: `preparar` daba «⛔ CERTIFICADO
+INCOMPLETO» a un CEE que validaba bien. Ahora `cexAPdf.entornoXml2cert` usa el Java de AutoFirma si no
+hay otro en el PATH, y si aun así sale «program not found», `validarXml` responde `comprobado: false`
+(«no se ha podido validar»), no `ok: false`.
+
 **REGLA — sin huecos es NO APTO en la revisión**, con `.cex` o solo con el `.xml`: `radiografiaCee`
 ya no cuenta el hueco de relleno (`esRelleno`) y `revisionCee` anota `huecos` como falla también sin
 `.cex`, con el porqué (`HUECOS_CERO`).

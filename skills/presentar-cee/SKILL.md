@@ -31,11 +31,18 @@ del usuario, con su certificado.
 
 La sede llama a AutoFirma sin decirle con qué certificado firmar, y AutoFirma abre su ventana para
 elegirlo, que el navegador no puede pulsar; en el almacén de Windows hay certificados de varias
-personas. Se resuelve **fijando el certificado por HUELLA**: antes de cada firma se pega en la página
-`certificado.js` (lo deja `preparar`), que añade a la llamada `filters=thumbprint:SHA1:<huella>` +
-`headless=true` —los mismos parámetros que usa la librería de la sede— y AutoFirma firma **sin
-ventana** con ese certificado y ningún otro. Vale en cualquier PC con AutoFirma y el certificado
-personal en Windows: **ya no hace falta Firefox**. Detalle: [referencia/montaje.md](referencia/montaje.md).
+personas. Se resuelve **fijando el certificado por HUELLA**: la llamada lleva
+`filters=thumbprint:SHA1:<huella>` + `headless=true` —los mismos parámetros que usa la librería de la
+sede— y AutoFirma firma **sin ventana** con ese certificado y ningún otro. Lo ponen dos scripts que deja
+`preparar`: `certificado.js` (se pega antes de la firma de IDENTIFICARSE) y `enviar.js` (se pega EN VEZ
+de pulsar «Enviar»: esa firma la lanza la página que devuelve la sede, y solo así le llega el filtro).
+Vale en cualquier PC con AutoFirma y el certificado personal en Windows: **ya no hace falta Firefox**.
+Detalle: [referencia/montaje.md](referencia/montaje.md).
+
+**El usuario no toca nada** (decisión de Fran, 27/10/2026: «todos los clics los debes hacer tú; yo solo
+autorizo en la app del banco»). Los avisos de la sede se aceptan con `escritorio.ps1 aviso`, que pulsa
+«Aceptar» por la accesibilidad de Windows sin traer la ventana delante; la tarjeta de Redsys, con el ratón
+real tras `escritorio.ps1 frente`. No le pidas que acepte un aviso ni que elija la tarjeta.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\comprobar_montaje.ps1 -Titular <APELLIDO1_APELLIDO2>
@@ -75,13 +82,16 @@ Compone el MISMO borrador del popup y deja en `scratch/presentar-cee/<nº>_<fase
 
 - `plan.json`: lo que se teclea (por `name` del formulario), los adjuntos con su categoría y los avisos.
 - `rellenar.js`: el código que rellena el formulario en la pestaña de la sede.
-- `certificado.js`: el que fija el certificado de la firma (se pega antes de CADA firma). La línea
-  **«Firma en la sede:»** dice cuál es (nombre, emisor, caducidad). Si no lo encuentra, `⛔` y NO LISTO.
+- `certificado.js`: el que fija el certificado para la firma de IDENTIFICARSE. La línea **«Firma en la
+  sede:»** dice cuál es (nombre, emisor, caducidad). Si no lo encuentra, `⛔` y NO LISTO.
+- `enviar.js`: el que ENVÍA la solicitud con el certificado fijado (paso 8), en lugar del botón «Enviar».
 - Los ficheros bajados de Drive **con su nombre ORIGINAL**: la sede pone ella sola el NIF delante
   (con el NIF ya puesto quedan `NIF_NIF_…`).
 
 Lee los **AVISOS**. «Sexo supuesto por el nombre» es normal (decisión del usuario: si la ficha no lo
-dice, se supone; fallar no es grave). «Falta en Drive» o «NO LISTO» → para y dilo.
+dice, se supone; fallar no es grave). «Falta en Drive» o «NO LISTO» → para y dilo. Las fechas de
+**emisión** y de **visita** se declaran las del XML (las que compara la sede) y, si la app dice otra,
+`preparar` lo avisa: díselo al usuario en el informe final para que corrija la app.
 
 **El REPRESENTANTE (apartado 02) es quien FIRMA el CEE, nunca el AGENTE IA** (26RES060_189,
 19/10/2026). Los CEE que hace el Agente IA lo dejan asignado en la barra, pero él no firma: siempre
@@ -99,7 +109,8 @@ NO se sustituye por Fran: se completa su ficha en Prescriptores.
 valida el XML con `xml2cert` y, si no valida, el PDF lleva la marca de agua «certificado incompleto»
 y el Registro lo rechazaría con la tasa ya pagada. Para y díselo al usuario con el motivo. Si avisa
 de que no lo ha podido validar en este equipo, **abre el PDF** y mira que no lleve la marca antes de
-seguir. Ver [comun/cee-incompleto.md](comun/cee-incompleto.md).
+seguir. `xml2cert` valida con Java: sin `java` en el PATH usa solo el de AutoFirma; si dijera «program
+not found», es que no hay ninguno (no que el CEE esté mal). Ver [comun/cee-incompleto.md](comun/cee-incompleto.md).
 
 ## 3. El vigilante, en segundo plano
 
@@ -134,9 +145,15 @@ firma. Lo normal es que no diga nada.
    ```powershell
    powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\escritorio.ps1 aviso
    ```
-3. Marca **«Es representante»** (debajo del apartado 01). **Recarga la página.** Sin ella, la sede pone
-   de SOLICITANTE a quien se ha identificado; con ella, el solicitante es el titular (editable) y quien
-   presenta queda de REPRESENTANTE, que es como lo plantea el borrador.
+   `aviso` activa la pestaña de la sede, busca el cuadro por la accesibilidad de Windows, pulsa su
+   «Aceptar» SIN traer la ventana delante ni mandar teclas y dice su texto (`AVISO_ACEPTADO | …`);
+   `leer` dice el texto sin aceptarlo. Si una llamada de JavaScript se queda colgada («renderer may be
+   frozen»), es que hay un aviso: `aviso`. `SIN_AVISO` = no hay ninguno abierto.
+3. Marca **«Es representante»** (debajo del apartado 01) con un clic de la extensión: la casilla recarga
+   ella sola la página (`RecargarPagina_PFISICA`). **No recargues tú** (`location.reload`/`href`): eso te
+   devuelve a la identificación (27/10/2026). Sin la casilla, la sede pone de SOLICITANTE a quien se ha
+   identificado; con ella, el solicitante es el titular (editable) y quien presenta queda de
+   REPRESENTANTE, que es como lo plantea el borrador.
 
 ## 5. Rellenar
 
@@ -184,16 +201,23 @@ Para quitar uno: marca su casilla y «Quitar documento».
 No se vuelve a preguntar. Solo se para si el importe del apartado 08 NO es el que se confirmó (entonces
 sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de Chrome.
 
-1. Marca **«Acceso a la pasarela de pago de tasas»** y pulsa **«Pagar y enviar»** → `alert` («Vas a ser
-   redirigido…») → `escritorio.ps1 aviso`. Se abre otra pestaña, `plataformapagos.jccm.es`.
+1. Marca **«Acceso a la pasarela de pago de tasas»** (radio `TIPO_PAGO` = `E`) y pulsa **«Pagar y
+   enviar»** → `alert` («Vas a ser redirigido…») → `escritorio.ps1 aviso`. Se abre otra pestaña,
+   `plataformapagos.jccm.es`.
 2. **«Pago de documentos sin identificación»** → **«Pago con Tarjeta»** → pasarela de Redsys. Apunta el
    **número de documento 046** (13 dígitos, empieza por `046`): es la referencia que pide la sede.
 3. La tarjeta: el desplegable de Chrome NO se abre con el clic de la extensión. Con el ratón real:
-   - `escritorio.ps1 frente -Ventana 'Pantalla de pago Redsys'` y `escritorio.ps1 captura -Salida …\pago.png -Zona "500,100,1000,650"` (la zona, entre comillas) y localiza «Número de tarjeta»
-     en píxeles de pantalla (la franja «Claude empezó a depurar…» mueve la página ~55 px: mide sobre
-     una captura recién hecha).
-   - `escritorio.ps1 clic -X … -Y …` en el campo → captura → `clic` sobre la tarjeta elegida en el
-     desplegable. Chrome rellena número, caducidad y CVV. **No repitas esos datos en el chat.**
+   - `escritorio.ps1 pestana -Ventana 'Pantalla de pago Redsys'` (la pone activa) y `escritorio.ps1
+     frente -Ventana 'Pantalla de pago Redsys'`: trae Chrome delante con una pulsación de Alt (sin ella
+     Windows no cede el primer plano y la ventana se queda detrás de la app de Claude) y COMPRUEBA qué
+     quedó delante; si dice `NO_DELANTE`, no sigas con clics.
+   - `escritorio.ps1 captura -Salida …\pago.png` (pantalla entera; con `-Zona "x,y,ancho,alto"` dentro de
+     la pantalla, que puede ser 1536×864 por el escalado) y localiza «Número de tarjeta» en píxeles de
+     pantalla (la franja «Claude empezó a depurar…» mueve la página ~55 px: mide sobre una captura
+     recién hecha).
+   - `escritorio.ps1 clic -X … -Y …` en el campo → captura → `clic` sobre la tarjeta confirmada en el
+     desplegable. Chrome rellena número, caducidad y CVV. **No repitas esos datos en el chat.** Antes de
+     cada clic real, `frente` otra vez si el usuario ha podido tocar el PC.
 4. **«Pagar»** → 3DS del banco: dile al usuario *«autoriza el pago en la app de tu banco»* y espera
    (la página cambia sola a «Ticket de pago» con «OPERACIÓN AUTORIZADA CON CÓDIGO …»).
 5. **«Continuar»** → plataforma: «El proceso de pago se ha realizado con éxito. Estado: Pagado». Pulsa el
@@ -205,16 +229,24 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
 
 1. De vuelta, la sede marca «Indique la referencia 046 del pago ya realizado» con la casilla VACÍA:
    escribe ahí el nº de documento 046 (`REFERENCIA_PAGO`, máx. 13).
-2. Pega `certificado.js` (después de la última recarga: ya escrita la 046) y comprueba el `OK`.
-   **«Enviar»** → `alert` «Se van a firmar los datos del formulario» → `escritorio.ps1 aviso` →
-   AutoFirma firma sola, sin ventana. Si el vigilante dice `CANCELADO_SIN_FILTRO`, acepta el aviso de
-   error, pega `certificado.js` y pulsa «Enviar» otra vez (la 046 ya está pagada: no se vuelve a pagar).
-3. Página de resultado: **«Este es el número de registro NNNNNNN/AAAA solicitado el … a las …»**.
-   Pulsa el **icono PDF** de «Descargar PDF solicitud» → `Descargas\NNNNNNN.pdf`: es el justificante.
-   Debajo sale «SOAP:Server: Server Error» y los «Id. de firma» de los adjuntos vacíos: pasó en los dos
-   primeros (2026CEE_63 y _64) con el registro y la firma bien. Dilo, y que el usuario compruebe en el
-   correo de la JCCM que la copia trae los cuatro documentos.
-4. Cierra la pestaña (la sede pide cerrar el navegador entre solicitudes; para la siguiente, pestaña nueva).
+   Escribirla puede recargar la página: compruébala otra vez antes del paso 2.
+2. **NO pulses «Enviar».** Pega `enviar.js` en `javascript_tool` (devuelve `OK: solicitud enviada al
+   marco…`). Hace lo mismo que el botón, pero la respuesta de la sede se carga en un marco de la misma
+   página y un vigía fija el certificado en su librería antes de que firme. ¿Por qué? Al pulsar «Enviar»
+   la sede manda el formulario y la página que DEVUELVE —con el XML a firmar— lanza `firmarDatosMA()`
+   nada más cargarse: el `certificado.js` pegado antes se pierde con esa recarga y AutoFirma abre su
+   ventana (27/10/2026, 2026CEE_59: tres veces `CANCELADO_SIN_FILTRO` y «No se han podido firmar los
+   datos del formulario»). Después: `escritorio.ps1 aviso` acepta «Se van a firmar los datos del
+   formulario» y AutoFirma firma sola. Si el vigilante dice `CANCELADO_SIN_FILTRO`, acepta el aviso de
+   error y vuelve a pegar `enviar.js` (la 046 ya está pagada: no se vuelve a pagar).
+3. Unos segundos después, `javascript_tool` con `window.__resultadoEnvio()`: `registro` (NNNNNNN/AAAA),
+   `fecha`, `hora`, `firmasConFiltro` (1) y `justificante: true`. Si `registro` es null, mira `error` o
+   el texto del marco. Baja el justificante con `window.__bajarJustificante()` → `Descargas\NNNNNNN.pdf`.
+   En la página de resultado sale también «SOAP:Server: Server Error» y los «Id. de firma» de los
+   adjuntos vacíos: pasó en 2026CEE_63, _64 y _59 con el registro y la firma bien. Dilo, y que el
+   usuario compruebe en el correo de la JCCM que la copia trae los cuatro documentos.
+4. Borra la sesión (`PHPSESSID`, paso 4.0) y cierra la pestaña (la sede pide cerrar el navegador entre
+   solicitudes; para la siguiente, pestaña nueva). Para el vigilante.
 
 ## 9. Guardarlo en la app
 
@@ -299,7 +331,7 @@ supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
 | La tarjeta no se queda en el campo | Se eligió con teclas de la extensión: usa el ratón real |
 | Tras pagar, «referencia 046» vacía | Normal: se escribe a mano el nº de documento 046 |
 | Al abrir la sede sale el registro de OTRA solicitud | Sesión vieja: borrar `PHPSESSID` (paso 4.0) y volver a entrar |
-| `escritorio.ps1 aviso` dice `SIN_VENTANA` y la página no responde | El `alert` está en una pestaña de FONDO (el usuario usa Chrome): captura la pantalla, clic real en la pestaña de la sede y entonces `aviso`. Nunca Intro a ciegas: iría a la pestaña que esté delante |
+| La página no responde y el aviso no se ve | El `alert` está en una pestaña de FONDO: `aviso` ya activa la pestaña por su título (`-Ventana`); si no la encuentra, `escritorio.ps1 pestana`. Nunca Intro a ciegas: iría a la ventana que esté delante |
 | «La Fecha de emisión del certificado no coincide con la del xml» | La sede compara con `<FechaGeneracion>` del XML; `preparar` ya declara esa y lo avisa. Si aun así falla (la calificación y la generación son de días distintos), **se para**: el usuario regenera el CEE en CE3X con la fecha buena, firma de nuevo el PDF y sube XML/PDF/.cex (decisión del usuario, 15/10/2026); después `preparar` otra vez y se adjunta lo nuevo |
 | «SIN OPCION ORT01=LA SOLANA» | La sede escribe «Solana (La)»: `rellenar.js` ya prueba las dos formas |
 | Al volver del pago, la sede dice «Confirmar reenvío del formulario» (ERR_CACHE_MISS) | Chrome DESCARTÓ la pestaña de la sede mientras estaba detrás (26RES060_217, 19/10/2026: cambió de `tabId` durante el 3DS) y la solicitud se pierde. **No se reenvía** (repetiría «Pagar y enviar» y otra 046). Se baja el justificante de la tasa, se empieza de cero (sesión limpia, identificarse, rellenar, adjuntar) y en el 08 se marca **«Indique la referencia 046 del pago ya realizado»** con el nº de documento 046 ya pagado, sin volver a la pasarela (idea del usuario) |
@@ -307,5 +339,11 @@ supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
 | Al entrar, la sede entera lleva a `mantenimiento.castillalamancha.es/MttoJCCM` (24/10/2026, varias horas) | No se toca nada: no hay solicitud ni pago. Un bucle con `curl -L` cada 5 min a la URL del paso 4.1 avisa cuando deja de redirigir allí (vuelve a `ventanillaelectronica.jccm.es/…/identificacion.phtml`) |
 | El `alert` o la tarjeta, con el usuario usando el PC | Sus clics devuelven el foco a su ventana: un Intro o un clic «real» caería en ella. Antes de cada tecla o clic real, traer Chrome delante (pulsación de Alt + `SetForegroundWindow`) y COMPROBAR que la ventana de delante es la de la sede/Redsys; esperar a que lleve unos segundos sin tocar el teclado (`GetLastInputInfo`). Si sigue trabajando, pedirle que suelte el PC un minuto |
 | «En 02 Representante: Cumplimente los campos obligatorios» al pagar | El 02 iba vacío porque el asignado era el AGENTE IA (26RES060_189). `preparar` ya pone a Fran (o `--certificador`): vuelve a prepararlo y pega el `rellenar.js` nuevo |
+| Al «Enviar», `CANCELADO_SIN_FILTRO` y «No se han podido firmar los datos del formulario» aunque se pegó `certificado.js` | La firma la lanza la página que devuelve la sede, recién cargada: el filtro se pierde. Se envía con `enviar.js`, nunca con el botón (2026CEE_59, 27/10/2026) |
+| «La Fecha visita del xml no coincide con la fecha visita técnico certificador» | La sede la compara con la `<Fecha>` de `<Visita>` del XML; `preparar` ya declara esa y lo avisa (2026CEE_59: app 25/10, XML 27/10) |
+| `preparar`: «⛔ CERTIFICADO INCOMPLETO… program not found» | No era el CEE: `xml2cert` no encontraba Java. Ya usa el de AutoFirma si no hay otro (27/10/2026, PC nuevo) |
+| `escritorio.ps1 aviso` / `frente` no hacían nada con la app de Claude delante (y el Intro caía en ella) | `aviso` va ahora por la accesibilidad (sin foco ni teclas) y `frente` pulsa Alt antes de pedir el primer plano y comprueba qué quedó delante (27/10/2026) |
+| `aviso` dice `SIN_AVISO` y la página sigue congelada | El aviso es de una pestaña que no es la activa de su ventana y Chrome no lo enseña: `escritorio.ps1 pestana -Ventana '<título>'` y otra vez `aviso` |
+| La sede devuelve a «Validando componentes» en mitad del formulario | Se recargó la página a mano (`location.href`): hay que identificarse otra vez; los datos y adjuntos siguen (sesión), pero hay que repetir «Es representante» y comprobarlo todo |
 
 Detalle y porqué: `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md`.

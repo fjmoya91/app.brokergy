@@ -21,14 +21,23 @@ filtro `thumbprint:`).
 - `presentar_cee.js preparar` busca en el almacén de Windows el certificado **personal** de quien
   presenta (`CN=` empieza por el titular —`CEE_PRESENTA_TITULAR`, por defecto `MOYA LOPEZ`—, sin
   «(R: …)», vigente, con clave privada; el que caduca más tarde) o el de `CEE_PRESENTA_HUELLA`, y deja
-  `certificado.js`.
-- `certificado.js` se pega en la página **antes de cada firma** (cada recarga lo borra): envuelve
-  `MiniApplet.sign` y compañía para que lleven `filters=thumbprint:SHA1:<huella>` + `headless=true`.
+  `certificado.js` y `enviar.js`.
+- `certificado.js` se pega en la página **antes de la firma de identificarse** (cada recarga lo borra):
+  envuelve `MiniApplet.sign` y compañía para que lleven `filters=thumbprint:SHA1:<huella>` +
+  `headless=true`.
+- `enviar.js` sustituye al botón «Enviar»: la firma del envío la lanza la página que DEVUELVE la sede
+  nada más cargarse, así que el formulario se manda a un marco de la misma página y un vigía de 1 ms
+  pone el mismo filtro en la librería del marco antes de que firme (27/10/2026, 2026CEE_59).
 - `vigilante_autofirma.ps1` es solo la red: si aun así sale la ventana, la **cancela** (Escape) y lo
   dice. Nunca pulsa Intro.
 
 No hace falta Firefox ni tocar las preferencias de AutoFirma. Sirve en cualquier PC que tenga
 AutoFirma, Chrome con «Abrir Autofirma» permitido y el certificado personal en Windows.
+
+En un PC NUEVO, la primera firma puede fallar («No se ha podido iniciar la sesión» / «Este navegador no
+soporta JAVA»): AutoFirma tarda en arrancar la primera vez y Chrome puede estar pidiendo el permiso
+«¿Abrir Autofirma?» o el de acceso a la red local. Con el permiso dado, se cierra el `javaw` de AutoFirma
+que quedó esperando y se repite (27/10/2026).
 
 ## Pasos en un PC nuevo
 

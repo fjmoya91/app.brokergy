@@ -80,6 +80,20 @@ function rutaXml2cert() {
     return null;
 }
 
+/**
+ * El entorno con el que se lanza `xml2cert`. Valida el XML llamando a `java -jar jing.jar`
+ * y, sin Java en el PATH, no valida nada: su `.log` dice `XML incorrecto "program not found"`,
+ * que se leía como «certificado incompleto» (27/10/2026, PC nuevo, 2026CEE_59). Si no hay
+ * `java` en el PATH se usa el que trae AutoFirma (un JRE completo, Java 21).
+ */
+function entornoXml2cert() {
+    const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+    if (dirs.some((d) => fs.existsSync(path.join(d, 'java.exe')) || fs.existsSync(path.join(d, 'java')))) return process.env;
+    const jre = ['C:\\Program Files\\AutoFirma\\AutoFirma\\jre\\bin', 'C:\\Program Files\\Autofirma\\Autofirma\\jre\\bin', 'C:\\Program Files (x86)\\AutoFirma\\AutoFirma\\jre\\bin']
+        .find((d) => fs.existsSync(path.join(d, 'java.exe')));
+    return jre ? { ...process.env, PATH: `${jre}${path.delimiter}${process.env.PATH || ''}` } : process.env;
+}
+
 /** ¿Hay en este PC lo necesario? Devuelve el motivo si no. */
 function disponible() {
     if (process.platform !== 'win32') return { ok: false, motivo: 'CE3X solo existe en Windows' };
@@ -288,7 +302,12 @@ async function validarXml(entrada) {
     try {
         fs.writeFileSync(xml, buf);
         const p = await pdfDesdeXml(xml, dir);
-        errores.push(...avisosDelLogDe(xml).filter((e) => !errores.includes(e)));
+        const delLog = avisosDelLogDe(xml);
+        // Sin Java, xml2cert no ha validado nada: eso no es un XML incompleto, es no saberlo.
+        if (delLog.some((e) => /program not found/i.test(e))) {
+            return { ok: !errores.length, errores, comprobado: false, pdf: null, error: 'xml2cert no encuentra Java (java.exe) para validar' };
+        }
+        errores.push(...delLog.filter((e) => !errores.includes(e)));
         return { ok: !errores.length, errores, comprobado: !p.error || errores.length > 0, pdf: p.pdf || null, error: p.error || null };
     } finally {
         try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temporal */ }
@@ -312,7 +331,7 @@ async function pdfDesdeXml(xml, dir) {
         return { error: `el XML tiene ${huecos.length > 1 ? `${huecos.length} huecos` : 'un hueco'} «___» sin completar `
             + `y el PDF no sale hasta rellenarlo en CE3X: ${huecos.map((h) => `«${h.texto}» (${h.elemento})`).join(' · ')}` };
     }
-    const r2 = await ejecutar(rutaXml2cert(), [xml, '-o', dir], { cwd: dir, env: process.env, plazoMs: ESPERA_PDF_MS });
+    const r2 = await ejecutar(rutaXml2cert(), [xml, '-o', dir], { cwd: dir, env: entornoXml2cert(), plazoMs: ESPERA_PDF_MS });
     const pdfRuta = path.join(dir, `${path.basename(xml, '.xml')}.pdf`);
     if (!fs.existsSync(pdfRuta)) {
         return { error: `xml2cert no ha generado el PDF${r2.plazo ? ' (se ha pasado de tiempo)' : ''}: ${(r2.salida || r2.error || '').slice(-800)}` };
