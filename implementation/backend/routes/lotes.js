@@ -358,13 +358,17 @@ router.get('/elegibles', staffOnly, async (req, res) => {
         // ~220 expedientes — 3,5 s de media y el peor consumo de memoria de la app.
         const { data: rawRows, error } = await supabase
             .from('expedientes')
-            .select(`id, numero_expediente, estado, instalador_asociado_id, instalacion, cliente_id, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, ${CEE_ECO_SELECT}`)
+            .select(`id, numero_expediente, estado, instalador_asociado_id, instalacion, cliente_id, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, doc_reg_fin:documentacion->>fecha_registro_cee_final, doc_reg_ini:documentacion->>fecha_registro_cee_inicial, ${CEE_ECO_SELECT}`)
             .is('lote_id', null);
         if (error) throw error;
 
-        const rows = (rawRows || []).map(({ doc_fecha_fin_cifo, ...r }) => {
+        const rows = (rawRows || []).map(({ doc_fecha_fin_cifo, doc_reg_fin, doc_reg_ini, ...r }) => {
             const fila = rebuildCee(r);
             fila.documentacion = { fecha_fin_cifo: doc_fecha_fin_cifo ?? null };
+            // Desde cuándo está LISTO para lotear: el MISMO criterio que el bloque
+            // SIN_LOTEAR del radar (registro del CEE final, o el inicial de respaldo),
+            // para que la antigüedad del picker y la del parte digan lo mismo.
+            fila.listo_desde = doc_reg_fin || doc_reg_ini || null;
             return fila;
         });
 
@@ -376,6 +380,15 @@ router.get('/elegibles', staffOnly, async (req, res) => {
         ]);
         const opMap = new Map((opsRes.data || []).map(o => [o.id, o]));
         const cliMap = new Map((clisRes.data || []).map(c => [c.id_cliente, c]));
+        // Instalador de cada fila con el criterio de siempre del lote (el de
+        // `sugerirMismoInstalador`), y su nombre en UNA consulta: el picker filtra y
+        // propone lotes por instalador.
+        const insDe = (r) => r.instalador_asociado_id || (r.instalacion && r.instalacion.instalador_id) || null;
+        const insIds = [...new Set(rows.map(insDe).filter(Boolean).map(String))];
+        const { data: insRows } = insIds.length
+            ? await supabase.from('prescriptores').select('id_empresa, acronimo, razon_social').in('id_empresa', insIds)
+            : { data: [] };
+        const insMap = new Map((insRows || []).map(p => [String(p.id_empresa), (p.acronimo || p.razon_social || '').trim() || null]));
 
         const targetCcaa = ccaa ? geoCcaa.norm(ccaa) : null;
         const targetAnio = anio ? parseInt(anio, 10) : null;
@@ -396,7 +409,9 @@ router.get('/elegibles', staffOnly, async (req, res) => {
                 estado: r.estado,
                 anio_actuacion: rAnio,
                 ccaa: rCcaa,
-                instalador_id: r.instalador_asociado_id || (r.instalacion && r.instalacion.instalador_id) || null,
+                instalador_id: insDe(r),
+                instalador_nombre: insDe(r) ? (insMap.get(String(insDe(r))) || null) : null,
+                listo_desde: r.listo_desde,
                 cliente_nombre: cli ? [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ') : null,
                 cliente_direccion: cli ? ([cli.direccion, [cli.codigo_postal, cli.municipio].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || null) : null,
                 // Datos para el cálculo económico por fila (misma fórmula que la lista/lote).

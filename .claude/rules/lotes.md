@@ -41,6 +41,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
+- `docs/conocimiento/lotes/armar-el-lote-propuestas-por-antiguedad-y-por-instalador.md` — Armar el lote: filtro por instalador y PROPUESTAS por antigüedad y por instalador (2026-10-27) · 3,5 KB
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15) · 2,1 KB
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md` — El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08) · 14,7 KB
@@ -57,6 +58,13 @@ paths:
 
 > Son sus frases en negrita, copiadas tal cual. El porqué y los casos, en el documento.
 
+- `docs/conocimiento/lotes/armar-el-lote-propuestas-por-antiguedad-y-por-instalador.md`
+  - **REGLA — la antigüedad es la del RADAR.**
+  - **REGLA — el instalador es el de siempre del lote**
+  - **REGLA — una propuesta nunca mezcla año ni CCAA, ni pasa del cupo.**
+  - **REGLA — entre instaladores: primero el que ya está en el lote, luego el que más lleva
+esperando.**
+  - **REGLA — «Añadir N» entra por la MISMA ruta que el botón suelto**
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md`
   - **REGLA — un fallo de red de Marwen se dice con su nombre, y dice si se ha creado algo.**
   - **REGLA — tras un 504 NO se reintenta a ciegas.**

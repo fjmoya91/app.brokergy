@@ -8,6 +8,7 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 import { computeLoteEco, totalCobroSo, IVA_FACTURA_SO } from '../logic/loteEco';
 import { estimar, tarifaPara, comparar } from '../logic/tarifasVerificacion';
 import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
+import { proponerLotes, instaladoresDe, compararAntiguedad, diasListo, MAX_EXPEDIENTES_LOTE } from '../logic/propuestaLote';
 import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
@@ -41,7 +42,7 @@ export const ordenActuacion = (exp) => Number(exp?.instalacion?.verificacion?.or
 // E{n} + nº + estado, nombre del cliente, dirección y los 3 importes.
 // `rightAction` = botón (× quitar / + añadir). Si `onClick`, el bloque de texto
 // navega al expediente.
-function ExpedienteCard({ exp, onClick, rightAction, carpetaLocal = false, onError }) {
+function ExpedienteCard({ exp, onClick, rightAction, carpetaLocal = false, onError, extra = null }) {
     const { user } = useAuth();
     const { canSeeMargin } = getRoleFlags(user); // el ▲ beneficio Brokergy solo lo ve el ADMIN
     const f = computeExpedienteFinancials(exp);
@@ -63,6 +64,7 @@ function ExpedienteCard({ exp, onClick, rightAction, carpetaLocal = false, onErr
             </span>
             {exp.cliente_nombre && <span className="block text-[11px] text-white/60 truncate">{exp.cliente_nombre}</span>}
             {exp.cliente_direccion && <span className="block text-[10px] text-white/35 truncate">{exp.cliente_direccion}</span>}
+            {extra}
             <span className="flex items-center gap-2.5 text-[10px] font-black mt-1">
                 <span className="text-cyan-400">⚡ {mwh(f.savingsKwh)}</span>
                 <span className="text-emerald-400">{eur(f.cae)}</span>
@@ -107,6 +109,12 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const [fCcaa, setFCcaa] = useState('');
     const [fAnio, setFAnio] = useState('');
     const [fSearch, setFSearch] = useState('');
+    const [fInstalador, setFInstalador] = useState('');
+    // Por defecto, lo que más lleva esperando primero: es dinero parado.
+    const [fOrden, setFOrden] = useState('antiguedad');
+    const [showPropuestas, setShowPropuestas] = useState(true);
+    // Hoy salen 7 propuestas: enteras empujan la lista de elegibles fuera de la vista.
+    const [todasPropuestas, setTodasPropuestas] = useState(false);
     const [costeVerifInput, setCosteVerifInput] = useState('');
     const [ofertaInput, setOfertaInput] = useState('');
     const [expVerifInput, setExpVerifInput] = useState('');
@@ -175,12 +183,36 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     // Si el lote ya tiene claves, manda el lote; si no, mandan los filtros del usuario.
     const effCcaa = loteTieneClaves ? lote.ccaa : fCcaa;
     const effAnio = loteTieneClaves ? lote.anio_actuacion : (fAnio ? Number(fAnio) : null);
-    const elegiblesVisibles = useMemo(() => elegibles.filter(e => {
+    // Elegibles del año + CCAA en vigor: de aquí salen el desplegable de instaladores
+    // y las propuestas (un lote no puede mezclar años ni CCAA).
+    const elegiblesClave = useMemo(() => elegibles.filter(e => {
         if (effCcaa && norm(e.ccaa) !== norm(effCcaa)) return false;
         if (effAnio && e.anio_actuacion !== effAnio) return false;
-        if (fSearch && !norm(`${e.numero_expediente} ${e.cliente_nombre || ''}`).includes(norm(fSearch))) return false;
         return true;
-    }), [elegibles, effCcaa, effAnio, fSearch]); // eslint-disable-line
+    }), [elegibles, effCcaa, effAnio]);
+    const instaladorOpts = useMemo(() => instaladoresDe(elegiblesClave), [elegiblesClave]);
+    // Un instalador elegido que ya no está en la lista (otro año/CCAA) deja de filtrar.
+    const effInstalador = instaladorOpts.some(i => i.id === fInstalador) ? fInstalador : '';
+    const elegiblesVisibles = useMemo(() => {
+        const out = elegiblesClave.filter(e => {
+            if (effInstalador && String(e.instalador_id || '') !== effInstalador) return false;
+            if (fSearch && !norm(`${e.numero_expediente} ${e.cliente_nombre || ''} ${e.instalador_nombre || ''}`).includes(norm(fSearch))) return false;
+            return true;
+        });
+        // 'numero' conserva el orden del backend (año + nº de expediente).
+        return fOrden === 'antiguedad' ? [...out].sort(compararAntiguedad) : out;
+    }, [elegiblesClave, effInstalador, fSearch, fOrden]);
+
+    // Propuestas de lote (ver logic/propuestaLote.js): por antigüedad y por instalador,
+    // dentro del cupo que le queda al lote.
+    const cupoLote = MAX_EXPEDIENTES_LOTE - (lote?.expedientes || []).length;
+    const propuestas = useMemo(() => proponerLotes(
+        effInstalador ? elegiblesClave.filter(e => String(e.instalador_id || '') === effInstalador) : elegiblesClave,
+        {
+            cupo: cupoLote,
+            instaladoresLote: (lote?.expedientes || []).map(e => e.instalador_asociado_id || e.instalacion?.instalador_id),
+        },
+    ), [elegiblesClave, effInstalador, cupoLote, lote?.expedientes]);
 
     // Una vez asignados los E1..En, manda el ORDEN DEL ENVÍO: es el que tiene
     // delante quien arma los ZIP o revisa el anexo del MITECO. Hoy no cambia nada
@@ -284,6 +316,32 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
         } catch (err) {
             showAlert(err.response?.data?.error || 'No se pudo añadir el expediente', 'Error', 'error');
         } finally { setBusy(false); }
+    };
+
+    // Añade una propuesta entera. Uno a uno por la MISMA ruta que el botón suelto, que
+    // es la que valida año, CCAA y estado; al primer fallo se para y dice cuántos entraron.
+    const addVarios = async (ids) => {
+        if (!ids?.length) return;
+        setBusy(true);
+        let n = 0;
+        try {
+            for (const id of ids) {
+                const { data } = await axios.post(`/api/lotes/${loteId}/expedientes`, { expediente_id: id, force: false });
+                if (data.requiresConfirmation) {
+                    showAlert(`${data.warning}\n\nSe han añadido ${n} de ${ids.length}.`, 'Lote lleno', 'warning');
+                    break;
+                }
+                n += 1;
+                setSugerencias(data.sugerencias || []);
+            }
+        } catch (err) {
+            showAlert(`${err.response?.data?.error || 'No se pudo añadir un expediente'}\n\nSe han añadido ${n} de ${ids.length}.`, 'Error', 'error');
+        } finally {
+            await refresh().catch(() => {});
+            fetchElegibles();
+            onChanged?.();
+            setBusy(false);
+        }
     };
 
     const removeExpediente = async (expId) => {
@@ -776,10 +834,77 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                     <p className="text-[10px] text-white/30">Filtrado al año <b className="text-white/50">{lote.anio_actuacion}</b> · <b className="text-white/50">{lote.ccaa}</b> del lote.</p>
                                 )}
 
+                                {/* Instalador + orden */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                                    <select value={effInstalador} onChange={e => setFInstalador(e.target.value)}
+                                        className="bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
+                                        <option value="">Todos los instaladores</option>
+                                        {instaladorOpts.map(i => <option key={i.id} value={i.id}>{i.nombre} ({i.n})</option>)}
+                                    </select>
+                                    <select value={fOrden} onChange={e => setFOrden(e.target.value)}
+                                        className="bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
+                                        <option value="antiguedad">Más antiguos primero</option>
+                                        <option value="numero">Por nº de expediente</option>
+                                    </select>
+                                </div>
+
                                 {/* Buscador por nombre o nº de expediente */}
                                 <input value={fSearch} onChange={e => setFSearch(e.target.value)}
-                                    placeholder="Buscar por nº de expediente o nombre…"
+                                    placeholder="Buscar por nº de expediente, cliente o instalador…"
                                     className="w-full mt-2 bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/25 focus:border-brand/40 focus:outline-none" />
+
+                                {/* Propuestas de lote: por antigüedad y por instalador (logic/propuestaLote.js) */}
+                                {!loadingEleg && propuestas.length > 0 && (
+                                    <div className="mt-3 bg-brand/[0.04] border border-brand/20 rounded-xl p-3">
+                                        <button type="button" onClick={() => setShowPropuestas(v => !v)}
+                                            className="w-full flex items-center justify-between gap-2 group">
+                                            <span className="text-[11px] font-black text-brand/90">
+                                                💡 Propuestas de lote <span className="text-white/35 font-bold">· caben {cupoLote}</span>
+                                            </span>
+                                            <svg className={`w-4 h-4 text-white/30 group-hover:text-white/50 transition-all ${showPropuestas ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                            </svg>
+                                        </button>
+                                        {showPropuestas && (
+                                            <div className="mt-2 space-y-1.5">
+                                                {(todasPropuestas ? propuestas : propuestas.slice(0, 4)).map(p => {
+                                                    const dias = diasListo(p.expedientes[0]);
+                                                    const kwhTotal = p.expedientes.reduce((s, x) => s + (computeExpedienteFinancials(x).savingsKwh || 0), 0);
+                                                    return (
+                                                        <div key={p.clave} className="flex items-center justify-between gap-3 bg-bkg-surface border border-white/[0.06] rounded-lg px-3 py-2">
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="text-[12px] font-bold text-white truncate">
+                                                                    <span className="mr-1.5">{p.tipo === 'antiguedad' ? '⏳' : '🔧'}</span>
+                                                                    {p.titulo}
+                                                                    {p.yaEnLote && <span className="ml-1.5 text-[9px] uppercase tracking-widest text-emerald-400">ya en el lote</span>}
+                                                                </p>
+                                                                <p className="text-[10px] text-white/45 break-words">
+                                                                    {p.expedientes.map(x => x.numero_expediente).join(' · ')}
+                                                                </p>
+                                                                <p className="text-[10px] text-white/35">
+                                                                    {!loteTieneClaves && <>{p.anio} · {p.ccaa} · </>}
+                                                                    {dias != null ? `el más antiguo, listo hace ${dias} días` : 'sin fecha de registro'}
+                                                                    {p.total > p.expedientes.length && ` · ${p.total} en total`}
+                                                                    <span className="text-cyan-400 font-black"> · ⚡ {mwh(kwhTotal)}</span>
+                                                                </p>
+                                                            </div>
+                                                            <button onClick={() => addVarios(p.expedientes.map(x => x.id))} disabled={busy}
+                                                                className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest bg-brand/15 text-brand border border-brand/30 hover:bg-brand/25 disabled:opacity-40 transition-all">
+                                                                + Añadir {p.expedientes.length}
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {propuestas.length > 4 && (
+                                                    <button type="button" onClick={() => setTodasPropuestas(v => !v)}
+                                                        className="w-full text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white/70 py-1 transition-colors">
+                                                        {todasPropuestas ? 'Ver menos' : `Ver ${propuestas.length - 4} más`}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* Lista con scroll: una fila por expediente con su botón Añadir */}
                                 <div className="mt-2 max-h-64 overflow-y-auto space-y-1.5 pr-1">
@@ -787,10 +912,20 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                         <p className="text-[12px] text-white/30 py-4 text-center">Cargando expedientes elegibles…</p>
                                     ) : elegiblesVisibles.length === 0 ? (
                                         <p className="text-[12px] text-white/30 py-4 text-center">{elegibles.length ? 'Ningún expediente coincide con el filtro.' : 'No hay expedientes elegibles (con CIFO y sin lote).'}</p>
-                                    ) : elegiblesVisibles.map(x => (
+                                    ) : elegiblesVisibles.map(x => {
+                                        const dias = diasListo(x);
+                                        return (
                                         <ExpedienteCard
                                             key={x.id}
                                             exp={x}
+                                            extra={(x.instalador_nombre || dias != null) ? (
+                                                // Los días primero: un nombre de instalador largo no los corta.
+                                                <span className="block text-[10px] text-white/45 truncate">
+                                                    {dias != null && <>⏳ {dias} días</>}
+                                                    {x.instalador_nombre && dias != null && ' · '}
+                                                    {x.instalador_nombre && <>🔧 {x.instalador_nombre}</>}
+                                                </span>
+                                            ) : null}
                                             rightAction={(
                                                 <button onClick={() => addExpediente(x.id)} disabled={busy}
                                                     className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest bg-brand/15 text-brand border border-brand/30 hover:bg-brand/25 disabled:opacity-40 transition-all">
@@ -798,7 +933,8 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                                 </button>
                                             )}
                                         />
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                                 <p className="text-[10px] text-white/30 mt-1.5">{elegiblesVisibles.length} elegibles · solo con CIFO (año de actuación) y sin lote.</p>
 
