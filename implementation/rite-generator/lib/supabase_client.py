@@ -298,7 +298,10 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
             # de calor, así que NO comparte el gate con la potencia. Si el nodo de
             # ACS no los declara, se miran los del equipo de calefacción (ahí es
             # donde el catálogo precarga los litros de un equipo con depósito).
-            "acumulacion_l": (_acumulacion(acs) or (_acumulacion(cal) if not acs_distinto else "")),
+            # Sin actuación sobre el ACS no hay depósito que declarar: el respaldo
+            # del modelo de calefacción leía «30AWH 12M» como 30 litros (26RES060_237).
+            "acumulacion_l": ((_acumulacion(acs) or (_acumulacion(cal) if not acs_distinto else ""))
+                              if inst.get("cambio_acs") else ""),
             # Del catálogo del modelo; si no está, se intenta deducir del nombre
             # (casi nunca lo lleva, por eso ahora es un campo propio).
             "refrigerante": cal.get("refrigerante") or _refrigerante(cal.get("modelo", "")),

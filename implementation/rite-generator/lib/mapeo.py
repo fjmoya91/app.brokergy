@@ -174,7 +174,11 @@ def construir_relleno(datos: dict, nombres_campos: list):
     # ALMACENAMIENTO / EMPLAZAMIENTO del depósito de combustible: NO aplica a una
     # instalación de aerotermia (eléctrica, sin depósito). No se marca nada
     # (antes se marcaba TERRAZA por error en la posición 48).
-    checks.append(69)      # CALEFACCION-ACS
+    # CALEFACCION-ACS solo si el generador da también el ACS de la actuación: sin
+    # actuación sobre el ACS (cambio_acs false) la memoria no declara ACS
+    # (26RES060_237, 27/10/2026).
+    if obj.get("acs", True):
+        checks.append(69)  # CALEFACCION-ACS
     checks.append(70)      # BOMBA DE CALOR
     # ── GENERADOR DE FRÍO — casillas (90=COMPACTO, 91=PARTIDO, 92=MULTI-SPLIT,
     # 93=AUTÓNOMO; 97=condensado por AIRE, 98=AGUA). Verificadas renderizando.
