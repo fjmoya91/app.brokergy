@@ -227,12 +227,23 @@ def _num(v) -> float | None:
 
 
 def _direccion(dt: dict) -> str | None:
-    """Compone la direccion desde el bloque `dt` (urbano)."""
+    """Compone la direccion desde el bloque `dt`: «calle, municipio, provincia».
+
+    Una finca RÚSTICA no trae `lous.lourb.dir` sino `lors.lorus` (polígono,
+    parcela y paraje): sin leerlo salía «CEHEGIN, MURCIA» y la ficha tomaba el
+    municipio por calle y dejaba la provincia vacía (26RES060_OP332).
+    """
     if not isinstance(dt, dict):
         return None
     lo = _g(dt, "locs", "lous", "lourb") or _g(dt, "lourb") or {}
     dir_ = _g(lo, "dir") or {}
     partes = [dir_.get("tv"), dir_.get("nv"), dir_.get("pnp")]
+    rus = _g(dt, "locs", "lors", "lorus") or {}
+    if not any(partes) and rus:
+        cpp = rus.get("cpp") or {}
+        partes = [f"Polígono {cpp['cpo']}" if cpp.get("cpo") else None,
+                  f"Parcela {cpp['cpa']}" if cpp.get("cpa") else None,
+                  rus.get("npa")]
     txt = " ".join(str(p) for p in partes if p)
     muni = _g(dt, "nm") or ""
     prov = _g(dt, "np") or ""

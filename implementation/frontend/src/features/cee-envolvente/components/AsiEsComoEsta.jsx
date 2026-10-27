@@ -22,8 +22,10 @@ const fechaCorta = (iso) => {
     } catch { return ''; }
 };
 
+//: `sinClaude`: el certificador EXTERNO (app de certificadores) no ve lo que
+//: pasa dentro de BROKERGY con su revisión (Claude, la cola del Agente IA).
 export function AsiEsComoEstaModal({ abierto, cambios = [], fase = 'inicial', puedeClaude = false,
-                                     onCerrar, onConfirmar }) {
+                                     sinClaude = false, onCerrar, onConfirmar }) {
     const [nota, setNota] = useState('');
     const [claude, setClaude] = useState(puedeClaude);
     const [enviando, setEnviando] = useState(false);
@@ -85,22 +87,22 @@ export function AsiEsComoEstaModal({ abierto, cambios = [], fase = 'inicial', pu
                             </p>
                         ) : (
                             <p className="rounded-lg bg-emerald-400/10 px-3 py-2 text-[13px] leading-snug text-emerald-100">
-                                ✓ Revisión guardada{resultado.revision?.n ? ` (nº ${resultado.revision.n})` : ''} y anotada en el historial.
+                                ✓ Revisión guardada{resultado.revision?.n ? ` (nº ${resultado.revision.n})` : ''}{sinClaude ? '.' : ' y anotada en el historial.'}
                             </p>
                         )}
-                        {resultado.claude?.pedido && (
+                        {!sinClaude && resultado.claude?.pedido && (
                             <p className="rounded-lg bg-violet-500/15 px-3 py-2 text-[13px] leading-snug text-violet-100">
                                 🤖 Claude se ha puesto a rehacer el CEE con tus cambios. Te contestará por WhatsApp
                                 cuando acabe. Mientras tanto, mejor no toques el plano: lo que escriba él lo verás al recargar.
                             </p>
                         )}
-                        {resultado.claude && !resultado.claude.pedido && (
+                        {!sinClaude && resultado.claude && !resultado.claude.pedido && (
                             <p className="rounded-lg bg-amber-400/10 px-3 py-2 text-[13px] leading-snug text-amber-100">
                                 Claude no se ha enterado: {resultado.claude.motivo || 'el asistente no responde'}.
                                 Pídeselo tú: «rehaz el CEE con mis cambios del plano».
                             </p>
                         )}
-                        {resultado.agente && (
+                        {!sinClaude && resultado.agente && (
                             <p className="text-[12px] text-white/60">
                                 El Agente IA lo tiene en su cola como «corregido a mano · rehacer».
                             </p>
@@ -182,17 +184,20 @@ export function AsiEsComoEstaModal({ abierto, cambios = [], fase = 'inicial', pu
  * La franja de la revisión a mano: en qué está («Claude lo está rehaciendo»,
  * «rehecho»), con la salida de recargar el plano cuando ha terminado.
  */
-export function BandaRevision({ revision, onRecargar, onAbrir }) {
+export function BandaRevision({ revision, onRecargar, onAbrir, sinClaude = false }) {
     if (!revision) return null;
     const n = (revision.cambios || []).length;
-    const base = `Plano corregido a mano el ${fechaCorta(revision.at)}${revision.por ? ` por ${revision.por}` : ''}`
+    //: `sinClaude`: el certificador EXTERNO (app de certificadores) no ve quién
+    //: de BROKERGY la corrigió ni a Claude: es lo interno de la casa.
+    const por = revision.por && !sinClaude ? ` por ${revision.por}` : '';
+    const base = `Plano corregido a mano el ${fechaCorta(revision.at)}${por}`
         + ` · ${n ? `${n} ${n === 1 ? 'cambio' : 'cambios'}` : 'dado por bueno tal cual'}`;
     if (revision.estado === 'PEDIDO') {
         return (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-400/40 bg-violet-500/[0.08]
                             px-3 py-2 text-[12.5px] text-violet-100">
                 <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-violet-300" />
-                <span><b>🤖 Claude está rehaciendo el CEE {revision.fase}</b> · {base}.
+                <span><b>{sinClaude ? 'Se está rehaciendo' : '🤖 Claude está rehaciendo'} el CEE {revision.fase}</b> · {base}.
                     <span className="text-violet-200/70"> Mejor no toques el plano hasta que termine.</span></span>
             </div>
         );
@@ -216,7 +221,7 @@ export function BandaRevision({ revision, onRecargar, onAbrir }) {
     return (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03]
                         px-3 py-2 text-[12.5px] text-white/75">
-            <span>✏️ {base}.{revision.claude && !revision.claude.pedido
+            <span>✏️ {base}.{!sinClaude && revision.claude && !revision.claude.pedido
                 ? <span className="text-amber-200"> Claude no se enteró: {revision.claude.motivo}</span> : null}</span>
             {onAbrir && (
                 <button onClick={onAbrir}

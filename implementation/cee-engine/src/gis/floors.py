@@ -386,6 +386,13 @@ def marcar_usos_medidos(plantas: list[Planta],
     entonces es `no_habitable_partes` y de ahi salen la particion vertical
     contra el y el suelo de la primera sobre el. Eso ya lo hacia bien.
 
+    Y si lo que cuenta en la planta es un uso NO habitable que una persona marco
+    como vivienda (un ALMACEN de Catastro), se mide como VIVIENDA: con el uso de
+    Catastro la planta seguia siendo almacen para sus forjados, y entre ella y
+    los locales de arriba y abajo (tambien ALMACEN) no salia ninguna particion —
+    0010703VJ8101S (26RES060_OP323): vivienda en la primera entre dos locales, y
+    el .cex solo llevaba la cubierta.
+
     Devuelve lo que ha cambiado, para decirlo.
     """
     dichos: list[str] = []
@@ -394,6 +401,8 @@ def marcar_usos_medidos(plantas: list[Planta],
         if not usos:
             continue
         medido = max(usos, key=usos.get)
+        if medido in NO_HABITABLES:
+            medido = "VIVIENDA"
         pl.uso_medido = medido
         if pl.uso_dominante and pl.uso_dominante != medido:
             dichos.append(f"{pl.etiqueta}: Catastro declara sobre todo {pl.uso_dominante}, "

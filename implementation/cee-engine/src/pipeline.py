@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -845,6 +846,25 @@ def recortar_vivienda(modelo: Modelo, poligono) -> str | None:
 
 
 # ------------------------------------------ que construcciones CUENTAN
+def _uso_clave(uso) -> str:
+    """El USO como va en la clave `codigo#USO`: mayusculas, sin tildes ni
+    espacios de mas. La MISMA receta que `usoClave` de `utils/construcciones.js`."""
+    t = unicodedata.normalize("NFD", str(uso or "")).encode("ascii", "ignore").decode()
+    return " ".join(t.upper().split())
+
+
+def clave_construccion(modelo: Modelo, s: Objeto) -> str | None:
+    """Con que se guarda `s` en `construcciones_elegidas`: su codigo, o
+    `codigo#USO` si otra construccion de la parcela tiene el mismo codigo."""
+    a = s.attrs or {}
+    if not a.get("codigo"):
+        return None
+    otras = [o for o in modelo.spaces if o is not s and (o.attrs or {}).get("codigo") == a["codigo"]]
+    if not otras:
+        return a["codigo"]
+    return f"{a['codigo']}#{_uso_clave(a.get('uso_literal') or s.use)}"
+
+
 def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
     """Deja mandando la seleccion de la OPORTUNIDAD sobre el uso de Catastro.
 
@@ -856,7 +876,8 @@ def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
     se le prometio el ahorro al cliente. Esa misma marca tiene que llegar aqui,
     o el `.cex` mide OTRO edificio que la propuesta que se firmo.
 
-    `incluidas` son los codigos `escalera/planta/puerta` marcados. Se aplica
+    `incluidas` son los codigos `escalera/planta/puerta` marcados (o
+    `codigo#USO` cuando dos construcciones comparten codigo). Se aplica
     sobre `attrs["habitable"]`, que es la llave de la que ya cuelga todo lo
     demas —que plantas se dibujan y se miden (`plano_svg`), la superficie util
     del `.cex` (`fichaCe3x`) y de que paredes se piden fotos—, asi que no hay
@@ -876,15 +897,34 @@ def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
     cambios: list[str] = []
     vistos: set[str] = set()
 
+    # REGLA — dos construcciones pueden compartir CODIGO (26RES080_OP85: la
+    # vivienda de 28 m2 y la piscina DEPORTIVO de 22 m2 son las dos `1/00/01`).
+    # Entonces la app guarda `codigo#USO` y solo casa la de ese uso; un codigo
+    # SUELTO —lo guardado antes de esto— sigue valiendo para todas las que lo
+    # llevan, como siempre, y si son de usos distintos se dice.
+    sueltos = {c for c in marcadas if "#" not in c}
+    usos_por_codigo: dict[str, set[str]] = {}
+    for s in modelo.spaces:
+        a = s.attrs or {}
+        if a.get("codigo") and not a.get("anexo"):
+            usos_por_codigo.setdefault(a["codigo"], set()).add(
+                _uso_clave(a.get("uso_literal") or s.use))
+    for c in sorted(sueltos):
+        if len(usos_por_codigo.get(c, ())) > 1:
+            cambios.append(f"el codigo {c} lo comparten construcciones de usos distintos "
+                           f"({', '.join(sorted(usos_por_codigo[c]))}) y la seleccion no "
+                           "dice cual: cuentan TODAS; marcala de nuevo en la ficha tecnica")
+
     for s in modelo.spaces:
         codigo = (s.attrs or {}).get("codigo")
         if not codigo:
             continue                      # del DXF: no viene de `lcons`
         if (s.attrs or {}).get("anexo"):
             continue                      # de otra parcela: lo dice `anexar`
-        vistos.add(codigo)
+        clave = f"{codigo}#{_uso_clave(s.attrs.get('uso_literal') or s.use)}"
+        vistos.update((codigo, clave))
         antes = s.attrs.get("habitable")
-        ahora = codigo in marcadas
+        ahora = codigo in sueltos or clave in marcadas
         s.attrs["habitable"] = ahora
         s.attrs["cuenta"] = ahora
         if bool(antes) == ahora:
@@ -1387,12 +1427,27 @@ def _restar_zonas_de_marcadas(modelo: Modelo, zonas) -> None:
     Solo cuando la zona es del MISMO uso que la construccion marcada: un garaje
     dibujado en una planta de VIVIENDA de Catastro ya esta fuera de sus m2 (es
     otra construccion), y restarlo lo contaria dos veces.
+
+    REGLA — una zona de un uso que Catastro NO declara en esa planta esta DENTRO
+    de alguna de sus construcciones, y se resta de la marcada no vivienda
+    (2026-10-25, 11701E6VJ7617S · 26RES093_14): dos porches dibujados dentro de
+    un ALMACEN de 259 m2 marcado como vivienda salian del suelo y la cubierta
+    (292 m2) pero no de la superficie declarada (335 m2), y el ahorro se
+    multiplicaba por la planta entera. Si la unica marcada es VIVIENDA no se
+    toca: es lo que ya hacia.
     """
+    def _uso_de(s):
+        return {str(s.use or "").upper(),
+                str((s.attrs or {}).get("uso_normalizado") or "").upper()}
+
     for z in zonas or []:
         uso = str(z.get("uso") or "").upper()
-        marcadas = [s for s in modelo.spaces
-                    if str(s.floor) == str(z["nivel"]) and (s.attrs or {}).get("habitable")
+        en_planta = [s for s in modelo.spaces if str(s.floor) == str(z["nivel"])]
+        marcadas = [s for s in en_planta if (s.attrs or {}).get("habitable")
                     and str(s.use or "").upper() == uso and uso != "VIVIENDA"]
+        if not marcadas and uso and not any(uso in _uso_de(s) for s in en_planta):
+            marcadas = [s for s in en_planta if (s.attrs or {}).get("habitable")
+                        and str(s.use or "").upper() not in ("", "VIVIENDA")]
         if not marcadas:
             continue
         s = max(marcadas, key=lambda x: float(x.area or 0))
@@ -1403,7 +1458,7 @@ def _restar_zonas_de_marcadas(modelo: Modelo, zonas) -> None:
             "ZONAS_FUERA",
             f"{s.attrs.get('codigo') or s.use} consta como {s.use} de {antes:.0f} m2 y "
             f"cuenta como vivienda; se ha dibujado aparte {z['area_m2']:.0f} m2 de "
-            f"{s.use} en {_nombre_nivel(z['nivel'])}: cuenta lo que queda, {s.area:.0f} m2")
+            f"{uso or s.use} en {_nombre_nivel(z['nivel'])}: cuenta lo que queda, {s.area:.0f} m2")
 
 
 def excluir_cuerpos(modelo: Modelo, ids, inventario=None, zonas=None) -> list[str]:

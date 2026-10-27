@@ -18,7 +18,7 @@ el certificado mide otro edificio que la propuesta que se firmó.
 | Aplicar la selección al modelo | `aplicar_seleccion` en [pipeline.py](implementation/cee-engine/src/pipeline.py) |
 | Leerla de la oportunidad y pasarla al motor | `construccionesElegidas` en [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js) + `POST /:id/geometria` |
 | Enseñar el desglose | bloque «Qué se mide de este edificio» de `PanelGenerales` |
-| Pruebas | `python -m pytest implementation/cee-engine/tests/test_construcciones.py` |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_construcciones.py` y `node implementation/backend/scripts/test_construcciones_clave.mjs` |
 
 **REGLA — la selección se guarda por CÓDIGO, nunca por el índice de la fila.**
 Se guardaba como `selectedConstructions: [0, 4, 5, 7]`, índices de una lista que
@@ -30,6 +30,33 @@ parcela. ⚠️ **La receta y sus valores por defecto están en DOS sitios**
 (`${es||'01'}/${pt||'00'}/${pu||'001'}` en `catastroService.js` y
 `UnidadConstructiva.codigo` en el motor): si uno cambia, la selección deja de
 casar **en silencio**. Lo vigila `test_el_codigo_usa_los_mismos_valores_por_defecto_que_la_app`.
+
+**REGLA — si dos construcciones comparten CÓDIGO, la clave lleva el USO:
+`codigo#USO`** (2026-10-26, 26RES080_OP85). El código NO es único: en la RC
+9053305VJ9395S0001BM la VIVIENDA de 28 m² y la piscina DEPORTIVO de 22 m² son
+las dos `1/00/01`, así que al marcar la vivienda contaba también la piscina y la
+zona de la planta baja del `.cex` salía con **176 m² en vez de 154** (28+81+45).
+Solo el código repetido lleva el uso (`1/00/01#VIVIENDA`); los demás siguen
+siendo su código, así que nada de lo guardado cambia de forma. El uso va en
+mayúsculas, sin tildes ni espacios de más, con la MISMA receta en
+`usoClave` ([utils/construcciones.js](implementation/frontend/src/utils/construcciones.js))
+y `_uso_clave` ([pipeline.py](implementation/cee-engine/src/pipeline.py)), sobre el
+`lcd` de Catastro, que es el `originalType` de la app y el `uso_literal` del motor.
+
+- **Compatibilidad**: un código SUELTO sigue valiendo para todas las que lo
+  llevan, como antes; si son de usos distintos el motor lo DICE
+  (`CONSTRUCCIONES_SELECCIONADAS`: «cuentan TODAS; márcala de nuevo»).
+- **Lo ya guardado se arregla sin migrar**: el desglose que se guardó con la
+  selección (`inputs.construcciones`, o `cee.construcciones_elegidas_detalle` en
+  CEE directos y obras) ya decía qué fila contaba — la piscina con `cuenta:
+  false` —; solo la lista de códigos no podía decirlo. `construccionesElegidas`
+  ([ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js))
+  la pasa por `resolverElegidas` antes de dársela al motor. Medido en OP85, en
+  seco: ficha de **300 → 278 m²** y zona PB **154,0 m²**.
+- El motor devuelve la `clave` de cada fila en el desglose (`clave_construccion`),
+  y la casilla de la envolvente y su guardado van por ella, no por el código.
+- Pruebas: `pytest implementation/cee-engine/tests/test_construcciones.py` y
+  `node implementation/backend/scripts/test_construcciones_clave.mjs`.
 
 **REGLA — se aplica sobre `attrs["habitable"]`, que es la llave de la que ya
 cuelga todo.** Qué plantas se dibujan y se miden (`plano_svg`), la superficie

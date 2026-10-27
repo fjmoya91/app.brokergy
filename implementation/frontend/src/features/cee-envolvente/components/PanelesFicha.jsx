@@ -594,8 +594,11 @@ function Construcciones({ lista, onCambiar, guardando }) {
     const corregidas = lista.filter(c => !c.por_defecto && c.catastro !== null
                                       && c.catastro !== undefined
                                       && !!c.catastro !== !!c.cuenta);
+    //: Por CLAVE, no por código: dos filas pueden compartir código (la vivienda
+    //: y la piscina de 26RES080_OP85) y al marcar una se marcaban las dos.
+    const claveDe = (x) => x.clave || x.codigo;
     const alternar = (c) => onCambiar?.(
-        lista.filter(x => (x.codigo === c.codigo ? !x.cuenta : x.cuenta)).map(x => x.codigo));
+        lista.filter(x => (claveDe(x) === claveDe(c) ? !x.cuenta : x.cuenta)).map(claveDe));
 
     return (
         <div className="rounded-xl border border-white/[0.07] px-4 pb-3 pt-2.5">
@@ -625,7 +628,7 @@ function Construcciones({ lista, onCambiar, guardando }) {
                     </thead>
                     <tbody>
                         {lista.map(c => (
-                            <tr key={c.codigo}
+                            <tr key={claveDe(c)}
                                 // Lo que NO cuenta se atenúa, pero se LEE: en tema
                                 // claro /25 daba 2,6:1 y saber qué se dejó fuera es
                                 // la mitad del valor de este desglose.

@@ -23,6 +23,52 @@
 export const codigoConstruccion = (c) => String(c?.code || '').trim() || null;
 
 /**
+ * El USO como va en la clave `codigo#USO`: mayúsculas, sin tildes ni espacios
+ * de más. La MISMA receta que `_uso_clave` del motor (`pipeline.py`).
+ */
+export const usoClave = (uso) => String(uso || '').normalize('NFD')
+    .replace(/[^\x00-\x7F]/g, '').toUpperCase().split(/\s+/).filter(Boolean).join(' ');
+
+/**
+ * Con qué se guarda una fila en `construcciones_elegidas`.
+ *
+ * REGLA — el código, salvo que OTRA fila de la misma parcela lo comparta: en
+ * 26RES080_OP85 la vivienda de 28 m² y la piscina DEPORTIVO de 22 m² son las
+ * dos `1/00/01`, y marcar la vivienda arrastraba la piscina (176 m² en vez de
+ * 154). Entonces se guarda `codigo#USO`. Un código suelto guardado antes sigue
+ * valiendo para todas las que lo llevan, como siempre.
+ */
+export function claveConstruccion(fila, lista) {
+    if (fila?.clave) return fila.clave;
+    const codigo = fila?.codigo;
+    if (!codigo) return null;
+    const repetido = (lista || []).filter(x => x?.codigo === codigo).length > 1;
+    return repetido ? `${codigo}#${usoClave(fila.uso)}` : codigo;
+}
+
+/**
+ * La selección guardada, con cada código AMBIGUO resuelto por el desglose que
+ * se guardó con ella (`cuenta` por fila). Es lo que arregla, sin migrar nada,
+ * las selecciones guardadas antes de la clave con uso: el desglose ya decía
+ * que la piscina no contaba, solo que la lista de códigos no podía decirlo.
+ */
+export function resolverElegidas(elegidas, desglose) {
+    if (!Array.isArray(elegidas)) return elegidas;
+    const lista = Array.isArray(desglose) ? desglose.filter(c => c?.codigo) : [];
+    const out = [];
+    for (const e of elegidas) {
+        const t = String(e ?? '').trim();
+        if (!t) continue;
+        const filas = t.includes('#') ? [] : lista.filter(c => c.codigo === t);
+        const marcadas = filas.filter(c => c.cuenta);
+        if (filas.length > 1 && marcadas.length && marcadas.length < filas.length) {
+            for (const c of marcadas) out.push(claveConstruccion(c, lista));
+        } else out.push(t);
+    }
+    return [...new Set(out)];
+}
+
+/**
  * El desglose entero y lo marcado, listos para guardar con la oportunidad.
  *
  * Son ~10 filas de cinco campos: metadatos, no ficheros (regla 21). Se guarda
@@ -41,8 +87,9 @@ export function desgloseConstrucciones(constructions, indices) {
 
     return {
         construcciones: lista,
-        construcciones_elegidas: lista.filter(c => c.cuenta).map(c => c.codigo),
+        construcciones_elegidas: lista.filter(c => c.cuenta).map(c => claveConstruccion(c, lista)),
     };
 }
 
-export default { codigoConstruccion, desgloseConstrucciones };
+export default { codigoConstruccion, desgloseConstrucciones, claveConstruccion,
+                 resolverElegidas, usoClave };

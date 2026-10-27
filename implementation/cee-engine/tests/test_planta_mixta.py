@@ -54,6 +54,22 @@ def test_la_planta_que_se_mide_es_vivienda_para_sus_forjados():
     assert pl[0].uso_medido == "VIVIENDA"           # lo que mide la envolvente
 
 
+def test_almacen_marcado_como_vivienda_entre_dos_locales():
+    """26RES060_OP323: Catastro da las tres plantas como ALMACEN y la vivienda es
+    la primera. Su suelo y su techo dan a locales no habitables: se escriben."""
+    edif = ParteEdificio("part1", box(0, 0, 14, 14), 3, 0)
+    pl = plantas_desde_partes([edif])
+    asignar_usos(pl, {0: {"ALMACEN": 196.0}, 1: {"ALMACEN": 196.0}, 2: {"ALMACEN": 196.0}})
+    marcar_usos_medidos(pl, {1: {"ALMACEN": 196.0}})
+    assert pl[1].uso_dominante == "ALMACEN"
+    assert pl[1].uso_medido == "VIVIENDA"
+
+    hz = _escritos(elementos_horizontales(pl))
+    de_p1 = sorted((h.tipo, h.subtipo) for h in hz if h.planta == "P1")
+    assert de_p1 == [("PARTICION_HORIZONTAL", "ESPACIO_NO_HABITABLE_INFERIOR"),
+                     ("PARTICION_HORIZONTAL", "ESPACIO_NO_HABITABLE_SUPERIOR")], de_p1
+
+
 def test_sin_delimitar_no_salen_particiones_fantasma():
     hz = _escritos(elementos_horizontales(_plantas()))
     tipos = sorted((h.planta, h.tipo, h.subtipo) for h in hz)

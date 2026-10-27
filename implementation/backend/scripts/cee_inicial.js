@@ -2716,8 +2716,11 @@ function resumenDecisiones({ plan = {}, trabajo = {}, geo = {}, ficha = null, ae
             + `${z.de ? ` · ${z.de}` : ''}`);
     }
     if (!(geo.croquis_ajustado || []).length) {
-        for (const z of trabajo.zonas_fuera || []) {
-            out.push(`${z.planta || nombreNivel(z.nivel)}: ${z.uso} de ${String(Number(z.area_m2 || 0).toFixed(1)).replace('.', ',')} m² no cuenta`);
+        // Los m², los que el motor resta de verdad: la zona del plan no los trae.
+        const restadas = new Map((geo.zonas_fuera || []).map(z => [z.indice, z.area_m2]));
+        for (const [i, z] of (trabajo.zonas_fuera || []).entries()) {
+            const m2 = restadas.get(i) ?? z.area_m2 ?? 0;
+            out.push(`${z.planta || nombreNivel(z.nivel)}: ${z.uso} de ${String(Number(m2).toFixed(1)).replace('.', ',')} m² no cuenta`);
         }
     }
     if ((trabajo.cuerpos_fuera || []).length) out.push(`Cuerpos fuera de la envolvente: ${trabajo.cuerpos_fuera.length}`);
@@ -3489,7 +3492,15 @@ async function streetview() {
         const { lat, lon } = utmALatLon(p[0], p[1], huso);
         const u = `${SV_API}/metadata?location=${lat.toFixed(7)},${lon.toFixed(7)}&radius=${radio}`
             + `&source=outdoor&key=${key}`;
-        const j = await (await fetch(u, { signal: AbortSignal.timeout(20_000) })).json();
+        // UNKNOWN_ERROR es de Google y pasajero («retry», dice su documentación): se reintenta y,
+        // si sigue, ese punto cuenta como sin panorama en vez de cortar todos los lados.
+        let j;
+        for (let intento = 0; intento < 3; intento += 1) {
+            // eslint-disable-next-line no-await-in-loop
+            j = await (await fetch(u, { signal: AbortSignal.timeout(20_000) })).json();
+            if (j.status !== 'UNKNOWN_ERROR') break;
+        }
+        if (j.status === 'UNKNOWN_ERROR') return null;
         if (j.status !== 'OK') return j.status === 'ZERO_RESULTS' ? null
             : (() => { throw new Error(`Street View: ${j.status} ${j.error_message || ''}`); })();
         return { ...j, mundo: sv.latLonAUtm(j.location.lat, j.location.lng, huso) };

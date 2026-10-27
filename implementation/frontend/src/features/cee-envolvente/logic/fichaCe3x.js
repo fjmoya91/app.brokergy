@@ -3,6 +3,7 @@ import { getVentanaYACHByYear, BOILER_EFFICIENCIES }
 import { uCe3x, periodoDeAnio, epocaDe, etiquetaPeriodo, zonaNbe }
     from '../../calculator/logic/transmitanciasCe3x.js';
 import { resolverCe3x, buildMedidaMejora } from '../../expedientes/logic/ce3xFinal.js';
+import { esRes080 } from '../../expedientes/logic/emisores.js';
 import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
          techoAutoconsumo, consumoMensualDelCee, recomendacionesUso } from '../../expedientes/logic/ce3xTextos.js';
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
@@ -11,7 +12,7 @@ import { AUTOCONSUMO_DECLARABLE } from '../../expedientes/logic/autoconsumoMaxim
 import { especificaValida, kwpPara, mensualDe } from '../../expedientes/logic/produccionFv.js';
 import { autoconsumoMensual, NOMBRES_MES } from '../../expedientes/logic/autoconsumoMensual.js';
 import { justificacionMedida } from './justificacionMedidas.js';
-import { EQUIPO_NUEVO, RENDIMIENTO_JOULE, countUnidades }
+import { EQUIPO_NUEVO, RENDIMIENTO_JOULE, countUnidades, esTermoElectrico }
     from '../../expedientes/logic/aerotermiaUnits.js';
 import { contactoCliente, deQuienEs } from '../../../utils/contactoCliente.js';
 import { esCeeDirecto } from './ceeDirecto.js';
@@ -61,6 +62,14 @@ const MASA_MEDIANERA = 200;
 export const VIDA_UTIL_MEDIDA = 15;
 //: Vida útil de una instalación fotovoltaica (la de los módulos que garantizan los fabricantes).
 export const VIDA_UTIL_FOTOVOLTAICA = 25;
+//: El combustible de la caldera, corto, para el nombre de la medida de RETIRADA.
+//: Copia de `COMBUSTIBLE_CORTO` de cee-engine/tools/cee_final.py: el mismo nombre
+//: por los dos caminos del CEE final.
+const COMBUSTIBLE_CORTO_MEDIDA = {
+    'gasóleo-c': 'GASÓLEO', 'gas natural': 'GAS NATURAL', glp: 'GLP',
+    carbón: 'CARBÓN', biomasadens: 'BIOMASA', 'biomasa/renovable': 'BIOMASA',
+    biocarburante: 'BIOCARBURANTE', electricidad: 'ELÉCTRICA',
+};
 
 export function normativaCe3x(anio) {
     if (anio >= 2014) return 'CTE 2013';
@@ -419,6 +428,40 @@ const GENERADOR_CALDERA = 'Caldera Estándar';
 //: declara el caso DESFAVORABLE — que es lo que pusieron los certificadores en
 //: los dos expedientes reales. Es una hipótesis, y sale dicho.
 const AISLAMIENTO_POR_DEFECTO = 'Sin aislamiento';
+
+//: REGLA — la cola de la caldera EXISTENTE depende de la FICHA (Fran,
+//: 21/10/2026, 26RES060_190). En un RES080 el ahorro sale de comparar los dos
+//: certificados y la caldera va en el caso desfavorable: «Sin aislamiento» y el
+//: rendimiento de combustión de la tabla. En lo demás (RES060, RES093, terciario,
+//: CEE directos) el ahorro no sale del CEE y la caldera se declara como suele
+//: estar: «Antigua con aislamiento medio» y al menos un 85 % de combustión (con
+//: «Sin aislamiento» y el 79 % de un gasóleo, CE3X la dejaba en un 44 %
+//: estacional).
+const AISLAMIENTO_EXISTENTE = 'Antigua con aislamiento medio';
+const REND_COMBUSTION_EXISTENTE = 85;
+
+function colaCalderaExistente(expediente, rendTabla) {
+    if (esRes080(expediente?.numero_expediente)) {
+        return { aislamiento: AISLAMIENTO_POR_DEFECTO, rend: rendTabla,
+                 por: 'RES080: el caso desfavorable' };
+    }
+    return { aislamiento: AISLAMIENTO_EXISTENTE,
+             rend: Math.max(rendTabla || 0, REND_COMBUSTION_EXISTENTE),
+             por: 'fuera de un RES080, como suele estar una caldera en uso' };
+}
+
+/**
+ * Los litros del depósito de ACS que lleva la MEDIDA (el equipo nuevo).
+ *
+ * REGLA — si la obra pone acumulación de ACS, la caldera del CEE INICIAL lleva
+ * ese MISMO depósito (Fran, 21/10/2026): el depósito es del edificio, el CEE
+ * final lo hereda del inicial (regla 127) y así la demanda de ACS de los dos
+ * certificados y de la medida es la misma.
+ */
+export function litrosDeLaMedida(expediente) {
+    const d = resolverCe3x(expediente);
+    return d?.hayAcs && d.litros > 0 ? d.litros : null;
+}
 
 const NOMBRE_COMBUSTIBLE = {
     gas_natural: 'gas natural', gasoleo: 'gasóleo', electricidad: 'electricidad',
@@ -1183,10 +1226,11 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
         return { equipo: null, falta: 'falta el combustible', avisos };
     }
 
-    // El rendimiento de COMBUSTIÓN, de la MISMA tabla que usó la simulación: si
-    // aquí se pusiera otro, el .cex y la propuesta dirían cosas distintas del
-    // mismo equipo.
-    const rend = Math.round((fila.value || 0) * 100);
+    // El rendimiento de COMBUSTIÓN sale de la MISMA tabla que usó la simulación;
+    // fuera de un RES080 con un mínimo del 85 % (ver `colaCalderaExistente`).
+    const rendTabla = Math.round((fila.value || 0) * 100);
+    const cola = colaCalderaExistente(expediente, rendTabla);
+    const rend = combustible === 'Electricidad' ? rendTabla : cola.rend;
     // `potencia_caldera` ya existe en Instalación: es la potencia nominal de la
     // caldera existente, que en un RES093 se teclea para la base del Cb. Es el
     // MISMO número, así que se mira también aquí — si no, un expediente que ya
@@ -1202,6 +1246,8 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
     const potencia = potenciaDeclarada || POTENCIA_CALDERA_POR_DEFECTO;
 
     const daAcs = inst.misma_caldera_acs !== false;
+    const litrosMedida = litrosDeLaMedida(expediente);
+    const depositoLitros = litrosMedida || litros;
     const nombre = [caldera.marca, caldera.modelo].filter(Boolean).join(' ').trim();
     //: Una caldera ELÉCTRICA no tiene combustión: su rendimiento es el nominal
     //: (el 100 % de la tabla) y no declara ni potencia ni aislamiento.
@@ -1221,21 +1267,20 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
                     ...(daAcs ? { potencia_acs: String(potenciaDeclarada) } : {}),
                 } : {}),
             } : {
-                aislamiento: AISLAMIENTO_POR_DEFECTO,
+                aislamiento: cola.aislamiento,
                 rend_combustion: String(rend),
                 ...(potencia ? { potencia: String(potencia) } : {}),
             }),
             superficie_calefaccion: superficie,
             ...(daAcs ? { superficie_acs: superficie } : {}),
-            // El DEPÓSITO es del edificio, no de la caldera: no está en ningún
-            // campo del expediente porque se mide en la visita, así que lo
-            // contesta el certificador antes de generar. Sin él, el equipo sale
-            // sin acumulación y el CEE final lo hereda así.
-            ...(daAcs && litros > 0 ? { acumulacion: { volumen: litros } } : {}),
+            // El DEPÓSITO es del edificio, no de la caldera. Si la medida lleva
+            // acumulación, es ESE (`litrosDeLaMedida`); si no, lo contesta el
+            // certificador antes de generar. Sin ninguno, el equipo sale sin
+            // acumulación y el CEE final lo hereda así.
+            ...(daAcs && depositoLitros > 0 ? { acumulacion: { volumen: depositoLitros } } : {}),
             de: electrica ? `de la oportunidad: ${fila.label}.`
-                : `de la oportunidad: ${fila.label}. El aislamiento `
-                + `«${AISLAMIENTO_POR_DEFECTO}» es la hipótesis desfavorable — `
-                + 'CONFIRMAR EN VISITA.',
+                : `de la oportunidad: ${fila.label}. Aislamiento «${cola.aislamiento}» y `
+                + `${rend} % de combustión (${cola.por}) — CONFIRMAR EN VISITA.`,
     };
 
     if (electrica) {
@@ -1253,8 +1298,13 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
     // El aviso lo lee una persona en castellano: coma decimal. El valor que va al
     // `.cex` conserva el punto, que es lo que escribe CE3X en sus ficheros (`V24.0`).
     avisos.push(`Instalación existente: ${fila.label} → ${rend} % de combustión, `
-        + `${combustible}, ${String(potencia).replace('.', ',')} kW. Sale de lo que se `
-        + 'puso en la oportunidad: compruébalo con la placa.');
+        + `${combustible}, ${String(potencia).replace('.', ',')} kW, aislamiento `
+        + `«${cola.aislamiento}». Sale de lo que se puso en la oportunidad: compruébalo `
+        + 'con la placa.');
+    if (daAcs && litrosMedida) {
+        avisos.push(`Depósito de ACS de la caldera: ${litrosMedida} l, los MISMOS que lleva la `
+            + 'medida de mejora (y heredará el CEE final).');
+    }
     if (!nombre) avisos.push(AVISO_CALDERA_SIN_NOMBRE);
 
     return { equipo, avisos };
@@ -1482,7 +1532,7 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
     // el CEE de esa fase; en el CEE FINAL no viaja aquí — la conserva el motor
     // del propio fichero que se está copiando.
     const caldera = (d.hibridacion && !delFichero)
-        ? calderaHibrida(existentes, superficie, 100 - pct, avisos) : null;
+        ? calderaHibrida(existentes, superficie, 100 - pct, avisos, { bombaDaAcs: mixto }) : null;
     if (d.hibridacion && delFichero) {
         avisos.push(`HIBRIDACIÓN: la caldera NO se retira del CEE final. Se conserva la `
             + `del .cex que se copia —tal y como la dejó CE3X— cubriendo el ${100 - pct} % `
@@ -1501,16 +1551,31 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
     // Quién daba el ACS lo dicen los equipos de ESTA fase (`existentes`), no el
     // flag `misma_caldera_acs`, que nace en true en todo expediente sin que
     // nadie lo haya contestado.
+    //
+    // Y en el CEE FINAL (que copia el inicial), cuando el EXPEDIENTE declara que
+    // el ACS pasa a un termo eléctrico nuevo (`tipo_equipo_nuevo`): sin él, el
+    // motor conservaba la caldera retirada solo para el ACS y el final declaraba
+    // una caldera de carbón que ya no existe (26RES060_186, 26/10/2026, Fran:
+    // «calefacción aerotermia, ACS un termo»). Aquí lo dice el expediente, no los
+    // equipos del fichero: el termo es un hecho de la obra.
+    const termoDeclarado = delFichero && !d.hibridacion
+        && expediente?.instalacion?.cambio_acs === false
+        && esTermoElectrico(expediente?.instalacion?.aerotermia_acs);
     let termo = null;
-    if (termoSiRetira && !d.hibridacion && expediente?.instalacion?.cambio_acs === false
-        && (existentes || []).some(e => e?.slot === 'mixto2')) {
+    if (termoDeclarado || (termoSiRetira && !d.hibridacion && expediente?.instalacion?.cambio_acs === false
+        && (existentes || []).some(e => e?.slot === 'mixto2'))) {
         termo = equipoAnadido({ slot: 'ACS', nombre: 'TERMO ELÉCTRICO', pct_acs: '100' },
                               { superficie }).equipo;
         if (termo) {
-            termo.de = 'el ACS no se cambia y la caldera que lo daba se retira: '
-                     + 'en el edificio mejorado lo da un termo eléctrico.';
-            avisos.push('El ACS no entra en la obra y la caldera que lo daba se retira: la '
-                        + 'medida lleva un TERMO ELÉCTRICO para el agua caliente.');
+            termo.de = termoDeclarado
+                ? 'el expediente declara un termo eléctrico nuevo para el ACS (fuera del alcance CAE).'
+                : 'el ACS no se cambia y la caldera que lo daba se retira: '
+                  + 'en el edificio mejorado lo da un termo eléctrico.';
+            avisos.push(termoDeclarado
+                ? 'El ACS pasa a un TERMO ELÉCTRICO (lo declara el expediente): el CEE final lo lleva '
+                  + 'para el agua caliente y la caldera retirada no se conserva.'
+                : 'El ACS no entra en la obra y la caldera que lo daba se retira: la '
+                  + 'medida lleva un TERMO ELÉCTRICO para el agua caliente.');
         }
     }
 
@@ -1617,8 +1682,14 @@ function reparteSuperficie(superficie, pct) {
  * declarado de dos maneras distintas dentro del mismo `.cex`.
  *
  * Lo único que cambia es su parte de la demanda: 100 − C_b.
+ *
+ * REGLA — el ACS solo se reparte si la BOMBA lo da (2026-10-25, 26RES093_14:
+ * hibridación solo de calefacción, la caldera mixta sigue con el agua). Con el
+ * ACS fuera de la obra la caldera conserva el 100 % del ACS; repartido, nadie
+ * cubría el resto y CE3X no calculaba la medida («La instalación de ACS no está
+ * bien definida»).
  */
-function calderaHibrida(existentes, superficie, pct, avisos) {
+function calderaHibrida(existentes, superficie, pct, avisos, { bombaDaAcs = true } = {}) {
     //: El GENERADOR, no un equipo de apoyo: el de ACS que va aparte —si lo hay—
     //: no se reparte nada, lo cubre entero él.
     const base = (existentes || []).find(
@@ -1629,12 +1700,14 @@ function calderaHibrida(existentes, superficie, pct, avisos) {
         ...base,
         superficie_calefaccion: sup,
         pct_calefaccion: String(pct),
-        ...(base.slot === 'mixto2' ? { superficie_acs: sup, pct_acs: String(pct) } : {}),
+        ...(base.slot === 'mixto2' && bombaDaAcs ? { superficie_acs: sup, pct_acs: String(pct) } : {}),
         de: 'la caldera que NO se retira, tal y como se escribe en el CEE de esta fase.',
     };
     avisos.push(`HIBRIDACIÓN: la medida lleva los DOS generadores — la bomba con el `
         + `${100 - pct} % de la demanda y «${base.nombre}» con el ${pct} % restante. `
-        + 'El reparto es el coeficiente de bivalencia C_b del expediente.');
+        + 'El reparto es el coeficiente de bivalencia C_b del expediente.'
+        + (base.slot === 'mixto2' && !bombaDaAcs
+            ? ' El ACS no entra en la obra: la caldera sigue dando el 100 % del agua caliente.' : ''));
     return copia;
 }
 
@@ -2026,6 +2099,58 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     }
     catalogo.push(aero);
 
+    // ── 1b. La RETIRADA de la caldera en apoyo (solo CEE FINAL de una hibridación) ──
+    // El final de una hibridación lleva la caldera de apoyo (lo que se instaló de
+    // verdad), así que la mejora que queda es quitarla: la bomba al 100 %. Es el
+    // MISMO conjunto que la medida de una sustitución —la instalación nueva sin
+    // hibridación—, compuesto sobre una COPIA del expediente; el expediente no se
+    // toca. Los textos, calcados de `texto_retirada` (cee_final.py), para que el
+    // final salga igual por los dos caminos. Caso: 26RES093_16 (22/10/2026), cuyo
+    // inicial registrado traía la medida de otro edificio y no se podía partir de
+    // ella: Fran pidió copiar el inicial y que la medida fuera retirar la caldera.
+    if (esFinal && esHibrida) {
+        const sinApoyo = { ...expediente, instalacion: { ...(expediente?.instalacion || {}), hibridacion: false } };
+        const r = instalacionNueva({ expediente: sinApoyo, superficie, modelos, existentes, termoSiRetira: true });
+        //: La caldera: la del fichero si llega (`existentes`); si no, la que declara
+        //: el expediente (`caldera_antigua_cal`), que es la que se queda de apoyo.
+        const delFichero = (existentes || []).find(e => e?.combustible && !/electric/i.test(e.combustible));
+        const cal = expediente?.instalacion?.caldera_antigua_cal || {};
+        const previa = delFichero || ((cal.marca || cal.modelo)
+            ? { nombre: (String(cal.modelo || '').toUpperCase().startsWith(String(cal.marca || '').toUpperCase())
+                    ? cal.modelo : [cal.marca, cal.modelo].filter(Boolean).join(' ')).trim(),
+                combustible: { gasoleo: 'Gasóleo-C', gas_natural: 'Gas Natural' }[combustiblePorId(cal.rendimiento_id)] || null }
+            : null);
+        const comb = COMBUSTIBLE_CORTO_MEDIDA[String(previa?.combustible || '').trim().toLowerCase()] || '';
+        const nuevo = r.equipo;
+        const corto = String(nuevo?.nombre || 'BOMBA DE CALOR').replace(/\s*\([^)]*\)\s*$/, '').trim();
+        const d = resolverCe3x(expediente, { modelos }) || {};
+        const rends = [
+            d.scopCal ? `SCOP de ${Number(d.scopCal).toFixed(2).replace('.', ',')}` : null,
+        ].filter(Boolean);
+        const previoTxt = previa ? `la caldera${comb ? ` de ${comb.toLowerCase()}` : ''} existente (${previa.nombre})`
+            : 'la caldera existente';
+        catalogo.push({
+            id: 'retirada',
+            titulo: 'Retirar la caldera en apoyo (bomba de calor al 100 %)',
+            resumen: nuevo ? `${corto} al 100 % de la calefacción` : null,
+            porDefecto: false,
+            disponible: !!nuevo,
+            motivo: nuevo ? null : (r.avisos?.[0] || 'No se puede componer la instalación sin la caldera.'),
+            nota: null,
+            datos: nuevo ? {
+                nombre: `RETIRADA CALDERA${comb ? ` ${comb}` : ''}: ${corto} AL 100 %`.slice(0, 120),
+                caracteristicas: `Retirada de ${previoTxt}, que hoy trabaja en apoyo a la bomba de calor (sistema `
+                    + `híbrido). La ${nuevo.nombre} ya instalada pasa a cubrir el 100 % de la demanda de calefacción`
+                    + `${rends.length ? `, con ${rends.join(' y ')}` : ''}.`,
+                otros_datos: OTROS_DATOS_MEDIDA,
+                ...justificacionMedida('retirada'),
+                coste_mantenimiento: 0,
+                vida_util: VIDA_UTIL_MEDIDA,
+                instalaciones: [nuevo, ...(r.extras || [])],
+            } : null,
+        });
+    }
+
     // ── 2. El AUTOCONSUMO fotovoltaico ───────────────────────────────────────
     const fv = normalizarFotovoltaica(expediente?.instalacion?.fotovoltaica);
     //: El consumo eléctrico de la vivienda CON la aerotermia, mes a mes, si quien
@@ -2371,8 +2496,10 @@ export function faltaPorPreguntar(cfg = {}, { fase = 'inicial', expediente = nul
     // solo su propia clave, el popup volvía a preguntar por un depósito que ya
     // estaba puesto — y un popup que pregunta lo que ya has contestado se
     // responde sin leer, que es justo lo que no puede pasar con los otros.
-    if (!acumulacionYaDicha(cfg) && (cfg.acumulacion_litros === undefined
-                                     || cfg.acumulacion_litros === null)) {
+    //: Si la MEDIDA lleva depósito, la caldera lleva ese (`litrosDeLaMedida`):
+    //: no hay nada que preguntar.
+    if (!acumulacionYaDicha(cfg) && !litrosDeLaMedida(expediente)
+        && (cfg.acumulacion_litros === undefined || cfg.acumulacion_litros === null)) {
         preguntas.push({
             clave: 'acumulacion_litros',
             titulo: '¿La caldera actual tiene depósito de acumulación de ACS?',

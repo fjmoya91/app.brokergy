@@ -392,6 +392,16 @@ function loadCeeDirecto() {
     return loadEsm(CEE_DIRECTO_JS, _ceeDirecto);
 }
 
+//: Con qué CLAVE se guarda una construcción (`codigo` o `codigo#USO`) y cómo se
+//: resuelve una selección antigua con su desglose. Fuente única con la ficha técnica.
+const CONSTRUCCIONES_JS = path.join(
+    __dirname, '../../frontend/src/utils/construcciones.js');
+const _construcciones = { sello: null, promesa: null };
+
+function loadConstrucciones() {
+    return loadEsm(CONSTRUCCIONES_JS, _construcciones);
+}
+
 //: Una oportunidad leída como expediente. Fuente única con la VENTANA, por lo
 //: mismo que el de arriba.
 const OPORTUNIDAD_JS = path.join(
@@ -731,14 +741,23 @@ async function modelosDeAerotermia(expediente) {
  * que nunca pasó por ahí no puede empezar a medir distinto.
  */
 async function construccionesElegidas(clave, origen = 'cae') {
+    // REGLA — un código que comparten dos construcciones (la vivienda y la
+    // piscina de 26RES080_OP85, las dos `1/00/01`) se resuelve con el DESGLOSE
+    // que se guardó con la selección: él sí dice cuál cuenta. Sin eso, el motor
+    // contaría las dos.
+    const resolver = async (lista, desglose) => {
+        if (!Array.isArray(lista) || !lista.length) return null;
+        const { resolverElegidas } = await loadConstrucciones();
+        return resolverElegidas(lista, desglose);
+    };
     // En una OPORTUNIDAD, lo marcado en su propia ficha técnica.
     if (origenNorm(origen) === 'op') {
         const { data } = await supabase.from('oportunidades')
-            .select('elegidas:datos_calculo->inputs->construcciones_elegidas')
+            .select('elegidas:datos_calculo->inputs->construcciones_elegidas, '
+                  + 'desglose:datos_calculo->inputs->construcciones')
             .eq(esUuid(clave) ? 'id' : 'id_oportunidad', clave)
             .order('created_at', { ascending: false }).limit(1).maybeSingle();
-        const lista = data?.elegidas;
-        return Array.isArray(lista) && lista.length ? lista : null;
+        return resolver(data?.elegidas, data?.desglose);
     }
     // En un CEE directo (y en la obra de un certificador externo) no hay
     // oportunidad —no hay ficha técnica que marcar—, así que lo elegido vive en
@@ -748,18 +767,17 @@ async function construccionesElegidas(clave, origen = 'cae') {
     if (o === 'cee' || o === 'ext') {
         const m = ORIGENES[o];
         const { data, error } = await supabase.from(m.tabla)
-            .select(`elegidas:cee->${CAMPO_CONSTRUCCIONES}`)
+            .select(`elegidas:cee->${CAMPO_CONSTRUCCIONES}, `
+                  + `desglose:cee->${CAMPO_CONSTRUCCIONES}_detalle`)
             .eq(esUuid(clave) ? 'id' : m.clave, clave).maybeSingle();
         if (error && o === 'ext') throw errorDeBd(error, m);
-        const lista = data?.elegidas;
-        return Array.isArray(lista) && lista.length ? lista : null;
+        return resolver(data?.elegidas, data?.desglose);
     }
     const { data } = await supabase
         .from('expedientes').select('oportunidades(datos_calculo)')
         .eq(esUuid(clave) ? 'id' : 'numero_expediente', clave).maybeSingle();
     const inputs = data?.oportunidades?.datos_calculo?.inputs || {};
-    const lista = inputs.construcciones_elegidas;
-    return Array.isArray(lista) && lista.length ? lista : null;
+    return resolver(inputs.construcciones_elegidas, inputs.construcciones);
 }
 
 /**
@@ -783,11 +801,30 @@ async function construccionesElegidas(clave, origen = 'cae') {
 async function guardarConstrucciones(clave, elegidas, desglose, origen = 'cae') {
     const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
     const codigosDe = (l) => [...new Set((l || []).map(c => String(c).trim()).filter(Boolean))];
-    const listaDe = (d, codigos) => (d || []).map(c => ({
-        codigo: c.codigo, uso: c.uso ?? null, planta: c.planta ?? null,
-        superficie: Number(c.superficie) || 0,
-        cuenta: codigos.includes(c.codigo),
-    }));
+    // La marca va por CLAVE (`codigo`, o `codigo#USO` si dos filas comparten
+    // código): por código a secas, marcar la vivienda marcaba también la piscina.
+    const { claveConstruccion } = await loadConstrucciones();
+    const listaDe = (d, codigos) => (d || []).map((c, _i, todas) => {
+        const k = claveConstruccion(c, todas);
+        return {
+            codigo: c.codigo, uso: c.uso ?? null, planta: c.planta ?? null,
+            superficie: Number(c.superficie) || 0,
+            cuenta: codigos.includes(k) || codigos.includes(c.codigo),
+        };
+    });
+
+    // En la OBRA de un certificador externo, igual que en un CEE directo: en la
+    // propia obra y por su RPC de clave. Sin historial de BROKERGY que anotar.
+    if (origenNorm(origen) === 'ext') {
+        const fila = await expedienteBasico(clave, 'id', 'ext');
+        if (!fila) throw alto('Esa obra no existe.', 404);
+        const codigos = codigosDe(elegidas);
+        const lista = listaDe(desglose, codigos);
+        const stub = expedienteStub('ext', fila.id);
+        await setCeeField(stub, CAMPO_CONSTRUCCIONES, codigos);
+        await setCeeField(stub, `${CAMPO_CONSTRUCCIONES}_detalle`, lista);
+        return { elegidas: codigos, construcciones: lista };
+    }
 
     // En la OBRA de un certificador externo, igual que en un CEE directo: en la
     // propia obra y por su RPC de clave. Sin historial de BROKERGY que anotar.

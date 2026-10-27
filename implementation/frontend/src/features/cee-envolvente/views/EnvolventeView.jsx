@@ -906,7 +906,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         setGuardandoConstrucciones(true);
         // Se pinta ya: esperar a la red para mover una casilla se siente roto.
         setGeo(v => (v ? { ...v, construcciones: antes.map(
-            c => ({ ...c, cuenta: elegidas.includes(c.codigo) })) } : v));
+            c => ({ ...c, cuenta: elegidas.includes(c.clave || c.codigo) })) } : v));
         try {
             await axios.put(api(id, 'construcciones'),
                 { elegidas, construcciones: antes });
