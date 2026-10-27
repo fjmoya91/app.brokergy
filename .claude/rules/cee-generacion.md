@@ -72,7 +72,7 @@ paths:
 - `docs/conocimiento/cee-generacion/el-acs-que-hace-otra-maquina-tambien-se-escribe.md` — El ACS que hace OTRA máquina también se escribe (2026-09-14) · 3,8 KB
 - `docs/conocimiento/cee-generacion/el-xml-del-cee-que-hacemos-se-carga-siempre.md` — El XML del CEE que hacemos se CARGA siempre en el expediente (2026-10-21) · 4,9 KB
 - `docs/conocimiento/cee-generacion/generar-el-cee-con-ia-desde-el-boton-ce3x.md` — Generar el CEE inicial con IA desde el botón CE3X (2026-10-19) · 5,5 KB
-- `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29) · 11,1 KB
+- `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29) · 12,0 KB
 - `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/con-un-video-en-vez-de-fotos-y-si-no-se-puede-se-pregunta.md` — Con un VÍDEO en vez de fotos — y si no se puede, se PREGUNTA (2026-10-06) · 7,9 KB
 - `docs/conocimiento/cee-generacion/la-caldera-existente-segun-la-ficha-y-el-deposito-de-la-medida.md` — La caldera EXISTENTE según la ficha, y el depósito de la MEDIDA (2026-10-21) · 2,6 KB
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/00-la-medida-de-mejora-de-una-hibridacion.md` — La medida de mejora de una HIBRIDACIÓN (2026-09-16) · 4,2 KB
