@@ -748,7 +748,7 @@ function createMcpServer() {
     // ── Tool 1: Detalle de un expediente ──────────────────────────────────────
     mcp.tool(
         'get_expediente',
-        'Obtiene el estado completo del ciclo de vida de un expediente. Úsalo cuando el usuario pregunte por un número concreto (ej: 26RES060_118).',
+        'Obtiene el estado completo del ciclo de vida de un expediente y su ECONOMÍA CAE: ahorro estimado y verificado (kWh), bono del cliente, beneficio de BROKERGY, inversión, lote y factura al Sujeto Obligado (con la parte de este expediente). Úsalo cuando el usuario pregunte por un número concreto (ej: 26RES060_118).',
         { numero: z.string().describe('Número del expediente, ej: 26RES060_118') },
         async ({ numero }) => {
             const { data, error } = await supabase
@@ -758,7 +758,37 @@ function createMcpServer() {
                 .maybeSingle();
             if (error) return err(error.message);
             if (!data) return ok({ found: false, message: `No encontrado: "${numero}"` });
-            return ok({ found: true, expediente: data });
+            // La economía la calcula el BACKEND con la misma función que la pantalla
+            // (este contenedor no lleva la lógica del frontend). Si falla, el ciclo de
+            // vida sale igual y se dice por qué falta la economía: nunca un cero.
+            const r = await backendFetch('GET', `/api/facturacion/economia-cae/expediente/${encodeURIComponent(data.numero_expediente)}`);
+            const economia = (!r.httpError && r.okHttp && r.data?.found)
+                ? r.data.economia
+                : { no_disponible: errorBackend(r, 'la economía del expediente') };
+            return ok({ found: true, expediente: data, economia });
+        }
+    );
+
+    // ── Tool 1b: Volumen de la cartera CAE (LECTURA) ──────────────────────────
+    mcp.tool(
+        'volumen_cae',
+        'VOLUMEN de la cartera CAE con datos reales de la app: nº de expedientes, ahorro estimado y verificado (MWh), bono a los clientes, beneficio de BROKERGY e inversión, en total y desglosado por ficha (RES060/RES080/RES093/TER), por año de alta y por estado. Sin los rechazados. Úsalo para convocatorias de premios, memorias, previsión de cierre o "¿cuántos MWh llevamos?". Lo FACTURADO al Sujeto Obligado está en listar_facturas con serie CAE.',
+        {
+            anio: z.number().int().optional().describe('Solo expedientes dados de alta ese año.'),
+            ficha: z.enum(['RES060', 'RES080', 'RES093', 'TER100', 'TER173']).optional(),
+            con_rechazados: z.boolean().optional().describe('true = incluir los RECHAZADOS (por defecto, fuera).'),
+            detalle: z.boolean().optional().describe('true = añade la lista expediente a expediente (larga).'),
+        },
+        { readOnlyHint: true, openWorldHint: false },
+        async ({ anio, ficha, con_rechazados, detalle }) => {
+            const qs = new URLSearchParams();
+            if (anio) qs.set('anio', String(anio));
+            if (ficha) qs.set('ficha', ficha);
+            if (con_rechazados) qs.set('rechazados', '1');
+            if (detalle) qs.set('detalle', '1');
+            const r = await backendFetch('GET', `/api/facturacion/economia-cae/volumen?${qs.toString()}`);
+            if (r.httpError || !r.okHttp) return err(errorBackend(r, 'el volumen CAE'));
+            return ok(r.data);
         }
     );
 
@@ -2010,9 +2040,9 @@ function createMcpServer() {
     // ── Tool 17: Listado de facturas (LECTURA) ────────────────────────────────
     mcp.tool(
         'listar_facturas',
-        'Lista las FACTURAS con su nº, cliente, concepto, total, estado (Borrador, Pendiente, Vencida, Cobrada, Rectificada) y el resumen del periodo: facturado (base), cobrado, pendiente y vencido. Úsalo para "¿qué me deben?", "¿qué facturas están vencidas?", "¿cuánto he facturado este año?", "la última factura de Fran".',
+        'Lista las FACTURAS con su nº, cliente, concepto, total, estado (Borrador, Pendiente, Vencida, Cobrada, Rectificada) y el resumen del periodo: facturado (base), cobrado, pendiente y vencido. Con serie CAE, las VENTAS DE CAE al Sujeto Obligado del año (las de los lotes, con sus kWh, €/MWh y lote, y las autofacturas de Iberdrola/Naturgy de Drive). Úsalo para "¿qué me deben?", "¿qué facturas están vencidas?", "¿cuánto he facturado este año?", "¿cuánto hemos facturado de CAE?", "la última factura de Fran".',
         {
-            serie: z.enum(['ING', 'FML']).optional().describe('ING = BROKERGY; FML = Fran como profesional. Sin ella, las dos.'),
+            serie: z.enum(['ING', 'FML', 'CAE']).optional().describe('ING = BROKERGY (ingeniería); FML = Fran como profesional; CAE = ventas de CAE al Sujeto Obligado. Sin ella, ING y FML (CAE va aparte: pídela).'),
             estado: z.enum(['BORRADOR', 'PENDIENTE', 'VENCIDA', 'PAGADA', 'RECTIFICADA']).optional().describe('PENDIENTE = emitida sin cobrar y sin vencer; PAGADA = cobrada.'),
             anio: z.number().int().optional().describe('Año de la fecha de la factura. Por defecto, el actual.'),
             texto: z.string().optional().describe('Buscar por nº, cliente, NIF, concepto o expediente.'),
@@ -2020,6 +2050,30 @@ function createMcpServer() {
         },
         { readOnlyHint: true, openWorldHint: false },
         async ({ serie, estado, anio, texto, limite = 30 }) => {
+            if (serie === 'CAE') {
+                // Mismo criterio que el cuadro de Facturación (contabilidadService.ventasCae).
+                const r = await backendFetch('GET', `/api/facturacion/ventas-cae?anio=${anio || new Date().getFullYear()}`);
+                if (r.httpError || !r.okHttp) return err(errorBackend(r, 'las ventas CAE'));
+                const aguja = sinTildes(texto || '');
+                const filas = (r.data?.ventas || [])
+                    .filter(v => !estado || (estado === 'PAGADA' ? v.cobro?.estado === 'COBRADA' : v.cobro?.estado === estado))
+                    .filter(v => !aguja || sinTildes(`${v.numero} ${v.cliente} ${v.lote || ''}`).includes(aguja));
+                const tope = Math.min(Math.max(1, limite || 30), 100);
+                return ok({
+                    ok: true,
+                    resumen: r.data.resumen,
+                    avisos: r.data.avisos?.length ? r.data.avisos : undefined,
+                    total: filas.length,
+                    mostradas: Math.min(tope, filas.length),
+                    facturas: filas.slice(0, tope).map(v => ({
+                        numero: v.numero, serie: 'CAE', fecha: v.fecha, cliente: v.cliente,
+                        base: numOrNull(v.base), total: numOrNull(v.total),
+                        kwh: v.kwh ?? undefined, precio_mwh: v.precio_mwh ?? undefined, lote: v.lote ?? undefined,
+                        estado: v.cobro?.estado === 'COBRADA' ? `Cobrada${v.cobro.fecha ? ` el ${v.cobro.fecha}` : ''}` : (v.cobro?.estado || v.estado),
+                        origen: v.origen === 'DRIVE' ? 'Drive (autofactura)' : 'Lote',
+                    })),
+                });
+            }
             const qs = new URLSearchParams({ anio: String(anio || new Date().getFullYear()) });
             if (serie) qs.set('serie', serie);
             if (estado) qs.set('estado', estado);

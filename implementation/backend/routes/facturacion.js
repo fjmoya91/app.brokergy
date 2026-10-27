@@ -299,6 +299,7 @@ router.post('/facturas/:id/duplicar', adminOClaveInterna, async (req, res) => {
 // Ver docs/conocimiento/facturacion/trimestres-y-contabilidad.md.
 
 const conta = require('../services/contabilidadService');
+const economiaCae = require('../services/economiaCae');
 const gastosDrive = require('../services/gastosDrive');
 const trimestreActual = () => {
     const hoy = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }).format(new Date());
@@ -309,6 +310,26 @@ const esSeco = (req) => ['1', 'true', 'si', 'sí'].includes(String(req.query.sec
 router.get('/cuadro', adminOClaveInterna, async (req, res) => {
     try { res.json(await conta.cuadro(req.query.anio)); }
     catch (err) { falla(res, err, 'cuadro'); }
+});
+
+// Las ventas CAE de un año, una a una (app + autofacturas de Drive ya leídas).
+router.get('/ventas-cae', adminOClaveInterna, async (req, res) => {
+    try { res.json(await conta.ventasCae(req.query.anio)); }
+    catch (err) { falla(res, err, 'ventas CAE'); }
+});
+
+// La ECONOMÍA de los CAE (bono, beneficio, ahorro estimado y verificado, factura al
+// S.O.): de un expediente o de toda la cartera. Importes y margen: solo ADMIN o el MCP.
+router.get('/economia-cae/volumen', adminOClaveInterna, async (req, res) => {
+    try {
+        const { anio = null, ficha = null, rechazados, detalle } = req.query;
+        res.json(await economiaCae.volumen({ anio: anio ? Number(anio) : null, ficha, conRechazados: rechazados === '1', detalle: detalle === '1' }));
+    } catch (err) { falla(res, err, 'volumen CAE'); }
+});
+
+router.get('/economia-cae/expediente/:numero', adminOClaveInterna, async (req, res) => {
+    try { res.json(await economiaCae.expediente(req.params.numero)); }
+    catch (err) { falla(res, err, 'economía del expediente'); }
 });
 
 router.get('/trimestre', adminOClaveInterna, async (req, res) => {

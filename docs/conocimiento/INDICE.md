@@ -20,7 +20,7 @@
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 39,9 KB | 12 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 92,8 KB | 36 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
-| `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 16,4 KB | 4 |
+| `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 17,8 KB | 5 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,8 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
@@ -250,6 +250,7 @@
 - **173** → `.claude/rules/cee.md` — Con el VISTO BUENO el CEE ya se puede presentar, y el `_REVISAR` de esa fase pasa a su nombre DEFINITIVO
 - **175** → `.claude/rules/cee.md` — Todo CEE NACE con Fran de certificador, y el AGENTE IA trabaja SIN figurar en la barra
 - **176** → `.claude/rules/claude-automatizacion.md` — La ronda de PRESENTAR de las 21:00: UN «sí» por noche para la lista entera, y un encargo por CEE
+- **178** → `.claude/rules/facturacion.md` — La economía de los CAE por el MCP (bono, beneficio, ahorro estimado y verificado, volumen, ventas al S.O.) s…
 
 ## Documentos por área
 
@@ -474,6 +475,7 @@
 ### facturacion
 
 - `docs/conocimiento/facturacion/cuadro-de-mando-y-trimestres-en-pantalla.md` — Cuadro de mando y trimestres en pantalla: el armazón de Facturación, «Hoy» y «Trimestres» (2026-10-24)
+- `docs/conocimiento/facturacion/economia-cae-por-el-mcp.md` — La economía de los CAE, por el MCP: `get_expediente`, `volumen_cae` y `listar_facturas` CAE (2026-10-27)
 - `docs/conocimiento/facturacion/facturas-desde-la-app.md` — Facturas desde la app: series ING y FML, rectificativas y VERI*FACTU (2026-10-24)
 - `docs/conocimiento/facturacion/presupuestos-con-partidas.md` — Presupuestos con PARTIDAS: la pestaña Facturación sustituye a AppSheet (2026-10-24)
 - `docs/conocimiento/facturacion/trimestres-y-contabilidad.md` — Cuadro de mando y cierre trimestral: dos contribuyentes, gastos leídos de Drive y el paquete para la gestoría (2026-10-24)

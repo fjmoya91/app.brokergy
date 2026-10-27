@@ -488,6 +488,54 @@ function ventaDeDrive(f, hoy = hoyMadrid()) {
 /** Los números de TODAS las facturas CAE de la app (para saber qué hay en Drive que no esté). */
 const numerosCae = async (hoy) => new Set((await facturasCae({ hoy })).map(v => v.numero));
 
+/**
+ * Las ventas CAE de UN año, una a una (para el MCP: «¿cuánto hemos facturado de CAE?»).
+ * Con el MISMO criterio que el cuadro: las de `facturas_so` (con su lote y sus kWh) y
+ * las autofacturas de Drive YA LEÍDAS que no están en la app; las sin leer no cuentan
+ * y se dicen. Con Drive caído salen las de la app y un aviso, nunca un cero callado.
+ */
+async function ventasCae(anioArg, { hoy = hoyMadrid() } = {}) {
+    const anio = Number(anioArg || hoy.slice(0, 4));
+    if (!Number.isInteger(anio) || anio < 2020 || anio > 2100) throw error('Año no válido');
+    const [todas, extra] = await Promise.all([
+        facturasCae({ hoy }),
+        supabase.from('facturas_so').select('id, unidades_kwh, precio_kwh, lote:lotes(codigo, estado)').not('numero', 'is', null).limit(2000),
+    ]);
+    if (extra.error) throw error(`No se pudieron leer las facturas CAE: ${extra.error.message}`, 503);
+    const porId = new Map((extra.data || []).map(f => [f.id, f]));
+    const app = todas.filter(v => v.fecha.startsWith(String(anio))).map(v => {
+        const x = porId.get(v.id) || {};
+        return { ...v, kwh: x.unidades_kwh != null ? Number(x.unidades_kwh) : null, precio_mwh: x.precio_kwh != null ? r2(Number(x.precio_kwh) * 1000) : null, lote: x.lote?.codigo || null, lote_estado: x.lote?.estado || null };
+    });
+    const avisos = [];
+    const drive = [];
+    let sinLeer = 0;
+    try {
+        const vd = await gastosDrive.listarVentas({ anio, meses: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] }, { lineas: ['CAE'] });
+        for (const f of ventasCaeSinRegistrar(vd.CAE, new Set(todas.map(v => v.numero)))) {
+            const v = ventaDeDrive(f, hoy);
+            if (v) drive.push({ ...v, kwh: null, precio_mwh: null, lote: null });
+            else if (ESTADOS_PENDIENTES.includes(f.estado)) sinLeer++;
+        }
+        if (sinLeer) avisos.push(`${sinLeer === 1 ? 'Una venta CAE de Drive' : `${sinLeer} ventas CAE de Drive`} sin leer: no cuentan.`);
+    } catch (e) {
+        avisos.push(`No se pudieron leer las ventas CAE de Drive (autofacturas): ${e.message}. Solo salen las de la app.`);
+    }
+    const ventas = [...app, ...drive].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    const vivas = ventas.filter(v => v.estado !== 'RECTIFICADA');
+    const cobradas = vivas.filter(v => v.cobro.estado === 'COBRADA');
+    return {
+        anio,
+        resumen: {
+            n: vivas.length, base: suma(vivas, 'base'), total: suma(vivas, 'total'),
+            kwh: suma(vivas.filter(v => v.kwh != null), 'kwh'), n_sin_kwh: vivas.filter(v => v.kwh == null).length,
+            cobrado: suma(cobradas, 'total'), pendiente: suma(vivas.filter(v => v.cobro.estado !== 'COBRADA'), 'total'),
+            de_drive: drive.length, sin_leer: sinLeer,
+        },
+        ventas, avisos,
+    };
+}
+
 /** «29/04/2026» o «2026-04-29» → «2026-04-29»; null si no se entiende. */
 const fechaIsoDe = (s) => {
     const x = String(s || '').trim();
@@ -1774,7 +1822,7 @@ async function paquete(tStr, { seco = true, hoy = hoyMadrid() } = {}) {
 }
 
 module.exports = {
-    cuadro, trimestre, gastos, leer, conFiscalDe, paquete, planPaquete, libroPaquete,
+    cuadro, trimestre, gastos, leer, conFiscalDe, paquete, planPaquete, libroPaquete, ventasCae,
     // ESCRIBE en Drive: el cobro de una venta CAE de Drive (ruta y scripts)
     cobroVentaDrive,
     // puros (pruebas)

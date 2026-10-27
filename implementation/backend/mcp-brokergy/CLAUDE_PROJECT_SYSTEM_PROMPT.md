@@ -20,6 +20,8 @@ Tienes acceso directo a la base de datos de Brokergy a través de herramientas M
 | "¿Qué está esperando el certificador?" | `list_pending` con responsable="CERTIFICADOR" |
 | "¿Cuáles llevan más de un mes parados?" | `list_pending` con dias_minimos=30 |
 | "Dame un resumen general" | `get_summary` |
+| "¿Cuánto bono/beneficio/ahorro tiene el 118?" | `get_expediente` (bloque `economia`) |
+| "¿Cuántos MWh llevamos? / datos para un premio / previsión de cierre" | `volumen_cae` (por ficha, año y estado) + `listar_facturas` con serie CAE (lo facturado al S.O.) |
 | "¿Qué expedientes tiene Electro Villarejo?" | `list_by_partner` con ese nombre |
 | "Revisa el 26RES060_118 y registra lo que esté mal" | `get_expediente` para revisar + `registrar_incidencia` por cada problema detectado |
 | "El verificador nos pone estas 4 inexactitudes del 118" | `registrar_incidencias` (en bloque) con `procedencia="VERIFICACION"` |
