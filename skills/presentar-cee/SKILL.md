@@ -206,6 +206,11 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
    `plataformapagos.jccm.es`.
 2. **«Pago de documentos sin identificación»** → **«Pago con Tarjeta»** → pasarela de Redsys. Apunta el
    **número de documento 046** (13 dígitos, empieza por `046`): es la referencia que pide la sede.
+   Tras el enlace, «Insertando documento — Por favor, espere» (`ImportacionVehiculo`) puede durar **más
+   de un minuto** antes de la confirmación (`ImportacionFichero`): espera hasta 3 min. Si hay que
+   reintentar (no se ha llegado a Redsys, nada cobrado), cierra esa pestaña; en la sede el botón se
+   queda en «Esperando pago…» deshabilitado: `ENVIAR_PAGO.disabled=false`, púlsalo y acepta el aviso
+   de redirección, que sale DOS veces (2026CEE_67, 27/10/2026).
 3. La tarjeta: el desplegable de Chrome NO se abre con el clic de la extensión. Con el ratón real:
    - `escritorio.ps1 pestana -Ventana 'Pantalla de pago Redsys'` (la pone activa) y `escritorio.ps1
      frente -Ventana 'Pantalla de pago Redsys'`: trae Chrome delante con una pulsación de Alt (sin ella
@@ -220,6 +225,9 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
      PC hay más de una; 26RES080_96). Chrome rellena número, caducidad y CVV. **No repitas esos datos en
      el chat.** Entre abrir el desplegable y elegir la tarjeta, **ningún `frente`**: su pulsación de Alt
      lo cierra. Comprueba en una captura que los campos se han rellenado y pulsa «Pagar» con `clic`.
+   - La franja «Claude empezó a depurar este navegador» desaparece sola y la página SUBE ~70 px: en
+     2026CEE_67 el clic de la tarjeta cayó en «Recordar esta tarjeta» y la marcó (se desmarcó: nunca
+     se deja marcada). Captura justo antes de CADA clic y mide sobre esa captura.
    - Las coordenadas: `escritorio.ps1` es DPI-aware desde el 27/10/2026, así que la captura sale en
      píxeles reales de la pantalla entera (1920×1080 aunque Windows esté al 125 %) y `clic` usa esos
      mismos. Con `-Ancho` la imagen se reduce: multiplica por la escala antes de pinchar.
@@ -228,7 +236,8 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
 5. **«Continuar»** → plataforma: «El proceso de pago se ha realizado con éxito. Estado: Pagado». Pulsa el
    **icono de descarga** junto a «Obtener justificante de pago» (baja `Descargas\<nº 046>.pdf`) y luego
    **«Continuar»**: la pestaña se cierra y se vuelve al formulario. Si tras la descarga «Continuar» no hace
-   nada (pasó en 2026CEE_64), `scroll_to` al botón y púlsalo otra vez. Si sigue sin volver y la sede se
+   nada (pasó en 2026CEE_64), `scroll_to` al botón y púlsalo otra vez. Mira antes `!!window.opener` en
+   la pestaña del pago: con `false` (26RES080_96 y 2026CEE_67) «Continuar» no volverá nunca. Si sigue sin volver y la sede se
    queda en «Procesando pago de tasas en otra pestaña» (26RES080_96: la pestaña del pago había perdido
    su `window.opener`, y `continuarTramitacionPCO()` no tiene a quién avisar), no esperes: en la sede
    oculta el velo (`document.getElementById('SPINNER').style.display='none'`), marca con un clic
