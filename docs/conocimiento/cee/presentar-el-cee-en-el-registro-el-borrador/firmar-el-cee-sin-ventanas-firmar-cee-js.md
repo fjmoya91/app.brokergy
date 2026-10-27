@@ -25,7 +25,8 @@ CEE (medido en el `_fdo` de 2026CEE_63: «NIF FRANCISCO JAVIER MOYA (R: B1935022
 Se busca en el almacén de Windows por `(R: B19350222)` + vigente (o `CEE_FIRMA_HUELLA` en el `.env`) y se
 pasa a `AutofirmaCommandLine` como `-filter thumbprint:SHA1:…`: en ese almacén hay tres alias del mismo
 nombre y certificados de otras personas, así que nunca se elige por nombre. Las claves de Windows no
-tienen protección reforzada: firma sin diálogo. (El almacén de Firefox, con el personal, es para la sede.)
+tienen protección reforzada: firma sin diálogo. (En la sede se firma con el PERSONAL, fijado también
+por huella: `certificado.js` de `presentar_cee.js preparar`.)
 
 **REGLA — la firma va donde la pone Fran: última página, DEBAJO del rótulo, logo a la izquierda.** En
 CE3X 3.2 el rótulo es «Firma del/la técnico/a certificador/a» (antes «Firma del técnico certificador»):

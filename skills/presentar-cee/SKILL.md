@@ -1,6 +1,6 @@
 ---
 name: presentar-cee
-description: 'PRESENTA un CEE (certificado de eficiencia energética) en el Registro de CASTILLA-LA MANCHA (sede de la JCCM, procedimiento 020264 · SIACI SJM3) sin que el usuario toque el PC: se identifica con su certificado electrónico, rellena el formulario con el borrador de la app, adjunta el PDF firmado, el XML y el .cex, paga la tasa con la tarjeta guardada en Chrome, firma y envía con AutoFirma, y sube a la app el justificante de registro (marca la fase REGISTRADA con la fecha leída) y el recibo de la tasa; después recoge en notifica.jccm.es la ETIQUETA y las resoluciones y las guarda en su sitio. Úsalo con "presenta el CEE de 2026CEE_64", "registra el certificado de 26RES060_221", "presenta los CEE pendientes", "¿qué CEE hay sin registrar?", "descarga la etiqueta de NNN". Lo único que hace el usuario es decir SÍ al pago en el chat y autorizarlo en la app de su banco. Necesita Claude en Chrome y el montaje de AutoFirma con Firefox. Solo CLM; nunca presenta lo encargado a otra persona sin preguntar.'
+description: 'PRESENTA un CEE (certificado de eficiencia energética) en el Registro de CASTILLA-LA MANCHA (sede de la JCCM, procedimiento 020264 · SIACI SJM3) sin que el usuario toque el PC: se identifica con su certificado electrónico, rellena el formulario con el borrador de la app, adjunta el PDF firmado, el XML y el .cex, paga la tasa con la tarjeta guardada en Chrome, firma y envía con AutoFirma, y sube a la app el justificante de registro (marca la fase REGISTRADA con la fecha leída) y el recibo de la tasa; después recoge en notifica.jccm.es la ETIQUETA y las resoluciones y las guarda en su sitio. Úsalo con "presenta el CEE de 2026CEE_64", "registra el certificado de 26RES060_221", "presenta los CEE pendientes", "¿qué CEE hay sin registrar?", "descarga la etiqueta de NNN". Lo único que hace el usuario es decir SÍ al pago en el chat y autorizarlo en la app de su banco. Necesita Claude en Chrome, AutoFirma y el certificado en Windows. Solo CLM; nunca presenta lo encargado a otra persona sin preguntar.'
 ---
 
 # Presentar un CEE en el Registro de la JCCM
@@ -19,18 +19,23 @@ del usuario, con su certificado.
   (expediente + importe) no se pulsa «Pagar y enviar»: lo exigen las reglas de Claude y el clasificador
   de Claude Code, que bloqueó el pago de 2026CEE_64 con un «sí, presenta» genérico. Nunca se escribe un
   número de tarjeta: se usa la tarjeta **guardada en Chrome**, la que diga el usuario.
-- **Lo encargado a otra persona (Eva) no se presenta sin preguntar**: si lo presentan los dos, se paga
-  la tasa dos veces. `pendientes` dice a quién está encargado cada uno.
+- **Solo se presentan los CEE de la CASA** (Fran o el Agente IA): los de un técnico de fuera los
+  presenta él; `pendientes` los lista aparte («LOS PRESENTA SU TÉCNICO») y `preparar` da NO LISTO.
+- **Lo encargado a otra persona no se presenta sin preguntar**: si lo presentan los dos, se paga
+  la tasa dos veces. `pendientes` dice si queda un encargo antiguo sin cerrar.
 - **Local = producción**: `devuelto --escribir` sube a Drive y marca REGISTRADO de verdad.
 - Todo corre en el PC del usuario: los scripts por la shell (en Cowork, por Desktop Commander, ver
   [comun/entorno.md](comun/entorno.md)) y el navegador por **Claude en Chrome**.
 
 ## 0. Antes de nada: el montaje (una vez por PC)
 
-AutoFirma abre SIEMPRE su ventana para elegir certificado, y esa ventana no la puede pulsar el
-navegador. Se resuelve así: AutoFirma usa, en las llamadas desde el navegador, el almacén de
-**Firefox**, donde solo está el certificado de quien presenta; con UN certificado su botón «Aceptar» ya
-tiene el foco y un vigilante pulsa Intro. Cómo se monta: [referencia/montaje.md](referencia/montaje.md).
+La sede llama a AutoFirma sin decirle con qué certificado firmar, y AutoFirma abre su ventana para
+elegirlo, que el navegador no puede pulsar; en el almacén de Windows hay certificados de varias
+personas. Se resuelve **fijando el certificado por HUELLA**: antes de cada firma se pega en la página
+`certificado.js` (lo deja `preparar`), que añade a la llamada `filters=thumbprint:SHA1:<huella>` +
+`headless=true` —los mismos parámetros que usa la librería de la sede— y AutoFirma firma **sin
+ventana** con ese certificado y ningún otro. Vale en cualquier PC con AutoFirma y el certificado
+personal en Windows: **ya no hace falta Firefox**. Detalle: [referencia/montaje.md](referencia/montaje.md).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\comprobar_montaje.ps1 -Titular <APELLIDO1_APELLIDO2>
@@ -70,6 +75,8 @@ Compone el MISMO borrador del popup y deja en `scratch/presentar-cee/<nº>_<fase
 
 - `plan.json`: lo que se teclea (por `name` del formulario), los adjuntos con su categoría y los avisos.
 - `rellenar.js`: el código que rellena el formulario en la pestaña de la sede.
+- `certificado.js`: el que fija el certificado de la firma (se pega antes de CADA firma). La línea
+  **«Firma en la sede:»** dice cuál es (nombre, emisor, caducidad). Si no lo encuentra, `⛔` y NO LISTO.
 - Los ficheros bajados de Drive **con su nombre ORIGINAL**: la sede pone ella sola el NIF delante
   (con el NIF ya puesto quedan `NIF_NIF_…`).
 
@@ -100,9 +107,11 @@ seguir. Ver [comun/cee-incompleto.md](comun/cee-incompleto.md).
 powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\vigilante_autofirma.ps1 -Segundos 1800 -Veces 5
 ```
 
-Lánzalo en segundo plano ANTES de abrir la sede. Acepta la ventana de AutoFirma **solo si es la del
-almacén NSS (Firefox)**; si saliera la del almacén de Windows (con certificados de varias personas)
-escribe `ALMACEN_EQUIVOCADO` y sale sin tocar nada → para y avisa. Su salida dice cada `ACEPTADO`.
+Lánzalo en segundo plano ANTES de abrir la sede. Es la red de seguridad: **nunca acepta nada**. Con
+`certificado.js` puesto, AutoFirma no enseña ninguna ventana; si aun así sale «Diálogo de seguridad del
+almacén …», esa llamada iba SIN el filtro (la página se había recargado), y el vigilante la **cancela**
+con Escape y escribe `CANCELADO_SIN_FILTRO`. Entonces: vuelve a pegar `certificado.js` y repite esa
+firma. Lo normal es que no diga nada.
 
 ## 4. Abrir la sede e identificarse
 
@@ -112,9 +121,14 @@ escribe `ALMACEN_EQUIVOCADO` y sale sin tocar nada → para y avisa. Su salida d
    la página y vuelve a entrar:
    `for (const p of ['/','/administracion_electronica','/administracion_electronica/formularios','/administracion_electronica/formularios/']) { document.cookie='PHPSESSID=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path='+p; document.cookie='PHPSESSID=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path='+p+'; domain=.jccm.es'; }`
    Y lo mismo al TERMINAR cada solicitud, antes de cerrar la pestaña.
-1. `navigate` a `http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S`.
-   Pasa por «Validando componentes» y pide una **firma de identificación** con AutoFirma: la acepta
-   el vigilante (`ACEPTADO … NSS`).
+1. En UN `browser_batch` de Claude en Chrome: `navigate` a
+   `http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S` y,
+   a continuación, `javascript_tool` con el contenido de `certificado.js` (tiene que devolver `OK:
+   certificado fijado…`). Va en el mismo lote porque la página «Validando componentes» lanza la **firma
+   de identificación** a los 3 s de cargar (`setTimeout(firmarTextoB64, 3000)`): con el filtro puesto,
+   AutoFirma firma sola y la sede entra. Si el vigilante dice `CANCELADO_SIN_FILTRO` (el filtro llegó
+   tarde), la página enseña «No se ha podido iniciar la sesión»: pega otra vez `certificado.js` y
+   ejecuta `firmarTextoB64()` en la página.
 2. Si sale **«Realizar Solicitud»**, púlsalo (en 2026CEE_64 el formulario se abrió directamente, sin él). Si salta un `alert` («Si va a presentar más de una solicitud…»): la
    página se queda congelada (ni capturas ni JavaScript) hasta aceptarlo, y la extensión no llega:
    ```powershell
@@ -191,8 +205,10 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
 
 1. De vuelta, la sede marca «Indique la referencia 046 del pago ya realizado» con la casilla VACÍA:
    escribe ahí el nº de documento 046 (`REFERENCIA_PAGO`, máx. 13).
-2. **«Enviar»** → `alert` «Se van a firmar los datos del formulario» → `escritorio.ps1 aviso` → el
-   vigilante firma (`ACEPTADO … NSS`).
+2. Pega `certificado.js` (después de la última recarga: ya escrita la 046) y comprueba el `OK`.
+   **«Enviar»** → `alert` «Se van a firmar los datos del formulario» → `escritorio.ps1 aviso` →
+   AutoFirma firma sola, sin ventana. Si el vigilante dice `CANCELADO_SIN_FILTRO`, acepta el aviso de
+   error, pega `certificado.js` y pulsa «Enviar» otra vez (la 046 ya está pagada: no se vuelve a pagar).
 3. Página de resultado: **«Este es el número de registro NNNNNNN/AAAA solicitado el … a las …»**.
    Pulsa el **icono PDF** de «Descargar PDF solicitud» → `Descargas\NNNNNNN.pdf`: es el justificante.
    Debajo sale «SOAP:Server: Server Error» y los «Id. de firma» de los adjuntos vacíos: pasó en los dos
@@ -241,6 +257,15 @@ recientes**. Por orden: Resolución de Inscripción · **EtiquetaCEE** · Oficio
    **Descargar**, con el clic de la EXTENSIÓN (el de la página no siempre dispara la descarga y a
    veces baja dos copias). Si la ventana de Chrome está detrás de otras, la página no avanza: tráela
    con `escritorio.ps1 frente -Ventana 'Plataforma de Notificaciones'`.
+   ⚠️ **La descarga tras «Acceso» también puede ir UN PASO POR DETRÁS** (2026CEE_66, 25/10/2026): se
+   abrió el Acceso de una fila de OTRO expediente sin consentir, se volvió y se abrió el nuestro
+   (2919850 en `firma.jsp`), y «Descargar» bajó la resolución del anterior (2919715). Además, en «Mis
+   notificaciones» las ya leídas DESAPARECEN y las filas se corren: el `data:N` de antes ya no es el
+   mismo. **La fuente fiable es el «Histórico de notificaciones»**: cada fila (las leídas, la más
+   reciente arriba) tiene «Descargar documento asociado a la notificación» (`form1:data:N:_idJsp36`,
+   con el clic de la EXTENSIÓN) y baja el documento de ESA fila. Lo práctico: dar el Acceso a las tres
+   (eso deja el acuse) y bajar los tres documentos desde el Histórico; el script del paso 4 dice de
+   qué expediente es cada uno.
 4. Cada PDF descargado (`T2024_Resolucion_de_Inscripcion (n).pdf`, `EtiquetaCEE (n).pdf`,
    `T2024_Oficio_FEE (n).pdf`) es un ENVOLTORIO con el documento de verdad ADJUNTO dentro. Lo resuelve
    el script:
@@ -269,7 +294,8 @@ supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
 | «Adjuntar documento» no adjunta (el fichero sigue elegido) | Clic de la extensión perdido: `getElementsByName('ADJUNTAR')[0].click()` |
 | No sale «Realizar Solicitud» | A veces el formulario se abre directo tras la identificación |
 | Adjuntos `NIF_NIF_…` | Se subieron con el NIF ya puesto: súbelos con el nombre original |
-| El vigilante dice `ALMACEN_EQUIVOCADO … NSS` | Versión vieja del vigilante: NSS ES Firefox |
+| Sale la ventana de AutoFirma con varios certificados | La llamada iba sin `certificado.js` (recarga, o la identificación se disparó antes): el vigilante la cancela; pégalo y repite. Nunca se elige a ojo ni con Intro (27/10/2026: el montaje de Firefox se sustituyó por la huella) |
+| AutoFirma: «no hay certificados» / error al firmar con el filtro puesto | La huella no está en el almacén que usa AutoFirma: `comprobar_montaje.ps1`. Con el montaje viejo (preferencia «usar también desde el navegador» con Firefox) el certificado tiene que estar también en Firefox, o se desmarca la preferencia |
 | La tarjeta no se queda en el campo | Se eligió con teclas de la extensión: usa el ratón real |
 | Tras pagar, «referencia 046» vacía | Normal: se escribe a mano el nº de documento 046 |
 | Al abrir la sede sale el registro de OTRA solicitud | Sesión vieja: borrar `PHPSESSID` (paso 4.0) y volver a entrar |
@@ -277,6 +303,8 @@ supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
 | «La Fecha de emisión del certificado no coincide con la del xml» | La sede compara con `<FechaGeneracion>` del XML; `preparar` ya declara esa y lo avisa. Si aun así falla (la calificación y la generación son de días distintos), **se para**: el usuario regenera el CEE en CE3X con la fecha buena, firma de nuevo el PDF y sube XML/PDF/.cex (decisión del usuario, 15/10/2026); después `preparar` otra vez y se adjunta lo nuevo |
 | «SIN OPCION ORT01=LA SOLANA» | La sede escribe «Solana (La)»: `rellenar.js` ya prueba las dos formas |
 | Al volver del pago, la sede dice «Confirmar reenvío del formulario» (ERR_CACHE_MISS) | Chrome DESCARTÓ la pestaña de la sede mientras estaba detrás (26RES060_217, 19/10/2026: cambió de `tabId` durante el 3DS) y la solicitud se pierde. **No se reenvía** (repetiría «Pagar y enviar» y otra 046). Se baja el justificante de la tasa, se empieza de cero (sesión limpia, identificarse, rellenar, adjuntar) y en el 08 se marca **«Indique la referencia 046 del pago ya realizado»** con el nº de documento 046 ya pagado, sin volver a la pasarela (idea del usuario) |
+| Al pulsar «Enviar» (ya pagado), «No se han podido firmar los datos del formulario» aunque el vigilante dice `ACEPTADO` | El registro de AutoFirma (`%USERPROFILE%\.afirma\AUTOFIRMA.afirma.log.xml`) dice `"page" is null`: la sede le pasa un documento vacío y la solicitud ya no se arregla reintentando (26RES060_216, 24/10/2026: tres intentos iguales). **No es nuestro PDF** (era igual que el del 238, que registró). Se acepta el aviso, se borra `PHPSESSID`, se cierra la pestaña y se empieza una solicitud NUEVA (identificarse, «Es representante», rellenar, adjuntar, referencia catastral, XML) con «Indique la referencia 046 del pago ya realizado» y el nº 046 ya pagado: registró a la primera (4285110/2026). Si quedó un `javaw` de AutoFirma vivo, se cierra antes |
+| Al entrar, la sede entera lleva a `mantenimiento.castillalamancha.es/MttoJCCM` (24/10/2026, varias horas) | No se toca nada: no hay solicitud ni pago. Un bucle con `curl -L` cada 5 min a la URL del paso 4.1 avisa cuando deja de redirigir allí (vuelve a `ventanillaelectronica.jccm.es/…/identificacion.phtml`) |
 | El `alert` o la tarjeta, con el usuario usando el PC | Sus clics devuelven el foco a su ventana: un Intro o un clic «real» caería en ella. Antes de cada tecla o clic real, traer Chrome delante (pulsación de Alt + `SetForegroundWindow`) y COMPROBAR que la ventana de delante es la de la sede/Redsys; esperar a que lleve unos segundos sin tocar el teclado (`GetLastInputInfo`). Si sigue trabajando, pedirle que suelte el PC un minuto |
 | «En 02 Representante: Cumplimente los campos obligatorios» al pagar | El 02 iba vacío porque el asignado era el AGENTE IA (26RES060_189). `preparar` ya pone a Fran (o `--certificador`): vuelve a prepararlo y pega el `rellenar.js` nuevo |
 

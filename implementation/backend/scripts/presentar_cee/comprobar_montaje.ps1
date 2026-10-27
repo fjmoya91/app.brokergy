@@ -1,33 +1,31 @@
-﻿# Comprueba el montaje para presentar sin clics: Firefox con su almacén y las preferencias de AutoFirma.
-# Solo LEE. Las preferencias Java van codificadas en el registro: «/X» = mayúscula, «\» = «/», «//» = «\».
-# Uso: powershell -ExecutionPolicy Bypass -File comprobar_montaje.ps1 [-Titular MOYA_LOPEZ]
-#   -Titular: el principio del alias que debe ser el ÚNICO certificado del almacén de Firefox.
-param([string]$Titular = '')
-function Decodificar([string]$s) {
-  $s = $s.Replace('//', [string][char]1)
-  $s = [regex]::Replace($s, '/(.)', { param($m) $m.Groups[1].Value.ToUpper() })
-  $s.Replace('\', '/').Replace([string][char]1, '\')
-}
-
+﻿# Comprueba que este PC puede firmar en la sede sin que nadie pulse: AutoFirma instalada y el
+# certificado PERSONAL de quien presenta, vigente y con su clave, en el almacén de Windows.
+# Ya NO hace falta Firefox: la firma se fija por huella (certificado.js de presentar_cee.js).
+# Solo LEE. Uso: powershell -ExecutionPolicy Bypass -File comprobar_montaje.ps1 [-Titular MOYA_LOPEZ]
+param([string]$Titular = 'MOYA_LOPEZ')
+$titular = ($Titular -replace '_', ' ').ToUpper()
 $ok = $true
-$ff = @(@("$env:ProgramFiles\Mozilla Firefox\firefox.exe", "${env:ProgramFiles(x86)}\Mozilla Firefox\firefox.exe") | Where-Object { Test-Path $_ })
-if ($ff) { "OK  Firefox instalado" } else { "FALTA  Firefox no está instalado"; $ok = $false }
 
-$clave = 'HKCU:\Software\JavaSoft\Prefs\es\gob\afirma\standalone\ui\preferences'
-$prefs = @{}
-if (Test-Path $clave) { $k = Get-Item $clave; foreach ($n in $k.GetValueNames()) { $prefs[(Decodificar $n)] = Decodificar ([string]$k.GetValue($n)) } }
-$almacen = $prefs['defaultKeystore']; $enNavegador = $prefs['useDefaultStoreInBrowserCalls']
-if ($almacen -match 'Mozilla|Firefox' -and $almacen -notmatch 'junto') { "OK  AutoFirma: almacén por defecto = $almacen" } else { "FALTA  AutoFirma: almacén por defecto = '$almacen' (debe ser Mozilla Firefox, no «junto a almacén de SO»)"; $ok = $false }
-if ($enNavegador -eq 'true') { "OK  AutoFirma: se usa también en las llamadas desde el navegador" } else { "FALTA  AutoFirma: marcar «Usar también en las llamadas a Autofirma desde el navegador»"; $ok = $false }
-
-# Lo que de verdad importa: qué certificados VE AutoFirma en ese almacén (el selector de Firefox
-# enseña además los de Windows por su «OS Client Cert Token», pero AutoFirma no los carga).
 $cli = "$env:ProgramFiles\AutoFirma\Autofirma\AutofirmaCommandLine.exe"
-$alias = @(& $cli listaliases -store mozilla 2>$null | Where-Object { $_ -and $_ -notmatch '^Buscando' })
-# El alias lleva el NIF al final: se enseña solo el nombre.
-$nombres = @($alias | ForEach-Object { ($_ -replace '_+[0-9XYZ][0-9]{7}[A-Z]$', '') -replace '_', ' ' })
-if ($alias.Count -eq 1 -and (-not $Titular -or $alias[0] -like "$Titular*")) { "OK  AutoFirma ve en Firefox UN certificado: $($nombres[0])" }
-elseif ($alias.Count -eq 1) { "FALTA  El certificado del almacén de Firefox es de $($nombres[0]), no de $Titular"; $ok = $false }
-else { "FALTA  AutoFirma ve en Firefox $($alias.Count) certificados ($($nombres -join ', ')): debe haber UNO, el de quien presenta"; $ok = $false }
+if (Test-Path $cli) { "OK  AutoFirma instalada" } else { "FALTA  AutoFirma no está instalada ($cli)"; $ok = $false }
+
+$certs = @(Get-ChildItem Cert:\CurrentUser\My | Where-Object {
+  $_.HasPrivateKey -and $_.NotBefore -lt (Get-Date) -and $_.NotAfter -gt (Get-Date) -and
+  $_.Subject -match "^CN=$([regex]::Escape($titular))\b" -and $_.Subject -notmatch '\(R:' } | Sort-Object NotAfter -Descending)
+if ($env:CEE_PRESENTA_HUELLA) { $certs = @(Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Thumbprint -eq $env:CEE_PRESENTA_HUELLA.Trim() -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date) }) }
+if ($certs.Count) {
+  $c = $certs[0]
+  # El nombre de la FNMT lleva el NIF al final: no se enseña.
+  $nombre = $c.GetNameInfo('SimpleName', $false) -replace '\s*-\s*[0-9XYZ]\d{7}[A-Z]$', ''
+  "OK  Certificado personal: $nombre ($($c.GetNameInfo('SimpleName', $true)), hasta $($c.NotAfter.ToString('dd/MM/yyyy')))"
+  if ($certs.Count -gt 1) { "    (hay $($certs.Count) vigentes: se usa el que caduca más tarde)" }
+  if ($c.NotAfter -lt (Get-Date).AddDays(30)) { "AVISO  caduca en menos de un mes: renuévalo" }
+} else { "FALTA  No hay en el almacén de Windows un certificado personal vigente de $titular (con su clave privada)"; $ok = $false }
+
+# Lo que pusiera el montaje viejo de Firefox no estorba (la huella está también allí), pero se dice.
+$clave = 'HKCU:\Software\JavaSoft\Prefs\es\gob\afirma\standalone\ui\preferences'
+if ((Test-Path $clave) -and ((Get-Item $clave).GetValue('use/Default/Store/In/Browser/Calls') -eq 'true')) {
+  "INFO  AutoFirma usa en el navegador su almacén por defecto (montaje viejo con Firefox): vale igual si el certificado también está allí; si no, desmarca «Usar también en las llamadas a Autofirma desde el navegador»"
+}
 
 if ($ok) { "`nMONTAJE LISTO" } else { "`nMONTAJE INCOMPLETO" }

@@ -5,6 +5,7 @@
 // a la app cuando la sede devuelve el justificante.
 //
 //   node scripts/presentar_cee.js pendientes
+//   node scripts/presentar_cee.js certificado          (con qué certificado firma en la sede)
 //   node scripts/presentar_cee.js preparar <nº> [--fase inicial|final] [--certificador <id|NIF|nombre>]
 //   node scripts/presentar_cee.js devuelto <nº> --registro <pdf> [--tasa <pdf>] [--fase …] [--escribir]
 //
@@ -323,7 +324,10 @@ async function preparar(numero) {
     // El CEE de un técnico de FUERA lo presenta él (Fran, 25/10/2026): desde aquí, nunca.
     const ajeno = await tecnicoDeFuera(origen, row.id);
     if (ajeno) avisos.unshift(`${numero} (${fase}) es de ${ajeno}: lo presenta SU TÉCNICO, no la casa.`);
-    const listo = !yaRegistrado && !ajeno && !incompleto && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
+    // Con qué certificado firma AutoFirma en la sede: se le fija por huella (certificado.js).
+    let cert = null;
+    try { cert = certificadoQuePresenta(); } catch (e) { avisos.unshift(`⛔ ${e.message}: sin él la sede no se firma sola.`); }
+    const listo = cert && !yaRegistrado && !ajeno && !incompleto && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
     const plan = {
         numero, origen, fase, listo: !!listo,
         sede: 'http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S',
@@ -340,6 +344,7 @@ async function preparar(numero) {
     };
     fs.writeFileSync(path.join(dir, 'plan.json'), JSON.stringify(plan, null, 2));
     fs.writeFileSync(path.join(dir, 'rellenar.js'), scriptRellenar(valores, texto));
+    if (cert) fs.writeFileSync(path.join(dir, 'certificado.js'), scriptCertificado(cert.huella));
 
     console.log(`${numero} · fase ${fase} · ${origen} · ${listo ? 'LISTO para presentar' : 'NO LISTO'}`);
     console.log(`Solicitante: ${sol['Nombre']} ${sol['Apellido 1']} ${sol['Apellido 2'] || ''} (${calidadSol}) · Edificio: ${edi['Uso del Edificio']} · RC ${edi['Referencia catastral']}`);
@@ -348,9 +353,77 @@ async function preparar(numero) {
         + `${valores.PLANTAREP ? ` planta ${valores.PLANTAREP}` : ''}${valores.PUERTAREP ? ` puerta ${valores.PUERTAREP}` : ''}`
         + ` · ${valores.CODPOSREPR || ''} ${texto.ORT01REPR || ''}`);
     console.log(`Certificado: emitido ${cer['Fecha de emisión del certificado']} · ${cer['Calificación Consumo Energía Primaria']}/${cer['Calificación Emisiones CO2']}`);
+    if (cert) console.log(`Firma en la sede: ${textoCert(cert)}`);
     console.log('Adjuntos:'); for (const a of plan.adjuntos) console.log(`  [${a.categoria}] ${a.que}: ${path.basename(a.fichero)}`);
     if (avisos.length) { console.log('AVISOS:'); for (const a of avisos) console.log(`  ⚠️ ${a}`); }
-    console.log(`\nPlan: ${path.join(dir, 'plan.json')}\nPara el navegador: ${path.join(dir, 'rellenar.js')}`);
+    console.log(`\nPlan: ${path.join(dir, 'plan.json')}\nPara el navegador: ${path.join(dir, 'rellenar.js')}`
+        + (cert ? ` y, antes de CADA firma, ${path.join(dir, 'certificado.js')}` : ''));
+}
+
+// ─── El certificado con el que se firma en la sede ───────────────────────────
+// La sede llama a AutoFirma sin `headless` y AutoFirma enseña su ventana para elegir
+// certificado, que el navegador no puede pulsar; en el almacén de Windows hay los de
+// varias personas (clientes, representantes). Se le fija el certificado por HUELLA con los
+// mismos parámetros que usa la propia librería de la sede (miniapplet 1.7,
+// `addSignatoryCertificateToExtraParams`: `filters=…` + `headless=true`): con un solo
+// certificado que pase el filtro AutoFirma firma sin ventana, y con ninguno da error.
+// El certificado es el PERSONAL de quien presenta (no uno «(R: …)» de representante).
+const TITULAR_PRESENTA = (process.env.CEE_PRESENTA_TITULAR || 'MOYA LOPEZ').toUpperCase();
+
+function certificadoQuePresenta() {
+    const { execFileSync } = require('child_process');
+    const huella = (process.env.CEE_PRESENTA_HUELLA || '').trim();
+    const donde = huella
+        ? `$_.Thumbprint -eq '${huella.replace(/[^0-9A-Fa-f]/g, '')}'`
+        : `$_.Subject -match '^CN=${TITULAR_PRESENTA.replace(/[^A-Z ]/g, '')}\\b' -and $_.Subject -notmatch '\\(R:'`;
+    const ps = `$c = @(Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.HasPrivateKey -and $_.NotBefore -lt (Get-Date) -and $_.NotAfter -gt (Get-Date) -and ${donde} } | Sort-Object NotAfter -Descending); `
+        + `if ($c.Count) { [pscustomobject]@{ huella = $c[0].Thumbprint; nombre = $c[0].GetNameInfo('SimpleName', $false); emisor = $c[0].GetNameInfo('SimpleName', $true); caduca = $c[0].NotAfter.ToString('dd/MM/yyyy'); hay = $c.Count } | ConvertTo-Json -Compress }`;
+    let out = '';
+    try { out = execFileSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8' }).trim(); } catch { /* sin PowerShell: no es el PC */ }
+    const c = out ? JSON.parse(out) : null;
+    if (!c || !/^[0-9A-F]{40}$/i.test(c.huella)) {
+        throw new Error(huella ? `No encuentro vigente en el almacén de Windows el certificado de CEE_PRESENTA_HUELLA`
+            : `No encuentro vigente en el almacén de Windows el certificado personal de ${TITULAR_PRESENTA}`);
+    }
+    // El nombre del certificado de la FNMT lleva el NIF al final: no se enseña.
+    c.nombre = String(c.nombre).replace(/\s*-\s*[0-9XYZ]\d{7}[A-Z]$/i, '');
+    return c;
+}
+
+const textoCert = (c) => `${c.nombre} (${c.emisor}, hasta ${c.caduca})${c.hay > 1 ? ` · hay ${c.hay} vigentes: el que caduca más tarde` : ''}`;
+
+/**
+ * El código que se ejecuta en la página de la sede JUSTO ANTES de cada firma (la de
+ * identificarse y la de «Enviar»; cada recarga lo borra). Envuelve las llamadas de
+ * MiniApplet/AutoScript para que lleven el filtro por huella y `headless=true`.
+ */
+function scriptCertificado(huella) {
+    return `// Generado por presentar_cee.js: fija el certificado de la firma. Pegar en javascript_tool ANTES de firmar.
+(() => {
+const H = ${JSON.stringify(huella.toUpperCase())};
+const libs = [window.MiniApplet, window.AutoScript].filter(Boolean);
+if (!libs.length) return 'REVISAR: la página no tiene MiniApplet ni AutoScript';
+const conFiltro = (p) => String(p || '').split('\\n').filter(l => l && !/^(filters?[=.]|headless=)/.test(l))
+  .concat(['filters=thumbprint:SHA1:' + H, 'headless=true']).join('\\n');
+// Dónde va «extraParams»: justo antes del primer callback, salvo signAndSaveToFile (le sigue el nombre del fichero).
+const OPS = ['sign', 'coSign', 'cosign', 'counterSign', 'countersign', 'signBatch', 'selectCertificate', 'signAndSaveToFile'];
+let n = 0;
+for (const lib of libs) {
+  if (lib.__certFijado === H) { n++; continue; }
+  for (const op of OPS) {
+    const orig = lib[op]; if (typeof orig !== 'function') continue;
+    lib[op] = function (...a) {
+      let i = op === 'signAndSaveToFile' ? 4 : a.findIndex(x => typeof x === 'function') - 1;
+      if (i < 0) i = a.length;
+      a[i] = conFiltro(a[i]);
+      window.__firmasConFiltro = (window.__firmasConFiltro || 0) + 1;
+      return orig.apply(this, a);
+    };
+  }
+  lib.__certFijado = H; n++;
+}
+return 'OK: certificado fijado por huella ' + H.slice(0, 6) + '… en ' + n + ' librería(s)';
+})()`;
 }
 
 /**
@@ -564,8 +637,15 @@ if (require.main === module) (async () => {
     else if (orden === 'preparar' && args[1]) await preparar(args[1]);
     else if (orden === 'devuelto' && args[1]) await devuelto(args[1]);
     else if (orden === 'notificaciones' && args[1]) await notificaciones(args[1]);
+    else if (orden === 'certificado') {
+        // Solo dice con qué certificado se firmaría y deja certificado.js suelto (para probar).
+        const c = certificadoQuePresenta();
+        fs.mkdirSync(SCRATCH, { recursive: true });
+        fs.writeFileSync(path.join(SCRATCH, 'certificado.js'), scriptCertificado(c.huella));
+        console.log(`Firma en la sede: ${textoCert(c)}\n${path.join(SCRATCH, 'certificado.js')}`);
+    }
     else {
-        console.log('Uso:\n  node scripts/presentar_cee.js pendientes\n  node scripts/presentar_cee.js preparar <nº> [--fase inicial|final]\n'
+        console.log('Uso:\n  node scripts/presentar_cee.js pendientes\n  node scripts/presentar_cee.js certificado\n  node scripts/presentar_cee.js preparar <nº> [--fase inicial|final]\n'
             + '  node scripts/presentar_cee.js devuelto <nº> --registro <pdf> [--tasa <pdf>] [--fase …] [--escribir]');
         process.exitCode = 1;
     }

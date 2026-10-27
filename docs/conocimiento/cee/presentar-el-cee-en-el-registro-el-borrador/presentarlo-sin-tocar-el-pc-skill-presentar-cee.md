@@ -12,19 +12,23 @@ registro 4169682/2026 del 15/10/2026, tasa de 16,39 €.
 |---|---|
 | Procedimiento | [skills/presentar-cee/SKILL.md](skills/presentar-cee/SKILL.md) |
 | Pendientes · plan de relleno · subir lo devuelto | [scripts/presentar_cee.js](implementation/backend/scripts/presentar_cee.js) (`pendientes` · `preparar` · `devuelto [--escribir]`) |
-| Firmar sin pulsar | [vigilante_autofirma.ps1](implementation/backend/scripts/presentar_cee/vigilante_autofirma.ps1) + el montaje de [referencia/montaje.md](skills/presentar-cee/referencia/montaje.md) |
+| Firmar sin pulsar | `certificado.js` (lo deja `preparar`; `presentar_cee.js certificado` para probar) + [vigilante_autofirma.ps1](implementation/backend/scripts/presentar_cee/vigilante_autofirma.ps1) de red · [referencia/montaje.md](skills/presentar-cee/referencia/montaje.md) |
 | Avisos `alert()`, tarjeta guardada | [escritorio.ps1](implementation/backend/scripts/presentar_cee/escritorio.ps1) |
 | ¿Está bien montado? | [comprobar_montaje.ps1](implementation/backend/scripts/presentar_cee/comprobar_montaje.ps1) |
 
-**REGLA — la firma se automatiza AISLANDO el certificado, no pulsando a ciegas.** AutoFirma 1.9
-enseña SIEMPRE su ventana de elección (solo la salta el `headless` que pone la web, y la JCCM no lo
-pone). En el almacén de Windows de este PC hay seis certificados de varias personas; un Intro a ciegas
-podría firmar con el de otro. Por eso AutoFirma usa en las llamadas del navegador el almacén de
-**Firefox** (`defaultKeystore` + `useDefaultStoreInBrowserCalls`), donde solo está el de quien
-presenta: con UN certificado el foco está en «Aceptar» y basta un Intro. El vigilante solo lo pulsa si
-el título dice **NSS** —así titula AutoFirma el almacén de Firefox; medido: el primer vigilante buscaba
-«Mozilla» y se negó, que era lo que tenía que hacer— y nunca si dice Windows. Un perfil de Chrome
-aparte no sirve: todos leen el almacén de Windows.
+**REGLA — la firma se automatiza FIJANDO el certificado por HUELLA, nunca pulsando a ciegas**
+(2026-10-27, Fran: «por evitar complicar con Firefox, para poder usarlo en otro PC»). AutoFirma enseña
+su ventana de elección salvo que la llamada lleve `headless`, y la JCCM no lo pone. En el almacén de
+Windows de este PC hay certificados de varias personas (y de Fran, el personal y el de representante):
+un Intro a ciegas podría firmar con el de otro. Ahora, antes de cada firma, se pega en la página
+`certificado.js` (`presentar_cee.js preparar`), que añade a la llamada de MiniApplet
+`filters=thumbprint:SHA1:<huella del certificado PERSONAL de quien presenta>` + `headless=true`: son los
+parámetros que usa la propia librería de la sede para su «firmante fijo», y la AutoFirma 1.9 los
+entiende (`CertFilterManager`: `headless` → `mandatoryCertificate`). Con un certificado que pase el
+filtro firma sin ventana; con ninguno, error. El vigilante ya no acepta nada: si sale la ventana es que
+la llamada iba sin filtro, y la cancela. El montaje anterior —el certificado aislado en el almacén de
+**Firefox** y un Intro si el título decía NSS (15/10/2026)— queda descrito en `montaje.md`: funcionaba
+solo en un PC montado así.
 
 **REGLA — «Es representante» se marca ANTES de rellenar.** Identificado con certificado, la sede pone
 de SOLICITANTE a quien se identifica, con su NIF fijo. La casilla «Es representante» (bajo el apartado
@@ -108,6 +112,26 @@ realizado» con el nº de documento (13 dígitos) del pago hecho: registró a la
 usando el PC a la vez, un Intro o un clic real se comprueban contra la ventana que está DELANTE antes
 de mandarlos (sus clics le devuelven el foco a Word).
 
+**El mismo camino vale cuando la FIRMA del envío falla una y otra vez** (24/10/2026, 26RES060_216,
+registro 4285110/2026). Con la tasa ya pagada (046 0466080779071), «Enviar» acabó tres veces en «No se
+han podido firmar los datos del formulario», aunque el vigilante aceptaba el diálogo NSS. El registro
+de AutoFirma (`%USERPROFILE%\.afirma\AUTOFIRMA.afirma.log.xml`) decía `NullPointerException … "page" is
+null`: el documento que la sede le daba a firmar venía vacío. No era nuestro PDF firmado —sus campos
+de firma y sus páginas eran iguales a los del 238 y el 2026CEE_61, presentados esa misma mañana— y
+poner el nombre en mayúsculas tampoco lo cambió. Una solicitud NUEVA (sesión limpia, todo otra vez y la
+referencia 046 del pago ya hecho) registró a la primera. Ese día la sede había pasado horas en
+mantenimiento (la ENTRADA misma redirigía a `MttoJCCM`); puede que tuviera que ver.
+
+**REGLA — si «Pagar y enviar» lleva a `mantenimiento.castillalamancha.es/MttoJCCM`, la pasarela está en
+MANTENIMIENTO: no se envía nada y se reintenta más tarde** (23/10/2026, 26RES060_245). En vez de
+`plataformapagos.jccm.es` se abrió una pestaña con el aviso de Chrome «El formulario no es seguro»
+(http) hacia esa dirección, y la sede se quedó en «Procesando pago de tasas en otra pestaña». La página
+de destino dice «WEB TEMPORALMENTE en MANTENIMIENTO»; diez minutos antes se había pagado y registrado
+26RES060_224 sin problema. **«Enviar de todos modos» no se pulsa** (no hay pasarela detrás y es saltarse
+un aviso de seguridad): se cierra esa pestaña, se borra la sesión de la sede (`PHPSESSID`), se cierra la
+pestaña de la sede y se para el vigilante. No se ha llegado a Redsys, así que no hay nada cobrado ni 046:
+el reintento empieza de cero (identificarse, rellenar, adjuntar).
+
 **REGLA — la ETIQUETA y las resoluciones se recogen en notifica.jccm.es, y se COMPRUEBAN antes de
 subirlas** (2026-10-15, primer caso 2026CEE_64). Tres notificaciones por certificado (Resolución de
 Inscripción · EtiquetaCEE · Oficio FEE), todas con la MISMA descripción; cada PDF es un envoltorio
@@ -117,6 +141,18 @@ la etiqueta de 26RES060_221 se rechaza para 2026CEE_64). Etiqueta → casilla `e
 → OTROS. Lo sube el servidor por la misma ruta interna, con los tipos `etiqueta` y `otros`
 (`presentacionCeeService.devolver`). ⚠️ En la bandeja el «Detalle» enseña el de la fila pulsada ANTES:
 para saber de qué es una notificación, manda la pantalla de acceso, no el Detalle.
+
+**REGLA — los documentos de notifica se bajan del «Histórico de notificaciones», no tras el
+«Acceso»** (2026-10-25, 2026CEE_66). La descarga que sale tras Acceso → `firma.jsp` → Continuar
+también puede ir UN PASO POR DETRÁS: se abrió el Acceso de una notificación de otro expediente sin
+consentir, se volvió y se abrió la nuestra (`firma.jsp` decía 2919850) y «Descargar» bajó la
+resolución del anterior (2919715, expediente 2026/351120); el script la rechazó por la referencia
+catastral. Además, en «Mis notificaciones» las ya leídas DESAPARECEN y las filas se corren, así que el
+`form1:data:N` de hace un momento ya no es la misma fila. La fuente fiable es el **Histórico**
+(`UsuarioNotificaciones.jsp`): cada fila tiene Detalle (`_idJsp32`), acuse en PDF (`_idJsp34`) y
+«Descargar documento asociado a la notificación» (`_idJsp36`, con el clic de la extensión), que baja
+el documento de ESA fila. Lo práctico: dar el Acceso a las tres (deja el acuse con fecha y hora) y bajar
+los tres documentos desde el Histórico; `notificaciones` en seco sigue siendo la comprobación final.
 
 **Lo devuelto se sube por las MISMAS funciones** que la página de presentar
 (`subidaCeePublica.subirCae|subirCeeDirecto` con el slot `registro`, y la tasa a OTROS como

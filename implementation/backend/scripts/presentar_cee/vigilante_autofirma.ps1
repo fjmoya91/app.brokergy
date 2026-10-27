@@ -1,14 +1,16 @@
-﻿# Vigilante de AutoFirma: acepta la ventana de selección de certificado SOLO si es la del almacén
-# de Mozilla Firefox (donde solo está el certificado personal de Fran). Con el almacén de Windows
-# (seis certificados, de varias personas) NO toca nada y sale con código 2.
+﻿# Vigilante de AutoFirma: la RED de seguridad de la firma en la sede. NUNCA acepta nada.
 #
-# Por qué basta un Intro: con UN solo certificado AutoFirma usa un JOptionPane normal con
-# OK/CANCEL y el foco inicial en «Aceptar» (CertificateSelectionDialog.java: `certs.length > 1 ?
-# new CertOptionPane(...) : new JOptionPane()`). Con varios, el foco va a la lista: por eso, si el
-# título no es el de Firefox, no se pulsa nada.
+# La firma sale sin ventana porque, antes de cada firma, la página lleva `certificado.js`
+# (presentar_cee.js preparar): fija el certificado por huella con `headless=true` y AutoFirma
+# firma sin preguntar. Si aun así aparece la ventana «Diálogo de seguridad del almacén …», es que
+# esa llamada salió SIN el filtro (la página se recargó, o la firma de identificación se disparó
+# antes de pegarlo). En el almacén de Windows hay certificados de varias personas: un Intro a
+# ciegas podría firmar con el de otro. Por eso el vigilante la CANCELA (Escape), lo dice y sigue
+# vigilando; quien presenta vuelve a pegar `certificado.js` y repite la firma.
 #
-# Uso: powershell -ExecutionPolicy Bypass -File vigilante_autofirma.ps1 [-Segundos 300] [-Veces 1]
-param([int]$Segundos = 300, [int]$Veces = 1)
+# Uso: powershell -ExecutionPolicy Bypass -File vigilante_autofirma.ps1 [-Segundos 1800] [-Veces 5]
+#   Sale con 0 sin haber visto ninguna ventana (lo normal), 2 si ha cancelado alguna.
+param([int]$Segundos = 1800, [int]$Veces = 5)
 
 Add-Type @"
 using System; using System.Text; using System.Runtime.InteropServices;
@@ -19,6 +21,7 @@ public static class W {
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
 }
 "@
@@ -37,28 +40,24 @@ function Buscar-Dialogo {
   return $res
 }
 
-$hechas = 0
+$canceladas = 0
 $fin = (Get-Date).AddSeconds($Segundos)
-while ((Get-Date) -lt $fin -and $hechas -lt $Veces) {
+while ((Get-Date) -lt $fin -and $canceladas -lt $Veces) {
   foreach ($d in (Buscar-Dialogo)) {
     $procId = 0; [void][W]::GetWindowThreadProcessId($d.H, [ref]$procId)
     $proc = (Get-Process -Id $procId -ErrorAction SilentlyContinue).ProcessName
-    # AutoFirma 1.9 titula el almacén de Firefox «Diálogo de seguridad del almacén NSS» (medido el 15/10/2026).
-    $esFirefox = $d.Titulo -match 'NSS$|Mozilla|Firefox' -and $d.Titulo -notmatch 'junto|SO\b|Windows'
-    $esAutofirma = $proc -match '^(java|javaw|autofirma)$'
-    if (-not ($esFirefox -and $esAutofirma)) {
-      Write-Output "ALMACEN_EQUIVOCADO | $($d.Titulo) | proceso: $proc  -> no se toca"
-      exit 2
-    }
+    if ($proc -notmatch '^(java|javaw|autofirma)$') { continue }
     [void][W]::ShowWindow($d.H, 9)
     [void][W]::SetForegroundWindow($d.H)
     Start-Sleep -Milliseconds 400
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    $hechas++
-    Write-Output "ACEPTADO | $($d.Titulo) | $(Get-Date -Format HH:mm:ss)"
+    # El Escape solo si la ventana de delante es la de AutoFirma: si no, iría a la del usuario.
+    if ([W]::GetForegroundWindow() -ne $d.H) { Write-Output "SIN_FOCO | $($d.Titulo) | no se ha podido cancelar: ciérrala con Cancelar"; continue }
+    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    $canceladas++
+    Write-Output "CANCELADO_SIN_FILTRO | $($d.Titulo) | $(Get-Date -Format HH:mm:ss) | pega certificado.js y repite la firma"
     Start-Sleep -Seconds 2
   }
   Start-Sleep -Milliseconds 500
 }
-if ($hechas -eq 0) { Write-Output "SIN_DIALOGO en $Segundos s"; exit 1 }
-exit 0
+if ($canceladas -eq 0) { Write-Output "SIN_VENTANAS en $Segundos s"; exit 0 }
+exit 2

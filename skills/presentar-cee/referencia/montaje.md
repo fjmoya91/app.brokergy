@@ -1,59 +1,70 @@
-# El montaje: que AutoFirma firme sin que nadie pulse (una vez por PC)
+# El montaje: que AutoFirma firme sin que nadie pulse
 
 ## Por qué hace falta
 
-La sede de la JCCM firma DOS veces con AutoFirma: al identificarse y al enviar. AutoFirma 1.9 enseña
-**siempre** su ventana de «Diálogo de seguridad del almacén …» para elegir certificado —solo la evita
-el parámetro `headless` que pone la propia web, y la JCCM no lo pone— y esa ventana es de Java, fuera
-del navegador: Claude en Chrome no la puede pulsar.
+La sede de la JCCM firma DOS veces con AutoFirma: al identificarse y al enviar. La sede llama a
+AutoFirma (librería `miniapplet.js` 1.7) **sin** decirle con qué certificado, y AutoFirma enseña su
+ventana «Diálogo de seguridad del almacén …» para elegirlo. Esa ventana es de Java, fuera del
+navegador: Claude en Chrome no la puede pulsar. Y en el almacén de Windows de este PC hay certificados
+de varias personas (clientes y representantes, y del mismo Fran el personal y el de representante):
+un Intro o un clic a ojo podría firmar con el de otro.
 
-Lo que sí trae AutoFirma (código: `ProtocolInvocationLauncherSign.java`, preferencias
-`defaultKeystore` + `useDefaultStoreInBrowserCalls`) es usar **otro almacén** en las llamadas desde el
-navegador. Si ese almacén tiene **un solo** certificado, AutoFirma pinta un `JOptionPane` normal con el
-foco en «Aceptar» (`CertificateSelectionDialog.java`: `certs.length > 1 ? new CertOptionPane(…) : new
-JOptionPane()`), y un Intro basta: es lo que hace `vigilante_autofirma.ps1`.
+## Cómo se resuelve: el certificado se fija por HUELLA (desde el 27/10/2026)
 
-Un **perfil de Chrome aparte NO sirve**: todos los perfiles, y AutoFirma, leen el mismo almacén de
-Windows. En el de este PC hay certificados de varias personas (clientes y representantes): con él, un
-Intro a ciegas podría firmar con el de otro. Por eso el vigilante solo pulsa si el título dice
-**NSS** (el almacén de Firefox) y nunca si dice Windows.
+AutoFirma acepta en la llamada filtros de certificado y `headless=true`: si el filtro deja **un**
+certificado, firma con él **sin enseñar la ventana**; si no deja ninguno, da error (nunca elige otro).
+Es exactamente lo que hace la propia librería de la sede con su «firmante fijo»
+(`addSignatoryCertificateToExtraParams`: `filters=encodedcert:…` + `headless=true`), y comprobado en
+las clases de la AutoFirma 1.9 instalada (`CertFilterManager`: `headless` → `mandatoryCertificate`,
+filtro `thumbprint:`).
 
-## Pasos (los hace el usuario; son su certificado y su clave)
+- `presentar_cee.js preparar` busca en el almacén de Windows el certificado **personal** de quien
+  presenta (`CN=` empieza por el titular —`CEE_PRESENTA_TITULAR`, por defecto `MOYA LOPEZ`—, sin
+  «(R: …)», vigente, con clave privada; el que caduca más tarde) o el de `CEE_PRESENTA_HUELLA`, y deja
+  `certificado.js`.
+- `certificado.js` se pega en la página **antes de cada firma** (cada recarga lo borra): envuelve
+  `MiniApplet.sign` y compañía para que lleven `filters=thumbprint:SHA1:<huella>` + `headless=true`.
+- `vigilante_autofirma.ps1` es solo la red: si aun así sale la ventana, la **cancela** (Escape) y lo
+  dice. Nunca pulsa Intro.
 
-1. **Instalar Firefox.** No se usa para navegar: es el almacén aparte que AutoFirma sabe leer. Abrirlo
-   una vez para que cree su perfil.
-2. **Exportar el certificado PERSONAL** de quien presenta desde Windows (Opciones de Internet →
-   Contenido → Certificados → Exportar):
-   - «Exportar la clave privada» ✅ (sin ella no se puede firmar).
-   - PKCS #12 (.PFX) · «Incluir todos los certificados de la ruta» ✅ · **«Eliminar la clave privada si
-     la exportación es correcta» ❌** (si se marca, deja de funcionar en Windows) · «Habilitar
-     privacidad de certificado» ❌ (algunos programas no importan ese .pfx).
-   - Contraseña, y cifrado AES256-SHA256.
-3. **Importarlo en Firefox**: Ajustes → Privacidad & Seguridad → Certificados → Ver certificados →
-   «Sus certificados» → Importar. **Sin contraseña principal** en Firefox: si la tiene, AutoFirma la
-   pediría en cada firma. Después, el `.pfx` a un sitio seguro o borrado (no en Descargas).
-4. **AutoFirma** → Herramientas → Preferencias → **Almacenes de claves**:
-   - «Almacén por defecto» = **Mozilla Firefox** («Mozilla / Firefox (unificado)»; NO el «junto a
-     almacén de SO»).
-   - ✅ «Usar también en las llamadas a Autofirma desde el navegador».
-5. La primera vez que Chrome pregunte «¿Abrir Autofirma?», marcar «Permitir siempre».
+No hace falta Firefox ni tocar las preferencias de AutoFirma. Sirve en cualquier PC que tenga
+AutoFirma, Chrome con «Abrir Autofirma» permitido y el certificado personal en Windows.
+
+## Pasos en un PC nuevo
+
+La skill sola no basta: corre los scripts del repo en ESE PC (`presentar_cee.js` lee Supabase, baja de
+Drive y sube lo devuelto por el servidor con la clave interna).
+
+1. **El repo y Node**: clonar en `C:\Proyectos\app.brokergy` (la ruta que usan las skills) y
+   `npm install` en `implementation/backend` y en `implementation/frontend` (de ahí salen `pdfjs-dist`
+   y la lógica del borrador).
+2. **El `.env` del backend** (`implementation/backend/.env`), copiado del otro PC **a mano** (USB o
+   similar; nunca por email, WhatsApp ni git: lleva la clave de Supabase, la de Drive y la interna).
+   Con él vienen también los interruptores apagados de local.
+3. **Claude en Chrome** (la extensión, con la sesión de Claude) y Chrome con la tarjeta guardada.
+4. Instalar **AutoFirma** (1.8 o posterior).
+5. El certificado personal de quien presenta, en el almacén de Windows **con su clave privada**
+   (doble clic en el `.pfx` → Usuario actual). Después, el `.pfx` a un sitio seguro (no en Descargas).
+6. La primera vez que Chrome pregunte «¿Abrir Autofirma?», marcar «Permitir siempre».
+7. Opcional, **CE3X 3.2** en `C:\Program Files (x86)\CE3Xv3.2`: `preparar` valida con él el XML. Sin
+   él lo avisa, y hay que abrir el PDF y mirar que no lleve la marca «certificado incompleto».
 
 ## Comprobarlo
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\comprobar_montaje.ps1 -Titular <APELLIDO1_APELLIDO2>
+powershell -ExecutionPolicy Bypass -File implementation\backend\scripts\presentar_cee\comprobar_montaje.ps1 -Titular MOYA_LOPEZ
+node implementation/backend/scripts/presentar_cee.js certificado
 ```
 
-Lee las preferencias de AutoFirma del registro (`HKCU\Software\JavaSoft\Prefs\es\gob\afirma\…`, con
-las mayúsculas codificadas como `/X`) y pregunta a la propia AutoFirma qué ve:
-`AutofirmaCommandLine.exe listaliases -store mozilla` tiene que devolver **un** alias, el de quien
-presenta.
+El primero tiene que acabar en **MONTAJE LISTO**; el segundo dice con qué certificado se firmará
+(nombre, emisor y caducidad; el NIF no se enseña).
 
-⚠️ El administrador de certificados de Firefox enseña TAMBIÉN los de Windows («OS Client Cert Token»,
-que Firefox carga solo). No es un fallo: AutoFirma no los carga. Lo que manda es `listaliases`.
+## El montaje viejo con Firefox (hasta el 27/10/2026)
 
-## Lo que cambia para lo demás
-
-Cualquier web que firme con AutoFirma en este PC ofrecerá solo ese certificado. Para firmar con otro
-(el de representante de la empresa, o el de otra persona), en la ventana de AutoFirma: «Cambiar
-almacén» → Windows. Un clic más esas veces.
+Antes se aislaba el certificado poniéndolo SOLO en Firefox y diciéndole a AutoFirma que usara ese
+almacén en las llamadas del navegador (`defaultKeystore` = Mozilla + `useDefaultStoreInBrowserCalls`);
+con un certificado el foco quedaba en «Aceptar» y el vigilante pulsaba Intro si el título decía NSS.
+Funcionaba, pero solo en un PC montado así, y obligaba a cambiar de almacén a mano para firmar con
+otro certificado (el RITE con el de representante). Si un PC lo conserva, la huella vale igual porque
+el certificado de Firefox es el mismo; para dejar de depender de él, en AutoFirma → Preferencias →
+Almacenes de claves, desmarcar «Usar también en las llamadas a Autofirma desde el navegador».
