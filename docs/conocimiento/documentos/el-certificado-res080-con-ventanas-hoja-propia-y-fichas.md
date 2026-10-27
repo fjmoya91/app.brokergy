@@ -54,3 +54,17 @@ monta desde su `.cex` (skill `generar-cee-final`, punto 6) y se guarda SOLO el t
 no casa con una pared del plano («FNO» frente a «FBNO3») va a la planta única —o a la primera hoja—
 en vez de perderse (el croquis decía «0 huecos»), y un hueco «Conocidas» enseña «Conocido · Uf» y
 «Ug · g» en vez de «—». Tras tocarlo: `node implementation/backend/scripts/test_croquis_movil.js`.
+
+### Se casa por nombre IGUAL, y solo se dice que se adjunta lo que se adjunta (2026-10-21)
+
+Destapado al generar el certificado de **26RES080_41** (6 ventanas que cambian, 13 huecos). La tabla de
+huecos salía con V1, PE y PE PATIO 2 como «cambiados» y la V10 emparejada con la V1: el emparejamiento
+aceptaba que un nombre EMPEZARA por el otro, y «v10» empieza por «v1», «pe patio» por «pe» y «pe patio 2»
+por «pe patio». **REGLA — primero el nombre IGUAL** (quitando «- CAMBIA» y el guion final que CE3X 3.x
+pega en el XML, como `radiografiaCee`); el «empieza por» solo si no hay ninguno igual. En `res080Doc.js`
+y su espejo `CertificadoRes080Modal.jsx` (`matchByName` + `cambiados`).
+
+**REGLA — «Se adjunta ficha técnica del marco y del cristal» solo si van de verdad.** La observación de
+la hoja de ventanas lo decía siempre; ahora sale de `fichasVentanaDe(documentacion)` (`ft_marco_*`,
+`ft_cristal_*`) con `textoObsVentanas`, en el certificado y en el modal. Tras tocarlo:
+`node implementation/backend/scripts/check_res080_paginas.mjs`.

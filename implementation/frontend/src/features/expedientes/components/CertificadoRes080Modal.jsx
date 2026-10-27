@@ -28,7 +28,7 @@ import {
 import AnexoPaginasModal from './AnexoPaginasModal';
 // La página de capturas del CE3X NO se duplica aquí: vive en res080Doc.js, que es
 // lo que usa el backend para generar el mismo certificado server-side.
-import { buildCe3xPages, buildJustificacionAhorroPages, buildEmpresasBox } from '../logic/res080Doc';
+import { buildCe3xPages, buildJustificacionAhorroPages, buildEmpresasBox, fichasVentanaDe, textoObsVentanas } from '../logic/res080Doc';
 import { hitosActuacion, hitosBoxHtml } from '../logic/hitosActuacion';
 import { postEmail } from '../../../utils/emailFallback';
 // Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
@@ -1130,43 +1130,19 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
     // Mismo emparejamiento que res080Doc.js (`claveNombre`): el «- CAMBIA» de lo
     // que se reforma (regla 66) no cuenta para casar el inicial con el final.
+    // Y el guion final que CE3X 3.x pega en el XML; se casa por IGUALDAD y el «empieza
+    // por» solo si no hay ninguno igual («V1» casaba con «V10»: 26RES080_41).
     const claveNombre = (n) => String(n || '').trim().toLowerCase()
-        .replace(/\s*-\s*cambia\b/g, '').trim();
-    const changedHuecos = hFinArr.filter(hFin => {
-        const nameFin = claveNombre(hFin.nombre);
-        const original = hInitArr.find(hIni => {
-            const nameIni = claveNombre(hIni.nombre);
-            const sameName = nameFin === nameIni || nameFin.startsWith(nameIni) || nameIni.startsWith(nameFin);
-            const diffTrans = Math.abs(hIni.transmitancia - hFin.transmitancia) > 0.01;
-            return sameName && diffTrans;
-        });
-        return !!original;
-    }).map(hFin => ({
-        initial: hInitArr.find(hIni => {
-            const nameIni = claveNombre(hIni.nombre);
-            const nameFin = claveNombre(hFin.nombre);
-            return nameFin === nameIni || nameFin.startsWith(nameIni) || nameIni.startsWith(nameFin);
-        }),
-        final: hFin
-    }));
-
-    const changedOpacos = opacosFin.filter(oFin => {
-        const nameFin = claveNombre(oFin.nombre);
-        const original = opacosInit.find(oIni => {
-            const nameIni = claveNombre(oIni.nombre);
-            const sameName = nameFin === nameIni || nameFin.startsWith(nameIni) || nameIni.startsWith(nameFin);
-            const diffTrans = Math.abs(oIni.transmitancia - oFin.transmitancia) > 0.01;
-            return sameName && diffTrans;
-        });
-        return !!original;
-    }).map(oFin => ({
-        initial: opacosInit.find(oIni => {
-            const nameIni = claveNombre(oIni.nombre);
-            const nameFin = claveNombre(oFin.nombre);
-            return nameFin === nameIni || nameFin.startsWith(nameIni) || nameIni.startsWith(nameFin);
-        }),
-        final: oFin
-    }));
+        .replace(/\s*-\s*cambia\b/g, '').replace(/-+$/, '').trim();
+    const matchByName = (arr, ref) => {
+        const b = claveNombre(ref.nombre);
+        return arr.find(x => claveNombre(x.nombre) === b)
+            || arr.find(x => { const a = claveNombre(x.nombre); return b.startsWith(a) || a.startsWith(b); });
+    };
+    const cambiados = (ini, fin) => fin.map(f => ({ initial: matchByName(ini, f), final: f }))
+        .filter(p => p.initial && Math.abs(p.initial.transmitancia - p.final.transmitancia) > 0.01);
+    const changedHuecos = cambiados(hInitArr, hFinArr);
+    const changedOpacos = cambiados(opacosInit, opacosFin);
 
     // Determinar si se sustituyen ventanas (Prioridad: Detección automática > flag manual)
     const seSustituyen = changedHuecos.length > 0 || env.sustituye_ventanas === true;
@@ -1504,7 +1480,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
         // PÁGINA 4: VENTANAS - SÓLO SI SE ACTÚA
         if (env.sustituye_ventanas === true) {
-            const obsVentanas = obsBox(`<p style="margin:0;">La duración indicativa de la actuación (Di) es de 25 años según Recomendación (UE) 2019/1658. Se adjunta ficha técnica completa del marco y del cristal en anexos.</p>`, '14px');
+            const obsVentanas = obsBox(`<p style="margin:0;">${textoObsVentanas(fichasVentanaDe(expediente?.documentacion))}</p>`, '14px');
             pages.push(`
                 <div class="doc-page">
                     ${pageHeader}

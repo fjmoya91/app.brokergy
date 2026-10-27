@@ -366,31 +366,22 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     // que CE3X escribe en el XML como «V1 - CAMBIA-»), y el inicial del técnico no:
     // sin quitar el sufijo, «v1-» no casaba con «v1 - cambia-» y la tabla de huecos
     // del certificado salía VACÍA justo en la obra que cambia ventanas (26RES080_83).
+    //: Y el guion que CE3X 3.x pega al final del nombre en el XML («V1-»). Se casa
+    //: por IGUALDAD, como `radiografiaCee.compararEnvolventes`; el «empieza por» solo
+    //: si no hay ninguno igual: con él primero «V1» casaba con «V10», «PE» con
+    //: «PE PATIO» y «PE PATIO 2» con «PE PATIO», y la tabla de huecos sacaba como
+    //: cambiados los que no cambian (26RES080_41, 21/10/2026).
     const claveNombre = (n) => String(n || '').trim().toLowerCase()
-        .replace(/\s*-\s*cambia\b/g, '').trim();
-    const matchByName = (arr, ref) => arr.find(x => {
-        const a = claveNombre(x.nombre);
+        .replace(/\s*-\s*cambia\b/g, '').replace(/-+$/, '').trim();
+    const matchByName = (arr, ref) => {
         const b = claveNombre(ref.nombre);
-        return b === a || b.startsWith(a) || a.startsWith(b);
-    });
-    const changedHuecos = hFinArr.filter(hFin => {
-        const orig = hInitArr.find(hIni => {
-            const a = claveNombre(hIni.nombre);
-            const b = claveNombre(hFin.nombre);
-            const sameName = b === a || b.startsWith(a) || a.startsWith(b);
-            return sameName && Math.abs(hIni.transmitancia - hFin.transmitancia) > 0.01;
-        });
-        return !!orig;
-    }).map(hFin => ({ initial: matchByName(hInitArr, hFin), final: hFin }));
-    const changedOpacos = opacosFin.filter(oFin => {
-        const orig = opacosInit.find(oIni => {
-            const a = claveNombre(oIni.nombre);
-            const b = claveNombre(oFin.nombre);
-            const sameName = b === a || b.startsWith(a) || a.startsWith(b);
-            return sameName && Math.abs(oIni.transmitancia - oFin.transmitancia) > 0.01;
-        });
-        return !!orig;
-    }).map(oFin => ({ initial: matchByName(opacosInit, oFin), final: oFin }));
+        return arr.find(x => claveNombre(x.nombre) === b)
+            || arr.find(x => { const a = claveNombre(x.nombre); return b.startsWith(a) || a.startsWith(b); });
+    };
+    const cambiados = (ini, fin) => fin.map(f => ({ initial: matchByName(ini, f), final: f }))
+        .filter(p => p.initial && Math.abs(p.initial.transmitancia - p.final.transmitancia) > 0.01);
+    const changedHuecos = cambiados(hInitArr, hFinArr);
+    const changedOpacos = cambiados(opacosInit, opacosFin);
     const seSustituyen = changedHuecos.length > 0 || env.sustituye_ventanas === true;
 
     // Las fechas de la actuación y de los dos CEE, para el bloque «Hitos de la
@@ -408,7 +399,29 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
         sameAero, tieneAcs, delegadoRite, empresas,
         zoneStr, zoneLabel, scopCalRaw, scopCalStr, scopAcsRaw, scopAcsStr, emiLabel, metodoCal, metodoAcs,
         changedHuecos, changedOpacos, seSustituyen,
+        fichasVentana: fichasVentanaDe(doc),
     };
+}
+
+/**
+ * Qué fichas de la ventana van de verdad en anexos (`ft_marco_*` / `ft_cristal_*`,
+ * los huecos de fichasTecnicas.js). El certificado decía siempre «Se adjunta ficha
+ * técnica completa del marco y del cristal» aunque no fuera ninguna (26RES080_41,
+ * 21/10/2026): solo se afirma lo que se adjunta.
+ */
+export function fichasVentanaDe(doc = {}) {
+    return {
+        marco: !!(doc.ft_marco_link || doc.ft_marco_id),
+        cristal: !!(doc.ft_cristal_link || doc.ft_cristal_id),
+    };
+}
+
+export function textoObsVentanas(fichas = {}) {
+    const di = 'La duración indicativa de la actuación (Di) es de 25 años según Recomendación (UE) 2019/1658.';
+    if (fichas.marco && fichas.cristal) return `${di} Se adjunta ficha técnica completa del marco y del cristal en anexos.`;
+    if (fichas.marco) return `${di} Se adjunta ficha técnica completa del marco en anexos.`;
+    if (fichas.cristal) return `${di} Se adjunta ficha técnica completa del cristal en anexos.`;
+    return di;
 }
 
 const formatNum = (val) => {
@@ -867,7 +880,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         sameAero, tieneAcs, delegadoRite, empresas,
         zoneStr, zoneLabel, scopCalRaw, scopCalStr, scopAcsRaw, scopAcsStr, emiLabel, metodoCal, metodoAcs,
         changedHuecos, changedOpacos, seSustituyen,
-        hitos,
+        hitos, fichasVentana = {},
     } = data;
 
     const ed = (f) => fields[f] || '';
@@ -1196,7 +1209,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
 
     // PÁGINA 4: VENTANAS — solo si se actúa
     if (env.sustituye_ventanas === true) {
-        const obsVentanas = obsBox(`<p style="margin:0;">La duración indicativa de la actuación (Di) es de 25 años según Recomendación (UE) 2019/1658. Se adjunta ficha técnica completa del marco y del cristal en anexos.</p>`, '14px');
+        const obsVentanas = obsBox(`<p style="margin:0;">${textoObsVentanas(fichasVentana)}</p>`, '14px');
         pages.push(`
             <div class="doc-page">
                 ${pageHeader}
