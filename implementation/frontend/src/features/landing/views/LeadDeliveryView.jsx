@@ -197,21 +197,27 @@ export function LeadDeliveryView({
                 Volver
             </button>
 
-            {/* ── Resultado estimado ── */}
+            {/* ── Resultado estimado ──
+                UNA cifra protagonista, la ayuda (estilo «carta de pago», regla 164;
+                esta pantalla solo existe en la landing PÚBLICA, dentro de `.lf`). La
+                inversión neta y el ahorro van debajo, en filas: antes eran tres
+                tarjetas iguales de tres colores y ninguna mandaba. */}
             {r && (
-                <div className="mb-7">
-                    <p className="text-center text-[11px] font-black uppercase tracking-[0.18em] text-amber-400/80 mb-4">
-                        {esReforma ? 'Tu ayuda estimada por la reforma' : 'Tu estimación orientativa'}
+                <div className="lf-res mb-7">
+                    <div className="lf-filete-fino" />
+                    <p className="lf-eyebrow">{esReforma ? 'Tu ayuda estimada por la reforma' : 'Tu ayuda estimada'}</p>
+                    <p className="lf-cifra">{fmtEur(r.totalAyudaCliente)}</p>
+                    <p className="lf-cifra-sub">
+                        <span className="lf-mark">{r.porcentajeCubiertoCliente}% cubierto</span> de lo que cuesta la obra
                     </p>
-                    <div className="grid grid-cols-3 gap-2 md:gap-3">
-                        <MetricCard label="Ayuda total"     value={fmtEur(r.totalAyudaCliente)}   sub={`${r.porcentajeCubiertoCliente}% cubierto`} color="emerald" />
-                        <MetricCard label="Inversión neta"  value={fmtEur(r.inversionNetaCliente)} sub="tras las ayudas"                           color="amber"   />
-                        <MetricCard label="Ahorro anual"    value={r.ahorroAnualEur > 0 ? fmtEur(r.ahorroAnualEur) : '—'} sub={esReforma ? 'en factura' : 'en calefacción'}   color="blue"    />
-                    </div>
-                    <p className="text-center text-[10px] text-white/25 mt-3">
+                    <dl className="lf-res-dl">
+                        <div><dt>Inversión neta, tras las ayudas</dt><dd>{fmtEur(r.inversionNetaCliente)}</dd></div>
+                        <div><dt>Ahorro anual {esReforma ? 'en factura' : 'en calefacción'}</dt><dd>{r.ahorroAnualEur > 0 ? fmtEur(r.ahorroAnualEur) : '—'}</dd></div>
+                    </dl>
+                    <p className="lf-res-nota">
                         {esReforma
-                            ? <>Estimación teórica. Se ajusta tras revisar tus certificados y facturas. <span className="text-amber-400/50 font-bold">El bono CAE lo garantiza Brokergy.</span></>
-                            : <>Estimación teórica. Se ajusta tras el CEE inicial. <span className="text-amber-400/50 font-bold">El bono CAE lo garantiza Brokergy.</span></>}
+                            ? <>Estimación teórica: se ajusta tras revisar tus certificados y facturas. <b>El bono CAE lo garantiza BROKERGY.</b></>
+                            : <>Estimación teórica: se ajusta tras el CEE inicial. <b>El bono CAE lo garantiza BROKERGY.</b></>}
                     </p>
                 </div>
             )}
@@ -465,20 +471,5 @@ function OptionCard({ icon, iconColor, title, desc, selected, ring, checkColor, 
                 )}
             </div>
         </button>
-    );
-}
-
-function MetricCard({ label, value, sub, color }) {
-    const cols = {
-        emerald: { bg: 'from-emerald-500/20 to-emerald-500/5', border: 'border-emerald-500/30', lbl: 'text-emerald-300/80', val: 'text-emerald-300', sub: 'text-emerald-400/60' },
-        amber:   { bg: 'from-amber-500/20 to-amber-500/5',     border: 'border-amber-500/30',   lbl: 'text-amber-300/80',   val: 'text-amber-300',   sub: 'text-amber-400/60' },
-        blue:    { bg: 'from-blue-500/20 to-blue-500/5',       border: 'border-blue-500/30',     lbl: 'text-blue-300/80',    val: 'text-blue-300',    sub: 'text-blue-400/60' },
-    }[color];
-    return (
-        <div className={`p-3 md:p-4 bg-gradient-to-br ${cols.bg} border-2 ${cols.border} rounded-2xl text-center`}>
-            <div className={`text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 ${cols.lbl}`}>{label}</div>
-            <div className={`text-lg md:text-2xl font-black tracking-tight ${cols.val}`}>{value}</div>
-            <div className={`text-[9px] md:text-[10px] mt-0.5 font-bold uppercase tracking-widest ${cols.sub}`}>{sub}</div>
-        </div>
     );
 }

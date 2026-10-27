@@ -129,37 +129,28 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
             ))}
             {activeBanners.length > 0 && <div className="mb-2" />}
 
-            {/* Header celebratorio — más visible y "vistoso" */}
-            <div className="text-center mb-6 relative">
-                {/* Resplandor decorativo */}
-                <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-emerald-500/15 via-amber-500/8 to-transparent rounded-full blur-3xl -z-10 pointer-events-none" />
-
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 mb-3 animate-fade-in">
-                    <span className="text-sm">🎉</span>
-                    <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">¡Buenas noticias!</span>
-                </div>
-                <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-[1.05] mb-3">
-                    Enhorabuena{contacto?.nombre?.split(' ')[0] ? <>, <span className="text-amber-400">{contacto.nombre.split(' ')[0]}</span></> : ''}.
-                    <br/>
-                    <span className="text-white/90">Tu vivienda</span> <span className="text-emerald-400">cumple</span><span className="text-white/90"> con las ayudas.</span>
+            {/* Cabecera y cifra en estilo «carta de pago» (regla 164; esta pantalla
+                solo existe en la landing PÚBLICA, dentro de `.lf`): el nombre en lima y
+                UNA cifra protagonista, la ayuda. Antes, dos tarjetas de colores
+                competían con la tabla de debajo, que ya repite el desglose. */}
+            <div className="text-center mb-6">
+                <p className="lf-eyebrow">🎉 ¡Buenas noticias!</p>
+                <h1 className="mt-3">
+                    Enhorabuena{contacto?.nombre?.split(' ')[0] ? <>, <span className="text-amber-400">{contacto?.nombre?.split(' ')[0]}</span></> : ''}.
                 </h1>
-                <p className="text-white/55 text-sm md:text-base max-w-md mx-auto leading-relaxed">
-                    Aquí tienes el detalle de tu estimación. Un técnico afinará los números con tu caso real.
+                <p className="text-white/55 text-base max-w-md mx-auto leading-relaxed mt-3">
+                    <b className="text-white">Tu vivienda cumple con las ayudas.</b> Aquí tienes el detalle de tu estimación; un técnico afinará los números con tu caso real.
                 </p>
             </div>
 
-            {/* HERO: Inversión neta final + Ayuda total */}
-            <div className="grid grid-cols-2 gap-2 md:gap-3 mb-4">
-                <div className="p-3 md:p-5 bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border-2 border-emerald-500/30 rounded-2xl md:rounded-3xl text-center">
-                    <div className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-emerald-300/80 mb-1">Ayuda total estimada</div>
-                    <div className="text-2xl md:text-4xl font-black text-emerald-300 tracking-tight">{fmtEur(r.totalAyudaCliente)}</div>
-                    <div className="text-[9px] md:text-[10px] text-emerald-400/60 mt-1 font-bold uppercase tracking-widest">{r.porcentajeCubiertoCliente}% cubierto</div>
-                </div>
-                <div className="p-3 md:p-5 bg-gradient-to-br from-amber-500/20 to-amber-500/5 border-2 border-amber-500/30 rounded-2xl md:rounded-3xl text-center">
-                    <div className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-amber-300/80 mb-1">Tu inversión final</div>
-                    <div className="text-2xl md:text-4xl font-black text-amber-300 tracking-tight">{fmtEur(r.inversionNetaCliente)}</div>
-                    <div className="text-[9px] md:text-[10px] text-amber-400/60 mt-1 font-bold uppercase tracking-widest">tras todas las ayudas</div>
-                </div>
+            <div className="lf-res mb-5">
+                <div className="lf-filete-fino" />
+                <p className="lf-eyebrow">Ayuda total estimada</p>
+                <p className="lf-cifra">{fmtEur(r.totalAyudaCliente)}</p>
+                <p className="lf-cifra-sub"><span className="lf-mark">{r.porcentajeCubiertoCliente}% cubierto</span> de lo que cuesta la obra</p>
+                <dl className="lf-res-dl">
+                    <div><dt>Tu inversión final, tras todas las ayudas</dt><dd>{fmtEur(r.inversionNetaCliente)}</dd></div>
+                </dl>
             </div>
 
             {/* TABLA: Análisis de subvenciones y deducciones (versión cliente, simplificada) */}

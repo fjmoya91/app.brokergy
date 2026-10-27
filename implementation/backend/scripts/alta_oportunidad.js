@@ -415,6 +415,13 @@ async function crear() {
         construcciones: desglose.construcciones,
         construcciones_elegidas: desglose.construcciones_elegidas,
     };
+    // Una casa en hilera en división horizontal: el Catastro da participación < 100 %
+    // y el formulario la toma por piso (1 fachada, sin suelo ni cubierta). El plan
+    // lo corrige como el desplegable «Tipo» de la calculadora.
+    if (plan.tipo != null) {
+        if (!['unifamiliar', 'hilera', 'piso'].includes(plan.tipo)) throw new Error(`tipo «${plan.tipo}»: usa unifamiliar | hilera | piso.`);
+        catastroFunnel.tipo = plan.tipo;
+    }
 
     // 2. Las respuestas del funnel → los inputs, por la MISMA función del formulario.
     const funnel = alta.funnelDesdePlan(plan);

@@ -25,6 +25,7 @@ const { createLead } = require('../services/leadService');
 const reformaUploadService = require('../services/reformaUploadService');
 const { sendLeadSummaryEmail } = require('../services/emailService');
 const leadMessages = require('../services/leadMessages');
+const { buildAvisoLeadAdmin } = require('../services/avisoLeadAdmin');
 
 // Regex de validación del slug (mismo que en SQL CHECK constraint)
 const SLUG_REGEX = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
@@ -432,8 +433,12 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
             setImmediate(async () => {
                 try {
                     const whatsappService = require('../services/whatsappService');
-                    const nombre = contacto?.nombre || 'cliente';
-                    const adminMsg = `🆕 *LEAD REFORMA (web)*\n\nRef *${result.id_oportunidad}*\n👤 ${nombre}${contacto?.tlf ? `\n📞 ${contacto.tlf}` : ''}${contacto?.email ? `\n✉ ${contacto.email}` : ''}${uploadLink ? `\n\n📎 Enlace subida: ${uploadLink}` : ''}`;
+                    const adminMsg = buildAvisoLeadAdmin({
+                        result, contacto: contacto || {}, catastro: catastro || {}, funnel: funnel || {},
+                        inputs: calculatorInputs || {}, calc: precomputedResult || null,
+                        geoContext: req.geoContext || {}, partner: partnerInfo,
+                        canales: deliveryArr, uploadLink,
+                    });
                     whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg).catch(() => {});
                 } catch (e) { console.error('[reforma/lead] Error avisando al admin:', e.message); }
             });

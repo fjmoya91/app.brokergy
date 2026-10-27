@@ -66,6 +66,13 @@ Fran frente a los 80 m²), `subtipo: "atico"` y `caldera.combustible: "glp"` (pr
 sí). Con 120 m², ático y propano: 45,51 kWh/m²·año · 8.948 kWh · bono 894,76 €. ⚠️ Un CEE de vivienda
 sobre tres RC de almacén puede tener pegas del verificador: se avisa para regularizarlo.
 
+**Una casa EN HILERA en división horizontal no es un piso** (2026-10-20, 26RES060_OP315: la casa del
+instalador Juan Carlos, FONJUCAR, en una hilera de diez adosados de C/ Cardaores, Campo de Criptana,
+con una sola parcela). Con participación < 100 % el formulario la toma por `piso` —1 fachada, sin
+suelo ni cubierta— y salía 34,68 kWh/m²·año. El plan admite `tipo` (`unifamiliar` · `hilera` ·
+`piso`, lo mismo que el desplegable «Tipo» de la calculadora), que `alta_oportunidad.js` pone en el
+catastro antes de `funnelToCalculatorInputs`: con `hilera`, 68,68 kWh/m²·año y bono 965,95 €.
+
 **REGLA — la placa de la caldera viaja con la oportunidad** (`inputs.placa_caldera`: marca, modelo, nº
 de serie, potencia útil, combustible) y `expedienteService` la hereda al aceptar — solo HUECOS, y un
 nº de serie dudoso no. En Junkers/Bosch «FD 583 …» es la fecha de fabricación, no el nº de serie.

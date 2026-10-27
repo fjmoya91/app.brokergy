@@ -50,6 +50,19 @@ cualquiera de los dos CEE, el cálculo va POR VECTOR aunque esté elegido «por 
 las celdas por vector (`autoconsumoDeEmisiones`, que exige que la parte no eléctrica cuadre para no
 fiarse de celdas de otro CEE). El resultado lleva `metodoForzado: 'autoconsumo'` y la pantalla lo dice.
 
+**REGLA — un RES080 siempre actúa sobre la envolvente, y el rendimiento de la caldera del inicial
+es el del CEE, no el de la tabla** (2026-10-24, Fran, 26RES060_OP335). El RES080 es una reforma:
+fachadas, cubierta, ventanas… más las instalaciones. «RES080 solo con aerotermia» no existe, ni
+siquiera como fila de comparación. En el RES060 la caldera que se sustituye va con el rendimiento de
+la tabla de la ficha (biomasa automática 0,60), y eso no se toca. En el RES080, en cambio, el ahorro
+es la diferencia de energía final entre los CEE, y en el inicial se puede declarar un rendimiento
+estacional más bajo: el que calcula CE3X. Caso medido en OP335, biomasa de 25 kW con fachadas N y S
+aisladas por el exterior:
+- El .cex del agente llevaba un 61 % aproximado; guardado en CE3X, la caldera queda al **50 %**.
+- La biomasa del inicial pasa de 272,82 a 332,17 kWh/m².
+- RES060: 56.819 kWh · RES080: 71.420 kWh. Del aislamiento, solo unos 290 kWh.
+- La diferencia entre fichas sale del rendimiento del inicial, no de la envolvente.
+
 **Un vector con todo a cero no se consume**: el XML los lista los ocho siempre, así que el parser
 guarda solo los que tienen consumo — y esa lista **es** el inventario de combustibles reales del
 edificio. También es donde se ve el reparto que el resumen por servicio escondía: en el CEE medido,

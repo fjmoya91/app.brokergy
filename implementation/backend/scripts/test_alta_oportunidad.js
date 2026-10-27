@@ -263,6 +263,7 @@ const prueba = async (nombre, fn) => {
         assert.strictEqual(inputs.cee_previo.origen, seed.CEE_ORIGEN_BROKERGY);
         assert.ok(seed.ceeEsPropio(inputs.cee_previo));
         assert.ok(!('pdfBase64' in inputs.cee_previo), 'el PDF no puede ir al JSONB (regla 21)');
+        assert.strictEqual(inputs.xmlDemandData.demandaCalefaccion ?? 133.4, 133.4);
         assert.strictEqual(computeFullCalculatorResult(inputs).q_net, 133.4);
         assert.strictEqual(computeCeeComparison(inputs), null);
         assert.strictEqual(computeCeeComparison({ ...delCliente, cee_previo: { ...delCliente.cee_previo, origen: 'brokergy' } }), null);
