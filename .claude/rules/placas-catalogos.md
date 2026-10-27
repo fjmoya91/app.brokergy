@@ -66,7 +66,7 @@ paths:
 - `docs/conocimiento/placas-catalogos/la-placa-la-lee-tambien-el-certificador.md` — La PLACA la lee también el CERTIFICADOR · 0,9 KB
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/00-las-tres-placas-de-la-obra-de-un-boton.md` — Las TRES placas de la obra, de un botón (2026-09-15) · 19,0 KB
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/lo-que-cuesta-medido-15-09-2026.md` — Lo que cuesta, medido (15/09/2026) · 2,2 KB
-- `docs/conocimiento/placas-catalogos/un-conjunto-resuelve-el-acs-solo.md` — Un CONJUNTO resuelve el ACS solo (2026-09-13) · 10,1 KB
+- `docs/conocimiento/placas-catalogos/un-conjunto-resuelve-el-acs-solo.md` — Un CONJUNTO resuelve el ACS solo (2026-09-13) · 11,2 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -148,5 +148,6 @@ interior**
   - **REGLA — el COP A7/W55 NO está en la ficha de producto, sino en las TABLAS DE
 RENDIMIENTO.**
   - **REGLA — el η_wh del recuadro del Anexo IV es el del EPREL, no la división del SCOP.**
+  - **REGLA — la gama la dice la PLACA, no la factura.**
 
 <!-- generado:fin -->

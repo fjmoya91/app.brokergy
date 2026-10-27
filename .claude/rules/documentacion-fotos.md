@@ -27,6 +27,8 @@ paths:
 
 68.c **Las fotos de las VENTANAS van ventana por ventana** (RES080 y cualquier expediente con ventanas): una tarjeta por ventana con su antes y su después, y en el después la ventana VIEJA al lado («Así estaba»). La ventana va EN CADA FOTO (`ventana: 'V3'`, `ventana_nombre`) dentro de `reforma_uploads`, sin lista aparte; el id no se reutiliza. El apartado del después solo está hecho con TODAS las ventanas, y subir una no avanza el paso guiado. Las fotos sin ventana se enseñan para colocarlas. El Anexo Fotográfico las ordena y rotula por ventana. Fuente única: [logic/ventanasObra.js](implementation/frontend/src/features/docs/logic/ventanasObra.js). Tras tocarlo: `node implementation/backend/scripts/test_ventanas_obra.mjs` y `test_ventanas_subida.js`. Ver "Las VENTANAS, ventana por ventana".
 
+162. **Sin la foto de la caldera INSTALADA EN SU SALA y la de su PLACA legible, no hay CEE inicial ni expediente** (2026-10-23, Fran, «muy importante»). Dos fotos imprescindibles de la caldera que se sustituye o se hibrida: `FOTO_CALDERA_ANTES`, la caldera montada en su sala, **clara y no demasiado cerca**, que se vea ENTERA y su EMPLAZAMIENTO (el cuarto, tuberías, salida de humos; un primer plano del frontal no vale), y `FOTO_PLACA_CALDERA_ANTES`, la placa de características que se LEA (marca, modelo, potencia; la etiqueta con solo el código de artículo, el esquema de la tapa o una placa borrosa no valen). Sin las dos **no se genera el CEE inicial ni se encarga a un técnico**, y el expediente no avanza: el agente de la aceptación (158) las pide antes que nada, `justificar`/`rellenar` no dan la caldera por buena y `auditar-expediente` lo marca ERROR. En el ALTA la simulación se hace igual, pero el informe dice que faltan y se prepara el WhatsApp que las pide (en borrador); el CEE por bono bajo (161) **sí se hace** como borrador para la simulación (Fran, 23/10/2026, OP335/OP336), pero el que se FIRMA espera a tenerlas. Se MIRA cada foto: que haya un fichero en el apartado no basta. No aplica sin calefacción ni a un equipo que no se retira. Ver "Sin la foto de la caldera EN SU SALA y la de su PLACA".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -54,7 +56,8 @@ paths:
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/endpoints.md` — Endpoints · 1,0 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/migracion-sql-ya-en-produccion.md` — Migración SQL (ya en producción) · 0,4 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/notificacion-de-rechazo.md` — Notificación de rechazo · 0,6 KB
-- `docs/conocimiento/documentacion-fotos/para-el-certificado-o-para-el-expediente-no-es-lo-mismo.md` — Para el CERTIFICADO o para el EXPEDIENTE: no es lo mismo (2026-09-21) · 2,7 KB
+- `docs/conocimiento/documentacion-fotos/para-el-certificado-o-para-el-expediente-no-es-lo-mismo.md` — Para el CERTIFICADO o para el EXPEDIENTE: no es lo mismo (2026-09-21) · 3,1 KB
+- `docs/conocimiento/documentacion-fotos/sin-la-caldera-en-su-sala-y-su-placa-no-hay-cee-ni-expediente.md` — Sin la foto de la caldera EN SU SALA y la de su PLACA, no hay CEE inicial ni expediente (2026-10-23) · 4,9 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -109,5 +112,10 @@ paralelo.**
   - **REGLA — el destino es un ATRIBUTO del slot**
   - **REGLA — lo `optionalAlways` NO se reclama.**
   - **REGLA — mientras la obra no esté terminada, lo del DESPUÉS no se preselecciona.**
+- `docs/conocimiento/documentacion-fotos/sin-la-caldera-en-su-sala-y-su-placa-no-hay-cee-ni-expediente.md`
+  - **REGLA — dos fotos IMPRESCINDIBLES de la caldera que se sustituye (o se hibrida):**
+  - **REGLA — calefacción COMUNITARIA que se individualiza: el desmontaje se justifica con los
+RADIADORES desmontados**
+  - **REGLA — el EQUIPO NUEVO puesto en el sitio de la caldera justifica que se ha desmontado**
 
 <!-- generado:fin -->

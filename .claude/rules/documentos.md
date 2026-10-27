@@ -98,7 +98,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/documentos/convenio-de-cesion-se-firma-antes-de-terminar-la-obra.md` — Convenio de Cesión — se firma ANTES de terminar la obra (2026-08-12) · 4,0 KB
-- `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md` — El Certificado RES080 con VENTANAS: la comparativa en hoja propia y las fichas del marco y del vidrio (2026-10-13) · 4,4 KB
+- `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md` — El Certificado RES080 con VENTANAS: la comparativa en hoja propia y las fichas del marco y del vidrio (2026-10-13) · 5,5 KB
 - `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md` — El CIFO en PDF — las hojas son FIJAS y hay que medirlas (2026-08-25) · 3,6 KB
 - `docs/conocimiento/documentos/hitos-de-la-actuacion-la-factura-que-no-abre-la-obra.md` — HITOS DE LA ACTUACIÓN — la factura que NO abre la obra (2026-09-30) · 7,3 KB
 - `docs/conocimiento/documentos/la-placa-de-la-unidad-exterior-dentro-del-certificado.md` — La PLACA de la unidad exterior, dentro del certificado (2026-09-17) · 7,9 KB
@@ -106,6 +106,7 @@ paths:
 - `docs/conocimiento/documentos/las-coordenadas-utm-se-rotulan-etrs89-huso-30-n.md` — Las coordenadas UTM se rotulan «ETRS89 · huso 30 N» (2026-10-22) · 2,4 KB
 - `docs/conocimiento/documentos/las-fichas-y-el-anexo-i-se-rellenan-ya-no-se-redibujan.md` — Las FICHAS y el ANEXO I se RELLENAN, ya no se redibujan (2026-09-08) · 7,1 KB
 - `docs/conocimiento/documentos/lo-que-el-flag-esconde-y-lo-que-mayusculas-borra.md` — Lo que el FLAG esconde y lo que MAYÚSCULAS borra (2026-09-16) · 8,8 KB
+- `docs/conocimiento/documentos/misma-direccion-que-el-cliente-sigue-la-ficha-del-cliente.md` — «¿Misma dirección que el cliente? → Sí» sigue la ficha del CLIENTE (2026-10-20) · 2,9 KB
 - `docs/conocimiento/documentos/modulo-documentos-novedades.md` — Módulo Documentos — Novedades (2026-04-08) · 0,6 KB
 - `docs/conocimiento/documentos/quien-ejecuta-la-obra-y-quien-firma-ante-industria.md` — Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26) · 8,5 KB
 - `docs/conocimiento/documentos/un-requerimiento-vuelve-a-pedir-la-firma-del-anexo-i-y-del-conve.md` — Un REQUERIMIENTO vuelve a pedir la firma del Anexo I y del Convenio (2026-09-04) · 7,4 KB
@@ -125,6 +126,8 @@ paths:
   - **REGLA — el generador del servidor adjunta TODAS las fichas, como el modal**
   - **REGLA — en el final de un RES080, lo que se reforma lleva «- CAMBIA» en el nombre**
   - **REGLA — el inicial y el final se casan por nombre SIN el sufijo.**
+  - **REGLA — primero el nombre IGUAL**
+  - **REGLA — «Se adjunta ficha técnica del marco y del cristal» solo si van de verdad.**
 - `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md`
   - **REGLA — una hoja por bloque; el corte NO es condicional.**
   - **REGLA — la PISCINA encabeza la hoja de variables, no la de instalación.**
@@ -175,6 +178,9 @@ salidas usan la MISMA.**
 con una bomba de calor o con un acumulador del que tenemos la placa; NO sale si
 no se actúa sobre el ACS o si se pone un termo eléctrico**
   - **REGLA — Subvenciones se AUTOGUARDA, como el resto de la ficha.**
+- `docs/conocimiento/documentos/misma-direccion-que-el-cliente-sigue-la-ficha-del-cliente.md`
+  - **REGLA — con «Sí» manda la dirección del CLIENTE, en vivo.**
+  - **REGLA — «Sí» solo se pone cuando ES la misma vivienda.**
 - `docs/conocimiento/documentos/quien-ejecuta-la-obra-y-quien-firma-ante-industria.md`
   - **REGLA — cuando son DOS empresas, las dos constan; cuando es una, solo una.**
   - **REGLA — en el CIFO manda la que EJECUTA Y FACTURA, y la habilitada baja a una fila

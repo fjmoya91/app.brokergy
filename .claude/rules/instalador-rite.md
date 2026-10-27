@@ -21,12 +21,15 @@ paths:
 
 74. **La tabla de CARGAS TÉRMICAS de la Memoria RITE sale de las ESTANCIAS REALES, confirmadas en un popup antes de generar**: era la misma plantilla de doce estancias para todas las casas (una de 70 m² firmaba cuatro dormitorios y un vestidor). Ahora el ÚLTIMO eslabón de la cadena previa a generar (fecha de pruebas → frío → titular → **estancias**) es `LocalesRiteModal`: se abre SIEMPRE, relleno con lo guardado o con una propuesta por tamaño de vivienda y nº de plantas, y se añaden o quitan estancias POR PLANTA (y plantas); los m² se reparten solos por peso y el que se teclea se respeta. **La propuesta NO sale de `cee.num_rooms`** —la app lo rellena con 4 por defecto—. **Fuente única del nombre, la orientación y los m²**: [logic/localesRite.js](implementation/frontend/src/features/expedientes/logic/localesRite.js); se guarda ya resuelto en `documentacion.rite_locales` (`PUT /:id/memoria-rite/locales`, staffOnly, RPC de MERGE, clave en `CLAVES_PROTEGIDAS`) y el generador (`cargas_desde_locales` en `rite-generator/lib/cargas_termicas.py`) solo aplica el factor W/m² de la zona. **ELEMENTOS = ⌈potencia / 100 W⌉ solo con RADIADORES** (aluminio 600 mm a ΔT50 da 119-141 W; 100 W deja margen para la aerotermia); con suelo radiante, splits o conductos la columna va en blanco. Tope **25 estancias** (filas de la plantilla JCCM). Sin `rite_locales` (CLI, antiguos) se cae a la plantilla estimada. ⚠️ PENDIENTE: el botón «enviar al instalador para que lo complete» no está hecho. Tras tocarlo: `node implementation/backend/scripts/test_locales_rite.mjs`.
 
+171. **Cuando presentamos NOSOTROS la Memoria RITE en eDICE-Térmicas, firma y diligencia el certificado de REPRESENTANTE de la empresa de la memoria, y el slot «Certificado RITE» lleva el PDF de la IMPRESORA de eDICE** (2026-10-25, 26RES080_90). AutoFirma desde el navegador abre el almacén de Firefox, donde solo está el certificado PERSONAL: se cambia a «Almacén de claves del sistema» y se elige el `(R: <CIF>)` con captura antes y después de cada clic, sin el vigilante de `presentar-cee` (aceptaría el personal). El certificado que se guarda es `GenerarPdf.pdf` de `diligimp.jsp`, nunca la página web impresa. Firmar: [firmar_memoria_rite.js](implementation/backend/scripts/firmar_memoria_rite.js) (rechaza un firmante que no sea `R: <CIF>`); guardar: [guardar_certificado_rite.js](implementation/backend/scripts/guardar_certificado_rite.js) (mismo camino que la fila de Documentación y lectura de la 27.b). Paso a paso: skill `presentar-rite`. Ver "Presentar nosotros la Memoria RITE en eDICE-Térmicas".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/instalador-rite/al-instalador-se-le-pide-todo-de-una-vez.md` — Al instalador se le pide TODO de una vez (2026-08-27) · 10,8 KB
 - `docs/conocimiento/instalador-rite/el-certificado-rite-se-lee-al-subirlo.md` — El Certificado RITE se LEE al subirlo (2026-09-03) · 5,5 KB
+- `docs/conocimiento/instalador-rite/presentar-la-memoria-rite-en-edice.md` — Presentar nosotros la Memoria RITE en eDICE-Térmicas (2026-10-25) · 4,4 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -55,5 +58,10 @@ paths:
   - **REGLA — la comprobación del emplazamiento AVISA, no bloquea.**
   - **REGLA — lo leído viaja en el aviso al staff y se queda en el expediente.**
   - **REGLA — un slot validable DECLARA su nombre en `DOCUMENTO_VALIDABLE_LABELS`.**
+- `docs/conocimiento/instalador-rite/presentar-la-memoria-rite-en-edice.md`
+  - **REGLA — firma y diligencia el certificado de REPRESENTANTE de la empresa de la memoria, nunca el
+personal.**
+  - **REGLA — el slot «Certificado RITE» lleva el PDF de la IMPRESORA de eDICE.**
+  - **REGLA — lo declarado en eDICE sale de la memoria firmada.**
 
 <!-- generado:fin -->

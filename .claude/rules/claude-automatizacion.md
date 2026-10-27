@@ -39,7 +39,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/claude-automatizacion/el-asistente-de-fran-por-whatsapp-canal-siempre-abierto.md` — El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05) · 14,2 KB
-- `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19) · 12,7 KB
+- `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19) · 13,3 KB
 - `docs/conocimiento/claude-automatizacion/el-cee-inicial-por-la-api-banco-de-pruebas-y-coste.md` — El CEE inicial por la API de Claude: banco de pruebas y coste medido (2026-10-19) · 4,1 KB
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08) · 9,1 KB
 - `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 11,8 KB
@@ -62,6 +62,7 @@ documento.**
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md`
   - **REGLA — el asistente de la app solo LEE; lo pesado se ENCARGA, y solo con un clic.**
   - **REGLA — el texto del encargo lo compone el SERVIDOR, de un catálogo cerrado**
+  - **REGLA — un encargo de la app NO avisa por WhatsApp al empezar: un solo mensaje, al terminar**
   - **REGLA — los botones van en el TEXTO, no en herramientas.**
   - **REGLA — el asistente SABE QUÉ TIENES ABIERTO, y una orden sin número es de eso**
   - **REGLA — UNA tarjeta, la que lo hace todo; y lo que falta se CONTESTA, no se encarga**
