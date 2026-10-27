@@ -1289,6 +1289,17 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     }
 
     /**
+     * Lo que dijo el ASISTENTE, con el «Sí»: un solo cambio del mapa de muros
+     * (`transformarMuros` de `asistenteEnvolvente.js`, puro). Va de una vez y no
+     * llamando a `mudaHueco` + `ponCarpinteria`… por separado: cada una busca el
+     * hueco por su ÍNDICE, y el paso anterior lo ha cambiado. De una vez es
+     * también UN paso de deshacer.
+     */
+    function aplicaAsistente(transformar) {
+        if (typeof transformar === 'function') setMuros(v => transformar(v));
+    }
+
+    /**
      * Lo que se señala AQUÍ y el motor no puede saber: los huecos, por dónde
      * se entra y qué medianeras dan a un espacio no habitable. La traducción
      * vive en `senalado.js` (pura), que es la que usa también la skill que
@@ -1318,7 +1329,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         equiposPlano, equiposLienzo, ponEquipoPlano, quitaEquipoPlano,
         huerfanos, recuperaHuerfanos, descartaHuerfanos,
         loSenalado, restaurar,
-        pizarra, trazoPizarra, aplicaPizarra, limpiaPizarra, murosDePlanta,
+        pizarra, trazoPizarra, aplicaPizarra, limpiaPizarra, murosDePlanta, aplicaAsistente,
         esCandidata, esMedianera, esParticion, esFuera, tipoDe, nombreDe, estadoDe,
         rumboDe, necesitaRumbo, rumbosDe,
     };

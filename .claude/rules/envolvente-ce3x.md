@@ -97,12 +97,15 @@ paths:
 
 139. **El trabajo guardado es la RECETA del `.cex`, y cada `.cex` queda SELLADO** (2026-10-15, 26RES060_217): medidas por fase, aerotermia de la simulación, placas de la 2.ª medida (`fv_segunda`, nunca `autoconsumo_inversion`), técnico, fechas y medidas libres van en `cee.envolvente.ajustes`, y la ventana y la skill escriben el mismo fichero. `cee.cex_sello[fase]` (huella, md5, quién) da en la ventana DESFASADO / TOCADO (409 al generar) / POR CALIFICAR, que termina el PC: `cee_inicial.js calificar --cola --escribir`. Tras tocarlo: `node implementation/backend/scripts/test_receta_cex.mjs`. Ver "La RECETA del `.cex` y su SELLO".
 
+179. **El ASISTENTE de la envolvente: se DICE lo que está mal (texto o voz), Claude PROPONE operaciones y el navegador las VALIDA y las enseña antes del «Sí»** (2026-10-27, lo pidió Fran). Panel arriba de la columna de la pared, en el CRM y en la app de certificadores. **A Claude solo va un RESUMEN compacto que compone el navegador** (`resumenCompacto`: paredes, huecos, zonas con lo que les falta hasta el borde por rumbo, medidas, pared seleccionada; ~600 tokens) con las instrucciones en **caché** y **Haiku 5.5** primero (Sonnet 5.5 solo si no sale nada legible, no está seguro sin preguntar o nada casa con el plano). Sale con **esquema**: un `anyOf` con UNA forma por operación y todos los campos obligatorios («no cambia» = `"igual"`/`0`) — con 21 campos opcionales la API tardaba >90 s en compilar la gramática, y con 21 `null` da 400 (máx. 16 uniones). **Lo que no casa con el plano NO se aplica** y se dice; **lo que se rompe se dice ANTES** (paredes con huecos bajo una zona nueva, huecos que no caben en su pared, «FB1» que puede ser FBE1 o FBO1). Las instrucciones NO piden confirmación de lo claro (la da el «Sí») y llevan ejemplos; el panel ofrece EJEMPLOS pulsables con los nombres del plano (`ejemplosPara`) y la respuesta a una pregunta viaja con lo pedido. **Aplicar y generar van por ESTADO** (`tareaAsistente` + efecto), nunca en el mismo clic: `volverAMedir` y `generarCex` leen el plano de su pintado. Coste medido: **~0,0002 $ por corrección** (0,0007 $ la primera de cada 5 min); la voz la transcribe Gemini (~2 s) y solo viaja el texto. Al externo, `limiteExt('asistente')` y `('asistente_voz')`. Fuentes únicas: [services/asistenteEnvolvente.js](implementation/backend/services/asistenteEnvolvente.js) y [logic/asistenteEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/asistenteEnvolvente.js). Tras tocarlo: `node implementation/backend/scripts/test_asistente_envolvente.mjs` (y `--en-vivo`, ~0,001 $). Ver "El ASISTENTE de la envolvente".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/envolvente-ce3x/autoconsumo-con-pvgis-kwp-kwh-ano-y-su-reparto-mensual.md` — AUTOCONSUMO con PVGIS — kWp ⇄ kWh/año y su reparto mensual (2026-10-02) · 7,2 KB
 - `docs/conocimiento/envolvente-ce3x/deshacer-en-la-envolvente-y-quien-puede-leer-la-placa.md` — DESHACER en la envolvente, y quién puede leer la placa (2026-09-16) · 4,7 KB
+- `docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md` — El ASISTENTE de la envolvente: se dice lo que está mal y se corrige (2026-10-27) · 10,4 KB
 - `docs/conocimiento/envolvente-ce3x/el-boton-que-metia-su-propio-evento-dentro-del-post.md` — El botón que metía su propio EVENTO dentro del POST (2026-09-18) · 5,9 KB
 - `docs/conocimiento/envolvente-ce3x/el-cex-de-la-envolvente-donde-acaba-y-con-que-transmitancias.md` — El `.cex` de la envolvente: dónde acaba y con qué transmitancias (2026-09-13) · 8,5 KB
 - `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-a-mano-alzada-se-dice-donde-los-m-los-pone-catastro.md` — El CROQUIS a mano alzada — se dice DÓNDE, los m² los pone Catastro (2026-09-29) · 3,9 KB
@@ -158,6 +161,13 @@ paths:
   - **REGLA — la SELECCIÓN no gasta un paso.**
   - **REGLA — Ctrl+Z NO se intercepta dentro de un campo de texto.**
   - **REGLA — lo que devuelve `useDeshacer` va MEMORIZADO.**
+- `docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md`
+  - **REGLA — a Claude solo va el RESUMEN, y lo compone el NAVEGADOR.**
+  - **REGLA — Claude no edita: PROPONE, y el navegador VALIDA contra el plano de verdad.**
+  - **REGLA — antes del «Sí» se dice lo que se ROMPE.**
+  - **REGLA — aplicar y generar van por ESTADO, no en el mismo clic.**
+  - **REGLA — las zonas se cambian como RECTÁNGULO en los ejes del edificio, y los m² los pone el motor.**
+  - **REGLA — lo que NO CABE se dice antes del «Sí».**
 - `docs/conocimiento/envolvente-ce3x/el-boton-que-metia-su-propio-evento-dentro-del-post.md`
   - **REGLA — lo que va a viajar en el cuerpo de un POST se NORMALIZA en la función,
 no en quien la llama.**

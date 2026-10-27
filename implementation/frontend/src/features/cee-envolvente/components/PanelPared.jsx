@@ -20,7 +20,9 @@ import { LecturaFotoModal } from './LecturaFotoModal';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function PanelPared({ plano, transmitancias, expedienteId,
-                             carpinteriaDefecto, onIrAPared }) {
+                             carpinteriaDefecto, onIrAPared, cabeza = null }) {
+    // `cabeza`: lo que va ENCIMA de la pared dentro de la misma caja fija (el
+    // asistente), para que se vea siempre sin bajar y sin otra columna.
     const { muros, sel, entrada, esMedianera, esParticion, esFuera, esDibujada,
             tipoDe, nombreDe, setSel, estadoDe,
             ponHuecos, cambiaHueco, duplicaHueco, quitaHueco, marcaComoParticion,
@@ -86,6 +88,7 @@ export function PanelPared({ plano, transmitancias, expedienteId,
     if (!m) {
         return (
             <Caja cajaRef={caja}>
+                {cabeza}
                 <div>
                     <p className="text-[9.5px] font-black uppercase tracking-[0.12em] text-white/30">
                         La pared
@@ -108,6 +111,7 @@ export function PanelPared({ plano, transmitancias, expedienteId,
 
     return (
         <Caja cajaRef={caja}>
+            {cabeza}
             {/* LA CABECERA de la pared: qué pared es, qué es, y en qué estado
                 está. El tipo va en SU color —el mismo que en el plano—, y el
                 estado en una chapa a la derecha: es lo que antes había que

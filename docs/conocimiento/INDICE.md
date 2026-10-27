@@ -18,7 +18,7 @@
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 9 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,0 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 40,4 KB | 13 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 93,5 KB | 36 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 96,2 KB | 37 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 17,8 KB | 5 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,8 KB | 2 |
@@ -261,6 +261,7 @@
 - **177** → `.claude/rules/calculo.md` — El CEE «a ciegas» de la oportunidad va APARTE y solo lo ve el EQUIPO: nunca cambia la cifra ofrecida
 - **178** → `.claude/rules/facturacion.md` — La economía de los CAE por el MCP (bono, beneficio, ahorro estimado y verificado, volumen, ventas al S.O.) s…
 - **179** → `.claude/rules/calculo.md` — Con los dos `.xml` (los dos con `<EnergiaFinalVectores>`), el ahorro RES080 es la energía final que DECLARAN…
+- **179** → `.claude/rules/envolvente-ce3x.md` — El ASISTENTE de la envolvente: se DICE lo que está mal (texto o voz), Claude PROPONE operaciones y el navega…
 
 ## Documentos por área
 
@@ -455,6 +456,7 @@
 
 - `docs/conocimiento/envolvente-ce3x/autoconsumo-con-pvgis-kwp-kwh-ano-y-su-reparto-mensual.md` — AUTOCONSUMO con PVGIS — kWp ⇄ kWh/año y su reparto mensual (2026-10-02)
 - `docs/conocimiento/envolvente-ce3x/deshacer-en-la-envolvente-y-quien-puede-leer-la-placa.md` — DESHACER en la envolvente, y quién puede leer la placa (2026-09-16)
+- `docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md` — El ASISTENTE de la envolvente: se dice lo que está mal y se corrige (2026-10-27)
 - `docs/conocimiento/envolvente-ce3x/el-boton-que-metia-su-propio-evento-dentro-del-post.md` — El botón que metía su propio EVENTO dentro del POST (2026-09-18)
 - `docs/conocimiento/envolvente-ce3x/el-cex-de-la-envolvente-donde-acaba-y-con-que-transmitancias.md` — El `.cex` de la envolvente: dónde acaba y con qué transmitancias (2026-09-13)
 - `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-a-mano-alzada-se-dice-donde-los-m-los-pone-catastro.md` — El CROQUIS a mano alzada — se dice DÓNDE, los m² los pone Catastro (2026-09-29)

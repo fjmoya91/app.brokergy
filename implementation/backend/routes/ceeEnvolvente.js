@@ -193,6 +193,8 @@ const LIMITES_EXT = {
     croquis_movil: { max: 20, ventanaMs: HORA_MS,      que: 'enlaces para el móvil', plazo: 'una hora' },
     cex:           { max: 10, ventanaMs: HORA_MS,      que: 'certificados generados', plazo: 'una hora' },
     fotos_leer:    { max: 30, ventanaMs: 24 * HORA_MS, que: 'lecturas de fotos', plazo: 'un día' },
+    asistente:     { max: 60, ventanaMs: HORA_MS,      que: 'correcciones con el asistente', plazo: 'una hora' },
+    asistente_voz: { max: 40, ventanaMs: HORA_MS,      que: 'audios al asistente', plazo: 'una hora' },
 };
 const usosExt = new Map();       // `${tipo}|${cuentaId}` → [instantes]
 const enCursoExt = new Set();    // `${tipo}|${cuentaId}` con una petición en marcha
@@ -1275,6 +1277,58 @@ router.post('/leer', internalOnly, upload.single('file'), async (req, res) => {
 //
 // ⚠️ El `upload` de arriba admite UN fichero de `.cex`. Aquí se sueltan varias
 // fotos de la misma fachada a la vez, así que va su propio multer.
+
+// ─── El ASISTENTE: lo que está mal, dicho con palabras ──────────────────────
+//
+// POST /api/cee-envolvente/:expedienteId/asistente  { texto, resumen, reintento? }
+//
+// Devuelve las OPERACIONES que Claude saca de lo dicho; no escribe nada. Las
+// aplica la ventana tras el «Sí» (ver `services/asistenteEnvolvente.js`). Lo que
+// llega es el RESUMEN que compone la ventana, nunca el trabajo entero: el plano
+// de un certificador externo ya lo tiene él delante, así que el guardián de
+// siempre basta (su obra, o 404) y el tope es por cuenta, como el de Gemini.
+const asistenteEnv = require('../services/asistenteEnvolvente');
+router.post('/:expedienteId/asistente', internoOExtSuyo, staffSiOportunidad, limiteExt('asistente'),
+    async (req, res) => {
+        const { texto, resumen, reintento } = req.body || {};
+        const r = await asistenteEnv.interpretar({
+            texto, resumen, reintento: reintento || null,
+            quien: req.certapp?.email || quienEs(req), obra: req.params.expedienteId,
+        });
+        if (!r.ok) return res.status(r.status || 500).json({ error: r.error });
+        res.json(r);
+    });
+
+// POST /api/cee-envolvente/:expedienteId/asistente/voz  (multipart: `audio`)
+//
+// La RESERVA del micrófono para cuando el navegador no dicta solo (Firefox, la
+// app del móvil): se transcribe con la misma llamada que las notas de voz del
+// WhatsApp (Gemini, «literalmente») y se devuelve el TEXTO, que se enseña y se
+// manda después al asistente como si se hubiera escrito. Claude no oye audio.
+const uploadVoz = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
+router.post('/:expedienteId/asistente/voz', internoOExtSuyo, staffSiOportunidad, limiteExt('asistente_voz'),
+    uploadVoz.single('audio'), async (req, res) => {
+        const f = req.file;
+        if (!f?.buffer?.length) return res.status(400).json({ error: 'No ha llegado el audio.' });
+        const mime = String(f.mimetype || '').split(';')[0];
+        if (!/^audio\//.test(mime)) return res.status(400).json({ error: 'Eso no es un audio.' });
+        try {
+            const { llamarGemini } = require('../services/placaOcrService');
+            const r = await llamarGemini([{ buffer: f.buffer, mimeType: mime }], {
+                prompt: 'Transcribe literalmente este audio en español. Habla de la envolvente de una vivienda: '
+                    + 'paredes como FBE1 o MBN2, ventanas V1, V2…, marcos de PVC, madera o aluminio. '
+                    + 'No resumas. Si algo no se entiende, pon [inaudible].',
+                schema: { type: 'object', properties: { transcripcion: { type: 'string' } }, required: ['transcripcion'] },
+                etiqueta: 'asistente-envolvente-voz', maxTokens: 1024,
+            });
+            const texto = String(r?.transcripcion || '').trim();
+            if (!texto) return res.status(502).json({ error: 'No se ha entendido nada en el audio.' });
+            res.json({ texto });
+        } catch (e) {
+            console.error('[ceeEnvolvente] asistente/voz:', e.message);
+            res.status(502).json({ error: `No se ha podido transcribir: ${e.message}` });
+        }
+    });
 
 const uploadFotos = multer({
     storage: multer.memoryStorage(),

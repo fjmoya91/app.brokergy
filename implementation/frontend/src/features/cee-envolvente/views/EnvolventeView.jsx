@@ -58,6 +58,9 @@ import { lineaTrabajo, haceCuanto } from '../../cee-ia/logic/ceeIa';
 //: `.cex`— pasan por aquí: repite sola la que no llegó a salir y devuelve el
 //: fallo ya redactado, en vez de la misma frase para seis causas distintas.
 import { postEnvolvente, soloLista } from '../logic/pedirEnvolvente';
+//: El ASISTENTE: se le dice lo que está mal y devuelve los cambios en palabras.
+import { AsistenteEnvolvente } from '../components/AsistenteEnvolvente';
+import { medidasCambiadas, tocaMuros, transformarMuros, zonasAjustadas } from '../logic/asistenteEnvolvente';
 
 //: Qué FONDO lleva el plano en este navegador: 'catastro' · 'satelite' ·
 //: 'ninguno'. Es una comodidad de pantalla, no un dato del expediente.
@@ -1278,6 +1281,47 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         else generarCex(fase);
     }
 
+    // ── EL ASISTENTE ─────────────────────────────────────────────────────────
+    // Lo que el asistente necesita para el resumen y para validar, en el momento
+    // de preguntar (no en cada pintado: el resumen se compone solo al pulsar).
+    const contextoAsistente = () => ({
+        plantas: plano.plantas, muros: plano.muros, zonas: plano.zonasFuera || [],
+        t: geo?.georef ? lienzoAMundo(geo.georef) : null,
+        catalogo: ficha?.medidas || [], elegidas: medidasSel, fase: fichaFase,
+        defecto: huecosDefecto(ajustes), sel: plano.sel,
+    });
+    //: Lo que queda por hacer DESPUÉS de aplicar en el plano: volver a medir con
+    //: las zonas nuevas y/o generar. Va por estado y un efecto porque `volverAMedir`
+    //: y `generarCex` leen el plano de SU pintado: llamadas en el mismo clic
+    //: medirían y escribirían el plano de antes del cambio.
+    const [tareaAsistente, setTareaAsistente] = useState(null);   // { zonas, generar }
+
+    function aplicarAsistente(pasos, { generar = false } = {}) {
+        if (tocaMuros(pasos)) plano.aplicaAsistente(v => transformarMuros(v, pasos));
+        const med = medidasCambiadas(pasos);
+        if (med) {
+            // Por SU fase, que puede no ser la que se previsualiza.
+            setAjustes(a => ({ ...a, medidas_elegidas: { ...(a.medidas_elegidas || {}), [med.fase]: med.elegidas } }));
+        }
+        const zonas = zonasAjustadas(plano.zonasFuera || [], pasos);
+        if (zonas || generar) setTareaAsistente({ zonas, generar });
+    }
+
+    useEffect(() => {
+        if (!tareaAsistente) return;
+        const { zonas, generar } = tareaAsistente;
+        setTareaAsistente(null);
+        (async () => {
+            if (zonas) {
+                const ok = await volverAMedir({ zonas_fuera: zonas });
+                // Generar, en el pintado SIGUIENTE: con la geometría ya medida.
+                if (ok && generar) setTareaAsistente({ zonas: null, generar: true });
+                return;
+            }
+            if (generar) pedirGenerar(fichaFase);
+        })();
+    }, [tareaAsistente]);   // eslint-disable-line react-hooks/exhaustive-deps
+
     //: El `.cex` de Drive se guardó a mano en CE3X después de generarlo: el
     //: backend no lo pisa sin un «sí» (`forzar`). Aquí se guarda la pregunta.
     const [tocadoCex, setTocadoCex] = useState(null);   // { fase, respuestas, texto }
@@ -2030,7 +2074,14 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         de ese plano. Esta columna es LA PARED seleccionada. */}
                     <PanelPared plano={plano} transmitancias={ficha?.ficha?.termicas}
                                 carpinteriaDefecto={huecosDefecto(ajustes)} expedienteId={id}
-                                onIrAPared={irAPared} />
+                                onIrAPared={irAPared}
+                                cabeza={geo?.geometria && (
+                                    <AsistenteEnvolvente urlAsistente={api(id, 'asistente')}
+                                                         urlVoz={api(id, 'asistente/voz')}
+                                                         contexto={contextoAsistente}
+                                                         onAplicar={aplicarAsistente}
+                                                         ocupado={generando || !!tareaAsistente} />
+                                )} />
                 </div>
             </div>
 
