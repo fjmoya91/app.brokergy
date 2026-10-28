@@ -1162,7 +1162,7 @@ router.patch('/:id', enforceAuth, async (req, res) => {
 
         if (payload.logo_empresa !== undefined) {
             prescriptorPayload.logo_empresa = payload.logo_empresa;
-            cacheLogos.delete(String(id));
+            cacheLogos.delete(String(req.params.id));
             console.log(`[PATCH] Logo recibido en payload (Size: ${payload.logo_empresa?.length || 0})`);
         }
 
