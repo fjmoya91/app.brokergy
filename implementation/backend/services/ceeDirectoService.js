@@ -375,11 +375,14 @@ function contactoCliente(cli) {
     if (!cli) return { nombre: null, tlf: null, email: null, tercero: false };
     const notif = cli.notificaciones_contacto_activas === true || cli.notificaciones_contacto_activas === 'true';
     const titular = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() || null;
+    const tercero = !!(notif && cli.persona_contacto_nombre && (cli.persona_contacto_tlf || cli.persona_contacto_email));
     return {
         nombre: (notif ? (cli.persona_contacto_nombre || titular) : titular) || null,
         tlf: (notif ? (cli.persona_contacto_tlf || cli.tlf) : (cli.tlf || cli.persona_contacto_tlf)) || null,
-        email: (notif ? (cli.persona_contacto_email || cli.email) : (cli.email || cli.persona_contacto_email)) || null,
-        tercero: !!(notif && cli.persona_contacto_nombre && (cli.persona_contacto_tlf || cli.persona_contacto_email)),
+        // Al contacto, solo SU email: el del titular le llegaría a otro (avisoCliente).
+        email: (tercero ? cli.persona_contacto_email
+            : notif ? (cli.persona_contacto_email || cli.email) : (cli.email || cli.persona_contacto_email)) || null,
+        tercero,
     };
 }
 

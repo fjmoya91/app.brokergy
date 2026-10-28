@@ -40,7 +40,7 @@ paths:
 - `docs/conocimiento/clientes/confirmacion-de-cobro-el-formulario-del-final.md` — Confirmación de cobro — el formulario del final (2026-09-07) · 47,7 KB
 - `docs/conocimiento/clientes/el-aviso-lo-recibe-el-comercial-o-el-tecnico.md` — El aviso lo recibe el COMERCIAL o el TÉCNICO (2026-09-09) · 13,6 KB
 - `docs/conocimiento/clientes/el-mapa-del-escaparate-ensena-todas-las-obras.md` — El MAPA del escaparate enseña TODAS las obras (2026-10-19) · 2,0 KB
-- `docs/conocimiento/clientes/los-avisos-de-sus-clientes-al-partner.md` — Los avisos de sus clientes, al PARTNER (2026-10-15) · 3,7 KB
+- `docs/conocimiento/clientes/los-avisos-de-sus-clientes-al-partner.md` — Los avisos de sus clientes, al PARTNER (2026-10-15) · 4,5 KB
 - `docs/conocimiento/clientes/modulo-prescriptores-novedades.md` — Módulo Prescriptores — Novedades (2026-03-26) · 1,1 KB
 - `docs/conocimiento/clientes/patron-de-modales-clientes-y-prescriptores.md` — Patrón de Modales (Clientes y Prescriptores) · 0,5 KB
 - `docs/conocimiento/clientes/una-vivienda-puede-tener-dos-propietarios.md` — Una vivienda puede tener DOS propietarios (2026-09-17) · 4,2 KB
@@ -134,6 +134,7 @@ vuelve a salir**
 ENCIENDE `contacto_es_partner` en sus clientes.**
   - **REGLA — actúa en tres momentos, y en ninguno más:**
   - **REGLA — el navegador solo manda la marca si se ha CAMBIADO.**
+  - **REGLA — a la persona de contacto se le escribe a SU email o a ninguno**
 - `docs/conocimiento/clientes/una-vivienda-puede-tener-dos-propietarios.md`
   - **REGLA — un copropietario es DESTINATARIO, no FIRMANTE.**
   - **REGLA — el destinatario AUTOMÁTICO no cambia.**

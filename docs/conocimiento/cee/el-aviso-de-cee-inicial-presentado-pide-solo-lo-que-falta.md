@@ -45,6 +45,10 @@ al Cliente» (no se genera el token) y el historial del expediente dice a quién
 o que no ha salido. Lo que sube un técnico o quien presenta por su enlace sigue igual: decide el equipo
 desde el email o el popup. Un fallo del aviso no tumba la subida.
 
+**El email «al cliente», con el desvío al contacto, es el del CONTACTO o ninguno** (2026-10-28,
+26RES060_253: el «¡Hola Félix!» había ido al email de la titular). Ver «Los avisos de sus
+clientes, al PARTNER».
+
 **Apagado en LOCAL** (`CEE_REGISTRO_AVISO_AUTO=false`): local escribe en producción. Encendido por defecto
 (en el VPS no hace falta tocar el `.env`).
 
