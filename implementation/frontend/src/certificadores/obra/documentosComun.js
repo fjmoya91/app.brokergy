@@ -9,6 +9,9 @@ export const CLASES = {
     xml: 'XML del certificado',
     cex: 'Archivo CE3X (.cex)',
     croquis: 'Croquis',
+    justificante: 'Justificante de registro',
+    etiqueta: 'Etiqueta energética',
+    otros: 'Otro documento',
 };
 
 /** Quién dejó el fichero, en palabras de quien lo mira. */

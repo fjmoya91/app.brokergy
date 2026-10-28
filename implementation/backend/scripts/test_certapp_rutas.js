@@ -237,6 +237,7 @@ const srv = app.listen(0, async () => {
         ['GET', `/obras/${OBRA_SUYA}/fachada-sugerida/catastro`], ['POST', `/obras/${OBRA_SUYA}/fachada-sugerida/streetview/usar`],
         ['GET', `/obras/${OBRA_SUYA}/cee/para-firmar`], ['POST', `/obras/${OBRA_SUYA}/cee/firmado`], ['POST', `/obras/${OBRA_SUYA}/cee/definitivo`],
         ['GET', `/obras/${OBRA_SUYA}/documentos`],
+        ['GET', `/obras/${OBRA_SUYA}/presentar`], ['GET', `/obras/${OBRA_SUYA}/presentar/pdf`], ['POST', `/obras/${OBRA_SUYA}/documentos/justificante`],
     ];
     const DEL_ADMIN = [
         ['GET', '/resumen'], ['GET', '/beta'], ['GET', `/beta/${OBRA_SUYA}`], ['PATCH', `/beta/${OBRA_SUYA}`], ['POST', `/beta/${OBRA_SUYA}/invitar`],
@@ -307,6 +308,11 @@ const srv = app.listen(0, async () => {
     q('tok-admin', 'GET', `/api/certapp-admin/obras/${OBRA_SUYA}/documentos`, 200, null, {
         obra: { estado: 'LISTO', drive_folder_id: 'carpeta-obra-1' }, cuerpo: (j) => j.certificado?.drive === 'https://drive/pdf' && j.entregado === true,
     });
+    // Presentar en el Registro (28/10/2026): ajena 404 (también antes de recibir el fichero); sin entregar, 409
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_AJENA}/presentar`, 404);
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_AJENA}/presentar/pdf`, 404);
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/documentos/justificante`, 404, null, { multipart: true });
+    q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/presentar`, 409, null, { cuerpo: (j) => j.code === 'ESTADO_NO_ENTREGADO' });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/docs/NO_EXISTE`, 400, null, { multipart: true, cuerpo: (j) => j.code === 'SLOT_DESCONOCIDO' });
     for (const [m, r] of DEL_ADMIN) q('tok-ext', m, `/api/certapp-admin${r}`, 403, {});
     for (const t of ['tok-trab', 'tok-partner']) q(t, 'GET', '/api/certapp-admin/resumen', 403);

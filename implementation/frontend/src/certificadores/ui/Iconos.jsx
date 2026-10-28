@@ -16,6 +16,7 @@ export const IcoMas = (p) => <Ico d="M12 5v14M5 12h14" {...p} />;
 export const IcoMenos = (p) => <Ico d="M5 12h14" {...p} />;
 export const IcoMenu = (p) => <Ico d="M4 7h16M4 12h16M4 17h16" {...p} />;
 export const IcoDescarga = (p) => <Ico {...p}><path d="M12 4v11" /><path d="M7 10l5 5 5-5" /><path d="M5 20h14" /></Ico>;
+export const IcoEnviar = (p) => <Ico {...p}><path d="M21 3L10 14" /><path d="M21 3l-7 18-4-7-7-4 18-7z" /></Ico>;
 export const IcoSubir = (p) => <Ico {...p}><path d="M12 20V9" /><path d="M7 14l5-5 5 5" /><path d="M5 4h14" /></Ico>;
 export const IcoCopiar = (p) => <Ico {...p}><rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.5" /><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5" /></Ico>;
 export const IcoAlerta = (p) => <Ico {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5M12 16.5v.01" /></Ico>;

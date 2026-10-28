@@ -300,6 +300,30 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-docs-mas{appearance:none;background:none;border:0;padding:0;margin-top:14px;font:600 14px 'Inter',sans-serif;color:var(--tinta);cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:underline;text-underline-offset:3px}
 .ca-docs-old .ca-doc{background:var(--crema);padding:10px 10px 10px 12px}
 @media (max-width:480px){.ca-doc{flex-wrap:wrap}.ca-doc-acc{width:100%;justify-content:flex-end}}
+.ca-soltar{margin-top:10px;border:1.5px dashed rgba(20,17,17,.22);border-radius:18px;background:#fff;transition:border-color .15s,background .15s}
+.ca-soltar-sobre{border-color:var(--naranja);background:#fff8ec}
+.ca-soltar-ocupado{opacity:.75}
+.ca-soltar-boton{appearance:none;width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;background:none;border:0;cursor:pointer;text-align:left;font:inherit;color:var(--tinta)}
+.ca-soltar-boton > span:last-child{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ca-soltar-boton small{color:var(--gris);font-size:13px}
+.ca-soltar-par{display:grid;grid-template-columns:1fr;gap:0 10px}
+@media (min-width:720px){.ca-soltar-par{grid-template-columns:1fr 1fr}}
+.ca-soltar-nombre{display:block;padding:0 16px 14px}
+.ca-pres-avisos{margin:4px 0 0;padding-left:18px}
+.ca-pres-avisos li{margin-bottom:4px}
+.ca-pres-ap .ca-sec{margin-top:0}
+.ca-pres-instr{margin:4px 0;font-size:14px;color:#3b3e45}
+.ca-pres-campos{list-style:none;margin:8px 0 0;padding:0;border:1px solid var(--linea);border-radius:16px;overflow:hidden;background:#fff}
+.ca-pres-campo{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;min-height:46px}
+.ca-pres-campo + .ca-pres-campo{border-top:1px solid var(--linea)}
+.ca-pres-k{flex:0 0 38%;font-size:12.5px;color:var(--gris)}
+.ca-pres-v{flex:1;min-width:0;font-weight:600;font-size:14.5px;overflow-wrap:anywhere;display:flex;flex-direction:column;gap:2px}
+.ca-pres-v small{font-weight:400;font-size:12.5px;color:var(--gris)}
+.ca-pres-vacio .ca-pres-v{color:var(--gris2);font-weight:400}
+.ca-pres-campo .ca-icobtn{width:38px;height:38px}
+.ca-pres-campo span.ca-icobtn{visibility:hidden}
+.ca-pres-fin{background:var(--crema);border:1px solid var(--linea);border-radius:16px;padding:14px}
+@media (max-width:480px){.ca-pres-campo{flex-wrap:wrap}.ca-pres-k{flex-basis:100%;padding-top:4px}}
 .ca-fila-top-der{display:flex;align-items:center;gap:10px}
 .ca-btn-fotos{width:auto;min-height:36px;padding:0 12px;font-size:13.5px}
 /* índice «Ir a…» fijo bajo la barra (obra/IndiceSecciones.jsx) */

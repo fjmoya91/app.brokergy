@@ -188,6 +188,10 @@ function nombreParaSaludo(cli) {
  * le puede hablar de "tu expediente": se le dice de QUIÉN es. Y su email es el del
  * contacto, no el del titular — que era por donde salía el email de "CEE
  * presentado" aunque el WhatsApp sí respetara el desvío.
+ *
+ * REGLA — si se le habla a la persona de contacto, el email es SOLO el suyo: sin
+ * él no sale email (sale el WhatsApp). Caer al del titular mandaba «¡Hola Félix!»
+ * al buzón de la familia (26RES060_253, 28/10/2026: Félix, de CALINDSA, sin email).
  */
 function avisoCliente(cli) {
     const desvio = cli?.notificaciones_contacto_activas === true
@@ -198,7 +202,8 @@ function avisoCliente(cli) {
     return {
         tercero,
         titular,
-        email: (desvio ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
+        email: (tercero ? cli?.persona_contacto_email
+            : desvio ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
     };
 }
 

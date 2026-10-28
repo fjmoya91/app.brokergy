@@ -9,7 +9,11 @@
 //     MISMO criterio que la entrega (`entrega.elegirFicheros`: el más reciente;
 //     el firmado, solo si es posterior al PDF);
 //   · las VERSIONES ANTERIORES: lo que queda en «1. CEE» y no manda, más «OLD»;
-//   · los .cex que ha subido el certificador, en CUARENTENA (ver abajo).
+//   · los .cex que ha subido el certificador, en CUARENTENA (ver abajo);
+//   · lo que devuelve el Registro (Fran, 28/10/2026: «que se suba el justificante de
+//     presentación y la etiqueta… y un apartado de otros para la tasa, la
+//     resolución»): el JUSTIFICANTE y la ETIQUETA en la raíz de «1. CEE», y lo demás
+//     en su subcarpeta CARPETA_OTROS. Lo sube services/certapp/presentacion.js.
 // Cada fichero lleva su descarga firmada (`docs.urlFichero`, 12 h); el visor de la
 // app la pide como bytes (el `sandbox` de /fichero no deja a Chrome pintar el PDF
 // en una pestaña: ERR_BLOCKED_BY_CLIENT, medido con la 2026EXT_1). El admin
@@ -28,6 +32,7 @@ const { elegirFicheros } = require('./entrega');
 
 const CARPETA_OLD = 'OLD';
 const CARPETA_CUARENTENA = 'CEX DEL CERTIFICADOR (NO ABRIR)';
+const CARPETA_OTROS = 'OTROS';
 const SUFIJO_CUARENTENA = '.cuarentena';
 const MAX_CUARENTENA = 20;
 const ES_CARPETA = 'application/vnd.google-apps.folder';
@@ -44,6 +49,9 @@ function claseDe(f) {
     if (e === 'CEX') return 'cex';
     if (e !== 'PDF') return null;
     if (/_FDO(_OLD\d*)?\.PDF$/.test(n)) return 'firmado';
+    // Antes que «CEE»: un justificante o una etiqueta no son el certificado.
+    if (/JUSTIFICANTE/.test(n)) return 'justificante';
+    if (/ETIQUETA/.test(n)) return 'etiqueta';
     if (/CROQUIS/.test(n)) return 'croquis';
     if (/CEE/.test(n)) return 'certificado';
     return null;
@@ -52,7 +60,8 @@ function claseDe(f) {
 /** Quién lo dejó, por el nombre (sin el _OLD que le pone el archivo). */
 function autorDe(f) {
     const n = N(f).replace(/_OLD\d*(\.[A-Z0-9.]+)$/, '$1');
-    if (n.endsWith('.CEX.CUARENTENA') || /_FDO\.PDF$/.test(n) || / - CEE\.(XML|PDF)$/.test(n)) return 'certificador';
+    if (n.endsWith('.CEX.CUARENTENA') || /_FDO\.PDF$/.test(n) || / - CEE\.(XML|PDF)$/.test(n)
+        || /JUSTIFICANTE|ETIQUETA/.test(n)) return 'certificador';
     if (/_REVISAR\.|CROQUIS/.test(n)) return 'IA';
     return 'BROKERGY';
 }
@@ -92,19 +101,29 @@ function resumenXml(obra) {
     };
 }
 
+/** La inscripción en el Registro, tal como la dejó el justificante (`cee.registro`). */
+function resumenRegistro(obra) {
+    const r = obra.cee?.registro;
+    if (!r?.at) return null;
+    return { at: r.at, fecha: r.fecha || null, leida: r.origen === 'justificante', numero: r.numero || null };
+}
+
 /**
  * El apartado entero.
- * @returns {Promise<{ hay: boolean, certificado, firmado, xml, cex, croquis, anteriores: object[],
- *   cuarentena: object[], firma: object|null, firma_anterior: boolean, xml_resumen: object|null }>}
+ * @returns {Promise<{ hay: boolean, certificado, firmado, xml, cex, croquis, justificante, etiqueta,
+ *   anteriores: object[], cuarentena: object[], otros: object[], firma: object|null,
+ *   firma_anterior: boolean, xml_resumen: object|null, registro: object|null }>}
  */
 async function listar(obra, { admin = false } = {}) {
     const f = obra.cee?.firma || null;
     const out = {
         hay: false, certificado: null, firmado: null, xml: null, cex: null, croquis: null,
-        anteriores: [], cuarentena: [],
+        justificante: null, etiqueta: null,
+        anteriores: [], cuarentena: [], otros: [],
         firma: f ? { at: f.at || null, firmante: f.firmante?.nombre || null, via: f.via || null, coincide: f.coincide ?? null } : null,
         firma_anterior: false,
         xml_resumen: resumenXml(obra),
+        registro: resumenRegistro(obra),
     };
     const carpetaCee = await drive.carpetaCeeSiExiste(obra);
     if (!carpetaCee) return out;
@@ -118,24 +137,38 @@ async function listar(obra, { admin = false } = {}) {
         out[k] = aDoc(obra, elegido, { admin, actual: true });
         actuales.add(elegido.id);
     }
+    // El justificante y la etiqueta: el más reciente de cada uno (los anteriores, a OLD).
+    for (const k of ['justificante', 'etiqueta']) {
+        const elegido = ficheros.filter(x => claseDe(x) === k && !/_OLD\d*\./.test(N(x)))
+            .sort((a, b) => (Date.parse(b.modifiedTime || '') || 0) - (Date.parse(a.modifiedTime || '') || 0))[0];
+        if (!elegido) continue;
+        out[k] = aDoc(obra, elegido, { admin, actual: true });
+        actuales.add(elegido.id);
+    }
     const sub = (nombre) => lista.find(x => x.mimeType === ES_CARPETA && N(x) === nombre.toUpperCase());
     const old = sub(CARPETA_OLD);
     const cuarentena = sub(CARPETA_CUARENTENA);
-    const [enOld, enCuarentena] = await Promise.all([
+    const otros = sub(CARPETA_OTROS);
+    const [enOld, enCuarentena, enOtros] = await Promise.all([
         old ? drive.listar(old.id) : [],
         cuarentena ? drive.listar(cuarentena.id) : [],
+        otros ? drive.listar(otros.id) : [],
     ]);
     out.anteriores = [...ficheros.filter(x => !actuales.has(x.id)), ...enOld.filter(x => x.mimeType !== ES_CARPETA && claseDe(x))]
         .map(x => aDoc(obra, x, { admin })).sort(masReciente);
     out.cuarentena = enCuarentena.filter(x => x.mimeType !== ES_CARPETA && claseDe(x) === 'cex')
         .map(x => aDoc(obra, x, { admin })).sort(masReciente);
+    // «Otros»: todo lo de su carpeta (la tasa, las resoluciones…), sin su OLD.
+    out.otros = enOtros.filter(x => x.mimeType !== ES_CARPETA)
+        .map(x => ({ ...aDoc(obra, x, { admin, actual: true }), clase: 'otros', autor: 'certificador' })).sort(masReciente);
     // Firmó una versión que ya no es la actual: se dice, y vuelve el «Firmar».
     out.firma_anterior = !!out.firma && !out.firmado;
-    out.hay = !!(out.certificado || out.firmado || out.xml || out.cex || out.croquis || out.anteriores.length || out.cuarentena.length);
+    out.hay = !!(out.certificado || out.firmado || out.xml || out.cex || out.croquis || out.justificante || out.etiqueta
+        || out.anteriores.length || out.cuarentena.length || out.otros.length);
     return out;
 }
 
 module.exports = {
-    listar, claseDe, autorDe, nombreDescarga, resumenXml,
-    CARPETA_OLD, CARPETA_CUARENTENA, SUFIJO_CUARENTENA, MAX_CUARENTENA,
+    listar, claseDe, autorDe, nombreDescarga, resumenXml, resumenRegistro,
+    CARPETA_OLD, CARPETA_CUARENTENA, CARPETA_OTROS, SUFIJO_CUARENTENA, MAX_CUARENTENA,
 };

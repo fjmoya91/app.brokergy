@@ -1280,13 +1280,16 @@ async function resolveSolicitudContacto(exp, target, rol = null) {
     if (cErr) console.warn('[solicitud contacto CLIENTE]', cErr.message);
     const notif = cli?.notificaciones_contacto_activas === true || cli?.notificaciones_contacto_activas === 'true';
     const nombreCli = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : null;
+    // Quien lo lee NO es el titular (su persona de contacto, o el partner): el
+    // popup le escribe en tercera persona, diciéndole de qué cliente es.
+    const tercero = !!(notif && cli?.persona_contacto_nombre && (cli?.persona_contacto_tlf || cli?.persona_contacto_email));
     return {
         nombre: (notif ? (cli?.persona_contacto_nombre || nombreCli) : nombreCli) || null,
         tlf: (notif ? (cli?.persona_contacto_tlf || cli?.tlf) : (cli?.tlf || cli?.persona_contacto_tlf)) || null,
-        email: (notif ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
-        // Quien lo lee NO es el titular (su persona de contacto, o el partner): el
-        // popup le escribe en tercera persona, diciéndole de qué cliente es.
-        tercero: !!(notif && cli?.persona_contacto_nombre && (cli?.persona_contacto_tlf || cli?.persona_contacto_email)),
+        // Al contacto, solo SU email: el del titular le llegaría a otro (avisoCliente).
+        email: (tercero ? cli?.persona_contacto_email
+            : notif ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
+        tercero,
         // La lista completa para el selector del popup (titular · otros
         // propietarios · persona de contacto), igual que se hace con el partner.
         // El destinatario AUTOMÁTICO no cambia: sigue siendo el de arriba, o sea
