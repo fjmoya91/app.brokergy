@@ -20,7 +20,7 @@
  */
 import { MARCOS, VIDRIOS, carpinteriaDe, leerPorcMarco, rotuloMarco, rotuloVidrio } from './ventanasVivienda.js';
 import { mudarHueco } from './huecosEnParedes.js';
-import { direccionDominante } from './pizarra.js';
+import { direccionDominante, rumboHaciaFuera, centroDePlanta } from './pizarra.js';
 import { tipoDe, admiteHuecos, esFuera } from './tiposPared.js';
 import { nombreDe, rumboDe, nuevoUid, inicialDe } from './senalado.js';
 import { RUMBOS } from './geometriaPlano.js';
@@ -231,6 +231,13 @@ function buscaPared(muros, dicho) {
             return { error: `«${dicho}» puede ser ${parecidas.map(nombreDe).join(' o ')}` };
         }
     }
+    // «E3» o «N1» (rumbo y número, sin las dos letras de delante) = FBE3, FBN1:
+    // así lo dice quien lee el plano en voz alta.
+    if (/^[NSEO]{1,2}\d+$/.test(n)) {
+        const cola = todos.filter(m => norm(nombreDe(m)).length === n.length + 2 && norm(nombreDe(m)).endsWith(n));
+        if (cola.length === 1) return { m: cola[0], aprox: true };
+        if (cola.length > 1) return { error: `«${dicho}» puede ser ${cola.map(nombreDe).join(' o ')}` };
+    }
     return { error: `no hay ninguna pared «${dicho}»` };
 }
 
@@ -263,6 +270,35 @@ function buscaHueco(muros, dicho) {
     return { error: `no hay ningún hueco «${dicho}»` };
 }
 
+/**
+ * Un hueco que va a una medianera o una partición la PASA a muro exterior
+ * (2026-10-28, FBE3 «al vecino» que daba al patio): quien dice que ahí hay una
+ * ventana está diciendo que esa pared da afuera. Devuelve el paso
+ * `cambiar_pared` (con el rumbo hacia fuera de su planta si no lo tenía) y el
+ * mapa ya cambiado, o `{ error }` si la pared está apartada.
+ */
+function pasaAExterior(mapa, m, plantas) {
+    if (esFuera(m)) return { error: `${nombreDe(m)} está apartada de la envolvente: no admite ventanas.` };
+    const cambios = { tipo: 'FACHADA' };
+    if (!rumboDe({ ...m, tipo_manual: 'FACHADA' })) {
+        const r = rumboHaciaFueraDe(mapa, m, plantas);
+        if (r) cambios.rumbo = r;
+    }
+    const paso = { op: 'cambiar_pared', pared: m.id, cambios,
+                   texto: `${nombreDe(m)}: ${ROTULO_TIPO[tipoDe(m)] || tipoDe(m)} → al exterior (lleva ventanas o puertas)`
+                       + (cambios.rumbo ? ` · da al ${cambios.rumbo}` : '') };
+    const nuevo = transformarMuros(mapa, [paso]);
+    return { paso, mapa: nuevo, m: nuevo[m.id] };
+}
+
+/** Hacia dónde da una pared que pasa a exterior: el lado de fuera de su planta. */
+function rumboHaciaFueraDe(mapa, m, plantas) {
+    const pl = (plantas || []).find(p => (p.muros || []).some(b => b.id === m.id));
+    const svg = (pl?.muros || []).find(b => b.id === m.id)?.svg || m.svg;
+    if (!svg) return null;
+    return rumboHaciaFuera(svg, centroDePlanta((pl?.muros || []).map(b => ({ ...(mapa[b.id] || b), svg: b.svg }))));
+}
+
 const numero = (x, min, max) => (Number.isFinite(Number(x)) && Number(x) > min && Number(x) <= max ? Number(x) : null);
 
 /**
@@ -291,8 +327,9 @@ export function validarOperaciones(operaciones, ctx) {
             if (h.error || d.error) { errores.push(`Mover ${op.hueco || '?'}: ${h.error || d.error}.`); break; }
             if (h.m.id === d.m.id) { errores.push(`${h.h.nombre} ya está en ${nombreDe(d.m)}.`); break; }
             if (!admiteHuecos(d.m)) {
-                errores.push(`${nombreDe(d.m)} no da al exterior (${ROTULO_TIPO[tipoDe(d.m)] || tipoDe(d.m)}): no admite ventanas.`);
-                break;
+                const x = pasaAExterior(mapa, d.m, plantas);
+                if (x.error) { errores.push(x.error); break; }
+                pasos.push(x.paso); mapa = x.mapa; d.m = x.m;
             }
             pasos.push({ op: 'mover_hueco', origen: h.m.id, uid: h.h.uid, destino: d.m.id,
                          texto: `${h.h.nombre}: ${nombreDe(h.m)} → ${nombreDe(d.m)}${d.aprox ? ` (has dicho «${op.pared}»)` : ''}` });
@@ -346,7 +383,11 @@ export function validarOperaciones(operaciones, ctx) {
         case 'anadir_hueco': {
             const d = buscaPared(mapa, op.pared);
             if (d.error) { errores.push(`Añadir: ${d.error}.`); break; }
-            if (!admiteHuecos(d.m)) { errores.push(`${nombreDe(d.m)} no da al exterior: no admite ventanas.`); break; }
+            if (!admiteHuecos(d.m)) {
+                const x = pasaAExterior(mapa, d.m, plantas);
+                if (x.error) { errores.push(x.error); break; }
+                pasos.push(x.paso); mapa = x.mapa; d.m = x.m;
+            }
             const tipo = String(op.tipo || 'ventana').toLowerCase() === 'puerta' ? 'puerta' : 'ventana';
             const ancho = numero(op.ancho, 0, 20);
             const alto = numero(op.alto, 0, 10);
@@ -411,9 +452,15 @@ export function validarOperaciones(operaciones, ctx) {
                 cambios.cambia = op.cambia; partes.push(op.cambia ? 'se reforma (CAMBIA)' : 'no se reforma');
             }
             if (!partes.length) break;
-            const pasaAFachadaSinRumbo = cambios.tipo === 'FACHADA' && !rumboDe(m) && !cambios.rumbo;
-            if (pasaAFachadaSinRumbo) errores.push(`${nombreDe(m)}: al pasarla al exterior hay que decir hacia dónde da.`);
-            pasos.push({ op: 'cambiar_pared', pared: m.id, cambios, texto: `${nombreDe(m)}: ${partes.join(' · ')}` });
+            if (cambios.tipo === 'FACHADA' && !rumboDe({ ...m, tipo_manual: 'FACHADA' }) && !cambios.rumbo) {
+                // El de fuera de la planta, como la pizarra; si no sale, se pregunta.
+                const r = rumboHaciaFueraDe(mapa, m, plantas);
+                if (r) { cambios.rumbo = r; partes.push(`da al ${r}`); }
+                else errores.push(`${nombreDe(m)}: al pasarla al exterior hay que decir hacia dónde da.`);
+            }
+            const paso = { op: 'cambiar_pared', pared: m.id, cambios, texto: `${nombreDe(m)}: ${partes.join(' · ')}` };
+            pasos.push(paso);
+            mapa = transformarMuros(mapa, [paso]);
             break;
         }
         case 'ajustar_zona': {

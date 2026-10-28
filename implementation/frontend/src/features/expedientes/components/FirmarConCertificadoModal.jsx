@@ -68,7 +68,7 @@ async function findSignatureAnchor(doc, anchors) {
             if (!t) continue;
             specs.forEach((s, i) => {
                 if (t.includes(s.txt) && (s.page == null || s.page === p)) {
-                    found[i].push({ page: p, it });
+                    found[i].push({ page: p, it, items: tc.items, anchoPag: page.view?.[2] || 595 });
                 }
             });
         }
@@ -83,17 +83,28 @@ async function findSignatureAnchor(doc, anchors) {
         const fh = best.it.height || Math.abs(tr[3]) || 10;
         const boxH = Math.max(52, fh * 4.5);
         const boxW = Math.max(w, 230);
-        const llx = ex;
-        const urx = ex + boxW;
-        let lly, ury;
-        if (specs[i].dir === 'above') {           // recuadro ENCIMA del texto ancla
-            lly = ey + fh * 0.8;
-            ury = lly + boxH;
-        } else {                                   // recuadro DEBAJO del texto ancla (def)
-            ury = ey - fh * 0.8;
-            lly = ury - boxH;
-        }
-        return { page: best.page, pdf: { llx: Math.round(llx), lly: Math.round(lly), urx: Math.round(urx), ury: Math.round(ury) } };
+        // Dentro de la hoja: en el CEE de la 3.2 el rótulo empieza a 411 pt y
+        // con 230 de ancho el recuadro salía por la derecha (A4 = 595).
+        const llx = Math.max(10, Math.min(ex, (best.anchoPag || 595) - 20 - boxW));
+        const urx = llx + boxW;
+        const caja = (dir) => (dir === 'above'
+            ? { lly: ey + fh * 0.8, ury: ey + fh * 0.8 + boxH }     // ENCIMA del texto ancla
+            : { lly: ey - fh * 0.8 - boxH, ury: ey - fh * 0.8 });   // DEBAJO (def)
+        // REGLA — el recuadro va al lado del rótulo que está LIBRE (2026-10-28).
+        // CE3X 2.3/3.1 rotulaba «Firma del técnico certificador» DEBAJO del hueco
+        // de la firma (`^above`); el PDF de la 3.2 lo pone ENCIMA, con el hueco
+        // debajo, y el recuadro caía sobre el párrafo de la declaración
+        // (2026EXT_1). Si el lado pedido pisa texto y el otro no, va al otro.
+        const pisa = (b) => (best.items || []).some((o) => {
+            if (o === best.it || !String(o.str || '').trim()) return false;
+            const ox = o.transform[4], oy = o.transform[5];
+            const oh = o.height || Math.abs(o.transform[3]) || 8;
+            return ox < urx && ox + (o.width || 0) > llx && oy + oh * 0.8 > b.lly && oy < b.ury;
+        });
+        const otro = specs[i].dir === 'above' ? 'below' : 'above';
+        let b = caja(specs[i].dir);
+        if (pisa(b) && !pisa(caja(otro))) b = caja(otro);
+        return { page: best.page, pdf: { llx: Math.round(llx), lly: Math.round(b.lly), urx: Math.round(urx), ury: Math.round(b.ury) } };
     }
     return null;
 }

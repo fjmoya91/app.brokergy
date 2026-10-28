@@ -31,7 +31,7 @@ export function PanelPared({ plano, transmitancias, expedienteId,
             apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
             rumboDe, necesitaRumbo, rumbosDe,
             aplicaHuecosLeidos, anotaLecturaHueco,
-            mudaHueco, destinosDeHueco } = plano;
+            mudaHueco, destinosDeHueco, anadeHuecoA } = plano;
     const m = sel ? muros[sel] : null;
 
     //: Lo leído de una foto, esperando a que lo revise una persona. Vive aquí y
@@ -89,6 +89,7 @@ export function PanelPared({ plano, transmitancias, expedienteId,
         return (
             <Caja cajaRef={caja}>
                 {cabeza}
+                {anadeHuecoA && <PaletaHuecos pared={null} onPoner={() => {}} />}
                 <div>
                     <p className="text-[9.5px] font-black uppercase tracking-[0.12em] text-white/30">
                         La pared
@@ -112,6 +113,9 @@ export function PanelPared({ plano, transmitancias, expedienteId,
     return (
         <Caja cajaRef={caja}>
             {cabeza}
+            {anadeHuecoA && !fuera && (
+                <PaletaHuecos pared={nombreDe(m)} onPoner={t => anadeHuecoA(m.id, t)} />
+            )}
             {/* LA CABECERA de la pared: qué pared es, qué es, y en qué estado
                 está. El tipo va en SU color —el mismo que en el plano—, y el
                 estado en una chapa a la derecha: es lo que antes había que
@@ -227,6 +231,7 @@ export function PanelPared({ plano, transmitancias, expedienteId,
             {fuera ? null : esMedianera(m) || esParticion(m) ? (
                 <SinHuecos particion={esParticion(m) || !!m.como_particion}
                            onCambio={si => marcaComoParticion(m.id, si)}
+                           onHueco={anadeHuecoA ? (t => anadeHuecoA(m.id, t)) : null}
                            esMedianera={esMedianera(m)} m={m} />
             ) : (
                 <>
@@ -318,6 +323,45 @@ export function PanelPared({ plano, transmitancias, expedienteId,
                     onReemplazar={(x) => aplicarLeidos(x, { reemplaza: true })} />
             )}
         </Caja>
+    );
+}
+
+/**
+ * La PALETA de huecos: una ventana y una puerta que se COGEN y se sueltan sobre
+ * una pared del plano (2026-10-28, lo pidió Fran: «arrastrar un elemento de
+ * ventana y que se vaya a ese muro»). Lo recoge `PlanoPlanta` (`onDrop`), que
+ * busca la pared más cercana al punto. Pulsada sin arrastrar, va a la pared
+ * abierta. El tipo viaja EN EL NOMBRE del dato (`DND_HUECO + tipo`): durante el
+ * `dragover` el navegador deja ver los tipos, no los valores.
+ */
+export const DND_HUECO = 'application/x-brokergy-hueco-';
+
+function PaletaHuecos({ pared, onPoner }) {
+    const ficha = (tipo, icono, texto) => (
+        <button
+            draggable
+            onDragStart={(e) => {
+                e.dataTransfer.setData(DND_HUECO + tipo, tipo);
+                e.dataTransfer.setData('text/plain', texto);
+                e.dataTransfer.effectAllowed = 'copy';
+            }}
+            onClick={() => pared && onPoner(tipo)}
+            title={pared ? `Arrástrala a una pared del plano, o pulsa para ponerla en ${pared}`
+                         : 'Arrástrala hasta una pared del plano'}
+            className="flex cursor-grab items-center gap-1.5 rounded-lg border border-dashed
+                       border-white/25 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-bold
+                       text-white/75 hover:border-brand/60 hover:text-brand active:cursor-grabbing">
+            <span aria-hidden="true">{icono}</span>{texto}
+        </button>
+    );
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            {ficha('ventana', '▭', 'Ventana')}
+            {ficha('puerta', '▯', 'Puerta')}
+            <span className="text-[10.5px] leading-tight text-white/40">
+                Arrástrala a su pared{pared ? ` · o pulsa: va a ${pared}` : ''}
+            </span>
+        </div>
     );
 }
 
@@ -554,9 +598,30 @@ function uDelTipo(termicas, tipo) {
 
 /** Una pared que no da al aire no lleva ventanas: lo que hay que decir de
  *  ella es si al otro lado se pierde calor o no. */
-function SinHuecos({ particion, esMedianera, m, onCambio }) {
+function SinHuecos({ particion, esMedianera, m, onCambio, onHueco }) {
     return (
         <div className="flex flex-col gap-2">
+            {/* Si tiene una ventana, NO es medianera ni partición: da afuera. Se
+                ofrece en el sitio donde se busca (2026-10-28, Fran no podía
+                poner ventanas a FBE3 porque estaba «al vecino»): un clic la
+                pone y pasa la pared a exterior, y se dice. */}
+            {onHueco && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <button onClick={() => onHueco('ventana')}
+                            className="rounded-lg border border-white/15 px-2.5 py-1.5 text-[11px]
+                                       font-bold text-white/75 hover:border-brand/60 hover:text-brand">
+                        + Ventana
+                    </button>
+                    <button onClick={() => onHueco('puerta')}
+                            className="rounded-lg border border-white/15 px-2.5 py-1.5 text-[11px]
+                                       font-bold text-white/75 hover:border-brand/60 hover:text-brand">
+                        + Puerta
+                    </button>
+                    <span className="text-[10.5px] text-white/40">
+                        ¿Tiene ventana o puerta? Entonces da al exterior: la paso a muro exterior.
+                    </span>
+                </div>
+            )}
             <p className="text-xs leading-relaxed text-white/50">
                 {particion
                     ? <>Da a un espacio <b>sin calefactar</b>, así que por ahí

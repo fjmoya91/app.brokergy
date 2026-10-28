@@ -127,10 +127,18 @@ prueba('una puerta por toque sale de 0,90 m', () => {
     assert.equal(r.id, 'FBE1');
     assert.equal(r.ancho, 0.9);
 });
-prueba('en una MEDIANERA no se puede poner una ventana, y se dice por qué', () => {
+prueba('una ventana en una MEDIANERA la pasa a muro exterior (y se dice)', () => {
     const r = di(mano([-0.2, 3], [-0.2, 4.5]), 'ventana');
+    assert.equal(r.accion, 'hueco');
+    assert.equal(r.id, 'MBO1');
+    assert.equal(r.aExterior, true);
+    assert.equal(r.antes, 'MEDIANERA');
+});
+prueba('en una pared APARTADA no se pone, y se dice por qué', () => {
+    const muros = casa().map(m => (m.id === 'MBO1' ? { ...m, excluida: true } : m));
+    const r = di(mano([-0.2, 3], [-0.2, 4.5]), 'ventana', muros);
     assert.ok(r.error);
-    assert.match(r.error, /muro exterior/);
+    assert.match(r.error, /apartada/);
 });
 prueba('una ventana lejos de cualquier pared se pide encima de su pared', () => {
     const r = di(mano([4, 3], [5, 3]), 'ventana');

@@ -2216,6 +2216,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                               onGenerica={(v) => cambiarAjuste('aerotermia_generica', v ? true : null)}
                               textos={ajustes.medidas_texto || {}}
                               onTexto={cambiarTextoMedida}
+                              // Las LIBRES de la receta (las deja el PC) y lo que
+                              // pidió la obra de la app de certificadores.
+                              libres={ajustes.medidas_libres || []}
+                              quitadas={ajustes.medidas_libres_quitadas || []}
+                              onLibres={(vivas, quitadas) => setAjustes(a => {
+                                  const n = { ...a, medidas_libres: vivas, medidas_libres_quitadas: quitadas };
+                                  if (!vivas.length) delete n.medidas_libres;
+                                  if (!quitadas.length) delete n.medidas_libres_quitadas;
+                                  return n;
+                              })}
+                              obra={expediente?.medidas_obra || null}
+                              superficie={superficieDelEdificio}
                               autoconsumoKwh={ajustes.autoconsumo_kwh ?? null}
                               onAutoconsumo={(n) => cambiarAjuste('autoconsumo_kwh', n)}
                               // PVGIS es una ruta interna (`internalOnly`): al
@@ -3149,7 +3161,7 @@ function PreguntasPrevias({ preguntas, onGenerar, onCerrar }) {
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4
                         backdrop-blur-sm" onClick={onCerrar}>
             <div onClick={e => e.stopPropagation()}
-                 className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#141414] p-5
+                 className="w-full max-w-lg rounded-2xl border border-white/10 bg-bkg-surface p-5
                             shadow-2xl">
                 <h3 className="text-sm font-black uppercase tracking-widest text-white/80">
                     Antes de generar

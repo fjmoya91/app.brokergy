@@ -26,7 +26,7 @@ export function LecturaFotoModal({ lectura, pared, hueco, onAplicar, onReemplaza
                         backdrop-blur-sm md:items-center md:p-6"
              onClick={e => { if (e.target === e.currentTarget) onCerrar(); }}>
             <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden
-                            rounded-t-2xl border border-white/10 bg-[#111] md:rounded-2xl">
+                            rounded-t-2xl border border-white/10 bg-bkg-surface md:rounded-2xl">
                 {lectura.ambito === 'hueco'
                     ? <DeUnHueco l={lectura} hueco={hueco} onAplicar={onAplicar} onCerrar={onCerrar} />
                     : <DeUnaFachada l={lectura} pared={pared} onAplicar={onAplicar}

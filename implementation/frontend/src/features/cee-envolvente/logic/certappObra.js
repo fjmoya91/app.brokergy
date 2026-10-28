@@ -29,6 +29,7 @@
 
 import { ceeDirectoComoExpediente } from './ceeDirecto.js';
 import { aCuestionarioCee } from '../../../certificadores/logic/cuestionario.js';
+import { medidasPedidasDeLaObra } from './medidasObra.js';
 
 /** ¿Este «expediente» es la obra de un certificador externo? La marca la pone el adaptador. */
 export const esObraExt = (e) => !!e?.es_ext;
@@ -120,6 +121,10 @@ export function certappObraComoExpediente(obra) {
     return {
         ...base,
         es_ext: true,
+        //: Las medidas que pidió la obra (o las sugeridas) y la calefacción del
+        //: cuestionario: la pestaña de medidas las cruza con lo que se escribe
+        //: (`medidasObra.js`).
+        medidas_obra: { ...medidasPedidasDeLaObra(obra), calefaccion: obra.cuestionario?.calefaccion || null },
         //: Una obra es SIEMPRE un certificado suelto: no hay fase final que
         //: archivaría en OLD el que se acaba de generar (regla 48.i).
         alcance: 'UNICO',

@@ -87,10 +87,34 @@ prueba('mover y cambiar el marco: dos pasos, en palabras, y se aplican', () => {
     assert.equal(v3.ancho, 1.3);                    // con sus medidas
     assert.equal(ctx.muros.FBE1.huecos.length, 2);  // el original no se toca
 });
-prueba('a una medianera no se mueve, y lo dice', () => {
-    const { pasos, errores } = A.validarOperaciones([{ op: 'mover_hueco', hueco: 'V3', pared: 'MBE1' }], PLANO());
+prueba('un hueco a una MEDIANERA la pasa a exterior, con el rumbo de fuera, y lo dice', () => {
+    const ctx = PLANO();
+    const { pasos, errores } = A.validarOperaciones([{ op: 'mover_hueco', hueco: 'V3', pared: 'MBE1' }], ctx);
+    assert.deepEqual(errores, []);
+    assert.deepEqual(pasos.map(p => p.op), ['cambiar_pared', 'mover_hueco']);
+    assert.equal(pasos[0].cambios.tipo, 'FACHADA');
+    assert.equal(pasos[0].cambios.rumbo, 'O');
+    assert.match(pasos[0].texto, /al vecino → al exterior/);
+    const v = A.transformarMuros(ctx.muros, pasos);
+    assert.equal(v.MBE1.tipo_manual, 'FACHADA');
+    assert.equal(v.MBE1.huecos.length, 1);
+});
+prueba('«E2» es FBE2 (sin las dos letras de delante), y «cambiar_pared + anadir» no la cambia dos veces', () => {
+    const { pasos, errores } = A.validarOperaciones([
+        { op: 'cambiar_pared', pared: 'MBE1', tipo: 'FACHADA' },
+        { op: 'anadir_hueco', pared: 'MBE1', tipo: 'puerta' },
+        { op: 'anadir_hueco', pared: 'E2', tipo: 'ventana' },
+    ], PLANO());
+    assert.deepEqual(errores, []);
+    assert.deepEqual(pasos.map(p => p.op), ['cambiar_pared', 'anadir_hueco', 'anadir_hueco']);
+    assert.equal(pasos[2].pared, 'FBE2');
+});
+prueba('a una pared APARTADA no se mueve, y lo dice', () => {
+    const ctx = PLANO();
+    ctx.muros.MBE1 = { ...ctx.muros.MBE1, excluida: true };
+    const { pasos, errores } = A.validarOperaciones([{ op: 'mover_hueco', hueco: 'V3', pared: 'MBE1' }], ctx);
     assert.equal(pasos.length, 0);
-    assert.match(errores[0], /no admite ventanas/);
+    assert.match(errores[0], /apartada/);
 });
 prueba('una pared que no existe no se inventa', () => {
     const { pasos, errores } = A.validarOperaciones([{ op: 'mover_hueco', hueco: 'V3', pared: 'FBE9' }], PLANO());

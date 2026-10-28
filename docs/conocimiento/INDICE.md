@@ -18,7 +18,7 @@
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 9 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,0 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 40,4 KB | 13 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 96,2 KB | 37 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 99,2 KB | 39 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 17,8 KB | 5 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,8 KB | 2 |
@@ -262,6 +262,7 @@
 - **178** → `.claude/rules/facturacion.md` — La economía de los CAE por el MCP (bono, beneficio, ahorro estimado y verificado, volumen, ventas al S.O.) s…
 - **179** → `.claude/rules/calculo.md` — Con los dos `.xml` (los dos con `<EnergiaFinalVectores>`), el ahorro RES080 es la energía final que DECLARAN…
 - **180** → `.claude/rules/envolvente-ce3x.md` — El ASISTENTE de la envolvente: se DICE lo que está mal (texto o voz), Claude PROPONE operaciones y el navega…
+- **181** → `.claude/rules/envolvente-ce3x.md` — Una ventana o puerta en una MEDIANERA o PARTICIÓN la pasa a MURO EXTERIOR, en los cuatro caminos; las ventan…
 
 ## Documentos por área
 
@@ -478,6 +479,7 @@
 - `docs/conocimiento/envolvente-ce3x/la-ficha-del-expediente-ya-no-pisa-la-envolvente.md` — La FICHA del expediente ya no pisa la ENVOLVENTE (2026-10-07)
 - `docs/conocimiento/envolvente-ce3x/la-foto-real-de-cada-cerramiento.md` — La FOTO REAL de cada cerramiento (2026-09-15)
 - `docs/conocimiento/envolvente-ce3x/la-receta-del-cex-y-su-sello.md` — La RECETA del `.cex` y su SELLO: la ventana y la skill escriben el mismo fichero (2026-10-15)
+- `docs/conocimiento/envolvente-ce3x/las-medidas-que-pidio-la-obra-y-las-libres-se-ven-en-la-pestana.md` — Las medidas que pidió la OBRA y las LIBRES de la receta se ven en la pestaña, como en CE3X (2026-10-28)
 - `docs/conocimiento/envolvente-ce3x/lo-que-el-certificador-no-tiene-que-ver-ni-tocar.md` — Lo que el CERTIFICADOR no tiene que ver ni tocar (2026-09-14)
 - `docs/conocimiento/envolvente-ce3x/lo-que-se-reforma-en-la-envolvente-cambia.md` — Lo que se REFORMA en la envolvente: «- CAMBIA» (2026-09-19)
 - `docs/conocimiento/envolvente-ce3x/los-administrativos-se-corrigen-desde-la-ventana-en-su-fuente.md` — Los administrativos se CORRIGEN desde la ventana, en su fuente (2026-09-14)
@@ -491,6 +493,7 @@
 - `docs/conocimiento/envolvente-ce3x/un-garaje-dentro-de-la-casa-y-lo-que-se-movia-al-volver-a-medir.md` — Un GARAJE dentro de la casa, y lo que se movía al volver a medir (2026-09-28)
 - `docs/conocimiento/envolvente-ce3x/un-sotano-muros-contra-el-terreno-y-suelos-solo-de-la-vivienda.md` — Un SÓTANO: muros contra el TERRENO y suelos solo de la VIVIENDA (2026-10-01)
 - `docs/conocimiento/envolvente-ce3x/una-edificacion-entera-se-quita-de-un-clic.md` — Una EDIFICACIÓN entera se quita de un clic (2026-09-16 · POR PLANTA 2026-09-21)
+- `docs/conocimiento/envolvente-ce3x/una-ventana-en-una-medianera-la-pasa-a-exterior-y-se-arrastra.md` — Una ventana en una MEDIANERA la pasa a exterior, y las ventanas se ARRASTRAN a su pared (2026-10-28)
 
 ### expedientes
 

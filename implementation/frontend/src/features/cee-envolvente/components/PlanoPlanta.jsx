@@ -30,7 +30,8 @@ import { EtiquetaMancha } from './EtiquetaMancha';
 import { PizarraControl, TrazoPizarra } from './PizarraControl';
 import { MarcasEquipos } from './EquiposPlano';
 import { cajaDeMarca, marcasDelPlano } from '../logic/equiposPlano';
-import { colorDeLapiz } from '../logic/pizarra';
+import { colorDeLapiz, paredMasCercana, tolerancias } from '../logic/pizarra';
+import { DND_HUECO } from './PanelPared';
 import { colocarRotulosPlano } from '../logic/rotulosPlano';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -506,6 +507,16 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     const [lapizPizarra, setLapizPizarra] = useState(null);
     const [trazoPizarra, setTrazoPizarra] = useState(null);
     const [avisoPizarra, setAvisoPizarra] = useState(null);
+    //: Una ventana o puerta que se está ARRASTRANDO desde la paleta del panel:
+    //: la pared a la que iría si se suelta ahora (se resalta), y lo que pasó
+    //: al soltar (se dice unos segundos sobre el plano).
+    const [soltando, setSoltando] = useState(null);
+    const [avisoSuelta, setAvisoSuelta] = useState(null);
+    useEffect(() => {
+        if (!avisoSuelta) return undefined;
+        const t = setTimeout(() => setAvisoSuelta(null), avisoSuelta.ok ? 4500 : 7000);
+        return () => clearTimeout(t);
+    }, [avisoSuelta]);
     const pizarraActiva = !!lapizPizarra && !es3d;
     const pintandoPizarra = pizarraActiva && lapizPizarra !== 'mano';
     //: Colocando un EQUIPO (caldera, máquina nueva, ACS, unidad exterior).
@@ -1207,6 +1218,26 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                      onPointerDown={onDown} onPointerMove={onMove}
                      onPointerUp={onUp} onPointerCancel={onUp}
                      onDoubleClick={() => { if (dibujarPoligono) cerrarCubierta(); }}
+                     onDragOver={(e) => {
+                         const tipo = tipoArrastrado(e);
+                         if (!tipo || es3d) return;
+                         e.preventDefault();
+                         e.dataTransfer.dropEffect = 'copy';
+                         const p = aDibujo(e.clientX, e.clientY);
+                         const c = paredMasCercana(murosDe(planta), p.x, p.y, tolerancias(tam * 2, iman).hueco);
+                         const id = c?.m?.id || null;
+                         setSoltando(s => (s?.id === id && s?.tipo === tipo ? s : { id, tipo }));
+                     }}
+                     onDragLeave={() => setSoltando(null)}
+                     onDrop={(e) => {
+                         const tipo = tipoArrastrado(e);
+                         if (!tipo || es3d) return;
+                         e.preventDefault();
+                         setSoltando(null);
+                         const p = aDibujo(e.clientX, e.clientY);
+                         const r = plano.sueltaHueco?.(planta.id, p.x, p.y, tipo, { tam: tam * 2, iman });
+                         if (r) setAvisoSuelta({ ...r, at: Date.now() });
+                     }}
                      onPointerLeave={(e) => {
                          // Con el dedo, `pointerleave` llega al levantarlo: no
                          // es salir del plano, y cortaría el pellizco.
@@ -1494,9 +1525,33 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                 <TrazoPizarra pts={trazoPizarra} tam={tam}
                                               color={colorDeLapiz(lapizPizarra)} />
                             )}
+
+                            {/* La pared a la que va la ventana que se arrastra. */}
+                            {soltando?.id && (() => {
+                                const w = murosDe(planta).find(x => x.id === soltando.id);
+                                return w ? (
+                                    <polyline points={w.svg.map(([x, y]) => `${x},${y}`).join(' ')}
+                                              fill="none" stroke="var(--brand-primary)"
+                                              strokeWidth={tam * 1.1} strokeLinecap="round"
+                                              opacity="0.45" pointerEvents="none" />
+                                ) : null;
+                            })()}
                         </>
                     )}
                 </svg>
+
+                {(soltando || avisoSuelta) && !es3d && (
+                    <p className={`pointer-events-none absolute bottom-3 left-3 right-3 z-10 rounded-lg px-3 py-2
+                                   text-[11.5px] font-semibold shadow
+                                   ${soltando ? 'bg-black/75 text-white'
+                                     : avisoSuelta.ok ? 'bg-emerald-600/90 text-white' : 'bg-amber-500/95 text-black'}`}>
+                        {soltando
+                            ? (soltando.id
+                                ? `Suelta para poner la ${soltando.tipo} en ${nombreDe(muros[soltando.id] || { id: soltando.id })}`
+                                : `Acércala a una pared para poner la ${soltando.tipo}`)
+                            : avisoSuelta.texto}
+                    </p>
+                )}
 
                 {es3d && (
                     <Brujula proy={proy}
@@ -2914,6 +2969,12 @@ function SinPlano({ planta }) {
             </p>
         </div>
     );
+}
+
+/** El tipo de hueco que se arrastra desde la paleta (`DND_HUECO`), o null. */
+function tipoArrastrado(e) {
+    const t = [...(e.dataTransfer?.types || [])].find(x => x.startsWith(DND_HUECO));
+    return t ? t.slice(DND_HUECO.length) : null;
 }
 
 export default PlanoPlanta;

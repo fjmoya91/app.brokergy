@@ -83,7 +83,7 @@ firma: { at, firmante, via } | null }` (`firma.resumenParaCertificador`, sin enl
 
 En la pantalla se firma con el **mismo modal del CRM** (`FirmarConCertificadoModal`, AutoFirma por el
 WebSocket local), cargado solo al pulsar (pesa 357 kB por pdf.js), con el recuadro anclado al rótulo
-de CE3X (`CEE_SIGN_ANCHOR`) y **sin el logo de BROKERGY** (`rubricImageUrl={null}`): firma un técnico
+de CE3X (`CEE_SIGN_ANCHOR`; si encima pisa texto —la 3.2—, va debajo, 28/10/2026) y **sin el logo de BROKERGY** (`rubricImageUrl={null}`): firma un técnico
 externo. El firmante se compara con el nombre de la cuenta solo como aviso.
 
 **REGLA — una firma rota no se guarda**: `leerFirmasPdf` (el mismo del CRM). Sin firma, 422
