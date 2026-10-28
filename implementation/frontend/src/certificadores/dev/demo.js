@@ -7,6 +7,7 @@
 // Nada sale a ningún servidor: ni Supabase, ni el Catastro, ni Drive.
 import axios from 'axios';
 import { sanearCuestionario, barrido, SLOT_IDS } from '../logic/cuestionario';
+import { borradorDeObra } from '../logic/presentar';
 
 // v2 (25/10/2026): las obras traen el Catastro (deducciones) y el «para qué» múltiple.
 const CLAVE = 'certapp_demo_estado_v2';
@@ -191,11 +192,34 @@ const documentosDemo = (o, admin = false) => {
         firma: o.firmado ? { at: o.firmado.at, firmante: o.firmado.firmante, via: 'autofirma', coincide: true } : null,
         firma_anterior: false,
         xml_resumen: { consumo: 'E', emisiones: 'D', consumo_kwh_m2: 187.4, demanda_kwh_m2: 121.2, superficie: 128, zona: 'D3' },
+        // Lo que devuelve el Registro (services/certapp/presentacion.js).
+        justificante: o.reg?.justificante ? { ...docDemo(o, 'just', 'JUSTIFICANTE DE REGISTRO.pdf', o.reg.justificante, 'certificador'), clase: 'justificante' } : null,
+        etiqueta: o.reg?.etiqueta ? { ...docDemo(o, 'etq', 'ETIQUETA ENERGÉTICA.pdf', o.reg.etiqueta, 'certificador'), clase: 'etiqueta' } : null,
+        otros: (o.reg?.otros || []).map((x, i) => ({ ...docDemo(o, `otro${i}`, x.nombre, x.at, 'certificador'), clase: 'otros' })),
+        registro: o.reg?.registro || null,
     };
-    for (const k of ['certificado', 'firmado', 'xml', 'cex', 'croquis']) r[k] = conDrive(r[k]);
+    for (const k of ['certificado', 'firmado', 'xml', 'cex', 'croquis', 'justificante', 'etiqueta']) r[k] = conDrive(r[k]);
     r.anteriores = r.anteriores.map(conDrive);
     r.cuarentena = r.cuarentena.map(conDrive);
+    r.otros = r.otros.map(conDrive);
     return r;
+};
+// El borrador para presentar: el de verdad (logic/presentar.js), con el XML de la demo.
+const presentarDemo = (o) => {
+    if (!['LISTO', 'VALIDADO'].includes(o.estado)) fallo(409, 'Esto se hace con el certificado ya entregado.', 'ESTADO_NO_ENTREGADO');
+    const cee = { cee_inicial: { epnrLetra: 'E', emisionesLetra: 'D', fechaFirma: (o.entregado_at || ahora()).slice(0, 10), tipoEdificio: 'ViviendaUnifamiliar' } };
+    const b = borradorDeObra({ ...o, cee }, S.cuenta);
+    if (!b.aplica) return { borrador: b, html: null };
+    const pre = b.nif ? `${b.nif}_` : '';
+    const hay = { pdf: o.firmado ? 'CEE_fdo.pdf' : null, xml: 'CEE.xml', cex: 'CEE.cex', mejoras: null };
+    b.ficheros = b.ficheros.map(f => {
+        const n = hay[f.clave] ? `${o.numero_expediente} - ${hay[f.clave]}` : null;
+        return { clave: f.clave, titulo: f.titulo, presente: !!n, nombreDrive: n || f.titulo, nombreRegistro: n ? `${pre}${n}` : null,
+            url: n ? `/api/certapp/demo-fichero/${o.id}-${f.clave}` : null,
+            nota: f.clave === 'pdf' && !n ? 'Está sin firmar: fírmalo antes de presentarlo.' : null };
+    });
+    b.registro = o.reg?.registro || null;
+    return { borrador: b, html: '<!-- demo -->' };
 };
 const bytesDe = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
 // La fachada propuesta: un dibujo de una casa (otro cielo según la fuente).
@@ -336,6 +360,34 @@ const RUTAS = [
     ['GET', /^\/api\/certapp\/obras\/([^/]+)\/documentos$/, (b, [, id]) => documentosDemo(obraDe(id))],
     ['GET', /^\/api\/certapp-admin\/obras\/([^/]+)\/documentos$/, (b, [, id]) => documentosDemo(obraDe(id), true)],
     ['GET', /^\/api\/certapp\/demo-fichero\/([^/]+)$/, (b, [, id]) => bytesDe(pdfDemo(/croquis/.test(id) ? 1 : 6))],
+    ['GET', /^\/api\/certapp\/obras\/([^/]+)\/presentar$/, (b, [, id]) => ({ ...presentarDemo(obraDe(id)), __espera: 500 })],
+    ['GET', /^\/api\/certapp\/obras\/([^/]+)\/presentar\/pdf$/, (b, [, id]) => {
+        presentarDemo(obraDe(id));
+        return new Blob([bytesDe(pdfDemo(2))], { type: 'application/pdf' });
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/documentos\/(justificante|etiqueta|otros)$/, (b, [, id, clase]) => {
+        const o = obraDe(id);
+        if (!['LISTO', 'VALIDADO'].includes(o.estado)) fallo(409, 'Esto se hace con el certificado ya entregado.', 'ESTADO_NO_ENTREGADO');
+        const f = b instanceof FormData ? b.get('fichero') : null;
+        const esPdf = /\.pdf$/i.test(f?.name || '');
+        if (clase === 'justificante' && !esPdf) fallo(415, 'El justificante tiene que ser el PDF que da la sede.', 'TIPO_NO_VALE');
+        const r = (o.reg ||= {});
+        if (clase === 'otros') {
+            const base = String((b.get('nombre') || '').trim() || String(f?.name || 'Documento').replace(/\.[a-z0-9]+$/i, '')).slice(0, 80);
+            r.otros = [{ nombre: `${base}.${esPdf ? 'pdf' : 'jpg'}`, at: ahora() }, ...(r.otros || [])];
+            evento(o.id, 'DOCUMENTO', `El certificador ha subido «${base}»`);
+            return { ok: true, clase, fichero: `${o.numero_expediente} - ${base}`, __espera: 800 };
+        }
+        r[clase] = ahora();
+        if (clase === 'justificante') {
+            // Como resolverFechaRegistro: la fecha leída del justificante (aquí, la de hoy).
+            r.registro = { at: ahora(), fecha: ahora().slice(0, 10), leida: true, numero: '2026/1234567' };
+            evento(o.id, 'REGISTRO', `El certificador ha subido el justificante de registro (registrado el ${r.registro.fecha})`);
+            return { ok: true, clase, registro: r.registro, aviso: null, __espera: 1400 };
+        }
+        evento(o.id, 'DOCUMENTO', 'El certificador ha subido la etiqueta energética');
+        return { ok: true, clase, __espera: 800 };
+    }],
     ['POST', /^\/api\/certapp\/obras\/([^/]+)\/cee\/definitivo$/, (b, [, id]) => {
         const o = obraDe(id);
         const f = b instanceof FormData ? b.get('fichero') : null;

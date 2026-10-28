@@ -33,6 +33,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/certificadores-app/la-obra-sin-scroll-indice-y-fotos-a-mano.md` — La obra sin tanto scroll: el índice «Ir a…» y las fotos siempre a mano (2026-10-26) · 3,0 KB
 - `docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md` — «Lo que ha visto la IA» — la fase 5 de la ficha (2026-10-25) · 7,8 KB
 - `docs/conocimiento/certificadores-app/menu-lateral-y-partes-de-la-obra.md` — El menú lateral y las partes de la obra (2026-10-26) · 5,1 KB
+- `docs/conocimiento/certificadores-app/presentar-en-el-registro-y-fotos-tras-pedir.md` — Presentar en el Registro, lo que devuelve y las fotos tras pedir (2026-10-28) · 5,8 KB
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24) · 3,0 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -107,6 +108,10 @@ el propio vigía**
 - `docs/conocimiento/certificadores-app/menu-lateral-y-partes-de-la-obra.md`
   - **REGLA — las partes de la obra llegan al menú SOLO por `useMenuObra`**
   - **REGLA — la cámara y «La siguiente» usan los `input` del hueco (`f-<id>-cam` / `f-<id>-gal`)**
+- `docs/conocimiento/certificadores-app/presentar-en-el-registro-y-fotos-tras-pedir.md`
+  - **REGLA — tras pedir, se AÑADE pero no se QUITA**
+  - **REGLA — `logic/presentar.js` es la única que convierte la obra en el borrador**
+  - **REGLA — lo que devuelve el Registro NO lleva «CEE» en el nombre**
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md`
   - **REGLA — en una obra `ext` la referencia catastral sale SIEMPRE de `certapp_obras.ref_catastral`**
   - **REGLA — el `.cex` (y el croquis en PDF) de una obra `ext` solo con la obra PEDIDA**

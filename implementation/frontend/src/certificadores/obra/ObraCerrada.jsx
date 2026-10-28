@@ -34,11 +34,12 @@ import { Enlace, navegar, useRuta } from '../router';
 import { Aviso, Hoja, useToast } from '../ui/piezas';
 import { useMenuObra } from '../ui/menuObra';
 import {
-    CheckDibujado, IcoCarpeta, IcoCasa, IcoCheck, IcoChevron, IcoDoc, IcoImagen, IcoMenu, IcoPlano, IcoRecargar, IcoReloj, IcoSello, Spinner,
+    CheckDibujado, IcoCarpeta, IcoCasa, IcoCheck, IcoChevron, IcoDoc, IcoEnviar, IcoImagen, IcoMenu, IcoPlano, IcoRecargar, IcoReloj, IcoSello, Spinner,
 } from '../ui/Iconos';
 import { estadoDe } from './comun';
 import { FotosObra } from './Fotos';
 import { ListaDocumentos } from './Documentos';
+import { HojaPresentar } from './Presentar';
 import { VisorPdf } from './VisorPdf';
 import { CLASES, aBase64, autorTxt, useDocumentos } from './documentosComun';
 import { IncidenciasObra } from '../incidencias/Incidencias';
@@ -69,12 +70,17 @@ export function ObraCerrada({ o, resumen = [] }) {
     const [errorDef, setErrorDef] = useState(null);
     // El visor: `{ doc, firmar }` (firmar: el certificado sin firmar, con su botón).
     const [visor, setVisor] = useState(null);
+    // Presentar en el Registro: el borrador, y lo que devuelve (justificante, etiqueta, otros).
+    const [presentar, setPresentar] = useState(false);
+    const [subiendoReg, setSubiendoReg] = useState(null);
+    const [errorReg, setErrorReg] = useState(null);
     const est = obra.estado;
     const entregado = est === 'LISTO' || est === 'VALIDADO';
     const documentos = useDocumentos(obra.id, { activo: entregado });
     const dd = documentos.datos;
     // Mientras se leen los documentos, lo que ya decía el GET de la obra.
     const firmado = dd ? !!dd.firmado : !!enlaces?.firmado;
+    const registrado = dd?.registro || null;
     const cal = cee?.calificacion;
     const t = form?.titular || {};
     const titulo = [t.nombre, t.apellidos].filter(Boolean).join(' ') || obra.direccion || obra.numero_expediente;
@@ -138,6 +144,31 @@ export function ObraCerrada({ o, resumen = [] }) {
         } finally { setSubiendoDef(false); }
     };
 
+    // El justificante (se lee su fecha), la etiqueta u otro documento, a la carpeta del certificado.
+    const subirRegistro = async (clase, fichero, nombre = '') => {
+        if (!fichero) return false;
+        setErrorReg(null); setSubiendoReg(clase);
+        try {
+            const fd = new FormData();
+            fd.append('fichero', fichero, fichero.name);
+            if (nombre) fd.append('nombre', nombre);
+            const { data } = await axios.post(`${API}/obras/${obra.id}/documentos/${clase}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+            toast(clase === 'justificante'
+                ? (data?.registro?.leida ? `Justificante guardado: registrado el ${fecha(data.registro.fecha)}.` : (data?.aviso || 'Justificante guardado.'))
+                : clase === 'etiqueta' ? 'Etiqueta guardada.' : 'Documento guardado.', 5000);
+            await Promise.all([documentos.recargar({ silencioso: true }), o.cargar({ silencioso: true })]);
+            return true;
+        } catch (err) {
+            setErrorReg(mensajeError(err, 'No se ha podido subir.'));
+            return false;
+        } finally { setSubiendoReg(null); }
+    };
+    const aSubirJustificante = () => {
+        setPresentar(false);
+        navegar(aParte('documentos'));
+        setTimeout(() => document.getElementById('registro')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+    };
+
     // Lo que se dio de la obra, tal como quedó al pedirla.
     const inmueble = [
         ['Referencia catastral', obra.ref_catastral],
@@ -188,13 +219,16 @@ export function ObraCerrada({ o, resumen = [] }) {
         est === 'VALIDADO'
             ? { t: firmado ? 'Revisado y firmado' : 'Validado', s: cee?.firma?.at ? fecha(cee.firma.at, true) : null, ok: true }
             : { t: 'Revisarlo y firmarlo', s: est === 'LISTO' ? 'Ábrelo, compruébalo y fírmalo con AutoFirma' : null, act: est === 'LISTO' },
-        { t: 'Registrarlo', s: 'Con el XML y el PDF firmado; el registro lo haces tú', act: est === 'VALIDADO' },
+        registrado
+            ? { t: 'Registrado', s: registrado.fecha ? fecha(registrado.fecha) : null, ok: true }
+            : { t: 'Presentarlo en el Registro', s: 'Con el borrador de «Presentar»; luego sube el justificante', act: est === 'VALIDADO' },
     ];
 
+    // Ya pedida: se añaden fotos (no se quitan). Archivada, nada.
     const ctx = {
-        form, obra, slots: o.slots, editable: false,
+        form, obra, slots: o.slots, editable: false, puedeSubir: est !== 'ARCHIVADA',
         setCampo: () => {}, setC: () => {}, setTitular: () => {}, setDecision: () => {},
-        subir: async () => ({ ok: false }), quitar: async () => ({ ok: false }), subiendo: {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
+        subir: o.subir, quitar: async () => ({ ok: false }), subiendo: o.subiendo || {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
     };
 
     const sub = [obra.direccion && obra.direccion !== titulo ? obra.direccion : null, obra.municipio].filter(Boolean).join(' · ');
@@ -220,6 +254,9 @@ export function ObraCerrada({ o, resumen = [] }) {
                     <div className="ca-obra-cab-acc ca-solo-menu">
                         <button type="button" className={`ca-btn ${firmado ? 'ca-btn-sec' : 'ca-btn-pri'}`} disabled={!(dd?.firmado || dd?.certificado)} onClick={verCertificado}>
                             <IcoSello /> {firmado ? 'Ver el certificado' : 'Ver y firmar'}
+                        </button>
+                        <button type="button" className={`ca-btn ${firmado && !registrado ? 'ca-btn-pri' : 'ca-btn-sec'}`} onClick={() => setPresentar(true)}>
+                            <IcoEnviar /> Presentar
                         </button>
                     </div>
                 )}
@@ -265,12 +302,25 @@ export function ObraCerrada({ o, resumen = [] }) {
                                 </span>
                             </button>
                         )}
+                        {registrado && (
+                            <button type="button" className="ca-fila" onClick={aSubirJustificante} style={{ marginTop: 8 }}>
+                                <span className="ca-ico-tile ca-tile-verde" aria-hidden="true"><IcoCheck /></span>
+                                <span>
+                                    <b>Registrado</b>
+                                    <small>{registrado.fecha ? `El ${fecha(registrado.fecha)}` : 'Con su justificante'} · Ver el justificante</small>
+                                </span>
+                            </button>
+                        )}
                         <div className="ca-btns">
                             {!firmado && (
                                 <button type="button" className="ca-btn ca-btn-pri" disabled={!dd?.certificado || !!pdfFirmar} onClick={verCertificado}>
                                     {!dd && documentos.cargando ? <Spinner /> : <IcoSello />} {est === 'LISTO' ? 'Ver, validar y firmar' : 'Ver y firmar'}
                                 </button>
                             )}
+                            {/* Sin firmar también: el borrador dice que falta el PDF firmado. */}
+                            <button type="button" className={`ca-btn ${firmado && !registrado ? 'ca-btn-pri' : 'ca-btn-sec'}`} onClick={() => setPresentar(true)}>
+                                <IcoEnviar /> Presentar en el Registro
+                            </button>
                             {est === 'LISTO' && (
                                 <button type="button" className="ca-btn ca-btn-sec" onClick={() => { setError(null); setValidar(true); }}>Solo validar</button>
                             )}
@@ -343,7 +393,11 @@ export function ObraCerrada({ o, resumen = [] }) {
                     <p className="ca-txt ca-txt-peq" style={{ marginTop: 4 }}>Lo que hay en la carpeta del certificado. Los PDF se ven aquí mismo.</p>
                     <ListaDocumentos d={dd} cargando={documentos.cargando} error={documentos.error} recargar={documentos.recargar}
                         onVer={verDoc} puedeFirmar={!pdfFirmar}
-                        subida={{ subir: subirDefinitivo, subiendo: subiendoDef, error: errorDef }} />
+                        subida={{ subir: subirDefinitivo, subiendo: subiendoDef, error: errorDef }}
+                        registro={{ subir: subirRegistro, subiendo: subiendoReg, error: errorReg }} />
+                    <div className="ca-btns">
+                        <button type="button" className="ca-btn ca-btn-sec" onClick={() => setPresentar(true)}><IcoEnviar /> Ver el borrador para presentar</button>
+                    </div>
                     {urlDe(enlaces?.carpeta) && (
                         <a className="ca-fila" href={urlDe(enlaces.carpeta)} target="_blank" rel="noreferrer" style={{ marginTop: 14 }}>
                             <span className="ca-ico-tile ca-tile-crema" aria-hidden="true"><IcoCarpeta /></span>
@@ -455,6 +509,10 @@ export function ObraCerrada({ o, resumen = [] }) {
                 </p>
                 {error && <p className="ca-error" role="alert">{error}</p>}
             </Hoja>
+
+            {entregado && (
+                <HojaPresentar obra={obra} abierta={presentar} onCerrar={() => setPresentar(false)} onSubirJustificante={aSubirJustificante} />
+            )}
 
             {pdfFirmar && createPortal(
                 <Suspense fallback={null}>

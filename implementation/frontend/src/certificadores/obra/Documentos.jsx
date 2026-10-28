@@ -13,6 +13,10 @@
 //   · VisorPdf        (obra/VisorPdf.jsx) pantalla completa con el visor de pdf.js
 //                     (páginas, miniaturas, buscar, zoom, descargar) y un
 //                     pie que pone quien lo abre: el «Firmar con AutoFirma».
+//   · «Presentación en el Registro» (28/10/2026): el justificante y la etiqueta, y
+//     «Otros» (la tasa, las resoluciones…). El certificador los suelta en su zona
+//     (arrastrando o al tocarla): POST …/obras/:id/documentos/:clase
+//     (services/certapp/presentacion.js). El admin los ve, sin subir.
 //
 // REGLA — el PDF se pinta AQUÍ, nunca abriendo la descarga en otra pestaña: /fichero
 // sale con `CSP: sandbox` (services/certapp/tipos.js) y Chrome no deja pintar un PDF
@@ -55,14 +59,105 @@ const EnDrive = ({ doc }) => (doc.drive ? (
 ) : null);
 
 /**
+ * Una zona donde soltar un archivo (o tocarla para elegirlo).
+ * @param {(f: File) => void} onFichero
+ */
+function ZonaSoltar({ id, titulo, detalle, acepta, ocupado, onFichero, children }) {
+    const [sobre, setSobre] = useState(false);
+    const input = useRef(null);
+    const soltar = (e) => {
+        e.preventDefault(); setSobre(false);
+        const f = e.dataTransfer?.files?.[0];
+        if (f && !ocupado) onFichero(f);
+    };
+    return (
+        <div id={id} className={`ca-soltar${sobre ? ' ca-soltar-sobre' : ''}${ocupado ? ' ca-soltar-ocupado' : ''}`}
+            onDragOver={(e) => { e.preventDefault(); if (!sobre) setSobre(true); }}
+            onDragLeave={() => setSobre(false)} onDrop={soltar}>
+            <button type="button" className="ca-soltar-boton" disabled={ocupado} onClick={() => input.current?.click()}>
+                <span className="ca-ico-tile ca-tile-crema" aria-hidden="true">{ocupado ? <Spinner size={18} /> : <IcoSubir />}</span>
+                <span><b>{ocupado ? 'Subiendo…' : titulo}</b><small>{sobre ? 'Suéltalo aquí' : detalle}</small></span>
+            </button>
+            {children}
+            <input ref={input} type="file" hidden accept={acepta}
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFichero(f); }} />
+        </div>
+    );
+}
+
+/** Lo que devuelve el Registro y «Otros». `registro` (solo el certificador): `{ subir(clase, f, nombre?), subiendo, error }`. */
+function DelRegistro({ d, onVer, registro }) {
+    const [nombre, setNombre] = useState('');
+    const { justificante, etiqueta, otros = [], registro: reg } = d;
+    const subiendo = registro?.subiendo;
+    const verODescargar = (doc) => (doc.pdf
+        ? <button type="button" className="ca-btn ca-btn-sec" onClick={() => onVer(doc)}>Ver</button>
+        : <Descargar doc={doc} />);
+    if (!registro && !justificante && !etiqueta && !otros.length) return null;
+    return (
+        <div id="registro" style={{ marginTop: 18 }}>
+            <p className="ca-docs-sub">Presentación en el Registro</p>
+            <ul className="ca-docs">
+                {justificante && (
+                    <FilaDoc ico={<IcoSello />} tile="ca-tile-verde" titulo={CLASES.justificante}
+                        detalle={reg?.fecha ? `Registrado el ${fecha(reg.fecha)}${reg.leida ? '' : ' (fecha de la subida: no se pudo leer)'}${reg.numero ? ` · Nº ${reg.numero}` : ''}` : fecha(justificante.fecha, true)}
+                        chip={<span className="ca-chip ca-chip-verde">Registrado</span>}>
+                        {verODescargar(justificante)}<EnDrive doc={justificante} />
+                    </FilaDoc>
+                )}
+                {etiqueta && (
+                    <FilaDoc ico={<IcoDoc />} tile="ca-tile-verde" titulo={CLASES.etiqueta} detalle={fecha(etiqueta.fecha, true)}>
+                        {verODescargar(etiqueta)}<EnDrive doc={etiqueta} />
+                    </FilaDoc>
+                )}
+            </ul>
+            {registro && (
+                <div className="ca-soltar-par">
+                    <ZonaSoltar id="soltar-justificante" titulo={justificante ? 'Sustituir el justificante' : 'Justificante de registro'}
+                        detalle="El PDF que da la sede al presentarlo. Leemos su fecha." acepta=".pdf,application/pdf"
+                        ocupado={subiendo === 'justificante'} onFichero={(f) => registro.subir('justificante', f)} />
+                    <ZonaSoltar id="soltar-etiqueta" titulo={etiqueta ? 'Sustituir la etiqueta' : 'Etiqueta energética'}
+                        detalle="Cuando te llegue de la JCCM, en PDF." acepta=".pdf,application/pdf,image/jpeg,image/png"
+                        ocupado={subiendo === 'etiqueta'} onFichero={(f) => registro.subir('etiqueta', f)} />
+                </div>
+            )}
+
+            {(registro || otros.length > 0) && <p className="ca-docs-sub">Otros</p>}
+            {otros.length > 0 && (
+                <ul className="ca-docs">
+                    {otros.map(doc => (
+                        <FilaDoc key={doc.id} ico={<IcoDoc />} titulo={doc.nombre.replace(/^.*? - /, '').replace(/\.[a-z0-9]+$/i, '')}
+                            detalle={`${fecha(doc.fecha, true)} · ${pesoTxt(doc.bytes)}`}>
+                            {verODescargar(doc)}<EnDrive doc={doc} />
+                        </FilaDoc>
+                    ))}
+                </ul>
+            )}
+            {registro && (
+                <ZonaSoltar id="soltar-otros" titulo="Subir otro documento" detalle="La tasa, una resolución, un requerimiento… En PDF o foto."
+                    acepta=".pdf,application/pdf,image/*" ocupado={subiendo === 'otros'}
+                    onFichero={async (f) => { if (await registro.subir('otros', f, nombre)) setNombre(''); }}>
+                    <label className="ca-soltar-nombre">
+                        <span className="ca-label">Nombre <small>· opcional; si no, el del archivo</small></span>
+                        <input className="ca-input" value={nombre} maxLength={80} onChange={e => setNombre(e.target.value)} placeholder="Por ejemplo: TASA" />
+                    </label>
+                </ZonaSoltar>
+            )}
+            {registro?.error && <p className="ca-error" role="alert">{registro.error}</p>}
+        </div>
+    );
+}
+
+/**
  * El apartado «Documentos».
  * @param {object}   d         lo que devuelve useDocumentos
  * @param {(doc, opciones?) => void} onVer   abre el visor (`{ firmar: true }` en el certificado sin firmar)
  * @param {boolean}  admin
  * @param {boolean}  puedeFirmar  el certificador, con la obra entregada
  * @param {object}   [subida]  `{ subir(fichero), subiendo, error }` (solo el certificador)
+ * @param {object}   [registro] `{ subir(clase, fichero, nombre?) → Promise<boolean>, subiendo: clase|null, error }` (solo el certificador)
  */
-export function ListaDocumentos({ d, cargando, error, recargar, onVer, admin = false, puedeFirmar = false, subida = null }) {
+export function ListaDocumentos({ d, cargando, error, recargar, onVer, admin = false, puedeFirmar = false, subida = null, registro = null }) {
     const [verOld, setVerOld] = useState(false);
     const input = useRef(null);
     if (cargando && !d) return <Esqueleto alto={68} n={3} />;
@@ -136,6 +231,8 @@ export function ListaDocumentos({ d, cargando, error, recargar, onVer, admin = f
                     {subida.error && <p className="ca-error" role="alert">{subida.error}</p>}
                 </div>
             )}
+
+            <DelRegistro d={d} onVer={onVer} registro={registro} />
 
             {cuarentena.length > 0 && (
                 <>

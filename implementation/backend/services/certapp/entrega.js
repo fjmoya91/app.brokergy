@@ -47,7 +47,8 @@ function elegirFicheros(lista, numero) {
     const ext = (f, e) => new RegExp(`\\.${e}$`, 'i').test(f.name || '');
     const esFirmado = f => /_FDO\.PDF$/.test(nombre(f));
     // El PDF del CERTIFICADO: lleva «CEE» en el nombre (no el croquis ni lo del Catastro).
-    const pdf = mejor(f => ext(f, 'pdf') && /CEE/.test(nombre(f)) && !/CROQUIS/.test(nombre(f)) && !esFirmado(f));
+    // Ni lo que devuelve el Registro ni el borrador para presentar (certapp/presentacion.js).
+    const pdf = mejor(f => ext(f, 'pdf') && /CEE/.test(nombre(f)) && !/CROQUIS|JUSTIFICANTE|ETIQUETA|BORRADOR/.test(nombre(f)) && !esFirmado(f));
     const firmado = mejor(f => ext(f, 'pdf') && esFirmado(f));
     return {
         cex: mejor(f => ext(f, 'cex')),

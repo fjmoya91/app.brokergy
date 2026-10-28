@@ -15,6 +15,11 @@
 //   · «Fachada principal» vacía: la foto del Catastro y la de Street View
 //     (GET /obras/:id/fachada-sugerida/:fuente) con «Usar esta foto»
 //     (POST …/:fuente/usar), o la suya con los botones de siempre.
+//   · YA PEDIDA (Fran, 28/10/2026: «no me deja ya añadir más fotos… las que falten,
+//     de la caldera, de los patios interiores»): con `ctx.puedeSubir` se AÑADEN
+//     fotos a cualquier apartado —también a los que no aplicaban, en «Otras
+//     fotos»—, pero no se quita ninguna: lo pedido se generó con ellas. El
+//     servidor ya lo admitía (docs.subir: todo salvo ARCHIVADA).
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import {
@@ -116,7 +121,9 @@ function FachadaSugerida({ obraId, usar, ocupado }) {
  * `visita`: en la vivienda (la cámara manda). `guia`: es el siguiente que falta.
  */
 export function SlotFoto({ slot, ctx, visita, guia = false }) {
-    const { slots, subir, quitar, subiendo, editable, form, setCuestionario } = ctx;
+    const { slots, subir, quitar, subiendo, editable, puedeSubir, form, setCuestionario } = ctx;
+    // Ya pedida: se añade, no se quita.
+    const subible = editable || !!puedeSubir;
     const toast = useToast();
     const [error, setError] = useState(null);
     const ficheros = slots?.[slot.id] || [];
@@ -191,7 +198,7 @@ export function SlotFoto({ slot, ctx, visita, guia = false }) {
             {ocupado && <div className="ca-subiendo" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${pct}%` }} /></div>}
             {error && <p className="ca-error" role="alert">{error}</p>}
 
-            {editable && (
+            {subible && (
                 <div className="ca-btns ca-btns-2" style={{ marginTop: 12 }}>
                     {camara && (
                         <label className={`ca-btn ca-btn-peq ${visita ? 'ca-btn-pri' : 'ca-btn-sec'}${ocupado ? ' ca-btn-off' : ''}`} htmlFor={`${idBase}-cam`}>
@@ -269,7 +276,7 @@ export function DecisionEquipo({ equipo, ctx }) {
 export function BloqueEquipo({ e, ctx, visita, guiaId }) {
     const editable = ctx.editable;
     const slots = e.slots.map(id => SLOTS.find(s => s.id === id)).filter(Boolean)
-        .filter(s => editable || (ctx.slots?.[s.id] || []).length > 0);
+        .filter(s => editable || ctx.puedeSubir || (ctx.slots?.[s.id] || []).length > 0);
     return (
         <div className="ca-equipo">
             {slots.map(s => <SlotFoto key={s.id} slot={s} ctx={ctx} visita={visita} guia={guiaId === s.id} />)}
@@ -395,17 +402,25 @@ export function EnlacePropietario({ obraId, form }) {
 /* ── El paso «Fotos y documentos» entero ────────────────────────────────── */
 export function FotosObra({ ctx, obraId, soloVer = false }) {
     const { form, slots, docsError, recargarDocs, editable, setCampo } = ctx;
+    const [otras, setOtras] = useState(false);
     const c = form.cuestionario;
     const visita = form.en_vivienda === true;
-    // Ya pedida: solo lo subido, sin botones.
+    // Ya pedida: con `puedeSubir`, todos los apartados para añadir; si no, solo lo subido.
+    const anadir = !editable && !!ctx.puedeSubir;
+    const ver = soloVer && !anadir;
     const conFicheros = (s) => (slots?.[s.id] || []).length > 0;
-    const aplican = slotsAplicables(c).filter(s => !soloVer || conFicheros(s));
-    if (soloVer && !aplican.length) {
+    const todos = slotsAplicables(c);
+    const aplican = todos.filter(s => !ver || conFicheros(s));
+    if (ver && !aplican.length) {
         return <p className="ca-peq">{docsError ? mensajeError(docsError) : 'No se subieron fotos ni documentos.'}</p>;
     }
     const vivienda = aplican.filter(s => !s.equipo && !s.documento);
     const docs = aplican.filter(s => s.documento);
-    const equipos = estadoEquipos(c, slots).filter(e => !soloVer || e.fotos > 0);
+    const equipos = estadoEquipos(c, slots).filter(e => !ver || e.fotos > 0);
+    // Los apartados que no aplicaban (otro equipo, los patios…): con algo subido, a la vista.
+    const resto = anadir ? SLOTS.filter(s => !todos.includes(s)) : [];
+    const restoCon = resto.filter(conFicheros);
+    const restoSin = resto.filter(s => !conFicheros(s));
     // En la visita, el siguiente apartado que falta (fotos de la vivienda y equipos, en orden).
     const guiaId = visita && editable ? siguienteDeLaVisita(aplican, c, slots) : null;
 
@@ -415,6 +430,11 @@ export function FotosObra({ ctx, obraId, soloVer = false }) {
                 <Aviso tono="ambar" titulo="No hemos podido cargar las fotos">
                     {mensajeError(docsError)}{' '}
                     <button type="button" className="ca-link" onClick={recargarDocs}>Reintentar</button>
+                </Aviso>
+            )}
+            {anadir && (
+                <Aviso tono="info" icono={IcoCamara} titulo="Puedes añadir las que falten">
+                    Se guardan en la carpeta de la obra, con las demás. Las que ya estaban no se quitan: el certificado se hizo con ellas.
                 </Aviso>
             )}
             {editable && (
@@ -453,6 +473,21 @@ export function FotosObra({ ctx, obraId, soloVer = false }) {
                 <section>
                     <h3 className="ca-sec">Documentos</h3>
                     {docs.map(s => <SlotFoto key={s.id} slot={s} ctx={ctx} visita={false} />)}
+                </section>
+            )}
+
+            {resto.length > 0 && (
+                <section>
+                    <h3 className="ca-sec">Otras fotos</h3>
+                    {restoCon.map(s => <SlotFoto key={s.id} slot={s} ctx={ctx} visita={false} />)}
+                    {restoSin.length > 0 && (
+                        <>
+                            <button type="button" className="ca-docs-mas" aria-expanded={otras} onClick={() => setOtras(v => !v)}>
+                                {otras ? 'Ocultar' : `Añadir a otro apartado (${restoSin.map(s => s.label.toLowerCase()).slice(0, 3).join(', ')}${restoSin.length > 3 ? '…' : ''})`}
+                            </button>
+                            {otras && restoSin.map(s => <SlotFoto key={s.id} slot={s} ctx={ctx} visita={false} />)}
+                        </>
+                    )}
                 </section>
             )}
         </div>

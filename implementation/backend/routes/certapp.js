@@ -37,6 +37,8 @@ const incidencias = require('../services/certapp/incidencias');
 const movimientos = require('../services/certapp/movimientos');
 const firma = require('../services/certapp/firma');
 const documentos = require('../services/certapp/documentos');
+const presentacion = require('../services/certapp/presentacion');
+const tipos = require('../services/certapp/tipos');
 const { datosDelCatastro } = require('../services/certapp/catastro');
 const { cuestionario: logica } = require('../services/certapp/logica');
 const {
@@ -417,6 +419,37 @@ router.post('/obras/:id/cee/definitivo', certappOnly, obraSuyaAntes, recibirUno,
         const r = await firma.subirDefinitivo(req.obra, req.certapp.cuenta, req.file);
         return res.json(r);
     } catch (e) { return responderError(res, e, 'POST /obras/:id/cee/definitivo'); }
+});
+
+// ── Presentar el CEE en el Registro (services/certapp/presentacion.js) ──────
+// El borrador de Castilla-La Mancha (el mismo del CRM, con los datos de la obra y
+// de SU perfil) y lo que devuelve el Registro: el justificante (se lee su fecha),
+// la etiqueta y «Otros» (la tasa, las resoluciones…). Solo con lo entregado.
+router.get('/obras/:id/presentar', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        return res.json(await presentacion.borrador(obra, req.certapp.cuenta));
+    } catch (e) { return responderError(res, e, 'GET /obras/:id/presentar'); }
+});
+
+router.get('/obras/:id/presentar/pdf', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        const r = await presentacion.borradorPdf(obra, req.certapp.cuenta);
+        if (!r) throw fallo(409, 'Solo hay borrador para los certificados de Castilla-La Mancha.', 'SIN_BORRADOR');
+        tipos.cabecerasSeguras(res);
+        res.set('Content-Type', 'application/pdf');
+        res.set('Content-Disposition', tipos.disposicion('attachment', r.nombre));
+        return res.send(r.buffer);
+    } catch (e) { return responderError(res, e, 'GET /obras/:id/presentar/pdf'); }
+});
+
+router.post('/obras/:id/documentos/:clase', certappOnly, obraSuyaAntes, recibirUno, async (req, res) => {
+    try {
+        const r = await presentacion.subir(req.obra, req.certapp.cuenta, String(req.params.clase || ''), req.file,
+            { nombre: texto(req.body?.nombre, 80) || '' });
+        return res.json(r);
+    } catch (e) { return responderError(res, e, 'POST /obras/:id/documentos/:clase'); }
 });
 
 // ── Incidencias y sugerencias ───────────────────────────────────────────────
