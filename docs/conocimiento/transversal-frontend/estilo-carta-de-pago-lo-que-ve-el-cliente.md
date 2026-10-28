@@ -19,7 +19,10 @@ pantalla del CRM con este estilo: su área de contenido pasa a papel crema con s
 (`.fx-`), y el menú lateral sigue oscuro. Una pantalla de DATOS no es una carta: aquí caben varias
 cifras (el cuadro de mando), tablas densas y filtros, pero con los mismos tokens, tipografías,
 tarjetas, filete y avisos en ámbar. Ninguna otra pantalla del CRM se pasa a este estilo sin que se
-pida para ella.
+pida para ella. Pedidas después: el popup «Cálculo real» de la calculadora (27/10/2026) y la
+«Vista S.O.» de la pestaña Lotes (28/10/2026, Fran: «que se parezca a Facturación - carta de
+pago»): monta el `CSS` de `facturacion/estilo.jsx` y añade lo suyo con prefijo `.so-`; ojo, `.fx-hero`
+y `.fx-kpis` traen el `grid-area` del cuadro de Facturación y fuera de él hay que anularlo.
 
 **Las páginas de referencia** (copiar de ahí, no reinventar):
 - [RecibidoCobroView.jsx](implementation/frontend/src/features/cobro/views/RecibidoCobroView.jsx):

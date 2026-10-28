@@ -28,6 +28,7 @@ const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacio
 const { comprobarRangoCae } = require('../utils/codigosCae');
 const { leerRegage } = require('../utils/regageJustificante');
 const inexactitudesLote = require('../services/inexactitudesLote');
+const obligacionSo = require('../services/obligacionSo');
 const { archivarFacturaVenta } = require('../services/facturaContabilidad');
 const anexoActuacion = require('../services/anexoActuacionService');
 const solicitudCae = require('../services/solicitudCaeService');
@@ -440,6 +441,41 @@ router.get('/factura-so/next-number', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[GET /lotes/factura-so/next-number]', err.message);
         res.status(500).json({ error: 'Error al calcular el número de factura' });
+    }
+});
+
+// ─── Vista S.O.: su OBLIGACIÓN y lo DISPONIBLE para ofrecerle ───────────────────
+// DEBEN ir antes de '/:id'. La obligación (cuota del Anexo II, % al Fondo, lo que
+// ya compró a otros) la ve el staff; la edita el ADMIN. Lo disponible son kWh, sin
+// importes. Ver docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md.
+router.get('/obligacion-so/:soId', staffOnly, async (req, res) => {
+    try {
+        res.json(await obligacionSo.getObligacion(req.params.soId));
+    } catch (err) {
+        console.error('[GET /lotes/obligacion-so]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.put('/obligacion-so/:soId', adminOnly, async (req, res) => {
+    try {
+        const soChk = await validarPrescriptorTipo(req.params.soId, 'SUJETO_OBLIGADO');
+        if (!soChk.ok) return res.status(400).json({ error: soChk.motivo });
+        const perfil = req.user?.perfilCompleto || {};
+        const quien = [perfil.nombre, perfil.apellidos].filter(Boolean).join(' ').trim() || req.user?.email || null;
+        res.json(await obligacionSo.saveObligacion(req.params.soId, req.body || {}, quien));
+    } catch (err) {
+        console.error('[PUT /lotes/obligacion-so]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.get('/disponible', staffOnly, async (req, res) => {
+    try {
+        res.json(await obligacionSo.disponible());
+    } catch (err) {
+        console.error('[GET /lotes/disponible]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 

@@ -5,7 +5,7 @@
 // ahorro manual del verificador, en kWh) — porque la factura al S.O. se emite por el
 // importe verificado. `hasVerif` indica si algún expediente ya tiene verificado;
 // `fullyVerif` si lo tienen todos (el verificado del lote solo es completo entonces).
-import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
+import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials.js';
 
 // Equivalencia financiera del CAE (€/MWh): lo que le costaría al Sujeto Obligado
 // cumplir su obligación pagando al FNEE en vez de comprando CAEs. Es la referencia
@@ -15,8 +15,8 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 // necesita (para saber hasta dónde se le puede pedir al S.O. por un expediente) y dos
 // copias del mismo número acabarían divergiendo el año que el Ministerio lo cambie.
 // Se reexporta para no tocar a quien ya la importaba de aquí.
-export { EQUIVALENCIA_FINANCIERA } from '../../calculator/logic/calculation';
-import { EQUIVALENCIA_FINANCIERA } from '../../calculator/logic/calculation';
+export { EQUIVALENCIA_FINANCIERA } from '../../calculator/logic/calculation.js';
+import { EQUIVALENCIA_FINANCIERA } from '../../calculator/logic/calculation.js';
 
 /**
  * Resumen agregado de VARIOS lotes — el cuadro de mando de la vista de Lotes,
