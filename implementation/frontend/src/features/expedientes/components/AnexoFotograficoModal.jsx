@@ -4,8 +4,8 @@ import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { buildAnexoPages, ANEXO_SCREEN_CSS } from './anexoFotograficoDoc';
-import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
-import 'react-image-crop/dist/ReactCrop.css';
+import { VisorFotos } from '../../../components/VisorFotos';
+import { EditorImagen } from '../../../components/EditorImagen';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { SIGN_BOXES } from '../logic/signBoxes';
 import { prepararImagenParaSubir } from '../../../utils/imageResize';
@@ -54,8 +54,6 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const [sendingEmail, setSendingEmail] = useState(false);
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
     const [scale, setScale] = useState(1);
-    const [zoomedPhoto, setZoomedPhoto] = useState(null);
-    const [zoomLevel, setZoomLevel] = useState(1);
     // Firma con certificado del Anexo Fotográfico (RES060/080/093)
     const [signOpen, setSignOpen] = useState(false);
     const [signPdfB64, setSignPdfB64] = useState(null);
@@ -181,9 +179,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const [photoSizes, setPhotoSizes] = useState({});
     const [dragOverId, setDragOverId] = useState(null);
     const [editingPhoto, setEditingPhoto] = useState(null); // { index, data, label }
-    const [crop, setCrop] = useState();
-    const [completedCrop, setCompletedCrop] = useState();
-    const imgRef = useRef(null);
+    const [visorIdx, setVisorIdx] = useState(null);         // foto abierta en el visor
 
     // Anexo DINÁMICO: la lista de fotos se construye desde lo que REALMENTE hay en
     // Drive (ver efecto de carga dinámica abajo), más un HUECO por cada concepto que
@@ -455,42 +451,32 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         setPhotoSizes(prev => ({ ...prev, [photoId]: Math.max(30, Math.min(100, size)) }));
     };
 
-    // Open cropper for a photo by index
+    // Abrir el EDITOR (recortar, girar, enderezar) de una foto por su posición.
     const openCropEditor = (idx) => {
         const item = photos[idx];
-        if (item && item.file) {
-            setEditingPhoto({ index: idx, data: item.file.data, label: item.label });
-            setCrop(undefined);
-            setCompletedCrop(undefined);
-        }
+        if (item && item.file) setEditingPhoto({ index: idx, data: item.file.data, label: item.label });
     };
 
-    const handleApplyCrop = async () => {
-        if (!completedCrop || !imgRef.current) return;
-        
-        const image = imgRef.current;
-        const canvas = document.createElement('canvas');
-        const scaleX = image.naturalWidth / image.width;
-        const scaleY = image.naturalHeight / image.height;
-        const ctx = canvas.getContext('2d');
+    // ── EL VISOR ──
+    // Las fotos del anexo se miran antes de ordenarlas: aquí se decide si una
+    // vale, si está torcida o si sobra. Lleva TODAS las que tienen fichero, se
+    // pasa con las flechas y desde él se entra al editor.
+    const fotosVisibles = photos.filter(p => p.file?.data);
+    const fotosDelVisor = fotosVisibles.map(p => ({
+        id: p.id, label: p.label, nota: p.file?.name,
+        src: p.file.data, descarga: p.file.data, nombre: p.file?.name,
+    }));
+    const abrirVisor = (idx) => {
+        const item = photos[idx];
+        if (!item?.file?.data) return;
+        const n = fotosVisibles.findIndex(p => p.id === item.id);
+        setVisorIdx(n < 0 ? 0 : n);
+    };
 
-        canvas.width = completedCrop.width * scaleX;
-        canvas.height = completedCrop.height * scaleY;
-
-        ctx.drawImage(
-            image,
-            completedCrop.x * scaleX,
-            completedCrop.y * scaleY,
-            completedCrop.width * scaleX,
-            completedCrop.height * scaleY,
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        );
-
-        const base64Image = canvas.toDataURL('image/jpeg', 0.92);
-        
+    // Lo que devuelve el editor (ya recortado, girado y enderezado) sustituye a
+    // la foto de la fila. El recorte lo calcula el editor: aquí solo se guarda.
+    const handleApplyCrop = (base64Image) => {
+        if (!base64Image || !editingPhoto) return;
         setPhotos(prev => {
             const copy = [...prev];
             copy[editingPhoto.index] = {
@@ -503,10 +489,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
             };
             return copy;
         });
-        
         setEditingPhoto(null);
-        setCrop(undefined);
-        setCompletedCrop(undefined);
     };
 
     const updateScale = useCallback(() => {
@@ -554,9 +537,6 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
 
     // Fallback to static URL in preview if base64 not yet loaded
     const logoDocSrc = b64Logos.doc || '/logo_brokergy_doc.png';
-
-    // ── LIGHTBOX ZOOM ─────────────────────────────────────────────────
-    const handleCloseLightbox = () => { setZoomedPhoto(null); setZoomLevel(1); };
 
     // ── DATOS DEL DOCUMENTO (portada + pies de página) ─────────────────
     const docMeta = {
@@ -1125,7 +1105,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                                                                 </div>
                                                             )}
                                                             {item.file
-                                                                ? <img src={item.file.data} className={`w-12 h-12 rounded-lg object-cover border border-white/10 transition-all ${fuera ? 'grayscale' : 'cursor-pointer hover:ring-2 hover:ring-brand/50'}`} alt="" onClick={() => !fuera && openCropEditor(idx)} title={fuera ? 'Fuera del anexo' : 'Clic para recortar'} />
+                                                                ? <img src={item.file.data} className={`w-12 h-12 rounded-lg object-cover border border-white/10 transition-all ${fuera ? 'grayscale' : 'cursor-pointer hover:ring-2 hover:ring-brand/50'}`} alt="" onClick={() => !fuera && abrirVisor(idx)} title={fuera ? 'Fuera del anexo' : 'Ver en grande (y editar desde ahí)'} />
                                                                 : <div className="w-12 h-12 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-white/10 text-lg">📷</div>
                                                             }
                                                             <span className="text-[10px] text-white/40 truncate">
@@ -1228,55 +1208,49 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                 </div>
             )}
 
-            {/* ── CROP EDITOR MODAL ── */}
+            {/* ── EDITOR DE IMAGEN ──
+                Pieza común (`components/EditorImagen`): recorta, gira de 90 en 90
+                y endereza por grados. Lo que devuelve son los píxeles ya
+                modificados, que es lo que viaja al PDF (fila `recortada`). */}
             {editingPhoto && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/98 backdrop-blur-2xl p-4 md:p-8" onClick={() => setEditingPhoto(null)}>
-                    <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="shrink-0 px-6 py-4 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
-                            <h3 className="text-white font-bold uppercase tracking-widest text-xs">Editor de Imagen · {editingPhoto.label}</h3>
-                            <button onClick={() => setEditingPhoto(null)} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
-                        </div>
-                        {/* min-h-0 deja que el área de imagen encoja; la imagen se acota a la altura real
-                            del modal (92vh) menos cabecera/pie → siempre cabe y el botón Aplicar queda visible. */}
-                        <div className="flex-1 min-h-0 overflow-hidden p-4 md:p-6 flex items-center justify-center bg-black/40">
-                            <ReactCrop crop={crop} onChange={c => setCrop(c)} onComplete={c => setCompletedCrop(c)} className="max-w-full max-h-full">
-                                <img ref={imgRef} src={editingPhoto.data} alt="Edit" className="max-w-full object-contain shadow-2xl" style={{ maxHeight: 'calc(92vh - 210px)' }} onLoad={e => { const { width, height } = e.currentTarget; setCrop(centerCrop(makeAspectCrop({ unit: '%', width: 90 }, undefined, width, height), width, height)); }} />
-                            </ReactCrop>
-                        </div>
-                        <div className="shrink-0 p-4 md:p-6 bg-black/60 flex flex-col md:flex-row gap-4 justify-between items-center px-8 border-t border-white/10">
-                            <span className="text-[10px] uppercase font-black text-white/20 tracking-widest">Arrastra las esquinas para seleccionar el recorte</span>
-                            <div className="flex gap-3">
-                                {/* Mismo efecto que la papelera del gestor de fotos: la saca del
-                                    anexo (recuperable desde ahí), no la borra de Drive. */}
-                                <button
-                                    onClick={() => { removePhoto(editingPhoto.index); setEditingPhoto(null); }}
-                                    className="px-6 py-2 bg-red-500/10 border border-red-500/30 text-red-400 text-[11px] font-black rounded-xl uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all"
-                                    title="Quitar del anexo (no se borra de Drive)"
-                                >
-                                    Quitar foto
-                                </button>
-                                <button onClick={() => setEditingPhoto(null)} className="px-8 py-2 bg-white/5 text-white/50 text-[11px] font-black rounded-xl uppercase tracking-widest hover:bg-white/10 transition-all">Cancelar</button>
-                                <button onClick={handleApplyCrop} className="px-10 py-2 bg-brand text-black text-[11px] font-black rounded-xl uppercase tracking-widest hover:scale-105 active:scale-95 transition-all">Aplicar Recorte</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <EditorImagen
+                    src={editingPhoto.data}
+                    titulo={editingPhoto.label}
+                    modo="pixeles"
+                    etiquetaAplicar="Aplicar"
+                    onAplicar={handleApplyCrop}
+                    onCancelar={() => setEditingPhoto(null)}
+                    // Mismo efecto que la papelera del gestor de fotos: la saca del
+                    // anexo (recuperable desde ahí), no la borra de Drive.
+                    onQuitarFoto={() => { removePhoto(editingPhoto.index); setEditingPhoto(null); }}
+                />
             )}
 
-            {/* ── LIGHTBOX ZOOM ── */}
-            {zoomedPhoto && (
-                <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/95 backdrop-blur-3xl cursor-zoom-out" onClick={handleCloseLightbox}>
-                    <div className="relative max-w-[95vw] max-h-[95vh]" onClick={e => e.stopPropagation()}>
-                        <img src={zoomedPhoto.data} alt={zoomedPhoto.label} className="max-w-[95vw] max-h-[90vh] object-contain transition-transform duration-300 shadow-2xl" style={{ transform: `scale(${zoomLevel})` }} />
-                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-black/80 backdrop-blur-2xl px-6 py-3 rounded-full border border-white/10 shadow-2xl">
-                            <button onClick={() => setZoomLevel(z => Math.max(0.5, z - 0.25))} className="text-white/50 hover:text-white p-1 transition-colors"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" /></svg></button>
-                            <span className="text-white/60 text-xs font-black min-w-[3rem] text-center">{Math.round(zoomLevel * 100)}%</span>
-                            <button onClick={() => setZoomLevel(z => Math.min(3, z + 0.25))} className="text-white/50 hover:text-white p-1 transition-colors"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" /></svg></button>
-                            <div className="w-px h-4 bg-white/20 mx-2" />
-                            <button onClick={handleCloseLightbox} className="text-white/40 hover:text-red-400 p-1 transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
-                        </div>
-                    </div>
-                </div>
+            {/* ── EL VISOR ── (el mismo del gestor de documentación) */}
+            {visorIdx !== null && fotosDelVisor.length > 0 && (
+                <VisorFotos
+                    fotos={fotosDelVisor}
+                    indice={Math.min(visorIdx, fotosDelVisor.length - 1)}
+                    onIndice={setVisorIdx}
+                    onCerrar={() => setVisorIdx(null)}
+                    onEditar={(f) => {
+                        const idx = photos.findIndex(p => p.id === f.id);
+                        setVisorIdx(null);
+                        if (idx >= 0) openCropEditor(idx);
+                    }}
+                    acciones={(f) => (
+                        <button
+                            onClick={() => {
+                                const idx = photos.findIndex(p => p.id === f.id);
+                                setVisorIdx(null);
+                                if (idx >= 0) removePhoto(idx);
+                            }}
+                            title="Quitar del anexo (no se borra de Drive)"
+                            className="h-11 px-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-[11px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">
+                            Quitar del anexo
+                        </button>
+                    )}
+                />
             )}
 
             {/* Popup canónico de documentación: la ÚNICA forma de subir fotos, igual
