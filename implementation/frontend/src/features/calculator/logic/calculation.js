@@ -57,6 +57,19 @@ export const CAE_PRECIO_CLIENTE_NUEVAS = 100;
 export const EQUIVALENCIA_FINANCIERA = 198.62;
 export const CAE_PRECIO_CLIENTE_ANTERIOR = { estandar: 95, res080: 60 };
 
+// Precio CAE de la opción RES080 (2026-10-29, Fran): con la reforma activada la
+// propuesta enseña dos opciones —solo aerotermia (RES060) y reforma (RES080)— y
+// cada una puede llevar SU precio. `caePriceClient` sigue siendo el de siempre (el
+// del RES060, y el único fuera de la reforma); `caePriceClientRes080` es el de la
+// reforma y, mientras nadie lo teclee, vale lo mismo que el otro: así lo ya
+// guardado da las mismas cifras. En la oportunidad se SELLA como
+// `cae_client_rate_res080` (backend/utils/precioCae.js), y la economía de un
+// expediente RES080 lee ese sello antes que `cae_client_rate`.
+export const precioCaeRes080 = (inputs) =>
+    parseFloat(inputs?.caePriceClientRes080) || parseFloat(inputs?.caePriceClient) || 0;
+export const precioSelladoRes080 = (opInputs) =>
+    parseFloat(opInputs?.cae_client_rate_res080) || parseFloat(opInputs?.cae_client_rate) || 0;
+
 export const HDD = {
     A3: 600, A4: 550,
     B3: 950, B4: 900,

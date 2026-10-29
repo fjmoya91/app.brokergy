@@ -226,6 +226,41 @@ console.log('\n8. Un RES080 SELLADO calcula con su sello, no con el respaldo de 
     const e080 = exp080({ caePriceClient: 100, cae_client_rate: 100 });
     const finNode = await computeExpedienteFinancialsNode(e080, e080.oportunidades);
     check(Math.abs(finNode.cae - fin.cae) < 0.01, 'y su gemelo de Node da lo mismo', `${finNode.cae} vs ${fin.cae}`);
+
+    // 2026-10-29: la opción REFORMA lleva SU precio (`caePriceClientRes080`), sellado
+    // aparte (`cae_client_rate_res080`); el RES080 lo lee antes que el general.
+    const dos = exp080({ caePriceClient: 100, cae_client_rate: 100, caePriceClientRes080: 80, cae_client_rate_res080: 80 });
+    const fin2 = computeExpedienteFinancials(dos);
+    check(Math.abs(fin2.cae - (fin2.savingsKwh / 1000) * 80) < 5,
+        'con un precio RES080 propio (80), el RES080 calcula con él', Math.round(fin2.cae));
+    const finNode2 = await computeExpedienteFinancialsNode(dos, dos.oportunidades);
+    check(Math.abs(finNode2.cae - fin2.cae) < 0.01, 'y el gemelo de Node también', `${finNode2.cae} vs ${fin2.cae}`);
+}
+
+console.log('\n9. Dos precios: RES060 y RES080 (2026-10-29)');
+{
+    const { precioCaeRes080, precioSelladoRes080 } = C;
+    check(precioCaeRes080({ caePriceClient: 100 }) === 100, 'sin precio RES080 tecleado, vale el general');
+    check(precioCaeRes080({ caePriceClient: 100, caePriceClientRes080: 85 }) === 85, 'con él, el suyo');
+    check(precioCaeRes080({ caePriceClient: 100, caePriceClientRes080: 0 }) === 100, 'un 0 no es un precio: el general');
+    check(precioSelladoRes080({ cae_client_rate: 100 }) === 100, 'el sello RES080 cae al general');
+    check(precioSelladoRes080({}) === 0, 'una ANTERIOR sin sellos: 0 (y el expediente cae a su respaldo)');
+
+    const a = { caePriceClient: 100, caePriceClientRes080: 80 };
+    sellarPrecioCae(a, null);
+    check(a.cae_client_rate === 100 && a.cae_client_rate_res080 === 80, 'una NUEVA sella los dos', JSON.stringify(a));
+
+    const b = { caePriceClient: 100, caePriceClientRes080: 100 };
+    sellarPrecioCae(b, null);
+    check(b.cae_client_rate_res080 === undefined, 'si son iguales, no hace falta el segundo sello', b.cae_client_rate_res080);
+
+    const c = { caePriceClient: 150, caePriceClientRes080: 90, cae_client_rate_res080: 90 };
+    sellarPrecioCae(c, opSinSello(150));
+    check(c.cae_client_rate_res080 === undefined, 'una ANTERIOR tampoco estrena el sello RES080', c.cae_client_rate_res080);
+
+    const d = { caePriceClient: 100, caePriceClientRes080: 70 };
+    sellarPrecioCae(d, opConSello(100));
+    check(d.cae_client_rate_res080 === 70, 'una ya sellada lo mantiene al día', d.cae_client_rate_res080);
 }
 
 console.log(`\n═══ ${ok} correctas · ${ko} fallos ═══`);

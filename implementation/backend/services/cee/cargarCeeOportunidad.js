@@ -123,7 +123,7 @@ function cifrasRes080(inputs, result) {
         ahorroKwh: Number(result?.res080?.ahorroEnergiaFinalTotal) || 0,
         bono: Number(fin.caeBonus) || 0,
         total: Number(fin.totalAyuda) || 0,
-        precio: Number(inputs?.caePriceClient) || null,
+        precio: Number(inputs?.caePriceClientRes080) || Number(inputs?.caePriceClient) || null,
     };
 }
 
@@ -173,7 +173,12 @@ async function cargarRes080EnOportunidad(oportunidadId, xmlInicial, xmlPrevisto,
     //: Sin `cee_previo`: con el ahorro MEDIDO entre dos certificados no hay
     //: comparativa «con tu CEE» (26RES080_OP70).
     delete nuevos.cee_previo;
-    if (Number(precioCliente) > 0) nuevos.caePriceClient = Number(precioCliente);
+    // El precio que se pasa es el de la REFORMA: va a su casilla, y el general
+    // solo se pone si no lo había (no se pisa el de la opción RES060).
+    if (Number(precioCliente) > 0) {
+        nuevos.caePriceClientRes080 = Number(precioCliente);
+        if (!(Number(nuevos.caePriceClient) > 0)) nuevos.caePriceClient = Number(precioCliente);
+    }
 
     const result = computeFullCalculatorResult(nuevos);
     if (!result) throw new Error('La calculadora no da resultado con estos CEE.');
@@ -185,7 +190,7 @@ async function cargarRes080EnOportunidad(oportunidadId, xmlInicial, xmlPrevisto,
         presupuesto: (nuevos.presupuesto || 0) + (nuevos.presupuestoEnvolvente || 0),
         presupuestoFotovoltaica: nuevos.presupuestoFotovoltaica,
         savingsKwh: result.res080.ahorroEnergiaFinalTotal,
-        caePriceClient: nuevos.caePriceClient, caePriceSO: nuevos.caePriceSO,
+        caePriceClient: Number(nuevos.caePriceClientRes080) || nuevos.caePriceClient, caePriceSO: nuevos.caePriceSO,
         costeVerificacion: nuevos.costeVerificacion,
         caePricePrescriptor: nuevos.includeCommission ? nuevos.caePricePrescriptor : 0,
         prescriptorMode: nuevos.prescriptorMode, tipo: nuevos.tipo, participation: nuevos.participation,

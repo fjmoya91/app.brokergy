@@ -189,7 +189,7 @@ const internalKeyOrAuth = (req, res, next) => {
 // `html_propuesta`. Quitamos SOLO las claves de dinero; la energía/demanda
 // (surface, Q_net, zona…), la dirección y el estado quedan intactos.
 const MONEY_KEYS_DATOS = [
-    'caePriceClient', 'caePriceSO', 'caePricePrescriptor', 'prescriptorMode',
+    'caePriceClient', 'caePriceClientRes080', 'caePriceSO', 'caePricePrescriptor', 'prescriptorMode',
     'presupuesto', 'presupuestoEnvolvente', 'presupuestoFotovoltaica',
     'discountCertificates', 'includeCommission', 'includeIrpf', 'includeItp',
     'includeIVA', 'includeLegalization', 'legalizationPrice', 'itpPercent',
@@ -197,7 +197,7 @@ const MONEY_KEYS_DATOS = [
     'result', 'html_propuesta',
 ];
 const MONEY_KEYS_INPUTS = [
-    'cae_client_rate', 'cae_so_rate', 'cae_prescriptor_rate', 'cae_prescriptor_mode',
+    'cae_client_rate', 'cae_client_rate_res080', 'cae_so_rate', 'cae_prescriptor_rate', 'cae_prescriptor_mode',
     'include_commission', 'discount_certificates', 'certificates_cost',
     'include_legalization', 'legalization_mode', 'presupuesto', 'importe_total',
 ];

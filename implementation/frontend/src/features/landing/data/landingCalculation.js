@@ -20,6 +20,7 @@ import {
     calculatePayback,
     FACTORES_PASO,
     CAE_PRECIO_CLIENTE_NUEVAS,
+    precioCaeRes080,
 } from '../../calculator/logic/calculation';
 
 /**
@@ -342,7 +343,7 @@ export function computeFullCalculatorResult(inputs) {
                 presupuesto: (inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0),
                 presupuestoFotovoltaica: inputs.presupuestoFotovoltaica,
                 savingsKwh: res080Data.ahorroEnergiaFinalTotal,
-                caePriceClient: inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS,
+                caePriceClient: precioCaeRes080(inputs) || CAE_PRECIO_CLIENTE_NUEVAS,
                 caePriceSO: inputs.caePriceSO || 160,
                 caePricePrescriptor: inputs.includeCommission ? (inputs.caePricePrescriptor || 0) : 0,
                 prescriptorMode: inputs.prescriptorMode || 'brokergy',

@@ -3032,11 +3032,11 @@ export function CalculatorForm({
                                         </div>
                                         {showBrokergy && (
                                             <div className="animate-fade-in">
-                                                <Label htmlFor="caePriceClient" className="flex items-center gap-1.5">
+                                                <Label htmlFor="caePriceClient" className="flex items-center gap-1.5 whitespace-nowrap">
                                                     <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                                                     </svg>
-                                                    CAE (€/MWh)
+                                                    {inputs.isReforma ? 'CAE RES060 (€/MWh)' : 'CAE (€/MWh)'}
                                                 </Label>
                                                 <Input
                                                     id="caePriceClient"
@@ -3047,6 +3047,28 @@ export function CalculatorForm({
                                                     onChange={e => handleChange('caePriceClient', parseFloat(e.target.value) || 0)}
                                                     placeholder="Ej: 95"
                                                     className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
+                                                />
+                                            </div>
+                                        )}
+                                        {/* Con la reforma, la opción RES080 lleva SU precio (calculation.js,
+                                            `precioCaeRes080`): sin teclear, el mismo que el RES060. */}
+                                        {showBrokergy && inputs.isReforma && (
+                                            <div className="animate-fade-in">
+                                                <Label htmlFor="caePriceClientRes080" className="flex items-center gap-1.5 whitespace-nowrap">
+                                                    <svg className="w-3 h-3 text-cyan-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                                    </svg>
+                                                    CAE RES080 (€/MWh)
+                                                </Label>
+                                                <Input
+                                                    id="caePriceClientRes080"
+                                                    type="number"
+                                                    inputMode="decimal"
+                                                    min={0}
+                                                    value={inputs.caePriceClientRes080 ?? inputs.caePriceClient}
+                                                    onChange={e => handleChange('caePriceClientRes080', parseFloat(e.target.value) || 0)}
+                                                    placeholder="Ej: 95"
+                                                    className="bg-slate-900/60 border-slate-700/50 focus:border-cyan-500/50"
                                                 />
                                             </div>
                                         )}

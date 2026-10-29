@@ -101,3 +101,28 @@ el panel hereda la propuesta guardada, que ya se hizo a su precio.
 ```bash
 node implementation/backend/scripts/test_precio_cae_sello.mjs
 ```
+
+### Dos precios con la reforma: CAE RES060 y CAE RES080 (2026-10-29)
+
+Fran: «cuando vayamos a dar precios de solo aerotermia o aerotermia más ventanas, que
+el CAE en euros haya dos, CAE RES060 y CAE RES080 […] que podamos dar distintos
+precios». Con «Reforma Activada» la calculadora enseña ahora dos casillas: **CAE
+RES060** (`inputs.caePriceClient`, el de siempre y el único sin reforma) y **CAE
+RES080** (`inputs.caePriceClientRes080`), que solo mueve la opción reforma
+(`financialsRes080`: bono, beneficio y lo que lleva la propuesta).
+
+**REGLA — sin teclear, el precio RES080 ES el general.** `precioCaeRes080(inputs)`
+([calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js))
+cae a `caePriceClient`, así que toda oportunidad guardada da las mismas cifras que ayer.
+Lo usan la calculadora, `computeFullCalculatorResult` (alta por la skill, funnel) y la
+carga de los CEE de un RES080 (`cargarRes080EnOportunidad`, cuyo `precioCliente` es el
+de la reforma y ya no pisa el del RES060).
+
+**REGLA — se SELLA aparte, con la misma condición, y solo si difiere.** `sellarPrecioCae`
+escribe `cae_client_rate_res080` cuando la oportunidad lleva el sello general y el precio
+RES080 es otro; si no, lo retira. El expediente RES080 lee `override ?? sello RES080 ??
+sello general ?? 60` (`precioSelladoRes080`), en `expedienteFinancials.js`, su gemelo de
+Node, el listado y el panel del detalle; el Económico y el Anexo I/Convenio
+(`getClientCaeRate`) toman `caePriceClientRes080` antes que `caePriceClient` en un RES080.
+Un RES060/RES093 no cambia en nada. Las dos claves se quitan del payload del certificador
+(`MONEY_KEYS_*`, `routes/expedientes.js`).

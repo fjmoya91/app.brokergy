@@ -481,6 +481,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 presupuesto: Number(inp.presupuesto) || 0,
                 presupuestoFotovoltaica: Number(inp.presupuestoFotovoltaica) || 0,
                 caePriceClient: Number(inp.caePriceClient) || 0,
+                caePriceClientRes080: Number(inp.caePriceClientRes080) || 0,
                 participation: Number(inp.participation) || 0,
                 referencia: inp.referenciaCliente || ''
             },
