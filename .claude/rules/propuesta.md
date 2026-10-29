@@ -47,7 +47,7 @@ paths:
 - `docs/conocimiento/propuesta/biomasa-la-deduccion-del-irpf-exige-placas-solares.md` — Caldera de BIOMASA: la deducción del IRPF exige placas solares; el CAE no (2026-10-10) · 3,8 KB
 - `docs/conocimiento/propuesta/enviada-con-cualquier-envio-y-a-quien-le-ha-llegado.md` — ENVIADA con cualquier envío, y la lista dice A QUIÉN le ha llegado (2026-10-14) · 2,7 KB
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01) · 5,4 KB
-- `docs/conocimiento/propuesta/la-colaboracion-y-el-coste-de-los-servicios.md` — La colaboración se ve en la portada, y el coste de los servicios es UNO (2026-10-22) · 3,5 KB
+- `docs/conocimiento/propuesta/la-colaboracion-y-el-coste-de-los-servicios.md` — La colaboración se ve en la portada, y el coste de los servicios es UNO (2026-10-22) · 4,2 KB
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 2,4 KB
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,4 KB
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19) · 4,9 KB
@@ -78,6 +78,7 @@ en un mensaje APARTE**
   - **REGLA — lo que se le descuenta del bono es `caeMaintenanceCost`, en todas partes.**
   - **REGLA — cada total es la suma de las cifras IMPRESAS.**
   - **REGLA — con «Descuento Certificados» y un colaborador, la bonificación es SUYA.**
+  - **REGLA — en la tabla de la portada NO se nombra la tarifa de 702,78 €**
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md`
   - **REGLA — con los avisos desviados, el titular es una fila más: `TITULAR`.**
   - **REGLA — si la oportunidad viene de un colaborador, al titular se le escribe «En
