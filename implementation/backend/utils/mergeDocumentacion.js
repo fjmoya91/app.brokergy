@@ -10,7 +10,7 @@
  * para ellas manda siempre lo que ya hay en BD:
  *   · cifo_extra_annexes                → RPC cifo_annex_append/remove (/anexos-cifo)
  *   · cifo_annex_prefs                  → RPC cifo_annex_prefs_set (/anexos-cifo/prefs)
- *   · anexo_comentarios/_excluidas/_orden → PUT /:id/anexo-fotografico/config
+ *   · anexo_comentarios/_excluidas/_orden/_tamanos → PUT /:id/anexo-fotografico/config
  *   · ce3x_capturas                     → RPC res080_ce3x_set (/res080/ce3x/:slot)
  *   · incidencias                       → POST/PATCH/DELETE /:id/incidencias (y el MCP)
  *
@@ -27,6 +27,7 @@ const CLAVES_PROTEGIDAS = [
     'anexo_comentarios',
     'anexo_excluidas',
     'anexo_orden',
+    'anexo_tamanos',
     'ce3x_capturas',
     'incidencias',
     // El VISTO BUENO de un documento (y su rechazo) lo escriben SOLO sus rutas

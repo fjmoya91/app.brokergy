@@ -366,7 +366,8 @@ async function syncEnvolventeAndReload(exp, op) {
  * @param {object} opts
  *   - devolverPdf   {boolean} incluir el PDF en base64 en la respuesta (descargar/firmar)
  *   - guardarEnDrive{boolean} subirlo a "6. ANEXOS CAE" y enlazarlo (por defecto sí)
- *   - photoSizes    {object}  { [rowId]: 30..100 } tamaño por foto (slider del modal)
+ *   - photoSizes    {object}  { [rowId]: 30..100 } tamaño por foto (slider del modal),
+ *                             encima de los guardados en `documentacion.anexo_tamanos`
  *   - recortes      {object}  { [nombreFichero]: dataUrl } fotos recortadas a mano
  * @returns {Promise<{ ok, link?, pdf?, numPhotos, numActuaciones, groups, message? }>}
  */
@@ -431,9 +432,15 @@ async function generateAndSaveAnexo(expedienteId, opts = {}) {
         browser = await getBrowser();
         await reducirFotosParaPdf(browser, rows);
 
+        // Los tamaños GUARDADOS (`anexo_tamanos`, por nombre de fichero) son la
+        // base: así el anexo que se genera sin modal (MCP, skill) sale igual que
+        // el del modal. Lo que mande el modal en esta petición manda encima.
+        const tamanosGuardados = Object.fromEntries(
+            Object.entries(exp.documentacion?.anexo_tamanos || {}).map(([nombre, pct]) => [`drive_${nombre}`, pct])
+        );
         const html = buildAnexoFullHtml(rows, meta, {
             comentarios: exp.documentacion?.anexo_comentarios || {},
-            photoSizes: photoSizes || {},
+            photoSizes: { ...tamanosGuardados, ...(photoSizes || {}) },
         });
 
         page = await browser.newPage();

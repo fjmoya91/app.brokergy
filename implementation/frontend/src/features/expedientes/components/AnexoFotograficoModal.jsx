@@ -29,6 +29,14 @@ const Spinner = () => (
 // `.heic` es el formato por defecto del iPhone y en muchos equipos NO está registrado.
 const ACCEPT_FOTOS = 'image/*,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.heic,.heif,.bmp,.tif,.tiff,.gif,.avif';
 
+// Los tamaños de las filas → lo que se guarda: { nombre de fichero: % }, solo de
+// las fotos de Drive y solo los que no son el 100 % de siempre.
+const tamanosDeFilas = (porFila) => Object.fromEntries(
+    Object.entries(porFila || {})
+        .filter(([id, pct]) => String(id).startsWith('drive_') && Number(pct) < 100)
+        .map(([id, pct]) => [String(id).slice('drive_'.length), Math.round(Number(pct))])
+);
+
 // (Aquí vivía SLOT_TO_CANONICAL, un mapa de 6 ids legacy → nombre canónico en Drive.
 //  Era el único camino por el que una subida desde el Anexo llegaba a Drive; el resto
 //  se quedaba en base64 en React. Ya no hace falta: cada fila lleva su `slotKey` real
@@ -140,11 +148,16 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                         const label = ph.rotulo || (i === 0 ? g.label : `${g.label} (${i + 1})`);
                         const existing = prevById.get(id);
                         // Drive es la FUENTE DE VERDAD (regla 20): el base64 se toma
-                        // SIEMPRE fresco del backend. No conservamos el file previo:
-                        // el persistido en BD pudo quedar corrupto (normalizeData subía
+                        // fresco del backend. No conservamos el file previo: el
+                        // persistido en BD pudo quedar corrupto (normalizeData subía
                         // el base64 a MAYÚSCULAS → imagen rota) o simplemente obsoleto.
+                        // SALVO una foto EDITADA a mano en esta sesión (`recortada`):
+                        // esa versión solo existe aquí hasta generar, y esta carga
+                        // corre tras cada subida o apartado nuevo — la machacaba con
+                        // el original y el recorte se perdía sin avisar.
                         // slotKey/fase alimentan la agrupación por actuación del documento.
-                        rows.push({ ...(existing || {}), id, label, groupLabel: g.label, slotKey: g.key, fase: g.fase, fullRes: !!g.fullRes, file: { name: ph.name, data: ph.data }, required: false });
+                        const editada = existing?.recortada && existing.file?.name === ph.name && existing.file?.data;
+                        rows.push({ ...(existing || {}), id, label, groupLabel: g.label, slotKey: g.key, fase: g.fase, fullRes: !!g.fullRes, file: editada ? existing.file : { name: ph.name, data: ph.data }, required: false });
                     });
                 }
                 // Huecos de los conceptos esperados que aún no tienen ninguna foto.
@@ -175,10 +188,13 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, oppRef, configCargada]);
 
-    // photo sizing controls
+    // Tamaño de cada foto en el PDF, por fila (`drive_<nombre>` → 30..100). Se
+    // persiste (ver `tamanosDeFilas`); la ref guarda lo último escrito en BD para
+    // no reescribirlo al cargarlo.
     const [photoSizes, setPhotoSizes] = useState({});
+    const tamanosGuardados = useRef('{}');
     const [dragOverId, setDragOverId] = useState(null);
-    const [editingPhoto, setEditingPhoto] = useState(null); // { index, data, label }
+    const [editingPhoto, setEditingPhoto] = useState(null); // { id, data, label, volverAlVisor }
     const [visorIdx, setVisorIdx] = useState(null);         // foto abierta en el visor
 
     // Anexo DINÁMICO: la lista de fotos se construye desde lo que REALMENTE hay en
@@ -210,6 +226,17 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     };
 
     const [isPhotosManagerOpen, setIsPhotosManagerOpen] = useState(false);
+
+    // El anexo y el gestor se cierran pinchando en su FONDO, y solo si el clic
+    // EMPIEZA y acaba ahí. Con un `onClick={onClose}` a secas se cerraban con
+    // cualquier clic que les llegara —también los que suben por React desde un
+    // portal (visor, editor, popup de subida)— y con un arrastre soltado fuera.
+    const fondoAnexoRef = useRef(false);
+    const fondoGestorRef = useRef(false);
+    const cierraPorFondo = (ref, cerrar) => ({
+        onMouseDown: (e) => { ref.current = e.target === e.currentTarget; },
+        onClick: (e) => { if (ref.current && e.target === e.currentTarget) cerrar(); ref.current = false; },
+    });
 
     // En modo "solo fotos" el gestor ES la ventana: se abre solo y, al cerrarlo,
     // se cierra todo (no hay vista previa detrás a la que volver).
@@ -266,10 +293,11 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                 comentarios: doc.anexo_comentarios || {},
                 excluidas: doc.anexo_excluidas || [],
                 orden: doc.anexo_orden || {},
+                tamanos: doc.anexo_tamanos || {},
             };
             try {
                 const { data } = await axios.get(`/api/expedientes/${expediente.id}/anexo-fotografico/config`);
-                if (data) cfg = { comentarios: data.comentarios || {}, excluidas: data.excluidas || [], orden: data.orden || {} };
+                if (data) cfg = { comentarios: data.comentarios || {}, excluidas: data.excluidas || [], orden: data.orden || {}, tamanos: data.tamanos || {} };
             } catch (err) {
                 console.warn('[AnexoFotografico] No se pudieron leer los ajustes:', err.message);
             }
@@ -278,6 +306,9 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
             setExcluidas(cfg.excluidas);
             setOrden(cfg.orden);
             ordenRef.current = cfg.orden;
+            const tamanos = Object.fromEntries(Object.entries(cfg.tamanos).map(([nombre, pct]) => [`drive_${nombre}`, pct]));
+            tamanosGuardados.current = JSON.stringify(tamanosDeFilas(tamanos));
+            setPhotoSizes(tamanos);
             setConfigCargada(true); // dispara la carga de fotos, ya con el orden aplicado
         })();
         return () => { vivo = false; };
@@ -292,6 +323,17 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         return () => clearTimeout(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [comentarios, configCargada, isOpen]);
+
+    // Los tamaños, igual: se guardan cuando el deslizador se para.
+    useEffect(() => {
+        if (!isOpen || !configCargada) return;
+        const tamanos = tamanosDeFilas(photoSizes);
+        const json = JSON.stringify(tamanos);
+        if (json === tamanosGuardados.current) return;
+        const t = setTimeout(() => { tamanosGuardados.current = json; saveAnexoConfig({ tamanos }); }, 700);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [photoSizes, configCargada, isOpen]);
 
     const saveAnexoConfig = async (patch) => {
         if (!expediente?.id) return;
@@ -445,27 +487,48 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         setPhotos(prev => prev.filter((_, i) => i !== index));
     };
 
-    // Photo size control
+    // Tamaño de cada foto en el PDF (30–100 %). Antes vivía solo en esta pantalla:
+    // al reabrir el anexo volvía todo al 100 % y el que genera el servidor (MCP)
+    // no lo conocía. Ahora se guarda con los demás ajustes, por NOMBRE de fichero
+    // como el orden y las excluidas (aquí la clave es la fila, `drive_<nombre>`).
     const getPhotoSize = (photoId) => photoSizes[photoId] || 100;
     const setPhotoSize = (photoId, size) => {
         setPhotoSizes(prev => ({ ...prev, [photoId]: Math.max(30, Math.min(100, size)) }));
     };
 
     // Abrir el EDITOR (recortar, girar, enderezar) de una foto por su posición.
-    const openCropEditor = (idx) => {
+    // ⚠️ El editor apunta a la foto por su ID, no por su posición: mientras está
+    // abierto la lista puede recargarse (una subida, un apartado nuevo) y la
+    // posición pasaría a ser la de OTRA foto — el recorte caería en la que no es.
+    // `volverAlVisor`: se entró desde el visor, y al terminar se vuelve a él, a la
+    // misma foto, en vez de soltar al usuario en la lista.
+    const openCropEditor = (idx, volverAlVisor = false) => {
         const item = photos[idx];
-        if (item && item.file) setEditingPhoto({ index: idx, data: item.file.data, label: item.label });
+        if (item && item.file) setEditingPhoto({ id: item.id, data: item.file.data, label: item.label, volverAlVisor });
+    };
+    const cerrarEditor = () => {
+        const vuelta = editingPhoto?.volverAlVisor ? editingPhoto.id : null;
+        setEditingPhoto(null);
+        if (vuelta) {
+            const n = fotosVisibles.findIndex(p => p.id === vuelta);
+            if (n >= 0) setVisorIdx(n);
+        }
     };
 
     // ── EL VISOR ──
     // Las fotos del anexo se miran antes de ordenarlas: aquí se decide si una
-    // vale, si está torcida o si sobra. Lleva TODAS las que tienen fichero, se
-    // pasa con las flechas y desde él se entra al editor.
+    // vale, si está torcida o si sobra. Lleva TODAS las que tienen fichero —también
+    // las quitadas del anexo, que se pueden recuperar desde él—, se pasa con las
+    // flechas y desde él se entra al editor.
     const fotosVisibles = photos.filter(p => p.file?.data);
-    const fotosDelVisor = fotosVisibles.map(p => ({
-        id: p.id, label: p.label, nota: p.file?.name,
-        src: p.file.data, descarga: p.file.data, nombre: p.file?.name,
-    }));
+    const fotosDelVisor = fotosVisibles.map(p => {
+        const fuera = excluidas.includes(p.file?.name);
+        return {
+            id: p.id, label: p.label,
+            nota: [p.file?.name, p.recortada && 'editada', fuera && 'fuera del anexo'].filter(Boolean).join(' · '),
+            src: p.file.data, descarga: p.file.data, nombre: p.file?.name,
+        };
+    });
     const abrirVisor = (idx) => {
         const item = photos[idx];
         if (!item?.file?.data) return;
@@ -477,19 +540,23 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     // la foto de la fila. El recorte lo calcula el editor: aquí solo se guarda.
     const handleApplyCrop = (base64Image) => {
         if (!base64Image || !editingPhoto) return;
-        setPhotos(prev => {
-            const copy = [...prev];
-            copy[editingPhoto.index] = {
-                ...copy[editingPhoto.index],
-                // `recortada` marca la fila para enviarla al generar: el PDF se
-                // construye en el servidor desde Drive, así que solo viajan las
-                // imágenes que el usuario ha modificado a mano (no las 67).
-                recortada: true,
-                file: { ...copy[editingPhoto.index].file, data: base64Image }
-            };
-            return copy;
-        });
-        setEditingPhoto(null);
+        setPhotos(prev => prev.map(p => (p.id !== editingPhoto.id ? p : {
+            ...p,
+            // `recortada` marca la fila para enviarla al generar: el PDF se
+            // construye en el servidor desde Drive, así que solo viajan las
+            // imágenes que el usuario ha modificado a mano (no las 67).
+            recortada: true,
+            file: { ...p.file, data: base64Image },
+        })));
+        cerrarEditor();
+    };
+
+    // Deshacer la edición: la fila deja de estar `recortada` y se vuelve a pedir
+    // el original a Drive (no se guarda una copia del original en la fila: iría
+    // en base64 a `photo_attachments`, regla 21).
+    const deshacerEdicion = async (id) => {
+        setPhotos(prev => prev.map(p => (p.id === id ? { ...p, recortada: false } : p)));
+        await loadDynamic();
     };
 
     const updateScale = useCallback(() => {
@@ -802,7 +869,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const beneficioStr = Math.round((results?.savingsKwh || results?.ahorroEnergiaFinalTotal || 0) * (results?.price_kwh || 0.102)).toLocaleString('es-ES');
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={soloFotos ? undefined : onClose}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+            {...(soloFotos ? {} : cierraPorFondo(fondoAnexoRef, onClose))}>
             {/* La vista previa del documento y sus acciones (generar/firmar/enviar)
                 solo tienen sentido dentro del Anexo Fotográfico. En modo "solo fotos"
                 se omiten y queda únicamente el gestor, que se pinta más abajo. */}
@@ -934,8 +1002,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
 
             {/* ── PHOTOS MANAGER MODAL ── */}
             {isPhotosManagerOpen && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" onClick={cerrarGestor}>
-                    <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" {...cierraPorFondo(fondoGestorRef, cerrarGestor)}>
+                    <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl">
                         <div className="px-8 py-5 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
                             <h3 className="text-white font-bold uppercase tracking-[0.2em] text-xs">Gestión de Fotos</h3>
                             <div className="flex items-center gap-3">
@@ -1105,13 +1173,21 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                                                                 </div>
                                                             )}
                                                             {item.file
-                                                                ? <img src={item.file.data} className={`w-12 h-12 rounded-lg object-cover border border-white/10 transition-all ${fuera ? 'grayscale' : 'cursor-pointer hover:ring-2 hover:ring-brand/50'}`} alt="" onClick={() => !fuera && abrirVisor(idx)} title={fuera ? 'Fuera del anexo' : 'Ver en grande (y editar desde ahí)'} />
+                                                                // También la quitada abre el visor: mirarla es como se
+                                                                // decide recuperarla, y el visor tiene «Volver al anexo».
+                                                                ? <img src={item.file.data} className={`w-12 h-12 rounded-lg object-cover border border-white/10 transition-all cursor-pointer hover:ring-2 hover:ring-brand/50 ${fuera ? 'grayscale' : ''}`} alt="" onClick={() => abrirVisor(idx)} title={fuera ? 'Fuera del anexo · ver en grande' : 'Ver en grande (y editar desde ahí)'} />
                                                                 : <div className="w-12 h-12 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-white/10 text-lg">📷</div>
                                                             }
                                                             <span className="text-[10px] text-white/40 truncate">
                                                                 {!fuera && <span className="text-white/25 font-black mr-1">{String(pos + 1).padStart(2, '0')}</span>}
                                                                 {item.file?.name || item.label}
                                                                 {fuera && <span className="text-red-400/60 font-black"> · fuera del anexo</span>}
+                                                                {/* Editada a mano: esa versión va al PDF al generarlo, y
+                                                                    la original sigue intacta en Drive. Se dice, y se
+                                                                    puede volver a ella. */}
+                                                                {item.recortada && !fuera && (
+                                                                    <span className="ml-1.5 px-1.5 py-0.5 rounded bg-brand/15 text-brand font-black uppercase text-[8px] tracking-wider" title="Recortada, girada o enderezada aquí. La original sigue en Drive.">editada</span>
+                                                                )}
                                                             </span>
                                                         </div>
                                                         {item.file && (
@@ -1122,8 +1198,12 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                                                                     </button>
                                                                 ) : (
                                                                     <>
-                                                                        <input type="range" min="30" max="100" value={getPhotoSize(item.id)} onChange={e => setPhotoSize(item.id, parseInt(e.target.value))} className="w-16 accent-brand cursor-pointer" title="Tamaño en PDF" />
-                                                                        <button onClick={() => openCropEditor(idx)} className="p-2 text-white/40 hover:text-brand transition-all" title="Recortar">
+                                                                        <input type="range" min="30" max="100" step="5" value={getPhotoSize(item.id)} onChange={e => setPhotoSize(item.id, parseInt(e.target.value))} className="w-16 accent-brand cursor-pointer" title="Tamaño de la foto en el PDF" />
+                                                                        <span className={`w-8 text-[9px] font-black tabular-nums text-right ${getPhotoSize(item.id) < 100 ? 'text-brand' : 'text-white/25'}`} title="Tamaño en el PDF (se guarda)">{getPhotoSize(item.id)}%</span>
+                                                                        {item.recortada && (
+                                                                            <button onClick={() => deshacerEdicion(item.id)} className="p-2 text-white/40 hover:text-white transition-all text-sm leading-none" title="Volver a la foto original de Drive">↺</button>
+                                                                        )}
+                                                                        <button onClick={() => openCropEditor(idx)} className="p-2 text-white/40 hover:text-brand transition-all" title="Editar: recortar, girar, enderezar">
                                                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h2m10-2h2a2 2 0 002-2v-2M6 8H4a2 2 0 00-2 2v2m16-4V6a2 2 0 00-2-2h-2"/></svg>
                                                                         </button>
                                                                         <button onClick={() => removePhoto(idx)} className="p-2 text-red-500/50 hover:text-red-500 transition-all" title="Quitar del anexo (no se borra de Drive)">
@@ -1219,14 +1299,21 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                     modo="pixeles"
                     etiquetaAplicar="Aplicar"
                     onAplicar={handleApplyCrop}
-                    onCancelar={() => setEditingPhoto(null)}
+                    onCancelar={cerrarEditor}
                     // Mismo efecto que la papelera del gestor de fotos: la saca del
                     // anexo (recuperable desde ahí), no la borra de Drive.
-                    onQuitarFoto={() => { removePhoto(editingPhoto.index); setEditingPhoto(null); }}
+                    onQuitarFoto={() => {
+                        const idx = photos.findIndex(p => p.id === editingPhoto.id);
+                        if (idx >= 0) removePhoto(idx);
+                        cerrarEditor();
+                    }}
                 />
             )}
 
-            {/* ── EL VISOR ── (el mismo del gestor de documentación) */}
+            {/* ── EL VISOR ── (el mismo del gestor de documentación)
+                Quitar, recuperar y deshacer una edición se hacen SIN salir: se está
+                repasando el anexo foto a foto y cada salida obligaba a volver a
+                buscar por dónde iba. «Editar» sí sale, y al terminar vuelve aquí. */}
             {visorIdx !== null && fotosDelVisor.length > 0 && (
                 <VisorFotos
                     fotos={fotosDelVisor}
@@ -1236,20 +1323,42 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                     onEditar={(f) => {
                         const idx = photos.findIndex(p => p.id === f.id);
                         setVisorIdx(null);
-                        if (idx >= 0) openCropEditor(idx);
+                        if (idx >= 0) openCropEditor(idx, true);
                     }}
-                    acciones={(f) => (
-                        <button
-                            onClick={() => {
-                                const idx = photos.findIndex(p => p.id === f.id);
-                                setVisorIdx(null);
-                                if (idx >= 0) removePhoto(idx);
-                            }}
-                            title="Quitar del anexo (no se borra de Drive)"
-                            className="h-11 px-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-[11px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">
-                            Quitar del anexo
-                        </button>
-                    )}
+                    acciones={(f) => {
+                        const fila = photos.find(p => p.id === f.id);
+                        const fuera = excluidas.includes(fila?.file?.name);
+                        return (
+                            <>
+                                {fila?.recortada && (
+                                    <button
+                                        onClick={() => deshacerEdicion(f.id)}
+                                        title="Volver a la foto original de Drive"
+                                        className="h-11 px-4 rounded-xl bg-white/[0.07] text-white/70 text-[11px] font-black uppercase tracking-widest hover:bg-white/15 hover:text-white transition-all">
+                                        ↺ Original
+                                    </button>
+                                )}
+                                {fuera ? (
+                                    <button
+                                        onClick={() => toggleExcluida(fila.file.name)}
+                                        title="Vuelve a entrar en el documento"
+                                        className="h-11 px-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-black uppercase tracking-widest hover:bg-emerald-500 hover:text-black transition-all">
+                                        ↩ Volver al anexo
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => {
+                                            const idx = photos.findIndex(p => p.id === f.id);
+                                            if (idx >= 0) removePhoto(idx);
+                                        }}
+                                        title="Quitar del anexo (no se borra de Drive)"
+                                        className="h-11 px-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-[11px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">
+                                        Quitar del anexo
+                                    </button>
+                                )}
+                            </>
+                        );
+                    }}
                 />
             )}
 

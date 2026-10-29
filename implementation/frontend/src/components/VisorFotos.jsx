@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { AISLAR_PORTAL } from './aislarPortal';
 
 /**
  * EL VISOR DE FOTOS — uno solo para toda la app.
@@ -365,10 +366,11 @@ export function VisorFotos({
     return createPortal(
         /* El velo va casi opaco y con el color puesto a mano: abierto sobre el
            gestor, lo de detrás no puede translucir. */
-        <div ref={raizRef}
+        /* ⚠️ AISLAR_PORTAL: sin él, cada clic del visor subía por React hasta el
+           modal que lo abrió, y el del Anexo Fotográfico se cerraba con él. */
+        <div ref={raizRef} {...AISLAR_PORTAL}
             style={{ backgroundColor: 'rgba(0,0,0,0.985)' }}
-            className="fixed inset-0 z-[9000] backdrop-blur-sm flex flex-col select-none"
-            onMouseDown={e => { if (e.target === e.currentTarget) onCerrar?.(); }}>
+            className="fixed inset-0 z-[9000] backdrop-blur-sm flex flex-col select-none">
 
             {/* ── Cabecera ── */}
             <div className="shrink-0 flex items-center gap-3 px-3 md:px-5 py-2.5 bg-gradient-to-b from-black/80 to-transparent">

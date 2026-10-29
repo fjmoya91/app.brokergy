@@ -34,9 +34,14 @@ export function PruebaVisor() {
     const [i, setI] = useState(null);
     const [editar, setEditar] = useState(null);
     const [resultado, setResultado] = useState(null);
+    // Como el Anexo Fotográfico: el visor y el editor se abren DENTRO de un modal
+    // que se cierra con cualquier clic que le llegue. Si un clic del portal sube
+    // por React hasta aquí, el contador lo canta (y el Anexo se cerraría).
+    const [escapados, setEscapados] = useState(0);
 
     return (
-        <div className="min-h-screen bg-[#0B0C0F] text-white p-8 space-y-6">
+        <div className="min-h-screen bg-[#0B0C0F] text-white p-8 space-y-6" onClick={() => setEscapados(n => n + 1)}>
+            <p id="escapados" className="text-[11px] uppercase tracking-widest text-white/40">Clics que suben al modal de debajo: <b className="text-white">{escapados}</b></p>
             <h1 className="text-xl font-black uppercase tracking-widest">Prueba del visor y del editor</h1>
             <div className="flex flex-wrap gap-4">
                 {FOTOS.map((f, n) => (

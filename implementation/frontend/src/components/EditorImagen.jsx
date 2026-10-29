@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
+import { AISLAR_PORTAL } from './aislarPortal';
 
 /**
  * EL EDITOR DE IMAGEN — uno solo para toda la app.
@@ -241,9 +242,12 @@ export function EditorImagen({
         /* Se cancela solo si el clic EMPIEZA y acaba en el fondo: al soltar fuera
            del diálogo el arrastre de una esquina, el `click` caía en el fondo y
            se perdía todo lo hecho. */
-        <div className="fixed inset-0 z-[9010] flex items-center justify-center bg-black/98 backdrop-blur-2xl p-2 md:p-8"
-            onMouseDown={e => { pulsadoEnFondo.current = e.target === e.currentTarget; }}
-            onClick={e => { if (pulsadoEnFondo.current && e.target === e.currentTarget) onCancelar?.(); pulsadoEnFondo.current = false; }}>
+        /* Y AISLAR_PORTAL: los clics del editor no pueden subir por React al
+           modal que lo abrió (el del Anexo se cerraba con ellos). */
+        <div {...AISLAR_PORTAL}
+            className="fixed inset-0 z-[9010] flex items-center justify-center bg-black/98 backdrop-blur-2xl p-2 md:p-8"
+            onMouseDown={e => { e.stopPropagation(); pulsadoEnFondo.current = e.target === e.currentTarget; }}
+            onClick={e => { e.stopPropagation(); if (pulsadoEnFondo.current && e.target === e.currentTarget) onCancelar?.(); pulsadoEnFondo.current = false; }}>
             <div className="bg-[#16181D] border border-white/10 rounded-2xl md:rounded-3xl w-full max-w-5xl max-h-[96vh] flex flex-col overflow-hidden">
 
                 <div className="shrink-0 px-4 md:px-6 py-3 md:py-4 border-b border-white/10 flex justify-between items-center gap-3 bg-white/[0.02]">

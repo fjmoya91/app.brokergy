@@ -128,3 +128,63 @@ fotos de mentira con las tres formas (apaisada, vertical, cuadrada) para
 comprobar el teclado, la rueda, el giro y los dos modos del editor sin tocar un
 expediente de verdad. **No entra en el build**: `vite build` solo toma
 `index.html` como entrada.
+
+## Y desde el Anexo Fotográfico «te echaba fuera» (2026-10-29)
+
+Fran, el mismo día del estreno: desde **Gestionar Fotos** del Anexo, al pasar de
+una foto a otra, pulsar la foto o entrar a editar, **se cerraba todo** y volvía a
+la pantalla de documentos.
+
+**La causa: un portal de React NO corta los eventos.** El visor y el editor van
+portaleados a `body` (29.b), pero sus eventos sintéticos suben por el árbol de
+**componentes**, no por el del DOM. El Anexo es un modal cuyo fondo se cerraba con
+CUALQUIER `onClick` que le llegase, así que la flecha «Siguiente», el clic sobre la
+foto o el botón «Editar» llegaban hasta él y lo cerraban, con el visor dentro. En
+el gestor de documentación no pasaba porque su contenedor no cierra al clic.
+
+**REGLA — un overlay portaleado AÍSLA sus eventos en la raíz.**
+[components/aislarPortal.js](implementation/frontend/src/components/aislarPortal.js)
+(`AISLAR_PORTAL`) corta la propagación React de los eventos de PULSAR (`click`,
+`dblclick`, `mousedown`, `pointerdown`, `touchstart`, `contextmenu`, `keydown`) y se
+extiende en la raíz del visor y del editor. ⚠️ **No** se cortan `pointerup` ni
+`mouseup`: react-image-crop termina el arrastre de una esquina con un listener en
+`document`, y cortarlos dejaría el recuadro pegado al ratón.
+
+**REGLA — un modal se cierra por el FONDO solo si el clic EMPIEZA y ACABA en el
+fondo** (`mousedown` apuntado en un `ref` + `target === currentTarget` en el
+`click`). Es la segunda mitad del arreglo: aunque mañana un overlay nuevo no se
+aísle, el Anexo ya no se cierra por un clic que no fue suyo. Lo mismo el popup de
+Gestión de fotos, al que se le quitó el `stopPropagation` interior.
+
+Comprobado en el banco de pruebas, que ahora emula al Anexo (un contador
+`#escapados` cuenta los clics que suben al modal de debajo): pasar fotos, girar,
+ampliar, clic y doble clic en la foto, los botones de la pantalla, entrar al
+editor, arrastrar una esquina (el fin del arrastre SÍ llega a `document`) y
+Aplicar — **0** escapados.
+
+**Lo que se arregló de paso en el gestor del Anexo**
+
+- **Una foto editada se perdía al recargar la lista** (`loadDynamic`, que corre al
+  subir otra foto o al cambiar de fase, reconstruía las filas desde Drive y pisaba
+  el recorte). Ahora una fila `recortada` conserva su imagen editada mientras sea
+  el mismo fichero. El recorte sigue viviendo SOLO en memoria hasta generar (viaja
+  como `recortes`): no se guarda en Drive ni, nunca, en un JSONB (regla 21).
+- **El editor seguía la foto por su POSICIÓN**: si la lista se recargaba con el
+  editor abierto, el recorte se aplicaba a otra fila. Ahora va por el `id`.
+- **Al aplicar o cancelar, se vuelve al VISOR en la misma foto** si se entró desde
+  él (antes se volvía a la lista y había que buscarla otra vez).
+- **Las acciones del visor no lo cierran**: «Quitar del anexo» / «Volver al anexo»
+  y **↺ Original** (deshace la edición) cambian la foto y se sigue mirando. La
+  cabecera dice si la foto está *editada* o *fuera del anexo*.
+- **El TAMAÑO de cada foto se GUARDA** (`documentacion.anexo_tamanos`, por nombre de
+  fichero, enteros 30–99; el 100 no se guarda). Antes se perdía al cerrar, y el
+  anexo que se genera desde el servidor (MCP, skill) salía con todas al 100 %. Se
+  guarda con el resto de la configuración (`PUT /:id/anexo-fotografico/config`, con
+  freno de 700 ms), está en `CLAVES_PROTEGIDAS` de `mergeDocumentacion` y
+  `generateAndSaveAnexo` lo aplica por debajo de lo que mande la pantalla.
+- En cada fila: miniatura que SIEMPRE abre el visor (en gris si está fuera), marca
+  *editada*, ↺ para deshacer y el % del tamaño junto al deslizador (de 5 en 5).
+
+**Pendiente, no hecho**: que una foto editada sobreviva a cerrar el Anexo. Exigiría
+guardar la copia editada en Drive (al lado del original, sin pisarlo), y local
+escribe en el Drive de PRODUCCIÓN: se decide aparte.

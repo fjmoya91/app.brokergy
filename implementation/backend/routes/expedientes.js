@@ -2523,6 +2523,8 @@ router.post('/:id/anexo-fotografico/generar', internalKeyOrAuth, async (req, res
 //     La foto SIGUE en Drive: es documentación del expediente, solo se omite aquí.
 //   · `orden`       { <SLOT>: ['FOTO_X_3.jpg', 'FOTO_X_1.jpg', …] } — orden manual
 //     de las fotos dentro de un concepto. El orden de las filas ES el orden del PDF.
+//   · `tamanos`     { 'FOTO_X_1.jpg': 60, … } — tamaño de la foto en el PDF (30–99 %;
+//     sin entrada = 100 %). Antes vivía solo en el modal y se perdía al reabrirlo.
 // Viven en `documentacion` para que el PDF salga igual por el modal y por el MCP.
 // Escritura acotada: relee `documentacion` y toca SOLO estas dos claves, así un
 // guardado en paralelo del detalle del expediente no las pisa ni las borra.
@@ -2540,6 +2542,7 @@ router.get('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
             comentarios: doc.anexo_comentarios || {},
             excluidas: doc.anexo_excluidas || [],
             orden: doc.anexo_orden || {},
+            tamanos: doc.anexo_tamanos || {},
         });
     } catch (e) {
         console.error('[anexo-fotografico/config GET]', e);
@@ -2549,7 +2552,7 @@ router.get('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
 
 router.put('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
     try {
-        const { comentarios, excluidas, orden } = req.body || {};
+        const { comentarios, excluidas, orden, tamanos } = req.body || {};
         const { data: exp, error } = await supabase
             .from('expedientes').select('documentacion').eq('id', req.params.id).maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
@@ -2574,6 +2577,14 @@ router.put('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
                     .filter(([, lista]) => lista.length)
             );
         }
+        if (tamanos !== undefined) {
+            // Solo números de 30 a 99: el 100 es el de siempre y no deja rastro.
+            docObj.anexo_tamanos = Object.fromEntries(
+                Object.entries(tamanos || {})
+                    .map(([nombre, pct]) => [String(nombre), Math.round(Number(pct))])
+                    .filter(([nombre, pct]) => nombre && Number.isFinite(pct) && pct >= 30 && pct < 100)
+            );
+        }
 
         const { error: upErr } = await supabase
             .from('expedientes')
@@ -2586,6 +2597,7 @@ router.put('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
             comentarios: docObj.anexo_comentarios || {},
             excluidas: docObj.anexo_excluidas || [],
             orden: docObj.anexo_orden || {},
+            tamanos: docObj.anexo_tamanos || {},
         });
     } catch (e) {
         console.error('[anexo-fotografico/config]', e);
