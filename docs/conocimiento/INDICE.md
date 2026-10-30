@@ -9,10 +9,10 @@
 |---|---|---|---|
 | `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 43,0 KB | 14 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
-| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 45,7 KB | 23 |
+| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 47,4 KB | 23 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 54,8 KB | 18 |
-| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 9,5 KB | 14 |
+| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 9,9 KB | 15 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,8 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 23,8 KB | 7 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 10 |
@@ -267,6 +267,7 @@
 - **183** → `.claude/rules/transversal-frontend.md` — Las fotos se miran con UN visor y se editan con UN editor
 - **184** → `.claude/rules/cee.md` — Al técnico CON cuenta en la app de certificadores el encargo le llega POR LA APP, y lo que hace allí vuelve …
 - **185** → `.claude/rules/envolvente-ce3x.md` — La envolvente se revisa PARED A PARED con el TECLADO, y lo que falta para generar es UN número con su lista
+- **186** → `.claude/rules/cee.md` — El VISTO BUENO de una obra de la app se da en su ENVOLVENTE y la deja LISTA PARA FIRMAR; al firmarla, el exp…
 
 ## Documentos por área
 
@@ -384,6 +385,7 @@
 - `docs/conocimiento/certificadores-app/menu-lateral-y-partes-de-la-obra.md` — El menú lateral y las partes de la obra (2026-10-26)
 - `docs/conocimiento/certificadores-app/presentar-en-el-registro-y-fotos-tras-pedir.md` — Presentar en el Registro, lo que devuelve y las fotos tras pedir (2026-10-28)
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24)
+- `docs/conocimiento/certificadores-app/visto-bueno-desde-la-envolvente.md` — El visto bueno de BROKERGY, dado en la envolvente: listo para firmar (2026-10-30)
 
 ### claude-automatizacion
 

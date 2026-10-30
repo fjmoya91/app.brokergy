@@ -34,7 +34,7 @@ import { AsiEsComoEstaModal, BandaRevision } from '../components/AsiEsComoEsta';
 import { faltaParaGenerar, selloAgente } from '../logic/pendientes';
 import { textoCambios } from '../logic/cambiosAlMedir';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
-         PanelMedidas, SelloCex, Ventana, VersionCe3x } from '../components/PanelesFicha';
+         PanelMedidas, SelloCex, Ventana, VersionCe3x, VistoBuenoCex } from '../components/PanelesFicha';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envolvente térmica — la superficie del certificador.
@@ -1098,6 +1098,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: La huella de lo que se VE ahora, solo si la ficha es de esta fase.
     const huellaVista = ficha?.fase === fichaFase ? (ficha?.huella || null) : null;
 
+    //: El VISTO BUENO de BROKERGY a una obra de la app (`darVistoBueno`, abajo).
+    //: Mientras el PC la califica se vuelve a mirar cada 30 s: así se ve cuándo
+    //: queda entregada, sin recargar.
+    const [vistoBuenoEnCurso, setVistoBuenoEnCurso] = useState(false);
+    const [vistoBuenoRes, setVistoBuenoRes] = useState(null);   // { tono, texto }
+    const esperandoPc = !!estadoCex.inicial?.visto_bueno?.esperando_pc;
+    useEffect(() => {
+        if (!esperandoPc) return;
+        const t = setInterval(() => setRefrescoEstado(n => n + 1), 30_000);
+        return () => clearInterval(t);
+    }, [esperandoPc]);
+
     // ── Lo que FALTA y el CROQUIS ───────────────────────────────────────────
     // «Faltan N para generar» (`faltaParaGenerar`, abajo, junto a las pestañas
     // de las que también tira): cada línea lleva a lo suyo — su pared, su
@@ -1366,7 +1378,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: backend no lo pisa sin un «sí» (`forzar`). Aquí se guarda la pregunta.
     const [tocadoCex, setTocadoCex] = useState(null);   // { fase, respuestas, texto }
 
-    async function generarCex(fase = 'inicial', respuestas = null, forzar = false) {
+    //: Devuelve lo guardado, o null si no se ha generado (el fallo o la pregunta
+    //: ya están en pantalla). `conVistoBueno`: lo pide el visto bueno, que enseña
+    //: su propio resultado (sin el popup de «generado»).
+    async function generarCex(fase = 'inicial', respuestas = null, forzar = false, { conVistoBueno = false } = {}) {
         setPreguntando(null);
         setTocadoCex(null);
         // Lo contestado se guarda como AJUSTE del trabajo, que es lo que ya se
@@ -1394,8 +1409,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             // El enlace de la carpeta es el FINAL del recorrido: es lo que se le
             // pasa al certificador. Sale solo, y no en una línea al pie de la
             // pantalla que hay que ir a buscar.
-            setReciénGenerado(data);
+            if (!conVistoBueno) setReciénGenerado(data);
             onAviso?.(`${data.nombre} guardado en la carpeta del expediente.`);
+            return data;
         } catch (e) {
             // 422 = el motor NO ha escrito el fichero a propósito. Es una
             // respuesta, no una caída: lleva dentro qué le falta.
@@ -1404,12 +1420,57 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             // guardó en CE3X?). Se enseña al lado del botón con su «sí».
             if (d?.tocado) {
                 setTocadoCex({ fase, respuestas, texto: d.error });
-                return;
+                return null;
             }
             setError(e.mensaje || d?.error || 'No se pudo generar el .cex.');
             if (d?.avisos?.length) setAvisos(d.avisos);
+            return null;
         } finally {
             setGenerando(false); setGenerandoFase(null);
+        }
+    }
+
+    //: El VISTO BUENO (obra de la app, solo el equipo): sobre lo que se VE. Si
+    //: no es lo generado —no hay nada, otra receta, guardado a mano en CE3X—,
+    //: se genera antes; luego el backend entrega o espera al PC.
+    async function darVistoBueno() {
+        if (vistoBuenoEnCurso || generando) return;
+        setVistoBuenoRes(null);
+        const est = estadoCex.inicial || {};
+        let huella = est.sello?.huella || null;
+        if (!est.sello || huellaVista !== est.sello.huella || est.tocado || est.falta) {
+            if ((ficha?.faltan || []).length || (!tipoInfo.elegido && tipoInfo.tipo !== 'residencial')) {
+                pedirGenerar('inicial');
+                setVistoBuenoRes({ tono: 'aviso', texto: 'Antes de generarlo falta contestar lo que se pregunta. '
+                                                     + 'Genéralo y vuelve a dar el visto bueno.' });
+                return;
+            }
+            setVistoBuenoEnCurso(true);
+            const g = await generarCex('inicial', null, false, { conVistoBueno: true });
+            if (!g) {
+                setVistoBuenoEnCurso(false);
+                setVistoBuenoRes({ tono: 'aviso', texto: 'No se ha generado (lo dice arriba): el visto bueno no se ha dado.' });
+                return;
+            }
+            huella = g.huella || huellaVista;
+        }
+        setVistoBuenoEnCurso(true);
+        try {
+            const { data } = await axios.post(api(id, 'visto-bueno'), { huella });
+            setVistoBuenoRes(data.que === 'CALCULANDO'
+                ? { tono: data.pc?.ok === false ? 'aviso' : 'ok',
+                    texto: 'Visto bueno dado. Se está calculando con CE3X (unos minutos): al terminar se le entrega '
+                         + 'al certificador, listo para firmar.'
+                         + (data.pc?.ok === false ? ` No se ha podido encargar al PC: ${data.pc.motivo}.` : '') }
+                : data.que === 'FIRMADO'
+                    ? { tono: 'ok', texto: 'Visto bueno dado al certificado ya firmado: pasa al expediente de BROKERGY.' }
+                    : { tono: 'ok', texto: 'Visto bueno dado: entregado al certificador, listo para firmar en la app.' });
+            onAviso?.('Visto bueno dado.');
+        } catch (e) {
+            setVistoBuenoRes({ tono: 'error', texto: e.response?.data?.error || e.message || 'No se ha podido dar el visto bueno.' });
+        } finally {
+            setVistoBuenoEnCurso(false);
+            setRefrescoEstado(n => n + 1);
         }
     }
 
@@ -2341,6 +2402,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     {/* Lo que lleva el .cex que YA está en Drive, y si está al
                         día con lo que se ve aquí. */}
                     <SelloCex estado={estadoCex[fichaFase]} huella={huellaVista} fase={fichaFase} />
+                    {/* El visto bueno de BROKERGY a una obra de la app: un clic y
+                        queda listo para firmar (el botón, solo el equipo). */}
+                    {enExt && fichaFase === 'inicial' && (
+                        <VistoBuenoCex vb={estadoCex.inicial?.visto_bueno || null} puedeDar={esStaff}
+                                       onDar={darVistoBueno} enCurso={vistoBuenoEnCurso}
+                                       deshabilitado={!entrada || generando || !huellaVista}
+                                       motivo={!entrada ? 'Señala primero por dónde se entra.'
+                                           : !huellaVista ? 'Cargando lo que se va a generar…' : null}
+                                       resultado={vistoBuenoRes} />
+                    )}
                     {tocadoCex && (
                         <div className="rounded-lg border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2.5">
                             <p className="text-[12px] leading-snug text-amber-200/90">{tocadoCex.texto}</p>

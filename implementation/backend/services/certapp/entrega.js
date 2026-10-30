@@ -83,14 +83,17 @@ async function enlaces(obra, { admin = false } = {}) {
 /**
  * Entrega la obra al certificador.
  * @param {string} obraId
- * @param {{ por?: string, porDetalle?: string, forzar?: boolean }} opts
+ * @param {{ por?: string, porDetalle?: string, forzar?: boolean, reabrir?: boolean, vistoBueno?: boolean }} opts
  *        `por`: 'BROKERGY' o 'IA' (lo ve el certificador) · `porDetalle`: quién del
- *        equipo (solo el admin) · `forzar`: entregar aunque no haya PDF ni .cex
+ *        equipo (solo el admin) · `forzar`: entregar aunque no haya PDF ni .cex ·
+ *        `reabrir`: también una obra VALIDADO (una versión nueva se firma de nuevo) ·
+ *        `vistoBueno`: entrega con el visto bueno de BROKERGY (certapp/vistoBueno.js):
+ *        el aviso dice «listo para firmar»
  */
-async function entregar(obraId, { por = 'BROKERGY', porDetalle = null, forzar = false } = {}) {
+async function entregar(obraId, { por = 'BROKERGY', porDetalle = null, forzar = false, reabrir = false, vistoBueno = false } = {}) {
     const obra = await obras.cargar(obraId);
     if (!obra) throw fallo(404, 'No encuentro esa obra.', 'OBRA_NO_ENCONTRADA');
-    if (!['EN_PREPARACION', 'LISTO'].includes(obra.estado)) {
+    if (!['EN_PREPARACION', 'LISTO', ...(reabrir ? ['VALIDADO'] : [])].includes(obra.estado)) {
         throw fallo(409, `La obra está ${obra.estado}: solo se entrega una obra en preparación (o se reentrega una lista).`, 'ESTADO_NO_ENTREGABLE');
     }
     const { data: cuenta, error } = await supabase.from('certapp_cuentas').select('*').eq('id', obra.cuenta_id).maybeSingle();
@@ -108,30 +111,38 @@ async function entregar(obraId, { por = 'BROKERGY', porDetalle = null, forzar = 
 
     const compartida = await drive.compartirConCertificador(obra, cuenta.email);
     const ahora = new Date().toISOString();
-    const lista = await obras.cambiarEstado(obra.id, 'LISTO', { listo_at: obra.listo_at || ahora, entregado_at: ahora });
+    // Reabrir una VALIDADO: la firma era de la versión anterior (el firmado ya no
+    // se ofrece, `elegirFicheros`), así que deja de estar validada.
+    const lista = await obras.cambiarEstado(obra.id, 'LISTO', { listo_at: obra.listo_at || ahora, entregado_at: ahora,
+                                                               ...(obra.estado === 'VALIDADO' ? { validado_at: null } : {}) });
     await evento(obra.id, cuenta.id, 'ENTREGA',
-        compartida.ok ? 'Certificado entregado; carpeta compartida con el certificador'
-            : 'Certificado entregado; la carpeta de Drive no se ha podido compartir (los ficheros se bajan desde la app)',
-        por === 'IA' ? 'IA' : 'BROKERGY', { compartida: compartida.ok, ficheros: enl.ficheros },
+        (vistoBueno ? 'Certificado entregado con el visto bueno de BROKERGY, listo para firmar' : 'Certificado entregado')
+            + (compartida.ok ? '; carpeta compartida con el certificador'
+                : '; la carpeta de Drive no se ha podido compartir (los ficheros se bajan desde la app)'),
+        por === 'IA' ? 'IA' : 'BROKERGY', { compartida: compartida.ok, ficheros: enl.ficheros, visto_bueno: vistoBueno },
         { porDetalle: porDetalle || (por !== 'IA' && por !== 'BROKERGY' ? por : null),
           notaInterna: compartida.ok ? null : `Drive: ${compartida.error || compartida.motivo}` });
 
     const donde = [obra.direccion, obra.municipio].filter(Boolean).join(', ');
     const p = {
-        titulo: `Tu certificado ${obra.numero_expediente} está listo`,
+        titulo: `Tu certificado ${obra.numero_expediente} está listo${vistoBueno ? ' para firmar' : ''}`,
         saludo: cuenta.nombre ? `Hola ${cuenta.nombre}:` : 'Hola:',
         parrafos: [
             `Ya tienes el certificado de ${donde || obra.numero_expediente}: el PDF, el .cex, el XML y el croquis, para verlos y descargarlos.`,
+            vistoBueno ? 'Lleva ya el visto bueno de BROKERGY: solo falta que lo firmes.' : '',
             compartida.ok ? 'También lo tienes en tu carpeta de Google Drive, compartida con este email.' : '',
         ],
         // Lo que pidió Fran (25/10/2026): que el aviso lleve a la envolvente «por si
         // quiere revisar algo», y que desde la app lo valide y lo firme.
-        pasos: [
+        pasos: vistoBueno ? [
+            ['Fírmalo', 'Desde la app, con tu certificado digital (AutoFirma).'],
+            ['Si cambias algo en la envolvente', 'Se vuelve a generar y el visto bueno deja de valer: habrá que darlo otra vez.'],
+        ] : [
             ['Revísalo', 'Abre el certificado en la app: el PDF se ve en el navegador y el .cex se descarga.'],
             ['Si quieres cambiar algo, en la envolvente', 'Cámbialo allí y se vuelve a generar. Lo que cambies a mano en el .cex con CE3X no vuelve a la envolvente.'],
             ['Valídalo y fírmalo', 'Desde la app, con tu certificado digital (AutoFirma). Si lo rehaces en tu CE3X, sube allí el XML y el PDF definitivos.'],
         ],
-        boton: { href: enlaceObra(obra), label: 'Ver el certificado' },
+        boton: { href: enlaceObra(obra), label: vistoBueno ? 'Firmar el certificado' : 'Ver el certificado' },
         boton2: { href: enl.envolvente, label: 'Revisar en la envolvente' },
     };
     const aviso = await avisos.avisarCertificador(cuenta, {
@@ -139,7 +150,15 @@ async function entregar(obraId, { por = 'BROKERGY', porDetalle = null, forzar = 
         html: avisos.plantilla({ ...p, preheader: p.parrafos[0] }),
         texto: avisos.textoPlano(p),
         // En viñetas y con negritas, como el encargo (Fran, 25/10/2026).
-        whatsapp: [
+        whatsapp: (vistoBueno ? [
+            `✅ *Tu certificado ${obra.numero_expediente} está listo para firmar*`,
+            ...(donde ? [donde] : []),
+            '',
+            '• *Lleva el visto bueno de BROKERGY:* solo falta tu firma.',
+            '• *Fírmalo* desde la app, con tu certificado digital (AutoFirma).',
+            '',
+            `👉 Firmar el certificado: ${enlaceObra(obra)}`,
+        ] : [
             `✅ *Tu certificado ${obra.numero_expediente} está listo*`,
             ...(donde ? [donde] : []),
             '',
@@ -149,7 +168,7 @@ async function entregar(obraId, { por = 'BROKERGY', porDetalle = null, forzar = 
             '',
             `👉 Ver el certificado: ${enlaceObra(obra)}`,
             `📐 Envolvente: ${enl.envolvente}`,
-        ].join('\n'),
+        ]).join('\n'),
     });
     return { obra: lista, enlaces: enl, compartida, aviso };
 }
@@ -180,12 +199,20 @@ function textoListoEquipo(obra, cuenta) {
 }
 
 /**
- * Para quien detecte que la IA ha terminado (el .cex en «1. CEE»): con
- * CERTAPP_ENTREGA_AUTO=true entrega sola; si no, avisa al equipo de que hay una
- * obra lista para revisar y entregar. Nunca lanza.
+ * Para quien detecte que la IA ha terminado (el .cex en «1. CEE»): con el visto
+ * bueno de BROKERGY ya dado (certapp/vistoBueno.js), entrega «listo para firmar»;
+ * con CERTAPP_ENTREGA_AUTO=true entrega sola; si no, avisa al equipo de que hay
+ * una obra lista para revisar y entregar. Nunca lanza.
  */
 async function alTerminarIa(obraId) {
     try {
+        try {
+            const conVistoBueno = await require('./vistoBueno').alCalificar(obraId);
+            if (conVistoBueno) return { auto: true, porVistoBueno: true, ...conVistoBueno };
+        } catch (e) {
+            // Sigue el camino de siempre: el equipo lo revisa y lo entrega a mano.
+            console.warn(`[certapp entrega] con el visto bueno (${obraId}):`, e.message);
+        }
         if (encendido('CERTAPP_ENTREGA_AUTO')) return { auto: true, ...(await entregar(obraId, { por: 'IA' })) };
         const obra = await obras.cargar(obraId);
         if (obra) {

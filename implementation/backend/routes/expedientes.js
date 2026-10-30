@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const axios = require('axios');
 const supabase = require('../services/supabaseClient');
-const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff } = require('../middleware/auth');
+const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff, staffOClaveInterna } = require('../middleware/auth');
 const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData, fotosSinBase64 } = require('../utils/normalization');
@@ -125,6 +125,11 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     // certificadores al firmar un encargo (services/certapp/crm.js), con la clave
     // interna. Su middleware propio es internalKeyOrAuth.
     { method: 'POST', re: /^\/[^/]+\/notify-review\/?$/ },
+    // El visto bueno («Validar»): además del equipo con sesión, la app de
+    // certificadores al firmar un encargo al que BROKERGY ya dio el visto bueno en
+    // la envolvente (certapp/vistoBueno.js), sin aviso. Su middleware propio es
+    // staffOClaveInterna.
+    { method: 'POST', re: /^\/[^/]+\/approve-cee\/?$/ },
     // Lo que devuelve la sede cuando presenta la casa (skill presentar-cee): lo sube
     // un script con la clave interna. Su middleware propio es staffOClaveInterna.
     { method: 'POST', re: /^\/[^/]+\/presentacion-cee\/devuelto\/?$/ },
@@ -7856,7 +7861,7 @@ router.post('/:id/cee/final-desde-medida', staffOnly, async (req, res) => {
     }
 });
 
-router.post('/:id/approve-cee', staffOnly, async (req, res) => {
+router.post('/:id/approve-cee', staffOClaveInterna, async (req, res) => {
     try {
         const { phase } = req.body;
         const adminMessage = (req.body?.adminMessage || '').trim() || null;

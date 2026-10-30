@@ -17,7 +17,7 @@ const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
-const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff, isAdmin } = require('../middleware/auth');
+const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff, isAdmin, staffOClaveInterna } = require('../middleware/auth');
 const { buildCertClienteData } = require('../services/certClienteData');
 const svc = require('../services/ceeDirectoService');
 const folders = require('../services/ceeDirectoFolders');
@@ -1357,7 +1357,9 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
 });
 
 // ─── POST /:id/approve-cee ── Visto bueno para registrar ────────────────────
-router.post('/:id/approve-cee', staffOnly, async (req, res) => {
+// Con la clave interna, la app de certificadores al firmar un encargo al que
+// BROKERGY ya dio el visto bueno en la envolvente (certapp/vistoBueno.js), sin aviso.
+router.post('/:id/approve-cee', staffOClaveInterna, async (req, res) => {
     try {
         const row = await svc.cargar(req.params.id);
         if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });

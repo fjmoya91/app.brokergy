@@ -1742,6 +1742,59 @@ export function SelloCex({ estado, huella = null, fase = 'inicial' }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// El VISTO BUENO de BROKERGY a la obra de un certificador de la app
+// (backend: services/certapp/vistoBueno.js, 30/10/2026).
+//
+// REGLA — un clic deja el certificado listo para firmar: si lo que se ve no es
+// lo generado, se genera antes; CE3X lo califica en el PC y se entrega solo, sin
+// «Entregar». Vale para ESA receta: volver a generar con otros datos lo anula.
+// El botón es del EQUIPO; el certificador solo ve si lo tiene.
+// ─────────────────────────────────────────────────────────────────────────────
+function lineaVistoBueno(vb) {
+    if (!vb) return null;
+    const f = vb.at ? new Date(vb.at).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+    const quien = vb.por ? ` (${vb.por})` : '';
+    if (vb.anulado_at) return ['text-amber-300', `⚠ El visto bueno del ${f} ya no vale: se ha vuelto a generar con otros datos.`];
+    if (!vb.vigente) return ['text-amber-300', `⚠ El visto bueno del ${f} no es de lo que está generado ahora.`];
+    if (vb.firmado) return ['text-emerald-300', `✓ Visto bueno del ${f}${quien}, dado al certificado ya firmado.`];
+    if (vb.esperando_pc) return ['text-sky-200/85', `✓ Visto bueno del ${f}${quien}: se está calculando con CE3X y se entrega solo al terminar.`];
+    if (vb.listo && vb.entregado_at) return ['text-emerald-300', `✓ Visto bueno del ${f}${quien}: entregado, listo para firmar.`];
+    return ['text-emerald-300', `✓ Visto bueno del ${f}${quien}.`];
+}
+
+export function VistoBuenoCex({ vb, puedeDar, onDar, enCurso = false, deshabilitado = false, motivo = null, resultado = null }) {
+    const linea = lineaVistoBueno(vb);
+    if (!puedeDar && !linea) return null;
+    return (
+        <div className="rounded-lg border border-emerald-400/25 bg-emerald-400/[0.04] px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-200/70">Visto bueno de BROKERGY</p>
+            {linea && <p className={`mt-1 text-[11.5px] font-semibold leading-snug ${linea[0]}`}>{linea[1]}</p>}
+            {puedeDar && (
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <button onClick={onDar} disabled={deshabilitado || enCurso} title={motivo || undefined}
+                            className="rounded-xl bg-emerald-400 px-4 py-2.5 text-xs font-black uppercase
+                                       tracking-widest text-black disabled:cursor-not-allowed disabled:opacity-40
+                                       hover:brightness-110">
+                        {enCurso ? 'Dando el visto bueno…' : vb?.vigente ? '↻ Volver a dar el visto bueno' : '✓ Visto bueno: listo para firmar'}
+                    </button>
+                    <span className="max-w-[28rem] text-[11px] leading-snug text-white/45">
+                        {motivo || 'Si lo que ves está bien: se genera si hace falta, CE3X lo califica y se le entrega '
+                                   + 'al certificador listo para firmar, sin «Entregar». Si es un encargo del CRM, al '
+                                   + 'firmarlo el expediente queda con el visto bueno.'}
+                    </span>
+                </div>
+            )}
+            {resultado && (
+                <p className={`mt-2 text-[11.5px] font-semibold leading-snug ${
+                    resultado.tono === 'error' ? 'text-red-300' : resultado.tono === 'aviso' ? 'text-amber-300' : 'text-emerald-300'}`}>
+                    {resultado.texto}
+                </p>
+            )}
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Las MEDIDAS DE MEJORA que se escriben en el .cex.
 //
 // Se ELIGEN, no se rellenan solas: un certificado puede proponer una, las dos o

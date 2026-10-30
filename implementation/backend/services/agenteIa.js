@@ -625,7 +625,8 @@ async function terminarExt({ clave, fase, fichero = {}, pendientes = null, aviso
     if (aviso && entregable) {
         try {
             const r = await require('./certapp/entrega').alTerminarIa(fila.id);
-            entrega = { auto: !!r?.auto, ok: r?.auto ? r.ok !== false : null, motivo: r?.error || null };
+            entrega = { auto: !!r?.auto, ok: r?.auto ? r.ok !== false : null, motivo: r?.error || null,
+                        porVistoBueno: !!r?.porVistoBueno };
             if (entrega.auto && !entrega.ok) fallos.push(`Entrega automática: ${entrega.motivo || 'falló'}`);
         } catch (e) {
             entrega = { auto: null, ok: false, motivo: e.message };
@@ -651,7 +652,10 @@ async function terminarExt({ clave, fase, fichero = {}, pendientes = null, aviso
         canales.push('ninguno: CERTAPP_AVISOS_ENABLED apagado (en el log)');
     } else if (aviso) {
         // `alTerminarIa` sin entrega automática ya le ha mandado al equipo su WhatsApp.
-        if (entrega?.auto !== false) {
+        // Entregado con el visto bueno que dio el equipo: ya lo sabe; queda el email.
+        if (entrega?.porVistoBueno && entrega.ok) {
+            canales.push('WhatsApp: no (entregado con el visto bueno de BROKERGY)');
+        } else if (entrega?.auto !== false) {
             try {
                 await require('./whatsappService').sendText(adminPhone(), msg.whatsapp);
                 canales.push('WhatsApp');

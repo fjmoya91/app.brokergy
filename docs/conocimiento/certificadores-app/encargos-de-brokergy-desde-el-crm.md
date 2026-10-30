@@ -100,8 +100,10 @@ pueda acusar.
 - **Firmar** el PDF en la app (`firma.guardarFirmado`) manda al expediente, en segundo plano
   (`enviarCeeAsync`), el **PDF firmado + el `.xml` + el `.cex`** de «1. CEE» de la obra con los
   nombres del CRM, y pide la revisión como si lo subiera por su enlace (`notify-review` con la clave
-  interna en el CAE; en el CEE directo, PTE_REVISION + historial + aviso). Si falla: evento
-  `CRM_FALLO` y aviso al equipo.
+  interna en el CAE; en el CEE directo, PTE_REVISION + historial + aviso). **Con el visto bueno de
+  BROKERGY ya dado en la envolvente** (desde el 30/10/2026), en vez de la revisión, el visto bueno
+  del expediente sin aviso (`approve-cee` con la clave interna) y el XML cargado: ver «El visto
+  bueno de BROKERGY, dado en la envolvente». Si falla: evento `CRM_FALLO` y aviso al equipo.
 - **El XML definitivo** subido en la app va también al expediente (`enviarDefinitivoAsync`).
 - **El justificante y la etiqueta** del Registro (`presentacion.subir`) van a las casillas `registro`
   y `etiqueta` del expediente (`enviarRegistroAsync`): el justificante lee la fecha y registra la

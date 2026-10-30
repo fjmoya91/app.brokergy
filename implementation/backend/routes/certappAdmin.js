@@ -307,8 +307,9 @@ router.post('/obras/:id/pedir-ia', adminOnly, async (req, res) => {
  * calificar, lanzado por la cola del PC). El aviso sale de AQUÍ, de producción:
  * en el PC los avisos de la app están apagados y su CERTAPP_URL es la de local.
  * `agenteIa.terminarExt` con el certificado ya entregable → evento IA_HECHA,
- * `alTerminarIa` (entrega sola o el WhatsApp de «listo para revisar» al equipo) y
- * el email con el detalle. Con la clave interna (el PC) o un ADMIN.
+ * `alTerminarIa` (con el visto bueno dado, «listo para firmar»; si no, entrega
+ * sola o el WhatsApp de «listo para revisar» al equipo) y el email con el detalle.
+ * Con la clave interna (el PC) o un ADMIN.
  */
 const adminOInterno = (req, res, next) => (esClaveInterna(req) ? next() : adminOnly(req, res, next));
 
@@ -320,7 +321,10 @@ router.post('/interno/calificada', adminOInterno, async (req, res) => {
         if (error) throw errorBd(error, 'obra calificada');
         if (!fila) throw fallo(404, `No encuentro la obra ${numero}.`, 'OBRA_NO_ENCONTRADA');
         const obra = await obras.cargar(fila.id);
-        if (!['EN_PREPARACION', 'LISTO'].includes(obra?.estado)) {
+        // Una VALIDADO solo con el visto bueno de BROKERGY: la versión nueva se
+        // entrega para firmarla otra vez (certapp/vistoBueno.js).
+        const conVistoBueno = obra?.estado === 'VALIDADO' && require('../services/certapp/vistoBueno').vigente(obra.cee);
+        if (!['EN_PREPARACION', 'LISTO'].includes(obra?.estado) && !conVistoBueno) {
             return res.json({ ok: true, omitido: `la obra está ${obra?.estado || '—'}: no se avisa` });
         }
         const enl = await entrega.enlaces(obra, { admin: true });

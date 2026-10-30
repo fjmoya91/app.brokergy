@@ -752,8 +752,38 @@ async function pedirRevision(crm, cuenta, obra) {
 }
 
 /**
+ * El visto bueno del expediente, SIN aviso al técnico (`approve-cee` con la clave
+ * interna, como «Validar» con los canales apagados): REVISADO, historial y, si el
+ * certificador es de la casa, los nombres definitivos. Lo que pide
+ * certapp/vistoBueno.js: BROKERGY ya lo revisó en la envolvente antes de firmarse.
+ */
+async function aprobarEnCrm(crm, obra) {
+    const ruta = crm.negocio === 'cee' ? `cee-directos/${crm.id}` : `expedientes/${crm.id}`;
+    const { data } = await axios.post(`${API()}/${ruta}/approve-cee`, {
+        phase: crm.fase, sendEmail: false, sendWhatsApp: false, adjuntarBorrador: false, guardarBorradorDrive: true,
+        notaAdicional: `Visto bueno dado en la app de certificadores (${obra.numero_expediente}) antes de firmarlo; sin aviso al técnico.`,
+    }, { headers: cabeceraInterna(), timeout: 120000 });
+    return data;
+}
+
+/**
+ * El XML que se ha firmado, CARGADO en el expediente (regla 152; `forzar`: lo
+ * que se firma manda, como en el visto bueno de la casa).
+ */
+async function cargarXmlEnCrm(crm, bytes, nombre) {
+    const cex = require('../ceeEnvolventeCex');
+    const origen = crm.negocio === 'cee' ? 'cee' : 'cae';
+    const ctx = await cex.cargarExpediente(crm.id, origen);
+    if (!ctx) return { cargado: false, omitido: 'no se encuentra el expediente' };
+    const { cargarXmlEnApp } = require('../cee/cargarXmlCee');
+    return cargarXmlEnApp({ ...ctx, origen }, normFase(crm.fase), bytes, { fileName: nombre, escribir: true, forzar: true });
+}
+
+/**
  * Al FIRMAR en la app: el PDF firmado y el XML y el .cex de la entrega suben al
- * expediente y se pide la revisión. De fondo: el técnico no espera a esto.
+ * expediente y se pide la revisión; con el visto bueno de BROKERGY ya dado en la
+ * envolvente (certapp/vistoBueno.js), el visto bueno del expediente en su lugar y
+ * el XML cargado. De fondo: el técnico no espera a esto.
  */
 function enviarCeeAsync(obra, cuenta, { firmado }) {
     const crm = crmDe(obra);
@@ -763,23 +793,44 @@ function enviarCeeAsync(obra, cuenta, { firmado }) {
         try {
             const drive = require('./drive');
             const { elegirFicheros } = require('./entrega');
+            const conVistoBueno = require('./vistoBueno').listoParaFirmar((await require('./vistoBueno').leer(obra.id))?.cee);
             const carpeta = await drive.carpetaCeeSiExiste(obra);
             const lista = carpeta ? await drive.listar(carpeta) : [];
             const el = elegirFicheros(lista, obra.numero_expediente);
             await alCrm(crm, cuenta, 'pdf', firmado, 'application/pdf');
             hechos.push('PDF firmado');
+            let xml = null;
             for (const [slot, f, mime] of [['xml', el.xml, 'application/xml'], ['cex', el.cex, 'application/octet-stream']]) {
                 if (!f) continue;
                 const bytes = await leerDrive(f.id);
-                if (bytes?.length) { await alCrm(crm, cuenta, slot, bytes, mime); hechos.push(slot === 'xml' ? 'XML' : '.cex'); }
+                if (bytes?.length) {
+                    await alCrm(crm, cuenta, slot, bytes, mime);
+                    hechos.push(slot === 'xml' ? 'XML' : '.cex');
+                    if (slot === 'xml') xml = { bytes, nombre: f.name };
+                }
             }
-            await pedirRevision(crm, cuenta, obra);
+            let notaInterna = null;
+            if (conVistoBueno) {
+                await aprobarEnCrm(crm, obra);
+                hechos.push('visto bueno');
+                if (xml) {
+                    try {
+                        const carga = await cargarXmlEnCrm(crm, xml.bytes, xml.nombre);
+                        if (carga?.cargado) hechos.push('XML cargado');
+                        else notaInterna = `XML sin cargar en el expediente: ${carga?.omitido || 'no se ha podido'}`;
+                    } catch (e) { notaInterna = `XML sin cargar en el expediente: ${e.message}`; }
+                }
+            } else {
+                await pedirRevision(crm, cuenta, obra);
+            }
             const ahora = new Date().toISOString();
             const fresca = await require('./obras').cargar(obra.id);
             if (fresca) {
                 await supabase.from('certapp_obras').update({ seguimiento: { ...(fresca.seguimiento || {}), crm: { ...crmDe(fresca), cee_enviado_at: ahora } } }).eq('id', obra.id);
             }
-            await evento(obra.id, obra.cuenta_id, 'CRM_ENVIADO', `Enviado a BROKERGY para su visto bueno (${hechos.join(', ')})`, 'BROKERGY');
+            await evento(obra.id, obra.cuenta_id, 'CRM_ENVIADO',
+                conVistoBueno ? `Enviado a BROKERGY, con su visto bueno (${hechos.join(', ')})`
+                    : `Enviado a BROKERGY para su visto bueno (${hechos.join(', ')})`, 'BROKERGY', null, { notaInterna });
         } catch (e) {
             console.error(`[certapp crm] ${obra.numero_expediente} → ${crm.numero}: ${e.message}`);
             await evento(obra.id, obra.cuenta_id, 'CRM_FALLO', `No se ha podido enviar a BROKERGY${hechos.length ? ` (sí: ${hechos.join(', ')})` : ''}`, 'BROKERGY',
@@ -787,6 +838,40 @@ function enviarCeeAsync(obra, cuenta, { firmado }) {
             await require('./avisos').avisarEquipo({
                 asunto: `${crm.numero} — el CEE firmado en la app no ha llegado entero`,
                 cuerpo: `❗ ${obra.numero_expediente} (${crm.numero}): ${e.message}${hechos.length ? `\nSí llegó: ${hechos.join(', ')}` : ''}`,
+            }).catch(() => {});
+        }
+    });
+}
+
+/**
+ * El visto bueno dado DESPUÉS de firmar esa misma versión (certapp/vistoBueno.js):
+ * los ficheros ya están en el expediente; falta su visto bueno y cargar el XML.
+ * De fondo, como el envío.
+ */
+function vistoBuenoAlCrmAsync(obraId) {
+    setImmediate(async () => {
+        const obra = await require('./obras').cargar(obraId).catch(() => null);
+        const crm = crmDe(obra);
+        if (!crm) return;
+        try {
+            await aprobarEnCrm(crm, obra);
+            let notaInterna = null;
+            try {
+                const drive = require('./drive');
+                const carpeta = await drive.carpetaCeeSiExiste(obra);
+                const f = carpeta ? require('./entrega').elegirFicheros(await drive.listar(carpeta), obra.numero_expediente).xml : null;
+                const bytes = f ? await leerDrive(f.id) : null;
+                const carga = bytes?.length ? await cargarXmlEnCrm(crm, bytes, f.name) : null;
+                if (!carga?.cargado) notaInterna = `XML sin cargar en el expediente: ${carga?.omitido || 'no está el XML'}`;
+            } catch (e) { notaInterna = `XML sin cargar en el expediente: ${e.message}`; }
+            await evento(obra.id, obra.cuenta_id, 'CRM_ENVIADO', 'Visto bueno de BROKERGY pasado al expediente', 'BROKERGY', null, { notaInterna });
+        } catch (e) {
+            console.error(`[certapp crm] visto bueno ${obra.numero_expediente} → ${crm.numero}: ${e.message}`);
+            await evento(obra.id, obra.cuenta_id, 'CRM_FALLO', 'No se ha podido pasar el visto bueno al expediente de BROKERGY', 'BROKERGY',
+                null, { notaInterna: texto(e?.response?.data?.error || e.message, 500) });
+            await require('./avisos').avisarEquipo({
+                asunto: `${crm.numero} — el visto bueno dado en la app no ha llegado al expediente`,
+                cuerpo: `❗ ${obra.numero_expediente} (${crm.numero}): ${e.message}. Dale «Validar» en el expediente.`,
             }).catch(() => {});
         }
     });
@@ -876,6 +961,7 @@ module.exports = {
     NEGOCIOS, normFase, normNegocio, esDeCrm, crmDe, urlEncargo, slotCrmDe, faseLabel,
     cuentaDe, obraDelEncargo, encargar, resumen, aceptar, rechazar,
     subirFotos, quitarFoto, enviarCeeAsync, enviarDefinitivoAsync, enviarRegistroAsync, pedirRevision,
+    aprobarEnCrm, vistoBuenoAlCrmAsync,
     conEnlaceApp, textoParaTecnico, enlaceAppPrevisto, fotosDelCrm,
     instalacionCae, instalacionCee, conInstalacionDelCrm, instalacionDelCrm, cargarCae, cargarCee, prellenadoCae, prellenadoCee, TEXTO_ENLACE_APP,
 };

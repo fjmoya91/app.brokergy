@@ -1870,6 +1870,12 @@ async function sellar(ctx, fase, datos = {}) {
         ...(datos.motivo ? { motivo: datos.motivo } : {}),
     };
     await setCeeField(ctx.expediente, CAMPO_SELLO, { ...(previo || {}), [fase]: sello });
+    //: En una obra de la app, OTRA receta anula el visto bueno de BROKERGY
+    //: (certapp/vistoBueno.js). La del PC no: califica la misma.
+    if (esExt(ctx.expediente) && fase === 'inicial' && sello.por !== 'pc') {
+        const anulado = await require('./certapp/vistoBueno').anularSiOtraReceta(ctx.expediente.id, sello.huella);
+        if (anulado) return { ...sello, visto_bueno_anulado: true };
+    }
     return sello;
 }
 
