@@ -8,6 +8,7 @@ import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { LotesResumen } from '../components/LotesResumen';
 import { PedirAlSoModal } from '../components/PedirAlSoModal';
 import { BotonCarpetaLocal } from '../components/BotonCarpetaLocal';
+import { SujetoObligadoPanel } from '../components/SujetoObligadoPanel';
 import { loteEstadoBadge } from '../loteConstants';
 import { computeLoteEco } from '../logic/loteEco';
 import { puntoPagoClientes } from '../logic/pagoClientesLote';
@@ -94,6 +95,12 @@ export function LotesView({ onNavigate }) {
     // Petición al S.O. sobre VARIOS lotes (hoy: el pago de la verificación). El
     // cuadro de mando decide cuál se puede hacer; aquí solo se abre el envío.
     const [peticionSo, setPeticionSo] = useState(null);
+    // «Lotes» (la lista de siempre) o «Vista S.O.»: la misma cartera mirada como la
+    // mira el Sujeto Obligado — su obligación del año y cómo vamos con ella.
+    const [modo, setModo] = useState(() => {
+        try { return localStorage.getItem('lotes.modo') === 'SO' ? 'SO' : 'LOTES'; } catch { return 'LOTES'; }
+    });
+    const cambiarModo = (m) => { setModo(m); try { localStorage.setItem('lotes.modo', m); } catch { /* sin almacenamiento */ } };
 
     const fetchLotes = useCallback(async () => {
         try {
@@ -131,23 +138,40 @@ export function LotesView({ onNavigate }) {
     }, [lotes, filtroEstado]);
 
     return (
-        <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
+        <div className={modo === 'SO' ? 'w-full min-h-full relative z-10' : 'animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10'}>
+            {/* La «Vista S.O.» va a todo el ancho, en papel crema como Facturación
+                (regla 164), con su propia cabecera y el conmutador dentro. */}
+            {modo === 'SO' && (
+                <SujetoObligadoPanel lotes={lotes} soList={soList} canEdit={canSeeMargin} onAbrirLote={setDetailId}
+                    cargando={loading} errorLotes={error} onModo={cambiarModo} onNuevoLote={() => setShowCrear(true)} />
+            )}
+
             {/* Header */}
-            <div className="flex items-center justify-between gap-4 flex-wrap mb-8">
+            {modo === 'LOTES' && <div className="flex items-center justify-between gap-4 flex-wrap mb-8">
                 <div>
                     <h1 className="text-2xl font-black text-white tracking-tight">Lotes</h1>
                     <p className="text-sm text-white/40 mt-1">Agrupación de expedientes para envío a Sujeto Obligado y Verificador.</p>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center p-1 rounded-xl bg-bkg-surface border border-white/[0.06]">
+                    {[['LOTES', 'Lotes'], ['SO', 'Vista S.O.']].map(([id, txt]) => (
+                        <button key={id} type="button" onClick={() => cambiarModo(id)}
+                            className={`px-4 py-2 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all ${modo === id ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white'}`}>
+                            {txt}
+                        </button>
+                    ))}
                 </div>
                 <button onClick={() => setShowCrear(true)}
                     className="flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20 hover:shadow-brand/30 transition-all">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
                     Nuevo Lote
                 </button>
-            </div>
+                </div>
+            </div>}
 
             {/* Cuadro de mando — resume lo que se está viendo (respeta el filtro), para
                 que el total de arriba cuadre siempre con las tarjetas de abajo. */}
-            {!loading && !error && (
+            {modo === 'LOTES' && !loading && !error && (
                 <LotesResumen
                     lotes={visibles}
                     todosLotes={lotes}
@@ -159,7 +183,7 @@ export function LotesView({ onNavigate }) {
             )}
 
             {/* Lista */}
-            {loading ? (
+            {modo === 'SO' ? null : loading ? (
                 <div className="text-center py-20 text-white/30 text-sm">Cargando lotes…</div>
             ) : error ? (
                 <div className="text-center py-20 text-red-400 text-sm">{error}</div>

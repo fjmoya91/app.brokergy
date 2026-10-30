@@ -153,7 +153,8 @@ async function computeExpedienteFinancialsNode(exp, op) {
                     presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
                     // El SELLO de la oportunidad manda también en RES080 (utils/precioCae.js);
                     // sin él, el respaldo de lo ya guardado (60).
-                    caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || CAE_PRECIO_CLIENTE_ANTERIOR.res080),
+                    // Primero el sello de la opción REFORMA (`cae_client_rate_res080`), luego el general.
+                    caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate_res080) || parseFloat(opInputs.cae_client_rate) || CAE_PRECIO_CLIENTE_ANTERIOR.res080),
                     caePriceSO: overrides.cae_so_rate ?? 140,
                     includeIrpf: true
                 };

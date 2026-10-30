@@ -24,7 +24,9 @@ import { navegar, useRuta } from '../router';
 import { useMenuObra } from '../ui/menuObra';
 import { IcoAtras, IcoCamara, IcoCheck, IcoFlecha, Spinner } from '../ui/Iconos';
 import { IncidenciasObra } from '../incidencias/Incidencias';
+import { BorrarObra } from './BorrarObra';
 import { estadoDe, obraParaBarrido } from './comun';
+import { EncargoBrokergy } from './Encargo';
 import { FASES, FASE_POR_ID, faltaEnFase, faseActual, fotosDeLaFase, resumenFase } from './fasesFicha';
 import { FaseFotos } from './FaseFotos';
 import { IndiceSecciones } from './IndiceSecciones';
@@ -60,6 +62,7 @@ function CatastroResumen({ obra }) {
             {usos.length > 0 && <div><dt>En la parcela</dt><dd>{usos.join(' · ')}</dd></div>}
             {cat.plantas ? <div><dt>Plantas</dt><dd>{cat.plantas}</dd></div> : null}
             <div><dt>Zona climática</dt><dd>{obra?.zona_climatica || '—'}</dd></div>
+            {obra?.uso && <div><dt>Uso</dt><dd>{obra.uso}</dd></div>}
         </dl>
     );
 }
@@ -109,6 +112,27 @@ function FasePlegada({ f, form, obra, slots, hecha, onAbrir }) {
     );
 }
 
+/**
+ * En el móvil, con dos o más fases detrás, van en UNA fila de botones pequeños:
+ * plegadas una por línea llenaban la pantalla y, en las fotos, «La siguiente»
+ * quedaba bajo el pliegue a 375 px. El resumen de cada una sale en su `title`.
+ */
+function FasesPlegadasMovil({ fases, form, obra, slots, ok, onAbrir }) {
+    return (
+        <nav className="ca-plegadas-movil ca-sin-menu" aria-label="Fases anteriores">
+            {fases.map(x => {
+                const hecha = ok.includes(x.id);
+                return (
+                    <button key={x.id} type="button" className={`ca-plegada-mini${hecha ? '' : ' ca-fase-pend'}`} onClick={() => onAbrir(x.id)}
+                        title={resumenFase(x.id, form, obra, slots) || undefined} aria-label={`Cambiar ${x.titulo}`}>
+                        <span className="ca-paso-n">{hecha ? <IcoCheck size={12} sw={3} /> : FASE_POR_ID[x.id].n}</span>{x.titulo}
+                    </button>
+                );
+            })}
+        </nav>
+    );
+}
+
 export function Fases({ o, id, movil }) {
     const { obra, form, slots } = o;
     const { query } = useRuta();
@@ -125,7 +149,7 @@ export function Fases({ o, id, movil }) {
     const ctx = {
         form, obra, slots, editable: o.editable,
         setCampo: o.setCampo, setC: o.setC, setCuestionario: o.setCuestionario, setTitular: o.setTitular, setDecision: o.setDecision,
-        subir: o.subir, quitar: o.quitar, subiendo: o.subiendo, docsError: o.docsError, recargarDocs: o.recargarDocs,
+        subir: o.subir, reintentar: o.reintentar, descartar: o.descartar, pendientes: o.pendientes, quitar: o.quitar, subiendo: o.subiendo, docsError: o.docsError, recargarDocs: o.recargarDocs,
         usarFachada: o.usarFachada,
     };
     const falta = faltaEnFase(actual, form, obra);
@@ -154,6 +178,21 @@ export function Fases({ o, id, movil }) {
         document.documentElement.style.setProperty('--ca-inf', '78px');
         return () => { document.documentElement.style.removeProperty('--ca-inf'); };
     }, [conBarra]);
+
+    // En el móvil, al entrar en una fase que no es la primera, la fase arriba: con la
+    // cabecera y las anteriores encima, en las fotos «La siguiente» quedaba bajo la barra.
+    // Se calcula a mano: `scrollIntoView` no mueve un `sticky` (el índice «Ir a una foto»).
+    // Con `setTimeout`: corre DESPUÉS del «arriba del todo» de `navegar`.
+    useEffect(() => {
+        if (!movil || idx < 1) return undefined;
+        const r = setTimeout(() => {
+            const el = document.querySelector('.ca-col > .ca-indice, section.ca-fase');
+            if (!el) return;
+            const barra = document.querySelector('.ca-bar')?.offsetHeight || 0;
+            window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - barra - 8) });
+        }, 0);
+        return () => clearTimeout(r);
+    }, [movil, idx]);
 
     const t = form.titular || {};
     const titulo = [t.nombre, t.apellidos].filter(Boolean).join(' ') || form.direccion || obra.numero_expediente || 'Obra';
@@ -186,7 +225,7 @@ export function Fases({ o, id, movil }) {
     const faltanFotos = fotosFase.length > fotosHechas;
 
     let contenido = null;
-    if (actual === 'inmueble') contenido = <><CatastroResumen obra={obra} /><Inmueble ctx={ctx} /></>;
+    if (actual === 'inmueble') contenido = <><CatastroResumen obra={obra} /><Inmueble ctx={ctx} sinDatos /></>;
     else if (actual === 'titular') contenido = <Titular ctx={ctx} />;
     else if (actual === 'proposito') contenido = <FasePara ctx={ctx} />;
     else if (actual === 'fotos') contenido = <FaseFotos ctx={ctx} obraId={id} />;
@@ -239,16 +278,21 @@ export function Fases({ o, id, movil }) {
                 {movil && <p className="ca-peq" style={{ margin: '8px 0 0' }}>Fase {f.n} de {FASES.length} · {f.titulo}</p>}
             </header>
 
-            {FASES.slice(0, idx).map(x => (
-                <FasePlegada key={x.id} f={x} form={form} obra={obra} slots={slots} hecha={ok.includes(x.id)} onAbrir={() => abrir(x.id)} />
-            ))}
+            {/* Un encargo de BROKERGY: aceptarlo o rechazarlo antes de nada (obra/Encargo.jsx). */}
+            <EncargoBrokergy o={o} />
+
+            {movil && idx > 1
+                ? <FasesPlegadasMovil fases={FASES.slice(0, idx)} form={form} obra={obra} slots={slots} ok={ok} onAbrir={abrir} />
+                : FASES.slice(0, idx).map(x => (
+                    <FasePlegada key={x.id} f={x} form={form} obra={obra} slots={slots} hecha={ok.includes(x.id)} onAbrir={() => abrir(x.id)} />
+                ))}
 
             {indiceFotos.length > 1 && <IndiceSecciones items={indiceFotos} etiqueta="Ir a una foto" />}
 
             <section className="ca-card ca-pad ca-fase ca-in-2" key={actual}>
                 <p className="ca-eyebrow" style={{ margin: 0 }}>Fase {f.n} de {FASES.length}</p>
                 <h2 className="ca-display ca-h2" style={{ margin: '4px 0 0' }}>{f.titulo}</h2>
-                <p className="ca-sub" style={{ marginTop: 2 }}>{f.sub}</p>
+                <p className="ca-sub" style={{ marginTop: 2 }}>{actual === 'generar' && obra.crm ? 'Encargo de BROKERGY: no gasta tus certificados' : f.sub}</p>
                 <div style={{ marginTop: 18 }}>{contenido}</div>
                 {falta && <p className="ca-peq ca-falta" role="status">{falta}</p>}
                 {!movil && botones && <div className="ca-btns ca-btns-nav">{botones}</div>}
@@ -268,6 +312,7 @@ export function Fases({ o, id, movil }) {
             )}
             <IncidenciasObra obraId={id} numero={obra.numero_expediente} className="ca-stack" />
             <p className="ca-peq" style={{ textAlign: 'center', marginTop: 14 }}>Se guarda solo mientras rellenas.</p>
+            <BorrarObra obra={obra} />
 
             {conBarra && (
                 <div className="ca-inf">

@@ -470,6 +470,81 @@ function ok(cond, texto) {
     // ── Miniaturas: tamaños acotados (#8) ──────────────────────────────────
     ok([1, 99999, 'abc', undefined].every(s => drive.TAMANOS_MINI.includes(drive.tamanoMini(s))), 'miniaturas: el tamaño pedido se lleva a uno de 3 (la caché no crece con ?sz=)');
 
+    // ── Encargos de BROKERGY (services/certapp/crm.js) ─────────────────────
+    const crm = require(path.join(B, 'services/certapp/crm'));
+    ok(/\/encargo\/cae\/e1\/final$/.test(crm.urlEncargo({ negocio: 'CAE', id: 'e1', fase: 'final' })), 'encargo: el enlace estable de la app (/encargo/cae/:id/final)');
+    ok(crm.slotCrmDe('cae', 'FOTO_PLACA_CALDERA') === 'FOTO_PLACA_CALDERA_ANTES' && crm.slotCrmDe('cae', 'FOTO_TERMO') === 'FOTO_ACS_ANTES',
+        'encargo: las fotos de la app van a SU casilla del expediente (placa de la caldera, ACS)');
+    ok(crm.slotCrmDe('cae', 'FOTO_VENTANAS_DENTRO') === 'OTROS_ANTES' && crm.slotCrmDe('cee', 'FOTO_CALDERA') === 'OTROS_ANTES',
+        'encargo: lo que no tiene casilla en el CRM va a «Otros» (y en un CEE suelto, la caldera también)');
+    const traidas = crm.fotosDelCrm({
+        FOTO_CALDERA_ANTES: [{ driveId: 'd1', name: 'a.jpg' }, { driveId: 'd2', name: 'b.jpg', at: '2026-10-30' }],
+        FOTO_FACHADA_PRINCIPAL: [{ driveId: 'd3', name: 'f.jpg', estado: 'rechazada' }],
+        OTROS_ANTES: [{ driveId: 'd4', name: 'x.pdf' }], NO_EXISTE: [{ driveId: 'd5' }],
+    });
+    ok(traidas.FOTO_CALDERA?.map(e => e.driveId).join() === 'd1,d2' && !traidas.FOTO_FACHADA_PRINCIPAL && !traidas.NO_EXISTE
+        && traidas.OTROS?.[0]?.mime === 'application/pdf' && traidas.OTROS[0].crm_slot === 'OTROS_ANTES',
+        'encargo: al encargar se traen TODAS las fotos del CRM (también las de la caldera; sin las rechazadas)');
+    const { SLOTS } = await import(require('url').pathToFileURL(path.join(B, '..', 'frontend/src/certificadores/logic/cuestionario.js')).href);
+    ok(SLOTS.filter(s => !s.documento).every(s => s.multiple),
+        'fotos: todos los apartados admiten varias (la caldera ya no cambia una por otra)');
+    const url = 'https://cee.brokergy.es/encargo/cae/e1/inicial';
+    const conPagina = crm.conEnlaceApp('Hola\n\n📋 Todo el encargo en una página:\nhttps://app.brokergy.es/encargo/tok\n\n*BROKERGY · Ingeniería Energética*', url);
+    ok(conPagina.includes(`${crm.TEXTO_ENLACE_APP}\n${url}`) && !conPagina.includes('app.brokergy.es/encargo'), 'encargo: el WhatsApp lleva el enlace de la app en lugar de la página del CRM');
+    const sinPagina = crm.conEnlaceApp('Hola\n\n*BROKERGY · Ingeniería Energética*', url);
+    ok(sinPagina.indexOf(url) < sinPagina.indexOf('*BROKERGY ·') && crm.conEnlaceApp(sinPagina, url) === sinPagina, 'encargo: sin página, el enlace va antes de la firma (y no se repite)');
+    // El texto del popup sale igual por WhatsApp, email e historial (textoParaTecnico).
+    const pagina = 'https://app.brokergy.es/encargo/e1?token=t&phase=inicial';
+    const delPopupApp = `Hola\n\n${crm.TEXTO_ENLACE_APP}\n${url}\n\n¡Gracias!`;
+    ok(crm.textoParaTecnico(delPopupApp, { urlApp: url, urlPagina: pagina }) === delPopupApp,
+        'encargo: el popup ya enseñaba la app → sale tal cual');
+    const delPopupPagina = `Hola\n\n📋 Todo el encargo en una página (cliente, dirección, fotos y enlaces):\n${pagina}\n\n¡Gracias!`;
+    const aApp = crm.textoParaTecnico(delPopupPagina, { urlApp: url, urlPagina: pagina });
+    ok(aApp.includes(`${crm.TEXTO_ENLACE_APP}\n${url}`) && !aApp.includes(pagina), 'encargo: texto con la página del CRM → el email y el historial llevan la app');
+    const sinObra = crm.textoParaTecnico(delPopupApp, { urlApp: null, urlPagina: pagina });
+    ok(sinObra.includes(pagina) && !sinObra.includes(url) && !sinObra.includes(crm.TEXTO_ENLACE_APP),
+        'encargo: el popup enseñaba la app pero la obra no se creó → la página de siempre');
+    ok(crm.textoParaTecnico(delPopupApp, {}) === 'Hola\n\n¡Gracias!', 'encargo: sin obra ni página, se quita el enlace de la app');
+    ok(crm.textoParaTecnico(null, { urlApp: url }) === null, 'encargo: sin texto editado, nada que cambiar');
+
+    // La instalación que ya sabe el CRM → el cuestionario (26RES060_254: carbón + termo).
+    const exp254 = { numero_expediente: '26RES060_254', instalacion: { misma_caldera_acs: true, potencia_caldera: 0,
+        caldera_antigua_cal: { marca: '', modelo: '', rendimiento_id: 'solid_auto' }, fotovoltaica: { estado: 'no' } } };
+    const op254 = { datos_calculo: { inputs: { fuelType: 'carbon', boilerId: 'solid_auto', boilerHeatingType: 'Carbon', boilerAcsType: 'Termo' },
+        landing_funnel: { combustible_actual: 'carbon', boiler_acs_type: 'termo', emisor_tipo: 'radiadores_convencionales', placas_estado: 'no' } } };
+    const i254 = crm.instalacionCae({ exp: exp254, op: op254, emisor: 'radiadores_convencionales', tipoAcsInputs: 'termo' });
+    ok(i254.calefaccion === 'carbon' && i254.acs === 'termo' && i254.emisor === 'RADIADORES' && i254.placas_fv === 'NO'
+        && !i254.potencia_kw && !i254.marca_modelo_calefaccion && !i254.tipo_caldera,
+        'instalación CRM: carbón + termo + radiadores + sin placas (26RES060_254); lo que no consta, vacío');
+    // Sin funnel (alta por calculadora): ACS por el par de la calculadora.
+    const iCalc = crm.instalacionCae({ exp: { instalacion: { misma_caldera_acs: true } },
+        op: { datos_calculo: { inputs: { fuelType: 'gas_natural', boilerId: 'gas_post98_cond_auto', boilerHeatingType: 'Gas', boilerAcsType: 'Gas' } } } });
+    ok(iCalc.calefaccion === 'gas' && iCalc.tipo_caldera === 'CONDENSACION' && iCalc.acs === 'misma_caldera',
+        'instalación CRM: calculadora con gas de condensación y el mismo aparato para el agua → la misma caldera');
+    // El `true` del toggle es la siembra; el `false` sí dice que es otro aparato.
+    const iToggle = crm.instalacionCae({ exp: { instalacion: { misma_caldera_acs: false, caldera_antigua_acs: { rendimiento_id: 'electric' } } },
+        op: { datos_calculo: { inputs: { fuelType: 'gasoleo' }, landing_funnel: { boiler_acs_type: 'misma_caldera' } } } });
+    ok(iToggle.calefaccion === 'gasoleo' && iToggle.acs === 'termo', 'instalación CRM: el toggle «no es la misma caldera» manda sobre el funnel');
+    const iNada = crm.instalacionCae({ exp: { instalacion: {} }, op: { datos_calculo: { inputs: { boilerHeatingType: 'No tiene Calefacción', fuelType: 'gas_natural' },
+        landing_funnel: { boiler_acs_type: 'misma_caldera' } } } });
+    ok(iNada.calefaccion === 'no_tiene' && iNada.acs === '' && !iNada.emisor, 'instalación CRM: sin calefacción no hay «misma caldera» para el agua');
+    ok(crm.instalacionCae({ exp: { instalacion: {} }, op: { datos_calculo: { landing_funnel: { boiler_acs_type: 'no_tengo' } } } }).acs === '',
+        'instalación CRM: «no tengo / no lo sé» no afirma nada');
+    const iCee = crm.instalacionCee({ documentacion: { cuestionario: { calefaccion: 'gasoleo', acs: 'butano', aire_acondicionado: true, num_aires: 2, placas: 'irpf' } } });
+    ok(iCee.calefaccion === 'gasoleo' && iCee.acs === 'calentador' && iCee.aire_acondicionado === true && iCee.num_aires === '2' && !iCee.placas_fv,
+        'instalación CRM: CEE directo con lo que contestó el cliente (las placas «para el IRPF» no se afirman)');
+    // No pisa lo que contestó el técnico ni lo leído en una placa.
+    const mezcla = crm.conInstalacionDelCrm(
+        { calefaccion: 'carbon', acs: '', tipo_caldera: 'ESTANDAR', emisor: 'SUELO_RADIANTE', origen: { tipo_caldera: 'PLACA', emisor: 'STREETVIEW' } },
+        { calefaccion: 'gasoleo', acs: 'termo', tipo_caldera: 'CONDENSACION', emisor: 'RADIADORES' });
+    ok(mezcla.cuestionario.calefaccion === 'carbon' && mezcla.cuestionario.acs === 'termo' && mezcla.cuestionario.tipo_caldera === 'ESTANDAR'
+        && mezcla.cuestionario.emisor === 'RADIADORES' && mezcla.cuestionario.origen.acs === 'BROKERGY' && !mezcla.cuestionario.origen.calefaccion
+        && mezcla.cambiadas.join() === 'acs,emisor',
+        'instalación CRM: rellena lo vacío y lo supuesto, nunca lo contestado ni lo leído en la placa');
+    ok(crm.conInstalacionDelCrm(mezcla.cuestionario, { acs: 'termo' }).cambiadas.length === 0, 'instalación CRM: aplicarlo dos veces no cambia nada');
+    const { sanearCuestionario: sanearC } = await require(path.join(B, 'services/certapp/logica')).cuestionario();
+    ok(sanearC(mezcla.cuestionario).origen.acs === 'BROKERGY', 'instalación CRM: el origen BROKERGY sobrevive al saneado');
+
     // ── Avisos: en seco por defecto ─────────────────────────────────────────
     delete process.env.CERTAPP_AVISOS_ENABLED;
     const avisos = require(path.join(B, 'services/certapp/avisos'));

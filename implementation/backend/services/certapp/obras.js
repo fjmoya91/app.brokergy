@@ -22,15 +22,22 @@ const { cuestionario: logica } = require('./logica');
 const { fallo, errorBd, texto, textoLargo, numero, tokenCorto, evento, esEmail, numEnv, certappUrl } = require('./comun');
 const { limpiarRc } = require('./catastro');
 
+// `crm`: solo la rama `seguimiento.crm` (los encargos de BROKERGY, services/certapp/crm.js), no el JSONB entero.
 const COLUMNAS_LISTA = 'id, numero_expediente, nombre, direccion, municipio, provincia, ref_catastral, estado, '
-    + 'proposito, en_vivienda, created_at, updated_at, pedido_at, listo_at, entregado_at, validado_at';
+    + 'proposito, en_vivienda, created_at, updated_at, pedido_at, listo_at, entregado_at, validado_at, crm:seguimiento->crm';
 
 async function listar(cuentaId) {
     const { data, error } = await supabase.from('certapp_obras').select(COLUMNAS_LISTA)
         .eq('cuenta_id', cuentaId).neq('estado', 'ARCHIVADA')
         .order('created_at', { ascending: false }).limit(500);
     if (error) throw errorBd(error, 'listar obras');
-    return data || [];
+    return (data || []).map(o => ({ ...o, crm: crmParaCertificador(o.crm) }));
+}
+
+/** Un encargo de BROKERGY, lo justo para pintarlo (sin ids del CRM). null si no lo es. */
+function crmParaCertificador(c) {
+    if (!c?.id) return null;
+    return { negocio: c.negocio, numero: c.numero || null, fase: c.fase, encargo: { estado: c.encargo?.estado || 'PENDIENTE', at: c.encargo?.at || null } };
 }
 
 /** La fila entera (detalle de UNA obra). null si no existe. */
@@ -134,7 +141,7 @@ function obraParaCertificador(obra) {
             subido_at: e?.subido_at || e?.at || null, por: e?.por || e?.subido_por || null,
         }));
     }
-    return { ...resto, documentacion: { reforma_uploads: uploads } };
+    return { ...resto, crm: crmParaCertificador(seguimiento?.crm), documentacion: { reforma_uploads: uploads } };
 }
 
 /** Lo que ve el ADMIN: todo salvo el XML crudo y cosas pesadas del `cee`. */
@@ -262,6 +269,32 @@ async function aplicarCatastro(obra, patchCatastro) {
     return data[0];
 }
 
+/**
+ * Borrar una obra (DELETE /obras/:id). REGLA — solo un BORRADOR SIN crédito
+ * gastado: pedida, el crédito y el trabajo de BROKERGY van con ella (409). Primero
+ * la fila —condicionada al estado, por si entre medias se pide— y después la
+ * carpeta de Drive a la PAPELERA (30 días para recuperarla). Al revés, un fallo
+ * de la BD dejaría una obra viva sin carpeta. Los eventos se van con la fila
+ * (cascade); incidencias y movimientos se quedan, sin la obra (set null).
+ */
+async function borrar(obra) {
+    // Un encargo de BROKERGY no se borra: se rechaza, para que el CRM se entere (crm.rechazar).
+    if (obra.seguimiento?.crm?.id) {
+        throw fallo(409, 'Es un encargo de BROKERGY: si no vas a hacerlo, recházalo y se lo pasamos a otro técnico.', 'ENCARGO_CRM');
+    }
+    if (obra.estado !== 'BORRADOR' || obra.credito_consumido) {
+        throw fallo(409, 'Esta obra ya está pedida: no se puede borrar. Si no la necesitas, escríbenos.', 'OBRA_CERRADA');
+    }
+    const { data, error } = await supabase.from('certapp_obras').delete()
+        .eq('id', obra.id).eq('estado', 'BORRADOR').eq('credito_consumido', false).select('id');
+    if (error) throw errorBd(error, 'borrar obra');
+    if (!data?.length) throw fallo(409, 'Esta obra ya está pedida: no se puede borrar.', 'OBRA_CERRADA');
+    let carpeta = null;
+    if (obra.drive_folder_id) carpeta = (await drive.aLaPapelera(obra.drive_folder_id)) ? 'papelera' : 'fallo';
+    console.log(`[certapp] obra ${obra.numero_expediente || obra.id} borrada por su certificador (carpeta: ${carpeta || 'no tenía'})`);
+    return { ok: true, numero: obra.numero_expediente || null, carpeta };
+}
+
 /** Cambia el estado con sus fechas. */
 async function cambiarEstado(obraId, estado, extra = {}) {
     const { data, error } = await supabase.from('certapp_obras').update({ estado, ...extra }).eq('id', obraId).select('*').single();
@@ -270,7 +303,7 @@ async function cambiarEstado(obraId, estado, extra = {}) {
 }
 
 module.exports = {
-    COLUMNAS_LISTA, listar, cargar, eventos, crear, actualizar, aplicarCatastro, cambiarEstado, exigirBorrador,
+    COLUMNAS_LISTA, listar, cargar, eventos, crear, actualizar, aplicarCatastro, borrar, cambiarEstado, exigirBorrador, siguienteCorrelativo,
     portalCaducaAt, portalVigente, urlPortal, rotarPortal, enlacePortal, diasPortal,
     obraParaCertificador, obraParaAdmin, sanearTitular, nombreDeTitular,
 };

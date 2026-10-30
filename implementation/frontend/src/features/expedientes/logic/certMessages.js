@@ -53,8 +53,12 @@ const APP_BASE = 'https://app.brokergy.es';
 // mensaje con cuatro enlaces no se sabe por cuál empezar. El texto es el MISMO
 // que usa el servidor cuando la añade él (`encargoTecnico.TEXTO_ENLACE`).
 export const TEXTO_ENLACE_ENCARGO = '📋 Todo el encargo en una página (cliente, dirección, fotos y enlaces):';
+// Si el técnico usa la APP de certificadores (`ctx.encargoEnApp`), el enlace es el
+// de su app: lo acepta o lo rechaza allí. MISMO texto que pone el servidor
+// (`services/certapp/crm.TEXTO_ENLACE_APP`, lo vigila el test).
+export const TEXTO_ENLACE_APP = '📲 Ábrelo en tu app de certificadores (acéptalo o recházalo ahí):';
 const expedienteLine = (expedienteId, ctx = {}) => {
-    if (ctx.encargoLink) return `\n\n${TEXTO_ENLACE_ENCARGO}\n${ctx.encargoLink}`;
+    if (ctx.encargoLink) return `\n\n${ctx.encargoEnApp ? TEXTO_ENLACE_APP : TEXTO_ENLACE_ENCARGO}\n${ctx.encargoLink}`;
     return expedienteId ? `\n\n🔗 Abre el expediente directamente en la app:\n${APP_BASE}/?${ctx.deepLink || 'exp'}=${expedienteId}` : '';
 };
 

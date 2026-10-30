@@ -12,6 +12,9 @@
 //     el servidor le cuente lo que toca (la obra, lo dibujado, o solo la app).
 // REGLA del documento: el asistente va capado (modelo barato, sin herramientas,
 // tope por cuenta y día). Su conocimiento es CE3X y esta app, no BROKERGY.
+// En el móvil (<700 px) tapaban botones y datos: se apartan al BAJAR la página y
+// vuelven al subir o arriba del todo (`useApartarAlBajar`). El final de la página
+// ya tiene su sitio debajo (`.ca-con-fabs` en Marco.jsx).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
@@ -112,6 +115,26 @@ function Asistente({ abierta, onCerrar, obraId, pantalla, cupo, setCupo, onApaga
     );
 }
 
+/** true mientras se baja la página en un móvil: los flotantes se apartan. */
+function useApartarAlBajar() {
+    const [fuera, setFuera] = useState(false);
+    useEffect(() => {
+        const mq = window.matchMedia('(max-width: 699px)');
+        let antes = window.scrollY;
+        const alMover = () => {
+            const y = window.scrollY;
+            if (!mq.matches || y < 80) setFuera(false);
+            else if (y > antes + 8) setFuera(true);
+            else if (y < antes - 8) setFuera(false);
+            else return; // un temblor del dedo no cambia nada
+            antes = y;
+        };
+        window.addEventListener('scroll', alMover, { passive: true });
+        return () => window.removeEventListener('scroll', alMover);
+    }, []);
+    return fuera;
+}
+
 /**
  * @param pantalla  menu · obra · envolvente (por defecto: obra si hay obraId)
  * @param soloAsistente  en la envolvente: sin el botón de incidencias (la
@@ -122,6 +145,7 @@ export default function Flotantes({ obraId, pantalla, soloAsistente = false }) {
     const [abierto, setAbierto] = useState(null);
     // undefined = preguntando · null = apagado (se esconde) · { quedan, max }
     const [cupo, setCupo] = useState(undefined);
+    const fuera = useApartarAlBajar();
 
     useEffect(() => {
         let vivo = true;
@@ -134,7 +158,7 @@ export default function Flotantes({ obraId, pantalla, soloAsistente = false }) {
     return (
         <>
             {createPortal(
-                <div className="ca-fabs">
+                <div className={`ca-fabs${fuera ? ' ca-fabs-fuera' : ''}`}>
                     {!soloAsistente && (
                         <button type="button" className="ca-fab ca-fab-peq" onClick={() => setAbierto('feedback')} aria-label="Incidencias y sugerencias">
                             <IcoChat size={18} /><span className="ca-solo-pc">Incidencias y sugerencias</span>

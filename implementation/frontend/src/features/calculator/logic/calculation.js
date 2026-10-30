@@ -57,6 +57,19 @@ export const CAE_PRECIO_CLIENTE_NUEVAS = 100;
 export const EQUIVALENCIA_FINANCIERA = 198.62;
 export const CAE_PRECIO_CLIENTE_ANTERIOR = { estandar: 95, res080: 60 };
 
+// Precio CAE de la opción RES080 (2026-10-29, Fran): con la reforma activada la
+// propuesta enseña dos opciones —solo aerotermia (RES060) y reforma (RES080)— y
+// cada una puede llevar SU precio. `caePriceClient` sigue siendo el de siempre (el
+// del RES060, y el único fuera de la reforma); `caePriceClientRes080` es el de la
+// reforma y, mientras nadie lo teclee, vale lo mismo que el otro: así lo ya
+// guardado da las mismas cifras. En la oportunidad se SELLA como
+// `cae_client_rate_res080` (backend/utils/precioCae.js), y la economía de un
+// expediente RES080 lee ese sello antes que `cae_client_rate`.
+export const precioCaeRes080 = (inputs) =>
+    parseFloat(inputs?.caePriceClientRes080) || parseFloat(inputs?.caePriceClient) || 0;
+export const precioSelladoRes080 = (opInputs) =>
+    parseFloat(opInputs?.cae_client_rate_res080) || parseFloat(opInputs?.cae_client_rate) || 0;
+
 export const HDD = {
     A3: 600, A4: 550,
     B3: 950, B4: 900,
@@ -1119,25 +1132,39 @@ function etiquetaCobertura(serv) {
 }
 
 // ============================================================================
-// PLACAS SOLARES: con AUTOCONSUMO el ahorro RES080 solo se puede calcular POR VECTOR
+// PLACAS SOLARES: la fotovoltaica autoconsumida NO es ahorro de energía final
 // ============================================================================
 // CE3X declara la energía final de cada USO (calefacción, ACS, refrigeración) en
 // BRUTO y descuenta lo que generan y autoconsumen las placas SOLO del total del
 // vector eléctrico (`Tot` del v3.0, `Global` del v2.0). Medido: 26RES080_OP71
 // previsto, usos 43,82 kWh/m² y total 10,22 (33,60 × 155 m² = 5.208 kWh =
 // <EnergiaGeneradaAutoconsumida>); 26RES080_61 (v2.0), 27,82 frente a 1,41 (4.200 kWh).
-// Sumando usos, el «por uso» cuenta esa electricidad como consumida y el ahorro sale
-// mal (5,21 MWh de menos en OP71). REGLA (2026-10-10, Fran): si CUALQUIERA de los dos
-// CEE declara autoconsumo, el ahorro va POR VECTOR aunque se haya elegido «por uso»
-// —el CIFO no puede presentar una cifra que el verificador no reproduce con el XML—,
-// y el resultado lo dice (`metodoForzado: 'autoconsumo'`).
+// REGLA (2026-10-30, Fran; sustituye a la del 10/10, que usaba ese total NETO): la
+// electricidad fotovoltaica generada en el edificio NO cuenta como ahorro, ni en el
+// inicial ni en el final — Recomendación (UE) 2024/1590, apartado 7.8, sobre el anexo V
+// de la Directiva (UE) 2023/1791: «la energía solar fotovoltaica no reduce el consumo
+// de energía final». El vector eléctrico se toma en BRUTO (la suma de sus usos), en
+// todos los caminos: con los .xml, con las emisiones por vector y por uso. Medido en
+// 26RES080_66 (CE3X 3.2, 6 kWp en las dos fases): 146.102 kWh en bruto frente a
+// 150.320 con el total neto. El resultado lo dice (`metodoForzado: 'autoconsumo'` y
+// `autoconsumoExcluido`) y el Certificado RES080 lo explica con esas dos normas.
+
+/**
+ * La energía final de un vector SIN descontar la fotovoltaica (kWh/m²·año): en el
+ * eléctrico, la suma de sus usos si supera el total neto que declara CE3X.
+ */
+export function energiaVectorSinFv(v) {
+    const neto = Number(v?.global) || 0;
+    if (!v?.esElectrico) return neto;
+    const bruto = (v.calefaccion || 0) + (v.acs || 0) + (v.refrigeracion || 0) + (v.iluminacion || 0);
+    return bruto - neto > 0.05 ? bruto : neto;
+}
 
 /** kWh/m²·año que las placas generan y se autoconsumen, según el CEE (0 si nada). */
 export function autoconsumoDeXml(xml) {
     const elec = Object.values(xml?.energiaFinalVectores || {}).filter((v) => v.esElectrico);
     if (!elec.length) return 0;
-    const dif = elec.reduce((a, v) => a + (v.calefaccion || 0) + (v.acs || 0) + (v.refrigeracion || 0)
-        + (v.iluminacion || 0) - (v.global || 0), 0);
+    const dif = elec.reduce((a, v) => a + energiaVectorSinFv(v) - (Number(v.global) || 0), 0);
     return dif > 0.05 ? Math.round(dif * 100) / 100 : 0;
 }
 
@@ -1191,7 +1218,8 @@ export function calculateRes080({
 }) {
     if (!xmlInicial || !xmlFinal) return null;
 
-    // Con placas en cualquiera de los dos CEE, POR VECTOR (ver arriba).
+    // Con placas en cualquiera de los dos CEE, por la energía final SIN la fotovoltaica
+    // (ver arriba): el vector eléctrico en bruto, se haya elegido el método que sea.
     const fvIni = autoconsumoDeXml(xmlInicial);
     const fvFin = autoconsumoDeXml(xmlFinal);
     if (fvIni > 0 || fvFin > 0) {
@@ -1369,7 +1397,8 @@ export function calculateRes080FromEmissions({
     superficie, superficieInicial, superficieFinal,
     // Opcionales: las celdas POR VECTOR del mismo CEE. Con ellas se ve si hay placas
     // (las emisiones de los usos eléctricos suman más que las del vector) y entonces
-    // el ahorro va por vector, igual que con los .xml (ver autoconsumoDeXml).
+    // el ahorro va por vector con la fotovoltaica devuelta al vector eléctrico, igual
+    // que con los .xml (ver autoconsumoDeXml).
     emiElecIni, emiElecFin, emiOtrosIni, emiOtrosFin, combOtrosIni, combOtrosFin,
 }) {
     const fvIni = autoconsumoDeEmisiones({ emiElec: emiElecIni, emiOtros: emiOtrosIni,
@@ -1382,6 +1411,7 @@ export function calculateRes080FromEmissions({
             combOtrosIni: combOtrosIni || [combCalefaccionInicial, combAcsInicial].find((c) => c && !/electric/i.test(c)) || '',
             combOtrosFin: combOtrosFin || [combCalefaccionFinal, combAcsFinal].find((c) => c && !/electric/i.test(c)) || '',
             superficie, superficieInicial, superficieFinal,
+            autoconsumoIni: fvIni, autoconsumoFin: fvFin,
         });
         if (r) return { ...r, metodoForzado: 'autoconsumo', autoconsumoM2: { inicial: fvIni, final: fvFin } };
     }
@@ -1432,10 +1462,15 @@ export function calculateRes080FromEmissions({
 // biomasa, o todo carbón — nunca una mezcla), esos dos totales bastan para calcular la
 // energía final SIN necesidad de saber el reparto por uso: misma física que calculateRes080
 // (consumo = emisiones / factor_paso), aplicada a 2 vectores en vez de 3 usos.
+//
+// `autoconsumoIni/Fin` (kWh/m²·año): la fotovoltaica autoconsumida que el CEE resta de
+// las emisiones por consumo eléctrico. Se DEVUELVE al vector eléctrico: no es ahorro de
+// energía final (ver autoconsumoDeXml).
 export function calculateRes080Simplificado({
     emiElecIni, emiElecFin, emiOtrosIni, emiOtrosFin,
     combOtrosIni, combOtrosFin,
-    superficie, superficieInicial, superficieFinal
+    superficie, superficieInicial, superficieFinal,
+    autoconsumoIni = 0, autoconsumoFin = 0,
 }) {
     const num = (v) => {
         if (typeof v === 'number') return isNaN(v) ? 0 : v;
@@ -1456,8 +1491,12 @@ export function calculateRes080Simplificado({
     const fOtrosIni = combOtrosIni ? getFactorPaso(combOtrosIni) : 1;
     const fOtrosFin = combOtrosFinReal ? getFactorPaso(combOtrosFinReal) : 1;
 
-    const emiElecIniN = num(emiElecIni);
-    const emiElecFinN = num(emiElecFin);
+    const fvIniN = Math.max(0, num(autoconsumoIni));
+    const fvFinN = Math.max(0, num(autoconsumoFin));
+    // Con fotovoltaica, las emisiones del vector eléctrico se enseñan también en bruto,
+    // para que la fila cuadre: consumo × factor.
+    const emiElecIniN = num(emiElecIni) + fvIniN * fElec;
+    const emiElecFinN = num(emiElecFin) + fvFinN * fElec;
     const emiOtrosIniN = num(emiOtrosIni);
     const emiOtrosFinN = num(emiOtrosFin);
 
@@ -1486,6 +1525,7 @@ export function calculateRes080Simplificado({
         superficieFinalAplicada: supFin,
         metodoAhorro: 'simplificado',
         fuenteDatos: 'emisiones',
+        autoconsumoExcluido: (fvIniN > 0 || fvFinN > 0) ? { inicial: fvIniN, final: fvFinN } : null,
         details: {
             electrico: {
                 fuelIni: 'Electricidad peninsular',
@@ -1496,6 +1536,8 @@ export function calculateRes080Simplificado({
                 emissionsFin: emiElecFinN,
                 energyIni: energiaElecIniM2,
                 energyFin: energiaElecFinM2,
+                autoconsumoIni: fvIniN,
+                autoconsumoFin: fvFinN,
             },
             otros: {
                 fuelIni: combOtrosIni || '—',
@@ -1542,17 +1584,26 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
         const lista = Object.values(vec || {});
         const grupo = (esElectrico) => {
             const items = lista.filter((v) => !!v.esElectrico === esElectrico);
-            const energia = items.reduce((a, v) => a + (v.global || 0), 0);
+            // Sin descontar la fotovoltaica: el eléctrico, en bruto (ver autoconsumoDeXml).
+            const energia = items.reduce((a, v) => a + energiaVectorSinFv(v), 0);
+            const autoconsumo = items.reduce((a, v) => a + energiaVectorSinFv(v) - (Number(v.global) || 0), 0);
             // Emisiones reconstruidas vector a vector (cada uno con SU factor). Si algún
             // combustible no está en FACTORES_PASO no se inventa: el contraste no aplica.
+            // Las NETAS (con el total que declara CE3X) son las que se contrastan con su
+            // tabla de emisiones; las que se enseñan van en bruto, como la energía.
             const conocidos = items.every((v) => FACTORES_PASO[canonCombustible(v.nombre)] !== undefined);
             const emisiones = conocidos
+                ? items.reduce((a, v) => a + energiaVectorSinFv(v) * getFactorPaso(v.nombre), 0)
+                : null;
+            const emisionesNetas = conocidos
                 ? items.reduce((a, v) => a + (v.global || 0) * getFactorPaso(v.nombre), 0)
                 : null;
             return {
                 items,
                 energia,
+                autoconsumo: autoconsumo > 0.05 ? Math.round(autoconsumo * 100) / 100 : 0,
                 emisiones,
+                emisionesNetas,
                 nombres: items.map((v) => v.nombre),
                 // Con varios combustibles el "factor" que se enseña es el EFECTIVO
                 // (emisiones ÷ energía), no el de ninguno de ellos en particular.
@@ -1625,6 +1676,11 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
         metodoAhorro: 'simplificado',
         // De dónde salen los kWh: leídos del certificado o reconstruidos desde el CO₂.
         fuenteDatos: 'energia_final_declarada',
+        // La fotovoltaica autoconsumida que el CEE resta del vector eléctrico y que aquí
+        // NO se resta (kWh/m²·año). null sin placas.
+        autoconsumoExcluido: (gIni.elec.autoconsumo > 0 || gFin.elec.autoconsumo > 0)
+            ? { inicial: gIni.elec.autoconsumo, final: gFin.elec.autoconsumo }
+            : null,
         details: {
             electrico: {
                 fuelIni: nombreDe(gIni.elec) === '—' ? 'Electricidad peninsular' : nombreDe(gIni.elec),
@@ -1635,6 +1691,8 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
                 emissionsFin: gFin.elec.emisiones,
                 energyIni: gIni.elec.energia,
                 energyFin: gFin.elec.energia,
+                autoconsumoIni: gIni.elec.autoconsumo,
+                autoconsumoFin: gFin.elec.autoconsumo,
             },
             otros: {
                 fuelIni: nombreDe(gIni.otros, combRealIni, coberturaIni),
@@ -1660,9 +1718,9 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
             final: Object.values(vecFin || {}),
         },
         contraste: {
-            electricoIni: cuadra(gIni.elec.emisiones, emiDeclaradas?.elecIni),
+            electricoIni: cuadra(gIni.elec.emisionesNetas, emiDeclaradas?.elecIni),
             otrosIni: cuadra(gIni.otros.emisiones, emiDeclaradas?.otrosIni),
-            electricoFin: cuadra(gFin.elec.emisiones, emiDeclaradas?.elecFin),
+            electricoFin: cuadra(gFin.elec.emisionesNetas, emiDeclaradas?.elecFin),
             otrosFin: cuadra(gFin.otros.emisiones, emiDeclaradas?.otrosFin),
             declaradas: emiDeclaradas,
         },
@@ -1715,6 +1773,9 @@ export function calculateRes080SimplificadoFromXml({
         combOtrosFin: combOtrosFin || xmlFinal.combustibleOtros || '',
         superficieInicial: supIni,
         superficieFinal: supFin,
+        // Si uno de los dos trae la energía final por vector, de ahí sale su fotovoltaica.
+        autoconsumoIni: autoconsumoDeXml(xmlInicial),
+        autoconsumoFin: autoconsumoDeXml(xmlFinal),
     });
     if (res) res.fuenteDatos = 'emisiones';
     return res;

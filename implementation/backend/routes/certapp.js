@@ -18,6 +18,10 @@
 // Mis gastos (`/movimientos`): SOLO los de su cuenta; GASTO/DEVOLUCION los apuntan
 // las propias RPC del crédito (services/certapp/movimientos.js).
 //
+// Encargos de BROKERGY (`/encargo/…`, `/obras/:id/encargo/{aceptar|rechazar}`): la
+// obra que crea el CRM al encargar el CEE (services/certapp/crm.js). Se acepta antes
+// de pedirla, no gasta créditos y no se borra (se rechaza).
+//
 // Contrato: docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md
 // ─────────────────────────────────────────────────────────────────────────────
 const express = require('express');
@@ -39,6 +43,7 @@ const firma = require('../services/certapp/firma');
 const documentos = require('../services/certapp/documentos');
 const presentacion = require('../services/certapp/presentacion');
 const tipos = require('../services/certapp/tipos');
+const crm = require('../services/certapp/crm');
 const { datosDelCatastro } = require('../services/certapp/catastro');
 const { cuestionario: logica } = require('../services/certapp/logica');
 const {
@@ -112,10 +117,12 @@ router.get('/obras/:id', certappOnly, async (req, res) => {
     try {
         const obra = await obraSuya(req);
         const { barrido } = await logica();
-        const [eventos, enlaces] = await Promise.all([
+        const [eventos, enlaces, encargo] = await Promise.all([
             obras.eventos(obra.id),
             // Los enlaces del certificado, solo cuando ya se le ha entregado.
             ['LISTO', 'VALIDADO'].includes(obra.estado) ? entrega.enlaces(obra) : Promise.resolve(null),
+            // Un encargo de BROKERGY: con lo que dice ahora el CRM (revisión, visto bueno, registro).
+            crm.resumen(obra),
         ]);
         if (enlaces) delete enlaces.ficheros;
         return res.json({
@@ -123,8 +130,37 @@ router.get('/obras/:id', certappOnly, async (req, res) => {
             revisiones: { hechas: Number(obra.revisiones) || 0, max: maxRevisiones() },
             // La calificación del XML cargado y la firma (sin el JSONB `cee`).
             cee: enlaces ? firma.resumenParaCertificador(obra) : null,
+            encargo,
         });
     } catch (e) { return responderError(res, e, 'GET /obras/:id'); }
+});
+
+// ── Encargos de BROKERGY (services/certapp/crm.js) ──────────────────────────
+// El enlace del email/WhatsApp del encargo (/encargo/:negocio/:id/:fase) → SU obra.
+// REGLA — solo la de SU cuenta: un encargo de otro técnico es 404, como todo lo ajeno.
+router.get('/encargo/:negocio/:id/:fase', certappOnly, async (req, res) => {
+    try {
+        if (!crm.NEGOCIOS.includes(req.params.negocio)) throw fallo(404, 'No encuentro ese encargo.', 'ENCARGO_NO_ENCONTRADO');
+        const obra = await crm.obraDelEncargo(req.certapp.cuenta.id, req.params);
+        if (!obra) throw fallo(404, 'Ese encargo no está en tu cuenta. ¿Has entrado con el email al que te lo mandamos?', 'ENCARGO_NO_ENCONTRADO');
+        return res.json({ obra_id: obra.id, estado: obra.estado });
+    } catch (e) { return responderError(res, e, 'GET /encargo'); }
+});
+
+router.post('/obras/:id/encargo/aceptar', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        const r = await crm.aceptar(obra, req.certapp.cuenta);
+        return res.json({ ok: true, obra: obras.obraParaCertificador(r.obra), encargo: await crm.resumen(r.obra) });
+    } catch (e) { return responderError(res, e, 'POST /obras/:id/encargo/aceptar'); }
+});
+
+router.post('/obras/:id/encargo/rechazar', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        const r = await crm.rechazar(obra, req.certapp.cuenta, req.body?.motivo);
+        return res.json({ ok: true, obra: obras.obraParaCertificador(r.obra) });
+    } catch (e) { return responderError(res, e, 'POST /obras/:id/encargo/rechazar'); }
 });
 
 router.put('/obras/:id', certappOnly, async (req, res) => {
@@ -133,6 +169,14 @@ router.put('/obras/:id', certappOnly, async (req, res) => {
         const nueva = await obras.actualizar(obra, req.body || {});
         return res.json({ obra: obras.obraParaCertificador(nueva) });
     } catch (e) { return responderError(res, e, 'PUT /obras/:id'); }
+});
+
+// Borrar una obra: solo un BORRADOR sin crédito gastado (obras.borrar); pedida, 409 OBRA_CERRADA.
+router.delete('/obras/:id', certappOnly, async (req, res) => {
+    try {
+        const obra = await obraSuya(req);
+        return res.json(await obras.borrar(obra));
+    } catch (e) { return responderError(res, e, 'DELETE /obras/:id'); }
 });
 
 router.post('/obras/:id/catastro', certappOnly, async (req, res) => {
@@ -287,6 +331,12 @@ router.post('/obras/:id/generar', certappOnly, async (req, res) => {
         const b = barrido(obra, cuenta);
         if (!b.listo) return res.status(422).json({ error: 'Falta algo para poder pedir el certificado.', code: 'BARRIDO', barrido: b });
 
+        // Un encargo de BROKERGY se acepta antes de pedirlo, y NO gasta créditos (crm.js).
+        const delCrm = crm.esDeCrm(obra);
+        if (delCrm && crm.crmDe(obra).encargo?.estado !== 'ACEPTADO') {
+            throw fallo(409, 'Acepta primero el encargo de BROKERGY.', 'ENCARGO_SIN_ACEPTAR');
+        }
+
         const ahora = new Date().toISOString();
         const { data: filas, error: errMarca } = await supabase.from('certapp_obras')
             .update({ estado: 'EN_PREPARACION', pedido_at: ahora }).eq('id', obra.id).eq('estado', 'BORRADOR').select('*');
@@ -294,6 +344,13 @@ router.post('/obras/:id/generar', certappOnly, async (req, res) => {
         if (!filas?.length) throw fallo(409, 'Este certificado ya está pedido.', 'YA_PEDIDO');
         marcada = true;
         obra = filas[0];
+
+        if (delCrm) {
+            await evento(obra.id, cuenta.id, 'GENERAR', `Certificado pedido (encargo de BROKERGY ${crm.crmDe(obra).numero || ''}: no gasta tus créditos)`,
+                'certificador', { genericos, avisos: b.avisos.map(a => a.id), crm: crm.crmDe(obra).numero || null });
+            const r = await ia.pedirCee(obra, cuenta);
+            return res.json({ ok: true, obra: obras.obraParaCertificador(obra), creditos: cuenta.creditos ?? null, encargo: true, ia: { auto: r.ia.auto, ok: r.ia.ok ?? null } });
+        }
 
         const { data: quedan, error: errCred } = await supabase.rpc('certapp_consumir_credito_obra', { p_obra_id: obra.id });
         if (errCred) throw errorBd(errCred, 'consumir crédito');

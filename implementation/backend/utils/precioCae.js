@@ -45,6 +45,16 @@ function sellarPrecioCae(inputs, existingOp) {
         // eso le cambiaría el bono a un expediente que ya está en marcha.
         delete inputs.cae_client_rate;
     }
+
+    // El precio de la opción REFORMA (RES080, 2026-10-29) va en su propio sello y
+    // con la MISMA condición. Solo se escribe si se tecleó uno distinto del
+    // general: si no, el expediente RES080 cae a `cae_client_rate` y da lo mismo.
+    const precio080 = parseFloat(inputs.caePriceClientRes080);
+    if (inputs.cae_client_rate !== undefined && precio080 > 0 && precio080 !== inputs.cae_client_rate) {
+        inputs.cae_client_rate_res080 = precio080;
+    } else {
+        delete inputs.cae_client_rate_res080;
+    }
     return inputs;
 }
 

@@ -7,15 +7,15 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 41,9 KB | 14 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 43,0 KB | 14 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
-| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 43,6 KB | 23 |
+| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 45,7 KB | 23 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 54,8 KB | 18 |
-| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 8,6 KB | 12 |
+| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 9,5 KB | 14 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,8 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 23,8 KB | 7 |
-| `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 9 |
+| `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 10 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,0 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 40,4 KB | 13 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 103,3 KB | 40 |
@@ -26,13 +26,13 @@
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 8,1 KB | 3 |
-| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 28,2 KB | 13 |
+| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 30,1 KB | 14 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 21,0 KB | 9 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,4 KB | 10 |
-| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 21,8 KB | 8 |
+| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 21,9 KB | 8 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,4 KB | 1 |
-| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 7,0 KB | 4 |
+| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 11,6 KB | 5 |
 | `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 17,3 KB | 15 |
 
 ## Reglas numeradas → dónde están
@@ -215,7 +215,7 @@
 - **131** → `.claude/rules/envolvente-ce3x.md` — Los EQUIPOS se marcan en el plano —caldera actual, equipo nuevo, depósito de ACS y unidad exterior— y la uni…
 - **132** → `.claude/rules/propuesta.md` — Con los avisos del cliente desviados a otra persona, el TITULAR sigue pudiendo recibir la propuesta
 - **133** → `.claude/rules/propuesta.md` — Caldera de BIOMASA (combustible sólido que no es carbón): la deducción del IRPF exige placas solares; el Bon…
-- **134** → `.claude/rules/calculo.md` — Con PLACAS en cualquiera de los dos CEE, el ahorro RES080 va POR VECTOR aunque se haya elegido «por uso»
+- **134** → `.claude/rules/calculo.md` — Con PLACAS, la fotovoltaica autoconsumida NO es ahorro de energía final: el vector eléctrico del RES080 va e…
 - **135** → `.claude/rules/cee-generacion.md` — En un RES080, cada ventana que CAMBIA resuelve sus PUENTES TÉRMICOS
 - **136** → `.claude/rules/propuesta.md` — La oportunidad pasa a ENVIADA con CUALQUIER envío que salga bien, también solo al instalador, y la lista dic…
 - **137** → `.claude/rules/documentos.md` — En el CEE final de un RES080 lo que se reforma se IDENTIFICA, y el inicial y el final se casan SIN el «- CAM…
@@ -264,6 +264,9 @@
 - **180** → `.claude/rules/envolvente-ce3x.md` — El ASISTENTE de la envolvente: se DICE lo que está mal (texto o voz), Claude PROPONE operaciones y el navega…
 - **181** → `.claude/rules/envolvente-ce3x.md` — Una ventana o puerta en una MEDIANERA o PARTICIÓN la pasa a MURO EXTERIOR, en los cuatro caminos; las ventan…
 - **182** → `.claude/rules/envolvente-ce3x.md` — La envolvente se revisa PARED A PARED con el TECLADO, y lo que falta para generar es UN número con su lista
+- **182** → `.claude/rules/lotes.md` — La «Vista S.O.»: la obligación del Sujeto Obligado se TECLEA por año y lo que le falta se cuenta contra TODO…
+- **183** → `.claude/rules/transversal-frontend.md` — Las fotos se miran con UN visor y se editan con UN editor
+- **184** → `.claude/rules/cee.md` — Al técnico CON cuenta en la app de certificadores el encargo le llega POR LA APP, y lo que hace allí vuelve …
 
 ## Documentos por área
 
@@ -372,6 +375,8 @@
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24)
 - `docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md` — Los documentos de la obra: visor, firmar desde el visor, versiones y el `.cex` en cuarentena (2026-10-26)
 - `docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md` — El CEE de una obra: el encargo, la calificación en el PC, el aviso, la entrega y la firma (2026-10-25)
+- `docs/conocimiento/certificadores-app/el-movil-en-la-visita-iphone-y-fotos-sin-cobertura.md` — El móvil en la visita: iPhone, fotos sin cobertura y el teclado (2026-10-30)
+- `docs/conocimiento/certificadores-app/encargos-de-brokergy-desde-el-crm.md` — Los encargos de BROKERGY: del CRM a la app y vuelta (2026-10-30)
 - `docs/conocimiento/certificadores-app/fase-5-fuera-enlace-corto-y-fachada.md` — Sin la fase 5, el enlace corto, la fachada propuesta y la numeración desde el 1 (2026-10-26)
 - `docs/conocimiento/certificadores-app/fotos-opcionales-y-equipo-generico.md` — Las fotos opcionales («Ahora no») y el equipo genérico con su antigüedad (2026-10-25)
 - `docs/conocimiento/certificadores-app/la-obra-sin-scroll-indice-y-fotos-a-mano.md` — La obra sin tanto scroll: el índice «Ir a…» y las fotos siempre a mano (2026-10-26)
@@ -402,6 +407,7 @@
 ### consultas
 
 - `docs/conocimiento/consultas/README.md` — Consultas de clientes e instaladores: lo ya contestado (mirar aquí PRIMERO)
+- `docs/conocimiento/consultas/autoconsumo-fotovoltaico-no-es-ahorro-de-energia-final-cae.md` — El autoconsumo fotovoltaico NO es ahorro de energía final en los CAE (30/10/2026)
 - `docs/conocimiento/consultas/boletin-placas-y-cargador-uno-o-dos-clm.md` — Placas (autoconsumo ≤10 kW) y cargador del coche: ¿un boletín o dos? — Castilla-La Mancha (20/10/2026)
 - `docs/conocimiento/consultas/bono-cae-no-se-resta-y-no-hay-resolucion.md` — Bono CAE: no se resta de la deducción del IRPF y no hay «resolución» (26/10/2026)
 - `docs/conocimiento/consultas/bono-social-electrico-cambiar-de-compania.md` — Bono social eléctrico: ¿me puedo cambiar de compañía o a una tarifa variable? ¿Quién lo da? (20/10/2026)
@@ -555,6 +561,7 @@
 - `docs/conocimiento/lotes/el-registro-miteco-y-los-requerimientos-del-gestor.md` — El Nº de REGISTRO del MITECO en el lote, y los requerimientos del Gestor (2026-10-27)
 - `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md` — El TOTAL que nos ingresa el S.O., y marcarlo COBRADO (2026-10-15)
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09)
+- `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md` — La «Vista S.O.»: su obligación del año y cómo vamos con ella (2026-10-28)
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01)
 - `docs/conocimiento/lotes/las-inexactitudes-del-verificador-se-registran-y-la-respuesta-se-arma-sola.md` — Las INEXACTITUDES del verificador se registran solas, y la RESPUESTA se arma al subsanar (2026-10-22)
 - `docs/conocimiento/lotes/las-tarifas-del-verificador-en-su-ficha.md` — Las TARIFAS del verificador, en su ficha (2026-09-14)
@@ -616,6 +623,7 @@
 ### transversal-frontend
 
 - `docs/conocimiento/transversal-frontend/el-menu-lateral.md` — El menú lateral (2026-08-24)
+- `docs/conocimiento/transversal-frontend/el-visor-de-fotos-y-el-editor-de-imagen.md` — El VISOR de fotos y el EDITOR de imagen (2026-10-29)
 - `docs/conocimiento/transversal-frontend/estilo-carta-de-pago-lo-que-ve-el-cliente.md` — El ESTILO «carta de pago»: así se diseña lo que ve el CLIENTE (2026-10-24)
 - `docs/conocimiento/transversal-frontend/y-con-el-plano-por-fin-traido-la-ventana-se-caia-entera-react-31.md` — Y con el plano por fin traído, la ventana se caía entera (React #310)
 - `docs/conocimiento/transversal-frontend/y-el-desplegable-se-leia-blanco-sobre-blanco.md` — Y el desplegable se leía BLANCO SOBRE BLANCO

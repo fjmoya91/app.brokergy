@@ -24,6 +24,7 @@
 // certificado, «Lo siguiente» y los atajos), Documentos, Fotos, Datos de la obra e
 // Historial, una cada vez con `?parte=`. En el PC van en el menú lateral (useMenuObra);
 // en el móvil, en la barra de abajo, con «Más» para el resto.
+// ENCARGO DE BROKERGY (obra/Encargo.jsx): arriba del Resumen, en qué punto lo tiene el CRM.
 import { Suspense, useState } from 'react';
 import { lazyWithReload } from '../../utils/lazyWithReload';
 import { createPortal } from 'react-dom';
@@ -37,6 +38,7 @@ import {
     CheckDibujado, IcoCarpeta, IcoCasa, IcoCheck, IcoChevron, IcoDoc, IcoEnviar, IcoImagen, IcoMenu, IcoPlano, IcoRecargar, IcoReloj, IcoSello, Spinner,
 } from '../ui/Iconos';
 import { estadoDe } from './comun';
+import { EncargoBrokergy } from './Encargo';
 import { FotosObra } from './Fotos';
 import { ListaDocumentos } from './Documentos';
 import { HojaPresentar } from './Presentar';
@@ -48,6 +50,9 @@ import { CEE_SIGN_ANCHOR } from '../../features/expedientes/logic/signBoxes';
 // El modal de firma del CRM (pdf.js + AutoFirma) pesa: se carga al pulsar «Firmar». Con lazyWithReload
 // (ver App.jsx): tras un deploy, el trozo viejo no existe y la pestaña se recarga sola.
 const FirmarConCertificadoModal = lazyWithReload(() => import('../../features/expedientes/components/FirmarConCertificadoModal'), { name: 'certapp:firmar' });
+
+// Pantalla táctil (móvil, tableta): AutoFirma no va ahí; se avisa al firmar desde el visor.
+const tactil = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
 const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
 const Letra = ({ l }) => (LETRAS.includes(l) ? <span className={`ca-letra ca-letra-${l}`}>{l}</span> : null);
@@ -228,7 +233,7 @@ export function ObraCerrada({ o, resumen = [] }) {
     const ctx = {
         form, obra, slots: o.slots, editable: false, puedeSubir: est !== 'ARCHIVADA',
         setCampo: () => {}, setC: () => {}, setTitular: () => {}, setDecision: () => {},
-        subir: o.subir, quitar: async () => ({ ok: false }), subiendo: o.subiendo || {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
+        subir: o.subir, reintentar: o.reintentar, descartar: o.descartar, pendientes: o.pendientes, quitar: async () => ({ ok: false }), subiendo: o.subiendo || {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
     };
 
     const sub = [obra.direccion && obra.direccion !== titulo ? obra.direccion : null, obra.municipio].filter(Boolean).join(' · ');
@@ -265,6 +270,8 @@ export function ObraCerrada({ o, resumen = [] }) {
             {parte === 'resumen' && (
             <div className="ca-obra-res">
             <div className="ca-parte">
+            {/* Un encargo de BROKERGY: en qué punto lo tiene el CRM (revisión, visto bueno, registro). */}
+            <EncargoBrokergy o={o} />
             <section className="ca-card ca-pad ca-in" id="obra-certificado">
                 <div className="ca-filete" />
                 <p className="ca-eyebrow" style={{ margin: 0 }}>El certificado</p>
@@ -419,7 +426,8 @@ export function ObraCerrada({ o, resumen = [] }) {
                         <>
                             <p>{errorFirma
                                 ? <span className="ca-error" role="alert">{errorFirma}</span>
-                                : est === 'LISTO' ? 'Al firmarlo lo das por bueno (queda validado).' : 'Se firma este mismo PDF con tu certificado, en tu ordenador.'}</p>
+                                : tactil() ? 'AutoFirma va en el ordenador: en el móvil puedes revisarlo, y fírmalo luego desde el PC con tu cuenta.'
+                                    : est === 'LISTO' ? 'Al firmarlo lo das por bueno (queda validado).' : 'Se firma este mismo PDF con tu certificado, en tu ordenador.'}</p>
                             <button type="button" className="ca-btn ca-btn-pri" disabled={!listo || !!pdfFirmar} onClick={() => firmarDesdeVisor(bytes)}>
                                 {pdfFirmar ? <Spinner /> : <IcoSello />} Firmar con AutoFirma
                             </button>

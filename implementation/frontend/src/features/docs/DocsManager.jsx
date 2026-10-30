@@ -20,6 +20,7 @@ import { VentanasPorVentana } from './VentanasPorVentana';
 import { esPorVentana, pareja, ventanasDe, progresoDespues } from './logic/ventanasObra';
 import { API_DOCS_OPORTUNIDAD } from './docsApi';
 import { SlotIlustracion, tieneIlustracion } from './SlotIlustracion';
+import { VisorFotos } from '../../components/VisorFotos';
 
 const ESTADO_UI = {
     pendiente: { ring: 'border-white/10 bg-white/[0.03]', chip: null },
@@ -203,12 +204,11 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [waNuevos, setWaNuevos] = useState(null);
     const [buzonDrag, setBuzonDrag] = useState(false);
     const [slotError, setSlotError] = useState({});
+    // El VISOR: la foto que se mira y TODAS las de su fase, para pasar de una a
+    // otra con las flechas sin volver a la lista. `{ lista: [{slot,item}], i }`.
     const [lightbox, setLightbox] = useState(null);
     const [lbConfirmDelete, setLbConfirmDelete] = useState(false); // confirmación de borrado en lightbox
     const [lbReplacing, setLbReplacing] = useState(false); // sustituyendo la foto del visor
-    const [lbZoom, setLbZoom] = useState(1);               // zoom con la rueda en el visor
-    const [lbOrigin, setLbOrigin] = useState('50% 50%');   // origen del zoom (sigue al cursor)
-    const lbImgRef = useRef(null);                          // contenedor de imagen del visor (wheel no-pasivo)
     const [acting, setActing] = useState(null); // `${slot}:${name}` en validación
     const [reject, setReject] = useState(null); // { slot, item } cuando se rechaza
     const [rejectMotivo, setRejectMotivo] = useState('');
@@ -363,25 +363,6 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         const t = setTimeout(() => setFlash(null), 3200);
         return () => clearTimeout(t);
     }, [flash]);
-
-    // Visor: reset del zoom al abrir/cambiar de foto.
-    useEffect(() => { setLbZoom(1); setLbOrigin('50% 50%'); }, [lightbox]);
-    // Visor: rueda del ratón para hacer zoom hacia el cursor. Listener NO pasivo
-    // (con preventDefault) para que no scrollee el fondo al usar la rueda.
-    useEffect(() => {
-        const el = lbImgRef.current;
-        if (!el || !lightbox) return;
-        const onWheel = (e) => {
-            e.preventDefault();
-            const rect = el.getBoundingClientRect();
-            const ox = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-            const oy = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-            setLbOrigin(`${ox}% ${oy}%`);
-            setLbZoom(z => Math.min(6, Math.max(1, +(z * (e.deltaY < 0 ? 1.15 : 1 / 1.15)).toFixed(3))));
-        };
-        el.addEventListener('wheel', onWheel, { passive: false });
-        return () => el.removeEventListener('wheel', onWheel);
-    }, [lightbox]);
 
     const patchSlot = (key, fn) => setInfo(prev => ({ ...prev, slots: prev.slots.map(s => (s.key === key ? fn(s) : s)) }));
 
@@ -1069,6 +1050,64 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         );
     };
 
+    // ── El VISOR ────────────────────────────────────────────────────────────
+    // Se abre por una foto, pero lleva dentro TODAS las de su fase en el orden
+    // en que se ven: quien revisa una obra las mira seguidas, y volver a la
+    // lista para abrir la siguiente era el gesto que más se repetía.
+    const abrirVisor = (slot, it) => {
+        if (!slot || !it) return;
+        const conjunto = (slot.fase === 'DESPUES' ? despues : antes);
+        const lista = [];
+        conjunto.forEach(s => (s.items || []).forEach(x => { if (isImageItem(x)) lista.push({ slot: s, item: x }); }));
+        const mismo = (a, b) => (a.driveId && b.driveId ? a.driveId === b.driveId : a.name === b.name);
+        let i = lista.findIndex(e => e.slot.key === slot.key && mismo(e.item, it));
+        if (i < 0) { lista.unshift({ slot, item: it }); i = 0; }
+        setLbConfirmDelete(false);
+        setLightbox({ lista, i });
+    };
+
+    // La foto que se está mirando (y su apartado), para los botones del pie. Se
+    // vuelve a buscar en `slots` en cada render: validar o rechazar reescribe el
+    // apartado, y la copia que guarda el visor se quedaría con el estado viejo.
+    const visorActual = (() => {
+        const ref = lightbox?.lista?.[lightbox.i];
+        if (!ref?.slot) return null;
+        const s = slots.find(x => x.key === ref.slot.key) || ref.slot;
+        const it = (s.items || []).find(x => (ref.item.driveId && x.driveId ? x.driveId === ref.item.driveId : x.name === ref.item.name)) || ref.item;
+        return { slot: s, item: it };
+    })();
+
+    // Saca del visor la foto que se acaba de borrar y sigue en la siguiente; si
+    // era la última, se cierra. Cerrar siempre obligaba a volver a entrar.
+    const visorSinActual = () => setLightbox(prev => {
+        if (!prev) return null;
+        const lista = prev.lista.filter((_, n) => n !== prev.i);
+        if (!lista.length) return null;
+        return { lista, i: Math.min(prev.i, lista.length - 1) };
+    });
+
+    const fotosDelVisor = (lightbox?.lista || []).map(({ slot, item }) => {
+        const grande = thumbProxy(item.driveId, 1600);
+        return {
+            id: `${slot.key}:${item.driveId || item.name}`,
+            label: slot.label,
+            nota: item.label || item.name,
+            src: item.localUrl || grande,
+            lowSrc: item.localUrl || thumbProxy(item.driveId, 400) || item.thumb,
+            fuentes: [
+                item.localUrl,
+                grande,
+                item.driveId && `https://lh3.googleusercontent.com/d/${item.driveId}=w1600`,
+                item.driveId && `https://drive.google.com/thumbnail?id=${item.driveId}&sz=w1600`,
+                item.thumb,
+            ].filter(Boolean),
+            // El enlace de Drive, solo para ADMIN (regla 1): este gestor lo abren
+            // también el cliente y el instalador por su enlace. Los demás bajan
+            // la copia del proxy, que es la que están viendo.
+            descarga: canValidate ? (item.link || (item.driveId ? `https://drive.google.com/file/d/${item.driveId}/view` : null)) : null,
+        };
+    });
+
     // Una foto de un apartado, con sus controles (visor, validar/rechazar, borrar,
     // escaparate). La misma en la casilla de siempre y en las tarjetas de ventana.
     const renderItem = (slot, it, i) => {
@@ -1081,7 +1120,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 <div className="relative group">
                     {img ? (
                         <button
-                            onClick={() => { setLbConfirmDelete(false); setLightbox({ slot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: slot.label }); }}
+                            onClick={() => abrirVisor(slot, it)}
                             className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all block`}
                             title={it.motivo ? `Rechazada: ${it.motivo}` : 'Ver en grande'}
                         >
@@ -1156,7 +1195,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         </div>
     ) : (
         <button type="button"
-            onClick={() => { setLbConfirmDelete(false); setLightbox({ slot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: slot?.label || '' }); }}
+            onClick={() => abrirVisor(slot, it)}
             className="relative w-14 h-14 shrink-0 rounded-lg overflow-hidden border border-white/15 hover:border-white/40 transition-all">
             <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={it.driveId} thumb={it.thumb} size={200} fit="cover" />
         </button>
@@ -1513,7 +1552,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 miniatura de 160 px no deja ver si la pegatina se lee. */}
                             {yaTiene > 0 && !pasoPorVentana ? (
                                 <button
-                                    onClick={() => { const it = pasoSlot.items[0]; setLbConfirmDelete(false); setLightbox({ slot: pasoSlot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: txt.label }); }}
+                                    onClick={() => abrirVisor(pasoSlot, pasoSlot.items[0])}
                                     className="relative mb-4 aspect-[7/6] w-full max-w-sm mx-auto block overflow-hidden rounded-2xl border-2 border-emerald-400/40">
                                     <DriveImg localUrl={pasoSlot.items[0].localUrl} proxySrc={thumbProxy(pasoSlot.items[0].driveId, 800)} driveId={pasoSlot.items[0].driveId} thumb={pasoSlot.items[0].thumb} size={800} fit="cover" />
                                     <span className="absolute bottom-2 right-2 rounded-lg bg-black/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white/90 backdrop-blur-sm">
@@ -1573,7 +1612,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 <div className="mt-4 flex flex-wrap justify-center gap-2">
                                     {(pasoSlot.items || []).slice(1, 6).map((it, n) => (
                                         <button key={n}
-                                            onClick={() => { setLbConfirmDelete(false); setLightbox({ slot: pasoSlot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: txt.label }); }}
+                                            onClick={() => abrirVisor(pasoSlot, it)}
                                             className="relative w-14 h-14 rounded-lg overflow-hidden border border-white/15">
                                             <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={it.driveId} thumb={it.thumb} size={200} fit="cover" />
                                         </button>
@@ -2078,59 +2117,80 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 </div>
             )}
 
-            {/* Lightbox */}
-            {lightbox && (
-                <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/95 backdrop-blur-sm p-4 cursor-zoom-out" onClick={() => setLightbox(null)}>
-                    <div className="relative w-[88vw] max-w-3xl" onClick={e => e.stopPropagation()}>
-                        <div ref={lbImgRef}
-                            onDoubleClick={() => { setLbZoom(1); setLbOrigin('50% 50%'); }}
-                            className={`relative w-full h-[78vh] rounded-xl overflow-hidden bg-black/40 shadow-2xl flex items-center justify-center ${lbZoom > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}>
-                            <div className="relative w-full h-full transition-transform duration-75" style={{ transform: `scale(${lbZoom})`, transformOrigin: lbOrigin }}>
-                                <DriveImg localUrl={lightbox.localUrl} proxySrc={thumbProxy(lightbox.driveId, 1200)} driveId={lightbox.driveId} thumb={lightbox.thumb} lowSrc={lightbox.localUrl || thumbProxy(lightbox.driveId, 400)} size={1200} fit="contain" alt={lightbox.label} />
-                            </div>
-                            {lbZoom > 1
-                                ? <div className="absolute top-2 right-2 bg-black/60 text-white/80 text-[10px] font-black px-2 py-1 rounded-md pointer-events-none">{Math.round(lbZoom * 100)}%</div>
-                                : <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 text-white/45 text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md pointer-events-none">Rueda para zoom · doble clic para reiniciar</div>}
-                        </div>
-                        <div className="mt-3 flex items-center justify-between gap-4">
-                            <span className="text-white/70 text-sm font-bold">{lightbox.label}</span>
-                            <div className="flex items-center gap-3">
-                                {/* Cambiar (sustituir) la foto: sube la nueva y borra la antigua. */}
-                                {lightbox.item && !lightbox.slot?.existing && !lbConfirmDelete && (
-                                    <label className={`flex items-center gap-1.5 px-4 py-2 bg-white/10 border border-white/15 text-white/80 text-xs font-black rounded-lg uppercase tracking-widest hover:bg-white/15 transition-all cursor-pointer ${lbReplacing ? 'opacity-50 pointer-events-none' : ''}`}>
-                                        {lbReplacing ? 'Cambiando…' : '🔄 Cambiar foto'}
-                                        <input type="file" accept={lightbox.slot?.accept} className="hidden"
-                                            onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) replaceItem(lightbox.slot, lightbox.item, f); }} />
-                                    </label>
-                                )}
-                                {/* Eliminar foto: SOLO ADMIN. Confirmación inline (borra de Drive). */}
-                                {canValidate && lightbox.item && (
-                                    lbConfirmDelete ? (
-                                        <span className="flex items-center gap-2">
-                                            <span className="text-white/60 text-xs font-bold">¿Eliminar?</span>
-                                            <button
-                                                onClick={async () => {
-                                                    const { slot, item } = lightbox;
-                                                    setLightbox(null); setLbConfirmDelete(false);
-                                                    await deleteItem(slot, item);
-                                                }}
-                                                className="px-4 py-2 bg-red-500 text-white text-xs font-black rounded-lg uppercase tracking-widest hover:bg-red-600 transition-all">
-                                                Sí, eliminar
-                                            </button>
-                                            <button onClick={() => setLbConfirmDelete(false)} className="text-white/50 text-xs font-bold uppercase tracking-widest hover:text-white">No</button>
-                                        </span>
-                                    ) : (
-                                        <button onClick={() => setLbConfirmDelete(true)}
-                                            className="flex items-center gap-1.5 px-4 py-2 bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-black rounded-lg uppercase tracking-widest hover:bg-red-500/20 transition-all">
-                                            🗑 Eliminar
+            {/* ── EL VISOR ──
+                Pieza común a toda la app (`components/VisorFotos`): flechas para
+                pasar, rueda y pellizco para ampliar, giro para mirar. Aquí solo
+                se le cuelgan los botones que son de ESTA pantalla: cambiar la
+                foto, validarla, rechazarla y borrarla. */}
+            {lightbox && visorActual && (
+                <VisorFotos
+                    fotos={fotosDelVisor}
+                    indice={lightbox.i}
+                    onIndice={n => { setLbConfirmDelete(false); setLightbox(prev => (prev ? { ...prev, i: n } : prev)); }}
+                    onCerrar={() => { setLightbox(null); setLbConfirmDelete(false); }}
+                    acciones={() => (
+                        <>
+                            {/* Validar / rechazar sin salir: se decide MIRANDO la foto. */}
+                            {canValidate && !lbConfirmDelete && (
+                                <>
+                                    <button
+                                        onClick={() => reviewItem(visorActual.slot, visorActual.item, 'validar')}
+                                        disabled={acting === `${visorActual.slot.key}:${visorActual.item.name}`}
+                                        title="Validar foto"
+                                        className={`h-11 px-4 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-40 ${visorActual.item.estado === 'validada' ? 'bg-emerald-500 text-white' : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30'}`}>
+                                        ✓ Validar
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setReject({ slot: visorActual.slot, item: visorActual.item });
+                                            setRejectMotivo('');
+                                            const sbp = visorActual.item.subido_por;
+                                            if (sbp === 'instalador' && info?.recipients?.instalador) setRejectNotifyTarget('instalador');
+                                            else if (info?.recipients?.cliente) setRejectNotifyTarget('cliente');
+                                            else setRejectNotifyTarget('ninguno');
+                                            setLightbox(null);
+                                        }}
+                                        title="Rechazar foto"
+                                        className={`h-11 px-4 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${visorActual.item.estado === 'rechazada' ? 'bg-red-500 text-white' : 'bg-red-500/15 text-red-300 hover:bg-red-500/30'}`}>
+                                        ✗ Rechazar
+                                    </button>
+                                </>
+                            )}
+                            {/* Cambiar (sustituir) la foto: sube la nueva y borra la antigua. */}
+                            {!visorActual.slot?.existing && !lbConfirmDelete && (
+                                <label className={`h-11 px-4 flex items-center rounded-xl bg-white/[0.07] border border-white/10 text-white/70 text-[11px] font-black uppercase tracking-widest hover:bg-white/15 hover:text-white transition-all cursor-pointer ${lbReplacing ? 'opacity-50 pointer-events-none' : ''}`}>
+                                    {lbReplacing ? 'Cambiando…' : '🔄 Cambiar'}
+                                    <input type="file" accept={visorActual.slot?.accept} className="hidden"
+                                        onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) replaceItem(visorActual.slot, visorActual.item, f); }} />
+                                </label>
+                            )}
+                            {/* Eliminar foto: SOLO ADMIN. Confirmación en el sitio (borra de Drive). */}
+                            {canValidate && (
+                                lbConfirmDelete ? (
+                                    <span className="flex items-center gap-2">
+                                        <span className="text-white/60 text-[11px] font-bold uppercase tracking-widest">¿Eliminar?</span>
+                                        <button
+                                            onClick={async () => {
+                                                const { slot, item } = visorActual;
+                                                setLbConfirmDelete(false);
+                                                visorSinActual();
+                                                await deleteItem(slot, item);
+                                            }}
+                                            className="h-11 px-4 rounded-xl bg-red-500 text-white text-[11px] font-black uppercase tracking-widest hover:bg-red-600 transition-all">
+                                            Sí, eliminar
                                         </button>
-                                    )
-                                )}
-                                <button onClick={() => { setLightbox(null); setLbConfirmDelete(false); }} className="text-white/50 text-xs font-bold uppercase tracking-widest hover:text-white">Cerrar</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                                        <button onClick={() => setLbConfirmDelete(false)} className="h-11 px-3 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white">No</button>
+                                    </span>
+                                ) : (
+                                    <button onClick={() => setLbConfirmDelete(true)} title="Eliminar de Drive"
+                                        className="h-11 px-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-[11px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">
+                                        🗑
+                                    </button>
+                                )
+                            )}
+                        </>
+                    )}
+                />
             )}
         </div>
     );

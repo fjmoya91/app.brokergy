@@ -25,6 +25,7 @@ import {
     getVentanaYACHByYear,
     AEROTHERMIA_MODELS,
     CAE_PRECIO_CLIENTE_NUEVAS,
+    precioCaeRes080,
     calculateTerciario,
     redondeaScop,
     scopsParaClima,
@@ -581,6 +582,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             gastoAnualReal: parseFloat(inputs.gastoAnualReal) || 0,
             participation: parseFloat(inputs.participation) || 100,
             caePriceClient: parseFloat(inputs.caePriceClient) || CAE_PRECIO_CLIENTE_NUEVAS,
+            // El de la opción REFORMA (RES080); sin teclear, el mismo que el RES060.
+            caePriceClientRes080: precioCaeRes080(inputs) || CAE_PRECIO_CLIENTE_NUEVAS,
             caePriceSO: parseFloat(inputs.caePriceSO) || 160,
             costeVerificacion: parseFloat(inputs.costeVerificacion) || 0,
             caePricePrescriptor: parseFloat(inputs.caePricePrescriptor) || 0,
@@ -997,7 +1000,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                     combRefrigeracionFinal: inputs.combustibleRefrigeracionFinal,
                     superficieInicial: sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable,
                     superficieFinal: sanitizedInputs.manualSupFinal || sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable,
-                    // Con placas en algún CEE, por vector (calculation.js, autoconsumoDeEmisiones).
+                    // Con placas en algún CEE, sin la fotovoltaica (calculation.js, autoconsumoDeEmisiones).
                     emiElecIni: inputs.manualEmisionesElectricoInicial, emiElecFin: inputs.manualEmisionesElectricoFinal,
                     emiOtrosIni: inputs.manualEmisionesOtrosInicial, emiOtrosFin: inputs.manualEmisionesOtrosFinal,
                     combOtrosIni: inputs.combustibleOtrosInicial, combOtrosFin: inputs.combustibleOtrosFinal,
@@ -1032,7 +1035,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 presupuesto: sanitizedInputs.presupuesto + (sanitizedInputs.isReforma ? sanitizedInputs.presupuestoEnvolvente : 0),
                 presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
                 savingsKwh: res080Data.ahorroEnergiaFinalTotal,
-                caePriceClient: sanitizedInputs.caePriceClient,
+                caePriceClient: sanitizedInputs.caePriceClientRes080,
                 caePriceSO: sanitizedInputs.caePriceSO,
                 // El informe de verificación se paga UNA vez por expediente: repercutido
                 // sobre el ahorro del RES080 (que es el que se presentaría) da su €/MWh.

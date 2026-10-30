@@ -274,9 +274,15 @@ async function crearRaiz(nombre = NOMBRE_RAIZ) {
     return { id, creada: true, link: await driveService.getWebViewLink(id) };
 }
 
+/** La carpeta de una obra borrada, a la papelera de Drive (no se borra: 30 días para recuperarla). */
+async function aLaPapelera(carpetaId) {
+    if (!carpetaId) return false;
+    return driveService.deleteFile(carpetaId);
+}
+
 module.exports = {
     raiz, NOMBRE_RAIZ, nombreCarpetaCuenta, nombreCarpetaObra,
     asegurarCarpetaCuenta, asegurarCarpetaObra, carpetaDocs, carpetaCeeSiExiste,
-    compartirConCertificador, miniatura, tamanoMini, abrirFichero, listar, crearRaiz,
+    compartirConCertificador, miniatura, tamanoMini, abrirFichero, listar, crearRaiz, aLaPapelera,
     SUB_CEE: SUB_CEE_UNICO, SUB_DOCS, TAMANOS_MINI,
 };

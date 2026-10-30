@@ -37,8 +37,11 @@ function textoEncargo(obra, cuenta, { iaAuto }) {
     const cliente = [titular.nombre, titular.apellidos].filter(Boolean).join(' ') || obra.nombre || '—';
     const quien = nombreCompleto(cuenta) || cuenta?.email || 'un certificador';
     const contacto = [cuenta?.email, cuenta?.telefono].filter(Boolean).join(' · ');
+    // Un encargo del CRM: de qué expediente es (sus fotos ya están en él).
+    const crm = obra.seguimiento?.crm?.id ? obra.seguimiento.crm : null;
     return [
         `🧾 *Encargo de CEE · ${obra.numero_expediente}*`,
+        ...(crm ? [`📌 *Del CRM:* ${crm.numero || crm.id} (${crm.fase === 'final' ? 'CEE final' : 'CEE inicial'}${crm.negocio === 'cee' ? ', CEE directo' : ''}) · sin gastar créditos`] : []),
         '',
         `• *Certificador:* ${quien}${cuenta?.empresa ? ` (${cuenta.empresa})` : ''}`,
         ...(contacto ? [`   ${contacto}`] : []),

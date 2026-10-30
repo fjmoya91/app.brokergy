@@ -21,6 +21,9 @@
 //     la envolvente.
 //   · Solo en LISTO o VALIDADO (lo entregado). Firmar implica darlo por bueno: una
 //     obra LISTO pasa a VALIDADO al firmar.
+//   · En un ENCARGO de BROKERGY (services/certapp/crm.js), firmar manda el PDF
+//     firmado, el XML y el .cex al expediente del CRM y pide su revisión; el XML
+//     definitivo, a su casilla. De fondo: el técnico no espera a eso.
 // ─────────────────────────────────────────────────────────────────────────────
 const supabase = require('../supabaseClient');
 const driveService = require('../driveService');
@@ -128,6 +131,8 @@ async function guardarFirmado(obra, cuenta, buffer, { via = 'autofirma' } = {}) 
         `El certificador ha firmado el certificado${sello.firmante.nombre ? ` (${sello.firmante.nombre})` : ''}`
             + (via === 'subido' ? ' y lo ha subido' : ' con AutoFirma'),
         'certificador', { fichero: guardado.nombre, coincide: coincide.coincide });
+    // Un encargo de BROKERGY: el firmado, el XML y el .cex, al expediente y a revisión (de fondo).
+    require('./crm').enviarCeeAsync(obra, cuenta, { firmado: buffer });
     return { ok: true, estado, firma: sello, avisos };
 }
 
@@ -171,6 +176,7 @@ async function subirDefinitivo(obra, cuenta, fichero) {
     const carga = await cargarXmlEnApp(ctx, 'inicial', buffer, { fileName: nombre, escribir: true, forzar: true });
     await evento(obra.id, obra.cuenta_id, 'DEFINITIVO', 'El certificador ha subido el XML definitivo', 'certificador',
         { fichero: guardado.nombre, cargado: !!carga?.cargado });
+    require('./crm').enviarDefinitivoAsync(obra, cuenta, { tipo: 'xml', buffer });
     return { ok: true, tipo: 'xml', fichero: guardado.nombre, cargado: !!carga?.cargado, estado: obra.estado };
 }
 

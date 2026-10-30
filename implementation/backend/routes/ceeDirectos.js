@@ -1008,14 +1008,19 @@ router.post('/:id/docs/enviar-enlace', staffOnly, async (req, res) => {
 });
 
 // GET /:id/enlace-encargo?phase=  → la página del encargo del técnico ASIGNADO
-// (gemela de la del CAE: el módulo CEE la pide sin saber de qué negocio es).
+// (gemela de la del CAE: el módulo CEE la pide sin saber de qué negocio es),
+// con el enlace de la app si el técnico la usa.
 router.get('/:id/enlace-encargo', staffOnly, async (req, res) => {
     try {
         const row = await svc.cargar(req.params.id, { conRelaciones: false });
         if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
         const { enlaceEncargo } = require('../services/encargoTecnico');
-        res.json({ url: enlaceEncargo({ negocio: 'cee', id: row.id, fase: req.query.phase,
-                                        certId: req.query.certificador_id || row.cee?.certificador_id || null }) });
+        const certId = req.query.certificador_id || row.cee?.certificador_id || null;
+        const app = await require('../services/certapp/crm')
+            .enlaceAppPrevisto({ negocio: 'cee', id: row.id, fase: req.query.phase, certId })
+            .catch((e) => { console.warn('[cee-directo enlace-encargo] app:', e.message); return null; });
+        res.json({ url: enlaceEncargo({ negocio: 'cee', id: row.id, fase: req.query.phase, certId }),
+                   url_app_encargo: app?.encargo || null, url_app_recordatorio: app?.recordatorio || null });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -1037,12 +1042,18 @@ router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
                 cuestionario: row.documentacion?.cuestionario || null, cae: false });
         } catch (e) { console.warn('[cee-directo aviso-cliente-cee] cuestionario:', e.message); }
         // La PÁGINA DEL ENCARGO del técnico elegido: el popup la mete en el
-        // mensaje en lugar del enlace a la app (services/encargoTecnico.js).
+        // mensaje en lugar del enlace a la app (services/encargoTecnico.js). Si
+        // usa la app de certificadores, el de su app: el que pondrá el envío.
         const { enlaceEncargo } = require('../services/encargoTecnico');
+        const certId = req.query.certificador_id || row.cee?.certificador_id || null;
+        const app = await require('../services/certapp/crm')
+            .enlaceAppPrevisto({ negocio: 'cee', id: row.id, fase: req.query.phase, certId })
+            .catch((e) => { console.warn('[cee-directo aviso-cliente-cee] app:', e.message); return null; });
         res.json({ ...(await buildAvisoClienteCeeDirecto(row, req.query.phase === 'final' ? 'final' : 'inicial', req.query.certificador_id || null)),
                    bloque_certificador: bloqueCertificador,
-                   enlace_encargo: enlaceEncargo({ negocio: 'cee', id: row.id, fase: req.query.phase,
-                                                   certId: req.query.certificador_id || row.cee?.certificador_id || null }) });
+                   enlace_encargo: app?.encargo
+                       || enlaceEncargo({ negocio: 'cee', id: row.id, fase: req.query.phase, certId }),
+                   enlace_en_app: !!app?.encargo });
     } catch (err) {
         console.error('[cee-directo aviso-cliente-cee]', err.message);
         res.status(500).json({ error: 'Error preparando el aviso al cliente' });
@@ -1200,10 +1211,24 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
         // La PÁGINA DEL ENCARGO de ESTE técnico: todo en una (cliente, dirección,
         // fotos y enlaces). Ver services/encargoTecnico.js.
         const { enlaceEncargo, conEnlaceEncargo } = require('../services/encargoTecnico');
-        const encargoLink = enlaceEncargo({ negocio: 'cee', id: row.id, fase: phase, certId });
+        let encargoLink = enlaceEncargo({ negocio: 'cee', id: row.id, fase: phase, certId });
+        // ¿Usa la APP de certificadores? (cuenta con el MISMO email que su ficha):
+        // el enlace lleva a su app, donde lo acepta o lo rechaza, y la obra se crea
+        // al salir el encargo (services/certapp/crm.js). Si la app no responde, el
+        // encargo sale como siempre.
+        const certappCrm = require('../services/certapp/crm');
+        const cuentaApp = await certappCrm.cuentaDe(cert).catch((e) => {
+            console.warn('[cee-directos notify-certificador] cuenta de la app:', e.message);
+            return null;
+        });
+        const urlApp = cuentaApp ? certappCrm.urlEncargo({ negocio: 'cee', id: row.id, fase: phase }) : null;
+        if (urlApp) encargoLink = urlApp;
+        // El texto del popup con UN enlace al encargo: el mismo en el WhatsApp y el EMAIL.
+        const mensajeTecnico = certappCrm.textoParaTecnico((req.body?.customMessage || '').trim() || null,
+            { urlApp, urlPagina: encargoLink });
         const bloqueCarpetas = compartidas.map(c => `📁 ${c.nombre}:\n${c.link}`).join('\n\n');
 
-        const cuerpo = (req.body?.customMessage || '').trim()
+        const cuerpo = mensajeTecnico
             || `¡Hola ${saludoPartner(cert) || 'técnico'}!\n\n`
              + `Te encargamos el ${faseLabel} del expediente ${row.numero_expediente}.\n\n`
              + `👤 ${ficha.nombre || '(cliente sin nombre)'}${ficha.dni ? ` · ${ficha.dni}` : ''}\n`
@@ -1243,7 +1268,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
                     // El texto editado en el popup SUSTITUYE al saludo y a la
                     // introducción, pero conserva ficha, carpetas y botones: es lo
                     // mismo que hace el encargo del CAE.
-                    customMessage: (req.body?.customMessage || '').trim() || null
+                    customMessage: mensajeTecnico
                 });
                 enviados.push('email');
             } catch (e) { errores.push(`email: ${e.message}`); }
@@ -1254,8 +1279,10 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
                 // En WhatsApp los dos enlaces van etiquetados y en líneas
                 // distintas: un enlace suelto que "acepta al pulsarlo" sin decir
                 // cuál es cuál es una trampa.
-                await whatsappService.sendText(telefonoDe(cert),
-                    `${conEnlaceEncargo(cuerpo, encargoLink)}\n\n✅ Me encargo:\n${acuse.aceptar}\n\n🚫 No puedo cogerlo:\n${acuse.rechazar}`);
+                // Con la app, aceptar y rechazar se hacen allí: un solo enlace.
+                await whatsappService.sendText(telefonoDe(cert), urlApp
+                    ? certappCrm.conEnlaceApp(cuerpo, urlApp)
+                    : `${conEnlaceEncargo(cuerpo, encargoLink)}\n\n✅ Me encargo:\n${acuse.aceptar}\n\n🚫 No puedo cogerlo:\n${acuse.rechazar}`);
                 enviados.push('whatsapp');
             } catch (e) { errores.push(`whatsapp: ${e.message}`); }
         }
@@ -1276,9 +1303,20 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
 
         const guardado = await svc.guardar(row.id, { seguimiento, cee }, { seguimientoPrev: row.seguimiento });
 
+        // Salido el encargo, la obra en su app (nueva, o la misma si ya se le había encargado).
+        let enApp = null;
+        if (cuentaApp) {
+            try {
+                enApp = await certappCrm.encargar({ negocio: 'cee', id: row.id, fase: phase, cert, cuenta: cuentaApp });
+            } catch (e) {
+                console.error('[cee-directos notify-certificador] encargo en la app:', e.message);
+            }
+        }
+
         await svc.anotarHistorial(row.id, {
             tipo: 'CERTIFICADOR',
-            texto: `ENCARGO/AVISO DE ${faseLabel.toUpperCase()} A ${(cert.razon_social || cert.acronimo || '').toUpperCase()} POR ${enviados.join(' Y ').toUpperCase()}`,
+            texto: `ENCARGO/AVISO DE ${faseLabel.toUpperCase()} A ${(cert.razon_social || cert.acronimo || '').toUpperCase()} POR ${enviados.join(' Y ').toUpperCase()}`
+                + (enApp ? ` · EN SU APP DE CERTIFICADORES (${enApp.obra.numero_expediente})` : ''),
             usuario: req.user?.email || null
         });
 
@@ -1310,7 +1348,8 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
             }
         }
 
-        res.json({ ok: true, enviados, errores, expediente: guardado, compartidas, avisoCliente });
+        res.json({ ok: true, enviados, errores, expediente: guardado, compartidas, avisoCliente,
+            certapp: enApp ? { obra: enApp.obra.numero_expediente, nueva: !!enApp.nueva } : null });
     } catch (err) {
         console.error('[cee-directos notify-certificador]', err.message);
         res.status(500).json({ error: err.message });

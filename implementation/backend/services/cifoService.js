@@ -214,7 +214,7 @@ async function computeRes080Results(exp) {
             combRefrigeracionInicial: cee.comb_ref_inicial, combRefrigeracionFinal: cee.comb_ref_final,
             superficieInicial: cee.superficie_manual_inicial || supFallback,
             superficieFinal: cee.superficie_manual_final || cee.superficie_manual_inicial || supFallback,
-            // Con placas en algún CEE, por vector (calculation.js, autoconsumoDeEmisiones).
+            // Con placas en algún CEE, sin la fotovoltaica (calculation.js, autoconsumoDeEmisiones).
             emiElecIni: em.electrico_ini, emiElecFin: em.electrico_fin,
             emiOtrosIni: em.otros_ini, emiOtrosFin: em.otros_fin,
             combOtrosIni: cee.comb_otros_inicial, combOtrosFin: cee.comb_otros_final,

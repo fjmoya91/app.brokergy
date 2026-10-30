@@ -278,7 +278,9 @@ export const getClientCaeRate = (expediente) => {
 
     const override = inst.economico_override?.cae_client_rate;
     const explicit = override !== undefined && override !== null && override !== '';
-    const rate = parseFloat(override ?? opIn.caePriceClient ?? opIn.cae_client_rate) || defaultRate;
+    // En un RES080, el precio de la opción REFORMA (`caePriceClientRes080`) si se tecleó.
+    const rateOp = isRes080 ? (opIn.caePriceClientRes080 || opIn.caePriceClient) : opIn.caePriceClient;
+    const rate = parseFloat(override ?? rateOp ?? opIn.cae_client_rate) || defaultRate;
     return { rate, explicit, defaultRate };
 };
 

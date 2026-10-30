@@ -24,6 +24,9 @@
 // el PDF más reciente con «CEE» en el nombre, y un justificante subido después se
 // haría pasar por el certificado (además se excluyen por nombre, por si acaso).
 // REGLA — solo con el certificado entregado (LISTO / VALIDADO), como firmar.
+// En un ENCARGO de BROKERGY (services/certapp/crm.js) el justificante y la etiqueta
+// van además al expediente del CRM, por la puerta del técnico (subidaCeePublica):
+// el justificante lo marca REGISTRADO allí con la fecha leída.
 // ─────────────────────────────────────────────────────────────────────────────
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -177,6 +180,8 @@ async function subir(obra, cuenta, clase, fichero, { nombre = '' } = {}) {
     }
 
     const g = await guardar(carpetaCee, NOMBRE[clase](obra, t.ext), t.mime, buffer);
+    // Un encargo de BROKERGY: al expediente del CRM (el justificante lo marca REGISTRADO allí).
+    require('./crm').enviarRegistroAsync(obra, cuenta, { clase, buffer, mime: t.mime });
     if (clase === 'etiqueta') {
         await evento(obra.id, obra.cuenta_id, 'DOCUMENTO', 'El certificador ha subido la etiqueta energética', 'certificador', { fichero: g.nombre });
         return { ok: true, clase, fichero: g.nombre, sustituye: g.sustituye };

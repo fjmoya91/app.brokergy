@@ -31,7 +31,7 @@ import { acsComputaAhorro } from '../logic/aerotermiaUnits';
 import { ceeBaseDocumento } from '../logic/ceeFases';
 import { resolveDacs } from '../logic/demandaAcs';
 import { deriveTerciarioVars, TERCIARIO_PRECIOS } from '../logic/terciario';
-import { CAE_PRECIO_CLIENTE_ANTERIOR } from '../../calculator/logic/calculation';
+import { CAE_PRECIO_CLIENTE_ANTERIOR, precioSelladoRes080 } from '../../calculator/logic/calculation';
 import { propuestaGuardada } from '../logic/propuestaGuardada';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
 import { driveFolderLink } from '../../../utils/driveFolder';
@@ -855,7 +855,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     combRefrigeracionFinal: cee.comb_ref_final,
                     superficieInicial: cee.superficie_manual_inicial || supFallback,
                     superficieFinal: cee.superficie_manual_final || cee.superficie_manual_inicial || supFallback,
-                    // Con placas en algún CEE, por vector (calculation.js, autoconsumoDeEmisiones).
+                    // Con placas en algún CEE, sin la fotovoltaica (calculation.js, autoconsumoDeEmisiones).
                     emiElecIni: em.electrico_ini, emiElecFin: em.electrico_fin,
                     emiOtrosIni: em.otros_ini, emiOtrosFin: em.otros_fin,
                     combOtrosIni: cee.comb_otros_inicial, combOtrosFin: cee.comb_otros_final,
@@ -908,8 +908,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
         // El del terciario puede ser ya el precio nuevo (no hay expedientes TER
         // anteriores); el del resto tiene que seguir siendo el ANTERIOR, o un
         // expediente ya firmado cambiaría de bono porque hoy cambie la tarifa.
+        // En un RES080 manda el precio de la opción REFORMA (calculation.js,
+        // `precioSelladoRes080`); sin él, el sello general, como hasta ahora.
         const caePriceClientBase = overrides.cae_client_rate
-            ?? (parseFloat(opInputs.cae_client_rate)
+            ?? ((ficha === 'RES080' ? precioSelladoRes080(opInputs) : parseFloat(opInputs.cae_client_rate))
                 || (esTerciario ? TERCIARIO_PRECIOS.cliente : CAE_PRECIO_CLIENTE_ANTERIOR.estandar));
         const caePriceSOBase = overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TERCIARIO_PRECIOS.sujetoObligado);
         const includeCommission = overrides.include_commission ?? !!opInputs.include_commission;

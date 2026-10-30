@@ -3570,7 +3570,7 @@ info@brokergy.es · 623 926 179`;
 
                                                     {f.caeMaintenanceCost > 0 && (
                                                         <div className="prop-ftr">
-                                                            <span className="prop-fl">Certificados energéticos y gestión del CAE <small>(se descuenta del bono · tarifa {fmtEur2(servicio.tarifa)})</small></span>
+                                                            <span className="prop-fl">Honorarios BROKERGY <small>(nada por adelantado · se descuentan del bono una vez cobrada la ayuda)</small></span>
                                                             <span className="prop-fv">+ {formatNumber(f.caeMaintenanceCost)} €</span>
                                                         </div>
                                                     )}
@@ -3640,7 +3640,7 @@ info@brokergy.es · 623 926 179`;
 
                                                     {f80.caeMaintenanceCost > 0 && (
                                                         <div className="prop-ftr">
-                                                            <span className="prop-fl">Certificados energéticos y gestión del CAE <small>(se descuenta del bono · tarifa {fmtEur2(servicio.tarifa)})</small></span>
+                                                            <span className="prop-fl">Honorarios BROKERGY <small>(nada por adelantado · se descuentan del bono una vez cobrada la ayuda)</small></span>
                                                             <span className="prop-fv">+ {formatNumber(f80.caeMaintenanceCost)} €</span>
                                                         </div>
                                                     )}
@@ -4005,7 +4005,7 @@ info@brokergy.es · 623 926 179`;
                                                 <div key={l.clave} className="prop-crow"><span>{l.concepto}</span><strong>{fmtEur2(l.importe)}</strong></div>
                                             ))}
                                             <div className="prop-crow cpromo"><span><Ico n="regalo" s={13} w={2.4} />{servicio.promocion}</span><strong>– {fmtEur2(servicio.descuento)}</strong></div>
-                                            <div className="prop-crow ctot"><span>{servicio.gratis ? 'Coste de nuestros servicios para el cliente' : 'Total a descontar del Bono Energético CAE'}</span><span>{fmtEur2(servicio.aPagar)}</span></div>
+                                            <div className="prop-crow ctot"><span>{servicio.gratis ? 'Coste de nuestros servicios para el cliente' : 'Honorarios BROKERGY a descontar del Bono Energético CAE'}</span><span>{fmtEur2(servicio.aPagar)}</span></div>
                                         </div>
                                         {/* En la comparativa hay DOS bonos: un único neto no diría de
                                             cuál de las dos opciones es. */}
