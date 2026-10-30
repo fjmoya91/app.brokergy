@@ -921,6 +921,8 @@ def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
             continue                      # del DXF: no viene de `lcons`
         if (s.attrs or {}).get("anexo"):
             continue                      # de otra parcela: lo dice `anexar`
+        if s.source == "PROYECTO":
+            continue                      # lo declara una persona: `anadir_volumenes`
         clave = f"{codigo}#{_uso_clave(s.attrs.get('uso_literal') or s.use)}"
         vistos.update((codigo, clave))
         antes = s.attrs.get("habitable")
