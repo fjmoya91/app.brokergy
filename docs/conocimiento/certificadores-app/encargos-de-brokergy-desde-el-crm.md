@@ -29,8 +29,8 @@ Fuente única: [services/certapp/crm.js](implementation/backend/services/certapp
 
 1. `crm.encargar` crea la obra (o reabre la rechazada) con el **titular** del cliente, la
    **vivienda** (la dirección de la instalación), la zona climática, «para qué» = AYUDAS, y **las fotos
-   que ya tenía el expediente con los MISMOS ficheros de Drive** (`fotosDelCrm`: nada se copia; de
-   una lista a un apartado de una sola foto, la última; sin las rechazadas). El Catastro se rellena
+   que ya tenía el expediente con los MISMOS ficheros de Drive** (`fotosDelCrm`: nada se copia; se
+   traen TODAS, también las de la caldera desde el 30/10/2026; sin las rechazadas). El Catastro se rellena
    detrás.
    - **REGLA — lo que el CRM ya sabe de la instalación no se vuelve a preguntar** (30/10, Fran en
      2026EXT_3: «ya se había dicho cómo era la caldera y el ACS y la app lo ha vuelto a preguntar»).

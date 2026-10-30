@@ -44,6 +44,20 @@ sus cuatro intentos → subían la 1.ª y la 3.ª, la 2.ª quedaba con «Reinten
 apartado las enseña con «Reintentar» y, con red, suben (2 ✓) y la cola queda vacía; «Olvidar» la
 vacía también. La reducción ya existente sigue igual: una JPEG de 4032×3024 de 8,2 MB salió a 2,0 MB.
 
+### Varias fotos en TODOS los apartados, también la caldera (30/10/2026)
+
+Fran: «en las fotos de la caldera no me deja subir varias, me las cambia». Caldera, aerotermia,
+termo y sus tres placas eran apartados de UNA foto: la galería solo dejaba elegir una y cada foto
+nueva mandaba la anterior a la papelera. Ahora llevan `multiple: true` en `SLOTS`
+([cuestionario.js](implementation/frontend/src/certificadores/logic/cuestionario.js)): se AÑADEN,
+y desde la galería se eligen varias a la vez. La lectura de la placa ya tomaba hasta tres fotos
+(`cee_inicial.js placasExt`), y la de la aerotermia pedía expresamente «la del depósito si es aparte».
+
+**REGLA — ninguna foto sustituye a otra**: todo apartado de fotos es `multiple`; lo vigila
+`test_certapp_unidad.js`. Lo que se mantiene con `unaBasta: true`: si el certificador ya subió una,
+el enlace del PROPIETARIO la da por `cubierta` y no le deja subir otra (`docs.js`). En un encargo de
+BROKERGY se traen del CRM todas las fotos del apartado, no solo la última (`crm.js fotosDelCrm`).
+
 ### iPhone: lo que se ha comprobado en el código
 
 - **Cámara y galería**: «Hacer foto» lleva `capture="environment"` (abre la cámara directa, una foto

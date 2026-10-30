@@ -116,7 +116,7 @@ async function subir(obra, cuenta, slotId, ficheros = [], { por = 'certificador'
         if (!slotsAplicables(obra.cuestionario || {}).some(s => s.id === slotId)) {
             throw fallo(400, 'Este apartado no hace falta para esta vivienda.', 'SLOT_NO_APLICA');
         }
-        if (!slot.multiple && previos.some(e => e?.driveId && !esDelCliente(e))) {
+        if ((!slot.multiple || slot.unaBasta) && previos.some(e => e?.driveId && !esDelCliente(e))) {
             throw fallo(409, 'Tu certificador ya ha subido este archivo: no hace falta otro.', 'YA_LO_TIENE_EL_CERTIFICADOR');
         }
     }
@@ -254,7 +254,7 @@ async function vista(obra, { admin = false } = {}) {
 /**
  * La vista del PROPIETARIO (enlace sin cuenta): los apartados que le tocan y,
  * de cada uno, SOLO lo que ha subido él (sin descarga: solo la miniatura). Un
- * apartado de un solo archivo que ya tiene el del certificador sale `cubierto`.
+ * apartado de un solo archivo (o `unaBasta`) que ya tiene el del certificador sale `cubierto`.
  */
 async function vistaCliente(obra, { caducaAt = null } = {}) {
     const { slotsAplicables } = await logica();
@@ -275,7 +275,7 @@ async function vistaCliente(obra, { caducaAt = null } = {}) {
             return {
                 id: s.id, label: s.label, ayuda: s.ayuda || null, multiple: !!s.multiple,
                 video: !!s.video, documento: !!s.documento, placa: !!s.placa,
-                cubierto: !s.multiple && lista.some(e => !esDelCliente(e)),
+                cubierto: (!s.multiple || !!s.unaBasta) && lista.some(e => !esDelCliente(e)),
                 ficheros: lista.filter(esDelCliente).map(e => ({
                     driveId: e.driveId,
                     nombre: e.nombre || e.name || null,

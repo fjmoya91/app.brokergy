@@ -12,7 +12,7 @@
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 45,7 KB | 23 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 54,8 KB | 18 |
-| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 9,4 KB | 14 |
+| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 9,5 KB | 14 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,8 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 23,8 KB | 7 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 10 |

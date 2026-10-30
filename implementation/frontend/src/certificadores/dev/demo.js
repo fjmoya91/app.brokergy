@@ -702,7 +702,7 @@ function vistaCliente(o) {
         obra: { id: o.id, numero_expediente: o.numero_expediente, direccion: o.direccion, municipio: o.municipio, titular: o.titular?.nombre || null, cerrada: ['LISTO', 'VALIDADO'].includes(o.estado) },
         apartados: ids.map(id => ({
             id, label: label[id], ayuda: id === 'FOTO_PLACA_CALDERA' ? 'La pegatina con marca, modelo y potencia, que se lea.' : null,
-            multiple: id !== 'FOTO_CALDERA' && id !== 'FOTO_PLACA_CALDERA', video: id === 'VIDEO_VIVIENDA', documento: id === 'DOC_PLANOS', placa: id === 'FOTO_PLACA_CALDERA',
+            multiple: true, video: id === 'VIDEO_VIVIENDA', documento: id === 'DOC_PLANOS', placa: id === 'FOTO_PLACA_CALDERA',
             ficheros: slots[id] || [],
         })),
     };

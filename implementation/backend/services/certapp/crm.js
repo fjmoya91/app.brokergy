@@ -81,8 +81,7 @@ const CRM_A_APP = {
     FOTO_EMISORES_ANTES: 'OTROS',
     OTROS_ANTES: 'OTROS',
 };
-// Apartados de UN solo archivo en la app (de una lista del CRM se trae el último).
-const APP_UNICOS = new Set(['FOTO_CALDERA', 'FOTO_PLACA_CALDERA', 'FOTO_TERMO', 'FOTO_PLACA_TERMO', 'FOTO_AEROTERMIA', 'FOTO_PLACA_AEROTERMIA']);
+// En la app todos los apartados de fotos admiten varias (30/10/2026): del CRM se traen todas.
 
 const slotCrmDe = (negocio, slotApp) => (normNegocio(negocio) === 'cee' ? APP_A_CEE : APP_A_CAE)[slotApp] || OTROS_CRM;
 
@@ -347,7 +346,7 @@ function fotosDelCrm(uploads) {
                 name: nombre, at: e.at || null, subido_por: 'BROKERGY', mimeType: mime, estado: 'subida', crm_slot: slotCrm,
             };
         });
-        out[slotApp] = APP_UNICOS.has(slotApp) ? entradas.slice(-1) : [...(out[slotApp] || []), ...entradas];
+        out[slotApp] = [...(out[slotApp] || []), ...entradas];
     }
     return out;
 }
@@ -468,7 +467,7 @@ async function anadirFotosNuevas(obra, uploads) {
     for (const [slotApp, entradas] of Object.entries(fotosDelCrm(uploads))) {
         for (const e of entradas) {
             if (ya.has(e.driveId)) continue;
-            const { error } = await supabase.rpc('certapp_docs_append', { p_id: obra.id, p_slot: slotApp, p_entry: e, p_multiple: !APP_UNICOS.has(slotApp) });
+            const { error } = await supabase.rpc('certapp_docs_append', { p_id: obra.id, p_slot: slotApp, p_entry: e, p_multiple: true });
             if (error) console.warn('[certapp crm] foto del CRM sin apuntar:', error.message);
         }
     }
@@ -878,5 +877,5 @@ module.exports = {
     cuentaDe, obraDelEncargo, encargar, resumen, aceptar, rechazar,
     subirFotos, quitarFoto, enviarCeeAsync, enviarDefinitivoAsync, enviarRegistroAsync, pedirRevision,
     conEnlaceApp, textoParaTecnico, enlaceAppPrevisto, fotosDelCrm,
-    instalacionCae, instalacionCee, conInstalacionDelCrm, instalacionDelCrm, cargarCae, cargarCee, prellenadoCae, prellenadoCee, TEXTO_ENLACE_APP, APP_UNICOS,
+    instalacionCae, instalacionCee, conInstalacionDelCrm, instalacionDelCrm, cargarCae, cargarCee, prellenadoCae, prellenadoCee, TEXTO_ENLACE_APP,
 };

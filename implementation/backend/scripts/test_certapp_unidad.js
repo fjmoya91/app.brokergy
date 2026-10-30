@@ -482,9 +482,12 @@ function ok(cond, texto) {
         FOTO_FACHADA_PRINCIPAL: [{ driveId: 'd3', name: 'f.jpg', estado: 'rechazada' }],
         OTROS_ANTES: [{ driveId: 'd4', name: 'x.pdf' }], NO_EXISTE: [{ driveId: 'd5' }],
     });
-    ok(traidas.FOTO_CALDERA?.length === 1 && traidas.FOTO_CALDERA[0].driveId === 'd2' && !traidas.FOTO_FACHADA_PRINCIPAL && !traidas.NO_EXISTE
+    ok(traidas.FOTO_CALDERA?.map(e => e.driveId).join() === 'd1,d2' && !traidas.FOTO_FACHADA_PRINCIPAL && !traidas.NO_EXISTE
         && traidas.OTROS?.[0]?.mime === 'application/pdf' && traidas.OTROS[0].crm_slot === 'OTROS_ANTES',
-        'encargo: al encargar se traen las fotos del CRM (la última en un apartado de una sola; sin las rechazadas)');
+        'encargo: al encargar se traen TODAS las fotos del CRM (también las de la caldera; sin las rechazadas)');
+    const { SLOTS } = await import(require('url').pathToFileURL(path.join(B, '..', 'frontend/src/certificadores/logic/cuestionario.js')).href);
+    ok(SLOTS.filter(s => !s.documento).every(s => s.multiple),
+        'fotos: todos los apartados admiten varias (la caldera ya no cambia una por otra)');
     const url = 'https://cee.brokergy.es/encargo/cae/e1/inicial';
     const conPagina = crm.conEnlaceApp('Hola\n\n📋 Todo el encargo en una página:\nhttps://app.brokergy.es/encargo/tok\n\n*BROKERGY · Ingeniería Energética*', url);
     ok(conPagina.includes(`${crm.TEXTO_ENLACE_APP}\n${url}`) && !conPagina.includes('app.brokergy.es/encargo'), 'encargo: el WhatsApp lleva el enlace de la app en lugar de la página del CRM');
