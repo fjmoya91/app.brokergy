@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { largo as largoDe, LARGO_MINIMO_PARED, lienzoAMundo, rumbosDeLaPared } from './geometriaPlano';
 import { traduccionDeIds } from './identidadParedes.js';
+import { cambiosAlMedir } from './cambiosAlMedir.js';
 import { esFuera, esMedianera, esParticion, tipoDe } from './tiposPared.js';
 import { mudarHueco, paredesParaHueco } from './huecosEnParedes.js';
 import { aplicarTrabajo, cuerposDeHoy, deltaLienzo, trasladarMuros, trasladarTrabajo } from './trabajoGuardado.js';
@@ -102,6 +103,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     //: acaba de quitar). Antes desaparecían sin decir nada; ahora se enseñan y
     //: se pueden volver a poner en otra pared.
     const [huerfanos, setHuerfanos] = useState([]);
+    //: Lo que CAMBIÓ la última vez que se volvió a medir (paredes nuevas, las que
+    //: el motor ha renombrado, huecos sin pared): la ventana lo resalta unos
+    //: segundos y lo dice (`cambiosAlMedir.js`). `at` distingue una medida de otra.
+    const [cambiosMedida, setCambiosMedida] = useState(null);
+    const olvidaCambiosMedida = useCallback(() => setCambiosMedida(null), []);
 
     //: Lo dibujado en la PIZARRA desde la última vez que se dijo «Así es como
     //: está»: la lista de cambios en palabras (la que se le enseña a quien
@@ -155,6 +161,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         const viejos = trasladarMuros(murosRef.current,
                                       deltaLienzo(refMurosRef.current, refLienzo));
         const { traduce, perdidos } = traduccionDeIds(viejos, nuevo);
+        // Al RESTAURAR (deshacer) no se ha medido nada: no se resalta.
+        if (conLocal) {
+            const c = cambiosAlMedir(viejos, nuevo, traduce, perdidos);
+            setCambiosMedida(c ? { ...c, at: Date.now() } : null);
+        }
         const sinSitio = new Set(perdidos);
         const id = (k) => (sinSitio.has(k) ? null : (traduce[k] || k));
         try {
@@ -679,10 +690,16 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
      * final. `null` si no queda ninguna.
      */
     function siguientePorMirar(desde) {
+        // Planta a planta de abajo arriba (el orden de `plantas`: por su id en
+        // texto la planta 1 iba antes que la baja), y en cada una por su nombre
+        // de Catastro con los números como números (FBE2 antes que FBE10). El
+        // mismo orden que las flechas (`paredVecina`).
+        const orden = new Map(plantas.map((p, i) => [p.id, i]));
         const lista = Object.values(muros)
             .filter(m => !esFuera(m))
-            .sort((a, b) => String(a.planta).localeCompare(String(b.planta))
-                            || String(a.id).localeCompare(String(b.id)));
+            .sort((a, b) => (orden.get(a.planta) ?? 99) - (orden.get(b.planta) ?? 99)
+                            || String(a.planta).localeCompare(String(b.planta))
+                            || String(a.id).localeCompare(String(b.id), 'es', { numeric: true }));
         if (!lista.length) return null;
         const pendiente = m => !esMedianera(m) && !m.revisada && !(m.huecos || []).length;
         const i = Math.max(0, lista.findIndex(m => m.id === desde));
@@ -1381,6 +1398,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         recorte, zonasFuera, setZonasFuera, refLienzo,
         equiposPlano, equiposLienzo, ponEquipoPlano, quitaEquipoPlano,
         huerfanos, recuperaHuerfanos, descartaHuerfanos,
+        cambiosMedida, olvidaCambiosMedida,
         loSenalado, restaurar,
         pizarra, trazoPizarra, aplicaPizarra, limpiaPizarra, murosDePlanta, aplicaAsistente,
         sueltaHueco, anadeHuecoA,

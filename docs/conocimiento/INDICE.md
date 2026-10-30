@@ -18,7 +18,7 @@
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 9 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,0 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 40,4 KB | 13 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 99,2 KB | 39 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 103,3 KB | 40 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 17,8 KB | 5 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,8 KB | 2 |
@@ -263,6 +263,7 @@
 - **179** → `.claude/rules/calculo.md` — Con los dos `.xml` (los dos con `<EnergiaFinalVectores>`), el ahorro RES080 es la energía final que DECLARAN…
 - **180** → `.claude/rules/envolvente-ce3x.md` — El ASISTENTE de la envolvente: se DICE lo que está mal (texto o voz), Claude PROPONE operaciones y el navega…
 - **181** → `.claude/rules/envolvente-ce3x.md` — Una ventana o puerta en una MEDIANERA o PARTICIÓN la pasa a MURO EXTERIOR, en los cuatro caminos; las ventan…
+- **182** → `.claude/rules/envolvente-ce3x.md` — La envolvente se revisa PARED A PARED con el TECLADO, y lo que falta para generar es UN número con su lista
 
 ## Documentos por área
 
@@ -474,6 +475,7 @@
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-pantalla-se-parece-a-ce3x-y-el-plano-a-un-plano-de-obra.md` — La pantalla se parece a CE3X, y el plano a un plano de obra (2026-09-13)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-ventana-sin-solapes-barra-rotulos-tiras-y-panel.md` — La ventana sin SOLAPES: barra, rótulos, tiras y panel (2026-10-08)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/los-equipos-en-el-plano-y-el-plano-de-cubierta.md` — Los EQUIPOS en el plano, y el PLANO DE CUBIERTA (2026-10-09)
+- `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/revisar-pared-a-pared-con-el-teclado-y-lo-que-falta.md` — Revisar pared a pared con el TECLADO, y UNA lista de lo que falta (2026-10-29)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/una-medida-por-defecto-se-puede-dar-por-buena-de-un-clic.md` — Una medida por defecto se puede dar por BUENA de un clic
 - `docs/conocimiento/envolvente-ce3x/la-envolvente-en-terciario-pequeno-y-gran-terciario.md` — La envolvente en TERCIARIO: pequeño y gran terciario (2026-09-28)
 - `docs/conocimiento/envolvente-ce3x/la-envolvente-vale-tambien-para-los-cee-directos.md` — La envolvente vale también para los CEE DIRECTOS (2026-09-16)

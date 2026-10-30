@@ -7,6 +7,7 @@ import { RUMBOS } from '../logic/geometriaPlano';
 import { SEPARACION_PILARES_M, pilaresEstimados } from '../logic/pilaresFachada';
 import { MARCOS, VIDRIOS, carpinteriaDe, desdeLaFoto, rotuloMarco, rotuloVidrio }
     from '../logic/ventanasVivienda';
+import { ATAJOS_PARED, EVENTO_ABRIR_ASISTENTE, accionDeTecla, paredVecina } from '../logic/atajosPared';
 import { FotosCerramiento } from './FotosCerramiento';
 import { LecturaFotoModal } from './LecturaFotoModal';
 
@@ -48,6 +49,49 @@ export function PanelPared({ plano, transmitancias, expedienteId,
     useEffect(() => { caja.current?.scrollTo?.({ top: 0 }); }, [sel]);
     //: Ir a otra pared: quien llama sabe si su planta está a la vista.
     const ir = onIrAPared || setSel;
+
+    //: REVISAR CON EL TECLADO (`logic/atajosPared.js`): Intro, ← →, V, P, Supr
+    //: y A. El oyente se pone UNA vez y lee lo último por la referencia: con el
+    //: plano en las dependencias se quitaría y pondría en cada pintado.
+    const ultimo = useRef({ plano, ir });
+    useEffect(() => { ultimo.current = { plano, ir }; });
+    useEffect(() => {
+        const alPulsar = (e) => {
+            const accion = accionDeTecla(e);
+            if (!accion) return;
+            // La ventana de la envolvente no se desmonta: se ESCONDE. Con otra
+            // pestaña delante, este panel no se ve y la tecla no es suya.
+            if (!caja.current || caja.current.offsetParent === null) return;
+            const { plano: p, ir: irA } = ultimo.current;
+            if (accion === 'asistente') {
+                window.dispatchEvent(new Event(EVENTO_ABRIR_ASISTENTE));
+                e.preventDefault();
+                return;
+            }
+            if (accion === 'siguiente' || accion === 'anterior') {
+                const id = paredVecina(p.muros, p.sel, accion === 'siguiente' ? 1 : -1, p.esFuera, p.plantas);
+                if (id) { irA(id); e.preventDefault(); }
+                return;
+            }
+            const muro = p.sel ? p.muros[p.sel] : null;
+            if (!muro || p.esFuera(muro)) return;
+            if (accion === 'revisada') {
+                p.marcaRevisada(muro.id, true);
+                const sig = p.siguientePorMirar(muro.id);
+                if (sig) irA(sig);
+            } else if (accion === 'ventana' || accion === 'puerta') {
+                if (p.anadeHuecoA) p.anadeHuecoA(muro.id, accion);
+                else p.ponHuecos(muro.id, accion, (muro.huecos || []).filter(h => h.tipo === accion).length + 1);
+            } else if (accion === 'quitar') {
+                const n = (muro.huecos || []).length;
+                if (!n) return;
+                p.quitaHueco(muro.id, n - 1);
+            }
+            e.preventDefault();
+        };
+        window.addEventListener('keydown', alPulsar);
+        return () => window.removeEventListener('keydown', alPulsar);
+    }, []);
 
     /**
      * Aplica lo leído Y deja SEÑALADO en la foto dónde cae cada hueco.
@@ -1124,6 +1168,8 @@ function RevisarPared({ revisada, siguiente, nombreDe, onMarcar, onIr }) {
                                hover:bg-emerald-400/25">
                 ✓ Dar esta pared por revisada
                 {siguiente ? ` y pasar a ${nombreDe(siguiente)} →` : ''}
+                <kbd className="ml-2 rounded border border-emerald-300/30 px-1 py-px font-sans text-[9.5px]
+                                font-bold text-emerald-200/70">Intro</kbd>
             </button>
             {siguiente && (
                 <button onClick={() => onMarcar(true)}
@@ -1356,6 +1402,7 @@ function Atajos() {
         ['Ctrl+Z · Ctrl+Y', 'deshacer · rehacer'],
         ['Espacio', 'mover mientras se dibuja'],
         ['Esc', 'cancelar lo que se dibuja'],
+        ...ATAJOS_PARED,
     ];
     return (
         <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 border-t border-white/[0.06] pt-2.5

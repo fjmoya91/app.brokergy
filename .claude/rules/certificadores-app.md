@@ -23,7 +23,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md` — La app de certificadores — cee.brokergy.es (2026-10-24) · 39,0 KB
+- `docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md` — La app de certificadores — cee.brokergy.es (2026-10-24) · 39,2 KB
 - `docs/conocimiento/certificadores-app/alta-directa-google-y-email.md` — El alta: al momento, con Google o con el email (2026-10-24) · 8,0 KB
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24) · 3,5 KB
 - `docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md` — Los documentos de la obra: visor, firmar desde el visor, versiones y el `.cex` en cuarentena (2026-10-26) · 7,4 KB

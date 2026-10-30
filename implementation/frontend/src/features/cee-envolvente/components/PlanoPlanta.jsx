@@ -29,10 +29,12 @@ function fechaVuelo(url) {
 import { EtiquetaMancha } from './EtiquetaMancha';
 import { PizarraControl, TrazoPizarra } from './PizarraControl';
 import { MarcasEquipos } from './EquiposPlano';
+import { CLASE_ETIQUETA } from './TiraPlano';
 import { cajaDeMarca, marcasDelPlano } from '../logic/equiposPlano';
 import { colorDeLapiz, paredMasCercana, tolerancias } from '../logic/pizarra';
 import { DND_HUECO } from './PanelPared';
 import { colocarRotulosPlano } from '../logic/rotulosPlano';
+import { paredesResaltadas } from '../logic/cambiosAlMedir';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El plano del certificador. Cada pared se pulsa.
@@ -211,6 +213,13 @@ const CLASE_TIPO = {
 
 export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEntorno,
                               modo = '2d', altura,
+                              //: Los mandos que valen para TODO el plano —Equipos,
+                              //: el fondo (Catastro/Satélite) y Google— van en la
+                              //: barra «Ver», UNA vez (`MandosComunes`): repetidos
+                              //: en cada tarjeta eran ~10 botones de más en «Las
+                              //: dos» (2026-10-29). Aquí quedan los del gesto
+                              //: sobre ESTE plano: pizarra, pared nueva y zoom.
+                              mandosFuera = false,
                               //: La CUBIERTA de esta planta que se reforma (entera o
                               //: por polígono), el modo de DIBUJARLA y a quién se le
                               //: entrega el polígono cerrado (o `null` al cancelar).
@@ -273,13 +282,6 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                               //: La PIZARRA: «✓ Así es como está» (lo abre la
                               //: vista, que es quien guarda la revisión).
                               onAsiEsComoEsta = null,
-                              //: La LEYENDA de colores bajo el plano. Con dos
-                              //: plantas a la vista salía DOS veces, idéntica:
-                              //: quien llama puede pintarla una vez debajo de
-                              //: las dos (`LeyendaPlano`) y apagarla aquí. La
-                              //: ayuda del MODO DE DIBUJO se queda siempre: es
-                              //: de ESTE plano y solo sale mientras se dibuja.
-                              leyenda = true,
                               //: Varias plantas lado a lado: la tarjeta comparte
                               //: sus tres filas con la de al lado (`subgrid`)
                               //: para que los planos empiecen a la misma altura.
@@ -521,12 +523,29 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     const pintandoPizarra = pizarraActiva && lapizPizarra !== 'mano';
     //: Colocando un EQUIPO (caldera, máquina nueva, ACS, unidad exterior).
     const poniendoEquipo = !!equipoEnMano && !!onPonerEquipo && !es3d;
+    //: Con los Equipos en la barra común (`mandosFuera`), encenderlos tiene que
+    //: cerrar lo que esta tarjeta tuviera abierto, como hacía su botón: se ajusta
+    //: AL PINTAR comparando con lo último visto, sin un efecto.
+    const [equipoVisto, setEquipoVisto] = useState(poniendoEquipo);
+    if (equipoVisto !== poniendoEquipo) {
+        setEquipoVisto(poniendoEquipo);
+        if (poniendoEquipo) { setLapizPizarra(null); setAvisoPizarra(null); setDibujando(false); setTrazo(null); }
+    }
     //: Con la PIZARRA abierta, las tiras de Vivienda y Cubierta se apartan, como
     //: con cualquier otro modo de dibujo: la paleta es la tira de ese momento, y
     //: con las tres debajo el plano empezaba 338 px por debajo de la barra en
     //: «Las dos». Salvo con el croquis abierto en el MÓVIL, que se ve y se
     //: cierra desde la tira de Vivienda.
     const tapaTiras = pizarraActiva && !croquisMovil;
+    //: Las tiras de VIVIENDA y CUBIERTA van PLEGADAS en una línea que dice lo que
+    //: hay («Garaje fuera 139 m² · cubierta se conserva»), y se abren al pulsarla
+    //: (2026-10-29): eran dos filas de mandos por planta para algo que se decide
+    //: una vez. Se abren SOLAS mientras se dibuja con ellas, o si hay algo que
+    //: ofrecer (el adosado por delimitar).
+    const [tirasAbiertas, setTirasAbiertas] = useState(false);
+    const tirasEnUso = !!(dibujarZona || dibujarCroquis || dibujarCubierta || dibujarRecorte
+                          || croquisMovil || notasPropuesta || recorteSugerido);
+    const tirasPlegadas = !tirasAbiertas && !tirasEnUso;
     //: Los DEDOS que hay sobre el plano (tablet): con dos, se mueve y se amplía.
     const dedos = useRef(new Map());
 
@@ -1095,7 +1114,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                     if (si) { setDibujando(false); setTrazo(null); onEquipoEnMano?.(null); }
                 })}
                 equipos={poniendoEquipo}
-                onEquipos={es3d || !onEquipoEnMano || !onPonerEquipo ? null : (si => {
+                onEquipos={mandosFuera || es3d || !onEquipoEnMano || !onPonerEquipo ? null : (si => {
                     // El primero que falte por poner, o el primero si ya están.
                     onEquipoEnMano(si ? 'abrir' : null);
                     if (si) { setLapizPizarra(null); setAvisoPizarra(null);
@@ -1104,11 +1123,11 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 onGirar={g => setCamara(c => ({ ...c, az: c.az + g }))}
                 onZoom={f => escalar(f)} onEncuadrar={encuadrar}
                 puedeAlejar={puedeAlejar} entorno={entorno} onEntorno={onEntorno}
-                catastro={quiereCatastro} onCatastro={onCatastro}
+                catastro={quiereCatastro} onCatastro={mandosFuera ? null : onCatastro}
                 trayendoCatastro={trayendoCatastro} falloCatastro={falloCatastro}
-                satelite={satelite} onSatelite={georef ? onSatelite : null}
+                satelite={satelite} onSatelite={georef && !mandosFuera ? onSatelite : null}
                 avisoSatelite={orto?.aviso || null}
-                enlaces={enlaces} />
+                enlaces={mandosFuera ? [] : enlaces} />
 
             {/* Las TIRAS de esta planta, en un solo bloque: es la fila del medio
                 cuando la tarjeta se alinea con la de al lado (`alinear`). */}
@@ -1141,7 +1160,14 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                 onMovil={onRecorteMovil
                                     ? () => { setVertices([]); onRecorteMovil(); } : null} />
             )}
-            {!es3d && !dibujarRecorte && (onZonaModo || onRecorteModo) && !tapaTiras && (
+            {!es3d && tirasPlegadas && !tapaTiras && (onZonaModo || onRecorteModo || onCubiertaModo) && (
+                <ResumenTiras zonas={zonas} recorte={onRecorteModo ? recorte : null}
+                              cubierta={onCubiertaModo ? (cubierta || {}) : null}
+                              lucernarios={plano.lucernarios?.[planta.id]?.length || 0}
+                              propuesta={propuestaCroquis?.length || 0}
+                              onAbrir={() => setTirasAbiertas(true)} />
+            )}
+            {!es3d && !tirasPlegadas && !dibujarRecorte && (onZonaModo || onRecorteModo) && !tapaTiras && (
                 <ViviendaPlantaControl planta={planta} zonas={zonas}
                                        dibujandoZona={dibujarZona} vertices={vertices}
                                        uso={usoZona} onUso={onUsoZona}
@@ -1172,7 +1198,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 de ESTA cubierta, y una fila entera para «ninguno · + Lucernario»
                 eran ~44 px de plano sin ver. Mientras se dibuja la cubierta, la
                 tira pasa a ser la instrucción y no se enseñan. */}
-            {!es3d && onCubiertaModo && !dibujarRecorte && !dibujarZona && !tapaTiras && (
+            {!es3d && !tirasPlegadas && onCubiertaModo && !dibujarRecorte && !dibujarZona && !tapaTiras && (
                 <CubiertaControl reforma={cubierta} dibujando={dibujarCubierta}
                                  vertices={vertices}
                                  onDibujar={() => onCubiertaModo(true)}
@@ -1182,6 +1208,14 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                  lucernarios={plano.anadeLucernario
                                      ? { planta: planta.id, plano, defecto: carpinteriaDefecto }
                                      : null} />
+            )}
+            {!es3d && tirasAbiertas && !tirasEnUso && !tapaTiras && (
+                <div className="-mt-1 mb-1 flex justify-end">
+                    <button type="button" onClick={() => setTirasAbiertas(false)}
+                            className="text-[10.5px] text-white/40 hover:text-white/75">
+                        ▴ plegar vivienda y cubierta
+                    </button>
+                </div>
             )}
             </div>
 
@@ -1526,6 +1560,20 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                               color={colorDeLapiz(lapizPizarra)} />
                             )}
 
+                            {/* Lo que CAMBIÓ al volver a medir (paredes nuevas o
+                                renombradas), resaltado mientras la ventana lo dice
+                                (`cambiosAlMedir.js`): si no, aparecían en silencio. */}
+                            {plano.cambiosMedida && (() => {
+                                const ids = paredesResaltadas(plano.cambiosMedida);
+                                return murosDe(planta).filter(w => ids.has(w.id)).map(w => (
+                                    <polyline key={`cambio-${w.id}`} className="animate-pulse"
+                                              points={w.svg.map(([x, y]) => `${x},${y}`).join(' ')}
+                                              fill="none" stroke="var(--brand-primary)"
+                                              strokeWidth={tam * 1.4} strokeLinecap="round"
+                                              opacity="0.5" pointerEvents="none" />
+                                ));
+                            })()}
+
                             {/* La pared a la que va la ventana que se arrastra. */}
                             {soltando?.id && (() => {
                                 const w = murosDe(planta).find(x => x.id === soltando.id);
@@ -1552,6 +1600,12 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                             : avisoSuelta.texto}
                     </p>
                 )}
+
+                {/* La LEYENDA, plegada en la esquina del propio plano
+                    (2026-10-29): debajo de las tarjetas quedaba fuera de la
+                    vista, justo cuando se miraba el plano. Arriba a la derecha:
+                    abajo están la brújula y la atribución de la ortofoto. */}
+                <LeyendaFlotante es3d={es3d} />
 
                 {es3d && (
                     <Brujula proy={proy}
@@ -1581,11 +1635,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 ))}
             </div>
 
-            {leyenda ? (
-                <Leyenda es3d={es3d} dibujando={dibujando} dibujandoCubierta={dibujarPoligono && !es3d} />
-            ) : (
-                <AyudaDibujo dibujando={dibujando} dibujandoCubierta={dibujarPoligono && !es3d} />
-            )}
+            <AyudaDibujo dibujando={dibujando} dibujandoCubierta={dibujarPoligono && !es3d} />
             </div>
         </div>
     );
@@ -1820,6 +1870,92 @@ function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, cor
                 )}
                 {enlaces.length > 0 && <MenuMapas enlaces={enlaces} corto={googleCorto} />}
             </div>
+        </div>
+    );
+}
+
+/**
+ * Vivienda y cubierta de una planta, PLEGADAS en una línea (2026-10-29): lo que
+ * hay, no los mandos. Pulsarla abre las dos tiras de siempre.
+ */
+function ResumenTiras({ zonas = [], recorte, cubierta, lucernarios, propuesta, onAbrir }) {
+    const partes = [];
+    for (const z of zonas) {
+        partes.push(`${ETIQUETA_USO_ZONA[z.uso] || 'No habitable'} fuera ${fmt(z.area_real ?? z.area_m2 ?? 0)} m²`
+                    + (z.aplicada === false ? ' (sin aplicar)' : ''));
+    }
+    if (recorte) partes.push('adosado delimitado');
+    if (!zonas.length && !recorte) partes.push('toda vivienda');
+    if (cubierta) {
+        partes.push(cubierta.entera ? 'la cubierta CAMBIA entera'
+            : cubierta.poligono ? 'parte de la cubierta CAMBIA' : 'cubierta se conserva');
+    }
+    if (lucernarios) partes.push(`${lucernarios} ${lucernarios === 1 ? 'lucernario' : 'lucernarios'}`);
+    return (
+        <button type="button" onClick={onAbrir}
+                title="Abrir: zonas que no son vivienda, croquis, adosado, cubierta y lucernarios"
+                className="mb-1.5 flex min-h-[30px] w-full min-w-0 items-center gap-2 rounded-lg border
+                           border-white/[0.07] bg-white/[0.02] px-2.5 text-left hover:border-white/20">
+            <span className={CLASE_ETIQUETA}>Vivienda · cubierta</span>
+            {/* `w-0 flex-1`: sin ancho propio, el texto NO cuenta para el ancho
+                mínimo de la tarjeta (con solo `truncate` la ensanchaba 177 px a
+                1280 y pisaba la de al lado); entero va en `title`. */}
+            <span className="w-0 min-w-0 flex-1 truncate text-[11px] text-white/65"
+                  title={partes.join(' · ')}>{partes.join(' · ')}</span>
+            {propuesta > 0 && <span className="shrink-0 text-[11px] text-amber-200">✨ croquis propuesto</span>}
+            <span className="shrink-0 text-[10.5px] font-bold text-white/45">✎ Cambiar</span>
+        </button>
+    );
+}
+
+/**
+ * Los mandos de TODO el plano, una vez, en la barra «Ver» (2026-10-29): los
+ * Equipos (su tira ya iba una vez sobre las plantas), el FONDO —Catastro o
+ * Satélite, que ya eran de la pantalla y no de una tarjeta: encender uno en la
+ * baja lo encendía en la primera— y Google. Mismas piezas que la barra de cada
+ * plano; aquí no hace falta acortarlas, la barra «Ver» va a todo el ancho.
+ */
+export function MandosComunes({ es3d, equipos, onEquipos, catastro, onCatastro, trayendoCatastro,
+                                falloCatastro, satelite, onSatelite, georef, lienzo }) {
+    const avisoSatelite = useMemo(
+        () => (satelite && georef ? teselasOrtofoto(georef)?.aviso || null : null), [satelite, georef]);
+    const enlaces = useMemo(() => {
+        if (!georef || !(lienzo?.ancho > 0)) return [];
+        return enlacesMapas(lienzoALatLon(georef, lienzo.ancho / 2, lienzo.alto / 2));
+    }, [georef, lienzo]);
+    const avisoCatastro = !!falloCatastro && !trayendoCatastro;
+    return (
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+            {!es3d && onEquipos && (
+                <Boton onClick={() => onEquipos(!equipos)} activo={equipos} aria-pressed={!!equipos}
+                       title="Equipos: marcar en el plano dónde está la caldera actual y dónde van
+                              el equipo nuevo, el depósito de ACS y la unidad exterior (también en
+                              la cubierta).">
+                    {equipos ? '📍 Equipos · cerrar' : '📍 Equipos'}
+                </Boton>
+            )}
+            {((!es3d && onCatastro) || (georef && onSatelite)) && (
+                <Grupo etiqueta="Fondo del plano">
+                    {!es3d && onCatastro && (
+                        <BotonGrupo onClick={() => onCatastro(!catastro)} activo={catastro}
+                                    aria-pressed={!!catastro} etiqueta="Catastro"
+                                    title={falloCatastro
+                                        || 'Catastro: la cartografía del Catastro debajo del plano, en su sitio exacto'}>
+                            {trayendoCatastro ? 'Trayendo…' : `▦ Catastro${avisoCatastro ? ' ⚠' : ''}`}
+                        </BotonGrupo>
+                    )}
+                    {georef && onSatelite && (
+                        <BotonGrupo onClick={() => onSatelite(!satelite)} activo={satelite}
+                                    aria-pressed={!!satelite} etiqueta="Satélite"
+                                    title={avisoSatelite
+                                        || 'Satélite: la ortofoto del PNOA (IGN) debajo del plano: tejados, '
+                                           + 'patios, piscinas y lo construido que no consta en Catastro'}>
+                            {`◩ Satélite${avisoSatelite ? ' ⚠' : ''}`}
+                        </BotonGrupo>
+                    )}
+                </Grupo>
+            )}
+            {enlaces.length > 0 && <MenuMapas enlaces={enlaces} />}
         </div>
     );
 }
@@ -2874,16 +3010,43 @@ function textoAyuda({ es3d, dibujando, dibujandoCubierta, general = true }) {
                 : 'rueda para el zoom · arrastra para mover';
 }
 
-/** La leyenda de cada plano: la de colores más la ayuda de su modo. */
-function Leyenda({ es3d, dibujando, dibujandoCubierta }) {
+//: Abierta o plegada, por persona y en ESTE navegador: es una comodidad, así que
+//: si el almacenamiento falla (ventana privada) se queda plegada y ya está.
+const CLAVE_LEYENDA = 'envolvente:leyenda-abierta';
+const leerLeyendaAbierta = () => { try { return localStorage.getItem(CLAVE_LEYENDA) === '1'; } catch { return false; } };
+const guardarLeyendaAbierta = (si) => { try { localStorage.setItem(CLAVE_LEYENDA, si ? '1' : '0'); } catch { /* sin almacén */ } };
+
+/**
+ * La leyenda de colores, PLEGADA en la esquina del plano (2026-10-29). Plegada
+ * es una píldora con las cuatro muestras de color: dice qué es sin taparlo.
+ */
+function LeyendaFlotante({ es3d }) {
+    const [abierta, setAbierta] = useState(leerLeyendaAbierta);
+    const alternar = () => setAbierta(a => { guardarLeyendaAbierta(!a); return !a; });
+    if (!abierta) {
+        return (
+            <button type="button" onClick={alternar} title="Ver qué significa cada color"
+                    className="absolute right-2 top-2 z-10 flex items-center gap-1.5 rounded-full border
+                               border-white/10 bg-bkg-surface/85 px-2.5 py-1 text-[10.5px] font-bold
+                               text-white/60 backdrop-blur hover:border-white/30 hover:text-white/85">
+                {[COLOR_TIPO.FACHADA, COLOR_TIPO.MEDIANERA, COLOR_TIPO.PARTICION_VERTICAL, COLOR_HUECO.ventana]
+                    .map((c, i) => <i key={i} className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />)}
+                Leyenda
+            </button>
+        );
+    }
     return (
-        <LeyendaPlano es3d={es3d} className="mt-2"
-                      ayuda={textoAyuda({ es3d, dibujando, dibujandoCubierta })} />
+        <div className="absolute right-2 top-2 z-10 w-[210px] rounded-xl border border-white/10
+                        bg-bkg-surface/95 p-2.5 shadow-xl backdrop-blur">
+            <button type="button" onClick={alternar} title="Plegar la leyenda"
+                    className="absolute right-2 top-1.5 text-[12px] text-white/45 hover:text-white/85">✕</button>
+            <LeyendaPlano es3d={es3d} vertical />
+        </div>
     );
 }
 
-/** Con la leyenda apagada (`leyenda={false}`), solo la instrucción del modo de
- *  dibujo, y solo mientras se dibuja: es de ESTE plano, no de la pantalla. */
+/** La instrucción del modo de dibujo, y solo mientras se dibuja: es de ESTE
+ *  plano, no de la pantalla. La leyenda de colores va en su esquina. */
 function AyudaDibujo({ dibujando, dibujandoCubierta }) {
     const texto = textoAyuda({ dibujando, dibujandoCubierta, general: false });
     if (!texto) return null;
@@ -2898,13 +3061,43 @@ function AyudaDibujo({ dibujando, dibujandoCubierta }) {
 /**
  * El código de color, que es lo que hace legible el plano de un vistazo.
  *
- * EXPORTADA: con dos plantas a la vista la pantalla la pinta UNA vez, debajo de
- * las dos tarjetas (y a cada plano se le pasa `leyenda={false}`). Sin props es
- * la de siempre con el recordatorio de la planta; `es3d` cambia el
+ * Desde el 2026-10-29 va PLEGADA en la esquina de cada plano (`LeyendaFlotante`,
+ * `vertical`); antes era una franja bajo las tarjetas que quedaba fuera de la
+ * vista. Sin props, en fila y con el recordatorio de la planta; `es3d` cambia el
  * recordatorio por el del 3D, y `ayuda={null}` lo quita.
  */
-export function LeyendaPlano({ es3d = false, ayuda, className = '' } = {}) {
+export function LeyendaPlano({ es3d = false, ayuda, className = '', vertical = false } = {}) {
     const pista = ayuda === undefined ? textoAyuda({ es3d }) : ayuda;
+    //: `vertical`: en la esquina del plano (`LeyendaFlotante`), en columna y sin caja.
+    if (vertical) {
+        return (
+            <div className={`grid gap-1 ${className}`}>
+                <span className="text-[9.5px] font-black uppercase tracking-[0.12em] text-white/40">Cerramientos</span>
+                <Marca color={COLOR_TIPO.FACHADA}>Fachada</Marca>
+                <Marca color={COLOR_TIPO.MEDIANERA}>Medianera</Marca>
+                <Marca color={COLOR_TIPO.PARTICION_VERTICAL}>Partición a local</Marca>
+                <Marca color={GRIS}>Sin mirar</Marca>
+                <span className="mt-1 text-[9.5px] font-black uppercase tracking-[0.12em] text-white/40">Huecos</span>
+                <Marca color={COLOR_HUECO.puerta}>Puerta</Marca>
+                <Marca color={COLOR_HUECO.ventana}>Ventana</Marca>
+                <span className="mt-1 flex items-center gap-1.5 text-[11px] text-white/55">
+                    <i className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: APAGADO }} />
+                    No cuenta
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] text-white/55">
+                    <i className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: 'var(--warning)' }} />
+                    Medida por confirmar
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] text-white/55">
+                    <i className="inline-block h-[7px] w-4 rounded-sm border"
+                       style={{ borderColor: 'var(--warning)',
+                                background: 'repeating-linear-gradient(-45deg, var(--warning) 0 1px, transparent 1px 4px)' }} />
+                    Se reforma (CAMBIA)
+                </span>
+                {pista && <span className="mt-1 text-[10.5px] leading-snug text-white/40">{pista}</span>}
+            </div>
+        );
+    }
     return (
         <div className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border
                          border-white/[0.05] bg-white/[0.02] px-3 py-2 ${className}`}>

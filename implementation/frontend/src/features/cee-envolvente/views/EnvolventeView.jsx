@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { quienMira } from '../logic/quienMira';
-import { LeyendaPlano, PlanoPlanta } from '../components/PlanoPlanta';
+import { MandosComunes, PlanoPlanta } from '../components/PlanoPlanta';
 import { EquiposControl, PlanoCubierta } from '../components/EquiposPlano';
 import { NIVEL_CUBIERTA, TIPOS_EQUIPO, faldonesCubierta } from '../logic/equiposPlano';
 import { PanelPared } from '../components/PanelPared';
-import { usePlanoEnvolvente, nombreDe } from '../logic/usePlanoEnvolvente';
+import { usePlanoEnvolvente, nombreDe, necesitaRumbo } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo, areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
 import { husoDe } from '../logic/ortofoto';
 import { CampoDecimal } from '../../../components/CampoDecimal';
@@ -28,9 +28,11 @@ import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
 import { PERSIANA_DEFECTO_NUEVOS, huecosDefecto, resumenVentanas, ventanasContestadas }
     from '../logic/ventanasVivienda';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
-import { DetalleAgenteIa, ListaPendientes, PildoraAgenteIa } from '../components/RastroAgente';
+import { DetalleAgenteIa, PildoraAgenteIa } from '../components/RastroAgente';
+import { ListaFalta, PildoraFalta } from '../components/FaltaParaGenerar';
 import { AsiEsComoEstaModal, BandaRevision } from '../components/AsiEsComoEsta';
-import { pendientesDe, selloAgente } from '../logic/pendientes';
+import { faltaParaGenerar, selloAgente } from '../logic/pendientes';
+import { textoCambios } from '../logic/cambiosAlMedir';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
          PanelMedidas, SelloCex, Ventana, VersionCe3x } from '../components/PanelesFicha';
 
@@ -1096,19 +1098,20 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: La huella de lo que se VE ahora, solo si la ficha es de esta fase.
     const huellaVista = ficha?.fase === fichaFase ? (ficha?.huella || null) : null;
 
-    // ── Lo POR CONFIRMAR y el CROQUIS ───────────────────────────────────────
-    // La lista sale de lo MISMO que cuenta la cabecera (`resumen.dudosos`), y
-    // cada línea lleva a su pared: un número sin salida obligaba a buscar la
-    // raya ámbar pared por pared.
+    // ── Lo que FALTA y el CROQUIS ───────────────────────────────────────────
+    // «Faltan N para generar» (`faltaParaGenerar`, abajo, junto a las pestañas
+    // de las que también tira): cada línea lleva a lo suyo — su pared, su
+    // pestaña o el popup de las ventanas. Un número sin salida obligaba a
+    // buscar la raya ámbar pared por pared.
     const [verPendientes, setVerPendientes] = useState(false);
-    const pendientes = useMemo(
-        () => pendientesDe(plano.muros, plano.lucernarios, plantas, nombreDe),
-        [plano.muros, plano.lucernarios, plantas]);
     const irAPendiente = (it) => {
-        const i = plantas.findIndex(p => p.id === it.planta);
+        const a = it.ir || {};
+        if (a.apartado) { ir(a.apartado); return; }
+        if (a.ventanas) { setVerVentanas(true); return; }
+        const i = plantas.findIndex(p => p.id === a.planta);
         if (i >= 0 && plantas.length > 1) setEleccionPlanta(i);
         if (modo !== '2d') setModo('2d');
-        if (it.muro) plano.setSel(it.muro);
+        if (a.muro) plano.setSel(a.muro);
     };
     //: Ir a una PARED desde el panel («Empezar por…», «pasar a…»). A diferencia
     //: de la lista de pendientes, NO cambia lo que se ve si la pared ya está a
@@ -1296,7 +1299,36 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: medirían y escribirían el plano de antes del cambio.
     const [tareaAsistente, setTareaAsistente] = useState(null);   // { zonas, generar }
 
+    //: Cómo estaba TODO antes del último cambio del asistente: su «Deshacer»
+    //: vuelve exactamente ahí (el trabajo y los ajustes, y si movió zonas,
+    //: vuelve a medir con las de antes). La pila de Ctrl+Z va con freno y no
+    //: sirve para esto: deshacer justo después de aplicar saltaría dos pasos.
+    const antesAsistente = useRef(null);
+    //: Quien espera a que acabe la tarea de DESPUÉS (volver a medir): el chat no
+    //: dice «Hecho» hasta que el edificio está medido, y si no se ha podido, lo dice.
+    const finTareaAsistente = useRef(null);
+    const acabarTareaAsistente = (r) => {
+        const fin = finTareaAsistente.current;
+        finTareaAsistente.current = null;
+        fin?.(r);
+    };
+
+    async function deshacerAsistente() {
+        const a = antesAsistente.current;
+        if (!a) throw new Error('No hay nada que deshacer.');
+        antesAsistente.current = null;
+        plano.restaurar(a.trabajo);
+        setAjustes(a.ajustes || {});
+        if (a.zonas && !(await volverAMedir({ zonas_fuera: a.zonas }))) {
+            throw new Error('El plano ha vuelto atrás, pero no se ha podido volver a medir el edificio con las zonas de antes: vuelve a intentarlo.');
+        }
+    }
+
     function aplicarAsistente(pasos, { generar = false } = {}) {
+        antesAsistente.current = {
+            trabajo: plano.trabajo, ajustes,
+            zonas: zonasAjustadas(plano.zonasFuera || [], pasos) ? (plano.zonasFuera || []) : null,
+        };
         if (tocaMuros(pasos)) plano.aplicaAsistente(v => transformarMuros(v, pasos));
         const med = medidasCambiadas(pasos);
         if (med) {
@@ -1304,7 +1336,13 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             setAjustes(a => ({ ...a, medidas_elegidas: { ...(a.medidas_elegidas || {}), [med.fase]: med.elegidas } }));
         }
         const zonas = zonasAjustadas(plano.zonasFuera || [], pasos);
-        if (zonas || generar) setTareaAsistente({ zonas, generar });
+        if (!zonas && !generar) return { medido: null };
+        // Devuelve cuándo ha ACABADO: con zonas, al terminar de medir (el
+        // generar sigue solo, con su popup).
+        return new Promise((fin) => {
+            finTareaAsistente.current = fin;
+            setTareaAsistente({ zonas, generar });
+        });
     }
 
     useEffect(() => {
@@ -1314,10 +1352,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         (async () => {
             if (zonas) {
                 const ok = await volverAMedir({ zonas_fuera: zonas });
+                acabarTareaAsistente({ medido: !!ok });
                 // Generar, en el pintado SIGUIENTE: con la geometría ya medida.
                 if (ok && generar) setTareaAsistente({ zonas: null, generar: true });
                 return;
             }
+            acabarTareaAsistente({ medido: null });
             if (generar) pedirGenerar(fichaFase);
         })();
     }, [tareaAsistente]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -1382,6 +1422,20 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const barra = useMemo(() => ({ pestanas, activa, onIr: ir, deshacer: deshacerCex }),
                           [pestanas, activa, ir, deshacerCex]);
     useEffect(() => { onPestanas?.(barra); }, [barra, onPestanas]);
+    //: Lo que cambió al volver a medir se resalta en el plano y se dice en una
+    //: línea durante unos segundos; después se va solo (o con su ✕).
+    const cambiosAt = plano.cambiosMedida?.at || null;
+    const { olvidaCambiosMedida } = plano;
+    useEffect(() => {
+        if (!cambiosAt) return undefined;
+        const t = setTimeout(olvidaCambiosMedida, 12000);
+        return () => clearTimeout(t);
+    }, [cambiosAt, olvidaCambiosMedida]);
+    const tieneVentanas = !!resumenVentanas(ajustes.ventanas);
+    const falta = useMemo(
+        () => faltaParaGenerar({ muros: plano.muros, lucernarios: plano.lucernarios, plantas, nombreDe,
+                                 entrada, ventanas: tieneVentanas, pestanas, necesitaRumbo }),
+        [plano.muros, plano.lucernarios, plantas, entrada, tieneVentanas, pestanas]);
 
     //: La altura con la que se levantan los muros en la axonometría: la que
     //: DECLARA la ficha, que es la misma con la que el motor midió las fachadas.
@@ -1819,6 +1873,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                           estadoGuardado={estadoGuardado}
                           ventanas={resumenVentanas(ajustes.ventanas)}
                           onVentanas={() => setVerVentanas(true)}
+                          falta={falta} verFalta={verPendientes}
                           onPendientes={() => setVerPendientes(v => !v)}
                           onCroquis={verCroquis} croquis={croquis}
                           // Lo del AGENTE IA es UNA píldora más de esta tira, no
@@ -1851,8 +1906,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                      onCerrar={() => setVerAgente(false)} />
                 )}
                 {verPendientes && (
-                    <ListaPendientes items={pendientes} onIr={irAPendiente}
-                                     onCerrar={() => setVerPendientes(false)} />
+                    <ListaFalta falta={falta} onIr={irAPendiente}
+                                onCerrar={() => setVerPendientes(false)} />
                 )}
 
                 {!entrada && <PasoEntrada />}
@@ -1870,6 +1925,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
                 {/* Huecos que se han quedado SIN PARED al volver a medir: antes
                     desaparecían sin decir nada. */}
+                {plano.cambiosMedida && (
+                    <div className="flex items-center gap-2 rounded-lg border border-brand/40 bg-brand/[0.08]
+                                    px-3 py-1.5 text-[12px] text-white/85">
+                        <b className="text-brand">Al volver a medir:</b>
+                        <span className="min-w-0">{textoCambios(plano.cambiosMedida)}</span>
+                        <span className="text-white/45">· resaltado en el plano</span>
+                        <button type="button" onClick={plano.olvidaCambiosMedida}
+                                className="ml-auto text-white/50 hover:text-white/80">✕</button>
+                    </div>
+                )}
                 {!!plano.huerfanos?.length && (
                     <AvisoHuerfanos huerfanos={plano.huerfanos} muros={plano.muros}
                                     nombreDe={plano.nombreDe}
@@ -1911,7 +1976,15 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 <div className="flex min-w-0 flex-col gap-3">
                     <BarraVista plantas={plantas} sel={soloPlanta}
                                 onSel={setEleccionPlanta}
-                                modo={modo} onModo={cambiarModo} />
+                                modo={modo} onModo={cambiarModo}>
+                        <MandosComunes es3d={modo === '3d'}
+                                       equipos={!!equipoEnMano}
+                                       onEquipos={si => cambiarEquipoEnMano(si ? 'abrir' : null)}
+                                       catastro={quiereCatastro} onCatastro={verCatastro}
+                                       trayendoCatastro={trayendoCatastro} falloCatastro={falloCatastro}
+                                       satelite={verSatelite} onSatelite={ponSatelite}
+                                       georef={geo?.georef} lienzo={plano.lienzo} />
+                    </BarraVista>
                     {/* Los EQUIPOS: la tira va UNA vez, encima de las plantas —el
                         equipo elegido vale para cualquiera y para la cubierta—. */}
                     {equipoEnMano && modo !== '3d' && (
@@ -1938,14 +2011,11 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                             <PlanoPlanta planta={aLaVez[0] || plantas[0]} plano={plano}
                                          capas={aLaVez}
                                          entorno={false} onEntorno={setEntorno}
-                                         modo="3d" altura={alturaPlanta}
+                                         modo="3d" altura={alturaPlanta} mandosFuera
                                          georef={geo?.georef} satelite={verSatelite}
                                          onSatelite={ponSatelite} />
                         ) : aLaVez.map(p => (
                             <PlanoPlanta key={p.id || p.nombre} planta={p} plano={plano}
-                                         // Con varias tarjetas, la leyenda va UNA vez
-                                         // debajo de todas (ver abajo), no repetida.
-                                         leyenda={nTarjetas < 2}
                                          // Y comparten filas (barra · tiras · plano):
                                          // así los dos planos arrancan a la misma altura.
                                          alinear={nTarjetas > 1}
@@ -1956,7 +2026,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onAsiEsComoEsta={() => setVerAsiEs(true)}
                                          cuerpos={cuerpos} onCuerpo={setCuerpoSel}
                                          entorno={entorno} onEntorno={setEntorno}
-                                         modo="2d" altura={alturaPlanta}
+                                         modo="2d" altura={alturaPlanta} mandosFuera
                                          cubierta={plano.cubiertas?.[p.id] || null}
                                          carpinteriaDefecto={huecosDefecto(ajustes)}
                                          dibujarCubierta={dibujandoCubierta === p.id}
@@ -2067,21 +2137,28 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     {/* El código de colores es el MISMO en las dos plantas: debajo
                         de cada tarjeta eran dos franjas iguales que alargaban la
                         página justo donde se compara una planta con otra. */}
-                    {modo !== '3d' && nTarjetas > 1 && <LeyendaPlano />}
+                    {/* La leyenda va en la esquina de cada plano (`LeyendaFlotante`). */}
                 </div>
                     {/* La CUBIERTA no está aquí: se marca dibujándola sobre el
                         plano de su planta, así que su mando vive bajo la barra
                         de ese plano. Esta columna es LA PARED seleccionada. */}
                     <PanelPared plano={plano} transmitancias={ficha?.ficha?.termicas}
                                 carpinteriaDefecto={huecosDefecto(ajustes)} expedienteId={id}
-                                onIrAPared={irAPared}
-                                cabeza={geo?.geometria && (
-                                    <AsistenteEnvolvente urlAsistente={api(id, 'asistente')}
-                                                         urlVoz={api(id, 'asistente/voz')}
-                                                         contexto={contextoAsistente}
-                                                         onAplicar={aplicarAsistente}
-                                                         ocupado={generando || !!tareaAsistente} />
-                                )} />
+                                onIrAPared={irAPared} />
+                    {/* El ASISTENTE: ventana emergente abajo a la derecha (se
+                        portalea a body), como el de la app. */}
+                    {geo?.geometria && (
+                        <AsistenteEnvolvente urlAsistente={api(id, 'asistente')}
+                                             urlVoz={api(id, 'asistente/voz')}
+                                             contexto={contextoAsistente}
+                                             onAplicar={aplicarAsistente}
+                                             onDeshacer={deshacerAsistente}
+                                             ocupado={generando || cargando || !!tareaAsistente}
+                                             trabajando={cargando ? 'Volviendo a medir el edificio…'
+                                                 : generando ? 'Escribiendo el .cex…' : null}
+                                             oculto={!!(generando || reciénGenerado || preguntando
+                                                        || verTipo || tocadoCex)} />
+                    )}
                 </div>
             </div>
 
@@ -2447,52 +2524,29 @@ const GUARDADO = {
  * renglón, y el estado de cada pared ya se ve en el plano por su color.
  */
 function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
-                   ventanas, onVentanas, onPendientes, onCroquis, croquis, agente }) {
-    // El PROGRESO: cuántas paredes están miradas de las que hay que mirar. Es
-    // la respuesta a «¿cuánto me queda?», que antes había que deducir de una
-    // cifra suelta en letra pequeña.
-    const total = resumen.paredes || 0;
-    const miradas = Math.max(0, total - (resumen.sinTocar || 0));
-    const pct = total ? Math.round((miradas / total) * 100) : 0;
+                   ventanas, onVentanas, falta, verFalta, onPendientes, onCroquis, croquis, agente }) {
     return (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[11.5px] text-white/70">
-            {/* POR DÓNDE SE ENTRA: es lo primero que se señala y de ahí cuelga
-                el resto, así que es la primera píldora y va en el color de
-                marca. Sin entrada, la píldora ES la instrucción. */}
-            {entrada ? (
-                <Pildora tono="brand" onClick={onCambiarEntrada}
-                         title="Cambiar la pared por la que se entra">
+            {/* LO QUE FALTA, en UN número (2026-10-29): la barra de paredes
+                miradas, las medidas por confirmar, la entrada, la carpintería
+                y lo de las otras pestañas. Se abre en una lista que lleva a
+                cada cosa (`FaltaParaGenerar.jsx`). */}
+            <PildoraFalta falta={falta} resumen={resumen} abierta={verFalta} onAlternar={onPendientes} />
+
+            {/* Lo ya DECIDIDO se enseña en neutro: por dónde se entra y cómo son
+                las ventanas. Sin decidir no sale aquí, sino en la lista. */}
+            {entrada && (
+                <Pildora onClick={onCambiarEntrada} title="Cambiar la pared por la que se entra">
                     ◆ Entrada <b>{entrada}</b>
                 </Pildora>
-            ) : (
-                <Pildora tono="brand" fuerte>◆ Señala por dónde se entra</Pildora>
             )}
-
-            {/* La barra: lo mirado frente a lo que hay que mirar. */}
-            {total > 0 && (
-                <span className="flex items-center gap-2 rounded-full border border-white/10
-                                 bg-white/[0.03] px-2.5 py-1"
-                      title={`${miradas} de ${total} paredes miradas`}>
-                    <span className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
-                        <span className={`block h-full rounded-full transition-all
-                                          ${pct >= 100 ? 'bg-emerald-400' : 'bg-brand'}`}
-                              style={{ width: `${pct}%` }} />
-                    </span>
-                    <span className="tabular-nums">
-                        {pct >= 100
-                            ? <span className="font-bold text-emerald-300">✓ todas miradas</span>
-                            : <><b className="text-white/90">{miradas}</b>
-                               <span className="text-white/45">/{total}</span> paredes miradas</>}
-                    </span>
-                </span>
-            )}
-
-            {resumen.dudosos > 0 && (
-                <Pildora tono="aviso" onClick={onPendientes}
-                         title="Ver cuáles son e ir a cada una">
-                    <b>{resumen.dudosos}</b> {resumen.dudosos === 1 ? 'medida' : 'medidas'} por confirmar ▾
+            {ventanas && (
+                <Pildora onClick={onVentanas}
+                         title="Cambiar la carpintería, de toda la vivienda o de algunas ventanas">
+                    ▤ {ventanas}<span className="opacity-60"> ✎</span>
                 </Pildora>
             )}
+
             {/* Lo que SE REFORMA. Sale con «- CAMBIA» en el .cex, y es lo que
                 hay que poder comprobar de un vistazo antes de generar. */}
             {resumen.cambian > 0 && (
@@ -2508,17 +2562,6 @@ function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
                     <b>{resumen.fuera}</b> {resumen.fuera === 1 ? 'apartada' : 'apartadas'}
                 </Pildora>
             )}
-
-            {/* Como son las ventanas de la vivienda. Va aqui y no escondido en
-                un menu porque es lo que se acaba de contestar al entrar: hay
-                que poder comprobar de un vistazo que lo que se esta poniendo en
-                cada hueco es lo que se dijo. */}
-            <Pildora tono={ventanas ? null : 'aviso'} fuerte={!ventanas} onClick={onVentanas}
-                     title={ventanas ? 'Cambiar la carpintería, de toda la vivienda o de algunas ventanas'
-                                     : 'De aquí salen la U de cada hueco y su caja de persiana'}>
-                ▤ {ventanas || 'Di cómo son las ventanas'}
-                <span className="opacity-60"> ✎</span>
-            </Pildora>
 
             {/* Si lo preparó el AGENTE IA: quién, cuándo y si dejó avisos. */}
             {agente}
@@ -3057,7 +3100,7 @@ function PasoEntrada() {
  *
  * El grupo de plantas solo aparece con más de una: con una no hay qué elegir.
  */
-function BarraVista({ plantas, sel, onSel, modo, onModo }) {
+function BarraVista({ plantas, sel, onSel, modo, onModo, children }) {
     return (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border
                         border-white/[0.05] bg-white/[0.02] px-3 py-2">
@@ -3094,6 +3137,8 @@ function BarraVista({ plantas, sel, onSel, modo, onModo }) {
                     las demás siguen medidas y se guardan igual
                 </span>
             )}
+            {/* Los mandos de TODO el plano (`MandosComunes`): Equipos, fondo y Google. */}
+            {children}
         </div>
     );
 }

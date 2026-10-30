@@ -242,6 +242,16 @@ function buscaPared(muros, dicho) {
 }
 
 /**
+ * ¿Ha PEDIDO volver a escribir el `.cex`? («…y genera el CEE», «regenéralo»,
+ * «vuelve a generar el certificado»). Solo así el asistente lo genera sin el
+ * botón: escribir en Drive no se hace por suponer.
+ */
+export function pideGenerar(texto) {
+    const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return /\b(re)?gener(a|ar|alo|amelo|elo|e)\b|\bvuelve a generar|\bhaz (el|un) (cee|cex|certificado)/.test(t);
+}
+
+/**
  * Las paredes que la persona ha DICHO de forma que encajan con dos o más
  * («FB1» con FBE1 y FBO1). El modelo a veces elige una sin preguntar: aquí se
  * dice cuál ha elegido, para que se vea antes del «Sí». Lista de textos.
@@ -538,16 +548,16 @@ export function validarOperaciones(operaciones, ctx) {
             const quitar = (op.quitar || []).filter(Boolean);
             const partes = [];
             const ids = new Set(marcadas);
-            for (const id of poner) {
-                const m = catalogo.find(x => x.id === id);
-                if (!m) { errores.push(`No hay ninguna medida «${id}».`); continue; }
+            for (const dicho of poner) {
+                const m = buscaMedida(catalogo, dicho);
+                if (!m) { errores.push(`No hay ninguna medida «${dicho}».`); continue; }
                 if (m.disponible === false) { errores.push(`«${m.titulo}» no se puede poner: ${m.motivo || 'no procede'}.`); continue; }
-                if (!ids.has(id)) { ids.add(id); partes.push(`+ ${m.titulo}`); }
+                if (!ids.has(m.id)) { ids.add(m.id); partes.push(`+ ${m.titulo}`); }
             }
-            for (const id of quitar) {
-                const m = catalogo.find(x => x.id === id);
-                if (!m) { errores.push(`No hay ninguna medida «${id}».`); continue; }
-                if (ids.delete(id)) partes.push(`− ${m.titulo}`);
+            for (const dicho of quitar) {
+                const m = buscaMedida(catalogo, dicho);
+                if (!m) { errores.push(`No hay ninguna medida «${dicho}».`); continue; }
+                if (ids.delete(m.id)) partes.push(`− ${m.titulo}`);
             }
             if (!partes.length) break;
             pasos.push({ op: 'medidas', fase: op.fase || ctx.fase || 'inicial', elegidas: [...ids],
@@ -560,6 +570,26 @@ export function validarOperaciones(operaciones, ctx) {
         }
     }
     return { pasos, errores, avisos };
+}
+
+const llano = (t) => sinTildes(t).toLowerCase().trim();
+
+/**
+ * La medida del catálogo que se ha NOMBRADO: por su id, por su título o por su
+ * nombre de calle. El modelo a veces devuelve «Autoconsumo» o «Aerotermia» en
+ * vez de `autoconsumo` (medido el 28/10/2026 con «pon las placas y quita la
+ * bomba de calor»): eso no es un error de quien habla.
+ */
+export function buscaMedida(catalogo = [], dicho) {
+    const d = llano(dicho);
+    if (!d) return null;
+    const exacta = catalogo.find(x => llano(x.id) === d || llano(x.titulo) === d);
+    if (exacta) return exacta;
+    const calle = /placa|panel|fotovolt|autoconsumo|solar/.test(d)
+        ? (/aeroterm|bomba/.test(d) ? 'aerotermia_fv' : 'autoconsumo')
+        : /aeroterm|bomba de calor/.test(d) ? 'aerotermia' : null;
+    return (calle && catalogo.find(x => x.id === calle))
+        || catalogo.find(x => d.length > 3 && llano(x.titulo).includes(d)) || null;
 }
 
 /** Si los huecos de una pared ya no caben a lo largo de ella, se dice (no se impide: el largo puede estar mal). */

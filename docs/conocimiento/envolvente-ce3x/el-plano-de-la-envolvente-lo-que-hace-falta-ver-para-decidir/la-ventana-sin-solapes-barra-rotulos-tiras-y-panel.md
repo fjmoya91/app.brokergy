@@ -58,8 +58,11 @@ empezaba 338 px por debajo de la barra.
 suyo en tres filas —barra · tiras · plano— y las comparte con la de al lado (`alinear` →
 `grid-rows-subgrid`). Sin eso la barra saltaba de fila según lo largo del título («PLANTA BAJA» no
 cabía donde «PLANTA 1» sí) y la baja llevaba más tiras, y comparar las dos plantas es para lo que está
-«Las dos». La leyenda, con dos tarjetas, va **una vez** debajo de las dos (`leyenda={false}` +
-`LeyendaPlano`); la ayuda del modo de dibujo se queda en su tarjeta.
+«Las dos». La leyenda iba **una vez** debajo de las dos tarjetas. Desde el 2026-10-29 va **plegada en
+la esquina de cada plano** (`LeyendaFlotante`, ver «Revisar pared a pared con el TECLADO»). La ayuda
+del modo de dibujo se queda en su tarjeta. Desde ese mismo día, los mandos de todo el plano (Equipos,
+el fondo y Google) van una vez en la barra «Ver» (`MandosComunes`), y Vivienda y Cubierta van plegadas
+en una línea.
 
 **REGLA — el ancho lo decide la PESTAÑA, y el panel de la pared ACOMPAÑA al plano.** La del plano
 llega a 1880 px (las tarjetas de «Las dos» pasan de 468 a 698 px a 1920); las de formulario se quedan en

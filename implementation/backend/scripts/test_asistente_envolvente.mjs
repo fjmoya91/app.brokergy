@@ -229,6 +229,23 @@ prueba('lo que «ya está así» no es un paso', () => {
     assert.equal(pasos.length, 0);
     assert.match(errores[0], /ya está así/);
 });
+prueba('una medida se encuentra por su id, su título o su nombre de calle', () => {
+    const cat = [{ id: 'aerotermia', titulo: 'Sustitución por aerotermia' },
+                 { id: 'aerotermia_fv', titulo: 'Aerotermia + placas' },
+                 { id: 'autoconsumo', titulo: 'Autoconsumo fotovoltaico' }];
+    assert.equal(A.buscaMedida(cat, 'Autoconsumo').id, 'autoconsumo');
+    assert.equal(A.buscaMedida(cat, 'Aerotermia').id, 'aerotermia');
+    assert.equal(A.buscaMedida(cat, 'bomba de calor').id, 'aerotermia');
+    assert.equal(A.buscaMedida(cat, 'placas solares').id, 'autoconsumo');
+    assert.equal(A.buscaMedida(cat, 'aerotermia_fv').id, 'aerotermia_fv');
+    assert.equal(A.buscaMedida(cat, 'ventanas'), null);
+});
+prueba('generar el .cex solo si se PIDE', () => {
+    for (const t of ['pon la V3 en FBE3 y genera el CEE', 'Regenéralo', 'vuelve a generar el certificado',
+                     'haz el CEE', 'y genéralo']) assert.ok(A.pideGenerar(t), t);
+    for (const t of ['pon la V3 en FBE3', 'lo que se ha generado está mal', 'la ventana general del salón'])
+        assert.ok(!A.pideGenerar(t), t);
+});
 
 // ── Con Claude de verdad (cuesta ~0,0002 $ por frase): `--en-vivo` ───────────
 if (process.argv.includes('--en-vivo')) {

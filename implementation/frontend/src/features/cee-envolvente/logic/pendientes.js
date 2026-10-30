@@ -10,7 +10,7 @@
  *
  * Puro: sin React. ⚠️ Los imports llevan `.js` (Node lo exige; Vite no).
  */
-import { esFuera } from './tiposPared.js';
+import { esFuera, esMedianera } from './tiposPared.js';
 
 /**
  * @param {object} muros         los del plano (`plano.muros`)
@@ -45,6 +45,68 @@ export function pendientesDe(muros, lucernarios, plantas, nombreDe = (m) => m?.i
     }
     return out.sort((a, b) => (orden.get(a.planta) ?? 99) - (orden.get(b.planta) ?? 99)
         || String(a.pared).localeCompare(String(b.pared)) || String(a.hueco).localeCompare(String(b.hueco)));
+}
+
+/**
+ * TODO LO QUE FALTA para generar, en UNA lista (2026-10-29, lo pidió Fran).
+ *
+ * La tira de estado decía lo mismo en seis píldoras (la entrada, «8/25 paredes
+ * miradas», «12 medidas por confirmar», la carpintería…) y lo de las otras
+ * pestañas solo se veía en su segunda línea de la barra de apartados. Ahora es
+ * UN número —«Faltan N para generar»— que se abre en una lista donde cada línea
+ * lleva a lo suyo: su pared, su hueco o su pestaña.
+ *
+ * Mismo criterio que lo que ya se contaba, para que el número y la lista no
+ * digan cosas distintas: las paredes sin mirar son las de `resumen.sinTocar`,
+ * las medidas las de `pendientesDe` y las pestañas, las de `construirPestanas`.
+ * `bloquea` es lo que PARA el `.cex` (sin entrada, una fachada sin rumbo, un
+ * «! falta…» de otra pestaña); lo demás se puede generar y se revisa después.
+ *
+ * @param {object} p
+ * @param {object} p.muros, p.lucernarios, p.plantas, p.nombreDe  como en `pendientesDe`
+ * @param {string|null} p.entrada            la pared por la que se entra
+ * @param {boolean} p.ventanas               ¿se dijo cómo son las ventanas?
+ * @param {Array} p.pestanas                 las de `construirPestanas`
+ * @param {Function} p.necesitaRumbo         `necesitaRumbo` del plano (vive en el hook)
+ * @returns {{ items: Array, bloquean: number }}
+ */
+export function faltaParaGenerar({ muros, lucernarios, plantas, nombreDe = (m) => m?.id,
+                                   entrada, ventanas, pestanas, necesitaRumbo = () => false }) {
+    const orden = new Map((plantas || []).map((p, i) => [p.id, i]));
+    const nombrePlanta = (id) => (plantas || []).find(p => p.id === id)?.nombre || id;
+    const porPlano = (a, b) => (orden.get(a.planta) ?? 99) - (orden.get(b.planta) ?? 99)
+        || String(a.id).localeCompare(String(b.id), 'es', { numeric: true });
+    const vivas = Object.values(muros || {}).filter(m => !esFuera(m)).sort(porPlano);
+    const items = [];
+
+    if (!entrada) {
+        items.push({ clave: 'entrada', grupo: 'bloquea', texto: 'Señala por dónde se entra',
+                     detalle: 'pulsa la pared de la puerta principal en el plano', ir: null });
+    }
+    for (const m of vivas.filter(necesitaRumbo)) {
+        items.push({ clave: `rumbo|${m.id}`, grupo: 'bloquea', texto: `${nombreDe(m) || m.id}: hacia dónde da`,
+                     detalle: `${nombrePlanta(m.planta)} · fachada sin rumbo`, ir: { muro: m.id, planta: m.planta } });
+    }
+    for (const p of pestanas || []) {
+        if (p.id === 'envolvente' || p.tono !== 'aviso') continue;
+        items.push({ clave: `pestana|${p.id}`, grupo: String(p.estado || '').startsWith('!') ? 'bloquea' : 'aviso',
+                     texto: `${p.etiqueta}: ${String(p.estado || '').replace(/^!\s*/, '')}`,
+                     detalle: p.ayuda || null, ir: { apartado: p.id } });
+    }
+    if (!ventanas) {
+        items.push({ clave: 'ventanas', grupo: 'aviso', texto: 'Di cómo son las ventanas',
+                     detalle: 'vidrio, marco y persiana: de ahí sale la U de cada hueco', ir: { ventanas: true } });
+    }
+    for (const m of vivas) {
+        if (esMedianera(m) || m.revisada || (m.huecos || []).length) continue;
+        items.push({ clave: `pared|${m.id}`, grupo: 'pared', texto: nombreDe(m) || m.id,
+                     detalle: nombrePlanta(m.planta), ir: { muro: m.id, planta: m.planta } });
+    }
+    for (const it of pendientesDe(muros, lucernarios, plantas, nombreDe)) {
+        items.push({ clave: `medida|${it.clave}`, grupo: 'medida', texto: it.hueco, medida: it,
+                     detalle: `${it.plantaNombre} · ${it.pared}`, ir: { muro: it.muro, planta: it.planta } });
+    }
+    return { items, bloquean: items.filter(i => i.grupo === 'bloquea').length };
 }
 
 /** El sello del Agente IA de una fase, o null. Vive en `cee.agente_ia[fase]`. */

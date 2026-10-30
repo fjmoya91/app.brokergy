@@ -116,6 +116,20 @@
       "autoPort": false
     },
     {
+      "name": "backend-sin-envios-3010",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-r",
+        "./scripts/local_sin_envios.cjs",
+        "server.js",
+        "--puerto",
+        "3010"
+      ],
+      "cwd": "implementation/backend",
+      "port": 3010,
+      "autoPort": false
+    },
+    {
       "name": "frontend-alt",
       "runtimeExecutable": "node",
       "runtimeArgs": [

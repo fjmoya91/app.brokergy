@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { describirPaso } from './describirPaso.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Deshacer y rehacer el trabajo de la envolvente.
@@ -63,6 +64,18 @@ export function apuntar(pila, pos, foto, tope = TOPE) {
 export const esNuevo = (pila, pos, h) => pila[pos]?.h !== h;
 
 /**
+ * El sitio en la pila y QUÉ haría cada botón, en palabras (`describirPaso`): el
+ * botón dice «Deshacer: V3 movida de FBE1 a FBE3» y no solo «Deshacer»
+ * (2026-10-29). Va en el ESTADO, calculado al moverse por la pila: leer la pila
+ * (un `ref`) al pintar es lo que el linter de React no deja.
+ */
+export const sitio = (pila, pos) => ({
+    pos, largo: pila.length,
+    deshace: pos > 0 ? describirPaso(pila[pos - 1], pila[pos]) : null,
+    rehace: pos >= 0 && pos < pila.length - 1 ? describirPaso(pila[pos], pila[pos + 1]) : null,
+});
+
+/**
  * @param {object}   p
  * @param {object}   p.trabajo     lo que devuelve `usePlanoEnvolvente().trabajo`
  * @param {object}   p.ajustes     los de la ficha (viven en la vista)
@@ -73,7 +86,7 @@ export function useDeshacer({ trabajo, ajustes, onRestaurar }) {
     //: El sitio y el tamaño van en ESTADO y no se leen de la pila al pintar: de
     //: ellos dependen los dos botones, y un `ref` no repinta (y leerlo durante
     //: el render es justo lo que el linter de React no deja hacer).
-    const [hist, setHist] = useState({ pos: -1, largo: 0 });
+    const [hist, setHist] = useState({ pos: -1, largo: 0, deshace: null, rehace: null });
 
     //: Por `ref` para no meterla en las dependencias del efecto: la vista la
     //: pasa como flecha en línea, así que cambia de identidad en cada render y
@@ -92,7 +105,7 @@ export function useDeshacer({ trabajo, ajustes, onRestaurar }) {
         const t = setTimeout(() => {
             const r = apuntar(pila.current, hist.pos, { h, trabajo, ajustes });
             pila.current = r.pila;
-            setHist({ pos: r.pos, largo: r.pila.length });
+            setHist(sitio(r.pila, r.pos));
         }, ESPERA_MS);
         return () => clearTimeout(t);
     }, [trabajo, ajustes, hist.pos]);
@@ -100,7 +113,7 @@ export function useDeshacer({ trabajo, ajustes, onRestaurar }) {
     const ir = useCallback((i) => {
         const foto = pila.current[i];
         if (!foto) return false;
-        setHist(h => ({ ...h, pos: i }));
+        setHist(sitio(pila.current, i));
         restaurarRef.current?.(foto.trabajo, foto.ajustes);
         return true;
     }, []);
@@ -134,8 +147,9 @@ export function useDeshacer({ trabajo, ajustes, onRestaurar }) {
     // ventana repintándose sin parar (medido el 08/10/2026 en 26RES060_188).
     const puedeDeshacer = hist.pos > 0;
     const puedeRehacer = hist.pos >= 0 && hist.pos < hist.largo - 1;
-    return useMemo(() => ({ deshacer, rehacer, puedeDeshacer, puedeRehacer }),
-                   [deshacer, rehacer, puedeDeshacer, puedeRehacer]);
+    const { deshace: queDeshace, rehace: queRehace } = hist;
+    return useMemo(() => ({ deshacer, rehacer, puedeDeshacer, puedeRehacer, queDeshace, queRehace }),
+                   [deshacer, rehacer, puedeDeshacer, puedeRehacer, queDeshace, queRehace]);
 }
 
 function enUnCampo(el) {

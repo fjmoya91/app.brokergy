@@ -86,6 +86,7 @@ Reglas:
 9. Si el texto trae «LO QUE PIDIÓ», «TU PREGUNTA» y «SU RESPUESTA», es la contestación a tu pregunta: haz lo que pidió con ese dato. «Sí», «vale», «eso» = lo que proponías en la pregunta.
 10. "entendido": una frase corta en castellano con los nombres reales. "seguro": false si has tenido que suponer algo importante. "pregunta": "" si no hay.
 11. Nada de importes, de cambiar el tipo de edificio ni de cosas fuera de la envolvente: dilo en "pregunta" y no devuelvas operaciones.
+12. Si es una PREGUNTA sobre el plano y no un cambio («¿cuántas ventanas tiene FBO1?», «¿qué paredes dan al vecino?»), contéstala en "entendido" con los datos del resumen, sin operaciones y con "pregunta" vacía. «Genera el CEE» o «regenéralo» no es una operación: la ventana lo hace sola tras aplicar.
 
 Ejemplos (con un plano en el que hay FBE1 con V1 y V2, FBE2, FBO1, MBN1, Z1 GARAJE al que le faltan «E 6.0 m · N 0.0 m · S 0.0 m · O 0.0 m», y aerotermia [x], autoconsumo [ ]):
 - «la uve dos va en la efe be e dos y es de pe ce» → mover_hueco {V2, FBE2} + carpinteria {V2, PVC, igual, igual}.

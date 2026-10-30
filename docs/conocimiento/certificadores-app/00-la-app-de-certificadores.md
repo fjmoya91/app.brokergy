@@ -266,8 +266,10 @@ de esa pantalla, leído de la obra SUYA: en `obra`, zona, año, superficie, resp
 lo que falta; en `envolvente`, lo dibujado (paredes, huecos por pared, m²; máx. 2500 caracteres); en
 `menu`, solo la app. Siempre lleva la **tabla de U por defecto de CE3X 3.2**
 (`transmitanciasCe3x.js`, la misma del CRM: periodos, zonas NBE, una fila por cerramiento) y sabe que
-nuestros `.cex` van con la localidad «Otro». También está en la envolvente (solo el asistente, sin el
-botón de incidencias, y con un hueco abajo para no tapar nada).
+nuestros `.cex` van con la localidad «Otro». En la envolvente **ya no se monta** (28/10/2026): ahí el
+botón «Asistente» es el de la envolvente, que corrige el plano y contesta lo que se pregunte de él
+([el-asistente-de-la-envolvente.md](docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md)).
+Dos botones iguales en la misma esquina eran dos asistentes distintos.
 Haiku 5.5 con `effort: 'low'` y `max_tokens` 3000: con el razonamiento adaptativo por defecto, con
 menos se quedaba pensando y volvía SIN texto (`stop_reason: max_tokens`); si pasa, se le dice «se me ha
 ido el tiempo pensándolo». Medido: ~0,001 $ por pregunta.

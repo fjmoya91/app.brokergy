@@ -12,10 +12,69 @@ posibles.» Los tres ejemplos del encargo, y lo que hace cada uno:
 | «El garaje llega hasta el final de la vivienda» | si le faltan metros por DOS lados, **pregunta** cuál («¿el este, 7 m, o el norte, 5 m?») |
 | «Cambia las medidas de mejora: quita la aerotermia y pon el autoconsumo» | `Medidas de mejora (inicial): + Autoconsumo · − Aerotermia` |
 
-Panel **«Asistente»** arriba de la columna de la pared (dentro de su caja fija: se ve siempre, y «esta
-pared» es la que está abierta debajo), en el CRM y en la app de certificadores (`origen=ext`), solo
-con el plano traído. Caja de texto + micrófono + «Ver». Con el resultado: «Sí, aplicar», «Sí, y
-generar el CEE» o «No». Se deshace con Ctrl+Z, como todo lo de la ventana.
+**Ventana EMERGENTE** abajo a la derecha (botón «Asistente», portaleada a `body`), en el CRM y en la
+app de certificadores (`origen=ext`), solo con el plano traído. Es una conversación: caja de texto,
+micrófono y enviar. Hasta el 28/10/2026 era un panel fijo arriba de la columna de la pared y siempre
+pedía el «Sí».
+
+### Desde el 28/10/2026: lo claro se HACE, con «Deshacer»
+
+Fran: «que el asistente sea una ventana emergente como el de la app… si le pido algo, que lo ejecute».
+
+**REGLA — lo CLARO se aplica sin «Sí»; lo dudoso espera al «Sí».** Con «Hacerlo directamente»
+encendido (por defecto; se guarda por navegador), se aplica en el acto si se cumplen las cuatro
+condiciones:
+
+- todo lo propuesto casa con el plano;
+- no sale ni un aviso;
+- el modelo está seguro;
+- no pregunta nada.
+
+Debajo queda «Deshacer», que vuelve EXACTAMENTE a como estaba: el trabajo y los ajustes guardados
+antes de aplicar (`antesAsistente` en EnvolventeView), y si movió zonas, vuelve a medir con las de
+antes. No se usa la pila de Ctrl+Z, que va con freno: deshacer justo después de aplicar saltaría dos
+pasos. Si algo no cuadra, se enseña la lista con «Sí, aplicar», «Sí, y generar el CEE» o «No», como
+antes.
+
+**El `.cex` solo se escribe si se PIDE**: «…y genera el CEE», «regenéralo» (`pideGenerar`), o con el
+botón. Escribir en Drive no se hace por suponer. Si se deshace después de generar, el `.cex` ya
+escrito no vuelve atrás: se dice.
+
+**Ejecutar no gasta tokens.** Lo que cuesta es entender la frase: lo medido el 28/10/2026 es
+**0,00016–0,00023 $ por frase** con Haiku, y unos 0,0009 $ la primera de cada 5 minutos (escribe la
+caché). A Claude solo viaja la frase de ahora con el resumen del plano, **nunca la conversación
+entera**, así que una conversación larga no encarece cada frase.
+
+**Probado contra Claude: no se tocan las instrucciones que fijan su prudencia.** Al reescribir la
+regla 2 de las instrucciones diciéndole que la pantalla aplica sola, Haiku se volvió más lanzado: en
+«el garaje llega hasta el final», con dos lados posibles, eligió uno sin preguntar. Se volvió al
+texto de antes, y la decisión de aplicar o no la toma el NAVEGADOR (las cuatro condiciones de
+arriba), no el modelo. Lo único que se añadió es la regla 12: una PREGUNTA sobre el plano («¿cuántas
+ventanas tiene FBO1?») se contesta en `entendido`, sin operaciones.
+
+Las medidas se buscan por id, por título o por nombre de calle (`buscaMedida`): Haiku devolvió
+«Autoconsumo» en vez de `autoconsumo` y salía «No hay ninguna medida».
+
+**REGLA — el chat dice lo que está haciendo, y «Hecho» solo cuando está hecho.** Fran preguntó
+qué hace la aplicación mientras modifica. Aplicar en el plano es instantáneo, pero un cambio de
+zona obliga a VOLVER A MEDIR el edificio (20 s–1 min), y hasta el 28/10/2026 el chat ya decía
+«Hecho», no avisaba de que estaba midiendo y dejaba mandar otra orden. Ahora:
+
+- `onAplicar` devuelve una promesa que se resuelve al terminar de medir (`finTareaAsistente` en
+  EnvolventeView), con `{ medido: false }` si no se ha podido;
+- mientras tanto, el chat (y la cabecera y el punto del botón) dicen «Volviendo a medir el
+  edificio…» o «Escribiendo el .cex…» (`trabajando`), y no se puede enviar (`ocupado` incluye
+  `cargando`);
+- si no se ha podido medir, lo dice en ámbar: el plano sigue con las zonas de antes y, si se
+  había pedido, el `.cex` no se escribe.
+
+**Con un popup de la ventana delante, el asistente se APARTA** (`oculto`): escribiendo el `.cex`,
+«CEE generado», las preguntas antes de generar, el tipo de CE3X o el `.cex` tocado. Está a
+z-9400 y ellos a z-70, así que los tapaba, y en el móvil enteros. Vuelve solo, con su
+conversación, al cerrarlos.
+
+**En la app de certificadores ya no hay dos botones «Asistente»**: la envolvente montaba además el
+asistente capado de preguntas (`Flotantes`), en la misma esquina. Ahí manda el de la envolvente.
 
 Fuentes: [services/asistenteEnvolvente.js](implementation/backend/services/asistenteEnvolvente.js)
 (Claude), [logic/asistenteEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/asistenteEnvolvente.js)
