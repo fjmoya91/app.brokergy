@@ -82,7 +82,9 @@ function estadoInicial() {
             ref_catastral: '7778889VJ1273S0001QQ', direccion: 'CALLE VIRGEN 31', municipio: 'Pedro Muñoz',
             codigo_postal: '13620', superficie_catastro: 118, anio_construccion: 1972, proposito: 'AYUDAS', en_vivienda: false,
             titular: { nombre: 'Pedro', apellidos: 'Sánchez Mora', telefono: '644444444' }, created_at: hace(5), updated_at: hace(5),
-            cuestionario: { propositos: ['AYUDAS'] },
+            // Lo que ya sabía el CRM, marcado BROKERGY (certapp/crm.instalacionCae).
+            cuestionario: { propositos: ['AYUDAS'], calefaccion: 'gasoleo', emisor: 'RADIADORES', acs: 'termo', placas_fv: 'NO',
+                origen: { calefaccion: 'BROKERGY', emisor: 'BROKERGY', acs: 'BROKERGY', placas_fv: 'BROKERGY' } },
             documentacion: { reforma_uploads: {
                 FOTO_FACHADA_PRINCIPAL: [{ driveId: 'demo-crm-f1', nombre: 'FACHADA.jpg', mime: 'image/jpeg', subido_at: hace(60 * 24), por: 'BROKERGY' }],
                 FOTO_CALDERA: [{ driveId: 'demo-crm-c1', nombre: 'CALDERA.jpg', mime: 'image/jpeg', subido_at: hace(60 * 24), por: 'BROKERGY' }],

@@ -32,6 +32,24 @@ Fuente única: [services/certapp/crm.js](implementation/backend/services/certapp
    que ya tenía el expediente con los MISMOS ficheros de Drive** (`fotosDelCrm`: nada se copia; de
    una lista a un apartado de una sola foto, la última; sin las rechazadas). El Catastro se rellena
    detrás.
+   - **REGLA — lo que el CRM ya sabe de la instalación no se vuelve a preguntar** (30/10, Fran en
+     2026EXT_3: «ya se había dicho cómo era la caldera y el ACS y la app lo ha vuelto a preguntar»).
+     `crm.instalacionDelCrm` lo pasa al cuestionario de la obra con **origen `BROKERGY`** (chip
+     «BROKERGY», «según el expediente de BROKERGY»; rango 4, como una foto): calefacción, tipo de
+     caldera (condensación), marca y modelo y potencia de la caldera antigua, emisor
+     (`emisorInicial`, regla 8.e), ACS, placas FV (con kWp) y aires (`conAiresDeOportunidad`).
+     - CAE (`instalacionCae`): calefacción desde la simulación (`fuelType`, `boilerHeatingType`,
+       caldera eléctrica por `boilerId`) y, si no, el funnel (`combustible_actual`). ACS con el MISMO
+       criterio que la foto del ACS inicial (`deriveSelectors`): el toggle `misma_caldera_acs` solo
+       cuenta en `false`; luego el funnel `boiler_acs_type`; luego el par de la calculadora
+       (`tipoAcsDesdeInputs`). «Misma caldera» solo si la calefacción es una caldera. «No tengo / no
+       lo sé» del funnel no afirma nada.
+     - CEE directo (`instalacionCee`): lo que contestó el cliente en su cuestionario.
+     - `conInstalacionDelCrm` **nunca pisa** lo que contestó el técnico (valor sin origen) ni lo
+       visto en una foto o leído en una placa o el Catastro; sí rellena lo vacío o supuesto
+       (HABITUAL, ÉPOCA, Street View). Al re-encargar una obra rechazada se vuelve a pasar con la
+       misma regla. Las obras que ya estaban en la app NO se reescriben solas (el técnico puede
+       estar editándolas).
 2. El mensaje lleva **el enlace de la app** en lugar de la página del encargo:
    `https://cee.brokergy.es/encargo/:negocio/:id/:fase`, con la línea «📲 Ábrelo en tu app de
    certificadores (acéptalo o recházalo ahí):». La app lo resuelve a SU obra
@@ -104,7 +122,7 @@ pueda acusar.
 - `node implementation/backend/scripts/test_certapp_rutas.js` (ajeno 404; no se borra; sin aceptar no
   se pide; aceptado no gasta crédito; retirado → archivada; rechazar retira al técnico).
 - `node implementation/backend/scripts/test_certapp_unidad.js` (enlace, casillas, fotos traídas,
-  texto del WhatsApp).
+  texto del WhatsApp, la instalación que trae del CRM sin pisar lo contestado).
 - `test_solo_asignar_cert.js`, `test_encargo_tecnico.mjs`, `test_pre_revision_cee.js`,
   `test_agente_ia_flujo.js` (las rutas del CRM que se tocaron).
 - Demo: `http://cee.localhost:5173/panel?demo=1` trae un encargo (2026EXT_4) por aceptar.

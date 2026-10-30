@@ -187,6 +187,152 @@ function prellenadoCee(row) {
     };
 }
 
+// ── Lo que el CRM ya sabe de la instalación → el cuestionario de la app ─────
+// Fran (30/10/2026, 26RES060_254): «cuando se ha rellenado la oportunidad ya se
+// había dicho cómo era la caldera y el ACS, y la app lo ha vuelto a preguntar».
+// Va con origen BROKERGY: el técnico lo ve marcado y lo cambia si en la visita
+// es otra cosa. Solo lo que CONSTA; lo que no, se queda sin contestar.
+const CAL_DE_FUEL = { gas_natural: 'gas', gas: 'gas', glp: 'glp', propano: 'glp', butano: 'glp', gasoleo: 'gasoleo',
+    electricidad: 'electrica', carbon: 'carbon', pellets: 'biomasa', biomasa: 'biomasa', lena: 'biomasa', hueso: 'biomasa', astilla: 'biomasa' };
+const CAL_DE_LABEL = { gas: 'gas', gasoil: 'gasoleo', termo: 'electrica', butano: 'glp', propano: 'glp', carbon: 'carbon',
+    biomasa: 'biomasa', 'no tiene calefacción': 'no_tiene' };
+const CAL_DE_FUNNEL = { gas: 'gas', gasoleo: 'gasoleo', electrica: 'electrica', carbon: 'carbon', biomasa: 'biomasa',
+    ninguno: 'no_tiene', sin_calefaccion: 'no_tiene' };
+// `no_tengo` es «no tengo / no lo sé»: no se afirma nada.
+const ACS_DE_FUNNEL = { misma_caldera: 'misma_caldera', termo: 'termo', butano: 'calentador', gas: 'calentador', solar: 'solar' };
+const ACS_DE_INPUTS = { termo: 'termo', butano: 'calentador', gas: 'calentador' };
+const CALDERAS = ['gas', 'glp', 'gasoleo', 'biomasa', 'carbon'];
+const minus = (v) => limpio(v).toLowerCase();
+
+function emisorApp(tipo) {
+    const t = minus(tipo);
+    if (t.includes('suelo')) return 'SUELO_RADIANTE';
+    if (t.includes('radiador')) return 'RADIADORES';
+    if (t.includes('fancoil')) return 'FANCOILS';
+    return '';
+}
+
+function placasApp(estado) {
+    const e = minus(estado);
+    return e === 'si' ? 'SI' : (e === 'no' || e === 'futuro' ? 'NO' : '');
+}
+
+/**
+ * La instalación de un expediente CAE en las claves del cuestionario. Pura.
+ * Calefacción: la simulación (`fuelType`, `boilerHeatingType`) y, sin ella, el
+ * funnel. ACS: el MISMO criterio que la foto del ACS inicial (`deriveSelectors`):
+ * el toggle del expediente solo cuenta en `false`, luego el funnel
+ * (`boiler_acs_type`), luego el par de la calculadora (`tipoAcsDesdeInputs`).
+ * @param {{ exp, op, emisor?: string, confirmacion?: object, tipoAcsInputs?: string }} d
+ */
+function instalacionCae({ exp, op, emisor = '', confirmacion = null, tipoAcsInputs = '' }) {
+    const inst = exp?.instalacion || {};
+    const dc = op?.datos_calculo || {};
+    const inputs = dc.inputs || {};
+    const funnel = dc.landing_funnel || {};
+    const v = {};
+
+    const sinCal = minus(inputs.boilerHeatingType) === 'no tiene calefacción' || CAL_DE_FUNNEL[funnel.combustible_actual] === 'no_tiene';
+    const boilerId = minus(inst.caldera_antigua_cal?.rendimiento_id || inputs.boilerId);
+    v.calefaccion = sinCal ? 'no_tiene'
+        : boilerId === 'electric' ? 'electrica'
+        : CAL_DE_FUEL[minus(inputs.fuelType)] || CAL_DE_LABEL[minus(inputs.boilerHeatingType)] || CAL_DE_FUNNEL[funnel.combustible_actual] || '';
+
+    if (CALDERAS.includes(v.calefaccion)) {
+        if (['gas', 'glp', 'gasoleo'].includes(v.calefaccion) && (boilerId.includes('cond') || funnel.condensacion === 'si')) v.tipo_caldera = 'CONDENSACION';
+        const cal = inst.caldera_antigua_cal || {};
+        const mm = [limpio(cal.marca), limpio(cal.modelo)].filter(Boolean).join(' ');
+        if (mm) v.marca_modelo_calefaccion = mm.slice(0, 120);
+        const kw = Number(inst.potencia_caldera_kw || inst.potencia_caldera);
+        if (kw > 0) v.potencia_kw = String(Math.round(kw * 10) / 10);
+    }
+    if (CALDERAS.includes(v.calefaccion) || v.calefaccion === 'aerotermia') v.emisor = emisorApp(emisor || funnel.emisor_tipo);
+
+    let acs = '';
+    if (inst.misma_caldera_acs === false) {
+        const idAcs = minus(inst.caldera_antigua_acs?.rendimiento_id);
+        acs = idAcs === 'electric' ? 'termo'
+            : (ACS_DE_FUNNEL[funnel.boiler_acs_type] !== 'misma_caldera' && ACS_DE_FUNNEL[funnel.boiler_acs_type]) || ACS_DE_INPUTS[tipoAcsInputs] || '';
+    } else if (ACS_DE_FUNNEL[funnel.boiler_acs_type]) {
+        acs = ACS_DE_FUNNEL[funnel.boiler_acs_type];
+    } else if (tipoAcsInputs) {
+        acs = ACS_DE_INPUTS[tipoAcsInputs] || '';
+    } else if (limpio(inputs.boilerAcsType) && limpio(inputs.boilerHeatingType)) {
+        acs = 'misma_caldera';                        // los dos iguales: la misma caldera
+    }
+    if (acs === 'misma_caldera' && !CALDERAS.includes(v.calefaccion)) acs = '';
+    v.acs = acs;
+
+    v.placas_fv = placasApp(inst.fotovoltaica?.estado) || placasApp(funnel.placas_estado);
+    if (v.placas_fv === 'SI' && Number(inst.fotovoltaica?.potencia_kwp) > 0) v.kwp = String(inst.fotovoltaica.potencia_kwp);
+    if (confirmacion && typeof confirmacion.aire_acondicionado === 'boolean') {
+        v.aire_acondicionado = confirmacion.aire_acondicionado;
+        if (confirmacion.aire_acondicionado && Number(confirmacion.num_aires) > 0) v.num_aires = String(confirmacion.num_aires);
+    }
+    return v;
+}
+
+/** La instalación de un CEE directo: lo que contestó el cliente en su cuestionario. Pura. */
+function instalacionCee(row) {
+    const c = row?.documentacion?.cuestionario || {};
+    const v = {};
+    // «Gas natural o butano» del cliente → gas natural, lo normal; la placa lo corrige.
+    const cal = { gas: 'gas', gasoleo: 'gasoleo', electrica: 'electrica', aerotermia: 'aerotermia', biomasa: 'biomasa',
+        carbon: 'carbon', no_tiene: 'no_tiene' }[c.calefaccion];
+    if (cal) v.calefaccion = cal;
+    const acs = { misma_caldera: 'misma_caldera', termo: 'termo', butano: 'calentador', aerotermia: 'aerotermia', solar: 'solar' }[c.acs];
+    if (acs && !(acs === 'misma_caldera' && !CALDERAS.includes(v.calefaccion))) v.acs = acs;
+    if (v.acs === 'misma_caldera' && typeof c.termo_extra === 'boolean') v.termo_extra = c.termo_extra;
+    if (typeof c.aire_acondicionado === 'boolean') {
+        v.aire_acondicionado = c.aire_acondicionado;
+        if (c.aire_acondicionado && Number(c.num_aires) > 0) v.num_aires = String(c.num_aires);
+    }
+    const fv = placasApp(c.placas);
+    if (fv) v.placas_fv = fv;
+    return v;
+}
+
+/**
+ * Mete en el cuestionario lo que sabe el CRM, con origen BROKERGY, SIN pisar lo
+ * que contestó el técnico (valor sin origen) ni lo visto en una foto o leído en
+ * una placa (origen fiable). Pura: devuelve el cuestionario nuevo y qué cambió.
+ */
+function conInstalacionDelCrm(cuestionario = {}, valores = {}) {
+    const c = { ...cuestionario, origen: { ...(cuestionario.origen || {}) } };
+    const cambiadas = [];
+    const vacio = (x) => x === null || x === undefined || x === '' || (Array.isArray(x) && !x.length);
+    for (const [k, val] of Object.entries(valores)) {
+        if (vacio(val)) continue;
+        const o = c.origen[k];
+        const suyo = !vacio(c[k]) && !o;                              // lo contestó él
+        const mejor = !vacio(c[k]) && o && o !== 'BROKERGY' && ['FOTO', 'PLACA', 'CATASTRO'].includes(o);
+        if (suyo || mejor) continue;
+        if (c[k] === val && o === 'BROKERGY') continue;
+        c[k] = val;
+        c.origen[k] = 'BROKERGY';
+        cambiadas.push(k);
+    }
+    return { cuestionario: c, cambiadas };
+}
+
+/** Lo que sabe el CRM de la instalación de ESE expediente, en claves de la app. */
+async function instalacionDelCrm(negocio, datos) {
+    if (normNegocio(negocio) === 'cee') return instalacionCee(datos);
+    const { pathToFileURL } = require('url');
+    const path = require('path');
+    const logic = (f) => import(pathToFileURL(path.join(__dirname, '..', '..', '..', 'frontend', 'src', 'features', 'expedientes', 'logic', f)).href);
+    let emisor = '', confirmacion = null;
+    try { emisor = (await logic('emisores.js')).emisorInicial(datos.exp) || ''; } catch (e) { console.warn('[certapp crm] emisor inicial:', e.message); }
+    try {
+        const inst = datos.exp?.instalacion || {};
+        const dc = datos.op?.datos_calculo || {};
+        confirmacion = (await logic('confirmacionCliente.js'))
+            .conAiresDeOportunidad(inst.confirmacion_cliente || dc.confirmacion_cliente || null, inst.aires || dc.inputs?.aires);
+    } catch (e) { console.warn('[certapp crm] confirmación del cliente:', e.message); }
+    const tipoAcsInputs = require('../reformaUploadService').tipoAcsDesdeInputs(datos.op?.datos_calculo?.inputs || {});
+    return instalacionCae({ ...datos, emisor, confirmacion, tipoAcsInputs });
+}
+
 /** Las fotos del CRM como entradas de la obra (mismo driveId: no se copia nada). */
 function fotosDelCrm(uploads) {
     const out = {};
@@ -238,6 +384,16 @@ async function encargar({ negocio, id, fase, cert, cuenta = undefined }) {
         const patch = { seguimiento: { ...(previa.seguimiento || {}), crm: { ...prevCrm, ...crm,
             encargo: rechazada ? crm.encargo : (prevCrm.encargo || crm.encargo) } } };
         if (rechazada) patch.estado = previa.credito_consumido || previa.pedido_at ? 'EN_PREPARACION' : 'BORRADOR';
+        // Lo que sepa ya el CRM de la instalación, sin pisar lo que contestó él.
+        const instalacion = await instalacionDelCrm(negocio, datos).catch((e) => {
+            console.warn('[certapp crm] instalación del CRM:', e.message);
+            return {};
+        });
+        const conCrm = conInstalacionDelCrm(previa.cuestionario || {}, instalacion);
+        if (conCrm.cambiadas.length) {
+            const { cuestionario: logica } = require('./logica');
+            patch.cuestionario = (await logica()).sanearCuestionario(conCrm.cuestionario);
+        }
         const { data, error } = await supabase.from('certapp_obras').update(patch).eq('id', previa.id).select('*').single();
         if (error) throw errorBd(error, 'reabrir el encargo');
         await anadirFotosNuevas(data, pre.uploads);
@@ -253,6 +409,11 @@ async function encargar({ negocio, id, fase, cert, cuenta = undefined }) {
     const muni = texto(pre.dir.municipio, 80);
     const prov = texto(provinciaNombre(pre.dir.provincia), 60);
     const clima = muni ? climateService.getClimateByNames(prov, muni) : null;
+    // La calefacción, el agua caliente, los aires y las placas que ya constan.
+    const instalacion = await instalacionDelCrm(negocio, datos).catch((e) => {
+        console.warn('[certapp crm] instalación del CRM:', e.message);
+        return {};
+    });
     const fila = {
         cuenta_id: c.id,
         nombre: nombreDeTitular(pre.titular) || rc || pre.numero || null,
@@ -265,7 +426,7 @@ async function encargar({ negocio, id, fase, cert, cuenta = undefined }) {
         zona_climatica: clima?.climateZone ?? null,
         altitud: clima?.altitude ?? null,
         proposito: 'AYUDAS',
-        cuestionario: sanearCuestionario({ propositos: ['AYUDAS'] }),
+        cuestionario: sanearCuestionario(conInstalacionDelCrm({ propositos: ['AYUDAS'] }, instalacion).cuestionario),
         seguimiento: { crm },
         documentacion: { reforma_uploads: fotosDelCrm(pre.uploads) },
         estado: 'BORRADOR',
@@ -716,5 +877,6 @@ module.exports = {
     NEGOCIOS, normFase, normNegocio, esDeCrm, crmDe, urlEncargo, slotCrmDe, faseLabel,
     cuentaDe, obraDelEncargo, encargar, resumen, aceptar, rechazar,
     subirFotos, quitarFoto, enviarCeeAsync, enviarDefinitivoAsync, enviarRegistroAsync, pedirRevision,
-    conEnlaceApp, textoParaTecnico, enlaceAppPrevisto, fotosDelCrm, prellenadoCae, prellenadoCee, TEXTO_ENLACE_APP, APP_UNICOS,
+    conEnlaceApp, textoParaTecnico, enlaceAppPrevisto, fotosDelCrm,
+    instalacionCae, instalacionCee, conInstalacionDelCrm, instalacionDelCrm, cargarCae, cargarCee, prellenadoCae, prellenadoCee, TEXTO_ENLACE_APP, APP_UNICOS,
 };

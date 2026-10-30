@@ -360,6 +360,9 @@ export const ORIGENES = {
     CATASTRO: { label: 'Catastro', texto: 'según el Catastro', fiable: true },
     PLACA: { label: 'Placa', texto: 'leído en la placa', fiable: true },
     FOTO: { label: 'Fotos', texto: 'visto en las fotos', fiable: true },
+    // Lo que ya sabía el CRM de un encargo de BROKERGY (la oportunidad y el
+    // expediente: lo dijo el cliente o el instalador). Ver certapp/crm.js.
+    BROKERGY: { label: 'BROKERGY', texto: 'según el expediente de BROKERGY', fiable: true },
     STREETVIEW: { label: 'Street View', texto: 'visto en Street View', fiable: false },
     EPOCA: { label: 'Su época', texto: 'lo normal de su año de construcción', fiable: false },
     HABITUAL: { label: 'Lo habitual', texto: 'lo habitual, sin ver', fiable: false },
@@ -603,7 +606,7 @@ export const DEDUCIBLES = [
 
 // Cuánto vale cada origen: uno peor no pisa a uno mejor (lo de la época no
 // pisa lo visto en una foto).
-export const RANGO_ORIGEN = { HABITUAL: 1, EPOCA: 2, STREETVIEW: 3, FOTO: 4, CATASTRO: 5, PLACA: 5 };
+export const RANGO_ORIGEN = { HABITUAL: 1, EPOCA: 2, STREETVIEW: 3, BROKERGY: 4, FOTO: 4, CATASTRO: 5, PLACA: 5 };
 
 // Los valores de lista que admite cada clave (también para sanear).
 const LISTAS_VALOR = {

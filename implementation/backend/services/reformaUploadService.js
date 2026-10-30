@@ -2002,6 +2002,7 @@ module.exports = {
     addFacturaToExpediente,
     removeFacturaFromExpediente,
     deriveSelectors,
+    tipoAcsDesdeInputs,
     driveThumb,
     notifyRechazo,
     generateUploadToken,
