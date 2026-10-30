@@ -17,7 +17,7 @@
 // DOMParser; el backend, una con xml2js. Si no se pasa y el cee ya trae los arrays
 // huecos/opacos, no hace falta.
 // ============================================================================
-import { BOILER_EFFICIENCIES, redondeaScop } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, redondeaScop, energiaVectorSinFv } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
     EMPRESAS_COL_EJECUTA, EMPRESAS_COL_HABILITADA, notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
@@ -639,6 +639,18 @@ export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitl
         }
         : d.otros;
 
+    // Con PLACAS, la fotovoltaica autoconsumida NO cuenta (calculation.js: el vector
+    // eléctrico va en BRUTO). El certificado lo tiene que decir con su base normativa, o
+    // el verificador ve un total que no es el `Tot` neto del .xml y no sabe por qué.
+    const fvExcluida = results.autoconsumoExcluido || null;
+    const NORMA_FV = 'Recomendación (UE) 2024/1590 de la Comisión, apartado 7.8, sobre el anexo V, punto 2, letras k) y l), de la Directiva (UE) 2023/1791';
+    const fraseFvCorta = `
+        <b>La electricidad fotovoltaica generada y autoconsumida en el edificio no se descuenta</b>:
+        cambia el origen de la electricidad, pero no reduce la energía que consumen los equipos, y no
+        puede considerarse ahorro de uso final de la energía (${NORMA_FV}). Por eso el consumo y las
+        emisiones del vector eléctrico son los brutos —la suma de sus servicios— y no el total neto de
+        autoconsumo del certificado (detalle en la hoja siguiente).`;
+
     const notaDeclarada = `
         <b>El ahorro se obtiene de la energía final que declara el propio certificado.</b>
         El certificado de eficiencia energética publica el consumo de energía final del edificio
@@ -651,10 +663,11 @@ export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitl
         por más de un generador —con combustibles distintos— y el certificado no dice qué parte del
         consumo corresponde a cada uno. Por vector energético sí queda determinado.
         <br><br>
+        ${fvExcluida ? fraseFvCorta : `
         Las emisiones de CO₂ que figuran en la tabla se han obtenido multiplicando cada consumo por
         su factor de paso, y <b>reproducen las que declara el propio certificado</b> en su apartado
         de calificación en emisiones. Esa coincidencia es la comprobación de que la lectura es
-        correcta.`;
+        correcta.`}`;
 
     const notaEmisiones = `
         <b>Método simplificado de cálculo.</b> El certificado de eficiencia energética no
@@ -667,7 +680,11 @@ export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitl
         otros combustibles</i>. Cada una se divide por su factor de paso para obtener el
         consumo de energía final, y el ahorro es la diferencia entre la situación inicial y
         la final. El método es aplicable porque el edificio emplea un único combustible no
-        eléctrico (${combOtros}).`;
+        eléctrico (${combOtros}).${fvExcluida ? `
+        <br><br>
+        <b>La electricidad fotovoltaica autoconsumida no se descuenta</b>: el certificado la resta de
+        las emisiones del consumo eléctrico, y aquí se le vuelven a sumar, porque no es ahorro de uso
+        final de la energía (${NORMA_FV}).` : ''}`;
 
     const notaMetodo = !esSimplificado ? '' : obsBox(declarada ? notaDeclarada : notaEmisiones, '0px');
 
@@ -727,15 +744,30 @@ export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitl
         const todos = [...(results.vectores.inicial || []), ...(results.vectores.final || [])];
         const usos = USOS.filter((u) => todos.some((v) => !cero(v[u.key])));
 
+        // Con PLACAS, el total del vector eléctrico que declara CE3X va NETO de lo que se
+        // genera y se consume en el edificio, y los usos van en BRUTO. La fotovoltaica no
+        // es ahorro de energía final (regla 134), así que el vector cuenta en BRUTO
+        // (energiaVectorSinFv, la misma función del cálculo) y lo autoconsumido va debajo
+        // como fila INFORMATIVA, con el total neto del certificado para poder casarlo con
+        // el .xml (26RES080_66 final: 30,99 + 4,18 + 3,93 = 39,10 frente a 15,96 neto).
+        const autoconsumoDe = (v) => Math.max(0, energiaVectorSinFv(v) - (Number(v.global) || 0));
+        const hayAutoconsumo = todos.some((v) => autoconsumoDe(v) > 0);
         const th = (t, w = '') => `<th style="text-align:center;padding:7px 8px;background:#33332F;color:#C9C9C4;font-weight:700;font-size:10px;letter-spacing:.5px;text-transform:uppercase;${w}">${t}</th>`;
         const tablaVectores = (lista, titulo, acento) => {
-            const filas = (lista || []).map((v) => `
+            const filas = (lista || []).map((v) => {
+                const auto = autoconsumoDe(v);
+                return `
                 <tr>
                     <td style="padding:6px 12px;border-bottom:1px solid #ECECE4;font-weight:600;color:#1A1A1A;">${v.nombre}</td>
                     ${usos.map((u) => `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ECECE4;color:${cero(v[u.key]) ? '#B9B9B4' : '#4a4a44'};">${cero(v[u.key]) ? '—' : fN(v[u.key])}</td>`).join('')}
-                    <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ECECE4;font-weight:700;background:#FAFAF6;">${fN(v.global)}</td>
-                </tr>`).join('');
-            const total = (lista || []).reduce((a, v) => a + (Number(v.global) || 0), 0);
+                    <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ECECE4;font-weight:700;background:#FAFAF6;">${fN(energiaVectorSinFv(v))}</td>
+                </tr>${auto > 0 ? `
+                <tr>
+                    <td colspan="${usos.length + 1}" style="padding:6px 12px 6px 24px;border-bottom:1px solid #ECECE4;color:#6E6E66;font-style:italic;">Fotovoltaica autoconsumida: ${fN(auto)} · el certificado la descuenta (total neto ${fN(v.global)}); aquí <b>no se descuenta</b></td>
+                    <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ECECE4;color:#9A9A92;font-size:10px;background:#FAFAF6;">no computa</td>
+                </tr>` : ''}`;
+            }).join('');
+            const total = (lista || []).reduce((a, v) => a + energiaVectorSinFv(v), 0);
             return `
                 <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;margin-top:12px;">
                     <table style="width:100%;border-collapse:collapse;font-size:11.5px;">
@@ -772,7 +804,18 @@ export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitl
                 </p>
                 ${tablaVectores(results.vectores.inicial, 'Situación inicial · antes de la actuación', '#33332F')}
                 ${tablaVectores(results.vectores.final, 'Situación final · después de la actuación', '#93C01F')}
-                ${obsBox(`
+                ${hayAutoconsumo ? obsBox(`
+                    <b>Electricidad fotovoltaica autoconsumida: no computa como ahorro.</b> Con
+                    generación fotovoltaica, el certificado da cada servicio en bruto y descuenta la
+                    electricidad generada y consumida en el propio edificio solo del total del vector
+                    eléctrico. Ese descuento no se aplica: el consumo de energía final del edificio es
+                    la suma de lo que consumen sus servicios, en las dos situaciones. La energía solar
+                    fotovoltaica generada in situ sustituye electricidad de la red, pero no reduce el
+                    consumo de energía final, y la Comisión Europea establece que no puede considerarse
+                    ahorro de uso final de la energía (Recomendación (UE) 2024/1590, apartado 7.8, que
+                    interpreta el anexo V, punto 2, letras k) y l), de la Directiva (UE) 2023/1791,
+                    relativa a la eficiencia energética). Se aplica igual en el certificado inicial y
+                    en el final, de modo que el ahorro recoge solo lo que deja de consumir el edificio.`) : obsBox(`
                     La sustitución de los generadores de combustión por equipos eléctricos de alta
                     eficiencia se aprecia en el propio desglose: los vectores de combustible presentes
                     en la situación inicial desaparecen o se reducen en la final, y el consumo eléctrico

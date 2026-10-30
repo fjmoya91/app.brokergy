@@ -35,20 +35,36 @@ factor de paso, y con dos combustibles la suma es indeshacible. Con `<EnergiaFin
 vector viene por separado **y en kWh**, así que sumar gasóleo + gas natural es legítimo. Por eso el
 aviso de mezcla y el selector de combustible se ocultan cuando `fuenteDatos === 'energia_final_declarada'`.
 
-**REGLA — con PLACAS, el ahorro bueno es el POR VECTOR** (2026-10-05, decisión del usuario,
-26RES080_OP71). El total de cada vector (`Tot` en el 3.0, `Global` en el 2.0: los DOS formatos
-traen `<EnergiaFinalVectores>`) va NETO de lo que las placas generan y se autoconsume; los usos
-(calefacción, ACS, refrigeración) van en BRUTO. Medido: OP71 previsto, 43,82 − 10,22 = 33,60 kWh/m²
-× 155 = 5.208 kWh = `<EnergiaGeneradaAutoconsumida>`; 26RES080_61 (2.0), 27,82 − 1,41 = 26,41 × 159
-= 4.200. Por eso «por uso» sale 5,21 MWh más bajo en OP71: suma los usos y no resta el autoconsumo.
-Un total **0** es «las placas lo cubren todo», no un dato ausente: el lector volvía a la suma bruta
-(`global || suma`) y se perdía el autoconsumo (2 CEE del corpus, `CEE INICIAL_23` y `10004-5073`,
-6,6-6,7 kWh/m²); ya no — se regeneró la huella de `test_xml_cee_v30.mjs`. Con placas en algún CEE
-solo hay dos RES080 hoy: 26RES080_61 (final) y 26RES080_66 (inicial). **Y por eso, con placas en
-cualquiera de los dos CEE, el cálculo va POR VECTOR aunque esté elegido «por uso»** (regla 134):
-`calculateRes080` lo detecta con `autoconsumoDeXml` y `calculateRes080FromEmissions`, sin XML, con
-las celdas por vector (`autoconsumoDeEmisiones`, que exige que la parte no eléctrica cuadre para no
-fiarse de celdas de otro CEE). El resultado lleva `metodoForzado: 'autoconsumo'` y la pantalla lo dice.
+**REGLA — con PLACAS, la fotovoltaica autoconsumida NO es ahorro: el vector eléctrico va en BRUTO**
+(2026-10-30, Fran, 26RES080_66; sustituye a la del 05/10 y el 10/10, que tomaba el total NETO como el
+bueno). El total de cada vector (`Tot` en el 3.0, `Global` en el 2.0: los DOS formatos traen
+`<EnergiaFinalVectores>`) va NETO de lo que las placas generan y se autoconsume; los usos (calefacción,
+ACS, refrigeración, iluminación) van en BRUTO. Medido: OP71 previsto, 43,82 − 10,22 = 33,60 kWh/m² × 155
+= 5.208 kWh = `<EnergiaGeneradaAutoconsumida>`; 26RES080_61 (2.0), 27,82 − 1,41 = 26,41 × 159 = 4.200.
+**El consumo de energía final del edificio es la SUMA de sus usos**: la electricidad fotovoltaica
+generada in situ cambia el origen de la electricidad, no lo que consumen los equipos, y «no puede
+considerarse ahorro de uso final de la energía» — **Recomendación (UE) 2024/1590, apartado 7.8**, que
+interpreta el anexo V, punto 2, letras k) y l), de la **Directiva (UE) 2023/1791** (la letra l) admite la
+solar TÉRMICA, no la eléctrica). Además, unas placas que ya estaban no son adicionales (anexo V, 2.b). La
+consulta, con las fuentes y lo que quedó sin confirmar:
+[autoconsumo-fotovoltaico-no-es-ahorro-de-energia-final-cae.md](docs/conocimiento/consultas/autoconsumo-fotovoltaico-no-es-ahorro-de-energia-final-cae.md).
+Medido en 26RES080_66 (CE3X 3.2, las mismas placas de 6 kWp en las dos fases, autoconsumo mes a mes,
+302 m²): inicial 522,88 / neto 513,72; final 39,10 / neto 15,96 → **146.102 kWh en bruto** frente a 150.320
+con el neto. «En igualdad de condiciones» no basta: el inicial apenas consume electricidad y el final sí,
+así que con el neto la fotovoltaica seguía sumando 4.218 kWh.
+Cómo se aplica (`calculation.js`, fuente única `energiaVectorSinFv`): con placas en cualquiera de los dos
+CEE (`autoconsumoDeXml` > 0), `calculateRes080` va por la energía final declarada con el vector eléctrico en
+BRUTO (`res080DesdeEnergiaFinal`; sus emisiones también, y las netas quedan en `contraste` para cotejarlas
+con las del certificado); por emisiones (`calculateRes080Simplificado`, un CEE sin `<EnergiaFinalVectores>`)
+se devuelve al vector eléctrico `autoconsumo × 0,331`; sin XML, `calculateRes080FromEmissions` con las celdas
+por vector (`autoconsumoDeEmisiones`, que exige que la parte no eléctrica cuadre). El resultado lleva
+`metodoForzado: 'autoconsumo'`, `autoconsumoM2` y `autoconsumoExcluido`; el módulo CEE y el popup de la
+calculadora lo dicen en ámbar con las dos normas, y el **Certificado RES080** también: una frase en la hoja
+de justificación y, en el desglose por vector, el total BRUTO, una fila informativa por fase («Fotovoltaica
+autoconsumida: X · el certificado la descuenta (total neto Y); aquí no se descuenta» → «no computa») y un
+recuadro con la Recomendación y la Directiva. Un total **0** es «las placas lo cubren todo», no un dato
+ausente (`xmlCeeParser`, ya no `global || suma`). La pregunta al MITECO (¿con el XML 3.0 se cuenta el
+autoconsumo?) tiene borrador del 30/10/2026; si contestara otra cosa, se cambia aquí y en la regla 134.
 
 **REGLA — un RES080 siempre actúa sobre la envolvente, y el rendimiento de la caldera del inicial
 es el del CEE, no el de la tabla** (2026-10-24, Fran, 26RES060_OP335). El RES080 es una reforma:
@@ -188,3 +204,12 @@ por defecto de CE3X» (regla 111). Con un CEE por OCR la tabla es la de emisione
 **El expediente** ya calculaba así con los dos `.xml` (CeeModule, `cifoService`,
 `ExpedienteDetailView` dan la misma cifra); con origen MANUAL manda lo tecleado y no se ha tocado:
 medido el 27/10/2026, ningún expediente en manual tiene los dos certificados.
+
+**El desglose por vector del Certificado RES080 enseña la FOTOVOLTAICA autoconsumida** (2026-10-29,
+26RES080_66; desde el 30/10 sin restarla, ver «con PLACAS» arriba). Con placas la fila no sumaba (30,99 +
+4,18 + 3,93 = 39,10 con un total de 15,96): el vector eléctrico lleva su total BRUTO y debajo una fila
+informativa con lo autoconsumido (23,14 kWh/m² × 302 m² = los 6.988 kWh de
+`<EnergiaGeneradaAutoconsumida>`) y el total neto del certificado, para casarlo con el `.xml`. Solo se
+pinta si Σ usos − total > 0,05 (`autoconsumoDe` en `buildJustificacionAhorroPages`, fuente única del PDF y
+de la vista previa). El medidor lleva el caso «placas en las dos fases (26RES080_66)», y con
+`CHECK_RES080_PDF=<carpeta>` guarda el PDF de cada caso.

@@ -123,5 +123,33 @@ console.log('\nE) «Por uso»: la calefacción mixta y el sistema ficticio se LE
     bien(!solo.details.cal.fuelIniFijo && cerca(solo.details.cal.energyIni, 3.43 / 0.018, 0.01), 'sin sistema ficticio en calefacción: emisiones ÷ factor, como antes');
 }
 
+console.log('\nF) Con PLACAS, la fotovoltaica autoconsumida NO es ahorro: el vector eléctrico va en BRUTO');
+{
+    // Las cifras de 26RES080_66 (CE3X 3.2, 6 kWp en las dos fases, 302 m²): inicial
+    // Σ usos 522,88 y `Tot` neto 513,72; final Σ usos 39,10 (30,99 + 4,18 + 3,93) y neto 15,96.
+    // Recomendación (UE) 2024/1590, ap. 7.8: 146.102 kWh, no los 150.320 del neto.
+    const vecFv = (nombre, vectorXml, cal, acs, ref, global) => ({ ...vec(nombre, vectorXml, cal, acs, ref), global });
+    const ini = { superficieHabitable: 302, energiaFinalVectores: {
+        a: vec('GASOLEO CALEFACCION', 'GASOLEOC', 460.88, 50.00, 0),
+        b: vecFv('Electricidad peninsular', 'ELECTRICIDAD', 0, 0, 12.00, 2.84),
+    } };
+    const fin = { superficieHabitable: 302, energiaFinalVectores: {
+        b: vecFv('Electricidad peninsular', 'ELECTRICIDAD', 30.99, 4.18, 3.93, 15.96),
+    } };
+    const r = calculateRes080({ xmlInicial: ini, xmlFinal: fin });
+    bien(r.metodoForzado === 'autoconsumo' && r.fuenteDatos === 'energia_final_declarada', 'con placas, por la energía final SIN la fotovoltaica');
+    bien(cerca(r.totalEnergiaInicialM2, 522.88, 0.01) && cerca(r.totalEnergiaFinalM2, 39.10, 0.01), `totales en bruto ${r.totalEnergiaInicialM2.toFixed(2)} / ${r.totalEnergiaFinalM2.toFixed(2)} kWh/m²`);
+    bien(cerca(r.ahorroEnergiaFinalTotal, 146101.56, 1), `ahorro ${Math.round(r.ahorroEnergiaFinalTotal)} kWh (146.102), no el del neto (150.324)`);
+    bien(cerca(r.autoconsumoExcluido?.inicial ?? 0, 9.16, 0.01) && cerca(r.autoconsumoExcluido?.final ?? 0, 23.14, 0.01), 'dice la fotovoltaica excluida de cada fase (9,16 · 23,14)');
+    bien(cerca(r.details.electrico.energyFin, 39.10, 0.01), 'el vector eléctrico del cuadro va en bruto');
+    // Sin la energía final en el final (CEE por OCR), por emisiones: la del inicial se
+    // devuelve a su vector eléctrico igual.
+    const fElec = 0.331;
+    const finEmi = { superficieHabitable: 302, emisionesConsumoElectrico: 39.10 * fElec, emisionesConsumoOtros: 0 };
+    const iniEmi = { ...ini, emisionesConsumoElectrico: 2.84 * fElec, emisionesConsumoOtros: 510.88 * 0.311, combustibleOtros: 'Gasoleo Calefacción' };
+    const e = calculateRes080SimplificadoFromXml({ xmlInicial: iniEmi, xmlFinal: finEmi });
+    bien(e.fuenteDatos === 'emisiones' && cerca(e.details.electrico.energyIni, 12.00, 0.05), `por emisiones, el eléctrico inicial en bruto (${e.details.electrico.energyIni.toFixed(2)} = 2,84 + 9,16)`);
+}
+
 console.log(`\n${mal ? `✗ ${mal} fallo(s)` : '✓ todo correcto'}`);
 process.exit(mal ? 1 : 0);

@@ -7,7 +7,7 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 42,5 KB | 14 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 43,0 KB | 14 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 43,6 KB | 23 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
@@ -15,7 +15,7 @@
 | `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 8,6 KB | 12 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,8 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 23,8 KB | 7 |
-| `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 9 |
+| `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 10 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,0 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 40,4 KB | 13 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 99,2 KB | 39 |
@@ -215,7 +215,7 @@
 - **131** → `.claude/rules/envolvente-ce3x.md` — Los EQUIPOS se marcan en el plano —caldera actual, equipo nuevo, depósito de ACS y unidad exterior— y la uni…
 - **132** → `.claude/rules/propuesta.md` — Con los avisos del cliente desviados a otra persona, el TITULAR sigue pudiendo recibir la propuesta
 - **133** → `.claude/rules/propuesta.md` — Caldera de BIOMASA (combustible sólido que no es carbón): la deducción del IRPF exige placas solares; el Bon…
-- **134** → `.claude/rules/calculo.md` — Con PLACAS en cualquiera de los dos CEE, el ahorro RES080 va POR VECTOR aunque se haya elegido «por uso»
+- **134** → `.claude/rules/calculo.md` — Con PLACAS, la fotovoltaica autoconsumida NO es ahorro de energía final: el vector eléctrico del RES080 va e…
 - **135** → `.claude/rules/cee-generacion.md` — En un RES080, cada ventana que CAMBIA resuelve sus PUENTES TÉRMICOS
 - **136** → `.claude/rules/propuesta.md` — La oportunidad pasa a ENVIADA con CUALQUIER envío que salga bien, también solo al instalador, y la lista dic…
 - **137** → `.claude/rules/documentos.md` — En el CEE final de un RES080 lo que se reforma se IDENTIFICA, y el inicial y el final se casan SIN el «- CAM…
@@ -403,6 +403,7 @@
 ### consultas
 
 - `docs/conocimiento/consultas/README.md` — Consultas de clientes e instaladores: lo ya contestado (mirar aquí PRIMERO)
+- `docs/conocimiento/consultas/autoconsumo-fotovoltaico-no-es-ahorro-de-energia-final-cae.md` — El autoconsumo fotovoltaico NO es ahorro de energía final en los CAE (30/10/2026)
 - `docs/conocimiento/consultas/boletin-placas-y-cargador-uno-o-dos-clm.md` — Placas (autoconsumo ≤10 kW) y cargador del coche: ¿un boletín o dos? — Castilla-La Mancha (20/10/2026)
 - `docs/conocimiento/consultas/bono-cae-no-se-resta-y-no-hay-resolucion.md` — Bono CAE: no se resta de la deducción del IRPF y no hay «resolución» (26/10/2026)
 - `docs/conocimiento/consultas/bono-social-electrico-cambiar-de-compania.md` — Bono social eléctrico: ¿me puedo cambiar de compañía o a una tarifa variable? ¿Quién lo da? (20/10/2026)

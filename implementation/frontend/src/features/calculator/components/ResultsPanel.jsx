@@ -1748,7 +1748,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                         combCalefaccionInicial: emiDraft.comb.calIni, combCalefaccionFinal: emiDraft.comb.calFin,
                         combRefrigeracionInicial: emiDraft.comb.refIni, combRefrigeracionFinal: emiDraft.comb.refFin,
                         superficieInicial: emiDraft.supIni, superficieFinal: emiDraft.supFin,
-                        // Con placas, por vector aunque se elija «por uso» (metodoForzado).
+                        // Con placas, sin la fotovoltaica aunque se elija «por uso» (metodoForzado).
                         emiElecIni: emiDraft.vec?.electricoIni, emiElecFin: emiDraft.vec?.electricoFin,
                         emiOtrosIni: emiDraft.vec?.otrosIni, emiOtrosFin: emiDraft.vec?.otrosFin,
                         combOtrosIni: emiDraft.combOtros?.ini, combOtrosFin: emiDraft.combOtros?.fin,
@@ -1874,13 +1874,14 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     </p>
                                     {forzadoPorPlacas && (
                                         <p className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 leading-relaxed">
-                                            <b>Con placas solares solo vale por vector.</b> El CEE{' '}
+                                            <b>Con placas solares, la fotovoltaica no cuenta.</b> El CEE{' '}
                                             {draftRes.autoconsumoM2?.inicial > 0 && draftRes.autoconsumoM2?.final > 0 ? 'inicial y el final declaran'
                                                 : draftRes.autoconsumoM2?.inicial > 0 ? 'inicial declara' : 'final declara'}{' '}
                                             electricidad autoconsumida ({[draftRes.autoconsumoM2?.inicial, draftRes.autoconsumoM2?.final]
                                                 .filter(v => v > 0).map(v => `${String(v).replace('.', ',')} kWh/m²·año`).join(' · ')}),
-                                            que CE3X solo resta del total del vector eléctrico, no de cada uso. Por uso, ese
-                                            consumo contaría como gastado y la cifra no se reproduciría con el certificado.
+                                            que CE3X resta del total del vector eléctrico. Aquí no se resta: el vector eléctrico
+                                            va en bruto, porque la fotovoltaica no es ahorro de energía final (Directiva (UE)
+                                            2023/1791, anexo V; Recomendación (UE) 2024/1590, apartado 7.8).
                                         </p>
                                     )}
                                     {esSimplificado && esDeclarada && (
