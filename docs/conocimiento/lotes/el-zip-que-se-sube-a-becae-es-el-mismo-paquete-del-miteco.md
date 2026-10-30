@@ -150,6 +150,16 @@ señal es la fecha de registro del expediente —lo que se sella al subir el jus
 bloquea. Y **se dice con el motivo**: una pieza del índice que desaparece de la lista
 sin explicación se lee como un olvido.
 
+**Los XML del CEE (`3-8` y `4-6`) solo son obligatorios si el ACS se justifica con
+ellos (2026-10-30, Fran, auditoría de LOTE-2026-015).** El XML es la prueba de la
+demanda de ACS por m² que usa la DACS (`cee.acs_method='xml'` con `cambio_acs=true`);
+por dormitorios (CTE), por litros/día o con el ACS fuera de alcance no prueba nada que
+no esté en el PDF del CEE, y exigirlo bloqueaba el paquete. Fuente única: `acsPorXml`
+en [envioGestorService.js](implementation/backend/services/envioGestorService.js), que
+el skill `auditar-expediente` (patrón 11) aplica igual. Si el XML está, entra en el
+paquete; sin método guardado se sigue exigiendo. Medido sobre las 8 actuaciones del
+lote: obligatorio en 26RES060_123, _127 y 26RES080_54; «no procede» en las otras cinco.
+
 ⚠️ El **anexo de la actuación** solo es obligatorio en el modo `gestor`
 (`obligatorioEn`). Para rellenarlo hacen falta el nº de dictamen y su fecha, así que a
 la hora de subir a beCAE todavía no existe y exigirlo bloqueaba el paquete entero por

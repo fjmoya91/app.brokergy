@@ -97,6 +97,20 @@ function fichaDe(numero) {
     return fichaFromNumero(numero) || 'RES060';
 }
 
+// ─── ¿El ACS se justifica con el XML del CEE? ────────────────────────────────
+// Los .xml de los CEE solo hacen falta cuando la DACS sale de ELLOS (Fran,
+// 30/10/2026, auditoría de LOTE-2026-015): por dormitorios (CTE), por litros/día
+// o con el ACS fuera de alcance nadie los pide, y echarlos de menos paraba el
+// paquete por un papel que no prueba nada. Si el XML está, se mete igual.
+// Ante la duda —un expediente sin método guardado— se siguen exigiendo.
+function acsPorXml(ctx) {
+    const cambioAcs = ctx.exp?.instalacion?.cambio_acs;
+    if (cambioAcs === false || cambioAcs === 'false') return false;
+    const metodo = ctx.exp?.acs_method;
+    return !metodo || metodo === 'xml';
+}
+const MOTIVO_XML_NO_PROCEDE = 'el ACS no se justifica con el XML del CEE (va por CTE, por litros/día o está fuera de alcance)';
+
 // ─── El ÍNDICE del paquete ───────────────────────────────────────────────────
 // Una entrada por documento. `cod` es su número en el índice, `nombre` el nombre
 // canónico DENTRO del paquete (sin el prefijo "E{n}-{cod} - ", que se compone
@@ -153,7 +167,8 @@ const INDICE = [
           ? 'CERTIFICADO REFORMA RES080_fdo' : 'CERTIFICADO CIFO_fdo' },
     { cod: '3-6', etiqueta: 'CEE final · justificante de registro', obligatorio: true, de: 'cee', fase: 'final',   slot: 'registro', nombre: 'CEE FINAL_REG' },
     { cod: '3-7', etiqueta: 'CEE final · PDF firmado',            obligatorio: true,  de: 'cee', fase: 'final',   slot: 'pdf',      nombre: 'CEE FINAL_fdo' },
-    { cod: '3-8', etiqueta: 'CEE final · XML',                    obligatorio: true,  de: 'cee', fase: 'final',   slot: 'xml',      nombre: 'CEE FINAL_XML', ext: '.xml' },
+    { cod: '3-8', etiqueta: 'CEE final · XML',                    obligatorio: true,  de: 'cee', fase: 'final',   slot: 'xml',      nombre: 'CEE FINAL_XML', ext: '.xml',
+      exenta: (ctx) => !acsPorXml(ctx), motivoExenta: MOTIVO_XML_NO_PROCEDE },
     { cod: '3-9', etiqueta: 'CEE final · etiqueta energética',    obligatorio: false, de: 'cee', fase: 'final',   slot: 'etiqueta', nombre: 'CEE FINAL_ETQ' },
 
     { cod: '4-1', etiqueta: 'Fichas técnicas de los equipos',     obligatorio: true,  de: 'fichas_tecnicas', nombre: 'FICHAS TECNICAS' },
@@ -170,7 +185,8 @@ const INDICE = [
       motivoExenta: 'no consta fecha de registro del CEE inicial (¿es una simulación?)' },
     { cod: '4-4', etiqueta: 'CEE inicial · etiqueta energética',   obligatorio: false, de: 'cee', fase: 'inicial', slot: 'etiqueta', nombre: 'CEE INICIAL_ETQ' },
     { cod: '4-5', etiqueta: 'Anexo I firmado por el titular',     obligatorio: true,  de: 'doc_exp',  campo: 'anexo_i_signed_link', nombre: 'ANEXO I_fdo' },
-    { cod: '4-6', etiqueta: 'CEE inicial · XML',                  obligatorio: true,  de: 'cee', fase: 'inicial', slot: 'xml',      nombre: 'CEE INICIAL_XML', ext: '.xml' },
+    { cod: '4-6', etiqueta: 'CEE inicial · XML',                  obligatorio: true,  de: 'cee', fase: 'inicial', slot: 'xml',      nombre: 'CEE INICIAL_XML', ext: '.xml',
+      exenta: (ctx) => !acsPorXml(ctx), motivoExenta: MOTIVO_XML_NO_PROCEDE },
     // La copia del poder o documento que acredita la REPRESENTACIÓN del titular
     // (empresa → su representante legal; particular representado → su apoderado).
     // Es lo que el Anexo I declara «Se adjunta copia a la presente» en su
@@ -739,7 +755,8 @@ async function construirPaquete(loteId, { modo = 'expediente', dryRun = false, z
     const { data: exps } = await supabase
         .from('expedientes')
         // El cliente, para la pieza de la REPRESENTACIÓN (4-8): solo sus escalares.
-        .select('id, numero_expediente, oportunidad_id, documentacion, instalacion, clientes!cliente_id(es_empresa, representado, representacion_doc_link)')
+        // Del `cee`, solo el método de la DACS (los XML 3-8 y 4-6): nunca el JSONB entero (regla 22).
+        .select('id, numero_expediente, oportunidad_id, documentacion, instalacion, acs_method:cee->>acs_method, clientes!cliente_id(es_empresa, representado, representacion_doc_link)')
         .eq('lote_id', lote.id)
         .order('numero_expediente', { ascending: true });
     if (!exps || !exps.length) throw new Error('El lote no tiene expedientes');
