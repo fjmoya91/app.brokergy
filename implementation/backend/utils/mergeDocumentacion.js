@@ -68,6 +68,15 @@ const CLAVES_PROTEGIDAS = [
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');
 
+// Los FIRMADOS y su sello de llegada: `anexo_i_signed_link` → `anexo_i_signed_at`
+// (en los tres de BORRADORES_CLIENTE coincide con su `signedAt`).
+const CAMPOS_FIRMADO = Object.keys(DOCUMENTO_VALIDABLE_LABELS).filter(c => c.endsWith('_signed_link'));
+const selloFirmado = (campo) => campo.replace(/_link$/, '_at');
+
+// Orden de BORRAR un firmado que viaja en el payload (campo o lista de campos). Se
+// consume aquí y no se guarda nunca, así que una copia vieja no puede llevarla.
+const ORDEN_BORRAR_FIRMADO = '_firmado_borrado';
+
 function mergeDocumentacion(existingDoc, payloadDoc) {
     const existing = existingDoc || {};
     if (payloadDoc === undefined) return existing;
@@ -84,6 +93,42 @@ function mergeDocumentacion(existingDoc, payloadDoc) {
     // escritura (app, MCP, skills).
     const ahora = new Date().toISOString();
     const _ts = (v) => { const t = Date.parse(v || ''); return Number.isNaN(t) ? 0 : t; };
+
+    // Un FIRMADO que ya está en BD no lo cambia ni lo borra una copia vieja. Las
+    // rutas dedicadas (cesion-manuscrita, firmar-subir, la subida pública del cliente
+    // y la del instalador) escriben el enlace directamente en BD, y el módulo de
+    // Documentación reenvía `documentacion` ENTERA desde su copia, que solo se
+    // hidrata al abrir el expediente. Medido en 26RES080_59 (30/10/2026): a las 17:39
+    // se montó el Convenio bueno, a las 17:41 la subida del Anexo Fotográfico
+    // reenvió la copia con el de las 17:37 —ya archivado en OLD—, el bloque de abajo
+    // lo tomó por una firma nueva y le selló `signed_at`, y a las 17:43 «validar»
+    // copió a "10. EXPEDIENTE CAE" el fichero viejo. Mismo fallo que `_drive_at`,
+    // `refirma_at`, `docs_validados` e `incidencias`.
+    //
+    // Un cambio deliberado lo dice: la subida desde la app trae su `*_signed_at`
+    // POSTERIOR al de BD (como la excepción de `refirma`), y el botón de borrar trae
+    // la orden `_firmado_borrado`. La copia vieja no puede traer ninguna de las dos:
+    // su sello es el de BD o uno anterior, porque el sello no retrocede (abajo) y
+    // las rutas dedicadas no lo adelantan sin cambiar también la BD.
+    // En minúsculas: el PUT pasa el body por `normalizeData`, que sube el valor a
+    // MAYÚSCULAS (`ANEXO_I_SIGNED_LINK`).
+    const ordenBorrar = new Set([].concat(payloadDoc?.[ORDEN_BORRAR_FIRMADO] || []).map(c => String(c).toLowerCase()));
+    delete merged[ORDEN_BORRAR_FIRMADO];
+    for (const campo of CAMPOS_FIRMADO) {
+        const at = selloFirmado(campo);
+        const enBd = existing[campo];
+        if (enBd && merged[campo] !== enBd) {
+            const deliberado = merged[campo]
+                ? _ts(payloadDoc[at]) > _ts(existing[at])
+                : ordenBorrar.has(campo);
+            if (!deliberado) {
+                console.warn(`[mergeDocumentacion] ${campo}: se ignora el ${merged[campo] ? 'cambio' : 'borrado'} de una copia vieja (BD ${enBd})`);
+                merged[campo] = enBd;
+            }
+        }
+        // El sello de llegada tampoco retrocede.
+        if (_ts(existing[at]) > _ts(merged[at])) merged[at] = existing[at];
+    }
 
     for (const spec of Object.values(BORRADORES_CLIENTE)) {
         if (merged[spec.draft] && merged[spec.draft] !== existing[spec.draft]) {
@@ -124,7 +169,10 @@ function mergeDocumentacion(existingDoc, payloadDoc) {
         // borrador actual o a una versión anterior, y lo que cierra la petición de
         // volver a firmar (ver `estadoInstalador`).
         if (merged[spec.signed] && merged[spec.signed] !== existing[spec.signed]) {
-            merged[spec.signedAt] = ahora;
+            // El mayor de los dos: si el reloj del navegador va adelantado, el sello
+            // de BD tiene que seguir siendo >= el de la copia que lo trajo, o esa
+            // misma copia, vieja ya, podría pasar el filtro de arriba más tarde.
+            if (_ts(merged[spec.signedAt]) < Date.parse(ahora)) merged[spec.signedAt] = ahora;
             // Ha llegado la firma nueva: se cierra la petición de volver a firmar,
             // venga de un requerimiento del verificador o de una corrección nuestra.
             if (spec.refirma) merged[spec.refirma] = null;
@@ -149,4 +197,4 @@ function mergeDocumentacion(existingDoc, payloadDoc) {
         : merged;
 }
 
-module.exports = { mergeDocumentacion, CLAVES_PROTEGIDAS };
+module.exports = { mergeDocumentacion, CLAVES_PROTEGIDAS, ORDEN_BORRAR_FIRMADO };

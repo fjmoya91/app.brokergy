@@ -1920,7 +1920,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         if (confirm('¿Estás seguro de que deseas eliminar este documento firmado?')) {
             setLocal(prev => {
                 const next = { ...prev, [field]: null };
-                onSave({ documentacion: next });
+                // `_firmado_borrado` es la orden de borrar: sin ella el backend toma el
+                // null por una copia vieja y conserva el firmado (mergeDocumentacion).
+                // Viaja solo en ESTE guardado; en `local` no se queda.
+                onSave({ documentacion: { ...next, _firmado_borrado: field } });
                 return next;
             });
             setManagingSigned(null);
@@ -2578,14 +2581,16 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     const updates = { [field]: data.drive_link };
                     // Cuando el admin sube la Cesión firmada, es la versión final (ambas firmas)
                     if (field === 'anexo_cesion_signed_link') updates.cesion_firmado_brokergy = true;
+                    // Sello de llegada del firmado (`anexo_i_signed_link` → `anexo_i_signed_at`).
+                    // Es lo que le dice a `mergeDocumentacion` que este cambio es de AHORA:
+                    // sin él, un firmado que ya existe en BD no se deja cambiar, para que
+                    // una copia vieja no lo devuelva a la versión anterior (26RES080_59).
+                    if (field.endsWith('_signed_link')) updates[field.replace(/_link$/, '_at')] = new Date().toISOString();
                     // Ha llegado la firma que faltaba tras un requerimiento: se cierra la
                     // petición. `mergeDocumentacion` solo lo hace si el enlace CAMBIA, y
                     // Drive puede devolver el mismo al reemplazar el fichero — entonces el
                     // expediente seguiría reclamando una firma que acabamos de recibir.
-                    if (REFIRMA_CAMPOS[field]) {
-                        updates[REFIRMA_CAMPOS[field].refirma] = null;
-                        updates[REFIRMA_CAMPOS[field].signedAt] = new Date().toISOString();
-                    }
+                    if (REFIRMA_CAMPOS[field]) updates[REFIRMA_CAMPOS[field].refirma] = null;
                     // Re-subir un firmado lo deja como "subido sin revisar": limpia validación/rechazo previos.
                     const dv = { ...(prev.docs_validados || {}) }; delete dv[field];
                     const dr = { ...(prev.docs_rechazados || {}) }; delete dr[field];

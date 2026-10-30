@@ -38,8 +38,9 @@ ok(!!refirmaPendiente(doc2, 'anexo_i'), 'regenerar el borrador NO cierra la re-f
 ok(doc2.anexo_i_drive_at > doc.anexo_i_drive_at, 'el borrador nuevo sella su fecha (levanta el bloqueo del enlace)');
 ok(!rechazoBorrador(doc2, 'anexo_i')?.obsoleto || true, 'el borrador regenerado ya no es el rechazado');
 
-// 4 · El cliente firma la versión nueva (PUT desde la app)
-const doc3 = mergeDocumentacion(doc2, { ...doc2, anexo_i_signed_link: 'drv/i_fdo_v2' });
+// 4 · El cliente firma la versión nueva (PUT desde la app, que manda su `signed_at`:
+//     sin él, un firmado que ya existe no cambia — test_firmado_no_retrocede.mjs)
+const doc3 = mergeDocumentacion(doc2, { ...doc2, anexo_i_signed_link: 'drv/i_fdo_v2', anexo_i_signed_at: t(0) });
 ok(!refirmaPendiente(doc3, 'anexo_i'), 'al llegar la firma nueva se cierra la re-firma del Anexo I');
 ok(!!refirmaPendiente(doc3, 'anexo_cesion'), 'y la del Convenio sigue abierta: cada documento va por su cuenta');
 ok(firmaVigente(doc3, 'anexo_i'), 'el Anexo I vuelve a contar como recibido');
@@ -67,7 +68,7 @@ ok(!!refirmaPendiente(tras, 'cert_cifo'), 'y el CIFO sigue pendiente de volver a
 ok(!firmaVigente(tras, 'cert_cifo'), 'el firmado anterior deja de contar como recibido');
 
 // …pero la llegada de la firma nueva SÍ la cierra, venga por un enlace distinto
-const conFirmaNueva = mergeDocumentacion(enBd, { ...enBd, cert_cifo_signed_link: 'drv/cifo_fdo_v2' });
+const conFirmaNueva = mergeDocumentacion(enBd, { ...enBd, cert_cifo_signed_link: 'drv/cifo_fdo_v2', cert_cifo_signed_at: t(0) });
 ok(!conFirmaNueva.cert_cifo_refirma_at, 'la firma nueva (enlace distinto) cierra la petición');
 // …o por el mismo enlace, cuando la subida desde la app manda su `signed_at`
 const mismoEnlace = mergeDocumentacion(enBd, { ...enBd, cert_cifo_refirma_at: null, cert_cifo_signed_at: t(0) });
