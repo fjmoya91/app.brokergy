@@ -125,7 +125,7 @@ export function Fases({ o, id, movil }) {
     const ctx = {
         form, obra, slots, editable: o.editable,
         setCampo: o.setCampo, setC: o.setC, setCuestionario: o.setCuestionario, setTitular: o.setTitular, setDecision: o.setDecision,
-        subir: o.subir, quitar: o.quitar, subiendo: o.subiendo, docsError: o.docsError, recargarDocs: o.recargarDocs,
+        subir: o.subir, reintentar: o.reintentar, pendientes: o.pendientes, quitar: o.quitar, subiendo: o.subiendo, docsError: o.docsError, recargarDocs: o.recargarDocs,
         usarFachada: o.usarFachada,
     };
     const falta = faltaEnFase(actual, form, obra);
