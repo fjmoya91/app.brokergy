@@ -75,6 +75,16 @@ de SOLICITANTE a quien se identifica, con su NIF fijo. La casilla «Es represent
 presenta queda en el 02. La recarga la hace la propia casilla (`RecargarPagina_PFISICA`): recargar a
 mano con `location.href` devuelve a la identificación (27/10/2026).
 
+**REGLA — un titular con CIF va como «Persona jurídica», con su razón social.** Con «Es representante»
+marcado, el 01 ofrece dos bloques: persona física (`TIPODOC=NIF`, `NIFCIF`, `NOMBRE`, `APELL1`,
+`APELL2`, `SEXO`) y persona jurídica (`TIPODOC=CIF`, que habilita `CIF` y `ZENTIDAD` = razón social; sin
+apellidos ni sexo). `preparar` lo decide por la forma del NIF (letra de sociedad + 7 dígitos + control) y
+pone `TIPODOC` el primero en `rellenar.js`, porque su clic habilita las otras dos casillas. Antes la
+razón social se partía en nombre y «apellidos» inventados y el plan daba NO LISTO por falta de APELL1
+(26RES060_215, 28/10/2026: la ficha decía «EDIFICIO ELENA OSORIO 11 BELMONTE»; la sociedad real,
+JCRSPORT GOALKEEPER S.L., estaba en el proyecto, pág. 7, «Agentes promotores»). La razón social sale de
+la ficha del cliente (nombre + apellidos juntos): si no es la de la escritura, se corrige la ficha.
+
 **REGLA — en el 02 va quien FIRMA, nunca el AGENTE IA** (2026-10-19). Los CEE iniciales que hace el
 Agente IA lo dejan de certificador asignado, pero él no firma ni presenta: los firma Fran con el
 certificado de representante de Brokergy. El borrador tomaba el 02 del asignado, la ficha del agente no

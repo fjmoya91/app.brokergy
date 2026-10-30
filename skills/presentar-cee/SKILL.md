@@ -166,6 +166,11 @@ firma. Lo normal es que no diga nada.
    representante» marcado, municipios, fechas, Unifamiliar…). Las recargas de la sede conservan lo
    escrito, pero se comprueba.
 
+**Titular con CIF (una sociedad):** `preparar` lo rellena como **Persona jurídica** (`TIPODOC=CIF`,
+`CIF` y `ZENTIDAD` = razón social, sin apellidos ni sexo) y lo avisa. Comprueba que la razón social
+es la de verdad. Si la ficha trae un nombre raro («EDIFICIO …»), búscala en la documentación del
+expediente (proyecto, escritura, presupuesto), corrige la ficha y vuelve a `preparar` (26RES060_215).
+
 Valores fijos que pone `rellenar.js`: trámite **edificio existente**, ámbito **Inscripción**, declaración
 **marcada**, «Me opongo a la consulta de datos» **sin marcar**, documentos 1–4 **marcados** y el
 **Anexo V NO** (decisión del usuario: ni se marca ni se sube).
@@ -232,7 +237,10 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
      píxeles reales de la pantalla entera (1920×1080 aunque Windows esté al 125 %) y `clic` usa esos
      mismos. Con `-Ancho` la imagen se reduce: multiplica por la escala antes de pinchar.
 4. **«Pagar»** → 3DS del banco: dile al usuario *«autoriza el pago en la app de tu banco»* y espera
-   (la página cambia sola a «Ticket de pago» con «OPERACIÓN AUTORIZADA CON CÓDIGO …»).
+   (la página cambia sola a «Ticket de pago» con «OPERACIÓN AUTORIZADA CON CÓDIGO …»). Tras su
+   «Continuar», la plataforma se queda en «Procesando Pago» unos 3 min con la pestaña CONGELADA
+   (`javascript_tool` da timeout): mira con capturas hasta que salga «Descargar justificante» y púlsalo
+   (26RES060_243).
 5. **«Continuar»** → plataforma: «El proceso de pago se ha realizado con éxito. Estado: Pagado». Pulsa el
    **icono de descarga** junto a «Obtener justificante de pago» (baja `Descargas\<nº 046>.pdf`) y luego
    **«Continuar»**: la pestaña se cierra y se vuelve al formulario. Si tras la descarga «Continuar» no hace
@@ -261,6 +269,12 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
 3. Unos segundos después, `javascript_tool` con `window.__resultadoEnvio()`: `registro` (NNNNNNN/AAAA),
    `fecha`, `hora`, `firmasConFiltro` (1) y `justificante: true`. Si `registro` es null, mira `error` o
    el texto del marco. Baja el justificante con `window.__bajarJustificante()` → `Descargas\NNNNNNN.pdf`.
+   **La sede puede tardar MINUTOS en contestar** (26RES060_243, 27/10/2026: firma a las 16:09:54 y
+   registro a las 16:14:02). Mientras tanto el marco sigue enseñando el formulario, con `firmaB64` ya
+   relleno y sin error. **No reenvíes**: consulta `__resultadoEnvio()` cada 30 s durante 6 min. Si no
+   aparece nada, mira el Gmail de info@ (`from:plataformacesar@jccm.es`, «Justificante de solicitud
+   enviada»): si no hay correo nuevo, no se ha registrado. Un reenvío sin firma nueva
+   (`firmasConFiltro` sigue en 0) solo enseña el resultado de la sesión, no registra otra vez.
    En la página de resultado sale también «SOAP:Server: Server Error» y los «Id. de firma» de los
    adjuntos vacíos: pasó en 2026CEE_63, _64 y _59 con el registro y la firma bien. Dilo, y que el
    usuario compruebe en el correo de la JCCM que la copia trae los cuatro documentos.

@@ -216,8 +216,15 @@ async function preparar(numero) {
     if (!solVia && sinTildes(sol['Nombre de la vía']) === sinTildes(edi['Nombre de la vía'])) solVia = codVia(edi['Tipo vía']);
     if (!solVia) avisos.push('Tipo de vía del SOLICITANTE en blanco y distinta del edificio: elígelo a mano.');
 
-    const sexoSol = sol['Sexo'] ? (sinTildes(sol['Sexo']).startsWith('M') ? 'M' : 'H') : sexoPorNombre(sol['Nombre']);
-    if (!sol['Sexo']) avisos.push(`Sexo del solicitante SUPUESTO por el nombre (${sol['Nombre']} → ${sexoSol === 'M' ? 'Mujer' : 'Hombre'}).`);
+    // Un titular con CIF es una SOCIEDAD: la sede la pide como «Persona jurídica» (TIPODOC=CIF,
+    // casillas CIF y ZENTIDAD = razón social), sin apellidos ni sexo. Como persona física la
+    // razón social acababa partida en nombre y apellidos inventados (26RES060_215, 28/10/2026).
+    const nifSol = String(sol['NIF'] || '').toUpperCase().replace(/[\s-]/g, '');
+    const juridica = /^[ABCDEFGHJNPQRSUVW]\d{7}[0-9A-J]$/.test(nifSol);
+    const razonSocial = [sol['Nombre'], sol['Apellido 1'], sol['Apellido 2']].filter(Boolean).join(' ').trim();
+    const sexoSol = juridica ? null : sol['Sexo'] ? (sinTildes(sol['Sexo']).startsWith('M') ? 'M' : 'H') : sexoPorNombre(sol['Nombre']);
+    if (!juridica && !sol['Sexo']) avisos.push(`Sexo del solicitante SUPUESTO por el nombre (${sol['Nombre']} → ${sexoSol === 'M' ? 'Mujer' : 'Hombre'}).`);
+    if (juridica) avisos.push(`El titular es una SOCIEDAD (CIF ${nifSol}): va como persona jurídica con la razón social «${razonSocial}». Comprueba que es la de la escritura.`);
     const sexoRep = sexoPorNombre(rep['Nombre']);
     const casillas = casillasEdificio(ap['05']);
     if (!casillas) avisos.push('El certificado no declara el tipo de edificio: marca VIVIENDA/TERCIARIO a mano.');
@@ -226,9 +233,10 @@ async function preparar(numero) {
     // Lo que se teclea. Las claves son los `name` del formulario de la sede
     // (medidos el 15/10/2026). Los selects de provincia/municipio van por TEXTO.
     const valores = {
+        // Persona jurídica: TIPODOC va PRIMERO, porque su clic habilita CIF y ZENTIDAD.
+        ...(juridica ? { TIPODOC: 'CIF', CIF: nifSol, ZENTIDAD: razonSocial } : {}),
         TRAMITE_INICIAR: 'EE',                       // edificio existente (todo lo nuestro lo es)
-        NIFCIF: String(sol['NIF'] || '').toUpperCase(), NOMBRE: sol['Nombre'], APELL1: sol['Apellido 1'], APELL2: sol['Apellido 2'],
-        SEXO: sexoSol,
+        ...(juridica ? {} : { NIFCIF: nifSol, NOMBRE: sol['Nombre'], APELL1: sol['Apellido 1'], APELL2: sol['Apellido 2'], SEXO: sexoSol }),
         SOL_TIPVIA_VIVIENDA: solVia, SOL_VIVIENDA: sol['Nombre de la vía'], SOL_NCALLE_VIVIENDA: sol['N.º Calle'],
         SOL_PORTAL_VIVIENDA: sol['Portal'], SOL_ESCALERA_VIVIENDA: sol['Escalera'], SOL_PLANTA_VIVIENDA: sol['Planta'], SOL_PUERTA_VIVIENDA: sol['Puerta'],
         CODPOS: sol['Código Postal'], TMOVIL: sol['Teléfono móvil'], EMAIL: sol['e-mail'], CALIDADSOL: calidadSol,
@@ -262,7 +270,7 @@ async function preparar(numero) {
     for (const [k, v] of Object.entries({ ...valores, ...texto })) {
         if (v === '' || v == null) delete valores[k];
     }
-    const faltan = ['NIFCIF', 'NOMBRE', 'APELL1', 'SOL_VIVIENDA', 'SOL_NCALLE_VIVIENDA', 'CODPOS', 'TMOVIL', 'EMAIL',
+    const faltan = [...(juridica ? ['CIF', 'ZENTIDAD'] : ['NIFCIF', 'NOMBRE', 'APELL1']), 'SOL_VIVIENDA', 'SOL_NCALLE_VIVIENDA', 'CODPOS', 'TMOVIL', 'EMAIL',
         'USO_EDIFICIO', 'VIVIENDA_EDIFICIO', 'NCALLE_EDIFICIO', 'CODPOS_EDIFICIO', 'VIV_IDENT_REFCATASTRAL1',
         'FECH_EMISION', 'FECH_VISITA', 'CAL_EMISIONES', 'CAL_CONSUMO',
         // 02 Representante: la sede los exige por casillas y, vacíos, no deja «Pagar y enviar»
