@@ -38,6 +38,7 @@ let obraCaso = {};
 let rpcCaso = {};
 let fbCaso = {};
 let ctaCaso = {};
+let expCaso = null;   // el expediente del CRM de un encargo de BROKERGY (services/certapp/crm.js)
 let ops = [];
 
 const movBase = () => [
@@ -99,6 +100,10 @@ function respuesta(op, unico) {
         let obra = (filtros.id === OBRA_SUYA || porToken) && cuadra(o, filtros) ? o : null;
         if (obra && op.tipo === 'update') obra = { ...obra, ...op.payload };
         return { data: unico ? obra : (obra ? [obra] : []), error: null };
+    }
+    if (tabla === 'expedientes') {
+        const e = expCaso && filtros.id === expCaso.id ? (op.tipo === 'update' ? { ...expCaso, ...op.payload } : expCaso) : null;
+        return { data: unico ? e : (e ? [e] : []), error: null };
     }
     if (tabla === 'certapp_feedback') {
         // La incidencia FB_SUYA: por id (admin) o en el listado SOLO si se pide con su cuenta.
@@ -238,6 +243,9 @@ const srv = app.listen(0, async () => {
         ['GET', `/obras/${OBRA_SUYA}/cee/para-firmar`], ['POST', `/obras/${OBRA_SUYA}/cee/firmado`], ['POST', `/obras/${OBRA_SUYA}/cee/definitivo`],
         ['GET', `/obras/${OBRA_SUYA}/documentos`],
         ['GET', `/obras/${OBRA_SUYA}/presentar`], ['GET', `/obras/${OBRA_SUYA}/presentar/pdf`], ['POST', `/obras/${OBRA_SUYA}/documentos/justificante`],
+        ['DELETE', `/obras/${OBRA_SUYA}`],
+        ['GET', '/encargo/cae/e0000000-0000-4000-8000-000000000001/inicial'],
+        ['POST', `/obras/${OBRA_SUYA}/encargo/aceptar`], ['POST', `/obras/${OBRA_SUYA}/encargo/rechazar`],
     ];
     const DEL_ADMIN = [
         ['GET', '/resumen'], ['GET', '/beta'], ['GET', `/beta/${OBRA_SUYA}`], ['PATCH', `/beta/${OBRA_SUYA}`], ['POST', `/beta/${OBRA_SUYA}/invitar`],
@@ -307,6 +315,55 @@ const srv = app.listen(0, async () => {
     });
     q('tok-admin', 'GET', `/api/certapp-admin/obras/${OBRA_SUYA}/documentos`, 200, null, {
         obra: { estado: 'LISTO', drive_folder_id: 'carpeta-obra-1' }, cuerpo: (j) => j.certificado?.drive === 'https://drive/pdf' && j.entregado === true,
+    });
+    // Borrar una obra (30/10/2026): ajena 404; pedida o con el crédito gastado, 409 sin borrar;
+    // un borrador, 200 con el DELETE condicionado al estado y al crédito.
+    const borradoCond = (ctx) => ctx.ops.some(op => op.tabla === 'certapp_obras' && op.tipo === 'delete'
+        && op.filtros.id === OBRA_SUYA && op.filtros.estado === 'BORRADOR' && op.filtros.credito_consumido === false);
+    const sinBorrar = (ctx) => !ctx.ops.some(op => op.tabla === 'certapp_obras' && op.tipo === 'delete');
+    q('tok-ext', 'DELETE', `/api/certapp/obras/${OBRA_AJENA}`, 404, null, { cuerpo: (j, ctx) => sinBorrar(ctx) });
+    q('tok-ext', 'DELETE', `/api/certapp/obras/${OBRA_SUYA}`, 409, null, { obra: { estado: 'EN_PREPARACION', credito_consumido: true }, cuerpo: (j, ctx) => j.code === 'OBRA_CERRADA' && sinBorrar(ctx) });
+    q('tok-ext', 'DELETE', `/api/certapp/obras/${OBRA_SUYA}`, 409, null, { obra: { credito_consumido: true }, cuerpo: (j, ctx) => j.code === 'OBRA_CERRADA' && sinBorrar(ctx) });
+    q('tok-ext', 'DELETE', `/api/certapp/obras/${OBRA_SUYA}`, 200, null, { cuerpo: (j, ctx) => j.ok === true && j.numero === '2026EXT_1' && borradoCond(ctx) });
+    // Encargos de BROKERGY (30/10/2026, services/certapp/crm.js): lo ajeno 404; un encargo no se
+    // borra (se rechaza); sin aceptar no se pide; aceptado se pide SIN gastar crédito; si el CRM
+    // se lo pasó a otro, aceptar lo archiva (409); rechazar retira al técnico del expediente.
+    const EXP = 'e0000000-0000-4000-8000-000000000001';
+    const ENCARGO = (estado) => ({ seguimiento: { crm: { negocio: 'cae', id: EXP, fase: 'inicial', numero: '26RES060_999', cert_id: '77', encargo: { estado, at: hace(1) } } } });
+    const EXP_SUYO = { id: EXP, numero_expediente: '26RES060_999', estado: 'EN CERTIFICADOR CEE INICIAL', cee: { certificador_id: '77' }, seguimiento: { cee_inicial: 'ASIGNADO' }, documentacion: {} };
+    const OBRA_LISTA = { ref_catastral: '1234567VJ1213S0001AB', direccion: 'CL MAYOR 1', municipio: 'TOLEDO', provincia: 'TOLEDO', codigo_postal: '45001',
+        titular: { nombre: 'Ana', apellidos: 'Pérez' }, proposito: 'AYUDAS', cuestionario: { propositos: ['AYUDAS'] } };
+    const updObra = (ctx) => opsDe(ctx, 'certapp_obras', 'update').map(o => o.payload);
+    q('tok-ext', 'GET', `/api/certapp/encargo/cae/${EXP}/inicial`, 404, null, { cuerpo: (j) => j.code === 'ENCARGO_NO_ENCONTRADO' });
+    q('tok-ext', 'GET', `/api/certapp/encargo/otro/${EXP}/inicial`, 404, null, { cuerpo: (j) => j.code === 'ENCARGO_NO_ENCONTRADO' });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/encargo/aceptar`, 404, {});
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/encargo/rechazar`, 404, { motivo: 'no' });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/encargo/aceptar`, 400, {}, { cuerpo: (j) => j.code === 'NO_ES_ENCARGO' });
+    q('tok-ext', 'DELETE', `/api/certapp/obras/${OBRA_SUYA}`, 409, null, { obra: ENCARGO('PENDIENTE'), cuerpo: (j, ctx) => j.code === 'ENCARGO_CRM' && sinBorrar(ctx) });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/encargo/aceptar`, 200, {}, {
+        obra: ENCARGO('PENDIENTE'), exp: EXP_SUYO,
+        cuerpo: (j, ctx) => j.ok && updObra(ctx).some(p => p.seguimiento?.crm?.encargo?.estado === 'ACEPTADO' && !p.estado) && j.obra?.crm && !('id' in j.obra.crm),
+    });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/encargo/aceptar`, 409, {}, {
+        obra: ENCARGO('PENDIENTE'), exp: { ...EXP_SUYO, cee: { certificador_id: '88' } },
+        cuerpo: (j, ctx) => j.code === 'ENCARGO_RETIRADO' && updObra(ctx).some(p => p.estado === 'ARCHIVADA' && p.seguimiento?.crm?.encargo?.estado === 'RETIRADO'),
+    });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/encargo/rechazar`, 409, { motivo: 'x' }, { obra: ENCARGO('ACEPTADO'), cuerpo: (j, ctx) => j.code === 'ENCARGO_ACEPTADO' && !opsDe(ctx, 'expedientes', 'update').length });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/encargo/rechazar`, 200, { motivo: 'esa semana no puedo' }, {
+        obra: ENCARGO('PENDIENTE'), exp: EXP_SUYO,
+        cuerpo: (j, ctx) => {
+            const e = opsDe(ctx, 'expedientes', 'update').map(o => o.payload).find(p => p.cee);
+            return j.ok && e && e.cee.certificador_id === null && e.cee.rechazos?.[0]?.motivo === 'esa semana no puedo'
+                && e.seguimiento.cee_inicial === 'PTE_ENVIO_CERT' && e.estado === 'PTE. CEE INICIAL'
+                && updObra(ctx).some(p => p.estado === 'ARCHIVADA' && p.seguimiento?.crm?.encargo?.estado === 'RECHAZADO');
+        },
+    });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/generar`, 409, {}, {
+        obra: { ...OBRA_LISTA, ...ENCARGO('PENDIENTE') }, cuerpo: (j, ctx) => j.code === 'ENCARGO_SIN_ACEPTAR' && !llamada(ctx, 'certapp_consumir_credito_obra'),
+    });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/generar`, 200, {}, {
+        obra: { ...OBRA_LISTA, ...ENCARGO('ACEPTADO') }, exp: EXP_SUYO,
+        cuerpo: (j, ctx) => j.ok && j.encargo === true && !llamada(ctx, 'certapp_consumir_credito_obra') && updObra(ctx).some(p => p.estado === 'EN_PREPARACION'),
     });
     // Presentar en el Registro (28/10/2026): ajena 404 (también antes de recibir el fichero); sin entregar, 409
     q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_AJENA}/presentar`, 404);
@@ -620,6 +677,7 @@ const srv = app.listen(0, async () => {
         rpcCaso = c.rpc || {};
         fbCaso = c.fb || {};
         ctaCaso = c.cta || {};
+        expCaso = c.exp || null;
         ops = [];
         const h = { ...(c.headers || {}) };
         // Cada caso, su IP (como la pone nginx): así los límites de un caso no tocan a otro.

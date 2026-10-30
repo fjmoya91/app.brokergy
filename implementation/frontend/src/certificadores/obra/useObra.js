@@ -39,6 +39,8 @@ export function useObra(id) {
     const [enlaces, setEnlaces] = useState({});
     // La calificación y la firma del CEE entregado: { calificacion, firma } | null.
     const [cee, setCee] = useState(null);
+    // Un encargo de BROKERGY (obra/Encargo.jsx): el encargo y lo que dice ahora el CRM. null si no lo es.
+    const [encargo, setEncargo] = useState(null);
     const [barridoServidor, setBarridoServidor] = useState(null);
     const [form, setForm] = useState(null);
     const [slots, setSlots] = useState({});
@@ -103,6 +105,7 @@ export function useObra(id) {
             setEventos(Array.isArray(data?.eventos) ? data.eventos : []);
             setEnlaces(data?.enlaces || {});
             setCee(data?.cee || null);
+            setEncargo(data?.encargo || null);
             setBarridoServidor(data?.barrido || null);
             // Si `/obras/:id` ya trae las fotos, se usan; `/docs` trae miniaturas firmadas.
             if (o.documentacion?.reforma_uploads) setSlots(s => (Object.keys(s).length ? s : normalizarSlots(o.documentacion.reforma_uploads)));
@@ -301,7 +304,7 @@ export function useObra(id) {
     }, [id]);
 
     return {
-        obra, setObra, eventos, enlaces, cee, barridoServidor, setBarridoServidor,
+        obra, setObra, eventos, enlaces, cee, encargo, setEncargo, barridoServidor, setBarridoServidor,
         form, setCampo, setC, setCuestionario, setTitular, setDecision,
         slots, docsError, recargarDocs, subir, reintentar, pendientes, quitar, subiendo, usarFachada,
         error, cargando, cargar, guardar, guardado, editable,

@@ -18,6 +18,12 @@
 // certificador, lo suyo se rechaza con un mensaje. Y en SU vista solo ve lo que
 // ha subido él.
 //
+// REGLA — en un ENCARGO de BROKERGY (`seguimiento.crm`, services/certapp/crm.js)
+// las fotos NO van a la carpeta de la app: van a la del expediente del CRM por su
+// propia subida (subirFicherosASlot / ceeDirectoDocsService) y se apuntan en los
+// dos sitios con el mismo driveId. Lo que vino del CRM no se manda a la papelera
+// desde la app: solo se desengancha de la obra.
+//
 // Mismo patrón que subirFicherosASlot del CAE: se lista Drive UNA vez, se
 // reservan los números, se sube con concurrencia limitada y se registra en
 // serie; si una parte falla, se devuelve lo que sí entró (200 parcial).
@@ -30,6 +36,7 @@ const tokens = require('./tokens');
 const tipos = require('./tipos');
 const { cuestionario: logica } = require('./logica');
 const { fallo, errorBd } = require('./comun');
+const crm = require('./crm');
 
 const MB = 1024 * 1024;
 const MAX_VIDEO = 110 * MB;
@@ -131,31 +138,10 @@ async function subir(obra, cuenta, slotId, ficheros = [], { por = 'certificador'
             grande ? 'FICHERO_GRANDE' : 'TIPO_NO_ADMITIDO', { rechazados });
     }
 
-    const carpeta = await drive.carpetaDocs(obra, cuenta);
-    const label = slot.label.toUpperCase();
-    // Números ya usados: lo que hay en Drive con ese prefijo (una sola consulta).
-    const existentes = await driveService.listFilesByPrefix(carpeta, label);
-    const re = new RegExp(`^${escRegex(label)} (\\d+)\\.`, 'i');
-    let n = existentes.reduce((max, f) => { const m = (f.name || '').match(re); return m ? Math.max(max, Number(m[1])) : max; }, 0);
-    // La extensión y el tipo, los DETECTADOS (no los del navegador).
-    const plan = validos.map(({ f, tipo }) => ({ f, tipo, nombre: `${label} ${++n}.${tipo.ext}` }));
-
-    const subidas = await mapLimit(plan, 3, async ({ f, tipo, nombre }) => {
-        try {
-            const r = await driveService.saveFileToFolder(carpeta, nombre, tipo.mime, f.buffer, { throwOnError: true });
-            const at = new Date().toISOString();
-            const mime = tipo.mime;
-            // Con los alias de `reforma_uploads` del CRM y de los CEE directos
-            // (`name`, `at`, `subido_por`, `mimeType`, `estado`), para que la
-            // envolvente y el generador (origen `ext`) la lean igual que allí.
-            return { ok: true, entry: {
-                driveId: r.id, nombre, mime, link: r.link || null, size: f.size, subido_at: at, por,
-                name: nombre, at, subido_por: por, mimeType: mime, estado: 'subida',
-            } };
-        } catch (e) {
-            return { ok: false, nombre: f.originalname, error: e.message };
-        }
-    });
+    // Un ENCARGO de BROKERGY: a la carpeta del expediente del CRM, apuntado allí y
+    // aquí con el mismo driveId (services/certapp/crm.js). Sin copia en la de la app.
+    const deCrm = crm.esDeCrm(obra);
+    const subidas = deCrm ? await crm.subirFotos(obra, slot, validos, { por }) : await subirASuCarpeta(obra, cuenta, slot, validos, por);
 
     // Registro en SERIE (cada append es atómico; en paralelo también lo sería, pero
     // en serie el orden de la galería es el de la tanda).
@@ -175,10 +161,12 @@ async function subir(obra, cuenta, slotId, ficheros = [], { por = 'certificador'
     }
     // Apartado de un solo archivo: el anterior va a la papelera de Drive (el
     // cliente nunca llega aquí con uno del certificador: se ha cortado arriba).
+    // En un encargo, lo que vino del CRM solo se desengancha (crm.quitarFoto).
     if (!slot.multiple && subidos.length) {
         for (const a of anteriores) {
             if (!a?.driveId) continue;
             if (por === 'cliente' && !esDelCliente(a)) continue;
+            if (deCrm && !(await crm.quitarFoto(obra, a))) continue;
             driveService.deleteFile(a.driveId).catch(() => {});
         }
     }
@@ -188,14 +176,48 @@ async function subir(obra, cuenta, slotId, ficheros = [], { por = 'certificador'
     return { subidos, rechazados, errores };
 }
 
-/** Quita un fichero de un apartado (y lo manda a la papelera de Drive). */
+/** La tanda a «4. DOCUMENTACIÓN PARA CEE» de la obra, con el nombre `{LABEL} {n}.{ext}`. */
+async function subirASuCarpeta(obra, cuenta, slot, validos, por) {
+    const carpeta = await drive.carpetaDocs(obra, cuenta);
+    const label = slot.label.toUpperCase();
+    // Números ya usados: lo que hay en Drive con ese prefijo (una sola consulta).
+    const existentes = await driveService.listFilesByPrefix(carpeta, label);
+    const re = new RegExp(`^${escRegex(label)} (\\d+)\\.`, 'i');
+    let n = existentes.reduce((max, f) => { const m = (f.name || '').match(re); return m ? Math.max(max, Number(m[1])) : max; }, 0);
+    // La extensión y el tipo, los DETECTADOS (no los del navegador).
+    const plan = validos.map(({ f, tipo }) => ({ f, tipo, nombre: `${label} ${++n}.${tipo.ext}` }));
+
+    return mapLimit(plan, 3, async ({ f, tipo, nombre }) => {
+        try {
+            const r = await driveService.saveFileToFolder(carpeta, nombre, tipo.mime, f.buffer, { throwOnError: true });
+            const at = new Date().toISOString();
+            const mime = tipo.mime;
+            // Con los alias de `reforma_uploads` del CRM y de los CEE directos
+            // (`name`, `at`, `subido_por`, `mimeType`, `estado`), para que la
+            // envolvente y el generador (origen `ext`) la lean igual que allí.
+            return { ok: true, entry: {
+                driveId: r.id, nombre, mime, link: r.link || null, size: f.size, subido_at: at, por,
+                name: nombre, at, subido_por: por, mimeType: mime, estado: 'subida',
+            } };
+        } catch (e) {
+            return { ok: false, nombre: f.originalname, error: e.message };
+        }
+    });
+}
+
+/**
+ * Quita un fichero de un apartado (y lo manda a la papelera de Drive). En un
+ * encargo, lo que vino del CRM solo se desengancha de la obra (crm.quitarFoto).
+ */
 async function borrar(obra, slotId, driveId) {
     await slotDe(slotId);
     const lista = obra.documentacion?.reforma_uploads?.[slotId] || [];
-    if (!lista.some(e => e?.driveId === driveId)) throw fallo(404, 'Ese archivo no está en este apartado.', 'FICHERO_NO_ENCONTRADO');
+    const entrada = lista.find(e => e?.driveId === driveId);
+    if (!entrada) throw fallo(404, 'Ese archivo no está en este apartado.', 'FICHERO_NO_ENCONTRADO');
     const resto = lista.filter(e => e?.driveId !== driveId);
     const { error } = await supabase.rpc('certapp_docs_replace_slot', { p_id: obra.id, p_slot: slotId, p_array: resto });
     if (error) throw errorBd(error, 'borrar fichero');
+    if (crm.esDeCrm(obra) && !(await crm.quitarFoto(obra, entrada))) return { ok: true, quedan: resto.length };
     driveService.deleteFile(driveId).catch(() => {});
     return { ok: true, quedan: resto.length };
 }

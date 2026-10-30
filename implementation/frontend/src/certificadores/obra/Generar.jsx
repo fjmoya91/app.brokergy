@@ -8,6 +8,7 @@
 // 3. Se guarda lo pendiente (el servidor mira la obra guardada, no la pantalla)
 //    y POST /obras/:id/generar { genericos } → SendActionOverlay. 402: sin
 //    créditos; 422: el barrido del servidor (manda el suyo); 409: ya pedido.
+// Un encargo de BROKERGY (obra/Encargo.jsx) no gasta créditos y se acepta antes de pedirlo.
 import { useMemo, useState } from 'react';
 import axios from 'axios';
 import SendActionOverlay from '../../components/SendActionOverlay';
@@ -44,7 +45,10 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
     // Si el servidor dijo que faltaba algo (422), manda lo suyo mientras no se cambie nada.
     const b = barridoServ && barridoServ.form === form ? barridoServ.barrido : local;
     const creditos = Number(cuenta?.creditos ?? 0);
-    const sinCreditos = cuenta && creditos <= 0;
+    // Un encargo de BROKERGY no gasta créditos, pero se acepta antes (409 ENCARGO_SIN_ACEPTAR).
+    const deBrokergy = !!obra?.crm;
+    const sinAceptar = deBrokergy && obra.crm.encargo?.estado !== 'ACEPTADO';
+    const sinCreditos = !deBrokergy && cuenta && creditos <= 0;
     const avisos = b.avisos.filter(a => !String(a.id).startsWith('placa_'));
 
     const ir = (paso) => {
@@ -63,7 +67,7 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
         try {
             const lista = Object.keys(genericos).filter(k => genericos[k]);
             const { data } = await axios.post(`${API}/obras/${obra.id}/generar`, { genericos: lista });
-            setRes({ ok: true, creditos: data?.creditos });
+            setRes({ ok: true, creditos: data?.creditos, encargo: !!data?.encargo });
             setFase('done');
             refrescar?.();
         } catch (err) {
@@ -184,10 +188,14 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
             {error && <div className="ca-aviso ca-aviso-ambar"><span className="ca-ico-tile"><IcoAlerta size={18} /></span><div>{error}</div></div>}
 
             <div className="ca-btns" style={{ marginTop: 4 }}>
-                <button type="button" className="ca-btn ca-btn-pri" onClick={pedir} disabled={!b.listo || sinCreditos || guardando}>
+                <button type="button" className="ca-btn ca-btn-pri" onClick={pedir} disabled={!b.listo || sinCreditos || sinAceptar || guardando}>
                     {guardando ? <><Spinner /> Guardando…</> : <><IcoChispa /> Pedir el certificado</>}
                 </button>
-                {cuenta && (
+                {deBrokergy ? (
+                    <p className="ca-peq" style={{ textAlign: 'center', margin: '4px 0 0' }}>
+                        {sinAceptar ? 'Acepta primero el encargo (arriba).' : `Encargo de BROKERGY ${obra.crm.numero || ''}: no gasta tus certificados.`}
+                    </p>
+                ) : cuenta && (
                     <p className="ca-peq" style={{ textAlign: 'center', margin: '4px 0 0' }}>
                         {sinCreditos ? 'No te quedan certificados.' : `Gasta 1 de tus ${creditos} certificados. Si no podemos hacerlo, te lo devolvemos.`}
                     </p>
@@ -204,7 +212,8 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
                 errorTitle="No se ha podido pedir"
                 items={res.ok ? [
                     'Te avisaremos por WhatsApp y email cuando esté listo.',
-                    ...(res.creditos != null ? [{ texto: `Te quedan ${res.creditos} certificados.`, tono: 'info' }] : []),
+                    ...(res.encargo ? [{ texto: 'Es un encargo de BROKERGY: no ha gastado ninguno de tus certificados.', tono: 'info' }]
+                        : res.creditos != null ? [{ texto: `Te quedan ${res.creditos} certificados.`, tono: 'info' }] : []),
                 ] : []}
                 errorText={res.error}
                 onClose={cerrarOverlay}

@@ -121,6 +121,10 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     // parte diario de seguimiento (routes/acciones.js) con la clave interna, para no
     // duplicar el envío ni el sellado del historial. Su middleware es internalKeyOrAuth.
     { method: 'POST', re: /^\/[^/]+\/notify-certificador\/?$/ },
+    // «Pendiente de revisión»: además del certificador con sesión, la app de
+    // certificadores al firmar un encargo (services/certapp/crm.js), con la clave
+    // interna. Su middleware propio es internalKeyOrAuth.
+    { method: 'POST', re: /^\/[^/]+\/notify-review\/?$/ },
     // Lo que devuelve la sede cuando presenta la casa (skill presentar-cee): lo sube
     // un script con la clave interna. Su middleware propio es staffOClaveInterna.
     { method: 'POST', re: /^\/[^/]+\/presentacion-cee\/devuelto\/?$/ },
@@ -6837,6 +6841,17 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         }
         const encargoPendiente = template === 'standard' && soloAsignar && !esDeBrokergy(cert) && !delAgente;
 
+        // ¿Usa la APP de certificadores? (cuenta con el MISMO email que su ficha):
+        // entonces el encargo le llega a su panel, lo acepta o rechaza allí y el
+        // enlace del mensaje lleva a la app (services/certapp/crm.js). Si la app no
+        // responde, el encargo sale como siempre.
+        const certappCrm = require('../services/certapp/crm');
+        const cuentaApp = delAgente ? null : await certappCrm.cuentaDe(cert).catch((e) => {
+            console.warn('[notify-certificador] cuenta de la app:', e.message);
+            return null;
+        });
+        const encargoEnApp = !!cuentaApp && template === 'standard' && !encargoPendiente;
+
         // El AGENTE IA no se GUARDA como certificador (26/10/2026): en la barra
         // queda el de la casa (Fran), que firma, y el encargo del agente va a su
         // sello `cee.agente_ia[fase]` (`encargado`), que leen su cola y el radar.
@@ -6926,8 +6941,10 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         // ── Token de confirmación (cert-ack) ─────────────────────────────────────
         // Solo si algo sale: el enlace va dentro del email. Regenerarlo en un "solo
         // asignar" dejaría muerto el enlace de un encargo que sí se envió antes.
+        // Con la app, también en un «solo asignar» (el certificador de la casa): el
+        // «Aceptar» de la app es este mismo acuse. Sin pisar uno que ya hubiera.
         let ackLink = null;
-        if (!soloAsignar) {
+        if (!soloAsignar || (encargoEnApp && !workingCee.ack_token)) {
             const ackToken = crypto.createHash('sha256')
                 .update(`${req.params.id}-${certId}-${Date.now()}`)
                 .digest('hex').slice(0, 32);
@@ -7012,8 +7029,24 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         // si el mensaje llega sin ella (otra superficie, un navegador sin
         // refrescar), se añade aquí — en lugar del enlace a la app, que va dentro.
         const { enlaceEncargo: enlaceDeEncargo, conEnlaceEncargo } = require('../services/encargoTecnico');
-        const encargoLink = soloAsignar ? null
+        let encargoLink = soloAsignar ? null
             : enlaceDeEncargo({ negocio: 'cae', id: req.params.id, fase: phase, certId });
+
+        // La obra en su app (nueva, o la misma si ya se le había encargado) y su
+        // enlace en lugar de la página del encargo. Un recordatorio no crea nada:
+        // solo lleva a la obra si ya la tiene.
+        let enApp = null;
+        if (cuentaApp) {
+            try {
+                enApp = encargoEnApp
+                    ? await certappCrm.encargar({ negocio: 'cae', id: req.params.id, fase: phase, cert, cuenta: cuentaApp })
+                    : await certappCrm.obraDelEncargo(cuentaApp.id, { negocio: 'cae', id: req.params.id, fase: phase })
+                        .then(o => (o && o.estado !== 'ARCHIVADA' ? { obra: o, nueva: false, url: certappCrm.urlEncargo({ negocio: 'cae', id: req.params.id, fase: phase }) } : null));
+            } catch (e) {
+                console.error('[notify-certificador] encargo en la app:', e.message);
+            }
+            if (enApp && !soloAsignar) encargoLink = enApp.url;
+        }
 
         // === EMAIL ===
         if (sendEmail) {
@@ -7094,7 +7127,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                     waMsg = `${urgentWaPrefix}¡Hola *${certName}*!\n\nTe hemos asignado el expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} para el *CEE Inicial*.\n\nTienes toda la documentación en la carpeta y el portal.${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 }
 
-                waMsg = conEnlaceEncargo(waMsg, encargoLink);
+                waMsg = enApp ? certappCrm.conEnlaceApp(waMsg, enApp.url) : conEnlaceEncargo(waMsg, encargoLink);
                 try {
                     const waRes = await whatsappService.sendText(certPhone, waMsg);
                     // sendText siempre encola en BD; si el cliente no está READY, se enviará al reconectar.
@@ -7159,11 +7192,15 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                     : ` · ${esRegistro ? 'Registro en Industria' : 'Emisión del CEE'}`;
                 const sentBody = customMessage || adminMessage;
                 const msgTag = sentBody ? `\n💬 Mensaje: "${sentBody}"` : '';
+                // El encargo también está en su app de certificadores (crm.encargar).
+                const appTag = enApp && encargoEnApp
+                    ? ` · 📲 en su app de certificadores (${enApp.obra.numero_expediente}), pendiente de que lo acepte`
+                    : '';
                 if (channels.length > 0) {
                     historial.push({
                         id: Date.now().toString() + '_certnotif',
                         tipo: 'notificacion_certificador',
-                        texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}${esperaTag}${priorityTag}) enviada a ${certName} vía ${channels.join(' + ')}${msgTag}`,
+                        texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}${esperaTag}${priorityTag}) enviada a ${certName} vía ${channels.join(' + ')}${appTag}${msgTag}`,
                         fecha: new Date().toISOString(),
                         usuario: userName,
                         priority,
@@ -7180,7 +7217,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                             ? `Certificador ${tecnico} asignado SIN AVISAR · el encargo del ${phaseLabel} queda PENDIENTE DE ENVIAR`
                             : delAgente
                                 ? `🤖 ${phaseLabel} encargado al AGENTE IA · lo prepara con las skills y avisa al terminar`
-                                : `Certificador ${tecnico} asignado (certificador de Brokergy: no se envía aviso)`,
+                                : `Certificador ${tecnico} asignado (certificador de Brokergy: no se envía aviso)${appTag}`,
                         fecha: new Date().toISOString(),
                         usuario: userName,
                     });
@@ -7226,6 +7263,8 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
             // la pantalla tiene que decirlo en vez de dar la tarea por hecha.
             asignadoSinAviso: soloAsignar,
             encargoPendiente,
+            // El encargo está en la app de certificadores del técnico (su nº de obra allí).
+            certapp: enApp ? { obra: enApp.obra.numero_expediente, nueva: !!enApp.nueva } : null,
             avisoCliente: avisoCliente
                 ? { canales: avisoCliente.canales, to: avisoCliente.to, nombre: avisoCliente.nombre }
                 : null,
@@ -7345,11 +7384,14 @@ router.post('/:id/cert-ack', async (req, res) => {
 // ─── POST /api/expedientes/:id/notify-review ──────────────────────────────
 // El certificador notifica que ha subido el CEX y está pendiente de revisión
 // Body: { phase, priority?, techMessage? }
-router.post('/:id/notify-review', enforceAuth, async (req, res) => {
+router.post('/:id/notify-review', internalKeyOrAuth, async (req, res) => {
     try {
         const { phase } = req.body;
         const priority = req.body?.priority === 'urgent' ? 'urgent' : 'normal';
         const techMessage = (req.body?.techMessage || '').trim() || null;
+        // Por la clave interna (la app de certificadores) no hay sesión: quién lo
+        // entrega viene en el cuerpo.
+        if (req.internalCall) req.user = { nombre: String(req.body?.quien || 'Técnico (app de certificadores)').slice(0, 120) };
 
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')

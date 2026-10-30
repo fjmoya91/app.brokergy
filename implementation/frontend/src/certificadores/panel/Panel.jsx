@@ -4,14 +4,16 @@
 // Con la API caída se dice («no hemos podido cargar»), NUNCA «0 obras».
 // Con el menú lateral (PC, 26/10/2026): el saludo con los créditos y «Nueva obra» se
 // quedan en el menú; aquí, el buscador y «Lo siguiente» de cada obra.
+// ENCARGOS DE BROKERGY (30/10/2026, obra/Encargo.jsx): los que están por aceptar, arriba
+// del todo; y en la lista, cada encargo con su sello «BROKERGY · nº del CRM».
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { API, comoLista, fecha, haceCuanto, useCarga } from '../api';
 import { useCertappAuth } from '../auth/CertappAuth';
 import { Enlace, navegar, useRuta } from '../router';
 import { Aviso, ErrorRed, Esqueleto } from '../ui/piezas';
-import { IcoBuscar, IcoChevron, IcoMas, IcoUsuario } from '../ui/Iconos';
-import { estadoDe, nombreObra } from '../obra/comun';
+import { IcoBuscar, IcoCasa, IcoChevron, IcoMas, IcoUsuario } from '../ui/Iconos';
+import { encargoPendiente, estadoDe, faseEncargo, nombreObra } from '../obra/comun';
 
 const FILTROS = [
     { id: 'todas', label: 'Todas', f: () => true },
@@ -30,9 +32,11 @@ const SIGUIENTE = {
     VALIDADO: { t: 'Registrarlo' },
 };
 const Siguiente = ({ o }) => {
-    const s = SIGUIENTE[o.estado];
+    const s = encargoPendiente(o) ? { t: 'Aceptar o rechazar el encargo', fuerte: true } : SIGUIENTE[o.estado];
     return s ? <span className={`ca-sigtxt${s.fuerte ? ' ca-sigtxt-fuerte' : ''}`}>{s.t}</span> : <span className="ca-sigtxt">—</span>;
 };
+// Un encargo de BROKERGY (obra/Encargo.jsx): su sello con el número del CRM.
+const SelloBrokergy = ({ o }) => (o.crm ? <span className="ca-sello-bkg" title={`Encargo de BROKERGY · ${faseEncargo(o.crm)}`}>BROKERGY{o.crm.numero ? ` · ${o.crm.numero}` : ''}</span> : null);
 // Buscar sin tildes ni mayúsculas.
 const plano = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -50,6 +54,7 @@ export default function Panel() {
 
     const obras = useMemo(() => datos || [], [datos]);
     const listas = obras.filter(o => o.estado === 'LISTO').length;
+    const encargos = obras.filter(encargoPendiente);
     const [buscar, setBuscar] = useState('');
     const visibles = useMemo(() => {
         const q = plano(buscar).trim();
@@ -86,6 +91,27 @@ export default function Panel() {
                         <Aviso tono="ok" titulo="Ya tienes tu cuenta">
                             Empieza por «Nueva obra»: con la referencia catastral traemos el resto del Catastro.
                         </Aviso>
+                    )}
+                    {encargos.length > 0 && (
+                        <section className="ca-card ca-pad ca-encargo" aria-label="Encargos de BROKERGY">
+                            <p className="ca-eyebrow" style={{ margin: 0 }}>Encargos de BROKERGY</p>
+                            <h2 className="ca-display ca-h3" style={{ margin: '6px 0 0' }}>
+                                {encargos.length === 1 ? 'Te hemos encargado un certificado' : `Te hemos encargado ${encargos.length} certificados`}
+                            </h2>
+                            <p className="ca-peq" style={{ marginTop: 4 }}>Ábrelo para aceptarlo o rechazarlo. No gasta tus certificados.</p>
+                            <div className="ca-stack" style={{ marginTop: 10 }}>
+                                {encargos.map(o => (
+                                    <button key={o.id} type="button" className="ca-fila" onClick={() => navegar(`/obra/${o.id}`)}>
+                                        <span className="ca-ico-tile ca-tile-naranja" aria-hidden="true"><IcoCasa /></span>
+                                        <span>
+                                            <b>{nombreObra(o)}</b>
+                                            <small>{o.crm.numero || 'BROKERGY'} · {faseEncargo(o.crm)} · {lugar(o)}</small>
+                                        </span>
+                                        <IcoChevron />
+                                    </button>
+                                ))}
+                            </div>
+                        </section>
                     )}
                     {listas > 0 && (
                         <Aviso tono="info" className="ca-sin-menu" titulo={`${listas} ${listas === 1 ? 'certificado listo' : 'certificados listos'} para revisar`}>
@@ -149,6 +175,7 @@ export default function Panel() {
                                         <span className={`ca-chip ${estadoDe(o.estado).chip}`}>{estadoDe(o.estado).label}</span>
                                     </div>
                                     <b>{nombreObra(o)}</b>
+                                    {o.crm && <span><SelloBrokergy o={o} /></span>}
                                     <small>{lugar(o)}</small>
                                     <small><Siguiente o={o} /> · {haceCuanto(cuando(o))}</small>
                                 </Enlace>
@@ -166,7 +193,7 @@ export default function Panel() {
                                                 <Enlace to={`/obra/${o.id}`} className="ca-tabla-enlace" onClick={e => e.stopPropagation()}>
                                                     <b>{nombreObra(o)}</b>
                                                 </Enlace>
-                                                <div className="ca-peq ca-mono">{o.numero_expediente || '—'}</div>
+                                                <div className="ca-peq ca-mono">{o.numero_expediente || '—'} <SelloBrokergy o={o} /></div>
                                             </td>
                                             <td className="ca-trunc">{lugar(o)}</td>
                                             <td><span className={`ca-chip ${estadoDe(o.estado).chip}`}>{estadoDe(o.estado).label}</span></td>

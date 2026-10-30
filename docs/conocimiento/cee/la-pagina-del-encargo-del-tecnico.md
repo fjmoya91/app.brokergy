@@ -18,6 +18,11 @@ documentos de SU fase con visor, las fechas y los accesos (carpeta, envolvente, 
 | La página | [EncargoTecnicoView.jsx](implementation/frontend/src/features/encargo/EncargoTecnicoView.jsx) |
 | Prueba | `node implementation/backend/scripts/test_encargo_tecnico.mjs` |
 
+**Desde el 30/10/2026, si el técnico tiene cuenta en la app de certificadores** (mismo email), el
+WhatsApp y el botón del email del encargo llevan el enlace de la APP en lugar de esta página, y
+acepta, rechaza y entrega desde allí (regla 184, [encargos-de-brokergy-desde-el-crm.md](docs/conocimiento/certificadores-app/encargos-de-brokergy-desde-el-crm.md)).
+Si acepta con el enlace de acuse del email, la app lo da por aceptado: las dos vías acaban en el mismo acuse.
+
 **REGLA — el enlace es del TÉCNICO ASIGNADO.** El token es un HMAC de negocio + id +
 fase + `certificador_id`: al pasar el encargo a otro técnico, el enlace del anterior
 deja de valer SOLO (403 «este enlace ya no vale») y también sus fotos (404), sin

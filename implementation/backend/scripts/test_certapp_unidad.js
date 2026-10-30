@@ -470,6 +470,27 @@ function ok(cond, texto) {
     // ── Miniaturas: tamaños acotados (#8) ──────────────────────────────────
     ok([1, 99999, 'abc', undefined].every(s => drive.TAMANOS_MINI.includes(drive.tamanoMini(s))), 'miniaturas: el tamaño pedido se lleva a uno de 3 (la caché no crece con ?sz=)');
 
+    // ── Encargos de BROKERGY (services/certapp/crm.js) ─────────────────────
+    const crm = require(path.join(B, 'services/certapp/crm'));
+    ok(/\/encargo\/cae\/e1\/final$/.test(crm.urlEncargo({ negocio: 'CAE', id: 'e1', fase: 'final' })), 'encargo: el enlace estable de la app (/encargo/cae/:id/final)');
+    ok(crm.slotCrmDe('cae', 'FOTO_PLACA_CALDERA') === 'FOTO_PLACA_CALDERA_ANTES' && crm.slotCrmDe('cae', 'FOTO_TERMO') === 'FOTO_ACS_ANTES',
+        'encargo: las fotos de la app van a SU casilla del expediente (placa de la caldera, ACS)');
+    ok(crm.slotCrmDe('cae', 'FOTO_VENTANAS_DENTRO') === 'OTROS_ANTES' && crm.slotCrmDe('cee', 'FOTO_CALDERA') === 'OTROS_ANTES',
+        'encargo: lo que no tiene casilla en el CRM va a «Otros» (y en un CEE suelto, la caldera también)');
+    const traidas = crm.fotosDelCrm({
+        FOTO_CALDERA_ANTES: [{ driveId: 'd1', name: 'a.jpg' }, { driveId: 'd2', name: 'b.jpg', at: '2026-10-30' }],
+        FOTO_FACHADA_PRINCIPAL: [{ driveId: 'd3', name: 'f.jpg', estado: 'rechazada' }],
+        OTROS_ANTES: [{ driveId: 'd4', name: 'x.pdf' }], NO_EXISTE: [{ driveId: 'd5' }],
+    });
+    ok(traidas.FOTO_CALDERA?.length === 1 && traidas.FOTO_CALDERA[0].driveId === 'd2' && !traidas.FOTO_FACHADA_PRINCIPAL && !traidas.NO_EXISTE
+        && traidas.OTROS?.[0]?.mime === 'application/pdf' && traidas.OTROS[0].crm_slot === 'OTROS_ANTES',
+        'encargo: al encargar se traen las fotos del CRM (la última en un apartado de una sola; sin las rechazadas)');
+    const url = 'https://cee.brokergy.es/encargo/cae/e1/inicial';
+    const conPagina = crm.conEnlaceApp('Hola\n\n📋 Todo el encargo en una página:\nhttps://app.brokergy.es/encargo/tok\n\n*BROKERGY · Ingeniería Energética*', url);
+    ok(conPagina.includes(`${crm.TEXTO_ENLACE_APP}\n${url}`) && !conPagina.includes('app.brokergy.es/encargo'), 'encargo: el WhatsApp lleva el enlace de la app en lugar de la página del CRM');
+    const sinPagina = crm.conEnlaceApp('Hola\n\n*BROKERGY · Ingeniería Energética*', url);
+    ok(sinPagina.indexOf(url) < sinPagina.indexOf('*BROKERGY ·') && crm.conEnlaceApp(sinPagina, url) === sinPagina, 'encargo: sin página, el enlace va antes de la firma (y no se repite)');
+
     // ── Avisos: en seco por defecto ─────────────────────────────────────────
     delete process.env.CERTAPP_AVISOS_ENABLED;
     const avisos = require(path.join(B, 'services/certapp/avisos'));

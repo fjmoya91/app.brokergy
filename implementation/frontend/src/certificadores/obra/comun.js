@@ -14,6 +14,10 @@ export const ESTADOS = {
 };
 export const estadoDe = (e) => ESTADOS[e] || { label: e || '—', chip: 'ca-chip-gris', texto: '' };
 
+// Un encargo de BROKERGY (`obra.crm`, obra/Encargo.jsx): qué certificado es y si está por aceptar.
+export const faseEncargo = (c) => `${c?.fase === 'final' ? 'CEE final' : 'CEE inicial'}${c?.negocio === 'cee' ? ' · certificado suelto' : ''}`;
+export const encargoPendiente = (obra) => obra?.crm?.encargo?.estado === 'PENDIENTE';
+
 export const TITULAR_VACIO = { nombre: '', apellidos: '', nif: '', telefono: '', email: '' };
 
 // Las claves de la obra que edita la ficha (PUT /obras/:id parcial).

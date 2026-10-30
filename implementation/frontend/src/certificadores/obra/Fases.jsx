@@ -24,7 +24,9 @@ import { navegar, useRuta } from '../router';
 import { useMenuObra } from '../ui/menuObra';
 import { IcoAtras, IcoCamara, IcoCheck, IcoFlecha, Spinner } from '../ui/Iconos';
 import { IncidenciasObra } from '../incidencias/Incidencias';
+import { BorrarObra } from './BorrarObra';
 import { estadoDe, obraParaBarrido } from './comun';
+import { EncargoBrokergy } from './Encargo';
 import { FASES, FASE_POR_ID, faltaEnFase, faseActual, fotosDeLaFase, resumenFase } from './fasesFicha';
 import { FaseFotos } from './FaseFotos';
 import { IndiceSecciones } from './IndiceSecciones';
@@ -239,6 +241,9 @@ export function Fases({ o, id, movil }) {
                 {movil && <p className="ca-peq" style={{ margin: '8px 0 0' }}>Fase {f.n} de {FASES.length} · {f.titulo}</p>}
             </header>
 
+            {/* Un encargo de BROKERGY: aceptarlo o rechazarlo antes de nada (obra/Encargo.jsx). */}
+            <EncargoBrokergy o={o} />
+
             {FASES.slice(0, idx).map(x => (
                 <FasePlegada key={x.id} f={x} form={form} obra={obra} slots={slots} hecha={ok.includes(x.id)} onAbrir={() => abrir(x.id)} />
             ))}
@@ -248,7 +253,7 @@ export function Fases({ o, id, movil }) {
             <section className="ca-card ca-pad ca-fase ca-in-2" key={actual}>
                 <p className="ca-eyebrow" style={{ margin: 0 }}>Fase {f.n} de {FASES.length}</p>
                 <h2 className="ca-display ca-h2" style={{ margin: '4px 0 0' }}>{f.titulo}</h2>
-                <p className="ca-sub" style={{ marginTop: 2 }}>{f.sub}</p>
+                <p className="ca-sub" style={{ marginTop: 2 }}>{actual === 'generar' && obra.crm ? 'Encargo de BROKERGY: no gasta tus certificados' : f.sub}</p>
                 <div style={{ marginTop: 18 }}>{contenido}</div>
                 {falta && <p className="ca-peq ca-falta" role="status">{falta}</p>}
                 {!movil && botones && <div className="ca-btns ca-btns-nav">{botones}</div>}
@@ -268,6 +273,7 @@ export function Fases({ o, id, movil }) {
             )}
             <IncidenciasObra obraId={id} numero={obra.numero_expediente} className="ca-stack" />
             <p className="ca-peq" style={{ textAlign: 'center', marginTop: 14 }}>Se guarda solo mientras rellenas.</p>
+            <BorrarObra obra={obra} />
 
             {conBarra && (
                 <div className="ca-inf">

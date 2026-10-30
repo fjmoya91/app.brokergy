@@ -24,6 +24,7 @@
 // certificado, «Lo siguiente» y los atajos), Documentos, Fotos, Datos de la obra e
 // Historial, una cada vez con `?parte=`. En el PC van en el menú lateral (useMenuObra);
 // en el móvil, en la barra de abajo, con «Más» para el resto.
+// ENCARGO DE BROKERGY (obra/Encargo.jsx): arriba del Resumen, en qué punto lo tiene el CRM.
 import { Suspense, useState } from 'react';
 import { lazyWithReload } from '../../utils/lazyWithReload';
 import { createPortal } from 'react-dom';
@@ -37,6 +38,7 @@ import {
     CheckDibujado, IcoCarpeta, IcoCasa, IcoCheck, IcoChevron, IcoDoc, IcoEnviar, IcoImagen, IcoMenu, IcoPlano, IcoRecargar, IcoReloj, IcoSello, Spinner,
 } from '../ui/Iconos';
 import { estadoDe } from './comun';
+import { EncargoBrokergy } from './Encargo';
 import { FotosObra } from './Fotos';
 import { ListaDocumentos } from './Documentos';
 import { HojaPresentar } from './Presentar';
@@ -265,6 +267,8 @@ export function ObraCerrada({ o, resumen = [] }) {
             {parte === 'resumen' && (
             <div className="ca-obra-res">
             <div className="ca-parte">
+            {/* Un encargo de BROKERGY: en qué punto lo tiene el CRM (revisión, visto bueno, registro). */}
+            <EncargoBrokergy o={o} />
             <section className="ca-card ca-pad ca-in" id="obra-certificado">
                 <div className="ca-filete" />
                 <p className="ca-eyebrow" style={{ margin: 0 }}>El certificado</p>

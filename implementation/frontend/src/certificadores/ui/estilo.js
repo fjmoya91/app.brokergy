@@ -109,6 +109,12 @@ html body{background:var(--crema)!important;color:var(--tinta)}
 .ca-btn-sec:hover{border-color:rgba(20,17,17,.3)}
 .ca-btn-tinta{background:var(--tinta);color:#fff;min-height:52px;font-size:15.5px}
 .ca-btn-tinta:hover{filter:brightness(1.25)}
+.ca-btn-peligro{background:#b3261e;color:#fff;min-height:52px;font-size:15.5px}
+.ca-btn-peligro:hover{filter:brightness(1.1)}
+.ca-btn-borrar{display:inline-flex;align-items:center;gap:6px;background:none;border:0;padding:10px 12px;min-height:44px;color:#8a2a22;font:inherit;font-size:14px;font-weight:600;cursor:pointer;border-radius:12px}
+.ca-btn-borrar:hover{background:rgba(179,38,30,.07)}
+.ca-encargo{border:2px solid var(--naranja)}
+.ca-sello-bkg{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;background:var(--tinta);color:#fff;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;line-height:1}
 .ca-btn-ok{background:rgba(177,209,62,.22);color:var(--verde-txt);min-height:52px;font-size:15.5px}
 .ca-btn-peq{min-height:44px;font-size:14px;padding:0 14px;border-radius:12px;width:auto}
 .ca-btn-auto{width:auto}

@@ -2,7 +2,8 @@
 // Enrutado a mano por pathname (como el CRM). Tres vistas:
 //   PÚBLICA      /, /beta, /entrar, /activar, /recuperar, /privacidad, /condiciones
 //   CLIENTE      /s/:codigo → /subir/:id?token=  (el propietario sube fotos sin cuenta)
-//   CERTIFICADOR /panel, /obra/nueva, /obra/:id, /obra/:id/envolvente, /perfil
+//   CERTIFICADOR /panel, /obra/nueva, /obra/:id, /obra/:id/envolvente, /perfil,
+//                /encargo/:negocio/:id/:fase (el enlace de un encargo de BROKERGY → su obra)
 //   ADMIN        /admin, /admin/{beta|cuentas|obras|sugerencias}, /admin/obras/:id
 // ─────────────────────────────────────────────────────────────────────────────
 import { Suspense, useEffect } from 'react';
@@ -27,6 +28,7 @@ import SubirCliente from './publico/SubirCliente';
 import Panel from './panel/Panel';
 import NuevaObra from './obra/NuevaObra';
 import Ficha from './obra/Ficha';
+import { AbrirEncargo } from './obra/Encargo';
 import Perfil from './perfil/Perfil';
 import MisIncidencias from './incidencias/MisIncidencias';
 import MisGastos from './gastos/MisGastos';
@@ -182,6 +184,8 @@ function resolver(path) {
     if (path === '/obra/nueva') return { id: 'nueva', acceso: 'cuenta', titulo: 'Nueva obra' };
     if ((p = casar('/obra/:id/envolvente', path))) return { id: 'envolvente', acceso: 'sesion', params: p, titulo: 'Envolvente' };
     if ((p = casar('/obra/:id', path))) return { id: 'obra', acceso: 'cuenta', params: p, titulo: 'Obra' };
+    // El enlace del encargo de BROKERGY (services/certapp/crm.js → urlEncargo): abre su obra.
+    if ((p = casar('/encargo/:negocio/:id/:fase', path))) return { id: 'encargo', acceso: 'cuenta', params: p, titulo: 'Encargo de BROKERGY' };
     if (path === '/perfil') return { id: 'perfil', acceso: 'cuenta', titulo: 'Mi perfil' };
     if (path === '/incidencias') return { id: 'incidencias', acceso: 'cuenta', titulo: 'Mis incidencias' };
     if (path === '/gastos') return { id: 'gastos', acceso: 'cuenta', titulo: 'Mis gastos' };
@@ -221,6 +225,7 @@ export default function App() {
         case 'panel': pantalla = <Marco activo="panel"><Panel /></Marco>; break;
         case 'nueva': pantalla = <Marco activo="panel"><NuevaObra /></Marco>; break;
         case 'obra': pantalla = <Marco activo="panel" obraId={ruta.params.id}><Ficha key={ruta.params.id} id={ruta.params.id} /></Marco>; break;
+        case 'encargo': pantalla = <Marco activo="panel"><AbrirEncargo {...ruta.params} /></Marco>; break;
         case 'perfil': pantalla = <Marco activo="perfil"><Perfil /></Marco>; break;
         case 'incidencias': pantalla = <Marco activo="incidencias"><MisIncidencias /></Marco>; break;
         case 'gastos': pantalla = <Marco activo="gastos"><MisGastos /></Marco>; break;

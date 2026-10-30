@@ -75,6 +75,21 @@ function estadoInicial() {
             titular: { nombre: 'Carmen', apellidos: 'Díaz' }, pedido_at: hace(60 * 26), entregado_at: hace(60 * 3),
             cuestionario: { tipo_edificio: 'UNIFAMILIAR_AISLADA', cubierta: 'INCLINADA', colinda_no_calefactado: true, colindantes: ['GARAJE'], calefaccion: 'gasoleo', acs: 'misma_caldera' },
         }),
+        // Un encargo de BROKERGY por aceptar (services/certapp/crm.js → encargar): con el
+        // cliente, la vivienda y las fotos del expediente del CRM.
+        base({
+            id: 'demo-obra-4', numero_expediente: '2026EXT_4', nombre: 'Pedro Sánchez Mora', estado: 'BORRADOR',
+            ref_catastral: '7778889VJ1273S0001QQ', direccion: 'CALLE VIRGEN 31', municipio: 'Pedro Muñoz',
+            codigo_postal: '13620', superficie_catastro: 118, anio_construccion: 1972, proposito: 'AYUDAS', en_vivienda: false,
+            titular: { nombre: 'Pedro', apellidos: 'Sánchez Mora', telefono: '644444444' }, created_at: hace(5), updated_at: hace(5),
+            cuestionario: { propositos: ['AYUDAS'] },
+            documentacion: { reforma_uploads: {
+                FOTO_FACHADA_PRINCIPAL: [{ driveId: 'demo-crm-f1', nombre: 'FACHADA.jpg', mime: 'image/jpeg', subido_at: hace(60 * 24), por: 'BROKERGY' }],
+                FOTO_CALDERA: [{ driveId: 'demo-crm-c1', nombre: 'CALDERA.jpg', mime: 'image/jpeg', subido_at: hace(60 * 24), por: 'BROKERGY' }],
+            } },
+            crm: { negocio: 'cae', numero: '26RES060_999', fase: 'inicial', encargo: { estado: 'PENDIENTE', at: hace(5) } },
+            crmId: 'demo-exp-999', crmRevision: null,
+        }),
     ];
     const eventos = {
         'demo-obra-2': [
@@ -158,9 +173,13 @@ const vista = (o) => {
 };
 const sinAltaGoogle = (cfg) => !S.altaGoogle && /demo-google/.test(String(cfg?.headers?.Authorization || cfg?.headers?.authorization || ''));
 const paraCertificador = (o) => {
-    const { portal_token, cuenta_id, ...resto } = o; // eslint-disable-line no-unused-vars
-    return resto;
+    const { portal_token, cuenta_id, crmId, crmRevision, ...resto } = o; // eslint-disable-line no-unused-vars
+    return { ...resto, crm: o.crm || null };
 };
+// Como crm.resumen: el encargo y lo que dice ahora el CRM (aquí, `crmRevision`).
+const encargoDe = (o) => (o.crm ? {
+    ...o.crm, fase_label: o.crm.fase === 'final' ? 'CEE final' : 'CEE inicial', enviado_at: o.firmado?.at || null, revision: o.crmRevision || null,
+} : null);
 const enlaces = (o) => (['LISTO', 'VALIDADO'].includes(o.estado) ? {
     pdf: miniatura('CEE PDF', '#fff'), firmado: o.firmado ? miniatura('CEE FIRMADO', '#fff') : null, cex: null, xml: miniatura('XML', '#fff'), croquis: null,
     carpeta: 'https://drive.google.com/', envolvente: `/obra/${o.id}/envolvente?origen=ext`,
@@ -261,6 +280,7 @@ const listaObra = (o) => ({
     id: o.id, numero_expediente: o.numero_expediente, nombre: o.nombre, direccion: o.direccion, municipio: o.municipio,
     provincia: o.provincia, ref_catastral: o.ref_catastral, estado: o.estado, proposito: o.proposito, en_vivienda: o.en_vivienda,
     created_at: o.created_at, updated_at: o.updated_at, pedido_at: o.pedido_at || null, entregado_at: o.entregado_at || null,
+    crm: o.crm || null,
 });
 const evento = (obraId, tipo, texto, por = 'certificador') => {
     (S.eventos[obraId] ||= []).unshift({ id: uuid(), created_at: ahora(), tipo, texto, por });
@@ -341,7 +361,29 @@ const RUTAS = [
     }],
     ['GET', /^\/api\/certapp\/obras\/([^/]+)$/, (b, [, id]) => {
         const o = obraDe(id);
-        return { obra: paraCertificador(o), barrido: barrido(o, S.cuenta), eventos: S.eventos[id] || [], enlaces: enlaces(o), cee: ceeDe(o) };
+        return { obra: paraCertificador(o), barrido: barrido(o, S.cuenta), eventos: S.eventos[id] || [], enlaces: enlaces(o), cee: ceeDe(o), encargo: encargoDe(o) };
+    }],
+    // Encargos de BROKERGY (routes/certapp.js → services/certapp/crm.js).
+    ['GET', /^\/api\/certapp\/encargo\/([^/]+)\/([^/]+)\/([^/]+)$/, (b, [, negocio, crmId, fase]) => {
+        const o = S.obras.find(x => x.crm && x.crm.negocio === negocio && x.crmId === decodeURIComponent(crmId) && x.crm.fase === fase && x.estado !== 'ARCHIVADA');
+        if (!o) fallo(404, 'Ese encargo no está en tu cuenta. ¿Has entrado con el email al que te lo mandamos?', 'ENCARGO_NO_ENCONTRADO');
+        return { obra_id: o.id, estado: o.estado };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/encargo\/aceptar$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (!o.crm) fallo(400, 'Esta obra no es un encargo de BROKERGY.', 'NO_ES_ENCARGO');
+        o.crm = { ...o.crm, encargo: { estado: 'ACEPTADO', at: ahora() } };
+        evento(o.id, 'ENCARGO_ACEPTADO', `Encargo ${o.crm.numero} aceptado`);
+        return { ok: true, obra: paraCertificador(o), encargo: encargoDe(o), __espera: 600 };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/encargo\/rechazar$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (!o.crm) fallo(400, 'Esta obra no es un encargo de BROKERGY.', 'NO_ES_ENCARGO');
+        if (o.crm.encargo?.estado === 'ACEPTADO') fallo(409, 'Ya lo aceptaste. Si al final no puedes hacerlo, escríbenos y lo pasamos a otro técnico.', 'ENCARGO_ACEPTADO');
+        o.crm = { ...o.crm, encargo: { estado: 'RECHAZADO', at: ahora(), motivo: b.motivo || null } };
+        o.estado = 'ARCHIVADA';
+        evento(o.id, 'ENCARGO_RECHAZADO', `Encargo ${o.crm.numero} rechazado${b.motivo ? `: ${b.motivo}` : ''}`);
+        return { ok: true, obra: paraCertificador(o), __espera: 600 };
     }],
     // Firma y definitivo (services/certapp/firma.js). AutoFirma no corre en la
     // demo: el modal se abre con el recuadro colocado, pero no firma.
@@ -477,6 +519,14 @@ const RUTAS = [
         up.FOTO_FACHADA_PRINCIPAL = [...(up.FOTO_FACHADA_PRINCIPAL || []), nuevo];
         return { ok: true, subidos: [nuevo], rechazados: [], errores: [], slots: vista(o).slots, __espera: 700 };
     }],
+    // Borrar una obra: como el servidor, solo un borrador sin crédito gastado.
+    ['DELETE', /^\/api\/certapp\/obras\/([^/]+)$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (o.crm) fallo(409, 'Es un encargo de BROKERGY: no se borra; si no puedes hacerlo, recházalo.', 'ENCARGO_CRM');
+        if (o.estado !== 'BORRADOR' || o.credito_consumido) fallo(409, 'Esta obra ya está pedida: no se puede borrar.', 'OBRA_CERRADA');
+        S.obras = S.obras.filter(x => x.id !== id);
+        return { ok: true, numero: o.numero_expediente, carpeta: 'papelera', __espera: 500 };
+    }],
     ['DELETE', /^\/api\/certapp\/obras\/([^/]+)\/docs\/([^/]+)\/([^/]+)$/, (b, [, id, slot, driveId]) => {
         const o = obraDe(id);
         const up = o.documentacion.reforma_uploads || {};
@@ -499,6 +549,13 @@ const RUTAS = [
         if (o.estado !== 'BORRADOR') fallo(409, 'Este certificado ya está pedido.', 'YA_PEDIDO');
         const r = barrido(o, S.cuenta);
         if (!r.listo) fallo(422, 'Falta algo para poder pedir el certificado.', 'BARRIDO', { barrido: r });
+        if (o.crm) {
+            // Un encargo de BROKERGY: aceptado antes, y sin gastar créditos.
+            if (o.crm.encargo?.estado !== 'ACEPTADO') fallo(409, 'Acepta primero el encargo de BROKERGY.', 'ENCARGO_SIN_ACEPTAR');
+            Object.assign(o, { estado: 'EN_PREPARACION', pedido_at: ahora() });
+            evento(o.id, 'GENERAR', `Certificado pedido (encargo de BROKERGY ${o.crm.numero}: no gasta tus créditos)`);
+            return { ok: true, obra: paraCertificador(o), creditos: S.cuenta.creditos, encargo: true, ia: { auto: false, ok: null }, __espera: 1400 };
+        }
         if (S.cuenta.creditos <= 0) fallo(402, 'No te quedan certificados.', 'SIN_CREDITOS');
         S.cuenta.creditos -= 1; S.cuenta.creditos_usados += 1;
         apuntarMov('GASTO', -1, 'Certificado pedido', o.id);
