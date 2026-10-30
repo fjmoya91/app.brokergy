@@ -28,7 +28,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24) · 3,5 KB
 - `docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md` — Los documentos de la obra: visor, firmar desde el visor, versiones y el `.cex` en cuarentena (2026-10-26) · 7,4 KB
 - `docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md` — El CEE de una obra: el encargo, la calificación en el PC, el aviso, la entrega y la firma (2026-10-25) · 11,1 KB
-- `docs/conocimiento/certificadores-app/el-movil-en-la-visita-iphone-y-fotos-sin-cobertura.md` — El móvil en la visita: iPhone, fotos sin cobertura y el teclado (2026-10-30) · 4,3 KB
+- `docs/conocimiento/certificadores-app/el-movil-en-la-visita-iphone-y-fotos-sin-cobertura.md` — El móvil en la visita: iPhone, fotos sin cobertura y el teclado (2026-10-30) · 6,6 KB
 - `docs/conocimiento/certificadores-app/encargos-de-brokergy-desde-el-crm.md` — Los encargos de BROKERGY: del CRM a la app y vuelta (2026-10-30) · 6,4 KB
 - `docs/conocimiento/certificadores-app/fase-5-fuera-enlace-corto-y-fachada.md` — Sin la fase 5, el enlace corto, la fachada propuesta y la numeración desde el 1 (2026-10-26) · 4,9 KB
 - `docs/conocimiento/certificadores-app/fotos-opcionales-y-equipo-generico.md` — Las fotos opcionales («Ahora no») y el equipo genérico con su antigüedad (2026-10-25) · 3,7 KB

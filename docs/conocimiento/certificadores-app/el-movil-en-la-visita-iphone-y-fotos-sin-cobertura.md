@@ -20,18 +20,29 @@ Ahora ([useObra.js](implementation/frontend/src/certificadores/obra/useObra.js),
 - sin respuesta (sin red), 5xx, 429, 408 o 401 → **se reintenta solo** tres veces (1,5 s, 4 s y 9 s).
   El 401 entra porque al volver de la cámara Supabase renueva el token al ponerse la página en primer
   plano: tras la espera la petición sale con el nuevo;
-- lo que aun así no sube queda en `pendientes` (en memoria, por apartado), y el apartado enseña el
-  aviso y **«Reintentar (N archivos sin subir)»**, que manda los mismos ficheros sin repetir la foto;
+- lo que aun así no sube queda en `pendientes` (por apartado), y el apartado enseña el aviso,
+  **«Reintentar (N archivos sin subir)»**, que manda los mismos ficheros sin repetir la foto, y
+  **«Olvidar»**, que los borra;
 - con fotos subiendo o pendientes, salir de la página (`beforeunload`) pide confirmación.
 
 Los ficheros del `input` se copian ANTES de vaciarlo: vaciar `value` vacía también su `FileList`.
 
-Lo que **no** cubre: los pendientes viven en memoria. Si Safari descarta la pestaña en segundo plano
-(memoria, horas con el móvil bloqueado) se pierden. Para eso haría falta una cola en IndexedDB.
+**Y se guardan EN EL MÓVIL** ([colaFotos.js](implementation/frontend/src/certificadores/obra/colaFotos.js),
+IndexedDB `certapp_cola`): cada foto, ya reducida, se apunta ANTES de mandarla y se borra al subir (o
+si el servidor la rechaza: reintentarla no lo arregla). Safari descarta la pestaña en segundo plano
+(la cámara, horas con el móvil bloqueado) y lo que solo estaba en memoria se perdía; ahora, al volver
+a abrir la obra, lo que no llegó sale en su apartado como «N archivos guardados en este móvil sin
+subir», con «Reintentar». Lo ya apuntado no se reduce otra vez. Un vídeo de más de 60 MB no se copia
+(llenaría el espacio del navegador): ese sigue solo en memoria. Si IndexedDB no está (navegación
+privada, sin espacio), todo funciona como antes, en memoria: nada de la cola puede romper una subida.
+La cola es de ESTE navegador: en otro móvil, o en la app instalada en la pantalla de inicio (que en
+iOS tiene su propio almacenamiento), no se ve.
 
 Probado en la demo haciendo fallar el envío como un «Network Error»: de tres fotos, la 2.ª fallaba
 sus cuatro intentos → subían la 1.ª y la 3.ª, la 2.ª quedaba con «Reintentar» y al pulsarlo subía
-(3 ✓). La reducción ya existente sigue igual: una JPEG de 4032×3024 de 8,2 MB salió a 2,0 MB.
+(3 ✓). La cola: dos fotos sin red → dos filas en IndexedDB; recargada la página, el
+apartado las enseña con «Reintentar» y, con red, suben (2 ✓) y la cola queda vacía; «Olvidar» la
+vacía también. La reducción ya existente sigue igual: una JPEG de 4032×3024 de 8,2 MB salió a 2,0 MB.
 
 ### iPhone: lo que se ha comprobado en el código
 
@@ -48,13 +59,28 @@ sus cuatro intentos → subían la 1.ª y la 3.ª, la 2.ª quedaba con «Reinten
   (`.ca-inf`) y los botones flotantes se ocultan; en iOS se quedaban encima del teclado tapando el
   campo.
 - **Referencia catastral**: `autoCapitalize="characters"` y sin autocorrección.
+- **Los botones flotantes** (incidencias y asistente) tapaban a 375–440 px «Es correcto» del alta,
+  «Ver» del croquis en Documentos y el valor de la fase 1: en el móvil (<700 px) se apartan al BAJAR
+  la página y vuelven al subir o arriba del todo (`useApartarAlBajar`, [Flotantes.jsx](implementation/frontend/src/certificadores/widgets/Flotantes.jsx)).
+  El final de la página ya tenía su hueco (`.ca-con-fabs`).
+- **«La siguiente» a la vista**: en la fase de fotos a 375 px, la cabecera, las tres fases hechas
+  (una por línea) y el índice dejaban la tarjeta bajo la barra de abajo. En el móvil, con dos o más
+  fases detrás, van en UNA fila de botones pequeños (`FasesPlegadasMovil`, [Fases.jsx](implementation/frontend/src/certificadores/obra/Fases.jsx)),
+  y al entrar en una fase que no es la primera la página baja hasta ella (con `window.scrollTo`
+  calculado: `scrollIntoView` no mueve el índice, que es `sticky`; y en un `setTimeout`, para ir
+  después del «arriba del todo» de `navegar`).
+- **Fase 1**: la referencia y la zona climática salían dos veces (el resumen del Catastro y el de
+  `Inmueble`); `Inmueble` lleva `sinDatos` ahí y el uso pasa al resumen.
+- **«Hacer foto»** abre la cámara para UNA foto (iOS y Android): la visita guiada ya no dice «puedes
+  hacer varias seguidas».
 - `100dvh`, `safe-area-inset` y las hojas con `createPortal` ya estaban bien.
 
 ### Lo que se queda para el ordenador
 
 Firmar (AutoFirma) y presentar en la sede de la JCCM (certificado electrónico) no se hacen desde el
-iPhone. En el móvil, «Ver, validar y firmar» sigue enseñando «Firmar con AutoFirma» sin avisar de que
-allí no va: pendiente de decir «fírmalo en el ordenador» en pantallas táctiles.
+iPhone. En una pantalla táctil (`pointer: coarse`), el pie del visor de «Ver, validar y firmar» dice
+que AutoFirma va en el ordenador y que se firme luego desde el PC; el botón se deja (un Android con el
+cliente @firma podría abrirlo).
 
 ### «Añadir a pantalla de inicio»
 

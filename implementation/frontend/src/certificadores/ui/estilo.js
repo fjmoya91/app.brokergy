@@ -406,6 +406,8 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 }
 /* botones flotantes */
 .ca-fabs{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom) + var(--ca-inf));z-index:50;display:flex;flex-direction:column;align-items:flex-end;gap:10px;font-family:'Inter',sans-serif}
+.ca-fabs{transition:transform .25s cubic-bezier(.2,.8,.2,1),opacity .2s}
+.ca-fabs-fuera{transform:translateX(calc(100% + 24px));opacity:0;pointer-events:none}
 .ca-fab{appearance:none;-webkit-tap-highlight-color:transparent;display:inline-flex;align-items:center;gap:8px;height:52px;min-width:52px;padding:0 16px;border-radius:999px;border:1px solid var(--linea);background:#fff;color:var(--tinta);font:700 14px 'Inter',sans-serif;cursor:pointer;box-shadow:0 10px 28px -12px rgba(20,17,17,.35)}
 .ca-fab-tinta{background:var(--tinta);color:#fff;border-color:var(--tinta)}
 .ca-fab-peq{height:44px;min-width:44px;padding:0 12px;font-size:13px}
@@ -681,6 +683,13 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-fase-plegada .ca-link{margin:0;min-height:0}
 .ca-fase-plegada:not(.ca-fase-pend) .ca-paso-n{background:rgba(177,209,62,.25);border-color:rgba(177,209,62,.5);color:var(--verde-txt)}
 .ca-fase-plegada:focus-visible{outline:3px solid var(--tinta);outline-offset:3px}
+.ca-col > .ca-plegadas-movil{margin-top:12px}
+.ca-plegadas-movil{display:flex;flex-wrap:wrap;gap:8px}
+.ca-plegada-mini{appearance:none;display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:4px 12px 4px 5px;border:1px solid var(--linea);background:#fff;border-radius:999px;cursor:pointer;font:600 13px 'Inter',sans-serif;color:var(--tinta);box-shadow:var(--sombra)}
+.ca-plegada-mini .ca-paso-n{width:28px;height:28px}
+.ca-plegada-mini:not(.ca-fase-pend) .ca-paso-n{background:rgba(177,209,62,.25);border-color:rgba(177,209,62,.5);color:var(--verde-txt)}
+.ca-plegada-mini.ca-fase-pend .ca-paso-n{background:var(--ambarF-bg);border-color:var(--ambarF-borde);color:var(--ambarF-txt)}
+.ca-plegada-mini:focus-visible{outline:3px solid var(--tinta);outline-offset:3px}
 .ca-falta{margin:14px 0 0;color:var(--ambarF-txt);font-weight:600}
 .ca-btns-nav{display:flex;gap:10px;margin-top:22px}
 .ca-btns-nav .ca-btn-sec{flex:0 0 auto;width:auto;padding:0 18px}

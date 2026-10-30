@@ -62,6 +62,7 @@ function CatastroResumen({ obra }) {
             {usos.length > 0 && <div><dt>En la parcela</dt><dd>{usos.join(' · ')}</dd></div>}
             {cat.plantas ? <div><dt>Plantas</dt><dd>{cat.plantas}</dd></div> : null}
             <div><dt>Zona climática</dt><dd>{obra?.zona_climatica || '—'}</dd></div>
+            {obra?.uso && <div><dt>Uso</dt><dd>{obra.uso}</dd></div>}
         </dl>
     );
 }
@@ -111,6 +112,27 @@ function FasePlegada({ f, form, obra, slots, hecha, onAbrir }) {
     );
 }
 
+/**
+ * En el móvil, con dos o más fases detrás, van en UNA fila de botones pequeños:
+ * plegadas una por línea llenaban la pantalla y, en las fotos, «La siguiente»
+ * quedaba bajo el pliegue a 375 px. El resumen de cada una sale en su `title`.
+ */
+function FasesPlegadasMovil({ fases, form, obra, slots, ok, onAbrir }) {
+    return (
+        <nav className="ca-plegadas-movil ca-sin-menu" aria-label="Fases anteriores">
+            {fases.map(x => {
+                const hecha = ok.includes(x.id);
+                return (
+                    <button key={x.id} type="button" className={`ca-plegada-mini${hecha ? '' : ' ca-fase-pend'}`} onClick={() => onAbrir(x.id)}
+                        title={resumenFase(x.id, form, obra, slots) || undefined} aria-label={`Cambiar ${x.titulo}`}>
+                        <span className="ca-paso-n">{hecha ? <IcoCheck size={12} sw={3} /> : FASE_POR_ID[x.id].n}</span>{x.titulo}
+                    </button>
+                );
+            })}
+        </nav>
+    );
+}
+
 export function Fases({ o, id, movil }) {
     const { obra, form, slots } = o;
     const { query } = useRuta();
@@ -127,7 +149,7 @@ export function Fases({ o, id, movil }) {
     const ctx = {
         form, obra, slots, editable: o.editable,
         setCampo: o.setCampo, setC: o.setC, setCuestionario: o.setCuestionario, setTitular: o.setTitular, setDecision: o.setDecision,
-        subir: o.subir, reintentar: o.reintentar, pendientes: o.pendientes, quitar: o.quitar, subiendo: o.subiendo, docsError: o.docsError, recargarDocs: o.recargarDocs,
+        subir: o.subir, reintentar: o.reintentar, descartar: o.descartar, pendientes: o.pendientes, quitar: o.quitar, subiendo: o.subiendo, docsError: o.docsError, recargarDocs: o.recargarDocs,
         usarFachada: o.usarFachada,
     };
     const falta = faltaEnFase(actual, form, obra);
@@ -156,6 +178,21 @@ export function Fases({ o, id, movil }) {
         document.documentElement.style.setProperty('--ca-inf', '78px');
         return () => { document.documentElement.style.removeProperty('--ca-inf'); };
     }, [conBarra]);
+
+    // En el móvil, al entrar en una fase que no es la primera, la fase arriba: con la
+    // cabecera y las anteriores encima, en las fotos «La siguiente» quedaba bajo la barra.
+    // Se calcula a mano: `scrollIntoView` no mueve un `sticky` (el índice «Ir a una foto»).
+    // Con `setTimeout`: corre DESPUÉS del «arriba del todo» de `navegar`.
+    useEffect(() => {
+        if (!movil || idx < 1) return undefined;
+        const r = setTimeout(() => {
+            const el = document.querySelector('.ca-col > .ca-indice, section.ca-fase');
+            if (!el) return;
+            const barra = document.querySelector('.ca-bar')?.offsetHeight || 0;
+            window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - barra - 8) });
+        }, 0);
+        return () => clearTimeout(r);
+    }, [movil, idx]);
 
     const t = form.titular || {};
     const titulo = [t.nombre, t.apellidos].filter(Boolean).join(' ') || form.direccion || obra.numero_expediente || 'Obra';
@@ -188,7 +225,7 @@ export function Fases({ o, id, movil }) {
     const faltanFotos = fotosFase.length > fotosHechas;
 
     let contenido = null;
-    if (actual === 'inmueble') contenido = <><CatastroResumen obra={obra} /><Inmueble ctx={ctx} /></>;
+    if (actual === 'inmueble') contenido = <><CatastroResumen obra={obra} /><Inmueble ctx={ctx} sinDatos /></>;
     else if (actual === 'titular') contenido = <Titular ctx={ctx} />;
     else if (actual === 'proposito') contenido = <FasePara ctx={ctx} />;
     else if (actual === 'fotos') contenido = <FaseFotos ctx={ctx} obraId={id} />;
@@ -244,9 +281,11 @@ export function Fases({ o, id, movil }) {
             {/* Un encargo de BROKERGY: aceptarlo o rechazarlo antes de nada (obra/Encargo.jsx). */}
             <EncargoBrokergy o={o} />
 
-            {FASES.slice(0, idx).map(x => (
-                <FasePlegada key={x.id} f={x} form={form} obra={obra} slots={slots} hecha={ok.includes(x.id)} onAbrir={() => abrir(x.id)} />
-            ))}
+            {movil && idx > 1
+                ? <FasesPlegadasMovil fases={FASES.slice(0, idx)} form={form} obra={obra} slots={slots} ok={ok} onAbrir={abrir} />
+                : FASES.slice(0, idx).map(x => (
+                    <FasePlegada key={x.id} f={x} form={form} obra={obra} slots={slots} hecha={ok.includes(x.id)} onAbrir={() => abrir(x.id)} />
+                ))}
 
             {indiceFotos.length > 1 && <IndiceSecciones items={indiceFotos} etiqueta="Ir a una foto" />}
 

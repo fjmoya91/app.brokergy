@@ -18,6 +18,7 @@ import axios from 'axios';
 import { API, errorDe, mensajeError } from '../api';
 import { aPayload, cambiosDe, formDe, normalizarSlots, reducirTodas } from './comun';
 import { SLOTS, contestar } from '../logic/cuestionario';
+import * as cola from './colaFotos';
 
 const FRENO_MS = 900;
 
@@ -25,9 +26,13 @@ const FRENO_MS = 900;
 // con el iPhone): en la visita la cobertura va y viene (sótanos, cuartos de calderas),
 // y la foto hecha con la cámara desde aquí NO queda en el carrete. Antes iba toda la
 // tanda en una petición: si caía, se perdían todas. Ahora lo que sí sube se queda, la
-// red caída o un 5xx se reintenta solo, y lo que aun así no sube se guarda (en
-// memoria, `pendientes`) para «Reintentar» sin volver a hacer la foto.
+// red caída o un 5xx se reintenta solo, y lo que aun así no sube queda en
+// `pendientes` para «Reintentar» sin volver a hacer la foto. Cada foto se apunta en
+// el móvil (colaFotos.js, IndexedDB) antes de mandarla y se borra al subir: si
+// Safari recarga la pestaña a mitad, al volver a la obra salen como pendientes.
 const ESPERAS_MS = [1500, 4000, 9000];
+// Un vídeo enorme no se copia en la cola del móvil (llenaría su espacio): ese, si falla, solo en memoria.
+const COLA_MAX_BYTES = 60 * 1024 * 1024;
 const esperar = (ms) => new Promise(r => setTimeout(r, ms));
 // Sin respuesta (sin red), 5xx, 429, 408 y 401 (el token se renueva al volver la
 // página a primer plano: tras la espera, la petición sale con el nuevo).
@@ -53,6 +58,23 @@ export function useObra(id) {
     const subidasRef = useRef(0);
     const pendientesRef = useRef({});
     useEffect(() => { pendientesRef.current = pendientes; }, [pendientes]);
+    // Fichero → su clave en la cola del móvil (los ya apuntados no se reducen ni se apuntan otra vez).
+    const claveRef = useRef(new Map());
+    // Lo que quedó sin subir la última vez (otra visita a la obra, o Safari recargó).
+    useEffect(() => {
+        let vale = true;
+        cola.deLaObra(id).then((filas) => {
+            if (!vale || !filas.length) return;
+            const por = {};
+            for (const { k, slot, file } of filas) { claveRef.current.set(file, k); (por[slot] ||= []).push(file); }
+            setPendientes(p => {
+                const n = { ...p };
+                for (const [s, l] of Object.entries(por)) n[s] = [...(n[s] || []), ...l];
+                return n;
+            });
+        });
+        return () => { vale = false; };
+    }, [id]);
 
     const persistidoRef = useRef(null);
     const formRef = useRef(null);
@@ -223,8 +245,19 @@ export function useObra(id) {
         const rechazados = [];
         const fallidos = [];
         let ultimoError = null;
+        const claves = claveRef.current;
+        const soltar = (f) => { const k = claves.get(f); if (k) { claves.delete(f); cola.quitar(k); } };
         try {
-            const listos = slot?.video || slot?.documento ? files : await reducirTodas(files);
+            // Lo que ya estaba en la cola ya se redujo; lo nuevo se reduce y se apunta ANTES de mandarlo.
+            const viejos = files.filter(f => claves.has(f));
+            const nuevos = files.filter(f => !claves.has(f));
+            const reducidos = slot?.video || slot?.documento ? nuevos : await reducirTodas(nuevos);
+            for (const f of reducidos) {
+                if (f.size > COLA_MAX_BYTES) continue;
+                const k = await cola.apuntar(id, slotId, f);
+                if (k) claves.set(f, k);
+            }
+            const listos = [...viejos, ...reducidos];
             const total = listos.reduce((s, f) => s + (f.size || 1), 0) || 1;
             let hecho = 0;
             for (const f of listos) {
@@ -242,11 +275,13 @@ export function useObra(id) {
                         if (data?.slots && vivo.current) setSlots(normalizarSlots(data));
                         n += Array.isArray(data?.subidos) ? data.subidos.length : 1;
                         rechazados.push(...(data?.rechazados || []), ...(data?.errores || []).map(e => ({ nombre: e.nombre, motivo: e.error })));
+                        soltar(f);
                         break;
                     } catch (err) {
                         if (reintentable(err) && intento < ESPERAS_MS.length) { await esperar(ESPERAS_MS[intento]); continue; }
                         if (reintentable(err)) { fallidos.push(f); ultimoError = err; }
                         else {
+                            soltar(f); // el servidor no lo quiere: reintentarlo no lo arregla
                             const d = errorDe(err);
                             if (Array.isArray(d.rechazados) && d.rechazados.length) rechazados.push(...d.rechazados);
                             else rechazados.push({ nombre: f.name, motivo: mensajeError(err, 'no se ha podido subir') });
@@ -275,6 +310,15 @@ export function useObra(id) {
 
     /** Vuelve a mandar lo que no subió en un apartado (las mismas fotos, sin repetirlas). */
     const reintentar = useCallback((slotId) => subir(slotId, pendientesRef.current[slotId] || []), [subir]);
+
+    /** Olvida lo que no subió en un apartado (también de la cola del móvil). */
+    const descartar = useCallback((slotId) => {
+        for (const f of pendientesRef.current[slotId] || []) {
+            const k = claveRef.current.get(f);
+            if (k) { claveRef.current.delete(f); cola.quitar(k); }
+        }
+        setPendientes(p => { const n = { ...p }; delete n[slotId]; return n; });
+    }, []);
 
     // La fachada propuesta (Catastro o Street View) → «Fachada principal».
     const usarFachada = useCallback(async (fuente) => {
@@ -306,7 +350,7 @@ export function useObra(id) {
     return {
         obra, setObra, eventos, enlaces, cee, encargo, setEncargo, barridoServidor, setBarridoServidor,
         form, setCampo, setC, setCuestionario, setTitular, setDecision,
-        slots, docsError, recargarDocs, subir, reintentar, pendientes, quitar, subiendo, usarFachada,
+        slots, docsError, recargarDocs, subir, reintentar, descartar, pendientes, quitar, subiendo, usarFachada,
         error, cargando, cargar, guardar, guardado, editable,
     };
 }

@@ -51,6 +51,9 @@ import { CEE_SIGN_ANCHOR } from '../../features/expedientes/logic/signBoxes';
 // (ver App.jsx): tras un deploy, el trozo viejo no existe y la pestaña se recarga sola.
 const FirmarConCertificadoModal = lazyWithReload(() => import('../../features/expedientes/components/FirmarConCertificadoModal'), { name: 'certapp:firmar' });
 
+// Pantalla táctil (móvil, tableta): AutoFirma no va ahí; se avisa al firmar desde el visor.
+const tactil = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+
 const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
 const Letra = ({ l }) => (LETRAS.includes(l) ? <span className={`ca-letra ca-letra-${l}`}>{l}</span> : null);
 
@@ -230,7 +233,7 @@ export function ObraCerrada({ o, resumen = [] }) {
     const ctx = {
         form, obra, slots: o.slots, editable: false, puedeSubir: est !== 'ARCHIVADA',
         setCampo: () => {}, setC: () => {}, setTitular: () => {}, setDecision: () => {},
-        subir: o.subir, reintentar: o.reintentar, pendientes: o.pendientes, quitar: async () => ({ ok: false }), subiendo: o.subiendo || {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
+        subir: o.subir, reintentar: o.reintentar, descartar: o.descartar, pendientes: o.pendientes, quitar: async () => ({ ok: false }), subiendo: o.subiendo || {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
     };
 
     const sub = [obra.direccion && obra.direccion !== titulo ? obra.direccion : null, obra.municipio].filter(Boolean).join(' · ');
@@ -423,7 +426,8 @@ export function ObraCerrada({ o, resumen = [] }) {
                         <>
                             <p>{errorFirma
                                 ? <span className="ca-error" role="alert">{errorFirma}</span>
-                                : est === 'LISTO' ? 'Al firmarlo lo das por bueno (queda validado).' : 'Se firma este mismo PDF con tu certificado, en tu ordenador.'}</p>
+                                : tactil() ? 'AutoFirma va en el ordenador: en el móvil puedes revisarlo, y fírmalo luego desde el PC con tu cuenta.'
+                                    : est === 'LISTO' ? 'Al firmarlo lo das por bueno (queda validado).' : 'Se firma este mismo PDF con tu certificado, en tu ordenador.'}</p>
                             <button type="button" className="ca-btn ca-btn-pri" disabled={!listo || !!pdfFirmar} onClick={() => firmarDesdeVisor(bytes)}>
                                 {pdfFirmar ? <Spinner /> : <IcoSello />} Firmar con AutoFirma
                             </button>

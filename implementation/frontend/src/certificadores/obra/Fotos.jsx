@@ -121,7 +121,7 @@ function FachadaSugerida({ obraId, usar, ocupado }) {
  * `visita`: en la vivienda (la cámara manda). `guia`: es el siguiente que falta.
  */
 export function SlotFoto({ slot, ctx, visita, guia = false }) {
-    const { slots, subir, reintentar, pendientes, quitar, subiendo, editable, puedeSubir, form, setCuestionario } = ctx;
+    const { slots, subir, reintentar, descartar, pendientes, quitar, subiendo, editable, puedeSubir, form, setCuestionario } = ctx;
     // Ya pedida: se añade, no se quita.
     const subible = editable || !!puedeSubir;
     const toast = useToast();
@@ -130,13 +130,13 @@ export function SlotFoto({ slot, ctx, visita, guia = false }) {
     const pct = subiendo?.[slot.id];
     const n = ficheros.length;
     const sinSitio = !slot.multiple && n > 0;
-    // Lo que no ha podido subir (sin cobertura): sigue en memoria para «Reintentar».
+    // Lo que no ha podido subir (sin cobertura): guardado en el móvil (colaFotos) para «Reintentar».
     const sinSubir = pendientes?.[slot.id] || [];
 
     const alResultado = (r) => {
         const avisos = [];
         if (r.fallidos?.length) {
-            avisos.push(`${r.error || 'No hemos podido conectar.'} ${plural(r.fallidos.length, 'archivo sin subir', 'archivos sin subir')}: no hace falta repetir${r.fallidos.length === 1 ? 'lo' : 'los'}, pulsa «Reintentar» cuando tengas cobertura (sin cerrar esta pestaña).`);
+            avisos.push(`${r.error || 'No hemos podido conectar.'} ${plural(r.fallidos.length, 'archivo sin subir', 'archivos sin subir')}: no hace falta repetir${r.fallidos.length === 1 ? 'lo' : 'los'}, se ${r.fallidos.length === 1 ? 'ha' : 'han'} guardado en este móvil. Pulsa «Reintentar» cuando tengas cobertura.`);
         }
         if (r.rechazados?.length) avisos.push(r.rechazados.map(x => `${x.nombre}: ${x.motivo}`).join(' · '));
         if (!avisos.length && !r.ok) avisos.push(r.error || 'No se ha podido subir.');
@@ -154,6 +154,11 @@ export function SlotFoto({ slot, ctx, visita, guia = false }) {
     const alReintentar = async () => {
         setError(null);
         alResultado(await reintentar(slot.id));
+    };
+    const alDescartar = () => {
+        if (!window.confirm(`¿Olvidar ${sinSubir.length === 1 ? 'el archivo que no ha subido' : `los ${sinSubir.length} archivos que no han subido`}? Se borran de este móvil.`)) return;
+        setError(null);
+        descartar(slot.id);
     };
     const alQuitar = async (f) => {
         if (!window.confirm('¿Quitar este archivo?')) return;
@@ -212,11 +217,17 @@ export function SlotFoto({ slot, ctx, visita, guia = false }) {
             {ocupado && <div className="ca-subiendo" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${pct}%` }} /></div>}
             {error && <p className="ca-error" role="alert">{error}</p>}
             {subible && sinSubir.length > 0 && !ocupado && (
-                <div className="ca-btns" style={{ marginTop: 10 }}>
-                    <button type="button" className="ca-btn ca-btn-pri ca-btn-peq" onClick={alReintentar}>
-                        <IcoRecargar size={16} /> Reintentar ({plural(sinSubir.length, 'archivo sin subir', 'archivos sin subir')})
-                    </button>
-                </div>
+                <>
+                    {!error && <p className="ca-error">{plural(sinSubir.length, 'archivo guardado en este móvil sin subir', 'archivos guardados en este móvil sin subir')}.</p>}
+                    <div className="ca-btns" style={{ marginTop: 10 }}>
+                        <button type="button" className="ca-btn ca-btn-pri ca-btn-peq" onClick={alReintentar}>
+                            <IcoRecargar size={16} /> Reintentar ({plural(sinSubir.length, 'archivo sin subir', 'archivos sin subir')})
+                        </button>
+                        {descartar && (
+                            <button type="button" className="ca-btn ca-btn-sec ca-btn-peq" style={{ width: 'auto', flex: 'none' }} onClick={alDescartar}>Olvidar</button>
+                        )}
+                    </div>
+                </>
             )}
 
             {subible && (
@@ -468,7 +479,7 @@ export function FotosObra({ ctx, obraId, soloVer = false }) {
             )}
             {editable && (visita ? (
                 <Aviso tono="info" icono={IcoCamara} titulo="Visita guiada">
-                    Ve en este orden: te marcamos en naranja la siguiente foto. «Hacer foto» abre la cámara trasera; puedes hacer varias seguidas.
+                    Ve en este orden: te marcamos en naranja la siguiente foto. «Hacer foto» abre la cámara trasera: una foto cada vez; para otra, vuelve a pulsarlo.
                 </Aviso>
             ) : (
                 <EnlacePropietario obraId={obraId} form={form} />
