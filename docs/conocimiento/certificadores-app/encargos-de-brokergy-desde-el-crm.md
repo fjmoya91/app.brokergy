@@ -32,9 +32,21 @@ Fuente única: [services/certapp/crm.js](implementation/backend/services/certapp
    que ya tenía el expediente con los MISMOS ficheros de Drive** (`fotosDelCrm`: nada se copia; de
    una lista a un apartado de una sola foto, la última; sin las rechazadas). El Catastro se rellena
    detrás.
-2. El WhatsApp y el botón del email llevan **el enlace de la app** en lugar de la página del encargo (`conEnlaceApp`):
-   `https://cee.brokergy.es/encargo/:negocio/:id/:fase`. La app lo resuelve a SU obra
+2. El mensaje lleva **el enlace de la app** en lugar de la página del encargo:
+   `https://cee.brokergy.es/encargo/:negocio/:id/:fase`, con la línea «📲 Ábrelo en tu app de
+   certificadores (acéptalo o recházalo ahí):». La app lo resuelve a SU obra
    (`GET /api/certapp/encargo/…`; con otro email, 404 `ENCARGO_NO_ENCONTRADO`).
+   - **REGLA — lo que se ve en el popup es lo que sale.** El popup lo enseña ANTES de enviar:
+     `aviso-cliente-cee` devuelve `enlace_encargo` + `enlace_en_app` y `enlace-encargo` devuelve
+     `url_app_encargo` / `url_app_recordatorio` (`crm.enlaceAppPrevisto`, mismo criterio que el
+     envío: un encargo, con tener cuenta; un recordatorio del CAE, si la obra ya está en la app; en
+     el CEE directo, siempre). La línea es la MISMA en los dos lados (`TEXTO_ENLACE_APP`, lo vigila
+     `test_encargo_tecnico.mjs`).
+   - El texto editado sale igual por **WhatsApp, email e historial** (`crm.textoParaTecnico`):
+     si trae la página del CRM se cambia por la app; si trae la app y la obra no se pudo crear,
+     vuelve la página. Hasta el 30/10 tarde solo lo cambiaba el WhatsApp: el email salía con la
+     página del CRM en el texto y la app en el botón (lo vio Fran al asignárselo para probar).
+   - El email conserva el botón «✅ Aceptar Encargo»: aceptar por ahí también vale en la app.
 3. El historial del expediente dice «📲 en su app de certificadores (2026EXT_n), pendiente de que
    lo acepte».
 

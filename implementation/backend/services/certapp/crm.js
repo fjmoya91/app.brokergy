@@ -674,9 +674,47 @@ function conEnlaceApp(textoMsg, url) {
     return i >= 0 ? `${textoMsg.slice(0, i)}\n\n${bloque}${textoMsg.slice(i)}` : `${textoMsg}\n\n${bloque}`;
 }
 
+/**
+ * El texto del popup con UN enlace al encargo, el que de verdad vale: el de la
+ * app si la obra está allí, o la página del encargo si no (el popup pudo
+ * enseñar el de la app y la obra no llegar a crearse). Para el WhatsApp, el
+ * EMAIL y el historial: antes solo el WhatsApp lo cambiaba y el email salía
+ * con la página del CRM en el texto y la app en el botón.
+ */
+function textoParaTecnico(textoMsg, { urlApp = null, urlPagina = null } = {}) {
+    if (!textoMsg) return textoMsg;
+    if (urlApp) return conEnlaceApp(textoMsg, urlApp);
+    const app = /📲 Ábrelo en tu app de certificadores[^\n]*\n\S+/;
+    if (!app.test(textoMsg)) return textoMsg;
+    if (!urlPagina) return textoMsg.replace(new RegExp(`\\n*${app.source}`), '');
+    const { TEXTO_ENLACE } = require('../encargoTecnico');
+    return textoMsg.replace(app, () => `${TEXTO_ENLACE}\n${urlPagina}`);
+}
+
+/**
+ * El enlace de la app que llevará el mensaje al técnico, para que el popup lo
+ * ENSEÑE antes de enviarlo (lo que se ve es lo que sale). Mismo criterio que
+ * `notify-certificador`: `encargo` si tiene cuenta (al salir se crea la obra);
+ * `recordatorio` si la obra ya existe sin archivar. En el CEE directo cada aviso
+ * pasa por `encargar`, así que los dos son el de la app. null: la página de siempre.
+ */
+async function enlaceAppPrevisto({ negocio, id, fase, certId }) {
+    if (!id || !certId) return null;
+    const { data: cert, error } = await supabase.from('prescriptores').select('*')
+        .eq('id_empresa', certId).maybeSingle();
+    if (error) throw errorBd(error, 'leer el certificador');
+    if (!cert || require('../agenteIa').esAgenteIa(cert)) return null;
+    const cuenta = await cuentaDe(cert);
+    if (!cuenta) return null;
+    const url = urlEncargo({ negocio, id, fase });
+    if (normNegocio(negocio) === 'cee') return { encargo: url, recordatorio: url };
+    const obra = await obraDelEncargo(cuenta.id, { negocio, id, fase });
+    return { encargo: url, recordatorio: obra && obra.estado !== 'ARCHIVADA' ? url : null };
+}
+
 module.exports = {
     NEGOCIOS, normFase, normNegocio, esDeCrm, crmDe, urlEncargo, slotCrmDe, faseLabel,
     cuentaDe, obraDelEncargo, encargar, resumen, aceptar, rechazar,
     subirFotos, quitarFoto, enviarCeeAsync, enviarDefinitivoAsync, enviarRegistroAsync, pedirRevision,
-    conEnlaceApp, fotosDelCrm, prellenadoCae, prellenadoCee, TEXTO_ENLACE_APP, APP_UNICOS,
+    conEnlaceApp, textoParaTecnico, enlaceAppPrevisto, fotosDelCrm, prellenadoCae, prellenadoCee, TEXTO_ENLACE_APP, APP_UNICOS,
 };

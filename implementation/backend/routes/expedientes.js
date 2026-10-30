@@ -1375,15 +1375,21 @@ async function buildAvisoClienteCee(exp, phase) {
 // ─── GET /api/expedientes/:id/enlace-encargo?phase=inicial|final ──────────────
 // La PÁGINA DEL ENCARGO del técnico ASIGNADO (`services/encargoTecnico.js`): los
 // popups de aviso al certificador la meten en el mensaje. staffOnly: el enlace
-// abre el teléfono y la dirección del cliente.
+// abre el teléfono y la dirección del cliente. Si el técnico usa la app de
+// certificadores, también el enlace de la app que pondrá el envío (en un encargo
+// y en un recordatorio), para que el popup enseñe lo que sale.
 router.get('/:id/enlace-encargo', staffOnly, async (req, res) => {
     try {
         const { data: exp } = await supabase.from('expedientes')
             .select('id, cert:cee->>certificador_id').eq('id', req.params.id).maybeSingle();
         if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         const { enlaceEncargo } = require('../services/encargoTecnico');
-        res.json({ url: enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase,
-                                        certId: req.query.certificador_id || exp.cert || null }) });
+        const certId = req.query.certificador_id || exp.cert || null;
+        const app = await require('../services/certapp/crm')
+            .enlaceAppPrevisto({ negocio: 'cae', id: exp.id, fase: req.query.phase, certId })
+            .catch((e) => { console.warn('[enlace-encargo] app:', e.message); return null; });
+        res.json({ url: enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase, certId }),
+                   url_app_encargo: app?.encargo || null, url_app_recordatorio: app?.recordatorio || null });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -1415,11 +1421,18 @@ router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
         } catch (e) { console.warn('[aviso-cliente-cee] confirmación:', e.message); }
         // La PÁGINA DEL ENCARGO del técnico que se acaba de elegir (su firma lo
         // lleva): el popup la mete en el mensaje en lugar del enlace a la app.
+        // Si usa la app de certificadores, el de su app (`enlace_en_app`): es el
+        // que pondrá el envío, y el popup tiene que enseñar lo que sale.
         const { enlaceEncargo } = require('../services/encargoTecnico');
+        const certId = req.query.certificador_id || exp.cert || null;
+        const app = await require('../services/certapp/crm')
+            .enlaceAppPrevisto({ negocio: 'cae', id: exp.id, fase: req.query.phase, certId })
+            .catch((e) => { console.warn('[aviso-cliente-cee] app:', e.message); return null; });
         res.json({ ...(await buildAvisoClienteCee(exp, req.query.phase)),
                    bloque_certificador: bloqueCertificador,
-                   enlace_encargo: enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase,
-                                                   certId: req.query.certificador_id || exp.cert || null }) });
+                   enlace_encargo: app?.encargo
+                       || enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase, certId }),
+                   enlace_en_app: !!app?.encargo });
     } catch (err) {
         console.error('[aviso-cliente-cee]', err.message);
         res.status(500).json({ error: 'Error preparando el aviso al cliente' });
@@ -7047,6 +7060,10 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
             }
             if (enApp && !soloAsignar) encargoLink = enApp.url;
         }
+        // El texto del popup con UN enlace al encargo (el de la app si está allí):
+        // el mismo en el WhatsApp, el EMAIL y el historial.
+        const mensajeTecnico = certappCrm.textoParaTecnico(customMessage,
+            { urlApp: enApp?.url || null, urlPagina: encargoLink });
 
         // === EMAIL ===
         if (sendEmail) {
@@ -7064,7 +7081,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                 ackLink,
                 priority,
                 adminMessage,
-                customMessage,
+                customMessage: mensajeTecnico,
                 espera,
                 ceeUploadLink,
             };
@@ -7101,15 +7118,15 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                     : '';
 
                 let waMsg = '';
-                if (customMessage) {
+                if (mensajeTecnico) {
                     // El admin ha editado el texto (suele incluir ya el enlace de la carpeta). Solo
                     // añadimos el enlace de la carpeta si el cuerpo no trae ninguna URL, y la firma.
-                    const hasUrl = /https?:\/\//i.test(customMessage);
+                    const hasUrl = /https?:\/\//i.test(mensajeTecnico);
                     const carpetaWa = (ceeFolderLink && !hasUrl) ? `\n\n📁 Carpeta de documentos:\n${ceeFolderLink}` : '';
                     // El de subida sí se añade siempre en fase de registro (es la acción pedida),
                     // salvo que el propio texto ya lo lleve.
-                    const subirExtra = (subirWa && !customMessage.includes('/subir-cee/')) ? subirWa : '';
-                    waMsg = `${customMessage}${carpetaWa}${subirExtra}\n\n*BROKERGY · Ingeniería Energética*`;
+                    const subirExtra = (subirWa && !mensajeTecnico.includes('/subir-cee/')) ? subirWa : '';
+                    waMsg = `${mensajeTecnico}${carpetaWa}${subirExtra}\n\n*BROKERGY · Ingeniería Energética*`;
                 } else if (template === 'reminder' && esRegistro) {
                     // Plantilla compartida con el parte diario de seguimiento: el
                     // certificador debe recibir el mismo texto le escribas desde aquí
@@ -7190,7 +7207,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                 const esperaTag = template === 'standard'
                     ? ''
                     : ` · ${esRegistro ? 'Registro en Industria' : 'Emisión del CEE'}`;
-                const sentBody = customMessage || adminMessage;
+                const sentBody = mensajeTecnico || adminMessage;
                 const msgTag = sentBody ? `\n💬 Mensaje: "${sentBody}"` : '';
                 // El encargo también está en su app de certificadores (crm.encargar).
                 const appTag = enApp && encargoEnApp
@@ -7206,7 +7223,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                         priority,
                         espera,
                         adminMessage,
-                        customMessage
+                        customMessage: mensajeTecnico
                     });
                 } else {
                     const tecnico = cert.razon_social || cert.acronimo || certName;

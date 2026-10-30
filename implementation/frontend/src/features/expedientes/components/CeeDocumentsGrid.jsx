@@ -426,6 +426,8 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     const [certNotifyModal, setCertNotifyModal] = useState(null); // { section: 'inicial'|'final' }
     //: La PÁGINA DEL ENCARGO del técnico asignado (la firma el servidor): va en el
     //: mensaje en lugar del enlace a la app. Ver services/encargoTecnico.js.
+    //: `{ url, url_app_encargo, url_app_recordatorio }`: si usa la app de
+    //: certificadores, el de su app, el que pondrá el envío (`ctxEncargo`).
     const [enlaceEncargo, setEnlaceEncargo] = useState(null);
     const [certTemplate, setCertTemplate] = useState('standard'); // 'standard' | 'seguimiento' | 'approve'
     // Eje 1: qué esperamos del certificador ('emision' | 'registro'). Eje 2: tono.
@@ -610,6 +612,15 @@ Según el documento:
         };
     };
 
+    // El enlace del encargo que pondrá el servidor: el de su app si el técnico la
+    // usa (en un encargo, con tener cuenta; en un recordatorio, si la obra ya está
+    // allí), si no la página del encargo.
+    const ctxEncargo = (template) => {
+        const e = enlaceEncargo || {};
+        const app = template === 'standard' ? e.url_app_encargo : e.url_app_recordatorio;
+        return { encargoLink: app || e.url || null, encargoEnApp: !!app };
+    };
+
     // Texto por defecto según el tipo de mensaje y los dos ejes activos.
     const certTemplateText = (template, section, espera, tono, dias) => {
         if (template === 'approve') {
@@ -621,10 +632,10 @@ Según el documento:
             // que confirmó el cliente al aceptar (emisores, placas, aires), que
             // es lo que hay que declarar como existente.
             return buildCertEncargoMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId,
-                section === 'final' ? ce3x.bloque : bloqueClienteInicial, { encargoLink: enlaceEncargo });
+                section === 'final' ? ce3x.bloque : bloqueClienteInicial, ctxEncargo(template));
         }
         return buildCertMessage({ espera, tono, fase: section, certName, clienteNombre, numExp, expedienteId, dias,
-                                  ctx: { encargoLink: enlaceEncargo } });
+                                  ctx: ctxEncargo(template) });
     };
 
     // El bloque CE3X necesita el SEER, que vive en el CATÁLOGO del modelo y no en
@@ -687,7 +698,7 @@ Según el documento:
                 .then(r => setCertApproveLinks(r.data))
                 .catch(() => setCertApproveLinks(null));
             axios.get(`${apiBase}/${expediente.id}/enlace-encargo?phase=${certNotifyModal.section}`)
-                .then(r => setEnlaceEncargo(r.data?.url || null))
+                .then(r => setEnlaceEncargo(r.data?.url || r.data?.url_app_encargo ? r.data : null))
                 .catch(() => setEnlaceEncargo(null));
             // Avisar de los datos del cliente que el certificador NO recibirá.
             axios.get(`${apiBase}/${expediente.id}/cert-cliente-data`)

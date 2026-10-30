@@ -490,6 +490,19 @@ function ok(cond, texto) {
     ok(conPagina.includes(`${crm.TEXTO_ENLACE_APP}\n${url}`) && !conPagina.includes('app.brokergy.es/encargo'), 'encargo: el WhatsApp lleva el enlace de la app en lugar de la página del CRM');
     const sinPagina = crm.conEnlaceApp('Hola\n\n*BROKERGY · Ingeniería Energética*', url);
     ok(sinPagina.indexOf(url) < sinPagina.indexOf('*BROKERGY ·') && crm.conEnlaceApp(sinPagina, url) === sinPagina, 'encargo: sin página, el enlace va antes de la firma (y no se repite)');
+    // El texto del popup sale igual por WhatsApp, email e historial (textoParaTecnico).
+    const pagina = 'https://app.brokergy.es/encargo/e1?token=t&phase=inicial';
+    const delPopupApp = `Hola\n\n${crm.TEXTO_ENLACE_APP}\n${url}\n\n¡Gracias!`;
+    ok(crm.textoParaTecnico(delPopupApp, { urlApp: url, urlPagina: pagina }) === delPopupApp,
+        'encargo: el popup ya enseñaba la app → sale tal cual');
+    const delPopupPagina = `Hola\n\n📋 Todo el encargo en una página (cliente, dirección, fotos y enlaces):\n${pagina}\n\n¡Gracias!`;
+    const aApp = crm.textoParaTecnico(delPopupPagina, { urlApp: url, urlPagina: pagina });
+    ok(aApp.includes(`${crm.TEXTO_ENLACE_APP}\n${url}`) && !aApp.includes(pagina), 'encargo: texto con la página del CRM → el email y el historial llevan la app');
+    const sinObra = crm.textoParaTecnico(delPopupApp, { urlApp: null, urlPagina: pagina });
+    ok(sinObra.includes(pagina) && !sinObra.includes(url) && !sinObra.includes(crm.TEXTO_ENLACE_APP),
+        'encargo: el popup enseñaba la app pero la obra no se creó → la página de siempre');
+    ok(crm.textoParaTecnico(delPopupApp, {}) === 'Hola\n\n¡Gracias!', 'encargo: sin obra ni página, se quita el enlace de la app');
+    ok(crm.textoParaTecnico(null, { urlApp: url }) === null, 'encargo: sin texto editado, nada que cambiar');
 
     // ── Avisos: en seco por defecto ─────────────────────────────────────────
     delete process.env.CERTAPP_AVISOS_ENABLED;
