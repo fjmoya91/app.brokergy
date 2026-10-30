@@ -369,6 +369,8 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
   .ca-visor-solo-pc{display:none}
   .ca-visor-herr{order:3;width:100%;justify-content:space-between;gap:6px}
   .ca-visor-escala{max-width:132px}
+  /* iOS amplía la página al enfocar un campo de menos de 16 px. */
+  .ca-visor-pag input,.ca-visor-escala{font-size:16px}
   .ca-visor-zoom-btn{display:none}
   .ca-visor-pie .ca-btn{flex:1 1 auto;padding:0 12px}
 }
@@ -391,6 +393,11 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-inf-in{max-width:480px;margin:0 auto;display:flex;gap:10px}
 .ca-inf .ca-btn{min-height:54px}
 .ca-inf .ca-btn-sec{flex:0 0 auto;width:auto;padding:0 18px}
+/* Con el teclado abierto (móvil), la barra de abajo y los flotantes se quitan: en
+   iOS se quedan encima del teclado y tapan el campo que se está escribiendo. */
+@media (pointer:coarse){
+  .ca-col:has(.ca-input:focus) > .ca-inf,body:has(.ca-input:focus) .ca-fabs{display:none}
+}
 /* botones flotantes */
 .ca-fabs{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom) + var(--ca-inf));z-index:50;display:flex;flex-direction:column;align-items:flex-end;gap:10px;font-family:'Inter',sans-serif}
 .ca-fab{appearance:none;-webkit-tap-highlight-color:transparent;display:inline-flex;align-items:center;gap:8px;height:52px;min-width:52px;padding:0 16px;border-radius:999px;border:1px solid var(--linea);background:#fff;color:var(--tinta);font:700 14px 'Inter',sans-serif;cursor:pointer;box-shadow:0 10px 28px -12px rgba(20,17,17,.35)}
@@ -811,7 +818,7 @@ select.ca-input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ca-siguiente .ca-btn-sec{background:transparent;color:#fff;border-color:#4a4444}
 /* Mis obras: buscador y «lo siguiente» */
 .ca-buscar{display:flex;align-items:center;gap:8px;min-height:46px;padding:0 14px;border-radius:14px;border:1px solid rgba(20,17,17,.14);background:#fff;color:var(--gris2)}
-.ca-buscar input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:15px 'Inter',sans-serif;color:var(--tinta);text-transform:none}
+.ca-buscar input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:16px 'Inter',sans-serif;color:var(--tinta);text-transform:none}
 .ca-buscar:focus-within{border-color:var(--tinta);box-shadow:0 0 0 3px rgba(20,17,17,.08)}
 .ca-panel-obras{margin-top:26px;gap:12px}
 .ca-panel-obras .ca-buscar{flex:1 1 260px;max-width:420px}

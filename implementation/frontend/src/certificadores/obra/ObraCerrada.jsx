@@ -228,7 +228,7 @@ export function ObraCerrada({ o, resumen = [] }) {
     const ctx = {
         form, obra, slots: o.slots, editable: false, puedeSubir: est !== 'ARCHIVADA',
         setCampo: () => {}, setC: () => {}, setTitular: () => {}, setDecision: () => {},
-        subir: o.subir, quitar: async () => ({ ok: false }), subiendo: o.subiendo || {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
+        subir: o.subir, reintentar: o.reintentar, pendientes: o.pendientes, quitar: async () => ({ ok: false }), subiendo: o.subiendo || {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
     };
 
     const sub = [obra.direccion && obra.direccion !== titulo ? obra.direccion : null, obra.municipio].filter(Boolean).join(' · ');

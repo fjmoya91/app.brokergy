@@ -121,7 +121,7 @@ function FachadaSugerida({ obraId, usar, ocupado }) {
  * `visita`: en la vivienda (la cámara manda). `guia`: es el siguiente que falta.
  */
 export function SlotFoto({ slot, ctx, visita, guia = false }) {
-    const { slots, subir, quitar, subiendo, editable, puedeSubir, form, setCuestionario } = ctx;
+    const { slots, subir, reintentar, pendientes, quitar, subiendo, editable, puedeSubir, form, setCuestionario } = ctx;
     // Ya pedida: se añade, no se quita.
     const subible = editable || !!puedeSubir;
     const toast = useToast();
@@ -130,16 +130,30 @@ export function SlotFoto({ slot, ctx, visita, guia = false }) {
     const pct = subiendo?.[slot.id];
     const n = ficheros.length;
     const sinSitio = !slot.multiple && n > 0;
+    // Lo que no ha podido subir (sin cobertura): sigue en memoria para «Reintentar».
+    const sinSubir = pendientes?.[slot.id] || [];
 
-    const alElegir = async (e) => {
-        const files = e.target.files;
-        if (!files?.length) return;
-        setError(null);
-        const r = await subir(slot.id, files);
-        e.target.value = '';
-        if (!r.ok) { setError(r.error || 'No se ha podido subir.'); return; }
-        if (r.rechazados?.length) setError(r.rechazados.map(x => `${x.nombre}: ${x.motivo}`).join(' · '));
+    const alResultado = (r) => {
+        const avisos = [];
+        if (r.fallidos?.length) {
+            avisos.push(`${r.error || 'No hemos podido conectar.'} ${plural(r.fallidos.length, 'archivo sin subir', 'archivos sin subir')}: no hace falta repetir${r.fallidos.length === 1 ? 'lo' : 'los'}, pulsa «Reintentar» cuando tengas cobertura (sin cerrar esta pestaña).`);
+        }
+        if (r.rechazados?.length) avisos.push(r.rechazados.map(x => `${x.nombre}: ${x.motivo}`).join(' · '));
+        if (!avisos.length && !r.ok) avisos.push(r.error || 'No se ha podido subir.');
+        setError(avisos.length ? avisos.join(' ') : null);
         if (r.n) toast(slot.video ? 'Vídeo subido.' : `${plural(r.n, 'archivo subido', 'archivos subidos')}.`);
+    };
+    const alElegir = async (e) => {
+        // Se copian ANTES de vaciar el input: vaciarlo vacía también su FileList.
+        const files = Array.from(e.target.files || []);
+        e.target.value = '';
+        if (!files.length) return;
+        setError(null);
+        alResultado(await subir(slot.id, files));
+    };
+    const alReintentar = async () => {
+        setError(null);
+        alResultado(await reintentar(slot.id));
     };
     const alQuitar = async (f) => {
         if (!window.confirm('¿Quitar este archivo?')) return;
@@ -197,6 +211,13 @@ export function SlotFoto({ slot, ctx, visita, guia = false }) {
             )}
             {ocupado && <div className="ca-subiendo" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${pct}%` }} /></div>}
             {error && <p className="ca-error" role="alert">{error}</p>}
+            {subible && sinSubir.length > 0 && !ocupado && (
+                <div className="ca-btns" style={{ marginTop: 10 }}>
+                    <button type="button" className="ca-btn ca-btn-pri ca-btn-peq" onClick={alReintentar}>
+                        <IcoRecargar size={16} /> Reintentar ({plural(sinSubir.length, 'archivo sin subir', 'archivos sin subir')})
+                    </button>
+                </div>
+            )}
 
             {subible && (
                 <div className="ca-btns ca-btns-2" style={{ marginTop: 12 }}>

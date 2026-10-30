@@ -21,6 +21,18 @@ import { SLOTS, contestar } from '../logic/cuestionario';
 
 const FRENO_MS = 900;
 
+// Las fotos suben UNA A UNA y con reintentos (30/10/2026, antes de la primera visita
+// con el iPhone): en la visita la cobertura va y viene (sótanos, cuartos de calderas),
+// y la foto hecha con la cámara desde aquí NO queda en el carrete. Antes iba toda la
+// tanda en una petición: si caía, se perdían todas. Ahora lo que sí sube se queda, la
+// red caída o un 5xx se reintenta solo, y lo que aun así no sube se guarda (en
+// memoria, `pendientes`) para «Reintentar» sin volver a hacer la foto.
+const ESPERAS_MS = [1500, 4000, 9000];
+const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+// Sin respuesta (sin red), 5xx, 429, 408 y 401 (el token se renueva al volver la
+// página a primer plano: tras la espera, la petición sale con el nuevo).
+const reintentable = (err) => { const st = err?.response?.status; return !st || st === 401 || st === 408 || st === 429 || st >= 500; };
+
 export function useObra(id) {
     const [obra, setObra] = useState(null);
     const [eventos, setEventos] = useState([]);
@@ -35,6 +47,10 @@ export function useObra(id) {
     const [cargando, setCargando] = useState(true);
     const [guardado, setGuardado] = useState({ estado: 'ok' });
     const [subiendo, setSubiendo] = useState({}); // slot → 0..100
+    const [pendientes, setPendientes] = useState({}); // slot → [File] que no han podido subir
+    const subidasRef = useRef(0);
+    const pendientesRef = useRef({});
+    useEffect(() => { pendientesRef.current = pendientes; }, [pendientes]);
 
     const persistidoRef = useRef(null);
     const formRef = useRef(null);
@@ -167,7 +183,8 @@ export function useObra(id) {
             }
         };
         const antesDeSalir = (e) => {
-            if (cambiosDe(formRef.current, persistidoRef.current) || enVueloRef.current) {
+            const fotosEnJuego = subidasRef.current > 0 || Object.values(pendientesRef.current).some(l => l.length);
+            if (cambiosDe(formRef.current, persistidoRef.current) || enVueloRef.current || fotosEnJuego) {
                 guardar();
                 e.preventDefault();
                 e.returnValue = '';
@@ -198,28 +215,63 @@ export function useObra(id) {
         if (!files.length) return { ok: false };
         const slot = SLOTS.find(s => s.id === slotId);
         setSubiendo(s => ({ ...s, [slotId]: 1 }));
+        subidasRef.current += 1;
+        let n = 0;
+        const rechazados = [];
+        const fallidos = [];
+        let ultimoError = null;
         try {
             const listos = slot?.video || slot?.documento ? files : await reducirTodas(files);
-            const fd = new FormData();
-            listos.forEach(f => fd.append('files', f));
-            const { data } = await axios.post(`${API}/obras/${id}/docs/${slotId}`, fd, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: (e) => {
-                    if (e.total) setSubiendo(s => ({ ...s, [slotId]: Math.max(1, Math.round(95 * e.loaded / e.total)) }));
-                },
-            });
-            // → { ok, subidos: [...], rechazados: [{ nombre, motivo }], errores: [{ nombre, error }], slots }
-            if (data?.slots && vivo.current) setSlots(normalizarSlots(data));
-            else await recargarDocs();
-            const n = Array.isArray(data?.subidos) ? data.subidos.length : listos.length;
-            const rechazados = [...(data?.rechazados || []), ...(data?.errores || []).map(e => ({ nombre: e.nombre, motivo: e.error }))];
-            return { ok: n > 0 || !rechazados.length, n, rechazados };
+            const total = listos.reduce((s, f) => s + (f.size || 1), 0) || 1;
+            let hecho = 0;
+            for (const f of listos) {
+                for (let intento = 0; ; intento++) {
+                    try {
+                        const fd = new FormData();
+                        fd.append('files', f);
+                        const { data } = await axios.post(`${API}/obras/${id}/docs/${slotId}`, fd, {
+                            headers: { 'Content-Type': 'multipart/form-data' },
+                            onUploadProgress: (e) => {
+                                if (e.total && vivo.current) setSubiendo(s => ({ ...s, [slotId]: Math.max(1, Math.round(95 * (hecho + (f.size || 1) * e.loaded / e.total) / total)) }));
+                            },
+                        });
+                        // → { ok, subidos: [...], rechazados: [{ nombre, motivo }], errores: [{ nombre, error }], slots }
+                        if (data?.slots && vivo.current) setSlots(normalizarSlots(data));
+                        n += Array.isArray(data?.subidos) ? data.subidos.length : 1;
+                        rechazados.push(...(data?.rechazados || []), ...(data?.errores || []).map(e => ({ nombre: e.nombre, motivo: e.error })));
+                        break;
+                    } catch (err) {
+                        if (reintentable(err) && intento < ESPERAS_MS.length) { await esperar(ESPERAS_MS[intento]); continue; }
+                        if (reintentable(err)) { fallidos.push(f); ultimoError = err; }
+                        else {
+                            const d = errorDe(err);
+                            if (Array.isArray(d.rechazados) && d.rechazados.length) rechazados.push(...d.rechazados);
+                            else rechazados.push({ nombre: f.name, motivo: mensajeError(err, 'no se ha podido subir') });
+                        }
+                        break;
+                    }
+                }
+                hecho += f.size || 1;
+            }
+            if (!n && vivo.current) await recargarDocs();
         } catch (err) {
-            return { ok: false, error: mensajeError(err, 'No se ha podido subir.') };
+            // Fuera de la subida (reducir las fotos): se guardan las originales para reintentar.
+            fallidos.push(...files);
+            ultimoError = err;
         } finally {
-            if (vivo.current) setSubiendo(s => { const n = { ...s }; delete n[slotId]; return n; });
+            subidasRef.current -= 1;
+            // Las que no han subido sustituyen, en su apartado, a las que se mandaban.
+            setPendientes(p => ({ ...p, [slotId]: [...(p[slotId] || []).filter(x => !files.includes(x)), ...fallidos] }));
+            if (vivo.current) setSubiendo(s => { const k = { ...s }; delete k[slotId]; return k; });
         }
+        return {
+            ok: !fallidos.length && (n > 0 || !rechazados.length), n, rechazados, fallidos,
+            error: fallidos.length ? mensajeError(ultimoError, 'No se ha podido subir.') : null,
+        };
     }, [id, recargarDocs]);
+
+    /** Vuelve a mandar lo que no subió en un apartado (las mismas fotos, sin repetirlas). */
+    const reintentar = useCallback((slotId) => subir(slotId, pendientesRef.current[slotId] || []), [subir]);
 
     // La fachada propuesta (Catastro o Street View) → «Fachada principal».
     const usarFachada = useCallback(async (fuente) => {
@@ -251,7 +303,7 @@ export function useObra(id) {
     return {
         obra, setObra, eventos, enlaces, cee, barridoServidor, setBarridoServidor,
         form, setCampo, setC, setCuestionario, setTitular, setDecision,
-        slots, docsError, recargarDocs, subir, quitar, subiendo, usarFachada,
+        slots, docsError, recargarDocs, subir, reintentar, pendientes, quitar, subiendo, usarFachada,
         error, cargando, cargar, guardar, guardado, editable,
     };
 }

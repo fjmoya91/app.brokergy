@@ -256,6 +256,7 @@ export default function NuevaObra() {
                                 <form onSubmit={(e) => { e.preventDefault(); conReferencia(rcTxt); }} style={{ marginTop: 14 }}>
                                     <Campo etiqueta="Referencia catastral" ayuda="20 caracteres. Está en el recibo del IBI o en la escritura.">
                                         <input className="ca-input ca-input-mayus ca-mono" value={rcTxt} maxLength={26} autoComplete="off" spellCheck={false}
+                                            autoCapitalize="characters" autoCorrect="off"
                                             placeholder="1234567AB1234C0001XY" onChange={e => setRcTxt(e.target.value.toUpperCase())} />
                                     </Campo>
                                     <div className="ca-btns">

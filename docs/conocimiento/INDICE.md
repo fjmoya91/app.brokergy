@@ -12,7 +12,7 @@
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 43,6 KB | 23 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 54,8 KB | 18 |
-| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 8,6 KB | 12 |
+| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 8,8 KB | 13 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,8 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 23,8 KB | 7 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 9 |
@@ -373,6 +373,7 @@
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24)
 - `docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md` — Los documentos de la obra: visor, firmar desde el visor, versiones y el `.cex` en cuarentena (2026-10-26)
 - `docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md` — El CEE de una obra: el encargo, la calificación en el PC, el aviso, la entrega y la firma (2026-10-25)
+- `docs/conocimiento/certificadores-app/el-movil-en-la-visita-iphone-y-fotos-sin-cobertura.md` — El móvil en la visita: iPhone, fotos sin cobertura y el teclado (2026-10-30)
 - `docs/conocimiento/certificadores-app/fase-5-fuera-enlace-corto-y-fachada.md` — Sin la fase 5, el enlace corto, la fachada propuesta y la numeración desde el 1 (2026-10-26)
 - `docs/conocimiento/certificadores-app/fotos-opcionales-y-equipo-generico.md` — Las fotos opcionales («Ahora no») y el equipo genérico con su antigüedad (2026-10-25)
 - `docs/conocimiento/certificadores-app/la-obra-sin-scroll-indice-y-fotos-a-mano.md` — La obra sin tanto scroll: el índice «Ir a…» y las fotos siempre a mano (2026-10-26)
