@@ -445,6 +445,17 @@ const RUTAS = [
         }
         if (!/\.(xml|pdf)$/.test(nombre)) fallo(415, 'Sube el XML del certificado (de CE3X) o el PDF.', 'TIPO_NO_VALE');
         const tipo = nombre.endsWith('.xml') ? 'xml' : 'pdf';
+        if (o.estado === 'BORRADOR' && tipo !== 'xml') fallo(409, 'Antes de pedir el certificado solo se puede subir el XML que saca tu CE3X.', 'ESTADO_NO_FIRMABLE');
+        if (tipo === 'xml') {
+            // Como firma.subirXml: la app hace el PDF oficial. Un XML con «mal» en el nombre hace de uno que no valida.
+            if (/mal/.test(nombre)) {
+                fallo(422, 'Ese XML no valida: el PDF saldría con la marca «certificado incompleto», que no se puede registrar. '
+                    + 'Corrígelo en CE3X y vuelve a subirlo. element "DatosRaros" not allowed here', 'XML_NO_VALIDA');
+            }
+            if (o.estado === 'BORRADOR' || o.estado === 'VALIDADO') { o.estado = 'LISTO'; o.firmado = null; }
+            evento(o.id, 'DEFINITIVO', 'El certificador ha subido el XML definitivo y la app ha hecho el PDF oficial, listo para firmar');
+            return { ok: true, tipo, fichero: `${o.numero_expediente} - CEE.xml`, pdf: `${o.numero_expediente} - CEE.pdf`, cargado: true, estado: o.estado, __espera: 2500 };
+        }
         evento(o.id, 'DEFINITIVO', `El certificador ha subido el ${tipo.toUpperCase()} definitivo`);
         return { ok: true, tipo, fichero: `${o.numero_expediente} - CEE.${tipo}`, estado: o.estado, __espera: 900 };
     }],

@@ -298,7 +298,9 @@ const srv = app.listen(0, async () => {
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_AJENA}/cee/definitivo`, 404, null, { multipart: true });
     q('tok-ext', 'GET', `/api/certapp/obras/${OBRA_SUYA}/cee/para-firmar`, 409, null, { cuerpo: (j) => j.code === 'ESTADO_NO_FIRMABLE' });
     q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/cee/firmado`, 409, {}, { cuerpo: (j) => j.code === 'ESTADO_NO_FIRMABLE' });
-    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/cee/definitivo`, 409, {}, { cuerpo: (j) => j.code === 'ESTADO_NO_FIRMABLE' });
+    // El XML vale ya en BORRADOR (la app hace el PDF, 31/10/2026): sin fichero, 400; en preparación, 409.
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/cee/definitivo`, 400, {}, { cuerpo: (j) => j.code === 'SIN_FICHERO' });
+    q('tok-ext', 'POST', `/api/certapp/obras/${OBRA_SUYA}/cee/definitivo`, 409, {}, { obra: { estado: 'EN_PREPARACION' }, cuerpo: (j) => j.code === 'ESTADO_NO_FIRMABLE' });
     q('tok-trab', 'POST', '/api/certapp-admin/interno/calificada', 403, { numero: '2026EXT_1' });
     // Documentos (26/10/2026): ajena 404; sin entregar, vacío; entregada, lo actual, OLD
     // y la cuarentena, con descargas firmadas y SIN Drive; el admin, con el Drive de cada uno.

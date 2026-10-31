@@ -9,14 +9,18 @@
 //    y POST /obras/:id/generar { genericos } → SendActionOverlay. 402: sin
 //    créditos; 422: el barrido del servidor (manda el suyo); 409: ya pedido.
 // Un encargo de BROKERGY (obra/Encargo.jsx) no gasta créditos y se acepta antes de pedirlo.
-import { useMemo, useState } from 'react';
+// 4. «¿Ya lo has hecho en tu CE3X?» (31/10/2026): sube el XML y la app hace el PDF
+//    oficial (services/certapp/firma.js, `subirXml`): la obra queda lista para
+//    firmar, sin gastar créditos. Si el XML no valida, el servidor dice por qué.
+import { useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import SendActionOverlay from '../../components/SendActionOverlay';
 import { barrido as calcularBarrido, NOMBRE_EQUIPO } from '../logic/cuestionario';
 import { API, mensajeError } from '../api';
 import { useCertappAuth } from '../auth/CertappAuth';
 import { navegar } from '../router';
-import { IcoAlerta, IcoChevron, IcoChispa, Spinner } from '../ui/Iconos';
+import { useToast } from '../ui/piezas';
+import { IcoAlerta, IcoChevron, IcoChispa, IcoSubir, Spinner } from '../ui/Iconos';
 import { EMAIL_CONTACTO } from '../marca';
 import { obraParaBarrido } from './comun';
 import { FASE_POR_ID, faseDePaso } from './fasesFicha';
@@ -37,6 +41,10 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
     const [res, setRes] = useState({ ok: false });
     const [error, setError] = useState(null);
     const [guardando, setGuardando] = useState(false);
+    const toast = useToast();
+    const inputXml = useRef(null);
+    const [subiendoXml, setSubiendoXml] = useState(false);
+    const [errorXml, setErrorXml] = useState(null);
 
     const local = useMemo(
         () => calcularBarrido(obraParaBarrido(obra, form, slots), cuenta),
@@ -93,6 +101,21 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
         const ok = res.ok;
         setFase(null);
         if (ok || res.error) onHecho?.();
+    };
+
+    // Hecho en su CE3X: el XML → el PDF oficial, y la obra pasa a lista para firmar.
+    const subirXml = async (fichero) => {
+        if (!fichero) return;
+        setErrorXml(null); setSubiendoXml(true);
+        try {
+            const fd = new FormData();
+            fd.append('fichero', fichero, fichero.name);
+            await axios.post(`${API}/obras/${obra.id}/cee/definitivo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+            toast('XML cargado y PDF oficial hecho: ya puedes firmarlo.', 5000);
+            onHecho?.();
+        } catch (err) {
+            setErrorXml(mensajeError(err, 'No se ha podido subir el XML.'));
+        } finally { setSubiendoXml(false); }
     };
 
     return (
@@ -201,6 +224,22 @@ export function PedirCertificado({ ctx, guardar, onIr, onHecho }) {
                     </p>
                 )}
             </div>
+
+            <section>
+                <h3 className="ca-sec">¿Ya lo has hecho en tu CE3X?</h3>
+                <p className="ca-txt ca-txt-peq" style={{ margin: '6px 0 0' }}>
+                    Sube el <b>XML</b> que saca CE3X 3.2 y la app hace el <b>PDF oficial</b>, listo para firmar. No gasta certificados.
+                    Si el XML no valida, te decimos por qué.
+                </p>
+                <input ref={inputXml} type="file" hidden accept=".xml,text/xml,application/xml"
+                    onChange={(e) => { subirXml(e.target.files?.[0]); e.target.value = ''; }} />
+                <div className="ca-btns">
+                    <button type="button" className="ca-btn ca-btn-sec" disabled={sinAceptar || subiendoXml} onClick={() => inputXml.current?.click()}>
+                        {subiendoXml ? <><Spinner /> Subiendo y haciendo el PDF…</> : <><IcoSubir /> Subir el XML</>}
+                    </button>
+                </div>
+                {errorXml && <p className="ca-error" role="alert">{errorXml}</p>}
+            </section>
 
             <SendActionOverlay
                 phase={fase}

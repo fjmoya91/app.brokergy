@@ -161,7 +161,8 @@ async function alCalificar(obraId) {
 
 /**
  * Una generación nueva (ventana o skill) con OTRA receta anula el visto bueno.
- * La llama `cex.sellar` en las obras de la app. Nunca lanza.
+ * La llama `cex.sellar` en las obras de la app; y, sin huella, `firma.subirXml`
+ * (el certificador sube SU XML: lo que firmará ya no es lo revisado). Nunca lanza.
  * @returns {Promise<boolean>} si lo ha anulado
  */
 async function anularSiOtraReceta(obraId, huellaNueva, { motivo = null } = {}) {
@@ -169,10 +170,10 @@ async function anularSiOtraReceta(obraId, huellaNueva, { motivo = null } = {}) {
         const l = await leer(obraId);
         const vb = l?.cee?.[CAMPO];
         if (!vb?.at || vb.anulado_at || (huellaNueva && vb.huella === huellaNueva)) return false;
-        await escribir(obraId, { ...vb, anulado_at: new Date().toISOString(),
-                                 anulado_motivo: motivo || 'Se ha vuelto a generar con otros datos.' });
+        const porque = motivo || 'El certificado se ha vuelto a generar con otros datos';
+        await escribir(obraId, { ...vb, anulado_at: new Date().toISOString(), anulado_motivo: `${porque}.` });
         await evento(obraId, l.obra.cuenta_id, 'VISTO_BUENO_ANULADO',
-            'El certificado se ha vuelto a generar con otros datos: el visto bueno de BROKERGY ya no vale', 'BROKERGY');
+            `${porque}: el visto bueno de BROKERGY ya no vale`, 'BROKERGY');
         return true;
     } catch (e) {
         console.warn(`[certapp visto bueno] anular (${obraId}):`, e.message);

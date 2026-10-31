@@ -11,16 +11,17 @@
 //     guarda PRIVADO en «1. CEE» como `{nº} - CEE_fdo.pdf` (el anterior, a OLD) y
 //     queda el sello en `cee.firma` por la RPC (regla 19).
 //   · Lo definitivo hecho fuera (su CE3X): el `.xml` (se comprueba que es de un
-//     CEE de CE3X 3.x y se CARGA en la obra, regla 152, antes de guardarlo) y el
-//     `.pdf` (firmado → `_fdo`; sin firmar → `{nº} - CEE.pdf`, para firmarlo aquí).
+//     CEE de CE3X 3.x y se CARGA en la obra, regla 152, antes de guardarlo; y desde
+//     el 31/10/2026 la app hace con él el PDF OFICIAL, listo para firmar: `subirXml`)
+//     y el `.pdf` (firmado → `_fdo`; sin firmar → `{nº} - CEE.pdf`, para firmarlo aquí).
 //     REGLA — el `.cex` se guarda en CUARENTENA y NUNCA se abre (desde el
 //     26/10/2026; antes, 415): CE3X lo abre con pickle (por eso Drive se le
 //     comparte como LECTOR, ver drive.js). Va a la subcarpeta de cuarentena de
 //     «1. CEE» como `….cex.cuarentena` (documentos.js): es SU copia, para
 //     descargarla; lo que cuenta para el registro es XML + PDF, y para regenerar,
 //     la envolvente.
-//   · Solo en LISTO o VALIDADO (lo entregado). Firmar implica darlo por bueno: una
-//     obra LISTO pasa a VALIDADO al firmar.
+//   · Solo en LISTO o VALIDADO (lo entregado); el XML, también en BORRADOR. Firmar
+//     implica darlo por bueno: una obra LISTO pasa a VALIDADO al firmar.
 //   · En un ENCARGO de BROKERGY (services/certapp/crm.js), firmar manda el PDF
 //     firmado, el XML y el .cex al expediente del CRM y pide su revisión; el XML
 //     definitivo, a su casilla. De fondo: el técnico no espera a eso.
@@ -28,6 +29,7 @@
 const supabase = require('../supabaseClient');
 const driveService = require('../driveService');
 const cex = require('../ceeEnvolventeCex');
+const cexAPdf = require('../cee/cexAPdf');
 const drive = require('./drive');
 const tipos = require('./tipos');
 const { leerFirmasPdf, firmanteCoincide } = require('../../utils/firmasPdf');
@@ -143,11 +145,16 @@ async function guardarFirmado(obra, cuenta, buffer, { via = 'autofirma' } = {}) 
  * @param {{ buffer: Buffer, originalname?: string }} fichero
  */
 async function subirDefinitivo(obra, cuenta, fichero) {
-    exigirEntregada(obra);
+    if (obra.estado !== 'BORRADOR') exigirEntregada(obra);
     const buffer = fichero?.buffer;
     if (!Buffer.isBuffer(buffer) || !buffer.length) throw fallo(400, 'No ha llegado ningún archivo.', 'SIN_FICHERO');
     if (buffer.length > MAX_BYTES) throw fallo(413, 'El archivo es demasiado grande (máximo 25 MB).', 'FICHERO_GRANDE');
     const t = tipos.detectar(buffer);
+    // Antes de pedir el certificado vale el XML: lo ha hecho entero en su CE3X.
+    if (obra.estado === 'BORRADOR') {
+        if (t?.ext !== 'xml') throw fallo(409, 'Antes de pedir el certificado solo se puede subir el XML que saca tu CE3X.', 'ESTADO_NO_FIRMABLE');
+        return subirXml(obra, cuenta, buffer);
+    }
     if (t?.ext === 'cex') return guardarCexEnCuarentena(obra, buffer);
     if (t?.ext === 'pdf') {
         if (leerFirmasPdf(buffer).firmada) return { tipo: 'pdf_firmado', ...(await guardarFirmado(obra, cuenta, buffer, { via: 'subido' })) };
@@ -157,9 +164,27 @@ async function subirDefinitivo(obra, cuenta, fichero) {
         return { ok: true, tipo: 'pdf', fichero: guardado.nombre, estado: obra.estado };
     }
     if (t?.ext !== 'xml') throw fallo(415, 'Sube el XML del certificado (de CE3X) o el PDF.', 'TIPO_NO_VALE');
+    return subirXml(obra, cuenta, buffer);
+}
 
-    // El XML: primero se lee (sin escribir). Si no es un CEE de CE3X 3.x que se
-    // pueda cargar, no se guarda nada.
+/**
+ * El XML de SU CE3X → la app hace el PDF OFICIAL y lo deja listo para firmar (Fran,
+ * 31/10/2026: «sube xml y convierte a pdf listo para firmar»; a los certificadores
+ * les fallaba sacar el PDF en su CE3X). El PDF lo hace `cexAPdf.pdfDeXml`: en el
+ * servidor, el servicio xml2cert (implementation/xml2cert), sin depender de un PC.
+ *
+ *   · REGLA 140 — un XML que NO VALIDA no se guarda: su PDF saldría con la marca
+ *     «certificado incompleto» y no se puede registrar. Se le dice por qué.
+ *   · Sin el generador (caído u ocupado): 503 y nada guardado; se vuelve a subir.
+ *   · Se guardan `{nº} - CEE.xml` y `{nº} - CEE.pdf` en «1. CEE» y el XML se carga
+ *     en la obra (regla 152). El PDF nuevo es el que se firma (`elegirFicheros`).
+ *   · En BORRADOR (no pedido a la app) la obra pasa a LISTO y NO gasta créditos:
+ *     el certificado lo ha hecho él. En VALIDADO vuelve a LISTO: lo firmado era el
+ *     PDF anterior. Y el visto bueno de BROKERGY deja de valer: era para NUESTRO
+ *     .cex, no para lo que ha hecho él.
+ */
+async function subirXml(obra, cuenta, buffer) {
+    // Primero se lee (sin escribir). Si no es un CEE de CE3X que se pueda cargar, nada.
     const { cargarXmlEnApp } = require('../cee/cargarXmlCee');
     const ctx = await cex.cargarExpediente(obra.id, 'ext');
     if (!ctx) throw fallo(404, 'No encuentro esa obra.', 'OBRA_NO_ENCONTRADA');
@@ -172,12 +197,76 @@ async function subirDefinitivo(obra, cuenta, fichero) {
     if (!prueba?.parsed?.epnrLetra && !prueba?.parsed?.emisionesLetra) {
         throw fallo(422, 'Ese XML no trae la calificación: súbelo tal como lo saca CE3X al terminar el certificado.', 'XML_SIN_CALIFICACION');
     }
-    const guardado = await guardar(await carpetaCee(obra), nombre, 'application/xml', buffer);
+    if (obra.estado === 'BORRADOR') {
+        const crm = require('./crm');
+        if (crm.esDeCrm(obra) && crm.crmDe(obra).encargo?.estado !== 'ACEPTADO') {
+            throw fallo(409, 'Acepta primero el encargo de BROKERGY.', 'ENCARGO_SIN_ACEPTAR');
+        }
+    }
+
+    const p = await cexAPdf.pdfDeXml(buffer);
+    if (p.noDisponible) {
+        console.warn(`[certapp definitivo] ${obra.numero_expediente}: sin generador del PDF: ${p.error}`);
+        throw fallo(503, 'Ahora mismo no podemos hacer el PDF del certificado. Vuelve a subir el XML en unos minutos.', 'PDF_NO_DISPONIBLE');
+    }
+    if (p.noEsCee) throw fallo(422, 'Ese XML no es el de un certificado energético.', 'XML_ILEGIBLE');
+    if (p.version && !String(p.version).startsWith('3')) {
+        throw fallo(422, 'Ese XML es de CE3X 2.3. Los certificados se hacen ya con CE3X 3.2: ábrelo con la 3.2, guárdalo y sube el XML que saca.', 'XML_CE3X_ANTIGUO');
+    }
+    if (!p.ok || p.marcaDeAgua) {
+        const motivos = p.avisos?.length ? p.avisos : [p.error].filter(Boolean);
+        throw fallo(422, 'Ese XML no valida: el PDF saldría con la marca «certificado incompleto», que no se puede registrar. '
+            + `Corrígelo en CE3X y vuelve a subirlo.${motivos.length ? ` ${motivos.join(' · ')}` : ''}`, 'XML_NO_VALIDA', { motivos });
+    }
+
+    const carpeta = await carpetaCeeAsegurada(obra, cuenta);
+    const guardado = await guardar(carpeta, nombre, 'application/xml', buffer);
+    const pdf = await guardar(carpeta, nombreDefinitivo(obra, 'pdf'), 'application/pdf', p.pdf);
     const carga = await cargarXmlEnApp(ctx, 'inicial', buffer, { fileName: nombre, escribir: true, forzar: true });
-    await evento(obra.id, obra.cuenta_id, 'DEFINITIVO', 'El certificador ha subido el XML definitivo', 'certificador',
-        { fichero: guardado.nombre, cargado: !!carga?.cargado });
+
+    const estado = await listoParaFirmar(obra, cuenta);
+    await require('./vistoBueno').anularSiOtraReceta(obra.id, null, { motivo: 'El certificador ha subido su propio XML' });
+    await evento(obra.id, obra.cuenta_id, 'DEFINITIVO',
+        'El certificador ha subido el XML definitivo y la app ha hecho el PDF oficial, listo para firmar'
+            + (obra.estado === 'BORRADOR' ? ' (hecho en su CE3X: sin gastar créditos)' : ''),
+        'certificador', { fichero: guardado.nombre, pdf: pdf.nombre, cargado: !!carga?.cargado });
     require('./crm').enviarDefinitivoAsync(obra, cuenta, { tipo: 'xml', buffer });
-    return { ok: true, tipo: 'xml', fichero: guardado.nombre, cargado: !!carga?.cargado, estado: obra.estado };
+    return { ok: true, tipo: 'xml', fichero: guardado.nombre, pdf: pdf.nombre, cargado: !!carga?.cargado, estado };
+}
+
+/** «1. CEE» de la obra, creándola si falta (una obra en BORRADOR puede no tenerla). */
+async function carpetaCeeAsegurada(obra, cuenta) {
+    if (!(await drive.carpetaCeeSiExiste(obra))) {
+        const r = await drive.asegurarCarpetaObra(obra, cuenta);
+        if (!r.ok) {
+            throw r.motivo === 'SIN_RAIZ'
+                ? fallo(503, 'Falta configurar la carpeta de Drive de la app (CERTAPP_DRIVE_ROOT_ID).', 'DRIVE_SIN_CONFIGURAR')
+                : fallo(502, 'Google Drive no responde ahora mismo. Vuelve a intentarlo en un momento.', 'DRIVE_FALLO');
+        }
+    }
+    return carpetaCee(obra);
+}
+
+/**
+ * Con el PDF nuevo, la obra queda LISTO (por firmar): desde BORRADOR (entregado por él
+ * mismo: carpeta compartida, como en `entrega.entregar`) o desde VALIDADO (lo firmado
+ * era el PDF anterior). Devuelve el estado en que queda.
+ */
+async function listoParaFirmar(obra, cuenta) {
+    if (!['BORRADOR', 'VALIDADO'].includes(obra.estado)) return obra.estado;
+    const ahora = new Date().toISOString();
+    const patch = obra.estado === 'BORRADOR'
+        ? { estado: 'LISTO', listo_at: ahora, entregado_at: ahora }
+        : { estado: 'LISTO', validado_at: null };
+    const { data, error } = await supabase.from('certapp_obras')
+        .update(patch).eq('id', obra.id).eq('estado', obra.estado).select('estado');
+    if (error) throw errorBd(error, 'dejar la obra lista para firmar');
+    if (!data?.length) return obra.estado;
+    if (obra.estado === 'BORRADOR') {
+        const c = await drive.compartirConCertificador(obra, cuenta.email);
+        if (!c.ok) console.warn(`[certapp definitivo] ${obra.numero_expediente}: carpeta sin compartir: ${c.error || c.motivo}`);
+    }
+    return 'LISTO';
 }
 
 /**

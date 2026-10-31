@@ -18,6 +18,8 @@ services:
       - PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
       - RITE_SERVICE_URL=http://rite-generator:8080
       - CEE_ENGINE_URL=http://cee-engine:8080
+      # El PDF oficial de un CEE desde su XML (services/cee/cexAPdf.js → servicio xml2cert).
+      - XML2CERT_URL=http://xml2cert:8095
       # Timbre del canal de trabajo con Fran: avisa al contenedor «asistente» cuando él escribe.
       # Su número va en el .env (ASISTENTE_WHATSAPP_TEL), nunca aquí: el repo es público.
       - ASISTENTE_URL=http://asistente:8091
@@ -64,6 +66,18 @@ services:
     restart: unless-stopped
     environment:
       - PORT=8080
+    networks:
+      - brokergy
+
+  # El PDF OFICIAL de un CEE desde su XML: el xml2cert.exe del IETcc-CSIC (el de CE3X 3.2)
+  # con Wine. El certificador sube el XML en la app de certificadores y el PDF sale aquí,
+  # sin depender de un PC encendido. No publica puertos: solo le habla el backend.
+  xml2cert:
+    build: ./implementation/xml2cert
+    container_name: brokergy-xml2cert
+    restart: unless-stopped
+    environment:
+      - PORT=8095
     networks:
       - brokergy
 

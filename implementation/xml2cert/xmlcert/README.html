@@ -1,0 +1,247 @@
+<h1
+id="validación-y-generación-de-informes-pdf-de-eficiencia-energética-con-xml2cert-y-xmlcheck">Validación
+y generación de informes PDF de eficiencia energética con
+<code>xml2cert</code> y <code>xmlcheck</code></h1>
+<p>Las aplicaciones <code>xml2cert</code> y <code>xmlcheck</code>,
+desarrolladas por el equipo de <em>Energética edificatoria</em> de la
+<em>Unidad de Calidad en la Construcción</em> del <a
+href="https://www.ietcc.csic.es/unidades-tecnicas/calidad-en-la-construccion/">Instituto
+de Ciencias de la Construcción Eduardo Torroja (IETcc-CSIC)</a> permiten
+comprobar la validez y viabilidad de un informe de eficiencia energética
+del edificio en formato XML (v3.0) y, en el caso de
+<code>xml2cert</code> además generar un Informe de certificación
+energética en formato PDF.</p>
+<p>El objetivo de los programas es su integración con las distintas
+herramientas reconocidas para la evaluación de la eficiencia energética
+de los edificios para mejorar la calidad de los datos de salida y el
+diagnóstico de los errores más frecuentes.</p>
+<h2 id="xml2cert"><code>xml2cert</code></h2>
+<p>La aplicación <code>xml2cert</code> comprueba la validez y viabilidad
+de un Informe de eficiencia energética del edificio en formato XML
+(v3.0) y, en caso de ser viable, emite un informe PDF de Certificación
+de la eficiencia energética de los edificios.</p>
+<p>Si el documento es válido (no solo viable), además se incrusta el
+archivo XML original en el PDF, salvo que se indique la opción
+<code>--skip-xml-embedding</code>.</p>
+<p>Los avisos y errores del programa, así como la información sobre el
+proceso de ejecución del programa se almacenan en un archivo de registro
+<code>.log</code>.</p>
+<h3 id="uso">Uso</h3>
+<p>El ejecutable <code>xml2cert</code> debe llamarse indicando la ruta
+del archivo <code>.xml</code> que se desea comprobar y generar su
+certificado energético y, opcionalmente, indicando el directorio de
+salida. Si se omite este último la salida se genera en la misma
+ubicación que el archivo XML de entrada.</p>
+<p><strong>Linux</strong>:</p>
+<pre class="shell"><code>    xml2cert &quot;ruta_hasta_el/archivo.xml&quot; -o directorio_de_salida</code></pre>
+<p><strong>Windows</strong>:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode cmd"><code class="sourceCode dosbat"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>    xml2cert.exe <span class="st">&quot;ruta_hasta_el/archivo.xml&quot;</span> <span class="at">-o</span> directorio_de_salida</span></code></pre></div>
+<h3 id="salida-de-resultados">Salida de resultados</h3>
+<p>La ejecución del programa puede dar lugar a distintas salidas de
+datos, tanto de informes en formato PDF como registro de errores. Estas
+salidas se generan, bien en el directorio de salida indicado
+explícitamente al llamar al programa (opción <code>-o</code>) o, a falta
+de este, en el mismo directorio del XML de entrada.</p>
+<p>El nombre de los informes en PDF coincide con el del archivo XML de
+entrada pero con extensión <code>.pdf</code>. El nombre del registro de
+actividad añade al nombre del archivo XML de entrada la extensión
+<code>.log</code>.</p>
+<table>
+<colgroup>
+<col style="width: 74%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Caso</th>
+<th>Informe PDF</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Archivo XML válido y completo</td>
+<td>Sí</td>
+</tr>
+<tr class="even">
+<td>Archivo XML válido pero incompleto por falta de medidas de
+mejora</td>
+<td>Sí - con marca de agua</td>
+</tr>
+<tr class="odd">
+<td>Archivo XML no válido pero viable (solo faltan elementos)</td>
+<td>Sí - con marca de agua</td>
+</tr>
+<tr class="even">
+<td>Archivo XML no válido e inviable</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<p>El archivo de registro de error incluye el detalle de los errores de
+validación detectados: fecha y hora, nivel de alerta
+(<code>ERROR</code>, <code>WARN</code>, <code>INFO</code>,
+<code>DEBUG</code>, <code>TRACE</code>) y mensaje generado.</p>
+<h4 id="archivos-incompletos-y-marcas-de-agua">Archivos incompletos y
+marcas de agua</h4>
+<p>En el caso de archivos incompletos pero que podrían llegar a ser
+válidos y completos mediante la incorporación de algunos elementos, se
+marca el PDF con una marca de agua para indicar que es necesario
+completar el documento para que este sea válido.</p>
+<p>Igualmente, también se añade una marca de agua a aquellos archivos
+válidos pero que son incompletos debido a la necesidad de incorporar
+medidas de mejora. Estos archivos XML están pensados para usarse en
+combinación con otros generados a partir de un mismo caso base pero
+aplicando medidas de mejora para generar un XML completo usando
+herramientas adicionales que permita combinarlos para añadir al caso
+base los bloques correspondientes a las medidas de mejora, al estilo de
+la herramienta <em>VisorXML</em> (aunque esta herramienta todavía no
+procesa archivo XML 3.0).</p>
+<h3 id="ejemplos-de-uso">Ejemplos de uso</h3>
+<p>A continuación de muestra cómo llamar al programa con algunos casos
+de ejemplo, algunos no válidos o incompletos. Estos ejemplos guardan sus
+resultados en directorio <code>build</code>.</p>
+<p>En entornos <strong>Windows</strong> los ejemplos deben ejecutarse
+usando <code>xml2cert.exe</code> en lugar de <code>xml2cert</code> y
+puede usarse el archivo <code>prueba.bat</code>, incluido en la
+distribución del programa, para ejecutar secuencialmente esta misma
+batería de pruebas.</p>
+<ol type="1">
+<li><p>Ejemplo de generación de certificado (válido y completo):</p>
+<p>Archivo con toda la información completa, formato de textos, etc.</p>
+<pre class="shell"><code>xml2cert -o build examples/Ejemplo30_Informe.xml</code></pre>
+<p>Se genera el archivo <code>./build/Ejemplo30_Informe.pdf</code> y un
+registro de error (<code>.log</code>) vacío al ser un archivo válido y
+completo.</p></li>
+<li><p>Ejemplo incompleto (no válido, incompleto):</p>
+<p>Archivo en el que se ha omitido un bloque obligatorio
+<code>MedidasMejora</code> y por tanto no es válido, aunque es viable al
+poder completarse en algún momento.</p>
+<pre class="shell"><code>xml2cert -o ./build examples/Ejemplo30_InformeBloqueMedidasBorrado.xml</code></pre>
+<p>Se genera el archivo
+<code>./build/Ejemplo30_InformeBloqueMedidasBorrado.pdf</code> con una
+marca de agua que indica que el informe en XML es incompleto, ya que
+falta un elemento obligatorio (<code>MedidasMejora</code>).</p>
+<p>El registro de errores
+<code>./build/Ejemplo30_InformeBloqueMedidasBorrado-errors.log</code>
+indica los errores de validación encontrados y se pueden ver los
+elementos faltantes para obtener un informe válido (elemento
+<code>MedidasMejora</code> ausente).</p></li>
+<li><p>Ejemplo con medidas de ahorro pendientes de definición (válido e
+incompleto):</p>
+<p>Archivo con el bloque de medidas de ahorro que contiene la etiqueta
+especial <code>MedidasPendientes</code>, que indica que no se han
+añadido medidas de mejora para incorporarlas en un paso posterior por
+otra aplicación.</p>
+<pre class="shell"><code>xml2cert -o ./build examples/Ejemplo30_InformeMedidasPendientes.xml</code></pre>
+<p>Se genera el archivo
+<code>./build/Ejemplo30_InformeMedidasPendientes.pdf</code> con una
+marca de agua que indica que el informe en XML tiene pendiente la
+definición de sus Medidas de mejora.</p>
+<p>El archivo de registro de errores está vacío, puesto que el XML es
+válido, pero deberían completarse las medidas de mejora y generar un XML
+completo con otra aplicación para generar un documento válido y
+completo.</p></li>
+<li><p>Ejemplo con etiquetas opcionales omitidas (válido y completo)</p>
+<p>Archivo con el contenido mínimo exigido en el esquema XSD. Parte del
+informe de ejemplo inicial pero se omiten campos opcionales.</p>
+<pre class="shell"><code>xml2cert -o ./build examples/Ejemplo30_InformeReducidoYPorDefecto.xml</code></pre>
+<p>Se genera el archivo
+<code>./build/Ejemplo30_InformeReducidoYPorDefecto.pdf</code>.</p>
+<p>El registro de errores está vacío puesto que el certificado es válido
+y completo.</p></li>
+<li><p>Ejemplo con textos sin formato (válido y completo)</p>
+<p>Archivo en el que los campos de texto libre no tienen formato, solo
+texto plano. Parte del informe inicial pero simplifica el contenido de
+los campos de texto libre al no usar HTML para asignar formatos
+tipográficos.</p>
+<pre class="shell"><code>xml2cert -o ./build examples/Ejemplo30_InformeTextosSinCdata.xml</code></pre>
+<p>Se genera el archivo
+<code>./build/Ejemplo30_InformeTextosSinCdata.pdf</code>.</p>
+<p>El registro de errores está vacío puesto que el certificado es válido
+y completo.</p></li>
+<li><p>Ejemplo de archivo no válido (no válido, no viable)</p>
+<p>Archivo que no corresponde a un certificado válido y además tampoco
+es viable añadiendo nuevas etiquetas.</p>
+<pre class="shell"><code>xml2cert -o ./build examples/Ejemplo30_InformeInviable.xml</code></pre>
+<p>No se emite un informe en PDF.</p>
+<p>Se genera el archivo
+<code>./build/Ejemplo30_InformeInviable.log</code> con el detalle de los
+errores de validación.</p></li>
+<li><p>Ejemplo de archivo no válido (no válido, no viable)</p>
+<p>Archivo vacío que no corresponde a un certificado válido y además
+tampoco es viable añadiendo nuevas etiquetas.</p>
+<pre class="shell"><code>xml2cert -o ./build examples/Ejemplo30_Vacio.xml</code></pre>
+<p>No se emite un informe en PDF.</p>
+<p>Se genera el archivo
+<code>./build/Ejemplo30_Vacio.log</code>.</p></li>
+</ol>
+<h2 id="xmlcheck"><code>xmlcheck</code></h2>
+<p>La aplicación adicional <code>xmlcheck</code> permite comprobar la
+validez y viabilidad de informe XML, notificando en consola del
+resultado de las comprobaciones, sin generar un informe de certificación
+en PDF.</p>
+<p>El objetivo de esta aplicación no es tanto la integración con otras
+herramientas sino como ayuda al diagnóstico y desarrollo, permitiendo el
+uso de distintos esquemas de validación.</p>
+<h3 id="uso-1">Uso</h3>
+<p>La aplicación admite tres parámetros, dos de ellos opcionales:</p>
+<ul>
+<li><code>xml_path</code> - ruta al archivo que queremos comprobar</li>
+<li><code>schema_path</code> (opcional) - ruta al esquema de validación
+en formato RelaxNG Compacto. Si no se indica se usa la versión embebida
+en la aplicación.</li>
+<li><code>jing_jar_path</code> (opcional) - ruta a la librería
+<code>jing.jar</code> de validación. Si no se indica busca en
+<code>../bin/jing.jar</code></li>
+</ul>
+<h3 id="ejemplo-de-uso-y-salida">Ejemplo de uso y salida</h3>
+<p>Ejemplos con shell en Linux. Para uso en windows utilizar
+<code>xmlcheck.exe</code> en lugar de <code>xmlcheck</code>.</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> xmlcheck ../examples/Ejemplo30_InformeBloqueMedidasBorrado.xml</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a> <span class="ex">INFO</span> Identificado archivo XML: <span class="st">&quot;../examples/Ejemplo30_InformeBloqueMedidasBorrado.xml&quot;</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a> <span class="ex">INFO</span> Usando esquema de validación por defecto</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a> <span class="ex">WARN</span> Documento no válido pero viable</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a> <span class="ex">WARN</span> <span class="st">&quot;/home/pachi/repos/git/xml2informe/xmlcert-rs/../examples/Ejemplo30_InformeBloqueMedidasBorrado.xml:1015:31: error: element </span><span class="dt">\&quot;</span><span class="st">DatosEnergeticosDelEdificio</span><span class="dt">\&quot;</span><span class="st"> incomplete; missing required element </span><span class="dt">\&quot;</span><span class="st">MedidasMejora</span><span class="dt">\&quot;</span><span class="st">&quot;</span></span></code></pre></div>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> xmlcheck ../examples/Ejemplo30_InformeBloqueMedidasBorrado.xml ../../xml-eficiencia-energetica/RelaxNG/DatosEnergeticosDelEdificioSchema30.rnc </span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a> <span class="ex">INFO</span> Identificado archivo XML: <span class="st">&quot;../examples/Ejemplo30_InformeBloqueMedidasBorrado.xml&quot;</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a> <span class="ex">INFO</span> Identificado esquema RelaxNG: <span class="st">&quot;../../xml-eficiencia-energetica/RelaxNG/DatosEnergeticosDelEdificioSchema30.rnc&quot;</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a> <span class="ex">WARN</span> Documento no válido pero viable</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a> <span class="ex">WARN</span> <span class="st">&quot;/home/pachi/repos/git/xml2informe/xmlcert-rs/../examples/Ejemplo30_InformeBloqueMedidasBorrado.xml:1015:31: error: element </span><span class="dt">\&quot;</span><span class="st">DatosEnergeticosDelEdificio</span><span class="dt">\&quot;</span><span class="st"> incomplete; missing required element </span><span class="dt">\&quot;</span><span class="st">MedidasMejora</span><span class="dt">\&quot;</span><span class="st">&quot;</span></span></code></pre></div>
+<h2 id="licencia">Licencia</h2>
+<p>Copyright (c) 2025 Instituto de CC. de la Construcción Eduardo
+Torroja (IETcc-CSIC)</p>
+<p>Unidad de Calidad en la Construcción</p>
+<p>Autores:</p>
+<ul>
+<li>Rafael Villar Burke <a href="mailto:pachi@ietcc.csic.es"
+class="email">pachi@ietcc.csic.es</a>,</li>
+<li>Daniel Jiménez González <a href="mailto:danielj@ietcc.csic.es"
+class="email">danielj@ietcc.csic.es</a></li>
+<li>Marta Sorribes Gil <a href="mailto:msorribes@ietcc.csic.es"
+class="email">msorribes@ietcc.csic.es</a></li>
+</ul>
+<p>Las aplicaciones <code>xml2cert</code> y <code>xmlcheck</code> se
+distribuyen bajo una <a
+href="http://opensource.org/licenses/MIT">licencia MIT</a>.</p>
+<pre class="plain"><code>Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &#39;Software&#39;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &#39;AS IS&#39;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</code></pre>

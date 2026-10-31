@@ -1754,7 +1754,7 @@ function lineaVistoBueno(vb) {
     if (!vb) return null;
     const f = vb.at ? new Date(vb.at).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) : '—';
     const quien = vb.por ? ` (${vb.por})` : '';
-    if (vb.anulado_at) return ['text-amber-300', `⚠ El visto bueno del ${f} ya no vale: se ha vuelto a generar con otros datos.`];
+    if (vb.anulado_at) return ['text-amber-300', `⚠ El visto bueno del ${f} ya no vale: ${vb.anulado_motivo || 'Se ha vuelto a generar con otros datos.'}`];
     if (!vb.vigente) return ['text-amber-300', `⚠ El visto bueno del ${f} no es de lo que está generado ahora.`];
     if (vb.firmado) return ['text-emerald-300', `✓ Visto bueno del ${f}${quien}, dado al certificado ya firmado.`];
     if (vb.esperando_pc) return ['text-sky-200/85', `✓ Visto bueno del ${f}${quien}: se está calculando con CE3X y se entrega solo al terminar.`];

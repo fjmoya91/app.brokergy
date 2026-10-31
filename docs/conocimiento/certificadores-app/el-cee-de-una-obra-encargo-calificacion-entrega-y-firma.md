@@ -78,7 +78,7 @@ firma: { at, firmante, via } | null }` (`firma.resumenParaCertificador`, sin enl
 |---|---|
 | `GET /obras/:id/cee/para-firmar` | `{ nombre, base64 }`: el PDF que toca firmar (el `pdf` de `elegirFicheros`). Sin entregar, 409 `ESTADO_NO_FIRMABLE`; sin «1. CEE», 409 `SIN_CEE` |
 | `POST /obras/:id/cee/firmado` (multipart `fichero`) | El PDF firmado en el navegador → `{ ok, estado, firma, avisos }`. Lo guarda como `{nº} - CEE_fdo.pdf` |
-| `POST /obras/:id/cee/definitivo` (multipart `fichero`) | Un `.xml` (se carga en la app), un `.pdf` (firmado: como el anterior; sin firmar: `{nº} - CEE.pdf`) o un `.cex` (a cuarentena) → `{ ok, tipo, fichero, estado }` |
+| `POST /obras/:id/cee/definitivo` (multipart `fichero`) | Un `.xml` (se carga en la app y la app hace con él el PDF oficial, `{nº} - CEE.pdf`, desde el 31/10/2026; también en BORRADOR), un `.pdf` (firmado: como el anterior; sin firmar: `{nº} - CEE.pdf`) o un `.cex` (a cuarentena) → `{ ok, tipo, fichero, pdf?, estado }` |
 | `GET /obras/:id/documentos` | Lo actual, las versiones anteriores, los `.cex` en cuarentena y la firma ([documentos-de-la-obra-visor-y-cex-en-cuarentena.md](docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md)) |
 
 En la pantalla se firma con el **mismo modal del CRM** (`FirmarConCertificadoModal`, AutoFirma por el
@@ -99,10 +99,12 @@ el XML y el PDF. Detalle en [documentos-de-la-obra-visor-y-cex-en-cuarentena.md]
 
 **REGLA — un XML definitivo se lee en seco antes de guardarlo**: `cargarXmlEnApp(…, { escribir:
 false })`; si no se puede cargar, 422 `XML_ILEGIBLE`, y sin calificación, 422
-`XML_SIN_CALIFICACION`. Solo entonces se guarda `{nº} - CEE.xml` y se carga de verdad (evento
-`DEFINITIVO`).
+`XML_SIN_CALIFICACION`. Desde el 31/10/2026, además, la app hace con él el PDF oficial y, si no
+valida, no se guarda nada; si valida, se guardan `{nº} - CEE.xml` y `{nº} - CEE.pdf` y se carga de
+verdad (evento `DEFINITIVO`). Ver [el-pdf-del-xml-en-el-servidor.md](docs/conocimiento/certificadores-app/el-pdf-del-xml-en-el-servidor.md).
 
-Todo se hace en LISTO o VALIDADO (`ESTADOS_FIRMABLES`); lo que se sustituye va a OLD.
+Todo se hace en LISTO o VALIDADO (`ESTADOS_FIRMABLES`), salvo el XML, que vale también en BORRADOR;
+lo que se sustituye va a OLD.
 
 ### Los ficheros de «1. CEE» y cuál manda
 
@@ -111,7 +113,7 @@ Todo se hace en LISTO o VALIDADO (`ESTADOS_FIRMABLES`); lo que se sustituye va a
 | `{nº} - CEE_REVISAR.cex` · `.xml` · `.pdf` | lo nuestro (la IA y la calificación del PC) |
 | `{nº} - CEE INICIAL_CROQUIS.pdf` | el croquis |
 | `{nº} - CEE_fdo.pdf` | el firmado (AutoFirma en la app, o un PDF firmado que sube) |
-| `{nº} - CEE.xml` · `{nº} - CEE.pdf` | el definitivo que sube el certificador |
+| `{nº} - CEE.xml` · `{nº} - CEE.pdf` | el definitivo que sube el certificador (el PDF, el suyo o el que hace la app con su XML) |
 | `CEX DEL CERTIFICADOR (NO ABRIR)/{nº} - CEE AAAA-MM-DD HHhMM.cex.cuarentena` | los `.cex` que sube el certificador: nunca «el `.cex`» |
 | `OLD/…_OLD{n}.…` | lo sustituido; en la app, «Versiones anteriores» |
 

@@ -54,7 +54,9 @@ el guardián `internoOExtSuyo` por ser su obra, pero aquí recibe 403 `SOLO_EQUI
 **REGLA — vale para UNA receta.** Se da sobre el `.cex` sellado (`cee.cex_sello.inicial`) y su
 huella: si lo que se ve no es lo generado, 409 `DESFASADO` (la ventana genera antes). Volver a generar
 con OTRA receta —desde la ventana o con la skill— lo **anula** al sellar (`cex.sellar` →
-`anularSiOtraReceta`; la ventana lo dice en sus avisos y al certificador le queda el evento). La
+`anularSiOtraReceta`; la ventana lo dice en sus avisos, con el motivo, y al certificador le queda el
+evento). Desde el 31/10/2026 también lo anula que el certificador suba **su propio XML** (`firma.subirXml`:
+lo que firmará ya no es lo revisado; ver [el-pdf-del-xml-en-el-servidor.md](docs/conocimiento/certificadores-app/el-pdf-del-xml-en-el-servidor.md)). La
 calificación del PC no lo anula: califica la misma receta, y con la 2.ª medida FV vuelve a medir las
 placas y la huella cambia; por eso `vigente` la acepta **solo si el visto bueno la esperaba**
 (`esperando_pc`) y es posterior a él.

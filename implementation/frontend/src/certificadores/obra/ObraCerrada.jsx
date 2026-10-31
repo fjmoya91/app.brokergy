@@ -13,8 +13,9 @@
 // rota, el servidor responde 422 y no guarda nada. Al guardarse, el visor se abre
 // con el FIRMADO. Lo firmado manda solo si es posterior al PDF: un PDF nuevo deja
 // la firma vieja sin efecto y vuelve «Ver y firmar».
-// DEFINITIVO: si lo rehace en su CE3X, sube el XML (se carga en la app), el PDF o
-// su .cex (a la cuarentena: copia suya, no se abre nunca).
+// DEFINITIVO: si lo rehace en su CE3X, sube el XML (se carga en la app y la app hace
+// el PDF oficial, que se abre en el visor para firmarlo), el PDF o su .cex (a la
+// cuarentena: copia suya, no se abre nunca).
 // Desde que la obra deja BORRADOR, el inmueble, el titular y el cuestionario
 // quedan CONGELADOS en el servidor (PUT → 409 OBRA_CERRADA): aquí solo se leen.
 // `revisar-de-nuevo` tiene tope (409 SIN_REVISIONES): se dice con calma.
@@ -131,7 +132,8 @@ export function ObraCerrada({ o, resumen = [] }) {
         }
     };
 
-    // Versión nueva hecha en su CE3X: el XML (se carga en la app), el PDF o su .cex.
+    // Versión nueva hecha en su CE3X: el XML (se carga y la app hace el PDF oficial,
+    // que se abre para firmarlo), el PDF o su .cex.
     const subirDefinitivo = async (fichero) => {
         if (!fichero) return;
         setErrorDef(null); setSubiendoDef(true);
@@ -139,11 +141,13 @@ export function ObraCerrada({ o, resumen = [] }) {
             const fd = new FormData();
             fd.append('fichero', fichero, fichero.name);
             const { data } = await axios.post(`${API}/obras/${obra.id}/cee/definitivo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-            toast({
+            const conPdf = data?.tipo === 'xml' && !!data.pdf;
+            toast(conPdf ? 'XML cargado y PDF oficial hecho: ya puedes firmarlo.' : {
                 xml: 'XML guardado y cargado.', pdf: 'PDF guardado: es el certificado actual.', pdf_firmado: 'PDF firmado guardado.',
                 cex: 'Tu .cex está guardado aparte, como copia tuya.',
             }[data?.tipo] || 'Guardado.', 5000);
-            await Promise.all([documentos.recargar({ silencioso: true }), o.cargar({ silencioso: true })]);
+            const [nuevos] = await Promise.all([documentos.recargar({ silencioso: true }), o.cargar({ silencioso: true })]);
+            if (conPdf && nuevos?.certificado) verDoc(nuevos.certificado, { firmar: true });
         } catch (err) {
             setErrorDef(mensajeError(err, 'No se ha podido subir.'));
         } finally { setSubiendoDef(false); }

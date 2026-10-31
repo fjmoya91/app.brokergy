@@ -87,7 +87,7 @@ paths:
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/en-la-app-el-boton-revisar-del-modulo-cee-fase-2-2026-09-29.md` — En la app: el botón «Revisar» del módulo CEE (fase 2, 2026-09-29) · 2,1 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/la-revision-previa-al-subir-el-tecnico-fase-3-2026-09-30.md` — La revisión PREVIA al subir el técnico (fase 3, 2026-09-30) · 4,9 KB
 - `docs/conocimiento/cee/revisar-el-cee-que-entrega-el-certificador/lo-que-hay-que-saber-del-xml-medido-sobre-462-certificados-reale.md` — Lo que hay que saber del `.xml` (MEDIDO sobre 462 certificados reales) · 6,6 KB
-- `docs/conocimiento/cee/un-cee-incompleto-no-se-da-por-bueno-ni-se-sube.md` — Un CEE «incompleto» no se da por bueno ni se sube (2026-10-19) · 4,5 KB
+- `docs/conocimiento/cee/un-cee-incompleto-no-se-da-por-bueno-ni-se-sube.md` — Un CEE «incompleto» no se da por bueno ni se sube (2026-10-19) · 4,8 KB
 
 ## Las «REGLA —» que contienen esos documentos
 

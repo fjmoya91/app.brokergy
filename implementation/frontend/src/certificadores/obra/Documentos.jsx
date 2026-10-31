@@ -218,14 +218,15 @@ export function ListaDocumentos({ d, cargando, error, recargar, onVer, admin = f
                 <div style={{ marginTop: 18 }}>
                     <p className="ca-docs-sub">¿Lo has terminado en tu CE3X?</p>
                     <p className="ca-txt ca-txt-peq" style={{ margin: '6px 0 0' }}>
-                        Sube el <b>XML</b> o el <b>PDF</b> (firmado o no): pasa a ser el actual y lo anterior queda en «Versiones anteriores».
+                        Con el <b>XML</b> basta: la app hace el <b>PDF oficial</b>, listo para firmar (si el XML no valida, te decimos por qué).
+                        También puedes subir el <b>PDF</b> (firmado o no). Lo nuevo pasa a ser el actual y lo anterior queda en «Versiones anteriores».
                         Tu <b>.cex</b> se guarda aparte, como copia tuya: no lo abrimos ni sustituye al nuestro.
                     </p>
                     <input ref={input} type="file" hidden accept=".xml,.pdf,.cex,application/pdf,text/xml,application/xml"
                         onChange={(e) => { subida.subir(e.target.files?.[0]); e.target.value = ''; }} />
                     <div className="ca-btns">
                         <button type="button" className="ca-btn ca-btn-sec" disabled={subida.subiendo} onClick={() => input.current?.click()}>
-                            {subida.subiendo ? <Spinner /> : <IcoSubir />} {subida.subiendo ? 'Subiendo…' : 'Subir versión nueva'}
+                            {subida.subiendo ? <Spinner /> : <IcoSubir />} {subida.subiendo ? 'Subiendo y comprobando…' : 'Subir versión nueva'}
                         </button>
                     </div>
                     {subida.error && <p className="ca-error" role="alert">{subida.error}</p>}
