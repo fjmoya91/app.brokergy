@@ -145,7 +145,7 @@ async function scanCeeSection(driveFolderId, phase) {
     for (const f of files) {
         if (f.mimeType === 'application/vnd.google-apps.folder') continue; // ignorar OLD
         const slot = matchSlot(f.name);
-        if (slot && !out[slot]) out[slot] = { link: f.webViewLink, name: f.name };
+        if (slot && !out[slot]) out[slot] = { link: f.webViewLink, name: f.name, id: f.id };
     }
     return out;
 }

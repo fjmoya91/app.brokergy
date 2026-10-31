@@ -8,23 +8,40 @@ const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
 
 // Descripción de cada slot para el certificador.
 const SLOT_HINTS = {
-    xml: 'Fichero .XML del certificado.',
+    xml: 'Fichero .XML del certificado. Con él hacemos nosotros el PDF oficial.',
     cex: 'Fichero .CEX del certificado.',
-    pdf: 'PDF del certificado firmado.',
+    pdf: 'PDF del certificado firmado. Si has subido el XML, aquí tienes ya el PDF oficial: solo falta firmarlo.',
     registro: 'Justificante de registro en Industria (PDF).',
     etiqueta: 'Etiqueta energética (PDF).',
 };
+
+// Lo que ha pasado con el PDF oficial al subir el XML (lo hace el servidor desde el
+// 31/10/2026): hecho, el que había era de este mismo XML, o no se ha podido.
+function notaPdfOficial(data) {
+    const p = data?.pdf_oficial;
+    if (p?.hecho) {
+        return { ok: true, texto: 'PDF oficial hecho con tu XML: está en la casilla del PDF, todavía sin firmar. Fírmalo y súbelo firmado.'
+            + (p.sustituido ? ' El PDF que había era de otro XML y lo hemos guardado aparte.' : '') };
+    }
+    if (p?.conservado) return { ok: true, texto: 'El PDF que ya tenías subido es de este mismo XML: no lo hemos tocado.' };
+    if (data?.aviso_pdf) return { ok: false, texto: data.aviso_pdf };
+    return null;
+}
 
 function SlotRow({ slot, phase, expedienteId, token, onUploaded, endpoint }) {
     const ref = useRef();
     const [dragging, setDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState(null);
+    const [motivos, setMotivos] = useState([]);
+    const [nota, setNota] = useState(null);
 
     const doUpload = async (file) => {
         if (!file) return;
         if (file.size === 0) { setError('El archivo está vacío.'); return; }
         setError(null);
+        setMotivos([]);
+        setNota(null);
         setUploading(true);
         try {
             const form = new FormData();
@@ -34,9 +51,11 @@ function SlotRow({ slot, phase, expedienteId, token, onUploaded, endpoint }) {
                 form,
                 { headers: { 'Content-Type': 'multipart/form-data' } }
             );
+            setNota(notaPdfOficial(data));
             onUploaded(slot.id, data);
         } catch (e) {
             setError(e.response?.data?.error || 'Error al subir el archivo.');
+            setMotivos(e.response?.data?.motivos || []);
         } finally {
             setUploading(false);
         }
@@ -78,7 +97,7 @@ function SlotRow({ slot, phase, expedienteId, token, onUploaded, endpoint }) {
                 {uploading ? (
                     <div className="flex items-center justify-center gap-2 py-1 text-brand text-xs font-bold">
                         <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                        Subiendo…
+                        {slot.id === 'xml' ? 'Subiendo y haciendo el PDF oficial…' : 'Subiendo…'}
                     </div>
                 ) : done ? (
                     <p className="text-emerald-400 text-[11px] font-bold py-1 truncate px-2">
@@ -89,6 +108,14 @@ function SlotRow({ slot, phase, expedienteId, token, onUploaded, endpoint }) {
                 )}
             </div>
             {error && <p className="text-red-400 text-[10px] mt-1.5 font-medium">{error}</p>}
+            {motivos.length > 0 && (
+                <ul className="mt-1 space-y-0.5 list-disc pl-4 text-red-300/80 text-[10px] leading-snug">
+                    {motivos.map((m, i) => <li key={i}>{m}</li>)}
+                </ul>
+            )}
+            {nota && (
+                <p className={`text-[11px] mt-1.5 font-medium leading-snug ${nota.ok ? 'text-emerald-300/90' : 'text-amber-300/90'}`}>{nota.texto}</p>
+            )}
         </div>
     );
 }
@@ -112,7 +139,7 @@ export function SubirCeeView({ expedienteId, token, phase, endpoint = 'cee-uploa
         return axios.get(`${API_URL}/${endpoint}/${expedienteId}?token=${encodeURIComponent(token)}&phase=${phase}`)
             .then(r => setInfo(r.data))
             .catch(() => setLoadError('El enlace no es válido o ha caducado.'));
-    }, [expedienteId, token, phase]);
+    }, [endpoint, expedienteId, token, phase]);
 
     useEffect(() => { loadInfo(); }, [loadInfo]);
 
@@ -194,6 +221,9 @@ export function SubirCeeView({ expedienteId, token, phase, endpoint = 'cee-uploa
 
                         <p className="text-white/40 text-sm leading-relaxed">
                             Sube cada archivo a su casilla. Los archivos se guardan directamente en el expediente y se renombran automáticamente. El <strong className="text-emerald-300">justificante de registro</strong> notifica al equipo de que ya está presentado.
+                        </p>
+                        <p className="text-white/40 text-sm leading-relaxed">
+                            ¿No te sale el PDF en CE3X? <strong className="text-white/70">Sube el XML</strong> (CE3X 3.2): hacemos nosotros el PDF oficial y te lo dejamos en su casilla, listo para firmar. Si el XML no valida, te decimos por qué.
                         </p>
 
                         {info.slots.map(slot => (

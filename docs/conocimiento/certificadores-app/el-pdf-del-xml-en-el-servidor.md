@@ -85,10 +85,45 @@ desplegar: la autoprueba dice si sigue funcionando.
   «Firmar con AutoFirma».
 - La demo (`?demo=1`) hace lo mismo; un XML con «mal» en el nombre hace de uno que no valida.
 
+### También en la página del técnico del CRM — `/subir-cee` y `/subir-cee-directo`
+
+Fran, el mismo día: «¿Hago también que la página /subir-cee del CRM saque el PDF del XML?» → «Sí,
+hazlo». Es la página sin cuenta del técnico de fuera (las cinco casillas: XML, PDF firmado, `.cex`,
+registro, etiqueta), para un expediente CAE y para un CEE directo
+([subidaCeePublica.js](implementation/backend/services/cee/subidaCeePublica.js), opción `pdfDelXml`, que
+solo pasan las dos rutas de `routes/public.js`; la app de certificadores y las skills suben por la misma
+función sin ella).
+
+Al subir el XML a su casilla:
+
+| Caso | Qué pasa |
+|---|---|
+| XML de CE3X 3.x que valida | se guarda y el PDF oficial va a la casilla del PDF (`_fdo.pdf`), **sin firmar**; las dos casillas vuelven a ámbar |
+| …y el PDF que ya había lleva DENTRO este mismo XML | no se toca (es el suyo, firmado o no): da igual en qué orden suba los ficheros |
+| …y el que había era de otro XML (o no se puede leer) | se pone el oficial; el anterior pasa a OLD, como cualquier versión, y se le dice |
+| no valida (marca, «___», medidas pendientes) | **422 `XML_NO_VALIDA`** con los `motivos`, y no se guarda nada (regla 140) |
+| CE3X 2.3, o no es el XML de un certificado | se guarda como siempre, sin PDF (xml2cert no hace el de la 2.3) |
+| la fase ya está REGISTRADA | se guarda como siempre: lo presentado no se toca, ni se valida |
+| el generador no responde | se guarda como siempre, sin PDF, y se le dice que lo vuelva a subir en unos minutos |
+
+**REGLA — un PDF se reconoce por el XML que lleva dentro** (`cexAPdf.xmlDelPdf` + `mismoXml`): xml2cert
+lo embebe tal cual (medido el 31/10/2026: mismos bytes en el PDF del VPS y en el de Windows, dos XML
+reales) y la firma de AutoFirma lo conserva porque firma añadiendo al final.
+
+**REGLA — en un CEE directo, el PDF oficial no es el «PDF firmado»**: se guarda sin pasar por la casilla
+que completa el paso de la factura (`ceeDirectoProceso.revisarFacturaAsync`), porque está sin firmar.
+
+Firmarlo: en un expediente CAE, cuando le damos el visto bueno, la página de presentar
+(`/presentar-cee`, Paso 1) ya ve ese PDF «sin firmar» y le deja firmarlo allí con el recuadro puesto
+(`ceeFirmaService`); o lo descarga, lo firma con su AutoFirma y lo sube a la casilla del PDF. En un CEE
+directo, esto último.
+
+En la pantalla ([SubirCeeView.jsx](implementation/frontend/src/features/public/views/SubirCeeView.jsx)):
+«¿No te sale el PDF en CE3X? Sube el XML…», la casilla del XML dice «Subiendo y haciendo el PDF
+oficial…» y, debajo, lo que ha pasado (hecho, conservado, no se ha podido) o los motivos si no valida.
+
 ### Lo que queda fuera
 
-- La página del encargo del técnico en el CRM (`/subir-cee`, `routes/public.js`) no hace el PDF: el
-  técnico de fuera sube XML y PDF como siempre.
 - El `.cex` que acompaña a un XML hecho fuera sigue siendo el nuestro (si lo hay); el suyo va a
   cuarentena.
 
@@ -97,5 +132,8 @@ desplegar: la autoprueba dice si sigue funcionando.
 - `node implementation/backend/scripts/test_certapp_xml_a_pdf.js` (25): el servicio de mentira (válido,
   no valida, inviable, ocupado, caído, «___») y la subida en cada estado (LISTO, BORRADOR, VALIDADO, no
   valida, sin generador, 2.3, encargo sin aceptar, PDF en BORRADOR, en preparación).
+- `node implementation/backend/scripts/test_subida_cee_pdf_del_xml.js` (24): `xmlDelPdf`/`mismoXml` y la
+  página del técnico, CAE y CEE directo (cada fila de la tabla de arriba, sin `pdfDelXml`, otra casilla,
+  y que el PDF oficial no toque la factura de un CEE directo).
 - Además: `test_certapp_rutas.js`, `test_certapp_unidad.js`, `test_certapp_visto_bueno.js`,
   `test_cee_incompleto.js`, `test_pdf_del_xml.js`, `auditar_rutas_sin_guardian.js`.

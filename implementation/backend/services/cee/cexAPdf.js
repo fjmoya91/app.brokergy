@@ -10,6 +10,7 @@
 //   const { pdfDeXml } = require('./cee/cexAPdf');   // solo el PDF de un XML ya hecho
 //   const p = await pdfDeXml(bufferOCaminoDelXml);   // { ok, pdf, marcaDeAgua, avisos, error }
 //   (lo usa scripts/pdf_del_xml.js, que lo hace solo al guardar el XML: ver allí)
+//   const xml = await xmlDelPdf(pdf);                 // el XML que el PDF oficial lleva dentro
 //
 // Cómo:
 //   1. El MOTOR DE CE3X 3.2 (desde el 08/10/2026; antes la 3.1), ejecutado sin
@@ -403,6 +404,31 @@ async function pdfDeXml(entrada) {
     }
 }
 
+/**
+ * El XML que el PDF oficial lleva DENTRO: `xml2cert` lo embebe tal cual (medido el
+ * 31/10/2026: mismos bytes que el de entrada, en el PDF del VPS y en el de Windows) y
+ * la firma de AutoFirma lo conserva, porque firma añadiendo al final. Así se sabe si
+ * un PDF es de un XML sin abrirlo. Devuelve el texto, o null si no lleva ninguno.
+ */
+async function xmlDelPdf(pdf) {
+    const { PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } = require('pdf-lib');
+    try {
+        const doc = await PDFDocument.load(pdf, { ignoreEncryption: true, updateMetadata: false });
+        for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+            if (!(obj instanceof PDFRawStream) || obj.dict.get(PDFName.of('Type')) !== PDFName.of('EmbeddedFile')) continue;
+            const txt = Buffer.from(decodePDFRawStream(obj).decode()).toString('utf8');
+            if (/<DatosEnergeticosDelEdificio\b/.test(txt.slice(0, 4096))) return txt;
+        }
+    } catch { /* no es un PDF que se pueda leer: como si no lo llevara */ }
+    return null;
+}
+
+/** ¿Es el mismo XML? Sin BOM, sin el fin de línea de Windows y sin espacios en los extremos. */
+const mismoXml = (a, b) => {
+    const n = (x) => String(Buffer.isBuffer(x) ? x.toString('utf8') : x || '').replace(/^﻿/, '').replace(/\r\n/g, '\n').trim();
+    return !!n(a) && n(a) === n(b);
+};
+
 /** Los diálogos de CE3X que no dicen nada. */
 const ruidoCe3x = (x) => x && !/^Dialog\.ShowModal: Dialog Opciones del Informe/.test(x);
 
@@ -669,4 +695,4 @@ function lineasCalificado(r, { esperado = null } = {}) {
     return out;
 }
 
-module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, disponiblePdf, avisosDelLog, huecosSinCompletar, incompletoDelXml, validarXml, textoIncompleto };
+module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, xmlDelPdf, mismoXml, disponiblePdf, avisosDelLog, huecosSinCompletar, incompletoDelXml, validarXml, textoIncompleto };

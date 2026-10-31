@@ -43,8 +43,10 @@ para el v2.0 y para el XML en MAYÚSCULAS de la BD).
 antes de subir nada: si no valida, no sube ni el XML, ni el PDF, ni el `.cex`. Todos los caminos que
 suben un calificado pasan por ahí. Desde el 31/10/2026 también valida de verdad en el VPS (el servicio
 `xml2cert`; antes allí quedaba «sin comprobar»), y el XML que sube un certificador en la app de
-certificadores tampoco se guarda si no valida (`firma.subirXml`, ver
-[el-pdf-del-xml-en-el-servidor.md](docs/conocimiento/certificadores-app/el-pdf-del-xml-en-el-servidor.md)).
+certificadores tampoco se guarda si no valida (`firma.subirXml`), ni el que sube un técnico por su
+enlace del CRM (`/subir-cee`, `/subir-cee-directo`: `subidaCeePublica`, que además hace con él el PDF
+oficial), salvo con la fase ya registrada. Ver
+[el-pdf-del-xml-en-el-servidor.md](docs/conocimiento/certificadores-app/el-pdf-del-xml-en-el-servidor.md).
 
 **REGLA — un final no se copia de un inicial sin huecos.** `ceeFinalCopiando` lee el `.cex` del
 inicial con el motor (`/cex/radiografia`) y, sin huecos, para con 422 antes de pasar dos veces por

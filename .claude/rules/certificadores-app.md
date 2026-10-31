@@ -30,7 +30,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md` — Los documentos de la obra: visor, firmar desde el visor, versiones y el `.cex` en cuarentena (2026-10-26) · 7,4 KB
 - `docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md` — El CEE de una obra: el encargo, la calificación en el PC, el aviso, la entrega y la firma (2026-10-25) · 11,9 KB
 - `docs/conocimiento/certificadores-app/el-movil-en-la-visita-iphone-y-fotos-sin-cobertura.md` — El móvil en la visita: iPhone, fotos sin cobertura y el teclado (2026-10-30) · 7,6 KB
-- `docs/conocimiento/certificadores-app/el-pdf-del-xml-en-el-servidor.md` — El certificador sube el XML y la app hace el PDF oficial, en el servidor (2026-10-31) · 6,9 KB
+- `docs/conocimiento/certificadores-app/el-pdf-del-xml-en-el-servidor.md` — El certificador sube el XML y la app hace el PDF oficial, en el servidor (2026-10-31) · 9,6 KB
 - `docs/conocimiento/certificadores-app/encargos-de-brokergy-desde-el-crm.md` — Los encargos de BROKERGY: del CRM a la app y vuelta (2026-10-30) · 9,4 KB
 - `docs/conocimiento/certificadores-app/fase-5-fuera-enlace-corto-y-fachada.md` — Sin la fase 5, el enlace corto, la fachada propuesta y la numeración desde el 1 (2026-10-26) · 4,9 KB
 - `docs/conocimiento/certificadores-app/fotos-opcionales-y-equipo-generico.md` — Las fotos opcionales («Ahora no») y el equipo genérico con su antigüedad (2026-10-25) · 3,7 KB
@@ -103,6 +103,8 @@ el propio vigía**
   - **REGLA — en BORRADOR, el XML hecho en su CE3X deja la obra LISTO y NO gasta créditos**
   - **REGLA — un XML nuevo deja sin efecto la firma y el visto bueno.**
   - **REGLA — la imagen se AUTOPRUEBA al construirse**
+  - **REGLA — un PDF se reconoce por el XML que lleva dentro**
+  - **REGLA — en un CEE directo, el PDF oficial no es el «PDF firmado»**
 - `docs/conocimiento/certificadores-app/encargos-de-brokergy-desde-el-crm.md`
   - **REGLA — lo que el CRM ya sabe de la instalación no se vuelve a preguntar**
   - **REGLA — lo que se ve en el popup es lo que sale.**

@@ -1492,7 +1492,9 @@ router.post('/cee-prerevision/:expedienteId', async (req, res) => {
 
 // POST /api/public/cee-upload/:expedienteId/:slot?token=&phase= → sube 1 fichero
 // La subida (y el hito del REGISTRO) vive en `services/cee/subidaCeePublica.js`:
-// la comparte con el enlace de quien PRESENTA el certificado.
+// la comparte con el enlace de quien PRESENTA el certificado. Con el XML, el
+// servidor hace además el PDF oficial (`pdfDelXml`); si el XML no valida, 422 con
+// sus `motivos` y no se guarda.
 router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res) => {
     try {
         const { expedienteId, slot } = req.params;
@@ -1503,11 +1505,11 @@ router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res
         }
         const { subirCae } = require('../services/cee/subidaCeePublica');
         res.json(await subirCae({
-            expedienteId, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype,
+            expedienteId, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype, pdfDelXml: true,
         }));
     } catch (e) {
         console.error('[cee-upload POST]', e.message);
-        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo' });
+        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo', ...(e.motivos ? { codigo: e.codigo, motivos: e.motivos } : {}) });
     }
 });
 
@@ -2012,11 +2014,11 @@ router.post('/cee-directo-upload/:id/:slot', uploadDocsSingle, async (req, res) 
         }
         const { subirCeeDirecto } = require('../services/cee/subidaCeePublica');
         res.json(await subirCeeDirecto({
-            id, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype,
+            id, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype, pdfDelXml: true,
         }));
     } catch (e) {
         console.error('[cee-directo-upload POST]', e.message);
-        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo' });
+        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo', ...(e.motivos ? { codigo: e.codigo, motivos: e.motivos } : {}) });
     }
 });
 
