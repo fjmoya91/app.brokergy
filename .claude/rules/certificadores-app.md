@@ -39,7 +39,7 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/certificadores-app/menu-lateral-y-partes-de-la-obra.md` — El menú lateral y las partes de la obra (2026-10-26) · 5,1 KB
 - `docs/conocimiento/certificadores-app/presentar-en-el-registro-y-fotos-tras-pedir.md` — Presentar en el Registro, lo que devuelve y las fotos tras pedir (2026-10-28) · 5,8 KB
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24) · 3,0 KB
-- `docs/conocimiento/certificadores-app/visto-bueno-desde-la-envolvente.md` — El visto bueno de BROKERGY, dado en la envolvente: listo para firmar (2026-10-30) · 6,1 KB
+- `docs/conocimiento/certificadores-app/visto-bueno-desde-la-envolvente.md` — El visto bueno de BROKERGY, dado en la envolvente: listo para firmar (2026-10-30) · 6,6 KB
 
 ## Las «REGLA —» que contienen esos documentos
 

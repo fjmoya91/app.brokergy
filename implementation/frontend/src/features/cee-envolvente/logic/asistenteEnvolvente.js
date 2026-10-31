@@ -252,6 +252,37 @@ export function pideGenerar(texto) {
 }
 
 /**
+ * ¿Ha pedido dejarlo LISTO PARA FIRMAR? («déjalo listo para firmar», «dale el
+ * visto bueno»). Es el visto bueno de BROKERGY (`vistoBueno.dar`): generar si
+ * hace falta, calificar en el PC y entregarlo al certificador. Solo el equipo y
+ * en una obra de la app; quien lo monta decide si se ofrece (`puedeListo`).
+ */
+export function pideListo(texto) {
+    const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return /\blisto para (firmar|la firma)\b|\bvisto bueno\b|\bdeja(lo|la|melo|mela)? listo\b|\bpara que (lo )?firme\b/.test(t);
+}
+
+//: Las órdenes y el relleno que las acompaña: lo que queda al quitarlos es lo
+//: que hay que CORREGIR. «Genéralo y déjalo listo para firmar» no deja nada;
+//: «PVBS1 da al sur y genéralo» deja «pvbs1 al sur».
+const ORDENES = /\b(re)?gener(a|ar|alo|amelo|elo|e)\b|\bvuelve a generar(lo)?\b|\bhaz (el|un) (cee|cex|certificado)\b|\b(deja(lo|la|melo|mela)? )?listo( para (firmar|la firma))?\b|\bvisto bueno\b|\bpara que (lo )?firme\b/g;
+const RELLENO = new Set(('y e el la lo los le de del un una ya ahora otra vez nuevo cee cex certificado '
+    + 'fichero archivo por favor porfa vale ok venga todo dale da dame si con su mismo pues entonces asi '
+    + 'esto eso este esta tal como').split(' '));
+
+/**
+ * ¿Es SOLO una orden (generar, dejarlo listo), sin nada que corregir? Entonces
+ * no hace falta preguntarle a Claude: no hay operaciones que sacar, y antes se
+ * quedaba en nada —sin pasos no se generaba— (2026-10-30).
+ */
+export function soloOrden(texto) {
+    if (!pideGenerar(texto) && !pideListo(texto)) return false;
+    const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(ORDENES, ' ').replace(/[^a-z0-9ñ]+/g, ' ').trim();
+    return t.split(' ').filter(w => w && !RELLENO.has(w)).length === 0;
+}
+
+/**
  * Las paredes que la persona ha DICHO de forma que encajan con dos o más
  * («FB1» con FBE1 y FBO1). El modelo a veces elige una sin preguntar: aquí se
  * dice cuál ha elegido, para que se vea antes del «Sí». Lista de textos.

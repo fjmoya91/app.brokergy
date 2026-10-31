@@ -42,6 +42,12 @@ EQUIPO tiene el botón **«✓ Visto bueno: listo para firmar»**
 3. La ventana enseña el estado (`estado-cex` trae `visto_bueno`): dado y por quién (quién, solo al
    equipo), calculándose con CE3X (se vuelve a mirar cada 30 s), entregado, o anulado.
 
+Si al generar el motor para (como en 2026EXT_3: «PVBS1 se escribe como FACHADA y no tiene
+orientacion»), desde el 30/10/2026 el asistente de la envolvente se abre con lo que lo para y, con los
+rumbos contestados, retoma el visto bueno. También se le puede pedir «déjalo listo para firmar». Ver
+«Cuando el `.cex` no sale, el asistente dice qué lo para y lo arregla»
+([el-asistente-arregla-lo-que-para-el-generar.md](docs/conocimiento/envolvente-ce3x/el-asistente-arregla-lo-que-para-el-generar.md)).
+
 Se guarda en `cee.visto_bueno` de la obra por la RPC de clave (regla 19): `{ at, por, huella,
 sello_at, esperando_pc, entregado_at, firmado, anulado_at, anulado_motivo }`. Eventos de la obra:
 `VISTO_BUENO`, `VISTO_BUENO_ANULADO` y la `ENTREGA` «con el visto bueno de BROKERGY, listo para

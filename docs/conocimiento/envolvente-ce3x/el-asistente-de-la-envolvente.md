@@ -189,6 +189,13 @@ anchos de la pared suman más que su largo sale «FBO1 mide 0,16 m y sus huecos 
 caben» (no se impide: el largo puede estar mal), y el ejemplo de «falta una ventana» no se ofrece en
 paredes de menos de 2 m.
 
+### Desde el 30/10/2026: el fallo del generar, y «déjalo listo para firmar»
+
+Si el motor no escribe el `.cex`, el asistente se abre solo con lo que lo para (las fachadas sin
+rumbo, con sus dos lados en botones) y retoma lo que se hacía; y el equipo puede pedirle «déjalo listo
+para firmar». Ver «Cuando el `.cex` no sale, el asistente dice qué lo para y lo arregla»
+([el-asistente-arregla-lo-que-para-el-generar.md](docs/conocimiento/envolvente-ce3x/el-asistente-arregla-lo-que-para-el-generar.md)).
+
 ### Lo que NO hace todavía
 
 - Quitar un CUERPO entero de Catastro, delimitar el adosado o partir la cubierta (siguen con sus botones).

@@ -132,13 +132,32 @@ Tras tocarlo:
 
 Ver "Revisar pared a pared con el TECLADO".
 
+188. **Cuando el `.cex` no sale, el ASISTENTE dice qué lo para y lo arregla; y «déjalo listo para firmar» genera y da el visto bueno** (2026-10-30, Fran en 2026EXT_3: «PVBS1 se escribe como FACHADA y no tiene orientacion»).
+- **Un 422 del motor abre el asistente solo** (`esFalloDelMotor`), con lo que ya sabe el plano ([logic/arreglarGenerar.js](implementation/frontend/src/features/cee-envolvente/logic/arreglarGenerar.js), puro, sobre `faltaParaGenerar`):
+  - cada fachada sin rumbo, con sus DOS lados en botones (`rumbosDeLaPared`): el rumbo lo dice la persona, la app no lo adivina;
+  - lo demás que bloquea, con «Ir»;
+  - si el plano no lo explica, se le pregunta a Claude con el motivo (`textoDelFallo`, regla 13 de las instrucciones), como mucho dos veces seguidas (`MAX_REINTENTOS_SOLOS`). Lo que contesta a un fallo nunca vuelve a generar sin cambiar nada.
+- Contestado, «Sí: aplicar y volver a generar» o «…y dejarlo listo para firmar» aplica los rumbos como operaciones (`cambiar_pared`, un solo «Deshacer») y retoma lo que se hacía.
+- **«Déjalo listo para firmar» / «dale el visto bueno»**: solo el EQUIPO, obra de la app, CEE inicial (`puedeListo`). Va por `darVistoBueno` (regla 186) con `generarAntes`: tras un cambio la huella de `ficha` puede ser la vieja, así que regenera siempre.
+- **Una orden sola no pasa por Claude** (`soloOrden`) ni cuenta como respuesta a la pregunta anterior.
+
+Tras tocarlo:
+- `node implementation/backend/scripts/test_arreglar_generar.mjs`
+- `test_asistente_envolvente.mjs`
+- `test_falta_para_generar.mjs`
+- `test_certapp_visto_bueno.js`
+- y el banco `asistente-prueba.html`.
+
+Ver "Cuando el .cex no sale, el asistente dice qué lo para y lo arregla".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/envolvente-ce3x/autoconsumo-con-pvgis-kwp-kwh-ano-y-su-reparto-mensual.md` — AUTOCONSUMO con PVGIS — kWp ⇄ kWh/año y su reparto mensual (2026-10-02) · 7,2 KB
 - `docs/conocimiento/envolvente-ce3x/deshacer-en-la-envolvente-y-quien-puede-leer-la-placa.md` — DESHACER en la envolvente, y quién puede leer la placa (2026-09-16) · 4,7 KB
-- `docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md` — El ASISTENTE de la envolvente: se dice lo que está mal y se corrige (2026-10-27) · 13,9 KB
+- `docs/conocimiento/envolvente-ce3x/el-asistente-arregla-lo-que-para-el-generar.md` — Cuando el `.cex` no sale, el asistente dice qué lo para y lo arregla; y «déjalo listo para firmar» (2026-10-30) · 4,8 KB
+- `docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md` — El ASISTENTE de la envolvente: se dice lo que está mal y se corrige (2026-10-27) · 14,4 KB
 - `docs/conocimiento/envolvente-ce3x/el-boton-que-metia-su-propio-evento-dentro-del-post.md` — El botón que metía su propio EVENTO dentro del POST (2026-09-18) · 5,9 KB
 - `docs/conocimiento/envolvente-ce3x/el-cex-de-la-envolvente-donde-acaba-y-con-que-transmitancias.md` — El `.cex` de la envolvente: dónde acaba y con qué transmitancias (2026-09-13) · 8,5 KB
 - `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-a-mano-alzada-se-dice-donde-los-m-los-pone-catastro.md` — El CROQUIS a mano alzada — se dice DÓNDE, los m² los pone Catastro (2026-09-29) · 3,9 KB
@@ -197,6 +216,10 @@ Ver "Revisar pared a pared con el TECLADO".
   - **REGLA — la SELECCIÓN no gasta un paso.**
   - **REGLA — Ctrl+Z NO se intercepta dentro de un campo de texto.**
   - **REGLA — lo que devuelve `useDeshacer` va MEMORIZADO.**
+- `docs/conocimiento/envolvente-ce3x/el-asistente-arregla-lo-que-para-el-generar.md`
+  - **REGLA — una orden sola no pasa por Claude.**
+  - **REGLA — tras un cambio del asistente, el visto bueno REGENERA.**
+  - **REGLA — no se repite a ciegas.**
 - `docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md`
   - **REGLA — lo CLARO se aplica sin «Sí»; lo dudoso espera al «Sí».**
   - **REGLA — el chat dice lo que está haciendo, y «Hecho» solo cuando está hecho.**

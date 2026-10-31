@@ -18,7 +18,7 @@
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 10 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,0 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 42,0 KB | 14 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 103,3 KB | 40 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 105,4 KB | 41 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 17,8 KB | 5 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,8 KB | 2 |
@@ -269,6 +269,7 @@
 - **185** → `.claude/rules/envolvente-ce3x.md` — La envolvente se revisa PARED A PARED con el TECLADO, y lo que falta para generar es UN número con su lista
 - **186** → `.claude/rules/cee.md` — El VISTO BUENO de una obra de la app se da en su ENVOLVENTE y la deja LISTA PARA FIRMAR; al firmarla, el exp…
 - **187** → `.claude/rules/documentos.md` — Un FIRMADO que ya está en BD no lo cambia ni lo borra un PUT general sin decirlo
+- **188** → `.claude/rules/envolvente-ce3x.md` — Cuando el `.cex` no sale, el ASISTENTE dice qué lo para y lo arregla; y «déjalo listo para firmar» genera y …
 
 ## Documentos por área
 
@@ -470,6 +471,7 @@
 
 - `docs/conocimiento/envolvente-ce3x/autoconsumo-con-pvgis-kwp-kwh-ano-y-su-reparto-mensual.md` — AUTOCONSUMO con PVGIS — kWp ⇄ kWh/año y su reparto mensual (2026-10-02)
 - `docs/conocimiento/envolvente-ce3x/deshacer-en-la-envolvente-y-quien-puede-leer-la-placa.md` — DESHACER en la envolvente, y quién puede leer la placa (2026-09-16)
+- `docs/conocimiento/envolvente-ce3x/el-asistente-arregla-lo-que-para-el-generar.md` — Cuando el `.cex` no sale, el asistente dice qué lo para y lo arregla; y «déjalo listo para firmar» (2026-10-30)
 - `docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md` — El ASISTENTE de la envolvente: se dice lo que está mal y se corrige (2026-10-27)
 - `docs/conocimiento/envolvente-ce3x/el-boton-que-metia-su-propio-evento-dentro-del-post.md` — El botón que metía su propio EVENTO dentro del POST (2026-09-18)
 - `docs/conocimiento/envolvente-ce3x/el-cex-de-la-envolvente-donde-acaba-y-con-que-transmitancias.md` — El `.cex` de la envolvente: dónde acaba y con qué transmitancias (2026-09-13)

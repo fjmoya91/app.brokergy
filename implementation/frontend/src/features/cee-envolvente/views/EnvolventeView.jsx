@@ -6,7 +6,7 @@ import { MandosComunes, PlanoPlanta } from '../components/PlanoPlanta';
 import { EquiposControl, PlanoCubierta } from '../components/EquiposPlano';
 import { NIVEL_CUBIERTA, TIPOS_EQUIPO, faldonesCubierta } from '../logic/equiposPlano';
 import { PanelPared } from '../components/PanelPared';
-import { usePlanoEnvolvente, nombreDe, necesitaRumbo } from '../logic/usePlanoEnvolvente';
+import { usePlanoEnvolvente, nombreDe, necesitaRumbo, rumbosDe } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo, areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
 import { husoDe } from '../logic/ortofoto';
 import { CampoDecimal } from '../../../components/CampoDecimal';
@@ -32,6 +32,7 @@ import { DetalleAgenteIa, PildoraAgenteIa } from '../components/RastroAgente';
 import { ListaFalta, PildoraFalta } from '../components/FaltaParaGenerar';
 import { AsiEsComoEstaModal, BandaRevision } from '../components/AsiEsComoEsta';
 import { faltaParaGenerar, selloAgente } from '../logic/pendientes';
+import { arreglosParaGenerar, esFalloDelMotor } from '../logic/arreglarGenerar';
 import { textoCambios } from '../logic/cambiosAlMedir';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
          PanelMedidas, SelloCex, Ventana, VersionCe3x, VistoBuenoCex } from '../components/PanelesFicha';
@@ -1309,7 +1310,15 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: las zonas nuevas y/o generar. Va por estado y un efecto porque `volverAMedir`
     //: y `generarCex` leen el plano de SU pintado: llamadas en el mismo clic
     //: medirían y escribirían el plano de antes del cambio.
-    const [tareaAsistente, setTareaAsistente] = useState(null);   // { zonas, generar }
+    const [tareaAsistente, setTareaAsistente] = useState(null);   // { zonas, generar, listo, fase }
+    //: Cuando el `.cex` NO sale (422 del motor), lo que hay que arreglar va al
+    //: asistente (`arreglosParaGenerar`): los rumbos con sus dos botones, lo demás
+    //: con su «Ir», y si el plano no lo explica, a Claude. `objetivo` es lo que se
+    //: estaba haciendo —generar o dejarlo listo para firmar— y se retoma al
+    //: arreglarlo. `intento`: cuántas veces seguidas ha fallado ya (el asistente
+    //: no vuelve a probar solo más de `MAX_REINTENTOS_SOLOS`).
+    const [incidenciaCex, setIncidenciaCex] = useState(null);   // { id, error, fase, objetivo, preguntas, otros, intento }
+    const intentoArreglo = useRef(0);
 
     //: Cómo estaba TODO antes del último cambio del asistente: su «Deshacer»
     //: vuelve exactamente ahí (el trabajo y los ajustes, y si movió zonas,
@@ -1336,11 +1345,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         }
     }
 
-    function aplicarAsistente(pasos, { generar = false } = {}) {
-        antesAsistente.current = {
-            trabajo: plano.trabajo, ajustes,
-            zonas: zonasAjustadas(plano.zonasFuera || [], pasos) ? (plano.zonasFuera || []) : null,
-        };
+    //: `listo`: después, el visto bueno (`darVistoBueno`), y la promesa resuelve
+    //: con lo que haya dicho (`{ listo: { tono, texto } }`). Sin pasos es solo
+    //: la orden («genéralo», «déjalo listo»): el «Deshacer» sigue siendo el de antes.
+    function aplicarAsistente(pasos, { generar = false, listo = false, fase = null } = {}) {
+        if (pasos.length) {
+            antesAsistente.current = {
+                trabajo: plano.trabajo, ajustes,
+                zonas: zonasAjustadas(plano.zonasFuera || [], pasos) ? (plano.zonasFuera || []) : null,
+            };
+        }
         if (tocaMuros(pasos)) plano.aplicaAsistente(v => transformarMuros(v, pasos));
         const med = medidasCambiadas(pasos);
         if (med) {
@@ -1348,29 +1362,39 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             setAjustes(a => ({ ...a, medidas_elegidas: { ...(a.medidas_elegidas || {}), [med.fase]: med.elegidas } }));
         }
         const zonas = zonasAjustadas(plano.zonasFuera || [], pasos);
-        if (!zonas && !generar) return { medido: null };
+        if (!zonas && !generar && !listo) return { medido: null };
         // Devuelve cuándo ha ACABADO: con zonas, al terminar de medir (el
-        // generar sigue solo, con su popup).
+        // generar sigue solo, con su popup); con el visto bueno, cuando lo ha
+        // dado o ha dicho por qué no.
         return new Promise((fin) => {
             finTareaAsistente.current = fin;
-            setTareaAsistente({ zonas, generar });
+            setTareaAsistente({ zonas, generar, listo, fase, cambio: pasos.length > 0 });
         });
     }
 
     useEffect(() => {
         if (!tareaAsistente) return;
-        const { zonas, generar } = tareaAsistente;
+        const { zonas, generar, listo, fase, cambio, medido = null } = tareaAsistente;
         setTareaAsistente(null);
         (async () => {
             if (zonas) {
                 const ok = await volverAMedir({ zonas_fuera: zonas });
+                // Generar o el visto bueno, en el pintado SIGUIENTE: con la
+                // geometría ya medida.
+                if (ok && (generar || listo)) {
+                    if (!listo) acabarTareaAsistente({ medido: true });
+                    setTareaAsistente({ zonas: null, generar, listo, fase, cambio, medido: true });
+                    return;
+                }
                 acabarTareaAsistente({ medido: !!ok });
-                // Generar, en el pintado SIGUIENTE: con la geometría ya medida.
-                if (ok && generar) setTareaAsistente({ zonas: null, generar: true });
                 return;
             }
-            acabarTareaAsistente({ medido: null });
-            if (generar) pedirGenerar(fichaFase);
+            if (listo) {
+                acabarTareaAsistente({ medido, listo: await darVistoBueno({ generarAntes: !!cambio }) });
+                return;
+            }
+            acabarTareaAsistente({ medido });
+            if (generar) pedirGenerar(fase || fichaFase);
         })();
     }, [tareaAsistente]);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1411,6 +1435,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             // pantalla que hay que ir a buscar.
             if (!conVistoBueno) setReciénGenerado(data);
             onAviso?.(`${data.nombre} guardado en la carpeta del expediente.`);
+            intentoArreglo.current = 0;
             return data;
         } catch (e) {
             // 422 = el motor NO ha escrito el fichero a propósito. Es una
@@ -1424,6 +1449,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             }
             setError(e.mensaje || d?.error || 'No se pudo generar el .cex.');
             if (d?.avisos?.length) setAvisos(d.avisos);
+            // Un «no» del motor se puede ARREGLAR: va al asistente con lo que
+            // estaba haciendo, para retomarlo. Una caída (red, 500) no: eso no
+            // lo arregla tocar el plano.
+            if (esFalloDelMotor(e)) {
+                const intento = intentoArreglo.current;
+                intentoArreglo.current = intento + 1;
+                setIncidenciaCex({
+                    id: Date.now(), error: d?.error || e.mensaje || 'El motor no ha escrito el .cex.',
+                    fase, objetivo: conVistoBueno ? 'listo' : 'generar', intento,
+                    ...arreglosParaGenerar({ falta, muros: plano.muros, nombreDe, rumbosDe }),
+                });
+            }
             return null;
         } finally {
             setGenerando(false); setGenerandoFase(null);
@@ -1433,45 +1470,62 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: El VISTO BUENO (obra de la app, solo el equipo): sobre lo que se VE. Si
     //: no es lo generado —no hay nada, otra receta, guardado a mano en CE3X—,
     //: se genera antes; luego el backend entrega o espera al PC.
-    async function darVistoBueno() {
-        if (vistoBuenoEnCurso || generando) return;
+    //:
+    //: Devuelve lo que ha dicho (`{ tono, texto, noGenerado? }`), que el
+    //: asistente repite en su chat. `generarAntes`: lo pide el asistente justo
+    //: después de cambiar el plano, cuando la huella de la ficha aún puede ser
+    //: la de ANTES del cambio (la ficha se recalcula en el servidor): sin él,
+    //: podría dar el visto bueno al `.cex` viejo.
+    async function darVistoBueno({ generarAntes = false } = {}) {
+        if (vistoBuenoEnCurso || generando) {
+            return { tono: 'aviso', texto: 'Ya se está generando o dando el visto bueno: espera a que acabe.' };
+        }
+        if (!entrada) {
+            return { tono: 'aviso', texto: 'Falta señalar por dónde se entra (la pared de la puerta principal, '
+                                         + 'en el plano). Señálala y vuelve a pedírmelo.' };
+        }
         setVistoBuenoRes(null);
         const est = estadoCex.inicial || {};
         let huella = est.sello?.huella || null;
-        if (!est.sello || huellaVista !== est.sello.huella || est.tocado || est.falta) {
+        if (generarAntes || !est.sello || huellaVista !== est.sello.huella || est.tocado || est.falta) {
             if ((ficha?.faltan || []).length || (!tipoInfo.elegido && tipoInfo.tipo !== 'residencial')) {
                 pedirGenerar('inicial');
-                setVistoBuenoRes({ tono: 'aviso', texto: 'Antes de generarlo falta contestar lo que se pregunta. '
-                                                     + 'Genéralo y vuelve a dar el visto bueno.' });
-                return;
+                const res = { tono: 'aviso', texto: 'Antes de generarlo falta contestar lo que se pregunta. '
+                                                  + 'Genéralo y vuelve a dar el visto bueno.' };
+                setVistoBuenoRes(res);
+                return res;
             }
             setVistoBuenoEnCurso(true);
             const g = await generarCex('inicial', null, false, { conVistoBueno: true });
             if (!g) {
                 setVistoBuenoEnCurso(false);
                 setVistoBuenoRes({ tono: 'aviso', texto: 'No se ha generado (lo dice arriba): el visto bueno no se ha dado.' });
-                return;
+                return { tono: 'aviso', noGenerado: true,
+                         texto: 'No se ha podido generar el .cex: el visto bueno no se ha dado.' };
             }
             huella = g.huella || huellaVista;
         }
         setVistoBuenoEnCurso(true);
+        let res;
         try {
             const { data } = await axios.post(api(id, 'visto-bueno'), { huella });
-            setVistoBuenoRes(data.que === 'CALCULANDO'
+            res = data.que === 'CALCULANDO'
                 ? { tono: data.pc?.ok === false ? 'aviso' : 'ok',
                     texto: 'Visto bueno dado. Se está calculando con CE3X (unos minutos): al terminar se le entrega '
                          + 'al certificador, listo para firmar.'
                          + (data.pc?.ok === false ? ` No se ha podido encargar al PC: ${data.pc.motivo}.` : '') }
                 : data.que === 'FIRMADO'
                     ? { tono: 'ok', texto: 'Visto bueno dado al certificado ya firmado: pasa al expediente de BROKERGY.' }
-                    : { tono: 'ok', texto: 'Visto bueno dado: entregado al certificador, listo para firmar en la app.' });
+                    : { tono: 'ok', texto: 'Visto bueno dado: entregado al certificador, listo para firmar en la app.' };
             onAviso?.('Visto bueno dado.');
         } catch (e) {
-            setVistoBuenoRes({ tono: 'error', texto: e.response?.data?.error || e.message || 'No se ha podido dar el visto bueno.' });
+            res = { tono: 'error', texto: e.response?.data?.error || e.message || 'No se ha podido dar el visto bueno.' };
         } finally {
             setVistoBuenoEnCurso(false);
             setRefrescoEstado(n => n + 1);
         }
+        setVistoBuenoRes(res);
+        return res;
     }
 
     // Lo que dice cada pestaña de CE3X, con el expediente delante. Va aquí
@@ -2214,8 +2268,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                              contexto={contextoAsistente}
                                              onAplicar={aplicarAsistente}
                                              onDeshacer={deshacerAsistente}
-                                             ocupado={generando || cargando || !!tareaAsistente}
+                                             onIr={irAPendiente}
+                                             incidencia={incidenciaCex}
+                                             puedeListo={enExt && fichaFase === 'inicial' && esStaff}
+                                             ocupado={generando || cargando || !!tareaAsistente || vistoBuenoEnCurso}
                                              trabajando={cargando ? 'Volviendo a medir el edificio…'
+                                                 : vistoBuenoEnCurso ? 'Generando el .cex y dando el visto bueno…'
                                                  : generando ? 'Escribiendo el .cex…' : null}
                                              oculto={!!(generando || reciénGenerado || preguntando
                                                         || verTipo || tocadoCex)} />
