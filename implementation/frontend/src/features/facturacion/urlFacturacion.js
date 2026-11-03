@@ -1,11 +1,12 @@
 // Los parámetros de la URL de la pestaña Facturación. La cabecera, el cuadro de mando y los
 // listados se hablan por aquí (un KPI que se pulsa deja el listado filtrado), y así cualquier
 // vista se puede pegar como enlace en un WhatsApp.
-//   sub    hoy | presupuestos | facturas | trimestres | articulos
+//   sub    hoy | presupuestos | facturas | trimestres | articulos | precios
 //   f      el chip del listado. Facturas: por-emitir | por-cobrar | vencidas | cobradas |
 //          rectificativas | todas · Presupuestos: en-curso | esperando | por-facturar | cerrados | todos
+//          · Precios de obra: la partida (FOTOVOLTAICA si no está)
 //   serie  ING | FML (facturas)
-//   t      el trimestre de Trimestres, AAAA-Tn
+//   t      el trimestre de Trimestres, AAAA-Tn · en Precios de obra, el año (AAAA)
 //   nuevo  presupuesto | ING | FML → el listado abre su editor en blanco y quita el parámetro
 //   abrir  <id> → el listado abre ese presupuesto o esa factura y quita el parámetro
 import { useEffect, useState } from 'react';

@@ -34,6 +34,7 @@ import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 import { ftAttachmentSlots, ftDocFields } from '../logic/fichasTecnicas';
 import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes, acsEnAlcance } from '../logic/ceeFases';
 import { ACS_METHOD, resolveDacs } from '../logic/demandaAcs';
+import { importeCae, importeNoComputable, inversionCae, facturaComputa, partidasNoComputables, ETIQUETA_PARTIDA } from '../logic/facturasCae';
 
 // Cada documento firmado vive en su subcarpeta de Drive: el RITE en
 // "7. LEGALIZACION RITE", las facturas en "5. FACTURAS" y el resto en "6. ANEXOS CAE".
@@ -314,6 +315,122 @@ function formatDateDisplay(dateStr) {
     return `${day}/${month}/${year}`;
 }
 
+const eurFac = (n) => `${(Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+
+// Partidas que se pueden añadir A MANO como no subvencionables (facturas antiguas
+// sin desglose, o lo que el OCR no separó). La fotovoltaica es el caso de siempre.
+const PARTIDAS_MANUALES = ['FOTOVOLTAICA', 'VENTANAS', 'CUBIERTA', 'FACHADA', 'SUELO', 'EMISORES', 'OBRA_CIVIL', 'MANO_OBRA', 'OTROS'];
+
+// ─── Qué parte de la factura computa para el CAE ─────────────────────────────
+// La factura se registra ENTERA y aquí se dice qué parte cuenta para el expediente
+// (logic/facturasCae.js): cada partida leída es una pastilla que se pulsa para
+// sacarla o meterla en la inversión, y la factura entera se puede dejar fuera (la
+// de solo placas: se guarda para el estudio de precios, no va al verificador).
+// Los kWp de las placas: los lee el OCR («8 módulos de 550 Wp») y, si no, se teclean.
+// Con ellos sale el €/kWp del estudio de precios (Facturación › Precios de obra).
+function KwpInput({ valor, onChange, readOnly }) {
+    return (
+        <span className="inline-flex items-center gap-1">
+            <input type="number" step="0.01" min="0" value={valor || ''} readOnly={readOnly} placeholder="kWp"
+                   onChange={e => onChange(parseFloat(e.target.value) || null)}
+                   className="w-14 bg-bkg-elevated border border-white/10 rounded px-1.5 py-0.5 text-[11px] text-white text-right focus:outline-none focus:border-brand/50" />
+            <span className="text-[10px] text-white/30">kWp</span>
+        </span>
+    );
+}
+
+function DesgloseCae({ factura: f, onChange, readOnly }) {
+    const desglose = Array.isArray(f.desglose) ? f.desglose : [];
+    const entera = f.computa_cae === false;
+    const fuera = importeNoComputable(f);
+    const setDesglose = (d) => onChange({ ...f, desglose: d });
+    const setFila = (i, cambio) => setDesglose(desglose.map((d, j) => (j === i ? { ...d, ...cambio } : d)));
+    // Sin desglose y leída como solo placas: la factura entera es fotovoltaica.
+    const partidas = (Array.isArray(f.partidas) ? f.partidas : []).map(p => String(p).toUpperCase());
+    const soloFv = !desglose.length && partidas.length === 1 && partidas[0] === 'FOTOVOLTAICA';
+    const fvLeidas = desglose.map((d, i) => ({ d, i })).filter(({ d }) => !d.manual && d.partida === 'FOTOVOLTAICA');
+
+    return (
+        <div className="sm:col-span-3 rounded-lg border border-white/[0.06] bg-white/[0.015] px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-[10px] font-black uppercase tracking-widest text-white/45">
+                    Para el CAE
+                    <span className="ml-2 normal-case tracking-normal font-bold text-[11px]">
+                        {entera
+                            ? <span className="text-white/40">no computa · se guarda solo como registro</span>
+                            : <span className={fuera > 0 ? 'text-amber-300/90' : 'text-emerald-400/80'}>
+                                computa {eurFac(importeCae(f))}{fuera > 0 && <span className="text-white/35"> · fuera {eurFac(fuera)}</span>}
+                              </span>}
+                    </span>
+                </p>
+                {!readOnly && (
+                    <label className="flex items-center gap-1.5 text-[10px] font-bold text-white/40 hover:text-white/70 cursor-pointer select-none">
+                        <input type="checkbox" className="accent-brand w-3 h-3" checked={entera}
+                               onChange={() => onChange({ ...f, computa_cae: entera ? true : false })} />
+                        Toda la factura NO computa
+                    </label>
+                )}
+            </div>
+
+            {!entera && desglose.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                    {desglose.map((d, i) => d.manual ? (
+                        // Fila puesta a mano: partida + importe, siempre fuera.
+                        <span key={i} className="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/[0.06] pl-1.5 pr-1 py-0.5">
+                            <select value={d.partida} disabled={readOnly}
+                                    onChange={e => setFila(i, { partida: e.target.value })}
+                                    className="bg-transparent text-[10px] font-bold text-amber-200/90 focus:outline-none [color-scheme:dark]">
+                                {PARTIDAS_MANUALES.map(p => <option key={p} value={p}>{ETIQUETA_PARTIDA[p]}</option>)}
+                            </select>
+                            <input type="number" step="0.01" value={d.importe || ''} readOnly={readOnly} placeholder="0,00"
+                                   onChange={e => setFila(i, { importe: parseFloat(e.target.value) || 0 })}
+                                   className="w-20 bg-bkg-elevated border border-white/10 rounded px-1.5 py-0.5 text-[11px] text-white text-right focus:outline-none focus:border-brand/50" />
+                            <span className="text-[10px] text-white/30">€ no computa</span>
+                            {d.partida === 'FOTOVOLTAICA' && <KwpInput valor={d.kwp} readOnly={readOnly} onChange={v => setFila(i, { kwp: v })} />}
+                            {!readOnly && (
+                                <button type="button" title="Quitar" onClick={() => setDesglose(desglose.filter((_, j) => j !== i))}
+                                        className="text-white/25 hover:text-red-400 px-0.5">×</button>
+                            )}
+                        </span>
+                    ) : (
+                        <button key={i} type="button" disabled={readOnly}
+                                title={[d.conceptos, d.kwp ? `${d.kwp} kWp` : null, d.computa === false ? 'No computa — pulsa para que compute' : 'Computa — pulsa para dejarla fuera'].filter(Boolean).join('\n')}
+                                onClick={() => setFila(i, { computa: d.computa === false })}
+                                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold transition-colors ${
+                                    d.computa === false
+                                        ? 'border-white/10 bg-transparent text-white/35 line-through decoration-white/30 hover:text-white/60'
+                                        : 'border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-300/90 hover:border-emerald-400/50'
+                                } ${readOnly ? 'cursor-default' : ''}`}>
+                            {ETIQUETA_PARTIDA[d.partida] || d.partida} {eurFac(d.importe)}
+                            {d.kwp ? <span className="opacity-60 no-underline">· {d.kwp} kWp</span> : null}
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {(fvLeidas.length > 0 || soloFv) && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-bold text-white/40">
+                    Potencia de las placas
+                    {soloFv
+                        ? <KwpInput valor={f.kwp} readOnly={readOnly} onChange={v => onChange({ ...f, kwp: v })} />
+                        : fvLeidas.map(({ d, i }) => <KwpInput key={i} valor={d.kwp} readOnly={readOnly} onChange={v => setFila(i, { kwp: v })} />)}
+                </div>
+            )}
+
+            {!entera && !readOnly && (
+                <button type="button"
+                        onClick={() => setDesglose([...desglose, { partida: 'FOTOVOLTAICA', importe: 0, computa: false, manual: true }])}
+                        className="mt-2 text-[10px] font-bold text-brand/70 hover:text-brand">
+                    + Parte no subvencionable
+                </button>
+            )}
+            {!entera && !desglose.length && readOnly && (
+                <p className="mt-1 text-[10px] text-white/30">Sin desglose: computa la factura entera.</p>
+            )}
+        </div>
+    );
+}
+
 // ─── Componente de Facturas ───────────────────────────────────────────────────
 // Id de Drive de una factura. Las antiguas se guardaron solo con `drive_link`, así
 // que hay que saber sacarlo del enlace para poder borrarlas de la carpeta.
@@ -391,14 +508,21 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
         const updated = facturas.map((f, i) => i === idx ? { ...revisada(f), [field]: val || null } : f);
         onChange(updated);
     };
+    // Lo que computa para el CAE (desglose / computa_cae): se cambia la fila entera,
+    // porque updateFactura convierte en null los false.
+    const setFactura = (idx, nueva) => {
+        onChange(facturas.map((f, i) => i === idx ? revisada(nueva) : f));
+    };
     // Toggle de "validada" (booleano; no usar updateFactura que fuerza null en falsy).
     const toggleValidada = (idx) => {
         const updated = facturas.map((f, i) => i === idx ? { ...revisada(f), validada: !f.validada } : f);
         onChange(updated);
     };
 
-    // Todas subidas (con PDF) y validadas → habilita el PDF único.
-    const canGenerate = facturas.length > 0 && facturas.every(f => f.drive_link && f.validada);
+    // Todas subidas (con PDF) y validadas → habilita el PDF único. Solo cuentan las
+    // que computan para el CAE: la de solo placas no va al verificador.
+    const paraCae = facturas.filter(facturaComputa);
+    const canGenerate = paraCae.length > 0 && paraCae.every(f => f.drive_link && f.validada);
 
     // Agrupa lo que se suelta en DOCUMENTOS, con el MISMO criterio que el backend:
     // cada PDF es una factura entera; las imágenes son páginas de una sola (una foto
@@ -490,6 +614,9 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                                 // Partidas del OCR: identifican la factura de la instalación
                                 // térmica (de ella sale la fecha de pruebas del RITE).
                                 partidas: leida.partidas || f.partidas || [],
+                                // El desglose es del documento NUEVO; si el anterior se
+                                // había dejado entero fuera, sigue fuera.
+                                desglose: leida.desglose || [],
                             });
                         }
                         bloques.push({
@@ -497,6 +624,8 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                             driveId: leida.drive_id || null,
                             fichero: nombre,
                             incidencias: incs || [],
+                            // Lo que se ha dejado fuera de la inversión, para decirlo.
+                            noComputa: partidasNoComputables(leida),
                         });
                     }
                     // Se persiste TRAS CADA FACTURA, no al final de la tanda. Dos
@@ -722,6 +851,12 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                                         {b.incidencias.length ? `${b.incidencias.length} incidencia${b.incidencias.length === 1 ? '' : 's'}` : 'sin incidencias'}
                                     </span>
                                 </div>
+                                {b.noComputa?.length > 0 && (
+                                    <p className="px-4 pb-1.5 text-[11px] text-amber-300/80 normal-case leading-snug">
+                                        No computa para el CAE: {b.noComputa.map(n => `${n.etiqueta} ${eurFac(n.importe)}`).join(' · ')}.
+                                        Se registra en la factura, pero sale de la inversión del expediente.
+                                    </p>
+                                )}
                                 {b.incidencias.length === 0 ? (
                                     <p className="px-4 pb-3 text-[11px] text-white/35 normal-case leading-snug">
                                         Titular, alcance, fechas e importes cuadran con el expediente.
@@ -931,6 +1066,9 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                                         <p className="text-white/30 text-xs italic">Sin PDF.</p>
                                     )}
                                 </div>
+                                {(Number(f.importe_sin_iva) > 0 || f.desglose?.length > 0) && (
+                                    <DesgloseCae factura={f} readOnly={readOnly} onChange={nueva => setFactura(idx, nueva)} />
+                                )}
                             </div>
 
                             {/* Las incidencias REGISTRADAS de ESTA factura, en su fila.
@@ -986,6 +1124,7 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                                 {canGenerate
                                     ? 'Todas validadas. Genera un único PDF con todas las facturas.'
                                     : 'Sube y valida todas las facturas para poder generar el PDF único.'}
+                                {paraCae.length < facturas.length && ` Las ${facturas.length - paraCae.length} que no computan para el CAE no entran.`}
                             </p>
                             {/* El combinado se guarda en "5. FACTURAS" y se COPIA a
                                 "10. EXPEDIENTE CAE" (la carpeta canónica que revisa el
@@ -4025,8 +4164,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                           {/* LA CIFRA QUE SE ESTÁ COMPROBANDO. Revisar el PDF de facturas es
                               cuadrar lo que dice el papel con lo que consta registrado —
-                              `Σ facturas[].importe_sin_iva` ES la inversión que declara el
-                              Anexo I y la que viaja al verificador. Tenerla en otra pestaña
+                              lo que COMPUTA para el CAE de cada factura (logic/facturasCae.js)
+                              ES la inversión que viaja al verificador. Tenerla en otra pestaña
                               obligaba a memorizar un importe mientras se pasan cinco páginas.
                               Solo ADMIN: aquí hay dinero. */}
                           {SLOT_DE_CAMPO[managingSigned.field] === 'facturas' && user?.rol === 'ADMIN' && (local.facturas || []).length > 0 && (
@@ -4036,8 +4175,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                           Inversión declarada · sin IVA
                                       </p>
                                       <p className="text-base font-black text-white tabular-nums">
-                                          {(local.facturas || []).reduce((s, f) => s + (Number(f?.importe_sin_iva) || 0), 0)
-                                              .toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                                          {eurFac(inversionCae(local.facturas))}
                                       </p>
                                   </div>
                                   {/* El desglose, porque lo que se coteja contra el PDF es
@@ -4050,8 +4188,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                   {f?.numero_factura || `Factura ${i + 1}`}
                                                   {f?.fecha_factura && <span className="text-white/25"> · {String(f.fecha_factura).slice(0, 10).split('-').reverse().join('/')}</span>}
                                               </span>
+                                              {/* La base de la factura (lo que dice el papel) y, si
+                                                  no todo computa, lo que entra en la inversión. */}
                                               <span className="tabular-nums shrink-0 text-white/70">
-                                                  {(Number(f?.importe_sin_iva) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                                                  {eurFac(f?.importe_sin_iva)}
+                                                  {importeNoComputable(f) > 0 && (
+                                                      <span className="text-amber-300/80"> → {facturaComputa(f) ? eurFac(importeCae(f)) : 'no computa'}</span>
+                                                  )}
                                               </span>
                                           </li>
                                       ))}

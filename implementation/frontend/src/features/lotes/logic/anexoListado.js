@@ -10,6 +10,7 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 import { calcCifo } from '../../expedientes/logic/calcCifo';
 import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
 import { RES080_VIDA_UTIL } from '../../expedientes/logic/fichaRes080Html.js';
+import { inversionCae } from '../../expedientes/logic/facturasCae.js';
 
 // Fecha del convenio de compraventa con el S.O. (fija; editable en el popup).
 export const CONVENIO_FECHA_DEFAULT = '27/02/2026';
@@ -55,10 +56,9 @@ export function buildAnexoListadoRows(lote) {
         const inst = e.instalacion || {};
         const doc = e.documentacion || {};
         const fin = computeExpedienteFinancials(e);
-        // La INVERSIÓN va SIEMPRE sobre factura: suma de los importes (sin IVA) de las
-        // facturas del expediente (documentacion.facturas[].importe_sin_iva).
-        const facturas = (e.documentacion && e.documentacion.facturas) || [];
-        const inversion = facturas.reduce((s, f) => s + (Number(f && f.importe_sin_iva) || 0), 0);
+        // La INVERSIÓN va SIEMPRE sobre factura: lo que COMPUTA para el CAE de cada
+        // factura (base sin IVA menos lo no subvencionable, logic/facturasCae.js).
+        const inversion = inversionCae(e.documentacion && e.documentacion.facturas);
         const utm = (inst.coord_x || inst.coord_y) ? `X: ${inst.coord_x || ''}, Y: ${inst.coord_y || ''}` : '';
         return {
             n: i + 1,

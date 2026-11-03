@@ -25,6 +25,12 @@
 // del fin, ni de la lista de facturas asociadas, ni de la inversión: sigue siendo
 // una factura del expediente. Lo marca una persona; nunca se deduce. Y lo explica
 // el propio CIFO en «Hitos de la actuación» (ver hitosActuacion.js).
+//
+// UNA FACTURA QUE NO COMPUTA PARA EL CAE NO CUENTA (2026-11-03): la de solo placas
+// de un RES060 se registra para el estudio de precios, pero no es obra de la
+// actuación, así que ni abre ni cierra (logic/facturasCae.js).
+
+import { facturaComputa } from './facturasCae.js';
 
 // Por qué una factura no abre la actuación. Fuente única: la usan el cálculo, el
 // bloque de hitos del CIFO, la aclaración sugerida y el popup donde se marca.
@@ -48,7 +54,9 @@ export function calcCifo(doc) {
     const manualFin = doc?.fecha_fin_cifo_manual || null;
 
     const pruebas = doc?.fecha_pruebas_cert_instalacion || null;
-    const facturas = doc?.facturas || [];
+    // Solo las que computan para el CAE: una factura entera de placas en un RES060
+    // se registra (logic/facturasCae.js) pero no es obra de la actuación.
+    const facturas = (doc?.facturas || []).filter(facturaComputa);
     const todas = [pruebas, ...facturas.map(f => f?.fecha_factura)].filter(Boolean);
     // Las que pueden abrir la actuación. Si al quitar las marcadas no queda NADA
     // (todas marcadas y sin fecha de pruebas), se usan todas: una fecha de inicio

@@ -7,6 +7,7 @@ import { esRes080 } from '../../expedientes/logic/emisores.js';
 import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
          techoAutoconsumo, consumoMensualDelCee, recomendacionesUso } from '../../expedientes/logic/ce3xTextos.js';
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
+import { inversionCae } from '../../expedientes/logic/facturasCae.js';
 import { normalizarAiresOportunidad } from '../../expedientes/logic/confirmacionCliente.js';
 import { AUTOCONSUMO_DECLARABLE } from '../../expedientes/logic/autoconsumoMaximo.js';
 import { especificaValida, kwpPara, mensualDe } from '../../expedientes/logic/produccionFv.js';
@@ -2423,8 +2424,8 @@ const miles = (n) => Number(n).toLocaleString('es-ES');
  * una cifra — el análisis económico de CE3X saldría con un ahorro falso.
  */
 function inversionDeLaObra(expediente) {
-    const facturas = expediente?.documentacion?.facturas || [];
-    const facturado = facturas.reduce((s, f) => s + (Number(f?.importe_sin_iva) || 0), 0);
+    // Lo que computa para el CAE: las placas de un RES060 no son coste de la medida.
+    const facturado = inversionCae(expediente?.documentacion?.facturas);
     const presupuesto = Number(expediente?.oportunidades?.datos_calculo?.inputs?.presupuesto) || 0;
     const importe = facturado || presupuesto;
     if (!importe) {

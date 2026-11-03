@@ -20,6 +20,7 @@
 
 const { detectPrograma, esSustitucionCaldera } = require('../utils/fichas');
 const { fechaFirmaCee, fechaRegistroCee } = require('../utils/ceeFechas');
+const { importeCae, inversionCae } = require('../utils/facturasCae');
 
 // ─── Normalizadores de comparación ───────────────────────────────────────────
 const clean = (v) => (v === null || v === undefined ? '' : String(v).trim());
@@ -170,6 +171,51 @@ function alcanceEsperado(ficha, exp, op) {
         ['VENTANAS', 'CUBIERTA', 'FACHADA', 'SUELO', 'FOTOVOLTAICA'].forEach(p => set.add(p));
     }
     return set;
+}
+
+// ─── Desglose: qué parte de la factura computa para el CAE ──────────────────
+/** Partidas leídas que la ficha no contempla (las neutras y los emisores, nunca). */
+function partidasFueraDeAlcance(lineas, esperado) {
+    return [...new Set(
+        (lineas || [])
+            .map(l => l?.partida)
+            .filter(p => p && !PARTIDAS_NEUTRAS.has(p) && !esperado.has(p) && p !== 'EMISORES')
+    )];
+}
+
+/**
+ * La factura AGRUPADA POR PARTIDA, con lo que computa para el CAE marcado
+ * (`frontend/.../logic/facturasCae.js` explica la regla). Lo que la ficha no
+ * contempla —la fotovoltaica de un RES060— nace `computa: false`: se registra, pero
+ * sale de la inversión. Los emisores de una sustitución NO salen solos: eso es la
+ * incidencia UNIDADES_TERMINALES, y quitarlos de la cifra la escondería.
+ *
+ * Una fila por partida, no el desglose entero: viaja dentro de
+ * `documentacion.facturas[]` (regla 21: nada pesado en el JSONB). `kwp` solo en la
+ * fotovoltaica, para poder estudiar el €/kWp que se cobra.
+ */
+function desgloseFactura({ ocr, exp, op }) {
+    const lineas = Array.isArray(ocr?.lineas) ? ocr.lineas : [];
+    if (!lineas.length) return [];
+    const fuera = new Set(partidasFueraDeAlcance(lineas, alcanceEsperado(detectPrograma(exp || {}, op || {}), exp, op)));
+    const grupos = new Map();
+    for (const l of lineas) {
+        const p = l?.partida || 'OTROS';
+        if (!grupos.has(p)) grupos.set(p, []);
+        grupos.get(p).push(l);
+    }
+    return [...grupos.entries()].map(([partida, ls]) => {
+        const importe = Math.round(ls.reduce((s, l) => s + (numOrNull(l.importe_total) || 0), 0) * 100) / 100;
+        const conceptos = [...new Set(ls.map(l => clean(l.descripcion)).filter(Boolean))].join(' · ');
+        const kwp = ls.reduce((s, l) => s + (numOrNull(l.potencia_kwp) || 0), 0);
+        return {
+            partida,
+            importe,
+            computa: !fuera.has(partida),
+            ...(conceptos ? { conceptos: conceptos.length > 240 ? conceptos.slice(0, 239) + '…' : conceptos } : {}),
+            ...(partida === 'FOTOVOLTAICA' && kwp > 0 ? { kwp: Math.round(kwp * 100) / 100 } : {}),
+        };
+    });
 }
 
 // ─── Superficies ─────────────────────────────────────────────────────────────
@@ -404,19 +450,31 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
         );
     }
 
-    // ── GRAVE · ALCANCE ──────────────────────────────────────────────────────
+    // ── ALCANCE ──────────────────────────────────────────────────────────────
+    // REGLA — lo que la ficha no contempla se SEPARA, no se denuncia (03/11/2026).
+    // Una factura de aerotermia + placas en un RES060 es normal: la fotovoltaica se
+    // registra y sale de la inversión CAE (`desgloseFactura`, computa: false), que
+    // es lo que piden los verificadores. En una SUSTITUCIÓN eso ya está resuelto y
+    // no hay nada que mirar. Sigue siendo incidencia cuando:
+    //   · esa parte no trae importe y NO se puede separar del total, o
+    //   · es un RES080: allí el alcance lo declara la Envolvente, y una partida que
+    //     no consta puede ser la Envolvente mal rellena, no algo que sobre.
     const esperado = alcanceEsperado(ficha, exp, op);
-    const fueraDeAlcance = [...new Set(
-        lineas
-            .map(l => l.partida)
-            .filter(p => p && !PARTIDAS_NEUTRAS.has(p) && !esperado.has(p) && p !== 'EMISORES')
-    )];
-    if (fueraDeAlcance.length) {
+    const fueraDeAlcance = partidasFueraDeAlcance(lineas, esperado);
+    const importeDe = (p) => lineas.filter(l => l.partida === p).reduce((s, l) => s + (numOrNull(l.importe_total) || 0), 0);
+    const sinImporte = fueraDeAlcance.filter(p => !(importeDe(p) > 0));
+    if (fueraDeAlcance.length && (sinImporte.length || !esSustitucionCaldera(ficha))) {
         const etiquetas = fueraDeAlcance.map(p => ETIQUETA_PARTIDA[p] || p.toLowerCase()).join(', ');
+        const separado = fueraDeAlcance.filter(p => importeDe(p) > 0);
+        const texto = sinImporte.length
+            ? `La factura incluye ${etiquetas}, y ${numExp} (${ficha}) no contempla esa actuación. La factura no dice cuánto cuesta ${sinImporte.map(p => ETIQUETA_PARTIDA[p] || p.toLowerCase()).join(', ')}, así que no se puede separar de la inversión que computa para el CAE: pide que la desglose, o escribe a mano en la factura el importe que no computa.`
+            : `La factura incluye ${etiquetas} (${separado.map(p => fmtEur(importeDe(p))).join(' + ')}), y ${numExp} (${ficha}) no lo tiene declarado en la Envolvente. Se ha dejado FUERA de la inversión que computa para el CAE. Si sí forma parte de la reforma, decláralo en la Envolvente y marca esa partida como que computa; si no, está bien así.`;
         add(
-            'ALCANCE', 'GRAVE',
-            'Se factura algo que no está en el alcance del expediente',
-            `La factura incluye ${etiquetas}, y ${numExp} (${ficha}) no contempla esa actuación. O sobra en la factura, o el expediente tiene mal declarado el alcance. Recuerda que lo facturado, el CIFO y las fotos deben describir lo mismo.`,
+            'ALCANCE', sinImporte.length ? 'GRAVE' : 'LEVE',
+            sinImporte.length
+                ? 'Se factura algo fuera del alcance y no se puede separar'
+                : 'Se factura algo que no está en el alcance declarado',
+            texto,
             lineas.filter(l => fueraDeAlcance.includes(l.partida)).map(l => clean(l.descripcion)).filter(Boolean).join(' · ')
         );
     }
@@ -508,20 +566,24 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
     // OTRA subvención pública (pestaña Subvenciones, la que declara el Anexo I)
     // pasen de la inversión → GRAVE. Sin otra ayuda es un LEVE: que se vea, por si
     // la diferencia delata una factura que falta o un importe mal leído.
-    // Inversión = TODAS las facturas (las registradas + la que se lee ahora).
-    const inversionTotal = (facturasExistentes || [])
-        .reduce((s, f) => s + (numOrNull(f?.importe_sin_iva) || 0), 0) + (baseFac || 0);
+    // Inversión = TODAS las facturas (las registradas + la que se lee ahora), y de
+    // cada una solo lo que COMPUTA para el CAE: las placas de un RES060 no pagan obra
+    // de la actuación (utils/facturasCae.js).
+    const inversionTotal = inversionCae(facturasExistentes) + importeCae({
+        importe_sin_iva: baseFac || 0,
+        desglose: desgloseFactura({ ocr, exp, op }),
+    });
     const ayudaPublica = importeAyudaDeclarada(doc);
     if (caeEstimado != null && inversionTotal > 0 && caeEstimado + ayudaPublica > inversionTotal) {
         if (ayudaPublica > 0) {
             add('SOBREFINANCIACION', 'GRAVE',
                 'El bono CAE más la otra subvención superan la inversión facturada',
-                `El CAE estimado del cliente es ${fmtEur(caeEstimado)} y hay declarada otra ayuda pública de ${fmtEur(ayudaPublica)} para la misma actuación: suman ${fmtEur(caeEstimado + ayudaPublica)} y la inversión acumulada de las facturas es ${fmtEur(inversionTotal)}. Con otra subvención no puede haber sobrefinanciación: o falta alguna factura, o el importe leído no es correcto, o hay que ajustar el bono.`,
+                `El CAE estimado del cliente es ${fmtEur(caeEstimado)} y hay declarada otra ayuda pública de ${fmtEur(ayudaPublica)} para la misma actuación: suman ${fmtEur(caeEstimado + ayudaPublica)} y la inversión de las facturas que computa para el CAE es ${fmtEur(inversionTotal)}. Con otra subvención no puede haber sobrefinanciación: o falta alguna factura, o el importe leído no es correcto, o hay que ajustar el bono.`,
                 `CAE ${fmtEur(caeEstimado)} + ayuda ${fmtEur(ayudaPublica)} > inversión ${fmtEur(inversionTotal)}`);
         } else {
             add('SOBREFINANCIACION', 'LEVE',
                 'El bono CAE supera la inversión facturada',
-                `El CAE estimado del cliente es ${fmtEur(caeEstimado)} y la inversión acumulada de las facturas es ${fmtEur(inversionTotal)} (${fmtEur(caeEstimado - inversionTotal)} más). Sin otra subvención el CAE puede superar a la obra, así que no bloquea; tenlo en cuenta por si falta alguna factura o el importe leído no es correcto.`,
+                `El CAE estimado del cliente es ${fmtEur(caeEstimado)} y la inversión de las facturas que computa para el CAE es ${fmtEur(inversionTotal)} (${fmtEur(caeEstimado - inversionTotal)} más). Sin otra subvención el CAE puede superar a la obra, así que no bloquea; tenlo en cuenta por si falta alguna factura o el importe leído no es correcto.`,
                 `CAE ${fmtEur(caeEstimado)} > inversión ${fmtEur(inversionTotal)} · sin otra ayuda pública declarada`);
         }
     }
@@ -583,4 +645,5 @@ module.exports = {
     alcanceEsperado,
     superficieJustificada,
     superficieLinea,
+    desgloseFactura,
 };

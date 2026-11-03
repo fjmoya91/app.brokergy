@@ -21,7 +21,7 @@
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 105,4 KB | 41 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 17,8 KB | 5 |
-| `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,8 KB | 2 |
+| `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 5,0 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
@@ -270,6 +270,7 @@
 - **186** → `.claude/rules/cee.md` — El VISTO BUENO de una obra de la app se da en su ENVOLVENTE y la deja LISTA PARA FIRMAR; al firmarla, el exp…
 - **187** → `.claude/rules/documentos.md` — Un FIRMADO que ya está en BD no lo cambia ni lo borra un PUT general sin decirlo
 - **188** → `.claude/rules/envolvente-ce3x.md` — Cuando el `.cex` no sale, el ASISTENTE dice qué lo para y lo arregla; y «déjalo listo para firmar» genera y …
+- **189** → `.claude/rules/facturas.md` — Una factura de obra se registra ENTERA y al CAE solo cuenta lo SUBVENCIONABLE
 
 ## Documentos por área
 

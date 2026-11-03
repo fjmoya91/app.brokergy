@@ -205,8 +205,8 @@ function textosDelPrevisto({ ficha, previsto = {}, hechos = {}, expediente = nul
     }
     const inputs = expediente?.oportunidades?.datos_calculo?.inputs
         || expediente?.oportunidad?.datos_calculo?.inputs || {};
-    const facturas = (expediente?.documentacion?.facturas || [])
-        .reduce((s, f) => s + (Number(f?.importe_sin_iva) || 0), 0);
+    // Lo que computa para el CAE de cada factura (utils/facturasCae.js).
+    const facturas = require('../../utils/facturasCae').inversionCae(expediente?.documentacion?.facturas);
     const inversionDefecto = facturas
         || ((Number(inputs.presupuesto) || 0) + (Number(inputs.presupuestoEnvolvente) || 0))
         || medidas.reduce((s, m) => s + (Number(m.inversion) || 0), 0);

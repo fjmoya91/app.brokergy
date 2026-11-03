@@ -26,6 +26,7 @@
 // Módulo JS PURO (sin React ni DOM): lo importa también el backend.
 // ============================================================================
 import { calcCifo, motivoNoInicio, MOTIVOS_NO_INICIO } from './calcCifo.js';
+import { facturaComputa } from './facturasCae.js';
 
 export { MOTIVOS_NO_INICIO, motivoNoInicio };
 
@@ -67,8 +68,12 @@ export function hitosActuacion(expediente) {
             fecha: iso(f?.fecha_factura),
             motivo: motivoNoInicio(f),
             driveId: f?.drive_id || null,
+            // Una factura que no computa para el CAE (solo placas en un RES060) no
+            // es un hito de la actuación. Se filtra DESPUÉS de numerar: `idx` es su
+            // posición en `doc.facturas`, que es donde el popup marca el motivo.
+            computa: facturaComputa(f),
         }))
-        .filter(f => f.fecha)
+        .filter(f => f.fecha && f.computa)
         .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.idx - b.idx));
 
     const inicioManual = !!doc.fecha_inicio_cifo_manual;

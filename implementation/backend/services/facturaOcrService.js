@@ -124,6 +124,7 @@ LÍNEAS (lo más importante):
 - "importe_total" es el importe SIN IVA de esa línea.
 - "marca", "modelo" y "numero_serie" SOLO si aparecen escritos en esa línea (o inmediatamente asociados a ella). El número de serie suele venir como "Nº serie", "S/N", "SN:" seguido de un código alfanumérico. Si la línea no los cita, null.
 - "superficie_m2": los METROS CUADRADOS que cite la línea, si los cita ("para vivienda de 119 m2", "suelo radiante 85 m²", "40 m2 de fachada"). Solo el número. Si la línea no da superficie, null. Es el dato con el que se comprueba que lo instalado cubre la superficie que el expediente justifica.
+- "potencia_kwp": SOLO en las líneas de FOTOVOLTAICA, la potencia PICO en kWp que cite la línea ("instalación de 4,4 kWp" → 4.4; "8 módulos de 550 Wp" → 4.4, que es 8 × 0,55). Si la línea no la da, null. NO la deduzcas del inversor.
 - "partida": clasifica cada línea en UNA de estas categorías:
   · AEROTERMIA — bomba de calor aire-agua: unidad exterior, unidad interior/hidrokit, monobloc, equipo de aerotermia.
   · ACS — depósito, acumulador, interacumulador, termo eléctrico o equipo dedicado a agua caliente sanitaria.
@@ -183,6 +184,7 @@ const GEMINI_SCHEMA = {
                     modelo: { type: 'STRING', nullable: true },
                     numero_serie: { type: 'STRING', nullable: true },
                     superficie_m2: { type: 'NUMBER', nullable: true },
+                    potencia_kwp: { type: 'NUMBER', nullable: true },
                 },
             },
         },
@@ -398,6 +400,7 @@ function sanitize(raw) {
             modelo: str(l?.modelo),
             numero_serie: str(l?.numero_serie),
             superficie_m2: num(l?.superficie_m2),
+            potencia_kwp: num(l?.potencia_kwp),
         })),
         observaciones: str(r.observaciones),
     };

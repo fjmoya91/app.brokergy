@@ -132,8 +132,13 @@ async function estado() {
         ? 'la misma máquina' : `${s.marca || '—'} ${s.modelo || ''} (cat. ${s.aerotermia_db_id ?? '—'}) · serie ${s.numero_serie || '—'} · SCOPdhw ${s.scop ?? '—'}`));
     console.log('\nFACTURAS');
     const fs_ = doc.facturas || [];
-    for (const f of fs_) linea(`nº ${f.numero_factura || '?'}`, `${f.fecha_factura || '—'} · ${eur(f.importe_sin_iva)} € s/IVA · ${f.emisor_nombre || ''} · ${f.validada ? 'validada' : 'SIN VALIDAR'} · ${f.drive_link ? 'PDF' : 'SIN PDF'}`);
-    linea('Inversión (Σ bases)', `${eur(fs_.reduce((t, f) => t + (Number(f.importe_sin_iva) || 0), 0))} €`);
+    const fCae = require('../utils/facturasCae');
+    for (const f of fs_) {
+        const fuera = fCae.importeNoComputable(f);
+        const cae = !fCae.facturaComputa(f) ? ' · NO COMPUTA para el CAE' : fuera > 0 ? ` · computa ${eur(fCae.importeCae(f))} € (fuera ${eur(fuera)} €)` : '';
+        linea(`nº ${f.numero_factura || '?'}`, `${f.fecha_factura || '—'} · ${eur(f.importe_sin_iva)} € s/IVA${cae} · ${f.emisor_nombre || ''} · ${f.validada ? 'validada' : 'SIN VALIDAR'} · ${f.drive_link ? 'PDF' : 'SIN PDF'}`);
+    }
+    linea('Inversión CAE (lo que computa)', `${eur(fCae.inversionCae(fs_))} €`);
     console.log('\nRITE Y FECHAS');
     linea('Certificado RITE', doc.cert_rite_drive_link ? `sí · pruebas ${doc.fecha_pruebas_cert_instalacion || '—'} · firma ${doc.fecha_firma_cert_instalacion || '—'}` : 'NO');
     linea('Memoria RITE (firmada)', doc.cert_rite_signed_link ? 'sí' : 'no');

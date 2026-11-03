@@ -1338,8 +1338,8 @@ async function expedientesDelLote(loteId) {
     return (exps || []).map(e => {
         // La inversión que consta hoy: la ya verificada si la hay, y si no la suma
         // de las facturas registradas, que es la que viaja al Anexo.
-        const facturas = Array.isArray(e.doc_facturas) ? e.doc_facturas : [];
-        const sumaFacturas = facturas.reduce((a, f) => a + (Number(f?.importe_sin_iva) || 0), 0);
+        // Lo que computa para el CAE de cada factura (utils/facturasCae.js).
+        const sumaFacturas = require('../utils/facturasCae').inversionCae(e.doc_facturas);
         return {
             id: e.id,
             numero_expediente: e.numero_expediente,

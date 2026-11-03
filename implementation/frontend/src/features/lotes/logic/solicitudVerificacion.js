@@ -11,6 +11,7 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 import { calcCifo } from '../../expedientes/logic/calcCifo';
 import { camposSolicitudVerificacion, leerSubvenciones, datosPrograma, importeEs } from '../../expedientes/logic/subvenciones';
 import { fichaDe, FICHA_TITULO } from './anexoListado';
+import { inversionCae } from '../../expedientes/logic/facturasCae.js';
 
 // Datos por defecto del solicitante / contacto (editables en el popup).
 export const SOLICITUD_DEFAULTS = {
@@ -122,8 +123,8 @@ export function buildSolicitudVerificacionHtml(lote, opts = {}) {
         try { fin = computeExpedienteFinancials(e) || {}; } catch { fin = {}; }
         const ahorroKwh = nf(Math.round(Number(fin.savingsKwh) || 0));
 
-        const facturas = Array.isArray(doc.facturas) ? doc.facturas : [];
-        const inversion = facturas.reduce((s, f) => s + (Number(f && f.importe_sin_iva) || 0), 0);
+        // Lo que computa para el CAE (sin la fotovoltaica de un RES060…): logic/facturasCae.js.
+        const inversion = inversionCae(doc.facturas);
 
         const vidaUtil = (vidaUtilByExp[e.id] != null)
             ? vidaUtilByExp[e.id]
@@ -221,8 +222,8 @@ export function buildSolicitudVerificacionPayload(lote, opts = {}) {
         try { fin = computeExpedienteFinancials(e) || {}; } catch { fin = {}; }
 
         const ahorroAnual = Math.round(Number(fin.savingsKwh) || 0);
-        const facturas = Array.isArray(doc.facturas) ? doc.facturas : [];
-        const inversion = facturas.reduce((s, f) => s + (Number(f && f.importe_sin_iva) || 0), 0);
+        // Lo que computa para el CAE (sin la fotovoltaica de un RES060…): logic/facturasCae.js.
+        const inversion = inversionCae(doc.facturas);
         const vidaUtil = (vidaUtilByExp[e.id] != null) ? vidaUtilByExp[e.id] : vidaUtilDefaultSolicitud(ficha);
         const refCat = inst.ref_catastral || addr.refCatastral || '';
 

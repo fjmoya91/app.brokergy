@@ -4303,8 +4303,13 @@ router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
             .maybeSingle();
         if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
-        const facturas = Array.isArray(exp.documentacion?.facturas) ? exp.documentacion.facturas : [];
-        if (!facturas.length) return res.status(400).json({ error: 'El expediente no tiene facturas.' });
+        // Solo las que COMPUTAN para el CAE: una factura entera de placas en un RES060
+        // se guarda (estudio de precios) pero no va al verificador. Una mixta sí va:
+        // es la factura de la aerotermia, y lo que no computa se descuenta en la cifra.
+        const { facturaComputa } = require('../utils/facturasCae');
+        const facturas = (Array.isArray(exp.documentacion?.facturas) ? exp.documentacion.facturas : [])
+            .filter(facturaComputa);
+        if (!facturas.length) return res.status(400).json({ error: 'El expediente no tiene facturas que computen para el CAE.' });
         if (!facturas.every(f => f && f.validada)) {
             return res.status(400).json({ error: 'Todas las facturas deben estar validadas antes de generar el PDF único.' });
         }
@@ -4383,8 +4388,10 @@ router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
 
         // Huérfanos: ficheros de "5. FACTURAS" que no son de ninguna factura registrada
         // ni el propio combinado. Son los que antes se colaban en el PDF.
+        // Las registradas que no computan no son huérfanas: están fuera a propósito.
+        const registradas = new Set((exp.documentacion?.facturas || []).map(facturaDriveId).filter(Boolean));
         const huerfanos = enCarpeta
-            .filter(f => !vistos.has(f.id))
+            .filter(f => !vistos.has(f.id) && !registradas.has(f.id))
             .map(f => ({ id: f.id, name: f.name }));
 
         res.json({
@@ -4512,7 +4519,7 @@ async function leerYArchivarFactura(grupo, ctx) {
     if (!saved?.link) throw new Error('La factura se ha leído pero no se pudo guardar en Drive.');
 
     // 4) Filtro previo de incidencias (determinista, sobre el JSON del OCR).
-    const { detectarIncidenciasFactura } = require('../services/facturaIncidencias');
+    const { detectarIncidenciasFactura, desgloseFactura } = require('../services/facturaIncidencias');
     const incidencias = detectarIncidenciasFactura({
         ocr,
         exp: ctx.exp,
@@ -4546,6 +4553,9 @@ async function leerYArchivarFactura(grupo, ctx) {
         partidas: [...new Set((ocr.lineas || [])
             .map(l => String(l?.partida || '').trim().toUpperCase())
             .filter(Boolean))],
+        // Importe POR PARTIDA y si computa para el CAE: la fotovoltaica de un RES060
+        // se registra pero sale de la inversión (logic/facturasCae.js).
+        desglose: desgloseFactura({ ocr, exp: ctx.exp, op: ctx.op }),
     };
 
     return { factura, incidencias, ocr };

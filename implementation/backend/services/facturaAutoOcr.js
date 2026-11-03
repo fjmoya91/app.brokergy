@@ -29,8 +29,9 @@
 
 const supabase = require('./supabaseClient');
 
-/** Campos que el OCR puede rellenar, solo si vienen con valor. */
-function buildPatch(ocr) {
+/** Campos que el OCR puede rellenar, solo si vienen con valor. `ctx` = { exp, op }
+ *  para separar lo que no computa para el CAE (sin él no se escribe desglose). */
+function buildPatch(ocr, ctx = null) {
     const patch = {};
     const num = String(ocr?.numero_factura || '').trim();
     if (num) patch.numero_factura = num;
@@ -51,6 +52,14 @@ function buildPatch(ocr) {
         .map(l => String(l?.partida || '').trim().toUpperCase())
         .filter(Boolean))];
     if (partidas.length) patch.partidas = partidas;
+
+    // Importe por partida y si computa para el CAE (logic/facturasCae.js): la
+    // fotovoltaica de un RES060 se registra pero sale de la inversión.
+    if (ctx) {
+        const { desgloseFactura } = require('./facturaIncidencias');
+        const desglose = desgloseFactura({ ocr, exp: ctx.exp, op: ctx.op });
+        if (desglose.length) patch.desglose = desglose;
+    }
 
     if (!Object.keys(patch).length) return null;
 
@@ -77,10 +86,12 @@ async function leerYCompletar({ oportunidadId, driveId, buffer, originalname, mi
         // la oportunidad y ya está. No es un error.
         const { data: exp } = await supabase
             .from('expedientes')
-            .select('id')
+            // Lo justo para saber el alcance de la ficha (qué partidas computan).
+            .select('id, numero_expediente, instalacion, envolvente:documentacion->envolvente, oportunidad:oportunidades(ficha, datos_calculo)')
             .eq('oportunidad_id', oportunidadId)
             .maybeSingle();
         if (!exp) return;
+        const expAlcance = { ...exp, documentacion: { envolvente: exp.envolvente || {} } };
 
         // Normalización a PDF: una foto suelta (o varias páginas) se unen antes de
         // leer. Es el mismo paso que hace el OCR del admin y el de los CEE.
@@ -91,7 +102,7 @@ async function leerYCompletar({ oportunidadId, driveId, buffer, originalname, mi
         ]);
 
         const ocr = await facturaOcrService.extractFacturaFromPdf(pdf);
-        const patch = buildPatch(ocr);
+        const patch = buildPatch(ocr, { exp: expAlcance, op: exp.oportunidad || {} });
         if (!patch) {
             console.log(`[facturaAutoOcr] ${driveId}: el OCR no devolvió nada aprovechable.`);
             return;

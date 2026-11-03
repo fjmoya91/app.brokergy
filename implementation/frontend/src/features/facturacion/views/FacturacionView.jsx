@@ -9,6 +9,7 @@ import { FacturasLista } from '../components/FacturasLista';
 import { CuadroMando } from '../components/hoy/CuadroMando';
 import { TrimestresVista } from '../components/trimestres/TrimestresVista';
 import { AjustesFacturacion } from '../components/AjustesFacturacion';
+import { EstudioPrecios } from '../components/EstudioPrecios';
 import { CSS, Ico, leerLocal, guardarLocal, errorDeApi, hoyMadridFx } from '../estilo';
 import { CSS_LISTAS } from '../estiloListas';
 import { useParamsFacturacion, ponerParams, leerParams } from '../urlFacturacion';
@@ -18,8 +19,10 @@ import { useParamsFacturacion, ponerParams, leerParams } from '../urlFacturacion
 // única pantalla del CRM en crema; el menú lateral sigue oscuro). Prefijo `.fx-`, sin
 // Tailwind dentro. Ver docs/conocimiento/facturacion/cuadro-de-mando-y-trimestres-en-pantalla.md
 //
-//   Hoy · Presupuestos · Facturas · Trimestres · Artículos
+//   Hoy · Presupuestos · Facturas · Trimestres · Artículos · Precios de obra
 //
+// - «Precios de obra» (solo ADMIN): a cuánto cobran los instaladores cada partida en las
+//   facturas de obra de los expedientes —las placas en €/kWp—, computara o no para el CAE.
 // - El ADMIN abre en «Hoy» (el cuadro de mando) y lo ve todo. El TRABAJADOR ve Presupuestos
 //   y Artículos, y abre en Presupuestos: las facturas y lo fiscal son importes de BROKERGY.
 // - Todo lo que se ve vive en la URL (`sub`, `f`, `serie`, `t`, `nuevo`, `abrir`; contrato en
@@ -36,6 +39,7 @@ const TODAS = [
     { id: 'facturas', label: 'Facturas', admin: true },
     { id: 'trimestres', label: 'Trimestres', admin: true },
     { id: 'articulos', label: 'Artículos' },
+    { id: 'precios', label: 'Precios de obra', admin: true },
 ];
 const PARAMS = ['sub', 'f', 'serie', 't', 'nuevo', 'abrir'];
 const CLAVE_SUB = 'fx-sub';
@@ -287,6 +291,7 @@ export function FacturacionView({ onNavigate }) {
                     {activa === 'facturas' && isAdmin && <FacturasLista onNavigate={onNavigate} />}
                     {activa === 'trimestres' && isAdmin && <TrimestresVista ir={ir} />}
                     {activa === 'articulos' && <ArticulosCatalogo />}
+                    {activa === 'precios' && isAdmin && <EstudioPrecios onNavigate={onNavigate} />}
                 </section>
             </div>
 
