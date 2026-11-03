@@ -39,18 +39,20 @@ paths:
 
 182. **La «Vista S.O.»: la obligación del Sujeto Obligado se TECLEA por año y lo que le falta se cuenta contra TODO lo nuestro** (2026-10-28, Fran: «como si yo fuera Interalco»). Conmutador «Lotes / Vista S.O.» de la pestaña Lotes. La obligación (cuota del Anexo II, % mínimo al Fondo, lo ya comprado a OTROS agentes, equivalencia) va en `app_settings` como `obligacion_so:{id}`; la ve el staff y la edita el ADMIN. **Le falta = cubrible con CAE − otros − lo nuestro de ese año**, y aparte lo **asegurado** (otros + emitido). Lo nuestro, por ETAPAS vistas desde el S.O. (emitido · Administración · verificación · preparación), cada lote con su cifra más firme (CAE de la resolución → factura → verificado → estimado) y contando para UN año (el de su resolución, o el en curso si no está emitido; el ADMIN lo cambia lote a lote). **Lo disponible para ofrecerle** son los expedientes SIN lote ni rechazo, en kWh, por cercanía al CAE — y es el mismo volumen para cualquier S.O. Fuente única de las cuentas: [logic/obligacionSo.js](implementation/frontend/src/features/lotes/logic/obligacionSo.js) (también la usa [services/obligacionSo.js](implementation/backend/services/obligacionSo.js)). Tras tocarlo: `node implementation/backend/scripts/test_obligacion_so.mjs`. Ver "La «Vista S.O.»".
 
+190. **El S.O. tiene su ENLACE de solo lectura (`/so/:token`), y solo ve lo que deja pasar `vistaParaElSo`** (2026-11-03, Fran: «que le sirva a él en todo momento para consultar el estado en tiempo real»). Token de 128 bits por S.O. en `app_settings` (`enlace_so:{id}`), que crea, cambia y quita SOLO el ADMIN (cambiarlo o quitarlo deja muerto el anterior); `GET /api/public/so/:token` lo compara en tiempo constante y calcula la vista en el servidor con las MISMAS cuentas (`vistaDeSo` en [routes/lotes.js](implementation/backend/routes/lotes.js)). Al S.O. le llega su obligación SIN nuestras notas, nuestros lotes de ese año por etapa (código, estado, nº de actuaciones, kWh y su fuente; los vacíos no) y de lo que no está en ningún lote **solo el TOTAL** (es el mismo volumen para cualquier S.O.). Nunca clientes, ids, ofertas ni importes nuestros. Mandarle el enlace es un envío: con el «sí» de Fran. **Y lo que le falta se cubre con TODO lo LISTO y luego terminando lo que tiene la obra hecha, de más MWh a menos.** En DOC. COMPLETA manda el ESTADO (Fran, 03/11/2026: «si tienen DOC. COMPLETA marcado, deberían estar listos para presentar»): cuenta y entra en el lote aunque tenga graves abiertas, que solo se avisan; de lo que aún se está cerrando, lo que tiene graves NO cuenta (`planParaCubrir`; el picker del lote tiene el filtro de riesgo, «Todos» por defecto). Fuente única de lo que sale: `vistaParaElSo` en [services/obligacionSo.js](implementation/backend/services/obligacionSo.js). Tras tocarlo: `node implementation/backend/scripts/test_obligacion_so.mjs`, `test_propuesta_lote.mjs` y `auditar_rutas_sin_guardian.js`. Ver "El ENLACE para el propio S.O." y "Riesgo, recientes y «Para cubrir a INTERALCO»".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/lotes/armar-el-lote-propuestas-por-antiguedad-y-por-instalador.md` — Armar el lote: filtro por instalador y PROPUESTAS por antigüedad y por instalador (2026-10-27) · 3,5 KB
+- `docs/conocimiento/lotes/armar-el-lote-propuestas-por-antiguedad-y-por-instalador.md` — Armar el lote: filtro por instalador y PROPUESTAS por antigüedad y por instalador (2026-10-27) · 5,7 KB
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15) · 2,1 KB
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md` — El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08) · 15,5 KB
 - `docs/conocimiento/lotes/el-registro-miteco-y-los-requerimientos-del-gestor.md` — El Nº de REGISTRO del MITECO en el lote, y los requerimientos del Gestor (2026-10-27) · 6,0 KB
 - `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md` — El TOTAL que nos ingresa el S.O., y marcarlo COBRADO (2026-10-15) · 4,1 KB
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09) · 14,3 KB
-- `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md` — La «Vista S.O.»: su obligación del año y cómo vamos con ella (2026-10-28) · 5,1 KB
+- `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md` — La «Vista S.O.»: su obligación del año y cómo vamos con ella (2026-10-28) · 9,4 KB
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01) · 9,3 KB
 - `docs/conocimiento/lotes/las-inexactitudes-del-verificador-se-registran-y-la-respuesta-se-arma-sola.md` — Las INEXACTITUDES del verificador se registran solas, y la RESPUESTA se arma al subsanar (2026-10-22) · 10,7 KB
 - `docs/conocimiento/lotes/las-tarifas-del-verificador-en-su-ficha.md` — Las TARIFAS del verificador, en su ficha (2026-09-14) · 3,7 KB
@@ -69,6 +71,10 @@ paths:
   - **REGLA — entre instaladores: primero el que ya está en el lote, luego el que más lleva
 esperando.**
   - **REGLA — «Añadir N» entra por la MISMA ruta que el botón suelto**
+  - **REGLA — en DOC. COMPLETA manda el ESTADO: entra en el lote aunque tenga incidencias graves
+abiertas, que solo se avisan.**
+  - **REGLA — con kWh, la primera propuesta es «los de más MWh» de cada año + CCAA, y si el lote
+tiene S.O. con algo que cubrir se titula «Para cubrir a {S.O.}».**
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md`
   - **REGLA — un fallo de red de Marwen se dice con su nombre, y dice si se ha creado algo.**
   - **REGLA — tras un 504 NO se reintenta a ciegas.**
@@ -131,6 +137,13 @@ para ese año**
   - **REGLA — lo nuestro, por ETAPAS vistas desde el S.O.**
   - **REGLA — cada lote cuenta para UN año de obligación**
   - **REGLA — lo disponible es lo que tenemos SIN lote y sin rechazar**
+  - **REGLA — el enlace es un token de 128 bits por S.O., y quitarlo o cambiarlo deja muerto el
+anterior.**
+  - **REGLA — el S.O. ve su obligación y NUESTROS LOTES; de lo que no está en un lote, solo el
+TOTAL.**
+  - **REGLA — lo que le falta se cubre primero con lo LISTO y luego terminando lo que tiene la obra
+hecha, de más a menos MWh; de lo que aún se está cerrando, lo que tiene incidencias GRAVES
+abiertas no cuenta.**
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md`
   - **REGLA — el modelo solo LEE; el juicio es del código.**
   - **REGLA — los números se piden como TEXTO y los convierte `numeroEs()`.**

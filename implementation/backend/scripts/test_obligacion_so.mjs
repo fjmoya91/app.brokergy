@@ -20,7 +20,7 @@ import path from 'path';
 
 const raiz = path.resolve(import.meta.dirname, '../../frontend/src/features');
 const {
-    computeVistaSo, kwhDelLote, etapaDelLote, anioDelLote, normalizarObligacion,
+    computeVistaSo, kwhDelLote, etapaDelLote, anioDelLote, normalizarObligacion, planParaCubrir,
 } = await import(pathToFileURL(path.join(raiz, 'lotes/logic/obligacionSo.js')).href);
 
 let fallos = 0;
@@ -97,6 +97,21 @@ const d = computeVistaSo({
 const [listo, cerrando, obra, antes] = d.oferta.filas;
 ok('se acumula por cercanía', cerca(listo.acumGwh, 2) && cerca(cerrando.acumGwh, 5) && cerca(obra.acumGwh, 11) && cerca(antes.acumGwh, 11));
 ok('% de lo que falta, con tope 100', cerca(listo.pctDeLoQueFalta, 2 / 8.4108 * 100, 0.01) && obra.pctDeLoQueFalta === 100);
+
+console.log('\n7. Con qué se cubre lo que le falta');
+const x = (numero, mwh, graves = 0, leves = 0) => ({ numero, kwh: mwh * 1000, incidencias: { graves, leves } });
+const oferta = { filas: [
+    { id: 'LISTO', expedientes: [x('L1', 300), x('L2', 200, 0, 3), x('L3', 500, 2)] },
+    { id: 'CERRANDO', expedientes: [x('C1', 100), x('C2', 400), x('C3', 250, 1), x('C4', 300)] },
+] };
+const plan = planParaCubrir(oferta, 1.5); // 1.500 MWh
+ok('en DOC. COMPLETA manda el estado: lo listo cuenta entero, también con graves', plan.kwhListos === 1000e3 && plan.listos.map(e => e.numero).join() === 'L3,L1,L2');
+ok('y la grave de lo listo solo se avisa', plan.listosConGraves.map(e => e.numero).join() === 'L3');
+ok('se cierran los de más MWh hasta cubrirlo', [...plan.aCerrar].join() === 'C2,C4' && plan.kwhAlcanzado === 1700e3);
+ok('lo que se está cerrando con graves no cuenta', plan.conGraves.map(e => e.numero).join() === 'C3');
+ok('alcanza', plan.alcanza && !plan.bastaConLoListo);
+ok('si con lo listo basta, no hay que cerrar nada', planParaCubrir(oferta, 0.9).nACerrar === 0 && planParaCubrir(oferta, 0.9).bastaConLoListo);
+ok('si no llega ni cerrándolo todo, se dice', !planParaCubrir(oferta, 5).alcanza && planParaCubrir(oferta, 5).nACerrar === 3);
 
 console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ Todo bien');
 process.exit(fallos ? 1 : 0);

@@ -50,3 +50,32 @@ cupo que queda, así que se pueden encadenar: un instalador y luego «completar 
 los más antiguos».
 
 Hoy (27/10/2026): 30 elegibles, todos con instalador y con fecha; 28 de CLM 2026.
+
+## Riesgo, recientes y «Para cubrir a INTERALCO» (2026-11-03)
+
+Fran (03/11/2026): «los expedientes más antiguos son los que más errores tenemos por cambios de
+criterios de verificación; los más recientes probablemente deberían estar bien». Medido ese día
+sobre los 17 completos sin lote: el más antiguo (25RES080_28, listo desde 2024) arrastraba 5
+graves y 13 leves y encabezaba «Los más antiguos»; los 8 sin ninguna incidencia eran casi todos
+de septiembre-octubre.
+
+**REGLA — en DOC. COMPLETA manda el ESTADO: entra en el lote aunque tenga incidencias graves
+abiertas, que solo se avisan.** Fran, el mismo 03/11/2026: «si tienen DOC. COMPLETA marcado,
+deberían estar listos para presentar»; una grave que sigue ABIERTA ahí suele estar resuelta y sin
+cerrar. Medido ese día: sin lote y en DOC. COMPLETA con graves abiertas solo estaba 25RES080_28
+(las suyas, del 08/09 y de la auditoría del LOTE-2025-010 del 13/10); las demás graves de DOC.
+COMPLETA eran de ese mismo día y estaban en los 8 del LOTE-2026-016, ya con lote.
+`GET /api/lotes/elegibles` trae `incidencias: { leves, graves }` (y ahora filtra por estado en la
+consulta: solo los completos). El picker tiene un filtro de **riesgo** —«Todos (DOC. COMPLETA
+manda)» por defecto, «Sin incidencias graves» o «Sin ninguna»— para quien quiera apartarlos, y
+ese filtro manda en TODO lo de abajo (instaladores, propuestas, lista). Lo que deja fuera se cuenta en el pie con un enlace
+para verlo, nunca se esconde sin decirlo. Cada tarjeta enseña sus incidencias (graves en rojo,
+leves en ámbar). Fuente única: `pasaRiesgo` / `RIESGOS` en
+[logic/propuestaLote.js](implementation/frontend/src/features/lotes/logic/propuestaLote.js).
+
+**REGLA — con kWh, la primera propuesta es «los de más MWh» de cada año + CCAA, y si el lote
+tiene S.O. con algo que cubrir se titula «Para cubrir a {S.O.}».** Lo que le falta lo da `GET
+/api/lotes/obligacion-so/:soId/vista` (las mismas cuentas que la Vista S.O.), y la cabecera de
+las propuestas dice cuánto le falta y cuánto suma lo elegible con el filtro. Si coincide con
+«los más antiguos», no se repite. Los órdenes son cuatro: más antiguos, **más recientes**,
+**más MWh** y por nº.

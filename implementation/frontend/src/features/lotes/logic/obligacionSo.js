@@ -225,6 +225,47 @@ export function computeVistaSo({ lotes = [], soId, anio, config, disponible = nu
     return { anio: Number(anio), obligacion: cuenta, etapas: ETAPAS_SO.map(e => etapas[e.id]), brokergyGwh, fuera, oferta };
 }
 
+/**
+ * Con QUÉ se cubre lo que le falta, y qué hay que cerrar para llegar (03/11/2026,
+ * Fran: «para intentar cubrir todas las obligaciones que me pide Interalco»).
+ * Cuenta primero TODO lo listo para lotear; si no llega, los expedientes con la
+ * obra terminada (CERRANDO) sin incidencias graves, de más a menos MWh, hasta
+ * cubrirlo: esos son los que hay que terminar.
+ * En DOC. COMPLETA manda el ESTADO, no las incidencias (Fran, 03/11/2026: «si
+ * tienen DOC. COMPLETA marcado, deberían estar listos para presentar»): una grave
+ * que siga abierta ahí suele estar resuelta y sin cerrar, y solo se avisa
+ * (`listosConGraves`). En lo que aún se está cerrando, la grave SÍ lo aparta.
+ * `oferta` es la de `computeVistaSo`; sus expedientes traen `incidencias`.
+ */
+export function planParaCubrir(oferta, faltaGwh) {
+    const fila = (id) => (oferta?.filas || []).find(f => f.id === id)?.expedientes || [];
+    const graves = (x) => Number(x?.incidencias?.graves) || 0;
+    const porMwh = (a, b) => (b.kwh || 0) - (a.kwh || 0);
+    const listos = [...fila('LISTO')].sort(porMwh);
+    const listosConGraves = listos.filter(graves);
+    const cerrando = fila('CERRANDO').filter(x => !graves(x)).sort(porMwh);
+    const conGraves = fila('CERRANDO').filter(graves).sort(porMwh);
+
+    const faltaKwh = Math.max(0, (Number(faltaGwh) || 0) * 1e6);
+    const kwhListos = listos.reduce((s, x) => s + (x.kwh || 0), 0);
+    let acum = kwhListos;
+    const aCerrar = [];
+    for (const x of cerrando) {
+        if (acum >= faltaKwh) break;
+        aCerrar.push(x);
+        acum += x.kwh || 0;
+    }
+    return {
+        faltaKwh, listos, listosConGraves, cerrando, conGraves, kwhListos,
+        aCerrar: new Set(aCerrar.map(x => x.numero)),
+        nACerrar: aCerrar.length,
+        kwhAlcanzado: acum,
+        // Con todo lo listo y TODO lo que cierra sin graves, ¿llega?
+        alcanza: kwhListos + cerrando.reduce((s, x) => s + (x.kwh || 0), 0) >= faltaKwh,
+        bastaConLoListo: kwhListos >= faltaKwh,
+    };
+}
+
 /** Los años que tiene sentido elegir: los configurados, el actual y el de los lotes. */
 export function aniosElegibles(config, lotes = [], soId, hoy = new Date()) {
     const s = new Set(Object.keys(normalizarObligacion(config || {}).anios).map(Number));

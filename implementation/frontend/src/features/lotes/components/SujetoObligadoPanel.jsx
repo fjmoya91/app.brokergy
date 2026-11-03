@@ -4,9 +4,12 @@ import {
     CSS as CSS_FX, Ico, AvisoFx, ErrorApi, errorDeApi, DialogoFx, useToastFx, eur,
 } from '../../facturacion/estilo';
 import {
-    computeVistaSo, aniosElegibles, normalizarObligacion, PCT_FONDO_DEFECTO,
+    computeVistaSo, aniosElegibles, normalizarObligacion, planParaCubrir, PCT_FONDO_DEFECTO,
 } from '../logic/obligacionSo';
 import { EQUIVALENCIA_FINANCIERA } from '../logic/loteEco';
+import {
+    num, gwh, mwh, pct, presName, COLOR, COLOR_OFERTA, FUENTE, chipEstado, CSS_SO, logoEsClaro,
+} from './vistaSoEstilo';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // «Vista S.O.»: la pestaña Lotes mirada como la mira el Sujeto Obligado. Cuánto
@@ -18,114 +21,6 @@ import { EQUIVALENCIA_FINANCIERA } from '../logic/loteEco';
 // Facturación»): monta el CSS `.fx-` de facturacion/estilo.jsx y añade lo suyo con
 // prefijo `.so-`. Nada de Tailwind dentro de `.fx`.
 // ─────────────────────────────────────────────────────────────────────────────
-
-const num = (n, d = 2) => (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d });
-const gwh = (n, d = 2) => `${num(n, d)} GWh`;
-const mwh = (kwh) => `${Math.round((Number(kwh) || 0) / 1000).toLocaleString('es-ES')} MWh`;
-const pct = (n) => `${(Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })} %`;
-const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : '—';
-
-// Las etapas son ORDINALES (de más cerca a más lejos del CAE): un solo tono, de
-// oscuro a claro. El mismo color en la barra, la leyenda y las columnas.
-const COLOR = {
-    OTROS: '#8fa0b3',
-    EMITIDO: '#466510', MINISTERIO: '#7b9a1c', VERIFICACION: '#b1d13e', PREPARACION: '#dce8a4',
-};
-// Lo disponible, también ordinal: el naranja del embudo de Facturación.
-const COLOR_OFERTA = { LISTO: 'var(--o4)', CERRANDO: 'var(--o3)', OBRA: 'var(--o2)', ANTES: 'var(--o1)' };
-const FUENTE = {
-    EMITIDO: 'CAE de la resolución', FACTURA: 'de nuestra factura', VERIFICADO: 'verificado', ESTIMADO: 'estimado',
-};
-const chipEstado = (l) => (l.requerimiento ? 'fx-chip-ambar'
-    : l.etapa === 'EMITIDO' ? 'fx-chip-ok'
-        : l.etapa === 'MINISTERIO' ? 'fx-chip-pizarra' : 'fx-chip-gris');
-
-const CSS_SO = `
-.so-dash{display:grid;gap:14px;grid-template-columns:minmax(0,1fr)}
-@container fx (min-width:1080px){.so-dash{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}}
-/* .fx-hero y .fx-kpis traen el grid-area del cuadro de Facturación: aquí van en orden */
-.so-dash > .fx-hero,.so-dash > .fx-kpis{grid-area:auto}
-.so-kpi .fx-kpi-v{overflow:visible;line-height:1.08}
-.so-hero .fx-hero-v{display:flex;align-items:baseline;gap:8px}
-.so-hero .fx-hero-v small{font-size:.36em}
-.so-hero .fx-mark{font-weight:700}
-.so-asegurado{margin-top:16px}
-.so-asegurado-top{display:flex;justify-content:space-between;gap:10px;font-size:13px;color:var(--gris)}
-.so-asegurado-top b{color:var(--tinta);font-variant-numeric:tabular-nums}
-.so-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
-@container fx (min-width:700px){.so-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
-.so-kpi{cursor:default;min-height:118px}
-.so-kpi:hover{border-color:var(--linea)}
-.so-kpi:active{transform:none}
-.so-kpi-marca{border-color:rgba(255,160,0,.45);box-shadow:0 0 0 3px rgba(255,160,0,.10)}
-.so-kpi-marca .fx-kpi-k{color:var(--naranja-txt)}
-
-.so-barra{display:flex;height:38px;margin-top:16px;border-radius:12px;overflow:hidden;background:var(--hundido);border:1px solid var(--linea)}
-.so-barra > i{display:block;flex:none;height:100%;background:var(--c);border-right:2px solid #fff;transform-origin:left;animation:fx-ancho .7s cubic-bezier(.2,.8,.2,1) both}
-.so-barra > i:last-child{border-right:0}
-.so-fondo{background:repeating-linear-gradient(45deg,#e6e1d8 0 5px,#d4cdc1 5px 10px)!important}
-.so-falta{display:grid!important;place-items:center;overflow:hidden;white-space:nowrap;font:800 11.5px/1 var(--texto);font-style:normal;color:var(--vence-txt);background:repeating-linear-gradient(45deg,#fff3dc 0 6px,#ffe7bd 6px 12px)!important}
-.so-ley .fx-dot.so-fondo{background:repeating-linear-gradient(45deg,#e6e1d8 0 2px,#c9c1b4 2px 4px)!important}
-.so-ley .fx-dot.so-falta{background:#ffe2a3!important;box-shadow:inset 0 0 0 1px var(--vence-borde)}
-.so-escala{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--gris2);font-variant-numeric:tabular-nums}
-
-.so-seccion{margin-top:30px}
-.so-seccion-cab{display:flex;align-items:flex-end;justify-content:space-between;gap:10px 16px;flex-wrap:wrap;margin:0 2px 12px}
-.so-seccion-cab p{margin:4px 0 0;font-size:13.5px;color:var(--gris);line-height:1.45}
-.so-etapas{display:grid;gap:14px;grid-template-columns:minmax(0,1fr)}
-@container fx (min-width:760px){.so-etapas{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@container fx (min-width:1320px){.so-etapas{grid-template-columns:repeat(4,minmax(0,1fr))}}
-.so-etapa-k{display:flex;align-items:center;gap:8px}
-.so-etapa-v{font-size:36px;line-height:1;margin-top:10px}
-.so-etapa-v small{font-size:.45em;margin-left:4px}
-.so-etapa-n{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:12.5px;color:var(--gris)}
-.so-lotes{list-style:none;margin:14px -8px 0;padding:0;border-top:1px solid var(--linea)}
-.so-lote{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;padding:10px 8px;border-bottom:1px solid var(--linea);cursor:pointer;transition:background-color .15s}
-.so-lote:last-child{border-bottom:0}
-.so-lote:hover{background:#fcfbf8}
-.so-lote:focus-visible{outline:3px solid var(--tinta);outline-offset:-3px;border-radius:10px}
-.so-lote-cod{min-width:0;font:600 13px/1.2 var(--mono);color:var(--tinta);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.so-lote-mwh{font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.so-lote-pie{grid-column:1/-1;display:flex;align-items:center;gap:8px;min-width:0}
-.so-lote-pie .fx-chip{flex:0 1 auto;min-width:0}
-.so-fuente{flex:none;font-size:12px;color:var(--gris2);white-space:nowrap}
-.so-anio{margin-left:auto;flex:none;width:auto;min-height:32px;padding:0 28px 0 10px;border-radius:10px;font-size:12.5px;font-weight:600;background-position:right 9px center;background-size:12px}
-.so-anio-txt{margin-left:auto;flex:none;font-size:12px;color:var(--gris)}
-@media (pointer:coarse){.so-anio{min-height:44px}}
-.so-vacio{padding:14px 0 2px;font-size:13px;color:var(--gris2)}
-.so-fuera{margin-top:14px}
-
-.so-of{list-style:none;margin:14px -8px 0;padding:0;border-top:1px solid var(--linea)}
-.so-of > li{border-bottom:1px solid var(--linea)}
-.so-of > li:last-child{border-bottom:0}
-.so-of-btn{appearance:none;width:100%;background:none;border:0;cursor:pointer;text-align:left;font:inherit;color:inherit;border-radius:12px;
-  display:grid;grid-template-columns:22px minmax(0,1fr) auto;grid-template-areas:"ch tit v" "ch det v" ". pista pista";gap:3px 12px;align-items:center;padding:14px 8px}
-.so-of-btn:hover{background:#fcfbf8}
-.so-of-btn > svg{grid-area:ch;color:var(--gris);transition:transform .2s}
-.so-of-btn[aria-expanded="true"] > svg{transform:rotate(90deg)}
-.so-of-tit{grid-area:tit;display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;min-width:0}
-.so-of-det{grid-area:det;font-size:12.5px;color:var(--gris)}
-.so-of-v{grid-area:v;font-family:var(--display);font-weight:700;font-size:28px;line-height:1;white-space:nowrap}
-.so-of-v small{font-size:.5em;margin-left:3px}
-.so-of-pista{grid-area:pista;margin-top:8px}
-.so-of-pista .fx-pista{margin-top:0;height:10px}
-.so-of-pista small{display:block;margin-top:6px;font-size:12.5px;color:var(--gris);font-variant-numeric:tabular-nums}
-.so-of-pista small b{color:var(--tinta);font-weight:700}
-@container fx (min-width:900px){
-  .so-of-btn{grid-template-columns:22px minmax(0,260px) 150px minmax(0,1fr);grid-template-areas:"ch tit v pista" "ch det v pista";gap:3px 20px}
-  .so-of-v{text-align:right}
-  .so-of-pista{margin-top:0}
-}
-.so-exps{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));padding:0 8px 16px 42px}
-@container fx (max-width:639px){.so-exps{padding-left:8px}}
-.so-exp{padding:9px 11px;border-radius:12px;background:var(--crema);border:1px solid var(--linea);min-width:0}
-.so-exp b{display:block;font:600 12.5px/1.2 var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.so-exp small{display:block;margin-top:3px;font-size:12px;color:var(--gris);font-variant-numeric:tabular-nums}
-.so-of-pie{margin-top:14px}
-.so-ayuda{font-size:12px;color:var(--gris2);line-height:1.35}
-.so-dos{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
-.so-dos .so-ancho{grid-column:1/-1}
-`;
 
 // ─── Editar la obligación de un año ─────────────────────────────────────────────
 function EditarObligacionModal({ so, anio, actual, onClose, onSave }) {
@@ -224,6 +119,198 @@ function BarraObligacion({ ob, etapas }) {
     );
 }
 
+// ─── Lo que comparten la Vista S.O. y la página del propio S.O. (/so/:token) ───
+// La cifra de lo que falta, las seis cuentas y la barra de la cuota.
+const kpi = (k, valor, ud, nota, extra = '') => (
+    <div className={`fx-kpi so-kpi ${extra}`}>
+        <span className="fx-kpi-k">{k}</span>
+        <span className="fx-kpi-v fx-num">{valor}{ud && <span className="fx-kpi-ud">{ud}</span>}</span>
+        {nota && <span className="fx-kpi-nota">{nota}</span>}
+    </div>
+);
+
+export function ResumenObligacion({ ob, anio, etapas, editar = null, sinObligacion = null, notas = false, style }) {
+    return (
+        <>
+            <div className="so-dash" style={style}>
+                <section className="fx-card fx-hero so-hero fx-in" style={{ '--i': 2 }} aria-label={`Obligación ${anio}`}>
+                    <div className="fx-filete-fino" />
+                    <div className="fx-hero-top">
+                        <span className="fx-eyebrow">Obligación {anio}</span>
+                        {editar}
+                    </div>
+                    {ob ? (
+                        <>
+                            <div className="fx-importe fx-hero-v">
+                                {num(ob.faltaGwh > 0 ? ob.faltaGwh : ob.sobraGwh)}<small>GWh</small>
+                            </div>
+                            <p className="fx-hero-tit">
+                                {ob.faltaGwh > 0
+                                    ? <>le faltan por cubrir con CAE, aunque se emita todo lo de BROKERGY</>
+                                    : <>le sobran: con lo de otros y lo de BROKERGY cubre su obligación</>}
+                            </p>
+                            {ob.faltaGwh > 0 && (
+                                <p className="fx-hero-pie">Si no los compra, ≈ <b>{eur(ob.faltaEur, 0)}</b> al Fondo a {num(ob.equivalencia_mwh, 3)} €/MWh.</p>
+                            )}
+                            <div className="so-asegurado">
+                                <div className="so-asegurado-top">
+                                    <span>Asegurado hoy <span className="so-ayuda">(otros + lo de BROKERGY ya emitido)</span></span>
+                                    <b>{pct(ob.pctAsegurado)}</b>
+                                </div>
+                                <div className="fx-barra"><i style={{ width: `${Math.min(100, ob.pctAsegurado)}%`, backgroundSize: `${100 / Math.max(ob.pctAsegurado, 1) * 100}% 100%` }} /></div>
+                            </div>
+                            {(ob.fuente || (notas && ob.notas)) && (
+                                <p className="fx-hero-pie">{[ob.fuente, notas ? ob.notas : null].filter(Boolean).join(' · ')}</p>
+                            )}
+                        </>
+                    ) : sinObligacion}
+                </section>
+
+                {ob && (
+                    <div className="fx-kpis so-kpis fx-in" style={{ '--i': 3 }}>
+                        {kpi('Obligación', num(ob.obligacion_gwh), 'GWh', <>{eur(ob.obligacionEur, 0)}</>)}
+                        {kpi(`Mínimo al Fondo · ${pct(ob.pct_fondo)}`, num(ob.fondoGwh), 'GWh', <>{eur(ob.fondoEur, 0)}, sí o sí</>, 'fx-kpi-apagado')}
+                        {kpi('Cubrible con CAE', num(ob.cubribleGwh), 'GWh', <>{eur(ob.cubribleEur, 0)}</>)}
+                        {kpi('Comprado a otros', num(ob.otros_gwh), 'GWh', 'de otros agentes')}
+                        {kpi('Con BROKERGY', num(ob.brokergyGwh), 'GWh', <><b>{gwh(ob.emitidoGwh)}</b> ya emitidos</>, 'so-kpi-marca')}
+                        {kpi('Cubierto si se emite todo', pct(ob.pctCubierto), null, <>otros + todo lo de BROKERGY</>)}
+                    </div>
+                )}
+            </div>
+
+            {ob && (
+                <section className="fx-card fx-pad fx-in" style={{ '--i': 4, marginTop: 14 }} aria-label="La cuota, tramo a tramo">
+                    <div className="fx-card-cab">
+                        <div>
+                            <div className="fx-eyebrow fx-eyebrow-gris">La cuota, tramo a tramo</div>
+                            <h2 className="fx-display fx-h3">{gwh(ob.obligacion_gwh)} de obligación</h2>
+                        </div>
+                        {ob.ventas_gwh ? <span className="fx-pildora">ventas computables {gwh(ob.ventas_gwh)}</span> : null}
+                    </div>
+                    <BarraObligacion ob={ob} etapas={etapas} />
+                </section>
+            )}
+        </>
+    );
+}
+
+/** Los lotes por etapa vista desde el S.O.; `filaLote` pinta cada lote y `children` va al final. */
+export function EtapasLotes({ etapas, brokergyGwh, anio, filaLote, children = null }) {
+    return (
+        <section className="so-seccion">
+            <div className="so-seccion-cab">
+                <div>
+                    <div className="fx-eyebrow">Lo que le llevamos para {anio}</div>
+                    <h2 className="fx-display fx-h2">{gwh(brokergyGwh)} en {etapas.reduce((s, e) => s + e.lotes.length, 0)} lotes</h2>
+                    <p>Cada lote con su cifra más firme: CAE de la resolución → nuestra factura → verificado → estimado.</p>
+                </div>
+            </div>
+            <div className="so-etapas">
+                {etapas.map((e, i) => {
+                    const nReq = e.lotes.filter(l => l.requerimiento).length;
+                    return (
+                        <div key={e.id} className="fx-card fx-pad fx-in" style={{ '--i': 5 + i }}>
+                            <div className="so-etapa-k">
+                                <span className="fx-dot" style={{ '--c': COLOR[e.id] }} />
+                                <span className="fx-kpi-k">{e.titulo}</span>
+                            </div>
+                            <div className="fx-importe so-etapa-v">{num(e.kwh / 1e6)}<small>GWh</small></div>
+                            <div className="so-etapa-n">
+                                <span>{e.lotes.length} lote{e.lotes.length === 1 ? '' : 's'} · {e.sub}</span>
+                                {nReq > 0 && <span className="fx-chip fx-chip-ambar"><Ico n="alerta" />{nReq} con requerimiento</span>}
+                            </div>
+                            {e.lotes.length > 0
+                                ? <ul className="so-lotes">{e.lotes.map(filaLote)}</ul>
+                                : <p className="so-vacio">Ninguno ahora mismo.</p>}
+                        </div>
+                    );
+                })}
+            </div>
+            {children}
+        </section>
+    );
+}
+
+// ─── El ENLACE de solo lectura para el S.O. (solo ADMIN) ────────────────────────
+function EnlaceSoModal({ so, onClose, avisar }) {
+    const [estado, setEstado] = useState({ cargando: true, enlace: null, error: null });
+    const [ocupado, setOcupado] = useState(false);
+    // «Cambiar» y «Quitar» dejan muerto el enlace que ya tenga: se piden dos veces.
+    const [confirmar, setConfirmar] = useState(null);
+    const base = `/api/lotes/obligacion-so/${so.id_empresa}/enlace`;
+
+    useEffect(() => {
+        let vivo = true;
+        axios.get(base)
+            .then(({ data }) => vivo && setEstado({ cargando: false, enlace: data?.enlace || null, error: null }))
+            .catch(err => vivo && setEstado({ cargando: false, enlace: null, error: errorDeApi(err) }));
+        return () => { vivo = false; };
+    }, [base]);
+
+    const url = estado.enlace ? `${window.location.origin}/so/${estado.enlace.token}` : null;
+    const hacer = async (accion) => {
+        setOcupado(true);
+        try {
+            const { data } = accion === 'quitar' ? await axios.delete(base) : await axios.post(base);
+            setEstado({ cargando: false, enlace: data?.enlace || null, error: null });
+            setConfirmar(null);
+            avisar(accion === 'quitar' ? 'Enlace quitado: el anterior ya no abre' : accion === 'cambiar' ? 'Enlace nuevo: el anterior ya no abre' : 'Enlace creado');
+        } catch (err) {
+            avisar(err.response?.data?.error || 'No se ha podido', 'aviso');
+        } finally { setOcupado(false); }
+    };
+    const copiar = () => navigator.clipboard?.writeText(url)
+        .then(() => avisar('Enlace copiado'))
+        .catch(() => avisar('No se ha podido copiar: selecciónalo a mano', 'aviso'));
+
+    return (
+        <DialogoFx antetitulo={`${presName(so)} · solo lectura`} titulo="Enlace para el S.O." onClose={onClose} ocupado={ocupado}
+            pie={url ? (
+                confirmar ? (
+                    <>
+                        <button type="button" className="fx-btn fx-btn-sec" onClick={() => setConfirmar(null)} disabled={ocupado}>No</button>
+                        <button type="button" className="fx-btn fx-btn-pri" onClick={() => hacer(confirmar)} disabled={ocupado}>
+                            {confirmar === 'quitar' ? 'Sí, quitarlo' : 'Sí, hacer uno nuevo'}
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <button type="button" className="fx-btn fx-btn-sec" onClick={() => setConfirmar('quitar')} disabled={ocupado}>Quitar</button>
+                        <button type="button" className="fx-btn fx-btn-sec" onClick={() => setConfirmar('cambiar')} disabled={ocupado}>Cambiar</button>
+                        <a className="fx-btn fx-btn-sec" href={url} target="_blank" rel="noreferrer">Abrir</a>
+                        <button type="button" className="fx-btn fx-btn-pri" onClick={copiar}><Ico n="check" size={18} />Copiar</button>
+                    </>
+                )
+            ) : (
+                <>
+                    <button type="button" className="fx-btn fx-btn-sec" onClick={onClose} disabled={ocupado}>Cerrar</button>
+                    <button type="button" className="fx-btn fx-btn-pri" onClick={() => hacer('crear')} disabled={ocupado || estado.cargando || !!estado.error}>
+                        <Ico n="mas" size={18} />Crear el enlace
+                    </button>
+                </>
+            )}>
+            <p className="so-ayuda" style={{ fontSize: 13.5, color: 'var(--gris)' }}>
+                Una página en tiempo real con su obligación, nuestros lotes por etapa (código, estado, actuaciones y MWh) y, de lo
+                que no está en ningún lote, solo el total. Sin clientes ni importes nuestros. La ve quien tenga el enlace: si
+                llega a quien no debe, cámbialo y el anterior deja de abrir.
+            </p>
+            {estado.error ? <ErrorApi error={estado.error} que="el enlace" />
+                : estado.cargando ? <div className="fx-sk fx-sk-linea" />
+                    : url ? (
+                        <>
+                            <input className="fx-input so-enlace" readOnly value={url} onFocus={e => e.target.select()} aria-label="Enlace" />
+                            {confirmar && (
+                                <AvisoFx tono="ambar">
+                                    {confirmar === 'quitar' ? 'El enlace dejará de abrir para quien lo tenga.' : 'Se hace uno nuevo y el que tenga dejará de abrir.'}
+                                </AvisoFx>
+                            )}
+                            <p className="so-ayuda">Creado el {new Date(estado.enlace.creado_at).toLocaleDateString('es-ES')}{estado.enlace.creado_por ? ` por ${estado.enlace.creado_por}` : ''}.</p>
+                        </>
+                    ) : <p className="so-ayuda">Todavía no tiene enlace.</p>}
+        </DialogoFx>
+    );
+}
+
 export function SujetoObligadoPanel({
     lotes, soList, canEdit = false, onAbrirLote, cargando = false, errorLotes = null, onModo, onNuevoLote,
 }) {
@@ -253,6 +340,11 @@ export function SujetoObligadoPanel({
     const [abierto, setAbierto] = useState(null); // etapa de lo disponible desplegada
     const [verFuera, setVerFuera] = useState(false);
     const [recarga, setRecarga] = useState(0);
+    // El logo que no carga se quita (ligado al S.O.: al cambiar de S.O. se vuelve a intentar).
+    const [logoFallaDe, setLogoFallaDe] = useState(null);
+    const logoFalla = logoFallaDe != null && logoFallaDe === so?.id_empresa;
+    const setLogoFalla = () => setLogoFallaDe(so?.id_empresa ?? null);
+    const [logoFondo, setLogoFondo] = useState({ id: null, oscuro: false });
 
     useEffect(() => {
         const id = so?.id_empresa;
@@ -275,6 +367,10 @@ export function SujetoObligadoPanel({
     const vista = useMemo(
         () => (so ? computeVistaSo({ lotes, soId: so.id_empresa, anio, config, disponible: disp }) : null),
         [lotes, so, anio, config, disp]);
+    const plan = useMemo(
+        () => (vista?.oferta && vista.obligacion ? planParaCubrir(vista.oferta, vista.obligacion.faltaGwh) : null),
+        [vista]);
+    const [verEnlace, setVerEnlace] = useState(false);
 
     const guardar = async (siguiente) => {
         try {
@@ -328,7 +424,15 @@ export function SujetoObligadoPanel({
         <header className="fx-cab fx-in">
             <div>
                 <div className="fx-eyebrow">Lotes · vista del Sujeto Obligado</div>
-                <h1 className="fx-display fx-h1">Cómo va <span className="fx-mark">{so ? presName(so) : 'el S.O.'}</span></h1>
+                <div className="so-tit">
+                    <h1 className="fx-display fx-h1">Cómo va <span className="fx-mark">{so ? presName(so) : 'el S.O.'}</span></h1>
+                    {so?.logo_empresa && !logoFalla && (
+                        <span className={`so-logo ${logoFondo.id === so.id_empresa && logoFondo.oscuro ? 'so-logo-oscuro' : ''}`}>
+                            <img src={so.logo_empresa} alt={`Logo de ${presName(so)}`} onError={() => setLogoFalla(true)}
+                                onLoad={e => setLogoFondo({ id: so.id_empresa, oscuro: logoEsClaro(e.currentTarget) })} />
+                        </span>
+                    )}
+                </div>
                 <p className="fx-sub">
                     {so ? <>{so.razon_social || presName(so)}{so.cif ? <> · NIF <b>{so.cif}</b></> : null}. </> : null}
                     Su obligación del año, lo que ya tiene y lo que le podemos llevar.
@@ -339,6 +443,11 @@ export function SujetoObligadoPanel({
                     <button type="button" aria-pressed="false" onClick={() => onModo?.('LOTES')}><Ico n="lista" size={16} />Lotes</button>
                     <button type="button" aria-pressed="true"><Ico n="tabla" size={16} />Vista S.O.</button>
                 </div>
+                {canEdit && so && (
+                    <button type="button" className="fx-btn fx-btn-sec" onClick={() => setVerEnlace(true)} title={`Página de solo lectura para ${presName(so)}`}>
+                        <Ico n="info" size={18} />Enlace para {presName(so)}
+                    </button>
+                )}
                 {onNuevoLote && (
                     <button type="button" className="fx-btn fx-btn-sec" onClick={onNuevoLote}><Ico n="mas" size={18} />Nuevo lote</button>
                 )}
@@ -364,13 +473,19 @@ export function SujetoObligadoPanel({
             </div>
         );
     } else {
-        const kpi = (k, valor, ud, nota, extra = '') => (
-            <div className={`fx-kpi so-kpi ${extra}`}>
-                <span className="fx-kpi-k">{k}</span>
-                <span className="fx-kpi-v fx-num">{valor}{ud && <span className="fx-kpi-ud">{ud}</span>}</span>
-                {nota && <span className="fx-kpi-nota">{nota}</span>}
-            </div>
-        );
+        // Un expediente del plan: nº, MWh y ficha; si está por terminar, su estado
+        // (es lo que dice qué le falta); y sus incidencias leves, si tiene.
+        const tileExp = (x, meta = false) => {
+            const leves = Number(x.incidencias?.leves) || 0;
+            return (
+                <div key={x.numero} className={`so-exp ${meta ? 'so-exp-meta' : ''}`} title={`${x.estado} · ${x.origen || 'sin cifra'}`}>
+                    <b>{x.numero}</b>
+                    <small>{mwh(x.kwh)} · {x.ficha}</small>
+                    {x.estado !== 'DOC. COMPLETA' && <small>{x.estado}</small>}
+                    {leves > 0 && <small className="so-exp-inc">⚠ {leves} leve{leves === 1 ? '' : 's'}</small>}
+                </div>
+            );
+        };
         cuerpo = (
             <>
                 {/* Selector de S.O. y año */}
@@ -392,114 +507,32 @@ export function SujetoObligadoPanel({
 
                 {cfgError && <ErrorApi error={cfgError} que="la obligación" onReintentar={() => setRecarga(r => r + 1)} className="fx-in" />}
 
-                {/* La obligación del año: la cifra protagonista y sus cuentas */}
-                <div className="so-dash" style={{ marginTop: cfgError ? 14 : 0 }}>
-                    <section className="fx-card fx-hero so-hero fx-in" style={{ '--i': 2 }} aria-label={`Obligación ${anio}`}>
-                        <div className="fx-filete-fino" />
-                        <div className="fx-hero-top">
-                            <span className="fx-eyebrow">Obligación {anio}</span>
-                            {canEdit && config && ob && (
-                                <button type="button" className="fx-btn fx-btn-sec fx-btn-peq" onClick={() => setEditando(true)}>
-                                    <Ico n="lapiz" size={16} />Editar
+                {/* La obligación del año: la cifra protagonista, sus cuentas y la barra */}
+                <ResumenObligacion ob={ob} anio={anio} etapas={vista?.etapas || []} style={{ marginTop: cfgError ? 14 : 0 }}
+                    notas
+                    editar={canEdit && config && ob ? (
+                        <button type="button" className="fx-btn fx-btn-sec fx-btn-peq" onClick={() => setEditando(true)}>
+                            <Ico n="lapiz" size={16} />Editar
+                        </button>
+                    ) : null}
+                    sinObligacion={config ? (
+                        <div className="fx-vacio fx-vacio-peq" style={{ justifyItems: 'start', textAlign: 'left', padding: '18px 0 4px' }}>
+                            <p>Sin la obligación de {anio}. {canEdit ? 'Ponla con los datos del Anexo II de la Orden: cuota, % al Fondo y lo que ya tiene comprado a otros.' : 'La pone un administrador con los datos del Anexo II.'}</p>
+                            {canEdit && (
+                                <button type="button" className="fx-btn fx-btn-pri" onClick={() => setEditando(true)}>
+                                    <Ico n="mas" size={18} />Poner la obligación
                                 </button>
                             )}
                         </div>
-                        {ob ? (
-                            <>
-                                <div className="fx-importe fx-hero-v">
-                                    {num(ob.faltaGwh > 0 ? ob.faltaGwh : ob.sobraGwh)}<small>GWh</small>
-                                </div>
-                                <p className="fx-hero-tit">
-                                    {ob.faltaGwh > 0
-                                        ? <>le faltan por cubrir con CAE, aunque se emita todo lo nuestro</>
-                                        : <>le sobran: con lo de otros y lo nuestro cubre su obligación</>}
-                                </p>
-                                {ob.faltaGwh > 0 && (
-                                    <p className="fx-hero-pie">Si no los compra, ≈ <b>{eur(ob.faltaEur, 0)}</b> al Fondo a {num(ob.equivalencia_mwh, 3)} €/MWh.</p>
-                                )}
-                                <div className="so-asegurado">
-                                    <div className="so-asegurado-top">
-                                        <span>Asegurado hoy <span className="so-ayuda">(otros + lo nuestro ya emitido)</span></span>
-                                        <b>{pct(ob.pctAsegurado)}</b>
-                                    </div>
-                                    <div className="fx-barra"><i style={{ width: `${Math.min(100, ob.pctAsegurado)}%`, backgroundSize: `${100 / Math.max(ob.pctAsegurado, 1) * 100}% 100%` }} /></div>
-                                </div>
-                                {(ob.fuente || ob.notas) && (
-                                    <p className="fx-hero-pie">{[ob.fuente, ob.notas].filter(Boolean).join(' · ')}</p>
-                                )}
-                            </>
-                        ) : config ? (
-                            <div className="fx-vacio fx-vacio-peq" style={{ justifyItems: 'start', textAlign: 'left', padding: '18px 0 4px' }}>
-                                <p>Sin la obligación de {anio}. {canEdit ? 'Ponla con los datos del Anexo II de la Orden: cuota, % al Fondo y lo que ya tiene comprado a otros.' : 'La pone un administrador con los datos del Anexo II.'}</p>
-                                {canEdit && (
-                                    <button type="button" className="fx-btn fx-btn-pri" onClick={() => setEditando(true)}>
-                                        <Ico n="mas" size={18} />Poner la obligación
-                                    </button>
-                                )}
-                            </div>
-                        ) : !cfgError && (
-                            <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-                                <div className="fx-sk fx-sk-cifra" /><div className="fx-sk fx-sk-linea" /><div className="fx-sk fx-sk-linea" style={{ width: '70%' }} />
-                            </div>
-                        )}
-                    </section>
-
-                    {ob && (
-                        <div className="fx-kpis so-kpis fx-in" style={{ '--i': 3 }}>
-                            {kpi('Obligación', num(ob.obligacion_gwh), 'GWh', <>{eur(ob.obligacionEur, 0)}</>)}
-                            {kpi(`Mínimo al Fondo · ${pct(ob.pct_fondo)}`, num(ob.fondoGwh), 'GWh', <>{eur(ob.fondoEur, 0)}, sí o sí</>, 'fx-kpi-apagado')}
-                            {kpi('Cubrible con CAE', num(ob.cubribleGwh), 'GWh', <>{eur(ob.cubribleEur, 0)}</>)}
-                            {kpi('Comprado a otros', num(ob.otros_gwh), 'GWh', 'lo que nos dice él')}
-                            {kpi('Con BROKERGY', num(ob.brokergyGwh), 'GWh', <><b>{gwh(ob.emitidoGwh)}</b> ya emitidos</>, 'so-kpi-marca')}
-                            {kpi('Cubierto si se emite todo', pct(ob.pctCubierto), null, <>otros + todo lo nuestro</>)}
+                    ) : !cfgError && (
+                        <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+                            <div className="fx-sk fx-sk-cifra" /><div className="fx-sk fx-sk-linea" /><div className="fx-sk fx-sk-linea" style={{ width: '70%' }} />
                         </div>
-                    )}
-                </div>
-
-                {ob && (
-                    <section className="fx-card fx-pad fx-in" style={{ '--i': 4, marginTop: 14 }} aria-label="La cuota, tramo a tramo">
-                        <div className="fx-card-cab">
-                            <div>
-                                <div className="fx-eyebrow fx-eyebrow-gris">La cuota, tramo a tramo</div>
-                                <h2 className="fx-display fx-h3">{gwh(ob.obligacion_gwh)} de obligación</h2>
-                            </div>
-                            {ob.ventas_gwh ? <span className="fx-pildora">ventas computables {gwh(ob.ventas_gwh)}</span> : null}
-                        </div>
-                        <BarraObligacion ob={ob} etapas={vista.etapas} />
-                    </section>
-                )}
+                    )} />
 
                 {/* Lo nuestro con él, por etapas */}
                 {vista && (
-                    <section className="so-seccion">
-                        <div className="so-seccion-cab">
-                            <div>
-                                <div className="fx-eyebrow">Lo que le llevamos para {anio}</div>
-                                <h2 className="fx-display fx-h2">{gwh(vista.brokergyGwh)} en {vista.etapas.reduce((s, e) => s + e.lotes.length, 0)} lotes</h2>
-                                <p>Cada lote con su cifra más firme: CAE de la resolución → nuestra factura → verificado → estimado.</p>
-                            </div>
-                        </div>
-                        <div className="so-etapas">
-                            {vista.etapas.map((e, i) => {
-                                const nReq = e.lotes.filter(l => l.requerimiento).length;
-                                return (
-                                    <div key={e.id} className="fx-card fx-pad fx-in" style={{ '--i': 5 + i }}>
-                                        <div className="so-etapa-k">
-                                            <span className="fx-dot" style={{ '--c': COLOR[e.id] }} />
-                                            <span className="fx-kpi-k">{e.titulo}</span>
-                                        </div>
-                                        <div className="fx-importe so-etapa-v">{num(e.kwh / 1e6)}<small>GWh</small></div>
-                                        <div className="so-etapa-n">
-                                            <span>{e.lotes.length} lote{e.lotes.length === 1 ? '' : 's'} · {e.sub}</span>
-                                            {nReq > 0 && <span className="fx-chip fx-chip-ambar"><Ico n="alerta" />{nReq} con requerimiento</span>}
-                                        </div>
-                                        {e.lotes.length > 0
-                                            ? <ul className="so-lotes">{e.lotes.map(filaLote)}</ul>
-                                            : <p className="so-vacio">Ninguno ahora mismo.</p>}
-                                    </div>
-                                );
-                            })}
-                        </div>
+                    <EtapasLotes etapas={vista.etapas} brokergyGwh={vista.brokergyGwh} anio={anio} filaLote={filaLote}>
                         {vista.fuera.length > 0 && (
                             <div className="so-fuera">
                                 <button type="button" className="fx-link" aria-expanded={verFuera} onClick={() => setVerFuera(v => !v)}>
@@ -512,6 +545,61 @@ export function SujetoObligadoPanel({
                                     </div>
                                 )}
                             </div>
+                        )}
+                    </EtapasLotes>
+                )}
+
+                {/* Con qué se cubre lo que le falta: lo listo y lo que hay que cerrar */}
+                {ob?.faltaGwh > 0 && plan && (
+                    <section className="so-seccion" aria-label="Para cubrir lo que le falta">
+                        <div className="so-seccion-cab">
+                            <div>
+                                <div className="fx-eyebrow">Para cubrir lo que le falta</div>
+                                <h2 className="fx-display fx-h2">
+                                    {plan.bastaConLoListo ? 'Con lo listo, basta'
+                                        : plan.alcanza ? <>Lo listo y <span className="fx-mark">{plan.nACerrar} por cerrar</span></>
+                                            : 'Con lo cerrado no llega'}
+                                </h2>
+                                <p>
+                                    {plan.bastaConLoListo
+                                        ? <>Lo listo (DOC. COMPLETA) suma <b>{gwh(plan.kwhListos / 1e6)}</b> y le faltan <b>{gwh(ob.faltaGwh)}</b>: basta con lotearlo.</>
+                                        : plan.alcanza
+                                            ? <>Lo listo (DOC. COMPLETA) suma <b>{gwh(plan.kwhListos / 1e6)}</b> de los <b>{gwh(ob.faltaGwh)}</b> que le faltan. Terminando los <b>{plan.nACerrar}</b> de más MWh que ya tienen la obra hecha (resaltados) se llega a <b>{gwh(plan.kwhAlcanzado / 1e6)}</b>.</>
+                                            : <>Ni loteando lo listo ni terminando todo lo que tiene la obra hecha se llega: <b>{gwh(plan.kwhAlcanzado / 1e6)}</b> de <b>{gwh(ob.faltaGwh)}</b>.</>}
+                                    {' '}De lo que aún se está cerrando, lo que tiene incidencias graves abiertas no cuenta.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="so-plan">
+                            <div className="fx-card fx-pad fx-in" style={{ '--i': 9 }}>
+                                <div className="so-etapa-k"><span className="fx-dot" style={{ '--c': COLOR_OFERTA.LISTO }} /><span className="fx-kpi-k">Listos para lotear</span></div>
+                                <div className="fx-importe so-etapa-v">{num(plan.kwhListos / 1e6)}<small>GWh</small></div>
+                                <div className="so-etapa-n">{plan.listos.length} expedientes en DOC. COMPLETA · se lotean ya</div>
+                                {plan.listos.length > 0
+                                    ? <div className="so-exps">{plan.listos.map(x => tileExp(x))}</div>
+                                    : <p className="so-vacio">Ninguno ahora mismo.</p>}
+                            </div>
+                            <div className="fx-card fx-pad fx-in" style={{ '--i': 10 }}>
+                                <div className="so-etapa-k"><span className="fx-dot" style={{ '--c': COLOR_OFERTA.CERRANDO }} /><span className="fx-kpi-k">Obra hecha: por terminar</span></div>
+                                <div className="fx-importe so-etapa-v">{num((plan.kwhAlcanzado - plan.kwhListos) / 1e6)}<small>GWh</small></div>
+                                <div className="so-etapa-n">
+                                    {plan.nACerrar > 0 ? `${plan.nACerrar} para llegar` : 'No hace falta ninguno'} · {plan.cerrando.length} sin graves en total
+                                </div>
+                                {plan.cerrando.length > 0
+                                    ? <div className="so-exps">{plan.cerrando.map(x => tileExp(x, plan.aCerrar.has(x.numero)))}</div>
+                                    : <p className="so-vacio">Ninguno ahora mismo.</p>}
+                            </div>
+                        </div>
+                        {plan.listosConGraves.length > 0 && (
+                            <AvisoFx tono="ambar" className="so-of-pie">
+                                <b>{plan.listosConGraves.map(x => x.numero).join(' · ')}</b>: en DOC. COMPLETA pero con incidencias graves aún abiertas. Cuentan como listos; si ya están resueltas, ciérralas en el expediente.
+                            </AvisoFx>
+                        )}
+                        {plan.conGraves.length > 0 && (
+                            <AvisoFx tono="ambar" className="so-of-pie">
+                                <b>{plan.conGraves.length} por terminar con incidencias graves no cuentan</b> ({gwh(plan.conGraves.reduce((s, x) => s + (x.kwh || 0), 0) / 1e6)}):{' '}
+                                {plan.conGraves.map(x => x.numero).join(' · ')}. Subsanadas, entrarían.
+                            </AvisoFx>
                         )}
                     </section>
                 )}
@@ -587,6 +675,7 @@ export function SujetoObligadoPanel({
                 <EditarObligacionModal so={so} anio={anio} actual={config?.anios?.[anio]}
                     onClose={() => setEditando(false)} onSave={guardarAnio} />
             )}
+            {verEnlace && so && <EnlaceSoModal so={so} onClose={() => setVerEnlace(false)} avisar={avisar} />}
             {toast}
         </div>
     );

@@ -17,7 +17,7 @@ import { createRequire } from 'module';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
-const { proponerLotes, compararAntiguedad, diasListo, instaladoresDe } = await import(
+const { proponerLotes, compararAntiguedad, compararRecientes, diasListo, instaladoresDe, pasaRiesgo, textoIncidencias } = await import(
     pathToFileURL(path.join(__dirname, '../../frontend/src/features/lotes/logic/propuestaLote.js')).href);
 
 // ─── Casos sintéticos ──────────────────────────────────────────────────────────
@@ -71,6 +71,30 @@ assert.strictEqual(p[0].titulo, 'INS a · los más antiguos');
 assert.strictEqual(diasListo({ listo_desde: '2026-10-17' }, new Date('2026-10-27T12:00:00')), 10);
 assert.strictEqual(diasListo({ listo_desde: null }), null);
 assert.deepStrictEqual(instaladoresDe(lista).map(i => [i.id, i.n]), [['a', 3], ['b', 2], ['c', 1], ['v', 1]]);
+
+// ─── Riesgo, recientes y «los de más MWh» (03/11/2026) ─────────────────────────
+const conInc = (x, leves, graves) => ({ ...x, incidencias: { leves, graves } });
+assert.strictEqual(pasaRiesgo(conInc(e('R1'), 3, 0), 'sin_graves'), true);
+assert.strictEqual(pasaRiesgo(conInc(e('R1'), 3, 0), 'limpios'), false);
+assert.strictEqual(pasaRiesgo(conInc(e('R1'), 0, 1), 'sin_graves'), false);
+assert.strictEqual(pasaRiesgo(conInc(e('R1'), 0, 1), 'todos'), true);
+assert.strictEqual(pasaRiesgo(conInc(e('R1'), 0, 1)), true, 'por defecto manda DOC. COMPLETA: también con graves');
+assert.strictEqual(pasaRiesgo(e('R2'), 'limpios'), true, 'sin dato de incidencias cuenta como limpio');
+assert.strictEqual(textoIncidencias(conInc(e('R1'), 2, 1)), '1 grave · 2 leves');
+assert.strictEqual(textoIncidencias(e('R2')), null);
+assert.deepStrictEqual([...lista].filter(x => x.anio_actuacion === 2026).sort(compararRecientes).map(x => x.id),
+    ['A3', 'A1', 'X1', 'C1', 'A2', 'B1', 'B2']);
+// Con kWh, va primero la de más MWh de cada grupo, y se titula con el S.O. si le falta.
+const KWH = { A1: 10, A2: 50, A3: 30, B1: 5, B2: 80, C1: 20, X1: 40, V1: 999 };
+p = proponerLotes(lista, { cupo: 3, kwhDe: (x) => KWH[x.id] * 1000, cubrir: { nombre: 'INTERALCO', faltaKwh: 1.9e6 } });
+assert.strictEqual(p[0].tipo, 'mwh');
+assert.strictEqual(p[0].titulo, 'Para cubrir a INTERALCO · los de más MWh');
+assert.deepStrictEqual(p.filter(q => q.tipo === 'mwh').map(q => q.expedientes.map(x => x.id)), [['V1'], ['B2', 'A2', 'X1']]);
+// Sin S.O. (o sin nada que le falte), el título es neutro.
+assert.strictEqual(proponerLotes(lista, { cupo: 3, kwhDe: (x) => KWH[x.id] })[0].titulo, 'Los de más MWh');
+// Si «los de más MWh» y «los más antiguos» son los mismos, solo sale una.
+p = proponerLotes([e('A1', 'a', '2026-01-01'), e('B1', 'b', '2026-02-01')], { cupo: 5, kwhDe: () => 1 });
+assert.deepStrictEqual(p.map(q => q.tipo), ['mwh']);
 
 console.log('✓ casos sintéticos');
 

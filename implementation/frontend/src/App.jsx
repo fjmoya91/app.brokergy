@@ -45,6 +45,7 @@ import FirmaMovilView from './features/firma/FirmaMovilView';
 import CroquisMovilView from './features/cee-envolvente/views/CroquisMovilView';
 import EncargoTecnicoView from './features/encargo/EncargoTecnicoView';
 import { FirmarLoteView } from './features/public/views/FirmarLoteView';
+import { SujetoObligadoPublicoView } from './features/public/views/SujetoObligadoPublicoView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { ConfirmarCobroView } from './features/cobro/views/ConfirmarCobroView';
 import { RecibidoCobroView } from './features/cobro/views/RecibidoCobroView';
@@ -358,6 +359,13 @@ function App() {
   const [firmarLoteId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/firmar-lote/')) return path.split('/firmar-lote/')[1] || null;
+    return null;
+  });
+
+  // Cómo va el Sujeto Obligado, para él mismo y de solo lectura: /so/:token
+  const [soPublicoToken] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/so/')) return path.split('/so/')[1]?.split('/')[0] || null;
     return null;
   });
 
@@ -1182,8 +1190,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || enlaceCorto || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || enlaceCorto || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || soPublicoToken || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !soPublicoToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1269,6 +1277,8 @@ function App() {
           <FirmarAnexosView expedienteId={firmarAnexosId} />
         ) : firmarLoteId ? (
           <FirmarLoteView loteId={firmarLoteId} />
+        ) : soPublicoToken ? (
+          <SujetoObligadoPublicoView token={soPublicoToken} />
         ) : certAckData ? (
           <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
         ) : ofertaCeeToken ? (

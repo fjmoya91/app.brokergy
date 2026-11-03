@@ -3935,6 +3935,25 @@ function driveFileIdFrom(entry) {
     return m ? m[0] : null;
 }
 
+// ─── La «Vista S.O.» para el propio Sujeto Obligado — /so/:token (03/11/2026) ───
+// Solo lectura y calculada en el momento: su obligación y cómo van nuestros lotes.
+// El token (128 bits) lo crea el ADMIN desde la Vista S.O. y es todo el acceso; lo
+// que sale lo recorta `vistaParaElSo` (sin clientes, ni importes nuestros, ni el
+// detalle de lo que no está en un lote). Ver docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md.
+router.get('/so/:token', async (req, res) => {
+    try {
+        const obligacionSo = require('../services/obligacionSo');
+        const soId = await obligacionSo.soDelToken(req.params.token);
+        if (!soId) return res.status(404).json({ error: 'Enlace no válido o retirado' });
+        const { vistaDeSo } = require('./lotes');
+        res.set('Cache-Control', 'no-store');
+        res.json(await vistaDeSo(soId, req.query.anio, { conDisponible: true }));
+    } catch (err) {
+        console.error('[GET /public/so]', err.message);
+        res.status(err.status === 404 ? 404 : 503).json({ error: err.status === 404 ? 'Enlace no válido o retirado' : 'No se ha podido calcular ahora mismo' });
+    }
+});
+
 // GET estado de firma del lote (documentos + flags de disponible/firmado).
 router.get('/lote-firma/:loteId', async (req, res) => {
     try {

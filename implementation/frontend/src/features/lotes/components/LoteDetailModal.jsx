@@ -8,7 +8,10 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 import { computeLoteEco, totalCobroSo, IVA_FACTURA_SO } from '../logic/loteEco';
 import { estimar, tarifaPara, comparar } from '../logic/tarifasVerificacion';
 import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
-import { proponerLotes, instaladoresDe, compararAntiguedad, diasListo, MAX_EXPEDIENTES_LOTE } from '../logic/propuestaLote';
+import {
+    proponerLotes, instaladoresDe, compararAntiguedad, compararRecientes, diasListo, MAX_EXPEDIENTES_LOTE,
+    RIESGOS, RIESGO_DEFECTO, pasaRiesgo, textoIncidencias, incidenciasDe,
+} from '../logic/propuestaLote';
 import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
@@ -112,6 +115,12 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const [fInstalador, setFInstalador] = useState('');
     // Por defecto, lo que más lleva esperando primero: es dinero parado.
     const [fOrden, setFOrden] = useState('antiguedad');
+    // Por defecto fuera lo que tiene incidencias GRAVES abiertas: es lo que el
+    // verificador nos devolverá (Fran, 03/11/2026).
+    const [fRiesgo, setFRiesgo] = useState(RIESGO_DEFECTO);
+    // Lo que le falta al S.O. del lote este año (GET /obligacion-so/:id/vista), para
+    // titular la propuesta «Para cubrir a …» y decir cuánto acerca el lote.
+    const [faltaSo, setFaltaSo] = useState(null);
     const [showPropuestas, setShowPropuestas] = useState(true);
     // Hoy salen 7 propuestas: enteras empujan la lista de elegibles fuera de la vista.
     const [todasPropuestas, setTodasPropuestas] = useState(false);
@@ -176,6 +185,21 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
         if (lote && lote.estado === 'BORRADOR') fetchElegibles();
     }, [lote?.estado, fetchElegibles]);
 
+    const soDelLote = lote?.estado === 'BORRADOR' ? lote?.sujeto_obligado_id : null;
+    useEffect(() => {
+        if (!soDelLote) return;
+        let vivo = true;
+        axios.get(`/api/lotes/obligacion-so/${soDelLote}/vista`)
+            .then(({ data }) => vivo && setFaltaSo({
+                soId: soDelLote, nombre: data?.so?.nombre || null, anio: data?.anio,
+                faltaKwh: data?.obligacion ? (Number(data.obligacion.faltaGwh) || 0) * 1e6 : null,
+            }))
+            .catch(() => vivo && setFaltaSo(null));
+        return () => { vivo = false; };
+    }, [soDelLote]);
+    // Ligado al S.O.: si se cambia el S.O. del lote, lo de antes deja de valer.
+    const cubrir = faltaSo && faltaSo.soId === soDelLote ? faltaSo : null;
+
     // ─── Filtros del selector de expedientes (CCAA + año + búsqueda por nombre/nº) ─
     const norm = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     const ccaaOpts = useMemo(() => [...new Set(elegibles.map(e => e.ccaa).filter(Boolean))].sort(), [elegibles]);
@@ -186,11 +210,16 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const effAnio = loteTieneClaves ? lote.anio_actuacion : (fAnio ? Number(fAnio) : null);
     // Elegibles del año + CCAA en vigor: de aquí salen el desplegable de instaladores
     // y las propuestas (un lote no puede mezclar años ni CCAA).
-    const elegiblesClave = useMemo(() => elegibles.filter(e => {
+    const elegiblesDelGrupo = useMemo(() => elegibles.filter(e => {
         if (effCcaa && norm(e.ccaa) !== norm(effCcaa)) return false;
         if (effAnio && e.anio_actuacion !== effAnio) return false;
         return true;
     }), [elegibles, effCcaa, effAnio]);
+    // El riesgo filtra TODO lo de abajo (instaladores, propuestas y lista): lo que
+    // se queda fuera se cuenta en el pie, no se esconde sin decirlo.
+    const elegiblesClave = useMemo(() => elegiblesDelGrupo.filter(e => pasaRiesgo(e, fRiesgo)), [elegiblesDelGrupo, fRiesgo]);
+    const nFueraPorRiesgo = elegiblesDelGrupo.length - elegiblesClave.length;
+    const kwhDe = useCallback((x) => computeExpedienteFinancials(x).savingsKwh || 0, []);
     const instaladorOpts = useMemo(() => instaladoresDe(elegiblesClave), [elegiblesClave]);
     // Un instalador elegido que ya no está en la lista (otro año/CCAA) deja de filtrar.
     const effInstalador = instaladorOpts.some(i => i.id === fInstalador) ? fInstalador : '';
@@ -201,8 +230,11 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
             return true;
         });
         // 'numero' conserva el orden del backend (año + nº de expediente).
-        return fOrden === 'antiguedad' ? [...out].sort(compararAntiguedad) : out;
-    }, [elegiblesClave, effInstalador, fSearch, fOrden]);
+        if (fOrden === 'antiguedad') return [...out].sort(compararAntiguedad);
+        if (fOrden === 'recientes') return [...out].sort(compararRecientes);
+        if (fOrden === 'mwh') return [...out].sort((a, b) => (kwhDe(b) - kwhDe(a)) || compararAntiguedad(a, b));
+        return out;
+    }, [elegiblesClave, effInstalador, fSearch, fOrden, kwhDe]);
 
     // Propuestas de lote (ver logic/propuestaLote.js): por antigüedad y por instalador,
     // dentro del cupo que le queda al lote.
@@ -212,8 +244,12 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
         {
             cupo: cupoLote,
             instaladoresLote: (lote?.expedientes || []).map(e => e.instalador_asociado_id || e.instalacion?.instalador_id),
+            kwhDe,
+            cubrir,
         },
-    ), [elegiblesClave, effInstalador, cupoLote, lote?.expedientes]);
+    ), [elegiblesClave, effInstalador, cupoLote, lote?.expedientes, kwhDe, cubrir]);
+    // Cuánto suma TODO lo elegible que pasa el filtro, frente a lo que le falta al S.O.
+    const kwhElegible = useMemo(() => elegiblesClave.reduce((s, x) => s + kwhDe(x), 0), [elegiblesClave, kwhDe]);
 
     // Una vez asignados los E1..En, manda el ORDEN DEL ENVÍO: es el que tiene
     // delante quien arma los ZIP o revisa el anexo del MITECO. Hoy no cambia nada
@@ -853,16 +889,22 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                     <p className="text-[10px] text-white/30">Filtrado al año <b className="text-white/50">{lote.anio_actuacion}</b> · <b className="text-white/50">{lote.ccaa}</b> del lote.</p>
                                 )}
 
-                                {/* Instalador + orden */}
+                                {/* Instalador, riesgo y orden */}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                                     <select value={effInstalador} onChange={e => setFInstalador(e.target.value)}
-                                        className="bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
+                                        className="sm:col-span-2 bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
                                         <option value="">Todos los instaladores</option>
                                         {instaladorOpts.map(i => <option key={i.id} value={i.id}>{i.nombre} ({i.n})</option>)}
+                                    </select>
+                                    <select value={fRiesgo} onChange={e => setFRiesgo(e.target.value)} title="Incidencias abiertas: las graves son las que el verificador nos devolverá"
+                                        className="bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
+                                        {RIESGOS.map(r => <option key={r.id} value={r.id}>{r.titulo}</option>)}
                                     </select>
                                     <select value={fOrden} onChange={e => setFOrden(e.target.value)}
                                         className="bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
                                         <option value="antiguedad">Más antiguos primero</option>
+                                        <option value="recientes">Más recientes primero</option>
+                                        <option value="mwh">Más MWh primero</option>
                                         <option value="numero">Por nº de expediente</option>
                                     </select>
                                 </div>
@@ -884,6 +926,13 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                             </svg>
                                         </button>
+                                        {showPropuestas && cubrir?.faltaKwh != null && (
+                                            <p className="mt-1.5 text-[10px] text-white/45">
+                                                {cubrir.faltaKwh > 0
+                                                    ? <>A <b className="text-white/70">{cubrir.nombre}</b> le faltan <b className="text-amber-300">{mwh(cubrir.faltaKwh)}</b> en {cubrir.anio} · lo elegible con este filtro suma <b className="text-cyan-400">{mwh(kwhElegible)}</b> ({elegiblesClave.length})</>
+                                                    : <><b className="text-white/70">{cubrir.nombre}</b> ya tiene cubierto {cubrir.anio} si se emite todo lo nuestro</>}
+                                            </p>
+                                        )}
                                         {showPropuestas && (
                                             <div className="mt-2 space-y-1.5">
                                                 {(todasPropuestas ? propuestas : propuestas.slice(0, 4)).map(p => {
@@ -893,7 +942,7 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                                         <div key={p.clave} className="flex items-center justify-between gap-3 bg-bkg-surface border border-white/[0.06] rounded-lg px-3 py-2">
                                                             <div className="min-w-0 flex-1">
                                                                 <p className="text-[12px] font-bold text-white truncate">
-                                                                    <span className="mr-1.5">{p.tipo === 'antiguedad' ? '⏳' : '🔧'}</span>
+                                                                    <span className="mr-1.5">{p.tipo === 'mwh' ? '🎯' : p.tipo === 'antiguedad' ? '⏳' : '🔧'}</span>
                                                                     {p.titulo}
                                                                     {p.yaEnLote && <span className="ml-1.5 text-[9px] uppercase tracking-widest text-emerald-400">ya en el lote</span>}
                                                                 </p>
@@ -933,13 +982,17 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                         <p className="text-[12px] text-white/30 py-4 text-center">{elegibles.length ? 'Ningún expediente coincide con el filtro.' : 'No hay expedientes elegibles (con CIFO y sin lote).'}</p>
                                     ) : elegiblesVisibles.map(x => {
                                         const dias = diasListo(x);
+                                        const inc = textoIncidencias(x);
                                         return (
                                         <ExpedienteCard
                                             key={x.id}
                                             exp={x}
-                                            extra={(x.instalador_nombre || dias != null) ? (
+                                            extra={(x.instalador_nombre || dias != null || inc) ? (
                                                 // Los días primero: un nombre de instalador largo no los corta.
                                                 <span className="block text-[10px] text-white/45 truncate">
+                                                    {inc && (
+                                                        <span className={`mr-1.5 font-black ${incidenciasDe(x).graves ? 'text-red-400' : 'text-amber-300'}`} title="Incidencias abiertas">⚠ {inc} · </span>
+                                                    )}
                                                     {dias != null && <>⏳ {dias} días</>}
                                                     {x.instalador_nombre && dias != null && ' · '}
                                                     {x.instalador_nombre && <>🔧 {x.instalador_nombre}</>}
@@ -955,7 +1008,14 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                         );
                                     })}
                                 </div>
-                                <p className="text-[10px] text-white/30 mt-1.5">{elegiblesVisibles.length} elegibles · solo con CIFO (año de actuación) y sin lote.</p>
+                                <p className="text-[10px] text-white/30 mt-1.5">
+                                    {elegiblesVisibles.length} elegibles · solo con CIFO (año de actuación) y sin lote.
+                                    {nFueraPorRiesgo > 0 && (
+                                        <button type="button" onClick={() => setFRiesgo('todos')} className="ml-1 text-amber-300/80 hover:text-amber-200 underline underline-offset-2">
+                                            {nFueraPorRiesgo} fuera por incidencias{fRiesgo === 'limpios' ? '' : ' graves'}: verlos
+                                        </button>
+                                    )}
+                                </p>
 
                                 {sugerencias.length > 0 && (
                                     <div className="mt-3 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">

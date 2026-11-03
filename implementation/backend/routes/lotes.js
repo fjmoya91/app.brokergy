@@ -29,6 +29,7 @@ const { comprobarRangoCae } = require('../utils/codigosCae');
 const { leerRegage } = require('../utils/regageJustificante');
 const inexactitudesLote = require('../services/inexactitudesLote');
 const obligacionSo = require('../services/obligacionSo');
+const { contarIncidenciasAbiertas } = require('../utils/incidenciasAbiertas');
 const { archivarFacturaVenta } = require('../services/facturaContabilidad');
 const anexoActuacion = require('../services/anexoActuacionService');
 const solicitudCae = require('../services/solicitudCaeService');
@@ -358,19 +359,25 @@ router.get('/elegibles', staffOnly, async (req, res) => {
         // Igual que enrichLotes: `cee` por campos (sin el XML crudo) y de `documentacion`
         // solo la fecha del CIFO. Antes este select traía las dos columnas completas de
         // ~220 expedientes — 3,5 s de media y el peor consumo de memoria de la app.
+        // Solo los completos (los únicos elegibles): así las incidencias se leen de
+        // ~20 filas y no de todos los expedientes sin lote.
         const { data: rawRows, error } = await supabase
             .from('expedientes')
-            .select(`id, numero_expediente, estado, instalador_asociado_id, instalacion, cliente_id, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, doc_reg_fin:documentacion->>fecha_registro_cee_final, doc_reg_ini:documentacion->>fecha_registro_cee_inicial, ${CEE_ECO_SELECT}`)
-            .is('lote_id', null);
+            .select(`id, numero_expediente, estado, instalador_asociado_id, instalacion, cliente_id, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, doc_reg_fin:documentacion->>fecha_registro_cee_final, doc_reg_ini:documentacion->>fecha_registro_cee_inicial, doc_inc:documentacion->incidencias, ${CEE_ECO_SELECT}`)
+            .is('lote_id', null)
+            .in('estado', ESTADOS_COMPLETO);
         if (error) throw error;
 
-        const rows = (rawRows || []).map(({ doc_fecha_fin_cifo, doc_reg_fin, doc_reg_ini, ...r }) => {
+        const rows = (rawRows || []).map(({ doc_fecha_fin_cifo, doc_reg_fin, doc_reg_ini, doc_inc, ...r }) => {
             const fila = rebuildCee(r);
             fila.documentacion = { fecha_fin_cifo: doc_fecha_fin_cifo ?? null };
             // Desde cuándo está LISTO para lotear: el MISMO criterio que el bloque
             // SIN_LOTEAR del radar (registro del CEE final, o el inicial de respaldo),
             // para que la antigüedad del picker y la del parte digan lo mismo.
             fila.listo_desde = doc_reg_fin || doc_reg_ini || null;
+            // Lo más antiguo es lo que más incidencias arrastra (cambios de criterio
+            // del verificador): el picker filtra por riesgo con esto.
+            fila.incidencias = contarIncidenciasAbiertas(doc_inc);
             return fila;
         });
 
@@ -414,6 +421,7 @@ router.get('/elegibles', staffOnly, async (req, res) => {
                 instalador_id: insDe(r),
                 instalador_nombre: insDe(r) ? (insMap.get(String(insDe(r))) || null) : null,
                 listo_desde: r.listo_desde,
+                incidencias: r.incidencias,
                 cliente_nombre: cli ? [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ') : null,
                 cliente_direccion: cli ? ([cli.direccion, [cli.codigo_postal, cli.municipio].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || null) : null,
                 // Datos para el cálculo económico por fila (misma fórmula que la lista/lote).
@@ -466,6 +474,60 @@ router.put('/obligacion-so/:soId', adminOnly, async (req, res) => {
         res.json(await obligacionSo.saveObligacion(req.params.soId, req.body || {}, quien));
     } catch (err) {
         console.error('[PUT /lotes/obligacion-so]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+// La vista de UN S.O. calculada aquí, con sus lotes enriquecidos (las cuentas son
+// las de logic/obligacionSo.js). La usan el «le falta» del picker y el ENLACE
+// público del S.O. (routes/public.js), que solo ve lo que deja `vistaParaElSo`.
+async function vistaDeSo(soId, anio, { conDisponible = false } = {}) {
+    const [soRes, lotesRes] = await Promise.all([
+        supabase.from('prescriptores').select('id_empresa, acronimo, razon_social, cif, logo_empresa').eq('id_empresa', soId).maybeSingle(),
+        supabase.from('lotes').select('*').eq('sujeto_obligado_id', soId),
+    ]);
+    if (soRes.error || lotesRes.error) throw Object.assign(new Error('No se pudo leer la BD'), { status: 503 });
+    if (!soRes.data) throw Object.assign(new Error('Sujeto Obligado no encontrado'), { status: 404 });
+    const lotes = await enrichLotes(lotesRes.data || []);
+    const anioN = /^\d{4}$/.test(String(anio || '')) ? Number(anio) : new Date().getFullYear();
+    const vista = await obligacionSo.vistaSo({ soId, anio: anioN, lotes, conDisponible });
+    return obligacionSo.vistaParaElSo(vista, soRes.data);
+}
+
+router.get('/obligacion-so/:soId/vista', staffOnly, async (req, res) => {
+    try {
+        res.json(await vistaDeSo(req.params.soId, req.query.anio));
+    } catch (err) {
+        console.error('[GET /lotes/obligacion-so/vista]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+// El ENLACE de solo lectura para el S.O. (/so/:token): lo ve, lo crea y lo quita el ADMIN.
+router.get('/obligacion-so/:soId/enlace', adminOnly, async (req, res) => {
+    try {
+        res.json({ enlace: await obligacionSo.getEnlace(req.params.soId) });
+    } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.post('/obligacion-so/:soId/enlace', adminOnly, async (req, res) => {
+    try {
+        const soChk = await validarPrescriptorTipo(req.params.soId, 'SUJETO_OBLIGADO');
+        if (!soChk.ok) return res.status(400).json({ error: soChk.motivo });
+        res.json({ enlace: await obligacionSo.crearEnlace(req.params.soId, usuarioDe(req)) });
+    } catch (err) {
+        console.error('[POST /lotes/obligacion-so/enlace]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.delete('/obligacion-so/:soId/enlace', adminOnly, async (req, res) => {
+    try {
+        await obligacionSo.quitarEnlace(req.params.soId);
+        res.json({ enlace: null });
+    } catch (err) {
         res.status(err.status || 500).json({ error: err.message });
     }
 });
@@ -3894,3 +3956,5 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
 });
 
 module.exports = router;
+// Para el enlace público del S.O. (routes/public.js).
+module.exports.vistaDeSo = vistaDeSo;

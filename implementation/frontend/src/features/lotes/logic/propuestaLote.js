@@ -40,6 +40,47 @@ export function compararAntiguedad(a, b) {
     return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true });
 }
 
+/** Más reciente primero (Fran, 03/11/2026: lo que acabamos de cerrar ya va con los criterios de hoy). */
+export function compararRecientes(a, b) {
+    const ta = fechaMs(a.listo_desde), tb = fechaMs(b.listo_desde);
+    if (ta != null && tb != null && ta !== tb) return tb - ta;
+    return compararAntiguedad(a, b);
+}
+
+// ─── El RIESGO de un expediente frente al verificador (03/11/2026) ─────────────
+// Lo más antiguo es lo que más falla: los criterios de verificación han cambiado
+// desde que se cerró. Lo que lo dice no es la fecha sino sus incidencias ABIERTAS
+// (las registra la auditoría): sin graves, lo normal es que pase.
+// Pero lo que se lotea ya está en DOC. COMPLETA, y ahí manda el ESTADO (Fran,
+// 03/11/2026: «si tienen DOC. COMPLETA marcado, deberían estar listos para
+// presentar»): una grave abierta suele estar resuelta y sin cerrar. Por eso por
+// defecto entran TODOS, con su aviso en la tarjeta; el filtro es para quien quiera
+// apartarlos.
+export const RIESGOS = [
+    { id: 'todos', titulo: 'Todos (DOC. COMPLETA manda)' },
+    { id: 'sin_graves', titulo: 'Sin incidencias graves' },
+    { id: 'limpios', titulo: 'Sin ninguna incidencia' },
+];
+export const RIESGO_DEFECTO = 'todos';
+
+export const incidenciasDe = (e) => ({ leves: Number(e?.incidencias?.leves) || 0, graves: Number(e?.incidencias?.graves) || 0 });
+
+export function pasaRiesgo(e, riesgo = RIESGO_DEFECTO) {
+    const { leves, graves } = incidenciasDe(e);
+    if (riesgo === 'limpios') return leves + graves === 0;
+    if (riesgo === 'sin_graves') return graves === 0;
+    return true;
+}
+
+/** «2 graves · 3 leves», o null si no tiene ninguna abierta. */
+export function textoIncidencias(e) {
+    const { leves, graves } = incidenciasDe(e);
+    const p = [];
+    if (graves) p.push(`${graves} grave${graves === 1 ? '' : 's'}`);
+    if (leves) p.push(`${leves} leve${leves === 1 ? '' : 's'}`);
+    return p.length ? p.join(' · ') : null;
+}
+
 /** Instaladores presentes en una lista, con cuántos expedientes tiene cada uno. */
 export function instaladoresDe(lista) {
     const m = new Map();
@@ -61,9 +102,11 @@ export function instaladoresDe(lista) {
  *   cupo                 huecos que le quedan al lote
  *   instaladoresLote     ids de instalador que YA están en el lote (van primero)
  *   maxPorInstalador     cuántas propuestas por instalador como mucho
+ *   kwhDe                (exp) => kWh; con él, va primero una propuesta «los de más MWh»
+ *   cubrir               { nombre, faltaKwh }: lo que le falta al S.O. del lote; titula esa propuesta
  * @returns {Array<{ clave, tipo, titulo, instalador_id, instalador_nombre, ccaa, anio, expedientes, desde }>}
  */
-export function proponerLotes(elegibles, { ccaa = null, anio = null, cupo = MAX_EXPEDIENTES_LOTE, instaladoresLote = [], maxPorInstalador = 12 } = {}) {
+export function proponerLotes(elegibles, { ccaa = null, anio = null, cupo = MAX_EXPEDIENTES_LOTE, instaladoresLote = [], maxPorInstalador = 12, kwhDe = null, cubrir = null } = {}) {
     if (!cupo || cupo <= 0) return [];
     const base = (elegibles || []).filter(e =>
         (!ccaa || norm(e.ccaa) === norm(ccaa)) && (!anio || Number(e.anio_actuacion) === Number(anio)));
@@ -97,7 +140,32 @@ export function proponerLotes(elegibles, { ccaa = null, anio = null, cupo = MAX_
             };
         })
         .sort((a, b) => compararAntiguedad(a.expedientes[0], b.expedientes[0]));
-    const out = [...antiguedad];
+
+    // 0) Para CUBRIR lo que le falta al S.O. (03/11/2026): los de más MWh de cada
+    //    año + CCAA, el grupo que más suma primero. Llena el lote con lo que más
+    //    acerca a la obligación; el filtro de riesgo ya ha quitado lo que fallará.
+    const porMwh = [];
+    if (typeof kwhDe === 'function') {
+        const k = (e) => Number(kwhDe(e)) || 0;
+        for (const [key, g] of grupos) {
+            const sel = [...g].sort((a, b) => (k(b) - k(a)) || compararAntiguedad(a, b)).slice(0, cupo);
+            const kwh = sel.reduce((s, e) => s + k(e), 0);
+            if (!kwh) continue;
+            porMwh.push({
+                clave: `mwh|${key}`,
+                tipo: 'mwh',
+                titulo: cubrir?.nombre && cubrir.faltaKwh > 0 ? `Para cubrir a ${cubrir.nombre} · los de más MWh` : 'Los de más MWh',
+                instalador_id: null, instalador_nombre: null,
+                ccaa: sel[0].ccaa, anio: sel[0].anio_actuacion,
+                expedientes: sel, total: g.length, kwh,
+                desde: sel[0].listo_desde || null,
+            });
+        }
+        porMwh.sort((a, b) => b.kwh - a.kwh);
+    }
+    // Con pocos elegibles «los de más MWh» y «los más antiguos» pueden ser los mismos: no se repite.
+    const mismos = (a, b) => a.expedientes.map(e => e.id).sort().join(',') === b.expedientes.map(e => e.id).sort().join(',');
+    const out = [...porMwh, ...antiguedad.filter(a => !porMwh.some(p => mismos(p, a)))];
 
     // 2) Por instalador: sus expedientes más antiguos, dentro de cada grupo.
     const enLote = new Set((instaladoresLote || []).filter(Boolean).map(String));
