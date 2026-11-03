@@ -135,6 +135,33 @@ Doble clic en **`brokergylocal_uninstall.reg`**.
 | `brokergylocal_handler.vbs` | El handler. Decodifica la ruta y abre el Explorador, sin consola. |
 | `brokergylocal_setup.reg` | Respaldo del registro (ruta absoluta fija). |
 | `brokergylocal_uninstall.reg` | Desinstala. |
+| `BuscarExpediente.cs` + `instalar-buscar-expediente.cmd` | La app «Buscar expediente», sin pasar por la web (abajo). |
+
+## «Buscar expediente»: abrir la carpeta escribiendo el número
+
+Ventanita de escritorio, independiente de la app web: escribes el número y abre la carpeta
+local del expediente en el Explorador. Vale `26RES060_130`, `26.060/130`, `060/130`, `130`,
+`26.080/OP47` o un trozo del nombre del cliente (`ismael grande`, sin tildes). Si casa una
+sola carpeta la abre y se cierra; si casan varias, las lista (doble clic o Enter). `Esc` cierra.
+
+- **Instalar / actualizar**: doble clic en `instalar-buscar-expediente.cmd`. Compila el `.cs`
+  con el `csc.exe` que ya trae Windows en `tools\windows\bin\BuscarExpediente.exe` (fuera de
+  git) y crea el acceso directo «Buscar expediente» en el escritorio y en el menú Inicio (este
+  con **Ctrl+Alt+B**); si está anclado a la barra de tareas, le pone la ruta y el icono del
+  `.exe` nuevo. Tras tocar el `.cs`, se vuelve a lanzar.
+- **Nada en `%LOCALAPPDATA%`**: la app de Claude es un paquete MSIX, y lo que crea en `AppData`
+  Windows lo desvía a `…\Packages\Claude_…\LocalCache`. El `.exe` solo existía para Claude: el
+  acceso directo del escritorio apuntaba a una ruta vacía y el anclaje de la barra acabó
+  apuntando a la carpeta privada, con el icono genérico (03/11/2026).
+- **El icono** (`buscar-expediente.ico`, carpeta con lupa: `imageres.dll` nº 205) va dentro del
+  `.exe`. La ventana es `FixedSingle` y no `FixedDialog`: con borde de diálogo va sin icono.
+- **Busca en vivo, sin índice**: cada estado de `01. BROKERGY-APP EXPEDIENTES` y, dentro, las
+  carpetas de LOTE/PAQUETE (unas 660 carpetas; ~1 s). No pregunta al servidor, así que
+  encuentra la carpeta donde esté en el disco aunque el espejo de Drive vaya desfasado.
+- **Es un `.exe` y no un `.ps1`** porque en este PC `powershell.exe` tarda ~10 s solo en
+  arrancar (medido el 03/11/2026).
+- `BuscarExpediente.exe 26.060/130` busca nada más abrir. Para probar sin ventana, compilar
+  con `/target:exe` y lanzar `BuscarExpediente.exe /print 26.060/130`.
 
 ## Detalles técnicos
 
