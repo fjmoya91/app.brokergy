@@ -6139,6 +6139,30 @@ router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
             }
         }
 
+        // ── SELLO DE ENVÍO ───────────────────────────────────────────────────
+        // La fecha de envío de cada documento que ha viajado la sella el SERVIDOR.
+        // Antes la ponía solo el navegador al volver del popup (`markInstaladorSent`),
+        // así que un envío por script, MCP o el agente salía sin sello y el radar
+        // seguía diciendo «CIFO por enviar» (26RES060_237, 30/10/2026). El popup lo
+        // sigue sellando también; da igual quién llegue antes.
+        if (anyOk && exp.oportunidad_id) {
+            const at = new Date().toISOString();
+            const sellos = [
+                wants.includes('cifo') && 'cert_cifo_sent_at',
+                wants.includes('rite') && 'borrador_cert_sent_at',
+            ].filter(Boolean);
+            for (const campo of sellos) {
+                try {
+                    const { error } = await supabase.rpc('set_expediente_doc_field', {
+                        p_oportunidad_id: exp.oportunidad_id, p_field: campo, p_value: at,
+                    });
+                    if (error) throw new Error(error.message);
+                } catch (e) {
+                    console.error(`[instalador/enviar] no se pudo sellar ${campo}:`, e.message);
+                }
+            }
+        }
+
         // ── VOLVER A PEDIR LA FIRMA ──────────────────────────────────────────
         // Si le mandamos el CIFO teniendo ya uno firmado (requerimiento, o una
         // corrección nuestra), el firmado que guardamos DEJA DE VALER: es de la
