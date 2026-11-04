@@ -12,6 +12,7 @@ import { VincularClienteModal } from '../../clientes/components/VincularClienteM
 // de dos colores ni quedarse una sin la nueva.
 import { FICHAS, fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
 import { EntregaPropuestaTag } from '../components/EntregaPropuestaTag';
+import { useVistaGuardada, useGuardarVista, useScrollLista } from '../../../utils/memoriaVista';
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -98,6 +99,12 @@ export function AdminPanelView({
     );
     // ─────────────────────────────────────────────────────────────────────────
 
+    // Cómo tenías el listado la última vez (búsqueda, filtros, orden, página).
+    // Esta vista se desmonta al abrir una oportunidad —se abre en la
+    // calculadora— y al cambiar de pestaña, así que sin esto el filtro había
+    // que volver a ponerlo al volver. Ver utils/memoriaVista.js.
+    const memoria = useVistaGuardada('oportunidades');
+
     const [oportunidades, setOportunidades] = useState([]);
     const [prescriptores, setPrescriptores] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -137,12 +144,12 @@ export function AdminPanelView({
     const [pendingStatusUpdate, setPendingStatusUpdate] = useState(null); // { op, nuevoEstado }
 
     // Pagination state
-    const [currentPage, setCurrentPage] = useState(1);
-    const [itemsPerPage, setItemsPerPage] = useState(10); // Default to 10
-    const [showAll, setShowAll] = useState(false);
+    const [currentPage, setCurrentPage] = useState(memoria.page || 1);
+    const [itemsPerPage, setItemsPerPage] = useState(memoria.porPagina || 10); // Default to 10
+    const [showAll, setShowAll] = useState(!!memoria.showAll);
     const [openDropdownId, setOpenDropdownId] = useState(null); // 'filter' or opportunity id
     const [partnerSearch, setPartnerSearch] = useState('');
-    const [globalSearch, setGlobalSearch] = useState('');
+    const [globalSearch, setGlobalSearch] = useState(memoria.search || '');
     const [showMobileFilters, setShowMobileFilters] = useState(false); // Panel de filtros en móvil
 
     // Inline edit for cod_cliente_interno (DISTRIBUIDOR view)
@@ -376,10 +383,23 @@ export function AdminPanelView({
         estado: initialEstado || '',
         cod_cliente_interno: '',
         fechaDesde: '',
-        fechaHasta: ''
+        fechaHasta: '',
+        // Lo recordado de la última vez; `initialEstado` (cuadro de mando) manda.
+        ...(memoria.filters || {}),
+        ...(initialEstado ? { estado: initialEstado } : {}),
     });
     // '' (sin ordenar, orden de llegada de la API) · 'desc' (más reciente primero) · 'asc'
-    const [fechaSort, setFechaSort] = useState('');
+    const [fechaSort, setFechaSort] = useState(memoria.fechaSort || '');
+
+    // Lo que se recuerda de esta pantalla (nunca los datos: solo cómo se miran).
+    useGuardarVista('oportunidades', {
+        filters, fechaSort, search: globalSearch,
+        page: currentPage, porPagina: itemsPerPage, showAll,
+    });
+
+    // Volver de la calculadora a la fila que se abrió, y no al principio de la lista.
+    const lista = useScrollLista('oportunidades', false, !loading && oportunidades.length > 0);
+    const abrirOportunidad = (op) => { lista.recordar(); onLoadOpportunity?.(op); };
 
     // Estado precargado al saltar desde el cuadro de mando. Se consume una vez
     // para que volver a esta pestaña no reaplique el filtro.
@@ -814,13 +834,22 @@ export function AdminPanelView({
         : filteredOportunidadesSinOrdenar;
 
     // Reset pagination when filters, global search or sort change
+    // En el PRIMER render no: ahí los filtros son los que se recordaron de la
+    // última vez (memoriaVista) y con ellos viene la página en la que estabas.
+    const paginaSembrada = useRef(false);
     useEffect(() => {
+        if (!paginaSembrada.current) { paginaSembrada.current = true; return; }
         setCurrentPage(1);
     }, [filters, globalSearch, fechaSort]);
 
     // Pagination logic
     const totalItems = filteredOportunidades.length;
     const totalPages = showAll ? 1 : Math.ceil(totalItems / itemsPerPage);
+    // Una página recordada que ya no existe (la lista ha menguado) dejaría la
+    // tabla vacía sin decir por qué: se baja a la última que hay.
+    useEffect(() => {
+        if (!showAll && totalPages >= 1 && currentPage > totalPages) setCurrentPage(totalPages);
+    }, [showAll, totalPages, currentPage]);
     const startIndex = showAll ? 0 : (currentPage - 1) * itemsPerPage;
     const paginatedOportunidades = showAll ? filteredOportunidades : filteredOportunidades.slice(startIndex, startIndex + itemsPerPage);
 
@@ -868,7 +897,7 @@ export function AdminPanelView({
             {activeTab === 'prescriptores' ? (
                 <PrescriptoresList onNavigate={onNavigate} />
             ) : (
-                <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
+                <div ref={lista.ancla} className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
                     {/* ─── Header ─── */}
                     <header className="mb-8 flex flex-wrap items-center justify-between gap-4 pb-4">
                             <div className="flex items-center gap-4 md:gap-6 min-w-0 max-md:flex-wrap max-md:gap-y-3">
@@ -1469,7 +1498,7 @@ export function AdminPanelView({
                                         <tr
                                             key={op.id}
                                             className="hover:bg-white/[0.03] transition-colors duration-150 cursor-pointer group"
-                                            onClick={() => onLoadOpportunity && onLoadOpportunity(op)}
+                                            onClick={() => abrirOportunidad(op)}
                                         >
                                             <td className="p-3.5 overflow-hidden">
                                                 <div className="flex flex-col gap-0.5 min-w-0">
@@ -1761,7 +1790,7 @@ export function AdminPanelView({
                         return (
                             <div
                                 key={op.id}
-                                onClick={() => onLoadOpportunity && onLoadOpportunity(op)}
+                                onClick={() => abrirOportunidad(op)}
                                 className="rounded-2xl border border-white/[0.06] bg-bkg-surface/60 p-4 active:scale-[0.99] transition-transform"
                             >
                                 {/* Cabecera: ID + ref + ficha */}

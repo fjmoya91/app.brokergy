@@ -12,6 +12,7 @@ import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAcceso
 import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
 import { inmuebleDeCliente } from '../../../utils/enlacesInmueble';
 import { fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
+import { useVistaGuardada, useGuardarVista } from '../../../utils/memoriaVista';
 import {
     TIPOS_CLIENTE, ESTADOS_CLIENTE, ORDEN_ESTADOS_CLIENTE,
     etiquetasCliente, estadoCliente, detalleEstado, puntoCliente,
@@ -116,8 +117,13 @@ export function ClientesView({
     const [clienteToDelete, setClienteToDelete] = useState(null);
     const [clienteDetail, setClienteDetail] = useState(null);
     const [deleting, setDeleting] = useState(false);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [currentPage, setCurrentPage] = useState(1);
+    // La BÚSQUEDA y la PÁGINA se recuerdan mientras dure la sesión (los filtros
+    // de tipo/estado/partner tienen su propia memoria, más abajo, que dura más
+    // porque es una preferencia). Ver utils/memoriaVista.js.
+    const memoriaVista = useVistaGuardada('clientes');
+    const [searchTerm, setSearchTerm] = useState(memoriaVista.search || '');
+    const [currentPage, setCurrentPage] = useState(memoriaVista.page || 1);
+    useGuardarVista('clientes', { search: searchTerm, page: currentPage });
     // Fallo al abrir la carpeta (Drive o local) de un expediente desde la fila.
     const [accesoError, setAccesoError] = useState(null);
     // Filtros de tipo (ficha / CEE) y de estado del cliente. null = todos.
@@ -250,8 +256,11 @@ export function ClientesView({
         : 0;
 
     // Paginación
+    // La página que se recordó puede ya no existir (la lista ha menguado): se
+    // baja a la última que hay, o la tabla saldría vacía sin decir por qué.
     const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
-    const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    const paginaActual = Math.min(currentPage, totalPages);
+    const paginated = filtered.slice((paginaActual - 1) * itemsPerPage, paginaActual * itemsPerPage);
 
     return (
         <div className="flex flex-col h-full">
@@ -559,18 +568,18 @@ export function ClientesView({
                 {totalPages > 1 && (
                     <div className="flex items-center justify-center gap-2 mt-6">
                         <button
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage(Math.max(1, paginaActual - 1))}
+                            disabled={paginaActual === 1}
                             className="px-3 py-1.5 rounded-lg border border-white/10 text-white/40 hover:text-white hover:border-white/20 text-xs font-bold transition-all disabled:opacity-30"
                         >
                             ← Anterior
                         </button>
                         <span className="text-xs text-white/30 font-bold uppercase tracking-widest px-3">
-                            {currentPage} / {totalPages}
+                            {paginaActual} / {totalPages}
                         </span>
                         <button
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
+                            onClick={() => setCurrentPage(Math.min(totalPages, paginaActual + 1))}
+                            disabled={paginaActual === totalPages}
                             className="px-3 py-1.5 rounded-lg border border-white/10 text-white/40 hover:text-white hover:border-white/20 text-xs font-bold transition-all disabled:opacity-30"
                         >
                             Siguiente →

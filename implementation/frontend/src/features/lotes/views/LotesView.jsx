@@ -10,6 +10,7 @@ import { PedirAlSoModal } from '../components/PedirAlSoModal';
 import { BotonCarpetaLocal } from '../components/BotonCarpetaLocal';
 import { SujetoObligadoPanel } from '../components/SujetoObligadoPanel';
 import { loteEstadoBadge } from '../loteConstants';
+import { useVistaGuardada, useGuardarVista } from '../../../utils/memoriaVista';
 import { computeLoteEco } from '../logic/loteEco';
 import { puntoPagoClientes } from '../logic/pagoClientesLote';
 
@@ -91,7 +92,11 @@ export function LotesView({ onNavigate }) {
     const [error, setError] = useState(null);
     const [showCrear, setShowCrear] = useState(false);
     const [detailId, setDetailId] = useState(null);
-    const [filtroEstado, setFiltroEstado] = useState('TODO');
+    // El filtro se recuerda mientras dure la sesión: la vista se remonta al
+    // cambiar de pestaña. Ver utils/memoriaVista.js.
+    const memoria = useVistaGuardada('lotes');
+    const [filtroEstado, setFiltroEstado] = useState(memoria.estado || 'TODO');
+    useGuardarVista('lotes', { estado: filtroEstado });
     // Petición al S.O. sobre VARIOS lotes (hoy: el pago de la verificación). El
     // cuadro de mando decide cuál se puede hacer; aquí solo se abre el envío.
     const [peticionSo, setPeticionSo] = useState(null);

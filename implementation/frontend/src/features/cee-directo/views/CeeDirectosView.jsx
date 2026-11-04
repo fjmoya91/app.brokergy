@@ -7,6 +7,7 @@ import { PresupuestoModal } from '../../facturacion/components/PresupuestoModal'
 import { AccionesOferta } from '../components/AccionesOferta';
 import { fmtEur } from '../logic/ofertaCee';
 import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
+import { useVistaGuardada, useGuardarVista, useScrollLista } from '../../../utils/memoriaVista';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CEE directos — los certificados que nos contratan sueltos, fuera del CAE.
@@ -73,11 +74,14 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [abriendoLocal, setAbriendoLocal] = useState(null); // id cuyo botón de carpeta local está cargando
-    const [busqueda, setBusqueda] = useState('');
+    // Cómo tenías el listado la última vez: esta vista se remonta al cambiar de
+    // pestaña y al recargar. Ver utils/memoriaVista.js.
+    const memoria = useVistaGuardada('cee-directos');
+    const [busqueda, setBusqueda] = useState(memoria.busqueda || '');
     // Por defecto se esconde lo terminado: son 28 de 55 y entrar a la pestaña
     // para ver primero el trabajo cerrado de 2024 es empezar por el final.
-    const [verFinalizados, setVerFinalizados] = useState(false);
-    const [filtroPrescriptor, setFiltroPrescriptor] = useState('');
+    const [verFinalizados, setVerFinalizados] = useState(!!memoria.verFinalizados);
+    const [filtroPrescriptor, setFiltroPrescriptor] = useState(memoria.prescriptor || '');
     const [showNuevo, setShowNuevo] = useState(false);
     // { key, id? }: sin id, uno nuevo con el certificado ya puesto. El editor es
     // el de la pestaña Facturación (un presupuesto puede llevar más partidas).
@@ -86,6 +90,10 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
     const [ofertas, setOfertas] = useState([]);
     const [ofertaAbierta, setOfertaAbierta] = useState(null);
     const [seleccionado, setSeleccionado] = useState(initialSelectedId);
+    useGuardarVista('cee-directos', { busqueda, verFinalizados, prescriptor: filtroPrescriptor });
+    // Volver de la ficha a la fila que se abrió, no al principio de la lista.
+    const lista = useScrollLista('cee-directos', !!seleccionado, !loading && filas.length > 0);
+    const abrirCee = (id) => { lista.recordar(); setSeleccionado(id); };
 
     const cargar = useCallback(async () => {
         setLoading(true);
@@ -193,7 +201,7 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
         // `px-6 sm:px-10` es el mismo margen que la lista de expedientes CAE. Sin
         // el, el titulo salia pegado al borde y por debajo del boton de plegar el
         // menu, que flota justo ahi.
-        <div className="px-6 sm:px-10 pt-4 pb-16">
+        <div ref={lista.ancla} className="px-6 sm:px-10 pt-4 pb-16">
             {/* ── Cabecera ───────────────────────────────────────────────── */}
             <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
                 <div>
@@ -327,7 +335,7 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                     const dias = diasParado(r);
                                     return (
                                         <tr key={r.id}
-                                            onClick={() => setSeleccionado(r.id)}
+                                            onClick={() => abrirCee(r.id)}
                                             className="border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer transition-colors">
                                             <td className="px-4 py-3">
                                                 <div className="font-mono text-brand text-sm font-bold">{r.numero_expediente}</div>
@@ -432,7 +440,7 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                         {visibles.map(r => {
                             const dias = diasParado(r);
                             return (
-                                <div key={r.id} onClick={() => setSeleccionado(r.id)}
+                                <div key={r.id} onClick={() => abrirCee(r.id)}
                                     className="rounded-2xl p-4 bg-bkg-surface/60 border border-white/[0.06] active:scale-[0.99] transition-transform">
                                     <div className="flex items-start justify-between gap-2">
                                         <div className="min-w-0 flex-1">
