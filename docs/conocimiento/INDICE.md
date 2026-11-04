@@ -14,7 +14,7 @@
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 55,2 KB | 18 |
 | `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 10,6 KB | 16 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,8 KB | 6 |
-| `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 23,8 KB | 7 |
+| `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 26,1 KB | 8 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 10 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,0 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 42,0 KB | 14 |
@@ -32,7 +32,7 @@
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 21,9 KB | 8 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,4 KB | 1 |
-| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 11,6 KB | 5 |
+| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,4 KB | 6 |
 | `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 17,3 KB | 15 |
 
 ## Reglas numeradas → dónde están
@@ -272,6 +272,8 @@
 - **188** → `.claude/rules/envolvente-ce3x.md` — Cuando el `.cex` no sale, el ASISTENTE dice qué lo para y lo arregla; y «déjalo listo para firmar» genera y …
 - **189** → `.claude/rules/facturas.md` — Una factura de obra se registra ENTERA y al CAE solo cuenta lo SUBVENCIONABLE
 - **190** → `.claude/rules/lotes.md` — El S.O. tiene su ENLACE de solo lectura (`/so/:token`), y solo ve lo que deja pasar `vistaParaElSo`
+- **193** → `.claude/rules/transversal-frontend.md` — Un LISTADO recuerda cómo lo dejaste: búsqueda, filtros y orden
+- **194** → `.claude/rules/clientes.md` — Un cliente EMPRESA (`clientes.es_empresa`) VENDE el ahorro: no cobra sin su FACTURA de venta
 
 ## Documentos por área
 
@@ -406,6 +408,7 @@
 - `docs/conocimiento/clientes/confirmacion-de-cobro-el-formulario-del-final.md` — Confirmación de cobro — el formulario del final (2026-09-07)
 - `docs/conocimiento/clientes/el-aviso-lo-recibe-el-comercial-o-el-tecnico.md` — El aviso lo recibe el COMERCIAL o el TÉCNICO (2026-09-09)
 - `docs/conocimiento/clientes/el-mapa-del-escaparate-ensena-todas-las-obras.md` — El MAPA del escaparate enseña TODAS las obras (2026-10-19)
+- `docs/conocimiento/clientes/la-empresa-factura-la-venta-del-ahorro-autofactura.md` — La EMPRESA factura la venta del ahorro: autofactura o su factura (2026-11-04)
 - `docs/conocimiento/clientes/los-avisos-de-sus-clientes-al-partner.md` — Los avisos de sus clientes, al PARTNER (2026-10-15)
 - `docs/conocimiento/clientes/modulo-prescriptores-novedades.md` — Módulo Prescriptores — Novedades (2026-03-26)
 - `docs/conocimiento/clientes/patron-de-modales-clientes-y-prescriptores.md` — Patrón de Modales (Clientes y Prescriptores)
@@ -631,6 +634,7 @@
 
 ### transversal-frontend
 
+- `docs/conocimiento/transversal-frontend/el-listado-recuerda-como-lo-dejaste.md` — El listado recuerda cómo lo dejaste (2026-11-04)
 - `docs/conocimiento/transversal-frontend/el-menu-lateral.md` — El menú lateral (2026-08-24)
 - `docs/conocimiento/transversal-frontend/el-visor-de-fotos-y-el-editor-de-imagen.md` — El VISOR de fotos y el EDITOR de imagen (2026-10-29)
 - `docs/conocimiento/transversal-frontend/estilo-carta-de-pago-lo-que-ve-el-cliente.md` — El ESTILO «carta de pago»: así se diseña lo que ve el CLIENTE (2026-10-24)

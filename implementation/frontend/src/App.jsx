@@ -49,6 +49,7 @@ import { SujetoObligadoPublicoView } from './features/public/views/SujetoObligad
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { ConfirmarCobroView } from './features/cobro/views/ConfirmarCobroView';
 import { RecibidoCobroView } from './features/cobro/views/RecibidoCobroView';
+import { FacturaAhorroView } from './features/cobro/views/FacturaAhorroView';
 import { EnlaceCortoView } from './features/public/views/EnlaceCortoView';
 import { RespuestasCobroView } from './features/cobro/views/RespuestasCobroView';
 import AsistenteFlotante from './features/asistente/AsistenteFlotante';
@@ -208,6 +209,12 @@ function App() {
     // /cobro/:id/recibido — el recordatorio «¿te ha llegado el ingreso?» (RecibidoCobroView).
     const recibido = path.split('/cobro/')[1]?.split('/')[1] === 'recibido';
     return { id, recibido, token: new URLSearchParams(window.location.search).get('token') || '' };
+  });
+
+  // Autofactura de un cliente EMPRESA: /factura-ahorro/:expedienteId?token= (mismo token que /cobro).
+  const [facturaAhorroData] = useState(() => {
+    const m = window.location.pathname.match(/^\/factura-ahorro\/([^/]+)\/?$/);
+    return m ? { id: m[1], token: new URLSearchParams(window.location.search).get('token') || '' } : null;
   });
 
   const [riteUploadId] = useState(() => {
@@ -1190,8 +1197,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || enlaceCorto || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || soPublicoToken || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !soPublicoToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || enlaceCorto || cobroData || facturaAhorroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || soPublicoToken || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !facturaAhorroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !soPublicoToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1240,6 +1247,8 @@ function App() {
           <SubirInstaladorView expedienteId={instaladorId} />
         ) : enlaceCorto ? (
           <EnlaceCortoView codigo={enlaceCorto} />
+        ) : facturaAhorroData ? (
+          <FacturaAhorroView expedienteId={facturaAhorroData.id} token={facturaAhorroData.token} />
         ) : cobroData ? (
           cobroData.recibido
             ? <RecibidoCobroView expedienteId={cobroData.id} token={cobroData.token} />

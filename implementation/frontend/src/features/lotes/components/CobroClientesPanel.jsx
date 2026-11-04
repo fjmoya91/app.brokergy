@@ -26,6 +26,8 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 import { eurEs } from '../../cobro/logic/cobroForm';
 import { RemesaSepaModal, JustificanteModal, AvisoTransferenciaModal, AvisoInstaladoresModal } from './PagoClientesModals';
 import { FacturaGestionModal } from './FacturaGestionModal';
+import { FacturaVentaModal } from './FacturaVentaModal';
+import { ESTADOS_VENTA } from '../logic/facturaVentaAhorro';
 import { resumenPago } from '../logic/pagoClientes';
 
 const eur = eurEs;
@@ -133,6 +135,8 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
     // La factura de los honorarios de gestión (al cliente o a su instalador). Solo ADMIN.
     const [facturaG, setFacturaG] = useState(null); // fila cuya factura se emite / reenvía
     const [cobrandoF, setCobrandoF] = useState(null);
+    // EMPRESA: la factura de VENTA DEL AHORRO (autofactura o la suya). Solo ADMIN.
+    const [facturaV, setFacturaV] = useState(null);
     const marcarFacturaPagada = async (f, pagada) => {
         setCobrandoF(f.id);
         setError('');
@@ -276,7 +280,8 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                 {canSeeMargin && b && f.cobro?.completado_at && (
                                     <div className="text-right shrink-0">
                                         <p className="text-[9px] font-black uppercase tracking-wider text-white/40">{f.pago?.transferencia ? 'Transferido' : 'A transferir'}</p>
-                                        <p className="text-[15px] font-black text-emerald-300 leading-tight">{eur(f.pago?.transferencia?.importe ?? (b.bono - descuento))}</p>
+                                        <p className="text-[15px] font-black text-emerald-300 leading-tight">{eur(f.pago?.transferencia?.importe ?? (f.factura_venta?.lista && f.factura_venta?.total != null ? f.factura_venta.total : (b.bono - descuento)))}</p>
+                                        {!f.pago?.transferencia && f.factura_venta?.lista && f.factura_venta?.total != null && <p className="text-[9px] text-white/40">IVA incluido</p>}
                                     </div>
                                 )}
                                 <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border shrink-0 ${est.c}`}>{est.t}</span>
@@ -359,6 +364,26 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                                     </button>
                                                 )}
                                             </>
+                                        )}
+                                    </p>
+                                )}
+                                {/* EMPRESA: vende el ahorro y el pago lo justifica SU factura
+                                    (autofactura aceptada o la suya recibida). Sin ella no entra en la remesa. */}
+                                {canSeeMargin && f.es_empresa && (
+                                    <p className="sm:col-span-2 text-[10px] text-white/55 flex items-center gap-1.5 flex-wrap mt-0.5">
+                                        <span className={`px-1.5 py-0.5 rounded-md border ${f.factura_venta?.lista ? 'border-emerald-400/30 text-emerald-300'
+                                            : f.factura_venta?.estado === 'RECHAZADA' ? 'border-amber-400/45 text-amber-200' : 'border-sky-400/35 text-sky-200'}`}>
+                                            🏢 Empresa · {f.factura_venta?.estado ? (ESTADOS_VENTA[f.factura_venta.estado] || f.factura_venta.estado) : 'falta su factura de venta del ahorro'}
+                                            {f.factura_venta?.numero ? ` · ${f.factura_venta.numero}` : ''}
+                                            {f.factura_venta?.total != null && f.factura_venta?.estado !== 'NO_PROCEDE' ? ` · ${eur(f.factura_venta.total)}` : ''}
+                                        </span>
+                                        {f.factura_venta?.link && <a href={f.factura_venta.link} target="_blank" rel="noreferrer" className="text-cyan-300/80 hover:underline">PDF</a>}
+                                        {!f.pago?.remesa && (
+                                            <button type="button" onClick={() => setFacturaV(f)}
+                                                className={f.factura_venta?.lista ? 'text-white/45 hover:text-white underline'
+                                                    : 'px-2 py-1 rounded-md border border-sky-400/40 text-sky-200 font-bold hover:bg-sky-400/10'}>
+                                                {f.factura_venta?.lista ? 'Ver' : f.factura_venta?.estado ? '🧾 Gestionar la factura' : '🧾 Factura de venta del ahorro'}
+                                            </button>
                                         )}
                                     </p>
                                 )}
@@ -463,6 +488,12 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
             {facturaG && (
                 <FacturaGestionModal lote={lote} f={facturaG}
                     onClose={() => setFacturaG(null)}
+                    onHecho={refrescar} />
+            )}
+
+            {facturaV && (
+                <FacturaVentaModal lote={lote} f={facturaV}
+                    onClose={() => setFacturaV(null)}
                     onHecho={refrescar} />
             )}
 

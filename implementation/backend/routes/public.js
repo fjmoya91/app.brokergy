@@ -2847,6 +2847,80 @@ router.get('/r/:codigo', async (req, res) => {
     }
 });
 
+// ─── AUTOFACTURA de una EMPRESA — /factura-ahorro/:expedienteId?token= ──────────
+// La empresa acepta el ACUERDO de facturación por el destinatario (art. 5 RD
+// 1619/2012), se le EXPIDE la factura en ese momento y la ACEPTA o dice qué está
+// mal (services/facturaVentaAhorro.js). Mismo token que el formulario de cobro,
+// comparado en tiempo constante.
+async function expedienteVenta(req, res) {
+    const exp = await cobroService.cargarExpediente(req.params.expedienteId);
+    if (!exp) { res.status(404).json({ error: 'Expediente no encontrado' }); return null; }
+    const guardado = exp.documentacion?.cobro?.token;
+    if (!guardado || !cobroService.tokenValido(guardado, req.query.token || req.body?.token)) {
+        res.status(403).json({ error: 'Enlace no válido o caducado' });
+        return null;
+    }
+    return exp;
+}
+const ipDe = (req) => String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || null;
+
+router.get('/factura-ahorro/:expedienteId', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const v = await require('../services/facturaVentaAhorro').vistaPublica(exp);
+        if (!v) return res.status(409).json({ error: 'Esta factura no está preparada para aceptarse aquí. Escríbenos y lo vemos.' });
+        res.json(v);
+    } catch (e) {
+        console.error('[factura-ahorro GET]', e.message);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+router.get('/factura-ahorro/:expedienteId/pdf', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        if (!(await fv.vistaPublica(exp))) return res.status(409).json({ error: 'No hay factura' });
+        const { buffer, filename } = await fv.pdfDe(exp);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        res.send(buffer);
+    } catch (e) {
+        console.error('[factura-ahorro PDF]', e.message);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+// Body: { token, nombre, dni } — acepta el acuerdo y se expide la factura.
+router.post('/factura-ahorro/:expedienteId/acuerdo', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        await fv.aceptarAcuerdo(exp, { nombre: req.body?.nombre, dni: req.body?.dni, ip: ipDe(req), ua: req.headers['user-agent'] });
+        res.json(await fv.vistaPublica(await cobroService.cargarExpediente(exp.id)));
+    } catch (e) {
+        console.error('[factura-ahorro acuerdo]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error del servidor' });
+    }
+});
+
+// Body: { token, accion: 'aceptar'|'rechazar', nombre, dni, motivo }
+router.post('/factura-ahorro/:expedienteId/responder', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        await fv.responderFactura(exp, { accion: req.body?.accion, nombre: req.body?.nombre, dni: req.body?.dni, motivo: req.body?.motivo, ip: ipDe(req) });
+        res.json(await fv.vistaPublica(await cobroService.cargarExpediente(exp.id)));
+    } catch (e) {
+        console.error('[factura-ahorro responder]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error del servidor' });
+    }
+});
+
 // ─── ¿Le ha LLEGADO el ingreso? — /cobro/:expedienteId/recibido?token= ─────────
 // La página del recordatorio que sale a los 2 días hábiles de la carta de pago:
 // confirma el ingreso, pide la reseña y da su documentación (recepcionCobroService).

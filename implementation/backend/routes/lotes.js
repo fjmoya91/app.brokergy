@@ -1285,6 +1285,104 @@ router.get('/:id/cobros/:expId/factura-gestion/pdf', adminOnly, async (req, res)
     }
 });
 
+// ─── La FACTURA de VENTA DEL AHORRO de un cliente EMPRESA (services/facturaVentaAhorro.js)
+// Una empresa no recibe una ayuda: VENDE el ahorro, y el pago lo justifica su
+// factura. O la expedimos nosotros en su nombre (AUTOFACTURA, art. 5 RD 1619/2012:
+// acepta el acuerdo y la factura en su enlace) o la emite ella con el MODELO que
+// se le manda. Dinero → adminOnly.
+const facturaVenta = require('../services/facturaVentaAhorro');
+const ventaUpload = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+
+router.get('/:id/cobros/:expId/factura-venta', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const iva = req.query.iva != null && req.query.iva !== '' ? Number(req.query.iva) : null;
+        res.json(await facturaVenta.borrador(exp, { modo: req.query.modo || null, ivaPct: Number.isFinite(iva) ? iva : null }));
+    } catch (err) {
+        console.error('[GET factura-venta]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo preparar la factura de venta' });
+    }
+});
+
+// Pedirla (manda el enlace de la autofactura o el modelo). Body: { modo, ivaPct, canales, tlf, email, mensaje }
+router.post('/:id/cobros/:expId/factura-venta/pedir', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const r = await facturaVenta.pedir(exp, { ...(req.body || {}), usuario: usuarioDe(req) });
+        if (r.canalesOk.length) {
+            await apuntarEnLote(req.params.id,
+                `${exp.numero_expediente}: pedida la factura de venta del ahorro (${req.body?.modo === 'autofactura' ? 'autofactura' : 'la emite el cliente'}) por ${r.canalesOk.join(' + ')}.`,
+                usuarioDe(req)).catch(() => {});
+        }
+        res.json(r);
+    } catch (err) {
+        console.error('[POST factura-venta/pedir]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo pedir la factura' });
+    }
+});
+
+router.post('/:id/cobros/:expId/factura-venta/rehacer', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const r = await facturaVenta.rehacer(exp, { ivaPct: req.body?.ivaPct ?? null, usuario: usuarioDe(req) });
+        await apuntarEnLote(req.params.id, `${exp.numero_expediente}: autofactura ${r.numero} rehecha (${r.total} €), pendiente de aceptar.`, usuarioDe(req)).catch(() => {});
+        res.json(r);
+    } catch (err) {
+        console.error('[POST factura-venta/rehacer]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo rehacer la autofactura' });
+    }
+});
+
+// Su factura, recibida (camino «la emite el cliente»). multipart: factura (PDF), numero, total
+router.post('/:id/cobros/:expId/factura-venta/recibida', adminOnly, ventaUpload.single('factura'), async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const r = await facturaVenta.registrarRecibida(exp, {
+            buffer: req.file?.buffer, mimetype: req.file?.mimetype, nombreFichero: req.file?.originalname,
+            numero: req.body?.numero, total: req.body?.total, usuario: usuarioDe(req),
+        });
+        await apuntarEnLote(req.params.id, `${exp.numero_expediente}: recibida su factura de venta del ahorro${r.numero_cliente ? ` ${r.numero_cliente}` : ''} (${r.total} €).`, usuarioDe(req)).catch(() => {});
+        res.json(r);
+    } catch (err) {
+        console.error('[POST factura-venta/recibida]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo registrar su factura' });
+    }
+});
+
+// Body: { noProcede: true|false, motivo }
+router.post('/:id/cobros/:expId/factura-venta/no-procede', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const noProcede = req.body?.noProcede !== false;
+        const r = await facturaVenta.marcarNoProcede(exp, { noProcede, motivo: req.body?.motivo, usuario: usuarioDe(req) });
+        await apuntarEnLote(req.params.id, `${exp.numero_expediente}: factura de venta del ahorro ${noProcede ? `NO PROCEDE (${req.body?.motivo || ''})` : 'vuelve a ser necesaria'}.`, usuarioDe(req)).catch(() => {});
+        res.json(r);
+    } catch (err) {
+        console.error('[POST factura-venta/no-procede]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo cambiar' });
+    }
+});
+
+// El PDF: la autofactura expedida o, con ?modelo=1 (o sin número aún), el MODELO.
+router.get('/:id/cobros/:expId/factura-venta/pdf', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const { buffer, filename } = await facturaVenta.pdfDe(exp, { modelo: req.query.modelo === '1' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        res.send(buffer);
+    } catch (err) {
+        console.error('[GET factura-venta/pdf]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo obtener el PDF' });
+    }
+});
+
 // ─── Aviso a los INSTALADORES de que sus clientes ya han cobrado ───────────────
 // UN mensaje por instalador y lote, cuando todos sus clientes están transferidos
 // (services/avisoInstaladoresCobro.js). Lleva lo que cobra cada cliente → adminOnly.

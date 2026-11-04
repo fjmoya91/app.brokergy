@@ -374,6 +374,10 @@ async function filaCobro(exp, { conBorrador = false, ibanCompleto = false } = {}
             link: ibanCompleto ? (cobro.factura_gestion.pdf?.link || null) : null,
             sin_pdf: !cobro.factura_gestion.pdf,
         } : null,
+        // EMPRESA: la factura de VENTA DEL AHORRO que justifica el pago
+        // (facturaVentaAhorro). Null para un particular; importes y PDF, solo ADMIN.
+        es_empresa: !!c.es_empresa,
+        factura_venta: require('./facturaVentaAhorro').resumenFila(exp, { conImportes: ibanCompleto }),
         cobro: {
             enviado_at: cobro.enviado_at || null,
             enviado_por: cobro.enviado_por || null,
