@@ -19,7 +19,7 @@
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,0 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 42,0 KB | 14 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 105,4 KB | 41 |
-| `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 9,2 KB | 3 |
+| `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 10,8 KB | 4 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 17,8 KB | 5 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 5,0 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
@@ -275,6 +275,7 @@
 - **193** → `.claude/rules/transversal-frontend.md` — Un LISTADO recuerda cómo lo dejaste: búsqueda, filtros y orden
 - **194** → `.claude/rules/clientes.md` — Un cliente EMPRESA (`clientes.es_empresa`) VENDE el ahorro: no cobra sin su FACTURA de venta
 - **195** → `.claude/rules/expedientes.md` — En el LISTADO, un expediente completo que ya está en un lote se ENSEÑA como «EN LOTE», con el lote debajo; e…
+- **196** → `.claude/rules/expedientes.md` — Pasar a DOC. COMPLETA es haberlo VALIDADO TODO: primero el ✓ de cada documento firmado, después el estado
 
 ## Documentos por área
 
@@ -522,6 +523,7 @@
 - `docs/conocimiento/expedientes/carpetas-de-drive-por-estado.md` — Carpetas de Drive por estado (2026-07-24)
 - `docs/conocimiento/expedientes/el-listado-de-expedientes-las-columnas-se-eligen.md` — El listado de expedientes: las columnas se ELIGEN (2026-09-15)
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md` — Módulo Lifecycle de Expedientes (2026-05-20)
+- `docs/conocimiento/expedientes/pasar-a-doc-completa-se-valida-todo.md` — Pasar a DOC. COMPLETA es haberlo VALIDADO TODO (2026-11-05)
 
 ### facturacion
 
