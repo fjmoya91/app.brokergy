@@ -18,6 +18,7 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 const supabase = require('./supabaseClient');
 const { soloDatosDelAdjunto } = require('../utils/adjuntoWhatsapp');
+const { elegirEnviado } = require('../utils/enviadoWhatsapp');
 
 const SESSION_ROOT = path.join(__dirname, '..', '.wwebjs_auth');
 
@@ -325,11 +326,13 @@ async function processQueue() {
                 // descarta y la cola da por bueno lo que solo está pintado en
                 // el chat; con él, pero sin tope, un envío que no resuelve deja
                 // `processing` en true y para la cola entera.
+                const desde = ahoraSeg();
                 const enviado = await withTimeout(
                     client.sendMessage(chatId, job.message, { waitUntilMsgSent: true, sendSeen: SEND_SEEN }),
                     60_000, 'sendMessage(cola)',
                 );
-                await confirmarEntrega(enviado, `cola #${job.id} → ${job.phone}`);
+                await confirmarEntrega(enviado, `cola #${job.id} → ${job.phone}`,
+                    { chatId, desde, tipo: 'texto', texto: job.message });
 
                 sentTimestamps.push(Date.now());
                 await dbMarkSent(job.id);
@@ -883,16 +886,65 @@ function withTimeout(promise, ms, label) {
 const ACK_ENABLED = String(process.env.WWA_VERIFICAR_ACK ?? 'true').toLowerCase() !== 'false';
 const ACK_WAIT_MS = parseInt(process.env.WWA_ACK_ESPERA_MS || '25000', 10);
 
+/** Segundos «de WhatsApp» desde los que buscar lo que se va a enviar ahora. */
+const ahoraSeg = () => Math.floor(Date.now() / 1000) - 5;
+
+/**
+ * El id del mensaje que acabamos de mandar, buscado en la colección de mensajes
+ * de la página (la misma que ya lee `confirmarEntrega`): sin `getChatById` ni
+ * nada del camino prohibido por la regla 39. `busqueda`:
+ * `{ chatId, desde, tipo: 'texto'|'adjunto', texto?, pie? }`.
+ */
+async function idDelEnviado({ chatId, desde, tipo, texto, pie }) {
+    if (!client || !client.pupPage || !chatId) return null;
+    return withTimeout(client.pupPage.evaluate((fuente, chatId, crit) => {
+        const elegir = new Function('return (' + fuente + ')')();
+        const C = window.require('WAWebCollections');
+        const wid = window.require('WAWebWidFactory').createWid(chatId);
+        const usuarios = [wid.user];
+        try {
+            const Api = window.require('WAWebApiContact');
+            const lid = Api.getCurrentLid(wid);
+            if (lid && lid.user) usuarios.push(lid.user);
+            const pn = Api.getPhoneNumber(wid);
+            if (pn && pn.user) usuarios.push(pn.user);
+        } catch (e) { /* sin el lid se busca solo por el número */ }
+        const lista = C.Msg.getModelsArray()
+            .filter(m => m && m.id && m.id.fromMe && m.t >= crit.desde)
+            .map(m => ({
+                id: m.id._serialized, fromMe: true, remoteUser: m.id.remote && m.id.remote.user,
+                t: m.t, type: m.type, body: m.type === 'chat' ? m.body : undefined, caption: m.caption,
+            }));
+        return elegir(lista, Object.assign({}, crit, { usuarios }));
+    }, String(elegirEnviado), chatId, { desde, tipo, texto, pie }), 10_000, 'buscar el mensaje enviado')
+        .catch((e) => { console.warn('[wwa] No se pudo buscar el mensaje enviado:', e.message); return null; });
+}
+
 /**
  * Espera a que el mensaje llegue al menos al servidor (ack >= 1).
  *
  * Si el ack no se puede leer NO se da por fallido: un falso negativo haría
  * reenviar algo que sí salió, y un mensaje duplicado a un cliente es peor que
  * un log. Solo se falla cuando WhatsApp dice que sigue pendiente.
+ *
+ * Devuelve `{ id, ack }` (ack null = no se pudo leer) o `null` si no hay id
+ * que mirar. `busqueda` sirve para encontrarlo cuando `sendMessage` no lo da.
  */
-async function confirmarEntrega(sent, etiqueta) {
-    const msgId = sent && sent.id && sent.id._serialized;
-    if (!ACK_ENABLED || !msgId || !client || !client.pupPage) return null;
+async function confirmarEntrega(sent, etiqueta, busqueda = null) {
+    if (!ACK_ENABLED || !client || !client.pupPage) return null;
+    let msgId = sent && sent.id && sent.id._serialized;
+    // `sendMessage()` resuelve `undefined` cuando el mensaje ya no está bajo la
+    // clave con que lo creó (ver utils/enviadoWhatsapp.js). Se busca en el chat
+    // el que acabamos de mandar; si no aparece, se DICE en el log en vez de
+    // saltarse el ACK en silencio (05/11/2026: texto y vídeo «ok» sin ACK).
+    if (!msgId && busqueda) {
+        msgId = await idDelEnviado(busqueda);
+        if (msgId) console.log(`[wwa] sendMessage no devolvió el mensaje; encontrado en el chat (${msgId}) — ${etiqueta}`);
+    }
+    if (!msgId) {
+        console.warn(`[wwa] Sin id del mensaje enviado: NO se ha podido comprobar el ACK — ${etiqueta}`);
+        return null;
+    }
 
     const hasta = Date.now() + ACK_WAIT_MS;
     let ultimo = null;
@@ -905,10 +957,10 @@ async function confirmarEntrega(sent, etiqueta) {
             }, msgId)
             .catch(() => undefined);          // undefined = no se pudo leer
 
-        if (ack === undefined) return null;   // sin lectura fiable: no afirmamos nada
+        if (ack === undefined) return { id: msgId, ack: null };   // sin lectura fiable: no afirmamos nada
         if (typeof ack === 'number') {
             ultimo = ack;
-            if (ack >= 1) return ack;
+            if (ack >= 1) return { id: msgId, ack };
             if (ack === -1) {
                 const err = new Error(`WhatsApp rechazó el mensaje (${etiqueta})`);
                 err.noReintentar = true;      // reenviarlo daría otro rechazo
@@ -1035,11 +1087,13 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
     if (shouldSplit) {
         await sendTypingThenWait();
         try {
+            const desdePrevio = ahoraSeg();
             const previo = await withTimeout(
                 client.sendMessage(chatId, cap, optsTexto),
                 60_000, 'sendMessage(text-previo)',
             );
-            await confirmarEntrega(previo, `texto de la propuesta → ${chatId}`);
+            await confirmarEntrega(previo, `texto de la propuesta → ${chatId}`,
+                { chatId, desde: desdePrevio, tipo: 'texto', texto: cap });
             sentTimestamps.push(Date.now());
             mediaCaption = undefined;              // el adjunto ya no lleva el mensaje
             await sleep(randomDelay());            // pausa humana entre el texto y el PDF
@@ -1075,6 +1129,8 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
 
     console.log(`[wwa] Llamando client.sendMessage a ${chatId}...`);
     let result;
+    let entrega = null;
+    const desdeAdjunto = ahoraSeg();
     try {
         result = await withTimeout(
             client.sendMessage(chatId, mediaObj, {
@@ -1086,7 +1142,8 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
             60_000,
             'sendMessage'
         );
-        await confirmarEntrega(result, `${media.filename || 'adjunto'} → ${chatId}`);
+        entrega = await confirmarEntrega(result, `${media.filename || 'adjunto'} → ${chatId}`,
+            { chatId, desde: desdeAdjunto, tipo: 'adjunto', pie: mediaCaption });
     } catch (err) {
         // Chrome crash: resetear cliente para que el estado sea correcto en el frontend
         if (/detached Frame|Session closed|Target closed|Protocol error/i.test(err.message)) {
@@ -1120,13 +1177,15 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
                 await sleep(randomDelay());        // pausa humana entre mensajes
                 await waitForRateSlot();
                 await sendTypingThenWait();
+                const desdeTras = ahoraSeg();
                 const r2 = await withTimeout(
                     client.sendMessage(chatId, tras[i], optsTexto),
                     60_000, 'sendMessage(texto-despues)',
                 );
-                await confirmarEntrega(r2, `texto ${i + 1} tras el adjunto → ${chatId}`);
+                const e2 = await confirmarEntrega(r2, `texto ${i + 1} tras el adjunto → ${chatId}`,
+                    { chatId, desde: desdeTras, tipo: 'texto', texto: tras[i] });
                 sentTimestamps.push(Date.now());
-                partes.push({ ok: true, id: r2?.id?._serialized || null });
+                partes.push({ ok: true, id: r2?.id?._serialized || e2?.id || null });
                 console.log(`[wwa] Texto ${i + 1}/${tras.length} posterior al adjunto enviado a ${chatId}.`);
             } catch (err) {
                 console.warn(`[wwa] No se pudo enviar el texto ${i + 1} posterior al adjunto:`, err.message);
@@ -1143,7 +1202,8 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
 
     return {
         ok: true,
-        id: result?.id?._serialized || null,
+        id: result?.id?._serialized || entrega?.id || null,
+        ack: entrega?.ack ?? null,              // null = no se ha podido comprobar
         timestamp: result?.timestamp || null,
         ...(despues ? { despues } : {}),
     };
