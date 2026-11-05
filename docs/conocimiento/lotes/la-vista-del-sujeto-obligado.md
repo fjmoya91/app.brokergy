@@ -107,6 +107,31 @@ cartera va solo en total porque es la misma para cualquier S.O. (Fran, 03/11/202
 nos comprometería). **Un lote vacío no se enseña**: es el que estamos armando (0 MWh y sin
 código); uno sin código pero con expedientes sale como «Lote en preparación».
 
+**REGLA — el estado del lote le llega en SU idioma, nunca el nuestro.** (Fran, 03/11/2026, al ver
+el enlace: «PTE. PAGO BROKERGY A CLIENTE» o «PTE. FIRMA S.O.» son pasos de nuestra casa). Lo
+traduce `ESTADO_PARA_EL_SO` en `services/obligacionSo.js`, antes de que salga del servidor:
+
+| Estado interno | Lo que lee el S.O. |
+|---|---|
+| BORRADOR | En preparación |
+| SOLICITADO PRESUPUESTO A VERIFICADOR | Pidiendo oferta al verificador |
+| PTE. OFERTA VERIFICADOR | Esperando la oferta del verificador |
+| PTE. FIRMA S.O. | Pendiente de vuestra firma |
+| PTE. FIRMA OFERTA S.O. | Pendiente de vuestra firma (oferta del verificador) |
+| ENVIADO A VERIFICADOR | En verificación |
+| REQUERIMIENTO VERIFICADOR | Requerimiento del verificador · respondiendo |
+| VERIFICADO | Verificado |
+| PTE. SUBIDA MITECO | Verificado · por presentar al MITECO |
+| SUBIDO A MITECO | Presentado en el MITECO |
+| REQUERIMIENTO G.A. | Requerimiento del Gestor · respondiendo |
+| CAE EMITIDO – PTE PAGO BROKERGY · PTE. PAGO BROKERGY A CLIENTE · FINALIZADO | CAE emitidos |
+
+Un estado que no esté en el mapa sale con el **título de su etapa**, nunca en crudo. La fuente de
+la cifra va también en texto («CAE de la resolución», «facturado», «verificado», «estimado»: no
+«de nuestra factura»), y del código se quita lo de entre paréntesis («PAQUETE 1 - 2025 (PRE APP)» →
+«PAQUETE 1 - 2025»). En el móvil la chapa del estado es una frase: se parte en dos líneas en vez de
+cortarse. Lo vigila la sección 8 de `test_obligacion_so.mjs`.
+
 **REGLA — lo que le falta se cubre primero con lo LISTO y luego terminando lo que tiene la obra
 hecha, de más a menos MWh; de lo que aún se está cerrando, lo que tiene incidencias GRAVES
 abiertas no cuenta.** `planParaCubrir`: TODO lo listo para lotear (DOC. COMPLETA o más: ahí

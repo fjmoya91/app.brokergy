@@ -10,7 +10,9 @@
 //      el año en curso; la asignación a mano manda («NO» lo saca).
 //   5. Lo que falta = cubrible − otros − lo nuestro, nunca negativo (sobra).
 //   6. Lo disponible se acumula por cercanía al CAE frente a lo que falta.
-//   7. Los GWh tecleados con coma se leen bien («20,03»), y una obligación sin
+//   7. Con qué se cubre lo que le falta (planParaCubrir).
+//   8. Lo que sale por el enlace del S.O.: estados y fuente en su idioma.
+//   (y) Los GWh tecleados con coma se leen bien («20,03»), y una obligación sin
 //      cuota no se guarda.
 //
 //   node implementation/backend/scripts/test_obligacion_so.mjs
@@ -112,6 +114,24 @@ ok('lo que se está cerrando con graves no cuenta', plan.conGraves.map(e => e.nu
 ok('alcanza', plan.alcanza && !plan.bastaConLoListo);
 ok('si con lo listo basta, no hay que cerrar nada', planParaCubrir(oferta, 0.9).nACerrar === 0 && planParaCubrir(oferta, 0.9).bastaConLoListo);
 ok('si no llega ni cerrándolo todo, se dice', !planParaCubrir(oferta, 5).alcanza && planParaCubrir(oferta, 5).nACerrar === 3);
+
+console.log('\n8. Lo que sale por el enlace del S.O.');
+const { createRequire } = await import('module');
+const { vistaParaElSo } = createRequire(import.meta.url)('../services/obligacionSo.js');
+const vp = vistaParaElSo({ anio: 2026, obligacion: { faltaGwh: 1.9, notas: 'interno' }, brokergyGwh: 5,
+    etapas: [{ id: 'EMITIDO', titulo: 'CAE emitidos', kwh: 1, lotes: [
+        { codigo: 'PAQUETE 1 - 2025 (PRE APP)', estado: 'PTE. PAGO BROKERGY A CLIENTE', etapa: 'EMITIDO', kwh: 1, fuente: 'FACTURA', nExpedientes: 5 },
+        { codigo: 'LOTE-2026-015', estado: 'PTE. FIRMA S.O.', etapa: 'PREPARACION', kwh: 1, fuente: 'ESTIMADO', nExpedientes: 11 },
+        { codigo: 'LOTE-X', estado: 'ESTADO NUEVO', etapa: 'EMITIDO', kwh: 1, fuente: 'ESTIMADO', nExpedientes: 1 },
+        { codigo: null, estado: 'BORRADOR', etapa: 'PREPARACION', kwh: 0, fuente: 'ESTIMADO', nExpedientes: 0 } ] }] });
+const [lp1, lp2, lp3] = vp.etapas[0].lotes;
+ok('nuestros pasos internos no salen: el pago al cliente es «CAE emitidos»', lp1.estado === 'CAE emitidos');
+ok('a él no se le llama S.O.', lp2.estado === 'Pendiente de vuestra firma');
+ok('un estado sin traducir sale con el título de su etapa, nunca en crudo', lp3.estado === 'CAE emitidos');
+ok('la fuente, en su texto: «facturado»', lp1.fuente === 'facturado');
+ok('lo de entre paréntesis del código es nuestro', lp1.codigo === 'PAQUETE 1 - 2025');
+ok('el lote vacío no sale', vp.etapas[0].lotes.length === 3);
+ok('ni las notas de la obligación', !('notas' in vp.obligacion));
 
 console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ Todo bien');
 process.exit(fallos ? 1 : 0);

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { CSS as CSS_FX, Ico, AvisoFx } from '../../facturacion/estilo';
 import { ResumenObligacion, EtapasLotes } from '../../lotes/components/SujetoObligadoPanel';
-import { CSS_SO, FUENTE, chipEstado, logoEsClaro, gwh, mwh } from '../../lotes/components/vistaSoEstilo';
+import { CSS_SO, chipEstado, logoEsClaro, gwh, mwh } from '../../lotes/components/vistaSoEstilo';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La «Vista S.O.» para el PROPIO Sujeto Obligado: /so/:token (Fran, 03/11/2026:
@@ -25,6 +25,9 @@ const CSS_PUB = `
 .sp-cartera .fx-importe{font-size:44px;line-height:1}
 .sp-cartera .fx-importe small{font-size:.45em;margin-left:4px}
 .sp-lote-n{flex:none;font-size:12px;color:var(--gris);white-space:nowrap}
+/* Aquí el estado es una frase («Pendiente de vuestra firma»): se lee entera, en otra línea si no cabe */
+.sp .so-lote-pie{flex-wrap:wrap;row-gap:6px}
+.sp .so-lote-pie .fx-chip{white-space:normal;overflow:visible;text-overflow:clip;max-width:100%}
 `;
 
 export function SujetoObligadoPublicoView({ token }) {
@@ -57,7 +60,7 @@ export function SujetoObligadoPublicoView({ token }) {
             <span className="so-lote-mwh">{mwh(l.kwh)}</span>
             <span className="so-lote-pie">
                 <span className={`fx-chip ${chipEstado(l)}`} title={l.estado}>{l.estado}</span>
-                <span className="so-fuente">{FUENTE[l.fuente]}</span>
+                {l.fuente && <span className="so-fuente">{l.fuente}</span>}
                 {l.nExpedientes ? <span className="sp-lote-n" style={{ marginLeft: 'auto' }}>{l.nExpedientes} actuaciones</span> : null}
             </span>
         </li>

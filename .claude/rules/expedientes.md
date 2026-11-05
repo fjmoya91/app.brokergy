@@ -22,12 +22,14 @@ paths:
 
 53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. Las columnas se **REORDENAN arrastrando su cabecera** (con eventos de PUNTERO y no con el drag&drop de HTML5, que no se puede disparar con eventos sintéticos y por tanto no se puede verificar; y con `setInterval` y no `requestAnimationFrame`, que el navegador congela con la ventana oculta): la tabla se desplaza sola al llegar al borde, soltar sobre "Acciones" la deja la última y sobre el nº de expediente —que no se mueve nunca, identifica la fila— justo detrás. El orden se guarda como los anchos, y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. Instalador y Certificador **se filtran con BUSCADOR** (`FiltroEmpresa`, popover portaleado a `body`): busca sin tildes en acrónimo, razón social, técnico y su sociedad, cada opción dice cuántos expedientes tiene (sobre la cartera entera, no sobre lo filtrado) y se maneja con flechas + Enter. Instalador y Certificador pintan el **LOGO** de la empresa con [components/LogoEmpresa.jsx](implementation/frontend/src/components/LogoEmpresa.jsx), que es ahora la ÚNICA pieza que lo dibuja (eran dos copias: lotes y cuadro de mando) — sin logo, iniciales; en el certificador el chip de color de su ficha se conserva. ⚠️ Los logos son data URL a tamaño de papel: **8 MB en cada `GET /api/prescriptores`** (el mayor, 1,97 MB), y ya era así antes; la cuenta pendiente es una miniatura. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
 
+195. **En el LISTADO, un expediente completo que ya está en un lote se ENSEÑA como «EN LOTE», con el lote debajo; en la BD sigue en DOC. COMPLETA** (2026-11-05, Fran: «tengo 5 con documentación completa, pero al lotear no me salen» — estaban ya loteados). Un expediente sigue en DOC. COMPLETA hasta que su lote sale al verificador, así que el chip DOC. COMPLETA mezclaba lo libre con lo loteado. `estadoVisible` lo usan la columna Estado (chapa fija con el código y el estado del lote), la tarjeta móvil, los chips (el de «EN LOTE» detrás de DOC. COMPLETA, que cuenta solo lo que queda por lotear), el filtro y «Todos menos finalizado y rechazado». **No se convierte en estado de la BD**: de `estado` cuelgan las carpetas de Drive, el parte y lo que arrastra el lote. Fuente única: [logic/enLote.js](implementation/frontend/src/features/expedientes/logic/enLote.js). Ver "«EN LOTE»: el listado separa lo completo que ya está en un lote".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/expedientes/carpetas-de-drive-por-estado.md` — Carpetas de Drive por estado (2026-07-24) · 2,7 KB
-- `docs/conocimiento/expedientes/el-listado-de-expedientes-las-columnas-se-eligen.md` — El listado de expedientes: las columnas se ELIGEN (2026-09-15) · 11,9 KB
+- `docs/conocimiento/expedientes/el-listado-de-expedientes-las-columnas-se-eligen.md` — El listado de expedientes: las columnas se ELIGEN (2026-09-15) · 13,4 KB
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md` — Módulo Lifecycle de Expedientes (2026-05-20) · 6,7 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -51,6 +53,8 @@ expediente no se mueve.**
   - **REGLA — el dibujo es UNO**
   - **REGLA — UNA cascada, y la del listado coincide con la de la FICHA.**
   - **REGLA — lo HEREDADO se marca.**
+  - **REGLA — en el listado, un completo con lote se ENSEÑA como «EN LOTE», con el lote debajo; en
+la BD sigue en DOC. COMPLETA.**
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md`
   - **REGLA**
 

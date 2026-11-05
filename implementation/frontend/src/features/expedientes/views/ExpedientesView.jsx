@@ -14,6 +14,8 @@ import { IncidenciasModal } from '../components/IncidenciasModal';
 import RechazoExpedienteModal from '../components/RechazoExpedienteModal';
 import EstadoRechazado from '../components/EstadoRechazado';
 import { ESTADO_RECHAZADO, ESTADOS_TERMINALES, esRechazado, claseEstado } from '../logic/rechazoExpediente';
+import EstadoEnLote from '../components/EstadoEnLote';
+import { estaEnLote, estadoVisible, conEnLote, ESTADO_EN_LOTE } from '../logic/enLote';
 import {
     calculateSavings,
     calculateFinancials,
@@ -1467,7 +1469,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         // cualquiera de ellos (unión), de modo que el resumen suma esos estados.
         const matchesStatus = statusSel.size === 0 ? true
             : (statusSel.has('CON_INCIDENCIAS') && e.incidencias_abiertas > 0)
-              || statusSel.has(e.estado || 'PTE. CEE INICIAL');
+              || statusSel.has(estadoVisible(e));
 
         // Los filtros de columna los aplica CADA COLUMNA (su `match`), y se
         // recorren TODAS, no solo las visibles: el panel de filtros del móvil
@@ -1645,9 +1647,9 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const stats = {
         total: expedientes.length,
         // Agrupar los estados más relevantes para las tarjetas de resumen
-        groups: EXPEDIENTE_ESTADOS.map(st => ({
+        groups: conEnLote(EXPEDIENTE_ESTADOS).map(st => ({
             label: st,
-            count: expedientes.filter(e => (e.estado || 'PTE. CEE INICIAL') === st).length
+            count: expedientes.filter(e => estadoVisible(e) === st).length
         }))
     };
 
@@ -1863,8 +1865,9 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                             );
                         })()}
 
-                        {EXPEDIENTE_ESTADOS.map((st, i) => {
-                            const count = expedientes.filter(e => (e.estado || 'PTE. CEE INICIAL') === st).length;
+                        {/* «EN LOTE» va detrás de DOC. COMPLETA: así DOC. COMPLETA cuenta solo lo que queda por lotear */}
+                        {conEnLote(EXPEDIENTE_ESTADOS).map((st, i) => {
+                            const count = expedientes.filter(e => estadoVisible(e) === st).length;
                             const active = statusSel.has(st);
                             if (count === 0 && !active) return null;
 
@@ -1880,7 +1883,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                     }`}
                                 >
                                     <div className="flex items-center gap-2">
-                                        <span className={`w-1.5 h-1.5 rounded-full ${st === 'FINALIZADO' ? 'bg-emerald-400' : st === ESTADO_RECHAZADO ? 'bg-red-500' : st.includes('REQUERIMIENTO') ? 'bg-red-400' : 'bg-brand'} ${active ? 'animate-pulse' : 'opacity-80'}`}></span>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${st === 'FINALIZADO' ? 'bg-emerald-400' : st === ESTADO_RECHAZADO ? 'bg-red-500' : st === ESTADO_EN_LOTE ? 'bg-indigo-400' : st.includes('REQUERIMIENTO') ? 'bg-red-400' : 'bg-brand'} ${active ? 'animate-pulse' : 'opacity-80'}`}></span>
                                         <span className={`text-[9px] uppercase tracking-wider font-bold transition-colors truncate max-w-[120px] ${active ? 'text-white' : 'text-white/40'}`}>
                                             {st}
                                         </span>
@@ -1900,7 +1903,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                 Sumando {statusSel.size} estado{statusSel.size > 1 ? 's' : ''}
                             </span>
                             <button
-                                onClick={() => setStatusSel(new Set(EXPEDIENTE_ESTADOS.filter(s => !ESTADOS_TERMINALES.includes(s))))}
+                                onClick={() => setStatusSel(new Set(conEnLote(EXPEDIENTE_ESTADOS).filter(s => !ESTADOS_TERMINALES.includes(s))))}
                                 title="Todos los estados salvo los cerrados: FINALIZADO y RECHAZADO"
                                 className="px-2 py-1 rounded-lg border border-white/10 hover:border-brand text-white/60 hover:text-white uppercase tracking-wider font-bold transition-colors"
                             >
@@ -2327,7 +2330,9 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
                             {/* Acciones: estado + historial + borrar */}
                             <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
-                                {esRechazado(exp) ? (
+                                {estaEnLote(exp) ? (
+                                    <EstadoEnLote expediente={exp} className="flex-1 min-w-[150px]" />
+                                ) : esRechazado(exp) ? (
                                     <EstadoRechazado
                                         expediente={exp}
                                         onReabrir={colCtx.onReabrir}

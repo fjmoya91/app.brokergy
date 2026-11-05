@@ -25,6 +25,8 @@ import { SUBESTADO_LABELS, daysSince, fmtDate } from './seguimientoTime';
 import { dentroDelRango, delEs } from './rangoFecha';
 import { esRechazado, claseEstado } from './rechazoExpediente';
 import EstadoRechazado from '../components/EstadoRechazado';
+import EstadoEnLote from '../components/EstadoEnLote';
+import { estaEnLote, estadoVisible, conEnLote } from './enLote';
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -524,8 +526,10 @@ export const COLUMNAS = [
         label: 'Estado',
         grupo: 'Estado y fases',
         ancho: 156,
-        valor: (exp) => exp.estado || 'PTE. CEE INICIAL',
-        render: (exp, ctx) => (esRechazado(exp) ? (
+        valor: (exp) => estadoVisible(exp),
+        render: (exp, ctx) => (estaEnLote(exp) ? (
+            <EstadoEnLote expediente={exp} className="max-w-[170px]" />
+        ) : esRechazado(exp) ? (
             // De RECHAZADO solo se sale reabriendo: badge con el motivo en el
             // tooltip y botón "Reabrir", no un desplegable con opciones que el
             // backend ignoraría.
@@ -559,7 +563,7 @@ export const COLUMNAS = [
                     className="bg-transparent text-[10px] font-black text-brand uppercase tracking-wider focus:outline-none transition-colors cursor-pointer w-full p-0 pr-4 appearance-none"
                 >
                     <Opt value="ALL">{ctx.statusSel.size > 1 ? `${ctx.statusSel.size} ESTADOS (CHIPS)` : 'TODOS LOS ESTADOS'}</Opt>
-                    {ctx.estados.map(st => <Opt key={st} value={st}>{st}</Opt>)}
+                    {conEnLote(ctx.estados).map(st => <Opt key={st} value={st}>{st}</Opt>)}
                 </select>
                 <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity">
                     <svg className="w-3 h-3 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">

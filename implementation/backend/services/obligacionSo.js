@@ -119,6 +119,29 @@ const CAMPOS_OBLIGACION = [
     'pctAsegurado', 'pctCubierto', 'obligacionEur', 'fondoEur', 'cubribleEur', 'faltaEur',
 ];
 
+// El estado del lote dicho para el S.O. (Fran, 03/11/2026): los nuestros cuentan
+// pasos internos («PTE. PAGO BROKERGY A CLIENTE») y le llaman «S.O.» a él mismo.
+// Uno que no esté aquí sale con el título de su etapa, nunca en crudo.
+const ESTADO_PARA_EL_SO = {
+    'BORRADOR': 'En preparación',
+    'SOLICITADO PRESUPUESTO A VERIFICADOR': 'Pidiendo oferta al verificador',
+    'PTE. OFERTA VERIFICADOR': 'Esperando la oferta del verificador',
+    'PTE. FIRMA S.O.': 'Pendiente de vuestra firma',
+    'PTE. FIRMA OFERTA S.O.': 'Pendiente de vuestra firma (oferta del verificador)',
+    'ENVIADO A VERIFICADOR': 'En verificación',
+    'REQUERIMIENTO VERIFICADOR': 'Requerimiento del verificador · respondiendo',
+    'VERIFICADO': 'Verificado',
+    'PTE. SUBIDA MITECO': 'Verificado · por presentar al MITECO',
+    'SUBIDO A MITECO': 'Presentado en el MITECO',
+    'REQUERIMIENTO G.A.': 'Requerimiento del Gestor · respondiendo',
+    'CAE EMITIDO – PTE PAGO BROKERGY': 'CAE emitidos',
+    'PTE. PAGO BROKERGY A CLIENTE': 'CAE emitidos',
+    'FINALIZADO': 'CAE emitidos',
+};
+const FUENTE_PARA_EL_SO = { EMITIDO: 'CAE de la resolución', FACTURA: 'facturado', VERIFICADO: 'verificado', ESTIMADO: 'estimado' };
+// «PAQUETE 1 - 2025 (PRE APP)»: lo de entre paréntesis es nuestro (la migración).
+const codigoParaElSo = (codigo) => String(codigo || '').replace(/\s*\([^)]*\)/g, '').trim() || 'Lote en preparación';
+
 /**
  * Lo que puede ver el S.O.: su obligación (sin nuestras NOTAS, que son internas),
  * nuestros lotes por etapa con su código, estado, nº de actuaciones y kWh, y de lo
@@ -139,8 +162,10 @@ function vistaParaElSo(vista, so = null) {
         etapas: vista.etapas.map(e => ({
             id: e.id, titulo: e.titulo, sub: e.sub, kwh: e.kwh,
             // Un lote vacío es el que estamos armando: al S.O. no le dice nada (0 MWh y sin código).
+            // Estado y fuente salen YA en texto para él: el estado crudo no sale.
             lotes: e.lotes.filter(l => l.nExpedientes > 0).map(l => ({
-                codigo: l.codigo || 'Lote en preparación', estado: l.estado, etapa: l.etapa, kwh: l.kwh, fuente: l.fuente,
+                codigo: codigoParaElSo(l.codigo), estado: ESTADO_PARA_EL_SO[l.estado] || e.titulo,
+                etapa: l.etapa, kwh: l.kwh, fuente: FUENTE_PARA_EL_SO[l.fuente] || null,
                 nExpedientes: l.nExpedientes, requerimiento: l.requerimiento,
             })),
         })),
