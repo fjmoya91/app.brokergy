@@ -2907,6 +2907,38 @@ router.post('/factura-ahorro/:expedienteId/acuerdo', async (req, res) => {
     }
 });
 
+// Body: { token, modo: 'autofactura'|'cliente' } — elige (o cambia) quién hace la
+// factura, mientras no haya nada expedido ni recibido.
+router.post('/factura-ahorro/:expedienteId/elegir', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        await fv.elegir(exp, { modo: req.body?.modo, origen: 'pagina' });
+        res.json(await fv.vistaPublica(await cobroService.cargarExpediente(exp.id)));
+    } catch (e) {
+        console.error('[factura-ahorro elegir]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error del servidor' });
+    }
+});
+
+// multipart: factura (PDF), numero, total — SU factura (camino «la emito yo»).
+router.post('/factura-ahorro/:expedienteId/subir', upload.single('factura'), async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        await fv.subirFacturaCliente(exp, {
+            buffer: req.file?.buffer, mimetype: req.file?.mimetype, nombreFichero: req.file?.originalname,
+            numero: req.body?.numero, total: req.body?.total, ip: ipDe(req),
+        });
+        res.json(await fv.vistaPublica(await cobroService.cargarExpediente(exp.id)));
+    } catch (e) {
+        console.error('[factura-ahorro subir]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error del servidor' });
+    }
+});
+
 // Body: { token, accion: 'aceptar'|'rechazar', nombre, dni, motivo }
 router.post('/factura-ahorro/:expedienteId/responder', async (req, res) => {
     try {
@@ -3070,6 +3102,14 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
             } catch (e) { console.warn('[cobro POST] fotovoltaica:', e.message); }
         }
 
+        // Una EMPRESA: lo que eligió para la factura de venta (regla 194), ANTES de
+        // responder, para que su página ya lo encuentre al pulsar el botón.
+        if (exp.clientes?.es_empresa && respuestas.factura_venta) {
+            try {
+                await require('../services/facturaVentaAhorro').elegir(exp, { modo: respuestas.factura_venta, origen: 'formulario' });
+            } catch (e) { console.warn('[cobro POST] factura venta:', e.message); }
+        }
+
         res.json({ ok: true, iban_cambiado: ibanCambiado });
 
         // 3. Fondo: justificante a Drive + aviso al staff. No bloquea al cliente.
@@ -3134,6 +3174,9 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                     // Lo segundo que hay que hacer antes de transferir: la factura se
                     // emite y se cobra ANTES, o se acaba ingresando el bono entero.
                     forma_pago ? `\n${forma_pago.tono === 'aviso' ? '🧾' : '✂️'} *${forma_pago.texto}*` : '',
+                    // Una EMPRESA: cómo se hace su factura de venta (sin ella no entra en la remesa).
+                    respuestas.factura_venta === 'autofactura' ? '\n✍️ *Factura de venta: AUTOFACTURA.* Falta que acepte el acuerdo y la factura en su enlace.'
+                        : respuestas.factura_venta === 'cliente' ? '\n🧾 *Factura de venta: LA EMITE ÉL.* Falta que la suba en su enlace.' : '',
                     '',
                     lineas.length ? `Respuestas: ${lineas.join(' · ')}` : 'Sin respuestas de venta cruzada.',
                     leads.length ? `\n🎯 *Interesado en:* ${leads.map(l => l.texto).join(' · ')}` : '',
@@ -3154,6 +3197,14 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                     } catch (e) {}
                 }
             } catch (e) { console.error('[cobro POST] aviso:', e.message); }
+
+            // Empresa: con FACTURA_VENTA_ENVIO_AUTO=true le llega por WhatsApp y email
+            // lo suyo (el enlace de la autofactura, o los datos y el modelo).
+            if (exp.clientes?.es_empresa && respuestas.factura_venta) {
+                try {
+                    await require('../services/facturaVentaAhorro').alConfirmarCobro(await cobroService.cargarExpediente(exp.id), { avisar: false });
+                } catch (e) { console.warn('[cobro POST] factura venta envío:', e.message); }
+            }
         });
     } catch (e) {
         console.error('[cobro POST]', e.message);

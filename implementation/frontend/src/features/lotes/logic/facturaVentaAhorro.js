@@ -43,6 +43,20 @@ export const MODOS_VENTA = ['autofactura', 'cliente', 'no_procede'];
 const r2 = (n) => Math.round(Number(n) * 100) / 100;
 const txt = (v) => (v == null ? '' : String(v).trim());
 
+/**
+ * Un importe ESCRITO por una persona: «9.820,00», «9820,00», «9820.00», «9.820 €».
+ * Con coma, los puntos son de miles; sin coma, un punto con 1-2 decimales es el
+ * decimal. Devuelve null si no hay número.
+ */
+export function leerImporte(v) {
+    let t = String(v ?? '').replace(/[^\d.,-]/g, '');
+    if (!t) return null;
+    if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+    else if (!/^\d+\.\d{1,2}$/.test(t)) t = t.replace(/\./g, '');
+    const n = Number(t);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+}
+
 /** Los estados y lo que significan, en una frase cada uno. */
 export const ESTADOS_VENTA = {
     PEDIDA: 'Pedida al cliente',
@@ -143,38 +157,141 @@ const primerNombre = (s) => String(s || '').trim().split(/\s+/)[0] || '';
  *   · autofactura: qué es, por qué así y el enlace (al FINAL, como el del cobro).
  *   · cliente: que nos emita la factura con el modelo adjunto y a dónde mandarla.
  */
-export function mensajeVentaAhorro({ modo, nombre, esTercero = false, razonSocial, total, base, ivaPct, expediente, enlace } = {}) {
+// ── Lo que se le EXPLICA al cliente (el formulario de cobro y su página) ────
+//
+// Fran, 05/11/2026: «se le dan dos opciones: hazme una autofactura, y se le
+// explica todo; o yo te emito la factura, y se le mandan los datos que debe
+// poner. Se le debe explicar bien al cliente.» Los mismos textos en el bloque
+// del formulario, en /factura-ahorro y en los mensajes: si cada sitio lo
+// contase a su manera, el cliente leería dos versiones de lo mismo.
+
+/** Por qué una empresa tiene que facturar (lo primero que se le cuenta). */
+export const POR_QUE_FACTURA = 'Como sois una empresa, la ayuda no os llega como una subvención: nos vendéis el ahorro energético que habéis conseguido, y ese pago, como cualquier venta, tiene que ir con su factura a nuestro nombre. Es un trámite fiscal: no cambia lo que vais a cobrar.';
+
+/** La autofactura, contada en cuatro pasos. */
+export const PASOS_AUTOFACTURA = [
+    { titulo: 'La hacemos nosotros por vosotros', texto: 'Preparamos la factura en vuestro nombre, con los datos, el concepto y el IVA bien puestos. Es lo que la ley llama «facturación por el destinatario» (art. 5 del Reglamento de facturación) y es la misma fórmula que usan las eléctricas con sus clientes.' },
+    { titulo: 'Aceptáis un acuerdo, una sola vez', texto: 'La ley pide que antes nos autoricéis por escrito. Se hace en el enlace, con el nombre y el DNI de quien firma por la empresa, y veis el texto entero antes de aceptarlo.' },
+    { titulo: 'Revisáis la factura y la aceptáis', texto: 'En ese momento se expide la factura con su número (serie «AF») y la veis en PDF. Si está bien, la aceptáis; si hay algo mal, nos lo decís y la corregimos.' },
+    { titulo: 'La registráis como vuestra', texto: 'Es una factura emitida por vosotros: pasádsela a vuestra gestoría para que la apunte en vuestro libro de facturas emitidas y declare su IVA, como cualquier otra venta.' },
+];
+
+/** Si la emite él: lo que tiene que hacer. */
+export const PASOS_CLIENTE = [
+    { titulo: 'Os damos los datos exactos', texto: 'A nombre de quién, el concepto, la base, el IVA y el total, y un modelo en PDF ya relleno para copiarlo.' },
+    { titulo: 'La hacéis con vuestro programa', texto: 'Con vuestro número de factura, vuestra serie y vuestra cuenta, como cualquier factura que emitís.' },
+    { titulo: 'Nos la mandáis', texto: 'La subís en el enlace (o nos la mandáis por WhatsApp o a info@brokergy.es). En cuanto la recibamos y la comprobemos, os hacemos la transferencia.' },
+];
+
+/**
+ * El bloque del FORMULARIO DE COBRO para una empresa: ¿quién hace la factura?
+ * Obligatorio (de él depende cómo se le paga) y DESPUÉS de la forma de pago,
+ * que fija la base. Lo pinta el mismo componente que las demás preguntas.
+ */
+export function bloqueFacturaVenta({ ivaPct = IVA_VENTA_DEFECTO } = {}) {
+    return {
+        id: 'factura_venta',
+        icono: '🧾',
+        titulo: 'La factura de la venta',
+        pregunta: '¿Quién hace la factura?',
+        ayuda: POR_QUE_FACTURA,
+        obligatorio: true,
+        iva_pct: ivaPct,
+        // Lo que se cuenta de cada opción, en pasos (lo pinta la vista).
+        explicacion: { autofactura: PASOS_AUTOFACTURA, cliente: PASOS_CLIENTE },
+        opciones: [
+            {
+                value: 'autofactura',
+                icono: '✍️',
+                label: 'Hacédmela vosotros (autofactura)',
+                sub: 'La preparamos nosotros en vuestro nombre. Solo tenéis que aceptar un acuerdo y revisar la factura en el enlace: dos minutos, sin programa de facturación y lo más rápido para cobrar.',
+                corto: 'Autofactura',
+                recomendada: true,
+            },
+            {
+                value: 'cliente',
+                icono: '🧾',
+                label: 'La emito yo',
+                sub: 'Os damos los datos exactos y un modelo para que la hagáis con vuestro programa. La transferencia sale cuando nos llegue vuestra factura.',
+                corto: 'La emite el cliente',
+            },
+        ],
+    };
+}
+
+/**
+ * Lo que tiene que llevar SU factura, campo a campo (la página, el modelo y el
+ * WhatsApp lo cuentan con estas mismas filas).
+ */
+export function datosFacturaCliente({ base, ivaPct = IVA_VENTA_DEFECTO, iva = null, total = null, kwh = null, expediente = '' } = {}) {
+    const E = BROKERGY_EMISOR;
+    const pct = ivaPct != null && ivaPct !== '' && Number.isFinite(Number(ivaPct)) ? Number(ivaPct) : IVA_VENTA_DEFECTO;
+    const b = r2(base);
+    const i = iva != null ? r2(iva) : r2(b * pct / 100);
+    const t = total != null ? r2(total) : r2(b + i);
+    const k = Number(kwh) > 0 ? Math.round(Number(kwh)) : null;
+    return [
+        { campo: 'A nombre de', valor: E.razonSocial },
+        { campo: 'CIF', valor: E.cif },
+        { campo: 'Dirección', valor: `${E.direccion}, ${E.cp} ${E.municipio} (${E.provincia})` },
+        { campo: 'Concepto', valor: `Venta de Ahorros Energéticos para la emisión de Certificados de Ahorro Energético (CAE). Expediente ${expediente || ''}${k ? ` · ${k.toLocaleString('es-ES')} kWh de ahorro verificado` : ''}` },
+        { campo: 'Base imponible', valor: eurEs(b) },
+        { campo: pct > 0 ? `IVA (${pct} %)` : 'IVA', valor: pct > 0 ? eurEs(i) : 'Operación no sujeta' },
+        { campo: 'Total', valor: eurEs(t), destacado: true },
+        { campo: 'Forma de pago', valor: 'Transferencia a vuestra cuenta' },
+    ];
+}
+
+/** Las mismas filas en texto (para copiar, o para el WhatsApp con negritas). */
+export function textoDatosFactura(filas = [], { negritas = false } = {}) {
+    return filas.map(f => `${negritas ? '*' : ''}${f.campo}:${negritas ? '*' : ''} ${f.valor}`).join('\n');
+}
+
+export function mensajeVentaAhorro({ modo, nombre, esTercero = false, razonSocial, total, base, ivaPct, iva = null, kwh = null, expediente, enlace } = {}) {
     const saludo = nombre && esTercero ? `¡Hola ${capital(primerNombre(nombre))}!` : '¡Hola!';
-    const importe = `💶 *Importe: ${eurEs(total)}*${base != null ? ` (${eurEs(base)}${Number(ivaPct) > 0 ? ` + ${ivaPct} % de IVA` : ''})` : ''}`;
+    const importe = `*Importe: ${eurEs(total)}*${base != null ? ` (${eurEs(base)}${Number(ivaPct) > 0 ? ` + ${ivaPct} % de IVA` : ''})` : ''}`;
     const quien = razonSocial ? ` de *${razonSocial}*` : '';
+    const intro = `Ya tenemos el ahorro verificado del expediente *${expediente || ''}*${quien}. Como sois una empresa, la ayuda no os llega como una subvención: nos *vendéis el ahorro energético*, y ese pago tiene que ir con su factura a nuestro nombre.`;
     if (modo === 'autofactura') {
         return [
             saludo,
             '',
-            `Ya tenemos el ahorro verificado del expediente *${expediente || ''}*${quien}. Como sois una empresa, la ayuda se cobra *vendiéndonos el ahorro con una factura*, y para que no tengáis que hacerla vosotros, la preparamos nosotros en vuestro nombre (lo que se llama *autofactura*, la misma fórmula que usan las eléctricas).`,
+            intro,
+            '',
+            'Para que no tengáis que hacerla vosotros, la preparamos nosotros en vuestro nombre: es la *autofactura* («facturación por el destinatario», art. 5 del Reglamento de facturación), la misma fórmula que usan las eléctricas.',
             '',
             importe,
             '',
-            'Solo tenéis que entrar en el enlace, aceptar el acuerdo de facturación y revisar y aceptar la factura. En cuanto esté aceptada os hacemos la transferencia.',
+            'En el enlace:',
+            '1. Aceptáis el acuerdo de facturación (una sola vez, con el nombre y el DNI de quien firma por la empresa).',
+            '2. Revisáis la factura y la aceptáis, o nos decís qué hay que corregir.',
+            '3. En cuanto esté aceptada, os hacemos la transferencia.',
+            '',
+            'Es una factura emitida por vosotros: pasádsela a vuestra gestoría para que la registre y declare su IVA.',
             '',
             ...FIRMA_COBRO,
             '',
             `👉 Revisa y acepta la factura aquí: ${enlace || ''}`,
         ].join('\n');
     }
+    // REGLA — si la emite él, se le mandan los DATOS escritos, no solo un PDF:
+    // es lo que va a copiar en su programa de facturación.
+    const filas = datosFacturaCliente({ base, ivaPct, iva, total, kwh, expediente });
     return [
         saludo,
         '',
-        `Ya tenemos el ahorro verificado del expediente *${expediente || ''}*${quien}. Como sois una empresa, para pagaros la ayuda necesitamos que nos emitáis una *factura por la venta del ahorro energético* a nombre de:`,
+        intro,
         '',
-        `*${BROKERGY_EMISOR.razonSocial}*`,
-        `CIF ${BROKERGY_EMISOR.cif} · ${BROKERGY_EMISOR.direccion}, ${BROKERGY_EMISOR.cp} ${BROKERGY_EMISOR.municipio} (${BROKERGY_EMISOR.provincia})`,
+        'Estos son los datos que tiene que llevar vuestra factura:',
         '',
-        importe,
+        textoDatosFactura(filas, { negritas: true }),
         '',
-        'Os adjunto un *modelo* ya relleno con el concepto y los importes: basta con pasarlo a vuestra factura, con vuestro número y vuestra cuenta, y mandárnosla por aquí o a info@brokergy.es. En cuanto la recibamos os hacemos la transferencia.',
+        'Os adjunto además un *modelo* ya relleno: basta con pasarlo a vuestro programa, con vuestro número de factura y vuestra cuenta.',
+        '',
+        `Cuando la tengáis, ${enlace ? 'subidla en el enlace o ' : ''}mandádnosla por aquí o a info@brokergy.es. En cuanto la recibamos, os hacemos la transferencia.`,
         '',
         ...FIRMA_COBRO,
+        ...(enlace ? ['', `👉 Sube aquí vuestra factura: ${enlace}`] : []),
     ].join('\n');
 }
 
@@ -185,6 +302,14 @@ export function avisoEquipoVenta({ accion, expediente, razonSocial, numero, tota
     }
     if (accion === 'rechazada') {
         return `⚠ ${expediente} · ${razonSocial || ''}: dice que la autofactura ${numero || ''} tiene un error: «${txt(motivo)}». Revísala en la fase 7 del lote y rehazla.`;
+    }
+    if (accion === 'elegida') {
+        return motivo === 'cliente'
+            ? `🧾 ${expediente} · ${razonSocial || ''}: en el formulario de cobro ha elegido EMITIR ÉL la factura de venta del ahorro${total ? ` (${eurEs(total)})` : ''}. Falta que la suba en su enlace.`
+            : `✍️ ${expediente} · ${razonSocial || ''}: en el formulario de cobro ha elegido la AUTOFACTURA${total ? ` (${eurEs(total)})` : ''}. Falta que acepte el acuerdo y la factura en su enlace.`;
+    }
+    if (accion === 'subida') {
+        return `📥 ${expediente} · ${razonSocial || ''}: ha SUBIDO su factura de venta del ahorro ${numero || ''} (${eurEs(total)}). Revísala en la fase 7 del lote antes de la remesa.`;
     }
     return `📝 ${expediente} · ${razonSocial || ''}: ha aceptado el acuerdo de facturación; expedida la autofactura ${numero || ''} (${eurEs(total)}), pendiente de que la acepte.`;
 }

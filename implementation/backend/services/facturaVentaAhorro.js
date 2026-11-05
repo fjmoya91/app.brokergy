@@ -141,6 +141,9 @@ function resumenFila(exp, { conImportes = false } = {}) {
         emitida_at: reg.emitida_at || null, aceptada_at: reg.aceptada_at || null,
         rechazo: reg.rechazo ? { at: reg.rechazo.at, motivo: reg.rechazo.motivo } : null,
         recibida_at: reg.recibida?.at || null, no_procede: reg.no_procede || null,
+        // Lo eligió el CLIENTE (formulario de cobro o su página), no el equipo.
+        elegido: reg.elegido?.por === 'cliente' ? { at: reg.elegido.at, origen: reg.elegido.origen } : null,
+        subida_por_cliente: reg.recibida?.por === 'cliente',
         lista: ['ACEPTADA', 'RECIBIDA', 'NO_PROCEDE'].includes(reg.estado),
         total: conImportes ? (reg.total ?? null) : null,
         neto: conImportes ? (reg.neto ?? null) : null,
@@ -163,7 +166,7 @@ async function borrador(exp, { modo = null, ivaPct = null } = {}) {
     for (const mm of ['autofactura', 'cliente']) {
         mensajes[mm] = venta.mensajeVentaAhorro({
             modo: mm, nombre: contacto.nombre, esTercero: tercero, razonSocial: d.razon,
-            total: d.total, base: d.neto, ivaPct: d.ivaPct, expediente: exp.numero_expediente, enlace,
+            total: d.total, base: d.neto, ivaPct: d.ivaPct, iva: d.iva, kwh: d.k.kwh, expediente: exp.numero_expediente, enlace,
         });
     }
     return {
@@ -216,7 +219,7 @@ async function pedir(exp, { modo, ivaPct, canales = [], tlf, email, mensaje, usu
     const contacto = cobroService.contactoCliente(exp);
     let texto = txt(mensaje) || venta.mensajeVentaAhorro({
         modo, nombre: contacto.nombre, esTercero: cobroService.esTercero(exp.clientes || {}), razonSocial: d.razon,
-        total: d.total, base: d.neto, ivaPct: d.ivaPct, expediente: exp.numero_expediente, enlace,
+        total: d.total, base: d.neto, ivaPct: d.ivaPct, iva: d.iva, kwh: d.k.kwh, expediente: exp.numero_expediente, enlace,
     });
     // El enlace se manda SIEMPRE en la autofactura, aunque se borrase al retocar.
     if (modo === 'autofactura' && !texto.includes(enlace)) texto = `${texto}\n\n👉 Revisa y acepta la factura aquí: ${enlace}`;
@@ -276,7 +279,7 @@ async function pedir(exp, { modo, ivaPct, canales = [], tlf, email, mensaje, usu
             },
         });
     }
-    return { resultados, canalesOk, enlace: modo === 'autofactura' ? enlace : null };
+    return { resultados, canalesOk, enlace };
 }
 
 // ── El PDF ──────────────────────────────────────────────────────────────────
@@ -320,31 +323,136 @@ const limpio = (t) => String(t || '').replace(/[\\/:*?"<>|]/g, '-').trim();
 const enCurso = new Set();
 
 /** La vista pública: el acuerdo, la factura (si ya está expedida) y en qué punto va. */
+/** ¿Puede todavía ELEGIR (o cambiar) cómo se hace la factura? */
+function puedeElegir(reg) {
+    if (!reg) return true;
+    if (reg.numero) return false;                                  // autofactura ya expedida: tiene número
+    return !['ACEPTADA', 'RECIBIDA', 'NO_PROCEDE'].includes(reg.estado);
+}
+
 async function vistaPublica(exp) {
     const { venta } = await modulos();
-    const reg = registroDe(exp);
-    if (!esEmpresa(exp) || !reg || reg.modo !== 'autofactura') return null;
+    if (!esEmpresa(exp)) return null;
+    const reg = registroDe(exp) || null;
+    if (reg?.estado === 'NO_PROCEDE') return null;
+    const modo = ['autofactura', 'cliente'].includes(reg?.modo) ? reg.modo : null;
     const c = await fichaCliente(exp);
+    const razon = `${c?.nombre_razon_social || ''} ${c?.apellidos || ''}`.trim();
+    const cif = txt(c?.dni).toUpperCase();
     const representante = [c?.representante_nombre, c?.representante_apellidos].filter(Boolean).join(' ');
-    const d = reg.numero ? reg : await calcular(exp, { modo: 'autofactura', ivaPct: reg.iva_pct });
+    const d = reg?.numero ? reg : await calcular(exp, { modo: modo || 'autofactura', ivaPct: reg?.iva_pct });
+    const k = reg?.numero ? null : d.k;
+    // Sin bono verificado, o sin saber aún cómo liquida la gestión, no hay cifra
+    // que enseñar: se le dice, en vez de una factura a cero.
+    const sinImporte = !reg?.numero && !!(k && bloqueo(exp, k));
     return {
         numero_expediente: exp.numero_expediente,
-        razon_social: `${c?.nombre_razon_social || ''} ${c?.apellidos || ''}`.trim(),
-        cif: txt(c?.dni).toUpperCase(),
+        razon_social: razon,
+        cif,
+        modo,
+        puede_elegir: puedeElegir(reg),
+        sin_importe: sinImporte,
         firmante: { nombre: representante, dni: txt(c?.representante_dni).toUpperCase() },
-        acuerdo: venta.textoAcuerdo({ razonSocial: `${c?.nombre_razon_social || ''} ${c?.apellidos || ''}`.trim(), cif: txt(c?.dni).toUpperCase(), representante, dniRepresentante: txt(c?.representante_dni).toUpperCase() }),
-        acuerdo_aceptado: reg.acuerdo ? { at: reg.acuerdo.at, nombre: reg.acuerdo.nombre } : null,
+        acuerdo: venta.textoAcuerdo({ razonSocial: razon, cif, representante, dniRepresentante: txt(c?.representante_dni).toUpperCase() }),
+        acuerdo_aceptado: reg?.acuerdo ? { at: reg.acuerdo.at, nombre: reg.acuerdo.nombre } : null,
         factura: {
-            numero: reg.numero || null, fecha: reg.fecha || null,
+            numero: reg?.numero || null, fecha: reg?.fecha || null,
             lineas: (d.lineas || []).map(l => ({ descripcion: l.descripcion, detalle: l.detalle, importe: l.precio })),
-            neto: d.neto, iva: d.iva, iva_pct: reg.iva_pct ?? d.ivaPct, total: d.total,
-            pdf: !!reg.numero,
+            neto: d.neto, iva: d.iva, iva_pct: reg?.iva_pct ?? d.ivaPct, total: d.total,
+            pdf: !!reg?.numero,
         },
-        estado: reg.estado,
-        aceptada: reg.aceptada_at ? { at: reg.aceptada_at, nombre: reg.aceptada_por?.nombre || null } : null,
-        rechazo: reg.estado === 'RECHAZADA' && reg.rechazo ? { at: reg.rechazo.at, motivo: reg.rechazo.motivo } : null,
+        // Si la emite él: lo que tiene que poner, campo a campo.
+        datos: sinImporte ? null : venta.datosFacturaCliente({ base: d.neto, ivaPct: reg?.iva_pct ?? d.ivaPct, iva: d.iva, total: d.total, kwh: k?.kwh ?? null, expediente: exp.numero_expediente }),
+        recibida: reg?.estado === 'RECIBIDA' ? { at: reg.recibida?.at || null, numero: reg.numero_cliente || null, total: reg.total ?? null } : null,
+        estado: reg?.estado || null,
+        aceptada: reg?.aceptada_at ? { at: reg.aceptada_at, nombre: reg.aceptada_por?.nombre || null } : null,
+        rechazo: reg?.estado === 'RECHAZADA' && reg.rechazo ? { at: reg.rechazo.at, motivo: reg.rechazo.motivo } : null,
         pagada: !!exp.documentacion?.cobro?.transferencia?.at,
     };
+}
+
+/**
+ * El CLIENTE elige cómo se hace su factura (en el formulario de cobro o en su
+ * página). Solo mientras no haya nada expedido ni recibido: una AF con número
+ * ya no se cambia a «la emito yo».
+ */
+async function elegir(exp, { modo, origen = 'pagina' } = {}) {
+    if (!esEmpresa(exp)) throw error(409, 'Este cobro no lleva factura de venta.');
+    if (!['autofactura', 'cliente'].includes(modo)) throw error(400, 'Elige una de las dos opciones.');
+    const reg = registroDe(exp) || {};
+    if (!puedeElegir(reg)) {
+        if (reg.modo === modo) return reg;
+        throw error(409, reg.numero ? `La factura ${reg.numero} ya está expedida: ya no se puede cambiar de opción.` : 'La factura ya está resuelta: ya no se puede cambiar de opción.');
+    }
+    const ahora = new Date().toISOString();
+    const nuevo = {
+        ...reg, modo, estado: reg.estado === 'RECHAZADA' ? reg.estado : 'PEDIDA',
+        elegido: { at: ahora, por: 'cliente', origen, modo },
+        pedida_at: reg.pedida_at || ahora,
+    };
+    await cobroService.sellar(exp.id, { factura_venta: nuevo });
+    return nuevo;
+}
+
+/**
+ * Al CONFIRMAR EL COBRO una empresa: guarda la opción que eligió, avisa al
+ * equipo y —con FACTURA_VENTA_ENVIO_AUTO=true— le manda por WhatsApp y email lo
+ * suyo (el enlace de la autofactura, o los datos y el modelo). Apagado, el
+ * equipo lo manda desde el popup de la fase 7; el formulario ya le enseña todo
+ * en pantalla al terminar.
+ */
+async function alConfirmarCobro(exp, { avisar = true } = {}) {
+    if (!esEmpresa(exp)) return null;
+    const modo = exp.documentacion?.cobro?.respuestas?.factura_venta;
+    if (!['autofactura', 'cliente'].includes(modo)) return null;
+    const { venta } = await modulos();
+    let reg;
+    try { reg = await elegir(exp, { modo, origen: 'formulario' }); }
+    catch (e) { console.warn('[factura venta] elegir:', e.message); return null; }
+    const fresco = await cobroService.cargarExpediente(exp.id);
+    const d = await calcular(fresco, { modo, ivaPct: reg.iva_pct });
+    const motivo = bloqueo(fresco, d.k);
+    if (avisar) await avisarEquipo(venta.avisoEquipoVenta({ accion: 'elegida', motivo: modo, expediente: exp.numero_expediente, razonSocial: d.razon, total: motivo ? null : d.total }),
+        `${exp.numero_expediente}: factura de venta, ha elegido ${modo === 'cliente' ? 'emitirla él' : 'la autofactura'}`);
+    if (process.env.FACTURA_VENTA_ENVIO_AUTO !== 'true' || motivo) return { reg, enviado: false };
+    const contacto = cobroService.contactoCliente(fresco);
+    try {
+        const r = await pedir(fresco, { modo, ivaPct: reg.iva_pct, canales: ['whatsapp', 'email'], tlf: contacto.tlf, email: contacto.email, usuario: 'automatico' });
+        return { reg, enviado: r.canalesOk };
+    } catch (e) {
+        console.warn('[factura venta] envío automático:', e.message);
+        return { reg, enviado: false };
+    }
+}
+
+/**
+ * La pregunta del FORMULARIO DE COBRO para una empresa (o null): ¿quién hace la
+ * factura? No sale si ya hay una factura expedida, recibida o «no procede».
+ */
+async function bloqueFormulario(exp) {
+    if (!esEmpresa(exp)) return null;
+    const reg = registroDe(exp);
+    if (!puedeElegir(reg)) return null;
+    const { venta } = await modulos();
+    const b = venta.bloqueFacturaVenta({ ivaPct: reg?.iva_pct ?? venta.IVA_VENTA_DEFECTO });
+    return { ...b, valor: exp.documentacion?.cobro?.respuestas?.factura_venta ?? reg?.modo ?? null, heredado: false };
+}
+
+/** Él SUBE su factura desde su página (camino «la emito yo»). */
+async function subirFacturaCliente(exp, { buffer, mimetype, nombreFichero, numero, total, ip = null } = {}) {
+    const { venta } = await modulos();
+    const reg = registroDe(exp) || {};
+    if (reg.modo !== 'cliente') throw error(409, 'Primero elige «La emito yo».');
+    if (['ACEPTADA', 'RECIBIDA'].includes(reg.estado)) throw error(409, 'Ya tenemos vuestra factura.');
+    if (txt(numero).length < 1) throw error(400, 'Escribe el número de vuestra factura.');
+    const nuevo = await registrarRecibida(exp, { buffer, mimetype, nombreFichero, numero, total, usuario: 'cliente' });
+    nuevo.recibida = { ...nuevo.recibida, por: 'cliente', ip };
+    await cobroService.sellar(exp.id, { factura_venta: nuevo });
+    const c = await fichaCliente(exp);
+    await avisarEquipo(venta.avisoEquipoVenta({ accion: 'subida', expediente: exp.numero_expediente, razonSocial: `${c?.nombre_razon_social || ''} ${c?.apellidos || ''}`.trim(), numero: txt(numero), total: nuevo.total })
+        + (nuevo.descuadre ? `\n⚠ No cuadra con lo calculado: esperábamos ${nuevo.descuadre.esperado} € y su factura dice ${nuevo.descuadre.recibido} €.` : ''),
+        `${exp.numero_expediente}: ha subido su factura de venta del ahorro`);
+    return nuevo;
 }
 
 const firmanteValido = ({ nombre, dni } = {}) => txt(nombre).length >= 5 && /^[A-Z0-9]{8,10}$/i.test(txt(dni).replace(/[\s.-]/g, ''));
@@ -465,7 +573,7 @@ async function registrarRecibida(exp, { buffer, mimetype, nombreFichero, numero,
     if (!buffer?.length) throw error(400, 'Falta el PDF de su factura.');
     if (!/pdf/i.test(mimetype || '') && !/\.pdf$/i.test(nombreFichero || '')) throw error(400, 'La factura tiene que ser un PDF.');
     if (exp.documentacion?.cobro?.remesa) throw error(409, 'Ya está en una remesa SEPA.');
-    const imp = Number(String(total ?? '').replace(/\./g, '').replace(',', '.'));
+    const imp = (await modulos()).venta.leerImporte(total);
     if (!(imp > 0)) throw error(400, 'Indica el TOTAL de su factura (IVA incluido): es lo que se le transfiere.');
     const reg = registroDe(exp) || {};
     const d = await calcular(exp, { modo: 'cliente', ivaPct: reg.iva_pct });
@@ -498,6 +606,7 @@ async function marcarNoProcede(exp, { noProcede = true, motivo, usuario = null }
 /** El PDF de la autofactura (o el modelo, si aún no hay número). */
 async function pdfDe(exp, { modelo = false } = {}) {
     const reg = registroDe(exp) || {};
+    if (reg.modo === 'cliente' && !reg.numero) modelo = true;
     if (!modelo && reg.pdf?.driveId) {
         const buf = await require('./driveService').getFileContent(reg.pdf.driveId).catch(() => null);
         if (buf?.length) return { buffer: buf, filename: reg.pdf.nombre };
@@ -529,7 +638,7 @@ function paraRemesa(exp) {
 }
 
 module.exports = {
-    esEmpresa, borrador, pedir, vistaPublica, aceptarAcuerdo, responderFactura, rehacer,
+    esEmpresa, borrador, pedir, vistaPublica, elegir, alConfirmarCobro, bloqueFormulario, subirFacturaCliente, aceptarAcuerdo, responderFactura, rehacer,
     registrarRecibida, marcarNoProcede, pdfDe, paraRemesa, resumenFila, enlaceVenta,
     _internos: { calcular, bloqueo, numerosDelCif },
 };

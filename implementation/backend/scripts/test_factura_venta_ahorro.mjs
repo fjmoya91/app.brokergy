@@ -45,6 +45,24 @@ ok(!/\d{1,2} de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|oc
 const mC = v.mensajeVentaAhorro({ modo: 'cliente', total: 9820, base: 8115.7, ivaPct: 21, expediente: 'X' });
 ok(/B19350222/.test(mC) && /modelo/.test(mC), 'cliente: a nombre de quién y el modelo');
 
+console.log('Las dos opciones, explicadas (formulario de cobro y su página)');
+const bq = v.bloqueFacturaVenta();
+ok(bq.id === 'factura_venta' && bq.obligatorio && bq.opciones.map(o => o.value).join() === 'autofactura,cliente', 'la pregunta: obligatoria, autofactura o «la emito yo»');
+ok(bq.opciones[0].recomendada && /aceptar un acuerdo/.test(bq.opciones[0].sub), 'la autofactura va recomendada y dice qué tiene que hacer');
+ok(bq.explicacion.autofactura.length === 4 && /art\. 5/.test(bq.explicacion.autofactura[0].texto) && /gestoría/.test(bq.explicacion.autofactura[3].texto), 'se explica en 4 pasos: base legal … y que la registre su gestoría');
+ok(/vendéis el ahorro/.test(bq.ayuda), 'y por qué una empresa tiene que facturar');
+const filas = v.datosFacturaCliente({ base: 8115.7, ivaPct: 21, kwh: 81157, expediente: '26RES080_60' });
+const dato = (c) => filas.find(f => f.campo.startsWith(c))?.valor;
+ok(dato('A nombre') === 'SOLUCIONES SOSTENIBLES PARA EFICIENCIA ENERGÉTICA, SL' && dato('CIF') === 'B19350222', 'los datos: a nombre de quién y su CIF');
+ok((dato('Base').replace(/\s/g, ' ') === '8.115,70 €' && dato('IVA').replace(/\s/g, ' ') === '1.704,30 €' && dato('Total').replace(/\s/g, ' ') === '9.820,00 €'), 'base, IVA y total cuadran (9.820,00 €)');
+ok(/26RES080_60/.test(dato('Concepto')) && /81\.157 kWh/.test(dato('Concepto')), 'el concepto lleva el expediente y los kWh');
+const mC2 = v.mensajeVentaAhorro({ modo: 'cliente', total: 9820, base: 8115.7, ivaPct: 21, iva: 1704.3, kwh: 81157, expediente: '26RES080_60', enlace });
+ok(/\*Base imponible:\* 8\.115,70\s€/.test(mC2) && /\*Total:\* 9\.820,00\s€/.test(mC2) && /Dirección/.test(mC2), 'el WhatsApp de «la emito yo» lleva los DATOS escritos, campo a campo');
+ok(mC2.trim().endsWith(enlace) && /Sube aquí/.test(mC2), 'y el enlace para subirla, al final');
+ok(/autofactura/.test(mA) && /gestoría/.test(mA) && /1\. Aceptáis el acuerdo/.test(mA), 'el de la autofactura explica qué es y los pasos');
+ok(!/💶/.test(mA + mC2), 'sin el emoji del importe (solo el 👉 del enlace, como el cobro)');
+ok(v.leerImporte('9.820,00') === 9820 && v.leerImporte('9820.00') === 9820 && v.leerImporte('9820,5') === 9820.5 && v.leerImporte('') === null, 'el total que escribe: «9.820,00», «9820.00»…');
+
 console.log('¿Entra en la remesa?');
 const fv = require('../services/facturaVentaAhorro.js');
 const exp = (es_empresa, factura_venta) => ({ clientes: { es_empresa }, documentacion: { cobro: { factura_venta } } });

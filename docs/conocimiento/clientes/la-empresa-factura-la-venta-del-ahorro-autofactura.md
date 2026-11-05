@@ -39,6 +39,33 @@ le remite cada una para que la acepte. Además: **serie específica** (art. 6.1.
 3. **No procede.** Entidad sin actividad empresarial (p. ej. una comunidad de propietarios): con su motivo,
    se le paga como a un particular.
 
+### Lo ELIGE la empresa, en el formulario del cobro (2026-11-05)
+
+Fran, 05/11/2026: «cuando se le envía al cliente el formulario, se le dan dos opciones: hazme una
+autofactura, y se le explica todo, y entonces ya tiene que rellenar que está de acuerdo; o yo te emito la
+factura, y entonces se le envían los datos que debe poner. Se le debe explicar bien al cliente.»
+
+- El formulario `/cobro/:id` de una EMPRESA lleva una pregunta más, **obligatoria**: «¿Quién hace la
+  factura?» (`bloqueFacturaVenta`, la añade `bloqueFormulario` del servicio en `buildVista`; demo:
+  `/cobro/demo?empresa`). Dice antes POR QUÉ una empresa factura (vende el ahorro; no cambia lo que cobra) y,
+  al elegir, NO avanza sola: enseña los pasos de esa opción (`PASOS_AUTOFACTURA`, 4: la hacemos nosotros —
+  art. 5, como las eléctricas—, el acuerdo una sola vez, la revisáis y la aceptáis con su serie AF, y la
+  registra su gestoría como emitida; `PASOS_CLIENTE`, 3) y sigue con «Continuar».
+- Al confirmar, la pantalla final dice lo que va a recibir CON IVA y el **último paso**: autofactura → botón
+  a `/factura-ahorro` para aceptar el acuerdo y la factura; «la emito yo» → los DATOS campo a campo (a nombre
+  de, CIF, dirección, concepto con expediente y kWh, base, IVA, total, forma de pago), «Copiar los datos» y
+  el enlace para subirla y ver el modelo.
+- La elección se sella en `factura_venta.modo` + `elegido {at, por:'cliente', origen, modo}` (`elegir`) y el
+  aviso al equipo la dice. Si `FACTURA_VENTA_ENVIO_AUTO=true`, además sale sola la petición (WhatsApp +
+  email al contacto del cliente, `mensajeVentaAhorro` con los datos escritos o la explicación de la
+  autofactura y el enlace al final). **Nace APAGADO** (como la carta de pago): sin él, los datos ya los ve en
+  pantalla y el equipo manda el mensaje desde el popup.
+- En `/factura-ahorro` también puede elegir (si no lo hizo), cambiar de opción mientras no haya nada
+  expedido (`puedeElegir`) y, en «la emito yo», **subir él su factura** (PDF, nº y total; el total admite
+  «9.820,00» o «9820.00», `leerImporte`): queda RECIBIDA con `por: 'cliente'` y al equipo le llega el aviso,
+  con una línea si el total no cuadra. Rutas públicas nuevas: `POST /api/public/factura-ahorro/:expId/elegir`
+  y `…/subir` (multipart `factura`), las dos con el token del cobro.
+
 **REGLA — la empresa se reconoce por la FICHA (`clientes.es_empresa`)**, la misma marca que cambia el
 Cedente del Convenio y el Anexo I. Un particular no ve nada de esto.
 

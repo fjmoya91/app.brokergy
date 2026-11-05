@@ -232,10 +232,14 @@ async function buildVista(exp) {
     const cobro = exp?.documentacion?.cobro || {};
     const cliente = datosCliente(exp);
     const justificante = tieneJustificante(exp);
+    // Una EMPRESA vende el ahorro: la última pregunta es quién hace su factura
+    // (regla 194). Va DESPUÉS de la forma de pago, que fija la base.
+    const bloqueVenta = await require('./facturaVentaAhorro').bloqueFormulario(exp);
     return {
         numero_expediente: exp.numero_expediente,
         saludo: primerNombre(exp),
-        bloques: bloquesPara(ctx),
+        bloques: [...bloquesPara(ctx), ...(bloqueVenta ? [bloqueVenta] : [])],
+        es_empresa: !!exp?.clientes?.es_empresa,
         cliente,
         justificante_subido: justificante,
         // REGLA — sin cuenta en la ficha y sin justificante en el expediente, la
@@ -303,7 +307,8 @@ async function resumenRespuestas(exp) {
     const cobro = exp?.documentacion?.cobro || {};
     const r = cobro.respuestas || {};
     const ctx = await contextoDe(exp);
-    const lineas = Object.keys(r)
+    // La factura de venta (empresas) no es venta cruzada: va en su propia línea del aviso.
+    const lineas = Object.keys(r).filter(k => k !== 'factura_venta')
         .map(k => etiquetaRespuesta(k, r[k], ctx.costeGestion))
         .filter(Boolean);
     return {

@@ -373,7 +373,9 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                     <p className="sm:col-span-2 text-[10px] text-white/55 flex items-center gap-1.5 flex-wrap mt-0.5">
                                         <span className={`px-1.5 py-0.5 rounded-md border ${f.factura_venta?.lista ? 'border-emerald-400/30 text-emerald-300'
                                             : f.factura_venta?.estado === 'RECHAZADA' ? 'border-amber-400/45 text-amber-200' : 'border-sky-400/35 text-sky-200'}`}>
-                                            🏢 Empresa · {f.factura_venta?.estado ? (ESTADOS_VENTA[f.factura_venta.estado] || f.factura_venta.estado) : 'falta su factura de venta del ahorro'}
+                                            🏢 Empresa · {f.factura_venta?.estado === 'PEDIDA' && f.factura_venta?.elegido
+                                                ? (f.factura_venta.modo === 'cliente' ? 'eligió emitirla él: falta que la suba' : 'eligió autofactura: falta que la acepte')
+                                                : f.factura_venta?.estado ? (ESTADOS_VENTA[f.factura_venta.estado] || f.factura_venta.estado) : 'falta su factura de venta del ahorro'}
                                             {f.factura_venta?.numero ? ` · ${f.factura_venta.numero}` : ''}
                                             {f.factura_venta?.total != null && f.factura_venta?.estado !== 'NO_PROCEDE' ? ` · ${eur(f.factura_venta.total)}` : ''}
                                         </span>
