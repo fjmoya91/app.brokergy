@@ -1413,7 +1413,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                     <p style="margin:0 0 5px;"><b>(2)</b> Según ficha técnica del fabricante y/o cálculos realizados según anexos III y IV de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</p>
                     ${(acsSeActua && !acsEsTermo) ? `<p style="margin:0 0 5px;"><b>(3)</b> Según ficha técnica del fabricante y/o cálculos realizados según anexos III, V y VI de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</p>` : ''}
                     ${(acsEsTermo || acsTermoFuera) ? `<p style="margin:0 0 5px;"><b>(3)</b> El equipo de ACS produce el agua caliente por efecto Joule (resistencia eléctrica): su rendimiento es 1 por definición y no procede el cálculo de un rendimiento estacional (SCOP).</p>` : ''}
-                    <p style="margin:0;">La duración indicativa de la actuación (Di) es de 15 años según Recomendación (UE) 2019/1658. Se adjuntan las fichas técnicas de los nuevos equipos instalados.</p>
+                    <p style="margin:0;">La duración indicativa de la actuación (Di) es de 25 años según Recomendación (UE) 2019/1658. Se adjuntan las fichas técnicas de los nuevos equipos instalados.</p>
                 `)}
 
                 ${footer}

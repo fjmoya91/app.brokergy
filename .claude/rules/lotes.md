@@ -46,6 +46,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/lotes/armar-el-lote-propuestas-por-antiguedad-y-por-instalador.md` — Armar el lote: filtro por instalador y PROPUESTAS por antigüedad y por instalador (2026-10-27) · 5,7 KB
+- `docs/conocimiento/lotes/auditar-los-cee-res060-frente-a-res080.md` — Auditar los CEE de un RES060 frente a un RES080: qué cuenta y qué no (2026-11-01) · 5,0 KB
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15) · 2,1 KB
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md` — El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08) · 15,5 KB
@@ -54,7 +55,7 @@ paths:
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09) · 14,3 KB
 - `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md` — La «Vista S.O.»: su obligación del año y cómo vamos con ella (2026-10-28) · 10,9 KB
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01) · 9,3 KB
-- `docs/conocimiento/lotes/las-inexactitudes-del-verificador-se-registran-y-la-respuesta-se-arma-sola.md` — Las INEXACTITUDES del verificador se registran solas, y la RESPUESTA se arma al subsanar (2026-10-22) · 10,7 KB
+- `docs/conocimiento/lotes/las-inexactitudes-del-verificador-se-registran-y-la-respuesta-se-arma-sola.md` — Las INEXACTITUDES del verificador se registran solas, y la RESPUESTA se arma al subsanar (2026-10-22) · 11,1 KB
 - `docs/conocimiento/lotes/las-tarifas-del-verificador-en-su-ficha.md` — Las TARIFAS del verificador, en su ficha (2026-09-14) · 3,7 KB
 - `docs/conocimiento/lotes/los-firmados-del-so-llegan-por-correo-y-se-registran-solos.md` — Los FIRMADOS del S.O. llegan por CORREO y se registran solos (2026-10-19) · 6,5 KB
 - `docs/conocimiento/lotes/pedirle-cosas-al-sujeto-obligado-desde-el-cuadro-de-mando.md` — Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01 · ofertas 2026-09-10) · 9,3 KB
@@ -75,6 +76,12 @@ esperando.**
 abiertas, que solo se avisan.**
   - **REGLA — con kWh, la primera propuesta es «los de más MWh» de cada año + CCAA, y si el lote
 tiene S.O. con algo que cubrir se titula «Para cubrir a {S.O.}».**
+- `docs/conocimiento/lotes/auditar-los-cee-res060-frente-a-res080.md`
+  - **REGLA — en un RES060, el CEE final NO se cambia aunque no coincida con los cálculos del CIFO.**
+  - **REGLA — lo que tiene que ser anterior al inicio de la obra es la VISITA y la FIRMA del CEE inicial, no
+su REGISTRO.**
+  - **REGLA — que la ficha esté sin generar o sin firmar no es un defecto del expediente y no se
+lista**
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md`
   - **REGLA — un fallo de red de Marwen se dice con su nombre, y dice si se ha creado algo.**
   - **REGLA — tras un 504 NO se reintenta a ciegas.**

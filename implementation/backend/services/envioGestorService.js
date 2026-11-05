@@ -338,8 +338,13 @@ async function resolverPieza(pieza, ctx) {
             }
             case 'lote_doc': {
                 const d = (docsSo || []).find(x => x && x.key === pieza.key);
-                // El firmado si lo hay; si no, el borrador (el dictamen no se firma).
-                const id = driveIdDe(d?.signed_link) || driveIdDe(d?.draft_link) || d?.signed_file_id || d?.draft_file_id;
+                const firmado = driveIdDe(d?.signed_link) || d?.signed_file_id;
+                // Una pieza «_fdo» (el Anexo I del lote) es SOLO el firmado: caer al borrador
+                // metía el Anexo I sin firmar con nombre de firmado en las E{n} y sus ZIP
+                // (LOTE-2025-012 el 22/10 y LOTE-2026-016 el 05/11/2026). El dictamen y el
+                // informe no se firman: esos sí salen del borrador.
+                if (/_fdo$/i.test(pieza.nombre || '')) return firmado ? { fileId: firmado } : null;
+                const id = firmado || driveIdDe(d?.draft_link) || d?.draft_file_id;
                 return id ? { fileId: id } : null;
             }
             case 'ficha_res': {

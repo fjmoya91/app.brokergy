@@ -79,7 +79,11 @@ Aplicado el 22/10/2026 en LOTE-2025-012… **mal**: la `_rev2_fdo` que se puso e
 `2. Anexo I LOTE-2025-012_rev2.pdf`, cero firmas; la `_fdo` firmada quedó en OLD). La pieza
 `1-1` cae al `draft_link` cuando no hay firmado, y el reenvío por requerimiento borra el
 `signed_link`. **REGLA — al paquete solo va el Anexo I FIRMADO** (`colocarAnexoILote`, que
-resuelve la pieza sin el borrador). Y con el mismo nombre no basta para darlo por puesto: se
+resuelve la pieza sin el borrador). Desde el 05/11/2026 también al montar el paquete normal:
+`construirPaquete` resolvía cualquier `lote_doc` cayendo al borrador, y en LOTE-2026-016 dejó el
+Anexo I a falta de la firma de Brokergy como `E{n}-1-1 … _fdo` en E1–E6 y en sus ZIP. Ahora una pieza
+cuyo nombre acaba en `_fdo` sale SOLO del firmado; sin él, la pieza FALTA y el ZIP no se arma
+(el dictamen y el informe, que no se firman, siguen saliendo del borrador). Y con el mismo nombre no basta para darlo por puesto: se
 compara el md5, para que el firmado que llegue sustituya a esa copia.
 
 **REGLA — solo se copia lo que es DISTINTO de lo que ya vio el verificador**, y se
