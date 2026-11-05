@@ -21,7 +21,7 @@ a ninguno.
 | Petición | Qué manda | Cuándo se ofrece |
 |---|---|---|
 | `firma_ofertas` | Las ofertas de verificación, **para que las firme** | El lote no ha pasado de `PTE. FIRMA OFERTA S.O.`, tiene la oferta subida y **sin** `signed_link` |
-| `facturas_cae` | **Nuestras** facturas de los CAE emitidos, para que las pague (2026-11-05) | El lote tiene el certificado CAE y su factura en `facturas_so` generada (nº + PDF) y sin cobrar |
+| `facturas_cae` | **Nuestras** facturas de los CAE emitidos, para que las pague (2026-11-05) | El lote tiene el certificado CAE y su factura en `facturas_so` generada (nº + PDF) y sin cobrar, **o se puede generar** desde el certificado y la oferta (`porGenerar`) |
 | `pago_verificacion` | Las facturas del verificador, para que las pague | El lote **ya está verificado** (tiene informe o dictamen), tiene la factura y sin `pagado_at` |
 
 ### Nuestras facturas de los CAE, todas de una vez (2026-11-05)
@@ -52,9 +52,36 @@ devuelve una petición por S.O., cada una con su acrónimo en el botón y su pro
 «CAE EMITIDO – PTE PAGO BROKERGY»). Un lote anterior a la app que ya pasó a pagar a los clientes
 se cobró fuera de aquí. Nombrarlo como «sin factura» es el aviso que enseña a ignorar la lista.
 
-Las facturas tienen que existir antes: «Generar y guardar» en cada lote asigna el número y la
-archiva en contabilidad (regla 104). El botón no las genera: sin ninguna generada no aparece.
-`test_peticiones_so.mjs --simular-facturas` las inventa en memoria para ver el correo antes.
+### Generarlas y enviarlas desde el mismo botón (2026-11-05)
+
+Fran, el mismo día, al ver que el botón no salía hasta tener las cinco generadas a mano: «¿pero no
+hay un botón para generar las 5 a la vez y enviarlas?». Ahora un lote con los CAE emitidos y sin
+factura que se puede sacar sola va a `porGenerar`, y el botón pasa a «Generar y enviar nuestras
+facturas de CAE a {S.O.} · total». El popup abre primero `GenerarFacturasCae` (en
+[PedirAlSoModal.jsx](../../../implementation/frontend/src/features/lotes/components/PedirAlSoModal.jsx)).
+
+`borradorFacturaCae` (en `peticionesSo.js`) rellena lo mismo que `FacturaSoModal` al abrirse: los
+códigos y el nº de CAE del certificado, el precio de la oferta del lote, la fecha de hoy y el
+vencimiento a 30 días. Lo ya escrito en el borrador de `facturas_so` manda. Cada factura sale por la
+misma ruta que «Generar y guardar» (`POST /api/lotes/:id/factura-so`): PDF en la carpeta del lote,
+copia en contabilidad (regla 104) y fila EMITIDA. Los importes salen de `facturaSoImportes.js`, que
+también usa `facturaSoHtml.js`, para que el redondeo sea el mismo.
+
+**REGLA — se enseñan ANTES de generarlas, y generarlas no envía nada.** Una factura emitida tiene
+número y va a contabilidad. Por eso el popup enseña lote a lote las unidades, el €/MWh, el rango de
+códigos y el total, y el número desde el que se numeran. Solo con «Generar las N facturas y seguir»
+se generan. Después viene el correo de siempre, con ellas adjuntas, para revisarlo y enviarlo.
+
+**REGLA — el número se pide al servidor justo antes de cada una**: el siguiente F-{año}CAE_n libre,
+o el que ya tuviera su borrador. La ruta rechaza un número repetido. Si una falla, se para ahí: las
+anteriores quedan generadas, se dice cuáles y se puede seguir al correo solo con ellas.
+
+**REGLA — lo que no se puede sacar sin mirar se queda FUERA, diciendo qué falta.** Son los lotes sin
+los códigos del certificado, sin precio (oferta del lote) o con un rango que no cuadra con las
+unidades: se generan a mano en su lote.
+
+`test_peticiones_so.mjs --simular-facturas` hace en memoria lo mismo que el popup (con
+`borradorFacturaCae`) y enseña el correo que saldría.
 
 **REGLA — el ORDEN es de prioridad, y se pintan TODAS las aplicables.** La firma va
 primero porque bloquea el ARRANQUE de la verificación; el pago se reclama con el

@@ -19,7 +19,7 @@ const require = createRequire(import.meta.url);
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const supabase = require('../services/supabaseClient');
 
-const { peticionesAplicables, peticionesDisponibles } = await import(
+const { peticionesAplicables, peticionesDisponibles, borradorFacturaCae } = await import(
     pathToFileURL(path.join(__dirname, '../../frontend/src/features/lotes/logic/peticionesSo.js')).href);
 
 const estado = process.argv.slice(2).find(a => !a.startsWith('--')) || null;
@@ -70,27 +70,24 @@ if (process.argv.includes('--simular-ofertas')) {
     console.log('  (simulando la oferta subida en los lotes de PTE. OFERTA VERIFICADOR)');
 }
 
-// --simular-facturas: genera EN MEMORIA nuestra factura de los lotes con los CAE
-// emitidos que aún no la tienen (unidades = CAE del certificado, precio = la oferta
-// del lote), para ver el correo de «nuestras facturas» antes de generar ninguna.
+// --simular-facturas: hace EN MEMORIA lo que hace el popup con «Generar las N
+// facturas»: con `borradorFacturaCae` (el MISMO cálculo), genera nuestra factura de
+// los lotes que la tienen POR GENERAR, para ver el correo antes de generar ninguna.
 // No escribe nada y no asigna números de verdad.
 if (process.argv.includes('--simular-facturas')) {
+    const porGenerar = peticionesDisponibles(lotes, { ahorroGwh: 0, ahorroSoTotal: 0 })
+        .filter(p => p.id === 'facturas_cae').flatMap(p => p.porGenerar || []);
     let n = 0;
-    for (const l of lotes) {
-        const cae = (l.documentos_so || []).find(d => d?.key === 'certificado_cae')?.cae;
-        // Solo los que AÚN esperan el pago del S.O.: uno de antes de la app ya pasado a
-        // pagar a los clientes no tiene ni tendrá factura aquí.
-        if (l.estado !== 'CAE EMITIDO – PTE PAGO BROKERGY') continue;
-        if (!cae?.total || l.factura_so?.numero || l.oferta_lote == null) continue;
-        const base = Math.round(Number(cae.total) * Number(l.oferta_lote) / 1000 * 100) / 100;
-        const iva = Math.round(base * 0.21 * 100) / 100;
+    for (const { lote: l, borrador: b } of porGenerar) {
+        console.log(`  · por generar ${l.codigo}: ${b.unidadesKwh} CAE × ${b.precioKwh} €/kWh = ${b.total} € con IVA (${b.caeInicial} → ${b.caeFinal})`);
         l.factura_so = {
-            numero: `F-SIMULADA_${++n}`, unidades_kwh: Number(cae.total), precio_kwh: Number(l.oferta_lote) / 1000,
-            base, iva, total: base + iva, cae_inicial: cae.cae_inicial, cae_final: cae.cae_final,
+            ...(l.factura_so || {}),
+            numero: b.numero || `F-SIMULADA_${++n}`, unidades_kwh: b.unidadesKwh, precio_kwh: b.precioKwh,
+            base: b.base, iva: b.iva, total: b.total, cae_inicial: b.caeInicial, cae_final: b.caeFinal,
             estado: 'EMITIDA', drive_file_id: 'SIMULADO',
         };
     }
-    console.log(`  (simulando ${n} factura${n === 1 ? '' : 's'} nuestra${n === 1 ? '' : 's'} en los lotes con los CAE emitidos)`);
+    console.log(`  (simulando ${porGenerar.length} factura${porGenerar.length === 1 ? '' : 's'} generada${porGenerar.length === 1 ? '' : 's'} desde el popup)`);
 }
 
 // El enlace del panel de cada S.O. (`app_settings`, `enlace_so:{id}`), para el correo
@@ -115,6 +112,7 @@ for (const p of todas) {
     if (p.nota) console.log(`   nota:   ${p.nota}`);
     console.log(`   adjunta ${p.docs.length}:`);
     p.docs.forEach(d => console.log(`      · ${d.label}${d.detail ? `  (${d.detail})` : ''}`));
+    if (p.porGenerar?.length) console.log(`   por generar ${p.porGenerar.length}: ${p.porGenerar.map(x => `${x.lote.codigo} (${x.borrador.total} €)`).join(', ')}`);
     if (p.fuera) console.log(`   ⚠ fuera: ${p.fuera.resumen} — ${p.fuera.aviso}`);
     console.log('   ── mensaje ──');
     // --precios=1450,1200,... simula los importes que se teclearían en el popup,
@@ -122,7 +120,7 @@ for (const p of todas) {
     const sim = (process.argv.find(a => a.startsWith('--precios=')) || '').split('=')[1];
     const precios = {};
     if (sim && p.lotes) sim.split(',').forEach((v, i) => { if (p.lotes[i]) precios[p.lotes[i].lote.id] = Number(v); });
-    const enlacePanel = p.conEnlacePanel ? (enlaces[p.lotes?.[0]?.lote?.sujeto_obligado_id] || null) : null;
+    const enlacePanel = p.conEnlacePanel ? (enlaces[p.lotes?.[0]?.lote?.sujeto_obligado_id || p.todosLotes?.[0]?.sujeto_obligado_id] || null) : null;
     if (p.conEnlacePanel && !enlacePanel) console.log('   ⚠ el S.O. no tiene enlace a su panel: el correo sale sin él');
     console.log(p.mensaje({ saludo: 'Buenos días Jesús,', precios, enlacePanel }).split('\n').map(x => `   ${x}`).join('\n'));
 }
