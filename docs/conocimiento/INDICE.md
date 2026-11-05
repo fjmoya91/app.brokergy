@@ -29,7 +29,7 @@
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 35,2 KB | 15 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 21,0 KB | 9 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,4 KB | 10 |
-| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 21,9 KB | 8 |
+| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 24,1 KB | 9 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,4 KB | 1 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,4 KB | 6 |
@@ -276,6 +276,7 @@
 - **194** → `.claude/rules/clientes.md` — Un cliente EMPRESA (`clientes.es_empresa`) VENDE el ahorro: no cobra sin su FACTURA de venta
 - **195** → `.claude/rules/expedientes.md` — En el LISTADO, un expediente completo que ya está en un lote se ENSEÑA como «EN LOTE», con el lote debajo; e…
 - **196** → `.claude/rules/expedientes.md` — Pasar a DOC. COMPLETA es haberlo VALIDADO TODO: primero el ✓ de cada documento firmado, después el estado
+- **197** → `.claude/rules/propuesta.md` — «Perfil exigente» (`inputs.condicionesReforzadas`, solo ADMIN): el compromiso de cesión en exclusiva se cier…
 
 ## Documentos por área
 
@@ -613,6 +614,7 @@
 ### propuesta
 
 - `docs/conocimiento/propuesta/biomasa-la-deduccion-del-irpf-exige-placas-solares.md` — Caldera de BIOMASA: la deducción del IRPF exige placas solares; el CAE no (2026-10-10)
+- `docs/conocimiento/propuesta/condiciones-reforzadas-perfil-exigente.md` — Condiciones reforzadas: el «Perfil exigente» (2026-11-05)
 - `docs/conocimiento/propuesta/enviada-con-cualquier-envio-y-a-quien-le-ha-llegado.md` — ENVIADA con cualquier envío, y la lista dice A QUIÉN le ha llegado (2026-10-14)
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01)
 - `docs/conocimiento/propuesta/la-colaboracion-y-el-coste-de-los-servicios.md` — La colaboración se ve en la portada, y el coste de los servicios es UNO (2026-10-22)

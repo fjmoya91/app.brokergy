@@ -330,6 +330,11 @@ router.get('/cliente/:id', async (req, res) => {
             // Qué versión firmó, si ya está aceptada. Puede ser ANTERIOR a la
             // vigente: se le reenvió una revisión después de aceptar.
             propuesta_version_aceptada: acceptanceEntry?.propuesta_version || null,
+            // «Perfil exigente»: el compromiso de cesión en exclusiva y la cifra de la
+            // compensación SELLADOS en la versión que tiene delante (utils/importesPropuesta.js).
+            // Una propuesta enviada antes de activarlo no los lleva: se acepta lo que se envió.
+            condiciones_reforzadas: vProp?.importes?.reforzadas
+                ? { ...vProp.importes.reforzadas, tarifa: 702.78 } : null,
             // El cliente aportó un CEE inicial → la firma ofrecerá elegir usarlo o hacer uno nuevo.
             cee_aportado: !!(opp.datos_calculo?.cee_previo || opp.datos_calculo?.inputs?.cee_previo),
             cee_decision: opp.datos_calculo?.cee_decision || null,
@@ -414,6 +419,16 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
             clienteData.tlf = formFields.telefono;
         }
 
+
+        // «Perfil exigente»: sin la casilla del compromiso se para AQUÍ, antes de
+        // tocar la ficha del cliente (más abajo se sella; ver `reforzadasVigentes`).
+        {
+            const vig = require('../services/propuestaVersiones').vigente(opp.datos_calculo);
+            if (vig?.importes?.reforzadas && (opp.datos_calculo?.estado || 'BORRADOR') !== 'ACEPTADA'
+                && formFields.compromiso_exclusiva !== 'si') {
+                return res.status(400).json({ error: 'Falta marcar la casilla del compromiso de cesión en exclusiva.' });
+            }
+        }
 
         // 1. Si no hay id_cliente en la oportunidad, buscamos si ya existe alguien con este DNI
         if (!id_cliente && clienteData.dni) {
@@ -527,6 +542,16 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
         const condicionesVersion = /^[\w.-]{1,20}$/.test(String(formFields.condiciones_version || ''))
             ? String(formFields.condiciones_version) : null;
 
+        // «Perfil exigente»: si la versión vigente selló las condiciones reforzadas,
+        // la casilla del compromiso es OBLIGATORIA (se comprueba arriba, antes de
+        // tocar el cliente) y se sella con la cifra que se aceptó. El inicio
+        // anticipado (art. 108.3 TRLGDCU) es opcional. Solo en la PRIMERA
+        // aceptación: editar los datos de una ya aceptada no lo vuelve a pedir.
+        const reforzadasVigentes = vAceptada ? (propuestaVersiones.vigente(opp.datos_calculo)?.importes?.reforzadas || null) : null;
+        const selloReforzadas = reforzadasVigentes && formFields.compromiso_exclusiva === 'si'
+            ? { compromiso_exclusiva: { ...reforzadasVigentes, aceptado: true }, inicio_anticipado: formFields.inicio_anticipado === 'si' }
+            : {};
+
         // Lo que el cliente CONFIRMA de su vivienda (cómo le llega el calor y si
         // tiene placas). Se guarda en la oportunidad y `createExpediente` lo
         // hereda: las placas se aplican, el emisor se AVISA si no casa con la
@@ -550,6 +575,7 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
                 usuario: `Firma Cliente (${clienteNombre})`,
                 ...(vAceptada ? { propuesta_version: vAceptada } : {}),
                 ...(condicionesVersion ? { condiciones_version: condicionesVersion } : {}),
+                ...selloReforzadas,
                 ...(ceeDecision ? { cee_decision: ceeDecision } : {})
             }];
 

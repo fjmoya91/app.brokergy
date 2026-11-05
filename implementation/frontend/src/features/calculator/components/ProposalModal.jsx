@@ -17,7 +17,7 @@ import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
 import { lineaAvisoCeeInicial } from '../logic/avisoCeeInicial';
 import { opcionesHibridacion, resultParaPropuesta, lineaTablaHibridacion, avisoHibridacion, mensajeHibridacion, hipotesisHibridacion, mensajeHipotesisHibridacion } from '../logic/hibridacionPropuesta';
 import { comisionEurMwh, pctDeComision, lineaComisionPartner } from '../logic/comisionPartner';
-import { cifrasPropuesta, costesServicio } from '../logic/cifrasPropuesta';
+import { cifrasPropuesta, costesServicio, penalizacionReforzada, PENALIZACION_REFORZADA_PCT } from '../logic/cifrasPropuesta';
 // El enlace para ACEPTAR va en un mensaje aparte, después del PDF — ver
 // `logic/mensajeAceptacion.js`.
 import { lineaEnlaceDebajo, mensajeAceptacion, esB2B } from '../logic/mensajeAceptacion';
@@ -445,6 +445,8 @@ const baseCss = `
         .prop-cnote { margin: 5px 0 0; font-size: 9px; color: var(--gris2); }
         .prop-pen { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-radius: 12px; background: #fff; border: 1px solid var(--ambar-borde); font-size: 10.5px; font-weight: 700; color: #3d2a00; }
         .prop-pen b { font-size: 13px; white-space: nowrap; }
+        .prop-pen.pr { margin-top: 5px; padding: 6px 12px; gap: 12px; }
+        .prop-pen.pr span { font-weight: 600; line-height: 1.35; }
         /* Cierre de la propuesta: solo texto. Sin rúbrica, sin sello y sin nº de
            colegiado (Fran, 25/10/2026): en una oferta no se firma, una firma
            real en un PDF que se reenvía se puede copiar, y el colegiado es de
@@ -2808,6 +2810,15 @@ info@brokergy.es · 623 926 179`;
     const caeNetoDe = (fin) => Math.max(0, (fin?.caeBonus || 0) - (fin?.caeMaintenanceCost || 0));
     const caeNeto = caeNetoDe(isOnlyReforma ? (f80 || f) : f);
 
+    // «Perfil exigente»: compromiso de cesión en exclusiva (cláusula 3) y la
+    // compensación del 40 % del bono (cláusula 4), en euros. La MISMA cifra que se
+    // sella con la versión (utils/importesPropuesta.js) y que acepta en /firma.
+    const reforzadas = inputs?.condicionesReforzadas === true;
+    const penReforzada = reforzadas ? penalizacionReforzada((isOnlyReforma ? (f80 || f) : f)?.caeBonus) : null;
+    const penReforzadaRef = reforzadas && isBoth && f80 ? penalizacionReforzada(f80.caeBonus) : null;
+    // Con el punto de los miles también en 4 cifras («1.069,00 €», como en /firma).
+    const fmtEurMil = (v) => `${new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' }).format(v)} €`;
+
     // Etiquetas de IVA. Para empresa/autónomo en modo "Sin IVA" las cifras van en neto,
     // así que el presupuesto y el CAE deben rotularse como "(IVA NO INCLUIDO)".
     const ivaSuffix = (fin) => {
@@ -4029,6 +4040,27 @@ info@brokergy.es · 623 926 179`;
                                         <p className="prop-cnote">* Importe estimado: {servicio.gratis ? 'el Bono Energético CAE íntegro, sin ningún descuento' : `el Bono Energético CAE menos ${fmtEur2(servicio.aPagar)} de nuestros servicios`}. Tarifa de los servicios sin IVA.</p>
                                     </div>
 
+                                    {reforzadas ? (<>
+                                        {/* «Perfil exigente»: el compromiso se cierra AL ACEPTAR, donde
+                                            el cliente solo ve el dinero neto; el convenio (con los kWh y
+                                            el precio unitario) llega después. Texto revisable por el
+                                            asesor: docs/conocimiento/propuesta/condiciones-reforzadas-perfil-exigente.md */}
+                                        {/* UNA tarjeta para el compromiso y su compensación: en dos,
+                                            la hoja 4 (alto fijo) se comía el pie. Medido el 05/11/2026. */}
+                                        <div className="prop-card prop-cl amb">
+                                            <h4><span className="n">03</span>Cesión en exclusiva y compensación</h4>
+                                            <p>Al aceptar, el cliente cede a BROKERGY <strong>en exclusiva</strong> el ahorro de esta actuación y firmará el Convenio de Cesión, a cambio del Bono CAE de esta propuesta (ajustado al ahorro verificado). Los CEE de BROKERGY son inseparables de la promoción y BROKERGY los adelanta sin coste: hecha la visita del CEE, y salvo causa imputable a BROKERGY, el cliente abonará en 15 días naturales, como liquidación anticipada de los daños (art. 1152 CC):</p>
+                                            <div className="prop-pen pr">
+                                                <span>a) Si tramita el ahorro con otra empresa o no firma el Convenio: {PENALIZACION_REFORZADA_PCT} % del bono (mín. {fmtEur2(servicio.tarifa)}){penReforzadaRef != null ? ' · opción 1 / 2' : ''}</span>
+                                                <b>{penReforzadaRef != null ? `${fmtEurMil(penReforzada)} / ${fmtEurMil(penReforzadaRef)}` : fmtEurMil(penReforzada)} + IVA</b>
+                                            </div>
+                                            <div className="prop-pen pr">
+                                                <span>b) Si no sigue adelante o no aporta la documentación pedida por escrito en 30 días: la tarifa (cl. 2)</span>
+                                                <b>{fmtEur2(servicio.tarifa)} + IVA</b>
+                                            </div>
+                                            <p className="prop-cnote">Desistimiento: 14 días naturales desde la aceptación, sin coste (ver las condiciones que se aceptan).</p>
+                                        </div>
+                                    </>) : (<>
                                     <div className="prop-card prop-cl">
                                         <h4><span className="n">03</span>Vinculación de servicios</h4>
                                         <p>La presente propuesta forma parte de una promoción vinculada a la realización de los CEE necesarios para la tramitación del expediente CAE. Los certificados emitidos por BROKERGY forman parte inseparable del mismo.</p>
@@ -4041,15 +4073,16 @@ info@brokergy.es · 623 926 179`;
                                         <p>Si los CEE son realizados por BROKERGY pero no se utilizan para gestionar el expediente CAE a través de BROKERGY —por causas ajenas a esta—, el cliente abonará en un máximo de 15 días naturales, en concepto de compensación, la tarifa completa de los servicios sin bonificación (desglosada en la cláusula 2):</p>
                                         <div className="prop-pen"><span>Total penalización</span><b>{fmtEur2(servicio.tarifa)} + IVA</b></div>
                                     </div>
+                                    </>)}
 
                                     <div className="prop-cl2">
                                         <div className="prop-card prop-cl">
-                                            <h4><span className="n">05</span>Vigencia de la oferta</h4>
+                                            <h4><span className="n">{reforzadas ? '04' : '05'}</span>Vigencia de la oferta</h4>
                                             <p>Propuesta válida <strong>2 meses</strong> desde la fecha de emisión. El importe estimado del Bono Energético CAE se mantendrá hasta diciembre de 2026. Transcurrido el plazo sin aceptación expresa, la propuesta quedará sin efecto.</p>
                                         </div>
 
                                         <div className="prop-card prop-cl">
-                                            <h4><span className="n">06</span>Protección de datos</h4>
+                                            <h4><span className="n">{reforzadas ? '05' : '06'}</span>Protección de datos</h4>
                                             <p>BROKERGY tratará los datos personales conforme al RGPD y la LO 3/2018 exclusivamente para la gestión del expediente CAE. Derechos: info@brokergy.es.</p>
                                         </div>
                                     </div>
