@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
 import { deriveSoEnvio, CC_BROKERGY } from '../logic/soContactos';
@@ -139,6 +139,28 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
         [peticion]);
     const envio = useMemo(() => deriveSoEnvio(so), [so]);
 
+    // El ENLACE del panel del S.O. (`/so/:token`), para las peticiones que lo llevan
+    // en el correo (nuestras facturas). Se busca el que ya tiene: crearlo o cambiarlo
+    // se hace en la Vista S.O., porque cambiarlo deja muerto el que ya tenga.
+    const soId = useMemo(
+        () => peticion?.lotes?.map(x => x.lote?.sujeto_obligado_id || x.lote?.sujeto_obligado?.id_empresa).find(Boolean) || null,
+        [peticion]);
+    const [panel, setPanel] = useState({ cargando: !!peticion?.conEnlacePanel, url: null });
+    useEffect(() => {
+        if (!peticion?.conEnlacePanel || !soId) { setPanel({ cargando: false, url: null }); return undefined; }
+        let vivo = true;
+        axios.get(`/api/lotes/obligacion-so/${soId}/enlace`)
+            .then(({ data }) => {
+                if (!vivo) return;
+                const token = data?.enlace?.token;
+                // En local el origen es localhost: el enlace que se manda es el de producción.
+                const origen = /localhost|127\.0\.0\.1/.test(window.location.hostname) ? 'https://app.brokergy.es' : window.location.origin;
+                setPanel({ cargando: false, url: token ? `${origen}/so/${token}` : null });
+            })
+            .catch(() => vivo && setPanel({ cargando: false, url: null }));
+        return () => { vivo = false; };
+    }, [peticion, soId]);
+
     // El saludo lleva el nombre de QUIEN RECIBE el correo, no el del representante
     // legal: éste es quien FIRMA los documentos, y casi nunca quien lee el correo
     // del día a día (aquí firma Pedro José y el correo lo lee Jesús, el director de
@@ -146,8 +168,10 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
     const mensajeFor = useCallback((email) => {
         const nombre = envio.nombrePilaDe ? envio.nombrePilaDe(email) : '';
         const saludo = nombre ? `Buenos días ${nombre},` : 'Buenos días,';
-        return typeof peticion?.mensaje === 'function' ? peticion.mensaje({ saludo, precios: precios || {} }) : '';
-    }, [peticion, envio, precios]);
+        return typeof peticion?.mensaje === 'function'
+            ? peticion.mensaje({ saludo, precios: precios || {}, enlacePanel: panel.url })
+            : '';
+    }, [peticion, envio, precios, panel.url]);
 
     const mensaje = useMemo(() => mensajeFor(envio.notifyEmail), [mensajeFor, envio.notifyEmail]);
 
@@ -190,6 +214,8 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
     };
 
     if (!peticion) return null;
+    // El mensaje lleva el enlace del panel: se espera a tenerlo (es una lectura).
+    if (panel.cargando) return null;
 
     // Con precios que faltan, lo primero que se ve es la pregunta por ellos. No es
     // un paso más: es el dato que hace útil el correo, y pedirlo después de haber
@@ -238,12 +264,24 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
             // que adjuntar. Pero callarlo es peor que excluirlo — se manda el
             // correo creyendo que van los cuatro y el S.O. paga tres. Se dice aquí,
             // con el nombre del lote y lo que le falta.
-            extraBody={peticion.fuera ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
-                    <p className="text-[11px] text-amber-300/90 leading-snug">
-                        ⚠ {peticion.fuera.lotes.length === 1 ? 'Se queda fuera' : 'Se quedan fuera'}{' '}
-                        <b>{peticion.fuera.lotes.map(l => l.codigo).join(', ')}</b>: {peticion.fuera.aviso}
-                    </p>
+            extraBody={(peticion.fuera || (peticion.conEnlacePanel && !panel.url)) ? (
+                <div className="space-y-2">
+                    {peticion.fuera && (
+                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
+                            <p className="text-[11px] text-amber-300/90 leading-snug">
+                                ⚠ {peticion.fuera.lotes.length === 1 ? 'Se queda fuera' : 'Se quedan fuera'}{' '}
+                                <b>{peticion.fuera.lotes.map(l => l.codigo).join(', ')}</b>: {peticion.fuera.aviso}
+                            </p>
+                        </div>
+                    )}
+                    {peticion.conEnlacePanel && !panel.url && (
+                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
+                            <p className="text-[11px] text-amber-300/90 leading-snug">
+                                ⚠ Este S.O. no tiene enlace a su panel, así que el correo sale sin él. Créalo en
+                                «Vista S.O.» → «Enlace para…» y vuelve a abrir este envío.
+                            </p>
+                        </div>
+                    )}
                 </div>
             ) : null}
         />

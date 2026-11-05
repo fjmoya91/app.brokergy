@@ -124,6 +124,40 @@ export function kwhDelLote(lote) {
     return { kwh: eco.ahorroKwh || 0, fuente: 'ESTIMADO' };
 }
 
+/**
+ * Lo que le cuesta al S.O. el lote, SIN IVA: lo que nos paga (la base de nuestra
+ * factura si ya está emitida; si no, la oferta pactada × sus MWh) y la verificación,
+ * que contrata él. null si no se sabe lo nuestro.
+ */
+export function costeDelLoteParaSo(lote, kwh) {
+    const f = lote?.factura_so;
+    let brokergy = null;
+    if (f?.numero && numDecimal(f.base) > 0) brokergy = numDecimal(f.base);
+    else if (lote?.oferta_lote != null && lote.oferta_lote !== '' && kwh > 0) brokergy = Number(lote.oferta_lote) * kwh / 1000;
+    if (!(brokergy > 0)) return null;
+    return { brokergy, verif: numDecimal(lote?.coste_verificacion) || 0 };
+}
+
+/**
+ * A CUÁNTO LE SALE EL CAE al S.O. con nosotros, en €/MWh (05/11/2026, Fran: «a
+ * cuánto está pagando el CAE, coste de verificación + compra a mí»), y lo que se
+ * ahorra frente a la equivalencia financiera. Solo con los lotes que ya tienen la
+ * verificación FACTURADA: sin ella el €/MWh saldría más bajo de lo que le cuesta.
+ */
+export function precioCaeParaSo(filas, equivalencia) {
+    const con = (filas || []).filter(f => f.coste && f.coste.verif > 0 && f.kwh > 0);
+    if (!con.length) return null;
+    const mwh = con.reduce((a, f) => a + f.kwh / 1000, 0);
+    const coste = con.reduce((a, f) => a + f.coste.brokergy + f.coste.verif, 0);
+    const costeMwh = coste / mwh;
+    return {
+        costeCaeMwh: costeMwh,
+        costeCaeGwh: mwh / 1000,
+        costeCaeLotes: con.length,
+        ahorroCaeEur: equivalencia > 0 ? (equivalencia - costeMwh) * mwh : null,
+    };
+}
+
 const anioDe = (txt) => {
     const m = String(txt || '').match(/(\d{4})/);
     return m ? Number(m[1]) : null;
@@ -167,6 +201,9 @@ export function computeVistaSo({ lotes = [], soId, anio, config, disponible = nu
             nExpedientes: l.num_expedientes ?? (l.expedientes_eco || l.expedientes || []).length,
             requerimiento: /REQUERIMIENTO/.test(l.estado || ''),
             oferta: l.oferta_lote != null && l.oferta_lote !== '' ? Number(l.oferta_lote) : null,
+            // Lo que le cuesta al S.O. Solo para el €/MWh agregado: `vistaParaElSo`
+            // no deja pasar el de cada lote.
+            coste: costeDelLoteParaSo(l, kwh),
         };
         if (cuentaPara !== Number(anio)) { fuera.push(fila); continue; }
         etapas[fila.etapa].kwh += kwh;
@@ -200,6 +237,8 @@ export function computeVistaSo({ lotes = [], soId, anio, config, disponible = nu
             fondoEur: fondoGwh * 1000 * eq,
             cubribleEur: cubribleGwh * 1000 * eq,
             faltaEur: Math.max(0, faltaGwh) * 1000 * eq,
+            // A cuánto le sale el CAE con nosotros (compra + verificación), €/MWh.
+            ...(precioCaeParaSo(Object.values(etapas).flatMap(e => e.lotes), eq) || {}),
         };
     }
 

@@ -117,6 +117,11 @@ const CAMPOS_OBLIGACION = [
     'obligacion_gwh', 'pct_fondo', 'otros_gwh', 'equivalencia_mwh', 'ventas_gwh', 'fuente',
     'fondoGwh', 'cubribleGwh', 'brokergyGwh', 'emitidoGwh', 'faltaGwh', 'sobraGwh', 'aseguradoGwh',
     'pctAsegurado', 'pctCubierto', 'obligacionEur', 'fondoEur', 'cubribleEur', 'faltaEur',
+    // Solo el AHORRO frente al Fondo por trabajar con nosotros. A cuánto le sale el CAE
+    // (`costeCaeMwh`, `costeCaeGwh`, `costeCaeLotes`) NO sale (Fran, 05/11/2026: «de
+    // momento que no vea a cuánto está pagando el CAE, solo el ahorro»): lo ve nuestro
+    // equipo en la Vista S.O. interna. Para enseñárselo, basta con añadirlos aquí.
+    'ahorroCaeEur',
 ];
 
 // El estado del lote dicho para el S.O. (Fran, 03/11/2026): los nuestros cuentan

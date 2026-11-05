@@ -129,7 +129,10 @@ const kpi = (k, valor, ud, nota, extra = '') => (
     </div>
 );
 
-export function ResumenObligacion({ ob, anio, etapas, editar = null, sinObligacion = null, notas = false, style }) {
+// `conPrecio`: enseña también a cuánto le sale el CAE (€/MWh). Solo la vista
+// interna y solo ADMIN: al S.O. no se le enseña de momento (Fran, 05/11/2026), y
+// el enlace público ni lo recibe.
+export function ResumenObligacion({ ob, anio, etapas, editar = null, sinObligacion = null, notas = false, conPrecio = false, style }) {
     return (
         <>
             <div className="so-dash" style={style}>
@@ -172,7 +175,20 @@ export function ResumenObligacion({ ob, anio, etapas, editar = null, sinObligaci
                         {kpi(`Mínimo al Fondo · ${pct(ob.pct_fondo)}`, num(ob.fondoGwh), 'GWh', <>{eur(ob.fondoEur, 0)}, sí o sí</>, 'fx-kpi-apagado')}
                         {kpi('Cubrible con CAE', num(ob.cubribleGwh), 'GWh', <>{eur(ob.cubribleEur, 0)}</>)}
                         {kpi('Comprado a otros', num(ob.otros_gwh), 'GWh', 'de otros agentes')}
-                        {kpi('Con BROKERGY', num(ob.brokergyGwh), 'GWh', <><b>{gwh(ob.emitidoGwh)}</b> ya emitidos</>, 'so-kpi-marca')}
+                        {kpi('Con BROKERGY', num(ob.brokergyGwh), 'GWh', <>
+                            <b>{gwh(ob.emitidoGwh)}</b> ya emitidos
+                            {/* El €/MWh solo llega en la vista INTERNA: al S.O. el servidor
+                                le pasa solo el ahorro (`CAMPOS_OBLIGACION`, Fran 05/11/2026). */}
+                            {((conPrecio && ob.costeCaeMwh > 0) || ob.ahorroCaeEur > 0) && (
+                                <span className="so-precio-cae"
+                                    title={conPrecio && ob.costeCaeMwh > 0
+                                        ? `Solo lo ve nuestro equipo: lo que paga por cada MWh, sin IVA (nuestra factura más la verificación), sobre los ${ob.costeCaeLotes} lotes con la verificación ya facturada (${gwh(ob.costeCaeGwh)}). Aportarlo al Fondo cuesta ${num(ob.equivalencia_mwh, 3)} €/MWh.`
+                                        : `Lo que os ahorráis frente a aportarlo al Fondo Nacional (${num(ob.equivalencia_mwh, 3)} €/MWh), con los lotes que ya tienen la verificación facturada.`}>
+                                    {conPrecio && ob.costeCaeMwh > 0 && <>CAE a <b>{num(ob.costeCaeMwh, 2)} €/MWh</b> con verificación · </>}
+                                    {ob.ahorroCaeEur > 0 && <>Ahorro frente al Fondo: <b>{eur(ob.ahorroCaeEur, 0)}</b></>}
+                                </span>
+                            )}
+                        </>, 'so-kpi-marca')}
                         {kpi('Cubierto si se emite todo', pct(ob.pctCubierto), null, <>otros + todo lo de BROKERGY</>)}
                     </div>
                 )}
@@ -509,7 +525,7 @@ export function SujetoObligadoPanel({
 
                 {/* La obligación del año: la cifra protagonista, sus cuentas y la barra */}
                 <ResumenObligacion ob={ob} anio={anio} etapas={vista?.etapas || []} style={{ marginTop: cfgError ? 14 : 0 }}
-                    notas
+                    notas conPrecio={canEdit}
                     editar={canEdit && config && ob ? (
                         <button type="button" className="fx-btn fx-btn-sec fx-btn-peq" onClick={() => setEditando(true)}>
                             <Ico n="lapiz" size={16} />Editar

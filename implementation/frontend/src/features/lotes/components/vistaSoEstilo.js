@@ -48,6 +48,8 @@ export const CSS_SO = `
 .so-kpi:active{transform:none}
 .so-kpi-marca{border-color:rgba(255,160,0,.45);box-shadow:0 0 0 3px rgba(255,160,0,.10)}
 .so-kpi-marca .fx-kpi-k{color:var(--naranja-txt)}
+.so-precio-cae{display:block;margin-top:6px;padding-top:6px;border-top:1px dashed rgba(20,17,17,.12)}
+.so-precio-cae b{color:var(--tinta,#141111)}
 
 .so-barra{display:flex;height:38px;margin-top:16px;border-radius:12px;overflow:hidden;background:var(--hundido);border:1px solid var(--linea)}
 .so-barra > i{display:block;flex:none;height:100%;background:var(--c);border-right:2px solid #fff;transform-origin:left;animation:fx-ancho .7s cubic-bezier(.2,.8,.2,1) both}

@@ -38,6 +38,13 @@ for (const l of lotes) {
     l.sujeto_obligado = so || null;
 }
 
+// Nuestra factura al S.O. vive en `facturas_so` (como la trae `enrichLotes`).
+{
+    const { data: facs } = await supabase.from('facturas_so').select('*').in('lote_id', lotes.map(l => l.id));
+    const porLote = new Map((facs || []).map(f => [f.lote_id, f]));
+    for (const l of lotes) l.factura_so = porLote.get(l.id) || null;
+}
+
 console.log(`\n${lotes.length} lotes${estado ? ` en ${estado}` : ''}\n`);
 for (const l of lotes) {
     const o = (l.documentos_so || []).find(d => d?.key === 'oferta_verificacion');
@@ -63,6 +70,37 @@ if (process.argv.includes('--simular-ofertas')) {
     console.log('  (simulando la oferta subida en los lotes de PTE. OFERTA VERIFICADOR)');
 }
 
+// --simular-facturas: genera EN MEMORIA nuestra factura de los lotes con los CAE
+// emitidos que aún no la tienen (unidades = CAE del certificado, precio = la oferta
+// del lote), para ver el correo de «nuestras facturas» antes de generar ninguna.
+// No escribe nada y no asigna números de verdad.
+if (process.argv.includes('--simular-facturas')) {
+    let n = 0;
+    for (const l of lotes) {
+        const cae = (l.documentos_so || []).find(d => d?.key === 'certificado_cae')?.cae;
+        // Solo los que AÚN esperan el pago del S.O.: uno de antes de la app ya pasado a
+        // pagar a los clientes no tiene ni tendrá factura aquí.
+        if (l.estado !== 'CAE EMITIDO – PTE PAGO BROKERGY') continue;
+        if (!cae?.total || l.factura_so?.numero || l.oferta_lote == null) continue;
+        const base = Math.round(Number(cae.total) * Number(l.oferta_lote) / 1000 * 100) / 100;
+        const iva = Math.round(base * 0.21 * 100) / 100;
+        l.factura_so = {
+            numero: `F-SIMULADA_${++n}`, unidades_kwh: Number(cae.total), precio_kwh: Number(l.oferta_lote) / 1000,
+            base, iva, total: base + iva, cae_inicial: cae.cae_inicial, cae_final: cae.cae_final,
+            estado: 'EMITIDA', drive_file_id: 'SIMULADO',
+        };
+    }
+    console.log(`  (simulando ${n} factura${n === 1 ? '' : 's'} nuestra${n === 1 ? '' : 's'} en los lotes con los CAE emitidos)`);
+}
+
+// El enlace del panel de cada S.O. (`app_settings`, `enlace_so:{id}`), para el correo
+// de nuestras facturas. Solo se LEE.
+const enlaces = {};
+for (const soId of new Set(lotes.map(l => l.sujeto_obligado_id).filter(Boolean))) {
+    const { data } = await supabase.from('app_settings').select('value').eq('key', `enlace_so:${soId}`).maybeSingle();
+    try { const t = JSON.parse(data?.value || 'null')?.token; if (t) enlaces[soId] = `https://app.brokergy.es/so/${t}`; } catch { /* sin enlace */ }
+}
+
 // `resumen` solo alimenta las cifras del correo del pago; aquí basta con lo que hay.
 const resumen = { ahorroGwh: 0, ahorroSoTotal: 0 };
 const todas = peticionesDisponibles(lotes, resumen);
@@ -84,6 +122,8 @@ for (const p of todas) {
     const sim = (process.argv.find(a => a.startsWith('--precios=')) || '').split('=')[1];
     const precios = {};
     if (sim && p.lotes) sim.split(',').forEach((v, i) => { if (p.lotes[i]) precios[p.lotes[i].lote.id] = Number(v); });
-    console.log(p.mensaje({ saludo: 'Buenos días Jesús,', precios }).split('\n').map(x => `   ${x}`).join('\n'));
+    const enlacePanel = p.conEnlacePanel ? (enlaces[p.lotes?.[0]?.lote?.sujeto_obligado_id] || null) : null;
+    if (p.conEnlacePanel && !enlacePanel) console.log('   ⚠ el S.O. no tiene enlace a su panel: el correo sale sin él');
+    console.log(p.mensaje({ saludo: 'Buenos días Jesús,', precios, enlacePanel }).split('\n').map(x => `   ${x}`).join('\n'));
 }
 console.log(`\nBotones que se pintarían: ${aplicables.length}\n`);
