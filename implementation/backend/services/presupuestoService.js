@@ -80,7 +80,7 @@ function sanearArticulo(d = {}) {
         suplido,
         variantes,
         arrastra,
-        genera: d.genera === 'CEE_UNICO' || d.genera === 'CEE_DOBLE' ? d.genera : null,
+        genera: ['CEE_UNICO', 'CEE_DOBLE', 'INFORME', 'CIT'].includes(d.genera) ? d.genera : null,
         activo: d.activo !== false,
         orden: Math.round(num(d.orden) ?? 100),
         appsheet_id: d.appsheet_id != null && String(d.appsheet_id).trim() ? String(d.appsheet_id).trim() : null,

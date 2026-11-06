@@ -154,6 +154,12 @@ certificador ni registro del CEE, con los trámites en su nombre). Al aceptar: c
 siempre, se completan los datos del cliente, se avisa al equipo y se le confirma al cliente
 (`avisarSinCee`). Con certificado, todo igual que antes: nace el `{AAAA}CEE_{n}` y su
 `documentacion.oferta` guarda las `lineas`.
+**Desde el 05/11/2026, si una línea es de un artículo «Informe técnico (INF)» (`genera: 'INFORME'`),
+al aceptar nace el INFORME `{AAAA}INF_{n}`** (con o sin CEE al lado): el aviso al equipo dice su número
+y el siguiente paso, la confirmación al cliente lleva su enlace y la página de aceptación enseña el
+botón «Subir mi documentación». Ver `docs/conocimiento/informes/`. Con un artículo «Certificado
+instalación térmica (CIT)» (`genera: 'CIT'`) nace igual un `{AAAA}CIT_{n}`, el RITE suelto (misma tabla,
+su propia línea).
 
 **La factura de ese CEE hereda las partidas.** `facturaCee.lineasPorDefecto` propone las líneas del
 presupuesto (no las dos de siempre); el ID ARTÍCULO de la hoja de AppSheet sale del `appsheet_id` del

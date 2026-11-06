@@ -32,6 +32,7 @@ import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaVi
 import { CertAckView } from './features/public/views/CertAckView';
 import { CeeAckView } from './features/public/views/CeeAckView';
 import { AceptarOfertaCeeView } from './features/public/views/AceptarOfertaCeeView';
+import { InformeClienteView } from './features/informes/views/InformeClienteView';
 import { API_DOCS_CEE_DIRECTO } from './features/docs/docsApi';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { PresentarCeeView } from './features/public/views/PresentarCeeView';
@@ -136,6 +137,9 @@ function App() {
   // mismo UUID no vale en las dos.
   const [initialCeeDirecto] = useState(() => {
     const params = new URLSearchParams(window.location.search);
+    // Un INFORME técnico (`?informe=<id>`, el enlace de los avisos del equipo) vive
+    // en la misma pestaña: CeeDirectosView lo abre con el prefijo `inf:`.
+    if (params.get('informe')) return `inf:${params.get('informe')}`;
     return params.get('cee') || null;
   });
 
@@ -362,6 +366,13 @@ function App() {
     return null;
   });
 
+  // El enlace del CLIENTE de un informe técnico: /informe/:token (y /informe/demo).
+  const [informeToken] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/informe/')) return path.split('/informe/')[1]?.split('/')[0] || null;
+    return null;
+  });
+
   // Firma en cadena del lote por el Sujeto Obligado: /firmar-lote/:loteId
   const [firmarLoteId] = useState(() => {
     const path = window.location.pathname;
@@ -426,6 +437,7 @@ function App() {
     // Se lee de la URL y no de `initialCeeDirecto`: ese estado se declara mas
     // abajo y aqui todavia no existe.
     if (new URLSearchParams(window.location.search).get('cee')) return 'cee-directos';
+    if (new URLSearchParams(window.location.search).get('informe')) return 'cee-directos';
     const tab = new URLSearchParams(window.location.search).get('tab');
     if (TABS_VALIDAS.includes(tab)) return tab;
     // En el MÓVIL se entra a despachar, no a mirar indicadores: el cuadro de mando
@@ -953,6 +965,8 @@ function App() {
     // el parámetro se quedaba pegado en la URL al cambiar de pestaña y la
     // siguiente recarga reabría un expediente que ya no venía a cuento.
     p.delete('cee');
+    p.delete('informe');
+    p.delete('cobro'); p.delete('facturar');
     p.delete('estados'); p.delete('opestado'); p.delete('prioridad');
     // 'firmar' es una orden de un solo uso (abrir el popup de firma): en cuanto se
     // ha leído no debe quedarse pegado en la barra de direcciones.
@@ -962,7 +976,8 @@ function App() {
       p.set('exp', openExpedienteId);
     } else if (openCeeDirecto && activeTab === 'cee-directos') {
       p.set('tab', 'cee-directos');
-      p.set('cee', openCeeDirecto);
+      if (String(openCeeDirecto).startsWith('inf:')) p.set('informe', String(openCeeDirecto).slice(4));
+      else p.set('cee', openCeeDirecto);
     } else if (openOportunidadId) {
       p.set('op', openOportunidadId);
     } else if (activeTab) {
@@ -1197,8 +1212,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || enlaceCorto || cobroData || facturaAhorroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || soPublicoToken || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !facturaAhorroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !soPublicoToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || informeToken || certAckData || enlaceCorto || cobroData || facturaAhorroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || soPublicoToken || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !informeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !facturaAhorroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !soPublicoToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1292,6 +1307,8 @@ function App() {
           <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
         ) : ofertaCeeToken ? (
           <AceptarOfertaCeeView token={ofertaCeeToken} />
+        ) : informeToken ? (
+          <InformeClienteView token={informeToken} />
         ) : firmaOportunidadId ? (
           <AceptarPropuestaView idOportunidad={firmaOportunidadId} />
         ) : resetToken ? (

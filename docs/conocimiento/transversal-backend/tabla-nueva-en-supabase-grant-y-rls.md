@@ -30,6 +30,14 @@ GRANT USAGE, SELECT ON SEQUENCE public.x_id_seq TO service_role;   -- si tiene s
 no hace ningún `.from()`; la clave anónima va en el bundle y es pública. Darle permiso a `anon`
 reabre lo que se cerró en julio de 2026 (RLS deny-all y RPC sin `EXECUTE` para anon/authenticated).
 
+**Y además se les QUITA (05/11/2026).** Al crear `informes` en producción, los privilegios por
+defecto del proyecto le dieron TODO a `anon` y `authenticated` (SELECT, INSERT, UPDATE, DELETE,
+TRUNCATE…), aunque se esperaba que desde el 30/10 ya no concediesen nada. El RLS sin policies los
+paraba, pero las tablas hermanas (`cee_ofertas`, `facturas_emitidas`, `articulos`) solo tienen
+`postgres` y `service_role`. Por eso el script de una tabla nueva lleva también
+`REVOKE ALL ON TABLE public.x FROM anon, authenticated;`, y tras aplicarlo se mira con
+`SELECT DISTINCT grantee FROM information_schema.role_table_grants WHERE table_schema='public' AND table_name='x'`.
+
 **Los scripts antiguos.** Hay ocho scripts de esquema sin `GRANT` (`supabase_schema.sql`,
 `lotes_schema.sql`…). Funcionan porque sus tablas se crearon antes del cambio. Si alguna vez se
 re-ejecutan en una base nueva, sus tablas nacerán sin permisos: hay que añadirles el `GRANT` antes.

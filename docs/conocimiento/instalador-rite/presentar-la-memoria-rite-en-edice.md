@@ -61,3 +61,14 @@ vuelve a firmar.
 **Por probar:** hacer aquí lo mismo que en `presentar-cee` desde el 27/10/2026 —`certificado.js`, que
 añade a la llamada `filters=thumbprint:SHA1:<huella>` + `headless=true`— con la huella del de
 representante `(R: <CIF>)`. Falta ver qué librería y qué función usa eDICE para llamar a AutoFirma.
+
+**El RITE SUELTO tiene su propio circuito desde el 05/11/2026: la línea `{AAAA}CIT_{n}`** (Fran: «otra
+línea más igual que CEE e INF»). Cuando el RITE no es de una obra CAE —lo que el cliente nos encarga solo
+para legalizar sus equipos—, va en la tabla `informes` con `linea = 'CIT'` y carpeta `39. LEGALIZACIONES
+RITE / 2. PRODUCCION / {nº} - {CLIENTE}`, con su presupuesto, factura, cobro y entrega del certificado
+oficial al cliente. La presentación es esta misma (firma del representante, ZIP, eDICE, tasa); lo que
+cambia es dónde se guarda el impreso sellado: en la ficha del CIT, «Subir certificado oficial (eDICE)»,
+en vez del slot «Certificado RITE» del expediente. El RITE de una obra CAE sigue como estaba. Ver
+[informes-tecnicos-el-tercer-trabajo.md](docs/conocimiento/informes/informes-tecnicos-el-tercer-trabajo.md).
+**Pendiente:** que `guardar_certificado_rite.js` y la skill sepan guardar en un CIT (hoy solo escriben en
+un expediente).

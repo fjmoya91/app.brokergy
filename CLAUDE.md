@@ -112,7 +112,7 @@ Resumen de [docs/conocimiento/COMO-TRABAJAMOS.md](docs/conocimiento/COMO-TRABAJA
 - Con la BD caída se responde **503**, nunca una cifra a cero. (38)
 - **Local = datos de producción**. En el `.env` local, apagados: `REVISION_ALERTA_ENABLED`,
   `CEE_ENTREGA_AUTO`, `BOT_WHATSAPP_ENABLED`, `PROPUESTA_PROGRAMADA_ENABLED`, `WA_SYNC_INSTALADORES`,
-  `RESENA_PROGRAMADA_ENABLED`, `FIRMADOS_SO_CORREO_ENABLED`, `WA_RONDA_ENABLED`, `CARTA_PAGO_ENVIO_AUTO`, `FACTURA_VENTA_ENVIO_AUTO`, `ACEPTACION_AGENTE_ENABLED`, `CEE_REGISTRO_AVISO_AUTO`, `PRESENTAR_NOCHE_ENABLED`, `CEE_CIEGO_ENABLED`.
+  `RESENA_PROGRAMADA_ENABLED`, `FIRMADOS_SO_CORREO_ENABLED`, `WA_RONDA_ENABLED`, `CARTA_PAGO_ENVIO_AUTO`, `FACTURA_VENTA_ENVIO_AUTO`, `ACEPTACION_AGENTE_ENABLED`, `CEE_REGISTRO_AVISO_AUTO`, `PRESENTAR_NOCHE_ENABLED`, `CEE_CIEGO_ENABLED`, `INFORME_ENTREGA_AUTO`.
 - **WhatsApp**: un mensaje con el reloj no está enviado (manda el ACK); nunca `getChatById` ni `sendSeen`
   en el camino de envío. (39)
 - **Drive**: los enlaces, solo para ADMIN; la carpeta de cada expediente la decide `driveFolders.js`. (1)
@@ -143,6 +143,7 @@ Cada una tiene su regla `.claude/rules/<área>.md` y su carpeta `docs/conocimien
 | `envolvente-ce3x` | Plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del `.cex`, PVGIS |
 | `cee-generacion` | Generar el `.cex` inicial/final y el previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo, PDF sin CE3X |
 | `cee-directos` | El segundo negocio: alta, encargo, entrega, oferta y factura |
+| `informes` | Memorias, legalizaciones e informes `{AAAA}INF_{n}` (todo lo que no es CAE ni CEE) y RITE sueltos `{AAAA}CIT_{n}`: aceptación, firma, presentación, factura, cobro y entrega |
 | `certificadores-app` | La app para certificadores externos (cee.brokergy.es): beta, obras, cuestionario, generar con IA, entrega |
 | `lotes` | Verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados del S.O., factura |
 | `seguimiento` | Parte diario, radar, enlaces de acción, envío en bloque |

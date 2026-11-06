@@ -90,6 +90,8 @@ app.use('/api/public/portal', require('./routes/portal'));
 app.use('/api/public/marketplace', require('./routes/publicMarketplace'));
 // App de certificadores (cee.brokergy.es), lo público: beta, activar, fotos del propietario. ANTES de /api/public.
 app.use('/api/public/certapp', require('./routes/certappPublic'));
+// El enlace del CLIENTE de un informe técnico (2026INF_n): su token, sin sesión. ANTES de /api/public.
+app.use('/api/public/informe', require('./routes/informesPublic'));
 app.use('/api/public', require('./routes/public'));
 // Servlets de almacenamiento intermedio de Autofirma (@firma) para firmar/recuperar
 // ficheros GRANDES. Montados bajo /api para reutilizar el proxy nginx existente
@@ -119,6 +121,8 @@ app.use('/api/seguimiento', require('./routes/seguimiento'));
 // en "26. CERTIF. EFICIENCIA ENER / 1. PRODUCCION". Rutas propias a propósito —
 // no comparten tabla ni handlers con /api/expedientes.
 app.use('/api/cee-directos', require('./routes/ceeDirectos'));
+// INFORMES técnicos ({AAAA}INF_{n}): todo lo que no es CAE ni CEE. Ver docs/conocimiento/informes/.
+app.use('/api/informes', require('./routes/informes'));
 // FACTURACIÓN: catálogo de artículos y presupuestos con N partidas (sustituye a
 // la app de presupuestos de AppSheet). Ver routes/facturacion.js.
 app.use('/api/facturacion', require('./routes/facturacion'));

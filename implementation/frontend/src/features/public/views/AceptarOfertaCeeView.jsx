@@ -528,7 +528,11 @@ export function AceptarOfertaCeeView({ token }) {
         setError(null);
         if (esDemo) {
             setTimeout(() => {
-                setHecho({ numeroExpediente: abreCee ? '2026CEE_00' : null, sinExpediente: !abreCee, demo: true });
+                setHecho({
+                    numeroExpediente: abreCee ? '2026CEE_00' : '2026INF_0', sinExpediente: !abreCee, demo: true,
+                    // Sin CEE, la demo abre un informe y su enlace es el /informe/demo.
+                    informe: abreCee ? null : { numero: '2026INF_0', enlace: '/informe/demo' },
+                });
                 setEnviando(false);
                 window.scrollTo({ top: 0 });
             }, 700);
@@ -545,7 +549,7 @@ export function AceptarOfertaCeeView({ token }) {
                 ...(abreCee ? { cuestionario: cuest } : {}),
                 condiciones_version: abreCee ? CONDICIONES_OFERTA_CEE_VERSION : CONDICIONES_PRESUPUESTO_VERSION,
             });
-            setHecho({ numeroExpediente: data.numeroExpediente, expedienteId: data.expedienteId, docsToken: data.docsToken, sinExpediente: !!data.sinExpediente });
+            setHecho({ numeroExpediente: data.numeroExpediente, expedienteId: data.expedienteId, docsToken: data.docsToken, sinExpediente: !!data.sinExpediente, informe: data.informe || null });
             window.scrollTo({ top: 0 });
         } catch (err) {
             setError(err.response?.data?.error || 'No se pudo registrar la aceptación. Inténtalo de nuevo.');
@@ -652,6 +656,9 @@ export function AceptarOfertaCeeView({ token }) {
         const num = hecho?.numeroExpediente || oferta.numero_expediente;
         const docs = hecho?.docsToken ? { expedienteId: hecho.expedienteId, token: hecho.docsToken } : oferta.docs;
         const conCee = abreCee && !hecho?.sinExpediente;
+        // Un presupuesto que abre un INFORME (memoria, legalización…): su número y
+        // SU enlace, donde sube la documentación y, al final, recoge el firmado.
+        const informe = hecho?.informe || oferta.informe || null;
         return (
             <Marco numero={oferta.numero}>
                 {demoAviso}
@@ -675,6 +682,14 @@ export function AceptarOfertaCeeView({ token }) {
                             ? 'En los próximos días el técnico certificador se pondrá en contacto contigo para concertar la visita.'
                             : 'Nos ponemos en marcha y te contamos los siguientes pasos. Te hemos enviado la confirmación.'}
                     </p>
+                    {informe?.enlace && !conCee && (
+                        <>
+                            <p className="ac-txt">Si tienes a mano la documentación (el presupuesto del instalador, las fichas técnicas…), súbela en tu página. Ahí verás también cómo va.</p>
+                            <a className="ac-btn ac-btn-pri" href={informe.enlace} style={{ marginTop: 16 }}>
+                                Subir mi documentación <IcoFlecha size={19} />
+                            </a>
+                        </>
+                    )}
                 </section>
 
                 {/* ── Las fotos para el certificado, en el mismo sitio ─────────

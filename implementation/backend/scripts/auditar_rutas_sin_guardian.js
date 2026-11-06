@@ -29,7 +29,9 @@ const GUARDIANES = new Set([
 // · certappPublic (/api/public/certapp): lista de espera (honeypot + límite por IP + Turnstile),
 //   activar/recuperar/entrar con token HMAC de un solo uso, subida del propietario con el portal_token de
 //   la obra, y miniaturas/ficheros con firma HMAC que caduca.
-const ROUTERS_PUBLICOS = new Set(['public', 'portal', 'publicMarketplace', 'landing', 'afirmaStorage', 'acciones', 'certappPublic']);
+// · informesPublic (/api/public/informe): el enlace del cliente de un informe, con su portal_token (32 hex),
+//   límite por IP; el firmado solo se descarga cobrado.
+const ROUTERS_PUBLICOS = new Set(['public', 'portal', 'publicMarketplace', 'landing', 'afirmaStorage', 'acciones', 'certappPublic', 'informesPublic']);
 
 // Rutas sueltas abiertas a propósito, con el motivo.
 const ABIERTAS = {

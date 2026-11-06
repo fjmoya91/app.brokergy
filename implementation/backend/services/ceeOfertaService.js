@@ -395,6 +395,14 @@ async function vistaPublica(oferta) {
         // Ya aceptada, el mismo enlace le sigue dejando subir las fotos del CEE.
         if (data) docs = { expedienteId: data.id, token: data.portal_token || await require('./ceeDirectoDocsService').asegurarToken(data) };
     }
+    // Ya aceptado un presupuesto con informe: su número y SU enlace (documentación,
+    // en qué punto está y, cobrado, el firmado).
+    let informe = null;
+    if (oferta.informe_id) {
+        const { data } = await supabase.from('informes').select('id, numero, portal_token').eq('id', oferta.informe_id).maybeSingle();
+        if (data) informe = { numero: data.numero, enlace: require('./informeService').enlaceCliente(data) };
+        if (!numeroExpediente) numeroExpediente = data?.numero || null;
+    }
     return {
         numero: oferta.numero,
         fecha: oferta.created_at,
@@ -410,6 +418,7 @@ async function vistaPublica(oferta) {
         aceptada_por: oferta.aceptada_por,
         numero_expediente: numeroExpediente,
         docs,
+        informe,
         cliente: {
             nombre_razon_social: c.nombre_razon_social || '',
             apellidos: c.apellidos || '',
@@ -549,9 +558,17 @@ async function aceptar(token, form = {}) {
                 historial: [...(oferta.historial || []), { fecha: ahora, texto: `Aceptado por ${aceptadaPor}`, usuario: 'Cliente' }]
             }).eq('id', oferta.id);
             const ofertaFinal = { ...oferta, ...inm, cliente_id: clienteId };
-            setImmediate(() => avisarSinCee({ oferta: ofertaFinal, form, total, fmtEur: m.fmtEur })
+            // Con un artículo que GENERA un informe (memoria, legalización…), nace
+            // su 2026INF_n con carpeta propia (Fran, 05/11/2026: «todo lo que no
+            // sea CAE ni CEE»). Si falla, la aceptación se deshace (abajo), como
+            // cuando falla el expediente de un CEE.
+            const informe = generaInforme(oferta) ? await crearInforme(ofertaFinal, { clienteId, inm, aceptadaPor }) : null;
+            setImmediate(() => avisarSinCee({ oferta: ofertaFinal, form, total, fmtEur: m.fmtEur, informe })
                 .catch(e => console.error('[presupuesto aviso]', e.message)));
-            return { yaAceptada: false, numeroExpediente: null, sinExpediente: true };
+            return {
+                yaAceptada: false, numeroExpediente: informe?.numero || null, sinExpediente: !informe,
+                ...(informe ? { informe: { numero: informe.numero, enlace: require('./informeService').enlaceCliente(informe) } } : {}),
+            };
         }
 
         // Lo que ha contestado de climatización: viaja al expediente para que lo
@@ -604,6 +621,13 @@ async function aceptar(token, form = {}) {
             texto: `EXPEDIENTE CREADO AL ACEPTAR EL CLIENTE LA OFERTA ${oferta.numero} (${m.fmtEur(total)})`,
             usuario: `Cliente (${aceptadaPor})`
         });
+
+        // Un CEE y además un informe en el mismo presupuesto: el informe nace
+        // aparte, pero el CEE ya existe, así que su fallo no deshace nada: se avisa.
+        if (generaInforme(oferta)) {
+            await crearInforme(ofertaFinal, { clienteId, inm, aceptadaPor, avisar: true })
+                .catch(e => console.error(`[presupuesto ${oferta.numero}] el informe no se ha creado:`, e.message));
+        }
 
         setImmediate(() => avisar({ oferta: ofertaFinal, expediente: creado, form, total, fmtEur: m.fmtEur, resumen: cq.resumenCuestionario(cuestionario) }).catch(e =>
             console.error('[oferta-cee aviso]', e.message)));
@@ -667,7 +691,22 @@ async function avisar({ oferta, expediente, form, total, fmtEur, resumen = [] })
  * (aquí no hay fotos que subir, así que no se espera a «He terminado»).
  * Nunca tumba la aceptación.
  */
-async function avisarSinCee({ oferta, form, total, fmtEur }) {
+/** ¿Lleva alguna partida que abre un INFORME o un CIT? (`genera: 'INFORME'` / `'CIT'` del catálogo) */
+const generaInforme = (oferta) => Array.isArray(oferta.lineas) && oferta.lineas.some(l => l?.genera === 'INFORME' || l?.genera === 'CIT');
+
+/** Nace el informe del presupuesto aceptado, con el PDF de lo aceptado en su carpeta. */
+async function crearInforme(ofertaFinal, { clienteId, inm, aceptadaPor, avisar = false }) {
+    let pdf = null;
+    try {
+        const cliFresco = (await conCliente({ ...ofertaFinal })).cliente;
+        pdf = await pdfDe({ ...ofertaFinal, cliente: cliFresco });
+    } catch (e) { console.warn('[presupuesto → informe] PDF:', e.message); }
+    const informe = await require('./informeService').desdePresupuesto(ofertaFinal, { clienteId, inmueble: inm, aceptadaPor, pdf, avisar });
+    await supabase.from(TABLA).update({ informe_id: informe.id }).eq('id', ofertaFinal.id);
+    return informe;
+}
+
+async function avisarSinCee({ oferta, form, total, fmtEur, informe = null }) {
     const nombre = `${txt(form.nombre_razon_social)} ${txt(form.apellidos)}`.trim();
     const partidas = Array.isArray(oferta.lineas) ? (await partidasMod()).partidasDe(oferta.lineas) : [];
     const inmueble = [oferta.direccion, oferta.municipio].filter(Boolean).join(', ');
@@ -679,7 +718,9 @@ async function avisarSinCee({ oferta, form, total, fmtEur }) {
         ...(inmueble ? [`Inmueble: ${inmueble}`] : []),
         ...(partidas.length ? ['', ...partidas.map(p => `• ${p}`)] : []),
         '',
-        `Siguiente paso: ponerse en marcha y facturar → ${FRONTEND()}/?tab=facturacion`
+        informe
+            ? `Abierto el *${informe.numero}* (${informe.titulo}). Siguiente paso: ${informe.linea === 'CIT' ? 'hacer la memoria RITE' : 'redactarlo'} → ${FRONTEND()}/?informe=${informe.id}`
+            : `Siguiente paso: ponerse en marcha y facturar → ${FRONTEND()}/?tab=facturacion`
     ].join('\n');
     try { await whatsappService.sendText(adminPhone(), staff); } catch (e) { console.warn('[presupuesto] WA staff:', e.message); }
     try {
@@ -698,6 +739,10 @@ async function avisarSinCee({ oferta, form, total, fmtEur }) {
         primer ? `¡Hola ${primer.charAt(0).toUpperCase()}${primer.slice(1).toLowerCase()}!` : '¡Hola!', '',
         `Hemos recibido la aceptación de tu presupuesto *${oferta.numero}*. *¡Muchas gracias por confiar en Brokergy!*`, '',
         'Nos ponemos en marcha y en breve te contamos los siguientes pasos.', '',
+        // Con informe: su número y SU enlace, para subir la documentación y, al
+        // final, recoger el documento firmado.
+        ...(informe ? [`Tu número es *${informe.numero}*. Si tienes a mano la documentación (${informe.linea === 'CIT' ? 'la factura de la instalación y fotos de las placas de los equipos' : 'presupuesto del instalador, fichas técnicas…'}), súbela aquí; en este mismo enlace verás cómo va:`,
+            `👉 ${require('./informeService').enlaceCliente(informe)}`, ''] : []),
         '¡Quedamos a tu disposición para cualquier duda!',
         '*BROKERGY — Ingeniería Energética*'
     ].join('\n');

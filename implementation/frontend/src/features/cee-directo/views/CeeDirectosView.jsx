@@ -8,6 +8,15 @@ import { AccionesOferta } from '../components/AccionesOferta';
 import { fmtEur } from '../logic/ofertaCee';
 import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
 import { useVistaGuardada, useGuardarVista, useScrollLista } from '../../../utils/memoriaVista';
+// Los INFORMES técnicos (2026INF_n) viven en esta misma pestaña: todo lo que no es
+// CAE ni CEE (docs/conocimiento/informes/). Su ficha se abre con `inf:<id>`.
+import { InformeDetailView } from '../../informes/views/InformeDetailView';
+import { colorEstadoInforme, pastillaLinea } from '../../informes/logic/estados';
+import { NuevoInformeModal } from '../../informes/components/NuevoInformeModal';
+
+const PREFIJO_INFORME = 'inf:';
+const esInforme = (sel) => typeof sel === 'string' && sel.startsWith(PREFIJO_INFORME);
+const INFORMES_TERMINADOS = ['ENTREGADO', 'ANULADO'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CEE directos — los certificados que nos contratan sueltos, fuera del CAE.
@@ -90,10 +99,23 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
     const [ofertas, setOfertas] = useState([]);
     const [ofertaAbierta, setOfertaAbierta] = useState(null);
     const [seleccionado, setSeleccionado] = useState(initialSelectedId);
+    const [informes, setInformes] = useState([]);
+    const [showNuevoInforme, setShowNuevoInforme] = useState(false); // false | 'INF' | 'CIT'
     useGuardarVista('cee-directos', { busqueda, verFinalizados, prescriptor: filtroPrescriptor });
     // Volver de la ficha a la fila que se abrió, no al principio de la lista.
     const lista = useScrollLista('cee-directos', !!seleccionado, !loading && filas.length > 0);
     const abrirCee = (id) => { lista.recordar(); setSeleccionado(id); };
+    const abrirInforme = (id) => { lista.recordar(); setSeleccionado(`${PREFIJO_INFORME}${id}`); };
+
+    // Los informes son cosa del equipo (staffOnly). Sin ellos el listado sigue sirviendo.
+    const cargarInformes = useCallback(async () => {
+        if (!isStaff) return;
+        try {
+            const { data } = await axios.get('/api/informes');
+            setInformes(Array.isArray(data) ? data : []);
+        } catch { setInformes([]); }
+    }, [isStaff]);
+    useEffect(() => { cargarInformes(); }, [cargarInformes]);
 
     const cargar = useCallback(async () => {
         setLoading(true);
@@ -186,7 +208,28 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
 
     const ofertasAnuladas = useMemo(() => ofertas.filter(f => f.estado === 'ANULADA').length, [ofertas]);
 
-    const finalizados = useMemo(() => filas.filter(r => r.estado === 'FINALIZADO').length, [filas]);
+    const informesVisibles = useMemo(() => {
+        const palabras = norm(busqueda).split(/\s+/).filter(Boolean);
+        return informes.filter(r => {
+            if (!verFinalizados && !palabras.length && INFORMES_TERMINADOS.includes(r.estado)) return false;
+            if (filtroPrescriptor && String(r.prescriptor_id) !== filtroPrescriptor) return false;
+            if (!palabras.length) return true;
+            const heno = norm([r.numero, r.linea === 'CIT' ? 'cit rite instalacion termica' : 'informe', r.titulo, r.tipo_etiqueta, r.organismo, r.cliente_nombre, r.municipio, r.prescriptor_nombre].filter(Boolean).join(' '));
+            return palabras.every(w => heno.includes(w));
+        });
+    }, [informes, busqueda, verFinalizados, filtroPrescriptor]);
+
+    const finalizados = useMemo(() => filas.filter(r => r.estado === 'FINALIZADO').length
+        + informes.filter(r => INFORMES_TERMINADOS.includes(r.estado)).length, [filas, informes]);
+
+    if (esInforme(seleccionado)) {
+        return (
+            <InformeDetailView
+                id={seleccionado.slice(PREFIJO_INFORME.length)}
+                onBack={() => { setSeleccionado(null); cargarInformes(); }}
+            />
+        );
+    }
 
     if (seleccionado) {
         return (
@@ -205,9 +248,9 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
             {/* ── Cabecera ───────────────────────────────────────────────── */}
             <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
                 <div>
-                    <h1 className="text-lg md:text-xl font-black text-white uppercase tracking-widest">CEE directos</h1>
+                    <h1 className="text-lg md:text-xl font-black text-white uppercase tracking-widest">CEE directos e informes</h1>
                     <p className="text-[11px] text-white/35 mt-1">
-                        Certificados de eficiencia energética contratados sueltos. Nada que ver con los CAE.
+                        Certificados sueltos, memorias, legalizaciones, informes técnicos y RITE sueltos (CIT). Nada que ver con los CAE.
                     </p>
                 </div>
                 {isStaff && (
@@ -222,6 +265,14 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                         <button onClick={() => setShowNuevo(true)}
                             className="min-h-[44px] px-5 rounded-xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-widest hover:bg-brand-700 transition-colors">
                             + Nuevo CEE
+                        </button>
+                        <button onClick={() => setShowNuevoInforme('INF')}
+                            className="min-h-[44px] px-5 rounded-xl border border-violet-400/40 bg-violet-500/10 text-violet-300 text-[11px] font-black uppercase tracking-widest hover:bg-violet-500/20 transition-colors">
+                            + Nuevo informe
+                        </button>
+                        <button onClick={() => setShowNuevoInforme('CIT')}
+                            className="min-h-[44px] px-5 rounded-xl border border-rose-400/40 bg-rose-500/10 text-rose-300 text-[11px] font-black uppercase tracking-widest hover:bg-rose-500/20 transition-colors">
+                            + Nuevo CIT
                         </button>
                     </div>
                 )}
@@ -265,9 +316,9 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
 
             {loading ? (
                 <div className="py-16 text-center text-white/25 text-xs font-black uppercase tracking-widest">Cargando…</div>
-            ) : visibles.length === 0 && ofertasVisibles.length === 0 ? (
+            ) : visibles.length === 0 && ofertasVisibles.length === 0 && informesVisibles.length === 0 ? (
                 <div className="py-16 text-center text-white/25 text-xs font-black uppercase tracking-widest">
-                    {filas.length || ofertas.length ? 'Nada que coincida con el filtro' : 'Todavía no hay ningún CEE directo'}
+                    {filas.length || ofertas.length || informes.length ?'Nada que coincida con el filtro' : 'Todavía no hay ningún CEE directo'}
                 </div>
             ) : (
                 <>
@@ -330,6 +381,41 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                             </tr>
                                         ),
                                     ];
+                                })}
+                                {informesVisibles.map(r => {
+                                    const dias = diasDesde(r.desde);
+                                    const terminado = INFORMES_TERMINADOS.includes(r.estado);
+                                    return (
+                                        <tr key={`inf-${r.id}`}
+                                            onClick={() => abrirInforme(r.id)}
+                                            className="border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer transition-colors">
+                                            <td className="px-4 py-3">
+                                                <div className="font-mono text-violet-300 text-sm font-bold">{r.numero}</div>
+                                                <div className="text-white/70 text-xs mt-0.5 uppercase tracking-wide line-clamp-1">{r.titulo}</div>
+                                                <div className="flex items-center gap-1.5 mt-1">
+                                                    <Pastilla className={pastillaLinea(r.linea).clase}>{pastillaLinea(r.linea).texto}</Pastilla>
+                                                    {r.organismo && <span className="text-[10px] text-white/35 line-clamp-1">{r.organismo}</span>}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-xs text-white/60">
+                                                {r.cliente_nombre || <span className="text-white/20">—</span>}
+                                                {r.municipio && <div className="text-white/25 text-[11px] mt-0.5">{r.municipio}</div>}
+                                            </td>
+                                            {isStaff && (
+                                                <td className="px-4 py-3 text-xs text-white/45">{r.prescriptor_nombre || <span className="text-white/20">Directo</span>}</td>
+                                            )}
+                                            <td className="px-4 py-3 text-xs text-white/45">{r.tipo_etiqueta}</td>
+                                            <td className="px-4 py-3">
+                                                <Pastilla className={colorEstadoInforme(r.estado)}>{r.estado}</Pastilla>
+                                                {r.pelota && <div className="text-[10px] text-white/25 mt-1 uppercase tracking-widest">Pelota: {r.pelota === 'CLIENTE' ? 'Cliente' : 'Nuestra'}</div>}
+                                            </td>
+                                            <td className="px-4 py-3 text-xs font-mono tabular-nums">
+                                                {dias == null || terminado ? <span className="text-white/20">—</span>
+                                                    : <span className={dias > 21 ? 'text-red-400 font-black' : dias > 7 ? 'text-amber-400' : 'text-white/40'}>{dias} d</span>}
+                                            </td>
+                                            <td className="px-4 py-3" />
+                                        </tr>
+                                    );
                                 })}
                                 {visibles.map(r => {
                                     const dias = diasParado(r);
@@ -437,6 +523,23 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                 </div>
                             );
                         })}
+                        {informesVisibles.map(r => (
+                            <div key={`inf-${r.id}`} onClick={() => abrirInforme(r.id)}
+                                className="rounded-2xl p-4 bg-bkg-surface/60 border border-violet-500/15 active:scale-[0.99] transition-transform">
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="font-mono text-violet-300 text-sm font-bold leading-tight">{r.numero}</div>
+                                        <div className="text-white/90 text-xs font-bold mt-0.5 uppercase tracking-wide line-clamp-1">{r.titulo}</div>
+                                        {r.cliente_nombre && <div className="text-white/35 text-[11px] mt-0.5">{r.cliente_nombre}</div>}
+                                    </div>
+                                    <Pastilla className={pastillaLinea(r.linea).clase}>{pastillaLinea(r.linea).texto}</Pastilla>
+                                </div>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                    <Pastilla className={colorEstadoInforme(r.estado)}>{r.estado}</Pastilla>
+                                    {r.organismo && <span className="text-[11px] text-white/30">{r.organismo}</span>}
+                                </div>
+                            </div>
+                        ))}
                         {visibles.map(r => {
                             const dias = diasParado(r);
                             return (
@@ -483,6 +586,15 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                     prescriptores={prescriptores}
                 />
             )}
+
+            <NuevoInformeModal
+                key={showNuevoInforme || 'cerrado'}
+                isOpen={!!showNuevoInforme}
+                lineaInicial={showNuevoInforme || 'INF'}
+                onClose={() => setShowNuevoInforme(false)}
+                onCreated={(nuevo) => { cargarInformes(); abrirInforme(nuevo.id); }}
+                prescriptores={prescriptores}
+            />
 
             <NuevoCeeDirectoModal
                 isOpen={showNuevo}
