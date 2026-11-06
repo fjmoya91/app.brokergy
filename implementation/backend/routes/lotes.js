@@ -2841,6 +2841,46 @@ const PETICIONES_SO = {
             + `${total ? `, ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € en total` : ''}`
             + ` por ${canales}${to ? ` a ${to}` : ''}.`,
     },
+    // NUESTRAS facturas de venta de los CAE (05/11/2026). El PDF no es un documento
+    // del lote sino el de `facturas_so` (el que se generó y se archivó en
+    // contabilidad), así que la petición trae su propio `adjunto`. El sello va en la
+    // entrada del CERTIFICADO CAE del lote: la fila de `facturas_so` no tiene dónde.
+    facturas_cae: {
+        key: 'certificado_cae',
+        nombre: (n) => `${n} factura${n === 1 ? '' : 's'} de los CAE emitidos`,
+        asuntoPorDefecto: 'Facturas de los CAE emitidos',
+        etiquetaPorDefecto: 'Facturas de los CAE',
+        // Sin el certificado no hay CAE que facturar (lo comprueba `adjunto`); una
+        // factura ya COBRADA no se reclama.
+        bloqueo: () => null,
+        faltaTexto: 'la factura generada',
+        accionFalta: 'Genérala en su lote («Generar y guardar»)',
+        conFacturaSo: true,
+        adjunto: (l, fac) => {
+            const cert = (l.documentos_so || []).find(d => d?.key === 'certificado_cae');
+            if (!cert) return { motivo: 'no tiene los CAE emitidos (sin certificado)' };
+            if (!fac?.numero) return { falta: true };
+            if (fac.estado === 'PAGADA') return { motivo: `ya consta COBRADA (${fac.numero})` };
+            const fileId = fac.drive_file_id || idDeDriveLink(fac.drive_link);
+            if (!fileId) return { falta: true };
+            return {
+                fileId,
+                filename: pdfFileName(`${fac.numero} - ${l.codigo || 'LOTE'}`),
+                importe: Number(fac.total) || null,
+            };
+        },
+        sello: (d, { to }) => ({
+            factura_enviada_at: nowIso(),
+            factura_enviada_to: to || d.factura_enviada_to || null,
+            factura_enviada_veces: (Number(d.factura_enviada_veces) || 0) + 1,
+        }),
+        veces: (d) => Number(d?.factura_enviada_veces) || 0,
+        historial: ({ previas, codigos, total, canales, to }) =>
+            `${previas ? `Recordadas al S.O. (${previas + 1}ª vez)` : 'Enviadas al S.O.'}`
+            + ` las facturas de los CAE emitidos (${codigos.length} lote${codigos.length === 1 ? '' : 's'}: ${codigos.join(', ')})`
+            + `${total ? `, ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € con IVA en total` : ''}`
+            + ` por ${canales}${to ? ` a ${to}` : ''}.`,
+    },
     firma_ofertas: {
         key: 'oferta_verificacion',
         nombre: (n) => `${n} oferta${n === 1 ? '' : 's'} de verificación`,
@@ -2892,6 +2932,25 @@ async function peticionSo(req, res) {
         if (error) throw error;
         if (!(lotes || []).length) return res.status(404).json({ error: 'No se han encontrado los lotes.' });
 
+        // Nuestras facturas viven en `facturas_so`, no en los documentos del lote.
+        const facturaDe = new Map();
+        if (P.conFacturaSo) {
+            const { data: facs, error: fErr } = await supabase.from('facturas_so')
+                .select('lote_id, numero, estado, total, drive_file_id, drive_link').in('lote_id', lotes.map(l => l.id));
+            if (fErr) throw fErr;
+            for (const f of facs || []) facturaDe.set(f.lote_id, f);
+            const bloq = lotes
+                .map(l => ({ codigo: l.codigo, r: P.adjunto(l, facturaDe.get(l.id)) }))
+                .filter(x => x.r?.motivo);
+            if (bloq.length) {
+                return res.status(409).json({
+                    error: bloq.map(b => `${b.codigo} ${b.r.motivo}`).join('; ')
+                        + `. Quita ${bloq.length === 1 ? 'ese lote' : 'esos lotes'} del envío.`,
+                    bloqueados: bloq.map(b => b.codigo),
+                });
+            }
+        }
+
         // Una factura ya COBRADA no se reclama. La pantalla ya la excluye, pero
         // entre que se pinta y se pulsa puede haberse marcado el pago (o haberlo
         // hecho otra persona): reclamarle a quien ya pagó es la peor forma de
@@ -2918,6 +2977,14 @@ async function peticionSo(req, res) {
         const adjuntos = [];
         const sinDoc = [];
         for (const l of lotes) {
+            if (P.adjunto) {
+                const a = P.adjunto(l, facturaDe.get(l.id));
+                if (!a?.fileId) { sinDoc.push(l.codigo); continue; }
+                const buf = await driveService.getFileContent(a.fileId);
+                if (!buf) { sinDoc.push(l.codigo); continue; }
+                adjuntos.push({ filename: a.filename, content: buf, loteId: l.id, codigo: l.codigo, importe: a.importe });
+                continue;
+            }
             const f = (l.documentos_so || []).find(d => d?.key === P.key);
             // Un enlace que apunta a un fichero borrado tampoco vale: `getFileContent`
             // devuelve null y el correo saldría anunciando un adjunto que no lleva.
@@ -2938,7 +3005,7 @@ async function peticionSo(req, res) {
         }
         if (sinDoc.length) {
             return res.status(409).json({
-                error: `Falta ${P.faltaTexto} de ${sinDoc.join(', ')}. Súbela o quita ese lote del envío:`
+                error: `Falta ${P.faltaTexto} de ${sinDoc.join(', ')}. ${P.accionFalta || 'Súbela'} o quita ese lote del envío:`
                     + ' un correo que anuncia los documentos y no los lleva todos deja el trámite incompleto.',
             });
         }

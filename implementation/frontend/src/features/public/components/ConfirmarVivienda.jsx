@@ -26,6 +26,7 @@ import {
     etiquetaAires,
 } from '../../expedientes/logic/confirmacionCliente';
 import { FV } from '../../expedientes/logic/fotovoltaica';
+import { textoCasillaCompromiso, TEXTO_CASILLA_INICIO } from '../logic/condicionesAceptacion';
 import {
     IconRadiador, IconSueloRadiante, IconMixto, IconNoSe,
     IconPlacas, IconPlacasFuturo, IconSinPlacas, IconAire, IconSinAire,
@@ -115,7 +116,8 @@ function BotonContinuar({ onClick, disabled, children = 'Continuar' }) {
  * @param {boolean}  enviando
  * @param {string}   error
  */
-export function ConfirmarVivienda({ conf, setConf, onVolverDatos, onAceptar, onVerCondiciones, enviando, error }) {
+export function ConfirmarVivienda({ conf, setConf, onVolverDatos, onAceptar, onVerCondiciones, enviando, error,
+    reforzadas = null, compromiso = false, setCompromiso, inicioAnticipado = false, setInicioAnticipado }) {
     const [paso, setPaso] = useState(0);
     const [desdeResumen, setDesdeResumen] = useState(false);
     const arriba = useRef(null);
@@ -302,8 +304,29 @@ export function ConfirmarVivienda({ conf, setConf, onVolverDatos, onAceptar, onV
                         </div>
                     )}
 
+                    {/* «Perfil exigente»: el compromiso de cesión en exclusiva va en una
+                        casilla APARTE y obligatoria (LCGC: una cláusula que pesa se acepta
+                        expresamente, no por estar en el texto largo), con la cifra en
+                        euros. El inicio anticipado es opcional (art. 108.3 TRLGDCU). */}
+                    {reforzadas && (
+                        <div className="fp-stack" style={{ marginTop: 20 }}>
+                            <label className="fp-casilla">
+                                <input type="checkbox" checked={!!compromiso}
+                                    onChange={e => setCompromiso?.(e.target.checked)} />
+                                <span>{textoCasillaCompromiso(reforzadas)}{' '}
+                                    <button type="button" onClick={onVerCondiciones} className="fp-link">Ver el detalle</button>
+                                </span>
+                            </label>
+                            <label className="fp-casilla">
+                                <input type="checkbox" checked={!!inicioAnticipado}
+                                    onChange={e => setInicioAnticipado?.(e.target.checked)} />
+                                <span>{TEXTO_CASILLA_INICIO} <small>(Opcional: si no la marcas, la visita se hace pasados los 14 días.)</small></span>
+                            </label>
+                        </div>
+                    )}
+
                     <div style={{ marginTop: 20 }}>
-                        <button type="button" onClick={onAceptar} disabled={enviando} className="fp-btn fp-btn-pri">
+                        <button type="button" onClick={onAceptar} disabled={enviando || (reforzadas && !compromiso)} className="fp-btn fp-btn-pri">
                             {enviando ? 'Procesando…' : 'Confirmar y aceptar propuesta'}
                         </button>
                         {/* Aceptación por clic: el botón ES la aceptación, y el
@@ -313,7 +336,7 @@ export function ConfirmarVivienda({ conf, setConf, onVolverDatos, onAceptar, onV
                             <button type="button" onClick={onVerCondiciones} className="fp-link">
                                 condiciones y autorizaciones
                             </button>
-                            {' '}de la propuesta, incluidas la presentación de los Certificados de Eficiencia Energética y el tratamiento de tus datos personales.
+                            {' '}de la propuesta, incluidas la presentación de los Certificados de Eficiencia Energética{reforzadas ? ', el derecho de desistimiento de 14 días' : ''} y el tratamiento de tus datos personales.
                         </p>
                     </div>
                 </div>

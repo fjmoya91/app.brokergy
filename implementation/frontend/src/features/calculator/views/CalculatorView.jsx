@@ -127,6 +127,9 @@ const INITIAL_INPUTS = {
     hibridacionMetodo: 'demanda',  // 'demanda' (P. de diseño) | 'caldera' (P. nominal caldera)
     potenciaCaldera: 0,            // kW — solo se usa con hibridacionMetodo = 'caldera'
     discountCertificates: false,
+    // «Perfil exigente» (solo ADMIN): cláusulas 3 y 4 reforzadas en la propuesta y
+    // compromiso de cesión en exclusiva al aceptar (cifrasPropuesta.js).
+    condicionesReforzadas: false,
     includeLegalization: false,
     installerNoCard: false,
     legalizationPrice: 200,

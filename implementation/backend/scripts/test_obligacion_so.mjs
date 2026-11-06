@@ -12,6 +12,7 @@
 //   6. Lo disponible se acumula por cercanía al CAE frente a lo que falta.
 //   7. Con qué se cubre lo que le falta (planParaCubrir).
 //   8. Lo que sale por el enlace del S.O.: estados y fuente en su idioma.
+//   9. A cuánto le sale el CAE al S.O. (€/MWh) y su ahorro frente al Fondo.
 //   (y) Los GWh tecleados con coma se leen bien («20,03»), y una obligación sin
 //      cuota no se guarda.
 //
@@ -23,6 +24,7 @@ import path from 'path';
 const raiz = path.resolve(import.meta.dirname, '../../frontend/src/features');
 const {
     computeVistaSo, kwhDelLote, etapaDelLote, anioDelLote, normalizarObligacion, planParaCubrir,
+    costeDelLoteParaSo, precioCaeParaSo,
 } = await import(pathToFileURL(path.join(raiz, 'lotes/logic/obligacionSo.js')).href);
 
 let fallos = 0;
@@ -132,6 +134,26 @@ ok('la fuente, en su texto: «facturado»', lp1.fuente === 'facturado');
 ok('lo de entre paréntesis del código es nuestro', lp1.codigo === 'PAQUETE 1 - 2025');
 ok('el lote vacío no sale', vp.etapas[0].lotes.length === 3);
 ok('ni las notas de la obligación', !('notas' in vp.obligacion));
+
+console.log('\n9. A cuánto le sale el CAE al S.O. (factura + verificación, en €/MWh)');
+{
+    // Con factura manda su BASE; sin ella, la oferta × MWh.
+    const conFac = costeDelLoteParaSo({ factura_so: { numero: 'F-1', base: '170000' }, oferta_lote: 999, coste_verificacion: 1564 }, 1000e3);
+    ok('con factura manda su base', conFac.brokergy === 170000 && conFac.verif === 1564);
+    const sinFac = costeDelLoteParaSo({ oferta_lote: 170, coste_verificacion: null }, 500e3);
+    ok('sin factura, oferta × MWh', sinFac.brokergy === 85000 && sinFac.verif === 0);
+    ok('sin oferta ni factura, no hay coste', costeDelLoteParaSo({}, 500e3) === null);
+    const filas = [
+        { kwh: 1000e3, coste: { brokergy: 170000, verif: 2000 } },
+        { kwh: 500e3, coste: { brokergy: 85000, verif: 1000 } },
+        { kwh: 400e3, coste: { brokergy: 60000, verif: 0 } }, // verificación sin facturar: fuera
+    ];
+    const p = precioCaeParaSo(filas, 198.624);
+    ok('solo cuentan los lotes con la verificación facturada', p.costeCaeLotes === 2 && cerca(p.costeCaeGwh, 1.5));
+    ok('€/MWh = (factura + verificación) / MWh', cerca(p.costeCaeMwh, 258000 / 1500));
+    ok('ahorro = (equivalencia − €/MWh) × MWh', cerca(p.ahorroCaeEur, (198.624 - 172) * 1500, 0.01));
+    ok('sin ninguno verificado no se da cifra', precioCaeParaSo([filas[2]], 198.624) === null);
+}
 
 console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ Todo bien');
 process.exit(fallos ? 1 : 0);

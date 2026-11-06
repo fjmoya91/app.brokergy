@@ -144,5 +144,17 @@ del MCP). Medido el 03/11/2026: le faltan 1,89 GWh; listo 1,01 GWh (17, uno con 
 abiertas: 25RES080_28); con la obra hecha y sin graves 1,35 GWh (24): llega terminando parte de
 esos 24.
 
+**REGLA — el S.O. ve el AHORRO por trabajar con BROKERGY; a cuánto le sale el CAE (€/MWh) lo ve
+solo nuestro ADMIN** (2026-11-05). Bajo la tarjeta «Con BROKERGY». Primero Fran pidió el €/MWh
+(«a cuánto está pagando el CAE, coste verificación + compra a mí») y luego lo acotó: «que
+Interalco de momento no vea a cuánto está pagando el CAE, solo el ahorro». Se suman nuestra factura
+(su base; sin factura, la oferta × MWh) y la verificación, y se dividen por los MWh. Solo cuentan
+los lotes con la verificación facturada, porque sin ella la cifra saldría más baja de lo que le
+cuesta. El ahorro es (equivalencia − ese €/MWh) × MWh. Lo calculan `costeDelLoteParaSo` y
+`precioCaeParaSo`. En `CAMPOS_OBLIGACION` solo pasa `ahorroCaeEur`: el enlace público NI RECIBE el
+€/MWh. La Vista S.O. interna lo pinta solo con `conPrecio`, que es `canEdit` (ADMIN). Para
+enseñárselo algún día, basta con añadir `costeCaeMwh` a `CAMPOS_OBLIGACION`. Medido el 05/11/2026
+para INTERALCO: 177,20 €/MWh sobre 16 lotes (5,44 GWh), con 116.664 € de ahorro frente a 198,62 €/MWh.
+
 La vista en el servidor tarda ~4 s (la mitad es lo disponible); en local el modo estricto de
 React la pide dos veces.

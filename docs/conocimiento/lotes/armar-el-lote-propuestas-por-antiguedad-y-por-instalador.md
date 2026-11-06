@@ -51,6 +51,17 @@ los más antiguos».
 
 Hoy (27/10/2026): 30 elegibles, todos con instalador y con fecha; 28 de CLM 2026.
 
+**La provincia de la oportunidad puede venir con su NOMBRE, no con el código (2026-11-05).**
+La CCAA del elegible sale de [geoCcaa.js](implementation/backend/services/geoCcaa.js)
+(`resolveCcaaInstalacion`), que tomaba `datos_calculo.inputs.provincia` como código INE con un
+`pad2` a pelo. Las oportunidades antiguas guardan ahí «CIUDAD REAL» o «ALBACETE»: el «código» no
+existía en `COD_A_CCAA`, el expediente se quedaba sin CCAA, **y desaparecía del picker y de las
+propuestas sin decir nada** (`GET /elegibles` se salta los que no tienen CCAA, y `POST
+/:id/expedientes` los rechaza). Medido ese día: 26RES060_96, _103, _104, _106, _111 y _112 en DOC.
+COMPLETA de 2026 y sin lote, invisibles; el picker solo enseñaba 3 elegibles, ninguno de 2026.
+`codProvincia` acepta las dos formas (código o nombre). De los 371 expedientes, 65 pasan de «sin
+CCAA» a tener una, y ninguno cambia de una CCAA a otra.
+
 ## Riesgo, recientes y «Para cubrir a INTERALCO» (2026-11-03)
 
 Fran (03/11/2026): «los expedientes más antiguos son los que más errores tenemos por cambios de

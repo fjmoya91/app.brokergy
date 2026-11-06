@@ -42,7 +42,9 @@ revisar**. Con filtro ("los migrados", "los de X instalador", "los que espera el
 4. **¿Aceptado, obra AÚN pendiente, sin CEE inicial emitido?** → **vía B (variante CEE):** pide las fotos **opcional-CEE** (patios, vídeo, planos, fachada) que ayudan a emitir el CEE inicial.
 5. **¿Datos y documentación completos, pero falta GENERAR un documento interno** (CIFO, Anexo Fotográfico)? → **vía D: GENERAR**.
 6. **¿Bloquea el CERTIFICADOR** (visita/registro CEE)? → informa; si lleva muchos días, propón nudge.
-7. **¿Completo y correcto?** → propón avanzar a `DOC. COMPLETA` y lotear (lo cierra el usuario en la app).
+7. **¿Completo y correcto?** → propón avanzar a `DOC. COMPLETA` y lotear. Si el usuario dice que se pase,
+   **primero se VALIDA cada documento firmado** (el ✓ de la app, que los copia a «10. EXPEDIENTE CAE») y
+   después se cambia el estado: [comun/pasar-a-doc-completa.md](comun/pasar-a-doc-completa.md) (regla 196).
 
 ### 2. Ejecutar la vía
 
@@ -84,6 +86,8 @@ lotear — ese resumen ES el checkpoint del paquete para la próxima sesión.
 - WhatsApp siempre por `enviar-whatsapp`: borrador → visto bueno → enviar, al contacto habilitado, un rol por mensaje.
 - Paquetes de 5 por año(CIFO)+CCAA(instalación); migrados sin revisar primero. Loteable solo tras `DOC. COMPLETA`.
 - Migrado sin "DOC. COMPLETA" → auditar (migrar antes si ni está cargado). Faltan datos → rellenar antes de auditar.
-- No cierres estados ni firmes: eso lo hace el usuario en la app. Tú preparas, pides, generas (borrador) y avisas.
+- No cierres estados ni firmes por tu cuenta: tú preparas, pides, generas (borrador) y avisas. Si el
+  usuario te pide pasar uno a `DOC. COMPLETA`, se hace por [comun/pasar-a-doc-completa.md](comun/pasar-a-doc-completa.md):
+  primero todo validado, después el estado.
 - Independencia por expediente: cada uno con su carpeta, su veredicto y su acción; no agregues datos entre actuaciones del mismo cliente.
 - Salida = app (incidencias/estados) + chat (informe y siguiente acción). No generes informes Excel/PDF salvo que el usuario lo pida.

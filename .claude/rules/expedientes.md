@@ -24,6 +24,8 @@ paths:
 
 195. **En el LISTADO, un expediente completo que ya está en un lote se ENSEÑA como «EN LOTE», con el lote debajo; en la BD sigue en DOC. COMPLETA** (2026-11-05, Fran: «tengo 5 con documentación completa, pero al lotear no me salen» — estaban ya loteados). Un expediente sigue en DOC. COMPLETA hasta que su lote sale al verificador, así que el chip DOC. COMPLETA mezclaba lo libre con lo loteado. `estadoVisible` lo usan la columna Estado (chapa fija con el código y el estado del lote), la tarjeta móvil, los chips (el de «EN LOTE» detrás de DOC. COMPLETA, que cuenta solo lo que queda por lotear), el filtro y «Todos menos finalizado y rechazado». **No se convierte en estado de la BD**: de `estado` cuelgan las carpetas de Drive, el parte y lo que arrastra el lote. Fuente única: [logic/enLote.js](implementation/frontend/src/features/expedientes/logic/enLote.js). Ver "«EN LOTE»: el listado separa lo completo que ya está en un lote".
 
+196. **Pasar a DOC. COMPLETA es haberlo VALIDADO TODO: primero el ✓ de cada documento firmado, después el estado** (2026-11-05, Fran, 26RES060_198 y _202: «esto debe hacerse siempre; cuando lo pasemos a DOC. COMPLETA es porque se supone que se ha validado todo»). Cada firmado se valida por `POST /api/expedientes/:id/documentos/validar` (`{ field }`), que comprueba la firma (409 `firma_rota`), lo copia a **«10. EXPEDIENTE CAE»** —la carpeta que audita el verificador— y sella `docs_validados`: Anexo I, Convenio, CIFO, facturas, certificado RITE y Anexo Fotográfico siempre; Memoria RITE y Ficha RES si están. Solo entonces `PATCH /:id/estado` (que mueve la carpeta a «05. DOC. COMPLETA»), nunca un `update` directo. Un 409 no se fuerza sin el «sí» de Fran, y un documento firmado de nuevo se valida otra vez (la subida borra la validación). En DOC. COMPLETA entra en el lote aunque tenga incidencias, así que lo que no esté en la carpeta 10 viaja sin estar. Texto para las skills: `skills/_comun/pasar-a-doc-completa.md`. Ver "Pasar a DOC. COMPLETA es haberlo VALIDADO TODO".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -31,6 +33,7 @@ paths:
 - `docs/conocimiento/expedientes/carpetas-de-drive-por-estado.md` — Carpetas de Drive por estado (2026-07-24) · 2,7 KB
 - `docs/conocimiento/expedientes/el-listado-de-expedientes-las-columnas-se-eligen.md` — El listado de expedientes: las columnas se ELIGEN (2026-09-15) · 13,4 KB
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md` — Módulo Lifecycle de Expedientes (2026-05-20) · 6,7 KB
+- `docs/conocimiento/expedientes/pasar-a-doc-completa-se-valida-todo.md` — Pasar a DOC. COMPLETA es haberlo VALIDADO TODO (2026-11-05) · 3,4 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -57,5 +60,10 @@ expediente no se mueve.**
 la BD sigue en DOC. COMPLETA.**
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md`
   - **REGLA**
+- `docs/conocimiento/expedientes/pasar-a-doc-completa-se-valida-todo.md`
+  - **REGLA — antes de cambiar el estado a DOC. COMPLETA, se VALIDA cada documento firmado, uno por
+uno, como el ✓ de la pestaña Documentación.**
+  - **REGLA — después, y solo después, el cambio de estado**
+  - **REGLA — un 409 de firma rota PARA.**
 
 <!-- generado:fin -->

@@ -134,6 +134,10 @@ Firmante correcto por documento (Ficha = rep. legal SO · Anexo I cesión = BROK
   - **APTO (listo para enviar al SO y a verificación)** si **0 GRAVE** y ningún dato del expediente queda sin resolver. **La Ficha RES060/080 pendiente de generar o de firma del SO NO impide el APTO y tampoco se lista como LEVE ni como «qué falta»: no cuenta.** Los LEVE se listan como tareas antes/durante el envío, pero no bloquean.
   - **NO APTO** si hay algún GRAVE. Lista priorizada, GRAVE primero, cada uno con su acción correctiva.
   - Di siempre explícitamente qué falta para el envío al SO y qué queda para después.
+- **APTO no es DOC. COMPLETA.** Con un APTO, *propones* pasarlo. Solo si Fran lo pide («pásalo a DOC.
+  COMPLETA», «valídalo todo») se hace, y entonces **primero se VALIDA cada documento firmado** (el ✓ de
+  la app, que los copia a «10. EXPEDIENTE CAE») y **después** se cambia el estado. Pasos y campos:
+  [comun/pasar-a-doc-completa.md](comun/pasar-a-doc-completa.md) (regla 196).
 - **Revisión de la revisión**: tras subsanación, vuelve solo sobre lo marcado y confirma (la incidencia la cierra el usuario en la app).
 
 ### Salida: el registro vivo es la app (informe Excel/PDF = OPCIONAL, solo bajo petición)

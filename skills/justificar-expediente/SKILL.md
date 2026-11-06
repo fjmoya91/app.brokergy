@@ -248,6 +248,14 @@ qué botón. Lo que se pide con PALABRAS (una foto, un dato, una factura que no 
 persona de contacto si la hay), uno por persona y con todo lo suyo junto. **Solo borrador**: se
 enseñan enteros, y se mandan con el «sí» de Fran para ESE envío.
 
+### 13. Cuando vuelve todo firmado: DOC. COMPLETA
+Con los firmados de vuelta (Anexo I, Convenio, CIFO, Anexo Fotográfico) y si Fran dice que se pase a
+DOC. COMPLETA, **primero se VALIDA cada documento firmado**: el ✓ de la app, que comprueba la firma y
+copia el documento a «10. EXPEDIENTE CAE». Son el Anexo I, el Convenio, el CIFO, las facturas, el
+certificado RITE y el Anexo Fotográfico, más la Memoria RITE si está. **Después** se cambia el estado
+por la ruta de la app. Un documento que se ha vuelto a firmar (un CIFO de requerimiento) se valida otra
+vez. Pasos y campos: [comun/pasar-a-doc-completa.md](comun/pasar-a-doc-completa.md) (regla 196).
+
 ## Las preguntas que suelen salir (se hacen juntas, al final)
 
 | Duda | Por defecto recomendado |

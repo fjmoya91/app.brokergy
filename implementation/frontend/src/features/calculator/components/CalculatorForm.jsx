@@ -3210,6 +3210,37 @@ export function CalculatorForm({
                                             Asumir coste de certificados energéticos.
                                         </div>
                                     </div>
+
+                                    {/* Perfil exigente (solo ADMIN): la propuesta lleva el
+                                        compromiso de cesión en exclusiva y la compensación del
+                                        40 % del bono si se va con otro gestor tras la visita
+                                        (logic/cifrasPropuesta.js · penalizacionReforzada). */}
+                                    {isAdmin && (
+                                        <div className="p-4 rounded-xl bg-gradient-to-br from-rose-900/20 to-red-900/20 border border-rose-500/20 flex flex-col justify-between">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h4 className="text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-2">
+                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                                    </svg>
+                                                    Perfil exigente
+                                                </h4>
+                                                <label className="flex items-center gap-2 cursor-pointer group">
+                                                    <div className="relative flex items-center">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="peer sr-only"
+                                                            checked={!!inputs.condicionesReforzadas}
+                                                            onChange={e => handleChange('condicionesReforzadas', e.target.checked)}
+                                                        />
+                                                        <div className="w-8 h-4 bg-transparent rounded-full peer border border-rose-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-rose-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-rose-500 peer-checked:after:bg-white"></div>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                            <div className="text-[9px] text-slate-500 leading-tight">
+                                                Cesión en exclusiva al aceptar · 40 % del bono si se va con otro gestor tras la visita.
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                                 
                                 {(!inputs.titularType || inputs.titularType === 'particular') && (inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true') && (

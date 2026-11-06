@@ -16,7 +16,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import CondicionesAceptacionModal from '../components/CondicionesAceptacionModal';
-import { CONDICIONES_VERSION } from '../logic/condicionesAceptacion';
+import { CONDICIONES_VERSION, CONDICIONES_REFORZADAS_VERSION, condicionesReforzadas } from '../logic/condicionesAceptacion';
 import { ConfirmarVivienda } from '../components/ConfirmarVivienda';
 import { PropietariosAceptacion } from '../components/PropietariosAceptacion';
 import {
@@ -138,6 +138,12 @@ const CSS = `
 .fp-mini{appearance:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:12px;border:1.5px solid rgba(20,17,17,.14);background:#fff;color:var(--tinta);font:700 13.5px 'Inter',sans-serif;white-space:nowrap}
 .fp-mini:hover{border-color:rgba(20,17,17,.3)}
 .fp-link{appearance:none;background:none;border:0;cursor:pointer;padding:0;font:inherit;font-weight:700;color:var(--tinta);text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(20,17,17,.35);border-radius:6px}
+/* casillas del «Perfil exigente» (ConfirmarVivienda): toda la fila es la zona de toque */
+.fp-casilla{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:16px;background:#fff;border:1.5px solid rgba(20,17,17,.14);font-size:14px;line-height:1.5;color:#3b3e45;cursor:pointer}
+.fp-casilla:has(input:checked){border-color:var(--naranja);background:#fffaf0}
+.fp-casilla input{flex:none;width:22px;height:22px;margin:1px 0 0;accent-color:var(--naranja);cursor:pointer}
+.fp-casilla small{display:block;margin-top:4px;font-size:12.5px;color:var(--gris2)}
+.fp-casilla:focus-within{outline:3px solid var(--tinta);outline-offset:3px}
 .fp-atras{appearance:none;background:none;border:0;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 6px 0 0;font:700 14px 'Inter',sans-serif;color:var(--gris);border-radius:8px}
 .fp-atras:hover{color:var(--tinta)}
 .fp-separa{display:flex;align-items:center;gap:12px;margin:18px 0 0;font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--gris2)}
@@ -526,6 +532,11 @@ export function AceptarPropuestaView({ idOportunidad }) {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [verCondiciones, setVerCondiciones] = useState(false);
+    // «Perfil exigente»: lo sellado en la versión vigente (GET /public/cliente) y
+    // las dos casillas de la última pantalla.
+    const [reforzadas, setReforzadas] = useState(null);
+    const [compromiso, setCompromiso] = useState(false);
+    const [inicioAnticipado, setInicioAnticipado] = useState(false);
     const formRef = useRef(null);
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState(null);
@@ -585,6 +596,8 @@ export function AceptarPropuestaView({ idOportunidad }) {
             setFormData(prev => ({ ...prev, ...DEMO_DATOS }));
             // /firma/demo?varios — para ver cómo queda con varios propietarios habilitados.
             if (new URLSearchParams(window.location.search).has('varios')) setPermiteVarios(true);
+            // /firma/demo?reforzadas — la aceptación con el «Perfil exigente» (cifra de ejemplo).
+            if (new URLSearchParams(window.location.search).has('reforzadas')) setReforzadas({ pct: 40, penalizacion: 1069, tarifa: 702.78 });
             setDisplayId('DEMO');
             setLoading(false);
             return;
@@ -598,7 +611,9 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 // al aceptar ya no se le pregunta al cliente si usamos su CEE (Fran,
                 // 26/10/2026) — el inicial lo hace siempre BROKERGY.
                 const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, cee_aportado, cee_decision,
-                        propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, copropietarios: copsServidor, permite_varios_propietarios, ...rest } = res.data;
+                        propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, copropietarios: copsServidor, permite_varios_propietarios,
+                        condiciones_reforzadas, ...rest } = res.data;
+                setReforzadas(condiciones_reforzadas || null);
 
                 setFormData(prev => ({ ...prev, ...rest }));
                 // Si la ficha ya tiene otros propietarios, la pregunta viene contestada.
@@ -652,6 +667,10 @@ export function AceptarPropuestaView({ idOportunidad }) {
             setError(`Falta por contestar: ${faltan.join(', ')}.`);
             return;
         }
+        if (reforzadas && !compromiso) {
+            setError('Para aceptar, marca la casilla del compromiso de cesión en exclusiva.');
+            return;
+        }
         if (demo) {
             setGeneratedExpediente('26RES060_DEMO');
             setSuccess(true);
@@ -673,7 +692,12 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 }
             }
             // Qué texto de condiciones tenía delante al aceptar: se sella en el historial.
-            fd.append('condiciones_version', CONDICIONES_VERSION);
+            fd.append('condiciones_version', reforzadas ? CONDICIONES_REFORZADAS_VERSION : CONDICIONES_VERSION);
+            // «Perfil exigente»: la casilla del compromiso (obligatoria) y la del inicio anticipado.
+            if (reforzadas) {
+                fd.append('compromiso_exclusiva', compromiso ? 'si' : 'no');
+                fd.append('inicio_anticipado', inicioAnticipado ? 'si' : 'no');
+            }
             // Lo que confirma de su vivienda. Va como JSON: es un multipart.
             fd.append('confirmacion', JSON.stringify({ ...conf, version: CONFIRMACION_VERSION }));
             const res = await axios.post(`${API_URL}/aceptar/${idOportunidad}`, fd, {
@@ -979,6 +1003,11 @@ export function AceptarPropuestaView({ idOportunidad }) {
                     onVerCondiciones={() => setVerCondiciones(true)}
                     enviando={submitting}
                     error={error}
+                    reforzadas={reforzadas}
+                    compromiso={compromiso}
+                    setCompromiso={setCompromiso}
+                    inicioAnticipado={inicioAnticipado}
+                    setInicioAnticipado={setInicioAnticipado}
                 />
             ) : (<>
                 <p className="fp-hola fp-in">{nombre ? <>Hola, <b>{nombre}</b></> : 'Hola'}</p>
@@ -1142,6 +1171,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
             </>)}
             <CondicionesAceptacionModal
                 tema="carta"
+                {...(reforzadas ? { condiciones: condicionesReforzadas(reforzadas), version: CONDICIONES_REFORZADAS_VERSION } : {})}
                 open={verCondiciones}
                 onClose={() => setVerCondiciones(false)}
                 enviando={submitting}

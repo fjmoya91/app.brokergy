@@ -309,6 +309,9 @@ export function LotesView({ onNavigate }) {
                     peticion={peticionSo}
                     onClose={() => setPeticionSo(null)}
                     onSent={() => fetchLotes()}
+                    // Las facturas de CAE generadas desde el popup ya existen aunque
+                    // luego no se envíe el correo: la lista tiene que enterarse.
+                    onCambio={() => fetchLotes()}
                 />
             )}
 

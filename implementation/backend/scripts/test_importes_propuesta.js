@@ -100,6 +100,23 @@ t('una inversión null (versiones antiguas) no se compara', () => {
     assert.strictEqual(describirCambios(a, b), 'sin cambios en los importes');
 });
 
+t('«Perfil exigente» → sella la penalización de la opción impresa', () => {
+    const imp = importesDe(op76.result, { ...op76.inputs, condicionesReforzadas: true });
+    assert.deepStrictEqual(imp.reforzadas, { pct: 40, penalizacion: Math.round(5262 * 0.4) });
+});
+
+t('«Perfil exigente» en una comparativa → una penalización por opción', () => {
+    const imp = importesDe(op76.result, { isReforma: true, comparativaReforma: true, condicionesReforzadas: true });
+    assert.deepStrictEqual(imp.reforzadas, { pct: 40, penalizacion: 902, penalizacion_reforma: 2105 });
+});
+
+t('sin «Perfil exigente» no se sella nada nuevo, y no cuenta como cambio de importes', () => {
+    assert.strictEqual(importesDe(op76.result, op76.inputs).reforzadas, undefined);
+    const a = { importes: importesDe(op76.result, op76.inputs) };
+    const b = { importes: importesDe(op76.result, { ...op76.inputs, condicionesReforzadas: true }) };
+    assert.strictEqual(describirCambios(a, b), 'sin cambios en los importes');
+});
+
 t('sin importes en alguna de las dos → no afirma nada', () => {
     assert.strictEqual(describirCambios({}, v({ caeBonus: 1 })), '');
     assert.strictEqual(describirCambios(null, v({ caeBonus: 1 })), '');

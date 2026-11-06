@@ -40,11 +40,14 @@ paths:
 
 156. **La colaboración se VE en la portada y el coste de los servicios es UNA cifra** (2026-10-22, Fran, 26RES060_OP279). Lo que se descuenta del bono es `caeMaintenanceCost` en la tabla de la portada, en la cláusula 2 y en el Convenio de Cesión (250 € sin IVA por defecto, 0 € con «Descuento Certificados»): la cláusula 2 imprimía 220 + 32,78 € «+ IVA» mientras portada y convenio decían 250 €. La tarifa (702,78 € + IVA) solo es lo que costaría sin promoción —tachada, y la penalización de la cláusula 4—. Con «Descuento Certificados» y colaborador (`cobrand`), la bonificación es SUYA: «🎁 Ventaja por esta colaboración … ~~702,78 €~~ 0 €» DENTRO de su tarjeta (no crece) y «gracias a la colaboración con {empresa}» en la cláusula 2; sin colaborador, franja «Promoción BROKERGY». Y **cada total es la suma de lo IMPRESO** (OP279: 5.161 + 5.772 bajo 10.932 €): PDF, mensajes y versión sellada (`importesPropuesta.js`). Fuente única: [logic/cifrasPropuesta.js](implementation/frontend/src/features/calculator/logic/cifrasPropuesta.js). Tras tocarlo: `node implementation/backend/scripts/test_cifras_propuesta.mjs` y `test_importes_propuesta.js`. Ver "La colaboración se ve en la portada, y el coste de los servicios es UNO".
 
+197. **«Perfil exigente» (`inputs.condicionesReforzadas`, solo ADMIN): el compromiso de cesión en exclusiva se cierra AL ACEPTAR, con casilla APARTE y obligatoria en `/firma`, nunca en el convenio** (2026-11-05, Fran, 26RES060_OP369). Motivo: el cliente no debe ver los kWh ni el €/MWh antes de comprometerse; sin anticipo y **sin derecho de igualación** (BROKERGY saca más ahorro aunque pague menos €/MWh). La compensación, tras la visita del CEE y salvo causa imputable a BROKERGY, es `penalizacionReforzada` = max(tarifa 702,78 €, 40 % del bono de la opción IMPRESA) + IVA, una por opción en la comparativa, **sellada con la versión** (`importes.reforzadas`). Sin ella sellada en la versión VIGENTE no hay casilla: con el conmutador recién encendido hay que enviar versión nueva. `/aceptar` da 400 sin la casilla **antes de tocar la ficha del cliente**. Las condiciones llevan su versión (`2026-11-05-R`), el **desistimiento de 14 días con su formulario** y el inicio anticipado opcional (art. 108.3 TRLGDCU). La hoja 4 es de alto fijo: las cláusulas van en UNA tarjeta y se midieron (55 px de margen, 33 en la comparativa). Pendiente de revisar por un asesor. Fuente única: `penalizacionReforzada` en [logic/cifrasPropuesta.js](implementation/frontend/src/features/calculator/logic/cifrasPropuesta.js) y [utils/importesPropuesta.js](implementation/backend/utils/importesPropuesta.js); textos en [condicionesAceptacion.js](implementation/frontend/src/features/public/logic/condicionesAceptacion.js). Tras tocarlo: `node implementation/backend/scripts/test_cifras_propuesta.mjs` y `test_importes_propuesta.js`. Ver "Condiciones reforzadas: el «Perfil exigente»".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/propuesta/biomasa-la-deduccion-del-irpf-exige-placas-solares.md` — Caldera de BIOMASA: la deducción del IRPF exige placas solares; el CAE no (2026-10-10) · 3,8 KB
+- `docs/conocimiento/propuesta/condiciones-reforzadas-perfil-exigente.md` — Condiciones reforzadas: el «Perfil exigente» (2026-11-05) · 5,8 KB
 - `docs/conocimiento/propuesta/enviada-con-cualquier-envio-y-a-quien-le-ha-llegado.md` — ENVIADA con cualquier envío, y la lista dice A QUIÉN le ha llegado (2026-10-14) · 2,7 KB
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01) · 5,4 KB
 - `docs/conocimiento/propuesta/la-colaboracion-y-el-coste-de-los-servicios.md` — La colaboración se ve en la portada, y el coste de los servicios es UNO (2026-10-22) · 4,2 KB
@@ -64,6 +67,12 @@ paths:
   - **REGLA — placas que cuentan:**
   - **REGLA — sin deducción en juego no se avisa**
   - **REGLA — el aviso NO va dentro del texto largo: va el último, aparte.**
+- `docs/conocimiento/propuesta/condiciones-reforzadas-perfil-exigente.md`
+  - **REGLA — el compromiso se cierra AL ACEPTAR, no en el convenio.**
+  - **REGLA — la compensación es el 40 % del bono de la opción impresa, con un mínimo de la tarifa.**
+  - **REGLA — la cifra se SELLA con la versión de la propuesta.**
+  - **REGLA — `/aceptar` rechaza la primera aceptación sin la casilla**
+  - **REGLA — la hoja 4 es de ALTO FIJO y estas cláusulas se midieron.**
 - `docs/conocimiento/propuesta/enviada-con-cualquier-envio-y-a-quien-le-ha-llegado.md`
   - **REGLA — cualquier envío que salga bien pasa la oportunidad a ENVIADA**
   - **REGLA — un reenvío no hace retroceder la oportunidad.**
