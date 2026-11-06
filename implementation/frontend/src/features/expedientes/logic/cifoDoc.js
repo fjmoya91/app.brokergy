@@ -34,7 +34,7 @@ import {
 } from './terciario.js';
 // Quién firma el CIFO. FUENTE ÚNICA con los popups de envío: si la regla se
 // duplicara, el popup anunciaría un firmante y el documento saldría con otro.
-import { firmanteCifo, firmanteMemoriaRite } from './instaladorPendientes.js';
+import { firmanteCifo, firmanteMemoriaRite, presConTecnicoRite } from './instaladorPendientes.js';
 import { buildFontFaces } from './fuentesDoc.js';
 
 // Unidades terminales. Las tres primeras son de AGUA: la temperatura de impulsión
@@ -406,7 +406,9 @@ export function deriveCifoData({ expediente, results }) {
     // FUENTE ÚNICA con el popup de envío y con el microservicio de la memoria
     // (espejo en rite-generator/lib/supabase_client.py): si se duplicara, el
     // certificado nombraría a un técnico y la memoria saldría firmada por otro.
-    const tecMemoria = firmanteMemoriaRite(pres);
+    // Con varios técnicos habilitados, el elegido para ESTE expediente (el mismo
+    // que pone el backend en la memoria: `aplicarTecnicoRite`).
+    const tecMemoria = firmanteMemoriaRite(presConTecnicoRite(pres, doc.memoria_rite_tecnico?.dni));
     const tecNombre  = tecMemoria.nombre || empNombre;
     // Solo se imprime el carné PERSONAL si consta y es distinto del nº de
     // empresa: en una ficha sin técnico declarado, `firmanteMemoriaRite` devuelve

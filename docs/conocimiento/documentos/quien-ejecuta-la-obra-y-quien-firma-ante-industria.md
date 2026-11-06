@@ -49,6 +49,8 @@ por defecto la HABILITADA, que es lo que la app venía haciendo: cambiar el defe
 se le pide la firma en todos los expedientes con delegación sin que nadie lo hubiera decidido.
 ⚠️ **Esto NO vale para la Memoria RITE**, que imprime el nombre y el carné de quien la suscribe y
 solo puede firmarla el habilitado: ahí manda la ficha (`firmanteMemoriaRite`), no el popup.
+(Desde 2026-11-06, si la empresa habilitada tiene VARIOS técnicos con carné, el popup sí elige
+CUÁL de ellos: ver `instalador-rite/varios-tecnicos-pueden-firmar-la-memoria-rite.md`.)
 
 **REGLA — los DESTINATARIOS traen las DOS empresas, y se marcan los de quien firma.**
 `contactosDeLaActuacion` / `defaultContactIdsActuacion` en

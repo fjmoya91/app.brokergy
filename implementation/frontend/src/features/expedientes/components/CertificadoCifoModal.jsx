@@ -117,6 +117,23 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // envío (/memoria-rite/files, sin tocar Drive ni BD). Se pide al abrir el
     // visor y se olvida en cuanto cambia algo que la memoria imprime.
     const [riteFiles, setRiteFiles] = useState({ estado: 'idle', files: [], error: '' });
+    // Empresa con VARIOS técnicos habilitados: cuál firma la memoria de ESTE
+    // expediente (null = el de por defecto). Mismo guardado que el popup RITE.
+    const [tecnicoRiteDni, setTecnicoRiteDni] = useState(expediente?.documentacion?.memoria_rite_tecnico?.dni || null);
+    const [guardandoTecnico, setGuardandoTecnico] = useState(false);
+    const elegirTecnicoRite = async (dni) => {
+        const antes = tecnicoRiteDni;
+        setTecnicoRiteDni(dni);
+        setGuardandoTecnico(true);
+        try {
+            await axios.put(`/api/expedientes/${expediente.id}/memoria-rite/tecnico`, { dni });
+            setRiteFiles({ estado: 'idle', files: [], error: '' });
+        } catch {
+            setTecnicoRiteDni(antes);
+        } finally {
+            setGuardandoTecnico(false);
+        }
+    };
 
     // El padre ahora pasa siempre los attachments fijos en su state efímero;
     // mantenemos el fallback por si llegan vacíos.
@@ -1641,6 +1658,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                     opcionesCifo={opcionesCifoFirma}
                                     firmanteCifo={firmanteRol}
                                     onFirmanteCifo={pickFirmante}
+                                    tecnicoRiteDni={tecnicoRiteDni}
+                                    onTecnicoRite={elegirTecnicoRite}
+                                    guardandoTecnico={guardandoTecnico}
                                 />
 
                                 {/* Destinatario(s) — se puede marcar más de uno */}

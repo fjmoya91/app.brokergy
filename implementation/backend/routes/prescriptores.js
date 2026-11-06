@@ -5,6 +5,7 @@ const { requireAuth, enforceAuth, adminOnly, staffOnly } = require('../middlewar
 const { normalizeContactos, PARTNER_CONTACT_FIELDS, contactoClienteDesdePartner } = require('../services/notifyContacts');
 const { aplicarATodosSusClientes } = require('../services/avisosAlPartner');
 const { normalizeCliente } = require('../utils/normalization');
+const { limpiarTecnicosRite } = require('../utils/instaladorFirmante');
 
 // Rehace la persona de contacto de los clientes que tienen a este partner como
 // tal (`clientes.contacto_es_partner`). Si el partner se queda sin ningún canal,
@@ -865,6 +866,8 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             tecnico_firmante_apellidos: payload.tecnico_firmante_apellidos,
             tecnico_firmante_dni: payload.tecnico_firmante_dni,
             tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite,
+            // Otros técnicos habilitados que también pueden firmar la memoria.
+            tecnicos_firmantes_rite: limpiarTecnicosRite(payload.tecnicos_firmantes_rite),
             // Técnico competente (CERTIFICADOR): lo que le acredita para suscribir
             // un CEE. El carnet RITE es de instaladores y aquí no dice nada.
             // La EMPRESA en la que ejerce, si ejerce en una: `razon_social` es
@@ -1147,6 +1150,9 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             tecnico_firmante_apellidos: payload.tecnico_firmante_apellidos,
             tecnico_firmante_dni: payload.tecnico_firmante_dni,
             tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite,
+            // Solo si viene: un PATCH con medio payload no puede vaciar la lista.
+            ...(payload.tecnicos_firmantes_rite !== undefined
+                ? { tecnicos_firmantes_rite: limpiarTecnicosRite(payload.tecnicos_firmantes_rite) } : {}),
             // Técnico competente (CERTIFICADOR) — ver POST /avanzado. No se limpian
             // al cambiar de tipo: reclasificar una ficha no puede borrar en silencio
             // la titulación de nadie.

@@ -49,6 +49,9 @@ const CLAVES_PROTEGIDAS = [
     // escribe PUT /memoria-rite/locales; una copia vieja del navegador no puede
     // devolver la tabla a lo que había antes de confirmar el popup.
     'rite_locales',
+    // Qué técnico firma la Memoria RITE cuando la empresa tiene varios. Solo la
+    // escribe PUT /memoria-rite/tecnico.
+    'memoria_rite_tecnico',
     // La guía de la deducción del IRPF que se le entregó al cliente (enlace de
     // Drive, ajustes y envío). La escriben solo las rutas /guia-irpf con la RPC de
     // MERGE, y el portal del cliente sirve el PDF desde aquí: borrarla dejaría al
