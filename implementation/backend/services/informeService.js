@@ -526,7 +526,7 @@ async function envioDeFacturacion(f, { L, emisor, destino }) {
     const cit = E.lineaDe(row) === 'CIT';
     const listo = cit
         ? (row.registrado_at ? `Tu *${tituloCliente(row)}* (${row.numero}) ya está presentado y registrado en Industria.` : `Es la factura de tu *${tituloCliente(row)}* (${row.numero}).`)
-        : (row.firmado_at ? `Tu *${tituloCliente(row)}* (${row.numero}) ya está terminado y firmado.` : `Es la factura de tu *${tituloCliente(row)}* (${row.numero}).`);
+        : (row.firmado_at ? `Tu *${tituloCliente(row)}* (${row.numero}) ya está ${concuerda(row, 'terminado y firmado')}.` : `Es la factura de tu *${tituloCliente(row)}* (${row.numero}).`);
     const pago = `Por política de empresa, ${E.LINEAS[E.lineaDe(row)].entregaEtiqueta} se envía una vez abonada la factura. Cuando hagas la transferencia, sube aquí el justificante y te lo mandamos:\n👉 ${enlaceCliente(row)}`;
     const partes = base.split('\n\n');
     // Detrás del saludo, el punto en que está; antes de la despedida, el enlace.
@@ -541,6 +541,14 @@ const tituloCliente = (row) => {
     const tipo = E.tipoValido(row.tipo, 'INF');
     return row.organismo && tipo === 'MEMORIA_AYUNTAMIENTO' ? `memoria técnica para el ${row.organismo}` : E.TIPOS[tipo].etiqueta.toLowerCase();
 };
+
+/**
+ * «terminado y firmado» → «terminada y firmada» si lo que se entrega es femenino
+ * (memoria, legalización, auditoría, consultoría). 2026INF_1, 06/11/2026: «Tu
+ * memoria técnica… ya está terminado y firmado».
+ */
+const esFemenino = (row) => /^(memoria|legalizaci|auditor|consultor)/i.test(tituloCliente(row));
+const concuerda = (row, texto) => (esFemenino(row) ? texto.replace(/o\b/g, 'a') : texto);
 
 /**
  * Lo que se ENTREGA al cobrar (Fran, 05/11/2026), con `docs` de `documentos()`:
@@ -635,8 +643,8 @@ function mensajeEntrega(row, dest) {
     }
     const para = row.organismo ? ` Es el documento que tienes que presentar en el *${row.organismo}*.` : '';
     return `¡Hola${pila}!\n\n`
-        + `Te adjuntamos tu *${tituloCliente(row)}* firmada (${row.numero}).${para}\n\n`
-        + 'Guárdala: es la versión con la firma electrónica del técnico, la que vale ante la Administración.\n\n'
+        + `Te adjuntamos tu *${tituloCliente(row)}* ${concuerda(row, 'firmado')} (${row.numero}).${para}\n\n`
+        + `${esFemenino(row) ? 'Guárdala' : 'Guárdalo'}: es la versión con la firma electrónica del técnico, la que vale ante la Administración.\n\n`
         + '¡Gracias por confiar en nosotros!\n*BROKERGY · Ingeniería Energética*';
 }
 
@@ -717,6 +725,18 @@ async function vistaCliente(row) {
     const lista = E.docsCliente(row.tipo, E.lineaDe(row)).map(d => ({ ...d, subido: docsSubidos[d.id] ? { at: docsSubidos[d.id].at } : null }));
     const d = E.derivar(row, row.facturas);
     const cli = row.cliente || {};
+    // A dónde le llegará lo que se entrega, ENMASCARADO (la página la abre un
+    // enlace con token, no una sesión): «te llegará por WhatsApp al ··· 330».
+    let entregaPor = null;
+    try {
+        const dest = await destinatario(row);
+        const tlf = String(dest.tlf || '').replace(/\D/g, '');
+        const [u, dom] = String(dest.email || '').split('@');
+        entregaPor = {
+            whatsapp: tlf.length >= 6 ? `··· ${tlf.slice(-3)}` : null,
+            email: u && dom ? `${u.charAt(0)}···@${dom}` : null,
+        };
+    } catch { entregaPor = null; }
     return {
         numero: row.numero, titulo: row.titulo, tipo: E.tipoDe(row).etiqueta, organismo: row.organismo,
         linea: E.lineaDe(row), entregaEtiqueta: E.LINEAS[E.lineaDe(row)].entregaEtiqueta,
@@ -731,6 +751,7 @@ async function vistaCliente(row) {
         documentacion: lista,
         factura: fac ? { numero: fac.numero, total: Number(fac.total), pagada: fac.estado === 'PAGADA' } : null,
         justificante: row.justificante_at ? { at: row.justificante_at } : null,
+        entregaPor,
         puedeSubirJustificante: !!fac && !row.cobrado && !row.anulado_at,
         cobrado: !!row.cobrado,
         entregado: row.entregado_at ? { at: row.entregado_at } : null,

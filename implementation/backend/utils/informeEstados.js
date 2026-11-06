@@ -227,7 +227,7 @@ function pasos(row, facturas = null) {
         ...(cit ? [{ id: 'presentacion', titulo: 'Presentación en Industria (eDICE)', hecho: row.registrado_at, quien: 'Nosotros' }] : []),
         { id: 'factura', titulo: 'Factura', hecho: fac?.enviada_at || row.factura_enviada_at, detalle: fac?.numero || row.factura_numero || null, quien: 'Nosotros' },
         { id: 'pago', titulo: 'Pago', hecho: row.cobrado_at, detalle: row.justificante_at && !row.cobrado ? 'Justificante subido: falta confirmarlo' : null, quien: 'Cliente' },
-        { id: 'entrega', titulo: cit ? 'Entrega del certificado' : 'Entrega del informe firmado', hecho: row.entregado_at, quien: 'Sola' },
+        { id: 'entrega', titulo: cit ? 'Entrega del certificado' : 'Entrega del documento firmado', hecho: row.entregado_at, quien: 'Sola' },
     ];
     return lista.map(p => ({ ...p, actual: !p.hecho && p.id === actual }));
 }

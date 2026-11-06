@@ -21,7 +21,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/informes/informes-tecnicos-el-tercer-trabajo.md` — INFORMES técnicos — `{AAAA}INF_{n}`: todo lo que no es CAE ni CEE (2026-11-05) · 12,9 KB
+- `docs/conocimiento/informes/informes-tecnicos-el-tercer-trabajo.md` — INFORMES técnicos — `{AAAA}INF_{n}`: todo lo que no es CAE ni CEE (2026-11-05) · 15,3 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -42,5 +42,8 @@ pantallas, con su propio correlativo `{AAAA}CIT_{n}`.**
   - **REGLA — la carpeta de un CIT es `39. LEGALIZACIONES RITE / 2. PRODUCCION / {nº} - {CLIENTE}`**
   - **REGLA — un CIT firmado PASA por la presentación antes de facturar.**
   - **REGLA — de un CIT se entrega SOLO el certificado oficial, y solo cobrado.**
+  - **REGLA — lo que se le dice al cliente CONCUERDA con lo que se entrega**
+  - **REGLA — subido el justificante, la página CAMBIA ENTERA a «¡Perfecto, {nombre}! Estamos comprobando
+  tu pago»**
 
 <!-- generado:fin -->

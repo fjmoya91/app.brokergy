@@ -17,6 +17,7 @@
  * REGLA — la API se pide en RELATIVO: lo abre el cliente con el móvil desde un WhatsApp.
  *
  * /informe/demo — con datos de MENTIRA, sin llamar a la API ni subir nada.
+ * /informe/demo-recibido — lo mismo, con el justificante ya subido.
  */
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
@@ -24,6 +25,7 @@ import axios from 'axios';
 const API = '/api/public/informe';
 const DEMO = 'demo';
 const DEMO_CIT = 'demo-cit';
+const DEMO_RECIBIDO = 'demo-recibido';   // con el justificante ya subido: «Estamos comprobando tu pago»
 
 const vistaDemo = () => ({
     numero: '2026INF_0', titulo: 'MEMORIA TECNICA AYUNTAMIENTO', tipo: 'Memoria técnica (Ayuntamiento)',
@@ -35,7 +37,7 @@ const vistaDemo = () => ({
         { id: 'firma', titulo: 'Firma del técnico', hecho: true },
         { id: 'factura', titulo: 'Factura', hecho: true },
         { id: 'pago', titulo: 'Pago', hecho: false, actual: true },
-        { id: 'entrega', titulo: 'Entrega del informe firmado', hecho: false },
+        { id: 'entrega', titulo: 'Entrega del documento firmado', hecho: false },
     ],
     pideDocumentacion: false,
     documentacion: [
@@ -43,6 +45,7 @@ const vistaDemo = () => ({
     ],
     factura: { numero: '26ING_00', total: 181.5, pagada: false },
     justificante: null, puedeSubirJustificante: true, cobrado: false, entregado: null, puedeDescargar: false,
+    entregaPor: { whatsapp: '··· 123', email: 'm···@ejemplo.es' },
 });
 const vistaDemoCit = () => ({
     ...vistaDemo(),
@@ -76,6 +79,17 @@ const primerNombre = (s) => {
 };
 /** «Memoria para el Ayuntamiento» → «memoria para el Ayuntamiento» (el resto, tal cual). */
 const minusculaInicial = (s) => { const t = String(s || ''); return t.charAt(0).toLowerCase() + t.slice(1); };
+
+/**
+ * Qué es, para el saludo: con el organismo, «memoria para el Ayuntamiento de
+ * Valdepeñas» (2026INF_PRUEBA, 06/11/2026: decía «memoria para el Ayuntamiento
+ * de CL CALDEREROS 15», como si la calle fuera el Ayuntamiento).
+ */
+const queEs = (v, cit) => {
+    if (cit) return 'certificado de instalación térmica';
+    const t = minusculaInicial(v.tipo || 'informe');
+    return v.organismo && /para el ayuntamiento$/i.test(t) ? `memoria para el ${v.organismo}` : t;
+};
 
 const CSS = `
 @font-face{font-family:'Antonio';font-style:normal;font-weight:700;font-display:swap;src:url('/fonts/Antonio-700-latin.woff2') format('woff2')}
@@ -135,12 +149,44 @@ const CSS = `
 .ic-in{animation:ic-up .55s cubic-bezier(.2,.8,.2,1) both}
 @keyframes ic-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 @keyframes ic-shim{to{background-position:-200% 0}}
+.ic-check{flex:none;width:60px;height:60px}
+.ic-check svg{display:block;animation:ic-pop .45s cubic-bezier(.2,1.4,.4,1) .55s both}
+.ic-check circle{fill:rgba(177,209,62,.16);stroke:var(--verde);stroke-width:3;stroke-dasharray:100;stroke-dashoffset:100;animation:ic-draw .6s cubic-bezier(.65,0,.45,1) .1s forwards;transform:rotate(-90deg);transform-origin:center}
+.ic-check path{fill:none;stroke:var(--verde-txt);stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:100;stroke-dashoffset:100;animation:ic-draw .38s cubic-bezier(.65,0,.45,1) .62s forwards}
+.ic-rev-top{display:flex;align-items:center;gap:14px}
+.ic-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--verde-txt);background:rgba(177,209,62,.18);border-radius:999px;padding:5px 10px}
+.ic-cuando{font-size:13px;color:var(--gris2);margin:6px 0 0 2px}
+.ic-canales{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:8px}
+.ic-canal{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:16px;background:var(--crema);border:1px solid var(--linea);font-size:14.5px}
+.ic-canal b{font-weight:700}
+.ic-canal svg{flex:none;color:var(--gris)}
+.ic-resumen{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid var(--linea);font-size:13.5px;color:var(--gris)}
+.ic-resumen b{font-family:'Antonio','Inter',sans-serif;font-size:22px;color:var(--tinta)}
+.ic-enlace{appearance:none;background:none;border:0;padding:6px 4px;font:600 13.5px 'Inter',sans-serif;color:var(--tinta);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.ic-enlace:disabled{opacity:.55;cursor:default}
+@keyframes ic-draw{to{stroke-dashoffset:0}}
+@keyframes ic-pop{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
 @media (max-width:360px){.ic-importe{font-size:54px}.ic-h2{font-size:26px}}
-@media (prefers-reduced-motion:reduce){.ic-in,.ic-sk{animation:none}.ic-btn{transition:none}}
+@media (prefers-reduced-motion:reduce){.ic-in,.ic-sk,.ic-check svg{animation:none}.ic-check circle,.ic-check path{animation:none;stroke-dashoffset:0}.ic-btn{transition:none}}
 `;
 
 const Check = () => (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+);
+
+const CheckGrande = () => (
+    <div className="ic-check" aria-hidden="true">
+        <svg width="60" height="60" viewBox="0 0 60 60">
+            <circle cx="30" cy="30" r="26.5" pathLength="100" />
+            <path d="M19 31l7.5 7.5L42 23" pathLength="100" />
+        </svg>
+    </div>
+);
+const IcoWa = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 20.5l1.6-5.4A8.4 8.4 0 1 1 21 11.5z" /></svg>
+);
+const IcoMail = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></svg>
 );
 
 function Marco({ numero, children }) {
@@ -172,8 +218,8 @@ function Marco({ numero, children }) {
 }
 
 export function InformeClienteView({ token }) {
-    const esDemo = token === DEMO || token === DEMO_CIT;
-    const [v, setV] = useState(esDemo ? (token === DEMO_CIT ? vistaDemoCit() : vistaDemo()) : null);
+    const esDemo = token === DEMO || token === DEMO_CIT || token === DEMO_RECIBIDO;
+    const [v, setV] = useState(esDemo ? (token === DEMO_CIT ? vistaDemoCit() : token === DEMO_RECIBIDO ? { ...vistaDemo(), justificante: { at: '2026-11-06T18:10:00Z' } } : vistaDemo()) : null);
     const [error, setError] = useState(null);
     const [subiendo, setSubiendo] = useState(null);
     const [aviso, setAviso] = useState(null);
@@ -199,17 +245,25 @@ export function InformeClienteView({ token }) {
         const que = destino.current;
         if (!f || !que) return;
         setAviso(null);
-        if (esDemo) { setAviso({ tono: 'verde', texto: 'En la prueba no se sube nada.' }); return; }
+        // El justificante cambia la página entera a «Estamos comprobando tu pago»:
+        // arriba, sin un aviso suelto que repita lo mismo (Fran, 06/11/2026).
+        const alRecibirJustificante = (data) => {
+            setV(data);
+            try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { window.scrollTo(0, 0); }
+        };
+        if (esDemo) {
+            if (que === 'JUSTIFICANTE') alRecibirJustificante({ ...v, justificante: { at: new Date().toISOString() } });
+            else setAviso({ tono: 'verde', texto: 'En la prueba no se sube nada.' });
+            return;
+        }
         setSubiendo(que);
         try {
             const fd = new FormData();
             fd.append('file', f);
             const url = que === 'JUSTIFICANTE' ? `${API}/${token}/justificante` : `${API}/${token}/documentacion/${que}`;
             const { data } = await axios.post(url, fd);
-            setV(data);
-            setAviso({ tono: 'verde', texto: que === 'JUSTIFICANTE'
-                ? `¡Recibido! Lo comprobamos y te enviamos ${v?.linea === 'CIT' ? 'el certificado' : 'el documento firmado'}.`
-                : '¡Recibido, gracias!' });
+            if (que === 'JUSTIFICANTE') alRecibirJustificante(data);
+            else { setV(data); setAviso({ tono: 'verde', texto: '¡Recibido, gracias!' }); }
         } catch (err) {
             setAviso({ tono: 'ambar', texto: err.response?.data?.error || 'No se ha podido subir. Prueba otra vez.' });
         } finally { setSubiendo(null); }
@@ -249,6 +303,40 @@ export function InformeClienteView({ token }) {
                 </div>
             </section>
         );
+    } else if (v.factura && !v.cobrado && v.justificante) {
+        // Justificante subido: «Estamos comprobando tu pago», con a dónde le llegará.
+        const canales = v.entregaPor || {};
+        principal = (
+            <section className="ic-card ic-in" role="status" aria-live="polite">
+                <div className="ic-filete" />
+                <div className="ic-pad">
+                    <div className="ic-rev-top">
+                        <CheckGrande />
+                        <div>
+                            <span className="ic-chip">Justificante recibido</span>
+                            <p className="ic-cuando">El {fechaLarga(v.justificante.at)}</p>
+                        </div>
+                    </div>
+                    <h1 className="ic-display ic-h2" style={{ marginTop: 16 }}>¡Perfecto{nombre ? `, ${nombre}` : ''}! Estamos <span className="ic-mark">comprobando</span> tu pago</h1>
+                    <p className="ic-sub">En cuanto lo confirmemos te enviamos {loQueRecibe}. No tienes que hacer nada más.</p>
+                    {(canales.whatsapp || canales.email) && (
+                        <ul className="ic-canales" aria-label="Dónde te llegará">
+                            {canales.whatsapp && <li className="ic-canal"><IcoWa /><span>Por WhatsApp al <b>{canales.whatsapp}</b></span></li>}
+                            {canales.email && <li className="ic-canal"><IcoMail /><span>Por email a <b>{canales.email}</b></span></li>}
+                        </ul>
+                    )}
+                    <p className="ic-nota" style={{ textAlign: 'left' }}>Y también podrás descargarlo desde esta misma página.</p>
+                    <div className="ic-resumen">
+                        <span>Factura {v.factura.numero}</span>
+                        <b>{fmtEur(v.factura.total)}</b>
+                    </div>
+                    <p className="ic-nota">
+                        ¿Te has equivocado de archivo?{' '}
+                        <button className="ic-enlace" disabled={!!subiendo} onClick={() => elegir('JUSTIFICANTE')}>{subiendo === 'JUSTIFICANTE' ? 'Subiendo…' : 'Sube otro'}</button>
+                    </p>
+                </div>
+            </section>
+        );
     } else if (v.factura && !v.cobrado) {
         principal = (
             <section className="ic-card ic-in">
@@ -256,22 +344,13 @@ export function InformeClienteView({ token }) {
                 <div className="ic-pad">
                     <p className="ic-eyebrow">Factura {v.factura.numero}</p>
                     <p className="ic-display ic-importe">{fmtEur(v.factura.total)}</p>
-                    {v.justificante ? (
-                        <>
-                            <div className="ic-verde" style={{ marginTop: 16 }}>Justificante recibido el {fechaLarga(v.justificante.at)}. Lo comprobamos y te enviamos {loQueRecibe}.</div>
-                            <div className="ic-btns"><button className="ic-btn ic-btn-sec" disabled={!!subiendo} onClick={() => elegir('JUSTIFICANTE')}>Subir otro justificante</button></div>
-                        </>
-                    ) : (
-                        <>
-                            <p className="ic-sub">{cit ? 'Tu certificado ya está presentado en Industria.' : 'Tu documento ya está terminado y firmado.'} Por política de empresa, te lo enviamos una vez abonada la factura: cuando hagas la transferencia, sube aquí el justificante.</p>
-                            <div className="ic-btns">
-                                <button className="ic-btn ic-btn-pri" disabled={!!subiendo} onClick={() => elegir('JUSTIFICANTE')}>
-                                    {subiendo === 'JUSTIFICANTE' ? 'Subiendo…' : 'Subir el justificante de pago'}
-                                </button>
-                            </div>
-                            <p className="ic-nota">Una foto o el PDF del banco. Los datos de la cuenta van en la factura que te enviamos.</p>
-                        </>
-                    )}
+                    <p className="ic-sub">{cit ? 'Tu certificado ya está presentado en Industria.' : 'Tu documento ya está terminado y firmado.'} Por política de empresa, te lo enviamos una vez abonada la factura: cuando hagas la transferencia, sube aquí el justificante.</p>
+                    <div className="ic-btns">
+                        <button className="ic-btn ic-btn-pri" disabled={!!subiendo} onClick={() => elegir('JUSTIFICANTE')}>
+                            {subiendo === 'JUSTIFICANTE' ? 'Subiendo…' : 'Subir el justificante de pago'}
+                        </button>
+                    </div>
+                    <p className="ic-nota">Una foto o el PDF del banco. Los datos de la cuenta van en la factura que te enviamos.</p>
                 </div>
             </section>
         );
@@ -297,7 +376,7 @@ export function InformeClienteView({ token }) {
             <input ref={input} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp,.docx,.xlsx" hidden onChange={alElegir} />
             {esDemo && <div className="ic-demo"><b>Modo prueba</b> · así lo ve el cliente. No se sube ni se envía nada.</div>}
             <div className="ic-stack">
-                <p className="ic-hola">¡Hola{nombre ? <> <b>{nombre}</b></> : ''}! Aquí ves cómo va tu {cit ? 'certificado de instalación térmica' : minusculaInicial(v.tipo || 'informe')}{v.inmueble ? <> de <b>{v.inmueble}</b></> : null}.</p>
+                <p className="ic-hola">¡Hola{nombre ? <> <b>{nombre}</b></> : ''}! Aquí ves cómo va tu {queEs(v, cit)}{v.inmueble ? <>, en <b>{v.inmueble}</b></> : null}.</p>
 
                 {aviso && <div className={aviso.tono === 'verde' ? 'ic-verde' : 'ic-ambar'} role="status">{aviso.texto}</div>}
 

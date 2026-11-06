@@ -168,3 +168,33 @@ otra), y la memoria final (PDF y Word) subida por `subir()`. Quedó en **PTE. FI
 Lo que enseñó: **con la versión FINAL hecha, la página del cliente ya no pide documentación**
 (`pideDocumentacion` mira `final_at`, no solo `firmado_at`): pendiente solo de la firma, le seguía
 pidiendo «el presupuesto del instalador».
+
+**06/11/2026 — firma, prueba del circuito entero y factura.** La firmó Claude a petición de Fran
+con su certificado **PERSONAL** (MOYA LOPEZ FRANCISCO JAVIER, el técnico redactor; el de representante
+de Brokergy es para lo que firma la empresa), sin ventana (`AutofirmaCommandLine` por huella, como
+`firmar_cee.js`), en el recuadro «El técnico redactor» de la hoja 8, comprobada con `leerFirmasPdf`
+antes de `guardarFirmado`. ⚠️ El `-config` de AutoFirma va con `\n` LITERAL entre claves: con saltos de
+línea reales ignora TODO (firma invisible en la hoja 1, rect 0,0,0,0) aunque la firma sea válida.
+
+Antes de mandarle nada a Eugenio, Fran quiso verlo como cliente: **2026INF_PRUEBA** (copia con un
+cliente de prueba a su teléfono, `correlativo 0` para no mover la numeración, factura `PRUEBA-2026INF`
+marcada EMITIDA a mano, sin hoja, sin contabilidad ni VERI*FACTU), con los envíos por las rutas de
+PRODUCCIÓN (clave interna). Recorrido entero: factura por WhatsApp → justificante desde el enlace →
+cobro en Facturación → entrega (apagada la automática, `INFORME_ENTREGA_AUTO`: se lanza a mano). Lo que
+salió y se corrigió:
+
+- **REGLA — lo que se le dice al cliente CONCUERDA con lo que se entrega**: «tu memoria… ya está
+  terminado y firmado» → `concuerda()`/`esFemenino()` en `informeService` (memoria, legalización,
+  auditoría, consultoría en femenino).
+- El saludo decía «tu memoria para el Ayuntamiento de CL CALDEREROS 15»: ahora «memoria para el
+  Ayuntamiento de Valdepeñas, en …» (`queEs`), y el último paso es «Entrega del documento firmado».
+- **REGLA — subido el justificante, la página CAMBIA ENTERA a «¡Perfecto, {nombre}! Estamos comprobando
+  tu pago»** (Fran: se quedaba en la misma tarjeta con un recuadro verde y no se sabía si había
+  terminado): check animado, a dónde le llegará —WhatsApp y email **enmascarados** (`entregaPor` de
+  `vistaCliente`, «··· 623», «e···@gmail.com»: el enlace es de token, no de sesión)—, que también podrá
+  descargarlo ahí, la factura en pequeño y «¿Te has equivocado de archivo? Sube otro». Sube al principio
+  de la página. Banco de pruebas: `/informe/demo-recibido`.
+
+La factura real, **26ING_94**, se emitió y envió (WhatsApp + email) el 06/11 con el «sí» de Fran.
+⚠️ Salió con la FECHA DEL BORRADOR (03/11) y la 26ING_93 es del 06/11: `emitir()` conserva la fecha del
+borrador. Pendiente de decidir con Fran.
