@@ -107,6 +107,25 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     const [verDoc, setVerDoc] = useState(null);
     const [riteFiles, setRiteFiles] = useState({ estado: 'idle', files: [], error: '' });
     const [cifoFile, setCifoFile] = useState({ estado: 'idle', base64: '', error: '' });
+    // Empresa con VARIOS técnicos habilitados: cuál firma la memoria de este
+    // expediente (null = el de por defecto). Se guarda al elegirlo, porque la
+    // memoria la genera el backend leyendo el expediente.
+    const [tecnicoDni, setTecnicoDni] = useState(doc.memoria_rite_tecnico?.dni || null);
+    const [guardandoTecnico, setGuardandoTecnico] = useState(false);
+    const elegirTecnico = async (dni) => {
+        const antes = tecnicoDni;
+        setTecnicoDni(dni);
+        setGuardandoTecnico(true);
+        try {
+            await axios.put(`/api/expedientes/${expediente.id}/memoria-rite/tecnico`, { dni });
+            setRiteFiles({ estado: 'idle', files: [], error: '' });   // la vista previa ya no vale
+        } catch (e) {
+            setTecnicoDni(antes);
+            setStatus({ ok: false, text: e.response?.data?.error || e.message || 'No se pudo guardar el técnico' });
+        } finally {
+            setGuardandoTecnico(false);
+        }
+    };
 
     useEffect(() => {
         if (!isOpen) return;
@@ -407,6 +426,9 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                            ella: no hay que cortar el envío ni regenerar nada. Solo
                            la que se vio en el visor deja de valer. */
                         onFichaActualizada={() => setRiteFiles({ estado: 'idle', files: [], error: '' })}
+                        tecnicoRiteDni={tecnicoDni}
+                        onTecnicoRite={elegirTecnico}
+                        guardandoTecnico={guardandoTecnico}
                     />
 
                     {/* Acciones sobre los documentos */}

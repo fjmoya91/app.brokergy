@@ -14,7 +14,7 @@ const {
     resolveFechasRite, fechaPruebasPendiente
 } = require('../utils/riteValidation');
 const { resolveFincaInputs } = require('../utils/fincaInputs');
-const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
+const { resolveInstaladorFirmante, aplicarTecnicoRite } = require('../utils/instaladorFirmante');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
@@ -5492,7 +5492,9 @@ async function loadRiteContext(idOrNum) {
         // el certificado van a nombre del instalador habilitado que firma por él.
         // `presReal` conserva el asignado: es a QUIEN se avisa (ver /send).
         const r = await resolveInstaladorFirmante(p, supabase);
-        pres = r.firmante;
+        // Si la empresa tiene VARIOS técnicos habilitados y en este expediente se
+        // eligió otro que el de por defecto, la memoria sale a nombre de ESE.
+        pres = aplicarTecnicoRite(r.firmante, exp.documentacion?.memoria_rite_tecnico?.dni);
         presReal = r.real;
         firmanteDelegado = r.delegado;
     }
@@ -5587,6 +5589,40 @@ router.put('/:id/memoria-rite/locales', staffOnly, async (req, res) => {
     } catch (err) {
         console.error('Error PUT expedientes/:id/memoria-rite/locales:', err);
         res.status(500).json({ error: 'No se pudieron guardar las estancias', details: err.message });
+    }
+});
+
+// ─── PUT /api/expedientes/:id/memoria-rite/tecnico ─────────────────────────────
+// QUÉ TÉCNICO firma la Memoria RITE de ESTE expediente, cuando la empresa tiene
+// varios habilitados (`prescriptores.tecnicos_firmantes_rite`). Body: { dni } —
+// null o el del técnico por defecto vuelve al de por defecto. El nombre lo
+// resuelve el servidor desde la ficha, nunca del body. RPC de MERGE + clave en
+// CLAVES_PROTEGIDAS: el autoguardado de la ficha no la pisa.
+router.put('/:id/memoria-rite/tecnico', staffOnly, async (req, res) => {
+    try {
+        const ctx = await loadRiteContext(req.params.id);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { data: p } = await supabase.from('prescriptores').select('*')
+            .eq('id_empresa', ctx.pres?.id_empresa || '').maybeSingle();
+        const dni = (req.body?.dni || '').toString().trim().toUpperCase() || null;
+        let elegido = null;
+        if (dni && p) {
+            const t = aplicarTecnicoRite(p, dni);
+            if (t === p && String(p.tecnico_firmante_dni || '').toUpperCase() !== dni) {
+                return res.status(400).json({ error: 'Ese técnico no está en la ficha de la empresa' });
+            }
+            // El de por defecto no se guarda: así, si mañana cambia en la ficha, se sigue.
+            if (t !== p) elegido = { dni, nombre: [t.tecnico_firmante_nombre, t.tecnico_firmante_apellidos].filter(Boolean).join(' ') };
+        }
+        const valor = { dni: elegido?.dni || null, nombre: elegido?.nombre || null, at: new Date().toISOString(), por: req.user?.email || null };
+        const { error } = await supabase.rpc('merge_expediente_doc_json', {
+            p_expediente_id: ctx.exp.id, p_field: 'memoria_rite_tecnico', p_value: valor,
+        });
+        if (error) throw error;
+        res.json({ ok: true, memoria_rite_tecnico: valor });
+    } catch (err) {
+        console.error('Error PUT expedientes/:id/memoria-rite/tecnico:', err);
+        res.status(500).json({ error: 'No se pudo guardar el técnico firmante', details: err.message });
     }
 });
 
@@ -9241,3 +9277,5 @@ module.exports = router;
 // Expuesto para pruebas y para quien necesite el barrido sin pasar por HTTP
 // (p. ej. el MCP al responder "qué falta en el expediente NNN").
 module.exports.buildChecklistData = buildChecklistData;
+// Para scripts/test_tecnicos_rite.js: la memoria con el técnico elegido.
+module.exports._rite = { loadRiteContext, buildRitePayloads, generarRiteFiles };
