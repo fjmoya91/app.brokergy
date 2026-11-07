@@ -20,6 +20,19 @@ con el certificado de la casa es un acto de quien firma. El script se niega con 
 se sube con el nombre canónico: desde el 19/10/2026, `cee_inicial.js listo <nº> --escribir`) y con un PDF que ya
 lleva firma electrónica.
 
+**REGLA — subir el firmado es también ENLAZARLO en su hueco** (2026-11-07). `guardarCertificado` deja el
+enlace en `cee.cee_files[fase].pdf` (`enlazarPdfEnSuHueco`: relee solo `cee_files` y `docs_validados` y
+los escribe por la RPC de clave `set_expediente_cee_field`, como `canonicoAlVistoBueno`) y, si ese hueco
+estaba validado, le quita la validación: el fichero es otro y vuelve a ámbar. Hasta ese día solo lo subía
+a Drive. La rejilla lo enseñaba igual (escanea la carpeta), pero `POST /:id/documentos/validar-cee` copia
+a «10. EXPEDIENTE CAE» lo que está ENLAZADO, así que el verificador recibía el PDF anterior (sin firmar) o
+nada. Salió al auditar 26RES060_126 el 06/11/2026, y en 26RES060_228 pasaba lo mismo. Si el enlace falla, el
+servicio no se calla: devuelve `enlazado: false` con un aviso, y `firmar_cee.js` sale con error. El sello
+`firma_cee_{fase}` también se escribe ya por la RPC de clave. Antes reescribía el `cee` entero leído al
+empezar, y eso pisaba lo que se hubiera guardado mientras subía a Drive. Lo ya subido sin enlazar se
+lista en seco con `scripts/enlazar_cee_fdo_pendientes.js` (con `--escribir` lo enlaza; validarlo después
+en la app es lo que lo copia a la carpeta 10). Prueba: `scripts/test_cee_firma_enlaza.js`.
+
 **REGLA — se firma con el certificado de REPRESENTANTE de Brokergy**, que es con el que firma Fran sus
 CEE (medido en el `_fdo` de 2026CEE_63: «NIF FRANCISCO JAVIER MOYA (R: B19350222)»), no con el personal.
 Se busca en el almacén de Windows por `(R: B19350222)` + vigente (o `CEE_FIRMA_HUELLA` en el `.env`) y se
