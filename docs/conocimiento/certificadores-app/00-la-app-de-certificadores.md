@@ -108,8 +108,8 @@ era la columna del móvil (560 px) centrada en una pantalla de 1440: mucho vací
   y, a la derecha, el **vídeo promo**; hasta el 26/10 era una maqueta estática del CEE entregado), una
   franja de cuatro hechos, los pasos en cuatro tarjetas (2×2 entre 1024 y 1199), entrega y «para quién»
   lado a lado, las dudas con su título fijo a la izquierda y la llamada final en una fila.
-- Lo que solo existe en el PC lleva **`.ca-solo-ancho`** (oculto por debajo de 1024). Los títulos grandes de
-  cada sección son de ese tipo: en el móvil manda la etiqueta pequeña de siempre.
+- Hasta el 06/11/2026, lo que solo existía en el PC llevaba `.ca-solo-ancho` y los títulos grandes de cada
+  sección no salían en el móvil. Con el rediseño (abajo) salen también en el móvil, más pequeños.
 - **REGLA — los textos de la landing dicen solo lo que la app hace**: ni cifras, ni testimonios, ni
   una referencia catastral o un cliente de verdad.
 - Titular (Fran, 26/10/2026): «Tu **certificado de eficiencia energética**, preparado por IA. Tú lo revisas
@@ -119,15 +119,59 @@ era la columna del móvil (560 px) centrada en una pantalla de 1440: mucho vací
   herramienta para agilizar el gabinete y **no sustituye** lo que el Real Decreto 390/2021, de 1 de junio,
   atribuye al técnico competente (visita al inmueble, toma y comprobación de datos, cálculo, firma y
   registro); lo que prepara la IA es un borrador y responde de él quien firma. Va dos veces: una duda
-  («¿Sustituye mi trabajo como técnico competente?») y un aviso al pie, encima de la firma (`.ca-land-legal`).
+  («¿Sustituye mi trabajo como técnico competente?») y un aviso al pie, encima del «Powered by» (`.ln-legal`).
   No cita el artículo: si se añade, comprobado en el BOE. Por lo mismo, el paso 2 ya **no dice «sin
   visita, le mandas un enlace al propietario»**: el enlace es para la foto que falte, no para no ir.
-- La palabra en lima del titular va **por debajo** del texto (`.ca-hero .ca-mark{z-index:-1}`): su fondo
-  tapaba los rabos de «preparado» en la línea de arriba, también en el móvil.
+- La palabra en lima del titular va **por debajo** del texto (`.ln-mark{z-index:-1}`, dentro de un `h1` que
+  hace de contexto con `z-index:0`): su fondo tapaba los rabos de «preparado» en la línea de arriba, también
+  en el móvil.
 - Junto al logo, la etiqueta **«Certifica con IA»** (`EtiquetaIa` en `ui/piezas.jsx`, la usan la cabecera
   pública y la barra de la app): píldora negra con la chispa en lima. Antes era «CEE con IA» en gris; Fran
   la quería «más rompedora, con más punch» (26/10/2026). En el móvil solo se ve en la cabecera pública.
 - Comprobación: capturas a 1440, 1024 y 390 px sin scroll horizontal.
+
+### La landing rediseñada: «efecto wow» y «Powered by BROKERGY» (06/11/2026)
+
+Fran: «quiero una web efecto wow, con las mejores skills de diseño, manteniendo mi estilo y mis colores; el
+contenido está bien y el vídeo se queda; en la firma final no quiero que aparezca mi nombre, sino algo como
+Powered by BROKERGY». Se rehízo siguiendo la skill `frontend-design` de Anthropic (anthropics/skills): plan de
+tokens, revisión contra el encargo, construcción y crítica con capturas. De ella se tomó **concentrar la
+audacia en pocos momentos** y dejar el resto quieto; lo que choca con la marca (evitar el acento en una palabra
+del titular, la tinta con lima) **no** se aplicó: manda la marca.
+
+- **Los textos no cambian** (misma regla: solo lo que la app hace). Lo nuevo es la forma: el CSS va aparte,
+  con prefijo **`.ln-`**, en [landingEstilo.js](implementation/frontend/src/certificadores/publico/landingEstilo.js),
+  y el bloque `.ca-land*` de `ui/estilo.js` se quitó.
+- **Los cuatro momentos** (y solo esos):
+  1. **Portada**: el titular entra, el rotulador lima se pinta sobre «revisas» y, detrás del móvil del vídeo,
+     crece la **escala A → G de la etiqueta energética** con los colores de la marca (verde → lima → amarillo →
+     naranja; sin rojo). Es decorado: **no dice ninguna calificación** ni promete mejorarla. Con ratón, el
+     móvil se inclina un poco hacia él. Detrás, el papel cuadriculado del plano, muy tenue.
+  2. **Cómo funciona**: los pasos unidos por una línea que se **rellena con el filete al bajar** y el paso
+     alcanzado se enciende; el título se queda fijo a la izquierda en el PC.
+  3. **Qué te entregamos**, en un **panel tinta**: cuatro hojas (.xml, .cex, .pdf, croquis) que se **abren en
+     abanico** al verse. Dentro, solo rayas y un plano inventado: ni datos ni una vivienda de verdad.
+  4. **El cierre**, en otro panel tinta: «¿Lo pruebas?» enorme, el aviso legal, el pie y la marca gigante
+     «CEE by BROKERGY» recortada contra el borde.
+- **La cabecera** se queda arriba al bajar, como una píldora de cristal; «Crear cuenta» sale desde 600 px.
+- **«La IA no firma ni registra nada. El certificado es tuyo.»** pasa a ser una frase grande a dos tonos
+  (la primera mitad en gris al 50 %, que da 3,4:1 de contraste: con menos no llega a AA de texto grande).
+- **REGLA — en cee.brokergy.es no firma Fran: cierra «Powered by BROKERGY»** (Fran, 06/11/2026). En la
+  landing, una píldora con el logo blanco que enlaza a `https://brokergy.es`, los enlaces (Entrar, Crear
+  cuenta, Condiciones, Privacidad, el email) y «© año BROKERGY · Ingeniería energética». En las demás páginas
+  públicas de la app (`/beta`, `/entrar`, `/activar`, `/recuperar`, `/condiciones`, `/privacidad`) el
+  componente `Firma` de `ui/piezas.jsx` es ahora la misma píldora en claro. `FIRMA` y `SELLO` salieron de
+  [marca.js](implementation/frontend/src/certificadores/marca.js); entraron `LOGO_CLARO` y `WEB_BROKERGY`.
+  Los **emails** de la app siguen firmados como estaban (no se pidió).
+- **Medidas que no se tocan sin volver a medir**: la escala sale del móvil un 20 % por la izquierda entre
+  1024 y 1279 px (móvil de 300 px) y un 24 % desde 1280 (móvil de 338 px). Más y, a 1024, tapa el párrafo
+  de la portada y la punta de la G se sale por la derecha. Las hojas: 150 px hasta 1199 y 184 px desde 1200;
+  con 196 px, a 1024 se salían del panel y pisaban la lista.
+- **«Reducir movimiento»**: nada se anima; la escala, el rotulador y el abanico salen ya puestos, y la línea
+  de los pasos, entera.
+- Comprobación (06/11/2026): capturas con Chrome sin ventana (el `puppeteer` del backend) a 1440, 1280, 1024,
+  768, 390 y 360 px y a 390 con «reducir movimiento»: sin scroll horizontal ni errores en la consola, y la
+  página `/entrar` con su «Powered by».
 
 ### El vídeo promo (26/10/2026)
 
@@ -149,7 +193,8 @@ CSS de la app** y los datos de demo (`dev/demo.js`): nada de una obra o un clien
   Si un día se mide de verdad, se cambia el gancho. Los botones dicen lo que dice la app («Validar y firmar
   con AutoFirma»).
 - En la landing va en la **portada** (Fran, 26/10: «en la primera parte, es más llamativo»): a la derecha
-  del titular en el PC (360 px de ancho) y debajo de los botones en el móvil. Fichero ligero (540×960,
+  del titular en el PC (300–338 px de ancho desde el 06/11, sobre la escala A → G) y debajo de los botones en
+  el móvil (272 px). Fichero ligero (540×960,
   ~0,9 MB) en `frontend/public/certificadores/promo-cee.mp4` + póster `promo-cee.jpg` (el gancho, para que
   no salte al arrancar). Arranca al verse (IntersectionObserver) y se para al salir; con «reducir
   movimiento» no arranca solo y enseña los controles.

@@ -118,6 +118,9 @@ y `.fx-kpis` traen el `grid-area` del cuadro de Facturación y fuera de él hay 
 - **Una palabra en lima por titular**, como si se hubiera subrayado con un rotulador
   («ya está **en tu cuenta**»). Una, no tres.
 - **Firma de persona.** Se cierra con Fran (foto/sello + nombre + cargo), no con «El equipo».
+  **Salvo en la app de certificadores (cee.brokergy.es)**: desde el 06/11/2026 cierra «Powered by
+  BROKERGY», sin nombre (Fran: «que no aparezca mi nombre»). Ver «La landing rediseñada» en
+  `certificadores-app/00-la-app-de-certificadores.md`.
 - **Mobile first.** El 90 % lo abre con el móvil desde el WhatsApp: se diseña a 375–390 px y
   luego se comprueba en PC.
 

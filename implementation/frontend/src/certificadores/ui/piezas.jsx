@@ -2,7 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Enlace } from '../router';
-import { FIRMA, LOGO, NOMBRE_APP, SELLO } from '../marca';
+import { LOGO, NOMBRE_APP, WEB_BROKERGY } from '../marca';
 import { alPortapapeles, mensajeError } from '../api';
 import { IcoAlerta, IcoCheck, IcoChispa, IcoCopiar, IcoRecargar, IcoX, Spinner } from './Iconos';
 
@@ -156,17 +156,15 @@ export function CabeceraPublica({ derecha, enlace = '/' }) {
     );
 }
 
-/** Firma de persona (la guía: se cierra con Fran, no con «el equipo»). */
+/** El cierre de las páginas públicas: «Powered by BROKERGY». Hasta el 06/11/2026 era la firma de
+ *  Fran (sello, nombre y cargo); él la cambió: «que no aparezca mi nombre, algo como Powered by
+ *  BROKERGY». La landing lleva su propio pie, más grande (publico/Landing.jsx). */
 export function Firma({ pie = true }) {
     return (
-        <footer>
-            <div className="ca-firma">
-                <img className="ca-sello" src={SELLO} alt="" width="52" height="52" />
-                <div>
-                    <b>{FIRMA.nombre}</b>
-                    <span>{FIRMA.cargo}</span>
-                </div>
-            </div>
+        <footer className="ca-cierre">
+            <a className="ca-powered" href={WEB_BROKERGY} target="_blank" rel="noopener noreferrer">
+                Powered by <img src={LOGO} alt="BROKERGY" width="85" height="17" />
+            </a>
             {pie && <p className="ca-pie">BROKERGY · Ingeniería energética · <Enlace to="/privacidad">Privacidad</Enlace></p>}
         </footer>
     );
