@@ -50,3 +50,8 @@ la actuación" (sus dos fechas van ahora dentro de "Identificación de la actuac
 y el encabezado "Firma y sello". El `kv` bajó de 7px a 6px de padding vertical: son 14 filas en esa
 hoja. Holguras actuales: **+28px en el peor caso** (RES093 de textos largos con dos empresas) y
 +43 con una sola empresa.
+
+**Vía FM (07/11/2026).** Un `26RES060FM_N` añade una hoja más, «Certificado de inercia hidráulica de la
+instalación» (documento 3.c de la ficha), DETRÁS de la de variables: el recuadro de firma está en la
+hoja 2 y no se mueve. Medido con 1 equipo y con 5 en cascada + mínimo del fabricante + dos empresas:
++670 y +610 px. Ver regla 200.b.

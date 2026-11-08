@@ -11,6 +11,7 @@ import { calcCifo } from '../../expedientes/logic/calcCifo';
 import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
 import { RES080_VIDA_UTIL } from '../../expedientes/logic/fichaRes080Html.js';
 import { inversionCae } from '../../expedientes/logic/facturasCae.js';
+import { fichaOficialDeExpediente } from '../../expedientes/logic/viaFm.js';
 
 // Fecha del convenio de compraventa con el S.O. (fija; editable en el popup).
 export const CONVENIO_FECHA_DEFAULT = '27/02/2026';
@@ -68,8 +69,9 @@ export function buildAnexoListadoRows(lote) {
             utm,
             fechaInicio: fmtDate(calcCifo(doc).inicio || doc.fecha_inicio_cifo),
             fechaFin: fmtDate(calcCifo(doc).fin || doc.fecha_fin_cifo),
-            ficha,
-            titulo: FICHA_TITULO[ficha] || '',
+            // Vía del factor multiplicador: su ficha y su título (RES060_FM…).
+            ficha: fichaOficialDeExpediente(e)?.codigo || ficha,
+            titulo: fichaOficialDeExpediente(e)?.titulo || FICHA_TITULO[ficha] || '',
             inversion,
             vidaUtil: vidaUtilDe(ficha),
             ahorroKwh: Math.round(fin.savingsKwh || 0),

@@ -112,7 +112,8 @@ function actuacionesDe(texto, todas = []) {
 // Nº de expediente sin separadores, para comparar ("26RES060_10" no casa con
 // "26RES060_105": se compara la cadena entera, no un prefijo).
 const numClave = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-const NUM_EXP_RE = /\b\d{2}\s*[A-Z]{3}\s*\d{3}\s*[_\- ]\s*\d+\b/gi;
+// «FM» opcional: la vía del factor multiplicador tiene serie propia (26RES060FM_12).
+const NUM_EXP_RE = /\b\d{2}\s*[A-Z]{3}\s*\d{3}(?:\s*FM)?\s*[_\- ]\s*\d+\b/gi;
 
 /**
  * Reparte las inexactitudes leídas entre los expedientes del lote.

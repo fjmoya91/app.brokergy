@@ -26,6 +26,7 @@ import {
     AEROTHERMIA_MODELS,
     CAE_PRECIO_CLIENTE_NUEVAS,
     precioCaeRes080,
+    precioCaeFm,
     calculateTerciario,
     redondeaScop,
     scopsParaClima,
@@ -508,7 +509,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
     // resultados abran el MISMO modal.
     const [showEficiencia, setShowEficiencia] = useState(false);
 
-    // Popup de desglose de la ficha RES060FC: se abre desde las cifras FC de la barra
+    // Popup de desglose de la vía FM (RES060_FM / RES09x_FM): se abre desde las cifras FM de la barra
     // fija y desde la tarjeta de comparativa del panel de resultados.
     const [showRes060FCDetail, setShowRes060FCDetail] = useState(false);
 
@@ -587,6 +588,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             caePriceClient: parseFloat(inputs.caePriceClient) || CAE_PRECIO_CLIENTE_NUEVAS,
             // El de la opción REFORMA (RES080); sin teclear, el mismo que el RES060.
             caePriceClientRes080: precioCaeRes080(inputs) || CAE_PRECIO_CLIENTE_NUEVAS,
+            // El de la vía del FACTOR MULTIPLICADOR (solo ADMIN); sin teclear, el general.
+            caePriceClientFm: precioCaeFm(inputs) || CAE_PRECIO_CLIENTE_NUEVAS,
             caePriceSO: parseFloat(inputs.caePriceSO) || 160,
             costeVerificacion: parseFloat(inputs.costeVerificacion) || 0,
             caePricePrescriptor: parseFloat(inputs.caePricePrescriptor) || 0,
@@ -833,11 +836,11 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             return out;
         })();
 
-        // 3.5 Fichas con FACTOR DE CORRECCIÓN (borrador) — comparativa en tiempo real.
-        // RES060FC, o la RES09xFC de la zona si hay hibridación (logic/res060fc.js).
-        // Demanda del ANEXO IV, el MISMO η/SCOP que el cálculo actual, y el CEF del
-        // CEE inicial si está cargado (sin él, estimado con la demanda de la app).
-        // La superficie es la misma que aplica el cálculo vigente (CEE si hay, si no la calefactable).
+        // 3.5 Vía del FACTOR MULTIPLICADOR (Resolución publicada, BOE-A-2026-23367) —
+        // comparativa en tiempo real: RES060_FM, o la RES09x_FM de la zona si hay
+        // hibridación (logic/res060fc.js). D_cal y S del CEE POSTERIOR (el final; sin
+        // él, el inicial; sin ninguno, la demanda de la app, marcada como estimada),
+        // con el MISMO η/SCOP que el cálculo vigente. Sin tope de CEF.
         const supRes060FC = sanitizedInputs.manualSuperficie > 0
             ? sanitizedInputs.manualSuperficie
             : (sanitizedInputs.superficieCalefactable || sanitizedInputs.superficie);
@@ -846,7 +849,6 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             anio: sanitizedInputs.anio || inputs.anio,
             tipo: sanitizedInputs.tipo,
             bloque: esBloqueCalc,
-            plantasEdificio: inputs.fcPlantasEdificio,
             zona: sanitizedInputs.zona,
             superficie: supRes060FC,
             boilerEff: sanitizedInputs.boilerEff,
@@ -854,16 +856,18 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             scopHeating: sanitizedInputs.scopHeating,
             scopAcs: sanitizedInputs.scopAcs,
             changeAcs: sanitizedInputs.changeAcs,
-            dacs: sanitizedInputs.dacs,
+            // Mismo alcance que la vía vigente: solo en un bloque puede quedar fuera.
+            changeHeating: esBloqueCalc ? inputs.changeHeating !== false : true,
             qCalefaccion: demandRes.Q_net,
             ceeInicial: inputs.xmlDemandData,
+            ceeFinal: inputs.xmlDemandDataFinal,
             hibridacion: hybridizationRes
                 ? { coverage: hybridizationRes.coverage, refPower: hybridizationRes.refPower, cb: hybridizationRes.cb }
                 : null,
             contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal },
         });
 
-        // Financieros RES060FC con las mismas reglas (precio CAE, prescriptor, IVA...)
+        // Financieros de la vía FM con las mismas reglas (precio CAE, prescriptor, IVA...)
         // para que el bono y el beneficio sean directamente comparables al RES060 actual.
         let financialsRes060FC = null;
         if (res060fcData && res060fcData.cae > 0) {
@@ -871,7 +875,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 presupuesto: sanitizedInputs.presupuesto,
                 presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
                 savingsKwh: res060fcData.cae,
-                caePriceClient: sanitizedInputs.caePriceClient,
+                // SU precio (`caePriceClientFm`), como la opción RES080 el suyo.
+                caePriceClient: sanitizedInputs.caePriceClientFm,
                 caePriceSO: sanitizedInputs.caePriceSO,
                 costeVerificacion: sanitizedInputs.costeVerificacion,
                 caePricePrescriptor: inputs.includeCommission ? sanitizedInputs.caePricePrescriptor : 0,
@@ -1101,12 +1106,14 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 const fmt = (n) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
                 const fmtMwh = (n) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(n / 1000);
                 const currentFinancials = showOnlyReforma ? result.financialsRes080 : result.financials;
-                // Chip «FC»: la ficha que toca (RES060FC o la de hibridación de la zona) y,
-                // si algo impide pedirlo, tachado y con el porqué en el título.
+                // Chip «FM» (factor multiplicador): la ficha que toca (RES060_FM o la de
+                // hibridación de la zona) y, si algo impide pedirlo, tachado y con el porqué.
+                // Con la D_cal de la simulación (sin CEE) lleva «≈»: es una estimación.
                 const fcNoElegible = result.res060fc?.elegible === false;
                 const fcTitulo = fcNoElegible
                     ? `No se puede pedir: ${(result.res060fc.avisos || []).find(a => a.tono === 'bloquea')?.texto || ''}`
-                    : `Ver desglose de la ficha ${result.res060fc?.ficha || 'RES060FC'}`;
+                    : `Ver desglose de la ficha ${result.res060fc?.ficha || 'RES060_FM'}${result.res060fc?.dcalFuente === 'simulacion' ? ' (D_cal estimada: sin CEE)' : ''}`;
+                const fmAprox = result.res060fc?.dcalFuente === 'simulacion' ? '≈' : '';
                 const fcClase = `relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer${fcNoElegible ? ' line-through opacity-60' : ''}`;
                 return (
                 <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] py-2 px-3 md:py-2 md:px-4 flex justify-center pointer-events-none">
@@ -1136,7 +1143,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                                 title={fcTitulo}
                                                 className={fcClase}
                                             >
-                                                FC {fmt(result.financialsRes060FC.caeBonus)} €
+                                                FM {fmAprox}{fmt(result.financialsRes060FC.caeBonus)} €
                                             </button>
                                         )}
                                     </div>
@@ -1179,7 +1186,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                                 title={fcTitulo}
                                                 className={fcClase}
                                             >
-                                                FC {fmt(result.financialsRes060FC.profitBrokergy)} €
+                                                FM {fmAprox}{fmt(result.financialsRes060FC.profitBrokergy)} €
                                             </button>
                                         )}
                                     </div>
@@ -1221,7 +1228,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                                 title={fcTitulo}
                                                 className={fcClase}
                                             >
-                                                FC {fmtMwh(result.res060fc.cae)} MWh/a
+                                                FM {fmAprox}{fmtMwh(result.res060fc.cae)} MWh/a
                                             </button>
                                         )}
                                     </div>
@@ -1380,6 +1387,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         showEficiencia={showEficiencia}
                         setShowEficiencia={setShowEficiencia}
                         onOpenRes060FCDetail={() => setShowRes060FCDetail(true)}
+                        expedienteAsociado={associatedExpediente}
                         onAcceptOpportunity={['ENVIADA', 'PTE ENVIAR', 'PRE-ACEPTADO'].includes(inputs.estado?.toUpperCase()) && !associatedExpediente ? () => {
                             setManualExpNumber('');
                             setIsManualMode(false);
@@ -1453,8 +1461,14 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                 ) : (
                                     <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-4 animate-slide-up">
                                         <p className="text-[9px] text-emerald-400/80 leading-relaxed font-black uppercase tracking-widest text-center">
-                                            Se asignará el siguiente correlativo oficial {new Date().getFullYear().toString().slice(-2)}{inputs.isReforma ? 'RES080' : (inputs.hibridacion ? 'RES093' : 'RES060')}_...
+                                            Se asignará el siguiente correlativo oficial {new Date().getFullYear().toString().slice(-2)}{inputs.isReforma ? 'RES080' : (inputs.hibridacion ? 'RES093' : 'RES060')}{inputs.ruta_fm === true && !inputs.isReforma ? 'FM' : ''}_...
                                         </p>
+                                        {/* La vía elegida con el conmutador de la calculadora (inputs.ruta_fm, regla 200). */}
+                                        {inputs.ruta_fm === true && !inputs.isReforma && (
+                                            <p className="mt-2 text-[10px] text-violet-300 leading-relaxed text-center">
+                                                Vía del <b>factor multiplicador</b>: el expediente sale de su serie propia. Para la vigente, apágala antes en «Vía de tramitación».
+                                            </p>
+                                        )}
                                     </div>
                                 )}
 

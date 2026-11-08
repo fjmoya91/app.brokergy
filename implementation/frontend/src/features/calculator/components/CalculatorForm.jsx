@@ -3072,6 +3072,29 @@ export function CalculatorForm({
                                                 />
                                             </div>
                                         )}
+                                        {/* La vía del FACTOR MULTIPLICADOR lleva SU precio (calculation.js,
+                                            `precioCaeFm`): sin teclear, el mismo que el general. Solo ADMIN,
+                                            como toda la vía FM (regla 155); el backend lo quita a los demás. */}
+                                        {showBrokergy && isAdmin && result?.res060fc?.normativa && (
+                                            <div className="animate-fade-in">
+                                                <Label htmlFor="caePriceClientFm" className="flex items-center gap-1.5 whitespace-nowrap" title="Precio CAE al cliente si se pide por la ficha del factor multiplicador. Sin teclear, el mismo que el general.">
+                                                    <svg className="w-3 h-3 text-violet-400/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                                    </svg>
+                                                    CAE {result.res060fc.ficha || 'FM'} (€/MWh)
+                                                </Label>
+                                                <Input
+                                                    id="caePriceClientFm"
+                                                    type="number"
+                                                    inputMode="decimal"
+                                                    min={0}
+                                                    value={inputs.caePriceClientFm ?? inputs.caePriceClient}
+                                                    onChange={e => handleChange('caePriceClientFm', parseFloat(e.target.value) || 0)}
+                                                    placeholder="Ej: 95"
+                                                    className="bg-slate-900/60 border-slate-700/50 focus:border-violet-500/50"
+                                                />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 

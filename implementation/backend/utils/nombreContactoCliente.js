@@ -26,7 +26,9 @@
 // "CEE", "CEEI", "TER100", "RES060_OP12". Detrás tiene que venir un espacio,
 // un guion, un paréntesis o el final: así no casan "Termia", "Teresa",
 // "RESERVAS" ni "RESGONZA".
-const PREFIJO = /^\s*(?:\d{2}|\d{4})?((?:RES|TER)\d{3}|CEEI?)(?:[_-](?:OP)?\d+)?(?=[\s(\-]|$)\s*-?\s*/i;
+// La vía del factor multiplicador tiene serie propia («RES060FM_12»): el «FM» va
+// en el prefijo, pero la FICHA sigue siendo RES060 (grupo 1).
+const PREFIJO = /^\s*(?:\d{2}|\d{4})?((?:RES|TER)\d{3}|CEEI?)(?:FM)?(?:[_-](?:OP)?\d+)?(?=[\s(\-]|$)\s*-?\s*/i;
 
 /** { ficha, resto } si el nombre lleva prefijo; null si no. */
 function leerPrefijo(nombre) {
@@ -105,7 +107,7 @@ function obraDelContacto(rel, ficha) {
  * cada pasada en vez de cambiar (medido el 13/10/2026). Se aparta a «revisar»
  * para arreglarlo a mano en el móvil; no se toca.
  */
-const TOKEN_OBRA = /\b(?:\d{2}|\d{4})?(?:(?:RES|TER)\d{3}|CEEI?)(?:[_-](?:OP)?\d+)?\b/gi;
+const TOKEN_OBRA = /\b(?:\d{2}|\d{4})?(?:(?:RES|TER)\d{3}(?:FM)?|CEEI?)(?:[_-](?:OP)?\d+)?\b/gi;
 function variosPrefijos(nombre) {
     return (String(nombre || '').match(TOKEN_OBRA) || []).length > 1;
 }

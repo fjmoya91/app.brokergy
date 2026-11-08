@@ -11,6 +11,9 @@ import { lecturaAPresupuesto, HUECOS_PRESUPUESTO, CAMPOS_PRESUPUESTO, huecoDe, h
 // Aviso del factor de corrección (ficha RES060FC en consulta pública): decide si
 // procede ofrecerlo y redacta el párrafo. Fuente única — ver `logic/avisoFc.js`.
 import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
+// El consentimiento del IRPF de la vía del factor multiplicador (punto 12 de su
+// ficha): el MISMO texto que firma el cliente en el Convenio. Solo en los FM.
+import { NOTA_FM_PROPUESTA, lineaConsentimientoFm } from '../../expedientes/logic/viaFm.js';
 // El aviso de que el CEE Inicial lo presentamos NOSOTROS y de que la obra no
 // se factura hasta un mensaje nuevo confirmándolo. Fuente única — ver
 // `logic/avisoCeeInicial.js`. Va SIEMPRE, no depende de ningún caso.
@@ -37,6 +40,8 @@ import { instaladorContacts, defaultContactIds } from '../../expedientes/utils/d
 import { buildFontFaces, FUENTE_PROPUESTA } from '../../expedientes/logic/fuentesDoc';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
+// `datos_calculo` guarda booleanos como cadena ("false"): leído a pelo, `!!"false"` es true.
+const cierto = (v) => v === true || v === 'true' || v === 1 || v === '1';
 
 // Logo circular de Brokergy del co-branding de la portada — el mismo que usan el
 // resto de documentos generados (res080Doc.js, CertificadoRes080Modal.jsx).
@@ -853,10 +858,11 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
     const [emailChoice, setEmailChoice] = useState(false);
     const [enviarOpen, setEnviarOpen] = useState(false); // popup unificado de envío (homogéneo con anexos)
     const [includeCeeComp, setIncludeCeeComp] = useState(true); // incluir la comparativa CEE en PDF + mensaje
-    // Aviso del FACTOR DE CORRECCIÓN: apagado por defecto. No es una cifra firme
-    // (borrador en consulta pública) y a unos clientes les compensa esperar a
-    // enero y a otros no: lo decide quien envía, propuesta a propuesta.
-    const [includeFc, setIncludeFc] = useState(false);
+    // Aviso del FACTOR MULTIPLICADOR: ENCENDIDO por defecto desde el 08/11/2026
+    // (Fran, 26RES060_OP376: «a partir de ahora las propuestas deben ir
+    // acompañadas del cálculo con FM»; la Resolución ya está publicada). Solo sale
+    // si procede (`estadoFc`); quien envía puede apagarlo propuesta a propuesta.
+    const [includeFc, setIncludeFc] = useState(true);
     const [emailSelections, setEmailSelections] = useState(new Set());
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
 
@@ -2427,16 +2433,26 @@ info@brokergy.es · 623 926 179`;
             });
             txt = `${txt}\n\n⚠️ *Importante — el presupuesto de la obra es estimado.* ${nota}`;
         }
-        if (opts.fc && fcInfo) {
+        const tuteoFm = mode !== 'PARTNER' && mode !== 'INSTALADOR';
+        const avisoFm = !!(opts.fc && fcInfo);
+        if (avisoFm) {
             txt = `${txt}\n\n${lineaFactorCorreccion({
                 actual: fcInfo.actual,
                 fc: fcInfo.fc,
                 dosOpciones: fcInfo.dosOpciones,
-                tuteo: mode !== 'PARTNER' && mode !== 'INSTALADOR',
+                acs: fcInfo.acs,
+                tuteo: tuteoFm,
             })}`;
         }
+        // El consentimiento del IRPF de la vía FM (punto 12 de su ficha), SOLO en los
+        // FM: tras el aviso del factor multiplicador, o si la propuesta ya va por esa
+        // vía. Texto: expedientes/logic/viaFm.js (el mismo que firma en el Convenio).
+        const rutaFm = cierto(inputs?.ruta_fm) && !(cierto(inputs?.isReforma) && inputs?.comparativaReforma === false);
+        if (avisoFm || rutaFm) {
+            txt = `${txt}\n\n${lineaConsentimientoFm({ tuteo: tuteoFm, trasAviso: avisoFm })}`;
+        }
         return txt;
-    }, [buildCaptionBase, presInfo, fcInfo, opcionesComision]);
+    }, [buildCaptionBase, presInfo, fcInfo, opcionesComision, inputs]);
 
     // El aviso de BIOMASA no va dentro del texto largo: sale como ÚLTIMO mensaje
     // (WhatsApp: burbuja aparte tras el enlace; email: al final del cuerpo), para
@@ -2853,6 +2869,11 @@ info@brokergy.es · 623 926 179`;
         ? avisoPresupuestoEstimado({ conIrpf: presConIrpf, importe: presInfo.importe })
         : null;
     const avisoBiomasa = irpfBiomasa ? avisoIrpfBiomasa() : null;
+    // Vía del FACTOR MULTIPLICADOR elegida (`inputs.ruta_fm`, la sella el expediente
+    // al cambiar de vía): la nota del consentimiento del IRPF (punto 12 de la ficha).
+    // Va en las NOTAS de la portada, que se ajusta sola (regla 31), y no en la hoja 4,
+    // que es de alto fijo. Nunca en una propuesta de solo reforma: no hay ficha FM.
+    const notaFm = cierto(inputs?.ruta_fm) && !(isReforma && inputs?.comparativaReforma === false);
     const lineaHibrida = lineaTablaHibridacion(opHibrida);
     const avisoHibrida = avisoHibridacion(opHibrida, hipHibrida);
 
@@ -3764,6 +3785,7 @@ info@brokergy.es · 623 926 179`;
                                             // encima, y esas dos líneas repetidas eran parte de lo
                                             // que empujaba las notas debajo del pie.
                                             showAnnualSavings ? 'El análisis de ahorro anual es un cálculo teórico basado en datos climáticos zonales. Los resultados reales dependerán de los hábitos de uso.' : null,
+                                            notaFm ? NOTA_FM_PROPUESTA : null,
                                         ].filter(Boolean).map((txt, i) => (
                                             <p key={i}><b>Nota {i + 1}:</b> {txt}</p>
                                         ))}

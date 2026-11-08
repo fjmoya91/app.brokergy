@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
 import AsistenteFirmaManuscrita from '../../firma/AsistenteFirmaManuscrita';
-import { cajaConvenioCedente, anexoISignBoxCedente } from '../../expedientes/logic/signBoxes';
+import { cajaConvenioCedente, anexoISignBoxCedente, cajaFirmaFmPt } from '../../expedientes/logic/signBoxes';
 
 /**
  * RELATIVA, también en desarrollo.
@@ -21,14 +21,21 @@ const PDF_AND_IMG = 'application/pdf,image/*';
 
 // ── Demo sin API: /firmar-anexos/demo ─────────────────────────────────────────
 // Con `?datos` (faltan datos), `?preparando` (datos recibidos, anexos en
-// preparación), `?requerimiento`, `?rechazo` o `?varios` (dos cedentes).
+// preparación), `?requerimiento`, `?rechazo`, `?varios` (dos cedentes) o `?fm`
+// (vía del factor multiplicador: Anexo A y los documentos que genera la app).
 const DEMO_ID = 'demo';
 function infoDemo() {
     const q = new URLSearchParams(window.location.search);
     const datos = q.has('datos');
     const preparando = q.has('preparando');
+    const fm = q.has('fm');
     return {
-        numero_expediente: '26RES060_241',
+        numero_expediente: fm ? '26RES060FM_1' : '26RES060_241',
+        anexo_a: fm,
+        fm_docs: fm && !datos && !preparando ? [
+            { key: 'informado_fg', label: 'Documento informativo de la bomba de calor (F/G)', corto: 'Documento informativo', firmado: false },
+            { key: 'oferta_mantenimiento', label: 'Oferta de mantenimiento de 2 años', corto: 'Oferta de mantenimiento', firmado: false },
+        ] : [],
         cliente: 'MARÍA GARCÍA LÓPEZ',
         datos_cliente: {
             nombre_razon_social: 'MARÍA', apellidos: 'GARCÍA LÓPEZ',
@@ -324,6 +331,9 @@ export function FirmarAnexosView({ expedienteId }) {
     const [loadError, setLoadError] = useState(null);
     const [anexoI, setAnexoI] = useState(null);
     const [cesion, setCesion] = useState(null);
+    // Vía FM: los documentos que genera la app, ya firmados en papel → { [key]: File }.
+    const [fmFiles, setFmFiles] = useState({});
+    const ponFmFile = (k) => (f) => setFmFiles(prev => ({ ...prev, [k]: f }));
     const [cesionFirma, setCesionFirma] = useState('manuscrita'); // 'manuscrita' | 'electronica'
     const [dniFrontal, setDniFrontal] = useState(null);
     const [dniTrasero, setDniTrasero] = useState(null);
@@ -380,8 +390,14 @@ export function FirmarAnexosView({ expedienteId }) {
     // El justificante va junto con el IBAN (igual que la propuesta); no bloquea por sí solo.
     const faltanDatos = !!(dc.falta_email || dc.falta_dni || dc.falta_iban || !dc.telefono);
     const setDato = (k, v) => setDatos(prev => ({ ...prev, [k]: v }));
+    // Vía FM (26RES060FM_N): el «Anexo I» es el ANEXO A, y además firma los
+    // documentos que genera la app (informado F/G, oferta de mantenimiento,
+    // Anexo B): `fm_docs`, solo los que ya tienen borrador.
+    const nombreAnexo = info?.anexo_a ? 'Anexo A' : 'Anexo I';
+    const fmDocs = Array.isArray(info?.fm_docs) ? info.fm_docs : [];
+    const fmPend = fmDocs.filter(d => !d.firmado);
     // Fase 3 (firma): en cuanto los anexos se han ENVIADO al cliente (o generado en Drive).
-    const anexosListos = !!(info?.anexo_i_enviado || info?.anexo_cesion_enviado || info?.anexo_i_disponible || info?.anexo_cesion_disponible);
+    const anexosListos = !!(info?.anexo_i_enviado || info?.anexo_cesion_enviado || info?.anexo_i_disponible || info?.anexo_cesion_disponible || fmDocs.length);
     // Qué se firma AQUÍ: solo lo que sigue pendiente. Si reenviamos solo el Anexo I
     // (por un error suyo o un requerimiento), el Convenio ya firmado —y vigente— no
     // puede volver a pedirse: `anexo_*_firmado` ya descuenta la firma anulada por un
@@ -389,14 +405,21 @@ export function FirmarAnexosView({ expedienteId }) {
     // enlace con todo entregado) se ofrecen todos, para poder reemplazar uno.
     const pendI = !!(info?.anexo_i_disponible && !info?.anexo_i_firmado);
     const pendC = !!(info?.anexo_cesion_disponible && !info?.anexo_cesion_firmado);
-    const hayPendiente = pendI || pendC;
+    const hayPendiente = pendI || pendC || fmPend.length > 0;
     const firmarI = hayPendiente ? pendI : !!info?.anexo_i_disponible;
     const firmarC = hayPendiente ? pendC : !!info?.anexo_cesion_disponible;
-    const nFirmar = (firmarI ? 1 : 0) + (firmarC ? 1 : 0);
-    const nombresFirmar = [firmarI && 'Anexo I', firmarC && 'Anexo de Cesión'].filter(Boolean);
-    // El asistente de firma a mano decide sus documentos por `*_disponible`.
-    const infoFirma = info ? { ...info, anexo_i_disponible: firmarI, anexo_cesion_disponible: firmarC } : info;
-    const hayDescarga = firmarI || firmarC;
+    const fmFirmar = hayPendiente ? fmPend : fmDocs;
+    const nFirmar = (firmarI ? 1 : 0) + (firmarC ? 1 : 0) + fmFirmar.length;
+    const nombresFirmar = [firmarI && nombreAnexo, firmarC && 'Anexo de Cesión', ...fmFirmar.map(d => d.corto)].filter(Boolean);
+    // «el Anexo A, el Anexo de Cesión y la Oferta de mantenimiento»: el artículo
+    // concuerda con el documento («tu» vale para los dos géneros).
+    const artDe = (n, art = 'el') => (art === 'el' && /^(Oferta|Declaraci)/.test(n) ? 'la' : art);
+    const listaFirmar = (art = 'el') => nombresFirmar.map((n, i) => (
+        <React.Fragment key={n}>{i === 0 ? '' : i === nombresFirmar.length - 1 ? ' y ' : ', '}{artDe(n, art)} <b>{n}</b></React.Fragment>
+    ));
+    // El asistente de firma a mano decide sus documentos por `*_disponible` y `fm_firmar`.
+    const infoFirma = info ? { ...info, anexo_i_disponible: firmarI, anexo_cesion_disponible: firmarC, fm_firmar: fmFirmar } : info;
+    const hayDescarga = firmarI || firmarC || fmFirmar.length > 0;
     const descargarUrl = (which) => `${API_URL}/anexos-upload/${expedienteId}/descargar/${which}`;
     // Anexos que hemos rechazado. `preparando` = todavía no está la versión
     // corregida, así que ese anexo no se ofrece (ni descarga ni firma digital):
@@ -463,7 +486,7 @@ export function FirmarAnexosView({ expedienteId }) {
     const extrasIdx = cedentesInfo.map((_, i) => i).slice(1);
     const faltaDniExtra = dniRequerido && extrasIdx.some(i => !dnisExtra[i]?.frontal || !dnisExtra[i]?.trasero);
     const faltaDni = dniRequerido && (!dniFrontal || !dniTrasero || faltaDniExtra);
-    const algoQueSubir = anexoI || cesion || dniFrontal || dniTrasero;
+    const algoQueSubir = anexoI || cesion || dniFrontal || dniTrasero || Object.values(fmFiles).some(Boolean);
     const puedeEnviar = algoQueSubir && !faltaDni && !uploading;
 
     const handleSubmit = async () => {
@@ -477,6 +500,7 @@ export function FirmarAnexosView({ expedienteId }) {
             if (cesion) { form.append('anexo_cesion', cesion); form.append('cesion_firma', cesionFirma); }
             if (dniFrontal) form.append('dni_frontal', dniFrontal);
             if (dniTrasero) form.append('dni_trasero', dniTrasero);
+            for (const [k, f] of Object.entries(fmFiles)) if (f) form.append(`fm_${k}`, f);
             for (const i of extrasIdx) {
                 if (dnisExtra[i]?.frontal) form.append(`dni_frontal_${i}`, dnisExtra[i].frontal);
                 if (dnisExtra[i]?.trasero) form.append(`dni_trasero_${i}`, dnisExtra[i].trasero);
@@ -509,7 +533,7 @@ export function FirmarAnexosView({ expedienteId }) {
     };
 
     const startDigital = async () => {
-        if (esDemo) { setPrepError('En la prueba no se abre Autofirma: aquí se abriría tu Anexo I para firmarlo con tu certificado.'); return; }
+        if (esDemo) { setPrepError(`En la prueba no se abre Autofirma: aquí se abriría tu ${nombresFirmar[0] || nombreAnexo} para firmarlo con tu certificado.`); return; }
         // VARIOS CEDENTES (logic/cedentes.js): firman todos los que pagan la obra,
         // cada uno con SU certificado, en su casilla del convenio y en su propio
         // Anexo I. La cola es documento × cedente, y cada firma se pone sobre el PDF
@@ -519,9 +543,12 @@ export function FirmarAnexosView({ expedienteId }) {
         const quien = (i) => (n > 1 ? ` · firma de ${ceds[i].nombre}` : '');
         const q = [];
         for (let i = 0; i < n; i++) {
-            if (firmarI) q.push({ which: 'anexo_i', label: `Anexo I${quien(i)}`, anchor: ['fdo.:^above', 'fdo.^above', 'firma del propietario'], fixedBox: anexoISignBoxCedente(i, n) });
+            if (firmarI) q.push({ which: 'anexo_i', label: `${nombreAnexo}${quien(i)}`, anchor: ['fdo.:^above', 'fdo.^above', 'firma del propietario'], fixedBox: anexoISignBoxCedente(i, n) });
             if (firmarC) q.push({ which: 'cesion', label: `Anexo de Cesión de Ahorros${quien(i)}`, anchor: ['el cedente@2', 'cedente@2', 'el cedente', 'cedente'], fixedBox: cajaConvenioCedente(i) });
         }
+        // Vía FM: los documentos que genera la app, una sola firma (el titular),
+        // en el recuadro fijo de sus hojas (FIRMA_FM, logic/signBoxes.js).
+        for (const d of fmFirmar) q.push({ which: d.key, fm: d, label: d.corto, anchor: ['fdo.:^above', 'fdo.^above'], fixedBox: cajaFirmaFmPt(1) });
         if (!q.length) { setPrepError('No hay anexos disponibles para firmar todavía.'); return; }
         setSignedFiles({});
         setSignQueue(q);
@@ -545,8 +572,11 @@ export function FirmarAnexosView({ expedienteId }) {
         setUploadError(null);
         try {
             const form = new FormData();
-            if (acc.anexo_i) form.append('anexo_i', b64ToBlob(acc.anexo_i), `${info.numero_expediente} - Anexo I_fdo.pdf`);
+            if (acc.anexo_i) form.append('anexo_i', b64ToBlob(acc.anexo_i), `${info.numero_expediente} - ${nombreAnexo}_fdo.pdf`);
             if (acc.cesion) { form.append('anexo_cesion', b64ToBlob(acc.cesion), `${info.numero_expediente} - Anexo Cesion_fdo.pdf`); form.append('cesion_firma', 'electronica'); }
+            for (const it of signQueue) {
+                if (it.fm && acc[it.which]) form.append(`fm_${it.which}`, b64ToBlob(acc[it.which]), `${info.numero_expediente} - ${it.fm.corto}_fdo.pdf`);
+            }
             await axios.post(`${API_URL}/anexos-upload/${expedienteId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
             setDone(true);
         } catch (e) {
@@ -599,9 +629,11 @@ export function FirmarAnexosView({ expedienteId }) {
     } else {
         eyebrow = 'Último paso de tu parte';
         titulo = dosAnexos ? <>Firma tus <span className="fa-mark">anexos</span></> : <>Firma tu <span className="fa-mark">anexo</span></>;
-        sub = dosAnexos
-            ? <>Son dos documentos: el <b>Anexo I</b> y el <b>Anexo de Cesión</b> de los ahorros. Con tu firma podemos tramitar tu ayuda.</>
-            : <>Solo falta el <b>{nombresFirmar[0]}</b>. Con tu firma seguimos con la tramitación.</>;
+        sub = nFirmar > 2 || (nFirmar === 2 && fmFirmar.length)
+            ? <>Son {['dos', 'tres', 'cuatro', 'cinco', 'seis'][nFirmar - 2] || nFirmar} documentos: {listaFirmar()}. Con tu firma podemos tramitar tu ayuda.</>
+            : dosAnexos
+                ? <>Son dos documentos: el <b>{nombreAnexo}</b> y el <b>Anexo de Cesión</b> de los ahorros. Con tu firma podemos tramitar tu ayuda.</>
+                : <>Solo falta {artDe(nombresFirmar[0] || '')} <b>{nombresFirmar[0]}</b>. Con tu firma seguimos con la tramitación.</>;
     }
 
     return (
@@ -656,7 +688,7 @@ export function FirmarAnexosView({ expedienteId }) {
                     <div className="fa-card">
                         <p className="fa-txt" style={{ marginTop: 0 }}>Gracias. Con esto seguimos con la tramitación de tu expediente <b>{info.numero_expediente}</b>. Te avisaremos cuando haya novedades.</p>
                         <div className="fa-btns2">
-                            <button className="fa-btn fa-btn-sec" onClick={() => { setDone(false); setModo(null); setAnexoI(null); setCesion(null); setDniFrontal(null); setDniTrasero(null); loadInfo(); }}>
+                            <button className="fa-btn fa-btn-sec" onClick={() => { setDone(false); setModo(null); setAnexoI(null); setCesion(null); setFmFiles({}); setDniFrontal(null); setDniTrasero(null); loadInfo(); }}>
                                 Subir o reemplazar otro documento
                             </button>
                         </div>
@@ -743,7 +775,7 @@ export function FirmarAnexosView({ expedienteId }) {
                                 <div className="fa-filete-fino" />
                                 <p className="fa-eyebrow">Con certificado digital</p>
                                 <p className="fa-txt">
-                                    {nFirmar === 1 ? <>Se abrirá tu <b>{nombresFirmar[0]}</b>.</> : <>Se abrirán tu <b>Anexo I</b> y tu <b>Anexo de Cesión</b>, uno detrás de otro.</>} En cada uno te <b>marcamos con un destello dónde firmar</b>: pulsa <b>Firmar con Autofirma</b> y elige tu certificado. Necesitas tener Autofirma instalado.
+                                    {nFirmar === 1 ? <>Se abrirá tu <b>{nombresFirmar[0]}</b>.</> : <>Se abrirán {listaFirmar('tu')}, uno detrás de otro.</>} En cada uno te <b>marcamos con un destello dónde firmar</b>: pulsa <b>Firmar con Autofirma</b> y elige tu certificado. Necesitas tener Autofirma instalado.
                                 </p>
                                 {prepError && <div className="fa-mt"><Aviso><p>{prepError}</p></Aviso></div>}
                                 {uploadError && <div className="fa-mt"><Aviso><p>{uploadError}</p></Aviso></div>}
@@ -802,8 +834,9 @@ export function FirmarAnexosView({ expedienteId }) {
                                     </p>
                                     {hayDescarga && (
                                         <div className="fa-descargas">
-                                            {firmarI && <a className="fa-btn fa-btn-sec" href={descargarUrl('anexo_i')}><IcoBajar size={20} /> Anexo I</a>}
+                                            {firmarI && <a className="fa-btn fa-btn-sec" href={descargarUrl('anexo_i')}><IcoBajar size={20} /> {nombreAnexo}</a>}
                                             {firmarC && <a className="fa-btn fa-btn-sec" href={descargarUrl('cesion')}><IcoBajar size={20} /> Anexo de Cesión</a>}
+                                            {fmFirmar.map(d => <a key={d.key} className="fa-btn fa-btn-sec" href={descargarUrl(d.key)}><IcoBajar size={20} /> {d.corto}</a>)}
                                         </div>
                                     )}
                                 </div>
@@ -814,11 +847,15 @@ export function FirmarAnexosView({ expedienteId }) {
                                     <p className="fa-txt">Con la foto de tu DNI por las dos caras. Vale el PDF firmado o una foto o escaneo nítido.</p>
                                     <div className="fa-subidas">
                                         {(firmarI || !info.anexo_i_disponible) && (
-                                            <DropZone file={anexoI} onPick={f => pickFile(f, setAnexoI)} alreadyUploaded={info.anexo_i_firmado} title="Anexo I firmado" desc="La Declaración Responsable que te enviamos." />
+                                            <DropZone file={anexoI} onPick={f => pickFile(f, setAnexoI)} alreadyUploaded={info.anexo_i_firmado} title={`${nombreAnexo} firmado`} desc="La Declaración Responsable que te enviamos." />
                                         )}
                                         {(firmarC || !info.anexo_cesion_disponible) && (
                                             <DropZone file={cesion} onPick={f => pickFile(f, setCesion)} alreadyUploaded={info.anexo_cesion_firmado} title="Anexo de Cesión firmado" desc="El Convenio de Cesión de ahorros que te enviamos." />
                                         )}
+                                        {fmFirmar.map(d => (
+                                            <DropZone key={d.key} file={fmFiles[d.key] || null} onPick={f => pickFile(f, ponFmFile(d.key))} alreadyUploaded={d.firmado}
+                                                title={`${d.corto} firmado`} desc={d.label} />
+                                        ))}
                                     </div>
 
                                     {/* Tipo de firma de la Cesión */}

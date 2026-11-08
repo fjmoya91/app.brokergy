@@ -30,6 +30,7 @@ import { incidenciasFechasCifo } from '../logic/cifoFechas';
 import { IncidenciasSlotPanel } from './IncidenciasSlotPanel';
 import { HitosActuacionModal } from './HitosActuacionModal';
 import { hitosActuacion, avisosHitos } from '../logic/hitosActuacion';
+import { aplicaInerciaFm, inerciaFm } from '../logic/inerciaFm';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 import { ftAttachmentSlots, ftDocFields } from '../logic/fichasTecnicas';
 import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes, acsEnAlcance } from '../logic/ceeFases';
@@ -1561,6 +1562,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             if (!isPresent(ceeBase.demandaCalefaccion)) missing.push('Demanda Calefacción (no hay ningún CEE cargado)');
             if (!isPresent(ceeBase.superficieHabitable)) missing.push('Superficie Habitable (no hay ningún CEE cargado)');
             if (!doc.facturas?.length) missing.push('Al menos una factura');
+            // Vía FM: el CIFO lleva el certificado de inercia (RES060_FM, doc. 3.c).
+            if (aplicaInerciaFm(expediente?.numero_expediente)) missing.push(...inerciaFm(inst).falta);
         }
 
         if (docType === 'res060') {

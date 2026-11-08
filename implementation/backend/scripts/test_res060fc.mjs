@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Fichas con FACTOR DE CORRECCIÓN (borrador DGPLACE): RES060FC y las de hibridación
- * en paralelo por zona (RES090FC…RES094FC), con sus avisos de elegibilidad.
+ * Fichas con FACTOR MULTIPLICADOR (Resolución DGPLACE de 3/11/2026, BOE-A-2026-23367):
+ * RES060_FM y las de hibridación en paralelo por zona (RES090_FM…RES094_FM), con sus
+ * avisos de elegibilidad. El fichero conserva su nombre de cuando era el borrador (FC).
  *
  *   node implementation/backend/scripts/test_res060fc.mjs
  */
@@ -11,128 +12,170 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logic = (f) => pathToFileURL(path.join(__dirname, '../../frontend/src/features/calculator/logic', f)).href;
-const fcMod = await import(logic('res060fc.js'));
-const { estadoFc } = await import(logic('avisoFc.js'));
-const { calculateRes060FC, cbParaleloFc, provIndex, contextoCalderaFc, tramiteFc } = fcMod;
+const fmMod = await import(logic('res060fc.js'));
+const { estadoFc, lineaFactorCorreccion } = await import(logic('avisoFc.js'));
+const {
+    calculateRes060FM, calculateRes060FC, cbParaleloFm, cbParaleloFc, provIndex, contextoCalderaFc, tramiteFc,
+    plantasEdificioFc, FM_NORMATIVA,
+} = fmMod;
 
 let fallos = 0;
 const ok = (c, m) => { console.log(`${c ? '  ✓' : '  ✗'} ${m}`); if (!c) fallos++; };
 const cerca = (a, b, tol = 1) => Math.abs(a - b) <= tol;
 const tiene = (r, tono, trozo) => (r.avisos || []).some((a) => a.tono === tono && a.texto.includes(trozo));
 
-// Ciudad Real, 1995, unifamiliar, 150 m², gasóleo 85-97 (η 0,70), SCOP 4 / 2,6, con ACS.
+// Ciudad Real, 1995, unifamiliar, D3, gasóleo 85-97 (η 0,70), SCOP 4 / 2,6, con ACS.
+// CEE final: D_cal 120 kWh/m², S 150 m². (Anexo IV UNI, Ciudad Real 1981-2007: 96,4.)
+const CEE_FINAL = { demandaCalefaccion: 120, superficieHabitable: 150, emisionesLetra: 'B', epnrLetra: 'C' };
 const BASE = {
-    provinciaCode: '13', anio: 1995, tipo: 'unifamiliar', zona: 'D3', superficie: 150,
-    boilerEff: 0.70, boilerId: 'oil_85_97', scopHeating: 4, scopAcs: 2.6, changeAcs: true, dacs: 2731.4,
+    provinciaCode: '13', anio: 1995, tipo: 'unifamiliar', zona: 'D3', superficie: 140,
+    boilerEff: 0.70, boilerId: 'oil_85_97', scopHeating: 4, scopAcs: 2.6, changeAcs: true,
+    ceeFinal: CEE_FINAL, contexto: { hoy: '2026-11-08' },
 };
+const calc = (extra = {}) => calculateRes060FM({ ...BASE, ...extra, contexto: { ...BASE.contexto, ...(extra.contexto || {}) } });
 
-console.log('\n── El f_C se aplica UNA vez (la RES060FC lo escribe dos en el ACS: errata) ──');
+console.log('\n── La fórmula publicada: [D_cal·S·(1/η − 1/SCOP) + D_ACS·(1/η − 1/SCOP_dhw)] · f_M, SIN tope ──');
 {
-    const r = calculateRes060FC({ ...BASE, cef: 1e9 });
-    const ahc = 96.4 * 150 * (1 / 0.7 - 1 / 4);
-    const aha = 2731.4 * (1 / 0.7 - 1 / 2.6);
-    ok(cerca(r.ahc, ahc) && cerca(r.aha, aha), `AES = calefacción ${Math.round(ahc)} + ACS ${Math.round(aha)} (sin f_C dentro)`);
-    ok(cerca(r.cae, 2 * (ahc + aha)), `AE = AES × 2 = ${Math.round(2 * (ahc + aha))} kWh (da ${Math.round(r.cae)})`);
-    ok(r.cae < 2 * (ahc + 2 * aha) - 1000, 'ya no sale el f_C² en el ACS');
-    ok(r.ficha === 'RES060FC' && r.fc === 2 && r.q === 96.4 && r.yearLabel === '1981-2007', 'ficha, f_C de unifamiliar y Anexo IV');
+    const r = calc();
+    const ahc = 120 * 150 * (1 / 0.7 - 1 / 4);
+    const aha = 11 * 150 * (1 / 0.7 - 1 / 2.6);
+    ok(cerca(r.ahc, ahc) && cerca(r.aha, aha), `calefacción ${Math.round(ahc)} + ACS ${Math.round(aha)} (D_ACS = 11 × 150 = 1.650)`);
+    ok(cerca(r.cae, 2 * (ahc + aha)), `AE = × 2 = ${Math.round(2 * (ahc + aha))} kWh (da ${Math.round(r.cae)})`);
+    ok(r.ficha === 'RES060_FM' && r.fm === 2 && r.fc === 2 && r.normativa === FM_NORMATIVA, 'RES060_FM, f_M 2 (y `fc` como alias), con la norma');
+    ok(cerca(calc({ cef: 1000 }).cae, r.cae) && r.tope === null && r.limitedByTope === false, 'el CEF ya no corta nada');
+    ok(calculateRes060FC === calculateRes060FM && cbParaleloFc('D3', 0.5) === cbParaleloFm('D3', 0.5), 'los nombres del borrador siguen funcionando');
+    ok(r.elegible === true, 'el caso base es elegible');
 }
 
-console.log('\n── El tope del 70 % y de dónde sale el CEF ──');
+console.log('\n── D_cal y S: CEE final → CEE inicial → simulación ──');
 {
-    const r = calculateRes060FC({ ...BASE, cef: 20000 });
-    ok(r.limitedByTope && cerca(r.cae, 0.7 * 20000 * 2), 'con CEF 20.000 manda el tope: 0,70·20.000·2 = 28.000');
-    const cee = { superficieHabitable: 100, energiaFinalVectores: { GasoleoC: { global: 300, calefaccion: 270 }, Elec: { global: 20, calefaccion: 0 } } };
-    const c = calculateRes060FC({ ...BASE, ceeInicial: cee, qCalefaccion: 30000 });
-    ok(c.cefFuente === 'cee' && cerca(c.cefTotal, 32000) && cerca(c.cefCalefaccion, 27000), 'CEF del CEE inicial: Σ vectores × S (32.000 total · 27.000 calefacción)');
-    const e = calculateRes060FC({ ...BASE, qCalefaccion: 30000 });
-    ok(e.cefFuente === 'estimado' && cerca(e.cefTotal, (30000 + 2731.4) / 0.7), 'sin CEE: (demanda + D_ACS) ÷ η');
-    const s = calculateRes060FC({ ...BASE });
-    ok(s.cefFuente === null && s.tope === null && tiene(s, 'aviso', 'tope del 70'), 'sin ningún consumo: sin tope y avisándolo');
+    const fin = calc({ ceeFinal: { demandaCalefaccion: 110, superficieHabitable: 130 }, ceeInicial: { demandaCalefaccion: 150, superficieHabitable: 150 } });
+    ok(fin.dcalFuente === 'cee_final' && fin.dcal === 110 && fin.superficie === 130, 'manda el CEE FINAL (su D_cal y su S)');
+    const viaCtx = calc({ ceeFinal: null, contexto: { ceeFinal: { demandaCalefaccion: 110, superficieHabitable: 130 } } });
+    ok(viaCtx.dcalFuente === 'cee_final' && viaCtx.dcal === 110, 'también si llega por `contexto.ceeFinal` (como lo pasan la calculadora y el expediente)');
+    const ini = calc({ ceeFinal: null, ceeInicial: { demandaCalefaccion: 150, superficieHabitable: 145 } });
+    ok(ini.dcalFuente === 'cee_inicial' && ini.dcal === 150 && ini.superficie === 145 && tiene(ini, 'info', 'CEE INICIAL'), 'sin final, el INICIAL, diciéndolo');
+    const sim = calc({ ceeFinal: null, qCalefaccion: 140 * 90 });
+    ok(sim.dcalFuente === 'simulacion' && cerca(sim.dcal, 90, 0.01) && sim.superficie === 140 && tiene(sim, 'aviso', 'simulación'), 'sin CEE, la de la simulación, marcada');
+    const nada = calc({ ceeFinal: null });
+    ok(nada.dcalFuente === null && nada.cae > 0 && tiene(nada, 'aviso', 'Sin CEE ni demanda'), 'sin demanda: solo el ACS, y avisándolo');
+    ok(calculateRes060FM({ ...BASE, ceeFinal: null, superficie: 0 }) === null, 'sin superficie ni demanda → null');
+    const sinS = calc({ ceeFinal: { demandaCalefaccion: 120 } });
+    ok(sinS.superficie === 140, 'CEE sin superficie: la de la simulación');
 }
 
-console.log('\n── El caso de la captura (Cuenca, 1930, 820 m², η 0,70, SCOP 4,6) ──');
+console.log('\n── UNIFAMILIAR: D_cal = mín(CEE ; 2 × tabla UNI del Anexo IV) ──');
 {
-    const caso = { provinciaCode: '16', anio: 1930, tipo: 'unifamiliar', zona: 'D2', superficie: 820, boilerEff: 0.70,
-        scopHeating: 4.6, scopAcs: 4.6, changeAcs: false, dacs: 2731.4, qCalefaccion: 215 * 820 };
-    const est = calculateRes060FC(caso);
-    ok(est.limitedByTope && cerca(est.cae, 358063, 2), `CEF estimado: lo corta el tope → ${Math.round(est.cae)} kWh`);
-    ok(tiene(est, 'aviso', '1,45 veces'), 'y avisa de que con el CEE puede subir');
-    const conCee = calculateRes060FC({ ...caso, ceeInicial: { superficieHabitable: 820, energiaFinalVectores: { G: { global: 420, calefaccion: 400 } } } });
-    ok(!conCee.limitedByTope && cerca(conCee.cae, 459240, 2), `CEF del CEE (420 kWh/m²): techo técnico → ${Math.round(conCee.cae)} kWh`);
+    const alto = calc({ ceeFinal: { demandaCalefaccion: 250, superficieHabitable: 150 } });
+    ok(alto.dcalRef === 96.4 && alto.dcalTope === 192.8 && alto.dcal === 192.8 && alto.limitadoPorTabla, 'Ciudad Real 1981-2007: tope 2 × 96,4 = 192,8');
+    ok(tiene(alto, 'info', '2 × 96,4'), 'y lo cuenta');
+    ok(!calc().limitadoPorTabla, 'por debajo del tope, la del CEE');
+    const piso = calc({ tipo: 'PISO', ceeFinal: { demandaCalefaccion: 250, superficieHabitable: 150 } });
+    ok(piso.dcal === 250 && piso.dcalTope === null, 'piso: sin tope (las tablas de pisos desaparecen)');
+    // La casa de Cuenca de 1930 (820 m², SCOP 4,6) de la revisión del 21/10/2026.
+    const cuenca = calculateRes060FM({ provinciaCode: '16', anio: 1930, tipo: 'unifamiliar', zona: 'D2', superficie: 820,
+        boilerEff: 0.70, scopHeating: 4.6, scopAcs: 4.6, changeAcs: true, ceeFinal: { demandaCalefaccion: 420, superficieHabitable: 820 } });
+    const esperado = 2 * (420 * 820 * (1 / 0.7 - 1 / 4.6) + 11 * 820 * (1 / 0.7 - 1 / 4.6));
+    ok(cuenca.dcalTope === 462.4 && cerca(cuenca.cae, esperado, 2), `Cuenca ≤1940 (tope 462,4): ${Math.round(cuenca.cae)} kWh`);
+    const canarias = calc({ provinciaCode: 'Santa Cruz de Tenerife', zona: 'B3' });
+    ok(canarias.dcalTope === null && tiene(canarias, 'aviso', 'no trae datos'), 'Canarias: sin tabla, sin tope y avisándolo');
+    const sinProv = calc({ provinciaCode: 'Narnia' });
+    ok(sinProv && sinProv.cae > 0 && tiene(sinProv, 'aviso', 'Falta la provincia'), 'sin provincia válida: calcula, sin tope, y lo avisa');
+    const sinAnio = calc({ anio: null });
+    ok(sinAnio.anioSupuesto && sinAnio.yearLabel === '1981-2007' && tiene(sinAnio, 'aviso', 'año de construcción'), 'sin año: tope del tramo 1981-2007, avisándolo');
+    ok(!tiene(calc({ tipo: 'piso', anio: null }), 'aviso', 'año de construcción'), 'en un piso el año ya no importa');
 }
 
-console.log('\n── Hibridación: la ficha de SU zona, con su C_b y el CEF de calefacción ──');
+console.log('\n── Tipología: f_M y d_ACS; las plantas del edificio ya no cuentan ──');
 {
-    ok(cerca(cbParaleloFc('D3', 0.5), 0.8045, 0.0006), 'D, 50 % → 0,8045 (= BIVALENCE_TABLE)');
-    ok(cbParaleloFc('D3', 0.15) === 0 && cbParaleloFc('E1', 0.15) === 0, 'D y E: hasta el 15 %, 0');
-    ok(cerca(cbParaleloFc('E1', 0.17), 0.144, 0.0005), 'E1, 17 % → interpola del 15 % (0) al 20 % (0,36): 0,144');
-    ok(cerca(cbParaleloFc('C2', 0.15), 0.3527, 0.0005) && cbParaleloFc('C2', 0.10) === 0, 'C: 10 % → 0; 15 % → 0,3527');
-    ok(cerca(cbParaleloFc('A4', 0.30), 0.7558, 0.0005) && cerca(cbParaleloFc('B3', 0.30), 0.6747, 0.0005), 'A y B tienen su propia tabla');
-    ok(cbParaleloFc('D3', 1) === 1 && cerca(cbParaleloFc('D3', 0.975), 0.992, 0.0006), 'del 95 al 100 % sube a 1 (la vigente se quedaba en 0,984)');
-    const cee = { superficieHabitable: 150, energiaFinalVectores: { G: { global: 330, calefaccion: 300 } } };
-    const h = calculateRes060FC({ ...BASE, ceeInicial: cee, hibridacion: { coverage: 0.5, refPower: 10, cb: 0.8 } });
-    const sinHib = calculateRes060FC({ ...BASE, ceeInicial: cee });
-    ok(h.ficha === 'RES093FC' && h.zonaCb === 'D1-D3', 'D3 → RES093FC');
-    ok(cerca(h.aes, sinHib.aes * h.cb, 0.5), 'el C_b pondera calefacción y ACS');
-    ok(cerca(h.cef, 300 * 150) && cerca(sinHib.cef, 330 * 150), 'tope con el CEF de CALEFACCIÓN (no el total)');
-    ok(calculateRes060FC({ ...BASE, zona: 'C2', hibridacion: { coverage: 0.5, refPower: 10 } }).ficha === 'RES092FC', 'C2 → RES092FC');
-    const sinPot = calculateRes060FC({ ...BASE, hibridacion: { coverage: 0, refPower: 0, cb: 1 } });
+    const piso = calc({ tipo: 'PISO' });
+    ok(piso.clase === 'piso' && piso.fm === 2.5 && piso.dAcsEspecifica === 11, "'PISO' en mayúsculas: f_M 2,5 y d_ACS 11");
+    const bloque = calc({ tipo: 'piso', bloque: true });
+    ok(bloque.clase === 'bloque' && bloque.fm === 3 && bloque.dacs === 16 * 150, 'bloque (sistema centralizado): f_M 3 y D_ACS 16·S');
+    ok(calc({ tipo: 'hilera' }).fm === 2, 'adosada = unifamiliar');
+    ok(calc({ tipo: 'piso', plantasEdificio: '4+' }).cae === calc({ tipo: 'piso', plantasEdificio: '1-3' }).cae, '`fcPlantasEdificio` guardado se lee sin romper y no cambia nada');
+    ok(plantasEdificioFc(6) === '4+' && plantasEdificioFc('1-3') === '1-3', 'plantasEdificioFc sigue leyendo lo guardado');
+    const vul = calc({ vulnerable: true });
+    ok(vul.ficha === 'RES060_FM-S' && vul.fm === 3 && cerca(vul.cae, calc().cae * 1.5), 'vulnerable: × 1,5 y ficha -S');
+    // Sin ACS en la simulación (Fran, 07/11/2026: «que sea un aviso»): la cifra FM
+    // lo suma como si se añadiera, y el aviso dice qué hacer.
+    const sinAcs = calc({ changeAcs: false });
+    const conAcs = calc();
+    ok(sinAcs.acsSupuesto === true && sinAcs.dacs === 11 * 150 && cerca(sinAcs.aha, conAcs.aha) && cerca(sinAcs.cae, conAcs.cae),
+        'sin ACS: la vía FM suma D_ACS = 11·S con el SCOP_dhw de la simulación (como si se añadiera)');
+    ok(sinAcs.elegible === true && tiene(sinAcs, 'aviso', 'Añade el depósito de ACS') && tiene(sinAcs, 'aviso', 'ya supone que se añade'),
+        'y es un AVISO (no bloquea) que dice qué hacer y que la cifra lo supone');
+    ok(!conAcs.acsSupuesto && !conAcs.acsSinScop && !tiene(conAcs, 'aviso', 'depósito de ACS'), 'con ACS: ni supuesto ni aviso');
+    const sinScop = calc({ changeAcs: false, scopAcs: 0 });
+    ok(sinScop.acsSinScop === true && sinScop.aha === 0 && sinScop.dacs === 0 && tiene(sinScop, 'aviso', 'solo la calefacción'),
+        'sin ACS ni SCOP_dhw: solo la calefacción, y lo dice');
+    const bloqueSinAcs = calc({ tipo: 'piso', bloque: true, changeAcs: false });
+    ok(bloqueSinAcs.acsSupuesto && bloqueSinAcs.dacs === 16 * 150, 'bloque sin ACS: el supuesto es 16·S');
+    // Bloque que solo cambia el ACS (26RES060_OP190: 7.225 m², contaba 1.704 MWh de calefacción).
+    const soloAcs = calc({ tipo: 'piso', bloque: true, changeHeating: false });
+    ok(soloAcs.ahc === 0 && soloAcs.dem === 0 && soloAcs.aha > 0 && cerca(soloAcs.cae, soloAcs.aha * 3),
+        'bloque con solo el ACS: la calefacción se cancela y queda el ACS × f_M');
+    ok(soloAcs.elegible === false && tiene(soloAcs, 'bloquea', 'no cambia la calefacción') && !tiene(soloAcs, 'aviso', 'Y el ACS'),
+        'y no entra en el FM (la bomba ha de dar calefacción Y ACS), sin el aviso de «sin ACS»');
+    ok(calc({ changeHeating: true }).cae === calc().cae, 'changeHeating por defecto (true): no cambia nada');
+}
+
+console.log('\n── Hibridación: la ficha de SU zona, con su C_b (aerotermia o geotermia) ──');
+{
+    ok(cbParaleloFm('D3', 0.5) === 0.805, 'D, 50 %, aerotermia → 0,805 (tres decimales)');
+    ok(cbParaleloFm('D3', 0.5, 'geotermia') === 0.864 && cbParaleloFm('D3', 0.5, 'hidrotérmica') === 0.864, 'D, 50 %, geotermia o hidrotérmica → 0,864');
+    ok(cbParaleloFm('D3', 0.15) === 0 && cbParaleloFm('E1', 0.15) === 0, 'D y E: hasta el 15 %, 0');
+    ok(cbParaleloFm('E1', 0.17) === 0.144, 'E1, 17 % → interpola del 15 % (0) al 20 % (0,36): 0,144');
+    ok(cbParaleloFm('C2', 0.15) === 0.353 && cbParaleloFm('C2', 0.10) === 0, 'C: 10 % → 0; 15 % → 0,353');
+    ok(cbParaleloFm('A4', 0.30) === 0.756 && cbParaleloFm('B3', 0.30) === 0.675, 'A y B tienen su propia tabla');
+    ok(cbParaleloFm('D3', 1) === 1 && cbParaleloFm('D3', 0.975) === 0.992, 'del 95 al 100 % sube a 1');
+    const h = calc({ hibridacion: { coverage: 0.5, refPower: 10, cb: 0.8 } });
+    const sinHib = calc();
+    ok(h.ficha === 'RES093_FM' && h.zonaCb === 'D1-D3' && h.cb === 0.805, 'D3 → RES093_FM con el C_b de su tabla');
+    ok(cerca(h.cae, sinHib.cae * 0.805, 0.5), 'el C_b multiplica el corchete entero');
+    ok(calc({ hibridacion: { coverage: 0.5, refPower: 10 }, fuenteBomba: 'geotermia' }).cb === 0.864, 'geotermia: la otra columna');
+    ok(calc({ zona: 'C2', hibridacion: { coverage: 0.5, refPower: 10 } }).ficha === 'RES092_FM', 'C2 → RES092_FM');
+    const sinPot = calc({ hibridacion: { coverage: 0, refPower: 0, cb: 1 } });
     ok(sinPot.cb === 1 && tiene(sinPot, 'aviso', 'potencias'), 'sin potencias: el C_b de la app y avisándolo');
-    const sinZona = calculateRes060FC({ ...BASE, zona: null, hibridacion: { coverage: 0.5, refPower: 10 } });
-    ok(sinZona.ficha === 'RES093FC' && tiene(sinZona, 'aviso', 'zona climática'), 'sin zona: la D y avisándolo');
+    const sinZona = calc({ zona: null, hibridacion: { coverage: 0.5, refPower: 10 } });
+    ok(sinZona.ficha === 'RES093_FM' && tiene(sinZona, 'aviso', 'zona climática'), 'sin zona: la D y avisándolo');
 }
 
-console.log('\n── Tipología: bloque 3, piso por plantas del edificio, en cualquier caja ──');
+console.log('\n── η: Anexo II publicado; sólido fuera ──');
 {
-    const piso = calculateRes060FC({ ...BASE, tipo: 'PISO', cef: 1e9 });
-    ok(piso.clase === 'piso' && piso.fc === 2.5 && piso.q === 58.8, "'PISO' en mayúsculas es un piso (f_C 2,5, tabla 1-3 plantas)");
-    ok(piso.faltanPlantas && tiene(piso, 'aviso', '42,5 kWh/m²'), 'sin plantas: avisa con la cifra de la tabla de ≥4');
-    const piso4 = calculateRes060FC({ ...BASE, tipo: 'piso', plantasEdificio: '4+', cef: 1e9 });
-    ok(piso4.q === 42.5 && !piso4.faltanPlantas, 'con 4 o más plantas: tabla de ≥4 (42,5)');
-    ok(calculateRes060FC({ ...BASE, tipo: 'piso', plantasEdificio: 6 }).q === 42.5, 'un número de plantas también vale (6 → ≥4)');
-    const bloque = calculateRes060FC({ ...BASE, tipo: 'piso', bloque: true, plantasEdificio: '1-3', cef: 1e9 });
-    ok(bloque.clase === 'bloque' && bloque.fc === 3, 'un bloque es f_C 3 aunque se guarde como piso');
-    ok(calculateRes060FC({ ...BASE, tipo: 'hilera' }).fc === 2, 'adosada = unifamiliar');
+    ok(calc({ boilerId: 'gas_post98_cond_auto', boilerEff: 0.83 }).eta === 0.85, 'gas ≥1998, condensación, encendido auto: 85 % (vigente 83 %)');
+    ok(calc({ boilerId: 'gas_pre98_cond', boilerEff: 0.85 }).eta === 0.83, 'gas <1998, condensación: 83 % (vigente 85 %)');
+    ok(calc().eta === 0.70, 'el resto, el mismo');
+    const solido = calc({ boilerId: 'solid_auto', boilerEff: 0.6 });
+    ok(solido.elegible === false && tiene(solido, 'bloquea', 'SÓLIDO'), 'caldera de combustible sólido: no elegible');
+    ok(calc({ contexto: { combustible: 'biomasa' } }).elegible === false, 'biomasa por el contexto: tampoco');
+    const def = calc({ boilerId: 'default', boilerEff: 0.92 });
+    ok(def.etaPorDefecto && tiene(def, 'aviso', 'por defecto'), 'rendimiento por defecto: pide elegir la fila');
 }
 
-console.log('\n── Provincia por código o por NOMBRE, y año ──');
+console.log('\n── Elegibilidad: fechas, tramitación, letra, bomba ──');
 {
-    ok(provIndex('13') === 12 && provIndex('CIUDAD REAL') === 12 && provIndex('Ciudad Real') === 12, 'Ciudad Real por código y por nombre');
-    ok(provIndex('A Coruña') === 14 && provIndex('La Rioja') === 25 && provIndex('Illes Balears') === 6 && provIndex('BALEARES') === 6, 'nombres con artículo y en las dos lenguas');
-    ok(provIndex('Vizcaya') === 47 && provIndex('Gerona') === 16 && provIndex('Alicante') === 2, 'nombres en castellano');
-    ok(calculateRes060FC({ ...BASE, provinciaCode: 'Santa Cruz de Tenerife' }).noAnexoData, 'Canarias: sin datos en el Anexo IV');
-    ok(calculateRes060FC({ ...BASE, provinciaCode: 'Narnia' }) === null && calculateRes060FC({ ...BASE, provinciaCode: '' }) === null, 'sin provincia válida → null');
-    const sinAnio = calculateRes060FC({ ...BASE, anio: null });
-    ok(sinAnio.anioSupuesto && sinAnio.yearLabel === '1981-2007' && tiene(sinAnio, 'aviso', 'año de construcción'), 'sin año: 1981-2007 y avisándolo');
-    const tramo = (a) => calculateRes060FC({ ...BASE, anio: a }).yearLabel;
-    ok(tramo(1940) === '≤1940' && tramo(1941) === '1941-1960' && tramo(2007) === '1981-2007' && tramo(2008) === '2008-2012' && tramo(2020) === '>2019', 'los tramos del Anexo IV');
-}
-
-console.log('\n── η: el Anexo II del borrador en las dos filas de gas de condensación ──');
-{
-    ok(calculateRes060FC({ ...BASE, boilerId: 'gas_post98_cond_auto', boilerEff: 0.83 }).eta === 0.85, 'gas ≥1998, condensación, encendido auto: 85 % (vigente 83 %)');
-    ok(calculateRes060FC({ ...BASE, boilerId: 'gas_pre98_cond', boilerEff: 0.85 }).eta === 0.83, 'gas <1998, condensación: 83 % (vigente 85 %)');
-    ok(calculateRes060FC({ ...BASE }).eta === 0.70, 'el resto, el mismo');
-}
-
-console.log('\n── Elegibilidad ──');
-{
-    const el = (contexto, extra = {}) => calculateRes060FC({ ...BASE, cef: 1e9, ...extra, contexto });
-    ok(el({ sinCalefaccion: true }).elegible === false, 'sin calefacción: no se puede pedir');
+    const el = (contexto, extra = {}) => calc({ ...extra, contexto });
+    ok(el({ sinCalefaccion: true }).elegible === false, 'sin calefacción: no');
     ok(el({ inicioObra: '2026-03-01' }).elegible === false, 'obra iniciada antes del 22/03/2026: no');
-    ok(el({ inicioObra: '2026-03-22' }).elegible === true && el({ inicioObra: '2026-04-10' }).elegible === true, 'desde el 22/03/2026: sí');
-    ok(el({ finObra: '2027-12-05' }).elegible === false, 'facturas de diciembre de 2027: no');
+    ok(el({ inicioObra: '2026-03-22' }).elegible && el({ inicioObra: '2026-04-10' }).elegible, 'desde el 22/03/2026: sí');
+    ok(el({ finObra: '2027-12-05' }).elegible === false && el({ finObra: '2027-11-30' }).elegible, 'facturas hasta el 30/11/2027: sí; de diciembre: no');
+    ok(el({ finObra: '2027-12-05', comunidad: true }).elegible && el({ finObra: '2028-01-02', comunidad: true }).elegible === false, 'CC. PP.: hasta el 31/12/2027');
+    ok(el({ hoy: '2028-01-01' }).elegible === false && el({ hoy: '2028-02-15', comunidad: true }).elegible, 'presentación hasta el 31/12/2027 (CC. PP.: 28/02/2028)');
     ok(el({ tramite: 'presentado' }).elegible === false, 'ya presentado a MITECO con la ficha vigente: no');
-    ok(el({ tramite: 'verificacion' }).elegible === true && tiene(el({ tramite: 'verificacion' }), 'aviso', 'pierde'), 'en lote o verificación: aviso');
-    ok(el({ ceeFinal: { emisionesLetra: 'B', epnrLetra: 'G' } }).elegible === false, 'zona D y CEE final con G: no');
-    ok(el({ ceeFinal: { emisionesLetra: 'B', epnrLetra: 'C' } }).elegible === true, 'zona D y CEE final B/C: sí');
-    ok(el({ ceeFinal: { epnrLetra: 'G' } }, { zona: 'C2' }).elegible === true, 'zona C: la letra no se exige');
-    ok(el({ ceeFinal: { epnrLetra: 'G' } }, { hibridacion: { coverage: 0.5, refPower: 10 } }).elegible === true, 'hibridación: su ficha no exige la letra');
-    ok(tiene(el({}), 'info', 'A a la E'), 'zona D sin CEE final: lo recuerda');
-    const bio = el({ combustible: 'biomasa' });
-    ok(bio.elegible === true && tiene(bio, 'aviso', 'FÓSIL'), 'biomasa: duda, no bloqueo');
-    ok(tiene(el({}), 'info', 'cupo') && tiene(el({}), 'info', 'inercia'), 'plazos, cupo y requisitos, siempre');
-    ok(el({}).avisos[0].tono !== 'info' || el({}).avisos.every((a) => a.tono === 'info'), 'los avisos van de más a menos grave');
+    ok(el({ tramite: 'verificacion' }).elegible && tiene(el({ tramite: 'verificacion' }), 'aviso', 'pierde'), 'en lote o verificación: aviso');
+    const g = el({}, { ceeFinal: { ...CEE_FINAL, epnrLetra: 'G' } });
+    ok(g.elegible && tiene(g, 'aviso', 'doc. 13'), 'zona D y CEE final con G: ya NO bloquea; aviso con el documento 13');
+    ok(!tiene(el({}, { zona: 'C2', ceeFinal: { ...CEE_FINAL, epnrLetra: 'G' } }), 'aviso', 'doc. 13'), 'zona C: la letra no importa');
+    ok(!tiene(el({}, { hibridacion: { coverage: 0.5, refPower: 10 }, ceeFinal: { ...CEE_FINAL, epnrLetra: 'G' } }), 'aviso', 'doc. 13'), 'hibridación: su ficha no lo pide');
+    ok(tiene(el({}, { ceeFinal: { demandaCalefaccion: 120, superficieHabitable: 150 } }), 'info', 'doc. 13'), 'zona D sin letras: lo recuerda');
+    ok(el({ aireAire: true }).elegible === false, 'bomba aire-aire (splits/conductos): no');
+    ok(el({}, { zona: 'α3' }).elegible === false, 'clima α: no');
+    const elec = el({ combustible: 'electrica' });
+    ok(elec.elegible && tiene(elec, 'aviso', 'ELÉCTRICA'), 'caldera eléctrica: duda, no bloqueo');
+    ok(tiene(el({}), 'info', '1.287 GWh') && tiene(el({}), 'info', 'RESOLUCIÓN') && tiene(el({}), 'info', 'mantenimiento'), 'cupo, orden de resolución y requisitos, siempre');
+    const av = el({ tramite: 'verificacion' }).avisos.map((a) => a.tono);
+    ok(av.join(',') === [...av].sort((a, b) => ['bloquea', 'aviso', 'info'].indexOf(a) - ['bloquea', 'aviso', 'info'].indexOf(b)).join(','), 'los avisos van de más a menos grave');
 }
 
 console.log('\n── Contexto de la caldera y de la tramitación ──');
@@ -140,26 +183,32 @@ console.log('\n── Contexto de la caldera y de la tramitación ──');
     ok(contextoCalderaFc({ boilerHeatingType: 'No tiene Calefacción' }).sinCalefaccion, "'No tiene Calefacción' → sin calefacción");
     ok(contextoCalderaFc({}, 'sin_calefaccion').sinCalefaccion, "rendimiento 'sin_calefaccion' → sin calefacción");
     ok(contextoCalderaFc({ boilerId: 'electric' }).combustible === 'electrica', 'caldera eléctrica');
-    ok(contextoCalderaFc({ fuelType: 'pellets' }).combustible === 'biomasa', 'pellets → biomasa');
-    ok(contextoCalderaFc({ boilerHeatingType: 'Gasoil' }).combustible === 'fosil', 'gasóleo → fósil');
+    ok(contextoCalderaFc({ fuelType: 'pellets' }).combustible === 'biomasa' && contextoCalderaFc({ fuelType: 'pellets' }).solido, 'pellets → biomasa (sólido)');
+    ok(contextoCalderaFc({ boilerHeatingType: 'Gasoil' }).combustible === 'fosil' && !contextoCalderaFc({ boilerHeatingType: 'Gasoil' }).solido, 'gasóleo → fósil, no sólido');
     ok(!contextoCalderaFc({ boilerHeatingType: 'No tiene Calefacción' }, 'oil_post98').sinCalefaccion,
-        "«No tiene Calefacción» en el tipo con una caldera de gasóleo elegida: manda la caldera (24 oportunidades así)");
+        '«No tiene Calefacción» en el tipo con una caldera de gasóleo elegida: manda la caldera (24 oportunidades así)');
     ok(contextoCalderaFc({ boilerHeatingType: 'No tiene Calefacción', boilerId: 'default' }).sinCalefaccion, 'sin fila de caldera, el tipo sí cuenta');
     ok(contextoCalderaFc({ boilerHeatingType: 'BIOMASA' }, 'solid_auto').combustible === 'biomasa'
         && contextoCalderaFc({ boilerHeatingType: 'Carbon' }, 'solid_auto').combustible === 'fosil', 'combustible sólido: biomasa o carbón según lo declarado');
+    ok(contextoCalderaFc({ boilerHeatingType: 'Carbon' }, 'solid_auto').solido, 'el carbón también es sólido (fuera del Anexo II)');
+    ok(!contextoCalderaFc({ boilerHeatingType: 'BIOMASA' }, 'gas_post98').solido, 'una fila de gas manda sobre el tipo «biomasa»');
     ok(tramiteFc('SUBIDO A MITECO') === 'presentado' && tramiteFc('CAE EMITIDO – PTE PAGO BROKERGY') === 'presentado' && tramiteFc('FINALIZADO') === 'presentado', 'subido, emitido o finalizado → presentado');
     ok(tramiteFc('ENVIADO A VERIFICADOR') === 'verificacion' && tramiteFc('PTE FIN EXPTE', 'lote-1') === 'verificacion', 'en verificación o en lote');
     ok(tramiteFc('PTE FIN EXPTE') === null && tramiteFc(null) === null, 'lo demás, nada');
+    ok(provIndex('13') === 12 && provIndex('CIUDAD REAL') === 12 && provIndex('A Coruña') === 14 && provIndex('Vizcaya') === 47, 'provincia por código o por nombre');
 }
 
-console.log('\n── El aviso de la propuesta no anuncia un FC que no se puede pedir ──');
+console.log('\n── El aviso de la propuesta no anuncia un FM que no se puede pedir ──');
 {
-    const fc = calculateRes060FC({ ...BASE, cef: 1e9 });
-    const result = { res060fc: fc, financials: { caeBonus: 1000 }, financialsRes060FC: { caeBonus: 4000 } };
+    const fm = calc();
+    const result = { res060fc: fm, financials: { caeBonus: 1000 }, financialsRes060FC: { caeBonus: 4000 } };
     ok(estadoFc(result, {}).procede, 'elegible y mayor: procede');
-    const no = calculateRes060FC({ ...BASE, cef: 1e9, contexto: { sinCalefaccion: true } });
+    const no = calc({ contexto: { sinCalefaccion: true } });
     const e = estadoFc({ ...result, res060fc: no }, {});
     ok(!e.procede && e.motivo.includes('no se podría pedir'), 'no elegible: no procede y dice por qué');
+    const txt = lineaFactorCorreccion({ actual: 1000, fc: 4000 });
+    ok(txt.includes('BOE') && txt.includes('15 de enero de 2027') && txt.includes('no está garantizada') && txt.endsWith('*1.000 €*.') && !txt.includes('consulta pública'),
+        'el texto cita el BOE, la fecha de presentación, que no está garantizado y acaba en la cifra firme');
 }
 
 console.log(`\n${fallos ? `❌ ${fallos} FALLO(S)` : '✅ Todo correcto'}\n`);

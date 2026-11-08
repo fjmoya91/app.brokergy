@@ -260,7 +260,9 @@ export function resultsParaDocumento(results, documentacion, campos = ['anexo_i_
     if (!hayRefirma) return results;
     const imp = importesRequerimiento(results);
     if (imp.nuevo == null) return results;
-    return { ...results, savingsKwh: imp.ahorroNuevo ?? results?.savingsKwh, caeBonus: imp.nuevo };
+    // `viaUnica`: el ahorro es ya el VERIFICADO de la vía presentada, así que el
+    // Convenio de un FM no ofrece la otra ficha (logic/convenioFm.js).
+    return { ...results, savingsKwh: imp.ahorroNuevo ?? results?.savingsKwh, caeBonus: imp.nuevo, viaUnica: true };
 }
 
 /** El requerimiento vivo del expediente (el que provocó la re-firma pendiente). */

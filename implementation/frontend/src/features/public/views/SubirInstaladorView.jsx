@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FirmarCifoCard } from '../components/FirmarCifoCard';
+import { FirmarFmDeclaracionCard } from '../components/FirmarFmDeclaracionCard';
 import { SubirRiteCard } from '../components/SubirRiteCard';
 import { MarcoInstalador, CargandoInstalador, EnlaceNoValido, DatosObra, CheckDibujado, IcoPluma, IcoPapel, IcoChev, IcoOk } from '../components/MarcoInstalador';
 
@@ -42,6 +43,14 @@ const TAREAS = {
         hechoTexto: 'Legalización RITE: recibida',
         Icono: IcoPapel,
     },
+    // Vía del factor multiplicador (26RES060FM_N): la declaración de la
+    // tipología (punto 1), que genera la app y se firma como el CIFO.
+    fm_decl: {
+        titulo: 'Firmar la declaración de la tipología',
+        resumen: 'La pide la ficha del factor multiplicador. Se firma aquí mismo.',
+        hechoTexto: 'Declaración de la tipología firmada: recibida',
+        Icono: IcoPluma,
+    },
 };
 
 const DEMO_ID = 'demo';
@@ -54,6 +63,7 @@ function infoDemo() {
         tareas: [
             { key: 'cifo', hecho: todo, refirma: q.has('refirma'), bloqueado: q.has('bloqueado'), rechazo: q.has('bloqueado') ? { motivo: 'la fecha de fin de obra no coincide con la factura' } : null },
             { key: 'rite', hecho: todo || q.has('rite-hecho'), pide_memoria: true, memoria_subida: false, certificado_subido: false },
+            ...(q.has('fm') ? [{ key: 'fm_decl', genera: 'declaracion_instalador', hecho: todo }] : []),
         ],
     };
 }
@@ -108,7 +118,7 @@ export function SubirInstaladorView({ expedienteId }) {
         : !tareas.length
             ? <>Ahora mismo no hay nada pendiente por tu parte en este expediente.</>
             : pendientes.length > 1
-                ? <>Por tu parte en esta obra. <b>Las dos se resuelven aquí</b>, sin cambiar de enlace.</>
+                ? <>Por tu parte en esta obra. <b>{pendientes.length === 2 ? 'Las dos' : 'Todas'} se resuelven aquí</b>, sin cambiar de enlace.</>
                 : <>Por tu parte en esta obra, y se resuelve aquí mismo.</>;
 
     return (
@@ -140,7 +150,9 @@ export function SubirInstaladorView({ expedienteId }) {
                                 <div className="in-tarea-dentro">
                                     {t.key === 'cifo'
                                         ? <FirmarCifoCard expedienteId={expedienteId} demo={esDemo} info={{ ...info, bloqueado: t.bloqueado, rechazo: t.rechazo, refirma: t.refirma }} onDone={load} />
-                                        : <SubirRiteCard expedienteId={expedienteId} demo={esDemo} info={t} onDone={load} pideMemoria={!!t.pide_memoria} />}
+                                        : t.key === 'fm_decl'
+                                            ? <FirmarFmDeclaracionCard expedienteId={expedienteId} demo={esDemo} info={info} onDone={load} />
+                                            : <SubirRiteCard expedienteId={expedienteId} demo={esDemo} info={t} onDone={load} pideMemoria={!!t.pide_memoria} />}
                                 </div>
                             )}
                         </div>

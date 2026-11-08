@@ -17,6 +17,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const docsAlcance = require('./docsAlcance');
+const { slotsFm, LABEL_CLIENTE_FM } = require('../utils/viaFm');
 const driveService = require('./driveService');
 const emailService = require('./emailService');
 const whatsappService = require('./whatsappService');
@@ -682,6 +683,15 @@ function buildDocChecklist(datosCalculo = {}) {
     // A Brokergy se lo pedimos al instalador por su propio canal (parte diario).
     push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: false, aportaInstalador: true, accept: ACCEPT_DOC,
            label: 'Certificado RITE', help: 'Lo emite el instalador al terminar la obra. Si ya lo tienes, súbelo; si no, no te preocupes: se lo pedimos nosotros directamente.' });
+    // VÍA DEL FACTOR MULTIPLICADOR (26RES060FM_N / 26RES093FM_N): los documentos de
+    // la ficha FM que se SUBEN —los que ya cubre otro documento (CIFO, Anexo A,
+    // facturas, RITE, CEE final, convenio) no se duplican aquí—. Cuáles, en
+    // utils/viaFm.js (`slotsFm`): dependen de la tipología, la zona, la letra del
+    // CEE, la caldera, la baja tensión y el consumidor vulnerable. Lo que emite el
+    // instalador va como el RITE (`aportaInstalador`): no se le reclama al cliente.
+    if (datosCalculo.alcance?.fm?.activa) {
+        for (const s of slotsFm(datosCalculo.alcance.fm)) push(s);
+    }
     push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, optionalAlways: true, prescindible: true, multiple: true, named: true, accept: ACCEPT_CUALQUIERA,
            label: 'Otros (después de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
@@ -847,7 +857,7 @@ const LABEL_CLIENTE = {
  */
 function conLabelCliente(slots) {
     for (const s of slots) {
-        const t = LABEL_CLIENTE[s.key];
+        const t = LABEL_CLIENTE[s.key] || LABEL_CLIENTE_FM[s.key];
         if (!t) continue;
         s.labelCliente = t.label;
         // Una entrada sin `help` conserva la ayuda técnica: mejor la de siempre

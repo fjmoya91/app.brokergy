@@ -202,6 +202,18 @@ const casos = [
         const e = cascada(3); e.cee.acs_method = 'litros'; e.cee.dacs_litros_dia = 1200;
         return conDelegacion(e, { largos: true });
     })()],
+    // Vía FM (RES060_FM): hoja propia con el certificado de inercia (doc. 3.c).
+    // El peor caso es la cascada de 5 (rótulo de la potencia más largo) con el
+    // mínimo del fabricante, que añade una fila.
+    ['RES060_FM · inercia · 1 equipo', (() => {
+        const e = cascada(1); e.numero_expediente = '26RES060FM_1';
+        e.instalacion.inercia_litros = 180; return e;
+    })()],
+    ['RES060_FM · inercia · 5 en cascada · mínimo del fabricante · 2 empresas', (() => {
+        const e = cascada(5); e.numero_expediente = '26RES060FM_1';
+        e.instalacion.inercia_litros = 1250; e.instalacion.inercia_min_fabricante_litros = 600;
+        return conDelegacion(e, { largos: true });
+    })()],
     ['RES093 · 1 equipo', (() => { const e = base('26RES093_9'); return e; })()],
     ['RES093 · 3 en cascada', (() => {
         const e = base('26RES093_9'); e.instalacion.aerotermia_cal = aero(3); return e;

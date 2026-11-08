@@ -70,6 +70,17 @@ export const precioCaeRes080 = (inputs) =>
 export const precioSelladoRes080 = (opInputs) =>
     parseFloat(opInputs?.cae_client_rate_res080) || parseFloat(opInputs?.cae_client_rate) || 0;
 
+// Precio CAE de la vía del FACTOR MULTIPLICADOR (RES060_FM / RES09x_FM, 2026-11-07,
+// Fran: «mismo precio para ambos, pero dar la posibilidad de elegir precio por
+// formato de ficha, igual que en RES060 y RES080»). Mismo patrón que el RES080:
+// `caePriceClientFm` solo lo teclea ADMIN y, sin teclear, vale el general. Se SELLA
+// como `cae_client_rate_fm` solo si difiere (backend/utils/precioCae.js). Es de
+// ADMIN como toda la vía FM: financialScrub lo quita a los demás (regla 155).
+export const precioCaeFm = (inputs) =>
+    parseFloat(inputs?.caePriceClientFm) || parseFloat(inputs?.caePriceClient) || 0;
+export const precioSelladoFm = (opInputs) =>
+    parseFloat(opInputs?.cae_client_rate_fm) || parseFloat(opInputs?.cae_client_rate) || 0;
+
 export const HDD = {
     A3: 600, A4: 550,
     B3: 950, B4: 900,

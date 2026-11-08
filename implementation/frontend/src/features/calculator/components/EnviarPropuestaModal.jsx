@@ -99,7 +99,7 @@ export function EnviarPropuestaModal({
     onIncludeCeeChange,             // (bool) => void — sincroniza el toggle con el PDF
     fcVisible = false,              // quien envía es STAFF → se le enseña el bloque del FC
     fcEstado = null,                // { procede, motivo, actual, fc, extra } — ver logic/avisoFc.js
-    includeFc = false,              // controlado por el padre; apagado por defecto
+    includeFc = false,              // controlado por el padre (ProposalModal lo enciende por defecto desde el 08/11/2026)
     onIncludeFcChange,              // (bool) => void
     onContactoActualizado,          // () => void — el padre relee los contactos tras editarlos
 }) {
@@ -1020,7 +1020,7 @@ export function EnviarPropuestaModal({
                         </button>
                     )}
 
-                    {/* Bloque del FACTOR DE CORRECCIÓN (ficha RES060FC, en consulta pública).
+                    {/* Bloque del FACTOR MULTIPLICADOR (vía FM, Resolución publicada en el BOE del 7/11/2026).
                         Solo lo ve el STAFF, y NUNCA desaparece en silencio: si no se puede
                         ofrecer, en su sitio queda la razón. Un control que unas veces está y
                         otras no, sin decir por qué, se lee como que la app está rota.
@@ -1031,8 +1031,8 @@ export function EnviarPropuestaModal({
                             <span className="flex items-center gap-2 text-left">
                                 <svg className="w-4 h-4 text-violet-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                                 <span className="text-[11px] font-bold text-white/80">
-                                    Incluir el factor de corrección (FC)
-                                    <span className="text-white/35 font-normal"> — con la ficha nueva el bono subiría a {eur(fcEstado.fc)} (+{eur(fcEstado.extra)})</span>
+                                    Incluir el factor multiplicador (FM)
+                                    <span className="text-white/35 font-normal"> — por esa vía el bono subiría a {eur(fcEstado.fc)} (+{eur(fcEstado.extra)})</span>
                                 </span>
                             </span>
                             <span className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest shrink-0 ${includeFc ? 'text-brand' : 'text-white/30'}`}>
@@ -1043,15 +1043,23 @@ export function EnviarPropuestaModal({
                             </span>
                         </button>
                     )}
+                    {/* Sin ACS en la simulación: la cifra FM lo supone añadido (logic/avisoFc.js). */}
+                    {fcVisible && fcEstado?.procede && fcEstado.acs && (
+                        <p className="-mt-2 text-[10px] text-amber-300/90 leading-relaxed px-1">
+                            ⚠️ La simulación no lleva el ACS y la vía FM lo pide: {fcEstado.acs === 'supuesto'
+                                ? 'esa cifra ya supone que se añade el depósito de ACS al presupuesto.'
+                                : 'sin SCOP de ACS, esa cifra es solo la calefacción; subirá al añadir el depósito.'}
+                        </p>
+                    )}
                     {fcVisible && fcEstado?.procede && includeFc && (
                         <p className="-mt-2 text-[9px] text-white/30 leading-relaxed">
-                            Va solo en el mensaje, no en el PDF: la ficha está en consulta pública y esa cifra
-                            no es firme. El texto lo dice y repite el importe de la propuesta.
+                            Va solo en el mensaje, no en el PDF: la vía FM tiene cupo y requisitos propios y esa
+                            cifra no es firme. El texto lo dice y repite el importe de la propuesta.
                         </p>
                     )}
                     {fcVisible && fcEstado && !fcEstado.procede && (
                         <p className="text-[9px] text-white/25 leading-relaxed px-1">
-                            <span className="text-white/40 font-bold">Factor de corrección (FC):</span> no se puede ofrecer en esta
+                            <span className="text-white/40 font-bold">Factor multiplicador (FM):</span> no se puede ofrecer en esta
                             propuesta — {fcEstado.motivo}.
                         </p>
                     )}

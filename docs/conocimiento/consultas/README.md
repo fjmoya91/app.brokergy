@@ -15,6 +15,9 @@ Industria… Se repiten, y buscarlas en internet cada vez cuesta tiempo y tokens
 3. Una ficha por consulta: la pregunta tal cual llegó, la respuesta corta, el porqué con la norma,
    lo que quedó SIN confirmar, las fuentes y el texto que se le mandó (o se propuso) al cliente.
 4. Lo que es de Castilla-La Mancha se dice en el título: otra comunidad puede tramitarlo distinto.
+5. Una norma nueva que trae muchas preguntas seguidas lleva **una FAQ propia**: un solo fichero, con una
+   entrada por pregunta y los mismos apartados. Lo que dice la norma se cita con su página, y la
+   interpretación y lo que no dice van aparte. La primera es la del factor multiplicador (07/11/2026).
 
 ## Fichas
 
@@ -27,3 +30,5 @@ Industria… Se repiten, y buscarlas en internet cada vez cuesta tiempo y tokens
 | Bono CAE en la Renta: NO se resta de la deducción del IRPF (no es una subvención, a diferencia de los RD 853/477), tributa como ganancia patrimonial y no hay «resolución»: el justificante es la carta de pago | [bono-cae-no-se-resta-y-no-hay-resolucion.md](docs/conocimiento/consultas/bono-cae-no-se-resta-y-no-hay-resolucion.md) | 26/10/2026 |
 | Autoconsumo fotovoltaico en el ahorro CAE (RES080, XML 3.0): NO es ahorro de energía final (Recomendación UE 2024/1590, ap. 7.8); se usa la suma de usos, no el `<Tot>` neto | [autoconsumo-fotovoltaico-no-es-ahorro-de-energia-final-cae.md](docs/conocimiento/consultas/autoconsumo-fotovoltaico-no-es-ahorro-de-energia-final-cae.md) | 30/10/2026 |
 | Discapacidad en casa (66 % / 33 %): ¿más ayuda para la reforma? Accesibilidad CLM 80 % (solo obras 2024–2025), FEDER energética sin tramo, mínimo y 300 € del IRPF (CLM) | [discapacidad-ayudas-reforma-vivienda-clm.md](docs/conocimiento/consultas/discapacidad-ayudas-reforma-vivienda-clm.md) | 22/10/2026 |
+| RES060 con factor multiplicador: vivienda habitual (facturas del 1/11 al 31/3, >75 kWh/mes) y el resto de requisitos de la RES060_FM publicada | [res060fc-vivienda-habitual-y-requisitos-del-fc.md](docs/conocimiento/consultas/res060fc-vivienda-habitual-y-requisitos-del-fc.md) | 27/10/2026, rehecha el 07/11/2026 |
+| **FAQ del FACTOR MULTIPLICADOR** (BOE 7/11/2026): ACS obligatoria, D_cal del CEE final, caldera eléctrica, carbón o biomasa, fórmula de la RES080_FM, erratas, lo ya presentado, si sustituyen a las fichas de siempre (no: conviven); y las consultas para el MITECO | [factor-multiplicador-faq.md](docs/conocimiento/consultas/factor-multiplicador-faq.md) | desde el 07/11/2026 |

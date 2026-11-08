@@ -20,6 +20,7 @@ import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal
 import EprelAcsModal from './EprelAcsModal';
 import { SeriesRepetidasProvider, AvisoSerieRepetida, ResumenSeriesRepetidas } from './AvisoSerieRepetida';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
+import { aplicaInerciaFm, inerciaFm } from '../logic/inerciaFm';
 
 // Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
 // CIFO y el RES080), y la capa de "inicial vs finales" en logic/emisores.js. Las
@@ -2573,6 +2574,47 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         />
                     )}
                 </div>
+
+                {/* ── INERCIA HIDRÁULICA (vía FM · RES060_FM, documento 3.c) ──
+                    La ficha la pide DENTRO del certificado de la instalación, así que
+                    el CIFO la imprime en hoja propia con estos litros (logic/inerciaFm.js).
+                    El volumen específico no se teclea: sale de la potencia de la bomba. */}
+                {aplicaInerciaFm(expediente?.numero_expediente) && (() => {
+                    const fi = inerciaFm(local);
+                    const aNum = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
+                    return (
+                        <div className="rounded-2xl border border-violet-400/25 bg-violet-500/[0.04] p-4 space-y-3">
+                            <div>
+                                <p className="text-[11px] font-black uppercase tracking-widest text-violet-300">Inercia hidráulica · vía FM</p>
+                                <p className="text-[11px] text-white/45 mt-1 leading-snug">
+                                    RES060_FM, documento 3.c: va dentro del CIFO. El instalador certifica que la instalación tiene la inercia que pide el fabricante; ya no hay un mínimo fijo de litros por kW.
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <Field
+                                    label="Volumen de agua total (L)"
+                                    type="number"
+                                    value={local.inercia_litros ?? ''}
+                                    onChange={v => setLocal(p => ({ ...p, inercia_litros: aNum(v) }))}
+                                    placeholder="Depósito + tuberías + emisores"
+                                    readOnly={readOnly}
+                                />
+                                <Field
+                                    label="Mínimo del fabricante (L, opcional)"
+                                    type="number"
+                                    value={local.inercia_min_fabricante_litros ?? ''}
+                                    onChange={v => setLocal(p => ({ ...p, inercia_min_fabricante_litros: aNum(v) }))}
+                                    placeholder="El del manual de la máquina"
+                                    readOnly={readOnly}
+                                />
+                                <Field label="Volumen específico (l/kW)" value={fi.especifico ? fi.especificoStr : ''} readOnly placeholder={fi.potenciaKw ? 'Pon los litros' : 'Falta la potencia de la bomba'} />
+                            </div>
+                            {fi.avisos.map(a => (
+                                <p key={a} className="text-[11px] text-amber-300/90 leading-snug">{a}</p>
+                            ))}
+                        </div>
+                    );
+                })()}
 
                 {/* ── PISCINA (AE_CAP · solo terciario) ── */}
                 {esExpTerciario && (

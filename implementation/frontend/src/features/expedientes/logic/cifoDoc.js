@@ -36,6 +36,8 @@ import {
 // duplicara, el popup anunciaría un firmante y el documento saldría con otro.
 import { firmanteCifo, firmanteMemoriaRite, presConTecnicoRite } from './instaladorPendientes.js';
 import { buildFontFaces } from './fuentesDoc.js';
+// Vía FM: la inercia hidráulica (documento 3.c de la RES060_FM) va DENTRO del CIFO.
+import { aplicaInerciaFm, inerciaFm } from './inerciaFm.js';
 
 // Unidades terminales. Las tres primeras son de AGUA: la temperatura de impulsión
 // es la que decide qué SCOP de la ficha se aplica (35/45/55 °C).
@@ -554,6 +556,8 @@ export function deriveCifoData({ expediente, results }) {
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
         // hitos de la actuación (fechas + aclaración)
         hitos,
+        // vía FM (RES060_FM): la inercia hidráulica, en hoja propia. null fuera de la vía.
+        fmInercia: aplicaInerciaFm(numexpte) ? inerciaFm(inst) : null,
     };
 }
 
@@ -753,7 +757,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         empRite, empresas, ejeNombre, ejeCif, ejeDir, tecNombre, tecCarnet,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
-        hitos,
+        hitos, fmInercia,
     } = data;
 
     const pages = [];
@@ -1208,6 +1212,32 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ${footer}
         </div>
     `);
+
+    // VÍA FM (RES060_FM) — CERTIFICADO DE INERCIA HIDRÁULICA, en hoja propia.
+    // La ficha lo pide como documento 3.c, DENTRO del certificado de la instalación
+    // (documento 3), así que va aquí y no como otro papel que firmar. Hoja propia
+    // porque las de arriba no tienen holgura (regla «una hoja por bloque») y porque
+    // va DESPUÉS de la página 2, la del recuadro de firma (`SIGN_BOXES.cifo_res060`):
+    // no lo mueve. Sin los litros la puerta de «Generar» lo pide (`inerciaFm().falta`).
+    if (fmInercia) {
+        const fi = fmInercia;
+        pages.push(`
+        <div class="doc-page">
+            ${pageHeader}
+            ${sectionTitle('Certificado de inercia hidráulica de la instalación', '16px')}
+            <p style="margin:0 0 12px;font-size:11.5px;color:#6E6E66;">Ficha RES060_FM (Resolución de 3 de noviembre de 2026, BOE núm. 278, de 7 de noviembre de 2026), apartado 3, documento 3.c).</p>
+            <p style="margin:0 0 14px;font-size:12.5px;line-height:1.6;color:#1A1A1A;">La empresa instaladora <b>certifica</b> que la instalación dispone de la <b>inercia hidráulica necesaria para garantizar el correcto funcionamiento de la bomba de calor en todas las condiciones de operación previstas, de acuerdo con las especificaciones del fabricante</b> del equipo instalado.</p>
+            ${rowsBox(`
+                ${kv('Volumen de agua total', `<b>${fi.litrosStr}</b>`)}
+                ${kv('Potencia térmica nominal de la bomba de calor', fi.potenciaStr)}
+                ${kv('Volumen específico', `<b>${fi.especificoStr}</b>`, !fi.minStr)}
+                ${fi.minStr ? kv('Volumen mínimo especificado por el fabricante', fi.minStr, true) : ''}
+            `)}
+            <p style="margin:12px 0 0;font-size:11px;line-height:1.55;color:#6E6E66;">El volumen de agua total es el contenido en el circuito hidráulico de la instalación (depósito de inercia, si lo hay, tuberías y unidades terminales). El volumen específico es el volumen de agua total dividido entre la potencia térmica nominal de la bomba de calor instalada${fi.unidades > 1 ? ' (suma de las unidades en cascada)' : ''}.</p>
+            ${footer}
+        </div>
+    `);
+    }
 
     // Anexo I — Justificación de las variables (puntos 1-5)
     // La justificación de D_ACS por el CTE lleva dos tablas: con ella el Anexo I no

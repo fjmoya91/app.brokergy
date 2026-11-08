@@ -6,6 +6,10 @@ paths:
   - "implementation/backend/services/{driveFolders,expedienteFolderSync,expedienteService}.js"
   - "implementation/backend/utils/expedienteEstados.js"
   - "implementation/backend/scripts/expedientes_*"
+  - "implementation/backend/utils/viaFm.js"
+  - "implementation/backend/scripts/test_via_fm.mjs"
+  - "implementation/frontend/src/features/expedientes/logic/viaFm.js"
+  - "implementation/frontend/src/features/expedientes/components/ViaFmPanel.jsx"
 ---
 # Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado (nivel 2)
 
@@ -26,12 +30,15 @@ paths:
 
 196. **Pasar a DOC. COMPLETA es haberlo VALIDADO TODO: primero el ✓ de cada documento firmado, después el estado** (2026-11-05, Fran, 26RES060_198 y _202: «esto debe hacerse siempre; cuando lo pasemos a DOC. COMPLETA es porque se supone que se ha validado todo»). Cada firmado se valida por `POST /api/expedientes/:id/documentos/validar` (`{ field }`), que comprueba la firma (409 `firma_rota`), lo copia a **«10. EXPEDIENTE CAE»** —la carpeta que audita el verificador— y sella `docs_validados`: Anexo I, Convenio, CIFO, facturas, certificado RITE y Anexo Fotográfico siempre; Memoria RITE y Ficha RES si están. Solo entonces `PATCH /:id/estado` (que mueve la carpeta a «05. DOC. COMPLETA»), nunca un `update` directo. Un 409 no se fuerza sin el «sí» de Fran, y un documento firmado de nuevo se valida otra vez (la subida borra la validación). En DOC. COMPLETA entra en el lote aunque tenga incidencias, así que lo que no esté en la carpeta 10 viaja sin estar. Texto para las skills: `skills/_comun/pasar-a-doc-completa.md`. Ver "Pasar a DOC. COMPLETA es haberlo VALIDADO TODO".
 
+200. **La vía del FACTOR MULTIPLICADOR (BOE-A-2026-23367, en vigor el 08/11/2026) es OTRO número: `26RES060FM_N` / `26RES093FM_N`, serie propia, y cambiar de vía RENUMERA** (2026-11-07, Fran: «será un nuevo código de expediente. El apartado documentación de la app debe contemplar todo lo que pide la ficha»). La vía la dice el número (`esNumeroFm`; `fichaFromNumero` sigue dando RES060/RES093, así que cálculo, documentos y carpetas no cambian) y el correlativo se busca DENTRO de su serie (`correlativoEnSerie`: el `_` de un `LIKE` es comodín). Se cambia en la pestaña «Vía FM» (`POST /:id/via-fm`, staffOnly → `cambiarViaFm`), que **bloquea con el número ya fuera de casa** (lote, verificador, MITECO o después; RECHAZADO), escribe solo si nadie cambió el número entretanto, lo apunta en el historial, sella `documentacion.via_fm.activada_at` y endereza la carpeta. **En la OPORTUNIDAD la marca es `inputs.ruta_fm`, NUNCA `via_fm`**: `financialScrub` borra toda clave `via_fm` del árbol a quien no es ADMIN (es el resumen de las dos vías del motor). **`documentacion.via_fm` solo lo escribe `PUT /:id/via-fm/datos`** (RPC de merge, `sanearDatosFm`): está en la BLACKLIST de `normalizeData` y en `CLAVES_PROTEGIDAS`. Lo que pide la ficha, por caso (tipología, hibridación, preinstalación, BT, letra F/G en D/E, vulnerable -S), sale de UNA fuente: `documentosFm` / `slotsFm` en [utils/viaFm.js](implementation/backend/utils/viaFm.js), que alimenta el panel y el apartado `alcance.fm` del gestor; lo del instalador no se le reclama al cliente y lo condicionado sin dato sale opcional. La cláusula del IRPF (punto 12) va **solo en los FM**, en el Convenio («Cuarto» del EXPONEN: medido con `check_anexo_cesion_2pag.mjs`) y en la propuesta; y el Convenio FM vale para las DOS fichas, la FM principal y la general subsidiaria, sin firmar otro si la FM no se justifica (regla 200.d de documentos); un Convenio firmado antes de `activada_at` es «sin cláusula». Los textos, en [logic/viaFm.js](implementation/frontend/src/features/expedientes/logic/viaFm.js). El panel enseña arriba las dos cifras (`cifrasViaFm`, las de la pestaña Económico) y, con el expediente aún en la vigente, «Proponer esperar al FM»: un WhatsApp al cliente, a la vista y con «Enviar», para que acepte esperar al 15/01/2027 (`AvisoEsperaFmModal`; queda en `via_fm.aviso_espera` y la respuesta en `via_fm.espera_cliente`); proponerlo NO cambia la vía. La vía también se elige ANTES de aceptar, con el conmutador «Vía de tramitación» de la calculadora (`POST /api/oportunidades/:id/ruta-fm`, staffOnly; regla 155). Los documentos de firma que pide la ficha los GENERA la app: el Anexo A, en lugar del Anexo I, y otros cuatro desde el panel, que se firman en los enlaces del cliente y del instalador (regla 200.c). ⚠️ Pendiente: que Marwen acepte los códigos FM y el desplegable del MITECO (no los trae). Tras tocarlo: `node implementation/backend/scripts/test_via_fm.mjs`, `check_documentos_fm.mjs`, `check_anexo_cesion_2pag.mjs`, `test_docs_fotos.js` y `auditar_rutas_sin_guardian.js`. Ver "La vía del FACTOR MULTIPLICADOR en el expediente".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/expedientes/carpetas-de-drive-por-estado.md` — Carpetas de Drive por estado (2026-07-24) · 2,7 KB
 - `docs/conocimiento/expedientes/el-listado-de-expedientes-las-columnas-se-eligen.md` — El listado de expedientes: las columnas se ELIGEN (2026-09-15) · 13,4 KB
+- `docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md` — La vía del FACTOR MULTIPLICADOR en el expediente (2026-11-07) · 25,9 KB
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md` — Módulo Lifecycle de Expedientes (2026-05-20) · 6,7 KB
 - `docs/conocimiento/expedientes/pasar-a-doc-completa-se-valida-todo.md` — Pasar a DOC. COMPLETA es haberlo VALIDADO TODO (2026-11-05) · 3,4 KB
 
@@ -58,6 +65,26 @@ expediente no se mueve.**
   - **REGLA — lo HEREDADO se marca.**
   - **REGLA — en el listado, un completo con lote se ENSEÑA como «EN LOTE», con el lote debajo; en
 la BD sigue en DOC. COMPLETA.**
+- `docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md`
+  - **REGLA — la vía la dice el NÚMERO.**
+  - **REGLA — la serie es PROPIA, y el correlativo se busca DENTRO de ella.**
+  - **REGLA — la marca de la vía en la OPORTUNIDAD es `inputs.ruta_fm`, nunca `via_fm`.**
+  - **REGLA — `documentacion.via_fm` solo lo escribe `PUT /:id/via-fm/datos`.**
+  - **REGLA — lo que emite el INSTALADOR no se le reclama al CLIENTE.**
+  - **REGLA — lo condicionado no pasa a obligatorio por sí solo.**
+  - **REGLA — el Anexo A sustituye al Anexo I solo en los documentos NUEVOS.**
+  - **REGLA — los otros cuatro se GENERAN desde el panel y NO se envían.**
+  - **REGLA — cada uno firma donde ya firma.**
+  - **REGLA — volver a generar un documento firmado pide otra firma.**
+  - **REGLA — en un `26RES060FM_N` el CIFO lleva una hoja propia, «Certificado de inercia hidráulica de la
+instalación», y el 3.c no se pide como papel aparte.**
+  - **REGLA — los litros los DECLARA el instalador y se teclean en Instalación; el específico se CALCULA.**
+  - **REGLA — un Convenio firmado ANTES de pasar a la vía no lleva la cláusula.**
+  - **REGLA — el Convenio de un FM declara una ficha PRINCIPAL (la FM) y una SUBSIDIARIA (la general), y
+autoriza desde la firma a pasar de una a otra sin novarlo.**
+  - **REGLA — las cifras son las de la pestaña Económico, no se recalculan.**
+  - **REGLA — el convenio FM va en TRES hojas, y en CUATRO con varios cedentes; la firma busca la casilla
+por el nº de páginas.**
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md`
   - **REGLA**
 - `docs/conocimiento/expedientes/pasar-a-doc-completa-se-valida-todo.md`

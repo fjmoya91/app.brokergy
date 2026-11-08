@@ -406,7 +406,8 @@ const soloDireccion = (d) => String(d || '')
 // global): otra tabla y otro formato, pero llega en la MISMA factura, mezclado
 // con los del CAE. Sin esta alternativa su línea caía al emparejado por
 // dirección, no casaba con ningún expediente y quedaba muda.
-const RE_NUM_EXPEDIENTE = /\b(\d{2}(?:RES|TER)\d{3}_\d+|\d{4}CEE_\d+)\b/i;
+// La vía del factor multiplicador tiene serie propia: 26RES060FM_12.
+const RE_NUM_EXPEDIENTE = /\b(\d{2}(?:RES|TER)\d{3}(?:FM)?_\d+|\d{4}CEE_\d+)\b/i;
 
 function emparejar(descripcion, candidatos) {
     const dir = soloDireccion(descripcion);

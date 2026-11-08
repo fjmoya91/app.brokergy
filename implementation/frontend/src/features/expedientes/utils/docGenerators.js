@@ -10,7 +10,9 @@ import { anexoIStates, BONO_SOCIAL_LABELS } from '../logic/subvenciones.js';
 import { buildFontFaces, FUENTE_INTER } from '../logic/fuentesDoc.js';
 import { cedentesDe, repartoPago, cuotaTxt } from '../logic/cedentes.js';
 import { representacionDe } from '../logic/representacion.js';
-import { casillaFirmaConvenioPx } from '../logic/signBoxes.js';
+import { casillaFirmaConvenioPx, CONVENIO_FIRMAS } from '../logic/signBoxes.js';
+import { fichaOficialDeExpediente, textoConsentimientoFm, textoConsentimientoFmVarios } from '../logic/viaFm.js';
+import { cifrasConvenioFm, CAUSAS_SUBSIDIARIA_FM } from '../logic/convenioFm.js';
 import { usaDireccionCliente, direccionDelCliente } from '../logic/direccionInstalacion.js';
 
 // Node-safe: este módulo también se importa server-side (cifoService vía cifoDoc).
@@ -453,6 +455,9 @@ ${buildFontFaces(APP_URL, FUENTE_INTER)}
 .conv-tabla-pago td, .conv-tabla-pago th { border: 1px solid #E0E0E0; padding: 5px 8px; text-align: left; color: #404040; }
 .conv-tabla-pago th { background: #F8F8F8; font-weight: 700; color: #171717; }
 .conv-tabla-pago td.iban { font-family: monospace; letter-spacing: 1px; color: #171717; font-weight: 700; }
+.conv-tabla-fm { margin: 5px 0 4px; }
+.conv-tabla-fm td, .conv-tabla-fm th { padding: 3px 8px; }
+.conv-tabla-fm td:not(:first-child), .conv-tabla-fm th:not(:first-child) { white-space: nowrap; text-align: right; }
 .conv-footer {
     flex-shrink: 0; padding: 10px 36px;
     display: flex; justify-content: space-between; align-items: center;
@@ -914,14 +919,44 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
         ? 'La vida útil de la actuación de eficiencia energética recogida en la cláusula 1 de este convenio es de 15 años para bombas de calor aire-agua y de 25 años para la sustitución de ventanas e instalación de aislamiento térmico.'
         : 'La vida útil de la actuación de eficiencia energética recogida en la cláusula 1 de este convenio es de 15 años.';
 
+    // ── Vía del FACTOR MULTIPLICADOR (BOE-A-2026-23367) ──────────────────────
+    // Un expediente FM firma UN convenio que vale para las DOS fichas (Fran,
+    // 08/11/2026): la FM como PRINCIPAL y la general como SUBSIDIARIA, con la
+    // autorización ya firmada para pasar de una a otra si la FM no se puede
+    // justificar. Así un rechazo de la vía no obliga a firmar otro convenio.
+    // Con eso no cabe en dos hojas, así que el convenio FM va siempre en TRES, la
+    // tercera solo de firmas, como el de varios cedentes: la firma decide la casilla
+    // por el nº de páginas (signBoxes.cajaConvenioCedente), así que vale tal cual.
+    const fmConvenio = fichaOficialDeExpediente(expediente);
+    const fmCifras = fmConvenio ? cifrasConvenioFm(expediente, results, { rateMwh }) : null;
+    const fmDoble = !!fmCifras?.doble;
+    const tresHojas = varios || !!fmConvenio;
+    // FM con VARIOS cedentes: la tabla no cabe ni en tres; va en CUATRO y las firmas
+    // pasan a la cuarta (signBoxes.paginaFirmasConvenio). Lo mide check_anexo_cesion_2pag.mjs.
+    const cuatroHojas = varios && fmDoble;
+    const paginaFirmas = cuatroHojas ? 4 : 3;
+    // Con tres o cuatro hojas, la Tercera SUBE a la hoja 1 detrás de la Segunda si
+    // cabe, para que la hoja 1 no se quede a medias y el hueco, si lo hay, caiga al
+    // final de la última hoja de texto, antes de la de firmas (Fran, 08/11/2026: «hay
+    // mucho hueco»). Cabe con un cedente (en la FM, la autorización y su tabla) y
+    // con hasta tres cedentes fuera de la FM; con más, la tabla del encabezamiento y
+    // el «Cuarto» del IRPF no le dejan sitio. Lo mide check_anexo_cesion_2pag.mjs.
+    const terceraEnHoja1 = tresHojas && !cuatroHojas && (!varios || (!fmConvenio && cedentes.length <= 3));
+    const kwhTxt = (v) => (v > 0 ? Math.round(v).toLocaleString('es-ES', { useGrouping: true }) : '___________');
+    const eurTxt = (v) => (v > 0 ? Math.round(v).toLocaleString('es-ES', { useGrouping: true }) : '___________');
+    const eurKwhTxt = (mwh) => (mwh > 0 ? (mwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 5 }) : '___________');
+    // En la vía FM la cifra que se declara primero es la de la ficha FM.
+    const ahorroPrincipalKwh = fmDoble ? kwhTxt(fmCifras.fm.kwh) : ahorroEstimadoKwh;
+    const sufijoSubsidiaria = !fmDoble ? '' : ` por la ficha <strong>${fmConvenio.codigo}</strong>, con factor multiplicador (o por la ficha general <strong>${fmCifras.fichaGeneral}</strong>, según la cláusula tercera)`;
+
     // ── Redacción según el estado de la obra ─────────────────────────────────
     // Es el MISMO convenio: lo que cambia es el tiempo verbal y el carácter del
     // ahorro. En los DOS el ahorro se llama estimado —lo fija la ficha, no un
     // contador—; el previo añade además la salvedad de que la cesión se mantiene
     // íntegra si el verificado sale distinto, porque ahí no hay ni obra hecha.
     const expPrimero = previo
-        ? `<strong>Primero.</strong> Que el Cedente tiene previsto llevar a cabo la actuación de eficiencia energética estandarizada consistente en la <em>"${descripcionActuacion}"</em>, y como resultado de la misma espera obtener unos ahorros de energía estimados en <strong>${ahorroEstimadoKwh} kWh/año</strong>, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`
-        : `<strong>Primero.</strong> Que como resultado de la actuación de eficiencia energética estandarizada llevada a cabo por el Cedente, consistente en la <em>"${descripcionActuacion}"</em>, se ha estimado un ahorro de <strong>${ahorroEstimadoKwh} kWh/año</strong>, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`;
+        ? `<strong>Primero.</strong> Que el Cedente tiene previsto llevar a cabo la actuación de eficiencia energética estandarizada consistente en la <em>"${descripcionActuacion}"</em>, y como resultado de la misma espera obtener unos ahorros de energía estimados en <strong>${ahorroPrincipalKwh} kWh/año</strong>${sufijoSubsidiaria}, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`
+        : `<strong>Primero.</strong> Que como resultado de la actuación de eficiencia energética estandarizada llevada a cabo por el Cedente, consistente en la <em>"${descripcionActuacion}"</em>, se ha estimado un ahorro de <strong>${ahorroPrincipalKwh} kWh/año</strong>${sufijoSubsidiaria}, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`;
 
     const clPrimera = previo
         ? `El Cedente autoriza al Cesionario, en exclusiva, a gestionar en su nombre los ahorros energéticos que se generarán al llevar a cabo la actuación de eficiencia energética descrita como <em>"${descripcionActuacion}"</em>.`
@@ -934,9 +969,26 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     // redacción nueva sirve para los dos casos (el ahorro es estimado se haya
     // ejecutado la obra o no, y el ajuste automático al verificado cubre la
     // salvaguarda que antes solo llevaba el convenio previo).
-    const clTercera = `El ahorro anual de energía estimado para la actuación es de <strong>${ahorroEstimadoKwh} kWh/año</strong>. Ambas partes reconocen que se trata de una estimación: el ahorro que finalmente genere Certificados de Ahorro Energético será el que resulte del proceso de verificación y del dictamen final del Ministerio para la Transición Ecológica y el Reto Demográfico, pudiendo ser superior o inferior al estimado. La contraprestación prevista en la cláusula cuarta se ajustará automáticamente al ahorro finalmente certificado, sin necesidad de novar este convenio, sin que la diferencia constituya incumplimiento ni dé derecho a indemnización a ninguna de las partes.`;
+    const clTerceraGeneral = `El ahorro anual de energía estimado para la actuación es de <strong>${ahorroEstimadoKwh} kWh/año</strong>. Ambas partes reconocen que se trata de una estimación: el ahorro que finalmente genere Certificados de Ahorro Energético será el que resulte del proceso de verificación y del dictamen final del Ministerio para la Transición Ecológica y el Reto Demográfico, pudiendo ser superior o inferior al estimado. La contraprestación prevista en la cláusula cuarta se ajustará automáticamente al ahorro finalmente certificado, sin necesidad de novar este convenio, sin que la diferencia constituya incumplimiento ni dé derecho a indemnización a ninguna de las partes.`;
 
-    const clCuarta = `Las partes acuerdan fijar el valor del incentivo económico por participación en <strong>${precioCaeEurKwh} €/kWh</strong> de ahorro certificado. Aplicado al ahorro estimado en la cláusula tercera, la contraprestación ascendería, a título orientativo, a <strong>${importeOrientativo} €</strong>, importe que se ajustará al alza o a la baja conforme a dicha cláusula.`;
+    // FM: la ficha PRINCIPAL, la SUBSIDIARIA y la autorización para pasar de una a
+    // otra, con las dos cifras en una tabla (lo primero que mira quien lo revisa).
+    // Filas de UNA línea (la ficha y su papel, sin más): la tabla sube con su
+    // párrafo a la hoja 1 y la hoja no se queda a medias (Fran, 08/11/2026).
+    const tablaFm = !fmDoble ? '' : `
+            <table class="conv-tabla-pago conv-tabla-fm"><tr><th>Ficha</th><th>Ahorro anual estimado</th><th>Incentivo</th><th>Contraprestación orientativa</th></tr>
+            <tr><td><strong>${fmConvenio.codigo}</strong> · principal</td><td><strong>${kwhTxt(fmCifras.fm.kwh)} kWh/año</strong></td><td>${eurKwhTxt(fmCifras.fm.rateMwh)} €/kWh</td><td><strong>${eurTxt(fmCifras.fm.eur)} €</strong></td></tr>
+            <tr><td><strong>${fmCifras.fichaGeneral}</strong> · subsidiaria</td><td><strong>${kwhTxt(fmCifras.general.kwh)} kWh/año</strong></td><td>${eurKwhTxt(fmCifras.general.rateMwh)} €/kWh</td><td><strong>${eurTxt(fmCifras.general.eur)} €</strong></td></tr>
+            </table>`;
+    // La Tercera FM va en DOS trozos: la autorización con su tabla cierra la hoja 1 y
+    // el párrafo de las estimaciones abre la 2 (ver p1/p2). La ficha se nombra por su
+    // código y su BOE: el título entero de la ficha (dos líneas) no cabía.
+    const clTerceraFmA = !fmDoble ? '' : `El Cesionario solicitará los Certificados de Ahorro Energético por la ficha <strong>${fmConvenio.codigo}</strong>, con factor multiplicador (BOE-A-2026-23367). Si la actuación no pudiera acogerse a ella o justificarse su cumplimiento —${CAUSAS_SUBSIDIARIA_FM}—, el Cedente autoriza desde ahora al Cesionario a solicitarlos por la ficha general <strong>${fmCifras.fichaGeneral}</strong>, comunicándoselo al Cedente, sin necesidad de novar este convenio ni de suscribir uno nuevo. En cada caso, el ahorro y la contraprestación estimados son:`;
+    const clTerceraFmB = !fmDoble ? '' : `Ambas partes reconocen que se trata de estimaciones: el ahorro que finalmente genere Certificados de Ahorro Energético será el que resulte del proceso de verificación y del dictamen final del Ministerio para la Transición Ecológica y el Reto Demográfico para la ficha por la que finalmente se tramite, pudiendo ser superior o inferior al estimado. La contraprestación prevista en la cláusula cuarta se ajustará automáticamente al ahorro finalmente certificado, sin necesidad de novar este convenio, sin que la diferencia constituya incumplimiento ni dé derecho a indemnización a ninguna de las partes.`;
+
+    const clCuarta = fmDoble
+        ? `Las partes acuerdan fijar el valor del incentivo económico por participación en el precio por kWh de ahorro certificado que la tabla de la cláusula tercera asigna a la ficha por la que finalmente se certifique la actuación${fmCifras.mismoPrecio ? ` (<strong>${eurKwhTxt(fmCifras.fm.rateMwh)} €/kWh</strong> en los dos casos)` : ''}. La contraprestación de esa tabla es orientativa y se ajustará al alza o a la baja conforme a dicha cláusula.`
+        : `Las partes acuerdan fijar el valor del incentivo económico por participación en <strong>${precioCaeEurKwh} €/kWh</strong> de ahorro certificado. Aplicado al ahorro estimado en la cláusula tercera, la contraprestación ascendería, a título orientativo, a <strong>${importeOrientativo} €</strong>, importe que se ajustará al alza o a la baja conforme a dicha cláusula.`;
 
     const bloqueCoste = certCost > 0
         ? `<p class="conv-p">El Cedente recibirá el importe final tras deducir del monto establecido en la cláusula cuarta la cantidad de <strong>${certCostStr} €</strong>, en concepto de los costes de gestión técnica y administrativa necesarios para la tramitación del expediente CAE.</p>`
@@ -971,6 +1023,21 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
         ? 'El Cedente se compromete a que, una vez firmado el presente convenio, no suscribirá convenios por los ahorros de energía previstos o generados por la misma actuación. Además, el Cedente declara que dichos ahorros energéticos no están comprometidos con ninguna otra entidad o acuerdo previo.'
         : 'El Cedente se compromete a que, una vez firmado el presente convenio, no suscribirá convenios por los ahorros de energía generados por la misma actuación. Además, el Cedente declara que los ahorros energéticos objeto de este convenio no están comprometidos con ninguna otra entidad o acuerdo previo.';
 
+    // ── Vía del FACTOR MULTIPLICADOR: el CONSENTIMIENTO del punto 12 de su ficha ──
+    // (BOE-A-2026-23367). Va SOLO en los expedientes FM (Fran, 07/11/2026) y con
+    // los dos puntos que la ficha exige «claramente»: a) el incentivo tributa en
+    // el IRPF y b) el ahorro depende de cómo funcione la bomba. Va como «Cuarto»
+    // del EXPONEN en la hoja 1, con uno o con varios cedentes: el convenio FM va en
+    // tres hojas (ver `tresHojas`) y en la de firmas pisaría las casillas, que van en
+    // posición fija (51 px con 5 cedentes). Lo mide check_anexo_cesion_2pag.mjs.
+    // Los textos, en logic/viaFm.js (los comparte con la propuesta).
+    const consentimientoFm = !fmConvenio ? '' : (varios
+        ? textoConsentimientoFmVarios({ codigo: fmConvenio.codigo, esEmpresa })
+        : textoConsentimientoFm({ codigo: fmConvenio.codigo, esEmpresa }).replace(/^El Cedente/, 'el Cedente'));
+    // La Séptima cita la declaración de ayudas: en la vía FM es el ANEXO A del
+    // BOE-A-2026-23367 (el mismo título, «hasta ahora llamado anexo I»).
+    const anexoAyudas = fmConvenio ? 'Anexo A' : 'Anexo I';
+
     // ── Varios cedentes: comparecencia, cláusula de pluralidad y firmas ──────
     const reunidosVarios = !varios ? '' : `
             <p class="conv-p">De una parte, las personas que se indican a continuación, que ${previo ? 'van a llevar' : 'han llevado'} a cabo conjuntamente la inversión de la actuación objeto de este convenio, en la proporción que se indica:</p>
@@ -982,9 +1049,19 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
             <div class="conv-cl">
               <p><strong>Novena. Pluralidad de cedentes</strong><br>Los Cedentes son, en las proporciones indicadas en el encabezamiento, los propietarios iniciales del ahorro a efectos del artículo 2.f) del Real Decreto 36/2023, por ${previo ? 'llevar' : 'haber llevado'} a cabo conjuntamente la inversión, y ceden la totalidad del ahorro de la actuación. A efectos de la contraprestación de la cláusula cuarta, los Cedentes son acreedores solidarios frente al Cesionario (artículo 1137 del Código Civil): el pago íntegro en la cuenta o cuentas designadas en este convenio extingue la obligación del Cesionario frente a todos ellos (artículos 1142 y 1162 del Código Civil), sin que el Cesionario deba comprobar su reparto interno. Entre ellos, cada Cedente hace suyo el importe en proporción a su cuota, y quien lo reciba se obliga a entregar a los demás la parte que les corresponda (artículo 1143 del Código Civil). Los Cedentes declaran que el importe les corresponde a efectos fiscales según dichas cuotas. Cualquier cambio de la cuenta designada exigirá comunicación escrita firmada por todos los Cedentes.</p>
             </div>`;
-    const clTerceraHtml = `
+    // La Tercera. En la vía FM con las dos fichas va partida: `clTerceraHtml` es la
+    // autorización con su tabla y `clTerceraSigue`, el párrafo de las estimaciones.
+    const clTerceraHtml = fmDoble ? `
             <div class="conv-cl">
-              <p><strong>Tercera. Ahorro anual de energía</strong><br>${clTercera}</p>
+              <p><strong>Tercera. Ahorro anual de energía y ficha por la que se tramita</strong><br>${clTerceraFmA}</p>
+              ${tablaFm}
+            </div>` : `
+            <div class="conv-cl">
+              <p><strong>Tercera. Ahorro anual de energía</strong><br>${clTerceraGeneral}</p>
+            </div>`;
+    const clTerceraSigue = !fmDoble ? '' : `
+            <div class="conv-cl">
+              <p>${clTerceraFmB}</p>
             </div>`;
     const clCuartaHtml = `
             <div class="conv-cl">
@@ -1023,7 +1100,7 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
         </div>`;
     const footer = (pg) => `
         <div class="conv-footer">
-          <span class="conv-footer-v">V5 – 09/09/2026 · ${previo ? 'Actuación prevista' : 'Actuación ejecutada'}</span>
+          <span class="conv-footer-v">${fmConvenio ? 'V6 FM – 08/11/2026' : 'V5 – 09/09/2026'} · ${previo ? 'Actuación prevista' : 'Actuación ejecutada'}</span>
           <span class="conv-footer-b">BROKERGY</span>
           <span class="conv-footer-pg">${pg}</span>
         </div>`;
@@ -1047,6 +1124,7 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
             <p class="conv-p">${expPrimero}</p>
             <p class="conv-p"><strong>Segundo.</strong> Que el Cedente desea participar en la valorización de dichos ahorros, autorizando al Cesionario para su gestión técnica y administrativa ante los organismos competentes, sin que ello constituya cesión onerosa ni transmisión patrimonial.</p>
             <p class="conv-p">Tercero. Que el Cesionario realiza la agrupación de actuaciones de eficiencia de diferentes particulares para alcanzar los umbrales requeridos por la normativa vigente para la emisión de CAEs, y ofrece a los participantes un incentivo económico por su participación.</p>
+            ${consentimientoFm ? `<p class="conv-p"><strong>Cuarto.</strong> Que ${consentimientoFm}</p>` : ''}
             <p class="conv-p">Por lo tanto, ambas partes acuerdan suscribir el presente convenio con sujeción a las siguientes:</p>
             <div class="conv-subtitle">CLÁUSULAS</div>
             <div class="conv-cl">
@@ -1056,34 +1134,40 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
               <p><strong>Segunda. Localización geográfica de la instalación o instalaciones</strong><br>La cesión de los ahorros de energía prevista en el presente convenio sólo será válida en territorio español, ${clSegundaValidez} la actuación de eficiencia energética.</p>
               <p>${clSegundaLugar} en la localidad de <strong>${municipioAct}</strong>, provincia de <strong>${provinciaAct}</strong> de la Comunidad Autónoma de <strong>${ccaa}</strong>, siendo la referencia catastral de su ubicación <strong>${refCatastral}</strong> y sus coordenadas UTM${husoSuffix} X: <strong>${coordX}</strong> Y: <strong>${coordY}</strong></p>
             </div>
-            ${varios ? '' : clTerceraHtml}
-            ${varios ? '' : clCuartaHtml}
-            ${varios ? '' : clQuinta}
+            ${(!tresHojas || terceraEnHoja1) ? clTerceraHtml : ''}
+            ${tresHojas ? '' : clCuartaHtml}
+            ${tresHojas ? '' : clQuinta}
           </div>
           ${footer(1)}
         </div>`;
+
+    const clSextaHtml = `
+            <div class="conv-cl">
+              <p><strong>Sexta. Vida útil de la actuación de eficiencia energética</strong><br>${clVidaUtilCompromiso}</p>
+              <p>En caso de que por causa imputable a una actuación del CEDENTE se anulase o invalidase el CAE, este estará obligado a devolver la contraprestación recibida por parte del CESIONARIO, en el plazo máximo de tres (3) días desde que esto se produzca.</p>
+              <p>${vidaUtilTexto}</p>
+            </div>`;
+    const clSeptimaOctavaHtml = `
+            <div class="conv-cl">
+              <p><strong>Séptima. Percepción de financiación pública.</strong><br>La información relativa a la solicitud y/o percepción de ayudas o subvenciones públicas vinculadas a la actuación de ahorro energético objeto del presente convenio será proporcionada mediante el documento denominado "${anexoAyudas}: Declaración responsable formalizada por el propietario inicial del ahorro referida a la solicitud y/u obtención de ayudas o subvenciones públicas para la misma actuación de ahorro de energía"${fmConvenio ? ' (que sustituye al anterior Anexo I en todas las fichas del Catálogo y vale, por tanto, para las dos de la cláusula tercera)' : ''}. Dicho anexo, debidamente firmado por el Cedente, se incorpora como parte integrante del presente convenio y deberá ser presentado junto con la documentación del expediente.</p>
+              <p>En todo caso, el Cedente se compromete a informar al Cesionario de todas las ayudas públicas que finalmente obtenga para, o con motivo de, la ejecución de la actuación, incluso si estas ayudas se conceden con posterioridad a la firma de este convenio.</p>
+            </div>
+            <div class="conv-cl">
+              <p><strong>Octava. Declaración responsable</strong><br>${clDeclaracion}</p>
+            </div>`;
+    const notaFirmas = `<p class="conv-p" style="margin-top:12px"><em>Las firmas de las partes figuran en la página ${paginaFirmas} de este convenio.</em></p>`;
 
     const p2 = `
         <div class="conv-page">
           ${hdr}
           <div class="conv-body">
-            ${varios ? clTerceraHtml + clCuartaHtml + clQuinta : ''}
+            ${tresHojas ? (terceraEnHoja1 ? '' : clTerceraHtml) + clTerceraSigue + clCuartaHtml + clQuinta : ''}
             ${bloqueCoste}
             ${bloqueCuenta}
-            <div class="conv-cl">
-              <p><strong>Sexta. Vida útil de la actuación de eficiencia energética</strong><br>${clVidaUtilCompromiso}</p>
-              <p>En caso de que por causa imputable a una actuación del CEDENTE se anulase o invalidase el CAE, este estará obligado a devolver la contraprestación recibida por parte del CESIONARIO, en el plazo máximo de tres (3) días desde que esto se produzca.</p>
-              <p>${vidaUtilTexto}</p>
-            </div>
-            <div class="conv-cl">
-              <p><strong>Séptima. Percepción de financiación pública.</strong><br>La información relativa a la solicitud y/o percepción de ayudas o subvenciones públicas vinculadas a la actuación de ahorro energético objeto del presente convenio será proporcionada mediante el documento denominado "Anexo I: Declaración responsable formalizada por el propietario inicial del ahorro referida a la solicitud y/u obtención de ayudas o subvenciones públicas para la misma actuación de ahorro de energía". Dicho anexo, debidamente firmado por el Cedente, se incorpora como parte integrante del presente convenio y deberá ser presentado junto con la documentación del expediente.</p>
-              <p>En todo caso, el Cedente se compromete a informar al Cesionario de todas las ayudas públicas que finalmente obtenga para, o con motivo de, la ejecución de la actuación, incluso si estas ayudas se conceden con posterioridad a la firma de este convenio.</p>
-            </div>
-            <div class="conv-cl">
-              <p><strong>Octava. Declaración responsable</strong><br>${clDeclaracion}</p>
-            </div>
-            ${varios ? clPluralidad : clNotificaciones('Novena')}
-            ${varios ? `<p class="conv-p" style="margin-top:12px"><em>Las firmas de las partes figuran en la página 3 de este convenio.</em></p>` : `<div class="conv-sign">
+            ${clSextaHtml}
+            ${clSeptimaOctavaHtml}
+            ${cuatroHojas ? '' : (varios ? clPluralidad : clNotificaciones('Novena'))}
+            ${cuatroHojas ? '' : tresHojas ? notaFirmas : `<div class="conv-sign">
               <p class="conv-sign-intro">Habiendo leído por sí mismos y hallándose conformes, las partes firman el presente documento por duplicado y a un solo efecto, en el lugar y fecha arriba indicados.</p>
               <div class="conv-sign-grid">
                 <div class="conv-sign-col">
@@ -1105,28 +1189,58 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
           ${footer(2)}
         </div>`;
 
-    // Hoja 3 — solo con VARIOS cedentes. Las casillas van en posiciones FIJAS
-    // (absolutas sobre la hoja): es lo que permite firmar cada una sin medir.
-    const p3 = !varios ? '' : `
+    // Hoja 3 de texto — solo el convenio FM con VARIOS cedentes (`cuatroHojas`):
+    // la tabla de las dos fichas no deja sitio en la 2 para la pluralidad de cedentes.
+    const p2b = !cuatroHojas ? '' : `
+        <div class="conv-page">
+          ${hdr}
+          <div class="conv-body">
+            ${clPluralidad}
+            ${clNotificaciones('Décima')}
+            ${notaFirmas}
+          </div>
+          ${footer(3)}
+        </div>`;
+
+    // Hoja de FIRMAS — con VARIOS cedentes y en la vía FM (la 3; la 4 si `cuatroHojas`,
+    // y signBoxes.paginaFirmasConvenio la busca ahí). Las casillas van en posiciones
+    // FIJAS (absolutas sobre la hoja): es lo que permite firmar cada una sin medir.
+    // Con UN cedente (FM) son dos: el Cesionario (0) y el Cedente (1).
+    // Con UN cedente las Notificaciones cierran la hoja 2 (que así no queda a medias)
+    // y aquí solo van el título y la fórmula de cierre, PEGADOS encima de las casillas
+    // (`margin-top:auto` + el relleno de debajo, que llega desde la casilla hasta el
+    // final del cuerpo: 52 px de cabecera + 1039 de cuerpo − 16 de padding = 1075).
+    // Con varios cedentes en tres hojas, la 2 no tiene sitio y siguen aquí; en la FM
+    // con varios (cuatro hojas) cierran la 3.
+    const notifEnTexto = !varios || cuatroHojas;
+    const altoBajoFirmas = 1075 - (CONVENIO_FIRMAS.top0 - 18);
+    const p3 = !tresHojas ? '' : `
         <div class="conv-page conv-page-firmas">
           ${hdr}
           <div class="conv-body">
-            <div class="conv-subtitle">FIRMAS</div>
-            ${clNotificaciones('Décima')}
-            <p class="conv-sign-intro" style="margin-top:14px">Habiendo leído por sí mismos y hallándose conformes, las partes firman el presente Convenio de Cesión de Ahorros Energéticos del expediente ${numexpte} en el lugar y fecha indicados en su encabezamiento. Firman todos los Cedentes y el Cesionario.</p>
+            <div class="conv-subtitle"${notifEnTexto ? ' style="margin-top:auto"' : ''}>FIRMAS</div>
+            ${notifEnTexto ? '' : clNotificaciones('Décima')}
+            <p class="conv-sign-intro" style="margin-top:14px">Habiendo leído por sí mismos y hallándose conformes, las partes firman el presente Convenio de Cesión de Ahorros Energéticos del expediente ${numexpte} en el lugar y fecha indicados en su encabezamiento. ${varios ? 'Firman todos los Cedentes y el Cesionario.' : 'Firman el Cedente y el Cesionario.'}</p>
+            ${notifEnTexto ? `<div class="conv-firmas-pie" style="height:${altoBajoFirmas}px;flex:none"></div>` : ''}
           </div>
           ${casilla(0, 'El Cesionario', `<img src="${APP_URL}/firma_brokergy.png" class="conv-sign-img" alt="Firma">`, `Dª/D. ${FIRMANTE_CESIONARIO.nombre}`, ` · ${FIRMANTE_CESIONARIO.empresa}`)}
-          ${cedentes.map((x, i) => casilla(
+          ${!varios ? casilla(
+              1,
+              'El Cedente',
+              '',
+              `Dª/D. ${firmanteCedente}`,
+              (esEmpresa || particularRepresentado) ? ` · en representación de ${nombreCedente}` : '',
+          ) : cedentes.map((x, i) => casilla(
               i + 1,
               `Cedente ${i + 1} de ${cedentes.length} · ${cuotaTxt(x.cuota_pct)} %`,
               '',
               `Dª/D. ${representacionDe(x).hay ? ([x.representante_nombre, x.representante_apellidos].filter(Boolean).join(' ') || '___________') : (x.nombre || '___________')} · ${representacionDe(x).hay ? x.representante_dni || '' : x.dni || ''}`,
               representacionDe(x).hay ? ` · en representación de ${x.nombre}` : '',
           )).join('')}
-          ${footer(3)}
+          ${footer(paginaFirmas)}
         </div>`;
 
-    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>${ANEXO_CESION_CSS}@page { size: A4; margin: 0; }</style></head><body><div class="conv-wrap">${p1}${p2}${p3}</div></body></html>`;
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>${ANEXO_CESION_CSS}@page { size: A4; margin: 0; }</style></head><body><div class="conv-wrap">${p1}${p2}${p2b}${p3}</div></body></html>`;
 };
 
 // Saludo NEUTRO a propósito: "Buenas tardes" salía mal en cuanto el envío se hacía

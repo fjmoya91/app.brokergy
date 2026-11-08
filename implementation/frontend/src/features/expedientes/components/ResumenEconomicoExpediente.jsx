@@ -9,9 +9,9 @@ const MIN_MARGEN = 500;        // € — margen verificado mínimo aceptable
 const MARGEN_DROP_PCT = 15;    // % — caída de margen (estimado → verificado) que avisa
 const AHORRO_DELTA_PCT = 10;   // % — variación de ahorro que pide revisar la liquidación
 
-// Fila de referencia compacta (Verificado / Propuesta / RES060FC) bajo el valor
+// Fila de referencia compacta (Verificado / Propuesta / FM) bajo el valor
 // principal. Etiqueta con color a la izquierda y valor a la derecha. `onClick`
-// la hace pulsable (RES060FC → popup; Verificado editable → empezar edición).
+// la hace pulsable (FM → popup; Verificado editable → empezar edición).
 const RefRow = ({ labelText, labelClass, children, onClick, clickable, title, trailing }) => {
     const Comp = clickable ? 'button' : 'div';
     return (
@@ -106,7 +106,7 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', chip = 'bg-whit
 
         {sub && <div className="text-[10px] font-bold text-white/30 uppercase tracking-tight mt-1 max-md:hidden">{sub}</div>}
 
-        {/* Bloque de referencias: Verificado / Propuesta / RES060FC agrupados bajo
+        {/* Bloque de referencias: Verificado / Propuesta / FM agrupados bajo
             un único separador, cada uno con etiqueta de color a la izquierda. */}
         {hasRefs && (
             <div className="mt-1.5 pt-1.5 border-t border-white/[0.07] space-y-0.5">
@@ -170,9 +170,9 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', chip = 'bg-whit
                     </RefRow>
                 )}
 
-                {/* Ficha con factor de corrección (RES060FC o la RES09xFC de la zona):
-                    proyección de la nueva normativa. Clic → popup de desglose. Si algo
-                    impide pedirlo (fechas, ya presentado, letra del CEE) se dice aquí. */}
+                {/* Vía del factor multiplicador (RES060_FM o la RES09x_FM de la zona),
+                    Resolución publicada el 7/11/2026. Clic → popup de desglose. Si algo
+                    impide pedirlo (fechas, ya presentado, sólido) se dice aquí. */}
                 {fc && fc.value != null && (
                     <RefRow
                         labelText={fc.elegible === false ? `${fc.ficha} · NO` : fc.ficha}
@@ -180,8 +180,8 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', chip = 'bg-whit
                         clickable
                         onClick={(e) => { e.stopPropagation(); fc.onClick && fc.onClick(); }}
                         title={fc.elegible === false
-                            ? `No se puede pedir el factor de corrección: ${fc.motivo}`
-                            : `Ver desglose de la ficha ${fc.ficha} (propuesta de nueva normativa)`}
+                            ? `No se puede pedir por el factor multiplicador: ${fc.motivo}`
+                            : `Ver desglose de la ficha ${fc.ficha} (vía del factor multiplicador)`}
                         trailing={(
                             <svg className="w-3 h-3 text-violet-400/50 group-hover/ref:text-violet-300 transition-colors shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -220,7 +220,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
     const inputRefVerif = useRef(null);
     const originalRefVerif = useRef(null);
 
-    // Popup de desglose RES060FC (mismo componente que la calculadora).
+    // Popup de desglose vía FM (mismo componente que la calculadora).
     const [showFcModal, setShowFcModal] = useState(false);
 
     // Foco en el campo que se acaba de abrir para editar.
@@ -257,18 +257,18 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
         profitBrokergyVerificado = null,
         // El ahorro viene de la oportunidad porque el expediente aún no tiene CEE.
         ahorroHeredado = false,
-        // ── Ficha RES060FC (propuesta de nueva normativa) ──
+        // ── Vía del factor multiplicador (RES060_FM / RES09x_FM, BOE-A-2026-23367) ──
         res060fc = null,
         financialsRes060FC = null,
         res060fcInputs = null,
     } = results;
 
     const hasFc = !!(res060fc && res060fc.cae > 0 && financialsRes060FC);
-    // Fila «FC» de cada métrica: la ficha que toca y, si algo impide pedirlo, el porqué.
+    // Fila «FM» de cada métrica: la ficha que toca y, si algo impide pedirlo, el porqué.
     const fcRef = (value) => (hasFc ? {
         value,
         onClick: () => setShowFcModal(true),
-        ficha: res060fc.ficha || 'RES060FC',
+        ficha: res060fc.ficha || 'RES060_FM',
         elegible: res060fc.elegible,
         motivo: (res060fc.avisos || []).find((a) => a.tono === 'bloquea')?.texto,
     } : null);
@@ -601,7 +601,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 {metrics.map(renderMetric)}
             </div>
 
-            {/* Popup de desglose RES060FC (mismo que la calculadora) */}
+            {/* Popup de desglose vía FM (mismo que la calculadora) */}
             <Res060FCModal
                 isOpen={showFcModal}
                 onClose={() => setShowFcModal(false)}

@@ -142,12 +142,42 @@ export function fichaSignBox(fichaCode) {
     return (info) => ((info && info.oficial ? oficial : clasica) || oficial);
 }
 
+// ── Documentos de la VÍA DEL FACTOR MULTIPLICADOR (2026-11-07) ───────────────
+// Los genera logic/documentosFm.js: hojas A4 de ALTO FIJO (794 × 1122 px, con
+// `overflow:hidden`) y la casilla de firma en una posición FIJA de la última hoja,
+// como la hoja de firmas del convenio. Las dos caras usan ESTA geometría: el HTML
+// coloca la casilla en px y la firma (Autofirma y a mano) la lee en pt. El Anexo A
+// (el Anexo I nuevo) son DOS hojas por cedente y firma en la segunda; los otros
+// cuatro, una hoja.
+export const FIRMA_FM = {
+    left: 404, top: 832, width: 326, height: 144,
+    escala: 0.75, altoPt: 841.89,
+};
+
+/** La casilla de firma de un documento FM en la hoja `page` (1 = la primera), en pt. */
+export function cajaFirmaFmPt(page = 1) {
+    const g = FIRMA_FM;
+    return {
+        page,
+        llx: Math.round(g.left * g.escala + 2),
+        urx: Math.round((g.left + g.width) * g.escala - 2),
+        ury: Math.round(g.altoPt - g.top * g.escala - 2),
+        lly: Math.round(g.altoPt - (g.top + g.height) * g.escala + 2),
+    };
+}
+
+/** Páginas por cedente del Anexo A. */
+export const PAGINAS_ANEXO_A = 2;
+
 /**
  * La caja del Anexo I. El impreso OFICIAL tiene 4 páginas y firma en la última; la
- * maqueta anterior tiene 3.
+ * maqueta anterior tiene 3. El ANEXO A de la vía FM (que lo sustituye en los
+ * 26RES060FM_N / 26RES093FM_N) tiene 2 y firma en la segunda: viaja por el MISMO
+ * hueco (`anexo_i_*`), así que se distingue por el nº de hojas.
  */
 export function anexoISignBox(info) {
     const paginas = typeof info === 'number' ? info : (info?.numPaginas || 0);
+    if (paginas === PAGINAS_ANEXO_A) return cajaFirmaFmPt(PAGINAS_ANEXO_A);
     return paginas >= 4 ? SIGN_BOXES.anexo_i_oficial : SIGN_BOXES.anexo_i;
 }
 
@@ -179,12 +209,22 @@ export function casillaFirmaConvenioPx(i) {
     return { left: g.x0 + col * (g.ancho + g.gap), top: g.top0 + fila * g.paso, width: g.ancho, height: g.alto };
 }
 
+/**
+ * En qué hoja van las firmas de un convenio de `paginas` hojas. Tres es lo normal
+ * (varios cedentes, o la vía FM con uno). CUATRO solo lo tiene el convenio FM con
+ * varios cedentes (la tabla de las dos fichas no cabe en tres: docGenerators,
+ * `cuatroHojas`), y ahí las firmas son la cuarta. Con CINCO o más es un firmado a
+ * mano con los DNI montados detrás (dniAnexo.buildCesionManuscrita, ≥ 2 hojas):
+ * se queda en la 3, como hasta ahora.
+ */
+export const paginaFirmasConvenio = (paginas) => (paginas === 4 ? 4 : CONVENIO_FIRMAS.pagina);
+
 /** La misma casilla en coordenadas de PDF (pt, origen abajo a la izquierda), recortada 2 pt hacia dentro. */
-export function casillaFirmaConvenioPt(i) {
+export function casillaFirmaConvenioPt(i, pagina = CONVENIO_FIRMAS.pagina) {
     const g = CONVENIO_FIRMAS;
     const c = casillaFirmaConvenioPx(i);
     return {
-        page: g.pagina,
+        page: pagina,
         llx: c.left * g.escala + 2,
         urx: (c.left + c.width) * g.escala - 2,
         ury: g.altoPt - c.top * g.escala - 2,
@@ -199,14 +239,14 @@ export function casillaFirmaConvenioPt(i) {
  */
 export const cajaConvenioCedente = (i = 0) => (info) => {
     const paginas = typeof info === 'number' ? info : (info?.numPaginas || 0);
-    if (paginas >= CONVENIO_FIRMAS.pagina) return casillaFirmaConvenioPt(i + 1);
+    if (paginas >= CONVENIO_FIRMAS.pagina) return casillaFirmaConvenioPt(i + 1, paginaFirmasConvenio(paginas));
     return i === 0 ? SIGN_BOXES.anexo_cesion : null;
 };
 
 /** Dónde contrafirma BROKERGY el convenio (1 o varios cedentes). */
 export const cajaConvenioCesionario = (info) => {
     const paginas = typeof info === 'number' ? info : (info?.numPaginas || 0);
-    return paginas >= CONVENIO_FIRMAS.pagina ? casillaFirmaConvenioPt(0) : SIGN_BOXES.anexo_cesion_cesionario;
+    return paginas >= CONVENIO_FIRMAS.pagina ? casillaFirmaConvenioPt(0, paginaFirmasConvenio(paginas)) : SIGN_BOXES.anexo_cesion_cesionario;
 };
 
 /**
@@ -217,6 +257,8 @@ export const cajaConvenioCesionario = (info) => {
 export const anexoISignBoxCedente = (i = 0, n = 1) => (info) => {
     if (n <= 1) return anexoISignBox(info);
     const paginas = typeof info === 'number' ? info : (info?.numPaginas || 0);
+    // Anexo A: 2 hojas por cedente (2n no coincide con 3n ni con 4n para n ≥ 1).
+    if (paginas === PAGINAS_ANEXO_A * n) return cajaFirmaFmPt(PAGINAS_ANEXO_A * (i + 1));
     const oficial = paginas === 4 * n || (paginas !== 3 * n && paginas >= 4 * n);
     return oficial
         ? { ...SIGN_BOXES.anexo_i_oficial, page: 4 * (i + 1) }

@@ -1,3 +1,5 @@
+import { resumenViaFm } from './viaFm.js';
+
 /**
  * guardarOportunidad — el cuerpo de `POST /api/oportunidades`, en UN sitio.
  *
@@ -41,6 +43,9 @@ export function payloadOportunidad({
                 cod_cliente_interno: codClienteInterno,
             },
             result,
+            // Las dos vías (vigente y factor multiplicador) en escalares, para que
+            // el listado las enseñe sin traer el JSONB entero (logic/viaFm.js).
+            via_fm: resumenViaFm(result, cleanInputs),
         },
         nota: (nota || '').trim() || null,
     };

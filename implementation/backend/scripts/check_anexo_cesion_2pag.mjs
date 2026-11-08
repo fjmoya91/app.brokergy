@@ -17,6 +17,7 @@
  */
 import puppeteer from 'puppeteer';
 import { buildAnexoCesionHtml } from '../../frontend/src/features/expedientes/utils/docGenerators.js';
+import { paginaFirmasConvenio } from '../../frontend/src/features/expedientes/logic/signBoxes.js';
 
 const stress = {
     numero_expediente: '26RES080_123',
@@ -50,6 +51,8 @@ const representado = (e) => ({ ...e, clientes: { ...e.clientes, representado: tr
     representante_dni: '06282551D', representacion_tipo: 'NOTARIAL', representacion_fecha: '2019-03-14',
     representacion_protocolo: '1.234' } });
 const ficha = (e, f) => ({ ...e, numero_expediente: `26${f}_9` });
+const fm = (e, f = 'RES060', vulnerable = false) => ({ ...e, numero_expediente: `26${f}FM_9`,
+    documentacion: { ...(e.documentacion || {}), via_fm: { vulnerable } } });
 // VARIOS cedentes (copropietarios que pagan la obra): el convenio pasa a TRES
 // hojas — la tercera, de firmas con casillas fijas. Nombres largos a propósito.
 const varios = (e, n, { cuentas = false } = {}) => ({ ...e, clientes: { ...e.clientes, copropietarios:
@@ -58,6 +61,10 @@ const varios = (e, n, { cuentas = false } = {}) => ({ ...e, clientes: { ...e.cli
 
 const R  = { savingsKwh: 12345.6, caeBonus: 1172, caeMaintenanceCost: 0 };
 const RC = { ...R, caeMaintenanceCost: 150 };   // con coste de gestión: un párrafo más
+// Vía FM: las DOS cifras (la FM principal y la general subsidiaria), con cifras de
+// seis dígitos para que la tabla de la Tercera mida en su peor caso.
+const RFM = { ...RC, savingsKwh: 123456.7, caeBonus: 117284, res060fc: { cae: 246913.4 }, financialsRes060FC: { caeBonus: 234568 } };
+const conPrecioFm = (e) => ({ ...e, oportunidades: { datos_calculo: { inputs: { ...e.oportunidades.datos_calculo.inputs, cae_client_rate_fm: 105 } } } });
 
 const casos = [
     ['ejecutada · real',        real,                      R,  false],
@@ -73,8 +80,27 @@ const casos = [
     ['prevista · representado', ficha(representado(stress), 'RES080'), RC, true],
     ['2 cedentes · real',       varios(real, 2),           R,  true,  3],
     ['2 cedentes · peor caso',  varios(ficha(empresa(stress), 'RES080'), 2, { cuentas: true }), RC, false, 3],
+    // Hasta TRES cedentes la Tercera sube a la hoja 1 (`terceraEnHoja1`); con cuatro, no.
+    ['3 cedentes · peor caso',  varios(ficha(empresa(stress), 'RES080'), 3, { cuentas: true }), RC, true, 3],
+    ['4 cedentes · peor caso',  varios(ficha(empresa(stress), 'RES080'), 4, { cuentas: true }), RC, true, 3],
     ['5 cedentes · peor caso',  varios(ficha(stress, 'RES080'), 5, { cuentas: true }), RC, true, 3],
     ['5 cedentes · sin IBAN',   varios(sinIban(stress), 5), RC, true, 3],
+    // Vía del FACTOR MULTIPLICADOR (26RES060FM_N): SIEMPRE tres hojas (la tercera de
+    // firmas), porque cubre las DOS fichas —la FM principal y la general subsidiaria,
+    // con su tabla— y lleva el consentimiento del IRPF (punto 12) como «Cuarto» del
+    // EXPONEN (en la hoja de firmas pisaría las casillas, que van en posición fija).
+    ['FM · ejecutada peor caso', fm(empresa(stress)), RFM, false, 3],
+    ['FM · prevista peor caso',  fm(empresa(stress)), RFM, true, 3],
+    ['FM · precio FM propio',    conPrecioFm(fm(empresa(stress))), RFM, true, 3],
+    ['FM · representado',        fm(representado(stress)), RFM, true, 3],
+    ['FM · hibridación -S',      fm(empresa(stress), 'RES093', true), RFM, true, 3],
+    ['FM · con requerimiento',   fm(empresa(stress)), { ...RFM, viaUnica: true }, true, 3],
+    // Con VARIOS cedentes la tabla no cabe ni en tres: CUATRO hojas, las firmas en la 4.
+    ['FM · 2 cedentes peor caso', varios(fm(empresa(stress)), 2, { cuentas: true }), RFM, true, 4],
+    ['FM · 3 cedentes peor caso', varios(fm(stress), 3, { cuentas: true }), RFM, true, 4],
+    ['FM · 5 cedentes sin IBAN',  varios(fm(stress), 5), RFM, true, 4],
+    ['FM · 5 cedentes',          varios(fm(stress), 5, { cuentas: true }), RFM, true, 4],
+    ['FM · 5 cedentes requerim.', varios(fm(stress), 5, { cuentas: true }), { ...RFM, viaUnica: true }, true, 3],
 ];
 
 const browser = await puppeteer.launch({ headless: 'new' });
@@ -108,12 +134,29 @@ for (const [nombre, exp, res, previo, paginas = 2] of casos) {
         const fondo = Math.max(...[...hoja.querySelectorAll('.conv-firma-abs')].map(c => c.getBoundingClientRect().bottom + 30));
         return Math.round(fondo - pie);
     });
-    const mal = holguras.length !== paginas || holguras.some(h => h < 0) || pisaPie > 0;
+    // Y que el TEXTO de la hoja de firmas (Notificaciones, y en la vía FM la Undécima
+    // del consentimiento) no baje hasta la primera casilla, que va en posición fija.
+    const pisaCasillas = await page.evaluate(() => {
+        const hoja = document.querySelector('.conv-page-firmas');
+        if (!hoja) return 0;
+        const casilla = Math.min(...[...hoja.querySelectorAll('.conv-firma-abs')].map(c => c.getBoundingClientRect().top));
+        // (el relleno `.conv-firmas-pie` va DEBAJO de las casillas a propósito: no cuenta)
+        const ultimo = [...hoja.querySelector('.conv-body').children].filter(c => !c.classList.contains('conv-firmas-pie')).pop();
+        return Math.round(ultimo.getBoundingClientRect().bottom + 8 - casilla);
+    });
+    // Y que la hoja de firmas sea la que la FIRMA va a buscar (signBoxes): con 3 o 4
+    // hojas, la casilla se calcula, no se mide; si no coinciden, la rúbrica cae fuera.
+    const hojaFirmas = await page.evaluate(() => [...document.querySelectorAll('.conv-page')].findIndex(p => p.classList.contains('conv-page-firmas')) + 1);
+    const firmasDescuadradas = hojaFirmas > 0 && hojaFirmas !== paginaFirmasConvenio(holguras.length);
+    if (firmasDescuadradas) console.log(`   ↳ las firmas van en la hoja ${hojaFirmas} y la firma las busca en la ${paginaFirmasConvenio(holguras.length)}`);
+    const mal = holguras.length !== paginas || holguras.some(h => h < 0) || pisaPie > 0 || pisaCasillas > 0 || firmasDescuadradas;
     if (pisaPie > 0) console.log(`   ↳ las firmas pisan el pie ${pisaPie}px`);
+    if (pisaCasillas > 0) console.log(`   ↳ el texto de la hoja de firmas pisa las casillas ${pisaCasillas}px`);
     if (mal) malos++;
     console.log(`${mal ? '❌' : '  '} ${nombre.padEnd(26)} págs=${holguras.length} ` +
-        holguras.map((h, i) => `p${i + 1}: ${h < 0 ? `SE CORTA ${-h}px` : `holgura ${h}px`}`).join(' | '));
+        holguras.map((h, i) => `p${i + 1}: ${h < 0 ? `SE CORTA ${-h}px` : `holgura ${h}px`}`).join(' | ') +
+        (hojaFirmas > 0 ? ` · texto a ${-pisaCasillas}px de las casillas` : ''));
 }
 await browser.close();
 if (malos) { console.error(`\n${malos} caso(s) no caben en sus páginas.`); process.exit(1); }
-console.log('\nTodo cabe: dos páginas con un cedente, tres (firmas aparte) con varios.');
+console.log('\nTodo cabe: dos páginas con un cedente; tres (firmas aparte) con varios o en la vía FM; cuatro en la FM con varios.');

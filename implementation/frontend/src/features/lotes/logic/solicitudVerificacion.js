@@ -11,6 +11,7 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 import { calcCifo } from '../../expedientes/logic/calcCifo';
 import { camposSolicitudVerificacion, leerSubvenciones, datosPrograma, importeEs } from '../../expedientes/logic/subvenciones';
 import { fichaDe, FICHA_TITULO } from './anexoListado';
+import { fichaOficialDeExpediente } from '../../expedientes/logic/viaFm';
 import { inversionCae } from '../../expedientes/logic/facturasCae.js';
 
 // Datos por defecto del solicitante / contacto (editables en el popup).
@@ -113,6 +114,8 @@ export function buildSolicitudVerificacionHtml(lote, opts = {}) {
         const e = exp || {};
         const num = e.numero_expediente || '';
         const ficha = fichaDe(num);
+        // Vía del factor multiplicador: se declara SU ficha (RES060_FM, RES093_FM-S…, V1.0).
+        const fm = fichaOficialDeExpediente(e);
         const doc = e.documentacion || {};
         const inst = e.instalacion || {};
 
@@ -138,8 +141,8 @@ export function buildSolicitudVerificacionHtml(lote, opts = {}) {
             ${row('Nombre del propietario inicial del ahorro', e.cliente_nombre)}
             ${row('En caso de existir, nombre empresa intermediaria en el proceso CAE', intermediaria)}
             ${row('Nombre de la actuación', num)}
-            ${row('Código y nombre de la ficha', `${ficha} - ${FICHA_TITULO[ficha] || ''}`)}
-            ${row('Versión de la ficha', 'V1.1')}
+            ${row('Código y nombre de la ficha', fm ? `${fm.codigo} - ${fm.titulo}` : `${ficha} - ${FICHA_TITULO[ficha] || ''}`)}
+            ${row('Versión de la ficha', fm ? fm.version : 'V1.1')}
             ${row('Código CNAE de la actividad principal de la instalación afectada', cnae)}
             ${row('Vida útil de la actuación (años)', String(vidaUtil))}
             ${row('Ahorro anual conseguido (kWh)', ahorroKwh)}
@@ -213,6 +216,7 @@ export function buildSolicitudVerificacionPayload(lote, opts = {}) {
         const e = exp || {};
         const num = e.numero_expediente || '';
         const ficha = fichaDe(num);
+        const fm = fichaOficialDeExpediente(e);
         const doc = e.documentacion || {};
         const inst = e.instalacion || {};
 
@@ -231,8 +235,8 @@ export function buildSolicitudVerificacionPayload(lote, opts = {}) {
             SE_propietario_inicial: e.cliente_nombre || '',
             SE_otras_empresas: intermediaria || '',
             SE_nombre_actuacion: num,
-            SE_cod_ficha: ficha,
-            SE_v_ficha: 'V1.1',
+            SE_cod_ficha: fm ? fm.codigo : ficha,
+            SE_v_ficha: fm ? fm.version : 'V1.1',
             SE_cnae: cnae,
             SE_vida_util: Number(vidaUtil) || 0,
             SE_ahorro_anual: ahorroAnual,

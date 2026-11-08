@@ -23,7 +23,8 @@
 // ============================================================================
 
 const supabase = require('./supabaseClient');
-const { detectPrograma, esSustitucionCaldera, esHibridacion } = require('../utils/fichas');
+const { detectPrograma, esSustitucionCaldera, esHibridacion, esNumeroFm } = require('../utils/fichas');
+const { contextoFm } = require('../utils/viaFm');
 const { esTermoElectrico, mismaMaquina, acsEsOtraMaquina, getUnidades } = require('../utils/aerotermiaUnits');
 
 /** ¿Hay valor de verdad (no null/vacío/placeholder de los migrados)? */
@@ -176,7 +177,29 @@ function alcanceFromExpediente(exp, opp) {
         // Solo informativo (cabecera y avisos); no poda ningún slot.
         numero_expediente: e.numero_expediente || null,
         fin_obra: e.fin_obra || doc.fecha_fin_obra_comunicada || null,
+        // Vía del FACTOR MULTIPLICADOR (26RES060FM_N / 26RES093FM_N): los documentos
+        // de la ficha FM que se SUBEN al gestor (utils/viaFm.js). Null fuera de la vía.
+        fm: esNumeroFm(e.numero_expediente) ? contextoFmDe(e, opp) : null,
     };
+}
+
+/**
+ * Contexto de la vía FM a partir de la fila del expediente: vale tanto la fila
+ * entera (`cee`, `documentacion`) como la ligera de `resolver()` (alias `via_fm`,
+ * `lf_*`, `li_*`), porque las dos superficies tienen que pedir lo mismo.
+ */
+function contextoFmDe(e, opp) {
+    const dc = opp?.datos_calculo || {};
+    const inputs = dc.inputs || {};
+    const cee = e.cee || {};
+    return contextoFm({
+        numero: e.numero_expediente,
+        datos: e.via_fm || e.documentacion?.via_fm || {},
+        inputs,
+        zona: dc.zona || inputs.zona || cee.cee_inicial?.zonaClimatica || e.li_zona || null,
+        letrasFinal: [e.lf_e ?? cee.cee_final?.emisionesLetra, e.lf_c ?? cee.cee_final?.epnrLetra],
+        letrasInicial: [e.li_e ?? cee.cee_inicial?.emisionesLetra, e.li_c ?? cee.cee_inicial?.epnrLetra],
+    });
 }
 
 /**
@@ -200,6 +223,13 @@ async function resolver(opp) {
                 'envolvente:documentacion->envolvente',
                 'freg_ini:documentacion->>fecha_registro_cee_inicial',
                 'fin_obra:documentacion->>fecha_fin_obra_comunicada',
+                // Vía FM: sus datos y las letras de los CEE (punto 13, F o G en D/E).
+                'via_fm:documentacion->via_fm',
+                'lf_e:cee->cee_final->>emisionesLetra',
+                'lf_c:cee->cee_final->>epnrLetra',
+                'li_e:cee->cee_inicial->>emisionesLetra',
+                'li_c:cee->cee_inicial->>epnrLetra',
+                'li_zona:cee->cee_inicial->>zonaClimatica',
             ].join(', '))
             .eq('oportunidad_id', opp.id)
             .maybeSingle();

@@ -198,7 +198,7 @@ const internalKeyOrAuth = (req, res, next) => {
 // `html_propuesta`. Quitamos SOLO las claves de dinero; la energía/demanda
 // (surface, Q_net, zona…), la dirección y el estado quedan intactos.
 const MONEY_KEYS_DATOS = [
-    'caePriceClient', 'caePriceClientRes080', 'caePriceSO', 'caePricePrescriptor', 'prescriptorMode',
+    'caePriceClient', 'caePriceClientRes080', 'caePriceClientFm', 'caePriceSO', 'caePricePrescriptor', 'prescriptorMode',
     'presupuesto', 'presupuestoEnvolvente', 'presupuestoFotovoltaica',
     'discountCertificates', 'includeCommission', 'includeIrpf', 'includeItp',
     'includeIVA', 'includeLegalization', 'legalizationPrice', 'itpPercent',
@@ -206,7 +206,7 @@ const MONEY_KEYS_DATOS = [
     'result', 'html_propuesta',
 ];
 const MONEY_KEYS_INPUTS = [
-    'cae_client_rate', 'cae_client_rate_res080', 'cae_so_rate', 'cae_prescriptor_rate', 'cae_prescriptor_mode',
+    'cae_client_rate', 'cae_client_rate_res080', 'cae_client_rate_fm', 'cae_so_rate', 'cae_prescriptor_rate', 'cae_prescriptor_mode',
     'include_commission', 'discount_certificates', 'certificates_cost',
     'include_legalization', 'legalization_mode', 'presupuesto', 'importe_total',
 ];
@@ -8180,6 +8180,248 @@ router.patch('/:id/regenerar-numero', adminOnly, async (req, res) => {
     } catch (error) {
         console.error('Error al regenerar número:', error.message);
         res.status(500).json({ error: 'Error al regenerar el número de expediente', details: error.message });
+    }
+});
+
+// ─── VÍA DEL FACTOR MULTIPLICADOR (BOE-A-2026-23367) ──────────────────────────
+// Un expediente por la vía FM lleva su propio número (26RES060FM_N, serie propia)
+// y pide los 13 documentos de su ficha. Lógica: utils/viaFm.js; numeración:
+// expedienteService.cambiarViaFm. Ver
+// docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md
+
+// Estado de cada documento que ya cubre OTRO del expediente.
+function estadoDocCubierto(cubre, exp, uploads) {
+    const doc = exp.doc || {};
+    const seg = exp.seguimiento || {};
+    const firmado = (campo) => (doc[campo] ? 'firmado' : null);
+    switch (cubre) {
+        case 'anexo_i': return firmado('anexo_i_signed_link') || 'pendiente';
+        case 'convenio': {
+            // Punto 12: el consentimiento del IRPF va en el Convenio de la vía FM. Uno
+            // firmado ANTES de pasar a la vía no lo lleva: hay que volver a firmarlo.
+            // Y en la VISTA PREVIA (el expediente aún va por la vigente) cualquier
+            // Convenio firmado es sin cláusula: solo la lleva el de un número FM.
+            if (!doc.anexo_cesion_signed_link) return 'pendiente';
+            if (!require('../utils/fichas').esNumeroFm(exp.numero_expediente)) return 'sin_clausula';
+            const activada = exp.via_fm?.activada_at;
+            const firmadoAt = doc.anexo_cesion_signed_at;
+            return activada && (!firmadoAt || firmadoAt < activada) ? 'sin_clausula' : 'firmado';
+        }
+        case 'cifo': return firmado('cert_cifo_signed_link') || 'pendiente';
+        case 'anexo_fotografico': return firmado('anexo_fotografico_signed_link') || 'pendiente';
+        case 'DOC_RITE': return doc.cert_rite_drive_link || (uploads.DOC_RITE || []).length ? 'aportado' : 'pendiente';
+        case 'DOC_FACTURAS': return (doc.facturas || []).length || (uploads.DOC_FACTURAS || []).length ? 'aportado' : 'pendiente';
+        // Mismo criterio que `ceeFinalOk` del checklist de validación.
+        case 'cee_final': return doc.fecha_registro_cee_final || String(seg.cee_final || '').toUpperCase() === 'REGISTRADO' ? 'registrado' : 'pendiente';
+        default: return null;
+    }
+}
+
+async function cargarViaFm(id) {
+    const { data: exp, error } = await supabase
+        .from('expedientes')
+        .select([
+            'id', 'numero_expediente', 'estado', 'lote_id', 'oportunidad_id', 'seguimiento',
+            'via_fm:documentacion->via_fm',
+            'fm_docs:documentacion->fm_docs',
+            'facturas:documentacion->facturas',
+            'anexo_i_signed_link:documentacion->>anexo_i_signed_link',
+            'anexo_cesion_signed_link:documentacion->>anexo_cesion_signed_link',
+            'anexo_cesion_signed_at:documentacion->>anexo_cesion_signed_at',
+            'cert_cifo_signed_link:documentacion->>cert_cifo_signed_link',
+            'anexo_fotografico_signed_link:documentacion->>anexo_fotografico_signed_link',
+            'cert_rite_drive_link:documentacion->>cert_rite_drive_link',
+            'fecha_registro_cee_final:documentacion->>fecha_registro_cee_final',
+            'lf_e:cee->cee_final->>emisionesLetra', 'lf_c:cee->cee_final->>epnrLetra',
+            'li_e:cee->cee_inicial->>emisionesLetra', 'li_c:cee->cee_inicial->>epnrLetra',
+            'li_zona:cee->cee_inicial->>zonaClimatica',
+        ].join(', '))
+        .eq('id', id)
+        .maybeSingle();
+    if (error) throw Object.assign(new Error(error.message), { status: 503 });
+    if (!exp) return null;
+    const { data: op } = await supabase
+        .from('oportunidades')
+        .select('zona:datos_calculo->>zona, inputs:datos_calculo->inputs, uploads:datos_calculo->reforma_uploads')
+        .eq('id', exp.oportunidad_id)
+        .maybeSingle();
+    exp.doc = {
+        anexo_i_signed_link: exp.anexo_i_signed_link, anexo_cesion_signed_link: exp.anexo_cesion_signed_link,
+        cert_cifo_signed_link: exp.cert_cifo_signed_link, anexo_fotografico_signed_link: exp.anexo_fotografico_signed_link,
+        cert_rite_drive_link: exp.cert_rite_drive_link, facturas: Array.isArray(exp.facturas) ? exp.facturas : [],
+        fecha_registro_cee_final: exp.fecha_registro_cee_final,
+        anexo_cesion_signed_at: exp.anexo_cesion_signed_at,
+    };
+    return { exp, op: op || {} };
+}
+
+function respuestaViaFm({ exp, op }) {
+    const viaFm = require('../utils/viaFm');
+    const fichas = require('../utils/fichas');
+    const inputs = op.inputs || {};
+    const uploads = op.uploads || {};
+    const ficha = fichas.fichaFromNumero(exp.numero_expediente);
+    const ctx = viaFm.contextoFm({
+        numero: exp.numero_expediente,
+        datos: exp.via_fm || {},
+        inputs,
+        zona: op.zona || inputs.zona || exp.li_zona || null,
+        letrasFinal: [exp.lf_e, exp.lf_c],
+        letrasInicial: [exp.li_e, exp.li_c],
+    });
+    // Para enseñar lo que pediría ANTES de pasar a la vía, se calcula como si lo fuera.
+    const ctxVista = ctx.activa ? ctx : viaFm.contextoFm({
+        numero: String(exp.numero_expediente || '').replace(/^(\d{2})(RES060|RES093)_/, '$1$2FM_'),
+        datos: exp.via_fm || {}, inputs, zona: op.zona || inputs.zona || exp.li_zona || null,
+        letrasFinal: [exp.lf_e, exp.lf_c], letrasInicial: [exp.li_e, exp.li_c],
+    });
+    // Los que GENERA la app: firmado = ya está en su apartado del gestor; borrador =
+    // generado y esperando firma (`documentacion.fm_docs`, sin enlace: el panel lo
+    // vuelve a maquetar para enseñarlo, y los enlaces de Drive son solo de ADMIN).
+    const fmDocs = exp.fm_docs || {};
+    const documentos = viaFm.documentosFm(ctxVista).map((d) => {
+        const n = d.slot ? (uploads[d.slot] || []).length : 0;
+        const b = d.genera ? fmDocs[d.genera] : null;
+        // Generado: firmado solo si lo subido es POSTERIOR al borrador de ahora
+        // (regenerarlo vuelve a pedir la firma, `firmadoVigente`).
+        const estadoGenerado = viaFm.firmadoVigente(uploads[d.slot], b?.drive_at) ? 'firmado' : (b?.drive_at ? 'borrador' : 'pendiente');
+        return {
+            ...d,
+            estado: d.slot
+                ? (d.genera ? estadoGenerado : (n ? 'aportado' : 'pendiente'))
+                : estadoDocCubierto(d.cubre, exp, uploads),
+            ficheros: d.slot ? n : undefined,
+            ...(d.genera ? {
+                firma: viaFm.GENERADOS_FM[d.genera]?.firma || null,
+                borrador: b?.drive_at ? { at: b.drive_at, por: b.por || null, signed_at: b.signed_at || null } : null,
+            } : {}),
+        };
+    });
+    // Inicio de la actuación: la primera factura que abre la obra (regla 93).
+    const fechasFact = (exp.doc.facturas || [])
+        .filter((f) => !f.motivo_no_inicio)
+        .map((f) => String(f.fecha_factura || f.fecha || '').slice(0, 10))
+        .filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f)).sort();
+    const inicioObra = fechasFact[0] || null;
+    const bloqueo = expedienteService.bloqueoCambioVia(exp);
+    return {
+        numero_expediente: exp.numero_expediente,
+        admite: fichas.admiteViaFm(ficha),
+        activa: ctx.activa,
+        bloqueo,
+        contexto: { ...ctxVista, activa: ctx.activa },
+        documentos,
+        vivienda_habitual: ctxVista.tipologia.clase === 'bloque' ? null
+            : viaFm.validarViviendaHabitual(ctxVista.datos.facturas_luz, inicioObra),
+        inicio_obra: inicioObra,
+        facturas_fuera_de_plazo: viaFm.facturasFueraDePlazo(exp.doc.facturas),
+    };
+}
+
+// GET /api/expedientes/:id/via-fm — el panel de la vía: qué pide, qué hay y qué falla.
+router.get('/:id/via-fm', staffOnly, async (req, res) => {
+    try {
+        const cargado = await cargarViaFm(req.params.id);
+        if (!cargado) return res.status(404).json({ error: 'Expediente no encontrado' });
+        res.json(respuestaViaFm(cargado));
+    } catch (err) {
+        console.error('Error GET expedientes/:id/via-fm:', err.message);
+        res.status(err.status || 500).json({ error: err.status === 503 ? 'La base de datos no responde' : 'No se pudo leer la vía FM', details: err.message });
+    }
+});
+
+// POST /api/expedientes/:id/via-fm — { activar: bool }. RENUMERA (serie propia).
+router.post('/:id/via-fm', staffOnly, async (req, res) => {
+    try {
+        if (typeof req.body?.activar !== 'boolean') return res.status(400).json({ error: 'Falta `activar` (true/false)' });
+        const usuario = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.nombre || req.user?.email || 'TRABAJADOR');
+        const r = await expedienteService.cambiarViaFm(req.params.id, { activar: req.body.activar, usuario });
+        const cargado = await cargarViaFm(req.params.id);
+        res.json({ ...r, via: cargado ? respuestaViaFm(cargado) : null });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/via-fm:', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+// PUT /api/expedientes/:id/via-fm/datos — los datos de la vía (`documentacion.via_fm`).
+// RPC de MERGE + clave en CLAVES_PROTEGIDAS: el autoguardado de la ficha no la pisa.
+router.put('/:id/via-fm/datos', staffOnly, async (req, res) => {
+    try {
+        const { sanearDatosFm } = require('../utils/viaFm');
+        const valor = { ...sanearDatosFm(req.body || {}), at: new Date().toISOString(), por: req.user?.email || null };
+        const { data: exp, error: e1 } = await supabase.from('expedientes').select('id').eq('id', req.params.id).maybeSingle();
+        if (e1) return res.status(503).json({ error: 'La base de datos no responde' });
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { error } = await supabase.rpc('merge_expediente_doc_json', { p_expediente_id: exp.id, p_field: 'via_fm', p_value: valor });
+        if (error) throw error;
+        const cargado = await cargarViaFm(req.params.id);
+        res.json({ ok: true, via: cargado ? respuestaViaFm(cargado) : null });
+    } catch (err) {
+        console.error('Error PUT expedientes/:id/via-fm/datos:', err.message);
+        res.status(500).json({ error: 'No se pudieron guardar los datos de la vía FM', details: err.message });
+    }
+});
+
+// POST /api/expedientes/:id/via-fm/documento/:genera — { html }. Guarda el BORRADOR
+// de un documento de firma de la vía FM (declaración del instalador, informado F/G,
+// oferta de mantenimiento, Anexo B) que el panel maqueta con logic/documentosFm.js:
+// PDF en «6. ANEXOS CAE» como `{nº} - {fichero}.pdf` (el anterior, a OLD) y el
+// sello en `documentacion.fm_docs[genera]` (RPC de MERGE, clave protegida). NO lo
+// envía a nadie: el cliente lo encuentra en su enlace de firma y el instalador en
+// el suyo. Lo firmado acaba en el apartado del gestor (`GENERADOS_FM[genera].slot`).
+router.post('/:id/via-fm/documento/:genera', staffOnly, async (req, res) => {
+    try {
+        const viaFm = require('../utils/viaFm');
+        const { esNumeroFm } = require('../utils/fichas');
+        const meta = viaFm.GENERADOS_FM[req.params.genera];
+        if (!meta) return res.status(404).json({ error: 'Documento de la vía FM desconocido' });
+        const html = req.body?.html;
+        // Solo la maqueta de logic/documentosFm.js (hojas `.fm-page`): no es un
+        // conversor de HTML a PDF de propósito general.
+        if (typeof html !== 'string' || html.length > 1500000 || !html.includes('class="fm-page"')) {
+            return res.status(400).json({ error: 'Falta el documento (html de la vía FM)' });
+        }
+        const { data: exp, error } = await supabase.from('expedientes')
+            .select('id, numero_expediente, oportunidad_id, fm_docs:documentacion->fm_docs')
+            .eq('id', req.params.id).maybeSingle();
+        if (error) return res.status(503).json({ error: 'La base de datos no responde' });
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!esNumeroFm(exp.numero_expediente)) return res.status(409).json({ error: 'El expediente no va por la vía del factor multiplicador' });
+        const { data: op } = await supabase.from('oportunidades')
+            .select('drive_folder_id:datos_calculo->>drive_folder_id, drive_folder_id_in:datos_calculo->inputs->>drive_folder_id')
+            .eq('id', exp.oportunidad_id).maybeSingle();
+        const driveFolderId = op?.drive_folder_id || op?.drive_folder_id_in;
+        if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
+
+        const driveService = require('../services/driveService');
+        const { documentoAPdf } = require('../services/pdfService');
+        const pdf = await documentoAPdf({ html });
+        const sub = await driveService.getOrCreateSubfolder(driveFolderId, '6. ANEXOS CAE');
+        const nombre = `${exp.numero_expediente} - ${meta.fichero}.pdf`;
+        try {
+            for (const prevId of (await driveService.findFilesByName(sub, nombre)) || []) {
+                await driveService.archiveExistingToOld(sub, prevId, nombre);
+            }
+        } catch (e) { console.warn('[via-fm/documento] no se pudo archivar el previo:', e.message); }
+        const saved = await driveService.saveFileToFolder(sub, nombre, 'application/pdf', pdf);
+        if (!saved?.link) throw new Error('No se pudo guardar el PDF en Drive');
+
+        const previo = (exp.fm_docs || {})[req.params.genera] || {};
+        const entrada = {
+            ...previo,
+            drive_link: saved.link, drive_id: saved.id || null,
+            drive_at: new Date().toISOString(), por: req.user?.email || null,
+        };
+        const { error: e2 } = await supabase.rpc('merge_expediente_doc_json', {
+            p_expediente_id: exp.id, p_field: 'fm_docs', p_value: { [req.params.genera]: entrada },
+        });
+        if (e2) throw e2;
+        const cargado = await cargarViaFm(req.params.id);
+        res.json({ ok: true, fichero: nombre, via: cargado ? respuestaViaFm(cargado) : null });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/via-fm/documento:', err.message);
+        res.status(500).json({ error: 'No se pudo generar el documento', details: err.message });
     }
 });
 

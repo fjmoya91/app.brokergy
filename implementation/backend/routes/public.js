@@ -82,6 +82,66 @@ function loadCedentes() {
     return _cedentesPromise;
 }
 
+// ── VÍA DEL FACTOR MULTIPLICADOR: los documentos que GENERA la app para firmar ──
+// (utils/viaFm.js · GENERADOS_FM). Los del CLIENTE se firman en /firmar-anexos,
+// junto al Anexo A y al Convenio; la declaración de la tipología, el INSTALADOR en
+// /instalador/:id. El borrador vive en `documentacion.fm_docs[genera]` y el firmado
+// acaba en su apartado del gestor, como si se hubiera subido desde ahí.
+// Devuelve { exp, op, docs } — docs vacío si el expediente no va por la vía FM.
+async function fmParaFirmar(expedienteId, quien) {
+    const viaFm = require('../utils/viaFm');
+    const { esNumeroFm } = require('../utils/fichas');
+    const { data: exp, error } = await supabase.from('expedientes')
+        .select([
+            'id', 'numero_expediente', 'oportunidad_id',
+            'via_fm:documentacion->via_fm', 'fm_docs:documentacion->fm_docs',
+            'lf_e:cee->cee_final->>emisionesLetra', 'lf_c:cee->cee_final->>epnrLetra',
+            'li_e:cee->cee_inicial->>emisionesLetra', 'li_c:cee->cee_inicial->>epnrLetra',
+            'li_zona:cee->cee_inicial->>zonaClimatica',
+        ].join(', '))
+        .eq('id', expedienteId).maybeSingle();
+    if (error) throw Object.assign(new Error(error.message), { status: 503 });
+    if (!exp || !esNumeroFm(exp.numero_expediente)) return { exp, op: null, docs: [] };
+    const { data: op } = await supabase.from('oportunidades')
+        .select('id, zona:datos_calculo->>zona, inputs:datos_calculo->inputs, uploads:datos_calculo->reforma_uploads')
+        .eq('id', exp.oportunidad_id).maybeSingle();
+    const inputs = op?.inputs || {};
+    const ctx = viaFm.contextoFm({
+        numero: exp.numero_expediente, datos: exp.via_fm || {}, inputs,
+        zona: op?.zona || inputs.zona || exp.li_zona || null,
+        letrasFinal: [exp.lf_e, exp.lf_c], letrasInicial: [exp.li_e, exp.li_c],
+    });
+    const docs = viaFm.generadosParaFirmar(ctx, { quien, fmDocs: exp.fm_docs || {}, uploads: op?.uploads || {} });
+    return { exp, op, docs };
+}
+
+// Guarda el FIRMADO de un documento FM en su apartado del gestor (slot único: el
+// firmado sustituye al anterior) y sella `fm_docs[genera].signed_at`.
+// `sellar: false` cuando la ruta reescribe `documentacion` entera después (la de
+// /anexos-upload): el sello lo pone ella en su copia, o lo borraría al guardar.
+async function guardarFirmadoFm({ exp, op, doc, buffer, subidoPor, sellar = true }) {
+    const { subidas, fallidas } = await reformaUploadService.subirFicherosASlot({
+        oportunidadUuid: op.id,
+        datosCalculo: { reforma_uploads: op.uploads || {} },
+        slotDef: { key: doc.slot, multiple: false },
+        archivos: [{ originalname: `${doc.slot}.pdf`, mimetype: 'application/pdf', buffer }],
+        subidoPor,
+    });
+    if (!subidas.length) throw new Error(fallidas[0]?.error || 'No se pudo guardar en Drive');
+    const entrada = { ...((exp.fm_docs || {})[doc.genera] || {}), signed_at: new Date().toISOString(), signed_por: subidoPor };
+    if (sellar) {
+        const { error } = await supabase.rpc('merge_expediente_doc_json', {
+            p_expediente_id: exp.id, p_field: 'fm_docs', p_value: { [doc.genera]: entrada },
+        });
+        if (error) console.warn('[vía FM] sello del firmado:', error.message);
+    }
+    return { subida: subidas[0], entrada };
+}
+
+// Los campos de fichero de los documentos FM que firma el CLIENTE: `fm_<genera>`.
+const CAMPOS_FM_CLIENTE = Object.entries(require('../utils/viaFm').GENERADOS_FM)
+    .filter(([, m]) => m.firma === 'cliente').map(([k]) => k);
+
 /**
  * La confirmación del cliente, lista para guardar en la oportunidad, o null si
  * no llegó (un navegador con la versión anterior de la página no la manda, y
@@ -2584,6 +2644,12 @@ router.get('/instalador/:expedienteId', async (req, res) => {
             memoria_subida: est.rite.memoriaRecibida,
             certificado_subido: est.rite.certificadoRecibido,
         });
+        // Vía FM: la declaración responsable de la TIPOLOGÍA (punto 1), si su ficha
+        // la pide y ya está generada. Se firma aquí mismo, como el CIFO.
+        try {
+            const fm = await fmParaFirmar(expedienteId, 'instalador');
+            for (const d of fm.docs) tareas.push({ key: 'fm_decl', genera: d.genera, hecho: d.firmado, titulo: d.label });
+        } catch (e) { console.warn('[instalador info] vía FM:', e.message); }
 
         // Dónde está la obra. Va aquí solo para que el instalador reconozca de qué
         // expediente le hablamos: la dirección de la INSTALACIÓN no es el domicilio
@@ -2606,6 +2672,62 @@ router.get('/instalador/:expedienteId', async (req, res) => {
     } catch (e) {
         console.error('[instalador] Error:', e);
         res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// ─── Vía FM: la DECLARACIÓN DE LA TIPOLOGÍA que firma el instalador ──────────
+// GET  /api/public/instalador/:id/fm-declaracion/pdf → { pdf } (base64), para firmar
+// POST /api/public/instalador/:id/fm-declaracion     → el firmado (campo `documento`)
+// El id del expediente (UUID) es el secreto del enlace, como /cifo-upload. Solo se
+// sirve y se acepta si la ficha FM del expediente lo pide y el borrador existe.
+router.get('/instalador/:expedienteId/fm-declaracion/pdf', async (req, res) => {
+    try {
+        const fm = await fmParaFirmar(req.params.expedienteId, 'instalador');
+        const d = fm.docs[0];
+        const fid = d?.drive_id || (String(d?.drive_link || '').match(/[-\w]{25,}/) || [])[0];
+        if (!fid) return res.status(404).json({ error: 'Este expediente no tiene una declaración preparada para firmar' });
+        const buf = await driveService.getFileContent(fid);
+        if (!buf || !buf.length) return res.status(502).json({ error: 'No se pudo descargar el documento' });
+        res.json({ pdf: Buffer.from(buf).toString('base64'), nombre: `${fm.exp.numero_expediente} - ${d.fichero}.pdf` });
+    } catch (e) {
+        console.error('[instalador fm-declaracion/pdf] Error:', e.message);
+        res.status(e.status || 500).json({ error: 'Error interno al obtener el documento' });
+    }
+});
+
+router.post('/instalador/:expedienteId/fm-declaracion', upload.single('documento'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+        const fm = await fmParaFirmar(req.params.expedienteId, 'instalador');
+        const d = fm.docs[0];
+        if (!d || !fm.op) return res.status(404).json({ error: 'Este expediente no tiene una declaración preparada para firmar' });
+        const buffer = req.file.mimetype === 'application/pdf' ? req.file.buffer
+            : (req.file.mimetype || '').startsWith('image/') ? await imageToPdf(req.file.buffer, req.file.mimetype) : req.file.buffer;
+        const { subida } = await guardarFirmadoFm({ exp: fm.exp, op: fm.op, doc: d, buffer, subidoPor: 'instalador' });
+        res.json({ success: true });
+
+        setImmediate(async () => {
+            const numexpte = fm.exp.numero_expediente;
+            const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
+            const msg = `✅ *Declaración de la tipología firmada*\nExpediente: *${numexpte}* (vía FM)\nLa ha subido el instalador desde su enlace. Está en su apartado del gestor (FM 1).`;
+            try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) { console.error('[fm-declaracion] WA notify:', e.message); }
+            try {
+                await emailService.sendDocumentEmail({
+                    to: process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com',
+                    subject: `✅ Declaración de la tipología firmada — ${numexpte}`,
+                    title: 'Declaración del instalador firmada',
+                    message: `El instalador ha firmado la *declaración responsable de la tipología* (punto 1 de la ficha FM) del expediente *${numexpte}*.\n\nQueda pendiente de revisión por vuestra parte.`,
+                    primaryLink: subida?.link || null,
+                    primaryLabel: '📄 Ver documento en Drive',
+                    secondaryLink: `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${fm.exp.id}`,
+                    secondaryLabel: '📂 Abrir expediente en la app',
+                    pill: { tone: 'success', text: 'Declaración firmada', emoji: '✅' },
+                });
+            } catch (e) { console.error('[fm-declaracion] Email notify:', e.message); }
+        });
+    } catch (e) {
+        console.error('[instalador fm-declaracion] Error:', e);
+        res.status(e.status || 500).json({ error: 'Error al procesar la subida', message: e.message });
     }
 });
 
@@ -3272,10 +3394,19 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
         const refirmaI = refirmaPendiente(doc, 'anexo_i');
         const refirmaC = refirmaPendiente(doc, 'anexo_cesion');
         const req0 = doc.requerimiento_firma || null;
+        // Vía FM: el «Anexo I» es el ANEXO A, y los documentos generados que firma
+        // el cliente (informado F/G, oferta de mantenimiento, Anexo B) van aquí.
+        let fmDocs = [];
+        try {
+            fmDocs = (await fmParaFirmar(expedienteId, 'cliente')).docs
+                .map(d => ({ key: d.genera, label: d.label, corto: d.corto, firmado: d.firmado }));
+        } catch (e) { console.warn('[anexos-upload info] vía FM:', e.message); }
         res.json({
             numero_expediente: exp.numero_expediente,
             cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
             cedentes,
+            anexo_a: require('../utils/fichas').esNumeroFm(exp.numero_expediente),
+            fm_docs: fmDocs,
             // qué documentos se enviaron / esperamos de vuelta
             anexo_i_pedido: !!(doc.anexo_i_drive_link || doc.anexo_i_sent_at),
             anexo_cesion_pedido: !!(doc.anexo_cesion_drive_link || doc.anexo_cesion_sent_at),
@@ -3786,6 +3917,8 @@ router.post('/anexos-upload/:expedienteId',
             { name: `dni_trasero_${i}`, maxCount: 1 },
             { name: `dni_pdf_${i}`, maxCount: 1 },
         ]),
+        // Vía FM: los documentos generados que firma el cliente (fm_informado_fg…).
+        ...CAMPOS_FM_CLIENTE.map(k => ({ name: `fm_${k}`, maxCount: 1 })),
     ]),
     async (req, res) => {
         try {
@@ -3808,8 +3941,11 @@ router.post('/anexos-upload/:expedienteId',
                 trasero: req.files?.[`dni_trasero_${i}`]?.[0] || null,
                 pdf: req.files?.[`dni_pdf_${i}`]?.[0] || null,
             })).filter(d => d.frontal || d.trasero || d.pdf);
+            const fmFiles = CAMPOS_FM_CLIENTE
+                .map(k => ({ genera: k, file: req.files?.[`fm_${k}`]?.[0] || null }))
+                .filter(x => x.file);
 
-            if (!anexoIFile && !cesionFile && !dniFrontFile && !dniBackFile && !dniPdfFile) {
+            if (!anexoIFile && !cesionFile && !dniFrontFile && !dniBackFile && !dniPdfFile && !fmFiles.length) {
                 return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
             }
             // Si la Cesión es manuscrita, necesitamos el DNI para anexarlo: las dos
@@ -3872,13 +4008,31 @@ router.post('/anexos-upload/:expedienteId',
             const recibido = [];
             const camposSubidos = [];
 
-            // Anexo I firmado
+            // Anexo I firmado (en la vía FM, el ANEXO A: mismo hueco, otro nombre)
+            const esFm = require('../utils/fichas').esNumeroFm(numexpte);
             if (anexoIFile) {
                 const buf = await toPdfBuffer(anexoIFile);
-                const r = await saveReplacing(`${numexpte} - Anexo I_fdo.pdf`, buf);
+                const r = await saveReplacing(`${numexpte} - ${esFm ? 'Anexo A' : 'Anexo I'}_fdo.pdf`, buf);
                 if (r?.link) {
-                    docUpdate.anexo_i_signed_link = r.link; camposSubidos.push('anexo_i_signed_link'); recibido.push('Anexo I firmado');
+                    docUpdate.anexo_i_signed_link = r.link; camposSubidos.push('anexo_i_signed_link'); recibido.push(`${esFm ? 'Anexo A' : 'Anexo I'} firmado`);
                     if (firmaOrigen) docUpdate.anexo_i_firma_origen = firmaOrigen;
+                }
+            }
+
+            // Vía FM: informado F/G, oferta de mantenimiento, Anexo B. Van a su
+            // apartado del gestor; el sello, en la copia que se guarda al final
+            // (esta ruta reescribe `documentacion` entera: un RPC aparte se perdería).
+            if (fmFiles.length) {
+                const fm = await fmParaFirmar(expedienteId, 'cliente');
+                for (const { genera, file } of fmFiles) {
+                    const d = fm.docs.find(x => x.genera === genera);
+                    if (!d || !fm.op) { console.warn(`[anexos-upload] ${genera}: no se le ha pedido`); continue; }
+                    const { entrada } = await guardarFirmadoFm({
+                        exp: { ...fm.exp, fm_docs: docUpdate.fm_docs || fm.exp.fm_docs }, op: fm.op, doc: d,
+                        buffer: await toPdfBuffer(file), subidoPor: 'cliente', sellar: false,
+                    });
+                    docUpdate.fm_docs = { ...(docUpdate.fm_docs || {}), [genera]: { ...entrada, ...(firmaOrigen ? { firma_origen: firmaOrigen } : {}) } };
+                    recibido.push(`${d.corto} firmado`);
                 }
             }
 
@@ -4043,6 +4197,19 @@ router.get('/anexos-upload/:expedienteId/descargar/:doc', async (req, res) => {
             .maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         const d = exp.documentacion || {};
+        // Vía FM: un documento generado que firma el cliente (solo si su ficha lo
+        // pide y el borrador existe: `fmParaFirmar`).
+        if (CAMPOS_FM_CLIENTE.includes(doc)) {
+            const fm = await fmParaFirmar(expedienteId, 'cliente');
+            const f = fm.docs.find(x => x.genera === doc);
+            const fid = f?.drive_id || (String(f?.drive_link || '').match(/[-\w]{25,}/) || [])[0];
+            if (!fid) return res.status(404).json({ error: 'Documento no disponible' });
+            const buf = await require('../services/driveService').getFileContent(fid);
+            if (!buf || !buf.length) return res.status(404).json({ error: 'No se pudo obtener el documento' });
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="${exp.numero_expediente} - ${f.fichero}.pdf"`);
+            return res.send(buf);
+        }
         const link = doc === 'anexo_i' ? d.anexo_i_drive_link : doc === 'cesion' ? d.anexo_cesion_drive_link : null;
         if (!link) return res.status(404).json({ error: 'Documento no disponible' });
         // Anexo rechazado y todavía sin corregir: no se sirve. La página ya no lo
@@ -4060,7 +4227,8 @@ router.get('/anexos-upload/:expedienteId/descargar/:doc', async (req, res) => {
         const { getFileContent } = require('../services/driveService');
         const buf = await getFileContent(fileId);
         if (!buf || !buf.length) return res.status(404).json({ error: 'No se pudo obtener el documento' });
-        const fname = doc === 'anexo_i' ? `${exp.numero_expediente} - Anexo I.pdf` : `${exp.numero_expediente} - Anexo Cesion.pdf`;
+        const anexoI = require('../utils/fichas').esNumeroFm(exp.numero_expediente) ? 'Anexo A' : 'Anexo I';
+        const fname = doc === 'anexo_i' ? `${exp.numero_expediente} - ${anexoI}.pdf` : `${exp.numero_expediente} - Anexo Cesion.pdf`;
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
         res.send(buf);

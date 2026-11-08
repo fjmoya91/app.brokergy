@@ -28,6 +28,7 @@ import { ErrorBoundary } from '../../../components/ErrorBoundary';
 import { HistorialModal } from '../../../components/HistorialModal';
 import { useBotonCe3x } from '../../cee-ia/useBotonCe3x';
 import { EstimacionCiega } from './EstimacionCiega';
+import { ConmutadorViaFm } from './ConmutadorViaFm';
 
 const formatNumber = (val, decimals = null) => {
     const num = typeof val === 'number' ? val : parseFloat(val);
@@ -252,7 +253,7 @@ function ResultCard({ title, value, unit, subtext, color = 'cyan' }) {
     );
 }
 
-export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity, showEficiencia, setShowEficiencia, onOpenRes060FCDetail }) {
+export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity, showEficiencia, setShowEficiencia, onOpenRes060FCDetail, expedienteAsociado = null }) {
     const { user } = useAuth();
     const { showAlert } = useModal();
     const [showComparative, setShowComparative] = React.useState(false);
@@ -1260,9 +1261,39 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                 )}
                             </div>
 
-                            {/* ── Ficha RES060FC (propuesta de nueva normativa) — comparativa en tiempo real ── */}
+                            {/* ── La VÍA elegida (inputs.ruta_fm): solo el equipo interno, sin importes ── */}
+                            {isStaff && (
+                                <ConmutadorViaFm
+                                    inputs={inputs}
+                                    result={result}
+                                    onInputChange={onInputChange}
+                                    sinGuardar={isDirty}
+                                    expediente={expedienteAsociado}
+                                    conTarjetaFm={!!showBrokergy}
+                                />
+                            )}
+
+                            {/* ── Vía del FACTOR MULTIPLICADOR (Resolución publicada, BOE-A-2026-23367) — comparativa en tiempo real ── */}
                             {showBrokergy && (() => {
                                 const fc = result.res060fc;
+                                const cabecera = (ficha) => (
+                                    <span className="text-xs font-bold uppercase tracking-wider text-violet-300">Vía FM · {ficha} · BOE 7/11/2026</span>
+                                );
+
+                                if (!fc) {
+                                    return (
+                                        <div className="mt-4 glass-card overflow-hidden border-violet-500/30">
+                                            <div className="bg-violet-900/40 py-2 px-4 border-b border-violet-500/20 flex items-center gap-2">
+                                                <div className="w-2 h-2 rounded-full bg-violet-400"></div>
+                                                {cabecera('RES060_FM')}
+                                            </div>
+                                            <p className="p-4 text-xs text-slate-400 leading-relaxed">
+                                                Para calcular la vía del <b className="text-violet-300">factor multiplicador</b> hace falta la <b>superficie</b> y una demanda de calefacción (la de un CEE o la de la simulación).
+                                            </p>
+                                        </div>
+                                    );
+                                }
+
                                 const provSelect = (
                                     <select
                                         value={inputs.provincia || ''}
@@ -1275,7 +1306,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                 zona: PROVINCE_CLIMATE_MAP[code]?.zone || prev.zona,
                                             }));
                                         }}
-                                        className="bg-slate-900 border border-violet-500/30 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-400"
+                                        className="bg-slate-900 border border-violet-500/30 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-violet-400"
                                     >
                                         <option value="">— Provincia —</option>
                                         {Object.entries(PROVINCE_CLIMATE_MAP)
@@ -1286,40 +1317,6 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     </select>
                                 );
 
-                                if (!fc) {
-                                    return (
-                                        <div className="mt-4 glass-card overflow-hidden border-violet-500/30">
-                                            <div className="bg-violet-900/40 py-2 px-4 border-b border-violet-500/20 flex items-center gap-2">
-                                                <div className="w-2 h-2 rounded-full bg-violet-400"></div>
-                                                <span className="text-xs font-bold uppercase tracking-wider text-violet-300">Ficha RES060FC · Nueva normativa (propuesta)</span>
-                                            </div>
-                                            <div className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                                                <p className="text-xs text-slate-400 flex-1 leading-relaxed">
-                                                    Para simular el cálculo con la nueva ficha <b className="text-violet-300">RES060FC</b> hace falta la <b>provincia</b> (la demanda sale del Anexo IV por provincia y año de construcción). Selecciónala:
-                                                </p>
-                                                {provSelect}
-                                            </div>
-                                        </div>
-                                    );
-                                }
-
-                                if (fc.noAnexoData) {
-                                    return (
-                                        <div className="mt-4 glass-card overflow-hidden border-violet-500/30">
-                                            <div className="bg-violet-900/40 py-2 px-4 border-b border-violet-500/20 flex items-center gap-2">
-                                                <div className="w-2 h-2 rounded-full bg-violet-400"></div>
-                                                <span className="text-xs font-bold uppercase tracking-wider text-violet-300">Ficha RES060FC · Nueva normativa (propuesta)</span>
-                                            </div>
-                                            <div className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                                                <p className="text-xs text-slate-400 flex-1 leading-relaxed">
-                                                    El Anexo IV del borrador <b>no publica demanda</b> para <b className="text-white">{fc.provinciaNombre}</b> (Canarias, Ceuta y Melilla), así que no se puede calcular la ficha RES060FC aquí.
-                                                </p>
-                                                {provSelect}
-                                            </div>
-                                        </div>
-                                    );
-                                }
-
                                 const actKwh = result.savings?.savingsKwh || 0;
                                 const actEur = result.financials?.caeBonus || 0;
                                 const fcKwh = fc.cae;
@@ -1329,14 +1326,20 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                 const diffEur = fcEur - actEur;
                                 const avisosFc = (fc.avisos || []).filter(a => a.tono !== 'info');
                                 const nInfo = (fc.avisos || []).length - avisosFc.length;
-                                const cefDe = fc.cefFuente === 'cee' ? 'del CEE inicial' : 'estimado';
+                                // De dónde sale la D_cal: la ficha usa la del CEE POSTERIOR.
+                                const dcalDe = {
+                                    cee_final: 'del CEE final',
+                                    cee_inicial: 'del CEE inicial',
+                                    simulacion: 'estimada (sin CEE)',
+                                }[fc.dcalFuente] || 'sin dato';
+                                const dcalDelCee = fc.dcalFuente === 'cee_final' || fc.dcalFuente === 'cee_inicial';
 
                                 return (
                                     <div className="mt-4 glass-card overflow-hidden border-violet-500/30 shadow-[0_0_20px_rgba(139,92,246,0.1)]">
                                         <div className="bg-violet-900/40 py-2 px-4 border-b border-violet-500/20 flex items-center justify-between gap-2 flex-wrap">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-2 h-2 rounded-full bg-violet-400"></div>
-                                                <span className="text-xs font-bold uppercase tracking-wider text-violet-300">Ficha {fc.ficha} · Nueva normativa (propuesta)</span>
+                                                {cabecera(fc.ficha)}
                                             </div>
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 {fc.elegible === false && (
@@ -1344,10 +1347,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                         No elegible
                                                     </span>
                                                 )}
-                                                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${fc.limitedByTope
-                                                    ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
-                                                    : 'bg-lime-500/20 text-lime-300 border border-lime-500/30'}`}>
-                                                    {fc.limitedByTope ? `Tope 70%·CEF${fc.hibridacion ? ' de calefacción' : ''} (${cefDe})` : 'Techo técnico (demanda/η/SCOP)'}
+                                                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${dcalDelCee
+                                                    ? 'bg-lime-500/20 text-lime-300 border border-lime-500/30'
+                                                    : 'bg-orange-500/20 text-orange-300 border border-orange-500/30'}`}>
+                                                    D_cal {dcalDe}{fc.limitadoPorTabla ? ' · tope 2×Anexo IV' : ''}
                                                 </span>
                                                 {onOpenRes060FCDetail && (
                                                     <button
@@ -1372,29 +1375,18 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                 </ul>
                                             )}
 
-                                            {/* Piso o bloque: la tabla del Anexo IV va por las plantas del EDIFICIO */}
-                                            {(fc.clase === 'piso' || fc.clase === 'bloque') && (
+                                            {/* Unifamiliar sin provincia: el tope de la D_cal (2 × Anexo IV) va por provincia */}
+                                            {fc.clase === 'unifamiliar' && fc.provinciaIndex < 0 && (
                                                 <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-400">
-                                                    <span>Plantas del edificio:</span>
-                                                    {[['1-3', '1 a 3'], ['4+', '4 o más']].map(([v, label]) => (
-                                                        <button
-                                                            key={v}
-                                                            type="button"
-                                                            onClick={() => onInputChange(prev => ({ ...prev, fcPlantasEdificio: v }))}
-                                                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-all ${inputs.fcPlantasEdificio === v
-                                                                ? 'bg-violet-500/30 border-violet-400 text-white'
-                                                                : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'}`}
-                                                        >
-                                                            {label}
-                                                        </button>
-                                                    ))}
+                                                    <span>Provincia (para el tope de la D_cal):</span>
+                                                    {provSelect}
                                                 </div>
                                             )}
 
-                                            {/* Comparativa en tiempo real: ficha FC vs ficha vigente */}
+                                            {/* Comparativa en tiempo real: vía FM vs ficha vigente */}
                                             <div className="space-y-3">
                                                 <div className="flex justify-between items-baseline gap-3">
-                                                    <span className="text-[10px] font-black uppercase tracking-widest text-violet-300">{fc.ficha} (propuesta)</span>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-violet-300">{fc.ficha} (vía FM)</span>
                                                     <span className="flex items-baseline gap-2">
                                                         <span className="text-2xl font-black text-violet-300 tabular-nums">{formatNumber(fcKwh, 0)} <span className="text-[10px] font-bold text-violet-400/60 uppercase">kWh/año</span></span>
                                                         <span className="text-sm font-bold text-violet-200 tabular-nums">{formatNumber(fcEur, 0)} €</span>
@@ -1418,25 +1410,26 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                             <div className={`flex items-center justify-center gap-3 p-3 rounded-xl ${diffEur >= 0 ? 'bg-violet-500/10 border border-violet-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
                                                 <span className={`text-2xl font-black tabular-nums ${diffEur >= 0 ? 'text-violet-300' : 'text-red-400'}`}>{ratio > 0 ? `${formatNumber(ratio, 2)}×` : '—'}</span>
                                                 <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 leading-tight">
-                                                    {diffEur >= 0 ? 'más bono con la ficha nueva' : 'menos bono con la ficha nueva'}<br />
+                                                    {diffEur >= 0 ? 'más bono por la vía FM' : 'menos bono por la vía FM'}<br />
                                                     <span className={diffEur >= 0 ? 'text-violet-300' : 'text-red-400'}>{diffEur >= 0 ? '+' : ''}{formatNumber(diffEur, 0)} € · {formatNumber(fcKwh - actKwh, 0)} kWh/año</span>
                                                 </span>
                                             </div>
 
                                             {/* Desglose del cálculo */}
                                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-[11px] pt-1 border-t border-white/5">
-                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Anexo IV ({fc.provinciaNombre})</span><span className="text-white/70 font-mono">{formatNumber(fc.q, 1)} kWh/m²</span></div>
-                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Demanda ({fc.yearLabel}{fc.anioSupuesto ? ', supuesto' : ''})</span><span className="text-white/70 font-mono">{formatNumber(fc.dem, 0)} kWh</span></div>
-                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">η caldera / f_C{fc.hibridacion ? ' / C_b' : ''}</span><span className="text-white/70 font-mono">{formatNumber(fc.eta * 100, 0)}% / {formatNumber(fc.fc, 1)}{fc.hibridacion ? ` / ${formatNumber(fc.cb * 100, 1)}%` : ''}</span></div>
-                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">AES (techo técnico)</span><span className="text-white/70 font-mono">{formatNumber(fc.aes, 0)} kWh</span></div>
-                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Tope 0,70·CEF ({cefDe})</span><span className="text-white/70 font-mono">{fc.tope != null ? `${formatNumber(fc.tope, 0)} kWh` : '—'}</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">D_cal ({dcalDe})</span><span className="text-white/70 font-mono">{formatNumber(fc.dcal, 1)} kWh/m²</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">S · D_cal·S</span><span className="text-white/70 font-mono">{formatNumber(fc.superficie, 0)} m² · {formatNumber(fc.dem, 0)} kWh</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">D_ACS ({fc.conAcs ? `${fc.dAcsEspecifica}·S` : fc.acsSupuesto ? `${fc.dAcsEspecifica}·S, supuesto` : 'sin ACS'})</span><span className="text-white/70 font-mono">{formatNumber(fc.dacs, 0)} kWh</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">η caldera / f_M{fc.hibridacion ? ' / C_b' : ''}</span><span className="text-white/70 font-mono">{formatNumber(fc.eta * 100, 0)}% / {formatNumber(fc.fm, 1)}{fc.hibridacion ? ` / ${formatNumber(fc.cb, 3)}` : ''}</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Ahorro sin f_M</span><span className="text-white/70 font-mono">{formatNumber(fc.aes, 0)} kWh</span></div>
                                                 <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Tipología</span><span className="text-white/70 font-mono">{fc.tipologiaLabel}</span></div>
+                                                {fc.dcalTope != null && (
+                                                    <div className="flex justify-between gap-2 pt-2 col-span-2 sm:col-span-3"><span className="text-slate-500">Tope unifamiliar: 2 × Anexo IV ({fc.provinciaNombre}, {fc.yearLabel}{fc.anioSupuesto ? ', supuesto' : ''})</span><span className="text-white/70 font-mono">{formatNumber(fc.dcalTope, 1)} kWh/m²{fc.limitadoPorTabla ? ' · aplicado' : ''}</span></div>
+                                                )}
                                             </div>
 
                                             <p className="text-[10px] text-slate-500 italic leading-relaxed">
-                                                {fc.hibridacion
-                                                    ? `AE = mín(AES; 0,70·CEF de calefacción) × f_C, con el AES ponderado por el C_b de la zona ${fc.zonaCb}`
-                                                    : 'AE = mín(AES; 0,70·CEF) × f_C'}, con demanda del Anexo IV por provincia/año y el mismo SCOP que el cálculo actual; f_C aplicado una vez. CEF {cefDe}: {fc.cef ? `${formatNumber(fc.cef, 0)} kWh/año` : 'sin dato'}.{nInfo > 0 ? ` Plazos y requisitos (${nInfo}) en «Ver desglose».` : ''} Borrador en consulta pública: puede cambiar.
+                                                AE = [D_cal·S·(1/η − 1/SCOP) + D_ACS·(1/η − 1/SCOP_dhw)]{fc.hibridacion ? ` × C_b (${fc.fuenteBomba}, zona ${fc.zonaCb})` : ''} × f_M, sin tope de CEF; D_cal y S del CEE posterior y el mismo SCOP que el cálculo vigente.{nInfo > 0 ? ` Plazos, cupo y requisitos (${nInfo}) en «Ver desglose».` : ''} Se presenta desde el 15/01/2027 y el cupo va por orden de resolución: no está garantizado.
                                             </p>
                                         </div>
                                     </div>

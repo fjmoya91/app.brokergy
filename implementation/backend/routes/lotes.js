@@ -33,7 +33,7 @@ const { contarIncidenciasAbiertas } = require('../utils/incidenciasAbiertas');
 const { archivarFacturaVenta } = require('../services/facturaContabilidad');
 const anexoActuacion = require('../services/anexoActuacionService');
 const solicitudCae = require('../services/solicitudCaeService');
-const { detectPrograma } = require('../utils/fichas');
+const { detectPrograma, esNumeroFm } = require('../utils/fichas');
 const {
     casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLote,
     aplicarAhorrosVerificados, aplicarDatosDictamen, aplicarOrdenActuacion,
@@ -2081,6 +2081,15 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
         // En serie: cada anexo carga la plantilla (2 MB) y sube a Drive. Cinco a la
         // vez no ganan tiempo y sí multiplican la memoria y las llamadas a Google.
         for (const e of exps) {
+            // Vía del FACTOR MULTIPLICADOR: su ficha (RES060_FM, RES09x_FM…) aún NO
+            // está en el desplegable del impreso oficial (115 opciones, medido el
+            // 07/11/2026). Rellenarlo con la RES060 declararía otra ficha: no se genera.
+            if (esNumeroFm(e.numero_expediente)) {
+                const { contextoFm } = require('../utils/viaFm');
+                const codigo = contextoFm({ numero: e.numero_expediente, datos: e.documentacion?.via_fm || {} }).fichaOficial.codigo;
+                incompletos.push({ numero_expediente: e.numero_expediente, faltan: [`que el impreso del MITECO traiga la ficha ${codigo} en su desplegable (todavía no la trae)`] });
+                continue;
+            }
             const ficha = detectPrograma(e);
             const orden = Number(e.instalacion?.verificacion?.orden_actuacion) || null;
             const d = anexoActuacion.datosDesdeExpediente(e, { orden, ficha, dictamen });

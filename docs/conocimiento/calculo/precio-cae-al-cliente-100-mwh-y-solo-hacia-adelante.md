@@ -126,3 +126,14 @@ Node, el listado y el panel del detalle; el Económico y el Anexo I/Convenio
 (`getClientCaeRate`) toman `caePriceClientRes080` antes que `caePriceClient` en un RES080.
 Un RES060/RES093 no cambia en nada. Las dos claves se quitan del payload del certificador
 (`MONEY_KEYS_*`, `routes/expedientes.js`).
+
+### Y un tercero: el precio de la vía del FACTOR MULTIPLICADOR (2026-11-07)
+
+Fran: «mismo precio para ambos, pero dar la posibilidad de elegir precio por formato de
+ficha, igual que se hace ya en RES060 y RES080». **El mismo patrón**: `inputs.caePriceClientFm`
+(casilla «CAE RES060_FM», solo ADMIN), `precioCaeFm(inputs)` cae al general, se sella como
+`cae_client_rate_fm` con la misma condición y solo si difiere (`precioSelladoFm`). Mueve SOLO
+la vía FM (la comparativa de la calculadora, la columna «Vía FM» y la comparativa del
+expediente); la vigente y la propuesta no cambian. A diferencia del RES080, es de ADMIN: se
+quita a los demás (`SOLO_ADMIN_DEEP`) y al guardar un no-ADMIN se restaura. Detalle en
+[factor-multiplicador-la-resolucion-publicada-res060-fm.md](factor-multiplicador-la-resolucion-publicada-res060-fm.md).

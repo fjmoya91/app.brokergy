@@ -67,6 +67,16 @@ const CLAVES_PROTEGIDAS = [
     // `scripts/aceptacion.js`, con la RPC de MERGE: una copia vieja lo borraría y
     // la subida siguiente del cliente ya no reabriría la revisión.
     'aceptacion_agente',
+    // Los datos de la vía del FACTOR MULTIPLICADOR (tipología, vulnerable, caldera,
+    // baja tensión, facturas de luz…). Solo los escribe PUT /:id/via-fm/datos con la
+    // RPC de MERGE: una copia vieja del navegador devolvería el checklist FM a lo de
+    // antes (y desaparecerían los apartados del vulnerable).
+    'via_fm',
+    // Los BORRADORES de los documentos de firma de la vía FM que genera la app
+    // (declaración del instalador, informado F/G, oferta de mantenimiento, Anexo B):
+    // enlace de Drive y sellos de generado y firmado. Solo los escriben
+    // POST /:id/via-fm/documento/:genera y las subidas públicas de los firmados.
+    'fm_docs',
 ];
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');

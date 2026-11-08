@@ -1,12 +1,14 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { precioCaeFm } from '../logic/calculation';
 
-// Popup de desglose de la ficha con FACTOR DE CORRECCIÓN (borrador): RES060FC, o la
-// RES09xFC de la zona si hay hibridación (logic/res060fc.js).
+// Popup de desglose de la vía del FACTOR MULTIPLICADOR (Resolución publicada,
+// BOE-A-2026-23367): RES060_FM, o la RES09x_FM de la zona si hay hibridación
+// (logic/res060fc.js; conserva el nombre de cuando era el borrador «FC»).
 // Estilo del prototipo `prototypes/calculadora-cae-res060fc`: panel oscuro, acento
-// naranja→lima, número en degradado, badge TECHO TÉCNICO / TOPE 70%·CEF, comparativa
-// con barras, desglose del cálculo y los AVISOS de elegibilidad, que van siempre
-// con la cifra (es un borrador). Solo lectura.
+// naranja→lima, número en degradado, badge de DÓNDE sale la D_cal (CEE final,
+// inicial o estimada), comparativa con barras, desglose del cálculo y los AVISOS de
+// elegibilidad, que van siempre con la cifra (cupo, fechas, requisitos). Solo lectura.
 //
 // Se renderiza por PORTAL a document.body: cualquier ancestro con `backdrop-filter`
 // (p. ej. el panel económico sticky del expediente) crea un containing block que
@@ -46,33 +48,43 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
     const ratio = actKwh > 0 ? fc.cae / actKwh : 0;
     const diffKwh = fc.cae - actKwh;
     const diffEur = fcEur - actEur;
-    const acsIncluido = inputs?.changeAcs || inputs?.incluir_acs;
+    const acsIncluido = fc.conAcs ?? (inputs?.changeAcs || inputs?.incluir_acs);
+    // Sin ACS en la simulación, la vía FM lo suma COMO SI se añadiera (logic/res060fc.js).
+    const acsSupuesto = !acsIncluido && !!fc.acsSupuesto;
+    const acsEnCifra = acsIncluido || acsSupuesto;
     const avisos = fc.avisos || [];
-    const cefDe = fc.cefFuente === 'cee' ? 'del CEE inicial' : (fc.cefFuente === 'estimado' ? 'estimado' : 'sin dato');
-    const topeLabel = fc.hibridacion ? 'TOPE 70%·CEF CALEF.' : 'TOPE 70%·CEF';
+    // De dónde sale la D_cal: la ficha usa la del CEE POSTERIOR.
+    const dcalDe = {
+        cee_final: 'del CEE final',
+        cee_inicial: 'del CEE inicial',
+        simulacion: 'estimada (sin CEE)',
+    }[fc.dcalFuente] || 'sin dato';
+    const dcalDelCee = fc.dcalFuente === 'cee_final' || fc.dcalFuente === 'cee_inicial';
+    const n3 = (v) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(v || 0);
 
     const entradas = [
-        ['Provincia', fc.provinciaNombre],
-        ['Año', fc.anioSupuesto ? `${fc.yearLabel} (supuesto)` : fc.yearLabel],
+        ['Provincia', fc.provinciaNombre || '—'],
+        ['Año', fc.clase !== 'unifamiliar' ? '—' : (fc.anioSupuesto ? `${fc.yearLabel} (supuesto)` : fc.yearLabel)],
         ['Tipología', fc.tipologiaLabel],
         ['Superficie', `${n0(fc.superficie)} m²`],
         ['SCOP calef.', n2(parseFloat(inputs?.scopHeating) || 0)],
-        ['SCOP ACS', acsIncluido ? n2(parseFloat(inputs?.scopAcs) || 0) : '—'],
-        ['D_ACS', `${n0(parseFloat(inputs?.dacs) || 2731.4)} kWh`],
-        ['Precio CAE', `${n0(parseFloat(inputs?.caePriceClient) || 0)} €/MWh`],
+        ['SCOP ACS', acsEnCifra ? `${n2(fc.scopAcs || parseFloat(inputs?.scopAcs) || 0)}${acsSupuesto ? ' (supuesto)' : ''}` : '—'],
+        ['d_ACS', acsEnCifra ? `${fc.dAcsEspecifica} kWh/m²${acsSupuesto ? ' (supuesto)' : ''}` : 'sin ACS'],
+        // El de la vía FM: su casilla, y sin teclear el general (precioCaeFm).
+        ['Precio CAE', `${n0(precioCaeFm(inputs))} €/MWh`],
     ];
 
     const rows = [
-        ['Valor Anexo IV', `${n1(fc.q)} kWh/m²·año`],
-        [`η_i caldera (Anexo II del borrador)${fc.etaApp && Math.abs(fc.eta - fc.etaApp) > 1e-9 ? ` · vigente ${n0(fc.etaApp * 100)} %` : ''}`, `${n0(fc.eta * 100)} %`],
-        ['f_C', n2(fc.fc)],
-        ['Demanda (Anexo IV × S)', `${n0(fc.dem)} kWh/año`],
+        [`D_cal (${dcalDe})`, `${n1(fc.dcalBruta)} kWh/m²·año`],
+        ...(fc.dcalTope != null ? [[`Tope unifamiliar: 2 × Anexo IV (${n1(fc.dcalRef)})`, `${n1(fc.dcalTope)} kWh/m²·año${fc.limitadoPorTabla ? ' · aplicado' : ''}`]] : []),
+        [`η_i caldera (Anexo II publicado)${fc.etaApp && Math.abs(fc.eta - fc.etaApp) > 1e-9 ? ` · vigente ${n0(fc.etaApp * 100)} %` : ''}`, `${n0(fc.eta * 100)} %`],
+        [`f_M${fc.ficha?.endsWith('-S') ? ' (vulnerable × 1,5)' : ''}`, n2(fc.fm)],
+        ['D_cal × S', `${n0(fc.dem)} kWh/año`],
+        [`D_ACS (${acsEnCifra ? `${fc.dAcsEspecifica} × S${acsSupuesto ? ', si se añade el ACS' : ''}` : 'sin ACS'})`, `${n0(fc.dacs)} kWh/año`],
         ['Ahorro calefacción', `${n0(fc.ahc)} kWh/año`],
         ['Ahorro ACS', `${n0(fc.aha)} kWh/año`],
-        ...(fc.hibridacion ? [[`C_b (Anexo V, zona ${fc.zonaCb})`, n2(fc.cb * 100) + ' %']] : []),
-        ['AES (techo técnico)', `${n0(fc.aes)} kWh/año`],
-        [`CEF ${fc.hibridacion ? 'de calefacción ' : ''}(${cefDe})`, fc.cef ? `${n0(fc.cef)} kWh/año` : '—'],
-        ['Tope 0,70·CEF', fc.tope != null ? `${n0(fc.tope)} kWh/año` : 'sin tope'],
+        ...(fc.hibridacion ? [[`C_b (Anexo V, zona ${fc.zonaCb}, ${fc.fuenteBomba})`, n3(fc.cb)]] : []),
+        [fc.hibridacion ? 'Ahorro × C_b (sin f_M)' : 'Ahorro (sin f_M)', `${n0(fc.aes)} kWh/año`],
     ];
     const TONO = {
         bloquea: { c: '#f87171', bg: 'rgba(248,113,113,0.10)', t: 'No se puede pedir' },
@@ -98,7 +110,7 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                 <div className="px-5 py-3 flex justify-between items-center" style={{ borderBottom: `1px solid ${LINE}` }}>
                     <h3 className="font-black uppercase tracking-widest flex items-center gap-2.5 text-[13px]" style={{ color: '#ffffff' }}>
                         <span className="w-6 h-6 rounded-md flex items-center justify-center text-xs" style={{ background: GRAD }}>⚡</span>
-                        Ficha {fc.ficha || 'RES060FC'}
+                        Vía FM · {fc.ficha || 'RES060_FM'}
                     </h3>
                     <button
                         onClick={onClose}
@@ -124,10 +136,15 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                         <div className="flex flex-wrap gap-1.5 mt-2">
                             <div
                                 className="inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest"
-                                style={{ background: fc.limitedByTope ? ORANGE : LIME, color: fc.limitedByTope ? '#2b1600' : '#1b2b06' }}
+                                style={{ background: dcalDelCee ? LIME : ORANGE, color: dcalDelCee ? '#1b2b06' : '#2b1600' }}
                             >
-                                {fc.limitedByTope ? topeLabel : 'TECHO TÉCNICO'}
+                                D_CAL {dcalDe.toUpperCase()}
                             </div>
+                            {fc.limitadoPorTabla && (
+                                <div className="inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest" style={{ background: ORANGE, color: '#2b1600' }}>
+                                    TOPE 2×ANEXO IV
+                                </div>
+                            )}
                             {fc.elegible === false && (
                                 <div className="inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest" style={{ background: '#f87171', color: '#2b0606' }}>
                                     NO ELEGIBLE
@@ -157,7 +174,7 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                         </div>
                         <div className="space-y-1.5">
                             <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-bold uppercase tracking-widest w-14 shrink-0" style={{ color: INK_MUTED }}>FC</span>
+                                <span className="text-[9px] font-bold uppercase tracking-widest w-14 shrink-0" style={{ color: INK_MUTED }}>FM</span>
                                 <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.10)' }}>
                                     <div style={{ height: '100%', borderRadius: 8, background: GRAD, width: `${(100 * fc.cae / mx)}%` }} />
                                 </div>
@@ -209,7 +226,7 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                         </table>
                         <div className="mt-2 flex items-baseline justify-between gap-3 flex-wrap">
                             <span className="text-[10px] font-mono" style={{ color: INK_MUTED }}>
-                                {fc.tope != null ? `mín(${n0(fc.aes)} ; ${n0(fc.tope)})` : n0(fc.aes)} × {n2(fc.fc)} = {n0(fc.cae)} kWh
+                                {n0(fc.aes)} × {n2(fc.fm)} = {n0(fc.cae)} kWh
                             </span>
                             <span className="text-base font-black" style={{ color: LIME }}>{n0(fcEur)} €</span>
                         </div>
@@ -218,7 +235,7 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                     {/* LO QUE HAY QUE CUMPLIR (siempre) */}
                     {avisos.some((a) => a.tono === 'info') && (
                         <div>
-                            <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-1.5" style={{ color: ORANGE }}>Lo que pide el borrador</h4>
+                            <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-1.5" style={{ color: ORANGE }}>Lo que pide la Resolución</h4>
                             <ul className="space-y-1">
                                 {avisos.filter((a) => a.tono === 'info').map((a, i) => (
                                     <li key={i} className="text-[10.5px] leading-snug" style={{ color: INK_MUTED }}>· {a.texto}</li>
@@ -228,11 +245,11 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                     )}
 
                     <p className="text-[9.5px] italic leading-relaxed" style={{ color: INK_MUTED }}>
-                        <b style={{ color: fc.limitedByTope ? ORANGE : LIME }}>{fc.limitedByTope ? 'Tope 70%·CEF' : 'Techo técnico'}:</b>{' '}
-                        {fc.limitedByTope
-                            ? 'lo limita el consumo de partida (CEF); mejorar SCOP o demanda no da más CAE.'
-                            : 'importan demanda, superficie, η y SCOP.'}{' '}
-                        Demanda del Anexo IV con el mismo SCOP que el cálculo actual; f_C aplicado una vez. Borrador en consulta pública: puede cambiar.
+                        <b style={{ color: dcalDelCee ? LIME : ORANGE }}>{dcalDelCee ? 'D_cal del CEE' : 'D_cal estimada'}:</b>{' '}
+                        {dcalDelCee
+                            ? 'la ficha toma la D_cal y la S del CEE posterior (el final; sin él, el inicial, que en nuestros finales es la misma).'
+                            : 'sin CEE cargado se usa la demanda de la simulación; la cifra cambiará con el CEE.'}{' '}
+                        Sin tope de CEF y con el mismo SCOP que el cálculo vigente. Resolución publicada en el BOE del 7/11/2026 (BOE-A-2026-23367): se presenta desde el 15/01/2027, con cupo por orden de resolución.
                     </p>
                 </div>
             </div>

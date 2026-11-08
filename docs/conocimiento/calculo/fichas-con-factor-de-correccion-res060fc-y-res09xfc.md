@@ -1,5 +1,12 @@
 # Fichas con FACTOR DE CORRECCIÓN: RES060FC y las de hibridación por zona (2026-10-21)
 
+> ⚠️ **Superado el 7/11/2026**: la Resolución se publicó en el BOE (BOE-A-2026-23367) con cambios de
+> fondo (sin tope de CEF, D_cal del CEE posterior, D_ACS = 11·S, cupo del 15 %, fechas nuevas). Ver
+> [factor-multiplicador-la-resolucion-publicada-res060-fm.md](factor-multiplicador-la-resolucion-publicada-res060-fm.md).
+> Lo de abajo es el BORRADOR y el motor que lo calculaba. **El motor ya está adaptado (7/11/2026)**:
+> `calculateRes060FM` en `res060fc.js` calcula lo publicado (`calculateRes060FC` queda como alias, como
+> `contextoCalderaFc`/`tramiteFc`, para no romper las llamadas). Lo vigente, en el documento del FM.
+
 El borrador de Resolución de la DGPLACE (consulta pública, 2026) multiplica el ahorro de cambiar una
 caldera por una bomba de calor: f_C **2** en unifamiliar, **2,5** en piso (2 en el cuerpo de la
 Resolución) y **3** en bloque. El documento entero son 173 páginas (en el Drive, «01. RD 36-2023

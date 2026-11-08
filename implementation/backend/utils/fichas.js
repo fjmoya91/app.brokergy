@@ -97,6 +97,66 @@ function esHibridacion(ficha) {
     return ficha === 'RES093' || ficha === 'TER173';
 }
 
+// ── Vía del FACTOR MULTIPLICADOR (BOE-A-2026-23367, en vigor el 08/11/2026) ──────
+// Un expediente que va por la vía FM lleva «FM» PEGADO a su ficha: 26RES060FM_12,
+// 26RES093FM_3 (la hibridación, cuya ficha oficial depende de la zona: RES090_FM…
+// RES094_FM). Con una SERIE PROPIA de correlativos (Fran, 07/11/2026): pasar de una
+// vía a la otra RENUMERA, como el paso RES060 → RES080.
+//
+// REGLA — el «FM» va pegado a la ficha y no como segmento aparte: así `RES060` y
+// `RES093` siguen dentro del número y todos los `includes('RES093')` de la app
+// (cálculo, CIFO, Anexo Fotográfico, lotes…) lo siguen tratando como lo que es.
+// `fichaFromNumero('26RES060FM_12')` es RES060 a propósito; la VÍA se pregunta aparte
+// con `esNumeroFm`.
+// Solo residencial: la Resolución no trae fichas FM para el terciario, y la
+// RES080_FM (cuatro CEE) no se tramita todavía.
+const FICHAS_CON_FM = ['RES060', 'RES093'];
+const SUFIJO_FM = 'FM';
+
+/** ¿El número es de la vía FM? ('26RES060FM_12' → true, '26RES060_12' → false). */
+function esNumeroFm(numeroExpediente) {
+    return /^\d{2}(RES060|RES093)FM_\d+$/i.test(String(numeroExpediente || '').trim());
+}
+
+/** ¿Esta ficha admite la vía FM? */
+function admiteViaFm(ficha) {
+    return FICHAS_CON_FM.includes(ficha);
+}
+
+/**
+ * Prefijo de la SERIE de numeración: el programa, con «FM» si va por esa vía y la
+ * ficha la admite ('RES060', true → 'RES060FM'). Es la serie de la que sale el
+ * correlativo, así que dos vías nunca comparten número.
+ */
+function serieNumeracion(programa, viaFm = false) {
+    return viaFm && admiteViaFm(programa) ? `${programa}${SUFIJO_FM}` : programa;
+}
+
+/**
+ * ¿La oportunidad se aceptó por la vía FM? (`inputs.ruta_fm`, lo marca la calculadora
+ * al aceptar y `cambiarViaFm` al cambiar de vía en el expediente).
+ *
+ * ⚠️ NO se llama `via_fm`: esa clave es el resumen de las dos vías de
+ * `datos_calculo.via_fm` (calculator/logic/viaFm.js), y `financialScrub` borra
+ * TODA clave `via_fm` del árbol a quien no es ADMIN — también dentro de `inputs`.
+ * Un TRABAJADOR que abriera la calculadora y guardara se la habría llevado por delante.
+ */
+function oportunidadViaFm(op = {}) {
+    return op?.datos_calculo?.inputs?.ruta_fm === true;
+}
+
+/**
+ * Correlativo de un número DENTRO de su serie, o null si el número es de otra.
+ * '26RES060_12' en la serie 26RES060 → 12; '26RES060FM_12' en esa misma serie →
+ * null. Lo usan las dos numeraciones (alta y cambio de ficha o de vía): el `LIKE
+ * '26RES060_%'` de antes casaba también los FM, porque `_` es un comodín.
+ */
+function correlativoEnSerie(numeroExpediente, prefijoAnioSerie) {
+    const m = String(numeroExpediente || '').trim().toUpperCase()
+        .match(new RegExp(`^${prefijoAnioSerie.toUpperCase()}_(\\d+)$`));
+    return m ? parseInt(m[1], 10) : null;
+}
+
 module.exports = {
     FICHAS,
     CORRELATIVO_INICIAL,
@@ -106,4 +166,10 @@ module.exports = {
     esSustitucionCaldera,
     esTerciario,
     esHibridacion,
+    FICHAS_CON_FM,
+    esNumeroFm,
+    admiteViaFm,
+    serieNumeracion,
+    oportunidadViaFm,
+    correlativoEnSerie,
 };

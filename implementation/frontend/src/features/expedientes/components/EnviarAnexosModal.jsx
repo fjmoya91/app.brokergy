@@ -6,6 +6,8 @@ import { postEmail } from '../../../utils/emailFallback';
 // El Anexo I sale del IMPRESO OFICIAL del Ministerio (formato formulario). El
 // Convenio de Cesión sigue siendo maqueta propia: no hay impreso oficial de él.
 import { anexoIFormulario } from '../logic/anexoIFormulario';
+// Vía FM: el «Anexo I» es el ANEXO A (maqueta HTML, no hay impreso oficial).
+import { fuenteAnexoIoA, nombreAnexoIoA, usaAnexoA } from '../logic/documentosFm';
 import { buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress, esCesionPrevia, tieneCuentaBancaria } from '../utils/docGenerators';
 import { clienteContacts, instaladorContacts, defaultContactIds, priorizarPorRol, phoneValid } from '../utils/docContacts';
 import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
@@ -21,6 +23,8 @@ import { nombreSaludo } from '../../../utils/nombres.js';
 // Requerimiento (volver a pedir la firma porque cambia el importe de la ayuda):
 // los importes, el plazo y el texto son fuente única en logic/requerimientoFirma.
 import { mensajeRequerimiento, importesRequerimiento, tituloRequerimiento, eur, fechaLarga, fechaLimite, PLAZO_REQUERIMIENTO_DIAS } from '../logic/requerimientoFirma';
+// Vía FM: el Convenio cubre las DOS fichas; el mensaje anuncia la cifra FM y dice la otra.
+import { cifrasConvenioFm, lineaMensajeConvenioFm } from '../logic/convenioFm';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de los anexos del cliente (Anexo I + Anexo de Cesión de Ahorros).
@@ -121,6 +125,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const inst     = expediente?.instalacion || {};
     const pres     = expediente?.prescriptores || {};
     const numexpte = expediente?.numero_expediente || '';
+    const anexoA = usaAnexoA(expediente);
+    const nombreAnexo = nombreAnexoIoA(expediente);
+    const defDe = (k) => (k === 'anexo1' && anexoA ? { ...DOC_DEFS.anexo1, label: nombreAnexo } : DOC_DEFS[k]);
 
     const opInputs   = op?.datos_calculo?.inputs || {};
     const { rate: rateMwh, explicit: rateExplicit } = getClientCaeRate(expediente);
@@ -142,7 +149,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const imp = importesRequerimiento(results, requerimiento || {});
     const esRequerimiento = plantilla === 'requerimiento';
     const resultsDoc = (esRequerimiento && imp.nuevo != null)
-        ? { ...results, savingsKwh: imp.ahorroNuevo ?? results?.savingsKwh, caeBonus: imp.nuevo }
+        ? { ...results, savingsKwh: imp.ahorroNuevo ?? results?.savingsKwh, caeBonus: imp.nuevo, viaUnica: true }
         : results;
     const diasReq = parseInt(plazoDias, 10) || PLAZO_REQUERIMIENTO_DIAS;
     // La fecha límite viene ya fijada cuando el requerimiento se registró desde el
@@ -238,25 +245,32 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // ── Mensaje por defecto (se adapta a destinatario + documentos) ──────────
     // `tpl` explícito para el primer render tras abrir: el estado de la plantilla se
     // acaba de fijar y todavía no ha llegado a este render.
-    const buildDefaultMessage = (tgt, docKeys, ids = selectedIds, manual = manualContact, tpl = null) => {
+    const buildDefaultMessageBase = (tgt, docKeys, ids = selectedIds, manual = manualContact, tpl = null) => {
         const pideRefirma = tpl ? tpl === 'requerimiento' : esRequerimiento;
         // El importe se recalcula AQUÍ y no se toma del render: al cambiar de plantilla
         // el estado todavía no ha llegado, y el mensaje de "primera firma" salía
         // anunciando la cifra del requerimiento (o al revés).
+        // Vía FM con el Convenio que cubre las dos fichas: se anuncia la cifra FM (la
+        // que se pide) y una línea dice la de la ficha general (logic/convenioFm.js).
+        const fmMsg = !pideRefirma && docKeys?.includes('cesion') ? cifrasConvenioFm(expediente, results, { rateMwh }) : null;
+        const fmLinea = fmMsg?.doble ? lineaMensajeConvenioFm(fmMsg) : '';
         const benefRaw = pideRefirma && imp.nuevo != null
             ? imp.nuevo
-            : (results?.caeBonus ?? (results?.savingsKwh && rateMwh ? (results.savingsKwh / 1000) * rateMwh : null));
+            : (fmLinea && fmMsg.fm.eur > 0)
+                ? fmMsg.fm.eur
+                : (results?.caeBonus ?? (results?.savingsKwh && rateMwh ? (results.savingsKwh / 1000) * rateMwh : null));
         const benefStr = benefRaw ? Math.round(benefRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
         // Sin documentos que enviar (p.ej. los dos bloqueados) no hay mensaje que
         // redactar: escribir el de la Cesión "por defecto" sería mentir.
         if (!docKeys || !docKeys.length) return '';
         const both = docKeys.includes('anexo1') && docKeys.includes('cesion');
-        // Footer con el enlace de subida (mismo para uno o ambos documentos).
-        const footerCliente = firmaUrl
+        // Footer con el enlace de subida (mismo para uno o ambos documentos). En la
+        // vía FM, la línea de las dos fichas va justo antes.
+        const footerCliente = (fmLinea ? `\n\n${fmLinea}` : '') + (firmaUrl
             ? `\n\n———\n👉 *Fírmalos desde aquí, es muy fácil:*\n${firmaUrl}\n\n`
               + `• *Firma digital (lo más rápido):* abre el enlace y firma con tu certificado. Te marcamos dónde firmar y nos llega automáticamente. No hace falta descargar nada.\n`
               + `• *Firma a mano:* descarga los anexos desde el enlace, fírmalos a mano y súbelos ahí mismo junto con una foto de tu DNI por delante y por detrás.`
-            : '';
+            : '');
         const footerInstalador = firmaUrl
             ? `\n\n———\n📎 *Enlace para subir los documentos firmados + foto del DNI (ambas caras):*\n${firmaUrl}`
             : '';
@@ -315,6 +329,12 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             + `Ambos pueden firmarse de forma *electrónica* (con certificado digital) o *manuscrita* (con nombre, apellidos y DNI a mano + foto del DNI por ambas caras).\n\n`
             + `Quedamos a vuestra disposición para cualquier duda.\n\nUn saludo,\n*Brokergy · Ingeniería energética.*`
             + footerInstalador;
+    };
+    // Vía FM (26RES060FM_N): el «Anexo I» es el ANEXO A en todos los textos
+    // (también en los de `getDualMessage` y el requerimiento, que no lo saben).
+    const buildDefaultMessage = (...args) => {
+        const t = buildDefaultMessageBase(...args);
+        return anexoA ? t.replace(/\bAnexo I\b/g, 'Anexo A') : t;
     };
 
     // Texto de "observaciones" = incidencias marcadas + nota libre (una por línea).
@@ -548,8 +568,8 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             const ov = overrides && overrides.anexo1;
             const fuente = typeof ov === 'string' ? { html: ov }
                 : (ov && (ov.formulario || ov.html)) ? ov
-                    : { formulario: anexoIFormulario(expediente, resultsDoc, {}) };
-            return { key: 'anexo1', label: 'Anexo I', fileName: `${numexpte}${DOC_DEFS.anexo1.file}`, ...fuente };
+                    : fuenteAnexoIoA(expediente, {}, () => anexoIFormulario(expediente, resultsDoc, {}));
+            return { key: 'anexo1', label: nombreAnexo, fileName: `${numexpte}${anexoA ? '_Anexo_A.pdf' : DOC_DEFS.anexo1.file}`, ...fuente };
         }
         const html = (overrides && overrides.cesion) ? overrides.cesion : buildAnexoCesionHtml(expediente, resultsDoc);
         return { key: 'cesion', label: 'Anexo de Cesión', fileName: `${numexpte}${DOC_DEFS.cesion.file}`, html };
@@ -562,7 +582,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         const doWa = willWhatsapp;
         if (!sendDocs.length) {
             setStatus({ ok: false, text: blockedSelected.length
-                ? `No se puede enviar: ${blockedSelected.map(k => `${DOC_DEFS[k].label} — ${blockers[k].toLowerCase()}`).join(' · ')}. Complétalo en el expediente y vuelve.`
+                ? `No se puede enviar: ${blockedSelected.map(k => `${defDe(k).label} — ${blockers[k].toLowerCase()}`).join(' · ')}. Complétalo en el expediente y vuelve.`
                 : 'Selecciona al menos un documento.' });
             return;
         }
@@ -675,7 +695,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             if (folderId) {
                 for (const d of docDefs) {
                     try {
-                        const fileName = d.key === 'anexo1' ? `${numexpte} - Anexo I` : `${numexpte} - Anexo Cesion ahorro`;
+                        const fileName = d.key === 'anexo1' ? `${numexpte} - ${nombreAnexo}` : `${numexpte} - Anexo Cesion ahorro`;
                         // replaceExisting: el borrador anterior se archiva en OLD. Es el PDF que
                         // sirve el enlace de firma del cliente — no puede haber dos en la carpeta.
                         const r = await axios.post('/api/pdf/save-to-drive', { ...fuenteDoc(d), folderId, fileName, subfolderName: '6. ANEXOS CAE', replaceExisting: true });
@@ -718,7 +738,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
     // ── UI helpers ───────────────────────────────────────────────────────────
     const DocChip = ({ k }) => {
-        const def = DOC_DEFS[k];
+        const def = defDe(k);
         const blocked = isBlocked(k);
         const on = docs.includes(k) && !blocked;
         // Dos botones hermanos (un <button> no puede ir dentro de otro): marcar y
@@ -754,7 +774,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                 <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                     <div>
                         <h2 className="text-lg font-black uppercase tracking-tight text-white">{esRequerimiento ? 'Requerimiento · volver a firmar' : 'Enviar anexos'}</h2>
-                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Anexo I + Cesión de Ahorros · {numexpte}</p>
+                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">{nombreAnexo} + Cesión de Ahorros · {numexpte}</p>
                     </div>
                     <button onClick={onClose} className="text-white/30 hover:text-white transition-colors">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -810,7 +830,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                             firmado igual de mal. No hay "enviar de todos modos". */}
                         {Object.entries(blockers).filter(([, v]) => v).map(([k, v]) => (
                             <p key={k} className="mt-2 text-[10px] text-red-400 leading-snug font-bold">
-                                🔒 {DOC_DEFS[k].label}: {v}. Rellénalo en el expediente antes de enviarlo — si lo firma así, habrá que rechazarlo y repetir el envío.
+                                🔒 {defDe(k).label}: {v}. Rellénalo en el expediente antes de enviarlo — si lo firma así, habrá que rechazarlo y repetir el envío.
                             </p>
                         ))}
                         {selectedMissing.length > 0 && (
@@ -950,7 +970,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                             darle el expediente por cerrado. */}
                         {esRequerimiento && sendDocs.some(k => yaFirmados.includes(k)) && (
                             <p className="text-[10px] text-amber-400/70 mt-1.5 leading-relaxed">
-                                ⚠ Ya tenemos firmado{sendDocs.filter(k => yaFirmados.includes(k)).length > 1 ? 's' : ''} {sendDocs.filter(k => yaFirmados.includes(k)).map(k => DOC_DEFS[k].label).join(' y ')} de este expediente. Al enviar, esa firma queda
+                                ⚠ Ya tenemos firmado{sendDocs.filter(k => yaFirmados.includes(k)).length > 1 ? 's' : ''} {sendDocs.filter(k => yaFirmados.includes(k)).map(k => defDe(k).label).join(' y ')} de este expediente. Al enviar, esa firma queda
                                 <strong className="text-amber-300"> anulada</strong> y el enlace le volverá a pedir la del documento actual
                                 {limiteStr ? <>, con plazo hasta el <strong className="text-amber-300">{limiteStr}</strong></> : null}.
                             </p>
@@ -1160,7 +1180,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                     onToggle={toggleDoc}
                     docs={['anexo1', 'cesion'].map(k => ({
                         key: k,
-                        titulo: DOC_DEFS[k].label,
+                        titulo: defDe(k).label,
                         estado: isBlocked(k) ? 'bloqueado' : (sendDocs.includes(k) ? 'sale' : 'fuera'),
                         fuente: fuenteDoc(docDefFor(k)),
                         aviso: isBlocked(k)

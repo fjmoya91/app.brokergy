@@ -55,6 +55,16 @@ function sellarPrecioCae(inputs, existingOp) {
     } else {
         delete inputs.cae_client_rate_res080;
     }
+
+    // Y el de la vía del FACTOR MULTIPLICADOR (2026-11-07): mismo patrón y misma
+    // condición. Sin teclear (o igual al general), no hay sello propio y vale
+    // `cae_client_rate` (`precioSelladoFm` en calculation.js).
+    const precioFm = parseFloat(inputs.caePriceClientFm);
+    if (inputs.cae_client_rate !== undefined && precioFm > 0 && precioFm !== inputs.cae_client_rate) {
+        inputs.cae_client_rate_fm = precioFm;
+    } else {
+        delete inputs.cae_client_rate_fm;
+    }
     return inputs;
 }
 
