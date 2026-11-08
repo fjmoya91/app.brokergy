@@ -45,6 +45,25 @@ falsificarse; lo que no se falsifica es la firma del PDF, que se comprueba igual
 Lo demás se ignora y se marca visto: la contestación a la solicitud de emisión de CAE,
 la de la factura, los avisos del MITECO reenviados, un correo que nombre dos lotes.
 
+**REGLA — la contestación a la SOLICITUD DE EMISIÓN se descarta por el ASUNTO, y un
+papel que dice ser otra cosa no pasa por Anexo I aunque lleve el código del lote**
+(2026-11-08). Lo de arriba no estaba escrito en el código: Jesús contestó a «Solicitud de
+emisión de CAE · LOTE-2025-012 · …» con «justificante_presentacion LOTE 2025 - 012.pdf»;
+`identificar` toma por Anexo I cualquier nombre con el código del lote, sus firmas eran
+las de `sello.miteco.es` y saltó un aviso «hay que revisar 1» que no tocaba. Ahora
+`asuntoDescartado` ([firmadosSoCorreo.js](implementation/backend/services/firmadosSoCorreo.js))
+ignora esos asuntos antes de bajar el correo (`solicitud(es) de emisión`), y en
+`identificar` ([firmadosSo.js](implementation/backend/services/firmadosSo.js)) el código
+del lote solo vale si el nombre no dice JUSTIFICANTE, REGISTRO, REGAGE, RECIBO, FACTURA,
+DICTAMEN, INFORME, RESOLUCIÓN o CERTIFICADO — un nombre con «Anexo I» o «Listado» sigue
+mandando. Comprobado en seco contra el buzón: las tres contestaciones (010, 011 y 012) salen
+ignoradas con su motivo.
+
+⚠️ El «Sigue faltando: Anexo I» de ese aviso era VERDAD en la app: el Anexo I `_rev2` de
+LOTE-2025-012 (requerimiento del 22/10) estaba firmado por los dos en Drive desde el 23/10
+(«2. Anexo I LOTE-2025-012_rev2_fdo.pdf», el que fue en el paquete), pero `documentos_so`
+no tenía su `signed_link`. Se enlazó a mano el 08/11/2026, con su línea en el historial.
+
 ### Qué se registra
 
 **REGLA — se registra solo lo LIMPIO.** Va por `procesarFirmados`, el mismo camino que

@@ -49,6 +49,12 @@ for (const [nombre, esperado] of [
     ['1. Solicitud de Verificación LOTE-2026-004_fdo.pdf', 'solicitud_verificacion'],
 ]) ok(id(nombre) === esperado, `"${nombre}" → ${esperado}`);
 
+console.log('\n🔎 Un papel con el código del lote que NO es el Anexo I');
+ok(id('justificante_presentacion LOTE 2026 - 004.pdf') === null,
+    'el justificante de registro del MITECO no pasa por Anexo I (LOTE-2025-012, 08/11/2026)');
+ok(id('Dictamen LOTE-2026-004.pdf') === null, 'ni el dictamen del lote');
+ok(id('Justificante Anexo I LOTE-2026-004_fdo.pdf') === 'anexo_i', 'pero si el nombre dice «Anexo I», manda eso');
+
 console.log('\n🔎 Lo que NO se adivina');
 ok(id('firmado.pdf') === null, 'un nombre que no dice nada se devuelve sin asignar');
 ok(id('documento (2).pdf') === null, 'tampoco se elige "el primero que quede libre"');

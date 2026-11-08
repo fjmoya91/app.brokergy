@@ -83,8 +83,12 @@ function identificar(nombreFichero, candidatos, expNumPorId, codigoLote) {
     if (hits.size === 1) return { key: [...hits][0] };
     if (hits.size > 1) return { key: null, motivo: `el nombre encaja con ${hits.size} documentos` };
 
+    // Solo con el código del lote NO basta si el nombre dice que es OTRA cosa: el
+    // justificante de registro del MITECO («justificante_presentacion LOTE 2025 -
+    // 012.pdf», 08/11/2026) lleva el código y pasaba por Anexo I.
+    const otraCosa = /JUSTIFICANTE|REGISTRO|REGAGE|RECIBO|FACTURA|DICTAMEN|INFORME|RESOLUCION|CERTIFICADO/.test(n);
     const anexo = candidatos.find(d => d.key === 'anexo_i');
-    if (anexo && (n.includes('ANEXOI') || n.includes('LISTADO') || (codigoLote && n.includes(norm(codigoLote))))) {
+    if (anexo && (n.includes('ANEXOI') || n.includes('LISTADO') || (codigoLote && n.includes(norm(codigoLote)) && !otraCosa))) {
         return { key: 'anexo_i' };
     }
     const sol = candidatos.find(d => d.key === 'solicitud_verificacion');
