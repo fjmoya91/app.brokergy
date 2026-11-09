@@ -110,20 +110,26 @@ function resolveProvinceCode(ident) {
  * @param {string} programa                 RES060 · RES080 · RES093 · TER…
  * @returns {Promise<{ subvenciones?: object, via_fm?: object }>}
  */
-async function semillaBonoSocial(confirmacionCliente, programa) {
-    if (!confirmacionCliente?.bono_social) return {};
+async function semillaBonoSocial(confirmacionCliente, programa, { vulnerableOp = null } = {}) {
+    // `vulnerableOp`: el conmutador «Consumidor vulnerable» de la calculadora
+    // (`inputs.vulnerable`, 09/11/2026). Un Sí del equipo siembra el × 1,5 aunque el
+    // cliente no declarase nada; un No explícito (p. ej., la renta no llega) manda
+    // sobre lo declarado. Sin tocar (null), lo declarado, como antes.
+    const op = vulnerableOp === true || vulnerableOp === 'true' ? true
+        : vulnerableOp === false || vulnerableOp === 'false' ? false : null;
+    if (!confirmacionCliente?.bono_social && op !== true) return {};
     const { bonoSocialParaSubvenciones, vulnerableFmDeBono, preguntaBonoSocial, PREGUNTA_BONO } = await loadConfirmacion();
     const pregunta = preguntaBonoSocial(programa);
     if (!pregunta) return {};
     const out = {};
-    const bs = bonoSocialParaSubvenciones(confirmacionCliente.bono_social);
+    const bs = confirmacionCliente?.bono_social ? bonoSocialParaSubvenciones(confirmacionCliente.bono_social) : null;
     if (bs) out.subvenciones = { bono_social: bs };
-    const v = pregunta === PREGUNTA_BONO.FM ? vulnerableFmDeBono(confirmacionCliente.bono_social) : null;
-    if (v?.vulnerable) {
+    const v = pregunta === PREGUNTA_BONO.FM && confirmacionCliente?.bono_social ? vulnerableFmDeBono(confirmacionCliente.bono_social) : null;
+    if (pregunta === PREGUNTA_BONO.FM && op !== false && (v?.vulnerable || op === true)) {
         out.via_fm = {
-            ...require('../utils/viaFm').sanearDatosFm({ vulnerable: true, anexo_b_casilla: v.anexo_b_casilla }),
-            // Como el PUT: cuándo y quién. Aquí, la aceptación del cliente.
-            at: new Date().toISOString(), por: 'aceptación del cliente',
+            ...require('../utils/viaFm').sanearDatosFm({ vulnerable: true, anexo_b_casilla: v?.anexo_b_casilla || null }),
+            // Como el PUT: cuándo y quién. Aquí, la aceptación del cliente (o la oportunidad).
+            at: new Date().toISOString(), por: v?.vulnerable ? 'aceptación del cliente' : 'oportunidad (marcado por el equipo)',
         };
     }
     return out;
@@ -325,7 +331,7 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
         // y la pestaña «Vía FM» lo enseña al lado de lo marcado.
         let semillaBono = {};
         try {
-            semillaBono = await semillaBonoSocial(confirmacionCliente, programa);
+            semillaBono = await semillaBonoSocial(confirmacionCliente, programa, { vulnerableOp: opInputs.vulnerable ?? null });
             if (semillaBono.subvenciones || semillaBono.via_fm) {
                 console.log(`[ExpedienteService] Bono social declarado al aceptar → Anexo I ${semillaBono.subvenciones ? semillaBono.subvenciones.bono_social.tipos.join(',') : '—'}${semillaBono.via_fm ? ` · vulnerable FM (Anexo B: ${semillaBono.via_fm.anexo_b_casilla})` : ''}`);
             }

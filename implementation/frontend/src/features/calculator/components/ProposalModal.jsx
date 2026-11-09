@@ -2477,39 +2477,60 @@ info@brokergy.es · 623 926 179`;
             });
             txt = `${txt}\n\n⚠️ *Importante — el presupuesto de la obra es estimado.* ${nota}`;
         }
+        // El FACTOR MULTIPLICADOR ya no va aquí: sale en un MENSAJE APARTE, el
+        // último (`mensajeFm` → `buildAvisoFinal`). Fran, 09/11/2026: la nota del
+        // cambio de normativa, «por fuera». Ver la-hoja-del-factor-multiplicador.md.
+        return txt;
+    }, [buildCaptionBase, presInfo, opcionesComision]);
+
+    /**
+     * El mensaje APARTE del factor multiplicador (Fran, 09/11/2026: «la nota
+     * aclaratoria del cambio de normativa […] en un mensaje por fuera»). La
+     * propuesta habla de la cifra firme; esto, de una cifra futura con su cupo y su
+     * calendario, y mezclado en el texto largo se leía como parte de la oferta.
+     *
+     * Lleva el párrafo del FM (`opts.fc`, el conmutador del popup) y el
+     * consentimiento del IRPF (punto 12 de su ficha; texto de expedientes/logic/viaFm.js,
+     * el mismo que firma en el Convenio), que también sale solo si la propuesta ya va
+     * por esa vía. Por WhatsApp, la última burbuja; en el email, al final del cuerpo.
+     */
+    const mensajeFm = useCallback((mode, { fc = includeFc } = {}) => {
         const tuteoFm = mode !== 'PARTNER' && mode !== 'INSTALADOR';
-        const avisoFm = !!(opts.fc && fcInfo);
+        const avisoFm = !!(fc && fcInfo);
+        const rutaFm = cierto(inputs?.ruta_fm);
+        if (!avisoFm && !rutaFm) return null;
+        const partes = [];
         if (avisoFm) {
-            txt = `${txt}\n\n${lineaFactorCorreccion({
+            partes.push(lineaFactorCorreccion({
                 actual: fcInfo.actual,
                 fc: fcInfo.fc,
                 dosOpciones: fcInfo.dosOpciones,
                 acs: fcInfo.acs,
                 ficha: fcInfo.ficha,
                 estimada: fcInfo.estimada,
+                vulnerable: fcInfo.vulnerable,
+                // El PDF lleva su hoja 2 siempre que procede (logic/fmPropuesta.js).
+                hoja: !!hojaFm,
                 tuteo: tuteoFm,
-            })}`;
+            }));
         }
-        // El consentimiento del IRPF de la vía FM (punto 12 de su ficha), SOLO en los
-        // FM: tras el aviso del factor multiplicador, o si la propuesta ya va por esa
-        // vía. Texto: expedientes/logic/viaFm.js (el mismo que firma en el Convenio).
-        // Desde la RES080_FM (09/11/2026), también en las de solo reforma.
-        const rutaFm = cierto(inputs?.ruta_fm);
-        if (avisoFm || rutaFm) {
-            txt = `${txt}\n\n${lineaConsentimientoFm({ tuteo: tuteoFm, trasAviso: avisoFm })}`;
-        }
-        return txt;
-    }, [buildCaptionBase, presInfo, fcInfo, opcionesComision, inputs]);
+        partes.push(lineaConsentimientoFm({ tuteo: tuteoFm, trasAviso: avisoFm }));
+        return partes.join('\n\n');
+    }, [fcInfo, inputs, includeFc, hojaFm]);
 
     // El aviso de BIOMASA no va dentro del texto largo: sale como ÚLTIMO mensaje
     // (WhatsApp: burbuja aparte tras el enlace; email: al final del cuerpo), para
     // que no se pierda — decisión del usuario, 2026-10-10. Por el mismo camino, las
     // DOS hipótesis del bono manteniendo la caldera (2026-10-21): si coinciden las
     // dos, en la misma burbuja.
-    const buildAvisoFinal = useCallback((mode) => [
+    // Y el del FACTOR MULTIPLICADOR (09/11/2026), el primero de la burbuja: es lo
+    // que más se va a leer. `opts.fc` es el conmutador del popup; sin él, el estado
+    // de aquí (envío directo, `sendToMultiple`).
+    const buildAvisoFinal = useCallback((mode, opts = {}) => [
+        mensajeFm(mode, opts),
         hipHibrida ? mensajeHipotesisHibridacion(hipHibrida, { b2b: esB2B(mode) }) : null,
         irpfBiomasa ? lineaIrpfBiomasa() : null,
-    ].filter(Boolean).join('\n\n') || null, [hipHibrida, irpfBiomasa]);
+    ].filter(Boolean).join('\n\n') || null, [mensajeFm, hipHibrida, irpfBiomasa]);
 
     const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);

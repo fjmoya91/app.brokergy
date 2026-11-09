@@ -32,6 +32,7 @@ import {
     FM_PRESENTACION_DESDE, FM_PRESENTACION_HASTA, FM_PRESENTACION_HASTA_CCPP, tipologiaFM,
 } from './res060fc.js';
 import { esBloque } from './tipoInmueble.js';
+import { bonoConKwh } from './viaFm.js';
 
 const cierto = (v) => v === true || v === 'true' || v === 1 || v === '1';
 const fechaEs = (iso) => String(iso || '').slice(0, 10).split('-').reverse().join('/');
@@ -44,7 +45,8 @@ const diaSiguiente = (iso) => {
 const fmt = (n) => new Intl.NumberFormat('es-ES', {
     minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: true,
 }).format(Math.round(Number(n) || 0));
-const fmt1 = (n) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
+// El factor: «2», «2,5», «3,75» (con el × 1,5 de vulnerable).
+const fmtFactor = (n) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
 
 /** El código de la ficha vigente que corresponde a una ficha FM. */
 export function fichaVigenteDe(fichaFm) {
@@ -83,6 +85,12 @@ export function fmPropuesta(result, inputs = {}) {
             veces: e.actual > 0 ? e.fc / e.actual : 0,
             estimada: !!e.estimada,
             acs: e.acs || null,
+            // Consumidor vulnerable (ficha -S, × 1,5) y lo que saldría SIN acreditarlo:
+            // el mismo cálculo FM sin el × 1,5 (el ahorro es lineal en el factor).
+            vulnerable: !!e.vulnerable,
+            sinVulnerable: e.vulnerable && result?.financialsRes060FC && result?.res060fc?.cae > 0
+                ? Math.round(bonoConKwh(result.financialsRes060FC, result.res060fc.cae / 1.5))
+                : null,
         });
     };
 
@@ -108,6 +116,7 @@ export function fmPropuesta(result, inputs = {}) {
         comunidad: bloque,
         zonaFria: zona === 'D' || zona === 'E',
         factor: tipologiaFM({ tipo: inputs?.tipo, bloque }).fm,
+        vulnerable: opciones.some((o) => o.vulnerable),
     };
 }
 
@@ -130,7 +139,7 @@ export function textosHojaFm(fm) {
     // Por qué no sale el doble exacto: lo que se multiplica es OTRO cálculo.
     const noDoble = soloReforma
         ? 'No es el doble de la cifra actual: el factor solo se aplica a la parte del ahorro que viene de la bomba de calor.'
-        : `No es multiplicar por ${fmt1(fm.factor).replace(',0', '')} la cifra actual: la nueva ficha calcula el ahorro con otra fórmula y, sobre ese resultado, aplica el factor.`;
+        : `No es multiplicar por ${fmtFactor(fm.factor * (fm.vulnerable ? 1.5 : 1))} la cifra actual: la nueva ficha calcula el ahorro con otra fórmula y, sobre ese resultado, aplica el factor.`;
 
     const calendario = [
         { cuando: `Desde el ${fechaEs(FM_INICIO_ACTUACIONES)}`, que: 'Obra', d: 'Puede hacerla ya: valen las obras iniciadas desde esa fecha' },
@@ -163,10 +172,20 @@ export function textosHojaFm(fm) {
             d: 'La obra tiene que mejorar la envolvente (aislamiento, ventanas…) y sustituir la caldera por la bomba de calor. Hacen falta cuatro certificados energéticos: el previo (antes de empezar la obra) y el posterior, los dos registrados, y dos simulados. Los hacemos nosotros.',
         });
     }
-    requisitos.push({
-        t: 'Fechas y facturas',
-        d: `Facturas con fecha posterior al ${fechaEs(FM_INICIO_ACTUACIONES)} y anterior al ${fechaEs(diaSiguiente(finFact))}, con el número de serie de los equipos.`,
-    });
+    // Consumidor vulnerable (09/11/2026): lo que tiene que ACREDITAR y lo que saldría
+    // sin acreditarlo, para que la cifra grande no se lea como segura.
+    const vul = fm.opciones.find((o) => o.vulnerable);
+    if (vul) {
+        requisitos.push({
+            t: 'Consumidor vulnerable (× 1,5)',
+            d: `La cifra lleva el × 1,5. Hace falta la factura de la luz con el bono social a su nombre, el Anexo B, el empadronamiento y la nota simple o el alquiler.${vul.sinVulnerable ? ` Sin acreditarlo: unos ${fmt(vul.sinVulnerable)} €.` : ''}`,
+        });
+    }
+    // Con la tarjeta del vulnerable la hoja no cabe (alto fijo, medido 09/11/2026 en
+    // 26RES060_OP383: pisaba 9 px). Las fechas ya están en el calendario: la de las
+    // facturas pasa a una frase dentro de «Lo del instalador».
+    const fechasFact = `Facturas con fecha posterior al ${fechaEs(FM_INICIO_ACTUACIONES)} y anterior al ${fechaEs(diaSiguiente(finFact))}, con el número de serie de los equipos.`;
+    if (!vul) requisitos.push({ t: 'Fechas y facturas', d: fechasFact });
     // El consentimiento del IRPF (punto 12) y la oferta de mantenimiento (punto 8) son de
     // las fichas de la bomba (RES060_FM, RES09x_FM); la RES080_FM no los pide.
     requisitos.push({
@@ -191,6 +210,11 @@ export function textosHojaFm(fm) {
                 ? 'El certificado de la instalación, la puesta en servicio, el boletín de baja tensión y el certificado energético posterior registrado. Lo coordinamos nosotros.'
                 : 'El certificado de la instalación, la puesta en servicio, el certificado energético posterior registrado y, si sube la potencia eléctrica, el boletín de baja tensión. Lo coordinamos nosotros.',
     });
+    if (vul) {
+        const inst = requisitos[requisitos.length - 1];
+        inst.t = 'Facturas, instalador y certificados';
+        inst.d = `Facturas anteriores al ${fechaEs(diaSiguiente(finFact))} con el número de serie de los equipos. ${inst.d}`;
+    }
 
     const riesgos = [
         'No está garantizado: hay un cupo (el 15 % de la obligación de ahorro de 2026) que se reparte por orden de resolución, y requisitos propios.',

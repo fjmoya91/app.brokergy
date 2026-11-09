@@ -59,7 +59,47 @@ sobre la firme. La de la RES080_FM sin los dos CEE simulados lleva «unos» / «
 Con la hoja, la nota del IRPF de la portada (`notaFm`) sobra: ya lo dice «Sus firmas».
 
 **REGLA — la hoja la genera el equipo interno**, como el párrafo del mensaje (`fcVisible`). El conmutador
-del popup de envío solo pone o quita el PÁRRAFO del mensaje; la hoja va siempre que proceda.
+del popup de envío solo pone o quita el MENSAJE del FM; la hoja va siempre que proceda.
+
+## El mensaje del FM va APARTE, el último (09/11/2026)
+
+Fran, tras verla en su móvil: «lo de la nota aclaratoria del cambio de normativa se debería poner en un
+mensaje por fuera». Metido en el texto largo, entre las cifras de la propuesta, se leía como parte de la
+oferta.
+
+**REGLA — el aviso del FM y el consentimiento del IRPF de esa vía ya NO van en el mensaje principal: van
+en el ÚLTIMO mensaje, aparte**, por el mismo camino que los avisos de biomasa y de hibridación
+(`buildAvisoFinal` → `mensajeFm`): última burbuja de WhatsApp (`textoDespues`), final del cuerpo del email,
+`whatsapps[].avisoFinal` en el envío programado. El conmutador «Incluir el factor multiplicador» del popup
+decide si sale; la vista previa lo enseña debajo del mensaje («aparte, el último»). Con la hoja en el PDF,
+el mensaje remite a ella («Te lo explicamos en la página 2 de la propuesta»).
+
+## Consumidor vulnerable: × 1,5 en la oportunidad (09/11/2026)
+
+Fran: «que la oportunidad, si tiene lo del factor de vulnerabilidad, que lo calcule y que lo muestre». Las
+fichas `-S` (RES060_FM-S, RES09x_FM-S) multiplican el factor por 1,5; la RES080_FM no tiene `-S`.
+
+**REGLA — manda el conmutador del equipo; sin tocar, lo que declaró el cliente al aceptar.**
+`esVulnerableFm` ([logic/viaFm.js](../../../implementation/frontend/src/features/calculator/logic/viaFm.js)):
+`inputs.vulnerable` (Sí/No, en «Vía de tramitación» de la calculadora, `ConmutadorViaFm`) y, si es null,
+`vulnerableDeConfirmacion(confirmacion_cliente)` — la regla de la familia numerosa de `vulnerableFmDeBono`:
+una familia numerosa con el bono de vulnerable NO cuenta sin la renta (la Resolución excluye a quien lo
+tiene solo por el título); con el severo o en exclusión, sí. Sin declarar nada, no. La calculadora pasa
+`vulnerable` a `calculateRes060FM` y la cifra FM, la hoja y el mensaje salen con el × 1,5.
+
+**REGLA — la cifra con el × 1,5 dice lo que hay que ACREDITAR y lo que saldría sin acreditarlo.** En la
+hoja, la tarjeta «Consumidor vulnerable (× 1,5)» (factura con el bono social, Anexo B, empadronamiento,
+nota simple o alquiler) y «sin acreditarlo: unos X €» (`bonoConKwh` con `cae / 1,5`); el «no es
+multiplicar por…» usa el factor completo (3 en unifamiliar). Para que quepa, con esa tarjeta la de
+«Fechas y facturas» se funde en la del instalador («Facturas, instalador y certificados»: las fechas ya
+están en el calendario) y la introducción no lo repite. En el mensaje: «Esa cifra ya cuenta el × 1,5
+de consumidor vulnerable…: habrá que acreditarlo con la factura».
+
+**REGLA — el expediente lo hereda.** `semillaBonoSocial` (alta del expediente) siembra
+`documentacion.via_fm.vulnerable` con lo declarado al aceptar y, además, con el «Sí» del equipo en la
+oportunidad (`por: 'oportunidad (marcado por el equipo)'`); un «No» explícito del equipo manda sobre lo
+declarado (el Anexo I sigue llevando el bono social). Si no se declaró nada al principio, se marca después
+en la pestaña «Vía FM» del expediente.
 
 ## Alto fijo
 
@@ -71,6 +111,7 @@ localhost. Resultados:
 | Caso | Margen hasta el pie |
 |---|---|
 | RES060 en zona D (siete requisitos, el peor) | 41 px |
+| La misma, 26RES060_OP383, con consumidor vulnerable (× 1,5) | 27 px (pisaba 26 con la tarjeta añadida a secas) |
 | Hibridación 26RES060_OP310 | 82 px |
 | Solo reforma 26RES080_OP88, estimada | 66 px |
 | Comparativa 26RES080_OP92 | 41 px |

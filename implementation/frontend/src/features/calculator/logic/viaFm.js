@@ -35,6 +35,7 @@ import { calculateRes080FM } from './res080fm.js';
 import { redondeaScop, precioCaeFm } from './calculation.js';
 import { entradasFmClima } from './climaFm.js';
 import { esBloque } from './tipoInmueble.js';
+import { vulnerableDeConfirmacion } from '../../expedientes/logic/confirmacionCliente.js';
 
 /**
  * Versión del resumen: sube si cambia su forma o el criterio con el que se calcula.
@@ -121,6 +122,21 @@ function noAplica(inputs = {}) {
 }
 
 /**
+ * ¿La vía FM se calcula con el × 1,5 de CONSUMIDOR VULNERABLE (fichas «-S»)?
+ * Fran, 09/11/2026: «si tiene lo del factor de vulnerabilidad, que lo calcule y que
+ * lo muestre». Manda el conmutador del staff (`inputs.vulnerable`, Sí/No); si no se
+ * ha tocado, lo que declaró el cliente AL ACEPTAR (`confirmacion_cliente.bono_social`,
+ * con la regla de la familia numerosa de `vulnerableFmDeBono`). Sin nada, no.
+ * La RES080_FM no tiene variante -S: ahí no se aplica (lo decide quien llama).
+ */
+export function esVulnerableFm(inputs = {}, confirmacion = inputs?.confirmacion_cliente) {
+    const v = inputs?.vulnerable;
+    if (v === true || String(v).toLowerCase() === 'true') return true;
+    if (v === false || String(v).toLowerCase() === 'false') return false;
+    return vulnerableDeConfirmacion(confirmacion) === true;
+}
+
+/**
  * Resumen de las dos vías a partir del `result` de la calculadora.
  * Devuelve null si no hay cálculo FM (o si es del BORRADOR, sin `normativa`).
  */
@@ -145,6 +161,8 @@ export function resumenViaFm(result, inputs = {}, { precioFm = null, hoy = null 
         v: VIA_FM_VERSION,
         normativa: FM_NORMATIVA,
         ficha: fm.ficha,
+        // Consumidor vulnerable (× 1,5): la ficha «-S».
+        ...(/-S$/.test(String(fm.ficha || '')) ? { vulnerable: true } : {}),
         aplica: !motivoNoAplica,
         ...(motivoNoAplica ? { no_aplica: motivoNoAplica } : {}),
         mwh_vigente: r2(kwhVig / 1000),
@@ -222,6 +240,7 @@ export function viaFmDesdeDatosCalculo(dc = {}, opciones = {}) {
         ceeFinal: inputs.xmlDemandDataFinal || null,
         hibridacion: fmClima.hibridacion,
         contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal || null, climaFm: fmClima.clima },
+        vulnerable: esVulnerableFm(inputs, dc.confirmacion_cliente ?? inputs.confirmacion_cliente),
     });
     if (!fm) return null;
     return resumenViaFm({ res060fc: fm, savings: result.savings, financials: result.financials }, inputs, opciones);

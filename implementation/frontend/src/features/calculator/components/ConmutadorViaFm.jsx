@@ -21,6 +21,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { FM_ACS_QUE_HACER } from '../logic/res060fc';
+import { esVulnerableFm } from '../logic/viaFm';
+import { vulnerableFmDeBono } from '../../expedientes/logic/confirmacionCliente';
 
 const cierto = (v) => v === true || v === 'true' || v === 1 || v === '1';
 
@@ -40,6 +42,14 @@ export function ConmutadorViaFm({ inputs, result, onInputChange, sinGuardar = fa
     const base = soloReforma ? 'RES080' : cierto(inputs?.hibridacion) ? 'RES093' : 'RES060';
     const ficha = fc?.ficha || `${base}_FM`;
     const serie = `${new Date().getFullYear().toString().slice(-2)}${base}FM`;
+
+    // CONSUMIDOR VULNERABLE (× 1,5, ficha -S), 09/11/2026. Manda lo marcado aquí;
+    // sin tocar, lo que declaró el cliente al aceptar (`esVulnerableFm`). La
+    // RES080_FM no tiene -S. En el expediente se cambia en su pestaña «Vía FM».
+    const vulMarcado = inputs?.vulnerable === true || inputs?.vulnerable === false ? inputs.vulnerable : null;
+    const vulnerable = esVulnerableFm(inputs);
+    const declarado = vulnerableFmDeBono(inputs?.confirmacion_cliente?.bono_social);
+    const fijarVulnerable = (v) => onInputChange((prev) => ({ ...prev, vulnerable: v }));
 
     // Por qué no se puede pulsar (null = se puede).
     let motivo = null;
@@ -91,6 +101,38 @@ export function ConmutadorViaFm({ inputs, result, onInputChange, sinGuardar = fa
             </div>
 
             {motivo && <p className="mt-2 text-[11px] leading-snug text-slate-400">{motivo}</p>}
+
+            {!soloReforma && !expediente && (
+                <div className="mt-3 pt-3 border-t border-white/5" data-testid="conmutador-vulnerable">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="text-[11px] font-bold text-white">Consumidor vulnerable · × 1,5</div>
+                            <div className="text-[10px] text-slate-400 leading-snug">
+                                {vulMarcado !== null
+                                    ? (vulnerable ? 'Marcado: la cifra FM va con la ficha -S.' : 'Marcado que no: sin el × 1,5.')
+                                    : declarado.vulnerable
+                                        ? 'Lo declaró el cliente al aceptar (bono social de la luz).'
+                                        : 'Bono social de la luz a su nombre (sin ser solo por familia numerosa).'}
+                            </div>
+                        </div>
+                        <div className="flex shrink-0 rounded-lg border border-white/10 overflow-hidden text-[10px] font-black uppercase tracking-widest">
+                            {[{ v: true, l: 'Sí' }, { v: false, l: 'No' }].map((o) => (
+                                <button key={o.l} type="button" onClick={() => fijarVulnerable(o.v)}
+                                    aria-pressed={vulnerable === o.v}
+                                    className={`px-3 py-1.5 transition-colors ${vulnerable === o.v ? 'bg-violet-500 text-white' : 'bg-white/5 text-white/50 hover:text-white'}`}>
+                                    {o.l}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {vulMarcado === null && declarado.pendiente && (
+                        <p className="mt-2 text-[11px] leading-snug px-3 py-1.5 rounded-lg border-l-2 bg-amber-500/10 border-amber-400 text-amber-100">{declarado.pendiente}</p>
+                    )}
+                    {vulnerable && (
+                        <p className="mt-2 text-[10px] leading-snug text-slate-400">Habrá que acreditarlo: factura de la luz con el bono social, Anexo B, empadronamiento y nota simple o contrato de alquiler. Guarda la simulación para que la propuesta lo lleve.</p>
+                    )}
+                </div>
+            )}
             {activa && !expediente && fc?.elegible === false && (
                 <p className="mt-2 text-[11px] leading-snug px-3 py-1.5 rounded-lg border-l-2 bg-amber-500/10 border-amber-400 text-amber-100">
                     Marcada la vía FM, pero con la simulación de ahora no es elegible: {bloquea?.texto || 'ver los avisos'} Apágala o corrige la simulación antes de aceptar.

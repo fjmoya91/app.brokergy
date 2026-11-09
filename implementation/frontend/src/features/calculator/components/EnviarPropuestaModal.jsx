@@ -513,7 +513,10 @@ export function EnviarPropuestaModal({
     // (2026-10-10, biomasa → la deducción del IRPF solo con placas). Por
     // WhatsApp va en su burbuja DESPUÉS del enlace, lo último del chat; en el
     // email, que es un solo cuerpo, al final del texto.
-    const avisoFinalFor = (c) => (buildAvisoFinal ? buildAvisoFinal(c.mode) || null : null);
+    // Desde el 09/11/2026 lleva también el mensaje del FACTOR MULTIPLICADOR, según
+    // el conmutador «Incluir el factor multiplicador» de este popup.
+    const fcAparte = !!fcEstado?.procede && !!includeFc;
+    const avisoFinalFor = (c) => (buildAvisoFinal ? buildAvisoFinal(c.mode, { fc: fcAparte }) || null : null);
     const conAvisoFinal = (texto, c) => {
         const aviso = avisoFinalFor(c);
         return aviso ? `${texto}\n\n${aviso}` : texto;
@@ -1055,8 +1058,8 @@ export function EnviarPropuestaModal({
                     {fcVisible && fcEstado?.procede && (
                         <p className="-mt-2 text-[9px] text-white/30 leading-relaxed">
                             El PDF lleva siempre la hoja 2 del factor multiplicador (las dos cifras, cuándo se pide
-                            y qué hace falta). Esto solo añade el párrafo al mensaje; los dos dicen que esa cifra no
-                            es firme y repiten el importe de la propuesta.
+                            y qué hace falta). Esto añade un MENSAJE APARTE, el último, con la nueva normativa;
+                            los dos dicen que esa cifra no es firme y repiten el importe de la propuesta.
                         </p>
                     )}
                     {fcVisible && fcEstado && !fcEstado.procede && (
@@ -1102,13 +1105,13 @@ export function EnviarPropuestaModal({
                             </div>
                         )}
                         {/* El ÚLTIMO mensaje, si lo hay (biomasa → IRPF solo con placas). */}
-                        {buildAvisoFinal && buildAvisoFinal(primaryMode) && (
+                        {buildAvisoFinal && buildAvisoFinal(primaryMode, { fc: fcAparte }) && (
                             <div data-robot="aviso-final" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3">
                                 <p className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-400/90 mb-1.5">
-                                    {buildAcceptMessage ? '3er' : '2º'} mensaje · aviso importante
+                                    {buildAcceptMessage ? '3er' : '2º'} mensaje · aparte, el último
                                 </p>
                                 <p className="whitespace-pre-wrap break-words text-[12px] text-white/70 leading-relaxed">
-                                    {buildAvisoFinal(primaryMode)}
+                                    {buildAvisoFinal(primaryMode, { fc: fcAparte })}
                                 </p>
                                 <p className="mt-2 text-[9px] text-white/30 leading-relaxed">
                                     Por WhatsApp sale aparte y el último, para que no se pierda. En el email va al final del texto.

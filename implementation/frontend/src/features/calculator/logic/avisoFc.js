@@ -106,6 +106,8 @@ export function estadoFc(result, inputs) {
         // ('supuesto') o, sin SCOP_dhw, es solo la calefacción ('sin_scop'). El
         // párrafo tiene que decir que hay que añadir el depósito de ACS.
         acs: fc.acsSupuesto ? 'supuesto' : fc.acsSinScop ? 'sin_scop' : null,
+        // Consumidor vulnerable (bono social de la luz): la ficha es la «-S», ×1,5.
+        vulnerable: /-S$/.test(String(fc.ficha || '')),
         // Con comparativa (aerotermia + reforma) el bono de arriba es el de la Opción 1:
         // hay que nombrarla, o el cliente no sabe a cuál de las dos se refiere el aviso.
         dosOpciones: isReforma && inputs?.comparativaReforma !== false,
@@ -165,7 +167,7 @@ export function fcMejora(result, inputs) {
  * la cifra ya lo supone, que lo supone. Una cifra que cuenta un ACS que el
  * presupuesto no lleva, sin decirlo, es prometer el bono de otra instalación.
  */
-export function lineaFactorCorreccion({ actual = 0, fc = 0, tuteo = true, dosOpciones = false, acs = null, ficha = null, estimada = false } = {}) {
+export function lineaFactorCorreccion({ actual = 0, fc = 0, tuteo = true, dosOpciones = false, acs = null, ficha = null, estimada = false, vulnerable = false, hoja = false } = {}) {
     const t = (a, b) => (tuteo ? a : b);
     const reforma = String(ficha || '').startsWith('RES080');
     const cual = reforma ? 'de la reforma' : dosOpciones ? 'de la Opción 1 (aerotermia)' : 'de la instalación de aerotermia';
@@ -181,11 +183,19 @@ export function lineaFactorCorreccion({ actual = 0, fc = 0, tuteo = true, dosOpc
         ? ' Es una estimación: para afinarla hay que hacer dos certificados energéticos simulados más, que hacemos nosotros.'
         : '';
 
-    const p1 = `📅 *Nueva normativa — el bono podría ser mayor.* El BOE del 7 de noviembre de 2026 ha publicado una resolución del Ministerio que ${que} (el «factor multiplicador»). Con ella, el bono ${cual} pasaría de *${fmt(actual)} €* a unos *${fmt(fc)} €*.${aprox}${faltaAcs}`;
+    // Consumidor vulnerable (09/11/2026): la cifra ya lleva el ×1,5, y eso hay que
+    // ACREDITARLO (bono social de la luz en vigor), o vuelve a la de sin él.
+    const vuln = vulnerable
+        ? ` Esa cifra ya cuenta el ×1,5 de consumidor vulnerable, por ${t('tener', 'tener el cliente')} el bono social de la luz: habrá que acreditarlo con la factura.`
+        : '';
+
+    const p1 = `📅 *Nueva normativa — el bono podría ser mayor.* El BOE del 7 de noviembre de 2026 ha publicado una resolución del Ministerio que ${que} (el «factor multiplicador»). Con ella, el bono ${cual} pasaría de *${fmt(actual)} €* a unos *${fmt(fc)} €*.${vuln}${aprox}${faltaAcs}`;
 
     const p2 = `Se acogen las actuaciones iniciadas desde el ${FC_ACTUACIONES_DESDE}, con las facturas antes del ${FM_FACTURAS_ANTES_DEL_TXT}, y se presentan a partir del ${FM_PRESENTACION_DESDE_TXT}. Esta obra entra en ese supuesto, así que ${t('no tienes que esperar a nada: puedes ejecutarla cuando te venga bien', 'el cliente no tiene que esperar a nada: la obra puede ejecutarse cuando os venga bien')} y, si ${t('te', 'le')} resulta más beneficioso, ${t('tramitaríamos tu bono', 'tramitaríamos el bono')} a partir del ${FM_PRESENTACION_DESDE_TXT} por esa vía.`;
 
-    const p3 = `Tiene un cupo limitado que se reparte por orden de resolución, y requisitos propios (entre ellos, que sea la vivienda habitual), así que esa cifra no está garantizada. El importe firme de esta propuesta es el de *${fmt(actual)} €*.`;
+    // La hoja 2 del PDF lo explica entero: el mensaje remite a ella.
+    const verHoja = hoja ? ` ${t('Te lo explicamos', 'Lo explicamos')} en la página 2 de la propuesta.` : '';
+    const p3 = `Tiene un cupo limitado que se reparte por orden de resolución, y requisitos propios (entre ellos, que sea la vivienda habitual), así que esa cifra no está garantizada. El importe firme de esta propuesta es el de *${fmt(actual)} €*.${verHoja}`;
 
     return `${p1}\n\n${p2}\n\n${p3}`;
 }

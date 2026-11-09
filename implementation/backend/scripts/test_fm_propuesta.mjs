@@ -3,6 +3,9 @@
 // node implementation/backend/scripts/test_fm_propuesta.mjs
 import { fmPropuesta, textosHojaFm, fichaVigenteDe } from '../../frontend/src/features/calculator/logic/fmPropuesta.js';
 import { estadoFc, lineaFactorCorreccion } from '../../frontend/src/features/calculator/logic/avisoFc.js';
+import { esVulnerableFm } from '../../frontend/src/features/calculator/logic/viaFm.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
 let fallos = 0;
 const ok = (c, m) => { console.log(`${c ? '✓' : '✗'} ${m}`); if (!c) fallos++; };
@@ -57,6 +60,34 @@ ok(!d.procede && /NO sube/.test(d.motivo) && textosHojaFm(d) === null, 'si el FM
 const bloq = { ...fm060, elegible: false, avisos: [{ tono: 'bloquea', texto: 'Caldera de biomasa' }] };
 ok(!fmPropuesta(aero(bloq), {}).procede, 'si algo lo impide: sin hoja');
 ok(fichaVigenteDe('RES091_FM') === 'RES093' && fichaVigenteDe('RES080_FM') === 'RES080', 'ficha vigente de cada FM');
+
+// 6) Consumidor vulnerable (09/11/2026): ficha -S, × 1,5, tarjeta y cifra sin acreditarlo.
+const bonoLuz = (fn) => ({ bono_social: { respuesta: 'electrico', tipo: 'vulnerable', familia_numerosa: fn } });
+ok(esVulnerableFm({ confirmacion_cliente: bonoLuz(false) }) === true, 'vulnerable: bono de la luz y no familia numerosa, declarado al aceptar');
+ok(esVulnerableFm({ confirmacion_cliente: bonoLuz(true) }) === false, 'familia numerosa con el bono de vulnerable: NO (falta la renta)');
+ok(esVulnerableFm({ vulnerable: false, confirmacion_cliente: bonoLuz(false) }) === false, 'el «No» del equipo manda sobre lo declarado');
+ok(esVulnerableFm({ vulnerable: true }) === true && esVulnerableFm({}) === false, 'el «Sí» del equipo basta; sin nada, no');
+const fm060S = { ficha: 'RES060_FM-S', cae: 75000, elegible: true, avisos: [] };
+const aeroS = { res060fc: fm060S, financials: { caeBonus: 3603 }, financialsRes060FC: { caeBonus: 7500, finalPriceClient: 100, isParticular: true, legalizationCost: 0 } };
+const eS = estadoFc(aeroS, {});
+ok(eS.procede && eS.vulnerable === true, 'estadoFc: la ficha -S es vulnerable');
+d = fmPropuesta(aeroS, { tipo: 'unifamiliar', zona: 'D3' });
+t = textosHojaFm(d);
+ok(d.vulnerable && d.principal.sinVulnerable === 5000, 'sin acreditarlo: 75.000 / 1,5 kWh a 100 €/MWh = 5.000 €');
+ok(/por 3 la cifra actual/.test(t.noDoble) && /por 3/.test(t.noDoble), 'unifamiliar vulnerable: «por 3» y la intro lo dice');
+ok(t.requisitos.some((r) => /vulnerable/.test(r.t) && /Anexo B/.test(r.d) && /unos 5\.000 €/.test(r.d)), 'tarjeta del consumidor vulnerable con la cifra sin acreditarlo');
+ok(!textosHojaFm(fmPropuesta(aero(fm060), { zona: 'D3' })).requisitos.some((r) => /vulnerable/.test(r.t)), 'sin vulnerable: sin tarjeta');
+const mS = lineaFactorCorreccion({ ...eS, hoja: true });
+ok(/1,5 de consumidor vulnerable/.test(mS) && /página 2/.test(mS), 'mensaje: dice el × 1,5 y remite a la página 2');
+ok(!/vulnerable|página 2/.test(lineaFactorCorreccion({ actual: 1000, fc: 4000 })), 'sin vulnerable ni hoja: el párrafo de siempre');
+
+// 7) La siembra del expediente con el conmutador de la oportunidad.
+const { semillaBonoSocial } = require('../services/expedienteService.js');
+const sOp = await semillaBonoSocial(null, 'RES060', { vulnerableOp: true });
+ok(sOp.via_fm?.vulnerable === true && /equipo/.test(sOp.via_fm.por), 'el Sí de la oportunidad siembra vulnerable en el expediente');
+const sNo = await semillaBonoSocial(bonoLuz(false), 'RES060', { vulnerableOp: false });
+ok(!sNo.via_fm && sNo.subvenciones?.bono_social, 'el No de la oportunidad no siembra el × 1,5 (el Anexo I sí)');
+ok(!(await semillaBonoSocial(null, 'RES080', { vulnerableOp: true })).via_fm, 'RES080: nunca -S');
 
 console.log(fallos ? `\n${fallos} fallo(s)` : '\n✓ todo correcto');
 process.exit(fallos ? 1 : 0);

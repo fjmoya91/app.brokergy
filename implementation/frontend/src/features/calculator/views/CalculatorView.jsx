@@ -46,6 +46,7 @@ import { resolveDacs, ACS_METHOD } from '../../expedientes/logic/demandaAcs';
 import { ceeToEmisionesInputs, ceeFinalToEmisionesInputs } from '../logic/ceeSeed';
 import { demandaDeCalculo } from '../../cee/ceeAvisos';
 import { calculateRes060FC, contextoCalderaFc } from '../logic/res060fc';
+import { esVulnerableFm } from '../logic/viaFm';
 import { entradasFmClima } from '../logic/climaFm';
 import { Res060FCModal } from '../components/Res060FCModal';
 import { calculateRes080FM } from '../logic/res080fm';
@@ -879,6 +880,9 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             ceeFinal: inputs.xmlDemandDataFinal,
             hibridacion: fmClima.hibridacion,
             contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal, climaFm: fmClima.clima },
+            // × 1,5 de consumidor vulnerable (ficha -S): el conmutador del equipo o,
+            // sin tocar, el bono social que declaró el cliente al aceptar (09/11/2026).
+            vulnerable: esVulnerableFm(inputs),
         });
 
         // Financieros de la vía FM con las mismas reglas (precio CAE, prescriptor, IVA...)
