@@ -30,7 +30,7 @@ propuesta que se le envía».
 y su espejo [logic/viaFm.js](implementation/frontend/src/features/expedientes/logic/viaFm.js)):
 `/^\d{2}(RES060|RES093)FM_\d+$/`. `fichaFromNumero` usa `includes`, así que un FM sigue siendo RES060 /
 RES093 para todo lo demás: cálculo, documentos, carpetas, listado. Solo RES060 y RES093 (`FICHAS_CON_FM`):
-la Resolución no trae fichas FM para el terciario, y la RES080_FM (cuatro CEE) no se tramita todavía.
+la Resolución no trae fichas FM para el terciario. La RES080_FM (rehabilitación profunda, cuatro CEE) entra el 09/11/2026 con su serie **`26RES080FM_N`** (`FICHAS_CON_FM` = RES060, RES080, RES093; `fichaFromNumero` sigue dando RES080).
 
 **REGLA — la serie es PROPIA, y el correlativo se busca DENTRO de ella.** `serieNumeracion('RES060', true)`
 → `RES060FM`; `correlativoEnSerie(numero, '26RES060')` devuelve null para un `26RES060FM_12`. Antes
@@ -118,6 +118,19 @@ los documentos que genera la app, `mantenimiento` (`acepta` | `desiste` | null),
 (`{ nombre, nif, domicilio, telefono, email }`, solo si el vulnerable no es el titular).
 
 ### Qué documentos pide, por caso
+
+**RES080_FM** (09/11/2026, `documentosFm080` en `utils/viaFm.js`, BOE págs. 20–22): 2 Anexo A (la ficha
+dice «anexo I», errata) · 3 vivienda habitual (facturas 1/11–31/3; no en un centralizado) · 4 facturas
+(cubre DOC_FACTURAS) · 5 informe fotográfico (Anexo Fotográfico) · 6 **certificado del director o
+responsable de obra** (slot `FM_CERT_DIRECTOR_OBRA`: elementos, fin de obra y variables de la fórmula) ·
+7 puesta en funcionamiento (DOC_RITE) · 8 CEE previo registrado (cee_inicial) · 9 CEE posterior registrado
+con la misma herramienta (cee_final) · 10 CEE simulado TODO menos la bomba (`FM_CEE_SIM_REST`) · 11 CEE
+simulado SOLO la bomba (`FM_CEE_SIM_BC`), los dos sin registrar · y la cláusula del IRPF en el Convenio.
+Los tres slots nuevos no se le reclaman al cliente (`aportaInstalador`). No lleva declaración de
+tipología, preinstalación, inercia, BT, mantenimiento, F/G ni la variante -S, y el panel esconde esas
+preguntas; en su lugar, los kWh/año de los dos simulados (`ef_sim_bc`, `ef_sim_rest`), que usa la cifra
+mientras no estén sus CEE. El Convenio FM declara como subsidiaria la RES080 (`fichaGeneralDeFm`) y la
+RES080_FM va al precio RES080. Pruebas: `test_via_fm.mjs`.
 
 Fuente única: `documentosFm` / `slotsFm` en [utils/viaFm.js](implementation/backend/utils/viaFm.js).
 Lo que se SUBE entra en el gestor de documentación como apartado de la fase DESPUÉS (`alcance.fm` en

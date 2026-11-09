@@ -40,10 +40,19 @@ const letraZona = (zona) => {
  * Código y título de la ficha oficial FM. `hibridacion` (RES093FM) toma la de su
  * zona; sin zona, la D (la del motor). `vulnerable` añade el «-S».
  */
-function fichaOficialFm({ hibridacion = false, zona = null, vulnerable = false } = {}) {
+function fichaOficialFm({ hibridacion = false, zona = null, vulnerable = false, rehabilitacion = false } = {}) {
     let codigo;
     let titulo;
     let sinZona = false;
+    if (rehabilitacion) {
+        // RES080_FM (BOE-A-2026-23367, págs. 20–22). La Resolución no le da variante -S.
+        return {
+            codigo: 'RES080_FM',
+            titulo: 'Rehabilitación profunda de edificios de viviendas con coeficiente corrector con factor multiplicador sobre la parte de bomba de calor',
+            sinZona: false,
+            version: 'V1.0',
+        };
+    }
     if (hibridacion) {
         const z = letraZona(zona);
         sinZona = !z;
@@ -84,6 +93,7 @@ function tipologiaFm(inputs = {}, declarada = null) {
 
 // ── Datos que declara el expediente (`documentacion.via_fm`) ────────────────
 const BOOL_O_NULL = (v) => (v === true || v === false ? v : null);
+const KWH = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) || Number(v) <= 0 ? null : Math.round(Number(v) * 10) / 10);
 const FECHA = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : null);
 
 /**
@@ -101,6 +111,8 @@ const FECHA = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : 
  *   mantenimiento_importe punto 8: el precio de la oferta, como se escribe («185 €/año, IVA incluido»)
  *   anexo_b_casilla      Anexo B: 'renta' | 'severo' | 'no_fn' | null (= en blanco, solo papel)
  *   vulnerable_persona   Anexo B: { nombre, nif, domicilio, telefono, email } si NO es el titular
+ *   ef_sim_bc / ef_sim_rest  RES080_FM: kWh/año de energía final de los dos CEE SIMULADOS
+ *                        (solo la bomba / todo menos la bomba) mientras no estén sus CEE
  */
 const TEXTO = (v, max) => {
     const s = String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -140,6 +152,9 @@ function sanearDatosFm(body = {}) {
         // «Vía FM» → AvisoEsperaFmModal): cuándo salió y a quién, y qué contestó.
         aviso_espera: sanearAvisoEspera(b.aviso_espera),
         espera_cliente: ['acepta', 'rechaza'].includes(b.espera_cliente) ? b.espera_cliente : null,
+        // RES080_FM: la energía final (kWh/año) de los dos CEE simulados, tecleada.
+        ef_sim_bc: KWH(b.ef_sim_bc),
+        ef_sim_rest: KWH(b.ef_sim_rest),
     };
     return out;
 }
@@ -305,10 +320,12 @@ function contextoFm({ numero, datos = {}, inputs = {}, zona = null, letrasFinal 
     const activa = esNumeroFm(numero);
     const ficha = fichaFromNumero(numero);
     const hibridacion = ficha === 'RES093';
+    // RES080_FM: rehabilitación profunda (envolvente + caldera → bomba), cuatro CEE.
+    const rehabilitacion = ficha === 'RES080';
     const d = sanearDatosFm(datos || {});
     const tip = tipologiaFm(inputs, d.tipologia);
     const z = letraZona(zona || inputs.zona);
-    const oficial = fichaOficialFm({ hibridacion, zona: zona || inputs.zona, vulnerable: d.vulnerable });
+    const oficial = fichaOficialFm({ hibridacion, rehabilitacion, zona: zona || inputs.zona, vulnerable: d.vulnerable });
     const norm = (ls) => (ls || []).filter(Boolean).map((l) => String(l).trim().toUpperCase());
     const lf = norm(letrasFinal);
     const li = norm(letrasInicial);
@@ -320,6 +337,7 @@ function contextoFm({ numero, datos = {}, inputs = {}, zona = null, letrasFinal 
         activa,
         ficha,
         hibridacion,
+        rehabilitacion,
         datos: d,
         tipologia: tip,
         zona: zona || inputs.zona || null,
@@ -344,6 +362,7 @@ const ACCEPT_DOC = '.pdf,image/*';
  */
 function documentosFm(ctx) {
     if (!ctx?.activa) return [];
+    if (ctx.rehabilitacion) return documentosFm080(ctx);
     const d = ctx.datos;
     const hib = ctx.hibridacion;
     const out = [];
@@ -434,6 +453,50 @@ function documentosFm(ctx) {
     return out;
 }
 
+/**
+ * RES080_FM (BOE-A-2026-23367, págs. 20–22): los documentos de la rehabilitación
+ * profunda con factor multiplicador sobre la parte de la bomba. El 1 es la propia
+ * ficha. Los dos CEE SIMULADOS (10 y 11) no se registran; se hacen con la misma
+ * herramienta que el previo y el posterior.
+ */
+function documentosFm080(ctx) {
+    const d = ctx.datos;
+    const out = [];
+    const add = (x) => out.push({ required: true, ...x });
+    add({ punto: '2', key: 'FM_ANEXO_A', cubre: 'anexo_i', quien: 'cliente',
+        label: 'Anexo A (declaración de ayudas)', help: 'La ficha dice «anexo I» (errata): es el Anexo A. El «Anexo I» de Documentos se genera ya como Anexo A en la vía FM y se firma en el mismo enlace que el Convenio.' });
+    if (ctx.tipologia.clase !== 'bloque') {
+        const curva = d.vivienda_habitual === 'curva';
+        add({ punto: '3', key: 'FM_VIVIENDA_HABITUAL', slot: 'FM_VIVIENDA_HABITUAL', quien: 'cliente',
+            label: curva ? 'Vivienda habitual: curva de consumo horario de la distribuidora' : 'Vivienda habitual: facturas de luz del 1/11 al 31/3 del invierno anterior',
+            help: curva
+                ? 'El archivo de la curva de consumo horario, firmado digitalmente por la distribuidora eléctrica.'
+                : 'Las facturas de la luz (o del combustible) que cubran SIN huecos del 1 de noviembre al 31 de marzo del invierno anterior a la obra, con el CUPS, la dirección igual que la del Catastro y más de 75 kWh al mes de media.' });
+    }
+    add({ punto: '4', key: 'FM_FACTURAS', cubre: 'DOC_FACTURAS', quien: 'instalador',
+        label: 'Facturas de la obra (envolvente y bomba), posteriores al 22/03/2026 y anteriores al 01/12/2027', help: 'Las facturas de la rehabilitación, con la descripción de cada actuación y el nº de serie de los equipos principales.' });
+    add({ punto: '5', key: 'FM_FOTOS', cubre: 'anexo_fotografico', quien: 'brokergy',
+        label: 'Informe fotográfico antes y después', help: 'El Anexo Fotográfico, con las fotos del gestor.' });
+    add({ punto: '6', key: 'FM_CERT_DIRECTOR_OBRA', slot: 'FM_CERT_DIRECTOR_OBRA', quien: 'brokergy', aportaInstalador: true,
+        label: 'Certificado del director o responsable de la obra',
+        help: 'Firmado por el director (o responsable) de la obra: los elementos actuados, la fecha de fin de obra y las variables de la fórmula (EF_i, EF_f, EF_simBC, EF_simRest y f_M).' });
+    add({ punto: '7', key: 'FM_PUESTA_SERVICIO', cubre: 'DOC_RITE', quien: 'instalador', aportaInstalador: true,
+        label: 'Puesta en funcionamiento de la bomba (certificado RITE registrado)', help: 'El certificado RITE registrado; si la instalación ya está inscrita y no pasa de 70 kW, el acta.' });
+    add({ punto: '8', key: 'FM_CEE_PREVIO', cubre: 'cee_inicial', quien: 'brokergy',
+        label: 'CEE previo a la obra, registrado', help: 'El CEE inicial registrado (EF_i).' });
+    add({ punto: '9', key: 'FM_CEE_POSTERIOR', cubre: 'cee_final', quien: 'brokergy',
+        label: 'CEE posterior a la obra, registrado y con la misma herramienta', help: 'El CEE final registrado (EF_f), hecho con el mismo programa que el previo.' });
+    add({ punto: '10', key: 'FM_CEE_SIM_REST', slot: 'FM_CEE_SIM_REST', quien: 'brokergy', aportaInstalador: true,
+        label: 'CEE simulado con TODO menos la bomba (EF_simRest)',
+        help: `El CEE del edificio con la envolvente nueva y la caldera de antes, sin registrar.${d.ef_sim_rest ? ` Tecleado: ${d.ef_sim_rest} kWh/año.` : ''}` });
+    add({ punto: '11', key: 'FM_CEE_SIM_BC', slot: 'FM_CEE_SIM_BC', quien: 'brokergy', aportaInstalador: true,
+        label: 'CEE simulado con SOLO la bomba (EF_simBC)',
+        help: `El CEE del edificio de antes con solo la caldera cambiada por la bomba, sin registrar.${d.ef_sim_bc ? ` Tecleado: ${d.ef_sim_bc} kWh/año.` : ''}` });
+    add({ punto: 'IRPF', key: 'FM_CONSENTIMIENTO_IRPF', cubre: 'convenio', quien: 'cliente',
+        label: 'Consentimiento: el incentivo tributa en el IRPF', help: 'Va como cláusula del Convenio de Cesión de la vía FM y en la propuesta, como en las demás fichas FM.' });
+    return out;
+}
+
 /** Los que se SUBEN al gestor, como slots de `buildDocChecklist` (fase DESPUÉS). */
 function slotsFm(ctx) {
     return documentosFm(ctx).filter((x) => x.slot).map((x) => ({
@@ -460,7 +523,9 @@ function slotsFm(ctx) {
 /** Todas las claves de slot que la vía FM puede llegar a pedir (para el destino y el lenguaje de casa). */
 const SLOTS_FM = ['FM_DECL_INSTALADOR', 'FM_JUSTIF_PREINSTALACION', 'FM_CERT_INERCIA', 'FM_VIVIENDA_HABITUAL',
     'FM_OFERTA_MANTENIMIENTO', 'FM_BOLETIN_BT', 'FM_INFORMADO_FG', 'FM_FICHAS_HIBRIDO', 'FM_VULN_BONO_SOCIAL',
-    'FM_VULN_ANEXO_B', 'FM_VULN_TITULO', 'FM_VULN_EMPADRONAMIENTO', 'FM_VULN_COMPROMISO', 'FM_VULN_CERT_PRESIDENTE'];
+    'FM_VULN_ANEXO_B', 'FM_VULN_TITULO', 'FM_VULN_EMPADRONAMIENTO', 'FM_VULN_COMPROMISO', 'FM_VULN_CERT_PRESIDENTE',
+    // RES080_FM
+    'FM_CERT_DIRECTOR_OBRA', 'FM_CEE_SIM_REST', 'FM_CEE_SIM_BC'];
 
 // Cómo se le llama al CLIENTE (enlace público). Lo del instalador no se le pide.
 const LABEL_CLIENTE_FM = {

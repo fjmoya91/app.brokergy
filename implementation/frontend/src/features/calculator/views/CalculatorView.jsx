@@ -47,6 +47,7 @@ import { ceeToEmisionesInputs, ceeFinalToEmisionesInputs } from '../logic/ceeSee
 import { demandaDeCalculo } from '../../cee/ceeAvisos';
 import { calculateRes060FC, contextoCalderaFc } from '../logic/res060fc';
 import { Res060FCModal } from '../components/Res060FCModal';
+import { calculateRes080FM } from '../logic/res080fm';
 import axios from 'axios';
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { nombrePartner, tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
@@ -512,6 +513,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
     // Popup de desglose de la vía FM (RES060_FM / RES09x_FM): se abre desde las cifras FM de la barra
     // fija y desde la tarjeta de comparativa del panel de resultados.
     const [showRes060FCDetail, setShowRes060FCDetail] = useState(false);
+    const [showRes080FMDetail, setShowRes080FMDetail] = useState(false);
 
     const handleCalculate = () => {
         // Se eliminó la alerta bloqueante para permitir actualización fluida de cálculos en tiempo real
@@ -1065,6 +1067,49 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             });
         }
 
+        // Vía FM del RES080 (RES080_FM, logic/res080fm.js): el MISMO ahorro de la
+        // reforma × el cociente de los dos CEE simulados (o sus kWh tecleados en la
+        // tarjeta; sin ellos, estimados desde el inicial y el final). Al precio de la
+        // opción reforma, con las mismas reglas que su bono.
+        let res080fmData = null;
+        let financialsRes080FM = null;
+        if (res080Data) {
+            res080fmData = calculateRes080FM({
+                res080: res080Data,
+                ceeInicial: inputs.xmlDemandData,
+                ceeFinal: inputs.xmlDemandDataFinal,
+                efSimBC: parseFloat(inputs.efSimBC) || null,
+                efSimRest: parseFloat(inputs.efSimRest) || null,
+                tipo: sanitizedInputs.tipo,
+                bloque: esBloqueCalc,
+                contexto: contextoCalderaFc(inputs),
+            });
+            if (res080fmData?.cae > 0 && financialsRes080) {
+                financialsRes080FM = calculateFinancials({
+                    presupuesto: sanitizedInputs.presupuesto + (sanitizedInputs.isReforma ? sanitizedInputs.presupuestoEnvolvente : 0),
+                    presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
+                    savingsKwh: res080fmData.cae,
+                    caePriceClient: sanitizedInputs.caePriceClientRes080,
+                    caePriceSO: sanitizedInputs.caePriceSO,
+                    costeVerificacion: sanitizedInputs.costeVerificacion,
+                    caePricePrescriptor: inputs.includeCommission ? sanitizedInputs.caePricePrescriptor : 0,
+                    prescriptorMode: sanitizedInputs.prescriptorMode,
+                    tipo: sanitizedInputs.tipo,
+                    participation: sanitizedInputs.participation,
+                    numOwners: sanitizedInputs.numOwners,
+                    discountCertificates: sanitizedInputs.discountCertificates,
+                    includeLegalization: sanitizedInputs.includeLegalization,
+                    installerNoCard: sanitizedInputs.installerNoCard,
+                    legalizationPrice: sanitizedInputs.legalizationPrice,
+                    itpPercent: sanitizedInputs.itpPercent,
+                    includeIrpf: inputs.includeIrpf,
+                    titularType: inputs.titularType || 'particular',
+                    aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true',
+                    includeIVA: inputs.includeIVA === true || inputs.includeIVA === 'true'
+                });
+            }
+        }
+
         // 6. Información del modelo seleccionado
         const modelId = sanitizedInputs.aerothermiaModel;
         let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
@@ -1082,6 +1127,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             payback: paybackRes,
             res080: res080Data,
             financialsRes080: financialsRes080,
+            res080fm: res080fmData,
+            financialsRes080FM,
             res060fc: res060fcData,
             financialsRes060FC: financialsRes060FC,
             includeAnnualSavings: inputs.includeAnnualSavings,
@@ -1114,6 +1161,14 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                     ? `No se puede pedir: ${(result.res060fc.avisos || []).find(a => a.tono === 'bloquea')?.texto || ''}`
                     : `Ver desglose de la ficha ${result.res060fc?.ficha || 'RES060_FM'}${result.res060fc?.dcalFuente === 'simulacion' ? ' (D_cal estimada: sin CEE)' : ''}`;
                 const fmAprox = result.res060fc?.dcalFuente === 'simulacion' ? '≈' : '';
+                // El mismo chip para la RES080_FM (rehabilitación profunda): «≈» con los
+                // CEE simulados estimados.
+                const fm080 = result.res080fm;
+                const fm080Aprox = fm080?.estimada ? '≈' : '';
+                const fm080Titulo = fm080?.elegible === false
+                    ? `No se puede pedir: ${(fm080.avisos || []).find(a => a.tono === 'bloquea')?.texto || ''}`
+                    : `Ver desglose de la ficha RES080_FM${fm080?.estimada ? ' (CEE simulados estimados)' : ''}`;
+                const fm080Clase = `relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer${fm080?.elegible === false ? ' line-through opacity-60' : ''}`;
                 const fcClase = `relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer${fcNoElegible ? ' line-through opacity-60' : ''}`;
                 return (
                 <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] py-2 px-3 md:py-2 md:px-4 flex justify-center pointer-events-none">
@@ -1164,6 +1219,11 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                         <span className="text-[8px] font-bold text-cyan-400/45 uppercase tracking-[0.18em] mt-1 relative">
                                             {showOnlyReforma ? 'Bono Reforma CAE' : 'Bono Reforma'}
                                         </span>
+                                        {showBrokergy && result.financialsRes080FM && (
+                                            <button type="button" onClick={() => setShowRes080FMDetail(true)} title={fm080Titulo} className={fm080Clase}>
+                                                FM {fm080Aprox}{fmt(result.financialsRes080FM.caeBonus)} €
+                                            </button>
+                                        )}
                                     </div>
                                 )}
 
@@ -1248,6 +1308,11 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                         <span className="text-[8px] font-bold text-cyan-300/35 uppercase tracking-[0.18em] mt-1 relative">
                                             {showOnlyReforma ? 'Ahorro E. Final' : 'Ahorro Reforma'}
                                         </span>
+                                        {result.res080fm?.cae > 0 && (
+                                            <button type="button" onClick={() => setShowRes080FMDetail(true)} title={fm080Titulo} className={fm080Clase}>
+                                                FM {fm080Aprox}{fmtMwh(result.res080fm.cae)} MWh/a
+                                            </button>
+                                        )}
                                     </div>
                                 )}
 
@@ -1387,6 +1452,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         showEficiencia={showEficiencia}
                         setShowEficiencia={setShowEficiencia}
                         onOpenRes060FCDetail={() => setShowRes060FCDetail(true)}
+                        onOpenRes080FMDetail={() => setShowRes080FMDetail(true)}
                         expedienteAsociado={associatedExpediente}
                         onAcceptOpportunity={['ENVIADA', 'PTE ENVIAR', 'PRE-ACEPTADO'].includes(inputs.estado?.toUpperCase()) && !associatedExpediente ? () => {
                             setManualExpNumber('');
@@ -1403,6 +1469,19 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 isOpen={showRes060FCDetail}
                 onClose={() => setShowRes060FCDetail(false)}
                 result={result}
+                inputs={inputs}
+            />
+
+            {/* Popup de desglose RES080_FM: el mismo, con la forma que espera */}
+            <Res060FCModal
+                isOpen={showRes080FMDetail && !!result?.res080fm}
+                onClose={() => setShowRes080FMDetail(false)}
+                result={result?.res080fm ? {
+                    res060fc: result.res080fm,
+                    financialsRes060FC: result.financialsRes080FM,
+                    savings: { savingsKwh: result.res080?.ahorroEnergiaFinalTotal || 0 },
+                    financials: result.financialsRes080,
+                } : null}
                 inputs={inputs}
             />
 

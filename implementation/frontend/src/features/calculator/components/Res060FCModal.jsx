@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { precioCaeFm } from '../logic/calculation';
+import { precioCaeFm, precioCaeRes080 } from '../logic/calculation';
 
 // Popup de desglose de la vía del FACTOR MULTIPLICADOR (Resolución publicada,
 // BOE-A-2026-23367): RES060_FM, o la RES09x_FM de la zona si hay hibridación
@@ -59,10 +59,19 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
         cee_inicial: 'del CEE inicial',
         simulacion: 'estimada (sin CEE)',
     }[fc.dcalFuente] || 'sin dato';
-    const dcalDelCee = fc.dcalFuente === 'cee_final' || fc.dcalFuente === 'cee_inicial';
+    // RES080_FM (logic/res080fm.js): el ahorro del RES080 × el cociente de los simulados.
+    const es080 = fc.ficha === 'RES080_FM';
+    const simDe = (f) => ({ cee: 'su CEE', kwh: 'tecleado' }[f] || (fc.estimada ? 'estimado' : 'sin dato'));
+    const dcalDelCee = es080 ? !fc.estimada : (fc.dcalFuente === 'cee_final' || fc.dcalFuente === 'cee_inicial');
     const n3 = (v) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(v || 0);
 
-    const entradas = [
+    const entradas = es080 ? [
+        ['Tipología', fc.tipologiaLabel],
+        ['Superficie', `${n0(fc.superficie)} m²`],
+        ['D_cal previo', `${n1(fc.dcalInicial)} kWh/m²`],
+        ['D_cal posterior', `${n1(fc.dcalFinal)} kWh/m²`],
+        ['Precio CAE', precioCaeRes080(inputs) ? `${n0(precioCaeRes080(inputs))} €/MWh` : '—'],
+    ] : [
         ['Provincia', fc.provinciaNombre || '—'],
         ['Año', fc.clase !== 'unifamiliar' ? '—' : (fc.anioSupuesto ? `${fc.yearLabel} (supuesto)` : fc.yearLabel)],
         ['Tipología', fc.tipologiaLabel],
@@ -74,7 +83,16 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
         ['Precio CAE', `${n0(precioCaeFm(inputs))} €/MWh`],
     ];
 
-    const rows = [
+    const rows = es080 ? [
+        ['EF_i · CEE previo', `${n0(fc.efI)} kWh/año`],
+        ['EF_f · CEE posterior', `${n0(fc.efF)} kWh/año`],
+        ['EF_i − EF_f (el ahorro RES080 vigente)', `${n0(fc.ahorroVigente)} kWh/año`],
+        [`EF_simBC · solo la bomba (${simDe(fc.simBCFuente)})`, `${n0(fc.efSimBC)} kWh/año`],
+        [`EF_simRest · todo menos la bomba (${simDe(fc.simRestFuente)})`, `${n0(fc.efSimRest)} kWh/año`],
+        ['f_M', n2(fc.fm)],
+        ['(f_M·EF_simBC + EF_simRest) / (EF_simBC + EF_simRest)', fc.factor ? n3(fc.factor) : '—'],
+        ...(fc.factorAhorros ? [['Referencia: ponderando con los ahorros', `${n3(fc.factorAhorros)} · ${n0(fc.caeAhorros)} kWh`]] : []),
+    ] : [
         [`D_cal (${dcalDe})`, `${n1(fc.dcalBruta)} kWh/m²·año`],
         ...(fc.dcalTope != null ? [[`Tope unifamiliar: 2 × Anexo IV (${n1(fc.dcalRef)})`, `${n1(fc.dcalTope)} kWh/m²·año${fc.limitadoPorTabla ? ' · aplicado' : ''}`]] : []),
         [`η_i caldera (Anexo II publicado)${fc.etaApp && Math.abs(fc.eta - fc.etaApp) > 1e-9 ? ` · vigente ${n0(fc.etaApp * 100)} %` : ''}`, `${n0(fc.eta * 100)} %`],
@@ -138,7 +156,7 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                                 className="inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest"
                                 style={{ background: dcalDelCee ? LIME : ORANGE, color: dcalDelCee ? '#1b2b06' : '#2b1600' }}
                             >
-                                D_CAL {dcalDe.toUpperCase()}
+                                {es080 ? (fc.estimada ? 'SIMULADOS ESTIMADOS' : 'SIMULADOS DE LOS CEE') : `D_CAL ${dcalDe.toUpperCase()}`}
                             </div>
                             {fc.limitadoPorTabla && (
                                 <div className="inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest" style={{ background: ORANGE, color: '#2b1600' }}>
@@ -200,7 +218,7 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
 
                     {/* ENTRADAS (chips compactos) */}
                     <div>
-                        <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-2" style={{ color: ORANGE }}>Entradas del expediente</h4>
+                        <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-2" style={{ color: ORANGE }}>{es080 ? 'Entradas' : 'Entradas del expediente'}</h4>
                         <div className="grid grid-cols-4 gap-x-3 gap-y-2">
                             {entradas.map(([k, v]) => (
                                 <div key={k}>
@@ -226,7 +244,7 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                         </table>
                         <div className="mt-2 flex items-baseline justify-between gap-3 flex-wrap">
                             <span className="text-[10px] font-mono" style={{ color: INK_MUTED }}>
-                                {n0(fc.aes)} × {n2(fc.fm)} = {n0(fc.cae)} kWh
+                                {es080 ? `${n0(fc.ahorroVigente)} × ${fc.factor ? n3(fc.factor) : '—'}` : `${n0(fc.aes)} × ${n2(fc.fm)}`} = {n0(fc.cae)} kWh
                             </span>
                             <span className="text-base font-black" style={{ color: LIME }}>{n0(fcEur)} €</span>
                         </div>
@@ -245,11 +263,17 @@ export function Res060FCModal({ isOpen, onClose, result, inputs }) {
                     )}
 
                     <p className="text-[9.5px] italic leading-relaxed" style={{ color: INK_MUTED }}>
-                        <b style={{ color: dcalDelCee ? LIME : ORANGE }}>{dcalDelCee ? 'D_cal del CEE' : 'D_cal estimada'}:</b>{' '}
+                        {es080 ? (
+                            <><b style={{ color: dcalDelCee ? LIME : ORANGE }}>{dcalDelCee ? 'Simulados de los CEE' : 'Simulados estimados'}:</b>{' '}
+                            {dcalDelCee
+                                ? 'EF_simBC y EF_simRest salen de los dos CEE simulados (docs. 10 y 11), con la misma herramienta que el previo.'
+                                : 'sin los dos CEE simulados se estiman desde el previo y el posterior: la bomba con la demanda del previo, la envolvente con la caldera del previo. La cifra cambiará con ellos.'}{' '}
+                            Fórmula LITERAL de la Resolución (pondera con consumos: FAQ 4).{' '}</>
+                        ) : (<><b style={{ color: dcalDelCee ? LIME : ORANGE }}>{dcalDelCee ? 'D_cal del CEE' : 'D_cal estimada'}:</b>{' '}
                         {dcalDelCee
                             ? 'la ficha toma la D_cal y la S del CEE posterior (el final; sin él, el inicial, que en nuestros finales es la misma).'
                             : 'sin CEE cargado se usa la demanda de la simulación; la cifra cambiará con el CEE.'}{' '}
-                        Sin tope de CEF y con el mismo SCOP que el cálculo vigente. Resolución publicada en el BOE del 7/11/2026 (BOE-A-2026-23367): se presenta desde el 15/01/2027, con cupo por orden de resolución.
+                        Sin tope de CEF y con el mismo SCOP que el cálculo vigente.</>)} Resolución publicada en el BOE del 7/11/2026 (BOE-A-2026-23367): se presenta desde el 15/01/2027, con cupo por orden de resolución.
                     </p>
                 </div>
             </div>

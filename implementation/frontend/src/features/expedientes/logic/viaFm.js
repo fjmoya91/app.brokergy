@@ -10,7 +10,7 @@
 // ============================================================================
 
 /** 26RES060FM_12 / 26RES093FM_3: serie propia de la vía FM (Fran, 07/11/2026). */
-export const esNumeroFm = (numero) => /^\d{2}(RES060|RES093)FM_\d+$/i.test(String(numero || '').trim());
+export const esNumeroFm = (numero) => /^\d{2}(RES060|RES080|RES093)FM_\d+$/i.test(String(numero || '').trim());
 
 const FICHA_HIBRIDACION_FM = {
     A: { ficha: 'RES090_FM', zonas: 'A3 o A4' },

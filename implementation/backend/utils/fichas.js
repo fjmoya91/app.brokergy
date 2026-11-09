@@ -108,14 +108,15 @@ function esHibridacion(ficha) {
 // (cálculo, CIFO, Anexo Fotográfico, lotes…) lo siguen tratando como lo que es.
 // `fichaFromNumero('26RES060FM_12')` es RES060 a propósito; la VÍA se pregunta aparte
 // con `esNumeroFm`.
-// Solo residencial: la Resolución no trae fichas FM para el terciario, y la
-// RES080_FM (cuatro CEE) no se tramita todavía.
-const FICHAS_CON_FM = ['RES060', 'RES093'];
+// Solo residencial: la Resolución no trae fichas FM para el terciario. La RES080_FM
+// (rehabilitación profunda, cuatro CEE: calculator/logic/res080fm.js) entra el
+// 09/11/2026 con su serie 26RES080FM_N.
+const FICHAS_CON_FM = ['RES060', 'RES080', 'RES093'];
 const SUFIJO_FM = 'FM';
 
 /** ¿El número es de la vía FM? ('26RES060FM_12' → true, '26RES060_12' → false). */
 function esNumeroFm(numeroExpediente) {
-    return /^\d{2}(RES060|RES093)FM_\d+$/i.test(String(numeroExpediente || '').trim());
+    return /^\d{2}(RES060|RES080|RES093)FM_\d+$/i.test(String(numeroExpediente || '').trim());
 }
 
 /** ¿Esta ficha admite la vía FM? */

@@ -24,7 +24,7 @@ import { esNumeroFm } from './viaFm.js';
 import { viaFmDesdeDatosCalculo } from '../../calculator/logic/viaFm.js';
 
 /** La ficha general a la que se vuelve si la FM no se puede justificar. */
-export const fichaGeneralDeFm = (numero) => (/RES093FM_/i.test(String(numero || '')) ? 'RES093' : 'RES060');
+export const fichaGeneralDeFm = (numero) => (/RES093FM_/i.test(String(numero || '')) ? 'RES093' : /RES080FM_/i.test(String(numero || '')) ? 'RES080' : 'RES060');
 
 const num = (v) => {
     const n = typeof v === 'number' ? v : parseFloat(v);
@@ -52,7 +52,9 @@ export function cifrasViaFm(expediente = {}, results = {}, { rateMwh, estimar = 
     const numero = expediente?.numero_expediente;
     const opIn = expediente?.oportunidades?.datos_calculo?.inputs || {};
     const rateGeneral = num(rateMwh);
-    const rateFm = num(opIn.cae_client_rate_fm) || rateGeneral;
+    // RES080_FM: al precio de la opción RES080, el mismo que la vigente (no hay `cae_client_rate_fm`).
+    const es080 = /RES080/i.test(String(numero || ''));
+    const rateFm = es080 ? rateGeneral : (num(opIn.cae_client_rate_fm) || rateGeneral);
     const eur = (kwh, rate, calculado) => {
         if (calculado != null && Number.isFinite(num(calculado)) && num(calculado) > 0) return num(calculado);
         return kwh > 0 && rate > 0 ? (kwh / 1000) * rate : null;
@@ -62,7 +64,7 @@ export function cifrasViaFm(expediente = {}, results = {}, { rateMwh, estimar = 
     const fm = { kwh: kwhFm, rateMwh: rateFm, eur: eur(kwhFm, rateFm, results?.financialsRes060FC?.caeBonus) };
     const general = { kwh: kwhGeneral, rateMwh: rateGeneral, eur: eur(kwhGeneral, rateGeneral, results?.caeBonus) };
     const avisos = Array.isArray(results?.res060fc?.avisos) ? results.res060fc.avisos : [];
-    const fichaGeneral = /RES093/i.test(String(numero || '')) ? 'RES093' : 'RES060';
+    const fichaGeneral = /RES093/i.test(String(numero || '')) ? 'RES093' : es080 ? 'RES080' : 'RES060';
     // Sin CEE la pestaña Económico no calcula (no hay demanda ni superficie): se usa la
     // cifra de la SIMULACIÓN, la de la columna «Vía FM» de Oportunidades, marcada como
     // estimada. La definitiva la da el CEE (08/11/2026: 13 obras sin CEE se quedaban sin

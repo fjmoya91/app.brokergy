@@ -67,6 +67,13 @@ const sg = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${n0(Math.abs(v))}`;
 const I = (k) => `i_${k}:datos_calculo->inputs->${k}`;
 const CEE = (fase, k) => `${fase}_${k}:datos_calculo->inputs->${fase === 'ci' ? 'xmlDemandData' : 'xmlDemandDataFinal'}->${k}`;
 const CEE_K = ['demandaCalefaccion', 'superficieHabitable', 'emisionesLetra', 'epnrLetra'];
+// RES080_FM: lo que `calculateRes080FM` lee del CEE y del RES080 vigente guardado.
+const CEE_K080 = ['demandaRefrigeracion', 'energiaFinalVectores'];
+const RES080_K = ['totalEnergiaInicialAno', 'totalEnergiaFinalAno', 'ahorroEnergiaFinalTotal',
+    'superficieFinalAplicada', 'superficieAplicada',
+    'energiaCalefInicial', 'energiaAcsInicial', 'energiaRefInicial',
+    'energiaCalefFinal', 'energiaAcsFinal', 'energiaRefFinal'];
+const FIN_K = ['caeBonus', 'finalPriceClient', 'legalizationCost', 'isParticular', 'includeIVA'];
 const SELECT_OP = [
     'id, id_oportunidad, ficha, created_at',
     'estado:datos_calculo->>estado', 'origen:datos_calculo->>origen',
@@ -76,9 +83,14 @@ const SELECT_OP = [
         'superficieCalefactable', 'superficie', 'boilerEff', 'boilerId', 'boilerHeatingType', 'fuelType',
         'scopHeating', 'scopAcs', 'changeAcs', 'changeHeating', 'sector', 'isReforma', 'comparativaReforma', 'hibridacion',
         // El precio general y el de la vía FM (`caePriceClientFm`, sin teclear = el general).
-        'caePriceClient', 'caePriceClientFm'].map(I),
+        'caePriceClient', 'caePriceClientFm',
+        // RES080_FM (solo reforma): los kWh tecleados de los dos CEE simulados.
+        'efSimBC', 'efSimRest'].map(I),
     'i_placa_comb:datos_calculo->inputs->placa_caldera->combustible',
     ...CEE_K.map(k => CEE('ci', k)), ...CEE_K.map(k => CEE('cf', k)),
+    ...CEE_K080.map(k => CEE('ci', k)), ...CEE_K080.map(k => CEE('cf', k)),
+    ...RES080_K.map(k => `r080_${k}:datos_calculo->result->res080->${k}`),
+    ...FIN_K.map(k => `f080_${k}:datos_calculo->result->financialsRes080->${k}`),
     'r_kwh:datos_calculo->result->savings->savingsKwh',
     'r_bono:datos_calculo->result->financials->caeBonus',
     'r_precio:datos_calculo->result->financials->finalPriceClient',
@@ -103,7 +115,7 @@ for (let desde = 0; ; desde += 200) {
 }
 
 const ceeDe = (o, f) => {
-    const c = Object.fromEntries(CEE_K.map(k => [k, o[`${f}_${k}`]]));
+    const c = Object.fromEntries([...CEE_K, ...CEE_K080].map(k => [k, o[`${f}_${k}`]]));
     return (c.demandaCalefaccion != null || c.superficieHabitable != null) ? c : null;
 };
 function datosCalculoDe(o) {
@@ -120,6 +132,13 @@ function datosCalculoDe(o) {
         hybridization: o.r_hyb_cov != null ? { coverage: o.r_hyb_cov, refPower: o.r_hyb_ref, cb: o.r_hyb_cb } : null,
         res060fc: o.r_fm_sup != null ? { superficie: o.r_fm_sup } : undefined,
     };
+    const sub = (p, keys) => {
+        const s = {};
+        for (const k of keys) if (o[`${p}_${k}`] != null) s[k] = o[`${p}_${k}`];
+        return Object.keys(s).length ? s : undefined;
+    };
+    result.res080 = sub('r080', RES080_K);
+    result.financialsRes080 = sub('f080', FIN_K);
     return { anio: o.dc_anio, zona: o.dc_zona, surface: o.dc_surface, inputs, result };
 }
 
@@ -151,7 +170,7 @@ const vivasCapt = elegibles.filter(f => ESTADOS_VIVOS.has(String(f.o.estado || '
 console.log(`\n══ OPORTUNIDADES ══  (motor ${conVia[0]?.via.normativa || 'FM'} · hoy ${HOY}${PRECIO_FM != null ? ` · vía FM a ${PRECIO_FM} €/MWh` : ' · mismo €/MWh que la vigente'})`);
 console.log(`Leídas ${ops.length} (sin las migradas: ${vivas.length}) · con cálculo FM: ${conVia.length} · sin datos para calcular: ${filas.length - conVia.length}${filas.some(f => f.fallo) ? ` (con error: ${filas.filter(f => f.fallo).length})` : ''}`);
 console.log(`Comprobación del € — bono VIGENTE rehecho con la regla lineal = guardado: ${casan} de ${rehechas}`);
-console.log(`No aplica (terciario / solo reforma): ${conVia.length - aplican.length} · bloqueadas (no se podrían pedir): ${aplican.length - elegibles.length} · elegibles: ${elegibles.length} (con CEE: ${conCee.length}, D_cal estimada: ${elegibles.length - conCee.length})`);
+console.log(`No aplica (terciario): ${conVia.length - aplican.length} · bloqueadas (no se podrían pedir): ${aplican.length - elegibles.length} · elegibles: ${elegibles.length} (con CEE: ${conCee.length}, D_cal estimada: ${elegibles.length - conCee.length})`);
 console.log(`De las elegibles: ganan con FM ${ganan.length} · pierden ${pierden.length} · igual ${elegibles.length - ganan.length - pierden.length}`);
 console.log(`MWh elegibles  — vigente ${n1(suma(elegibles, 'mwh_vigente'))} · FM ${n1(suma(elegibles, 'mwh_fm'))} · mejor de las dos ${n1(elegibles.reduce((s, f) => s + Math.max(f.via.mwh_vigente, f.via.mwh_fm), 0))}`);
 console.log(`Bono elegibles — vigente ${n0(suma(elegibles, 'eur_vigente'))} € · FM ${n0(suma(elegibles, 'eur_fm'))} € · ganancia si se pide por FM solo donde gana: ${sg(ganan.reduce((s, f) => s + f.via.eur_fm - f.via.eur_vigente, 0))} €`);
@@ -176,7 +195,8 @@ const linea = (f) => [
     String(f.o.id_oportunidad).padEnd(18), String(f.o.estado || '').padEnd(13), f.via.ficha.padEnd(10),
     `${n1(f.via.mwh_vigente)}`.padStart(7), '→', `${n1(f.via.mwh_fm)} MWh`.padEnd(11),
     `${n0(f.via.eur_vigente)}`.padStart(7), '→', `${n0(f.via.eur_fm)} €`.padEnd(9), sg(f.via.eur_fm - f.via.eur_vigente).padStart(8),
-    f.via.dcal === 'simulacion' ? ' ≈ sin CEE' : ` ${f.via.dcal}`,
+    f.via.ficha === 'RES080_FM' ? (f.via.estimada ? ' ≈ simulados estimados' : ' simulados')
+        : f.via.dcal === 'simulacion' ? ' ≈ sin CEE' : ` ${f.via.dcal}`,
 ].join(' ');
 console.log('\nLas que MÁS ganan:');
 top.slice(0, 12).forEach(f => console.log('  ' + linea(f)));

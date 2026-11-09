@@ -27,6 +27,7 @@ import {
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
 import { calculateRes060FC, contextoCalderaFc, tramiteFc, esEmisorAireAire } from '../../calculator/logic/res060fc';
+import { calculateRes080FM } from '../../calculator/logic/res080fm';
 import { calcCifo } from '../logic/calcCifo';
 import { acsComputaAhorro } from '../logic/aerotermiaUnits';
 import { ceeBaseDocumento } from '../logic/ceeFases';
@@ -386,7 +387,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
             { id: 'documentacion', label: 'Documentación', full: 'Documentación',                        show: !isCertificador },
             // Vía del factor multiplicador (BOE-A-2026-23367): solo RES060/RES093
             // (también los 26RES060FM_N) y solo el equipo interno (ruta staffOnly).
-            { id: 'viafm',         label: 'Vía FM',        full: 'Vía del factor multiplicador',         show: isStaff && (num.includes('RES060') || num.includes('RES093')) },
+            { id: 'viafm',         label: 'Vía FM',        full: 'Vía del factor multiplicador',         show: isStaff && (num.includes('RES060') || num.includes('RES080') || num.includes('RES093')) },
             // Bono social y ayudas públicas: lo declara el titular en el Anexo I y
             // de ahí viaja a la solicitud de verificación. Oculto al certificador,
             // que no interviene en esa declaración.
@@ -899,6 +900,28 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     ...res080,
                     savingsKwh: res080.ahorroEnergiaFinalTotal // Normalizar nombre para Anexo I
                 };
+                // ── Vía FM del RES080 (RES080_FM): el MISMO ahorro × el cociente de los
+                // CEE simulados (logic/res080fm.js). Va por el mismo hueco que la
+                // RES060_FM, así que el Económico, el panel «Vía FM» y el Convenio FM
+                // lo leen igual. Los simulados: sus kWh, de `documentacion.via_fm`;
+                // sin ellos, estimados desde el previo y el posterior (y lo dice).
+                const datosFm = (liveDoc || expediente.documentacion || {}).via_fm || {};
+                const fechasObra = calcCifo(liveDoc || expediente.documentacion || {});
+                res060fcRaw = calculateRes080FM({
+                    res080,
+                    ceeInicial: cee.cee_inicial,
+                    ceeFinal: cee.cee_final,
+                    efSimBC: datosFm.ef_sim_bc,
+                    efSimRest: datosFm.ef_sim_rest,
+                    tipo: opInputs.tipo || (opInputs.housing_type === 'flat' ? 'piso' : 'unifamiliar'),
+                    bloque: String(opInputs.tipoInmueble || '').toLowerCase() === 'bloque',
+                    contexto: {
+                        ...contextoCalderaFc(opInputs, inst.caldera_antigua_cal?.rendimiento_id),
+                        inicioObra: fechasObra.inicio,
+                        finObra: fechasObra.fin,
+                        tramite: tramiteFc(expediente.estado, expediente.lote_id),
+                    },
+                });
             }
         }
 
@@ -970,7 +993,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
         if (res060fcRaw && res060fcRaw.cae > 0) {
             // La vía FM con SU precio si la oportunidad lo selló (`cae_client_rate_fm`,
             // solo cuando difiere del general); si no, el mismo que la vigente.
-            const precioFmSellado = parseFloat(opInputs.cae_client_rate_fm) || 0;
+            // En un RES080 la vía FM va al precio de la REFORMA, que ya trae `finArgs`.
+            const precioFmSellado = ficha === 'RES080' ? 0 : (parseFloat(opInputs.cae_client_rate_fm) || 0);
             financialsRes060FC = calculateFinancials({
                 ...finArgs,
                 ...(precioFmSellado > 0 ? { caePriceClient: precioFmSellado } : {}),
@@ -996,7 +1020,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 changeAcs: res060fcCtx.changeAcs,
                 dacs: res060fcCtx.dacs,
                 caePriceClient: finArgs.caePriceClient,
-            } : null,
+            } : (res060fcRaw?.ficha === 'RES080_FM'
+                // RES080_FM: va al precio de la opción RES080, el del Económico.
+                ? { caePriceClient: finArgs.caePriceClient, caePriceClientRes080: finArgs.caePriceClient }
+                : null),
         };
     }, [expediente, liveCee, liveInst, liveDoc]);
 
@@ -1997,7 +2024,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     </ModuleSection>
                 )}
 
-                {isStaff && /RES060|RES093/.test(expediente.numero_expediente || '') && (
+                {isStaff && /RES060|RES080|RES093/.test(expediente.numero_expediente || '') && (
                     <ModuleSection
                         id="viafm"
                         title="Vía del factor multiplicador"

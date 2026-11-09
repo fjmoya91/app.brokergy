@@ -30,14 +30,16 @@ export function ConmutadorViaFm({ inputs, result, onInputChange, sinGuardar = fa
 
     // Donde la vía FM no existe, no hay nada que elegir.
     if (String(inputs?.sector || '').toLowerCase() === 'terciario') return null;
-    if (cierto(inputs?.isReforma) && inputs?.comparativaReforma === false) return null;
+    // Solo rehabilitación: la vía FM es la RES080_FM (logic/res080fm.js), serie 26RES080FM.
+    const soloReforma = cierto(inputs?.isReforma) && inputs?.comparativaReforma === false;
 
-    const fc = result?.res060fc || null;
+    const fc = (soloReforma ? result?.res080fm : result?.res060fc) || null;
     const activa = inputs?.ruta_fm === true;
     const bloquea = (fc?.avisos || []).find((a) => a.tono === 'bloquea');
     const faltaAcs = !!(fc?.acsSupuesto || fc?.acsSinScop);
-    const ficha = fc?.ficha || (cierto(inputs?.hibridacion) ? 'RES093_FM' : 'RES060_FM');
-    const serie = `${new Date().getFullYear().toString().slice(-2)}${cierto(inputs?.hibridacion) ? 'RES093' : 'RES060'}FM`;
+    const base = soloReforma ? 'RES080' : cierto(inputs?.hibridacion) ? 'RES093' : 'RES060';
+    const ficha = fc?.ficha || `${base}_FM`;
+    const serie = `${new Date().getFullYear().toString().slice(-2)}${base}FM`;
 
     // Por qué no se puede pulsar (null = se puede).
     let motivo = null;
@@ -45,6 +47,7 @@ export function ConmutadorViaFm({ inputs, result, onInputChange, sinGuardar = fa
     else if (!inputs?.id_oportunidad) motivo = 'Guarda antes la oportunidad: la vía se elige sobre lo guardado.';
     else if (!activa && sinGuardar) motivo = 'Hay cambios sin guardar: guarda la simulación y elige la vía sobre lo guardado.';
     else if (!activa && !fc) motivo = 'Faltan la superficie y una demanda de calefacción para calcular la vía FM.';
+    else if (!activa && soloReforma && !(fc.cae > 0) && fc.elegible !== false) motivo = 'Sin cifra RES080_FM: faltan los CEE simulados y el inicial y el final no traen la energía por usos para estimarlos.';
     else if (!activa && fc.elegible === false) motivo = `No es elegible: ${bloquea?.texto || 'ver los avisos de la vía FM'}`;
 
     const cambiar = async () => {

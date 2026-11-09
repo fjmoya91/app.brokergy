@@ -8271,7 +8271,7 @@ function respuestaViaFm({ exp, op }) {
     });
     // Para enseñar lo que pediría ANTES de pasar a la vía, se calcula como si lo fuera.
     const ctxVista = ctx.activa ? ctx : viaFm.contextoFm({
-        numero: String(exp.numero_expediente || '').replace(/^(\d{2})(RES060|RES093)_/, '$1$2FM_'),
+        numero: String(exp.numero_expediente || '').replace(/^(\d{2})(RES060|RES080|RES093)_/, '$1$2FM_'),
         datos: exp.via_fm || {}, inputs, zona: op.zona || inputs.zona || exp.li_zona || null,
         letrasFinal: [exp.lf_e, exp.lf_c], letrasInicial: [exp.li_e, exp.li_c],
     });

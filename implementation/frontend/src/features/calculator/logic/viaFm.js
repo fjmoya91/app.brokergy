@@ -31,14 +31,55 @@
  * es solo la calefacción). Es un aviso, no un bloqueo (Fran, 07/11/2026).
  */
 import { calculateRes060FM, contextoCalderaFc, FM_NORMATIVA } from './res060fc.js';
+import { calculateRes080FM } from './res080fm.js';
 import { redondeaScop, precioCaeFm } from './calculation.js';
 import { esBloque } from './tipoInmueble.js';
 
 /**
  * Versión del resumen: sube si cambia su forma o el criterio con el que se calcula.
  * 2 (07/11/2026): sin ACS, la vía FM lo suma como si se añadiera (`acs`).
+ * 3 (09/11/2026): una oportunidad SOLO de rehabilitación compara la RES080_FM con la
+ *   RES080 vigente (`ficha: 'RES080_FM'`, `estimada` si faltan los CEE simulados).
  */
-export const VIA_FM_VERSION = 2;
+export const VIA_FM_VERSION = 3;
+
+const soloReforma = (inputs = {}) => cierto(inputs.isReforma) && inputs.comparativaReforma === false;
+
+/**
+ * Resumen RES080_FM frente a la RES080 vigente (oportunidad solo de rehabilitación):
+ * `result.res080fm` y `result.financialsRes080FM` (o el bono lineal con el precio
+ * final de la RES080, que es el mismo: la RES080_FM va al precio de la opción RES080).
+ */
+function resumenViaFm080(result, { hoy = null } = {}) {
+    const fm = result?.res080fm;
+    if (!fm || fm.normativa !== FM_NORMATIVA) return null;
+    const kwhVig = Number(result?.res080?.ahorroEnergiaFinalTotal) || 0;
+    const eurVig = Number(result?.financialsRes080?.caeBonus) || 0;
+    const kwhFm = Number(fm.cae) || 0;
+    const bloquea = (fm.avisos || []).find((a) => a.tono === 'bloquea');
+    // Sin CEE simulados y sin datos para estimarlos no hay cifra: «sin calcular», no
+    // un FM de 0 € que la columna leería como pérdida (26RES080_OP93, 09/11/2026).
+    if (!(kwhFm > 0) && !bloquea) return null;
+    const eurFm = result?.financialsRes080FM
+        ? Number(result.financialsRes080FM.caeBonus) || 0
+        : bonoConKwh(result?.financialsRes080, kwhFm);
+    return {
+        v: VIA_FM_VERSION,
+        normativa: FM_NORMATIVA,
+        ficha: fm.ficha,
+        aplica: true,
+        mwh_vigente: r2(kwhVig / 1000),
+        mwh_fm: r2(kwhFm / 1000),
+        eur_vigente: r0(eurVig),
+        eur_fm: r0(eurFm),
+        elegible: fm.elegible !== false,
+        ...(bloquea ? { motivo: String(bloquea.texto).slice(0, 220) } : {}),
+        // Sin los dos CEE simulados la cifra es una estimación.
+        ...(fm.estimada ? { estimada: true } : {}),
+        n_avisos: (fm.avisos || []).filter((a) => a.tono === 'aviso').length,
+        calculado: String(hoy || new Date().toISOString()).slice(0, 10),
+    };
+}
 
 const cierto = (v) => v === true || v === 'true' || v === 1 || v === '1';
 const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
@@ -83,6 +124,7 @@ function noAplica(inputs = {}) {
  * Devuelve null si no hay cálculo FM (o si es del BORRADOR, sin `normativa`).
  */
 export function resumenViaFm(result, inputs = {}, { precioFm = null, hoy = null } = {}) {
+    if (soloReforma(inputs) && result?.res080fm) return resumenViaFm080(result, { hoy });
     const fm = result?.res060fc;
     if (!fm || fm.normativa !== FM_NORMATIVA) return null;
     const kwhVig = Number(result?.savings?.savingsKwh) || 0;
@@ -128,8 +170,23 @@ export function resumenViaFm(result, inputs = {}, { precioFm = null, hoy = null 
 export function viaFmDesdeDatosCalculo(dc = {}, opciones = {}) {
     const inputs = dc?.inputs || {};
     const result = dc?.result || {};
-    if (!result.savings || !result.financials) return null;
     const num = (v) => parseFloat(v) || 0;
+    // Solo rehabilitación: la RES080_FM con los CEE de la oportunidad y el RES080 guardado.
+    if (soloReforma(inputs) && result.res080 && result.financialsRes080) {
+        const fm080 = calculateRes080FM({
+            res080: result.res080,
+            ceeInicial: inputs.xmlDemandData || null,
+            ceeFinal: inputs.xmlDemandDataFinal || null,
+            efSimBC: num(inputs.efSimBC) || null,
+            efSimRest: num(inputs.efSimRest) || null,
+            tipo: inputs.tipo,
+            bloque: esBloque(inputs),
+            contexto: contextoCalderaFc(inputs),
+        });
+        if (!fm080) return null;
+        return resumenViaFm080({ ...result, res080fm: fm080, financialsRes080FM: null }, opciones);
+    }
+    if (!result.savings || !result.financials) return null;
     const superficie = num(inputs.manualSuperficie) > 0
         ? num(inputs.manualSuperficie)
         : (num(inputs.superficieCalefactable) || num(inputs.superficie) || num(result.res060fc?.superficie) || num(dc.surface));

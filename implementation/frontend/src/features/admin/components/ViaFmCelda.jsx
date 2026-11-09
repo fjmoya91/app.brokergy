@@ -75,6 +75,8 @@ function tituloViaFm(via) {
     // Sin ACS en la simulación (Fran, 07/11/2026: aviso, no bloqueo).
     if (via.acs) l.push(ACS_TXT[via.acs] || ACS_TXT.supuesto);
     if (via.dcal) l.push(DCAL_TXT[via.dcal] || via.dcal);
+    // RES080_FM sin los dos CEE simulados (bomba sola / todo menos la bomba).
+    if (via.estimada) l.push('CEE simulados ESTIMADOS desde el inicial y el final');
     if (via.n_avisos) l.push(`${via.n_avisos} aviso${via.n_avisos === 1 ? '' : 's'} que mirar (en la calculadora)`);
     if (via.calculado) l.push(`Calculado el ${via.calculado.split('-').reverse().join('/')}`);
     return l.join('\n');
@@ -86,7 +88,7 @@ export function ViaFmCelda({ via }) {
     if (via.aplica === false) {
         return <span className="text-[10px] text-white/30 italic" title={tituloViaFm(via)}>no aplica</span>;
     }
-    const aprox = via.dcal === 'simulacion' ? '≈' : '';
+    const aprox = via.dcal === 'simulacion' || via.estimada ? '≈' : '';
     const noElegible = via.elegible === false;
     const dif = (Number(via.eur_fm) || 0) - (Number(via.eur_vigente) || 0);
     return (
@@ -118,7 +120,7 @@ export function ViaFmCelda({ via }) {
 /** Lo mismo en una línea, para la tarjeta del móvil. */
 export function ViaFmChip({ via }) {
     if (!via || via.aplica === false) return null;
-    const aprox = via.dcal === 'simulacion' ? '≈' : '';
+    const aprox = via.dcal === 'simulacion' || via.estimada ? '≈' : '';
     const noElegible = via.elegible === false;
     const dif = (Number(via.eur_fm) || 0) - (Number(via.eur_vigente) || 0);
     return (

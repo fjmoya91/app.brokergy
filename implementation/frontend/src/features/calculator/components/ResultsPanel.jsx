@@ -29,6 +29,7 @@ import { HistorialModal } from '../../../components/HistorialModal';
 import { useBotonCe3x } from '../../cee-ia/useBotonCe3x';
 import { EstimacionCiega } from './EstimacionCiega';
 import { ConmutadorViaFm } from './ConmutadorViaFm';
+import { Res080FmCard } from './Res080FmCard';
 
 const formatNumber = (val, decimals = null) => {
     const num = typeof val === 'number' ? val : parseFloat(val);
@@ -253,7 +254,7 @@ function ResultCard({ title, value, unit, subtext, color = 'cyan' }) {
     );
 }
 
-export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity, showEficiencia, setShowEficiencia, onOpenRes060FCDetail, expedienteAsociado = null }) {
+export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity, showEficiencia, setShowEficiencia, onOpenRes060FCDetail, onOpenRes080FMDetail, expedienteAsociado = null }) {
     const { user } = useAuth();
     const { showAlert } = useModal();
     const [showComparative, setShowComparative] = React.useState(false);
@@ -1271,6 +1272,11 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     expediente={expedienteAsociado}
                                     conTarjetaFm={!!showBrokergy}
                                 />
+                            )}
+
+                            {/* ── Vía FM del RES080 (RES080_FM): rehabilitación profunda, solo ADMIN ── */}
+                            {showBrokergy && result.res080fm && (
+                                <Res080FmCard result={result} inputs={inputs} onInputChange={onInputChange} onOpenDetail={onOpenRes080FMDetail} />
                             )}
 
                             {/* ── Vía del FACTOR MULTIPLICADOR (Resolución publicada, BOE-A-2026-23367) — comparativa en tiempo real ── */}

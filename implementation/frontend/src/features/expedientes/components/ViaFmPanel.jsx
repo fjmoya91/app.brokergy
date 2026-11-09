@@ -120,6 +120,20 @@ function VistaPreviaFm({ titulo, html, onCerrar }) {
     );
 }
 
+/** kWh/año de un CEE simulado (RES080_FM). Vacío = null (se estima). */
+function KwhSim({ label, hint, value, onChange }) {
+    return (
+        <div className="flex items-start justify-between gap-4 py-2 max-md:flex-col max-md:gap-2">
+            <div className="min-w-0">
+                <span className="text-xs text-white/60 font-bold">{label}</span>
+                <p className="text-[11px] text-white/30 mt-0.5 leading-snug">{hint}</p>
+            </div>
+            <input type="number" min="0" step="1" className={`${INPUT} md:max-w-[160px] tabular-nums`} placeholder="kWh/año"
+                value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)} />
+        </div>
+    );
+}
+
 export function ViaFmPanel({ expedienteId, expediente = null, results = null, onNumeroCambiado }) {
     const { showConfirm, showAlert } = useModal();
     const [vista, setVista] = useState(null);         // { titulo, html }
@@ -176,8 +190,8 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
         if (!via) return;
         const activar = !via.activa;
         const num = via.numero_expediente;
-        const ficha = num.includes('RES093') ? 'RES093' : 'RES060';
-        const destino = activar ? num.replace(/^(\d{2})(RES060|RES093)_\d+$/, `$1${ficha}FM_…`) : num.replace(/^(\d{2})(RES060|RES093)FM_\d+$/, `$1${ficha}_…`);
+        const ficha = num.includes('RES093') ? 'RES093' : num.includes('RES080') ? 'RES080' : 'RES060';
+        const destino = activar ? num.replace(/^(\d{2})(RES060|RES080|RES093)_\d+$/, `$1${ficha}FM_…`) : num.replace(/^(\d{2})(RES060|RES080|RES093)FM_\d+$/, `$1${ficha}_…`);
         const ok = await showConfirm(
             activar
                 ? `El expediente pasa a la vía del FACTOR MULTIPLICADOR (${via.contexto?.fichaOficial?.codigo}).\n\nLa vía FM tiene su propia serie: ${num} pasará a ser ${destino} (el siguiente libre). Se renombra la carpeta de Drive y queda en el historial. Los documentos ya generados con el número antiguo hay que volver a generarlos.`
@@ -240,10 +254,13 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
 
     if (error) return <p className="text-sm text-amber-300">No se pudo leer la vía FM: {error}</p>;
     if (!via || !datos) return <p className="text-sm text-white/40">Cargando la vía del factor multiplicador…</p>;
-    if (!via.admite) return <p className="text-sm text-white/40">La vía del factor multiplicador solo existe para RES060 y RES093.</p>;
+    if (!via.admite) return <p className="text-sm text-white/40">La vía del factor multiplicador solo existe para RES060, RES080 y RES093.</p>;
 
     const ctx = via.contexto || {};
     const hib = !!ctx.hibridacion;
+    // RES080_FM: rehabilitación profunda. No lleva caldera retirada, BT, mantenimiento ni -S;
+    // sí los kWh de los dos CEE SIMULADOS mientras no estén sus CEE.
+    const reh = !!ctx.rehabilitacion;
     const bloque = ctx.tipologia?.clase === 'bloque';
     const vh = via.vivienda_habitual;
     const docs = via.documentos || [];
@@ -271,7 +288,7 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
                         </p>
                         <p className="text-[12px] text-white/50 mt-1 leading-snug">{via.activa ? ctx.fichaOficial?.titulo : `Si pasa a la vía FM, su ficha sería la ${ctx.fichaOficial?.codigo}: ${ctx.fichaOficial?.titulo}.`}</p>
                         {hib && ctx.fichaOficial?.sinZona && <p className="text-[11px] text-amber-300 mt-2">No consta la zona climática: se toma la ficha de la zona D. Revisa la zona en la simulación.</p>}
-                        {via.activa && <p className="text-[11px] text-white/40 mt-2">El CEE inicial se sigue haciendo, como plan B: la vía FM no lo pide (punto 11 solo exige el posterior).</p>}
+                        {via.activa && !reh && <p className="text-[11px] text-white/40 mt-2">El CEE inicial se sigue haciendo, como plan B: la vía FM no lo pide (punto 11 solo exige el posterior).</p>}
                     </div>
                     <div className="shrink-0 text-right max-md:text-left">
                         <button
@@ -360,31 +377,37 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
                 </div>
                 <div className="divide-y divide-white/5">
                     <Opciones
-                        label="Tipología (punto 1, la declara el instalador)"
+                        label={reh ? "Tipología (fija el f_M)" : "Tipología (punto 1, la declara el instalador)"}
                         hint={`Ahora: ${ctx.tipologia?.label}${ctx.tipologia?.de === 'simulacion' ? ' (de la simulación)' : ''}. Cambia la de la simulación solo si la declaración del instalador dice otra cosa.`}
                         value={datos.tipologia || null}
                         onChange={(v) => cambiar({ tipologia: v })}
                         opciones={[{ v: null, l: 'LA DE LA SIMULACIÓN' }, { v: 'unifamiliar', l: 'UNIFAMILIAR' }, { v: 'piso', l: 'PISO' }, { v: 'bloque', l: 'CENTRALIZADO' }]}
                     />
-                    <Opciones label="Consumidor vulnerable (ficha -S)" hint="Bono social a su nombre. Pide el Anexo B y la documentación del apartado 5." value={!!datos.vulnerable} onChange={(v) => cambiar({ vulnerable: v })} opciones={SI_NO} />
-                    {datos.vulnerable && (
+                    {reh && (
+                        <>
+                            <KwhSim label="EF_simBC · CEE simulado con SOLO la bomba (doc. 11)" hint="Energía final (kWh/año) del edificio de antes con solo la caldera cambiada por la bomba. Vacío: se estima desde el CEE inicial y el final, y la cifra sale «≈»." value={datos.ef_sim_bc} onChange={(v) => cambiar({ ef_sim_bc: v })} />
+                            <KwhSim label="EF_simRest · CEE simulado con TODO menos la bomba (doc. 10)" hint="Energía final (kWh/año) con la envolvente nueva y la caldera de antes. Vacío: se estima." value={datos.ef_sim_rest} onChange={(v) => cambiar({ ef_sim_rest: v })} />
+                        </>
+                    )}
+                    {!reh && <Opciones label="Consumidor vulnerable (ficha -S)" hint="Bono social a su nombre. Pide el Anexo B y la documentación del apartado 5." value={!!datos.vulnerable} onChange={(v) => cambiar({ vulnerable: v })} opciones={SI_NO} />}
+                    {!reh && datos.vulnerable && (
                         <>
                             <Opciones label="Vive de alquiler o cedida" hint="Pide el contrato y el compromiso de 2 años del arrendatario." value={!!datos.inquilino} onChange={(v) => cambiar({ inquilino: v })} opciones={SI_NO} />
                             {bloque && <Opciones label="Edificio centralizado con otros pisos" hint="Pide el certificado del presidente de la comunidad con las cuotas." value={!!datos.centralizado_mixto} onChange={(v) => cambiar({ centralizado_mixto: v })} opciones={SI_NO} />}
                         </>
                     )}
-                    {!hib && (
+                    {!hib && !reh && (
                         <Opciones label="¿Se desmonta la caldera?" hint="NO = queda en preinstalación (no hibridada): el instalador justifica que la bomba cubre toda la demanda." value={datos.caldera_retirada ?? null} onChange={(v) => cambiar({ caldera_retirada: v })} opciones={SI_NO_NS} />
                     )}
-                    {hib ? (
+                    {reh ? null : hib ? (
                         <Opciones label="¿Se cambia también la caldera?" hint="Pide las fichas técnicas de la caldera nueva y de la bomba (punto 13 de la hibridación)." value={!!datos.caldera_nueva} onChange={(v) => cambiar({ caldera_nueva: v })} opciones={SI_NO} />
                     ) : (
                         <Opciones label="¿Aumenta la potencia eléctrica?" hint="SÍ pide el certificado de baja tensión con el aumento (punto 9)." value={datos.bt_aplica ?? null} onChange={(v) => cambiar({ bt_aplica: v })} opciones={SI_NO_NS} />
                     )}
                     {!bloque && (
-                        <Opciones label="Vivienda habitual (punto 4)" hint="Facturas de la luz del invierno anterior, o la curva de consumo horario firmada por la distribuidora." value={datos.vivienda_habitual || 'facturas'} onChange={(v) => cambiar({ vivienda_habitual: v })} opciones={[{ v: 'facturas', l: 'FACTURAS' }, { v: 'curva', l: 'CURVA HORARIA' }]} />
+                        <Opciones label={`Vivienda habitual (punto ${reh ? 3 : 4})`} hint="Facturas de la luz del invierno anterior, o la curva de consumo horario firmada por la distribuidora." value={datos.vivienda_habitual || 'facturas'} onChange={(v) => cambiar({ vivienda_habitual: v })} opciones={[{ v: 'facturas', l: 'FACTURAS' }, { v: 'curva', l: 'CURVA HORARIA' }]} />
                     )}
-                    <Opciones
+                    {!reh && <><Opciones
                         label="Oferta de mantenimiento (punto 8)"
                         hint="La casilla que sale marcada en el documento. Sin decidir, las dos van en blanco y el propietario la marca a mano (solo en papel)."
                         value={datos.mantenimiento || null}
@@ -397,8 +420,8 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
                             <p className="text-[11px] text-white/30 mt-0.5 leading-snug">Como se escribe en el documento («180 €/año, IVA incluido»). Vacío: una línea para completarlo a mano.</p>
                         </div>
                         <input className={`${INPUT} md:max-w-[260px]`} placeholder="180 €/año, IVA incluido" value={datos.mantenimiento_importe || ''} onChange={(e) => cambiar({ mantenimiento_importe: e.target.value })} />
-                    </div>
-                    {datos.vulnerable && (
+                    </div></>}
+                    {!reh && datos.vulnerable && (
                         <>
                             <Opciones
                                 label="Anexo B · casilla que marca"
@@ -458,12 +481,12 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
                     </div>
                     <div className={`mt-4 rounded-xl border px-4 py-3 text-[12px] ${vh.ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-amber-400/30 bg-amber-500/10 text-amber-200'}`}>
                         <p className="font-bold">
-                            {vh.ok ? 'Cumple el punto 4' : 'Todavía no cumple el punto 4'}
+                            {vh.ok ? `Cumple el punto ${reh ? 3 : 4}` : `Todavía no cumple el punto ${reh ? 3 : 4}`}
                             {vh.mediaMensual != null && ` · media ${vh.mediaMensual} kWh/mes`}
                             {vh.cups && ` · CUPS ${vh.cups}`}
                         </p>
                         {vh.avisos?.length > 0 && <ul className="mt-1 list-disc pl-5 space-y-0.5">{vh.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
-                        <p className="mt-1 text-white/40">Las facturas en PDF se suben al apartado «FM 4 · Vivienda habitual» de Documentación; aquí solo se apuntan sus datos para comprobarlos.</p>
+                        <p className="mt-1 text-white/40">Las facturas en PDF se suben al apartado «FM {reh ? 3 : 4} · Vivienda habitual» de Documentación; aquí solo se apuntan sus datos para comprobarlos.</p>
                     </div>
                 </div>
             )}

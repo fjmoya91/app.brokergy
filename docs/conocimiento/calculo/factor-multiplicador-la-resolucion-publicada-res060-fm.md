@@ -168,6 +168,8 @@ confirmada por el MITECO todavía. En resumen:
   (`inputs.ruta_fm`). **Hecho el 7/11/2026**: ver la sección siguiente.
 - Expediente: un código propio para la vía FM y su documentación completa en el gestor (los 13 puntos), el
   Anexo A en lugar del Anexo I, y la cláusula del IRPF en el convenio y la propuesta.
+- ✅ RES080_FM: motor, calculadora, expediente, Oportunidades y serie `26RES080FM_N`. **Hecho el
+  9/11/2026**: ver «La RES080_FM en la app».
 
 ## La app: las dos vías, en la calculadora y en Oportunidades (07/11/2026)
 
@@ -211,8 +213,9 @@ preparar una propuesta (alta, CEE de la simulación, aviso a Fran) se dan siempr
 **REGLA — la comparativa se GUARDA en escalares al guardar la oportunidad**:
 `datos_calculo.via_fm` (~300 B, `resumenViaFm`) = `{v, normativa, ficha, aplica, no_aplica?,
 mwh_vigente, mwh_fm, eur_vigente, eur_fm, elegible, motivo?, acs?, n_avisos, dcal, calculado}`. `dcal` dice de
-dónde sale la D_cal (`cee_final` / `cee_inicial` / `simulacion`); `aplica: false` es terciario o solo
-reforma (RES080); `acs` (`supuesto` / `sin_scop`) es la simulación sin ACS. `VIA_FM_VERSION` = 2 desde
+dónde sale la D_cal (`cee_final` / `cee_inicial` / `simulacion`); `aplica: false` es terciario (y,
+hasta el 09/11/2026, solo reforma: desde la v3 una solo-reforma lleva la RES080_FM, ver «La RES080_FM en
+la app»); `acs` (`supuesto` / `sin_scop`) es la simulación sin ACS. `VIA_FM_VERSION` = 2 desde
 que el ACS se supone (07/11/2026): un `via_fm` v1 ya guardado solo se rehace volviendo a guardar la
 oportunidad o con el relleno y `--forzar` (sin él, no pisa lo que ya hay). El listado la pide con `datos_calculo->via_fm` (regla 22: nunca el JSONB entero).
 
@@ -276,7 +279,11 @@ pisa** un `via_fm` ya guardado salvo `--forzar`. ⚠️ **Sin aplicar.** Fran di
 (7/11/2026), pero **se aplica DESPUÉS del deploy**: el código de producción todavía no quita `via_fm`
 a los partners, y escrito antes viajaría en el `GET /api/oportunidades/:id` de su oportunidad (regla 102:
 no basta con no pintarlo). Orden: deploy → `oportunidad_set_via_fm.sql` → `--escribir`. Las altas desde WhatsApp (`computeFullCalculatorResult`) no generan `via_fm` hasta que se guardan
-en la calculadora; el relleno las cubre.
+en la calculadora; el relleno las cubre. **Desde el 09/11/2026 también las de SOLO reforma (RES080_FM)**:
+pide además `result.res080` y `result.financialsRes080` (sus campos sueltos, regla 22), la energía por
+vectores y la demanda de refrigeración de los dos CEE y los kWh `efSimBC`/`efSimRest`. En seco ese día: 15
+elegibles RES080_FM (1.075,0 → 1.231,7 MWh); 26RES080_OP89 sale 90,9 MWh / 9.088 €, lo mismo que la
+calculadora.
 
 ### Lo medido (en seco, 07/11/2026, al mismo €/MWh, con el ACS supuesto)
 
@@ -310,6 +317,70 @@ terciario o solo reforma). **46 no elegibles** (41 sólido, 4 sin caldera, 1 sol
 131: 35 en un lote o en verificación (+142.216 €), 33 con fecha de inicio (+123.484 €) y 63 aún sin
 fechas de obra (+207.230 €). La D_cal sale del CEE final en 68 y del inicial en 63. El que más:
 26RES060_215, +27.296 €.
+
+## La RES080_FM en la app (09/11/2026)
+
+**Fuente única del cálculo**: `calculateRes080FM` en
+[res080fm.js](../../../implementation/frontend/src/features/calculator/logic/res080fm.js). Parte del
+RES080 vigente ya calculado (`totalEnergiaInicialAno` = EF_i, `totalEnergiaFinalAno` = EF_f) y aplica la
+fórmula **literal** de la pág. 22: `AE = (EF_i − EF_f) · (f_M·EF_simBC + EF_simRest) / (EF_simBC +
+EF_simRest)`, con f_M 2 / 2,5 / 3 (`tipologiaFM` de `res060fc.js`, el mismo criterio). Devuelve lo mismo
+que la RES060_FM (`cae`, `ficha: 'RES080_FM'`, `avisos` bloquea/aviso/info, `elegible`), así que el
+Económico, el panel «Vía FM» y el Convenio FM del expediente lo usan en el mismo hueco (`res060fc`).
+Pruebas: `node implementation/backend/scripts/test_res080fm.mjs` (37 comprobaciones, con el ejemplo de la
+FAQ: 25.577 kWh literal, 31.667 ponderando con ahorros).
+
+**REGLA — los dos CEE SIMULADOS mandan; sin ellos la cifra es «≈» y lo dice.** Precedencia de cada
+uno: su CEE (energía final sin FV × S), después los kWh/año tecleados (`inputs.efSimBC` / `efSimRest` en la
+calculadora, `documentacion.via_fm.ef_sim_bc` / `ef_sim_rest` en el expediente, saneados en
+`sanearDatosFm`) y, si no, una **estimación** por uso desde el previo y el posterior: calefacción y
+refrigeración, BC = E_f·D_i/D_f y Rest = E_i·D_f/D_i; ACS, BC = E_f,acs y Rest = E_i,acs. El cociente solo
+depende de la razón EF_simBC/EF_simRest. Aviso «Faltan los CEE simulados» con los que faltan (doc. 11
+EF_simBC, doc. 10 EF_simRest).
+
+**REGLA — bloquea lo que la ficha excluye**: la demanda de calefacción no baja (sin envolvente va por la
+RES060_FM), el posterior sigue con caldera o el previo ya era eléctrico, combustible SÓLIDO (siempre por
+la vigente, como en la RES060_FM), sin caldera, ya presentado, obra antes del 22/03/2026, factura desde el
+01/12/2027 (CC. PP. 01/01/2028) o fuera de plazo. Sin vectores en el XML el cambio de generador no se
+puede comprobar: aviso, no bloqueo.
+
+**Precio**: el de la opción RES080 (`caePriceClientRes080` / `cae_client_rate_res080` sellado), no el
+`cae_client_rate_fm`.
+
+**Dónde sale**: tarjeta «Vía FM · RES080_FM» de la calculadora (solo ADMIN,
+[Res080FmCard.jsx](../../../implementation/frontend/src/features/calculator/components/Res080FmCard.jsx),
+con los dos kWh tecleables) y chips «FM ≈…» bajo Bono/Ahorro Reforma; popup de desglose
+(`Res060FCModal` con `ficha: 'RES080_FM'`); pestaña Económico y panel «Vía FM» del expediente RES080
+(con los dos kWh); columna «Vía FM» de Oportunidades cuando la oportunidad es **solo de rehabilitación**
+(`comparativaReforma === false`): `resumenViaFm` da `ficha: 'RES080_FM'` y `estimada` («≈»).
+`VIA_FM_VERSION` = 3. Con comparativa RES060/RES080 la columna sigue enseñando la RES060_FM. El
+conmutador «Vía de tramitación» también vale para la solo-reforma, y al aceptar numera `26RES080FM_N`.
+
+**Los CEE simulados, ¿los puede hacer la app?** Sí, con piezas que ya existen, pero sin un comando
+único (09/11/2026, solo mirado): **EF_simRest** es la «base» del final RES080 (skill
+`generar-cee-final`, paso 1 de 26RES080_83: el inicial con la envolvente nueva y los generales del
+previsto) **calificada antes** de cambiar las instalaciones; **EF_simBC** es el camino del final RES060
+(`ceeFinalCopiando.js`: el inicial con solo las instalaciones cambiadas), **sin** la medida de
+autoconsumo. Los dos en CE3X 3.2, como el previo y el posterior («misma herramienta»), y sin FV.
+
+### Lo medido (en seco, 09/11/2026, expedientes RES080 con los dos CEE)
+
+`node implementation/backend/scripts/seco_res080fm.mjs` (solo lee). **39 elegibles con cifra**, todas
+estimadas (ningún expediente tiene aún CEE simulados) y todas sin finalizar: **3.042,0 → 3.444,8 MWh** y
+**252.709 → 285.973 € (+33.264 €)**, con cocientes de 1,07 a 1,29 (lejos del f_M: la fórmula literal
+pondera con consumos). No elegibles: 17 ya presentados, **6 empezados antes del 22/03/2026** (entre ellos
+26RES080_54 y 25RES080_28), 4 sin caldera (26RES080_101, _43, _51, _67), 2 de sólido (_49, _78) y 1 cuya
+demanda no baja (26RES080_90). Ejemplos: 26RES080_50 61,6 → ≈79,3 MWh (6.160 → 7.933 €), 26RES080_85 87,2
+→ ≈104,2 MWh (8.720 → 10.418 €), 26RES080_57 198,4 → ≈226,0 MWh (11.905 → 13.560 €), 26RES080_72 (piso,
+f_M 2,5) 55,3 → ≈66,0 MWh.
+
+⚠️ Una primera pasada daba 45 elegibles: el script leía las fechas de `calcCifo` con otras claves
+(`fecha_inicio` en vez de `inicio`) y no aplicaba el plazo. Lo cazó la pestaña Económico de 26RES080_54
+en el navegador, que ya decía «no elegible: empezó el 21/07/2025».
+
+**Hallazgo para Fran**: en 36 de los 39, `(EF_simRest − EF_f)·f_M` (una RES060_FM sobre la envolvente
+nueva, solo indicativo) sale por encima de la RES080_FM literal: 4.663 frente a 3.445 MWh. Si una obra de
+reforma puede pedir por la RES060_FM está **sin decidir**: no se promete nada a ningún cliente.
 
 ### Pendiente (dudas abiertas en la app)
 

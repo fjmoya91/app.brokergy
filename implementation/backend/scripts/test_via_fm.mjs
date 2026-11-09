@@ -29,10 +29,21 @@ const claves = (docs) => docs.map((d) => d.key);
 
 console.log('\n— Numeración: serie propia —');
 ok(fichas.esNumeroFm('26RES060FM_12') && fichas.esNumeroFm('26RES093FM_3'), 'esNumeroFm reconoce RES060FM y RES093FM');
-ok(!fichas.esNumeroFm('26RES060_12') && !fichas.esNumeroFm('26RES080FM_1') && !fichas.esNumeroFm('26TER100FM_1'), 'ni la vigente, ni RES080, ni terciario');
+ok(!fichas.esNumeroFm('26RES060_12') && !fichas.esNumeroFm('26RES080_1') && !fichas.esNumeroFm('26TER100FM_1'), 'ni la vigente ni el terciario');
+ok(fichas.esNumeroFm('26RES080FM_1') && fichas.fichaFromNumero('26RES080FM_1') === 'RES080', 'RES080_FM (09/11/2026): 26RES080FM_N, y su ficha sigue siendo RES080');
 ok(fichas.fichaFromNumero('26RES060FM_12') === 'RES060' && fichas.fichaFromNumero('26RES093FM_3') === 'RES093', 'la ficha de un FM sigue siendo RES060 / RES093');
 ok(fichas.serieNumeracion('RES060', true) === 'RES060FM' && fichas.serieNumeracion('RES060', false) === 'RES060', 'serieNumeracion RES060 → RES060FM solo con la vía');
-ok(fichas.serieNumeracion('RES080', true) === 'RES080' && fichas.serieNumeracion('TER100', true) === 'TER100', 'RES080 y TER100 no tienen serie FM');
+ok(fichas.serieNumeracion('RES080', true) === 'RES080FM' && fichas.serieNumeracion('RES080', false) === 'RES080', 'RES080 → RES080FM solo con la vía');
+ok(fichas.serieNumeracion('TER100', true) === 'TER100', 'el terciario no tiene serie FM');
+{
+    // RES080_FM: sus 11 documentos (los dos CEE simulados y el certificado del director, al gestor).
+    const ctx080 = back.contextoFm({ numero: '26RES080FM_4', inputs: { tipo: 'unifamiliar' }, datos: { ef_sim_bc: '5800' } });
+    const ks = claves(back.documentosFm(ctx080));
+    ok(ctx080.rehabilitacion && ctx080.fichaOficial.codigo === 'RES080_FM' && ctx080.datos.ef_sim_bc === 5800 && ctx080.datos.ef_sim_rest === null, 'RES080_FM: ficha oficial y kWh simulados saneados');
+    ok(['FM_CERT_DIRECTOR_OBRA', 'FM_CEE_PREVIO', 'FM_CEE_POSTERIOR', 'FM_CEE_SIM_REST', 'FM_CEE_SIM_BC', 'FM_VIVIENDA_HABITUAL', 'FM_ANEXO_A'].every((k) => ks.includes(k))
+        && !ks.includes('FM_DECL_INSTALADOR') && !ks.includes('FM_OFERTA_MANTENIMIENTO'), 'RES080_FM: pide los cuatro CEE y el certificado del director; no lo de la RES060_FM');
+    ok(back.slotsFm(ctx080).filter((x) => x.key.startsWith('FM_CEE_SIM') || x.key === 'FM_CERT_DIRECTOR_OBRA').every((x) => x.required === false && back.SLOTS_FM.includes(x.key)), 'los simulados y el certificado del director no se le reclaman al cliente, y están en SLOTS_FM');
+}
 ok(fichas.correlativoEnSerie('26RES060_12', '26RES060') === 12, 'correlativoEnSerie: 26RES060_12 → 12');
 ok(fichas.correlativoEnSerie('26RES060FM_12', '26RES060') === null, 'un FM NO cuenta en la serie vigente (el LIKE con «_» lo casaba)');
 ok(fichas.correlativoEnSerie('26RES060FM_7', '26RES060FM') === 7, 'y sí en la suya');

@@ -134,7 +134,7 @@ export function plantasEdificioFc(valor) {
 // Tipología → f_M y d_ACS. 'hilera' (adosada) es unifamiliar. El bloque
 // (`tipoInmueble 'bloque'`) es el edificio con sistema centralizado aunque su
 // `tipo` diga piso. El tipo se compara en minúsculas: `normalizeData` guarda 'PISO'.
-function tipologiaFM({ tipo, bloque }) {
+export function tipologiaFM({ tipo, bloque }) {
     const t = String(tipo || '').toLowerCase();
     if (bloque) return { clase: 'bloque', fm: 3, dAcs: 16, label: 'Edificio con sistema centralizado' };
     if (t === 'piso') return { clase: 'piso', fm: 2.5, dAcs: 11, label: 'Piso con sistema individual' };
