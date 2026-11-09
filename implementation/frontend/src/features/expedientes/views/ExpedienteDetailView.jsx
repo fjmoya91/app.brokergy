@@ -299,6 +299,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
     const [infoEquipo, setInfoEquipo] = useState(false);
     const [leerPlacas, setLeerPlacas] = useState(false);
     const [liveDoc, setLiveDoc] = useState(null);
+    // Los datos de la vía FM ya GUARDADOS por su panel (`{ id, datos }`): el cálculo FM
+    // los lee de aquí antes que de la copia hidratada, que no se entera de lo que
+    // escribe `PUT /:id/via-fm/datos` (el vulnerable × 1,5, los kWh simulados).
+    const [viaFmVivo, setViaFmVivo] = useState(null);
     const [liveSeguimiento, setLiveSeguimiento] = useState(null);
     const [showQuickNote, setShowQuickNote] = useState(false);
     const [showIncidencias, setShowIncidencias] = useState(false);
@@ -808,6 +812,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 // y los avisos de elegibilidad con las fechas de la obra y la tramitación.
                 const tipoFC = opInputs.tipo || (opInputs.housing_type === 'flat' ? 'piso' : 'unifamiliar');
                 const fechasObra = calcCifo(liveDoc || expediente.documentacion || {});
+                // Consumidor VULNERABLE (fichas -S, × 1,5): lo marca el alta con lo que
+                // declaró el cliente al aceptar, o el equipo en la pestaña «Vía FM».
+                const datosFmVia = (viaFmVivo?.id === expediente.id ? viaFmVivo.datos : null)
+                    || (liveDoc || expediente.documentacion || {}).via_fm || {};
                 // Por la FM, la calefacción en el clima de la ZONA aunque la vigente vaya en medio.
                 const zonaFm = op.datos_calculo?.zona || opInputs.zona || cee.cee_inicial?.zonaClimatica;
                 const fmClima = entradasFmClima({
@@ -839,6 +847,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     ceeFinal: cee.cee_final,
                     ceeInicial: cee.cee_inicial,
                     hibridacion: fmClima.hibridacion,
+                    vulnerable: datosFmVia.vulnerable === true,
                     contexto: {
                         ...contextoCalderaFc(opInputs, boilerEffId),
                         climaFm: fmClima.clima,
@@ -939,7 +948,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 // RES060_FM, así que el Económico, el panel «Vía FM» y el Convenio FM
                 // lo leen igual. Los simulados: sus kWh, de `documentacion.via_fm`;
                 // sin ellos, estimados desde el previo y el posterior (y lo dice).
-                const datosFm = (liveDoc || expediente.documentacion || {}).via_fm || {};
+                const datosFm = (viaFmVivo?.id === expediente.id ? viaFmVivo.datos : null)
+                    || (liveDoc || expediente.documentacion || {}).via_fm || {};
                 const fechasObra = calcCifo(liveDoc || expediente.documentacion || {});
                 res060fcRaw = calculateRes080FM({
                     res080,
@@ -1059,7 +1069,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 ? { caePriceClient: finArgs.caePriceClient, caePriceClientRes080: finArgs.caePriceClient }
                 : null),
         };
-    }, [expediente, liveCee, liveInst, liveDoc, modeloFm]);
+    }, [expediente, liveCee, liveInst, liveDoc, modeloFm, viaFmVivo]);
 
     // Mientras no haya CEE cargado el expediente no tiene ahorro propio, pero SÍ
     // hereda como supuesto la economía que se le presentó al cliente en la
@@ -2072,6 +2082,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                             expediente={{ ...expediente, instalacion: liveInst || expediente.instalacion }}
                             results={calcResults}
                             onNumeroCambiado={() => fetchExpediente(true)}
+                            onDatos={(datos) => setViaFmVivo({ id: expediente.id, datos })}
                         />
                     </ModuleSection>
                 )}

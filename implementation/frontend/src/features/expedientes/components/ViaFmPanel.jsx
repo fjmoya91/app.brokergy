@@ -6,6 +6,7 @@ import { GENERADORES_FM, avisosDocumentoFm } from '../logic/documentosFm';
 import { cifrasViaFm, FM_PRESENTACION } from '../logic/convenioFm';
 import { getClientCaeRate } from '../utils/docGenerators';
 import { AvisoEsperaFmModal } from './AvisoEsperaFmModal';
+import { bonoDeclaradoDe, vulnerableFmDeBono, etiquetaBonoSocial } from '../logic/confirmacionCliente';
 
 const eur0 = (v) => (Number.isFinite(v) ? `${Math.round(v).toLocaleString('es-ES', { useGrouping: true })} €` : '—');
 const kwh0 = (v) => (v > 0 ? `${Math.round(v).toLocaleString('es-ES', { useGrouping: true })} kWh/año` : '—');
@@ -27,8 +28,8 @@ function Cifra({ titulo, valor, sub, tono = 'neutro' }) {
 // (Resolución BOE-A-2026-23367, en vigor el 08/11/2026).
 //
 // Tres cosas, y nada del cálculo del bono (eso es del motor, `calculateRes060FM`):
-//   1. En qué vía va y el botón para cambiarla. La vía FM tiene SERIE PROPIA
-//      (26RES060FM_N, decisión de Fran 07/11/2026): cambiar de vía RENUMERA, por
+//   1. En qué vía va y el botón para cambiarla. El número lleva «FM»
+//      (26RES060FM_N; desde el 09/11/2026 conserva el correlativo): cambiar de vía lo cambia, por
 //      eso se confirma enseñando el número que deja.
 //   2. Los datos que deciden QUÉ documentos pide la ficha (tipología, vulnerable,
 //      caldera en preinstalación, baja tensión, facturas de la luz…). Se
@@ -134,7 +135,10 @@ function KwhSim({ label, hint, value, onChange }) {
     );
 }
 
-export function ViaFmPanel({ expedienteId, expediente = null, results = null, onNumeroCambiado }) {
+// `onDatos(datos)`: los datos de la vía ya GUARDADOS (saneados por el servidor), para que
+// el detalle recalcule la cifra FM con ellos (el vulnerable multiplica × 1,5; en la
+// RES080_FM, los kWh de los CEE simulados) sin esperar a releer el expediente.
+export function ViaFmPanel({ expedienteId, expediente = null, results = null, onNumeroCambiado, onDatos }) {
     const { showConfirm, showAlert } = useModal();
     const [vista, setVista] = useState(null);         // { titulo, html }
     const [avisoAbierto, setAvisoAbierto] = useState(false);
@@ -146,6 +150,8 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
     const [guardado, setGuardado] = useState(null); // 'guardando' | 'ok' | 'error'
     const timer = useRef(null);
     const ultimo = useRef(null);
+    const onDatosRef = useRef(onDatos);
+    onDatosRef.current = onDatos;
 
     const cargar = useCallback(async () => {
         try {
@@ -153,6 +159,7 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
             setVia(data);
             setDatos(data.contexto?.datos || {});
             ultimo.current = JSON.stringify(data.contexto?.datos || {});
+            onDatosRef.current?.(data.contexto?.datos || {});
             setError(null);
         } catch (e) {
             setError(e.response?.data?.error || e.message);
@@ -170,6 +177,7 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
             const { data } = await axios.put(`/api/expedientes/${expedienteId}/via-fm/datos`, nuevos);
             ultimo.current = json;
             if (data?.via) setVia(data.via);
+            onDatosRef.current?.(data?.via?.contexto?.datos || data?.datos || nuevos);
             setGuardado('ok');
         } catch (e) {
             setGuardado('error');
@@ -191,11 +199,15 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
         const activar = !via.activa;
         const num = via.numero_expediente;
         const ficha = num.includes('RES093') ? 'RES093' : num.includes('RES080') ? 'RES080' : 'RES060';
-        const destino = activar ? num.replace(/^(\d{2})(RES060|RES080|RES093)_\d+$/, `$1${ficha}FM_…`) : num.replace(/^(\d{2})(RES060|RES080|RES093)FM_\d+$/, `$1${ficha}_…`);
+        // Las dos vías comparten el contador de la ficha: se conserva el número y solo se
+        // pone o quita el «FM» (Fran, 09/11/2026; numeroEnOtraVia en utils/fichas.js).
+        const destino = activar
+            ? num.replace(/^(\d{2})(RES060|RES080|RES093)_(\d+)$/, `$1${ficha}FM_$3`)
+            : num.replace(/^(\d{2})(RES060|RES080|RES093)FM_(\d+)$/, `$1${ficha}_$3`);
         const ok = await showConfirm(
             activar
-                ? `El expediente pasa a la vía del FACTOR MULTIPLICADOR (${via.contexto?.fichaOficial?.codigo}).\n\nLa vía FM tiene su propia serie: ${num} pasará a ser ${destino} (el siguiente libre). Se renombra la carpeta de Drive y queda en el historial. Los documentos ya generados con el número antiguo hay que volver a generarlos.`
-                : `El expediente vuelve a la vía VIGENTE.\n\n${num} pasará a ser ${destino} (el siguiente libre de la serie normal). Los datos de la vía FM se conservan por si vuelve.`,
+                ? `El expediente pasa a la vía del FACTOR MULTIPLICADOR (${via.contexto?.fichaOficial?.codigo}).\n\n${num} pasará a ser ${destino}: conserva su número y se le añade «FM». Se renombra la carpeta de Drive y queda en el historial. Los documentos ya generados con el número antiguo hay que volver a generarlos.`
+                : `El expediente vuelve a la vía VIGENTE.\n\n${num} pasará a ser ${destino}: conserva su número y pierde el «FM». Los datos de la vía FM se conservan por si vuelve.`,
             activar ? 'Pasar a la vía FM' : 'Volver a la vía vigente',
             'warning',
             { confirmar: activar ? 'Pasar a la vía FM' : 'Volver a la vigente', cancelar: 'No cambiar' },
@@ -204,7 +216,7 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
         setCambiando(true);
         try {
             const { data } = await axios.post(`/api/expedientes/${expedienteId}/via-fm`, { activar });
-            if (data?.via) { setVia(data.via); setDatos(data.via.contexto?.datos || {}); ultimo.current = JSON.stringify(data.via.contexto?.datos || {}); }
+            if (data?.via) { setVia(data.via); setDatos(data.via.contexto?.datos || {}); ultimo.current = JSON.stringify(data.via.contexto?.datos || {}); onDatosRef.current?.(data.via.contexto?.datos || {}); }
             onNumeroCambiado?.(data);
             showAlert(data.sinCambios ? 'El expediente ya estaba en esa vía.' : `Nuevo número: ${data.newNumber} (antes ${data.oldNumber}).`, 'Vía cambiada', 'success');
         } catch (e) {
@@ -274,6 +286,11 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
     const aprox = cifras?.estimada ? '≈ ' : '';
     const aviso = datos.aviso_espera;
     const respuesta = datos.espera_cliente || null;
+    // Lo que declaró el CLIENTE al aceptar sobre el bono social (logic/confirmacionCliente.js).
+    // El alta ya marca el vulnerable cuando no hay duda; aquí se ve al lado y, si no
+    // casa (expediente anterior, o desmarcado), se aplica con un clic.
+    const bonoDecl = bonoDeclaradoDe(expediente);
+    const vulDecl = bonoDecl ? vulnerableFmDeBono(bonoDecl.bono_social) : null;
 
     return (
         <div className="space-y-8">
@@ -302,7 +319,7 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
                             {cambiando ? 'Cambiando…' : via.activa ? 'Volver a la vía vigente' : 'Pasar a la vía FM'}
                         </button>
                         {via.bloqueo && <p className="text-[11px] text-amber-300 mt-2 max-w-xs">{via.bloqueo}</p>}
-                        {!via.bloqueo && <p className="text-[10px] text-white/30 mt-2 max-w-xs">Cambiar de vía cambia el número (serie propia).</p>}
+                        {!via.bloqueo && <p className="text-[10px] text-white/30 mt-2 max-w-xs">Cambiar de vía conserva el número: solo pone o quita el «FM».</p>}
                     </div>
                 </div>
 
@@ -390,6 +407,25 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
                         </>
                     )}
                     {!reh && <Opciones label="Consumidor vulnerable (ficha -S)" hint="Bono social a su nombre. Pide el Anexo B y la documentación del apartado 5." value={!!datos.vulnerable} onChange={(v) => cambiar({ vulnerable: v })} opciones={SI_NO} />}
+                    {!reh && bonoDecl && (
+                        <div className="py-2 flex items-start justify-between gap-3 max-md:flex-col">
+                            <div className="min-w-0 text-[11px] leading-snug">
+                                <p className="text-white/60">
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 mr-2">Declarado al aceptar{bonoDecl.fecha ? ` · ${fechaEs(bonoDecl.fecha)}` : ''}</span>
+                                    <b className="text-white/80">{etiquetaBonoSocial(bonoDecl.bono_social)}</b>
+                                </p>
+                                {(vulDecl?.texto || vulDecl?.pendiente) && (
+                                    <p className={`mt-0.5 ${vulDecl.pendiente ? 'text-amber-300' : 'text-white/40'}`}>{vulDecl.pendiente || vulDecl.texto}</p>
+                                )}
+                            </div>
+                            {vulDecl?.vulnerable && !datos.vulnerable && (
+                                <button type="button" onClick={() => cambiar({ vulnerable: true, anexo_b_casilla: datos.anexo_b_casilla || vulDecl.anexo_b_casilla })}
+                                    className="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-white/10 text-white hover:bg-white/20">
+                                    Marcar como vulnerable
+                                </button>
+                            )}
+                        </div>
+                    )}
                     {!reh && datos.vulnerable && (
                         <>
                             <Opciones label="Vive de alquiler o cedida" hint="Pide el contrato y el compromiso de 2 años del arrendatario." value={!!datos.inquilino} onChange={(v) => cambiar({ inquilino: v })} opciones={SI_NO} />

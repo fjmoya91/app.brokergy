@@ -5,7 +5,7 @@ const { getCoordinatesByRC } = require('./catastroService');
 const driveService = require('./driveService');
 const { syncExpedienteFolder } = require('./expedienteFolderSync');
 const { ALLOWED_PROVINCES } = require('../data/allowedProvinces');
-const { FICHAS, correlativoInicial, detectPrograma, esHibridacion, serieNumeracion, oportunidadViaFm, correlativoEnSerie, esNumeroFm, admiteViaFm, fichaFromNumero } = require('../utils/fichas');
+const { FICHAS, correlativoInicial, detectPrograma, esHibridacion, serieNumeracion, serieBase, oportunidadViaFm, correlativoEnContador, numeroEnOtraVia, esNumeroFm, admiteViaFm, fichaFromNumero } = require('../utils/fichas');
 
 /**
  * Siguiente número de una SERIE (`26RES060`, `26RES060FM`, `26RES080`…): el mayor
@@ -13,30 +13,31 @@ const { FICHAS, correlativoInicial, detectPrograma, esHibridacion, serieNumeraci
  *
  * NO se confía en ORDER BY correlativo DESC: en Postgres los NULL van primero y un
  * único registro con correlativo NULL reiniciaba el contador a 1 (bug 26RESxxx_1).
- * Y el `LIKE '26RES060_%'` no basta para decir de qué serie es una fila: `_` es un
- * comodín y casa también 26RES060FM_N, cuyo `correlativo` habría hecho saltar la
- * serie vigente en cuanto la FM la adelantara. Por eso se filtra con
- * `correlativoEnSerie` (regex exacta) antes de tomar el máximo.
+ * La vía FM COMPARTE el contador de su ficha (Fran, 09/11/2026): para 'RES060FM' se
+ * cuentan 26RES060_N y 26RES060FM_N, y el número sale con su «FM». El `LIKE
+ * '26RES060%'` casa más cosas (`_` es un comodín), así que se filtra con
+ * `correlativoEnContador` (regex exacta) antes de tomar el máximo.
  */
 async function siguienteNumeroDeSerie(serie, anio2 = new Date().getFullYear().toString().slice(-2)) {
+    const base = serieBase(serie);
     const prefijo = `${anio2}${serie}`;
     const { data: rows, error } = await supabase
         .from('expedientes')
         .select('numero_expediente, correlativo')
-        .like('numero_expediente', `${prefijo}%`);
+        .like('numero_expediente', `${anio2}${base}%`);
     if (error) throw new Error(`No se pudo calcular el correlativo de ${prefijo}: ${error.message}`);
     let maxNum = 0;
     let deLaSerie = 0;
     for (const r of (rows || [])) {
-        const suffix = correlativoEnSerie(r.numero_expediente, prefijo);
-        if (suffix == null) continue; // otra serie (26RES060FM_ dentro de 26RES060%)
+        const suffix = correlativoEnContador(r.numero_expediente, prefijo);
+        if (suffix == null) continue; // otra serie (26RES060FC_ dentro de 26RES060%)
         deLaSerie++;
         const corr = Number.isInteger(r.correlativo) ? r.correlativo : 0;
         maxNum = Math.max(maxNum, corr, suffix);
     }
     // Correlativo inicial por ficha (RES080 arranca en 36, TER100 en 3 por los
-    // expedientes heredados del sistema anterior). La serie FM arranca en 1.
-    const correlativo = Math.max(maxNum + 1, correlativoInicial(serie));
+    // expedientes heredados del sistema anterior). La FM, el de su ficha.
+    const correlativo = Math.max(maxNum + 1, correlativoInicial(base));
     console.log(`[ExpedienteService] Serie ${prefijo}: máximo ${maxNum} (sobre ${deLaSerie} de ${rows?.length || 0} filas) → ${prefijo}_${correlativo}`);
     return { numero: `${prefijo}_${correlativo}`, correlativo };
 }
@@ -99,6 +100,33 @@ function resolveProvinceCode(ident) {
         if (ALLOWED_PROVINCES[cpCode]) return cpCode;
     }
     return null;
+}
+
+/**
+ * Lo que el BONO SOCIAL declarado al aceptar siembra en `documentacion` del
+ * expediente NUEVO (ver el comentario en `createExpediente`). Puro salvo el
+ * import ESM; lo prueba scripts/test_confirmacion_cliente.mjs.
+ * @param {object|null} confirmacionCliente  `datos_calculo.confirmacion_cliente`
+ * @param {string} programa                 RES060 · RES080 · RES093 · TER…
+ * @returns {Promise<{ subvenciones?: object, via_fm?: object }>}
+ */
+async function semillaBonoSocial(confirmacionCliente, programa) {
+    if (!confirmacionCliente?.bono_social) return {};
+    const { bonoSocialParaSubvenciones, vulnerableFmDeBono, preguntaBonoSocial, PREGUNTA_BONO } = await loadConfirmacion();
+    const pregunta = preguntaBonoSocial(programa);
+    if (!pregunta) return {};
+    const out = {};
+    const bs = bonoSocialParaSubvenciones(confirmacionCliente.bono_social);
+    if (bs) out.subvenciones = { bono_social: bs };
+    const v = pregunta === PREGUNTA_BONO.FM ? vulnerableFmDeBono(confirmacionCliente.bono_social) : null;
+    if (v?.vulnerable) {
+        out.via_fm = {
+            ...require('../utils/viaFm').sanearDatosFm({ vulnerable: true, anexo_b_casilla: v.anexo_b_casilla }),
+            // Como el PUT: cuándo y quién. Aquí, la aceptación del cliente.
+            at: new Date().toISOString(), por: 'aceptación del cliente',
+        };
+    }
+    return out;
 }
 
 /**
@@ -281,6 +309,28 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             } catch (e) {
                 console.warn('[ExpedienteService] confirmación del cliente:', e.message);
             }
+        }
+
+        // ── El BONO SOCIAL que declaró al aceptar (09/11/2026) ───────────────
+        // Dos destinos, en el INSERT (fila nueva: no hay nada que pisar):
+        //  · `documentacion.subvenciones.bono_social` — la declaración del Anexo I
+        //    (y del Anexo A). Sin esto salía «Ninguno de los anteriores».
+        //  · `documentacion.via_fm` con `vulnerable: true` y su casilla del Anexo B,
+        //    solo en RES060/RES093 (las fichas con -S) y solo cuando lo declarado
+        //    no deja duda (`vulnerableFmDeBono`: una familia numerosa con el bono
+        //    de vulnerable se deja para comprobar la renta). Va por `sanearDatosFm`,
+        //    la misma forma que escribe `PUT /:id/via-fm/datos`, que después es su
+        //    único escritor (regla 200).
+        // Lo dicho por el cliente se queda además en `instalacion.confirmacion_cliente`,
+        // y la pestaña «Vía FM» lo enseña al lado de lo marcado.
+        let semillaBono = {};
+        try {
+            semillaBono = await semillaBonoSocial(confirmacionCliente, programa);
+            if (semillaBono.subvenciones || semillaBono.via_fm) {
+                console.log(`[ExpedienteService] Bono social declarado al aceptar → Anexo I ${semillaBono.subvenciones ? semillaBono.subvenciones.bono_social.tipos.join(',') : '—'}${semillaBono.via_fm ? ` · vulnerable FM (Anexo B: ${semillaBono.via_fm.anexo_b_casilla})` : ''}`);
+            }
+        } catch (e) {
+            console.warn('[ExpedienteService] bono social del cliente:', e.message);
         }
 
         // ── ¿Misma dirección que el cliente? ─────────────────────────────────
@@ -588,7 +638,9 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 // traen en `inputs.photo_attachments`, y copiado aquí se quedaba en
                 // el expediente para siempre (26RES060_136, _164). La imagen sigue
                 // en la oportunidad; el Anexo Fotográfico lee las fotos de Drive.
-                photo_attachments: fotosSinBase64(op.datos_calculo?.inputs?.photo_attachments) || null
+                photo_attachments: fotosSinBase64(op.datos_calculo?.inputs?.photo_attachments) || null,
+                // El bono social que declaró el cliente al aceptar (arriba).
+                ...semillaBono
             },
             seguimiento: {
                 // Si el cliente aporta su CEE inicial, NO se solicita uno nuevo al certificador:
@@ -861,8 +913,9 @@ function bloqueoCambioVia(exp) {
 
 /**
  * Pasa un expediente a la vía del FACTOR MULTIPLICADOR o lo devuelve a la vigente.
- * Como la vía FM tiene SERIE PROPIA (Fran, 07/11/2026), cambiar de vía RENUMERA:
- * 26RES060_250 → 26RES060FM_{siguiente}. Renombra la carpeta de Drive (por el mismo
+ * Las dos vías COMPARTEN el contador de la ficha (Fran, 09/11/2026): cambiar de vía
+ * CONSERVA el número y solo pone o quita el «FM» (26RES060_250 ⇄ 26RES060FM_250).
+ * Renombra la carpeta de Drive (por el mismo
  * sincronizador que la endereza en cada cambio de estado), lo apunta en el historial
  * y refleja la vía en la oportunidad (`inputs.ruta_fm`) para que la calculadora
  * enseñe la misma. `documentacion.via_fm` (los datos de la vía) NO se borra al
@@ -881,7 +934,7 @@ async function cambiarViaFm(expedienteId, { activar, usuario = 'Sistema' } = {})
 
     const ficha = fichaFromNumero(exp.numero_expediente);
     if (!admiteViaFm(ficha)) {
-        throw Object.assign(new Error(`La vía del factor multiplicador solo existe para RES060 y RES093 (este es ${ficha || 'sin ficha'}).`), { status: 400 });
+        throw Object.assign(new Error(`La vía del factor multiplicador solo existe para RES060, RES080 y RES093 (este es ${ficha || 'sin ficha'}).`), { status: 400 });
     }
     const yaFm = esNumeroFm(exp.numero_expediente);
     if (yaFm === !!activar) return { success: true, sinCambios: true, oldNumber: exp.numero_expediente, newNumber: exp.numero_expediente };
@@ -889,7 +942,18 @@ async function cambiarViaFm(expedienteId, { activar, usuario = 'Sistema' } = {})
     const bloqueo = bloqueoCambioVia(exp);
     if (bloqueo) throw Object.assign(new Error(bloqueo), { status: 409 });
 
-    const { numero: nuevo, correlativo } = await siguienteNumeroDeSerie(serieNumeracion(ficha, !!activar));
+    // El mismo correlativo en la otra vía. Un número con otra forma (manual) toma el
+    // siguiente del contador de su ficha.
+    const mismo = numeroEnOtraVia(exp.numero_expediente, !!activar);
+    const { numero: nuevo, correlativo } = mismo || await siguienteNumeroDeSerie(serieNumeracion(ficha, !!activar));
+    if (mismo) {
+        const { data: ocupado, error: oErr } = await supabase
+            .from('expedientes').select('id').eq('numero_expediente', nuevo).neq('id', expedienteId).limit(1);
+        if (oErr) throw Object.assign(new Error(`No se pudo comprobar el número ${nuevo}: ${oErr.message}`), { status: 503 });
+        if (ocupado?.length) {
+            throw Object.assign(new Error(`El número ${nuevo} ya lo tiene otro expediente: no se puede cambiar de vía conservando el número.`), { status: 409 });
+        }
+    }
 
     const { error: upErr } = await supabase
         .from('expedientes')
@@ -902,8 +966,8 @@ async function cambiarViaFm(expedienteId, { activar, usuario = 'Sistema' } = {})
     const entrada = {
         id: `${Date.now()}_via_fm`, tipo: 'sistema', fecha: new Date().toISOString(), usuario,
         texto: activar
-            ? `Vía del FACTOR MULTIPLICADOR: ${exp.numero_expediente} pasa a ${nuevo} (serie propia de la vía FM).`
-            : `Vuelve a la vía VIGENTE: ${exp.numero_expediente} pasa a ${nuevo}.`,
+            ? `Vía del FACTOR MULTIPLICADOR: ${exp.numero_expediente} pasa a ${nuevo}${mismo ? ' (conserva su número)' : ''}.`
+            : `Vuelve a la vía VIGENTE: ${exp.numero_expediente} pasa a ${nuevo}${mismo ? ' (conserva su número)' : ''}.`,
     };
     const { error: hErr } = Array.isArray(exp.historial)
         ? await supabase.rpc('merge_expediente_doc_json', { p_expediente_id: expedienteId, p_field: 'historial', p_value: [entrada] })
@@ -1110,4 +1174,5 @@ module.exports = {
     cambiarViaFm,
     bloqueoCambioVia,
     siguienteNumeroDeSerie,
+    semillaBonoSocial,
 };

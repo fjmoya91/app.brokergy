@@ -100,8 +100,11 @@ function esHibridacion(ficha) {
 // ── Vía del FACTOR MULTIPLICADOR (BOE-A-2026-23367, en vigor el 08/11/2026) ──────
 // Un expediente que va por la vía FM lleva «FM» PEGADO a su ficha: 26RES060FM_12,
 // 26RES093FM_3 (la hibridación, cuya ficha oficial depende de la zona: RES090_FM…
-// RES094_FM). Con una SERIE PROPIA de correlativos (Fran, 07/11/2026): pasar de una
-// vía a la otra RENUMERA, como el paso RES060 → RES080.
+// RES094_FM). El CONTADOR es el de su ficha (Fran, 09/11/2026, en lugar de la serie
+// propia del 07/11): 26RES060_N y 26RES060FM_N comparten correlativo, así que pasar
+// de una vía a la otra CONSERVA el número y solo pone o quita el «FM»
+// (26RES060_227 ⇄ 26RES060FM_227), y una obra que nace FM coge el siguiente de su
+// ficha. Ver `correlativoEnContador` y `numeroEnOtraVia`.
 //
 // REGLA — el «FM» va pegado a la ficha y no como segmento aparte: así `RES060` y
 // `RES093` siguen dentro del número y todos los `includes('RES093')` de la app
@@ -125,12 +128,47 @@ function admiteViaFm(ficha) {
 }
 
 /**
- * Prefijo de la SERIE de numeración: el programa, con «FM» si va por esa vía y la
- * ficha la admite ('RES060', true → 'RES060FM'). Es la serie de la que sale el
- * correlativo, así que dos vías nunca comparten número.
+ * Prefijo con el que se ESCRIBE el número: el programa, con «FM» si va por esa vía y
+ * la ficha la admite ('RES060', true → 'RES060FM'). El correlativo NO sale de aquí
+ * sino del contador de la ficha (`serieBase`): las dos vías comparten número.
  */
 function serieNumeracion(programa, viaFm = false) {
     return viaFm && admiteViaFm(programa) ? `${programa}${SUFIJO_FM}` : programa;
+}
+
+/** Ficha cuyo contador usa una serie: 'RES060FM' → 'RES060'; 'RES060' → 'RES060'. */
+function serieBase(serie) {
+    const s = String(serie || '').toUpperCase();
+    const base = s.endsWith(SUFIJO_FM) ? s.slice(0, -SUFIJO_FM.length) : s;
+    return admiteViaFm(base) ? base : s;
+}
+
+/**
+ * Correlativo de un número dentro del CONTADOR de su ficha, con o sin «FM», o null
+ * si es de otro. '26RES060_12' y '26RES060FM_12' en el contador 26RES060 (o
+ * 26RES060FM) → 12; '26RES060FC_3' → null. El `LIKE '26RES060%'` casa más cosas
+ * (`_` es un comodín), así que se filtra con esta regex exacta.
+ */
+function correlativoEnContador(numeroExpediente, prefijoAnioSerie) {
+    const p = String(prefijoAnioSerie || '').toUpperCase();
+    const m2 = p.match(/^(\d{2})(.+)$/);
+    const prefijo = m2 ? `${m2[1]}${serieBase(m2[2])}` : p;
+    const m = String(numeroExpediente || '').trim().toUpperCase()
+        .match(new RegExp(`^${prefijo}(?:${SUFIJO_FM})?_(\\d+)$`));
+    return m ? parseInt(m[1], 10) : null;
+}
+
+/**
+ * El mismo número en la OTRA vía: pone o quita el «FM» y conserva año y correlativo
+ * ('26RES060_227', true → '26RES060FM_227'; y al revés). Null si el número no tiene
+ * la forma de una ficha con FM (un número manual raro): entonces el que llama decide.
+ */
+function numeroEnOtraVia(numeroExpediente, activar) {
+    const m = String(numeroExpediente || '').trim().toUpperCase()
+        .match(/^(\d{2})(RES060|RES080|RES093)(FM)?_(\d+)$/);
+    if (!m) return null;
+    const correlativo = parseInt(m[4], 10);
+    return { numero: `${m[1]}${m[2]}${activar ? SUFIJO_FM : ''}_${correlativo}`, correlativo };
 }
 
 /**
@@ -147,10 +185,10 @@ function oportunidadViaFm(op = {}) {
 }
 
 /**
- * Correlativo de un número DENTRO de su serie, o null si el número es de otra.
+ * Correlativo de un número DENTRO de su serie EXACTA, o null si el número es de otra.
  * '26RES060_12' en la serie 26RES060 → 12; '26RES060FM_12' en esa misma serie →
- * null. Lo usan las dos numeraciones (alta y cambio de ficha o de vía): el `LIKE
- * '26RES060_%'` de antes casaba también los FM, porque `_` es un comodín.
+ * null. La numeración ya no la usa (cuenta con `correlativoEnContador`, que junta
+ * las dos vías); queda para quien necesite distinguir la serie escrita.
  */
 function correlativoEnSerie(numeroExpediente, prefijoAnioSerie) {
     const m = String(numeroExpediente || '').trim().toUpperCase()
@@ -171,6 +209,9 @@ module.exports = {
     esNumeroFm,
     admiteViaFm,
     serieNumeracion,
+    serieBase,
     oportunidadViaFm,
     correlativoEnSerie,
+    correlativoEnContador,
+    numeroEnOtraVia,
 };

@@ -266,5 +266,180 @@ t('al aceptar, si el cliente dice otra cosa que la oportunidad, se avisa', () =>
     const igual = mod.resumenConfirmacion({ ...conf206, supuesto: { aires: { tiene: true, num: 5 } } });
     assert.equal(igual.find(r => r.tema === 'Aire acondicionado').aviso, null);
 });
+
+// ─── El BONO SOCIAL (2026-11-09) ─────────────────────────────────────────────
+// BOE-A-2026-23367, Tercero a/b: vulnerable = bono social ELÉCTRICO (RD 897/2017),
+// salvo quien lo tiene SOLO por ser familia numerosa sin cumplir la renta.
+console.log('\nBono social');
+const {
+    sanearBonoSocial, faltaBonoSocial, bonoSocialParaSubvenciones, vulnerableFmDeBono,
+    preguntaBonoSocial, esNifDeEmpresa, sinBonoSocial, bonoDeclaradoDe, etiquetaBonoSocial,
+    etiquetaBonoCliente, vulnerableDeConfirmacion,
+} = mod;
+const base = { emisor: 'radiadores', placas: 'no', aire_acondicionado: false };
+t('a quién se le pregunta: RES060/RES093 completa, RES080 sin familia numerosa, terciario no', () => {
+    assert.equal(preguntaBonoSocial('RES060'), 'fm');
+    assert.equal(preguntaBonoSocial('RES093'), 'fm');
+    assert.equal(preguntaBonoSocial('RES080'), 'anexo');
+    assert.equal(preguntaBonoSocial('TER100'), null);
+    assert.equal(preguntaBonoSocial('TER173'), null);
+    assert.equal(preguntaBonoSocial(undefined), null);
+});
+t('con un CIF no se pregunta (una empresa no tiene bono social)', () => {
+    assert.equal(esNifDeEmpresa('B12345678'), true);
+    assert.equal(esNifDeEmpresa('b-1234567-j'), true);
+    assert.equal(esNifDeEmpresa('12345678Z'), false);
+    assert.equal(esNifDeEmpresa('X1234567L'), false);
+    assert.equal(esNifDeEmpresa(''), false);
+});
+t('obligatoria SOLO si se pregunta; con el de la luz, el tipo y (en fm) la familia numerosa', () => {
+    assert.equal(faltanConfirmacion(base).length, 0, 'sin pregunta no falta nada (página sin el bono)');
+    assert.deepEqual(faltanConfirmacion(base, { bono: 'fm' }), ['si tienes el bono social']);
+    assert.equal(faltanConfirmacion({ ...base, bono: 'no' }, { bono: 'fm' }).length, 0);
+    assert.equal(faltanConfirmacion({ ...base, bono: 'no_se' }, { bono: 'fm' }).length, 0);
+    assert.equal(faltanConfirmacion({ ...base, bono: 'electrico' }, { bono: 'fm' }).length, 2);
+    assert.equal(faltanConfirmacion({ ...base, bono: 'electrico', bono_tipo: 'no_se' }, { bono: 'fm' }).length, 1);
+    assert.equal(faltanConfirmacion({ ...base, bono: 'electrico', bono_tipo: 'no_se' }, { bono: 'anexo' }).length, 0);
+    assert.equal(faltanConfirmacion({ ...base, bono: 'electrico', bono_tipo: 'severo', bono_fn: false }, { bono: 'fm' }).length, 0);
+    assert.equal(faltaBonoSocial({}, null).length, 0);
+});
+t('saneado estricto: del formulario o de lo guardado, en MAYÚSCULAS también; tipo y F.N. solo con el de la luz', () => {
+    assert.deepEqual(sanearBonoSocial({ bono: 'ELECTRICO', bono_tipo: 'Severo', bono_fn: 'false' }),
+        { respuesta: 'electrico', tipo: 'severo', familia_numerosa: false });
+    assert.deepEqual(sanearBonoSocial({ bono_social: { respuesta: 'TERMICO', tipo: 'severo', familia_numerosa: true } }),
+        { respuesta: 'termico', tipo: null, familia_numerosa: null });
+    assert.equal(sanearBonoSocial({ bono: 'quizas' }), null);
+    assert.equal(sanearBonoSocial({ bono: 'electrico', bono_tipo: 'otro' }).tipo, null);
+    assert.equal(sanearBonoSocial(null), null);
+});
+t('sanearConfirmacion lo guarda anidado, y sin pregunta no aparece', () => {
+    const c = sanearConfirmacion({ ...base, bono: 'electrico', bono_tipo: 'vulnerable', bono_fn: false });
+    assert.deepEqual(c.bono_social, { respuesta: 'electrico', tipo: 'vulnerable', familia_numerosa: false });
+    assert.equal('bono_social' in sanearConfirmacion(base), false);
+    assert.deepEqual(sanearConfirmacion(c).bono_social, c.bono_social, 'releer lo guardado da lo mismo');
+});
+t('Anexo I: el de la luz por su tipo (sin saber cuál, «vulnerables»); el térmico; no / no sé, nada', () => {
+    const s = (bono, bono_tipo = '', bono_fn = null) => bonoSocialParaSubvenciones({ bono, bono_tipo, bono_fn });
+    assert.deepEqual(s('electrico', 'vulnerable'), { percibe: true, tipos: ['electrico_vulnerable'] });
+    assert.deepEqual(s('electrico', 'severo'), { percibe: true, tipos: ['electrico_vulnerable_severo'] });
+    assert.deepEqual(s('electrico', 'exclusion'), { percibe: true, tipos: ['electrico_riesgo_exclusion'] });
+    assert.deepEqual(s('electrico', 'no_se'), { percibe: true, tipos: ['electrico_vulnerable'] });
+    assert.deepEqual(s('termico'), { percibe: true, tipos: ['termico'] });
+    assert.equal(s('no'), null);
+    assert.equal(s('no_se'), null);
+    // Lo guardado ({ respuesta, … }) también vale, y los ids son los de subvenciones.js.
+    assert.deepEqual(bonoSocialParaSubvenciones({ respuesta: 'electrico', tipo: 'severo', familia_numerosa: true }).tipos, ['electrico_vulnerable_severo']);
+});
+const subv = await import(pathToFileURL(path.join(aqui, '../../frontend/src/features/expedientes/logic/subvenciones.js')).href);
+t('los ids que siembra son los del Anexo I (leerSubvenciones no los descarta)', () => {
+    for (const tipo of ['vulnerable', 'severo', 'exclusion']) {
+        const bs = bonoSocialParaSubvenciones({ bono: 'electrico', bono_tipo: tipo });
+        const leido = subv.leerSubvenciones({ documentacion: { subvenciones: { bono_social: bs } } });
+        assert.equal(leido.bono_social.percibe, true);
+        assert.deepEqual(leido.bono_social.tipos, bs.tipos);
+    }
+    const st = subv.anexoIStates({ documentacion: { subvenciones: { bono_social: bonoSocialParaSubvenciones({ bono: 'termico' }) } } });
+    assert.equal(st.bonoSocial[4], true, 'casilla del térmico');
+    assert.equal(st.bonoSocial[5], false, '«Ninguno» ya no se marca');
+});
+t('vulnerable FM: el de la luz sin familia numerosa → sí, casilla «no es F.N.»', () => {
+    const v = vulnerableFmDeBono({ bono: 'electrico', bono_tipo: 'vulnerable', bono_fn: false });
+    assert.equal(v.vulnerable, true);
+    assert.equal(v.anexo_b_casilla, 'no_fn');
+    assert.equal(vulnerableFmDeBono({ bono: 'electrico', bono_tipo: 'no_se', bono_fn: false }).vulnerable, true);
+});
+t('vulnerable FM: familia numerosa con el severo o en exclusión (exigen renta) → sí, casilla «severo»', () => {
+    for (const tipo of ['severo', 'exclusion']) {
+        const v = vulnerableFmDeBono({ bono: 'electrico', bono_tipo: tipo, bono_fn: true });
+        assert.equal(v.vulnerable, true);
+        assert.equal(v.anexo_b_casilla, 'severo');
+    }
+});
+t('vulnerable FM: familia numerosa con el de vulnerable (o sin saber cuál) → NO, pendiente de la renta', () => {
+    for (const tipo of ['vulnerable', 'no_se']) {
+        const v = vulnerableFmDeBono({ bono: 'electrico', bono_tipo: tipo, bono_fn: true });
+        assert.equal(v.vulnerable, false);
+        assert.match(v.pendiente, /renta/);
+    }
+});
+t('vulnerable FM: el térmico solo, no; no / no sé, no (no sé deja pendiente)', () => {
+    assert.equal(vulnerableFmDeBono({ bono: 'termico' }).vulnerable, false);
+    assert.match(vulnerableFmDeBono({ bono: 'termico' }).texto, /térmico/);
+    assert.equal(vulnerableFmDeBono({ bono: 'no' }).vulnerable, false);
+    assert.equal(vulnerableFmDeBono({ bono: 'no_se' }).vulnerable, false);
+    assert.ok(vulnerableFmDeBono({ bono: 'no_se' }).pendiente);
+    assert.equal(vulnerableFmDeBono(null).vulnerable, false);
+    assert.equal(vulnerableDeConfirmacion({ bono_social: { respuesta: 'electrico', tipo: 'severo', familia_numerosa: false } }), true);
+    assert.equal(vulnerableDeConfirmacion(null), false);
+});
+t('etiquetas: para el staff y para el cliente', () => {
+    assert.equal(etiquetaBonoSocial({ respuesta: 'electrico', tipo: 'severo', familia_numerosa: false }),
+        'Bono social eléctrico · vulnerable severo · no es familia numerosa');
+    assert.equal(etiquetaBonoSocial({ respuesta: 'termico' }), 'Solo el bono social térmico');
+    assert.equal(etiquetaBonoSocial(null), null);
+    assert.equal(etiquetaBonoCliente({ bono: 'electrico', bono_tipo: 'exclusion' }), 'Sí, el de la luz · en riesgo de exclusión social');
+    assert.equal(etiquetaBonoCliente({ bono: 'electrico', bono_tipo: 'no_se' }), 'Sí, el de la luz');
+    assert.equal(etiquetaBonoCliente({ bono: 'no' }), 'No');
+});
+t('el bono social NO llega al certificador: ni en el encargo ni por conAiresDeOportunidad', () => {
+    const conBono = { ...conf206, bono_social: { respuesta: 'electrico', tipo: 'severo', familia_numerosa: false } };
+    assert.equal('bono_social' in conAiresDeOportunidad(conBono, null), false);
+    assert.equal('bono_social' in conAiresDeOportunidad({ emisor: 'suelo', bono_social: conBono.bono_social }, { tiene: true, num: 1 }), false);
+    const b = bloqueConfirmacionCertificador({ confirmacion: conBono, cae: true });
+    assert.doesNotMatch(b, /[Bb]ono/);
+    assert.ok(mod.resumenConfirmacion(conBono).every(r => !/[Bb]ono/.test(r.tema)));
+    assert.equal(sinBonoSocial(conf206), conf206, 'sin bono, el mismo objeto');
+});
+t('lo declarado en el expediente: el más reciente entre el expediente y su oportunidad', () => {
+    const viejo = { fecha: '2026-11-01T10:00:00Z', bono_social: { respuesta: 'no' } };
+    const nuevo = { fecha: '2026-11-09T10:00:00Z', bono_social: { respuesta: 'electrico', tipo: 'vulnerable', familia_numerosa: false } };
+    const d = bonoDeclaradoDe({ instalacion: { confirmacion_cliente: viejo }, oportunidades: { datos_calculo: { confirmacion_cliente: nuevo } } });
+    assert.equal(d.bono_social.respuesta, 'electrico');
+    assert.equal(d.fecha, nuevo.fecha);
+    assert.equal(bonoDeclaradoDe({ instalacion: { confirmacion_cliente: { emisor: 'suelo' } } }), null);
+    assert.equal(bonoDeclaradoDe(null), null);
+});
+const conBonoForm = JSON.stringify({ ...base, bono: 'electrico', bono_tipo: 'severo', bono_fn: false, version: '2' });
+const gRes = await confirmacionDeLaAceptacion(conBonoForm, dc, { programa: 'RES060', nif: '12345678Z' });
+const gTer = await confirmacionDeLaAceptacion(conBonoForm, dc, { programa: 'TER100', nif: '12345678Z' });
+const gCif = await confirmacionDeLaAceptacion(conBonoForm, dc, { programa: 'RES060', nif: 'B12345678' });
+t('la aceptación lo guarda en confirmacion_cliente; ni en el terciario ni con un CIF', () => {
+    assert.deepEqual(gRes.bono_social, { respuesta: 'electrico', tipo: 'severo', familia_numerosa: false });
+    assert.equal(gRes.version, '2');
+    assert.equal('bono_social' in gTer, false);
+    assert.equal('bono_social' in gCif, false);
+    assert.equal(gTer.emisor, 'radiadores', 'el resto de la confirmación sigue');
+});
+// La siembra del expediente NUEVO (createExpediente → semillaBonoSocial).
+const { semillaBonoSocial } = require('../services/expedienteService.js');
+const { sanearDatosFm } = require('../utils/viaFm.js');
+const sRes = await semillaBonoSocial(gRes, 'RES060');
+const sHib = await semillaBonoSocial(gRes, 'RES093');
+const s080 = await semillaBonoSocial(gRes, 'RES080');
+const sTer = await semillaBonoSocial(gRes, 'TER100');
+const sFn = await semillaBonoSocial({ bono_social: { respuesta: 'electrico', tipo: 'vulnerable', familia_numerosa: true } }, 'RES060');
+const sTerm = await semillaBonoSocial({ bono_social: { respuesta: 'termico' } }, 'RES060');
+const sNada = [await semillaBonoSocial(null, 'RES060'), await semillaBonoSocial({ bono_social: { respuesta: 'no' } }, 'RES060')];
+t('al crear el expediente: Anexo I + vulnerable FM con su casilla (RES060/RES093)', () => {
+    assert.deepEqual(sRes.subvenciones, { bono_social: { percibe: true, tipos: ['electrico_vulnerable_severo'] } });
+    assert.equal(sRes.via_fm.vulnerable, true);
+    assert.equal(sRes.via_fm.anexo_b_casilla, 'no_fn');
+    assert.equal(sRes.via_fm.por, 'aceptación del cliente');
+    // La misma forma que escribe PUT /:id/via-fm/datos: resanear no cambia nada.
+    const { at, por, ...resto } = sRes.via_fm;
+    assert.deepEqual(sanearDatosFm(resto), resto);
+    assert.equal(sHib.via_fm.vulnerable, true);
+});
+t('RES080: solo el Anexo I (la RES080_FM no tiene -S); terciario: nada', () => {
+    assert.ok(s080.subvenciones);
+    assert.equal('via_fm' in s080, false);
+    assert.deepEqual(sTer, {});
+});
+t('familia numerosa con el de vulnerable: Anexo I sí, vulnerable NO (falta la renta); térmico: solo Anexo I', () => {
+    assert.deepEqual(sFn.subvenciones.bono_social.tipos, ['electrico_vulnerable']);
+    assert.equal('via_fm' in sFn, false);
+    assert.deepEqual(sTerm, { subvenciones: { bono_social: { percibe: true, tipos: ['termico'] } } });
+    assert.deepEqual(sNada, [{}, {}]);
+});
 console.log(`\n${ok} comprobaciones correctas`);
 process.exit(0);

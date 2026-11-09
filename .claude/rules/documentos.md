@@ -1,6 +1,6 @@
 ---
 paths:
-  - "implementation/frontend/src/features/expedientes/logic/{cifoDoc,calcCifo,cifoFechas,hitosActuacion,fichasFormulario,anexoIFormulario,fichaRes060Html,fichaRes093Html,fichaTer100Html,fichaTer173,res080Doc,signBoxes,fuentesDoc,requerimientoFirma,fichasTecnicas,cedentes,usePlacaScopAcs,direccionInstalacion}.js"
+  - "implementation/frontend/src/features/expedientes/logic/{cifoDoc,calcCifo,cifoFechas,hitosActuacion,fichasFormulario,anexoIFormulario,fichaRes060Html,fichaRes093Html,fichaTer100Html,fichaTer173,res080Doc,signBoxes,fuentesDoc,requerimientoFirma,fichasTecnicas,cedentes,usePlacaScopAcs,direccionInstalacion,fmExpediente}.js"
   - "implementation/frontend/src/features/expedientes/utils/{docGenerators,docContacts}.js"
   - "implementation/frontend/src/features/expedientes/components/{Certificado*,Ficha*,AnexoI*,EnviarAnexos*,Documentacion*,HitosActuacion*,PlacaScopAcs*,CesionManuscrita*,ValidationModal,DocumentoOficial*,FormatoDocumento*,Subvenciones*}.jsx"
   - "implementation/backend/services/{cifoService,formularioOficialService,pdfService,placaScopAcs,aclaracionFechasService,convenioCae,certClienteData}.js"
@@ -121,6 +121,14 @@ La maqueta va en [logic/documentosFm.js](implementation/frontend/src/features/ex
 - **El mensaje de envío** anuncia el importe FM y añade una línea con el de la ficha general (`lineaMensajeConvenioFm`).
 
 Fuente única: [logic/convenioFm.js](implementation/frontend/src/features/expedientes/logic/convenioFm.js) (`cifrasConvenioFm`, `CAUSAS_SUBSIDIARIA_FM`). Tras tocarlo: `check_anexo_cesion_2pag.mjs` (mide los casos FM con 1 a 5 cedentes y que la hoja de firmas sea la que busca la firma) y `test_via_fm.mjs`. Ver "La vía del FACTOR MULTIPLICADOR en el expediente".
+
+200.e **El CIFO de un `26RES060FM_N` / `26RES093FM_N` sale como su ficha FM, con la cifra FM y NUNCA con la vigente** (2026-11-09, Fran: «prepara ya el CIFO para que salga como está»).
+- **Qué cambia.** Código y título FM (-S si `via_fm.vulnerable`), hoja de variables FM (D_CAL, S, D_ACS, η_i, SCOP, [C_b], f_M, sin F_P ni D_i) con la fórmula y el «donde» por anexos, Anexo I en cinco puntos (en hoja aparte de los SCOP), SCOP por la prelación del Anexo I FM y el clima de `entradasFmClima`, y C_b por el Anexo V. La rama es `derivaFm` en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js), y solo se activa con `esNumeroFm` y no RES080FM (esos van por `res080Doc`).
+- **La cifra.** `results.res060fc.cae` (`calculateRes060FM`), la del Económico y el Convenio FM. En el backend la da `calcularFmExpediente` de [logic/fmExpediente.js](implementation/frontend/src/features/expedientes/logic/fmExpediente.js), copia de la rama FM de `calcResults` en `ExpedienteDetailView`: si cambia una, cambia la otra.
+- **Bloquea** (modal, «Generar» y `buildValidation`): sin cifra FM, ficha o -S que no casan, D_cal de simulación, ACS supuesto o fuera de la bomba, zona sin cálido, η por defecto, ahorro ≤ 0, tipología distinta. Sin cifra se imprime 0, nunca la vigente.
+- **La vigente no cambia ni un carácter**: comparado el HTML de 30 casos.
+
+Tras tocarlo: `check_cifo_paginas.mjs` (11 casos FM), `test_via_fm.mjs`, `test_res060fc.mjs`, `test_clima_fm.mjs` y `test_placa_scop_acs.mjs`. Ver "El CIFO de un FM sale como su ficha FM".
 
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 

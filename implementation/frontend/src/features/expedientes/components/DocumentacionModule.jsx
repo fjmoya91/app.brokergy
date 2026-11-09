@@ -31,6 +31,8 @@ import { IncidenciasSlotPanel } from './IncidenciasSlotPanel';
 import { HitosActuacionModal } from './HitosActuacionModal';
 import { hitosActuacion, avisosHitos } from '../logic/hitosActuacion';
 import { aplicaInerciaFm, inerciaFm } from '../logic/inerciaFm';
+import { esNumeroFm } from '../logic/viaFm';
+import { deriveCifoData } from '../logic/cifoDoc';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 import { ftAttachmentSlots, ftDocFields } from '../logic/fichasTecnicas';
 import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes, acsEnAlcance } from '../logic/ceeFases';
@@ -1564,6 +1566,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             if (!doc.facturas?.length) missing.push('Al menos una factura');
             // Vía FM: el CIFO lleva el certificado de inercia (RES060_FM, doc. 3.c).
             if (aplicaInerciaFm(expediente?.numero_expediente)) missing.push(...inerciaFm(inst).falta);
+            // Vía FM: el CIFO sale como la ficha FM (cifoDoc.js). Lo que lo invalida
+            // como tal —sin cifra FM, sin ACS con la bomba, D_cal sin CEE, ficha o
+            // tipología que no casan— para aquí, como en la generación automática.
+            if (esNumeroFm(expediente?.numero_expediente)) {
+                const fmCifo = deriveCifoData({ expediente: { ...expediente, documentacion: doc }, results }).fm;
+                if (fmCifo) missing.push(...fmCifo.bloqueos.map((t) => `Ficha ${fmCifo.codigo}: ${t}`));
+            }
         }
 
         if (docType === 'res060') {

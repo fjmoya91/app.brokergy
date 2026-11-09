@@ -41,6 +41,16 @@ function loadCifoDoc() {
     }
     return _cifoDocPromise;
 }
+// La cifra de la vía FM (26RES060FM_N · 26RES093FM_N): la MISMA cuenta que la
+// pestaña Económico (logic/fmExpediente.js → calculateRes060FM).
+let _fmExpPromise = null;
+function loadFmExpediente() {
+    if (!_fmExpPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/fmExpediente.js')).href;
+        _fmExpPromise = import(url);
+    }
+    return _fmExpPromise;
+}
 let _calcPromise = null;
 function loadCalc() {
     if (!_calcPromise) {
@@ -349,6 +359,28 @@ async function computeSavingsKwh(exp, op) {
     return savings?.savingsKwh || 0;
 }
 
+// ─── Vía FM: la cifra y los datos de la ficha FM (results.res060fc) ──────────
+// Solo para los números FM que van por ESTE certificado (26RES060FM_N y
+// 26RES093FM_N; los 26RES080FM_N van por el Certificado RES080). Devuelve el
+// resultado de `calculateRes060FM` o null. Solo LEE: el modelo del catálogo se pide
+// cuando la vigente va en clima MEDIO en una zona cálida, que es cuando la FM
+// necesita su SCOP CÁLIDO (logic/climaFm.js) — igual que la ficha del expediente.
+const ES_FM_CIFO = /^\d{2}(RES060|RES093)FM_\d+$/i;
+async function computeFmResult(exp, op) {
+    if (!ES_FM_CIFO.test(String(exp?.numero_expediente || '').trim())) return null;
+    const { calcularFmExpediente } = await loadFmExpediente();
+    const { climaScopForzado, zoneClimateSeason, CLIMA_SCOP } = await loadCalc();
+    const inst = exp.instalacion || {};
+    const zona = op?.datos_calculo?.zona || op?.datos_calculo?.inputs?.zona || null;
+    let modeloFm = null;
+    const idModelo = inst.aerotermia_cal?.aerotermia_db_id;
+    if (idModelo != null && climaScopForzado(inst) === CLIMA_SCOP.MEDIO && zoneClimateSeason(zona) === CLIMA_SCOP.CALIDO) {
+        const { data } = await supabase.from('aerotermia').select('*').eq('id', idModelo).maybeSingle();
+        modeloFm = data || null;
+    }
+    return calcularFmExpediente({ expediente: { ...exp, oportunidades: op || exp.oportunidades }, modeloFm });
+}
+
 // ─── Anexos: una FT por MODELO distinto + extras del CIFO ────────────────────
 // Los huecos de ficha técnica los decide `resolveFichaSlots` (fichasTecnicas.js),
 // la MISMA función que usa el modal: una ficha por modelo de bomba de calor, no
@@ -543,6 +575,13 @@ function buildValidation(exp, data, savingsKwh, folderId) {
     if (data.isTer173 && data.cbIncompleto) {
         blocking.push('No se puede generar el CIFO: en TER173 el ahorro se pondera con el coeficiente de cobertura por bivalencia (C_b) y faltan sus datos. Rellena en la pestaña Instalación la potencia térmica de la bomba de calor y, si el método es por caldera, la potencia nominal de la caldera existente.');
     }
+    // Vía FM: lo que hace inválido el certificado como ficha FM (sin cifra FM, sin
+    // ACS con la bomba, D_cal sin CEE, ficha o tipología que no casan…). Lo decide
+    // deriveCifoData (`data.fm`), el mismo criterio que el botón «Generar» de la app.
+    if (data.fm) {
+        for (const t of data.fm.bloqueos || []) blocking.push(`No se puede generar el CIFO ${data.fm.codigo}: ${t}`);
+        for (const t of data.fm.avisos || []) warnings.push(`CIFO ${data.fm.codigo}: ${t}`);
+    }
     if (!data.empNombre || data.empNombre === '—') {
         blocking.push('No se puede generar el CIFO: falta la empresa instaladora asociada al expediente.');
     }
@@ -641,7 +680,9 @@ async function getEstadoCifo(numeroOrId) {
     } else {
         const { deriveCifoData } = await loadCifoDoc();
         const savingsKwh = await computeSavingsKwh(exp, op);
-        const data = deriveCifoData({ expediente: exp, results: { savingsKwh } });
+        // Vía FM: el certificado sale como su ficha FM, con la cifra FM.
+        const res060fc = await computeFmResult(exp, op);
+        const data = deriveCifoData({ expediente: exp, results: { savingsKwh, ...(res060fc ? { res060fc } : {}) } });
         ({ blocking, warnings } = buildValidation(exp, data, savingsKwh, folderId));
     }
     warnings = [...warnings, ...await avisosFichasTecnicas(exp, tipologia === 'RES080' ? 'RES080' : 'CIFO', { contarCatalogo: true })];
@@ -753,7 +794,9 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
     } else {
         const { deriveCifoData, buildCifoHtml } = await loadCifoDoc();
         const savingsKwh = await computeSavingsKwh(exp, op);
-        const data = deriveCifoData({ expediente: exp, results: { savingsKwh } });
+        // Vía FM: el certificado sale como su ficha FM, con la cifra FM.
+        const res060fc = await computeFmResult(exp, op);
+        const data = deriveCifoData({ expediente: exp, results: { savingsKwh, ...(res060fc ? { res060fc } : {}) } });
         ({ blocking, warnings } = buildValidation(exp, data, savingsKwh, folderId));
         if (blocking.length === 0) {
             ({ attachments, annexes } = await resolveAnnexAttachments(exp));
@@ -827,4 +870,4 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
     };
 }
 
-module.exports = { generarCifo, getEstadoCifo, loadExpedientePayload, computeSavingsKwh, computeRes080Results };
+module.exports = { generarCifo, getEstadoCifo, loadExpedientePayload, computeSavingsKwh, computeFmResult, computeRes080Results };

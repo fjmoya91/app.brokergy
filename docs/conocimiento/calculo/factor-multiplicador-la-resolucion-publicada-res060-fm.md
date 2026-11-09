@@ -92,7 +92,8 @@ el FM: el expediente (con el modelo del catálogo), la calculadora (su `comparat
 (lista de oportunidades). Los avisos lo dicen («Por la FM el SCOP de calefacción es el de clima CÁLIDO…»).
 Si el catálogo no trae el cálido, se queda en medio y AVISA de que la cifra puede salir alta: el 2.º de la
 prelación no se calcula solo. Tras tocarlo: `node implementation/backend/scripts/test_clima_fm.mjs`.
-⚠️ Pendiente: el CIFO de un FM sigue imprimiendo el SCOP del expediente (`cifoDoc.js` no tiene rama FM).
+Desde el 09/11/2026 el CIFO de un FM imprime este mismo SCOP y la cifra FM (ver "El CIFO de un FM sale
+como su ficha FM" en `expedientes/la-via-del-factor-multiplicador-en-el-expediente.md`).
 
 ## Documentación que pide la RES060_FM (apartado 3)
 
@@ -417,5 +418,12 @@ reforma puede pedir por la RES060_FM está **sin decidir**: no se promete nada a
   de envío sí lo dice.
 - Eléctrica: aviso «pendiente de consulta» (FAQ 3).
 - No se detecta la comunidad de propietarios (fechas de CC. PP.); la geotermia no se toma del equipo
-  (columna nueva del C_b); el consumidor vulnerable (×1,5) no se pregunta.
+  (columna nueva del C_b).
+- ~~El consumidor vulnerable (×1,5) no se pregunta~~ — **resuelto el 2026-11-09**: se pregunta al cliente
+  al ACEPTAR (pantalla «¿Tienes el bono social?», ver «Al ACEPTAR, el cliente confirma…» en
+  `oportunidades/`), el alta del expediente marca `via_fm.vulnerable` cuando no hay duda y el cálculo FM
+  del EXPEDIENTE (`calculateRes060FM({ vulnerable })` en el `useMemo` del detalle: pestaña Económico,
+  panel «Vía FM» y la cifra del Convenio FM) ya aplica el × 1,5 y la ficha -S. La calculadora, el listado
+  («Vía FM», `datos_calculo.via_fm`) y la estimación sin CEE de `cifrasViaFm` siguen SIN vulnerable: la
+  propuesta sale antes de aceptar, así que nunca promete el × 1,5.
 - La D_cal «del CEE posterior» es la de nuestro CEE final, que copia la del inicial (FAQ: vale).

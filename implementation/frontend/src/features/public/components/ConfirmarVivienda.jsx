@@ -1,7 +1,9 @@
 // ─── ConfirmarVivienda.jsx ───────────────────────────────────────────────────
 // El segundo tramo de la aceptación de la propuesta (/firma/:id): tres
-// preguntas de la vivienda, UNA POR PANTALLA, y un resumen con el botón de
-// aceptar. Qué se pregunta y por qué: logic/confirmacionCliente.js.
+// preguntas de la vivienda (cuatro con el BONO SOCIAL, que solo se le hace a una
+// persona física en una vivienda: `preguntaBono`), UNA POR PANTALLA, y un
+// resumen con el botón de aceptar. Qué se pregunta y por qué:
+// logic/confirmacionCliente.js.
 //
 // POR QUÉ PANTALLAS Y NO SCROLL: el 90 % de las aceptaciones se hacen con el
 // móvil. Una pregunta por pantalla cabe entera sin desplazarse, no se puede
@@ -23,18 +25,21 @@ import { useEffect, useRef, useState } from 'react';
 import { CampoDecimal } from '../../../components/CampoDecimal';
 import {
     EMISOR_OPCIONES, PLACAS_OPCIONES, AIRES_OPCIONES, MAX_AIRES,
-    etiquetaAires,
+    etiquetaAires, BONO, BONO_OPCIONES, BONO_TIPO_OPCIONES, PREGUNTA_BONO,
+    faltaBonoSocial, etiquetaBonoCliente,
 } from '../../expedientes/logic/confirmacionCliente';
 import { FV } from '../../expedientes/logic/fotovoltaica';
 import { textoCasillaCompromiso, TEXTO_CASILLA_INICIO } from '../logic/condicionesAceptacion';
 import {
     IconRadiador, IconSueloRadiante, IconMixto, IconNoSe,
     IconPlacas, IconPlacasFuturo, IconSinPlacas, IconAire, IconSinAire,
+    IconRayo, IconLlama, IconNinguno,
 } from '../../../components/IconosVivienda';
 
 const ICONO_EMISOR = { radiadores: IconRadiador, suelo: IconSueloRadiante, mixto: IconMixto, no_se: IconNoSe };
 const ICONO_PLACAS = { [FV.SI]: IconPlacas, [FV.FUTURO]: IconPlacasFuturo, [FV.NO]: IconSinPlacas };
 const ICONO_AIRE = { true: IconAire, false: IconSinAire };
+const ICONO_BONO = { [BONO.NO]: IconNinguno, [BONO.ELECTRICO]: IconRayo, [BONO.TERMICO]: IconLlama, [BONO.NO_SE]: IconNoSe };
 
 // Color de la baldosa del dibujo por tema: calor en naranja, sol en verde
 // (energía), aire y «no lo sé» en crema. Las clases son del CSS de la página
@@ -46,7 +51,7 @@ const TINTE = {
     neutro: 'fp-dib-neutro',
 };
 
-const PASOS = ['emisor', 'placas', 'aires', 'revisar'];
+const PASOS_BASE = ['emisor', 'placas', 'aires'];
 
 /** Las placas, dichas como las diría el cliente (no con la etiqueta del staff). */
 function placasParaElCliente(conf) {
@@ -115,9 +120,14 @@ function BotonContinuar({ onClick, disabled, children = 'Continuar' }) {
  * @param {function} onVerCondiciones
  * @param {boolean}  enviando
  * @param {string}   error
+ * @param {string|null} preguntaBono  null (no se pregunta) · 'anexo' · 'fm' (también la familia numerosa)
  */
 export function ConfirmarVivienda({ conf, setConf, onVolverDatos, onAceptar, onVerCondiciones, enviando, error,
-    reforzadas = null, compromiso = false, setCompromiso, inicioAnticipado = false, setInicioAnticipado }) {
+    reforzadas = null, compromiso = false, setCompromiso, inicioAnticipado = false, setInicioAnticipado,
+    preguntaBono = null }) {
+    // El bono social va al final de la vivienda y solo a quien se le pregunta.
+    const PASOS = [...PASOS_BASE, ...(preguntaBono ? ['bono'] : []), 'revisar'];
+    const nPreguntas = PASOS.length - 1;
     const [paso, setPaso] = useState(0);
     const [desdeResumen, setDesdeResumen] = useState(false);
     const arriba = useRef(null);
@@ -155,8 +165,9 @@ export function ConfirmarVivienda({ conf, setConf, onVolverDatos, onAceptar, onV
 
     const placasListas = conf.placas && (conf.placas !== FV.SI || conf.placas_kwp_nose || Number(conf.placas_kwp) > 0);
     const airesListos = conf.aire_acondicionado === false || (conf.aire_acondicionado === true && Number(conf.num_aires) > 0);
-    const listo = { emisor: !!conf.emisor, placas: !!placasListas, aires: airesListos };
-    const numPregunta = Math.min(paso + 1, 3);
+    const listo = { emisor: !!conf.emisor, placas: !!placasListas, aires: airesListos,
+                    bono: !!preguntaBono && faltaBonoSocial(conf, preguntaBono).length === 0 };
+    const numPregunta = Math.min(paso + 1, nPreguntas);
 
     return (
         <div ref={arriba} style={{ scrollMarginTop: 16 }}>
@@ -167,7 +178,7 @@ export function ConfirmarVivienda({ conf, setConf, onVolverDatos, onAceptar, onV
                     Atrás
                 </button>
                 <p className="fp-paso-n">
-                    {idPaso === 'revisar' ? 'Último paso' : `Tu vivienda · ${numPregunta} de 3`}
+                    {idPaso === 'revisar' ? 'Último paso' : `Tu vivienda · ${numPregunta} de ${nPreguntas}`}
                 </p>
             </div>
             <div className="fp-pasos" aria-hidden="true">
@@ -263,6 +274,52 @@ export function ConfirmarVivienda({ conf, setConf, onVolverDatos, onAceptar, onV
                 </Pregunta>
             )}
 
+            {idPaso === 'bono' && (
+                <Pregunta
+                    titulo="¿Tienes el bono social?"
+                    ayuda="Lo pide la declaración de ayudas que firmarás con el resto de documentos. Si lo tienes, aparece en la factura de la luz de esta vivienda: más adelante te pediremos una.">
+                    {BONO_OPCIONES.map(o => (
+                        <Opcion key={o.value} icono={ICONO_BONO[o.value]}
+                            tinte={o.value === BONO.ELECTRICO ? TINTE.sol : o.value === BONO.TERMICO ? TINTE.calor : TINTE.neutro}
+                            label={o.label} sub={o.sub} sel={conf.bono === o.value}
+                            onClick={() => {
+                                if (o.value === BONO.ELECTRICO) { setConf(c => ({ ...c, bono: o.value })); return; }
+                                setConf(c => ({ ...c, bono: o.value, bono_tipo: '', bono_fn: null }));
+                                avanzarEnUnMomento();
+                            }} />
+                    ))}
+                    {conf.bono === BONO.ELECTRICO && (
+                        <div className="fp-subcaja">
+                            <p className="fp-k" style={{ marginBottom: 4 }}>¿De qué tipo es?</p>
+                            <p className="fp-ayuda" style={{ marginTop: 0 }}>Lo pone en tu factura de la luz.</p>
+                            <div className="fp-elige-par" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                                {BONO_TIPO_OPCIONES.map(t => (
+                                    <button key={t.value} type="button" aria-pressed={conf.bono_tipo === t.value}
+                                        onClick={() => setConf(c => ({ ...c, bono_tipo: t.value }))}
+                                        className={`fp-elige${conf.bono_tipo === t.value ? ' fp-elige-sel' : ''}`}>
+                                        {t.label}
+                                    </button>
+                                ))}
+                            </div>
+                            {preguntaBono === PREGUNTA_BONO.FM && (
+                                <>
+                                    <p className="fp-k" style={{ marginTop: 18, marginBottom: 4 }}>¿Tienes el título de familia numerosa?</p>
+                                    <div className="fp-elige-par" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                                        {[{ v: true, l: 'Sí' }, { v: false, l: 'No' }].map(x => (
+                                            <button key={String(x.v)} type="button" aria-pressed={conf.bono_fn === x.v}
+                                                onClick={() => setConf(c => ({ ...c, bono_fn: x.v }))}
+                                                className={`fp-elige${conf.bono_fn === x.v ? ' fp-elige-sel' : ''}`}>
+                                                {x.l}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </Pregunta>
+            )}
+
             {idPaso !== 'revisar' && (
                 <div style={{ marginTop: 20 }}>
                     <BotonContinuar onClick={siguiente} disabled={!listo[idPaso]}>
@@ -281,6 +338,7 @@ export function ConfirmarVivienda({ conf, setConf, onVolverDatos, onAceptar, onV
                             { id: 'emisor', tema: 'Calefacción', valor: EMISOR_OPCIONES.find(o => o.value === conf.emisor)?.resumen || '—', Icono: ICONO_EMISOR[conf.emisor] || IconNoSe },
                             { id: 'placas', tema: 'Placas fotovoltaicas', valor: placasParaElCliente(conf), Icono: ICONO_PLACAS[conf.placas] || IconPlacas },
                             { id: 'aires', tema: 'Aire acondicionado', valor: etiquetaAires(conf) || '—', Icono: ICONO_AIRE[String(conf.aire_acondicionado)] || IconAire },
+                            ...(preguntaBono ? [{ id: 'bono', tema: 'Bono social', valor: etiquetaBonoCliente(conf), Icono: ICONO_BONO[conf.bono] || IconNoSe }] : []),
                         ].map(r => (
                             <li key={r.id}>
                                 <span className="fp-opc-dib fp-dib-neutro">

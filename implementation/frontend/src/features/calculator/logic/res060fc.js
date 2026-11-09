@@ -470,6 +470,10 @@ export function calculateRes060FM({
         ficha: vulnerable ? `${fichaBase}-S` : fichaBase,
         hibridacion: esHib,
         cb,
+        // La cobertura (tanto por uno, 2 decimales, ≤ 1) y el denominador con los que
+        // ha salido ESTE C_b: el CIFO FM los imprime en su página del C_b.
+        cobertura: esHib ? (Number.isFinite(Number(hibridacion.coverage)) ? Number(hibridacion.coverage) : null) : null,
+        refPower: esHib ? (Number(hibridacion.refPower) || 0) : null,
         zonaCb: tablaCb?.zonas || null,
         fuenteBomba: esGeoOHidro(fuenteBomba) ? 'geotermia/hidrotérmica' : 'aerotermia',
         cae,                 // CAE = kWh/año de ahorro computable

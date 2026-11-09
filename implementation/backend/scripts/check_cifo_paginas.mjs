@@ -25,6 +25,8 @@ import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import { deriveCifoData, buildCifoHtml } from '../../frontend/src/features/expedientes/logic/cifoDoc.js';
 import { ACLARACION_MAX } from '../../frontend/src/features/expedientes/logic/hitosActuacion.js';
+import { calcularFmExpediente } from '../../frontend/src/features/expedientes/logic/fmExpediente.js';
+import { esNumeroFm } from '../../frontend/src/features/expedientes/logic/viaFm.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '../../frontend/public');
@@ -181,6 +183,49 @@ const anexoVi = (e) => {
     return e;
 };
 
+/**
+ * Un expediente de la vía FM que el CIFO DEJA generar (sin bloqueos): factura
+ * posterior al 22/03/2026, ACS con la bomba, caldera con su fila del Anexo II,
+ * provincia y año (para el tope de unifamiliar) y la inercia de la RES060_FM.
+ */
+function fmCaso(e, numero, { vulnerable = false } = {}) {
+    e.numero_expediente = numero;
+    e.oportunidades = { datos_calculo: { zona: 'D3', inputs: { caePriceClient: 95, provincia: '13', anio: 1975, tipo: 'unifamiliar' } } };
+    e.instalacion.inercia_litros = 180;
+    e.instalacion.misma_aerotermia_acs = false;
+    e.instalacion.aerotermia_acs = { ...e.instalacion.aerotermia_acs, aerotermia_db_id: 445, metodo_scop: 'ficha' };
+    e.documentacion = { ...e.documentacion, via_fm: { vulnerable } };
+    return e;
+}
+
+/** Los textos más largos de la hoja 1 (cliente e instalador). */
+function textosLargos(e) {
+    e.clientes = { ...e.clientes,
+        nombre_razon_social: 'COMUNIDAD DE PROPIETARIOS EDIFICIO RESIDENCIAL LOS OLIVOS DE LA VEGA',
+        apellidos: '', direccion: 'AVENIDA DE LA CONSTITUCIÓN ESPAÑOLA DE 1978, 142, PORTAL 3, 4º B',
+        email: 'administracion.fincas.losolivosdelavega@correoelectronicomuylargo.es' };
+    e.prescriptores = {
+        razon_social: 'INSTALACIONES Y MANTENIMIENTOS ELECTROMECÁNICOS DEL CAMPO DE CALATRAVA S.L.U.',
+        cif: 'B13123123', direccion: 'POLÍGONO INDUSTRIAL LA VEGA, CALLE DE LOS ARTESANOS PARCELA 27, NAVE 4',
+        codigo_postal: '13700', municipio: 'Villanueva de los Infantes del Campo', provincia: 'Ciudad Real',
+        nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE',
+        nif_responsable: '12345678X' };
+    return e;
+}
+
+/** RES093_FM: hibridación en paralelo con N bombas, por demanda o por caldera. */
+function hibFm(n, metodo, opts = {}) {
+    const e = fmCaso(cascada(n), '26RES093FM_1', opts);
+    e.instalacion.hibridacion = true;
+    e.instalacion.hibridacion_metodo = metodo;
+    e.instalacion.potencia_bomba = 12 * n;
+    if (metodo === 'caldera') e.instalacion.potencia_caldera = 24 * n;
+    // Una vivienda (no 815 m²): con la demanda del fixture la cobertura sale en mitad de la tabla.
+    e.cee.cee_inicial = { demandaCalefaccion: 140, superficieHabitable: 180, demandaACS: 5.89 };
+    e.cee.cee_final = { demandaCalefaccion: 140, superficieHabitable: 180, demandaACS: 5.89 };
+    return e;
+}
+
 const casos = [
     ['RES060 · 1 equipo (caso normal)', cascada(1)],
     ['RES060 · 2 en cascada', cascada(2)],
@@ -205,15 +250,39 @@ const casos = [
     // Vía FM (RES060_FM): hoja propia con el certificado de inercia (doc. 3.c).
     // El peor caso es la cascada de 5 (rótulo de la potencia más largo) con el
     // mínimo del fabricante, que añade una fila.
-    ['RES060_FM · inercia · 1 equipo', (() => {
-        const e = cascada(1); e.numero_expediente = '26RES060FM_1';
-        e.instalacion.inercia_litros = 180; return e;
-    })()],
+    ['RES060_FM · inercia · 1 equipo', fmCaso(cascada(1), '26RES060FM_1')],
     ['RES060_FM · inercia · 5 en cascada · mínimo del fabricante · 2 empresas', (() => {
-        const e = cascada(5); e.numero_expediente = '26RES060FM_1';
+        const e = fmCaso(cascada(5), '26RES060FM_1');
         e.instalacion.inercia_litros = 1250; e.instalacion.inercia_min_fabricante_litros = 600;
         return conDelegacion(e, { largos: true });
     })()],
+    // ── Vía FM: el CIFO como SU ficha (RES060_FM / RES093_FM, -S) ─────────────
+    // La cifra la da `fmExpediente.js` (la de la pestaña Económico). Lo que cambia
+    // de hoja: el título largo de la ficha FM en la hoja 1 (el de la RES093_FM-S es
+    // el más largo del catálogo), la fórmula con su sustitución en la hoja de las
+    // variables, el Anexo I con el tope del Anexo IV y el f_M, y la página del C_b.
+    ['RES060_FM · unifamiliar · 1 equipo', fmCaso(cascada(1), '26RES060FM_1')],
+    ['RES060_FM · zona D · CEE final G · 5 en cascada', (() => {
+        const e = fmCaso(cascada(5), '26RES060FM_1');
+        e.cee.cee_final = { ...e.cee.cee_final, emisionesLetra: 'G', epnrLetra: 'G' };
+        return e;
+    })()],
+    ['RES060_FM · piso · Anexo I + placa · 5 cascada · 2 empresas', (() => {
+        const e = conDelegacion(anexoVi(fmCaso(cascada(5), '26RES060FM_1')), { largos: true });
+        e.oportunidades.datos_calculo.inputs.tipo = 'piso';
+        return e;
+    })(), { placaAcs: placa(1080, 1920) }],
+    ['RES060_FM-S · textos largos · 2 empresas', conDelegacion(textosLargos(fmCaso(cascada(1), '26RES060FM_1', { vulnerable: true })), { largos: true })],
+    ['RES093_FM · hibridación por demanda · 1 equipo', hibFm(1, 'demanda')],
+    ['RES093_FM · hibridación por demanda · 5 en cascada', hibFm(5, 'demanda')],
+    ['RES093_FM · hibridación por caldera · 5 en cascada', hibFm(5, 'caldera')],
+    ['RES093_FM · SCOP por EPREL + ACS en conjunto · 5 cascada', (() => {
+        const e = hibFm(5, 'demanda');
+        e.instalacion.aerotermia_cal.metodo_scop = 'eprel';
+        e.instalacion.aerotermia_acs = { ...e.instalacion.aerotermia_acs, metodo_scop: 'conjunto', scop: 3.48 };
+        return e;
+    })()],
+    ['RES093_FM-S · textos largos · 5 cascada · 2 empresas (peor hoja 1)', conDelegacion(textosLargos(hibFm(5, 'demanda', { vulnerable: true })), { largos: true })],
     ['RES093 · 1 equipo', (() => { const e = base('26RES093_9'); return e; })()],
     ['RES093 · 3 en cascada', (() => {
         const e = base('26RES093_9'); e.instalacion.aerotermia_cal = aero(3); return e;
@@ -399,7 +468,15 @@ page.on('request', (req) => {
 let malos = 0;
 
 for (const [nombre, exp, opts = {}] of casos) {
-    const data = deriveCifoData({ expediente: exp, results });
+    // Vía FM: la cifra FM, la misma que la pestaña Económico (fmExpediente.js). Un
+    // caso FM que no se podría generar (bloqueos) no mide nada: se dice y falla.
+    const fmRes = esNumeroFm(exp.numero_expediente) ? calcularFmExpediente({ expediente: exp, hoy: '2026-11-09' }) : null;
+    const data = deriveCifoData({ expediente: exp, results: fmRes ? { ...results, res060fc: fmRes } : results });
+    if (data.fm?.bloqueos?.length) {
+        console.log(`❌ ${nombre}: el caso FM no se podría generar —\n     ${data.fm.bloqueos.join('\n     ')}`);
+        malos++;
+        continue;
+    }
     await page.setContent(buildCifoHtml({ data, appUrl: APP_URL, placaAcs: opts.placaAcs || null }), { waitUntil: 'load' });
     await page.evaluate(async () => {
         for (const w of [400, 500, 600, 700]) await document.fonts.load(`${w} 12.5px 'Instrument Sans'`);

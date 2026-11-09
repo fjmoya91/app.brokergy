@@ -9,7 +9,7 @@
 // Detalle: docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md
 // ============================================================================
 
-/** 26RES060FM_12 / 26RES093FM_3: serie propia de la vía FM (Fran, 07/11/2026). */
+/** 26RES060FM_12 / 26RES093FM_3: «FM» pegado a la ficha; mismo contador que la vigente (Fran, 09/11/2026). */
 export const esNumeroFm = (numero) => /^\d{2}(RES060|RES080|RES093)FM_\d+$/i.test(String(numero || '').trim());
 
 const FICHA_HIBRIDACION_FM = {

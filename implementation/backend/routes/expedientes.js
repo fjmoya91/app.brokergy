@@ -8184,7 +8184,7 @@ router.patch('/:id/regenerar-numero', adminOnly, async (req, res) => {
 });
 
 // ─── VÍA DEL FACTOR MULTIPLICADOR (BOE-A-2026-23367) ──────────────────────────
-// Un expediente por la vía FM lleva su propio número (26RES060FM_N, serie propia)
+// Un expediente por la vía FM lleva «FM» en su número (26RES060FM_N, mismo contador que su ficha)
 // y pide los 13 documentos de su ficha. Lógica: utils/viaFm.js; numeración:
 // expedienteService.cambiarViaFm. Ver
 // docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md
@@ -8330,7 +8330,7 @@ router.get('/:id/via-fm', staffOnly, async (req, res) => {
     }
 });
 
-// POST /api/expedientes/:id/via-fm — { activar: bool }. RENUMERA (serie propia).
+// POST /api/expedientes/:id/via-fm — { activar: bool }. Pone o quita el «FM»: conserva el número.
 router.post('/:id/via-fm', staffOnly, async (req, res) => {
     try {
         if (typeof req.body?.activar !== 'boolean') return res.status(400).json({ error: 'Falta `activar` (true/false)' });

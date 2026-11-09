@@ -24,6 +24,7 @@ import {
 } from '../logic/propietariosAceptacion';
 import {
     CONFIRMACION_VACIA, CONFIRMACION_VERSION, faltanConfirmacion, resumenConfirmacion,
+    PREGUNTA_BONO, esNifDeEmpresa,
 } from '../../expedientes/logic/confirmacionCliente';
 
 // En relativo: en local lo atiende el proxy de Vite, y así la página funciona
@@ -535,6 +536,10 @@ export function AceptarPropuestaView({ idOportunidad }) {
     // «Perfil exigente»: lo sellado en la versión vigente (GET /public/cliente) y
     // las dos casillas de la última pantalla.
     const [reforzadas, setReforzadas] = useState(null);
+    // ¿Se le pregunta por el BONO SOCIAL? Lo decide el servidor por la ficha
+    // (null en el terciario; 'fm' en RES060/RES093, que tienen la -S; 'anexo' en
+    // RES080) y aquí se quita si el NIF es de una empresa (logic/confirmacionCliente.js).
+    const [bonoPregunta, setBonoPregunta] = useState(null);
     const [compromiso, setCompromiso] = useState(false);
     const [inicioAnticipado, setInicioAnticipado] = useState(false);
     const formRef = useRef(null);
@@ -598,6 +603,8 @@ export function AceptarPropuestaView({ idOportunidad }) {
             if (new URLSearchParams(window.location.search).has('varios')) setPermiteVarios(true);
             // /firma/demo?reforzadas — la aceptación con el «Perfil exigente» (cifra de ejemplo).
             if (new URLSearchParams(window.location.search).has('reforzadas')) setReforzadas({ pct: 40, penalizacion: 1069, tarifa: 702.78 });
+            // /firma/demo enseña la pregunta del bono social completa (RES060); ?reforma, la de un RES080.
+            setBonoPregunta(new URLSearchParams(window.location.search).has('reforma') ? PREGUNTA_BONO.ANEXO : PREGUNTA_BONO.FM);
             setDisplayId('DEMO');
             setLoading(false);
             return;
@@ -612,8 +619,9 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 // 26/10/2026) — el inicial lo hace siempre BROKERGY.
                 const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, cee_aportado, cee_decision,
                         propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, copropietarios: copsServidor, permite_varios_propietarios,
-                        condiciones_reforzadas, ...rest } = res.data;
+                        condiciones_reforzadas, bono_social_pregunta, ...rest } = res.data;
                 setReforzadas(condiciones_reforzadas || null);
+                setBonoPregunta(Object.values(PREGUNTA_BONO).includes(bono_social_pregunta) ? bono_social_pregunta : null);
 
                 setFormData(prev => ({ ...prev, ...rest }));
                 // Si la ficha ya tiene otros propietarios, la pregunta viene contestada.
@@ -659,10 +667,13 @@ export function AceptarPropuestaView({ idOportunidad }) {
         setFase('vivienda');
     };
 
+    // Una empresa no tiene bono social: con un CIF no se pregunta.
+    const preguntaBono = bonoPregunta && !esNifDeEmpresa(formData.dni_cif) ? bonoPregunta : null;
+
     const enviarAceptacion = async () => {
         // Las preguntas de la vivienda no se pueden saltar en las pantallas;
         // esto es la red por si algo llega a medias.
-        const faltan = faltanConfirmacion(conf);
+        const faltan = faltanConfirmacion(conf, { bono: preguntaBono });
         if (faltan.length) {
             setError(`Falta por contestar: ${faltan.join(', ')}.`);
             return;
@@ -699,7 +710,9 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 fd.append('inicio_anticipado', inicioAnticipado ? 'si' : 'no');
             }
             // Lo que confirma de su vivienda. Va como JSON: es un multipart.
-            fd.append('confirmacion', JSON.stringify({ ...conf, version: CONFIRMACION_VERSION }));
+            // Sin la pregunta del bono (empresa, terciario), su respuesta no viaja.
+            const { bono, bono_tipo, bono_fn, ...sinBono } = conf;
+            fd.append('confirmacion', JSON.stringify({ ...(preguntaBono ? conf : sinBono), version: CONFIRMACION_VERSION }));
             const res = await axios.post(`${API_URL}/aceptar/${idOportunidad}`, fd, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
@@ -1008,12 +1021,13 @@ export function AceptarPropuestaView({ idOportunidad }) {
                     setCompromiso={setCompromiso}
                     inicioAnticipado={inicioAnticipado}
                     setInicioAnticipado={setInicioAnticipado}
+                    preguntaBono={preguntaBono}
                 />
             ) : (<>
                 <p className="fp-hola fp-in">{nombre ? <>Hola, <b>{nombre}</b></> : 'Hola'}</p>
                 <h1 className="fp-display fp-h1 fp-in">Acepta tu <span className="fp-mark">propuesta</span></h1>
                 <p className="fp-sub fp-in fp-in-2">
-                    Tus datos ya vienen rellenos: <b>solo comprueba que están bien</b>. Después, tres preguntas rápidas sobre tu vivienda y listo.
+                    Tus datos ya vienen rellenos: <b>solo comprueba que están bien</b>. Después, {preguntaBono ? 'cuatro' : 'tres'} preguntas rápidas sobre tu vivienda y listo.
                 </p>
 
                 {/* Qué documento se está aceptando. Solo a partir de la
@@ -1165,7 +1179,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
                         <button type="submit" className="fp-btn fp-btn-pri">
                             Continuar <IcoFlecha size={20} sw={2.4} />
                         </button>
-                        <p className="fp-nota">Después te hacemos 3 preguntas rápidas sobre tu vivienda y aceptas la propuesta.</p>
+                        <p className="fp-nota">Después te hacemos {preguntaBono ? 4 : 3} preguntas rápidas sobre tu vivienda y aceptas la propuesta.</p>
                     </div>
                 </form>
             </>)}

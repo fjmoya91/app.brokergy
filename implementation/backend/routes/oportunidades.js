@@ -1762,7 +1762,7 @@ router.post('/:id/superficie-confirmada', staffOnly, async (req, res) => {
 //   · Para ACTIVARLA, la simulación GUARDADA tiene que ser elegible: se recalcula
 //     aquí con el motor publicado (lo que el navegador diga no basta).
 //   · Con expediente, la vía la dice su NÚMERO y se cambia en su pestaña «Vía FM»
-//     (renumera, `cambiarViaFm`): aquí se dice y no se toca.
+//     (pone o quita el «FM», `cambiarViaFm`): aquí se dice y no se toca.
 //   · Apagarla se puede siempre (antes del expediente).
 router.post('/:id/ruta-fm', staffOnly, async (req, res) => {
     try {

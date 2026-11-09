@@ -18,8 +18,8 @@ propuesta que se le envía».
 
 | Pregunta | Decisión |
 |---|---|
-| Número | **Serie propia**: `26RES060FM_N` y, en hibridación, `26RES093FM_N` (para las cinco zonas). |
-| Cambiar de vía | **Renumera**: `26RES060_250` → `26RES060FM_{siguiente}`, y al volver, al revés. |
+| Número | `26RES060FM_N` y, en hibridación, `26RES093FM_N` (para las cinco zonas). ~~Serie propia~~: desde el **09/11/2026**, el **contador de su ficha** (ver abajo). |
+| Cambiar de vía | ~~Renumera al siguiente de la otra serie~~. Desde el **09/11/2026**, **conserva el número**: `26RES060_250` ⇄ `26RES060FM_250`. |
 | CEE inicial | La ficha FM no lo pide, pero **se hace igual, como plan B** (por si hay que volver a la vigente). |
 | Anexo I ya firmados | **Se quedan como están**. El Anexo A solo para los documentos nuevos desde el 8/11/2026. |
 | Cláusula del IRPF | **Solo en los FM**: en el Convenio y en la propuesta. |
@@ -32,10 +32,21 @@ y su espejo [logic/viaFm.js](implementation/frontend/src/features/expedientes/lo
 RES093 para todo lo demás: cálculo, documentos, carpetas, listado. Solo RES060 y RES093 (`FICHAS_CON_FM`):
 la Resolución no trae fichas FM para el terciario. La RES080_FM (rehabilitación profunda, cuatro CEE) entra el 09/11/2026 con su serie **`26RES080FM_N`** (`FICHAS_CON_FM` = RES060, RES080, RES093; `fichaFromNumero` sigue dando RES080).
 
-**REGLA — la serie es PROPIA, y el correlativo se busca DENTRO de ella.** `serieNumeracion('RES060', true)`
-→ `RES060FM`; `correlativoEnSerie(numero, '26RES060')` devuelve null para un `26RES060FM_12`. Antes
-el siguiente número salía de un `LIKE '26RES060_%'`, y en SQL `_` es un comodín: los FM habrían
-contado en la serie vigente.
+**REGLA — las dos vías COMPARTEN el contador de la ficha, y cambiar de vía CONSERVA el número**
+(Fran, 09/11/2026: «que sea a continuación de la numeración que lleve el 060, porque ya lleva el FM»).
+Sustituye a la serie propia del 07/11, con la que el primero salió `26RES060FM_1` (era el `26RES060_227`).
+- Una obra que NACE por la FM coge el siguiente de su ficha: con el 060 en el 277, `26RES060FM_278`.
+  `siguienteNumeroDeSerie('RES060FM')` cuenta los `26RES060_N` y los `26RES060FM_N`
+  (`correlativoEnContador`) y escribe el número con su «FM» (`serieNumeracion`); el correlativo inicial
+  es el de la ficha (`serieBase`: la RES080FM arranca donde la RES080, en 36).
+- Al CAMBIAR de vía, `cambiarViaFm` pone o quita el «FM» y conserva año y correlativo
+  (`numeroEnOtraVia`): `26RES060_227` → `26RES060FM_227`. Antes de escribir mira que nadie tenga ese
+  número (409 si lo tiene; la columna es UNIQUE). Un número con otra forma (manual) coge el siguiente.
+- El `LIKE '26RES060%'` casa más cosas (`_` es un comodín, y hay `RES060FC`): por eso se filtra con
+  una regex exacta antes de tomar el máximo. `correlativoEnSerie` (la serie escrita exacta) sigue
+  exportado, pero la numeración ya no lo usa.
+
+Tras tocarlo: `node implementation/backend/scripts/test_via_fm.mjs`.
 
 Los LECTORES del número se pusieron al día para que un FM no deje de reconocerse: el nombre del chat
 de WhatsApp (`nombreContactoCliente.js`, `agendaWhatsapp.js` → `RES060FM_12`), la facturación del
@@ -116,6 +127,21 @@ enums estrictos). Está en la BLACKLIST de `normalizeData` (sus enums van en min
 los documentos que genera la app, `mantenimiento` (`acepta` | `desiste` | null), `mantenimiento_importe`
 (texto libre, ≤ 60), `anexo_b_casilla` (`renta` | `severo` | `no_fn` | null) y `vulnerable_persona`
 (`{ nombre, nif, domicilio, telefono, email }`, solo si el vulnerable no es el titular).
+
+**La única excepción: el ALTA siembra el vulnerable** (2026-11-09). Al aceptar, el cliente dice si tiene
+el bono social (ver «Al ACEPTAR, el cliente confirma…» en `oportunidades/`). `createExpediente` lo lleva
+en el MISMO insert del expediente nuevo (`semillaBonoSocial`): `via_fm = { vulnerable: true,
+anexo_b_casilla: 'no_fn' | 'severo', at, por: 'aceptación del cliente' }`, pasado por `sanearDatosFm`,
+solo en una RES060/RES093 y solo cuando la declaración no deja duda (bono eléctrico sin familia numerosa,
+o severo / en riesgo de exclusión con ella). No es una escritura sobre un `via_fm` existente: si el
+expediente ya existía, no se siembra nada. Todo lo de después sigue yendo por el PUT.
+
+En el panel, debajo de «Consumidor vulnerable (ficha -S)», va **«Declarado al aceptar · fecha»** con lo
+que dijo el cliente (`bonoDeclaradoDe`, `etiquetaBonoSocial`) y su aviso: en ámbar si falta comprobar
+(la renta con familia numerosa, o «No lo sé»), y el botón **«Marcar como vulnerable»** si la declaración
+lo hace vulnerable y el conmutador está apagado (pasa por el PUT con la casilla del Anexo B). Tras cada
+guardado, el panel avisa al detalle (`onDatos` → `viaFmVivo`) y el cálculo FM del expediente recalcula
+con el vulnerable sin esperar a releer: la copia hidratada no se entera de lo que escribe el PUT.
 
 ### Qué documentos pide, por caso
 
@@ -273,6 +299,67 @@ Fuente única: [logic/inerciaFm.js](implementation/frontend/src/features/expedie
 campos) y `DocumentacionModule.jsx` (lo que falta antes de generar). Medido con
 `check_cifo_paginas.mjs`: con 1 equipo y con 5 en cascada, con el mínimo y con dos empresas, sobran más
 de 600 px.
+
+### El CIFO de un FM sale como su ficha FM (09/11/2026, Fran)
+
+Fran: «prepara ya el CIFO para que salga como está [la ficha FM]». Hasta hoy un `26RES060FM_N` /
+`26RES093FM_N` imprimía el CIFO de la ficha vigente: el código RES060/RES093, sus anexos, el SCOP del
+expediente (en medio, si se declaró así) y el ahorro de la vigente. El certificado con las variables es
+el documento 3 de la ficha FM, así que tiene que decir lo mismo que ella.
+
+**REGLA — en un FM el CIFO imprime la ficha FM entera y la cifra FM, nunca la vigente.** Por bloque:
+- **Portada y hoja 1.** El código (`RES060_FM`, `RES093_FM`…, con `-S` si `via_fm.vulnerable`), el
+  título de la ficha y la actuación «… con factor multiplicador».
+- **Hoja 2.** η_i del Anexo II y el SCOP del clima que admite la ficha (`entradasFmClima`: el cálido en
+  A–D si el catálogo lo trae).
+- **Hoja 3 (variables).** D_CAL, S, D_ACS, η_i, SCOP_bdc, SCOP_dhw, [C_b], f_M y AE_TOTAL, sin F_P ni
+  D_i. Debajo, la fórmula de la ficha, la sustitución con los números y el «donde» con el anexo de cada
+  variable (I SCOP · II η · III D_ACS · IV D_cal · V C_b).
+- **Inercia** (solo RES060_FM), como el 07/11, con el código FM.
+- **Anexo I del CIFO** en cinco puntos: D_CAL (con el tope del Anexo IV en unifamiliar, mín(CEE ;
+  2×tabla), y dicho), S, D_ACS = d_ACS·S, η del Anexo II y f_M (tipología y, si es -S, el ×1,5). Va
+  siempre en hoja aparte de la de los SCOP: juntas no cabían (−98/−117 px).
+- **Los SCOP**, por la prelación del Anexo I de la ficha FM. En la RES060_FM: 1.º el del fabricante,
+  2.º CC·η, 3.º COP_nominal×FP×FC. En las RES09x_FM el orden del COP y de las η se cambia (2.º
+  COP×FC×FP, 3.º las η). El ACS por Anexo VI se declara como `SCOP_dhw = COP_nominal × FP × FC`, con FP
+  = el F_c de la zona y FC = 1,00 (el COP ya es a 55 °C).
+- **El C_b** (RES09x_FM) por el Anexo V de la ficha, con la cobertura del motor FM («100 % o superior»
+  → 1) y el clima en que se declaró el SCOP. La referencia es la Resolución de 3/11/2026 (BOE-A-2026-23367).
+
+**REGLA — la cifra es UNA: `res060fc.cae`, la de `calculateRes060FM`** (la misma del Económico y del
+Convenio FM). En el navegador llega en `results.res060fc`. En el backend (generación automática, MCP) la
+calcula [logic/fmExpediente.js](../../../implementation/frontend/src/features/expedientes/logic/fmExpediente.js)
+(`calcularFmExpediente`), copia literal de la rama FM de `calcResults` de `ExpedienteDetailView`:
+**si se cambia una, se cambia la otra** (lo ideal, que la vista llame a la función). `cifoService` la
+pasa en `computeFmResult`; solo lee el modelo del catálogo cuando hace falta el SCOP cálido.
+
+**REGLA — sin la cifra FM no se genera, y se imprime 0, nunca la vigente.** Bloquean (`fm.bloqueos`, que
+enseñan el modal en rojo, «Generar» en Documentación y `buildValidation` en el backend):
+- sin cálculo FM, o un aviso del motor que bloquea;
+- la ficha o el -S del número no casan con los de la cifra (un -S con f_M sin ×1,5 se contradiría);
+- la D_cal de la simulación (la ficha pide la del CEE posterior);
+- el ACS no va con la bomba, o se supone (la cifra FM lo da por hecho y el CIFO no puede certificarlo);
+- zona sin clima cálido admitido, η por defecto, ahorro ≤ 0;
+- `via_fm.tipologia` distinta de la de la cifra.
+
+Son **avisos** (ámbar): la D_cal del CEE INICIAL (cárgate el final si ya está) y el SCOP medio en zona
+cálida sin el cálido en el catálogo.
+
+**Un número vigente sale EXACTAMENTE igual**: comparado el HTML de 30 casos antes y después, idéntico.
+Los `26RES080FM_N` no pasan por este CIFO: van por el Certificado RES080 (`res080Doc`).
+
+Medido con `check_cifo_paginas.mjs` (9 casos FM nuevos: RES060_FM unifamiliar, zona D con G y 5 en
+cascada, piso con Anexo I y placa, RES060_FM-S y RES093_FM-S con textos largos y dos empresas,
+RES093_FM por demanda con 1 y 5, por caldera y por EPREL con ACS en conjunto). Nada bajo el pie; la hoja
+más justa, la 1 de RES093_FM-S con textos largos y dos empresas: sobran 13 px. Con datos reales (solo
+lectura): 26RES060FM_1 imprime 66.818 kWh (la vigente, 43.268), igual que `backfill_via_fm.mjs`.
+
+Dudas abiertas para Fran:
+- FC = 1,00 en el SCOP_dhw por COP (el FP es el F_c del Anexo VI).
+- Los títulos de [calculator/logic/viaFm.js](../../../implementation/frontend/src/features/calculator/logic/viaFm.js)
+  no son literales del BOE en varias fichas (RES093_FM, RES093_FM-S, RES092_FM, RES090_FM-S), y
+  `test_via_fm.mjs` exige el texto actual. No se ha tocado.
+- La página del C_b calcula Q_H con la D_cal del CEE, sin el tope del Anexo IV.
 
 ### La vivienda habitual (punto 4)
 

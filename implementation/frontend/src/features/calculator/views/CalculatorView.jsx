@@ -1557,7 +1557,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                         {/* La vía elegida con el conmutador de la calculadora (inputs.ruta_fm, regla 200). */}
                                         {inputs.ruta_fm === true && !inputs.isReforma && (
                                             <p className="mt-2 text-[10px] text-violet-300 leading-relaxed text-center">
-                                                Vía del <b>factor multiplicador</b>: el expediente sale de su serie propia. Para la vigente, apágala antes en «Vía de tramitación».
+                                                Vía del <b>factor multiplicador</b>: el expediente lleva «FM» en su número (el contador es el mismo de la ficha). Para la vigente, apágala antes en «Vía de tramitación».
                                             </p>
                                         )}
                                     </div>

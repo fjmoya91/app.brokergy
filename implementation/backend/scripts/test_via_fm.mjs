@@ -27,7 +27,7 @@ const ok = (c, m) => { console.log(`${c ? '  ✓' : '  ✗'} ${m}`); if (!c) fal
 const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const claves = (docs) => docs.map((d) => d.key);
 
-console.log('\n— Numeración: serie propia —');
+console.log('\n— Numeración: el contador de la ficha, con o sin «FM» (09/11/2026) —');
 ok(fichas.esNumeroFm('26RES060FM_12') && fichas.esNumeroFm('26RES093FM_3'), 'esNumeroFm reconoce RES060FM y RES093FM');
 ok(!fichas.esNumeroFm('26RES060_12') && !fichas.esNumeroFm('26RES080_1') && !fichas.esNumeroFm('26TER100FM_1'), 'ni la vigente ni el terciario');
 ok(fichas.esNumeroFm('26RES080FM_1') && fichas.fichaFromNumero('26RES080FM_1') === 'RES080', 'RES080_FM (09/11/2026): 26RES080FM_N, y su ficha sigue siendo RES080');
@@ -47,6 +47,20 @@ ok(fichas.serieNumeracion('TER100', true) === 'TER100', 'el terciario no tiene s
 ok(fichas.correlativoEnSerie('26RES060_12', '26RES060') === 12, 'correlativoEnSerie: 26RES060_12 → 12');
 ok(fichas.correlativoEnSerie('26RES060FM_12', '26RES060') === null, 'un FM NO cuenta en la serie vigente (el LIKE con «_» lo casaba)');
 ok(fichas.correlativoEnSerie('26RES060FM_7', '26RES060FM') === 7, 'y sí en la suya');
+ok(fichas.serieBase('RES060FM') === 'RES060' && fichas.serieBase('RES093FM') === 'RES093' && fichas.serieBase('TER100') === 'TER100', 'serieBase: el contador de la serie FM es el de su ficha');
+ok(fichas.correlativoEnContador('26RES060FM_12', '26RES060') === 12 && fichas.correlativoEnContador('26RES060_12', '26RES060FM') === 12,
+    'el contador junta las dos vías: 26RES060_N y 26RES060FM_N cuentan en el mismo');
+ok(fichas.correlativoEnContador('26RES060FC_3', '26RES060') === null && fichas.correlativoEnContador('26RES093_4', '26RES060') === null,
+    'y nada más (ni otra ficha ni otro sufijo que case el LIKE)');
+{
+    const a = fichas.numeroEnOtraVia('26RES060_227', true);
+    const b = fichas.numeroEnOtraVia('26RES060FM_227', false);
+    ok(a?.numero === '26RES060FM_227' && a.correlativo === 227 && b?.numero === '26RES060_227',
+        'cambiar de vía CONSERVA el número: 26RES060_227 ⇄ 26RES060FM_227');
+    ok(fichas.numeroEnOtraVia('25RES093_5', true)?.numero === '25RES093FM_5' && fichas.numeroEnOtraVia('26RES080FM_90', false)?.numero === '26RES080_90',
+        'con su año y en RES093 y RES080');
+    ok(fichas.numeroEnOtraVia('26TER100_3', true) === null && fichas.numeroEnOtraVia('MANUAL-7', true) === null, 'un número sin esa forma no se toca: decide quien llama');
+}
 ok(fichas.oportunidadViaFm({ datos_calculo: { inputs: { ruta_fm: true } } }) === true, 'la oportunidad marca la vía con inputs.ruta_fm');
 ok(fichas.oportunidadViaFm({ datos_calculo: { inputs: { via_fm: true } } }) === false,
     'y NO con inputs.via_fm (el capado de márgenes borra toda clave via_fm a quien no es ADMIN)');

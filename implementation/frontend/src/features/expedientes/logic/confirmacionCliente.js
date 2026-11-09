@@ -37,8 +37,11 @@
 import { FV, FV_OPCIONES, normalizarEstado, normalizarFotovoltaica, etiquetaFotovoltaica } from './fotovoltaica.js';
 import { resumenCuestionario } from '../../cee-directo/logic/cuestionarioCee.js';
 
-/** Versión de las preguntas: se sella con la respuesta. Súbela si cambia su texto. */
-export const CONFIRMACION_VERSION = '1';
+/**
+ * Versión de las preguntas: se sella con la respuesta. Súbela si cambia su texto.
+ * 2 (09/11/2026): la pregunta del BONO SOCIAL.
+ */
+export const CONFIRMACION_VERSION = '2';
 
 export const EMISOR = {
     RADIADORES: 'radiadores',
@@ -83,6 +86,11 @@ export const CONFIRMACION_VACIA = Object.freeze({
     placas_kwp_nose: false,
     aire_acondicionado: null,
     num_aires: null,
+    // Bono social (ver «Bono social» más abajo): la respuesta, de qué tipo si es
+    // el de la luz, y si es familia numerosa.
+    bono: '',
+    bono_tipo: '',
+    bono_fn: null,
 });
 
 /** Enum en minúsculas o null. Lo guardado puede venir en MAYÚSCULAS (normalizeData). */
@@ -99,7 +107,7 @@ const labelEmisor = (v) => EMISOR_OPCIONES.find(o => o.value === normalizarEmiso
  * sin esa salida, quien no la sepa teclea cualquier número (mismo criterio que
  * el funnel de captación).
  */
-export function faltanConfirmacion(c = {}) {
+export function faltanConfirmacion(c = {}, { bono = null } = {}) {
     const f = [];
     if (!normalizarEmisor(c.emisor)) f.push('cómo te llega el calor a las habitaciones');
     const placas = normalizarEstado(c.placas);
@@ -109,6 +117,7 @@ export function faltanConfirmacion(c = {}) {
     }
     if (c.aire_acondicionado !== true && c.aire_acondicionado !== false) f.push('si tienes aire acondicionado');
     if (c.aire_acondicionado === true && !(Number(c.num_aires) > 0)) f.push('cuántos aparatos de aire acondicionado tienes');
+    if (bono) f.push(...faltaBonoSocial(c, bono));
     return f;
 }
 
@@ -124,7 +133,8 @@ export function sanearConfirmacion(raw) {
     const emisor = normalizarEmisor(raw.emisor);
     const estado = normalizarEstado(raw.placas ?? raw.fotovoltaica?.estado);
     const aire = aBool(raw.aire_acondicionado);
-    if (!emisor && !estado && aire === null) return null;
+    const bono = sanearBonoSocial(raw);
+    if (!emisor && !estado && aire === null && !bono) return null;
     const kwpRaw = raw.placas_kwp ?? raw.fotovoltaica?.potencia_kwp;
     const kwp = Number(String(kwpRaw ?? '').replace(',', '.'));
     const n = Math.round(Number(String(raw.num_aires ?? '').replace(',', '.')));
@@ -139,8 +149,229 @@ export function sanearConfirmacion(raw) {
         // (`conAiresDeOportunidad`). Solo se conserva esa marca: lo que llega del
         // formulario público nunca la trae.
         ...(aire !== null && raw.aires_de === AIRES_DE_OPORTUNIDAD ? { aires_de: AIRES_DE_OPORTUNIDAD } : {}),
+        // Solo si se preguntó (persona física y vivienda): ver «Bono social».
+        ...(bono ? { bono_social: bono } : {}),
     };
 }
+
+// ─── Bono social ─────────────────────────────────────────────────────────────
+//
+// POR QUÉ SE PREGUNTA (Fran, 09/11/2026): sirve dos veces.
+//   · el ANEXO I (y el Anexo A de la vía FM) declara si el titular percibe bono
+//     social y cuál (`documentacion.subvenciones.bono_social`, logic/subvenciones.js);
+//     hasta hoy nadie se lo preguntaba y salía «Ninguno de los anteriores»;
+//   · el CONSUMIDOR VULNERABLE de la vía del factor multiplicador multiplica el
+//     ahorro × 1,5 (fichas -S, `documentacion.via_fm.vulnerable`).
+//
+// QUÉ DICE EL BOE (BOE-A-2026-23367, Tercero a y b; el mismo párrafo del Anexo B):
+// es vulnerable quien es consumidor vulnerable, vulnerable severo o en riesgo de
+// exclusión social según el RD 897/2017 —o sea, quien tiene el bono social
+// ELÉCTRICO—, «excluyendo aquellos beneficiarios del bono social eléctrico cuya
+// condición derive exclusivamente de la posesión del título de familia numerosa
+// sin cumplir los requisitos de renta». El bono TÉRMICO por sí solo no es el
+// criterio. Y el RD habla del TITULAR DEL SUMINISTRO de su vivienda habitual: por
+// eso se pregunta por la factura de la luz de ESTA vivienda.
+//
+// REGLA — la respuesta del cliente MARCA el vulnerable solo cuando no hay duda:
+// bono de la luz y NO familia numerosa (casilla «No es familia numerosa» del
+// Anexo B), o familia numerosa con el bono SEVERO o en riesgo de exclusión, que
+// en una familia numerosa exigen la renta (casilla «… vulnerable severo»). Una
+// familia numerosa con el bono de vulnerable puede tenerlo SOLO por el título:
+// eso no se puede saber desde el móvil, y se deja para comprobarlo con la renta.
+//
+// REGLA — el bono social NO viaja al certificador. `confirmacion_cliente` sí
+// viaja (encargo, app de certificadores) por los aires y las placas: el bono es
+// un dato de la situación económica del hogar que el técnico no necesita, así
+// que `conAiresDeOportunidad` (por donde pasa todo lo del CEE) lo quita y
+// `resumenConfirmacion` (la pestaña CEE, el encargo) no lo enseña.
+
+export const BONO = {
+    NO: 'no',
+    ELECTRICO: 'electrico',
+    TERMICO: 'termico',
+    NO_SE: 'no_se',
+};
+
+/** ¿Tienes el bono social? En lenguaje de casa (`label`/`sub`) y para el staff (`corto`). */
+export const BONO_OPCIONES = [
+    { value: BONO.NO, label: 'No', sub: 'Ni en la factura de la luz ni para la calefacción', corto: 'No' },
+    { value: BONO.ELECTRICO, label: 'Sí, el bono social de la luz', sub: 'Un descuento en la factura de la luz como consumidor vulnerable, vulnerable severo o en riesgo de exclusión social', corto: 'Bono social eléctrico' },
+    { value: BONO.TERMICO, label: 'Solo el bono social térmico', sub: 'La ayuda para la calefacción que se cobra una vez al año, sin descuento en la luz', corto: 'Solo el bono social térmico' },
+    { value: BONO.NO_SE, label: 'No lo sé', sub: 'No pasa nada: lo comprobamos con tu factura de la luz', corto: 'No lo sabe' },
+];
+
+export const BONO_TIPO = {
+    VULNERABLE: 'vulnerable',
+    SEVERO: 'severo',
+    EXCLUSION: 'exclusion',
+    NO_SE: 'no_se',
+};
+
+/** El tipo de bono social eléctrico (los tres del RD 897/2017, como en el Anexo I). */
+export const BONO_TIPO_OPCIONES = [
+    { value: BONO_TIPO.VULNERABLE, label: 'Vulnerable', corto: 'consumidor vulnerable' },
+    { value: BONO_TIPO.SEVERO, label: 'Vulnerable severo', corto: 'vulnerable severo' },
+    { value: BONO_TIPO.EXCLUSION, label: 'En riesgo de exclusión social', corto: 'en riesgo de exclusión social' },
+    { value: BONO_TIPO.NO_SE, label: 'No lo sé', corto: 'no sabe de qué tipo' },
+];
+
+/**
+ * Qué se le pregunta a este cliente, o null si no se le pregunta:
+ *  · null    — terciario o empresa (el bono social es de personas físicas, en su vivienda);
+ *  · 'anexo' — solo si lo tiene y cuál (RES080: la RES080_FM no tiene variante -S);
+ *  · 'fm'    — además si es familia numerosa (RES060 y RES093, que tienen la -S).
+ */
+export const PREGUNTA_BONO = { ANEXO: 'anexo', FM: 'fm' };
+
+export function preguntaBonoSocial(programa) {
+    const p = String(programa || '').toUpperCase();
+    if (p === 'RES060' || p === 'RES093') return PREGUNTA_BONO.FM;
+    if (p === 'RES080') return PREGUNTA_BONO.ANEXO;
+    return null;
+}
+
+/** ¿El NIF es de una sociedad (CIF)? Una empresa no tiene bono social. */
+export function esNifDeEmpresa(nif) {
+    const s = String(nif || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return /^[ABCDEFGHJNPQRSUVW]\d{7}[0-9A-J]$/.test(s);
+}
+
+const enumDe = (v, valores) => {
+    const s = String(v ?? '').trim().toLowerCase();
+    return valores.includes(s) ? s : null;
+};
+
+/**
+ * Del formulario (`bono`, `bono_tipo`, `bono_fn`) o de lo guardado
+ * (`bono_social: { respuesta, tipo, familia_numerosa }`) a lo que se guarda.
+ * Formulario PÚBLICO: solo pasan valores conocidos; el tipo y la familia
+ * numerosa, solo con el bono de la luz.
+ * @returns {{ respuesta, tipo, familia_numerosa } | null}
+ */
+export function sanearBonoSocial(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const g = raw.bono_social && typeof raw.bono_social === 'object' ? raw.bono_social : null;
+    const respuesta = enumDe(g ? g.respuesta : raw.bono, Object.values(BONO));
+    if (!respuesta) return null;
+    const electrico = respuesta === BONO.ELECTRICO;
+    return {
+        respuesta,
+        tipo: electrico ? enumDe(g ? g.tipo : raw.bono_tipo, Object.values(BONO_TIPO)) : null,
+        familia_numerosa: electrico ? aBool(g ? g.familia_numerosa : raw.bono_fn) : null,
+    };
+}
+
+// Acepta lo guardado (`{ respuesta, tipo, familia_numerosa }`) o lo que lo
+// contiene (una confirmación, el formulario).
+const leerBono = (x) => (x && typeof x === 'object' && 'respuesta' in x
+    ? sanearBonoSocial({ bono_social: x }) : sanearBonoSocial(x));
+
+/** Lo que falta de la pregunta del bono, en palabras del cliente. */
+export function faltaBonoSocial(c = {}, pregunta = PREGUNTA_BONO.FM) {
+    if (!pregunta) return [];
+    const b = sanearBonoSocial(c);
+    if (!b) return ['si tienes el bono social'];
+    const f = [];
+    if (b.respuesta === BONO.ELECTRICO && !b.tipo) f.push('qué tipo de bono social tienes (o marca «No lo sé»)');
+    if (b.respuesta === BONO.ELECTRICO && pregunta === PREGUNTA_BONO.FM && b.familia_numerosa == null) {
+        f.push('si tienes el título de familia numerosa');
+    }
+    return f;
+}
+
+/**
+ * Lo declarado, en los ids del apartado 4 del Anexo I (logic/subvenciones.js), o
+ * null si no hay nada que declarar (no, no lo sabe, o no se preguntó). El bono de
+ * la luz de tipo desconocido se declara como «consumidores vulnerables»: el
+ * severo y el de exclusión son casos de vulnerable (RD 897/2017, art. 3), y el
+ * equipo lo afina con la factura.
+ * @returns {{ percibe: true, tipos: string[] } | null}
+ */
+export function bonoSocialParaSubvenciones(bonoRaw) {
+    const b = leerBono(bonoRaw);
+    if (!b) return null;
+    if (b.respuesta === BONO.TERMICO) return { percibe: true, tipos: ['termico'] };
+    if (b.respuesta !== BONO.ELECTRICO) return null;
+    const id = b.tipo === BONO_TIPO.SEVERO ? 'electrico_vulnerable_severo'
+        : b.tipo === BONO_TIPO.EXCLUSION ? 'electrico_riesgo_exclusion'
+            : 'electrico_vulnerable';
+    return { percibe: true, tipos: [id] };
+}
+
+/**
+ * ¿Lo declarado hace al hogar CONSUMIDOR VULNERABLE de la vía FM (× 1,5, -S)?
+ * @returns {{ vulnerable: boolean, anexo_b_casilla: 'severo'|'no_fn'|null,
+ *             pendiente: string|null, texto: string|null }}
+ *   `pendiente`: qué hay que comprobar antes de marcarlo (la familia numerosa).
+ */
+export function vulnerableFmDeBono(bonoRaw) {
+    const b = leerBono(bonoRaw);
+    const no = (texto = null, pendiente = null) => ({ vulnerable: false, anexo_b_casilla: null, pendiente, texto });
+    if (!b) return no();
+    if (b.respuesta === BONO.TERMICO) return no('Solo el bono térmico: no basta para la ficha -S (la Resolución pide el del RD 897/2017, el de la luz).');
+    if (b.respuesta === BONO.NO_SE) return no(null, 'No sabe si tiene bono social: compruébalo en su factura de la luz.');
+    if (b.respuesta !== BONO.ELECTRICO) return no();
+    if (b.familia_numerosa === false) {
+        return { vulnerable: true, anexo_b_casilla: 'no_fn', pendiente: null,
+                 texto: 'Bono social de la luz y no es familia numerosa: consumidor vulnerable (× 1,5).' };
+    }
+    if (b.familia_numerosa === true && (b.tipo === BONO_TIPO.SEVERO || b.tipo === BONO_TIPO.EXCLUSION)) {
+        return { vulnerable: true, anexo_b_casilla: 'severo', pendiente: null,
+                 texto: 'Familia numerosa con el bono severo (o en riesgo de exclusión), que exige la renta: consumidor vulnerable (× 1,5).' };
+    }
+    if (b.familia_numerosa === true) {
+        return no(null, 'Familia numerosa con el bono social de la luz: solo cuenta como vulnerable si además cumple la renta del RD 897/2017 (la Resolución excluye a quien lo tiene solo por el título). Compruébalo antes de marcarlo.');
+    }
+    return no(null, 'Tiene el bono social de la luz, pero no consta si es familia numerosa.');
+}
+
+/** «Bono social eléctrico · vulnerable severo · no es familia numerosa» (para el staff). */
+export function etiquetaBonoSocial(bonoRaw) {
+    const b = leerBono(bonoRaw);
+    if (!b) return null;
+    const base = BONO_OPCIONES.find(o => o.value === b.respuesta)?.corto || null;
+    if (b.respuesta !== BONO.ELECTRICO) return base;
+    const partes = [base];
+    const tipo = BONO_TIPO_OPCIONES.find(o => o.value === b.tipo)?.corto;
+    if (tipo) partes.push(tipo);
+    if (b.familia_numerosa === true) partes.push('familia numerosa');
+    else if (b.familia_numerosa === false) partes.push('no es familia numerosa');
+    return partes.join(' · ');
+}
+
+/** Lo mismo, dicho como lo diría el cliente (resumen de su aceptación). */
+export function etiquetaBonoCliente(c) {
+    const b = sanearBonoSocial(c);
+    if (!b) return '—';
+    if (b.respuesta !== BONO.ELECTRICO) return BONO_OPCIONES.find(o => o.value === b.respuesta)?.label || '—';
+    const tipo = BONO_TIPO_OPCIONES.find(o => o.value === b.tipo);
+    return tipo && b.tipo !== BONO_TIPO.NO_SE ? `Sí, el de la luz · ${tipo.label.toLowerCase()}` : 'Sí, el de la luz';
+}
+
+/** La confirmación SIN el bono social: lo que puede ver el certificador. */
+export function sinBonoSocial(c) {
+    if (!c || typeof c !== 'object' || !('bono_social' in c)) return c;
+    const { bono_social: _fuera, ...resto } = c;
+    return resto;
+}
+
+/**
+ * El bono social que declaró el cliente al aceptar: el del expediente
+ * (`instalacion.confirmacion_cliente`) o el de su oportunidad, el más reciente.
+ * La oportunidad cuenta cuando el expediente ya existía al aceptar (el alta no
+ * vuelve a copiar la confirmación) o cuando se volvió a aceptar después.
+ * @returns {{ bono_social: object, fecha: string|null } | null}
+ */
+export function bonoDeclaradoDe(expediente) {
+    const cands = [expediente?.instalacion?.confirmacion_cliente, expediente?.oportunidades?.datos_calculo?.confirmacion_cliente]
+        .filter(c => c && typeof c === 'object' && sanearBonoSocial(c));
+    if (!cands.length) return null;
+    cands.sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
+    return { bono_social: sanearBonoSocial(cands[0]), fecha: cands[0].fecha || null };
+}
+
+/** ¿La confirmación guardada hace vulnerable al hogar (vía FM)? Para la oportunidad. */
+export const vulnerableDeConfirmacion = (conf) => vulnerableFmDeBono(conf?.bono_social).vulnerable;
 
 /** "Sí · 2 aparatos" / "No" / null. */
 export function etiquetaAires(c) {
@@ -182,7 +413,9 @@ export function normalizarAiresOportunidad(v) {
  * recibe sin tener que mirar en dos sitios.
  */
 export function conAiresDeOportunidad(confirmacion, airesOportunidad) {
-    const c = confirmacion && typeof confirmacion === 'object' ? confirmacion : null;
+    // Todo lo que pasa por aquí acaba en el CEE (encargo, app de certificadores,
+    // revisión, envolvente): sin el bono social (ver «Bono social»).
+    const c = confirmacion && typeof confirmacion === 'object' ? sinBonoSocial(confirmacion) : null;
     if (c && aBool(c.aire_acondicionado) !== null) return c;
     const a = normalizarAiresOportunidad(airesOportunidad);
     if (!a) return c;

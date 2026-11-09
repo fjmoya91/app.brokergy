@@ -147,15 +147,22 @@ const CAMPOS_FM_CLIENTE = Object.entries(require('../utils/viaFm').GENERADOS_FM)
  * no llegó (un navegador con la versión anterior de la página no la manda, y
  * eso NO puede impedir aceptar). Lleva al lado lo que se SUPUSO al simular:
  * sin eso, dentro de tres meses no se sabe si el dato cambió o ya era así.
+ *
+ * El BONO SOCIAL solo se guarda si se le podía preguntar (`opts.programa` y
+ * `opts.nif`, cuando se pasan): ni en el terciario ni con el CIF de una empresa.
  */
-async function confirmacionDeLaAceptacion(raw, datosCalculo) {
+async function confirmacionDeLaAceptacion(raw, datosCalculo, opts = {}) {
     if (!raw) return null;
     let obj = raw;
     if (typeof raw === 'string') {
         try { obj = JSON.parse(raw); } catch (_) { return null; }
     }
-    const { sanearConfirmacion, CONFIRMACION_VERSION } = await loadConfirmacion();
-    const saneada = sanearConfirmacion(obj);
+    const { sanearConfirmacion, CONFIRMACION_VERSION, preguntaBonoSocial, esNifDeEmpresa, sinBonoSocial } = await loadConfirmacion();
+    let saneada = sanearConfirmacion(obj);
+    if (saneada && ('programa' in opts || 'nif' in opts)
+        && (!preguntaBonoSocial(opts.programa) || esNifDeEmpresa(opts.nif))) {
+        saneada = sinBonoSocial(saneada);
+    }
     if (!saneada) return null;
     const { normalizarFotovoltaica, fotovoltaicaDesdeFunnel } = await loadFotovoltaica();
     const inputs = datosCalculo?.inputs || {};
@@ -173,6 +180,17 @@ async function confirmacionDeLaAceptacion(raw, datosCalculo) {
             ...(inputs.aires && typeof inputs.aires === 'object' ? { aires: inputs.aires } : {}),
         },
     };
+}
+
+/** Qué se le pregunta del bono social en la aceptación (logic/confirmacionCliente.js). */
+async function preguntaBonoDeOportunidad(opp) {
+    try {
+        const { preguntaBonoSocial } = await loadConfirmacion();
+        return preguntaBonoSocial(require('../utils/fichas').detectPrograma({}, opp));
+    } catch (e) {
+        console.warn('[Public] pregunta del bono social:', e.message);
+        return null;
+    }
 }
 
 // Configuración de multer (memoria para subida directa a Drive)
@@ -295,9 +313,10 @@ router.get('/cliente/:id', async (req, res) => {
             .from('oportunidades')
             .select(`
                 id,
-                cliente_id, 
-                referencia_cliente, 
+                cliente_id,
+                referencia_cliente,
                 prescriptor_id,
+                ficha,
                 datos_calculo,
                 expedientes (
                     numero_expediente
@@ -398,6 +417,10 @@ router.get('/cliente/:id', async (req, res) => {
             // El cliente aportó un CEE inicial → la firma ofrecerá elegir usarlo o hacer uno nuevo.
             cee_aportado: !!(opp.datos_calculo?.cee_previo || opp.datos_calculo?.inputs?.cee_previo),
             cee_decision: opp.datos_calculo?.cee_decision || null,
+            // ¿Se le pregunta por el BONO SOCIAL al aceptar? Por la ficha: null en el
+            // terciario, 'anexo' en RES080 (solo cuál), 'fm' en RES060/RES093 (también
+            // si es familia numerosa, por la -S). La página lo quita con un CIF.
+            bono_social_pregunta: await preguntaBonoDeOportunidad(opp),
         });
 
     } catch (e) {
@@ -619,7 +642,10 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
         // tumbar la aceptación.
         let confirmacion = null;
         try {
-            confirmacion = await confirmacionDeLaAceptacion(formFields.confirmacion, opp.datos_calculo);
+            confirmacion = await confirmacionDeLaAceptacion(formFields.confirmacion, opp.datos_calculo, {
+                programa: require('../utils/fichas').detectPrograma({}, opp),
+                nif: formFields.dni_cif,
+            });
         } catch (e) {
             console.warn('[Public] confirmación de la vivienda:', e.message);
         }
@@ -856,8 +882,18 @@ ${bloqueDocs(true)}
                 let viviendaStr = '';
                 if (confirmacion) {
                     try {
-                        const { resumenConfirmacion } = await loadConfirmacion();
+                        const { resumenConfirmacion, etiquetaBonoSocial, vulnerableFmDeBono, preguntaBonoSocial, PREGUNTA_BONO } = await loadConfirmacion();
                         const lineas = resumenConfirmacion(confirmacion);
+                        // El bono social, solo en este aviso al staff (no viaja al
+                        // certificador): lo declarado y, en RES060/RES093 (las que
+                        // tienen la -S), si marca el vulnerable de la vía FM.
+                        const bono = etiquetaBonoSocial(confirmacion.bono_social);
+                        if (bono) {
+                            const conS = preguntaBonoSocial(require('../utils/fichas').detectPrograma({}, opp)) === PREGUNTA_BONO.FM;
+                            const v = vulnerableFmDeBono(confirmacion.bono_social);
+                            lineas.push({ tema: 'Bono social', valor: bono,
+                                aviso: !conS ? null : v.vulnerable ? 'Consumidor vulnerable de la vía FM (× 1,5): queda marcado en la pestaña «Vía FM».' : v.pendiente });
+                        }
                         if (lineas.length) {
                             viviendaStr = '\n\n🏠 *Confirmado por el cliente:*\n' + lineas
                                 .map(l => `• ${l.tema}: *${l.valor}*${l.aviso ? `\n  ⚠️ ${l.aviso}` : ''}`)
