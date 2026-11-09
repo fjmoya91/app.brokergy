@@ -4,6 +4,8 @@ paths:
   - "implementation/backend/routes/whatsapp.js"
   - "implementation/backend/scripts/*ronda*"
   - "implementation/backend/utils/{adjuntoWhatsapp,nombreContactoCliente}.js"
+  - "implementation/backend/{services,utils}/bienvenidaWhatsapp.js"
+  - "implementation/backend/scripts/wa_bienvenidas_schema.sql"
   - "implementation/backend/scripts/*{bot,whatsapp}*"
   - "implementation/frontend/src/features/whatsapp/**"
   - "implementation/frontend/src/components/WhatsappEtiquetas.jsx"
@@ -38,6 +40,8 @@ paths:
 
 205. **La FRANJA DE LA CASA: lo que el agente le escribe a un tercero sale de 7 a 21 h (Madrid), como si contestara Fran; leer, se lee siempre** (2026-11-09, Fran: «que sea como si estuviese contestando yo realmente […] para que los clientes no me contesten a las horas»). Fuente única: [utils/horarioWhatsapp.js](implementation/backend/utils/horarioWhatsapp.js). **Contestar** a quien ha escrito (`puedeContestar`): de 7 a 21 h, todos los días. **Escribir sin que nos hayan escrito** —un recordatorio, un «¿cómo va la obra?»— (`puedeInsistir`): la misma franja pero de lunes a viernes (`WA_INSISTIR_FINDE=true` lo abre el fin de semana). Lo que cae fuera se PROGRAMA para la apertura (`siguienteApertura`, en punto), nunca se descarta. Los listeners de la sesión no tienen horario: lo que entra a las 3 de la mañana se lee y se apunta en el momento (una espera se cierra), y la respuesta espera a las 7. Lo usan el agente de la aceptación (antes 9–21), las esperas y el bot (antes 8–20; `BOT_WHATSAPP_HORA_*` lo sigue pudiendo cambiar solo para él); todo lo que se añada al agente que escriba a terceros pasa por aquí, nunca con su propio horario. Las horas, `WA_HORA_DESDE`/`WA_HORA_HASTA`. Tras tocarlo: `node implementation/backend/scripts/test_esperas_whatsapp.js` y `test_aceptacion_agente.js`.
 
+206. **A quien escribe por PRIMERA VEZ se le contesta SOLO, una vez, con el formulario «Calcula tu ayuda» (`?ref=wa`) y el vídeo de las ayudas; solo si es NUEVO de verdad** (2026-11-09, Fran: «que al cliente, de manera automática, se le envíe ya un mensaje para que a través del formulario ya rellene sus datos y se queden registrados»). La oportunidad nace del formulario como cualquier lead web. **No se usa la bienvenida de WhatsApp Business**: salta con cualquiera que lleve 14 días sin escribir, clientes en curso e instaladores incluidos. **Un «no lo he podido comprobar» es un NO**. No se le escribe si: está en la app (clientes con contacto, representante y copropietarios; partners con contactos de aviso; usuarios; certificadores; solicitudes de instalador; descartados; o la app ya le escribió, `whatsapp_queue`; por los 9 dígitos); es de la casa (`ASISTENTE_WHATSAPP_TEL`, administración); está en la agenda del móvil; es cuenta de empresa; o el chat ya tiene mensajes nuestros, etiquetas o historia de más de 6 h. Tampoco a lo que no es un móvil español ni a una tarjeta de contacto. Una por teléfono, para siempre (índice único). Se decide UNA vez por ráfaga (90 s tras el último mensaje), leyendo ESE chat con UNA evaluación en `enSerie` y con plazo (regla 39). Se apunta PENDIENTE con la hora de la franja de la casa (regla 205, `puedeContestar`), y justo antes de mandar se relee el chat: si le ha contestado una persona o ya hay un mensaje nuestro, DESCARTADA. **El vídeo sale DESPUÉS de que el texto salga de la cola con su ACK** (si no, llega antes), como vídeo y no como documento, y si falla se manda su enlace. Sin reintentos (ERROR). Topes en el código: 30/día, 10/hora, 2/vuelta. **Nace APAGADA** (`WA_BIENVENIDA_ENABLED`) y en **MODO COPIA** (`WA_BIENVENIDA_MODO=real` para escribir); `WA_BIENVENIDA_PRUEBA` limita a esos teléfonos. Tabla con RLS y GRANT (regla 150): [wa_bienvenidas_schema.sql](implementation/backend/scripts/wa_bienvenidas_schema.sql). Fuente única: [bienvenidaWhatsapp.js](implementation/backend/services/bienvenidaWhatsapp.js) + [utils/bienvenidaWhatsapp.js](implementation/backend/utils/bienvenidaWhatsapp.js); rutas `GET /api/whatsapp/bienvenidas` y `POST …/vuelta` (**adminOInterno**). Tras tocarlo: `node implementation/backend/scripts/test_bienvenida_whatsapp.js`. Ver "La BIENVENIDA".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -48,6 +52,7 @@ paths:
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado · 1,0 KB
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js) · 1,7 KB
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13) · 7,6 KB
+- `docs/conocimiento/whatsapp/la-bienvenida-a-quien-escribe-por-primera-vez.md` — La BIENVENIDA: a quien escribe por primera vez, el formulario y el vídeo, solos (2026-11-09) · 8,1 KB
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md` — La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09) · 5,4 KB
 - `docs/conocimiento/whatsapp/la-ronda-nocturna-de-whatsapp.md` — La RONDA NOCTURNA de WhatsApp — fase 1, en seco (2026-10-19) · 10,5 KB
 - `docs/conocimiento/whatsapp/las-esperas-lo-que-se-pide-y-se-recuerda.md` — Las ESPERAS: lo que se le pide a alguien por WhatsApp, si contesta y cuándo se le recuerda (2026-11-09) · 5,6 KB
@@ -93,6 +98,8 @@ pensar EN LA MISMA VUELTA.**
   - **REGLA — con la BD caída, 503; nunca «no es cliente»**
   - **REGLA — lo que dice el prefijo decide si se propone.**
   - **REGLA — descartar es del EQUIPO y se puede deshacer.**
+- `docs/conocimiento/whatsapp/la-bienvenida-a-quien-escribe-por-primera-vez.md`
+  - **REGLA — solo a quien es NUEVO de verdad, y un «no lo he podido comprobar» es un NO.**
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md`
   - **REGLA — un nombre que YA está en la agenda no se toca jamás.**
   - **REGLA — la etiqueta se AÑADE; la lista se manda COMPLETA.**

@@ -582,6 +582,25 @@ router.post('/esperas/:id/cancelar', adminOnly, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BIENVENIDA — la primera respuesta, sola, a quien escribe por primera vez: el
+// formulario «Calcula tu ayuda» y el vídeo (services/bienvenidaWhatsapp.js).
+// ADMIN o clave interna: lleva teléfonos.
+// ─────────────────────────────────────────────────────────────────────────────
+const bienvenida = require('../services/bienvenidaWhatsapp');
+
+// GET → { estado, bienvenidas }: cómo está y lo apuntado (lo último primero)
+router.get('/bienvenidas', adminOInterno, async (req, res) => {
+    try {
+        res.json({ estado: bienvenida.estado(), bienvenidas: await bienvenida.listar({ limite: req.query.limite }) });
+    } catch (e) { res.status(503).json({ error: 'No se han podido leer las bienvenidas', detalle: e.message }); }
+});
+
+// POST { seco? } → una vuelta a mano. Por defecto EN SECO: devuelve lo que haría.
+router.post('/bienvenidas/vuelta', adminOInterno, async (req, res) => {
+    res.json(await bienvenida.vuelta({ seco: req.body?.seco !== false }));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BOT — el asistente que contesta a los chats etiquetados.
 //
 // Todo ADMIN: aquí se ve lo que una máquina le ha dicho a clientes reales en

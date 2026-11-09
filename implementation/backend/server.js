@@ -280,6 +280,14 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[esperas] no se pudo iniciar:', err.message);
     }
+    // A quien escribe por PRIMERA VEZ, una vez y sola: el formulario «Calcula tu ayuda»
+    // y el vídeo de las ayudas. Nace APAGADA (WA_BIENVENIDA_ENABLED) y, encendida, en
+    // modo copia (WA_BIENVENIDA_MODO=real para escribir): local es la misma cuenta.
+    try {
+      require('./services/bienvenidaWhatsapp').start();
+    } catch (err) {
+      console.warn('[bienvenida] no se pudo iniciar:', err.message);
+    }
   });
 }
 

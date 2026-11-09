@@ -34,7 +34,7 @@
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,6 KB | 1 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,5 KB | 6 |
-| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 21,7 KB | 16 |
+| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 24,5 KB | 17 |
 
 ## Reglas numeradas → dónde están
 
@@ -289,6 +289,7 @@
 - **204** → `.claude/rules/oportunidades.md` — Al ACEPTAR, al particular de una RES060/RES093/RES080 se le pregunta si tiene el BONO SOCIAL; solo marca VUL…
 - **204** → `.claude/rules/whatsapp.md` — Lo que se le PIDE a alguien por WhatsApp queda ESPERANDO respuesta: se cierra solo al contestar y, si no, se…
 - **205** → `.claude/rules/whatsapp.md` — La FRANJA DE LA CASA: lo que el agente le escribe a un tercero sale de 7 a 21 h (Madrid), como si contestara…
+- **206** → `.claude/rules/whatsapp.md` — A quien escribe por PRIMERA VEZ se le contesta SOLO, una vez, con el formulario «Calcula tu ayuda» (`?ref=wa…
 
 ## Documentos por área
 
@@ -676,6 +677,7 @@
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js)
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13)
+- `docs/conocimiento/whatsapp/la-bienvenida-a-quien-escribe-por-primera-vez.md` — La BIENVENIDA: a quien escribe por primera vez, el formulario y el vídeo, solos (2026-11-09)
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md` — La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09)
 - `docs/conocimiento/whatsapp/la-ronda-nocturna-de-whatsapp.md` — La RONDA NOCTURNA de WhatsApp — fase 1, en seco (2026-10-19)
 - `docs/conocimiento/whatsapp/las-esperas-lo-que-se-pide-y-se-recuerda.md` — Las ESPERAS: lo que se le pide a alguien por WhatsApp, si contesta y cuándo se le recuerda (2026-11-09)
