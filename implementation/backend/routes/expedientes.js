@@ -1762,6 +1762,18 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
             .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
             .eq('id', req.params.id);
 
+        // Lo pedido por WhatsApp queda ESPERANDO respuesta: si contesta se cierra
+        // sola y, si no, se le recuerda a su hora (esperasWhatsapp; apagado por
+        // defecto). Nunca lanza ni retrasa la respuesta.
+        if (sent.includes('WhatsApp') || sent.includes('WhatsApp (encolado)')) {
+            void require('../services/esperasWhatsapp').abrir({
+                tel: tlf, quien: target, nombre: nombreDest,
+                expedienteId: exp.id, oportunidadId: exp.oportunidad_id, numero: exp.numero_expediente,
+                motivo: 'DOCUMENTACION', pedido: solicitado,
+                enlace: (mensaje.match(/https?:\/\/\S+/) || [null])[0], texto: mensaje, origen: 'solicitar-faltantes',
+            });
+        }
+
         res.json({ ok: true, channels: sent, sentTo: email || tlf || null });
     } catch (err) {
         console.error('[solicitar-faltantes]', err.message);

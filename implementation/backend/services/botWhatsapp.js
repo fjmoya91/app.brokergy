@@ -55,8 +55,10 @@ const CONFIG = {
     // a propósito: sin esto, encender el bot y olvidarse de la lista blanca lo
     // soltaría sobre toda la cartera de golpe.
     todosLosEtiquetados: bool(process.env.BOT_WHATSAPP_TODOS, false),
-    horaDesde: num(process.env.BOT_WHATSAPP_HORA_DESDE, 8),
-    horaHasta: num(process.env.BOT_WHATSAPP_HORA_HASTA, 20),
+    // La franja de la casa (utils/horarioWhatsapp.js, 7–21 h desde el 09/11/2026;
+    // antes 8–20): el bot contesta en el mismo horario que el resto del agente.
+    horaDesde: num(process.env.BOT_WHATSAPP_HORA_DESDE, require('../utils/horarioWhatsapp').desde()),
+    horaHasta: num(process.env.BOT_WHATSAPP_HORA_HASTA, require('../utils/horarioWhatsapp').hasta()),
     // Ventana de silencio. Un cliente manda "Buenas tardes" · "¿Qué
     // documentación tenemos que aportar?" · "Gracias" en el mismo minuto (caso
     // real): contestar al primero es contestar a un saludo.

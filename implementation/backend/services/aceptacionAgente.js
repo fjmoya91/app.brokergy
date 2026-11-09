@@ -16,8 +16,8 @@
 //   · El agente mira (`scripts/aceptacion.js estado`), y si falta algo se lo PIDE
 //     él mismo al cliente o al instalador (`aceptacion.js pedir --enviar`): ese
 //     envío está autorizado de antemano, es la ÚNICA excepción al «nada sale a un
-//     tercero sin el envíala de Fran». Fuera de 9 a 21 h no sale: se PROGRAMA y lo
-//     manda este servidor a las 9:00 (`despachar`). Si no falta nada, hace el CEE.
+//     tercero sin el envíala de Fran». Fuera de 7 a 21 h no sale: se PROGRAMA y lo
+//     manda este servidor a las 7:00 (`despachar`). Si no falta nada, hace el CEE.
 //   · Cuando llega lo pedido —por el enlace de subida (`uploadNotifier`) o como
 //     fotos al WhatsApp (`alMensajeEntrante`)— le vuelve a encargar la revisión
 //     (`retomar`), hasta `MAX_RONDAS`.
@@ -48,9 +48,6 @@ const VIGILANTE_H = Number(process.env.ACEPTACION_AGENTE_VIGILANTE_H) || 24;
 // Silencio tras la última foto que entra por WhatsApp antes de retomar (una
 // ráfaga de 12 fotos es UNA revisión, no doce).
 const VENTANA_WA_MS = (Number(process.env.ACEPTACION_AGENTE_WA_MIN) || 10) * 60_000;
-// Horario en el que se le escribe a un cliente (hora de Madrid), [desde, hasta).
-const HORA_DESDE = 9;
-const HORA_HASTA = 21;
 // Lo que lleva más de esto en el índice sin cerrarse se suelta.
 const CADUCA_DIAS = 45;
 
@@ -65,22 +62,13 @@ const acuseRevision = (tu = true) => (tu
     : 'Ahora revisaremos la documentación que ya tenemos de la vivienda y nos volveremos a poner en contacto con vosotros para pediros lo que nos falte.');
 
 // ─── Horario ─────────────────────────────────────────────────────────────────
-function horaMadrid(d = new Date()) {
-    const p = Object.fromEntries(new Intl.DateTimeFormat('es-ES', {
-        timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-    }).formatToParts(d).map(x => [x.type, x.value]));
-    return { h: Number(p.hour), m: Number(p.minute) };
-}
-const enHorario = (d = new Date()) => { const { h } = horaMadrid(d); return h >= HORA_DESDE && h < HORA_HASTA; };
-/** El próximo «abre el horario» (las 9:00 de Madrid). */
-function siguienteApertura(d = new Date()) {
-    if (enHorario(d)) return d;
-    const { h, m } = horaMadrid(d);
-    const min = (h >= HORA_HASTA ? (24 - h + HORA_DESDE) : (HORA_DESDE - h)) * 60 - m;
-    const out = new Date(d.getTime() + min * 60_000);
-    out.setSeconds(0, 0);
-    return out;
-}
+// El pedido tras la aceptación CONTESTA a lo que hizo el cliente: la franja de la
+// casa, todos los días (utils/horarioWhatsapp.js: de 7 a 21 h de Madrid desde el
+// 09/11/2026; antes, de 9 a 21).
+const horario = require('../utils/horarioWhatsapp');
+const enHorario = (d = new Date()) => horario.puedeContestar(d);
+/** El próximo «abre el horario» (las 7:00 de Madrid). */
+const siguienteApertura = (d = new Date()) => horario.siguienteApertura(d);
 
 // ─── Destinatarios ───────────────────────────────────────────────────────────
 /**
@@ -274,6 +262,12 @@ async function registrarPedido({ expedienteId, oportunidadId, numero, lineas, te
         : await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: oportunidadId, p_field: 'historial', p_value: [entrada] });
     if (error) console.warn('[aceptacion-agente] historial:', error.message);
     await apuntar(expedienteId, { numero, oportunidad_id: oportunidadId, tels: [tel] });
+    // Y queda esperando respuesta: se cierra sola si contesta o sube, y si no,
+    // se le recuerda (esperasWhatsapp; apagado por defecto, nunca lanza).
+    await require('./esperasWhatsapp').abrir({
+        tel, quien: a === 'instalador' ? 'INSTALADOR' : 'CLIENTE', nombre: saludo,
+        expedienteId, oportunidadId, numero, motivo: 'CEE_INICIAL', pedido: lineas, origen: 'aceptacion',
+    });
 }
 
 /** Fuera de horario: se guarda para que `despachar` lo mande al abrir. */

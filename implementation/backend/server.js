@@ -273,6 +273,13 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[aceptacion-agente] no se pudo iniciar:', err.message);
     }
+    // Lo que se le ha PEDIDO a alguien por WhatsApp: se cierra al contestar y, si
+    // no, se le recuerda (en modo copia, solo lo ve Fran). Nace APAGADO (ESPERAS_ENABLED).
+    try {
+      require('./services/esperasWhatsapp').start();
+    } catch (err) {
+      console.warn('[esperas] no se pudo iniciar:', err.message);
+    }
   });
 }
 

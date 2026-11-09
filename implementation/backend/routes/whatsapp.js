@@ -549,6 +549,39 @@ router.get('/ronda/informe', adminOInterno, (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ESPERAS — lo que se le ha PEDIDO a alguien y aún no ha contestado
+// (services/esperasWhatsapp.js). ADMIN o clave interna: lleva nombres y teléfonos.
+// ─────────────────────────────────────────────────────────────────────────────
+const esperas = require('../services/esperasWhatsapp');
+
+// GET ?estado=ABIERTA|CONTESTADA|VENCIDA|CERRADA|CANCELADA → la lista (sin el texto entero)
+router.get('/esperas', adminOInterno, async (req, res) => {
+    try {
+        const estado = ['ABIERTA', 'CONTESTADA', 'VENCIDA', 'CERRADA', 'CANCELADA'].includes(req.query.estado) ? req.query.estado : 'ABIERTA';
+        res.json({ activo: esperas.activo(), modo: esperas.modo(), esperas: await esperas.listar({ estado }) });
+    } catch (e) { res.status(503).json({ error: 'No se han podido leer las esperas', detalle: e.message }); }
+});
+
+// GET → { texto }: el bloque del resumen de las 9:00 (vacío si no hay nada que contar)
+router.get('/esperas/resumen', adminOInterno, async (req, res) => {
+    res.json({ texto: await esperas.resumen() });
+});
+
+// POST { seco? } → una vuelta a mano. Por defecto EN SECO: devuelve lo que haría.
+router.post('/esperas/vuelta', adminOInterno, async (req, res) => {
+    res.json(await esperas.vuelta({ seco: req.body?.seco !== false }));
+});
+
+// POST → la quita una persona (ya está hablado, no hace falta insistir)
+router.post('/esperas/:id/cancelar', adminOnly, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+    const r = await esperas.cancelar(id, req.user?.acronimo || req.user?.razon_social || 'ADMIN');
+    if (!r) return res.status(404).json({ error: 'No hay una espera abierta con ese id' });
+    res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BOT — el asistente que contesta a los chats etiquetados.
 //
 // Todo ADMIN: aquí se ve lo que una máquina le ha dicho a clientes reales en

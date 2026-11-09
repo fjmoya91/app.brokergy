@@ -13,7 +13,7 @@
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 55,2 KB | 18 |
 | `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 10,7 KB | 16 |
-| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,8 KB | 6 |
+| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,9 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 26,5 KB | 8 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 11 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,0 KB | 25 |
@@ -34,7 +34,7 @@
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,6 KB | 1 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,5 KB | 6 |
-| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 17,9 KB | 15 |
+| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 21,7 KB | 16 |
 
 ## Reglas numeradas → dónde están
 
@@ -287,6 +287,8 @@
 - **200.e** → `.claude/rules/documentos.md` — El CIFO de un `26RES060FM_N` / `26RES093FM_N` sale como su ficha FM, con la cifra FM y NUNCA con la vigente
 - **203** → `.claude/rules/propuesta.md` — Toda propuesta en la que alguna opción sube por el FACTOR MULTIPLICADOR lleva una HOJA más, la 2, y una líne…
 - **204** → `.claude/rules/oportunidades.md` — Al ACEPTAR, al particular de una RES060/RES093/RES080 se le pregunta si tiene el BONO SOCIAL; solo marca VUL…
+- **204** → `.claude/rules/whatsapp.md` — Lo que se le PIDE a alguien por WhatsApp queda ESPERANDO respuesta: se cierra solo al contestar y, si no, se…
+- **205** → `.claude/rules/whatsapp.md` — La FRANJA DE LA CASA: lo que el agente le escribe a un tercero sale de 7 a 21 h (Madrid), como si contestara…
 
 ## Documentos por área
 
@@ -676,6 +678,7 @@
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13)
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md` — La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09)
 - `docs/conocimiento/whatsapp/la-ronda-nocturna-de-whatsapp.md` — La RONDA NOCTURNA de WhatsApp — fase 1, en seco (2026-10-19)
+- `docs/conocimiento/whatsapp/las-esperas-lo-que-se-pide-y-se-recuerda.md` — Las ESPERAS: lo que se le pide a alguien por WhatsApp, si contesta y cuándo se le recuerda (2026-11-09)
 - `docs/conocimiento/whatsapp/lo-que-llega-con-el-backend-parado-recuperarperdidos.md` — Lo que llega con el backend PARADO — `recuperarPerdidos()`
 - `docs/conocimiento/whatsapp/lo-que-whatsapp-rompio-y-hay-que-saber.md` — Lo que WhatsApp rompió, y hay que saber (2026-08-25)
 - `docs/conocimiento/whatsapp/modulo-whatsapp-novedades.md` — Módulo WhatsApp — Novedades (2026-04-17)

@@ -310,7 +310,16 @@ async function mantenimiento() {
         const pend = seccion(leerCuaderno(), 'Pendiente');
         estado.parte = hoyMadrid();
         guardarEstado(estado);
-        if (pend.length) await mandar(`Buenos días, Fran. Esto sigue pendiente:\n${pend.join('\n')}`);
+        // Y, en el MISMO mensaje, lo que se le ha pedido a la gente por WhatsApp: quién ha
+        // contestado, a quién se le ha recordado (o se le habría recordado, en modo copia)
+        // y quién no contesta (esperasWhatsapp). Dos avisos a la misma hora son ruido.
+        let esperas = '';
+        try { esperas = (await api('/api/whatsapp/esperas/resumen', { ms: 30_000 })).texto || ''; }
+        catch (e) { log('Resumen de las esperas:', e.message); }
+        const partes = [];
+        if (pend.length) partes.push(`Buenos días, Fran. Esto sigue pendiente:\n${pend.join('\n')}`);
+        if (esperas) partes.push(`${pend.length ? '' : 'Buenos días, Fran.\n\n'}*Lo que se ha pedido por WhatsApp*\n${esperas}`);
+        if (partes.length) await mandar(partes.join('\n\n'));
     }
     // 3. La ronda de presentar de la noche (asistente_pc.js noche): a partir de las 21 h, una vez al día,
     //    UNA pregunta con todos los CEE de la casa con visto bueno y sin registrar. Sin nada, calla.

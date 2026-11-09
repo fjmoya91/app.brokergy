@@ -62,10 +62,11 @@ encargar (`seguimiento.cee_inicial` vacío o `PTE_ENVIO_CERT`, el criterio de «
 con teléfono, **una vez por ronda** (`pedido_at` posterior al último `revision_at` = ya pedido) y sin otro
 pedido programado; `--otra-vez` solo si Fran lo pide.
 
-**REGLA — fuera de 9 a 21 h (Madrid) no se le escribe a nadie: se PROGRAMA.** Si alguien acepta a las
-23:30, el agente trabaja igual, pero `pedir --enviar` deja el mensaje en `aceptacion_agente.programado`
-(`para` = las 9:00 siguientes) y lo manda el servidor en su vuelta (`vuelta`, cada 5 min); solo entonces
-se registra como pedido. Mismo horario que la reseña programada.
+**REGLA — fuera de la franja de la casa (7 a 21 h, Madrid) no se le escribe a nadie: se PROGRAMA.** Si
+alguien acepta a las 23:30, el agente trabaja igual, pero `pedir --enviar` deja el mensaje en
+`aceptacion_agente.programado` (`para` = las 7:00 siguientes) y lo manda el servidor en su vuelta
+(`vuelta`, cada 5 min); solo entonces se registra como pedido. Hasta el 09/11/2026 era de 9 a 21 h; ese día
+Fran abrió la franja a las 7 para todo lo que contesta el agente (`utils/horarioWhatsapp.js`, regla 205).
 
 **REGLA — a quién: al CLIENTE por defecto, al INSTALADOR cuando lo tiene él** (`--a instalador`: las
 fotos o la placa que hizo él, o un alta que vino de su chat). Al instalador, a su contacto COMERCIAL

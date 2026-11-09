@@ -145,6 +145,50 @@ function onMessage(handler) {
     return () => messageHandlers.delete(handler);
 }
 
+// ── Los mensajes NUESTROS: ¿los ha mandado la app o una persona? ─────────────
+// (2026-11-09, agente autónomo) Si Fran le escribe a mano a un cliente desde el
+// móvil, ese chat lo lleva él y el agente se calla (`esperasWhatsapp`). WhatsApp
+// no dice desde qué dispositivo salió un mensaje propio, así que la app APUNTA lo
+// que manda justo antes de mandarlo (`marcarPropio`) y lo que llegue por
+// `message_create` sin estar apuntado lo ha escrito una persona. Un adjunto sin
+// pie cuenta como nuestro si hemos mandado uno hace poco: mejor callarse de menos
+// que de más, y el fallo contrario (pausar un chat sin motivo) solo retrasa un
+// recordatorio. Solo memoria: tras reiniciar, lo apuntado se pierde y lo que se
+// mandó antes ya no va a llegar por `message_create`.
+const ownHandlers = new Set();
+const propios = [];                       // [{ at, texto, adjunto }]
+const PROPIO_TEXTO_MS = 10 * 60_000;
+const PROPIO_ADJUNTO_MS = 3 * 60_000;
+const huella = (t) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+
+/** Lo que la app está a punto de mandar (texto, o el pie de un adjunto). */
+function marcarPropio(texto, { adjunto = false } = {}) {
+    const ahora = Date.now();
+    while (propios.length && propios[0].at < ahora - PROPIO_TEXTO_MS) propios.shift();
+    propios.push({ at: ahora, texto: huella(texto), adjunto });
+    if (propios.length > 300) propios.shift();
+}
+
+/** ¿Lo ha mandado la app? Se consume la marca: dos mensajes iguales a mano no se tapan. */
+function esDelSistema(msg) {
+    const ahora = Date.now();
+    const cuerpo = huella(msg?.body);
+    const i = propios.findIndex(p => p.at > ahora - PROPIO_TEXTO_MS && cuerpo && p.texto === cuerpo);
+    if (i >= 0) { propios.splice(i, 1); return true; }
+    if (msg?.hasMedia && !cuerpo) {
+        const j = propios.findIndex(p => p.adjunto && p.at > ahora - PROPIO_ADJUNTO_MS);
+        if (j >= 0) { propios.splice(j, 1); return true; }
+    }
+    return false;
+}
+
+/** Suscribe un handler a los mensajes PROPIOS de los chats 1:1: recibe `{ msg, delSistema }`. */
+function onMensajePropio(handler) {
+    if (typeof handler !== 'function') throw new Error('onMensajePropio requiere una función');
+    ownHandlers.add(handler);
+    return () => ownHandlers.delete(handler);
+}
+
 /**
  * Cliente crudo de whatsapp-web.js, o null si no está listo.
  *
@@ -327,6 +371,7 @@ async function processQueue() {
                 // el chat; con él, pero sin tope, un envío que no resuelve deja
                 // `processing` en true y para la cola entera.
                 const desde = ahoraSeg();
+                marcarPropio(job.message);
                 const enviado = await withTimeout(
                     client.sendMessage(chatId, job.message, { waitUntilMsgSent: true, sendSeen: SEND_SEEN }),
                     60_000, 'sendMessage(cola)',
@@ -683,6 +728,26 @@ async function init() {
                 }
             } catch (e) {
                 console.error('[wwa] handler de mensaje entrante:', e.message);
+            }
+        }
+    });
+
+    // Lo NUESTRO de los chats 1:1 (ver `marcarPropio`). Solo si alguien escucha:
+    // `message_create` salta con CADA mensaje, también los que entran.
+    client.on('message_create', (msg) => {
+        if (!ownHandlers.size || !msg?.fromMe) return;
+        const to = String(msg.to || '');
+        if (!to.endsWith('@c.us') && !to.endsWith('@lid')) return;
+        let delSistema = true;
+        try { delSistema = esDelSistema(msg); } catch (_) { /* en la duda, de la app: no pausa */ }
+        for (const handler of ownHandlers) {
+            try {
+                const r = handler({ msg, delSistema });
+                if (r && typeof r.catch === 'function') {
+                    r.catch(e => console.error('[wwa] handler de mensaje propio:', e.message));
+                }
+            } catch (e) {
+                console.error('[wwa] handler de mensaje propio:', e.message);
             }
         }
     });
@@ -1088,6 +1153,7 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
         await sendTypingThenWait();
         try {
             const desdePrevio = ahoraSeg();
+            marcarPropio(cap);
             const previo = await withTimeout(
                 client.sendMessage(chatId, cap, optsTexto),
                 60_000, 'sendMessage(text-previo)',
@@ -1131,6 +1197,7 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
     let result;
     let entrega = null;
     const desdeAdjunto = ahoraSeg();
+    marcarPropio(mediaCaption || '', { adjunto: true });
     try {
         result = await withTimeout(
             client.sendMessage(chatId, mediaObj, {
@@ -1178,6 +1245,7 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
                 await waitForRateSlot();
                 await sendTypingThenWait();
                 const desdeTras = ahoraSeg();
+                marcarPropio(tras[i]);
                 const r2 = await withTimeout(
                     client.sendMessage(chatId, tras[i], optsTexto),
                     60_000, 'sendMessage(texto-despues)',
@@ -1236,9 +1304,11 @@ module.exports = {
     getGroups,
     normalizePhone,
     onMessage,
+    onMensajePropio,
     getClient,
     isReady,
     _config: CONFIG,
+    _propios: { marcarPropio, esDelSistema },   // para las pruebas
 };
 
 // ─── Graceful shutdown ─────────────────────────────────────────────────────────
