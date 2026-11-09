@@ -18,10 +18,12 @@
  * REGLA — solo se ofrece si el FM es MAYOR. Si sale igual o menor, decírselo al
  * cliente no le da nada que decidir y le mete una duda sobre la única cifra firme.
  *
- * REGLA — solo cuando la propuesta incluye la opción de AEROTERMIA. El factor
- * multiplicador va sobre la sustitución (o hibridación) de la caldera: en una
- * propuesta que solo ofrece rehabilitación (RES080) esa ficha no es la que se va a
- * tramitar, y aplicarle su factor sería prometer el bono de otra actuación.
+ * REGLA — cada propuesta con SU ficha FM (09/11/2026, Fran: «tanto en RES060, RES093,
+ * RES080, todos»). Con aerotermia, la RES060_FM o la RES09x_FM (`result.res060fc`);
+ * en una propuesta SOLO de rehabilitación, la RES080_FM (`result.res080fm`), nunca
+ * la RES060_FM: aplicarle el factor de la sustitución sería prometer el bono de otra
+ * actuación. Sin los dos CEE simulados la cifra de la RES080_FM es una ESTIMACIÓN
+ * (`estimada`) y se dice. Las opciones de la propuesta: `fmPropuesta.js`.
  *
  * REGLA — es del flujo INTERNO. Lo decide quien envía (staff), caso a caso y con el
  * toggle apagado por defecto: hay clientes a los que esperar a 2027 les compensa y
@@ -76,10 +78,8 @@ export function estadoFc(result, inputs) {
     const no = (motivo) => ({ procede: false, motivo, actual: 0, fc: 0, extra: 0, dosOpciones: false });
 
     const isReforma = cierto(inputs?.isReforma);
-    // Propuesta de SOLO reforma: la ficha que se tramita no es la RES060.
-    if (isReforma && inputs?.comparativaReforma === false) {
-        return no('esta propuesta es solo de rehabilitación (RES080) y el factor multiplicador va sobre la sustitución de la caldera');
-    }
+    // Propuesta de SOLO reforma: su ficha FM es la RES080_FM, no la RES060_FM.
+    if (isReforma && inputs?.comparativaReforma === false) return estadoFm080(result);
 
     const fc = result?.res060fc;
     if (!fc) return no('faltan la superficie y la demanda de calefacción con las que calcular la ficha FM');
@@ -98,6 +98,7 @@ export function estadoFc(result, inputs) {
     return {
         procede: true,
         motivo: null,
+        ficha: fc.ficha || 'RES060_FM',
         actual,
         fc: conFc,
         extra: conFc - actual,
@@ -108,6 +109,37 @@ export function estadoFc(result, inputs) {
         // Con comparativa (aerotermia + reforma) el bono de arriba es el de la Opción 1:
         // hay que nombrarla, o el cliente no sabe a cuál de las dos se refiere el aviso.
         dosOpciones: isReforma && inputs?.comparativaReforma !== false,
+    };
+}
+
+/**
+ * El mismo estado para la RES080_FM (rehabilitación): `result.res080fm` frente al
+ * bono RES080 vigente (`result.financialsRes080`). Las mismas reglas que la
+ * aerotermia: solo si sale MÁS y nada lo impide.
+ */
+export function estadoFm080(result) {
+    const no = (motivo) => ({ procede: false, motivo, actual: 0, fc: 0, extra: 0, dosOpciones: false });
+    const fm = result?.res080fm;
+    if (!fm) return no('faltan los CEE de la reforma con los que calcular la ficha RES080_FM');
+    const bloquea = (fm.avisos || []).find((a) => a.tono === 'bloquea');
+    if (fm.elegible === false && bloquea) return no(`por el factor multiplicador no se podría pedir (${bloquea.texto})`);
+    if (!(fm.cae > 0) || !result?.financialsRes080FM) return no('con la ficha RES080_FM el ahorro computable sale a cero');
+    const actual = Math.round(result?.financialsRes080?.caeBonus || 0);
+    const conFm = Math.round(result.financialsRes080FM.caeBonus || 0);
+    if (!(conFm > actual)) {
+        return no(`con el factor multiplicador el bono NO sube (saldrían ${fmt(conFm)} € frente a los ${fmt(actual)} € de esta propuesta)`);
+    }
+    return {
+        procede: true,
+        motivo: null,
+        ficha: fm.ficha || 'RES080_FM',
+        actual,
+        fc: conFm,
+        extra: conFm - actual,
+        // Sin los dos CEE simulados, la cifra es una estimación desde el previo y el posterior.
+        estimada: !!fm.estimada,
+        acs: null,
+        dosOpciones: false,
     };
 }
 
@@ -133,15 +165,23 @@ export function fcMejora(result, inputs) {
  * la cifra ya lo supone, que lo supone. Una cifra que cuenta un ACS que el
  * presupuesto no lleva, sin decirlo, es prometer el bono de otra instalación.
  */
-export function lineaFactorCorreccion({ actual = 0, fc = 0, tuteo = true, dosOpciones = false, acs = null } = {}) {
+export function lineaFactorCorreccion({ actual = 0, fc = 0, tuteo = true, dosOpciones = false, acs = null, ficha = null, estimada = false } = {}) {
     const t = (a, b) => (tuteo ? a : b);
-    const cual = dosOpciones ? 'de la Opción 1 (aerotermia)' : 'de la instalación de aerotermia';
+    const reforma = String(ficha || '').startsWith('RES080');
+    const cual = reforma ? 'de la reforma' : dosOpciones ? 'de la Opción 1 (aerotermia)' : 'de la instalación de aerotermia';
+    const que = reforma
+        ? 'multiplica el ahorro reconocido a la parte de la bomba de calor en una rehabilitación energética'
+        : 'multiplica el ahorro reconocido al cambiar una caldera por una bomba de calor';
 
     const faltaAcs = acs === 'supuesto' || acs === 'sin_scop'
         ? ` Para ir por esa vía la aerotermia tiene que dar también el agua caliente sanitaria (ACS), así que habría que añadir ${t('a la instalación', 'al presupuesto')} el depósito de ACS${acs === 'supuesto' ? ': esa cifra ya lo tiene en cuenta' : ''}.`
         : '';
+    // RES080_FM sin los dos CEE simulados: la cifra es una estimación (logic/res080fm.js).
+    const aprox = estimada
+        ? ' Es una estimación: para afinarla hay que hacer dos certificados energéticos simulados más, que hacemos nosotros.'
+        : '';
 
-    const p1 = `📅 *Nueva normativa — el bono podría ser mayor.* El BOE del 7 de noviembre de 2026 ha publicado una resolución del Ministerio que multiplica el ahorro reconocido al cambiar una caldera por una bomba de calor (el «factor multiplicador»). Con ella, el bono ${cual} pasaría de *${fmt(actual)} €* a unos *${fmt(fc)} €*.${faltaAcs}`;
+    const p1 = `📅 *Nueva normativa — el bono podría ser mayor.* El BOE del 7 de noviembre de 2026 ha publicado una resolución del Ministerio que ${que} (el «factor multiplicador»). Con ella, el bono ${cual} pasaría de *${fmt(actual)} €* a unos *${fmt(fc)} €*.${aprox}${faltaAcs}`;
 
     const p2 = `Se acogen las actuaciones iniciadas desde el ${FC_ACTUACIONES_DESDE}, con las facturas antes del ${FM_FACTURAS_ANTES_DEL_TXT}, y se presentan a partir del ${FM_PRESENTACION_DESDE_TXT}. Esta obra entra en ese supuesto, así que ${t('no tienes que esperar a nada: puedes ejecutarla cuando te venga bien', 'el cliente no tiene que esperar a nada: la obra puede ejecutarse cuando os venga bien')} y, si ${t('te', 'le')} resulta más beneficioso, ${t('tramitaríamos tu bono', 'tramitaríamos el bono')} a partir del ${FM_PRESENTACION_DESDE_TXT} por esa vía.`;
 

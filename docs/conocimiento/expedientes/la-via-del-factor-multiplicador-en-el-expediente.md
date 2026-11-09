@@ -302,7 +302,9 @@ a tres sitios:
   `check_anexo_cesion_2pag.mjs`, que comprueba también que el texto de la hoja de firmas no llegue a la
   primera casilla.
 - **Propuesta**: una nota más en la portada (la que se ajusta sola, regla 31; no en la hoja 4, que es
-  de alto fijo) cuando la oportunidad va por la vía FM (`inputs.ruta_fm`).
+  de alto fijo) cuando la oportunidad va por la vía FM (`inputs.ruta_fm`). Desde el 09/11/2026, si la
+  propuesta lleva la hoja del FM, la nota sobra (lo dice «Sus firmas» de esa hoja) y no sale; y vale
+  también en las de solo reforma. Ver [la hoja del factor multiplicador](../propuesta/la-hoja-del-factor-multiplicador.md).
 - **Mensaje de envío**: una línea tras el aviso del factor multiplicador (`opts.fc`), o entera si la
   propuesta ya va por esa vía.
 

@@ -76,7 +76,7 @@ paths:
 - `docs/conocimiento/calculo/el-acs-en-el-mismo-clima-que-la-calefaccion.md` — El ACS se declara en el MISMO clima que la calefacción (2026-10-21) · 3,3 KB
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md` — El CEE que MANDA, y qué se avisa antes de generar (2026-09-03) · 8,7 KB
 - `docs/conocimiento/calculo/el-coste-del-informe-de-verificacion-ya-en-la-simulacion.md` — El COSTE DEL INFORME DE VERIFICACIÓN, ya en la simulación (2026-09-11) · 3,2 KB
-- `docs/conocimiento/calculo/factor-multiplicador-la-resolucion-publicada-res060-fm.md` — FACTOR MULTIPLICADOR: la Resolución publicada (RES060_FM, RES090_FM…RES094_FM, RES080_FM) (2026-11-07) · 32,4 KB
+- `docs/conocimiento/calculo/factor-multiplicador-la-resolucion-publicada-res060-fm.md` — FACTOR MULTIPLICADOR: la Resolución publicada (RES060_FM, RES090_FM…RES094_FM, RES080_FM) (2026-11-07) · 35,3 KB
 - `docs/conocimiento/calculo/ficha-ter100-sector-terciario.md` — Ficha TER100 — Sector TERCIARIO (2026-07-30) · 5,1 KB
 - `docs/conocimiento/calculo/ficha-ter173-hibridacion-en-el-terciario.md` — Ficha TER173 — HIBRIDACIÓN en el terciario (2026-09-09) · 11,3 KB
 - `docs/conocimiento/calculo/fichas-con-factor-de-correccion-res060fc-y-res09xfc.md` — Fichas con FACTOR DE CORRECCIÓN: RES060FC y las de hibridación por zona (2026-10-21) · 7,9 KB
@@ -136,6 +136,8 @@ manda.**
   - **REGLA — la EQUIVALENCIA FINANCIERA es una sola.**
   - **REGLA — esto es para CASOS PUNTUALES: por defecto no se ve ni cambia nada.**
 - `docs/conocimiento/calculo/factor-multiplicador-la-resolucion-publicada-res060-fm.md`
+  - **REGLA — por la vía FM, el SCOP de CALEFACCIÓN es el del clima de la ZONA; el medio solo vale para el
+ACS**
   - **REGLA — un bloque que solo cambia el ACS no va por la vía FM.**
   - **REGLA — calefacción SIN ACS es un AVISO que dice qué hacer, nunca un bloqueo, y la cifra FM ya
 supone que se añade el ACS**

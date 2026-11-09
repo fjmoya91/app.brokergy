@@ -33,6 +33,7 @@
 import { calculateRes060FM, contextoCalderaFc, FM_NORMATIVA } from './res060fc.js';
 import { calculateRes080FM } from './res080fm.js';
 import { redondeaScop, precioCaeFm } from './calculation.js';
+import { entradasFmClima } from './climaFm.js';
 import { esBloque } from './tipoInmueble.js';
 
 /**
@@ -191,6 +192,17 @@ export function viaFmDesdeDatosCalculo(dc = {}, opciones = {}) {
         ? num(inputs.manualSuperficie)
         : (num(inputs.superficieCalefactable) || num(inputs.superficie) || num(result.res060fc?.superficie) || num(dc.surface));
     const hyb = result.hybridization;
+    // Por la FM, la calefacción en el clima de la ZONA (logic/climaFm.js). Sin catálogo
+    // aquí: el SCOP cálido es el de la comparativa que guardó la calculadora.
+    const fmClima = entradasFmClima({
+        src: inputs,
+        zona: inputs.zona || dc.zona,
+        scopHeating: redondeaScop(inputs.scopHeating) || 3.2,
+        hibridacion: hyb ? { coverage: hyb.coverage, refPower: hyb.refPower, cb: hyb.cb } : null,
+        hybridInputs: { method: inputs.hibridacionMetodo, heatPumpPower: num(inputs.potenciaBomba), boilerPower: num(inputs.potenciaCaldera) },
+        demandAnnual: num(result.Q_net),
+        scopCalido: result.comparativaClima?.calido?.scopHeating ?? null,
+    });
     const fm = calculateRes060FM({
         provinciaCode: inputs.provincia || inputs.provinceCode,
         anio: inputs.anio || dc.anio,
@@ -200,7 +212,7 @@ export function viaFmDesdeDatosCalculo(dc = {}, opciones = {}) {
         superficie,
         boilerEff: num(inputs.boilerEff) || 0.92,
         boilerId: inputs.boilerId,
-        scopHeating: redondeaScop(inputs.scopHeating) || 3.2,
+        scopHeating: fmClima.scopHeating,
         scopAcs: redondeaScop(inputs.scopAcs) || 3.0,
         changeAcs: cierto(inputs.changeAcs),
         // Como la calculadora: el alcance de la calefacción solo cuenta en un bloque.
@@ -208,8 +220,8 @@ export function viaFmDesdeDatosCalculo(dc = {}, opciones = {}) {
         qCalefaccion: num(result.Q_net),
         ceeInicial: inputs.xmlDemandData || null,
         ceeFinal: inputs.xmlDemandDataFinal || null,
-        hibridacion: hyb ? { coverage: hyb.coverage, refPower: hyb.refPower, cb: hyb.cb } : null,
-        contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal || null },
+        hibridacion: fmClima.hibridacion,
+        contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal || null, climaFm: fmClima.clima },
     });
     if (!fm) return null;
     return resumenViaFm({ res060fc: fm, savings: result.savings, financials: result.financials }, inputs, opciones);

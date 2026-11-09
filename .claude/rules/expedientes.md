@@ -38,7 +38,7 @@ paths:
 
 - `docs/conocimiento/expedientes/carpetas-de-drive-por-estado.md` — Carpetas de Drive por estado (2026-07-24) · 2,7 KB
 - `docs/conocimiento/expedientes/el-listado-de-expedientes-las-columnas-se-eligen.md` — El listado de expedientes: las columnas se ELIGEN (2026-09-15) · 13,4 KB
-- `docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md` — La vía del FACTOR MULTIPLICADOR en el expediente (2026-11-07) · 27,3 KB
+- `docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md` — La vía del FACTOR MULTIPLICADOR en el expediente (2026-11-07) · 27,5 KB
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md` — Módulo Lifecycle de Expedientes (2026-05-20) · 6,7 KB
 - `docs/conocimiento/expedientes/pasar-a-doc-completa-se-valida-todo.md` — Pasar a DOC. COMPLETA es haberlo VALIDADO TODO (2026-11-05) · 3,4 KB
 

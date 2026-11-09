@@ -46,6 +46,7 @@ import { resolveDacs, ACS_METHOD } from '../../expedientes/logic/demandaAcs';
 import { ceeToEmisionesInputs, ceeFinalToEmisionesInputs } from '../logic/ceeSeed';
 import { demandaDeCalculo } from '../../cee/ceeAvisos';
 import { calculateRes060FC, contextoCalderaFc } from '../logic/res060fc';
+import { entradasFmClima } from '../logic/climaFm';
 import { Res060FCModal } from '../components/Res060FCModal';
 import { calculateRes080FM } from '../logic/res080fm';
 import axios from 'axios';
@@ -846,6 +847,19 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         const supRes060FC = sanitizedInputs.manualSuperficie > 0
             ? sanitizedInputs.manualSuperficie
             : (sanitizedInputs.superficieCalefactable || sanitizedInputs.superficie);
+        // Por la FM la calefacción va en el clima de la ZONA aunque la vigente se haya
+        // declarado en medio (logic/climaFm.js): SCOP cálido y C_b con las horas cálidas.
+        const fmClima = entradasFmClima({
+            src: sanitizedInputs,
+            zona: sanitizedInputs.zona,
+            scopHeating: sanitizedInputs.scopHeating,
+            hibridacion: hybridizationRes
+                ? { coverage: hybridizationRes.coverage, refPower: hybridizationRes.refPower, cb: hybridizationRes.cb }
+                : null,
+            hybridInputs: { method: sanitizedInputs.hibridacionMetodo, heatPumpPower: sanitizedInputs.potenciaBomba, boilerPower: sanitizedInputs.potenciaCaldera },
+            demandAnnual: demandRes.Q_net,
+            scopCalido: comparativaClima?.[CLIMA_SCOP.CALIDO]?.scopHeating ?? null,
+        });
         const res060fcData = calculateRes060FC({
             provinciaCode: inputs.provincia || inputs.provinceCode,
             anio: sanitizedInputs.anio || inputs.anio,
@@ -855,7 +869,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             superficie: supRes060FC,
             boilerEff: sanitizedInputs.boilerEff,
             boilerId: inputs.boilerId,
-            scopHeating: sanitizedInputs.scopHeating,
+            scopHeating: fmClima.scopHeating,
             scopAcs: sanitizedInputs.scopAcs,
             changeAcs: sanitizedInputs.changeAcs,
             // Mismo alcance que la vía vigente: solo en un bloque puede quedar fuera.
@@ -863,10 +877,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             qCalefaccion: demandRes.Q_net,
             ceeInicial: inputs.xmlDemandData,
             ceeFinal: inputs.xmlDemandDataFinal,
-            hibridacion: hybridizationRes
-                ? { coverage: hybridizationRes.coverage, refPower: hybridizationRes.refPower, cb: hybridizationRes.cb }
-                : null,
-            contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal },
+            hibridacion: fmClima.hibridacion,
+            contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal, climaFm: fmClima.clima },
         });
 
         // Financieros de la vía FM con las mismas reglas (precio CAE, prescriptor, IVA...)

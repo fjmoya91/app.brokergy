@@ -24,8 +24,13 @@ import {
     calculateRes080SimplificadoFromXml,
     calculateHybridization,
     resolveHybridInputs,
+    climaScopForzado,
+    zoneClimateSeason,
+    CLIMA_SCOP,
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
+import { entradasFmClima } from '../../calculator/logic/climaFm';
+import { getEmitterTemp } from '../logic/cifoDoc';
 import { calculateRes060FC, contextoCalderaFc, tramiteFc, esEmisorAireAire } from '../../calculator/logic/res060fc';
 import { calculateRes080FM } from '../../calculator/logic/res080fm';
 import { calcCifo } from '../logic/calcCifo';
@@ -704,6 +709,23 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
 
     // ─── Autosave se ha desactivado para Instalación/Económico por petición del usuario (ahora manual) ───
 
+    // Modelo del CATÁLOGO de la bomba, solo cuando la vigente va en clima MEDIO en una
+    // zona cálida: la vía FM necesita su SCOP CÁLIDO (logic/climaFm.js).
+    const instClima = liveInst || expediente?.instalacion || null;
+    const zonaClima = expediente?.oportunidades?.datos_calculo?.zona || expediente?.oportunidades?.datos_calculo?.inputs?.zona || null;
+    const idModeloFm = climaScopForzado(instClima || {}) === CLIMA_SCOP.MEDIO && zoneClimateSeason(zonaClima) === CLIMA_SCOP.CALIDO
+        ? (instClima?.aerotermia_cal?.aerotermia_db_id ?? null)
+        : null;
+    const [modeloFm, setModeloFm] = useState(null);
+    useEffect(() => {
+        if (idModeloFm == null) { setModeloFm(null); return undefined; }
+        let vivo = true;
+        axios.get(`/api/aerotermia/${idModeloFm}`)
+            .then((r) => { if (vivo) setModeloFm(r.data || null); })
+            .catch(() => { if (vivo) setModeloFm(null); });
+        return () => { vivo = false; };
+    }, [idModeloFm]);
+
     // ─── Cálculo de resultados económicos en tiempo real ──────────────────────
     const calcResults = useMemo(() => {
         if (!expediente || !expediente.oportunidades) return null;
@@ -786,6 +808,19 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 // y los avisos de elegibilidad con las fechas de la obra y la tramitación.
                 const tipoFC = opInputs.tipo || (opInputs.housing_type === 'flat' ? 'piso' : 'unifamiliar');
                 const fechasObra = calcCifo(liveDoc || expediente.documentacion || {});
+                // Por la FM, la calefacción en el clima de la ZONA aunque la vigente vaya en medio.
+                const zonaFm = op.datos_calculo?.zona || opInputs.zona || cee.cee_inicial?.zonaClimatica;
+                const fmClima = entradasFmClima({
+                    src: { ...inst, hibridacion: hibridActive },
+                    zona: zonaFm,
+                    scopHeating,
+                    hibridacion: hybridRes ? { coverage: hybridRes.coverage, refPower: hybridRes.refPower, cb: hybridRes.cb } : null,
+                    hybridInputs: resolveHybridInputs(inst, calcInputs, op.datos_calculo?.zona),
+                    demandAnnual: q_net_heating,
+                    modelo: modeloFm && String(modeloFm.id) === String(inst.aerotermia_cal?.aerotermia_db_id) ? modeloFm : null,
+                    temp: getEmitterTemp(inst.tipo_emisor),
+                    metodoCal: inst.aerotermia_cal?.metodo_scop || 'ficha',
+                });
                 res060fcRaw = calculateRes060FC({
                     provinciaCode: opInputs.provincia || opInputs.provinceCode,
                     anio: opInputs.anio || op.datos_calculo?.anio,
@@ -795,7 +830,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     superficie,
                     boilerEff: boilerEffValue,
                     boilerId: boilerEffId,
-                    scopHeating,
+                    scopHeating: fmClima.scopHeating,
                     scopAcs,
                     changeAcs: changeAcsFlag,
                     // Un bloque que solo cambia el ACS no entra en el FM (y no cuenta la calefacción).
@@ -803,11 +838,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     qCalefaccion: q_net_heating,
                     ceeFinal: cee.cee_final,
                     ceeInicial: cee.cee_inicial,
-                    hibridacion: hybridRes
-                        ? { coverage: hybridRes.coverage, refPower: hybridRes.refPower, cb: hybridRes.cb }
-                        : null,
+                    hibridacion: fmClima.hibridacion,
                     contexto: {
                         ...contextoCalderaFc(opInputs, boilerEffId),
+                        climaFm: fmClima.clima,
                         ceeFinal: cee.cee_final,
                         inicioObra: fechasObra.inicio,
                         finObra: fechasObra.fin,
@@ -816,7 +850,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     },
                 });
                 // Contexto para el popup de desglose (mismas unidades que la calculadora).
-                res060fcCtx = { scopHeating, scopAcs, changeAcs: changeAcsFlag, dacs };
+                res060fcCtx = { scopHeating: fmClima.scopHeating, scopAcs, changeAcs: changeAcsFlag, dacs };
             }
         } else if (ficha === 'TER100' || ficha === 'TER173') {
             // TERCIARIO: el ahorro se desglosa en AE_C (calefacción), AE_ACS y AE_CAP
@@ -1025,7 +1059,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 ? { caePriceClient: finArgs.caePriceClient, caePriceClientRes080: finArgs.caePriceClient }
                 : null),
         };
-    }, [expediente, liveCee, liveInst, liveDoc]);
+    }, [expediente, liveCee, liveInst, liveDoc, modeloFm]);
 
     // Mientras no haya CEE cargado el expediente no tiene ahorro propio, pero SÍ
     // hereda como supuesto la economía que se le presentó al cliente en la

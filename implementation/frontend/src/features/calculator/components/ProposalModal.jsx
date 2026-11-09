@@ -11,6 +11,8 @@ import { lecturaAPresupuesto, HUECOS_PRESUPUESTO, CAMPOS_PRESUPUESTO, huecoDe, h
 // Aviso del factor de corrección (ficha RES060FC en consulta pública): decide si
 // procede ofrecerlo y redacta el párrafo. Fuente única — ver `logic/avisoFc.js`.
 import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
+// La hoja del FACTOR MULTIPLICADOR (hoja 2): las dos cifras, calendario, requisitos.
+import { fmPropuesta, textosHojaFm } from '../logic/fmPropuesta';
 // El consentimiento del IRPF de la vía del factor multiplicador (punto 12 de su
 // ficha): el MISMO texto que firma el cliente en el Convenio. Solo en los FM.
 import { NOTA_FM_PROPUESTA, lineaConsentimientoFm } from '../../expedientes/logic/viaFm.js';
@@ -416,6 +418,40 @@ const baseCss = `
         .prop-prueba .t { margin: 0 0 3px; font-size: 12.5px; font-weight: 700; }
         .prop-prueba .d { margin: 0; font-size: 10px; color: var(--gris); line-height: 1.55; }
         .prop-prueba .d strong { color: var(--tinta); }
+
+        /* ── Hoja del FACTOR MULTIPLICADOR (logic/fmPropuesta.js) ── */
+        .prop-fmcmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+        .prop-fmc { padding: 14px 20px 12px; }
+        .prop-fmc.vig { background: var(--crema); box-shadow: none; }
+        .prop-fmc .prop-importe { font-size: 42px; margin-top: 6px; }
+        .prop-fmc .prop-importe small { font-size: 21px; }
+        .prop-fmc .prop-importe small.pre { margin: 0 6px 0 0; }
+        .prop-fmc-n { margin-top: 9px; font-size: 10px; color: var(--gris); line-height: 1.45; }
+        .prop-fmc-n b { color: var(--tinta); }
+        .prop-fmc-chips { margin-top: 9px; display: flex; gap: 6px; flex-wrap: wrap; }
+        .prop-fmtab { margin-top: 8px; padding: 10px 18px 6px; }
+        .prop-fmtab > .f { height: 4px; }
+        .prop-fmtab-h, .prop-fmtab-r { display: grid; grid-template-columns: 1.3fr 1fr 1.3fr; gap: 10px; align-items: center; }
+        .prop-fmtab-h { font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--gris); padding: 4px 0 8px; border-bottom: 1px solid var(--linea); }
+        .prop-fmtab-h small { font-size: 8.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--gris2); }
+        .prop-fmtab-r { padding: 9px 0; border-bottom: 1px solid var(--linea); font-size: 12px; }
+        .prop-fmtab-r:last-child { border-bottom: 0; }
+        .prop-fmtab-r b { font-size: 17px; }
+        .prop-fmtab-r small { color: var(--verde-txt); font-weight: 800; font-size: 10px; }
+        .prop-fmnota { margin: 7px 2px 0; font-size: 9.5px; color: var(--gris2); line-height: 1.45; }
+        .prop-fmh3 { font-size: 17px; margin: 12px 0 0; }
+        .prop-fmcal .prop-srow { grid-template-columns: repeat(5, 1fr); }
+        .prop-fmcal .prop-pasos-track { left: 70px; right: 70px; }
+        .prop-fmcuando { font-size: 9.5px; font-weight: 700; color: var(--naranja-txt); margin-top: 2px; }
+        /* Dos columnas que se rellenan solas: en rejilla, cada fila se estiraba a la
+           tarjeta más alta y se perdían ~40 px en una hoja de alto fijo. */
+        .prop-fmreq { column-count: 2; column-gap: 8px; margin-top: 7px; }
+        .prop-fmreq > .prop-card { display: block; break-inside: avoid; margin-bottom: 8px; padding: 10px 14px; border-radius: 16px; }
+        .prop-fmreq h5 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; padding: 0; font-size: 11px; font-weight: 700; color: var(--tinta); }
+        .prop-fmreq h5 svg { color: var(--verde-txt); flex: none; }
+        .prop-fmreq p { margin: 0; padding: 0; font-size: 9.5px; line-height: 1.45; color: var(--gris); }
+        .prop-fm .prop-ambar { margin-top: 8px; }
+        .prop-fm .prop-fmreq + .prop-ambar { margin-top: 0; }
 
         /* ── Cláusulas ──────────────────────────────────────────────────────── */
         .prop-cl { padding: 10px 18px; margin-top: 6px; border-radius: 18px; }
@@ -2266,6 +2302,14 @@ info@brokergy.es · 623 926 179`;
     const fcEstado = useMemo(() => estadoFc(result, inputs), [result, inputs]);
     const fcVisible = getRoleFlags(user).isStaff;
     const fcInfo = fcEstado.procede ? fcEstado : null;
+    // La HOJA del factor multiplicador (logic/fmPropuesta.js): va en TODA propuesta
+    // en la que alguna opción sube por esa vía (Fran, 09/11/2026), detrás de la
+    // portada. Como el párrafo del mensaje, solo la genera el equipo interno.
+    const hojaFm = useMemo(() => {
+        if (!fcVisible) return null;
+        const d = fmPropuesta(result, inputs);
+        return d.procede ? { ...d, txt: textosHojaFm(d) } : null;
+    }, [fcVisible, result, inputs]);
 
     const buildCaptionBase = useCallback((mode, targetName, opts = {}) => {
         const f = result || {};
@@ -2441,13 +2485,16 @@ info@brokergy.es · 623 926 179`;
                 fc: fcInfo.fc,
                 dosOpciones: fcInfo.dosOpciones,
                 acs: fcInfo.acs,
+                ficha: fcInfo.ficha,
+                estimada: fcInfo.estimada,
                 tuteo: tuteoFm,
             })}`;
         }
         // El consentimiento del IRPF de la vía FM (punto 12 de su ficha), SOLO en los
         // FM: tras el aviso del factor multiplicador, o si la propuesta ya va por esa
         // vía. Texto: expedientes/logic/viaFm.js (el mismo que firma en el Convenio).
-        const rutaFm = cierto(inputs?.ruta_fm) && !(cierto(inputs?.isReforma) && inputs?.comparativaReforma === false);
+        // Desde la RES080_FM (09/11/2026), también en las de solo reforma.
+        const rutaFm = cierto(inputs?.ruta_fm);
         if (avisoFm || rutaFm) {
             txt = `${txt}\n\n${lineaConsentimientoFm({ tuteo: tuteoFm, trasAviso: avisoFm })}`;
         }
@@ -2872,8 +2919,14 @@ info@brokergy.es · 623 926 179`;
     // Vía del FACTOR MULTIPLICADOR elegida (`inputs.ruta_fm`, la sella el expediente
     // al cambiar de vía): la nota del consentimiento del IRPF (punto 12 de la ficha).
     // Va en las NOTAS de la portada, que se ajusta sola (regla 31), y no en la hoja 4,
-    // que es de alto fijo. Nunca en una propuesta de solo reforma: no hay ficha FM.
-    const notaFm = cierto(inputs?.ruta_fm) && !(isReforma && inputs?.comparativaReforma === false);
+    // que es de alto fijo. También en las de solo reforma desde la RES080_FM (09/11/2026).
+    // Con la hoja del FM ya lo dice «Sus firmas»: la nota sobra.
+    const notaFm = cierto(inputs?.ruta_fm) && !hojaFm;
+    // La línea de la fila del bono de cada tabla de la portada, si esa opción sube por FM.
+    const fmAero = hojaFm?.opciones.find((o) => o.clave === 'aero') || null;
+    const fmReforma = hojaFm?.opciones.find((o) => o.clave === 'reforma') || null;
+    // Con la hoja del FM, las interiores corren una página.
+    const pFm = hojaFm ? 1 : 0;
     const lineaHibrida = lineaTablaHibridacion(opHibrida);
     const avisoHibrida = avisoHibridacion(opHibrida, hipHibrida);
 
@@ -2983,6 +3036,102 @@ info@brokergy.es · 623 926 179`;
             <span><a className="m" href="mailto:info@brokergy.es">info@brokergy.es</a> · <a href="tel:623926179">623 926 179</a> · <a href="https://www.brokergy.es">brokergy.es</a></span>
         </div>
     );
+
+    // Hoja 2 cuando alguna opción sube por la vía del FACTOR MULTIPLICADOR: las dos
+    // cifras, el calendario, lo que tiene que conseguir y lo que arriesga. Cifras y
+    // textos: logic/fmPropuesta.js. Hoja de ALTO FIJO: si se le añade algo, se mide.
+    const renderHojaFm = () => {
+        const t = hojaFm.txt;
+        const varias = hojaFm.opciones.length > 1;
+        const eur = (o, v) => `${o.estimada && v === o.fm ? '≈ ' : ''}${formatNumber(v)} €`;
+        return (
+            <div className="prop-page prop-fm">
+                {renderBarra(2)}
+                <div className="prop-pb" style={{ paddingTop: '16px' }}>
+                    <div className="prop-stag"><span className="prop-sn">+</span><span className="prop-st ver">Nueva normativa · factor multiplicador</span></div>
+                    <h2 className="prop-h2">Su bono puede llegar a <span className="prop-mark">{t.titular}</span></h2>
+                    <p className="prop-sintro">{t.intro}</p>
+
+                    {varias ? (
+                        <div className="prop-card prop-fmtab">
+                            <div className="f"></div>
+                            <div className="prop-fmtab-h"><span>Opción</span><span>Vía actual<br /><small>se pide ya · importe firme</small></span><span>Factor multiplicador<br /><small>desde el 15/01/2027 · estimado</small></span></div>
+                            {hojaFm.opciones.map((o) => (
+                                <div key={o.clave} className="prop-fmtab-r">
+                                    <span>{o.titulo}</span>
+                                    <span>{formatNumber(o.actual)} €</span>
+                                    <span><b>{eur(o, o.fm)}</b><small> +{formatNumber(o.extra)} €</small></span>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (() => {
+                        const o = hojaFm.principal;
+                        return (
+                            <div className="prop-fmcmp">
+                                <div className="prop-card prop-fmc vig">
+                                    <div className="prop-eyebrow" style={{ color: 'var(--gris)' }}>Vía actual</div>
+                                    <div className="prop-importe">{formatNumber(o.actual)}<small>€</small></div>
+                                    <div className="prop-fmc-n"><b>Se puede pedir ya.</b> Es el importe firme de esta propuesta.</div>
+                                </div>
+                                <div className="prop-card prop-fmc">
+                                    <div className="f"></div>
+                                    <div className="prop-eyebrow">Con el factor multiplicador</div>
+                                    <div className="prop-importe">{o.estimada && <small className="pre">≈</small>}{formatNumber(o.fm)}<small>€</small></div>
+                                    <div className="prop-fmc-chips">
+                                        <span className="prop-chip prop-chip-verde">+ {formatNumber(o.extra)} €</span>
+                                        <span className="prop-chip prop-chip-crema">Se pide desde el 15/01/2027</span>
+                                    </div>
+                                    <div className="prop-fmc-n"><b>Estimado</b> y sujeto a cupo: ver los riesgos más abajo.</div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                    <p className="prop-fmnota">{t.noDoble}</p>
+
+                    <h3 className="prop-h3 prop-fmh3">Cuándo se pide</h3>
+                    <div className="prop-card prop-pasos prop-fmcal">
+                        <div className="prop-pasos-track"></div>
+                        <div className="prop-srow">
+                            {t.calendario.map((c, i) => (
+                                <div key={c.que} className="prop-ps">
+                                    <div className="prop-pn">{String(i + 1).padStart(2, '0')}</div>
+                                    <div className="prop-pt">{c.que}</div>
+                                    <div className="prop-fmcuando">{c.cuando}</div>
+                                    <div className="prop-pd">{c.d}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <h3 className="prop-h3 prop-fmh3">Qué hace falta para ir por esta vía</h3>
+                    <div className="prop-fmreq">
+                        {t.requisitos.map((r) => (
+                            <div key={r.t} className="prop-card">
+                                <h5><Ico n="check" s={13} w={2.6} />{r.t}</h5>
+                                <p>{r.d}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="prop-ambar">
+                        <div className="prop-ambar-ico"><Ico n="aviso" w={2.2} /></div>
+                        <div>
+                            <h4>Lo que debe saber antes de decidir</h4>
+                            {t.riesgos.map((r) => <p key={r}>{r}</p>)}
+                        </div>
+                    </div>
+                    <div className="prop-ambar ver">
+                        <div className="prop-ambar-ico"><Ico n="bombilla" w={2.2} /></div>
+                        <div>
+                            <h4>¿Por qué vía vamos?</h4>
+                            <p>{t.decision}</p>
+                        </div>
+                    </div>
+                </div>
+                {renderFoot()}
+            </div>
+        );
+    };
 
     const handleSendByEmail = () => {
         setSendingEmail(false);
@@ -3591,7 +3740,7 @@ info@brokergy.es · 623 926 179`;
                                                         {!hideBudget && f.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}{lineaHibrida && (<><br /><small className={lineaHibrida.tono === 'mas' ? 'mas' : 'menos'}>{lineaHibrida.texto}</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}{lineaHibrida && (<><br /><small className={lineaHibrida.tono === 'mas' ? 'mas' : 'menos'}>{lineaHibrida.texto}</small></>)}{fmAero && (<><br /><small className="mas">{hojaFm.txt.linea(fmAero)}</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f.caeBonus)} €</span></div>
 
                                                         {f.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
@@ -3661,7 +3810,7 @@ info@brokergy.es · 623 926 179`;
                                                         {!hideBudget && f80.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}{ceeComparison && includeCeeComp && inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f80.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}{ceeComparison && includeCeeComp && inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}{fmReforma && (<><br /><small className="mas">{hojaFm.txt.linea(fmReforma)}</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f80.caeBonus)} €</span></div>
 
                                                         {f80.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
@@ -3808,9 +3957,12 @@ info@brokergy.es · 623 926 179`;
                                 {renderCta()}
                             </div>
 
+                            {/* <!-- HOJA DEL FACTOR MULTIPLICADOR (solo si alguna opción sube) --> */}
+                            {hojaFm && renderHojaFm()}
+
                             {/* <!-- PAGINA 2 --> */}
                             <div className="prop-page">
-                                {renderBarra(2)}
+                                {renderBarra(2 + pFm)}
                                 <div className="prop-pb" style={{ paddingTop: '16px' }}>
                                     <div className="prop-stag"><span className="prop-sn">2</span><span className="prop-st">Bono Energético CAE</span></div>
                                     <h2 className="prop-h2">¿Qué son los Certificados de <span className="prop-mark">Ahorro</span> Energético?</h2>
@@ -3911,7 +4063,7 @@ info@brokergy.es · 623 926 179`;
 
                             {/* <!-- PAGINA 3 --> */}
                             <div className="prop-page">
-                                {renderBarra(3)}
+                                {renderBarra(3 + pFm)}
                                 <div className="prop-pb" style={{ paddingTop: '16px' }}>
                                     <div className="prop-stag"><span className="prop-sn">5</span><span className="prop-st">Documentación</span></div>
                                     <h2 className="prop-h2">¿Qué debe <span className="prop-mark">preparar</span> para continuar?</h2>
@@ -4014,7 +4166,7 @@ info@brokergy.es · 623 926 179`;
 
                             {/* <!-- PAGINA 4 --> */}
                             <div className="prop-page">
-                                {renderBarra(4)}
+                                {renderBarra(4 + pFm)}
                                 <div className="prop-pb" style={{ paddingTop: '16px' }}>
                                     <div className="prop-stag"><span className="prop-sn">6</span><span className="prop-st">Condiciones</span></div>
                                     <h2 className="prop-h2">Condiciones del acuerdo y <span className="prop-mark">costes</span> del servicio</h2>

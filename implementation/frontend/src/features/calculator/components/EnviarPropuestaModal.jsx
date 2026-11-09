@@ -273,9 +273,10 @@ export function EnviarPropuestaModal({
         rehacerMensaje(next, includeFc);
     };
 
-    // Toggle "Incluir el factor de corrección": solo toca el MENSAJE. El PDF de la
-    // propuesta no lo lleva a propósito — es un documento con cifras que se firma,
-    // y la del FC no es firme (borrador en consulta pública).
+    // Toggle "Incluir el factor multiplicador": solo toca el PÁRRAFO del MENSAJE. El
+    // PDF lleva SIEMPRE su hoja del FM cuando procede (Fran, 09/11/2026: hoja 2,
+    // logic/fmPropuesta.js), que dice que esa cifra no es firme y repite la de la
+    // propuesta.
     const toggleIncludeFc = () => {
         const next = !includeFc;
         if (onIncludeFcChange) onIncludeFcChange(next);
@@ -1051,10 +1052,11 @@ export function EnviarPropuestaModal({
                                 : 'sin SCOP de ACS, esa cifra es solo la calefacción; subirá al añadir el depósito.'}
                         </p>
                     )}
-                    {fcVisible && fcEstado?.procede && includeFc && (
+                    {fcVisible && fcEstado?.procede && (
                         <p className="-mt-2 text-[9px] text-white/30 leading-relaxed">
-                            Va solo en el mensaje, no en el PDF: la vía FM tiene cupo y requisitos propios y esa
-                            cifra no es firme. El texto lo dice y repite el importe de la propuesta.
+                            El PDF lleva siempre la hoja 2 del factor multiplicador (las dos cifras, cuándo se pide
+                            y qué hace falta). Esto solo añade el párrafo al mensaje; los dos dicen que esa cifra no
+                            es firme y repiten el importe de la propuesta.
                         </p>
                     )}
                     {fcVisible && fcEstado && !fcEstado.procede && (

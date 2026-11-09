@@ -328,6 +328,14 @@ function avisosFm(r, ctx) {
     if (r.acsSupuesto || r.acsSinScop) add('aviso', textoFaltaAcs(r));
     if (r.etaPorDefecto) add('aviso', 'Rendimiento de caldera «por defecto»: la ficha toma el del Anexo II según el combustible, la antigüedad y el tipo de la caldera. Elige su fila.');
     if (r.hibridacion && ctx.sinZona) add('aviso', 'No consta la zona climática: se ha usado la ficha de la zona D (RES093_FM).');
+    // Clima del SCOP: por la FM la calefacción va en el de la ZONA (logic/climaFm.js).
+    if (ctx.climaFm?.sinCalido) add('aviso', `La vía vigente está declarada en clima MEDIO, pero por la FM el SCOP de calefacción tiene que ser el de la zona ${ctx.zona || ''} (clima cálido) y no hay SCOP cálido de este equipo en el catálogo. La cifra FM está calculada con el medio y puede salir alta: hace falta el SCOP cálido del fabricante (o el COP nominal × FC × FP).`);
+    if (ctx.climaFm?.ajustado) {
+        const cbTxt = ctx.climaFm.cbA != null && ctx.climaFm.cbDe != null && ctx.climaFm.cbA !== ctx.climaFm.cbDe
+            ? ` y C_b ${(ctx.climaFm.cbDe * 100).toFixed(2).replace('.', ',')} % → ${(ctx.climaFm.cbA * 100).toFixed(2).replace('.', ',')} %`
+            : '';
+        add('info', `Por la FM el SCOP de calefacción es el de clima CÁLIDO (zona ${ctx.zona || ''}; Anexo I de la ficha FM, sin el «al menos medio» de la vigente): SCOP ${String(ctx.climaFm.de).replace('.', ',')} → ${String(ctx.climaFm.a).replace('.', ',')}${cbTxt}. La vía vigente sigue en medio.`);
+    }
     if (r.hibridacion && ctx.cbSinPotencias) add('aviso', 'Faltan las potencias de la bomba o de la caldera: el C_b no sale de la tabla de la ficha y la cifra puede estar alta.');
     if (ctx.combustible === 'electrica') add('aviso', 'Caldera ELÉCTRICA: la ficha la admite («de combustión o eléctrica») y el Anexo II la trae al 100 %, pero el cuerpo de la Resolución habla de combustibles fósiles. No es seguro que se admita.');
 
@@ -378,7 +386,7 @@ export function calculateRes060FM({
     hibridacion = null, // { coverage, refPower, cb } de calculateHybridization, o null
     fuenteBomba = 'aerotermia', // 'geotermia' | 'hidrotermica' solo si el equipo lo dice
     vulnerable = false, // consumidor vulnerable (×1,5, fichas _FM-S)
-    contexto = {},      // { sinCalefaccion, combustible, solido, ceeFinal, inicioObra, finObra, tramite, aireAire, comunidad, hoy }
+    contexto = {},      // { sinCalefaccion, combustible, solido, ceeFinal, inicioObra, finObra, tramite, aireAire, comunidad, hoy, climaFm }
 }) {
     const tip = tipologiaFM({ tipo, bloque });
     const fm = tip.fm * (vulnerable ? 1.5 : 1);
@@ -481,6 +489,8 @@ export function calculateRes060FM({
         acsSupuesto,         // no lo lleva, y la cifra FM lo suma como si se añadiera
         acsSinScop,          // no lo lleva y no hay SCOP_dhw: la cifra es solo la calefacción
         scopAcs: scopD,
+        scopHeating: scopB,
+        climaFm: contexto.climaFm || null, // por la FM, SCOP de la zona (logic/climaFm.js)
         conCalefaccion,
         fm,
         eta,

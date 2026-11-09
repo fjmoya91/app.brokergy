@@ -36,6 +36,7 @@ renderizando la página (RES060_FM p. 8, RES080_FM p. 22, RES090_FM p. 25).
 | Vulnerable | Solo severo, ×1,5 | Vulnerable, vulnerable severo **o** en riesgo de exclusión (RD 897/2017; no basta la familia numerosa sin renta), ×1,5 |
 | Zonas D y E | Exige CEE con letra A–E (bloqueaba) | **Ya no excluye**: con F o G se aporta un documento firmado por el propietario de que se le ha informado de que la bomba podría no rendir lo previsto (doc. 13) |
 | Inercia | Depósito ≥ 15 L/kW | Certificado de que la inercia es la que pide el FABRICANTE, con volumen total (L) y específico (L/kW) |
+| Clima del SCOP de calefacción | Vigente (Anexo III de la RES060): «**al menos** el de clima medio, o el de la zona equivalente» → el medio vale siempre | **Por la zona, sin el «al menos medio»** (Anexo I de cada ficha FM): RES060_FM y RES062_FM, B, C y D cálidas y E media; hibridaciones RES090_FM…RES099_FM, A, B, C y D cálidas y E media. El «al menos medio» queda **solo para el ACS**. Ver la REGLA de abajo |
 | Mantenimiento | Contrato de 2 años | **Oferta** de contrato de 2 años con firma de **aceptación o desistimiento** del propietario |
 | Baja tensión | Siempre | «cuando en su caso sea de aplicación» |
 | Cupo | 10 % de las obligaciones de 2027 | **15 % de la obligación de 2026 = 1.286.876.082 kWh** (≈1,29 TWh), por orden de fecha de **resolución**; a igual fecha, por fecha de solicitud |
@@ -48,7 +49,8 @@ renderizando la página (RES060_FM p. 8, RES080_FM p. 22, RES090_FM p. 25).
 **Lo que NO cambia** (cotejado con script): la tabla UNIFAMILIAR del Anexo IV (51 provincias × 7 tramos,
 idéntica a `ANEXO_IV.UNI`, ahora solo sirve de TOPE ×2); las tablas de C_b en paralelo de **aerotermia**
 de las cinco zonas (idénticas a `CB_PARALELO`); el Anexo II de gas y gasóleo (83 % gas condensación antes
-de 1998, 85 % desde 1998 con encendido automático); el Anexo I del SCOP; el «solo una vez por actuación» y
+de 1998, 85 % desde 1998 con encendido automático); la prelación y las fórmulas del Anexo I del SCOP (pero
+**no** el clima de la calefacción: fila de la tabla de arriba); el «solo una vez por actuación» y
 que lo **ya resuelto favorablemente desde el RDL 7/2026 no se puede volver a presentar**.
 
 **Nuevo en las tablas de C_b**: una segunda columna para **geotermia o hidrotérmica**, algo más alta. El %
@@ -70,6 +72,27 @@ del 10 % (A, B, C) o del 15 % (D, E) el C_b es 0; entre puntos, interpolación l
   ficha vigente y se resuelva ya no puede pedir el FM.
 - **El cupo es pequeño**: 1,29 TWh con f_M ≥ 2 son ~0,64 TWh de ahorro real. Si la demanda supera a la oferta,
   se agotará pronto en 2027.
+
+**REGLA — por la vía FM, el SCOP de CALEFACCIÓN es el del clima de la ZONA; el medio solo vale para el
+ACS** (2026-11-08, cotejado con el BOE en 26RES093_8). La vigente dice «al menos, el de las condiciones de
+clima medio […], o el indicado para la zona climática equivalente», y por eso una hibridación puede
+declararse en medio si da más (botón «Clima del SCOP», [el ACS en el mismo clima](el-acs-en-el-mismo-clima-que-la-calefaccion.md)).
+El Anexo I de las fichas FM quita ese «al menos» para la calefacción. Dice «se considerarán, en calefacción
+[…], las zonas climáticas B, C y D como cálidas (warm) y la zona E como media» (RES060_FM, RES062_FM), o
+«tanto en calefacción como en ACS, las zonas climáticas A, B, C y D como cálidas» en las hibridaciones.
+Solo deja que el dato del ACS se aporte «al menos, para la zona climática media». Caso: 26RES093_8 (D3,
+PANASONIC T-CAP 12 kW) está declarado en medio en la vigente (SCOP 3,46 · C_b 94,4 % · 32,75 MWh). Por la
+FM en medio saldrían 63,92 MWh, pero lo que admite la ficha es el cálido: SCOP 4,34, cobertura 0,48 y C_b
+78,5 %, que dan **56,22 MWh** (6.184 € a 110 €/MWh). Sin el SCOP cálido del fabricante no se cae al medio:
+se usa el 2.º de la prelación (COP nominal × FC × FP).
+**En la app (2026-11-08)**: [logic/climaFm.js](../../../implementation/frontend/src/features/calculator/logic/climaFm.js)
+(`entradasFmClima`) da a la cifra FM el SCOP cálido y el C_b de las horas cálidas cuando la vigente se
+declaró en medio en una zona A–D. La vigente (la subsidiaria) sigue en medio. Lo usan las tres que calculan
+el FM: el expediente (con el modelo del catálogo), la calculadora (su `comparativaClima`) y `viaFm.js`
+(lista de oportunidades). Los avisos lo dicen («Por la FM el SCOP de calefacción es el de clima CÁLIDO…»).
+Si el catálogo no trae el cálido, se queda en medio y AVISA de que la cifra puede salir alta: el 2.º de la
+prelación no se calcula solo. Tras tocarlo: `node implementation/backend/scripts/test_clima_fm.mjs`.
+⚠️ Pendiente: el CIFO de un FM sigue imprimiendo el SCOP del expediente (`cifoDoc.js` no tiene rama FM).
 
 ## Documentación que pide la RES060_FM (apartado 3)
 
@@ -206,9 +229,12 @@ caldera eléctrica sigue con su aviso, sin cambios. Pruebas: `test_res060fc.mjs`
 partir de ahora las propuestas deben ir acompañadas del cálculo con FM»). El conmutador del aviso FM del
 popup de envío (`includeFc` de `ProposalModal`) nace **encendido**: el mensaje lleva el párrafo de
 `lineaFactorCorreccion` (bono vigente → bono por la vía FM, fechas, cupo) y el del consentimiento del IRPF.
-Solo sale si `estadoFc` dice que procede (no sólido, no terciario, no solo reforma); quien envía puede
-apagarlo en una propuesta concreta. Antes nacía apagado porque era un borrador en consulta pública. Y al
-preparar una propuesta (alta, CEE de la simulación, aviso a Fran) se dan siempre las DOS cifras.
+Solo sale si `estadoFc` dice que procede (no sólido, no terciario; en una de solo reforma, con la
+RES080_FM, `estadoFm080`); quien envía puede apagarlo en una propuesta concreta. Antes nacía apagado
+porque era un borrador en consulta pública. Y al preparar una propuesta (alta, CEE de la simulación, aviso
+a Fran) se dan siempre las DOS cifras. **Desde el 09/11/2026 el PDF lleva además su HOJA del FM** (hoja 2:
+las dos cifras, cuándo se pide, qué hace falta y los riesgos), en RES060, RES09x y RES080: ver
+[la hoja del factor multiplicador](../propuesta/la-hoja-del-factor-multiplicador.md).
 
 **REGLA — la comparativa se GUARDA en escalares al guardar la oportunidad**:
 `datos_calculo.via_fm` (~300 B, `resumenViaFm`) = `{v, normativa, ficha, aplica, no_aplica?,
