@@ -275,10 +275,11 @@ aviso ámbar. Al aceptar, el popup dice el número de la serie FM (`26RES060FM_N
 lectura). `--escribir` usa la RPC `oportunidades_set_via_fm`
 ([scripts/oportunidad_set_via_fm.sql](../../../implementation/backend/scripts/oportunidad_set_via_fm.sql)):
 de una sentencia, **no mueve `updated_at`** (si no, 463 oportunidades saldrían como recién tocadas) y **no
-pisa** un `via_fm` ya guardado salvo `--forzar`. ⚠️ **Sin aplicar.** Fran dio el «sí» al mismo precio
-(7/11/2026), pero **se aplica DESPUÉS del deploy**: el código de producción todavía no quita `via_fm`
-a los partners, y escrito antes viajaría en el `GET /api/oportunidades/:id` de su oportunidad (regla 102:
-no basta con no pintarlo). Orden: deploy → `oportunidad_set_via_fm.sql` → `--escribir`. Las altas desde WhatsApp (`computeFullCalculatorResult`) no generan `via_fm` hasta que se guardan
+pisa** un `via_fm` ya guardado salvo `--forzar`. **Aplicado el 09/11/2026** tras el deploy de 4a56e8de
+(con `financialScrub` ya quitando `via_fm` a quien no es ADMIN; escrito antes, viajaría en el
+`GET /api/oportunidades/:id` del partner, regla 102): primero la RPC (`oportunidad_set_via_fm.sql`, solo
+`service_role`) y después `--escribir`, al mismo precio que la vigente («sí» de Fran del 7/11/2026). 428
+oportunidades con `via_fm` v3 (32 RES080_FM), ninguna `updated_at` movida. Las altas desde WhatsApp (`computeFullCalculatorResult`) no generan `via_fm` hasta que se guardan
 en la calculadora; el relleno las cubre. **Desde el 09/11/2026 también las de SOLO reforma (RES080_FM)**:
 pide además `result.res080` y `result.financialsRes080` (sus campos sueltos, regla 22), la energía por
 vectores y la demanda de refrigeración de los dos CEE y los kWh `efSimBC`/`efSimRest`. En seco ese día: 15
