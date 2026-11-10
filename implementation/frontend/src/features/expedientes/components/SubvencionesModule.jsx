@@ -310,6 +310,15 @@ export function SubvencionesModule({ expediente, onSave, onLiveUpdate, saving, r
                             </Field>
                         </div>
 
+                        <Field
+                            label="Texto del estado en el Anexo I (opcional)"
+                            hint="Si se escribe, es lo que imprime la casilla «Estado» en vez del nombre del estado. La casilla marcada sigue siendo la del estado elegido arriba.">
+                            <input disabled={readOnly} className={INPUT}
+                                placeholder="Solicitada sin contestación por ausencia de fondos"
+                                value={local.ayuda.estado_texto || ''}
+                                onChange={(e) => setAyuda({ estado_texto: e.target.value })} />
+                        </Field>
+
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <Field label="Fecha de solicitud">
                                 <input type="date" disabled={readOnly} className={INPUT}
