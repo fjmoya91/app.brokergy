@@ -62,18 +62,42 @@ function textoBienvenida({ enlace = enlaceFormulario() } = {}) {
 // como pie del vídeo en vez de mandarlo como mensaje aparte.
 const PIE_VIDEO = 'Y en este vídeo te contamos en dos minutos las ayudas que hay.';
 
+// ── Lo que dice: quien ya ha hablado con nosotros se nota en el primer mensaje ──
+// Medido el 10/11/2026 en el modo copia: «Hola Fran, soy Santiago Carmena, te llamé
+// ayer. Te mando la documentación» era un número que no estaba en ningún sitio,
+// pero NO era nuevo: había llamado por teléfono. Lo mismo con quien viene «de parte
+// de» un instalador: ese lead es del partner, y lo lleva Fran a mano para
+// asignárselo (por el formulario con `ref=wa` quedaría sin partner).
+const sinTildes = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const YA_NOS_CONOCE = [
+    [/\bfran(cisco)?\b/, 'se dirige a Fran por su nombre'],
+    [/\bte (he )?llam(e|ado)\b|\bos (he )?llam(e|ado)\b|\bme llamast(e|eis)\b|\b(lo que )?hemos hablado\b|\bhablamos\b|\bhable con(tigo| vosotros)\b|\blo hablado\b|\bsegun (lo )?hablado\b|\bcomo (te |os )?(dije|comente|quedamos)\b|\bquedamos en\b|\blo que me (pediste|pedisteis|has pedido|habeis pedido)\b/, 'habla de una conversación anterior'],
+    [/\bde parte de\b|\b(me )?(ha|han) (pasado|dado|facilitado) (tu|vuestro|este) (numero|telefono|contacto|whatsapp)\b|\btu (numero|telefono|contacto) me lo (ha|han) (pasado|dado)\b/, 'viene de parte de alguien'],
+];
+
+/** Si el texto de la ráfaga dice que ya nos conoce, el motivo; si no, null. */
+function yaNosConoce(texto) {
+    const t = sinTildes(texto);
+    if (!t.trim()) return null;
+    for (const [re, motivo] of YA_NOS_CONOCE) if (re.test(t)) return motivo;
+    return null;
+}
+
 /**
  * ¿Se le escribe? Recibe lo leído del chat y de la BD y devuelve { ok, motivo }.
  *  chat: { numero, enAgenda, esEmpresa, mensajes, propios, primeroSeg, etiquetas }
  *  conocido: texto de dónde está en la app («cliente», «partner»…) o null
  *  prueba: es uno de los teléfonos de prueba (se salta lo de «ya le conocemos»)
+ *  texto: lo que ha escrito en la ráfaga (cuerpo y pies de foto), para `yaNosConoce`
  */
-function decidir({ chat, conocido = null, prueba = false, ahoraMs = Date.now(), historialMin = 360 } = {}) {
+function decidir({ chat, conocido = null, prueba = false, ahoraMs = Date.now(), historialMin = 360, texto = '' } = {}) {
     if (!chat) return { ok: false, motivo: 'no se ha podido leer el chat' };
     if (!chat.numero) return { ok: false, motivo: 'no se sabe su número (no se puede comprobar si es nuevo)' };
     if (!esMovilEspanol(chat.numero)) return { ok: false, motivo: 'no es un móvil español' };
     if (prueba) return { ok: true, motivo: 'teléfono de prueba' };
     if (conocido) return { ok: false, motivo: `ya está en la app (${conocido})` };
+    const dice = yaNosConoce(texto);
+    if (dice) return { ok: false, motivo: `ya ha hablado con nosotros: ${dice}` };
     if (chat.enAgenda) return { ok: false, motivo: 'está guardado en la agenda del móvil' };
     if (chat.esEmpresa) return { ok: false, motivo: 'es una cuenta de empresa (WhatsApp Business)' };
     if ((chat.propios || 0) > 0) return { ok: false, motivo: 'ya le hemos escrito en este chat' };
@@ -117,5 +141,5 @@ function inicioDiaMadrid(date = new Date()) {
 
 module.exports = {
     TIPOS_ADMITIDOS, PIE_VIDEO, nueve, esMovilEspanol, enlaceFormulario, textoBienvenida, decidir,
-    inicioDiaMadrid,
+    yaNosConoce, inicioDiaMadrid,
 };

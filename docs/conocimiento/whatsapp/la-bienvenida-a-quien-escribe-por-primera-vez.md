@@ -10,7 +10,7 @@ Fuente única:
 - [services/bienvenidaWhatsapp.js](../../../implementation/backend/services/bienvenidaWhatsapp.js): la sesión, la BD y la vuelta;
 - [utils/bienvenidaWhatsapp.js](../../../implementation/backend/utils/bienvenidaWhatsapp.js): el texto, a quién no y el horario;
 - tabla en [scripts/wa_bienvenidas_schema.sql](../../../implementation/backend/scripts/wa_bienvenidas_schema.sql);
-- prueba: `node implementation/backend/scripts/test_bienvenida_whatsapp.js` (32 casos, sin WhatsApp ni BD).
+- prueba: `node implementation/backend/scripts/test_bienvenida_whatsapp.js` (36 casos, sin WhatsApp ni BD).
 
 ## Por qué así y no con el «mensaje de bienvenida» de WhatsApp Business
 
@@ -69,6 +69,13 @@ ninguna pista de que ya le conocemos:
 - **Es una cuenta de empresa (WhatsApp Business).** Los instaladores y los proveedores suelen tenerla; un particular,
   casi nunca.
 - **El chat no es nuevo:** ya le hemos escrito, tiene etiquetas, o su primer mensaje cargado es de hace más de 6 h.
+- **Lo que dice ya da a entender que nos conoce** (`yaNosConoce`, sobre el texto y los pies de foto o documento de la
+  ráfaga): se dirige a Fran por su nombre, habla de una conversación anterior («te llamé», «lo que hablamos», «como te
+  comenté», «lo que me pediste»…) o viene «de parte de» alguien («me ha pasado tu número…»). Medido el 10/11/2026, la
+  primera noche en modo copia: la única fila apuntada fue «Hola Fran, soy Santiago Carmena, te llamé ayer. Te mando la
+  documentación». Era un número que no estaba en ningún sitio, pero había llamado por teléfono: la bienvenida habría
+  sonado a contestador. Quien viene de parte de un instalador es un lead del partner, y Fran lo da de alta a mano para
+  asignárselo (por el formulario quedaría sin partner).
 - **No es un móvil español:** un fijo, o un número de fuera (spam).
 - **Tipos que no son de alguien que pregunta:** una tarjeta de contacto (un instalador pasando un cliente), una
   ubicación, un aviso del sistema.

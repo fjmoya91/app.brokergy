@@ -144,6 +144,25 @@ function montar({ tablas = {}, chats = {}, ws = waFalso(), ahora = MEDIODIA } = 
     await prueba('mensajes de hace días → no', () => no({ primeroSeg: Math.floor(ahora / 1000) - 3 * 86400 }, null, /anteriores/));
     await prueba('sin número → no (no se puede comprobar)', () => no({ numero: null }, null, /número/));
     await prueba('fijo o extranjero → no', () => no({ numero: '34926111222' }, null, /móvil español/));
+    // El caso del modo copia (10/11/2026): un número que no estaba en ningún sitio, pero había llamado.
+    const dice = (texto) => U.decidir({ chat: base, texto, ahoraMs: ahora });
+    await prueba('«Hola Fran, … te llamé ayer» → no (ya ha hablado con nosotros)', () => {
+        const d = dice('Hola Fran, soy Santiago Carmena, te llamé ayer. Te mando la documentación');
+        assert.strictEqual(d.ok, false); assert.ok(/ya ha hablado/.test(d.motivo), d.motivo);
+    });
+    await prueba('una conversación de antes o «de parte de» alguien → no', () => {
+        for (const t of ['Buenas, lo que hablamos por teléfono', 'Os llamé el lunes por lo de la aerotermia',
+            'Hola, vengo de parte de Instalaciones Pérez', 'Me ha pasado tu número mi vecino',
+            'Te mando lo que me pediste', 'Como te comenté, la caldera es de gasoil', 'Buenos días FRANCISCO']) {
+            assert.strictEqual(dice(t).ok, false, t);
+        }
+    });
+    await prueba('quien pregunta sin conocernos → sí (y «francés» no es Fran)', () => {
+        for (const t of ['Hola, quería información sobre las ayudas para cambiar la caldera',
+            '¿Cuánto me dan por poner aerotermia?', 'Tengo una caldera francesa de gasóleo', '']) {
+            assert.strictEqual(dice(t).ok, true, t);
+        }
+    });
     await prueba('el de prueba pasa aunque esté en la app y en la agenda', () => {
         assert.strictEqual(U.decidir({ chat: { ...base, enAgenda: true }, conocido: 'usuario de la app', prueba: true, ahoraMs: ahora }).ok, true);
     });
@@ -332,6 +351,17 @@ function montar({ tablas = {}, chats = {}, ws = waFalso(), ahora = MEDIODIA } = 
         assert.strictEqual(lecturas, 1, `lecturas: ${lecturas}`);
         assert.strictEqual(bd.tablas.wa_bienvenidas.length, 1);
         assert.ok(/Hola \(\+2\)/.test(bd.tablas.wa_bienvenidas[0].primer_mensaje), bd.tablas.wa_bienvenidas[0].primer_mensaje);
+    });
+    await prueba('la ráfaga junta lo que dice: un documento con «Hola Fran» en el pie no se apunta', async () => {
+        process.env.WA_BIENVENIDA_MODO = 'copia';
+        const { bd } = montar();
+        const viejo = B.CFG.ventanaMs;
+        B.CFG.ventanaMs = 30;
+        B._alMensajeEntrante({ from: '34611222333@c.us', type: 'chat', body: 'Buenas tardes' });
+        B._alMensajeEntrante({ from: '34611222333@c.us', type: 'document', body: 'Hola Fran, te llamé ayer. Te mando la documentación' });
+        await new Promise(r => setTimeout(r, 120));
+        B.CFG.ventanaMs = viejo;
+        assert.strictEqual(bd.tablas.wa_bienvenidas.length, 0);
     });
     await prueba('apagada no hace nada', async () => {
         process.env.WA_BIENVENIDA_ENABLED = 'false';

@@ -204,8 +204,10 @@ function alMensajeEntrante(msg) {
         if (!U.TIPOS_ADMITIDOS.has(String(msg.type || 'chat'))) return;
         if ((decididos.get(chatId) || 0) > deps.ahora()) return;
         if (chatId.endsWith('@c.us') && !U.esMovilEspanol(chatId.split('@')[0])) return;
-        const r = rafagas.get(chatId) || { primero: describir(msg), n: 0 };
+        const r = rafagas.get(chatId) || { primero: describir(msg), n: 0, texto: '' };
         r.n += 1;
+        // Lo que dice (texto y pies de foto o de documento), para `yaNosConoce`.
+        if (msg.body && msg.type !== 'ptt') r.texto = `${r.texto} ${msg.body}`.slice(0, 2000);
         clearTimeout(r.timer);
         r.timer = setTimeout(() => { evaluar(chatId).catch(e => console.warn('[bienvenida] evaluar:', e.message)); }, CFG.ventanaMs);
         r.timer.unref?.();
@@ -267,7 +269,7 @@ async function evaluar(chatId) {
             }
         }
         const conocido = tel9 && !esPrueba ? await conocidoEnApp(tel9) : null;
-        res = U.decidir({ chat, conocido, prueba: esPrueba, ahoraMs: deps.ahora(), historialMin: CFG.historialMin });
+        res = U.decidir({ chat, conocido, prueba: esPrueba, ahoraMs: deps.ahora(), historialMin: CFG.historialMin, texto: rafaga.texto });
         if (!res.ok) {
             console.log(`[bienvenida] no a ${chatId}: ${res.motivo}`);
             return noPorHoy(chatId, res.motivo);
