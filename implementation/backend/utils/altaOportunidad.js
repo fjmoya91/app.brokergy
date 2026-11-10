@@ -124,13 +124,20 @@ function tipoMedia(f) {
  * la casa del vecino: se dice qué construcciones son ESTA vivienda y las demás
  * viviendas quedan fuera — avisándolo con sus m². Tiene que traer al menos una
  * VIVIENDA y todos sus códigos tienen que existir: un error aquí no se traga.
+ *
+ * Sin NINGUNA vivienda en la referencia (un TERCIARIO: oficinas, nave,
+ * comercio) y con `codigos` en el plan, cuentan SOLO esos: en una nave con
+ * oficinas no se calienta todo lo construido (2026-11-10, Autoservicio
+ * Rodríguez: de 2.237 m² solo los 441 de la oficina de la planta 1). Sin
+ * `codigos`, todo, como el formulario.
  */
 function seleccionConstrucciones(constructions, codigos = null, soloVivienda = null) {
     const lista = constructions || [];
     const avisos = [];
     const esViv = c => String(c.type || '').toUpperCase().includes('VIVIENDA');
     const viv = lista.map((c, i) => (esViv(c) ? i : null)).filter(i => i !== null);
-    let indices = viv.length ? [...viv] : lista.map((_, i) => i);
+    const sinViviendaConCodigos = !viv.length && Array.isArray(codigos) && codigos.length > 0;
+    let indices = viv.length ? [...viv] : (sinViviendaConCodigos ? [] : lista.map((_, i) => i));
     if (Array.isArray(soloVivienda) && soloVivienda.length) {
         const pedidos = soloVivienda.map(c => String(c).trim());
         const faltan = pedidos.filter(p => !lista.some(c => String(c.code || '').trim() === p));

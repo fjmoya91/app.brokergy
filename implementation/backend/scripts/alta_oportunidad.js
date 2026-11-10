@@ -16,6 +16,8 @@
 //   node scripts/alta_oportunidad.js leer --rc fichero.pdf|foto.jpg
 //   node scripts/alta_oportunidad.js aerotermia "<marca> <modelo>"
 //   node scripts/alta_oportunidad.js crear --plan plan.json [--escribir]
+//   node scripts/alta_oportunidad.js recalcular <26RES060_OP387> [--hibridacion si|no] [--metodo demanda|caldera] [--rendimiento <id>]
+//            [--potencia-caldera N] [--ruta-fm si|no] [--forzar] [--escribir]
 //   node scripts/alta_oportunidad.js obra <26RES080_OP52|26RES080_87>
 //   node scripts/alta_oportunidad.js documentar --op <nº> --plan docs.json [--escribir]
 //   node scripts/alta_oportunidad.js renombrar --op <nº> --tel <tel> [--anteponer] [--nombre "Nombre (Partner)"] [--escribir]
@@ -84,7 +86,7 @@ const ANEXO_FV = 'PRESUPUESTO DE LA INSTALACIÓN_FOTOVOLTAICA.pdf';
 
 const [, , ORDEN, ...RESTO] = process.argv;
 // Lo posicional, sin los VALORES de las opciones (`--dias 14` no es un fichero).
-const SIN_VALOR = new Set(['--escribir', '--anteponer', '--forzar-ficha']);
+const SIN_VALOR = new Set(['--escribir', '--anteponer', '--forzar-ficha', '--forzar']);
 const POS = [];
 for (let i = 0; i < RESTO.length; i++) {
     const a = RESTO[i];
@@ -498,9 +500,14 @@ async function crear() {
         avisos.push(`Sin aerotermia elegida: la simulación usa el SCOP genérico del emisor (${dosDec(inputs.scopHeating)}).`);
     }
 
+    // Los modelos del catálogo que entran: la comparativa de clima de una
+    // hibridación (cálido/medio) sale de sus columnas, como en la calculadora.
+    const modelosCatalogo = aero.modelo ? [aero.modelo] : [];
+
     // 5. ACS con OTRA máquina (bomba de calor de ACS aparte).
     if (funnel.incluir_acs && plan.acs?.equipo) {
         const acs = await alta.modeloAerotermia(supabase, plan.acs.equipo);
+        if (acs.modelo) modelosCatalogo.push(acs.modelo);
         if (acs.modelo) {
             inputs.aerothermiaModelAcs = String(acs.modelo.id);
             inputs.customModelAcsName = '';
@@ -510,6 +517,21 @@ async function crear() {
             if (Number(plan.acs.equipo.scop) > 0) inputs.scopAcs = Number(plan.acs.equipo.scop);
             avisos.push(`El equipo de ACS «${acs.custom.marca} ${acs.custom.modelo}» no está en el catálogo: SCOP_dhw ${dosDec(inputs.scopAcs)}`
                 + `${Number(plan.acs.equipo.scop) > 0 ? ' (del plan)' : ' (el genérico)'} hasta darlo de alta.`);
+        }
+    }
+
+    // 5b. HIBRIDACIÓN (RES093): la caldera se queda en apoyo, en paralelo. Lo mismo
+    //     que el botón «Hibridación» de la calculadora: `hibridacion`, el método de
+    //     la cobertura («Base del % de cobertura») y la potencia de la caldera.
+    if (plan.hibridacion) {
+        if (funnel.isReforma) throw new Error('hibridacion: no en un RES080 (reforma).');
+        const h = plan.hibridacion === true ? {} : plan.hibridacion;
+        const metodo = String(h.metodo || 'demanda').toLowerCase();
+        if (!['demanda', 'caldera'].includes(metodo)) throw new Error(`hibridacion.metodo «${h.metodo}»: usa demanda | caldera.`);
+        Object.assign(inputs, { hibridacion: true, hibridacionMetodo: metodo });
+        if (Number(h.potencia_caldera_kw) > 0) inputs.potenciaCaldera = Number(h.potencia_caldera_kw);
+        if (metodo === 'caldera' && !(Number(inputs.potenciaCaldera) > 0)) {
+            throw new Error('hibridacion por la potencia de la CALDERA sin potencia: pon caldera.potencia_kw (la de la placa) o hibridacion.potencia_caldera_kw.');
         }
     }
 
@@ -671,8 +693,9 @@ async function crear() {
         }
     }
 
-    // 7. El resultado, con la MISMA función que guarda el formulario.
-    const result = computeFullCalculatorResult(inputs);
+    // 7. El resultado, con la MISMA función que guarda el formulario (con la
+    //    hibridación y la vía FM, como `CalculatorView.handleCalculate`).
+    const result = computeFullCalculatorResult(inputs, { modelos: modelosCatalogo });
     if (ceeXml && result) {
         // Con los dos .xml manda la rama de la calculadora (CalculatorView, modo «real»
         // + simplificado): `computeFullCalculatorResult` solo sabe la estimada.
@@ -763,7 +786,14 @@ async function crear() {
             avisos.push('No se ha podido calcular la comparativa con el CEE (¿falta su demanda de calefacción?).');
         }
     }
-    console.log(`Ficha:        ${funnel.isReforma ? 'RES080' : 'RES060'}`);
+    console.log(`Ficha:        ${funnel.isReforma ? 'RES080' : (inputs.hibridacion ? 'RES093 (hibridación)' : 'RES060')}`);
+    // La vía FM (`via_fm`), como la guarda la calculadora: el resumen de las dos vías.
+    const { resumenViaFm } = await esm('features/calculator/logic/viaFm.js');
+    const viaFm = resumenViaFm(result, inputs);
+    imprimirHibridacionYFm(result, inputs, viaFm);
+    if (plan.ruta_fm && !(viaFm && viaFm.aplica !== false && viaFm.elegible)) {
+        avisos.push('ruta_fm pedido pero la vía FM no es elegible (o no hay cálculo FM): la oportunidad se queda en la vigente.');
+    }
     if (funnel.isReforma && result?.res080) {
         const r8 = result.res080;
         const f8 = result.financialsRes080 || {};
@@ -826,6 +856,7 @@ async function crear() {
         funnel,
         calculatorInputs: inputs,
         precomputedResult: result,
+        viaFm,
         demandaCalefaccionPorM2: result?.q_net || null,
         // El route lo leía de `catastro.provinceCode` y el formulario lo mandaba
         // fuera: aquí se pasa bien, con la provincia de Catastro como respaldo
@@ -842,6 +873,17 @@ async function crear() {
         docsOcr,
     });
     console.log(`\n✓ Creada ${creado.id_oportunidad} (cliente ${creado.cliente_created ? 'nuevo' : 'reutilizado'})`);
+
+    // La vía FM elegida: por el MISMO camino que el conmutador de la calculadora.
+    if (plan.ruta_fm && viaFm && viaFm.aplica !== false && viaFm.elegible) {
+        try {
+            const { cambiarRutaFm } = require('../utils/rutaFm');
+            const r = await cambiarRutaFm(creado.oportunidad_uuid, true, { usuario: 'CLAUDE' });
+            console.log(`  ✓ Vía FM elegida (${r.ficha || 'FM'})${r.acs ? ' — falta añadir el ACS al presupuesto' : ''}`);
+        } catch (e) {
+            console.log(`  ✗ vía FM: ${e.message}`);
+        }
+    }
 
     // El rastro: de dónde salió y qué decidió quien la dio de alta.
     await alta.anotarAlta(supabase, creado.oportunidad_uuid, {
@@ -1294,9 +1336,190 @@ async function correo() {
     } finally { await client.logout().catch(() => {}); }
 }
 
+// ─── Hibridación y vía FM (crear y recalcular) ─────────────────────────────
+
+/** Las líneas de la hibridación y de la vía FM del resultado, como las enseña la calculadora. */
+function imprimirHibridacionYFm(result, inputs, viaFm) {
+    const hyb = result?.hybridization;
+    if (hyb) {
+        const metodo = hyb.method === 'caldera' ? `potencia de la caldera ${dosDec(hyb.boilerPower)} kW` : `demanda (P_design ${dosDec(hyb.pDesign)} kW)`;
+        const sc = result.financialsSinCaldera;
+        console.log(`Hibridación:  BdC ${dosDec(inputs.potenciaBomba)} kW sobre la ${metodo} · cobertura ${Math.round((hyb.coverage || 0) * 100)} %`
+            + ` · C_b ${dosDec(hyb.cb)}${sc ? ` · retirando la caldera: bono ${eur(sc.caeBonus)}` : ''}`);
+        const h = result.hipotesisHibridacion;
+        if (h) {
+            console.log(`              por la demanda: C_b ${dosDec(h.demanda?.cb)} → bono ${eur(h.demanda?.caeBonus)}`
+                + (h.caldera ? ` · por la caldera (${dosDec(h.caldera.potenciaCaldera)} kW): C_b ${dosDec(h.caldera.cb)} → bono ${eur(h.caldera.caeBonus)}` : ' · sin potencia de caldera'));
+        }
+    }
+    if (!viaFm) {
+        console.log(`Vía FM:       sin cálculo${result?.res060fc ? ' (borrador, sin normativa)' : ''}`);
+        return;
+    }
+    console.log(`Vía FM:       ${viaFm.ficha} · ${dosDec(viaFm.mwh_fm)} MWh → ${eur(viaFm.eur_fm)}  frente a la vigente ${dosDec(viaFm.mwh_vigente)} MWh → ${eur(viaFm.eur_vigente)}`
+        + ` · ${viaFm.aplica === false ? `NO APLICA (${viaFm.no_aplica})` : (viaFm.elegible ? 'ELEGIBLE' : `NO ELEGIBLE${viaFm.motivo ? ` (${viaFm.motivo})` : ''}`)}`
+        + (viaFm.acs === 'supuesto' ? ' · supone el ACS añadido' : viaFm.acs === 'sin_scop' ? ' · sin SCOP de ACS' : '')
+        + (viaFm.n_avisos ? ` · ${viaFm.n_avisos} aviso(s)` : ''));
+}
+
+const SI_NO = (v, nombre) => {
+    if (v === null || v === undefined) return null;
+    const s = String(v).toLowerCase();
+    if (['si', 'sí', 'true', '1'].includes(s)) return true;
+    if (['no', 'false', '0'].includes(s)) return false;
+    throw new Error(`--${nombre} ${v}: usa si | no.`);
+};
+
+/**
+ * `recalcular <OP>`: vuelve a calcular una oportunidad que YA existe y la guarda
+ * como el botón «Calcular» + guardar de la calculadora, sin entrar en la app.
+ *   --hibridacion si|no  [--metodo demanda|caldera] [--potencia-caldera N]
+ *   --ruta-fm si|no      (la vía FM, por el conmutador: `utils/rutaFm.js`)
+ *   --rendimiento <id>   la FILA de la caldera (BOILER_EFFICIENCIES), p. ej. cuando
+ *                        llega la placa con el año: solo del MISMO combustible
+ *   --escribir           (sin él, en seco)  · --forzar (ver «control»)
+ *
+ * REGLA — antes de cambiar nada se recalcula la oportunidad TAL CUAL está
+ * («control»): si el cálculo compartido (`computeFullCalculatorResult`) no
+ * reproduce lo guardado, esa oportunidad tiene algo que solo hace la calculadora
+ * (CEE real, bloque…) y no se escribe sin --forzar. El TERCIARIO se recalcula
+ * desde el 10/11/2026: `computeFullCalculatorResult` tiene ya su rama
+ * (`calculateTerciario`, D_ACS del certificado, sin IRPF), la de CalculatorView.
+ */
+async function recalcular() {
+    const ref = POS[0];
+    if (!ref) throw new Error('Uso: recalcular <26RES060_OP387> [--hibridacion si|no] [--metodo demanda|caldera] [--potencia-caldera N] [--rendimiento <id>] [--ruta-fm si|no] [--escribir]');
+    const rendimientoId = opt('rendimiento') && opt('rendimiento') !== true ? String(opt('rendimiento')).trim() : null;
+    const hibr = SI_NO(opt('hibridacion') === true ? 'si' : opt('hibridacion'), 'hibridacion');
+    const rutaFm = SI_NO(opt('ruta-fm') === true ? 'si' : opt('ruta-fm'), 'ruta-fm');
+    const metodo = opt('metodo') ? String(opt('metodo')).toLowerCase() : null;
+    if (metodo && !['demanda', 'caldera'].includes(metodo)) throw new Error(`--metodo ${metodo}: usa demanda | caldera.`);
+    const pCaldera = opt('potencia-caldera') ? Number(String(opt('potencia-caldera')).replace(',', '.')) : null;
+    const FORZAR = RESTO.includes('--forzar');
+
+    const { data: op, error } = await supabase.from('oportunidades')
+        .select('id, id_oportunidad, ficha, inputs:datos_calculo->inputs, result:datos_calculo->result')
+        .eq('id_oportunidad', ref).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (error) throw new Error(`No se ha podido leer la oportunidad: ${error.message}`);
+    if (!op) throw new Error(`No existe la oportunidad ${ref}.`);
+    const { data: exp } = await supabase.from('expedientes').select('numero_expediente').eq('oportunidad_id', op.id).maybeSingle();
+    if (exp) throw new Error(`${ref} ya es el expediente ${exp.numero_expediente}: se cambia desde el expediente, no aquí.`);
+    const inputs = op.inputs || {};
+    if (inputs.isReforma === true || inputs.isReforma === 'true' || op.ficha === 'RES080') throw new Error('RES080: no se recalcula aquí (el ahorro sale de los dos CEE).');
+
+    const { computeFullCalculatorResult } = await esm('features/landing/data/landingCalculation.js');
+    const calcMod = await esm('features/calculator/logic/calculation.js');
+    const { resumenViaFm } = await esm('features/calculator/logic/viaFm.js');
+    const ids = [inputs.aerothermiaModel, inputs.aerothermiaModelAcs].filter(x => x && x !== 'custom' && /^\d+$/.test(String(x)));
+    const { data: modelos } = ids.length ? await supabase.from('aerotermia').select('*').in('id', ids) : { data: [] };
+
+    // Control: lo guardado, recalculado sin tocar nada.
+    const control = computeFullCalculatorResult(inputs, { modelos: modelos || [] });
+    const difKwh = Math.abs((control?.savings?.savingsKwh || 0) - (op.result?.savings?.savingsKwh || 0));
+    const difEur = Math.abs((control?.financials?.caeBonus || 0) - (op.result?.financials?.caeBonus || 0));
+    const reproduce = difKwh < 1 && difEur < 1;
+
+    const nuevos = { ...inputs };
+    if (hibr === true) {
+        Object.assign(nuevos, { hibridacion: true, hibridacionMetodo: metodo || inputs.hibridacionMetodo || 'demanda' });
+    } else if (hibr === false) {
+        nuevos.hibridacion = false;
+    } else if (metodo) {
+        nuevos.hibridacionMetodo = metodo;
+    }
+    if (pCaldera > 0) nuevos.potenciaCaldera = pCaldera;
+    // La FILA de la caldera, como el desplegable de la calculadora (boilerId +
+    // boilerEff). Solo dentro del MISMO combustible: cambiar de combustible
+    // mueve también el tipo de equipo y el precio del ahorro anual, y eso se hace
+    // en la app.
+    let filaAntes = null, filaNueva = null;
+    if (rendimientoId) {
+        filaNueva = calcMod.BOILER_EFFICIENCIES.find(b => b.id === rendimientoId);
+        if (!filaNueva) throw new Error(`--rendimiento ${rendimientoId}: no está en BOILER_EFFICIENCIES (${calcMod.BOILER_EFFICIENCIES.map(b => b.id).join(', ')}).`);
+        filaAntes = calcMod.BOILER_EFFICIENCIES.find(b => b.id === inputs.boilerId) || null;
+        const familia = (id) => String(id || '').split('_')[0];
+        if (filaAntes && familia(filaAntes.id) !== familia(filaNueva.id)) {
+            throw new Error(`--rendimiento ${rendimientoId}: es de otro combustible que «${filaAntes.label}». Eso se cambia en la calculadora.`);
+        }
+        Object.assign(nuevos, { boilerId: filaNueva.id, boilerEff: filaNueva.value });
+    }
+    if (nuevos.hibridacion === true && nuevos.hibridacionMetodo === 'caldera' && !(Number(nuevos.potenciaCaldera) > 0)) {
+        throw new Error('Hibridación por la potencia de la CALDERA sin potencia: pasa --potencia-caldera N (la de la placa).');
+    }
+    const result = computeFullCalculatorResult(nuevos, { modelos: modelos || [] });
+    if (!result?.financials) throw new Error('La calculadora no da resultado.');
+    const viaFm = resumenViaFm(result, nuevos);
+    const { detectPrograma } = require('../utils/fichas');
+    const ficha = detectPrograma({}, { datos_calculo: { inputs: nuevos } });
+
+    const a = op.result || {};
+    console.log(`\n══════════ RECALCULAR ${op.id_oportunidad} (${ESCRIBIR ? 'SE ESCRIBE' : 'EN SECO — no se toca nada'}) ══════════`);
+    console.log(`Control:      lo guardado ${miles(a.savings?.savingsKwh || 0)} kWh · ${eur(a.financials?.caeBonus)} → recalculado igual ${miles(control?.savings?.savingsKwh || 0)} kWh · ${eur(control?.financials?.caeBonus)}`
+        + (reproduce ? ' ✓' : `  ⚠ NO lo reproduce (Δ ${miles(difKwh)} kWh, ${eur(difEur)})`));
+    console.log(`Ficha:        ${op.ficha || '—'} → ${ficha}`);
+    if (filaNueva) console.log(`Caldera:      ${filaAntes ? `${filaAntes.label} (η ${dosDec(filaAntes.value)})` : (inputs.boilerId || '—')} → ${filaNueva.label} (η ${dosDec(filaNueva.value)})`);
+    console.log(`Ahorro:      ${miles(a.savings?.savingsKwh || 0)} → ${miles(result.savings?.savingsKwh || 0)} kWh/año`);
+    console.log(`Bono CAE:     ${eur(a.financials?.caeBonus)} → ${eur(result.financials?.caeBonus)} · ayuda total ${eur(a.financials?.totalAyuda)} → ${eur(result.financials?.totalAyuda)}`);
+    imprimirHibridacionYFm(result, nuevos, viaFm);
+    const fmOk = viaFm && viaFm.aplica !== false && viaFm.elegible;
+    if (rutaFm === true) console.log(`Vía elegida:  ${inputs.ruta_fm === true ? 'ya era la FM' : 'VIGENTE → FM'}${fmOk ? '' : '  ✗ no se puede: no es elegible'}`);
+    if (rutaFm === false) console.log(`Vía elegida:  ${inputs.ruta_fm === true ? 'FM → VIGENTE' : 'ya era la vigente'}`);
+
+    if (!reproduce && !FORZAR) {
+        console.log('\n✗ El cálculo compartido no reproduce lo guardado: esta oportunidad tiene algo que solo hace la calculadora. '
+            + 'Hazlo en la app, o --forzar si se ha mirado la diferencia.');
+        if (ESCRIBIR) throw new Error('Control no superado: no se escribe.');
+    }
+    if (rutaFm === true && !fmOk && ESCRIBIR) throw new Error('La vía FM no es elegible: no se escribe nada.');
+    if (!ESCRIBIR) {
+        console.log('\nEN SECO. Revisa lo de arriba y vuelve a lanzarlo con --escribir.');
+        return;
+    }
+
+    // ── Escribir: lo mismo que el guardado de la calculadora (POST /oportunidades) ──
+    const { sellarPrecioCae } = require('../utils/precioCae');
+    const { sellarGuiaTransmitancias } = require('../utils/guiaTransmitancias');
+    const { redondearScopsInputs } = require('../utils/scopRedondeo');
+    const guardar = await redondearScopsInputs(nuevos);
+    const existente = { datos_calculo: { inputs } };
+    sellarPrecioCae(guardar, existente);
+    sellarGuiaTransmitancias(guardar, existente);
+    delete guardar.ruta_fm; // tiene su propio escritor (abajo)
+    const { error: eIn } = await supabase.rpc('oportunidad_merge_inputs', { p_id: op.id, p_patch: guardar });
+    if (eIn) throw new Error(`No se han podido guardar los inputs: ${eIn.message}`);
+
+    const { data: fresca, error: eDc } = await supabase.from('oportunidades').select('datos_calculo').eq('id', op.id).maybeSingle();
+    if (eDc) throw new Error(eDc.message);
+    const dc = fresca?.datos_calculo || {};
+    const cambios = [];
+    if (hibr === true) cambios.push(`hibridación ACTIVADA (${result.hybridization ? `cobertura ${Math.round(result.hybridization.coverage * 100)} %, C_b ${dosDec(result.hybridization.cb)}` : 'sin C_b'})`);
+    if (hibr === false) cambios.push('hibridación QUITADA');
+    if (metodo && hibr !== false) cambios.push(`cobertura por la ${metodo === 'caldera' ? 'potencia de la caldera' : 'demanda'}`);
+    if (pCaldera > 0) cambios.push(`potencia de la caldera ${dosDec(pCaldera)} kW`);
+    if (filaNueva) cambios.push(`caldera: ${filaNueva.label} (η ${dosDec(filaNueva.value)})`);
+    const texto = `🧮 Simulación recalculada por Claude, sin la app${cambios.length ? `: ${cambios.join(' · ')}` : ''}. `
+        + `Ahorro ${miles(a.savings?.savingsKwh || 0)} → ${miles(result.savings?.savingsKwh || 0)} kWh/año · bono ${eur(a.financials?.caeBonus)} → ${eur(result.financials?.caeBonus)}`
+        + (viaFm ? ` · vía FM ${viaFm.ficha}: ${dosDec(viaFm.mwh_fm)} MWh → ${eur(viaFm.eur_fm)} (${viaFm.elegible ? 'elegible' : 'no elegible'})` : '') + '.';
+    const historial = [...(Array.isArray(dc.historial) ? dc.historial : []),
+        { id: `${Date.now()}_recalculo`, tipo: 'comentario', texto, fecha: new Date().toISOString(), usuario: 'CLAUDE' }];
+    const { error: eUp } = await supabase.from('oportunidades')
+        .update({ datos_calculo: { ...dc, result, ...(viaFm ? { via_fm: viaFm } : {}), historial },
+                  ficha, demanda_calefaccion: result.q_net || null })
+        .eq('id', op.id);
+    if (eUp) throw new Error(`No se ha podido guardar el resultado: ${eUp.message}`);
+    console.log(`\n✓ ${op.id_oportunidad} recalculada y guardada (ficha ${ficha}).`);
+
+    if (rutaFm !== null) {
+        const { cambiarRutaFm } = require('../utils/rutaFm');
+        const r = await cambiarRutaFm(op.id, rutaFm, { usuario: 'CLAUDE' });
+        console.log(r.cambia ? `✓ Vía ${rutaFm ? `FM elegida (${r.ficha || 'FM'})${r.acs ? ' — falta añadir el ACS al presupuesto' : ''}` : 'VIGENTE de nuevo'}` : '· La vía ya estaba así.');
+    }
+    console.log(`App:          https://app.brokergy.es/?op=${op.id_oportunidad}`);
+}
+
 // ─── main ───────────────────────────────────────────────────────────────────
 
-const ORDENES = { chats, chat, escuchar, catastro, leer, aerotermia, crear, obra, documentar, renombrar,
+const ORDENES = { chats, chat, escuchar, catastro, leer, aerotermia, crear, recalcular, obra, documentar, renombrar,
     'correo-raw': correoRaw, correo };
 
 // Se sale DEJANDO que el proceso acabe solo: en Windows (Node 25) un

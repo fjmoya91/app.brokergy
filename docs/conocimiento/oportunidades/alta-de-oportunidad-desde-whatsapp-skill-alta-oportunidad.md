@@ -56,6 +56,29 @@ se corregía a mano. Medido en OP250: con las dos plantas (175 m²), N y 1 patio
 lo que se guardó a mano en la calculadora (96,76 kWh/m²·año · 20.284 kWh · bono 2.028,37 €); con solo
 la planta baja daba 1.594 €.
 
+**Un TERCIARIO sin ninguna VIVIENDA en la referencia: cuentan SOLO los `codigos` del plan**
+(2026-11-10, 26RES060_OP389, oficinas de un distribuidor). Sin vivienda que cuente por obligación,
+`seleccionConstrucciones` sumaba TODO lo construido (2.237 m² de nave, comercio y almacén) aunque el
+plan marcara solo la oficina climatizada; ahora, sin vivienda y con `codigos`, cuentan solo esos (441
+m²). Sin `codigos`, todo, como el formulario. El alta sale por el camino residencial: después se
+declara el sector terciario (`ficha = 'TER100'`, `inputs.sector = 'terciario'`) y se recalcula con
+`recalcular <OP>` (sin la app; ver más abajo). Prueba:
+`node implementation/backend/scripts/test_alta_oportunidad.js`.
+
+**REGLA — el TERCIARIO se calcula por script IGUAL que en la calculadora** (2026-11-10, Fran,
+26RES060_OP389: «hazlo tú todo o adapta el código para hacerlo como con el resto»).
+`computeFullCalculatorResult` (lo que usan el alta, `recalcular` y la carga del XML del CEE en la
+simulación) no tenía la rama del terciario de `CalculatorView.handleCalculate`, así que guardaba un
+terciario calculado como una vivienda. Ahora la copia: la D_ACS sale de `resolveDacs` (el certificado,
+el CTE o la tecleada; también en un BLOQUE, como en la calculadora), el ahorro va por
+`calculateTerciario` (cada servicio con su alcance) y los financieros sin IRPF y con titular empresa.
+Con el ACS fuera las dos fórmulas dan lo mismo; con el ACS dentro, la vivienda ponía 2.731,4 kWh/año de
+D_ACS. `recalcular` ya no rechaza el terciario. **Y `--rendimiento <id>` cambia la FILA de la
+caldera** (`boilerId` + `boilerEff`, como el desplegable), solo dentro del MISMO combustible: cuando
+llega la placa con el año. En OP389 la placa (DOMUSA JAKA-5, 41,86 kW, 8-90) pasó la fila de gasóleo
+≥1998 (0,79) a 1985-1997 (0,70): 39.148 → 44.883 kWh y 3.915 → 4.488 €. Ojo: `placas` no leyó la fecha
+gastada de la placa y por eso dijo que la fila «cuadraba»; la fecha se mira en la foto.
+
 **Una vivienda en VARIAS referencias, con más superficie que el Catastro** (2026-10-15, ático de
 C/ San Agustín 27, Iniesta, instaladora NÚÑEZ FONTANERÍA): tres RC de la planta 3, las tres
 «Almacén-Estacionamiento» (80 m²), que son un ático vivido de «120 habitables» según la instaladora.
@@ -208,6 +231,22 @@ junto al plan (`.lectura_presupuesto_<sha1>.json`, por el CONTENIDO del fichero:
 nuevo) y el segundo paso la reutiliza y lo dice; para forzar otra lectura se borra ese fichero. Y la
 causa de fondo, «NO incluye IVA», la resuelve `importesDocumento` con `iva_incluido` (ver
 `nueva-simulacion-con-cee-inicial-y-final.md`, «el documento tiene DOS importes»).
+
+### Hibridación y vía FM sin entrar en la app (2026-11-09)
+
+Fran: «si te lo pido por aquí, que no tengas que logearte, y que luego si entro en la app esté todo
+marcado como si lo hubiese hecho desde la app». Caso: 26RES060_OP386 y OP387 (Paloma, oficina de José
+Vicente Ruiz), una normal y una hibridación, las dos por la vía FM.
+
+**REGLA — lo que se hace desde aquí queda guardado igual que desde la calculadora.**
+- `computeFullCalculatorResult` calcula la hibridación y la vía FM como `CalculatorView` (detalle en
+  `calculo/factor-multiplicador-la-resolucion-publicada-res060-fm.md`).
+- Plan de `crear`: `hibridacion` (ficha RES093 en `createLead`) y `ruta_fm`; `via_fm` se guarda siempre.
+- `recalcular <OP>`: la oportunidad ya creada, con `--hibridacion`, `--metodo`, `--potencia-caldera`,
+  `--rendimiento <id>` (la fila de la caldera, mismo combustible) y `--ruta-fm`. Con un «control» antes:
+  si recalcular lo guardado sin cambios no da lo mismo, no escribe sin `--forzar`. No toca una
+  oportunidad que ya es expediente ni un RES080; el terciario sí desde el 10/11/2026.
+- La vía elegida, por `utils/rutaFm.js` (la misma función que el conmutador de la app).
 
 Primer caso real: **26RES060_OP250** (chat «ISM Alejandro administración», 01/10/2026): RC + PDF del
 Catastro, presupuesto con CARRIER 30AWH010HM (catálogo id 420) y bomba de ACS LASIAN ATHERIA 100

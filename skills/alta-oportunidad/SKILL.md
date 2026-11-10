@@ -43,6 +43,7 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
 | `leer --rc f.pdf\|foto.jpg` | Saca la referencia catastral de un PDF o una captura | nada |
 | `aerotermia "<marca> <modelo>"` | Busca un equipo en el catálogo por su código | nada |
 | `crear --plan plan.json [--escribir]` | Da de alta la oportunidad, el cliente, la carpeta de Drive y sube los documentos | con `--escribir` |
+| `recalcular <26RES060_OP387> [--hibridacion si\|no] [--metodo demanda\|caldera] [--potencia-caldera N] [--rendimiento <id>] [--ruta-fm si\|no] [--escribir]` | Una oportunidad que YA existe, recalculada y guardada como «Calcular» + guardar de la calculadora, sin entrar en la app: hibridación (RES093), la FILA de la caldera cuando llega la placa con el año (`--rendimiento oil_85_97`, solo del mismo combustible; la fecha se mira en la foto), `via_fm` y la vía FM elegida (solo si es elegible). También un TERCIARIO (TER100/TER173), con la misma fórmula que la calculadora. Antes comprueba que recalcula lo guardado igual («control»); si no, no escribe sin `--forzar` | con `--escribir` |
 | `obra <26RES080_OP52\|26RES080_87>` | Una oportunidad o expediente que YA existe: cliente, Drive, nº para el chat y sus apartados (con lo ya subido) | nada |
 | `documentar --op <nº> --plan docs.json [--escribir]` | Coloca fotos, vídeos y documentos del chat en los apartados de ESA obra («12. DOCUMENTOS PARA CEE»), ventana por ventana, y lo anota en su historial | con `--escribir` |
 | `renombrar --op <nº> --tel <tel> [--anteponer] [--escribir]` | Pone el nº de obra en el nombre del chat («RES080 Maria José…» → «RES080_OP52 Maria José…») y dice el título de la sesión | con `--escribir` |
@@ -91,6 +92,9 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
    una a una — van al historial de la oportunidad y son lo que se revisa.
 6. **`crear --plan plan.json`** en seco. Revisa la ficha que imprime (superficie, caldera y η, emisor,
    ACS, aerotermia y SCOP, presupuesto, ahorro y bono) y que cada documento tiene ✓. Luego `--escribir`.
+   Imprime también la **vía FM** (ficha, MWh, € y si es elegible), que se guarda siempre en `via_fm`
+   como en la calculadora. Si la caldera se queda de apoyo, `hibridacion` en el plan (RES093); para
+   dejar elegida la vía FM, `ruta_fm: true`. A una oportunidad ya creada se le hace con `recalcular`.
 7. **¿Bono por debajo de 3.000 €? → CEE con CE3X** (regla 161, abajo): con la oportunidad ya
    escrita, `generar-cee-inicial` sobre ella y su XML cargado en la simulación, ANTES de avisar a
    Fran o enviar la propuesta.

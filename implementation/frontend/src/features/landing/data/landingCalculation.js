@@ -12,6 +12,7 @@
 import {
     calculateDemand,
     calculateSavings,
+    calculateTerciario,
     calculateFinancials,
     calculateAnnualSavingsTheoretical,
     calculateAnnualSavingsFromSpending,
@@ -21,7 +22,20 @@ import {
     FACTORES_PASO,
     CAE_PRECIO_CLIENTE_NUEVAS,
     precioCaeRes080,
+    precioCaeFm,
+    calculateHybridization,
+    normalizeHybridMethod,
+    resolveClimateSeason,
+    zoneClimateSeason,
+    CLIMA_SCOP,
+    scopsParaClima,
+    redondeaScop,
 } from '../../calculator/logic/calculation';
+import { calculateRes060FC, contextoCalderaFc } from '../../calculator/logic/res060fc.js';
+import { entradasFmClima } from '../../calculator/logic/climaFm.js';
+import { esSectorTerciario } from '../../expedientes/logic/expedienteTaxonomia.js';
+import { esBloque } from '../../calculator/logic/tipoInmueble.js';
+import { resolveDacs, ACS_METHOD } from '../../expedientes/logic/demandaAcs.js';
 
 /**
  * @param {object} inputs   calculatorInputs ya mapeados por funnelToCalculatorInputs
@@ -220,7 +234,7 @@ export function computeLandingResult(inputs) {
  *
  * Forma de salida idéntica a setResult({...}) en CalculatorView.
  */
-export function computeFullCalculatorResult(inputs) {
+export function computeFullCalculatorResult(inputs, { modelos = null } = {}) {
     if (!inputs) return null;
 
     // 1. Demanda: si viene de "Cálculo Real" (CEE aportado), usar la demanda y la superficie
@@ -245,29 +259,86 @@ export function computeFullCalculatorResult(inputs) {
         demandRes.fromXml = false;
     }
 
-    // 2. Hibridación: la landing no la ofrece, cb = 1.0
-    const cb = 1.0;
+    // 2. Hibridación. La landing pública no la ofrece (`hibridacion: false` en
+    // funnelToInputs) y sigue con C_b = 1. La activan el alta desde WhatsApp y el
+    // recálculo por script (`alta_oportunidad.js`, plan `hibridacion` / orden
+    // `recalcular`): mismo cálculo que `CalculatorView.handleCalculate` (1.5).
+    const esHibrida = inputs.hibridacion === true || inputs.hibridacion === 'true';
+    const potenciaBomba = parseFloat(inputs.potenciaBomba) || 12;
+    const potenciaCaldera = parseFloat(inputs.potenciaCaldera) || 0;
+    const metodoHib = normalizeHybridMethod(inputs.hibridacionMetodo);
+    const temporada = resolveClimateSeason({}, inputs, inputs.zona);
+    const hybridizationRes = esHibrida ? calculateHybridization({
+        demandAnnual: demandRes.Q_net,
+        heatPumpPower: potenciaBomba,
+        method: metodoHib,
+        boilerPower: potenciaCaldera,
+        climateSeason: temporada,
+    }) : null;
+    const cb = hybridizationRes?.cb ?? 1.0;
 
-    // 3. Ahorro energético
-    const savingsRes = calculateSavings({
-        q_net_heating: demandRes.Q_net,
-        dacs: 2731.4,
-        boilerEff: inputs.boilerEff,
-        scopHeating: inputs.scopHeating,
-        scopAcs: inputs.scopAcs,
-        changeAcs: inputs.changeAcs,
-        cb
-    });
+    // 3. Ahorro energético (con otro C_b u otros SCOP para las comparativas).
+    //
+    // En el TERCIARIO (y la D_ACS de un BLOQUE), lo MISMO que CalculatorView
+    // (handleCalculate, «D_ACS» y punto 2): la D_ACS sale del certificado con
+    // `resolveDacs` (no el 2.731,4 de una vivienda de cuatro dormitorios) y el
+    // ahorro con `calculateTerciario`, que respeta el alcance de cada servicio.
+    // Sin esta rama, el alta, `recalcular` y la carga del XML guardaban un
+    // terciario calculado como una vivienda (2026-11-10, 26RES060_OP389).
+    const esTerciarioCalc = esSectorTerciario(inputs);
+    const esBloqueCalc = esBloque(inputs);
+    const ceeBaseCalc = inputs.xmlDemandDataFinal?.demandaCalefaccion
+        ? inputs.xmlDemandDataFinal
+        : (inputs.xmlDemandData || null);
+    const superficieCee = parseFloat(ceeBaseCalc?.superficieHabitable)
+        || parseFloat(inputs.manualSuperficie)
+        || parseFloat(inputs.superficieCalefactable)
+        || parseFloat(inputs.superficie) || 0;
+    const dacsCalc = (esTerciarioCalc || esBloqueCalc)
+        ? resolveDacs(
+            {
+                acs_method: (esBloqueCalc && inputs.acsMethod === ACS_METHOD.CTE) ? ACS_METHOD.XML : inputs.acsMethod,
+                num_rooms: inputs.numRooms, dacs_manual: inputs.dacsManual,
+                cee_inicial: inputs.xmlDemandData || null,
+                cee_final: inputs.xmlDemandDataFinal || null,
+            },
+            { demandaACS: ceeBaseCalc?.demandaACS, superficieHabitable: superficieCee },
+        ).value
+        : 2731.4;
+    const ahorroCon = (c, sc = {}) => esTerciarioCalc
+        ? calculateTerciario({
+            q_net_heating: demandRes.Q_net,
+            dacs: dacsCalc,
+            dcap: parseFloat(inputs.dcap) || 0,
+            boilerEff: parseFloat(inputs.boilerEff) || 0.92,
+            scopHeating: sc.scopHeating ?? (redondeaScop(inputs.scopHeating) || 3.2),
+            scopAcs: sc.scopAcs ?? (redondeaScop(inputs.scopAcs) || 3.0),
+            scopPool: parseFloat(inputs.scopPool) || 0,
+            changeHeating: inputs.changeHeating !== false,
+            changeAcs: inputs.changeAcs === true || inputs.changeAcs === 'true',
+            changePool: inputs.piscinaActiva === true,
+            cb: c,
+        })
+        : calculateSavings({
+            q_net_heating: demandRes.Q_net,
+            dacs: dacsCalc,
+            boilerEff: inputs.boilerEff,
+            scopHeating: sc.scopHeating ?? inputs.scopHeating,
+            scopAcs: sc.scopAcs ?? inputs.scopAcs,
+            changeAcs: inputs.changeAcs,
+            cb: c
+        });
+    const savingsRes = ahorroCon(cb);
 
     // 4. Financieros base. La FOTOVOLTAICA de la obra (P. Fotovoltaica) suma a la
     // inversión y a la base de la deducción del IRPF, como en CalculatorView. El
     // funnel público no la pregunta (no llega `presupuestoFotovoltaica`: 0); la
     // usan el alta desde WhatsApp/email y las oportunidades que se recalculan.
-    const financialRes = calculateFinancials({
+    const financierosDe = (savingsKwh, caePriceClient = inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS) => calculateFinancials({
         presupuesto: inputs.presupuesto,
         presupuestoFotovoltaica: inputs.presupuestoFotovoltaica,
-        savingsKwh: savingsRes.savingsKwh,
-        caePriceClient: inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS,
+        savingsKwh,
+        caePriceClient,
         caePriceSO: inputs.caePriceSO || 160,
         caePricePrescriptor: inputs.includeCommission ? (inputs.caePricePrescriptor || 0) : 0,
         prescriptorMode: inputs.prescriptorMode || 'brokergy',
@@ -279,10 +350,106 @@ export function computeFullCalculatorResult(inputs) {
         installerNoCard: inputs.installerNoCard,
         legalizationPrice: inputs.legalizationPrice,
         itpPercent: inputs.itpPercent,
-        includeIrpf: inputs.includeIrpf !== false,
-        titularType: inputs.titularType || 'particular',
-        aplicarIrpfCae: inputs.aplicarIrpfCae !== false
+        // En el TERCIARIO el titular es una empresa o un autónomo: ni deducción de
+        // IRPF por obras en vivienda ni tributación del bono como ganancia
+        // patrimonial. La calculadora lo FUERZA por el sector (CalculatorView, 3).
+        includeIrpf: esTerciarioCalc ? false : inputs.includeIrpf !== false,
+        titularType: esTerciarioCalc ? 'empresa' : (inputs.titularType || 'particular'),
+        aplicarIrpfCae: esTerciarioCalc ? false : inputs.aplicarIrpfCae !== false
     });
+    const financialRes = financierosDe(savingsRes.savingsKwh);
+
+    // 4.b Con hibridación, lo que la calculadora guarda además (CalculatorView 3.1,
+    // 3.1.b y 3.2): el bono RETIRANDO la caldera, las DOS hipótesis de cobertura
+    // (demanda y potencia de la caldera, tecleada o de la PLACA) y, en zona cálida
+    // y con el modelo del catálogo (`modelos`), el bono con el SCOP de cada clima.
+    // Lo usan la propuesta y su mensaje aparte (logic/hibridacionPropuesta.js).
+    const financialsSinCaldera = hybridizationRes ? financierosDe(ahorroCon(1).savingsKwh) : null;
+    const hipotesisHibridacion = (() => {
+        if (!hybridizationRes) return null;
+        const pCaldera = potenciaCaldera || parseFloat(inputs.placa_caldera?.potencia_kw) || 0;
+        const conMetodo = (method) => {
+            const hyb = calculateHybridization({ demandAnnual: demandRes.Q_net, heatPumpPower: potenciaBomba,
+                                                 method, boilerPower: pCaldera, climateSeason: temporada });
+            const sav = ahorroCon(hyb.cb);
+            return { cb: hyb.cb, coverage: hyb.coverage, savingsKwh: sav.savingsKwh,
+                     caeBonus: financierosDe(sav.savingsKwh).caeBonus };
+        };
+        return {
+            demanda: conMetodo('demanda'),
+            caldera: pCaldera > 0 ? { ...conMetodo('caldera'), potenciaCaldera: pCaldera } : null,
+        };
+    })();
+    const comparativaClima = (() => {
+        if (!hybridizationRes || !Array.isArray(modelos) || zoneClimateSeason(inputs.zona) !== CLIMA_SCOP.CALIDO) return null;
+        const modelo = modelos.find(m => String(m.id) === String(inputs.aerothermiaModel));
+        if (!modelo) return null;
+        const idAcs = inputs.changeAcs ? inputs.aerothermiaModelAcs : inputs.aerothermiaModel;
+        const modeloAcs = modelos.find(m => String(m.id) === String(idAcs)) || null;
+        const temp = inputs.emitterType === 'radiadores_convencionales' ? 55 : (inputs.emitterType === 'radiadores_baja_temp' ? 45 : 35);
+        const out = {};
+        for (const clima of [CLIMA_SCOP.CALIDO, CLIMA_SCOP.MEDIO]) {
+            const s = scopsParaClima({ modelo, modeloAcs, zona: inputs.zona, temp,
+                                       clima: clima === CLIMA_SCOP.MEDIO ? CLIMA_SCOP.MEDIO : null });
+            const hyb = calculateHybridization({ demandAnnual: demandRes.Q_net, heatPumpPower: potenciaBomba,
+                                                 method: metodoHib, boilerPower: potenciaCaldera, climateSeason: s.scopTemporada });
+            const sav = ahorroCon(hyb.cb, { scopHeating: s.scopHeating, scopAcs: s.scopAcs ?? undefined });
+            out[clima] = { scopHeating: s.scopHeating, scopAcs: s.scopAcs, cb: hyb.cb,
+                           savingsKwh: sav.savingsKwh, caeBonus: financierosDe(sav.savingsKwh).caeBonus };
+        }
+        return out;
+    })();
+
+    // 4.c La vía del FACTOR MULTIPLICADOR (CalculatorView 3.5): RES060_FM, o la
+    // RES09x_FM de la zona con hibridación. Con ella el resultado guardado es el
+    // MISMO que el de la calculadora y `resumenViaFm` (logic/viaFm.js) lo resume.
+    // Un fallo aquí no puede tumbar el alta de un lead: sin FM, como antes.
+    let res060fcData = null;
+    let financialsRes060FC = null;
+    if (!(inputs.isReforma && inputs.reformaType !== 'none')) {
+        try {
+            const supFm = (parseFloat(inputs.manualSuperficie) || 0) > 0
+                ? parseFloat(inputs.manualSuperficie)
+                : (parseFloat(inputs.superficieCalefactable) || parseFloat(inputs.superficie) || 0);
+            const scopRed = redondeaScop(inputs.scopHeating) || 3.2;
+            const fmClima = entradasFmClima({
+                src: { ...inputs, scopHeating: scopRed },
+                zona: inputs.zona,
+                scopHeating: scopRed,
+                hibridacion: hybridizationRes
+                    ? { coverage: hybridizationRes.coverage, refPower: hybridizationRes.refPower, cb: hybridizationRes.cb }
+                    : null,
+                hybridInputs: { method: metodoHib, heatPumpPower: potenciaBomba, boilerPower: potenciaCaldera },
+                demandAnnual: demandRes.Q_net,
+                scopCalido: comparativaClima?.[CLIMA_SCOP.CALIDO]?.scopHeating ?? null,
+            });
+            res060fcData = calculateRes060FC({
+                provinciaCode: inputs.provincia || inputs.provinceCode,
+                anio: inputs.anio,
+                tipo: inputs.tipo,
+                bloque: false,
+                zona: inputs.zona,
+                superficie: supFm,
+                boilerEff: parseFloat(inputs.boilerEff) || 0.92,
+                boilerId: inputs.boilerId,
+                scopHeating: fmClima.scopHeating,
+                scopAcs: redondeaScop(inputs.scopAcs) || 3.0,
+                changeAcs: inputs.changeAcs === true || inputs.changeAcs === 'true',
+                changeHeating: true,
+                qCalefaccion: demandRes.Q_net,
+                ceeInicial: inputs.xmlDemandData || null,
+                ceeFinal: inputs.xmlDemandDataFinal || null,
+                hibridacion: fmClima.hibridacion,
+                contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal || null, climaFm: fmClima.clima },
+            });
+            if (res060fcData && res060fcData.cae > 0) {
+                financialsRes060FC = financierosDe(res060fcData.cae, precioCaeFm(inputs) || CAE_PRECIO_CLIENTE_NUEVAS);
+            }
+        } catch (e) {
+            res060fcData = null;
+            financialsRes060FC = null;
+        }
+    }
 
     // 5. Ahorro económico anual
     let annualSavingsRes;
@@ -296,7 +463,7 @@ export function computeFullCalculatorResult(inputs) {
     } else {
         annualSavingsRes = calculateAnnualSavingsTheoretical({
             demandaCalefaccion: demandRes.Q_net,
-            demandaACS: 2731.4,
+            demandaACS: dacsCalc,
             boilerEff: inputs.boilerEff,
             scopCalefaccion: inputs.scopHeating,
             scopACS: inputs.scopAcs,
@@ -365,9 +532,14 @@ export function computeFullCalculatorResult(inputs) {
         payback: paybackRes,
         res080: res080Data,
         financialsRes080,
+        financialsSinCaldera,
+        hipotesisHibridacion,
+        comparativaClima,
+        res060fc: res060fcData,
+        financialsRes060FC,
         includeAnnualSavings: !!inputs.includeAnnualSavings,
         discountCertificates: !!inputs.discountCertificates,
         selectedModel: null,
-        hybridization: null
+        hybridization: hybridizationRes
     };
 }

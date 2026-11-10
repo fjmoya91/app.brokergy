@@ -368,5 +368,29 @@ const prueba = async (nombre, fn) => {
         await assert.rejects(() => alta.oportunidadesDeLaRc(rota, '1546004WJ1114N'), /No he podido comprobar/);
     });
 
+    console.log('El TERCIARIO se calcula como en la calculadora (26RES060_OP389, 10/11/2026)');
+    const terciario = (extra = {}) => ({
+        ...inputsCasa(), sector: 'terciario', demandMode: 'manual', manualDemand: 79.9, manualSuperficie: 441,
+        boilerId: 'oil_85_97', boilerEff: 0.70, scopHeating: 6.46, scopAcs: 3.1, changeAcs: false,
+        includeIrpf: true, aplicarIrpfCae: true, titularType: 'particular', presupuesto: 15000, ...extra,
+    });
+    await prueba('calefacción sola: el ahorro de la ficha TER100 y SIN IRPF (titular empresa)', () => {
+        const r = computeFullCalculatorResult(terciario());
+        const esperado = 79.9 * 441 * (1 / 0.70 - 1 / 6.46);
+        assert.strictEqual(Math.round(r.savings.savingsKwh), Math.round(esperado));
+        assert.strictEqual(Math.round(r.savings.aeCal), Math.round(esperado), 'tiene que salir de calculateTerciario');
+        assert.strictEqual(r.financials.irpfDeduction || 0, 0, 'en terciario no hay deducción de IRPF');
+        assert.strictEqual(r.financials.irpfCaeAmount || 0, 0, 'ni tributación del bono como persona física');
+    });
+    await prueba('con el ACS dentro, la D_ACS es la TECLEADA, no el 2.731,4 de una vivienda', () => {
+        const r = computeFullCalculatorResult(terciario({ changeAcs: true, acsMethod: 'manual', dacsManual: 1000 }));
+        assert.strictEqual(Math.round(r.savings.aeAcs), Math.round(1000 * (1 / 0.70 - 1 / 3.1)));
+    });
+    await prueba('el residencial no cambia: D_ACS 2.731,4 y calculateSavings', () => {
+        const r = computeFullCalculatorResult({ ...terciario(), sector: undefined, changeAcs: true });
+        assert.strictEqual(r.savings.aeCal, undefined);
+        assert.ok(r.financials.irpfDeduction > 0, 'la vivienda conserva su deducción');
+    });
+
     console.log(`\n${ok} pruebas correctas${process.exitCode ? ' — HAY FALLOS' : ''}`);
 })();
