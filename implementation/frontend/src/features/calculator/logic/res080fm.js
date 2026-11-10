@@ -131,6 +131,7 @@ function avisosRes080Fm(r, ctx) {
     const hoy = String(ctx.hoy || hoyIso()).slice(0, 10);
 
     // ── Lo que impide pedirlo ──
+    if (ctx.terciario) add('bloquea', 'Es del sector TERCIARIO (TER100 / TER173): el factor multiplicador solo tiene fichas residenciales.');
     if (r.sinCalefaccion) add('bloquea', 'No hay caldera que sustituir: la RES080_FM exige sustituir la caldera por bomba de calor además de actuar sobre la envolvente.');
     else if (r.solido) add('bloquea', 'La caldera es de combustible SÓLIDO (biomasa o carbón): va siempre por la ficha vigente (decisión de 7/11/2026, como en la RES060_FM).');
     if (r.cambioGenerador === false) add('bloquea', 'Los CEE no reflejan la sustitución de la caldera por bomba: la calefacción del posterior no es eléctrica, o la del previo ya lo era. La RES080_FM pide envolvente Y sustitución a la vez (apartado 2).');

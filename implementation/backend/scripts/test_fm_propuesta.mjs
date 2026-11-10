@@ -59,6 +59,18 @@ d = fmPropuesta({ res060fc: fm060, financials: { caeBonus: 7000 }, financialsRes
 ok(!d.procede && /NO sube/.test(d.motivo) && textosHojaFm(d) === null, 'si el FM no sube: sin hoja y con motivo');
 const bloq = { ...fm060, elegible: false, avisos: [{ tono: 'bloquea', texto: 'Caldera de biomasa' }] };
 ok(!fmPropuesta(aero(bloq), {}).procede, 'si algo lo impide: sin hoja');
+// Terciario (TER100/TER173, 26TER100_OP389, 10/11/2026): nada del FM, aunque haya cifra
+// guardada y salga mayor (propuesta cargada de la BD con un `res060fc` antiguo).
+const ter = fmPropuesta(aero(fm060), { sector: 'terciario', tipo: 'unifamiliar', zona: 'C3' });
+ok(!ter.procede && /terciario/.test(ter.motivo) && textosHojaFm(ter) === null, 'terciario: sin hoja ni línea del FM');
+ok(!estadoFc(aero(fm060), { sector: 'TERCIARIO' }).procede, 'terciario: sin párrafo FM en el mensaje (también en mayúsculas)');
+{
+    const { contextoCalderaFc, calculateRes060FM } = await import('../../frontend/src/features/calculator/logic/res060fc.js');
+    const ctx = contextoCalderaFc({ sector: 'terciario', boilerId: 'oil_85_97' });
+    ok(ctx.terciario === true && contextoCalderaFc({ boilerId: 'oil_85_97' }).terciario === false, 'contexto: marca el terciario');
+    const r = calculateRes060FM({ provinciaCode: '13', anio: 1990, tipo: 'unifamiliar', zona: 'D3', superficie: 120, boilerEff: 0.85, boilerId: 'oil_85_97', scopHeating: 3.2, scopAcs: 3, changeAcs: true, qCalefaccion: 12000, contexto: ctx });
+    ok(r && r.elegible === false && r.avisos.some((a) => a.tono === 'bloquea' && /TERCIARIO/.test(a.texto)), 'motor: terciario bloquea el FM');
+}
 ok(fichaVigenteDe('RES091_FM') === 'RES093' && fichaVigenteDe('RES080_FM') === 'RES080', 'ficha vigente de cada FM');
 
 // 6) Consumidor vulnerable (09/11/2026): ficha -S, × 1,5, tarjeta y cifra sin acreditarlo.

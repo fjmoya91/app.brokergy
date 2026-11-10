@@ -53,7 +53,7 @@ paths:
 - `docs/conocimiento/propuesta/enviada-con-cualquier-envio-y-a-quien-le-ha-llegado.md` — ENVIADA con cualquier envío, y la lista dice A QUIÉN le ha llegado (2026-10-14) · 2,7 KB
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01) · 5,4 KB
 - `docs/conocimiento/propuesta/la-colaboracion-y-el-coste-de-los-servicios.md` — La colaboración se ve en la portada, y el coste de los servicios es UNO (2026-10-22) · 4,2 KB
-- `docs/conocimiento/propuesta/la-hoja-del-factor-multiplicador.md` — La hoja del FACTOR MULTIPLICADOR en la propuesta (2026-11-09) · 8,0 KB
+- `docs/conocimiento/propuesta/la-hoja-del-factor-multiplicador.md` — La hoja del FACTOR MULTIPLICADOR en la propuesta (2026-11-09) · 8,8 KB
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 2,4 KB
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,4 KB
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19) · 4,9 KB
@@ -95,6 +95,7 @@ en un mensaje APARTE**
   - **REGLA — toda propuesta en la que alguna opción sube por la vía FM lleva una HOJA más, la 2, detrás de la
 portada, y una línea en la fila del bono de la portada que remite a ella.**
   - **REGLA — cada opción con SU ficha y las MISMAS condiciones que el párrafo del mensaje.**
+  - **REGLA — si el FM no se puede aplicar, la propuesta no dice NADA del multiplicador**
   - **REGLA — lo que se le pide al cliente es lo que dice SU ficha.**
   - **REGLA — la hoja la genera el equipo interno**
   - **REGLA — el aviso del FM y el consentimiento del IRPF de esa vía ya NO van en el mensaje principal: van

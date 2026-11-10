@@ -861,7 +861,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             demandAnnual: demandRes.Q_net,
             scopCalido: comparativaClima?.[CLIMA_SCOP.CALIDO]?.scopHeating ?? null,
         });
-        const res060fcData = calculateRes060FC({
+        // TERCIARIO (TER100 / TER173): sin ficha FM, así que no se calcula y no sale
+        // nada del multiplicador ni en la calculadora ni en la propuesta (Fran,
+        // 10/11/2026, 26TER100_OP389). El `via_fm` guardado lo marca `aplica: false`.
+        const res060fcData = esTerciarioCalc ? null : calculateRes060FC({
             provinciaCode: inputs.provincia || inputs.provinceCode,
             anio: sanitizedInputs.anio || inputs.anio,
             tipo: sanitizedInputs.tipo,
@@ -1089,7 +1092,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         // opción reforma, con las mismas reglas que su bono.
         let res080fmData = null;
         let financialsRes080FM = null;
-        if (res080Data) {
+        if (res080Data && !esTerciarioCalc) {
             res080fmData = calculateRes080FM({
                 res080: res080Data,
                 ceeInicial: inputs.xmlDemandData,

@@ -47,6 +47,15 @@ página. Cifras y textos salen de UNA fuente, [logic/fmPropuesta.js](../../../im
 Solo sale si el FM es MAYOR y nada lo impide (sólido, fechas, presentado): una cifra menor solo mete dudas
 sobre la firme. La de la RES080_FM sin los dos CEE simulados lleva «unos» / «≈» y lo dice.
 
+**REGLA — si el FM no se puede aplicar, la propuesta no dice NADA del multiplicador** (Fran, 10/11/2026,
+26TER100_OP389: «cuando es carbón, cuando es biomasa… cuando no se pueda aplicar, no debe aparecer»). Ni
+la línea de la fila del bono, ni la hoja 2, ni el párrafo del mensaje. Lo decide `estadoFc`: un aviso
+`bloquea` del motor (sólido, sin caldera, aire-aire, α, presentado, fechas) o el sector **terciario**
+(TER100 / TER173, que no tiene ficha FM). El terciario se cortó en tres sitios porque la OP389 lo pintaba
+(5.027 → 11.244 €): `contextoCalderaFc` lo marca y el motor (RES060_FM y RES080_FM) lo bloquea;
+`estadoFc` lo descarta aunque la propuesta venga de la BD con un `res060fc` antiguo; y la calculadora ya no
+lo calcula en terciario. Su `via_fm` sigue guardándose con `aplica: false`. Prueba: `test_fm_propuesta.mjs`.
+
 **REGLA — lo que se le pide al cliente es lo que dice SU ficha.** Cotejado con el BOE el 09/11/2026:
 
 | Requisito | RES060_FM | Hibridación (RES09x_FM) | RES080_FM |

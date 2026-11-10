@@ -77,6 +77,10 @@ const cierto = (v) => v === true || v === 'true' || v === 1 || v === '1';
 export function estadoFc(result, inputs) {
     const no = (motivo) => ({ procede: false, motivo, actual: 0, fc: 0, extra: 0, dosOpciones: false });
 
+    // Terciario (TER100 / TER173): no hay ficha FM y en la propuesta no sale NADA del
+    // multiplicador (Fran, 10/11/2026, 26TER100_OP389).
+    if (String(inputs?.sector || '').trim().toLowerCase() === 'terciario') return no('es del sector terciario: el factor multiplicador solo tiene fichas residenciales');
+
     const isReforma = cierto(inputs?.isReforma);
     // Propuesta de SOLO reforma: su ficha FM es la RES080_FM, no la RES060_FM.
     if (isReforma && inputs?.comparativaReforma === false) return estadoFm080(result);

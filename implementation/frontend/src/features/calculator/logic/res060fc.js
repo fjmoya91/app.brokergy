@@ -294,6 +294,9 @@ function avisosFm(r, ctx) {
     const hoy = String(ctx.hoy || hoyIso()).slice(0, 10);
 
     // ── Lo que impide pedirlo ──
+    // Terciario (TER100 / TER173): las fichas FM son solo residenciales (Fran, 10/11/2026,
+    // 26TER100_OP389: «no debería aparecer nada del multiplicador»).
+    if (ctx.terciario) add('bloquea', 'Es del sector TERCIARIO (TER100 / TER173): el factor multiplicador solo tiene fichas residenciales.');
     if (ctx.sinCalefaccion) add('bloquea', 'No hay caldera que sustituir ni hibridar: el factor multiplicador es para cambiar (o hibridar) una caldera existente.');
     else if (r.solido) add('bloquea', 'La caldera es de combustible SÓLIDO (biomasa o carbón): el Anexo II de la Resolución publicada solo trae gas, gasóleo y eléctrica.');
     if (r.conCalefaccion === false) add('bloquea', 'La obra no cambia la calefacción (solo el ACS): el factor multiplicador exige que la bomba dé la calefacción Y el ACS. Va por la ficha vigente.');
@@ -546,7 +549,10 @@ export function contextoCalderaFc(inputs = {}, rendimientoId = null) {
     // Combustible SÓLIDO (biomasa o carbón): fuera del Anexo II publicado.
     const solido = id.startsWith('solid_') || combustible === 'biomasa'
         || (!conFila && /carbon|lena|pellet|biomasa|solido/.test(tipo));
-    return { sinCalefaccion, combustible, solido };
+    // Sector TERCIARIO (TER100 / TER173): sin ficha FM (`esSectorTerciario`, sin
+    // importarlo para no cruzar con expedientes desde el motor del backend).
+    const terciario = norm(inputs.sector) === 'terciario';
+    return { sinCalefaccion, combustible, solido, terciario };
 }
 export const contextoCalderaFm = contextoCalderaFc;
 
