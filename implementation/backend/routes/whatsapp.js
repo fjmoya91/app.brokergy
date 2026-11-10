@@ -582,6 +582,44 @@ router.post('/esperas/:id/cancelar', adminOnly, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CONTESTADOR — contesta como Fran a quien tiene algo vivo (services/contestadorWhatsapp.js).
+// ADMIN o clave interna: lleva conversaciones de clientes.
+// ─────────────────────────────────────────────────────────────────────────────
+const contestador = require('../services/contestadorWhatsapp');
+
+// GET ?estado=PENDIENTE|HECHA|DESCARTADA|ERROR → los últimos turnos
+router.get('/contestador', adminOInterno, async (req, res) => {
+    try {
+        const estado = ['PENDIENTE', 'HECHA', 'DESCARTADA', 'ERROR'].includes(req.query.estado) ? req.query.estado : null;
+        res.json({ activo: contestador.activo(), modo: contestador.modo(), turnos: await contestador.listar({ estado }) });
+    } catch (e) { res.status(503).json({ error: 'No se ha podido leer el contestador', detalle: e.message }); }
+});
+
+// GET → { texto }: su línea del resumen de las 9:00 (vacía si no hay nada)
+router.get('/contestador/resumen', adminOInterno, async (req, res) => {
+    res.json({ texto: await contestador.resumen() });
+});
+
+// POST { telefono | chatId } → qué contestaría AHORA a ese chat. EN SECO: no escribe nada
+// ni manda nada (sí llama a Claude o a Gemini para redactar).
+router.post('/contestador/probar', adminOInterno, async (req, res) => {
+    try {
+        const { telefono, chatId } = req.body || {};
+        if (!telefono && !chatId) return res.status(400).json({ error: 'Indica telefono o chatId' });
+        res.json(await contestador.decidir({ telefono, chatId }));
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// POST { si } → «manda C12»: envía tal cual lo que se habría contestado, con la
+// respuesta LITERAL de Fran. Comprueba que el chat no ha cambiado desde entonces.
+router.post('/contestador/:id/enviar', adminOInterno, async (req, res) => {
+    const id = Number(String(req.params.id).replace(/^C/i, ''));
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+    try { res.json(await contestador.enviarCopia(id, { si: req.body?.si })); }
+    catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BIENVENIDA — la primera respuesta, sola, a quien escribe por primera vez: el
 // formulario «Calcula tu ayuda» y el vídeo (services/bienvenidaWhatsapp.js).
 // ADMIN o clave interna: lleva teléfonos.

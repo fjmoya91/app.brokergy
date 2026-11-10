@@ -128,6 +128,12 @@ mismo apartado, dudosos, preguntas y decisión de borrador, chat a chat). Pendie
 (Batch API, mitad de precio) encaja con una ronda nocturna, pero obliga a partirla en dos tandas
 (análisis, y después apartados y borradores).
 
+**Un chat suelto, con otro redactor** (2026-11-10): `procesarChat(c, cargado, ctx)` va exportado y
+acepta en `ctx` un `redactar` (por defecto `rondaWhatsappIA.borrador`) y una `fuente` de la conversación
+y los adjuntos (por defecto la sesión local; en el PC, las rutas `/conversacion` del VPS). Lo usa el
+[CONTESTADOR](el-contestador-contesta-como-fran.md): mismo análisis de adjuntos, misma obra, mismo
+dossier, y su propio cerebro para lo que se dice.
+
 **Lo medido (19/10/2026, 7 días de chats, en seco):** 444 teléfonos con algo vivo → 374 chats leídos en
 **12 s**, 121 con mensajes; de los adjuntos sin colocar, **135 con su obra** (133 con confianza alta),
 7 dudosos y 3 de peticiones nuevas, también en chats de instaladores con 20 y 47 obras (se apoya en la

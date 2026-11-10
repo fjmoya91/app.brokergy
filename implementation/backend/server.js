@@ -280,6 +280,14 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[esperas] no se pudo iniciar:', err.message);
     }
+    // El CONTESTADOR: contesta como Fran a quien tiene algo vivo, tras 15 min de silencio
+    // y de 7 a 21 h. Nace APAGADO (CONTESTADOR_ENABLED) y, encendido, en modo copia
+    // (CONTESTADOR_MODO=real para escribir): lo que diría le llega a Fran al grupo.
+    try {
+      require('./services/contestadorWhatsapp').start();
+    } catch (err) {
+      console.warn('[contestador] no se pudo iniciar:', err.message);
+    }
     // A quien escribe por PRIMERA VEZ, una vez y sola: el formulario «Calcula tu ayuda»
     // y el vídeo de las ayudas. Nace APAGADA (WA_BIENVENIDA_ENABLED) y, encendida, en
     // modo copia (WA_BIENVENIDA_MODO=real para escribir): local es la misma cuenta.

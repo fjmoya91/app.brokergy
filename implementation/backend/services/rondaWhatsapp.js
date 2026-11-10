@@ -226,7 +226,9 @@ async function cargarEnviosApp(desdeSeg) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. UN CHAT — adjuntos, análisis, apartados y borrador
 // ─────────────────────────────────────────────────────────────────────────────
-async function bajarAdjuntos(ms, desdeSeg, cont) {
+// `fuente`: de dónde se bajan adjuntos y audios. Por defecto la sesión de este
+// servidor; la prueba en seco del contestador (scripts/contestador.js) lee del VPS.
+async function bajarAdjuntos(ms, desdeSeg, cont, fuente = waConversacion) {
     // Solo lo NUEVO de ELLOS: lo de días anteriores ya salió en su ronda.
     const suyos = ms.filter(m => !m.de_mi && IA.MEDIA.has(m.tipo) && m.t >= desdeSeg);
     const ids = suyos.map(m => m.id);
@@ -243,13 +245,13 @@ async function bajarAdjuntos(ms, desdeSeg, cont) {
         n++;
         if (m.tipo === 'video') { m._video = true; cont.videos++; continue; }
         if (m.tipo === 'ptt' || m.tipo === 'audio') {
-            try { m._transcripcion = (await waConversacion.transcribir(m.id)).texto; cont.audios++; }
+            try { m._transcripcion = (await fuente.transcribir(m.id)).texto; cont.audios++; }
             catch (e) { m._error = `audio: ${e.message}`; }
             continue;
         }
         if (!m.descargable) { m._error = 'no descargable (ver una vez o demasiado grande)'; continue; }
         try {
-            m._fichero = await waConversacion.descargarAdjunto(m.id);
+            m._fichero = await fuente.descargarAdjunto(m.id);
             if (m.tipo === 'image') cont.fotos++; else cont.documentos++;
         } catch (e) { m._error = `bajar: ${e.message}`; }
     }
@@ -279,10 +281,13 @@ function dossierDe(obra) {
     }, { soloLectura: true });
 }
 
+// `ctx.redactar` (el contestador, 10/11/2026): quien escribe el borrador, con la
+// MISMA firma que `IA.borrador`. Por defecto, Gemini; el contestador pone a Claude.
 async function procesarChat(c, a, ctx) {
     const { ms } = a;
     const { cont, cuenta, envios, desdeSeg, modelo, modeloBorrador } = ctx;
-    const adjuntos = await bajarAdjuntos(ms, desdeSeg, cont);
+    const redactar = ctx.redactar || IA.borrador;
+    const adjuntos = await bajarAdjuntos(ms, desdeSeg, cont, ctx.fuente || waConversacion);
     // Primero se decide qué adjuntos ve el modelo y con qué número, y con ESOS
     // números se escribe la conversación que lee.
     const { partes, numeros } = IA.prepararPartes(adjuntos);
@@ -343,7 +348,11 @@ async function procesarChat(c, a, ctx) {
     const ultimo = ms[ms.length - 1];
     const ultimoSuyo = !ultimo.de_mi;
     const cortesia = ultimoSuyo && esCortesia({ tipo: ultimo.tipo, texto: ultimo.texto });
-    if (an.espera_respuesta || (ultimoSuyo && !cortesia)) {
+    // `ctx.siempreRedactar` (el contestador): ya ha mirado él que hay algo suyo sin contestar
+    // que no es cortesía, y el que decide si se calla es su cerebro. El análisis de la ronda
+    // daba «no espera respuesta» a «Ya me han instalado la aerotermia» y a «comprueba que
+    // esté todo bien» si detrás iba un aviso automático nuestro (seco del 10/11/2026).
+    if (ctx.siempreRedactar || an.espera_respuesta || (ultimoSuyo && !cortesia)) {
         if (c.rol === 'certificador') {
             c.borrador = { accion: 'MANO', motivo: `certificador: ${an.por_que_espera || 'espera respuesta'} (a un técnico se le escribe como a un compañero; lo redactaría Claude)` };
         } else {
@@ -362,7 +371,7 @@ async function procesarChat(c, a, ctx) {
             const propuesta = IA.estadoPropuesta(obra);
             try {
                 const dossier = obra && (!propuesta || propuesta === 'ENVIADA') ? await dossierDe(obra) : null;
-                c.borrador = await IA.borrador({ ...ch, obras: c.obras }, obra, dossier, llegado, cuenta, { modelo: modeloBorrador });
+                c.borrador = await redactar({ ...ch, obras: c.obras }, obra, dossier, llegado, cuenta, { modelo: modeloBorrador });
                 c.obraBorrador = codigo || null;
             } catch (e) { c.borrador = { accion: 'MANO', motivo: `no se pudo redactar: ${e.message}` }; }
         }
@@ -668,6 +677,8 @@ module.exports = {
     start, tick, ejecutar, lanzar, enviar, estado, informe, CONFIG,
     // Piezas que comparte la ronda hecha por Claude Code (scripts/ronda_cc.js):
     cargarUniverso, obrasDeChat, rolDe, tituloDe, cargarEnviosApp, soloCortesia, componer, dossierDe,
+    // Y el contestador (services/contestadorWhatsapp.js): un chat, con su propio cerebro.
+    procesarChat,
     // Para las pruebas:
     _rolDe: rolDe, _tituloDe: tituloDe, _componer: componer, _soloCortesia: soloCortesia,
 };

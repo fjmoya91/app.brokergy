@@ -223,11 +223,15 @@ function esAcuse(msg) {
  * el mensaje («Gracias por tu mensaje, te escribo ahora») no debe quedarse sin cerrar.
  */
 const PATRON_AUTO = /gracias por (escribir|contactar|tu mensaje|su mensaje|ponerte en contacto|comunicarte)|(te|le|os) (responderemos|atenderemos|contestaremos)|en breve|lo antes posible|fuera de(l)? horario|horario de atenci[oó]n|mensaje autom[aá]tico|respuesta autom[aá]tica/i;
+/** El TEXTO tiene la forma de una respuesta automática (de plantilla, con emojis o larga). */
+const pareceAutomatica = (texto) => {
+    const t = String(texto || '');
+    return PATRON_AUTO.test(t) && (/\p{Extended_Pictographic}/u.test(t) || t.length > 120);
+};
 function esAutomatica(msg, enviadoAtMs) {
-    const t = String(msg?.body || '');
     const cuando = Number(msg?.timestamp) ? Number(msg.timestamp) * 1000 : Date.now();
     const delta = cuando - (Number(enviadoAtMs) || 0);
-    return delta >= 0 && delta < 10 * 60_000 && PATRON_AUTO.test(t) && (/\p{Extended_Pictographic}/u.test(t) || t.length > 120);
+    return delta >= 0 && delta < 10 * 60_000 && pareceAutomatica(msg?.body);
 }
 
 /** Un mensaje que ENTRA (listener de la sesión). Si es de alguien a quien esperamos, CONTESTADA. */
@@ -284,7 +288,8 @@ const pausadoHasta = new Map();   // chatId → ms (para no escribir en la BD co
  */
 async function alMensajePropio({ msg, delSistema }) {
     try {
-        if (!activo() || delSistema || !msg) return;
+        // También la necesita el contestador (contestadorWhatsapp): con cualquiera de los dos encendido.
+        if ((!activo() && process.env.CONTESTADOR_ENABLED !== 'true') || delSistema || !msg) return;
         const chatId = String(msg.to || '');
         if (!chatId.endsWith('@c.us') && !chatId.endsWith('@lid')) return;
         const hasta = Date.now() + CFG.pausaHumanaH * 3_600_000;
@@ -497,6 +502,7 @@ function start() {
 
 module.exports = {
     start, abrir, cancelar, cerrarPorSubida, alMensajeEntrante, alMensajePropio, vuelta, resumen, listar,
+    pausaDe, pareceAutomatica,   // también los usa el contestador antes de contestar
     // para las pruebas
     textoRecordatorio, describirMensaje, esAcuse, esAutomatica, enHorario, siguienteHabil, venceTras, activo, modo, CFG, MOTIVOS,
 };

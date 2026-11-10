@@ -86,6 +86,8 @@ tiene por qué saberlo.
 
 ## Lo que queda para las fases siguientes
 
-Contestar (fase 2: con el dossier y la conversación delante, 3 días en copia), las oportunidades que entran
-(fase 3) y el seguimiento periódico de obra y propuestas (fase 4). Una subida cierra la espera aunque falte
+Contestar (fase 2, hecha el 10/11/2026: [el CONTESTADOR](el-contestador-contesta-como-fran.md), que usa
+la misma pausa de `wa_chat_pausas`; con el contestador encendido la pausa se apunta aunque las esperas
+estén apagadas), las oportunidades que entran (fase 3) y el seguimiento periódico de obra y propuestas
+(fase 4). Una subida cierra la espera aunque falte
 parte de lo pedido: lo que falte lo vuelve a pedir el agente de la aceptación o el barrido.

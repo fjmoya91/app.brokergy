@@ -34,7 +34,7 @@
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,6 KB | 1 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,5 KB | 6 |
-| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 24,5 KB | 17 |
+| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 27,2 KB | 18 |
 
 ## Reglas numeradas → dónde están
 
@@ -290,6 +290,7 @@
 - **204** → `.claude/rules/whatsapp.md` — Lo que se le PIDE a alguien por WhatsApp queda ESPERANDO respuesta: se cierra solo al contestar y, si no, se…
 - **205** → `.claude/rules/whatsapp.md` — La FRANJA DE LA CASA: lo que el agente le escribe a un tercero sale de 7 a 21 h (Madrid), como si contestara…
 - **206** → `.claude/rules/whatsapp.md` — A quien escribe por PRIMERA VEZ se le contesta SOLO, una vez, con el formulario «Calcula tu ayuda» (`?ref=wa…
+- **207** → `.claude/rules/whatsapp.md` — El CONTESTADOR contesta como Fran a quien tiene algo VIVO, tras 15 min de silencio, en la franja de la casa,…
 
 ## Documentos por área
 
@@ -674,6 +675,7 @@
 - `docs/conocimiento/whatsapp/bot-de-whatsapp-contesta-a-los-chats-etiquetados.md` — Bot de WhatsApp — contesta a los chats ETIQUETADOS (2026-08-25)
 - `docs/conocimiento/whatsapp/como-se-prueba-sin-gastar-mensajes.md` — Cómo se prueba SIN gastar mensajes
 - `docs/conocimiento/whatsapp/coste-medido.md` — Coste medido (2026-08-25)
+- `docs/conocimiento/whatsapp/el-contestador-contesta-como-fran.md` — El CONTESTADOR: contesta por WhatsApp como Fran a quien tiene algo vivo (2026-11-10)
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js)
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13)
