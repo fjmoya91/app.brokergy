@@ -27,8 +27,11 @@
 //    nada; lo que se le habría contestado va al grupo de Fran («BROKERGY - CHAT»)
 //    con su número (C12), y «C12» lo envía tal cual (POST /contestador/:id/enviar; con cambios,
 //    «C12, dile además…», lo termina de redactar el asistente).
-//  - Si ha escrito una PERSONA de la casa en ese chat, se calla 24 h (`wa_chat_pausas`,
-//    la regla de las esperas). Y si ya le ha contestado alguien, no se contesta.
+//  - Si ha escrito una PERSONA de la casa en ese chat (`wa_chat_pausas`, la regla de las
+//    esperas) NO se calla 24 h: si el otro vuelve a escribir y en `relevoMin` (30) nadie
+//    le contesta, contesta el contestador (Fran, 10/11/2026: «aunque yo conteste, no estés
+//    24 h sin contestar; si yo estoy un tiempo, sé proactivo, no llego a todo»). Y si ya
+//    le ha contestado alguien, no se contesta.
 //  - Topes en el CÓDIGO: 3 respuestas al día por chat (un bot del otro lado no puede
 //    hacer ping-pong), 40 al día en total, 2 por vuelta; pasado un tope, a Fran.
 //  - Certificadores y números sin obra viva: no se les contesta (un técnico se lleva
@@ -46,6 +49,8 @@ const Docs = require('./contestadorDocumentos');
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && v !== '' && v != null ? n : d; };
 const CFG = {
     silencioMin: num(process.env.CONTESTADOR_SILENCIO_MIN, 15),
+    // Con una persona de la casa en el chat: lo que se le deja para contestar ella antes de relevarla.
+    relevoMin: num(process.env.CONTESTADOR_RELEVO_MIN, 30),
     topeDia: num(process.env.CONTESTADOR_TOPE_DIA, 40),
     topeChatDia: num(process.env.CONTESTADOR_TOPE_CHAT_DIA, 3),
     porVuelta: num(process.env.CONTESTADOR_POR_VUELTA, 2),
@@ -99,6 +104,10 @@ function conCandado(clave, tarea) {
     siguiente.finally(() => { if (candados.get(clave) === siguiente) candados.delete(clave); }).catch(() => {});
     return siguiente;
 }
+
+/** Con una persona de la casa en el chat (`pausa`), ¿se le sigue dejando a ella lo que el otro
+ *  escribió desde `primeroSeg`? Pasados `relevoMin`, no: contesta el contestador. Puro. */
+const dejarleAElla = (pausa, primeroSeg, ahoraSeg = Date.now() / 1000) => !!pausa && ahoraSeg - primeroSeg < CFG.relevoMin * 60 - 30;
 
 const plazoDesde = (d = new Date()) => horario.siguienteApertura(new Date(d.getTime() + CFG.silencioMin * 60_000));
 
@@ -170,7 +179,6 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     if (esDeLaCasa(tel9)) return fuera('es un chat de la casa');
 
     const pausa = await pausaDe(conv.chatId, tel9);
-    if (pausa) return fuera(`lo lleva una persona de la casa (pausa hasta ${pausa.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })})`);
 
     const { u, envios } = await cargar();
     const ms = conv.mensajes || [];
@@ -190,6 +198,12 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     if (!pendientes.length) return fuera('lo único suyo es la respuesta automática de su WhatsApp');
     const ultimo = pendientes[pendientes.length - 1];
     const ahoraSeg = Date.now() / 1000;
+    // Lo lleva una persona de la casa: se le deja `relevoMin` para contestar ella a lo que el
+    // otro ha escrito DESPUÉS de su último mensaje; si no, contesta el contestador (con toda la
+    // conversación delante, lo suyo incluido). Antes se callaba 24 h.
+    if (dejarleAElla(pausa, pendientes[0].t, ahoraSeg)) {
+        return { ...base, estado: 'ESPERAR', motivo: `lo lleva una persona de la casa: le dejo ${CFG.relevoMin} min para contestar` };
+    }
     if (enVivo && ahoraSeg - ultimo.t < CFG.silencioMin * 60 - 30) return { ...base, estado: 'ESPERAR', motivo: 'sigue escribiendo' };
 
     const personas = u.porTel.get(tel9) || [];
@@ -626,5 +640,5 @@ function start() {
 module.exports = {
     start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, activo, modo, modoGuardar, CFG,
     // para las pruebas
-    textoParaFran, lineasGuardar, plazoDesde, esDeLaCasa, resumenPendientes,
+    textoParaFran, lineasGuardar, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla,
 };

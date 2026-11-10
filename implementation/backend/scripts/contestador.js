@@ -163,6 +163,22 @@ async function seco() {
         return;
     }
     if (orden === 'resumen') { console.log((await api('/contestador/resumen')).texto || '(nada que contar)'); return; }
+    if (orden === 'bandeja') {
+        // La bandeja de la app («sin contestar»: el último mensaje es del otro), sin la cortesía.
+        const dias = Number(opt('dias', 7));
+        const r = await api(`/bandeja/sin-contestar?horas=${Number(opt('horas', 2))}`);
+        const corte = Date.now() / 1000 - dias * 86400;
+        const vivos = (r.chats || []).filter(c => !c.cortesia && c.desde >= corte);
+        const quien = (c) => (c.clientes?.[0] ? `${c.clientes[0].nombre || ''} ${(c.clientes[0].obras || []).map(o => o.codigo || o).slice(0, 2).join(', ')}`.trim()
+            : c.partner ? `instalador ${c.partner.acronimo || c.partner.razon_social || c.partner.nombre || ''}`.trim() : 'no está en la app');
+        console.log(`Sin contestar estos ${dias} días: ${vivos.length} (y ${(r.chats || []).filter(c => c.cortesia && c.desde >= corte).length} de cortesía)${r.sinCargar ? ` · ${r.sinCargar} chats sin cargar` : ''}`);
+        for (const c of vivos) {
+            const h = c.horas >= 48 ? `${Math.round(c.horas / 24)} d` : `${Math.round(c.horas)} h`;
+            console.log(`- ${h.padStart(5)} · ${String(c.nombre_whatsapp || c.telefono || '').slice(0, 28).padEnd(28)} · ${quien(c).slice(0, 50)} · ${String(c.texto || `[${c.tipo}]`).replace(/\s+/g, ' ').slice(0, 70)}`);
+        }
+        if (args.includes('--json')) fs.writeFileSync(path.join(DIR, 'bandeja.json'), JSON.stringify(vivos, null, 2));
+        return;
+    }
     if (orden === 'enviar') {
         const id = String(args[1] || '').replace(/^C/i, '');
         const si = opt('si', '');
@@ -173,5 +189,5 @@ async function seco() {
         console.log(r.texto ? `✓ C${r.id} enviado a ${r.tel9}${g}:\n${r.texto}` : `✓ C${r.id}${g} (sin escribirle)`);
         return;
     }
-    console.log('Órdenes: seco [--tel …|--de …] [--max 8] [--cerebro claude|gemini] · estado · resumen · enviar C12 --si "…" [--texto "…"]');
+    console.log('Órdenes: seco [--tel …|--de …] [--max 8] [--cerebro claude|gemini] · estado · resumen · bandeja [--dias 7] · enviar C12 --si "…" [--texto "…"]');
 })().catch((e) => { console.error(`✗ ${e.message}`); process.exitCode = 1; });

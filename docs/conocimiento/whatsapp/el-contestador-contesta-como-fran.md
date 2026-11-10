@@ -19,9 +19,14 @@ Fuente única: [contestadorWhatsapp.js](../../../implementation/backend/services
 2. **La vuelta** (cada 60 s, solo en la franja de la casa —regla 205, `puedeContestar`, también el fin de
    semana— y con la sesión lista) coge lo vencido (2 por vuelta), **relee el chat** y decide (`decidir`, que
    no escribe):
-   - descarta un grupo, un chat de la casa (el de Fran, el de administración), un chat **en pausa** (una
-     persona de la casa escribió a mano: `wa_chat_pausas`, 24 h, la regla de las esperas) y lo que **ya
-     está contestado**;
+   - descarta un grupo, un chat de la casa (el de Fran, el de administración) y lo que **ya está
+     contestado**;
+   - **REGLA — si una persona de la casa ha escrito a mano en el chat, NO se calla 24 h: se le dejan
+     30 min** (`CONTESTADOR_RELEVO_MIN`, `dejarleAElla`) para contestar ella a lo que el otro escriba
+     DESPUÉS de su mensaje; pasados, contesta el contestador con toda la conversación delante, lo suyo
+     incluido (Fran, 10/11/2026: «aunque yo conteste, no estés 24 h sin contestar; si yo estoy un tiempo,
+     sé proactivo, es que no llego a todo»). Mientras tanto la fila espera (ESPERAR, se mira cada 15 min).
+     La pausa de 24 h (`wa_chat_pausas`) sigue valiendo para los RECORDATORIOS de las esperas;
    - **REGLA — cualquier mensaje NUESTRO posterior al suyo lo da por contestado, también lo que salió
      por la app**: por la app van los WhatsApp que el asistente manda por Fran y los de los popups. Seco
      del 10/11/2026 (un instalador): el asistente le había contestado a las 20:31 y, sin contar eso, el
@@ -196,6 +201,10 @@ contestador, `GET /api/whatsapp/contestador/resumen`), nunca en un aviso aparte.
   `CONTESTADOR_MODELO` (`sonnet`), `CONTESTADOR_PLAZO_MS`, `CONTESTADOR_DESTINO`.
 - Rutas (`adminOInterno`): `GET /api/whatsapp/contestador?estado=`, `GET /contestador/resumen`,
   `POST /contestador/probar {telefono}` (en seco: dice qué contestaría), `POST /contestador/:id/enviar`.
+- `node implementation/backend/scripts/contestador.js bandeja [--dias 7] [--horas 2]`: lo que está SIN
+  CONTESTAR (el criterio de la bandeja de la app: el último mensaje es del otro), sin la cortesía, con quién
+  es. Es lo que usa el asistente cuando Fran pregunta «¿qué tengo sin contestar?»; la ruta
+  `GET /api/whatsapp/bandeja/sin-contestar` acepta por eso también `x-internal-key` (`staffOClaveInterna`).
 - `node implementation/backend/scripts/test_contestador_whatsapp.js` (sin red) y, contra el WhatsApp del
   VPS EN SECO, `node implementation/backend/scripts/contestador.js seco --tel 6xxxxxxxx` (o `--de` un
   triaje, `--max 8`, `--horas 720` para redactar también lo antiguo, `--antes` para repetir un chat ya

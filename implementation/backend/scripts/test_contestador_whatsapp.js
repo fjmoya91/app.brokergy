@@ -137,6 +137,16 @@ ok(C.plazoDesde(new Date('2026-11-14T02:00:00Z')).toISOString() === '2026-11-14T
     ok(!esAutomatica({ body: deEmpresa, timestamp: t / 1000 }, t - 12 * 60_000), 'las esperas (con reloj de 10 min) no la verían: por eso el contestador va sin reloj');
 }
 
+// ── Si Fran ha escrito a mano, ya no se calla 24 h: se le deja `relevoMin` y luego contesta él ──
+{
+    const ahora = 1_794_400_000;
+    const pausa = new Date((ahora + 20 * 3600) * 1000);   // la pausa de 24 h de las esperas
+    ok(C.dejarleAElla(pausa, ahora - 10 * 60, ahora), 'escribe 10 min después de Fran: se le deja a Fran');
+    ok(!C.dejarleAElla(pausa, ahora - 40 * 60, ahora), 'lleva 40 min sin que Fran le conteste: contesta el contestador');
+    ok(!C.dejarleAElla(null, ahora - 1 * 60, ahora), 'sin nadie de la casa en el chat: no se espera a nadie');
+    ok(C.CFG.relevoMin === 30, 'el relevo, a los 30 min por defecto');
+}
+
 // ── El interruptor ──
 ok(!C.activo(), 'con CONTESTADOR_ENABLED distinto de true, no hace nada');
 ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'modo copia salvo CONTESTADOR_MODO=real');

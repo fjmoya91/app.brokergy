@@ -152,7 +152,8 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   - Si `enviar` dice que **ya se envió** (en modo real el acuse ya salió), lo que pide Fran se le manda
     como cualquier WhatsApp a ese número, con su mensaje como «sí».
   - Si quiere algo que no es contestarle (llamarle, cambiar el expediente…), eso no va por `enviar`.
-  `node scripts/contestador.js estado` lista los últimos.
+  `node scripts/contestador.js estado` lista los últimos. «¿Qué tengo sin contestar?» / «¿hay WhatsApp
+  sin contestar?»: `node scripts/contestador.js bandeja --dias 7` (el criterio de la bandeja de la app).
 - **Consultas** (cómo va un expediente, qué falta, cuántas oportunidades tiene X): consulta Supabase en
   SOLO LECTURA con un `node -e` desde `implementation/backend` (cliente `@supabase/supabase-js` con
   `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` del `.env`), o los scripts de la app, y contesta.

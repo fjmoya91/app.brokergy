@@ -331,8 +331,10 @@ router.get('/contactos/pendientes-alta', staffOnly, async (req, res) => {
 // Los chats cuyo último mensaje es del otro y llevan más de `horas` sin
 // respuesta, con quién es en la app. «Ya está» lo quita para todo el equipo
 // hasta su siguiente mensaje. Solo lectura de WhatsApp (services/whatsappBandeja.js).
+// También con `x-internal-key` (10/11/2026): el asistente contesta «¿qué tengo sin
+// contestar?» desde el grupo de Fran (`contestador.js bandeja`). Marcar sigue siendo del equipo.
 const waBandeja = require('../services/whatsappBandeja');
-router.get('/bandeja/sin-contestar', staffOnly, async (req, res) => {
+router.get('/bandeja/sin-contestar', staffOClaveInterna, async (req, res) => {
     try {
         res.json(await waBandeja.sinContestar({ horas: req.query.horas ?? 2 }));
     } catch (e) {
