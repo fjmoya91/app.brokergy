@@ -32,6 +32,11 @@ const numero = args[0];
 const opt = (k) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : null; };
 const flag = (k) => args.includes(`--${k}`);
 const CIF = (opt('empresa') || CIF_BROKERGY).toUpperCase().trim();
+// Un AUTÓNOMO (NIF de persona: 8 cifras + letra, o X/Y/Z + 7 + letra) firma con su certificado
+// PERSONAL «APELLIDOS NOMBRE - <NIF>»: la persona ES la empresa instaladora (José Álvarez, RCA…).
+const AUTONOMO = /^([0-9]{8}|[XYZ][0-9]{7})[A-Z]$/.test(CIF);
+const PATRON_SUJETO = AUTONOMO ? `- ${CIF}` : `R: ${CIF}`;
+const QUIEN = AUTONOMO ? `el certificado personal del autónomo ${CIF}` : `el representante de ${CIF}`;
 const CARPETA_RITE = '7. LEGALIZACION RITE';
 const SCRATCH = path.join(__dirname, '..', 'scratch', 'firmar-rite');
 const FE = path.join(__dirname, '..', '..', 'frontend');
@@ -63,9 +68,9 @@ async function pdfAFirmar(carpeta) {
 /** Certificado de REPRESENTANTE vigente de la empresa `CIF` en el almacén de Windows. */
 function huella() {
     if (CIF === CIF_BROKERGY && process.env.CEE_FIRMA_HUELLA) return process.env.CEE_FIRMA_HUELLA.trim();
-    const ps = `Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date) -and $_.Subject -match 'R: ${CIF}' } | Sort-Object NotAfter -Descending | Select-Object -First 1 -ExpandProperty Thumbprint`;
+    const ps = `Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date) -and $_.Subject -match '${PATRON_SUJETO}' } | Sort-Object NotAfter -Descending | Select-Object -First 1 -ExpandProperty Thumbprint`;
     const h = execFileSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8' }).trim();
-    if (!/^[0-9A-F]{40}$/i.test(h)) throw new Error(`No hay certificado de representante vigente de ${CIF} en el almacén de Windows`);
+    if (!/^[0-9A-F]{40}$/i.test(h)) throw new Error(`No hay ${QUIEN} vigente en el almacén de Windows`);
     return h;
 }
 
@@ -118,7 +123,7 @@ function comprimir(pdf, zip) {
     }
     const carpeta = opt('pdf') && !flag('escribir') ? null : await carpetaRite(numero);
     const { buffer, nombre } = await pdfAFirmar(carpeta);
-    console.log(`${numero} · firmo «${nombre}» con el representante de ${CIF}`);
+    console.log(`${numero} · firmo «${nombre}» con ${QUIEN}`);
     if (leerFirmasPdf(buffer).firmada) throw new Error(`«${nombre}» ya lleva firma electrónica: no se firma otra vez.`);
 
     const { page, caja } = await colocar(buffer);
@@ -148,7 +153,9 @@ function comprimir(pdf, zip) {
     const quien = (lectura.firmantes || []).map(f => `${f.nombre} (${f.fecha})`).join(', ');
     console.log(`Comprobación: firmada ${lectura.firmada} · íntegra ${lectura.integridad?.ok !== false && !lectura.integridad?.rota} · firma ${quien || '?'}`);
     if (!lectura.firmada || lectura.integridad?.rota) throw new Error('La firma no ha quedado bien: no se sube.');
-    if (!(lectura.firmantes || []).some(f => String(f.cn || '').toUpperCase().includes(`R: ${CIF}`))) throw new Error(`El firmante no es el representante de ${CIF}: no se sube.`);
+    const esElBueno = (f) => { const cn = String(f.cn || '').toUpperCase(); return AUTONOMO ? (cn.includes(CIF) && !cn.includes('R:')) : cn.includes(`R: ${CIF}`); };
+    if (!(lectura.firmantes || []).some(esElBueno)) throw new Error(`El firmante no es ${QUIEN}: no se sube.`);
+    console.log(`Certificado ${huella()}`);
 
     const zip = path.join(dir, `${base}.zip`);
     await comprimir(salida, zip);

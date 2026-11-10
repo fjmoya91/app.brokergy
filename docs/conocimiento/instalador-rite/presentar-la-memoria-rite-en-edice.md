@@ -17,9 +17,13 @@ tenemos el certificado de representante, y la presentamos. Primera vez: **26RES0
 | 4 | Tasa: Tarifa 6.1, **11,97 €** (2026) | plataformapagos.jccm.es → Redsys |
 | 5 | Guardar el certificado y el justificante | [guardar_certificado_rite.js](implementation/backend/scripts/guardar_certificado_rite.js) |
 
-**REGLA — firma y diligencia el certificado de REPRESENTANTE de la empresa de la memoria, nunca el
-personal.** eDICE comprueba que el firmante es la empresa instaladora habilitada (RII): con el
-personal, el certificado sale a nombre de una persona sin empresa. En un PC con el montaje viejo de
+**REGLA — firma y diligencia el certificado de la EMPRESA INSTALADORA autora de la memoria: el de
+REPRESENTANTE si es una sociedad, el PERSONAL si es un autónomo.** eDICE comprueba que el firmante es
+la empresa instaladora habilitada (RII): en una sociedad, con el personal del administrador el
+certificado saldría a nombre de una persona sin empresa; en un autónomo la persona ES la empresa y su
+RII está a su NIF (José Álvarez Almarcha y Ramón Carrasco Alhambra, 09-10/11/2026, aceptados por eDICE
+como «instalador válido»). `firmar_memoria_rite.js --empresa <NIF>` busca el personal `… - <NIF>`;
+`--empresa <CIF>`, el `(R: <CIF>)`. En un PC con el montaje viejo de
 `presentar-cee` (AutoFirma usa Firefox en el navegador) el diálogo sale con el personal y se cambia a
 «Almacén de claves del sistema»; sin él sale ya el de Windows. Ahí se elige el `(R: <CIF>)` vigente,
 con captura antes y después de cada clic (en ese almacén hay certificados de clientes y de otras
@@ -58,9 +62,20 @@ vuelve a firmar.
 - Lo que devuelve eDICE además: tres ZIP de acuse (`aft_`, `amt_`, `mtt_`) con las firmas XML y la
   memoria registrada. La app no los usa.
 
-**Por probar:** hacer aquí lo mismo que en `presentar-cee` desde el 27/10/2026 —`certificado.js`, que
-añade a la llamada `filters=thumbprint:SHA1:<huella>` + `headless=true`— con la huella del de
-representante `(R: <CIF>)`. Falta ver qué librería y qué función usa eDICE para llamar a AutoFirma.
+**REGLA — se diligencia con el certificado FIJADO POR HUELLA, sin ventana** (probado el 09-10/11/2026,
+26RES060FM_227 y 26RES060_264). eDICE usa `MiniApplet`; se envuelven sus funciones de firma para añadir
+`filters=thumbprint:SHA1:<huella>` + `headless=true` —lo mismo que `certificado.js` de `presentar-cee`—
+y se llama a `validar()`: AutoFirma firma sin abrir el selector y eDICE responde «validez del
+instalador confirmadas». La huella la imprime `firmar_memoria_rite.js` («Certificado …»). Elegir a mano
+queda como respaldo si saliera la ventana. El script del paso, en la skill.
+
+**REGLA — el RII de la ficha tiene que ser de especialidad D20–D22.** eDICE rechaza cualquier otra
+(«… ser de una especialidad que permita diligenciar instalaciones térmicas (D20 hasta D22)»). La ficha
+de José Álvarez decía `E20`; era `D20` y Fran la corrigió (10/11/2026).
+
+**Decisiones de Fran (09/11/2026):** si el número de la calle de la memoria no es el del Catastro, se
+declara el de la memoria y en «Complemento» `(NN EN CATASTRO)` («61 (57 en catastro)», 26RES060_264);
+la fecha de pruebas que no trae la memoria es la que él diga (en estos dos, el día de la presentación).
 
 **El RITE SUELTO tiene su propio circuito desde el 05/11/2026: la línea `{AAAA}CIT_{n}`** (Fran: «otra
 línea más igual que CEE e INF»). Cuando el RITE no es de una obra CAE —lo que el cliente nos encarga solo

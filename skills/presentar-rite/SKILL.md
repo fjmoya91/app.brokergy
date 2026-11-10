@@ -1,6 +1,6 @@
 ---
 name: presentar-rite
-description: 'FIRMA y PRESENTA la Memoria Técnica RITE de una instalación térmica en eDICE-Térmicas de CASTILLA-LA MANCHA (certificado de instalación térmica SIN proyecto, 5–70 kW) cuando la hace BROKERGY o la firma en nombre de un instalador del que tenemos el certificado de representante: (1) firma el PDF de la memoria con el certificado de REPRESENTANTE de la empresa instaladora, (2) lo comprime en ZIP, (3) rellena el formulario de eDICE y lo diligencia con AutoFirma eligiendo ese mismo certificado, (4) paga la tasa con la tarjeta guardada en Chrome y (5) guarda en la app el CERTIFICADO RITE oficial (slot «Certificado RITE», que además se lee) y el justificante de la tasa. Úsalo con "presenta la memoria RITE de 26RES080_90", "firma y registra el RITE de NNN", "diligencia el certificado de instalación térmica de X", "legaliza el RITE de los splits de X". Lo que hace el usuario: decir SÍ al pago al principio y autorizar el 3DS en la app de su banco. Necesita Claude en Chrome y AutoFirma. Solo CLM.'
+description: 'FIRMA y PRESENTA la Memoria Técnica RITE de una instalación térmica en eDICE-Térmicas de CASTILLA-LA MANCHA (certificado de instalación térmica SIN proyecto, 5–70 kW) cuando la hace BROKERGY o la firma Fran con el certificado DEL INSTALADOR (representante de una sociedad, o el PERSONAL de un autónomo: José Álvarez, RCA, Rubén Horcajada): (1) firma la memoria con ese certificado, (2) la comprime en ZIP, (3) rellena eDICE y lo diligencia con ese mismo certificado fijado por HUELLA (sin ventana), (4) paga la tasa con la tarjeta guardada en Chrome y (5) guarda en la app el CERTIFICADO RITE oficial (slot «Certificado RITE», que además se lee) y el justificante de la tasa. Úsalo con "presenta la memoria RITE de 26RES080_90", "firma y registra el RITE de NNN", "diligencia el certificado de instalación térmica de X", "legaliza el RITE de los splits de X". Lo que hace el usuario: decir SÍ al pago al principio y autorizar el 3DS en la app de su banco. Necesita Claude en Chrome y AutoFirma. Solo CLM.'
 ---
 
 # Firmar y presentar la Memoria RITE en eDICE-Térmicas
@@ -8,8 +8,27 @@ description: 'FIRMA y PRESENTA la Memoria Técnica RITE de una instalación tér
 Lleva una Memoria Técnica RITE ya generada (la de la app, `MEMORIA_RITE_{nº}.pdf` en «7. LEGALIZACION
 RITE») hasta el **certificado de instalación térmica diligenciado** por la JCCM, y lo deja en la app.
 Lo normal es que lo haga el instalador; esta skill es para cuando lo hacemos **nosotros**: la memoria
-la firma Brokergy (B19350222) o **otra empresa instaladora de la que tenemos su certificado de
-representante** en el almacén de Windows.
+la firma Brokergy (B19350222) o **Fran con el certificado del propio instalador**, que tiene en el
+almacén de Windows.
+
+### Quién firma: el AUTOR de la memoria (su página 4, «D/ Dña.: …»)
+
+| Autor de la memoria | Certificado (el sujeto lleva…) | `--empresa` |
+|---|---|---|
+| JOSÉ ÁLVAREZ ALMARCHA | `ALVAREZ ALMARCHA JOSE - <NIF>` (personal, autónomo) | su NIF |
+| RAMÓN CARRASCO ALHAMBRA (RCA) | `CARRASCO ALHAMBRA RAMON - <NIF>` (personal, autónomo) | su NIF |
+| RUBÉN HORCAJADA GALLEGO | `HORCAJADA GALLEGO RUBEN - <NIF>` (personal, autónomo) | su NIF |
+| Una sociedad (Saneamientos Ernesto…) | `(R: <CIF>)`, nunca el personal del administrador | su CIF |
+| Brokergy (Soluciones Sostenibles) | `(R: B19350222)` | sin `--empresa` |
+
+- **En un autónomo el certificado es el PERSONAL** (no hay «R:»): la persona ES la empresa instaladora
+  y su RII está a su NIF. En una sociedad, el de REPRESENTANTE. El script lo decide por la forma de lo
+  que se le pasa: un NIF de persona (8 cifras + letra, o X/Y/Z…) busca `- <NIF>`; un CIF, `R: <CIF>`.
+- El NIF/CIF sale de la ficha del instalador en la app (`prescriptores.cif`), nunca se escribe aquí
+  (el repo es público). La tabla es lo que hay HOY (10/11/2026); antes de firmar, que el certificado esté en Windows y
+  vigente: `Get-ChildItem Cert:\CurrentUser\My | ? { $_.HasPrivateKey -and $_.Subject -match '<NIF o R: CIF>' }`.
+- El **RII** sale de la ficha del instalador (`numero_carnet_rite`): eDICE solo admite especialidad
+  **D20–D22** (José Álvarez tenía `E20` en la ficha y eDICE lo rechazó; era D20).
 
 - **Solo Castilla-La Mancha**, solo **sin proyecto** (5–70 kW). Por debajo de 5 kW no hay certificado
   (ver `docs/conocimiento/consultas/certificado-rite-de-los-aires-no-es-el-boletin-clm.md`); por encima
@@ -17,8 +36,8 @@ representante** en el almacén de Windows.
 - **Lo que se declara en eDICE sale de la MEMORIA FIRMADA**, no de memoria ni de la oportunidad:
   titular, emplazamiento, UTM, potencias, fechas de pruebas. Si algo no cuadra con el expediente, se
   corrige la memoria y se vuelve a firmar; nunca se declara en eDICE otra cosa que lo que va en el ZIP.
-- **Firma y diligencia el MISMO certificado**: el de REPRESENTANTE de la empresa instaladora que
-  figura en la memoria. Nunca el personal de Fran (es el que AutoFirma ofrece por defecto, ver §4).
+- **Firma y diligencia el MISMO certificado**: el del instalador autor de la memoria (tabla de
+  arriba). Nunca el personal de Fran ni el de otra persona del almacén.
 - **Local = producción**: `--escribir` sube a Drive y escribe en el expediente de verdad.
 - Las herramientas de escritorio son las de `presentar-cee`:
   `implementation/backend/scripts/presentar_cee/escritorio.ps1` (`captura`, `clic`, `frente`, `aviso`;
@@ -28,7 +47,9 @@ representante** en el almacén de Windows.
 
 Antes de abrir eDICE, un mensaje con el expediente, el titular, la empresa que firma, la tasa y la
 tarjeta: *«Firmo con el representante de SOLUCIONES SOSTENIBLES la memoria RITE de 26RES080_90
-(LAURA MILLÁN), la presento en eDICE y pago 11,97 € con la Mastercard ••XXXX. ¿Sí?»*. Con ese sí se
+(LAURA MILLÁN), la presento en eDICE y pago 11,97 € con la Mastercard ••XXXX. ¿Sí?»* o, con un
+autónomo, *«Firmo con el certificado de RAMÓN CARRASCO la memoria RITE de 26RES060FM_227 …»*. Antes,
+el paso 1 en seco (dice con qué certificado firma). Con ese sí se
 hace todo seguido; lo único del usuario es el **3DS** en la app del banco. Sin un sí con expediente +
 importe no se pulsa «Pagar» (lo exigen las reglas de Claude, como en `presentar-cee`). Si en el
 formulario sale otra empresa, otro importe u otra tarjeta, se para y se pregunta.
@@ -42,15 +63,19 @@ proyecto; **nunca se escribe un número de tarjeta ni el CVV**: los pone Chrome.
 cd implementation/backend
 node scripts/firmar_memoria_rite.js 26RES080_90                      # en seco: firma en local y enseña la vista
 node scripts/firmar_memoria_rite.js 26RES080_90 --escribir           # además sube _fdo.pdf y _fdo.zip a Drive
-node scripts/firmar_memoria_rite.js 26RES080_90 --empresa B12345678  # firma OTRA empresa instaladora
+node scripts/firmar_memoria_rite.js 26RES080_90 --empresa B12345678  # firma OTRA empresa (su representante)
+node scripts/firmar_memoria_rite.js 26RES060_264 --empresa <NIF>     # firma un AUTÓNOMO (su certificado personal)
 ```
 
 - Por defecto firma Brokergy con el mismo certificado de representante que `firmar_cee.js`
-  (`CEE_FIRMA_HUELLA`); con `--empresa <CIF>` busca en el almacén de Windows el certificado vigente
-  cuyo sujeto lleve `R: <CIF>`. Si no lo hay, para: **no se firma con otro**.
+  (`CEE_FIRMA_HUELLA`); con `--empresa <CIF>` busca el vigente cuyo sujeto lleve `R: <CIF>` y con
+  `--empresa <NIF>` el personal `… - <NIF>`. Si no lo hay, para: **no se firma con otro**.
+- Imprime **«Certificado <huella>»**: es la que se fija en el paso 4.
+- Antes de firmar, mira en la memoria el **autor** (pág. 4, «D/ Dña.: …») y que el certificado sea el suyo.
 - Firma en la **última página**, debajo de «Fecha y firma del/la Instalador/a…» y por encima de los
   «Ejemplar para…» (el hueco de al lado es el sello de la empresa). Rechaza un PDF ya firmado.
-- Comprueba con `leerFirmasPdf` que la firma es íntegra y que el firmante es `R: <CIF>`.
+- Comprueba con `leerFirmasPdf` que la firma es íntegra y que el firmante es `R: <CIF>` (o, en un
+  autónomo, su NIF sin «R:»).
 - El **ZIP lleva SOLO la memoria firmada** (decisión de Fran, 25/10/2026). eDICE exige `.ZIP` de
   **1 MB como mucho**: si pesa más, para y dilo (la memoria con fotos pesadas se aligera antes).
 - Mira `scratch/firmar-rite/<nº>/ultima_pagina.png` antes de seguir: la firma en su recuadro.
@@ -93,32 +118,44 @@ Adjunta el ZIP en «Memoria» con `file_upload` sobre `txtMemor` y comprueba que
 llenado (lo hace `readSingleFile` al cargar el fichero). Lee la salida del script: dirección
 compuesta, localidad elegida, tipo, total de potencia válido y longitud de las observaciones.
 
-## 4. Diligenciar con el certificado de REPRESENTANTE
+## 4. Diligenciar con el certificado del instalador — FIJADO POR HUELLA, sin ventana
 
-**Aquí NO se lanza el vigilante de `presentar-cee`**: cancela cualquier ventana de certificado, y
-aquí el certificado se elige en esa ventana.
+Probado el 09-10/11/2026 (26RES060FM_227 con Ramón Carrasco y 26RES060_264 con José Álvarez): eDICE
+usa **MiniApplet** y acepta el mismo truco que `presentar-cee`. Con el ZIP ya cargado, en UNA llamada
+de `javascript_tool`:
 
-1. Pulsa **«Diligenciar Certificado»** (`validar()` → AutoFirma). Si la validación saca un `alert`,
-   léelo (`escritorio.ps1 aviso`), corrige y vuelve a rellenar con el script entero.
-2. Captura la ventana de AutoFirma (`escritorio.ps1 captura -Salida …\af1.png`). Si es «Diálogo de
-   seguridad del almacén **Windows**», sigue en el 4. Si es la del almacén **NSS** (un PC con el montaje
-   viejo de Firefox: solo el personal), **no pulses Aceptar** y localiza los iconos de arriba a la
-   derecha.
-3. Solo con NSS: icono de **«cambiar almacén»** (el segundo, la bandeja con la flecha) → menú →
-   **«Almacén de claves del sistema»**. El diálogo pasa a «… almacén **Windows**» con TODOS los
-   certificados del PC (de clientes y representantes de otras empresas).
-4. Busca en la lista el de **«(R: <CIF de la empresa que firma>)»**, vigente (mira «Válido desde …
-   hasta …»); si no se ve, desplaza la lista. Clic en él → **captura y comprueba que es el resaltado**
-   → «Aceptar». Cada clic real, con su captura antes y después: un clic desplazado firma con el
-   certificado de otra persona. Nunca Intro a ciegas en este diálogo.
-5. eDICE responde «Autenticidad de la firma digital y validez del instalador confirmadas» con el
-   apartado **«Pago de la tasa»**. Si dice que el instalador no es válido, para: el RII o el firmante
-   no casan.
+```js
+const H = '<huella que imprimió el paso 1>';
+const conFiltro = (p) => String(p || '').split('\n').filter(l => l && !/^(filters?[.]|filters?\s*[=]|headless\s*[=])/.test(l))
+  .concat(['filters=thumbprint:SHA1:' + H, 'headless=true']).join('\n');
+for (const op of ['sign','coSign','cosign','counterSign','countersign','signBatch','selectCertificate','signAndSaveToFile']) {
+  const orig = MiniApplet[op]; if (typeof orig !== 'function') continue;
+  MiniApplet[op] = function (...a) { let i = op === 'signAndSaveToFile' ? 4 : a.findIndex(x => typeof x === 'function') - 1;
+    if (i < 0) i = a.length; a[i] = conFiltro(a[i]); return orig.apply(this, a); };
+}
+if (document.getElementById('txtMemorB64').value.length > 0) setTimeout(() => validar(), 100);
+```
 
-> Alternativa sin clics (POR PROBAR en eDICE): lo que hace `presentar-cee` desde el 27/10/2026 —su
-> `certificado.js` añade `filters=thumbprint:SHA1:<huella>` + `headless=true` a la llamada de MiniApplet
-> y AutoFirma firma sin ventana— con la huella del `(R: <CIF>)`. Falta ver cómo llama eDICE a AutoFirma
-> (`enviarYFirmar`). Hasta probarlo, el camino es el de arriba.
+AutoFirma firma sin abrir ventana y eDICE pasa a «Autenticidad de la firma digital y validez del
+instalador confirmadas» + **«Pago de la tasa»**. Comprueba el título de la ventana de Chrome
+(«… Validación de firma digital e instalador»). Si dice que el instalador no es válido, para: el RII o
+el firmante no casan.
+
+- Si la validación saca un `alert`, la página se queda **colgada** para `javascript_tool` (timeout):
+  léelo con `escritorio.ps1 leer -Ventana 'eDice'`, acéptalo con `aviso -Ventana 'eDice'`, corrige y
+  vuelve a abrir el formulario entero (no se arregla un campo suelto).
+- **Aquí NO se lanza el vigilante de `presentar-cee`**: si el filtro fallara y saliera la ventana, se
+  elige a mano (abajo) y el vigilante la cancelaría.
+
+### Si sale la ventana de certificados (camino manual)
+
+1. Captura la ventana de AutoFirma (`escritorio.ps1 captura -Salida …\af1.png`). Si es «Diálogo de
+   seguridad del almacén **Windows**», sigue en el 3. Si es la del almacén **NSS** (un PC con el montaje
+   viejo de Firefox: solo el personal), **no pulses Aceptar**: icono de **«cambiar almacén»** (el
+   segundo, la bandeja con la flecha) → **«Almacén de claves del sistema»**.
+3. Busca el certificado del paso 1 (`(R: <CIF>)` o `APELLIDOS NOMBRE - <NIF>`), vigente; si no se ve,
+   desplaza la lista. Clic → **captura y comprueba que es el resaltado** → «Aceptar». En ese almacén hay
+   certificados de clientes y de otras empresas: nunca Intro a ciegas.
 
 ## 5. Pagar la tasa — con el sí del principio
 
@@ -126,7 +163,12 @@ aquí el certificado se elige en esa ventana.
    el **nº de documento 046** (13 dígitos): si algo falla después, con él se recupera el trámite.
 2. Plataforma de pagos de la JCCM → **«Pago de documentos sin identificación»** → **«Pago con
    Tarjeta»** → Redsys.
-3. La tarjeta guardada en Chrome **con el TECLADO** (el clic del ratón sobre el desplegable no funcionó):
+   Los botones de la plataforma («sin identificación», «Pago con Tarjeta», «Pagar», «Continuar»,
+   «Descargar Justificante») se pulsan con `find` + clic por `ref`: es la misma pestaña de Claude en
+   Chrome y no depende de dónde caiga la barra «Claude empezó a depurar…».
+3. La tarjeta guardada en Chrome. El 09-10/11/2026 bastó el ratón: `escritorio.ps1 clic` en «Número de
+   tarjeta» (captura antes: la barra de depuración baja la página) y otro clic en la fila de la tarjeta
+   del desplegable. Si el desplegable no responde al clic, **con el TECLADO**:
    - `escritorio.ps1 frente -Ventana 'Pantalla de pago Redsys'`, captura y localiza «Número de tarjeta».
    - `escritorio.ps1 clic` en el campo; luego, en la MISMA llamada de PowerShell,
      `[System.Windows.Forms.SendKeys]::SendWait('{DOWN}')` las veces que haga falta hasta resaltar la
@@ -149,8 +191,10 @@ La página final («Datos del certificado diligenciado electrónicamente») trae
 - **El CERTIFICADO RITE es el de la IMPRESORA** (el icono del medio): abre una ventana emergente
   (`diligimp.jsp`) con el visor de PDF de Chrome → botón de **descarga** → `Descargas\GenerarPdf.pdf`
   (~2 MB: el impreso oficial con el sello de la JCCM). Ese es el que va al slot. La ventana emergente
-  queda fuera del grupo de pestañas de Claude en Chrome: tráela con `escritorio.ps1 frente` y pulsa la
-  descarga con captura + clic; o pídeselo al usuario si no aparece. **La página web impresa a PDF NO
+  queda fuera del grupo de pestañas de Claude en Chrome: ábrela con `javascript_tool`
+  `versionImpresa()`, tráela con `escritorio.ps1 frente -Ventana 'Certificado diligenciado'` y pulsa la
+  descarga con captura + clic. Sale **«Guardar como»** (a veces en otra carpeta): clic en «Nombre»,
+  `SendKeys` `^a` y la ruta completa `C:\Users\<usuario>\Downloads\RITE_<nº>_GenerarPdf.pdf`, y «Guardar». **La página web impresa a PDF NO
   vale** (`guardar_certificado_rite.js` rechaza lo que no sea PDF, pero no distingue una impresión).
 - **«Descargar Ficheros»** abre otra emergente con los tres ZIP de acuse (`aft_…`, `amt_…`, `mtt_…`):
   firmas XML y la memoria tal como se registró. Se guardan en «7. LEGALIZACION RITE» si el usuario
@@ -185,3 +229,8 @@ fecha de la memoria distinta de la de firma).
 | Observaciones de 279 caracteres | El máximo es 250: se recortó a 223. |
 | El desplegable de la tarjeta | No responde al clic: teclado (`{DOWN}` + `{ENTER}`) con SendKeys. |
 | El certificado subido era la página web | El bueno es el PDF de la impresora (`GenerarPdf.pdf`); el otro quedó en OLD. |
+| Elegir el certificado a mano | Fijado por huella en MiniApplet, AutoFirma firma sin ventana (26RES060FM_227 y 26RES060_264, 09-10/11/2026). |
+| Autónomo con certificado personal | `--empresa <NIF>`: busca `- <NIF>`, no `R:` (José Álvarez, Ramón Carrasco). |
+| RII con especialidad E20 | eDICE solo admite D20–D22: el de José Álvarez era D20 (ficha corregida, 10/11/2026). |
+| Número de la calle distinto en Catastro | Se declara el de la memoria y en «Complemento» `(57 EN CATASTRO)`: «61 (57 en catastro)», como hace Fran (26RES060_264). |
+| Fecha de pruebas que no está en la memoria | La que diga Fran (en 26RES060_264 y FM_227, el día de la presentación). |
