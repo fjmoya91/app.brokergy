@@ -561,6 +561,12 @@ export function AceptarPropuestaView({ idOportunidad }) {
         email: '',
         telefono: '',
         iban: '',
+        // EMPRESA: su representante legal (quien firma los anexos). Se pide ya al
+        // aceptar para no tener que pedirlo después (Fran, 10/11/2026, OP389).
+        es_empresa: false,
+        representante_nombre: '',
+        representante_apellidos: '',
+        representante_dni: '',
         // Fechas que le ha dado su instalador. OPCIONALES: no bloquean la aceptación.
         // La de inicio nos marca el plazo para registrar el CEE inicial, que tiene
         // que estar hecho antes de que la obra empiece.
@@ -733,8 +739,11 @@ export function AceptarPropuestaView({ idOportunidad }) {
         }
     };
 
+    // Empresa: la ficha lo dice o el NIF tecleado es un CIF.
+    const esEmpresa = formData.es_empresa === true || formData.es_empresa === 'true' || esNifDeEmpresa(formData.dni_cif);
     // Para el saludo: el nombre de pila tal y como se dice («MARÍA» → «María»).
-    const pila = String(formData.nombre_razon_social || '').trim().split(/\s+/)[0] || '';
+    // A una empresa, el de su representante; nunca la razón social («Hola, Autoservicio»).
+    const pila = String((esEmpresa ? formData.representante_nombre : formData.nombre_razon_social) || '').trim().split(/\s+/)[0] || '';
     const nombre = pila ? pila.charAt(0).toLocaleUpperCase('es') + pila.slice(1).toLocaleLowerCase('es') : '';
 
     if (loading) {
@@ -820,9 +829,17 @@ export function AceptarPropuestaView({ idOportunidad }) {
                             <div>
                                 <div className="fp-campos fp-dos">
                                     {[
-                                        { name: 'nombre_razon_social', label: 'Nombre / Razón social' },
-                                        { name: 'apellidos', label: 'Apellidos' },
-                                        { name: 'dni_cif', label: 'DNI / CIF' },
+                                        ...(esEmpresa ? [
+                                            { name: 'nombre_razon_social', label: 'Razón social' },
+                                            { name: 'dni_cif', label: 'CIF' },
+                                            { name: 'representante_nombre', label: 'Representante: nombre' },
+                                            { name: 'representante_apellidos', label: 'Representante: apellidos' },
+                                            { name: 'representante_dni', label: 'Representante: DNI' },
+                                        ] : [
+                                            { name: 'nombre_razon_social', label: 'Nombre / Razón social' },
+                                            { name: 'apellidos', label: 'Apellidos' },
+                                            { name: 'dni_cif', label: 'DNI / CIF' },
+                                        ]),
                                         { name: 'email', label: 'Email', type: 'email' },
                                         { name: 'telefono', label: 'Teléfono', type: 'tel' },
                                         { name: 'iban', label: 'Cuenta (IBAN)', placeholder: 'ESXX XXXX ...', mono: true },
@@ -891,9 +908,16 @@ export function AceptarPropuestaView({ idOportunidad }) {
                             <>
                                 <dl className="fp-dl">
                                     {[
-                                        ['Nombre', formData.nombre_razon_social],
-                                        ['Apellidos', formData.apellidos],
-                                        ['DNI / CIF', formData.dni_cif, true],
+                                        ...(esEmpresa ? [
+                                            ['Razón social', formData.nombre_razon_social],
+                                            ['CIF', formData.dni_cif],
+                                            ['Representante legal', [formData.representante_nombre, formData.representante_apellidos].filter(Boolean).join(' ')],
+                                            ['DNI del representante', formData.representante_dni],
+                                        ] : [
+                                            ['Nombre', formData.nombre_razon_social],
+                                            ['Apellidos', formData.apellidos],
+                                            ['DNI / CIF', formData.dni_cif],
+                                        ]),
                                         ['Email', formData.email],
                                         ['Teléfono', formData.telefono],
                                         ['Cuenta (IBAN)', formData.iban, true],
@@ -1027,7 +1051,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 <p className="fp-hola fp-in">{nombre ? <>Hola, <b>{nombre}</b></> : 'Hola'}</p>
                 <h1 className="fp-display fp-h1 fp-in">Acepta tu <span className="fp-mark">propuesta</span></h1>
                 <p className="fp-sub fp-in fp-in-2">
-                    Tus datos ya vienen rellenos: <b>solo comprueba que están bien</b>. Después, {preguntaBono ? 'cuatro' : 'tres'} preguntas rápidas sobre tu vivienda y listo.
+                    Tus datos ya vienen rellenos: <b>solo comprueba que están bien</b>{esEmpresa ? ' y completa los del representante legal' : ''}. Después, {preguntaBono ? 'cuatro' : 'tres'} preguntas rápidas sobre {esEmpresa ? 'el inmueble' : 'tu vivienda'} y listo.
                 </p>
 
                 {/* Qué documento se está aceptando. Solo a partir de la
@@ -1053,24 +1077,54 @@ export function AceptarPropuestaView({ idOportunidad }) {
                         <div className="fp-top" style={{ margin: 0 }}>
                             <p className="fp-eyebrow">Paso 1 de 2 · Tus datos</p>
                         </div>
+                        {/* Empresa: la razón social ENTERA (sin apellidos) y debajo su
+                            representante legal. El NIF, con la misma letra que el teléfono. */}
+                        {esEmpresa ? (
+                            <div className="fp-campos">
+                                <Campo id="nombre_razon_social" label="Razón social" obligatorio>
+                                    <input id="nombre_razon_social" name="nombre_razon_social" type="text" required autoComplete="organization"
+                                        value={formData.nombre_razon_social} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                            </div>
+                        ) : null}
                         <div className="fp-campos fp-dos">
-                            <Campo id="nombre_razon_social" label="Nombre / Razón social" obligatorio>
-                                <input id="nombre_razon_social" name="nombre_razon_social" type="text" required autoComplete="given-name"
-                                    value={formData.nombre_razon_social} onChange={handleChange} className="fp-input" />
-                            </Campo>
-                            <Campo id="apellidos" label="Apellidos">
-                                <input id="apellidos" name="apellidos" type="text" autoComplete="family-name"
-                                    value={formData.apellidos || ''} onChange={handleChange} className="fp-input" />
-                            </Campo>
-                            <Campo id="dni_cif" label="DNI / CIF" obligatorio>
+                            {!esEmpresa && (<>
+                                <Campo id="nombre_razon_social" label="Nombre / Razón social" obligatorio>
+                                    <input id="nombre_razon_social" name="nombre_razon_social" type="text" required autoComplete="given-name"
+                                        value={formData.nombre_razon_social} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                                <Campo id="apellidos" label="Apellidos">
+                                    <input id="apellidos" name="apellidos" type="text" autoComplete="family-name"
+                                        value={formData.apellidos || ''} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                            </>)}
+                            <Campo id="dni_cif" label={esEmpresa ? 'CIF' : 'DNI / CIF'} obligatorio>
                                 <input id="dni_cif" name="dni_cif" type="text" required
-                                    value={formData.dni_cif || ''} onChange={handleChange} className="fp-input fp-input-mono" />
+                                    value={formData.dni_cif || ''} onChange={handleChange} className="fp-input" />
                             </Campo>
                             <Campo id="telefono" label="Teléfono" obligatorio>
                                 <input id="telefono" name="telefono" type="tel" required autoComplete="tel"
                                     value={formData.telefono || ''} onChange={handleChange} className="fp-input" />
                             </Campo>
                         </div>
+                        {esEmpresa && (<>
+                            <p className="fp-sec">Representante legal</p>
+                            <p className="fp-txt" style={{ marginTop: 0 }}>La persona que firma en nombre de la empresa.</p>
+                            <div className="fp-campos fp-dos">
+                                <Campo id="representante_nombre" label="Nombre" obligatorio>
+                                    <input id="representante_nombre" name="representante_nombre" type="text" required autoComplete="given-name"
+                                        value={formData.representante_nombre || ''} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                                <Campo id="representante_apellidos" label="Apellidos" obligatorio>
+                                    <input id="representante_apellidos" name="representante_apellidos" type="text" required autoComplete="family-name"
+                                        value={formData.representante_apellidos || ''} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                                <Campo id="representante_dni" label="DNI" obligatorio>
+                                    <input id="representante_dni" name="representante_dni" type="text" required
+                                        value={formData.representante_dni || ''} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                            </div>
+                        </>)}
                         <div className="fp-campos">
                             <Campo id="email" label="Email" obligatorio>
                                 <input id="email" name="email" type="email" required autoComplete="email"
@@ -1179,7 +1233,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
                         <button type="submit" className="fp-btn fp-btn-pri">
                             Continuar <IcoFlecha size={20} sw={2.4} />
                         </button>
-                        <p className="fp-nota">Después te hacemos {preguntaBono ? 4 : 3} preguntas rápidas sobre tu vivienda y aceptas la propuesta.</p>
+                        <p className="fp-nota">Después te hacemos {preguntaBono ? 4 : 3} preguntas rápidas sobre {esEmpresa ? 'el inmueble' : 'tu vivienda'} y aceptas la propuesta.</p>
                     </div>
                 </form>
             </>)}

@@ -303,6 +303,25 @@ router.get('/propuesta/:id', async (req, res) => {
     }
 });
 
+/**
+ * EMPRESA en la aceptación (Fran, 10/11/2026, 26TER100_OP389): la razón social va
+ * entera y SIN apellidos, y el formulario pide su REPRESENTANTE LEGAL (quien firma
+ * el Anexo I y el Convenio), para no tener que pedírselo después. Empresa = la
+ * ficha ya lo dice (`es_empresa`) o el NIF tecleado es un CIF. Solo se escribe lo
+ * que llega relleno: un navegador con la página anterior no borra nada.
+ * Detalle: docs/conocimiento/clientes/la-empresa-acepta-con-su-representante.md
+ */
+function camposEmpresaAceptacion(f = {}, esNifDeEmpresa = () => false) {
+    const esEmpresa = String(f.es_empresa) === 'true' || esNifDeEmpresa(f.dni_cif);
+    if (!esEmpresa) return {};
+    const out = { es_empresa: true, apellidos: null };
+    for (const k of ['representante_nombre', 'representante_apellidos', 'representante_dni']) {
+        const v = String(f[k] ?? '').trim();
+        if (v) out[k] = k === 'representante_dni' ? v.replace(/[\s.-]/g, '') : v;
+    }
+    return normalizeCliente(out);
+}
+
 // GET /api/public/cliente/:id
 router.get('/cliente/:id', async (req, res) => {
     try {
@@ -354,10 +373,13 @@ router.get('/cliente/:id', async (req, res) => {
             }
         }
 
-        // Fallback variables for name/surname parsing if client not found
+        // Fallback variables for name/surname parsing if client not found.
+        // Solo SIN ficha y solo si no es una sociedad: «AUTOSERVICIO RODRIGUEZ SL»
+        // salía como nombre «AUTOSERVICIO» y apellidos «RODRIGUEZ SL» (26TER100_OP389).
         let nombre = clienteStr || '';
         let apellidos = '';
-        if (nombre.includes(' ')) {
+        const pareceSociedad = /(^|[\s,.])(s\.?\s?l\.?\s?u?|s\.?\s?a\.?\s?u?|s\.?\s?c\.?\s?p?|c\.?\s?b|s\.?\s?coop|slne?|sll)\.?\s*$/i.test(nombre.trim());
+        if (!foundCliente && !pareceSociedad && nombre.includes(' ')) {
             const parts = nombre.split(' ');
             nombre = parts[0];
             apellidos = parts.slice(1).join(' ');
@@ -381,8 +403,13 @@ router.get('/cliente/:id', async (req, res) => {
             id_oportunidad: id,
             id_cliente: foundCliente?.id_cliente || null,
             nombre_razon_social: foundCliente?.nombre_razon_social || nombre,
-            apellidos: foundCliente?.apellidos || apellidos,
+            apellidos: foundCliente ? (foundCliente.es_empresa ? '' : (foundCliente.apellidos || '')) : apellidos,
             dni_cif: foundCliente?.dni || '',
+            // Empresa: su representante legal, para que venga relleno (o se pida).
+            es_empresa: !!foundCliente?.es_empresa || pareceSociedad,
+            representante_nombre: foundCliente?.representante_nombre || '',
+            representante_apellidos: foundCliente?.representante_apellidos || '',
+            representante_dni: foundCliente?.representante_dni || '',
             email: (useContact && foundCliente?.persona_contacto_email) ? foundCliente.persona_contacto_email : (foundCliente?.email || ''),
             telefono: (useContact && foundCliente?.persona_contacto_tlf) ? foundCliente.persona_contacto_tlf : (foundCliente?.tlf || ''),
             iban: foundCliente?.numero_cuenta || '',
@@ -477,6 +504,8 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
             numero_cuenta: formFields.iban || null,
             prescriptor_id: opp.prescriptor_id // Mantenemos el partner asociado a la oportunidad
         };
+        // Empresa: sin apellidos y con su representante legal (camposEmpresaAceptacion).
+        Object.assign(clienteData, camposEmpresaAceptacion(formFields, (await loadConfirmacion()).esNifDeEmpresa));
 
         // 1. Resolver si debemos actualizar datos principales o de contacto
         if (id_cliente) {
@@ -963,6 +992,10 @@ router.patch('/datos/:id', async (req, res) => {
         if (apellidos !== undefined) updates.apellidos = apellidos;
         if (dni_cif !== undefined) updates.dni = dni_cif;
         if (iban !== undefined) updates.numero_cuenta = iban || null;
+        // Empresa: sin apellidos y con su representante legal.
+        if (dni_cif !== undefined || req.body.es_empresa !== undefined) {
+            Object.assign(updates, camposEmpresaAceptacion(req.body, (await loadConfirmacion()).esNifDeEmpresa));
+        }
 
         // Distinguir entre actualizar titular o contacto alternativo
         const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner, copropietarios, aceptacion_varios_propietarios').eq('id_cliente', opp.cliente_id).single();

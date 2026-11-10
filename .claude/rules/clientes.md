@@ -42,6 +42,7 @@ paths:
 - `docs/conocimiento/clientes/confirmacion-de-cobro-el-formulario-del-final.md` — Confirmación de cobro — el formulario del final (2026-09-07) · 47,9 KB
 - `docs/conocimiento/clientes/el-aviso-lo-recibe-el-comercial-o-el-tecnico.md` — El aviso lo recibe el COMERCIAL o el TÉCNICO (2026-09-09) · 13,6 KB
 - `docs/conocimiento/clientes/el-mapa-del-escaparate-ensena-todas-las-obras.md` — El MAPA del escaparate enseña TODAS las obras (2026-10-19) · 2,0 KB
+- `docs/conocimiento/clientes/la-empresa-acepta-con-su-representante.md` — La empresa acepta la propuesta con su representante legal (2026-11-10) · 2,2 KB
 - `docs/conocimiento/clientes/la-empresa-factura-la-venta-del-ahorro-autofactura.md` — La EMPRESA factura la venta del ahorro: autofactura o su factura (2026-11-04) · 8,9 KB
 - `docs/conocimiento/clientes/los-avisos-de-sus-clientes-al-partner.md` — Los avisos de sus clientes, al PARTNER (2026-10-15) · 4,5 KB
 - `docs/conocimiento/clientes/modulo-prescriptores-novedades.md` — Módulo Prescriptores — Novedades (2026-03-26) · 1,1 KB
@@ -132,6 +133,10 @@ vuelve a salir**
   - **REGLA — el nombre y el enlace del instalador solo salen si es VISIBLE (consentimiento).**
   - **REGLA — cero datos del cliente**
   - **REGLA — cada municipio se geocodifica UNA vez.**
+- `docs/conocimiento/clientes/la-empresa-acepta-con-su-representante.md`
+  - **REGLA — una empresa acepta con su razón social ENTERA y su REPRESENTANTE LEGAL**
+  - **REGLA — al guardar, la empresa queda sin apellidos y con su representante**
+  - **REGLA — el DNI/CIF va con la misma letra que el teléfono.**
 - `docs/conocimiento/clientes/la-empresa-factura-la-venta-del-ahorro-autofactura.md`
   - **REGLA — la empresa se reconoce por la FICHA (`clientes.es_empresa`)**
   - **REGLA — la BASE es lo que la remesa le iba a transferir**
