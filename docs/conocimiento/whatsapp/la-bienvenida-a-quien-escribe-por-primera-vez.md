@@ -76,13 +76,10 @@ ninguna pista de que ya le conocemos:
   documentación». Era un número que no estaba en ningún sitio, pero había llamado por teléfono: la bienvenida habría
   sonado a contestador. Quien viene de parte de un instalador es un lead del partner, y Fran lo da de alta a mano para
   asignárselo (por el formulario quedaría sin partner).
-- **Viene de un botón de brokergy.es que no es el de las ayudas** (`yaNosConoce`, 10/11/2026): la ficha de un
-  instalador del escaparate manda «Hola, he visto a GONZAGARRI S.L en brokergy.es y me gustaría que me hiciera la
-  obra…» (`src/data/red.js` y `encuentra-tu-instalador/[slug].astro` de brokergy-web), y las páginas de instaladores y
-  distribuidores, «Hola, soy instalador…» / «soy distribuidor…». Medido en el modo copia: Natalia (Argamasilla de Alba)
-  escribió desde la ficha de Gonzagarri pidiendo presupuesto; la bienvenida de siempre no le habría dicho nada de su
-  instalador y el lead habría entrado sin partner. El botón de las ayudas («quiero saber qué ayuda le corresponde a mi
-  obra») sí la recibe.
+- **Es un instalador o un distribuidor** (`yaNosConoce`, 10/11/2026): los botones de esas páginas de brokergy.es
+  escriben «Hola, soy instalador…» / «soy distribuidor…». El botón de las ayudas («quiero saber qué ayuda le
+  corresponde a mi obra») sí recibe la bienvenida. Y quien escribe desde la **ficha de un instalador** recibe la suya
+  propia: ver «El ESCAPARATE», más abajo.
 - **No es un móvil español:** un fijo, o un número de fuera (spam).
 - **Tipos que no son de alguien que pregunta:** una tarjeta de contacto (un instalador pasando un cliente), una
   ubicación, un aviso del sistema.
@@ -121,6 +118,45 @@ La cuenta es la de TODOS los envíos automáticos de la app.
   - `GET /api/whatsapp/bienvenidas`: estado y lo apuntado;
   - `POST /api/whatsapp/bienvenidas/vuelta`: una vuelta a mano, en seco por defecto.
 
+## El ESCAPARATE: quien escribe desde la ficha de un instalador (2026-11-10)
+
+La ficha de cada instalador en brokergy.es (`src/data/red.js` y `encuentra-tu-instalador/[slug].astro` de
+brokergy-web) abre WhatsApp con «Hola, he visto a GONZAGARRI S.L en brokergy.es y me gustaría que me hiciera la obra.
+¿Me calculáis la ayuda? Mi casa está en …». Ese lead es **del instalador**. El primero (Natalia, Argamasilla de Alba,
+10/11/2026) lo vio el modo copia: la bienvenida de siempre no le habría hablado de Gonzagarri y la oportunidad habría
+entrado sin partner. Fran: «que le llegase una notificación a Gonzagarri automática… nosotros nos pondremos a calcular la
+ayuda y, una vez que tengamos el presupuesto, la afinaremos»; aprobó los dos textos y «monta el flujo para que funcione
+después».
+
+**REGLA — el lead del escaparate es del INSTALADOR: se le avisa a él ANTES que al cliente, y la oportunidad nace a su
+nombre.**
+
+- **Los mismos filtros** que la bienvenida (nuevo de verdad, horario, topes, una por teléfono). Solo cambia lo que se
+  manda. Si además dice «Hola Fran» o similar, no se escribe.
+- **De qué instalador es** (`elegirInstalador`): el nombre de la web es `acronimo || razon_social` (brokergy-web:
+  `scripts/red.mjs`). Se compara sin tildes ni forma jurídica. Si nada casa entero, vale el comienzo, con 8 letras o
+  más: la web acorta a algún autónomo («JOSÉ ÁLVAREZ» es «JOSÉ ÁLVAREZ ALMARCHA»). Medido el 10/11/2026: casan los 73
+  del escaparate. **Si no casa con UNA ficha, o el instalador no tiene un móvil de aviso** (7 de los 73: solo fijo), no
+  se escribe a nadie y a Fran le llega al grupo que lo lleve él.
+- **A quién se avisa** (`contactoAviso`): su contacto de avisos COMERCIAL, si no el de contacto, el responsable o el de la
+  empresa. Solo un móvil español.
+- **El orden: primero el instalador** («Hola Paco, nos ha entrado por la web una petición para vosotros: un cliente de
+  … os ha visto en brokergy.es… Si te parece bien, llámale tú… Nosotros le calculamos ya la ayuda y, en cuanto tengas el
+  presupuesto, nos lo pasas y la afinamos»). Con su ACK, al cliente: «Le hemos pasado tu contacto a Gonzagarri para que
+  te llamen…», el formulario y el vídeo. **Si el aviso no sale, al cliente no se le escribe** (le diríamos algo que no
+  es verdad): ERROR, y se le dice a Fran.
+- **La oportunidad nace a nombre del instalador**: el enlace es `/calcula-tu-ayuda?ref=esc-<fila>`. `POST
+  /api/landing/lead` lee esa fila (`partnerDelLead`) y pone `prescriptor_id`, como si viniera de su landing (`/p/…`),
+  con el «partner energético de X» en el mensaje. Si llega sin ese `ref`, vale su teléfono, si la fila es de los
+  últimos 180 días. Sirve también para un lead que Fran sabe de quién es: se pone `partner_id` en su fila.
+  - Hecho a mano el 10/11/2026: Natalia → Gonzagarri y Juan (652524778) → Calefacciones Miguel González.
+  - Nunca tumba el alta: si la BD no responde, el lead entra sin partner.
+- **Modo aparte**: `WA_ESCAPARATE_MODO=real` para escribir. Sin él, en COPIA, aunque la bienvenida esté en real. En copia
+  no sale nada, ni al instalador ni al cliente: a Fran le llegan al grupo (`ASISTENTE_WHATSAPP_GRUPO`, el del
+  contestador) los dos textos, listos para mandar. En real, una línea: «avisado Paco y contestado…».
+- Tabla: la misma `wa_bienvenidas`, con `tipo` (`bienvenida` | `escaparate`), `partner_id` y `aviso` (a quién, el texto y
+  cómo salió).
+
 ## Cómo se pone en marcha (orden)
 
 1. Aplicar `wa_bienvenidas_schema.sql` en Supabase.
@@ -135,6 +171,7 @@ había llamado; Carlos Cenamor, contestado a mano; Natalia, del escaparate), se 
 `yaNosConoce` y Fran dijo «pásala a real». El paso 3 se saltó: el texto y el vídeo ya se habían mandado a mano a un
 cliente (Juan, 652524778, de Calefacciones Miguel González) y llegaron los dos. Lo que no se ha visto aún es el envío
 automático del vídeo tras el ACK del texto: la primera fila ENVIADA en real se comprueba leyendo su chat.
+El escaparate se desplegó el mismo 10/11 en COPIA. Pasarlo a real: `WA_ESCAPARATE_MODO=real` y recrear el backend.
 
 ## Lo que no se ha podido probar en local
 

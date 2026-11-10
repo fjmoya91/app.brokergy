@@ -154,8 +154,7 @@ function montar({ tablas = {}, chats = {}, ws = waFalso(), ahora = MEDIODIA } = 
         for (const t of ['Buenas, lo que hablamos por teléfono', 'Os llamé el lunes por lo de la aerotermia',
             'Hola, vengo de parte de Instalaciones Pérez', 'Me ha pasado tu número mi vecino',
             'Te mando lo que me pediste', 'Como te comenté, la caldera es de gasoil', 'Buenos días FRANCISCO',
-            // Los botones de brokergy.es que no son de un cliente que pregunta (10/11/2026)
-            'Hola, he visto a Gonzagarri S.L en brokergy.es y me gustaría que me hiciera la obra. ¿Me calculáis la ayuda? Mi casa está en Argamasilla de Alba.',
+            // Los botones de brokergy.es que no son de un cliente (10/11/2026)
             'Hola, soy instalador y quiero trabajar con BROKERGY', 'Hola, soy distribuidor y quiero hablar de mi red de instaladores']) {
             assert.strictEqual(dice(t).ok, false, t);
         }
@@ -367,6 +366,144 @@ function montar({ tablas = {}, chats = {}, ws = waFalso(), ahora = MEDIODIA } = 
         B.CFG.ventanaMs = viejo;
         assert.strictEqual(bd.tablas.wa_bienvenidas.length, 0);
     });
+    // ─── El ESCAPARATE (10/11/2026): la ficha de un instalador de brokergy.es ───
+    console.log('El escaparate');
+    const MSG_ESC = 'Hola, he visto a Gonzagarri S.L en brokergy.es y me gustaría que me hiciera la obra. ¿Me calculáis la ayuda? Mi casa está en Argamasilla de Alba. Me gustaria recibir presupuesto';
+    const GONZAGARRI = {
+        id_empresa: 'p-gonza', acronimo: null, razon_social: 'GONZAGARRI S.L', tlf: '657816520',
+        tlf_contacto: '623378009', nombre_contacto: 'PACO', tlf_responsable: '657816520', nombre_responsable: 'ALONSO',
+        contacto_notificaciones_activas: true,
+        contactos_notificacion: [{ tlf: '623378009', nombre: 'PACO', roles: ['comercial', 'tecnico'] }],
+    };
+    const OTRO = { id_empresa: 'p-otro', acronimo: 'ISM', razon_social: 'INSTALACIONES SERRANO MORA SL', tlf: '926111222', contactos_notificacion: [] };
+    process.env.ASISTENTE_WHATSAPP_GRUPO = '120363000000000000@g.us';
+
+    await prueba('se lee el nombre del instalador, el municipio y si pide presupuesto', () => {
+        assert.deepStrictEqual(U.deEscaparate(MSG_ESC), { nombre: 'Gonzagarri S.L', municipio: 'Argamasilla de Alba', presupuesto: true });
+        const sinCasa = U.deEscaparate('Hola, he visto a ISM en brokergy.es y me gustaría que me hiciera la obra. ¿Me calculáis la ayuda? Mi casa está en ');
+        assert.strictEqual(sinCasa.nombre, 'ISM'); assert.strictEqual(sinCasa.municipio, null); assert.strictEqual(sinCasa.presupuesto, false);
+        assert.strictEqual(U.deEscaparate('Hola, quiero saber qué ayuda le corresponde a mi obra'), null);
+    });
+    await prueba('la forma jurídica no cuenta para casar ni se le dice al cliente', () => {
+        assert.strictEqual(U.sinFormaJuridica('GONZAGARRI S.L'), 'GONZAGARRI');
+        assert.strictEqual(U.sinFormaJuridica('Calefacciones Miguel Gonzalez, S.L.U.'), 'Calefacciones Miguel Gonzalez');
+        assert.strictEqual(U.sinFormaJuridica('Instalaciones Plaza SL'), 'Instalaciones Plaza');
+        assert.strictEqual(U.sinFormaJuridica('ISM'), 'ISM');
+        assert.strictEqual(U.claveNombre('Gonzagarri S.L'), U.claveNombre('GONZAGARRI S.L'));
+    });
+    await prueba('el instalador es UNA ficha: por su nombre de la web (acrónimo o razón social); ninguna o varias → no', () => {
+        assert.strictEqual(U.elegirInstalador('Gonzagarri S.L', [GONZAGARRI, OTRO]).partner.id_empresa, 'p-gonza');
+        assert.strictEqual(U.elegirInstalador('ISM', [GONZAGARRI, OTRO]).partner.id_empresa, 'p-otro');
+        assert.strictEqual(U.elegirInstalador('Fontanería López', [GONZAGARRI, OTRO]).ok, false);
+        // La web acorta el nombre de algún autónomo: vale el comienzo, si es de una sola ficha y largo.
+        const JOSE = { id_empresa: 'p-jose', acronimo: null, razon_social: 'JOSÉ ÁLVAREZ ALMARCHA' };
+        assert.strictEqual(U.elegirInstalador('JOSÉ ÁLVAREZ', [GONZAGARRI, JOSE]).partner?.id_empresa, 'p-jose');
+        assert.strictEqual(U.elegirInstalador('JOSÉ ÁLVAREZ', [JOSE, { ...JOSE, id_empresa: 'p-jose-2', razon_social: 'JOSE ALVAREZ PEREZ' }]).ok, false);
+        assert.strictEqual(U.elegirInstalador('GONZA', [GONZAGARRI]).ok, false, 'un comienzo corto no vale');
+        const dos = U.elegirInstalador('Gonzagarri', [GONZAGARRI, { ...GONZAGARRI, id_empresa: 'p-gonza-2' }]);
+        assert.strictEqual(dos.ok, false); assert.ok(/2 fichas/.test(dos.motivo), dos.motivo);
+    });
+    await prueba('se avisa al contacto COMERCIAL del instalador, con su nombre; nunca a un fijo', () => {
+        assert.deepStrictEqual(U.contactoAviso(GONZAGARRI), { tel9: '623378009', nombre: 'Paco' });
+        assert.deepStrictEqual(U.contactoAviso({ ...GONZAGARRI, contactos_notificacion: [{ tlf: '600111222', nombre: 'Luis', roles: ['tecnico'] }, { tlf: '611000111', nombre: 'Ana', roles: ['comercial'] }] }), { tel9: '611000111', nombre: 'Ana' });
+        assert.deepStrictEqual(U.contactoAviso({ ...GONZAGARRI, contactos_notificacion: [] }), { tel9: '623378009', nombre: 'Paco' });
+        assert.strictEqual(U.contactoAviso(OTRO), null, 'un fijo no recibe WhatsApp');
+    });
+    await prueba('pasa los MISMOS filtros que la bienvenida: nuevo → sí (con el escaparate); en la agenda, «Hola Fran» o en la app → no', () => {
+        const d = dice(MSG_ESC);
+        assert.strictEqual(d.ok, true, d.motivo); assert.strictEqual(d.escaparate.nombre, 'Gonzagarri S.L');
+        assert.strictEqual(U.decidir({ chat: { ...base, enAgenda: true }, texto: MSG_ESC, ahoraMs: ahora }).ok, false);
+        assert.strictEqual(dice(`Hola Fran, ${MSG_ESC}`).ok, false);
+        assert.strictEqual(U.decidir({ chat: base, conocido: 'cliente', texto: MSG_ESC, ahoraMs: ahora }).ok, false);
+    });
+    await prueba('los textos: al cliente, su instalador sin «S.L» y el enlace con su fila; al instalador, quién es y su teléfono; sin emojis', () => {
+        const c = U.textoEscaparateCliente({ instalador: 'Gonzagarri S.L', enlace: U.enlaceEscaparate('https://app.brokergy.es/', 7) });
+        assert.ok(c.includes('Le hemos pasado tu contacto a Gonzagarri para que te llamen'), c);
+        assert.ok(c.includes('https://app.brokergy.es/calcula-tu-ayuda?ref=esc-7') && !/S\.L/.test(c));
+        const a = U.textoAvisoInstalador({ contacto: 'Paco', municipio: 'Argamasilla de Alba', presupuesto: true, nombreCliente: 'Natalia', tel9: '605292429' });
+        assert.ok(a.startsWith('Hola Paco, nos ha entrado por la web una petición para vosotros: un cliente de Argamasilla de Alba'), a);
+        assert.ok(a.includes('Pide presupuesto.') && a.includes('Natalia, 605 29 24 29'));
+        assert.ok(!/Pide presupuesto/.test(U.textoAvisoInstalador({ contacto: null, municipio: null, presupuesto: false, tel9: '605292429' })));
+        for (const t of [c, a]) assert.ok(!/\p{Extended_Pictographic}/u.test(t), 'lleva emojis');
+    });
+
+    // El servicio: la ráfaga trae el texto, así que se entra por el listener.
+    const rafagaEsc = async (texto = MSG_ESC, tel = '34605292429') => {
+        const viejo = B.CFG.ventanaMs;
+        B.CFG.ventanaMs = 20;
+        B._alMensajeEntrante({ from: `${tel}@c.us`, type: 'chat', body: texto });
+        await new Promise(r => setTimeout(r, 90));
+        B.CFG.ventanaMs = viejo;
+    };
+    await prueba('se apunta como ESCAPARATE: con su instalador, a quién avisar y el enlace con su fila', async () => {
+        process.env.WA_BIENVENIDA_MODO = 'real';
+        delete process.env.WA_ESCAPARATE_MODO;
+        const { bd } = montar({ tablas: { prescriptores: [GONZAGARRI, OTRO] } });
+        await rafagaEsc();
+        const f = bd.tablas.wa_bienvenidas[0];
+        assert.ok(f, 'no se ha apuntado');
+        assert.strictEqual(f.tipo, 'escaparate'); assert.strictEqual(f.partner_id, 'p-gonza');
+        assert.strictEqual(f.modo, 'copia', 'el escaparate va con su propio modo, en copia por defecto');
+        assert.strictEqual(f.aviso.tel9, '623378009'); assert.strictEqual(f.aviso.instalador, 'GONZAGARRI S.L');
+        assert.ok(f.texto.includes(`ref=esc-${f.id}`), f.texto);
+    });
+    await prueba('en COPIA (aunque la bienvenida esté en real): ni al cliente ni al instalador; a Fran, los dos textos', async () => {
+        process.env.WA_BIENVENIDA_MODO = 'real';
+        delete process.env.WA_ESCAPARATE_MODO;
+        const { bd, ws } = montar({ tablas: { prescriptores: [GONZAGARRI] } });
+        await rafagaEsc();
+        await B.vuelta();
+        assert.strictEqual(bd.tablas.wa_bienvenidas[0].estado, 'COPIA');
+        assert.deepStrictEqual(ws.enviados.map(e => e.phone), ['120363000000000000@g.us'], JSON.stringify(ws.enviados.map(e => e.phone)));
+        const m = ws.enviados[0].message;
+        assert.ok(/ESCAPARATE \(copia/.test(m) && m.includes('Hola Paco') && m.includes('Le hemos pasado tu contacto a Gonzagarri'), m);
+    });
+    await prueba('en REAL: primero el aviso al instalador, después el texto y el vídeo al cliente, y una línea a Fran', async () => {
+        process.env.WA_ESCAPARATE_MODO = 'real';
+        const { bd, ws } = montar({ tablas: { prescriptores: [GONZAGARRI] } });
+        await rafagaEsc();
+        await B.vuelta();
+        const f = bd.tablas.wa_bienvenidas[0];
+        assert.strictEqual(f.estado, 'ENVIADA', f.motivo);
+        assert.deepStrictEqual(ws.enviados.map(e => `${e.tipo}:${e.phone}`),
+            ['texto:34623378009', 'texto:34605292429', 'media:34605292429', 'texto:120363000000000000@g.us']);
+        assert.strictEqual(f.aviso.estado, 'ENVIADO');
+        assert.ok(/a nombre de GONZAGARRI S.L/.test(ws.enviados[3].message), ws.enviados[3].message);
+        delete process.env.WA_ESCAPARATE_MODO;
+    });
+    await prueba('si el aviso al instalador no sale, al cliente NO se le escribe (sería mentira) y se le dice a Fran', async () => {
+        process.env.WA_ESCAPARATE_MODO = 'real';
+        const { bd, ws } = montar({ tablas: { prescriptores: [GONZAGARRI] } });
+        B._deps.esperarCola = async () => 'PENDING';
+        await rafagaEsc();
+        await B.vuelta();
+        assert.strictEqual(bd.tablas.wa_bienvenidas[0].estado, 'ERROR');
+        assert.deepStrictEqual(ws.enviados.map(e => e.phone), ['34623378009', '120363000000000000@g.us']);
+        delete process.env.WA_ESCAPARATE_MODO;
+    });
+    await prueba('si el nombre no casa con UNA ficha: no se apunta, no se escribe a nadie y se le dice a Fran (una vez)', async () => {
+        process.env.WA_ESCAPARATE_MODO = 'real';
+        const { bd, ws } = montar({ tablas: { prescriptores: [OTRO] } });
+        await rafagaEsc();
+        assert.strictEqual(bd.tablas.wa_bienvenidas.length, 0);
+        assert.deepStrictEqual(ws.enviados.map(e => e.phone), ['120363000000000000@g.us']);
+        assert.ok(/no casa con ninguna ficha/.test(ws.enviados[0].message), ws.enviados[0].message);
+        delete process.env.WA_ESCAPARATE_MODO;
+    });
+    await prueba('el formulario: el lead nace a nombre del instalador por su ref=esc-<fila> o por su teléfono; si no, de nadie', async () => {
+        const reciente = new Date(MEDIODIA - 3600_000).toISOString();
+        const { bd } = montar({ tablas: {
+            prescriptores: [GONZAGARRI],
+            wa_bienvenidas: [{ id: 41, tel9: '605292429', partner_id: 'p-gonza', created_at: reciente }, { id: 42, tel9: '611222333', partner_id: null, created_at: reciente }],
+        } });
+        assert.deepStrictEqual(await B.partnerDelLead({ ref: 'esc-41', tlf: '+34 699 000 000' }), { id_empresa: 'p-gonza', nombre: 'GONZAGARRI', fila: 41 });
+        assert.strictEqual((await B.partnerDelLead({ ref: 'wa', tlf: '605 29 24 29' }))?.id_empresa, 'p-gonza');
+        assert.strictEqual(await B.partnerDelLead({ ref: 'esc-42', tlf: '611222333' }), null);
+        assert.strictEqual(await B.partnerDelLead({ ref: null, tlf: null }), null);
+        bd.tablas.__error = ['wa_bienvenidas'];
+        assert.strictEqual(await B.partnerDelLead({ ref: 'esc-41' }), null, 'con la BD caída no lanza: el alta sigue');
+    });
+
     await prueba('apagada no hace nada', async () => {
         process.env.WA_BIENVENIDA_ENABLED = 'false';
         const { bd } = montar();

@@ -46,6 +46,19 @@ CREATE INDEX IF NOT EXISTS wa_bienvenidas_pend_idx ON public.wa_bienvenidas (env
 -- Los topes del día y de la hora.
 CREATE INDEX IF NOT EXISTS wa_bienvenidas_env_idx ON public.wa_bienvenidas (enviado_at) WHERE estado = 'ENVIADA';
 
+-- El ESCAPARATE (2026-11-10): quien escribe desde la ficha de un instalador de
+-- brokergy.es («he visto a X en brokergy.es…») es un lead de ESE instalador. Se le
+-- avisa a él (`aviso`: a quién, el texto y cómo salió) y al cliente se le manda su
+-- propio texto, con `?ref=esc-<id>`: el formulario lee esta fila y la oportunidad
+-- nace a nombre de `partner_id`. `partner_id` vale también para la bienvenida de
+-- siempre cuando Fran sabe de quién es el lead (lo pone a mano).
+ALTER TABLE public.wa_bienvenidas ADD COLUMN IF NOT EXISTS tipo VARCHAR(12) NOT NULL DEFAULT 'bienvenida';
+ALTER TABLE public.wa_bienvenidas ADD COLUMN IF NOT EXISTS partner_id UUID;
+ALTER TABLE public.wa_bienvenidas ADD COLUMN IF NOT EXISTS aviso JSONB;
+DO $$ BEGIN
+    ALTER TABLE public.wa_bienvenidas ADD CONSTRAINT wa_bienvenidas_tipo_ck CHECK (tipo IN ('bienvenida', 'escaparate'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 ALTER TABLE public.wa_bienvenidas ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.wa_bienvenidas FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.wa_bienvenidas TO service_role;

@@ -29,6 +29,17 @@
  *    casa (regla 205, `horarioWhatsapp.puedeContestar`: quien nos ha escrito, de 7 a 21 h).
  *  - Sin reintentos: un envío que falla queda en ERROR (el mensaje puede estar ya en
  *    el chat; reenviarlo lo duplicaría).
+ *
+ * El ESCAPARATE (2026-11-10, Fran: «monta el flujo para que funcione después»): quien
+ * escribe desde la ficha de un instalador de brokergy.es («he visto a X en
+ * brokergy.es…») pasa los MISMOS filtros, pero es un lead de ESE instalador:
+ *  - se casa X con su ficha de partner (`elegirInstalador`); si no casa con UNA, no se
+ *    escribe a nadie y se le dice a Fran;
+ *  - PRIMERO se avisa al instalador (su contacto comercial) y, con su ACK, al cliente:
+ *    «le hemos pasado tu contacto a X», el formulario con `?ref=esc-<fila>` y el vídeo;
+ *  - el formulario lee esa fila (`partnerDelLead`) y la oportunidad nace a su nombre;
+ *  - su modo va APARTE (`WA_ESCAPARATE_MODO=real` para escribir; si no, COPIA): en copia
+ *    a Fran le llega al grupo lo que se habría mandado, para que lo mande él.
  */
 
 const U = require('../utils/bienvenidaWhatsapp');
@@ -52,6 +63,10 @@ const TABLA = 'wa_bienvenidas';
 
 const activo = () => String(process.env.WA_BIENVENIDA_ENABLED || '').toLowerCase() === 'true';
 const modo = () => (String(process.env.WA_BIENVENIDA_MODO || '').toLowerCase() === 'real' ? 'real' : 'copia');
+const modoEscaparate = () => (String(process.env.WA_ESCAPARATE_MODO || '').toLowerCase() === 'real' ? 'real' : 'copia');
+const modoDe = (tipo) => (tipo === 'escaparate' ? modoEscaparate() : modo());
+// El grupo de Fran (el mismo que el contestador): las copias del escaparate y lo que no se ha podido hacer solo.
+const destinoFran = () => process.env.WA_ESCAPARATE_DESTINO || process.env.ASISTENTE_WHATSAPP_GRUPO || process.env.WHATSAPP_ADMIN_CHAT || null;
 const telefonosPrueba = () => new Set(String(process.env.WA_BIENVENIDA_PRUEBA || '')
     .split(',').map(U.nueve).filter(Boolean));
 const videoUrl = () => (process.env.WA_BIENVENIDA_VIDEO_URL ?? VIDEO_URL_DEFECTO).trim();
@@ -184,6 +199,73 @@ async function conocidoEnApp(tel9) {
     return (data || []).length ? 'la app ya le ha escrito' : null;
 }
 
+// ─── El escaparate: de qué instalador es y a quién se le avisa ───────────────
+const CAMPOS_PARTNER = 'id_empresa, acronimo, razon_social, tlf, tlf_contacto, nombre_contacto, tlf_responsable, nombre_responsable, contactos_notificacion, contacto_notificaciones_activas';
+
+/** El instalador de la ficha y a quién avisar. Lanza si la BD no responde (eso NO es «no casa»). */
+async function instaladorDeLaFicha(nombre) {
+    const { data, error } = await db().from('prescriptores').select(CAMPOS_PARTNER);
+    if (error) throw new Error(`la base de datos no responde (${error.message})`);
+    const el = U.elegirInstalador(nombre, data || []);
+    if (!el.ok) return el;
+    const aviso = U.contactoAviso(el.partner);
+    if (!aviso) return { ok: false, motivo: `${el.partner.razon_social || nombre} no tiene un móvil al que avisarle` };
+    return { ok: true, partner: el.partner, aviso };
+}
+
+/** Al grupo de Fran. Nunca lanza: es un aviso, no puede tumbar lo demás. */
+async function mandarAFran(texto) {
+    const d = destinoFran();
+    if (!d) return false;
+    try {
+        const r = await wa().sendText(d, texto);
+        return r?.ok !== false;
+    } catch (e) {
+        console.warn('[bienvenida] aviso a Fran:', e.message);
+        return false;
+    }
+}
+
+const avisados = new Map();   // tel9 → ms: a Fran ya se le dijo que este no se ha podido llevar solo
+async function decirAFranQueNo(tel9, chat, esc, motivo) {
+    if (!tel9 || (avisados.get(tel9) || 0) > deps.ahora()) return;
+    avisados.set(tel9, deps.ahora() + CFG.olvidoMs);
+    await mandarAFran([
+        `ESCAPARATE · ${[chat?.pushname, U.telBonito(tel9)].filter(Boolean).join(', ')} escribe desde la ficha de «${esc.nombre}» en brokergy.es${esc.municipio ? ` (su casa: ${esc.municipio})` : ''}.`,
+        `No lo he podido llevar solo: ${motivo}. No le he escrito a nadie: contéstale tú y avisa al instalador.`,
+    ].join('\n'));
+}
+
+/**
+ * El partner de un lead del formulario: el de la fila del escaparate de su `ref`
+ * (`esc-<id>`) o, si no lo trae, el de la fila de su teléfono. null si no hay. Nunca
+ * lanza: el alta del lead no puede fallar por esto.
+ */
+async function partnerDelLead({ ref = null, tlf = null } = {}) {
+    try {
+        const s = db();
+        let fila = null;
+        const m = /^esc-(\d{1,12})$/.exec(String(ref || '').toLowerCase());
+        if (m) {
+            const { data } = await s.from(TABLA).select('id, partner_id').eq('id', Number(m[1])).maybeSingle();
+            fila = data?.partner_id ? data : null;
+        }
+        const t9 = U.nueve(tlf);
+        if (!fila && t9) {
+            const { data } = await s.from(TABLA).select('id, partner_id, created_at').eq('tel9', t9).maybeSingle();
+            // Solo si es reciente: un lead de hace un año que vuelve no es del escaparate de hoy.
+            if (data?.partner_id && deps.ahora() - Date.parse(data.created_at) < 180 * 86_400_000) fila = data;
+        }
+        if (!fila) return null;
+        const { data: p } = await s.from('prescriptores').select('id_empresa, acronimo, razon_social').eq('id_empresa', fila.partner_id).maybeSingle();
+        if (!p) return null;
+        return { id_empresa: p.id_empresa, nombre: U.sinFormaJuridica(p.acronimo || p.razon_social) || null, fila: fila.id };
+    } catch (e) {
+        console.warn('[bienvenida] partner del lead:', e.message);
+        return null;
+    }
+}
+
 // ─── Ráfagas y decisión ──────────────────────────────────────────────────────
 const rafagas = new Map();     // chatId → { timer, primero, n, texto }
 const decididos = new Map();   // chatId → hasta (ms): ya se decidió que no
@@ -274,20 +356,47 @@ async function evaluar(chatId) {
             console.log(`[bienvenida] no a ${chatId}: ${res.motivo}`);
             return noPorHoy(chatId, res.motivo);
         }
+        // Del escaparate: de qué instalador es. Si no casa con UNA ficha, no se escribe a
+        // nadie (la bienvenida de siempre le quitaría el lead al instalador) y se le dice a Fran.
+        let esc = null;
+        if (res.escaparate) {
+            esc = await instaladorDeLaFicha(res.escaparate.nombre);
+            if (!esc.ok) {
+                console.log(`[bienvenida] escaparate ${tel9}: ${esc.motivo}`);
+                await decirAFranQueNo(tel9, chat, res.escaparate, esc.motivo);
+                return noPorHoy(chatId, `escaparate: ${esc.motivo}`);
+            }
+        }
+        const tipo = esc ? 'escaparate' : 'bienvenida';
         const ahora = new Date(deps.ahora());
         const fila = {
             tel9, chat_id: chatId, pushname: chat.pushname || null,
             primer_mensaje: recorta(`${rafaga.primero}${rafaga.n > 1 ? ` (+${rafaga.n - 1})` : ''}`, 120),
-            estado: 'PENDIENTE', modo: modo(), motivo: res.motivo,
+            estado: 'PENDIENTE', modo: modoDe(tipo), motivo: res.motivo, tipo,
             enviar_at: H.siguienteApertura(ahora).toISOString(),
-            texto: U.textoBienvenida({ enlace: U.enlaceFormulario(process.env.FRONTEND_URL) }),
+            texto: esc ? null : U.textoBienvenida({ enlace: U.enlaceFormulario(process.env.FRONTEND_URL) }),
+            ...(esc ? {
+                partner_id: esc.partner.id_empresa,
+                aviso: {
+                    instalador: esc.partner.razon_social || esc.partner.acronimo || res.escaparate.nombre,
+                    nombre_web: res.escaparate.nombre, tel9: esc.aviso.tel9, contacto: esc.aviso.nombre,
+                    texto: U.textoAvisoInstalador({ contacto: esc.aviso.nombre, municipio: res.escaparate.municipio, presupuesto: res.escaparate.presupuesto, nombreCliente: chat.pushname, tel9 }),
+                },
+            } : {}),
         };
-        const { error } = await db().from(TABLA).insert(fila);
+        const { data: ins, error } = await db().from(TABLA).insert(fila).select('id');
         // Dos ráfagas a la vez del mismo teléfono (@c.us y @lid): el índice único deja una.
         if (error && !/duplicate|unique/i.test(error.message)) throw new Error(error.message);
+        // El enlace del escaparate lleva SU fila (`ref=esc-<id>`): se escribe cuando ya se sabe.
+        const id = ins?.[0]?.id;
+        if (esc && id) {
+            const texto = U.textoEscaparateCliente({ instalador: res.escaparate.nombre, enlace: U.enlaceEscaparate(process.env.FRONTEND_URL, id) });
+            const { error: e2 } = await db().from(TABLA).update({ texto }).eq('id', id);
+            if (e2) throw new Error(e2.message);
+        }
         decididos.set(chatId, deps.ahora() + CFG.olvidoMs);
-        console.log(`[bienvenida] apuntada ${tel9} (${modo()}), sale ${fila.enviar_at}`);
-        return { ok: true, motivo: res.motivo, enviar_at: fila.enviar_at };
+        console.log(`[bienvenida] apuntada ${tel9} (${tipo}, ${modoDe(tipo)}), sale ${fila.enviar_at}`);
+        return { ok: true, motivo: res.motivo, tipo, enviar_at: fila.enviar_at };
     } catch (e) {
         // No se ha podido comprobar: NO se escribe. Y no se recuerda: el siguiente mensaje lo reintenta.
         console.warn(`[bienvenida] no se ha podido comprobar ${chatId}: ${e.message}`);
@@ -350,6 +459,41 @@ async function enviar(fila) {
     }
 }
 
+/**
+ * Del escaparate: PRIMERO el aviso al instalador y, cuando ha salido (ACK), lo del
+ * cliente, que le dice «le hemos pasado tu contacto». Si el aviso no sale, al cliente
+ * no se le escribe (sería mentira) y se le dice a Fran.
+ */
+async function enviarEscaparate(fila) {
+    const av = fila.aviso || {};
+    if (!av.tel9 || !av.texto) throw new Error('la fila no trae a quién avisar');
+    const out = await wa().sendText(`34${av.tel9}`, av.texto);
+    if (out && out.ok === false) throw new Error(`el aviso al instalador no ha salido: ${out.error || 'WhatsApp no lo ha aceptado'}`);
+    const cola = out?.id ? await esperarCola(out.id) : 'SENT';
+    if (cola !== 'SENT') throw new Error('el aviso al instalador seguía en la cola: al cliente no se le ha escrito');
+    await db().from(TABLA).update({ aviso: { ...av, estado: 'ENVIADO', cola_id: out?.id || null, enviado_at: new Date(deps.ahora()).toISOString() } }).eq('id', fila.id);
+    return enviar(fila);
+}
+
+/** Lo que le llega a Fran de una fila del escaparate: en copia, los dos textos para que los mande él. */
+function textoFranEscaparate(f, { copia, video = null } = {}) {
+    const av = f.aviso || {};
+    const cliente = [f.pushname, U.telBonito(f.tel9)].filter(Boolean).join(', ');
+    const aquien = [av.contacto, U.telBonito(av.tel9)].filter(Boolean).join(', ');
+    if (!copia) {
+        return `ESCAPARATE · ${cliente} escribía desde la ficha de ${av.instalador}. Avisado ${aquien} y contestado con el formulario${video === 'enviado' ? ' y el vídeo' : ''}: la oportunidad entrará a nombre de ${av.instalador}.`;
+    }
+    return [
+        `ESCAPARATE (copia, no ha salido nada) · ${cliente} escribe desde la ficha de ${av.instalador} en brokergy.es.`,
+        '',
+        `Al instalador (${aquien}) le mandaría:`,
+        av.texto,
+        '',
+        'Y al cliente, detrás, esto y el vídeo de las ayudas:',
+        f.texto,
+    ].join('\n');
+}
+
 let enCurso = false;
 /** Manda lo apuntado que ya toca. `seco`: dice lo que haría sin tocar nada. */
 async function vuelta({ seco = false } = {}) {
@@ -372,9 +516,10 @@ async function vuelta({ seco = false } = {}) {
             }
             return { hecho };
         }
-        const real = modo() === 'real';
+        // El modo es POR FILA: la bienvenida y el escaparate van cada uno con el suyo.
+        const algunoReal = filas.some(f => modoDe(f.tipo) === 'real');
         let [dia, hora] = [0, 0];
-        if (real) {
+        if (algunoReal) {
             const [d, h] = await Promise.all([
                 s.from(TABLA).select('id', { count: 'exact', head: true }).eq('estado', 'ENVIADA').gte('enviado_at', U.inicioDiaMadrid(ahora).toISOString()),
                 s.from(TABLA).select('id', { count: 'exact', head: true }).eq('estado', 'ENVIADA').gte('enviado_at', new Date(ahora - 3_600_000).toISOString()),
@@ -385,6 +530,14 @@ async function vuelta({ seco = false } = {}) {
         let enEsta = 0;
         for (const f of filas) {
             if (enEsta >= CFG.porVuelta) break;
+            const real = modoDe(f.tipo) === 'real';
+            const esc = f.tipo === 'escaparate';
+            if (!f.texto) {
+                // Un escaparate cuyo enlace no se llegó a escribir: no se manda un mensaje vacío.
+                hecho.push({ id: f.id, tel9: f.tel9, accion: 'error', motivo: 'la fila no tiene texto' });
+                if (!seco) await s.from(TABLA).update({ estado: 'ERROR', motivo: 'la fila no tiene texto (no se llegó a escribir el enlace)', updated_at: ahora.toISOString() }).eq('id', f.id);
+                continue;
+            }
             if (real && (dia >= CFG.topeDia || hora >= CFG.topeHora)) {
                 hecho.push({ id: f.id, tel9: f.tel9, accion: 'tope', motivo: `tope alcanzado (${dia} hoy, ${hora} en la última hora)` });
                 break;
@@ -414,18 +567,22 @@ async function vuelta({ seco = false } = {}) {
             if (!real) {
                 await s.from(TABLA).update({ estado: 'COPIA', modo: 'copia', enviado_at: ahora.toISOString(), updated_at: ahora.toISOString() }).eq('id', f.id);
                 hecho.push({ id: f.id, tel9: f.tel9, accion: 'copia' });
-                console.log(`[bienvenida] MODO COPIA: a ${f.tel9} se le habría mandado el formulario y el vídeo.`);
+                // El del escaparate es un lead de un instalador: en copia, a Fran le llega lo que se habría mandado.
+                if (esc) await mandarAFran(textoFranEscaparate(f, { copia: true }));
+                console.log(`[bienvenida] MODO COPIA: a ${f.tel9} se le habría mandado ${esc ? 'el aviso al instalador, ' : ''}el formulario y el vídeo.`);
                 continue;
             }
             try {
-                const v = await enviar(f);
+                const v = esc ? await enviarEscaparate(f) : await enviar(f);
                 dia += 1; hora += 1;
                 await s.from(TABLA).update({ estado: 'ENVIADA', modo: 'real', video: v, enviado_at: new Date(deps.ahora()).toISOString(), updated_at: new Date(deps.ahora()).toISOString() }).eq('id', f.id);
                 hecho.push({ id: f.id, tel9: f.tel9, accion: 'enviada', video: v });
-                console.log(`[bienvenida] enviada a ${f.tel9} (vídeo: ${v}).`);
+                if (esc) await mandarAFran(textoFranEscaparate(f, { copia: false, video: v }));
+                console.log(`[bienvenida] enviada a ${f.tel9} (${f.tipo || 'bienvenida'}, vídeo: ${v}).`);
             } catch (e) {
                 await s.from(TABLA).update({ estado: 'ERROR', modo: 'real', motivo: recorta(e.message, 200), updated_at: new Date(deps.ahora()).toISOString() }).eq('id', f.id);
                 hecho.push({ id: f.id, tel9: f.tel9, accion: 'error', motivo: e.message });
+                if (esc) await mandarAFran(`ESCAPARATE · ${[f.pushname, U.telBonito(f.tel9)].filter(Boolean).join(', ')}, de ${f.aviso?.instalador || 'un instalador'}: no ha salido (${recorta(e.message, 160)}). Míralo tú: puede que el aviso al instalador sí haya llegado.`);
                 console.warn(`[bienvenida] no ha salido a ${f.tel9}: ${e.message}`);
             }
         }
@@ -441,7 +598,7 @@ async function vuelta({ seco = false } = {}) {
 /** Lo apuntado, para la pantalla o un script. */
 async function listar({ limite = 100 } = {}) {
     const { data, error } = await db().from(TABLA)
-        .select('id, tel9, pushname, primer_mensaje, estado, modo, motivo, enviar_at, enviado_at, video, created_at')
+        .select('id, tel9, pushname, primer_mensaje, estado, modo, motivo, enviar_at, enviado_at, video, tipo, partner_id, aviso, created_at')
         .order('created_at', { ascending: false }).limit(Math.min(Number(limite) || 100, 500));
     if (error) throw new Error(error.message);
     return data || [];
@@ -449,7 +606,7 @@ async function listar({ limite = 100 } = {}) {
 
 function estado() {
     return {
-        activo: activo(), modo: modo(), prueba: telefonosPrueba().size,
+        activo: activo(), modo: modo(), modoEscaparate: modoEscaparate(), prueba: telefonosPrueba().size,
         horario: `${H.desde()}-${H.hasta()} h`, video: videoUrl() || null, formulario: U.enlaceFormulario(process.env.FRONTEND_URL),
         topes: { dia: CFG.topeDia, hora: CFG.topeHora, vuelta: CFG.porVuelta }, rafagasAbiertas: rafagas.size,
     };
@@ -473,13 +630,13 @@ function start() {
     handle = setInterval(() => { vuelta().catch(() => {}); }, 60_000);
     handle.unref?.();
     const p = telefonosPrueba().size;
-    console.log(`[bienvenida] activa en modo ${modo().toUpperCase()}${p ? `, solo ${p} teléfono(s) de prueba` : ''}: a quien escribe por primera vez, el formulario y el vídeo (${H.desde()}-${H.hasta()} h).`);
+    console.log(`[bienvenida] activa en modo ${modo().toUpperCase()}${p ? `, solo ${p} teléfono(s) de prueba` : ''}: a quien escribe por primera vez, el formulario y el vídeo (${H.desde()}-${H.hasta()} h). Escaparate en modo ${modoEscaparate().toUpperCase()}.`);
 }
 
 module.exports = {
-    start, vuelta, listar, estado, activo, modo, CFG,
+    start, vuelta, listar, estado, activo, modo, modoEscaparate, partnerDelLead, CFG,
     _alMensajeEntrante: alMensajeEntrante, _alMensajePropio: alMensajePropio, _evaluar: evaluar, _LEER_CHAT: LEER_CHAT,
-    _telefonosConocidos: telefonosConocidos, _conocidoEnApp: conocidoEnApp,
+    _telefonosConocidos: telefonosConocidos, _conocidoEnApp: conocidoEnApp, _textoFranEscaparate: textoFranEscaparate,
     _deps: deps,
-    _reiniciar: () => { rafagas.forEach(r => clearTimeout(r.timer)); rafagas.clear(); decididos.clear(); humanos.clear(); conocidos = { at: 0, mapa: null }; video = null; enCurso = false; },
+    _reiniciar: () => { rafagas.forEach(r => clearTimeout(r.timer)); rafagas.clear(); decididos.clear(); humanos.clear(); avisados.clear(); conocidos = { at: 0, mapa: null }; video = null; enCurso = false; },
 };

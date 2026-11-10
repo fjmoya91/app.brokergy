@@ -73,11 +73,9 @@ const YA_NOS_CONOCE = [
     [/\bfran(cisco)?\b/, 'se dirige a Fran por su nombre'],
     [/\bte (he )?llam(e|ado)\b|\bos (he )?llam(e|ado)\b|\bme llamast(e|eis)\b|\b(lo que )?hemos hablado\b|\bhablamos\b|\bhable con(tigo| vosotros)\b|\blo hablado\b|\bsegun (lo )?hablado\b|\bcomo (te |os )?(dije|comente|quedamos)\b|\bquedamos en\b|\blo que me (pediste|pedisteis|has pedido|habeis pedido)\b/, 'habla de una conversación anterior'],
     [/\bde parte de\b|\b(me )?(ha|han) (pasado|dado|facilitado) (tu|vuestro|este) (numero|telefono|contacto|whatsapp)\b|\btu (numero|telefono|contacto) me lo (ha|han) (pasado|dado)\b/, 'viene de parte de alguien'],
-    // Los botones de WhatsApp de brokergy.es que NO son de un cliente que pregunta por
-    // su ayuda (10/11/2026): la ficha de un instalador del escaparate («Hola, he visto a
-    // GONZAGARRI S.L en brokergy.es y me gustaría que me hiciera la obra…»: el lead es
-    // de ese instalador) y las páginas de instaladores y distribuidores.
-    [/\bhe visto a .{2,80} en brokergy\.es\b/, 'viene del escaparate de un instalador de brokergy.es'],
+    // Los botones de WhatsApp de brokergy.es que NO son de un cliente (10/11/2026): las
+    // páginas de instaladores y de distribuidores. El del ESCAPARATE («he visto a X en
+    // brokergy.es…») sí es de un cliente, pero tiene su propio camino: `deEscaparate`.
     [/\bsoy (instalador|distribuidor)\b/, 'es un instalador o un distribuidor'],
 ];
 
@@ -87,6 +85,119 @@ function yaNosConoce(texto) {
     if (!t.trim()) return null;
     for (const [re, motivo] of YA_NOS_CONOCE) if (re.test(t)) return motivo;
     return null;
+}
+
+// ── El ESCAPARATE: quien escribe desde la ficha de un instalador de brokergy.es ──
+// La ficha (brokergy-web: src/data/red.js y encuentra-tu-instalador/[slug].astro) abre
+// WhatsApp con «Hola, he visto a {nombre} en brokergy.es y me gustaría que me hiciera la
+// obra. ¿Me calculáis la ayuda? Mi casa está en …». Ese lead es del INSTALADOR: se le
+// avisa a él, y al cliente se le dice que le llamará y se le da el formulario con un
+// `ref` que lleva al instalador (10/11/2026, Fran, el caso de Natalia y Gonzagarri).
+
+/** Lo que dice el mensaje del escaparate, o null: { nombre, municipio, presupuesto }. */
+function deEscaparate(texto) {
+    const t = String(texto || '').replace(/\s+/g, ' ');
+    const m = t.match(/\bhe visto a (.{2,80}?) en brokergy\.es\b/i);
+    if (!m) return null;
+    const casa = t.match(/\bmi casa est[aá] en ([^.?!¿¡\n]{2,60})/i);
+    return {
+        nombre: m[1].trim(),
+        municipio: casa ? casa[1].trim().replace(/[,;:]+$/, '') : null,
+        presupuesto: /presupuesto/i.test(t),
+    };
+}
+
+// Lo que se le quita a un nombre de empresa para compararlo o para nombrarla al cliente.
+const FORMA_JURIDICA = /[\s,]+(s\.?\s?l\.?\s?u\.?|s\.?\s?l\.?\s?l\.?|s\.?\s?l\.?|s\.?\s?a\.?\s?u\.?|s\.?\s?a\.?|s\.?\s?c\.?|c\.?\s?b\.?|s\.?\s?coop\.?|sociedad limitada( unipersonal)?|sociedad anonima)\s*$/i;
+/** El nombre sin la forma jurídica: «GONZAGARRI S.L» → «GONZAGARRI», «Calefacciones X, S.L.U.» → «Calefacciones X». */
+function sinFormaJuridica(nombre) {
+    let s = String(nombre || '').trim();
+    for (let i = 0; i < 2; i++) s = s.replace(FORMA_JURIDICA, '').trim();
+    return s.replace(/[\s,.;:-]+$/, '');
+}
+/** Clave para casar el nombre escrito con la ficha: sin tildes, sin forma jurídica, solo letras y cifras. */
+const claveNombre = (nombre) => sinTildes(sinFormaJuridica(nombre)).replace(/[^a-z0-9]/g, '');
+
+/**
+ * El instalador de la ficha, entre los partners: el nombre de la web es
+ * `acronimo || razon_social` (brokergy-web: scripts/red.mjs). Solo vale UNO; con
+ * ninguno o con varios, { ok: false } y lo lleva Fran.
+ */
+function elegirInstalador(nombre, prescriptores = []) {
+    const k = claveNombre(nombre);
+    if (!k || k.length < 3) return { ok: false, motivo: `no se entiende el nombre del instalador («${nombre}»)` };
+    const nombres = (p) => [p.acronimo || p.razon_social, p.razon_social, p.acronimo].filter(Boolean).map(claveNombre);
+    const unicosDe = (lista) => [...new Map(lista.map(p => [p.id_empresa, p])).values()];
+    let unicos = unicosDe((prescriptores || []).filter(p => nombres(p).includes(k)));
+    // La web acorta el nombre de algún autónomo («JOSÉ ÁLVAREZ» es «JOSÉ ÁLVAREZ ALMARCHA»,
+    // medido el 10/11/2026 sobre los 73 del escaparate): si nada casa entero, vale el
+    // COMIENZO del nombre, con 8 letras o más y de una sola ficha.
+    if (!unicos.length && k.length >= 8) unicos = unicosDe((prescriptores || []).filter(p => nombres(p).some(n => n.startsWith(k))));
+    if (unicos.length === 1) return { ok: true, partner: unicos[0] };
+    return { ok: false, motivo: unicos.length ? `«${nombre}» casa con ${unicos.length} fichas de partner` : `«${nombre}» no casa con ninguna ficha de partner` };
+}
+
+const primeraMayuscula = (s) => String(s || '').toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (_, a, b) => a + b.toUpperCase());
+
+/**
+ * A quién del instalador se le avisa: su contacto de avisos COMERCIAL (el de los
+ * leads), si no el de contacto, el responsable o el de la empresa. Solo un móvil
+ * español. Devuelve { tel9, nombre } o null.
+ */
+function contactoAviso(p) {
+    if (!p) return null;
+    const cands = [];
+    if (p.contacto_notificaciones_activas !== false && Array.isArray(p.contactos_notificacion)) {
+        const lista = p.contactos_notificacion.filter(c => c && c.tlf);
+        const comercial = lista.filter(c => !Array.isArray(c.roles) || !c.roles.length || c.roles.includes('comercial'));
+        for (const c of [...comercial, ...lista]) cands.push({ tlf: c.tlf, nombre: c.nombre });
+    }
+    cands.push({ tlf: p.tlf_contacto, nombre: p.nombre_contacto }, { tlf: p.tlf_responsable, nombre: p.nombre_responsable }, { tlf: p.tlf, nombre: null });
+    for (const c of cands) {
+        if (!c.tlf || !esMovilEspanol(c.tlf)) continue;
+        const nombre = String(c.nombre || '').trim().split(/\s+/)[0] || '';
+        return { tel9: nueve(c.tlf), nombre: /^\p{L}{2,20}$/u.test(nombre) ? primeraMayuscula(nombre) : null };
+    }
+    return null;
+}
+
+/** «605 29 24 29». */
+const telBonito = (t9) => { const d = nueve(t9) || ''; return d.length === 9 ? `${d.slice(0, 3)} ${d.slice(3, 5)} ${d.slice(5, 7)} ${d.slice(7)}` : d; };
+
+/** El enlace del formulario para un lead del escaparate: `ref=esc-<fila>` lleva al instalador (nunca un dato personal). */
+function enlaceEscaparate(base, id) {
+    return `${String(base || 'https://app.brokergy.es').replace(/\/+$/, '')}/calcula-tu-ayuda?ref=esc-${Number(id)}`;
+}
+
+/** Al CLIENTE que escribe desde la ficha de un instalador (el texto que Fran aprobó el 10/11/2026). */
+function textoEscaparateCliente({ instalador, enlace }) {
+    const quien = sinFormaJuridica(instalador) || 'el instalador';
+    return [
+        'Hola, gracias por escribirnos.',
+        '',
+        `Le hemos pasado tu contacto a ${quien} para que te llamen, vean la obra y te hagan el presupuesto.`,
+        '',
+        'Mientras tanto, puedes calcular ya la ayuda que te corresponde, desde el móvil y en un par de minutos:',
+        enlace,
+        '',
+        'Lo ideal es que lo hagas estando en casa: con el botón «Usar mi ubicación» localizamos tu vivienda en el Catastro. Es muy importante que selecciones la vivienda correcta (en un piso, tu planta y tu puerta), porque la ayuda se calcula con sus datos.',
+        '',
+        `Con eso tendrás una primera cifra, y cuando ${quien} tenga el presupuesto la afinamos.`,
+        '',
+        'Si lo prefieres, mándanos por aquí la dirección de la vivienda, una foto de la caldera y otra de su placa de características (la pegatina con los datos), y te lo calculamos nosotros.',
+    ].join('\n');
+}
+
+/** Al INSTALADOR: le ha entrado un cliente por su ficha. Neutro (no sabemos si es él o ella). */
+function textoAvisoInstalador({ contacto, municipio, presupuesto, nombreCliente, tel9 }) {
+    const quien = [nombreCliente, telBonito(tel9)].filter(Boolean).join(', ');
+    return [
+        `Hola${contacto ? ` ${contacto}` : ''}, nos ha entrado por la web una petición para vosotros: un cliente${municipio ? ` de ${municipio}` : ''} os ha visto en brokergy.es, en el buscador de instaladores, y quiere que le hagáis la obra.${presupuesto ? ' Pide presupuesto.' : ''}`,
+        '',
+        quien,
+        '',
+        'Si te parece bien, llámale tú para ver la obra y preparar el presupuesto. Nosotros le calculamos ya la ayuda y, en cuanto tengas el presupuesto, nos lo pasas y la afinamos.',
+    ].join('\n');
 }
 
 /**
@@ -100,7 +211,10 @@ function decidir({ chat, conocido = null, prueba = false, ahoraMs = Date.now(), 
     if (!chat) return { ok: false, motivo: 'no se ha podido leer el chat' };
     if (!chat.numero) return { ok: false, motivo: 'no se sabe su número (no se puede comprobar si es nuevo)' };
     if (!esMovilEspanol(chat.numero)) return { ok: false, motivo: 'no es un móvil español' };
-    if (prueba) return { ok: true, motivo: 'teléfono de prueba' };
+    // Del escaparate o no, los filtros son los MISMOS: solo cambia lo que se le manda.
+    const escaparate = deEscaparate(texto);
+    const conEsc = (r) => (escaparate && r.ok ? { ...r, escaparate } : r);
+    if (prueba) return conEsc({ ok: true, motivo: 'teléfono de prueba' });
     if (conocido) return { ok: false, motivo: `ya está en la app (${conocido})` };
     const dice = yaNosConoce(texto);
     if (dice) return { ok: false, motivo: `ya ha hablado con nosotros: ${dice}` };
@@ -112,7 +226,7 @@ function decidir({ chat, conocido = null, prueba = false, ahoraMs = Date.now(), 
     if (primero && primero * 1000 < ahoraMs - historialMin * 60_000) {
         return { ok: false, motivo: 'el chat tiene mensajes anteriores' };
     }
-    return { ok: true, motivo: 'es la primera vez que escribe' };
+    return conEsc({ ok: true, motivo: escaparate ? `escribe desde la ficha de «${escaparate.nombre}» en brokergy.es` : 'es la primera vez que escribe' });
 }
 
 // ── La hora de Madrid, para el tope del día (el servidor va en UTC) ──────────
@@ -148,4 +262,7 @@ function inicioDiaMadrid(date = new Date()) {
 module.exports = {
     TIPOS_ADMITIDOS, PIE_VIDEO, nueve, esMovilEspanol, enlaceFormulario, textoBienvenida, decidir,
     yaNosConoce, inicioDiaMadrid,
+    // El escaparate
+    deEscaparate, sinFormaJuridica, claveNombre, elegirInstalador, contactoAviso, telBonito,
+    enlaceEscaparate, textoEscaparateCliente, textoAvisoInstalador,
 };

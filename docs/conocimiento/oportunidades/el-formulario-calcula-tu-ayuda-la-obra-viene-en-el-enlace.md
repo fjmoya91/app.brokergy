@@ -28,6 +28,9 @@ calculando distinto. La identidad de la web la pone la piel `.lf` (regla 164).
 - **`?ref=`**, quién mandó el enlace (`^[a-z0-9_-]{1,30}$`, en minúsculas). Viaja en
   `landing_funnel.ref` y sale en el aviso. `ref=wa` es la respuesta automática de WhatsApp a quien
   escribe por primera vez (regla 206, «La BIENVENIDA» en `docs/conocimiento/whatsapp/`).
+  `ref=esc-<fila>` (2026-11-10) es el de quien escribió desde la ficha de un instalador del escaparate:
+  el alta lee esa fila de `wa_bienvenidas` (o, sin ese `ref`, la de su teléfono) y la oportunidad
+  nace a nombre de ese instalador, como por su landing (`partnerDelLead`, en `routes/landing.js`).
 - **REGLA — en el enlace no va nunca un dato personal.** Solo la obra y una etiqueta corta. El nombre,
   el teléfono y la dirección se escriben en el formulario.
 

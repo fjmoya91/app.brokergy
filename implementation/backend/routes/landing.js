@@ -292,6 +292,18 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
             };
         }
     }
+    // El ESCAPARATE (2026-11-10): quien escribió por WhatsApp desde la ficha de un
+    // instalador de brokergy.es trae `ref=esc-<fila>` (o su teléfono está en esa fila
+    // de `wa_bienvenidas`): la oportunidad nace a nombre de ESE instalador, como por
+    // su landing. Nunca tumba el alta (`partnerDelLead` no lanza).
+    if (!prescriptorId && !isInternalReq) {
+        const delEscaparate = await require('../services/bienvenidaWhatsapp').partnerDelLead({ ref: funnel?.ref, tlf: contacto?.tlf });
+        if (delEscaparate) {
+            prescriptorId = delEscaparate.id_empresa;
+            partnerInfo = { nombre: delEscaparate.nombre || 'tu instalador', tel: null, email: null };
+            console.log(`[landing/lead] del escaparate (fila ${delEscaparate.fila}): a nombre de ${delEscaparate.nombre}`);
+        }
+    }
 
     // 3. La vía del factor multiplicador, calculada AQUÍ con lo que se va a guardar
     //    (la misma función que el guardado de la calculadora, `viaFmDe`): la columna
