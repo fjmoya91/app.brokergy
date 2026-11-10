@@ -26,6 +26,7 @@ import { cifrasPropuesta, costesServicio, penalizacionReforzada, PENALIZACION_RE
 // El enlace para ACEPTAR va en un mensaje aparte, después del PDF — ver
 // `logic/mensajeAceptacion.js`.
 import { lineaEnlaceDebajo, mensajeAceptacion, esB2B } from '../logic/mensajeAceptacion';
+import { mensajeSinIrpf, propuestaSinIrpf } from '../logic/mensajeSinIrpf';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { postEmail } from '../../../utils/emailFallback';
 // Los nombres se guardan en MAYÚSCULAS (el formulario las fuerza): en el saludo
@@ -1057,8 +1058,16 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
                 const c = res.data;
                 const uc = c.notificaciones_contacto_activas === true;
                 const redirigido = uc && !!(c.persona_contacto_tlf || c.persona_contacto_email);
+                // A una EMPRESA se la saluda por su PERSONA (la de contacto o el
+                // representante legal), nunca por la razón social (Fran, 10/11/2026,
+                // 26TER100_OP389: «¡Hola Autoservicio!»). Sin persona, «¡Hola!».
+                // `saludo` es solo para el texto; `name` sigue siendo el rótulo.
+                const personaEmpresa = c.es_empresa === true
+                    ? (c.persona_contacto_nombre || c.representante_nombre || '')
+                    : null;
                 setClienteInfo({
                     name: (uc && c.persona_contacto_nombre) ? c.persona_contacto_nombre : (c.nombre_razon_social || name),
+                    saludo: (uc && c.persona_contacto_nombre) ? c.persona_contacto_nombre : personaEmpresa,
                     phone: (uc && c.persona_contacto_tlf) ? c.persona_contacto_tlf : (c.tlf || c.telefono || null),
                     email: (uc && c.persona_contacto_email) ? c.persona_contacto_email : (c.email || null),
                     // Con los avisos desviados a otra persona (a menudo el propio
@@ -1068,6 +1077,7 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
                     redirigido,
                     titular: redirigido ? {
                         name: c.nombre_razon_social || name,
+                        saludo: c.es_empresa === true ? (c.representante_nombre || '') : null,
                         phone: c.tlf || c.telefono || null,
                         email: c.email || null,
                     } : null,
@@ -2077,7 +2087,7 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
             const fReforma = cifrasPropuesta(f.financialsRes080) || {};
             
             const firstName = nombreSaludo(targetName);
-            const saludo = `¡Hola ${firstName || 'cliente'}!`;
+            const saludo = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
             
             // Flags de tipo de propuesta
             const isReforma = !!inputs?.isReforma;
@@ -2312,6 +2322,11 @@ info@brokergy.es · 623 926 179`;
     }, [fcVisible, result, inputs]);
 
     const buildCaptionBase = useCallback((mode, targetName, opts = {}) => {
+        // EMPRESA: se saluda a su persona (contacto o representante legal), nunca a
+        // la razón social; sin persona, «¡Hola!» (Fran, 10/11/2026, 26TER100_OP389).
+        const saludoEmpresa = mode === 'TITULAR' ? clienteInfo?.titular?.saludo
+            : mode === 'CLIENTE' ? clienteInfo?.saludo : null;
+        if (saludoEmpresa != null) targetName = saludoEmpresa;
         const f = result || {};
         const fAero = cifrasPropuesta(f.financials) || {};
         const fReforma = cifrasPropuesta(f.financialsRes080) || {};
@@ -2334,6 +2349,35 @@ info@brokergy.es · 623 926 179`;
             ? `En colaboración con ${cobrand.name}, te adjuntamos`
             : 'Tal y como acordamos, te adjunto';
 
+        // ── SIN DEDUCCIÓN DEL IRPF (empresa, terciario o 0 €): el bono y los pasos,
+        // sin «si eres propietario y tienes retenciones… 0 €» ni «combinando ambas
+        // opciones» (Fran, 10/11/2026, 26TER100_OP389). logic/mensajeSinIrpf.js.
+        const casoCee = !!(opts.cee && ceeComparison);
+        const irpfsPresentados = casoCee ? [ceeComparison.irpf]
+            : isOnlyReforma ? [fReforma.irpfDeduction]
+                : isBoth ? [fAero.irpfDeduction, fReforma.irpfDeduction]
+                    : [fAero.irpfDeduction];
+        if (propuestaSinIrpf(irpfsPresentados)) {
+            const b2b = esB2B(mode);
+            const nombre = nombreSaludo(targetName);
+            return mensajeSinIrpf({
+                b2b,
+                caso: casoCee ? 'cee' : isOnlyReforma ? 'reforma' : isBoth ? 'dos' : 'aero',
+                saludo: nombre ? `¡Hola ${nombre}!` : (b2b ? '¡Hola compañeros!' : '¡Hola!'),
+                apertura,
+                numero: displayId,
+                cliente: inputs?.referenciaCliente || 'el cliente',
+                bono: isOnlyReforma ? fReforma.caeBonus : fAero.caeBonus,
+                bonoAero: fAero.caeBonus,
+                bonoReforma: fReforma.caeBonus,
+                conCee: ceeComparison?.conCee?.cae,
+                ceeNuevo: ceeComparison?.ceeNuevo?.cae,
+                hib,
+                enlaceDebajo,
+                terciario: String(inputs?.sector || '').trim().toLowerCase() === 'terciario',
+            });
+        }
+
         // ── VARIANTE "CEE APORTADO": comparativa con tu CEE vs. un CEE nuevo BROKERGY ──
         if (opts.cee && ceeComparison) {
             const conCee = Math.round(ceeComparison.conCee?.cae || 0);
@@ -2348,7 +2392,7 @@ info@brokergy.es · 623 926 179`;
                 return `¡Hola ${pName}!\n\nTe adjunto la simulación de las ayudas para ${clientNameForPartner} (Exp. ${displayId}). Como el cliente ya cuenta con un CEE inicial, hay dos opciones y decide él:\n\n🔹 *Opción A — Con el CEE aportado:*\nBono Energético CAE de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo un CEE inicial nuevo (BROKERGY):*\nBono Energético CAE de *${formatNumber(ceeNuevo)} €*.\n\n_¿Por qué la diferencia?_ ${explica}\n\nAdemás, si el cliente es propietario y tiene retenciones aplicables (y la normativa sigue vigente), puede acogerse a las deducciones del IRPF; el importe estimado sería de *${formatNumber(irpf)} €*, igual en ambas opciones. Dejaremos toda la parte técnica preparada.\n\n💡 *Total de ayudas (bono + IRPF):*\n• Con su CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nPara avanzar, los pasos serían:\n\n• Aceptar el presupuesto de instalación.\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta adjunta en PDF.\n\n${enlaceDebajo}\n\nQuedo a vuestra disposición para cualquier duda.\n\nUn saludo,\nFran Moya · BROKERGY`;
             }
             const firstName = nombreSaludo(targetName);
-            const saludo = `¡Hola ${firstName || 'cliente'}!`;
+            const saludo = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
             return `${saludo}\n\n${apertura} la simulación de las ayudas para tu expediente (Nº ${displayId}). Como ya cuentas con un Certificado de Eficiencia Energética (CEE) inicial, te presento *dos opciones* para que elijas la que prefieras:\n\n🔹 *Opción A — Usando el CEE que nos has aportado:*\nEl Bono Energético CAE sería de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo nosotros un CEE inicial nuevo:*\nEl Bono Energético CAE sería de *${formatNumber(ceeNuevo)} €* gracias al Bono Energético BROKERGY.\n\n_¿Por qué la diferencia?_ ${explica.replace('ya se tiene', 'nos aportas').replace('la vivienda', 'tu vivienda')} *Tú eliges* qué opción usar.\n\nAdemás, si eres propietario y tienes retenciones (y la normativa sigue vigente), puedes acogerte a las deducciones en el IRPF; el importe estimado sería de *${formatNumber(irpf)} €*, *el mismo en ambas opciones*. Dejaremos toda la parte técnica preparada para que las puedas solicitar.\n\n💡 *Resumen total de las ayudas (bono + IRPF):*\n• Con tu CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya).\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
         }
 
@@ -2365,7 +2409,7 @@ info@brokergy.es · 623 926 179`;
         } else {
             // CLIENTE
             const firstName = nombreSaludo(targetName);
-            const saludo = `¡Hola ${firstName || 'cliente'}!`;
+            const saludo = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
             if (isOnlyReforma) {
                 return `${saludo}\n\n${apertura} la simulación de las ayudas para tu expediente de Reforma Energética (Nº ${displayId}), donde detallamos los ahorros y subvenciones que puedes obtener:\n\n🔹 *A modo resumen:*\n\n*Bono Energético:* Gracias al ahorro energético que se produciría en tu vivienda tras la reforma, podrías obtener una ayuda de *${formatNumber(Math.round(fReforma.caeBonus || 0))} €* gestionada a través de BROKERGY.\n\nAdemás, si eres propietario y tienes retenciones, puedes acogerte a las deducciones en el IRPF por rehabilitación siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*. (Nosotros nos encargamos de toda la justificación técnica necesaria para que puedas solicitarlas con seguridad).\n\n💡 *Resumen total de las ayudas:* Podrías recuperar hasta *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €* de tu inversión en la reforma energética.\n\nSiguientes pasos:\n\n• Revisar y aceptar la propuesta técnica adjunta en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda.\n\nUn saludo, Fran Moya\n\nBROKERGY — Ingeniería Energética`;
             } else if (isBoth) {

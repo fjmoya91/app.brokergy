@@ -55,6 +55,7 @@ paths:
 - `docs/conocimiento/propuesta/la-colaboracion-y-el-coste-de-los-servicios.md` — La colaboración se ve en la portada, y el coste de los servicios es UNO (2026-10-22) · 4,2 KB
 - `docs/conocimiento/propuesta/la-hoja-del-factor-multiplicador.md` — La hoja del FACTOR MULTIPLICADOR en la propuesta (2026-11-09) · 8,8 KB
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 2,4 KB
+- `docs/conocimiento/propuesta/mensaje-de-envio-sin-irpf-empresa.md` — El mensaje de envío sin IRPF: empresa y terciario, escueto (2026-11-10) · 2,6 KB
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,4 KB
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19) · 4,9 KB
 - `docs/conocimiento/propuesta/versiones-de-la-propuesta.md` — Versiones de la PROPUESTA (2026-08-25) · 8,2 KB
@@ -107,6 +108,11 @@ en el ÚLTIMO mensaje, aparte**
   - **REGLA — con los avisos desviados, el titular es una fila más: `TITULAR`.**
   - **REGLA — si la oportunidad viene de un colaborador, al titular se le escribe «En
 colaboración con {empresa}, te adjuntamos…»**
+- `docs/conocimiento/propuesta/mensaje-de-envio-sin-irpf-empresa.md`
+  - **REGLA — si ninguna de las opciones que se presentan lleva deducción del IRPF, el mensaje es el bono y
+los pasos.**
+  - **REGLA — la ayuda va sola en su línea y entera en negrita**
+  - **REGLA — a una EMPRESA se la saluda por su PERSONA, nunca por la razón social**
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md`
   - **REGLA — el popup, no dos zonas de suelta abiertas.**
   - **REGLA — "no tengo" NO es saltarse el paso: es ELEGIR el estimado.**
