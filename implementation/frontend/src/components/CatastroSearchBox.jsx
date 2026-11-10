@@ -34,8 +34,10 @@ function mensajeErrorOcr(e) {
 // `initialQuery`: referencia con la que nace escrito el campo (la del CEE cargado en
 // "Nueva simulación"). Si su búsqueda automática falla, reintentar es pulsar Buscar,
 // no volver a teclear 20 caracteres que ya estaban en el certificado.
-export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, onGeolocate, geolocatePrimary = false, permiteFotoRc = false, initialQuery = '' }) {
-    const [searchMode, setSearchMode] = useState('rc'); // 'rc' | 'address'
+export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, onGeolocate, geolocatePrimary = false, permiteFotoRc = false, initialQuery = '', modoInicial = 'rc' }) {
+    // El cliente de la web busca por DIRECCIÓN (`modoInicial="address"`): la referencia
+    // catastral es jerga para él. El CRM sigue abriendo por referencia.
+    const [searchMode, setSearchMode] = useState(modoInicial === 'address' && !initialQuery ? 'address' : 'rc'); // 'rc' | 'address'
     const [query, setQuery] = useState(initialQuery || '');
     const [isFocused, setIsFocused] = useState(false);
     const [geoLoading, setGeoLoading] = useState(false);
@@ -193,7 +195,8 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, on
                 <button
                     type="button"
                     onClick={() => { setSearchMode('rc'); setQuery(''); setSuggestions([]); }}
-                    className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-3 sm:py-4 rounded-xl border-2 font-black uppercase tracking-widest transition-all duration-300 ${
+                    // Con la dirección por defecto, su pestaña va PRIMERO.
+                    className={`${modoInicial === 'address' ? 'order-2 ' : ''}flex items-center justify-center gap-2 px-3 sm:px-4 py-3 sm:py-4 rounded-xl border-2 font-black uppercase tracking-widest transition-all duration-300 ${
                         searchMode === 'rc'
                             ? 'bg-gradient-to-br from-brand to-brand-500 border-brand text-bkg-deep shadow-lg shadow-brand/20'
                             : 'bg-white/[0.03] border-white/10 text-white/60 hover:text-white hover:border-white/20 hover:bg-white/[0.05]'

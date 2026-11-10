@@ -100,19 +100,26 @@ function App() {
   // 0. Detección de landing pública (/calcula-tu-ayuda y /p/[slug]).
   //    Se renderiza condicionalmente más abajo, antes que cualquier otra vista,
   //    para que el visitante no necesite estar autenticado ni cargue el dashboard.
+  // Formulario «Calcula tu ayuda» (2026-11-09): UNA ruta, y la obra llega en el enlace
+  // (`?obra=caldera|reforma`, la tarjeta pulsada en brokergy.es/ayudas), así no se
+  // vuelve a preguntar. `?ref=` dice quién mandó el enlace (p. ej. `fran` por WhatsApp).
+  // Nada personal viaja en la URL. /reforma y /ayudas-aerotermia siguen valiendo.
   const [landingRoute] = useState(() => {
     const path = window.location.pathname;
+    const qs = new URLSearchParams(window.location.search);
+    const obraQs = ['caldera', 'reforma'].includes(qs.get('obra')) ? qs.get('obra') : null;
+    const refQs = /^[a-z0-9_-]{1,30}$/i.test(qs.get('ref') || '') ? qs.get('ref').toLowerCase() : null;
     if (path === '/reforma') {
-      return { type: 'brokergy', slug: null, variant: 'reforma' };
+      return { type: 'brokergy', slug: null, variant: 'reforma', obra: obraQs || 'reforma', ref: refQs };
     }
     if (path === '/calcula-tu-ayuda' || path === '/ayudas-aerotermia') {
-      return { type: 'brokergy', slug: null };
+      return { type: 'brokergy', slug: null, variant: 'reforma', obra: obraQs || (path === '/ayudas-aerotermia' ? 'caldera' : null), ref: refQs };
     }
     if (path.startsWith('/p/')) {
       const slug = path.split('/p/')[1]?.split('/')[0] || null;
       if (slug && /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/.test(slug)) {
-        // La landing white-label del partner usa el mismo flujo que /reforma.
-        return { type: 'partner', slug, variant: 'reforma' };
+        // La landing white-label del partner usa el mismo flujo; la obra, por `?obra=`.
+        return { type: 'partner', slug, variant: 'reforma', obra: obraQs, ref: refQs };
       }
     }
     return null;

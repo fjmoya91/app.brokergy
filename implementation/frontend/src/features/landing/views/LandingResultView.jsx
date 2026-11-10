@@ -45,7 +45,8 @@ function fireMoneyAnimation() {
     burst(0.7, 900);
 }
 
-const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(n || 0))} €`;
+// `useGrouping: 'always'`: en es-ES un número de 4 cifras sale sin punto («3933 €»).
+const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0, useGrouping: 'always' }).format(Math.abs(n || 0))} €`;
 const fmtEurSigned = (n, sign) => `${sign === '-' ? '−' : '+'} ${fmtEur(n)}`;
 
 const DELIVERY_BANNERS = {
@@ -161,7 +162,7 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
                 </div>
                 <div className="divide-y divide-white/[0.05]">
                     <RowFin
-                        label="Inversión sustitución de caldera por aerotermia (IVA incl.)"
+                        label={funnel?.isReforma ? 'Inversión de la reforma (IVA incl.)' : 'Inversión sustitución de caldera por aerotermia (IVA incl.)'}
                         value={fmtEur(r.presupuesto)}
                         color="text-white"
                     />
@@ -176,7 +177,7 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
                             <RowFin
                                 key={`irpf-${i}`}
                                 label={`Deducción IRPF Propietario ${i + 1}`}
-                                sublabel={r.irpfCap ? `${r.irpfRate}%, límite ${r.irpfCap.toLocaleString('es-ES')} €` : null}
+                                sublabel={r.irpfCap ? `${r.irpfRate}%, límite ${fmtEur(r.irpfCap)}` : null}
                                 value={fmtEurSigned(r.irpfDeductionPerOwner, '-')}
                                 color="text-emerald-400"
                             />
@@ -184,7 +185,7 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
                     ) : r.irpfDeduction > 0 ? (
                         <RowFin
                             label="Deducción en el IRPF por rehabilitación energética"
-                            sublabel={r.irpfCap ? `${r.irpfRate}%, límite ${r.irpfCap.toLocaleString('es-ES')} €` : null}
+                            sublabel={r.irpfCap ? `${r.irpfRate}%, límite ${fmtEur(r.irpfCap)}` : null}
                             value={fmtEurSigned(r.irpfDeduction, '-')}
                             color="text-emerald-400"
                         />
@@ -229,7 +230,7 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
                     {r.paybackYears > 0 && (
                         <div className="px-5 py-3 bg-emerald-500/10 border-t border-emerald-500/15 flex justify-between items-center">
                             <span className="text-[11px] font-black uppercase tracking-widest text-emerald-200/80">Amortización de la inversión</span>
-                            <span className="text-base font-black text-emerald-200">{r.paybackYears} años</span>
+                            <span className="text-base font-black text-emerald-200">{String(r.paybackYears).replace('.', ',')} años</span>
                         </div>
                     )}
                 </div>

@@ -19,8 +19,14 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext, isInternal = f
     const Pos = isInternal ? 'La' : 'Tu';
     const isGasOrGasoleo = funnel.combustible_actual === 'gas' || funnel.combustible_actual === 'gasoleo';
 
-    // Condensación solo aplica para caldera <10 años con gas o gasóleo
-    const initialPhase = funnel.edad_caldera === '<10' && isGasOrGasoleo && !funnel.condensacion
+    // Condensación solo aplica para caldera <10 años con gas o gasóleo, y solo se
+    // PREGUNTA en el flujo interno. Al cliente de la web no (Fran, 09/11/2026): casi
+    // nadie sabe si su caldera es de condensación, y la de gas o gasóleo de menos de
+    // 10 años lo es casi siempre (desde 2015 la exige la directiva de ecodiseño).
+    // Suponerla de condensación es además la cifra PRUDENTE: más rendimiento de
+    // partida, menos ahorro. La calculadora lo afina con la placa.
+    const preguntaCondensacion = isInternal;
+    const initialPhase = preguntaCondensacion && funnel.edad_caldera === '<10' && isGasOrGasoleo && !funnel.condensacion
         ? 'condensacion'
         : 'edad';
     const [phase, setPhase] = useState(initialPhase);
@@ -37,7 +43,12 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext, isInternal = f
         updateFunnel({ edad_caldera: edad });
         // Condensación solo se pregunta para gas/gasóleo con caldera <10 años
         if (isGasOrGasoleo && edad === '<10') {
-            setTimeout(() => setPhase('condensacion'), 200);
+            if (preguntaCondensacion) {
+                setTimeout(() => setPhase('condensacion'), 200);
+                return;
+            }
+            updateFunnel({ condensacion: 'si' });
+            setTimeout(onNext, 200);
             return;
         }
         // Para el resto: inferir condensación y avanzar directamente

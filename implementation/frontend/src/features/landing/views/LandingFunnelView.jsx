@@ -45,6 +45,8 @@ import { LeadDeliveryView } from './LeadDeliveryView';
 import { LandingPropertyReview } from './LandingPropertyReview';
 import { buildAccentVars } from '../../../utils/partnerTheme';
 import { CSS_LANDING_CARTA } from '../estiloCarta';
+import { IconCard } from '../components/IconCard';
+import { IconoFunnel } from '../components/IconosFunnel';
 
 const CATASTRO_API = '/api/catastro';
 
@@ -53,6 +55,13 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     const isReformaVariant = variant === 'reforma';
     // Tras resolver el catastro, /reforma muestra primero "¿estado de la obra?".
     const FUNNEL_ENTRY_PHASE = isReformaVariant ? 'OBRA_ESTADO' : 'FUNNEL';
+
+    // La OBRA del visitante (2026-11-09): la tarjeta que pulsó en brokergy.es/ayudas
+    // llega en el enlace (`?obra=caldera|reforma`) y NO se vuelve a preguntar. Sin
+    // ella, la primera pantalla son esas mismas dos tarjetas. El CRM no la usa: allí
+    // se sigue eligiendo en «¿Qué mejora interesa?».
+    const obraDelEnlace = isInternal ? null : (route?.obra || null);
+    const [obra, setObra] = useState(obraDelEnlace);
 
     // ---- Branding del partner (solo en mode public con slug) ----
     const [partnerBranding, setPartnerBranding] = useState(null);
@@ -649,10 +658,12 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                         {isInternal ? (
                                             <>Nueva <span className="text-amber-400">simulación</span></>
                                         ) : (partnerBranding?.titulo || (
-                                            isReformaVariant ? (
-                                                <>Calcula la ayuda de tu <span className="text-amber-400">reforma energética</span></>
+                                            obra === 'reforma' ? (
+                                                <>Calcula la ayuda de tu <span className="text-amber-400">reforma</span></>
+                                            ) : obra === 'caldera' ? (
+                                                <>Calcula tu ayuda por la <span className="text-amber-400">aerotermia</span></>
                                             ) : (
-                                                <>Calcula tu ahorro con <span className="text-amber-400">aerotermia</span></>
+                                                <>Calcula tu <span className="text-amber-400">ayuda</span></>
                                             )
                                         ))}
                                     </h1>
@@ -660,15 +671,32 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                         {isInternal ? (
                                             'Busca la vivienda del cliente para empezar el cálculo de su ayuda.'
                                         ) : (partnerBranding?.subtitulo || (
-                                            isReformaVariant
-                                                ? 'Te decimos cuánto te paga el Estado por la reforma que estás haciendo o vas a hacer. Sin compromiso.'
-                                                : 'Te decimos cuánto te ahorras al año y qué ayuda del Estado te corresponde. Sin compromiso.'
+                                            // El bono CAE no lo paga el Estado: se lo pagamos nosotros.
+                                            !obra
+                                                ? 'Por la misma obra, dos ayudas: el bono CAE, que te pagamos por transferencia, y la deducción del IRPF. ¿Cuál es tu obra?'
+                                                : 'Con la dirección de tu casa te calculamos las dos ayudas: el bono CAE, que te pagamos por transferencia, y la deducción del IRPF. Sin compromiso.'
                                         ))}
                                     </p>
                                 </div>
                             )}
 
-                            {parcela ? (
+                            {!isInternal && !obra ? (
+                                // Las dos tarjetas de brokergy.es/ayudas, con el mismo texto.
+                                <div className="space-y-3 max-w-2xl mx-auto">
+                                    <IconCard
+                                        icon={<IconoFunnel n="aerotermia" />}
+                                        title="Cambio la caldera por aerotermia"
+                                        subtitle="Quitas la caldera de gas o gasóleo y pones una bomba de calor."
+                                        onClick={() => setObra('caldera')}
+                                    />
+                                    <IconCard
+                                        icon={<IconoFunnel n="reformaIntegral" />}
+                                        title="Reformo la casa: aerotermia + ventanas y aislamiento"
+                                        subtitle="Cambias la caldera por aerotermia y además mejoras ventanas, tejado o fachada. Hecha o por hacer."
+                                        onClick={() => setObra('reforma')}
+                                    />
+                                </div>
+                            ) : parcela ? (
                                 <ParcelaCard
                                     parcela={parcela}
                                     // El EDIFICIO completo solo en el flujo interno: un visitante
@@ -692,6 +720,8 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                     // LLM) y en la landing pública el botón daría un 403.
                                     permiteFotoRc={isInternal}
                                     initialQuery={rcDelCee}
+                                    // El cliente busca por dirección; la referencia catastral, en su pestaña.
+                                    modoInicial={isInternal ? 'rc' : 'address'}
                                 />
                             ) : (
                                 <ConfirmationCard
@@ -707,6 +737,14 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                     <p className="text-sky-200 text-sm">
                                         El certificado cargado no trae la referencia catastral. Busca la vivienda por referencia o dirección y seguimos con los datos del CEE.
                                     </p>
+                                </div>
+                            )}
+                            {!isInternal && obra && !obraDelEnlace && !confirmCandidate && !parcela && (
+                                <div className="mt-5 text-center">
+                                    <button type="button" onClick={() => setObra(null)}
+                                        className="text-white/40 hover:text-white/70 text-xs font-bold uppercase tracking-widest">
+                                        ← Cambiar de obra
+                                    </button>
                                 </div>
                             )}
                             {catastroLoading && (
@@ -771,6 +809,8 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                             updateFunnel={updateFunnel}
                             partnerBranding={partnerBranding}
                             mode={mode}
+                            obra={obra}
+                            refEnlace={isInternal ? null : (route?.ref || null)}
                             initialCeeData={initialCeeData}
                             onCreated={onCreated}
                             onNoEmpezada={() => { setCurrentStep(0); setPhase('FUNNEL'); }}

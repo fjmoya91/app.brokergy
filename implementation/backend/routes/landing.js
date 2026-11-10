@@ -26,6 +26,7 @@ const reformaUploadService = require('../services/reformaUploadService');
 const { sendLeadSummaryEmail } = require('../services/emailService');
 const leadMessages = require('../services/leadMessages');
 const { buildAvisoLeadAdmin } = require('../services/avisoLeadAdmin');
+const { viaFmDe } = require('../utils/viaFmAlGuardar');
 
 // Regex de validación del slug (mismo que en SQL CHECK constraint)
 const SLUG_REGEX = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
@@ -247,7 +248,6 @@ router.get('/check-rc/:rc', async (req, res) => {
 // Si no hay token, req.user queda null y el flujo público sigue funcionando normal.
 router.post('/lead', requireAuth, geoGate, async (req, res) => {
     const { turnstile_token, partner_slug, contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, origen, delivery_preference, delivery_summary, mode } = req.body || {};
-    const isReformaLead = origen === 'reforma';
     const isInternalReq = mode === 'internal';
 
     // 1. Captcha (si está habilitado)
@@ -293,7 +293,20 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
         }
     }
 
-    // 3. Delegar al servicio
+    // 3. La vía del factor multiplicador, calculada AQUÍ con lo que se va a guardar
+    //    (la misma función que el guardado de la calculadora, `viaFmDe`): la columna
+    //    «Vía FM» y el aviso la traen desde el alta, sin esperar a que alguien abra
+    //    la calculadora. Lo que mande el navegador no se usa: es dato de ADMIN.
+    let viaFm = null;
+    if (!isInternalReq && precomputedResult) {
+        try {
+            viaFm = await viaFmDe({ inputs: calculatorInputs || {}, result: precomputedResult });
+        } catch (e) {
+            console.warn('[landing/lead] via_fm no calculada:', e.message);
+        }
+    }
+
+    // 4. Delegar al servicio
     try {
         const result = await createLead({
             contacto: contacto || {},
@@ -306,7 +319,8 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
             partnerSlug: partner_slug || null,
             prescriptorId,
             mode: isInternalReq ? 'internal' : 'public',
-            creatorUser: req.user || null
+            creatorUser: req.user || null,
+            viaFm,
         });
 
         // delivery_preference llega como array desde el frontend
@@ -425,11 +439,12 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
             });
         }
 
-        // --- Flujo /reforma: aviso al admin (NO al cliente — el cliente ya
+        // --- Aviso al chat de administración (NO al cliente — el cliente ya
         //     recibe el mensaje proposal-style del bloque anterior con datos
-        //     económicos y enlace de subida). Aquí solo se avisa al grupo
-        //     admin de Brokergy de la entrada del lead. ---
-        if (isReformaLead) {
+        //     económicos y enlace de subida). Desde el 09/11/2026 sale con TODO
+        //     lead público, sea de caldera o de reforma: antes solo con
+        //     `origen === 'reforma'` y un lead de caldera entraba sin avisar. ---
+        if (!isInternalReq) {
             setImmediate(async () => {
                 try {
                     const whatsappService = require('../services/whatsappService');
@@ -437,7 +452,7 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
                         result, contacto: contacto || {}, catastro: catastro || {}, funnel: funnel || {},
                         inputs: calculatorInputs || {}, calc: precomputedResult || null,
                         geoContext: req.geoContext || {}, partner: partnerInfo,
-                        canales: deliveryArr, uploadLink,
+                        canales: deliveryArr, uploadLink, viaFm,
                     });
                     whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg).catch(() => {});
                 } catch (e) { console.error('[reforma/lead] Error avisando al admin:', e.message); }

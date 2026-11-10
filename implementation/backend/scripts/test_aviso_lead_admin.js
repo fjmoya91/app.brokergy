@@ -60,6 +60,28 @@ assert.ok(r080.includes('· RES080 · 🔥 CALIENTE'));
 assert.ok(r080.includes('40,0 MWh · bono 4000 € · margen 2400 €'));
 assert.ok(r080.includes('Reforma: ventanas, cubierta'));
 
+// Formulario «Calcula tu ayuda» (09/11/2026): obra elegida, quién mandó el enlace, lo
+// que decide el factor multiplicador y la vía FM calculada por el servidor.
+const fm = buildAvisoLeadAdmin({
+    ...base,
+    funnel: { ...base.funnel, obra: 'caldera', ref: 'fran', vivienda_habitual: 'propia', bono_social: 'si', bono_social_solo_fn: true },
+    viaFm: { ficha: 'RES060_FM', aplica: true, elegible: true, mwh_fm: 45.3, eur_fm: 4530, acs: 'supuesto' },
+});
+for (const trozo of [
+    '🔗 Quiere cambiar la caldera por aerotermia · enlace de fran', '🏡 Su vivienda habitual',
+    'Bono social de la luz: sí, pero solo por familia numerosa (no cuenta como vulnerable)',
+    '⚖️ Vía FM (RES060_FM): 45,3 MWh · bono 4530 € · suponiendo que la aerotermia da el ACS',
+]) assert.ok(fm.includes(trozo), `falta «${trozo}»`);
+const fmNo = buildAvisoLeadAdmin({
+    ...base,
+    funnel: { ...base.funnel, obra: 'reforma', vivienda_habitual: 'segunda', obra_inicio_fm: 'antes' },
+    viaFm: { ficha: 'RES060_FM', aplica: true, elegible: true, mwh_fm: 45.3, eur_fm: 4530 },
+});
+assert.ok(fmNo.includes('🔗 Quiere reforma (aerotermia + envolvente)\n'));
+assert.ok(fmNo.includes('NO cabe: segunda residencia; NO cabe: obra anterior al 22/03/2026'));
+assert.ok(!fmNo.includes('Bono social'), 'sin respuesta, sin línea');
+assert.ok(!msg.includes('Vía FM'), 'sin via_fm no se pinta');
+
 // Lo mínimo (sin cálculo ni funnel) no rompe ni pinta huecos.
 const min = buildAvisoLeadAdmin({ result: { id_oportunidad: '26RES060_OP9' }, contacto: { nombre: 'Ana' } });
 assert.ok(min.startsWith('🆕 *LEAD WEB*\nRef *26RES060_OP9*'));

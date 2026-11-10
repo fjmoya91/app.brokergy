@@ -32,6 +32,11 @@ const TABLA = {
     obraHecha: [I.IconObraHecha, VERDE],
     obraNueva: [I.IconObraNueva, OBRA],
 
+    // Quién vive en la casa (vía del factor multiplicador)
+    casa: [I.IconCasa, OBRA],
+    casaOtra: [I.IconCasa, PAPEL],
+    casaVacia: [I.IconCasa, NEUTRO],
+
     // Fechas, facturas y papeles
     calendarioOk: [I.IconCalendarioOk, VERDE],
     calendarioNo: [I.IconCalendarioNo, 'text-rose-400'],

@@ -93,6 +93,14 @@ export const CSS_LANDING_CARTA = `
 .lf-res-dl dd{margin:0;font-weight:800;font-size:17px;color:var(--tinta);white-space:nowrap;font-variant-numeric:tabular-nums}
 .lf-res-nota{font-size:12.5px;line-height:1.5;color:#6b6e76;margin:8px 0 0}
 .lf-res-nota b{color:var(--tinta)}
+/* Las dos ayudas, por separado (2026-11-09): el bono y la deducción, con su «cómo» debajo */
+.lf-res-dl dt small{display:block;font-size:12.5px;color:#6b6e76;margin-top:2px}
+.lf-res-dl .lf-res-dos dt{color:var(--tinta);font-weight:700}
+/* La vía del factor multiplicador: un bloque verde aparte, NUNCA sumado a la cifra */
+.lf-fm{margin:14px 0 0;text-align:left;border-radius:18px;padding:14px 16px;background:rgba(177,209,62,.12);border:1px solid rgba(77,107,15,.25)}
+.lf-fm p{font-size:13px;line-height:1.5;color:var(--tinta);margin:6px 0 0}
+.lf-fm .lf-fm-t1{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#4d6b0f;margin:0}
+.lf-fm .lf-fm-t2{font-family:'Antonio','Inter',Impact,sans-serif;font-weight:700;font-size:30px;line-height:1.05;color:var(--tinta);margin:4px 0 0;font-variant-numeric:tabular-nums}
 
 .lf-pie{text-align:center;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#6b6e76;font-weight:700;margin:0}
 @media (prefers-reduced-motion:reduce){.lf *{animation-duration:.01ms!important;transition-duration:.01ms!important}}

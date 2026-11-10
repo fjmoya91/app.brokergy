@@ -34,6 +34,10 @@ const ELEMENTOS = {
     caldera: 'caldera', ventanas: 'ventanas', cubierta: 'cubierta', suelo: 'suelo',
     paredes: 'paredes', placas: 'placas', aires: 'aires',
 };
+// Formulario «Calcula tu ayuda» (2026-11-09): la tarjeta elegida en brokergy.es/ayudas
+// y lo que decide el factor multiplicador (BOE-A-2026-23367).
+const OBRA_ELEGIDA = { caldera: 'cambiar la caldera por aerotermia', reforma: 'reforma (aerotermia + envolvente)' };
+const VIVIENDA_HABITUAL = { propia: 'su vivienda habitual', otra: 'vive otra persona todo el año', segunda: 'segunda residencia' };
 
 const eur = (n) => `${Math.round(Number(n)).toLocaleString('es-ES')} €`;
 const mwh = (kwh) => `${(Number(kwh) / 1000).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MWh`;
@@ -41,7 +45,7 @@ const etiqueta = (mapa, v) => (v == null || v === '' ? null : (mapa[v] || String
 
 function buildAvisoLeadAdmin({
     result = {}, contacto = {}, catastro = {}, funnel = {}, inputs = {}, calc = null,
-    geoContext = {}, partner = null, canales = [], uploadLink = null,
+    geoContext = {}, partner = null, canales = [], uploadLink = null, viaFm = null,
 }) {
     const ficha = result.ficha || null;
     const esRes080 = ficha === 'RES080';
@@ -57,6 +61,10 @@ function buildAvisoLeadAdmin({
     if (contacto.tlf) L.push(`📞 ${contacto.tlf}`);
     if (contacto.email) L.push(`✉ ${contacto.email}`);
     if (partner?.nombre) L.push(`🤝 Partner: ${partner.nombre}`);
+    const obraElegida = etiqueta(OBRA_ELEGIDA, funnel.obra);
+    if (obraElegida || funnel.ref) {
+        L.push(`🔗 ${obraElegida ? `Quiere ${obraElegida}` : 'Formulario web'}${funnel.ref ? ` · enlace de ${funnel.ref}` : ''}`);
+    }
 
     // La vivienda
     const dir = catastro.address || inputs.direccion || null;
@@ -101,6 +109,19 @@ function buildAvisoLeadAdmin({
     }
     const obra = etiqueta(OBRA, funnel.obra_estado);
     if (obra) datos.push(`🚧 Obra ${obra}`);
+    const habitual = etiqueta(VIVIENDA_HABITUAL, funnel.vivienda_habitual);
+    if (habitual) datos.push(`🏡 ${habitual.charAt(0).toUpperCase()}${habitual.slice(1)}`);
+    if (funnel.obra_inicio_fm === 'antes') datos.push('📅 Obra empezada antes del 22/03/2026 (sin vía FM)');
+    else if (funnel.obra_inicio_fm === 'desde') datos.push('📅 Obra empezada desde el 22/03/2026');
+    else if (funnel.obra_inicio_fm === 'no_se') datos.push('📅 No sabe cuándo empezó la obra');
+    if (funnel.bono_social === 'si') {
+        const fn = funnel.bono_social_solo_fn;
+        datos.push(`🧾 Bono social de la luz: sí${fn === true ? ', pero solo por familia numerosa (no cuenta como vulnerable)' : fn === false ? ' (no solo por familia numerosa)' : fn === 'no_se' ? ' (no sabe si es solo por familia numerosa)' : ''}`);
+    } else if (funnel.bono_social === 'no') {
+        datos.push('🧾 Bono social de la luz: no');
+    } else if (funnel.bono_social === 'no_se') {
+        datos.push('🧾 Bono social de la luz: no lo sabe');
+    }
     const dinero = [];
     if (Number(funnel.gasto_anual_eur) > 0) dinero.push(`gasto ${eur(funnel.gasto_anual_eur)}/año`);
     if (['tengo', 'documento'].includes(funnel.presupuesto_modo) && Number(funnel.presupuesto_eur) > 0) {
@@ -120,6 +141,20 @@ function buildAvisoLeadAdmin({
         Number(fin?.profitBrokergy) > 0 ? `margen ${eur(fin.profitBrokergy)}` : null,
     ].filter(Boolean);
     if (cifras.length) { L.push(''); L.push(`📊 *${cifras.join(' · ')}*`); }
+
+    // La vía del factor multiplicador (`datos_calculo.via_fm`, la misma de la columna
+    // «Vía FM»). El chat es el de administración: el resumen es de ADMIN (regla 155).
+    if (viaFm && Number(viaFm.eur_fm) > 0) {
+        const fmTxt = [`${String(viaFm.mwh_fm).replace('.', ',')} MWh`, `bono ${eur(viaFm.eur_fm)}`].join(' · ');
+        const pegas = [];
+        if (viaFm.aplica === false) pegas.push(viaFm.no_aplica || 'no aplica');
+        else if (viaFm.elegible === false) pegas.push(viaFm.motivo || 'no elegible');
+        if (viaFm.acs === 'supuesto') pegas.push('suponiendo que la aerotermia da el ACS');
+        // Lo que el resumen todavía no sabe y el cliente ha contestado en el formulario.
+        if (funnel.vivienda_habitual === 'segunda') pegas.push('NO cabe: segunda residencia');
+        if (funnel.obra_inicio_fm === 'antes') pegas.push('NO cabe: obra anterior al 22/03/2026');
+        L.push(`⚖️ Vía FM${viaFm.ficha ? ` (${viaFm.ficha})` : ''}: ${fmTxt}${pegas.length ? ` · ${pegas.join('; ')}` : ''}`);
+    }
 
     // Intención
     const intencion = [];

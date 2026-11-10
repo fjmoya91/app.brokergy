@@ -1,7 +1,7 @@
 ---
 paths:
   - "implementation/backend/routes/{oportunidades,landing}.js"
-  - "implementation/backend/services/leadService.js"
+  - "implementation/backend/services/{leadService,avisoLeadAdmin}.js"
   - "implementation/backend/utils/{estadoOportunidad,altaOportunidad}.js"
   - "implementation/backend/scripts/alta_oportunidad*.js"
   - "implementation/frontend/src/features/landing/**"
@@ -53,6 +53,8 @@ paths:
 
 204. **Al ACEPTAR, al particular de una RES060/RES093/RES080 se le pregunta si tiene el BONO SOCIAL; solo marca VULNERABLE (× 1,5, ficha -S) lo que lo es sin duda, y NO viaja al certificador** (2026-11-09, Fran, vía FM BOE-A-2026-23367). A quién: `preguntaBonoSocial(programa)` (RES060/RES093 → tipo y familia numerosa; RES080 → solo el tipo, para el Anexo I: la RES080_FM no tiene -S); nunca a un CIF (`esNifDeEmpresa`) ni al terciario, y el servidor lo vuelve a decidir al aceptar (`confirmacionDeLaAceptacion(raw, dc, { programa, nif })`). Se guarda en `confirmacion_cliente.bono_social` y el alta lo siembra en el MISMO insert (`semillaBonoSocial` en `expedienteService.js`): `documentacion.subvenciones.bono_social` con los ids del Anexo I y, en RES060/RES093, `documentacion.via_fm.vulnerable` + `anexo_b_casilla` **solo** con bono ELÉCTRICO sin familia numerosa (`no_fn`) o severo / en riesgo de exclusión con ella (`severo`). El térmico solo no cuenta; eléctrico «vulnerable» con familia numerosa queda PENDIENTE de la renta y «No lo sé», de la factura: se enseñan en Subvenciones y en la pestaña «Vía FM» («Declarado al aceptar», con su botón), no se adivinan. **Es un dato de renta: `conAiresDeOportunidad` lo quita (`sinBonoSocial`) y `resumenConfirmacion` no lo enseña**, así que no llega al encargo ni a la app de certificadores. El cálculo FM del EXPEDIENTE aplica el × 1,5 (`calculateRes060FM({ vulnerable })`); la calculadora y el listado no (la propuesta sale antes). Fuente única: sección «Bono social» de [logic/confirmacionCliente.js](implementation/frontend/src/features/expedientes/logic/confirmacionCliente.js). Tras tocarlo: `node implementation/backend/scripts/test_confirmacion_cliente.mjs`, `test_via_fm.mjs`, `test_res060fc.mjs` y `test_subvenciones_bono.mjs`. Ver "El BONO SOCIAL también se pregunta al aceptar".
 
+208. **El formulario «Calcula tu ayuda» vive en la APP y la obra llega en el ENLACE** (2026-11-09, Fran: «sí, constrúyelo»). La web (brokergy.es/ayudas) solo enlaza a `app.brokergy.es/calcula-tu-ayuda?obra=caldera|reforma`: el funnel (Catastro, cálculo, `check-rc`, alta) es el mismo componente que la «Nueva simulación» y duplicarlo en la web haría que calcularan distinto. Todas las rutas públicas (`/calcula-tu-ayuda`, `/reforma`, `/ayudas-aerotermia`, `/p/:slug`) entran por `ReformaSubFlow`; `?obra=` es una lista cerrada y `?ref=` una etiqueta corta (`^[a-z0-9_-]{1,30}$`): **en el enlace no va nunca un dato personal**. Con `obra`, no se pregunta el tipo (la reforma llega a los elementos con la aerotermia ya marcada). En el PÚBLICO ya no se pregunta el gasto anual, la condensación (gas/gasóleo de menos de 10 años = condensación) ni con qué calienta hoy el agua (163); **sí lo que decide el factor multiplicador**, solo con aerotermia en la obra: cuándo empezó (si está empezada), quién vive en la casa y el bono social (y si es solo por familia numerosa, que no cuenta como vulnerable). El bono social no se guarda en el navegador (`NO_PERSISTIR`). El resultado da «tus dos ayudas» (bono CAE neto + IRPF) y **la vía FM APARTE, nunca sumada**, con el aviso del cupo. `POST /api/landing/lead` guarda `via_fm` (`viaFmDe`) y el aviso de administración sale para todo lead público. **El CRM (`isInternal`) no cambia**: sigue con el tipo, la condensación, el ACS de hoy y `docs_obra`. **Local escribe en PRODUCCIÓN: el formulario se prueba con el POST bloqueado en el navegador.** Tras tocarlo: `node implementation/backend/scripts/test_aviso_lead_admin.js`, `test_lead_duplicado.js` y el build. Ver "El formulario «Calcula tu ayuda»".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -60,7 +62,8 @@ paths:
 - `docs/conocimiento/oportunidades/al-aceptar-el-cliente-confirma-sus-emisores-placas-y-aires.md` — Al ACEPTAR, el cliente confirma sus EMISORES, PLACAS y AIRES (2026-09-29) · 13,0 KB
 - `docs/conocimiento/oportunidades/alta-de-oportunidad-desde-whatsapp-skill-alta-oportunidad.md` — Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01) · 15,9 KB
 - `docs/conocimiento/oportunidades/bono-por-debajo-de-3000-se-hace-el-cee-al-dar-de-alta.md` — Bono por debajo de 3.000 € al dar de alta: se hace el CEE con CE3X y su XML va a la oportunidad (2026-10-23) · 3,1 KB
-- `docs/conocimiento/oportunidades/el-aviso-de-lead-web-trae-lo-necesario-para-decidir.md` — El aviso de LEAD WEB trae lo necesario para decidir (2026-10-20) · 1,5 KB
+- `docs/conocimiento/oportunidades/el-aviso-de-lead-web-trae-lo-necesario-para-decidir.md` — El aviso de LEAD WEB trae lo necesario para decidir (2026-10-20) · 2,5 KB
+- `docs/conocimiento/oportunidades/el-formulario-calcula-tu-ayuda-la-obra-viene-en-el-enlace.md` — El formulario «Calcula tu ayuda»: la obra viene en el enlace, y pregunta lo que decide el FM (2026-11-09) · 7,8 KB
 - `docs/conocimiento/oportunidades/el-mismo-vecino-volviendo-al-funnel-no-estrena-oportunidad.md` — El mismo vecino volviendo al funnel NO estrena oportunidad (2026-09-11) · 3,8 KB
 - `docs/conocimiento/oportunidades/lo-que-no-se-le-pregunta-al-cliente.md` — Lo que NO se le pregunta al cliente (2026-10-24) · 3,5 KB
 - `docs/conocimiento/oportunidades/nueva-simulacion-con-cee-inicial-y-final.md` — Nueva simulación con CEE inicial y final (2026-08-10) · 8,7 KB
@@ -103,6 +106,12 @@ Fran o enviar la propuesta.**
 - `docs/conocimiento/oportunidades/el-aviso-de-lead-web-trae-lo-necesario-para-decidir.md`
   - **REGLA — las cifras del aviso salen con el MISMO criterio que la lista de oportunidades**
   - **REGLA — el margen va solo porque el chat es el de administración.**
+- `docs/conocimiento/oportunidades/el-formulario-calcula-tu-ayuda-la-obra-viene-en-el-enlace.md`
+  - **REGLA — el formulario vive en la APP (`app.brokergy.es/calcula-tu-ayuda`); la web solo enlaza con
+`?obra=`.**
+  - **REGLA — en el enlace no va nunca un dato personal.**
+  - **REGLA — el bono social no se guarda en el navegador**
+  - **REGLA — la vía FM va APARTE y nunca se suma a la cifra.**
 - `docs/conocimiento/oportunidades/el-mismo-vecino-volviendo-al-funnel-no-estrena-oportunidad.md`
   - **REGLA — el TELÉFONO solo desempata DENTRO de la misma vivienda, jamás a
 secas.**
