@@ -135,13 +135,23 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   grupo qué has pedido y a quién, y lo apuntas en «Pendiente». Si no falta nada, el CEE inicial con
   `generar-cee-inicial`; si `estado` dice que ya hay un borrador, parte de él. El script pone el saludo,
   el enlace y la firma; tú solo dices qué falta, en lenguaje de casa.
-- **El CONTESTADOR** (mensajes «*C12 · Contestaría a …*» o «*C12 · Para ti: …*» en el grupo): lo
-  manda el servidor, no tú; es lo que el contestador le habría dicho a un cliente o instalador (en
-  modo copia no le ha llegado nada). Si Fran contesta **«manda C12»** (o «mándalo» respondiendo a ESE
-  mensaje): `node scripts/contestador.js enviar C12 --si "<su respuesta LITERAL>"`; el servidor lo
-  manda tal cual solo si el chat no ha cambiado desde entonces, y si se niega le dices por qué. Si
-  quiere cambiar algo («dile mejor que…»), no uses `enviar`: redacta con sus palabras y mándalo como
-  cualquier WhatsApp, con su «envíalo». Un «Para ti» es suyo: no contestes tú al cliente.
+- **El CONTESTADOR** (mensajes «*C12 · Contestaría a …*», «*C12 · Guardaría lo que ha mandado …*» o
+  «*C12 · Para ti: …*» en el grupo): lo manda el servidor, no tú; es lo que el contestador le habría
+  dicho a un cliente o instalador y lo que guardaría en su expediente (en modo copia no ha pasado nada).
+  - **«C12» a secas** (o «manda C12», «vale C12», «C2 y C4») ya no te llega: lo hace el vigilante solo
+    (guarda lo suyo y le manda el texto tal cual) y le dice a Fran cómo ha ido.
+  - **«C12, dile además que…» / «C12 pero dile…» / «C12, dile que…»** (Fran, 10/11/2026: «ya lo
+    terminas de redactar»): su mensaje ES el «sí» para ese envío, **no le vuelvas a preguntar**. Lee la
+    copia C12 en el chat de arriba (o `node scripts/contestador.js estado`), escribe el texto FINAL
+    con lo suyo dentro —en su voz: de tú, corto, sin emojis, sin firma, sin presentarse, los mismos
+    enlaces que llevaba la copia (las URL enteras, nunca una marca `{ENLACE_…}`)— y mándalo con
+    `node scripts/contestador.js enviar C12 --si "<su mensaje LITERAL>" --texto "<el texto final>"`.
+    Eso guarda antes lo que mandó (facturas, RITE, fotos) y comprueba que el chat no ha cambiado; si
+    se niega, le dices por qué. Después, a Fran, una línea con lo que le has mandado (citado).
+    Con un «Para ti» (C12 que era para él) vale lo mismo: «C12, dile que…» es su respuesta.
+  - Si `enviar` dice que **ya se envió** (en modo real el acuse ya salió), lo que pide Fran se le manda
+    como cualquier WhatsApp a ese número, con su mensaje como «sí».
+  - Si quiere algo que no es contestarle (llamarle, cambiar el expediente…), eso no va por `enviar`.
   `node scripts/contestador.js estado` lista los últimos.
 - **Consultas** (cómo va un expediente, qué falta, cuántas oportunidades tiene X): consulta Supabase en
   SOLO LECTURA con un `node -e` desde `implementation/backend` (cliente `@supabase/supabase-js` con

@@ -44,7 +44,7 @@ paths:
 - `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/la-subida-va-en-tanda-no-foto-a-foto.md` — La subida va en TANDA, no foto a foto · 2,5 KB
 - `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/las-ventanas-ventana-por-ventana.md` — Las VENTANAS, ventana por ventana (2026-09-30) · 4,8 KB
 - `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/pedir-la-foto-que-falta-desde-la-foto-que-falta.md` — Pedir la foto que falta, desde la foto que falta · 1,2 KB
-- `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/traer-las-fotos-del-whatsapp-al-repartidor.md` — Traer las fotos del WHATSAPP al repartidor (2026-09-30) · 4,9 KB
+- `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/traer-las-fotos-del-whatsapp-al-repartidor.md` — Traer las fotos del WHATSAPP al repartidor (2026-09-30) · 5,1 KB
 - `docs/conocimiento/documentacion-fotos/medio-minuto-de-espera-no-puede-ser-una-pantalla-quieta.md` — Medio minuto de espera no puede ser una pantalla quieta (2026-09-22) · 2,3 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/00-modulo-documentacion-fotografica-superficie-unificada.md` — Módulo Documentación Fotográfica — Superficie unificada (2026-05-29) · 0,6 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/alcance-documental-a-cada-expediente-se-le-pide-lo-suyo.md` — Alcance documental — a cada expediente se le pide LO SUYO (2026-08-11) · 6,6 KB

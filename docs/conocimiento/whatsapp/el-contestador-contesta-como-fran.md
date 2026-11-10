@@ -41,7 +41,64 @@ Fuente única: [contestadorWhatsapp.js](../../../implementation/backend/services
      espera respuesta» a «Ya me han instalado la aerotermia» o a «comprueba que esté todo bien» cuando
      detrás iba un aviso automático nuestro.
 3. **Con la decisión**: RESPONDER → se le contesta; ESCALAR → a Fran, y al cliente, si hay, una frase de
-   acuse («Lo miro y te digo»); CALLAR → nada.
+   acuse («Lo miro y te digo»); CALLAR → nada. Y antes de contestar, **lo que ha mandado se GUARDA** en su
+   expediente (abajo).
+
+## Lo que manda se GUARDA antes de contestar (2026-11-10)
+
+Fran: «me va a dejar dos facturas. Reviso la conversación, reviso el expediente, guardo las facturas y le
+digo: vale, pues ahora solo quedaría el tema del RITE. Y le envías un mensaje parecido al que ya le habíamos
+enviado para saber si lo tiene o no». Caso que lo destapó: C2 del 10/11/2026, un instalador mandó las dos
+facturas de 26RES060_175 y la copia le contestaba «recibidas las dos facturas», pero el expediente seguía
+con **cero** facturas: nadie las había guardado.
+
+Fuente única: [contestadorDocumentos.js](../../../implementation/backend/services/contestadorDocumentos.js),
+en dos tiempos: `planear` (no escribe; corre dentro de `decidir`, también en seco, por el gancho
+`ctx.alClasificar` de `procesarChat`) y `ejecutar` (guarda).
+
+**REGLA — se guarda solo lo que la app habría guardado, por el MISMO camino, y nada dudoso**:
+- **FACTURA** (PDF o foto) → «Facturas de la instalación» (`DOC_FACTURAS`) con `subirFicherosASlot`, entra
+  en las facturas del expediente (`addFacturaToExpediente`) y se LEE (`facturaAutoOcr`), como por el enlace
+  del instalador.
+- **CERTIFICADO RITE** → «7. LEGALIZACION RITE/{nº} - Certificado RITE.pdf» + `cert_rite_drive_link` y su
+  sello por la RPC de merge (`syncRiteToExpediente`), y se LEE (regla 27.b). Solo si el expediente **aún no
+  tiene certificado**, nunca pisando uno en Drive, y nunca uno de OTRA obra nuestra. Esa comprobación
+  es la de los PDF que sube un tercero por un enlace, `utils/pdfDelExpediente.js` (con `mupdf`): **si el servidor no la tiene, el RITE no se
+  guarda solo** y se le dice a Fran (`comprobadorPdf`; el 10/11/2026 se desplegó el contestador antes que
+  ella, que era trabajo de otra sesión: en cuanto llega, el RITE entra solo sin tocar nada).
+- **FOTOS** (de obra o de placa) → el apartado que propone el REPARTIDOR de siempre, solo con confianza
+  ALTA en la obra Y en el apartado; en un apartado de UNA foto, solo si está vacío (nunca se pisa).
+- Todo con confianza ALTA en la obra, de una obra que está en la app (no una NUEVA, no un CEE directo), sin
+  repetir el mismo fichero, como mucho 12 por chat.
+- **Lo demás NO se guarda solo** (DNI, CIFO o anexos firmados, Memoria RITE, CEE, presupuesto, justificante
+  de pago…): se le dice a Fran qué es y por qué no («No lo guardo yo (míralo tú)»).
+
+Lo guardado se apunta en `whatsapp_media_importada` (sale «ya colocada» en «Traer del WhatsApp», regla
+68.b, y no se guarda dos veces). En la fila del contestador va `detalle.guardar`: lo planeado y lo hecho,
+**sin ficheros** (regla 21).
+
+**REGLA — en MODO COPIA no se guarda nada hasta el «C12» de Fran; en real, justo ANTES de contestar.** La
+respuesta dice «ya las tengo en el expediente» y eso tiene que ser verdad cuando le llega: el «C12» primero
+vuelve a bajar los ficheros del chat y los guarda, y si algo no entra **no manda nada** y lo dice; en real,
+un fallo al guardar pasa la respuesta a ESCALAR («no he podido guardar…, iba a decirle…»). Con
+`CONTESTADOR_GUARDAR=real` se guarda de verdad aunque las respuestas sigan en copia; al revés no se puede
+(modo real ⇒ guardar real). En real, la subida avisa al staff como cualquier otra (`uploadNotifier`).
+
+**Lo que sabe el cerebro para decir «ahora solo quedaría el RITE»**: lo que acaba de mandar, con su nota
+(«YA GUARDADO en el expediente» / «sin guardar: lo mira Fran»), que sale del dossier y no se le vuelve a
+pedir; **lo del instalador en esa obra** (`situacionInstalador`: certificado RITE sí/no, si la Memoria la
+preparamos y se la mandamos a firmar, el CIFO, las facturas, y si con ese instalador firma Fran con su
+certificado —regla 171—, contando ya lo que se guarda ahora); su enlace `/instalador/:id` como marca
+`{ENLACE_INSTALADOR}` (solo en el chat de un instalador), y **lo que ya le pedimos antes**
+(`pedidosAnteriores`: los mensajes de la app a ese número de los últimos 90 días que hablan de RITE,
+factura, CIFO o fotos, de esa obra, y **solo los anteriores a su último mensaje**: en el seco con
+`--antes`, sin ese corte, nuestra respuesta real de después se colaba como «lo que ya le pedimos»)
+para pedírselo **con palabras parecidas**. La TAREA: acusar lo guardado
+en concreto («Recibidas las dos facturas, ya las tengo en el expediente») y, en la misma respuesta, lo que
+le queda a él, como mucho dos cosas. El RITE: sin certificado y con la Memoria mandada → que nos falta la
+memoria firmada y el certificado, en el mismo enlace; sin Memoria nuestra → si ya lo tiene o quiere que se
+la preparemos; con la Memoria preparada sin mandar, o si dice «prepáramela» → a Fran; si firma Fran con su
+certificado, ni RITE ni CIFO. A un cliente, lo del instalador no se le pide.
 
 ## Qué le dice: el cerebro
 
@@ -107,12 +164,22 @@ Le contestaría:
 > Hola Ana, recibida la factura, perfecto.
 > …
 
-_Modo copia: no le ha llegado nada. Si lo quieres mandar tal cual: «manda C12»._
+Guardaría en el expediente:
+- Factura de la instalación → Facturas de la instalación (26RES060_999)
+
+_Modo copia: no he guardado nada y no le ha llegado nada. «C12» lo guarda y le manda esto; «C12, dile además…» lo cambia._
 ```
 
-«manda C12» lo envía tal cual (`POST /api/whatsapp/contestador/:id/enviar {si}`, o
-`node scripts/contestador.js enviar C12 --si "<lo que dijo Fran>"`) solo si **el chat no ha cambiado desde
-entonces** (su último mensaje es el mismo) y tiene menos de 24 h. Plan: 3 días en copia, revisar lo que
+**REGLA — Fran contesta con «C12» a secas, y con «C12, dile además que…» si quiere cambiar algo** (Fran,
+10/11/2026: «que en lugar de poner manda C4, que solo sea C4. O te pongo C4, dile además que no sé qué, y ya
+lo terminas de redactar»). «C12» (también «manda C12», «vale C12», «C2 y C4») lo hace el **vigilante sin
+despertar a Claude** ([utils/ordenContestador.js](../../../implementation/backend/utils/ordenContestador.js),
+en `vueltaUnica`): guarda lo suyo, lo envía tal cual y le dice cómo ha ido. «C12, dile además…» va a
+Claude: su mensaje ES el «sí» para ese envío, así que redacta el texto final con lo que pide Fran, en su
+voz, y lo manda sin volver a preguntar (`contestador.js enviar C12 --si "<literal>" --texto "<final>"`, que
+pasa por el mismo remate: sin emojis ni firma, y sin marcas `{ENLACE_…}` sin sustituir). Las dos por
+`POST /api/whatsapp/contestador/:id/enviar {si, texto?}`, que guarda antes y solo envía si **el chat no ha
+cambiado desde entonces** (su último mensaje es el mismo) y tiene menos de 24 h. Plan: 3 días en copia, revisar lo que
 habría dicho, y `CONTESTADOR_MODO=real`. En real, a Fran le llega lo mismo con «He contestado a…».
 
 El resumen del día va DENTRO del repaso de las 9:00 del asistente («*Lo de WhatsApp*»: esperas +
@@ -124,14 +191,15 @@ contestador, `GET /api/whatsapp/contestador/resumen`), nunca en un aviso aparte.
   la del VPS. Para encenderlo en el VPS: aplicar `wa_contestador_schema.sql` (regla 150), `ASISTENTE_URL`
   ya apunta al contenedor, `CONTESTADOR_ENABLED=true` (copia por defecto) y reiniciar el vigía del
   asistente para que cargue `/contestar`.
-- Variables: `CONTESTADOR_SILENCIO_MIN` (15), `CONTESTADOR_TOPE_DIA` (40), `CONTESTADOR_TOPE_CHAT_DIA` (3),
+- Variables: `CONTESTADOR_GUARDAR` (`real`: guardar de verdad con las respuestas aún en copia), `CONTESTADOR_SILENCIO_MIN` (15), `CONTESTADOR_TOPE_DIA` (40), `CONTESTADOR_TOPE_CHAT_DIA` (3),
   `CONTESTADOR_POR_VUELTA` (2), `CONTESTADOR_MAX_HORAS` (48), `CONTESTADOR_CEREBRO` (`claude`|`gemini`),
   `CONTESTADOR_MODELO` (`sonnet`), `CONTESTADOR_PLAZO_MS`, `CONTESTADOR_DESTINO`.
 - Rutas (`adminOInterno`): `GET /api/whatsapp/contestador?estado=`, `GET /contestador/resumen`,
   `POST /contestador/probar {telefono}` (en seco: dice qué contestaría), `POST /contestador/:id/enviar`.
 - `node implementation/backend/scripts/test_contestador_whatsapp.js` (sin red) y, contra el WhatsApp del
   VPS EN SECO, `node implementation/backend/scripts/contestador.js seco --tel 6xxxxxxxx` (o `--de` un
-  triaje, `--max 8`, `--horas 720` para redactar también lo antiguo): lee cada chat por `/conversacion`
+  triaje, `--max 8`, `--horas 720` para redactar también lo antiguo, `--antes` para repetir un chat ya
+  contestado tal como estaba, con lo que GUARDARÍA): lee cada chat por `/conversacion`
   (solo lectura, con pausa), mira la BD con un CANDADO que bloquea toda escritura, redacta con el Claude
   del PC y deja el informe en `backend/scratch/contestador/` (fuera de git: conversaciones reales).
 

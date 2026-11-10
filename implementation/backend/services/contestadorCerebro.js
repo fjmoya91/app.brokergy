@@ -46,8 +46,37 @@ const SCHEMA = {
     required: ['accion', 'parrafos', 'motivo'],
 };
 
-/** El prompt entero. Puro: se prueba sin red (scripts/test_contestador_whatsapp.js). */
-function construirPrompt(ch, obra, dossier, llegado) {
+const dia = (iso) => (iso ? new Date(iso).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid', day: 'numeric', month: 'numeric' }) : null);
+
+/**
+ * Lo del INSTALADOR en esta obra (contestadorDocumentos.situacionInstalador), en claro. Puro.
+ * `conEnlace`: quien escribe es el instalador y tiene la marca de su página.
+ */
+function bloqueInstalador(s, { conEnlace = false } = {}) {
+    if (!s) return '';
+    const r = s.rite || {};
+    const c = s.cifo || {};
+    const memoria = r.memoria_firmada ? 'nos ha llegado firmada'
+        : r.memoria_preparada ? (r.memoria_enviada_at ? `la preparamos nosotros y se la mandamos a firmar el ${dia(r.memoria_enviada_at)}; aún no ha vuelto firmada` : 'la tenemos preparada pero aún no se le ha mandado')
+            : 'no la hemos preparado nosotros';
+    const cifo = c.firmado ? 'firmado' : c.refirma ? 'se le ha pedido que lo vuelva a firmar (requerimiento)'
+        : c.enviado_at ? `mandado a firmar el ${dia(c.enviado_at)}; aún no lo ha firmado`
+            : c.borrador ? 'preparado, sin mandar todavía' : 'todavía sin preparar (no se le pide)';
+    return [
+        `- Certificado RITE (el de Industria): ${r.certificado ? 'YA LO TENEMOS' : 'NO lo tenemos'}`,
+        `- Memoria RITE: ${memoria}`,
+        `- CIFO (el certificado de la instalación para el expediente): ${cifo}`,
+        `- Facturas de la instalación en el expediente: ${s.facturas || 0}`,
+        s.firma_fran ? '- Con este instalador el RITE y el CIFO los firma y presenta FRAN con el certificado del instalador: a él NO se le piden.' : null,
+        conEnlace && !s.firma_fran ? '- Su enlace (sube el RITE y la memoria firmada, y firma el CIFO, todo en el mismo sitio): {ENLACE_INSTALADOR}' : null,
+    ].filter(Boolean).join('\n');
+}
+
+/**
+ * El prompt entero. Puro: se prueba sin red (scripts/test_contestador_whatsapp.js).
+ * `extra` (lo pone el contestador): { instalador: situacionInstalador, pedidos: [{ at, texto }] }.
+ */
+function construirPrompt(ch, obra, dossier, llegado, extra = {}) {
     if (dossier && llegado?.slots?.size) {
         // Lo que acaba de llegar no se vuelve a pedir, aunque la app aún no lo tenga.
         dossier.pendientes = (dossier.pendientes || []).filter(p => !llegado.slots.has(p.clave));
@@ -56,19 +85,33 @@ function construirPrompt(ch, obra, dossier, llegado) {
     const marcas = Object.keys(enlaces).join(', ') || 'ninguna';
     const quien = ch.rol === 'instalador' ? 'una EMPRESA INSTALADORA (habla de las obras de sus clientes)'
         : ch.rol === 'ambos' ? 'un instalador que además es titular de una obra' : 'un CLIENTE particular';
+    const esInstalador = ch.rol === 'instalador' || ch.rol === 'ambos';
+    const inst = bloqueInstalador(extra.instalador, { conEnlace: esInstalador && !!enlaces['{ENLACE_INSTALADOR}'] });
+    const pedidos = (extra.pedidos || []).filter(p => p?.texto);
+    const hayGuardado = (llegado?.lineas || []).some(l => /YA GUARDADO/.test(l));
 
     const prompt = `${CONOCIMIENTO}
 
 # DOSSIER DE ESTA CONVERSACIÓN
 
 ${dossierTexto}
+${inst ? `
+# LO DEL INSTALADOR EN ESTA OBRA (CIFO y RITE), mirado ahora en la app
 
-# LO QUE HA LLEGADO POR WHATSAPP Y TODAVÍA NO ESTÁ COLOCADO EN LA APP
+${inst}
+` : ''}
+# LO QUE ACABA DE MANDAR POR WHATSAPP
 
 ${llegado?.lineas?.length ? llegado.lineas.map(l => `- ${l}`).join('\n') : '(nada)'}
 
-Esto YA LO TENEMOS: no se lo vuelvas a pedir aunque el dossier lo diera por pendiente.
+Lo marcado «YA GUARDADO» estará en el expediente cuando le llegue tu respuesta: díselo así. Lo demás también lo
+hemos recibido aunque no esté colocado (lo mira Fran). Nada de esto se le vuelve a pedir, aunque el dossier lo
+diera por pendiente.
+${pedidos.length ? `
+# LO QUE YA LE HEMOS PEDIDO ANTES (mensajes de la app a este número, lo último primero)
 
+${pedidos.map(p => `[${dia(p.at)}]\n${p.texto}`).join('\n\n')}
+` : ''}
 # LA CONVERSACIÓN DE ESTOS DÍAS (lo más antiguo primero; NOSOTROS = la casa, ELLOS = quien escribe)
 
 ${ch.texto}
@@ -118,7 +161,24 @@ E. Obra terminada, certificado final → estamos con el certificado final y desp
 F. Ya emitido y pendiente de cobro → ha salido favorable y está emitido; estamos con el cobro y le avisas.
 - Ha mandado FOTOS o DOCUMENTOS → acusa recibo nombrando lo que es en lenguaje de casa («la foto de la
   pegatina de la caldera, perfecto»). Si con eso aún le falta algo suyo, díselo con su enlace; si no, que
-  lo revisas y si falta algo se lo dices. No le pidas lo que acaba de mandar.
+  lo revisas y si falta algo se lo dices. No le pidas lo que acaba de mandar.${hayGuardado ? `
+- Lo que ya está GUARDADO se acusa EN CONCRETO, qué es y cuántos, y que ya está en el expediente («Recibidas
+  las dos facturas, ya las tengo en el expediente»). Y en la MISMA respuesta, lo que le queda a ÉL ahora
+  (el dossier, sin lo que acaba de mandar), como mucho dos cosas: «Ahora solo quedaría el RITE».` : ''}${pedidos.length ? `
+- Si le vuelves a pedir algo que ya le pedimos antes (arriba), dilo con palabras PARECIDAS a las de entonces,
+  que es la misma persona y el mismo asunto, pero corto: sin copiar la plantilla, su lista ni sus 📸.` : ''}${inst && esInstalador ? `
+- LO DEL INSTALADOR (CIFO y RITE), con lo de «LO DEL INSTALADOR EN ESTA OBRA»:
+  · Si lo firma Fran con su certificado, NO le pidas ni el RITE ni el CIFO.
+  · Sin certificado RITE y con la Memoria que le mandamos sin volver firmada → recuérdale que nos falta la
+    memoria firmada y el certificado RITE, que se suben en el mismo enlace.
+  · Sin certificado RITE y con la Memoria preparada pero sin mandar → ESCALAR (motivo: «mandarle a firmar la
+    Memoria RITE de <la obra>»), con acuse «Perfecto, te la paso para firmar».
+  · Sin certificado RITE y sin Memoria nuestra → pregúntale si ya tiene el certificado RITE (si lo tiene, que
+    lo suba en su enlace) o si quiere que le preparemos la memoria.
+  · CIFO mandado a firmar y sin firmar → recuérdaselo con el MISMO enlace. Sin preparar, no se le pide.
+  · Si contesta que no tiene el RITE o que se lo preparemos → ESCALAR (motivo: «preparar la Memoria RITE de
+    <la obra>»), con acuse «Perfecto, la preparo y te la paso».` : ''}${inst && !esInstalador ? `
+- El RITE, el CIFO y las facturas de la obra son del INSTALADOR: a un cliente no se le piden (caso A).` : ''}
 - Manda algo de una vivienda u obra que NO está en el dossier (una petición nueva) → acuse en una frase
   («Recibido, lo miro y te digo») y nada más.
 - Tiene varias obras y no se sabe de cuál habla → pregúntale cuál (por la dirección o el titular).
@@ -226,8 +286,8 @@ async function conGemini(prompt, cuenta) {
 /**
  * El `redactar` que se le pasa a la ronda. Nunca devuelve sin `accion`.
  */
-async function redactar(ch, obra, dossier, llegado, cuenta) {
-    const { prompt, enlaces, propuesta } = construirPrompt(ch, obra, dossier, llegado);
+async function redactar(ch, obra, dossier, llegado, cuenta, extra = {}) {
+    const { prompt, enlaces, propuesta } = construirPrompt(ch, obra, dossier, llegado, extra);
     let json = null;
     let cerebro = null;
     let fallo = null;
@@ -245,4 +305,4 @@ async function redactar(ch, obra, dossier, llegado, cuenta) {
     return { ...rematar(json, enlaces), con_dossier: !!dossier, propuesta, cerebro, prompt_chars: prompt.length };
 }
 
-module.exports = { redactar, construirPrompt, rematar, limpiar, SCHEMA };
+module.exports = { redactar, construirPrompt, bloqueInstalador, rematar, limpiar, SCHEMA };

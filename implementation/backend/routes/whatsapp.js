@@ -610,12 +610,14 @@ router.post('/contestador/probar', adminOInterno, async (req, res) => {
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
-// POST { si } → «manda C12»: envía tal cual lo que se habría contestado, con la
-// respuesta LITERAL de Fran. Comprueba que el chat no ha cambiado desde entonces.
+// POST { si, texto? } → «C12»: guarda lo que mandó y envía tal cual lo que se habría
+// contestado, con la respuesta LITERAL de Fran. Con `texto` («C12, dile además…»), ese
+// texto en su lugar. Comprueba que el chat no ha cambiado desde entonces.
 router.post('/contestador/:id/enviar', adminOInterno, async (req, res) => {
     const id = Number(String(req.params.id).replace(/^C/i, ''));
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
-    try { res.json(await contestador.enviarCopia(id, { si: req.body?.si })); }
+    const texto = typeof req.body?.texto === 'string' ? req.body.texto : null;
+    try { res.json(await contestador.enviarCopia(id, { si: req.body?.si, texto })); }
     catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 

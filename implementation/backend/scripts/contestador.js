@@ -9,14 +9,18 @@
 //       Fran al grupo. Redacta con el Claude Code de este PC (la suscripción) o con Gemini.
 //       Sin --tel ni --de: los chats que han contestado a una espera estas 72 h.
 //       `--de` es un JSON { "<tel9>": { "ultimo_es_suyo": true, … } } (el de un triaje).
+//       `--antes`: el chat COMO ESTABA antes de nuestra última respuesta (se quitan nuestros
+//       mensajes del final), para repetir un caso ya contestado. Con lo que ha mandado, dice
+//       también qué GUARDARÍA en el expediente (en seco no se guarda nada).
 //       Deja el informe en backend/scratch/contestador/ (fuera de git: conversaciones reales).
 //   node scripts/contestador.js estado [--api …]
 //       Los últimos turnos en el servidor (GET /api/whatsapp/contestador).
 //   node scripts/contestador.js resumen [--api …]
 //       Su línea del repaso de las 9:00, tal y como saldría hoy.
 //   node scripts/contestador.js enviar C12 --si "<respuesta literal de Fran>" [--api …]
-//       «manda C12»: envía tal cual lo que el contestador habría dicho (modo copia). Solo con
-//       el «manda C12» de Fran, que va LITERAL en --si. El servidor comprueba que el chat no
+//       «C12»: guarda lo suyo y envía tal cual lo que el contestador habría dicho (modo copia).
+//       Solo con el «C12» de Fran, que va LITERAL en --si. Con --texto, ese texto en su lugar
+//       («C12, dile además…»: lo redacta el asistente con lo que dijo Fran). El servidor comprueba que el chat no
 //       ha cambiado desde entonces.
 const path = require('path');
 const fs = require('fs');
@@ -55,6 +59,17 @@ const fuenteVps = {
     leer: (q) => api('/conversacion', { method: 'POST', body: q }),
     descargarAdjunto: (id) => api(`/conversacion/adjunto?msg=${encodeURIComponent(id)}`, { binario: true }),
     transcribir: (id) => api('/conversacion/transcribir', { method: 'POST', body: { msg: id } }),
+};
+
+// `--antes`: el chat sin NUESTROS mensajes del final (como estaba antes de contestarle).
+const fuenteAntes = {
+    ...fuenteVps,
+    leer: async (q) => {
+        const conv = await fuenteVps.leer(q);
+        const ms = [...(conv.mensajes || [])];
+        while (ms.length && ms[ms.length - 1].de_mi) ms.pop();
+        return { ...conv, mensajes: ms };
+    },
 };
 
 // ── Candado: en seco este proceso no escribe en la BD ────────────────────────
@@ -116,12 +131,14 @@ async function seco() {
         n += 1;
         const t0 = Date.now();
         let d;
-        try { d = await C.decidir({ telefono: tel, fuente: fuenteVps }); }
+        try { d = await C.decidir({ telefono: tel, fuente: args.includes('--antes') ? fuenteAntes : fuenteVps }); }
         catch (e) { d = { estado: 'FALLO', motivo: e.message, tel9: tel }; }
         d.segundos = Math.round((Date.now() - t0) / 1000);
         out.push(d);
         console.log(`──── ${n}. ${tel} · ${d.estado}${d.accion ? ` · ${d.accion}` : ''}${d.obra ? ` · ${d.obra}` : ''} · ${d.segundos} s${d.cerebro ? ` · ${d.cerebro}` : ''}`);
-        if (d.estado === 'DECIDIDO' && d.accion !== 'CALLAR') console.log(C.textoParaFran({ id: `S${n}` }, d, { m: 'copia' }));
+        // Callar con algo que guardar también llega a Fran («Guardaría lo que ha mandado…»).
+        if (d.estado === 'DECIDIDO' && (d.accion !== 'CALLAR' || (d.guardar || []).some(x => x.guardar))) console.log(C.textoParaFran({ id: `S${n}` }, d, { m: 'copia' }));
+        if ((d.guardar || []).length) console.log(`   (en seco no se ha guardado nada: ${d.guardar.filter(x => x.guardar).length} se guardarían con «C…»)`);
         else console.log(`   ${d.motivo || ''}${d.pendientes?.length ? `\n   escribió: ${d.pendientes.join(' | ').slice(0, 300)}` : ''}`);
         if (d.detalle?.problemas_enlaces?.length) console.log(`   ⚠ enlaces: ${d.detalle.problemas_enlaces.join('; ')}`);
         console.log('');
@@ -149,10 +166,12 @@ async function seco() {
     if (orden === 'enviar') {
         const id = String(args[1] || '').replace(/^C/i, '');
         const si = opt('si', '');
-        if (!id || !si) throw new Error('Uso: enviar C12 --si "<respuesta literal de Fran>"');
-        const r = await api(`/contestador/${id}/enviar`, { method: 'POST', body: { si } });
-        console.log(`✓ C${r.id} enviado a ${r.tel9}:\n${r.texto}`);
+        const texto = opt('texto', '');
+        if (!id || !si) throw new Error('Uso: enviar C12 --si "<respuesta literal de Fran>" [--texto "<el texto final, si Fran pidió cambios>"]');
+        const r = await api(`/contestador/${id}/enviar`, { method: 'POST', body: { si, ...(texto ? { texto } : {}) }, plazo: 240_000 });
+        const g = r.guardados ? ` · ${r.guardados} documento(s) guardado(s) en el expediente` : '';
+        console.log(r.texto ? `✓ C${r.id} enviado a ${r.tel9}${g}:\n${r.texto}` : `✓ C${r.id}${g} (sin escribirle)`);
         return;
     }
-    console.log('Órdenes: seco [--tel …|--de …] [--max 8] [--cerebro claude|gemini] · estado · resumen · enviar C12 --si "…"');
+    console.log('Órdenes: seco [--tel …|--de …] [--max 8] [--cerebro claude|gemini] · estado · resumen · enviar C12 --si "…" [--texto "…"]');
 })().catch((e) => { console.error(`✗ ${e.message}`); process.exitCode = 1; });

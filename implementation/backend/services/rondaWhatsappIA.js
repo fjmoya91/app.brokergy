@@ -76,9 +76,19 @@ function enlacesAMarcas(dossier) {
         subir_documentacion: marca('ENLACE_SUBIR', e.subir_documentacion),
         firmar_anexos: marca('ENLACE_FIRMAR', e.firmar_anexos),
         ver_mi_expediente: marca('ENLACE_MI_EXPEDIENTE', e.ver_mi_expediente),
+        // La página del INSTALADOR (/instalador/:id: CIFO y RITE en un enlace, regla 27).
+        // Solo la pone el contestador, y solo en el chat de un instalador.
+        ...(e.subir_instalador ? { subir_instalador: marca('ENLACE_INSTALADOR', e.subir_instalador) } : {}),
     };
     return enlaces;
 }
+
+// Un DOCUMENTO del análisis va a un apartado fijo (las fotos las reparte el repartidor).
+// En el dossier lo pendiente se llama por otra clave (`factura`, `rite`, del checklist del
+// expediente): con esto, lo que acaba de llegar no se le vuelve a pedir.
+const SLOT_DE_DOC = { FACTURA: 'DOC_FACTURAS', CERTIFICADO_RITE: 'DOC_RITE' };
+const CLAVE_DOSSIER = { DOC_FACTURAS: 'factura', DOC_RITE: 'rite' };
+const clavesDeSlot = (slot) => (slot ? [slot, CLAVE_DOSSIER[slot]].filter(Boolean) : []);
 
 /** Los PÁRRAFOS los junta el código: 28 de 47 borradores salían pegados. */
 const juntarParrafos = (r) => (Array.isArray(r?.parrafos) ? r.parrafos : [String(r?.mensaje || '')])
@@ -471,6 +481,7 @@ module.exports = {
     analizar, borrador, prepararPartes, transcripcion,
     // Puros, para las pruebas y el orquestador:
     huella, esAutomatico, sustituirEnlaces, enlacesAMarcas, juntarParrafos, estadoPropuesta,
+    SLOT_DE_DOC, CLAVE_DOSSIER, clavesDeSlot,
     validarAnalisis, lineaObra, corta, fecha, MEDIA, TIPOS_ADJ,
     PRECIOS, costeLlamada, pensamientoPara, textoDossier, dossierParaBorrador, quienEs,
 };

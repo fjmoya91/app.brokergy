@@ -25,7 +25,8 @@
 //    de WhatsApp es la del VPS.
 //  - MODO COPIA mientras `CONTESTADOR_MODO` no sea `real`: a nadie de fuera le llega
 //    nada; lo que se le habría contestado va al grupo de Fran («BROKERGY - CHAT»)
-//    con su número (C12), y «manda C12» lo envía tal cual (POST /contestador/:id/enviar).
+//    con su número (C12), y «C12» lo envía tal cual (POST /contestador/:id/enviar; con cambios,
+//    «C12, dile además…», lo termina de redactar el asistente).
 //  - Si ha escrito una PERSONA de la casa en ese chat, se calla 24 h (`wa_chat_pausas`,
 //    la regla de las esperas). Y si ya le ha contestado alguien, no se contesta.
 //  - Topes en el CÓDIGO: 3 respuestas al día por chat (un bot del otro lado no puede
@@ -40,6 +41,7 @@ const horario = require('../utils/horarioWhatsapp');
 const Ronda = require('./rondaWhatsapp');
 const IA = require('./rondaWhatsappIA');
 const cerebro = require('./contestadorCerebro');
+const Docs = require('./contestadorDocumentos');
 
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && v !== '' && v != null ? n : d; };
 const CFG = {
@@ -55,6 +57,10 @@ const CFG = {
 };
 const activo = () => process.env.CONTESTADOR_ENABLED === 'true';
 const modo = () => (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia');
+// GUARDAR lo que manda: de verdad con el modo real o con `CONTESTADOR_GUARDAR=real` (se puede
+// guardar solo mientras las respuestas siguen en copia). Nunca al revés: una respuesta real
+// dice «ya lo tengo en el expediente», y eso tiene que ser verdad cuando le llega.
+const modoGuardar = () => (modo() === 'real' || process.env.CONTESTADOR_GUARDAR === 'real' ? 'real' : 'copia');
 const destino = () => process.env.CONTESTADOR_DESTINO || process.env.ASISTENTE_WHATSAPP_GRUPO || process.env.WHATSAPP_ADMIN_CHAT || null;
 const TIPOS = new Set(['chat', 'image', 'document', 'ptt', 'audio', 'video', 'location', 'vcard', 'multi_vcard']);
 const ult9 = (t) => { const d = String(t || '').replace(/@.*/, '').replace(/\D/g, ''); return d.length >= 9 ? d.slice(-9) : null; };
@@ -191,7 +197,7 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     const rol = Ronda.rolDe(personas);
     if (rol === 'certificador') return fuera('es un técnico certificador: se le contesta a mano');
 
-    // El último mensaje DEL CHAT (sea de quien sea): «manda C12» solo sale si sigue siéndolo.
+    // El último mensaje DEL CHAT (sea de quien sea): «C12» solo sale si sigue siéndolo.
     const comun = { ...base, rol, titulo: Ronda.tituloDe(personas, null), pendientes: resumenPendientes(pendientes), ultimo_msg_id: ms[ms.length - 1].id };
     if (ahoraSeg - pendientes[0].t > CFG.maxHorasSinContestar * 3600) {
         return { ...comun, estado: 'DECIDIDO', accion: 'ESCALAR', motivo: `lleva ${Math.round((ahoraSeg - pendientes[0].t) / 3600)} h sin contestar: mejor que lo veas tú` };
@@ -205,9 +211,36 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     };
     const cont = { fotos: 0, documentos: 0, audios: 0, videos: 0, yaColocadas: 0 };
     const cuenta = { llamadas: 0, in: 0, out: 0, think: 0, reintentos: 0, usd: 0 };
+    // Lo que manda se GUARDA donde lo habría guardado la app antes de contestar
+    // (contestadorDocumentos, 10/11/2026). Aquí solo se PLANEA: decidir no escribe nada.
+    let plan = null;
+    const alClasificar = async ({ c: chat, adjuntos }) => { plan = await Docs.planear({ c: chat, adjuntos }); };
+    // Al cerebro, además del dossier: cómo está lo del instalador (RITE, CIFO) y lo que ya le
+    // pedimos antes, para que lo que le vuelva a pedir suene a lo de entonces.
+    const redactar = async (ch, obra, dossier, llegado, cuentaR, opts) => {
+        const extra = {};
+        if (obra?.expediente_id) {
+            try {
+                extra.instalador = await Docs.situacionInstalador(obra);
+                // Lo que se guarda ahora ya cuenta: si acaba de mandar el RITE, no se le vuelve a pedir.
+                const ahora = (plan?.items || []).filter(x => x.guardar && x.obra === obra.codigo);
+                if (extra.instalador && ahora.some(x => x.slot === 'DOC_RITE')) extra.instalador.rite.certificado = true;
+                if (extra.instalador) extra.instalador.facturas += ahora.filter(x => x.slot === 'DOC_FACTURAS').length;
+                if (extra.instalador && dossier && (rol === 'instalador' || rol === 'ambos')) {
+                    dossier.enlaces = { ...(dossier.enlaces || {}), subir_instalador: extra.instalador.enlace };
+                }
+            } catch (e) { log(`situación del instalador ${obra.codigo}: ${e.message}`); }
+        }
+        if (obra) {
+            const ultimoT = ms[ms.length - 1]?.t;
+            try { extra.pedidos = await Docs.pedidosAnteriores(tel9, obra, { unica: (c.obras || []).length === 1, hasta: ultimoT ? new Date(ultimoT * 1000) : null }); }
+            catch (e) { /* sin lo de antes también se contesta */ }
+        }
+        return cerebro.redactar(ch, obra, dossier, llegado, cuentaR, { ...(opts || {}), ...extra });
+    };
     await Ronda.procesarChat(c, { ms, personas }, {
         cont, cuenta, envios, desdeSeg, fuente,
-        modelo: Ronda.CONFIG.modelo(), modeloBorrador: Ronda.CONFIG.modeloBorrador(), redactar: cerebro.redactar,
+        modelo: Ronda.CONFIG.modelo(), modeloBorrador: Ronda.CONFIG.modeloBorrador(), redactar, alClasificar,
         siempreRedactar: true,
     });
     const b = c.borrador;
@@ -215,10 +248,13 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
         rol, obras: c.obras.length, adjuntos: c.filas.length, gemini_usd: Math.round((cuenta.usd || 0) * 1000) / 1000,
         enlaces: (b?.enlaces || []).map(e => e.marca), problemas_enlaces: b?.problemas_enlaces || [],
     };
-    if (!b) return { ...comun, estado: 'DECIDIDO', accion: 'CALLAR', motivo: 'no espera respuesta', obra: null, detalle };
-    if (b.accion === 'MANO') return { ...comun, estado: 'DECIDIDO', accion: 'ESCALAR', motivo: b.motivo, obra: c.obraBorrador || null, detalle };
+    // `guardar`: lo planeado (sin ficheros, va a la fila); `_ficheros`: los ya bajados, para no
+    // volver a pedírselos a WhatsApp si se guarda en esta misma vuelta.
+    const g = { guardar: plan ? Docs.paraFila(plan.items) : [], _ficheros: plan?.ficheros || null };
+    if (!b) return { ...comun, ...g, estado: 'DECIDIDO', accion: 'CALLAR', motivo: 'no espera respuesta', obra: null, detalle };
+    if (b.accion === 'MANO') return { ...comun, ...g, estado: 'DECIDIDO', accion: 'ESCALAR', motivo: b.motivo, obra: c.obraBorrador || null, detalle };
     return {
-        ...comun, estado: 'DECIDIDO', accion: b.accion, texto: b.mensaje || '', acuse: b.acuse || '', motivo: b.motivo || '',
+        ...comun, ...g, estado: 'DECIDIDO', accion: b.accion, texto: b.mensaje || '', acuse: b.acuse || '', motivo: b.motivo || '',
         obra: c.obraBorrador || null, cerebro: b.cerebro || 'gemini', detalle,
     };
 }
@@ -244,29 +280,71 @@ function resumenPendientes(ms) {
 // ─── 3. Hacer lo decidido ────────────────────────────────────────────────────
 const cita = (txt) => String(txt || '').split('\n').map(l => `> ${l}`).join('\n');
 
+/**
+ * Lo que se ha guardado (o se guardaría) de lo que ha mandado, para Fran. Puro.
+ * Sin nada que contar, [].
+ */
+function lineasGuardar(items) {
+    const lista = (items || []).filter(Boolean);
+    const linea = (x) => `- ${recorta(x.que || x.tipo, 90)} → ${x.destino || x.slot}${x.obra ? ` (${x.obra})` : ''}`;
+    const hechos = lista.filter(x => x.guardar && x.hecho);
+    const fallidos = lista.filter(x => x.guardar && !x.hecho && x.error);
+    const porHacer = lista.filter(x => x.guardar && !x.hecho && !x.error);
+    const no = lista.filter(x => !x.guardar && x.motivo);
+    const out = [];
+    if (hechos.length) out.push('He guardado en el expediente:', ...hechos.map(linea));
+    if (porHacer.length) out.push('Guardaría en el expediente:', ...porHacer.map(linea));
+    if (fallidos.length) out.push('No he podido guardar:', ...fallidos.map(x => `${linea(x)}: ${recorta(x.error, 140)}`));
+    if (no.length) out.push('No lo guardo yo (míralo tú):', ...no.map(x => `- ${recorta(x.que || x.tipo, 90)}${x.obra && x.obra !== 'NUEVA' ? ` (${x.obra})` : ''}: ${recorta(x.motivo, 120)}`));
+    return out;
+}
+
 /** El mensaje para Fran (al grupo). Puro. */
-function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = false } = {}) {
+function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = false, mg = modoGuardar() } = {}) {
     const quien = recorta(d.titulo || d.nombre || fila.nombre || d.tel9 || 'sin nombre', 70);
     const obra = d.obra ? ` · ${d.obra}` : '';
     const escribio = (d.pendientes || []).length ? `Escribió:\n${cita(d.pendientes.join('\n'))}` : '';
+    const guardar = lineasGuardar(d.guardar);
+    const bloqueGuardar = guardar.length ? ['', ...guardar] : [];
+    const porGuardar = (d.guardar || []).some(x => x.guardar && !x.hecho && !x.error) && mg === 'copia';
     if (d.accion === 'RESPONDER') {
         return [
             `*C${fila.id} · ${enviado ? 'He contestado a' : 'Contestaría a'} ${quien}*${obra}`,
             escribio,
+            ...bloqueGuardar,
             '',
             enviado ? 'Le he dicho:' : 'Le contestaría:',
             cita(d.texto),
             '',
-            m === 'copia' ? `_Modo copia: no le ha llegado nada. Si lo quieres mandar tal cual: «manda C${fila.id}»._` : null,
+            m === 'copia'
+                ? (porGuardar
+                    ? `_Modo copia: no he guardado nada y no le ha llegado nada. «C${fila.id}» lo guarda y le manda esto; «C${fila.id}, dile además…» lo cambia._`
+                    : `_Modo copia: no le ha llegado nada. «C${fila.id}» se lo manda tal cual; «C${fila.id}, dile además…» lo cambia._`)
+                : null,
+        ].filter(x => x !== null).join('\n');
+    }
+    if (d.accion === 'CALLAR') {
+        // Solo llega a Fran si hay algo que guardar: no hace falta contestarle, pero lo suyo va al expediente.
+        return [
+            `*C${fila.id} · ${porGuardar ? 'Guardaría' : 'He guardado'} lo que ha mandado ${quien}*${obra}`,
+            escribio,
+            ...bloqueGuardar,
+            '',
+            `No le contesto: ${d.motivo || 'no hace falta'}.`,
+            porGuardar ? `_Modo copia: no he guardado nada. «C${fila.id}» lo guarda (sin escribirle); «C${fila.id}, dile…» además le escribe._` : null,
         ].filter(x => x !== null).join('\n');
     }
     return [
         `*C${fila.id} · Para ti: ${quien}*${obra}`,
         escribio,
+        ...bloqueGuardar,
         '',
         `Por qué te lo paso: ${d.motivo || 'no lo tengo claro'}`,
         d.acuse ? (acuseEnviado ? `Le he dicho: «${d.acuse}»` : `Le diría mientras: «${d.acuse}»`) : null,
-        m === 'copia' ? '_Modo copia: no le ha llegado nada._' : null,
+        m === 'copia'
+            ? (porGuardar ? `_Modo copia: no le ha llegado nada y no he guardado nada. «C${fila.id}» lo guarda${d.acuse ? ' y le manda el acuse' : ''}; «C${fila.id}, dile que…» le contesta lo que tú digas._`
+                : `_Modo copia: no le ha llegado nada.${d.acuse ? ` «C${fila.id}» le manda el acuse;` : ''} «C${fila.id}, dile que…» le contesta lo que tú digas._`)
+            : null,
     ].filter(x => x !== null).join('\n');
 }
 
@@ -288,6 +366,7 @@ async function mandarAFran(texto) {
 
 async function actuar(fila, d) {
     const m = modo();
+    const mg = modoGuardar();
     const ws = require('./whatsappService');
     const ahora = new Date().toISOString();
     const upd = {
@@ -297,12 +376,41 @@ async function actuar(fila, d) {
         detalle: { ...(d.detalle || {}), rol: d.rol || null, titulo: d.titulo || null, pendientes: d.pendientes || [] },
         updated_at: ahora,
     };
+    // 1. GUARDAR lo que ha mandado, ANTES de contestar: la respuesta dice «ya lo tengo en el
+    //    expediente». Si algo no entra, no se le dice eso: a Fran, con lo que iba a decirle.
+    const items = d.guardar || [];
+    if (mg === 'real' && items.some(x => x.guardar && !x.hecho)) {
+        const r = await Docs.ejecutar(items, d._ficheros || new Map(), { fuente: fuenteLocal(), rol: d.rol, avisar: true });
+        if (r.fallidos.length && d.accion !== 'ESCALAR') {
+            const iba = d.accion === 'RESPONDER' ? ` (iba a decirle: «${recorta(d.texto, 200)}»)` : '';
+            d.motivo = `no he podido guardar ${r.fallidos.length === 1 ? 'uno de los documentos' : `${r.fallidos.length} documentos`} que ha mandado${iba}`;
+            d.accion = 'ESCALAR';
+            d.acuse = '';
+            Object.assign(upd, { accion: 'ESCALAR', motivo: recorta(d.motivo, 500), acuse: null });
+        }
+    }
+    upd.detalle.guardar = Docs.paraFila(items);
+    const quedaPorGuardar = items.some(x => x.guardar && !x.hecho && !x.error);
     if (d.accion === 'CALLAR') {
+        // Nada que decirle; pero si hay algo suyo que guardar, Fran lo sabe (en copia, para que
+        // diga «C12»; en real, ya está guardado).
+        if (items.some(x => x.guardar)) {
+            try {
+                if (await mandarAFran(textoParaFran(fila, d, { m, mg }))) upd.copia_at = new Date().toISOString();
+            } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }
+        }
         await supabase.from('wa_contestador').update(upd).eq('id', fila.id);
         return;
     }
     let enviado = false;
     let acuseEnviado = false;
+    if (m === 'real' && quedaPorGuardar) {
+        // No debería pasar (en real se guarda siempre antes): por si acaso, no se le dice que lo tenemos.
+        d.motivo = `quedan documentos suyos sin guardar (iba a decirle: «${recorta(d.texto || d.acuse, 200)}»)`;
+        d.accion = 'ESCALAR';
+        d.acuse = '';
+        Object.assign(upd, { accion: 'ESCALAR', motivo: recorta(d.motivo, 500), acuse: null });
+    }
     if (m === 'real') {
         const hoy = await respuestasDeHoy(fila.chat_id);
         if (d.accion === 'RESPONDER' && (hoy.chat >= CFG.topeChatDia || hoy.total >= CFG.topeDia)) {
@@ -323,7 +431,7 @@ async function actuar(fila, d) {
     // A Fran: todo en modo copia; en real, lo que es para él.
     if (m === 'copia' || d.accion === 'ESCALAR') {
         try {
-            if (await mandarAFran(textoParaFran(fila, d, { m, enviado, acuseEnviado }))) upd.copia_at = new Date().toISOString();
+            if (await mandarAFran(textoParaFran(fila, d, { m, mg, enviado, acuseEnviado }))) upd.copia_at = new Date().toISOString();
         } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }
     }
     await supabase.from('wa_contestador').update(upd).eq('id', fila.id);
@@ -387,35 +495,68 @@ async function vuelta({ ahora = new Date() } = {}) {
     return { hecho };
 }
 
-// ─── «manda C12»: lo de una copia, tal cual ───────────────────────────────────
+// ─── «C12»: lo de una copia, tal cual (o con los cambios de Fran) ─────────────
 /**
  * Envía lo que el contestador habría dicho (modo copia), con el «sí» de Fran.
  * Comprueba que la conversación no ha cambiado desde entonces.
  */
-async function enviarCopia(id, { si } = {}) {
+async function enviarCopia(id, { si, texto: deFran = null } = {}) {
     const e = (msg, status = 400) => { const x = new Error(msg); x.status = status; return x; };
     if (!String(si || '').trim()) throw e('Falta la respuesta literal de Fran («si»).');
     const { data: f, error } = await supabase.from('wa_contestador').select('*').eq('id', Number(id)).maybeSingle();
     if (error) throw e('La base de datos no responde.', 503);
     if (!f) throw e(`No hay ninguna C${id}.`, 404);
     if (f.enviado_at) throw e(`C${id} ya se envió el ${new Date(f.enviado_at).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}.`, 409);
-    const texto = f.accion === 'RESPONDER' ? f.texto : f.acuse;
-    if (!texto) throw e(`C${id} no tiene texto que mandar (${f.accion}).`, 409);
+    // «C12, dile además que…»: el texto lo ha terminado de redactar el asistente con lo que dijo
+    // Fran (su mensaje es el «sí» para ESTE envío). Pasa por el mismo remate: sin emojis ni firma.
+    let propio = null;
+    if (deFran != null) {
+        propio = cerebro.limpiar(String(deFran));
+        if (!propio) throw e('El texto que me pasas está vacío.');
+        if (propio.length > 1500) throw e('El texto es demasiado largo para un WhatsApp de respuesta (más de 1.500 caracteres).');
+        if (/\{ENLACE_[A-Z_]+\}/.test(propio)) throw e('El texto lleva una marca de enlace sin sustituir ({ENLACE_…}): pon el enlace real o quítalo.');
+    }
+    const texto = propio || (f.accion === 'RESPONDER' ? f.texto : (f.accion === 'ESCALAR' ? f.acuse : null));
+    const items = Array.isArray(f.detalle?.guardar) ? f.detalle.guardar : [];
+    const porGuardar = items.filter(x => x.guardar && !x.hecho);
+    if (!texto && !porGuardar.length) throw e(`C${id} no tiene nada que mandar ni que guardar (${f.accion}).`, 409);
     if (Date.now() - Date.parse(f.updated_at) > 24 * 3_600_000) throw e(`C${id} tiene más de 24 h: la conversación ya habrá cambiado.`, 409);
-    const conv = await fuenteLocal().leer({ chatId: f.chat_id, dias: 3 });
+    const fuente = fuenteLocal();
+    const conv = await fuente.leer({ chatId: f.chat_id, dias: 3 });
     const ms = conv.mensajes || [];
     const ult = ms[ms.length - 1];
     if (ult && ult.id !== f.ultimo_msg_id) {
         throw e(ult.de_mi ? `En el chat de C${id} ya se ha escrito algo después: no lo mando.`
             : `Ha escrito algo más desde C${id}: no lo mando, que la respuesta ya no encaja.`, 409);
     }
+    // Primero se GUARDA lo suyo (se vuelve a bajar del chat): la respuesta dice que ya lo
+    // tenemos. Si algo no entra, no se manda nada y Fran lo sabe.
+    let guardados = 0;
+    if (porGuardar.length) {
+        const r = await Docs.ejecutar(items, new Map(), { fuente, rol: f.detalle?.rol, avisar: false, por: 'contestador (Fran)' });
+        guardados = r.guardados;
+        await supabase.from('wa_contestador').update({
+            detalle: { ...(f.detalle || {}), guardar: Docs.paraFila(items) }, updated_at: new Date().toISOString(),
+        }).eq('id', f.id);
+        if (r.fallidos.length) {
+            throw e(`No he podido guardar ${r.fallidos.map(x => `${recorta(x.que || x.tipo, 60)} (${recorta(x.error, 100)})`).join('; ')}: `
+                + `${texto ? 'no le mando nada' : 'lo demás sí está guardado'}.`, 502);
+        }
+    }
+    const detalle = {
+        ...(f.detalle || {}), guardar: items.length ? Docs.paraFila(items) : f.detalle?.guardar, mandado_por_fran: recorta(si, 200),
+        ...(propio ? { texto_de_fran: propio } : {}),
+    };
+    if (!texto) {
+        await supabase.from('wa_contestador').update({ detalle, updated_at: new Date().toISOString() }).eq('id', f.id);
+        return { ok: true, id: f.id, tel9: f.tel9, texto: null, guardados };
+    }
     const out = await require('./whatsappService').sendText(`34${f.tel9}`, texto);
     if (out?.ok === false) throw e(out.error || 'WhatsApp no lo ha aceptado', 502);
     await supabase.from('wa_contestador').update({
-        enviado_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-        detalle: { ...(f.detalle || {}), mandado_por_fran: recorta(si, 200) },
+        enviado_at: new Date().toISOString(), updated_at: new Date().toISOString(), detalle,
     }).eq('id', f.id);
-    return { ok: true, id: f.id, tel9: f.tel9, texto };
+    return { ok: true, id: f.id, tel9: f.tel9, texto, guardados };
 }
 
 // ─── El resumen de las 9:00 (dentro del repaso del asistente) ────────────────
@@ -442,7 +583,7 @@ async function resumen({ desde = new Date(Date.now() - 24 * 3_600_000) } = {}) {
             err ? `${err} con error` : null,
         ].filter(Boolean);
         const lin = [`*Contestador${copia ? ' (en copia)' : ''}*: ${partes.join(' · ')}.`];
-        if (copia && enviados) lin.push(`Has mandado ${enviados} con «manda C…».`);
+        if (copia && enviados) lin.push(`Has mandado ${enviados} con «C…».`);
         return lin.join('\n');
     } catch (e) {
         console.warn('[contestador] resumen:', e.message);
@@ -483,7 +624,7 @@ function start() {
 }
 
 module.exports = {
-    start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, activo, modo, CFG,
+    start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, activo, modo, modoGuardar, CFG,
     // para las pruebas
-    textoParaFran, plazoDesde, esDeLaCasa, resumenPendientes,
+    textoParaFran, lineasGuardar, plazoDesde, esDeLaCasa, resumenPendientes,
 };

@@ -34,6 +34,23 @@ const {
 // en cuanto vuelve (asistente_whatsapp.js). Nunca lanza.
 const mandar = mandarOGuardar;
 const proactivo = require('./asistente_proactivo');
+const { ordenContestador } = require('../utils/ordenContestador');
+
+/** «C4»: manda (y guarda) lo de esas copias del contestador. Devuelve lo que se le dice a Fran. Nunca lanza. */
+async function mandarCopias(ids, si) {
+    const lineas = [];
+    for (const id of ids) {
+        try {
+            // eslint-disable-next-line no-await-in-loop
+            const r = await api(`/api/whatsapp/contestador/${id}/enviar`, { method: 'POST', body: { si }, ms: 240_000 });
+            const g = r.guardados ? `${r.guardados === 1 ? '1 documento guardado' : `${r.guardados} documentos guardados`} en el expediente` : '';
+            lineas.push(r.texto ? `C${id}: mandado${g ? `, y ${g}` : ''}.` : `C${id}: ${g || 'hecho'} (sin escribirle).`);
+        } catch (e) {
+            lineas.push(`C${id}: no lo mando. ${String(e.message || e).replace(/^\/api\S+ → /, '')}`);
+        }
+    }
+    return lineas.join('\n');
+}
 
 const RAIZ = path.join(__dirname, '..', '..', '..');
 const DIR = path.join(__dirname, '..', 'scratch', 'asistente');
@@ -425,6 +442,14 @@ async function vueltaUnica() {
             await mandar(textoConsumo());
             return;
         }
+        // «C4» (o «manda C4», «C2 y C4»): el «sí» a una copia del CONTESTADOR. Es un botón, no hay nada
+        // que pensar: lo manda el vigilante sin despertar a Claude (Fran, 10/11/2026). Con cambios
+        // («C4, dile además…») sí va a Claude, que lo redacta y lo manda (asistente_instrucciones.md).
+        const orden = soloTexto ? ordenContestador(soloTexto) : null;
+        if (orden?.tipo === 'mandar') {
+            await mandar(await mandarCopias(orden.ids, soloTexto));
+            return;
+        }
 
         const carpeta = path.join(DIR, 'entrada', etiqueta);
         const lineas = [];
@@ -641,7 +666,10 @@ function servidor() {
     }).listen(PUERTO, () => log(`Esperando avisos en :${PUERTO}.`));
 }
 
-(async () => {
+// Solo arranca si se LANZA (`node scripts/asistente_vigia.js`). Con un `require` (una prueba que
+// mira si el fichero carga) arrancaba de verdad: leía el grupo de Fran desde el PC y le volvía a
+// atender lo ya atendido en el servidor (10/11/2026).
+if (require.main === module) (async () => {
     if (!TEL) { log('Falta ASISTENTE_WHATSAPP_TEL en el .env: el canal no arranca.'); return; }
     if (!cogerLock()) { log('Ya hay un vigilante corriendo.'); return; }
     log(`Vigilando ${GRUPO ? `el grupo ${GRUPO} (solo los mensajes de Fran)` : `el chat de ${TEL}`} cada ${CADA_MS / 1000} s${SERVIDOR ? ' y con el aviso del backend' : ''} · modelo por defecto ${MODELO}.`);
