@@ -34,7 +34,7 @@
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,6 KB | 1 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,5 KB | 6 |
-| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 27,4 KB | 18 |
+| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 27,6 KB | 18 |
 
 ## Reglas numeradas → dónde están
 

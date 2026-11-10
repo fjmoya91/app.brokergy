@@ -10,7 +10,7 @@ Fuente única:
 - [services/bienvenidaWhatsapp.js](../../../implementation/backend/services/bienvenidaWhatsapp.js): la sesión, la BD y la vuelta;
 - [utils/bienvenidaWhatsapp.js](../../../implementation/backend/utils/bienvenidaWhatsapp.js): el texto, a quién no y el horario;
 - tabla en [scripts/wa_bienvenidas_schema.sql](../../../implementation/backend/scripts/wa_bienvenidas_schema.sql);
-- prueba: `node implementation/backend/scripts/test_bienvenida_whatsapp.js` (36 casos, sin WhatsApp ni BD).
+- prueba: `node implementation/backend/scripts/test_bienvenida_whatsapp.js` (36 bloques, sin WhatsApp ni BD).
 
 ## Por qué así y no con el «mensaje de bienvenida» de WhatsApp Business
 
@@ -76,6 +76,13 @@ ninguna pista de que ya le conocemos:
   documentación». Era un número que no estaba en ningún sitio, pero había llamado por teléfono: la bienvenida habría
   sonado a contestador. Quien viene de parte de un instalador es un lead del partner, y Fran lo da de alta a mano para
   asignárselo (por el formulario quedaría sin partner).
+- **Viene de un botón de brokergy.es que no es el de las ayudas** (`yaNosConoce`, 10/11/2026): la ficha de un
+  instalador del escaparate manda «Hola, he visto a GONZAGARRI S.L en brokergy.es y me gustaría que me hiciera la
+  obra…» (`src/data/red.js` y `encuentra-tu-instalador/[slug].astro` de brokergy-web), y las páginas de instaladores y
+  distribuidores, «Hola, soy instalador…» / «soy distribuidor…». Medido en el modo copia: Natalia (Argamasilla de Alba)
+  escribió desde la ficha de Gonzagarri pidiendo presupuesto; la bienvenida de siempre no le habría dicho nada de su
+  instalador y el lead habría entrado sin partner. El botón de las ayudas («quiero saber qué ayuda le corresponde a mi
+  obra») sí la recibe.
 - **No es un móvil español:** un fijo, o un número de fuera (spam).
 - **Tipos que no son de alguien que pregunta:** una tarjeta de contacto (un instalador pasando un cliente), una
   ubicación, un aviso del sistema.
@@ -122,6 +129,12 @@ La cuenta es la de TODOS los envíos automáticos de la app.
 3. `WA_BIENVENIDA_MODO=real` + `WA_BIENVENIDA_PRUEBA=<móvil personal de Fran>`. Fran escribe desde su móvil y le llegan
    el texto y el vídeo. Así se comprueba el vídeo de verdad, que en local no se puede.
 4. Quitar `WA_BIENVENIDA_PRUEBA`.
+
+Lo que se hizo: 1 y 2 el 09/11/2026 (en copia desde las 21:16). El 10/11, a la vista de lo apuntado (Santiago, que
+había llamado; Carlos Cenamor, contestado a mano; Natalia, del escaparate), se añadieron los dos filtros de
+`yaNosConoce` y Fran dijo «pásala a real». El paso 3 se saltó: el texto y el vídeo ya se habían mandado a mano a un
+cliente (Juan, 652524778, de Calefacciones Miguel González) y llegaron los dos. Lo que no se ha visto aún es el envío
+automático del vídeo tras el ACK del texto: la primera fila ENVIADA en real se comprueba leyendo su chat.
 
 ## Lo que no se ha podido probar en local
 

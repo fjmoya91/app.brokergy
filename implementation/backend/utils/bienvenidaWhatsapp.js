@@ -73,6 +73,12 @@ const YA_NOS_CONOCE = [
     [/\bfran(cisco)?\b/, 'se dirige a Fran por su nombre'],
     [/\bte (he )?llam(e|ado)\b|\bos (he )?llam(e|ado)\b|\bme llamast(e|eis)\b|\b(lo que )?hemos hablado\b|\bhablamos\b|\bhable con(tigo| vosotros)\b|\blo hablado\b|\bsegun (lo )?hablado\b|\bcomo (te |os )?(dije|comente|quedamos)\b|\bquedamos en\b|\blo que me (pediste|pedisteis|has pedido|habeis pedido)\b/, 'habla de una conversación anterior'],
     [/\bde parte de\b|\b(me )?(ha|han) (pasado|dado|facilitado) (tu|vuestro|este) (numero|telefono|contacto|whatsapp)\b|\btu (numero|telefono|contacto) me lo (ha|han) (pasado|dado)\b/, 'viene de parte de alguien'],
+    // Los botones de WhatsApp de brokergy.es que NO son de un cliente que pregunta por
+    // su ayuda (10/11/2026): la ficha de un instalador del escaparate («Hola, he visto a
+    // GONZAGARRI S.L en brokergy.es y me gustaría que me hiciera la obra…»: el lead es
+    // de ese instalador) y las páginas de instaladores y distribuidores.
+    [/\bhe visto a .{2,80} en brokergy\.es\b/, 'viene del escaparate de un instalador de brokergy.es'],
+    [/\bsoy (instalador|distribuidor)\b/, 'es un instalador o un distribuidor'],
 ];
 
 /** Si el texto de la ráfaga dice que ya nos conoce, el motivo; si no, null. */

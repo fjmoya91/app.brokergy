@@ -153,13 +153,17 @@ function montar({ tablas = {}, chats = {}, ws = waFalso(), ahora = MEDIODIA } = 
     await prueba('una conversación de antes o «de parte de» alguien → no', () => {
         for (const t of ['Buenas, lo que hablamos por teléfono', 'Os llamé el lunes por lo de la aerotermia',
             'Hola, vengo de parte de Instalaciones Pérez', 'Me ha pasado tu número mi vecino',
-            'Te mando lo que me pediste', 'Como te comenté, la caldera es de gasoil', 'Buenos días FRANCISCO']) {
+            'Te mando lo que me pediste', 'Como te comenté, la caldera es de gasoil', 'Buenos días FRANCISCO',
+            // Los botones de brokergy.es que no son de un cliente que pregunta (10/11/2026)
+            'Hola, he visto a Gonzagarri S.L en brokergy.es y me gustaría que me hiciera la obra. ¿Me calculáis la ayuda? Mi casa está en Argamasilla de Alba.',
+            'Hola, soy instalador y quiero trabajar con BROKERGY', 'Hola, soy distribuidor y quiero hablar de mi red de instaladores']) {
             assert.strictEqual(dice(t).ok, false, t);
         }
     });
     await prueba('quien pregunta sin conocernos → sí (y «francés» no es Fran)', () => {
         for (const t of ['Hola, quería información sobre las ayudas para cambiar la caldera',
-            '¿Cuánto me dan por poner aerotermia?', 'Tengo una caldera francesa de gasóleo', '']) {
+            '¿Cuánto me dan por poner aerotermia?', 'Tengo una caldera francesa de gasóleo', '',
+            'Hola, quiero saber qué ayuda le corresponde a mi obra']) {
             assert.strictEqual(dice(t).ok, true, t);
         }
     });
