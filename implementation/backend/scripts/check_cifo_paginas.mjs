@@ -247,6 +247,16 @@ const casos = [
         const e = cascada(3); e.cee.acs_method = 'litros'; e.cee.dacs_litros_dia = 1200;
         return conDelegacion(e, { largos: true });
     })()],
+    // ACS existente con su PROPIO rendimiento (termo eléctrico, η_ACS 1,00 — CAE-1991,
+    // 26RES060_168): columna «η_i · η_ACS», fila del «Donde» de dos líneas y el
+    // párrafo de η_ACS en la hoja del Anexo I, que es la que va justa.
+    ...[['litros', 120], ['cte', null]].map(([metodo, litros]) => [
+        `RES060 · ACS existente termo eléctrico · D_ACS ${metodo} · 5 en cascada`, (() => {
+            const e = cascada(5); e.cee.acs_method = metodo; if (litros) e.cee.dacs_litros_dia = litros;
+            e.instalacion.misma_caldera_acs = false;
+            e.instalacion.caldera_antigua_acs = { marca: '', modelo: 'TERMO ACS (EFECTO JOULE, SEGÚN CEE INICIAL)', numero_serie: '', rendimiento_id: 'electric' };
+            return e;
+        })()]),
     // Vía FM (RES060_FM): hoja propia con el certificado de inercia (doc. 3.c).
     // El peor caso es la cascada de 5 (rótulo de la potencia más largo) con el
     // mínimo del fabricante, que añade una fila.

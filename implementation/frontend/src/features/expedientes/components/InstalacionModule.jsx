@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BOILER_EFFICIENCIES, SIN_CALEFACCION_ID, esSinCalefaccion, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, climaScopForzado, scopsParaClima, zoneClimateSeason, CLIMA_SCOP } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES, SIN_CALEFACCION_ID, esSinCalefaccion, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, climaScopForzado, scopsParaClima, zoneClimateSeason, CLIMA_SCOP, etaAcsExistente } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME, buildInstalacionAddress } from '../utils/docGenerators';
 import { direccionDelCliente } from '../logic/direccionInstalacion';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE, acsEquipoPropio, getUnidades, mismaMaquina } from '../logic/aerotermiaUnits';
@@ -20,6 +20,7 @@ import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal
 import EprelAcsModal from './EprelAcsModal';
 import { SeriesRepetidasProvider, AvisoSerieRepetida, ResumenSeriesRepetidas } from './AvisoSerieRepetida';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
+import { acsExistenteDelCee, proponerTermoAcs, ACS_TERMO_ELECTRICO } from '../logic/acsExistenteCee';
 import { aplicaInerciaFm, inerciaFm } from '../logic/inerciaFm';
 
 // Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
@@ -2326,6 +2327,34 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     )}
                 </div>
 
+                {/* ── ACS EXISTENTE según el CEE INICIAL (CAE-1991) ──
+                    Si el certificado declara el ACS con un termo eléctrico (efecto
+                    Joule), se PROPONE declararlo: el término de ACS va con η_ACS = 1,00
+                    y no con la η de la caldera. Nunca se escribe solo. Dos sistemas de
+                    ACS (termo y caldera) solo se avisan. */}
+                {(() => {
+                    const info = acsExistenteDelCee(expediente?.cee?.cee_inicial, expediente?.cee?.xml_inicial);
+                    if (!local.cambio_acs) return null;
+                    if (info.dosSistemas) return (
+                        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-200">
+                            El CEE inicial declara <b>dos sistemas de ACS</b> ({info.detalle}). Revisa cuál declarar como ACS existente: el rendimiento del ACS cambia el ahorro.
+                        </div>
+                    );
+                    if (!proponerTermoAcs(local, info)) return null;
+                    return (
+                        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-200 flex items-center gap-3 flex-wrap">
+                            <span className="flex-1 min-w-[240px]">El CEE inicial declara el ACS con un <b>termo eléctrico (efecto Joule)</b> ({info.detalle}), y aquí el ACS existente sale de la caldera. El ahorro de ACS se calcula con η<sub>ACS</sub> = 1,00, no con la η de la caldera.</span>
+                            {!readOnly && (
+                                <button
+                                    type="button"
+                                    className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-100 font-bold text-[11px] uppercase tracking-wider hover:bg-amber-500/30"
+                                    onClick={() => setLocal(p => ({ ...p, misma_caldera_acs: false, caldera_antigua_acs: { ...(p.caldera_antigua_acs || {}), ...ACS_TERMO_ELECTRICO, marca: '', modelo: '', numero_serie: '' } }))}
+                                >Declarar termo eléctrico</button>
+                            )}
+                        </div>
+                    );
+                })()}
+
                 {/* ── CALDERAS (2 cols si ACS activo) ── */}
                 <div className={`grid gap-4 ${local.cambio_acs ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
                     <CalderaSection
@@ -2342,12 +2371,27 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         }}
                     />
                     {local.cambio_acs && (
-                        <CalderaSection
-                            title="Caldera Antigua — ACS"
-                            data={local.caldera_antigua_acs}
-                            readOnly={readOnly}
-                            onChange={v => setLocal(p => ({ ...p, caldera_antigua_acs: v, misma_caldera_acs: false }))}
-                        />
+                        <div className="space-y-2">
+                            <CalderaSection
+                                title="Caldera Antigua — ACS"
+                                data={local.caldera_antigua_acs}
+                                readOnly={readOnly}
+                                onChange={v => setLocal(p => ({ ...p, caldera_antigua_acs: v, misma_caldera_acs: false }))}
+                            />
+                            {/* η_ACS: el rendimiento con el que el ACS entra en la fórmula del
+                                ahorro (CAE-1991). Con un termo eléctrico es 1,00, no la η de la
+                                caldera; lo mismo que imprimen el CIFO y la ficha. */}
+                            {(() => {
+                                const etaCal = BOILER_EFFICIENCIES.find(b => b.id === (local.caldera_antigua_cal?.rendimiento_id || 'default'))?.value || 0.92;
+                                const eta = etaAcsExistente(local, etaCal);
+                                return (
+                                    <p className="text-[11px] text-white/50 px-1">
+                                        Rendimiento del ACS existente (η<sub>ACS</sub>): <b className="text-white/80">{eta.value.toFixed(2).replace('.', ',')}</b>
+                                        {eta.propio ? ' · distinto del de la caldera de calefacción: el término de ACS se calcula con él' : ' · el mismo que la caldera de calefacción'}
+                                    </p>
+                                );
+                            })()}
+                        </div>
                     )}
                 </div>
 

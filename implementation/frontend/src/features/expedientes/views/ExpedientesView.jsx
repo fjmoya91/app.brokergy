@@ -23,6 +23,7 @@ import {
     calculateHybridization,
     resolveHybridInputs,
     BOILER_EFFICIENCIES,
+    etaAcsExistente,
     CAE_PRECIO_CLIENTE_ANTERIOR,
     precioSelladoRes080,
 } from '../../calculator/logic/calculation';
@@ -761,6 +762,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                         q_net_heating,
                         dacs: inst.cambio_acs !== false ? dacs : 0,
                         boilerEff: boilerEffValue,
+                        acsEff: etaAcsExistente(inst, boilerEffValue).value,
                         scopHeating,
                         scopAcs,
                         cb,

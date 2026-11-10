@@ -19,6 +19,7 @@ import {
     BOILER_EFFICIENCIES,
     CAE_PRECIO_CLIENTE_ANTERIOR,
     precioSelladoRes080,
+    etaAcsExistente,
 } from '../../calculator/logic/calculation.js';
 import { acsComputaAhorro } from './aerotermiaUnits.js';
 import { ceeBaseDocumento } from './ceeFases.js';
@@ -84,6 +85,7 @@ export function computeExpedienteFinancials(exp) {
                     q_net_heating,
                     dacs: inst.cambio_acs !== false ? dacs : 0,
                     boilerEff: boilerEffValue,
+                    acsEff: etaAcsExistente(inst, boilerEffValue).value,
                     scopHeating,
                     scopAcs,
                     cb,

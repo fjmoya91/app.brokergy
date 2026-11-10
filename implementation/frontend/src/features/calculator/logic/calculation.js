@@ -454,6 +454,38 @@ export function esSinCalefaccion(rendimientoId) {
     return String(rendimientoId || '') === SIN_CALEFACCION_ID;
 }
 
+/**
+ * ηACS — rendimiento del sistema de ACS EXISTENTE (CAE-1991, Fran 10/11/2026).
+ *
+ *   AE_TOTAL = F_P · [ D_CAL·S·(1/η_i − 1/SCOP) + D_ACS·(1/η_ACS − 1/SCOP_dhw) ]
+ *
+ * Con la MISMA caldera para los dos servicios (`misma_caldera_acs` ≠ false), η_ACS ES
+ * la η_i y nada cambia. Con un equipo de ACS propio manda SU fila
+ * (`caldera_antigua_acs.rendimiento_id`): un termo eléctrico de efecto Joule es
+ * `electric` → 1,00. Antes el ACS se calculaba con la η de la CALEFACCIÓN aunque el CEE
+ * inicial declarara un termo: en 26RES060_168 el CIFO decía 30.771 kWh/año y Marwen lo
+ * levantó (inexactitud nº 3); con el termo a 1,00 son 30.190.
+ *
+ * Sin fila de ACS (o con la de «sin calefacción», que no es un equipo de ACS) se cae a
+ * la η_i: no se inventa un rendimiento que nadie ha declarado.
+ * Devuelve { value, id, propio }: `propio` dice si el ACS tiene un rendimiento DISTINTO
+ * del de la caldera de calefacción, que es cuando los documentos lo imprimen aparte.
+ */
+export function etaAcsExistente(inst, etaCal) {
+    const etaI = Number(etaCal) || 0;
+    const calId = inst?.caldera_antigua_cal?.rendimiento_id || 'default';
+    if (!inst || inst.misma_caldera_acs !== false) return { value: etaI, id: calId, propio: false };
+    const id = inst.caldera_antigua_acs?.rendimiento_id;
+    const fila = id ? BOILER_EFFICIENCIES.find(b => b.id === id) : null;
+    if (!fila || fila.sinCalefaccion) return { value: etaI, id: calId, propio: false };
+    return { value: fila.value, id: fila.id, propio: fila.value !== etaI };
+}
+
+/** ¿El ACS existente es un termo eléctrico de efecto Joule? (fila `electric`, η = 1). */
+export function acsExistenteEsTermoElectrico(inst) {
+    return !!inst && inst.misma_caldera_acs === false && inst.caldera_antigua_acs?.rendimiento_id === 'electric';
+}
+
 const REFORMA_EFFICIENCIES = {
     'sin_aislamiento': 0.549,
     'antigua_mal_aislamiento': 0.618,
@@ -929,6 +961,9 @@ export function calculateSavings({
     q_net_heating, // Demanda Neta de Calefacción (kWh/año)
     dacs = 2731.4, // Demanda ACS (kWh/año)
     boilerEff = 0.92, // Rendimiento caldera antigua
+    // η_ACS — rendimiento del sistema de ACS EXISTENTE (`etaAcsExistente`). Sin él, el de
+    // la caldera: lo que no lo pasa da exactamente lo mismo que antes de existir.
+    acsEff,
     scopHeating = 4.5, // SCOP Nueva Bomba de Calor
     scopAcs = 3.0, // SCOP ACS Nueva
     changeAcs = false, // ¿Se cambia también ACS?
@@ -958,9 +993,10 @@ export function calculateSavings({
     // Consumo Final Calefacción (Actual)
     const finalEnergyHeatingOld = q_net_heating / boilerEff;
 
-    // Consumo Final ACS (Actual)
-    // Asumimos que la caldera actual provee ACS con el mismo rendimiento
-    const finalEnergyAcsOld = dacs / boilerEff;
+    // Consumo Final ACS (Actual), con el rendimiento del sistema de ACS existente
+    // (η_ACS). Si es la misma caldera, η_ACS = boilerEff.
+    const etaAcs = Number(acsEff) > 0 ? Number(acsEff) : boilerEff;
+    const finalEnergyAcsOld = dacs / etaAcs;
 
     const totalFinalEnergyOld = finalEnergyHeatingOld + finalEnergyAcsOld;
 
@@ -974,8 +1010,8 @@ export function calculateSavings({
 
     // ACS Nueva
     // Si se cambia ACS -> Usamos SCOP ACS
-    // Si NO se cambia ACS -> Usamos el rendimiento de la caldera antigua (boilerEff)
-    const effAcsNew = changeAcs ? scopAcs : boilerEff;
+    // Si NO se cambia ACS -> el rendimiento del ACS existente, y el término se cancela
+    const effAcsNew = changeAcs ? scopAcs : etaAcs;
     const finalEnergyAcsNew = dacs / effAcsNew;
 
     const totalFinalEnergyNew = finalEnergyHeatingNew + finalEnergyAcsNew;

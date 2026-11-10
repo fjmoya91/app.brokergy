@@ -19,7 +19,7 @@
 // inyecte su propio origen absoluto (Puppeteer renderiza con setContent → base
 // about:blank, las rutas relativas no cargan).
 // ============================================================================
-import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, redondeaScop, normalizeClimateSeason } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, redondeaScop, normalizeClimateSeason, etaAcsExistente, acsExistenteEsTermoElectrico } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, domicilioEmpresa, empresaInstaladora, empresasActuacion,
     notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
@@ -332,14 +332,25 @@ export function deriveCifoData({ expediente, results }) {
     const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
     const acsTermoDeclarado = esTermoElectrico(acsAero) || esTermoElectrico(inst.aerotermia_acs);
     const tieneAcs = acsEnAlcance(inst);
-    const acsExMarca = inst.caldera_antigua_acs?.marca || calExMarca;
-    const acsExMod = inst.caldera_antigua_acs?.modelo || calExMod;
+    // ACS EXISTENTE con un termo eléctrico (efecto Joule) propio: es otro aparato, así
+    // que no hereda la marca ni el modelo de la caldera, y se rotula como lo que es —no
+    // «Caldera eléctrica»—, con su η_ACS = 1,00 (CAE-1991, inexactitud nº 3 de Marwen).
+    const acsExTermo = acsExistenteEsTermoElectrico(inst);
+    const acsExMarca = inst.caldera_antigua_acs?.marca || (acsExTermo ? '—' : calExMarca);
+    const acsExMod = inst.caldera_antigua_acs?.modelo || (acsExTermo ? '—' : calExMod);
     const acsExSerie = inst.caldera_antigua_acs?.numero_serie || inst.caldera_antigua_acs?.n_serie || '—';
 
     const acsEffId = inst.caldera_antigua_acs?.rendimiento_id || boilerEffId;
     const acsEffEntry = BOILER_EFFICIENCIES.find(b => b.id === acsEffId);
-    const acsExTipo = acsEffEntry?.label || calExTipo;
-    const acsExComb = acsExTipo.split(',')[0] || '—';
+    const acsExTipo = acsExTermo ? 'Termo eléctrico (efecto Joule)' : (acsEffEntry?.label || calExTipo);
+    const acsExComb = acsExTermo ? 'Electricidad' : (acsExTipo.split(',')[0] || '—');
+    // η_ACS: el rendimiento del ACS existente (fuente única `etaAcsExistente`, la misma
+    // que usa el cálculo del ahorro). `etaAcsPropio` = el ACS entra en la fórmula con un
+    // rendimiento distinto del de la caldera, y entonces el certificado lo declara aparte.
+    const etaAcsInfo = etaAcsExistente(inst, etaBoiler);
+    const etaAcsStr = etaAcsInfo.value.toFixed(2).replace('.', ',');
+    // En la vía FM el ahorro sale de su propia fórmula (una sola η): ahí no se declara aparte.
+    const etaAcsPropio = tieneAcs && etaAcsInfo.propio && !esNumeroFm(numexpte);
 
     const acsEsAcumulador = tieneAcs && tipoEquipoNuevo(acsAero) === EQUIPO_NUEVO.ACUMULADOR;
     // El acumulador no es un equipo del catálogo: marca, modelo y nº de serie son
@@ -583,7 +594,7 @@ export function deriveCifoData({ expediente, results }) {
         // desglose del ahorro (terciario)
         aeCalStr, aeAcsStr, aeCapStr, aeSinCbStr,
         // ACS
-        tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie,
+        tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie, etaAcsStr, etaAcsPropio,
         acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
         acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         // método SCOP / emisor
@@ -919,7 +930,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         calNuMarca, calNuMod, calNuSerieEx, calNuUds,
         tienePiscina, dcapStr, scopPoolStr, pisNuMarca, pisNuMod, pisNuSerie,
         aeCalStr, aeAcsStr, aeCapStr, aeSinCbStr,
-        tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie,
+        tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie, etaAcsStr, etaAcsPropio,
         acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
         acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         metodoCal, metodoAcs, emiLabel,
@@ -1041,7 +1052,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         { th: 'D<sub>ACS</sub>', td: dacsCell },
         // La demanda de piscina solo se lista si la actuación la incluye (TER100).
         ...(tienePiscina ? [{ th: 'D<sub>CAP</sub>', td: dcapStr }] : []),
-        { th: 'η<sub>i</sub>', td: etaStr },
+        etaAcsPropio
+            ? { th: 'η<sub>i</sub> · η<sub>ACS</sub>', td: `${etaStr} · ${etaAcsStr}` }
+            : { th: 'η<sub>i</sub>', td: etaStr },
         { th: 'SCOP<sub>bdc</sub>', td: scopCalStr },
         { th: 'SCOP<sub>dhw</sub>', td: scopAcsStr },
         ...(tienePiscina ? [{ th: 'SCOP<sub>pwh</sub>', td: scopPoolStr }] : []),
@@ -1113,7 +1126,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             { sym: 'S', desc: isTerciario ? 'Superficie útil habitable del edificio' : 'Superficie útil habitable del edificio o vivienda', val: tieneCalefaccion ? `${sStr} m²` : 'no aplica' },
             { sym: 'D<sub>ACS</sub>', desc: 'Demanda de energía en agua caliente sanitaria', val: tieneAcs ? `${dacsStr} kWh/año` : 'no aplica' },
             ...(tienePiscina ? [{ sym: 'D<sub>CAP</sub>', desc: 'Demanda anual de energía térmica para el calentamiento de agua de piscina', val: `${dcapStr} kWh/año` }] : []),
-            { sym: 'η<sub>i</sub>', desc: 'Rendimiento de caldera de combustión(PCS)', val: etaStr },
+            etaAcsPropio
+                ? { sym: 'η<sub>i</sub> · η<sub>ACS</sub>', desc: `Rendimiento de caldera de combustión (PCS) · del ACS existente: ${acsExTipo}`, val: `${etaStr} · ${etaAcsStr}` }
+                : { sym: 'η<sub>i</sub>', desc: 'Rendimiento de caldera de combustión(PCS)', val: etaStr },
             { sym: 'SCOP<sub>bdc</sub>', desc: 'Rendimiento estacional bomba calor calefacción', val: scopCalStr },
             { sym: 'SCOP<sub>dhw</sub>', desc: acsEsTermo ? 'Rendimiento del equipo de ACS (efecto Joule)' : 'Rendimiento estacional bomba calor ACS', val: scopAcsStr },
             ...(tienePiscina ? [{ sym: 'SCOP<sub>pwh</sub>', desc: 'Rendimiento estacional de la bomba de calor en calentamiento de piscina', val: scopPoolStr }] : []),
@@ -1382,7 +1397,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                     ${acsNuUds > 1 && !acsEsAcumulador && !acsEsTermo ? cmpRow('Nº de equipos instalados', '—', String(acsNuUds)) : ''}
                     ${cmpRow('Fuente de energía', acsExComb, 'Electricidad')}
                     ${cmpRow(acsNuUds > 1 ? 'Nº serie equipos ACS' : 'Nº serie equipo ACS', acsExSerie, acsNuSerieEx)}
-                    ${cmpRow(acsNuUds > 1 ? 'SCOP<sub>dhw</sub> aplicado (menor) / Rendimiento' : 'SCOP<sub>dhw</sub> / Rendimiento', etaStr, scopAcsStr)}
+                    ${cmpRow(acsNuUds > 1 ? 'SCOP<sub>dhw</sub> aplicado (menor) / Rendimiento' : 'SCOP<sub>dhw</sub> / Rendimiento', etaAcsStr, scopAcsStr)}
                 `)
                 : acsTermoFuera
                 // ACS FUERA DEL ALCANCE CAE: no computa en la fórmula (D_ACS = 0),
@@ -1394,7 +1409,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                     ${cmpRow('Modelo', acsExMod, acsFueraMod)}
                     ${cmpRow('Fuente de energía', acsExComb, 'Electricidad')}
                     ${cmpRow('Nº serie equipo ACS', acsExSerie, acsFueraSerie)}
-                    ${cmpRow('Rendimiento', etaStr, '1,00')}
+                    ${cmpRow('Rendimiento', etaAcsStr, '1,00')}
                 `)}
                 <div style="margin-top:8px;border:1px solid #E9E9E1;border-radius:14px;padding:12px 16px;font-size:11.5px;color:#6E6E66;line-height:1.5;">
                     <b style="color:#1A1A1A;">El ACS queda fuera del alcance de la actuación.</b> La producción de agua caliente sanitaria se resuelve con un equipo de efecto Joule (rendimiento = 1), que no es una bomba de calor: <b style="color:#1A1A1A;">no computa en el cálculo del ahorro de energía</b> y la demanda de ACS (D<sub>ACS</sub>) no se incluye en la fórmula. Se declara únicamente como información de la instalación resultante.
@@ -1591,6 +1606,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
 
         ${subLabel(`${tienePiscina ? 6 : 5}. Justificación rendimiento de caldera de combustión η<sub>i</sub>`, '#6E6E66', '16px')}
         <p style="margin:0;font-size:12.5px;color:#4a4a44;">Se ha utilizado un rendimiento estacional de <b style="color:#1A1A1A;">${etaStr}</b>, al tratarse de una caldera de <b style="color:#1A1A1A;">${calExTipo}</b>, siguiendo las indicaciones del Ministerio para la Transición Ecológica y el Reto Demográfico recogidas en los criterios de verificación "24/11.03: Rendimientos estacionales vs. nominales en fichas IND040, RES060, RES090-099, TER100 y TER170-179".${isTer173 ? ` El valor procede de la tabla B.3 <i>«Rendimiento estacional por defecto basado en el combustible, la antigüedad y el tipo de caldera»</i> que recoge el <b>Anexo VIII de la propia ficha TER173</b> para el caso —el de esta actuación— en que no se dispone del rendimiento estacional sobre energía primaria de la instalación existente.` : ''}</p>
+        ${etaAcsPropio ? `
+        <p style="margin:6px 0 0;font-size:12.5px;color:#4a4a44;"><b style="color:#1A1A1A;">η<sub>ACS</sub> del sistema de ACS existente:</b> el certificado de eficiencia energética inicial declara el agua caliente sanitaria con un equipo distinto de la caldera, <b style="color:#1A1A1A;">${acsExTipo}</b>, de rendimiento <b style="color:#1A1A1A;">${etaAcsStr}</b>, que es el que se aplica en el término de ACS: D<sub>ACS</sub>·(1/η<sub>ACS</sub> − 1/SCOP<sub>dhw</sub>).</p>
+        ` : ''}
     `;
 
     const renderEprelJustification = (isAcs = false) => {

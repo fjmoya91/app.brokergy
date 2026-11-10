@@ -304,7 +304,7 @@ function resolveTipologia(exp, op) {
 
 // ─── Ahorro AE_TOTAL (savingsKwh) — espejo EXACTO de calcResults (final-first) ──
 async function computeSavingsKwh(exp, op) {
-    const { calculateSavings, calculateRes080, calculateRes080FromEmissions, calculateHybridization, resolveHybridInputs, BOILER_EFFICIENCIES } = await loadCalc();
+    const { calculateSavings, calculateRes080, calculateRes080FromEmissions, calculateHybridization, resolveHybridInputs, BOILER_EFFICIENCIES, etaAcsExistente } = await loadCalc();
     const ficha = resolveTipologia(exp, op);
     const cee = exp.cee || {};
     const inst = exp.instalacion || {};
@@ -350,6 +350,8 @@ async function computeSavingsKwh(exp, op) {
                 q_net_heating,
                 dacs: inst.cambio_acs !== false ? dacs : 0,
                 boilerEff: boilerEffValue,
+                // η_ACS propio (termo eléctrico = 1,00): el mismo que imprime el CIFO.
+                acsEff: etaAcsExistente(inst, boilerEffValue).value,
                 scopHeating, scopAcs, cb,
                 changeAcs: changeAcsFlag,
             });

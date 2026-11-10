@@ -63,6 +63,8 @@ paths:
 
 179. **Con los dos `.xml` (los dos con `<EnergiaFinalVectores>`), el ahorro RES080 es la energía final que DECLARAN: Σ inicial − Σ final, sin emisiones ni método que elegir — en la calculadora y en el expediente** (2026-10-27, Fran, 26RES080_OP86: la tabla de emisiones daba 41,18 MWh y los `.xml` 55,73, porque dividía carbón + gas ficticio por UN factor). Lo decide `calculateRes080` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js) (`metodoForzado: 'energia_final'`), y lo dicen el chip del módulo CEE y el popup de la calculadora. En reforma, **«Cálculo real» es UNA pestaña** que abre `CeeRealModal` (CEE inicial y final; `.xml`, `.cex`, PDF o fotos; el inicial, del cliente o nuestro → `inputs.cee_inicial_origen`); lo sembrado lo decide `seedCalculoRealReforma` en [ceeSeed.js](implementation/frontend/src/features/calculator/logic/ceeSeed.js): con final no hay comparativa «con tu CEE» (`cee_previo` a null) y la superficie es la del inicial; con OCR, tabla de emisiones. Tras tocarlo: `node implementation/backend/scripts/test_cobertura_generadores.mjs`, `test_xml_cee_v30.mjs` y `check_res080_paginas.mjs`. Ver "Ahorro RES080 — método SIMPLIFICADO".
 
+209. **El ACS existente se calcula con SU rendimiento: un termo eléctrico va a 1,00, no a la η de la caldera** (2026-11-10, CAE-1991, Marwen en 26RES060_168: 30.771 → 30.190 kWh/año). `AE = F_P·[D_CAL·S·(1/η_i − 1/SCOP_bdc) + D_ACS·(1/η_ACS − 1/SCOP_dhw)]`; η_ACS = η_i salvo con `misma_caldera_acs: false` y una fila de `caldera_antigua_acs.rendimiento_id` (`electric` = 1,00; sin fila o «sin calefacción», η_i). Fuente única: `etaAcsExistente` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js) y el parámetro `acsEff` de `calculateSavings`, que pasan las cinco vías del ahorro (`computeExpedienteFinancials`, `expedienteFinancialsNode`, `cifoService.computeSavingsKwh`, `ExpedienteDetailView`, `ExpedientesView`). El termo lo PROPONE el CEE inicial en Instalación ([acsExistenteCee.js](implementation/frontend/src/features/expedientes/logic/acsExistenteCee.js)) y lo declara una persona; el CIFO imprime «η_i · η_ACS» solo cuando difieren. Medido: de 382 expedientes solo cambian el 168 y el 182. Tras tocarlo: `node implementation/backend/scripts/test_eta_acs_existente.mjs` y `check_cifo_paginas.mjs`. Ver "El ACS existente con su PROPIO rendimiento".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -74,6 +76,7 @@ paths:
 - `docs/conocimiento/calculo/cee-a-ciegas-diseno-para-la-oportunidad.md` — El CEE «a ciegas» en la oportunidad: la cifra APARTE, solo para el equipo (2026-10-26) · 10,0 KB
 - `docs/conocimiento/calculo/cee-a-ciegas-prueba-con-18-expedientes.md` — El CEE «a ciegas»: prueba con 18 expedientes y Fase 0 con 120 (2026-10-26) · 6,7 KB
 - `docs/conocimiento/calculo/el-acs-en-el-mismo-clima-que-la-calefaccion.md` — El ACS se declara en el MISMO clima que la calefacción (2026-10-21) · 3,3 KB
+- `docs/conocimiento/calculo/el-acs-existente-con-su-propio-rendimiento.md` — El ACS existente con su PROPIO rendimiento: el termo eléctrico va a 1,00 (2026-11-10) · 3,8 KB
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md` — El CEE que MANDA, y qué se avisa antes de generar (2026-09-03) · 8,7 KB
 - `docs/conocimiento/calculo/el-coste-del-informe-de-verificacion-ya-en-la-simulacion.md` — El COSTE DEL INFORME DE VERIFICACIÓN, ya en la simulación (2026-09-11) · 3,2 KB
 - `docs/conocimiento/calculo/factor-multiplicador-la-resolucion-publicada-res060-fm.md` — FACTOR MULTIPLICADOR: la Resolución publicada (RES060_FM, RES090_FM…RES094_FM, RES080_FM) (2026-11-07) · 36,0 KB
@@ -118,6 +121,10 @@ calefacción estimada se multiplica por 1,25**
 - `docs/conocimiento/calculo/el-acs-en-el-mismo-clima-que-la-calefaccion.md`
   - **REGLA — el SCOP_dhw y el SCOP de calefacción salen de la MISMA temporada.**
   - **REGLA — en una hibridación el clima se ELIGE, y lo elegido viaja de la oportunidad al expediente.**
+- `docs/conocimiento/calculo/el-acs-existente-con-su-propio-rendimiento.md`
+  - **REGLA — el término de ACS se calcula con el rendimiento del equipo que PRODUCE el ACS antes de la
+obra, y ese equipo se DECLARA en Instalación.**
+  - **REGLA — el CEE inicial lo PROPONE, una persona lo declara.**
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md`
   - **REGLA — la demanda de ACS tiene que ser LA MISMA en los dos certificados, y si no
 lo es, se usa la del CEE INICIAL.**

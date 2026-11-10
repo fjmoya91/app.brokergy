@@ -42,7 +42,7 @@ function loadDacs() {
 // Espejo de computeExpedienteFinancials(exp) del frontend, con `op` explícito.
 async function computeExpedienteFinancialsNode(exp, op) {
     if (!op) return { ficha: '—', savingsKwh: null, cae: null, profit: null };
-    const { calculateSavings, calculateFinancials, calculateRes080, calculateHybridization, resolveHybridInputs, BOILER_EFFICIENCIES, CAE_PRECIO_CLIENTE_ANTERIOR } = await loadCalc();
+    const { calculateSavings, calculateFinancials, calculateRes080, calculateHybridization, resolveHybridInputs, BOILER_EFFICIENCIES, CAE_PRECIO_CLIENTE_ANTERIOR, etaAcsExistente } = await loadCalc();
 
     let ficha = op.ficha || 'RES060';
     if (exp.numero_expediente?.includes('RES080')) ficha = 'RES080';
@@ -86,6 +86,7 @@ async function computeExpedienteFinancialsNode(exp, op) {
                     q_net_heating,
                     dacs: inst.cambio_acs !== false ? dacs : 0,
                     boilerEff: boilerEffValue,
+                    acsEff: etaAcsExistente(inst, boilerEffValue).value,
                     scopHeating,
                     scopAcs,
                     cb,

@@ -7,7 +7,7 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 46,4 KB | 15 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 48,1 KB | 16 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 48,4 KB | 23 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
@@ -292,6 +292,7 @@
 - **206** → `.claude/rules/whatsapp.md` — A quien escribe por PRIMERA VEZ se le contesta SOLO, una vez, con el formulario «Calcula tu ayuda» (`?ref=wa…
 - **207** → `.claude/rules/whatsapp.md` — El CONTESTADOR contesta como Fran a quien tiene algo VIVO, tras 15 min de silencio, en la franja de la casa,…
 - **208** → `.claude/rules/oportunidades.md` — El formulario «Calcula tu ayuda» vive en la APP y la obra llega en el ENLACE
+- **209** → `.claude/rules/calculo.md` — El ACS existente se calcula con SU rendimiento: un termo eléctrico va a 1,00, no a la η de la caldera
 
 ## Documentos por área
 
@@ -304,6 +305,7 @@
 - `docs/conocimiento/calculo/cee-a-ciegas-diseno-para-la-oportunidad.md` — El CEE «a ciegas» en la oportunidad: la cifra APARTE, solo para el equipo (2026-10-26)
 - `docs/conocimiento/calculo/cee-a-ciegas-prueba-con-18-expedientes.md` — El CEE «a ciegas»: prueba con 18 expedientes y Fase 0 con 120 (2026-10-26)
 - `docs/conocimiento/calculo/el-acs-en-el-mismo-clima-que-la-calefaccion.md` — El ACS se declara en el MISMO clima que la calefacción (2026-10-21)
+- `docs/conocimiento/calculo/el-acs-existente-con-su-propio-rendimiento.md` — El ACS existente con su PROPIO rendimiento: el termo eléctrico va a 1,00 (2026-11-10)
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md` — El CEE que MANDA, y qué se avisa antes de generar (2026-09-03)
 - `docs/conocimiento/calculo/el-coste-del-informe-de-verificacion-ya-en-la-simulacion.md` — El COSTE DEL INFORME DE VERIFICACIÓN, ya en la simulación (2026-09-11)
 - `docs/conocimiento/calculo/factor-multiplicador-la-resolucion-publicada-res060-fm.md` — FACTOR MULTIPLICADOR: la Resolución publicada (RES060_FM, RES090_FM…RES094_FM, RES080_FM) (2026-11-07)
