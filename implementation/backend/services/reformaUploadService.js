@@ -619,7 +619,9 @@ function buildDocChecklist(datosCalculo = {}) {
 
     // ───────── DESPUÉS DE LA OBRA ─────────
     push({ key: 'FOTO_UNIDAD_EXTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
-           label: 'Unidad exterior nueva (instalada)', help: 'La máquina nueva que va fuera (en fachada, terraza o patio), ya colocada y conectada.' });
+           // Encuadrada SOLA (LOTE-2026-015, 26RES060_157): dos splits junto a la bomba de calor
+           // y un CEE sin refrigeración = «no queda justificada la situación anterior».
+           label: 'Unidad exterior nueva (instalada)', help: 'La máquina nueva que va fuera (en fachada, terraza o patio), ya colocada y conectada. Que salga SOLA: si al lado hay unidades de aire acondicionado, encuádrala para que no aparezcan.' });
     push({ key: 'FOTO_UNIDAD_EXTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Placa de la unidad exterior', help: 'La etiqueta de datos de la máquina de fuera. Acércate hasta que se lean marca, modelo y número de serie.' });
     // La unidad INTERIOR en sí (no su placa). Existía en el mapa de actuaciones del
@@ -660,7 +662,8 @@ function buildDocChecklist(datosCalculo = {}) {
            help: sel.hibridacion
                ? 'En una hibridación la caldera antigua se conserva. Haz una foto del nuevo depósito de agua caliente junto a la caldera que se mantiene.'
                : sel.calderaEsCombustion
-                   ? 'La caldera vieja ya retirada, o el hueco que ha quedado en la pared tras quitarla.'
+                   // LOTE-2026-015 (nº1, E1·E5·E9): un hueco que no se reconoce no prueba nada.
+                   ? 'El sitio donde estaba la caldera, desde el mismo ángulo que la foto del antes, en el que se vea que ya no está: el hueco con las tomas taponadas o el equipo nuevo en su lugar. Si la caldera se ha retirado entera, otra foto de ella ya desmontada con su placa legible.'
                    : 'El equipo antiguo ya desmontado, o el hueco que ha dejado en la pared.' });
     if (want('FOTO_VENTANAS_DESPUES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas nuevas (después)', help: 'Las ventanas nuevas ya instaladas.' });
     if (want('FOTO_CUBIERTA_DESPUES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta terminada', help: 'La cubierta o tejado ya terminado tras la obra.' });
@@ -830,13 +833,13 @@ const LABEL_CLIENTE = {
     OTROS_ANTES:               { label: 'Cualquier otra cosa que quieras mandarnos', help: 'Fotos, papeles o vídeos que no encajen arriba. Te pediremos que le pongas un nombre.' },
 
     // ── DESPUÉS ──
-    FOTO_UNIDAD_EXTERIOR:      { label: 'La máquina nueva de fuera', help: 'La que han colocado en la fachada, la terraza o el patio, ya instalada y conectada.' },
+    FOTO_UNIDAD_EXTERIOR:      { label: 'La máquina nueva de fuera', help: 'La que han colocado en la fachada, la terraza o el patio, ya instalada y conectada. Que salga solo esa máquina: si al lado hay aparatos de aire acondicionado, encuádrala para que no salgan.' },
     FOTO_UNIDAD_EXTERIOR_PLACA:{ label: 'La pegatina de la máquina de fuera', help: 'La etiqueta con letras y números. Acércate hasta que se lean: de ahí sale el número de serie, y sin él no podemos tramitar la ayuda.' },
     FOTO_UNIDAD_INTERIOR:      { label: 'La máquina nueva de dentro', help: 'Lo que han puesto dentro de casa: un aparato colgado en la pared o un depósito grande.' },
     FOTO_UNIDAD_INTERIOR_PLACA:{ label: 'La pegatina de la máquina de dentro', help: 'La etiqueta con letras y números del aparato de dentro o del depósito. Que se lean bien.' },
     FOTO_ARMARIO_SUELO_RADIANTE:{ label: 'El armario del suelo radiante, abierto', help: 'El armario empotrado con los tubos y las llaves. Ábrelo para que se vea por dentro.' },
     FOTO_ACS_DEPOSITO:         { label: 'El depósito del agua caliente', help: 'El depósito nuevo ya instalado. Haz también una foto de su pegatina, de cerca.' },
-    FOTO_CALDERA_DESMONTADA:   { label: 'La caldera vieja, ya quitada', help: 'La caldera antigua fuera, o el hueco que ha dejado en la pared.' },
+    FOTO_CALDERA_DESMONTADA:   { label: 'La caldera vieja, ya quitada', help: 'Una foto del sitio donde estaba la caldera, desde el mismo sitio que la foto de antes, en la que se vea que ya no está: el hueco que ha dejado o la máquina nueva puesta en su lugar. Si el instalador se la ha llevado, que haga una foto de la caldera ya quitada, con su pegatina.' },
     FOTO_HIBRIDACION:          { label: 'Tu caldera y la máquina nueva, conectadas', help: 'Los tubos que unen la caldera de siempre con el equipo nuevo. Si caben las dos en la misma foto, mejor.' },
     FOTO_PISCINA_BDC:          { label: 'La máquina nueva de la piscina', help: 'El aparato ya montado y conectado. Y otra foto de su pegatina, de cerca.' },
     FOTO_VENTANAS_DESPUES:     { label: 'Las ventanas nuevas, ya puestas' },

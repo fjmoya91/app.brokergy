@@ -142,7 +142,7 @@ Tras tocarlo: `check_cifo_paginas.mjs` (11 casos FM), `test_via_fm.mjs`, `test_r
 - `docs/conocimiento/documentos/la-representacion-del-titular-en-el-anexo-i.md` — La REPRESENTACIÓN del titular en el Anexo I: poder notarial u otro documento (2026-10-22) · 4,5 KB
 - `docs/conocimiento/documentos/las-coordenadas-utm-se-rotulan-etrs89-huso-30-n.md` — Las coordenadas UTM se rotulan «ETRS89 · huso 30 N» (2026-10-22) · 2,4 KB
 - `docs/conocimiento/documentos/las-fichas-y-el-anexo-i-se-rellenan-ya-no-se-redibujan.md` — Las FICHAS y el ANEXO I se RELLENAN, ya no se redibujan (2026-09-08) · 7,1 KB
-- `docs/conocimiento/documentos/lo-que-el-flag-esconde-y-lo-que-mayusculas-borra.md` — Lo que el FLAG esconde y lo que MAYÚSCULAS borra (2026-09-16) · 8,8 KB
+- `docs/conocimiento/documentos/lo-que-el-flag-esconde-y-lo-que-mayusculas-borra.md` — Lo que el FLAG esconde y lo que MAYÚSCULAS borra (2026-09-16) · 9,7 KB
 - `docs/conocimiento/documentos/misma-direccion-que-el-cliente-sigue-la-ficha-del-cliente.md` — «¿Misma dirección que el cliente? → Sí» sigue la ficha del CLIENTE (2026-10-20) · 2,9 KB
 - `docs/conocimiento/documentos/modulo-documentos-novedades.md` — Módulo Documentos — Novedades (2026-04-08) · 0,6 KB
 - `docs/conocimiento/documentos/quien-ejecuta-la-obra-y-quien-firma-ante-industria.md` — Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26) · 8,7 KB

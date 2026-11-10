@@ -57,7 +57,7 @@ paths:
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/migracion-sql-ya-en-produccion.md` — Migración SQL (ya en producción) · 0,4 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/notificacion-de-rechazo.md` — Notificación de rechazo · 0,6 KB
 - `docs/conocimiento/documentacion-fotos/para-el-certificado-o-para-el-expediente-no-es-lo-mismo.md` — Para el CERTIFICADO o para el EXPEDIENTE: no es lo mismo (2026-09-21) · 3,1 KB
-- `docs/conocimiento/documentacion-fotos/sin-la-caldera-en-su-sala-y-su-placa-no-hay-cee-ni-expediente.md` — Sin la foto de la caldera EN SU SALA y la de su PLACA, no hay CEE inicial ni expediente (2026-10-23) · 4,9 KB
+- `docs/conocimiento/documentacion-fotos/sin-la-caldera-en-su-sala-y-su-placa-no-hay-cee-ni-expediente.md` — Sin la foto de la caldera EN SU SALA y la de su PLACA, no hay CEE inicial ni expediente (2026-10-23) · 7,4 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -117,5 +117,7 @@ paralelo.**
   - **REGLA — calefacción COMUNITARIA que se individualiza: el desmontaje se justifica con los
 RADIADORES desmontados**
   - **REGLA — el EQUIPO NUEVO puesto en el sitio de la caldera justifica que se ha desmontado**
+  - **REGLA — la caldera DESMONTADA tiene que verse sin duda, y siempre con un comentario que lo explique**
+  - **REGLA — la UNIDAD EXTERIOR se fotografía SOLA**
 
 <!-- generado:fin -->

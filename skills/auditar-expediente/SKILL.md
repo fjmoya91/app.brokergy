@@ -112,6 +112,19 @@ Lee el expediente en Supabase (cliente, instalador FK, equipos, `documentacion`,
 16. **Reparto de facturas entre cotitulares (proindiviso).** Cuando el instalador factura la actuación dividida entre varios cotitulares para que cada uno se deduzca su parte en el IRPF: carga **TODAS** las facturas como inversión, exige **autorización firmada por todos los cotitulares** designando perceptor único + copia de sus NIF, y añade al PDF de facturas una **nota explicativa** de que el reparto es solo fiscal y que ni la actuación ni el ahorro se fraccionan. La acreditación registral/catastral de la cotitularidad es **refuerzo (LEVE)**, no requisito. Comprueba la no sobrefinanciación contra la suma de las 8 (o N) facturas, no contra la parte del titular.
 17. **DACS con las demandas de ACS de los dos CEE distintas y SIN ir por litros/día → ERROR.** Marwen levantaba la DACS del CEE final como inexactitud importante (CAE-1712 nº7, CAE-1713 nº3 y nº6) y desde el 19/10/2026 los verificadores piden, en ese caso, calcularla con los litros/día que declara el certificado (modo L/D). Compara siempre la demanda de ACS de los dos CEE (criterio completo en el punto 4).
 
+**Lecciones del informe de inexactitudes Marwen CAE-2035 / LOTE-2026-015 (09/11/2026)** — detalle, casos y cómo se piden: [comun/fotos-unidad-exterior-y-caldera-desmontada.md](comun/fotos-unidad-exterior-y-caldera-desmontada.md):
+
+18. **Otros aparatos en la foto de la UNIDAD EXTERIOR.** Abre `FOTO_UNIDAD_EXTERIOR` y mira si salen splits u otras unidades exteriores junto a la bomba de calor (26RES060_157: dos splits al lado y el CEE con un 0 % refrigerado → «no queda justificada la situación anterior»).
+    - Si dan servicio a la vivienda y el CEE inicial no tiene refrigeración → **ERROR**: se corrige el CEE.
+    - Si dan servicio a espacios no habitables que el CEE deja fuera → **WARNING**: comentario en el Anexo Fotográfico que lo diga, o una foto nueva encuadrada solo con la bomba de calor.
+    - Sin saber a qué dan servicio → **WARNING**, y se pide la foto encuadrada.
+19. **Desmontaje de la caldera que no se ve claro → ERROR.** `FOTO_CALDERA_DESMONTADA` tiene que demostrar, sin duda, que la caldera ya no está en su sitio (nº1, en tres expedientes del mismo lote). Vale:
+    - el hueco desde el mismo ángulo que `FOTO_CALDERA_ANTES`, con referencias reconocibles (pared, azulejo, suelo, soporte, tomas taponadas);
+    - el equipo nuevo en ese mismo sitio;
+    - la caldera ya desmontada con su placa legible y el mismo nº de fabricación que la del antes.
+
+    Y además, el **comentario del apartado** en el Anexo (`anexo_comentarios.FOTO_CALDERA_DESMONTADA`), con los números de foto con los que se compara. Sin comentario, o con un trozo de pared sin referencias → ERROR. Si el comentario dice que **se reformó la vivienda entera** → ERROR: se dice «se reformó el cuarto de calderas», o el verificador lee un RES080.
+
 ### 6. Firmas y subvenciones
 Firmante correcto por documento (Ficha = rep. legal SO · Anexo I cesión = BROKERGY + rep. legal SO · Anexo cesión = BROKERGY + cliente · Informe fotográfico = BROKERGY · Anexo I actuación = CLIENTE · CIFO = rep. legal instalador · RITE = instalador). Firmante incorrecto = ERROR; PDF aplanado no validable = INFO. No sobrefinanciación; si el Anexo I marca subvención → exigir justificante de registro.
 - **Excepción RES080 con dirección facultativa:** si el CIFO se emite como certificado final de obra del **técnico redactor de BROKERGY** y el propio documento identifica a la empresa instaladora y declara que es ella quien suscribe el certificado RITE, no es un ERROR automático → **LEVE**, con la acción de confirmar el criterio con el Sujeto Obligado antes de cerrar el lote.

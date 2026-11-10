@@ -140,6 +140,12 @@ una actuación que la factura/presupuesto **no** justifica, márcalo para exclui
      también esté en su apartado — Fran, 27/10/2026); la caldera en su sitio es `FOTO_CALDERA_ANTES`.
    - **placa del equipo equivocado** — la placa manda para el modelo y el nº de serie, así que una placa
      mal rotulada arrastra un error de SCOP al CIFO.
+   - **otros aparatos junto a la unidad exterior** (splits, otras unidades exteriores) — el verificador
+     pregunta por ellos si el CEE no tiene refrigeración (LOTE-2026-015, 26RES060_157). Se pide una foto
+     encuadrada solo con la bomba de calor; si no puede ser, comentario de a qué dan servicio.
+   - **un «hueco» que no se reconoce** en `FOTO_CALDERA_DESMONTADA` — tiene que verse que es el MISMO
+     sitio que el de la caldera del antes y que ya no está (LOTE-2026-015, nº1 en tres expedientes).
+   Criterio, casos y cómo se piden: [comun/fotos-unidad-exterior-y-caldera-desmontada.md](comun/fotos-unidad-exterior-y-caldera-desmontada.md).
 2. **Caza duplicados.** `md5sum FOTO_*.jpg | sort` por `device_bash`: dos hashes iguales son la misma
    foto subida dos veces. Compararlos por tamaño en bytes también vale como criba rápida.
 3. **Corrige por `device_bash`**: renombra al slot correcto usando nombres temporales `T_*.jpg` en una
@@ -201,11 +207,16 @@ habituales):
   potencia, nº de serie). Distínguela de la foto general: la placa es un plano cercano de la etiqueta.
 - `FOTO_ACS_ANTES` = sistema de agua caliente anterior (termo eléctrico o conexión de ACS). Solo si ACS
   está justificado (ver filtro previo).
-- `FOTO_UNIDAD_EXTERIOR` = unidad exterior nueva instalada.
+- `FOTO_UNIDAD_EXTERIOR` = unidad exterior nueva instalada, **sola en la foto** (sin splits al lado).
 - `FOTO_UNIDAD_EXTERIOR_PLACA` = placa/etiqueta de la unidad exterior.
 - `FOTO_UNIDAD_INTERIOR` / `FOTO_UNIDAD_INTERIOR_PLACA` = unidad interior/hidrokit y su placa.
 - `FOTO_ACS_DEPOSITO` = depósito de ACS nuevo. Solo si ACS está justificado.
-- `FOTO_CALDERA_DESMONTADA` = hueco/estado tras retirar la caldera antigua.
+- `FOTO_CALDERA_DESMONTADA` = hueco/estado tras retirar la caldera antigua: el mismo sitio que en
+  `FOTO_CALDERA_ANTES`, reconocible, o el equipo nuevo en su lugar, o la caldera ya desmontada con su
+  placa (mismo nº de fabricación). **Siempre con comentario del apartado**
+  (`anexo_comentarios.FOTO_CALDERA_DESMONTADA`, por `merge_expediente_doc_json`). Dice qué se ve y con
+  qué foto del antes se compara, por su número: la numeración empieza en cada fase. Sin ese comentario
+  el anexo no está listo.
 - `FOTO_VENTANAS_ANTES` / `FOTO_VENTANAS_DESPUES` = ventanas a sustituir / ventanas nuevas. Solo si la
   factura/presupuesto incluye partida de ventanas/carpintería.
 - `FOTO_CUBIERTA_ANTES/DESPUES`, `FOTO_FACHADA_ANTES/DESPUES`, `FOTO_SUELO_ANTES`, `FOTO_PLACAS_SOLARES`

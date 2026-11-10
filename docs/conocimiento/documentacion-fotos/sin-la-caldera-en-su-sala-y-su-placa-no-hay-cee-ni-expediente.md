@@ -59,9 +59,46 @@ misma que la del equipo nuevo: excepción a «cada imagen, una vez». Lleva un c
 el Anexo Fotográfico que lo explique. Junto con la caldera ya DESCONECTADA (Fran, 26/10/2026), son las
 tres fotos que valen: el hueco, la caldera desconectada o el equipo nuevo en su sitio.
 
+**REGLA — la caldera DESMONTADA tiene que verse sin duda, y siempre con un comentario que lo explique**
+(10/11/2026, informe de inexactitudes de Marwen, CAE-2035, del LOTE-2026-015). La nº1, «inexactitud
+importante» en 26RES060_117, _156 y _176, decía: «No queda suficientemente acreditada la inhabilitación
+de la caldera de combustión». Las fotos del hueco no dejaban claro que fuera el mismo sitio. Valen:
+
+- el hueco desde el mismo ángulo que `FOTO_CALDERA_ANTES`, con referencias reconocibles (azulejo,
+  cenefa, suelo, soporte, tomas taponadas);
+- el equipo nuevo en ese sitio;
+- la caldera ya desmontada, fuera, con su placa legible y el mismo nº de fabricación que la del antes.
+  En _156, el instalador la fotografió en su almacén: Ferroli Silent R K 25, nº 1203GC00601 en las dos
+  placas.
+
+La baja del suministro de gas refuerza, pero no sustituye a la foto (_117). En el Anexo Fotográfico el
+apartado lleva SIEMPRE un comentario (`anexo_comentarios.FOTO_CALDERA_DESMONTADA`) que dice qué se ve y
+con qué foto del antes se compara, por número; el verificador contestó que «indicándolo es suficiente».
+Si el cuarto se rehízo, se dice «se reformó el cuarto de calderas», **nunca «la vivienda por
+completo»**: el verificador puede leer una rehabilitación integral y pedir un RES080 (Fran, 10/11/2026,
+26RES060_176).
+
+**REGLA — la UNIDAD EXTERIOR se fotografía SOLA** (el mismo informe, nº5 en 26RES060_157: «no queda
+justificada la situación anterior a la actuación»). Junto a la bomba de calor salían dos splits, y el
+CEE inicial tenía un 0 % de superficie refrigerada. Eran de la cochera y de una cocinilla, que el CEE
+deja fuera de la superficie habitable (la cochera, como «PARTICIÓN GARAJE»), y hubo que explicarlo en
+el escrito de contestación.
+
+Si en la foto sale otro aparato:
+- se pide otra encuadrada;
+- si no puede ser y dan servicio a la vivienda, van en los dos CEE como máquina frigorífica;
+- si dan servicio a un espacio no habitable, lo dice el comentario del Anexo.
+
+Las ayudas de los dos apartados en la app (`help` y `LABEL_CLIENTE` de
+[reformaUploadService.js](implementation/backend/services/reformaUploadService.js)) ya lo piden así.
+Criterio de las skills: `skills/_comun/fotos-unidad-exterior-y-caldera-desmontada.md`.
+
 **Cómo se pide** (texto para el cliente o el instalador): «una foto de la caldera en su sitio, desde
 un par de metros, que se vea entera y el cuarto donde está, y otra de cerca de la etiqueta con sus
-datos (marca, modelo y potencia), que se lea bien».
+datos (marca, modelo y potencia), que se lea bien». Y al terminar la obra: «la máquina nueva de fuera,
+que salga sola, sin los aires acondicionados de al lado, y el sitio donde estaba la caldera desde el
+mismo sitio que la foto de antes, en la que se vea que ya no está (o la caldera ya quitada, con su
+pegatina)».
 
 Pendiente en la app (23/10/2026): el parte (`CEE_SIN_MATERIAL`) y el destino de los apartados siguen
 tratando caldera y placa como fotos del EXPEDIENTE, no del certificado; ver

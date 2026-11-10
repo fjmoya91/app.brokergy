@@ -144,12 +144,21 @@ Corrige de paso la ficha si `direccion` lleva dentro el CP y el municipio (sale 
 | Caldera antigua montada (y su sala) | `FOTO_CALDERA_ANTES` |
 | Su placa | `FOTO_PLACA_CALDERA_ANTES` |
 | El HUECO vacío tras retirarla, o la caldera ya DESCONECTADA (humos sueltos, separada de la pared) aunque siga en el cuarto, o el EQUIPO NUEVO puesto en el sitio de la caldera (el mismo rincón de la foto del antes, sin la caldera ni su chimenea) | `FOTO_CALDERA_DESMONTADA` (nunca la caldera aún montada y conectada; la desconectada basta, no se pide más — Fran, 26/10/2026. Si en su sitio está ya el equipo nuevo, esa foto vale y se pone también aquí, con un comentario del apartado que lo diga: excepción a «cada imagen, una vez» — Fran, 27/10/2026, 26RES060_221: el aerotermo de ACS donde estaba la caldera) |
-| Unidad exterior terminada | `FOTO_UNIDAD_EXTERIOR` · su placa → `_PLACA` |
+| Unidad exterior terminada, **sola en la foto** (si salen splits al lado, se pide otra encuadrada) | `FOTO_UNIDAD_EXTERIOR` · su placa → `_PLACA` |
 | Módulo hidráulico / unidad interior | `FOTO_UNIDAD_INTERIOR` · su placa → `_PLACA` |
 | Termo / bomba de calor de ACS aparte y su placa, **solo si el ACS entra en el CAE** (`cambio_acs=true`) | `FOTO_ACS_DEPOSITO`. Con el ACS fuera (`cambio_acs=false`, p. ej. un termo eléctrico) solo se justifica la calefacción: ni placa ni datos del termo se piden |
 | Depósito de gasóleo, desconexión, montaje, conexiones, pruebas | `OTROS_ANTES` / `OTROS_DESPUES` con `label` (no van al anexo) |
 
 Cada imagen, UNA vez. Un apartado vacío se deja vacío (no se rellena con otra foto).
+
+**Al recibir las fotos del fin de obra se miran dos cosas, y lo que falle se pide YA**, no cuando lo
+levante el verificador (LOTE-2026-015, inexactitudes nº1 y nº5):
+- que la unidad exterior salga sola;
+- que el desmontaje de la caldera se vea sin duda: el mismo sitio que en la foto del antes, el equipo
+  nuevo en su lugar, o la caldera ya quitada con su placa.
+
+Lo que no esté claro va a lo que falta del instalador, con el texto de
+[comun/fotos-unidad-exterior-y-caldera-desmontada.md](comun/fotos-unidad-exterior-y-caldera-desmontada.md).
 
 ### 7. Equipos
 1. **Caldera que se retira** (`caldera_antigua_cal` y `_acs` si era mixta): marca, modelo y nº de la

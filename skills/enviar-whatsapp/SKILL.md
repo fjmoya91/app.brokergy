@@ -86,6 +86,15 @@ El IBAN, la firma de anexos o el CIFO firmado NO entran aquí: esos sí los apor
   te da un texto ya redactado, respétalo: solo pásalo a formato WhatsApp (`*negrita*`) y asegúrate de que los
   enlaces son los reales del backend.
 - Aprovecha `nota`/`notaRelay` del backend como guion de lo que se pide, sin copiarla literal si suena a plantilla.
+- **Fotos de fin de obra:** al pedir la unidad exterior o la caldera desmontada, di CÓMO tiene que ser
+  la foto:
+  - la unidad exterior **sola**, sin los aires acondicionados de al lado;
+  - el sitio de la caldera **desde el mismo ángulo que la foto de antes**, en la que se vea que ya no
+    está, o la caldera ya quitada con su placa.
+
+  Textos para el instalador y para el cliente:
+  [comun/fotos-unidad-exterior-y-caldera-desmontada.md](comun/fotos-unidad-exterior-y-caldera-desmontada.md)
+  (LOTE-2026-015).
 
 ### 6. SIEMPRE borrador primero
 Llama a `enviar_whatsapp` con `modo="borrador"`. Enseña al usuario el destinatario resuelto + el texto completo.
