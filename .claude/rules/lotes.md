@@ -41,18 +41,22 @@ paths:
 
 190. **El S.O. tiene su ENLACE de solo lectura (`/so/:token`), y solo ve lo que deja pasar `vistaParaElSo`** (2026-11-03, Fran: «que le sirva a él en todo momento para consultar el estado en tiempo real»). Token de 128 bits por S.O. en `app_settings` (`enlace_so:{id}`), que crea, cambia y quita SOLO el ADMIN (cambiarlo o quitarlo deja muerto el anterior); `GET /api/public/so/:token` lo compara en tiempo constante y calcula la vista en el servidor con las MISMAS cuentas (`vistaDeSo` en [routes/lotes.js](implementation/backend/routes/lotes.js)). Al S.O. le llega su obligación SIN nuestras notas, nuestros lotes de ese año por etapa (código, estado, nº de actuaciones, kWh y su fuente; los vacíos no) — **el estado y la fuente, YA en texto para él** (`ESTADO_PARA_EL_SO`: «CAE emitidos» en vez de «PTE. PAGO BROKERGY A CLIENTE», «Pendiente de vuestra firma» en vez de «PTE. FIRMA S.O.»; uno sin traducir sale con el título de su etapa, nunca en crudo; «facturado», y el código sin lo de entre paréntesis) — y de lo que no está en ningún lote **solo el TOTAL** (es el mismo volumen para cualquier S.O.). Nunca clientes, ids, ofertas ni importes nuestros. Sí ve, en agregado, **lo que se ahorra con nosotros frente al Fondo** (`ahorroCaeEur`). **A cuánto le sale el CAE (€/MWh) NO le llega**: Fran, 05/11/2026, «de momento que no vea a cuánto está pagando el CAE, solo el ahorro». Lo ve solo el ADMIN en la Vista S.O. interna (`precioCaeParaSo`, `conPrecio`). Mandarle el enlace es un envío: con el «sí» de Fran. **Y lo que le falta se cubre con TODO lo LISTO y luego terminando lo que tiene la obra hecha, de más MWh a menos.** En DOC. COMPLETA manda el ESTADO (Fran, 03/11/2026: «si tienen DOC. COMPLETA marcado, deberían estar listos para presentar»): cuenta y entra en el lote aunque tenga graves abiertas, que solo se avisan; de lo que aún se está cerrando, lo que tiene graves NO cuenta (`planParaCubrir`; el picker del lote tiene el filtro de riesgo, «Todos» por defecto). Fuente única de lo que sale: `vistaParaElSo` en [services/obligacionSo.js](implementation/backend/services/obligacionSo.js). Tras tocarlo: `node implementation/backend/scripts/test_obligacion_so.mjs`, `test_propuesta_lote.mjs` y `auditar_rutas_sin_guardian.js`. Ver "El ENLACE para el propio S.O." y "Riesgo, recientes y «Para cubrir a INTERALCO»".
 
+212. **El lote habla con beCAE (Marwen) por su API v1.6.0, y la respuesta se lee en los DOS formatos** (2026-11-11, guía de Marwen): desde la 1.6.0 las respuestas van en `{ success, message, data }` y el nº de solicitud llega en `data.num_solicitud` — leer solo la raíz dejaba el lote sin nº (`normalizarCreacion`/`datosDe` de [marwenService.js](implementation/backend/services/marwenService.js)). El bloque **«⚡ beCAE en vivo»** ([BecaeEnVivo.jsx](implementation/frontend/src/features/lotes/components/BecaeEnVivo.jsx); qué paso toca lo decide `accionesBecae` de [logic/becae.js](implementation/frontend/src/features/lotes/logic/becae.js)) busca el lote por su PEDIDO (= su código), sella el estado y el nº de expediente del verificador si faltaba, trae la solicitud (sola al enviar por API) y la oferta, y sube la solicitud firmada, los `E{n}.zip` (todos o ninguno) y la oferta firmada. **Lo que sale hacia beCAE lo pulsa una persona con la lista de ficheros delante, y subir la oferta firmada ES aceptarla**; la solicitud de la APP no se sube nunca. **Las inexactitudes de la API entran por el MISMO `registrarInexactitudes` que las del PDF** (regla 159, colgadas del último informe subido), con el nº comparado como TEXTO («3-R2»), y respetando su LÍMITE de consultas (429 + `Retry-After`, solo con el expediente En resolución/HDTED). Contestarlas sigue siendo en el portal. Tras tocarlo: `node implementation/backend/scripts/test_marwen_api_v16.js`, `test_becae_acciones.mjs` y `test_inexactitudes_lote.js`. Ver "La API de Marwen v1.6.0".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/lotes/armar-el-lote-propuestas-por-antiguedad-y-por-instalador.md` — Armar el lote: filtro por instalador y PROPUESTAS por antigüedad y por instalador (2026-10-27) · 6,6 KB
 - `docs/conocimiento/lotes/auditar-los-cee-res060-frente-a-res080.md` — Auditar los CEE de un RES060 frente a un RES080: qué cuenta y qué no (2026-11-01) · 5,0 KB
+- `docs/conocimiento/lotes/contestar-inexactitudes-en-el-portal-de-marwen.md` — Contestar las inexactitudes en el portal de Marwen (beCAE), no por API (2026-11-11) · 3,2 KB
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15) · 2,1 KB
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md` — El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08) · 15,5 KB
 - `docs/conocimiento/lotes/el-registro-miteco-y-los-requerimientos-del-gestor.md` — El Nº de REGISTRO del MITECO en el lote, y los requerimientos del Gestor (2026-10-27) · 6,0 KB
 - `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md` — El TOTAL que nos ingresa el S.O., y marcarlo COBRADO (2026-10-15) · 4,1 KB
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09) · 14,3 KB
+- `docs/conocimiento/lotes/la-api-de-marwen-v1-6.md` — La API de Marwen v1.6.0: el lote habla solo con beCAE (2026-11-11) · 6,0 KB
 - `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md` — La «Vista S.O.»: su obligación del año y cómo vamos con ella (2026-10-28) · 12,0 KB
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01) · 9,3 KB
 - `docs/conocimiento/lotes/las-inexactitudes-del-verificador-se-registran-y-la-respuesta-se-arma-sola.md` — Las INEXACTITUDES del verificador se registran solas, y la RESPUESTA se arma al subsanar (2026-10-22) · 11,1 KB
@@ -82,6 +86,9 @@ tiene S.O. con algo que cubrir se titula «Para cubrir a {S.O.}».**
 su REGISTRO.**
   - **REGLA — que la ficha esté sin generar o sin firmar no es un defecto del expediente y no se
 lista**
+- `docs/conocimiento/lotes/contestar-inexactitudes-en-el-portal-de-marwen.md`
+  - **REGLA — la contestación se sube en UNA subida: el escrito firmado y todos los `_v1`, con una
+nota.**
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md`
   - **REGLA — un fallo de red de Marwen se dice con su nombre, y dice si se ha creado algo.**
   - **REGLA — tras un 504 NO se reintenta a ciegas.**
@@ -137,6 +144,13 @@ pantalla.**
   - **REGLA — una pieza puede NO PROCEDER, y eso no es que falte.**
   - **REGLA — GENERAR se pide de UNA actuación por PETICIÓN.**
   - **REGLA — se puede PARAR, y volver a generar PREGUNTA.**
+- `docs/conocimiento/lotes/la-api-de-marwen-v1-6.md`
+  - **REGLA — la respuesta de Marwen se lee en los DOS formatos.**
+  - **REGLA — en beCAE nuestros lotes se buscan por su PEDIDO, que es su código**
+  - **REGLA — lo que SALE hacia beCAE lo pulsa una persona y se confirma con la lista de ficheros.**
+  - **REGLA — la solicitud firmada que genera la APP no se sube nunca**
+  - **REGLA — las inexactitudes de la API entran por el MISMO camino que las del PDF**
+  - **REGLA — las inexactitudes tienen LÍMITE de consultas por clave**
 - `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md`
   - **REGLA — la obligación la TECLEAMOS, por S.O. y año.**
   - **REGLA — lo que le falta = cubrible con CAE − lo comprado a otros − TODO lo nuestro

@@ -2383,8 +2383,12 @@ const ORIGEN_SOLICITUD_APP = 'generada por la app';
 const ORIGEN_SOLICITUD_VERIFICADOR = 'descargada del verificador';
 const solicitudGeneradaPorApp = (d) => !!d && d.origen === ORIGEN_SOLICITUD_APP;
 
-async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}) {
+// `origen: ORIGEN_SOLICITUD_VERIFICADOR` = el PDF lo ha bajado la app de beCAE por
+// su API (v1.6.0): ES la que vale, así que sí sustituye a la de la app (y a una
+// anterior del verificador sin firmar), pero nunca a una firmada.
+async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA', origen = ORIGEN_SOLICITUD_APP, nombreOriginal = null } = {}) {
     if (!pdf || !pdf.length) return { archivada: false, motivo: 'sin PDF' };
+    const delVerificador = origen === ORIGEN_SOLICITUD_VERIFICADOR;
 
     const { data: fresh } = await supabase
         .from('lotes').select('documentos_so, historial').eq('id', lote.id).maybeSingle();
@@ -2394,7 +2398,7 @@ async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}
         return { archivada: false, motivo: 'la solicitud del lote ya está firmada', documento: docs[idx] };
     }
     // La descargada del verificador MANDA: la de la app nunca la pisa.
-    if (idx >= 0 && !solicitudGeneradaPorApp(docs[idx])) {
+    if (!delVerificador && idx >= 0 && !solicitudGeneradaPorApp(docs[idx])) {
         return { archivada: false, motivo: 'el lote ya tiene la solicitud descargada del verificador', documento: docs[idx] };
     }
 
@@ -2422,14 +2426,17 @@ async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}
         sent_at: (idx >= 0 ? docs[idx].sent_at : null) || null,
         signed_at: null,
         uploaded_at: nowIso(),
-        origen: ORIGEN_SOLICITUD_APP,
+        origen,
+        ...(nombreOriginal ? { original_file_name: nombreOriginal } : {}),
     };
     if (idx >= 0) docs[idx] = entrada; else docs.push(entrada);
 
     const historial = Array.isArray(fresh?.historial) ? [...fresh.historial] : [];
     historial.push({
         id: `${Date.now()}_solicitud_auto`, tipo: 'sistema',
-        texto: `Archivada la Solicitud de Verificación (borrador) en el lote (${name}).`,
+        texto: delVerificador
+            ? `Traída de beCAE por API la Solicitud de Verificación del verificador (${nombreOriginal || name}): es la que firma el S.O.`
+            : `Archivada la Solicitud de Verificación (borrador) en el lote (${name}).`,
         fecha: nowIso(), usuario,
     });
     await supabase.from('lotes')
@@ -4094,10 +4101,20 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
         }
 
         // 8. El PDF de la solicitud que se acaba de crear en el verificador queda
-        //    archivado en el lote. Best-effort: la solicitud YA está enviada y un
-        //    fallo de Drive no puede presentarse como un fallo de envío.
+        //    archivado en el lote. Desde la API v1.6.0 se BAJA la del propio beCAE
+        //    (la que vale para que la firme el S.O.): antes había que entrar en su
+        //    web, descargarla y volver a subirla aquí. Si no se puede, se archiva la
+        //    que compuso la app, como hasta ahora. Best-effort: la solicitud YA está
+        //    enviada y un fallo de Drive no puede presentarse como un fallo de envío.
         let solicitud_archivada = null;
-        if (solicitudHtml) {
+        if (result.num_solicitud) {
+            try {
+                solicitud_archivada = await traerSolicitudDeBecae(updated || lote, result.num_solicitud, { usuario: usuarioDe(req) });
+            } catch (e) {
+                console.warn('[enviar-verificador-api] traer solicitud de beCAE:', e.message);
+            }
+        }
+        if (solicitudHtml && !solicitud_archivada?.archivada) {
             try {
                 const pdf = await htmlToPdf(solicitudHtml);
                 solicitud_archivada = await archivarSolicitudBorrador(updated || lote, pdf, { usuario: usuarioDe(req) });
@@ -4126,6 +4143,366 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
         const code = (err.status === 503 || err.status === 504) ? err.status
             : (err.status && err.status >= 400 && err.status < 500) ? 422 : 500;
         res.status(code).json({ error: err.message || 'Error al enviar la solicitud por API', code: err.code || null, marwen: err.marwen || null });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// beCAE (Marwen) por API v1.6.0 — el lote habla SOLO con el verificador
+// Ver docs/conocimiento/lotes/la-api-de-marwen-v1-6.md.
+//
+// Lo que antes eran viajes a la web de beCAE (descargar la solicitud, subir la
+// firmada y los ZIP, bajar la oferta, subirla firmada, mirar en qué estado está el
+// expediente y copiar su número, leer las inexactitudes de un PDF) se hace desde
+// el propio lote:
+//   GET  /:id/marwen                    estado en vivo + documentos de la solicitud
+//   GET  /:id/marwen/documentos/:docId  descarga un documento de beCAE (binario)
+//   POST /:id/marwen/traer-solicitud    la solicitud de beCAE → fase 1 del lote
+//   POST /:id/marwen/subir              solicitud firmada · ZIP de las actuaciones · oferta firmada
+//   POST /:id/marwen/inexactitudes      las de la API → incidencias (sin leer el PDF)
+//
+// REGLA — lo que SALE hacia beCAE (subir) lo pulsa una persona, con confirmación en
+// pantalla: subir la oferta firmada ES aceptarla. Consultar no cambia nada allí.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ESTADOS_EXP_INEXACTITUDES = ['En resolución', 'HDTED'];
+
+// El nº de solicitud del lote: el que se selló al enviarlo por API.
+const numSolicitudDe = (lote) => String(lote?.verificacion_api?.num_solicitud || '').trim() || null;
+
+function errorMarwenARespuesta(res, err, contexto) {
+    console.error(`[${contexto}]`, err.message);
+    if (!marwenService.isConfigured()) {
+        return res.status(503).json({ error: 'La integración con Marwen no está configurada (falta MARWEN_API_KEY en el backend).' });
+    }
+    const status = [503, 504, 429].includes(err.status) ? err.status
+        : err.status === 404 ? 404
+            : (err.status >= 400 && err.status < 500) ? 422 : 500;
+    res.status(status).json({ error: err.message, code: err.code || null, retryAfter: err.retryAfter ?? null, marwen: err.marwen || null });
+}
+
+/**
+ * Estado del lote en beCAE. Se busca por el nº de PEDIDO (= código del lote, que
+ * es como aparece en beCAE) y, si no sale, por el nº de solicitud y de expediente
+ * que el lote ya tenga. Solo LEE de Marwen.
+ */
+async function estadoBecaeDeLote(lote) {
+    const avisos = [];
+    const numSol = numSolicitudDe(lote);
+    const numExp = String(lote.expediente_verificador || '').trim() || null;
+    let solicitud = null, expediente = null;
+    const mismo = (a, b) => String(a || '').toUpperCase() === String(b || '').toUpperCase();
+
+    if (lote.codigo) {
+        const p = await marwenService.estadosPorPedido(lote.codigo);
+        solicitud = p.solicitudes.find(s => mismo(s.numero_solicitud, numSol)) || p.solicitudes[p.solicitudes.length - 1] || null;
+        expediente = p.expedientes.find(e => mismo(e.num_expediente, numExp)) || p.expedientes[p.expedientes.length - 1] || null;
+        if (p.solicitudes.length > 1) avisos.push(`En beCAE hay ${p.solicitudes.length} solicitudes con el pedido ${lote.codigo}: ${p.solicitudes.map(s => s.numero_solicitud).join(', ')}.`);
+        if (p.expedientes.length > 1) avisos.push(`En beCAE hay ${p.expedientes.length} expedientes con el pedido ${lote.codigo}: ${p.expedientes.map(e => e.num_expediente).join(', ')}.`);
+    }
+    const sinoEs404 = (e) => { if (e.code !== 'MARWEN_NO_EXISTE') throw e; return null; };
+    if (!solicitud && numSol) solicitud = await marwenService.estadoSolicitud(numSol).catch(sinoEs404);
+    if (!expediente && numExp) expediente = await marwenService.estadoExpediente(numExp).catch(sinoEs404);
+    if (numSol && solicitud && !mismo(solicitud.numero_solicitud, numSol)) {
+        avisos.push(`El lote tenía la solicitud ${numSol} y beCAE la da como ${solicitud.numero_solicitud} (se renumera al aceptar la primera oferta).`);
+    }
+
+    let documentos = [];
+    if (solicitud?.numero_solicitud) {
+        try { documentos = await marwenService.documentos(solicitud.numero_solicitud); } catch (e) {
+            if (e.status === 503 || e.status === 504) throw e;
+            avisos.push(`No se pudieron listar los documentos de la solicitud: ${e.message}`);
+        }
+    }
+    return { solicitud, expediente, documentos, avisos };
+}
+
+// Lo leído se SELLA en el lote: el nº de solicitud (puede haberse renumerado), el
+// nº de expediente del verificador (si aún no lo tenía: antes se tecleaba) y la
+// foto del estado, con una línea de historial cuando cambia.
+async function sellarEstadoBecae(lote, est, usuario) {
+    const api = lote.verificacion_api || {};
+    const antes = api.becae || {};
+    const becae = {
+        num_solicitud: est.solicitud?.numero_solicitud || null,
+        estado_solicitud: est.solicitud?.estado_solicitud || null,
+        num_expediente: est.expediente?.num_expediente || null,
+        estado_expediente: est.expediente?.estado || null,
+        num_pedido: est.solicitud?.num_pedido || est.expediente?.num_pedido || null,
+        documentos: (est.documentos || []).map(d => ({ id: d.id, name: d.name, type: d.type })),
+        consultado_at: nowIso(),
+    };
+    const update = {};
+    if (est.solicitud || est.expediente) {
+        update.verificacion_api = {
+            ...api,
+            ...(becae.num_solicitud ? { num_solicitud: becae.num_solicitud } : {}),
+            ...(!api.num_solicitud && becae.num_solicitud ? { vinculada_at: nowIso() } : {}),
+            becae,
+        };
+    }
+    const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+    const lineas = [];
+    if (becae.num_expediente && !String(lote.expediente_verificador || '').trim()) {
+        update.expediente_verificador = becae.num_expediente;
+        lineas.push(`Nº de expediente del verificador: ${becae.num_expediente} (leído de beCAE)`);
+    }
+    if (becae.estado_solicitud && becae.estado_solicitud !== antes.estado_solicitud) {
+        lineas.push(`Solicitud ${becae.num_solicitud}: ${antes.estado_solicitud ? `${antes.estado_solicitud} → ` : ''}${becae.estado_solicitud}`);
+    }
+    if (becae.estado_expediente && becae.estado_expediente !== antes.estado_expediente) {
+        lineas.push(`Expediente ${becae.num_expediente}: ${antes.estado_expediente ? `${antes.estado_expediente} → ` : ''}${becae.estado_expediente}`);
+    }
+    if (lineas.length) {
+        historial.push({ id: `${Date.now()}_becae`, tipo: 'sistema', texto: `beCAE · ${lineas.join(' · ')}.`, fecha: nowIso(), usuario });
+        update.historial = historial;
+    }
+    if (Object.keys(update).length) {
+        update.updated_at = nowIso();
+        await supabase.from('lotes').update(update).eq('id', lote.id);
+    }
+    return becae;
+}
+
+// Baja de beCAE la solicitud SIN firmar y la deja en la fase 1 como la del
+// verificador. beCAE solo la ofrece mientras no se haya subido la firmada.
+async function traerSolicitudDeBecae(lote, numSolicitud, { usuario = 'SISTEMA' } = {}) {
+    const docs = await marwenService.documentos(numSolicitud);
+    const sol = docs.find(d => d.type === 'solicitud');
+    if (!sol) {
+        const firmada = docs.find(d => d.type === 'solicitud_firmada');
+        return { archivada: false, motivo: firmada ? 'en beCAE ya está la solicitud firmada' : 'beCAE no ofrece la solicitud para descargar' };
+    }
+    const f = await marwenService.descargarDocumento(numSolicitud, sol.id);
+    if (!/pdf/i.test(f.contentType) && f.buffer.slice(0, 4).toString() !== '%PDF') {
+        return { archivada: false, motivo: `beCAE no ha devuelto un PDF (${f.contentType})` };
+    }
+    return archivarSolicitudBorrador(lote, f.buffer, {
+        usuario, origen: ORIGEN_SOLICITUD_VERIFICADOR, nombreOriginal: f.nombre || sol.name || null,
+    });
+}
+
+async function loteParaRespuesta(loteId, req) {
+    const { data: final } = await supabase.from('lotes').select('*').eq('id', loteId).maybeSingle();
+    const [enriched] = await enrichLotes([final]);
+    return scrubLoteForUser(enriched, req);
+}
+
+// ─── GET /api/lotes/:id/marwen — en qué está el lote en beCAE ─────────────────
+router.get('/:id/marwen', staffOnly, async (req, res) => {
+    try {
+        if (!marwenService.isConfigured()) {
+            return res.status(503).json({ error: 'La integración con Marwen no está configurada (falta MARWEN_API_KEY en el backend).' });
+        }
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const est = await estadoBecaeDeLote(lote);
+        const becae = await sellarEstadoBecae(lote, est, usuarioDe(req));
+        res.json({
+            ok: true,
+            encontrado: !!(est.solicitud || est.expediente),
+            destino: marwenService.BASE_URL,
+            becae,
+            avisos: est.avisos,
+            inexactitudes_consultables: ESTADOS_EXP_INEXACTITUDES.includes(becae.estado_expediente),
+            lote: await loteParaRespuesta(lote.id, req),
+        });
+    } catch (err) {
+        errorMarwenARespuesta(res, err, 'GET /lotes/:id/marwen');
+    }
+});
+
+// ─── GET /api/lotes/:id/marwen/documentos/:docId — descargar de beCAE ─────────
+// El documento tiene que ser de la solicitud de ESTE lote (se comprueba contra su
+// lista: el id solo no dice de quién es).
+router.get('/:id/marwen/documentos/:docId', staffOnly, async (req, res) => {
+    try {
+        const { data: lote } = await supabase.from('lotes').select('id, codigo, verificacion_api').eq('id', req.params.id).maybeSingle();
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const numSol = numSolicitudDe(lote);
+        if (!numSol) return res.status(409).json({ error: 'El lote no tiene nº de solicitud de beCAE.' });
+        const docs = await marwenService.documentos(numSol);
+        const doc = docs.find(d => String(d.id) === String(req.params.docId));
+        if (!doc) return res.status(404).json({ error: 'Ese documento no es de la solicitud de este lote.' });
+        const f = await marwenService.descargarDocumento(numSol, doc.id);
+        const nombre = f.nombre || doc.name || `${doc.type}.pdf`;
+        res.setHeader('Content-Type', f.contentType);
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(nombre)}`);
+        res.setHeader('X-Becae-Tipo', doc.type);
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Becae-Tipo');
+        res.send(f.buffer);
+    } catch (err) {
+        errorMarwenARespuesta(res, err, 'GET /lotes/:id/marwen/documentos/:docId');
+    }
+});
+
+// ─── POST /api/lotes/:id/marwen/traer-solicitud ───────────────────────────────
+router.post('/:id/marwen/traer-solicitud', staffOnly, async (req, res) => {
+    try {
+        const { data: lote } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const numSol = numSolicitudDe(lote);
+        if (!numSol) return res.status(409).json({ error: 'El lote no tiene nº de solicitud de beCAE: consulta antes su estado o envíalo por API.' });
+        const r = await traerSolicitudDeBecae(lote, numSol, { usuario: usuarioDe(req) });
+        if (!r.archivada) return res.status(409).json({ error: `No se ha traído la solicitud: ${r.motivo}.` });
+        res.json({ ok: true, ...r, lote: await loteParaRespuesta(lote.id, req) });
+    } catch (err) {
+        errorMarwenARespuesta(res, err, 'POST /lotes/:id/marwen/traer-solicitud');
+    }
+});
+
+// Los ficheros que se suben a beCAE de cada tipo, sacados del lote / de Drive.
+async function ficherosParaBecae(lote, tipo) {
+    const docs = Array.isArray(lote.documentos_so) ? lote.documentos_so : [];
+    if (tipo === 'solicitud_firmada' || tipo === 'oferta_firmada') {
+        const key = tipo === 'solicitud_firmada' ? 'solicitud_verificacion' : 'oferta_verificacion';
+        const d = docs.find(x => x?.key === key);
+        if (!d?.signed_file_id) {
+            throw Object.assign(new Error(tipo === 'solicitud_firmada'
+                ? 'La solicitud aún no está FIRMADA por el S.O. en el lote (fase 2).'
+                : 'La oferta aún no está FIRMADA por el S.O. en el lote (fase 3).'), { status: 409 });
+        }
+        if (tipo === 'solicitud_firmada' && solicitudGeneradaPorApp(d)) {
+            throw Object.assign(new Error('La solicitud firmada del lote es la que generó la app, no la de beCAE: no vale para subirla.'), { status: 409 });
+        }
+        const buffer = await driveService.getFileContent(d.signed_file_id);
+        if (!buffer) throw new Error('No se pudo leer el PDF firmado de Drive');
+        const base = (d.original_file_name || d.file_name || key).replace(/\.pdf$/i, '');
+        return { ficheros: [{ nombre: `${base}_fdo.pdf`.replace(/_fdo_fdo/i, '_fdo'), buffer, contentType: 'application/pdf' }], faltan: [] };
+    }
+    // documento_adjunto = el ZIP de cada actuación («E{n}.zip», el paquete en modo
+    // expediente de la fase 3), que vive junto a la carpeta del expediente.
+    const { data: exps } = await supabase.from('expedientes')
+        .select('id, numero_expediente, oportunidad_id, instalacion').eq('lote_id', lote.id).order('numero_expediente');
+    const ficheros = [];
+    const faltan = [];
+    for (const exp of exps || []) {
+        const n = Number(exp.instalacion?.verificacion?.orden_actuacion) || null;
+        if (!n) { faltan.push(`${exp.numero_expediente}: sin nº de actuación`); continue; }
+        const carpeta = await carpetaDeExpediente(exp);
+        const f = carpeta ? await driveService.findFileByName(carpeta, `E${n}.zip`) : null;
+        const id = f && (f.id || f);
+        if (!id) { faltan.push(`E${n} · ${exp.numero_expediente}: no está su E${n}.zip (genéralo con el paquete de la fase 3)`); continue; }
+        const buffer = await driveService.getFileContent(id);
+        if (!buffer) { faltan.push(`E${n} · ${exp.numero_expediente}: no se pudo leer su E${n}.zip de Drive`); continue; }
+        ficheros.push({ nombre: `${lote.codigo} - E${n} - ${exp.numero_expediente}.zip`, buffer, contentType: 'application/zip', n });
+    }
+    ficheros.sort((a, b) => a.n - b.n);
+    return { ficheros, faltan };
+}
+
+const ETIQUETA_SUBIDA = {
+    solicitud_firmada: 'la solicitud firmada',
+    documento_adjunto: 'la documentación de las actuaciones',
+    oferta_firmada: 'la oferta firmada (aceptación)',
+};
+
+// ─── POST /api/lotes/:id/marwen/subir — { tipo, seco?, reemplazar? } ──────────
+// Con `seco: true` dice qué ficheros subiría, sin subir nada (es lo que enseña la
+// confirmación). Los ZIP solo se suben si están TODOS; con adjuntos ya en beCAE se
+// pide `reemplazar` (los borra antes: solo se puede mientras no haya oferta).
+router.post('/:id/marwen/subir', staffOnly, async (req, res) => {
+    try {
+        const { tipo, seco = false, reemplazar = false } = req.body || {};
+        if (!marwenService.TIPOS_SUBIDA.includes(tipo)) return res.status(400).json({ error: 'Tipo de subida no válido.' });
+        const { data: lote } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const numSol = numSolicitudDe(lote);
+        if (!numSol) return res.status(409).json({ error: 'El lote no tiene nº de solicitud de beCAE.' });
+
+        const enBecae = await marwenService.documentos(numSol);
+        const ya = enBecae.filter(d => d.type === tipo);
+        const hayOferta = enBecae.some(d => d.type === 'oferta');
+        if (tipo === 'solicitud_firmada' && ya.length) return res.status(409).json({ error: 'En beCAE ya está la solicitud firmada.' });
+        if (tipo === 'oferta_firmada' && ya.length) return res.status(409).json({ error: 'En beCAE ya está la oferta firmada (ya está aceptada).' });
+        if (tipo === 'oferta_firmada' && !hayOferta) return res.status(409).json({ error: 'beCAE todavía no tiene oferta: Marwen la sube cuando revisa la documentación.' });
+        if (tipo === 'documento_adjunto' && hayOferta) return res.status(409).json({ error: 'La solicitud ya tiene oferta: beCAE no admite más documentación.' });
+
+        const { ficheros, faltan } = await ficherosParaBecae(lote, tipo);
+        const resumen = ficheros.map(f => ({ nombre: f.nombre, bytes: f.buffer.length }));
+        const LIM_PDF = 20 * 1024 * 1024;
+        const grandes = ficheros.filter(f => f.contentType === 'application/pdf' && f.buffer.length > LIM_PDF).map(f => f.nombre);
+        const bloqueo = [
+            ...faltan,
+            ...grandes.map(n => `${n}: pasa de 20 MB (límite de beCAE por PDF)`),
+            ...(tipo === 'documento_adjunto' && ya.length && !reemplazar
+                ? [`En beCAE ya hay ${ya.length} documento(s) adjunto(s): ${ya.map(d => d.name).join(', ')}`] : []),
+        ];
+        if (seco) {
+            return res.json({ seco: true, tipo, ficheros: resumen, ya_en_becae: ya.map(d => d.name), bloqueo, num_solicitud: numSol });
+        }
+        if (!ficheros.length) return res.status(409).json({ error: bloqueo.join('\n') || 'No hay nada que subir.' });
+        if (faltan.length || grandes.length) return res.status(409).json({ error: bloqueo.join('\n'), bloqueo });
+        if (tipo === 'documento_adjunto' && ya.length) {
+            if (!reemplazar) return res.status(409).json({ error: bloqueo.join('\n'), bloqueo });
+            for (const d of ya) await marwenService.eliminarAdjunto(numSol, d.id);
+        }
+
+        const r = await marwenService.subirDocumentos(numSol, tipo, ficheros);
+        if (!r.success) return res.status(422).json({ error: `Marwen no ha aceptado la subida: ${r.message || 'sin motivo'}` });
+
+        // Sellar la subida (y el nº de solicitud si beCAE lo ha renumerado).
+        const { data: fresh } = await supabase.from('lotes').select('verificacion_api, historial').eq('id', lote.id).maybeSingle();
+        const api = { ...(fresh?.verificacion_api || {}) };
+        const renumerada = r.num_solicitud && r.num_solicitud !== numSol;
+        if (renumerada) api.num_solicitud = r.num_solicitud;
+        api.subidas = { ...(api.subidas || {}), [tipo]: { at: nowIso(), por: usuarioDe(req), ficheros: resumen.map(x => x.nombre), estado_solicitud: r.estado_solicitud } };
+        api.becae = { ...(api.becae || {}), estado_solicitud: r.estado_solicitud || api.becae?.estado_solicitud || null, num_solicitud: api.num_solicitud };
+        const historial = Array.isArray(fresh?.historial) ? [...fresh.historial] : [];
+        historial.push({
+            id: `${Date.now()}_becae_subida`, tipo: 'sistema',
+            texto: `Subida a beCAE por API: ${ETIQUETA_SUBIDA[tipo]} (${resumen.length} fichero${resumen.length === 1 ? '' : 's'})`
+                + `${r.estado_solicitud ? ` · solicitud: ${r.estado_solicitud}` : ''}`
+                + `${renumerada ? ` · renumerada ${numSol} → ${r.num_solicitud}` : ''}`
+                + `${r.documentos_descartados?.length ? ` · descartados: ${r.documentos_descartados.join(', ')}` : ''}.`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ verificacion_api: api, historial, updated_at: nowIso() }).eq('id', lote.id);
+
+        res.json({ ok: true, tipo, ...r, renumerada: !!renumerada, ficheros: resumen, lote: await loteParaRespuesta(lote.id, req) });
+    } catch (err) {
+        if (err.status === 409) return res.status(409).json({ error: err.message });
+        errorMarwenARespuesta(res, err, 'POST /lotes/:id/marwen/subir');
+    }
+});
+
+// ─── POST /api/lotes/:id/marwen/inexactitudes — { seco? } ─────────────────────
+// Las inexactitudes de beCAE, ya estructuradas, por el MISMO camino que las leídas
+// del PDF (regla 159): se cuelgan del ÚLTIMO informe de inexactitudes subido al
+// lote, que es la ronda que se está contestando. Sin informe en el lote se
+// devuelven para verlas, sin registrar nada.
+router.post('/:id/marwen/inexactitudes', staffOnly, async (req, res) => {
+    try {
+        const seco = req.body?.seco === true;
+        const { data: lote } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const numExp = String(lote.expediente_verificador || lote.verificacion_api?.becae?.num_expediente || '').trim();
+        if (!numExp) return res.status(409).json({ error: 'El lote no tiene nº de expediente del verificador (CAE-…): consulta antes su estado en beCAE.' });
+
+        const lista = await marwenService.inexactitudes(numExp, { forzar: req.body?.forzar === true });
+        const items = marwenService.aItemsDeInforme(lista);
+        const informes = (lote.documentos_so || []).filter(d => d?.tipo === 'informe_inexactitudes' && inexactitudesLote.rondaDeKey(d.key))
+            .sort((a, b) => inexactitudesLote.rondaDeKey(a.key) - inexactitudesLote.rondaDeKey(b.key));
+        const ultimo = informes[informes.length - 1] || null;
+        const crudo = lista.map(x => ({
+            numero: x.numero, clasificacion: x.clasificacion, estado: x.estado, actuaciones: x.actuaciones,
+            descripcion: x.descripcion, acciones_correctivas: x.acciones_correctivas, fecha_subsanacion: x.fecha_subsanacion,
+        }));
+        if (!items.length) return res.json({ ok: true, registrado: false, num_expediente: numExp, items: crudo, motivo: 'beCAE no tiene inexactitudes para este expediente.' });
+        if (!ultimo) {
+            return res.json({ ok: true, registrado: false, num_expediente: numExp, items: crudo,
+                motivo: 'El lote no tiene ningún informe de inexactitudes subido: súbelo (llega por correo) y se registran con él.' });
+        }
+        const r = await inexactitudesLote.registrarInexactitudes(lote, ultimo.key, null, {
+            usuario: usuarioDe(req), seco, fuente: 'API de beCAE',
+            informe: { inexactitudes: items, expediente_cae: numExp, fecha: ultimo.inexactitudes?.fecha || null },
+        });
+        if (!r.leido) return res.status(502).json({ error: r.error || 'No se pudieron registrar.' });
+        res.json({ ok: true, registrado: !seco, num_expediente: numExp, informe: ultimo.label, items: crudo, ...r,
+            lote: seco ? undefined : await loteParaRespuesta(lote.id, req) });
+    } catch (err) {
+        errorMarwenARespuesta(res, err, 'POST /lotes/:id/marwen/inexactitudes');
     }
 });
 

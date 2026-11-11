@@ -4,10 +4,16 @@
 // Permite enviar un LOTE de actuaciones como "Solicitud de Verificación
 // Estandarizada" directamente por API, en vez de (o además de) por email/PDF.
 //
-// Docs: https://pruebascae.marwen.es/docs  (OpenAPI en /swagger/openapi.json)
+// Docs: https://pruebascae.marwen.es/docs  (OpenAPI en /swagger/openapi.json) y la
+// «Guía de integración API CAE» v1.6.0 que mandó Marwen el 11/11/2026
+// (docs/conocimiento/lotes/la-api-de-marwen-v1-6.md).
 //   POST /api/v1/solicitud/estandarizada   → crear solicitud (X-API-KEY)
 //   GET  /api/provincias/all                → catálogo de provincias  { data:[{id,nombre}] }
 //   GET  /api/localidades/{provinciaId}     → catálogo de localidades { localidades:[{id,nombre}] }
+//   GET/POST /api/solicitud/{n}/documentos  → listar / subir (solicitud firmada, adjuntos, oferta firmada)
+//   GET  /api/solicitud/{n}/documentos/{id} → descargar
+//   GET  /api/solicitud/{n}/estado · /api/expediente/{n}/estado · …/pedido/{pedido}/estado
+//   GET  /api/expediente/{n}/inexactitudes  → con LÍMITE de consultas (429 + Retry-After)
 //
 // CLAVE del mapeo geográfico (lo "complejo" del usuario):
 //   • PROVINCIA: el `id` de Marwen ES el código INE de provincia (Toledo=45,
@@ -264,15 +270,84 @@ function formatMarwenError(data) {
     return { texto: cabecera || JSON.stringify(data), detalles: cabecera ? [cabecera] : [] };
 }
 
-// Envía la solicitud estandarizada. Devuelve los datos de la respuesta (201) o
-// lanza Error con el mensaje devuelto por Marwen (400/401/422…).
+// ── API beCAE v1.6.0 (guía de Marwen del 11/11/2026) ─────────────────────────
+// Desde la 1.6.0 TODAS las respuestas van envueltas: `{ success, message, data }`.
+// Antes, la creación devolvía `{ message, num_solicitud, tipo_solicitud }` en la
+// raíz; ahora el número va en `data.num_solicitud`. Se aceptan los DOS formatos:
+// leer solo el nuevo dejaría el lote sin su nº de solicitud si Marwen volviera
+// atrás, y leer solo el viejo es lo que rompió la 1.6.0 (el `num_solicitud` de la
+// raíz llega undefined y el lote se quedaba "Enviada por API · nº —").
+function datosDe(body) {
+    if (body && typeof body === 'object' && 'success' in body && 'data' in body) return body.data;
+    return body;
+}
+
+// Respuesta de la creación de la solicitud, en un formato ÚNICO.
+function normalizarCreacion(body) {
+    const d = datosDe(body) || {};
+    return {
+        message: (body && body.message) || null,
+        num_solicitud: d.num_solicitud || (body && body.num_solicitud) || null,
+        tipo_solicitud: d.tipo_solicitud || (body && body.tipo_solicitud) || null,
+    };
+}
+
+// Error HTTP de Marwen → Error con su mensaje legible y lo que hay que hacer.
+//   404: no existe o no es nuestro (Marwen no distingue, a propósito).
+//   429: límite de consultas de inexactitudes; trae `retryAfter` en segundos.
+function errorHttp(r, ruta) {
+    const body = r.data;
+    let texto;
+    if (body && typeof body === 'object') texto = formatMarwenError(body).texto;
+    else texto = String(body || '').slice(0, 300) || `HTTP ${r.status}`;
+    const e = new Error(`Marwen (${r.status}) en ${ruta}: ${texto}`);
+    e.status = r.status;
+    e.marwen = (body && typeof body === 'object') ? body : null;
+    if (body && typeof body === 'object') e.detalles = formatMarwenError(body).detalles;
+    if (r.status === 404) e.code = 'MARWEN_NO_EXISTE';
+    if (r.status === 429) {
+        const ra = Number((r.headers || {})['retry-after']);
+        e.code = 'MARWEN_LIMITE';
+        e.retryAfter = Number.isFinite(ra) ? ra : null;
+        e.message = `Marwen limita las consultas de inexactitudes: hay que esperar ${e.retryAfter != null ? `${e.retryAfter} s` : 'un rato'} antes de volver a consultarlas.`;
+    }
+    return e;
+}
+
+// Llamada genérica con el error de red y el HTTP ya traducidos. `esEnvio` = la
+// llamada CREA o SUBE algo (un 504 puede haberlo dejado hecho).
+async function llamar(method, ruta, { data, headers, responseType, timeout, esEnvio = false } = {}) {
+    const estado = { conectado: false };
+    try {
+        const r = await client(estado).request({
+            method, url: ruta, data, headers, responseType,
+            ...(timeout ? { timeout } : {}),
+            maxBodyLength: Infinity, maxContentLength: Infinity,
+        });
+        return r;
+    } catch (err) {
+        if (err.response) {
+            // Una descarga binaria que falla trae el JSON del error como buffer.
+            if (Buffer.isBuffer(err.response.data)) {
+                try { err.response.data = JSON.parse(err.response.data.toString('utf8')); } catch (_) { /* texto */ }
+            }
+            throw errorHttp(err.response, ruta);
+        }
+        throw errorDeRed(err, estado, { esEnvio });
+    }
+}
+
+const seg = (s) => encodeURIComponent(String(s || '').trim());
+
+// Envía la solicitud estandarizada. Devuelve `{ message, num_solicitud,
+// tipo_solicitud }` (normalizado) o lanza Error con el mensaje de Marwen.
 async function enviarSolicitudEstandarizada(payload) {
     const estado = { conectado: false };
     try {
         const { data } = await client(estado).post('/api/v1/solicitud/estandarizada', payload, {
             headers: { 'Content-Type': 'application/json' },
         });
-        return data; // { message, num_solicitud, tipo_solicitud }
+        return normalizarCreacion(data);
     } catch (err) {
         const r = err.response;
         if (r && r.data) {
@@ -287,6 +362,151 @@ async function enviarSolicitudEstandarizada(payload) {
     }
 }
 
+// ── Estados ──────────────────────────────────────────────────────────────────
+// Solicitud: Pendiente documentación · Pendiente recibir oferta · Ofertado ·
+// Aceptada (en la práctica llega «Oferta aceptada») · Solicitud rechazada.
+async function estadoSolicitud(numSolicitud) {
+    const r = await llamar('get', `/api/solicitud/${seg(numSolicitud)}/estado`);
+    return datosDe(r.data); // { numero_solicitud, num_pedido, estado_solicitud }
+}
+// Expediente: Aceptado · Previo · En ejecución · En resolución · Reestudio
+// documental · Pendiente IDV + Dictamen · HDTED · Finalizado.
+async function estadoExpediente(numExpediente) {
+    const r = await llamar('get', `/api/expediente/${seg(numExpediente)}/estado`);
+    return datosDe(r.data); // { num_expediente, num_pedido, estado }
+}
+// Por nº de PEDIDO (en beCAE el pedido de nuestros lotes es su código,
+// «LOTE-2026-016»). Devuelven SIEMPRE una lista, vacía si no hay nada.
+async function estadosPorPedido(numPedido) {
+    const [s, e] = await Promise.all([
+        llamar('get', `/api/solicitud/pedido/${seg(numPedido)}/estado`),
+        llamar('get', `/api/expediente/pedido/${seg(numPedido)}/estado`),
+    ]);
+    const lista = (x) => { const d = datosDe(x.data); return Array.isArray(d) ? d : (d ? [d] : []); };
+    return { solicitudes: lista(s), expedientes: lista(e) };
+}
+
+// ── Inexactitudes ────────────────────────────────────────────────────────────
+// Tienen LÍMITE de consultas por clave (compartido con la de por pedido): un 429
+// dice cuántos segundos esperar. Se recuerda en memoria para no volver a llamar
+// antes de tiempo, y la última respuesta se guarda 2 minutos (dos pantallas que
+// se abren a la vez no gastan dos consultas).
+const _inex = new Map();        // numExpediente → { at, data }
+let _inexBloqueadoHasta = 0;
+async function inexactitudes(numExpediente, { forzar = false } = {}) {
+    const k = String(numExpediente || '').trim().toUpperCase();
+    const c = _inex.get(k);
+    if (!forzar && c && Date.now() - c.at < 2 * 60 * 1000) return c.data;
+    if (Date.now() < _inexBloqueadoHasta) {
+        const e = new Error(`Marwen limita las consultas de inexactitudes: hay que esperar ${Math.ceil((_inexBloqueadoHasta - Date.now()) / 1000)} s antes de volver a consultarlas.`);
+        e.status = 429; e.code = 'MARWEN_LIMITE'; e.retryAfter = Math.ceil((_inexBloqueadoHasta - Date.now()) / 1000);
+        throw e;
+    }
+    try {
+        const r = await llamar('get', `/api/expediente/${seg(k)}/inexactitudes`);
+        const d = datosDe(r.data);
+        const data = Array.isArray(d) ? d : [];
+        _inex.set(k, { at: Date.now(), data });
+        return data;
+    } catch (e) {
+        if (e.code === 'MARWEN_LIMITE') _inexBloqueadoHasta = Date.now() + (e.retryAfter || 60) * 1000;
+        throw e;
+    }
+}
+
+// Inexactitud de la API → la forma que produce la lectura del PDF del informe
+// (loteOcrService.leerInformeInexactitudes), para registrarlas por el MISMO camino:
+//   numero "3" / "3-R2" · clasificacion imp|nim · estado abierto|cerrado ·
+//   actuaciones [8, 9, 12] · descripcion · acciones_correctivas · observaciones.
+function aItemsDeInforme(lista) {
+    return (lista || []).map((x, i) => {
+        const num = String(x.numero == null ? i + 1 : x.numero).trim();
+        const hecho = [
+            String(x.descripcion || '').trim(),
+            x.acciones_correctivas ? `Acción correctiva: ${String(x.acciones_correctivas).trim()}` : '',
+        ].filter(Boolean).join('\n');
+        return {
+            // Un nº simple se queda en número (como el leído del PDF): la identidad
+            // de la incidencia es (lote, nº). Los de un requerimiento del gestor
+            // («3-R2») son otra inexactitud y se guardan con su sufijo.
+            n: /^\d+$/.test(num) ? Number(num) : num,
+            clasificacion: x.clasificacion === 'nim' ? 'No importante'
+                : x.clasificacion === 'imp' ? 'Importante' : (x.clasificacion || null),
+            estado: x.estado === 'cerrado' ? 'Cerrada' : x.estado === 'abierto' ? 'Abierta' : (x.estado || null),
+            actuaciones: Array.isArray(x.actuaciones) ? x.actuaciones.join(',') : (x.actuaciones == null ? null : String(x.actuaciones)),
+            hecho,
+            observaciones: x.observaciones || null,
+            fecha_subsanacion: x.fecha_subsanacion || null,
+        };
+    }).filter(x => x.hecho);
+}
+
+// ── Documentos de la SOLICITUD ───────────────────────────────────────────────
+// Tipos: solicitud (sin firmar, la genera beCAE al descargarla) · solicitud_firmada
+// · documento_adjunto · oferta (de Marwen) · oferta_firmada (subirla = ACEPTARLA).
+async function documentos(numSolicitud) {
+    const r = await llamar('get', `/api/solicitud/${seg(numSolicitud)}/documentos`);
+    const d = datosDe(r.data);
+    return Array.isArray(d) ? d : []; // [{ id, name, type }]
+}
+
+function nombreDeDisposition(cd) {
+    const s = String(cd || '');
+    const m5987 = s.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i);
+    if (m5987) { try { return decodeURIComponent(m5987[1].trim().replace(/^"|"$/g, '')); } catch (_) { /* sigue */ } }
+    const m = s.match(/filename\s*=\s*"?([^";]+)"?/i);
+    return m ? m[1].trim() : null;
+}
+
+async function descargarDocumento(numSolicitud, documentoId) {
+    const r = await llamar('get', `/api/solicitud/${seg(numSolicitud)}/documentos/${seg(documentoId)}`,
+        { responseType: 'arraybuffer', timeout: 120000 });
+    return {
+        buffer: Buffer.from(r.data),
+        nombre: nombreDeDisposition(r.headers['content-disposition']),
+        contentType: r.headers['content-type'] || 'application/octet-stream',
+    };
+}
+
+const TIPOS_SUBIDA = ['solicitud_firmada', 'documento_adjunto', 'oferta_firmada'];
+const TIPO_MIME = { pdf: 'application/pdf', zip: 'application/zip', rar: 'application/vnd.rar' };
+
+/**
+ * Sube ficheros a la solicitud: UN tipo por petición, ficheros en `archivo[]`.
+ * Devuelve `{ success, message, estado_solicitud, num_solicitud,
+ * documentos_descartados }`. OJO: subir la `oferta_firmada` ACEPTA la oferta, y
+ * si es la primera del cliente la solicitud se RENUMERA (llega en num_solicitud).
+ * @param {Array<{ nombre: string, buffer: Buffer, contentType?: string }>} ficheros
+ */
+async function subirDocumentos(numSolicitud, tipo, ficheros) {
+    if (!TIPOS_SUBIDA.includes(tipo)) throw new Error(`Tipo de documento no válido para subir a Marwen: ${tipo}`);
+    if (!Array.isArray(ficheros) || !ficheros.length) throw new Error('No hay ficheros que subir');
+    const form = new FormData();
+    form.append('tipo', tipo);
+    for (const f of ficheros) {
+        const ext = String(f.nombre || '').split('.').pop().toLowerCase();
+        form.append('archivo[]', new Blob([f.buffer], { type: f.contentType || TIPO_MIME[ext] || 'application/octet-stream' }), f.nombre);
+    }
+    const r = await llamar('post', `/api/solicitud/${seg(numSolicitud)}/documentos`,
+        { data: form, timeout: 10 * 60 * 1000, esEnvio: true });
+    const b = r.data || {};
+    const d = (b && typeof b.data === 'object' && b.data) || {};
+    return {
+        success: b.success !== false,
+        message: b.message || null,
+        estado_solicitud: b.estado_solicitud || d.estado_solicitud || null,
+        num_solicitud: b.num_solicitud || d.num_solicitud || null,
+        documentos_descartados: b.documentos_descartados || d.documentos_descartados || [],
+    };
+}
+
+// Solo `documento_adjunto`, y solo sin oferta. Definitivo.
+async function eliminarAdjunto(numSolicitud, documentoId) {
+    const r = await llamar('delete', `/api/solicitud/${seg(numSolicitud)}/documentos/adjuntos/${seg(documentoId)}`, { esEnvio: true });
+    const b = r.data || {};
+    return { success: b.success !== false, message: b.message || null, estado_solicitud: b.estado_solicitud || null };
+}
+
 module.exports = {
     BASE_URL,
     isConfigured,
@@ -298,4 +518,17 @@ module.exports = {
     resolveLocalidad,
     resolveGeoSolicitante,
     enviarSolicitudEstandarizada,
+    // v1.6.0
+    datosDe,
+    normalizarCreacion,
+    estadoSolicitud,
+    estadoExpediente,
+    estadosPorPedido,
+    inexactitudes,
+    aItemsDeInforme,
+    documentos,
+    descargarDocumento,
+    subirDocumentos,
+    eliminarAdjunto,
+    TIPOS_SUBIDA,
 };

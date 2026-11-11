@@ -10,6 +10,7 @@ import SendActionOverlay from '../../../components/SendActionOverlay';
 import { BotonCarpetaLocal } from './BotonCarpetaLocal';
 import { CobroClientesPanel } from './CobroClientesPanel';
 import { SolicitudEmisionModal } from './SolicitudEmisionModal';
+import { BecaeEnVivo } from './BecaeEnVivo';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El proceso del lote, por FASES, en el orden real del trámite. Sustituye a los
@@ -1479,6 +1480,13 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 )}
             </div>
 
+            {/* beCAE en vivo (API de Marwen v1.6.0): en qué está el lote en el
+                verificador y el paso que toca, sin entrar en su web. Solo con
+                Marwen: con otro verificador no hay API a la que preguntar. */}
+            {(api || /marwen/i.test(`${lote?.verificador?.razon_social || ''} ${lote?.verificador?.acronimo || ''}`)) && (
+                <BecaeEnVivo lote={lote} p={p} onChanged={onChanged} onTraerOferta={subirOferta} />
+            )}
+
             {/* 1 · Solicitud al verificador.
                 Lo que se archiva aquí es el BORRADOR: la firma el S.O. en el paso 2,
                 junto al Anexo I. La FIRMADA vuelve con las demás y se suelta igual
@@ -1506,7 +1514,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         slot: 'solicitud_verificacion', doc: p.solicitud, requerido: true,
                         siguiente: p.faseActual === 1,
                         label: 'Solicitud de Verificación (descargada del verificador)',
-                        hint: 'Créala en el verificador, descárgala de su web y súbela aquí. La firma el S.O. en el paso 2. La que genera la app no vale.',
+                        hint: 'Enviada por API, se trae sola de beCAE (o con «Traer la solicitud de beCAE», arriba). Si no, descárgala de su web y súbela aquí. La firma el S.O. en el paso 2. La que genera la app no vale.',
                         // La que compuso la app se queda como referencia, pero NO
                         // sirve para mandar a firmar: se dice en su fila y se pide la
                         // buena en el mismo sitio.

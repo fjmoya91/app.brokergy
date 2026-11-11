@@ -185,8 +185,12 @@ function pushComentario(inc, texto, autor, tipo = 'NOTA') {
     inc.comentarios = hilo;
 }
 
+// El nº se compara como TEXTO: los de un requerimiento del gestor llegan por la
+// API como «3-R2» (la 3 del requerimiento 2) y `Number('3-R2')` es NaN, que no es
+// igual a nada — cada consulta habría creado la incidencia otra vez.
+const claveN = (n) => String(n == null ? '' : n).trim().toUpperCase();
 const esDeLaInexactitud = (inc, loteId, n) =>
-    inc?.inexactitud?.lote_id === loteId && Number(inc.inexactitud.n) === Number(n);
+    inc?.inexactitud?.lote_id === loteId && claveN(inc.inexactitud.n) === claveN(n);
 
 /**
  * Qué hay que hacer en las incidencias de UN expediente. Puro: no escribe nada.
@@ -292,9 +296,12 @@ async function expedientesDelLote(loteId, { conDocumentacion = false } = {}) {
  * @param {object} lote      fila de `lotes`
  * @param {string} docKey    'informe_inexactitudes_N'
  * @param {Buffer} buffer    el PDF (si no viene, se baja de Drive)
- * @param {{ usuario?: string, seco?: boolean }} opts  `seco` = solo dice lo que haría
+ * @param {{ usuario?: string, seco?: boolean, informe?: object, fuente?: string }} opts
+ *        `seco` = solo dice lo que haría. `informe` = las inexactitudes YA leídas
+ *        (de la API de Marwen: `{ inexactitudes, expediente_cae, fecha }`), y
+ *        entonces no se lee el PDF; `fuente` lo dice en el historial.
  */
-async function registrarInexactitudes(lote, docKey, buffer = null, { usuario = 'SISTEMA', seco = false } = {}) {
+async function registrarInexactitudes(lote, docKey, buffer = null, { usuario = 'SISTEMA', seco = false, informe: dado = null, fuente = null } = {}) {
     const supabase = require('./supabaseClient');
     const ronda = rondaDeKey(docKey);
     if (!ronda) return { leido: false, error: `${docKey} no es un informe de inexactitudes` };
@@ -302,8 +309,8 @@ async function registrarInexactitudes(lote, docKey, buffer = null, { usuario = '
     if (!entrada) return { leido: false, error: 'El informe no está en el lote' };
     const label = `${entrada.label || `Informe de inexactitudes ${ronda}`}${lote.codigo ? ` de ${lote.codigo}` : ''}`;
 
-    let informe;
-    try {
+    let informe = dado;
+    if (!informe) try {
         if (!buffer) {
             const driveService = require('./driveService');
             buffer = await driveService.getFileContent(entrada.draft_file_id);
@@ -391,7 +398,8 @@ async function registrarInexactitudes(lote, docKey, buffer = null, { usuario = '
             docs[idx] = {
                 ...docs[idx],
                 inexactitudes: {
-                    leido_at: nowIso(), expediente_cae: resumen.expediente_cae, fecha: resumen.fecha,
+                    leido_at: nowIso(), fuente: fuente || 'informe PDF',
+                    expediente_cae: resumen.expediente_cae, fecha: resumen.fecha,
                     items: resumen.items, sin_casar, totales: resumen.totales,
                 },
             };
@@ -400,7 +408,7 @@ async function registrarInexactitudes(lote, docKey, buffer = null, { usuario = '
         const t = resumen.totales;
         historial.push({
             id: `${Date.now()}_inexactitudes`, tipo: 'sistema',
-            texto: `${entrada.label}: ${resumen.items.length} inexactitud(es) leídas → `
+            texto: `${entrada.label}: ${resumen.items.length} inexactitud(es) leídas${fuente ? ` (${fuente})` : ''} → `
                 + `${t.nuevas} incidencia(s) nuevas${t.reabiertas ? `, ${t.reabiertas} reabiertas` : ''}`
                 + `${t.cerradas ? `, ${t.cerradas} cerradas por el verificador` : ''}`
                 + ` en ${porExpediente.length} expediente(s).${sin_casar.length ? ` Sin expediente: nº ${sin_casar.map(s => s.n).join(', ')}.` : ''}`,
