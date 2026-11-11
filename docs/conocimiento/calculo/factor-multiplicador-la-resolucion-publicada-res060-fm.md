@@ -400,8 +400,10 @@ cifra FM) frente a
 - El relleno pedía los campos uno a uno (regla 22) y no traía la potencia: desde hoy pide también
   `potenciaBomba`, `aerothermiaModel`, `scopTemporada`, `potenciaCaldera` y `hibridacionMetodo`. El
   guardado de la calculadora y `viaFmAlGuardar` ya usaban el `datos_calculo` entero.
-- Tras el deploy, para que la columna enseñe la prudente en las 441 que ya tienen `via_fm` v3: relleno
-  con `--escribir --forzar` (si no, solo se rehace al guardar cada una).
+- **Aplicado el 11/11/2026** tras el deploy de f31d80f5 («Sí, despliega», Fran): `--escribir --forzar`,
+  443 oportunidades con `via_fm` v4 (las 441 con v3 y 2 nuevas). Antes se comparó lo guardado con lo
+  recalculado: 439 de 441 iguales en MWh, €, elegible, ACS y precio; las otras dos (26TER100_OP389 y
+  26RES060_OP235) son «no aplica» y solo cambia `elegible`. Ninguna `updated_at` movida por el relleno.
 
 ## La RES080_FM en la app (09/11/2026)
 
