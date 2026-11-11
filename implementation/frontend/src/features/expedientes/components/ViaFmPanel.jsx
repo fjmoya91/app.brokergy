@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { GENERADORES_FM, avisosDocumentoFm } from '../logic/documentosFm';
 import { cifrasViaFm, FM_PRESENTACION } from '../logic/convenioFm';
+import { prudenteViaFm, motivosPrudenteTxt } from '../../calculator/logic/viaFm';
 import { getClientCaeRate } from '../utils/docGenerators';
 import { AvisoEsperaFmModal } from './AvisoEsperaFmModal';
 import { bonoDeclaradoDe, vulnerableFmDeBono, etiquetaBonoSocial } from '../logic/confirmacionCliente';
@@ -282,6 +283,7 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
     // Las dos cifras (las de la pestaña Económico): lo que decide si merece la pena pasar.
     const cifras = expediente && results ? cifrasViaFm(expediente, results, { rateMwh: getClientCaeRate(expediente).rate }) : null;
     const hayCifras = !!cifras && (cifras.fm.kwh > 0 || cifras.general.kwh > 0);
+    const pruFm = results?.res060fc ? prudenteViaFm(results) : null;
     const gana = cifras?.gana;
     const aprox = cifras?.estimada ? '≈ ' : '';
     const aviso = datos.aviso_espera;
@@ -344,6 +346,12 @@ export function ViaFmPanel({ expedienteId, expediente = null, results = null, on
                 )}
                 {hayCifras && cifras.bloquea.length > 0 && (
                     <div className="mt-2 text-[11px] text-amber-300 space-y-0.5">{cifras.bloquea.map((b) => <p key={b}>⚠ {b}</p>)}</div>
+                )}
+                {/* La cifra PRUDENTE (logic/viaFm.js): lo que queda si falla lo que se supone. */}
+                {hayCifras && !cifras.bloquea.length && pruFm && (
+                    <p className="mt-2 text-[11px] text-amber-300">
+                        ⚠ Cifra FM prudente: <b className="tabular-nums">{eur0(pruFm.eur)}</b> ({kwh0(pruFm.kwh)}), {motivosPrudenteTxt(pruFm.motivos, pruFm.potencia?.noCubre ? pruFm.potencia.cobertura * 100 : null)}.
+                    </p>
                 )}
 
                 {/* Proponérselo al cliente ANTES de cambiar: esperar al 15/01/2027 */}

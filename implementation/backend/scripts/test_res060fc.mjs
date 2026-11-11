@@ -211,5 +211,72 @@ console.log('\n── El aviso de la propuesta no anuncia un FM que no se puede 
         'el texto cita el BOE, la fecha de presentación, que no está garantizado y acaba en la cifra firme');
 }
 
+console.log('\n── La cifra PRUDENTE: sin el ACS supuesto y con el C_b si la bomba no llega (11/11/2026) ──');
+{
+    const { potenciaBombaDeInputs } = fmMod;
+    const { resumenViaFm, prudenteViaFm, VIA_FM_VERSION } = await import(logic('viaFm.js'));
+    // 26RES060_OP358 rehecha a mano: Ciudad Real, 1961-1980, unifamiliar, D3, gasóleo
+    // desde 1998 (0,79), Carrier a 55 °C en cálido (4,43), SCOP_dhw por defecto 3,00,
+    // sin ACS en el presupuesto, D_cal de la simulación 142,14 × 389 m², bomba de 12 kW.
+    const OP358 = {
+        provinciaCode: '13', anio: 1975, tipo: 'unifamiliar', zona: 'D3', superficie: 389,
+        boilerEff: 0.79, boilerId: 'oil_post98', scopHeating: 4.43, scopAcs: 3.0, changeAcs: false,
+        qCalefaccion: 142.14 * 389, potenciaBomba: 12, temporadaScop: 'calido', contexto: { hoy: '2026-11-11' },
+    };
+    const r = calculateRes060FM(OP358);
+    const ahc = 142.14 * 389 * (1 / 0.79 - 1 / 4.43);
+    const aha = 11 * 389 * (1 / 0.79 - 1 / 3.0);
+    ok(cerca(r.cae, 2 * (ahc + aha), 2), `la cifra FM no cambia: ${Math.round(r.cae)} kWh (≈ 123.001)`);
+    ok(r.potencia && cerca(r.potencia.disenoKw, 142.14 * 389 / 1336, 0.01) && r.potencia.horas === 1336 && r.potencia.cobertura === 0.29,
+        `carga de diseño ${r.potencia.disenoKw.toFixed(1)} kW con 1.336 h (cálido): la bomba cubre el 29 %`);
+    ok(r.potencia.noCubre && r.potencia.cb === 0.548 && r.potencia.ficha === 'RES093_FM', 'no llega: C_b 0,548 de la RES093_FM (D)');
+    ok(r.prudente && r.prudente.motivos.join() === 'acs,potencia', 'prudente por los dos motivos');
+    ok(cerca(r.prudente.cae, ahc * 0.548 * 2, 2), `prudente = calefacción × C_b × f_M = ${Math.round(r.prudente.cae)} kWh`);
+    ok(cerca(r.prudente.acsKwh, aha * 2, 1), `el ACS supuesto aporta ${Math.round(r.prudente.acsKwh)} kWh a la cifra FM`);
+    ok(tiene(r, 'aviso', 'no llega a la carga de diseño') && tiene(r, 'aviso', '3.b'), 'aviso de potencia, con el doc. 3.b');
+    ok(r.elegible, 'el aviso de potencia no bloquea');
+
+    const medio = calculateRes060FM({ ...OP358, temporadaScop: 'medio' });
+    ok(medio.potencia.horas === 2066 && medio.potencia.cobertura === 0.45 && medio.potencia.noCubre, 'con un SCOP de clima medio, 2.066 h: cubre el 45 %');
+    const grande = calculateRes060FM({ ...OP358, potenciaBomba: 45 });
+    ok(!grande.potencia.noCubre && grande.prudente.motivos.join() === 'acs' && cerca(grande.prudente.cae, ahc * 2, 2), 'con 45 kW llega: la prudente solo quita el ACS');
+    const conAcs = calculateRes060FM({ ...OP358, potenciaBomba: 45, changeAcs: true });
+    ok(conAcs.prudente === null && !conAcs.avisos.some((a) => a.texto.includes('carga de diseño')), 'con ACS y bomba que llega: sin prudente');
+    const sinPot = calculateRes060FM({ ...OP358, potenciaBomba: null, changeAcs: true });
+    ok(sinPot.potencia === null && sinPot.prudente === null, 'sin potencia no se mira');
+    const hib = calculateRes060FM({ ...OP358, hibridacion: { coverage: 0.3, refPower: 40, cb: 0.56 } });
+    ok(hib.potencia === null && hib.prudente.motivos.join() === 'acs', 'en una hibridación la potencia ya está en su C_b');
+
+    // Solo se afirma la potencia que puso el catálogo o la hibridación: fuera de ella el campo vale 12 por defecto.
+    ok(potenciaBombaDeInputs({ potenciaBomba: 12 }) === null && potenciaBombaDeInputs({ potenciaBomba: 12, aerothermiaModel: 'custom' }) === null,
+        'el 12 por defecto (o un modelo tecleado) no cuenta');
+    ok(potenciaBombaDeInputs({ potenciaBomba: 9, aerothermiaModel: '45' }) === 9 && potenciaBombaDeInputs({ potenciaBomba: 14, hibridacion: true }) === 14,
+        'la del catálogo o la de la hibridación, sí');
+
+    // El resumen de la oportunidad la lleva al lado.
+    const fin = { caeBonus: 12300, finalPriceClient: 100, isParticular: true, legalizationCost: 0 };
+    const via = resumenViaFm({ res060fc: r, savings: { savingsKwh: 57510 }, financials: { caeBonus: 5751, finalPriceClient: 100 }, financialsRes060FC: fin }, { caePriceClient: 100 }, { hoy: '2026-11-11' });
+    ok(via.v === VIA_FM_VERSION && VIA_FM_VERSION === 4, 'resumen v4');
+    ok(via.mwh_fm_prudente === Math.round(r.prudente.cae / 10) / 100 && via.eur_fm_prudente === Math.round(r.prudente.cae / 1000 * 100) && via.prudente === 'acs,potencia' && via.potencia_pct === 29,
+        `resumen: ${via.mwh_fm_prudente} MWh · ${via.eur_fm_prudente} € prudentes, la bomba al ${via.potencia_pct} %`);
+    const pv = prudenteViaFm({ res060fc: r, financialsRes060FC: fin });
+    ok(pv && pv.eur === via.eur_fm_prudente && pv.motivos.length === 2, `prudenteViaFm da el mismo € (${pv?.eur})`);
+    ok(!('mwh_fm_prudente' in resumenViaFm({ res060fc: conAcs, savings: {}, financials: {}, financialsRes060FC: fin }, {}, { hoy: '2026-11-11' })), 'sin prudente, el resumen no la lleva');
+}
+
+console.log('\n── El ACS existente con su rendimiento también por la FM (regla 209) ──');
+{
+    const base = calc();
+    const termo = calc({ acsEff: 1.0, acsEffId: 'electric' });
+    ok(cerca(termo.aha, 11 * 150 * (1 - 1 / 2.6)) && cerca(termo.ahc, base.ahc), 'termo eléctrico: el ACS a 1,00, la calefacción igual');
+    ok(termo.etaAcs === 1 && termo.etaAcsPropio && termo.cae < base.cae && tiene(termo, 'info', 'nota 9'), `la cifra baja (${Math.round(base.cae)} → ${Math.round(termo.cae)}) y lo dice`);
+    const peor = calc({ acsEff: 0.6, acsEffId: 'oil_pre85' });
+    ok(peor.etaAcs === 0.7 && !peor.etaAcsPropio && cerca(peor.cae, base.cae), 'un ACS que rinde MENOS no sube la cifra: se queda el de la caldera');
+    const gas = calc({ boilerEff: 0.7, boilerId: 'oil_85_97', acsEff: 0.85, acsEffId: 'gas_pre98_cond' });
+    ok(gas.etaAcs === 0.83, 'el ACS de gas de condensación anterior a 1998 va al 83 % del Anexo II de la FM, no al 85 % de la vigente');
+    const igual = calc({ acsEff: 0.7, acsEffId: 'oil_85_97' });
+    ok(!igual.etaAcsPropio && cerca(igual.cae, base.cae), 'misma caldera para los dos: nada cambia');
+}
+
 console.log(`\n${fallos ? `❌ ${fallos} FALLO(S)` : '✅ Todo correcto'}\n`);
 process.exit(fallos ? 1 : 0);

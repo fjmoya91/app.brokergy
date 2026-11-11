@@ -283,6 +283,16 @@ const casos = [
         return e;
     })(), { placaAcs: placa(1080, 1920) }],
     ['RES060_FM-S · textos largos · 2 empresas', conDelegacion(textosLargos(fmCaso(cascada(1), '26RES060FM_1', { vulnerable: true })), { largos: true })],
+    // Vía FM con el ACS existente en un termo eléctrico (η_ACS 1,00, 11/11/2026): la
+    // columna «η_i · η_ACS», la fila del «Donde» más larga, la fórmula con su η en el
+    // término del ACS y el párrafo de η_ACS.
+    ...[['RES060_FM · ACS existente termo eléctrico · 5 en cascada', fmCaso(cascada(5), '26RES060FM_1')],
+        ['RES060_FM-S · ACS existente termo eléctrico · textos largos · 2 empresas', conDelegacion(textosLargos(fmCaso(cascada(1), '26RES060FM_1', { vulnerable: true })), { largos: true })],
+    ].map(([nombre, e]) => {
+        e.instalacion.misma_caldera_acs = false;
+        e.instalacion.caldera_antigua_acs = { marca: '', modelo: 'TERMO ACS (EFECTO JOULE, SEGÚN CEE INICIAL)', numero_serie: '', rendimiento_id: 'electric' };
+        return [nombre, e];
+    }),
     ['RES093_FM · hibridación por demanda · 1 equipo', hibFm(1, 'demanda')],
     ['RES093_FM · hibridación por demanda · 5 en cascada', hibFm(5, 'demanda')],
     ['RES093_FM · hibridación por caldera · 5 en cascada', hibFm(5, 'caldera')],

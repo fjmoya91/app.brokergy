@@ -349,7 +349,8 @@ export function deriveCifoData({ expediente, results }) {
     // rendimiento distinto del de la caldera, y entonces el certificado lo declara aparte.
     const etaAcsInfo = etaAcsExistente(inst, etaBoiler);
     const etaAcsStr = etaAcsInfo.value.toFixed(2).replace('.', ',');
-    // En la vía FM el ahorro sale de su propia fórmula (una sola η): ahí no se declara aparte.
+    // En la vía FM los dos los pone el motor FM (`fmVars`, más abajo): su η_ACS sale
+    // del Anexo II de la FM y solo cuando rinde más que la caldera (11/11/2026).
     const etaAcsPropio = tieneAcs && etaAcsInfo.propio && !esNumeroFm(numexpte);
 
     const acsEsAcumulador = tieneAcs && tipoEquipoNuevo(acsAero) === EQUIPO_NUEVO.ACUMULADOR;
@@ -565,6 +566,8 @@ export function deriveCifoData({ expediente, results }) {
     // mismas que han dado la cifra), no las de la vigente.
     const fmVars = fm?.res ? {
         dcal: fm.dcalStr, sStr: fm.sStr, dacsStr: fm.dacsStr, etaStr: fm.etaStr,
+        // El η del término del ACS: el del motor FM (el del ACS existente si rinde más).
+        etaAcsStr: fm.etaAcsStr, etaAcsPropio: tieneAcs && fm.etaAcsPropio,
         scopCalStr: fm.scopBStr, scopCalRaw: fm.res.scopHeating,
         scopAcsStr: tieneAcs ? fm.scopDStr : scopAcsStr, scopAcsRaw: tieneAcs ? fm.res.scopAcs : scopAcsRaw,
         climaScopCal: fm.climaScopCal,
@@ -658,6 +661,7 @@ function derivaFm({ exp, fmRes, tieneAcs, temporadaCal, zoneStr, climaScopCal, e
         dcalStr: nEs(r.dcal), dcalBrutaStr: nEs(r.dcalBruta), dcalRefStr: nEsMax(r.dcalRef, 1), dcalTopeStr: nEsMax(r.dcalTope, 1),
         sStr: nEs(r.superficie), dacsStr: nEs(r.dacs), dAcsEspStr: String(r.dAcsEspecifica),
         etaStr: nEs(r.eta), etaCambia: Math.abs((Number(r.eta) || 0) - (Number(etaApp) || 0)) > 0.0001,
+        etaAcsStr: nEs(r.etaAcs ?? r.eta), etaAcsPropio: !!r.etaAcsPropio,
         scopBStr: nEs(r.scopHeating), scopDStr: nEs(r.scopAcs),
         cbStr: nEs(r.cb, 3), fmStr: nEsMax(r.fm, 2),
         aesStr: nEs(r.aes, 0), caeStr: Math.round(r.cae).toLocaleString('es-ES'),
@@ -691,6 +695,9 @@ function derivaFm({ exp, fmRes, tieneAcs, temporadaCal, zoneStr, climaScopCal, e
     // ── Lo que hay que mirar (no impide generarlo) ──
     if (r.dcalFuente === 'cee_inicial') {
         avisos.push('La D_cal y la superficie son las del CEE INICIAL: la ficha FM pide las del CEE posterior (registrado). Si el final ya está, cárgalo.');
+    }
+    if (r.potencia?.noCubre) {
+        avisos.push(`La bomba (${nEsMax(r.potencia.bombaKw, 1)} kW) no llega a la carga de diseño que sale de la D_cal (${nEsMax(r.potencia.disenoKw, 1)} kW con ${r.potencia.horas} h): la ficha pide que cubra TODA la calefacción. Si la caldera se queda, el certificado tiene que justificar la cobertura íntegra a la temperatura de proyecto (doc. 3.b); si no se puede, es una hibridación (${r.potencia.ficha}).`);
     }
     const temp = String(temporadaCal || '').toLowerCase();
     if (!climaAjustado && temp.startsWith('medio') && String(zoneStr).toUpperCase() !== 'E1') {
@@ -1039,7 +1046,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         { th: 'D<sub>CAL</sub>', td: dcalCell },
         { th: 'S', td: sCell },
         { th: 'D<sub>ACS</sub>', td: dacsCell },
-        { th: 'η<sub>i</sub>', td: etaStr },
+        etaAcsPropio
+            ? { th: 'η<sub>i</sub> · η<sub>ACS</sub>', td: `${etaStr} · ${etaAcsStr}` }
+            : { th: 'η<sub>i</sub>', td: etaStr },
         { th: 'SCOP<sub>bdc</sub>', td: scopCalStr },
         { th: 'SCOP<sub>dhw</sub>', td: scopAcsStr },
         ...(isHybrid ? [{ th: 'C<sub>b</sub>', td: cbStr, hi: true }] : []),
@@ -1113,7 +1122,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 { sym: 'D<sub>CAL</sub>', desc: `Demanda específica de energía en calefacción por unidad de superficie útil habitable (${fmAnexo.dcal})`, val: `${dcal} kWh/m²·año` },
                 { sym: 'S', desc: 'Superficie útil habitable a la que da suministro la bomba de calor', val: `${sStr} m²` },
                 { sym: 'D<sub>ACS</sub>', desc: `Demanda de energía en agua caliente sanitaria (${fmAnexo.dacs})`, val: tieneAcs ? `${dacsStr} kWh/año` : 'no aplica' },
-                { sym: 'η<sub>i</sub>', desc: `Rendimiento de caldera ${fm.esHib ? 'que se queda hibridada' : 'sustituida'} (${fmAnexo.eta})`, val: etaStr },
+                etaAcsPropio
+                    ? { sym: 'η<sub>i</sub> · η<sub>ACS</sub>', desc: `Rendimiento de caldera ${fm.esHib ? 'que se queda hibridada' : 'sustituida'} (${fmAnexo.eta}) · del ACS existente: ${acsExTipo}`, val: `${etaStr} · ${etaAcsStr}` }
+                    : { sym: 'η<sub>i</sub>', desc: `Rendimiento de caldera ${fm.esHib ? 'que se queda hibridada' : 'sustituida'} (${fmAnexo.eta})`, val: etaStr },
                 { sym: 'SCOP<sub>bdc</sub>', desc: `Rendimiento estacional de la bomba de calor en calefacción (${fmAnexo.scop})`, val: scopCalStr },
                 { sym: 'SCOP<sub>dhw</sub>', desc: `Rendimiento estacional de la bomba de calor en ACS (${fmAnexo.scop})`, val: scopAcsStr },
                 ...(isHybrid ? [{ sym: 'C<sub>b</sub>', desc: `Coeficiente de cobertura en calefacción por bivalencia en paralelo, en tanto por uno (${fmAnexo.cb})`, val: cbStr }] : []),
@@ -1149,11 +1160,15 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         const cbVal = isHybrid ? ` · ${cbStr}` : '';
         const n2 = (v) => nEs(v, 2);
         const fila = (html, extra = '') => `<div style="text-align:center;font-size:12px;line-height:1.5;color:#1A1A1A;${extra}">${html}</div>`;
+        // Con un ACS existente propio (un termo, 1,00) su término va con su η: la cuenta
+        // impresa tiene que dar la cifra que imprime (como la vigente, 26RES060_168).
+        const etaAcsSym = etaAcsPropio ? 'η<sub>ACS</sub>' : 'η<sub>i</sub>';
+        const etaAcsVal = etaAcsPropio ? etaAcsStr : etaStr;
         return `
         ${subLabel(`Cálculo del ahorro · apartado 4 de la ficha ${cifoLabel}`, '#6E6E66', '12px')}
         <div style="border:1px solid #E9E9E1;border-radius:16px;padding:12px 16px;">
-            <div style="text-align:center;font-weight:800;font-size:13.5px;background:#FBF6EE;border-radius:10px;padding:8px;margin-bottom:8px;color:#1A1A1A;">AE<sub>TOTAL</sub> = [ (D<sub>CAL</sub> · S) · (1/η<sub>i</sub> − 1/SCOP<sub>bdc</sub>) + D<sub>ACS</sub> · (1/η<sub>i</sub> − 1/SCOP<sub>dhw</sub>) ]${cbTxt} · f<sub>M</sub></div>
-            ${fila(`= [ (${dcal} · ${sStr}) · (1/${etaStr} − 1/${scopCalStr}) + ${tieneAcs ? dacsStr : '0'} · (1/${etaStr} − 1/${scopAcsStr}) ]${cbVal} · ${fm.fmStr}`)}
+            <div style="text-align:center;font-weight:800;font-size:13.5px;background:#FBF6EE;border-radius:10px;padding:8px;margin-bottom:8px;color:#1A1A1A;">AE<sub>TOTAL</sub> = [ (D<sub>CAL</sub> · S) · (1/η<sub>i</sub> − 1/SCOP<sub>bdc</sub>) + D<sub>ACS</sub> · (1/${etaAcsSym} − 1/SCOP<sub>dhw</sub>) ]${cbTxt} · f<sub>M</sub></div>
+            ${fila(`= [ (${dcal} · ${sStr}) · (1/${etaStr} − 1/${scopCalStr}) + ${tieneAcs ? dacsStr : '0'} · (1/${etaAcsVal} − 1/${scopAcsStr}) ]${cbVal} · ${fm.fmStr}`)}
             ${fila(`= ( ${n2(r.ahc)} + ${n2(r.aha)} )${cbVal} · ${fm.fmStr} = <b>${n2(r.cae)} kWh/año</b>`, 'margin-top:2px;')}
             <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:7px 16px;margin-top:8px;">
                 <span style="font-weight:700;color:#1A1A1A;">AE<sub>TOTAL</sub> (ahorro anual de energía final total)</span>

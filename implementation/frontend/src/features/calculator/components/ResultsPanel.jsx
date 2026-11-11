@@ -29,6 +29,7 @@ import { HistorialModal } from '../../../components/HistorialModal';
 import { useBotonCe3x } from '../../cee-ia/useBotonCe3x';
 import { EstimacionCiega } from './EstimacionCiega';
 import { ConmutadorViaFm } from './ConmutadorViaFm';
+import { prudenteViaFm, motivosPrudenteTxt } from '../logic/viaFm';
 import { Res080FmCard } from './Res080FmCard';
 
 const formatNumber = (val, decimals = null) => {
@@ -1327,6 +1328,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                 const actEur = result.financials?.caeBonus || 0;
                                 const fcKwh = fc.cae;
                                 const fcEur = result.financialsRes060FC?.caeBonus || 0;
+                                // La cifra PRUDENTE (sin el ACS supuesto / como hibridación si la
+                                // bomba no llega): al lado de la FM, nunca en su lugar.
+                                const pru = fc.elegible !== false ? prudenteViaFm(result) : null;
+                                const pruTxt = pru ? motivosPrudenteTxt(pru.motivos, pru.potencia?.noCubre ? pru.potencia.cobertura * 100 : null) : '';
                                 const mx = Math.max(fcKwh, actKwh, 1);
                                 const ratio = actKwh > 0 ? fcKwh / actKwh : 0;
                                 const diffEur = fcEur - actEur;
@@ -1401,6 +1406,18 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                 <div className="h-3 rounded-full bg-white/10 overflow-hidden">
                                                     <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400 transition-all duration-300" style={{ width: `${(100 * fcKwh / mx)}%` }}></div>
                                                 </div>
+                                                {pru && (
+                                                    <div className="flex justify-between items-baseline gap-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/25">
+                                                        <span className="text-[10px] leading-snug text-amber-200">
+                                                            <span className="font-black uppercase tracking-widest">Cifra prudente</span>
+                                                            <span className="block text-amber-100/70">{pruTxt}</span>
+                                                        </span>
+                                                        <span className="flex items-baseline gap-2 shrink-0">
+                                                            <span className="text-base font-black text-amber-200 tabular-nums">{formatNumber(pru.kwh, 0)} <span className="text-[10px] font-bold text-amber-300/60 uppercase">kWh/año</span></span>
+                                                            <span className="text-sm font-bold text-amber-100 tabular-nums">{formatNumber(pru.eur, 0)} €</span>
+                                                        </span>
+                                                    </div>
+                                                )}
                                                 <div className="flex justify-between items-baseline gap-3">
                                                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ficha vigente</span>
                                                     <span className="flex items-baseline gap-2">
@@ -1426,7 +1443,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                 <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">D_cal ({dcalDe})</span><span className="text-white/70 font-mono">{formatNumber(fc.dcal, 1)} kWh/m²</span></div>
                                                 <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">S · D_cal·S</span><span className="text-white/70 font-mono">{formatNumber(fc.superficie, 0)} m² · {formatNumber(fc.dem, 0)} kWh</span></div>
                                                 <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">D_ACS ({fc.conAcs ? `${fc.dAcsEspecifica}·S` : fc.acsSupuesto ? `${fc.dAcsEspecifica}·S, supuesto` : 'sin ACS'})</span><span className="text-white/70 font-mono">{formatNumber(fc.dacs, 0)} kWh</span></div>
-                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">η caldera / f_M{fc.hibridacion ? ' / C_b' : ''}</span><span className="text-white/70 font-mono">{formatNumber(fc.eta * 100, 0)}% / {formatNumber(fc.fm, 1)}{fc.hibridacion ? ` / ${formatNumber(fc.cb, 3)}` : ''}</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">η caldera / f_M{fc.hibridacion ? ' / C_b' : ''}</span><span className="text-white/70 font-mono">{formatNumber(fc.eta * 100, 0)}%{fc.etaAcsPropio ? ` (ACS ${formatNumber(fc.etaAcs * 100, 0)}%)` : ''} / {formatNumber(fc.fm, 1)}{fc.hibridacion ? ` / ${formatNumber(fc.cb, 3)}` : ''}</span></div>
+                                                {fc.potencia && (
+                                                    <div className="flex justify-between gap-2 pt-2 col-span-2 sm:col-span-3"><span className="text-slate-500">Bomba / carga de diseño (D_cal·S ÷ {formatNumber(fc.potencia.horas, 0)} h, clima {fc.potencia.temporada})</span><span className={`font-mono ${fc.potencia.noCubre ? 'text-amber-300' : 'text-white/70'}`}>{formatNumber(fc.potencia.bombaKw, 1)} / {formatNumber(fc.potencia.disenoKw, 1)} kW · {formatNumber(fc.potencia.cobertura * 100, 0)} %</span></div>
+                                                )}
                                                 <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Ahorro sin f_M</span><span className="text-white/70 font-mono">{formatNumber(fc.aes, 0)} kWh</span></div>
                                                 <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Tipología</span><span className="text-white/70 font-mono">{fc.tipologiaLabel}</span></div>
                                                 {fc.dcalTope != null && (

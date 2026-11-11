@@ -41,11 +41,24 @@ el párrafo va dentro del apartado de η_i y no como apartado propio (se pasaba 
 La **ficha RES060 oficial** solo tiene la casilla `ri i` (η_i): imprime 0,79 y el AE_TOTAL de
 `results.savingsKwh` (30.190). La explicación del η_ACS va en el CIFO, que es el que la acompaña.
 
+**También por la vía FM (11/11/2026, auditoría externa del FM).** La RES060_FM escribe una sola η en los
+dos términos, pero su ficha tampoco tiene casilla para el ACS aparte, igual que la vigente, y Marwen
+exigió la η_ACS en la vigente: lo mismo vale para la FM. `calculateRes060FM` acepta `acsEff`/`acsEffId`
+(los de `etaAcsExistente`, que le pasa `entradasFmExpediente` en
+[fmExpediente.js](../../../implementation/frontend/src/features/expedientes/logic/fmExpediente.js)) y el
+término del ACS va con `1/η_ACS` **solo si es MÁS ALTA que η_i** (`etaAcsPropio`): la propia fórmula dice
+que, si se sustituyen varias calderas, se toma la de rendimiento más alto (nota 9 de las variables). Un
+ACS peor que la caldera no sube la cifra. El aviso «info» de la calculadora lo explica, y el CIFO FM
+imprime «η_i · η_ACS» en la tabla, en el «Donde» y en la fórmula (`1/η_ACS` en el término del ACS), como
+el vigente. La calculadora no lo pasa: la simulación no tiene un equipo de ACS aparte. Medido en la
+prueba: 45.874 → 44.459 kWh con un termo eléctrico.
+
 **Medido el 10/11/2026** (snapshot de los 382 expedientes por las tres vías, antes y después): solo
 cambian **26RES060_168** (30.771 → 30.190) y **26RES060_182** (gasóleo + termo eléctrico ya declarado,
 27.878 → 27.125). Los 367 con la misma caldera o sin declarar, igual. El LOTE-2026-014 pasa de 221.265 a
 **220.684**. El 182 tenía ya enviados el CIFO (07/11) y el Anexo I (04/11) con la cifra vieja: tras el
 despliegue hay que volver a mandarlos.
 
-Tras tocarlo: `node implementation/backend/scripts/test_eta_acs_existente.mjs`, `test_impresos_oficiales.mjs`
-y `check_cifo_paginas.mjs` (lleva dos casos con termo eléctrico).
+Tras tocarlo: `node implementation/backend/scripts/test_eta_acs_existente.mjs`, `test_impresos_oficiales.mjs`,
+`test_res060fc.mjs` (la parte FM) y `check_cifo_paginas.mjs` (lleva dos casos con termo eléctrico por la
+vigente y dos por la FM).

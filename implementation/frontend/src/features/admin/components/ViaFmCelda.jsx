@@ -11,6 +11,7 @@
  */
 import React from 'react';
 import { FM_ACS_QUE_HACER } from '../../calculator/logic/res060fc';
+import { motivosPrudenteTxt } from '../../calculator/logic/viaFm';
 
 // La simulación no lleva el ACS: la MISMA frase que la tarjeta y la propuesta.
 const ACS_TXT = {
@@ -48,6 +49,7 @@ export const FILTRO_VIA_FM = [
     { value: 'elegible', label: 'Elegibles' },
     { value: 'no_elegible', label: 'No elegibles' },
     { value: 'falta_acs', label: 'Elegibles a falta del ACS' },
+    { value: 'no_llega', label: 'Elegibles con bomba que no llega' },
     { value: 'sin', label: 'Sin calcular' },
 ];
 
@@ -56,6 +58,7 @@ export function pasaFiltroViaFm(via, filtro) {
     const e = estadoViaFm(via);
     if (filtro === 'elegible') return e === 'gana' || e === 'pierde' || e === 'igual';
     if (filtro === 'falta_acs') return !!via?.acs && (e === 'gana' || e === 'pierde' || e === 'igual');
+    if (filtro === 'no_llega') return via?.potencia_pct != null && (e === 'gana' || e === 'pierde' || e === 'igual');
     return e === filtro;
 }
 
@@ -72,6 +75,11 @@ function tituloViaFm(via) {
         l.push(`Diferencia: ${conSigno((Number(via.eur_fm) || 0) - (Number(via.eur_vigente) || 0))}`);
         if (via.elegible === false) l.push(`No se puede pedir: ${via.motivo || 'ver avisos en la calculadora'}`);
     }
+    // La cifra PRUDENTE (sin el ACS supuesto / como hibridación si la bomba no llega).
+    if (via.eur_fm_prudente != null && via.elegible !== false) {
+        l.push(`Prudente: ${mwh(via.mwh_fm_prudente)} · ${eur(via.eur_fm_prudente)} — ${motivosPrudenteTxt(via.prudente, via.potencia_pct)}`);
+    }
+    if (via.potencia_pct != null) l.push(`⚠ La bomba cubre el ${via.potencia_pct} % de la carga de diseño: la ficha pide que dé TODA la calefacción (o la justificación del doc. 3.b).`);
     // Sin ACS en la simulación (Fran, 07/11/2026: aviso, no bloqueo).
     if (via.acs) l.push(ACS_TXT[via.acs] || ACS_TXT.supuesto);
     if (via.dcal) l.push(DCAL_TXT[via.dcal] || via.dcal);
@@ -108,9 +116,19 @@ export function ViaFmCelda({ via }) {
                     {Math.abs(dif) < 1 ? '= vigente' : conSigno(dif)}
                 </span>
             )}
+            {via.eur_fm_prudente != null && !noElegible && (
+                <span className="text-[10px] font-bold font-mono tabular-nums text-amber-300/80">
+                    prud. {eur(via.eur_fm_prudente)}
+                </span>
+            )}
             {via.acs && !noElegible && (
                 <span className="self-start px-1.5 py-px rounded text-[8px] font-black uppercase tracking-wider border border-amber-500/30 bg-amber-500/10 text-amber-400">
                     Falta ACS
+                </span>
+            )}
+            {via.potencia_pct != null && !noElegible && (
+                <span className="self-start px-1.5 py-px rounded text-[8px] font-black uppercase tracking-wider border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                    Bomba {via.potencia_pct} %
                 </span>
             )}
         </div>
@@ -130,7 +148,9 @@ export function ViaFmChip({ via }) {
             {noElegible
                 ? <span className="text-amber-400 text-[9px] uppercase">no elegible</span>
                 : Math.abs(dif) >= 1 && <span className={dif > 0 ? 'text-emerald-400' : 'text-white/35'}>({conSigno(dif)})</span>}
+            {via.eur_fm_prudente != null && !noElegible && <span className="text-amber-300/80 text-[9px]">prud. {eur(via.eur_fm_prudente)}</span>}
             {via.acs && !noElegible && <span className="text-amber-400 text-[9px] uppercase">falta ACS</span>}
+            {via.potencia_pct != null && !noElegible && <span className="text-amber-400 text-[9px] uppercase">bomba {via.potencia_pct} %</span>}
         </span>
     );
 }

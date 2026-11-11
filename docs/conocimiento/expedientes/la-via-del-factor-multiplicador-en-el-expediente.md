@@ -116,6 +116,20 @@ cliente para que, si está de acuerdo, se espere a partir del 15/01 para present
 REGLA — **al cliente se le PROPONE esperar; la vía se cambia después, a mano, cuando dice que sí.** El
 aviso no toca el número ni los documentos.
 
+**La cifra PRUDENTE y lo que el expediente le pasa al motor (11/11/2026, auditoría externa del FM).**
+Las dos llamadas del expediente al motor (`calcularFmExpediente` y el `calculateRes060FC` de
+`ExpedienteDetailView`) llevan lo mismo, de una sola función, `entradasFmExpediente` en
+[fmExpediente.js](implementation/frontend/src/features/expedientes/logic/fmExpediente.js):
+- la η del ACS existente (`etaAcsExistente`, regla 209; solo cuenta si es más alta que η_i);
+- la potencia de la bomba: la suma de `instalacion.aerotermia_cal` (`potenciaTotal`, cascada incluida),
+  o `instalacion.potencia_bomba`, o la de la oportunidad si vino del catálogo;
+- la temporada del SCOP, para las horas con las que se compara la bomba con la carga de diseño.
+
+Si la bomba no llega, la pestaña Económico (fila ámbar «FM prudente» en Volumen y Ayuda), el panel «Vía
+FM» y el CIFO FM (aviso que NO bloquea: hace falta la justificación técnica del doc. 3.b) lo dicen. La
+cifra del panel y del Convenio no cambia: la prudente es la que se le puede prometer al cliente sin
+riesgo, no la que se pide.
+
 ### Los datos de la vía
 
 **REGLA — `documentacion.via_fm` solo lo escribe `PUT /:id/via-fm/datos`.** Con la RPC de merge

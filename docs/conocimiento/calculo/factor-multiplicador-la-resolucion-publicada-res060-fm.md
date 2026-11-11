@@ -346,6 +346,63 @@ terciario o solo reforma). **46 no elegibles** (41 sólido, 4 sin caldera, 1 sol
 fechas de obra (+207.230 €). La D_cal sale del CEE final en 68 y del inicial en 63. El que más:
 26RES060_215, +27.296 €.
 
+## La cifra PRUDENTE: la bomba que no llega, el ACS supuesto y la η del ACS (11/11/2026)
+
+Auditoría externa del FM (Fran, 11/11/2026: «me salen importes muy elevados… quiero asegurarme de que un
+valor que doy luego no vaya a ser que sea menos»). El código casa con el BOE: OP358 da 123.001 kWh, lo
+mismo a mano. Pero hay tres cosas que pueden bajar la cifra el día de la verificación, y la app ya las
+enseña:
+
+1. **La bomba que no llega a la carga de diseño.** El apartado 1 de la RES060_FM pide una bomba
+   hidrónica «para poder satisfacer completamente la demanda de calefacción y el agua caliente
+   sanitaria», y el doc. 3.b, si la caldera se queda, una «justificación técnica» de que la potencia
+   cubre la demanda entera. La app compara la potencia de la bomba con D_cal·S ÷ horas equivalentes
+   (`calculateHybridization`, método demanda, con las horas de la temporada del SCOP: cálido 1.336 ·
+   medio 2.066 · frío 2.465). Si no llega es un **AVISO** (no bloquea): dice los kW, la carga, el % y
+   que, de no justificarse, iría como hibridación en paralelo (RES09x_FM de su zona) con su C_b.
+   La potencia solo cuenta si es de verdad (`potenciaBombaDeInputs`): del catálogo o de la hibridación
+   en la calculadora (los 12 kW por defecto no avisan), y en el expediente la suma de
+   `instalacion.aerotermia_cal` (cascada incluida). En una hibridación no se mira (ya lleva su C_b).
+2. **El ACS supuesto** (regla 155): si la simulación no lleva ACS, la cifra FM lo supone; la prudente
+   no.
+3. **La η del ACS existente** (regla 209): un termo eléctrico (1,00) baja el término del ACS. Este SÍ
+   cambia la cifra principal, porque es lo que pide el verificador (Marwen, 26RES060_168).
+
+`calculateRes060FM` devuelve `potencia` (`{ bombaKw, disenoKw, horas, temporada, cobertura, noCubre,
+ficha, cb }`) y `prudente` (`{ motivos: ['acs','potencia'], cae, acsKwh }`, o null). La prudente es
+`(AE_cal + AE_acs si no es supuesto) · C_b(cobertura) · f_M`. El € con la misma regla lineal que el bono
+(`prudenteViaFm` en [viaFm.js](../../../implementation/frontend/src/features/calculator/logic/viaFm.js)).
+`via_fm` pasa a **v4**: `mwh_fm_prudente`, `eur_fm_prudente`, `prudente` («acs,potencia») y
+`potencia_pct`. Se enseña en ámbar: tarjeta «Vía FM» de la calculadora (caja «Cifra prudente» y fila
+«Bomba / carga de diseño»), columna «Vía FM» de Oportunidades («prud. X €», chip «Bomba N %» y filtro
+«Elegibles con bomba que no llega»), panel «Vía FM» y pestaña Económico del expediente (fila «FM
+prudente»), y el CIFO FM avisa sin bloquear.
+
+**REGLA — al cliente se le promete la PRUDENTE; la cifra FM es la que se pide.** La de arriba sale si la
+bomba cubre (o se justifica) y el ACS entra en la obra.
+
+OP358 (12 kW CARRIER AQUASNAP, D3, 389 m², sin CEE): carga 41,4 kW (55.294 kWh ÷ 1.336 h), cubre el
+29 %, C_b 0,548 (RES093_FM) → prudente **63,0 MWh / 6.303 €** (el ACS supuesto aporta 7,98 MWh a la
+cifra FM) frente a
+123,0 MWh / 12.300 € de la cifra FM y 57,5 MWh / 5.751 € de la vigente. Con 45 kW cubriría.
+
+### Lo medido (en seco, 11/11/2026, `backfill_via_fm.mjs`, mismo €/MWh que la vigente)
+
+- **Oportunidades**: 375 elegibles; **205 con cifra prudente** (123 por el ACS supuesto, **119 con la
+  bomba que no llega**, 37 por las dos). Bono FM 2.744.908 € → **prudente 2.480.324 €** (−264.584 €).
+  Las 119 de la bomba: 966.008 € → 736.491 € (vigente 499.565 €). Cobertura: mediana 63 %, 37 por
+  debajo del 50 %. En 7 la prudente queda POR DEBAJO de la vigente (OP243, OP256, OP275, OP319, OP328,
+  OP330, OP366); la OP319 cubre el 14 % y la tabla D da C_b 0 por debajo del 15 %.
+- **Expedientes RES060/RES093** (solo medido; con CEE y la bomba instalada): 138 elegibles, **108 con
+  la bomba que no llega** (mediana 55 %, 42 por debajo del 50 %), 56 con el ACS supuesto. Bono FM
+  1.110.042 € → **prudente 889.539 €**. Por debajo de la vigente: 26RES060_177, 178, 184, 185, 193 y
+  206.
+- El relleno pedía los campos uno a uno (regla 22) y no traía la potencia: desde hoy pide también
+  `potenciaBomba`, `aerothermiaModel`, `scopTemporada`, `potenciaCaldera` y `hibridacionMetodo`. El
+  guardado de la calculadora y `viaFmAlGuardar` ya usaban el `datos_calculo` entero.
+- Tras el deploy, para que la columna enseñe la prudente en las 441 que ya tienen `via_fm` v3: relleno
+  con `--escribir --forzar` (si no, solo se rehace al guardar cada una).
+
 ## La RES080_FM en la app (09/11/2026)
 
 **Fuente única del cálculo**: `calculateRes080FM` en

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Res060FCModal } from '../../calculator/components/Res060FCModal';
+import { prudenteViaFm, motivosPrudenteTxt } from '../../calculator/logic/viaFm';
 
 // ─── Umbrales del aviso de margen tras verificación ───────────────────────────
 // El ahorro VERIFICADO (verificador, p. ej. Marwen) es un campo manual independiente
@@ -191,6 +192,17 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', chip = 'bg-whit
                         <span className="text-[11px] font-bold tracking-tight tabular-nums text-violet-300">{fc.value}</span>
                     </RefRow>
                 )}
+                {/* La cifra PRUDENTE de la vía FM: sin el ACS supuesto / como hibridación
+                    si la bomba no llega a la carga de diseño (11/11/2026). */}
+                {fc && fc.prudente != null && fc.elegible !== false && (
+                    <RefRow
+                        labelText="FM prudente"
+                        labelClass="bg-amber-400/10 text-amber-300"
+                        title={`Cifra FM prudente: ${fc.prudenteTxt}`}
+                    >
+                        <span className="text-[11px] font-bold tracking-tight tabular-nums text-amber-300">{fc.prudente}</span>
+                    </RefRow>
+                )}
             </div>
         )}
 
@@ -264,13 +276,18 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
     } = results;
 
     const hasFc = !!(res060fc && res060fc.cae > 0 && financialsRes060FC);
+    // La cifra PRUDENTE de la vía FM (logic/viaFm.js), si la cifra supone algo.
+    const pruFm = hasFc ? prudenteViaFm({ res060fc, financialsRes060FC }) : null;
+    const pruFmTxt = pruFm ? motivosPrudenteTxt(pruFm.motivos, pruFm.potencia?.noCubre ? pruFm.potencia.cobertura * 100 : null) : '';
     // Fila «FM» de cada métrica: la ficha que toca y, si algo impide pedirlo, el porqué.
-    const fcRef = (value) => (hasFc ? {
+    const fcRef = (value, prudente = null) => (hasFc ? {
         value,
         onClick: () => setShowFcModal(true),
         ficha: res060fc.ficha || 'RES060_FM',
         elegible: res060fc.elegible,
         motivo: (res060fc.avisos || []).find((a) => a.tono === 'bloquea')?.texto,
+        prudente,
+        prudenteTxt: pruFmTxt,
     } : null);
     // Result con la forma que espera Res060FCModal: la comparativa "actual" usa el ESTIMADO.
     const fcModalResult = hasFc ? {
@@ -416,7 +433,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 editable: !ahorroHeredado,
                 ...verifEditProps,
             },
-            fc: hasFc ? fcRef(fmtMwh(res060fc.cae)) : null,
+            fc: hasFc ? fcRef(fmtMwh(res060fc.cae), pruFm ? fmtMwh(pruFm.kwh) : null) : null,
             color: 'text-green-400',
             icon: (
                 <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -442,7 +459,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 diff: fmtEur(caeBonusVerificado) !== fmtEur(caeBonus),
                 editable: false,
             } : null,
-            fc: hasFc ? fcRef(fmtEur(financialsRes060FC.caeBonus)) : null,
+            fc: hasFc ? fcRef(fmtEur(financialsRes060FC.caeBonus), pruFm ? fmtEur(pruFm.eur) : null) : null,
             color: 'text-brand',
             icon: (
                 <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

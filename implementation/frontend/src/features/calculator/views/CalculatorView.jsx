@@ -45,7 +45,7 @@ import { esBloque, TIPO_INMUEBLE } from '../logic/tipoInmueble';
 import { resolveDacs, ACS_METHOD } from '../../expedientes/logic/demandaAcs';
 import { ceeToEmisionesInputs, ceeFinalToEmisionesInputs } from '../logic/ceeSeed';
 import { demandaDeCalculo } from '../../cee/ceeAvisos';
-import { calculateRes060FC, contextoCalderaFc } from '../logic/res060fc';
+import { calculateRes060FC, contextoCalderaFc, potenciaBombaDeInputs } from '../logic/res060fc';
 import { esVulnerableFm } from '../logic/viaFm';
 import { entradasFmClima } from '../logic/climaFm';
 import { Res060FCModal } from '../components/Res060FCModal';
@@ -886,6 +886,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             // × 1,5 de consumidor vulnerable (ficha -S): el conmutador del equipo o,
             // sin tocar, el bono social que declaró el cliente al aceptar (09/11/2026).
             vulnerable: esVulnerableFm(inputs),
+            // ¿Llega la bomba? Con la potencia del catálogo (o la tecleada en la
+            // hibridación) y las horas de la temporada del SCOP, como el C_b.
+            potenciaBomba: potenciaBombaDeInputs(inputs),
+            temporadaScop: fmClima.clima?.ajustado ? CLIMA_SCOP.CALIDO : resolveClimateSeason({}, sanitizedInputs, sanitizedInputs.zona),
         });
 
         // Financieros de la vía FM con las mismas reglas (precio CAE, prescriptor, IVA...)

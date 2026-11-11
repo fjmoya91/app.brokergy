@@ -12,12 +12,33 @@
 // Detalle: docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md
 // ============================================================================
 
-import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, resolveClimateSeason, etaAcsExistente, CLIMA_SCOP } from '../../calculator/logic/calculation.js';
 import { entradasFmClima } from '../../calculator/logic/climaFm.js';
-import { calculateRes060FM, contextoCalderaFc, tramiteFc, esEmisorAireAire } from '../../calculator/logic/res060fc.js';
+import { calculateRes060FM, contextoCalderaFc, tramiteFc, esEmisorAireAire, potenciaBombaDeInputs } from '../../calculator/logic/res060fc.js';
 import { calcCifo } from './calcCifo.js';
-import { acsComputaAhorro } from './aerotermiaUnits.js';
+import { acsComputaAhorro, potenciaTotal } from './aerotermiaUnits.js';
 import { ceeBaseDocumento } from './ceeFases.js';
+
+/**
+ * Lo que el motor FM necesita del expediente además de lo de siempre (11/11/2026):
+ * el η del ACS EXISTENTE (`etaAcsExistente`, el mismo de la vía vigente), la
+ * potencia de la bomba (la suma de las unidades, como la inercia FM; si no, la de
+ * Instalación; si no, la de la oportunidad cuando la puso el catálogo) y la
+ * temporada de su SCOP de calefacción (la del C_b: `resolveClimateSeason`, o la
+ * cálida si la FM pasó el SCOP al clima de la zona). La comparten el Económico
+ * (ExpedienteDetailView) y el CIFO del servidor: una cuenta, dos sitios.
+ */
+export function entradasFmExpediente({ inst = {}, opInputs = {}, calcInputs = {}, zona, boilerEffValue, fmClima = null }) {
+    const acs = etaAcsExistente(inst, boilerEffValue);
+    const potenciaBomba = potenciaTotal(inst.aerotermia_cal || {})
+        || parseFloat(inst.potencia_bomba) || potenciaBombaDeInputs(opInputs) || null;
+    return {
+        acsEff: acs.value,
+        acsEffId: acs.id,
+        potenciaBomba,
+        temporadaScop: fmClima?.clima?.ajustado ? CLIMA_SCOP.CALIDO : resolveClimateSeason(inst, calcInputs, zona),
+    };
+}
 
 // Temperatura de impulsión del emisor: la misma tabla que `getEmitterTemp` de
 // cifoDoc.js. Copiada (cuatro líneas) para no crear un ciclo cifoDoc ↔ este módulo.
@@ -113,6 +134,7 @@ export function calcularFmExpediente({ expediente, cee: ceeIn, inst: instIn, doc
         ceeInicial: cee.cee_inicial,
         hibridacion: fmClima.hibridacion,
         vulnerable: datosFmVia.vulnerable === true,
+        ...entradasFmExpediente({ inst, opInputs, calcInputs, zona: zonaFm, boilerEffValue, fmClima }),
         contexto: {
             ...contextoCalderaFc(opInputs, boilerEffId),
             climaFm: fmClima.clima,

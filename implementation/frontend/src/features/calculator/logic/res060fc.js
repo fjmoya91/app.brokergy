@@ -1,4 +1,4 @@
-import { redondeaScop } from './calculation.js';
+import { redondeaScop, calculateHybridization, normalizeClimateSeason } from './calculation.js';
 import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping.js';
 import { esCalderaBiomasa } from './irpfBiomasa.js';
 /**
@@ -40,6 +40,11 @@ import { esCalderaBiomasa } from './irpfBiomasa.js';
  *   Combustible SÓLIDO (biomasa, carbón): el Anexo II ya no lo trae → no elegible.
  * - SCOP: los MISMOS que el cálculo vigente, para que la comparativa sea limpia.
  * - C_b: aerotermia salvo que el equipo diga geotermia o hidrotérmica.
+ * - η del ACS: la del equipo de ACS existente si es otro y rinde más (11/11/2026).
+ * - Cifra PRUDENTE (`prudente`, 11/11/2026): la que queda si falla lo que la app
+ *   supone — sin el ACS que no está en el presupuesto y, si la bomba no llega a la
+ *   carga de diseño, con el C_b de la hibridación en paralelo de la zona. La cifra
+ *   principal no cambia; la prudente va al lado, con su motivo.
  * - Nada de esto se enseña sin sus avisos (`avisos`, `elegible`): fechas, cupo,
  *   tramitación y lo que hay que documentar no están en la fórmula.
  */
@@ -329,6 +334,11 @@ function avisosFm(r, ctx) {
     }
     if (r.clase === 'unifamiliar' && r.anioSupuesto && r.dcalTope != null) add('aviso', 'Falta el año de construcción: el tope de la D_cal (2 × la tabla del Anexo IV) se ha tomado del tramo 1981-2007.');
     if (r.acsSupuesto || r.acsSinScop) add('aviso', textoFaltaAcs(r));
+    if (r.potencia?.noCubre) {
+        const p = r.potencia;
+        add('aviso', `La bomba (${n1(p.bombaKw)} kW) no llega a la carga de diseño: ${n0(r.dem)} kWh/año ÷ ${n0(p.horas)} h de clima ${p.temporada} = ${n1(p.disenoKw)} kW, así que cubre el ${n0(p.cobertura * 100)} %. La RES060_FM pide que la bomba satisfaga TODA la calefacción y el ACS (apartado 1; si la caldera se queda, el doc. 3.b justifica la cobertura íntegra). Si no se justifica, va como hibridación en paralelo (${p.ficha}) con C_b ${n2(p.cb * 100)} %: ${n0(r.prudente?.cae)} kWh en vez de ${n0(r.cae)}.`);
+    }
+    if (r.etaAcsPropio) add('info', `El ACS existente tiene su propio equipo, con un rendimiento (${n0(r.etaAcs * 100)} %) más alto que el de la caldera (${n0(r.eta * 100)} %): el término del ACS se calcula con él, como la vía vigente (26RES060_168). La fórmula dice que, si se sustituyen varias calderas, se toma el rendimiento más alto (nota 9).`);
     if (r.etaPorDefecto) add('aviso', 'Rendimiento de caldera «por defecto»: la ficha toma el del Anexo II según el combustible, la antigüedad y el tipo de la caldera. Elige su fila.');
     if (r.hibridacion && ctx.sinZona) add('aviso', 'No consta la zona climática: se ha usado la ficha de la zona D (RES093_FM).');
     // Clima del SCOP: por la FM la calefacción va en el de la ZONA (logic/climaFm.js).
@@ -389,6 +399,10 @@ export function calculateRes060FM({
     hibridacion = null, // { coverage, refPower, cb } de calculateHybridization, o null
     fuenteBomba = 'aerotermia', // 'geotermia' | 'hidrotermica' solo si el equipo lo dice
     vulnerable = false, // consumidor vulnerable (×1,5, fichas _FM-S)
+    acsEff = null,      // η del equipo de ACS EXISTENTE si es otro (`etaAcsExistente`); null = la caldera
+    acsEffId = null,    // su fila de BOILER_EFFICIENCIES (para el Anexo II de la FM)
+    potenciaBomba = null, // kW nominales de la(s) bomba(s) en calefacción; null = no consta
+    temporadaScop = null, // temporada del SCOP de calefacción aplicado ('calido' | 'medio' | 'frio')
     contexto = {},      // { sinCalefaccion, combustible, solido, ceeFinal, inicioObra, finObra, tramite, aireAire, comunidad, hoy, climaFm }
 }) {
     const tip = tipologiaFM({ tipo, bloque });
@@ -428,6 +442,15 @@ export function calculateRes060FM({
     const eta = ETA_ANEXO_II_FM[id] ?? etaApp;
     const solido = !!contexto.solido || id.startsWith('solid_') || contexto.combustible === 'biomasa';
     const etaPorDefecto = id === 'default';
+    // REGLA — el término del ACS va con el rendimiento del equipo de ACS EXISTENTE
+    // cuando es otro y rinde MÁS que la caldera (un termo eléctrico, 1,00), como la
+    // vía vigente (`etaAcsExistente`, 26RES060_168: Marwen lo levantó). Si rinde
+    // menos, se queda el de la caldera: la nota (9) de la fórmula manda tomar el
+    // rendimiento más alto cuando se sustituyen varias calderas, y así la cifra
+    // nunca sube por tener un ACS peor. Con su fila, la del Anexo II de la FM.
+    const etaAcsDecl = ETA_ANEXO_II_FM[String(acsEffId || '')] ?? (parseFloat(acsEff) || 0);
+    const etaAcs = etaAcsDecl > eta ? etaAcsDecl : eta;
+    const etaAcsPropio = etaAcs !== eta;
 
     const scopB = redondeaScop(scopHeating) || 0;
     const scopD = redondeaScop(scopAcs) || 0;
@@ -463,9 +486,48 @@ export function calculateRes060FM({
     // la ficha publicada exige que la bomba dé la calefacción Y el ACS.
     const dem = conCalefaccion ? dcal * S : 0; // D_cal · S (kWh/año)
     const ahc = eta > 0 && scopB > 0 ? dem * (1 / eta - 1 / scopB) : 0;
-    const aha = (conAcs || acsSupuesto) && eta > 0 && scopD > 0 ? dacsFm * (1 / eta - 1 / scopD) : 0;
+    const aha = (conAcs || acsSupuesto) && etaAcs > 0 && scopD > 0 ? dacsFm * (1 / etaAcs - 1 / scopD) : 0;
     const aes = (ahc + aha) * cb;          // corchete × C_b, SIN f_M
     const cae = Math.max(0, aes * fm);
+
+    // REGLA — ¿llega la bomba? La RES060_FM pide que la bomba satisfaga TODA la
+    // calefacción (apartado 1; doc. 3.b si la caldera se queda). Con la potencia
+    // nominal y la MISMA carga de diseño que el C_b de una hibridación
+    // (`calculateHybridization`: D_cal·S ÷ horas de la temporada del SCOP aplicado,
+    // método 'demanda'), si no llega se avisa y la cifra PRUDENTE es la de la
+    // hibridación en paralelo de la zona con ese C_b. Sin potencia, no se mira. La
+    // cifra principal no se toca: la cobertura se puede justificar a la temperatura
+    // de proyecto, y eso no lo sabe la app.
+    const bombaKw = parseFloat(potenciaBomba) || 0;
+    let potencia = null;
+    if (!esHib && conCalefaccion && bombaKw > 0 && dem > 0) {
+        const temporada = normalizeClimateSeason(temporadaScop);
+        const h = calculateHybridization({ demandAnnual: dem, heatPumpPower: bombaKw, method: 'demanda', climateSeason: temporada });
+        const noCubre = h.refPower > 0 && h.coverage < 1;
+        const zonaPot = letraZona(zona) ? zona : 'D';
+        potencia = {
+            bombaKw,
+            disenoKw: h.pDesign,
+            horas: h.hHE,
+            temporada,
+            cobertura: h.coverage,
+            noCubre,
+            ficha: CB_PARALELO[letraZona(zonaPot)].ficha,
+            cb: noCubre ? cbParaleloFm(zonaPot, h.coverage, fuenteBomba) : 1,
+        };
+    }
+
+    // REGLA — la cifra PRUDENTE es la que queda si sale mal lo que la app SUPONE:
+    // sin el ACS que no está en el presupuesto (`acsSupuesto`) y, si la bomba no
+    // llega, con el C_b de la hibridación. null si no supone nada.
+    const motivos = [];
+    if (acsSupuesto && aha > 0) motivos.push('acs');
+    if (potencia?.noCubre) motivos.push('potencia');
+    const prudente = motivos.length ? {
+        motivos,
+        cae: Math.max(0, (ahc + (acsSupuesto ? 0 : aha)) * cb * (potencia?.noCubre ? potencia.cb : 1) * fm),
+        acsKwh: acsSupuesto ? aha * cb * fm : 0, // lo que aporta el ACS supuesto a la cifra
+    } : null;
 
     const fichaBase = esHib ? tablaCb.ficha : 'RES060_FM';
     const r = {
@@ -503,6 +565,10 @@ export function calculateRes060FM({
         eta,
         etaApp,
         etaPorDefecto,
+        etaAcs,              // la del término del ACS (= eta salvo un ACS propio que rinda más)
+        etaAcsPropio,
+        potencia,            // ¿llega la bomba? { bombaKw, disenoKw, horas, temporada, cobertura, noCubre, ficha, cb } o null
+        prudente,            // { motivos: ['acs'|'potencia'], cae, acsKwh } o null: la cifra si falla lo supuesto
         solido,
         superficie: S,
         provinciaIndex: pi,
@@ -555,6 +621,22 @@ export function contextoCalderaFc(inputs = {}, rendimientoId = null) {
     return { sinCalefaccion, combustible, solido, terciario };
 }
 export const contextoCalderaFm = contextoCalderaFc;
+
+/**
+ * Potencia de la bomba (kW) que se puede AFIRMAR desde los inputs de la calculadora
+ * o de la oportunidad, o null. Fuera de la hibridación ese campo no se ve y vale
+ * 12 kW por defecto: solo cuenta si la puso un modelo del CATÁLOGO o se tecleó en
+ * la hibridación. Sin esto, el aviso de potencia de la FM saltaría con un 12 que no
+ * ha dicho nadie.
+ */
+export function potenciaBombaDeInputs(inputs = {}) {
+    const kw = parseFloat(inputs?.potenciaBomba) || 0;
+    if (!(kw > 0)) return null;
+    const modelo = inputs.aerothermiaModel;
+    const delCatalogo = modelo != null && modelo !== '' && String(modelo) !== 'custom';
+    const hib = inputs.hibridacion === true || inputs.hibridacion === 'true';
+    return delCatalogo || hib ? kw : null;
+}
 
 /** Emisor aire-aire (splits o conductos): la bomba no es hidrónica. */
 export const esEmisorAireAire = (emisor) => ['splits', 'conductos'].includes(String(emisor || '').trim().toLowerCase());

@@ -48,6 +48,7 @@ const { calculateRes060FM, contextoCalderaFc, tramiteFc, esEmisorAireAire, FM_CU
 const calc = await front('calculator/logic/calculation.js');
 const { calcCifo } = await front('expedientes/logic/calcCifo.js');
 const { resolveDacs } = await front('expedientes/logic/demandaAcs.js');
+const { entradasFmExpediente } = await front('expedientes/logic/fmExpediente.js');
 
 const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
 const ESCRIBIR = process.argv.includes('--escribir');
@@ -85,7 +86,11 @@ const SELECT_OP = [
         // El precio general y el de la vía FM (`caePriceClientFm`, sin teclear = el general).
         'caePriceClient', 'caePriceClientFm',
         // RES080_FM (solo reforma): los kWh tecleados de los dos CEE simulados.
-        'efSimBC', 'efSimRest'].map(I),
+        'efSimBC', 'efSimRest',
+        // La cifra PRUDENTE (11/11/2026): la potencia de la bomba (solo cuenta la del
+        // catálogo, `aerothermiaModel`), la temporada del SCOP para sus horas, y lo de
+        // la hibridación que `entradasFmClima` lee como la calculadora.
+        'potenciaBomba', 'aerothermiaModel', 'scopTemporada', 'potenciaCaldera', 'hibridacionMetodo'].map(I),
     'i_placa_comb:datos_calculo->inputs->placa_caldera->combustible',
     ...CEE_K.map(k => CEE('ci', k)), ...CEE_K.map(k => CEE('cf', k)),
     ...CEE_K080.map(k => CEE('ci', k)), ...CEE_K080.map(k => CEE('cf', k)),
@@ -176,6 +181,13 @@ console.log(`MWh elegibles  — vigente ${n1(suma(elegibles, 'mwh_vigente'))} ·
 console.log(`Bono elegibles — vigente ${n0(suma(elegibles, 'eur_vigente'))} € · FM ${n0(suma(elegibles, 'eur_fm'))} € · ganancia si se pide por FM solo donde gana: ${sg(ganan.reduce((s, f) => s + f.via.eur_fm - f.via.eur_vigente, 0))} €`);
 console.log(`En captación viva (LEAD…PRE-ACEPTADO): ${vivasCapt.length} elegibles · ganan ${vivasCapt.filter(f => f.via.eur_fm - f.via.eur_vigente >= 1).length} · ${sg(vivasCapt.reduce((s, f) => s + Math.max(0, f.via.eur_fm - f.via.eur_vigente), 0))} €`);
 console.log(`Cupo de la Resolución: ${n0(FM_CUPO_KWH / 1e6)} GWh — lo nuestro elegible por FM: ${n1(suma(elegibles, 'mwh_fm') / 1000)} GWh/a`);
+{
+    // La cifra PRUDENTE (sin el ACS supuesto / como hibridación si la bomba no llega).
+    const pru = elegibles.filter(f => f.via.eur_fm_prudente != null);
+    const tiene = (f, m) => String(f.via.prudente || '').split(',').includes(m);
+    const pruEur = elegibles.reduce((s, f) => s + (f.via.eur_fm_prudente ?? f.via.eur_fm), 0);
+    console.log(`Prudente: ${pru.length} elegibles con cifra prudente (ACS supuesto ${pru.filter(f => tiene(f, 'acs')).length} · bomba que no llega ${pru.filter(f => tiene(f, 'potencia')).length}) — bono FM ${n0(suma(elegibles, 'eur_fm'))} € → prudente ${n0(pruEur)} € · por debajo de la vigente: ${pru.filter(f => f.via.eur_fm_prudente < f.via.eur_vigente).length}`);
+}
 
 const motivos = {};
 for (const f of aplican.filter(f => !f.via.elegible)) {
@@ -286,13 +298,18 @@ for (const exp of exps) {
             inicioObra: fechas.inicio, finObra: fechas.fin,
             tramite: tramiteFc(exp.estado, exp.lote_id), aireAire: esEmisorAireAire(inst.tipo_emisor), hoy: HOY,
         },
+        // Como el detalle: η del ACS existente, potencia de la bomba y su temporada.
+        ...entradasFmExpediente({ inst, opInputs, calcInputs: opInputs, zona: op.zona || opInputs.zona, boilerEffValue: boilerEff }),
     });
     if (!fm) { resExp.push({ num, exp, nota: 'el motor FM no da cifra' }); continue; }
     const finFm = calculateFinancials({ ...finArgs, ...(PRECIO_FM != null ? { caePriceClient: PRECIO_FM } : {}), savingsKwh: fm.cae });
+    const finPru = fm.prudente ? calculateFinancials({ ...finArgs, ...(PRECIO_FM != null ? { caePriceClient: PRECIO_FM } : {}), savingsKwh: fm.prudente.cae }) : null;
     const bloquea = (fm.avisos || []).find(a => a.tono === 'bloquea');
     resExp.push({
         num, exp, ficha: fm.ficha, kwhVig: sv.savingsKwh, kwhFm: fm.cae, eurVig: finVig.caeBonus, eurFm: finFm.caeBonus,
         elegible: fm.elegible !== false, motivo: bloquea?.texto || null, dcal: fm.dcalFuente, inicio: fechas.inicio,
+        ...(finPru ? { kwhPru: fm.prudente.cae, eurPru: finPru.caeBonus, prudente: fm.prudente.motivos.join(',') } : {}),
+        ...(fm.potencia?.noCubre ? { potenciaPct: Math.round(fm.potencia.cobertura * 100) } : {}),
     });
 }
 const eCal = resExp.filter(r => r.kwhFm != null);
@@ -302,6 +319,10 @@ console.log(`\n══ EXPEDIENTES RES060/RES093 ══  (solo se mide)`);
 console.log(`Con CEE y cálculo: ${eCal.length} · sin CEE con demanda u oportunidad: ${resExp.length - eCal.length}`);
 console.log(`Se podrían pedir por FM: ${eEle.length} · ganan ${eGan.length} · ${sg(eGan.reduce((s, r) => s + r.eurFm - r.eurVig, 0))} €`);
 console.log(`MWh de todos los calculados — vigente ${n1(eCal.reduce((s, r) => s + r.kwhVig, 0) / 1000)} · FM ${n1(eCal.reduce((s, r) => s + r.kwhFm, 0) / 1000)}`);
+{
+    const ePru = eEle.filter(r => r.eurPru != null);
+    console.log(`Prudente: ${ePru.length} elegibles con cifra prudente (bomba que no llega ${ePru.filter(r => r.potenciaPct != null).length}) — bono FM ${n0(eEle.reduce((s, r) => s + r.eurFm, 0))} € → prudente ${n0(eEle.reduce((s, r) => s + (r.eurPru ?? r.eurFm), 0))} € · por debajo de la vigente: ${ePru.filter(r => r.eurPru < r.eurVig).length}`);
+}
 const eMot = {};
 for (const r of eCal.filter(r => !r.elegible)) { const m = String(r.motivo || '?').replace(/\d{2}\/\d{2}\/\d{4}/g, 'dd/mm/aaaa').slice(0, 110); eMot[m] = (eMot[m] || 0) + 1; }
 console.log('Por qué no:');

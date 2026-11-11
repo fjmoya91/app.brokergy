@@ -30,9 +30,9 @@
  * resumen lo marca (`acs: 'supuesto'`; sin SCOP_dhw, `acs: 'sin_scop'` y la cifra
  * es solo la calefacción). Es un aviso, no un bloqueo (Fran, 07/11/2026).
  */
-import { calculateRes060FM, contextoCalderaFc, FM_NORMATIVA } from './res060fc.js';
+import { calculateRes060FM, contextoCalderaFc, FM_NORMATIVA, potenciaBombaDeInputs } from './res060fc.js';
 import { calculateRes080FM } from './res080fm.js';
-import { redondeaScop, precioCaeFm } from './calculation.js';
+import { redondeaScop, precioCaeFm, resolveClimateSeason, CLIMA_SCOP } from './calculation.js';
 import { entradasFmClima } from './climaFm.js';
 import { esBloque } from './tipoInmueble.js';
 import { vulnerableDeConfirmacion } from '../../expedientes/logic/confirmacionCliente.js';
@@ -42,8 +42,11 @@ import { vulnerableDeConfirmacion } from '../../expedientes/logic/confirmacionCl
  * 2 (07/11/2026): sin ACS, la vía FM lo suma como si se añadiera (`acs`).
  * 3 (09/11/2026): una oportunidad SOLO de rehabilitación compara la RES080_FM con la
  *   RES080 vigente (`ficha: 'RES080_FM'`, `estimada` si faltan los CEE simulados).
+ * 4 (11/11/2026): la cifra PRUDENTE al lado (`mwh_fm_prudente`, `eur_fm_prudente` y
+ *   `prudente`: 'acs', 'potencia' o los dos), y la bomba que no llega a la carga de
+ *   diseño (`potencia_pct`).
  */
-export const VIA_FM_VERSION = 3;
+export const VIA_FM_VERSION = 4;
 
 const soloReforma = (inputs = {}) => cierto(inputs.isReforma) && inputs.comparativaReforma === false;
 
@@ -114,6 +117,44 @@ export function precioFinalFm(financials = {}, inputs = {}, precioFm = null) {
     return Math.max(0, final + (fm - general));
 }
 
+/**
+ * La cifra PRUDENTE de la vía FM, o null si la cifra no supone nada.
+ *
+ * REGLA — la prudente es la que queda si falla lo que la app SUPONE: sin el ACS
+ * que el presupuesto no lleva y, si la bomba no llega a la carga de diseño, como
+ * hibridación con su C_b (`calculateRes060FM` → `prudente`). Se enseña AL LADO de
+ * la cifra FM, nunca en su lugar: la FM es la que sale si se cumple lo supuesto.
+ * El € con las mismas reglas que la FM (`bonoConKwh` sobre `financialsRes060FC`,
+ * lineal en los MWh, como el «sin vulnerable» de fmPropuesta.js).
+ */
+export function prudenteViaFm(result) {
+    const p = result?.res060fc?.prudente;
+    const fin = result?.financialsRes060FC;
+    if (!p || !fin) return null;
+    return {
+        kwh: Number(p.cae) || 0,
+        eur: Math.round(bonoConKwh(fin, p.cae)),
+        motivos: p.motivos || [],
+        acsKwh: Number(p.acsKwh) || 0,
+        potencia: result.res060fc.potencia || null,
+    };
+}
+
+/**
+ * Por qué la cifra prudente es menor, en palabras: la MISMA frase en la tarjeta de
+ * la calculadora, la columna «Vía FM» y el Económico. `motivos`: array o 'acs,potencia'.
+ */
+export function motivosPrudenteTxt(motivos = [], potenciaPct = null) {
+    const lista = Array.isArray(motivos) ? motivos : String(motivos || '').split(',').filter(Boolean);
+    return lista.map((m) => {
+        if (m === 'acs') return 'sin el ACS supuesto';
+        if (m === 'potencia') return potenciaPct != null
+            ? `como hibridación (la bomba cubre el ${Math.round(potenciaPct)} % de la carga)`
+            : 'como hibridación (la bomba no llega a la carga)';
+        return m;
+    }).join(' y ');
+}
+
 /** Por qué la comparativa no aplica a esta oportunidad, o null si aplica. */
 function noAplica(inputs = {}) {
     if (String(inputs.sector || '').toLowerCase() === 'terciario') return 'terciario: no hay ficha FM';
@@ -152,6 +193,12 @@ export function resumenViaFm(result, inputs = {}, { precioFm = null, hoy = null 
     const eurFm = precioFm == null && result?.financialsRes060FC
         ? Number(result.financialsRes060FC.caeBonus) || 0
         : bonoConKwh(result?.financials, kwhFm, precioFinalFm(result?.financials, inputs, precioFm));
+    // La cifra PRUDENTE (sin el ACS supuesto / con el C_b si la bomba no llega), con
+    // el mismo precio que la FM.
+    const pru = fm.prudente;
+    const eurPru = !pru ? 0 : precioFm == null && result?.financialsRes060FC
+        ? bonoConKwh(result.financialsRes060FC, pru.cae)
+        : bonoConKwh(result?.financials, pru.cae, precioFinalFm(result?.financials, inputs, precioFm));
     const precioGeneral = parseFloat(inputs?.caePriceClient) || 0;
     const precioFmBase = Number(precioFm ?? precioCaeFm(inputs)) || 0;
     const precioPropio = precioGeneral > 0 && precioFmBase > 0 && precioFmBase !== precioGeneral;
@@ -175,6 +222,13 @@ export function resumenViaFm(result, inputs = {}, { precioFm = null, hoy = null 
         ...(bloquea ? { motivo: String(bloquea.texto).slice(0, 220) } : {}),
         // Sin ACS en la simulación: la cifra FM lo supone añadido, o (sin SCOP_dhw) no lo lleva.
         ...(fm.acsSupuesto ? { acs: 'supuesto' } : fm.acsSinScop ? { acs: 'sin_scop' } : {}),
+        ...(pru ? {
+            mwh_fm_prudente: r2(pru.cae / 1000),
+            eur_fm_prudente: r0(eurPru),
+            prudente: (pru.motivos || []).join(','),
+        } : {}),
+        // La bomba no llega a la carga de diseño: el % que cubre.
+        ...(fm.potencia?.noCubre ? { potencia_pct: r0(fm.potencia.cobertura * 100) } : {}),
         n_avisos: (fm.avisos || []).filter((a) => a.tono === 'aviso').length,
         dcal: fm.dcalFuente || null,
         calculado: String(hoy || new Date().toISOString()).slice(0, 10),
@@ -241,6 +295,10 @@ export function viaFmDesdeDatosCalculo(dc = {}, opciones = {}) {
         hibridacion: fmClima.hibridacion,
         contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal || null, climaFm: fmClima.clima },
         vulnerable: esVulnerableFm(inputs, dc.confirmacion_cliente ?? inputs.confirmacion_cliente),
+        // Como la calculadora: la potencia solo si la puso el catálogo (o la hibridación),
+        // con las horas de la temporada del SCOP.
+        potenciaBomba: potenciaBombaDeInputs(inputs),
+        temporadaScop: fmClima.clima?.ajustado ? CLIMA_SCOP.CALIDO : resolveClimateSeason({}, inputs, inputs.zona || dc.zona),
     });
     if (!fm) return null;
     return resumenViaFm({ res060fc: fm, savings: result.savings, financials: result.financials }, inputs, opciones);

@@ -35,6 +35,7 @@ import { calculateRes060FC, contextoCalderaFc, tramiteFc, esEmisorAireAire } fro
 import { calculateRes080FM } from '../../calculator/logic/res080fm';
 import { calcCifo } from '../logic/calcCifo';
 import { acsComputaAhorro } from '../logic/aerotermiaUnits';
+import { entradasFmExpediente } from '../logic/fmExpediente';
 import { ceeBaseDocumento } from '../logic/ceeFases';
 import { resolveDacs } from '../logic/demandaAcs';
 import { deriveTerciarioVars, TERCIARIO_PRECIOS } from '../logic/terciario';
@@ -849,6 +850,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     ceeInicial: cee.cee_inicial,
                     hibridacion: fmClima.hibridacion,
                     vulnerable: datosFmVia.vulnerable === true,
+                    // Lo mismo que `fmExpediente.js` (CIFO del servidor): el η del ACS
+                    // existente, la potencia de la bomba y la temporada de su SCOP.
+                    ...entradasFmExpediente({ inst, opInputs, calcInputs, zona: zonaFm, boilerEffValue, fmClima }),
                     contexto: {
                         ...contextoCalderaFc(opInputs, boilerEffId),
                         climaFm: fmClima.clima,
