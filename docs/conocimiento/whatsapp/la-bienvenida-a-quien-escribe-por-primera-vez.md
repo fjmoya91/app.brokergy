@@ -171,7 +171,9 @@ había llamado; Carlos Cenamor, contestado a mano; Natalia, del escaparate), se 
 `yaNosConoce` y Fran dijo «pásala a real». El paso 3 se saltó: el texto y el vídeo ya se habían mandado a mano a un
 cliente (Juan, 652524778, de Calefacciones Miguel González) y llegaron los dos. Lo que no se ha visto aún es el envío
 automático del vídeo tras el ACK del texto: la primera fila ENVIADA en real se comprueba leyendo su chat.
-El escaparate se desplegó el mismo 10/11 en COPIA. Pasarlo a real: `WA_ESCAPARATE_MODO=real` y recrear el backend.
+El escaparate se desplegó el mismo 10/11 en COPIA y Fran lo pasó a REAL el 11/11/2026 a las 11:41 («Pásalo a real»;
+`WA_ESCAPARATE_MODO=real`, respaldo `.env.bak.escaparate_real.20261111_104149`). Volver a copia: quitarlo y recrear el
+backend. El primer envío real (aviso, texto y vídeo) se comprueba leyendo los dos chats.
 
 ## Lo que no se ha podido probar en local
 
