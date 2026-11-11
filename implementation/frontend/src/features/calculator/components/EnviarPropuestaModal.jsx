@@ -1057,9 +1057,10 @@ export function EnviarPropuestaModal({
                     )}
                     {fcVisible && fcEstado?.procede && (
                         <p className="-mt-2 text-[9px] text-white/30 leading-relaxed">
-                            El PDF lleva siempre la hoja 2 del factor multiplicador (las dos cifras, cuándo se pide
-                            y qué hace falta). Esto añade un MENSAJE APARTE, el último, con la nueva normativa;
-                            los dos dicen que esa cifra no es firme y repiten el importe de la propuesta.
+                            Es el MISMO interruptor que «Factor M.» de la vista previa: incluido, el PDF lleva la
+                            línea en la fila del bono y la hoja 2 (las dos cifras, cuándo se pide y qué hace falta),
+                            y sale un MENSAJE APARTE, el último, con la nueva normativa. Quitado, la propuesta no
+                            dice nada del multiplicador, y queda guardado en la oportunidad.
                         </p>
                     )}
                     {fcVisible && fcEstado && !fcEstado.procede && (

@@ -1666,6 +1666,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                         onClose={() => setShowProposal(false)}
                         result={result}
                         inputs={inputs}
+                        onInputChange={onInputChange}
                         onSaveRequest={() => setShowSaveOpportunity(true)}
                         onPresupuestoLeido={aplicarPresupuestoLeido}
                         guardadoPresupuestoLeido={guardadoLectura}

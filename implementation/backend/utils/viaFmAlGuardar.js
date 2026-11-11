@@ -72,10 +72,25 @@ function conservarRutaFm(inputs, existente) {
     return inputs;
 }
 
+/**
+ * ¿La propuesta enseña el FACTOR MULTIPLICADOR? (`inputs.fm_en_propuesta`, el
+ * botón «Factor M.» de la vista previa; Fran, 11/11/2026). Lo escribe su ruta
+ * (`POST /:id/fm-en-propuesta`); si la BD ya tiene uno, manda el de la BD: un
+ * navegador con la oportunidad abierta desde antes lo devolvería viejo y volvería
+ * a meter el FM en una propuesta en la que se quitó. Sin nada en la BD (simulación
+ * nueva), vale el que viene.
+ */
+function conservarFmEnPropuesta(inputs, existente) {
+    if (!inputs || typeof inputs !== 'object') return inputs;
+    const bd = existente?.datos_calculo?.inputs?.fm_en_propuesta;
+    if (typeof bd === 'boolean') inputs.fm_en_propuesta = bd;
+    return inputs;
+}
+
 /** Resumen de las dos vías de un `datos_calculo` guardado (o null). Para el conmutador. */
 async function viaFmDe(datosCalculo) {
     const { viaFmDesdeDatosCalculo } = await cargar();
     return viaFmDesdeDatosCalculo(datosCalculo || {});
 }
 
-module.exports = { viaFmAlGuardar, conservarRutaFm, viaFmDe, PRECIO_FM_KEYS };
+module.exports = { viaFmAlGuardar, conservarRutaFm, conservarFmEnPropuesta, viaFmDe, PRECIO_FM_KEYS };

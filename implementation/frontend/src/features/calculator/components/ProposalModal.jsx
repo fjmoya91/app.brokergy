@@ -716,7 +716,7 @@ function AvisoLecturaPresupuesto({ lectura, guardado, onDeshacer, onCerrar, flot
 // Estado de partida del ajuste de la portada (ver `fit` dentro del componente).
 const FIT_INICIAL = { pass: 0, compact: false, vars: null, reposo: null, zoom: null, zoomOk: null, zoomKo: null, listo: false };
 
-export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, onSaveRequest, onPresupuestoLeido, guardadoPresupuestoLeido }) {
+export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, onInputChange, onSaveRequest, onPresupuestoLeido, guardadoPresupuestoLeido }) {
     // Con hibridación y «Retirando la caldera», los financieros SIN caldera pasan a
     // ser los de la propuesta entera (tabla, indicadores, cláusula y mensaje); la
     // otra cifra se cita al lado (logic/hibridacionPropuesta.js).
@@ -895,11 +895,45 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
     const [emailChoice, setEmailChoice] = useState(false);
     const [enviarOpen, setEnviarOpen] = useState(false); // popup unificado de envío (homogéneo con anexos)
     const [includeCeeComp, setIncludeCeeComp] = useState(true); // incluir la comparativa CEE en PDF + mensaje
-    // Aviso del FACTOR MULTIPLICADOR: ENCENDIDO por defecto desde el 08/11/2026
-    // (Fran, 26RES060_OP376: «a partir de ahora las propuestas deben ir
-    // acompañadas del cálculo con FM»; la Resolución ya está publicada). Solo sale
-    // si procede (`estadoFc`); quien envía puede apagarlo propuesta a propuesta.
-    const [includeFc, setIncludeFc] = useState(true);
+    // El FACTOR MULTIPLICADOR en la propuesta: ENCENDIDO por defecto desde el
+    // 08/11/2026 (Fran, 26RES060_OP376: «a partir de ahora las propuestas deben ir
+    // acompañadas del cálculo con FM»). Solo sale si procede (`estadoFc`).
+    // REGLA — es UN interruptor y se decide ANTES de enviar (Fran, 11/11/2026,
+    // 26RES060_OP377: «debe ser un botón previo»): «Factor M.» de la barra de la
+    // vista previa. Apagado, la propuesta no dice NADA del multiplicador —ni la
+    // línea de la fila del bono, ni la hoja 2, ni el mensaje aparte—, como si no
+    // existiera. Se GUARDA en la oportunidad (`inputs.fm_en_propuesta`, por su ruta)
+    // para que reabrirla, copiar el enlace o reenviarla no lo vuelva a poner. El
+    // conmutador del popup de envío es el MISMO. Con la vía FM ya elegida
+    // (`inputs.ruta_fm`) no se apaga: esa propuesta va por el FM.
+    const [includeFc, setIncludeFcState] = useState(inputs?.fm_en_propuesta !== false);
+    useEffect(() => {
+        if (isOpen) setIncludeFcState(inputs?.fm_en_propuesta !== false);
+    }, [isOpen, inputs?.fm_en_propuesta]);
+    const [guardandoFm, setGuardandoFm] = useState(false);
+    const setIncludeFc = useCallback(async (valor) => {
+        const next = !!(typeof valor === 'function' ? valor(includeFc) : valor);
+        if (next === includeFc) return;
+        if (!next && cierto(inputs?.ruta_fm)) {
+            showAlert('Esta oportunidad ya va por la vía del FACTOR MULTIPLICADOR («Vía de tramitación» de la calculadora): la propuesta tiene que contarlo. Para ocultarlo, vuelve antes a la vía vigente.', 'Factor multiplicador', 'warning');
+            return;
+        }
+        const antes = includeFc;
+        setIncludeFcState(next);
+        if (onInputChange) onInputChange((prev) => ({ ...prev, fm_en_propuesta: next }));
+        // Simulación aún sin guardar: viaja en sus inputs y se guarda con ella.
+        if (!inputs?.id_oportunidad) return;
+        setGuardandoFm(true);
+        try {
+            await axios.post(`/api/oportunidades/${encodeURIComponent(inputs.id_oportunidad)}/fm-en-propuesta`, { mostrar: next });
+        } catch (err) {
+            setIncludeFcState(antes);
+            if (onInputChange) onInputChange((prev) => ({ ...prev, fm_en_propuesta: antes }));
+            showAlert(`No se ha podido guardar: ${err.response?.data?.error || err.message}`, 'Factor multiplicador', 'error');
+        } finally {
+            setGuardandoFm(false);
+        }
+    }, [includeFc, inputs?.ruta_fm, inputs?.id_oportunidad, onInputChange, showAlert]);
     const [emailSelections, setEmailSelections] = useState(new Set());
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
 
@@ -2314,12 +2348,18 @@ info@brokergy.es · 623 926 179`;
     const fcInfo = fcEstado.procede ? fcEstado : null;
     // La HOJA del factor multiplicador (logic/fmPropuesta.js): va en TODA propuesta
     // en la que alguna opción sube por esa vía (Fran, 09/11/2026), detrás de la
-    // portada. Como el párrafo del mensaje, solo la genera el equipo interno.
-    const hojaFm = useMemo(() => {
+    // portada. Como el párrafo del mensaje, solo la genera el equipo interno, y
+    // con «Factor M.» apagado no va (`includeFc`, arriba).
+    const fmBase = useMemo(() => {
         if (!fcVisible) return null;
         const d = fmPropuesta(result, inputs);
-        return d.procede ? { ...d, txt: textosHojaFm(d) } : null;
+        return d.procede ? d : null;
     }, [fcVisible, result, inputs]);
+    const hojaFm = useMemo(
+        () => (fmBase && includeFc ? { ...fmBase, txt: textosHojaFm(fmBase) } : null),
+        [fmBase, includeFc]);
+    // ¿Hay algo del FM que enseñar? Es lo que hace aparecer el botón «Factor M.».
+    const fmOfrecible = fcVisible && !!(fmBase || fcInfo);
 
     const buildCaptionBase = useCallback((mode, targetName, opts = {}) => {
         // EMPRESA: se saluda a su persona (contacto o representante legal), nunca a
@@ -3523,6 +3563,41 @@ info@brokergy.es · 623 926 179`;
                                         : <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />}
                                 </svg>
                                 <span className="text-[10px] font-black uppercase tracking-wider whitespace-nowrap max-md:hidden">Opción CEE</span>
+                            </button>
+                        )}
+
+                        {/* FACTOR MULTIPLICADOR: se decide AQUÍ, viéndolo, antes de
+                            enviar (Fran, 11/11/2026). Apagado, la propuesta no dice
+                            nada del FM (línea del bono, hoja 2 y mensaje aparte) y
+                            queda guardado en la oportunidad. Solo el equipo interno,
+                            y solo si hay FM que ofrecer. */}
+                        {fmOfrecible && (
+                            <button
+                                onClick={() => setIncludeFc(v => !v)}
+                                disabled={guardandoFm}
+                                title={cierto(inputs?.ruta_fm)
+                                    ? 'Esta oportunidad va por la vía del factor multiplicador: la propuesta lo cuenta siempre.'
+                                    : includeFc
+                                        ? 'Quitar de la propuesta el factor multiplicador: la línea de la fila del bono, la hoja 2 y el mensaje aparte. Queda guardado en la oportunidad.'
+                                        : 'La propuesta NO dice nada del factor multiplicador. Pulsa para volver a incluirlo (línea del bono, hoja 2 y mensaje aparte).'}
+                                className={`h-12 px-3 flex items-center gap-2 rounded-2xl border transition-all shrink-0 active:scale-95 disabled:opacity-60 ${
+                                    includeFc
+                                        ? 'text-violet-300 border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20'
+                                        : 'text-amber-300/80 border-amber-400/30 bg-amber-400/5 hover:bg-amber-400/10'
+                                }`}
+                            >
+                                {guardandoFm ? (
+                                    <div className="w-5 h-5 border-2 border-violet-300/20 border-t-violet-300 rounded-full animate-spin" />
+                                ) : (
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+                                        {includeFc
+                                            ? <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            : <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />}
+                                    </svg>
+                                )}
+                                <span className="text-[10px] font-black uppercase tracking-wider whitespace-nowrap max-md:hidden">
+                                    {includeFc ? 'Factor M.' : 'Sin factor M.'}
+                                </span>
                             </button>
                         )}
 

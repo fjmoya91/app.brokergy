@@ -20,7 +20,7 @@ const { createLead } = require('../services/leadService');
 // (residencial), las declara una persona. Fuente única en utils/fichas.js.
 const { FICHAS, detectPrograma } = require('../utils/fichas');
 const { sellarPrecioCae } = require('../utils/precioCae');
-const { viaFmAlGuardar, conservarRutaFm, viaFmDe } = require('../utils/viaFmAlGuardar');
+const { viaFmAlGuardar, conservarRutaFm, conservarFmEnPropuesta, viaFmDe } = require('../utils/viaFmAlGuardar');
 const { sellarGuiaTransmitancias } = require('../utils/guiaTransmitancias');
 const { conservarCiega, sinCiegaParaPartner, cargarLogicaCiega } = require('../utils/estimacionCiega');
 const clasificarFotos = require('../services/clasificarFotosService');
@@ -407,6 +407,8 @@ router.post('/', enforceAuth, async (req, res) => {
         // La vía elegida (`inputs.ruta_fm`) la escriben su conmutador y el expediente,
         // nunca este guardado: se queda la de la BD (regla 200).
         conservarRutaFm(datosCalculoFinal.inputs, existingData);
+        // Y si la propuesta enseña el FM: lo escribe su botón, no este guardado.
+        conservarFmEnPropuesta(datosCalculoFinal.inputs, existingData);
         sellarPrecioCae(datosCalculoFinal.inputs, existingData);
         // Y la GUÍA DE TRANSMITANCIAS: una anterior no estrena la de CE3X al
         // reguardarse (utils/guiaTransmitancias.js).
@@ -1801,6 +1803,44 @@ router.post('/:id/ruta-fm', staffOnly, async (req, res) => {
             } catch (e) { /* la línea del historial no puede tumbar el cambio */ }
         }
         res.json({ ruta_fm: activar, ...(via ? { ficha: via.ficha, acs: via.acs || null } : {}) });
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// ¿La PROPUESTA enseña el FACTOR MULTIPLICADOR? El botón «Factor M.» de la vista
+// previa (Fran, 11/11/2026, 26RES060_OP377: «hay casos en los que de momento no lo
+// quiera decir […] debe ser un botón previo»). Escribe `inputs.fm_en_propuesta`
+// (false = la propuesta no dice nada del FM: ni la línea del bono, ni la hoja 2, ni
+// el mensaje aparte). No cambia ninguna cifra ni la vía. Solo el equipo interno,
+// que es quien ve el FM. Con la vía FM elegida (`ruta_fm`) no se apaga.
+router.post('/:id/fm-en-propuesta', staffOnly, async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        if (typeof req.body?.mostrar !== 'boolean') return res.status(400).json({ error: 'Falta «mostrar» (true/false).' });
+        const mostrar = req.body.mostrar;
+        const q = supabase.from('oportunidades').select('id, datos_calculo');
+        const { data: op, error } = await (UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id))
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (error) return res.status(503).json({ error: 'No se ha podido leer la oportunidad.' });
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        const ins = op.datos_calculo?.inputs || {};
+        if (!mostrar && (ins.ruta_fm === true || ins.ruta_fm === 'true')) {
+            return res.status(409).json({ error: 'Va por la vía del factor multiplicador: la propuesta tiene que contarlo. Vuelve antes a la vía vigente.' });
+        }
+        const antes = ins.fm_en_propuesta !== false;
+        if (antes !== mostrar || typeof ins.fm_en_propuesta !== 'boolean') {
+            const { error: mErr } = await supabase.rpc('oportunidad_merge_inputs', { p_id: op.id, p_patch: { fm_en_propuesta: mostrar } });
+            if (mErr) return res.status(503).json({ error: 'No se ha podido guardar.' });
+        }
+        if (antes !== mostrar) {
+            try {
+                await anotarHistorial(op.id, mostrar
+                    ? 'La propuesta vuelve a incluir el FACTOR MULTIPLICADOR (línea del bono, hoja 2 y mensaje aparte).'
+                    : 'La propuesta NO enseña el factor multiplicador: sin la línea del bono, sin la hoja 2 y sin el mensaje aparte.', nombreUsuario(req));
+            } catch (e) { /* la línea del historial no puede tumbar el cambio */ }
+        }
+        res.json({ fm_en_propuesta: mostrar });
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message });
     }

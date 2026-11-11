@@ -55,7 +55,7 @@ paths:
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado · 1,0 KB
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js) · 1,7 KB
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13) · 7,6 KB
-- `docs/conocimiento/whatsapp/la-bienvenida-a-quien-escribe-por-primera-vez.md` — La BIENVENIDA: a quien escribe por primera vez, el formulario y el vídeo, solos (2026-11-09) · 13,4 KB
+- `docs/conocimiento/whatsapp/la-bienvenida-a-quien-escribe-por-primera-vez.md` — La BIENVENIDA: a quien escribe por primera vez, el formulario y el vídeo, solos (2026-11-09) · 13,6 KB
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md` — La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09) · 5,4 KB
 - `docs/conocimiento/whatsapp/la-ronda-nocturna-de-whatsapp.md` — La RONDA NOCTURNA de WhatsApp — fase 1, en seco (2026-10-19) · 11,0 KB
 - `docs/conocimiento/whatsapp/las-esperas-lo-que-se-pide-y-se-recuerda.md` — Las ESPERAS: lo que se le pide a alguien por WhatsApp, si contesta y cuándo se le recuerda (2026-11-09) · 5,8 KB

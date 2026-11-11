@@ -67,8 +67,42 @@ lo calcula en terciario. Su `via_fm` sigue guardándose con `aplica: false`. Pru
 
 Con la hoja, la nota del IRPF de la portada (`notaFm`) sobra: ya lo dice «Sus firmas».
 
-**REGLA — la hoja la genera el equipo interno**, como el párrafo del mensaje (`fcVisible`). El conmutador
-del popup de envío solo pone o quita el MENSAJE del FM; la hoja va siempre que proceda.
+**REGLA — la hoja la genera el equipo interno**, como el párrafo del mensaje (`fcVisible`).
+
+## Apagar el FM antes de enviar: el botón «Factor M.» (11/11/2026)
+
+Fran, 11/11/2026, viendo la propuesta de 26RES060_OP377: «quiero en algún momento poder inhabilitar esto y
+que en el texto no aparezca nada. Por supuesto, tampoco debe aparecer la página 2 […] como si no existiese
+el factor multiplicador. Hay casos en los que de momento no quiera decirlo […] Hay un botón que cuando voy
+a enviar la propuesta me sale, pero ya me sale a posteriori y le ha llegado al cliente la propuesta con el
+valor FM […] Debe ser un botón previo».
+
+Hasta ese día el conmutador «Incluir el factor multiplicador» del popup de envío solo ponía o quitaba el
+MENSAJE aparte; la línea de la fila del bono y la hoja 2 salían siempre que el FM procedía, y ese
+conmutador ni siquiera se recordaba (volvía a encenderse al abrir).
+
+**REGLA — es UN interruptor, se decide ANTES de enviar y apagado no queda NADA del FM.** El botón
+**«Factor M.»** de la barra de la vista previa (junto a «Opción CEE», violeta encendido; «Sin factor M.»
+en ámbar apagado). Solo lo ve el equipo interno y solo sale si hay FM que ofrecer. Apagado: sin la línea
+de la fila del bono, sin la hoja 2 (las interiores vuelven a su número) y sin el mensaje aparte. El
+conmutador del popup de envío es el MISMO estado (`includeFc` de `ProposalModal`). No toca ninguna cifra
+ni la vía de tramitación.
+
+**REGLA — se GUARDA en la oportunidad**, para que reabrir la propuesta, copiar el enlace, reenviarla o
+programarla no vuelva a meter el FM: `inputs.fm_en_propuesta` (`false` = sin FM; sin valor = con FM, lo
+de siempre). Lo escribe su ruta `POST /api/oportunidades/:id/fm-en-propuesta` (`staffOnly`, por la RPC
+`oportunidad_merge_inputs`, con línea en el historial); una simulación aún sin guardar lo lleva en sus
+inputs y se guarda con ella. El guardado de la calculadora **no lo pisa**: si la BD tiene uno, manda el de
+la BD (`conservarFmEnPropuesta` en `utils/viaFmAlGuardar.js`), porque una pestaña abierta desde antes lo
+devolvería viejo.
+
+**REGLA — con la vía FM ya elegida (`inputs.ruta_fm`) no se apaga**: esa propuesta va por el FM y tiene que
+contarlo. El botón lo avisa y la ruta da 409; primero se vuelve a la vía vigente.
+
+Comprobado el 11/11/2026 en local con 26RES060_OP377 (robot, sin escribir en la BD): con FM, 5 hojas y la
+línea «Con el factor multiplicador, pidiéndolo desde el 15/01/2027: 7.322 € (ver página 2)»; apagado, 4
+hojas, ninguna mención de «multiplicador» en el PDF, y el popup de envío con el FM en «Añadir» y sin
+mensaje aparte.
 
 ## El mensaje del FM va APARTE, el último (09/11/2026)
 
