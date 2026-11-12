@@ -150,7 +150,7 @@ async function contarUsos(lineas = []) {
 
 // ── Lectura ─────────────────────────────────────────────────────────────────
 
-const COLS_LISTA = 'id, numero, token, estado, alcance, precio, dto_pct, iva_pct, tasa, num_tasas, neto, iva, total, concepto, cliente_id, prescriptor_id, municipio, direccion, envios, created_at, aceptada_at, rechazada_at, visto_at, cee_directo_id';
+const COLS_LISTA = 'id, numero, token, estado, alcance, precio, dto_pct, iva_pct, tasa, num_tasas, neto, iva, total, concepto, cliente_id, prescriptor_id, para_tercero, propietario_cliente_id, municipio, direccion, envios, created_at, aceptada_at, rechazada_at, visto_at, cee_directo_id';
 
 /**
  * Listado de la pestaña: TODOS los presupuestos (los de partidas y las ofertas
@@ -196,6 +196,7 @@ async function listar({ estados = null, q = '' } = {}) {
             id: f.id, numero: f.numero, estado: f.estado, alcance: f.alcance,
             cliente_id: f.cliente_id, cliente_nombre: c ? ofertas.nombreCliente(c) : '', cliente_dni: c?.dni || '',
             prescriptor_id: f.prescriptor_id,
+            para_tercero: !!f.para_tercero,
             concepto: f.concepto || (viejo ? P.conceptoOferta(f).replace(/^./, s => s.toUpperCase()) : ''),
             neto: viejo ? t.neto : Number(f.neto), iva: viejo ? t.iva : Number(f.iva), total: viejo ? t.total : Number(f.total),
             municipio: f.municipio, direccion: f.direccion,
@@ -304,6 +305,9 @@ async function crear(datos = {}, { usuarioId = null, usuarioNombre = null } = {}
     const fila = {
         cliente_id: clienteId,
         prescriptor_id: datos.prescriptor_id || null,
+        // Lo pide un instalador para un cliente suyo: a él se le manda y se le
+        // factura; el propietario lo pone él al aceptar (`ceeOfertaService.aceptar`).
+        para_tercero: !!datos.para_tercero,
         lineas,
         ...(await derivados(lineas)),
         // Columnas de la oferta antigua: sin sentido aquí (las cifras son las líneas).
@@ -342,6 +346,7 @@ async function actualizar(id, datos = {}, { usuarioNombre = null } = {}) {
         upd.cliente_id = clienteId;
     }
     if (datos.prescriptor_id !== undefined) upd.prescriptor_id = datos.prescriptor_id || null;
+    if (datos.para_tercero !== undefined) upd.para_tercero = !!datos.para_tercero;
     if (datos.observaciones !== undefined) {
         upd.observaciones = (await plantilla()).observacionesCliente(datos.observaciones).slice(0, (await logica()).MAX_OBSERVACIONES) || null;
     }
@@ -372,7 +377,7 @@ async function duplicar(id, { usuarioId = null, usuarioNombre = null } = {}) {
         }));
     }
     return crear({
-        cliente_id: o.cliente_id, prescriptor_id: o.prescriptor_id, lineas,
+        cliente_id: o.cliente_id, prescriptor_id: o.prescriptor_id, para_tercero: !!o.para_tercero, lineas,
         direccion: o.direccion, ref_catastral: o.ref_catastral, ccaa: o.ccaa, provincia: o.provincia,
         municipio: o.municipio, codigo_postal: o.codigo_postal, observaciones: o.observaciones,
     }, { usuarioId, usuarioNombre: `${usuarioNombre || ''} (duplicado de ${o.numero})`.trim() });

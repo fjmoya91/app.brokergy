@@ -1721,9 +1721,10 @@ function createMcpServer() {
             }).optional().describe('Inmueble del trabajo, si se conoce (el cliente lo completa al aceptar).'),
             observaciones: z.string().max(2000).optional().describe('Texto libre PARA EL CLIENTE (plazos, qué incluye, qué tiene que aportar): sale en el PDF y en la página de aceptación. Sin él no sale ningún bloque de observaciones; la política de entrega (nada hasta aceptarlo y pagarlo) la pone el PDF siempre, no se repite aquí.'),
             prescriptor: z.string().optional().describe('Partner que lo trae: id, acrónimo o nombre.'),
+            para_tercero: z.boolean().optional().describe('true = lo pide un INSTALADOR para un cliente suyo: el presupuesto va a nombre del instalador (cliente_id) y se le factura a él, y al aceptar él nos da los datos del PROPIETARIO de la vivienda, que es a cuyo nombre va el certificado. Solo con un certificado en las líneas.'),
         },
         { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        async ({ cliente_id, cliente_nuevo, forzar_cliente_nuevo, lineas, inmueble, observaciones, prescriptor }) => {
+        async ({ cliente_id, cliente_nuevo, forzar_cliente_nuevo, lineas, inmueble, observaciones, prescriptor, para_tercero }) => {
             // ── Cliente ──
             let clienteBody;
             if (cliente_id) {
@@ -1830,6 +1831,7 @@ function createMcpServer() {
                 ref_catastral: inm.ref_catastral ? inm.ref_catastral.replace(/\s+/g, '').toUpperCase() : undefined,
                 observaciones: observaciones?.trim() || undefined,
                 prescriptor_id: prescriptorId || undefined,
+                ...(para_tercero ? { para_tercero: true } : {}),
             };
             const r = await backendFetch('POST', '/api/facturacion/presupuestos', body);
             if (r.httpError || !r.okHttp) {

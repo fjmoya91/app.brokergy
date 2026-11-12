@@ -43,18 +43,24 @@ const txt = (v) => (v == null ? '' : String(v).trim());
 const facturasApp = () => require('./facturaService');
 const nombreDe = (c) => (c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : '');
 
-/** Los dos a los que se puede facturar: el titular y el partner que trae el encargo. */
+/** Un cliente de `clientes` con la forma de un destinatario de factura. */
+const fiscalDe = (c) => ({
+    razon_social: nombreDe(c).toUpperCase(), cif: txt(c.dni).toUpperCase(),
+    direccion: txt(c.direccion), cp: txt(c.codigo_postal), municipio: txt(c.municipio),
+    provincia: txt(c.provincia), ccaa: txt(c.ccaa), tlf: txt(c.tlf || c.telefono), email: txt(c.email),
+    esEmpresa: !!c.es_empresa,
+});
+
+/**
+ * A quién se puede facturar: el titular, el partner que trae el encargo y —si lo
+ * pidió un instalador para un cliente suyo (`pagador_cliente_id`, 2026-11-10)— QUIEN
+ * PAGA, que es a quien se le presupuestó y quien lo aceptó.
+ */
 function destinatarios(row) {
     const out = {};
     const c = row.cliente;
-    if (c) {
-        out.cliente = {
-            razon_social: nombreDe(c).toUpperCase(), cif: txt(c.dni).toUpperCase(),
-            direccion: txt(c.direccion), cp: txt(c.codigo_postal), municipio: txt(c.municipio),
-            provincia: txt(c.provincia), ccaa: txt(c.ccaa), tlf: txt(c.tlf || c.telefono), email: txt(c.email),
-            esEmpresa: !!c.es_empresa,
-        };
-    }
+    if (c) out.cliente = fiscalDe(c);
+    if (row.pagador) out.pagador = fiscalDe(row.pagador);
     const p = row.prescriptor;
     if (p) {
         out.partner = {
@@ -69,6 +75,10 @@ function destinatarios(row) {
 
 /** A quién se le MANDA (el contacto del cliente respeta su desvío de notificaciones). */
 function contactoEnvio(row, destino) {
+    if (destino === 'pagador' && row.pagador) {
+        const k = svc.contactoCliente(row.pagador);
+        return { nombre: k.nombre, tlf: k.tlf, email: k.email, esEmpresa: !!row.pagador.es_empresa };
+    }
     if (destino === 'partner' && row.prescriptor) {
         return { nombre: txt(row.prescriptor.razon_social), tlf: txt(row.prescriptor.tlf), email: txt(row.prescriptor.email), esEmpresa: true };
     }
@@ -130,8 +140,12 @@ async function borrador(id) {
         // justificante y en qué punto está su certificado.
         ...(await contextoMensaje(row)),
         destinatarios: destinatarios(row),
-        destinoDefecto: row.cliente || !row.prescriptor ? 'cliente' : 'partner',
-        contactos: { cliente: contactoEnvio(row, 'cliente'), partner: row.prescriptor ? contactoEnvio(row, 'partner') : null },
+        destinoDefecto: destinoPorDefecto(row),
+        contactos: {
+            cliente: contactoEnvio(row, 'cliente'),
+            partner: row.prescriptor ? contactoEnvio(row, 'partner') : null,
+            ...(row.pagador ? { pagador: contactoEnvio(row, 'pagador') } : {}),
+        },
         articulos,
         lineas: m.lineasPorDefecto(row, articulos),
         observaciones: m.OBSERVACIONES_FACTURA_CEE,
@@ -158,7 +172,7 @@ async function emitir(id, body = {}, { usuario = null } = {}) {
         }
 
         const m = await modulo();
-        const destino = body.destino === 'partner' ? 'partner' : 'cliente';
+        const destino = body.destino === 'partner' ? 'partner' : body.destino === 'pagador' && row.pagador ? 'pagador' : 'cliente';
         const cli = { ...(destinatarios(row)[destino] || {}), ...(body.cliente || {}) };
         if (!txt(cli.razon_social)) throw error(400, 'Falta el nombre o la razón social a quien se factura');
         if (!txt(cli.cif)) throw error(400, 'Falta el NIF/CIF a quien se factura: una factura no puede salir sin él');
@@ -200,7 +214,7 @@ async function emitir(id, body = {}, { usuario = null } = {}) {
         });
         await facturasApp().registrarEmitida({
             origen: 'CEE_DIRECTO', serie: 'ING', numero: emit.numero, hojaId: emit.id, fecha: fechaIso, vencimiento: vencimientoIso,
-            cliente: { ...cli, es_empresa: cli.esEmpresa }, clienteId: destino === 'cliente' ? (row.cliente?.id_cliente || null) : null,
+            cliente: { ...cli, es_empresa: cli.esEmpresa }, clienteId: destino === 'cliente' ? (row.cliente?.id_cliente || null) : destino === 'pagador' ? (row.pagador?.id_cliente || null) : null,
             lineas: registro.lineas, observaciones, expediente: row.numero_expediente, ceeDirectoId: row.id,
             estado: registro.estado, usuario,
         });
@@ -473,10 +487,21 @@ async function anotarEnvio(id, numero, envio) {
 // ya enviada desde la pestaña (25/10/2026). La factura manda en la tabla; esto
 // es su copia de metadatos, que se reescribe entera en cada cambio.
 
-/** A quién se emitió: al partner que trae el encargo si lleva su CIF; si no, al cliente. */
+/**
+ * A quién se emitió: al partner que trae el encargo si lleva su CIF; a quien PAGA
+ * (el instalador que lo pidió para su cliente) si lleva el suyo; si no, al cliente.
+ */
 function destinoDeFactura(row, cliente = {}) {
     const cif = txt(cliente.cif).toUpperCase();
-    return row.prescriptor && cif && cif === txt(row.prescriptor.cif).toUpperCase() ? 'partner' : 'cliente';
+    if (row.prescriptor && cif && cif === txt(row.prescriptor.cif).toUpperCase()) return 'partner';
+    if (row.pagador && cif && cif === txt(row.pagador.dni).toUpperCase()) return 'pagador';
+    return 'cliente';
+}
+
+/** El destinatario que sale marcado en el popup: quien paga, si no es el titular. */
+function destinoPorDefecto(row) {
+    if (row.pagador) return 'pagador';
+    return row.cliente || !row.prescriptor ? 'cliente' : 'partner';
 }
 
 /**

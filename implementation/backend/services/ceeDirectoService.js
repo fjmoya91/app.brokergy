@@ -86,7 +86,7 @@ async function cargar(idOrNumero, { conRelaciones = true } = {}) {
     if (!row) return null;
     if (!conRelaciones) return row;
 
-    const [{ data: cliente }, { data: prescriptor }, { data: certificador }] = await Promise.all([
+    const [{ data: cliente }, { data: prescriptor }, { data: certificador }, { data: pagador }] = await Promise.all([
         row.cliente_id
             ? supabase.from('clientes').select('*').eq('id_cliente', row.cliente_id).maybeSingle()
             : Promise.resolve({ data: null }),
@@ -100,10 +100,15 @@ async function cargar(idOrNumero, { conRelaciones = true } = {}) {
             : Promise.resolve({ data: null }),
         row.cee?.certificador_id
             ? supabase.from('prescriptores').select('*').eq('id_empresa', row.cee.certificador_id).maybeSingle()
+            : Promise.resolve({ data: null }),
+        // Quien paga, cuando no es el cliente del certificado (presupuesto «para un
+        // cliente suyo» que pide un instalador, 2026-11-10).
+        row.pagador_cliente_id && row.pagador_cliente_id !== row.cliente_id
+            ? supabase.from('clientes').select('*').eq('id_cliente', row.pagador_cliente_id).maybeSingle()
             : Promise.resolve({ data: null })
     ]);
 
-    return { ...row, cliente, prescriptor, certificador };
+    return { ...row, cliente, prescriptor, certificador, pagador };
 }
 
 /**
@@ -309,6 +314,9 @@ async function crearExpediente(datos = {}, { createdBy = null, onCarpeta = null,
             nombre: String(datos.nombre || '').trim(),
             alcance: alcanceOk,
             cliente_id: datos.cliente_id,
+            // Quien PAGA, si no es el cliente del certificado (un instalador que lo
+            // pide para un cliente suyo): la factura y la entrega van a él.
+            ...(datos.pagador_cliente_id ? { pagador_cliente_id: datos.pagador_cliente_id } : {}),
             prescriptor_id: datos.prescriptor_id || null,
             direccion: datos.direccion || null,
             ref_catastral: datos.ref_catastral || null,

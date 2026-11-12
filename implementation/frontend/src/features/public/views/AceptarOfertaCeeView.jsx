@@ -5,7 +5,7 @@ import {
     CONDICIONES_OFERTA_CEE, CONDICIONES_OFERTA_CEE_VERSION, CONDICIONES_PRESUPUESTO, CONDICIONES_PRESUPUESTO_VERSION,
 } from '../logic/condicionesOfertaCee';
 import { parseCatastroAddressFull } from '../../../utils/direccionCatastral';
-import { CALEFACCION, ACS, PLACAS, CUESTIONARIO_VACIO, faltanCuestionario } from '../../cee-directo/logic/cuestionarioCee';
+import { CALEFACCION, ACS, PLACAS, PLACAS_TERCERO, COORDINA_VISITA, TITULOS, CUESTIONARIO_VACIO, faltanCuestionario } from '../../cee-directo/logic/cuestionarioCee';
 import { traerDireccionCatastral, refCatastralValida, limpiarRefCatastral } from '../../../utils/traerDireccionCatastral';
 import { DocsManager } from '../../docs/DocsManager';
 import { API_DOCS_CEE_DIRECTO } from '../../docs/docsApi';
@@ -20,6 +20,12 @@ import { API_DOCS_CEE_DIRECTO } from '../../docs/docsApi';
 // UBICACIÓN como en la captación de oportunidades) y su DOMICILIO.
 //
 // Al aceptar nace el expediente {AAAA}CEE_{n} y se le dice su número.
+//
+// Un presupuesto «PARA UN CLIENTE SUYO» (`para_tercero`, 2026-11-10) lo acepta el
+// INSTALADOR que lo pidió: «Tus datos» son los suyos (a él se le factura y se le
+// entregan los certificados) y aparte da los del PROPIETARIO de la vivienda, que
+// es a cuyo nombre va el certificado, y con quién se concierta la visita. Las
+// preguntas de climatización van en tercera persona y no hay «vivo aquí».
 //
 // Un presupuesto SIN certificado (`abre_cee: false`: una legalización, una
 // memoria…) se acepta en la misma página, sin el cuestionario de climatización
@@ -40,10 +46,10 @@ const API = '/api/public/oferta-cee';
 const WHATSAPP = '34623926179';
 const FALTA_CUESTIONARIO = 'falta-cuestionario';
 
-// /aceptar-cee/demo (y ?sin-cee) — la página tal y como la ve el cliente, con
-// datos de mentira. No llama a la API: ni se acepta nada ni sale ningún mensaje.
+// /aceptar-cee/demo (y ?sin-cee, ?tercero) — la página tal y como la ve el cliente,
+// con datos de mentira. No llama a la API: ni se acepta nada ni sale ningún mensaje.
 const DEMO_TOKEN = 'demo';
-const demoOferta = (sinCee) => ({
+const demoOferta = (sinCee, tercero = false) => ({
     numero: 'P-2026-0042', fecha: new Date().toISOString(), estado: 'ENVIADA', alcance: sinCee ? null : 'INICIAL',
     abre_cee: !sinCee,
     concepto: sinCee ? 'la legalización de la instalación fotovoltaica' : 'el certificado de eficiencia energética',
@@ -57,10 +63,18 @@ const demoOferta = (sinCee) => ({
     total: sinCee ? 412.6 : 145.2,
     observaciones: sinCee
         ? 'El registro en Industria se tramita cuando la instalación esté terminada y tengamos el certificado del instalador.'
-        : 'La visita se concierta contigo por teléfono. Ten a mano las facturas de luz y gas del último año.',
-    cliente: { nombre_razon_social: 'María', apellidos: 'García López', dni_cif: '12345678Z', email: 'maria.garcia@ejemplo.es', telefono: '600 000 000', domicilio: {} },
-    inmueble: sinCee ? {} : { direccion: 'CL MAYOR 12', codigo_postal: '13001', municipio: 'Ciudad Real', provincia: 'Ciudad Real', ref_catastral: '' },
+        : tercero
+            ? 'El técnico concierta la visita por teléfono con quien nos digas abajo.'
+            : 'La visita se concierta contigo por teléfono. Ten a mano las facturas de luz y gas del último año.',
+    cliente: tercero
+        ? { nombre_razon_social: 'INSTALACIONES EJEMPLO, SL', apellidos: '', dni_cif: 'B00000000', email: 'info@ejemplo.es', telefono: '600 000 000', domicilio: { direccion: 'CL INDUSTRIA 4', codigo_postal: '13170', municipio: 'Miguelturra', provincia: 'Ciudad Real' } }
+        : { nombre_razon_social: 'María', apellidos: 'García López', dni_cif: '12345678Z', email: 'maria.garcia@ejemplo.es', telefono: '600 000 000', domicilio: {} },
+    inmueble: sinCee || tercero ? {} : { direccion: 'CL MAYOR 12', codigo_postal: '13001', municipio: 'Ciudad Real', provincia: 'Ciudad Real', ref_catastral: '' },
+    para_tercero: !sinCee && tercero,
 });
+
+const PROPIETARIO_VACIO = { nombre: '', apellidos: '', dni: '', telefono: '', email: '' };
+const dniLimpio = (v) => String(v || '').toUpperCase().replace(/[\s.-]/g, '');
 
 const capital = (s) => String(s || '').toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
 
@@ -413,9 +427,22 @@ export function AceptarOfertaCeeView({ token }) {
     // Climatización: lo que el técnico necesita saber antes de la visita.
     const [cuest, setCuest] = useState(CUESTIONARIO_VACIO);
     const cambiaCuest = (k, v) => setCuest(c => ({ ...c, [k]: v }));
-    const faltanC = faltanCuestionario(cuest);
     // Un backend anterior no manda `abre_cee`: entonces todo era un CEE.
     const abreCee = oferta?.abre_cee !== false;
+    // Lo acepta el instalador por un cliente suyo: el propietario va aparte.
+    const tercero = abreCee && !!oferta?.para_tercero;
+    const [prop, setProp] = useState(PROPIETARIO_VACIO);
+    const [coordina, setCoordina] = useState(null);
+    const cambiaProp = (k, v) => setProp(p => ({ ...p, [k.replace(/^prop_/, '')]: v }));
+    const faltanProp = !tercero ? [] : [
+        ...(!prop.nombre.trim() ? ['el nombre del propietario'] : []),
+        ...(!prop.dni.trim() ? ['el DNI del propietario'] : []),
+        ...(prop.dni.trim() && dniLimpio(prop.dni) === dniLimpio(form.dni_cif) ? ['un DNI del propietario distinto del tuyo'] : []),
+        ...(!coordina ? ['con quién concierta la visita el técnico'] : []),
+        ...(coordina === 'propietario' && !prop.telefono.trim() && !prop.email.trim() ? ['el móvil o el email del propietario, para que el técnico le llame'] : []),
+    ];
+    const faltanC = [...faltanProp, ...faltanCuestionario(cuest)];
+    const T = TITULOS[tercero ? 'tercero' : 'propio'];
 
     useEffect(() => {
         const cargar = (data) => {
@@ -431,7 +458,8 @@ export function AceptarOfertaCeeView({ token }) {
             if (d.direccion && data.inmueble?.direccion && norm(d.direccion) !== norm(data.inmueble.direccion)) setViveAqui(false);
         };
         if (esDemo) {
-            cargar(demoOferta(new URLSearchParams(window.location.search).has('sin-cee')));
+            const q = new URLSearchParams(window.location.search);
+            cargar(demoOferta(q.has('sin-cee'), q.has('tercero')));
             setLoading(false);
             return;
         }
@@ -517,7 +545,8 @@ export function AceptarOfertaCeeView({ token }) {
 
     // Sin CEE el inmueble es opcional: si no se ha puesto, el domicilio (el de la
     // factura) se pide aparte.
-    const domicilioEsInmueble = viveAqui && (abreCee || !!String(form.direccion || '').trim());
+    // Para un cliente suyo, su domicilio es el FISCAL (el de la factura), nunca la vivienda.
+    const domicilioEsInmueble = !tercero && viveAqui && (abreCee || !!String(form.direccion || '').trim());
 
     const aceptar = async (e) => {
         e.preventDefault();
@@ -547,6 +576,7 @@ export function AceptarOfertaCeeView({ token }) {
                     ? { direccion: form.direccion, codigo_postal: form.codigo_postal, municipio: form.municipio, provincia: form.provincia }
                     : { direccion: form.dom_direccion, codigo_postal: form.dom_codigo_postal, municipio: form.dom_municipio, provincia: form.dom_provincia },
                 ...(abreCee ? { cuestionario: cuest } : {}),
+                ...(tercero ? { propietario: { ...prop, dni: dniLimpio(prop.dni) }, coordina_visita: coordina } : {}),
                 condiciones_version: abreCee ? CONDICIONES_OFERTA_CEE_VERSION : CONDICIONES_PRESUPUESTO_VERSION,
             });
             setHecho({ numeroExpediente: data.numeroExpediente, expedienteId: data.expedienteId, docsToken: data.docsToken, sinExpediente: !!data.sinExpediente, informe: data.informe || null });
@@ -677,8 +707,13 @@ export function AceptarOfertaCeeView({ token }) {
                             <p className="ac-display ac-numero">{num}</p>
                         </div>
                     )}
+                    {tercero && (oferta.propietario?.nombre || prop.nombre.trim()) && (
+                        <p className="ac-txt">El certificado irá a nombre de <b>{oferta.propietario?.nombre || `${prop.nombre} ${prop.apellidos}`.trim()}</b>.</p>
+                    )}
                     <p className="ac-txt">
-                        {conCee
+                        {conCee && tercero && coordina === 'propietario'
+                            ? 'En los próximos días el técnico certificador se pondrá en contacto con el propietario para concertar la visita.'
+                            : conCee
                             ? 'En los próximos días el técnico certificador se pondrá en contacto contigo para concertar la visita.'
                             : 'Nos ponemos en marcha y te contamos los siguientes pasos. Te hemos enviado la confirmación.'}
                     </p>
@@ -764,9 +799,12 @@ export function AceptarOfertaCeeView({ token }) {
             {demoAviso}
             {nombre && <p className="ac-hola ac-in">Hola, <b>{nombre}</b></p>}
             <h1 className="ac-display ac-h1 ac-in">
-                {abreCee ? <>Tu certificado, a un <span className="ac-mark">paso</span></> : <>Tu presupuesto, a un <span className="ac-mark">paso</span></>}
+                {tercero ? <>El certificado de tu cliente, a un <span className="ac-mark">paso</span></>
+                    : abreCee ? <>Tu certificado, a un <span className="ac-mark">paso</span></> : <>Tu presupuesto, a un <span className="ac-mark">paso</span></>}
             </h1>
-            <p className="ac-sub ac-in ac-in-2">Revisa y completa tus datos para aceptar el presupuesto.</p>
+            <p className="ac-sub ac-in ac-in-2">{tercero
+                ? 'Revisa tus datos de facturación y danos los del propietario de la vivienda: el certificado va a su nombre.'
+                : 'Revisa y completa tus datos para aceptar el presupuesto.'}</p>
 
             <div className="ac-stack">
                 {resumen}
@@ -774,7 +812,7 @@ export function AceptarOfertaCeeView({ token }) {
                 <form ref={formRef} onSubmit={aceptar} className="ac-stack" style={{ marginTop: 14 }}>
                     {/* ── Tus datos ─────────────────────────────────────────── */}
                     <section className="ac-card ac-in ac-in-3">
-                        <p className="ac-eyebrow">Tus datos</p>
+                        <p className="ac-eyebrow">{tercero ? 'Tus datos · los de la factura' : 'Tus datos'}</p>
                         <div className="ac-campos">
                             <div className="ac-dos">
                                 <Campo id="nombre_razon_social" label="Nombre / Razón social" req value={form.nombre_razon_social} onChange={cambia} />
@@ -788,13 +826,37 @@ export function AceptarOfertaCeeView({ token }) {
                         </div>
                     </section>
 
+                    {/* ── El propietario (presupuesto para un cliente suyo) ─────
+                        Es quien sale en el certificado. Su móvil y su email son
+                        opcionales: solo hacen falta si la visita se concierta con él. */}
+                    {tercero && (
+                        <section className="ac-card">
+                            <p className="ac-eyebrow">El propietario de la vivienda</p>
+                            <p className="ac-txt">El certificado va a su nombre. No le escribimos salvo que elijas que el técnico concierte la visita con él.</p>
+                            <div className="ac-campos">
+                                <div className="ac-dos">
+                                    <Campo id="prop_nombre" label="Nombre" req value={prop.nombre} onChange={cambiaProp} />
+                                    <Campo id="prop_apellidos" label="Apellidos" value={prop.apellidos} onChange={cambiaProp} />
+                                </div>
+                                <Campo id="prop_dni" label="DNI / NIE" req upper value={prop.dni} onChange={cambiaProp} />
+                                <div className="ac-dos">
+                                    <Campo id="prop_telefono" label="Su móvil" req={coordina === 'propietario'} type="tel" value={prop.telefono} onChange={cambiaProp} />
+                                    <Campo id="prop_email" label="Su email" type="email" value={prop.email} onChange={cambiaProp} />
+                                </div>
+                            </div>
+                            <Pregunta titulo="¿Con quién concierta la visita el técnico?" opciones={COORDINA_VISITA} valor={coordina} onElegir={setCoordina} />
+                        </section>
+                    )}
+
                     {/* ── El inmueble ─────────────────────────────────────────
                         Siempre a la vista y relleno con lo que ya tengamos: el
                         Catastro no da el piso ni la puerta, y quien mejor sabe cuál
                         es su vivienda es él. */}
                     <section className="ac-card">
                         <p className="ac-eyebrow">{abreCee ? 'El inmueble que se certifica' : 'El inmueble o la instalación'}</p>
-                        <p className="ac-txt">{abreCee
+                        <p className="ac-txt">{tercero
+                            ? 'La vivienda o local de tu cliente que se certifica.'
+                            : abreCee
                             ? 'La vivienda o local del certificado, que puede no ser tu domicilio.'
                             : 'Dónde se hace el trabajo, si es un inmueble concreto. Opcional.'}</p>
 
@@ -861,15 +923,15 @@ export function AceptarOfertaCeeView({ token }) {
                         <section className="ac-card">
                             <p className="ac-eyebrow">Calefacción y agua caliente</p>
                             <p className="ac-txt">Con esto el técnico llega a la visita sabiendo qué va a encontrar.</p>
-                            <Pregunta titulo="¿Con qué se calienta la vivienda?" opciones={CALEFACCION} valor={cuest.calefaccion} onElegir={v => cambiaCuest('calefaccion', v)} />
-                            <Pregunta titulo="¿Con qué se calienta el agua?" opciones={ACS} valor={cuest.acs}
+                            <Pregunta titulo={T.calefaccion} opciones={CALEFACCION} valor={cuest.calefaccion} onElegir={v => cambiaCuest('calefaccion', v)} />
+                            <Pregunta titulo={T.acs} opciones={ACS} valor={cuest.acs}
                                 onElegir={v => setCuest(c => ({ ...c, acs: v, termo_extra: v === 'misma_caldera' ? c.termo_extra : null }))} />
                             {cuest.acs === 'misma_caldera' && (
                                 <div className="ac-subcaja">
-                                    <SiNo titulo="Además de la caldera, ¿tienes un termo eléctrico para el agua caliente?" valor={cuest.termo_extra} onElegir={v => cambiaCuest('termo_extra', v)} />
+                                    <SiNo titulo={T.termo} valor={cuest.termo_extra} onElegir={v => cambiaCuest('termo_extra', v)} />
                                 </div>
                             )}
-                            <SiNo titulo="¿Tienes aire acondicionado?" valor={cuest.aire_acondicionado}
+                            <SiNo titulo={T.aire} valor={cuest.aire_acondicionado}
                                 onElegir={v => setCuest(c => ({ ...c, aire_acondicionado: v, num_aires: v ? c.num_aires : '' }))} />
                             {cuest.aire_acondicionado === true && (
                                 <div className="ac-subcaja">
@@ -878,13 +940,18 @@ export function AceptarOfertaCeeView({ token }) {
                                         onChange={e => cambiaCuest('num_aires', e.target.value)} className="ac-input ac-input-corto" placeholder="Ej. 2" />
                                 </div>
                             )}
-                            <Pregunta titulo="¿Tienes placas solares fotovoltaicas?" opciones={PLACAS} valor={cuest.placas} onElegir={v => cambiaCuest('placas', v)} dosColumnas={false} />
+                            <Pregunta titulo={T.placas} opciones={tercero ? PLACAS_TERCERO : PLACAS} valor={cuest.placas} onElegir={v => cambiaCuest('placas', v)} dosColumnas={false} />
                         </section>
                     )}
 
                     {/* ── Su domicilio ────────────────────────────────────────── */}
                     <section className="ac-card">
-                        {(abreCee || conDireccion) ? (
+                        {tercero ? (
+                            <>
+                                <p className="ac-eyebrow">Tu domicilio fiscal</p>
+                                <p className="ac-txt">El que irá en la factura.</p>
+                            </>
+                        ) : (abreCee || conDireccion) ? (
                             <label className="ac-casilla">
                                 <input type="checkbox" checked={viveAqui} onChange={e => setViveAqui(e.target.checked)} />
                                 <span className="ac-caja"><IcoCheck size={17} sw={3} /></span>
@@ -897,8 +964,8 @@ export function AceptarOfertaCeeView({ token }) {
                             </>
                         )}
                         {!domicilioEsInmueble && (
-                            <div className="ac-campos" style={(abreCee || conDireccion) ? { marginTop: 18, paddingTop: 18, borderTop: '1px solid var(--linea)' } : undefined}>
-                                <Campo id="dom_direccion" label={(abreCee || conDireccion) ? 'Tu domicilio' : 'Dirección (calle, número, piso y puerta)'} req value={form.dom_direccion} onChange={cambia} />
+                            <div className="ac-campos" style={(abreCee || conDireccion) && !tercero ? { marginTop: 18, paddingTop: 18, borderTop: '1px solid var(--linea)' } : undefined}>
+                                <Campo id="dom_direccion" label={(abreCee || conDireccion) && !tercero ? 'Tu domicilio' : 'Dirección (calle, número, piso y puerta)'} req value={form.dom_direccion} onChange={cambia} />
                                 <div className="ac-dos">
                                     <Campo id="dom_codigo_postal" label="Código postal" req value={form.dom_codigo_postal} onChange={cambia} />
                                     <Campo id="dom_municipio" label="Municipio" req value={form.dom_municipio} onChange={cambia} />

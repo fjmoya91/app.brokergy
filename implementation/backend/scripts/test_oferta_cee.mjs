@@ -100,5 +100,25 @@ t('cuestionario: el saneado tira lo desconocido y el resumen dice lo del IRPF', 
     assert.ok(r['Agua caliente'].includes('termo')); assert.ok(r['Aire acondicionado'].includes('3')); assert.ok(r['Placas fotovoltaicas'].includes('IRPF'));
 });
 
+// ── Para un cliente del instalador (2026-11-10) ─────────────────────────────
+
+t('para un cliente suyo: el mensaje avisa de que pediremos los datos del propietario', () => {
+    const txt = m.mensajeOferta({ nombre: 'INSTALACIONES ELÉCTRICAS ALBERTO SORIA, SL', numero: 'P-26ING_50', total: 197.89, url: 'https://x/aceptar-cee/abc', partidas: ['Certificado'], abreCee: true, paraTercero: true });
+    assert.ok(txt.includes('propietario de la vivienda'));
+    assert.ok(txt.includes('https://x/aceptar-cee/abc'));
+    // Sin certificado no hay propietario que pedir: el mensaje de siempre.
+    const sin = m.mensajeOferta({ numero: 'P-1', total: 10, url: 'u', partidas: ['Legalización'], abreCee: false, paraTercero: true });
+    assert.ok(!sin.includes('propietario'));
+});
+
+t('para un cliente suyo: con quién se concierta la visita entra en el cuestionario y en el resumen', () => {
+    const c = cq.sanearCuestionario({ calefaccion: 'gas', acs: 'termo', aire_acondicionado: false, placas: 'no', coordina_visita: 'instalador' });
+    assert.equal(c.coordina_visita, 'instalador');
+    assert.equal(cq.sanearCuestionario({ coordina_visita: 'el vecino' }).coordina_visita, null);
+    assert.ok(!('coordina_visita' in cq.sanearCuestionario({ calefaccion: 'gas' })));   // sin tercero, no aparece
+    assert.equal(Object.fromEntries(cq.resumenCuestionario(c))['Visita del técnico'], 'Con el instalador que lo pidió');
+    assert.ok(cq.TITULOS.tercero.aire.includes('La vivienda'));
+});
+
 console.log(`
 ${ok} comprobaciones OK`);

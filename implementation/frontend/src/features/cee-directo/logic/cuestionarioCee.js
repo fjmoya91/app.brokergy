@@ -77,6 +77,8 @@ export function sanearCuestionario(c = {}) {
         aire_acondicionado: aa,
         num_aires: aa ? (Number.isFinite(n) && n > 0 && n < 100 ? n : null) : null,
         placas: en(PLACAS, c.placas),
+        // Solo en un presupuesto para un cliente del instalador (lo pone el servidor).
+        ...(c.coordina_visita ? { coordina_visita: en(COORDINA_VISITA, c.coordina_visita) } : {}),
     };
 }
 
@@ -93,5 +95,44 @@ export function resumenCuestionario(c) {
     }
     const pl = labelDe(PLACAS, c.placas);
     if (pl) l.push(['Placas fotovoltaicas', c.placas === 'irpf' ? 'CEE para la deducción del IRPF por poner placas' : pl]);
+    // Dicho para quien lo lee (equipo, técnico), no como lo contestó el instalador.
+    const co = { instalador: 'Con el instalador que lo pidió', propietario: 'Con el propietario' }[c.coordina_visita];
+    if (co) l.push(['Visita del técnico', co]);
     return l;
 }
+
+/**
+ * Presupuesto que pide un INSTALADOR para un cliente suyo (2026-11-10): con quién
+ * concierta el técnico la visita. Con el instalador, la ficha del propietario nace
+ * con el desvío de contacto a él (ceeOfertaService.resolverPropietario).
+ */
+export const COORDINA_VISITA = [
+    { value: 'instalador', label: 'Conmigo', sub: 'Yo le doy acceso al técnico' },
+    { value: 'propietario', label: 'Con el propietario', sub: 'Que el técnico le llame directamente' },
+];
+
+/** Las preguntas en tercera persona, para quien rellena por su cliente. */
+export const TITULOS = {
+    propio: {
+        calefaccion: '¿Con qué se calienta la vivienda?',
+        acs: '¿Con qué se calienta el agua?',
+        termo: 'Además de la caldera, ¿tienes un termo eléctrico para el agua caliente?',
+        aire: '¿Tienes aire acondicionado?',
+        placas: '¿Tienes placas solares fotovoltaicas?',
+    },
+    tercero: {
+        calefaccion: '¿Con qué se calienta la vivienda?',
+        acs: '¿Con qué se calienta el agua?',
+        termo: 'Además de la caldera, ¿hay un termo eléctrico para el agua caliente?',
+        aire: '¿La vivienda tiene aire acondicionado?',
+        placas: '¿La vivienda tiene placas solares fotovoltaicas?',
+    },
+};
+
+/** Las opciones de placas dichas por quien no es el dueño. */
+export const PLACAS_TERCERO = [
+    { value: 'si', label: 'Sí, ya tiene placas fotovoltaicas', sub: 'Autoconsumo eléctrico ya instalado' },
+    { value: 'irpf', label: 'Estos certificados son para la deducción del IRPF por poner placas', sub: 'Las vamos a poner o se acaban de poner' },
+    { value: 'futuro', label: 'No, pero le interesa ponerlas', sub: 'Todavía no las tiene' },
+    { value: 'no', label: 'No', sub: 'Sin placas fotovoltaicas' },
+];

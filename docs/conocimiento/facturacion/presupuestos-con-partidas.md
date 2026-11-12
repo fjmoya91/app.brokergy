@@ -262,7 +262,10 @@ borrador nuevo), `listar_presupuestos` y `cambiar_estado_presupuesto` (anular, r
 Por la clave interna (`staffOClaveInterna`), y lo que hace queda firmado como «AGENTE IA». Lo que
 manda el MCP lleva `expandir_arrastre: true`: el servidor construye las líneas desde el catálogo (con
 sus tasas, salvo `sin_arrastre` en la línea). Tras desplegar, hay que reconectar el conector en
-Cowork para que vea las herramientas nuevas.
+Cowork para que vea las herramientas nuevas. `crear_presupuesto` admite `para_tercero: true` (el
+instalador lo pide para un cliente suyo: al aceptar da los datos del propietario, que es quien va en
+el certificado; ver `docs/conocimiento/cee-directos/…/presupuesto-para-un-cliente-del-instalador.md`,
+2026-11-10).
 
 #### La fase 2: hecha el mismo 24/10/2026
 

@@ -74,6 +74,20 @@ function destinatarioEntrega(row) {
         .filter(f => f && typeof f === 'object' && f.estado !== 'RECTIFICADA')
         .sort((a, b) => String(a.emitida_at || '').localeCompare(String(b.emitida_at || '')));
     const ultima = facs[facs.length - 1];
+    // Lo pidió un instalador para su cliente (2026-11-10): paga él, y se le entrega
+    // a él también sin factura todavía (es quien aceptó el presupuesto).
+    if (row.pagador && (!ultima || ultima.destino === 'pagador')) {
+        const c = svc.contactoCliente(row.pagador);
+        const envios = Array.isArray(ultima?.envios) ? [...ultima.envios].reverse() : [];
+        return {
+            nombre: c.nombre || nombreCliente(row.pagador) || null,
+            tlf: envios.find(e => e?.tlf)?.tlf || c.tlf || null,
+            email: envios.find(e => e?.email)?.email || c.email || null,
+            partner: true,
+            pagador: true,
+            factura: ultima?.numero || null,
+        };
+    }
     if (ultima?.destino === 'partner' && row.prescriptor) {
         const p = row.prescriptor;
         const envios = Array.isArray(ultima.envios) ? [...ultima.envios].reverse() : [];

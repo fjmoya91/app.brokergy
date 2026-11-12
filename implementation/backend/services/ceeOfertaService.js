@@ -52,6 +52,12 @@ function cuestionarioMod() {
 }
 
 const urlAceptacion = (token) => `${FRONTEND()}/aceptar-cee/${token}`;
+/**
+ * Lo pide un INSTALADOR para un cliente suyo (2026-11-10): el presupuesto va a su
+ * nombre y se le factura a él, pero el certificado es del PROPIETARIO, que lo
+ * indica él al aceptar. Solo tiene sentido si hay un certificado que hacer.
+ */
+const esParaTercero = (o) => !!(o?.para_tercero && o?.alcance);
 const nombreCliente = (c) => (c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : '');
 // Un presupuesto de partidas (pestaña Facturación) no tiene por qué ser de un CEE.
 const nombreFichero = (o) => (Array.isArray(o.lineas) ? `Presupuesto ${o.numero}.pdf` : `Oferta CEE ${o.numero}.pdf`);
@@ -266,7 +272,8 @@ async function mensajePorDefecto(oferta) {
         nombre: destinoDe(oferta.cliente).nombre || nombreCliente(oferta.cliente),
         numero: oferta.numero, alcance: oferta.alcance,
         total, tasas, url, inmueble: m.direccionInmueble(oferta),
-        ...(conLineas ? { partidas: (await partidasMod()).partidasDe(oferta.lineas), abreCee: !!oferta.alcance } : {})
+        ...(conLineas ? { partidas: (await partidasMod()).partidasDe(oferta.lineas), abreCee: !!oferta.alcance } : {}),
+        paraTercero: esParaTercero(oferta),
     });
 }
 
@@ -419,6 +426,11 @@ async function vistaPublica(oferta) {
         numero_expediente: numeroExpediente,
         docs,
         informe,
+        // Lo pide un instalador: «Tus datos» son los suyos (los de la factura) y el
+        // certificado es del PROPIETARIO, que rellena él. Si ya se aceptó, el
+        // propietario que dio (para enseñarlo en «ya está aceptado»).
+        para_tercero: esParaTercero(oferta),
+        propietario: esParaTercero(oferta) ? await propietarioPublico(oferta) : null,
         cliente: {
             nombre_razon_social: c.nombre_razon_social || '',
             apellidos: c.apellidos || '',
@@ -440,9 +452,108 @@ async function vistaPublica(oferta) {
     };
 }
 
+/** El propietario ya dado (tras aceptar), con lo justo para la página pública. */
+async function propietarioPublico(oferta) {
+    if (!oferta.propietario_cliente_id) return null;
+    const { data: p } = await supabase.from('clientes').select('nombre_razon_social, apellidos')
+        .eq('id_cliente', oferta.propietario_cliente_id).maybeSingle();
+    return p ? { nombre: nombreCliente(p) } : null;
+}
+
 // ── Aceptación ──────────────────────────────────────────────────────────────
 
 const txt = (v) => (v == null ? '' : String(v).trim());
+
+/**
+ * El PROPIETARIO de la vivienda de un presupuesto «para un cliente suyo»: es quien
+ * sale en el certificado (regla «el que va en el certificado es el CLIENTE»).
+ *
+ * - Con un DNI que ya tiene otra ficha, ESA es la persona: se usa y solo se le
+ *   rellenan los huecos (no se pisa lo que ya teníamos de ella).
+ * - Si no, nace su ficha, con el inmueble como domicilio y el partner del
+ *   presupuesto.
+ * - Si la visita se coordina con el INSTALADOR (o el propietario no ha dado ni
+ *   móvil ni email), su ficha nace con el DESVÍO de contacto al instalador: el
+ *   técnico y los avisos le llegan a él, por el mismo camino que todo cliente con
+ *   persona de contacto. A una ficha que ya existía no se le cambia el desvío: le
+ *   desviaría también los avisos de lo que ya tenga con nosotros.
+ */
+async function resolverPropietario(oferta, form, { pagadorId, inm }) {
+    const p = form.propietario || {};
+    const dni = txt(p.dni).toUpperCase().replace(/[\s.-]/g, '');
+    const tlf = txt(p.telefono);
+    const email = txt(p.email);
+    const coordina = form.coordina_visita === 'propietario' && (tlf || email) ? 'propietario' : 'instalador';
+
+    let existente = null;
+    if (dni) {
+        const { data } = await supabase.from('clientes').select('*').eq('dni', dni).limit(1);
+        existente = data?.[0] || null;
+    }
+    // El DNI del propietario no puede ser el del propio instalador: sería
+    // emitir el certificado a nombre de quien no es el dueño.
+    if (existente && existente.id_cliente === pagadorId) {
+        throw Object.assign(new Error('El DNI del propietario es el mismo que el tuyo. Pon los datos del dueño de la vivienda.'), { status: 400 });
+    }
+
+    if (existente) {
+        const upd = {};
+        if (!existente.apellidos && txt(p.apellidos)) upd.apellidos = txt(p.apellidos);
+        if (!existente.tlf && tlf) upd.tlf = tlf;
+        if (!existente.email && email) upd.email = email;
+        if (!existente.direccion && inm.direccion) {
+            Object.assign(upd, { direccion: inm.direccion, codigo_postal: inm.codigo_postal, municipio: inm.municipio, provincia: inm.provincia });
+        }
+        if (Object.keys(upd).length) {
+            const { error } = await supabase.from('clientes').update(normalizeCliente(upd)).eq('id_cliente', existente.id_cliente);
+            if (error) throw new Error(`No se pudieron guardar los datos del propietario: ${error.message}`);
+        }
+        return { propietarioId: existente.id_cliente, creado: false, coordina };
+    }
+
+    const { data: pag } = await supabase.from('clientes')
+        .select('nombre_razon_social, apellidos, tlf, email, persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email')
+        .eq('id_cliente', pagadorId).maybeSingle();
+    // Con quién se habla en la empresa del instalador: su persona de contacto si
+    // la tiene (la empresa tiene nombre, pero quien coge el teléfono es alguien).
+    const contactoPagador = {
+        nombre: txt(pag?.persona_contacto_nombre) || nombreCliente(pag),
+        tlf: txt(pag?.persona_contacto_tlf) || txt(pag?.tlf) || txt(form.telefono),
+        email: txt(pag?.persona_contacto_email) || txt(pag?.email) || txt(form.email),
+    };
+    const fila = {
+        nombre_razon_social: txt(p.nombre),
+        apellidos: txt(p.apellidos) || null,
+        dni: dni || null,
+        tlf: tlf || null,
+        email: email || null,
+        direccion: inm.direccion, codigo_postal: inm.codigo_postal, municipio: inm.municipio, provincia: inm.provincia,
+        prescriptor_id: oferta.prescriptor_id || null,
+        ...(coordina === 'instalador' ? {
+            notificaciones_contacto_activas: true,
+            persona_contacto_nombre: contactoPagador.nombre || null,
+            persona_contacto_tlf: contactoPagador.tlf || null,
+            persona_contacto_email: contactoPagador.email || null,
+        } : {}),
+    };
+    const { data: nuevo, error } = await supabase.from('clientes').insert(normalizeCliente(fila)).select('id_cliente').single();
+    if (error) throw new Error(`No se pudo dar de alta al propietario: ${error.message}`);
+    return { propietarioId: nuevo.id_cliente, creado: true, coordina };
+}
+
+/**
+ * El partner del CEE cuando lo pide un instalador: el del presupuesto y, si no se
+ * puso, el partner que tenga el MISMO CIF que el instalador (así la factura y la
+ * entrega le reconocen como «el partner que trae el encargo»).
+ */
+async function partnerDelPagador(oferta, pagadorId) {
+    if (oferta.prescriptor_id) return oferta.prescriptor_id;
+    const { data: pag } = await supabase.from('clientes').select('dni').eq('id_cliente', pagadorId).maybeSingle();
+    const cif = txt(pag?.dni).toUpperCase();
+    if (!cif) return null;
+    const { data } = await supabase.from('prescriptores').select('id_empresa').eq('cif', cif).limit(1);
+    return data?.[0]?.id_empresa || null;
+}
 
 /**
  * Completa la ficha del cliente con lo que ha escrito. Mismo reparto que la
@@ -507,10 +618,21 @@ async function aceptar(token, form = {}) {
     }
 
     // El inmueble solo es obligatorio si hay un CEE que hacer en él.
+    const tercero = esParaTercero(oferta);
     const obligatorios = [['nombre_razon_social', 'el nombre'], ['dni_cif', 'el DNI / CIF'], ['email', 'el email'], ['telefono', 'el teléfono'],
         ...(oferta.alcance ? [['direccion', 'la dirección del inmueble'], ['municipio', 'el municipio del inmueble']] : [])];
     for (const [k, etiqueta] of obligatorios) {
         if (!txt(form[k])) throw Object.assign(new Error(`Falta ${etiqueta}`), { status: 400 });
+    }
+    if (tercero) {
+        // El certificado va a nombre del propietario: sin su nombre y su DNI no
+        // se puede registrar.
+        const p = form.propietario || {};
+        if (!txt(p.nombre)) throw Object.assign(new Error('Falta el nombre del propietario de la vivienda'), { status: 400 });
+        if (!txt(p.dni)) throw Object.assign(new Error('Falta el DNI del propietario de la vivienda'), { status: 400 });
+        if (txt(p.dni).toUpperCase().replace(/[\s.-]/g, '') === txt(form.dni_cif).toUpperCase().replace(/[\s.-]/g, '')) {
+            throw Object.assign(new Error('El DNI del propietario es el mismo que el tuyo. Pon los datos del dueño de la vivienda.'), { status: 400 });
+        }
     }
     const cond = txt(form.condiciones_version);
     const aceptadaPor = `${txt(form.nombre_razon_social)} ${txt(form.apellidos)}`.trim();
@@ -526,6 +648,8 @@ async function aceptar(token, form = {}) {
         return { yaAceptada: true, numeroExpediente: (await vistaPublica(otra)).numero_expediente };
     }
 
+    // La ficha del propietario que se crea al aceptar (si el alta falla después, se quita).
+    let propietarioCreado = null;
     try {
         const clienteId = await completarCliente(oferta, form);
 
@@ -574,15 +698,30 @@ async function aceptar(token, form = {}) {
         // Lo que ha contestado de climatización: viaja al expediente para que lo
         // vea el equipo y el técnico antes de la visita.
         const cq = await cuestionarioMod();
-        const cuestionario = { ...cq.sanearCuestionario(form.cuestionario || {}), contestado_at: ahora };
-        const nombreExp = aceptadaPor.toUpperCase() || nombreCliente(oferta.cliente).toUpperCase();
+        // Para un cliente del instalador: el CEE es del PROPIETARIO y quien paga
+        // (y recibe la factura y los certificados) es el instalador, `clienteId`.
+        let propietario = null;
+        if (tercero) {
+            propietario = await resolverPropietario(oferta, form, { pagadorId: clienteId, inm });
+            propietarioCreado = propietario.creado ? propietario.propietarioId : null;
+        }
+        const cuestionario = {
+            ...cq.sanearCuestionario(form.cuestionario || {}),
+            ...(propietario ? { coordina_visita: propietario.coordina } : {}),
+            contestado_at: ahora,
+        };
+        const p = form.propietario || {};
+        const nombreExp = (propietario ? `${txt(p.nombre)} ${txt(p.apellidos)}`.trim() : aceptadaPor).toUpperCase()
+            || nombreCliente(oferta.cliente).toUpperCase();
+        const prescriptorExp = tercero ? await partnerDelPagador(oferta, clienteId) : oferta.prescriptor_id;
 
         const ofertaFinal = { ...oferta, ...inm, cliente_id: clienteId };
         const creado = await ceeDirectos.crearExpediente({
             nombre: nombreExp,
             alcance: oferta.alcance,
-            cliente_id: clienteId,
-            prescriptor_id: oferta.prescriptor_id,
+            cliente_id: propietario ? propietario.propietarioId : clienteId,
+            pagador_cliente_id: propietario ? clienteId : null,
+            prescriptor_id: prescriptorExp,
             ...inm,
             documentacion: {
                 cuestionario,
@@ -594,6 +733,7 @@ async function aceptar(token, form = {}) {
                     : { id: oferta.id, numero: oferta.numero, total, precio: Number(oferta.precio), dto_pct: Number(oferta.dto_pct || 0), tasa: Number(oferta.tasa), num_tasas: oferta.num_tasas, aceptada_at: ahora }
             },
             notas: `Nace de la aceptación de la oferta ${oferta.numero} (${m.fmtEur(total)}).`
+                + (propietario ? ` Lo pide ${aceptadaPor} para su cliente: se le factura a él y la visita se coordina con ${propietario.coordina === 'propietario' ? 'el propietario' : 'él'}.` : '')
         }, {
             // La carpeta tiene que existir YA: la misma pantalla le deja subir las
             // fotos para el CEE en cuanto acepta.
@@ -611,14 +751,17 @@ async function aceptar(token, form = {}) {
 
         await supabase.from(TABLA).update({
             cee_directo_id: creado.id, cliente_id: clienteId,
+            ...(propietario ? { propietario_cliente_id: propietario.propietarioId } : {}),
             direccion: inm.direccion, codigo_postal: inm.codigo_postal, municipio: inm.municipio,
             provincia: inm.provincia, ref_catastral: inm.ref_catastral,
-            historial: [...(oferta.historial || []), { fecha: ahora, texto: `Aceptada por ${aceptadaPor} → ${creado.numero_expediente}`, usuario: 'Cliente' }]
+            historial: [...(oferta.historial || []), { fecha: ahora, texto: `Aceptada por ${aceptadaPor}${propietario ? ` para ${nombreExp}` : ''} → ${creado.numero_expediente}`, usuario: 'Cliente' }]
         }).eq('id', oferta.id);
 
         await ceeDirectos.anotarHistorial(creado.id, {
             tipo: 'CLIENTE',
-            texto: `EXPEDIENTE CREADO AL ACEPTAR EL CLIENTE LA OFERTA ${oferta.numero} (${m.fmtEur(total)})`,
+            texto: propietario
+                ? `EXPEDIENTE CREADO AL ACEPTAR ${aceptadaPor.toUpperCase()} LA OFERTA ${oferta.numero} (${m.fmtEur(total)}) PARA SU CLIENTE ${nombreExp}: SE LE FACTURA A ${aceptadaPor.toUpperCase()}`
+                : `EXPEDIENTE CREADO AL ACEPTAR EL CLIENTE LA OFERTA ${oferta.numero} (${m.fmtEur(total)})`,
             usuario: `Cliente (${aceptadaPor})`
         });
 
@@ -629,7 +772,7 @@ async function aceptar(token, form = {}) {
                 .catch(e => console.error(`[presupuesto ${oferta.numero}] el informe no se ha creado:`, e.message));
         }
 
-        setImmediate(() => avisar({ oferta: ofertaFinal, expediente: creado, form, total, fmtEur: m.fmtEur, resumen: cq.resumenCuestionario(cuestionario) }).catch(e =>
+        setImmediate(() => avisar({ oferta: ofertaFinal, expediente: creado, form, total, fmtEur: m.fmtEur, resumen: cq.resumenCuestionario(cuestionario), propietario: propietario ? nombreExp : null }).catch(e =>
             console.error('[oferta-cee aviso]', e.message)));
 
         // La confirmación al CLIENTE no sale aquí: justo después de aceptar se le
@@ -653,21 +796,34 @@ async function aceptar(token, form = {}) {
         // estado anterior para que el cliente pueda volver a intentarlo.
         await supabase.from(TABLA).update({ estado: 'ENVIADA', aceptada_at: null, aceptada_por: null })
             .eq('id', oferta.id);
+        // Una ficha de propietario recién nacida y sin expediente es ruido: al
+        // reintentar se crearía otra igual (o chocaría por el DNI). Solo si no
+        // llegó a tener nada colgando.
+        if (propietarioCreado) {
+            const { data: usa } = await supabase.from('cee_directos').select('id').eq('cliente_id', propietarioCreado).limit(1);
+            if (!usa?.length) await supabase.from('clientes').delete().eq('id_cliente', propietarioCreado);
+        }
         throw err;
     }
 }
 
 /** Aviso al equipo (WhatsApp + email). Nunca tumba la aceptación. */
-async function avisar({ oferta, expediente, form, total, fmtEur, resumen = [] }) {
+async function avisar({ oferta, expediente, form, total, fmtEur, resumen = [], propietario = null }) {
     const nombre = `${txt(form.nombre_razon_social)} ${txt(form.apellidos)}`.trim();
     const enlace = `${FRONTEND()}/?cee=${expediente.id}`;
     const inmueble = [oferta.direccion, oferta.municipio].filter(Boolean).join(', ');
+    const p = form.propietario || {};
     const staff = [
         '✅ *OFERTA CEE ACEPTADA*',
         '',
         `Oferta: *${oferta.numero}* · ${fmtEur(total)}`,
         `Expediente creado: *${expediente.numero_expediente}*`,
-        `Cliente: ${nombre} · ${txt(form.telefono)} · ${txt(form.email)}`,
+        ...(propietario
+            ? [
+                `Lo pide (y se le factura): ${nombre} · ${txt(form.telefono)} · ${txt(form.email)}`,
+                `Propietario (va en el certificado): ${propietario} · ${txt(p.dni).toUpperCase()}${txt(p.telefono) ? ` · ${txt(p.telefono)}` : ''}`,
+            ]
+            : [`Cliente: ${nombre} · ${txt(form.telefono)} · ${txt(form.email)}`]),
         `Alcance: ${oferta.alcance === 'DOBLE' ? 'CEE inicial y final' : 'un certificado'}`,
         inmueble ? `Inmueble: ${inmueble}` : 'Inmueble: ⚠️ sin dirección — completarla antes de encargar',
         ...(resumen.length ? ['', ...resumen.map(([k, v]) => `• ${k}: ${v}`)] : []),
@@ -788,7 +944,11 @@ async function confirmarAlCliente(token, { motivo = 'cliente' } = {}) {
         const pedir = [...f.obligatorios, ...f.recomendados];
         const url = pedir.length ? await docs.enlace(row, pedir) : null;
 
-        const contacto = ceeDirectos.contactoCliente(row.cliente);
+        // Si lo pidió un instalador para su cliente, quien acaba de aceptar —y está
+        // subiendo las fotos— es él: la confirmación es para él.
+        const contacto = row.pagador ? ceeDirectos.contactoCliente(row.pagador) : ceeDirectos.contactoCliente(row.cliente);
+        const coordinaPropietario = row.pagador && row.documentacion?.cuestionario?.coordina_visita === 'propietario';
+        const propietarioNombre = row.pagador ? nombreCliente(row.cliente) : null;
         const primer = (String(contacto.nombre || '').split(/\s+/)[0] || '');
         const saludo = primer ? `¡Hola ${primer.charAt(0).toUpperCase()}${primer.slice(1).toLowerCase()}!` : '¡Hola!';
         // Misma redacción que el acuse de aceptación del CAE (routes/public.js).
@@ -812,9 +972,12 @@ async function confirmarAlCliente(token, { motivo = 'cliente' } = {}) {
             saludo, '',
             `Hemos recibido la aceptación de tu presupuesto *${oferta.numero}*. *¡Muchas gracias por confiar en Brokergy!*`, '',
             `Tu número de expediente asignado es: *${row.numero_expediente}*`, '',
+            ...(propietarioNombre ? [`El certificado irá a nombre de *${propietarioNombre}*.`, ''] : []),
             ...avisoObra,
             ...bloqueDocs,
-            'En los próximos días el técnico certificador se pondrá en contacto contigo para concertar la visita.', '',
+            coordinaPropietario
+                ? `En los próximos días el técnico certificador se pondrá en contacto con ${propietarioNombre} para concertar la visita.`
+                : 'En los próximos días el técnico certificador se pondrá en contacto contigo para concertar la visita.', '',
             '¡Quedamos a tu disposición para cualquier duda!',
             '*BROKERGY — Ingeniería Energética*'
         ].join('\n');

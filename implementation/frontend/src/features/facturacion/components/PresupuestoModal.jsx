@@ -756,6 +756,9 @@ export function PresupuestoModal({ isOpen, onClose, onSaved, presupuestoId = nul
     const [nombreRapido, setNombreRapido] = useState('');
     const [rapidoDeWa, setRapidoDeWa] = useState(false);
     const [prescriptorId, setPrescriptorId] = useState(null);
+    // Lo pide un INSTALADOR para un cliente suyo (2026-11-10): el presupuesto va a
+    // su nombre y se le factura a él; el propietario lo pone él al aceptar.
+    const [paraTercero, setParaTercero] = useState(false);
 
     const [verMas, setVerMas] = useState(false);
     const [refCatastral, setRefCatastral] = useState('');
@@ -822,6 +825,7 @@ export function PresupuestoModal({ isOpen, onClose, onSaved, presupuestoId = nul
             setLineas((viejo ? d.lineas_calculadas : d.lineas || []).map(l => ({ ...l, key: l.key || nuevaClave() })));
             if (d.cliente) { setCliente(d.cliente); setModoCliente('existente'); }
             setPrescriptorId(d.prescriptor_id || null);
+            setParaTercero(!!d.para_tercero);
             setInmueble({
                 direccion: d.direccion || '', codigo_postal: d.codigo_postal || '', ccaa: d.ccaa || '',
                 provincia: d.provincia || '', provincia_cod: '', municipio: d.municipio || '',
@@ -885,8 +889,8 @@ export function PresupuestoModal({ isOpen, onClose, onSaved, presupuestoId = nul
     const mensajeAuto = useMemo(() => mensajeOferta({
         nombre: destino.nombre, numero: numero || '(nº de presupuesto)', total: totales.total,
         tasas: totales.suplidos, url: urlAceptacion || '(enlace para aceptar)', inmueble: direccionInmueble(borrador),
-        partidas: partidasDe(lineas), abreCee,
-    }), [destino.nombre, numero, totales, urlAceptacion, borrador, lineas, abreCee]);
+        partidas: partidasDe(lineas), abreCee, paraTercero,
+    }), [destino.nombre, numero, totales, urlAceptacion, borrador, lineas, abreCee, paraTercero]);
 
     // Mientras la pregunta está abierta, el Esc es suyo (es su «no»): no puede
     // cerrar también el editor.
@@ -976,6 +980,9 @@ export function PresupuestoModal({ isOpen, onClose, onSaved, presupuestoId = nul
     const elegirCliente = (c) => {
         setCliente(c);
         setModoCliente(c ? 'existente' : 'buscar');
+        // Una EMPRESA que pide un certificado casi siempre lo pide para un cliente
+        // suyo: se propone marcado (se desmarca si es para ella misma).
+        if (c && !id) setParaTercero(!!c.es_empresa);
         ponerDestino(destinoDe(c));
         tocar();
         if (c) irAPartidas();
@@ -1024,6 +1031,7 @@ export function PresupuestoModal({ isOpen, onClose, onSaved, presupuestoId = nul
             ? { nombre: nombreRapido.trim(), tlf: tlf.trim() || null, email: email.trim() || null }
             : null,
         prescriptor_id: prescriptorId,
+        para_tercero: paraTercero,
         direccion: borrador.direccion, codigo_postal: borrador.codigo_postal, municipio: borrador.municipio,
         provincia: borrador.provincia, ccaa: borrador.ccaa, ref_catastral: borrador.ref_catastral,
         observaciones: borrador.observaciones,
@@ -1278,6 +1286,17 @@ export function PresupuestoModal({ isOpen, onClose, onSaved, presupuestoId = nul
                                 <ClientePicker tema="fx" cliente={null} onChange={elegirCliente} onNuevoRapido={nuevoRapido}
                                     datosNuevoCliente={inmueble} autoFocus={!presupuestoId}
                                     placeholder="¿Para quién? Nombre, móvil o DNI" />
+                            )}
+                            {(abreCee || paraTercero) && modoCliente !== 'buscar' && (
+                                <label className="fx-check" style={{ marginTop: 12, border: '1px solid var(--linea)', borderRadius: 14, background: '#fff' }}>
+                                    <input type="checkbox" checked={paraTercero} disabled={!editable}
+                                        onChange={e => { setParaTercero(e.target.checked); tocar(); }} />
+                                    <span>Lo pide para un cliente suyo
+                                        <small>{paraTercero
+                                            ? 'Se le factura a él y le llegan los certificados; el certificado va a nombre del propietario, que nos da él al aceptar (con la dirección y las preguntas de la vivienda).'
+                                            : 'Márcalo si es un instalador que pide el certificado de la vivienda de otra persona.'}</small>
+                                    </span>
+                                </label>
                             )}
                         </section>
 
