@@ -164,7 +164,11 @@ function seleccionConstrucciones(constructions, codigos = null, soloVivienda = n
 // `glp` (propano/butano de depósito o bombona) entra en el funnel como `gas` —la
 // tabla de calderas no tiene filas propias de GLP: el formulario hace lo mismo—
 // y se distingue en los inputs (`ajustesCombustible`).
-const COMBUSTIBLES = ['gas', 'glp', 'gasoleo', 'electrica', 'carbon', 'biomasa'];
+// Sólidos: `carbon`, o biomasa —`lena` (leña, hueso, astilla), `pellets`, o `biomasa`
+// a secas (= pellets, como el funnel)—; van al funnel como carbon/biomasa y lo
+// elegido queda en `inputs.combustibleSolido` (`ajustesCombustible`).
+const COMBUSTIBLES = ['gas', 'glp', 'gasoleo', 'electrica', 'carbon', 'biomasa', 'lena', 'pellets'];
+const SOLIDO_ELEGIDO = { carbon: 'carbon', biomasa: 'pellets', lena: 'lena', pellets: 'pellets' };
 const EMISORES = ['radiadores_convencionales', 'radiadores_baja_temp', 'suelo_radiante', 'fancoils'];
 const ACS_ACTUAL = ['misma_caldera', 'termo', 'butano', 'gas', 'gasoleo', 'solar', 'no_tengo'];
 const EDADES = ['<10', '10-20', '>20', 'no_se'];
@@ -211,7 +215,7 @@ function funnelDesdePlan(plan = {}) {
         reforma_aires_count: null,
         obra_estado: obraEstado,
         reforma_sin_caldera: sinCalefaccion,
-        combustible_actual: comb === 'glp' ? 'gas' : comb,
+        combustible_actual: comb === 'glp' ? 'gas' : ((comb === 'lena' || comb === 'pellets') ? 'biomasa' : comb),
         edad_caldera: sinCalefaccion ? null : edad,
         condensacion: sinCalefaccion ? null : (cal.condensacion || (edad === '>20' ? 'no' : 'no_se')),
         emisor_tipo: emisor,
@@ -240,7 +244,15 @@ function funnelDesdePlan(plan = {}) {
  * de propano.
  */
 function ajustesCombustible(plan = {}) {
-    if (String(plan.caldera?.combustible || '').toLowerCase() !== 'glp') return {};
+    const comb = String(plan.caldera?.combustible || '').toLowerCase();
+    // Combustible SÓLIDO: carbón o biomasa queda ELEGIDO, como en el desplegable
+    // «¿Carbón o biomasa?» de la calculadora. De él depende el aviso de que la
+    // deducción del IRPF exige placas (irpfBiomasa.js; 26RES060_OP403: era carbón).
+    if (SOLIDO_ELEGIDO[comb]) {
+        const c = SOLIDO_ELEGIDO[comb];
+        return { combustibleSolido: c, fuelType: c, boilerHeatingType: c === 'carbon' ? 'Carbon' : 'BIOMASA' };
+    }
+    if (comb !== 'glp') return {};
     const out = { fuelType: 'glp', boilerHeatingType: 'Propano' };
     if ((plan.acs?.actual || 'misma_caldera') === 'misma_caldera') out.boilerAcsType = 'Propano';
     return out;

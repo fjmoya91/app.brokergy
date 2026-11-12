@@ -466,7 +466,7 @@ export function litrosDeLaMedida(expediente) {
 
 const NOMBRE_COMBUSTIBLE = {
     gas_natural: 'gas natural', gasoleo: 'gasóleo', electricidad: 'electricidad',
-    carbon: 'carbón', pellets: 'biomasa (pélets)',
+    carbon: 'carbón', pellets: 'biomasa (pélets)', lena: 'biomasa (leña)',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1218,7 +1218,7 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
     const porId = combustiblePorId(rendId);
     const clave = (porId === 'gas_natural' && inputs.fuelType === 'glp')
         ? 'glp'
-        : (porId || inputs.fuelType || null);
+        : (porId || inputs.combustibleSolido || inputs.fuelType || null);
     const combustible = COMBUSTIBLE_CE3X[clave];
     if (!combustible) {
         avisos.push('La instalación existente no se escribe: falta cómo se llama '
@@ -2046,9 +2046,11 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     //: la energía primaria no renovable, y su justificación no puede decir que
     //: sí (`justificacionMedidas.js`). Mismo criterio que `instalacionExistente`:
     //: la fila `solid_*` es de carbón O de biomasa, y lo separa `fuelType`.
+    //: Lo ELEGIDO en «¿Carbón o biomasa?» (`combustibleSolido`) manda; sin él, `fuelType`.
+    const inpOp = expediente?.oportunidades?.datos_calculo?.inputs
+        || expediente?.oportunidad?.datos_calculo?.inputs || {};
     const biomasa = combustiblePorId(expediente?.instalacion?.caldera_antigua_cal?.rendimiento_id) === null
-        && (expediente?.oportunidades?.datos_calculo?.inputs
-            || expediente?.oportunidad?.datos_calculo?.inputs || {}).fuelType === 'pellets';
+        && ['pellets', 'lena'].includes(inpOp.combustibleSolido || inpOp.fuelType);
     const acsTras = acsTrasLaMedida([equipo, ...extras, ...extrasFinal], existentes);
     const aero = {
         id: 'aerotermia',

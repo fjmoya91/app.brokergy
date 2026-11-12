@@ -33,6 +33,8 @@ import { esBloque, TIPO_INMUEBLE, clasificarTipoEdificio, etiquetaTipoEdificio, 
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
 import { normalizarAiresOportunidad, MAX_AIRES } from '../../expedientes/logic/confirmacionCliente';
 import { produceAcs, litrosAcsCatalogo, esConjuntoAcs } from '../../expedientes/logic/acsCatalogo';
+// Caldera de combustible SÓLIDO: carbón o biomasa se ELIGE (decide el aviso del IRPF).
+import { COMBUSTIBLES_SOLIDOS, combustibleSolidoElegido, esFilaSolida } from '../logic/irpfBiomasa';
 import { opcionDeEquipo, BUSCAR_EQUIPO } from '../../expedientes/logic/aerotermiaOpciones';
 import SearchableSelect from '../../../components/SearchableSelect';
 import LeerPlacaModal from './LeerPlacaModal';
@@ -1990,9 +1992,14 @@ export function CalculatorForm({
                                                                     fuelUpdate.fuelType = 'gasoleo';
                                                                     fuelUpdate.fuelPrice = FUEL_PRICES.gasoleo.price;
                                                                 } else if (id.startsWith('solid_')) {
-                                                                    fuelUpdate.fuelType = 'carbon';
-                                                                    fuelUpdate.fuelPrice = FUEL_PRICES.carbon.price;
+                                                                    // Lo ya ELEGIDO (carbón / leña / pellets) se conserva al
+                                                                    // cambiar de fila sólida; sin elegir, carbón hasta que se elija.
+                                                                    const elegido = combustibleSolidoElegido(prev) || 'carbon';
+                                                                    fuelUpdate.fuelType = elegido;
+                                                                    fuelUpdate.fuelPrice = FUEL_PRICES[elegido]?.price ?? FUEL_PRICES.carbon.price;
                                                                 }
+                                                                // Fuera de un sólido, lo elegido no aplica: no se queda colgado.
+                                                                if (!id.startsWith('solid_')) fuelUpdate.combustibleSolido = null;
 
                                                                 return {
                                                                     ...prev,
@@ -2011,6 +2018,47 @@ export function CalculatorForm({
                                                         </option>
                                                     ))}
                                                 </Select>
+                                                {/* Combustible SÓLIDO: la tabla no distingue carbón de biomasa y de eso
+                                                    depende la deducción del IRPF (con biomasa exige placas). Se ELIGE y manda
+                                                    sobre lo que dijeran el funnel o la placa (irpfBiomasa.js, 26RES060_OP403). */}
+                                                {esFilaSolida(inputs.boilerId) && (() => {
+                                                    const elegido = combustibleSolidoElegido(inputs);
+                                                    return (
+                                                        <div className="pt-1.5">
+                                                            <Label htmlFor="combustibleSolido" className={`text-[10px] font-semibold uppercase tracking-wider ml-1 ${elegido ? 'text-slate-400' : 'text-amber-400'}`}>
+                                                                ¿Carbón o biomasa?{!elegido && ' · sin elegir'}
+                                                            </Label>
+                                                            <Select
+                                                                id="combustibleSolido"
+                                                                value={elegido || ''}
+                                                                onChange={e => {
+                                                                    const c = e.target.value;
+                                                                    if (!c) return;
+                                                                    setIsPriceLocked(true);
+                                                                    onInputChange(prev => ({
+                                                                        ...prev,
+                                                                        combustibleSolido: c,
+                                                                        fuelType: c,
+                                                                        fuelPrice: FUEL_PRICES[c]?.price ?? prev.fuelPrice,
+                                                                    }));
+                                                                }}
+                                                                className={`h-10 bg-slate-900/50 rounded-xl ${elegido ? 'border-slate-700/50' : 'border-amber-500/70 text-amber-200'}`}
+                                                            >
+                                                                {!elegido && <option value="">— Elige el combustible —</option>}
+                                                                {COMBUSTIBLES_SOLIDOS.map(c => (
+                                                                    <option key={c.id} value={c.id}>{c.label}</option>
+                                                                ))}
+                                                            </Select>
+                                                            <p className={`text-[10px] mt-1 ml-1 ${elegido ? 'text-slate-500' : 'text-amber-400/90'}`}>
+                                                                {elegido === 'carbon'
+                                                                    ? 'Carbón: es fósil, la deducción del IRPF no necesita placas.'
+                                                                    : elegido
+                                                                        ? 'Biomasa: la deducción del IRPF exige placas solares (la propuesta lo avisa).'
+                                                                        : 'Decide la deducción del IRPF: con biomasa exige placas solares.'}
+                                                            </p>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         )}
 
@@ -3396,7 +3444,11 @@ export function CalculatorForm({
                                                                 onInputChange(prev => ({
                                                                     ...prev,
                                                                     fuelType: type,
-                                                                    fuelPrice: defaultPrice
+                                                                    fuelPrice: defaultPrice,
+                                                                    // Con una caldera sólida, elegir aquí carbón/leña/pellets
+                                                                    // es lo mismo que en «¿Carbón o biomasa?».
+                                                                    ...(esFilaSolida(prev.boilerId) && COMBUSTIBLES_SOLIDOS.some(c => c.id === type)
+                                                                        ? { combustibleSolido: type } : {}),
                                                                 }));
                                                             }}
                                                             className="bg-slate-900/60 border-slate-700/50 focus:border-emerald-500/50 h-8 text-xs"

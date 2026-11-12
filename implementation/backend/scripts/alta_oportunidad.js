@@ -470,7 +470,9 @@ async function crear() {
             numero_serie: plan.caldera.numero_serie || null,
             serie_dudosa: !!plan.caldera.serie_dudosa,
             potencia_kw: Number(plan.caldera.potencia_kw) || null,
-            combustible: plan.caldera.combustible || null,
+            // La placa habla de FAMILIA: leña y pellets son biomasa (lo elegido va en combustibleSolido).
+            combustible: ['lena', 'pellets'].includes(String(plan.caldera.combustible || '').toLowerCase())
+                ? 'biomasa' : (plan.caldera.combustible || null),
             origen: 'whatsapp',
         };
     }
