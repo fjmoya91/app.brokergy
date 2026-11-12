@@ -127,6 +127,29 @@ router.post('/marketplace/refresh', adminOnly, async (req, res) => {
     }
 });
 
+// PATCH /api/prescriptores/:id/web { oculto_web } -> Poner o quitar al instalador de la
+// web brokergy.es («Encuentra tu instalador») desde su TARJETA del listado, sin abrir la
+// ficha. Solo toca `oculto_web` (el PATCH /:id reescribe la ficha entera). Oculto no es
+// borrado: sigue contando en los totales. scripts/prescriptores_oculto_web.sql
+router.patch('/:id/web', adminOnly, async (req, res) => {
+    try {
+        if (typeof req.body?.oculto_web !== 'boolean') {
+            return res.status(400).json({ error: 'Falta oculto_web (true/false).' });
+        }
+        const { data, error } = await supabase.from('prescriptores')
+            .update({ oculto_web: req.body.oculto_web })
+            .eq('id_empresa', req.params.id)
+            .select('id_empresa, oculto_web')
+            .maybeSingle();
+        if (error) throw error;
+        if (!data) return res.status(404).json({ error: 'Partner no encontrado.' });
+        res.json(data);
+    } catch (err) {
+        console.error('Error PATCH oculto_web:', err.message);
+        res.status(503).json({ error: 'No se pudo cambiar si sale en la web.' });
+    }
+});
+
 // GET /api/prescriptores -> Listar prescriptores
 router.get('/', enforceAuth, async (req, res) => {
     try {
@@ -1272,6 +1295,10 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             }
             if (payload.descripcion_publica !== undefined) {
                 prescriptorPayload.descripcion_publica = (payload.descripcion_publica || '').toString().trim().slice(0, 1000) || null;
+            }
+            // No sale en la web pública (brokergy.es), aunque cuenta en el total. scripts/prescriptores_oculto_web.sql
+            if (payload.oculto_web !== undefined) {
+                prescriptorPayload.oculto_web = !!payload.oculto_web;
             }
             if (payload.visible_marketplace !== undefined) {
                 const activar = !!payload.visible_marketplace;

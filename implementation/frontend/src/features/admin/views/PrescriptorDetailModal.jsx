@@ -740,6 +740,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         // Escaparate público de instaladores (instaladores.brokergy.es)
         marketplace_slug: '',
         visible_marketplace: false,
+        oculto_web: false,
         descripcion_publica: '',
         especialidades: [],
         google_place_id: '',
@@ -962,6 +963,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 landing_email_contacto:       p.landing_email_contacto || '',
                 marketplace_slug:             p.marketplace_slug || '',
                 visible_marketplace:          p.visible_marketplace || false,
+                oculto_web:                   p.oculto_web || false,
                 descripcion_publica:          p.descripcion_publica || '',
                 especialidades:               Array.isArray(p.especialidades) ? p.especialidades : [],
                 google_place_id:              p.google_place_id || '',
@@ -1220,6 +1222,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 ...(isAdmin ? {
                     marketplace_slug:     form.marketplace_slug.trim().toLowerCase() || null,
                     visible_marketplace:  !!form.visible_marketplace,
+                    oculto_web:           !!form.oculto_web,
                     descripcion_publica:  form.descripcion_publica.trim() || null,
                     especialidades:       form.especialidades || [],
                     google_place_id:      form.google_place_id.trim() || null,
@@ -2871,10 +2874,28 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             <Collapse
                                 title="Escaparate de Instaladores"
                                 subtitle="Ficha pública en instaladores.brokergy.es. Al publicar se geolocaliza solo (si falta) y aparece en el mapa. Nunca se muestran datos personales de clientes."
-                                summary={form.visible_marketplace
+                                summary={(form.visible_marketplace
                                     ? `Publicado · /${form.marketplace_slug || 'sin enlace'}`
-                                    : 'No publicado'}
+                                    : 'No publicado') + (form.oculto_web ? ' · Oculto en brokergy.es' : '')}
                             >
+
+                                {/* Web pública brokergy.es («Encuentra tu instalador»): salen TODOS los
+                                    instaladores con obra salvo los marcados aquí, que siguen CONTANDO en
+                                    el total. Lo lee scripts/red.mjs de brokergy-web. */}
+                                <label className="flex items-center gap-3 cursor-pointer rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+                                    <div className="relative h-5 w-9 shrink-0">
+                                        <input type="checkbox" checked={!form.oculto_web}
+                                            onChange={e => upd({ oculto_web: !e.target.checked })}
+                                            className="sr-only peer" />
+                                        <div className="w-full h-full bg-transparent border border-amber-500 rounded-full peer peer-checked:bg-amber-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-amber-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-white/40">
+                                            {form.oculto_web ? 'No sale en la web brokergy.es' : 'Sale en la web brokergy.es'}
+                                        </span>
+                                        <p className="text-[9px] text-white/20 -mt-0.5">«Encuentra tu instalador». Si lo apagas, no se muestra (ni ficha, ni mapa), pero sigue contando en «trabajamos con más de N instaladores». Se aplica al regenerar la web.</p>
+                                    </div>
+                                </label>
 
                                 <FI label="Enlace (slug)">
                                     <div className="flex items-stretch rounded-xl border border-white/[0.08] overflow-hidden focus-within:ring-2 focus-within:ring-brand/40 focus-within:border-brand/40 transition-all">
