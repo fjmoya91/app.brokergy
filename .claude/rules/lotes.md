@@ -43,6 +43,8 @@ paths:
 
 212. **El lote habla con beCAE (Marwen) por su API v1.6.0, y la respuesta se lee en los DOS formatos** (2026-11-11, guía de Marwen): desde la 1.6.0 las respuestas van en `{ success, message, data }` y el nº de solicitud llega en `data.num_solicitud` — leer solo la raíz dejaba el lote sin nº (`normalizarCreacion`/`datosDe` de [marwenService.js](implementation/backend/services/marwenService.js)). El bloque **«⚡ beCAE en vivo»** ([BecaeEnVivo.jsx](implementation/frontend/src/features/lotes/components/BecaeEnVivo.jsx); qué paso toca lo decide `accionesBecae` de [logic/becae.js](implementation/frontend/src/features/lotes/logic/becae.js)) busca el lote por su PEDIDO (= su código), sella el estado y el nº de expediente del verificador si faltaba, trae la solicitud (sola al enviar por API) y la oferta, y sube la solicitud firmada, los `E{n}.zip` (todos o ninguno) y la oferta firmada. **Lo que sale hacia beCAE lo pulsa una persona con la lista de ficheros delante, y subir la oferta firmada ES aceptarla**; la solicitud de la APP no se sube nunca. **Las inexactitudes de la API entran por el MISMO `registrarInexactitudes` que las del PDF** (regla 159, colgadas del último informe subido), con el nº comparado como TEXTO («3-R2»), y respetando su LÍMITE de consultas (429 + `Retry-After`, solo con el expediente En resolución/HDTED). Contestarlas sigue siendo en el portal. Tras tocarlo: `node implementation/backend/scripts/test_marwen_api_v16.js`, `test_becae_acciones.mjs` y `test_inexactitudes_lote.js`. Ver "La API de Marwen v1.6.0".
 
+215. **El Anexo I del LOTE lleva las firmas ANCLADAS al pie de la hoja, y sus casillas se MIDEN** (2026-11-12, LOTE-2026-018). El bloque de firmas iba detrás de la tabla y bajaba con cada actuación: la casilla fija de `SIGN_BOXES.anexo_i_listado*`, medida con un lote corto, caía encima de las filas 8 y 9 de un lote de 10 y la firma de Brokergy las tapó. Ahora `.hoja` llena la hoja útil, `.firma` va con `margin-top:auto` y un hueco fijo bajo cada rótulo ([anexoListadoHtml.js](implementation/frontend/src/features/lotes/logic/anexoListadoHtml.js)), y las casillas (Proveedor 131,42–337,106; S.O. 504,42–710,106) son las mismas con 1 que con 10 actuaciones y caen en blanco también en los PDF de la maqueta anterior. El flex va en `.hoja`, nunca en el `body` (la vista previa del popup inyecta este `<style>` en la app). Caben 10 actuaciones RES060 reales en una hoja (7 RES093). Tras tocar la maqueta o las casillas: `node implementation/backend/scripts/check_anexo_listado_firmas.mjs`. Ver "El Anexo I del lote: las firmas van al PIE de la hoja".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -52,6 +54,7 @@ paths:
 - `docs/conocimiento/lotes/contestar-inexactitudes-en-el-portal-de-marwen.md` — Contestar las inexactitudes en el portal de Marwen (beCAE), no por API (2026-11-11) · 3,2 KB
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15) · 2,1 KB
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01) · 8,8 KB
+- `docs/conocimiento/lotes/el-anexo-i-del-lote-las-firmas-van-al-pie.md` — El Anexo I del lote: las firmas van al PIE de la hoja, y sus casillas se miden (2026-11-12) · 3,0 KB
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md` — El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08) · 15,5 KB
 - `docs/conocimiento/lotes/el-registro-miteco-y-los-requerimientos-del-gestor.md` — El Nº de REGISTRO del MITECO en el lote, y los requerimientos del Gestor (2026-10-27) · 6,0 KB
 - `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md` — El TOTAL que nos ingresa el S.O., y marcarlo COBRADO (2026-10-15) · 4,1 KB
@@ -102,6 +105,9 @@ nota.**
   - **REGLA — lo que falte se LEE de los documentos ya subidos.**
   - **REGLA — el nº de actuación es el del INFORME.**
   - **REGLA — un anexo con huecos NO se genera.**
+- `docs/conocimiento/lotes/el-anexo-i-del-lote-las-firmas-van-al-pie.md`
+  - **REGLA — el bloque de firmas va ANCLADO al pie de la hoja, con un hueco fijo bajo cada rótulo.**
+  - **REGLA — las casillas se MIDEN sobre el PDF de verdad, con el mismo motor que la app.**
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md`
   - **REGLA — la nomenclatura NO se inventa: se REPRODUCE.**
   - **REGLA — el nº de actuación es el del INFORME de verificación**

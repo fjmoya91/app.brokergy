@@ -60,9 +60,16 @@ export const SIGN_BOXES = {
     // Anexo I · Listado Cesión (LOTE) — página 1, apaisada. DOS firmas:
     //   _proveedor = columna izquierda (EL PROVEEDOR / BROKERGY), la firma Brokergy antes de enviar.
     //   (por defecto)= columna derecha (el S.O.), la firma el Sujeto Obligado.
-    // Riesgo: si el lote crece mucho la tabla podría desbordar a una 2ª página.
-    anexo_i_listado: { page: 1, llx: 534.45, lly: 188.32, urx: 736.06, ury: 269.30 },
-    anexo_i_listado_proveedor: { page: 1, llx: 129, lly: 188.32, urx: 331, ury: 269.30 },
+    // El bloque de firmas va ANCLADO al pie de la hoja con un hueco fijo bajo cada
+    // rótulo (anexoListadoHtml.js), así que la casilla no se mueve con el nº de filas.
+    // Medido el 12/11/2026 con 1, 5 y 10 actuaciones: rótulos en y 117–124 pt
+    // («BROKERGY», la 2ª línea del Proveedor, en 110), centrados en x 233,5
+    // (PROVEEDOR) y 606,5 (S.O.); el hueco llega hasta y 39. Antes iba en y 188–269,
+    // que en un lote de 10 caía ENCIMA de las filas 8 y 9 (LOTE-2026-018). La casilla
+    // nueva también cae en blanco en los PDF de la maqueta anterior (la de 10 filas
+    // se firmó en y 39–105). Tras tocarlo: `node implementation/backend/scripts/check_anexo_listado_firmas.mjs`.
+    anexo_i_listado: { page: 1, llx: 504, lly: 42, urx: 710, ury: 106 },
+    anexo_i_listado_proveedor: { page: 1, llx: 131, lly: 42, urx: 337, ury: 106 },
 
     // Fichas RES/TER del lote (firma el S.O.) — una por tipo de ficha.
     //
