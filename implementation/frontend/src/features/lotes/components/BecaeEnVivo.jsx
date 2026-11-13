@@ -3,6 +3,13 @@ import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { solicitudGeneradaPorApp } from '../logic/loteProceso';
 import { accionesBecae, ESTADOS_LOTE_SIN_BECAE } from '../logic/becae';
+import { Ico } from '../../facturacion/estilo';
+
+// Descargar (flecha a la bandeja) y la etiqueta sin el símbolo de delante: en la ficha
+// en crema el icono lo pone el botón, no un carácter (⬇ ⬆ ⌕ salen distintos en cada equipo).
+const ICO_BAJAR = 'M12 4v11m-5-5 5 5 5-5M5 20h14';
+const ICO_SUBIR = 'M12 20V9m-5 5 5-5 5 5M5 4h14';
+const sinSimbolo = (t) => String(t || '').replace(/^[^\p{L}\p{N}]+/u, '');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BecaeEnVivo — el lote en beCAE (Marwen), por su API v1.6.0.
@@ -16,6 +23,9 @@ import { accionesBecae, ESTADOS_LOTE_SIN_BECAE } from '../logic/becae';
 // Se consulta sola al abrir un lote en curso; lo que se SUBE a beCAE pide
 // confirmación con la lista de ficheros (subir la oferta firmada ES aceptarla).
 // Ver docs/conocimiento/lotes/la-api-de-marwen-v1-6.md.
+//
+// En el papel crema de la ficha del lote (`.lt-becae`, loteFichaEstilo.js): los
+// estados de beCAE con las fichas de color de la casa, nunca en rojo.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const fmtHora = (iso) => {
@@ -27,21 +37,24 @@ const mb = (b) => `${(b / 1024 / 1024).toLocaleString('es-ES', { maximumFraction
 
 const TONO_ESTADO = (e) => {
     const s = String(e || '').toLowerCase();
-    if (/rechaz/.test(s)) return 'text-red-300 border-red-400/30 bg-red-500/10';
-    if (/resoluci|hdted|pendiente doc|ofertado/.test(s)) return 'text-amber-200 border-amber-400/30 bg-amber-500/10';
-    if (/finalizado|aceptad/.test(s)) return 'text-emerald-300 border-emerald-400/30 bg-emerald-500/10';
-    return 'text-cyan-200 border-cyan-400/25 bg-cyan-500/[0.08]';
+    if (/rechaz/.test(s)) return 'fx-chip-vence';
+    if (/resoluci|hdted|pendiente doc|ofertado/.test(s)) return 'fx-chip-ambar';
+    if (/finalizado|aceptad/.test(s)) return 'fx-chip-ok';
+    return 'fx-chip-pizarra';
 };
 
+// `fx-chip-*` da el color; `lt-becae-chip` le quita las mayúsculas y le da aire.
 const Chip = ({ etiqueta, valor, num }) => (
-    <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-bold ${TONO_ESTADO(valor)}`}>
-        <span className="text-[9px] font-black uppercase tracking-wider opacity-70">{etiqueta}</span>
-        {num && <span className="text-white/85">{num}</span>}
-        <span>{valor || '—'}</span>
+    <span className={`fx-chip lt-becae-chip ${TONO_ESTADO(valor)}`} style={{ textTransform: 'none', letterSpacing: 0, height: 'auto' }}>
+        <i>{etiqueta}</i>
+        {num && <span>{num}</span>}
+        {valor || '—'}
     </span>
 );
 
-export function BecaeEnVivo({ lote, p, onChanged, onTraerOferta }) {
+// `onSolicitudTraida`: en cuanto la solicitud del verificador entra en el lote (sola al
+// consultar o con el botón), la fase propone mandarla al S.O. o revisarla antes.
+export function BecaeEnVivo({ lote, p, onChanged, onTraerOferta, onSolicitudTraida }) {
     const { showConfirm } = useModal();
     const [estado, setEstado] = useState(null);      // respuesta de GET /marwen
     const [cargando, setCargando] = useState(false);
@@ -59,14 +72,18 @@ export function BecaeEnVivo({ lote, p, onChanged, onTraerOferta }) {
         try {
             const { data } = await axios.get(`/api/lotes/${lote.id}/marwen`);
             setEstado(data);
-            // Lo sellado (nº de expediente, renumeración) cambia el lote de detrás.
+            if (data?.solicitud_traida?.archivada) {
+                setAviso('Traída de beCAE la solicitud del verificador: ya está en la fase 1, lista para mandarla al S.O. con el Anexo I y las fichas.');
+            }
+            // Lo sellado (nº de expediente, renumeración, la solicitud traída) cambia el lote de detrás.
             if (data?.lote && onChanged) onChanged(data.lote);
+            if (data?.solicitud_traida?.archivada && onSolicitudTraida) onSolicitudTraida();
         } catch (err) {
             setError(err.response?.data?.error || 'No se pudo consultar beCAE.');
         } finally {
             setCargando(false);
         }
-    }, [lote?.id, onChanged]);
+    }, [lote?.id, onChanged, onSolicitudTraida]);
 
     // Se consulta SOLA una vez al abrir un lote que está con el verificador.
     useEffect(() => {
@@ -98,9 +115,10 @@ export function BecaeEnVivo({ lote, p, onChanged, onTraerOferta }) {
     const traerSolicitud = async () => {
         setOcupado('traer_solicitud'); setError(''); setAviso('');
         try {
-            await axios.post(`/api/lotes/${lote.id}/marwen/traer-solicitud`);
+            const { data } = await axios.post(`/api/lotes/${lote.id}/marwen/traer-solicitud`);
             setAviso('Solicitud de beCAE guardada en la fase 1: es la que firma el S.O. con el Anexo I.');
-            if (onChanged) onChanged();
+            if (onChanged) onChanged(data?.lote);
+            if (onSolicitudTraida) onSolicitudTraida();
         } catch (err) {
             setError(err.response?.data?.error || 'No se pudo traer la solicitud de beCAE.');
         } finally { setOcupado(null); }
@@ -176,59 +194,52 @@ export function BecaeEnVivo({ lote, p, onChanged, onTraerOferta }) {
     };
 
     return (
-        <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/[0.04] px-3 py-2.5 space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300/90 shrink-0">⚡ beCAE en vivo</span>
+        <section className="lt-becae">
+            <div className="lt-becae-cab">
+                <span className="fx-eyebrow">beCAE en vivo</span>
                 {becae?.estado_solicitud && <Chip etiqueta="Solicitud" num={becae.num_solicitud} valor={becae.estado_solicitud} />}
                 {becae?.estado_expediente && <Chip etiqueta="Expediente" num={becae.num_expediente} valor={becae.estado_expediente} />}
-                {!becae && !cargando && !error && (
-                    <span className="text-[11px] text-white/45">Sin consultar todavía.</span>
-                )}
-                {estado && !estado.encontrado && (
-                    <span className="text-[11px] text-white/50">beCAE no tiene nada con el pedido {lote.codigo}.</span>
-                )}
-                <div className="flex-1" />
-                {becae?.consultado_at && <span className="text-[9px] text-white/30">{fmtHora(becae.consultado_at)}</span>}
-                <button type="button" onClick={consultar} disabled={cargando}
-                    className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/15 disabled:opacity-40">
-                    {cargando ? 'Consultando…' : '↻ Consultar'}
+                {!becae && !cargando && !error && <span className="lt-ayuda">Sin consultar todavía.</span>}
+                {estado && !estado.encontrado && <span className="lt-ayuda">beCAE no tiene nada con el pedido {lote.codigo}.</span>}
+                <div style={{ flex: 1 }} />
+                {becae?.consultado_at && <span className="lt-ayuda">{fmtHora(becae.consultado_at)}</span>}
+                <button type="button" onClick={consultar} disabled={cargando} className="fx-btn fx-btn-sec fx-btn-peq">
+                    <Ico n="reintentar" size={16} className={cargando ? 'fx-spin' : ''} />{cargando ? 'Consultando…' : 'Consultar'}
                 </button>
             </div>
 
             {acciones.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                    {acciones.map(a => (
+                <div className="lt-tareas">
+                    {acciones.map((a, i) => (
                         <button key={a.id} type="button" onClick={ejecutar[a.id]} disabled={!!ocupado} title={a.ayuda}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all disabled:opacity-40 ${a.tono === 'amber'
-                                ? 'border-amber-400/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25'
-                                : 'border-brand/40 bg-brand/[0.12] text-brand hover:bg-brand/20'}`}>
+                            className={`fx-btn ${i === 0 ? 'fx-btn-pri' : 'fx-btn-sec'} fx-btn-peq`}>
+                            {a.id.startsWith('traer') ? <Ico d={ICO_BAJAR} size={16} /> : a.id.startsWith('subir') ? <Ico d={ICO_SUBIR} size={16} /> : <Ico n="leer" size={16} />}
                             {ocupado === a.id || (a.id === 'subir_solicitud' && ocupado === 'solicitud_firmada')
                                 || (a.id === 'subir_zip' && ocupado === 'documento_adjunto') || (a.id === 'subir_oferta' && ocupado === 'oferta_firmada')
-                                ? 'Un momento…' : a.etiqueta}
+                                ? 'Un momento…' : sinSimbolo(a.etiqueta)}
                         </button>
                     ))}
                 </div>
             )}
 
             {docs.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-white/35">En beCAE:</span>
+                <div className="lt-becae-docs">
+                    <span>En beCAE</span>
                     {docs.map(d => (
                         <button key={d.id} type="button" onClick={() => descargar(d)} disabled={!!ocupado}
-                            title={`Descargar de beCAE (${d.type})`}
-                            className="px-2 py-0.5 rounded-md text-[10px] border border-white/10 bg-white/[0.03] text-white/65 hover:text-white hover:border-white/25 disabled:opacity-40">
-                            {ocupado === `doc_${d.id}` ? '…' : '⬇'} {d.name}
+                            title={`Descargar de beCAE (${d.type})`} className="fx-btn fx-btn-sec fx-btn-peq">
+                            <Ico d={ICO_BAJAR} size={16} />{ocupado === `doc_${d.id}` ? '…' : d.name}
                         </button>
                     ))}
                 </div>
             )}
 
             {(estado?.avisos || []).map((t, i) => (
-                <p key={i} className="text-[11px] text-amber-200/90">⚠ {t}</p>
+                <p key={i} className="lt-msg lt-msg-ambar">{t}</p>
             ))}
-            {aviso && <p className="text-[11px] text-emerald-300/90 whitespace-pre-line">✓ {aviso}</p>}
-            {error && <p className="text-[11px] text-red-300 whitespace-pre-line">{error}</p>}
-        </div>
+            {aviso && <p className="lt-msg lt-msg-ok">{aviso}</p>}
+            {error && <p className="lt-msg lt-msg-ambar" role="alert">{error}</p>}
+        </section>
     );
 }
 

@@ -22,7 +22,11 @@ tarjetas, filete y avisos en ámbar. Ninguna otra pantalla del CRM se pasa a est
 pida para ella. Pedidas después: el popup «Cálculo real» de la calculadora (27/10/2026) y la
 «Vista S.O.» de la pestaña Lotes (28/10/2026, Fran: «que se parezca a Facturación - carta de
 pago»): monta el `CSS` de `facturacion/estilo.jsx` y añade lo suyo con prefijo `.so-`; ojo, `.fx-hero`
-y `.fx-kpis` traen el `grid-area` del cuadro de Facturación y fuera de él hay que anularlo.
+y `.fx-kpis` traen el `grid-area` del cuadro de Facturación y fuera de él hay que anularlo. Y la
+**ficha del lote** (`LoteDetailModal` y sus pestañas, 12/11/2026, Fran: «toma como referencia lo
+que has creado para el visor del Sujeto Obligado… el nuevo kit de marca… que sea incluso más fácil
+de usar. Todo»): monta el mismo `CSS` y lo suyo con `.lt-` ([loteFichaEstilo.js](implementation/frontend/src/features/lotes/components/loteFichaEstilo.js));
+la lista de lotes sigue oscura. Ver "La ficha del lote, en crema" (área lotes).
 
 **Las páginas de referencia** (copiar de ahí, no reinventar):
 - [RecibidoCobroView.jsx](implementation/frontend/src/features/cobro/views/RecibidoCobroView.jsx):
@@ -216,7 +220,14 @@ y `.fx-kpis` traen el `grid-area` del cuadro de Facturación y fuera de él hay 
    mejor») se abre a lo ancho desde 1024 px — ver «La landing en el ordenador» en
    `certificadores-app/00-la-app-de-certificadores.md`. Los enlaces de un expediente siguen en
    columna.
-5. Se enseña al usuario con las capturas, antes de subir nada.
+5. **Que no haya huecos vacíos y que todo case** (Fran, 12/11/2026, ficha del lote: «esas cosas no
+   te las debería de decir, las deberías de saber ya»):
+   - Dos tarjetas en paralelo de alturas muy distintas se convierten en UNA tarjeta con filas.
+   - Lo secundario se despliega con «+».
+   - Las columnas de campos van con la ayuda en una línea (lo largo, al `title`).
+   - En las filas repetidas, los botones van en columnas FIJAS, dejando el hueco si falta alguno.
+   - Se MIDE con JS: la posición horizontal de los botones repetidos tiene que ser una sola.
+6. Se enseña al usuario con las capturas, antes de subir nada.
 
 #### 8. La PROPUESTA en PDF (2026-10-25)
 

@@ -19,7 +19,10 @@ export const ESTADOS_LOTE_SIN_BECAE = ['BORRADOR', 'FINALIZADO', 'PTE. PAGO BROK
 export function accionesBecae({ becae, p, solicitudApp = false, inexConsultables = false } = {}) {
     if (!becae || !p) return [];
     const docs = Array.isArray(becae.documentos) ? becae.documentos : [];
-    const hay = (t) => docs.some(d => d && d.type === t);
+    // El backend ya normaliza el tipo (marwenService.tipoCanonico); esto cubre lo
+    // sellado antes en el lote con el nombre de beCAE (`solicitud_sin_firmar`).
+    const tipo = (t) => String(t || '').toLowerCase().replace(/_sin_firmar$/, '');
+    const hay = (t) => docs.some(d => d && tipo(d.type) === t);
     const out = [];
 
     const solicitudFirmadaLote = !!p.solicitud?.signed_link;

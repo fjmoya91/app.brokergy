@@ -3,7 +3,7 @@ paths:
   - "implementation/frontend/src/features/lotes/**"
   - "implementation/backend/routes/lotes.js"
   - "implementation/backend/services/{lote*,anexoActuacionService,solicitudCaeService,envioGestorService,firmadosSo,firmadosSoCorreo,tarifasVerificacion,facturaContabilidad,marwenService}.js"
-  - "implementation/backend/utils/{zipStore,codigosCae,consultaLotes,ceeEcoFields}.js"
+  - "implementation/backend/utils/{zipStore,codigosCae,consultaLotes,ceeEcoFields,comprimirPdf}.js"
 ---
 # Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura (nivel 2)
 
@@ -43,6 +43,8 @@ paths:
 
 212. **El lote habla con beCAE (Marwen) por su API v1.6.0, y la respuesta se lee en los DOS formatos** (2026-11-11, guía de Marwen): desde la 1.6.0 las respuestas van en `{ success, message, data }` y el nº de solicitud llega en `data.num_solicitud` — leer solo la raíz dejaba el lote sin nº (`normalizarCreacion`/`datosDe` de [marwenService.js](implementation/backend/services/marwenService.js)). El bloque **«⚡ beCAE en vivo»** ([BecaeEnVivo.jsx](implementation/frontend/src/features/lotes/components/BecaeEnVivo.jsx); qué paso toca lo decide `accionesBecae` de [logic/becae.js](implementation/frontend/src/features/lotes/logic/becae.js)) busca el lote por su PEDIDO (= su código), sella el estado y el nº de expediente del verificador si faltaba, trae la solicitud (sola al enviar por API) y la oferta, y sube la solicitud firmada, los `E{n}.zip` (todos o ninguno) y la oferta firmada. **Lo que sale hacia beCAE lo pulsa una persona con la lista de ficheros delante, y subir la oferta firmada ES aceptarla**; la solicitud de la APP no se sube nunca. **Las inexactitudes de la API entran por el MISMO `registrarInexactitudes` que las del PDF** (regla 159, colgadas del último informe subido), con el nº comparado como TEXTO («3-R2»), y respetando su LÍMITE de consultas (429 + `Retry-After`, solo con el expediente En resolución/HDTED). Contestarlas sigue siendo en el portal. Tras tocarlo: `node implementation/backend/scripts/test_marwen_api_v16.js`, `test_becae_acciones.mjs` y `test_inexactitudes_lote.js`. Ver "La API de Marwen v1.6.0".
 
+213. **El EQUIPO de verificación (verificador jefe y revisor técnico, con email y teléfono) se LEE del plan y de las copias de su correo, y un email solo es de quien casa con su nombre** (2026-11-12, Fran: «quiero saber quién es el verificador… el teléfono… y el email»). Se guarda en `documentos_so[plan_verificacion].equipo` y lo enseña el Resumen del lote ([EquipoVerificacion.jsx](implementation/frontend/src/features/lotes/components/EquipoVerificacion.jsx)). El PDF (`leerPlanVerificacion`) trae al jefe con email y teléfono y al revisor solo con el nombre; el email del revisor está SOLO en la copia del correo «Plan de verificacion CAE-… (LOTE-…)», y se le pone si su dirección casa con su nombre (`fcharriel` ↔ Francisco Jesús CHARRIEL) — **nunca se compone un email**. Lo guardado solo rellena huecos y no pasa a OTRA persona; de cada lote manda el ÚLTIMO plan (las «Adendas» cambian el equipo). Se lee al subir el plan, con «⌕ Leer del plan» (`POST /:id/plan-verificacion/leer`) y solo desde el buzón (`PLAN_VERIFICACION_CORREO_ENABLED`, **nace APAGADO**), que además archiva el PDF si el lote no lo tenía; el plan no mueve el estado del lote. Fuente única: [equipoVerificacion.js](implementation/backend/services/equipoVerificacion.js). Tras tocarlo: `node implementation/backend/scripts/test_equipo_verificacion.js` y, en seco contra el buzón, `importar_planes_verificacion.js`. Ver "El EQUIPO de verificación del lote".
+
 215. **El Anexo I del LOTE lleva las firmas ANCLADAS al pie de la hoja, y sus casillas se MIDEN** (2026-11-12, LOTE-2026-018). El bloque de firmas iba detrás de la tabla y bajaba con cada actuación: la casilla fija de `SIGN_BOXES.anexo_i_listado*`, medida con un lote corto, caía encima de las filas 8 y 9 de un lote de 10 y la firma de Brokergy las tapó. Ahora `.hoja` llena la hoja útil, `.firma` va con `margin-top:auto` y un hueco fijo bajo cada rótulo ([anexoListadoHtml.js](implementation/frontend/src/features/lotes/logic/anexoListadoHtml.js)), y las casillas (Proveedor 131,42–337,106; S.O. 504,42–710,106) son las mismas con 1 que con 10 actuaciones y caen en blanco también en los PDF de la maqueta anterior. El flex va en `.hoja`, nunca en el `body` (la vista previa del popup inyecta este `<style>` en la app). Caben 10 actuaciones RES060 reales en una hoja (7 RES093). Tras tocar la maqueta o las casillas: `node implementation/backend/scripts/check_anexo_listado_firmas.mjs`. Ver "El Anexo I del lote: las firmas van al PIE de la hoja".
 
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
@@ -55,11 +57,13 @@ paths:
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15) · 2,1 KB
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/el-anexo-i-del-lote-las-firmas-van-al-pie.md` — El Anexo I del lote: las firmas van al PIE de la hoja, y sus casillas se miden (2026-11-12) · 3,0 KB
+- `docs/conocimiento/lotes/el-equipo-de-verificacion-del-lote.md` — El EQUIPO de verificación del lote: quién verifica y cómo se le contacta (2026-11-12) · 4,1 KB
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md` — El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08) · 15,5 KB
 - `docs/conocimiento/lotes/el-registro-miteco-y-los-requerimientos-del-gestor.md` — El Nº de REGISTRO del MITECO en el lote, y los requerimientos del Gestor (2026-10-27) · 6,0 KB
 - `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md` — El TOTAL que nos ingresa el S.O., y marcarlo COBRADO (2026-10-15) · 4,1 KB
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09) · 14,3 KB
-- `docs/conocimiento/lotes/la-api-de-marwen-v1-6.md` — La API de Marwen v1.6.0: el lote habla solo con beCAE (2026-11-11) · 6,0 KB
+- `docs/conocimiento/lotes/la-api-de-marwen-v1-6.md` — La API de Marwen v1.6.0: el lote habla solo con beCAE (2026-11-11) · 7,7 KB
+- `docs/conocimiento/lotes/la-ficha-del-lote-en-crema.md` — La ficha del lote, en crema: qué toca, dónde está y cómo se ve (2026-11-12) · 6,5 KB
 - `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md` — La «Vista S.O.»: su obligación del año y cómo vamos con ella (2026-10-28) · 12,0 KB
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01) · 9,3 KB
 - `docs/conocimiento/lotes/las-inexactitudes-del-verificador-se-registran-y-la-respuesta-se-arma-sola.md` — Las INEXACTITUDES del verificador se registran solas, y la RESPUESTA se arma al subsanar (2026-10-22) · 11,1 KB
@@ -108,6 +112,11 @@ nota.**
 - `docs/conocimiento/lotes/el-anexo-i-del-lote-las-firmas-van-al-pie.md`
   - **REGLA — el bloque de firmas va ANCLADO al pie de la hoja, con un hueco fijo bajo cada rótulo.**
   - **REGLA — las casillas se MIDEN sobre el PDF de verdad, con el mismo motor que la app.**
+- `docs/conocimiento/lotes/el-equipo-de-verificacion-del-lote.md`
+  - **REGLA — un email solo se le pone a una persona si está escrito junto a ella o si su
+dirección CASA con su nombre.**
+  - **REGLA — lo ya guardado solo rellena huecos, y no se arrastra a otra persona.**
+  - **REGLA — manda el ÚLTIMO plan.**
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md`
   - **REGLA — la nomenclatura NO se inventa: se REPRODUCE.**
   - **REGLA — el nº de actuación es el del INFORME de verificación**
@@ -155,6 +164,7 @@ pantalla.**
   - **REGLA — en beCAE nuestros lotes se buscan por su PEDIDO, que es su código**
   - **REGLA — lo que SALE hacia beCAE lo pulsa una persona y se confirma con la lista de ficheros.**
   - **REGLA — la solicitud firmada que genera la APP no se sube nunca**
+  - **REGLA — los tipos de documento de beCAE se normalizan en UN sitio**
   - **REGLA — las inexactitudes de la API entran por el MISMO camino que las del PDF**
   - **REGLA — las inexactitudes tienen LÍMITE de consultas por clave**
 - `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md`

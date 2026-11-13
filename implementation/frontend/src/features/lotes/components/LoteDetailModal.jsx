@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
-import { LOTE_ESTADOS, loteEstadoBadge } from '../loteConstants';
+import { LOTE_ESTADOS } from '../loteConstants';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { computeLoteEco, totalCobroSo, IVA_FACTURA_SO } from '../logic/loteEco';
 import { estimar, tarifaPara, comparar } from '../logic/tarifasVerificacion';
 import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
+import { analizarProceso } from '../logic/loteProceso';
 import {
     proponerLotes, instaladoresDe, compararAntiguedad, compararRecientes, diasListo, MAX_EXPEDIENTES_LOTE,
     RIESGOS, RIESGO_DEFECTO, pasaRiesgo, textoIncidencias, incidenciasDe,
 } from '../logic/propuestaLote';
+import { CSS as CSS_FX, Ico, AvisoFx, Importe } from '../../facturacion/estilo';
+import { CSS_LT } from './loteFichaEstilo';
 import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
@@ -22,6 +26,17 @@ import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { RequerimientoModal } from './RequerimientoModal';
 import { JustificanteMitecoModal } from './JustificanteMitecoModal';
 import { CobroSoAlPasarModal } from './CobroSoAlPasarModal';
+import { EquipoVerificacion } from './EquipoVerificacion';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La FICHA DEL LOTE. Desde el 12/11/2026 va en el papel crema de Facturación y la
+// «Vista S.O.» (regla 164; Fran: «rediseñar la imagen… que sea incluso más fácil
+// de usar»): CSS `.fx-` de facturacion/estilo.jsx + lo suyo en loteFichaEstilo.js
+// (`.lt-`). Arriba, los siete PASOS del trámite (se pulsan y abren su fase) y, en
+// el Resumen, «Lo siguiente»: qué toca ahora, con UN botón. Los popups que se
+// abren encima (solicitud, Anexo I, factura…) siguen con su estilo.
+// Ver docs/conocimiento/lotes/la-ficha-del-lote-en-crema.md.
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Estados desde los que el S.O. ya nos ha pagado (como `LOTE_PAGO_CLIENTE` del backend).
 const LOTE_YA_COBRADO = ['PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'];
@@ -29,11 +44,55 @@ const LOTE_YA_COBRADO = ['PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'];
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const mwh = (n) => `${((Number(n) || 0) / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh`;
+const mwhNum = (n) => ((Number(n) || 0) / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 });
 // Verificado en kWh (= CAEs): la factura al S.O. se emite medida en kWh.
 const kwh = (n) => `${Math.round(Number(n) || 0).toLocaleString('es-ES')} kWh`;
 // Con céntimos: es la cifra que se coteja contra el ingreso del banco.
 const eur2 = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num2 = (n) => (Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 2 });
 const hoyIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+// Los pasos, en corto, para la tira de la cabecera.
+const PASO_CORTO = { 1: 'Solicitud', 2: 'Firma S.O.', 3: 'Oferta', 4: 'Verificación', 5: 'MITECO', 6: 'Factura', 7: 'Pago' };
+const ICO_CORREO = 'M4 6h16v12H4z M4 7l8 6 8-6';
+const ICO_TEL = 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2';
+
+// «Lo siguiente»: qué toca AHORA en el lote, en una frase, y si está en nuestro
+// tejado (`hacer`) o esperando a un tercero (`espera`). Sale del mismo análisis de
+// fases que la pestaña Documentación (logic/loteProceso.js): aquí solo se dice.
+function loSiguiente(p, lote, canSeeMargin) {
+    const n = p.faseActual;
+    if (n == null) return { n: null, titulo: 'Lote cerrado', texto: 'Todas las fases están hechas.', tono: 'ok' };
+    const f = p.fases.find(x => x.n === n);
+    const bloq = f?.bloqueo && !f.hecha;
+    const r = (titulo, texto, tono = 'hacer') => ({ n, fase: f?.titulo, titulo, texto, tono: bloq ? 'espera' : tono });
+    switch (n) {
+        case 1: return p.solicitud
+            ? r('Trae la solicitud de beCAE', 'Se trae sola al consultar beCAE en el paso 1 (o con «Traer la solicitud de beCAE»). La que genera la app no vale para el S.O.')
+            : r('Genera la solicitud al verificador', 'Con los expedientes ya en el lote. Después se trae la del verificador.');
+        case 2: return p.soEnviado
+            ? r('Esperando la firma del Sujeto Obligado', 'Cuando lleguen los PDF firmados, suéltalos en el paso 2.', 'espera')
+            : r('Envía el Anexo I y las fichas al S.O.', 'Para que los firme junto con la solicitud.');
+        case 3: return !p.oferta
+            ? r('Esperando la oferta del verificador', 'Cuando llegue, se sube en el paso 3 (o se trae de beCAE).', 'espera')
+            : (p.ofertaEnviada
+                ? r('Esperando la oferta firmada del S.O.', 'Cuando vuelva firmada, suéltala en el paso 3.', 'espera')
+                : r('Envía la oferta al S.O. para que la firme', 'Firmarla es aceptarla: el verificador abre el expediente.'));
+        case 4: {
+            if (p.inexactitudes.length && !p.informeVerificacion) return r('Contesta las inexactitudes', 'Prepara la carpeta del requerimiento desde el paso 4.');
+            if (!p.informeVerificacion) return r('Esperando el informe de verificación', 'Al subirlo se leen los ahorros verificados.', 'espera');
+            if (!p.dictamen) return r('Sube el dictamen favorable', 'Se leen su número, su fecha y la inversión definitiva.');
+            if (canSeeMargin && !p.facturaVerificador) return r('Sube la factura del verificador', 'La que emite al S.O.; su importe se lee del PDF.');
+            return r('Completa la verificación', 'Revisa los documentos del paso 4.');
+        }
+        case 5: return !p.justificanteMiteco
+            ? r('Presenta el lote en el MITECO', 'Genera la solicitud de emisión y los anexos, y sube el justificante.')
+            : r('Esperando la resolución del MITECO', 'Cuando llegue el certificado CAE, súbelo en el paso 5.', 'espera');
+        case 6: return r('Emite la factura de Brokergy al S.O.', 'Con los códigos del certificado CAE.');
+        case 7: return r('Paga a los clientes', 'Pide a cada cliente que confirme su cuenta y haz las transferencias.');
+        default: return r(f?.titulo || 'Siguiente paso', '');
+    }
+}
 
 // El nº de ACTUACIÓN dentro del envío (E1..En). No es un adorno: rotula el anexo
 // del MITECO de ese expediente y da nombre a todos los ficheros de su ZIP
@@ -42,12 +101,12 @@ const hoyIso = () => { const d = new Date(); return `${d.getFullYear()}-${String
 export const ordenActuacion = (exp) => Number(exp?.instalacion?.verificacion?.orden_actuacion) || null;
 
 // Tarjeta de expediente compartida (idéntica en la lista del lote y en el picker):
-// E{n} + nº + estado, nombre del cliente, dirección y los 3 importes.
+// E{n} + nº + estado, nombre del cliente, dirección y los importes.
 // `rightAction` = botón (× quitar / + añadir). Si `onClick`, el bloque de texto
 // navega al expediente.
 function ExpedienteCard({ exp, onClick, rightAction, carpetaLocal = false, onError, extra = null }) {
     const { user } = useAuth();
-    const { canSeeMargin } = getRoleFlags(user); // el ▲ beneficio Brokergy solo lo ve el ADMIN
+    const { canSeeMargin } = getRoleFlags(user); // el margen de Brokergy solo lo ve el ADMIN
     const f = computeExpedienteFinancials(exp);
     const en = ordenActuacion(exp);
     // El botón solo se pinta si el expediente TIENE carpeta: la clave vive en cuatro
@@ -55,41 +114,37 @@ function ExpedienteCard({ exp, onClick, rightAction, carpetaLocal = false, onErr
     const tieneCarpeta = carpetaLocal && !!driveFolderId(exp.oportunidades);
     const inner = (
         <>
-            <span className="block truncate">
+            <span className="lt-exp-top">
                 {en != null && (
-                    <span title={`Actuación E${en} del envío: rotula su anexo del MITECO y todos los ficheros de su ZIP (E${en}-…)`}
-                        className="inline-block align-middle mr-2 px-1.5 py-0.5 rounded-md bg-brand/15 border border-brand/30 text-brand text-[10px] font-black tabular-nums">
-                        E{en}
-                    </span>
+                    <span className="lt-e" title={`Actuación E${en} del envío: rotula su anexo del MITECO y todos los ficheros de su ZIP (E${en}-…)`}>E{en}</span>
                 )}
-                <span className="text-sm font-bold text-white group-hover:text-brand transition-colors">{exp.numero_expediente}</span>
-                {exp.estado && <span className="text-[11px] text-white/40 ml-2">{exp.estado}</span>}
+                <span className="lt-exp-n">{exp.numero_expediente}</span>
+                {exp.estado && <span className="fx-chip fx-chip-gris">{exp.estado}</span>}
             </span>
-            {exp.cliente_nombre && <span className="block text-[11px] text-white/60 truncate">{exp.cliente_nombre}</span>}
-            {exp.cliente_direccion && <span className="block text-[10px] text-white/35 truncate">{exp.cliente_direccion}</span>}
+            {exp.cliente_nombre && <span className="lt-exp-cli">{exp.cliente_nombre}</span>}
+            {exp.cliente_direccion && <span className="lt-exp-dir">{exp.cliente_direccion}</span>}
             {extra}
-            <span className="flex items-center gap-2.5 text-[10px] font-black mt-1">
-                <span className="text-cyan-400">⚡ {mwh(f.savingsKwh)}</span>
-                <span className="text-emerald-400">{eur(f.cae)}</span>
-                {canSeeMargin && <span className="text-amber-400">▲ {eur(f.profit)}</span>}
+            <span className="lt-exp-cifras">
+                <span><b>{mwh(f.savingsKwh)}</b> de ahorro</span>
+                <span><b>{eur(f.cae)}</b> al cliente</span>
+                {canSeeMargin && <span><b>{eur(f.profit)}</b> margen</span>}
             </span>
             {f.savingsKwhVerificado != null && (
-                <span className="flex items-center gap-2.5 text-[10px] font-black mt-0.5" title="Ahorro verificado (factura al S.O.)">
-                    <span className="text-[8px] uppercase tracking-widest text-amber-400/70">Verif</span>
-                    <span className="text-cyan-300">⚡ {kwh(f.savingsKwhVerificado)}</span>
-                    <span className="text-emerald-300">{eur(f.caeVerificado)}</span>
-                    {canSeeMargin && <span className="text-amber-300">▲ {eur(f.profitVerificado)}</span>}
+                <span className="lt-exp-cifras lt-verif" title="Ahorro verificado (factura al S.O.)">
+                    <span>Verificado: <b>{kwh(f.savingsKwhVerificado)}</b></span>
+                    <span><b>{eur(f.caeVerificado)}</b> al cliente</span>
+                    {canSeeMargin && <span><b>{eur(f.profitVerificado)}</b> margen</span>}
                 </span>
             )}
         </>
     );
     return (
-        <div className="flex items-center justify-between gap-3 bg-bkg-surface border border-white/[0.06] rounded-xl px-4 py-2.5">
+        <div className="lt-exp">
             {onClick
-                ? <button type="button" onClick={onClick} className="text-left min-w-0 flex-1 group">{inner}</button>
-                : <div className="min-w-0 flex-1">{inner}</div>}
-            <div className="flex items-center gap-1.5 shrink-0">
-                {tieneCarpeta && <BotonCarpetaLocal expedienteId={exp.id} compacto onError={onError} />}
+                ? <button type="button" onClick={onClick} className="lt-exp-cuerpo" title="Abrir el expediente">{inner}</button>
+                : <div className="lt-exp-cuerpo">{inner}</div>}
+            <div className="lt-exp-acc">
+                {tieneCarpeta && <BotonCarpetaLocal expedienteId={exp.id} claro onError={onError} />}
                 {rightAction}
             </div>
         </div>
@@ -465,595 +520,661 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
         catch (err) { showAlert(err.response?.data?.error || 'No se pudo borrar', 'Error', 'error'); setBusy(false); }
     };
 
-    return (
-        <div className="fixed inset-0 z-[310] flex items-start justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overflow-y-auto">
-            <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl my-8 shadow-2xl">
+    // ─── Los pasos del trámite (cabecera) y «Lo siguiente» (Resumen) ────────────
+    // El mismo análisis que la pestaña Documentación: un paso pulsado abre su fase.
+    const proceso = useMemo(() => analizarProceso(lote), [lote]);
+    const [faseAbrir, setFaseAbrir] = useState(null);
+    // Qué parte (S.O. / verificador) está desplegada con «+». Plegadas al abrir.
+    const [parteAbierta, setParteAbierta] = useState(null);
+    // El equipo leído del plan (regla 213): su resumen va en la fila del verificador.
+    const equipo = (lote?.documentos_so || []).find(d => d?.key === 'plan_verificacion')?.equipo || null;
+    const irAFase = (n) => { setTab('documentacion'); setFaseAbrir({ n, k: Date.now() }); };
 
-                {/* Header */}
-                <div className="flex items-start justify-between gap-3 p-6 border-b border-white/[0.06]">
-                    <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-3 mb-2 min-w-0">
-                            <h2 className="text-lg font-black text-white whitespace-nowrap shrink-0">{lote?.codigo || 'LOTE (sin código)'}</h2>
-                            {lote && (
-                                <select value={lote.estado} disabled={busy} onChange={e => changeEstado(e.target.value)}
-                                    className="flex-1 min-w-0 bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-1.5 text-sm text-white focus:border-brand/40 focus:outline-none">
-                                    {LOTE_ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
-                            )}
-                        </div>
-                        {lote && (
-                            <p className="text-[11px] text-white/40">
-                                {lote.anio_actuacion ? `Año ${lote.anio_actuacion}` : 'Año pendiente'} · {lote.ccaa || 'CCAA pendiente'} · {(lote.expedientes || []).length}/5 expedientes
-                                {lote.expediente_verificador && (
-                                    <> · <span className="text-brand/70 font-black" title="Nº de expediente del verificador">⧉ {lote.expediente_verificador}</span></>
-                                )}
-                                {lote.registro_miteco && (
-                                    <> · <span className="text-sky-300/70 font-black break-all" title="Nº de registro de la solicitud de emisión en el MITECO">🏛 {lote.registro_miteco}</span></>
-                                )}
-                            </p>
+    const fasesVisibles = proceso.fases.filter(f => canSeeMargin || f.n !== 6);
+    const sig = lote ? loSiguiente(proceso, lote, canSeeMargin) : null;
+    const nExp = (lote?.expedientes || []).length;
+
+    const cabecera = lote && (
+        <header className="lt-cab lt-in">
+            <div className="lt-cab-top">
+                <span className="fx-eyebrow">
+                    Lote CAE{lote.sujeto_obligado ? ` · ${presName(lote.sujeto_obligado)}` : ''}{lote.verificador ? ` → ${presName(lote.verificador)}` : ''}
+                </span>
+                <div className="lt-cab-acc">
+                    {lote.drive_folder_id && <BotonCarpetaLocal loteId={lote.id} claro onError={(m) => showAlert(m, 'Carpeta local', 'error')} />}
+                    {/* Los enlaces a Drive, solo para el ADMIN (regla 1). */}
+                    {canSeeMargin && lote.drive_folder_id && (
+                        <a className="fx-ico-btn" href={`https://drive.google.com/drive/folders/${lote.drive_folder_id}`} target="_blank" rel="noopener noreferrer"
+                            title="Abrir la carpeta del lote en Drive" aria-label="Abrir la carpeta del lote en Drive">
+                            <Ico n="enlace" size={20} />
+                        </a>
+                    )}
+                    <button type="button" className="fx-cerrar" aria-label="Cerrar" onClick={onClose}><Ico n="x" /></button>
+                </div>
+            </div>
+            <h2 className="fx-display lt-tit">
+                {(() => {
+                    // UNA palabra en lima: el número del lote, que es como se le llama.
+                    const c = lote.codigo || 'LOTE (sin código)';
+                    const m = c.match(/^(.*-)(\d+)$/);
+                    return m ? <>{m[1]}<span className="fx-mark">{m[2]}</span></> : c;
+                })()}
+            </h2>
+            <div className="lt-sub">
+                <span className="fx-pildora">{lote.anio_actuacion ? `Año ${lote.anio_actuacion}` : 'Año pendiente'}</span>
+                <span className="fx-pildora">{lote.ccaa || 'CCAA pendiente'}</span>
+                <span className="fx-pildora">{nExp}{nExp <= MAX_EXPEDIENTES_LOTE ? ` de ${MAX_EXPEDIENTES_LOTE}` : ''} expedientes</span>
+                {lote.expediente_verificador && <span className="fx-pildora" title="Nº de expediente del verificador">{lote.expediente_verificador}</span>}
+                {lote.registro_miteco && <span className="fx-pildora" title="Nº de registro de la solicitud de emisión en el MITECO">{lote.registro_miteco}</span>}
+            </div>
+
+            <div className="lt-estado">
+                <div>
+                    <span className="lt-estado-k">Estado del lote</span>
+                    <div className="lt-estado-v">
+                        <b>{lote.estado}</b>
+                        {proceso.faseActual != null && (
+                            <span className="fx-chip fx-chip-tinta">Paso {proceso.faseActual} de 7</span>
                         )}
                     </div>
-                    <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors shrink-0 mt-1">
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
+                </div>
+                <label className="fx-campo">
+                    <span>Cambiarlo a mano</span>
+                    <select className="fx-select" value={lote.estado} disabled={busy} onChange={e => changeEstado(e.target.value)}>
+                        {LOTE_ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                </label>
+            </div>
+
+            <ol className="lt-pasos" style={{ '--n': fasesVisibles.length }} aria-label="Pasos del trámite">
+                {fasesVisibles.map(f => {
+                    const actual = proceso.faseActual === f.n;
+                    return (
+                        <li key={f.n} className={`lt-paso ${f.hecha ? 'lt-hecho' : ''} ${actual ? 'lt-actual' : ''}`}>
+                            <button type="button" onClick={() => irAFase(f.n)} title={`${f.n}. ${f.titulo}${f.hecha ? ' · hecho' : actual ? ' · ahora' : ''}`}
+                                aria-current={actual ? 'step' : undefined}>
+                                <span className="lt-bola">{f.hecha ? <Ico n="check" size={15} sw={2.6} /> : f.n}</span>
+                                <span className="lt-paso-et">{PASO_CORTO[f.n]}</span>
+                            </button>
+                        </li>
+                    );
+                })}
+            </ol>
+        </header>
+    );
+
+    // Al cambiar de pestaña, si se había bajado más allá de la barra (que va pegada
+    // arriba), la pestaña nueva se ve desde su PRINCIPIO, no por la mitad.
+    const cambiarTab = (id, barra) => {
+        setTab(id);
+        requestAnimationFrame(() => {
+            const capa = barra?.closest('.lt-capa');
+            const cuerpo = barra?.nextElementSibling;
+            if (!capa || !cuerpo) return;
+            const d = cuerpo.getBoundingClientRect().top - barra.getBoundingClientRect().bottom;
+            if (d < 0) capa.scrollTop += d;
+        });
+    };
+
+    const pestanas = lote && (
+        <div className="lt-tabs" role="tablist">
+            {[
+                ['resumen', 'Resumen', null, false],
+                ['expedientes', 'Expedientes', nExp, false],
+                ['documentacion', 'Documentación', docsPendientes || null, docsPendientes > 0],
+            ].map(([id, label, badge, alerta]) => (
+                <button key={id} type="button" role="tab" className="fx-tab" aria-selected={tab === id} onClick={(e) => cambiarTab(id, e.currentTarget.parentElement)}
+                    title={id === 'documentacion' && docsPendientes ? `${docsPendientes} firmado(s) por revisar` : undefined}>
+                    {label}
+                    {badge != null && <span className={`fx-tab-n ${alerta && tab !== id ? 'fx-tab-n-alerta' : ''}`}>{badge}</span>}
+                </button>
+            ))}
+        </div>
+    );
+
+    // ─── RESUMEN ────────────────────────────────────────────────────────────────
+    const resumen = lote && (
+        <div className="lt-pila">
+            {/* Lo siguiente: qué toca ahora, con UN botón que lleva a su fase. */}
+            {sig && (
+                <section className="fx-card fx-pad">
+                    {sig.tono === 'hacer' && <div className="fx-filete-fino" />}
+                    <div className="lt-sig">
+                        <span className={`fx-tile fx-tile-l ${sig.tono === 'ok' ? 'fx-tile-verde' : sig.tono === 'hacer' ? 'fx-tile-naranja' : 'fx-tile-crema'}`}>
+                            <Ico n={sig.tono === 'ok' ? 'check' : sig.tono === 'hacer' ? 'derecha' : 'reloj'} size={22} />
+                        </span>
+                        <div>
+                            <span className={`fx-eyebrow ${sig.tono === 'hacer' ? '' : 'fx-eyebrow-gris'}`}>
+                                {sig.n ? `Lo siguiente · paso ${sig.n}, ${sig.fase}` : 'Lo siguiente'}
+                            </span>
+                            <h3 className="fx-display fx-h3">{sig.titulo}</h3>
+                            {sig.texto && <p>{sig.texto}</p>}
+                        </div>
+                        {sig.n && (
+                            <button type="button" className={`fx-btn ${sig.tono === 'hacer' ? 'fx-btn-pri' : 'fx-btn-sec'}`} onClick={() => irAFase(sig.n)}>
+                                {sig.tono === 'hacer' ? 'Hacerlo ahora' : `Ver el paso ${sig.n}`}<Ico n="derecha" size={18} />
+                            </button>
+                        )}
+                    </div>
+                </section>
+            )}
+
+            {/* Las cifras del lote (modelo del Excel). El TRABAJADOR ve el ahorro y
+                el pago al cliente, pero NO el margen de Brokergy. */}
+            <div className="lt-kpis" style={{ '--n': canSeeMargin ? 3 : 2 }}>
+                <div className="lt-kpi">
+                    <span className="fx-kpi-k">Ahorro generado</span>
+                    <span className="lt-kpi-v">{mwhNum(eco.ahorroKwh)}<small>MWh</small></span>
+                    <span className="fx-kpi-nota">estimado</span>
+                    {eco.hasVerif && (
+                        <span className="lt-kpi-verif" title="Ahorro verificado (base de la factura al S.O., en kWh)">
+                            Verificado: {kwh(eco.ahorroKwhVerif)}{!eco.fullyVerif ? ` · ${eco.nVerif}/${eco.nTotal}` : ''}
+                        </span>
+                    )}
+                </div>
+                <div className="lt-kpi">
+                    <span className="fx-kpi-k">Pago a los clientes</span>
+                    <span className="lt-kpi-v">{eur(eco.pagoCliente)}</span>
+                    <span className="fx-kpi-nota">lo que se les paga</span>
+                    {eco.hasVerif && <span className="lt-kpi-verif">Verificado: {eur(eco.pagoClienteVerif)}</span>}
+                </div>
+                {canSeeMargin && (
+                    <div className="lt-kpi">
+                        <span className="fx-kpi-k">Beneficio del lote</span>
+                        <span className="lt-kpi-v">{eco.beneficioLote != null ? eur(eco.beneficioLote) : '—'}</span>
+                        <span className="fx-kpi-nota">{eco.beneficioLote != null ? 'con la oferta del lote' : 'falta la oferta del lote'}</span>
+                        {eco.hasVerif && eco.beneficioLoteVerif != null && <span className="lt-kpi-verif">Verificado: {eur(eco.beneficioLoteVerif)}</span>}
+                    </div>
+                )}
+            </div>
+
+            {/* ── TOTAL que nos ingresa el S.O. ───────────────────────────────────
+                Es la cifra que se coteja con la transferencia del banco (por eso
+                con céntimos), y donde se marca cobrada. Dinero de Brokergy: ADMIN. */}
+            {canSeeMargin && cobroSo && (() => {
+                const f = lote.factura_so;
+                const pagada = f?.estado === 'PAGADA';
+                return (
+                    <section className="fx-card fx-pad">
+                        <div className="lt-cobro">
+                            <div>
+                                <span className={`fx-eyebrow ${pagada ? 'fx-eyebrow-verde' : ''}`}>Total a cobrar del S.O.</span>
+                                <div><Importe n={cobroSo.base} /></div>
+                                <p className="lt-nota">
+                                    <b>{eur2(cobroSo.total)}</b> con IVA ({Math.round(IVA_FACTURA_SO * 100)} %) ·{' '}
+                                    {cobroSo.fuente === 'factura'
+                                        ? <>factura <b>{cobroSo.numero}</b>{cobroSo.kwh != null && cobroSo.precioMwh != null && ` · ${kwh(cobroSo.kwh)} × ${num2(cobroSo.precioMwh)} €/MWh`}</>
+                                        : <>{cobroSo.fuente === 'verificado' ? 'sobre el ahorro verificado' : <span className="lt-ambar-txt">estimado: falta el ahorro verificado</span>} · sin factura todavía</>}
+                                </p>
+                            </div>
+                            <div className="lt-cobro-acc">
+                                {pagada ? (
+                                    <>
+                                        <span className="fx-chip fx-chip-ok"><Ico n="check" />Cobrado{f.fecha_cobro ? ` el ${f.fecha_cobro}` : ''}</span>
+                                        <button type="button" className="fx-link" disabled={busy} onClick={() => marcarCobro(false)}>Deshacer</button>
+                                    </>
+                                ) : f?.numero ? (
+                                    <>
+                                        <input type="date" className="fx-input" value={fechaCobro} max={hoyIso()} disabled={busy}
+                                            onChange={e => setFechaCobro(e.target.value)} aria-label="Fecha del ingreso" />
+                                        <button type="button" className="fx-btn fx-btn-pri" disabled={busy || !fechaCobro} onClick={() => marcarCobro(true)}>
+                                            <Ico n="check" size={18} />Marcar cobrado
+                                        </button>
+                                    </>
+                                ) : (
+                                    <span className="lt-ayuda">Se marca cobrado cuando esté emitida la factura al S.O.</span>
+                                )}
+                            </div>
+                        </div>
+                    </section>
+                );
+            })()}
+
+            {/* Las partes del lote: quién paga y quién verifica. UNA tarjeta con una
+                FILA por parte (mismo esqueleto, así quedan alineadas) y lo que no hace
+                falta ver siempre —el equipo de verificación, cambiar la empresa en
+                BORRADOR— se despliega con «+». Sin huecos vacíos. */}
+            <section className="fx-card lt-partes">
+                {[
+                    {
+                        k: 'so', eyebrow: 'Sujeto Obligado', emp: lote.sujeto_obligado,
+                        sub: lote.sujeto_obligado?.razon_social || null,
+                        lista: soList, campo: 'sujeto_obligado_id', valor: lote.sujeto_obligado_id,
+                    },
+                    {
+                        k: 'ver', eyebrow: `Verificador${lote.expediente_verificador ? ` · ${lote.expediente_verificador}` : ''}`, emp: lote.verificador,
+                        sub: equipo ? [equipo.verificador_jefe?.nombre && `Jefe: ${equipo.verificador_jefe.nombre}`, equipo.revisor_tecnico?.nombre && `Revisor: ${equipo.revisor_tecnico.nombre}`].filter(Boolean).join(' · ') || null : null,
+                        lista: verList, campo: 'verificador_id', valor: lote.verificador_id,
+                        contacto: equipo?.verificador_jefe,
+                        detalle: lote.verificador_id ? <EquipoVerificacion lote={lote} onLote={() => refresh()} /> : null,
+                    },
+                ].map(pt => {
+                    const abierta = parteAbierta === pt.k;
+                    const hayMas = isBorrador || !!pt.detalle;
+                    return (
+                        <div key={pt.k} className="lt-parte">
+                            <div className="lt-parte-fila">
+                                <span className="lt-logo lt-piel"><LogoEmpresa p={pt.emp} size={40} /></span>
+                                <div className="lt-parte-txt">
+                                    <span className="fx-eyebrow fx-eyebrow-gris">{pt.eyebrow}</span>
+                                    <b>{presName(pt.emp) || 'Sin asignar'}</b>
+                                    {pt.sub && <small title={pt.sub}>{pt.sub}</small>}
+                                </div>
+                                <div className="lt-parte-acc">
+                                    {pt.contacto?.email && (
+                                        <a className="fx-ico-btn" href={`mailto:${pt.contacto.email}`} title={`Escribir a ${pt.contacto.email}`} aria-label="Escribir al verificador jefe">
+                                            <Ico d={ICO_CORREO} size={19} />
+                                        </a>
+                                    )}
+                                    {pt.contacto?.telefono && (
+                                        <a className="fx-ico-btn" href={`tel:${pt.contacto.telefono}`} title={`Llamar al ${pt.contacto.telefono}`} aria-label="Llamar al verificador jefe">
+                                            <Ico d={ICO_TEL} size={19} />
+                                        </a>
+                                    )}
+                                    {hayMas && (
+                                        <button type="button" className={`fx-ico-btn lt-mas ${abierta ? 'lt-mas-abierto' : ''}`} aria-expanded={abierta}
+                                            aria-label={abierta ? 'Plegar' : 'Ver más'} title={abierta ? 'Plegar' : 'Ver más'}
+                                            onClick={() => setParteAbierta(abierta ? null : pt.k)}>
+                                            <Ico n="mas" size={20} sw={2.4} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            {abierta && (
+                                <div className="lt-parte-mas">
+                                    {isBorrador && (
+                                        <label className="fx-campo">
+                                            <span>Cambiar {pt.k === 'so' ? 'el Sujeto Obligado' : 'el verificador'}</span>
+                                            <select className="fx-select" value={pt.valor || ''} disabled={busy}
+                                                onChange={e => patchLote({ [pt.campo]: e.target.value || null })}>
+                                                <option value="">— sin asignar —</option>
+                                                {pt.lista.map(x => <option key={x.id_empresa} value={x.id_empresa}>{presName(x)}</option>)}
+                                            </select>
+                                            {pt.lista.length === 0 && <small className="lt-ayuda">Aún no hay ninguno dado de alta.</small>}
+                                        </label>
+                                    )}
+                                    {pt.detalle}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </section>
+
+            {/* Datos del trámite. El coste y la oferta son MARGEN (solo ADMIN); el nº
+                de expediente del verificador y el registro MITECO son datos de
+                gestión que ve y edita todo el staff. Se guardan al salir del campo. */}
+            <section className="fx-card fx-pad">
+                <span className="fx-eyebrow fx-eyebrow-gris">Datos del trámite</span>
+                <h3 className="fx-display fx-h3">Números y referencias</h3>
+                <div className="lt-campos">
+                    {canSeeMargin && (
+                        <label className="fx-campo">
+                            {/* La comparación con SU tarifa va como chip junto a la etiqueta y
+                                la tarifa en UNA línea debajo: así las dos columnas casan. */}
+                            <span className="lt-campo-et">
+                                Coste de la verificación (€)
+                                {refVerif?.comparacion && (
+                                    <span title={refVerif.comparacion.texto}
+                                        className={`fx-chip ${refVerif.comparacion.tono === 'caro' ? 'fx-chip-ambar' : 'fx-chip-ok'}`}>
+                                        {refVerif.comparacion.tono === 'ok' || refVerif.comparacion.pct == null
+                                            ? 'Cuadra con su tarifa'
+                                            : `${refVerif.comparacion.pct > 0 ? '+' : '−'}${Math.abs(refVerif.comparacion.pct).toLocaleString('es-ES', { maximumFractionDigits: 0 })} % de su tarifa`}
+                                    </span>
+                                )}
+                            </span>
+                            <input type="number" className="fx-input fx-num" value={costeVerifInput} disabled={busy} placeholder="0"
+                                onChange={e => setCosteVerifInput(e.target.value)}
+                                onBlur={() => { if (String(costeVerifInput) !== String(lote.coste_verificacion ?? '')) patchLote({ coste_verificacion: costeVerifInput }); }} />
+                            {/* Orientativa: un lote son 5 actuaciones como mucho, pero se mandan
+                                varios a la vez y el escalón es por envío (regla 51). */}
+                            {refVerif?.estimacion && (
+                                <small className="lt-ayuda" title="Orientativa. Si se verifica junto a otros lotes, compara el €/actuación.">
+                                    Su tarifa ({refVerif.n} act.): <b>{Number(refVerif.estimacion.importe).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €</b>
+                                    {' · '}{Number(refVerif.estimacion.porActuacion).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €/act.
+                                </small>
+                            )}
+                            {refVerif?.estimacion?.fueraDeTabla && <small className="lt-ayuda lt-ambar-txt">{refVerif.estimacion.aviso}</small>}
+                            {refVerif && !refVerif.estimacion && refVerif.motivo && <small className="lt-ayuda">{refVerif.motivo}</small>}
+                        </label>
+                    )}
+                    {canSeeMargin && (
+                        <label className="fx-campo">
+                            <span>Oferta del lote (€/MWh)</span>
+                            <input type="number" className="fx-input fx-num" value={ofertaInput} disabled={busy} placeholder="—"
+                                onChange={e => setOfertaInput(e.target.value)}
+                                onBlur={() => { if (String(ofertaInput) !== String(lote.oferta_lote ?? '')) patchLote({ oferta_lote: ofertaInput }); }} />
+                            {lote.sujeto_obligado?.precio_referencia != null && (
+                                <small className="lt-ayuda">Referencia del S.O.: <b>{Number(lote.sujeto_obligado.precio_referencia).toLocaleString('es-ES')} €/MWh</b></small>
+                            )}
+                        </label>
+                    )}
+                    <label className="fx-campo">
+                        <span>Nº de expediente del verificador</span>
+                        <input type="text" className="fx-input" value={expVerifInput} disabled={busy} placeholder="El que nos dé el verificador"
+                            onChange={e => setExpVerifInput(e.target.value)}
+                            onBlur={() => { if (expVerifInput.trim() !== String(lote.expediente_verificador ?? '')) patchLote({ expediente_verificador: expVerifInput.trim() }); }} />
+                        <small className="lt-ayuda">{lote.verificador ? `Su referencia en ${presName(lote.verificador)}.` : 'Su referencia en el sistema del verificador.'}</small>
+                    </label>
+                    {/* El nº con el que el Gestor Autonómico cita el lote en sus
+                        requerimientos: lo único que los casa con el lote. Se lee del
+                        justificante al subirlo; aquí solo se corrige. */}
+                    <label className="fx-campo">
+                        <span>Nº de registro en el MITECO</span>
+                        <input type="text" className="fx-input" value={regMitecoInput} disabled={busy} placeholder="REGAGE… (sale del justificante)"
+                            onChange={e => setRegMitecoInput(e.target.value)}
+                            onBlur={() => { if (regMitecoInput.replace(/\s+/g, '') !== String(lote.registro_miteco ?? '')) patchLote({ registro_miteco: regMitecoInput }); }} />
+                        <small className="lt-ayuda" title="El de la solicitud de emisión">Así cita el lote el Gestor Autonómico.</small>
+                    </label>
                 </div>
 
-                {loading || !lote ? (
-                    <div className="p-12 text-center text-white/30 text-sm">Cargando…</div>
-                ) : (
-                    <div className="p-6">
-
-                        {/* Pestañas — el papeleo, los expedientes y los números no se
-                            miran a la vez; juntarlos obligaba a un scroll larguísimo. */}
-                        <div className="flex items-center gap-1 border-b border-white/[0.07] mb-5 -mt-1">
-                            {[
-                                ['resumen', 'Resumen', null],
-                                ['expedientes', 'Expedientes', (lote.expedientes || []).length],
-                                ['documentacion', 'Documentación', docsPendientes || null],
-                            ].map(([id, label, badge]) => (
-                                <button key={id} type="button" onClick={() => setTab(id)}
-                                    className={`relative px-4 py-2.5 text-[11px] font-black uppercase tracking-wider transition-colors ${
-                                        tab === id ? 'text-brand' : 'text-white/35 hover:text-white/70'}`}>
-                                    {label}
-                                    {badge != null && (
-                                        <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] ${
-                                            id === 'documentacion' ? 'bg-cyan-500/15 text-cyan-300' : 'bg-white/[0.06] text-white/40'}`}>{badge}</span>
-                                    )}
-                                    {tab === id && <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-brand rounded-full" />}
-                                </button>
-                            ))}
+                {/* El DICTAMEN, cuando ya lo hay: los datos DEFINITIVOS de la
+                    verificación. Se leen del propio dictamen al subirlo. */}
+                {dictamen && (
+                    <AvisoFx tono="ok" icono="check" className="lt-dictamen" style={{ marginTop: 16 }}>
+                        <b>Dictamen favorable</b>
+                        <div className="lt-datos">
+                            <div><span>Dictamen nº</span><b>{dictamen.numero_dictamen || '—'}</b></div>
+                            <div><span>Fecha</span><b>{dictamen.fecha_emision || '—'}</b></div>
+                            {dictamen.referencia_informe && <div><span>Informe</span><b>{dictamen.referencia_informe}</b></div>}
+                            {dictamen.total_kwh != null && <div><span>Ahorro dictaminado</span><b>{Number(dictamen.total_kwh).toLocaleString('es-ES')} kWh</b></div>}
                         </div>
+                        {dictamen.decision && <p className="lt-nota">{dictamen.decision}</p>}
+                    </AvisoFx>
+                )}
+            </section>
 
-                        <div className={tab === 'resumen' ? 'space-y-6' : 'hidden'}>
-
-                        {/* Resumen económico del lote (modelo Excel).
-                            El TRABAJADOR ve ahorro + pago al cliente, pero NO el margen Brokergy. */}
-                        <div className="space-y-3">
-                            <div className={`grid ${canSeeMargin ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
-                                <div className="bg-bkg-surface border border-white/[0.06] rounded-xl px-2 py-2.5 text-center">
-                                    <p className="text-[8px] uppercase tracking-widest font-black text-white/30">Ahorro generado</p>
-                                    <p className="text-sm sm:text-base font-black text-white mt-0.5 leading-tight">{mwh(eco.ahorroKwh)}</p>
-                                    <p className="text-[8px] text-white/25 mt-0.5">estimado</p>
-                                    {eco.hasVerif && (
-                                        <p className="text-[9px] font-black text-amber-300 mt-0.5 leading-tight" title="Ahorro verificado (base de la factura al S.O., en kWh)">
-                                            Verif: {kwh(eco.ahorroKwhVerif)}{!eco.fullyVerif ? ` · ${eco.nVerif}/${eco.nTotal}` : ''}
-                                        </p>
-                                    )}
-                                </div>
-                                <div className="bg-emerald-500/[0.06] border border-emerald-500/15 rounded-xl px-2 py-2.5 text-center">
-                                    <p className="text-[8px] uppercase tracking-widest font-black text-emerald-300/60">Pago cliente</p>
-                                    <p className="text-sm sm:text-base font-black text-emerald-300 mt-0.5 leading-tight">{eur(eco.pagoCliente)}</p>
-                                    <p className="text-[8px] text-white/25 mt-0.5">a pagar al cliente</p>
-                                    {eco.hasVerif && <p className="text-[9px] font-black text-amber-300 mt-0.5 leading-tight">Verif: {eur(eco.pagoClienteVerif)}</p>}
-                                </div>
-                                {canSeeMargin && (
-                                <div className="bg-brand/[0.06] border border-brand/20 rounded-xl px-2 py-2.5 text-center">
-                                    <p className="text-[8px] uppercase tracking-widest font-black text-brand/60">Beneficio lote</p>
-                                    <p className="text-sm sm:text-base font-black text-brand mt-0.5 leading-tight">{eco.beneficioLote != null ? eur(eco.beneficioLote) : '—'}</p>
-                                    <p className="text-[8px] text-white/25 mt-0.5">con oferta</p>
-                                    {eco.hasVerif && eco.beneficioLoteVerif != null && <p className="text-[9px] font-black text-amber-300 mt-0.5 leading-tight">Verif: {eur(eco.beneficioLoteVerif)}</p>}
-                                </div>
-                                )}
+            {canSeeMargin && (eco.mediaCliente != null || eco.ofertaLote != null) && (
+                <section className="fx-card fx-pad">
+                    <span className="fx-eyebrow fx-eyebrow-gris">Precio por MWh</span>
+                    <h3 className="fx-display fx-h3">Lo que cobra cada uno</h3>
+                    {/* La VERIFICACIÓN se muestra pero NO resta en nuestro margen: la
+                        paga el S.O. (va marcada como suya). */}
+                    <div className="lt-mwh">
+                        {[
+                            { label: 'Cliente', value: eco.mediaCliente },
+                            { label: 'Verificación', value: eco.costeVerifMwh, nota: 'la paga el S.O.' },
+                            { label: 'Nos paga', value: eco.ofertaLote },
+                            { label: 'Margen', value: eco.margen, cls: 'lt-margen' },
+                        ].map(({ label, value, nota, cls }) => value != null && (
+                            <div key={label} className={cls || ''}>
+                                <span>{label}</span>
+                                <b>{num2(value)}<small>€/MWh</small></b>
+                                {nota && <i>{nota}</i>}
                             </div>
+                        ))}
+                    </div>
+                    <p className="lt-nota">Beneficio sin la oferta del lote: <b>{eur(eco.beneficioActual)}</b></p>
 
-                            {/* ── TOTAL que nos ingresa el S.O. ───────────────────────
-                                Es la cifra que se coteja con la transferencia del banco
-                                (por eso con céntimos), y donde se marca cobrada. Es
-                                dinero de Brokergy: solo ADMIN. */}
-                            {canSeeMargin && cobroSo && (() => {
-                                const f = lote.factura_so;
-                                const pagada = f?.estado === 'PAGADA';
-                                return (
-                                    <div className={`rounded-2xl border px-4 py-3 flex items-center justify-between gap-4 flex-wrap ${
-                                        pagada ? 'border-emerald-500/30 bg-emerald-500/[0.06]' : 'border-white/[0.10] bg-white/[0.03]'}`}>
-                                        <div className="min-w-0">
-                                            <p className="text-[9px] uppercase tracking-[0.2em] font-black text-white/40">Total a cobrar del S.O.</p>
-                                            <p className="flex items-baseline gap-2 mt-0.5">
-                                                <span className="text-xl font-black text-white">{eur2(cobroSo.base)}</span>
-                                                <span className="text-[10px] font-black text-white/35 uppercase">sin IVA</span>
-                                            </p>
-                                            <p className="text-[11px] text-white/55">
-                                                {eur2(cobroSo.total)} <span className="text-white/30">con IVA ({Math.round(IVA_FACTURA_SO * 100)} %)</span>
-                                            </p>
-                                            <p className="text-[9px] text-white/30 mt-1 leading-snug">
-                                                {cobroSo.fuente === 'factura'
-                                                    ? <>Factura <b className="text-white/50">{cobroSo.numero}</b>{cobroSo.kwh != null && cobroSo.precioMwh != null && ` · ${kwh(cobroSo.kwh)} × ${Number(cobroSo.precioMwh).toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh`}</>
-                                                    : <>{cobroSo.fuente === 'verificado' ? 'Sobre el ahorro verificado' : <span className="text-amber-300/70">Estimado: falta el ahorro verificado</span>} · sin factura todavía</>}
-                                            </p>
-                                        </div>
-                                        <div className="shrink-0 text-right">
-                                            {pagada ? (
-                                                <>
-                                                    <p className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-black uppercase tracking-wider">
-                                                        ✓ Cobrado {f.fecha_cobro ? `el ${f.fecha_cobro}` : ''}
-                                                    </p>
-                                                    <button type="button" disabled={busy} onClick={() => marcarCobro(false)}
-                                                        className="block ml-auto mt-1 text-[9px] text-white/25 hover:text-white/60 underline disabled:opacity-50">
-                                                        deshacer
-                                                    </button>
-                                                </>
-                                            ) : f?.numero ? (
-                                                <div className="flex items-center gap-2">
-                                                    <input type="date" value={fechaCobro} max={hoyIso()} disabled={busy}
-                                                        onChange={e => setFechaCobro(e.target.value)}
-                                                        title="Fecha del ingreso"
-                                                        className="bg-bkg-surface border border-white/[0.08] rounded-xl px-2 py-1.5 text-xs text-white focus:border-emerald-400/40 focus:outline-none [color-scheme:dark]" />
-                                                    <button type="button" disabled={busy || !fechaCobro} onClick={() => marcarCobro(true)}
-                                                        className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-black hover:bg-emerald-500/25 transition-colors disabled:opacity-50">
-                                                        Marcar cobrado
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <p className="text-[10px] text-white/30 max-w-[11rem]">Se marca cobrado cuando esté emitida la factura al S.O.</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })()}
+                    {/* Lo que le AHORRAMOS al S.O. frente a pagar la equivalencia
+                        financiera. Es el argumento con el que se negocia el precio. */}
+                    {eco.ahorroSoMwh != null && (
+                        <AvisoFx tono="crema" icono="euro" style={{ marginTop: 14 }}>
+                            <b>Le ahorramos al S.O. {eur(eco.ahorroSoTotal)}</b> ({eco.ahorroSoPct.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %, {num2(eco.ahorroSoMwh)} €/MWh) frente a la equivalencia financiera de {eco.equivalenciaFinanciera.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €/MWh.
+                            <span className="lt-ayuda">
+                                {eco.equivalenciaFinanciera.toLocaleString('es-ES', { minimumFractionDigits: 2 })} − ({num2(eco.ofertaLote)} que nos paga + {num2(eco.costeVerifMwh)} de verificación) × {eco.ahorroMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh
+                            </span>
+                        </AvisoFx>
+                    )}
+                </section>
+            )}
 
-                            {/* Inputs manuales. El coste y la oferta son MARGEN (solo ADMIN);
-                                el nº de expediente del verificador y el registro MITECO son
-                                datos de gestión que ve y edita todo el staff. */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {canSeeMargin && (
-                                <div>
-                                    <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Coste verificación (€)</label>
-                                    <input type="number" value={costeVerifInput} disabled={busy}
-                                        onChange={e => setCosteVerifInput(e.target.value)}
-                                        onBlur={() => { if (String(costeVerifInput) !== String(lote.coste_verificacion ?? '')) patchLote({ coste_verificacion: costeVerifInput }); }}
-                                        placeholder="0"
-                                        className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white focus:border-brand/40 focus:outline-none" />
-                                    {/* La referencia de SU tarifa, debajo del campo: es
-                                        donde se teclea lo que pide, y por tanto donde
-                                        sirve saber lo que debería pedir. */}
-                                    {refVerif?.estimacion && (
-                                        <p className="text-[9px] text-white/30 mt-1 leading-relaxed">
-                                            Su tarifa para {refVerif.n} {refVerif.n === 1 ? 'actuación' : 'actuaciones'}:{' '}
-                                            <span className="text-white/60 font-black">
-                                                {Number(refVerif.estimacion.importe).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €
-                                            </span>
-                                            <span className="text-white/25"> · {Number(refVerif.estimacion.porActuacion).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €/act.</span>
-                                            {refVerif.comparacion && (
-                                                <span className={`block font-black ${refVerif.comparacion.tono === 'ok' ? 'text-emerald-400/80' : refVerif.comparacion.tono === 'caro' ? 'text-amber-400/90' : 'text-cyan-400/80'}`}>
-                                                    {refVerif.comparacion.tono === 'ok' ? '✓ ' : '⚠ '}{refVerif.comparacion.texto}
-                                                    {refVerif.comparacion.pct != null && refVerif.comparacion.tono !== 'ok'
-                                                        ? ` (${refVerif.comparacion.pct > 0 ? '+' : ''}${refVerif.comparacion.pct.toLocaleString('es-ES', { maximumFractionDigits: 0 })} %)` : ''}
-                                                </span>
-                                            )}
-                                            {refVerif.estimacion.fueraDeTabla && (
-                                                <span className="block text-amber-400/70">⚠ {refVerif.estimacion.aviso}</span>
-                                            )}
-                                            {/* Un lote son 5 actuaciones como mucho, pero a
-                                                verificar se mandan varios a la vez y el
-                                                escalón es por envío: sin esto, comparar el
-                                                total de la factura contra un solo lote sale
-                                                siempre "caro". */}
-                                            <span className="block text-white/20">
-                                                Orientativa. Si se verifica junto a otros lotes, compara el €/actuación.
-                                            </span>
-                                        </p>
-                                    )}
-                                    {refVerif && !refVerif.estimacion && refVerif.motivo && (
-                                        <p className="text-[9px] text-white/25 mt-1">{refVerif.motivo}</p>
-                                    )}
-                                </div>
-                                )}
-                                {canSeeMargin && (
-                                <div>
-                                    <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Oferta lote (€/MWh)</label>
-                                    <input type="number" value={ofertaInput} disabled={busy}
-                                        onChange={e => setOfertaInput(e.target.value)}
-                                        onBlur={() => { if (String(ofertaInput) !== String(lote.oferta_lote ?? '')) patchLote({ oferta_lote: ofertaInput }); }}
-                                        placeholder="—"
-                                        className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white focus:border-brand/40 focus:outline-none" />
-                                    {lote.sujeto_obligado?.precio_referencia != null && (
-                                        <p className="text-[9px] text-white/30 mt-1">Ref. S.O.: {Number(lote.sujeto_obligado.precio_referencia).toLocaleString('es-ES')} €/MWh</p>
-                                    )}
-                                </div>
-                                )}
-                                <div>
-                                    <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Nº expte. verificador</label>
-                                    <input type="text" value={expVerifInput} disabled={busy}
-                                        onChange={e => setExpVerifInput(e.target.value)}
-                                        onBlur={() => { if (expVerifInput.trim() !== String(lote.expediente_verificador ?? '')) patchLote({ expediente_verificador: expVerifInput.trim() }); }}
-                                        placeholder="El que nos dé el verificador"
-                                        className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
-                                    <p className="text-[9px] text-white/30 mt-1">
-                                        {lote.verificador ? `Su referencia en ${presName(lote.verificador)}.` : 'Su referencia en el sistema del verificador.'}
-                                    </p>
-                                </div>
-                                {/* El nº con el que el Gestor Autonómico cita el lote en sus
-                                    requerimientos: lo único que los casa con el lote. Se lee
-                                    del justificante al subirlo; aquí solo se corrige. */}
-                                <div>
-                                    <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Nº registro MITECO</label>
-                                    <input type="text" value={regMitecoInput} disabled={busy}
-                                        onChange={e => setRegMitecoInput(e.target.value)}
-                                        onBlur={() => { if (regMitecoInput.replace(/\s+/g, '') !== String(lote.registro_miteco ?? '')) patchLote({ registro_miteco: regMitecoInput }); }}
-                                        placeholder="REGAGE… (sale del justificante)"
-                                        className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
-                                    <p className="text-[9px] text-white/30 mt-1">
-                                        El de la solicitud de emisión: así cita el lote el Gestor Autonómico.
-                                    </p>
-                                </div>
-                            </div>
+            {lote.notas && <AvisoFx tono="crema" icono="lapiz">{lote.notas}</AvisoFx>}
 
-                            {/* ── El DICTAMEN, cuando ya lo hay ────────────────────────
-                                Son los datos DEFINITIVOS de la verificación —su número
-                                y su fecha— y hacen falta para el futuro: es lo que se
-                                cita cuando alguien pregunta por este lote meses después.
-                                Se leen del propio dictamen al subirlo, así que aquí solo
-                                se muestran; no hay nada que teclear. */}
-                            {dictamen && (
-                                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] px-4 py-3 flex items-center gap-x-6 gap-y-2 flex-wrap">
-                                    <div>
-                                        <p className="text-[8px] uppercase tracking-[0.15em] font-black text-emerald-400/50">Dictamen nº</p>
-                                        <p className="text-[13px] font-black text-emerald-300 leading-tight">{dictamen.numero_dictamen || '—'}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-[8px] uppercase tracking-[0.15em] font-black text-emerald-400/50">Fecha</p>
-                                        <p className="text-[13px] font-black text-emerald-300 leading-tight">{dictamen.fecha_emision || '—'}</p>
-                                    </div>
-                                    {dictamen.referencia_informe && (
-                                        <div>
-                                            <p className="text-[8px] uppercase tracking-[0.15em] font-black text-emerald-400/50">Informe</p>
-                                            <p className="text-[13px] font-black text-emerald-300 leading-tight">{dictamen.referencia_informe}</p>
-                                        </div>
-                                    )}
-                                    {dictamen.total_kwh != null && (
-                                        <div>
-                                            <p className="text-[8px] uppercase tracking-[0.15em] font-black text-emerald-400/50">Ahorro dictaminado</p>
-                                            <p className="text-[13px] font-black text-emerald-300 leading-tight">{Number(dictamen.total_kwh).toLocaleString('es-ES')} kWh</p>
-                                        </div>
-                                    )}
-                                    {dictamen.decision && (
-                                        <p className="text-[9px] text-emerald-400/60 basis-full leading-tight">{dictamen.decision}</p>
-                                    )}
-                                </div>
-                            )}
+            {/* Borrar lote — SOLO ADMIN (el trabajador no borra) */}
+            {isBorrador && canDelete && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button type="button" className="fx-btn fx-btn-sec fx-btn-peq" onClick={borrarLote} disabled={busy}>
+                        <Ico n="borrar" size={16} />Borrar el lote
+                    </button>
+                </div>
+            )}
+        </div>
+    );
 
-                            {canSeeMargin && (<>
-                            {/* Desglose €/MWh. La VERIFICACIÓN se muestra pero NO resta en
-                                nuestro margen: la paga el S.O. (va marcada como suya). */}
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                {[
-                                    { label: 'Cliente', value: eco.mediaCliente, color: 'text-white/70', nota: null },
-                                    { label: 'Verificación', value: eco.costeVerifMwh, color: 'text-white/40', nota: 'la paga el S.O.' },
-                                    { label: 'Nos paga', value: eco.ofertaLote, color: 'text-white/70', nota: null },
-                                    { label: 'Margen', value: eco.margen, color: 'text-emerald-400', nota: null },
-                                ].map(({ label, value, color, nota }) => value != null && (
-                                    <div key={label} className="bg-white/[0.02] border border-white/[0.05] rounded-xl px-3 py-2 text-center">
-                                        <p className="text-[8px] uppercase tracking-widest font-black text-white/25 mb-0.5">{label}</p>
-                                        <p className={`text-sm font-black ${color}`}>{value.toLocaleString('es-ES', { maximumFractionDigits: 2 })} <span className="text-[10px] font-normal text-white/30">€/MWh</span></p>
-                                        {nota && <p className="text-[8px] text-white/20 mt-0.5">{nota}</p>}
-                                    </div>
-                                ))}
-                            </div>
-                            <p className="text-[10px] text-white/30 text-right">Beneficio sin oferta: <b className="text-white/50">{eur(eco.beneficioActual)}</b></p>
+    // ─── EXPEDIENTES ────────────────────────────────────────────────────────────
+    const expedientes = lote && (
+        <div className="lt-pila">
+            <section className="fx-card fx-pad">
+                <div className="fx-card-cab">
+                    <div>
+                        <span className="fx-eyebrow fx-eyebrow-gris">En el lote</span>
+                        <h3 className="fx-display fx-h3">{nExp}{nExp <= MAX_EXPEDIENTES_LOTE ? ` de ${MAX_EXPEDIENTES_LOTE}` : ''} expedientes</h3>
+                    </div>
+                    {nExp > 0 && (
+                        <button type="button" className="fx-link" onClick={() => setShowExpedientes(v => !v)} aria-expanded={showExpedientes}>
+                            {showExpedientes ? 'Plegar' : 'Ver la lista'}
+                        </button>
+                    )}
+                </div>
+                {nExp === 0 ? (
+                    <p className="lt-nota">Sin expedientes. Añade el primero aquí abajo: fijará el año y la CCAA del lote.</p>
+                ) : showExpedientes && (
+                    <div className="lt-exps">
+                        {expedientesOrdenados.map(e => (
+                            <ExpedienteCard
+                                key={e.id}
+                                exp={e}
+                                carpetaLocal
+                                onError={(msg) => showAlert(msg, 'Carpeta local', 'error')}
+                                onClick={onNavigateExpediente ? () => onNavigateExpediente(e.id) : undefined}
+                                rightAction={isBorrador ? (
+                                    <button type="button" className="fx-ico-btn" onClick={() => removeExpediente(e.id)} disabled={busy}
+                                        title="Quitar del lote" aria-label={`Quitar ${e.numero_expediente} del lote`}>
+                                        <Ico n="x" size={18} />
+                                    </button>
+                                ) : null}
+                            />
+                        ))}
+                    </div>
+                )}
+            </section>
 
-                            {/* Lo que le AHORRAMOS al S.O. frente a pagar la equivalencia
-                                financiera. Es el argumento con el que se negocia el precio. */}
-                            {eco.ahorroSoMwh != null && (
-                                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.05] px-4 py-3">
-                                    <div className="flex items-center justify-between gap-3 mb-2">
-                                        <p className="text-[9px] font-black text-cyan-300/70 uppercase tracking-[0.2em]">Ahorro que le generamos al S.O.</p>
-                                        <p className="text-[9px] text-white/25">Equiv. financiera {eco.equivalenciaFinanciera.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €/MWh</p>
-                                    </div>
-                                    <div className="flex items-baseline gap-3 flex-wrap">
-                                        <span className="text-xl font-black text-cyan-300">{eur(eco.ahorroSoTotal)}</span>
-                                        <span className="text-sm font-black text-cyan-300/80">{eco.ahorroSoPct.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %</span>
-                                        <span className="text-[11px] text-white/40">
-                                            {eco.ahorroSoMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh
-                                        </span>
-                                    </div>
-                                    <p className="text-[9px] text-white/30 mt-1.5">
-                                        {eco.equivalenciaFinanciera.toLocaleString('es-ES', { minimumFractionDigits: 2 })} − ({eco.ofertaLote.toLocaleString('es-ES', { maximumFractionDigits: 2 })} que nos paga + {eco.costeVerifMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} de verificación) × {eco.ahorroMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh
-                                    </p>
-                                </div>
-                            )}
-                            </>)}
-                        </div>
+            {/* Añadir expediente (solo BORRADOR) */}
+            {isBorrador && (
+                <section className="fx-card fx-pad">
+                    <span className="fx-eyebrow">Añadir expedientes</span>
+                    <h3 className="fx-display fx-h3">
+                        {cupoLote > 0 ? <>Caben <span className="fx-mark">{cupoLote}</span> más</> : 'El lote está lleno'}
+                    </h3>
+                    {loteTieneClaves && (
+                        <p className="lt-nota">Solo los de <b>{lote.anio_actuacion}</b> en <b>{lote.ccaa}</b>, como el lote.</p>
+                    )}
 
-                        {/* Destinatarios */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <div className="flex items-center gap-2 mb-2">
-                                    <LogoEmpresa p={lote.sujeto_obligado} size={22} />
-                                    <label className="block text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Sujeto Obligado</label>
-                                </div>
-                                <select value={lote.sujeto_obligado_id || ''} disabled={!isBorrador || busy}
-                                    onChange={e => patchLote({ sujeto_obligado_id: e.target.value || null })}
-                                    className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none disabled:opacity-60">
-                                    <option value="">— sin asignar —</option>
-                                    {soList.map(p => <option key={p.id_empresa} value={p.id_empresa}>{presName(p)}</option>)}
+                    <div className="lt-filtros">
+                        {/* CCAA + año solo si el lote aún no tiene claves; si las tiene, manda el lote. */}
+                        {!loteTieneClaves && (
+                            <>
+                                <select className="fx-select" value={fCcaa} onChange={e => setFCcaa(e.target.value)} aria-label="Comunidad autónoma">
+                                    <option value="">Todas las CCAA</option>
+                                    {ccaaOpts.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-2 mb-2">
-                                    <LogoEmpresa p={lote.verificador} size={22} />
-                                    <label className="block text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Verificador</label>
-                                    {/* Su nº de expediente, junto a su nombre: es como se
-                                        refieren ellos al lote cuando hablamos. */}
-                                    {lote.expediente_verificador && (
-                                        <span className="text-[10px] font-black text-brand/80 truncate" title="Nº de expediente del verificador">
-                                            ⧉ {lote.expediente_verificador}
-                                        </span>
-                                    )}
-                                </div>
-                                <select value={lote.verificador_id || ''} disabled={!isBorrador || busy}
-                                    onChange={e => patchLote({ verificador_id: e.target.value || null })}
-                                    className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none disabled:opacity-60">
-                                    <option value="">— sin asignar —</option>
-                                    {verList.map(p => <option key={p.id_empresa} value={p.id_empresa}>{presName(p)}</option>)}
+                                <select className="fx-select" value={fAnio} onChange={e => setFAnio(e.target.value)} aria-label="Año de actuación">
+                                    <option value="">Todos los años</option>
+                                    {anioOpts.map(a => <option key={a} value={a}>{a}</option>)}
                                 </select>
-                                {verList.length === 0 && <p className="text-[10px] text-white/30 mt-1">Aún no hay verificadores dados de alta.</p>}
-                            </div>
-                        </div>
-
-                        {lote.notas && <p className="text-[12px] text-white/40 italic">📝 {lote.notas}</p>}
-
-                        {/* Borrar lote — SOLO ADMIN (el trabajador no borra) */}
-                        {isBorrador && canDelete && (
-                            <div className="border-t border-white/5 pt-4 flex justify-end">
-                                <button onClick={borrarLote} disabled={busy}
-                                    className="text-[11px] font-black uppercase tracking-widest text-red-400/70 hover:text-red-400 transition-colors">
-                                    Borrar lote
-                                </button>
-                            </div>
+                            </>
                         )}
-                        </div>
+                        <select className="fx-select lt-ancho" value={effInstalador} onChange={e => setFInstalador(e.target.value)} aria-label="Instalador">
+                            <option value="">Todos los instaladores</option>
+                            {instaladorOpts.map(i => <option key={i.id} value={i.id}>{i.nombre} ({i.n})</option>)}
+                        </select>
+                        <select className="fx-select" value={fRiesgo} onChange={e => setFRiesgo(e.target.value)} aria-label="Incidencias"
+                            title="Incidencias abiertas: las graves son las que el verificador nos devolverá">
+                            {RIESGOS.map(r => <option key={r.id} value={r.id}>{r.titulo}</option>)}
+                        </select>
+                        <select className="fx-select" value={fOrden} onChange={e => setFOrden(e.target.value)} aria-label="Orden">
+                            <option value="antiguedad">Más antiguos primero</option>
+                            <option value="recientes">Más recientes primero</option>
+                            <option value="mwh">Más MWh primero</option>
+                            <option value="numero">Por nº de expediente</option>
+                        </select>
+                        <label className="fx-buscar lt-ancho">
+                            <Ico n="buscar" size={18} />
+                            <input value={fSearch} onChange={e => setFSearch(e.target.value)} placeholder="Buscar por nº, cliente o instalador…" aria-label="Buscar expedientes" />
+                        </label>
+                    </div>
 
-                        <div className={tab === 'expedientes' ? 'space-y-6' : 'hidden'}>
-
-                        {/* Expedientes del lote — colapsable */}
-                        <div>
-                            <button
-                                type="button"
-                                onClick={() => setShowExpedientes(v => !v)}
-                                className="w-full flex items-center justify-between gap-2 group"
-                            >
-                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 group-hover:text-white/50 transition-colors">
-                                    Expedientes ({(lote.expedientes || []).length})
+                    {/* Propuestas de lote: por antigüedad y por instalador (logic/propuestaLote.js) */}
+                    {!loadingEleg && propuestas.length > 0 && (
+                        <div style={{ marginTop: 18 }}>
+                            <div className="fx-bloque-cab">
+                                <span className="lt-sec" style={{ margin: 0 }}>Propuestas de lote</span>
+                                <button type="button" className="fx-link" onClick={() => setShowPropuestas(v => !v)} aria-expanded={showPropuestas}>
+                                    {showPropuestas ? 'Ocultar' : 'Ver'}
+                                </button>
+                            </div>
+                            {showPropuestas && cubrir?.faltaKwh != null && (
+                                <p className="lt-nota" style={{ marginTop: 0 }}>
+                                    {cubrir.faltaKwh > 0
+                                        ? <>A <b>{cubrir.nombre}</b> le faltan <b>{mwh(cubrir.faltaKwh)}</b> en {cubrir.anio}. Lo elegible con este filtro suma <b>{mwh(kwhElegible)}</b> ({elegiblesClave.length}).</>
+                                        : <><b>{cubrir.nombre}</b> ya tiene cubierto {cubrir.anio} si se emite todo lo nuestro.</>}
                                 </p>
-                                <svg className={`w-4 h-4 text-white/30 group-hover:text-white/50 transition-all ${showExpedientes ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-                            {showExpedientes && (
-                                <div className="mt-2">
-                                    {(lote.expedientes || []).length === 0 ? (
-                                        <p className="text-[12px] text-white/30 italic py-3">Sin expedientes. Añade el primero abajo; fijará el año y la CCAA del lote.</p>
-                                    ) : (
-                                        <div className="space-y-2">
-                                            {expedientesOrdenados.map(e => (
-                                                <ExpedienteCard
-                                                    key={e.id}
-                                                    exp={e}
-                                                    carpetaLocal
-                                                    onError={(msg) => showAlert(msg, 'Carpeta local', 'error')}
-                                                    onClick={onNavigateExpediente ? () => onNavigateExpediente(e.id) : undefined}
-                                                    rightAction={isBorrador ? (
-                                                        <button onClick={() => removeExpediente(e.id)} disabled={busy} title="Quitar del lote"
-                                                            className="p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0">
-                                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
-                                                        </button>
-                                                    ) : null}
-                                                />
-                                            ))}
-                                        </div>
+                            )}
+                            {showPropuestas && (
+                                <div className="lt-docs" style={{ marginTop: 8 }}>
+                                    {(todasPropuestas ? propuestas : propuestas.slice(0, 4)).map(p => {
+                                        const dias = diasListo(p.expedientes[0]);
+                                        const kwhTotal = p.expedientes.reduce((s, x) => s + (computeExpedienteFinancials(x).savingsKwh || 0), 0);
+                                        return (
+                                            <div key={p.clave} className="lt-prop">
+                                                <span className={`fx-tile ${p.tipo === 'mwh' ? 'fx-tile-naranja' : 'fx-tile-crema'}`}>
+                                                    <Ico n={p.tipo === 'mwh' ? 'euro' : p.tipo === 'antiguedad' ? 'reloj' : 'lista'} size={18} />
+                                                </span>
+                                                <div>
+                                                    <b>{p.titulo}{p.yaEnLote && <span className="fx-chip fx-chip-ok" style={{ marginLeft: 8 }}>ya en el lote</span>}</b>
+                                                    <small className="fx-mono">{p.expedientes.map(x => x.numero_expediente).join(' · ')}</small>
+                                                    <small>
+                                                        {!loteTieneClaves && <>{p.anio} · {p.ccaa} · </>}
+                                                        {dias != null ? `el más antiguo, listo hace ${dias} días` : 'sin fecha de registro'}
+                                                        {p.total > p.expedientes.length && ` · ${p.total} en total`}
+                                                        {' · '}<b style={{ display: 'inline' }}>{mwh(kwhTotal)}</b>
+                                                    </small>
+                                                </div>
+                                                <button type="button" className="fx-btn fx-btn-sec fx-btn-peq" onClick={() => addVarios(p.expedientes.map(x => x.id))} disabled={busy}>
+                                                    <Ico n="mas" size={16} />Añadir {p.expedientes.length}
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                    {propuestas.length > 4 && (
+                                        <button type="button" className="fx-link" onClick={() => setTodasPropuestas(v => !v)}>
+                                            {todasPropuestas ? 'Ver menos propuestas' : `Ver ${propuestas.length - 4} propuestas más`}
+                                        </button>
                                     )}
                                 </div>
                             )}
                         </div>
+                    )}
 
-                        {/* Añadir expediente (solo BORRADOR) */}
-                        {isBorrador && (
-                            <div className="border-t border-white/5 pt-5">
-                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-2">Añadir expediente</p>
-
-                                {/* Filtros CCAA + Año (solo si el lote aún no tiene claves; si las tiene, manda el lote) */}
-                                {!loteTieneClaves ? (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <select value={fCcaa} onChange={e => setFCcaa(e.target.value)}
-                                            className="bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
-                                            <option value="">Todas las CCAA</option>
-                                            {ccaaOpts.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                        <select value={fAnio} onChange={e => setFAnio(e.target.value)}
-                                            className="bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
-                                            <option value="">Todos los años</option>
-                                            {anioOpts.map(a => <option key={a} value={a}>{a}</option>)}
-                                        </select>
-                                    </div>
-                                ) : (
-                                    <p className="text-[10px] text-white/30">Filtrado al año <b className="text-white/50">{lote.anio_actuacion}</b> · <b className="text-white/50">{lote.ccaa}</b> del lote.</p>
-                                )}
-
-                                {/* Instalador, riesgo y orden */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                                    <select value={effInstalador} onChange={e => setFInstalador(e.target.value)}
-                                        className="sm:col-span-2 bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
-                                        <option value="">Todos los instaladores</option>
-                                        {instaladorOpts.map(i => <option key={i.id} value={i.id}>{i.nombre} ({i.n})</option>)}
-                                    </select>
-                                    <select value={fRiesgo} onChange={e => setFRiesgo(e.target.value)} title="Incidencias abiertas: las graves son las que el verificador nos devolverá"
-                                        className="bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
-                                        {RIESGOS.map(r => <option key={r.id} value={r.id}>{r.titulo}</option>)}
-                                    </select>
-                                    <select value={fOrden} onChange={e => setFOrden(e.target.value)}
-                                        className="bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
-                                        <option value="antiguedad">Más antiguos primero</option>
-                                        <option value="recientes">Más recientes primero</option>
-                                        <option value="mwh">Más MWh primero</option>
-                                        <option value="numero">Por nº de expediente</option>
-                                    </select>
-                                </div>
-
-                                {/* Buscador por nombre o nº de expediente */}
-                                <input value={fSearch} onChange={e => setFSearch(e.target.value)}
-                                    placeholder="Buscar por nº de expediente, cliente o instalador…"
-                                    className="w-full mt-2 bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/25 focus:border-brand/40 focus:outline-none" />
-
-                                {/* Propuestas de lote: por antigüedad y por instalador (logic/propuestaLote.js) */}
-                                {!loadingEleg && propuestas.length > 0 && (
-                                    <div className="mt-3 bg-brand/[0.04] border border-brand/20 rounded-xl p-3">
-                                        <button type="button" onClick={() => setShowPropuestas(v => !v)}
-                                            className="w-full flex items-center justify-between gap-2 group">
-                                            <span className="text-[11px] font-black text-brand/90">
-                                                💡 Propuestas de lote <span className="text-white/35 font-bold">· caben {cupoLote}</span>
-                                            </span>
-                                            <svg className={`w-4 h-4 text-white/30 group-hover:text-white/50 transition-all ${showPropuestas ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                            </svg>
-                                        </button>
-                                        {showPropuestas && cubrir?.faltaKwh != null && (
-                                            <p className="mt-1.5 text-[10px] text-white/45">
-                                                {cubrir.faltaKwh > 0
-                                                    ? <>A <b className="text-white/70">{cubrir.nombre}</b> le faltan <b className="text-amber-300">{mwh(cubrir.faltaKwh)}</b> en {cubrir.anio} · lo elegible con este filtro suma <b className="text-cyan-400">{mwh(kwhElegible)}</b> ({elegiblesClave.length})</>
-                                                    : <><b className="text-white/70">{cubrir.nombre}</b> ya tiene cubierto {cubrir.anio} si se emite todo lo nuestro</>}
-                                            </p>
-                                        )}
-                                        {showPropuestas && (
-                                            <div className="mt-2 space-y-1.5">
-                                                {(todasPropuestas ? propuestas : propuestas.slice(0, 4)).map(p => {
-                                                    const dias = diasListo(p.expedientes[0]);
-                                                    const kwhTotal = p.expedientes.reduce((s, x) => s + (computeExpedienteFinancials(x).savingsKwh || 0), 0);
-                                                    return (
-                                                        <div key={p.clave} className="flex items-center justify-between gap-3 bg-bkg-surface border border-white/[0.06] rounded-lg px-3 py-2">
-                                                            <div className="min-w-0 flex-1">
-                                                                <p className="text-[12px] font-bold text-white truncate">
-                                                                    <span className="mr-1.5">{p.tipo === 'mwh' ? '🎯' : p.tipo === 'antiguedad' ? '⏳' : '🔧'}</span>
-                                                                    {p.titulo}
-                                                                    {p.yaEnLote && <span className="ml-1.5 text-[9px] uppercase tracking-widest text-emerald-400">ya en el lote</span>}
-                                                                </p>
-                                                                <p className="text-[10px] text-white/45 break-words">
-                                                                    {p.expedientes.map(x => x.numero_expediente).join(' · ')}
-                                                                </p>
-                                                                <p className="text-[10px] text-white/35">
-                                                                    {!loteTieneClaves && <>{p.anio} · {p.ccaa} · </>}
-                                                                    {dias != null ? `el más antiguo, listo hace ${dias} días` : 'sin fecha de registro'}
-                                                                    {p.total > p.expedientes.length && ` · ${p.total} en total`}
-                                                                    <span className="text-cyan-400 font-black"> · ⚡ {mwh(kwhTotal)}</span>
-                                                                </p>
-                                                            </div>
-                                                            <button onClick={() => addVarios(p.expedientes.map(x => x.id))} disabled={busy}
-                                                                className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest bg-brand/15 text-brand border border-brand/30 hover:bg-brand/25 disabled:opacity-40 transition-all">
-                                                                + Añadir {p.expedientes.length}
-                                                            </button>
-                                                        </div>
-                                                    );
-                                                })}
-                                                {propuestas.length > 4 && (
-                                                    <button type="button" onClick={() => setTodasPropuestas(v => !v)}
-                                                        className="w-full text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white/70 py-1 transition-colors">
-                                                        {todasPropuestas ? 'Ver menos' : `Ver ${propuestas.length - 4} más`}
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Lista con scroll: una fila por expediente con su botón Añadir */}
-                                <div className="mt-2 max-h-64 overflow-y-auto space-y-1.5 pr-1">
-                                    {loadingEleg ? (
-                                        <p className="text-[12px] text-white/30 py-4 text-center">Cargando expedientes elegibles…</p>
-                                    ) : elegiblesVisibles.length === 0 ? (
-                                        <p className="text-[12px] text-white/30 py-4 text-center">{elegibles.length ? 'Ningún expediente coincide con el filtro.' : 'No hay expedientes elegibles (con CIFO y sin lote).'}</p>
-                                    ) : elegiblesVisibles.map(x => {
-                                        const dias = diasListo(x);
-                                        const inc = textoIncidencias(x);
-                                        return (
+                    {/* Una fila por expediente elegible, con su botón Añadir */}
+                    <div className="fx-bloque-cab" style={{ marginTop: 18, marginBottom: 0 }}>
+                        <span className="lt-sec" style={{ margin: 0 }}>Uno a uno · {elegiblesVisibles.length} elegibles</span>
+                    </div>
+                    <div className="lt-elegibles">
+                        {loadingEleg ? (
+                            <p className="fx-espera-txt"><Ico n="reintentar" size={18} className="fx-spin" />Cargando expedientes elegibles…</p>
+                        ) : elegiblesVisibles.length === 0 ? (
+                            <p className="lt-nota">{elegibles.length ? 'Ningún expediente coincide con el filtro.' : 'No hay expedientes elegibles (con CIFO y sin lote).'}</p>
+                        ) : (
+                            <div className="lt-exps">
+                                {elegiblesVisibles.map(x => {
+                                    const dias = diasListo(x);
+                                    const inc = textoIncidencias(x);
+                                    return (
                                         <ExpedienteCard
                                             key={x.id}
                                             exp={x}
                                             extra={(x.instalador_nombre || dias != null || inc) ? (
                                                 // Los días primero: un nombre de instalador largo no los corta.
-                                                <span className="block text-[10px] text-white/45 truncate">
+                                                <span className="lt-exp-extra">
                                                     {inc && (
-                                                        <span className={`mr-1.5 font-black ${incidenciasDe(x).graves ? 'text-red-400' : 'text-amber-300'}`} title="Incidencias abiertas">⚠ {inc} · </span>
+                                                        <span className={`fx-chip ${incidenciasDe(x).graves ? 'fx-chip-vence' : 'fx-chip-ambar'}`} style={{ marginRight: 6 }} title="Incidencias abiertas">{inc}</span>
                                                     )}
-                                                    {dias != null && <>⏳ {dias} días</>}
+                                                    {dias != null && <>{dias} días esperando</>}
                                                     {x.instalador_nombre && dias != null && ' · '}
-                                                    {x.instalador_nombre && <>🔧 {x.instalador_nombre}</>}
+                                                    {x.instalador_nombre}
                                                 </span>
                                             ) : null}
                                             rightAction={(
-                                                <button onClick={() => addExpediente(x.id)} disabled={busy}
-                                                    className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest bg-brand/15 text-brand border border-brand/30 hover:bg-brand/25 disabled:opacity-40 transition-all">
-                                                    + Añadir
+                                                <button type="button" className="fx-btn fx-btn-sec fx-btn-peq" onClick={() => addExpediente(x.id)} disabled={busy}>
+                                                    <Ico n="mas" size={16} />Añadir
                                                 </button>
                                             )}
                                         />
-                                        );
-                                    })}
-                                </div>
-                                <p className="text-[10px] text-white/30 mt-1.5">
-                                    {elegiblesVisibles.length} elegibles · solo con CIFO (año de actuación) y sin lote.
-                                    {nFueraPorRiesgo > 0 && (
-                                        <button type="button" onClick={() => setFRiesgo('todos')} className="ml-1 text-amber-300/80 hover:text-amber-200 underline underline-offset-2">
-                                            {nFueraPorRiesgo} fuera por incidencias{fRiesgo === 'limpios' ? '' : ' graves'}: verlos
-                                        </button>
-                                    )}
-                                </p>
-
-                                {sugerencias.length > 0 && (
-                                    <div className="mt-3 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
-                                        <p className="text-[11px] text-amber-300/90 font-bold mb-1.5">💡 Mismo instalador, sin lotear ({sugerencias.length}):</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {sugerencias.map(s => (
-                                                <button key={s.id} onClick={() => addExpediente(s.id)} disabled={busy}
-                                                    className="text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 transition-all">
-                                                    + {s.numero_expediente}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+                                    );
+                                })}
                             </div>
                         )}
-
-                        </div>
-
-                        {/* El proceso del lote, por fases: documentos y acciones en el orden
-                            real del trámite (solicitud → firma S.O. → oferta → verificación
-                            → MITECO → cobro) */}
-                        <div className={tab === 'documentacion' ? '' : 'hidden'}>
-                            <LoteProcesoFases
-                                lote={lote}
-                                canSeeMargin={canSeeMargin}
-                                onChanged={() => { refresh(); onChanged?.(); }}
-                                acciones={{
-                                    abrirSolicitud: () => setShowSolicitud(true),
-                                    abrirAnexo: () => setShowAnexo(true),
-                                    abrirRequerimiento: () => setShowRequerimiento(true),
-                                    abrirFactura: () => setShowFactura(true),
-                                }}
-                            />
-                        </div>
                     </div>
+                    <p className="lt-nota">
+                        Solo con CIFO (año de actuación) y sin lote.
+                        {nFueraPorRiesgo > 0 && (
+                            <> <button type="button" className="fx-link" onClick={() => setFRiesgo('todos')}>
+                                {nFueraPorRiesgo} fuera por incidencias{fRiesgo === 'limpios' ? '' : ' graves'}: verlos
+                            </button></>
+                        )}
+                    </p>
+
+                    {sugerencias.length > 0 && (
+                        <AvisoFx tono="ambar" icono="info" style={{ marginTop: 12 }}>
+                            <b>Del mismo instalador y sin lotear ({sugerencias.length}):</b>
+                            <div className="lt-sugs">
+                                {sugerencias.map(s => (
+                                    <button key={s.id} type="button" className="fx-btn fx-btn-sec fx-btn-peq" onClick={() => addExpediente(s.id)} disabled={busy}>
+                                        <Ico n="mas" size={16} />{s.numero_expediente}
+                                    </button>
+                                ))}
+                            </div>
+                        </AvisoFx>
+                    )}
+                </section>
+            )}
+        </div>
+    );
+
+    return createPortal(
+        <div className="lt-capa">
+            <style>{CSS_FX}{CSS_LT}</style>
+            <div className="fx lt-hoja" role="dialog" aria-modal="true" aria-label={lote?.codigo || 'Lote'}>
+                <div className="fx-filete-top" />
+                {loading || !lote ? (
+                    <div className="lt-in" style={{ padding: '24px 16px' }}>
+                        <div className="lt-cab-top">
+                            <span className="fx-eyebrow">Lote CAE</span>
+                            <button type="button" className="fx-cerrar" aria-label="Cerrar" onClick={onClose}><Ico n="x" /></button>
+                        </div>
+                        <p className="fx-espera-txt" style={{ marginTop: 24 }}><Ico n="reintentar" size={18} className="fx-spin" />Cargando el lote…</p>
+                    </div>
+                ) : (
+                    <>
+                        {cabecera}
+                        {pestanas}
+                        <div className="lt-cuerpo">
+                            <div hidden={tab !== 'resumen'}>{resumen}</div>
+                            <div hidden={tab !== 'expedientes'}>{expedientes}</div>
+                            {/* El proceso del lote, por fases: documentos y acciones en el
+                                orden real del trámite (solicitud → firma S.O. → oferta →
+                                verificación → MITECO → cobro). */}
+                            <div hidden={tab !== 'documentacion'}>
+                                <LoteProcesoFases
+                                    lote={lote}
+                                    canSeeMargin={canSeeMargin}
+                                    faseAbrir={faseAbrir}
+                                    onChanged={() => { refresh(); onChanged?.(); }}
+                                    acciones={{
+                                        abrirSolicitud: () => setShowSolicitud(true),
+                                        abrirAnexo: () => setShowAnexo(true),
+                                        abrirRequerimiento: () => setShowRequerimiento(true),
+                                        abrirFactura: () => setShowFactura(true),
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </>
                 )}
             </div>
+            {/* Los popups del lote se abren encima, con su propio estilo. */}
             {showAnexo && lote && <AnexoListadoModal lote={lote} onClose={() => setShowAnexo(false)} />}
             {showSolicitud && lote && (
                 <SolicitudVerificacionModal
@@ -1094,6 +1215,7 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                     onClose={() => setPideCobroAlPasar(null)}
                 />
             )}
-        </div>
+        </div>,
+        document.body,
     );
 }

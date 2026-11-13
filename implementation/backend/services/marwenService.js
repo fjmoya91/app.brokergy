@@ -444,10 +444,32 @@ function aItemsDeInforme(lista) {
 // ── Documentos de la SOLICITUD ───────────────────────────────────────────────
 // Tipos: solicitud (sin firmar, la genera beCAE al descargarla) · solicitud_firmada
 // · documento_adjunto · oferta (de Marwen) · oferta_firmada (subirla = ACEPTARLA).
+//
+// La API no los llama siempre así: la solicitud recién creada sale como
+// `solicitud_sin_firmar` (medido el 13/11/2026 en 0035-S22, LOTE-2024-020). Se
+// normalizan AQUÍ, en un sitio, a los nombres de arriba (el de beCAE queda en
+// `type_becae`): buscar `type === 'solicitud'` dejó el lote sin la solicitud del
+// verificador y sin el botón para traerla.
+function tipoCanonico(t) {
+    const s = String(t || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (!s) return s;
+    if (/firmad[ao]/.test(s) && !/sin_firmar/.test(s)) {
+        if (s.startsWith('solicitud')) return 'solicitud_firmada';
+        if (s.startsWith('oferta')) return 'oferta_firmada';
+        return s;
+    }
+    if (s.startsWith('solicitud')) return 'solicitud';
+    if (s.startsWith('oferta')) return 'oferta';
+    if (/adjunto/.test(s)) return 'documento_adjunto';
+    return s;
+}
+
 async function documentos(numSolicitud) {
     const r = await llamar('get', `/api/solicitud/${seg(numSolicitud)}/documentos`);
     const d = datosDe(r.data);
-    return Array.isArray(d) ? d : []; // [{ id, name, type }]
+    return (Array.isArray(d) ? d : []).map(x => (x && typeof x === 'object')
+        ? { ...x, type: tipoCanonico(x.type), type_becae: x.type ?? null }
+        : x); // [{ id, name, type, type_becae }]
 }
 
 function nombreDeDisposition(cd) {
@@ -527,6 +549,7 @@ module.exports = {
     inexactitudes,
     aItemsDeInforme,
     documentos,
+    tipoCanonico,
     descargarDocumento,
     subirDocumentos,
     eliminarAdjunto,

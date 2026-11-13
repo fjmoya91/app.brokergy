@@ -15,6 +15,8 @@ ok('el lote tiene la de la APP → traer la de beCAE',
     ids(accionesBecae({ becae: becae(['solicitud']), p: { solicitud: { key: 'solicitud_verificacion' } }, solicitudApp: true })).startsWith('traer_solicitud'));
 ok('el lote ya tiene la del verificador → no se trae otra vez',
     !ids(accionesBecae({ becae: becae(['solicitud']), p: { solicitud: { key: 'solicitud_verificacion' } } })).includes('traer_solicitud'));
+ok('beCAE la llama «solicitud_sin_firmar» (0035-S22, 13/11/2026) y el lote tiene la de la APP → traerla',
+    ids(accionesBecae({ becae: becae(['solicitud_sin_firmar']), p: { solicitud: { key: 'solicitud_verificacion' } }, solicitudApp: true })).startsWith('traer_solicitud'));
 
 console.log('\n── Firmada por el S.O. ──');
 const pFirmada = { solicitud: { signed_link: 'x' } };

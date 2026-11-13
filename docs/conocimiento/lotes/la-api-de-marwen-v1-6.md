@@ -28,7 +28,7 @@ descargan con un clic) y **solo el paso que toca**
 
 | Antes (a mano, en beCAE) | Ahora |
 |---|---|
-| Descargar la solicitud de su web y subirla a la fase 1 | Se trae SOLA al enviar por API (`traerSolicitudDeBecae`), o con «⬇ Traer la solicitud de beCAE» |
+| Descargar la solicitud de su web y subirla a la fase 1 | Se trae SOLA al enviar por API (`traerSolicitudDeBecae`, 3 intentos) y, si no, al consultar beCAE (`GET /:id/marwen`, al abrir el lote); o con «⬇ Traer la solicitud de beCAE» |
 | Subir la solicitud firmada por el S.O. | «⬆ Subir a beCAE la solicitud firmada» |
 | Subir los ZIP de las actuaciones | «⬆ Subir a beCAE los ZIP de las actuaciones» (los `E{n}.zip` de la fase 3, todos o ninguno) |
 | Bajar la oferta del correo y subirla a la fase 3 | «⬇ Traer la oferta de beCAE» (entra por la misma subida: lee el importe y propone mandarla al S.O.) |
@@ -54,6 +54,29 @@ borran antes (solo se puede sin oferta). Los ZIP van **todos o ninguno**: si fal
 **REGLA — la solicitud firmada que genera la APP no se sube nunca**: la que vale es la de beCAE
 (regla de la fase 1). Al traerla de beCAE se guarda con `origen: descargada del verificador`, y
 esa sí sustituye a la de la app (nunca a una firmada).
+
+**REGLA — los tipos de documento de beCAE se normalizan en UN sitio** (`tipoCanonico` en
+[marwenService.js](implementation/backend/services/marwenService.js), 2026-11-13). La API llama a
+la solicitud recién creada `solicitud_sin_firmar`, no `solicitud`. Primera prueba real, LOTE-2024-020
+→ 0035-S22: el código buscaba `type === 'solicitud'`, así que no la trajo al enviar. El lote se
+quedó con la de la app y la ficha no ofrecía «Traer la solicitud» aunque beCAE listaba
+«01. Solicitud-0035-S22.pdf». `documentos()` devuelve ya `solicitud`, `solicitud_firmada`, `oferta`,
+`oferta_firmada` y `documento_adjunto`, con el nombre de beCAE en `type_becae`. `accionesBecae`
+admite además el `_sin_firmar` de lo sellado antes en el lote. Prueba:
+`node implementation/backend/scripts/test_becae_acciones.mjs`.
+
+**Se trae SOLA, y en dos momentos**:
+
+1. **Al enviar por API.** Se reintenta 3 veces, cada 4 s, por si beCAE tarda en ofrecer el PDF.
+2. **Al consultar beCAE.** Es `GET /:id/marwen`, que la ficha lanza al abrir un lote que está
+   con el verificador. Se trae si beCAE la ofrece y el lote tiene solo la de la app (o ninguna),
+   sin firmar y **sin mandar al S.O.**
+
+Una de la app que ya salió hacia el S.O. no se cambia sola: le llegó esa. Ahí queda el botón para
+que lo decida una persona. Traerla solo baja de beCAE a nuestro Drive: no sale nada a terceros.
+Con la del verificador en el lote, la fase 1 queda hecha y «Lo siguiente» pasa al paso 2:
+**mandar al S.O. el Anexo I, las fichas y la solicitud para que los firme**. Ese envío sigue
+siendo un clic en su popup.
 
 **REGLA — las inexactitudes de la API entran por el MISMO camino que las del PDF** (regla 159):
 `aItemsDeInforme` las convierte (`imp` → importante/GRAVE, `nim` → no importante/LEVE, `cerrado`

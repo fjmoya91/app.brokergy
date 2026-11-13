@@ -265,6 +265,14 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[FirmadosCorreo] no se pudo iniciar:', err.message);
     }
+    // El PLAN DE VERIFICACIÓN que manda el verificador por correo se archiva solo en
+    // su lote, con el equipo (verificador jefe y revisor, email y teléfono). Nace
+    // APAGADO (PLAN_VERIFICACION_CORREO_ENABLED): local escribe en producción.
+    try {
+      require('./services/equipoVerificacion').start();
+    } catch (err) {
+      console.warn('[PlanVerificacion] no se pudo iniciar:', err.message);
+    }
     // La revisión de la documentación tras la ACEPTACIÓN: manda a las 9:00 lo que el
     // agente pidió fuera de horario y avisa si un encargo lleva 24 h sin moverse.
     // Nace APAGADA (ACEPTACION_AGENTE_ENABLED): local escribe en producción.

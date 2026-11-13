@@ -552,8 +552,71 @@ async function leerInformeInexactitudes(pdfBuffer) {
     };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 6) PLAN DE VERIFICACIÓN — quién verifica el lote
+//
+// Lo primero que llega de la fase 4. Su apartado «2. Equipo de verificación» trae
+// al VERIFICADOR JEFE (nombre, email y teléfono) y al REVISOR TÉCNICO (en Marwen,
+// solo el nombre). El modelo solo LEE; casar emails y limpiar teléfonos lo hace
+// services/equipoVerificacion.js.
+// ─────────────────────────────────────────────────────────────────────────────
+const PROMPT_PLAN = `Eres un lector de documentos. Extrae LITERALMENTE los datos de este PLAN DE VERIFICACIÓN de un expediente de Certificados de Ahorro Energético (CAE).
+
+Extrae:
+- expediente_cae: el código del expediente verificado, con formato "CAE-1234".
+- organismo: el nombre del organismo de verificación, tal cual.
+- Del apartado "Equipo de verificación", el VERIFICADOR JEFE y el REVISOR TÉCNICO, cada uno con:
+  - nombre: el nombre y apellidos completos, tal cual.
+  - email: su correo electrónico, si aparece JUNTO a esa persona. Si no, null.
+  - telefono: su teléfono, si aparece JUNTO a esa persona. Si no, null.
+
+Reglas:
+- Transcribe, no interpretes. Si un dato no aparece, null. NUNCA inventes un email ni un teléfono.
+- Las iniciales sueltas ("SM", "FC") NO son el nombre.
+- Los datos del CLIENTE (solicitante, sujeto obligado, persona de contacto) no son del equipo: ignóralos.
+- Ignora el pie de página (dirección, teléfono general y web del organismo).`;
+
+const PERSONA_SCHEMA = {
+    type: 'OBJECT',
+    nullable: true,
+    properties: {
+        nombre: { type: 'STRING', nullable: true },
+        email: { type: 'STRING', nullable: true },
+        telefono: { type: 'STRING', nullable: true },
+    },
+};
+
+const SCHEMA_PLAN = {
+    type: 'OBJECT',
+    properties: {
+        expediente_cae: { type: 'STRING', nullable: true },
+        organismo: { type: 'STRING', nullable: true },
+        verificador_jefe: PERSONA_SCHEMA,
+        revisor_tecnico: PERSONA_SCHEMA,
+    },
+};
+
+/**
+ * Lee el plan de verificación (solo la cabecera y el equipo).
+ * @returns {Promise<{expediente_cae, organismo, verificador_jefe:{nombre,email,telefono}|null, revisor_tecnico:{…}|null}>}
+ */
+async function leerPlanVerificacion(pdfBuffer) {
+    if (!pdfBuffer || !pdfBuffer.length) throw new Error('PDF vacío.');
+    const r = await leerConGemini(pdfBuffer, PROMPT_PLAN, SCHEMA_PLAN, 'plan_verificacion') || {};
+    const persona = (p) => (p && (txt(p.nombre) || txt(p.email) || txt(p.telefono))
+        ? { nombre: txt(p.nombre), email: txt(p.email), telefono: txt(p.telefono) }
+        : null);
+    return {
+        expediente_cae: txt(r.expediente_cae),
+        organismo: txt(r.organismo),
+        verificador_jefe: persona(r.verificador_jefe),
+        revisor_tecnico: persona(r.revisor_tecnico),
+    };
+}
+
 module.exports = {
     numeroEs,
+    leerPlanVerificacion,
     leerFacturaVerificador,
     leerInformeVerificacion,
     leerDictamenVerificacion,

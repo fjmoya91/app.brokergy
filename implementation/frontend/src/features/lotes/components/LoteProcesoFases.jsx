@@ -7,10 +7,14 @@ import { EnviarDocLoteModal } from './EnviarDocLoteModal';
 import { AhorrosVerificadosModal } from './AhorrosVerificadosModal';
 import { FirmadosSoModal } from './FirmadosSoModal';
 import SendActionOverlay from '../../../components/SendActionOverlay';
-import { BotonCarpetaLocal } from './BotonCarpetaLocal';
 import { CobroClientesPanel } from './CobroClientesPanel';
 import { SolicitudEmisionModal } from './SolicitudEmisionModal';
 import { BecaeEnVivo } from './BecaeEnVivo';
+import { Ico } from '../../facturacion/estilo';
+
+// El candado de «aún no le toca» (trazo 24×24, como los iconos de facturacion/estilo).
+const ICO_CANDADO = 'M7 11V8a5 5 0 0 1 10 0v3 M5 11h14v10H5z';
+const ICO_SUBIR = 'M12 20V9m-5 5 5-5 5 5M5 4h14';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El proceso del lote, por FASES, en el orden real del trámite. Sustituye a los
@@ -38,15 +42,18 @@ const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency',
 
 // El ciclo de un documento tiene CUATRO estados, y cada uno su color, para saber de
 // un vistazo si la pelota está en nuestro tejado o en el del S.O./verificador:
-//   BORRADOR (gris)  · generado o subido, todavía no ha salido
-//   ENVIADO  (ámbar) · salió al S.O./verificador — esperando respuesta
-//   RECIBIDO (cian)  · ha vuelto firmado, PENDIENTE DE REVISAR
-//   OK       (verde) · revisado y dado por bueno por un ADMIN
+//   BORRADOR (gris)   · generado o subido, todavía no ha salido
+//   ENVIADO  (ámbar)  · salió al S.O./verificador — esperando respuesta
+//   RECIBIDO (azul)   · ha vuelto firmado, PENDIENTE DE REVISAR
+//   OK       (verde)  · revisado y dado por bueno por un ADMIN
+// Desde el 12/11/2026 con las fichas de color de la casa (`.fx-chip-*`, papel crema:
+// loteFichaEstilo.js). El «recibido» pasa del cian al azul pizarra: sobre crema es
+// el que se lee como «hay algo nuevo que mirar».
 const ESTADOS_DOC = {
-    ok:       { label: 'OK ✓',    cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' },
-    recibido: { label: 'Recibido', cls: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30' },
-    enviado:  { label: 'Enviado',  cls: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
-    borrador: { label: 'Borrador', cls: 'bg-white/[0.04] text-white/50 border-white/15' },
+    ok:       { label: 'OK',       cls: 'fx-chip-ok' },
+    recibido: { label: 'Por revisar', cls: 'fx-chip-pizarra' },
+    enviado:  { label: 'Enviado',  cls: 'fx-chip-ambar' },
+    borrador: { label: 'Borrador', cls: 'fx-chip-borde' },
 };
 
 export const estadoDeDoc = (doc) => {
@@ -59,36 +66,24 @@ export const estadoDeDoc = (doc) => {
 
 // Un papel que llega de FUERA y no se firma (plan, informes, dictamen, certificado
 // CAE) no es un "borrador": está recibido y guardado, y no le queda ningún paso.
-const GUARDADO = { label: 'Guardado', cls: 'bg-emerald-500/[0.06] text-emerald-400/80 border-emerald-500/25' };
+const GUARDADO = { label: 'Guardado', cls: 'fx-chip-ok' };
 
-// El icono de un documento, en una baldosa del color de su estado: de un vistazo
-// se ve qué está bien (verde), qué ha vuelto (cian), qué salió (ámbar) y qué falta.
+// El icono de un documento, en una baldosa del color de su estado.
 const TONO_ICONO = {
-    ok: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
-    recibido: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/25',
-    enviado: 'bg-amber-500/10 text-amber-300 border-amber-500/25',
-    borrador: 'bg-white/[0.04] text-white/55 border-white/10',
-    falta: 'bg-amber-500/[0.06] text-amber-300/80 border-amber-500/25',
-    vacio: 'bg-white/[0.02] text-white/35 border-white/10',
+    ok: 'fx-tile-verde', recibido: 'lt-tile-azul', enviado: 'fx-tile-ambar',
+    borrador: 'fx-tile-crema', falta: 'fx-tile-ambar', vacio: 'fx-tile-gris',
 };
 const IconoDoc = ({ tono = 'borrador', mas = false }) => (
-    <span className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${TONO_ICONO[tono] || TONO_ICONO.borrador}`}>
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d={mas
-                ? 'M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'
-                : 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'} />
-        </svg>
+    <span className={`fx-tile ${TONO_ICONO[tono] || TONO_ICONO.borrador}`}>
+        <Ico n={mas ? 'mas' : 'pdf'} size={18} />
     </span>
 );
-
-// Botón pequeño y discreto dentro de una fila (Ver, Abrir, Sustituir).
-const ENLACE_FILA = 'px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-white/60 hover:text-white hover:bg-white/[0.06] transition-all';
 
 const EstadoPill = ({ doc }) => {
     const estado = estadoDeDoc(doc);
     const cfg = SLOTS[doc?.tipo];
     const e = (estado === 'borrador' && cfg && !cfg.firmable && !cfg.importe) ? GUARDADO : ESTADOS_DOC[estado];
-    return <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shrink-0 ${e.cls}`}>{e.label}</span>;
+    return <span className={`fx-chip ${e.cls}`}>{e.label}</span>;
 };
 
 // Documentos que pueden volver firmados (los que salen a firmar).
@@ -96,135 +91,129 @@ const TIPOS_FIRMABLES = ['solicitud_verificacion', 'anexo_i_listado', 'ficha_res
 const esFirmable = (doc) => TIPOS_FIRMABLES.includes(doc?.tipo);
 
 // Fila de un documento. Cuando ha vuelto firmado, el firmado se pinta como una
-// SUBFILA propia en cian/verde: son dos cosas distintas (lo que mandamos y lo que
-// nos devolvieron) y antes se confundían en un solo enlace.
+// SUBFILA propia: son dos cosas distintas (lo que mandamos y lo que nos
+// devolvieron) y antes se confundían en un solo enlace.
 const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, onValidar = null,
     onMarcarPagada = null, onJustificantePago = null, onReemplazar = null, ocupado = false, children = null }) => {
     const fecha = fmtFecha(doc.sent_at) || fmtFecha(doc.uploaded_at);
     const estado = estadoDeDoc(doc);
     return (
-        <div className={`rounded-xl border transition-colors ${
-            estado === 'ok' ? 'bg-emerald-500/[0.04] border-emerald-500/20'
-                : estado === 'recibido' ? 'bg-cyan-500/[0.04] border-cyan-500/20'
-                    : 'bg-white/[0.02] border-white/[0.05] hover:border-white/10'}`}>
-            <div className="flex items-center gap-3 px-3 py-2.5">
+        <div className={`lt-doc ${estado === 'ok' ? 'lt-doc-ok' : estado === 'recibido' ? 'lt-doc-recibido' : ''}`}>
+            <div className="lt-doc-fila">
                 <IconoDoc tono={estado} />
-                <div className="min-w-0 flex-1">
-                    <p className="text-[12px] font-bold text-white/90 leading-snug line-clamp-2 break-words">{doc.label || doc.file_name}</p>
-                    <p className="text-[10px] text-white/45">
-                        {[doc.sent_at ? `Enviado ${fecha}` : (fecha ? `Subido ${fecha}` : null),
+                <div className="lt-doc-txt">
+                    <b>{doc.label || doc.file_name}</b>
+                    <small>
+                        {[doc.sent_at ? `Enviado el ${fecha}` : (fecha ? `Subido el ${fecha}` : null),
                           doc.importe ? eur(doc.importe) : null].filter(Boolean).join(' · ') || '—'}
-                    </p>
+                    </small>
                     {/* Lo que se le RECLAMÓ al S.O. sobre este documento. Va aquí y no
                         solo en el cuadro de mando porque es donde se mira la factura:
                         sin esta línea, un pago ya pedido no se distinguía de uno que
                         nunca salió. Una vez COBRADA pierde el ámbar de "pendiente":
                         pasa a ser el historial de cómo se llegó a cobrar. */}
                     {doc.pago_solicitado_at && (
-                        <p className={`text-[10px] ${doc.pagado_at ? 'text-white/40' : 'text-amber-400/80'}`}>
-                            ✓ Pago pedido {fmtFecha(doc.pago_solicitado_at)}
+                        <small className={doc.pagado_at ? '' : 'lt-ambar-txt'}>
+                            Pago pedido el {fmtFecha(doc.pago_solicitado_at)}
                             {doc.pago_solicitado_to ? ` a ${doc.pago_solicitado_to}` : ''}
                             {Number(doc.pago_solicitado_veces) > 1 ? ` · ${doc.pago_solicitado_veces} veces` : ''}
-                        </p>
+                        </small>
                     )}
                 </div>
-                <EstadoPill doc={doc} />
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="lt-doc-der">
+                    <EstadoPill doc={doc} />
+                    {/* Columnas FIJAS (Ver · sustituir · quitar): en todas las filas los
+                        botones caen en el mismo sitio, falte el que falte. */}
+                    <div className="lt-doc-btns">
                     {doc.draft_link && (
-                        <a href={doc.draft_link} target="_blank" rel="noopener noreferrer" className={ENLACE_FILA}>Ver</a>
+                        <a href={doc.draft_link} target="_blank" rel="noopener noreferrer" className="fx-btn fx-btn-sec fx-btn-peq lt-c-ver">Ver</a>
                     )}
                     {/* Reemplazar es gestionar ESTE documento, así que va en su fila y
                         no como un botón suelto de la fase. */}
                     {onReemplazar && (
-                        <label title="Sustituir por otro PDF"
-                            className={`${ENLACE_FILA} ${ocupado ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
-                            ↻
-                            <input type="file" accept="application/pdf" className="hidden" disabled={ocupado}
+                        <label title="Sustituir por otro PDF" aria-label="Sustituir por otro PDF"
+                            className="fx-ico-btn lt-subir lt-c-rep" aria-disabled={ocupado || undefined}>
+                            <Ico n="reintentar" size={18} />
+                            <input type="file" accept="application/pdf" disabled={ocupado}
                                 onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onReemplazar(f); }} />
                         </label>
                     )}
                     {onBorrar && (
-                        <button type="button" onClick={onBorrar} title="Quitar del lote" aria-label="Quitar del lote"
-                            className="w-7 h-7 rounded-lg text-[12px] text-white/35 hover:text-red-400 hover:bg-red-500/10 transition-all">✕</button>
+                        <button type="button" onClick={onBorrar} title="Quitar del lote" aria-label="Quitar del lote" className="fx-ico-btn lt-c-del">
+                            <Ico n="x" size={18} />
+                        </button>
                     )}
+                    </div>
                 </div>
             </div>
 
             {/* Lo que la app ha LEÍDO de este documento (ahorros, nº de dictamen,
                 códigos CAE…) va pegado a él: es su gestión, no una tarea de la fase. */}
-            {children && <div className="mx-3 mb-2.5 space-y-1.5">{children}</div>}
+            {children && <div className="lt-doc-extra">{children}</div>}
 
             {/* Lo que nos han DEVUELTO firmado, en su propia línea. */}
             {doc.signed_link && (
-                <div className={`mx-3 mb-2.5 rounded-lg border px-2.5 py-2 flex items-center gap-2 flex-wrap ${
-                    estado === 'ok' ? 'bg-emerald-500/[0.07] border-emerald-500/25' : 'bg-cyan-500/[0.07] border-cyan-500/25'}`}>
-                    <span className={`text-[10px] font-black uppercase tracking-wider ${estado === 'ok' ? 'text-emerald-400' : 'text-cyan-300'}`}>
-                        ↩ Firmado recibido
-                    </span>
-                    <span className="text-[10px] text-white/45">{fmtFecha(doc.signed_at) || ''}</span>
-                    <a href={doc.signed_link} target="_blank" rel="noopener noreferrer" className={ENLACE_FILA}>Abrir</a>
+                <div className={`lt-doc-sub ${estado === 'ok' ? 'lt-doc-sub-ok' : 'lt-doc-sub-azul'}`}>
+                    <b>Firmado recibido</b>
+                    <span>{fmtFecha(doc.signed_at) || ''}</span>
+                    <a href={doc.signed_link} target="_blank" rel="noopener noreferrer" className="fx-btn fx-btn-sec fx-btn-peq">Abrir</a>
                     {/* Sustituir el firmado es gestión DE ESTE firmado: va en su línea. */}
                     {onSubirFirmado && (
-                        <label title="Sustituir el firmado por otro PDF"
-                            className={`${ENLACE_FILA} ${ocupado ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
-                            ↻ Sustituir
-                            <input type="file" accept="application/pdf" className="hidden" disabled={ocupado}
+                        <label title="Sustituir el firmado por otro PDF" className="fx-link lt-subir" aria-disabled={ocupado || undefined}>
+                            Sustituir
+                            <input type="file" accept="application/pdf" disabled={ocupado}
                                 onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onSubirFirmado(f); }} />
                         </label>
                     )}
-                    <div className="flex-1" />
+                    <div style={{ flex: 1 }} />
                     {doc.validado_at ? (
-                        <span className="text-[10px] text-emerald-400/80 font-bold">
-                            OK{doc.validado_por ? ` · ${doc.validado_por}` : ''}
+                        <span>
+                            <b>OK</b>{doc.validado_por ? ` · ${doc.validado_por}` : ''}
                             {onValidar && (
-                                <button type="button" onClick={() => onValidar(false)} disabled={ocupado}
-                                    className="ml-2 text-white/40 hover:text-amber-400 transition-colors">quitar</button>
+                                <button type="button" onClick={() => onValidar(false)} disabled={ocupado} className="fx-link" style={{ marginLeft: 8 }}>quitar</button>
                             )}
                         </span>
                     ) : onValidar ? (
-                        <button type="button" onClick={() => onValidar(true)} disabled={ocupado}
-                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-emerald-500/35 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40 transition-all">
-                            ✓ Marcar OK
+                        <button type="button" onClick={() => onValidar(true)} disabled={ocupado} className="fx-btn fx-btn-pri fx-btn-peq">
+                            <Ico n="check" size={16} />Dar por bueno
                         </button>
                     ) : null}
                 </div>
             )}
 
             {/* El COBRO de una factura, en su propia línea. Es el final de su vida
-                —subida → remitida → reclamada → PAGADA— y hasta ahora no se podía
-                anotar: una factura ya cobrada seguía figurando como pendiente y el
-                cuadro de mando se la volvía a reclamar al S.O. El justificante vive
-                con el resto del papeleo del lote, no en un correo. */}
+                —subida → remitida → reclamada → PAGADA—: una factura ya cobrada no
+                puede seguir figurando como pendiente. El justificante vive con el
+                resto del papeleo del lote, no en un correo. */}
             {doc.pagado_at && (
-                <div className="mx-3 mb-2.5 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.07] px-2.5 py-2 flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">€ Pagada</span>
-                    <span className="text-[10px] text-white/45">{fmtFecha(doc.pagado_at)}</span>
+                <div className="lt-doc-sub lt-doc-sub-ok">
+                    <b>Pagada</b>
+                    <span>{fmtFecha(doc.pagado_at)}</span>
                     {doc.pago_justificante_link ? (
-                        <a href={doc.pago_justificante_link} target="_blank" rel="noopener noreferrer" className={ENLACE_FILA}>
+                        <a href={doc.pago_justificante_link} target="_blank" rel="noopener noreferrer" className="fx-btn fx-btn-sec fx-btn-peq">
                             Ver justificante
                         </a>
                     ) : onJustificantePago ? (
                         <BotonSubir disabled={ocupado} onFile={onJustificantePago}>
-                            {ocupado ? 'Subiendo…' : '↑ Justificante de pago'}
+                            {ocupado ? 'Subiendo…' : 'Subir el justificante de pago'}
                         </BotonSubir>
                     ) : null}
-                    <div className="flex-1" />
+                    <div style={{ flex: 1 }} />
                     {doc.pago_justificante_link && onJustificantePago && (
                         <BotonSubir disabled={ocupado} onFile={onJustificantePago}>
-                            {ocupado ? 'Subiendo…' : '↻ Reemplazar'}
+                            {ocupado ? 'Subiendo…' : 'Reemplazar'}
                         </BotonSubir>
                     )}
                     {onMarcarPagada && (
-                        <button type="button" onClick={() => onMarcarPagada(false)} disabled={ocupado}
-                            className="text-[10px] text-white/40 hover:text-amber-400 disabled:opacity-40 transition-colors">quitar</button>
+                        <button type="button" onClick={() => onMarcarPagada(false)} disabled={ocupado} className="fx-link">quitar</button>
                     )}
                 </div>
             )}
 
             {(acciones || (onSubirFirmado && !doc.signed_link) || (!doc.pagado_at && (onMarcarPagada || onJustificantePago))) && (
-                <div className="px-3 pb-2.5 flex items-center gap-2 flex-wrap">
+                <div className="lt-doc-acc">
                     {onSubirFirmado && !doc.signed_link && (
-                        <BotonSubir disabled={ocupado} onFile={onSubirFirmado}>↑ Subir firmado</BotonSubir>
+                        <BotonSubir disabled={ocupado} onFile={onSubirFirmado}>Subir el firmado</BotonSubir>
                     )}
                     {/* Dos caminos al mismo sitio: con el justificante delante se
                         sube (y eso ya la da por pagada — el papel es la prueba), y
@@ -232,13 +221,12 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                         S.O. avisa del pago antes de mandar el resguardo. */}
                     {!doc.pagado_at && onJustificantePago && (
                         <BotonSubir disabled={ocupado} onFile={onJustificantePago} destacado>
-                            {ocupado ? 'Subiendo…' : '↑ Justificante de pago'}
+                            {ocupado ? 'Subiendo…' : 'Subir el justificante de pago'}
                         </BotonSubir>
                     )}
                     {!doc.pagado_at && onMarcarPagada && (
-                        <button type="button" onClick={() => onMarcarPagada(true)} disabled={ocupado}
-                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-emerald-500/35 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40 transition-all">
-                            € Marcar pagada
+                        <button type="button" onClick={() => onMarcarPagada(true)} disabled={ocupado} className="fx-btn fx-btn-sec fx-btn-peq">
+                            <Ico n="euro" size={16} />Marcar pagada
                         </button>
                     )}
                     {acciones}
@@ -248,14 +236,12 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
     );
 };
 
-// Botón-etiqueta para subir un PDF a un slot.
+// Botón-etiqueta para subir un PDF a un slot. `destacado` = la acción principal
+// (naranja): es lo que hay que traer AHORA.
 const BotonSubir = ({ children, disabled, onFile, destacado = false }) => (
-    <label className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold border whitespace-nowrap shrink-0 transition-all ${
-        disabled ? 'opacity-40 cursor-not-allowed border-white/10 text-white/40'
-            : destacado ? 'cursor-pointer border-brand bg-brand text-black hover:brightness-110'
-                : 'cursor-pointer border-white/15 bg-white/[0.03] text-white/75 hover:text-white hover:border-brand/50 hover:bg-brand/10'}`}>
-        {children}
-        <input type="file" accept="application/pdf" className="hidden" disabled={disabled}
+    <label className={`fx-btn ${destacado ? 'fx-btn-pri' : 'fx-btn-sec'} fx-btn-peq lt-subir`} aria-disabled={disabled || undefined}>
+        <Ico d={ICO_SUBIR} size={16} />{children}
+        <input type="file" accept="application/pdf" disabled={disabled}
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
     </label>
 );
@@ -306,8 +292,8 @@ function useArrastreDeFicheros() {
     return arrastrando;
 }
 
-// Clases del resaltado de la fase que tiene el puntero encima.
-const RESALTE = ['border-brand', 'bg-brand/[0.10]', 'ring-2', 'ring-brand/40'];
+// Clase del resaltado de la fase (o la fila) que tiene el puntero encima.
+const RESALTE = ['lt-resalte'];
 
 const pdfsDe = (lista) => Array.from(lista || []).filter(f => /\.pdf$/i.test(f.name));
 
@@ -315,44 +301,39 @@ const pdfsDe = (lista) => Array.from(lista || []).filter(f => /\.pdf$/i.test(f.n
 // selector — arrastrar no siempre es posible (un adjunto que solo se puede
 // descargar, un portátil con panel táctil).
 const PistaSuelta = ({ arrastrando, texto, onFiles }) => (
-    <label className={`flex items-center gap-2 rounded-xl border border-dashed px-3 py-2 cursor-pointer transition-all ${
-        arrastrando ? 'border-brand/60 bg-brand/[0.06] text-brand' : 'border-white/15 text-white/55 hover:border-brand/40 hover:text-white/80 hover:bg-white/[0.02]'}`}>
-        <span className="text-[13px] shrink-0">{arrastrando ? '⬇' : '↓'}</span>
-        <span className="text-[11px] font-semibold flex-1 min-w-0">
-            {arrastrando ? 'Suéltalos en cualquier parte de este bloque' : texto}
-        </span>
-        <span className="text-[10px] font-bold text-white/50 shrink-0 underline underline-offset-2">o elígelos</span>
-        <input type="file" accept="application/pdf" multiple className="hidden"
+    <label className={`lt-pista lt-subir ${arrastrando ? 'lt-pista-activa' : ''}`}>
+        <Ico n="abajo" size={18} />
+        <span>{arrastrando ? 'Suéltalos en cualquier parte de este paso' : texto}</span>
+        <u>o elígelos</u>
+        <input type="file" accept="application/pdf" multiple
             onChange={(e) => { const fs = pdfsDe(e.target.files); e.target.value = ''; if (fs.length) onFiles(fs); }} />
     </label>
 );
 
-// Botón de acción de una fase (abre un modal del lote).
-const BotonAccion = ({ children, onClick, disabled, title, tono = 'brand' }) => (
+// Botón de acción de una fase (abre un modal del lote). `tono`: 'pri' = la acción
+// principal del paso (naranja, UNA), 'amber' = algo que repara (requerimiento),
+// el resto, secundario.
+const BotonAccion = ({ children, onClick, disabled, title, tono = 'sec' }) => (
     <button type="button" onClick={onClick} disabled={disabled} title={title}
-        className={`px-3.5 py-2 rounded-xl text-[11px] font-bold border transition-all disabled:opacity-35 disabled:cursor-not-allowed ${
-            tono === 'amber' ? 'border-amber-400/35 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
-                : 'border-brand/40 bg-brand/[0.12] text-brand hover:bg-brand/20 hover:border-brand/60'}`}>
+        className={`fx-btn ${tono === 'pri' ? 'fx-btn-pri' : 'fx-btn-sec'} fx-btn-peq`}>
+        {tono === 'amber' && <Ico n="alerta" size={16} />}
         {children}
     </button>
 );
 
 // Botón pequeño para una acción SOBRE un documento (enviarlo, reenviarlo). Va en
-// la fila del documento, con el mismo tamaño que "Subir firmado" o "Marcar OK".
-const BotonFila = ({ children, onClick, disabled, title }) => (
+// la fila del documento, con el mismo tamaño que "Subir firmado" o "Dar por bueno".
+const BotonFila = ({ children, onClick, disabled, title, pri = false }) => (
     <button type="button" onClick={onClick} disabled={disabled} title={title}
-        className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-brand/40 bg-brand/[0.12] text-brand hover:bg-brand/20 disabled:opacity-40 transition-all">
+        className={`fx-btn ${pri ? 'fx-btn-pri' : 'fx-btn-sec'} fx-btn-peq`}>
         {children}
     </button>
 );
 
 // ─── Un documento que el trámite ESPERA y todavía no está ────────────────────
-// Antes cada documento pendiente era un botón "↑ Subir X" suelto entre las
-// acciones de la fase —mezclado con "Generar…" o "Comprobar…"—, así que no se
-// distinguía lo que hay que HACER de lo que hay que TRAER, ni se veía qué papeles
-// faltaban. Ahora cada documento esperado tiene su fila esté o no esté: si falta,
-// la fila es un hueco punteado con su botón de subir, y se le puede soltar el PDF
-// encima. Al subirlo, el hueco pasa a ser la fila del documento en el mismo sitio.
+// Cada documento esperado tiene su fila esté o no esté: si falta, la fila es un
+// hueco punteado con su botón de subir, y se le puede soltar el PDF encima. Al
+// subirlo, el hueco pasa a ser la fila del documento en el mismo sitio.
 //
 // `requerido` cuenta como "falta" en la cabecera de la fase; `opcional` dice que
 // puede no llegar nunca (inexactitudes, requerimientos); sin ninguno de los dos,
@@ -360,7 +341,7 @@ const BotonFila = ({ children, onClick, disabled, title }) => (
 // `onFile` null = no se sube: se genera con una acción de la fase (y lo dice `hint`).
 const Hueco = ({ label, hint = null, requerido = false, opcional = false, siguiente = false,
     ocupado = false, textoOcupado = 'Subiendo…', arrastrando = false, onFile = null,
-    compacto = false, textoBoton = '↑ Subir PDF', children = null }) => {
+    compacto = false, textoBoton = 'Subir PDF', children = null }) => {
     const dnd = onFile ? {
         // La suelta sobre la FILA gana a la de la fase (que es para los firmados):
         // aquí se sabe exactamente qué documento es.
@@ -374,39 +355,48 @@ const Hueco = ({ label, hint = null, requerido = false, opcional = false, siguie
         },
     } : {};
     const estado = requerido
-        ? (siguiente ? { t: 'Falta', c: 'bg-amber-500/10 text-amber-400 border-amber-500/30' }
-            : { t: 'Falta', c: 'bg-white/[0.04] text-white/55 border-white/15' })
-        : opcional ? { t: 'Opcional', c: 'bg-white/[0.02] text-white/45 border-white/10' }
-            : { t: 'Pendiente', c: 'bg-white/[0.02] text-white/50 border-white/10' };
+        ? { t: 'Falta', c: siguiente ? 'fx-chip-ambar' : 'fx-chip-gris' }
+        : opcional ? { t: 'Opcional', c: 'fx-chip-borde' } : { t: 'Pendiente', c: 'fx-chip-gris' };
     if (compacto) {
         return (
-            <div {...dnd} className={`rounded-xl border border-dashed px-3 py-2 flex items-center gap-2 transition-all ${
-                arrastrando && onFile ? 'border-brand/40' : 'border-white/[0.12] hover:border-white/20'}`}>
-                <span className="text-[11px] text-white/55 flex-1 min-w-0 truncate">{label}</span>
-                {onFile && (
-                    <BotonSubir disabled={ocupado} onFile={onFile}>{ocupado ? textoOcupado : textoBoton}</BotonSubir>
-                )}
+            <div {...dnd} className="lt-hueco lt-hueco-peq">
+                {/* Mismo esqueleto que las demás filas (icono · texto · chip · botones),
+                    solo que más bajo: así no descuadra la columna. */}
+                <div className="lt-doc-fila">
+                    <IconoDoc tono="vacio" mas />
+                    <div className="lt-doc-txt"><b>{label}</b></div>
+                    <div className="lt-doc-der">
+                        <span className={`fx-chip ${estado.c}`}>{estado.t}</span>
+                        <div className="lt-doc-btns">
+                            {onFile && (
+                                <BotonSubir disabled={ocupado} onFile={onFile}>{ocupado ? textoOcupado : textoBoton}</BotonSubir>
+                            )}
+                        </div>
+                    </div>
+                </div>
             </div>
         );
     }
     return (
-        <div {...dnd} className={`rounded-xl border border-dashed transition-all ${
-            arrastrando && onFile ? 'border-brand/50 bg-brand/[0.04]'
-                : siguiente ? 'border-amber-500/40 bg-amber-500/[0.04]' : 'border-white/[0.12] hover:border-white/20'}`}>
-            <div className="flex items-center gap-3 px-3 py-2.5">
+        <div {...dnd} className={`lt-hueco ${siguiente ? 'lt-hueco-sig' : ''}`}>
+            <div className="lt-doc-fila">
                 <IconoDoc tono={siguiente ? 'falta' : 'vacio'} mas />
-                <div className="min-w-0 flex-1">
-                    <p className={`text-[12px] font-bold leading-snug line-clamp-2 break-words ${siguiente ? 'text-white/90' : 'text-white/65'}`}>{label}</p>
-                    {hint && <p className="text-[10px] leading-snug text-white/45">{arrastrando && onFile ? 'Suéltalo aquí' : hint}</p>}
+                <div className="lt-doc-txt">
+                    <b>{label}</b>
+                    {hint && <small>{arrastrando && onFile ? 'Suéltalo aquí' : hint}</small>}
                 </div>
-                <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shrink-0 ${estado.c}`}>{estado.t}</span>
-                {onFile && (
-                    <BotonSubir disabled={ocupado} onFile={onFile} destacado={siguiente}>
-                        {ocupado ? textoOcupado : textoBoton}
-                    </BotonSubir>
-                )}
+                <div className="lt-doc-der">
+                    <span className={`fx-chip ${estado.c}`}>{estado.t}</span>
+                    <div className="lt-doc-btns">
+                    {onFile && (
+                        <BotonSubir disabled={ocupado} onFile={onFile} destacado={siguiente}>
+                            {ocupado ? textoOcupado : textoBoton}
+                        </BotonSubir>
+                    )}
+                    </div>
+                </div>
             </div>
-            {children && <div className="px-3 pb-2.5 flex items-center gap-2 flex-wrap">{children}</div>}
+            {children && <div className="lt-doc-acc">{children}</div>}
         </div>
     );
 };
@@ -436,7 +426,9 @@ function agruparPorMensaje(actuaciones, mensajesDe, total) {
     });
 }
 
-export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, acciones = {} }) {
+// `faseAbrir` = { n, k }: la ficha pide abrir la fase n (al pulsar un paso de la
+// cabecera o «Lo siguiente»); `k` cambia en cada petición.
+export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, acciones = {}, faseAbrir = null }) {
     const { showConfirm, showAlert } = useModal();
     const [subiendo, setSubiendo] = useState(null);   // slot en curso
     const [error, setError] = useState('');
@@ -479,6 +471,11 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         faseALaVista.current = null;
         refsFase.current[n]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, [faseAbierta]);
+    useEffect(() => {
+        if (!faseAbrir?.n) return;
+        faseALaVista.current = faseAbrir.n;
+        setFaseAbierta(faseAbrir.n);
+    }, [faseAbrir?.k]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
     const p = useMemo(() => analizarProceso(lote), [lote]);
@@ -639,6 +636,17 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         const seguir = await showConfirm(
             'Solicitud de verificación guardada en el lote.\n\n¿Generamos ahora el Anexo I y las fichas RES para mandárselos al Sujeto Obligado? La solicitud irá ya incluida.',
             'Solicitud subida', 'success'
+        );
+        if (seguir && acciones.abrirAnexo) acciones.abrirAnexo();
+    };
+
+    // Fase 1 — la solicitud llega de beCAE (sola al consultar o con el botón): se
+    // pregunta si se manda ya al S.O. o se revisa antes. «Sí» abre el MISMO envío de
+    // siempre (Anexo I + fichas, con la solicitud incluida); nada sale sin ese clic.
+    const proponerEnvioSo = async () => {
+        const seguir = await showConfirm(
+            'Ya está en el lote la solicitud de beCAE, la del verificador.\n\n¿La enviamos ahora al Sujeto Obligado con el Anexo I y las fichas para que los firme, o prefieres revisarla antes?',
+            'Solicitud traída de beCAE', 'success', { confirmar: 'Sí, enviarla al S.O.', cancelar: 'Revisarla antes' }
         );
         if (seguir && acciones.abrirAnexo) acciones.abrirAnexo();
     };
@@ -1331,84 +1339,51 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         const tareasVisibles = (tareas || []).filter(Boolean);
         const docsVisibles = (docs || []).filter(Boolean);
         return (
-            <div key={`fase_${f.n}`} {...dnd} ref={el => { refsFase.current[f.n] = el; }}
-                className={`rounded-2xl border transition-all scroll-mt-2 ${abierta ? 'p-4' : 'px-4 py-3'} ${
-                soltar && arrastrando ? 'border-dashed border-brand/45 bg-brand/[0.05]'
-                    : f.hecha ? 'border-emerald-500/20 bg-emerald-500/[0.03] hover:border-emerald-500/35'
-                        : esActual ? 'border-brand/35 bg-brand/[0.05] shadow-[0_0_0_1px_rgba(255,160,0,0.06)]'
-                            : 'border-white/[0.08] bg-white/[0.015] hover:border-white/15 hover:bg-white/[0.025]'}`}>
-                <button type="button"
+            <section key={`fase_${f.n}`} {...dnd} ref={el => { refsFase.current[f.n] = el; }}
+                className={`lt-fase ${soltar && arrastrando ? 'lt-fase-suelta' : f.hecha ? 'lt-fase-hecha' : esActual ? 'lt-fase-actual' : ''} ${bloqueada ? 'lt-fase-bloq' : ''}`}>
+                <button type="button" className="lt-fase-cab"
                     onClick={() => {
                         if (!abierta) faseALaVista.current = f.n;
                         setFaseAbierta(abierta ? null : f.n);
                     }}
-                    aria-expanded={abierta}
-                    className={`w-full flex items-center gap-3 text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${abierta ? 'mb-4' : ''}`}>
-                    <span className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${
-                        f.hecha ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/35'
-                            : esActual ? 'bg-brand text-black'
-                                : 'bg-white/[0.05] text-white/50 border border-white/[0.12]'}`}>
-                        {f.hecha ? '✓' : f.n}
+                    aria-expanded={abierta}>
+                    <span className="lt-bola">{f.hecha ? <Ico n="check" size={15} sw={2.6} /> : f.n}</span>
+                    <span className="lt-fase-tit">{f.titulo}</span>
+                    <span className="lt-fase-chips">
+                        {porRevisar > 0 && <span className="fx-chip fx-chip-pizarra">{porRevisar} por revisar</span>}
+                        {!abierta && faltan > 0 && !bloqueada && <span className="fx-chip fx-chip-ambar">Falta{faltan > 1 ? 'n' : ''} {faltan}</span>}
+                        {!abierta && pendiente && !(faltan > 0) && <span className="fx-chip fx-chip-ambar">Pendiente</span>}
+                        {soltar && arrastrando && <span className="fx-chip fx-chip-tinta">Suelta aquí</span>}
+                        {esActual && !(soltar && arrastrando) && <span className="fx-chip fx-chip-tinta">Ahora</span>}
+                        {f.hecha && !esActual && <span className="fx-chip fx-chip-ok">Hecho</span>}
+                        {bloqueada && <span className="fx-chip fx-chip-gris" title="Aún no le toca"><Ico d={ICO_CANDADO} />Aún no</span>}
+                        {!abierta && (f.docs || []).length > 0 && !bloqueada && !f.hecha && (
+                            <span className="fx-chip fx-chip-borde">{f.docs.length} doc.</span>
+                        )}
                     </span>
-                    <p className={`text-[12px] font-black uppercase tracking-[0.12em] flex-1 min-w-0 truncate ${
-                        f.hecha ? 'text-emerald-400/90' : esActual ? 'text-white' : bloqueada ? 'text-white/45' : 'text-white/70'}`}>
-                        {f.titulo}
-                    </p>
-                    {porRevisar > 0 && (
-                        <span className="px-2 py-0.5 rounded-full border border-cyan-400/30 bg-cyan-500/10 text-[10px] font-bold text-cyan-300 shrink-0">
-                            {porRevisar} por revisar
-                        </span>
-                    )}
-                    {!abierta && faltan > 0 && !bloqueada && (
-                        <span className="px-2 py-0.5 rounded-full border border-amber-400/30 bg-amber-500/10 text-[10px] font-bold text-amber-300 shrink-0">
-                            Falta{faltan > 1 ? 'n' : ''} {faltan}
-                        </span>
-                    )}
-                    {!abierta && pendiente && !(faltan > 0) && (
-                        <span className="px-2 py-0.5 rounded-full border border-amber-400/30 bg-amber-500/10 text-[10px] font-bold text-amber-300 shrink-0">
-                            Pendiente
-                        </span>
-                    )}
-                    {!abierta && (f.docs || []).length > 0 && (
-                        <span className="hidden sm:inline text-[10px] text-white/45 shrink-0">{f.docs.length} doc.</span>
-                    )}
-                    {soltar && arrastrando && (
-                        <span className="text-[10px] font-black uppercase tracking-wider text-brand shrink-0">suelta aquí</span>
-                    )}
-                    {esActual && !(soltar && arrastrando) && (
-                        <span className="px-2 py-0.5 rounded-full bg-brand/15 border border-brand/40 text-[10px] font-black uppercase tracking-wider text-brand shrink-0">Ahora</span>
-                    )}
-                    {bloqueada && (
-                        <svg className="w-3.5 h-3.5 text-white/35 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                            aria-label="Aún no le toca">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                    )}
-                    <svg className={`w-4 h-4 text-white/45 shrink-0 transition-transform ${abierta ? 'rotate-180' : ''}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
+                    <Ico n="abajo" size={18} className="lt-flecha" />
                 </button>
                 {!abierta ? null : (
-                <div className="space-y-4 sm:pl-10">
+                <div className="lt-fase-cuerpo">
                     {/* El aviso de "aún no toca" NO impide actuar: los lotes de antes
                         de la app traen documentos de fuera y hay que poder
                         registrarlos igual. Se avisa, no se bloquea. */}
                     {bloqueada && (
-                        <p className="text-[11px] text-white/55 rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2">
-                            🔒 {f.bloqueo} <span className="text-white/40">Puedes registrar documentos igualmente.</span>
+                        <p className="lt-bloqueo">
+                            <Ico d={ICO_CANDADO} size={16} />
+                            <span>{f.bloqueo} Puedes registrar documentos igualmente.</span>
                         </p>
                     )}
                     {tareasVisibles.length > 0 && (
-                        <div className="space-y-2">
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Qué hacer</p>
-                            <div className="flex items-center gap-2 flex-wrap">{tareasVisibles}</div>
+                        <div>
+                            <p className="lt-sec">Qué hacer</p>
+                            <div className="lt-tareas">{tareasVisibles}</div>
                         </div>
                     )}
                     {docsVisibles.length > 0 && (
-                        <div className="space-y-2">
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Documentos</p>
-                            {docsVisibles}
+                        <div>
+                            <p className="lt-sec">Documentos</p>
+                            <div className="lt-docs">{docsVisibles}</div>
                         </div>
                     )}
                     {nota}
@@ -1417,7 +1392,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     )}
                 </div>
                 )}
-            </div>
+            </section>
         );
     };
 
@@ -1441,7 +1416,12 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         ['justificante_miteco', p.justificanteMiteco, true],
         ['certificado_cae', p.certificadoCae, true],
     ];
-    const sig4 = siguienteDe(f4, esp4);
+    // Con inexactitudes abiertas y sin informe, lo que toca es CONTESTARLAS (como dice
+    // «Lo siguiente» del Resumen): el naranja va a «Preparar N. REQUERIMIENTO» de la
+    // última ronda, no a subir un informe que aún no existe.
+    const contestar = p.inexactitudes.length > 0 && !p.informeVerificacion;
+    const rondaUltima = contestar ? Math.max(...p.inexactitudes.map(d => Number(String(d.key).split('_').pop()) || 1)) : null;
+    const sig4 = contestar ? null : siguienteDe(f4, esp4);
     const sig5 = siguienteDe(f5, esp5);
 
     // "Comprobar → Generar ZIP" del paquete de actuaciones: sale en la fase 3 (para
@@ -1453,38 +1433,27 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         const m = modo || modoPaquete;
         const listas = paquete.actuaciones.filter(a => a.ok);
         return (
-            <BotonAccion key={`zip_${m}`} tono={generado[m] ? 'brand' : 'amber'}
+            <BotonAccion key={`zip_${m}`} tono={generado[m] ? 'sec' : 'pri'}
                 onClick={() => generarPaquete(m, listas)}>
-                {generado[m] ? `↻ Volver a generar los ${generado[m]} ZIP` : `📦 Generar ${listas.length} ZIP${sufijo}`}
+                {generado[m] ? `Volver a generar los ${generado[m]} ZIP` : `Generar ${listas.length} ZIP${sufijo}`}
             </BotonAccion>
         );
     };
 
     return (
-        <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-                <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.2em]">
-                    Proceso del lote
-                    <span className="ml-2 normal-case tracking-normal font-semibold text-white/40">
-                        {p.fases.filter(x => x.hecha).length} de {p.fases.length} fases hechas
-                    </span>
-                </p>
-                {lote?.drive_folder_id && (
-                    <div className="flex items-center gap-2">
-                        <BotonCarpetaLocal loteId={lote.id} compacto onError={setError} />
-                        <a href={`https://drive.google.com/drive/folders/${lote.drive_folder_id}`} target="_blank" rel="noopener noreferrer"
-                            className="text-[10px] font-black uppercase tracking-widest text-brand/80 hover:text-brand transition-colors">
-                            Abrir carpeta Drive →
-                        </a>
-                    </div>
-                )}
+        <div>
+            {/* La carpeta local y la de Drive van en la cabecera de la ficha. */}
+            <div className="lt-fases-cab">
+                <p><b>{p.fases.filter(x => x.hecha).length} de {p.fases.length}</b> pasos hechos · se abre el que toca; pulsa otro para verlo.</p>
             </div>
 
             {/* beCAE en vivo (API de Marwen v1.6.0): en qué está el lote en el
                 verificador y el paso que toca, sin entrar en su web. Solo con
                 Marwen: con otro verificador no hay API a la que preguntar. */}
             {(api || /marwen/i.test(`${lote?.verificador?.razon_social || ''} ${lote?.verificador?.acronimo || ''}`)) && (
-                <BecaeEnVivo lote={lote} p={p} onChanged={onChanged} onTraerOferta={subirOferta} />
+                <div style={{ marginBottom: 12 }}>
+                    <BecaeEnVivo lote={lote} p={p} onChanged={onChanged} onTraerOferta={subirOferta} onSolicitudTraida={proponerEnvioSo} />
+                </div>
             )}
 
             {/* 1 · Solicitud al verificador.
@@ -1504,9 +1473,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     : 'Arrastra aquí la solicitud que devuelva firmada el S.O.',
                 faltan: p.solicitudOk ? 0 : 1,
                 tareas: [
-                    <BotonAccion key="sol" onClick={acciones.abrirSolicitud} disabled={!nExps}
+                    <BotonAccion key="sol" onClick={acciones.abrirSolicitud} disabled={!nExps} tono={!p.solicitud && !api ? 'pri' : 'sec'}
                         title={!nExps ? 'El lote no tiene expedientes' : 'Genera el formulario de solicitud'}>
-                        {p.solicitud || api ? '↻ Volver a generar la solicitud' : '📄 Generar la solicitud'}
+                        {p.solicitud || api ? 'Volver a generar la solicitud' : 'Generar la solicitud'}
                     </BotonAccion>,
                 ],
                 docs: [
@@ -1520,11 +1489,11 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         // buena en el mismo sitio.
                         accionesDoc: p.solicitud && !p.solicitudOk ? (
                             <>
-                                <span className="text-[10px] text-amber-300/90 font-bold">
-                                    ⚠ Esta es la que generó la app y no vale para el S.O.
+                                <span className="lt-msg lt-msg-ambar">
+                                    Esta es la que generó la app y no vale para el S.O.
                                 </span>
                                 <BotonSubir disabled={subiendo === 'solicitud_verificacion'} onFile={subirSolicitud} destacado>
-                                    {subiendo === 'solicitud_verificacion' ? 'Subiendo…' : '↑ Subir la descargada del verificador'}
+                                    {subiendo === 'solicitud_verificacion' ? 'Subiendo…' : 'Subir la descargada del verificador'}
                                 </BotonSubir>
                             </>
                         ) : null,
@@ -1532,10 +1501,10 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         // la referencia con la que se habla del lote (y con la que
                         // vuelve firmada: "Solicitud-0035-S06_fdo.pdf").
                         extra: api ? (
-                            <div className="flex items-center gap-2 flex-wrap rounded-lg border border-emerald-500/20 bg-emerald-500/[0.05] px-2.5 py-1.5">
-                                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400/80 shrink-0">⚡ Enviada por API</span>
-                                {api.num_solicitud && <span className="text-[11px] font-bold text-white/80">nº {api.num_solicitud}</span>}
-                                <span className="text-[9px] text-white/30">
+                            <div className="lt-dato lt-dato-ok">
+                                <b>Enviada por API</b>
+                                {api.num_solicitud && <span className="fx-mono">nº {api.num_solicitud}</span>}
+                                <span>
                                     {[fmtFecha(api.enviado_at), api.n_actuaciones ? `${api.n_actuaciones} actuaciones` : null,
                                       api.enviado_por].filter(Boolean).join(' · ')}
                                 </span>
@@ -1554,9 +1523,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 tareas: [
                     // Sin la solicitud DESCARGADA DEL VERIFICADOR no se manda nada al
                     // S.O.: es uno de los papeles que firma en esta ronda.
-                    <BotonAccion key="anexo" onClick={acciones.abrirAnexo} disabled={!nExps || !p.solicitudOk}
+                    <BotonAccion key="anexo" onClick={acciones.abrirAnexo} disabled={!nExps || !p.solicitudOk} tono={!p.soEnviado && p.solicitudOk ? 'pri' : 'sec'}
                         title={!p.solicitudOk ? 'Sube antes, en el paso 1, la Solicitud de Verificación descargada de la web del verificador' : ''}>
-                        {p.soEnviado ? '↻ Reenviar Anexo I y fichas al S.O.' : '✉ Preparar y enviar Anexo I y fichas al S.O.'}
+                        {p.soEnviado ? 'Reenviar el Anexo I y las fichas al S.O.' : 'Preparar y enviar el Anexo I y las fichas al S.O.'}
                     </BotonAccion>,
                     p.soEnviado ? (
                         <BotonAccion key="req" onClick={acciones.abrirRequerimiento} tono="amber">
@@ -1569,7 +1538,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     : [<Hueco key="hueco_anexo" label="Anexo I (Cesión S.O.) y fichas RES"
                         hint="Se generan con «Preparar y enviar Anexo I y fichas». Cuando vuelvan firmados, suéltalos en este bloque." />],
                 nota: p.soEnviado && !p.soFirmado
-                    ? <p className="text-[10px] text-white/30">Enviado. Esperando la firma del Sujeto Obligado.</p> : null,
+                    ? <p className="lt-nota">Enviado. Esperando la firma del Sujeto Obligado.</p> : null,
             })}
 
             {/* 3 · Oferta de verificación.
@@ -1590,7 +1559,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 faltan: p.oferta ? 0 : 1,
                 tareas: canSeeMargin ? [
                     <BotonAccion key="pq" onClick={() => pedirPaquete('expediente', true)}>
-                        ⌕ Comprobar el paquete E1-E5 para beCAE
+                        Comprobar el paquete E1-E5 para beCAE
                     </BotonAccion>,
                     generarZip('expediente', ' en los expedientes'),
                 ] : null,
@@ -1600,8 +1569,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         siguiente: p.faseActual === 3,
                         hint: 'La manda el verificador. Después se envía al S.O. para que la firme.',
                         accionesDoc: p.oferta && !p.ofertaFirmada ? (
-                            <BotonFila onClick={() => setDocAEnviar(p.oferta)}>
-                                {p.ofertaEnviada ? '↻ Reenviar para firma' : '✉ Enviar al S.O. para firma'}
+                            <BotonFila onClick={() => setDocAEnviar(p.oferta)} pri={!p.ofertaEnviada}>
+                                {p.ofertaEnviada ? 'Reenviar para firma' : 'Enviar al S.O. para que la firme'}
                             </BotonFila>
                         ) : null,
                     }),
@@ -1630,41 +1599,44 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         const leido = d.inexactitudes;
                         return (
                             <Fila key={d.key} doc={d} {...propsFila(d)}>
-                                <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/[0.04] px-2.5 py-1.5 space-y-1">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="text-[10px] font-black text-cyan-300/90">
+                                <div className={`lt-dato ${leido ? '' : 'lt-dato-ambar'}`}>
+                                    <b>
                                             {leido
                                                 ? `${leido.items?.length || 0} inexactitud${leido.items?.length === 1 ? '' : 'es'} → incidencias en sus expedientes`
                                                 : 'Sin registrar como incidencias'}
-                                        </span>
-                                        <div className="flex-1" />
+                                    </b>
+                                    <span className="lt-empuja">
                                         <BotonFila onClick={() => releerInexactitudes(d)} disabled={!!leyendoInex}
                                             title="Leer el informe y registrar cada inexactitud como incidencia de su expediente (no duplica)">
-                                            {leyendoInex === d.key ? 'Leyendo…' : (leido ? '↻ Volver a leer' : '⌕ Registrar incidencias')}
+                                            {leyendoInex === d.key ? 'Leyendo…' : (leido ? 'Volver a leer' : 'Registrar las incidencias')}
                                         </BotonFila>
-                                        <BotonFila onClick={() => prepararRequerimiento(ronda)} disabled={!!preparandoReq}
+                                        <BotonFila onClick={() => prepararRequerimiento(ronda)} disabled={!!preparandoReq} pri={ronda === rondaUltima}
                                             title={`Copiar lo ya corregido a «${ronda}. REQUERIMIENTO», hacer el ZIP y decir qué falta`}>
-                                            {preparandoReq === ronda ? 'Preparando…' : `📁 Preparar ${ronda}. REQUERIMIENTO`}
+                                            {preparandoReq === ronda ? 'Preparando…' : `Preparar ${ronda}. REQUERIMIENTO`}
                                         </BotonFila>
-                                    </div>
-                                    {(leido?.items || []).map(it => (
-                                        <p key={it.n} className="text-[9px] text-white/40 leading-snug">
-                                            <span className="font-black text-white/55">nº{it.n}</span>
-                                            {it.actuaciones ? <span className="text-white/30"> · act. {it.actuaciones}</span> : null}
-                                            {' · '}{it.hecho}
-                                        </p>
-                                    ))}
-                                    {(leido?.sin_casar || []).map(s => (
-                                        <p key={`sc_${s.n}`} className="text-[9px] text-amber-300/70">nº{s.n}: {s.motivo}</p>
-                                    ))}
+                                    </span>
+                                    {((leido?.items || []).length > 0 || (leido?.sin_casar || []).length > 0) && (
+                                        <ul className="lt-dato-lista" style={{ flexBasis: '100%' }}>
+                                            {(leido?.items || []).map(it => (
+                                                <li key={it.n}>
+                                                    <b>nº{it.n}</b>
+                                                    {it.actuaciones ? <> · act. {it.actuaciones}</> : null}
+                                                    {' · '}{it.hecho}
+                                                </li>
+                                            ))}
+                                            {(leido?.sin_casar || []).map(s => (
+                                                <li key={`sc_${s.n}`} className="lt-ambar-txt">nº{s.n}: {s.motivo}</li>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </div>
                             </Fila>
                         );
                     }),
                     <Hueco key="hueco_inex" compacto={p.inexactitudes.length > 0} opcional
-                        label={p.inexactitudes.length ? '+ Otro informe de inexactitudes' : 'Informe de inexactitudes'}
+                        label={p.inexactitudes.length ? 'Otro informe de inexactitudes' : 'Informe de inexactitudes'}
                         hint="Solo si el verificador detecta inexactitudes. Puede haber varios. Cada una se registra como incidencia de su expediente."
-                        textoBoton={p.inexactitudes.length ? '+ Añadir' : '↑ Subir PDF'}
+                        textoBoton={p.inexactitudes.length ? 'Añadir' : 'Subir PDF'}
                         ocupado={subiendo === 'informe_inexactitudes'} arrastrando={arrastrando}
                         onFile={subirInexactitudes} />,
                     docEsperado({
@@ -1676,24 +1648,24 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         // El ahorro VERIFICADO: con él se factura al S.O. y se paga al
                         // cliente, y sin él el lote no puede pasar a pagar.
                         extra: canSeeMargin ? (
-                            <div className={`flex items-center gap-2 flex-wrap rounded-lg border px-2.5 py-1.5 ${
-                                verif.completo ? 'border-emerald-500/20 bg-emerald-500/[0.04]' : 'border-amber-500/25 bg-amber-500/[0.04]'}`}>
-                                <span className={`text-[10px] font-black ${verif.completo ? 'text-emerald-400/80' : 'text-amber-300/90'}`}>
+                            <div className={`lt-dato ${verif.completo ? 'lt-dato-ok' : 'lt-dato-ambar'}`}>
+                                <b>
                                     {verif.completo
                                         ? `Ahorro verificado en los ${verif.total} expedientes ✓`
                                         : `Ahorro verificado en ${verif.n} de ${verif.total} expedientes`}
+                                </b>
+                                {!verif.completo && <span>Sin él no se puede pagar al cliente.</span>}
+                                <span className="lt-empuja">
+                                    <BotonFila onClick={releerInforme} disabled={leyendoInforme} pri={!verif.completo}>
+                                        {leyendoInforme ? 'Leyendo…' : (verif.completo ? 'Volver a leer' : 'Leer los ahorros')}
+                                    </BotonFila>
                                 </span>
-                                {!verif.completo && <span className="text-[9px] text-white/30">Sin él no se puede pagar al cliente.</span>}
-                                <div className="flex-1" />
-                                <BotonFila onClick={releerInforme} disabled={leyendoInforme}>
-                                    {leyendoInforme ? 'Leyendo…' : (verif.completo ? '↻ Volver a leer' : '⌕ Leer los ahorros')}
-                                </BotonFila>
                             </div>
                         ) : null,
                         // Sin informe, se avisa igual: enterarse al cambiar el estado
                         // es enterarse tarde.
                         enHueco: canSeeMargin && !verif.completo ? (
-                            <span className="text-[9px] text-amber-300/70">
+                            <span className="lt-ayuda lt-ambar-txt">
                                 Ahorro verificado en {verif.n} de {verif.total} expedientes · sin él no se puede pagar al cliente
                             </span>
                         ) : null,
@@ -1703,18 +1675,19 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         siguiente: sig4 === 'dictamen_favorable',
                         hint: 'Al subirlo se leen su nº, su fecha y la inversión definitiva.',
                         extra: canSeeMargin && p.dictamen ? (
-                            <div className="flex items-center gap-2 flex-wrap rounded-lg border border-white/[0.06] bg-white/[0.01] px-2.5 py-1.5">
-                                <span className="text-[10px] font-black text-white/60">
+                            <div className="lt-dato">
+                                <b>
                                     {p.dictamen.dictamen?.numero_dictamen
                                         ? `Nº ${p.dictamen.dictamen.numero_dictamen}${p.dictamen.dictamen.fecha_emision ? ` · ${p.dictamen.dictamen.fecha_emision}` : ''}`
                                         : 'Sin leer'}
+                                </b>
+                                <span>Nº, fecha e inversión definitiva de cada expediente.</span>
+                                <span className="lt-empuja">
+                                    <BotonFila onClick={releerDictamen} disabled={leyendoDictamen}>
+                                        {leyendoDictamen ? 'Leyendo…'
+                                            : (p.dictamen.dictamen?.numero_dictamen ? 'Volver a leer' : 'Leer el dictamen')}
+                                    </BotonFila>
                                 </span>
-                                <span className="text-[9px] text-white/30">Nº, fecha e inversión definitiva de cada expediente.</span>
-                                <div className="flex-1" />
-                                <BotonFila onClick={releerDictamen} disabled={leyendoDictamen}>
-                                    {leyendoDictamen ? 'Leyendo…'
-                                        : (p.dictamen.dictamen?.numero_dictamen ? '↻ Volver a leer' : '⌕ Leer el dictamen')}
-                                </BotonFila>
                             </div>
                         ) : null,
                     }),
@@ -1726,21 +1699,21 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         siguiente: sig4 === 'factura_verificador',
                         hint: 'La que el verificador emite al S.O. (no la nuestra). Su importe se lee del PDF.',
                         accionesDoc: p.facturaVerificador && !p.facturaVerificador.sent_at ? (
-                            <BotonFila onClick={() => setDocAEnviar(p.facturaVerificador)}>✉ Remitir al S.O.</BotonFila>
+                            <BotonFila onClick={() => setDocAEnviar(p.facturaVerificador)} pri>Remitir al S.O.</BotonFila>
                         ) : null,
                         enHueco: (
                             <>
                                 <input value={importeFactura} onChange={e => setImporteFactura(e.target.value)}
                                     placeholder="Importe € (opcional)" inputMode="decimal"
                                     title="Solo si quieres forzar el importe. Si lo dejas vacío se lee de la factura."
-                                    className="w-36 bg-bkg-surface border border-white/[0.08] rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
-                                <span className="text-[9px] text-white/25">Solo para forzarlo; si lo dejas vacío se lee de la factura.</span>
+                                    className="fx-input fx-num lt-input-peq" />
+                                <span className="lt-ayuda">Solo para forzarlo; si lo dejas vacío se lee de la factura.</span>
                             </>
                         ),
                     }) : null,
                 ],
                 nota: p.verificado
-                    ? <p className="text-[10px] text-emerald-400/70">Verificación favorable · informe y dictamen recibidos.</p> : null,
+                    ? <p className="lt-nota lt-ok-txt">Verificación favorable · informe y dictamen recibidos.</p> : null,
             })}
 
             {/* 5 · Presentación a MITECO y resolución de la Gestora de Ahorros.
@@ -1752,16 +1725,16 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 f: f5,
                 faltan: faltanDe(esp5),
                 tareas: canSeeMargin ? [
-                    <BotonAccion key="anx" onClick={() => setEligiendoFirmante(true)} disabled={generandoAnexos}>
-                        {generandoAnexos ? 'Generando…' : '📄 Generar la solicitud y los anexos'}
+                    <BotonAccion key="anx" onClick={() => setEligiendoFirmante(true)} disabled={generandoAnexos} tono={!p.justificanteMiteco && p.verificado ? 'pri' : 'sec'}>
+                        {generandoAnexos ? 'Generando…' : 'Generar la solicitud y los anexos'}
                     </BotonAccion>,
                     <BotonAccion key="pq5" onClick={() => pedirPaquete('expediente', true)}>
-                        ⌕ Comprobar el paquete E1-E5
+                        Comprobar el paquete E1-E5
                     </BotonAccion>,
                     p.dictamen ? (
                         <BotonAccion key="gestor" onClick={() => pedirPaquete('gestor', true)}
                             title="Añade el dictamen favorable y los escritos del lote">
-                            ⌕ Comprobar el envío al gestor
+                            Comprobar el envío al gestor
                         </BotonAccion>
                     ) : null,
                     generarZip(null, modoPaquete === 'gestor' ? ' para el gestor' : ' en los expedientes'),
@@ -1776,7 +1749,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     <Hueco key="hueco_ga" compacto={p.requerimientosGa.length > 0} opcional
                         label={p.requerimientosGa.length ? '+ Otro requerimiento de la G.A.' : 'Requerimiento de la G.A.'}
                         hint="Solo si la Gestora de Ahorros pide algo. Puede haber varios."
-                        textoBoton={p.requerimientosGa.length ? '+ Añadir' : '↑ Subir PDF'}
+                        textoBoton={p.requerimientosGa.length ? 'Añadir' : 'Subir PDF'}
                         ocupado={subiendo === 'requerimiento_ga'} arrastrando={arrastrando}
                         onFile={(f) => subir('requerimiento_ga', f)} />,
                     docEsperado({
@@ -1784,17 +1757,17 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         siguiente: sig5 === 'certificado_cae',
                         hint: 'La resolución de emisión. Al subirlo se leen los códigos CAE para la factura.',
                         extra: p.certificadoCae?.cae?.cae_inicial ? (
-                            <p className="text-[10px] text-emerald-400/70">
-                                {p.certificadoCae.cae.cae_inicial} → {p.certificadoCae.cae.cae_final}
+                            <p className="lt-dato lt-dato-ok">
+                                <b className="fx-mono">{p.certificadoCae.cae.cae_inicial} → {p.certificadoCae.cae.cae_final}</b>
                                 {p.certificadoCae.cae.total ? ` · ${Number(p.certificadoCae.cae.total).toLocaleString('es-ES')} CAE` : ''}
                             </p>
                         ) : null,
                     }),
                 ],
                 nota: p.certificadoCae
-                    ? <p className="text-[10px] text-emerald-400/70">CAE emitido · pendiente del pago del S.O. a Brokergy.</p>
+                    ? <p className="lt-nota lt-ok-txt">CAE emitido · pendiente del pago del S.O. a Brokergy.</p>
                     : (p.justificanteMiteco
-                        ? <p className="text-[10px] text-cyan-300/70">Presentado al MITECO · esperando la resolución.</p> : null),
+                        ? <p className="lt-nota">Presentado al MITECO · esperando la resolución.</p> : null),
             })}
 
             {/* 6 · La factura de Brokergy al S.O. por la venta de CAEs. NO es la del
@@ -1802,9 +1775,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             {canSeeMargin && faseBloque({
                 f: f6,
                 tareas: [
-                    <BotonAccion key="fac" onClick={acciones.abrirFactura} disabled={!lote?.sujeto_obligado_id}
+                    <BotonAccion key="fac" onClick={acciones.abrirFactura} disabled={!lote?.sujeto_obligado_id} tono={!p.facturaSo?.numero && p.caeEmitido ? 'pri' : 'sec'}
                         title={!lote?.sujeto_obligado_id ? 'Asigna primero el Sujeto Obligado' : ''}>
-                        {p.facturaSo?.numero ? `Abrir la factura ${p.facturaSo.numero}` : '🧾 Generar la factura de Brokergy al S.O.'}
+                        {p.facturaSo?.numero ? `Abrir la factura ${p.facturaSo.numero}` : 'Generar la factura de Brokergy al S.O.'}
                     </BotonAccion>,
                 ],
                 docs: [
@@ -1832,12 +1805,15 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 // Antes de emitirse el CAE no hay nada que mirar aquí (y cada lectura
                 // carga los expedientes enteros): basta el aviso de "aún no toca".
                 nota: p.caeEmitido ? (
-                    <CobroClientesPanel key={`cobro_${lote?.id}`} lote={lote} activo={p.pagoCliente}
-                        canSeeMargin={canSeeMargin} onChanged={onChanged} />
+                    // Panel aún pintado con Tailwind oscuro: la «piel» lo pasa a crema.
+                    <div className="lt-piel" key={`cobro_${lote?.id}`}>
+                        <CobroClientesPanel lote={lote} activo={p.pagoCliente}
+                            canSeeMargin={canSeeMargin} onChanged={onChanged} />
+                    </div>
                 ) : null,
             })}
 
-            {error && <p className="text-[10px] text-red-400">{error}</p>}
+            {error && <p className="lt-msg lt-msg-ambar" style={{ marginTop: 12 }} role="alert">{error}</p>}
 
             {docAEnviar && (
                 <EnviarDocLoteModal

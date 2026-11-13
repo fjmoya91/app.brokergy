@@ -7,6 +7,7 @@ const { CEE_ECO_SELECT, rebuildCee } = require('../utils/ceeEcoFields');
 const geoCcaa = require('../services/geoCcaa');
 const loteService = require('../services/loteService');
 const marwenService = require('../services/marwenService');
+const equipoVerificacion = require('../services/equipoVerificacion');
 const driveService = require('../services/driveService');
 const { carpetaObjetivoLote } = require('../services/driveFolders');
 const {
@@ -1817,6 +1818,34 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
             }
         }
 
+        // El PLAN DE VERIFICACIÓN dice QUIÉN verifica: verificador jefe (con email y
+        // teléfono) y revisor técnico. Se sella en la entrada, conservando lo que ya
+        // hubiera llegado por el correo del plan (services/equipoVerificacion.js).
+        // Un fallo del lector no tumba la subida.
+        let equipo = null;
+        if (slot === 'plan_verificacion' && !esFirmado) {
+            // Lo ya guardado (p. ej. el email del revisor, que solo trae el correo)
+            // no se pierde aunque el lector falle.
+            if (previa?.equipo) entrada.equipo = previa.equipo;
+            try {
+                const r = await equipoVerificacion.equipoDePdf(buffer, { previo: previa?.equipo || null });
+                equipo = r.equipo;
+                if (equipo) {
+                    entrada.equipo = equipo;
+                    update.documentos_so = docs;
+                    historial.push({
+                        id: `${Date.now()}_equipo_verificacion`, tipo: 'sistema',
+                        texto: `Equipo de verificación: ${equipoVerificacion.resumenEquipo(equipo)} (leído del plan).`,
+                        fecha: nowIso(), usuario: usuarioDe(req),
+                    });
+                    update.historial = historial;
+                    if (!lote.expediente_verificador && equipo.expediente_cae) update.expediente_verificador = equipo.expediente_cae;
+                }
+            } catch (err) {
+                console.warn('[lotes] OCR plan de verificación:', err.message);
+            }
+        }
+
         await supabase.from('lotes').update(update).eq('id', lote.id);
 
         // El INFORME DE INEXACTITUDES: cada inexactitud pasa a ser una incidencia
@@ -1849,7 +1878,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, inexactitudes, registro_miteco: registroMiteco, lote: scrubLoteForUser(enriched, req) });
+        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, inexactitudes, equipo, registro_miteco: registroMiteco, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
         console.error('[POST /lotes/:id/documentos/:slot]', err.message);
         res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });
@@ -2263,6 +2292,47 @@ router.post('/:id/certificado-cae/leer', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/certificado-cae/leer]', err.message);
         res.status(500).json({ error: err.message || 'Error al leer el certificado CAE' });
+    }
+});
+
+// ─── POST /api/lotes/:id/plan-verificacion/leer ──────────────────────────────────
+// Relee el plan de verificación ya subido y sella QUIÉN verifica (lotes cuyo plan se
+// subió antes de que la app lo leyera). Si el plan llegó por correo, busca también
+// ese correo en el buzón: el email del revisor técnico solo viene en las copias.
+router.post('/:id/plan-verificacion/leer', staffOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        // 1. El correo del plan (si lo hay en el buzón): trae el PDF y las copias.
+        let deCorreo = null;
+        try {
+            const informes = await equipoVerificacion.importarPlanesDelBuzon({ dryRun: false, lote: lote.codigo, forzar: true });
+            deCorreo = informes.find(i => i.accion === 'archivado' || i.accion === 'actualizado') || null;
+        } catch (e) {
+            console.warn('[plan-verificacion/leer] buzón:', e.message);
+        }
+
+        // 2. Sin correo: el PDF que ya está en el lote.
+        if (!deCorreo) {
+            const doc = (lote.documentos_so || []).find(d => d?.key === 'plan_verificacion');
+            if (!doc?.draft_file_id) {
+                return res.status(409).json({ error: 'El lote no tiene el plan de verificación, y en el buzón no hay ningún correo con él.' });
+            }
+            const buffer = await driveService.getFileContent(doc.draft_file_id);
+            if (!buffer) return res.status(502).json({ error: 'No se pudo descargar el plan de verificación desde Drive.' });
+            const { equipo } = await equipoVerificacion.equipoDePdf(buffer, { previo: doc.equipo || null });
+            if (!equipo) return res.status(422).json({ error: 'El plan no dice quién verifica (no se ha encontrado el equipo de verificación).' });
+            await equipoVerificacion.guardarPlanEnLote(lote, { equipo, origen: 'plan ya subido', usuario: usuarioDe(req) });
+        }
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        const plan = (updated.documentos_so || []).find(d => d?.key === 'plan_verificacion');
+        res.json({ ok: true, equipo: plan?.equipo || null, desde: deCorreo ? 'correo' : 'plan', lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/plan-verificacion/leer]', err.message);
+        res.status(500).json({ error: err.message || 'Error al leer el plan de verificación' });
     }
 });
 
@@ -4107,11 +4177,19 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
         //    que compuso la app, como hasta ahora. Best-effort: la solicitud YA está
         //    enviada y un fallo de Drive no puede presentarse como un fallo de envío.
         let solicitud_archivada = null;
+        //    beCAE puede tardar unos segundos en ofrecer el PDF de la solicitud recién
+        //    creada: se reintenta (3 veces, 4 s) antes de caer en la de la app. Y si
+        //    aun así cae, la próxima consulta de beCAE la trae sola (GET /:id/marwen).
         if (result.num_solicitud) {
-            try {
-                solicitud_archivada = await traerSolicitudDeBecae(updated || lote, result.num_solicitud, { usuario: usuarioDe(req) });
-            } catch (e) {
-                console.warn('[enviar-verificador-api] traer solicitud de beCAE:', e.message);
+            for (let intento = 1; intento <= 3; intento++) {
+                try {
+                    solicitud_archivada = await traerSolicitudDeBecae(updated || lote, result.num_solicitud, { usuario: usuarioDe(req) });
+                } catch (e) {
+                    console.warn(`[enviar-verificador-api] traer solicitud de beCAE (intento ${intento}):`, e.message);
+                    solicitud_archivada = { archivada: false, motivo: e.message };
+                }
+                if (solicitud_archivada?.archivada || !solicitud_archivada?.reintentable) break;
+                if (intento < 3) await new Promise(r => setTimeout(r, 4000));
             }
         }
         if (solicitudHtml && !solicitud_archivada?.archivada) {
@@ -4270,7 +4348,9 @@ async function traerSolicitudDeBecae(lote, numSolicitud, { usuario = 'SISTEMA' }
     const sol = docs.find(d => d.type === 'solicitud');
     if (!sol) {
         const firmada = docs.find(d => d.type === 'solicitud_firmada');
-        return { archivada: false, motivo: firmada ? 'en beCAE ya está la solicitud firmada' : 'beCAE no ofrece la solicitud para descargar' };
+        return firmada
+            ? { archivada: false, motivo: 'en beCAE ya está la solicitud firmada' }
+            : { archivada: false, motivo: 'beCAE no ofrece la solicitud para descargar', reintentable: true };
     }
     const f = await marwenService.descargarDocumento(numSolicitud, sol.id);
     if (!/pdf/i.test(f.contentType) && f.buffer.slice(0, 4).toString() !== '%PDF') {
@@ -4299,11 +4379,31 @@ router.get('/:id/marwen', staffOnly, async (req, res) => {
 
         const est = await estadoBecaeDeLote(lote);
         const becae = await sellarEstadoBecae(lote, est, usuarioDe(req));
+
+        // Si beCAE ofrece la solicitud del verificador y el lote solo tiene la que
+        // compuso la app (o ninguna), se TRAE sola: es la que firma el S.O. Baja de
+        // beCAE y se guarda en nuestro Drive; no sale nada a terceros (regla 212).
+        let solicitud_traida = null;
+        const solLote = (lote.documentos_so || []).find(d => d?.key === 'solicitud_verificacion');
+        const ofrece = (est.documentos || []).some(d => d?.type === 'solicitud');
+        // Una de la app que YA se mandó al S.O. no se cambia sola (le llegó esa): ahí
+        // queda el botón «Traer la solicitud de beCAE» para que lo decida una persona.
+        if (ofrece && becae.num_solicitud && !solLote?.signed_link && !solLote?.sent_at
+            && (!solLote || solicitudGeneradaPorApp(solLote))) {
+            try {
+                solicitud_traida = await traerSolicitudDeBecae(lote, becae.num_solicitud, { usuario: usuarioDe(req) });
+            } catch (e) {
+                console.warn('[GET /lotes/:id/marwen] traer solicitud de beCAE:', e.message);
+                est.avisos.push(`beCAE ofrece la solicitud, pero no se pudo traer: ${e.message}`);
+            }
+        }
+
         res.json({
             ok: true,
             encontrado: !!(est.solicitud || est.expediente),
             destino: marwenService.BASE_URL,
             becae,
+            solicitud_traida,
             avisos: est.avisos,
             inexactitudes_consultables: ESTADOS_EXP_INEXACTITUDES.includes(becae.estado_expediente),
             lote: await loteParaRespuesta(lote.id, req),
