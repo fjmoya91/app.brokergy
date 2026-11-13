@@ -51,8 +51,10 @@ se toma el correo más reciente, y no se contestan los «Re:».
   días): el mismo buzón que los firmados del S.O. (`LOTE_SO_SMTP_*`), en solo lectura. Si el
   lote no tiene el plan, **archiva el PDF** en su carpeta de documentación como
   `4.0 Plan de verificación {LOTE}.pdf` (con `origen: correo del verificador del …`). **Nace
-  APAGADO**: local escribe en producción y hay que encenderlo en el `.env` del VPS. Un lote
-  cuyo equipo ya salió del correo no se vuelve a mirar.
+  APAGADO**: local escribe en producción, así que en el `.env` local no se pone. **Encendido en
+  el VPS el 13/11/2026** (Fran: «sí, enciéndela»), en `implementation/backend/.env`, con copia
+  previa en `.env.bak-20261113-planverif`. Un lote cuyo equipo ya salió del correo no se vuelve
+  a mirar.
 
 El plan **no mueve el estado del lote** (`estadoSegunDocs` no lo mira), así que archivarlo
 no sincroniza nada más.
