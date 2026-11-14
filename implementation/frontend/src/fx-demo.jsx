@@ -4,6 +4,7 @@
 // leyéndola del .env del backend; no se escribe en ningún fichero) en las cabeceras.
 // Local = datos de PRODUCCIÓN: aquí TODA escritura se corta en el navegador salvo lo que
 // es en seco (PERMITIDOS). ?rol=TRABAJADOR para ver la pestaña como trabajador.
+// ?vista=cuadro pinta el Cuadro de mando (DashboardView) en vez de Facturación.
 /* eslint-disable react-refresh/only-export-components -- es un punto de entrada, no un módulo */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -13,6 +14,7 @@ import { AuthContext } from './context/AuthContext';
 import { ModalProvider } from './context/ModalContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { FacturacionView } from './features/facturacion/views/FacturacionView';
+import { DashboardView } from './features/dashboard/views/DashboardView';
 
 const CLAVE = import.meta.env.VITE_FX_DEMO_KEY || '';
 const PERMITIDOS = [/[?&]seco=1/, /\/preview/i, /\/vista-previa/i, /\/preparar/i];
@@ -43,6 +45,7 @@ window.fetch = (input, init = {}) => {
 };
 
 const rol = new URLSearchParams(window.location.search).get('rol') === 'TRABAJADOR' ? 'TRABAJADOR' : 'ADMIN';
+const cuadro = new URLSearchParams(window.location.search).get('vista') === 'cuadro';
 const user = { id: 'demo', rol, id_rol: rol === 'ADMIN' ? 1 : 8, nombre: 'DEMO', email: 'demo@local' };
 
 // El armazón del CRM: menú lateral oscuro y <main> que scrollea, para ver la costura.
@@ -53,11 +56,11 @@ function Armazon() {
             <div className="flex h-screen bg-bkg-deep text-white">
                 <aside className={`hidden md:flex flex-col shrink-0 bg-bkg-deep border-r border-white/10 ${plegado ? 'w-20' : 'w-[280px]'}`}>
                     <button className="m-3 text-xs text-white/60" onClick={() => setPlegado(p => !p)}>{plegado ? '»' : '« plegar'}</button>
-                    {!plegado && <div className="px-4 text-sm text-white/70 space-y-2"><div>Oportunidades</div><div>Expedientes</div><div className="text-white font-bold">Facturación</div></div>}
+                    {!plegado && <div className="px-4 text-sm text-white/70 space-y-2"><div>Oportunidades</div><div>Expedientes</div><div className={cuadro ? 'text-white font-bold' : ''}>Cuadro de mando</div><div className={cuadro ? '' : 'text-white font-bold'}>Facturación</div></div>}
                 </aside>
                 <main className="flex-1 overflow-y-auto relative">
                     <div className="md:hidden sticky top-0 h-14 z-30 bg-bkg-deep border-b border-white/10 flex items-center px-4 text-sm">BROKERGY · demo</div>
-                    <FacturacionView onNavigate={() => {}} />
+                    {cuadro ? <DashboardView /> : <FacturacionView onNavigate={() => {}} />}
                 </main>
             </div>
         </AuthContext.Provider>

@@ -57,7 +57,7 @@ paths:
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15) · 2,1 KB
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/el-anexo-i-del-lote-las-firmas-van-al-pie.md` — El Anexo I del lote: las firmas van al PIE de la hoja, y sus casillas se miden (2026-11-12) · 3,0 KB
-- `docs/conocimiento/lotes/el-equipo-de-verificacion-del-lote.md` — El EQUIPO de verificación del lote: quién verifica y cómo se le contacta (2026-11-12) · 4,1 KB
+- `docs/conocimiento/lotes/el-equipo-de-verificacion-del-lote.md` — El EQUIPO de verificación del lote: quién verifica y cómo se le contacta (2026-11-12) · 4,2 KB
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md` — El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08) · 15,5 KB
 - `docs/conocimiento/lotes/el-registro-miteco-y-los-requerimientos-del-gestor.md` — El Nº de REGISTRO del MITECO en el lote, y los requerimientos del Gestor (2026-10-27) · 6,0 KB
 - `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md` — El TOTAL que nos ingresa el S.O., y marcarlo COBRADO (2026-10-15) · 4,1 KB

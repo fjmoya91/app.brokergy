@@ -62,6 +62,7 @@ Si el usuario dice "no veo el cambio", lo primero es: **¿hemos hecho el deploy 
 | Fotos o documentación que falta | `docs/conocimiento/documentacion-fotos/` |
 | Lotes, verificación, Sujeto Obligado, pago al cliente | `docs/conocimiento/lotes/` y `clientes/` |
 | Un CEE suelto, no CAE | `docs/conocimiento/cee-directos/` |
+| Cómo va la empresa: EBITDA, margen, caja, previsión, cierre del año | El cuadro de mando: `docs/conocimiento/cuadro-mando/` y `cuadroDireccion.js` (`check_cuadro_mando.js` lo imprime) |
 | Una consulta de normativa, trámites, fiscalidad o ayudas de un cliente o instalador (boletines, legalizar placas, IRPF…) | **Primero** `docs/conocimiento/consultas/` (lo ya contestado); si no está, se investiga y se añade ahí una ficha |
 
 ## Cómo se piden las cosas (texto o audio)
@@ -150,6 +151,7 @@ Cada una tiene su regla `.claude/rules/<área>.md` y su carpeta `docs/conocimien
 | `clientes` | Fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada |
 | `facturas` | OCR e incidencias de las facturas de obra, facturación del certificador |
 | `facturacion` | Pestaña Facturación: presupuestos con partidas, catálogo de artículos, presupuestos por el MCP (y en fase 2, facturas propias / VERI*FACTU) |
+| `cuadro-mando` | Cuadro de mando de dirección (solo ADMIN): EBITDA, salud, caja, previsión, lotes por etapa, CEE directos y la cartera CAE |
 | `whatsapp` | Sesión, entrega (ACK), adjuntos, etiquetas, agenda, bot |
 | `catastro` | WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada |
 | `claude-automatizacion` | Asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento |

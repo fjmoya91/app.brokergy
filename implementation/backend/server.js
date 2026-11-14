@@ -126,6 +126,9 @@ app.use('/api/informes', require('./routes/informes'));
 // FACTURACIÓN: catálogo de artículos y presupuestos con N partidas (sustituye a
 // la app de presupuestos de AppSheet). Ver routes/facturacion.js.
 app.use('/api/facturacion', require('./routes/facturacion'));
+// CUADRO DE MANDO de dirección (solo ADMIN): negocio + finanzas (EBITDA, caja,
+// previsión). Ver services/cuadroDireccion.js y docs/conocimiento/cuadro-mando/.
+app.use('/api/cuadro-mando', require('./routes/cuadroMando'));
 // El asistente de la app (botón flotante, solo ADMIN): contesta por la API de
 // Anthropic con datos en vivo y propone encargos al Claude del WhatsApp.
 app.use('/api/asistente-app', require('./routes/asistenteApp'));
