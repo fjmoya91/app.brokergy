@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Importe, Ico, eur, entero, AvisoFx, MESES_FX, MESES_CORTOS_FX, fechaEs } from '../../facturacion/estilo';
 import { GraficoMensual } from '../../facturacion/components/hoy/GraficoMensual';
-import { pct, energia, enlace } from '../logic/cuadroFormato';
+import { pct, energia, enlace, fuenteEstructura, mesesTexto } from '../logic/cuadroFormato';
 
 const numEs = (v, dec = 1) => (v == null || isNaN(v) ? '—' : Number(v).toLocaleString('es-ES', { maximumFractionDigits: dec }));
 const ext = { target: '_blank', rel: 'noopener noreferrer' };
@@ -114,8 +114,9 @@ export function Arriba({ f, esteAnio, mesHoy, ir }) {
         { k: 'Cartera ponderada', v: <Importe n={pr.cartera} dec={0} />, ir: 'prevision',
             nota: <>margen <b>{eur(pr.carteraMargen, 0)}</b></>, nota2: 'lo que hay en marcha, por lo que suele salir' },
         pr.cierreAnio
-            ? { k: `Cierre ${f.anio}`, v: <Importe n={pr.cierreAnio.seguro} dec={0} />, ir: 'prevision',
-                nota: 'lo facturado + lo que ya se puede facturar', nota2: pr.cierreAnio.posible > pr.cierreAnio.seguro ? <>hasta <b>{eur(pr.cierreAnio.posible, 0)}</b> si el MITECO emite antes del 31/12</> : null }
+            ? { k: `Cierre ${f.anio}`, v: <Importe n={pr.cierreAnio.esperado ?? pr.cierreAnio.seguro} dec={0} />, ir: 'prevision',
+                nota: 'facturado + por facturar + lo enviado que llega al 31/12',
+                nota2: <>seguro <b>{eur(pr.cierreAnio.seguro, 0)}</b>{pr.cierreAnio.maximo > (pr.cierreAnio.esperado ?? 0) + 1 ? <> · hasta <b>{eur(pr.cierreAnio.maximo, 0)}</b></> : null}</> }
             : { k: 'Bonos por pagar', v: <Importe n={c.bonosPorPagar} dec={0} />, ir: 'caja', nota: 'de lotes facturados o cobrados' },
     ];
     return (
@@ -137,7 +138,7 @@ export function Arriba({ f, esteAnio, mesHoy, ir }) {
                 <ul className="cm-ec">
                     <li><span>Facturado (sin IVA)</span><b>{eur(p.ingresos, 0)}</b></li>
                     <li><span>− Coste directo (bonos, comisiones, ITP, técnicos)</span><b>{eur(-p.costeDirecto, 0)}</b></li>
-                    <li><span>− Estructura (gastos de Drive leídos, FML incluida)</span><b>{eur(-p.estructura, 0)}</b></li>
+                    <li><span>− Estructura ({fuenteEstructura(p.gastos, { corta: true })})</span><b>{eur(-p.estructura, 0)}</b></li>
                     <li className="cm-ec-tot"><span>= EBITDA</span><b>{eur(p.ebitda, 0)}</b></li>
                 </ul>
                 {!p.fiable && (
@@ -278,7 +279,22 @@ export function Resultados({ f, esteAnio, mesHoy }) {
                     <div className="fx-fila"><dt>Coste directo del CAE<small>bonos a clientes, comisiones de partner, ITP y certificados, expediente a expediente</small></dt><dd>{eur(-p.costeDirectoCae, 0)}</dd></div>
                     <div className="fx-fila"><dt>Técnicos de los CEE directos<small>{plural(cb.nCeeFact, 'CEE facturado', 'CEE facturados')} × {eur(cb.costeUnitCee, 2)}</small></dt><dd>{eur(-p.costeCee, 0)}</dd></div>
                     <div className="fx-fila cm-fila-res"><dt>Margen bruto<small>{pct(p.margenBrutoPct)} de los ingresos</small></dt><dd>{eur(p.margenBruto, 0)}</dd></div>
-                    <div className="fx-fila"><dt>Estructura<small>gastos de Drive leídos{p.fml > 0 ? `, con la FML de Fran (${eur(p.fml, 0)})` : ''}{p.gastos.sinLeer ? ` · ${entero(p.gastos.sinLeer)} sin leer` : ''}</small></dt><dd>{eur(-p.estructura, 0)}</dd></div>
+                    <div className="fx-fila"><dt>Estructura<small>{fuenteEstructura(p.gastos)}{p.fml > 0 ? `, con la FML de Fran (${eur(p.fml, 0)})` : ''}{p.gastos.sinLeer ? ` · ${entero(p.gastos.sinLeer)} sin leer` : ''}</small></dt><dd>{eur(-p.estructura, 0)}</dd></div>
+                    {(p.gastos.trimestres || []).map(q => {
+                        const est = q.enCurso && p.gastos.estimado ? p.gastos.estimado : null;
+                        const que = q.error ? 'Drive no respondió'
+                            : q.fuente === 'LIBRO' ? 'libro de la gestoría'
+                                : est ? 'en curso, estimado'
+                                    : `leído en Drive${q.sinLeer && !q.enCurso ? ` · ${entero(q.sinLeer)} sin leer` : ''}`;
+                        const det = [est ? `${mesesTexto(est.meses)} a la media de los cerrados (${eur(est.mediaMensual, 0)}/mes)` : null,
+                            q.enCurso && q.sinLeer ? `${plural(q.sinLeer, 'factura', 'facturas')} sin leer todavía` : null].filter(Boolean).join(' · ');
+                        return (
+                            <div key={q.t} className="fx-fila cm-fila-sub">
+                                <dt>{q.t.slice(-2)} · {que}{det ? <small>{det}</small> : null}</dt>
+                                <dd className="cm-menos">{q.error ? '—' : eur(-((q.base || 0) + (est?.importe || 0)), 0)}</dd>
+                            </div>
+                        );
+                    })}
                     <div className="fx-fila cm-fila-ebitda"><dt>EBITDA<small>{pct(p.ebitdaPct)} de los ingresos</small></dt><dd>{eur(p.ebitda, 0)}</dd></div>
                     {p.inversiones > 0 && <div className="fx-fila"><dt>Inversiones del año<small>fuera del EBITDA</small></dt><dd className="cm-menos">{eur(p.inversiones, 0)}</dd></div>}
                 </dl>
@@ -288,7 +304,7 @@ export function Resultados({ f, esteAnio, mesHoy }) {
                         <li><b>Ingresos</b>: lo facturado por la sociedad (series ING y CAE, más las ventas CAE de Drive), sin IVA ni suplidos. La FML de Fran no es ingreso: es un gasto de la sociedad.</li>
                         <li><b>Coste directo del CAE</b>: cada venta se casa con su lote ({entero(cb.nCasadas)} de {entero(cb.nVentas)}) y lleva el margen que calculan sus expedientes al precio real de esa factura. Lo que no casa con ningún lote ({eur(cb.caeSinCasar, 0)}, ventas antiguas por Drive) lleva el margen medio ({pct(1 - cb.pctCosteMedio)}).</li>
                         <li><b>Técnicos de los CEE directos</b>: el honorario medio sellado al conciliar las facturas de los certificadores, por cada CEE facturado. Las tasas del registro son suplidos que paga el cliente: no son ingreso ni coste.</li>
-                        <li><b>Estructura</b>: los gastos de la sociedad leídos en Drive (con el IVA que no se deduce), sin las inversiones, los bonos ni las facturas de los certificadores, que ya están arriba. Los que están sin leer no cuentan.</li>
+                        <li><b>Estructura</b>: los trimestres cerrados salen del libro maestro que se entrega a la gestoría{p.gastos.libro?.nombre ? <> («{p.gastos.libro.nombre}»{p.gastos.libro.cuadra ? ', que cuadra con su RESUMEN' : ''})</> : ''}; si un trimestre no está en el libro, de la lectura de Drive. Con el IVA que no se deduce y sin lo que ya está arriba o no es gasto: los bonos a clientes{p.gastos.bonosLibro > 0 ? ` (${eur(p.gastos.bonosLibro, 0)} en el libro, por fecha de pago)` : ''}, los certificadores y las tasas del registro de los CEE del CAE ({eur(p.gastos.certificadores, 0)}) y las inversiones ({eur(p.inversiones, 0)}). El trimestre en curso cuenta cada mes con lo leído o, si es menos, con la media mensual de los cerrados: las facturas de un mes llegan después.</li>
                         <li>Es una estimación de gestión, no la contabilidad oficial: la cierra la gestoría.</li>
                     </ul>
                 </details>
@@ -371,7 +387,13 @@ export function Prevision({ f }) {
     const pr = f.prevision;
     const max = Math.max(1, ...pr.tramos.map(t => t.bruto || 0));
     const ca = pr.cierreAnio;
-    const maxCierre = ca ? Math.max(ca.posible, ca.seguro, ca.ytd, 1) : 1;
+    const esperado = ca ? (ca.esperado ?? ca.posible) : 0;
+    const maximo = ca ? (ca.maximo ?? ca.posible) : 0;
+    const maxCierre = ca ? Math.max(maximo, esperado, ca.seguro, ca.ytd, 1) : 1;
+    const dF = ca?.diasFactura;
+    const enCamino = ca?.lotes || [];
+    const entran = enCamino.filter(l => l.entra);
+    const pasan = enCamino.filter(l => !l.entra);
     return (
         <div className="cm-rej cm-rej-75">
             <article className="fx-card fx-pad fx-in" style={{ '--i': 1 }}>
@@ -408,18 +430,35 @@ export function Prevision({ f }) {
                     <article className="fx-card fx-pad fx-in" style={{ '--i': 2 }}>
                         <div className="fx-eyebrow">Cierre de {f.anio}</div>
                         <h3 className="fx-display fx-h3">Cómo acabará el año</h3>
-                        <Importe n={ca.seguro} dec={0} className="cm-cierre-v" />
-                        <div className="cm-cierre-barra" role="img" aria-label={`Facturado ${eur(ca.ytd, 0)}, seguro ${eur(ca.seguro, 0)}, posible ${eur(ca.posible, 0)}`}>
-                            <i style={{ width: `${(ca.posible / maxCierre) * 100}%`, background: '#e4ded2' }} />
+                        <Importe n={esperado} dec={0} className="cm-cierre-v" />
+                        <div className="cm-cierre-barra" role="img" aria-label={`Facturado ${eur(ca.ytd, 0)}, seguro ${eur(ca.seguro, 0)}, esperado ${eur(esperado, 0)}, máximo ${eur(maximo, 0)}`}>
+                            <i style={{ width: `${(maximo / maxCierre) * 100}%`, background: '#e4ded2' }} />
+                            <i style={{ width: `${(esperado / maxCierre) * 100}%`, background: 'var(--s-cae)' }} />
                             <i style={{ width: `${(ca.seguro / maxCierre) * 100}%`, background: 'var(--o2)' }} />
                             <i style={{ width: `${(ca.ytd / maxCierre) * 100}%`, background: 'var(--tinta)' }} />
                         </div>
                         <dl className="fx-filas">
                             <div className="fx-fila"><dt>Ya facturado</dt><dd>{eur(ca.ytd, 0)}</dd></div>
                             <div className="fx-fila"><dt>+ lo que ya se puede facturar<small>CAE emitido, presupuestos aceptados y CEE terminados</small></dt><dd>{eur(ca.seguro - ca.ytd, 0)}</dd></div>
-                            <div className="fx-fila"><dt>+ si el MITECO emite antes del 31/12<small>los lotes que están en el Ministerio</small></dt><dd>{eur(ca.posible - ca.seguro, 0)}</dd></div>
-                            <div className="fx-fila cm-fila-res"><dt>Hasta</dt><dd>{eur(ca.posible, 0)}</dd></div>
+                            <div className="fx-fila"><dt>+ lo enviado que se factura antes del 31/12<small>{plural(entran.length, 'lote')} · {dF?.mediana != null ? `${dF.mediana} días del envío al verificador a la factura (mediana de ${dF.n} lotes)` : 'sin histórico: a 60 días del envío'}</small></dt><dd>{eur(esperado - ca.seguro, 0)}</dd></div>
+                            <div className="fx-fila cm-fila-res"><dt>Esperado</dt><dd>{eur(esperado, 0)}</dd></div>
+                            {maximo > esperado + 1 && <div className="fx-fila"><dt>+ si el resto de lo enviado se adelanta<small>{plural(pasan.length, 'lote')} que tocan en {Number(f.anio) + 1} · hasta {eur(maximo, 0)}</small></dt><dd className="cm-menos">{eur(maximo - esperado, 0)}</dd></div>}
                         </dl>
+                        {enCamino.length > 0 && (
+                            <details className="cm-como">
+                            <summary><Ico n="info" size={18} />Lote a lote: {entran.length} entran{pasan.length ? `, ${pasan.length} pasan a ${Number(f.anio) + 1}` : ''}<Ico n="abajo" size={16} /></summary>
+                            <ul className="cm-lotes">
+                                {enCamino.map(l => (
+                                    <li key={l.codigo} className="cm-lote">
+                                        <span className="cm-lote-cod" title={l.codigo}>{l.codigo}</span>
+                                        <span className="cm-lote-det">{l.etapa === 'MITECO' ? 'En el Ministerio' : 'En el verificador'} · {plural(l.nExp, 'expediente')}{l.fechaEnvio ? ` · enviado el ${fechaEs(l.fechaEnvio).slice(0, 5)}` : ''} · factura hacia el {fechaEs(l.fechaPrevista).slice(0, 5)}{l.estado ? ` · «${l.estado}»` : ''}</span>
+                                        <span className="cm-lote-imp">{eur(l.base, 0)}<small>margen {eur(l.margen, 0)}</small></span>
+                                        <span className={`fx-chip ${l.entra ? 'fx-chip-ok' : 'fx-chip-gris'} cm-lote-est`}>{l.entra ? `entra en ${f.anio}` : `pasa a ${Number(f.anio) + 1}`}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                            </details>
+                        )}
                     </article>
                 )}
                 <article className="fx-card fx-pad fx-in" style={{ '--i': 3 }}>

@@ -21,6 +21,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const conta = require('./contabilidadService');
+const libroContable = require('./libroContable');
 
 const FRONT = path.join(__dirname, '../../frontend/src/features');
 let _mods = null;
@@ -489,17 +490,44 @@ async function calcularFinanzas(anio, { forzar }) {
     const { agg } = await mods();
     const avisos = [];
 
-    // ── Gastos del año (Drive) ───────────────────────────────────────────────
+    // ── Gastos del año ───────────────────────────────────────────────────────
+    // Un trimestre CERRADO que está en el libro maestro (lo entregado a la gestoría)
+    // sale del libro: es la verdad contable. Si no, de la lectura de Drive factura a
+    // factura. El trimestre EN CURSO cuenta cada mes con lo leído o, si es menos,
+    // con la media mensual de los cerrados (las facturas de un mes llegan después):
+    // es una estimación y se dice.
+    const anioHoy = Number(hoy.slice(0, 4));
     const ts = trimestresDe(anio, hoy);
-    const gastosT = await Promise.all(ts.map(t => conta.gastos(t, { hoy }).then(g => ({ t, g })).catch(e => ({ t, error: e.message }))));
+    const qEnCurso = anio === anioHoy ? Math.ceil(Number(hoy.slice(5, 7)) / 3) : anio < anioHoy ? 5 : 0;
     const certNifs = new Set();   // los certificadores ya están en el coste directo
     const { data: certs } = await supabase.from('prescriptores').select('cif, tipo_empresa').eq('tipo_empresa', 'CERTIFICADOR');
     for (const c of certs || []) if (c.cif) certNifs.add(String(c.cif).toUpperCase().replace(/[^A-Z0-9]/g, ''));
+    const libro = await libroContable.gastosDelLibro(anio, { certNifs, forzar }).catch(e => ({ error: e.message }));
+    const delLibro = (t) => {
+        const q = Number(t.slice(-1));
+        return q < qEnCurso && libro && !libro.error && libro.trimestres?.[`T${q}`]?.filas > 0;
+    };
+    const gastosT = await Promise.all(ts.filter(t => !delLibro(t)).map(t => conta.gastos(t, { hoy }).then(g => ({ t, g })).catch(e => ({ t, error: e.message }))));
 
     const estructuraMes = Array(12).fill(0);
-    const gastos = { trimestres: [], estructura: 0, fml: 0, ivaNoDeducible: 0, inversiones: 0, certificadores: 0, sinLeer: 0, leidos: 0, errores: 0, porTipo: {}, drive: true };
+    const gastos = {
+        trimestres: [], estructura: 0, fml: 0, ivaNoDeducible: 0, inversiones: 0, certificadores: 0, bonosLibro: 0,
+        sinLeer: 0, sinLeerEnCurso: 0, leidos: 0, errores: 0, porTipo: {}, drive: true,
+        libro: libro?.error ? { error: libro.error } : libro ? { nombre: libro.archivo.nombre, modificado: libro.archivo.modificado, trimestres: [], cuadra: true, avisos: libro.avisos } : null,
+        estimado: null,
+    };
+    for (const t of ts.filter(delLibro)) {
+        const L = libro.trimestres[`T${Number(t.slice(-1))}`];
+        gastos.estructura += L.estructura; gastos.fml += L.fml; gastos.ivaNoDeducible += L.ivaNoDeducible;
+        gastos.inversiones += L.inversiones; gastos.certificadores += L.certificadores; gastos.bonosLibro += L.bonos;
+        gastos.porTipo.LIBRO = r2((gastos.porTipo.LIBRO || 0) + L.estructura);
+        L.meses.forEach((v, i) => { estructuraMes[i] += v; });
+        if (L.cuadra === false) gastos.libro.cuadra = false;
+        gastos.libro.trimestres.push(t);
+        gastos.trimestres.push({ t, fuente: 'LIBRO', base: r2(L.estructura), filas: L.filas, sinImporte: L.sinImporte, cuadra: L.cuadra });
+    }
     for (const { t, g, error } of gastosT) {
-        if (error) { gastos.drive = false; gastos.trimestres.push({ t, error }); continue; }
+        if (error) { gastos.drive = false; gastos.trimestres.push({ t, fuente: 'DRIVE', error }); continue; }
         let base = 0, sinLeer = 0, leidos = 0;
         for (const f of g.filas || []) {
             if (f.contribuyente !== 'SL') continue;
@@ -521,10 +549,34 @@ async function calcularFinanzas(anio, { forzar }) {
             if (m >= 1 && m <= 12) estructuraMes[m - 1] += importe;
         }
         gastos.estructura += base;
-        gastos.sinLeer += sinLeer; gastos.leidos += leidos;
-        gastos.trimestres.push({ t, base: r2(base), sinLeer, leidos });
+        const enCurso = Number(t.slice(-1)) >= qEnCurso;
+        if (enCurso) gastos.sinLeerEnCurso += sinLeer; else gastos.sinLeer += sinLeer;
+        gastos.leidos += leidos;
+        gastos.trimestres.push({ t, fuente: 'DRIVE', base: r2(base), sinLeer, leidos, enCurso });
+    }
+    gastos.trimestres.sort((a, b) => a.t.localeCompare(b.t));
+    // El trimestre en curso: cada mes transcurrido vale lo leído o la media de los
+    // cerrados, lo que sea mayor (el mes de hoy cuenta entero: prudente).
+    const mesesCerrados = Math.min(12, (qEnCurso - 1) * 3);
+    const cerrados = ts.filter(t => Number(t.slice(-1)) < qEnCurso);
+    const cerradosFiables = cerrados.every(t => { const x = gastos.trimestres.find(q => q.t === t); return x && !x.error && (x.fuente === 'LIBRO' || x.sinLeer === 0); });
+    if (anio === anioHoy && mesesCerrados > 0 && cerrados.length) {
+        const media = estructuraMes.slice(0, mesesCerrados).reduce((a, b) => a + b, 0) / mesesCerrados;
+        const mesHoy = Number(hoy.slice(5, 7));
+        const meses = [];
+        let extra = 0;
+        for (let m = mesesCerrados + 1; m <= mesHoy; m++) {
+            if (estructuraMes[m - 1] < media) { extra += media - estructuraMes[m - 1]; estructuraMes[m - 1] = media; meses.push(m); }
+        }
+        if (meses.length) {
+            gastos.estructura += extra;
+            gastos.porTipo.ESTIMADO = r2(extra);
+            gastos.estimado = { meses, importe: r2(extra), mediaMensual: r2(media), base: cerradosFiables ? 'cerrados' : 'parcial' };
+        }
     }
     if (!gastos.drive) avisos.push({ tono: 'ambar', texto: 'Drive no ha respondido para algún trimestre: los gastos están incompletos.' });
+    if (gastos.libro?.error) avisos.push({ tono: 'ambar', texto: `No se pudo leer el libro maestro de la contabilidad (${gastos.libro.error}): los trimestres cerrados salen de la lectura de Drive.` });
+    if (gastos.libro && gastos.libro.cuadra === false) avisos.push({ tono: 'ambar', clave: 'libro_no_cuadra', texto: 'El libro maestro no suma lo mismo que su hoja RESUMEN en algún trimestre: revísalo antes de fiarte de la estructura.' });
 
     // ── Ingresos por mes y línea (SL) ────────────────────────────────────────
     const meses = cuadro.ventas?.meses || [];
@@ -596,7 +648,6 @@ async function calcularFinanzas(anio, { forzar }) {
         const mb = ing - costeCaeMes[i] - costeCeeMes[i];
         return { mes: i + 1, ingresos: r0(ing), cae: r0(ingCaeMes[i]), ing: r0(ingIngMes[i]), margenBruto: r0(mb), estructura: r0(estructuraMes[i]), ebitda: r0(mb - estructuraMes[i]) };
     });
-    const anioHoy = Number(hoy.slice(0, 4));
     const mesesTranscurridos = anio < anioHoy ? 12 : anio > anioHoy ? 0 : Number(hoy.slice(5, 7));
     // Estructura mensual: la media de los trimestres con algo leído (los meses sin
     // leer valen 0 y la bajarían).
@@ -613,13 +664,14 @@ async function calcularFinanzas(anio, { forzar }) {
         inversiones: r2(gastos.inversiones),
         cobertura: { caeCasado: r2(baseCubierta), caeSinCasar: r2(sinCasar), pctCosteMedio: Math.round(pctCosteMedio * 10000) / 10000, nVentas: ventasLista.length, nCasadas: conLote.length, costeUnitCee: r2(costeUnitCee), nCeeFact,
             ventas: casadas.map(c => ({ numero: c.v.numero, fecha: c.v.fecha, cliente: c.v.cliente || null, base: r2(c.v.base), lote: c.l?.codigo || null, margenPct: c.pct != null ? Math.round((1 - c.pct) * 1000) / 10 : null })) },
-        gastos: { ...gastos, estructura: r2(gastos.estructura), fml: r2(gastos.fml), ivaNoDeducible: r2(gastos.ivaNoDeducible), inversiones: r2(gastos.inversiones), certificadores: r2(gastos.certificadores) },
+        gastos: { ...gastos, estructura: r2(gastos.estructura), fml: r2(gastos.fml), ivaNoDeducible: r2(gastos.ivaNoDeducible), inversiones: r2(gastos.inversiones), certificadores: r2(gastos.certificadores), bonosLibro: r2(gastos.bonosLibro) },
         meses: mesesPyG,
         mesesTranscurridos,
-        // La cifra solo es fiable si los gastos están leídos.
-        fiable: gastos.drive && gastos.sinLeer === 0,
+        // Fiable: los trimestres cerrados salen del libro de la gestoría o de Drive
+        // leído entero (el trimestre en curso va estimado, y se dice).
+        fiable: gastos.drive && !gastos.libro?.error && gastos.sinLeer === 0,
     };
-    if (gastos.sinLeer > 0) avisos.push({ tono: 'ambar', clave: 'gastos_sin_leer', texto: `${gastos.sinLeer} factura${gastos.sinLeer > 1 ? 's' : ''} de gasto sin leer en Drive: no restan en el EBITDA, que puede ser menor.`, link: '?tab=facturacion&sub=trimestres' });
+    if (gastos.sinLeer > 0) avisos.push({ tono: 'ambar', clave: 'gastos_sin_leer', texto: `${gastos.sinLeer} factura${gastos.sinLeer > 1 ? 's' : ''} de gasto de trimestres cerrados sin leer en Drive (y sin el libro de la gestoría): no restan en el EBITDA, que puede ser menor.`, link: '?tab=facturacion&sub=trimestres' });
 
     // ── Caja y circulante ───────────────────────────────────────────────────
     const cobros = cuadro.cobros || {};
@@ -701,11 +753,49 @@ async function calcularFinanzas(anio, { forzar }) {
     const ytd = ingresos;
     const seguro = tramos[0].base + tramosIng[0].base + tramosIng[1].base;
     const posible = tramos[1].base;
+
+    // ── ¿Qué de lo enviado se factura dentro del año? ───────────────────────
+    // Del envío al verificador a la factura al S.O. tarda lo que han tardado los
+    // lotes ya facturados (la MEDIANA, regla 216: lo medido, no una tasa a ojo).
+    // Cada lote del Ministerio o del verificador se factura en su fecha de envío
+    // + esa mediana, nunca antes de una semana desde hoy; entra en el cierre si
+    // esa fecha cae en el año. Pesa lo que deja el verificador (como su tramo).
+    const medidos = neg.lotes
+        .filter(l => l.fechaEnvioVerificador && l.factura?.fecha)
+        .map(l => diasEntre(l.fechaEnvioVerificador, l.factura.fecha))
+        .filter(d => Number.isFinite(d) && d >= 0)
+        .sort((a, b) => a - b);
+    const mitad = Math.floor(medidos.length / 2);
+    const medianaDias = medidos.length >= 3 ? Math.round(medidos.length % 2 ? medidos[mitad] : (medidos[mitad - 1] + medidos[mitad]) / 2) : null;
+    const diasFactura = medianaDias ?? 60;
+    const masDias = (iso, n) => new Date(Date.parse(iso) + n * 86400000).toISOString().slice(0, 10);
+    const finAnio = `${anio}-12-31`;
+    const enCamino = neg.lotes.filter(l => l.etapa === 'MITECO' || l.etapa === 'VERIFICADOR').map(l => {
+        const k = l.fullyVerif ? 1 : ratio;
+        const porRitmo = l.fechaEnvioVerificador ? masDias(l.fechaEnvioVerificador, diasFactura) : null;
+        const pronto = masDias(hoy, 7);
+        const prevista = !porRitmo || porRitmo < pronto ? pronto : porRitmo;
+        return {
+            codigo: l.codigo, etapa: l.etapa, estado: l.estado, so: l.so, nExp: l.nExp,
+            base: r2(n0(l.base) * k), margen: r2(n0(l.margen) * k),
+            fechaEnvio: l.fechaEnvioVerificador, fechaPrevista: prevista, entra: prevista <= finAnio,
+        };
+    }).sort((a, b) => a.fechaPrevista.localeCompare(b.fechaPrevista) || String(a.codigo).localeCompare(String(b.codigo)));
+    const entraAnio = enCamino.filter(l => l.entra).reduce((a, l) => a + l.base, 0);
+    const todoEnviado = enCamino.reduce((a, l) => a + l.base, 0);
     const prevision = {
         tramos, tramosIng,
         ratioVerificado: neg.verificacion.ratio, tasaRechazo: r, conversion: conv, tasaAceptacion: tasaAcept,
         cartera: r2(carteraCae + carteraIng), carteraCae: r2(carteraCae), carteraIng: r2(carteraIng), carteraMargen: r2(carteraMargen),
-        cierreAnio: anio === anioHoy ? { ytd: r2(ytd), seguro: r2(ytd + seguro), posible: r2(ytd + seguro + posible) } : null,
+        // seguro = facturado + lo que ya se puede facturar · esperado = + lo del
+        // Ministerio y del verificador que al ritmo medido se factura antes del 31/12
+        // · maximo = + todo lo enviado (si todo va más rápido) · posible (antiguo) = + el Ministerio.
+        cierreAnio: anio === anioHoy ? {
+            ytd: r2(ytd), seguro: r2(ytd + seguro), posible: r2(ytd + seguro + posible),
+            esperado: r2(ytd + seguro + entraAnio), maximo: r2(ytd + seguro + todoEnviado),
+            lotes: enCamino,
+            diasFactura: { mediana: medianaDias, n: medidos.length, min: medidos[0] ?? null, max: medidos[medidos.length - 1] ?? null, usado: diasFactura },
+        } : null,
         // Cuántos meses de estructura paga el margen que hay en cartera.
         mesesCubiertos: estructuraMensual ? r2(carteraMargen / estructuraMensual) : null,
     };

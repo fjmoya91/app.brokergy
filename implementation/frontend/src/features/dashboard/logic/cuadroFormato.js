@@ -10,6 +10,28 @@ export const energia = (mwh) => { const e = energiaCorta(mwh); return `${e.valor
 /** Enlace a otra pestaña del CRM; se abre SIEMPRE en pestaña nueva (el cuadro se queda como estaba). */
 export const enlace = (q) => `${window.location.origin}/${String(q || '').startsWith('?') ? q : `?${q || ''}`}`;
 
+const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const rangoT = (ts) => (ts.length > 1 ? `${ts[0]}–${ts[ts.length - 1]}` : ts[0]);
+
+/**
+ * De dónde sale la estructura del año, en una línea:
+ * «T1–T3 del libro de la gestoría · T4 en curso, estimado». Con `corta`, para el hero.
+ */
+export function fuenteEstructura(g, { corta = false } = {}) {
+    const qs = g?.trimestres || [];
+    const libro = qs.filter(q => q.fuente === 'LIBRO').map(q => q.t.slice(-2));
+    const drive = qs.filter(q => q.fuente === 'DRIVE' && !q.enCurso).map(q => q.t.slice(-2));
+    const enCurso = qs.find(q => q.enCurso);
+    const partes = [];
+    if (libro.length) partes.push(corta ? `libro ${rangoT(libro)}` : `${rangoT(libro)} del libro de la gestoría`);
+    if (drive.length) partes.push(corta ? `Drive ${rangoT(drive)}` : `${rangoT(drive)} leído en Drive`);
+    if (enCurso) partes.push(`${enCurso.t.slice(-2)}${corta ? '' : ' en curso,'} ${g.estimado ? 'estimado' : 'leído en Drive'}`);
+    return partes.length ? partes.join(corta ? ' + ' : ' · ') : 'gastos de Drive leídos';
+}
+
+/** «oct–nov» de una lista de meses (1–12). */
+export const mesesTexto = (ms = []) => (ms.length ? (ms.length > 1 ? `${MES_CORTO[ms[0] - 1]}–${MES_CORTO[ms[ms.length - 1] - 1]}` : MES_CORTO[ms[0] - 1]) : '');
+
 function enlaceDeFiltro(filtro) {
     if (!filtro) return '?tab=facturacion';
     if (filtro.vista === 'lotes') return '?tab=lotes';

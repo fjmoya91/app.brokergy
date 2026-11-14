@@ -23,7 +23,7 @@ import {
     Arriba, Atencion, Salud, Resultados, Caja, Prevision, NegocioCae, OtrosServicios, Captacion,
     CabSeccion,
 } from '../components/CuadroSecciones';
-import { juntarAtencion, pct, energia } from '../logic/cuadroFormato';
+import { juntarAtencion, pct, energia, fuenteEstructura } from '../logic/cuadroFormato';
 import { CarteraCae } from '../components/CarteraCae';
 
 const SECCIONES = [
@@ -121,12 +121,15 @@ export function DashboardView() {
             const p = f.pyg, c = f.caja, pr = f.prevision;
             L.push('', `Facturado ${f.anio}: ${eur(p.ingresos, 0)} sin IVA (CAE ${eur(p.ingresosCae, 0)} · servicios ${eur(p.ingresosIng, 0)})`,
                 `Margen bruto: ${eur(p.margenBruto, 0)} (${pct(p.margenBrutoPct)})`,
-                `EBITDA: ${eur(p.ebitda, 0)} (${pct(p.ebitdaPct)})${p.fiable ? '' : ` · provisional, ${p.gastos.sinLeer} gastos sin leer`}`,
+                `EBITDA: ${eur(p.ebitda, 0)} (${pct(p.ebitdaPct)})${p.fiable ? '' : ` · provisional, ${p.gastos.sinLeer} gastos sin leer`} · estructura ${eur(p.estructura, 0)} (${fuenteEstructura(p.gastos)})`,
                 `Te deben: ${eur(c.teDeben, 0)} con IVA · vencido ${eur(c.vencido, 0)}`,
                 `Bonos por pagar: ${eur(c.bonosPorPagar, 0)} · IVA del trimestre: ${eur(c.ivaAPagar, 0)}`,
                 `Circulante neto: ${eur(c.circulante, 0)}`,
                 `Cartera ponderada: ${eur(pr.cartera, 0)} · margen ${eur(pr.carteraMargen, 0)}`);
-            if (pr.cierreAnio) L.push(`Cierre ${f.anio}: ${eur(pr.cierreAnio.seguro, 0)}, hasta ${eur(pr.cierreAnio.posible, 0)} si el MITECO emite antes del 31/12`);
+            if (pr.cierreAnio) {
+                const ca = pr.cierreAnio;
+                L.push(`Cierre ${f.anio}: esperado ${eur(ca.esperado ?? ca.posible, 0)} (seguro ${eur(ca.seguro, 0)}; hasta ${eur(ca.maximo ?? ca.posible, 0)} si sale todo lo enviado antes del 31/12)`);
+            }
         }
         if (n) {
             L.push('', 'Lotes:');

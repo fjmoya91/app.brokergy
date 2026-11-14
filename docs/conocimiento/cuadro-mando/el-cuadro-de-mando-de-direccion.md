@@ -15,6 +15,7 @@ CAE (GWh y margen por fase), calculado en el navegador sobre `GET /api/expedient
 | Rutas (solo ADMIN o clave interna) | [routes/cuadroMando.js](implementation/backend/routes/cuadroMando.js): `GET /api/cuadro-mando/negocio` · `GET /api/cuadro-mando/finanzas?anio=` (las dos con `?forzar=1`) |
 | La pantalla | [views/DashboardView.jsx](implementation/frontend/src/features/dashboard/views/DashboardView.jsx), [components/CuadroSecciones.jsx](implementation/frontend/src/features/dashboard/components/CuadroSecciones.jsx), [components/CarteraCae.jsx](implementation/frontend/src/features/dashboard/components/CarteraCae.jsx), estilo en [cuadroEstilo.js](implementation/frontend/src/features/dashboard/cuadroEstilo.js) sobre el kit crema de Facturación |
 | Que cuadre | `node implementation/backend/scripts/check_cuadro_mando.js [año]` (solo lectura) |
+| Gastos de los trimestres cerrados | [services/libroContable.js](implementation/backend/services/libroContable.js): el libro maestro de la gestoría, solo lectura |
 
 ### Qué enseña, en este orden
 
@@ -64,9 +65,36 @@ compartida.
 - *Técnicos de los CEE directos*: nº de CEE facturados × el **honorario** medio sellado al conciliar las
   facturas de los certificadores (`fact_cert.honorario`). Las tasas que adelanta el técnico se repercuten al
   cliente como suplido: ni ingreso ni coste.
-- *Estructura*: gastos de la SL leídos en Drive (con el IVA no deducible), **sin** inversiones, bonos CAE,
-  «no es gasto» ni las facturas de los certificadores de actividad CAE (ya están en el coste directo). Los
-  gastos SIN LEER no restan: entonces el EBITDA es **provisional** y se dice cuántos faltan.
+- *Estructura*: ver «La estructura sale del libro de la gestoría», abajo.
+
+**REGLA — la estructura de un trimestre CERRADO sale del libro maestro que se entrega a la gestoría; la del
+trimestre en curso se estima y se dice.** (2026-11-14, Fran: «entra en la carpeta S2E2 para el resto de
+facturas que ya se le pasó de los trimestres».) Leer factura a factura en Drive dejaba 101 gastos sin leer
+y una estructura de 20.250 € (solo la FML): el EBITDA presumía de más. El libro
+`04. CONTABILIDAD / CONTABILIDAD {año} - BROKERGY (master).xlsx` es lo que se cierra cada trimestre (su SOP
+«Cierre contable trimestral» está en la misma carpeta) y es la verdad contable.
+- Lo lee [services/libroContable.js](implementation/backend/services/libroContable.js), **solo lectura**:
+  descarga el .xlsx (`gastosDrive.ficheroEn` + `contenido`) y lo interpreta en memoria; se recuerda mientras su
+  `modifiedTime` no cambie. Las columnas se buscan por su cabecera, no por su posición. Hojas: «GASTOS {año}»
+  (facturas recibidas de la SL: líneas CAE, ING y la FML que el socio factura a la SL) y «VEHÍCULO Y DIETAS»
+  (solo las filas con Contrib. «Empresa SL»; las del autónomo no son de la SL).
+- Cada fila se clasifica: **bono** (la cesión del ahorro al cliente: ya está en el coste directo),
+  **inversión** (columna INMOV: CAPEX, debajo del EBITDA), **certificados** (honorarios de los certificadores
+  y tasas del registro de los CEE en la línea CAE: ya están en el coste directo de cada expediente),
+  **sin importe** (filas «IMPORTE PENDIENTE») y **estructura** (el resto, FML incluida), con el IVA que no
+  se deduce (el ISP se autorrepercute y se deduce: neutro). Los suplidos (las tasas que repercute un
+  certificador) no son coste.
+- El mes contable es el de la columna Mes si cae dentro del trimestre de la fila; si no (la Pepephone de
+  marzo facturada el 1/04 va en T2), el primer mes de ese trimestre: los meses suman cada trimestre.
+- **Control**: la base de todas las filas de un trimestre tiene que sumar lo que dice la fila «Gastos SL —
+  Base imponible» de su hoja RESUMEN; si no cuadra, aviso ámbar y el check falla. El 14/11/2026 cuadraba al
+  céntimo en T1, T2 y T3 (70.284,02 · 145.214,55 · 35.645,58 €).
+- Un trimestre cerrado que NO está en el libro sale de Drive leído factura a factura, como antes; si le
+  quedan gastos sin leer, el EBITDA es **provisional** y se dice cuántos faltan.
+- El trimestre **en curso** cuenta cada mes transcurrido con lo leído en Drive o, si es menos, con la
+  **media mensual de los trimestres cerrados** (las facturas de un mes llegan después; el mes de hoy cuenta
+  entero: prudente). Va marcado «estimado» en la cuenta. Sus gastos sin leer no hacen provisional el EBITDA:
+  los recuerda el aviso del trimestre de Facturación.
 
 **REGLA — un lote está en la etapa que dicen los HECHOS del dinero, no solo su estado**: en preparación →
 en el verificador → en el MITECO → CAE emitido por facturar → facturado por cobrar → cobrado con bonos por
@@ -84,8 +112,18 @@ diferencia de importes (dejaba restos).
 - Tramos: CAE emitido (ya), en el MITECO (semanas), en el verificador (1–3 meses), para lote (lotes en
   preparación + expedientes LISTO sin lote), cierre, obra y captación. Los expedientes viejos EMITIDOS sin lote
   no entran (eran migrados ya cobrados por fuera).
-- *Cierre del año* (solo el año en curso): seguro = facturado + CAE emitido + presupuestos aceptados y CEE
-  terminados por facturar; posible = + los lotes que están en el MITECO.
+- *Cierre del año* (solo el año en curso). **Seguro** = facturado + CAE emitido + presupuestos aceptados y
+  CEE terminados por facturar. **Esperado** = + los lotes del MITECO y del verificador que, al ritmo medido,
+  se facturan antes del 31/12. **Máximo** = + todo lo enviado (si todo se adelanta). Es la cifra grande de la
+  tarjeta y del KPI. (2026-11-14, Fran: «¿se ha contado lo que tenemos a punto? Todo lo enviado al
+  verificador que a priori saldrá adelante»: antes el cierre solo sumaba el MITECO.)
+  - El ritmo: la **mediana de días del envío al verificador a la factura al S.O.** de los lotes ya facturados
+    (`lotes.fecha_envio_verificador` → `facturas_so.fecha`; con menos de 3 medidos, 60 días). Cada lote se
+    factura en su envío + la mediana, nunca antes de una semana desde hoy; entra si esa fecha cae en el año.
+    Pesa lo mismo que en su tramo (× lo que deja el verificador si no está verificado entero).
+  - La tarjeta lo dice lote a lote (plegado): etapa, envío, fecha prevista de factura, importe y margen, y si
+    entra o pasa al año siguiente. El check exige seguro ≤ esperado ≤ máximo, esperado − seguro = los que
+    entran y máximo − seguro = MITECO + verificador.
 
 **REGLA — caja.** *Te deben* = lo pendiente de cobro de `contabilidadService` (ya incluye las autofacturas de
 Drive sin `brk_cobro_fecha`: no se suman otra vez). *Circulante neto* = te deben − bonos por pagar de lotes
@@ -108,7 +146,7 @@ que se lee (IntersectionObserver) y en el móvil se desliza sola. Primero llega 
 las finanzas (~12 s en frío: leen los gastos de Drive) llegan con su esqueleto. El año solo cambia la cuenta
 de resultados: el negocio en marcha es siempre el de hoy. «Copiar resumen» deja en el portapapeles las cifras
 de cabecera, las etapas de los lotes y la lista de atención. Probado a 1440, 390 y 360 px sin scroll
-horizontal. Banco: la configuración `cuadro-wt-5187` o `fx-demo-5186` con `fx-demo.html?vista=cuadro`
+horizontal. Banco: `fx-demo-5186` (o una copia que apunte al worktree) con `fx-demo.html?vista=cuadro`
 (bloquea toda escritura: local = producción).
 
 ### Medido el 14/11/2026 (solo lecturas, contra producción)
@@ -125,3 +163,16 @@ horizontal. Banco: la configuración `cuadro-wt-5187` o `fx-demo-5186` con `fx-d
 - CEE directos 2026: 52 facturas, 20.273 € sin suplidos; 2 terminados sin factura, 8 sin cobrar.
 - El check encontró al primer intento que el desglose de ING por origen sumaba 649 € más que la contabilidad:
   eran las tasas (suplidos). De ahí la regla de usar `desgloseVenta` en todo lo que sea ingreso.
+
+### Medido el 14/11/2026, con el libro de la gestoría y el cierre por lotes
+
+- Ventas CAE del libro: T1 71.569 €, T2 274.388 €, T3 0 € — **cuadran al euro** con las del cuadro. T4
+  (216.842 € en octubre y 336.829 € en noviembre) aún no está en el libro.
+- Estructura **33.853 €**: T1 10.668 · T2 8.343 · T3 8.687 (libro) · T4 6.155 estimados (octubre y
+  noviembre a 3.078 €/mes). FML 20.250 € dentro. Fuera: bonos del libro 213.184 € (por fecha de pago),
+  certificadores y tasas del registro 7.348 €, inversiones 3.084 € (portátil, iPhone, bombas del piloto).
+  **EBITDA 379.232 € (41,1 %)**, ya no provisional (antes 392.835 €).
+- Del envío al verificador a la factura: 55–109 días, **mediana 57** (8 lotes). Cierre 2026: seguro
+  924.060 € · **esperado 1.198.547 €** (los 4 lotes del MITECO y LOTE-2026-013 y 014, ya verificados, con
+  factura hacia el 3, 16 y 25/12) · máximo 1.707.149 € (los 5 enviados del 5 al 10/11 caen a primeros de
+  enero al ritmo medido: 508.601 €).
