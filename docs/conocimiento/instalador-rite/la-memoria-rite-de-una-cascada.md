@@ -17,12 +17,14 @@ en cascada para la calefacción y dos aerotermos Johnson de 110 L para el ACS.
 
 **REGLA — en una casilla de alto fijo el texto largo se ENCOGE, nunca se corta.** `rellenar_xml`
 (`rite-generator/lib/generar_memoria.py`) mide la celda (ancho `tcW` menos el margen de 70 dxa por lado de
-`tblCellMar`, y las líneas que caben en el alto exacto con interlineado 1,15) y baja el cuerpo de letra de
-ESA casilla lo justo, sin bajar de 4 pt. Se usan dos anchos de carácter: con el holgado (0,58 em) se
+`tblCellMar`, y las líneas que caben en el alto exacto con interlineado 1,25) y baja el cuerpo de letra de
+ESA casilla lo justo, sin bajar de 4 pt. El interlineado es 1,25 y no 1,15 porque el PDF lo hace el
+LibreOffice del servidor, que pinta con DejaVu (líneas más altas y letras más anchas que Arial): con 1,15
+el modelo se quedaba a 6 pt en dos líneas y la segunda («010») salía medio cortada (15/11/2026). Se usan dos anchos de carácter: con el holgado (0,58 em) se
 decide si desborda, para no tocar nada que ya cabía (con 0,66 encogía los nº de fila «10» y «11» y
 «ESPUMA ELASTOMÉRICA», que se veían bien), y con el estricto (0,66 em, medido en el PDF con mayúsculas y
-cifras) se elige el tamaño nuevo. Medido: en el 226 cambian solo el modelo (7 → 6 pt) y el nº de
-fabricación (7 → 5,5 pt), y en el ejemplo de una sola máquina (26RES060_120) no cambia ninguna casilla.
+cifras) se elige el tamaño nuevo. Medido: en el 226 cambian solo el modelo (7 → 5,5 pt, en una línea) y
+el nº de fabricación (7 → 5,5 pt, en dos), y en el ejemplo de una sola máquina (26RES060_120) no cambia ninguna casilla.
 
 **REGLA — la acumulación es la de TODOS los depósitos de ACS.** `_acumulacion_total` suma los litros de
 cada unidad de `aerotermia_acs` (la 1 y sus `equipos_extra`). Una unidad extra sin litros ni modelo propio

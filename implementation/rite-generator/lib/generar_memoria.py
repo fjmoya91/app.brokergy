@@ -94,7 +94,10 @@ def _build_field_index(xml: str):
 # cifras en Arial), para que el texto encogido no vuelva a partirse de más.
 _EM_DESBORDA = 0.58
 _EM_CHAR = 0.66
-_INTERLINEA = 1.15
+# Interlineado 1,25 y no 1,15: el PDF lo hace el LibreOffice del servidor, que pinta
+# con DejaVu (líneas más altas que Arial en Word); con 1,15 el modelo a 6 pt salía
+# en dos líneas con la segunda medio cortada (26RES060_226, 15/11/2026).
+_INTERLINEA = 1.25
 _MARGEN_CELDA_PT = 7.0       # tblCellMar de la plantilla: 70 dxa por lado
 _SZ_MIN = 8                  # 4 pt: por debajo ya no se lee
 

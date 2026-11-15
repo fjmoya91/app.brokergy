@@ -29,7 +29,7 @@ paths:
 
 - `docs/conocimiento/instalador-rite/al-instalador-se-le-pide-todo-de-una-vez.md` — Al instalador se le pide TODO de una vez (2026-08-27) · 11,1 KB
 - `docs/conocimiento/instalador-rite/el-certificado-rite-se-lee-al-subirlo.md` — El Certificado RITE se LEE al subirlo (2026-09-03) · 5,5 KB
-- `docs/conocimiento/instalador-rite/la-memoria-rite-de-una-cascada.md` — La Memoria RITE de una CASCADA: todo cabe en su casilla y los litros se suman (2026-11-13) · 2,5 KB
+- `docs/conocimiento/instalador-rite/la-memoria-rite-de-una-cascada.md` — La Memoria RITE de una CASCADA: todo cabe en su casilla y los litros se suman (2026-11-13) · 2,8 KB
 - `docs/conocimiento/instalador-rite/presentar-la-memoria-rite-en-edice.md` — Presentar nosotros la Memoria RITE en eDICE-Térmicas (2026-10-25) · 5,3 KB
 - `docs/conocimiento/instalador-rite/varios-tecnicos-pueden-firmar-la-memoria-rite.md` — VARIOS técnicos pueden firmar la Memoria RITE de una empresa (2026-11-06) · 2,9 KB
 
