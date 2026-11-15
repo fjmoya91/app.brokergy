@@ -108,10 +108,21 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
      `node scripts/asistente_pc.js confirmar <nº> --texto "<su respuesta LITERAL>" --enviar`. Ese texto
      es la autorización del pago: cópialo tal cual, nunca lo resumas ni lo inventes. Un «sí» que no
      responde a esa pregunta, o un «vale» ambiguo, no vale: pregúntale.
+  **Varios PCs.** Cada PC tiene nombre (FIRMA, OFICINA…: `cola` los lista con su estado) y la
+  presentación va al de siempre. Si ese no responde y otro sí, la pregunta ya lo dice («¿Lo hago en
+  OFICINA o esperas a encender FIRMA?»):
+  - «sí» → `confirmar` como siempre (espera al de siempre).
+  - «sí, en OFICINA» / «sí, en el otro» → lo mismo con `--pc OFICINA`. El script se niega si su
+    respuesta no nombra ese PC (o dice «el otro» siendo el único encendido): entonces pregúntale.
+  - Ya en la cola y sin empezar, «hazlo en OFICINA» / «hazlo en el otro» →
+    `node scripts/asistente_pc.js mover <nº> --pc OFICINA --texto "<su respuesta LITERAL>" --enviar`
+    (`mover --lote …` para la ronda de la noche). Lo que ya está en curso no se mueve.
+  - «Califícalo en OFICINA» → `ce3x … --pc OFICINA`. Nunca elijas tú otro PC para presentar.
   **La ronda de la noche**: a las 21:00 el vigilante le manda SOLO una pregunta con TODOS los CEE de
   la casa con visto bueno y sin registrar («*CEE para presentar esta noche* … n × 16,39 € = total»;
   en `cola` sale como «RONDA DE LA NOCHE»). Si contesta a ESA pregunta:
-  - «sí» → `node scripts/asistente_pc.js confirmar --lote --texto "<su respuesta LITERAL>" --enviar`.
+  - «sí» → `node scripts/asistente_pc.js confirmar --lote --texto "<su respuesta LITERAL>" --enviar`
+    («sí, en OFICINA» → con `--pc OFICINA`, como arriba).
   - «sí, menos el 207» → lo mismo con `--excepto 207` (varios: `--excepto 207,186`). Sin `--excepto`
     el script se niega si la respuesta deja algo fuera. Si no está claro cuál, pregúntale.
   - «no» / «hoy no» → `node scripts/asistente_pc.js cancelar --lote --enviar` (mañana se pregunta otra vez).

@@ -136,6 +136,41 @@ a la lista de la noche siguiente; lo que falló no se reintenta solo (puede habe
 Pruebas: `node implementation/backend/scripts/test_presentar_noche.js` (cola temporal, WhatsApp de
 mentira) y, en seco contra la BD, `node implementation/backend/scripts/asistente_pc.js noche`.
 
-**Órdenes:** VPS `presentar <nº> [--fase final]` · `noche` · `confirmar --lote --texto "…" [--excepto …]` · `cancelar --lote` · `ce3x <nº> --trabajo …` · `confirmar <nº> --texto "…"` · `cancelar <nº>` ·
-`probar` · `cola` (todas en seco sin `--enviar`); PC `vuelta [--seco]` · `estado`. Registros del PC en
+### Varios PCs: cada uno con su nombre, y el encargo con su destino (2026-11-15)
+
+Fran tiene Claude en dos PCs y usa uno **solo para presentar** (el del certificado). Hasta ahora la cola
+no sabía a qué PC iba un encargo: lo cogía el primero que lo viera (`pc` se apuntaba después), así que
+con la tarea programada en los dos, el que no tiene el certificado podía coger una presentación y fallar
+a medias. Lo que pidió: poder nombrarlos y, **si el de siempre no está, que le pregunte si lo hace en
+el otro o lo enciende**.
+
+| Dónde | Variable | Qué |
+|---|---|---|
+| `.env` de cada PC | `PC_NOMBRE` (p. ej. `FIRMA`, `OFICINA`) | Su nombre. Sin ella, el hostname (`brokergy-pc` → `BROKERGY_PC`) |
+| `.env` del VPS | `PC_PRESENTAR` | A qué PC van las presentaciones (y la ronda de la noche). Vacía = cualquiera, como antes |
+| `.env` del VPS | `PC_CE3X` | A qué PC van los trabajos con CE3X y `calificar_ext`. Vacía = cualquiera |
+
+- **Latido por PC**: `pc_latido_<NOMBRE>.json`. El `pc_latido.json` de antes cuenta como el PC de su
+  hostname hasta que ese PC se actualice. `cola` lista todos con su estado.
+- **Encargo con `destino`**: la vuelta solo coge lo que va a SU nombre o no lleva destino.
+- **REGLA — si el PC de presentar no responde y otro sí, se PREGUNTA dónde; nunca se cambia solo.**
+  La pregunta del pago termina en «¿Lo hago en *OFICINA*, que está encendido, o esperas a encender
+  *FIRMA*? Contesta *sí* (espero a FIRMA) o *sí, en OFICINA*». Con lo segundo, `confirmar --pc OFICINA`,
+  y el script **se niega si su respuesta literal no nombra ese PC** (o dice «el otro / este / aquí»
+  siendo el único encendido): quien elige el PC que firma y paga es Fran, no el Claude del WhatsApp.
+  Ya en la cola y sin empezar, «hazlo en OFICINA» → `mover <nº>|--lote --pc OFICINA --texto "…"`
+  (con la misma guarda, y queda apuntado en `movido`). Lo que está en curso no se mueve. Si los dos
+  están apagados, el aviso de siempre, sin pregunta.
+- **REGLA — dos PCs nunca empiezan el mismo encargo.** Coger un encargo es crear `tomas/<id>` en el
+  VPS (`mkdir`, atómico: falla si ya existe) ANTES de marcarlo «en curso»; lo ya tomado no se vuelve a
+  coger aunque su «en curso» se perdiera porque dos PCs escribieron la cola a la vez. Sigue sin haber
+  candado en la lectura-escritura de `tareas_pc.json` (podría perderse un cambio de estado si dos PCs
+  escriben en el mismo segundo), pero ya no puede salir un segundo pago por eso.
+- **Transición**: un PC con el código de antes coge cualquier encargo pendiente sin mirar `destino`.
+  Hasta actualizar los dos, la tarea programada solo en el PC de presentar.
+
+Pruebas: `node implementation/backend/scripts/test_pc_destino.js` (cola temporal, WhatsApp de mentira).
+
+**Órdenes:** VPS `presentar <nº> [--fase final]` · `noche` · `confirmar --lote --texto "…" [--excepto …] [--pc …]` · `cancelar --lote` · `ce3x <nº> --trabajo … [--pc …]` · `confirmar <nº> --texto "…" [--pc …]` · `cancelar <nº>` ·
+`mover <nº>|--lote --pc … --texto "…"` · `probar [--pc …]` · `cola` (todas en seco sin `--enviar`); PC `vuelta [--seco]` · `estado`. Registros del PC en
 `backend/scratch/pc_trabajos/` (`vuelta.log`, `<id>.jsonl`, `<id>.prompt.txt`).

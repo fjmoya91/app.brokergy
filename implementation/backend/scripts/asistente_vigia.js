@@ -601,7 +601,9 @@ function servidor() {
                     });
                     if (r.ok && !r.duplicado) {
                         log(`Presentación de ${t.numero} encargada desde la app.`);
-                        await mandar(`Desde la app me has pedido presentar *${t.numero}* (${t.importe} €). Se lo paso a tu PC; ${r.pc.texto}. Te aviso cuando empiece y cuando esté registrado.`);
+                        // Si el PC de presentar no responde y otro sí: cómo pasárselo («hazlo en OFICINA» → `mover`).
+                        const otro = r.pc.pregunta ? ` Si prefieres que lo haga *${r.pc.alternativas[0]}*, que está encendido, contesta «hazlo en ${r.pc.alternativas[0]}».` : '';
+                        await mandar(`Desde la app me has pedido presentar *${t.numero}* (${t.importe} €). Se lo paso a ${r.tarea?.destino ? `*${r.tarea.destino}*` : 'tu PC'}; ${r.pc.texto}.${otro} Te aviso cuando empiece y cuando esté registrado.`);
                     }
                 } catch (e) {
                     r = { ok: false, motivo: e.message };
