@@ -12,8 +12,8 @@ import React, { useState } from 'react';
 
 const STEPS = [
     { n: 1, icon: '🏠', title: 'Busca tu vivienda', desc: 'Por referencia catastral, dirección o tu ubicación actual' },
-    { n: 2, icon: '💬', title: 'Responde 8 preguntas', desc: 'Sobre tu caldera actual y cómo te calientas hoy' },
-    { n: 3, icon: '📊', title: 'Recibe tu propuesta', desc: 'Cuánto ahorras al año y qué ayudas del Estado te tocan' }
+    { n: 2, icon: '💬', title: 'Responde unas preguntas', desc: 'Sobre tu caldera, tu casa y tu obra. Un par de minutos' },
+    { n: 3, icon: '📊', title: 'Recibe tu propuesta', desc: 'Tus dos ayudas, el bono CAE y la deducción del IRPF, y cuánto ahorras al año' }
 ];
 
 const FAQ = [

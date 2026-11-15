@@ -22,7 +22,7 @@
  *   node implementation/backend/scripts/test_dacs_litros.mjs
  */
 const F = '../../frontend/src/features/expedientes';
-const { resolveDacs, dacsLitros, dacsCte, ACS_METHOD, CTE_ACS, litrosDelCertificado, litrosDeXmlTexto, ajusteAcsLitros } = await import(`${F}/logic/demandaAcs.js`);
+const { resolveDacs, dacsLitros, dacsCte, ACS_METHOD, CTE_ACS, litrosDelCertificado, litrosDeXmlTexto, ajusteAcsLitros, documentoAcsHecho } = await import(`${F}/logic/demandaAcs.js`);
 const { ceeToXmlShape } = await import('../../frontend/src/features/cee/ceeExtract.js');
 const { deriveCifoData, buildCifoHtml } = await import(`${F}/logic/cifoDoc.js`);
 const { deriveFichaRes060 } = await import(`${F}/logic/fichaRes060Html.js`);
@@ -165,7 +165,12 @@ console.log('\n7. CRITERIO DE LOS VERIFICADORES (19/10/2026): mandan los litros/
         'CTE con las demandas distintas → L/D');
     const iguales = { acs_method: ACS_METHOD.XML,
         cee_inicial: { demandaACS: 13.23, acsLitrosDia: 112 }, cee_final: { demandaACS: 13.30, acsLitrosDia: 112 } };
-    check(ajusteAcsLitros(iguales) === null, 'XML con las demandas iguales → no se toca');
+    // Desde el 27/10/2026 (Fran): siempre a L/D, salvo con el CIFO ya generado o enviado.
+    check(ajusteAcsLitros(iguales)?.acs_method === ACS_METHOD.LITROS, 'XML con las demandas iguales y sin CIFO → L/D');
+    check(ajusteAcsLitros(iguales, { documentoHecho: true }) === null, 'iguales con el CIFO generado/enviado → no se toca');
+    check(ajusteAcsLitros(xmlDif, { documentoHecho: true })?.acs_method === ACS_METHOD.LITROS, 'distintas con el CIFO → L/D igual');
+    check(documentoAcsHecho({ cert_cifo_sent_at: '2026-10-27' }) && documentoAcsHecho({ cert_cifo_drive_link: 'x' })
+        && !documentoAcsHecho({}) && !documentoAcsHecho(null), 'documentoAcsHecho: CIFO generado o enviado');
     check(ajusteAcsLitros({ ...xmlDif, acs_method: ACS_METHOD.MANUAL }) === null, 'el manual del terciario no se toca');
     const litrosVacio = { acs_method: ACS_METHOD.LITROS, cee_inicial: { acsLitrosDia: 90 } };
     check(ajusteAcsLitros(litrosVacio)?.dacs_litros_dia === 90, 'L/D sin cifra → copia la del certificado');

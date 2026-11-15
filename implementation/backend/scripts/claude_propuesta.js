@@ -12,6 +12,10 @@
 //                                                                   pulsa «Guardar Oportunidad» antes del PDF (para inputs
 //                                                                   tocados por un script: la BD queda con el cálculo de la app)
 //   node scripts/claude_propuesta.js baja                          la desactiva (deja de poder entrar)
+//   node scripts/claude_propuesta.js paginas <OP>                  SOLO LECTURA: foto de cada hoja de la
+//                                                                   propuesta y si algo pisa el pie (no abre
+//                                                                   el envío). Con CLAUDE_ROBOT_APP_URL=http://localhost:5173
+//                                                                   mide la versión LOCAL antes de desplegar.
 //
 // CÓMO FUNCIONA. La propuesta (el PDF y los mensajes) la compone el NAVEGADOR al
 // abrir el popup: React la dibuja y la ajusta midiendo la página, así que el
@@ -113,6 +117,63 @@ async function cerrarSesion(sesion) {
 }
 
 const espera = (ms) => new Promise(r => setTimeout(r, ms));
+
+// SOLO LECTURA: abre la propuesta de <OP>, fotografía cada hoja y mide cuánto le
+// sobra (o le falta) hasta su pie. Las hojas son de alto fijo (regla 25.b): lo que
+// no cabe se queda DEBAJO del pie y no se ve. No pulsa ENVIAR ni abre el popup.
+async function paginas() {
+    const op = args[1];
+    if (!op || !/^\d\dRES|^\d\dTER/.test(op)) throw new Error('Falta el nº de oportunidad (p. ej. 26RES060_OP217).');
+    fs.mkdirSync(SALIDA, { recursive: true });
+    const sesion = await abrirSesion();
+    const puppeteer = require(path.join(__dirname, '../node_modules/puppeteer'));
+    const browser = await puppeteer.launch({ headless: true, defaultViewport: { width: 1440, height: 950 } });
+    try {
+        const page = await browser.newPage();
+        const host = new URL(APP).hostname;
+        await page.evaluateOnNewDocument((h, k, v) => {
+            if (location.hostname === h && !localStorage.getItem(k)) localStorage.setItem(k, v);
+        }, host, CLAVE_SESION, JSON.stringify(sesion));
+        const errores = [];
+        page.on('pageerror', e => errores.push(e.message));
+        console.log(`→ Abriendo ${op} en ${APP} como CLAUDE (solo lectura)…`);
+        await page.goto(`${APP}/?op=${encodeURIComponent(op)}`, { waitUntil: 'networkidle2', timeout: 90000 });
+        await page.waitForSelector('[data-robot="abrir-propuesta"]', { timeout: 90000 }).catch(async () => {
+            const f = path.join(SALIDA, `${op}-0-error.png`);
+            await page.screenshot({ path: f }).catch(() => {});
+            throw new Error(`No se abrió la oportunidad (captura: ${f}; errores: ${errores.slice(0, 2).join(' | ') || 'ninguno'}).`);
+        });
+        await espera(1500);
+        await page.click('[data-robot="abrir-propuesta"]');
+        await espera(1500);
+        const [sinGuardar] = await page.$$('xpath/.//button[contains(., "Continuar sin guardar")]');
+        if (sinGuardar) { console.log('  (cambios sin guardar: se mira tal y como sale ahora)'); await sinGuardar.click(); }
+        await page.waitForSelector('[data-robot="abrir-envio"]', { timeout: 90000 });
+        await espera(4000);
+        await page.setViewport({ width: 1440, height: 2600 });
+        await espera(800);
+        const medidas = await page.$$eval('.prop-page', hojas => hojas.map((h, i) => {
+            const pb = h.querySelector(':scope > .prop-pb');
+            const pie = h.querySelector(':scope > .prop-mfoot, :scope > .prop-cta');
+            const top = h.getBoundingClientRect().top;
+            const fin = pb ? Math.max(...[...pb.querySelectorAll('*')].map(e => e.getBoundingClientRect().bottom), pb.getBoundingClientRect().bottom) : 0;
+            const limite = pie ? pie.getBoundingClientRect().top : h.getBoundingClientRect().bottom;
+            return { hoja: i + 1, titulo: (h.querySelector('h2')?.innerText || '').replace(/\s+/g, ' ').slice(0, 70), alto: Math.round(h.getBoundingClientRect().height), contenido: Math.round(fin - top), pie: Math.round(limite - top), margen: Math.round(limite - fin) };
+        }));
+        const hojas = await page.$$('.prop-page');
+        for (let i = 0; i < hojas.length; i++) {
+            const f = path.join(SALIDA, `${op}-hoja${i + 1}.png`);
+            await hojas[i].screenshot({ path: f });
+            const m = medidas[i];
+            console.log(`  ${m.margen >= 0 ? '✓' : '✗'} Hoja ${m.hoja} «${m.titulo}»: contenido hasta ${m.contenido} px, pie en ${m.pie} px → ${m.margen >= 0 ? `sobran ${m.margen}` : `PISA ${-m.margen}`} px · ${f}`);
+        }
+        if (errores.length) console.log(`  Errores de la página: ${errores.slice(0, 3).join(' | ')}`);
+        return medidas.every(m => m.margen >= 0);
+    } finally {
+        await browser.close().catch(() => {});
+        await cerrarSesion(sesion);
+    }
+}
 
 async function enviar() {
     const op = args[1];
@@ -332,6 +393,7 @@ async function enviar() {
         if (orden === 'alta') await alta();
         else if (orden === 'baja') await baja();
         else if (orden === 'enviar') await enviar();
+        else if (orden === 'paginas') { if (!(await paginas())) process.exitCode = 1; }
         else {
             console.log('Uso: alta | baja | enviar <nº oportunidad> --a cliente,instalador [--enviar] [--sin-guardar]');
             process.exitCode = 2;

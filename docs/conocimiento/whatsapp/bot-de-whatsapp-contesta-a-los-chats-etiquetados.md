@@ -65,7 +65,9 @@ certificador, la entrega de los CEE directos).
 
 - **Etiqueta** + `BOT_WHATSAPP_CHATS_PRUEBA` (lista blanca, para la fase de
   pruebas: se comprueba ADEMÁS de la etiqueta).
-- **Horario 08:00-20:00 Madrid.** Fuera de él no contesta —un mensaje automático
+- **Horario: la franja de la casa** (`utils/horarioWhatsapp.js`; 07:00-21:00 Madrid desde el
+  09/11/2026, antes 08:00-20:00; `BOT_WHATSAPP_HORA_DESDE/HASTA` la sigue pudiendo cambiar solo para el
+  bot). Fuera de él no contesta —un mensaje automático
   a las 23:40 delata al bot y además nadie puede recoger un escalado a esa
   hora—, pero **el mensaje no se pierde**: se guarda con `responder_after` en la
   próxima apertura. Por eso hay tabla y no un buffer en memoria como

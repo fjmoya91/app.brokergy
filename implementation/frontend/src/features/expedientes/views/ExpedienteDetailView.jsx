@@ -11,6 +11,7 @@ import { EnvolventeModule } from '../components/EnvolventeModule';
 import { SubvencionesModule } from '../components/SubvencionesModule';
 import { leerSubvenciones } from '../logic/subvenciones';
 import { DocumentacionModule } from '../components/DocumentacionModule';
+import { ViaFmPanel } from '../components/ViaFmPanel';
 import { ChecklistModule } from '../components/ChecklistModule';
 import { EconomicoModule } from '../components/EconomicoModule';
 import { ResumenEconomicoExpediente } from '../components/ResumenEconomicoExpediente';
@@ -23,15 +24,22 @@ import {
     calculateRes080SimplificadoFromXml,
     calculateHybridization,
     resolveHybridInputs,
+    climaScopForzado,
+    zoneClimateSeason,
+    CLIMA_SCOP,
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
-import { calculateRes060FC, contextoCalderaFc, tramiteFc } from '../../calculator/logic/res060fc';
+import { entradasFmClima } from '../../calculator/logic/climaFm';
+import { getEmitterTemp } from '../logic/cifoDoc';
+import { calculateRes060FC, contextoCalderaFc, tramiteFc, esEmisorAireAire } from '../../calculator/logic/res060fc';
+import { calculateRes080FM } from '../../calculator/logic/res080fm';
 import { calcCifo } from '../logic/calcCifo';
 import { acsComputaAhorro } from '../logic/aerotermiaUnits';
+import { entradasFmExpediente } from '../logic/fmExpediente';
 import { ceeBaseDocumento } from '../logic/ceeFases';
 import { resolveDacs } from '../logic/demandaAcs';
 import { deriveTerciarioVars, TERCIARIO_PRECIOS } from '../logic/terciario';
-import { CAE_PRECIO_CLIENTE_ANTERIOR } from '../../calculator/logic/calculation';
+import { CAE_PRECIO_CLIENTE_ANTERIOR, precioSelladoRes080, etaAcsExistente } from '../../calculator/logic/calculation';
 import { propuestaGuardada } from '../logic/propuestaGuardada';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
 import { driveFolderLink } from '../../../utils/driveFolder';
@@ -141,6 +149,7 @@ const MODULE_ICONS = {
     ],
     envolvente: ['M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4'],
     documentacion: ['M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'],
+    viafm: ['M6 18L18 6M8 8h.01M16 16h.01M9 8a1 1 0 11-2 0 1 1 0 012 0zm8 8a1 1 0 11-2 0 1 1 0 012 0z'],
     economico: ['M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z'],
 };
 
@@ -291,6 +300,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
     const [infoEquipo, setInfoEquipo] = useState(false);
     const [leerPlacas, setLeerPlacas] = useState(false);
     const [liveDoc, setLiveDoc] = useState(null);
+    // Los datos de la vía FM ya GUARDADOS por su panel (`{ id, datos }`): el cálculo FM
+    // los lee de aquí antes que de la copia hidratada, que no se entera de lo que
+    // escribe `PUT /:id/via-fm/datos` (el vulnerable × 1,5, los kWh simulados).
+    const [viaFmVivo, setViaFmVivo] = useState(null);
     const [liveSeguimiento, setLiveSeguimiento] = useState(null);
     const [showQuickNote, setShowQuickNote] = useState(false);
     const [showIncidencias, setShowIncidencias] = useState(false);
@@ -382,13 +395,16 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
             { id: 'instalacion',   label: 'Instalación',   full: 'Instalación',                          show: true },
             { id: 'envolvente',    label: 'Envolvente',    full: 'Envolvente',                           show: num.includes('RES080') },
             { id: 'documentacion', label: 'Documentación', full: 'Documentación',                        show: !isCertificador },
+            // Vía del factor multiplicador (BOE-A-2026-23367): solo RES060/RES093
+            // (también los 26RES060FM_N) y solo el equipo interno (ruta staffOnly).
+            { id: 'viafm',         label: 'Vía FM',        full: 'Vía del factor multiplicador',         show: isStaff && (num.includes('RES060') || num.includes('RES080') || num.includes('RES093')) },
             // Bono social y ayudas públicas: lo declara el titular en el Anexo I y
             // de ahí viaja a la solicitud de verificación. Oculto al certificador,
             // que no interviene en esa declaración.
             { id: 'subvenciones',  label: 'Subvenciones',  full: 'Bono social y ayudas públicas',        show: !isCertificador },
             { id: 'economico',     label: 'Económico',     full: 'Datos Económicos',                     show: isAdmin },
         ].filter(t => t.show);
-    }, [expediente?.numero_expediente, isCertificador, isAdmin]);
+    }, [expediente?.numero_expediente, isCertificador, isAdmin, isStaff]);
 
     // El módulo recordado de la sesión puede no existir aquí (Envolvente solo en
     // RES080, Económico solo ADMIN…): en ese caso se cae al primero disponible.
@@ -698,6 +714,23 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
 
     // ─── Autosave se ha desactivado para Instalación/Económico por petición del usuario (ahora manual) ───
 
+    // Modelo del CATÁLOGO de la bomba, solo cuando la vigente va en clima MEDIO en una
+    // zona cálida: la vía FM necesita su SCOP CÁLIDO (logic/climaFm.js).
+    const instClima = liveInst || expediente?.instalacion || null;
+    const zonaClima = expediente?.oportunidades?.datos_calculo?.zona || expediente?.oportunidades?.datos_calculo?.inputs?.zona || null;
+    const idModeloFm = climaScopForzado(instClima || {}) === CLIMA_SCOP.MEDIO && zoneClimateSeason(zonaClima) === CLIMA_SCOP.CALIDO
+        ? (instClima?.aerotermia_cal?.aerotermia_db_id ?? null)
+        : null;
+    const [modeloFm, setModeloFm] = useState(null);
+    useEffect(() => {
+        if (idModeloFm == null) { setModeloFm(null); return undefined; }
+        let vivo = true;
+        axios.get(`/api/aerotermia/${idModeloFm}`)
+            .then((r) => { if (vivo) setModeloFm(r.data || null); })
+            .catch(() => { if (vivo) setModeloFm(null); });
+        return () => { vivo = false; };
+    }, [idModeloFm]);
+
     // ─── Cálculo de resultados económicos en tiempo real ──────────────────────
     const calcResults = useMemo(() => {
         if (!expediente || !expediente.oportunidades) return null;
@@ -721,8 +754,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
         const opInputs = op.datos_calculo?.inputs || {};
 
         let savings = null;
-        // Ficha RES060FC (propuesta de nueva normativa): cálculo paralelo con las
-        // variables REALES del expediente. Se rellena en la rama RES060/RES093.
+        // Vía del factor multiplicador (RES060_FM / RES09x_FM): cálculo paralelo con
+        // las variables REALES del expediente. Se rellena en la rama RES060/RES093.
         let res060fcRaw = null;
         let res060fcCtx = null;
 
@@ -768,47 +801,70 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     q_net_heating,
                     dacs: inst.cambio_acs !== false ? dacs : 0,
                     boilerEff: boilerEffValue,
+                    acsEff: etaAcsExistente(inst, boilerEffValue).value,
                     scopHeating,
                     scopAcs,
                     cb,
                     changeAcs: changeAcsFlag
                 });
 
-                // ── Ficha con factor de corrección (borrador) con las variables reales ──
-                // RES060FC, o la RES09xFC de la zona si hibrida. Demanda del Anexo IV,
-                // mismo η y SCOP, CEF del CEE INICIAL (sin él, estimado) y los avisos de
-                // elegibilidad con las fechas de la obra y el estado de la tramitación.
+                // ── Vía del FACTOR MULTIPLICADOR (Resolución publicada) con las variables reales ──
+                // RES060_FM, o la RES09x_FM de la zona si hibrida. D_cal y S del CEE
+                // POSTERIOR (el final; sin él, el inicial), mismo η y SCOP, sin tope de CEF,
+                // y los avisos de elegibilidad con las fechas de la obra y la tramitación.
                 const tipoFC = opInputs.tipo || (opInputs.housing_type === 'flat' ? 'piso' : 'unifamiliar');
                 const fechasObra = calcCifo(liveDoc || expediente.documentacion || {});
+                // Consumidor VULNERABLE (fichas -S, × 1,5): lo marca el alta con lo que
+                // declaró el cliente al aceptar, o el equipo en la pestaña «Vía FM».
+                const datosFmVia = (viaFmVivo?.id === expediente.id ? viaFmVivo.datos : null)
+                    || (liveDoc || expediente.documentacion || {}).via_fm || {};
+                // Por la FM, la calefacción en el clima de la ZONA aunque la vigente vaya en medio.
+                const zonaFm = op.datos_calculo?.zona || opInputs.zona || cee.cee_inicial?.zonaClimatica;
+                const fmClima = entradasFmClima({
+                    src: { ...inst, hibridacion: hibridActive },
+                    zona: zonaFm,
+                    scopHeating,
+                    hibridacion: hybridRes ? { coverage: hybridRes.coverage, refPower: hybridRes.refPower, cb: hybridRes.cb } : null,
+                    hybridInputs: resolveHybridInputs(inst, calcInputs, op.datos_calculo?.zona),
+                    demandAnnual: q_net_heating,
+                    modelo: modeloFm && String(modeloFm.id) === String(inst.aerotermia_cal?.aerotermia_db_id) ? modeloFm : null,
+                    temp: getEmitterTemp(inst.tipo_emisor),
+                    metodoCal: inst.aerotermia_cal?.metodo_scop || 'ficha',
+                });
                 res060fcRaw = calculateRes060FC({
                     provinciaCode: opInputs.provincia || opInputs.provinceCode,
                     anio: opInputs.anio || op.datos_calculo?.anio,
                     tipo: tipoFC,
                     bloque: String(opInputs.tipoInmueble || '').toLowerCase() === 'bloque',
-                    plantasEdificio: opInputs.fcPlantasEdificio,
                     zona: op.datos_calculo?.zona || opInputs.zona || cee.cee_inicial?.zonaClimatica,
                     superficie,
                     boilerEff: boilerEffValue,
                     boilerId: boilerEffId,
-                    scopHeating,
+                    scopHeating: fmClima.scopHeating,
                     scopAcs,
                     changeAcs: changeAcsFlag,
-                    dacs,
+                    // Un bloque que solo cambia el ACS no entra en el FM (y no cuenta la calefacción).
+                    changeHeating: inst.cambio_calefaccion !== false,
                     qCalefaccion: q_net_heating,
+                    ceeFinal: cee.cee_final,
                     ceeInicial: cee.cee_inicial,
-                    hibridacion: hybridRes
-                        ? { coverage: hybridRes.coverage, refPower: hybridRes.refPower, cb: hybridRes.cb }
-                        : null,
+                    hibridacion: fmClima.hibridacion,
+                    vulnerable: datosFmVia.vulnerable === true,
+                    // Lo mismo que `fmExpediente.js` (CIFO del servidor): el η del ACS
+                    // existente, la potencia de la bomba y la temporada de su SCOP.
+                    ...entradasFmExpediente({ inst, opInputs, calcInputs, zona: zonaFm, boilerEffValue, fmClima }),
                     contexto: {
                         ...contextoCalderaFc(opInputs, boilerEffId),
+                        climaFm: fmClima.clima,
                         ceeFinal: cee.cee_final,
                         inicioObra: fechasObra.inicio,
                         finObra: fechasObra.fin,
                         tramite: tramiteFc(expediente.estado, expediente.lote_id),
+                        aireAire: esEmisorAireAire(inst.tipo_emisor),
                     },
                 });
                 // Contexto para el popup de desglose (mismas unidades que la calculadora).
-                res060fcCtx = { scopHeating, scopAcs, changeAcs: changeAcsFlag, dacs };
+                res060fcCtx = { scopHeating: fmClima.scopHeating, scopAcs, changeAcs: changeAcsFlag, dacs };
             }
         } else if (ficha === 'TER100' || ficha === 'TER173') {
             // TERCIARIO: el ahorro se desglosa en AE_C (calefacción), AE_ACS y AE_CAP
@@ -855,7 +911,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     combRefrigeracionFinal: cee.comb_ref_final,
                     superficieInicial: cee.superficie_manual_inicial || supFallback,
                     superficieFinal: cee.superficie_manual_final || cee.superficie_manual_inicial || supFallback,
-                    // Con placas en algún CEE, por vector (calculation.js, autoconsumoDeEmisiones).
+                    // Con placas en algún CEE, sin la fotovoltaica (calculation.js, autoconsumoDeEmisiones).
                     emiElecIni: em.electrico_ini, emiElecFin: em.electrico_fin,
                     emiOtrosIni: em.otros_ini, emiOtrosFin: em.otros_fin,
                     combOtrosIni: cee.comb_otros_inicial, combOtrosFin: cee.comb_otros_final,
@@ -892,6 +948,29 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                     ...res080,
                     savingsKwh: res080.ahorroEnergiaFinalTotal // Normalizar nombre para Anexo I
                 };
+                // ── Vía FM del RES080 (RES080_FM): el MISMO ahorro × el cociente de los
+                // CEE simulados (logic/res080fm.js). Va por el mismo hueco que la
+                // RES060_FM, así que el Económico, el panel «Vía FM» y el Convenio FM
+                // lo leen igual. Los simulados: sus kWh, de `documentacion.via_fm`;
+                // sin ellos, estimados desde el previo y el posterior (y lo dice).
+                const datosFm = (viaFmVivo?.id === expediente.id ? viaFmVivo.datos : null)
+                    || (liveDoc || expediente.documentacion || {}).via_fm || {};
+                const fechasObra = calcCifo(liveDoc || expediente.documentacion || {});
+                res060fcRaw = calculateRes080FM({
+                    res080,
+                    ceeInicial: cee.cee_inicial,
+                    ceeFinal: cee.cee_final,
+                    efSimBC: datosFm.ef_sim_bc,
+                    efSimRest: datosFm.ef_sim_rest,
+                    tipo: opInputs.tipo || (opInputs.housing_type === 'flat' ? 'piso' : 'unifamiliar'),
+                    bloque: String(opInputs.tipoInmueble || '').toLowerCase() === 'bloque',
+                    contexto: {
+                        ...contextoCalderaFc(opInputs, inst.caldera_antigua_cal?.rendimiento_id),
+                        inicioObra: fechasObra.inicio,
+                        finObra: fechasObra.fin,
+                        tramite: tramiteFc(expediente.estado, expediente.lote_id),
+                    },
+                });
             }
         }
 
@@ -908,8 +987,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
         // El del terciario puede ser ya el precio nuevo (no hay expedientes TER
         // anteriores); el del resto tiene que seguir siendo el ANTERIOR, o un
         // expediente ya firmado cambiaría de bono porque hoy cambie la tarifa.
+        // En un RES080 manda el precio de la opción REFORMA (calculation.js,
+        // `precioSelladoRes080`); sin él, el sello general, como hasta ahora.
         const caePriceClientBase = overrides.cae_client_rate
-            ?? (parseFloat(opInputs.cae_client_rate)
+            ?? ((ficha === 'RES080' ? precioSelladoRes080(opInputs) : parseFloat(opInputs.cae_client_rate))
                 || (esTerciario ? TERCIARIO_PRECIOS.cliente : CAE_PRECIO_CLIENTE_ANTERIOR.estandar));
         const caePriceSOBase = overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TERCIARIO_PRECIOS.sujetoObligado);
         const includeCommission = overrides.include_commission ?? !!opInputs.include_commission;
@@ -959,7 +1040,15 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
         // Solo si hay cálculo válido (provincia disponible + Anexo IV con dato).
         let financialsRes060FC = null;
         if (res060fcRaw && res060fcRaw.cae > 0) {
-            financialsRes060FC = calculateFinancials({ ...finArgs, savingsKwh: res060fcRaw.cae });
+            // La vía FM con SU precio si la oportunidad lo selló (`cae_client_rate_fm`,
+            // solo cuando difiere del general); si no, el mismo que la vigente.
+            // En un RES080 la vía FM va al precio de la REFORMA, que ya trae `finArgs`.
+            const precioFmSellado = ficha === 'RES080' ? 0 : (parseFloat(opInputs.cae_client_rate_fm) || 0);
+            financialsRes060FC = calculateFinancials({
+                ...finArgs,
+                ...(precioFmSellado > 0 ? { caePriceClient: precioFmSellado } : {}),
+                savingsKwh: res060fcRaw.cae,
+            });
         }
 
         return {
@@ -980,9 +1069,12 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 changeAcs: res060fcCtx.changeAcs,
                 dacs: res060fcCtx.dacs,
                 caePriceClient: finArgs.caePriceClient,
-            } : null,
+            } : (res060fcRaw?.ficha === 'RES080_FM'
+                // RES080_FM: va al precio de la opción RES080, el del Económico.
+                ? { caePriceClient: finArgs.caePriceClient, caePriceClientRes080: finArgs.caePriceClient }
+                : null),
         };
-    }, [expediente, liveCee, liveInst, liveDoc]);
+    }, [expediente, liveCee, liveInst, liveDoc, modeloFm, viaFmVivo]);
 
     // Mientras no haya CEE cargado el expediente no tiene ahorro propio, pero SÍ
     // hereda como supuesto la economía que se le presentó al cliente en la
@@ -1977,6 +2069,25 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                             // `documentacion.incidencias[]`, así que hay que releer:
                             // el mismo refresco silencioso que usa IncidenciasModal.
                             onIncidenciasChanged={() => fetchExpediente(true)}
+                        />
+                    </ModuleSection>
+                )}
+
+                {isStaff && /RES060|RES080|RES093/.test(expediente.numero_expediente || '') && (
+                    <ModuleSection
+                        id="viafm"
+                        title="Vía del factor multiplicador"
+                        activeSection={activeSection}
+                        onToggle={setActiveSection}
+                        badge={/FM_\d+$/.test(expediente.numero_expediente || '') ? 'VÍA FM' : null}
+                    >
+                        {/* Cambiar de vía RENUMERA: se relee el expediente entero. */}
+                        <ViaFmPanel
+                            expedienteId={expediente.id}
+                            expediente={{ ...expediente, instalacion: liveInst || expediente.instalacion }}
+                            results={calcResults}
+                            onNumeroCambiado={() => fetchExpediente(true)}
+                            onDatos={(datos) => setViaFmVivo({ id: expediente.id, datos })}
                         />
                     </ModuleSection>
                 )}

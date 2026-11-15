@@ -19,7 +19,7 @@ const require = createRequire(import.meta.url);
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const supabase = require('../services/supabaseClient');
 
-const { peticionesAplicables, peticionesDisponibles } = await import(
+const { peticionesAplicables, peticionesDisponibles, borradorFacturaCae } = await import(
     pathToFileURL(path.join(__dirname, '../../frontend/src/features/lotes/logic/peticionesSo.js')).href);
 
 const estado = process.argv.slice(2).find(a => !a.startsWith('--')) || null;
@@ -36,6 +36,13 @@ for (const l of lotes) {
         .select('razon_social, acronimo, email, tlf, nombre_responsable, contactos_notificacion')
         .eq('id_empresa', l.sujeto_obligado_id).maybeSingle();
     l.sujeto_obligado = so || null;
+}
+
+// Nuestra factura al S.O. vive en `facturas_so` (como la trae `enrichLotes`).
+{
+    const { data: facs } = await supabase.from('facturas_so').select('*').in('lote_id', lotes.map(l => l.id));
+    const porLote = new Map((facs || []).map(f => [f.lote_id, f]));
+    for (const l of lotes) l.factura_so = porLote.get(l.id) || null;
 }
 
 console.log(`\n${lotes.length} lotes${estado ? ` en ${estado}` : ''}\n`);
@@ -63,6 +70,34 @@ if (process.argv.includes('--simular-ofertas')) {
     console.log('  (simulando la oferta subida en los lotes de PTE. OFERTA VERIFICADOR)');
 }
 
+// --simular-facturas: hace EN MEMORIA lo que hace el popup con «Generar las N
+// facturas»: con `borradorFacturaCae` (el MISMO cálculo), genera nuestra factura de
+// los lotes que la tienen POR GENERAR, para ver el correo antes de generar ninguna.
+// No escribe nada y no asigna números de verdad.
+if (process.argv.includes('--simular-facturas')) {
+    const porGenerar = peticionesDisponibles(lotes, { ahorroGwh: 0, ahorroSoTotal: 0 })
+        .filter(p => p.id === 'facturas_cae').flatMap(p => p.porGenerar || []);
+    let n = 0;
+    for (const { lote: l, borrador: b } of porGenerar) {
+        console.log(`  · por generar ${l.codigo}: ${b.unidadesKwh} CAE × ${b.precioKwh} €/kWh = ${b.total} € con IVA (${b.caeInicial} → ${b.caeFinal})`);
+        l.factura_so = {
+            ...(l.factura_so || {}),
+            numero: b.numero || `F-SIMULADA_${++n}`, unidades_kwh: b.unidadesKwh, precio_kwh: b.precioKwh,
+            base: b.base, iva: b.iva, total: b.total, cae_inicial: b.caeInicial, cae_final: b.caeFinal,
+            estado: 'EMITIDA', drive_file_id: 'SIMULADO',
+        };
+    }
+    console.log(`  (simulando ${porGenerar.length} factura${porGenerar.length === 1 ? '' : 's'} generada${porGenerar.length === 1 ? '' : 's'} desde el popup)`);
+}
+
+// El enlace del panel de cada S.O. (`app_settings`, `enlace_so:{id}`), para el correo
+// de nuestras facturas. Solo se LEE.
+const enlaces = {};
+for (const soId of new Set(lotes.map(l => l.sujeto_obligado_id).filter(Boolean))) {
+    const { data } = await supabase.from('app_settings').select('value').eq('key', `enlace_so:${soId}`).maybeSingle();
+    try { const t = JSON.parse(data?.value || 'null')?.token; if (t) enlaces[soId] = `https://app.brokergy.es/so/${t}`; } catch { /* sin enlace */ }
+}
+
 // `resumen` solo alimenta las cifras del correo del pago; aquí basta con lo que hay.
 const resumen = { ahorroGwh: 0, ahorroSoTotal: 0 };
 const todas = peticionesDisponibles(lotes, resumen);
@@ -77,6 +112,7 @@ for (const p of todas) {
     if (p.nota) console.log(`   nota:   ${p.nota}`);
     console.log(`   adjunta ${p.docs.length}:`);
     p.docs.forEach(d => console.log(`      · ${d.label}${d.detail ? `  (${d.detail})` : ''}`));
+    if (p.porGenerar?.length) console.log(`   por generar ${p.porGenerar.length}: ${p.porGenerar.map(x => `${x.lote.codigo} (${x.borrador.total} €)`).join(', ')}`);
     if (p.fuera) console.log(`   ⚠ fuera: ${p.fuera.resumen} — ${p.fuera.aviso}`);
     console.log('   ── mensaje ──');
     // --precios=1450,1200,... simula los importes que se teclearían en el popup,
@@ -84,6 +120,8 @@ for (const p of todas) {
     const sim = (process.argv.find(a => a.startsWith('--precios=')) || '').split('=')[1];
     const precios = {};
     if (sim && p.lotes) sim.split(',').forEach((v, i) => { if (p.lotes[i]) precios[p.lotes[i].lote.id] = Number(v); });
-    console.log(p.mensaje({ saludo: 'Buenos días Jesús,', precios }).split('\n').map(x => `   ${x}`).join('\n'));
+    const enlacePanel = p.conEnlacePanel ? (enlaces[p.lotes?.[0]?.lote?.sujeto_obligado_id || p.todosLotes?.[0]?.sujeto_obligado_id] || null) : null;
+    if (p.conEnlacePanel && !enlacePanel) console.log('   ⚠ el S.O. no tiene enlace a su panel: el correo sale sin él');
+    console.log(p.mensaje({ saludo: 'Buenos días Jesús,', precios, enlacePanel }).split('\n').map(x => `   ${x}`).join('\n'));
 }
 console.log(`\nBotones que se pintarían: ${aplicables.length}\n`);

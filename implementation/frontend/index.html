@@ -28,6 +28,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>BROKERGY · Ingeniería Energética</title>
   <meta name="description" content="Sistema de gestión de proyectos de rehabilitación energética." />
+  <!-- La app NO va en Google (12/11/2026): es el CRM, y todas sus rutas sirven este mismo HTML,
+       así que Google veía las landings de partner (/p/garvel, /p/fessa, /p/jvr…) como duplicadas
+       sin canónica. Lo público de BROKERGY está en brokergy.es. Sin robots.txt que bloquee: si
+       Google no puede rastrear, no ve este noindex. -->
+  <meta name="robots" content="noindex" />
   <!-- Previsualización en WhatsApp / redes: logo rectangular tipo banner (ocupa menos
        que el circular y se ve bien en tema claro y oscuro al ir sobre fondo blanco). -->
   <meta property="og:type" content="website" />

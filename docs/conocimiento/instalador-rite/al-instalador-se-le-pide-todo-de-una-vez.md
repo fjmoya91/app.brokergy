@@ -62,7 +62,10 @@ el microservicio RITE está caído, se dice y se ofrece la salida (desmarcar el 
 **REGLA — se sella la fecha de envío de CADA documento que ha viajado**
 (`cert_cifo_sent_at` y/o `borrador_cert_sent_at`). Sellar solo el del popup por el que se
 entró dejaba el otro diciendo "sin enviar" el día después de mandarlo — y el parte diario
-reclamándolo.
+reclamándolo. **Lo sella la RUTA** (`POST /:id/instalador/enviar`, con
+`set_expediente_doc_field`), no solo el navegador al volver del popup: el 30/10/2026 el CIFO
+de 26RES060_237 salió por la ruta desde un script, sin popup, y el radar siguió diciendo
+«CIFO por enviar» (2026-11-03). El popup lo sigue sellando también.
 
 ### Un CIFO firmado NO cierra la tarea para siempre (2026-09-03)
 

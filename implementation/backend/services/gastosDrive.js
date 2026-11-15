@@ -765,6 +765,13 @@ async function carpeta(padre, nombre, { crear = false } = {}) {
     return c.data.id;
 }
 
+/** Un fichero (no carpeta) por su nombre exacto en una carpeta: { id, name, modifiedTime } o null. Solo lee. */
+async function ficheroEn(padre, nombre) {
+    const safe = nombre.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const r = await drive.files.list({ q: `'${padre}' in parents and name = '${safe}' and mimeType != '${CARPETA}' and trashed = false`, fields: 'files(id, name, modifiedTime, size)', pageSize: 1 });
+    return r.data.files?.[0] || null;
+}
+
 async function nombresEn(folderId) {
     if (!folderId) return new Set();
     return new Set((await hijos(folderId)).filter(f => f.mimeType !== CARPETA).map(f => f.name));
@@ -809,7 +816,7 @@ module.exports = {
     // listado y lectura
     listarGastos, listarVentas, aniosVentas, listarExtractos, extractosAutonomo, leerPendientes, leerJustificante, leerVentas, corregir, marcarCobroVenta, contenido,
     // paquete
-    carpeta, nombresEn, nombresBajo, copiar, subir,
+    carpeta, ficheroEn, nombresEn, nombresBajo, copiar, subir,
     // puros (pruebas)
     mesDeCarpeta, mesesAMirar, codificar, decodificar, normalizarLectura, normalizarVenta, filaGasto, filaVenta, cabe, propsLecturaVenta,
     TIPOS, ACTIVIDADES, DOCUMENTOS, NATURALEZAS, DOCUMENTOS_VENTA,

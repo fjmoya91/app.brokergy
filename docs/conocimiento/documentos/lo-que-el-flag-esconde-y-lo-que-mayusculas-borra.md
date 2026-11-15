@@ -137,6 +137,20 @@ hayan escrito otros endpoints. El botón se sustituye por el acuse
 node implementation/backend/scripts/test_subvenciones_bono.mjs
 ```
 
+### El texto del ESTADO de la ayuda se puede escribir (2026-11-10)
+
+En 26RES060_126 el cliente pidió en 2023 la ayuda del RD 477/2021 (Programa 6 de la
+Junta, registro 4587660/2023, 3.000 €) y nunca le contestaron. Fran: en el Anexo I,
+«Solicitada sin contestación por ausencia de fondos». La casilla «Estado de la
+concesión» solo imprimía el rótulo del enum («Solicitada sin contestación»), así que
+Subvenciones tiene ahora **«Texto del estado en el Anexo I (opcional)»**
+(`ayuda.estado_texto`): si se escribe, es lo que imprime esa casilla
+(`anexoIStates`, en los dos formatos). **La casilla marcada la sigue decidiendo
+`estado`**, y con ella la sobrefinanciación (`importeAyudaDeclarada`: una PENDIENTE
+suma, y CAE + ayuda > inversión es GRAVE). En el 126 Fran marcó «No se ha obtenido»
+(`DENEGADA`: tres años sin resolver es silencio desestimatorio, LGS art. 25.5) con ese
+texto en el estado, y la ayuda deja de sumar.
+
 ### Lo que se escribe ENCIMA del PDF en el visor no se envía
 
 El impreso oficial se previsualiza como PDF real en un iframe, y el visor del

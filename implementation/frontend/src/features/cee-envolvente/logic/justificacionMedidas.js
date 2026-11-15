@@ -79,17 +79,20 @@ const TEXTOS = {
         + 'consumo y sus emisiones directas de CO2, y suprime el mantenimiento y las inspecciones '
         + 'periódicas del generador de combustión.',
 
-    autoconsumo: ({ conAerotermia }) => (conAerotermia
-        ? 'Tras la electrificación de la calefacción y del agua caliente sanitaria, el consumo de '
-          + 'energía del edificio pasa a ser fundamentalmente eléctrico y la bomba de calor es su '
-          + 'principal consumidor. '
+    autoconsumo: ({ conAerotermia, acs }) => (conAerotermia
+        ? `Tras ${electrificacion(acs)}, `
+          + (acs === 'combustion'
+              ? 'la bomba de calor pasa a ser el principal consumidor eléctrico del edificio. '
+              : 'el consumo de energía del edificio pasa a ser fundamentalmente eléctrico y la bomba '
+                + 'de calor es su principal consumidor. ')
         : 'El consumo eléctrico del edificio (climatización, agua caliente, iluminación y equipos) '
           + 'supone una parte relevante de su consumo de energía primaria no renovable. ')
         + 'Una instalación de autoconsumo fotovoltaico cubre una parte de ese consumo con energía '
         + 'renovable generada en el propio edificio, lo que reduce directamente el consumo de energía '
         + 'primaria no renovable y las emisiones de CO2, con un periodo de amortización corto. Su '
-        + 'producción se aprovecha mejor programando en las horas de sol la preparación del agua '
-        + 'caliente sanitaria y la climatización. Se propone en último lugar porque su potencia debe '
+        + 'producción se aprovecha mejor programando en las horas de sol '
+        + `${acs === 'combustion' ? 'la climatización' : 'la preparación del agua caliente sanitaria y la climatización'}`
+        + '. Se propone en último lugar porque su potencia debe '
         + 'ajustarse al consumo eléctrico que resulte de las medidas anteriores, evitando '
         + 'sobredimensionar la instalación.',
 
@@ -99,23 +102,24 @@ const TEXTOS = {
     //:   10/10/2026): es la SEGUNDA fase, y el porqué es dimensionar las placas
     //:   con los consumos reales de la aerotermia.
     //: · si no, la obra trae las dos cosas a la vez y es la única medida.
-    aerotermia_fv: ({ secuencial, hibrida, biomasa } = {}) => (secuencial
+    aerotermia_fv: ({ secuencial, hibrida, biomasa, acs } = {}) => (secuencial
         ? 'Se propone como segunda fase, una vez instalada y en funcionamiento la bomba de calor de la '
-          + 'medida anterior. Con la electrificación de la calefacción y del agua caliente sanitaria, la '
+          + `medida anterior. Con ${electrificacion(acs)}, la `
           + 'aerotermia pasa a ser el principal consumidor eléctrico de la vivienda, y su consumo real '
           + 'depende del uso, de las temperaturas de consigna y de la climatología de cada año. Ejecutar '
           + 'la instalación fotovoltaica después permite dimensionarla con los consumos reales '
           + 'registrados (facturas, curva horaria de la distribuidora o el propio control de la bomba de '
           + 'calor) y no con estimaciones: ajustar la potencia pico y el número de módulos al perfil de '
           + 'consumo, decidir con datos si conviene acumulación, revisar la potencia contratada tras el '
-          + 'cambio de generador y programar la producción de agua caliente y la climatización en las '
+          + `cambio de generador y programar ${acs === 'combustion' ? 'la climatización'
+              : 'la producción de agua caliente y la climatización'} en las `
           + 'horas de sol. Así se maximiza el autoconsumo, se evita sobredimensionar la instalación y '
           + 'su inversión, y se acorta el periodo de amortización. El conjunto resultante, la bomba de '
           + 'calor alimentada en parte con energía solar generada en el propio edificio, es el que más '
           + 'reduce el consumo de energía primaria no renovable y las emisiones de CO2 de todos los '
           + 'analizados.'
         : `${TEXTOS[hibrida ? 'hibridacion' : 'aerotermia']({ biomasa })} `
-          + TEXTOS.autoconsumo({ conAerotermia: true })
+          + TEXTOS.autoconsumo({ conAerotermia: true, acs })
               .replace(/ Se propone en último lugar[^.]*\.$/, ' Se ejecuta junto con la bomba de calor, '
                   + 'dimensionada al consumo eléctrico que ésta va a tener.')),
 };
@@ -131,6 +135,18 @@ const TEXTO_BIOMASA = (conFvDespues) => 'La calefacción y el agua caliente sani
     + 'biomasa: para ello se completa con la instalación de autoconsumo fotovoltaico. Se ejecuta '
     + 'después de las mejoras de la envolvente, si las hay, para dimensionar el equipo a la demanda ya '
     + `reducida.${conFvDespues ? ANTES_DE_LA_FV : ''}`;
+
+//: Qué se electrifica, según quién da el ACS en el edificio mejorado (`acs`):
+//: la bomba de calor ('bomba', o sin dato: el texto de siempre), un termo
+//: eléctrico que ya estaba ('electrico') o una caldera que se queda
+//: ('combustion'). Con un termo, decir que el agua caliente «se electrifica»
+//: es falso: ya lo era (26RES060_250, 27/10/2026, Fran).
+const electrificacion = (acs) => (acs === 'electrico'
+    ? 'la electrificación de la calefacción, que se suma al termo eléctrico que ya produce el agua '
+      + 'caliente sanitaria'
+    : acs === 'combustion'
+        ? 'la electrificación de la calefacción'
+        : 'la electrificación de la calefacción y del agua caliente sanitaria');
 
 //: Lo que se añade a la aerotermia cuando detrás va su conjunto con placas.
 const ANTES_DE_LA_FV = ' Es la primera actuación de la secuencia porque fija el nuevo consumo '
@@ -153,7 +169,9 @@ export const TIPOS_JUSTIFICACION = Object.keys(TEXTOS)
  *                       | retirada | autoconsumo | aerotermia_fv
  * @param {object} ctx   `u` (transmitancia actual, en texto), `conAerotermia`,
  *                       `conFvDespues` (aerotermia/hibridación con su conjunto
- *                       con placas detrás), `secuencial` y `hibrida` (aerotermia_fv)
+ *                       con placas detrás), `secuencial` y `hibrida` (aerotermia_fv),
+ *                       `acs` (autoconsumo y aerotermia_fv: 'bomba' | 'electrico' |
+ *                       'combustion', quién da el ACS tras la medida)
  * @returns {{ justificacion: string, secuencia: number } | null}
  */
 export function justificacionMedida(tipo, ctx = {}) {

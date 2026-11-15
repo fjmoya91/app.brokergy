@@ -246,7 +246,22 @@ const resultsCargado = simplificado(
       energiaFinalVectores: { b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 35, 8, 7.5, true) },
       generadores: [gen('cal', 'AEROTERMIA', 'ElectricidadPeninsular', 4), gen('acs', 'AEROTERMIA', 'ElectricidadPeninsular', 3.125)] },
 );
+// Con PLACAS en las dos fases (26RES080_66): el vector eléctrico declara su total NETO
+// de lo autoconsumido; el certificado lo cuenta en BRUTO (la fotovoltaica no es ahorro,
+// regla 134), con una fila informativa por fase y el recuadro de la Recomendación 2024/1590.
+const conPlacas = (v, global) => ({ ...v, global });
+const resultsPlacas = simplificado(
+    { superficieHabitable: 302, demandaCalefaccion: 210.95, demandaACS: 14.53, demandaRefrigeracion: 18.53,
+      emisionesConsumoElectrico: 0.01, emisionesConsumoOtros: 159.74, combustibleOtros: 'Gasoleo Calefacción',
+      energiaFinalVectores: { a: vec('GASOLEO CALEFACCIÓN', 'GasoleoC', 480.51, 33.11, 0), b: conPlacas(vec('Electricidad peninsular', 'ElectricidadPeninsular', 0, 0, 9.26, true), 0.02) },
+      generadores: [gen('cal', 'CALDERA DE GASOIL', 'GasoleoC', 0.44), gen('acs', 'CALDERA DE GASOIL', 'GasoleoC', 0.44)] },
+    { superficieHabitable: 302, demandaCalefaccion: 185.94, demandaACS: 14.53, demandaRefrigeracion: 16.33,
+      emisionesConsumoElectrico: 5.28, emisionesConsumoOtros: 0,
+      energiaFinalVectores: { b: conPlacas(vec('Electricidad peninsular', 'ElectricidadPeninsular', 30.99, 4.18, 3.93, true), 15.96) },
+      generadores: [gen('cal', 'AEROTERMIA DAIKIN ALTHERMA 3 BIZONA ERLA16DAV37 + EBVZ16S18DJ6V', 'ElectricidadPeninsular', 6), gen('acs', 'AEROTERMIA DAIKIN ALTHERMA 3 BIZONA ERLA16DAV37 + EBVZ16S18DJ6V', 'ElectricidadPeninsular', 3.48)] },
+);
 casos.push(['Simplificado · E. final declarada · defecto CE3X (26RES080_78)', base(), { results: resultsOp78 }]);
+casos.push(['Simplificado · E. final declarada · placas en las dos fases (26RES080_66)', base(), { results: resultsPlacas }]);
 casos.push(['Simplificado · E. final declarada · 3 generadores + defecto', base(), { results: resultsCargado }]);
 // «Por uso» con la calefacción mixta: las celdas de combustible llevan cada vector con su %.
 const resultsPorUso = calculateRes080({
@@ -254,9 +269,10 @@ const resultsPorUso = calculateRes080({
         energiaFinalVectores: { a: vec('GAS NATURAL', 'GASNATURAL', 108.7, 0, 0), b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 20, 12.5, 7.5, true), c: vec('BIOMASA DENSIFICADA (PELETS)', 'BIOMASAPELLET', 80, 0, 0), d: vec('GASOLEO C', 'GasoleoC', 50, 13.9, 0) },
         generadores: [gen('cal', 'CALDERA DE GASÓLEO ROCA P-30 CON NOMBRE LARGO DE FÁBRICA', 'GasoleoC', 0.8), gen('cal', 'ESTUFA DE PELLETS DEL SALÓN', 'BiomasaPellet', 0.5), gen('cal', 'RADIADORES ELÉCTRICOS', 'ElectricidadPeninsular', 1),
                       gen('acs', 'CALDERA DE GASÓLEO ROCA P-30 CON NOMBRE LARGO DE FÁBRICA', 'GasoleoC', 0.9), gen('acs', 'TERMO ELÉCTRICO', 'ElectricidadPeninsular', 1)] },
+    // Sin la energía final del final (CEE leído por OCR): con los dos .xml el cálculo
+    // iría por vector (calculateRes080, 2026-10-27) y esta página no existiría.
     xmlFinal: { superficieHabitable: 180, demandaCalefaccion: 140, demandaACS: 25, demandaRefrigeracion: 15, emisionesACS: 2.6, emisionesCalefaccion: 11.6, emisionesRefrigeracion: 2.5, emisionesConsumoOtros: 0,
-        energiaFinalVectores: { b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 35, 8, 7.5, true) },
-        generadores: [gen('cal', 'AEROTERMIA', 'ElectricidadPeninsular', 4), gen('acs', 'AEROTERMIA', 'ElectricidadPeninsular', 3.125)] },
+        generadores:[gen('cal', 'AEROTERMIA', 'ElectricidadPeninsular', 4), gen('acs', 'AEROTERMIA', 'ElectricidadPeninsular', 3.125)] },
     combAcsInicial: 'Gasoleo Calefacción', combAcsFinal: 'Electricidad peninsular', combCalefaccionInicial: 'Gasoleo Calefacción', combCalefaccionFinal: 'Electricidad peninsular',
 });
 casos.push(['Por uso · calefacción mixta + defecto CE3X', base(), { results: resultsPorUso }]);
@@ -318,6 +334,11 @@ for (const [nombre, exp, opts = {}] of casos) {
     });
     const mal = holguras.some(h => h < 0);
     if (mal) malos++;
+    // CHECK_RES080_PDF=<carpeta>: guarda el PDF de cada caso para mirarlo.
+    if (process.env.CHECK_RES080_PDF) {
+        fs.mkdirSync(process.env.CHECK_RES080_PDF, { recursive: true });
+        await page.pdf({ path: path.join(process.env.CHECK_RES080_PDF, `${nombre.replace(/[^\w]+/g, '_').slice(0, 80)}.pdf`), format: 'A4', printBackground: true });
+    }
     const detalle = holguras
         .map((h, i) => `p${i + 1}:${h < 0 ? `DESBORDA ${-h}` : `+${h}`}`).join('  ');
     console.log(`${mal ? 'X ' : '  '} ${nombre.padEnd(52)} ${detalle}`);

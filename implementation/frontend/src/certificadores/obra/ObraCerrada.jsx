@@ -13,8 +13,9 @@
 // rota, el servidor responde 422 y no guarda nada. Al guardarse, el visor se abre
 // con el FIRMADO. Lo firmado manda solo si es posterior al PDF: un PDF nuevo deja
 // la firma vieja sin efecto y vuelve «Ver y firmar».
-// DEFINITIVO: si lo rehace en su CE3X, sube el XML (se carga en la app), el PDF o
-// su .cex (a la cuarentena: copia suya, no se abre nunca).
+// DEFINITIVO: si lo rehace en su CE3X, sube el XML (se carga en la app y la app hace
+// el PDF oficial, que se abre en el visor para firmarlo), el PDF o su .cex (a la
+// cuarentena: copia suya, no se abre nunca).
 // Desde que la obra deja BORRADOR, el inmueble, el titular y el cuestionario
 // quedan CONGELADOS en el servidor (PUT → 409 OBRA_CERRADA): aquí solo se leen.
 // `revisar-de-nuevo` tiene tope (409 SIN_REVISIONES): se dice con calma.
@@ -24,6 +25,7 @@
 // certificado, «Lo siguiente» y los atajos), Documentos, Fotos, Datos de la obra e
 // Historial, una cada vez con `?parte=`. En el PC van en el menú lateral (useMenuObra);
 // en el móvil, en la barra de abajo, con «Más» para el resto.
+// ENCARGO DE BROKERGY (obra/Encargo.jsx): arriba del Resumen, en qué punto lo tiene el CRM.
 import { Suspense, useState } from 'react';
 import { lazyWithReload } from '../../utils/lazyWithReload';
 import { createPortal } from 'react-dom';
@@ -34,11 +36,13 @@ import { Enlace, navegar, useRuta } from '../router';
 import { Aviso, Hoja, useToast } from '../ui/piezas';
 import { useMenuObra } from '../ui/menuObra';
 import {
-    CheckDibujado, IcoCarpeta, IcoCasa, IcoCheck, IcoChevron, IcoDoc, IcoImagen, IcoMenu, IcoPlano, IcoRecargar, IcoReloj, IcoSello, Spinner,
+    CheckDibujado, IcoCarpeta, IcoCasa, IcoCheck, IcoChevron, IcoDoc, IcoEnviar, IcoImagen, IcoMenu, IcoPlano, IcoRecargar, IcoReloj, IcoSello, Spinner,
 } from '../ui/Iconos';
 import { estadoDe } from './comun';
+import { EncargoBrokergy } from './Encargo';
 import { FotosObra } from './Fotos';
 import { ListaDocumentos } from './Documentos';
+import { HojaPresentar } from './Presentar';
 import { VisorPdf } from './VisorPdf';
 import { CLASES, aBase64, autorTxt, useDocumentos } from './documentosComun';
 import { IncidenciasObra } from '../incidencias/Incidencias';
@@ -47,6 +51,9 @@ import { CEE_SIGN_ANCHOR } from '../../features/expedientes/logic/signBoxes';
 // El modal de firma del CRM (pdf.js + AutoFirma) pesa: se carga al pulsar «Firmar». Con lazyWithReload
 // (ver App.jsx): tras un deploy, el trozo viejo no existe y la pestaña se recarga sola.
 const FirmarConCertificadoModal = lazyWithReload(() => import('../../features/expedientes/components/FirmarConCertificadoModal'), { name: 'certapp:firmar' });
+
+// Pantalla táctil (móvil, tableta): AutoFirma no va ahí; se avisa al firmar desde el visor.
+const tactil = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
 const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
 const Letra = ({ l }) => (LETRAS.includes(l) ? <span className={`ca-letra ca-letra-${l}`}>{l}</span> : null);
@@ -69,12 +76,17 @@ export function ObraCerrada({ o, resumen = [] }) {
     const [errorDef, setErrorDef] = useState(null);
     // El visor: `{ doc, firmar }` (firmar: el certificado sin firmar, con su botón).
     const [visor, setVisor] = useState(null);
+    // Presentar en el Registro: el borrador, y lo que devuelve (justificante, etiqueta, otros).
+    const [presentar, setPresentar] = useState(false);
+    const [subiendoReg, setSubiendoReg] = useState(null);
+    const [errorReg, setErrorReg] = useState(null);
     const est = obra.estado;
     const entregado = est === 'LISTO' || est === 'VALIDADO';
     const documentos = useDocumentos(obra.id, { activo: entregado });
     const dd = documentos.datos;
     // Mientras se leen los documentos, lo que ya decía el GET de la obra.
     const firmado = dd ? !!dd.firmado : !!enlaces?.firmado;
+    const registrado = dd?.registro || null;
     const cal = cee?.calificacion;
     const t = form?.titular || {};
     const titulo = [t.nombre, t.apellidos].filter(Boolean).join(' ') || obra.direccion || obra.numero_expediente;
@@ -120,7 +132,8 @@ export function ObraCerrada({ o, resumen = [] }) {
         }
     };
 
-    // Versión nueva hecha en su CE3X: el XML (se carga en la app), el PDF o su .cex.
+    // Versión nueva hecha en su CE3X: el XML (se carga y la app hace el PDF oficial,
+    // que se abre para firmarlo), el PDF o su .cex.
     const subirDefinitivo = async (fichero) => {
         if (!fichero) return;
         setErrorDef(null); setSubiendoDef(true);
@@ -128,14 +141,41 @@ export function ObraCerrada({ o, resumen = [] }) {
             const fd = new FormData();
             fd.append('fichero', fichero, fichero.name);
             const { data } = await axios.post(`${API}/obras/${obra.id}/cee/definitivo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-            toast({
+            const conPdf = data?.tipo === 'xml' && !!data.pdf;
+            toast(conPdf ? 'XML cargado y PDF oficial hecho: ya puedes firmarlo.' : {
                 xml: 'XML guardado y cargado.', pdf: 'PDF guardado: es el certificado actual.', pdf_firmado: 'PDF firmado guardado.',
                 cex: 'Tu .cex está guardado aparte, como copia tuya.',
             }[data?.tipo] || 'Guardado.', 5000);
-            await Promise.all([documentos.recargar({ silencioso: true }), o.cargar({ silencioso: true })]);
+            const [nuevos] = await Promise.all([documentos.recargar({ silencioso: true }), o.cargar({ silencioso: true })]);
+            if (conPdf && nuevos?.certificado) verDoc(nuevos.certificado, { firmar: true });
         } catch (err) {
             setErrorDef(mensajeError(err, 'No se ha podido subir.'));
         } finally { setSubiendoDef(false); }
+    };
+
+    // El justificante (se lee su fecha), la etiqueta u otro documento, a la carpeta del certificado.
+    const subirRegistro = async (clase, fichero, nombre = '') => {
+        if (!fichero) return false;
+        setErrorReg(null); setSubiendoReg(clase);
+        try {
+            const fd = new FormData();
+            fd.append('fichero', fichero, fichero.name);
+            if (nombre) fd.append('nombre', nombre);
+            const { data } = await axios.post(`${API}/obras/${obra.id}/documentos/${clase}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+            toast(clase === 'justificante'
+                ? (data?.registro?.leida ? `Justificante guardado: registrado el ${fecha(data.registro.fecha)}.` : (data?.aviso || 'Justificante guardado.'))
+                : clase === 'etiqueta' ? 'Etiqueta guardada.' : 'Documento guardado.', 5000);
+            await Promise.all([documentos.recargar({ silencioso: true }), o.cargar({ silencioso: true })]);
+            return true;
+        } catch (err) {
+            setErrorReg(mensajeError(err, 'No se ha podido subir.'));
+            return false;
+        } finally { setSubiendoReg(null); }
+    };
+    const aSubirJustificante = () => {
+        setPresentar(false);
+        navegar(aParte('documentos'));
+        setTimeout(() => document.getElementById('registro')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
     };
 
     // Lo que se dio de la obra, tal como quedó al pedirla.
@@ -188,13 +228,16 @@ export function ObraCerrada({ o, resumen = [] }) {
         est === 'VALIDADO'
             ? { t: firmado ? 'Revisado y firmado' : 'Validado', s: cee?.firma?.at ? fecha(cee.firma.at, true) : null, ok: true }
             : { t: 'Revisarlo y firmarlo', s: est === 'LISTO' ? 'Ábrelo, compruébalo y fírmalo con AutoFirma' : null, act: est === 'LISTO' },
-        { t: 'Registrarlo', s: 'Con el XML y el PDF firmado; el registro lo haces tú', act: est === 'VALIDADO' },
+        registrado
+            ? { t: 'Registrado', s: registrado.fecha ? fecha(registrado.fecha) : null, ok: true }
+            : { t: 'Presentarlo en el Registro', s: 'Con el borrador de «Presentar»; luego sube el justificante', act: est === 'VALIDADO' },
     ];
 
+    // Ya pedida: se añaden fotos (no se quitan). Archivada, nada.
     const ctx = {
-        form, obra, slots: o.slots, editable: false,
+        form, obra, slots: o.slots, editable: false, puedeSubir: est !== 'ARCHIVADA',
         setCampo: () => {}, setC: () => {}, setTitular: () => {}, setDecision: () => {},
-        subir: async () => ({ ok: false }), quitar: async () => ({ ok: false }), subiendo: {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
+        subir: o.subir, reintentar: o.reintentar, descartar: o.descartar, pendientes: o.pendientes, quitar: async () => ({ ok: false }), subiendo: o.subiendo || {}, docsError: o.docsError, recargarDocs: o.recargarDocs,
     };
 
     const sub = [obra.direccion && obra.direccion !== titulo ? obra.direccion : null, obra.municipio].filter(Boolean).join(' · ');
@@ -221,6 +264,9 @@ export function ObraCerrada({ o, resumen = [] }) {
                         <button type="button" className={`ca-btn ${firmado ? 'ca-btn-sec' : 'ca-btn-pri'}`} disabled={!(dd?.firmado || dd?.certificado)} onClick={verCertificado}>
                             <IcoSello /> {firmado ? 'Ver el certificado' : 'Ver y firmar'}
                         </button>
+                        <button type="button" className={`ca-btn ${firmado && !registrado ? 'ca-btn-pri' : 'ca-btn-sec'}`} onClick={() => setPresentar(true)}>
+                            <IcoEnviar /> Presentar
+                        </button>
                     </div>
                 )}
             </header>
@@ -228,6 +274,8 @@ export function ObraCerrada({ o, resumen = [] }) {
             {parte === 'resumen' && (
             <div className="ca-obra-res">
             <div className="ca-parte">
+            {/* Un encargo de BROKERGY: en qué punto lo tiene el CRM (revisión, visto bueno, registro). */}
+            <EncargoBrokergy o={o} />
             <section className="ca-card ca-pad ca-in" id="obra-certificado">
                 <div className="ca-filete" />
                 <p className="ca-eyebrow" style={{ margin: 0 }}>El certificado</p>
@@ -265,12 +313,25 @@ export function ObraCerrada({ o, resumen = [] }) {
                                 </span>
                             </button>
                         )}
+                        {registrado && (
+                            <button type="button" className="ca-fila" onClick={aSubirJustificante} style={{ marginTop: 8 }}>
+                                <span className="ca-ico-tile ca-tile-verde" aria-hidden="true"><IcoCheck /></span>
+                                <span>
+                                    <b>Registrado</b>
+                                    <small>{registrado.fecha ? `El ${fecha(registrado.fecha)}` : 'Con su justificante'} · Ver el justificante</small>
+                                </span>
+                            </button>
+                        )}
                         <div className="ca-btns">
                             {!firmado && (
                                 <button type="button" className="ca-btn ca-btn-pri" disabled={!dd?.certificado || !!pdfFirmar} onClick={verCertificado}>
                                     {!dd && documentos.cargando ? <Spinner /> : <IcoSello />} {est === 'LISTO' ? 'Ver, validar y firmar' : 'Ver y firmar'}
                                 </button>
                             )}
+                            {/* Sin firmar también: el borrador dice que falta el PDF firmado. */}
+                            <button type="button" className={`ca-btn ${firmado && !registrado ? 'ca-btn-pri' : 'ca-btn-sec'}`} onClick={() => setPresentar(true)}>
+                                <IcoEnviar /> Presentar en el Registro
+                            </button>
                             {est === 'LISTO' && (
                                 <button type="button" className="ca-btn ca-btn-sec" onClick={() => { setError(null); setValidar(true); }}>Solo validar</button>
                             )}
@@ -343,7 +404,11 @@ export function ObraCerrada({ o, resumen = [] }) {
                     <p className="ca-txt ca-txt-peq" style={{ marginTop: 4 }}>Lo que hay en la carpeta del certificado. Los PDF se ven aquí mismo.</p>
                     <ListaDocumentos d={dd} cargando={documentos.cargando} error={documentos.error} recargar={documentos.recargar}
                         onVer={verDoc} puedeFirmar={!pdfFirmar}
-                        subida={{ subir: subirDefinitivo, subiendo: subiendoDef, error: errorDef }} />
+                        subida={{ subir: subirDefinitivo, subiendo: subiendoDef, error: errorDef }}
+                        registro={{ subir: subirRegistro, subiendo: subiendoReg, error: errorReg }} />
+                    <div className="ca-btns">
+                        <button type="button" className="ca-btn ca-btn-sec" onClick={() => setPresentar(true)}><IcoEnviar /> Ver el borrador para presentar</button>
+                    </div>
                     {urlDe(enlaces?.carpeta) && (
                         <a className="ca-fila" href={urlDe(enlaces.carpeta)} target="_blank" rel="noreferrer" style={{ marginTop: 14 }}>
                             <span className="ca-ico-tile ca-tile-crema" aria-hidden="true"><IcoCarpeta /></span>
@@ -365,7 +430,8 @@ export function ObraCerrada({ o, resumen = [] }) {
                         <>
                             <p>{errorFirma
                                 ? <span className="ca-error" role="alert">{errorFirma}</span>
-                                : est === 'LISTO' ? 'Al firmarlo lo das por bueno (queda validado).' : 'Se firma este mismo PDF con tu certificado, en tu ordenador.'}</p>
+                                : tactil() ? 'AutoFirma va en el ordenador: en el móvil puedes revisarlo, y fírmalo luego desde el PC con tu cuenta.'
+                                    : est === 'LISTO' ? 'Al firmarlo lo das por bueno (queda validado).' : 'Se firma este mismo PDF con tu certificado, en tu ordenador.'}</p>
                             <button type="button" className="ca-btn ca-btn-pri" disabled={!listo || !!pdfFirmar} onClick={() => firmarDesdeVisor(bytes)}>
                                 {pdfFirmar ? <Spinner /> : <IcoSello />} Firmar con AutoFirma
                             </button>
@@ -455,6 +521,10 @@ export function ObraCerrada({ o, resumen = [] }) {
                 </p>
                 {error && <p className="ca-error" role="alert">{error}</p>}
             </Hoja>
+
+            {entregado && (
+                <HojaPresentar obra={obra} abierta={presentar} onCerrar={() => setPresentar(false)} onSubirJustificante={aSubirJustificante} />
+            )}
 
             {pdfFirmar && createPortal(
                 <Suspense fallback={null}>

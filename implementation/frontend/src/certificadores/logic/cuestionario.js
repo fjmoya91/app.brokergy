@@ -220,6 +220,10 @@ export const MEDIDAS = [
 // / genérica se guarda por equipo en `c.fotos_decision[equipo]`. `opcional`: ayuda
 // pero no hace falta; se puede dejar con «Ahora no» (`c.fotos_omitidas`).
 // Ninguna foto bloquea: lo que falta lo pone la IA (Street View, su época…).
+// `multiple`: se AÑADEN (nunca una sustituye a otra) y la galería deja elegir varias
+// a la vez. `unaBasta`: aun así, con una del certificador el PROPIETARIO ya no la
+// tiene que subir (sale `cubierto` en su enlace). Los equipos eran de una sola foto
+// y cada una pisaba la anterior (Fran, 30/10/2026: «me las cambia»).
 export const SLOTS = [
     {
         // Opcional (Fran, 25/10/2026): la que da a la calle la saca la IA de Google
@@ -243,32 +247,32 @@ export const SLOTS = [
         ayuda: 'Un recorrido despacio por dentro, ventana a ventana. Sustituye a muchas fotos.',
     },
     {
-        id: 'FOTO_CALDERA', label: 'Caldera', equipo: 'CALDERA', opcional: true,
+        id: 'FOTO_CALDERA', label: 'Caldera', equipo: 'CALDERA', multiple: true, unaBasta: true, opcional: true,
         ayuda: 'La caldera entera.',
         cuando: c => equipoCalefaccion(c) === 'CALDERA',
     },
     {
-        id: 'FOTO_PLACA_CALDERA', label: 'Placa de la caldera', equipo: 'CALDERA', placa: true,
+        id: 'FOTO_PLACA_CALDERA', label: 'Placa de la caldera', equipo: 'CALDERA', multiple: true, unaBasta: true, placa: true,
         ayuda: 'La pegatina con marca, modelo y potencia, que se lea. Suele estar en un lateral o bajo la tapa.',
         cuando: c => equipoCalefaccion(c) === 'CALDERA',
     },
     {
-        id: 'FOTO_AEROTERMIA', label: 'Aerotermia (unidad exterior)', equipo: 'AEROTERMIA', opcional: true,
+        id: 'FOTO_AEROTERMIA', label: 'Aerotermia (unidad exterior)', equipo: 'AEROTERMIA', multiple: true, unaBasta: true, opcional: true,
         ayuda: 'La máquina exterior entera.',
         cuando: c => equipoCalefaccion(c) === 'AEROTERMIA' || c.acs === 'aerotermia',
     },
     {
-        id: 'FOTO_PLACA_AEROTERMIA', label: 'Placa de la aerotermia', equipo: 'AEROTERMIA', placa: true,
+        id: 'FOTO_PLACA_AEROTERMIA', label: 'Placa de la aerotermia', equipo: 'AEROTERMIA', multiple: true, unaBasta: true, placa: true,
         ayuda: 'La pegatina de la unidad exterior (y la del depósito si es aparte).',
         cuando: c => equipoCalefaccion(c) === 'AEROTERMIA' || c.acs === 'aerotermia',
     },
     {
-        id: 'FOTO_TERMO', label: 'Termo o calentador', equipo: 'TERMO', opcional: true,
+        id: 'FOTO_TERMO', label: 'Termo o calentador', equipo: 'TERMO', multiple: true, unaBasta: true, opcional: true,
         ayuda: 'El termo eléctrico o el calentador entero.',
         cuando: c => c.acs === 'termo' || c.acs === 'calentador' || c.termo_extra === true,
     },
     {
-        id: 'FOTO_PLACA_TERMO', label: 'Placa del termo o calentador', equipo: 'TERMO', placa: true,
+        id: 'FOTO_PLACA_TERMO', label: 'Placa del termo o calentador', equipo: 'TERMO', multiple: true, unaBasta: true, placa: true,
         ayuda: 'La pegatina con litros y potencia.',
         cuando: c => c.acs === 'termo' || c.acs === 'calentador' || c.termo_extra === true,
     },
@@ -360,6 +364,9 @@ export const ORIGENES = {
     CATASTRO: { label: 'Catastro', texto: 'según el Catastro', fiable: true },
     PLACA: { label: 'Placa', texto: 'leído en la placa', fiable: true },
     FOTO: { label: 'Fotos', texto: 'visto en las fotos', fiable: true },
+    // Lo que ya sabía el CRM de un encargo de BROKERGY (la oportunidad y el
+    // expediente: lo dijo el cliente o el instalador). Ver certapp/crm.js.
+    BROKERGY: { label: 'BROKERGY', texto: 'según el expediente de BROKERGY', fiable: true },
     STREETVIEW: { label: 'Street View', texto: 'visto en Street View', fiable: false },
     EPOCA: { label: 'Su época', texto: 'lo normal de su año de construcción', fiable: false },
     HABITUAL: { label: 'Lo habitual', texto: 'lo habitual, sin ver', fiable: false },
@@ -603,7 +610,7 @@ export const DEDUCIBLES = [
 
 // Cuánto vale cada origen: uno peor no pisa a uno mejor (lo de la época no
 // pisa lo visto en una foto).
-export const RANGO_ORIGEN = { HABITUAL: 1, EPOCA: 2, STREETVIEW: 3, FOTO: 4, CATASTRO: 5, PLACA: 5 };
+export const RANGO_ORIGEN = { HABITUAL: 1, EPOCA: 2, STREETVIEW: 3, BROKERGY: 4, FOTO: 4, CATASTRO: 5, PLACA: 5 };
 
 // Los valores de lista que admite cada clave (también para sanear).
 const LISTAS_VALOR = {

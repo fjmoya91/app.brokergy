@@ -99,7 +99,7 @@ export function EnviarPropuestaModal({
     onIncludeCeeChange,             // (bool) => void — sincroniza el toggle con el PDF
     fcVisible = false,              // quien envía es STAFF → se le enseña el bloque del FC
     fcEstado = null,                // { procede, motivo, actual, fc, extra } — ver logic/avisoFc.js
-    includeFc = false,              // controlado por el padre; apagado por defecto
+    includeFc = false,              // controlado por el padre (ProposalModal lo enciende por defecto desde el 08/11/2026)
     onIncludeFcChange,              // (bool) => void
     onContactoActualizado,          // () => void — el padre relee los contactos tras editarlos
 }) {
@@ -273,9 +273,10 @@ export function EnviarPropuestaModal({
         rehacerMensaje(next, includeFc);
     };
 
-    // Toggle "Incluir el factor de corrección": solo toca el MENSAJE. El PDF de la
-    // propuesta no lo lleva a propósito — es un documento con cifras que se firma,
-    // y la del FC no es firme (borrador en consulta pública).
+    // Toggle "Incluir el factor multiplicador": solo toca el PÁRRAFO del MENSAJE. El
+    // PDF lleva SIEMPRE su hoja del FM cuando procede (Fran, 09/11/2026: hoja 2,
+    // logic/fmPropuesta.js), que dice que esa cifra no es firme y repite la de la
+    // propuesta.
     const toggleIncludeFc = () => {
         const next = !includeFc;
         if (onIncludeFcChange) onIncludeFcChange(next);
@@ -512,7 +513,10 @@ export function EnviarPropuestaModal({
     // (2026-10-10, biomasa → la deducción del IRPF solo con placas). Por
     // WhatsApp va en su burbuja DESPUÉS del enlace, lo último del chat; en el
     // email, que es un solo cuerpo, al final del texto.
-    const avisoFinalFor = (c) => (buildAvisoFinal ? buildAvisoFinal(c.mode) || null : null);
+    // Desde el 09/11/2026 lleva también el mensaje del FACTOR MULTIPLICADOR, según
+    // el conmutador «Incluir el factor multiplicador» de este popup.
+    const fcAparte = !!fcEstado?.procede && !!includeFc;
+    const avisoFinalFor = (c) => (buildAvisoFinal ? buildAvisoFinal(c.mode, { fc: fcAparte }) || null : null);
     const conAvisoFinal = (texto, c) => {
         const aviso = avisoFinalFor(c);
         return aviso ? `${texto}\n\n${aviso}` : texto;
@@ -1020,7 +1024,7 @@ export function EnviarPropuestaModal({
                         </button>
                     )}
 
-                    {/* Bloque del FACTOR DE CORRECCIÓN (ficha RES060FC, en consulta pública).
+                    {/* Bloque del FACTOR MULTIPLICADOR (vía FM, Resolución publicada en el BOE del 7/11/2026).
                         Solo lo ve el STAFF, y NUNCA desaparece en silencio: si no se puede
                         ofrecer, en su sitio queda la razón. Un control que unas veces está y
                         otras no, sin decir por qué, se lee como que la app está rota.
@@ -1031,8 +1035,8 @@ export function EnviarPropuestaModal({
                             <span className="flex items-center gap-2 text-left">
                                 <svg className="w-4 h-4 text-violet-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                                 <span className="text-[11px] font-bold text-white/80">
-                                    Incluir el factor de corrección (FC)
-                                    <span className="text-white/35 font-normal"> — con la ficha nueva el bono subiría a {eur(fcEstado.fc)} (+{eur(fcEstado.extra)})</span>
+                                    Incluir el factor multiplicador (FM)
+                                    <span className="text-white/35 font-normal"> — por esa vía el bono subiría a {eur(fcEstado.fc)} (+{eur(fcEstado.extra)})</span>
                                 </span>
                             </span>
                             <span className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest shrink-0 ${includeFc ? 'text-brand' : 'text-white/30'}`}>
@@ -1043,15 +1047,25 @@ export function EnviarPropuestaModal({
                             </span>
                         </button>
                     )}
-                    {fcVisible && fcEstado?.procede && includeFc && (
+                    {/* Sin ACS en la simulación: la cifra FM lo supone añadido (logic/avisoFc.js). */}
+                    {fcVisible && fcEstado?.procede && fcEstado.acs && (
+                        <p className="-mt-2 text-[10px] text-amber-300/90 leading-relaxed px-1">
+                            ⚠️ La simulación no lleva el ACS y la vía FM lo pide: {fcEstado.acs === 'supuesto'
+                                ? 'esa cifra ya supone que se añade el depósito de ACS al presupuesto.'
+                                : 'sin SCOP de ACS, esa cifra es solo la calefacción; subirá al añadir el depósito.'}
+                        </p>
+                    )}
+                    {fcVisible && fcEstado?.procede && (
                         <p className="-mt-2 text-[9px] text-white/30 leading-relaxed">
-                            Va solo en el mensaje, no en el PDF: la ficha está en consulta pública y esa cifra
-                            no es firme. El texto lo dice y repite el importe de la propuesta.
+                            Es el MISMO interruptor que «Factor M.» de la vista previa: incluido, el PDF lleva la
+                            línea en la fila del bono y la hoja 2 (las dos cifras, cuándo se pide y qué hace falta),
+                            y sale un MENSAJE APARTE, el último, con la nueva normativa. Quitado, la propuesta no
+                            dice nada del multiplicador, y queda guardado en la oportunidad.
                         </p>
                     )}
                     {fcVisible && fcEstado && !fcEstado.procede && (
                         <p className="text-[9px] text-white/25 leading-relaxed px-1">
-                            <span className="text-white/40 font-bold">Factor de corrección (FC):</span> no se puede ofrecer en esta
+                            <span className="text-white/40 font-bold">Factor multiplicador (FM):</span> no se puede ofrecer en esta
                             propuesta — {fcEstado.motivo}.
                         </p>
                     )}
@@ -1092,13 +1106,13 @@ export function EnviarPropuestaModal({
                             </div>
                         )}
                         {/* El ÚLTIMO mensaje, si lo hay (biomasa → IRPF solo con placas). */}
-                        {buildAvisoFinal && buildAvisoFinal(primaryMode) && (
+                        {buildAvisoFinal && buildAvisoFinal(primaryMode, { fc: fcAparte }) && (
                             <div data-robot="aviso-final" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3">
                                 <p className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-400/90 mb-1.5">
-                                    {buildAcceptMessage ? '3er' : '2º'} mensaje · aviso importante
+                                    {buildAcceptMessage ? '3er' : '2º'} mensaje · aparte, el último
                                 </p>
                                 <p className="whitespace-pre-wrap break-words text-[12px] text-white/70 leading-relaxed">
-                                    {buildAvisoFinal(primaryMode)}
+                                    {buildAvisoFinal(primaryMode, { fc: fcAparte })}
                                 </p>
                                 <p className="mt-2 text-[9px] text-white/30 leading-relaxed">
                                     Por WhatsApp sale aparte y el último, para que no se pierda. En el email va al final del texto.

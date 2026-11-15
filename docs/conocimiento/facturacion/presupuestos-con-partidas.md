@@ -154,6 +154,12 @@ certificador ni registro del CEE, con los trámites en su nombre). Al aceptar: c
 siempre, se completan los datos del cliente, se avisa al equipo y se le confirma al cliente
 (`avisarSinCee`). Con certificado, todo igual que antes: nace el `{AAAA}CEE_{n}` y su
 `documentacion.oferta` guarda las `lineas`.
+**Desde el 05/11/2026, si una línea es de un artículo «Informe técnico (INF)» (`genera: 'INFORME'`),
+al aceptar nace el INFORME `{AAAA}INF_{n}`** (con o sin CEE al lado): el aviso al equipo dice su número
+y el siguiente paso, la confirmación al cliente lleva su enlace y la página de aceptación enseña el
+botón «Subir mi documentación». Ver `docs/conocimiento/informes/`. Con un artículo «Certificado
+instalación térmica (CIT)» (`genera: 'CIT'`) nace igual un `{AAAA}CIT_{n}`, el RITE suelto (misma tabla,
+su propia línea).
 
 **La factura de ese CEE hereda las partidas.** `facturaCee.lineasPorDefecto` propone las líneas del
 presupuesto (no las dos de siempre); el ID ARTÍCULO de la hoja de AppSheet sale del `appsheet_id` del
@@ -256,7 +262,10 @@ borrador nuevo), `listar_presupuestos` y `cambiar_estado_presupuesto` (anular, r
 Por la clave interna (`staffOClaveInterna`), y lo que hace queda firmado como «AGENTE IA». Lo que
 manda el MCP lleva `expandir_arrastre: true`: el servidor construye las líneas desde el catálogo (con
 sus tasas, salvo `sin_arrastre` en la línea). Tras desplegar, hay que reconectar el conector en
-Cowork para que vea las herramientas nuevas.
+Cowork para que vea las herramientas nuevas. `crear_presupuesto` admite `para_tercero: true` (el
+instalador lo pide para un cliente suyo: al aceptar da los datos del propietario, que es quien va en
+el certificado; ver `docs/conocimiento/cee-directos/…/presupuesto-para-un-cliente-del-instalador.md`,
+2026-11-10).
 
 #### La fase 2: hecha el mismo 24/10/2026
 

@@ -19,6 +19,7 @@
 // es el mecanismo que ya existe para atender un requerimiento.
 // ============================================================================
 import { calcCifo } from './calcCifo.js';
+import { facturaComputa } from './facturasCae.js';
 import { hitosActuacion, aclaracionSugerida, fechaEs } from './hitosActuacion.js';
 
 // Lo que se le dice a quien ve el aviso para que sepa DÓNDE se arregla. Una
@@ -44,7 +45,7 @@ export function incidenciasFechasCifo(expediente) {
 
     const { inicio, fin } = calcCifo(doc);
     const pruebas = iso(doc.fecha_pruebas_cert_instalacion);
-    const facturas = (doc.facturas || []).map(f => iso(f?.fecha_factura)).filter(Boolean);
+    const facturas = (doc.facturas || []).filter(facturaComputa).map(f => iso(f?.fecha_factura)).filter(Boolean);
     const manual = doc.fecha_inicio_cifo_manual || doc.fecha_fin_cifo_manual;
 
     // ── La fecha de pruebas es la que abre la actuación ──────────────────────

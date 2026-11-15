@@ -70,15 +70,23 @@ export function PestanasCe3x({ pestanas = [], activa = 'envolvente', onIr, desha
                     cabecera solo se ve en la del plano. Aquí está siempre. */}
                 {deshacer && (
                     <div className="flex items-center gap-0.5">
+                        {/* Y dice QUÉ deshace (`describirPaso`): quien duda de
+                            si deshacer es porque no recuerda qué fue lo último. */}
                         <Paso onClick={deshacer.deshacer} puede={deshacer.puedeDeshacer}
-                              titulo="Deshacer el último cambio (Ctrl+Z)" etiqueta="Deshacer">
+                              titulo={deshacer.queDeshace
+                                  ? `Deshacer: ${deshacer.queDeshace} (Ctrl+Z)`
+                                  : 'Deshacer el último cambio (Ctrl+Z)'}
+                              etiqueta="Deshacer"
+                              detalle={deshacer.puedeDeshacer ? deshacer.queDeshace : null}>
                             <path strokeLinecap="round" strokeLinejoin="round"
                                   d="M9 14 4 9l5-5" />
                             <path strokeLinecap="round" strokeLinejoin="round"
                                   d="M4 9h9a7 7 0 0 1 0 14h-3" />
                         </Paso>
                         <Paso onClick={deshacer.rehacer} puede={deshacer.puedeRehacer}
-                              titulo="Rehacer (Ctrl+Mayús+Z)">
+                              titulo={deshacer.queRehace
+                                  ? `Rehacer: ${deshacer.queRehace} (Ctrl+Mayús+Z)`
+                                  : 'Rehacer (Ctrl+Mayús+Z)'}>
                             <path strokeLinecap="round" strokeLinejoin="round"
                                   d="m15 14 5-5-5-5" />
                             <path strokeLinecap="round" strokeLinejoin="round"
@@ -106,7 +114,7 @@ export function PestanasCe3x({ pestanas = [], activa = 'envolvente', onIr, desha
  * Deshabilitado y no escondido: que el botón esté ahí en gris es lo que dice que
  * ya no queda nada que deshacer. Uno que aparece y desaparece obliga a buscarlo.
  */
-function Paso({ onClick, puede, titulo, etiqueta, children }) {
+function Paso({ onClick, puede, titulo, etiqueta, detalle = null, children }) {
     return (
         <button type="button" onClick={onClick} disabled={!puede} title={titulo}
                 aria-label={titulo}
@@ -120,6 +128,13 @@ function Paso({ onClick, puede, titulo, etiqueta, children }) {
                 {children}
             </svg>
             {etiqueta && <span className="hidden lg:inline">{etiqueta}</span>}
+            {/* Lo que deshace, recortado: entero va en `title`. */}
+            {detalle && (
+                <span className="hidden max-w-[240px] truncate text-[11px] font-semibold normal-case
+                                 tracking-normal text-white/55 xl:inline">
+                    {detalle}
+                </span>
+            )}
         </button>
     );
 }

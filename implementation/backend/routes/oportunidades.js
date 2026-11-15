@@ -20,7 +20,9 @@ const { createLead } = require('../services/leadService');
 // (residencial), las declara una persona. Fuente única en utils/fichas.js.
 const { FICHAS, detectPrograma } = require('../utils/fichas');
 const { sellarPrecioCae } = require('../utils/precioCae');
+const { viaFmAlGuardar, conservarRutaFm, conservarFmEnPropuesta, viaFmDe } = require('../utils/viaFmAlGuardar');
 const { sellarGuiaTransmitancias } = require('../utils/guiaTransmitancias');
+const { conservarCiega, sinCiegaParaPartner, cargarLogicaCiega } = require('../utils/estimacionCiega');
 const clasificarFotos = require('../services/clasificarFotosService');
 const whatsappMedia = require('../services/whatsappMedia');
 const multer = require('multer');
@@ -399,6 +401,14 @@ router.post('/', enforceAuth, async (req, res) => {
         // El PRECIO CAE del cliente queda sellado en la oportunidad para que llegue
         // al expediente. La regla —y por qué solo se marcan las NUEVAS— vive en
         // utils/precioCae.js.
+        // Antes, el precio de la vía FM (solo ADMIN): quien no lo ve no lo cambia, y
+        // su `via_fm` se rehace aquí con él (utils/viaFmAlGuardar.js, regla 155).
+        await viaFmAlGuardar(datosCalculoFinal, existingData, req.user?.rol_nombre === 'ADMIN');
+        // La vía elegida (`inputs.ruta_fm`) la escriben su conmutador y el expediente,
+        // nunca este guardado: se queda la de la BD (regla 200).
+        conservarRutaFm(datosCalculoFinal.inputs, existingData);
+        // Y si la propuesta enseña el FM: lo escribe su botón, no este guardado.
+        conservarFmEnPropuesta(datosCalculoFinal.inputs, existingData);
         sellarPrecioCae(datosCalculoFinal.inputs, existingData);
         // Y la GUÍA DE TRANSMITANCIAS: una anterior no estrena la de CE3X al
         // reguardarse (utils/guiaTransmitancias.js).
@@ -415,6 +425,10 @@ router.post('/', enforceAuth, async (req, res) => {
         } else {
             delete datosCalculoFinal.envolvente_cee;
         }
+        // El CEE A CIEGAS lo escribe solo el PC (services/cee/ceeCiego.js) y la
+        // SUPERFICIE CONFIRMADA solo su ruta (staff): lo que mande el navegador no
+        // cuenta. La confirmación se cae sola si cambian los m² o las construcciones.
+        await conservarCiega(datosCalculoFinal, existingData);
 
         let payloadPrescriptorStr = prescriptor || 'BROKERGY';
         if (!prescriptor && req.user && req.user.perfilCompleto) {
@@ -545,7 +559,7 @@ router.post('/', enforceAuth, async (req, res) => {
             return res.status(500).json({ error: 'Error al guardar.', details: resultError.message });
         }
 
-        res.status(201).json(resultData);
+        res.status(201).json(sinCiegaParaPartner(resultData, isStaff(req)));
     } catch (error) {
         console.error('Error fatal POST /:', error);
         res.status(500).json({ error: 'Error del servidor.' });
@@ -648,7 +662,8 @@ const listaSelect = (conFicha = true) => `
     re_financials:datos_calculo->result->financials,
     re_financialsRes080:datos_calculo->result->financialsRes080,
     re_ahorroRes080:datos_calculo->result->res080->ahorroEnergiaFinalTotal,
-    re_savingsKwh:datos_calculo->result->savings->savingsKwh
+    re_savingsKwh:datos_calculo->result->savings->savingsKwh,
+    dc_via_fm:datos_calculo->via_fm
 `.replace(/\s+/g, ' ').trim();
 
 // Devuelve la fila proyectada con la forma que el frontend ya espera. Los
@@ -682,6 +697,9 @@ function filaListado(o) {
             // A quién le ha llegado (cliente / instalador): se pinta bajo la
             // chapa ENVIADA. Las versiones NO viajan (pesan ~1 KB por fila).
             propuesta_entregada: entregaPropuesta(o.dc_versiones),
+            // Las dos vías (vigente y factor multiplicador) en escalares, ~300 B
+            // (logic/viaFm.js). Solo ADMIN: stripPartnerMargin la quita al resto.
+            ...(o.dc_via_fm ? { via_fm: o.dc_via_fm } : {}),
             inputs: {
                 isReforma: o.in_isReforma,
                 reformaType: o.in_reformaType,
@@ -1233,7 +1251,7 @@ router.post('/:id/comentarios', internalKeyOrAuth, suyaSiPartner, async (req, re
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al guardar.', details: upErr.message });
 
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.', details: error.message });
     }
@@ -1400,7 +1418,7 @@ ${notesStr}
 
         // El estado de la propuesta cambia la etiqueta de su chat (apagado salvo WA_AUTO_SYNC).
         if (op.cliente_id) require('../services/whatsappAutoSync').programarCliente(op.cliente_id, `oportunidad ${nuevo_estado}`);
-        res.status(200).json({ success: true, data: upData[0], numeroExpediente });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)), numeroExpediente });
     } catch (error) {
         console.error('[StatusUpdate] Error:', error.message);
         res.status(500).json({ error: error.message || 'Error del servidor.' });
@@ -1424,7 +1442,7 @@ router.patch('/:id/asignar', staffOnly, async (req, res) => {
             .select();
 
         if (upErr) return res.status(500).json({ error: 'Error al asignar prescriptor.', details: upErr.message });
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
     }
@@ -1556,7 +1574,7 @@ router.delete('/:id/historial', adminOnly, async (req, res) => {
         dc.historial = [];
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al borrar.' });
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
     }
@@ -1575,7 +1593,7 @@ router.delete('/:id/historial/:entryId', adminOnly, async (req, res) => {
 
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al borrar.' });
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
     }
@@ -1613,7 +1631,7 @@ router.put('/:id/historial/:entryId', enforceAuth, async (req, res) => {
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al actualizar.' });
         
-        res.status(200).json({ success: true, data: upData[0] });
+        res.status(200).json({ success: true, data: sinCiegaParaPartner(upData[0], isStaff(req)) });
     } catch (error) {
         console.error('Error PUT /historial/:entryId:', error);
         res.status(500).json({ error: 'Error del servidor.' });
@@ -1647,7 +1665,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
             console.error('[Backend] Error en búsqueda por id_oportunidad:', byId.error);
         }
         if (byId.data && byId.data.length > 0) {
-            const found = byId.data[0];
+            const found = sinCiegaParaPartner(byId.data[0], isStaff(req));
             console.log(`[Backend] Encontrada por id_oportunidad: ${found.id_oportunidad}`);
             return res.status(200).json(isNonAdmin(req) ? stripPartnerMargin(found) : found);
         }
@@ -1665,7 +1683,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
             return res.status(500).json({ error: 'Error consulta.', details: byRc.error.message });
         }
         if (byRc.data && byRc.data.length > 0) {
-            const found = byRc.data[0];
+            const found = sinCiegaParaPartner(byRc.data[0], isStaff(req));
             console.log(`[Backend] Encontrada por ref_catastral: ${found.id_oportunidad}`);
             return res.status(200).json(isNonAdmin(req) ? stripPartnerMargin(found) : found);
         }
@@ -1683,6 +1701,151 @@ router.get('/:id', enforceAuth, async (req, res) => {
 // escritorio) de la carpeta de la oportunidad, subiendo por las carpetas padre en
 // Drive. El frontend la usa para abrir la carpeta con el protocolo brokergylocal:.
 // Misma lógica que expedientes/:id/local-path. Configurable con LOCAL_DRIVE_BASE.
+// ─── El CEE A CIEGAS (solo el equipo interno) ────────────────────────────────
+// La cifra de un CEE hecho por programa, APARTE de la de la calculadora: no
+// cambia nada de lo que se ofrece. La escribe el PC (scripts/cee_ciego.js y el
+// vigilante `banco.mjs atender`); aquí solo se lee y se confirma la superficie.
+// Diseño: docs/conocimiento/calculo/cee-a-ciegas-diseno-para-la-oportunidad.md
+const SELECT_CIEGA = 'id, id_oportunidad, estimacion:datos_calculo->estimacion_ciega, '
+    + 'confirmada:datos_calculo->inputs->superficie_confirmada, '
+    + 'sup:datos_calculo->inputs->>superficieCalefactable, sup2:datos_calculo->inputs->>superficie, '
+    + 'elegidas:datos_calculo->inputs->construcciones_elegidas';
+
+async function filaCiega(id) {
+    const q = supabase.from('oportunidades').select(SELECT_CIEGA);
+    const { data, error } = await (UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id))
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (error) throw Object.assign(new Error('No se ha podido leer la oportunidad.'), { status: 503 });
+    return data;
+}
+
+router.get('/:id/estimacion-ciega', staffOnly, async (req, res) => {
+    try {
+        const fila = await filaCiega(String(req.params.id));
+        if (!fila) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        res.json({ estimacion: fila.estimacion || null, superficie_confirmada: fila.confirmada || null });
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// «✓ Confirmo N m²»: una PERSONA del equipo da por buena la superficie (y las
+// construcciones) de la simulación GUARDADA. Se cae sola al cambiar cualquiera de
+// las dos (utils/estimacionCiega.js, en el guardado).
+router.post('/:id/superficie-confirmada', staffOnly, async (req, res) => {
+    try {
+        const fila = await filaCiega(String(req.params.id));
+        if (!fila) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        const { construccionesClave, superficieSimulada } = await cargarLogicaCiega();
+        const inputsBd = { superficieCalefactable: fila.sup, superficie: fila.sup2, construcciones_elegidas: fila.elegidas };
+        const m2 = superficieSimulada(inputsBd);
+        const construcciones = construccionesClave(inputsBd);
+        const pide = Number(req.body?.m2);
+        if (!(m2 > 0)) return res.status(409).json({ error: 'La simulación guardada no tiene superficie.' });
+        if (!(Math.abs(pide - m2) <= 0.5) || String(req.body?.construcciones ?? '') !== construcciones) {
+            return res.status(409).json({ error: `Lo guardado son ${m2} m²: guarda antes la simulación y vuelve a confirmar.` });
+        }
+        const perfil = req.user?.perfilCompleto || {};
+        const por = `${perfil.nombre || ''} ${perfil.apellidos || ''}`.trim() || nombreUsuario(req);
+        const confirmada = { m2, construcciones, por, at: new Date().toISOString() };
+        const { error } = await supabase.rpc('oportunidad_merge_inputs', { p_id: fila.id, p_patch: { superficie_confirmada: confirmada } });
+        if (error) return res.status(503).json({ error: 'No se ha podido guardar la confirmación.' });
+        res.json({ superficie_confirmada: confirmada });
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// La VÍA del FACTOR MULTIPLICADOR elegida ANTES de aceptar: el conmutador de la
+// calculadora (Fran: «la app deberá poder acogerse a este factor multiplicador si
+// el cliente cumple»). Escribe `inputs.ruta_fm` —NUNCA `via_fm`, que financialScrub
+// borra a quien no es ADMIN (regla 200)— y al aceptar el expediente sale de su
+// serie (26RES060FM_N). Solo el equipo interno.
+//   · Para ACTIVARLA, la simulación GUARDADA tiene que ser elegible: se recalcula
+//     aquí con el motor publicado (lo que el navegador diga no basta).
+//   · Con expediente, la vía la dice su NÚMERO y se cambia en su pestaña «Vía FM»
+//     (pone o quita el «FM», `cambiarViaFm`): aquí se dice y no se toca.
+//   · Apagarla se puede siempre (antes del expediente).
+router.post('/:id/ruta-fm', staffOnly, async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        const activar = req.body?.activar === true;
+        const q = supabase.from('oportunidades').select('id, id_oportunidad, datos_calculo');
+        const { data: op, error } = await (UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id))
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (error) return res.status(503).json({ error: 'No se ha podido leer la oportunidad.' });
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+
+        const { data: exp, error: eErr } = await supabase
+            .from('expedientes').select('numero_expediente').eq('oportunidad_id', op.id).maybeSingle();
+        if (eErr) return res.status(503).json({ error: 'No se ha podido comprobar si ya es expediente.' });
+        if (exp) {
+            return res.status(409).json({
+                error: `Ya es el expediente ${exp.numero_expediente}: la vía se cambia en su pestaña «Vía FM», que le da el número de la otra serie.`,
+            });
+        }
+
+        const antes = op.datos_calculo?.inputs?.ruta_fm === true;
+        let via = null;
+        if (activar) {
+            via = await viaFmDe(op.datos_calculo);
+            if (!via) return res.status(409).json({ error: 'La simulación guardada no tiene cálculo de la vía FM (faltan la superficie o la demanda). Guárdala y vuelve a probar.' });
+            if (via.aplica === false) return res.status(409).json({ error: `No aplica: ${via.no_aplica}.` });
+            if (via.elegible === false) return res.status(409).json({ error: `No es elegible: ${via.motivo || 'ver los avisos de la vía FM'}` });
+        }
+        if (antes !== activar) {
+            const { error: mErr } = await supabase.rpc('oportunidad_merge_inputs', { p_id: op.id, p_patch: { ruta_fm: activar } });
+            if (mErr) return res.status(503).json({ error: 'No se ha podido guardar la vía.' });
+            try {
+                await anotarHistorial(op.id, activar
+                    ? `Vía del FACTOR MULTIPLICADOR elegida (${via?.ficha || 'FM'})${via?.acs ? ' — falta añadir el ACS al presupuesto' : ''}: al aceptar, el expediente se numera en su serie (…FM_N).`
+                    : 'Vuelve a la ficha VIGENTE: al aceptar, el expediente se numera en su serie de siempre.', nombreUsuario(req));
+            } catch (e) { /* la línea del historial no puede tumbar el cambio */ }
+        }
+        res.json({ ruta_fm: activar, ...(via ? { ficha: via.ficha, acs: via.acs || null } : {}) });
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// ¿La PROPUESTA enseña el FACTOR MULTIPLICADOR? El botón «Factor M.» de la vista
+// previa (Fran, 11/11/2026, 26RES060_OP377: «hay casos en los que de momento no lo
+// quiera decir […] debe ser un botón previo»). Escribe `inputs.fm_en_propuesta`
+// (false = la propuesta no dice nada del FM: ni la línea del bono, ni la hoja 2, ni
+// el mensaje aparte). No cambia ninguna cifra ni la vía. Solo el equipo interno,
+// que es quien ve el FM. Con la vía FM elegida (`ruta_fm`) no se apaga.
+router.post('/:id/fm-en-propuesta', staffOnly, async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        if (typeof req.body?.mostrar !== 'boolean') return res.status(400).json({ error: 'Falta «mostrar» (true/false).' });
+        const mostrar = req.body.mostrar;
+        const q = supabase.from('oportunidades').select('id, datos_calculo');
+        const { data: op, error } = await (UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id))
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (error) return res.status(503).json({ error: 'No se ha podido leer la oportunidad.' });
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        const ins = op.datos_calculo?.inputs || {};
+        if (!mostrar && (ins.ruta_fm === true || ins.ruta_fm === 'true')) {
+            return res.status(409).json({ error: 'Va por la vía del factor multiplicador: la propuesta tiene que contarlo. Vuelve antes a la vía vigente.' });
+        }
+        const antes = ins.fm_en_propuesta !== false;
+        if (antes !== mostrar || typeof ins.fm_en_propuesta !== 'boolean') {
+            const { error: mErr } = await supabase.rpc('oportunidad_merge_inputs', { p_id: op.id, p_patch: { fm_en_propuesta: mostrar } });
+            if (mErr) return res.status(503).json({ error: 'No se ha podido guardar.' });
+        }
+        if (antes !== mostrar) {
+            try {
+                await anotarHistorial(op.id, mostrar
+                    ? 'La propuesta vuelve a incluir el FACTOR MULTIPLICADOR (línea del bono, hoja 2 y mensaje aparte).'
+                    : 'La propuesta NO enseña el factor multiplicador: sin la línea del bono, sin la hoja 2 y sin el mensaje aparte.', nombreUsuario(req));
+            } catch (e) { /* la línea del historial no puede tumbar el cambio */ }
+        }
+        res.json({ fm_en_propuesta: mostrar });
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
 router.get('/:id/local-path', adminOnly, async (req, res) => {
     try {
         const { id } = req.params;

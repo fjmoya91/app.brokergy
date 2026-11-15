@@ -105,16 +105,50 @@ console.log('\nE) «Por uso»: la calefacción mixta y el sistema ficticio se LE
         energiaFinalVectores: { b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 33.68, 18.43, 4.65) } };
     const args = { xmlInicial: ini, xmlFinal: fin, combAcsInicial: 'Electricidad peninsular', combAcsFinal: 'Electricidad peninsular',
         combCalefaccionInicial: 'Biomasa densificada (pelets)', combCalefaccionFinal: 'Electricidad peninsular' };
-    const r = calculateRes080({ ...args, xmlTextoInicial: XML_V20.toUpperCase() });
+    // Con los DOS .xml declarando la energía final, «por uso» ya no existe: manda la
+    // energía final declarada (2026-10-27, 26RES080_OP86).
+    const forz = calculateRes080({ ...args, xmlTextoInicial: XML_V20.toUpperCase() });
+    bien(forz.metodoForzado === 'energia_final' && forz.fuenteDatos === 'energia_final_declarada', 'con los dos .xml, por la energía final declarada aunque se pida «por uso»');
+    bien(cerca(forz.ahorroEnergiaFinalTotal / 1000, 74.10, 0.01), `ahorro ${(forz.ahorroEnergiaFinalTotal / 1000).toFixed(2)} MWh/año, el mismo que «por vector»`);
+    // «Por uso» queda para cuando uno de los dos no trae la energía final (OCR, a mano).
+    const finSinVec = { ...fin, energiaFinalVectores: null };
+    const r = calculateRes080({ ...args, xmlFinal: finSinVec, xmlTextoInicial: XML_V20.toUpperCase() });
     bien(cerca(r.details.cal.energyIni, 312.68, 0.01), `calefacción inicial ${r.details.cal.energyIni.toFixed(2)} kWh/m² (190,76 + 121,92), no 1.897,78`);
     bien(r.details.cal.fuelIni === 'Biomasa densificada (pelets) · 40 % + Gas Natural · 60 % (sistema ficticio por defecto)', `«${r.details.cal.fuelIni}»`);
     bien(r.details.cal.fuelIniFijo === true && r.details.acs.fuelIniFijo === false, 'la calefacción mixta va fija; el ACS de un solo equipo se sigue eligiendo');
     bien(r.details.ref.fuelIni === 'Electricidad peninsular · 100 % (sistema ficticio por defecto)', `refrigeración: «${r.details.ref.fuelIni}»`);
-    bien(cerca(r.ahorroEnergiaFinalTotal / 1000, 74.04, 0.02), `ahorro ${(r.ahorroEnergiaFinalTotal / 1000).toFixed(2)} MWh/año (antes 492,51)`);
     bien(!!r.cobertura?.inicial && r.contraste?.declaradas?.otrosIni === 34.16, 'trae la cobertura y las emisiones declaradas para el cuadro');
     // Sin mezcla ni sistema ficticio, lo de siempre: emisiones ÷ factor del combustible elegido.
-    const solo = calculateRes080({ ...args, xmlInicial: { ...ini, emisionesCalefaccion: 3.43, energiaFinalVectores: { b: VECTORES.b, c: VECTORES.c } }, xmlTextoInicial: XML_V20.toUpperCase() });
+    const solo = calculateRes080({ ...args, xmlFinal: finSinVec, xmlInicial: { ...ini, emisionesCalefaccion: 3.43, energiaFinalVectores: { b: VECTORES.b, c: VECTORES.c } }, xmlTextoInicial: XML_V20.toUpperCase() });
     bien(!solo.details.cal.fuelIniFijo && cerca(solo.details.cal.energyIni, 3.43 / 0.018, 0.01), 'sin sistema ficticio en calefacción: emisiones ÷ factor, como antes');
+}
+
+console.log('\nF) Con PLACAS, la fotovoltaica autoconsumida NO es ahorro: el vector eléctrico va en BRUTO');
+{
+    // Las cifras de 26RES080_66 (CE3X 3.2, 6 kWp en las dos fases, 302 m²): inicial
+    // Σ usos 522,88 y `Tot` neto 513,72; final Σ usos 39,10 (30,99 + 4,18 + 3,93) y neto 15,96.
+    // Recomendación (UE) 2024/1590, ap. 7.8: 146.102 kWh, no los 150.320 del neto.
+    const vecFv = (nombre, vectorXml, cal, acs, ref, global) => ({ ...vec(nombre, vectorXml, cal, acs, ref), global });
+    const ini = { superficieHabitable: 302, energiaFinalVectores: {
+        a: vec('GASOLEO CALEFACCION', 'GASOLEOC', 460.88, 50.00, 0),
+        b: vecFv('Electricidad peninsular', 'ELECTRICIDAD', 0, 0, 12.00, 2.84),
+    } };
+    const fin = { superficieHabitable: 302, energiaFinalVectores: {
+        b: vecFv('Electricidad peninsular', 'ELECTRICIDAD', 30.99, 4.18, 3.93, 15.96),
+    } };
+    const r = calculateRes080({ xmlInicial: ini, xmlFinal: fin });
+    bien(r.metodoForzado === 'autoconsumo' && r.fuenteDatos === 'energia_final_declarada', 'con placas, por la energía final SIN la fotovoltaica');
+    bien(cerca(r.totalEnergiaInicialM2, 522.88, 0.01) && cerca(r.totalEnergiaFinalM2, 39.10, 0.01), `totales en bruto ${r.totalEnergiaInicialM2.toFixed(2)} / ${r.totalEnergiaFinalM2.toFixed(2)} kWh/m²`);
+    bien(cerca(r.ahorroEnergiaFinalTotal, 146101.56, 1), `ahorro ${Math.round(r.ahorroEnergiaFinalTotal)} kWh (146.102), no el del neto (150.324)`);
+    bien(cerca(r.autoconsumoExcluido?.inicial ?? 0, 9.16, 0.01) && cerca(r.autoconsumoExcluido?.final ?? 0, 23.14, 0.01), 'dice la fotovoltaica excluida de cada fase (9,16 · 23,14)');
+    bien(cerca(r.details.electrico.energyFin, 39.10, 0.01), 'el vector eléctrico del cuadro va en bruto');
+    // Sin la energía final en el final (CEE por OCR), por emisiones: la del inicial se
+    // devuelve a su vector eléctrico igual.
+    const fElec = 0.331;
+    const finEmi = { superficieHabitable: 302, emisionesConsumoElectrico: 39.10 * fElec, emisionesConsumoOtros: 0 };
+    const iniEmi = { ...ini, emisionesConsumoElectrico: 2.84 * fElec, emisionesConsumoOtros: 510.88 * 0.311, combustibleOtros: 'Gasoleo Calefacción' };
+    const e = calculateRes080SimplificadoFromXml({ xmlInicial: iniEmi, xmlFinal: finEmi });
+    bien(e.fuenteDatos === 'emisiones' && cerca(e.details.electrico.energyIni, 12.00, 0.05), `por emisiones, el eléctrico inicial en bruto (${e.details.electrico.energyIni.toFixed(2)} = 2,84 + 9,16)`);
 }
 
 console.log(`\n${mal ? `✗ ${mal} fallo(s)` : '✓ todo correcto'}`);

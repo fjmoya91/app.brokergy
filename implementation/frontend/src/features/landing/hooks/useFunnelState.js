@@ -51,6 +51,16 @@ const INITIAL_FUNNEL = {
     reforma_fotos: null,         // 'si' | 'no'
     reforma_ejec_fecha: null,    // 'antes2024' | 'desde2024'
 
+    // ---- Factor multiplicador (BOE-A-2026-23367), formulario de 2026-11-09 ----
+    // Quién vive en la casa decide si cabe la vía FM (exige vivienda habitual) y el
+    // bono social de la luz la sube ×1,5 (ficha «-S»). Solo se preguntan con la
+    // aerotermia en la obra. La obra elegida (`obra`) y quién mandó el enlace (`ref`)
+    // no van aquí: llegan por la URL y se añaden al enviar.
+    obra_inicio_fm: null,        // 'desde' (22/03/2026 o después) | 'antes' | 'no_se' — solo con la obra ya empezada
+    vivienda_habitual: null,     // 'propia' | 'otra' | 'segunda'
+    bono_social: null,           // 'si' | 'no' | 'no_se'  (solo si vive alguien y la caldera es de gas o gasóleo)
+    bono_social_solo_fn: null,   // true | false | 'no_se' — se lo dieron SOLO por familia numerosa (no cuenta como vulnerable)
+
     // Meta
     timeline: null,
     motivacion: null
@@ -71,9 +81,15 @@ function loadFromStorage() {
     }
 }
 
+// El bono social de la luz dice algo de la economía de la casa: no se deja en el
+// navegador (como el contacto). Si recarga, se le vuelve a preguntar.
+const NO_PERSISTIR = ['bono_social', 'bono_social_solo_fn'];
+
 function saveToStorage(data, currentStep) {
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ timestamp: Date.now(), data, currentStep }));
+        const limpio = { ...data };
+        NO_PERSISTIR.forEach(k => { limpio[k] = null; });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ timestamp: Date.now(), data: limpio, currentStep }));
     } catch {
         // localStorage lleno o deshabilitado — silenciamos, no es crítico
     }

@@ -61,6 +61,18 @@ const RE_LOTE = /LOTE-\d{4}-\d{3}/gi;
 // Los asuntos con los que se le PIDE firmar algo (emailService / EnviarLoteDocModal):
 // una contestación a uno de ellos es, por definición, la devolución de los firmados.
 const RE_PETICION_FIRMA = /anexo i|listado cesi|fichas res|firmar|nueva firma/i;
+// La contestación a NUESTRO correo de la solicitud de emisión («Solicitud de emisión
+// de CAE · LOTE-… · dictamen …») trae el justificante de registro del MITECO, no un
+// firmado del lote. Se descarta por el asunto, antes de bajar nada: el 08/11/2026 el
+// «justificante_presentacion LOTE 2025 - 012.pdf» de Jesús pasó por Anexo I (lleva
+// el código del lote en el nombre) y saltó un aviso de firmas que no tocaba.
+const RE_SOLICITUD_EMISION = /solicitud(es)? de emisi[oó]n/i;
+
+/** ¿Por qué se descarta este asunto sin mirar sus adjuntos? null = se mira. */
+function asuntoDescartado(asunto) {
+    if (RE_SOLICITUD_EMISION.test(asunto || '')) return 'contesta a la solicitud de emisión de CAE (justificante del MITECO)';
+    return null;
+}
 
 const fechaEs = (d) => new Date(d).toLocaleString('es-ES', {
     timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -242,6 +254,8 @@ async function revisarBuzon(opts = {}) {
                 const visto = (motivo) => { informe.motivo = motivo; nuevosVistos.push({ id, at: new Date().toISOString(), lote: informe.lote, motivo }); };
 
                 if (!pdfs.length) { informe.accion = 'ignorado'; visto('sin PDF'); continue; }
+                const descartado = asuntoDescartado(correo.asunto);
+                if (descartado) { informe.accion = 'ignorado'; visto(descartado); continue; }
                 const codigos = codigosLote(correo.asunto).length ? codigosLote(correo.asunto) : codigosLote(...pdfs);
                 if (codigos.length !== 1) {
                     informe.accion = 'ignorado';
@@ -327,5 +341,5 @@ function start() {
 module.exports = {
     activo, revisarBuzon, barrer, start,
     // Exportados para las pruebas
-    codigosLote, nombresPdf, contactosSo, esDelSo, textoAviso,
+    codigosLote, nombresPdf, contactosSo, esDelSo, textoAviso, asuntoDescartado,
 };

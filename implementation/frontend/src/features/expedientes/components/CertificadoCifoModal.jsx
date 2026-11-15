@@ -117,6 +117,23 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // envío (/memoria-rite/files, sin tocar Drive ni BD). Se pide al abrir el
     // visor y se olvida en cuanto cambia algo que la memoria imprime.
     const [riteFiles, setRiteFiles] = useState({ estado: 'idle', files: [], error: '' });
+    // Empresa con VARIOS técnicos habilitados: cuál firma la memoria de ESTE
+    // expediente (null = el de por defecto). Mismo guardado que el popup RITE.
+    const [tecnicoRiteDni, setTecnicoRiteDni] = useState(expediente?.documentacion?.memoria_rite_tecnico?.dni || null);
+    const [guardandoTecnico, setGuardandoTecnico] = useState(false);
+    const elegirTecnicoRite = async (dni) => {
+        const antes = tecnicoRiteDni;
+        setTecnicoRiteDni(dni);
+        setGuardandoTecnico(true);
+        try {
+            await axios.put(`/api/expedientes/${expediente.id}/memoria-rite/tecnico`, { dni });
+            setRiteFiles({ estado: 'idle', files: [], error: '' });
+        } catch {
+            setTecnicoRiteDni(antes);
+        } finally {
+            setGuardandoTecnico(false);
+        }
+    };
 
     // El padre ahora pasa siempre los attachments fijos en su state efímero;
     // mantenemos el fallback por si llegan vacíos.
@@ -618,9 +635,18 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const fechaInicio = formatDateSpanish(cifoDatesCert.inicio || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial);
     const fechaFin = formatDateSpanish(cifoDatesCert.fin || doc.fecha_fin_cifo || doc.fecha_firma_cee_final);
 
+    // Vía FM (26RES060FM_N · 26RES093FM_N): el certificado sale como SU ficha FM y
+    // con la cifra FM (cifoDoc.js → `data.fm`). Lo que impide generarlo se enseña
+    // arriba, en la banda de la vía FM.
+    const fmCifo = deriveCifoData({ expediente: expedienteDoc, results }).fm;
+
     // Métricas para Header
-    const aeKwh = Math.round(results?.savingsKwh || 0).toLocaleString('es-ES');
-    const beneficioStr = Math.round((results?.savingsKwh || 0) * (results?.price_kwh || 0.10)).toLocaleString('es-ES');
+    const kwhCabecera = fmCifo ? (fmCifo.res?.cae || 0) : (results?.savingsKwh || 0);
+    const eurCabecera = fmCifo && results?.financialsRes060FC?.caeBonus > 0
+        ? results.financialsRes060FC.caeBonus
+        : kwhCabecera * (results?.price_kwh || 0.10);
+    const aeKwh = Math.round(kwhCabecera).toLocaleString('es-ES');
+    const beneficioStr = Math.round(eurCabecera).toLocaleString('es-ES');
 
     // La demanda y la superficie NO se resuelven aquí: las decide ceeBaseDocumento
     // dentro de deriveCifoData (cifoDoc.js), que es lo que este modal renderiza.
@@ -1523,6 +1549,23 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                     </div>
                 )}
 
+                {/* Vía FM: el CIFO sale como la ficha FM. Lo que lo hace inválido
+                    (bloqueos) y lo que conviene mirar (avisos), los mismos que pararían
+                    la generación automática (cifoService.buildValidation). */}
+                {fmCifo && (fmCifo.bloqueos.length > 0 || fmCifo.avisos.length > 0) && (
+                    <div className={`flex-shrink-0 px-5 py-3 border-b flex items-start gap-2.5 ${fmCifo.bloqueos.length ? 'bg-red-500/[0.07] border-red-500/20' : 'bg-amber-500/[0.06] border-amber-500/20'}`}>
+                        <svg className={`w-4 h-4 shrink-0 mt-0.5 ${fmCifo.bloqueos.length ? 'text-red-400' : 'text-amber-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                        <div className={`text-[11px] leading-snug ${fmCifo.bloqueos.length ? 'text-red-200' : 'text-amber-200'}`}>
+                            <span className="font-black uppercase tracking-wider">Ficha {fmCifo.codigo}</span>
+                            {fmCifo.bloqueos.length > 0 && <span> — este certificado no vale todavía como ficha FM:</span>}
+                            <ul className="mt-1 space-y-0.5 list-disc pl-4">
+                                {fmCifo.bloqueos.map((t) => <li key={`b-${t}`}>{t}</li>)}
+                                {fmCifo.avisos.map((t) => <li key={`a-${t}`} className="text-amber-200/80">{t}</li>)}
+                            </ul>
+                        </div>
+                    </div>
+                )}
+
                 <PlacaScopAcsBanda
                     placa={placaAcs} cargando={placaCargando} subiendo={placaSubiendo}
                     onElegir={elegirPlaca} onSubir={subirPlaca} onRecortar={recortarPlaca}
@@ -1641,6 +1684,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                     opcionesCifo={opcionesCifoFirma}
                                     firmanteCifo={firmanteRol}
                                     onFirmanteCifo={pickFirmante}
+                                    tecnicoRiteDni={tecnicoRiteDni}
+                                    onTecnicoRite={elegirTecnicoRite}
+                                    guardandoTecnico={guardandoTecnico}
                                 />
 
                                 {/* Destinatario(s) — se puede marcar más de uno */}

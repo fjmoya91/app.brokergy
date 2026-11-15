@@ -32,6 +32,7 @@ import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaVi
 import { CertAckView } from './features/public/views/CertAckView';
 import { CeeAckView } from './features/public/views/CeeAckView';
 import { AceptarOfertaCeeView } from './features/public/views/AceptarOfertaCeeView';
+import { InformeClienteView } from './features/informes/views/InformeClienteView';
 import { API_DOCS_CEE_DIRECTO } from './features/docs/docsApi';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { PresentarCeeView } from './features/public/views/PresentarCeeView';
@@ -45,9 +46,12 @@ import FirmaMovilView from './features/firma/FirmaMovilView';
 import CroquisMovilView from './features/cee-envolvente/views/CroquisMovilView';
 import EncargoTecnicoView from './features/encargo/EncargoTecnicoView';
 import { FirmarLoteView } from './features/public/views/FirmarLoteView';
+import { SujetoObligadoPublicoView } from './features/public/views/SujetoObligadoPublicoView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { ConfirmarCobroView } from './features/cobro/views/ConfirmarCobroView';
 import { RecibidoCobroView } from './features/cobro/views/RecibidoCobroView';
+import { ConsejoFacturaView } from './features/public/views/ConsejoFacturaView';
+import { FacturaAhorroView } from './features/cobro/views/FacturaAhorroView';
 import { EnlaceCortoView } from './features/public/views/EnlaceCortoView';
 import { RespuestasCobroView } from './features/cobro/views/RespuestasCobroView';
 import AsistenteFlotante from './features/asistente/AsistenteFlotante';
@@ -97,19 +101,26 @@ function App() {
   // 0. Detección de landing pública (/calcula-tu-ayuda y /p/[slug]).
   //    Se renderiza condicionalmente más abajo, antes que cualquier otra vista,
   //    para que el visitante no necesite estar autenticado ni cargue el dashboard.
+  // Formulario «Calcula tu ayuda» (2026-11-09): UNA ruta, y la obra llega en el enlace
+  // (`?obra=caldera|reforma`, la tarjeta pulsada en brokergy.es/ayudas), así no se
+  // vuelve a preguntar. `?ref=` dice quién mandó el enlace (p. ej. `fran` por WhatsApp).
+  // Nada personal viaja en la URL. /reforma y /ayudas-aerotermia siguen valiendo.
   const [landingRoute] = useState(() => {
     const path = window.location.pathname;
+    const qs = new URLSearchParams(window.location.search);
+    const obraQs = ['caldera', 'reforma'].includes(qs.get('obra')) ? qs.get('obra') : null;
+    const refQs = /^[a-z0-9_-]{1,30}$/i.test(qs.get('ref') || '') ? qs.get('ref').toLowerCase() : null;
     if (path === '/reforma') {
-      return { type: 'brokergy', slug: null, variant: 'reforma' };
+      return { type: 'brokergy', slug: null, variant: 'reforma', obra: obraQs || 'reforma', ref: refQs };
     }
     if (path === '/calcula-tu-ayuda' || path === '/ayudas-aerotermia') {
-      return { type: 'brokergy', slug: null };
+      return { type: 'brokergy', slug: null, variant: 'reforma', obra: obraQs || (path === '/ayudas-aerotermia' ? 'caldera' : null), ref: refQs };
     }
     if (path.startsWith('/p/')) {
       const slug = path.split('/p/')[1]?.split('/')[0] || null;
       if (slug && /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/.test(slug)) {
-        // La landing white-label del partner usa el mismo flujo que /reforma.
-        return { type: 'partner', slug, variant: 'reforma' };
+        // La landing white-label del partner usa el mismo flujo; la obra, por `?obra=`.
+        return { type: 'partner', slug, variant: 'reforma', obra: obraQs, ref: refQs };
       }
     }
     return null;
@@ -134,6 +145,9 @@ function App() {
   // mismo UUID no vale en las dos.
   const [initialCeeDirecto] = useState(() => {
     const params = new URLSearchParams(window.location.search);
+    // Un INFORME técnico (`?informe=<id>`, el enlace de los avisos del equipo) vive
+    // en la misma pestaña: CeeDirectosView lo abre con el prefijo `inf:`.
+    if (params.get('informe')) return `inf:${params.get('informe')}`;
     return params.get('cee') || null;
   });
 
@@ -207,6 +221,19 @@ function App() {
     // /cobro/:id/recibido — el recordatorio «¿te ha llegado el ingreso?» (RecibidoCobroView).
     const recibido = path.split('/cobro/')[1]?.split('/')[1] === 'recibido';
     return { id, recibido, token: new URLSearchParams(window.location.search).get('token') || '' };
+  });
+
+  // Autofactura de un cliente EMPRESA: /factura-ahorro/:expedienteId?token= (mismo token que /cobro).
+  const [facturaAhorroData] = useState(() => {
+    const m = window.location.pathname.match(/^\/factura-ahorro\/([^/]+)\/?$/);
+    return m ? { id: m[1], token: new URLSearchParams(window.location.search).get('token') || '' } : null;
+  });
+
+  // El texto recomendado para la FACTURA del instalador: /consejo-factura/:expedienteId?token=
+  // (ConsejoFacturaView, backend utils/consejoFactura.js). `/consejo-factura/demo` sin API.
+  const [consejoFacturaData] = useState(() => {
+    const m = window.location.pathname.match(/^\/consejo-factura\/([^/]+)\/?$/);
+    return m ? { id: m[1], token: new URLSearchParams(window.location.search).get('token') || '' } : null;
   });
 
   const [riteUploadId] = useState(() => {
@@ -354,10 +381,24 @@ function App() {
     return null;
   });
 
+  // El enlace del CLIENTE de un informe técnico: /informe/:token (y /informe/demo).
+  const [informeToken] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/informe/')) return path.split('/informe/')[1]?.split('/')[0] || null;
+    return null;
+  });
+
   // Firma en cadena del lote por el Sujeto Obligado: /firmar-lote/:loteId
   const [firmarLoteId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/firmar-lote/')) return path.split('/firmar-lote/')[1] || null;
+    return null;
+  });
+
+  // Cómo va el Sujeto Obligado, para él mismo y de solo lectura: /so/:token
+  const [soPublicoToken] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/so/')) return path.split('/so/')[1]?.split('/')[0] || null;
     return null;
   });
 
@@ -411,6 +452,7 @@ function App() {
     // Se lee de la URL y no de `initialCeeDirecto`: ese estado se declara mas
     // abajo y aqui todavia no existe.
     if (new URLSearchParams(window.location.search).get('cee')) return 'cee-directos';
+    if (new URLSearchParams(window.location.search).get('informe')) return 'cee-directos';
     const tab = new URLSearchParams(window.location.search).get('tab');
     if (TABS_VALIDAS.includes(tab)) return tab;
     // En el MÓVIL se entra a despachar, no a mirar indicadores: el cuadro de mando
@@ -938,6 +980,8 @@ function App() {
     // el parámetro se quedaba pegado en la URL al cambiar de pestaña y la
     // siguiente recarga reabría un expediente que ya no venía a cuento.
     p.delete('cee');
+    p.delete('informe');
+    p.delete('cobro'); p.delete('facturar');
     p.delete('estados'); p.delete('opestado'); p.delete('prioridad');
     // 'firmar' es una orden de un solo uso (abrir el popup de firma): en cuanto se
     // ha leído no debe quedarse pegado en la barra de direcciones.
@@ -947,7 +991,8 @@ function App() {
       p.set('exp', openExpedienteId);
     } else if (openCeeDirecto && activeTab === 'cee-directos') {
       p.set('tab', 'cee-directos');
-      p.set('cee', openCeeDirecto);
+      if (String(openCeeDirecto).startsWith('inf:')) p.set('informe', String(openCeeDirecto).slice(4));
+      else p.set('cee', openCeeDirecto);
     } else if (openOportunidadId) {
       p.set('op', openOportunidadId);
     } else if (activeTab) {
@@ -1182,8 +1227,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || enlaceCorto || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || informeToken || certAckData || enlaceCorto || cobroData || facturaAhorroData || consejoFacturaData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || soPublicoToken || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !informeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !facturaAhorroData && !consejoFacturaData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !soPublicoToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1232,6 +1277,10 @@ function App() {
           <SubirInstaladorView expedienteId={instaladorId} />
         ) : enlaceCorto ? (
           <EnlaceCortoView codigo={enlaceCorto} />
+        ) : facturaAhorroData ? (
+          <FacturaAhorroView expedienteId={facturaAhorroData.id} token={facturaAhorroData.token} />
+        ) : consejoFacturaData ? (
+          <ConsejoFacturaView expedienteId={consejoFacturaData.id} token={consejoFacturaData.token} />
         ) : cobroData ? (
           cobroData.recibido
             ? <RecibidoCobroView expedienteId={cobroData.id} token={cobroData.token} />
@@ -1269,10 +1318,14 @@ function App() {
           <FirmarAnexosView expedienteId={firmarAnexosId} />
         ) : firmarLoteId ? (
           <FirmarLoteView loteId={firmarLoteId} />
+        ) : soPublicoToken ? (
+          <SujetoObligadoPublicoView token={soPublicoToken} />
         ) : certAckData ? (
           <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
         ) : ofertaCeeToken ? (
           <AceptarOfertaCeeView token={ofertaCeeToken} />
+        ) : informeToken ? (
+          <InformeClienteView token={informeToken} />
         ) : firmaOportunidadId ? (
           <AceptarPropuestaView idOportunidad={firmaOportunidadId} />
         ) : resetToken ? (

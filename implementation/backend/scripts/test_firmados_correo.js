@@ -8,7 +8,7 @@
  *   node scripts/test_firmados_correo.js
  * ─────────────────────────────────────────────────────────────────────────────
  */
-const { codigosLote, nombresPdf, contactosSo, esDelSo, textoAviso } = require('../services/firmadosSoCorreo');
+const { codigosLote, nombresPdf, contactosSo, esDelSo, textoAviso, asuntoDescartado } = require('../services/firmadosSoCorreo');
 
 let fallos = 0;
 const ok = (cond, texto) => {
@@ -23,6 +23,15 @@ ok(codigosLote('re: firmar oferta (lote-2025-009)').join() === 'LOTE-2025-009', 
 ok(codigosLote('Lotes 010 y 011', 'LOTE-2025-010 y LOTE-2025-011').length === 2,
     'si nombra dos lotes se ve (y el buzón no elige: lo ignora)');
 ok(codigosLote('RE: CONTESTACIÓN A REQUERIMIENTO MITECO').length === 0, 'sin código no hay lote');
+
+console.log('\n🔎 La contestación a la solicitud de emisión no es un firmado');
+ok(!!asuntoDescartado('RE: Solicitud de emisión de CAE · LOTE-2025-012 · dictamen MW-1904/26 · 217.509 kWh/año'),
+    'el justificante del MITECO que contesta a la solicitud se descarta por el asunto (08/11/2026)');
+ok(!!asuntoDescartado('RV: Solicitudes de emision de CAE · LOTE-2025-010, 011 y 012'), 'en plural y sin tilde también');
+ok(asuntoDescartado('RV: Anexo I · Listado Cesión + Fichas RES — Brokergy (LOTE-2025-012)') === null,
+    'la petición de firma sigue contando');
+ok(asuntoDescartado('RE: Requerimiento · documentos para nueva firma — Brokergy (LOTE-2025-009)') === null,
+    'y la nueva firma por un requerimiento también');
 
 console.log('\n🔎 ¿Trae PDF? (se mira la estructura, sin bajar el correo)');
 const estructura = {

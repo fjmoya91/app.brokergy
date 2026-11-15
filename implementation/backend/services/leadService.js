@@ -350,7 +350,7 @@ async function generateOpportunityId(fichaType) {
  * @param {string|null} params.prescriptorId UUID del prescriptor (resuelto en la ruta).
  * @returns {Promise<{ id_oportunidad: string, oportunidad_uuid: string, cliente_id: string, lead_score: number }>}
  */
-async function createLead({ contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, geoContext, partnerSlug, prescriptorId, mode = 'public', creatorUser = null, docsOcr = null }) {
+async function createLead({ contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, geoContext, partnerSlug, prescriptorId, mode = 'public', creatorUser = null, docsOcr = null, viaFm = null }) {
     // 1. Validaciones mínimas — fail-fast antes de tocar BD
     const isInternal = mode === 'internal';
 
@@ -487,6 +487,11 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
         // CalculatorView.handleCalculate). El panel admin lo lee directamente
         // para mostrar bono CAE, ahorro, etc., sin tener que recalcular.
         result: precomputedResult || null,
+
+        // Las dos vías (vigente y FM) en escalares, como las guarda la calculadora
+        // (`resumenViaFm`, logic/viaFm.js). Solo de ADMIN: financialScrub la quita
+        // a quien no lo es. La pasan el formulario público y el alta desde WhatsApp.
+        ...(viaFm ? { via_fm: viaFm } : {}),
 
         // Respuestas raw del funnel para auditoría / reprocesado futuro
         landing_funnel: funnel || {},

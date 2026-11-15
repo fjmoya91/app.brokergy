@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CampoDecimal } from '../../../components/CampoDecimal';
+import { aerotermiaGenericaLibre, cruceMedidasObra, equiposDeLibre } from '../logic/medidasObra';
 import { ProduccionFotovoltaica } from '../../expedientes/components/ProduccionFotovoltaica';
 import { ACTIVIDADES_ILUMINACION_CE3X, airesAcondicionados, AISLAMIENTOS_CE3X, AMBITOS_CE3X,
          COMBUSTIBLES_CE3X, esAire, esTerciarioCe3x, etiquetaTipoCe3x, GENERADORES_CE3X,
@@ -594,8 +595,11 @@ function Construcciones({ lista, onCambiar, guardando }) {
     const corregidas = lista.filter(c => !c.por_defecto && c.catastro !== null
                                       && c.catastro !== undefined
                                       && !!c.catastro !== !!c.cuenta);
+    //: Por CLAVE, no por código: dos filas pueden compartir código (la vivienda
+    //: y la piscina de 26RES080_OP85) y al marcar una se marcaban las dos.
+    const claveDe = (x) => x.clave || x.codigo;
     const alternar = (c) => onCambiar?.(
-        lista.filter(x => (x.codigo === c.codigo ? !x.cuenta : x.cuenta)).map(x => x.codigo));
+        lista.filter(x => (claveDe(x) === claveDe(c) ? !x.cuenta : x.cuenta)).map(claveDe));
 
     return (
         <div className="rounded-xl border border-white/[0.07] px-4 pb-3 pt-2.5">
@@ -625,7 +629,7 @@ function Construcciones({ lista, onCambiar, guardando }) {
                     </thead>
                     <tbody>
                         {lista.map(c => (
-                            <tr key={c.codigo}
+                            <tr key={claveDe(c)}
                                 // Lo que NO cuenta se atenúa, pero se LEE: en tema
                                 // claro /25 daba 2,6:1 y saber qué se dejó fuera es
                                 // la mitad del valor de este desglose.
@@ -1738,6 +1742,59 @@ export function SelloCex({ estado, huella = null, fase = 'inicial' }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// El VISTO BUENO de BROKERGY a la obra de un certificador de la app
+// (backend: services/certapp/vistoBueno.js, 30/10/2026).
+//
+// REGLA — un clic deja el certificado listo para firmar: si lo que se ve no es
+// lo generado, se genera antes; CE3X lo califica en el PC y se entrega solo, sin
+// «Entregar». Vale para ESA receta: volver a generar con otros datos lo anula.
+// El botón es del EQUIPO; el certificador solo ve si lo tiene.
+// ─────────────────────────────────────────────────────────────────────────────
+function lineaVistoBueno(vb) {
+    if (!vb) return null;
+    const f = vb.at ? new Date(vb.at).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+    const quien = vb.por ? ` (${vb.por})` : '';
+    if (vb.anulado_at) return ['text-amber-300', `⚠ El visto bueno del ${f} ya no vale: ${vb.anulado_motivo || 'Se ha vuelto a generar con otros datos.'}`];
+    if (!vb.vigente) return ['text-amber-300', `⚠ El visto bueno del ${f} no es de lo que está generado ahora.`];
+    if (vb.firmado) return ['text-emerald-300', `✓ Visto bueno del ${f}${quien}, dado al certificado ya firmado.`];
+    if (vb.esperando_pc) return ['text-sky-200/85', `✓ Visto bueno del ${f}${quien}: se está calculando con CE3X y se entrega solo al terminar.`];
+    if (vb.listo && vb.entregado_at) return ['text-emerald-300', `✓ Visto bueno del ${f}${quien}: entregado, listo para firmar.`];
+    return ['text-emerald-300', `✓ Visto bueno del ${f}${quien}.`];
+}
+
+export function VistoBuenoCex({ vb, puedeDar, onDar, enCurso = false, deshabilitado = false, motivo = null, resultado = null }) {
+    const linea = lineaVistoBueno(vb);
+    if (!puedeDar && !linea) return null;
+    return (
+        <div className="rounded-lg border border-emerald-400/25 bg-emerald-400/[0.04] px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-200/70">Visto bueno de BROKERGY</p>
+            {linea && <p className={`mt-1 text-[11.5px] font-semibold leading-snug ${linea[0]}`}>{linea[1]}</p>}
+            {puedeDar && (
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <button onClick={onDar} disabled={deshabilitado || enCurso} title={motivo || undefined}
+                            className="rounded-xl bg-emerald-400 px-4 py-2.5 text-xs font-black uppercase
+                                       tracking-widest text-black disabled:cursor-not-allowed disabled:opacity-40
+                                       hover:brightness-110">
+                        {enCurso ? 'Dando el visto bueno…' : vb?.vigente ? '↻ Volver a dar el visto bueno' : '✓ Visto bueno: listo para firmar'}
+                    </button>
+                    <span className="max-w-[28rem] text-[11px] leading-snug text-white/45">
+                        {motivo || 'Si lo que ves está bien: se genera si hace falta, CE3X lo califica y se le entrega '
+                                   + 'al certificador listo para firmar, sin «Entregar». Si es un encargo del CRM, al '
+                                   + 'firmarlo el expediente queda con el visto bueno.'}
+                    </span>
+                </div>
+            )}
+            {resultado && (
+                <p className={`mt-2 text-[11.5px] font-semibold leading-snug ${
+                    resultado.tono === 'error' ? 'text-red-300' : resultado.tono === 'aviso' ? 'text-amber-300' : 'text-emerald-300'}`}>
+                    {resultado.texto}
+                </p>
+            )}
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Las MEDIDAS DE MEJORA que se escriben en el .cex.
 //
 // Se ELIGEN, no se rellenan solas: un certificado puede proponer una, las dos o
@@ -1760,7 +1817,9 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
                                textos = {}, onTexto, dosFases = true,
                                autoconsumoKwh = null, onAutoconsumo,
                                ubicacionFv = null, onAutoconsumoPvgis = null,
-                               sello = null, generica = false, onGenerica = null }) {
+                               sello = null, generica = false, onGenerica = null,
+                               libres = [], quitadas = [], onLibres = null,
+                               obra = null, superficie = null }) {
     const [abierta, setAbierta] = useState(null);
     const [verPvgis, setVerPvgis] = useState(false);
     // Sin elección a mano manda lo que trae marcado la fase.
@@ -1769,7 +1828,19 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
         const hay = marcadas.includes(id);
         onElegir(hay ? marcadas.filter(x => x !== id) : [...marcadas, id]);
     };
-    const n = marcadas.length;
+    //: Las MEDIDAS LIBRES de la receta (`ajustes.medidas_libres`): las que deja
+    //: el PC y no están en el catálogo —la aerotermia genérica de una obra sin
+    //: equipo—. Solo en el INICIAL, que es donde las escribe la ruta. Antes no se
+    //: enseñaban: la pestaña decía «ninguna» y el `.cex` llevaba una (2026EXT_1).
+    const vivas = fase === 'inicial' ? (libres || []) : [];
+    const apagadas = fase === 'inicial' ? (quitadas || []) : [];
+    const n = marcadas.length + vivas.length;
+    const cruce = obra?.ids?.length
+        ? cruceMedidasObra({ pedidas: obra.ids, marcadas, catalogo: catalogo || [], libres: vivas })
+        : [];
+    const aeroObra = obra && fase === 'inicial'
+        ? aerotermiaGenericaLibre({ calefaccion: obra.calefaccion, superficie }) : null;
+    const claveLibre = (puesta, i) => `libre-${puesta ? 'v' : 'q'}${i}`;
 
     return (
         <Ventana titulo="Medidas de mejora">
@@ -1796,6 +1867,12 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
                         )}
                     </span>
                 </div>
+
+                {cruce.length > 0 && (
+                    <PedidasObra cruce={cruce} sugeridas={obra.sugeridas}
+                                 onPonerAerotermia={aeroObra && onLibres
+                                     ? () => onLibres([...vivas, aeroObra], apagadas) : null} />
+                )}
 
                 <div className="mt-2 space-y-1.5">
                     {(catalogo || []).map(m => {
@@ -1921,6 +1998,19 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
                             </div>
                         );
                     })}
+
+                    {[...vivas.map((l, i) => ({ l, i, puesta: true })),
+                      ...apagadas.map((l, i) => ({ l, i, puesta: false }))].map(({ l, i, puesta }) => (
+                        <MedidaLibre key={claveLibre(puesta, i)} libre={l} puesta={puesta}
+                                     abierta={abierta === claveLibre(puesta, i)}
+                                     onAbrir={() => setAbierta(a => (a === claveLibre(puesta, i) ? null : claveLibre(puesta, i)))}
+                                     onPoner={onLibres ? () => (puesta
+                                         ? onLibres(vivas.filter((_, j) => j !== i), [...apagadas, l])
+                                         : onLibres([...vivas, l], apagadas.filter((_, j) => j !== i))) : null}
+                                     onCambiar={onLibres && puesta
+                                         ? (campo, v) => onLibres(vivas.map((x, j) => (j === i ? { ...x, [campo]: v } : x)), apagadas)
+                                         : null} />
+                    ))}
                 </div>
 
                 <p className="mt-2 text-[10.5px] leading-relaxed text-white/30">
@@ -1930,6 +2020,99 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
                 </p>
             </div>
         </Ventana>
+    );
+}
+
+/**
+ * Lo que pidió la OBRA (app de certificadores), cruzado con lo que se escribe:
+ * ✓ con el nombre con que sale en CE3X, o «falta» con lo que hay que hacer.
+ */
+function PedidasObra({ cruce, sugeridas, onPonerAerotermia }) {
+    return (
+        <div className="mt-2 rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">
+                {sugeridas ? 'Las que se proponen para esta obra (no se eligió ninguna)' : 'Las que pediste en la obra'}
+            </p>
+            <ul className="mt-1.5 space-y-1">
+                {cruce.map(c => (
+                    <li key={c.id} className="text-[11.5px] leading-snug">
+                        <span className={c.va ? 'text-emerald-300/90' : 'text-amber-300/90'}>
+                            {c.va ? '✓' : '⚠'}
+                        </span>{' '}
+                        <span className="font-semibold text-white/75">{c.etiqueta}</span>
+                        <span className="text-white/45">
+                            {c.va ? ` → en el .cex como ${c.como}` : ` · ${c.falta}`}
+                        </span>
+                        {c.componible && onPonerAerotermia && (
+                            <button type="button" onClick={onPonerAerotermia}
+                                    className="ml-2 rounded-md border border-brand/50 px-2 py-0.5 text-[10px]
+                                               font-bold uppercase tracking-wider text-brand hover:bg-brand/10">
+                                + Ponerla
+                            </button>
+                        )}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
+/**
+ * Una MEDIDA LIBRE de la receta, enseñada como la verá el certificador en el
+ * diálogo de CE3X: nombre del conjunto, inversión y vida útil, los equipos que
+ * entran y, desplegado, los textos (editables) y la justificación del Anexo III.
+ * Desmarcarla no la borra: pasa a `medidas_libres_quitadas` y se puede volver a
+ * poner.
+ */
+function MedidaLibre({ libre, puesta, abierta, onAbrir, onPoner, onCambiar }) {
+    const equipos = equiposDeLibre(libre);
+    return (
+        <div className={`rounded-lg border px-3 py-2 ${puesta
+            ? 'border-brand/40 bg-brand/[0.07]' : 'border-white/[0.07] bg-white/[0.02] opacity-70'}`}>
+            <div className="flex gap-2.5">
+                <input type="checkbox" checked={puesta} disabled={!onPoner} onChange={() => onPoner?.()}
+                       aria-label={puesta ? 'Quitar la medida' : 'Volver a poner la medida'}
+                       className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--brand)]" />
+                <div className="min-w-0">
+                    <span className="block text-[12.5px] font-semibold text-white/80">{libre.nombre}</span>
+                    <span className="block text-[11px] text-white/45">
+                        {libre.inversion != null ? `${miles(libre.inversion)} €` : 'sin inversión'}
+                        {libre.vida_util ? ` · vida útil ${libre.vida_util} años` : ''}
+                        {' · de la receta'}
+                    </span>
+                    {equipos.map((t, k) => (
+                        <span key={k} className="block truncate text-[10.5px] text-white/35">{t}</span>
+                    ))}
+                </div>
+                <button onClick={onAbrir}
+                        className="ml-auto shrink-0 self-start rounded-md border border-white/10 px-2 py-1
+                                   text-[10px] font-bold uppercase tracking-wider text-white/45
+                                   hover:border-white/30 hover:text-white">
+                    {abierta ? 'Ocultar' : 'Ver el texto'}
+                </button>
+            </div>
+            {abierta && (
+                <>
+                    <TextoMedida datos={libre} suyo={{}} onTexto={(campo, v) => onCambiar?.(campo, v ?? '')} />
+                    {onCambiar && (
+                        <label className="mt-2 flex items-center gap-2 text-[10.5px] text-white/45">
+                            Inversión
+                            <CampoDecimal valor={libre.inversion ?? ''} aria-label="Inversión de la medida"
+                                          onCambio={(v) => onCambiar('inversion', v > 0 ? Math.round(v) : null)}
+                                          alVaciar={() => onCambiar('inversion', null)}
+                                          className="w-24 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[12px]" />
+                            €
+                        </label>
+                    )}
+                    {libre.justificacion && (
+                        <p className="mt-2 text-[10.5px] leading-relaxed text-white/40">
+                            <span className="font-semibold text-white/55">Justificación (Anexo III): </span>
+                            {libre.justificacion}
+                        </p>
+                    )}
+                </>
+            )}
+        </div>
     );
 }
 

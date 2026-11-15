@@ -51,6 +51,18 @@ del cliente (`aplicarContactoPartner`). Un partner sin email (Luis) solo recibe
 los WhatsApp: los emails al cliente no salen a nadie hasta que se le ponga uno, y
 entonces se copia solo (`resincronizarClientesDelPartner`).
 
+**REGLA — a la persona de contacto se le escribe a SU email o a ninguno** (2026-10-28).
+Los tres sitios que eligen el email «del cliente» —`avisoCliente` en
+[ceeRegistradoAviso.js](implementation/backend/services/ceeRegistradoAviso.js),
+`resolveSolicitudContacto` en `routes/expedientes.js` y `contactoCliente` en
+[ceeDirectoService.js](implementation/backend/services/ceeDirectoService.js)—
+caían al email del TITULAR cuando el contacto no tenía el suyo. Así, el aviso de «CEE
+inicial presentado» de 26RES060_253 salió con «¡Hola Félix!» (CALINDSA, sin email)
+al buzón de la familia del titular. Ahora, si se le habla al contacto (`tercero`),
+el email es solo el suyo; sin él sale el WhatsApp y no sale email. Con el desvío
+marcado pero sin nadie detrás, sigue siendo el titular. Prueba:
+`node implementation/backend/scripts/test_aviso_cee_registrado.js`.
+
 Los documentos (Anexo I, Convenio, CIFO) siguen a nombre del TITULAR, y en la
 propuesta el titular sigue siendo una fila más, sin marcar (ver «La propuesta al
 TITULAR, aunque sus avisos vayan al instalador»).

@@ -1,0 +1,1111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DatosEnergeticosDelEdificio version="3.0">
+
+  <DatosEdificio>
+    <Descripcion>Centro Juvenil</Descripcion>
+    <Direccion>Paseo de la Florida, 6</Direccion>
+    <Municipio>Madrid</Municipio>
+    <Provincia>Madrid</Provincia>
+    <ComunidadAutonoma>Madrid, Comunidad de</ComunidadAutonoma>
+    <CodigoPostal>28012</CodigoPostal>
+    <ZonaClimatica>D3</ZonaClimatica>
+    <FechaConstruccion>1979-2005</FechaConstruccion>
+    <NormativaEdificacion>NBE_CT_79</NormativaEdificacion>
+    <NormativaInstalaciones>RD_1490_1975</NormativaInstalaciones>
+    <NormativaOtra>PGOUM 85</NormativaOtra>
+    <ReferenciasCatastrales>
+      <Registro>DGC</Registro>
+      <Ref>
+        <Parcela>0011Z00ZZBBZZZ</Parcela>
+        <Inmueble>0011XX</Inmueble>
+        <Parte>GIMNASIO</Parte>
+      </Ref>
+      <Ref>
+        <Parcela>0011Z00ZZBBZZZ</Parcela>
+        <Inmueble>0022YY</Inmueble>
+        <Parte>BIBLIOTECA</Parte>
+      </Ref>
+    </ReferenciasCatastrales>
+    <GradoProteccion>Ninguna</GradoProteccion>
+    <ElementosInalterables>
+      <Elemento>
+        <Tipo>Fachada</Tipo>
+        <Descripcion>Fachada de ladrillo vista con motivos geométricos</Descripcion>
+      </Elemento>
+      <Elemento>
+        <Tipo>Escaleras</Tipo>
+        <Descripcion>Escalera imperial</Descripcion>
+      </Elemento>
+      <Elemento>
+        <Tipo>Otro</Tipo>
+        <Descripcion>Vidriera barroca</Descripcion>
+      </Elemento>
+    </ElementosInalterables>
+    <Alcance>Parte</Alcance>
+    <Uso>ResidencialPrivado</Uso>
+    <NumUnidadesUso>7</NumUnidadesUso>
+    <PlantasSobreRasante>4</PlantasSobreRasante>
+    <PlantasBajoRasante>2</PlantasBajoRasante>
+    <SuperficieUtil>230.49</SuperficieUtil>
+    <Imagen>
+      <![CDATA[data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEBLAEsAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wAALCADIAMgBAREA/8QAFgABAQEAAAAAAAAAAAAAAAAAAAEC/8QAKhABAAECAgkEAwEAAAAAAAAAAAERMSFBAlFhcYGxwdHwEkKRoSLh8TL/2gAIAQEAAD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABbMKxH8LhWmHQuFiKAeqIT1Rt+VudE9Uavs9UavtYmv7LZl8wrjTAE0u3Jco3dISbxw5kYYasVZymfhYsqXnZBGFY1KkzXD5W1gimoynd0lItbNaR5/CPKJpduRbdMQqe6PMlE0u3Jco3dIZm8eZrOGPCV0sISbU2dSLNThwhmMI34k4TE+bVZ908ebRWI/hWJ8gynd0lmJmlis6msZvFE0u3JbxTYmjOH1J7o8yUTS7clyjd0hmbx5m1eKMxjwhdLPzMixOUL+flGfynDssTWPMi2lv6/tSYjf8ACe/zUuU+ZSmj35KJpduSxaOPJLTXWT/rh0UTSitli0ceSTeOHNQyldHLd1Zi8zKiRhM6lmKpWY2nqnVPzPYita22NTnxYrMZfUlZ1NRWb+fKaUVssWjjyL1ZitWgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//9k=]]>
+    </Imagen>
+    <Plano>
+      <![CDATA[data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADIBAMAAABfdrOtAAAAD1BMVEX///8AAADX19empqZRUVHJcZMiAAACeElEQVR42u3X23nDIAwG0K5AzALp5wVoswDg/WeqJUBINrmYhz79fkmwQYe78df2D9cXECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgTItqXfzeef18jd0bX9rDV1O2QOzks4ylgvt9Q/OXKA/AHi3LKOkf3RqpDHAUmxlk+fIKXUCckqMCG3AxJaccn1EuEKD1viFbJYhOqw9/R36E/GCIVNoVTyhNzdJreS631XY4baT9Rrj3cI5VpGSHC/uiWxhSpIkgZkdyg5QqjbRshedan9HjK05zV4r7+ahc+RzLGOSNqLhhZoR7YWqs0Tr6vzFklcqXNLFhoWQVILVZDYs6e+hq4iXNV2j+IEp1piAkdb9AJCXZVl4e0xWwa+l/WUCnYSX0Di3jtSX/qT6yg0ZFWBJpHEIdu8JSTVypeItrv83OzKdfGosa2Dwg+irny2I//5OimDGXtjJXDVLbJOrfhS7TbyjNQKzyBP9q7I5drIl98yQlcRvVdbpEUvVk2WnWUSGbxPsuy12uSbc8jozRhlUtw6UnaWGWT8jpddSzb2Qvcp7M2G/XYKj1JRxssrhPPMLcZBKjln3s1tHvCmuRy39/sckhXy6AgPytwGOUopxKuW0GSb2+oHKZUwMen+3EtrkAqud5xuCaXmXr+DlDk7rmZ7ecwdJM4pvbp4w5IeCS7OHYlGLfG25wSJcpS8drg7bZfePOH/gmRBLh1TR4jpZfrfJ1B0Vw/czxBdjsenI73in346PEGSnpN8flBLwV37CPqXzzl8/QIBAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAzPUHNpEYVKZsMZAAAAAASUVORK5CYII=]]>
+    </Plano>
+  </DatosEdificio>
+
+  <DatosCertificado>
+    <TipoCertificado>Existente</TipoCertificado>
+    <Escala>ViviendaBloque</Escala>
+    <Procedimiento>
+      <Nombre>HULC</Nombre>
+      <Version>2022.07.03</Version>
+    </Procedimiento>
+    <FechaCalificacion>22/02/2023</FechaCalificacion>
+    <FechaGeneracion>25/04/2023</FechaGeneracion>
+  </DatosCertificado>
+
+  <DatosCertificador>
+    <NombreApellidos>José Pérez Pérez</NombreApellidos>
+    <Nif>00000000Z</Nif>
+    <RazonSocial>Estudio de Arquitectura JPPA</RazonSocial>
+    <NifEntidad>Q3450234D</NifEntidad>
+    <Domicilio>Calle del Prado, 3 - 4ºG</Domicilio>
+    <Municipio>Madrid</Municipio>
+    <CodigoPostal>28001</CodigoPostal>
+    <Provincia>Madrid</Provincia>
+    <ComunidadAutonoma>Madrid, Comunidad de</ComunidadAutonoma>
+    <Email>joseperez@perez.es</Email>
+    <Telefono>993456789</Telefono>
+    <Titulacion>Arquitectura</Titulacion>
+  </DatosCertificador>
+
+
+  <Modelo>
+    <Global>
+      <DemandaDiariaAcs>40</DemandaDiariaAcs>
+      <VentilacionDiseno>0.69</VentilacionDiseno>
+      <N50Ensayo></N50Ensayo>
+      <IntercambioAire>0.16</IntercambioAire>
+      <PermeabilidadOpacos>29</PermeabilidadOpacos>
+      <CargaInternaMedia>2.58</CargaInternaMedia>
+    </Global>
+
+    <Espacios>
+      <Espacio>
+        <Id>54d88882-0399-4e3e-8a0b-a83baead38e1</Id>
+        <Nombre>P01_E01</Nombre>
+        <Multiplicador>1</Multiplicador>
+        <Altura>3</Altura>
+        <Cota>0.0</Cota>
+        <EsInteriorEnvolvente>Si</EsInteriorEnvolvente>
+        <NivelAcondicionamiento>Acondicionado</NivelAcondicionamiento>
+        <PerfilUso>noresidencial-16h-media</PerfilUso>
+        <IluminacionPotenciaInstalada>4.00</IluminacionPotenciaInstalada>
+        <IluminanciaMedia>300.00</IluminanciaMedia>
+        <TieneCal>Si</TieneCal>
+        <TieneRef>Si</TieneRef>
+        <Superficie>84.18</Superficie>
+        <Volumen>240.76</Volumen>
+        <Veei>1.33</Veei>
+      </Espacio>
+      <Espacio>
+        <Id>cf78a197-8772-4bd2-9f73-23e124f9c4ec</Id>
+        <Nombre>P01_E02</Nombre>
+        <Multiplicador>2</Multiplicador>
+        <Altura>3</Altura>
+        <Cota>0.0</Cota>
+        <EsInteriorEnvolvente>Si</EsInteriorEnvolvente>
+        <NivelAcondicionamiento>Acondicionado</NivelAcondicionamiento>
+        <PerfilUso>noresidencial-16h-media</PerfilUso>
+        <IluminacionPotenciaInstalada>4.00</IluminacionPotenciaInstalada>
+        <IluminanciaMedia>300.00</IluminanciaMedia>
+        <TieneCal>Si</TieneCal>
+        <TieneRef>Si</TieneRef>
+        <Superficie>24.68</Superficie>
+        <Volumen>68.92</Volumen>
+        <Veei>1.33</Veei>
+      </Espacio>
+      <Espacio>
+        <Id>f44945fc-0e12-49fe-acfb-5161040fb9d7</Id>
+        <Nombre>P02_E01</Nombre>
+        <Altura>3.0</Altura>
+        <Cota>3.0</Cota>
+        <EsInteriorEnvolvente>Si</EsInteriorEnvolvente>
+        <NivelAcondicionamiento>Acondicionado</NivelAcondicionamiento>
+        <PerfilUso>noresidencial-16h-media</PerfilUso>
+        <IluminacionPotenciaInstalada>4.00</IluminacionPotenciaInstalada>
+        <IluminanciaMedia>300.00</IluminanciaMedia>
+        <TieneCal>Si</TieneCal>
+        <TieneRef>Si</TieneRef>
+        <Superficie>46.18</Superficie>
+        <Volumen>131.63</Volumen>
+        <Veei>1.33</Veei>
+      </Espacio>
+      <Espacio>
+        <Id>3fa1108d-15a3-4438-bd43-60a4f3a90a21</Id>
+        <Nombre>P02_E02</Nombre>
+        <Altura>3</Altura>
+        <Cota>3</Cota>
+        <EsInteriorEnvolvente>Si</EsInteriorEnvolvente>
+        <NivelAcondicionamiento>Acondicionado</NivelAcondicionamiento>
+        <PerfilUso>noresidencial-16h-media</PerfilUso>
+        <IluminacionPotenciaInstalada>4.00</IluminacionPotenciaInstalada>
+        <IluminanciaMedia>300.00</IluminanciaMedia>
+        <TieneCal>Si</TieneCal>
+        <TieneRef>Si</TieneRef>
+        <Superficie>12.18</Superficie>
+        <Volumen>34.73</Volumen>
+        <Veei>1.33</Veei>
+      </Espacio>
+      <Espacio>
+        <Id>3fb1108d-15a3-4438-bd43-60a4f3a90a21</Id>
+        <Nombre>P02_E03</Nombre>
+        <Altura>3</Altura>
+        <Cota>3</Cota>
+        <EsInteriorEnvolvente>Si</EsInteriorEnvolvente>
+        <NivelAcondicionamiento>NoAcondicionado</NivelAcondicionamiento>
+        <PerfilUso>residencial-24h-baja</PerfilUso>
+        <IluminacionPotenciaInstalada>1.00</IluminacionPotenciaInstalada>
+        <IluminanciaMedia>50.00</IluminanciaMedia>
+        <Superficie>10.00</Superficie>
+        <Volumen>30.00</Volumen>
+        <Veei>0.55</Veei>
+      </Espacio>
+    </Espacios>
+
+    <Opacos>
+      <Opaco>
+        <Id>00006ce9-0000-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>GEN_Fachadas001</Nombre>
+        <CondicionContorno>Exterior</CondicionContorno>
+        <Construccion>00016ce9-0001-49cf-aed4-5ce9d7fbc007</Construccion>
+        <Espacio>54d88882-0399-4e3e-8a0b-a83baead38e1</Espacio>
+        <EspacioAdyacente></EspacioAdyacente>
+        <Geometria></Geometria>
+        <Superficie>646.42</Superficie>
+        <Tipo>Fachada</Tipo>
+        <Orientacion>N</Orientacion>
+        <Transmitancia>1.2</Transmitancia>
+      </Opaco>
+      <Opaco>
+        <Id>00006ce9-0001-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>GEN_Fachadas002</Nombre>
+        <CondicionContorno>Exterior</CondicionContorno>
+        <Construccion>00016ce9-0001-49cf-aed4-5ce9d7fbc007</Construccion>
+        <Espacio>cf78a197-8772-4bd2-9f73-23e124f9c4ec</Espacio>
+        <EspacioAdyacente></EspacioAdyacente>
+        <Geometria></Geometria>
+        <Superficie>146.42</Superficie>
+        <Tipo>Fachada</Tipo>
+        <Orientacion>S</Orientacion>
+        <Transmitancia>1.2</Transmitancia>
+        <PorDefecto>Transmitancia</PorDefecto>
+      </Opaco>
+
+    </Opacos>
+
+    <Huecos>
+      <Hueco>
+        <Id>00006ce9-0003-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>DET_Hueco001</Nombre>
+        <Construccion>00016ce9-0005-49cf-aed4-5ce9d7fbc007</Construccion>
+        <Opaco>00006ce9-0000-49cf-aed4-5ce9d7fbc007</Opaco>
+        <Geometria></Geometria>
+        <Superficie>93.73</Superficie>
+        <Tipo>Hueco</Tipo>
+        <Orientacion>S</Orientacion>
+        <Transmitancia>1.2</Transmitancia>
+        <Fshobst>0.09</Fshobst>
+        <PorDefecto>Fshobst</PorDefecto>
+      </Hueco>
+      <Hueco>
+        <Id>00006ce9-0005-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>DET_Hueco002</Nombre>
+        <Construccion>00016ce9-0005-49cf-aed4-5ce9d7fbc008</Construccion>
+        <Opaco>00006ce9-0001-49cf-aed4-5ce9d7fbc007</Opaco>
+        <Geometria></Geometria>
+        <Superficie>23.73</Superficie>
+        <Tipo>Hueco</Tipo>
+        <Orientacion>W</Orientacion>
+        <Transmitancia>1.2</Transmitancia>
+        <Fshobst>1.00 1.00 0.49 0.29 0.09 0.09 0.09 0.09 0.29 0.29 0.49 1.00</Fshobst>
+        <PorDefecto>Transmitancia Fshobst</PorDefecto>
+      </Hueco>
+    </Huecos>
+
+    <PuentesTermicos>
+      <PuenteTermico>
+        <Id>00006ce9-0007-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Frentes de forjado en zonas altas</Nombre>
+        <Tipo>Forjado</Tipo>
+        <Longitud>23.73</Longitud>
+        <Transmitancia>0.05</Transmitancia>
+        <PorDefecto>Transmitancia</PorDefecto>
+      </PuenteTermico>
+    </PuentesTermicos>
+
+    <Sombras>
+      <Sombra>
+        <Id>00006ce9-0008-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Alero</Nombre>
+        <Construccion></Construccion>
+        <Superficie>2.34</Superficie>
+      </Sombra>
+    </Sombras>
+
+    <Construcciones>
+      <ConsOpaco>
+        <Id>00006ce9-0009-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Fachada Simple</Nombre>
+        <Absortividad></Absortividad>
+        <Capas>
+          <Capa>
+            <Material>00006ce9-0014-49cf-aed4-5ce9d7fbc007</Material>
+            <Espesor>0.125</Espesor>
+          </Capa>
+          <Capa>
+            <Material>00006ce9-0015-49cf-aed4-5ce9d7fbc007</Material>
+            <Espesor>0.02</Espesor>
+          </Capa>
+          <Capa>
+            <Material>00006ce9-0016-49cf-aed4-5ce9d7fbc007</Material>
+            <Espesor>0.16</Espesor>
+          </Capa>
+        </Capas>
+      </ConsOpaco>
+
+      <ConsHueco>
+        <Id>00016ce9-0005-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>PVC_4-6-4_PERSIANA</Nombre>
+        <Vidrio>00006ce9-0012-49cf-aed4-5ce9d7fbc007</Vidrio>
+        <Marco>00006ce9-0013-49cf-aed4-5ce9d7fbc007</Marco>
+        <C100>9</C100>
+        <Ff>0.12</Ff>
+        <DeltaU></DeltaU>
+        <FactorSolar>0.69</FactorSolar>
+        <FactorSolarSombraActivada>0.05</FactorSolarSombraActivada>
+        <PorDefecto>FactorSolar</PorDefecto>
+      </ConsHueco>
+      <ConsHueco>
+        <Id>00016ce9-0005-49cf-aed4-5ce9d7fbc008</Id>
+        <Nombre>PVC_4-6-4_PERSIANA_2</Nombre>
+        <Vidrio>00006ce9-0012-49cf-aed4-5ce9d7fbc007</Vidrio>
+        <Marco>00006ce9-0013-49cf-aed4-5ce9d7fbc007</Marco>
+        <C100>27</C100>
+        <Ff>0.12</Ff>
+        <DeltaU></DeltaU>
+        <FactorSolar>0.69</FactorSolar>
+        <FactorSolarSombraActivada>0.05</FactorSolarSombraActivada>
+        <PorDefecto>FactorSolar</PorDefecto>
+      </ConsHueco>
+
+      <Material>
+        <Id>00006ce9-0014-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>LPmp</Nombre>
+        <ConductividadTermica>0.533</ConductividadTermica>
+        <Densidad>900.0</Densidad>
+        <CalorEspecifico>1000</CalorEspecifico>
+        <DifusividadVapor>10.0</DifusividadVapor>
+      </Material>
+
+      <Material>
+        <Id>00006ce9-0015-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Cámara de aire sin ventilar vertical 2 cm</Nombre>
+        <ResistenciaTermica>0.17</ResistenciaTermica>
+        <DifusividadVapor>1.0</DifusividadVapor>
+      </Material>
+
+      <Material>
+        <Id>00006ce9-0016-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Mortero de cemento o cal para albañilería
+          y para revoco/enlucido 1800 \&lt; d \&lt; 2000</Nombre>
+        <ConductividadTermica>1.30</ConductividadTermica>
+        <Densidad>1900</Densidad>
+        <CalorEspecifico>1000</CalorEspecifico>
+        <DifusividadVapor>10</DifusividadVapor>
+      </Material>
+
+      <Vidrio>
+        <Id>00006ce9-0012-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>4-6-4</Nombre>
+        <Transmitancia>3.30</Transmitancia>
+        <FactorSolarNormal>0.69</FactorSolarNormal>
+      </Vidrio>
+
+      <Marco>
+        <Id>00006ce9-0013-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>PVC</Nombre>
+        <Transmitancia>1.30</Transmitancia>
+        <Absortividad>0.45</Absortividad>
+      </Marco>
+
+    </Construcciones>
+
+    <Sistemas>
+      <Generador>
+        <Id>00006ce9-0020-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Caldera001</Nombre>
+        <Tipo>CalderaConvencional</Tipo>
+        <Servicio>CAL</Servicio>
+        <PotenciaNominal>1.60</PotenciaNominal>
+        <RendimientoNominal>0.92</RendimientoNominal>
+        <RendimientoEstacional>0.45</RendimientoEstacional>
+        <VectorEnergetico>GASNATURAL</VectorEnergetico>
+        <EsFicticio></EsFicticio>
+      </Generador>
+      <Generador>
+        <Id>00006ce9-0021-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Bomba de Calor 2 Tubos001</Nombre>
+        <Tipo>ExpansionDirectaAireAire</Tipo>
+        <Servicio>CAL</Servicio>
+        <PotenciaNominal>1</PotenciaNominal>
+        <RendimientoNominal>4.50</RendimientoNominal>
+        <RendimientoEstacional>3.52</RendimientoEstacional>
+        <VectorEnergetico>ELECTRICIDAD</VectorEnergetico>
+      </Generador>
+      <Generador>
+        <Id>00006ce9-0022-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Bomba de Calor 2 Tubos001</Nombre>
+        <Multiplicador>2</Multiplicador>
+        <Tipo>ExpansionDirectaAireAire</Tipo>
+        <Servicio>REF</Servicio>
+        <PotenciaNominal>3</PotenciaNominal>
+        <RendimientoNominal>4.50</RendimientoNominal>
+        <RendimientoEstacional>3.52</RendimientoEstacional>
+        <VectorEnergetico>ELECTRICIDAD</VectorEnergetico>
+      </Generador>
+      <Generador>
+        <Id>00006ce9-0023-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Caldera_1</Nombre>
+        <Tipo>CalderaConvencional</Tipo>
+        <Servicio>ACS</Servicio>
+        <PotenciaNominal>3.25</PotenciaNominal>
+        <RendimientoNominal>0.93</RendimientoNominal>
+        <RendimientoEstacional>0.81</RendimientoEstacional>
+        <VectorEnergetico>GASNATURAL</VectorEnergetico>
+      </Generador>
+
+      <SistemaSecundario>
+        <Id>00006ce9-0030-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>UTA</Nombre>
+        <Tipo>ClimatizadoraAirePrimario</Tipo>
+        <Zonas>
+          cf78a197-8772-4bd2-9f73-23e124f9c4ec
+          f44945fc-0e12-49fe-acfb-5161040fb9d7
+          3fa1108d-15a3-4438-bd43-60a4f3a90a21
+        </Zonas>
+        <PotenciaCalor>60.10</PotenciaCalor>
+        <RendimientoCalor>0.80</RendimientoCalor>
+        <RendimientoEstacionalCalor>0.71</RendimientoEstacionalCalor>
+        <PotenciaFrio>60.10</PotenciaFrio>
+        <RendimientoFrio>3.50</RendimientoFrio>
+        <RendimientoEstacionalFrio>3.12</RendimientoEstacionalFrio>
+        <PotenciaVentilacion>4.56</PotenciaVentilacion>
+        <CaudalImpulsion>25.90</CaudalImpulsion>
+        <EnfriamientoEvaporativo>No</EnfriamientoEvaporativo>
+        <RecuperacionEnergia>No</RecuperacionEnergia>
+        <EnfriamientoGratuito>Si</EnfriamientoGratuito>
+        <TipoControl>Temperatura</TipoControl>
+      </SistemaSecundario>
+      <SistemaSecundario>
+        <Id>00006ce9-0031-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>FC4_P01_E02</Nombre>
+        <Tipo>FanCoil</Tipo>
+        <Zonas>
+          54d88882-0399-4e3e-8a0b-a83baead38e1
+        </Zonas>
+        <PotenciaCalor>11.20</PotenciaCalor>
+        <PotenciaFrio>9.20</PotenciaFrio>
+        <EnfriamientoEvaporativo>No</EnfriamientoEvaporativo>
+        <RecuperacionEnergia>No</RecuperacionEnergia>
+        <EnfriamientoGratuito>No</EnfriamientoGratuito>
+        <TipoControl>Temperatura</TipoControl>
+      </SistemaSecundario>
+
+      <TorreRefrigeracion>
+        <Id>00006ce9-0032-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Torre_01</Nombre>
+        <Tipo>TorreRefrigeracion</Tipo>
+        <Capacidad>1006.0</Capacidad>
+        <Potencia>291.4</Potencia>
+        <Servicio>REF</Servicio>
+        <ConsumoAnual>4.10</ConsumoAnual>
+      </TorreRefrigeracion>
+
+      <VentiladorBomba>
+        <Id>00006ce9-0033-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>UTA</Nombre>
+        <Tipo>Ventilador</Tipo>
+        <Servicio>CAL REF</Servicio>
+        <Caudal>80.0</Caudal>
+        <PotenciaEspecifica>623.0</PotenciaEspecifica>
+        <ConsumoAnual>49.84</ConsumoAnual>
+        <EsFicticio/>
+      </VentiladorBomba>
+      <VentiladorBomba>
+        <Id>00006ce9-0034-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>FC1_P01_E03</Nombre>
+        <Tipo>Ventilador</Tipo>
+        <Caudal>280.0</Caudal>
+        <PotenciaEspecifica>623.0</PotenciaEspecifica>
+        <Servicio>CAL REF</Servicio>
+        <ConsumoAnual>174.44</ConsumoAnual>
+      </VentiladorBomba>
+      <VentiladorBomba>
+        <Id>00006ce9-0035-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Demanda_ACS001</Nombre>
+        <Tipo>Bomba</Tipo>
+        <Caudal>1370.0</Caudal>
+        <PotenciaEspecifica>289.0</PotenciaEspecifica>
+        <Servicio>ACS</Servicio>
+        <ConsumoAnual>0.1</ConsumoAnual>
+      </VentiladorBomba>
+      <VentiladorBomba>
+        <Id>00006ce9-0036-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>B_P01_E03</Nombre>
+        <Tipo>Bomba</Tipo>
+        <Caudal>1370.0</Caudal>
+        <PotenciaEspecifica>289.0</PotenciaEspecifica>
+        <Servicio>CAL REF</Servicio>
+        <ConsumoAnual>0.1</ConsumoAnual>
+      </VentiladorBomba>
+      <Acumulador>
+        <Id>01006ce9-0036-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Acumulador001</Nombre>
+        <Tipo>AcumuladorAguaCaliente</Tipo>
+        <Servicio>CAL ACS</Servicio>
+        <Volumen>1.50</Volumen>
+        <Perdidas>1.20</Perdidas>
+        <Temperatura>60.00</Temperatura>
+      </Acumulador>
+      <Acumulador>
+        <Id>01206ce9-0036-49cf-aed4-5ce9d7fbc007</Id>
+        <Nombre>Acumulador002</Nombre>
+        <Tipo>AcumuladorAguaCaliente</Tipo>
+        <Servicio>ACS</Servicio>
+        <Volumen>2.50</Volumen>
+        <Perdidas>1.20</Perdidas>
+        <Temperatura>60.00</Temperatura>
+      </Acumulador>
+    </Sistemas>
+
+  </Modelo>
+
+  <Indicadores>
+    <Demanda>
+      <Cal>183.44</Cal>
+      <Ref>28.79</Ref>
+      <Acs>22.32</Acs>
+    </Demanda>
+    <EnergiaFinal>
+      <Cal>178.00</Cal>
+      <Ref>300.97</Ref>
+      <Acs>31.63</Acs>
+      <Ilu>10</Ilu>
+      <Ven>10</Ven>
+      <Tot>520.6</Tot>
+    </EnergiaFinal>
+    <EnergiaPrimariaNoRenovable>
+      <Cal>118.48</Cal>
+      <Ref>43.56</Ref>
+      <Acs>0.00</Acs>
+      <Ilu>25.55</Ilu>
+      <Ven>25</Ven>
+      <Tot>187.54</Tot>
+    </EnergiaPrimariaNoRenovable>
+    <Emisiones>
+      <Cal>16.0</Cal>
+      <Ref>10</Ref>
+      <Acs>0.0</Acs>
+      <Ilu>25.5</Ilu>
+      <Ven>25.5</Ven>
+      <Tot>51.5</Tot>
+    </Emisiones>
+    <EnergiaFinalVectores>
+      <Vector>
+        <Nombre>GASNATURAL</Nombre>
+        <Consumo>
+          <Cal>46.23</Cal>
+          <Ref>58.5</Ref>
+          <Acs>15.54</Acs>
+          <Ilu>0</Ilu>
+          <Ven>0</Ven>
+          <Tot>15.11</Tot>
+        </Consumo>
+      </Vector>
+      <Vector>
+        <Nombre>ELECTRICIDAD</Nombre>
+        <Consumo>
+          <Cal>1.23</Cal>
+          <Ref>1.5</Ref>
+          <Acs>1.54</Acs>
+          <Ilu>8.5</Ilu>
+          <Ven>2</Ven>
+          <Tot>15.11</Tot>
+        </Consumo>
+      </Vector>
+    </EnergiaFinalVectores>
+  </Indicadores>
+  <Tablas>
+    <EnergiasRenovables>
+      <Termica>
+        <Sistema>
+          <Id>00006ce9-0040-49cf-aed4-5ce9d7fbc007</Id>
+          <Nombre>Caldera de biomasa</Nombre>
+          <Tipo>Biomasa</Tipo>
+          <PotenciaInstalada>14.0</PotenciaInstalada>
+          <EnergiaGenerada>100.0</EnergiaGenerada>
+          <CoberturaConsumoFinalCal>100</CoberturaConsumoFinalCal>
+          <CoberturaConsumoFinalAcs>100</CoberturaConsumoFinalAcs>
+          <CoberturaDemandaAcs>50</CoberturaDemandaAcs>
+        </Sistema>
+        <Sistema>
+          <Id>00006ce9-0041-49cf-aed4-5ce9d7fbc007</Id>
+          <Nombre>Panel solar</Nombre>
+          <Tipo>Termosolar</Tipo>
+          <PotenciaInstalada>3.4</PotenciaInstalada>
+          <EnergiaGenerada>40.0</EnergiaGenerada>
+          <CoberturaDemandaAcs>40</CoberturaDemandaAcs>
+        </Sistema>
+      </Termica>
+      <Electrica>
+        <Sistema>
+          <Id>00006ce9-0042-49cf-aed4-5ce9d7fbc007</Id>
+          <Nombre>Paneles fotovoltaicos</Nombre>
+          <Tipo>Fotovoltaica</Tipo>
+          <PotenciaInstalada>5.0</PotenciaInstalada>
+          <EnergiaGenerada>8199.54</EnergiaGenerada>
+          <EnergiaGeneradaAutoconsumida>120.34</EnergiaGeneradaAutoconsumida>
+        </Sistema>
+      </Electrica>
+    </EnergiasRenovables>
+
+    <DesgloseEmisiones>
+      <ConsumoElectrico>12.34</ConsumoElectrico>
+      <ConsumoOtros>23.56</ConsumoOtros>
+      <TotalConsumoElectrico>12345</TotalConsumoElectrico>
+      <TotalConsumoOtros>23562</TotalConsumoOtros>
+    </DesgloseEmisiones>
+  </Tablas>
+
+  <Escalas>
+    <Demanda>
+      <Cal>
+        <A>28.90</A>
+        <B>46.80</B>
+        <C>72.60</C>
+        <D>111.60</D>
+        <E>178.30</E>
+        <F>208.60</F>
+      </Cal>
+      <Ref>
+        <A>10.00</A>
+        <B>14.30</B>
+        <C>20.40</C>
+        <D>29.70</D>
+        <E>36.70</E>
+        <F>45.10</F>
+      </Ref>
+    </Demanda>
+    <EnergiaPrimariaNoRenovable>
+      <Cal>
+        <A>41.90</A>
+        <B>67.90</B>
+        <C>105.20</C>
+        <D>161.80</D>
+        <E>310.30</E>
+        <F>381.70</F>
+      </Cal>
+      <Ref>
+        <A>10.20</A>
+        <B>14.60</B>
+        <C>20.80</C>
+        <D>30.30</D>
+        <E>37.40</E>
+        <F>46.00</F>
+      </Ref>
+      <Acs>
+        <A>7.60</A>
+        <B>8.90</B>
+        <C>10.80</C>
+        <D>13.60</D>
+        <E>27.90</E>
+        <F>30.40</F>
+      </Acs>
+      <Tot>
+        <A>54.20</A>
+        <B>87.80</B>
+        <C>136.10</C>
+        <D>209.30</D>
+        <E>375.60</E>
+        <F>473.20</F>
+      </Tot>
+    </EnergiaPrimariaNoRenovable>
+    <Emisiones>
+      <Cal>
+        <A>9.20</A>
+        <B>15.00</B>
+        <C>23.20</C>
+        <D>35.70</D>
+        <E>67.80</E>
+        <F>87.40</F>
+      </Cal>
+      <Ref>
+        <A>2.50</A>
+        <B>3.60</B>
+        <C>5.10</C>
+        <D>7.40</D>
+        <E>9.20</E>
+        <F>11.30</F>
+      </Ref>
+      <Acs>
+        <A>1.80</A>
+        <B>2.20</B>
+        <C>2.60</C>
+        <D>3.30</D>
+        <E>6.80</E>
+        <F>7.90</F>
+      </Acs>
+      <Tot>
+        <A>12.20</A>
+        <B>19.90</B>
+        <C>30.80</C>
+        <D>47.30</D>
+        <E>83.70</E>
+        <F>100.40</F>
+      </Tot>
+    </Emisiones>
+  </Escalas>
+
+  <Calificacion>
+    <Demanda>
+      <Cal>F</Cal>
+      <Ref>D</Ref>
+    </Demanda>
+    <EnergiaPrimariaNoRenovable>
+      <Cal>D</Cal>
+      <Ref>F</Ref>
+      <Acs>A</Acs>
+      <Tot>D</Tot>
+    </EnergiaPrimariaNoRenovable>
+    <Emisiones>
+      <Cal>C</Cal>
+      <Ref>F</Ref>
+      <Acs>A</Acs>
+      <Tot>E</Tot>
+    </Emisiones>
+  </Calificacion>
+
+  <RecomendacionesUso>
+    <![CDATA[data:text/html,<h1>Uso de sombras</h1>Se recomienda el uso de las
+      sombras móviles en el verano, desplegando los toldos con orientación Sur.]]>
+  </RecomendacionesUso>
+
+  <MedidasMejora>
+    <MedidaMejora>
+      <Nombre>Mejora del aislamiento de fachada y cambio de caldera</Nombre>
+      <Descripcion>
+        <![CDATA[data:text/html,Mejora del aislamiento de la <b>fachada sur</b> con 8cm XPS y
+        cambio a <i>caldera de condensación</i> de rendimiento nominal 0.97]]>
+      </Descripcion>
+      <CosteEstimado>&gt;100000</CosteEstimado>
+      <PlazoRecuperacion>5-10</PlazoRecuperacion>
+      <OtrosDatos><![CDATA[data:text/html,<h1>Caldera de condensación</h1>
+Caldera de bajo NOx]]></OtrosDatos>
+      <MejoraCondiciones>
+        ConfortTermicoBienestar Salubridad Otras
+      </MejoraCondiciones>
+      <Indicadores>
+        <Demanda>
+          <Cal>44.00</Cal>
+          <Ref>28.97</Ref>
+          <Acs>0</Acs>
+        </Demanda>
+        <EnergiaFinal>
+          <Cal>178.00</Cal>
+          <Ref>300.97</Ref>
+          <Acs>31.63</Acs>
+          <Ilu>25.55</Ilu>
+          <Ven>0</Ven>
+          <Tot>536.10</Tot>
+        </EnergiaFinal>
+        <EnergiaPrimariaNoRenovable>
+          <Cal>118.48</Cal>
+          <Ref>243.56</Ref>
+          <Acs>0</Acs>
+          <Ilu>25.55</Ilu>
+          <Ven>0</Ven>
+          <Tot>387.9</Tot>
+        </EnergiaPrimariaNoRenovable>
+        <Emisiones>
+          <Cal>6.35</Cal>
+          <Ref>0</Ref>
+          <Acs>60.7</Acs>
+          <Ilu>29.54</Ilu>
+          <Tot>96.5</Tot>
+        </Emisiones>        
+      </Indicadores>
+      <Calificacion>
+        <Demanda>
+          <Cal>D</Cal>
+          <Ref>D</Ref>
+        </Demanda>
+        <EnergiaPrimariaNoRenovable>
+          <Cal>B</Cal>
+          <Ref>G</Ref>
+          <Acs>A</Acs>
+          <Ilu>A</Ilu>
+          <Tot>D</Tot>
+        </EnergiaPrimariaNoRenovable>
+        <Emisiones>
+          <Cal>C</Cal>
+          <Ref>G</Ref>
+          <Acs>A</Acs>
+          <Ilu>A</Ilu>
+          <Tot>D</Tot>
+        </Emisiones>
+      </Calificacion>
+    </MedidaMejora>
+    <SecuenciaTemporal>
+      <Medida>Mejora del aislamiento de fachada</Medida>
+      <Medida>Cambio de caldera</Medida>
+      <Justificacion>
+        <![CDATA[data:text/html,El aislamiento de fachada y cambio de huecos
+        permite <b>reducir</b> la demanda para optimizar los sistemas de climatización.]]>
+      </Justificacion>
+    </SecuenciaTemporal>
+  </MedidasMejora>
+
+  <InspeccionesObservaciones>
+    <Visita>
+      <Fecha>10/5/2014</Fecha>
+      <Descripcion>
+        <![CDATA[data:text/html,<h1>Pruebas</h1>Se ha ejecutado <b>una cala</b>
+        <br>y <i>calculado</i> el resto de elementos.]]>
+      </Descripcion>
+    </Visita>
+    <Visita>
+      <Fecha>20/8/2014</Fecha>
+      <Descripcion>
+        <![CDATA[data:text/html,<h1>Pruebas</h1>Se ha ejecutado <b>otra cala</b>
+        <br>y <i>calculado</i> el muro oeste.]]>
+      </Descripcion>
+    </Visita>
+    <Observacion>
+      <Fecha>10/5/2014</Fecha>
+      <Descripcion>
+        <![CDATA[data:text/html,<h1>Al registro</h1>Se ha corregido el factor solar de los huecos.]]>
+      </Descripcion>
+    </Observacion>
+    <Observacion>
+      <Fecha>10/5/2014</Fecha>
+      <Descripcion>
+        <![CDATA[data:text/html,<h1>Al registro</h1>Se ha actualizado referencia catastral incorrecta.]]>
+      </Descripcion>
+    </Observacion>
+
+    <Intervenciones>
+      EnvHuecos EnvCubierta EnvFachada EnvSuelo
+      EnvMedianeras EnvProteccionSolar InstGeneracionTermica
+    </Intervenciones>
+
+  </InspeccionesObservaciones>
+
+  <DatosBalance>
+    <kexp>0.00</kexp>
+    <AreaRef>200.00</AreaRef>
+
+    <FactoresPaso>
+      <Metadatos>
+        <Metadato>
+          <Clave>CTE_FUENTE</Clave>
+          <Valor>RITE2014</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>CTE_LOCALIZACION</Clave>
+          <Valor>PENINSULA</Valor>
+        </Metadato>
+      </Metadatos>      
+      <Datos>
+        <Dato>
+          <Vector>ELECTRICIDAD</Vector>
+          <Origen>RED</Origen>
+          <Destino>SUMINISTRO</Destino>
+          <Paso>A</Paso>
+          <ren>0.414</ren>
+          <nren>1.954</nren>
+          <co2>0.331</co2>
+          <Comentario></Comentario>
+        </Dato>
+        <Dato>
+          <Vector>ELECTRICIDAD</Vector>
+          <Origen>INSITU</Origen>
+          <Destino>SUMINISTRO</Destino>
+          <Paso>A</Paso>
+          <ren>1.000</ren>
+          <nren>0.000</nren>
+          <co2>0.000</co2>
+          <Comentario></Comentario>
+        </Dato>
+        <Dato>
+          <Vector>ELECTRICIDAD</Vector>
+          <Origen>INSITU</Origen>
+          <Destino>A_RED</Destino>
+          <Paso>A</Paso>
+          <ren>1.000</ren>
+          <nren>0.000</nren>
+          <co2>0.000</co2>
+          <Comentario></Comentario>
+        </Dato>
+        <Dato>
+          <Vector>ELECTRICIDAD</Vector>
+          <Origen>INSITU</Origen>
+          <Destino>A_RED</Destino>
+          <Paso>B</Paso>
+          <ren>0.414</ren>
+          <nren>1.954</nren>
+          <co2>0.331</co2>
+          <Comentario></Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Origen>INSITU</Origen>
+          <Destino>SUMINISTRO</Destino>
+          <Paso>A</Paso>
+          <ren>1.000</ren>
+          <nren>0.000</nren>
+          <co2>0.000</co2>
+          <Comentario></Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Origen>RED</Origen>
+          <Destino>SUMINISTRO</Destino>
+          <Paso>A</Paso>
+          <ren>1.000</ren>
+          <nren>0.000</nren>
+          <co2>0.000</co2>
+          <Comentario>
+            Recursos usados para obtener energía térmica del medioambiente
+            (red ficticia)
+          </Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Origen>INSITU</Origen>
+          <Destino>A_RED</Destino>
+          <Paso>A</Paso>
+          <ren>1.000</ren>
+          <nren>0.000</nren>
+          <co2>0.000</co2>
+          <Comentario>
+            Recursos usados para producir la energía exportada a la red
+          </Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Origen>INSITU</Origen>
+          <Destino>A_RED</Destino>
+          <Paso>B</Paso>
+          <ren>1.000</ren>
+          <nren>0.000</nren>
+          <co2>0.000</co2>
+          <Comentario>
+            Recursos ahorrados a la red por la energía producida in situ
+            y exportada a la red
+          </Comentario>
+        </Dato>
+      </Datos>
+    </FactoresPaso>
+
+    <Componentes>
+      <Metadatos>
+        <Metadato>
+          <Clave>Name</Clave>
+          <Valor>N_R09_unif</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>Datetime</Clave>
+          <Valor>23/08/2017 09</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>Weather_file</Clave>
+          <Valor>C1_peninsula</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>PaqueteSistemas</Clave>
+          <Valor>S3T1F1</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>CTE_AREAREF</Clave>
+          <Valor>200</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>CTE_KEXP</Clave>
+          <Valor>0</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>CTE_LOCALIZACION</Clave>
+          <Valor>PENINSULA</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>CTE_COGEN</Clave>
+          <Valor>0, 2.5</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>CTE_RED1</Clave>
+          <Valor>0, 1.3</Valor>
+        </Metadato>
+        <Metadato>
+          <Clave>CTE_RED2</Clave>
+          <Valor>0, 1.3</Valor>
+        </Metadato>
+      </Metadatos>
+      <Datos>
+        <Dato>
+          <Vector>ELECTRICIDAD</Vector>
+          <Tipo>PRODUCCION</Tipo>
+          <Subtipo>INSITU</Subtipo>
+          <Servicio>NDEF</Servicio>
+          <Valores>
+            34.21 41.94 64.94 73.88 88.44 88.64 91.04 76.15 52.84 39.26 27.43 26.26
+          </Valores>
+          <Comentario>Paneles solares fotovoltaicos 5m2 (5kWp)</Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Tipo>PRODUCCION</Tipo>
+          <Subtipo>INSITU</Subtipo>
+          <Servicio>ACS</Servicio>
+          <Valores>
+            41.05 50.33 77.92 88.66 106.13 106.36 109.25 91.38 63.40 47.11 32.92 31.51
+          </Valores>
+          <Comentario>Paneles solares térmicos 2m2, n=0.30</Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Tipo>CONSUMO</Tipo>
+          <Subtipo>EPB</Subtipo>
+          <Servicio>ACS</Servicio>
+          <Valores>
+            41.05 50.33 77.92 88.66 106.13 106.36 109.25 91.38 63.40 47.11 32.92 31.51
+          </Valores>
+          <Comentario>ACS, Paneles solares térmicos 2m2, n=0.30</Comentario>
+        </Dato>
+        <Dato>
+          <Vector>ELECTRICIDAD</Vector>
+          <Tipo>CONSUMO</Tipo>
+          <Subtipo>EPB</Subtipo>
+          <Servicio>ACS</Servicio>
+          <Valores>
+            53.94 49.74 47.57 42.69 24.37 34.64 33.33 31.08 54.17 61.58 57.66 68.67
+          </Valores>
+          <Comentario>ACS, BdC ind. aire-agua n_gen=2.5 n_d+e+c=0.88</Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Tipo>CONSUMO</Tipo>
+          <Subtipo>EPB</Subtipo>
+          <Servicio>ACS</Servicio>
+          <Valores>
+            80.92 74.61 71.36 64.04 36.56 51.97 50.00 46.62 81.26 92.36 86.48 103.00
+          </Valores>
+          <Comentario>ACS, BdC ind. aire-agua n_gen=2.5 n_d+e+c=0.88</Comentario>
+        </Dato>
+        <Dato>
+          <Vector>ELECTRICIDAD</Vector>
+          <Tipo>CONSUMO</Tipo>
+          <Subtipo>EPB</Subtipo>
+          <Servicio>CAL</Servicio>
+          <Valores>
+            269.05 167.46 87.63 18.85 12.93 0.00 0.00 0.00 0.00 6.19 60.04 240.41
+          </Valores>
+          <Comentario>
+            CALEFACCIÓN, BdC ind. aire-agua n_gen=3.0 n_d+e+c=0.95
+          </Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Tipo>CONSUMO</Tipo>
+          <Subtipo>EPB</Subtipo>
+          <Servicio>CAL</Servicio>
+          <Valores>
+            538.10 334.93 175.26 37.69 25.85 0.00 0.00 0.00 0.00 12.37 120.08 480.83
+          </Valores>
+          <Comentario>
+            CALEFACCIÓN, BdC ind. aire-agua n_gen=3.0 n_d+e+c=0.95
+          </Comentario>
+        </Dato>
+        <Dato>
+          <Vector>ELECTRICIDAD</Vector>
+          <Tipo>CONSUMO</Tipo>
+          <Subtipo>EPB</Subtipo>
+          <Servicio>REF</Servicio>
+          <Valores>
+            0.00 0.00 0.00 0.00 0.00 2.04 23.34 13.02 17.72 0.00 0.00 0.00
+          </Valores>
+          <Comentario>
+            REFRIGERACIÓN, BdC ind. aire-agua n_gen=2.5 n_d+e+c=0.95
+          </Comentario>
+        </Dato>
+        <Dato>
+          <Vector>ELECTRICIDAD</Vector>
+          <Tipo>CONSUMO</Tipo>
+          <Subtipo>EPB</Subtipo>
+          <Servicio>VEN</Servicio>
+          <Valores>
+            98.74 89.18 98.74 95.55 98.74 95.55 98.74 98.74 95.55 98.74 95.55 98.74
+          </Valores>
+          <Comentario>VENTILACIÓN</Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Tipo>PRODUCCION</Tipo>
+          <Subtipo>INSITU</Subtipo>
+          <Servicio>ACS</Servicio>
+          <Valores>
+            80.92 74.61 71.36 64.04 36.56 51.97 50.00 46.62 81.26 92.36 86.48 103.00
+          </Valores>
+          <Comentario>
+            Equilibrado de energía térmica insitu (MEDIOAMBIENTE)
+            consumida y sin producción declarada</Comentario>
+        </Dato>
+        <Dato>
+          <Vector>MEDIOAMBIENTE</Vector>
+          <Tipo>PRODUCCION</Tipo>
+          <Subtipo>INSITU</Subtipo>
+          <Servicio>CAL</Servicio>
+          <Valores>
+            538.10 334.93 175.26 37.69 25.85 0.00 0.00 0.00 0.00 12.37 120.08 480.83
+          </Valores>
+          <Comentario>
+            Equilibrado de energía térmica insitu (MEDIOAMBIENTE)
+            consumida y sin producción declarada</Comentario>
+        </Dato>
+      </Datos>
+    </Componentes>
+
+  </DatosBalance>
+
+  <ResultadosBalance>
+    <Epm2>
+      <tot>44.1</tot>
+      <nren>20.2</nren>
+    </Epm2>
+  </ResultadosBalance>
+
+  <OtrosIndicadores>
+    <VersionHE>HE2019</VersionHE>
+    <Volumen>476.04</Volumen>
+    <Compacidad>2.00</Compacidad>
+    <CargaInternaMedia>2.58</CargaInternaMedia>
+    <n50>2.62</n50>
+    <K>0.61</K>
+    <qsoljul>1.57</qsoljul>
+  </OtrosIndicadores>
+
+  <DatosPersonalizados></DatosPersonalizados>
+
+</DatosEnergeticosDelEdificio>

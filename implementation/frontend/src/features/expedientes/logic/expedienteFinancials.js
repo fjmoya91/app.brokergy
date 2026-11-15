@@ -18,6 +18,8 @@ import {
     resolveHybridInputs,
     BOILER_EFFICIENCIES,
     CAE_PRECIO_CLIENTE_ANTERIOR,
+    precioSelladoRes080,
+    etaAcsExistente,
 } from '../../calculator/logic/calculation.js';
 import { acsComputaAhorro } from './aerotermiaUnits.js';
 import { ceeBaseDocumento } from './ceeFases.js';
@@ -83,6 +85,7 @@ export function computeExpedienteFinancials(exp) {
                     q_net_heating,
                     dacs: inst.cambio_acs !== false ? dacs : 0,
                     boilerEff: boilerEffValue,
+                    acsEff: etaAcsExistente(inst, boilerEffValue).value,
                     scopHeating,
                     scopAcs,
                     cb,
@@ -183,9 +186,10 @@ export function computeExpedienteFinancials(exp) {
                 const overrides = inst.economico_override || {};
                 const finArgs = {
                     presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                    // El SELLO de la oportunidad manda también en RES080 (precioCae.js);
-                    // sin él, el respaldo de lo ya guardado (60).
-                    caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || CAE_PRECIO_CLIENTE_ANTERIOR.res080),
+                    // El SELLO de la oportunidad manda también en RES080 (precioCae.js):
+                    // primero el de la opción reforma, luego el general; sin ninguno,
+                    // el respaldo de lo ya guardado (60).
+                    caePriceClient: overrides.cae_client_rate ?? (precioSelladoRes080(opInputs) || CAE_PRECIO_CLIENTE_ANTERIOR.res080),
                     caePriceSO: overrides.cae_so_rate ?? 140,
                     includeIrpf: true
                 };

@@ -36,21 +36,10 @@ const fmtKwh = (n) => `${Math.round(Number(n) || 0).toLocaleString('es-ES')}`;
 const fmtPrecio = (n) => `${(Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} €`;
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-// Importes derivados (base, IVA 21%, total) a partir de unidades (kWh) y precio (€/kWh).
-export function computeFacturaAmounts({ unidadesKwh, precioKwh }) {
-    const u = Number(unidadesKwh) || 0;
-    const p = Number(precioKwh) || 0;
-    const base = Math.round(u * p * 100) / 100;
-    const iva = Math.round(base * 0.21 * 100) / 100;
-    const total = Math.round((base + iva) * 100) / 100;
-    return { base, iva, total };
-}
-
-// Precio €/kWh por defecto a partir de la oferta del lote (€/MWh).
-export function defaultPrecioKwh(lote) {
-    const oferta = lote && lote.oferta_lote != null && lote.oferta_lote !== '' ? Number(lote.oferta_lote) : null;
-    return oferta != null ? oferta / 1000 : 0;
-}
+// Los importes (base, IVA, total) y el precio por defecto viven en
+// `facturaSoImportes.js`, sin dependencias, para que el envío en bloque calcule igual.
+import { computeFacturaAmounts } from './facturaSoImportes.js';
+export { computeFacturaAmounts, defaultPrecioKwh } from './facturaSoImportes.js';
 
 export function buildFacturaSoHtml(lote, fields) {
     const so = (lote && lote.sujeto_obligado) || {};

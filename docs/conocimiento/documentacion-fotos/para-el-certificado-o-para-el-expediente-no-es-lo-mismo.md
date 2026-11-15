@@ -10,6 +10,10 @@ Las fotos de una obra sirven para dos cosas distintas y tenían la misma pinta:
 | **`CEE`** | La fachada desde la calle, las paredes que dan a patios, el vídeo, los planos, el CEE anterior. Es lo que el CERTIFICADOR necesita para modelar la vivienda en CE3X | ANTES de aceptar, y deja de pedirse cuando el CEE inicial queda registrado |
 | **`EXPEDIENTE`** | Caldera y su placa, máquinas nuevas y las suyas, caldera retirada, envolvente antes/después, facturas | Es lo que justifica la actuación: de aquí salen el Anexo Fotográfico y el CIFO |
 
+⚠️ **Desde el 23/10/2026 la caldera en su sala y su placa son imprescindibles TAMBIÉN para el CEE
+inicial** (regla 162, [sin la caldera en su sala y su placa](docs/conocimiento/documentacion-fotos/sin-la-caldera-en-su-sala-y-su-placa-no-hay-cee-ni-expediente.md)):
+sin ellas no se genera ni se encarga. La app aún las trata como fotos del expediente.
+
 Mezclados en una lista corrida, ni el admin sabía qué hacía falta para qué ni se
 podía pedir una cosa sin la otra — y pedirle a la vez la fachada (que puede
 hacer hoy) y la máquina nueva instalada (que no existe) es pedirle una foto

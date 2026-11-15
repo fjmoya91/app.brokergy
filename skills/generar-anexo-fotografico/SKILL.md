@@ -135,10 +135,17 @@ una actuación que la factura/presupuesto **no** justifica, márcalo para exclui
      cubierta, con ventilador y rejilla; el hidrokit es una caja mural blanca dentro de la vivienda.
    - **termo de ACS colocado como unidad interior** — cilindro alto de plástico, marca Ariston/Thermor/
      Aeromax; va en `FOTO_ACS_DEPOSITO`, y su placa en `FOTO_UNIDAD_INTERIOR_PLACA`.
-   - **caldera aún montada en `FOTO_CALDERA_DESMONTADA`** — ese slot es el hueco VACÍO tras retirarla;
-     la caldera en su sitio es `FOTO_CALDERA_ANTES`.
+   - **caldera aún montada en `FOTO_CALDERA_DESMONTADA`** — ese slot es el hueco VACÍO tras retirarla
+     (o la caldera ya desconectada, o el EQUIPO NUEVO puesto en su mismo sitio: esa foto vale aquí aunque
+     también esté en su apartado — Fran, 27/10/2026); la caldera en su sitio es `FOTO_CALDERA_ANTES`.
    - **placa del equipo equivocado** — la placa manda para el modelo y el nº de serie, así que una placa
      mal rotulada arrastra un error de SCOP al CIFO.
+   - **otros aparatos junto a la unidad exterior** (splits, otras unidades exteriores) — el verificador
+     pregunta por ellos si el CEE no tiene refrigeración (LOTE-2026-015, 26RES060_157). Se pide una foto
+     encuadrada solo con la bomba de calor; si no puede ser, comentario de a qué dan servicio.
+   - **un «hueco» que no se reconoce** en `FOTO_CALDERA_DESMONTADA` — tiene que verse que es el MISMO
+     sitio que el de la caldera del antes y que ya no está (LOTE-2026-015, nº1 en tres expedientes).
+   Criterio, casos y cómo se piden: [comun/fotos-unidad-exterior-y-caldera-desmontada.md](comun/fotos-unidad-exterior-y-caldera-desmontada.md).
 2. **Caza duplicados.** `md5sum FOTO_*.jpg | sort` por `device_bash`: dos hashes iguales son la misma
    foto subida dos veces. Compararlos por tamaño en bytes también vale como criba rápida.
 3. **Corrige por `device_bash`**: renombra al slot correcto usando nombres temporales `T_*.jpg` en una
@@ -193,16 +200,23 @@ la imagen** (`read_file_content` / `download_file_content`) cuando el nombre no 
 
 **Slot correcto dentro de la fase** (usa las `key` que te dio `estado_anexo_fotografico`; las más
 habituales):
-- `FOTO_CALDERA_ANTES` = foto general de la caldera/generador antiguo.
+- `FOTO_CALDERA_ANTES` = foto general de la caldera/generador antiguo **INSTALADO en su sala**:
+  clara, no demasiado cerca, la caldera entera y su emplazamiento (el cuarto, tuberías, salida de
+  humos). Un primer plano del frontal no vale (regla 162): si es lo único que hay, incidencia y se pide.
 - `FOTO_PLACA_CALDERA_ANTES` = primer plano de la **placa/etiqueta** de la caldera (marca, modelo,
   potencia, nº de serie). Distínguela de la foto general: la placa es un plano cercano de la etiqueta.
 - `FOTO_ACS_ANTES` = sistema de agua caliente anterior (termo eléctrico o conexión de ACS). Solo si ACS
   está justificado (ver filtro previo).
-- `FOTO_UNIDAD_EXTERIOR` = unidad exterior nueva instalada.
+- `FOTO_UNIDAD_EXTERIOR` = unidad exterior nueva instalada, **sola en la foto** (sin splits al lado).
 - `FOTO_UNIDAD_EXTERIOR_PLACA` = placa/etiqueta de la unidad exterior.
 - `FOTO_UNIDAD_INTERIOR` / `FOTO_UNIDAD_INTERIOR_PLACA` = unidad interior/hidrokit y su placa.
 - `FOTO_ACS_DEPOSITO` = depósito de ACS nuevo. Solo si ACS está justificado.
-- `FOTO_CALDERA_DESMONTADA` = hueco/estado tras retirar la caldera antigua.
+- `FOTO_CALDERA_DESMONTADA` = hueco/estado tras retirar la caldera antigua: el mismo sitio que en
+  `FOTO_CALDERA_ANTES`, reconocible, o el equipo nuevo en su lugar, o la caldera ya desmontada con su
+  placa (mismo nº de fabricación). **Siempre con comentario del apartado**
+  (`anexo_comentarios.FOTO_CALDERA_DESMONTADA`, por `merge_expediente_doc_json`). Dice qué se ve y con
+  qué foto del antes se compara, por su número: la numeración empieza en cada fase. Sin ese comentario
+  el anexo no está listo.
 - `FOTO_VENTANAS_ANTES` / `FOTO_VENTANAS_DESPUES` = ventanas a sustituir / ventanas nuevas. Solo si la
   factura/presupuesto incluye partida de ventanas/carpintería.
 - `FOTO_CUBIERTA_ANTES/DESPUES`, `FOTO_FACHADA_ANTES/DESPUES`, `FOTO_SUELO_ANTES`, `FOTO_PLACAS_SOLARES`

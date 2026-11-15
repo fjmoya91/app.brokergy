@@ -47,6 +47,9 @@ repartidor avisa de qué mensaje salió cada foto y se guarda en
 `whatsapp_media_importada` (la subida renombra el fichero y el slot no sabría de
 dónde vino). La próxima vez sale "✓ Ya colocada · Caldera" y sin marcar, y si está
 en OTRA obra ("En 26RES060_190") tampoco se marca. Se puede volver a traer.
+Lo que guarda solo el CONTESTADOR de WhatsApp antes de contestar (facturas, certificado
+RITE, fotos claras; 2026-11-10) se apunta aquí igual, con `importado_por` «contestador»:
+sale "ya colocada" y no se coloca dos veces (ver "El CONTESTADOR", regla 207).
 
 Lo que no se baja se dice con su motivo (`caducado`: WhatsApp ya no la tiene en sus
 servidores y hay que pedírsela otra vez; `no_encontrado`; `grande`), y un chat que no

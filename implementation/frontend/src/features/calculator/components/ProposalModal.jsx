@@ -11,16 +11,22 @@ import { lecturaAPresupuesto, HUECOS_PRESUPUESTO, CAMPOS_PRESUPUESTO, huecoDe, h
 // Aviso del factor de corrección (ficha RES060FC en consulta pública): decide si
 // procede ofrecerlo y redacta el párrafo. Fuente única — ver `logic/avisoFc.js`.
 import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
+// La hoja del FACTOR MULTIPLICADOR (hoja 2): las dos cifras, calendario, requisitos.
+import { fmPropuesta, textosHojaFm } from '../logic/fmPropuesta';
+// El consentimiento del IRPF de la vía del factor multiplicador (punto 12 de su
+// ficha): el MISMO texto que firma el cliente en el Convenio. Solo en los FM.
+import { NOTA_FM_PROPUESTA, lineaConsentimientoFm } from '../../expedientes/logic/viaFm.js';
 // El aviso de que el CEE Inicial lo presentamos NOSOTROS y de que la obra no
 // se factura hasta un mensaje nuevo confirmándolo. Fuente única — ver
 // `logic/avisoCeeInicial.js`. Va SIEMPRE, no depende de ningún caso.
 import { lineaAvisoCeeInicial } from '../logic/avisoCeeInicial';
 import { opcionesHibridacion, resultParaPropuesta, lineaTablaHibridacion, avisoHibridacion, mensajeHibridacion, hipotesisHibridacion, mensajeHipotesisHibridacion } from '../logic/hibridacionPropuesta';
 import { comisionEurMwh, pctDeComision, lineaComisionPartner } from '../logic/comisionPartner';
-import { cifrasPropuesta, costesServicio } from '../logic/cifrasPropuesta';
+import { cifrasPropuesta, costesServicio, penalizacionReforzada, PENALIZACION_REFORZADA_PCT } from '../logic/cifrasPropuesta';
 // El enlace para ACEPTAR va en un mensaje aparte, después del PDF — ver
 // `logic/mensajeAceptacion.js`.
 import { lineaEnlaceDebajo, mensajeAceptacion, esB2B } from '../logic/mensajeAceptacion';
+import { mensajeSinIrpf, propuestaSinIrpf } from '../logic/mensajeSinIrpf';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { postEmail } from '../../../utils/emailFallback';
 // Los nombres se guardan en MAYÚSCULAS (el formulario las fuerza): en el saludo
@@ -37,6 +43,8 @@ import { instaladorContacts, defaultContactIds } from '../../expedientes/utils/d
 import { buildFontFaces, FUENTE_PROPUESTA } from '../../expedientes/logic/fuentesDoc';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
+// `datos_calculo` guarda booleanos como cadena ("false"): leído a pelo, `!!"false"` es true.
+const cierto = (v) => v === true || v === 'true' || v === 1 || v === '1';
 
 // Logo circular de Brokergy del co-branding de la portada — el mismo que usan el
 // resto de documentos generados (res080Doc.js, CertificadoRes080Modal.jsx).
@@ -412,6 +420,40 @@ const baseCss = `
         .prop-prueba .d { margin: 0; font-size: 10px; color: var(--gris); line-height: 1.55; }
         .prop-prueba .d strong { color: var(--tinta); }
 
+        /* ── Hoja del FACTOR MULTIPLICADOR (logic/fmPropuesta.js) ── */
+        .prop-fmcmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+        .prop-fmc { padding: 14px 20px 12px; }
+        .prop-fmc.vig { background: var(--crema); box-shadow: none; }
+        .prop-fmc .prop-importe { font-size: 42px; margin-top: 6px; }
+        .prop-fmc .prop-importe small { font-size: 21px; }
+        .prop-fmc .prop-importe small.pre { margin: 0 6px 0 0; }
+        .prop-fmc-n { margin-top: 9px; font-size: 10px; color: var(--gris); line-height: 1.45; }
+        .prop-fmc-n b { color: var(--tinta); }
+        .prop-fmc-chips { margin-top: 9px; display: flex; gap: 6px; flex-wrap: wrap; }
+        .prop-fmtab { margin-top: 8px; padding: 10px 18px 6px; }
+        .prop-fmtab > .f { height: 4px; }
+        .prop-fmtab-h, .prop-fmtab-r { display: grid; grid-template-columns: 1.3fr 1fr 1.3fr; gap: 10px; align-items: center; }
+        .prop-fmtab-h { font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--gris); padding: 4px 0 8px; border-bottom: 1px solid var(--linea); }
+        .prop-fmtab-h small { font-size: 8.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--gris2); }
+        .prop-fmtab-r { padding: 9px 0; border-bottom: 1px solid var(--linea); font-size: 12px; }
+        .prop-fmtab-r:last-child { border-bottom: 0; }
+        .prop-fmtab-r b { font-size: 17px; }
+        .prop-fmtab-r small { color: var(--verde-txt); font-weight: 800; font-size: 10px; }
+        .prop-fmnota { margin: 7px 2px 0; font-size: 9.5px; color: var(--gris2); line-height: 1.45; }
+        .prop-fmh3 { font-size: 17px; margin: 12px 0 0; }
+        .prop-fmcal .prop-srow { grid-template-columns: repeat(5, 1fr); }
+        .prop-fmcal .prop-pasos-track { left: 70px; right: 70px; }
+        .prop-fmcuando { font-size: 9.5px; font-weight: 700; color: var(--naranja-txt); margin-top: 2px; }
+        /* Dos columnas que se rellenan solas: en rejilla, cada fila se estiraba a la
+           tarjeta más alta y se perdían ~40 px en una hoja de alto fijo. */
+        .prop-fmreq { column-count: 2; column-gap: 8px; margin-top: 7px; }
+        .prop-fmreq > .prop-card { display: block; break-inside: avoid; margin-bottom: 8px; padding: 10px 14px; border-radius: 16px; }
+        .prop-fmreq h5 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; padding: 0; font-size: 11px; font-weight: 700; color: var(--tinta); }
+        .prop-fmreq h5 svg { color: var(--verde-txt); flex: none; }
+        .prop-fmreq p { margin: 0; padding: 0; font-size: 9.5px; line-height: 1.45; color: var(--gris); }
+        .prop-fm .prop-ambar { margin-top: 8px; }
+        .prop-fm .prop-fmreq + .prop-ambar { margin-top: 0; }
+
         /* ── Cláusulas ──────────────────────────────────────────────────────── */
         .prop-cl { padding: 10px 18px; margin-top: 6px; border-radius: 18px; }
         .prop-cl h4 { margin: 0 0 4px; padding: 0; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
@@ -445,6 +487,8 @@ const baseCss = `
         .prop-cnote { margin: 5px 0 0; font-size: 9px; color: var(--gris2); }
         .prop-pen { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-radius: 12px; background: #fff; border: 1px solid var(--ambar-borde); font-size: 10.5px; font-weight: 700; color: #3d2a00; }
         .prop-pen b { font-size: 13px; white-space: nowrap; }
+        .prop-pen.pr { margin-top: 5px; padding: 6px 12px; gap: 12px; }
+        .prop-pen.pr span { font-weight: 600; line-height: 1.35; }
         /* Cierre de la propuesta: solo texto. Sin rúbrica, sin sello y sin nº de
            colegiado (Fran, 25/10/2026): en una oferta no se firma, una firma
            real en un PDF que se reenvía se puede copiar, y el colegiado es de
@@ -672,7 +716,7 @@ function AvisoLecturaPresupuesto({ lectura, guardado, onDeshacer, onCerrar, flot
 // Estado de partida del ajuste de la portada (ver `fit` dentro del componente).
 const FIT_INICIAL = { pass: 0, compact: false, vars: null, reposo: null, zoom: null, zoomOk: null, zoomKo: null, listo: false };
 
-export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, onSaveRequest, onPresupuestoLeido, guardadoPresupuestoLeido }) {
+export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, onInputChange, onSaveRequest, onPresupuestoLeido, guardadoPresupuestoLeido }) {
     // Con hibridación y «Retirando la caldera», los financieros SIN caldera pasan a
     // ser los de la propuesta entera (tabla, indicadores, cláusula y mensaje); la
     // otra cifra se cita al lado (logic/hibridacionPropuesta.js).
@@ -851,10 +895,45 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
     const [emailChoice, setEmailChoice] = useState(false);
     const [enviarOpen, setEnviarOpen] = useState(false); // popup unificado de envío (homogéneo con anexos)
     const [includeCeeComp, setIncludeCeeComp] = useState(true); // incluir la comparativa CEE en PDF + mensaje
-    // Aviso del FACTOR DE CORRECCIÓN: apagado por defecto. No es una cifra firme
-    // (borrador en consulta pública) y a unos clientes les compensa esperar a
-    // enero y a otros no: lo decide quien envía, propuesta a propuesta.
-    const [includeFc, setIncludeFc] = useState(false);
+    // El FACTOR MULTIPLICADOR en la propuesta: ENCENDIDO por defecto desde el
+    // 08/11/2026 (Fran, 26RES060_OP376: «a partir de ahora las propuestas deben ir
+    // acompañadas del cálculo con FM»). Solo sale si procede (`estadoFc`).
+    // REGLA — es UN interruptor y se decide ANTES de enviar (Fran, 11/11/2026,
+    // 26RES060_OP377: «debe ser un botón previo»): «Factor M.» de la barra de la
+    // vista previa. Apagado, la propuesta no dice NADA del multiplicador —ni la
+    // línea de la fila del bono, ni la hoja 2, ni el mensaje aparte—, como si no
+    // existiera. Se GUARDA en la oportunidad (`inputs.fm_en_propuesta`, por su ruta)
+    // para que reabrirla, copiar el enlace o reenviarla no lo vuelva a poner. El
+    // conmutador del popup de envío es el MISMO. Con la vía FM ya elegida
+    // (`inputs.ruta_fm`) no se apaga: esa propuesta va por el FM.
+    const [includeFc, setIncludeFcState] = useState(inputs?.fm_en_propuesta !== false);
+    useEffect(() => {
+        if (isOpen) setIncludeFcState(inputs?.fm_en_propuesta !== false);
+    }, [isOpen, inputs?.fm_en_propuesta]);
+    const [guardandoFm, setGuardandoFm] = useState(false);
+    const setIncludeFc = useCallback(async (valor) => {
+        const next = !!(typeof valor === 'function' ? valor(includeFc) : valor);
+        if (next === includeFc) return;
+        if (!next && cierto(inputs?.ruta_fm)) {
+            showAlert('Esta oportunidad ya va por la vía del FACTOR MULTIPLICADOR («Vía de tramitación» de la calculadora): la propuesta tiene que contarlo. Para ocultarlo, vuelve antes a la vía vigente.', 'Factor multiplicador', 'warning');
+            return;
+        }
+        const antes = includeFc;
+        setIncludeFcState(next);
+        if (onInputChange) onInputChange((prev) => ({ ...prev, fm_en_propuesta: next }));
+        // Simulación aún sin guardar: viaja en sus inputs y se guarda con ella.
+        if (!inputs?.id_oportunidad) return;
+        setGuardandoFm(true);
+        try {
+            await axios.post(`/api/oportunidades/${encodeURIComponent(inputs.id_oportunidad)}/fm-en-propuesta`, { mostrar: next });
+        } catch (err) {
+            setIncludeFcState(antes);
+            if (onInputChange) onInputChange((prev) => ({ ...prev, fm_en_propuesta: antes }));
+            showAlert(`No se ha podido guardar: ${err.response?.data?.error || err.message}`, 'Factor multiplicador', 'error');
+        } finally {
+            setGuardandoFm(false);
+        }
+    }, [includeFc, inputs?.ruta_fm, inputs?.id_oportunidad, onInputChange, showAlert]);
     const [emailSelections, setEmailSelections] = useState(new Set());
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
 
@@ -1013,8 +1092,16 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
                 const c = res.data;
                 const uc = c.notificaciones_contacto_activas === true;
                 const redirigido = uc && !!(c.persona_contacto_tlf || c.persona_contacto_email);
+                // A una EMPRESA se la saluda por su PERSONA (la de contacto o el
+                // representante legal), nunca por la razón social (Fran, 10/11/2026,
+                // 26TER100_OP389: «¡Hola Autoservicio!»). Sin persona, «¡Hola!».
+                // `saludo` es solo para el texto; `name` sigue siendo el rótulo.
+                const personaEmpresa = c.es_empresa === true
+                    ? (c.persona_contacto_nombre || c.representante_nombre || '')
+                    : null;
                 setClienteInfo({
                     name: (uc && c.persona_contacto_nombre) ? c.persona_contacto_nombre : (c.nombre_razon_social || name),
+                    saludo: (uc && c.persona_contacto_nombre) ? c.persona_contacto_nombre : personaEmpresa,
                     phone: (uc && c.persona_contacto_tlf) ? c.persona_contacto_tlf : (c.tlf || c.telefono || null),
                     email: (uc && c.persona_contacto_email) ? c.persona_contacto_email : (c.email || null),
                     // Con los avisos desviados a otra persona (a menudo el propio
@@ -1024,6 +1111,7 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
                     redirigido,
                     titular: redirigido ? {
                         name: c.nombre_razon_social || name,
+                        saludo: c.es_empresa === true ? (c.representante_nombre || '') : null,
                         phone: c.tlf || c.telefono || null,
                         email: c.email || null,
                     } : null,
@@ -2033,7 +2121,7 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
             const fReforma = cifrasPropuesta(f.financialsRes080) || {};
             
             const firstName = nombreSaludo(targetName);
-            const saludo = `¡Hola ${firstName || 'cliente'}!`;
+            const saludo = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
             
             // Flags de tipo de propuesta
             const isReforma = !!inputs?.isReforma;
@@ -2258,8 +2346,27 @@ info@brokergy.es · 623 926 179`;
     const fcEstado = useMemo(() => estadoFc(result, inputs), [result, inputs]);
     const fcVisible = getRoleFlags(user).isStaff;
     const fcInfo = fcEstado.procede ? fcEstado : null;
+    // La HOJA del factor multiplicador (logic/fmPropuesta.js): va en TODA propuesta
+    // en la que alguna opción sube por esa vía (Fran, 09/11/2026), detrás de la
+    // portada. Como el párrafo del mensaje, solo la genera el equipo interno, y
+    // con «Factor M.» apagado no va (`includeFc`, arriba).
+    const fmBase = useMemo(() => {
+        if (!fcVisible) return null;
+        const d = fmPropuesta(result, inputs);
+        return d.procede ? d : null;
+    }, [fcVisible, result, inputs]);
+    const hojaFm = useMemo(
+        () => (fmBase && includeFc ? { ...fmBase, txt: textosHojaFm(fmBase) } : null),
+        [fmBase, includeFc]);
+    // ¿Hay algo del FM que enseñar? Es lo que hace aparecer el botón «Factor M.».
+    const fmOfrecible = fcVisible && !!(fmBase || fcInfo);
 
     const buildCaptionBase = useCallback((mode, targetName, opts = {}) => {
+        // EMPRESA: se saluda a su persona (contacto o representante legal), nunca a
+        // la razón social; sin persona, «¡Hola!» (Fran, 10/11/2026, 26TER100_OP389).
+        const saludoEmpresa = mode === 'TITULAR' ? clienteInfo?.titular?.saludo
+            : mode === 'CLIENTE' ? clienteInfo?.saludo : null;
+        if (saludoEmpresa != null) targetName = saludoEmpresa;
         const f = result || {};
         const fAero = cifrasPropuesta(f.financials) || {};
         const fReforma = cifrasPropuesta(f.financialsRes080) || {};
@@ -2282,6 +2389,35 @@ info@brokergy.es · 623 926 179`;
             ? `En colaboración con ${cobrand.name}, te adjuntamos`
             : 'Tal y como acordamos, te adjunto';
 
+        // ── SIN DEDUCCIÓN DEL IRPF (empresa, terciario o 0 €): el bono y los pasos,
+        // sin «si eres propietario y tienes retenciones… 0 €» ni «combinando ambas
+        // opciones» (Fran, 10/11/2026, 26TER100_OP389). logic/mensajeSinIrpf.js.
+        const casoCee = !!(opts.cee && ceeComparison);
+        const irpfsPresentados = casoCee ? [ceeComparison.irpf]
+            : isOnlyReforma ? [fReforma.irpfDeduction]
+                : isBoth ? [fAero.irpfDeduction, fReforma.irpfDeduction]
+                    : [fAero.irpfDeduction];
+        if (propuestaSinIrpf(irpfsPresentados)) {
+            const b2b = esB2B(mode);
+            const nombre = nombreSaludo(targetName);
+            return mensajeSinIrpf({
+                b2b,
+                caso: casoCee ? 'cee' : isOnlyReforma ? 'reforma' : isBoth ? 'dos' : 'aero',
+                saludo: nombre ? `¡Hola ${nombre}!` : (b2b ? '¡Hola compañeros!' : '¡Hola!'),
+                apertura,
+                numero: displayId,
+                cliente: inputs?.referenciaCliente || 'el cliente',
+                bono: isOnlyReforma ? fReforma.caeBonus : fAero.caeBonus,
+                bonoAero: fAero.caeBonus,
+                bonoReforma: fReforma.caeBonus,
+                conCee: ceeComparison?.conCee?.cae,
+                ceeNuevo: ceeComparison?.ceeNuevo?.cae,
+                hib,
+                enlaceDebajo,
+                terciario: String(inputs?.sector || '').trim().toLowerCase() === 'terciario',
+            });
+        }
+
         // ── VARIANTE "CEE APORTADO": comparativa con tu CEE vs. un CEE nuevo BROKERGY ──
         if (opts.cee && ceeComparison) {
             const conCee = Math.round(ceeComparison.conCee?.cae || 0);
@@ -2296,7 +2432,7 @@ info@brokergy.es · 623 926 179`;
                 return `¡Hola ${pName}!\n\nTe adjunto la simulación de las ayudas para ${clientNameForPartner} (Exp. ${displayId}). Como el cliente ya cuenta con un CEE inicial, hay dos opciones y decide él:\n\n🔹 *Opción A — Con el CEE aportado:*\nBono Energético CAE de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo un CEE inicial nuevo (BROKERGY):*\nBono Energético CAE de *${formatNumber(ceeNuevo)} €*.\n\n_¿Por qué la diferencia?_ ${explica}\n\nAdemás, si el cliente es propietario y tiene retenciones aplicables (y la normativa sigue vigente), puede acogerse a las deducciones del IRPF; el importe estimado sería de *${formatNumber(irpf)} €*, igual en ambas opciones. Dejaremos toda la parte técnica preparada.\n\n💡 *Total de ayudas (bono + IRPF):*\n• Con su CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nPara avanzar, los pasos serían:\n\n• Aceptar el presupuesto de instalación.\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta adjunta en PDF.\n\n${enlaceDebajo}\n\nQuedo a vuestra disposición para cualquier duda.\n\nUn saludo,\nFran Moya · BROKERGY`;
             }
             const firstName = nombreSaludo(targetName);
-            const saludo = `¡Hola ${firstName || 'cliente'}!`;
+            const saludo = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
             return `${saludo}\n\n${apertura} la simulación de las ayudas para tu expediente (Nº ${displayId}). Como ya cuentas con un Certificado de Eficiencia Energética (CEE) inicial, te presento *dos opciones* para que elijas la que prefieras:\n\n🔹 *Opción A — Usando el CEE que nos has aportado:*\nEl Bono Energético CAE sería de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo nosotros un CEE inicial nuevo:*\nEl Bono Energético CAE sería de *${formatNumber(ceeNuevo)} €* gracias al Bono Energético BROKERGY.\n\n_¿Por qué la diferencia?_ ${explica.replace('ya se tiene', 'nos aportas').replace('la vivienda', 'tu vivienda')} *Tú eliges* qué opción usar.\n\nAdemás, si eres propietario y tienes retenciones (y la normativa sigue vigente), puedes acogerte a las deducciones en el IRPF; el importe estimado sería de *${formatNumber(irpf)} €*, *el mismo en ambas opciones*. Dejaremos toda la parte técnica preparada para que las puedas solicitar.\n\n💡 *Resumen total de las ayudas (bono + IRPF):*\n• Con tu CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya).\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
         }
 
@@ -2313,7 +2449,7 @@ info@brokergy.es · 623 926 179`;
         } else {
             // CLIENTE
             const firstName = nombreSaludo(targetName);
-            const saludo = `¡Hola ${firstName || 'cliente'}!`;
+            const saludo = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
             if (isOnlyReforma) {
                 return `${saludo}\n\n${apertura} la simulación de las ayudas para tu expediente de Reforma Energética (Nº ${displayId}), donde detallamos los ahorros y subvenciones que puedes obtener:\n\n🔹 *A modo resumen:*\n\n*Bono Energético:* Gracias al ahorro energético que se produciría en tu vivienda tras la reforma, podrías obtener una ayuda de *${formatNumber(Math.round(fReforma.caeBonus || 0))} €* gestionada a través de BROKERGY.\n\nAdemás, si eres propietario y tienes retenciones, puedes acogerte a las deducciones en el IRPF por rehabilitación siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*. (Nosotros nos encargamos de toda la justificación técnica necesaria para que puedas solicitarlas con seguridad).\n\n💡 *Resumen total de las ayudas:* Podrías recuperar hasta *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €* de tu inversión en la reforma energética.\n\nSiguientes pasos:\n\n• Revisar y aceptar la propuesta técnica adjunta en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda.\n\nUn saludo, Fran Moya\n\nBROKERGY — Ingeniería Energética`;
             } else if (isBoth) {
@@ -2425,26 +2561,60 @@ info@brokergy.es · 623 926 179`;
             });
             txt = `${txt}\n\n⚠️ *Importante — el presupuesto de la obra es estimado.* ${nota}`;
         }
-        if (opts.fc && fcInfo) {
-            txt = `${txt}\n\n${lineaFactorCorreccion({
+        // El FACTOR MULTIPLICADOR ya no va aquí: sale en un MENSAJE APARTE, el
+        // último (`mensajeFm` → `buildAvisoFinal`). Fran, 09/11/2026: la nota del
+        // cambio de normativa, «por fuera». Ver la-hoja-del-factor-multiplicador.md.
+        return txt;
+    }, [buildCaptionBase, presInfo, opcionesComision]);
+
+    /**
+     * El mensaje APARTE del factor multiplicador (Fran, 09/11/2026: «la nota
+     * aclaratoria del cambio de normativa […] en un mensaje por fuera»). La
+     * propuesta habla de la cifra firme; esto, de una cifra futura con su cupo y su
+     * calendario, y mezclado en el texto largo se leía como parte de la oferta.
+     *
+     * Lleva el párrafo del FM (`opts.fc`, el conmutador del popup) y el
+     * consentimiento del IRPF (punto 12 de su ficha; texto de expedientes/logic/viaFm.js,
+     * el mismo que firma en el Convenio), que también sale solo si la propuesta ya va
+     * por esa vía. Por WhatsApp, la última burbuja; en el email, al final del cuerpo.
+     */
+    const mensajeFm = useCallback((mode, { fc = includeFc } = {}) => {
+        const tuteoFm = mode !== 'PARTNER' && mode !== 'INSTALADOR';
+        const avisoFm = !!(fc && fcInfo);
+        const rutaFm = cierto(inputs?.ruta_fm);
+        if (!avisoFm && !rutaFm) return null;
+        const partes = [];
+        if (avisoFm) {
+            partes.push(lineaFactorCorreccion({
                 actual: fcInfo.actual,
                 fc: fcInfo.fc,
                 dosOpciones: fcInfo.dosOpciones,
-                tuteo: mode !== 'PARTNER' && mode !== 'INSTALADOR',
-            })}`;
+                acs: fcInfo.acs,
+                ficha: fcInfo.ficha,
+                estimada: fcInfo.estimada,
+                vulnerable: fcInfo.vulnerable,
+                // El PDF lleva su hoja 2 siempre que procede (logic/fmPropuesta.js).
+                hoja: !!hojaFm,
+                tuteo: tuteoFm,
+            }));
         }
-        return txt;
-    }, [buildCaptionBase, presInfo, fcInfo, opcionesComision]);
+        partes.push(lineaConsentimientoFm({ tuteo: tuteoFm, trasAviso: avisoFm }));
+        return partes.join('\n\n');
+    }, [fcInfo, inputs, includeFc, hojaFm]);
 
     // El aviso de BIOMASA no va dentro del texto largo: sale como ÚLTIMO mensaje
     // (WhatsApp: burbuja aparte tras el enlace; email: al final del cuerpo), para
     // que no se pierda — decisión del usuario, 2026-10-10. Por el mismo camino, las
     // DOS hipótesis del bono manteniendo la caldera (2026-10-21): si coinciden las
     // dos, en la misma burbuja.
-    const buildAvisoFinal = useCallback((mode) => [
+    // Y el del FACTOR MULTIPLICADOR (09/11/2026), el primero de la burbuja: es lo
+    // que más se va a leer. `opts.fc` es el conmutador del popup; sin él, el estado
+    // de aquí (envío directo, `sendToMultiple`).
+    const buildAvisoFinal = useCallback((mode, opts = {}) => [
+        mensajeFm(mode, opts),
         hipHibrida ? mensajeHipotesisHibridacion(hipHibrida, { b2b: esB2B(mode) }) : null,
         irpfBiomasa ? lineaIrpfBiomasa() : null,
-    ].filter(Boolean).join('\n\n') || null, [hipHibrida, irpfBiomasa]);
+    ].filter(Boolean).join('\n\n') || null, [mensajeFm, hipHibrida, irpfBiomasa]);
 
     const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);
@@ -2808,6 +2978,15 @@ info@brokergy.es · 623 926 179`;
     const caeNetoDe = (fin) => Math.max(0, (fin?.caeBonus || 0) - (fin?.caeMaintenanceCost || 0));
     const caeNeto = caeNetoDe(isOnlyReforma ? (f80 || f) : f);
 
+    // «Perfil exigente»: compromiso de cesión en exclusiva (cláusula 3) y la
+    // compensación del 40 % del bono (cláusula 4), en euros. La MISMA cifra que se
+    // sella con la versión (utils/importesPropuesta.js) y que acepta en /firma.
+    const reforzadas = inputs?.condicionesReforzadas === true;
+    const penReforzada = reforzadas ? penalizacionReforzada((isOnlyReforma ? (f80 || f) : f)?.caeBonus) : null;
+    const penReforzadaRef = reforzadas && isBoth && f80 ? penalizacionReforzada(f80.caeBonus) : null;
+    // Con el punto de los miles también en 4 cifras («1.069,00 €», como en /firma).
+    const fmtEurMil = (v) => `${new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' }).format(v)} €`;
+
     // Etiquetas de IVA. Para empresa/autónomo en modo "Sin IVA" las cifras van en neto,
     // así que el presupuesto y el CAE deben rotularse como "(IVA NO INCLUIDO)".
     const ivaSuffix = (fin) => {
@@ -2842,6 +3021,17 @@ info@brokergy.es · 623 926 179`;
         ? avisoPresupuestoEstimado({ conIrpf: presConIrpf, importe: presInfo.importe })
         : null;
     const avisoBiomasa = irpfBiomasa ? avisoIrpfBiomasa() : null;
+    // Vía del FACTOR MULTIPLICADOR elegida (`inputs.ruta_fm`, la sella el expediente
+    // al cambiar de vía): la nota del consentimiento del IRPF (punto 12 de la ficha).
+    // Va en las NOTAS de la portada, que se ajusta sola (regla 31), y no en la hoja 4,
+    // que es de alto fijo. También en las de solo reforma desde la RES080_FM (09/11/2026).
+    // Con la hoja del FM ya lo dice «Sus firmas»: la nota sobra.
+    const notaFm = cierto(inputs?.ruta_fm) && !hojaFm;
+    // La línea de la fila del bono de cada tabla de la portada, si esa opción sube por FM.
+    const fmAero = hojaFm?.opciones.find((o) => o.clave === 'aero') || null;
+    const fmReforma = hojaFm?.opciones.find((o) => o.clave === 'reforma') || null;
+    // Con la hoja del FM, las interiores corren una página.
+    const pFm = hojaFm ? 1 : 0;
     const lineaHibrida = lineaTablaHibridacion(opHibrida);
     const avisoHibrida = avisoHibridacion(opHibrida, hipHibrida);
 
@@ -2951,6 +3141,102 @@ info@brokergy.es · 623 926 179`;
             <span><a className="m" href="mailto:info@brokergy.es">info@brokergy.es</a> · <a href="tel:623926179">623 926 179</a> · <a href="https://www.brokergy.es">brokergy.es</a></span>
         </div>
     );
+
+    // Hoja 2 cuando alguna opción sube por la vía del FACTOR MULTIPLICADOR: las dos
+    // cifras, el calendario, lo que tiene que conseguir y lo que arriesga. Cifras y
+    // textos: logic/fmPropuesta.js. Hoja de ALTO FIJO: si se le añade algo, se mide.
+    const renderHojaFm = () => {
+        const t = hojaFm.txt;
+        const varias = hojaFm.opciones.length > 1;
+        const eur = (o, v) => `${o.estimada && v === o.fm ? '≈ ' : ''}${formatNumber(v)} €`;
+        return (
+            <div className="prop-page prop-fm">
+                {renderBarra(2)}
+                <div className="prop-pb" style={{ paddingTop: '16px' }}>
+                    <div className="prop-stag"><span className="prop-sn">+</span><span className="prop-st ver">Nueva normativa · factor multiplicador</span></div>
+                    <h2 className="prop-h2">Su bono puede llegar a <span className="prop-mark">{t.titular}</span></h2>
+                    <p className="prop-sintro">{t.intro}</p>
+
+                    {varias ? (
+                        <div className="prop-card prop-fmtab">
+                            <div className="f"></div>
+                            <div className="prop-fmtab-h"><span>Opción</span><span>Vía actual<br /><small>se pide ya · importe firme</small></span><span>Factor multiplicador<br /><small>desde el 15/01/2027 · estimado</small></span></div>
+                            {hojaFm.opciones.map((o) => (
+                                <div key={o.clave} className="prop-fmtab-r">
+                                    <span>{o.titulo}</span>
+                                    <span>{formatNumber(o.actual)} €</span>
+                                    <span><b>{eur(o, o.fm)}</b><small> +{formatNumber(o.extra)} €</small></span>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (() => {
+                        const o = hojaFm.principal;
+                        return (
+                            <div className="prop-fmcmp">
+                                <div className="prop-card prop-fmc vig">
+                                    <div className="prop-eyebrow" style={{ color: 'var(--gris)' }}>Vía actual</div>
+                                    <div className="prop-importe">{formatNumber(o.actual)}<small>€</small></div>
+                                    <div className="prop-fmc-n"><b>Se puede pedir ya.</b> Es el importe firme de esta propuesta.</div>
+                                </div>
+                                <div className="prop-card prop-fmc">
+                                    <div className="f"></div>
+                                    <div className="prop-eyebrow">Con el factor multiplicador</div>
+                                    <div className="prop-importe">{o.estimada && <small className="pre">≈</small>}{formatNumber(o.fm)}<small>€</small></div>
+                                    <div className="prop-fmc-chips">
+                                        <span className="prop-chip prop-chip-verde">+ {formatNumber(o.extra)} €</span>
+                                        <span className="prop-chip prop-chip-crema">Se pide desde el 15/01/2027</span>
+                                    </div>
+                                    <div className="prop-fmc-n"><b>Estimado</b> y sujeto a cupo: ver los riesgos más abajo.</div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                    <p className="prop-fmnota">{t.noDoble}</p>
+
+                    <h3 className="prop-h3 prop-fmh3">Cuándo se pide</h3>
+                    <div className="prop-card prop-pasos prop-fmcal">
+                        <div className="prop-pasos-track"></div>
+                        <div className="prop-srow">
+                            {t.calendario.map((c, i) => (
+                                <div key={c.que} className="prop-ps">
+                                    <div className="prop-pn">{String(i + 1).padStart(2, '0')}</div>
+                                    <div className="prop-pt">{c.que}</div>
+                                    <div className="prop-fmcuando">{c.cuando}</div>
+                                    <div className="prop-pd">{c.d}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <h3 className="prop-h3 prop-fmh3">Qué hace falta para ir por esta vía</h3>
+                    <div className="prop-fmreq">
+                        {t.requisitos.map((r) => (
+                            <div key={r.t} className="prop-card">
+                                <h5><Ico n="check" s={13} w={2.6} />{r.t}</h5>
+                                <p>{r.d}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="prop-ambar">
+                        <div className="prop-ambar-ico"><Ico n="aviso" w={2.2} /></div>
+                        <div>
+                            <h4>Lo que debe saber antes de decidir</h4>
+                            {t.riesgos.map((r) => <p key={r}>{r}</p>)}
+                        </div>
+                    </div>
+                    <div className="prop-ambar ver">
+                        <div className="prop-ambar-ico"><Ico n="bombilla" w={2.2} /></div>
+                        <div>
+                            <h4>¿Por qué vía vamos?</h4>
+                            <p>{t.decision}</p>
+                        </div>
+                    </div>
+                </div>
+                {renderFoot()}
+            </div>
+        );
+    };
 
     const handleSendByEmail = () => {
         setSendingEmail(false);
@@ -3280,6 +3566,41 @@ info@brokergy.es · 623 926 179`;
                             </button>
                         )}
 
+                        {/* FACTOR MULTIPLICADOR: se decide AQUÍ, viéndolo, antes de
+                            enviar (Fran, 11/11/2026). Apagado, la propuesta no dice
+                            nada del FM (línea del bono, hoja 2 y mensaje aparte) y
+                            queda guardado en la oportunidad. Solo el equipo interno,
+                            y solo si hay FM que ofrecer. */}
+                        {fmOfrecible && (
+                            <button
+                                onClick={() => setIncludeFc(v => !v)}
+                                disabled={guardandoFm}
+                                title={cierto(inputs?.ruta_fm)
+                                    ? 'Esta oportunidad va por la vía del factor multiplicador: la propuesta lo cuenta siempre.'
+                                    : includeFc
+                                        ? 'Quitar de la propuesta el factor multiplicador: la línea de la fila del bono, la hoja 2 y el mensaje aparte. Queda guardado en la oportunidad.'
+                                        : 'La propuesta NO dice nada del factor multiplicador. Pulsa para volver a incluirlo (línea del bono, hoja 2 y mensaje aparte).'}
+                                className={`h-12 px-3 flex items-center gap-2 rounded-2xl border transition-all shrink-0 active:scale-95 disabled:opacity-60 ${
+                                    includeFc
+                                        ? 'text-violet-300 border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20'
+                                        : 'text-amber-300/80 border-amber-400/30 bg-amber-400/5 hover:bg-amber-400/10'
+                                }`}
+                            >
+                                {guardandoFm ? (
+                                    <div className="w-5 h-5 border-2 border-violet-300/20 border-t-violet-300 rounded-full animate-spin" />
+                                ) : (
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+                                        {includeFc
+                                            ? <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            : <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />}
+                                    </svg>
+                                )}
+                                <span className="text-[10px] font-black uppercase tracking-wider whitespace-nowrap max-md:hidden">
+                                    {includeFc ? 'Factor M.' : 'Sin factor M.'}
+                                </span>
+                            </button>
+                        )}
+
                         {/* Botón COPIAR ENLACE DE ACEPTACIÓN */}
                         {/* El MISMO enlace que va dentro del mensaje de envío
                             (`signUrlPlain`), para pasárselo al cliente por donde
@@ -3559,7 +3880,7 @@ info@brokergy.es · 623 926 179`;
                                                         {!hideBudget && f.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}{lineaHibrida && (<><br /><small className={lineaHibrida.tono === 'mas' ? 'mas' : 'menos'}>{lineaHibrida.texto}</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}{lineaHibrida && (<><br /><small className={lineaHibrida.tono === 'mas' ? 'mas' : 'menos'}>{lineaHibrida.texto}</small></>)}{fmAero && (<><br /><small className="mas">{hojaFm.txt.linea(fmAero)}</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f.caeBonus)} €</span></div>
 
                                                         {f.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
@@ -3570,7 +3891,7 @@ info@brokergy.es · 623 926 179`;
 
                                                     {f.caeMaintenanceCost > 0 && (
                                                         <div className="prop-ftr">
-                                                            <span className="prop-fl">Certificados energéticos y gestión del CAE <small>(se descuenta del bono · tarifa {fmtEur2(servicio.tarifa)})</small></span>
+                                                            <span className="prop-fl">Honorarios BROKERGY <small>(nada por adelantado · se descuentan del bono una vez cobrada la ayuda)</small></span>
                                                             <span className="prop-fv">+ {formatNumber(f.caeMaintenanceCost)} €</span>
                                                         </div>
                                                     )}
@@ -3629,7 +3950,7 @@ info@brokergy.es · 623 926 179`;
                                                         {!hideBudget && f80.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}{ceeComparison && includeCeeComp && inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f80.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}{ceeComparison && includeCeeComp && inputs?.isReforma && (<><br /><small className="cee">Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}{fmReforma && (<><br /><small className="mas">{hojaFm.txt.linea(fmReforma)}</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f80.caeBonus)} €</span></div>
 
                                                         {f80.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
@@ -3640,7 +3961,7 @@ info@brokergy.es · 623 926 179`;
 
                                                     {f80.caeMaintenanceCost > 0 && (
                                                         <div className="prop-ftr">
-                                                            <span className="prop-fl">Certificados energéticos y gestión del CAE <small>(se descuenta del bono · tarifa {fmtEur2(servicio.tarifa)})</small></span>
+                                                            <span className="prop-fl">Honorarios BROKERGY <small>(nada por adelantado · se descuentan del bono una vez cobrada la ayuda)</small></span>
                                                             <span className="prop-fv">+ {formatNumber(f80.caeMaintenanceCost)} €</span>
                                                         </div>
                                                     )}
@@ -3753,6 +4074,7 @@ info@brokergy.es · 623 926 179`;
                                             // encima, y esas dos líneas repetidas eran parte de lo
                                             // que empujaba las notas debajo del pie.
                                             showAnnualSavings ? 'El análisis de ahorro anual es un cálculo teórico basado en datos climáticos zonales. Los resultados reales dependerán de los hábitos de uso.' : null,
+                                            notaFm ? NOTA_FM_PROPUESTA : null,
                                         ].filter(Boolean).map((txt, i) => (
                                             <p key={i}><b>Nota {i + 1}:</b> {txt}</p>
                                         ))}
@@ -3775,9 +4097,12 @@ info@brokergy.es · 623 926 179`;
                                 {renderCta()}
                             </div>
 
+                            {/* <!-- HOJA DEL FACTOR MULTIPLICADOR (solo si alguna opción sube) --> */}
+                            {hojaFm && renderHojaFm()}
+
                             {/* <!-- PAGINA 2 --> */}
                             <div className="prop-page">
-                                {renderBarra(2)}
+                                {renderBarra(2 + pFm)}
                                 <div className="prop-pb" style={{ paddingTop: '16px' }}>
                                     <div className="prop-stag"><span className="prop-sn">2</span><span className="prop-st">Bono Energético CAE</span></div>
                                     <h2 className="prop-h2">¿Qué son los Certificados de <span className="prop-mark">Ahorro</span> Energético?</h2>
@@ -3878,7 +4203,7 @@ info@brokergy.es · 623 926 179`;
 
                             {/* <!-- PAGINA 3 --> */}
                             <div className="prop-page">
-                                {renderBarra(3)}
+                                {renderBarra(3 + pFm)}
                                 <div className="prop-pb" style={{ paddingTop: '16px' }}>
                                     <div className="prop-stag"><span className="prop-sn">5</span><span className="prop-st">Documentación</span></div>
                                     <h2 className="prop-h2">¿Qué debe <span className="prop-mark">preparar</span> para continuar?</h2>
@@ -3981,7 +4306,7 @@ info@brokergy.es · 623 926 179`;
 
                             {/* <!-- PAGINA 4 --> */}
                             <div className="prop-page">
-                                {renderBarra(4)}
+                                {renderBarra(4 + pFm)}
                                 <div className="prop-pb" style={{ paddingTop: '16px' }}>
                                     <div className="prop-stag"><span className="prop-sn">6</span><span className="prop-st">Condiciones</span></div>
                                     <h2 className="prop-h2">Condiciones del acuerdo y <span className="prop-mark">costes</span> del servicio</h2>
@@ -4005,7 +4330,7 @@ info@brokergy.es · 623 926 179`;
                                                 <div key={l.clave} className="prop-crow"><span>{l.concepto}</span><strong>{fmtEur2(l.importe)}</strong></div>
                                             ))}
                                             <div className="prop-crow cpromo"><span><Ico n="regalo" s={13} w={2.4} />{servicio.promocion}</span><strong>– {fmtEur2(servicio.descuento)}</strong></div>
-                                            <div className="prop-crow ctot"><span>{servicio.gratis ? 'Coste de nuestros servicios para el cliente' : 'Total a descontar del Bono Energético CAE'}</span><span>{fmtEur2(servicio.aPagar)}</span></div>
+                                            <div className="prop-crow ctot"><span>{servicio.gratis ? 'Coste de nuestros servicios para el cliente' : 'Honorarios BROKERGY a descontar del Bono Energético CAE'}</span><span>{fmtEur2(servicio.aPagar)}</span></div>
                                         </div>
                                         {/* En la comparativa hay DOS bonos: un único neto no diría de
                                             cuál de las dos opciones es. */}
@@ -4029,6 +4354,27 @@ info@brokergy.es · 623 926 179`;
                                         <p className="prop-cnote">* Importe estimado: {servicio.gratis ? 'el Bono Energético CAE íntegro, sin ningún descuento' : `el Bono Energético CAE menos ${fmtEur2(servicio.aPagar)} de nuestros servicios`}. Tarifa de los servicios sin IVA.</p>
                                     </div>
 
+                                    {reforzadas ? (<>
+                                        {/* «Perfil exigente»: el compromiso se cierra AL ACEPTAR, donde
+                                            el cliente solo ve el dinero neto; el convenio (con los kWh y
+                                            el precio unitario) llega después. Texto revisable por el
+                                            asesor: docs/conocimiento/propuesta/condiciones-reforzadas-perfil-exigente.md */}
+                                        {/* UNA tarjeta para el compromiso y su compensación: en dos,
+                                            la hoja 4 (alto fijo) se comía el pie. Medido el 05/11/2026. */}
+                                        <div className="prop-card prop-cl amb">
+                                            <h4><span className="n">03</span>Cesión en exclusiva y compensación</h4>
+                                            <p>Al aceptar, el cliente cede a BROKERGY <strong>en exclusiva</strong> el ahorro de esta actuación y firmará el Convenio de Cesión, a cambio del Bono CAE de esta propuesta (ajustado al ahorro verificado). Los CEE de BROKERGY son inseparables de la promoción y BROKERGY los adelanta sin coste: hecha la visita del CEE, y salvo causa imputable a BROKERGY, el cliente abonará en 15 días naturales, como liquidación anticipada de los daños (art. 1152 CC):</p>
+                                            <div className="prop-pen pr">
+                                                <span>a) Si tramita el ahorro con otra empresa o no firma el Convenio: {PENALIZACION_REFORZADA_PCT} % del bono (mín. {fmtEur2(servicio.tarifa)}){penReforzadaRef != null ? ' · opción 1 / 2' : ''}</span>
+                                                <b>{penReforzadaRef != null ? `${fmtEurMil(penReforzada)} / ${fmtEurMil(penReforzadaRef)}` : fmtEurMil(penReforzada)} + IVA</b>
+                                            </div>
+                                            <div className="prop-pen pr">
+                                                <span>b) Si no sigue adelante o no aporta la documentación pedida por escrito en 30 días: la tarifa (cl. 2)</span>
+                                                <b>{fmtEur2(servicio.tarifa)} + IVA</b>
+                                            </div>
+                                            <p className="prop-cnote">Desistimiento: 14 días naturales desde la aceptación, sin coste (ver las condiciones que se aceptan).</p>
+                                        </div>
+                                    </>) : (<>
                                     <div className="prop-card prop-cl">
                                         <h4><span className="n">03</span>Vinculación de servicios</h4>
                                         <p>La presente propuesta forma parte de una promoción vinculada a la realización de los CEE necesarios para la tramitación del expediente CAE. Los certificados emitidos por BROKERGY forman parte inseparable del mismo.</p>
@@ -4041,15 +4387,16 @@ info@brokergy.es · 623 926 179`;
                                         <p>Si los CEE son realizados por BROKERGY pero no se utilizan para gestionar el expediente CAE a través de BROKERGY —por causas ajenas a esta—, el cliente abonará en un máximo de 15 días naturales, en concepto de compensación, la tarifa completa de los servicios sin bonificación (desglosada en la cláusula 2):</p>
                                         <div className="prop-pen"><span>Total penalización</span><b>{fmtEur2(servicio.tarifa)} + IVA</b></div>
                                     </div>
+                                    </>)}
 
                                     <div className="prop-cl2">
                                         <div className="prop-card prop-cl">
-                                            <h4><span className="n">05</span>Vigencia de la oferta</h4>
+                                            <h4><span className="n">{reforzadas ? '04' : '05'}</span>Vigencia de la oferta</h4>
                                             <p>Propuesta válida <strong>2 meses</strong> desde la fecha de emisión. El importe estimado del Bono Energético CAE se mantendrá hasta diciembre de 2026. Transcurrido el plazo sin aceptación expresa, la propuesta quedará sin efecto.</p>
                                         </div>
 
                                         <div className="prop-card prop-cl">
-                                            <h4><span className="n">06</span>Protección de datos</h4>
+                                            <h4><span className="n">{reforzadas ? '05' : '06'}</span>Protección de datos</h4>
                                             <p>BROKERGY tratará los datos personales conforme al RGPD y la LO 3/2018 exclusivamente para la gestión del expediente CAE. Derechos: info@brokergy.es.</p>
                                         </div>
                                     </div>

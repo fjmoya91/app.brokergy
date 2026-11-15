@@ -25,11 +25,13 @@ const ok = (c, m) => { console.log(`${c ? '✓' : '✗'} ${m}`); if (!c) fallos+
     ok(/por WHATSAPP/.test(tw) && tw.includes('alta_oportunidad.js chat 627856309 --bajar todo'), 'encargo tras fotos por WhatsApp: primero las lleva a la obra');
     ok(/--a instalador/.test(t) && /PARTE DE ÉL/.test(t), 'encargo: puede pedírselo al instalador y parte del borrador previo');
 
-    // El horario: de 9 a 21 h de Madrid; fuera, a las 9:00 siguientes (23/10/2026 es CEST, UTC+2).
+    // El horario: de 7 a 21 h de Madrid (la franja de la casa, utils/horarioWhatsapp.js, desde el
+    // 09/11/2026); fuera, a las 7:00 siguientes (23/10/2026 es CEST, UTC+2).
     ok(agente.enHorario(new Date('2026-10-23T08:00:00Z')), '10:00 en Madrid: en horario');
+    ok(agente.enHorario(new Date('2026-10-23T05:30:00Z')), '7:30 en Madrid: en horario');
     ok(!agente.enHorario(new Date('2026-10-23T21:30:00Z')), '23:30 en Madrid: fuera');
-    ok(agente.siguienteApertura(new Date('2026-10-23T21:30:00Z')).toISOString() === '2026-10-24T07:00:00.000Z', 'a las 23:30 → las 9:00 del día siguiente');
-    ok(agente.siguienteApertura(new Date('2026-10-23T05:00:00Z')).toISOString() === '2026-10-23T07:00:00.000Z', 'a las 7:00 → las 9:00 del mismo día');
+    ok(agente.siguienteApertura(new Date('2026-10-23T21:30:00Z')).toISOString() === '2026-10-24T05:00:00.000Z', 'a las 23:30 → las 7:00 del día siguiente');
+    ok(agente.siguienteApertura(new Date('2026-10-23T04:10:00Z')).toISOString() === '2026-10-23T05:00:00.000Z', 'a las 6:10 → las 7:00 del mismo día');
     ok(agente.sinEncargar({ seguimiento: {} }) && agente.sinEncargar({ seguimiento: { cee_inicial: 'PTE_ENVIO_CERT' } })
         && !agente.sinEncargar({ seguimiento: { cee_inicial: 'EN_TRABAJO' } }), 'sin encargar = el criterio del parte');
 

@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { firmarConAutofirma, explicarError, registrarFalloAutofirma, DESCARGA_URL } from '../../firma/autofirma';
+import { AISLAR_PORTAL } from '../../../components/aislarPortal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -68,7 +70,7 @@ async function findSignatureAnchor(doc, anchors) {
             if (!t) continue;
             specs.forEach((s, i) => {
                 if (t.includes(s.txt) && (s.page == null || s.page === p)) {
-                    found[i].push({ page: p, it });
+                    found[i].push({ page: p, it, items: tc.items, anchoPag: page.view?.[2] || 595 });
                 }
             });
         }
@@ -83,17 +85,28 @@ async function findSignatureAnchor(doc, anchors) {
         const fh = best.it.height || Math.abs(tr[3]) || 10;
         const boxH = Math.max(52, fh * 4.5);
         const boxW = Math.max(w, 230);
-        const llx = ex;
-        const urx = ex + boxW;
-        let lly, ury;
-        if (specs[i].dir === 'above') {           // recuadro ENCIMA del texto ancla
-            lly = ey + fh * 0.8;
-            ury = lly + boxH;
-        } else {                                   // recuadro DEBAJO del texto ancla (def)
-            ury = ey - fh * 0.8;
-            lly = ury - boxH;
-        }
-        return { page: best.page, pdf: { llx: Math.round(llx), lly: Math.round(lly), urx: Math.round(urx), ury: Math.round(ury) } };
+        // Dentro de la hoja: en el CEE de la 3.2 el rótulo empieza a 411 pt y
+        // con 230 de ancho el recuadro salía por la derecha (A4 = 595).
+        const llx = Math.max(10, Math.min(ex, (best.anchoPag || 595) - 20 - boxW));
+        const urx = llx + boxW;
+        const caja = (dir) => (dir === 'above'
+            ? { lly: ey + fh * 0.8, ury: ey + fh * 0.8 + boxH }     // ENCIMA del texto ancla
+            : { lly: ey - fh * 0.8 - boxH, ury: ey - fh * 0.8 });   // DEBAJO (def)
+        // REGLA — el recuadro va al lado del rótulo que está LIBRE (2026-10-28).
+        // CE3X 2.3/3.1 rotulaba «Firma del técnico certificador» DEBAJO del hueco
+        // de la firma (`^above`); el PDF de la 3.2 lo pone ENCIMA, con el hueco
+        // debajo, y el recuadro caía sobre el párrafo de la declaración
+        // (2026EXT_1). Si el lado pedido pisa texto y el otro no, va al otro.
+        const pisa = (b) => (best.items || []).some((o) => {
+            if (o === best.it || !String(o.str || '').trim()) return false;
+            const ox = o.transform[4], oy = o.transform[5];
+            const oh = o.height || Math.abs(o.transform[3]) || 8;
+            return ox < urx && ox + (o.width || 0) > llx && oy + oh * 0.8 > b.lly && oy < b.ury;
+        });
+        const otro = specs[i].dir === 'above' ? 'below' : 'above';
+        let b = caja(specs[i].dir);
+        if (pisa(b) && !pisa(caja(otro))) b = caja(otro);
+        return { page: best.page, pdf: { llx: Math.round(llx), lly: Math.round(b.lly), urx: Math.round(urx), ury: Math.round(b.ury) } };
     }
     return null;
 }
@@ -280,6 +293,15 @@ export default function FirmarConCertificadoModal({
         return () => { clearTimeout(t); window.removeEventListener('resize', onResize); };
     }, [loading, pageNum, renderPage]);
 
+    // El recuadro sugerido suele estar al pie de la página: a tamaño legible queda
+    // por debajo del pliegue y el firmante no ve dónde pulsar. Se lleva a la vista.
+    useEffect(() => {
+        const b = bodyRef.current;
+        if (!b || !rect || !suggested || rectPage !== pageNum) return;
+        const top = rect.y + 16 - (b.clientHeight - rect.h) / 2;   // 16 = padding del visor
+        b.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }, [rect, suggested, rectPage, pageNum]);
+
     // ── Arrastre del recuadro ─────────────────────────────────────────────────
     const overlayPoint = (e) => {
         const r = overlayRef.current.getBoundingClientRect();
@@ -421,8 +443,12 @@ export default function FirmarConCertificadoModal({
 
     const isSuggested = suggested && !drag;
 
-    return (
-        <div style={ovl} onMouseDown={(e) => { if (e.target === e.currentTarget && !signing) handleClose(); }}>
+    // Portaleado a `body` (regla 29.b): en la página del instalador la tarjeta que lo
+    // abre crea un bloque contenedor y el `position: fixed` quedaba encerrado en su
+    // columna de 400 px — el documento se leía diminuto en el PC. AISLAR_PORTAL evita
+    // que los clics suban por el árbol de React hasta la tarjeta (que se pliega).
+    return createPortal(
+        <div style={ovl} {...AISLAR_PORTAL} onMouseDown={(e) => { e.stopPropagation(); if (e.target === e.currentTarget && !signing) handleClose(); }}>
             <style>{`@keyframes bkgFirmaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.55),0 0 14px 2px rgba(245,158,11,.5);background:rgba(245,158,11,.22)}50%{box-shadow:0 0 0 6px rgba(245,158,11,0),0 0 26px 8px rgba(245,158,11,.85);background:rgba(245,158,11,.32)}}@keyframes bkgSpin{to{transform:rotate(360deg)}}@keyframes bkgPop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}@keyframes bkgRing{0%{transform:scale(.8);opacity:.7}100%{transform:scale(1.9);opacity:0}}
 .bkg-sig{stroke-dasharray:560;stroke-dashoffset:560;animation:bkgSigDraw 2.3s ease-in-out infinite}
 @keyframes bkgSigDraw{0%{stroke-dashoffset:560}52%{stroke-dashoffset:0}74%{stroke-dashoffset:0;opacity:1}84%{opacity:0}85%{stroke-dashoffset:560;opacity:0}100%{stroke-dashoffset:560;opacity:1}}
@@ -566,7 +592,8 @@ export default function FirmarConCertificadoModal({
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
 

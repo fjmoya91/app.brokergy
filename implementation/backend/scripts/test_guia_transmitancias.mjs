@@ -146,5 +146,36 @@ t('nueva: se queda la marca; anterior sin marca: se quita; anterior con marca: s
         { datos_calculo: { inputs: { guia_transmitancias: 'CE3X-3.2' } } }).guia_transmitancias, 'ce3x-3.2');
 });
 
+console.log('\nLa calibración por ÉPOCA (unifamiliar de 2008 en adelante, ×1,25)');
+const casa = { zona: 'D3', anio: 2012, superficie: 150, superficieCalefactable: 150, plantas: 2,
+               altura: 2.7, ventanaU: 3.5, ach: 0.83, tipo: 'unifamiliar', gla: 12, fachadas: 4,
+               patios: 0, sueloTipo: 'terreno', orientacion: 'S', uMuro: 0.66, uCubierta: 0.45,
+               guia_transmitancias: C.GUIA_TRANSMITANCIAS };
+const marcada = { ...casa, calibracion_demanda: C.CALIBRACION_DEMANDA };
+t('una nueva de 2008+ sube ×1,25; sin la marca (guardada antes) no se mueve', () => {
+    const sin = C.calculateDemand(casa).Q_net;
+    assert.ok(Math.abs(C.calculateDemand(marcada).Q_net - sin * 1.25) < 1e-6);
+    assert.equal(C.calculateDemand(marcada).meta.k_epoca, 1.25);
+    assert.equal(C.calculateDemand(casa).meta.k_epoca, 1);
+});
+t('ni antes de 2008, ni pisos, ni RES080, ni terciario', () => {
+    assert.equal(C.getFactorEpoca({ ...marcada, anio: 2007 }), 1);
+    assert.equal(C.getFactorEpoca({ ...marcada, tipo: 'piso', subtipo: 'atico' }), 1);
+    assert.equal(C.getFactorEpoca({ ...marcada, isReforma: true }), 1);
+    assert.equal(C.getFactorEpoca({ ...marcada, sector: 'terciario' }), 1);
+    assert.equal(C.getFactorEpoca({ ...marcada, tipo: 'UNIFAMILIAR' }), 1.25, 'normalizeData en mayúsculas');
+});
+t('el funnel la siembra y el servidor no deja que una anterior la estrene', () => {
+    const inputs = funnelToCalculatorInputs({}, { yearBuilt: 2012, zona: 'D3', superficie: 150 }, { mode: 'internal' });
+    assert.equal(inputs.calibracion_demanda, C.CALIBRACION_DEMANDA);
+    const m = () => ({ guia_transmitancias: 'ce3x-3.2', calibracion_demanda: '2026-10' });
+    assert.equal(sellarGuiaTransmitancias(m(), null).calibracion_demanda, '2026-10');
+    const conGuiaSola = sellarGuiaTransmitancias(m(), { datos_calculo: { inputs: { guia_transmitancias: 'ce3x-3.2' } } });
+    assert.equal(conGuiaSola.guia_transmitancias, 'ce3x-3.2');
+    assert.equal(conGuiaSola.calibracion_demanda, undefined, 'una sellada con la Guía antes del 26/10 no la estrena');
+    assert.equal(sellarGuiaTransmitancias(m(), { datos_calculo: { inputs: { calibracion_demanda: '2026-10' } } })
+        .calibracion_demanda, '2026-10');
+});
+
 console.log(`\n${ok} comprobaciones correctas`);
 process.exit(0);

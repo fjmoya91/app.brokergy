@@ -7,6 +7,7 @@ import { RUMBOS } from '../logic/geometriaPlano';
 import { SEPARACION_PILARES_M, pilaresEstimados } from '../logic/pilaresFachada';
 import { MARCOS, VIDRIOS, carpinteriaDe, desdeLaFoto, rotuloMarco, rotuloVidrio }
     from '../logic/ventanasVivienda';
+import { ATAJOS_PARED, EVENTO_ABRIR_ASISTENTE, accionDeTecla, paredVecina } from '../logic/atajosPared';
 import { FotosCerramiento } from './FotosCerramiento';
 import { LecturaFotoModal } from './LecturaFotoModal';
 
@@ -20,7 +21,9 @@ import { LecturaFotoModal } from './LecturaFotoModal';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function PanelPared({ plano, transmitancias, expedienteId,
-                             carpinteriaDefecto, onIrAPared }) {
+                             carpinteriaDefecto, onIrAPared, cabeza = null }) {
+    // `cabeza`: lo que va ENCIMA de la pared dentro de la misma caja fija (el
+    // asistente), para que se vea siempre sin bajar y sin otra columna.
     const { muros, sel, entrada, esMedianera, esParticion, esFuera, esDibujada,
             tipoDe, nombreDe, setSel, estadoDe,
             ponHuecos, cambiaHueco, duplicaHueco, quitaHueco, marcaComoParticion,
@@ -29,7 +32,7 @@ export function PanelPared({ plano, transmitancias, expedienteId,
             apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
             rumboDe, necesitaRumbo, rumbosDe,
             aplicaHuecosLeidos, anotaLecturaHueco,
-            mudaHueco, destinosDeHueco } = plano;
+            mudaHueco, destinosDeHueco, anadeHuecoA } = plano;
     const m = sel ? muros[sel] : null;
 
     //: Lo leído de una foto, esperando a que lo revise una persona. Vive aquí y
@@ -46,6 +49,49 @@ export function PanelPared({ plano, transmitancias, expedienteId,
     useEffect(() => { caja.current?.scrollTo?.({ top: 0 }); }, [sel]);
     //: Ir a otra pared: quien llama sabe si su planta está a la vista.
     const ir = onIrAPared || setSel;
+
+    //: REVISAR CON EL TECLADO (`logic/atajosPared.js`): Intro, ← →, V, P, Supr
+    //: y A. El oyente se pone UNA vez y lee lo último por la referencia: con el
+    //: plano en las dependencias se quitaría y pondría en cada pintado.
+    const ultimo = useRef({ plano, ir });
+    useEffect(() => { ultimo.current = { plano, ir }; });
+    useEffect(() => {
+        const alPulsar = (e) => {
+            const accion = accionDeTecla(e);
+            if (!accion) return;
+            // La ventana de la envolvente no se desmonta: se ESCONDE. Con otra
+            // pestaña delante, este panel no se ve y la tecla no es suya.
+            if (!caja.current || caja.current.offsetParent === null) return;
+            const { plano: p, ir: irA } = ultimo.current;
+            if (accion === 'asistente') {
+                window.dispatchEvent(new Event(EVENTO_ABRIR_ASISTENTE));
+                e.preventDefault();
+                return;
+            }
+            if (accion === 'siguiente' || accion === 'anterior') {
+                const id = paredVecina(p.muros, p.sel, accion === 'siguiente' ? 1 : -1, p.esFuera, p.plantas);
+                if (id) { irA(id); e.preventDefault(); }
+                return;
+            }
+            const muro = p.sel ? p.muros[p.sel] : null;
+            if (!muro || p.esFuera(muro)) return;
+            if (accion === 'revisada') {
+                p.marcaRevisada(muro.id, true);
+                const sig = p.siguientePorMirar(muro.id);
+                if (sig) irA(sig);
+            } else if (accion === 'ventana' || accion === 'puerta') {
+                if (p.anadeHuecoA) p.anadeHuecoA(muro.id, accion);
+                else p.ponHuecos(muro.id, accion, (muro.huecos || []).filter(h => h.tipo === accion).length + 1);
+            } else if (accion === 'quitar') {
+                const n = (muro.huecos || []).length;
+                if (!n) return;
+                p.quitaHueco(muro.id, n - 1);
+            }
+            e.preventDefault();
+        };
+        window.addEventListener('keydown', alPulsar);
+        return () => window.removeEventListener('keydown', alPulsar);
+    }, []);
 
     /**
      * Aplica lo leído Y deja SEÑALADO en la foto dónde cae cada hueco.
@@ -86,6 +132,8 @@ export function PanelPared({ plano, transmitancias, expedienteId,
     if (!m) {
         return (
             <Caja cajaRef={caja}>
+                {cabeza}
+                {anadeHuecoA && <PaletaHuecos pared={null} onPoner={() => {}} />}
                 <div>
                     <p className="text-[9.5px] font-black uppercase tracking-[0.12em] text-white/30">
                         La pared
@@ -108,6 +156,10 @@ export function PanelPared({ plano, transmitancias, expedienteId,
 
     return (
         <Caja cajaRef={caja}>
+            {cabeza}
+            {anadeHuecoA && !fuera && (
+                <PaletaHuecos pared={nombreDe(m)} onPoner={t => anadeHuecoA(m.id, t)} />
+            )}
             {/* LA CABECERA de la pared: qué pared es, qué es, y en qué estado
                 está. El tipo va en SU color —el mismo que en el plano—, y el
                 estado en una chapa a la derecha: es lo que antes había que
@@ -223,6 +275,7 @@ export function PanelPared({ plano, transmitancias, expedienteId,
             {fuera ? null : esMedianera(m) || esParticion(m) ? (
                 <SinHuecos particion={esParticion(m) || !!m.como_particion}
                            onCambio={si => marcaComoParticion(m.id, si)}
+                           onHueco={anadeHuecoA ? (t => anadeHuecoA(m.id, t)) : null}
                            esMedianera={esMedianera(m)} m={m} />
             ) : (
                 <>
@@ -314,6 +367,45 @@ export function PanelPared({ plano, transmitancias, expedienteId,
                     onReemplazar={(x) => aplicarLeidos(x, { reemplaza: true })} />
             )}
         </Caja>
+    );
+}
+
+/**
+ * La PALETA de huecos: una ventana y una puerta que se COGEN y se sueltan sobre
+ * una pared del plano (2026-10-28, lo pidió Fran: «arrastrar un elemento de
+ * ventana y que se vaya a ese muro»). Lo recoge `PlanoPlanta` (`onDrop`), que
+ * busca la pared más cercana al punto. Pulsada sin arrastrar, va a la pared
+ * abierta. El tipo viaja EN EL NOMBRE del dato (`DND_HUECO + tipo`): durante el
+ * `dragover` el navegador deja ver los tipos, no los valores.
+ */
+export const DND_HUECO = 'application/x-brokergy-hueco-';
+
+function PaletaHuecos({ pared, onPoner }) {
+    const ficha = (tipo, icono, texto) => (
+        <button
+            draggable
+            onDragStart={(e) => {
+                e.dataTransfer.setData(DND_HUECO + tipo, tipo);
+                e.dataTransfer.setData('text/plain', texto);
+                e.dataTransfer.effectAllowed = 'copy';
+            }}
+            onClick={() => pared && onPoner(tipo)}
+            title={pared ? `Arrástrala a una pared del plano, o pulsa para ponerla en ${pared}`
+                         : 'Arrástrala hasta una pared del plano'}
+            className="flex cursor-grab items-center gap-1.5 rounded-lg border border-dashed
+                       border-white/25 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-bold
+                       text-white/75 hover:border-brand/60 hover:text-brand active:cursor-grabbing">
+            <span aria-hidden="true">{icono}</span>{texto}
+        </button>
+    );
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            {ficha('ventana', '▭', 'Ventana')}
+            {ficha('puerta', '▯', 'Puerta')}
+            <span className="text-[10.5px] leading-tight text-white/40">
+                Arrástrala a su pared{pared ? ` · o pulsa: va a ${pared}` : ''}
+            </span>
+        </div>
     );
 }
 
@@ -550,9 +642,30 @@ function uDelTipo(termicas, tipo) {
 
 /** Una pared que no da al aire no lleva ventanas: lo que hay que decir de
  *  ella es si al otro lado se pierde calor o no. */
-function SinHuecos({ particion, esMedianera, m, onCambio }) {
+function SinHuecos({ particion, esMedianera, m, onCambio, onHueco }) {
     return (
         <div className="flex flex-col gap-2">
+            {/* Si tiene una ventana, NO es medianera ni partición: da afuera. Se
+                ofrece en el sitio donde se busca (2026-10-28, Fran no podía
+                poner ventanas a FBE3 porque estaba «al vecino»): un clic la
+                pone y pasa la pared a exterior, y se dice. */}
+            {onHueco && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <button onClick={() => onHueco('ventana')}
+                            className="rounded-lg border border-white/15 px-2.5 py-1.5 text-[11px]
+                                       font-bold text-white/75 hover:border-brand/60 hover:text-brand">
+                        + Ventana
+                    </button>
+                    <button onClick={() => onHueco('puerta')}
+                            className="rounded-lg border border-white/15 px-2.5 py-1.5 text-[11px]
+                                       font-bold text-white/75 hover:border-brand/60 hover:text-brand">
+                        + Puerta
+                    </button>
+                    <span className="text-[10.5px] text-white/40">
+                        ¿Tiene ventana o puerta? Entonces da al exterior: la paso a muro exterior.
+                    </span>
+                </div>
+            )}
             <p className="text-xs leading-relaxed text-white/50">
                 {particion
                     ? <>Da a un espacio <b>sin calefactar</b>, así que por ahí
@@ -1055,6 +1168,8 @@ function RevisarPared({ revisada, siguiente, nombreDe, onMarcar, onIr }) {
                                hover:bg-emerald-400/25">
                 ✓ Dar esta pared por revisada
                 {siguiente ? ` y pasar a ${nombreDe(siguiente)} →` : ''}
+                <kbd className="ml-2 rounded border border-emerald-300/30 px-1 py-px font-sans text-[9.5px]
+                                font-bold text-emerald-200/70">Intro</kbd>
             </button>
             {siguiente && (
                 <button onClick={() => onMarcar(true)}
@@ -1287,6 +1402,7 @@ function Atajos() {
         ['Ctrl+Z · Ctrl+Y', 'deshacer · rehacer'],
         ['Espacio', 'mover mientras se dibuja'],
         ['Esc', 'cancelar lo que se dibuja'],
+        ...ATAJOS_PARED,
     ];
     return (
         <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 border-t border-white/[0.06] pt-2.5

@@ -188,6 +188,10 @@ function nombreParaSaludo(cli) {
  * le puede hablar de "tu expediente": se le dice de QUIÉN es. Y su email es el del
  * contacto, no el del titular — que era por donde salía el email de "CEE
  * presentado" aunque el WhatsApp sí respetara el desvío.
+ *
+ * REGLA — si se le habla a la persona de contacto, el email es SOLO el suyo: sin
+ * él no sale email (sale el WhatsApp). Caer al del titular mandaba «¡Hola Félix!»
+ * al buzón de la familia (26RES060_253, 28/10/2026: Félix, de CALINDSA, sin email).
  */
 function avisoCliente(cli) {
     const desvio = cli?.notificaciones_contacto_activas === true
@@ -198,7 +202,8 @@ function avisoCliente(cli) {
     return {
         tercero,
         titular,
-        email: (desvio ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
+        email: (tercero ? cli?.persona_contacto_email
+            : desvio ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
     };
 }
 
@@ -271,6 +276,25 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
         const adminMsg  = overrides.ADMIN  || msgs.ADMIN;
         const partnerMsg = overrides.PARTNER || msgs.PARTNER;
 
+        // CONSEJO DE FACTURA (utils/consejoFactura.js, Fran 11/11/2026): si al
+        // instalador se le pide la factura —falta DOC_FACTURAS de la obra— y el
+        // partner del aviso ES el instalador de la obra, detrás va el texto
+        // recomendado para el concepto (WA: dos mensajes aparte; email: recuadro al
+        // final). Misma función y misma regla que el popup. `consejo_factura:false` lo apaga.
+        let consejo = null;
+        const pideFactura = !!pend?.despues?.some(s => s.key === 'DOC_FACTURAS');
+        if (targets.includes('PARTNER') && pideFactura && filters.consejo_factura !== false) {
+            try {
+                const cf = require('../utils/consejoFactura');
+                const partnerId = op?.instalador_asociado_id || op?.prescriptor_id;
+                const insId = cf.instaladorIdDe(expediente, op || {});
+                if (partnerId && insId && String(partnerId) === String(insId)) {
+                    const r = await cf.cargarConsejoFactura(expediente.id, { op, cliente: cli, faltaFactura: true, crearToken: true });
+                    if (r?.consejo && r.decision.mandar) consejo = r;
+                }
+            } catch (e) { console.warn(`${tag} consejo de factura:`, e.message); }
+        }
+
         // --- WHATSAPP ---
         if (chFilter.includes('whatsapp')) {
             if (targets.includes('CLIENTE') && cliPhone) {
@@ -295,8 +319,12 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
             if (targets.includes('PARTNER') && partnerPhone) {
                 channels.whatsapp.push('partner');
                 botVinculos.sembrarEnDiferido(partnerPhone, expediente.oportunidad_id);
-                whatsappService.sendText(partnerPhone, partnerMsg)
-                    .catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
+                // En ORDEN (aviso → consejo → concepto solo): van seguidos y el
+                // segundo es el que se copia.
+                (async () => {
+                    await whatsappService.sendText(partnerPhone, partnerMsg);
+                    for (const t of consejo?.whatsapp || []) await whatsappService.sendText(partnerPhone, t);
+                })().catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
             }
         }
 
@@ -316,13 +344,16 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
             }
             if (targets.includes('PARTNER') && partnerEmail) {
                 channels.email.push('partner');
-                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink)
+                const consejoEmail = consejo
+                    ? { html: require('../utils/consejoFactura').htmlEmailConsejo(consejo.consejo, consejo.decision, { url: consejo.url }), texto: consejo.copiar }
+                    : null;
+                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink, null, consejoEmail)
                     .catch(e => console.error(`${tag} Email Partner:`, e.message));
             }
         }
 
-        console.log(`${tag} Disparado: whatsapp=[${channels.whatsapp.join(',')}] email=[${channels.email.join(',')}]`);
-        return { ok: true, whatsappState: waState, channels };
+        console.log(`${tag} Disparado: whatsapp=[${channels.whatsapp.join(',')}] email=[${channels.email.join(',')}]${consejo ? ' +consejo-factura' : ''}`);
+        return { ok: true, whatsappState: waState, channels, consejo_factura: consejo ? consejo.decision.motivo : null };
     } catch (err) {
         console.error(`${tag} Error en notificaciones:`, err);
         return { ok: false, reason: err.message };

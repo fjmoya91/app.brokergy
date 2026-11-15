@@ -117,7 +117,9 @@ function filtrarAgenda(agenda, q, max = 10) {
  */
 function codigoObra(s) {
     const m = String(s || '').toUpperCase().trim()
-        .match(/^(?:\d{2}|\d{4})?((?:RES|TER)\d{3}|CEE)I?[_-](OP)?0*(\d+)$/);
+        // «FM» = vía del factor multiplicador, SERIE PROPIA: 26RES060FM_12 → RES060FM_12,
+        // que no es la misma obra que RES060_12.
+        .match(/^(?:\d{2}|\d{4})?((?:RES|TER)\d{3}(?:FM)?|CEE)I?[_-](OP)?0*(\d+)$/);
     return m ? `${m[1]}_${m[2] || ''}${m[3]}` : null;
 }
 

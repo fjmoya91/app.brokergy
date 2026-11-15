@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { quienMira } from '../logic/quienMira';
-import { LeyendaPlano, PlanoPlanta } from '../components/PlanoPlanta';
+import { MandosComunes, PlanoPlanta } from '../components/PlanoPlanta';
 import { EquiposControl, PlanoCubierta } from '../components/EquiposPlano';
 import { NIVEL_CUBIERTA, TIPOS_EQUIPO, faldonesCubierta } from '../logic/equiposPlano';
 import { PanelPared } from '../components/PanelPared';
-import { usePlanoEnvolvente, nombreDe } from '../logic/usePlanoEnvolvente';
+import { usePlanoEnvolvente, nombreDe, necesitaRumbo, rumbosDe } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo, areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
 import { husoDe } from '../logic/ortofoto';
 import { CampoDecimal } from '../../../components/CampoDecimal';
@@ -28,11 +28,14 @@ import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
 import { PERSIANA_DEFECTO_NUEVOS, huecosDefecto, resumenVentanas, ventanasContestadas }
     from '../logic/ventanasVivienda';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
-import { DetalleAgenteIa, ListaPendientes, PildoraAgenteIa } from '../components/RastroAgente';
+import { DetalleAgenteIa, PildoraAgenteIa } from '../components/RastroAgente';
+import { ListaFalta, PildoraFalta } from '../components/FaltaParaGenerar';
 import { AsiEsComoEstaModal, BandaRevision } from '../components/AsiEsComoEsta';
-import { pendientesDe, selloAgente } from '../logic/pendientes';
+import { faltaParaGenerar, selloAgente } from '../logic/pendientes';
+import { arreglosParaGenerar, esFalloDelMotor } from '../logic/arreglarGenerar';
+import { textoCambios } from '../logic/cambiosAlMedir';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
-         PanelMedidas, SelloCex, Ventana, VersionCe3x } from '../components/PanelesFicha';
+         PanelMedidas, SelloCex, Ventana, VersionCe3x, VistoBuenoCex } from '../components/PanelesFicha';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envolvente térmica — la superficie del certificador.
@@ -58,6 +61,9 @@ import { lineaTrabajo, haceCuanto } from '../../cee-ia/logic/ceeIa';
 //: `.cex`— pasan por aquí: repite sola la que no llegó a salir y devuelve el
 //: fallo ya redactado, en vez de la misma frase para seis causas distintas.
 import { postEnvolvente, soloLista } from '../logic/pedirEnvolvente';
+//: El ASISTENTE: se le dice lo que está mal y devuelve los cambios en palabras.
+import { AsistenteEnvolvente } from '../components/AsistenteEnvolvente';
+import { medidasCambiadas, tocaMuros, transformarMuros, zonasAjustadas } from '../logic/asistenteEnvolvente';
 
 //: Qué FONDO lleva el plano en este navegador: 'catastro' · 'satelite' ·
 //: 'ninguno'. Es una comodidad de pantalla, no un dato del expediente.
@@ -906,7 +912,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         setGuardandoConstrucciones(true);
         // Se pinta ya: esperar a la red para mover una casilla se siente roto.
         setGeo(v => (v ? { ...v, construcciones: antes.map(
-            c => ({ ...c, cuenta: elegidas.includes(c.codigo) })) } : v));
+            c => ({ ...c, cuenta: elegidas.includes(c.clave || c.codigo) })) } : v));
         try {
             await axios.put(api(id, 'construcciones'),
                 { elegidas, construcciones: antes });
@@ -1093,19 +1099,32 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: La huella de lo que se VE ahora, solo si la ficha es de esta fase.
     const huellaVista = ficha?.fase === fichaFase ? (ficha?.huella || null) : null;
 
-    // ── Lo POR CONFIRMAR y el CROQUIS ───────────────────────────────────────
-    // La lista sale de lo MISMO que cuenta la cabecera (`resumen.dudosos`), y
-    // cada línea lleva a su pared: un número sin salida obligaba a buscar la
-    // raya ámbar pared por pared.
+    //: El VISTO BUENO de BROKERGY a una obra de la app (`darVistoBueno`, abajo).
+    //: Mientras el PC la califica se vuelve a mirar cada 30 s: así se ve cuándo
+    //: queda entregada, sin recargar.
+    const [vistoBuenoEnCurso, setVistoBuenoEnCurso] = useState(false);
+    const [vistoBuenoRes, setVistoBuenoRes] = useState(null);   // { tono, texto }
+    const esperandoPc = !!estadoCex.inicial?.visto_bueno?.esperando_pc;
+    useEffect(() => {
+        if (!esperandoPc) return;
+        const t = setInterval(() => setRefrescoEstado(n => n + 1), 30_000);
+        return () => clearInterval(t);
+    }, [esperandoPc]);
+
+    // ── Lo que FALTA y el CROQUIS ───────────────────────────────────────────
+    // «Faltan N para generar» (`faltaParaGenerar`, abajo, junto a las pestañas
+    // de las que también tira): cada línea lleva a lo suyo — su pared, su
+    // pestaña o el popup de las ventanas. Un número sin salida obligaba a
+    // buscar la raya ámbar pared por pared.
     const [verPendientes, setVerPendientes] = useState(false);
-    const pendientes = useMemo(
-        () => pendientesDe(plano.muros, plano.lucernarios, plantas, nombreDe),
-        [plano.muros, plano.lucernarios, plantas]);
     const irAPendiente = (it) => {
-        const i = plantas.findIndex(p => p.id === it.planta);
+        const a = it.ir || {};
+        if (a.apartado) { ir(a.apartado); return; }
+        if (a.ventanas) { setVerVentanas(true); return; }
+        const i = plantas.findIndex(p => p.id === a.planta);
         if (i >= 0 && plantas.length > 1) setEleccionPlanta(i);
         if (modo !== '2d') setModo('2d');
-        if (it.muro) plano.setSel(it.muro);
+        if (a.muro) plano.setSel(a.muro);
     };
     //: Ir a una PARED desde el panel («Empezar por…», «pasar a…»). A diferencia
     //: de la lista de pendientes, NO cambia lo que se ve si la pared ya está a
@@ -1278,11 +1297,115 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         else generarCex(fase);
     }
 
+    // ── EL ASISTENTE ─────────────────────────────────────────────────────────
+    // Lo que el asistente necesita para el resumen y para validar, en el momento
+    // de preguntar (no en cada pintado: el resumen se compone solo al pulsar).
+    const contextoAsistente = () => ({
+        plantas: plano.plantas, muros: plano.muros, zonas: plano.zonasFuera || [],
+        t: geo?.georef ? lienzoAMundo(geo.georef) : null,
+        catalogo: ficha?.medidas || [], elegidas: medidasSel, fase: fichaFase,
+        defecto: huecosDefecto(ajustes), sel: plano.sel,
+    });
+    //: Lo que queda por hacer DESPUÉS de aplicar en el plano: volver a medir con
+    //: las zonas nuevas y/o generar. Va por estado y un efecto porque `volverAMedir`
+    //: y `generarCex` leen el plano de SU pintado: llamadas en el mismo clic
+    //: medirían y escribirían el plano de antes del cambio.
+    const [tareaAsistente, setTareaAsistente] = useState(null);   // { zonas, generar, listo, fase }
+    //: Cuando el `.cex` NO sale (422 del motor), lo que hay que arreglar va al
+    //: asistente (`arreglosParaGenerar`): los rumbos con sus dos botones, lo demás
+    //: con su «Ir», y si el plano no lo explica, a Claude. `objetivo` es lo que se
+    //: estaba haciendo —generar o dejarlo listo para firmar— y se retoma al
+    //: arreglarlo. `intento`: cuántas veces seguidas ha fallado ya (el asistente
+    //: no vuelve a probar solo más de `MAX_REINTENTOS_SOLOS`).
+    const [incidenciaCex, setIncidenciaCex] = useState(null);   // { id, error, fase, objetivo, preguntas, otros, intento }
+    const intentoArreglo = useRef(0);
+
+    //: Cómo estaba TODO antes del último cambio del asistente: su «Deshacer»
+    //: vuelve exactamente ahí (el trabajo y los ajustes, y si movió zonas,
+    //: vuelve a medir con las de antes). La pila de Ctrl+Z va con freno y no
+    //: sirve para esto: deshacer justo después de aplicar saltaría dos pasos.
+    const antesAsistente = useRef(null);
+    //: Quien espera a que acabe la tarea de DESPUÉS (volver a medir): el chat no
+    //: dice «Hecho» hasta que el edificio está medido, y si no se ha podido, lo dice.
+    const finTareaAsistente = useRef(null);
+    const acabarTareaAsistente = (r) => {
+        const fin = finTareaAsistente.current;
+        finTareaAsistente.current = null;
+        fin?.(r);
+    };
+
+    async function deshacerAsistente() {
+        const a = antesAsistente.current;
+        if (!a) throw new Error('No hay nada que deshacer.');
+        antesAsistente.current = null;
+        plano.restaurar(a.trabajo);
+        setAjustes(a.ajustes || {});
+        if (a.zonas && !(await volverAMedir({ zonas_fuera: a.zonas }))) {
+            throw new Error('El plano ha vuelto atrás, pero no se ha podido volver a medir el edificio con las zonas de antes: vuelve a intentarlo.');
+        }
+    }
+
+    //: `listo`: después, el visto bueno (`darVistoBueno`), y la promesa resuelve
+    //: con lo que haya dicho (`{ listo: { tono, texto } }`). Sin pasos es solo
+    //: la orden («genéralo», «déjalo listo»): el «Deshacer» sigue siendo el de antes.
+    function aplicarAsistente(pasos, { generar = false, listo = false, fase = null } = {}) {
+        if (pasos.length) {
+            antesAsistente.current = {
+                trabajo: plano.trabajo, ajustes,
+                zonas: zonasAjustadas(plano.zonasFuera || [], pasos) ? (plano.zonasFuera || []) : null,
+            };
+        }
+        if (tocaMuros(pasos)) plano.aplicaAsistente(v => transformarMuros(v, pasos));
+        const med = medidasCambiadas(pasos);
+        if (med) {
+            // Por SU fase, que puede no ser la que se previsualiza.
+            setAjustes(a => ({ ...a, medidas_elegidas: { ...(a.medidas_elegidas || {}), [med.fase]: med.elegidas } }));
+        }
+        const zonas = zonasAjustadas(plano.zonasFuera || [], pasos);
+        if (!zonas && !generar && !listo) return { medido: null };
+        // Devuelve cuándo ha ACABADO: con zonas, al terminar de medir (el
+        // generar sigue solo, con su popup); con el visto bueno, cuando lo ha
+        // dado o ha dicho por qué no.
+        return new Promise((fin) => {
+            finTareaAsistente.current = fin;
+            setTareaAsistente({ zonas, generar, listo, fase, cambio: pasos.length > 0 });
+        });
+    }
+
+    useEffect(() => {
+        if (!tareaAsistente) return;
+        const { zonas, generar, listo, fase, cambio, medido = null } = tareaAsistente;
+        setTareaAsistente(null);
+        (async () => {
+            if (zonas) {
+                const ok = await volverAMedir({ zonas_fuera: zonas });
+                // Generar o el visto bueno, en el pintado SIGUIENTE: con la
+                // geometría ya medida.
+                if (ok && (generar || listo)) {
+                    if (!listo) acabarTareaAsistente({ medido: true });
+                    setTareaAsistente({ zonas: null, generar, listo, fase, cambio, medido: true });
+                    return;
+                }
+                acabarTareaAsistente({ medido: !!ok });
+                return;
+            }
+            if (listo) {
+                acabarTareaAsistente({ medido, listo: await darVistoBueno({ generarAntes: !!cambio }) });
+                return;
+            }
+            acabarTareaAsistente({ medido });
+            if (generar) pedirGenerar(fase || fichaFase);
+        })();
+    }, [tareaAsistente]);   // eslint-disable-line react-hooks/exhaustive-deps
+
     //: El `.cex` de Drive se guardó a mano en CE3X después de generarlo: el
     //: backend no lo pisa sin un «sí» (`forzar`). Aquí se guarda la pregunta.
     const [tocadoCex, setTocadoCex] = useState(null);   // { fase, respuestas, texto }
 
-    async function generarCex(fase = 'inicial', respuestas = null, forzar = false) {
+    //: Devuelve lo guardado, o null si no se ha generado (el fallo o la pregunta
+    //: ya están en pantalla). `conVistoBueno`: lo pide el visto bueno, que enseña
+    //: su propio resultado (sin el popup de «generado»).
+    async function generarCex(fase = 'inicial', respuestas = null, forzar = false, { conVistoBueno = false } = {}) {
         setPreguntando(null);
         setTocadoCex(null);
         // Lo contestado se guarda como AJUSTE del trabajo, que es lo que ya se
@@ -1310,8 +1433,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             // El enlace de la carpeta es el FINAL del recorrido: es lo que se le
             // pasa al certificador. Sale solo, y no en una línea al pie de la
             // pantalla que hay que ir a buscar.
-            setReciénGenerado(data);
+            if (!conVistoBueno) setReciénGenerado(data);
             onAviso?.(`${data.nombre} guardado en la carpeta del expediente.`);
+            intentoArreglo.current = 0;
+            return data;
         } catch (e) {
             // 422 = el motor NO ha escrito el fichero a propósito. Es una
             // respuesta, no una caída: lleva dentro qué le falta.
@@ -1320,13 +1445,87 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             // guardó en CE3X?). Se enseña al lado del botón con su «sí».
             if (d?.tocado) {
                 setTocadoCex({ fase, respuestas, texto: d.error });
-                return;
+                return null;
             }
             setError(e.mensaje || d?.error || 'No se pudo generar el .cex.');
             if (d?.avisos?.length) setAvisos(d.avisos);
+            // Un «no» del motor se puede ARREGLAR: va al asistente con lo que
+            // estaba haciendo, para retomarlo. Una caída (red, 500) no: eso no
+            // lo arregla tocar el plano.
+            if (esFalloDelMotor(e)) {
+                const intento = intentoArreglo.current;
+                intentoArreglo.current = intento + 1;
+                setIncidenciaCex({
+                    id: Date.now(), error: d?.error || e.mensaje || 'El motor no ha escrito el .cex.',
+                    fase, objetivo: conVistoBueno ? 'listo' : 'generar', intento,
+                    ...arreglosParaGenerar({ falta, muros: plano.muros, nombreDe, rumbosDe }),
+                });
+            }
+            return null;
         } finally {
             setGenerando(false); setGenerandoFase(null);
         }
+    }
+
+    //: El VISTO BUENO (obra de la app, solo el equipo): sobre lo que se VE. Si
+    //: no es lo generado —no hay nada, otra receta, guardado a mano en CE3X—,
+    //: se genera antes; luego el backend entrega o espera al PC.
+    //:
+    //: Devuelve lo que ha dicho (`{ tono, texto, noGenerado? }`), que el
+    //: asistente repite en su chat. `generarAntes`: lo pide el asistente justo
+    //: después de cambiar el plano, cuando la huella de la ficha aún puede ser
+    //: la de ANTES del cambio (la ficha se recalcula en el servidor): sin él,
+    //: podría dar el visto bueno al `.cex` viejo.
+    async function darVistoBueno({ generarAntes = false } = {}) {
+        if (vistoBuenoEnCurso || generando) {
+            return { tono: 'aviso', texto: 'Ya se está generando o dando el visto bueno: espera a que acabe.' };
+        }
+        if (!entrada) {
+            return { tono: 'aviso', texto: 'Falta señalar por dónde se entra (la pared de la puerta principal, '
+                                         + 'en el plano). Señálala y vuelve a pedírmelo.' };
+        }
+        setVistoBuenoRes(null);
+        const est = estadoCex.inicial || {};
+        let huella = est.sello?.huella || null;
+        if (generarAntes || !est.sello || huellaVista !== est.sello.huella || est.tocado || est.falta) {
+            if ((ficha?.faltan || []).length || (!tipoInfo.elegido && tipoInfo.tipo !== 'residencial')) {
+                pedirGenerar('inicial');
+                const res = { tono: 'aviso', texto: 'Antes de generarlo falta contestar lo que se pregunta. '
+                                                  + 'Genéralo y vuelve a dar el visto bueno.' };
+                setVistoBuenoRes(res);
+                return res;
+            }
+            setVistoBuenoEnCurso(true);
+            const g = await generarCex('inicial', null, false, { conVistoBueno: true });
+            if (!g) {
+                setVistoBuenoEnCurso(false);
+                setVistoBuenoRes({ tono: 'aviso', texto: 'No se ha generado (lo dice arriba): el visto bueno no se ha dado.' });
+                return { tono: 'aviso', noGenerado: true,
+                         texto: 'No se ha podido generar el .cex: el visto bueno no se ha dado.' };
+            }
+            huella = g.huella || huellaVista;
+        }
+        setVistoBuenoEnCurso(true);
+        let res;
+        try {
+            const { data } = await axios.post(api(id, 'visto-bueno'), { huella });
+            res = data.que === 'CALCULANDO'
+                ? { tono: data.pc?.ok === false ? 'aviso' : 'ok',
+                    texto: 'Visto bueno dado. Se está calculando con CE3X (unos minutos): al terminar se le entrega '
+                         + 'al certificador, listo para firmar.'
+                         + (data.pc?.ok === false ? ` No se ha podido encargar al PC: ${data.pc.motivo}.` : '') }
+                : data.que === 'FIRMADO'
+                    ? { tono: 'ok', texto: 'Visto bueno dado al certificado ya firmado: pasa al expediente de BROKERGY.' }
+                    : { tono: 'ok', texto: 'Visto bueno dado: entregado al certificador, listo para firmar en la app.' };
+            onAviso?.('Visto bueno dado.');
+        } catch (e) {
+            res = { tono: 'error', texto: e.response?.data?.error || e.message || 'No se ha podido dar el visto bueno.' };
+        } finally {
+            setVistoBuenoEnCurso(false);
+            setRefrescoEstado(n => n + 1);
+        }
+        setVistoBuenoRes(res);
+        return res;
     }
 
     // Lo que dice cada pestaña de CE3X, con el expediente delante. Va aquí
@@ -1338,6 +1537,20 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const barra = useMemo(() => ({ pestanas, activa, onIr: ir, deshacer: deshacerCex }),
                           [pestanas, activa, ir, deshacerCex]);
     useEffect(() => { onPestanas?.(barra); }, [barra, onPestanas]);
+    //: Lo que cambió al volver a medir se resalta en el plano y se dice en una
+    //: línea durante unos segundos; después se va solo (o con su ✕).
+    const cambiosAt = plano.cambiosMedida?.at || null;
+    const { olvidaCambiosMedida } = plano;
+    useEffect(() => {
+        if (!cambiosAt) return undefined;
+        const t = setTimeout(olvidaCambiosMedida, 12000);
+        return () => clearTimeout(t);
+    }, [cambiosAt, olvidaCambiosMedida]);
+    const tieneVentanas = !!resumenVentanas(ajustes.ventanas);
+    const falta = useMemo(
+        () => faltaParaGenerar({ muros: plano.muros, lucernarios: plano.lucernarios, plantas, nombreDe,
+                                 entrada, ventanas: tieneVentanas, pestanas, necesitaRumbo }),
+        [plano.muros, plano.lucernarios, plantas, entrada, tieneVentanas, pestanas]);
 
     //: La altura con la que se levantan los muros en la axonometría: la que
     //: DECLARA la ficha, que es la misma con la que el motor midió las fachadas.
@@ -1775,6 +1988,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                           estadoGuardado={estadoGuardado}
                           ventanas={resumenVentanas(ajustes.ventanas)}
                           onVentanas={() => setVerVentanas(true)}
+                          falta={falta} verFalta={verPendientes}
                           onPendientes={() => setVerPendientes(v => !v)}
                           onCroquis={verCroquis} croquis={croquis}
                           // Lo del AGENTE IA es UNA píldora más de esta tira, no
@@ -1807,8 +2021,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                      onCerrar={() => setVerAgente(false)} />
                 )}
                 {verPendientes && (
-                    <ListaPendientes items={pendientes} onIr={irAPendiente}
-                                     onCerrar={() => setVerPendientes(false)} />
+                    <ListaFalta falta={falta} onIr={irAPendiente}
+                                onCerrar={() => setVerPendientes(false)} />
                 )}
 
                 {!entrada && <PasoEntrada />}
@@ -1826,6 +2040,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
                 {/* Huecos que se han quedado SIN PARED al volver a medir: antes
                     desaparecían sin decir nada. */}
+                {plano.cambiosMedida && (
+                    <div className="flex items-center gap-2 rounded-lg border border-brand/40 bg-brand/[0.08]
+                                    px-3 py-1.5 text-[12px] text-white/85">
+                        <b className="text-brand">Al volver a medir:</b>
+                        <span className="min-w-0">{textoCambios(plano.cambiosMedida)}</span>
+                        <span className="text-white/45">· resaltado en el plano</span>
+                        <button type="button" onClick={plano.olvidaCambiosMedida}
+                                className="ml-auto text-white/50 hover:text-white/80">✕</button>
+                    </div>
+                )}
                 {!!plano.huerfanos?.length && (
                     <AvisoHuerfanos huerfanos={plano.huerfanos} muros={plano.muros}
                                     nombreDe={plano.nombreDe}
@@ -1867,7 +2091,15 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 <div className="flex min-w-0 flex-col gap-3">
                     <BarraVista plantas={plantas} sel={soloPlanta}
                                 onSel={setEleccionPlanta}
-                                modo={modo} onModo={cambiarModo} />
+                                modo={modo} onModo={cambiarModo}>
+                        <MandosComunes es3d={modo === '3d'}
+                                       equipos={!!equipoEnMano}
+                                       onEquipos={si => cambiarEquipoEnMano(si ? 'abrir' : null)}
+                                       catastro={quiereCatastro} onCatastro={verCatastro}
+                                       trayendoCatastro={trayendoCatastro} falloCatastro={falloCatastro}
+                                       satelite={verSatelite} onSatelite={ponSatelite}
+                                       georef={geo?.georef} lienzo={plano.lienzo} />
+                    </BarraVista>
                     {/* Los EQUIPOS: la tira va UNA vez, encima de las plantas —el
                         equipo elegido vale para cualquiera y para la cubierta—. */}
                     {equipoEnMano && modo !== '3d' && (
@@ -1894,14 +2126,11 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                             <PlanoPlanta planta={aLaVez[0] || plantas[0]} plano={plano}
                                          capas={aLaVez}
                                          entorno={false} onEntorno={setEntorno}
-                                         modo="3d" altura={alturaPlanta}
+                                         modo="3d" altura={alturaPlanta} mandosFuera
                                          georef={geo?.georef} satelite={verSatelite}
                                          onSatelite={ponSatelite} />
                         ) : aLaVez.map(p => (
                             <PlanoPlanta key={p.id || p.nombre} planta={p} plano={plano}
-                                         // Con varias tarjetas, la leyenda va UNA vez
-                                         // debajo de todas (ver abajo), no repetida.
-                                         leyenda={nTarjetas < 2}
                                          // Y comparten filas (barra · tiras · plano):
                                          // así los dos planos arrancan a la misma altura.
                                          alinear={nTarjetas > 1}
@@ -1912,7 +2141,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onAsiEsComoEsta={() => setVerAsiEs(true)}
                                          cuerpos={cuerpos} onCuerpo={setCuerpoSel}
                                          entorno={entorno} onEntorno={setEntorno}
-                                         modo="2d" altura={alturaPlanta}
+                                         modo="2d" altura={alturaPlanta} mandosFuera
                                          cubierta={plano.cubiertas?.[p.id] || null}
                                          carpinteriaDefecto={huecosDefecto(ajustes)}
                                          dibujarCubierta={dibujandoCubierta === p.id}
@@ -2023,7 +2252,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     {/* El código de colores es el MISMO en las dos plantas: debajo
                         de cada tarjeta eran dos franjas iguales que alargaban la
                         página justo donde se compara una planta con otra. */}
-                    {modo !== '3d' && nTarjetas > 1 && <LeyendaPlano />}
+                    {/* La leyenda va en la esquina de cada plano (`LeyendaFlotante`). */}
                 </div>
                     {/* La CUBIERTA no está aquí: se marca dibujándola sobre el
                         plano de su planta, así que su mando vive bajo la barra
@@ -2031,6 +2260,24 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     <PanelPared plano={plano} transmitancias={ficha?.ficha?.termicas}
                                 carpinteriaDefecto={huecosDefecto(ajustes)} expedienteId={id}
                                 onIrAPared={irAPared} />
+                    {/* El ASISTENTE: ventana emergente abajo a la derecha (se
+                        portalea a body), como el de la app. */}
+                    {geo?.geometria && (
+                        <AsistenteEnvolvente urlAsistente={api(id, 'asistente')}
+                                             urlVoz={api(id, 'asistente/voz')}
+                                             contexto={contextoAsistente}
+                                             onAplicar={aplicarAsistente}
+                                             onDeshacer={deshacerAsistente}
+                                             onIr={irAPendiente}
+                                             incidencia={incidenciaCex}
+                                             puedeListo={enExt && fichaFase === 'inicial' && esStaff}
+                                             ocupado={generando || cargando || !!tareaAsistente || vistoBuenoEnCurso}
+                                             trabajando={cargando ? 'Volviendo a medir el edificio…'
+                                                 : vistoBuenoEnCurso ? 'Generando el .cex y dando el visto bueno…'
+                                                 : generando ? 'Escribiendo el .cex…' : null}
+                                             oculto={!!(generando || reciénGenerado || preguntando
+                                                        || verTipo || tocadoCex)} />
+                    )}
                 </div>
             </div>
 
@@ -2165,6 +2412,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                               onGenerica={(v) => cambiarAjuste('aerotermia_generica', v ? true : null)}
                               textos={ajustes.medidas_texto || {}}
                               onTexto={cambiarTextoMedida}
+                              // Las LIBRES de la receta (las deja el PC) y lo que
+                              // pidió la obra de la app de certificadores.
+                              libres={ajustes.medidas_libres || []}
+                              quitadas={ajustes.medidas_libres_quitadas || []}
+                              onLibres={(vivas, quitadas) => setAjustes(a => {
+                                  const n = { ...a, medidas_libres: vivas, medidas_libres_quitadas: quitadas };
+                                  if (!vivas.length) delete n.medidas_libres;
+                                  if (!quitadas.length) delete n.medidas_libres_quitadas;
+                                  return n;
+                              })}
+                              obra={expediente?.medidas_obra || null}
+                              superficie={superficieDelEdificio}
                               autoconsumoKwh={ajustes.autoconsumo_kwh ?? null}
                               onAutoconsumo={(n) => cambiarAjuste('autoconsumo_kwh', n)}
                               // PVGIS es una ruta interna (`internalOnly`): al
@@ -2201,6 +2460,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     {/* Lo que lleva el .cex que YA está en Drive, y si está al
                         día con lo que se ve aquí. */}
                     <SelloCex estado={estadoCex[fichaFase]} huella={huellaVista} fase={fichaFase} />
+                    {/* El visto bueno de BROKERGY a una obra de la app: un clic y
+                        queda listo para firmar (el botón, solo el equipo). */}
+                    {enExt && fichaFase === 'inicial' && (
+                        <VistoBuenoCex vb={estadoCex.inicial?.visto_bueno || null} puedeDar={esStaff}
+                                       onDar={darVistoBueno} enCurso={vistoBuenoEnCurso}
+                                       deshabilitado={!entrada || generando || !huellaVista}
+                                       motivo={!entrada ? 'Señala primero por dónde se entra.'
+                                           : !huellaVista ? 'Cargando lo que se va a generar…' : null}
+                                       resultado={vistoBuenoRes} />
+                    )}
                     {tocadoCex && (
                         <div className="rounded-lg border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2.5">
                             <p className="text-[12px] leading-snug text-amber-200/90">{tocadoCex.texto}</p>
@@ -2384,52 +2653,29 @@ const GUARDADO = {
  * renglón, y el estado de cada pared ya se ve en el plano por su color.
  */
 function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
-                   ventanas, onVentanas, onPendientes, onCroquis, croquis, agente }) {
-    // El PROGRESO: cuántas paredes están miradas de las que hay que mirar. Es
-    // la respuesta a «¿cuánto me queda?», que antes había que deducir de una
-    // cifra suelta en letra pequeña.
-    const total = resumen.paredes || 0;
-    const miradas = Math.max(0, total - (resumen.sinTocar || 0));
-    const pct = total ? Math.round((miradas / total) * 100) : 0;
+                   ventanas, onVentanas, falta, verFalta, onPendientes, onCroquis, croquis, agente }) {
     return (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[11.5px] text-white/70">
-            {/* POR DÓNDE SE ENTRA: es lo primero que se señala y de ahí cuelga
-                el resto, así que es la primera píldora y va en el color de
-                marca. Sin entrada, la píldora ES la instrucción. */}
-            {entrada ? (
-                <Pildora tono="brand" onClick={onCambiarEntrada}
-                         title="Cambiar la pared por la que se entra">
+            {/* LO QUE FALTA, en UN número (2026-10-29): la barra de paredes
+                miradas, las medidas por confirmar, la entrada, la carpintería
+                y lo de las otras pestañas. Se abre en una lista que lleva a
+                cada cosa (`FaltaParaGenerar.jsx`). */}
+            <PildoraFalta falta={falta} resumen={resumen} abierta={verFalta} onAlternar={onPendientes} />
+
+            {/* Lo ya DECIDIDO se enseña en neutro: por dónde se entra y cómo son
+                las ventanas. Sin decidir no sale aquí, sino en la lista. */}
+            {entrada && (
+                <Pildora onClick={onCambiarEntrada} title="Cambiar la pared por la que se entra">
                     ◆ Entrada <b>{entrada}</b>
                 </Pildora>
-            ) : (
-                <Pildora tono="brand" fuerte>◆ Señala por dónde se entra</Pildora>
             )}
-
-            {/* La barra: lo mirado frente a lo que hay que mirar. */}
-            {total > 0 && (
-                <span className="flex items-center gap-2 rounded-full border border-white/10
-                                 bg-white/[0.03] px-2.5 py-1"
-                      title={`${miradas} de ${total} paredes miradas`}>
-                    <span className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
-                        <span className={`block h-full rounded-full transition-all
-                                          ${pct >= 100 ? 'bg-emerald-400' : 'bg-brand'}`}
-                              style={{ width: `${pct}%` }} />
-                    </span>
-                    <span className="tabular-nums">
-                        {pct >= 100
-                            ? <span className="font-bold text-emerald-300">✓ todas miradas</span>
-                            : <><b className="text-white/90">{miradas}</b>
-                               <span className="text-white/45">/{total}</span> paredes miradas</>}
-                    </span>
-                </span>
-            )}
-
-            {resumen.dudosos > 0 && (
-                <Pildora tono="aviso" onClick={onPendientes}
-                         title="Ver cuáles son e ir a cada una">
-                    <b>{resumen.dudosos}</b> {resumen.dudosos === 1 ? 'medida' : 'medidas'} por confirmar ▾
+            {ventanas && (
+                <Pildora onClick={onVentanas}
+                         title="Cambiar la carpintería, de toda la vivienda o de algunas ventanas">
+                    ▤ {ventanas}<span className="opacity-60"> ✎</span>
                 </Pildora>
             )}
+
             {/* Lo que SE REFORMA. Sale con «- CAMBIA» en el .cex, y es lo que
                 hay que poder comprobar de un vistazo antes de generar. */}
             {resumen.cambian > 0 && (
@@ -2445,17 +2691,6 @@ function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
                     <b>{resumen.fuera}</b> {resumen.fuera === 1 ? 'apartada' : 'apartadas'}
                 </Pildora>
             )}
-
-            {/* Como son las ventanas de la vivienda. Va aqui y no escondido en
-                un menu porque es lo que se acaba de contestar al entrar: hay
-                que poder comprobar de un vistazo que lo que se esta poniendo en
-                cada hueco es lo que se dijo. */}
-            <Pildora tono={ventanas ? null : 'aviso'} fuerte={!ventanas} onClick={onVentanas}
-                     title={ventanas ? 'Cambiar la carpintería, de toda la vivienda o de algunas ventanas'
-                                     : 'De aquí salen la U de cada hueco y su caja de persiana'}>
-                ▤ {ventanas || 'Di cómo son las ventanas'}
-                <span className="opacity-60"> ✎</span>
-            </Pildora>
 
             {/* Si lo preparó el AGENTE IA: quién, cuándo y si dejó avisos. */}
             {agente}
@@ -2994,7 +3229,7 @@ function PasoEntrada() {
  *
  * El grupo de plantas solo aparece con más de una: con una no hay qué elegir.
  */
-function BarraVista({ plantas, sel, onSel, modo, onModo }) {
+function BarraVista({ plantas, sel, onSel, modo, onModo, children }) {
     return (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border
                         border-white/[0.05] bg-white/[0.02] px-3 py-2">
@@ -3031,6 +3266,8 @@ function BarraVista({ plantas, sel, onSel, modo, onModo }) {
                     las demás siguen medidas y se guardan igual
                 </span>
             )}
+            {/* Los mandos de TODO el plano (`MandosComunes`): Equipos, fondo y Google. */}
+            {children}
         </div>
     );
 }
@@ -3098,7 +3335,7 @@ function PreguntasPrevias({ preguntas, onGenerar, onCerrar }) {
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4
                         backdrop-blur-sm" onClick={onCerrar}>
             <div onClick={e => e.stopPropagation()}
-                 className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#141414] p-5
+                 className="w-full max-w-lg rounded-2xl border border-white/10 bg-bkg-surface p-5
                             shadow-2xl">
                 <h3 className="text-sm font-black uppercase tracking-widest text-white/80">
                     Antes de generar

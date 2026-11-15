@@ -376,9 +376,10 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     // (fase) => void, o null (certificador: su ruta es staffOnly).
     onPresentar = null,
     // Acceso directo a «Enviar a presentar» (encargo a quien presenta, sin cuenta).
+    // Desde el 25/10/2026 nadie lo pasa: Eva ya no presenta.
     onEncargarPresentacion = null,
-    // El certificador asignado es el de la CASA: el CEE se puede presentar en
-    // cuanto se sube, sin esperar a nuestro visto bueno.
+    // El certificador asignado es el de la CASA: lo presenta Brokergy (el PC),
+    // con el visto bueno dado como cualquier otro.
     presentaLaCasa = false,
     onApproveSend,
     onSaveInstalacion,
@@ -425,6 +426,8 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     const [certNotifyModal, setCertNotifyModal] = useState(null); // { section: 'inicial'|'final' }
     //: La PÁGINA DEL ENCARGO del técnico asignado (la firma el servidor): va en el
     //: mensaje en lugar del enlace a la app. Ver services/encargoTecnico.js.
+    //: `{ url, url_app_encargo, url_app_recordatorio }`: si usa la app de
+    //: certificadores, el de su app, el que pondrá el envío (`ctxEncargo`).
     const [enlaceEncargo, setEnlaceEncargo] = useState(null);
     const [certTemplate, setCertTemplate] = useState('standard'); // 'standard' | 'seguimiento' | 'approve'
     // Eje 1: qué esperamos del certificador ('emision' | 'registro'). Eje 2: tono.
@@ -609,6 +612,15 @@ Según el documento:
         };
     };
 
+    // El enlace del encargo que pondrá el servidor: el de su app si el técnico la
+    // usa (en un encargo, con tener cuenta; en un recordatorio, si la obra ya está
+    // allí), si no la página del encargo.
+    const ctxEncargo = (template) => {
+        const e = enlaceEncargo || {};
+        const app = template === 'standard' ? e.url_app_encargo : e.url_app_recordatorio;
+        return { encargoLink: app || e.url || null, encargoEnApp: !!app };
+    };
+
     // Texto por defecto según el tipo de mensaje y los dos ejes activos.
     const certTemplateText = (template, section, espera, tono, dias) => {
         if (template === 'approve') {
@@ -620,10 +632,10 @@ Según el documento:
             // que confirmó el cliente al aceptar (emisores, placas, aires), que
             // es lo que hay que declarar como existente.
             return buildCertEncargoMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId,
-                section === 'final' ? ce3x.bloque : bloqueClienteInicial, { encargoLink: enlaceEncargo });
+                section === 'final' ? ce3x.bloque : bloqueClienteInicial, ctxEncargo(template));
         }
         return buildCertMessage({ espera, tono, fase: section, certName, clienteNombre, numExp, expedienteId, dias,
-                                  ctx: { encargoLink: enlaceEncargo } });
+                                  ctx: ctxEncargo(template) });
     };
 
     // El bloque CE3X necesita el SEER, que vive en el CATÁLOGO del modelo y no en
@@ -686,7 +698,7 @@ Según el documento:
                 .then(r => setCertApproveLinks(r.data))
                 .catch(() => setCertApproveLinks(null));
             axios.get(`${apiBase}/${expediente.id}/enlace-encargo?phase=${certNotifyModal.section}`)
-                .then(r => setEnlaceEncargo(r.data?.url || null))
+                .then(r => setEnlaceEncargo(r.data?.url || r.data?.url_app_encargo ? r.data : null))
                 .catch(() => setEnlaceEncargo(null));
             // Avisar de los datos del cliente que el certificador NO recibirá.
             axios.get(`${apiBase}/${expediente.id}/cert-cliente-data`)
@@ -1627,18 +1639,17 @@ Según el documento:
 
                     // ── Presentar en el Registro: ¿toca ya? ──────────────────────
                     // Hace falta el certificado ENTREGADO (su .xml: de él salen las
-                    // casillas del borrador) y que NO esté inscrito todavía. Y que esté
-                    // listo: con el visto bueno dado (REVISADO) o, si lo ha hecho el
-                    // certificador de la CASA, en cuanto se sube — ahí no hay un técnico
-                    // de fuera esperando nuestro visto bueno para presentar.
+                    // casillas del borrador) y que NO esté inscrito todavía. Y que tenga
+                    // el visto bueno (REVISADO), también si lo hizo el certificador de la
+                    // CASA: desde el 25/10/2026 «desde que doy el VB se puede presentar»
+                    // (Fran), y el VB es lo que pasa los `_REVISAR` a su nombre definitivo.
                     const presentar = (() => {
                         if (!onPresentar) return null;
                         const entregado = !!(ceeFiles?.[section]?.xml || xmlTextos?.[section]
                             || parseFloat(sectionDemand?.demandaCalefaccion) > 0);
                         const inscrito = isRegistrado || !!ceeFiles?.[section]?.registro;
                         if (!entregado || inscrito) return null;
-                        const listo = segStatus === 'REVISADO'
-                            || (presentaLaCasa && segStatus !== 'PTE_ENVIO_CERT');
+                        const listo = segStatus === 'REVISADO';
                         if (!listo) return null;
                         // El plazo: UN MES desde la emisión (apartado 07.2 del impreso).
                         // Pasado, hay que volver a emitir el certificado — por eso se dice aquí.
@@ -1646,7 +1657,7 @@ Según el documento:
                         // Lo que dice la tarjeta es el PLAZO, que es lo que corre prisa; que
                         // tiene el visto bueno ya lo dice la chapa de estado de encima.
                         let tono = 'emerald';
-                        let detalle = segStatus === 'REVISADO' ? 'Borrador para el Registro' : 'Hecho por Brokergy: listo';
+                        let detalle = presentaLaCasa ? 'Lo presenta Brokergy' : 'Borrador para el Registro';
                         if (/^\d{4}-\d{2}-\d{2}/.test(firma || '')) {
                             const dias = Math.floor((Date.now() - new Date(`${firma.slice(0, 10)}T00:00:00`)) / 86400000);
                             const quedan = PLAZO_INSCRIPCION_DIAS - dias;

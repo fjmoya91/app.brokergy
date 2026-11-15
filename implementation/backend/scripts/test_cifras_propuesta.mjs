@@ -11,7 +11,7 @@ import path from 'node:path';
 
 const aqui = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 const raiz = path.resolve(aqui, '../../frontend/src/features/calculator/logic');
-const { cifrasPropuesta, costesServicio, TARIFA_TOTAL } =
+const { cifrasPropuesta, costesServicio, TARIFA_TOTAL, penalizacionReforzada, PENALIZACION_REFORZADA_PCT } =
     await import(pathToFileURL(path.join(raiz, 'cifrasPropuesta.js')).href);
 const { calculateFinancials } = await import(pathToFileURL(path.join(raiz, 'calculation.js')).href);
 const { importesDe } = createRequire(import.meta.url)('../utils/importesPropuesta.js');
@@ -81,6 +81,25 @@ t('la versión sella la MISMA ayuda total que imprime el PDF', () => {
     const imp = importesDe({ financials: op279 }, {});
     assert.equal(imp.totalAyuda, cifrasPropuesta(op279).totalAyuda);
     assert.equal(imp.irpfDeduction, 5772);
+});
+
+// «Perfil exigente» (26RES060_OP369, 05/11/2026): el 40 % del bono, la tarifa como mínimo.
+t('penalización reforzada: 40 % del bono impreso (Vicente: 2.673 € → 1.069 €)', () => {
+    assert.equal(PENALIZACION_REFORZADA_PCT, 40);
+    assert.equal(penalizacionReforzada(2673.4), 1069);
+    assert.equal(penalizacionReforzada(3753), 1501);
+});
+
+t('penalización reforzada: nunca por debajo de la tarifa (702,78 €)', () => {
+    assert.equal(penalizacionReforzada(1200), TARIFA_TOTAL);
+    assert.equal(penalizacionReforzada(0), TARIFA_TOTAL);
+});
+
+t('la versión sella la MISMA penalización que imprime la cláusula 4', () => {
+    for (const bono of [0, 1500, 1756.9, 2673.4, 5160.6, 12345.5]) {
+        const imp = importesDe({ financials: { ...op279, caeBonus: bono } }, { condicionesReforzadas: true });
+        assert.equal(imp.reforzadas.penalizacion, penalizacionReforzada(cifrasPropuesta({ ...op279, caeBonus: bono }).caeBonus), `bono ${bono}`);
+    }
 });
 
 console.log(`\n${ok} comprobaciones OK`);

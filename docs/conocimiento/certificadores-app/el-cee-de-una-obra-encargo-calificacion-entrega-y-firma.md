@@ -25,9 +25,9 @@ el definitivo», y que al certificador le llegue un WhatsApp y un email con la e
 | 2 | Agente del VPS | Hace el `.cex` **en silencio**: `ceeIa.pedir` → `pedirTarea({ silencioso: true })`. Si todas las tareas son silenciosas, el vigía no acusa recibo, le dice al agente que no escriba y, si sale bien, no manda nada | ninguno |
 | 3 | Agente → PC | Deja el `.cex` por calificar → `agenteIa.terminarExt({ entregable: false })` → `asistenteCanal.encargarCalificarExt` → `POST /pc-calificar` del vigía → `asistente_pc.encolarCalificarExt` → tarea `calificar_ext` en la cola del PC | ninguno (si el encargo falla, el aviso de «por calificar» de antes, con el motivo) |
 | 4 | PC de Fran | En su vuelta (cada 2 min): `asegurarMotor` (el uvicorn del motor en el puerto de `CEE_ENGINE_URL`: en el PC, su propio motor en el 8093) y `node scripts/cee_inicial.js calificar <nº> --escribir`, **sin Claude**. Al acabar bien, `avisarCalificadaExt` llama a producción e imprime `@@CALIFICADA_OK <nº>` | solo si falla (no aparece la marca) |
-| 5 | Producción | `POST /api/certapp-admin/interno/calificada` (clave interna): exige PDF y XML en «1. CEE» (409 `SIN_CALIFICAR`) → `terminarExt({ calificada: true, entregable: true })` → evento `IA_HECHA` → `alTerminarIa` | con `CERTAPP_ENTREGA_AUTO`, entrega sola; si no, al equipo **«✅ CEE listo para revisar»** (`entrega.textoListoEquipo`: nº, cliente, certificador, calificación, admin y envolvente; sin enlaces de Drive) + email |
-| 6 | Equipo | «Entregar» en el admin | al certificador, WhatsApp y email: la obra (ver, descargar el `.cex`, firmar) y **la envolvente** (segundo botón del email) |
-| 7 | Cualquiera | Regenera en la envolvente el inicial de una obra ext | se encarga sola al PC (pasos 4 y 5) y la envolvente avisa «se calcula con CE3X, unos minutos» |
+| 5 | Producción | `POST /api/certapp-admin/interno/calificada` (clave interna): exige PDF y XML en «1. CEE» (409 `SIN_CALIFICAR`) → `terminarExt({ calificada: true, entregable: true })` → evento `IA_HECHA` → `alTerminarIa` | con el **visto bueno** de BROKERGY ya dado en la envolvente, se entrega sola «listo para firmar» (sin el WhatsApp al equipo); con `CERTAPP_ENTREGA_AUTO`, entrega sola; si no, al equipo **«✅ CEE listo para revisar»** (`entrega.textoListoEquipo`: nº, cliente, certificador, calificación, admin y envolvente; sin enlaces de Drive) + email |
+| 6 | Equipo | «Entregar» en el admin, **o «✓ Visto bueno: listo para firmar» en la envolvente** (desde el 30/10/2026: genera si hace falta y entrega al calificar; ver «El visto bueno de BROKERGY, dado en la envolvente») | al certificador, WhatsApp y email: la obra (ver, descargar el `.cex`, firmar) y **la envolvente** (segundo botón del email); con el visto bueno, «está listo para firmar» |
+| 7 | Cualquiera | Regenera en la envolvente el inicial de una obra ext | se encarga sola al PC (pasos 4 y 5) y la envolvente avisa «se calcula con CE3X, unos minutos». Con otra receta, el visto bueno que hubiera **se anula** |
 
 El aviso del paso 5 sale de **producción**, también cuando la calificación se lanza en el PC: el
 `.env` local tiene apagados `CERTAPP_AVISOS_ENABLED` y compañía, y producción es quien tiene el
@@ -78,12 +78,12 @@ firma: { at, firmante, via } | null }` (`firma.resumenParaCertificador`, sin enl
 |---|---|
 | `GET /obras/:id/cee/para-firmar` | `{ nombre, base64 }`: el PDF que toca firmar (el `pdf` de `elegirFicheros`). Sin entregar, 409 `ESTADO_NO_FIRMABLE`; sin «1. CEE», 409 `SIN_CEE` |
 | `POST /obras/:id/cee/firmado` (multipart `fichero`) | El PDF firmado en el navegador → `{ ok, estado, firma, avisos }`. Lo guarda como `{nº} - CEE_fdo.pdf` |
-| `POST /obras/:id/cee/definitivo` (multipart `fichero`) | Un `.xml` (se carga en la app), un `.pdf` (firmado: como el anterior; sin firmar: `{nº} - CEE.pdf`) o un `.cex` (a cuarentena) → `{ ok, tipo, fichero, estado }` |
+| `POST /obras/:id/cee/definitivo` (multipart `fichero`) | Un `.xml` (se carga en la app y la app hace con él el PDF oficial, `{nº} - CEE.pdf`, desde el 31/10/2026; también en BORRADOR), un `.pdf` (firmado: como el anterior; sin firmar: `{nº} - CEE.pdf`) o un `.cex` (a cuarentena) → `{ ok, tipo, fichero, pdf?, estado }` |
 | `GET /obras/:id/documentos` | Lo actual, las versiones anteriores, los `.cex` en cuarentena y la firma ([documentos-de-la-obra-visor-y-cex-en-cuarentena.md](docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md)) |
 
 En la pantalla se firma con el **mismo modal del CRM** (`FirmarConCertificadoModal`, AutoFirma por el
 WebSocket local), cargado solo al pulsar (pesa 357 kB por pdf.js), con el recuadro anclado al rótulo
-de CE3X (`CEE_SIGN_ANCHOR`) y **sin el logo de BROKERGY** (`rubricImageUrl={null}`): firma un técnico
+de CE3X (`CEE_SIGN_ANCHOR`; si encima pisa texto —la 3.2—, va debajo, 28/10/2026) y **sin el logo de BROKERGY** (`rubricImageUrl={null}`): firma un técnico
 externo. El firmante se compara con el nombre de la cuenta solo como aviso.
 
 **REGLA — una firma rota no se guarda**: `leerFirmasPdf` (el mismo del CRM). Sin firma, 422
@@ -99,10 +99,12 @@ el XML y el PDF. Detalle en [documentos-de-la-obra-visor-y-cex-en-cuarentena.md]
 
 **REGLA — un XML definitivo se lee en seco antes de guardarlo**: `cargarXmlEnApp(…, { escribir:
 false })`; si no se puede cargar, 422 `XML_ILEGIBLE`, y sin calificación, 422
-`XML_SIN_CALIFICACION`. Solo entonces se guarda `{nº} - CEE.xml` y se carga de verdad (evento
-`DEFINITIVO`).
+`XML_SIN_CALIFICACION`. Desde el 31/10/2026, además, la app hace con él el PDF oficial y, si no
+valida, no se guarda nada; si valida, se guardan `{nº} - CEE.xml` y `{nº} - CEE.pdf` y se carga de
+verdad (evento `DEFINITIVO`). Ver [el-pdf-del-xml-en-el-servidor.md](docs/conocimiento/certificadores-app/el-pdf-del-xml-en-el-servidor.md).
 
-Todo se hace en LISTO o VALIDADO (`ESTADOS_FIRMABLES`); lo que se sustituye va a OLD.
+Todo se hace en LISTO o VALIDADO (`ESTADOS_FIRMABLES`), salvo el XML, que vale también en BORRADOR;
+lo que se sustituye va a OLD.
 
 ### Los ficheros de «1. CEE» y cuál manda
 
@@ -111,7 +113,7 @@ Todo se hace en LISTO o VALIDADO (`ESTADOS_FIRMABLES`); lo que se sustituye va a
 | `{nº} - CEE_REVISAR.cex` · `.xml` · `.pdf` | lo nuestro (la IA y la calificación del PC) |
 | `{nº} - CEE INICIAL_CROQUIS.pdf` | el croquis |
 | `{nº} - CEE_fdo.pdf` | el firmado (AutoFirma en la app, o un PDF firmado que sube) |
-| `{nº} - CEE.xml` · `{nº} - CEE.pdf` | el definitivo que sube el certificador |
+| `{nº} - CEE.xml` · `{nº} - CEE.pdf` | el definitivo que sube el certificador (el PDF, el suyo o el que hace la app con su XML) |
 | `CEX DEL CERTIFICADOR (NO ABRIR)/{nº} - CEE AAAA-MM-DD HHhMM.cex.cuarentena` | los `.cex` que sube el certificador: nunca «el `.cex`» |
 | `OLD/…_OLD{n}.…` | lo sustituido; en la app, «Versiones anteriores» |
 

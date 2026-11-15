@@ -16,7 +16,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import CondicionesAceptacionModal from '../components/CondicionesAceptacionModal';
-import { CONDICIONES_VERSION } from '../logic/condicionesAceptacion';
+import { CONDICIONES_VERSION, CONDICIONES_REFORZADAS_VERSION, condicionesReforzadas } from '../logic/condicionesAceptacion';
 import { ConfirmarVivienda } from '../components/ConfirmarVivienda';
 import { PropietariosAceptacion } from '../components/PropietariosAceptacion';
 import {
@@ -24,6 +24,7 @@ import {
 } from '../logic/propietariosAceptacion';
 import {
     CONFIRMACION_VACIA, CONFIRMACION_VERSION, faltanConfirmacion, resumenConfirmacion,
+    PREGUNTA_BONO, esNifDeEmpresa,
 } from '../../expedientes/logic/confirmacionCliente';
 
 // En relativo: en local lo atiende el proxy de Vite, y así la página funciona
@@ -138,6 +139,12 @@ const CSS = `
 .fp-mini{appearance:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:12px;border:1.5px solid rgba(20,17,17,.14);background:#fff;color:var(--tinta);font:700 13.5px 'Inter',sans-serif;white-space:nowrap}
 .fp-mini:hover{border-color:rgba(20,17,17,.3)}
 .fp-link{appearance:none;background:none;border:0;cursor:pointer;padding:0;font:inherit;font-weight:700;color:var(--tinta);text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(20,17,17,.35);border-radius:6px}
+/* casillas del «Perfil exigente» (ConfirmarVivienda): toda la fila es la zona de toque */
+.fp-casilla{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:16px;background:#fff;border:1.5px solid rgba(20,17,17,.14);font-size:14px;line-height:1.5;color:#3b3e45;cursor:pointer}
+.fp-casilla:has(input:checked){border-color:var(--naranja);background:#fffaf0}
+.fp-casilla input{flex:none;width:22px;height:22px;margin:1px 0 0;accent-color:var(--naranja);cursor:pointer}
+.fp-casilla small{display:block;margin-top:4px;font-size:12.5px;color:var(--gris2)}
+.fp-casilla:focus-within{outline:3px solid var(--tinta);outline-offset:3px}
 .fp-atras{appearance:none;background:none;border:0;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 6px 0 0;font:700 14px 'Inter',sans-serif;color:var(--gris);border-radius:8px}
 .fp-atras:hover{color:var(--tinta)}
 .fp-separa{display:flex;align-items:center;gap:12px;margin:18px 0 0;font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--gris2)}
@@ -526,6 +533,15 @@ export function AceptarPropuestaView({ idOportunidad }) {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [verCondiciones, setVerCondiciones] = useState(false);
+    // «Perfil exigente»: lo sellado en la versión vigente (GET /public/cliente) y
+    // las dos casillas de la última pantalla.
+    const [reforzadas, setReforzadas] = useState(null);
+    // ¿Se le pregunta por el BONO SOCIAL? Lo decide el servidor por la ficha
+    // (null en el terciario; 'fm' en RES060/RES093, que tienen la -S; 'anexo' en
+    // RES080) y aquí se quita si el NIF es de una empresa (logic/confirmacionCliente.js).
+    const [bonoPregunta, setBonoPregunta] = useState(null);
+    const [compromiso, setCompromiso] = useState(false);
+    const [inicioAnticipado, setInicioAnticipado] = useState(false);
     const formRef = useRef(null);
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState(null);
@@ -545,6 +561,12 @@ export function AceptarPropuestaView({ idOportunidad }) {
         email: '',
         telefono: '',
         iban: '',
+        // EMPRESA: su representante legal (quien firma los anexos). Se pide ya al
+        // aceptar para no tener que pedirlo después (Fran, 10/11/2026, OP389).
+        es_empresa: false,
+        representante_nombre: '',
+        representante_apellidos: '',
+        representante_dni: '',
         // Fechas que le ha dado su instalador. OPCIONALES: no bloquean la aceptación.
         // La de inicio nos marca el plazo para registrar el CEE inicial, que tiene
         // que estar hecho antes de que la obra empiece.
@@ -585,6 +607,10 @@ export function AceptarPropuestaView({ idOportunidad }) {
             setFormData(prev => ({ ...prev, ...DEMO_DATOS }));
             // /firma/demo?varios — para ver cómo queda con varios propietarios habilitados.
             if (new URLSearchParams(window.location.search).has('varios')) setPermiteVarios(true);
+            // /firma/demo?reforzadas — la aceptación con el «Perfil exigente» (cifra de ejemplo).
+            if (new URLSearchParams(window.location.search).has('reforzadas')) setReforzadas({ pct: 40, penalizacion: 1069, tarifa: 702.78 });
+            // /firma/demo enseña la pregunta del bono social completa (RES060); ?reforma, la de un RES080.
+            setBonoPregunta(new URLSearchParams(window.location.search).has('reforma') ? PREGUNTA_BONO.ANEXO : PREGUNTA_BONO.FM);
             setDisplayId('DEMO');
             setLoading(false);
             return;
@@ -598,7 +624,10 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 // al aceptar ya no se le pregunta al cliente si usamos su CEE (Fran,
                 // 26/10/2026) — el inicial lo hace siempre BROKERGY.
                 const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, cee_aportado, cee_decision,
-                        propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, copropietarios: copsServidor, permite_varios_propietarios, ...rest } = res.data;
+                        propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, copropietarios: copsServidor, permite_varios_propietarios,
+                        condiciones_reforzadas, bono_social_pregunta, ...rest } = res.data;
+                setReforzadas(condiciones_reforzadas || null);
+                setBonoPregunta(Object.values(PREGUNTA_BONO).includes(bono_social_pregunta) ? bono_social_pregunta : null);
 
                 setFormData(prev => ({ ...prev, ...rest }));
                 // Si la ficha ya tiene otros propietarios, la pregunta viene contestada.
@@ -644,12 +673,19 @@ export function AceptarPropuestaView({ idOportunidad }) {
         setFase('vivienda');
     };
 
+    // Una empresa no tiene bono social: con un CIF no se pregunta.
+    const preguntaBono = bonoPregunta && !esNifDeEmpresa(formData.dni_cif) ? bonoPregunta : null;
+
     const enviarAceptacion = async () => {
         // Las preguntas de la vivienda no se pueden saltar en las pantallas;
         // esto es la red por si algo llega a medias.
-        const faltan = faltanConfirmacion(conf);
+        const faltan = faltanConfirmacion(conf, { bono: preguntaBono });
         if (faltan.length) {
             setError(`Falta por contestar: ${faltan.join(', ')}.`);
+            return;
+        }
+        if (reforzadas && !compromiso) {
+            setError('Para aceptar, marca la casilla del compromiso de cesión en exclusiva.');
             return;
         }
         if (demo) {
@@ -673,9 +709,16 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 }
             }
             // Qué texto de condiciones tenía delante al aceptar: se sella en el historial.
-            fd.append('condiciones_version', CONDICIONES_VERSION);
+            fd.append('condiciones_version', reforzadas ? CONDICIONES_REFORZADAS_VERSION : CONDICIONES_VERSION);
+            // «Perfil exigente»: la casilla del compromiso (obligatoria) y la del inicio anticipado.
+            if (reforzadas) {
+                fd.append('compromiso_exclusiva', compromiso ? 'si' : 'no');
+                fd.append('inicio_anticipado', inicioAnticipado ? 'si' : 'no');
+            }
             // Lo que confirma de su vivienda. Va como JSON: es un multipart.
-            fd.append('confirmacion', JSON.stringify({ ...conf, version: CONFIRMACION_VERSION }));
+            // Sin la pregunta del bono (empresa, terciario), su respuesta no viaja.
+            const { bono, bono_tipo, bono_fn, ...sinBono } = conf;
+            fd.append('confirmacion', JSON.stringify({ ...(preguntaBono ? conf : sinBono), version: CONFIRMACION_VERSION }));
             const res = await axios.post(`${API_URL}/aceptar/${idOportunidad}`, fd, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
@@ -696,8 +739,11 @@ export function AceptarPropuestaView({ idOportunidad }) {
         }
     };
 
+    // Empresa: la ficha lo dice o el NIF tecleado es un CIF.
+    const esEmpresa = formData.es_empresa === true || formData.es_empresa === 'true' || esNifDeEmpresa(formData.dni_cif);
     // Para el saludo: el nombre de pila tal y como se dice («MARÍA» → «María»).
-    const pila = String(formData.nombre_razon_social || '').trim().split(/\s+/)[0] || '';
+    // A una empresa, el de su representante; nunca la razón social («Hola, Autoservicio»).
+    const pila = String((esEmpresa ? formData.representante_nombre : formData.nombre_razon_social) || '').trim().split(/\s+/)[0] || '';
     const nombre = pila ? pila.charAt(0).toLocaleUpperCase('es') + pila.slice(1).toLocaleLowerCase('es') : '';
 
     if (loading) {
@@ -783,9 +829,17 @@ export function AceptarPropuestaView({ idOportunidad }) {
                             <div>
                                 <div className="fp-campos fp-dos">
                                     {[
-                                        { name: 'nombre_razon_social', label: 'Nombre / Razón social' },
-                                        { name: 'apellidos', label: 'Apellidos' },
-                                        { name: 'dni_cif', label: 'DNI / CIF' },
+                                        ...(esEmpresa ? [
+                                            { name: 'nombre_razon_social', label: 'Razón social' },
+                                            { name: 'dni_cif', label: 'CIF' },
+                                            { name: 'representante_nombre', label: 'Representante: nombre' },
+                                            { name: 'representante_apellidos', label: 'Representante: apellidos' },
+                                            { name: 'representante_dni', label: 'Representante: DNI' },
+                                        ] : [
+                                            { name: 'nombre_razon_social', label: 'Nombre / Razón social' },
+                                            { name: 'apellidos', label: 'Apellidos' },
+                                            { name: 'dni_cif', label: 'DNI / CIF' },
+                                        ]),
                                         { name: 'email', label: 'Email', type: 'email' },
                                         { name: 'telefono', label: 'Teléfono', type: 'tel' },
                                         { name: 'iban', label: 'Cuenta (IBAN)', placeholder: 'ESXX XXXX ...', mono: true },
@@ -854,9 +908,16 @@ export function AceptarPropuestaView({ idOportunidad }) {
                             <>
                                 <dl className="fp-dl">
                                     {[
-                                        ['Nombre', formData.nombre_razon_social],
-                                        ['Apellidos', formData.apellidos],
-                                        ['DNI / CIF', formData.dni_cif, true],
+                                        ...(esEmpresa ? [
+                                            ['Razón social', formData.nombre_razon_social],
+                                            ['CIF', formData.dni_cif],
+                                            ['Representante legal', [formData.representante_nombre, formData.representante_apellidos].filter(Boolean).join(' ')],
+                                            ['DNI del representante', formData.representante_dni],
+                                        ] : [
+                                            ['Nombre', formData.nombre_razon_social],
+                                            ['Apellidos', formData.apellidos],
+                                            ['DNI / CIF', formData.dni_cif],
+                                        ]),
                                         ['Email', formData.email],
                                         ['Teléfono', formData.telefono],
                                         ['Cuenta (IBAN)', formData.iban, true],
@@ -979,12 +1040,18 @@ export function AceptarPropuestaView({ idOportunidad }) {
                     onVerCondiciones={() => setVerCondiciones(true)}
                     enviando={submitting}
                     error={error}
+                    reforzadas={reforzadas}
+                    compromiso={compromiso}
+                    setCompromiso={setCompromiso}
+                    inicioAnticipado={inicioAnticipado}
+                    setInicioAnticipado={setInicioAnticipado}
+                    preguntaBono={preguntaBono}
                 />
             ) : (<>
                 <p className="fp-hola fp-in">{nombre ? <>Hola, <b>{nombre}</b></> : 'Hola'}</p>
                 <h1 className="fp-display fp-h1 fp-in">Acepta tu <span className="fp-mark">propuesta</span></h1>
                 <p className="fp-sub fp-in fp-in-2">
-                    Tus datos ya vienen rellenos: <b>solo comprueba que están bien</b>. Después, tres preguntas rápidas sobre tu vivienda y listo.
+                    Tus datos ya vienen rellenos: <b>solo comprueba que están bien</b>{esEmpresa ? ' y completa los del representante legal' : ''}. Después, {preguntaBono ? 'cuatro' : 'tres'} preguntas rápidas sobre {esEmpresa ? 'el inmueble' : 'tu vivienda'} y listo.
                 </p>
 
                 {/* Qué documento se está aceptando. Solo a partir de la
@@ -1010,24 +1077,54 @@ export function AceptarPropuestaView({ idOportunidad }) {
                         <div className="fp-top" style={{ margin: 0 }}>
                             <p className="fp-eyebrow">Paso 1 de 2 · Tus datos</p>
                         </div>
+                        {/* Empresa: la razón social ENTERA (sin apellidos) y debajo su
+                            representante legal. El NIF, con la misma letra que el teléfono. */}
+                        {esEmpresa ? (
+                            <div className="fp-campos">
+                                <Campo id="nombre_razon_social" label="Razón social" obligatorio>
+                                    <input id="nombre_razon_social" name="nombre_razon_social" type="text" required autoComplete="organization"
+                                        value={formData.nombre_razon_social} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                            </div>
+                        ) : null}
                         <div className="fp-campos fp-dos">
-                            <Campo id="nombre_razon_social" label="Nombre / Razón social" obligatorio>
-                                <input id="nombre_razon_social" name="nombre_razon_social" type="text" required autoComplete="given-name"
-                                    value={formData.nombre_razon_social} onChange={handleChange} className="fp-input" />
-                            </Campo>
-                            <Campo id="apellidos" label="Apellidos">
-                                <input id="apellidos" name="apellidos" type="text" autoComplete="family-name"
-                                    value={formData.apellidos || ''} onChange={handleChange} className="fp-input" />
-                            </Campo>
-                            <Campo id="dni_cif" label="DNI / CIF" obligatorio>
+                            {!esEmpresa && (<>
+                                <Campo id="nombre_razon_social" label="Nombre / Razón social" obligatorio>
+                                    <input id="nombre_razon_social" name="nombre_razon_social" type="text" required autoComplete="given-name"
+                                        value={formData.nombre_razon_social} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                                <Campo id="apellidos" label="Apellidos">
+                                    <input id="apellidos" name="apellidos" type="text" autoComplete="family-name"
+                                        value={formData.apellidos || ''} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                            </>)}
+                            <Campo id="dni_cif" label={esEmpresa ? 'CIF' : 'DNI / CIF'} obligatorio>
                                 <input id="dni_cif" name="dni_cif" type="text" required
-                                    value={formData.dni_cif || ''} onChange={handleChange} className="fp-input fp-input-mono" />
+                                    value={formData.dni_cif || ''} onChange={handleChange} className="fp-input" />
                             </Campo>
                             <Campo id="telefono" label="Teléfono" obligatorio>
                                 <input id="telefono" name="telefono" type="tel" required autoComplete="tel"
                                     value={formData.telefono || ''} onChange={handleChange} className="fp-input" />
                             </Campo>
                         </div>
+                        {esEmpresa && (<>
+                            <p className="fp-sec">Representante legal</p>
+                            <p className="fp-txt" style={{ marginTop: 0 }}>La persona que firma en nombre de la empresa.</p>
+                            <div className="fp-campos fp-dos">
+                                <Campo id="representante_nombre" label="Nombre" obligatorio>
+                                    <input id="representante_nombre" name="representante_nombre" type="text" required autoComplete="given-name"
+                                        value={formData.representante_nombre || ''} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                                <Campo id="representante_apellidos" label="Apellidos" obligatorio>
+                                    <input id="representante_apellidos" name="representante_apellidos" type="text" required autoComplete="family-name"
+                                        value={formData.representante_apellidos || ''} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                                <Campo id="representante_dni" label="DNI" obligatorio>
+                                    <input id="representante_dni" name="representante_dni" type="text" required
+                                        value={formData.representante_dni || ''} onChange={handleChange} className="fp-input" />
+                                </Campo>
+                            </div>
+                        </>)}
                         <div className="fp-campos">
                             <Campo id="email" label="Email" obligatorio>
                                 <input id="email" name="email" type="email" required autoComplete="email"
@@ -1136,12 +1233,13 @@ export function AceptarPropuestaView({ idOportunidad }) {
                         <button type="submit" className="fp-btn fp-btn-pri">
                             Continuar <IcoFlecha size={20} sw={2.4} />
                         </button>
-                        <p className="fp-nota">Después te hacemos 3 preguntas rápidas sobre tu vivienda y aceptas la propuesta.</p>
+                        <p className="fp-nota">Después te hacemos {preguntaBono ? 4 : 3} preguntas rápidas sobre {esEmpresa ? 'el inmueble' : 'tu vivienda'} y aceptas la propuesta.</p>
                     </div>
                 </form>
             </>)}
             <CondicionesAceptacionModal
                 tema="carta"
+                {...(reforzadas ? { condiciones: condicionesReforzadas(reforzadas), version: CONDICIONES_REFORZADAS_VERSION } : {})}
                 open={verCondiciones}
                 onClose={() => setVerCondiciones(false)}
                 enviando={submitting}

@@ -161,7 +161,7 @@ export function sanearLineas(lineas = []) {
                 detalle: recorta(l.detalle, 600),
                 uds: c.uds, precio: c.precio, dtoPct: c.dtoPct, ivaPct: c.ivaPct,
                 suplido: c.suplido,
-                genera: l.genera === 'CEE_UNICO' || l.genera === 'CEE_DOBLE' ? l.genera : null,
+                genera: ['CEE_UNICO', 'CEE_DOBLE', 'INFORME', 'CIT'].includes(l.genera) ? l.genera : null,
                 arrastrada_de: l.arrastrada_de ? recorta(l.arrastrada_de, 20) : null,
             };
         });

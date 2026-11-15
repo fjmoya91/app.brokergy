@@ -26,7 +26,6 @@ import { AuthContext } from '../../context/AuthContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { lazyWithReload } from '../../utils/lazyWithReload';
 import { useCertappAuth } from '../auth/CertappAuth';
-import Flotantes from '../widgets/Flotantes';
 
 const CLAVE_RECARGA = 'certapp:envolvente-origen-recarga';
 const VENTANA_RECARGA_MS = 30_000;
@@ -148,7 +147,10 @@ export default function EnvolventeCertapp({ obraId }) {
             {/* El asistente, sabiendo que está en el plano (Fran, 25/10/2026). El hueco
                 de abajo, para que el botón no tape lo último de la ventana. */}
             {cuenta && <div aria-hidden="true" className="h-20 bg-bkg-base" />}
-            {cuenta && <Flotantes obraId={obraId} pantalla="envolvente" soloAsistente />}
+            {/* El asistente de AQUÍ es el de la envolvente (ventana emergente
+                abajo a la derecha, `AsistenteEnvolvente`): corrige el plano y
+                contesta lo que se pregunte de él. Dos botones «Asistente» en la
+                misma esquina eran dos asistentes distintos (28/10/2026). */}
         </AuthContext.Provider>
     );
 }

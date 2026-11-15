@@ -37,7 +37,8 @@ del bloque, el reparto (cuántos tiene cada uno). Lo calcula `quienRegistra` en
 `rellenarNombres` (`f.registra`); del encargo solo viajan el nombre y la fecha, nunca el
 `nonce` del enlace.
 
-**REGLA — a los CEE de Fran no se les «recuerda al certificador»: se le ENCARGAN a Eva**
+**REGLA — a los CEE de Fran no se les «recuerda al certificador»: los presenta la casa**
+(desde el 25/10/2026: Eva ya no presenta; `aLaCasa` deja la fila en REGISTRO como «Presentarlo (firma y tasa en el PC)», responsable BROKERGY y sin tarjeta de Despachar — ver «El VISTO BUENO deja el CEE listo para presentar»). Lo que sigue es lo que había del 11/10/2026 al 25/10/2026, ya sin entrada:
 (decisión del usuario, 2026-10-11). Era escribirse a uno mismo. `aEva` les cambia la
 acción a `presentar-cee` (responsable `PRESENTADOR`): en Despachar salen en UNA tarjeta
 «Eva» cuyo popup ([PresentarEvaModal.jsx](implementation/frontend/src/features/seguimiento/components/PresentarEvaModal.jsx))

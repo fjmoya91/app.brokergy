@@ -601,6 +601,10 @@ router.post('/:tipo/:expId', express.json(), comprobarFirma, async (req, res) =>
                     // esto ya se pidió y cuándo. Son las suyas, no el nombre del
                     // destinatario: si no, la huella se pega a un ítem inexistente.
                     solicitado_keys: tipo === 'recordar-firma' ? clavesBarrido(target) : [],
+                    // El «¿cómo va la obra?» al instalador le pide la factura
+                    // (recordatorios.finObraMsg): detrás va el consejo de factura, si
+                    // la regla de utils/consejoFactura.js lo dice (lo decide la ruta).
+                    ...(tipo === 'fin-obra' && target === 'INSTALADOR' ? { consejo_factura: true } : {}),
                 }, { headers: cabeceraInterna(), timeout: 60000 });
                 hechos.push(`${target.toLowerCase()} (${canales.join(' + ')})`);
             }

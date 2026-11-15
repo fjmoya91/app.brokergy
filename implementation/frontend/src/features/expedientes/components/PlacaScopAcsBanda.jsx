@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react';
-import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
-import 'react-image-crop/dist/ReactCrop.css';
+import { EditorImagen } from '../../../components/EditorImagen';
 
 /**
  * LA BANDA DE LA PLACA DEL ANEXO VI — qué foto se imprime en el certificado.
@@ -10,7 +9,9 @@ import 'react-image-crop/dist/ReactCrop.css';
  * copias divergirían justo en el aviso de que la foto falta.
  *
  * Qué se hace aquí: ver cuál se imprime, elegir otra si hay varias, soltar una si
- * no hay ninguna y RECORTARLA — el mismo `ReactCrop` que el Anexo Fotográfico.
+ * no hay ninguna y RECORTARLA — el mismo editor que el Anexo Fotográfico, en su
+ * modo «recuadro»: aquí NO se gira ni se voltea, porque lo que se guarda es el
+ * encuadre y el certificado se monta con él (ver aviso de abajo).
  *
  * ⚠️ Al recortar NO se tocan los píxeles: se guarda el RECUADRO (`{x,y,w,h}` en %
  * más la relación de aspecto). Así el original sigue entero en Drive, el recorte
@@ -22,12 +23,9 @@ import 'react-image-crop/dist/ReactCrop.css';
  */
 export function PlacaScopAcsBanda({ placa, cargando, subiendo, onElegir, onSubir, onRecortar }) {
     const inputRef = useRef(null);
-    const imgRef = useRef(null);
     const [encima, setEncima] = useState(false);
     const [error, setError] = useState(null);
     const [editando, setEditando] = useState(false);
-    const [crop, setCrop] = useState();
-    const [hecho, setHecho] = useState();
 
     if (!placa?.aplica) return null;
 
@@ -48,16 +46,14 @@ export function PlacaScopAcsBanda({ placa, cargando, subiendo, onElegir, onSubir
     // Al abrir, se arranca del encuadre GUARDADO si lo hay: quien reabre el editor
     // viene a ajustarlo, no a empezar de cero.
     const cropGuardado = placa.recorte
-        ? { unit: '%', x: placa.recorte.x, y: placa.recorte.y, width: placa.recorte.w, height: placa.recorte.h }
+        ? { x: placa.recorte.x, y: placa.recorte.y, w: placa.recorte.w, h: placa.recorte.h }
         : null;
 
-    const aplicarRecorte = async () => {
-        const el = imgRef.current;
-        if (!hecho?.width || !el) { setEditando(false); return; }
-        // El recuadro viaja en % y con la relación de aspecto de la foto: es lo que
-        // el documento necesita para encuadrarla sin tener los píxeles delante.
-        const ar = el.naturalWidth / el.naturalHeight;
-        await onRecortar({ x: hecho.x, y: hecho.y, w: hecho.width, h: hecho.height, ar });
+    // El recuadro viaja en % y con la relación de aspecto de la foto: es lo que
+    // el documento necesita para encuadrarla sin tener los píxeles delante. Lo
+    // calcula el editor; aquí solo se guarda.
+    const aplicarRecorte = async (recuadro) => {
+        if (recuadro?.w) await onRecortar(recuadro);
         setEditando(false);
     };
 
@@ -74,7 +70,7 @@ export function PlacaScopAcsBanda({ placa, cargando, subiendo, onElegir, onSubir
             {hay
                 ? (
                     <button
-                        onClick={() => { setEditando(true); setCrop(cropGuardado || undefined); setHecho(cropGuardado || undefined); }}
+                        onClick={() => setEditando(true)}
                         title="Recortar la foto"
                         className="relative w-12 h-12 rounded-lg overflow-hidden border border-white/10 shrink-0 group"
                     >
@@ -133,52 +129,20 @@ export function PlacaScopAcsBanda({ placa, cargando, subiendo, onElegir, onSubir
 
             {(cargando || subiendo) && <span className="text-[10px] text-white/30 shrink-0">{subiendo ? 'subiendo…' : 'cargando…'}</span>}
 
-            {/* ── EDITOR DE ENCUADRE — mismo gesto que en el Anexo Fotográfico ── */}
+            {/* ── EDITOR DE ENCUADRE — la misma pieza que el Anexo Fotográfico ── */}
             {editando && hay && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/98 backdrop-blur-2xl p-4 md:p-8"
-                     onClick={() => setEditando(false)}>
-                    <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden"
-                         onClick={(e) => e.stopPropagation()}>
-                        <div className="shrink-0 px-6 py-4 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
-                            <h3 className="text-white font-bold uppercase tracking-widest text-xs">Recortar la placa · {placa.elegida?.name}</h3>
-                            <button onClick={() => setEditando(false)} className="text-white/20 hover:text-white transition-colors">
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                        </div>
-                        {/* min-h-0 deja que el área encoja; la imagen se acota a la altura real
-                            del modal → el botón Aplicar queda siempre visible. */}
-                        <div className="flex-1 min-h-0 overflow-hidden p-4 md:p-6 flex items-center justify-center bg-black/40">
-                            <ReactCrop crop={crop} onChange={(c, pc) => { setCrop(c); setHecho(pc); }} className="max-w-full max-h-full">
-                                <img ref={imgRef} src={placa.src} alt="Placa" className="max-w-full object-contain shadow-2xl"
-                                     style={{ maxHeight: 'calc(92vh - 210px)' }}
-                                     onLoad={(e) => {
-                                         const { width, height } = e.currentTarget;
-                                         const inicial = cropGuardado
-                                             || centerCrop(makeAspectCrop({ unit: '%', width: 90 }, undefined, width, height), width, height);
-                                         setCrop(inicial);
-                                         setHecho(cropGuardado || undefined);
-                                     }} />
-                            </ReactCrop>
-                        </div>
-                        <div className="shrink-0 p-4 md:p-6 bg-black/60 flex flex-col md:flex-row gap-4 justify-between items-center px-8 border-t border-white/10">
-                            <span className="text-[10px] uppercase font-black text-white/20 tracking-widest">Arrastra las esquinas · la foto original no se toca</span>
-                            <div className="flex gap-3">
-                                {placa.recorte && (
-                                    <button
-                                        onClick={async () => { await onRecortar(null); setEditando(false); }}
-                                        className="px-6 py-2 bg-white/5 border border-white/10 text-white/50 text-[11px] font-black rounded-xl uppercase tracking-widest hover:bg-white/10 transition-all"
-                                        title="Volver a la foto entera">
-                                        Quitar recorte
-                                    </button>
-                                )}
-                                <button onClick={() => setEditando(false)} className="px-8 py-2 bg-white/5 text-white/50 text-[11px] font-black rounded-xl uppercase tracking-widest hover:bg-white/10 transition-all">Cancelar</button>
-                                <button onClick={aplicarRecorte} className="px-10 py-2 bg-brand text-black text-[11px] font-black rounded-xl uppercase tracking-widest hover:scale-105 active:scale-95 transition-all">
-                                    Aplicar recorte
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <EditorImagen
+                    src={placa.src}
+                    titulo={`Placa · ${placa.elegida?.name || ''}`}
+                    modo="recuadro"
+                    recorteInicial={cropGuardado}
+                    etiquetaAplicar="Aplicar recorte"
+                    onAplicar={aplicarRecorte}
+                    onCancelar={() => setEditando(false)}
+                    onQuitarRecorte={placa.recorte
+                        ? async () => { await onRecortar(null); setEditando(false); }
+                        : null}
+                />
             )}
         </div>
     );

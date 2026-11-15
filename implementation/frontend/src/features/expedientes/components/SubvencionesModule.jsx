@@ -5,6 +5,7 @@ import {
     ESTADOS_CONCESION,
     leerSubvenciones, datosPrograma, faltantesSubvencion, importeEs,
 } from '../logic/subvenciones';
+import { bonoDeclaradoDe, bonoSocialParaSubvenciones, etiquetaBonoSocial } from '../logic/confirmacionCliente';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SubvencionesModule — lo que el titular declara en el Anexo I sobre BONO SOCIAL
@@ -137,6 +138,11 @@ export function SubvencionesModule({ expediente, onSave, onLiveUpdate, saving, r
     );
 
     const tiposMarcados = local.bono_social.tipos || [];
+    // El bono que declaró el cliente al aceptar, en los ids del Anexo I. «No» y «no
+    // lo sé» no proponen nada (null): no casa solo si declaró uno y no está marcado.
+    const declarado = bonoDeclaradoDe(expediente);
+    const bonoDeclaradoSubv = declarado ? bonoSocialParaSubvenciones(declarado.bono_social) : null;
+    const declaradoNoCasa = !!bonoDeclaradoSubv && bonoDeclaradoSubv.tipos.some(t => !tiposMarcados.includes(t));
 
     const toggleBono = (id) => {
         if (readOnly) return;
@@ -192,6 +198,24 @@ export function SubvencionesModule({ expediente, onSave, onLiveUpdate, saving, r
                     <p className="text-[11px] text-white/30 mt-3">
                         Sin marcar nada, en el Anexo I se marca «Ninguno de los anteriores».
                     </p>
+                )}
+                {/* Lo que dijo el cliente al aceptar la propuesta (logic/confirmacionCliente.js).
+                    El alta del expediente ya lo marca; si no casa (expediente anterior, o
+                    se cambió a mano), se ve aquí y se aplica con un clic. */}
+                {declarado && (
+                    <div className="mt-3 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2 max-md:flex-col">
+                        <p className="text-[12px] text-white/75 leading-snug">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 mr-2">Declarado al aceptar{declarado.fecha ? ` · ${new Date(declarado.fecha).toLocaleDateString('es-ES')}` : ''}</span>
+                            {etiquetaBonoSocial(declarado.bono_social)}
+                            {declaradoNoCasa && <span className="text-amber-300"> · no coincide con lo marcado</span>}
+                        </p>
+                        {declaradoNoCasa && !readOnly && (
+                            <button type="button" onClick={() => set({ bono_social: { percibe: true, tipos: [...new Set([...tiposMarcados, ...bonoDeclaradoSubv.tipos])] } })}
+                                className="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-white/10 text-white hover:bg-white/20">
+                                Marcar lo declarado
+                            </button>
+                        )}
+                    </div>
                 )}
             </div>
 
@@ -285,6 +309,15 @@ export function SubvencionesModule({ expediente, onSave, onLiveUpdate, saving, r
                                 </select>
                             </Field>
                         </div>
+
+                        <Field
+                            label="Texto del estado en el Anexo I (opcional)"
+                            hint="Si se escribe, es lo que imprime la casilla «Estado» en vez del nombre del estado. La casilla marcada sigue siendo la del estado elegido arriba.">
+                            <input disabled={readOnly} className={INPUT}
+                                placeholder="Solicitada sin contestación por ausencia de fondos"
+                                value={local.ayuda.estado_texto || ''}
+                                onChange={(e) => setAyuda({ estado_texto: e.target.value })} />
+                        </Field>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <Field label="Fecha de solicitud">

@@ -1,0 +1,186 @@
+# La BIENVENIDA: a quien escribe por primera vez, el formulario y el vídeo, solos (2026-11-09)
+
+Lo pidió Fran el 09/11/2026: «Lo que quiero es que al cliente, de manera automática, se le envíe ya un mensaje para que a
+través del formulario ya rellene sus datos y se queden registrados». Hasta ahora, a quien preguntaba por WhatsApp le
+contestaba él a mano y después le pedía al asistente «da de alta esta oportunidad». Ahora la primera respuesta sale sola
+con el enlace del formulario «Calcula tu ayuda». La oportunidad nace del formulario, por el mismo camino que cualquier
+lead web, y el aviso a administración lo dice («enlace de wa», `landing_funnel.ref`) cuando esté publicado el formulario rediseñado.
+
+Fuente única:
+- [services/bienvenidaWhatsapp.js](../../../implementation/backend/services/bienvenidaWhatsapp.js): la sesión, la BD y la vuelta;
+- [utils/bienvenidaWhatsapp.js](../../../implementation/backend/utils/bienvenidaWhatsapp.js): el texto, a quién no y el horario;
+- tabla en [scripts/wa_bienvenidas_schema.sql](../../../implementation/backend/scripts/wa_bienvenidas_schema.sql);
+- prueba: `node implementation/backend/scripts/test_bienvenida_whatsapp.js` (36 bloques, sin WhatsApp ni BD).
+
+## Por qué así y no con el «mensaje de bienvenida» de WhatsApp Business
+
+WhatsApp Business ya trae un mensaje de bienvenida automático, pero salta con cualquiera que lleve **14 días sin
+escribir**. Eso incluye a los clientes con un expediente en marcha y a los instaladores. La app sí sabe quién es nuevo de
+verdad, porque tiene la cartera.
+
+## Lo que se manda
+
+Dos mensajes: el texto y, detrás, el vídeo de las ayudas como VÍDEO, no como documento. Es el de
+`brokergy-marketing/2026-10_clientes-ayudas-aerotermia`, en la versión de la web (720×1280, 4,9 MB, 2:33). No habla del
+factor multiplicador, y Fran dijo que no hace falta: «es lo que necesitamos para tramitar solo».
+
+> Hola, gracias por escribirnos.
+>
+> Puedes calcular ahora mismo la ayuda que te corresponde, desde el móvil y en un par de minutos:
+> https://app.brokergy.es/calcula-tu-ayuda?ref=wa
+>
+> Lo ideal es que lo hagas estando en casa: con el botón «Usar mi ubicación» localizamos tu vivienda en el Catastro y
+> sacamos su referencia catastral sin que tengas que buscarla. Es muy importante que selecciones la vivienda correcta
+> (en un piso, tu planta y tu puerta), porque la ayuda se calcula con sus datos.
+>
+> Después te hace unas preguntas sobre la caldera y la obra, y al terminar te mandamos la propuesta con tus dos ayudas:
+> el bono CAE y la deducción en la Renta.
+>
+> Si lo prefieres, mándanos por aquí la dirección de la vivienda (o su referencia catastral), una foto de la caldera y
+> otra de su placa de características (la pegatina con los datos), y el presupuesto si ya lo tienes, y te lo calculamos
+> nosotros.
+
+Pie del vídeo: «Y en este vídeo te contamos en dos minutos las ayudas que hay.»
+
+- Sin emojis y sin presentarse: el cliente ha escrito primero y sabe a quién.
+- «Estando en casa» y «la vivienda correcta» los pidió Fran el 09/11/2026: el formulario busca la casa con la
+  ubicación del móvil (su botón dice «Usar mi ubicación (siempre y cuando estés en casa)»), y una vivienda equivocada da
+  una ayuda equivocada.
+- El enlace lleva `ref=wa` y nunca un dato personal.
+- **El vídeo sale solo cuando el texto ha salido de la cola con su ACK.** `sendText` encola y `sendMedia` va directo:
+  sin esperar, el vídeo llegaría antes que el mensaje que lo presenta.
+- Si el vídeo no sale, se manda su ENLACE detrás del texto (el MP4 se ve en el navegador del móvil).
+
+## A quién NO
+
+**REGLA — solo a quien es NUEVO de verdad, y un «no lo he podido comprobar» es un NO.** Se le escribe solo si no hay
+ninguna pista de que ya le conocemos:
+
+- **Ya está en la app.** Se mira en:
+  - clientes (titular, persona de contacto, representante y copropietarios);
+  - partners (todos sus teléfonos y los contactos de aviso);
+  - usuarios, certificadores de la app y solicitudes de instalador;
+  - los descartados de «Pendientes de WhatsApp»;
+  - quien ya recibió algo de la app (`whatsapp_queue`).
+
+  Se casa por los 9 últimos dígitos. Medido el 09/11/2026: 631 teléfonos en 0,4 s.
+- **Es de la casa:** el móvil personal de Fran (su chat con el asistente) y el de administración.
+- **Está guardado en la agenda del móvil:** si Fran lo guardó, lo conoce.
+- **Es una cuenta de empresa (WhatsApp Business).** Los instaladores y los proveedores suelen tenerla; un particular,
+  casi nunca.
+- **El chat no es nuevo:** ya le hemos escrito, tiene etiquetas, o su primer mensaje cargado es de hace más de 6 h.
+- **Lo que dice ya da a entender que nos conoce** (`yaNosConoce`, sobre el texto y los pies de foto o documento de la
+  ráfaga): se dirige a Fran por su nombre, habla de una conversación anterior («te llamé», «lo que hablamos», «como te
+  comenté», «lo que me pediste»…) o viene «de parte de» alguien («me ha pasado tu número…»). Medido el 10/11/2026, la
+  primera noche en modo copia: la única fila apuntada fue «Hola Fran, soy Santiago Carmena, te llamé ayer. Te mando la
+  documentación». Era un número que no estaba en ningún sitio, pero había llamado por teléfono: la bienvenida habría
+  sonado a contestador. Quien viene de parte de un instalador es un lead del partner, y Fran lo da de alta a mano para
+  asignárselo (por el formulario quedaría sin partner).
+- **Es un instalador o un distribuidor** (`yaNosConoce`, 10/11/2026): los botones de esas páginas de brokergy.es
+  escriben «Hola, soy instalador…» / «soy distribuidor…». El botón de las ayudas («quiero saber qué ayuda le
+  corresponde a mi obra») sí recibe la bienvenida. Y quien escribe desde la **ficha de un instalador** recibe la suya
+  propia: ver «El ESCAPARATE», más abajo.
+- **No es un móvil español:** un fijo, o un número de fuera (spam).
+- **Tipos que no son de alguien que pregunta:** una tarjeta de contacto (un instalador pasando un cliente), una
+  ubicación, un aviso del sistema.
+
+Si la BD no responde o WhatsApp no da el chat, no se escribe y no se recuerda la decisión: el siguiente mensaje lo
+reintenta (como la regla 38: un fallo de lectura no es «es nuevo»). **Una bienvenida por teléfono, para siempre**
+(índice único en `wa_bienvenidas`).
+
+## Cómo funciona
+
+1. **La ráfaga.** El cliente manda «Hola», «quería información de las ayudas» y una foto en el mismo minuto: se decide
+   UNA vez, a los 90 s del último. Así se lee una sola vez el chat, y si Fran contesta en ese rato, ya no sale.
+2. **Lo de la sesión se lee con UNA evaluación** de las colecciones de WhatsApp Web (`Chat` y `Contact` de ese chat),
+   en la fila de lecturas (`enSerie`) y con plazo. Nada de `getChatById`, `getChats`, `msg.getChat` ni `sendSeen` (regla
+   39). Un `@lid` saca su número del propio WhatsApp Web y, si no lo tiene, de `getContactLidAndPhone`. Un «no» se
+   recuerda 24 h, para no releer con cada mensaje el chat de alguien de la agenda.
+3. **Se apunta** en `wa_bienvenidas` como PENDIENTE, con su hora: ahora si es la franja de la casa (regla 205: de 7 a 21 h de Madrid, todos los días, porque contesta a quien ha escrito); si
+   no, la apertura siguiente. Quien escribe a las 23:30 la recibe a las 7:00.
+4. **La vuelta** (cada minuto) la manda. **Justo antes vuelve a leer el chat**: si le ha contestado una persona de la casa
+   (`onMensajePropio`, lo que no ha apuntado la app) o ya hay un mensaje nuestro, queda DESCARTADA y no sale. La fila se
+   TOMA con un UPDATE condicionado antes de mandar, así que dos servidores encendidos no la mandan dos veces.
+
+**Sin reintentos.** Un envío que falla queda en ERROR: el mensaje puede estar ya en el chat, y reenviarlo lo duplicaría
+(regla 39).
+
+## Los frenos
+
+La cuenta es la de TODOS los envíos automáticos de la app.
+
+- **Nace APAGADA** (`WA_BIENVENIDA_ENABLED`). Encendida, va en **MODO COPIA**: apunta lo que habría mandado (COPIA) y no
+  sale nada. Para escribir de verdad, `WA_BIENVENIDA_MODO=real`.
+- **`WA_BIENVENIDA_PRUEBA=tel,tel`:** con esto puesto SOLO se atiende a esos teléfonos, y se les escribe aunque ya nos
+  conozcan, para poder probar. Un teléfono de prueba se puede repetir pasados 10 min.
+- **Topes en el CÓDIGO:** 30 al día, 10 a la hora y 2 por vuelta.
+- Rutas, **adminOInterno**:
+  - `GET /api/whatsapp/bienvenidas`: estado y lo apuntado;
+  - `POST /api/whatsapp/bienvenidas/vuelta`: una vuelta a mano, en seco por defecto.
+
+## El ESCAPARATE: quien escribe desde la ficha de un instalador (2026-11-10)
+
+La ficha de cada instalador en brokergy.es (`src/data/red.js` y `encuentra-tu-instalador/[slug].astro` de
+brokergy-web) abre WhatsApp con «Hola, he visto a GONZAGARRI S.L en brokergy.es y me gustaría que me hiciera la obra.
+¿Me calculáis la ayuda? Mi casa está en …». Ese lead es **del instalador**. El primero (Natalia, Argamasilla de Alba,
+10/11/2026) lo vio el modo copia: la bienvenida de siempre no le habría hablado de Gonzagarri y la oportunidad habría
+entrado sin partner. Fran: «que le llegase una notificación a Gonzagarri automática… nosotros nos pondremos a calcular la
+ayuda y, una vez que tengamos el presupuesto, la afinaremos»; aprobó los dos textos y «monta el flujo para que funcione
+después».
+
+**REGLA — el lead del escaparate es del INSTALADOR: se le avisa a él ANTES que al cliente, y la oportunidad nace a su
+nombre.**
+
+- **Los mismos filtros** que la bienvenida (nuevo de verdad, horario, topes, una por teléfono). Solo cambia lo que se
+  manda. Si además dice «Hola Fran» o similar, no se escribe.
+- **De qué instalador es** (`elegirInstalador`): el nombre de la web es `acronimo || razon_social` (brokergy-web:
+  `scripts/red.mjs`). Se compara sin tildes ni forma jurídica. Si nada casa entero, vale el comienzo, con 8 letras o
+  más: la web acorta a algún autónomo («JOSÉ ÁLVAREZ» es «JOSÉ ÁLVAREZ ALMARCHA»). Medido el 10/11/2026: casan los 73
+  del escaparate. **Si no casa con UNA ficha, o el instalador no tiene un móvil de aviso** (7 de los 73: solo fijo), no
+  se escribe a nadie y a Fran le llega al grupo que lo lleve él.
+- **A quién se avisa** (`contactoAviso`): su contacto de avisos COMERCIAL, si no el de contacto, el responsable o el de la
+  empresa. Solo un móvil español.
+- **El orden: primero el instalador** («Hola Paco, nos ha entrado por la web una petición para vosotros: un cliente de
+  … os ha visto en brokergy.es… Si te parece bien, llámale tú… Nosotros le calculamos ya la ayuda y, en cuanto tengas el
+  presupuesto, nos lo pasas y la afinamos»). Con su ACK, al cliente: «Le hemos pasado tu contacto a Gonzagarri para que
+  te llamen…», el formulario y el vídeo. **Si el aviso no sale, al cliente no se le escribe** (le diríamos algo que no
+  es verdad): ERROR, y se le dice a Fran.
+- **La oportunidad nace a nombre del instalador**: el enlace es `/calcula-tu-ayuda?ref=esc-<fila>`. `POST
+  /api/landing/lead` lee esa fila (`partnerDelLead`) y pone `prescriptor_id`, como si viniera de su landing (`/p/…`),
+  con el «partner energético de X» en el mensaje. Si llega sin ese `ref`, vale su teléfono, si la fila es de los
+  últimos 180 días. Sirve también para un lead que Fran sabe de quién es: se pone `partner_id` en su fila.
+  - Hecho a mano el 10/11/2026: Natalia → Gonzagarri y Juan (652524778) → Calefacciones Miguel González.
+  - Nunca tumba el alta: si la BD no responde, el lead entra sin partner.
+- **Modo aparte**: `WA_ESCAPARATE_MODO=real` para escribir. Sin él, en COPIA, aunque la bienvenida esté en real. En copia
+  no sale nada, ni al instalador ni al cliente: a Fran le llegan al grupo (`ASISTENTE_WHATSAPP_GRUPO`, el del
+  contestador) los dos textos, listos para mandar. En real, una línea: «avisado Paco y contestado…».
+- Tabla: la misma `wa_bienvenidas`, con `tipo` (`bienvenida` | `escaparate`), `partner_id` y `aviso` (a quién, el texto y
+  cómo salió).
+
+## Cómo se pone en marcha (orden)
+
+1. Aplicar `wa_bienvenidas_schema.sql` en Supabase.
+2. Desplegar con `WA_BIENVENIDA_ENABLED=true` en el VPS, todavía en modo copia. Unos días: se mira a quién le habría
+   escrito (`GET /api/whatsapp/bienvenidas`) y si alguno no debía.
+3. `WA_BIENVENIDA_MODO=real` + `WA_BIENVENIDA_PRUEBA=<móvil personal de Fran>`. Fran escribe desde su móvil y le llegan
+   el texto y el vídeo. Así se comprueba el vídeo de verdad, que en local no se puede.
+4. Quitar `WA_BIENVENIDA_PRUEBA`.
+
+Lo que se hizo: 1 y 2 el 09/11/2026 (en copia desde las 21:16). El 10/11, a la vista de lo apuntado (Santiago, que
+había llamado; Carlos Cenamor, contestado a mano; Natalia, del escaparate), se añadieron los dos filtros de
+`yaNosConoce` y Fran dijo «pásala a real». El paso 3 se saltó: el texto y el vídeo ya se habían mandado a mano a un
+cliente (Juan, 652524778, de Calefacciones Miguel González) y llegaron los dos. Lo que no se ha visto aún es el envío
+automático del vídeo tras el ACK del texto: la primera fila ENVIADA en real se comprueba leyendo su chat.
+El escaparate se desplegó el mismo 10/11 en COPIA y Fran lo pasó a REAL el 11/11/2026 a las 11:41 («Pásalo a real»;
+`WA_ESCAPARATE_MODO=real`, respaldo `.env.bak.escaparate_real.20261111_104149`). Volver a copia: quitarlo y recrear el
+backend. El primer envío real (aviso, texto y vídeo) se comprueba leyendo los dos chats.
+
+## Lo que no se ha podido probar en local
+
+Local no tiene la sesión (es la misma cuenta que el VPS), así que la lectura del chat en WhatsApp Web (`LEER_CHAT`) y
+el envío del vídeo están probados con WhatsApp simulado.
+
+- Los campos que lee `LEER_CHAT`, `isAddressBookContact` y `msgs` del chat, son los mismos que ya usan la agenda y la
+  lectura de tarjetas de contacto.
+- `isBusiness` es nuevo.
+- Los pasos 2 y 3 son la prueba de verdad.

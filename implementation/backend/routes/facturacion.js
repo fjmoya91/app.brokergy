@@ -332,6 +332,16 @@ router.get('/economia-cae/expediente/:numero', adminOClaveInterna, async (req, r
     catch (err) { falla(res, err, 'economía del expediente'); }
 });
 
+// El ESTUDIO DE PRECIOS de las facturas de obra (las placas en €/kWp, por instalador
+// y fecha), computaran o no para el CAE. Importes: solo ADMIN o el MCP.
+const estudioPrecios = require('../services/estudioPrecios');
+router.get('/estudio-precios', adminOClaveInterna, async (req, res) => {
+    try {
+        const { partida, desde = null, hasta = null } = req.query;
+        res.json(await estudioPrecios.estudio({ partida, desde, hasta }));
+    } catch (err) { falla(res, err, 'estudio de precios'); }
+});
+
 router.get('/trimestre', adminOClaveInterna, async (req, res) => {
     try { res.json(await conta.trimestre(req.query.t || trimestreActual())); }
     catch (err) { falla(res, err, 'trimestre'); }

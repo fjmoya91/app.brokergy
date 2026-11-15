@@ -331,8 +331,10 @@ router.get('/contactos/pendientes-alta', staffOnly, async (req, res) => {
 // Los chats cuyo último mensaje es del otro y llevan más de `horas` sin
 // respuesta, con quién es en la app. «Ya está» lo quita para todo el equipo
 // hasta su siguiente mensaje. Solo lectura de WhatsApp (services/whatsappBandeja.js).
+// También con `x-internal-key` (10/11/2026): el asistente contesta «¿qué tengo sin
+// contestar?» desde el grupo de Fran (`contestador.js bandeja`). Marcar sigue siendo del equipo.
 const waBandeja = require('../services/whatsappBandeja');
-router.get('/bandeja/sin-contestar', staffOnly, async (req, res) => {
+router.get('/bandeja/sin-contestar', staffOClaveInterna, async (req, res) => {
     try {
         res.json(await waBandeja.sinContestar({ horas: req.query.horas ?? 2 }));
     } catch (e) {
@@ -546,6 +548,98 @@ router.get('/ronda/informe', adminOInterno, (req, res) => {
     const txt = ronda.informe(formato);
     if (txt == null) return res.status(404).json({ error: 'Todavía no hay ninguna ronda hecha en este servidor.' });
     res.type(formato === 'html' ? 'html' : 'text').send(txt);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ESPERAS — lo que se le ha PEDIDO a alguien y aún no ha contestado
+// (services/esperasWhatsapp.js). ADMIN o clave interna: lleva nombres y teléfonos.
+// ─────────────────────────────────────────────────────────────────────────────
+const esperas = require('../services/esperasWhatsapp');
+
+// GET ?estado=ABIERTA|CONTESTADA|VENCIDA|CERRADA|CANCELADA → la lista (sin el texto entero)
+router.get('/esperas', adminOInterno, async (req, res) => {
+    try {
+        const estado = ['ABIERTA', 'CONTESTADA', 'VENCIDA', 'CERRADA', 'CANCELADA'].includes(req.query.estado) ? req.query.estado : 'ABIERTA';
+        res.json({ activo: esperas.activo(), modo: esperas.modo(), esperas: await esperas.listar({ estado }) });
+    } catch (e) { res.status(503).json({ error: 'No se han podido leer las esperas', detalle: e.message }); }
+});
+
+// GET → { texto }: el bloque del resumen de las 9:00 (vacío si no hay nada que contar)
+router.get('/esperas/resumen', adminOInterno, async (req, res) => {
+    res.json({ texto: await esperas.resumen() });
+});
+
+// POST { seco? } → una vuelta a mano. Por defecto EN SECO: devuelve lo que haría.
+router.post('/esperas/vuelta', adminOInterno, async (req, res) => {
+    res.json(await esperas.vuelta({ seco: req.body?.seco !== false }));
+});
+
+// POST → la quita una persona (ya está hablado, no hace falta insistir)
+router.post('/esperas/:id/cancelar', adminOnly, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+    const r = await esperas.cancelar(id, req.user?.acronimo || req.user?.razon_social || 'ADMIN');
+    if (!r) return res.status(404).json({ error: 'No hay una espera abierta con ese id' });
+    res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTESTADOR — contesta como Fran a quien tiene algo vivo (services/contestadorWhatsapp.js).
+// ADMIN o clave interna: lleva conversaciones de clientes.
+// ─────────────────────────────────────────────────────────────────────────────
+const contestador = require('../services/contestadorWhatsapp');
+
+// GET ?estado=PENDIENTE|HECHA|DESCARTADA|ERROR → los últimos turnos
+router.get('/contestador', adminOInterno, async (req, res) => {
+    try {
+        const estado = ['PENDIENTE', 'HECHA', 'DESCARTADA', 'ERROR'].includes(req.query.estado) ? req.query.estado : null;
+        res.json({ activo: contestador.activo(), modo: contestador.modo(), turnos: await contestador.listar({ estado }) });
+    } catch (e) { res.status(503).json({ error: 'No se ha podido leer el contestador', detalle: e.message }); }
+});
+
+// GET → { texto }: su línea del resumen de las 9:00 (vacía si no hay nada)
+router.get('/contestador/resumen', adminOInterno, async (req, res) => {
+    res.json({ texto: await contestador.resumen() });
+});
+
+// POST { telefono | chatId } → qué contestaría AHORA a ese chat. EN SECO: no escribe nada
+// ni manda nada (sí llama a Claude o a Gemini para redactar).
+router.post('/contestador/probar', adminOInterno, async (req, res) => {
+    try {
+        const { telefono, chatId } = req.body || {};
+        if (!telefono && !chatId) return res.status(400).json({ error: 'Indica telefono o chatId' });
+        res.json(await contestador.decidir({ telefono, chatId }));
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// POST { si, texto? } → «C12»: guarda lo que mandó y envía tal cual lo que se habría
+// contestado, con la respuesta LITERAL de Fran. Con `texto` («C12, dile además…»), ese
+// texto en su lugar. Comprueba que el chat no ha cambiado desde entonces.
+router.post('/contestador/:id/enviar', adminOInterno, async (req, res) => {
+    const id = Number(String(req.params.id).replace(/^C/i, ''));
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+    const texto = typeof req.body?.texto === 'string' ? req.body.texto : null;
+    try { res.json(await contestador.enviarCopia(id, { si: req.body?.si, texto })); }
+    catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BIENVENIDA — la primera respuesta, sola, a quien escribe por primera vez: el
+// formulario «Calcula tu ayuda» y el vídeo (services/bienvenidaWhatsapp.js).
+// ADMIN o clave interna: lleva teléfonos.
+// ─────────────────────────────────────────────────────────────────────────────
+const bienvenida = require('../services/bienvenidaWhatsapp');
+
+// GET → { estado, bienvenidas }: cómo está y lo apuntado (lo último primero)
+router.get('/bienvenidas', adminOInterno, async (req, res) => {
+    try {
+        res.json({ estado: bienvenida.estado(), bienvenidas: await bienvenida.listar({ limite: req.query.limite }) });
+    } catch (e) { res.status(503).json({ error: 'No se han podido leer las bienvenidas', detalle: e.message }); }
+});
+
+// POST { seco? } → una vuelta a mano. Por defecto EN SECO: devuelve lo que haría.
+router.post('/bienvenidas/vuelta', adminOInterno, async (req, res) => {
+    res.json(await bienvenida.vuelta({ seco: req.body?.seco !== false }));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -55,8 +55,11 @@ console.log('\n── Un fichero NUEVO sí retira el visto bueno ──');
         anexo_i_signed_link: ENLACE,
         docs_validados: { anexo_i_signed_link: '2026-09-18T14:29:00.000Z' },
     };
+    // Con su sello de llegada, como lo manda la subida de la app: sin él sería una
+    // copia vieja y no cambiaría (test_firmado_no_retrocede.mjs).
     const r = mergeDocumentacion(enBd, {
         anexo_i_signed_link: 'https://drive.google.com/file/d/BBB/view',
+        anexo_i_signed_at: '2026-09-18T15:00:00.000Z',
         docs_validados: { anexo_i_signed_link: '2026-09-18T14:29:00.000Z' },
     });
     ok(!r.docs_validados?.anexo_i_signed_link, 'vuelve a PENDIENTE DE REVISAR');
@@ -69,7 +72,10 @@ console.log('\n── BORRAR el firmado también lo retira ──');
         anexo_i_signed_link: ENLACE,
         docs_validados: { anexo_i_signed_link: '2026-09-18T14:29:00.000Z' },
     };
-    const r = mergeDocumentacion(enBd, { anexo_i_signed_link: null });
+    // Con la orden de borrar del botón: sin ella, un null es una copia vieja y se
+    // ignora (test_firmado_no_retrocede.mjs).
+    const r = mergeDocumentacion(enBd, { anexo_i_signed_link: null, _firmado_borrado: 'ANEXO_I_SIGNED_LINK' });
+    ok(!r.anexo_i_signed_link, 'el firmado se borra');
     ok(!r.docs_validados?.anexo_i_signed_link, 'un slot sin fichero no puede quedarse en verde');
 }
 

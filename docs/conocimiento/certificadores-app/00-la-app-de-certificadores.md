@@ -108,8 +108,8 @@ era la columna del móvil (560 px) centrada en una pantalla de 1440: mucho vací
   y, a la derecha, el **vídeo promo**; hasta el 26/10 era una maqueta estática del CEE entregado), una
   franja de cuatro hechos, los pasos en cuatro tarjetas (2×2 entre 1024 y 1199), entrega y «para quién»
   lado a lado, las dudas con su título fijo a la izquierda y la llamada final en una fila.
-- Lo que solo existe en el PC lleva **`.ca-solo-ancho`** (oculto por debajo de 1024). Los títulos grandes de
-  cada sección son de ese tipo: en el móvil manda la etiqueta pequeña de siempre.
+- Hasta el 06/11/2026, lo que solo existía en el PC llevaba `.ca-solo-ancho` y los títulos grandes de cada
+  sección no salían en el móvil. Con el rediseño (abajo) salen también en el móvil, más pequeños.
 - **REGLA — los textos de la landing dicen solo lo que la app hace**: ni cifras, ni testimonios, ni
   una referencia catastral o un cliente de verdad.
 - Titular (Fran, 26/10/2026): «Tu **certificado de eficiencia energética**, preparado por IA. Tú lo revisas
@@ -119,15 +119,59 @@ era la columna del móvil (560 px) centrada en una pantalla de 1440: mucho vací
   herramienta para agilizar el gabinete y **no sustituye** lo que el Real Decreto 390/2021, de 1 de junio,
   atribuye al técnico competente (visita al inmueble, toma y comprobación de datos, cálculo, firma y
   registro); lo que prepara la IA es un borrador y responde de él quien firma. Va dos veces: una duda
-  («¿Sustituye mi trabajo como técnico competente?») y un aviso al pie, encima de la firma (`.ca-land-legal`).
+  («¿Sustituye mi trabajo como técnico competente?») y un aviso al pie, encima del «Powered by» (`.ln-legal`).
   No cita el artículo: si se añade, comprobado en el BOE. Por lo mismo, el paso 2 ya **no dice «sin
   visita, le mandas un enlace al propietario»**: el enlace es para la foto que falte, no para no ir.
-- La palabra en lima del titular va **por debajo** del texto (`.ca-hero .ca-mark{z-index:-1}`): su fondo
-  tapaba los rabos de «preparado» en la línea de arriba, también en el móvil.
+- La palabra en lima del titular va **por debajo** del texto (`.ln-mark{z-index:-1}`, dentro de un `h1` que
+  hace de contexto con `z-index:0`): su fondo tapaba los rabos de «preparado» en la línea de arriba, también
+  en el móvil.
 - Junto al logo, la etiqueta **«Certifica con IA»** (`EtiquetaIa` en `ui/piezas.jsx`, la usan la cabecera
   pública y la barra de la app): píldora negra con la chispa en lima. Antes era «CEE con IA» en gris; Fran
   la quería «más rompedora, con más punch» (26/10/2026). En el móvil solo se ve en la cabecera pública.
 - Comprobación: capturas a 1440, 1024 y 390 px sin scroll horizontal.
+
+### La landing rediseñada: «efecto wow» y «Powered by BROKERGY» (06/11/2026)
+
+Fran: «quiero una web efecto wow, con las mejores skills de diseño, manteniendo mi estilo y mis colores; el
+contenido está bien y el vídeo se queda; en la firma final no quiero que aparezca mi nombre, sino algo como
+Powered by BROKERGY». Se rehízo siguiendo la skill `frontend-design` de Anthropic (anthropics/skills): plan de
+tokens, revisión contra el encargo, construcción y crítica con capturas. De ella se tomó **concentrar la
+audacia en pocos momentos** y dejar el resto quieto; lo que choca con la marca (evitar el acento en una palabra
+del titular, la tinta con lima) **no** se aplicó: manda la marca.
+
+- **Los textos no cambian** (misma regla: solo lo que la app hace). Lo nuevo es la forma: el CSS va aparte,
+  con prefijo **`.ln-`**, en [landingEstilo.js](implementation/frontend/src/certificadores/publico/landingEstilo.js),
+  y el bloque `.ca-land*` de `ui/estilo.js` se quitó.
+- **Los cuatro momentos** (y solo esos):
+  1. **Portada**: el titular entra, el rotulador lima se pinta sobre «revisas» y, detrás del móvil del vídeo,
+     crece la **escala A → G de la etiqueta energética** con los colores de la marca (verde → lima → amarillo →
+     naranja; sin rojo). Es decorado: **no dice ninguna calificación** ni promete mejorarla. Con ratón, el
+     móvil se inclina un poco hacia él. Detrás, el papel cuadriculado del plano, muy tenue.
+  2. **Cómo funciona**: los pasos unidos por una línea que se **rellena con el filete al bajar** y el paso
+     alcanzado se enciende; el título se queda fijo a la izquierda en el PC.
+  3. **Qué te entregamos**, en un **panel tinta**: cuatro hojas (.xml, .cex, .pdf, croquis) que se **abren en
+     abanico** al verse. Dentro, solo rayas y un plano inventado: ni datos ni una vivienda de verdad.
+  4. **El cierre**, en otro panel tinta: «¿Lo pruebas?» enorme, el aviso legal, el pie y la marca gigante
+     «CEE by BROKERGY» recortada contra el borde.
+- **La cabecera** se queda arriba al bajar, como una píldora de cristal; «Crear cuenta» sale desde 600 px.
+- **«La IA no firma ni registra nada. El certificado es tuyo.»** pasa a ser una frase grande a dos tonos
+  (la primera mitad en gris al 50 %, que da 3,4:1 de contraste: con menos no llega a AA de texto grande).
+- **REGLA — en cee.brokergy.es no firma Fran: cierra «Powered by BROKERGY»** (Fran, 06/11/2026). En la
+  landing, una píldora con el logo blanco que enlaza a `https://brokergy.es`, los enlaces (Entrar, Crear
+  cuenta, Condiciones, Privacidad, el email) y «© año BROKERGY · Ingeniería energética». En las demás páginas
+  públicas de la app (`/beta`, `/entrar`, `/activar`, `/recuperar`, `/condiciones`, `/privacidad`) el
+  componente `Firma` de `ui/piezas.jsx` es ahora la misma píldora en claro. `FIRMA` y `SELLO` salieron de
+  [marca.js](implementation/frontend/src/certificadores/marca.js); entraron `LOGO_CLARO` y `WEB_BROKERGY`.
+  Los **emails** de la app siguen firmados como estaban (no se pidió).
+- **Medidas que no se tocan sin volver a medir**: la escala sale del móvil un 20 % por la izquierda entre
+  1024 y 1279 px (móvil de 300 px) y un 24 % desde 1280 (móvil de 338 px). Más y, a 1024, tapa el párrafo
+  de la portada y la punta de la G se sale por la derecha. Las hojas: 150 px hasta 1199 y 184 px desde 1200;
+  con 196 px, a 1024 se salían del panel y pisaban la lista.
+- **«Reducir movimiento»**: nada se anima; la escala, el rotulador y el abanico salen ya puestos, y la línea
+  de los pasos, entera.
+- Comprobación (06/11/2026): capturas con Chrome sin ventana (el `puppeteer` del backend) a 1440, 1280, 1024,
+  768, 390 y 360 px y a 390 con «reducir movimiento»: sin scroll horizontal ni errores en la consola, y la
+  página `/entrar` con su «Powered by».
 
 ### El vídeo promo (26/10/2026)
 
@@ -149,7 +193,8 @@ CSS de la app** y los datos de demo (`dev/demo.js`): nada de una obra o un clien
   Si un día se mide de verdad, se cambia el gancho. Los botones dicen lo que dice la app («Validar y firmar
   con AutoFirma»).
 - En la landing va en la **portada** (Fran, 26/10: «en la primera parte, es más llamativo»): a la derecha
-  del titular en el PC (360 px de ancho) y debajo de los botones en el móvil. Fichero ligero (540×960,
+  del titular en el PC (300–338 px de ancho desde el 06/11, sobre la escala A → G) y debajo de los botones en
+  el móvil (272 px). Fichero ligero (540×960,
   ~0,9 MB) en `frontend/public/certificadores/promo-cee.mp4` + póster `promo-cee.jpg` (el gancho, para que
   no salte al arrancar). Arranca al verse (IntersectionObserver) y se para al salir; con «reducir
   movimiento» no arranca solo y enseña los controles.
@@ -266,8 +311,10 @@ de esa pantalla, leído de la obra SUYA: en `obra`, zona, año, superficie, resp
 lo que falta; en `envolvente`, lo dibujado (paredes, huecos por pared, m²; máx. 2500 caracteres); en
 `menu`, solo la app. Siempre lleva la **tabla de U por defecto de CE3X 3.2**
 (`transmitanciasCe3x.js`, la misma del CRM: periodos, zonas NBE, una fila por cerramiento) y sabe que
-nuestros `.cex` van con la localidad «Otro». También está en la envolvente (solo el asistente, sin el
-botón de incidencias, y con un hueco abajo para no tapar nada).
+nuestros `.cex` van con la localidad «Otro». En la envolvente **ya no se monta** (28/10/2026): ahí el
+botón «Asistente» es el de la envolvente, que corrige el plano y contesta lo que se pregunte de él
+([el-asistente-de-la-envolvente.md](docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md)).
+Dos botones iguales en la misma esquina eran dos asistentes distintos.
 Haiku 5.5 con `effort: 'low'` y `max_tokens` 3000: con el razonamiento adaptativo por defecto, con
 menos se quedaba pensando y volvía SIN texto (`stop_reason: max_tokens`); si pasa, se le dice «se me ha
 ido el tiempo pensándolo». Medido: ~0,001 $ por pregunta.
@@ -292,7 +339,7 @@ Todas las respuestas en JSON; errores `{ error, code }` (a veces con más campos
 | `POST /enlace` `{ email }` | «Mándame un enlace para entrar» (1 h). SIEMPRE `{ ok }`, haya cuenta o no. Límite por IP |
 | `POST /enlace/canjear` `{ token }` | Token `e` → `{ ok, email, token_hash }` para `verifyOtp` en el navegador. Un uso (rota el nonce): usado 400 `TOKEN_INVALIDO`, caducado 410 `TOKEN_CADUCADO` |
 | `GET /s/:codigo` | El enlace CORTO del propietario (26/10/2026): el token → `{ id }` y la página sigue en `/subir/:id?token=`. Caracteres fuera de [0-9A-Za-z] u otro token: 404 `ENLACE_INVALIDO`; caducado 410 `ENLACE_CADUCADO`; 30 por IP cada 10 min (429) |
-| `GET /subir/:id?token=` | Vista CLIENTE: `{ obra: { …, cerrada, caduca_at }, apartados: [{ id, label, …, cubierto, ficheros }] }`. `ficheros` = solo lo que subió el PROPIETARIO; `cubierto` = un apartado de un solo archivo que ya tiene el del certificador. Token malo 404 `ENLACE_INVALIDO`; caducado **410 `ENLACE_CADUCADO`** |
+| `GET /subir/:id?token=` | Vista CLIENTE: `{ obra: { …, cerrada, caduca_at }, apartados: [{ id, label, …, cubierto, ficheros }] }`. `ficheros` = solo lo que subió el PROPIETARIO; `cubierto` = un apartado de un solo archivo (o `unaBasta`: caldera, aerotermia, termo y sus placas) que ya tiene el del certificador. Token malo 404 `ENLACE_INVALIDO`; caducado **410 `ENLACE_CADUCADO`** |
 | `POST /subir/:id/:slot?token=` (multipart `files`) | Subir con el enlace. 400 `SLOT_NO_APLICA` (apartado que no toca a esa vivienda) · **409 `YA_LO_TIENE_EL_CERTIFICADOR`** · 409 `OBRA_CERRADA` · 400 `TIPO_NO_ADMITIDO` (en DOC_*, solo PDF o fotos: nunca un `.cex`) |
 | `GET /thumb/:id/:driveId?t=&sz=` | Miniatura con firma de MINIATURA (12 h); `sz` se lleva a 200/400/800 |
 | `GET /fichero/:id/:driveId?t=` | Descarga con firma de FICHERO (12 h; la de miniatura no vale: 403) |
@@ -313,10 +360,14 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 | `POST /alta` (`certappSesion`: sesión de Supabase, con o sin cuenta) | Alta con Google: el formulario de la beta → `cuentas.altaConSesion` (email de la sesión) → 201 `{ ok, cuenta, nueva: true }`; si ya tenía cuenta, 200 `nueva: false`. 400 `FALTA_CONDICIONES` · 403 `EMAIL_SIN_CONFIRMAR` · 409 `CUENTA_YA_EXISTE` · 429 |
 | `GET /me` (`certappOAdmin`) | `{ cuenta, esAdmin }`. Sesión sin cuenta: 403 `CERTAPP_SIN_CUENTA` (el frontend la lleva al formulario). `cuenta` trae además `comunidades`, `software`, `condiciones` y `telefono_por_confirmar` |
 | `PUT /me` | Perfil (nombre, NIF, titulación, colegiado, teléfono, empresa…, `comunidades` y `software`, a `prefs.perfil`). Guardar el teléfono limpia `telefono_por_confirmar` |
-| `GET /obras` | Lista (solo escalares: nº, nombre, dirección, estado, fechas) |
+| `GET /obras` | Lista (solo escalares: nº, nombre, dirección, estado, fechas; y `crm` `{ negocio, numero, fase, encargo }` si es un encargo de BROKERGY, sin ids del CRM) |
 | `POST /obras` | Alta `{ ref_catastral?, titular?, en_vivienda? }` → `{ obra }`; crea la carpeta de Drive |
-| `GET /obras/:id` | `{ obra, barrido, eventos, enlaces, cee, revisiones: { hechas, max } }` (enlaces: pdf, firmado, cex, xml, croquis, carpeta, envolvente; `cee`: `{ calificacion, firma }` con la obra entregada). En `eventos`, `por` es `certificador` · `cliente` · `BROKERGY` · `IA`: nunca el nombre de quién del equipo ni el motivo interno |
+| `GET /obras/:id` | `{ obra, barrido, eventos, enlaces, cee, revisiones: { hechas, max }, encargo }` (`encargo`: si es de BROKERGY, el encargo y, leído en vivo del CRM, `revision` = `EN_REVISION` · `VISTO_BUENO` · `REGISTRADO`; si no, null) (enlaces: pdf, firmado, cex, xml, croquis, carpeta, envolvente; `cee`: `{ calificacion, firma }` con la obra entregada). En `eventos`, `por` es `certificador` · `cliente` · `BROKERGY` · `IA`: nunca el nombre de quién del equipo ni el motivo interno |
 | `PUT /obras/:id` | Parcial: `titular`, columnas del inmueble, `en_vivienda`, `proposito`, `cuestionario` (saneado con `sanearCuestionario`: también `propositos`, `fases_ok`, `origen` y `visto_ia`; la columna `proposito` = el primero de `propositos`). **Solo en BORRADOR**: si no, 409 `OBRA_CERRADA` (archivada: 409 `ARCHIVADA`) |
+| `DELETE /obras/:id` | Borrar la obra (30/10/2026, Fran: «no encuentro la forma de borrarla»): «Borrar esta obra» al pie de la ficha, con confirmación ([BorrarObra.jsx](implementation/frontend/src/certificadores/obra/BorrarObra.jsx)). **REGLA — solo un BORRADOR sin crédito gastado**: pedida, el crédito y nuestro trabajo van con ella → 409 `OBRA_CERRADA` y el botón no sale. Primero la fila (condicionada a `estado = BORRADOR` y `credito_consumido = false`) y después la carpeta de Drive a la **papelera** (30 días para recuperarla); los eventos se van con la fila, incidencias y movimientos se quedan sin obra. → `{ ok, numero, carpeta }`. Un encargo de BROKERGY: 409 `ENCARGO_CRM` (se rechaza, no se borra) |
+| `GET /encargo/:negocio/:id/:fase` | El enlace del aviso de un encargo de BROKERGY (`cae` · `cee`) → `{ obra_id, estado }` de SU obra; de otra cuenta o rechazado: 404 `ENCARGO_NO_ENCONTRADO`. En [encargos-de-brokergy-desde-el-crm.md](docs/conocimiento/certificadores-app/encargos-de-brokergy-desde-el-crm.md) |
+| `POST /obras/:id/encargo/aceptar` | Acepta el encargo (acuse de siempre en el CRM por dentro) → `{ ok, obra, encargo }`. Se lo pasaron a otro: la obra se archiva y 409 `ENCARGO_RETIRADO`; no es un encargo: 400 `NO_ES_ENCARGO` |
+| `POST /obras/:id/encargo/rechazar` `{ motivo? }` | Solo PENDIENTE (aceptado: 409 `ENCARGO_ACEPTADO`): le retira del expediente, avisa al equipo y archiva la obra → `{ ok, obra }` |
 | `GET /obras/:id/fachada-sugerida/:fuente` | La foto de la fachada que se PROPONE (`catastro` · `streetview`), como imagen. Sin foto: 404 `SIN_FACHADA`; otra fuente: 400 `FUENTE_INVALIDA` |
 | `POST /obras/:id/fachada-sugerida/:fuente/usar` | La guarda en «Fachada principal» como una subida del certificador → `{ ok, subidos, rechazados, errores, slots }`. Entregada: 409 `OBRA_CERRADA` |
 | `POST /obras/:id/visto-ia` | (Sin usar desde el 26/10/2026: la fase se quitó del flujo.) «Lo que ha visto la IA»: mira las fotos (o Street View) y PROPONE `{ at, propuesta, dudas, fuentes, uso }`; no escribe en la obra. Solo en BORRADOR. Topes y códigos en [lo-que-ha-visto-la-ia.md](docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md) |
@@ -328,7 +379,7 @@ de un CEE. Fuera svg, html, gif, tif, bmp, webm, avi, mkv, dwg, doc… → 400 `
 | `POST /obras/:id/enlace-cliente` | `{ url, caduca_at }`: el enlace vigente del propietario, o uno NUEVO si no había o había caducado (`CERTAPP_PORTAL_DIAS`, 30) |
 | `POST /obras/:id/enlace-cliente/rotar` | `{ url, caduca_at }`: enlace nuevo; el anterior deja de valer en el acto (evento `ENLACE_ROTADO`) |
 | `GET /obras/:id/barrido` | El barrido del servidor |
-| `POST /obras/:id/generar` `{ genericos? }` | 422 `{ barrido }` si bloquea · 402 `SIN_CREDITOS` · 409 `YA_PEDIDO` · → `{ ok, obra, creditos }`. Gasta el crédito DE ESA OBRA (si ya lo tenía gastado, no cobra otra vez) |
+| `POST /obras/:id/generar` `{ genericos? }` | 422 `{ barrido }` si bloquea · 402 `SIN_CREDITOS` · 409 `YA_PEDIDO` · → `{ ok, obra, creditos }`. Gasta el crédito DE ESA OBRA (si ya lo tenía gastado, no cobra otra vez). Un encargo de BROKERGY: sin aceptar, 409 `ENCARGO_SIN_ACEPTAR`; aceptado, **no gasta crédito** → `{ ok, obra, creditos, encargo: true }` |
 | `POST /obras/:id/validar` | LISTO → VALIDADO |
 | `GET /obras/:id/cee/para-firmar` · `POST /obras/:id/cee/firmado` · `POST /obras/:id/cee/definitivo` | Firmar el PDF con AutoFirma (firmar valida) y subir el XML o el PDF definitivos; el `.cex`, a cuarentena (nunca se abre). En [el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md](docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md) |
 | `GET /obras/:id/documentos` | Los documentos de la obra entregada: lo actual, versiones anteriores, `.cex` en cuarentena y firma; sin enlaces de Drive (el admin tiene la misma ruta, con ellos). En [documentos-de-la-obra-visor-y-cex-en-cuarentena.md](docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md) |

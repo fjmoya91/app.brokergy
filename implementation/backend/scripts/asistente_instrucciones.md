@@ -108,10 +108,21 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
      `node scripts/asistente_pc.js confirmar <nº> --texto "<su respuesta LITERAL>" --enviar`. Ese texto
      es la autorización del pago: cópialo tal cual, nunca lo resumas ni lo inventes. Un «sí» que no
      responde a esa pregunta, o un «vale» ambiguo, no vale: pregúntale.
+  **Varios PCs.** Cada PC tiene nombre (FIRMA, OFICINA…: `cola` los lista con su estado) y la
+  presentación va al de siempre. Si ese no responde y otro sí, la pregunta ya lo dice («¿Lo hago en
+  OFICINA o esperas a encender FIRMA?»):
+  - «sí» → `confirmar` como siempre (espera al de siempre).
+  - «sí, en OFICINA» / «sí, en el otro» → lo mismo con `--pc OFICINA`. El script se niega si su
+    respuesta no nombra ese PC (o dice «el otro» siendo el único encendido): entonces pregúntale.
+  - Ya en la cola y sin empezar, «hazlo en OFICINA» / «hazlo en el otro» →
+    `node scripts/asistente_pc.js mover <nº> --pc OFICINA --texto "<su respuesta LITERAL>" --enviar`
+    (`mover --lote …` para la ronda de la noche). Lo que ya está en curso no se mueve.
+  - «Califícalo en OFICINA» → `ce3x … --pc OFICINA`. Nunca elijas tú otro PC para presentar.
   **La ronda de la noche**: a las 21:00 el vigilante le manda SOLO una pregunta con TODOS los CEE de
   la casa con visto bueno y sin registrar («*CEE para presentar esta noche* … n × 16,39 € = total»;
   en `cola` sale como «RONDA DE LA NOCHE»). Si contesta a ESA pregunta:
-  - «sí» → `node scripts/asistente_pc.js confirmar --lote --texto "<su respuesta LITERAL>" --enviar`.
+  - «sí» → `node scripts/asistente_pc.js confirmar --lote --texto "<su respuesta LITERAL>" --enviar`
+    («sí, en OFICINA» → con `--pc OFICINA`, como arriba).
   - «sí, menos el 207» → lo mismo con `--excepto 207` (varios: `--excepto 207,186`). Sin `--excepto`
     el script se niega si la respuesta deja algo fuera. Si no está claro cuál, pregúntale.
   - «no» / «hoy no» → `node scripts/asistente_pc.js cancelar --lote --enviar` (mañana se pregunta otra vez).
@@ -131,10 +142,29 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   `node scripts/aceptacion.js estado <nº>`, mira las fotos tú (la placa de la caldera tiene que LEERSE),
   y si falta algo que solo pueden dar ellos, `node scripts/aceptacion.js pedir <nº> --texto "…"
   [--a instalador]` en seco y luego `--enviar`, **sin preguntarle a Fran**: lo autorizó él para este caso
-  (22/10/2026). Fuera de 9 a 21 h el script lo programa para las 9:00, solo. Después le cuentas en el
+  (22/10/2026). Fuera de 7 a 21 h el script lo programa para las 7:00, solo. Después le cuentas en el
   grupo qué has pedido y a quién, y lo apuntas en «Pendiente». Si no falta nada, el CEE inicial con
   `generar-cee-inicial`; si `estado` dice que ya hay un borrador, parte de él. El script pone el saludo,
   el enlace y la firma; tú solo dices qué falta, en lenguaje de casa.
+- **El CONTESTADOR** (mensajes «*C12 · Contestaría a …*», «*C12 · Guardaría lo que ha mandado …*» o
+  «*C12 · Para ti: …*» en el grupo): lo manda el servidor, no tú; es lo que el contestador le habría
+  dicho a un cliente o instalador y lo que guardaría en su expediente (en modo copia no ha pasado nada).
+  - **«C12» a secas** (o «manda C12», «vale C12», «C2 y C4») ya no te llega: lo hace el vigilante solo
+    (guarda lo suyo y le manda el texto tal cual) y le dice a Fran cómo ha ido.
+  - **«C12, dile además que…» / «C12 pero dile…» / «C12, dile que…»** (Fran, 10/11/2026: «ya lo
+    terminas de redactar»): su mensaje ES el «sí» para ese envío, **no le vuelvas a preguntar**. Lee la
+    copia C12 en el chat de arriba (o `node scripts/contestador.js estado`), escribe el texto FINAL
+    con lo suyo dentro —en su voz: de tú, corto, sin emojis, sin firma, sin presentarse, los mismos
+    enlaces que llevaba la copia (las URL enteras, nunca una marca `{ENLACE_…}`)— y mándalo con
+    `node scripts/contestador.js enviar C12 --si "<su mensaje LITERAL>" --texto "<el texto final>"`.
+    Eso guarda antes lo que mandó (facturas, RITE, fotos) y comprueba que el chat no ha cambiado; si
+    se niega, le dices por qué. Después, a Fran, una línea con lo que le has mandado (citado).
+    Con un «Para ti» (C12 que era para él) vale lo mismo: «C12, dile que…» es su respuesta.
+  - Si `enviar` dice que **ya se envió** (en modo real el acuse ya salió), lo que pide Fran se le manda
+    como cualquier WhatsApp a ese número, con su mensaje como «sí».
+  - Si quiere algo que no es contestarle (llamarle, cambiar el expediente…), eso no va por `enviar`.
+  `node scripts/contestador.js estado` lista los últimos. «¿Qué tengo sin contestar?» / «¿hay WhatsApp
+  sin contestar?»: `node scripts/contestador.js bandeja --dias 7` (el criterio de la bandeja de la app).
 - **Consultas** (cómo va un expediente, qué falta, cuántas oportunidades tiene X): consulta Supabase en
   SOLO LECTURA con un `node -e` desde `implementation/backend` (cliente `@supabase/supabase-js` con
   `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` del `.env`), o los scripts de la app, y contesta.

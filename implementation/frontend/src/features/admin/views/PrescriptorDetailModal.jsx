@@ -713,6 +713,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         tecnico_firmante_apellidos: '',
         tecnico_firmante_dni: '',
         tecnico_firmante_carnet_rite: '',
+        // Otros técnicos habilitados que también pueden firmar la memoria.
+        tecnicos_firmantes_rite: [],
         // Técnico competente (CERTIFICADOR): lo que le acredita para SUSCRIBIR un
         // CEE. El carnet RITE habilita para montar la instalación, no para
         // certificarla; con el RD 659/2025 hace falta además la inscripción en el
@@ -738,6 +740,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         // Escaparate público de instaladores (instaladores.brokergy.es)
         marketplace_slug: '',
         visible_marketplace: false,
+        oculto_web: false,
         descripcion_publica: '',
         especialidades: [],
         google_place_id: '',
@@ -943,6 +946,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 tecnico_firmante_apellidos:   p.tecnico_firmante_apellidos || '',
                 tecnico_firmante_dni:         p.tecnico_firmante_dni || '',
                 tecnico_firmante_carnet_rite: p.tecnico_firmante_carnet_rite || '',
+                tecnicos_firmantes_rite:      Array.isArray(p.tecnicos_firmantes_rite) ? p.tecnicos_firmantes_rite.map(t => ({ nombre: t.nombre || '', apellidos: t.apellidos || '', dni: t.dni || '', carnet: t.carnet || '' })) : [],
                 titulacion:                   p.titulacion || '',
                 colegio_profesional:          p.colegio_profesional || '',
                 numero_colegiado:             p.numero_colegiado || '',
@@ -959,6 +963,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 landing_email_contacto:       p.landing_email_contacto || '',
                 marketplace_slug:             p.marketplace_slug || '',
                 visible_marketplace:          p.visible_marketplace || false,
+                oculto_web:                   p.oculto_web || false,
                 descripcion_publica:          p.descripcion_publica || '',
                 especialidades:               Array.isArray(p.especialidades) ? p.especialidades : [],
                 google_place_id:              p.google_place_id || '',
@@ -1174,6 +1179,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 tecnico_firmante_apellidos:   form.tecnico_firmante_apellidos.trim() || null,
                 tecnico_firmante_dni:         form.tecnico_firmante_dni.trim().toUpperCase() || null,
                 tecnico_firmante_carnet_rite: form.tecnico_firmante_carnet_rite.trim() || null,
+                // El backend la sanea (mayúsculas, sin filas vacías).
+                tecnicos_firmantes_rite:      form.tecnico_firmante_distinto ? (form.tecnicos_firmantes_rite || []) : [],
                 // Técnico competente. Se envía SIEMPRE, no solo si es CERTIFICADOR:
                 // el form los trae hidratados de la ficha, así que reclasificar un
                 // partner no puede llevarse por delante su titulación.
@@ -1215,6 +1222,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 ...(isAdmin ? {
                     marketplace_slug:     form.marketplace_slug.trim().toLowerCase() || null,
                     visible_marketplace:  !!form.visible_marketplace,
+                    oculto_web:           !!form.oculto_web,
                     descripcion_publica:  form.descripcion_publica.trim() || null,
                     especialidades:       form.especialidades || [],
                     google_place_id:      form.google_place_id.trim() || null,
@@ -1689,6 +1697,19 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         <FV label="DNI" value={p.tecnico_firmante_dni} mono />
                                         <FV label="N.º Carnet RITE" value={p.tecnico_firmante_carnet_rite} mono />
                                     </div>
+                                    {Array.isArray(p.tecnicos_firmantes_rite) && p.tecnicos_firmantes_rite.length > 0 && (
+                                        <div className="mt-4 pt-3 border-t border-white/5">
+                                            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 mb-2">
+                                                El de arriba firma por defecto · también pueden firmar
+                                            </p>
+                                            {p.tecnicos_firmantes_rite.map((t, i) => (
+                                                <p key={i} className="text-[12px] text-white/80">
+                                                    {[t.nombre, t.apellidos].filter(Boolean).join(' ')}
+                                                    <span className="text-white/40 font-mono"> · {t.dni}{t.carnet ? ` · Carné ${t.carnet}` : ''}</span>
+                                                </p>
+                                            ))}
+                                        </div>
+                                    )}
                                 </Section>
                             )}
 
@@ -2484,6 +2505,51 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                             <Inp value={form.tecnico_firmante_carnet_rite} uppercase placeholder="RITE-XXXXX"
                                                                 onChange={e => upd({ tecnico_firmante_carnet_rite: e.target.value })} />
                                                         </FI>
+                                                        <p className="sm:col-span-2 -mt-1 text-[10px] text-white/30">Es el técnico POR DEFECTO de la Memoria RITE.</p>
+                                                    </div>
+                                                )}
+                                                {/* OTROS técnicos de la empresa que también pueden firmar
+                                                    (FONCAMAN: dos). Al enviar la memoria se elige cuál; por
+                                                    defecto, el de arriba. */}
+                                                {form.tecnico_firmante_distinto && (
+                                                    <div className="space-y-2">
+                                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30">Otros técnicos que pueden firmar</p>
+                                                        {(form.tecnicos_firmantes_rite || []).map((t, i) => {
+                                                            const setT = (campo, v) => upd({ tecnicos_firmantes_rite: form.tecnicos_firmantes_rite.map((x, j) => j === i ? { ...x, [campo]: v } : x) });
+                                                            const quitar = () => upd({ tecnicos_firmantes_rite: form.tecnicos_firmantes_rite.filter((_, j) => j !== i) });
+                                                            // Intercambia con el de por defecto: el de arriba pasa a la lista.
+                                                            const hacerDefecto = () => upd({
+                                                                tecnico_firmante_nombre: t.nombre || '', tecnico_firmante_apellidos: t.apellidos || '',
+                                                                tecnico_firmante_dni: t.dni || '', tecnico_firmante_carnet_rite: t.carnet || '',
+                                                                tecnicos_firmantes_rite: form.tecnicos_firmantes_rite.map((x, j) => j !== i ? x : {
+                                                                    nombre: form.tecnico_firmante_nombre, apellidos: form.tecnico_firmante_apellidos,
+                                                                    dni: form.tecnico_firmante_dni, carnet: form.tecnico_firmante_carnet_rite,
+                                                                }),
+                                                            });
+                                                            return (
+                                                                <div key={i} className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl">
+                                                                    <FI label="Nombre"><Inp value={t.nombre || ''} uppercase onChange={e => setT('nombre', e.target.value)} /></FI>
+                                                                    <FI label="Apellidos"><Inp value={t.apellidos || ''} uppercase onChange={e => setT('apellidos', e.target.value)} /></FI>
+                                                                    <FI label="DNI"><Inp value={t.dni || ''} uppercase placeholder="00000000X" onChange={e => setT('dni', e.target.value)} /></FI>
+                                                                    <FI label="N.º Carnet RITE"><Inp value={t.carnet || ''} uppercase onChange={e => setT('carnet', e.target.value)} /></FI>
+                                                                    <div className="sm:col-span-2 flex justify-end gap-2">
+                                                                        <button type="button" onClick={hacerDefecto}
+                                                                            className="px-3 py-1.5 rounded-lg border border-brand/30 text-brand text-[9.5px] font-black uppercase tracking-wider hover:bg-brand/10">
+                                                                            Hacer por defecto
+                                                                        </button>
+                                                                        <button type="button" onClick={quitar}
+                                                                            className="px-3 py-1.5 rounded-lg border border-white/10 text-white/40 text-[9.5px] font-black uppercase tracking-wider hover:text-red-400">
+                                                                            Quitar
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        <button type="button"
+                                                            onClick={() => upd({ tecnicos_firmantes_rite: [...(form.tecnicos_firmantes_rite || []), { nombre: '', apellidos: '', dni: '', carnet: '' }] })}
+                                                            className="w-full py-2 rounded-xl border border-dashed border-white/15 text-white/40 text-[10px] font-black uppercase tracking-wider hover:text-white hover:border-white/30">
+                                                            + Añadir otro técnico firmante
+                                                        </button>
                                                     </div>
                                                 )}
                                             </div>
@@ -2808,10 +2874,28 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             <Collapse
                                 title="Escaparate de Instaladores"
                                 subtitle="Ficha pública en instaladores.brokergy.es. Al publicar se geolocaliza solo (si falta) y aparece en el mapa. Nunca se muestran datos personales de clientes."
-                                summary={form.visible_marketplace
+                                summary={(form.visible_marketplace
                                     ? `Publicado · /${form.marketplace_slug || 'sin enlace'}`
-                                    : 'No publicado'}
+                                    : 'No publicado') + (form.oculto_web ? ' · Oculto en brokergy.es' : '')}
                             >
+
+                                {/* Web pública brokergy.es («Encuentra tu instalador»): salen TODOS los
+                                    instaladores con obra salvo los marcados aquí, que siguen CONTANDO en
+                                    el total. Lo lee scripts/red.mjs de brokergy-web. */}
+                                <label className="flex items-center gap-3 cursor-pointer rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+                                    <div className="relative h-5 w-9 shrink-0">
+                                        <input type="checkbox" checked={!form.oculto_web}
+                                            onChange={e => upd({ oculto_web: !e.target.checked })}
+                                            className="sr-only peer" />
+                                        <div className="w-full h-full bg-transparent border border-amber-500 rounded-full peer peer-checked:bg-amber-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-amber-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-white/40">
+                                            {form.oculto_web ? 'No sale en la web brokergy.es' : 'Sale en la web brokergy.es'}
+                                        </span>
+                                        <p className="text-[9px] text-white/20 -mt-0.5">«Encuentra tu instalador». Si lo apagas, no se muestra (ni ficha, ni mapa), pero sigue contando en «trabajamos con más de N instaladores». Se aplica al regenerar la web.</p>
+                                    </div>
+                                </label>
 
                                 <FI label="Enlace (slug)">
                                     <div className="flex items-stretch rounded-xl border border-white/[0.08] overflow-hidden focus-within:ring-2 focus-within:ring-brand/40 focus-within:border-brand/40 transition-all">

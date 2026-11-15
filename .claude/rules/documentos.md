@@ -1,6 +1,6 @@
 ---
 paths:
-  - "implementation/frontend/src/features/expedientes/logic/{cifoDoc,calcCifo,cifoFechas,hitosActuacion,fichasFormulario,anexoIFormulario,fichaRes060Html,fichaRes093Html,fichaTer100Html,fichaTer173,res080Doc,signBoxes,fuentesDoc,requerimientoFirma,fichasTecnicas,cedentes,usePlacaScopAcs,direccionInstalacion}.js"
+  - "implementation/frontend/src/features/expedientes/logic/{cifoDoc,calcCifo,cifoFechas,hitosActuacion,fichasFormulario,anexoIFormulario,fichaRes060Html,fichaRes093Html,fichaTer100Html,fichaTer173,res080Doc,signBoxes,fuentesDoc,requerimientoFirma,fichasTecnicas,cedentes,usePlacaScopAcs,direccionInstalacion,fmExpediente}.js"
   - "implementation/frontend/src/features/expedientes/utils/{docGenerators,docContacts}.js"
   - "implementation/frontend/src/features/expedientes/components/{Certificado*,Ficha*,AnexoI*,EnviarAnexos*,Documentacion*,HitosActuacion*,PlacaScopAcs*,CesionManuscrita*,ValidationModal,DocumentoOficial*,FormatoDocumento*,Subvenciones*}.jsx"
   - "implementation/backend/services/{cifoService,formularioOficialService,pdfService,placaScopAcs,aclaracionFechasService,convenioCae,certClienteData}.js"
@@ -93,21 +93,60 @@ paths:
 
 160. **El apartado 3 del Anexo I (REPRESENTACIÓN) solo se rellena si HAY representante, y entonces COMPLETO y con su título** (2026-10-22, Fran). Un particular que firma en su nombre deja el apartado EN BLANCO y SIN NINGUNA CASILLA (antes salía siempre «Otro documento: {nº} - ANEXO CESIÓN AHORRO», que declara una representación que no existe). Hay representación si es EMPRESA (su representante legal) o un particular marcado `clientes.representado` (un poder a favor del cónyuge: Eusebia, 25RES060_88): entonces el representante va en el apartado 3 con nombre, NIF, domicilio, teléfono y correo —estos tres, los suyos (`representante_domicilio/_tlf/_email`) o, vacíos, los del titular—, es el «Fdo.» y comparece y firma el Convenio. El título es **poder notarial** (fecha + nº de protocolo) u **otro documento** (título + fecha) —`representacion_tipo/_fecha/_protocolo/_documento`—, y la COPIA es del cliente (`representacion_doc_link`, `POST /api/clientes/:id/representacion`) y va al paquete de la actuación como pieza **`4-8`** (obligatoria con representación, «no procede» sin ella). Fuente única: [logic/representacion.js](implementation/frontend/src/features/expedientes/logic/representacion.js) (`representacionDe`, `payloadRepresentacion`). Tras tocarlo: `node implementation/backend/scripts/test_impresos_oficiales.mjs` y `check_anexo_cesion_2pag.mjs`. Ver "La REPRESENTACIÓN del titular en el Anexo I".
 
+187. **Un FIRMADO que ya está en BD no lo cambia ni lo borra un PUT general sin decirlo** (2026-10-30). Las rutas dedicadas (`cesion-manuscrita`, `firmar-subir`, la subida pública del cliente y la del instalador) escriben `*_signed_link` directamente en BD, y el módulo de Documentación reenvía `documentacion` ENTERA desde su `local`, que solo se hidrata al abrir el expediente: en **26RES080_59** la subida del Anexo Fotográfico (17:41) devolvió el Convenio a la v1 que la segunda subida (17:39) había archivado en OLD, el merge le selló `signed_at` como a una firma nueva y «validar» copió la v1 a «10. EXPEDIENTE CAE». En [mergeDocumentacion.js](implementation/backend/utils/mergeDocumentacion.js) (`CAMPOS_FIRMADO`, los seis `_signed_link` validables): el cambio solo entra si el payload trae su `*_signed_at` (`_link` → `_at`) **posterior** al de BD, y el borrado solo con la orden `_firmado_borrado: '<campo>'` (se consume y no se guarda; se compara sin mayúsculas por `normalizeData`). Llenar un hueco vacío no necesita sello; el sello no retrocede y, al aceptar, se queda el mayor entre el del navegador y el del servidor. Por eso `uploadSignedPlain` manda el sello de CUALQUIER firmado y `handleDeleteSigned` la orden. Tras tocarlo: `node implementation/backend/scripts/test_firmado_no_retrocede.mjs`, `test_validacion_no_se_pisa.mjs` y `test_refirma_requerimiento.js`. Ver "Un FIRMADO no vuelve a la versión anterior por un autoguardado".
+
+200.a **El Convenio de un expediente FM (`26RES060FM_N` / `26RES093FM_N`) lleva el CONSENTIMIENTO del IRPF que pide la ficha, y solo él** (2026-11-07, Fran: «solo en los FM»). Va como «Cuarto» del EXPONEN en la hoja 1, con uno o con varios cedentes (desde el 08/11 el convenio FM va en tres hojas, regla 200.d): en la hoja de firmas las casillas son de posición fija y el texto llegaba a pisarlas (51 px con 5 cedentes). El texto, con el código de la ficha FM y la mención al impuesto de sociedades si es EMPRESA, sale de `textoConsentimientoFm` / `textoConsentimientoFmVarios` en [logic/viaFm.js](implementation/frontend/src/features/expedientes/logic/viaFm.js); la propuesta usa `NOTA_FM_PROPUESTA` y `lineaConsentimientoFm` del mismo fichero. En los FM la Séptima cita el «Anexo A» (`anexoAyudas` en `buildAnexoCesionHtml`); en la vigente, el «Anexo I». Tras tocarlo: `check_anexo_cesion_2pag.mjs` (ahora mide también que nada llegue a la primera casilla). Ver regla 200 y "La vía del FACTOR MULTIPLICADOR en el expediente".
+
+200.b **El CIFO de un `26RES060FM_N` CERTIFICA la inercia hidráulica (documento 3.c de la ficha) en una hoja propia, y el 3.c no se pide como papel aparte** (2026-11-07, Fran: «así usamos un único documento que es el CIFO»).
+- **La hoja.** Va detrás de la de variables, así que el recuadro de firma de la hoja 2 no se mueve. Lleva el párrafo que certifica que la inercia es la que pide el fabricante, el volumen total, la potencia nominal (en cascada, la suma) y el volumen específico (l/kW, calculado). Si se teclea el mínimo del fabricante, también ese.
+- **Los datos.** Los litros se teclean en Instalación: `instalacion.inercia_litros` y, opcional, `inercia_min_fabricante_litros`. Nunca en `documentacion.via_fm`, porque su PUT lo reescribe entero.
+- **Antes de generar.** Sin litros o sin potencia, «Generar» no sigue.
+- **Alcance.** Solo la RES060_FM: las hibridaciones no lo piden.
+
+Fuente única: [logic/inerciaFm.js](implementation/frontend/src/features/expedientes/logic/inerciaFm.js). Tras tocarlo: `check_cifo_paginas.mjs`, que mide dos casos FM. Ver regla 200 y "La vía del FACTOR MULTIPLICADOR en el expediente".
+
+200.c **En un expediente FM la app GENERA los cinco documentos de firma de la ficha, y cada uno se firma donde ya firma su firmante** (2026-11-07). Los cinco son el Anexo A, la declaración de la tipología, la oferta de mantenimiento, el documento informado F/G y el Anexo B.
+- **El Anexo A** sustituye al Anexo I **solo en los documentos nuevos**: un Anexo I ya firmado sigue valiendo (Fran). Sale por `fuenteAnexoIoA`, en el mismo slot `anexo_i` y en el mismo enlace que el Convenio. Ocupa dos hojas por cedente y se firma en la 2.
+- **Los otros cuatro** se generan en el panel «Vía FM», con «Generar para firmar» (`POST /:id/via-fm/documento/:genera`, staffOnly). El PDF queda en «6. ANEXOS CAE» y el borrador en `documentacion.fm_docs[genera]`, que va en la BLACKLIST y en `CLAVES_PROTEGIDAS`. **No se envían.**
+- **Dónde se firman.** El cliente firma en `/firmar-anexos` y el instalador en `/instalador/:id`. Todos llevan el recuadro fijo `cajaFirmaFmPt(1)`, y el firmado entra en su apartado del gestor (`GENERADOS_FM[genera].slot`).
+- **Volver a generar uno firmado pide otra firma**: lo dice `firmadoVigente`.
+
+La maqueta va en [logic/documentosFm.js](implementation/frontend/src/features/expedientes/logic/documentosFm.js). Quién firma y dónde acaba, en `GENERADOS_FM` de [utils/viaFm.js](implementation/backend/utils/viaFm.js). Tras tocarlo: `node implementation/backend/scripts/check_documentos_fm.mjs` (las hojas son de alto fijo) y `test_via_fm.mjs`. Ver "La vía del FACTOR MULTIPLICADOR en el expediente".
+
+200.d **El Convenio de un expediente FM vale para las DOS fichas: la FM como PRINCIPAL y la general como SUBSIDIARIA, y con él firmado no hay que firmar otro si la FM no se puede justificar** (2026-11-08, Fran: «si luego se rechaza por lo que sea, no hay que volver a firmar otro anexo de cesión»).
+- **El texto.** El EXPONEN Primero da las dos cifras. La Tercera dice que se pide por la FM y autoriza «desde ahora» a pedirlo por la general si no se puede (requisitos, **cupo agotado** o fin de vigencia, verificador u órgano, o cualquier otra causa), comunicándoselo al Cedente y sin novar el convenio. Lleva una tabla con ficha, ahorro, €/kWh e importe orientativo de cada una. La Cuarta fija el precio de la ficha por la que se certifique. La Séptima dice que el Anexo A sustituye al Anexo I en todas las fichas, así que vale para las dos.
+- **Las cifras.** Son las de la pestaña Económico: la FM sale de `results.res060fc.cae` y `financialsRes060FC.caeBonus`, a `cae_client_rate_fm` si se selló; la general, de `savingsKwh` y `caeBonus`. Con un requerimiento vivo (`results.viaUnica`, que ponen `resultsParaDocumento` y `EnviarAnexosModal`) el ahorro ya es el verificado de UNA vía, y el convenio vuelve a una sola cifra.
+- **Las hojas.** Con un cedente son tres, con la tercera solo de firmas (casillas 0 y 1). Con varios son CUATRO y las firmas van en la cuarta: la tabla no cabe en tres (se cortaba 147–173 px). La firma busca la casilla por el nº de páginas: `paginaFirmasConvenio` en [signBoxes.js](implementation/frontend/src/features/expedientes/logic/signBoxes.js) da 4 si hay cuatro y 3 si no (un firmado a mano con los DNI detrás tiene ≥ 5).
+- **Ninguna hoja de texto a medias** (Fran, 08/11/2026: «hay mucho hueco de texto que no me gusta nada»; la hoja 1 acababa en la Segunda con ~190 px en blanco). Con un cedente, la Tercera va PARTIDA: la autorización con su tabla cierra la hoja 1 (`clTerceraHtml`) y el párrafo de las estimaciones abre la 2 (`clTerceraSigue`); para que quepa, la ficha se nombra por código y BOE (sin su título de dos líneas) y la tabla va en filas de una línea. Las Notificaciones cierran la última hoja de texto y la de firmas lleva solo «FIRMAS» y la fórmula de cierre, PEGADAS encima de las casillas (`margin-top:auto` + el relleno `.conv-firmas-pie`). Fuera de la FM, con hasta tres cedentes la Tercera también sube a la hoja 1 (`terceraEnHoja1`). El hueco que quede cae al final de la última hoja de texto, nunca a media cláusula.
+- **El mensaje de envío** anuncia el importe FM y añade una línea con el de la ficha general (`lineaMensajeConvenioFm`).
+
+Fuente única: [logic/convenioFm.js](implementation/frontend/src/features/expedientes/logic/convenioFm.js) (`cifrasConvenioFm`, `CAUSAS_SUBSIDIARIA_FM`). Tras tocarlo: `check_anexo_cesion_2pag.mjs` (mide los casos FM con 1 a 5 cedentes y que la hoja de firmas sea la que busca la firma) y `test_via_fm.mjs`. Ver "La vía del FACTOR MULTIPLICADOR en el expediente".
+
+200.e **El CIFO de un `26RES060FM_N` / `26RES093FM_N` sale como su ficha FM, con la cifra FM y NUNCA con la vigente** (2026-11-09, Fran: «prepara ya el CIFO para que salga como está»).
+- **Qué cambia.** Código y título FM (-S si `via_fm.vulnerable`), hoja de variables FM (D_CAL, S, D_ACS, η_i, SCOP, [C_b], f_M, sin F_P ni D_i) con la fórmula y el «donde» por anexos, Anexo I en cinco puntos (en hoja aparte de los SCOP), SCOP por la prelación del Anexo I FM y el clima de `entradasFmClima`, y C_b por el Anexo V. La rama es `derivaFm` en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js), y solo se activa con `esNumeroFm` y no RES080FM (esos van por `res080Doc`).
+- **La cifra.** `results.res060fc.cae` (`calculateRes060FM`), la del Económico y el Convenio FM. En el backend la da `calcularFmExpediente` de [logic/fmExpediente.js](implementation/frontend/src/features/expedientes/logic/fmExpediente.js), copia de la rama FM de `calcResults` en `ExpedienteDetailView`: si cambia una, cambia la otra.
+- **Bloquea** (modal, «Generar» y `buildValidation`): sin cifra FM, ficha o -S que no casan, D_cal de simulación, ACS supuesto o fuera de la bomba, zona sin cálido, η por defecto, ahorro ≤ 0, tipología distinta. Sin cifra se imprime 0, nunca la vigente.
+- **La vigente no cambia ni un carácter**: comparado el HTML de 30 casos.
+
+Tras tocarlo: `check_cifo_paginas.mjs` (11 casos FM), `test_via_fm.mjs`, `test_res060fc.mjs`, `test_clima_fm.mjs` y `test_placa_scop_acs.mjs`. Ver "El CIFO de un FM sale como su ficha FM".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/documentos/convenio-de-cesion-se-firma-antes-de-terminar-la-obra.md` — Convenio de Cesión — se firma ANTES de terminar la obra (2026-08-12) · 4,0 KB
-- `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md` — El Certificado RES080 con VENTANAS: la comparativa en hoja propia y las fichas del marco y del vidrio (2026-10-13) · 4,4 KB
-- `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md` — El CIFO en PDF — las hojas son FIJAS y hay que medirlas (2026-08-25) · 3,6 KB
+- `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md` — El Certificado RES080 con VENTANAS: la comparativa en hoja propia y las fichas del marco y del vidrio (2026-10-13) · 5,5 KB
+- `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md` — El CIFO en PDF — las hojas son FIJAS y hay que medirlas (2026-08-25) · 4,0 KB
 - `docs/conocimiento/documentos/hitos-de-la-actuacion-la-factura-que-no-abre-la-obra.md` — HITOS DE LA ACTUACIÓN — la factura que NO abre la obra (2026-09-30) · 7,3 KB
 - `docs/conocimiento/documentos/la-placa-de-la-unidad-exterior-dentro-del-certificado.md` — La PLACA de la unidad exterior, dentro del certificado (2026-09-17) · 7,9 KB
 - `docs/conocimiento/documentos/la-representacion-del-titular-en-el-anexo-i.md` — La REPRESENTACIÓN del titular en el Anexo I: poder notarial u otro documento (2026-10-22) · 4,5 KB
 - `docs/conocimiento/documentos/las-coordenadas-utm-se-rotulan-etrs89-huso-30-n.md` — Las coordenadas UTM se rotulan «ETRS89 · huso 30 N» (2026-10-22) · 2,4 KB
 - `docs/conocimiento/documentos/las-fichas-y-el-anexo-i-se-rellenan-ya-no-se-redibujan.md` — Las FICHAS y el ANEXO I se RELLENAN, ya no se redibujan (2026-09-08) · 7,1 KB
-- `docs/conocimiento/documentos/lo-que-el-flag-esconde-y-lo-que-mayusculas-borra.md` — Lo que el FLAG esconde y lo que MAYÚSCULAS borra (2026-09-16) · 8,8 KB
+- `docs/conocimiento/documentos/lo-que-el-flag-esconde-y-lo-que-mayusculas-borra.md` — Lo que el FLAG esconde y lo que MAYÚSCULAS borra (2026-09-16) · 9,7 KB
+- `docs/conocimiento/documentos/misma-direccion-que-el-cliente-sigue-la-ficha-del-cliente.md` — «¿Misma dirección que el cliente? → Sí» sigue la ficha del CLIENTE (2026-10-20) · 2,9 KB
 - `docs/conocimiento/documentos/modulo-documentos-novedades.md` — Módulo Documentos — Novedades (2026-04-08) · 0,6 KB
-- `docs/conocimiento/documentos/quien-ejecuta-la-obra-y-quien-firma-ante-industria.md` — Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26) · 8,5 KB
+- `docs/conocimiento/documentos/quien-ejecuta-la-obra-y-quien-firma-ante-industria.md` — Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26) · 8,7 KB
+- `docs/conocimiento/documentos/un-firmado-no-vuelve-a-la-version-anterior.md` — Un FIRMADO no vuelve a la versión anterior por un autoguardado (2026-10-30) · 4,6 KB
 - `docs/conocimiento/documentos/un-requerimiento-vuelve-a-pedir-la-firma-del-anexo-i-y-del-conve.md` — Un REQUERIMIENTO vuelve a pedir la firma del Anexo I y del Convenio (2026-09-04) · 7,4 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -125,6 +164,8 @@ paths:
   - **REGLA — el generador del servidor adjunta TODAS las fichas, como el modal**
   - **REGLA — en el final de un RES080, lo que se reforma lleva «- CAMBIA» en el nombre**
   - **REGLA — el inicial y el final se casan por nombre SIN el sufijo.**
+  - **REGLA — primero el nombre IGUAL**
+  - **REGLA — «Se adjunta ficha técnica del marco y del cristal» solo si van de verdad.**
 - `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md`
   - **REGLA — una hoja por bloque; el corte NO es condicional.**
   - **REGLA — la PISCINA encabeza la hoja de variables, no la de instalación.**
@@ -175,6 +216,9 @@ salidas usan la MISMA.**
 con una bomba de calor o con un acumulador del que tenemos la placa; NO sale si
 no se actúa sobre el ACS o si se pone un termo eléctrico**
   - **REGLA — Subvenciones se AUTOGUARDA, como el resto de la ficha.**
+- `docs/conocimiento/documentos/misma-direccion-que-el-cliente-sigue-la-ficha-del-cliente.md`
+  - **REGLA — con «Sí» manda la dirección del CLIENTE, en vivo.**
+  - **REGLA — «Sí» solo se pone cuando ES la misma vivienda.**
 - `docs/conocimiento/documentos/quien-ejecuta-la-obra-y-quien-firma-ante-industria.md`
   - **REGLA — cuando son DOS empresas, las dos constan; cuando es una, solo una.**
   - **REGLA — en el CIFO manda la que EJECUTA Y FACTURA, y la habilitada baja a una fila

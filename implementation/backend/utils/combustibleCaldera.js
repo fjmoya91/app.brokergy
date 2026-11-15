@@ -24,8 +24,14 @@ function combustibleDeclarado(instalacion = {}, inputs = {}) {
     if (id.startsWith('gas_')) return inputs?.fuelType === 'glp' ? 'glp' : 'gas_natural';
     if (id.startsWith('oil_')) return 'gasoleo';
     if (id === 'electric') return 'electricidad';
-    // solid_*: la tabla no distingue carbón de biomasa; lo dice la oportunidad.
-    if (id.startsWith('solid_')) return inputs?.fuelType === 'pellets' ? 'pellets' : 'carbon';
+    // solid_*: la tabla no distingue carbón de biomasa; lo dice la oportunidad —lo
+    // ELEGIDO en «¿Carbón o biomasa?» (`combustibleSolido`) y, sin elegir, `fuelType`.
+    if (id.startsWith('solid_')) {
+        const c = String(inputs?.combustibleSolido || inputs?.fuelType || '').toLowerCase();
+        if (c === 'pellets') return 'pellets';
+        if (c === 'lena') return 'biomasa';
+        return 'carbon';
+    }
     return null;
 }
 

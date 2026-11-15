@@ -14,6 +14,11 @@ a nombre de Vicente Gavidia (cliente). Hubo una versión con un campo `titular`
 aparte; se retiró —columna incluida— porque tener DOS campos contestando a "quién
 va en el certificado" es una contradicción esperando a ocurrir.
 
+Si la empresa que lo pide es además quien PAGA (un instalador que encarga el
+certificado de un cliente suyo y quiere la factura a su nombre), va en
+`pagador_cliente_id`, no en un «titular»: ver «Presupuesto “para un cliente suyo”»
+(2026-11-10).
+
 **La base de clientes es LA MISMA que la del CAE.** Un cliente puede tener a la
 vez oportunidades, expedientes CAE y CEE sueltos. Se da de alta desde Clientes o
 desde el propio formulario del CEE, y **se edita sin salir de él** (`ClientePicker`

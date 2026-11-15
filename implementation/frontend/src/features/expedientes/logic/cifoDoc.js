@@ -19,7 +19,7 @@
 // inyecte su propio origen absoluto (Puppeteer renderiza con setContent → base
 // about:blank, las rutas relativas no cargan).
 // ============================================================================
-import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, redondeaScop, normalizeClimateSeason } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, redondeaScop, normalizeClimateSeason, etaAcsExistente, acsExistenteEsTermoElectrico } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, domicilioEmpresa, empresaInstaladora, empresasActuacion,
     notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
@@ -34,8 +34,11 @@ import {
 } from './terciario.js';
 // Quién firma el CIFO. FUENTE ÚNICA con los popups de envío: si la regla se
 // duplicara, el popup anunciaría un firmante y el documento saldría con otro.
-import { firmanteCifo, firmanteMemoriaRite } from './instaladorPendientes.js';
+import { firmanteCifo, firmanteMemoriaRite, presConTecnicoRite } from './instaladorPendientes.js';
 import { buildFontFaces } from './fuentesDoc.js';
+// Vía FM: la inercia hidráulica (documento 3.c de la RES060_FM) va DENTRO del CIFO.
+import { aplicaInerciaFm, inerciaFm } from './inerciaFm.js';
+import { esNumeroFm, fichaOficialDeExpediente, fichaOficialFm } from './viaFm.js';
 
 // Unidades terminales. Las tres primeras son de AGUA: la temperatura de impulsión
 // es la que decide qué SCOP de la ficha se aplica (35/45/55 °C).
@@ -329,14 +332,26 @@ export function deriveCifoData({ expediente, results }) {
     const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
     const acsTermoDeclarado = esTermoElectrico(acsAero) || esTermoElectrico(inst.aerotermia_acs);
     const tieneAcs = acsEnAlcance(inst);
-    const acsExMarca = inst.caldera_antigua_acs?.marca || calExMarca;
-    const acsExMod = inst.caldera_antigua_acs?.modelo || calExMod;
+    // ACS EXISTENTE con un termo eléctrico (efecto Joule) propio: es otro aparato, así
+    // que no hereda la marca ni el modelo de la caldera, y se rotula como lo que es —no
+    // «Caldera eléctrica»—, con su η_ACS = 1,00 (CAE-1991, inexactitud nº 3 de Marwen).
+    const acsExTermo = acsExistenteEsTermoElectrico(inst);
+    const acsExMarca = inst.caldera_antigua_acs?.marca || (acsExTermo ? '—' : calExMarca);
+    const acsExMod = inst.caldera_antigua_acs?.modelo || (acsExTermo ? '—' : calExMod);
     const acsExSerie = inst.caldera_antigua_acs?.numero_serie || inst.caldera_antigua_acs?.n_serie || '—';
 
     const acsEffId = inst.caldera_antigua_acs?.rendimiento_id || boilerEffId;
     const acsEffEntry = BOILER_EFFICIENCIES.find(b => b.id === acsEffId);
-    const acsExTipo = acsEffEntry?.label || calExTipo;
-    const acsExComb = acsExTipo.split(',')[0] || '—';
+    const acsExTipo = acsExTermo ? 'Termo eléctrico (efecto Joule)' : (acsEffEntry?.label || calExTipo);
+    const acsExComb = acsExTermo ? 'Electricidad' : (acsExTipo.split(',')[0] || '—');
+    // η_ACS: el rendimiento del ACS existente (fuente única `etaAcsExistente`, la misma
+    // que usa el cálculo del ahorro). `etaAcsPropio` = el ACS entra en la fórmula con un
+    // rendimiento distinto del de la caldera, y entonces el certificado lo declara aparte.
+    const etaAcsInfo = etaAcsExistente(inst, etaBoiler);
+    const etaAcsStr = etaAcsInfo.value.toFixed(2).replace('.', ',');
+    // En la vía FM los dos los pone el motor FM (`fmVars`, más abajo): su η_ACS sale
+    // del Anexo II de la FM y solo cuando rinde más que la caldera (11/11/2026).
+    const etaAcsPropio = tieneAcs && etaAcsInfo.propio && !esNumeroFm(numexpte);
 
     const acsEsAcumulador = tieneAcs && tipoEquipoNuevo(acsAero) === EQUIPO_NUEVO.ACUMULADOR;
     // El acumulador no es un equipo del catálogo: marca, modelo y nº de serie son
@@ -406,7 +421,9 @@ export function deriveCifoData({ expediente, results }) {
     // FUENTE ÚNICA con el popup de envío y con el microservicio de la memoria
     // (espejo en rite-generator/lib/supabase_client.py): si se duplicara, el
     // certificado nombraría a un técnico y la memoria saldría firmada por otro.
-    const tecMemoria = firmanteMemoriaRite(pres);
+    // Con varios técnicos habilitados, el elegido para ESTE expediente (el mismo
+    // que pone el backend en la memoria: `aplicarTecnicoRite`).
+    const tecMemoria = firmanteMemoriaRite(presConTecnicoRite(pres, doc.memoria_rite_tecnico?.dni));
     const tecNombre  = tecMemoria.nombre || empNombre;
     // Solo se imprime el carné PERSONAL si consta y es distinto del nº de
     // empresa: en una ficha sin técnico declarado, `firmanteMemoriaRite` devuelve
@@ -470,6 +487,19 @@ export function deriveCifoData({ expediente, results }) {
         savingsKwhDoc = ter.savingsKwh;
     }
 
+    // ─── VÍA DEL FACTOR MULTIPLICADOR (26RES060FM_N · 26RES093FM_N) ────────────
+    // El certificado sale como SU ficha FM (BOE-A-2026-23367): código y título, la
+    // fórmula con f_M, sus anexos y sus variables. La cifra NO se calcula aquí: es
+    // `results.res060fc` (calculateRes060FM con las variables reales, la de la
+    // pestaña Económico y el Convenio FM; en el backend, `fmExpediente.js`). Sin
+    // ella el CIFO no se puede generar (`fm.bloqueos`) y el ahorro no se imprime:
+    // nunca un código FM con la cifra de la ficha vigente. Los 26RES080FM_N van por
+    // el Certificado RES080 (res080Doc.js), no por aquí.
+    const fm = esNumeroFm(numexpte) && !/RES080FM_/i.test(numexpte)
+        ? derivaFm({ exp, fmRes: results?.res060fc || null, tieneAcs, temporadaCal, zoneStr, climaScopCal, etaApp: etaBoiler })
+        : null;
+    if (fm) savingsKwhDoc = fm.res ? fm.res.cae : 0;
+
     const aeKwh = Math.round(savingsKwhDoc).toLocaleString('es-ES');
     const aeKwhVal = savingsKwhDoc ? Math.round(savingsKwhDoc).toLocaleString('es-ES') : '—';
     const beneficioStr = Math.round(savingsKwhDoc * (results?.price_kwh || 0.10)).toLocaleString('es-ES');
@@ -492,6 +522,10 @@ export function deriveCifoData({ expediente, results }) {
     if (isHybrid) {
         const demandaAnual = dcalRaw * sRaw;
         const hybridIn = resolveHybridInputs(inst, opInputs, op.datos_calculo?.zona);
+        // Vía FM: si su SCOP de calefacción pasó al clima CÁLIDO de la zona
+        // (climaFm.js), las horas del C_b son también las cálidas — las mismas con
+        // las que el motor FM ha sacado su C_b.
+        if (fm?.climaAjustado) hybridIn.climateSeason = 'calido';
         hybridMethod = hybridIn.method;
         pbdcKw = hybridIn.heatPumpPower;
         const hybridData = calculateHybridization({ demandAnnual: demandaAnual, zone: zoneStr, ...hybridIn });
@@ -513,7 +547,31 @@ export function deriveCifoData({ expediente, results }) {
         pDesignWStr = Math.round(pDesignRaw * 1000).toLocaleString('es-ES');
         pEspecificaNum = sRaw > 0 ? (pDesignRaw * 1000) / sRaw : 0;
         pEspecificaStr = pEspecificaNum > 0 ? pEspecificaNum.toFixed(1).replace('.', ',') : '—';
+        // Vía FM: el C_b es el de la tabla del Anexo V de SU ficha (en tanto por uno,
+        // con tres decimales) y la cobertura, la que ha entrado en ella: sin el tope
+        // del 95 % de la vigente («100 % o superior» → 1).
+        if (fm?.res?.hibridacion) {
+            cbStr = fm.cbStr;
+            if (fm.res.cobertura != null) appliedCovStr = (fm.res.cobertura * 100).toFixed(0);
+            // Si el C_b del motor salió de otra cobertura que la de esta página, el
+            // certificado se contradiría: lo para la validación.
+            const covPagina = refPowerRaw > 0 ? Math.min(1, parseFloat((pbdcKw / refPowerRaw).toFixed(2))) : null;
+            if (fm.res.cobertura != null && covPagina != null && Math.abs(covPagina - fm.res.cobertura) > 0.0001) {
+                fm.bloqueos.push(`La cobertura de la página del C_b (${(covPagina * 100).toFixed(0)} %) no es la del cálculo FM (${(fm.res.cobertura * 100).toFixed(0)} %): revisa las potencias de la bomba y de la caldera, y la demanda del CEE.`);
+            }
+        }
     }
+
+    // Vía FM: las variables que imprime el certificado son las de la fórmula FM (las
+    // mismas que han dado la cifra), no las de la vigente.
+    const fmVars = fm?.res ? {
+        dcal: fm.dcalStr, sStr: fm.sStr, dacsStr: fm.dacsStr, etaStr: fm.etaStr,
+        // El η del término del ACS: el del motor FM (el del ACS existente si rinde más).
+        etaAcsStr: fm.etaAcsStr, etaAcsPropio: tieneAcs && fm.etaAcsPropio,
+        scopCalStr: fm.scopBStr, scopCalRaw: fm.res.scopHeating,
+        scopAcsStr: tieneAcs ? fm.scopDStr : scopAcsStr, scopAcsRaw: tieneAcs ? fm.res.scopAcs : scopAcsRaw,
+        climaScopCal: fm.climaScopCal,
+    } : {};
 
     return {
         // objetos crudos usados directamente en el HTML
@@ -539,7 +597,7 @@ export function deriveCifoData({ expediente, results }) {
         // desglose del ahorro (terciario)
         aeCalStr, aeAcsStr, aeCapStr, aeSinCbStr,
         // ACS
-        tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie,
+        tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie, etaAcsStr, etaAcsPropio,
         acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
         acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         // método SCOP / emisor
@@ -552,7 +610,107 @@ export function deriveCifoData({ expediente, results }) {
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
         // hitos de la actuación (fechas + aclaración)
         hitos,
+        // vía FM (RES060_FM): la inercia hidráulica, en hoja propia. null fuera de la vía.
+        fmInercia: aplicaInerciaFm(numexpte) ? inerciaFm(inst) : null,
+        // vía FM (RES060_FM / RES09x_FM): la ficha, sus variables y lo que impide
+        // generar el certificado. null fuera de la vía. `fmVars` sustituye las
+        // variables de la fórmula por las FM.
+        fm,
+        // D_cal y S del CEE tal cual: las del Q_H de la página del C_b. En la vía FM la
+        // D_cal de la fórmula puede ir recortada por el tope del Anexo IV, que no
+        // cambia la carga de diseño de la vivienda.
+        dcalCeeStr: dcal, sCeeStr: sStr,
+        ...fmVars,
     };
+}
+
+// ============================================================================
+// VÍA FM — lo que el CIFO necesita de `calculateRes060FM` (results.res060fc),
+// formateado, y lo que impide generarlo. La cuenta no se rehace: se lee.
+// ============================================================================
+const nEs = (v, d = 2) => (Number(v) || 0).toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d });
+const nEsMax = (v, d = 2) => (Number(v) || 0).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: d });
+
+/** La Resolución que publica las fichas FM, como se cita en el certificado. */
+export const FM_RESOLUCION_CITA = 'Resolución de 3 de noviembre de 2026 de la Dirección General de Planificación y Coordinación Energética (BOE núm. 278, de 7 de noviembre de 2026; BOE-A-2026-23367)';
+
+function derivaFm({ exp, fmRes, tieneAcs, temporadaCal, zoneStr, climaScopCal, etaApp }) {
+    const oficial = fichaOficialDeExpediente(exp) || fichaOficialFm({});
+    const esHibNum = /RES093FM_/i.test(String(exp.numero_expediente || ''));
+    const r = fmRes;
+    const bloqueos = [];
+    const avisos = [];
+    const out = {
+        codigo: oficial.codigo,
+        titulo: oficial.titulo,
+        // RES060_FM y RES09x_FM numeran los métodos del SCOP en distinto orden (Anexo I).
+        esHib: esHibNum,
+        ordenEta: esHibNum ? '3.º' : '2.º',
+        ordenCop: esHibNum ? '2.º' : '3.º',
+        vulnerable: /-S$/.test(oficial.codigo),
+        res: r,
+        bloqueos,
+        avisos,
+    };
+    if (!r) {
+        bloqueos.push('No se ha podido calcular el ahorro por la vía del factor multiplicador (falta el CEE con su demanda de calefacción y su superficie). Sin esa cifra el certificado FM no se genera.');
+        return out;
+    }
+    const climaAjustado = !!r.climaFm?.ajustado;
+    Object.assign(out, {
+        dcalStr: nEs(r.dcal), dcalBrutaStr: nEs(r.dcalBruta), dcalRefStr: nEsMax(r.dcalRef, 1), dcalTopeStr: nEsMax(r.dcalTope, 1),
+        sStr: nEs(r.superficie), dacsStr: nEs(r.dacs), dAcsEspStr: String(r.dAcsEspecifica),
+        etaStr: nEs(r.eta), etaCambia: Math.abs((Number(r.eta) || 0) - (Number(etaApp) || 0)) > 0.0001,
+        etaAcsStr: nEs(r.etaAcs ?? r.eta), etaAcsPropio: !!r.etaAcsPropio,
+        scopBStr: nEs(r.scopHeating), scopDStr: nEs(r.scopAcs),
+        cbStr: nEs(r.cb, 3), fmStr: nEsMax(r.fm, 2),
+        aesStr: nEs(r.aes, 0), caeStr: Math.round(r.cae).toLocaleString('es-ES'),
+        climaAjustado,
+        // Clima del SCOP de calefacción: por la FM, el de la ZONA cuando se ha pasado a él.
+        climaScopCal: climaAjustado ? 'Cálido' : climaScopCal,
+        scopDeStr: climaAjustado ? nEs(r.climaFm.de) : null,
+    });
+
+    // ── Lo que impide generarlo ──
+    for (const a of r.avisos || []) if (a.tono === 'bloquea') bloqueos.push(a.texto);
+    const base = (c) => String(c || '').replace(/-S$/, '');
+    if (base(r.ficha) !== base(oficial.codigo)) {
+        bloqueos.push(`El número del expediente es de la ficha ${oficial.codigo}, pero el cálculo FM ha salido por la ${r.ficha} (${r.hibridacion ? 'con' : 'sin'} hibridación). Corrige la hibridación de la instalación o el número antes de generar el certificado.`);
+    }
+    if (out.vulnerable !== /-S$/.test(r.ficha)) {
+        bloqueos.push(`La ficha es la ${oficial.codigo}, pero la cifra FM está calculada ${out.vulnerable ? 'sin' : 'con'} el × 1,5 del consumidor vulnerable.`);
+    }
+    if (r.dcalFuente === 'simulacion' || r.dcalFuente == null) {
+        bloqueos.push('La D_cal tiene que ser la del CEE posterior a la actuación (Anexo IV de la ficha FM): carga el CEE final con su demanda de calefacción.');
+    }
+    if (!tieneAcs || !r.conAcs || r.acsSupuesto || r.acsSinScop) {
+        bloqueos.push('La ficha FM exige que la bomba de calor dé también el ACS (apartado 1), y aquí el ACS no va con la bomba: con el certificado no se puede declarar una D_ACS de una instalación que no existe. Añade el ACS a la instalación (equipo y SCOP_dhw).');
+    }
+    if (r.climaFm?.sinCalido) {
+        bloqueos.push(`Por la FM el SCOP de calefacción tiene que ser el de la zona ${zoneStr} (clima cálido, Anexo I de la ficha) y el catálogo no trae el SCOP cálido de este equipo: da de alta el SCOP cálido del fabricante (o vuelve la hibridación al clima de la zona) antes de generar el certificado.`);
+    }
+    if (!(r.cae > 0)) bloqueos.push('El ahorro por la vía FM sale a 0: no hay nada que certificar.');
+    if (r.etaPorDefecto) bloqueos.push('El rendimiento de la caldera está «por defecto»: el certificado FM tiene que citar su fila del Anexo II de la ficha (combustible, antigüedad y tipo). Elígela en la instalación.');
+
+    // ── Lo que hay que mirar (no impide generarlo) ──
+    if (r.dcalFuente === 'cee_inicial') {
+        avisos.push('La D_cal y la superficie son las del CEE INICIAL: la ficha FM pide las del CEE posterior (registrado). Si el final ya está, cárgalo.');
+    }
+    if (r.potencia?.noCubre) {
+        avisos.push(`La bomba (${nEsMax(r.potencia.bombaKw, 1)} kW) no llega a la carga de diseño que sale de la D_cal (${nEsMax(r.potencia.disenoKw, 1)} kW con ${r.potencia.horas} h): la ficha pide que cubra TODA la calefacción. Si la caldera se queda, el certificado tiene que justificar la cobertura íntegra a la temperatura de proyecto (doc. 3.b); si no se puede, es una hibridación (${r.potencia.ficha}).`);
+    }
+    const temp = String(temporadaCal || '').toLowerCase();
+    if (!climaAjustado && temp.startsWith('medio') && String(zoneStr).toUpperCase() !== 'E1') {
+        avisos.push(`El SCOP de calefacción declarado es el de clima MEDIO (el fabricante no publica el cálido) y la zona ${zoneStr} es cálida para la ficha FM (Anexo I). Es conservador en una sustitución, pero la ficha FM no repite el «al menos medio» de la vigente.`);
+    }
+    // La tipología la DECLARA el instalador (punto 1, que la app genera con la de la
+    // pestaña «Vía FM»); el f_M sale de la de la simulación. Si no son la misma, dos
+    // papeles del expediente se contradicen.
+    const tipDecl = exp.documentacion?.via_fm?.tipologia;
+    if (tipDecl && tipDecl !== r.clase) {
+        bloqueos.push(`La tipología declarada en la pestaña «Vía FM» (${tipDecl}) no es la de la simulación con la que se calcula el f_M (${r.tipologiaLabel}, f_M = ${nEsMax(r.fm)}): corrige una de las dos.`);
+    }
+    return out;
 }
 
 // ============================================================================
@@ -660,10 +818,49 @@ export const FC_ZONA_ACS = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.1
  * El recuadro «Cálculo del SCOP en ACS» del Anexo VI. Con `placaSrc` va a DOS
  * columnas y la foto queda al lado del número que justifica.
  */
-export function scopAcsAnexoViHtml({ zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl, anexoRef, placaSrc = null, placaRecorte = null }) {
+export function scopAcsAnexoViHtml({ zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl, anexoRef, placaSrc = null, placaRecorte = null, fmCop = false }) {
     const fc = FC_ZONA_ACS[zoneStr] ?? FC_ZONA_ACS.D3;
     const fcStr = fc.toFixed(3).replace('.', ',');
     const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
+    // Vía FM: el Anexo I de las fichas FM escribe la misma cuenta como
+    // SCOP = COP_nominal × FP × FC. Su FP de «Energía Aerotérmica, ACS» es, zona a
+    // zona, el F_c del Anexo VI de la vigente (A7/W55, acumulación a 50 °C), y su FC
+    // —el de la temperatura de condensación— vale 1,00 con el COP a 55 °C y
+    // condensación a 55 °C. El número no cambia; cambian los nombres y la cita.
+    if (fmCop) {
+        const aside = placaSrc ? `
+                    <figure style="flex:none;width:208px;margin:0;">
+                        ${placaImgHtml({ src: placaSrc, recorte: placaRecorte, ancho: 208, maxAlto: 290, estilo: 'border:1px solid #E9E9E1;border-radius:12px;' })}
+                        <figcaption style="margin-top:5px;font-size:9.5px;line-height:1.35;color:#8a8a80;text-align:center;">Placa de la unidad exterior. Se amplía en el anexo.</figcaption>
+                    </figure>` : '';
+        const ftLinkFm = acsFtUrl ? `<li style="margin-top:3px;">Ficha técnica: <a href="${acsFtUrl}" style="color:#0000EE;text-decoration:underline;">Acceder a la ficha técnica del fabricante</a></li>` : '';
+        return `
+                <div style="margin-top:12px;padding:16px 20px;border:1px solid #E9E9E1;border-radius:16px;font-size:12.5px;line-height:1.5;color:#4a4a44;display:flex;gap:18px;align-items:flex-start;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
+                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
+                    <p style="margin:0 0 6px;">Según el ${anexoRef}, para la zona climática ${zoneStr}:</p>
+                    <div style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP<sub>nominal</sub> × FP × FC</div>
+                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
+                    <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
+                        <li>· COP<sub>nominal</sub>: coeficiente de rendimiento en condiciones A7/W55, según ficha técnica y placa de características del equipo</li>
+                        <li style="margin-top:3px;">· FP: factor de ponderación de la energía aerotérmica en ACS para la zona climática ${zoneStr}</li>
+                        <li style="margin-top:3px;">· FC: factor de corrección por la temperatura de condensación (COP ensayado a 55 °C, condensación a 55 °C)</li>
+                        ${ftLinkFm}
+                    </ul>
+                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Valores utilizados</div>
+                    <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
+                        <li>· COP<sub>nominal</sub> = ${copCalc} ${placaSrc ? '(según la ficha técnica del fabricante y la placa de características del equipo, que se reproduce en este certificado)' : '(según ficha técnica del fabricante)'}</li>
+                        <li style="margin-top:3px;">· FP = ${fcStr} (zona climática ${zoneStr}) · FC = 1,00</li>
+                    </ul>
+                    <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:10px 16px;margin-top:10px;">
+                        <span style="font-weight:700;color:#1A1A1A;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} × 1,00 = ${scopAcsStr}</span>
+                        <span style="font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
+                    </div>
+                  </div>
+                  ${aside}
+                </div>`;
+    }
     const ftLink = acsFtUrl ? `<li style="margin-top:3px;">Ficha técnica: <a href="${acsFtUrl}" style="color:#0000EE;text-decoration:underline;">Acceder a la ficha técnica del fabricante</a></li>` : '';
     // A 208 px no se leen las cifras de la placa —por eso va también ampliada como
     // anexo—, pero es lo que dice, ahí mismo, de dónde ha salido el número.
@@ -740,7 +937,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         calNuMarca, calNuMod, calNuSerieEx, calNuUds,
         tienePiscina, dcapStr, scopPoolStr, pisNuMarca, pisNuMod, pisNuSerie,
         aeCalStr, aeAcsStr, aeCapStr, aeSinCbStr,
-        tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie,
+        tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie, etaAcsStr, etaAcsPropio,
         acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
         acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         metodoCal, metodoAcs, emiLabel,
@@ -751,22 +948,36 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         empRite, empresas, ejeNombre, ejeCif, ejeDir, tecNombre, tecCarnet,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
-        hitos,
+        hitos, fmInercia, fm = null,
     } = data;
+    const dcalCeeStr = data.dcalCeeStr ?? dcal;
+    const sCeeStr = data.sCeeStr ?? sStr;
 
     const pages = [];
     // El TERCIARIO se comprueba ANTES que la hibridación: TER173 es las dos cosas a
     // la vez (terciaria e híbrida) y lo que la nombra es su propio código, no el de
     // la RES093 con la que comparte la tabla del C_b.
-    const cifoLabel = isTer173 ? 'TER173' : isHybrid ? 'RES093' : isTerciario ? 'TER100' : 'RES060';
-    const actuacionNombre = isTer173
+    // Vía FM: el código de SU ficha (RES060_FM, RES09x_FM de la zona, -S si vulnerable).
+    const cifoLabel = fm ? fm.codigo : isTer173 ? 'TER173' : isHybrid ? 'RES093' : isTerciario ? 'TER100' : 'RES060';
+    // Anexo de la ficha FM en el que vive cada variable (iguales en la RES060_FM y
+    // en las RES09x_FM, salvo el C_b, que solo tienen las de hibridación).
+    const fmAnexo = { scop: 'Anexo I', eta: 'Anexo II', dacs: 'Anexo III', dcal: 'Anexo IV', cb: 'Anexo V' };
+    // Corto a propósito: la hoja 1 lleva además el título oficial de la ficha FM, que
+    // es el más largo del catálogo (RES093_FM-S), y es la hoja más justa del documento.
+    const actuacionNombre = fm
+        ? (fm.esHib
+            ? 'Hibridación de caldera con bomba de calor, con factor multiplicador'
+            : 'Sustitución de caldera por bomba de calor, con factor multiplicador')
+        : isTer173
         ? TER173_NOMBRE_ACTUACION
         : isHybrid
         ? 'Hibridación de combustión con bomba de calor de accionamiento eléctrico'
         : isTerciario
         ? TER100_NOMBRE_ACTUACION
         : 'Sustitución de caldera de combustión por una bomba de calor aire-agua (aerotermia)';
-    const fichaNombreCompleto = isTer173
+    const fichaNombreCompleto = fm
+        ? `${fm.codigo}: ${fm.titulo}`
+        : isTer173
         ? TER173_FICHA_COMPLETA
         : isHybrid
         ? 'RES093: Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios residenciales ubicados en la zona climática D1, D2 o D3'
@@ -829,14 +1040,30 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     // multiplicarlo y a obtener un AE_ACS que no forma parte de la actuación.
     const dacsCell = tieneAcs ? dacsStr : 'no aplica';
 
-    const varCols = [
+    // Vía FM: las variables que lista el apartado 4 de su ficha. No llevan F_P ni
+    // D_i (la ficha FM no las define) y sí el f_M; el C_b solo en las RES09x_FM.
+    const varCols = fm ? [
+        { th: 'D<sub>CAL</sub>', td: dcalCell },
+        { th: 'S', td: sCell },
+        { th: 'D<sub>ACS</sub>', td: dacsCell },
+        etaAcsPropio
+            ? { th: 'η<sub>i</sub> · η<sub>ACS</sub>', td: `${etaStr} · ${etaAcsStr}` }
+            : { th: 'η<sub>i</sub>', td: etaStr },
+        { th: 'SCOP<sub>bdc</sub>', td: scopCalStr },
+        { th: 'SCOP<sub>dhw</sub>', td: scopAcsStr },
+        ...(isHybrid ? [{ th: 'C<sub>b</sub>', td: cbStr, hi: true }] : []),
+        { th: 'f<sub>M</sub>', td: fm.fmStr || '—', hi: true },
+        { th: 'AE<sub>TOTAL</sub>', td: aeKwhVal, hi: true },
+    ] : [
         { th: 'F<sub>P</sub>', td: '1' },
         { th: 'D<sub>CAL</sub>', td: dcalCell },
         { th: 'S', td: sCell },
         { th: 'D<sub>ACS</sub>', td: dacsCell },
         // La demanda de piscina solo se lista si la actuación la incluye (TER100).
         ...(tienePiscina ? [{ th: 'D<sub>CAP</sub>', td: dcapStr }] : []),
-        { th: 'η<sub>i</sub>', td: etaStr },
+        etaAcsPropio
+            ? { th: 'η<sub>i</sub> · η<sub>ACS</sub>', td: `${etaStr} · ${etaAcsStr}` }
+            : { th: 'η<sub>i</sub>', td: etaStr },
         { th: 'SCOP<sub>bdc</sub>', td: scopCalStr },
         { th: 'SCOP<sub>dhw</sub>', td: scopAcsStr },
         ...(tienePiscina ? [{ th: 'SCOP<sub>pwh</sub>', td: scopPoolStr }] : []),
@@ -889,13 +1116,30 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         </div>`;
 
     const donde = (() => {
+        // Vía FM: las definiciones del apartado 4 de su ficha, con su anexo.
+        if (fm) {
+            return [
+                { sym: 'D<sub>CAL</sub>', desc: `Demanda específica de energía en calefacción por unidad de superficie útil habitable (${fmAnexo.dcal})`, val: `${dcal} kWh/m²·año` },
+                { sym: 'S', desc: 'Superficie útil habitable a la que da suministro la bomba de calor', val: `${sStr} m²` },
+                { sym: 'D<sub>ACS</sub>', desc: `Demanda de energía en agua caliente sanitaria (${fmAnexo.dacs})`, val: tieneAcs ? `${dacsStr} kWh/año` : 'no aplica' },
+                etaAcsPropio
+                    ? { sym: 'η<sub>i</sub> · η<sub>ACS</sub>', desc: `Rendimiento de caldera ${fm.esHib ? 'que se queda hibridada' : 'sustituida'} (${fmAnexo.eta}) · del ACS existente: ${acsExTipo}`, val: `${etaStr} · ${etaAcsStr}` }
+                    : { sym: 'η<sub>i</sub>', desc: `Rendimiento de caldera ${fm.esHib ? 'que se queda hibridada' : 'sustituida'} (${fmAnexo.eta})`, val: etaStr },
+                { sym: 'SCOP<sub>bdc</sub>', desc: `Rendimiento estacional de la bomba de calor en calefacción (${fmAnexo.scop})`, val: scopCalStr },
+                { sym: 'SCOP<sub>dhw</sub>', desc: `Rendimiento estacional de la bomba de calor en ACS (${fmAnexo.scop})`, val: scopAcsStr },
+                ...(isHybrid ? [{ sym: 'C<sub>b</sub>', desc: `Coeficiente de cobertura en calefacción por bivalencia en paralelo, en tanto por uno (${fmAnexo.cb})`, val: cbStr }] : []),
+                { sym: 'f<sub>M</sub>', desc: `Coeficiente corrector con factor multiplicador: ${fm.res?.tipologiaLabel ? fm.res.tipologiaLabel.toLowerCase() : '—'}${fm.vulnerable ? ', consumidor vulnerable (× 1,5)' : ''}`, val: fm.fmStr || '—' },
+            ].map((it, i) => ({ ...it, n: i + 1 }));
+        }
         const items = [
             { sym: 'F<sub>P</sub>', desc: 'Factor de ponderación', val: '1' },
             { sym: 'D<sub>CAL</sub>', desc: isTerciario ? 'Demanda de energía en calefacción del edificio' : 'Demanda de energía en calefacción del edificio/vivienda', val: tieneCalefaccion ? `${dcal} kWh/m²·año` : 'no aplica' },
             { sym: 'S', desc: isTerciario ? 'Superficie útil habitable del edificio' : 'Superficie útil habitable del edificio o vivienda', val: tieneCalefaccion ? `${sStr} m²` : 'no aplica' },
             { sym: 'D<sub>ACS</sub>', desc: 'Demanda de energía en agua caliente sanitaria', val: tieneAcs ? `${dacsStr} kWh/año` : 'no aplica' },
             ...(tienePiscina ? [{ sym: 'D<sub>CAP</sub>', desc: 'Demanda anual de energía térmica para el calentamiento de agua de piscina', val: `${dcapStr} kWh/año` }] : []),
-            { sym: 'η<sub>i</sub>', desc: 'Rendimiento de caldera de combustión(PCS)', val: etaStr },
+            etaAcsPropio
+                ? { sym: 'η<sub>i</sub> · η<sub>ACS</sub>', desc: `Rendimiento de caldera de combustión (PCS) · del ACS existente: ${acsExTipo}`, val: `${etaStr} · ${etaAcsStr}` }
+                : { sym: 'η<sub>i</sub>', desc: 'Rendimiento de caldera de combustión(PCS)', val: etaStr },
             { sym: 'SCOP<sub>bdc</sub>', desc: 'Rendimiento estacional bomba calor calefacción', val: scopCalStr },
             { sym: 'SCOP<sub>dhw</sub>', desc: acsEsTermo ? 'Rendimiento del equipo de ACS (efecto Joule)' : 'Rendimiento estacional bomba calor ACS', val: scopAcsStr },
             ...(tienePiscina ? [{ sym: 'SCOP<sub>pwh</sub>', desc: 'Rendimiento estacional de la bomba de calor en calentamiento de piscina', val: scopPoolStr }] : []),
@@ -906,6 +1150,33 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         // saliendo según el alcance, los índices fijos se descuadraban.
         return items.map((it, i) => ({ ...it, n: i + 1 }));
     })();
+    // Vía FM: la fórmula del apartado 4 de la ficha, con los valores y el resultado.
+    // Va porque el f_M es nuevo y el AE_TOTAL ya no es el corchete de la vigente:
+    // quien lo verifica tiene la cuenta entera en la misma hoja que las variables.
+    const fmFormulaBox = (() => {
+        const r = fm?.res;
+        if (!r) return '';
+        const cbTxt = isHybrid ? ' · C<sub>b</sub>' : '';
+        const cbVal = isHybrid ? ` · ${cbStr}` : '';
+        const n2 = (v) => nEs(v, 2);
+        const fila = (html, extra = '') => `<div style="text-align:center;font-size:12px;line-height:1.5;color:#1A1A1A;${extra}">${html}</div>`;
+        // Con un ACS existente propio (un termo, 1,00) su término va con su η: la cuenta
+        // impresa tiene que dar la cifra que imprime (como la vigente, 26RES060_168).
+        const etaAcsSym = etaAcsPropio ? 'η<sub>ACS</sub>' : 'η<sub>i</sub>';
+        const etaAcsVal = etaAcsPropio ? etaAcsStr : etaStr;
+        return `
+        ${subLabel(`Cálculo del ahorro · apartado 4 de la ficha ${cifoLabel}`, '#6E6E66', '12px')}
+        <div style="border:1px solid #E9E9E1;border-radius:16px;padding:12px 16px;">
+            <div style="text-align:center;font-weight:800;font-size:13.5px;background:#FBF6EE;border-radius:10px;padding:8px;margin-bottom:8px;color:#1A1A1A;">AE<sub>TOTAL</sub> = [ (D<sub>CAL</sub> · S) · (1/η<sub>i</sub> − 1/SCOP<sub>bdc</sub>) + D<sub>ACS</sub> · (1/${etaAcsSym} − 1/SCOP<sub>dhw</sub>) ]${cbTxt} · f<sub>M</sub></div>
+            ${fila(`= [ (${dcal} · ${sStr}) · (1/${etaStr} − 1/${scopCalStr}) + ${tieneAcs ? dacsStr : '0'} · (1/${etaAcsVal} − 1/${scopAcsStr}) ]${cbVal} · ${fm.fmStr}`)}
+            ${fila(`= ( ${n2(r.ahc)} + ${n2(r.aha)} )${cbVal} · ${fm.fmStr} = <b>${n2(r.cae)} kWh/año</b>`, 'margin-top:2px;')}
+            <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:7px 16px;margin-top:8px;">
+                <span style="font-weight:700;color:#1A1A1A;">AE<sub>TOTAL</sub> (ahorro anual de energía final total)</span>
+                <span style="font-weight:900;font-size:16px;color:#4d6a12;">${aeKwhVal} kWh/año</span>
+            </div>
+        </div>`;
+    })();
+
     const dondeBox = `<div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;">${donde.map((d, i) => `
         <div style="display:flex;align-items:center;gap:14px;padding:5px 16px;${i === donde.length - 1 ? '' : 'border-bottom:1px solid #ECECE4;'}">
             <span style="flex:none;width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;">${d.n}</span>
@@ -1141,7 +1412,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                     ${acsNuUds > 1 && !acsEsAcumulador && !acsEsTermo ? cmpRow('Nº de equipos instalados', '—', String(acsNuUds)) : ''}
                     ${cmpRow('Fuente de energía', acsExComb, 'Electricidad')}
                     ${cmpRow(acsNuUds > 1 ? 'Nº serie equipos ACS' : 'Nº serie equipo ACS', acsExSerie, acsNuSerieEx)}
-                    ${cmpRow(acsNuUds > 1 ? 'SCOP<sub>dhw</sub> aplicado (menor) / Rendimiento' : 'SCOP<sub>dhw</sub> / Rendimiento', etaStr, scopAcsStr)}
+                    ${cmpRow(acsNuUds > 1 ? 'SCOP<sub>dhw</sub> aplicado (menor) / Rendimiento' : 'SCOP<sub>dhw</sub> / Rendimiento', etaAcsStr, scopAcsStr)}
                 `)
                 : acsTermoFuera
                 // ACS FUERA DEL ALCANCE CAE: no computa en la fórmula (D_ACS = 0),
@@ -1153,7 +1424,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                     ${cmpRow('Modelo', acsExMod, acsFueraMod)}
                     ${cmpRow('Fuente de energía', acsExComb, 'Electricidad')}
                     ${cmpRow('Nº serie equipo ACS', acsExSerie, acsFueraSerie)}
-                    ${cmpRow('Rendimiento', etaStr, '1,00')}
+                    ${cmpRow('Rendimiento', etaAcsStr, '1,00')}
                 `)}
                 <div style="margin-top:8px;border:1px solid #E9E9E1;border-radius:14px;padding:12px 16px;font-size:11.5px;color:#6E6E66;line-height:1.5;">
                     <b style="color:#1A1A1A;">El ACS queda fuera del alcance de la actuación.</b> La producción de agua caliente sanitaria se resuelve con un equipo de efecto Joule (rendimiento = 1), que no es una bomba de calor: <b style="color:#1A1A1A;">no computa en el cálculo del ahorro de energía</b> y la demanda de ACS (D<sub>ACS</sub>) no se incluye en la fórmula. Se declara únicamente como información de la instalación resultante.
@@ -1200,6 +1471,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ${subLabel('Valores de las variables para el ahorro de energía', '#6E6E66', tienePiscina ? '12px' : '16px')}
             ${varTableBox}
             ${desgloseTerciarioBox}
+            ${fmFormulaBox}
 
             ${subLabel('Donde', '#6E6E66', '12px')}
             ${dondeBox}
@@ -1207,12 +1479,73 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         </div>
     `);
 
+    // VÍA FM (RES060_FM) — CERTIFICADO DE INERCIA HIDRÁULICA, en hoja propia.
+    // La ficha lo pide como documento 3.c, DENTRO del certificado de la instalación
+    // (documento 3), así que va aquí y no como otro papel que firmar. Hoja propia
+    // porque las de arriba no tienen holgura (regla «una hoja por bloque») y porque
+    // va DESPUÉS de la página 2, la del recuadro de firma (`SIGN_BOXES.cifo_res060`):
+    // no lo mueve. Sin los litros la puerta de «Generar» lo pide (`inerciaFm().falta`).
+    if (fmInercia) {
+        const fi = fmInercia;
+        pages.push(`
+        <div class="doc-page">
+            ${pageHeader}
+            ${sectionTitle('Certificado de inercia hidráulica de la instalación', '16px')}
+            <p style="margin:0 0 12px;font-size:11.5px;color:#6E6E66;">Ficha ${fm ? fm.codigo : 'RES060_FM'} (Resolución de 3 de noviembre de 2026, BOE núm. 278, de 7 de noviembre de 2026), apartado 3, documento 3.c).</p>
+            <p style="margin:0 0 14px;font-size:12.5px;line-height:1.6;color:#1A1A1A;">La empresa instaladora <b>certifica</b> que la instalación dispone de la <b>inercia hidráulica necesaria para garantizar el correcto funcionamiento de la bomba de calor en todas las condiciones de operación previstas, de acuerdo con las especificaciones del fabricante</b> del equipo instalado.</p>
+            ${rowsBox(`
+                ${kv('Volumen de agua total', `<b>${fi.litrosStr}</b>`)}
+                ${kv('Potencia térmica nominal de la bomba de calor', fi.potenciaStr)}
+                ${kv('Volumen específico', `<b>${fi.especificoStr}</b>`, !fi.minStr)}
+                ${fi.minStr ? kv('Volumen mínimo especificado por el fabricante', fi.minStr, true) : ''}
+            `)}
+            <p style="margin:12px 0 0;font-size:11px;line-height:1.55;color:#6E6E66;">El volumen de agua total es el contenido en el circuito hidráulico de la instalación (depósito de inercia, si lo hay, tuberías y unidades terminales). El volumen específico es el volumen de agua total dividido entre la potencia térmica nominal de la bomba de calor instalada${fi.unidades > 1 ? ' (suma de las unidades en cascada)' : ''}.</p>
+            ${footer}
+        </div>
+    `);
+    }
+
     // Anexo I — Justificación de las variables (puntos 1-5)
     // La justificación de D_ACS por el CTE lleva dos tablas: con ella el Anexo I no
     // cabe en la misma página que la justificación de los SCOP. El modo MANUAL es un
     // párrafo, así que no obliga a partir.
-    const acsDemandHeavy = tieneAcs && (acsMode === ACS_METHOD.CTE || acsMode === ACS_METHOD.LITROS);
-    const anexoIBlock = `
+    // Vía FM: la D_ACS es d_ACS · S (Anexo III), un párrafo: nunca obliga a partir.
+    const acsDemandHeavy = !fm && tieneAcs && (acsMode === ACS_METHOD.CTE || acsMode === ACS_METHOD.LITROS);
+    const pJ = (html, mb = '6px') => `<p style="margin:0 0 ${mb};font-size:12.5px;color:#4a4a44;line-height:1.55;">${html}</p>`;
+    const anexoIBlockFm = (() => {
+        const r = fm?.res;
+        if (!r) return '';
+        const b = (t) => `<b style="color:#1A1A1A;">${t}</b>`;
+        const ceePost = r.dcalFuente === 'cee_final'
+            ? 'el certificado de eficiencia energética posterior a la actuación'
+            : 'el certificado de eficiencia energética del edificio';
+        const dcalTxt = r.clase === 'unifamiliar'
+            ? (r.dcalTope != null
+                ? `En edificio unifamiliar se toma el mínimo entre esa demanda y el doble del valor de referencia de la tabla del anexo (${r.provinciaNombre}, año de construcción ${r.yearLabel}: ${fm.dcalRefStr} kWh/m²·año): D<sub>CAL</sub> = mín (${fm.dcalBrutaStr} ; 2 × ${fm.dcalRefStr} = ${fm.dcalTopeStr}) = ${b(`${dcal} kWh/m²·año`)}.`
+                : `En edificio unifamiliar se toma el mínimo entre esa demanda y el doble del valor de referencia de la tabla del anexo, que no publica valor para esta provincia: D<sub>CAL</sub> = ${b(`${dcal} kWh/m²·año`)}.`)
+            : `Al no tratarse de un edificio unifamiliar, el valor de la D<sub>CAL</sub> es el que arroja el certificado: D<sub>CAL</sub> = ${b(`${dcal} kWh/m²·año`)}.`;
+        return `
+        ${sectionTitle(`Anexo I · Justificación de las variables — apartado 4 de la ficha ${cifoLabel}`, '20px')}
+
+        ${subLabel('1. Demanda específica de calefacción D<sub>CAL</sub>', '#6E6E66', '14px')}
+        ${pJ(`Conforme al ${fmAnexo.dcal} de la ficha ${cifoLabel}, la demanda específica de energía en calefacción por unidad de superficie útil habitable es la que arroja ${ceePost}, en su anexo II: ${b(`${fm.dcalBrutaStr} kWh/m²·año`)}. ${dcalTxt} El certificado ha sido elaborado y firmado por técnico competente, de acuerdo con lo dispuesto en el RD 390/2021, de 1 de junio.`)}
+
+        ${subLabel('2. Superficie útil habitable S', '#6E6E66', '14px')}
+        ${pJ(`Superficie útil habitable del edificio o vivienda a la que da suministro la bomba de calor, según ${ceePost} (${fmAnexo.dacs} de la ficha): S = ${b(`${sStr} m²`)}.`)}
+
+        ${subLabel('3. Demanda de energía en ACS D<sub>ACS</sub>', '#6E6E66', '14px')}
+        ${tieneAcs
+            ? pJ(`Según el ${fmAnexo.dacs} de la ficha, D<sub>ACS</sub> = d<sub>ACS</sub> · S, con una demanda específica media d<sub>ACS</sub> de 11 kWh/(m²·año) en edificio unifamiliar o piso con sistema individual y de 16 kWh/(m²·año) en edificio con sistema centralizado. Para ${String(r.tipologiaLabel || '').toLowerCase()}: D<sub>ACS</sub> = ${fm.dAcsEspStr} × ${sStr} = ${b(`${dacsStr} kWh/año`)}.`)
+            : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:14px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`}
+
+        ${subLabel(`4. Rendimiento de la caldera ${fm.esHib ? 'hibridada' : 'sustituida'} <span style="text-transform:none;">η<sub>i</sub></span>`, '#6E6E66', '14px')}
+        ${pJ(`Se ha utilizado un rendimiento estacional de ${b(etaStr)}, el que asigna el ${fmAnexo.eta} «Rendimiento de caldera ${fm.esHib ? 'hibridada' : 'sustituida'}» de la ficha ${cifoLabel} (tabla «Rendimiento estacional por defecto basado en el combustible, la antigüedad y el tipo de caldera») a una caldera de ${b(calExTipo)}.`)}
+
+        ${subLabel('5. Coeficiente corrector con factor multiplicador <span style="text-transform:none;">f<sub>M</sub></span>', '#6E6E66', '14px')}
+        ${pJ(`La ficha ${cifoLabel} fija el coeficiente según la tipología del edificio: 2 en edificio unifamiliar, 2,5 en piso con sistema individual y 3 en edificio con sistema centralizado. La actuación se realiza en ${b(String(r.tipologiaLabel || '—').toLowerCase())}, tipología que declara la empresa instaladora (apartado 3, documento 1)${fm.vulnerable ? `, habitado por un consumidor vulnerable, para el que la ficha ${cifoLabel} lo multiplica por 1,5` : ''}: f<sub>M</sub> = ${b(fm.fmStr)}.`, '0')}
+    `;
+    })();
+    const anexoIBlock = fm ? anexoIBlockFm : `
         ${sectionTitle(`Anexo I · Justificación de las variables — apartado 3 de la ficha ${cifoLabel}`, '20px')}
 
         ${subLabel('1. Factor de ponderación F<sub>P</sub>')}
@@ -1288,6 +1621,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
 
         ${subLabel(`${tienePiscina ? 6 : 5}. Justificación rendimiento de caldera de combustión η<sub>i</sub>`, '#6E6E66', '16px')}
         <p style="margin:0;font-size:12.5px;color:#4a4a44;">Se ha utilizado un rendimiento estacional de <b style="color:#1A1A1A;">${etaStr}</b>, al tratarse de una caldera de <b style="color:#1A1A1A;">${calExTipo}</b>, siguiendo las indicaciones del Ministerio para la Transición Ecológica y el Reto Demográfico recogidas en los criterios de verificación "24/11.03: Rendimientos estacionales vs. nominales en fichas IND040, RES060, RES090-099, TER100 y TER170-179".${isTer173 ? ` El valor procede de la tabla B.3 <i>«Rendimiento estacional por defecto basado en el combustible, la antigüedad y el tipo de caldera»</i> que recoge el <b>Anexo VIII de la propia ficha TER173</b> para el caso —el de esta actuación— en que no se dispone del rendimiento estacional sobre energía primaria de la instalación existente.` : ''}</p>
+        ${etaAcsPropio ? `
+        <p style="margin:6px 0 0;font-size:12.5px;color:#4a4a44;"><b style="color:#1A1A1A;">η<sub>ACS</sub> del sistema de ACS existente:</b> el certificado de eficiencia energética inicial declara el agua caliente sanitaria con un equipo distinto de la caldera, <b style="color:#1A1A1A;">${acsExTipo}</b>, de rendimiento <b style="color:#1A1A1A;">${etaAcsStr}</b>, que es el que se aplica en el término de ACS: D<sub>ACS</sub>·(1/η<sub>ACS</sub> − 1/SCOP<sub>dhw</sub>).</p>
+        ` : ''}
     `;
 
     const renderEprelJustification = (isAcs = false) => {
@@ -1303,7 +1639,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             : 'Ficha EPREL';
         // El anexo donde la ficha define el cálculo del SCOP cambia con la ficha:
         // RES060 → Anexo IV · RES093 → Anexo II · TER100/TER173 → Anexos II y III.
-        const anexoRef = isTerciario
+        const anexoRef = fm
+            ? `${fm.ordenEta} del ${fmAnexo.scop} de la ficha ${cifoLabel}`
+            : isTerciario
             ? `Anexos II y III de la ficha ${cifoLabel}`
             : `Anexo ${isHybrid ? 'II' : 'IV'} de la ficha ${cifoLabel}`;
         return scopBox(
@@ -1319,7 +1657,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
 
     // Qué anexo define el cálculo del SCOP_dhw en cada ficha. Se usa en el recuadro
     // y otra vez en la página donde se amplía la placa: tienen que decir lo mismo.
-    const anexoViRef = isTer173
+    const anexoViRef = fm
+        ? `${fm.ordenCop} del ${fmAnexo.scop} de la ficha ${cifoLabel} (bomba de calor con depósito de ACS que no forma parte de un conjunto: COP<sub>nominal</sub> × FP × FC)`
+        : isTer173
         ? 'Anexo II de la ficha TER173 (bombas de calor aerotérmicas y depósitos no suministrados como conjunto)'
         : isTerciario
         ? 'Anexo VII de la ficha TER100 (condiciones generales para el cálculo del coeficiente de eficiencia estacional en el calentamiento de ACS)'
@@ -1340,7 +1680,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ? `<a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Ficha EPREL</a>`
                 : 'Ficha EPREL';
             return scopBox(
-                `Justificación del SCOP en ACS — ${isTerciario ? `Anexo II ficha ${cifoLabel}` : 'Anexo IV ficha RES060'} (depósito ACS en conjunto con la BdC)`,
+                `Justificación del SCOP en ACS — ${fm ? `${fm.ordenEta} del ${fmAnexo.scop} ficha ${cifoLabel}` : isTerciario ? `Anexo II ficha ${cifoLabel}` : 'Anexo IV ficha RES060'} (depósito ACS en conjunto con la BdC)`,
                 `SCOP<sub>dhw</sub> = CC · η<sub>wh</sub>`,
                 `${svRow('CC', 'Coeficiente de conversión', '2,5')}
                  ${svRow('η<sub>wh</sub>', `Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${climaScopAcs.toLowerCase()} y perfil ACS)`, `${etaWh}%`)}
@@ -1353,9 +1693,12 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             return scopAcsAnexoViHtml({
                 zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl,
                 anexoRef: anexoViRef, placaSrc, placaRecorte,
+                // Vía FM: la misma cuenta con los nombres del Anexo I de la ficha FM.
+                fmCop: !!fm,
             });
         }
 
+        if (fm) return scopCallout(`SCOP en ACS = ${scopAcsStr}. Es el que facilita el fabricante de la bomba de calor (1.º del ${fmAnexo.scop} de la ficha ${cifoLabel}; en ACS, al menos el de la zona climática media), según la ficha técnica que se entregará como anexo al expediente CAE.`);
         return scopCallout(`SCOP en ACS = ${scopAcsStr}. Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.`);
     };
 
@@ -1378,6 +1721,8 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         </div>
         ${metodoCal === 'eprel'
             ? renderEprelJustification(false)
+            : fm
+            ? scopCallout(`SCOP en Calefacción = ${scopCalStr}. Es el que facilita el fabricante de la bomba de calor a la temperatura de impulsión de la instalación (W${getEmitterTemp(inst.tipo_emisor)}, ${String(emiLabel).replace(/\s*\(.*\)$/, '').toLowerCase()}), en clima ${String(climaScopCal).toLowerCase()} (1.º del ${fmAnexo.scop} de la ficha ${cifoLabel}, que en calefacción considera cálidas las zonas ${fm.esHib ? 'A, B, C y D' : 'B, C y D'} y media la zona E), según la ficha técnica que se entregará como anexo al expediente CAE.`)
             : scopCallout(`SCOP en Calefacción = ${scopCalStr}. Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.`)
         }`}
 
@@ -1397,7 +1742,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     const scopHeavy = metodoCal === 'eprel'
         || (tieneAcs && (metodoAcs === 'conjunto' || metodoAcs === 'independiente'));
     // Con piscina hay un apartado extra en cada bloque (D_CAP y SCOP_pwh): se parte.
-    const splitAnexoScop = acsDemandHeavy || scopHeavy || tienePiscina;
+    // Vía FM: su Anexo I (tope del Anexo IV, d_ACS · S, f_M) no cabe con los SCOP en
+    // la misma hoja —se pasaba 98px con UN equipo (check_cifo_paginas.mjs)—: se parte siempre.
+    const splitAnexoScop = acsDemandHeavy || scopHeavy || tienePiscina || !!fm;
     if (splitAnexoScop) {
         pages.push(`<div class="doc-page">${pageHeader}${anexoIBlock}${footer}</div>`);
         pages.push(`<div class="doc-page">${pageHeader}${scopJustBlock}${footer}</div>`);
@@ -1413,7 +1760,15 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     // Anexo IV en la TER173 — `cbAnexo`. Por eso hay un apartado y no dos: dos
     // redacciones del mismo cálculo acabarían diciendo cosas distintas.
     if (isHybrid) {
-        const cappedNote = coveragePct >= 95
+        // Vía FM: la tabla es la del Anexo V de su ficha, sin el tope del 95 % de la
+        // vigente: «100 % o superior» → C_b = 1, y hasta el 15 %, 0.
+        const cbAnexo = fm ? 'V' : data.cbAnexo;
+        const topeCov = !fm && coveragePct >= 95;
+        const cappedNote = fm
+            ? (coveragePct > 100
+                ? obsBox(`<p style="margin:0;"><b>Nota:</b> El porcentaje de cobertura calculado (${coveragePctStr}%) es superior al 100%. La tabla del ${fmAnexo.cb} de la ficha ${cifoLabel} asigna a «100 % o superior» un C<sub>b</sub> de 1.</p>`, '10px')
+                : '')
+            : topeCov
             ? obsBox(`<p style="margin:0;"><b>Nota:</b> El porcentaje de cobertura calculado (${coveragePctStr}%) es superior al 95%. Conforme al Anexo ${cbAnexo} de la ficha ${cifoLabel}, el valor máximo aplicable es el 95% (límite de la tabla de bivalencia).</p>`, '10px')
             : '';
 
@@ -1477,7 +1832,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                     <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>
                         <tr><td colspan="2" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">Coeficiente de cobertura por bivalencia — valor aplicado</td></tr>
                         <tr><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">${esPorCaldera ? 'Cobertura potencia térmica BdC sobre caldera existente' : 'Cobertura de la BdC sobre la carga de diseño para calefacción'}</td><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">C<sub>b</sub></td></tr>
-                        <tr><td style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;padding:10px;">${appliedCovStr}%${coveragePct >= 95 ? ' · valor aplicado' : ''}</td><td style="text-align:center;font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${cbStr}</td></tr>
+                        <tr><td style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;padding:10px;">${appliedCovStr}%${topeCov || (fm && coveragePct > 100) ? ' · valor aplicado' : ''}</td><td style="text-align:center;font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${cbStr}</td></tr>
                     </tbody></table>
                 </div>`;
 
@@ -1515,14 +1870,22 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ${pageHeader}
                 ${subLabel('8. Coeficiente de cobertura por bivalencia C<sub>b</sub>', '#6E6E66', '20px')}
                 ${par(`La ficha ${cifoLabel} <b>[R4]</b> establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), definido como <i>«el porcentaje de la demanda de energía térmica anual cubierta por bombas de calor cuando está combinada con generadores auxiliares (calderas) formando un sistema híbrido»</i>. Su valor se obtiene de la tabla del <b>Anexo ${cbAnexo}</b> de la ficha, cuya variable de entrada es el <i>«porcentaje de potencia térmica nominal de bomba de calor sobre la potencia térmica total necesaria en proyecto»</i>, interpolando linealmente entre los valores más próximos de la tabla.`)}
-                ${par(`Para determinar la <b>potencia térmica total necesaria en proyecto</b> se aplica el procedimiento establecido en el <b>${link(URL_813, 'Reglamento (UE) n.º 813/2013')} [R1]</b>, norma de aplicación directa que define tanto la carga de diseño para calefacción como las horas anuales equivalentes en modo activo, y que constituye el marco al que remite expresamente el Anexo II de la propia ficha ${cifoLabel} <b>[R4]</b>${isTer173 ? '' : ' y el Anexo V de la ficha RES060 <b>[R5]</b>'}.`)}
+                ${par(`Para determinar la <b>potencia térmica total necesaria en proyecto</b> se aplica el procedimiento establecido en el <b>${link(URL_813, 'Reglamento (UE) n.º 813/2013')} [R1]</b>, norma de aplicación directa que define tanto la carga de diseño para calefacción como las horas anuales equivalentes en modo activo, y que constituye el marco ${fm ? `de los reglamentos de ecodiseño a los que remite el ${fmAnexo.scop} de la propia ficha ${cifoLabel} <b>[R4]</b> (SCOP según la UNE-EN 14825)` : `al que remite expresamente el Anexo II de la propia ficha ${cifoLabel} <b>[R4]</b>${isTer173 ? '' : ' y el Anexo V de la ficha RES060 <b>[R5]</b>'}`}.`)}
 
                 ${subLabel('Paso 1 — Horas anuales equivalentes en modo activo (H<sub>HE</sub>)', '#6E6E66', '18px')}
                 ${par(`El ${link(URL_813, 'Reglamento (UE) n.º 813/2013')} <b>[R1]</b>, <b>Anexo III, punto 4, letra c)</b>, establece literalmente:`)}
                 ${quoteBox('«La demanda anual de calor de referencia Q<sub>H</sub> será la carga de diseño para calefacción P<sub>designh</sub> multiplicada por las horas anuales equivalentes en modo activo H<sub>HE</sub> de 2 066.»')}
                 ${cite(`— Reglamento (UE) n.º 813/2013, Anexo III, punto 4, letra c) — ${link(URL_813, 'DOUE L 239 de 6.9.2013, pág. L 239/153')} [R1]`)}
                 ${par(`El ${link(URL_811, 'Reglamento Delegado (UE) n.º 811/2013')} <b>[R2]</b>, Anexo VII, punto 4, letra c) (pág. L 239/72), recoge la misma relación para las tres temporadas de calefacción de referencia, con valores de H<sub>HE</sub> de <b>2.066 h</b> (condiciones medias), <b>2.465 h</b> (más frías) y <b>1.336 h</b> (más cálidas).`)}
-                ${isTer173
+                ${fm
+                    // Vía FM: su Anexo I considera en calefacción cálidas A, B, C y D y
+                    // media la E, sin el «al menos medio» de la vigente (climaFm.js).
+                    ? (esCalido
+                        ? par(`Se aplica la temporada de <b>condiciones climáticas más cálidas</b>: es la que el <b>${fmAnexo.scop} de la ficha ${cifoLabel} [R4]</b> asigna a la zona climática <b>${zoneStr}</b> en la que se ubica la instalación (<i>«se considerarán, tanto en calefacción como en ACS, las zonas climáticas A, B, C y D como cálidas (warm) y la zona E como media (average)»</i>), y es aquella en la que ${fuenteScop} el SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>). El rendimiento estacional y las horas anuales equivalentes son parámetros de una <b>misma</b> temporada de calefacción de referencia y se toman conjuntamente.`)
+                        : String(zoneStr).toUpperCase() === 'E1'
+                        ? par(`Se aplica la temporada de <b>condiciones climáticas medias</b>: es la que el <b>${fmAnexo.scop} de la ficha ${cifoLabel} [R4]</b> asigna a la zona climática <b>E1</b> (<i>«la zona E como media (average)»</i>), y es aquella en la que ${fuenteScop} el SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>). El rendimiento estacional y las horas anuales equivalentes son parámetros de una <b>misma</b> temporada de calefacción de referencia y se toman conjuntamente.`)
+                        : par(`Se aplica la temporada de <b>condiciones climáticas medias</b>, que es aquella en la que ${fuenteScop} el SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>): el fabricante no publica el rendimiento estacional del equipo en condiciones más cálidas. El rendimiento estacional y las horas anuales equivalentes son parámetros de una <b>misma</b> temporada de calefacción de referencia y se toman conjuntamente.`))
+                    : isTer173
                     ? par(`Se aplica la temporada de calefacción de referencia en la que ${fuenteScop} el <b>SCOP = ${scopCalStr}</b> adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>): ${esCalido ? '<b>condiciones climáticas más cálidas</b>' : '<b>condiciones climáticas medias</b>'}. El rendimiento estacional y las horas anuales equivalentes son parámetros de una <b>misma</b> temporada de referencia y se toman conjuntamente: determinar la carga de diseño con las horas de una temporada distinta de aquella en la que se declara el SCOP dejaría de comparar en igualdad de condiciones.`)
                     : esCalido
                     ? par(`Se aplica la temporada de <b>condiciones climáticas más cálidas</b>: es la que el <b>Anexo III de la ficha RES060 [R5]</b> —tabla de equivalencia entre las zonas climáticas del CTE y las temporadas establecidas en los Reglamentos 813/2013 <b>[R1]</b> y 811/2013 <b>[R2]</b>— asigna a la zona climática <b>${zoneStr}</b> en la que se ubica la instalación, y es también aquella en la que ${fuenteScop} el SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>). El rendimiento estacional y las horas anuales equivalentes son parámetros de una <b>misma</b> temporada de calefacción de referencia y se toman conjuntamente: determinar la carga de diseño con las horas de una temporada distinta de aquella en la que se declara el SCOP dejaría de comparar en igualdad de condiciones.`)
@@ -1531,7 +1894,8 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
 
                 ${subLabel('Paso 2 — Demanda anual de calor (Q<sub>H</sub>)', '#6E6E66', '18px')}
                 ${par(`La demanda anual de calor es la demanda de calefacción del edificio por la superficie útil habitable calefactada, ambas tomadas del certificado de eficiencia energética registrado que la ficha ${cifoLabel} <b>[R4]</b> admite como fuente de la demanda:`)}
-                ${formulaBox(`Q<sub>H</sub> = D<sub>CAL</sub> × S = ${dcal} kWh/m²·año × ${sStr} m² = <span style="color:#4d6a12;">${demandaAnualKwhStr} kWh/año</span>`)}
+                ${formulaBox(`Q<sub>H</sub> = D<sub>CAL</sub> × S = ${dcalCeeStr} kWh/m²·año × ${sCeeStr} m² = <span style="color:#4d6a12;">${demandaAnualKwhStr} kWh/año</span>`)}
+                ${fm?.res?.limitadoPorTabla ? par(`<i>La D<sub>CAL</sub> es aquí la del certificado: el tope del ${fmAnexo.dcal} de la ficha (${dcal} kWh/m²·año) limita el cálculo del ahorro, no la carga de diseño de la vivienda.</i>`) : ''}
                 ${footer}
             </div>
         `);
@@ -1564,8 +1928,10 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                         <b>[R2]</b> Reglamento Delegado (UE) n.º 811/2013 de la Comisión, de 18 de febrero de 2013, por el que se complementa la Directiva 2010/30/UE en lo relativo al etiquetado energético de los aparatos de calefacción — DOUE L 239 de 6.9.2013, págs. L 239/1 a L 239/82 (la letra c) citada, en la pág. L 239/72).<br>
                         <span style="font-size:9px;">Texto oficial: ${link(URL_811, URL_811)}</span><br>
                         <b>[R3]</b> UNE-EN 14511 (condiciones de ensayo de potencia térmica) y UNE-EN 14825 (condiciones de cálculo del rendimiento estacional SCOP por temporada de calefacción).<br>
-                        <b>[R4]</b> Ficha ${cifoLabel} del Anexo I de la Orden TED/845/2023, de 18 de julio, actualizado por la Resolución de 3 de julio de 2024 de la Dirección General de Planificación y Coordinación Energética.${isTer173 ? '' : '<br>'}
-                        ${isTer173 ? '' : `<b>[R5]</b> Ficha RES060, misma fuente que [R4]. Su <b>Anexo III</b> «Equivalencias climas CTE y zonas climáticas europeas, en calefacción» (BOE núm. 173 de 18.7.2024, pág. 91401) es la tabla que equipara cada zona del CTE con la temporada de calefacción de los Reglamentos 813/2013 y 811/2013.`}
+                        <b>[R4]</b> ${fm
+                            ? `Ficha ${cifoLabel}, publicada por la ${FM_RESOLUCION_CITA}.`
+                            : `Ficha ${cifoLabel} del Anexo I de la Orden TED/845/2023, de 18 de julio, actualizado por la Resolución de 3 de julio de 2024 de la Dirección General de Planificación y Coordinación Energética.`}${isTer173 || fm ? '' : '<br>'}
+                        ${isTer173 || fm ? '' : `<b>[R5]</b> Ficha RES060, misma fuente que [R4]. Su <b>Anexo III</b> «Equivalencias climas CTE y zonas climáticas europeas, en calefacción» (BOE núm. 173 de 18.7.2024, pág. 91401) es la tabla que equipara cada zona del CTE con la temporada de calefacción de los Reglamentos 813/2013 y 811/2013.`}
                     </div>
                 `, '14px')}
                 ${footer}

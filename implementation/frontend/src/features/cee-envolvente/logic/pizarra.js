@@ -363,7 +363,7 @@ export function huecosColocados(m) {
  *
  *   { accion: 'reclasificar', id, tipo }
  *   { accion: 'paredes', tipo, tramos: [[a, b], …] }
- *   { accion: 'hueco', id, tipo, ancho, pos }
+ *   { accion: 'hueco', id, tipo, ancho, pos, aExterior? }   (aExterior: la pared pasa a muro exterior)
  *   { accion: 'borrar', huecos: [{ id, uid, nombre }], paredes: [id] }
  */
 export function interpretarTrazo({ pts, herramienta, muros, tam = 0.5, iman = 1.1 }) {
@@ -423,11 +423,17 @@ export function interpretarTrazo({ pts, herramienta, muros, tam = 0.5, iman = 1.
         }
         const que = herr.id === 'puerta' ? 'la puerta' : 'la ventana';
         if (!m) return { error: `Dibuja ${que} encima de su pared.` };
-        if (!admiteHuecos(m)) {
-            const es = esFuera(m) ? 'está apartada de la envolvente' : `es ${ETIQUETA_TIPO[tipoDe(m)] || 'otra cosa'}`;
-            return { error: `${herr.id === 'puerta' ? 'Las puertas' : 'Las ventanas'} solo van en un muro exterior, y ${m.nombre || m.id} ${es}. `
-                + 'Pásala antes a «Muro exterior» (repásala con ese lápiz).' };
+        // REGLA — un hueco puesto en una medianera o una partición la PASA a
+        // muro exterior (2026-10-28, Fran: «no me dejaba meter ventanas en
+        // FBE3» — estaba «al vecino» y daba al patio). Quien pone una ventana
+        // ahí está diciendo que esa pared da afuera: pedirle que la reclasifique
+        // antes es un paso que nadie adivina. Se aplica y se DICE. Una pared
+        // APARTADA sí se rechaza: no es de la vivienda.
+        if (esFuera(m)) {
+            return { error: `${herr.id === 'puerta' ? 'Las puertas' : 'Las ventanas'} solo van en la vivienda, y ${m.nombre || m.id} `
+                + 'está apartada de la envolvente. Vuelve a tenerla en cuenta desde su panel.' };
         }
+        const aExterior = !admiteHuecos(m);
         const Lp = largo(m.svg);
         const ss = muestras.map(([x, y]) => abscisa(m.svg, x, y).s);
         const sMin = Math.min(...ss), sMax = Math.max(...ss);
@@ -437,7 +443,8 @@ export function interpretarTrazo({ pts, herramienta, muros, tam = 0.5, iman = 1.
         const centro = toque ? ss[0] : (sMin + sMax) / 2;
         const margen = Math.min(0.48, (ancho / 2) / (Lp || 1));
         const pos = Math.round(Math.max(margen, Math.min(1 - margen, centro / (Lp || 1))) * 1000) / 1000;
-        return { accion: 'hueco', id: m.id, tipo: herr.id, ancho, pos };
+        return { accion: 'hueco', id: m.id, tipo: herr.id, ancho, pos,
+                 ...(aExterior ? { aExterior: true, antes: tipoDe(m) } : {}) };
     }
 
     // ── Goma ─────────────────────────────────────────────────────────────────

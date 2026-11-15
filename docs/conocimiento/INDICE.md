@@ -7,33 +7,35 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 35,7 KB | 11 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 49,4 KB | 16 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
-| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 45,1 KB | 23 |
-| `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 10,9 KB | 26 |
-| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 52,1 KB | 17 |
-| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 8,2 KB | 11 |
-| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 19,7 KB | 6 |
-| `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 23,3 KB | 7 |
-| `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 1 |
-| `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 18,1 KB | 24 |
-| `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 39,9 KB | 12 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 92,8 KB | 36 |
-| `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 8,2 KB | 3 |
-| `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 17,8 KB | 5 |
-| `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 2,8 KB | 2 |
+| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 49,8 KB | 23 |
+| `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 11,6 KB | 27 |
+| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 55,2 KB | 18 |
+| `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 10,7 KB | 16 |
+| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 20,7 KB | 6 |
+| `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 27,1 KB | 9 |
+| `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 11 |
+| `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 4,7 KB | 1 |
+| `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,2 KB | 25 |
+| `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 50,1 KB | 14 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 105,4 KB | 41 |
+| `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 16,4 KB | 5 |
+| `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 18,2 KB | 5 |
+| `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 5,0 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
+| `informes` | Informes técnicos — `{AAAA}INF_{n}`: memorias, legalizaciones, todo lo que no es CAE ni CEE | `.claude/rules/informes.md` · 4,7 KB | 1 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
-| `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 6,6 KB | 2 |
-| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 26,9 KB | 11 |
-| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 15,9 KB | 5 |
-| `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,3 KB | 10 |
-| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 21,8 KB | 8 |
+| `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 11,4 KB | 6 |
+| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 41,9 KB | 20 |
+| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 25,6 KB | 10 |
+| `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,4 KB | 10 |
+| `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,0 KB | 11 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
-| `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,4 KB | 1 |
-| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 6,8 KB | 4 |
-| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 17,3 KB | 15 |
+| `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,6 KB | 1 |
+| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,7 KB | 6 |
+| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 30,2 KB | 18 |
 
 ## Reglas numeradas → dónde están
 
@@ -215,7 +217,7 @@
 - **131** → `.claude/rules/envolvente-ce3x.md` — Los EQUIPOS se marcan en el plano —caldera actual, equipo nuevo, depósito de ACS y unidad exterior— y la uni…
 - **132** → `.claude/rules/propuesta.md` — Con los avisos del cliente desviados a otra persona, el TITULAR sigue pudiendo recibir la propuesta
 - **133** → `.claude/rules/propuesta.md` — Caldera de BIOMASA (combustible sólido que no es carbón): la deducción del IRPF exige placas solares; el Bon…
-- **134** → `.claude/rules/calculo.md` — Con PLACAS en cualquiera de los dos CEE, el ahorro RES080 va POR VECTOR aunque se haya elegido «por uso»
+- **134** → `.claude/rules/calculo.md` — Con PLACAS, la fotovoltaica autoconsumida NO es ahorro de energía final: el vector eléctrico del RES080 va e…
 - **135** → `.claude/rules/cee-generacion.md` — En un RES080, cada ventana que CAMBIA resuelve sus PUENTES TÉRMICOS
 - **136** → `.claude/rules/propuesta.md` — La oportunidad pasa a ENVIADA con CUALQUIER envío que salga bien, también solo al instalador, y la lista dic…
 - **137** → `.claude/rules/documentos.md` — En el CEE final de un RES080 lo que se reforma se IDENTIFICA, y el inicial y el final se casan SIN el «- CAM…
@@ -235,22 +237,69 @@
 - **152** → `.claude/rules/cee-generacion.md` — Todo CEE que genera la casa (inicial o final) deja su XML CARGADO en el expediente
 - **153** → `.claude/rules/calculo.md` — En una HIBRIDACIÓN el clima del SCOP se ELIGE (cálido o medio) con un botón, y con el medio TODO sale en medio
 - **154** → `.claude/rules/propuesta.md` — Hibridación manteniendo la caldera: el cliente recibe por escrito, en un mensaje APARTE, las DOS hipótesis d…
-- **155** → `.claude/rules/calculo.md` — El FC (borrador DGPLACE) se calcula con la ficha que TOCA, el f_C UNA vez, el CEF del CEE INICIAL, y nunca s…
+- **155** → `.claude/rules/calculo.md` — El FACTOR MULTIPLICADOR se calcula con la Resolución PUBLICADA (BOE-A-2026-23367, 7/11/2026), con UNA fuente…
 - **156** → `.claude/rules/propuesta.md` — La colaboración se VE en la portada y el coste de los servicios es UNA cifra
 - **157** → `.claude/rules/clientes.md` — La CARTA DE PAGO del Bono CAE se GENERA al subir el justificante y viaja ADJUNTA al aviso
 - **158** → `.claude/rules/claude-automatizacion.md` — Tras la ACEPTACIÓN, el agente revisa la documentación: pide lo que falta o hace el CEE inicial
 - **159** → `.claude/rules/lotes.md` — Las INEXACTITUDES del verificador se registran SOLAS como incidencias, y la RESPUESTA se arma al subsanar
 - **160** → `.claude/rules/documentos.md` — El apartado 3 del Anexo I (REPRESENTACIÓN) solo se rellena si HAY representante, y entonces COMPLETO y con s…
+- **161** → `.claude/rules/oportunidades.md` — Si el bono CAE del ALTA sale por debajo de 3.000 €, se hace el CEE inicial con CE3X y su XML se carga en la …
+- **162** → `.claude/rules/documentacion-fotos.md` — Sin la foto de la caldera INSTALADA EN SU SALA y la de su PLACA legible, no hay CEE inicial ni expediente
+- **163** → `.claude/rules/oportunidades.md` — Si el instalador NO dice nada del agua caliente, el ACS no se calcula
 - **164** → `.claude/rules/transversal-frontend.md` — Lo que ve el CLIENTE se diseña con el ESTILO «carta de pago»
 - **165** → `.claude/rules/facturacion.md` — Un presupuesto con PARTIDAS se calcula en UN sitio y su esquema es ADITIVO
 - **166** → `.claude/rules/facturacion.md` — Una FACTURA nace BORRADOR, se EMITE con número y desde ahí NO se borra ni se cambia: se RECTIFICA; y cada em…
+- **167** → `.claude/rules/cee-generacion.md` — Antes de PEDIR fotos de una pared, se mira contra qué da: si está EN EL LINDE (un solar u otra finca), no ti…
+- **168** → `.claude/rules/oportunidades.md` — El WhatsApp de «lo que falta» no pregunta lo que ya decide la casa
+- **169** → `.claude/rules/calculo.md` — Un RES080 SIEMPRE actúa sobre la envolvente (fachadas, cubierta, ventanas…): «RES080 solo con aerotermia» no…
 - **170** → `.claude/rules/facturacion.md` — El cuadro de mando y el cierre trimestral separan a los DOS contribuyentes y todo es ESTIMADO; los gastos se…
+- **171** → `.claude/rules/instalador-rite.md` — Cuando presentamos NOSOTROS la Memoria RITE en eDICE-Térmicas, firma y diligencia el certificado de REPRESEN…
 - **172** → `.claude/rules/cee.md` — El aviso de «CEE inicial presentado» pide SOLO lo que falta de la obra, y cuando lo presenta la CASA sale SO…
 - **172** → `.claude/rules/cee-generacion.md` — CE3X mide la demanda cubierta por los METROS que sirve cada equipo, no por su «Porcentaje»: superficie = úti…
 - **173** → `.claude/rules/cee.md` — Con el VISTO BUENO el CEE ya se puede presentar, y el `_REVISAR` de esa fase pasa a su nombre DEFINITIVO
+- **174** → `.claude/rules/calculo.md` — En una simulación NUEVA de una vivienda UNIFAMILIAR de 2008 en adelante, la demanda de calefacción estimada …
 - **175** → `.claude/rules/cee.md` — Todo CEE NACE con Fran de certificador, y el AGENTE IA trabaja SIN figurar en la barra
 - **176** → `.claude/rules/claude-automatizacion.md` — La ronda de PRESENTAR de las 21:00: UN «sí» por noche para la lista entera, y un encargo por CEE
+- **177** → `.claude/rules/calculo.md` — El CEE «a ciegas» de la oportunidad va APARTE y solo lo ve el EQUIPO: nunca cambia la cifra ofrecida
 - **178** → `.claude/rules/facturacion.md` — La economía de los CAE por el MCP (bono, beneficio, ahorro estimado y verificado, volumen, ventas al S.O.) s…
+- **179** → `.claude/rules/calculo.md` — Con los dos `.xml` (los dos con `<EnergiaFinalVectores>`), el ahorro RES080 es la energía final que DECLARAN…
+- **180** → `.claude/rules/envolvente-ce3x.md` — El ASISTENTE de la envolvente: se DICE lo que está mal (texto o voz), Claude PROPONE operaciones y el navega…
+- **181** → `.claude/rules/envolvente-ce3x.md` — Una ventana o puerta en una MEDIANERA o PARTICIÓN la pasa a MURO EXTERIOR, en los cuatro caminos; las ventan…
+- **182** → `.claude/rules/lotes.md` — La «Vista S.O.»: la obligación del Sujeto Obligado se TECLEA por año y lo que le falta se cuenta contra TODO…
+- **183** → `.claude/rules/transversal-frontend.md` — Las fotos se miran con UN visor y se editan con UN editor
+- **184** → `.claude/rules/cee.md` — Al técnico CON cuenta en la app de certificadores el encargo le llega POR LA APP, y lo que hace allí vuelve …
+- **185** → `.claude/rules/envolvente-ce3x.md` — La envolvente se revisa PARED A PARED con el TECLADO, y lo que falta para generar es UN número con su lista
+- **186** → `.claude/rules/cee.md` — El VISTO BUENO de una obra de la app se da en su ENVOLVENTE y la deja LISTA PARA FIRMAR; al firmarla, el exp…
+- **187** → `.claude/rules/documentos.md` — Un FIRMADO que ya está en BD no lo cambia ni lo borra un PUT general sin decirlo
+- **188** → `.claude/rules/envolvente-ce3x.md` — Cuando el `.cex` no sale, el ASISTENTE dice qué lo para y lo arregla; y «déjalo listo para firmar» genera y …
+- **189** → `.claude/rules/facturas.md` — Una factura de obra se registra ENTERA y al CAE solo cuenta lo SUBVENCIONABLE
+- **190** → `.claude/rules/lotes.md` — El S.O. tiene su ENLACE de solo lectura (`/so/:token`), y solo ve lo que deja pasar `vistaParaElSo`
+- **193** → `.claude/rules/transversal-frontend.md` — Un LISTADO recuerda cómo lo dejaste: búsqueda, filtros y orden
+- **194** → `.claude/rules/clientes.md` — Un cliente EMPRESA (`clientes.es_empresa`) VENDE el ahorro: no cobra sin su FACTURA de venta
+- **195** → `.claude/rules/expedientes.md` — En el LISTADO, un expediente completo que ya está en un lote se ENSEÑA como «EN LOTE», con el lote debajo; e…
+- **196** → `.claude/rules/expedientes.md` — Pasar a DOC. COMPLETA es haberlo VALIDADO TODO: primero el ✓ de cada documento firmado, después el estado
+- **197** → `.claude/rules/propuesta.md` — «Perfil exigente» (`inputs.condicionesReforzadas`, solo ADMIN): el compromiso de cesión en exclusiva se cier…
+- **198** → `.claude/rules/informes.md` — Un INFORME técnico (memoria para el Ayuntamiento, legalización, informe, consultoría: «todo lo que no sea CA…
+- **200** → `.claude/rules/expedientes.md` — La vía del FACTOR MULTIPLICADOR (BOE-A-2026-23367, en vigor el 08/11/2026) es OTRO número: `26RES060FM_N` / …
+- **200.a** → `.claude/rules/documentos.md` — El Convenio de un expediente FM (`26RES060FM_N` / `26RES093FM_N`) lleva el CONSENTIMIENTO del IRPF que pide …
+- **200.b** → `.claude/rules/documentos.md` — El CIFO de un `26RES060FM_N` CERTIFICA la inercia hidráulica (documento 3.c de la ficha) en una hoja propia,…
+- **200.c** → `.claude/rules/documentos.md` — En un expediente FM la app GENERA los cinco documentos de firma de la ficha, y cada uno se firma donde ya fi…
+- **200.d** → `.claude/rules/documentos.md` — El Convenio de un expediente FM vale para las DOS fichas: la FM como PRINCIPAL y la general como SUBSIDIARIA…
+- **200.e** → `.claude/rules/documentos.md` — El CIFO de un `26RES060FM_N` / `26RES093FM_N` sale como su ficha FM, con la cifra FM y NUNCA con la vigente
+- **203** → `.claude/rules/propuesta.md` — Toda propuesta en la que alguna opción sube por el FACTOR MULTIPLICADOR lleva una HOJA más, la 2, y una líne…
+- **203.b** → `.claude/rules/propuesta.md` — El FM de la propuesta se APAGA antes de enviar, con UN interruptor, y queda guardado en la oportunidad
+- **204** → `.claude/rules/oportunidades.md` — Al ACEPTAR, al particular de una RES060/RES093/RES080 se le pregunta si tiene el BONO SOCIAL; solo marca VUL…
+- **204** → `.claude/rules/whatsapp.md` — Lo que se le PIDE a alguien por WhatsApp queda ESPERANDO respuesta: se cierra solo al contestar y, si no, se…
+- **205** → `.claude/rules/whatsapp.md` — La FRANJA DE LA CASA: lo que el agente le escribe a un tercero sale de 7 a 21 h (Madrid), como si contestara…
+- **206** → `.claude/rules/whatsapp.md` — A quien escribe por PRIMERA VEZ se le contesta SOLO, una vez, con el formulario «Calcula tu ayuda» (`?ref=wa…
+- **207** → `.claude/rules/whatsapp.md` — El CONTESTADOR contesta como Fran a quien tiene algo VIVO, tras 15 min de silencio, en la franja de la casa,…
+- **208** → `.claude/rules/oportunidades.md` — El formulario «Calcula tu ayuda» vive en la APP y la obra llega en el ENLACE
+- **209** → `.claude/rules/calculo.md` — El ACS existente se calcula con SU rendimiento: un termo eléctrico va a 1,00, no a la η de la caldera
+- **210** → `.claude/rules/instalador-rite.md` — Cuando se le pide la factura al INSTALADOR, va con el texto recomendado para el concepto; y si la que mandó …
+- **212** → `.claude/rules/lotes.md` — El lote habla con beCAE (Marwen) por su API v1.6.0, y la respuesta se lee en los DOS formatos
+- **213** → `.claude/rules/lotes.md` — El EQUIPO de verificación (verificador jefe y revisor técnico, con email y teléfono) se LEE del plan y de la…
+- **215** → `.claude/rules/lotes.md` — El Anexo I del LOTE lleva las firmas ANCLADAS al pie de la hoja, y sus casillas se MIDEN
+- **216** → `.claude/rules/cuadro-mando.md` — El cuadro de mando es de DIRECCIÓN y en el navegador no se hace ninguna cuenta de dinero: todo sale de [cuad…
 
 ## Documentos por área
 
@@ -259,9 +308,14 @@
 - `docs/conocimiento/calculo/ahorro-anual-en-euros-con-hibridacion.md` — El ahorro anual en € reparte el consumo por VECTOR: la bomba a precio de luz, la caldera al de su combustible (2026-10-19)
 - `docs/conocimiento/calculo/ahorro-res080-metodo-simplificado-por-vector-energetico.md` — Ahorro RES080 — método SIMPLIFICADO, por vector energético (2026-08-10)
 - `docs/conocimiento/calculo/bloques-de-viviendas-el-edificio-completo-como-objeto.md` — BLOQUES de viviendas — el edificio completo como objeto (2026-09-11)
+- `docs/conocimiento/calculo/calibracion-por-epoca-unifamiliar-2008-en-adelante.md` — Calibración por ÉPOCA: la unifamiliar de 2008 en adelante sube ×1,25 (2026-10-26)
+- `docs/conocimiento/calculo/cee-a-ciegas-diseno-para-la-oportunidad.md` — El CEE «a ciegas» en la oportunidad: la cifra APARTE, solo para el equipo (2026-10-26)
+- `docs/conocimiento/calculo/cee-a-ciegas-prueba-con-18-expedientes.md` — El CEE «a ciegas»: prueba con 18 expedientes y Fase 0 con 120 (2026-10-26)
 - `docs/conocimiento/calculo/el-acs-en-el-mismo-clima-que-la-calefaccion.md` — El ACS se declara en el MISMO clima que la calefacción (2026-10-21)
+- `docs/conocimiento/calculo/el-acs-existente-con-su-propio-rendimiento.md` — El ACS existente con su PROPIO rendimiento: el termo eléctrico va a 1,00 (2026-11-10)
 - `docs/conocimiento/calculo/el-cee-que-manda-y-que-se-avisa-antes-de-generar.md` — El CEE que MANDA, y qué se avisa antes de generar (2026-09-03)
 - `docs/conocimiento/calculo/el-coste-del-informe-de-verificacion-ya-en-la-simulacion.md` — El COSTE DEL INFORME DE VERIFICACIÓN, ya en la simulación (2026-09-11)
+- `docs/conocimiento/calculo/factor-multiplicador-la-resolucion-publicada-res060-fm.md` — FACTOR MULTIPLICADOR: la Resolución publicada (RES060_FM, RES090_FM…RES094_FM, RES080_FM) (2026-11-07)
 - `docs/conocimiento/calculo/ficha-ter100-sector-terciario.md` — Ficha TER100 — Sector TERCIARIO (2026-07-30)
 - `docs/conocimiento/calculo/ficha-ter173-hibridacion-en-el-terciario.md` — Ficha TER173 — HIBRIDACIÓN en el terciario (2026-09-09)
 - `docs/conocimiento/calculo/fichas-con-factor-de-correccion-res060fc-y-res09xfc.md` — Fichas con FACTOR DE CORRECCIÓN: RES060FC y las de hibridación por zona (2026-10-21)
@@ -324,6 +378,7 @@
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-avisos-al-cliente-como-en-el-cae.md` — Los avisos al CLIENTE, como en el CAE (2026-09-23)
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-ficheros-los-coloca-el-servidor-no-el-navegador.md` — Los FICHEROS los coloca el SERVIDOR, no el navegador
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/numeracion-aaaa-cee-n.md` — Numeración — `{AAAA}CEE_{n}`
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/presupuesto-para-un-cliente-del-instalador.md` — Presupuesto «para un cliente suyo»: lo pide el instalador, el certificado es del propietario (2026-11-10)
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/que-ve-el-certificador-y-que-no.md` — Qué ve el certificador — y qué NO
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/quien-es-el-cliente-y-quien-el-partner.md` — Quién es el CLIENTE y quién el PARTNER
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/seguimiento-del-encargo-que-paso-y-cuando.md` — Seguimiento del encargo — qué pasó y cuándo
@@ -337,6 +392,7 @@
 - `docs/conocimiento/cee-generacion/generar-el-cee-con-ia-desde-el-boton-ce3x.md` — Generar el CEE inicial con IA desde el botón CE3X (2026-10-19)
 - `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/00-generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial.md` — GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)
 - `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/con-un-video-en-vez-de-fotos-y-si-no-se-puede-se-pregunta.md` — Con un VÍDEO en vez de fotos — y si no se puede, se PREGUNTA (2026-10-06)
+- `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/paredes-en-el-linde-sin-ventanas-y-sin-fotos.md` — Una pared en el LINDE no tiene ventanas ni se le piden fotos (2026-10-24)
 - `docs/conocimiento/cee-generacion/la-caldera-existente-segun-la-ficha-y-el-deposito-de-la-medida.md` — La caldera EXISTENTE según la ficha, y el depósito de la MEDIDA (2026-10-21)
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/00-la-medida-de-mejora-de-una-hibridacion.md` — La medida de mejora de una HIBRIDACIÓN (2026-09-16)
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/el-cee-final-de-un-res060-copiando-el-inicial.md` — El CEE FINAL de un RES060: se COPIA el inicial (2026-10-08)
@@ -355,12 +411,17 @@
 - `docs/conocimiento/certificadores-app/desplegar-cee-brokergy-es.md` — Desplegar cee.brokergy.es (2026-10-24)
 - `docs/conocimiento/certificadores-app/documentos-de-la-obra-visor-y-cex-en-cuarentena.md` — Los documentos de la obra: visor, firmar desde el visor, versiones y el `.cex` en cuarentena (2026-10-26)
 - `docs/conocimiento/certificadores-app/el-cee-de-una-obra-encargo-calificacion-entrega-y-firma.md` — El CEE de una obra: el encargo, la calificación en el PC, el aviso, la entrega y la firma (2026-10-25)
+- `docs/conocimiento/certificadores-app/el-movil-en-la-visita-iphone-y-fotos-sin-cobertura.md` — El móvil en la visita: iPhone, fotos sin cobertura y el teclado (2026-10-30)
+- `docs/conocimiento/certificadores-app/el-pdf-del-xml-en-el-servidor.md` — El certificador sube el XML y la app hace el PDF oficial, en el servidor (2026-10-31)
+- `docs/conocimiento/certificadores-app/encargos-de-brokergy-desde-el-crm.md` — Los encargos de BROKERGY: del CRM a la app y vuelta (2026-10-30)
 - `docs/conocimiento/certificadores-app/fase-5-fuera-enlace-corto-y-fachada.md` — Sin la fase 5, el enlace corto, la fachada propuesta y la numeración desde el 1 (2026-10-26)
 - `docs/conocimiento/certificadores-app/fotos-opcionales-y-equipo-generico.md` — Las fotos opcionales («Ahora no») y el equipo genérico con su antigüedad (2026-10-25)
 - `docs/conocimiento/certificadores-app/la-obra-sin-scroll-indice-y-fotos-a-mano.md` — La obra sin tanto scroll: el índice «Ir a…» y las fotos siempre a mano (2026-10-26)
 - `docs/conocimiento/certificadores-app/lo-que-ha-visto-la-ia.md` — «Lo que ha visto la IA» — la fase 5 de la ficha (2026-10-25)
 - `docs/conocimiento/certificadores-app/menu-lateral-y-partes-de-la-obra.md` — El menú lateral y las partes de la obra (2026-10-26)
+- `docs/conocimiento/certificadores-app/presentar-en-el-registro-y-fotos-tras-pedir.md` — Presentar en el Registro, lo que devuelve y las fotos tras pedir (2026-10-28)
 - `docs/conocimiento/certificadores-app/seguridad-de-la-app.md` — La seguridad de la app de certificadores, antes de salir (2026-10-24)
+- `docs/conocimiento/certificadores-app/visto-bueno-desde-la-envolvente.md` — El visto bueno de BROKERGY, dado en la envolvente: listo para firmar (2026-10-30)
 
 ### claude-automatizacion
 
@@ -376,6 +437,8 @@
 - `docs/conocimiento/clientes/confirmacion-de-cobro-el-formulario-del-final.md` — Confirmación de cobro — el formulario del final (2026-09-07)
 - `docs/conocimiento/clientes/el-aviso-lo-recibe-el-comercial-o-el-tecnico.md` — El aviso lo recibe el COMERCIAL o el TÉCNICO (2026-09-09)
 - `docs/conocimiento/clientes/el-mapa-del-escaparate-ensena-todas-las-obras.md` — El MAPA del escaparate enseña TODAS las obras (2026-10-19)
+- `docs/conocimiento/clientes/la-empresa-acepta-con-su-representante.md` — La empresa acepta la propuesta con su representante legal (2026-11-10)
+- `docs/conocimiento/clientes/la-empresa-factura-la-venta-del-ahorro-autofactura.md` — La EMPRESA factura la venta del ahorro: autofactura o su factura (2026-11-04)
 - `docs/conocimiento/clientes/los-avisos-de-sus-clientes-al-partner.md` — Los avisos de sus clientes, al PARTNER (2026-10-15)
 - `docs/conocimiento/clientes/modulo-prescriptores-novedades.md` — Módulo Prescriptores — Novedades (2026-03-26)
 - `docs/conocimiento/clientes/patron-de-modales-clientes-y-prescriptores.md` — Patrón de Modales (Clientes y Prescriptores)
@@ -383,7 +446,21 @@
 
 ### consultas
 
+- `docs/conocimiento/consultas/README.md` — Consultas de clientes e instaladores: lo ya contestado (mirar aquí PRIMERO)
+- `docs/conocimiento/consultas/autoconsumo-fotovoltaico-no-es-ahorro-de-energia-final-cae.md` — El autoconsumo fotovoltaico NO es ahorro de energía final en los CAE (30/10/2026)
+- `docs/conocimiento/consultas/boletin-placas-y-cargador-uno-o-dos-clm.md` — Placas (autoconsumo ≤10 kW) y cargador del coche: ¿un boletín o dos? — Castilla-La Mancha (20/10/2026)
 - `docs/conocimiento/consultas/bono-cae-no-se-resta-y-no-hay-resolucion.md` — Bono CAE: no se resta de la deducción del IRPF y no hay «resolución» (26/10/2026)
+- `docs/conocimiento/consultas/bono-social-electrico-cambiar-de-compania.md` — Bono social eléctrico: ¿me puedo cambiar de compañía o a una tarifa variable? ¿Quién lo da? (20/10/2026)
+- `docs/conocimiento/consultas/cae-a-nombre-de-un-copropietario-y-tope-irpf-60.md` — CAE a nombre de UN copropietario, segunda obra al año siguiente y el tope de 3.000 €/año del IRPF (20/10/2026)
+- `docs/conocimiento/consultas/certificado-rite-de-los-aires-no-es-el-boletin-clm.md` — Aires acondicionados: el «certificado RITE» no es el boletín eléctrico ni la declaración de gases — Castilla-La Mancha (21/10/2026)
+- `docs/conocimiento/consultas/discapacidad-ayudas-reforma-vivienda-clm.md` — Discapacidad en casa (66 % y 33 %): ¿hay alguna ayuda más para la reforma? (CLM, 22/10/2026)
+- `docs/conocimiento/consultas/factor-multiplicador-faq.md` — FAQ del FACTOR MULTIPLICADOR (RES060_FM y demás): las dudas de la Resolución publicada (07/11/2026)
+- `docs/conocimiento/consultas/placas-este-ano-aerotermia-el-siguiente-vivienda-en-hilera-irpf-40.md` — Placas este año y aerotermia el siguiente, en una vivienda EN HILERA con participación: IRPF al 40 % (26/10/2026)
+- `docs/conocimiento/consultas/res060fc-vivienda-habitual-y-requisitos-del-fc.md` — RES060 con factor multiplicador (antes «FC»): ¿hace falta vivienda habitual? ¿Qué se justifica? (27/10/2026, rehecha el 07/11/2026)
+
+### cuadro-mando
+
+- `docs/conocimiento/cuadro-mando/el-cuadro-de-mando-de-direccion.md` — El cuadro de mando de DIRECCIÓN: toda la empresa de un golpe (2026-11-14)
 
 ### documentacion-fotos
 
@@ -411,6 +488,7 @@
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/migracion-sql-ya-en-produccion.md` — Migración SQL (ya en producción)
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/notificacion-de-rechazo.md` — Notificación de rechazo
 - `docs/conocimiento/documentacion-fotos/para-el-certificado-o-para-el-expediente-no-es-lo-mismo.md` — Para el CERTIFICADO o para el EXPEDIENTE: no es lo mismo (2026-09-21)
+- `docs/conocimiento/documentacion-fotos/sin-la-caldera-en-su-sala-y-su-placa-no-hay-cee-ni-expediente.md` — Sin la foto de la caldera EN SU SALA y la de su PLACA, no hay CEE inicial ni expediente (2026-10-23)
 
 ### documentos
 
@@ -423,14 +501,18 @@
 - `docs/conocimiento/documentos/las-coordenadas-utm-se-rotulan-etrs89-huso-30-n.md` — Las coordenadas UTM se rotulan «ETRS89 · huso 30 N» (2026-10-22)
 - `docs/conocimiento/documentos/las-fichas-y-el-anexo-i-se-rellenan-ya-no-se-redibujan.md` — Las FICHAS y el ANEXO I se RELLENAN, ya no se redibujan (2026-09-08)
 - `docs/conocimiento/documentos/lo-que-el-flag-esconde-y-lo-que-mayusculas-borra.md` — Lo que el FLAG esconde y lo que MAYÚSCULAS borra (2026-09-16)
+- `docs/conocimiento/documentos/misma-direccion-que-el-cliente-sigue-la-ficha-del-cliente.md` — «¿Misma dirección que el cliente? → Sí» sigue la ficha del CLIENTE (2026-10-20)
 - `docs/conocimiento/documentos/modulo-documentos-novedades.md` — Módulo Documentos — Novedades (2026-04-08)
 - `docs/conocimiento/documentos/quien-ejecuta-la-obra-y-quien-firma-ante-industria.md` — Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26)
+- `docs/conocimiento/documentos/un-firmado-no-vuelve-a-la-version-anterior.md` — Un FIRMADO no vuelve a la versión anterior por un autoguardado (2026-10-30)
 - `docs/conocimiento/documentos/un-requerimiento-vuelve-a-pedir-la-firma-del-anexo-i-y-del-conve.md` — Un REQUERIMIENTO vuelve a pedir la firma del Anexo I y del Convenio (2026-09-04)
 
 ### envolvente-ce3x
 
 - `docs/conocimiento/envolvente-ce3x/autoconsumo-con-pvgis-kwp-kwh-ano-y-su-reparto-mensual.md` — AUTOCONSUMO con PVGIS — kWp ⇄ kWh/año y su reparto mensual (2026-10-02)
 - `docs/conocimiento/envolvente-ce3x/deshacer-en-la-envolvente-y-quien-puede-leer-la-placa.md` — DESHACER en la envolvente, y quién puede leer la placa (2026-09-16)
+- `docs/conocimiento/envolvente-ce3x/el-asistente-arregla-lo-que-para-el-generar.md` — Cuando el `.cex` no sale, el asistente dice qué lo para y lo arregla; y «déjalo listo para firmar» (2026-10-30)
+- `docs/conocimiento/envolvente-ce3x/el-asistente-de-la-envolvente.md` — El ASISTENTE de la envolvente: se dice lo que está mal y se corrige (2026-10-27)
 - `docs/conocimiento/envolvente-ce3x/el-boton-que-metia-su-propio-evento-dentro-del-post.md` — El botón que metía su propio EVENTO dentro del POST (2026-09-18)
 - `docs/conocimiento/envolvente-ce3x/el-cex-de-la-envolvente-donde-acaba-y-con-que-transmitancias.md` — El `.cex` de la envolvente: dónde acaba y con qué transmitancias (2026-09-13)
 - `docs/conocimiento/envolvente-ce3x/el-croquis-de-la-vivienda/el-croquis-a-mano-alzada-se-dice-donde-los-m-los-pone-catastro.md` — El CROQUIS a mano alzada — se dice DÓNDE, los m² los pone Catastro (2026-09-29)
@@ -446,12 +528,14 @@
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-pantalla-se-parece-a-ce3x-y-el-plano-a-un-plano-de-obra.md` — La pantalla se parece a CE3X, y el plano a un plano de obra (2026-09-13)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/la-ventana-sin-solapes-barra-rotulos-tiras-y-panel.md` — La ventana sin SOLAPES: barra, rótulos, tiras y panel (2026-10-08)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/los-equipos-en-el-plano-y-el-plano-de-cubierta.md` — Los EQUIPOS en el plano, y el PLANO DE CUBIERTA (2026-10-09)
+- `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/revisar-pared-a-pared-con-el-teclado-y-lo-que-falta.md` — Revisar pared a pared con el TECLADO, y UNA lista de lo que falta (2026-10-29)
 - `docs/conocimiento/envolvente-ce3x/el-plano-de-la-envolvente-lo-que-hace-falta-ver-para-decidir/una-medida-por-defecto-se-puede-dar-por-buena-de-un-clic.md` — Una medida por defecto se puede dar por BUENA de un clic
 - `docs/conocimiento/envolvente-ce3x/la-envolvente-en-terciario-pequeno-y-gran-terciario.md` — La envolvente en TERCIARIO: pequeño y gran terciario (2026-09-28)
 - `docs/conocimiento/envolvente-ce3x/la-envolvente-vale-tambien-para-los-cee-directos.md` — La envolvente vale también para los CEE DIRECTOS (2026-09-16)
 - `docs/conocimiento/envolvente-ce3x/la-ficha-del-expediente-ya-no-pisa-la-envolvente.md` — La FICHA del expediente ya no pisa la ENVOLVENTE (2026-10-07)
 - `docs/conocimiento/envolvente-ce3x/la-foto-real-de-cada-cerramiento.md` — La FOTO REAL de cada cerramiento (2026-09-15)
 - `docs/conocimiento/envolvente-ce3x/la-receta-del-cex-y-su-sello.md` — La RECETA del `.cex` y su SELLO: la ventana y la skill escriben el mismo fichero (2026-10-15)
+- `docs/conocimiento/envolvente-ce3x/las-medidas-que-pidio-la-obra-y-las-libres-se-ven-en-la-pestana.md` — Las medidas que pidió la OBRA y las LIBRES de la receta se ven en la pestaña, como en CE3X (2026-10-28)
 - `docs/conocimiento/envolvente-ce3x/lo-que-el-certificador-no-tiene-que-ver-ni-tocar.md` — Lo que el CERTIFICADOR no tiene que ver ni tocar (2026-09-14)
 - `docs/conocimiento/envolvente-ce3x/lo-que-se-reforma-en-la-envolvente-cambia.md` — Lo que se REFORMA en la envolvente: «- CAMBIA» (2026-09-19)
 - `docs/conocimiento/envolvente-ce3x/los-administrativos-se-corrigen-desde-la-ventana-en-su-fuente.md` — Los administrativos se CORRIGEN desde la ventana, en su fuente (2026-09-14)
@@ -465,12 +549,15 @@
 - `docs/conocimiento/envolvente-ce3x/un-garaje-dentro-de-la-casa-y-lo-que-se-movia-al-volver-a-medir.md` — Un GARAJE dentro de la casa, y lo que se movía al volver a medir (2026-09-28)
 - `docs/conocimiento/envolvente-ce3x/un-sotano-muros-contra-el-terreno-y-suelos-solo-de-la-vivienda.md` — Un SÓTANO: muros contra el TERRENO y suelos solo de la VIVIENDA (2026-10-01)
 - `docs/conocimiento/envolvente-ce3x/una-edificacion-entera-se-quita-de-un-clic.md` — Una EDIFICACIÓN entera se quita de un clic (2026-09-16 · POR PLANTA 2026-09-21)
+- `docs/conocimiento/envolvente-ce3x/una-ventana-en-una-medianera-la-pasa-a-exterior-y-se-arrastra.md` — Una ventana en una MEDIANERA la pasa a exterior, y las ventanas se ARRASTRAN a su pared (2026-10-28)
 
 ### expedientes
 
 - `docs/conocimiento/expedientes/carpetas-de-drive-por-estado.md` — Carpetas de Drive por estado (2026-07-24)
 - `docs/conocimiento/expedientes/el-listado-de-expedientes-las-columnas-se-eligen.md` — El listado de expedientes: las columnas se ELIGEN (2026-09-15)
+- `docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md` — La vía del FACTOR MULTIPLICADOR en el expediente (2026-11-07)
 - `docs/conocimiento/expedientes/modulo-lifecycle-de-expedientes.md` — Módulo Lifecycle de Expedientes (2026-05-20)
+- `docs/conocimiento/expedientes/pasar-a-doc-completa-se-valida-todo.md` — Pasar a DOC. COMPLETA es haberlo VALIDADO TODO (2026-11-05)
 
 ### facturacion
 
@@ -503,6 +590,10 @@
 - `docs/conocimiento/general/skills-una-sola-fuente-para-code-y-cowork.md` — ⚠️ Skills: UNA sola fuente para Code y Cowork
 - `docs/conocimiento/general/variables-de-entorno-requeridas.md` — Variables de Entorno Requeridas
 
+### informes
+
+- `docs/conocimiento/informes/informes-tecnicos-el-tercer-trabajo.md` — INFORMES técnicos — `{AAAA}INF_{n}`: todo lo que no es CAE ni CEE (2026-11-05)
+
 ### infra
 
 - `docs/conocimiento/infra/la-api-de-gemini-va-en-nivel-de-pago.md` — La API de Gemini va en NIVEL DE PAGO (2026-09-01)
@@ -512,14 +603,27 @@
 
 - `docs/conocimiento/instalador-rite/al-instalador-se-le-pide-todo-de-una-vez.md` — Al instalador se le pide TODO de una vez (2026-08-27)
 - `docs/conocimiento/instalador-rite/el-certificado-rite-se-lee-al-subirlo.md` — El Certificado RITE se LEE al subirlo (2026-09-03)
+- `docs/conocimiento/instalador-rite/el-consejo-de-factura-al-instalador.md` — El consejo de factura al instalador (2026-11-11)
+- `docs/conocimiento/instalador-rite/la-memoria-rite-de-una-cascada.md` — La Memoria RITE de una CASCADA: todo cabe en su casilla y los litros se suman (2026-11-13)
+- `docs/conocimiento/instalador-rite/presentar-la-memoria-rite-en-edice.md` — Presentar nosotros la Memoria RITE en eDICE-Térmicas (2026-10-25)
+- `docs/conocimiento/instalador-rite/varios-tecnicos-pueden-firmar-la-memoria-rite.md` — VARIOS técnicos pueden firmar la Memoria RITE de una empresa (2026-11-06)
 
 ### lotes
 
+- `docs/conocimiento/lotes/armar-el-lote-propuestas-por-antiguedad-y-por-instalador.md` — Armar el lote: filtro por instalador y PROPUESTAS por antigüedad y por instalador (2026-10-27)
+- `docs/conocimiento/lotes/auditar-los-cee-res060-frente-a-res080.md` — Auditar los CEE de un RES060 frente a un RES080: qué cuenta y qué no (2026-11-01)
+- `docs/conocimiento/lotes/contestar-inexactitudes-en-el-portal-de-marwen.md` — Contestar las inexactitudes en el portal de Marwen (beCAE), no por API (2026-11-11)
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15)
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01)
+- `docs/conocimiento/lotes/el-anexo-i-del-lote-las-firmas-van-al-pie.md` — El Anexo I del lote: las firmas van al PIE de la hoja, y sus casillas se miden (2026-11-12)
+- `docs/conocimiento/lotes/el-equipo-de-verificacion-del-lote.md` — El EQUIPO de verificación del lote: quién verifica y cómo se le contacta (2026-11-12)
 - `docs/conocimiento/lotes/el-paquete-de-cada-actuacion-renombrar-a-e-n-y-zipear.md` — El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08)
+- `docs/conocimiento/lotes/el-registro-miteco-y-los-requerimientos-del-gestor.md` — El Nº de REGISTRO del MITECO en el lote, y los requerimientos del Gestor (2026-10-27)
 - `docs/conocimiento/lotes/el-total-que-nos-ingresa-el-so-y-el-cobro.md` — El TOTAL que nos ingresa el S.O., y marcarlo COBRADO (2026-10-15)
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09)
+- `docs/conocimiento/lotes/la-api-de-marwen-v1-6.md` — La API de Marwen v1.6.0: el lote habla solo con beCAE (2026-11-11)
+- `docs/conocimiento/lotes/la-ficha-del-lote-en-crema.md` — La ficha del lote, en crema: qué toca, dónde está y cómo se ve (2026-11-12)
+- `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md` — La «Vista S.O.»: su obligación del año y cómo vamos con ella (2026-10-28)
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01)
 - `docs/conocimiento/lotes/las-inexactitudes-del-verificador-se-registran-y-la-respuesta-se-arma-sola.md` — Las INEXACTITUDES del verificador se registran solas, y la RESPUESTA se arma al subsanar (2026-10-22)
 - `docs/conocimiento/lotes/las-tarifas-del-verificador-en-su-ficha.md` — Las TARIFAS del verificador, en su ficha (2026-09-14)
@@ -531,8 +635,13 @@
 
 - `docs/conocimiento/oportunidades/al-aceptar-el-cliente-confirma-sus-emisores-placas-y-aires.md` — Al ACEPTAR, el cliente confirma sus EMISORES, PLACAS y AIRES (2026-09-29)
 - `docs/conocimiento/oportunidades/alta-de-oportunidad-desde-whatsapp-skill-alta-oportunidad.md` — Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01)
+- `docs/conocimiento/oportunidades/bono-por-debajo-de-3000-se-hace-el-cee-al-dar-de-alta.md` — Bono por debajo de 3.000 € al dar de alta: se hace el CEE con CE3X y su XML va a la oportunidad (2026-10-23)
+- `docs/conocimiento/oportunidades/el-aviso-de-lead-web-trae-lo-necesario-para-decidir.md` — El aviso de LEAD WEB trae lo necesario para decidir (2026-10-20)
+- `docs/conocimiento/oportunidades/el-formulario-calcula-tu-ayuda-la-obra-viene-en-el-enlace.md` — El formulario «Calcula tu ayuda»: la obra viene en el enlace, y pregunta lo que decide el FM (2026-11-09)
 - `docs/conocimiento/oportunidades/el-mismo-vecino-volviendo-al-funnel-no-estrena-oportunidad.md` — El mismo vecino volviendo al funnel NO estrena oportunidad (2026-09-11)
+- `docs/conocimiento/oportunidades/lo-que-no-se-le-pregunta-al-cliente.md` — Lo que NO se le pregunta al cliente (2026-10-24)
 - `docs/conocimiento/oportunidades/nueva-simulacion-con-cee-inicial-y-final.md` — Nueva simulación con CEE inicial y final (2026-08-10)
+- `docs/conocimiento/oportunidades/sin-acs-declarado-no-se-calcula-el-acs.md` — Si el instalador no dice nada del agua caliente, el ACS no se calcula (2026-10-23)
 - `docs/conocimiento/oportunidades/tienes-placas-solares-se-pregunta-una-vez-y-acompana-al-inmueble.md` — ¿Tienes placas solares? — se pregunta UNA vez y acompaña al inmueble (2026-09-07)
 
 ### placas-catalogos
@@ -551,10 +660,13 @@
 ### propuesta
 
 - `docs/conocimiento/propuesta/biomasa-la-deduccion-del-irpf-exige-placas-solares.md` — Caldera de BIOMASA: la deducción del IRPF exige placas solares; el CAE no (2026-10-10)
+- `docs/conocimiento/propuesta/condiciones-reforzadas-perfil-exigente.md` — Condiciones reforzadas: el «Perfil exigente» (2026-11-05)
 - `docs/conocimiento/propuesta/enviada-con-cualquier-envio-y-a-quien-le-ha-llegado.md` — ENVIADA con cualquier envío, y la lista dice A QUIÉN le ha llegado (2026-10-14)
 - `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01)
 - `docs/conocimiento/propuesta/la-colaboracion-y-el-coste-de-los-servicios.md` — La colaboración se ve en la portada, y el coste de los servicios es UNO (2026-10-22)
+- `docs/conocimiento/propuesta/la-hoja-del-factor-multiplicador.md` — La hoja del FACTOR MULTIPLICADOR en la propuesta (2026-11-09)
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10)
+- `docs/conocimiento/propuesta/mensaje-de-envio-sin-irpf-empresa.md` — El mensaje de envío sin IRPF: empresa y terciario, escueto (2026-11-10)
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03)
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19)
 - `docs/conocimiento/propuesta/versiones-de-la-propuesta.md` — Versiones de la PROPUESTA (2026-08-25)
@@ -576,7 +688,9 @@
 
 ### transversal-frontend
 
+- `docs/conocimiento/transversal-frontend/el-listado-recuerda-como-lo-dejaste.md` — El listado recuerda cómo lo dejaste (2026-11-04)
 - `docs/conocimiento/transversal-frontend/el-menu-lateral.md` — El menú lateral (2026-08-24)
+- `docs/conocimiento/transversal-frontend/el-visor-de-fotos-y-el-editor-de-imagen.md` — El VISOR de fotos y el EDITOR de imagen (2026-10-29)
 - `docs/conocimiento/transversal-frontend/estilo-carta-de-pago-lo-que-ve-el-cliente.md` — El ESTILO «carta de pago»: así se diseña lo que ve el CLIENTE (2026-10-24)
 - `docs/conocimiento/transversal-frontend/y-con-el-plano-por-fin-traido-la-ventana-se-caia-entera-react-31.md` — Y con el plano por fin traído, la ventana se caía entera (React #310)
 - `docs/conocimiento/transversal-frontend/y-el-desplegable-se-leia-blanco-sobre-blanco.md` — Y el desplegable se leía BLANCO SOBRE BLANCO
@@ -586,11 +700,14 @@
 - `docs/conocimiento/whatsapp/bot-de-whatsapp-contesta-a-los-chats-etiquetados.md` — Bot de WhatsApp — contesta a los chats ETIQUETADOS (2026-08-25)
 - `docs/conocimiento/whatsapp/como-se-prueba-sin-gastar-mensajes.md` — Cómo se prueba SIN gastar mensajes
 - `docs/conocimiento/whatsapp/coste-medido.md` — Coste medido (2026-08-25)
+- `docs/conocimiento/whatsapp/el-contestador-contesta-como-fran.md` — El CONTESTADOR: contesta por WhatsApp como Fran a quien tiene algo vivo (2026-11-10)
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js)
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13)
+- `docs/conocimiento/whatsapp/la-bienvenida-a-quien-escribe-por-primera-vez.md` — La BIENVENIDA: a quien escribe por primera vez, el formulario y el vídeo, solos (2026-11-09)
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md` — La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09)
 - `docs/conocimiento/whatsapp/la-ronda-nocturna-de-whatsapp.md` — La RONDA NOCTURNA de WhatsApp — fase 1, en seco (2026-10-19)
+- `docs/conocimiento/whatsapp/las-esperas-lo-que-se-pide-y-se-recuerda.md` — Las ESPERAS: lo que se le pide a alguien por WhatsApp, si contesta y cuándo se le recuerda (2026-11-09)
 - `docs/conocimiento/whatsapp/lo-que-llega-con-el-backend-parado-recuperarperdidos.md` — Lo que llega con el backend PARADO — `recuperarPerdidos()`
 - `docs/conocimiento/whatsapp/lo-que-whatsapp-rompio-y-hay-que-saber.md` — Lo que WhatsApp rompió, y hay que saber (2026-08-25)
 - `docs/conocimiento/whatsapp/modulo-whatsapp-novedades.md` — Módulo WhatsApp — Novedades (2026-04-17)

@@ -79,3 +79,6 @@ logos-partners/
 # volcado de lo que el script ha leído del Drive y de la BD. Son artefactos de
 # una ejecución concreta: se regeneran lanzando el script otra vez.
 implementation/backend/scripts/*.csv
+
+# El .exe de «Buscar expediente»: lo compila tools/windows/instalar-buscar-expediente.cmd.
+tools/windows/bin/

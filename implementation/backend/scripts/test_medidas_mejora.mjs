@@ -152,6 +152,46 @@ comprueba('y un 0 tampoco la inventa',
           instalacionExistente({ expediente: expediente(), superficie: 165, litros: 0 })
               .equipo.acumulacion, undefined);
 
+// ── 6.b La caldera EXISTENTE según la ficha, y el depósito de la MEDIDA ─────
+// Fran, 21/10/2026 (26RES060_190): «Sin aislamiento» solo en un RES080; en un
+// RES060, «Antigua con aislamiento medio» y al menos un 85 % de combustión. Y si
+// la medida lleva acumulación, la caldera del inicial lleva ese mismo depósito.
+console.log('\n6.b La caldera existente según la ficha, y el depósito de la medida');
+const gasoleo = (num, inst = {}) => ({
+    ...expediente({ caldera_antigua_cal: { rendimiento_id: 'oil_post98' }, ...inst }),
+    numero_expediente: num,
+    oportunidades: { datos_calculo: { inputs: { fuelType: 'gasoleo' }, zona: 'D3' } },
+});
+const cola = (e) => {
+    const { equipo } = instalacionExistente({ expediente: e, superficie: 165 });
+    return [equipo.aislamiento, equipo.rend_combustion];
+};
+comprueba('RES060: aislamiento medio y 85 % (la tabla da 79)',
+          cola(gasoleo('26RES060_190')), ['Antigua con aislamiento medio', '85']);
+comprueba('RES093: igual que el RES060', cola(gasoleo('26RES093_8'))[0],
+          'Antigua con aislamiento medio');
+comprueba('RES080: el caso desfavorable, con el rendimiento de la tabla',
+          cola(gasoleo('26RES080_87')), ['Sin aislamiento', '79']);
+comprueba('una oportunidad RES080 también',
+          cola(gasoleo('26RES080_OP52'))[0], 'Sin aislamiento');
+const conDeposito = gasoleo('26RES060_190', {
+    aerotermia_acs: { marca: 'AEROSUN', modelo: 'ACUMULADOR ACS 200 L', litros: 200,
+                      es_acumulador: true, tipo_equipo_nuevo: 'acumulador', scop: 3.09 },
+});
+comprueba('la medida lleva 200 l → la caldera, también',
+          instalacionExistente({ expediente: conDeposito, superficie: 165 })
+              .equipo.acumulacion, { volumen: 200 });
+comprueba('…aunque se hubiera contestado otra cosa en el popup',
+          instalacionExistente({ expediente: conDeposito, superficie: 165, litros: 150 })
+              .equipo.acumulacion, { volumen: 200 });
+comprueba('…y no se pregunta por el depósito',
+          faltaPorPreguntar({}, { expediente: conDeposito }).map(f => f.clave)
+              .includes('acumulacion_litros'), false);
+comprueba('sin cambiar el ACS, la medida no manda',
+          instalacionExistente({ expediente: gasoleo('26RES060_190', {
+              cambio_acs: false, aerotermia_acs: conDeposito.instalacion.aerotermia_acs }),
+          superficie: 165 }).equipo.acumulacion, undefined);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // El CATÁLOGO de aerotermia: sin él, la ficha pide datos que YA ESTÁN
 // ─────────────────────────────────────────────────────────────────────────────

@@ -38,9 +38,17 @@ gestión del CAE · ~~702,78 €~~ 0 €» —dentro de la tarjeta, que no crece
 y la cláusula 2 dice «gracias a la colaboración con {empresa}, BROKERGY asume íntegramente su coste».
 Sin colaborador, la misma franja va debajo como «Promoción BROKERGY».
 
-Sin descuento la portada no lleva franja: la fila de la tabla pasa a llamarse «Certificados
-energéticos y gestión del CAE (se descuenta del bono · tarifa 702,78 €)», el mismo nombre que en
-las condiciones, donde la «Promoción BROKERGY» resta 452,78 € hasta los 250 €.
+Sin descuento la portada no lleva franja y la fila de la tabla dice «**Honorarios BROKERGY** (nada
+por adelantado · se descuentan del bono una vez cobrada la ayuda)», y el total de la cláusula 2 se
+llama igual: «Honorarios BROKERGY a descontar del Bono Energético CAE», con la «Promoción
+BROKERGY» restando 452,78 € hasta los 250 €.
+
+**REGLA — en la tabla de la portada NO se nombra la tarifa de 702,78 €** (Fran, 29/10/2026: «da
+lugar a malentendidos»). Hasta ese día la fila decía «(se descuenta del bono · tarifa 702,78 €)», en
+letra pequeña y en lenguaje de contrato, y se leía como un coste de 700 €. La tarifa sigue donde
+tiene que estar: el desglose de la cláusula 2, la penalización de la cláusula 4 y el precio tachado
+de la promoción. **Y la fila NO sale de la tabla** para ir a un punto aparte: la inversión neta
+final ya los incluye, y sin la fila la tabla dejaría de sumar (regla de arriba).
 
 Fuente única: [logic/cifrasPropuesta.js](implementation/frontend/src/features/calculator/logic/cifrasPropuesta.js)
 (`cifrasPropuesta`, `costesServicio`, `TARIFA_SERVICIOS`).

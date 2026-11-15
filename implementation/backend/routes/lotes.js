@@ -7,6 +7,7 @@ const { CEE_ECO_SELECT, rebuildCee } = require('../utils/ceeEcoFields');
 const geoCcaa = require('../services/geoCcaa');
 const loteService = require('../services/loteService');
 const marwenService = require('../services/marwenService');
+const equipoVerificacion = require('../services/equipoVerificacion');
 const driveService = require('../services/driveService');
 const { carpetaObjetivoLote } = require('../services/driveFolders');
 const {
@@ -26,11 +27,14 @@ const {
 } = require('../services/loteDocs');
 const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion, leerCertificadoCae } = require('../services/loteOcrService');
 const { comprobarRangoCae } = require('../utils/codigosCae');
+const { leerRegage } = require('../utils/regageJustificante');
 const inexactitudesLote = require('../services/inexactitudesLote');
+const obligacionSo = require('../services/obligacionSo');
+const { contarIncidenciasAbiertas } = require('../utils/incidenciasAbiertas');
 const { archivarFacturaVenta } = require('../services/facturaContabilidad');
 const anexoActuacion = require('../services/anexoActuacionService');
 const solicitudCae = require('../services/solicitudCaeService');
-const { detectPrograma } = require('../utils/fichas');
+const { detectPrograma, esNumeroFm } = require('../utils/fichas');
 const {
     casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLote,
     aplicarAhorrosVerificados, aplicarDatosDictamen, aplicarOrdenActuacion,
@@ -356,15 +360,25 @@ router.get('/elegibles', staffOnly, async (req, res) => {
         // Igual que enrichLotes: `cee` por campos (sin el XML crudo) y de `documentacion`
         // solo la fecha del CIFO. Antes este select traía las dos columnas completas de
         // ~220 expedientes — 3,5 s de media y el peor consumo de memoria de la app.
+        // Solo los completos (los únicos elegibles): así las incidencias se leen de
+        // ~20 filas y no de todos los expedientes sin lote.
         const { data: rawRows, error } = await supabase
             .from('expedientes')
-            .select(`id, numero_expediente, estado, instalador_asociado_id, instalacion, cliente_id, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, ${CEE_ECO_SELECT}`)
-            .is('lote_id', null);
+            .select(`id, numero_expediente, estado, instalador_asociado_id, instalacion, cliente_id, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, doc_reg_fin:documentacion->>fecha_registro_cee_final, doc_reg_ini:documentacion->>fecha_registro_cee_inicial, doc_inc:documentacion->incidencias, ${CEE_ECO_SELECT}`)
+            .is('lote_id', null)
+            .in('estado', ESTADOS_COMPLETO);
         if (error) throw error;
 
-        const rows = (rawRows || []).map(({ doc_fecha_fin_cifo, ...r }) => {
+        const rows = (rawRows || []).map(({ doc_fecha_fin_cifo, doc_reg_fin, doc_reg_ini, doc_inc, ...r }) => {
             const fila = rebuildCee(r);
             fila.documentacion = { fecha_fin_cifo: doc_fecha_fin_cifo ?? null };
+            // Desde cuándo está LISTO para lotear: el MISMO criterio que el bloque
+            // SIN_LOTEAR del radar (registro del CEE final, o el inicial de respaldo),
+            // para que la antigüedad del picker y la del parte digan lo mismo.
+            fila.listo_desde = doc_reg_fin || doc_reg_ini || null;
+            // Lo más antiguo es lo que más incidencias arrastra (cambios de criterio
+            // del verificador): el picker filtra por riesgo con esto.
+            fila.incidencias = contarIncidenciasAbiertas(doc_inc);
             return fila;
         });
 
@@ -376,6 +390,15 @@ router.get('/elegibles', staffOnly, async (req, res) => {
         ]);
         const opMap = new Map((opsRes.data || []).map(o => [o.id, o]));
         const cliMap = new Map((clisRes.data || []).map(c => [c.id_cliente, c]));
+        // Instalador de cada fila con el criterio de siempre del lote (el de
+        // `sugerirMismoInstalador`), y su nombre en UNA consulta: el picker filtra y
+        // propone lotes por instalador.
+        const insDe = (r) => r.instalador_asociado_id || (r.instalacion && r.instalacion.instalador_id) || null;
+        const insIds = [...new Set(rows.map(insDe).filter(Boolean).map(String))];
+        const { data: insRows } = insIds.length
+            ? await supabase.from('prescriptores').select('id_empresa, acronimo, razon_social').in('id_empresa', insIds)
+            : { data: [] };
+        const insMap = new Map((insRows || []).map(p => [String(p.id_empresa), (p.acronimo || p.razon_social || '').trim() || null]));
 
         const targetCcaa = ccaa ? geoCcaa.norm(ccaa) : null;
         const targetAnio = anio ? parseInt(anio, 10) : null;
@@ -396,7 +419,10 @@ router.get('/elegibles', staffOnly, async (req, res) => {
                 estado: r.estado,
                 anio_actuacion: rAnio,
                 ccaa: rCcaa,
-                instalador_id: r.instalador_asociado_id || (r.instalacion && r.instalacion.instalador_id) || null,
+                instalador_id: insDe(r),
+                instalador_nombre: insDe(r) ? (insMap.get(String(insDe(r))) || null) : null,
+                listo_desde: r.listo_desde,
+                incidencias: r.incidencias,
                 cliente_nombre: cli ? [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ') : null,
                 cliente_direccion: cli ? ([cli.direccion, [cli.codigo_postal, cli.municipio].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || null) : null,
                 // Datos para el cálculo económico por fila (misma fórmula que la lista/lote).
@@ -424,6 +450,95 @@ router.get('/factura-so/next-number', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[GET /lotes/factura-so/next-number]', err.message);
         res.status(500).json({ error: 'Error al calcular el número de factura' });
+    }
+});
+
+// ─── Vista S.O.: su OBLIGACIÓN y lo DISPONIBLE para ofrecerle ───────────────────
+// DEBEN ir antes de '/:id'. La obligación (cuota del Anexo II, % al Fondo, lo que
+// ya compró a otros) la ve el staff; la edita el ADMIN. Lo disponible son kWh, sin
+// importes. Ver docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md.
+router.get('/obligacion-so/:soId', staffOnly, async (req, res) => {
+    try {
+        res.json(await obligacionSo.getObligacion(req.params.soId));
+    } catch (err) {
+        console.error('[GET /lotes/obligacion-so]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.put('/obligacion-so/:soId', adminOnly, async (req, res) => {
+    try {
+        const soChk = await validarPrescriptorTipo(req.params.soId, 'SUJETO_OBLIGADO');
+        if (!soChk.ok) return res.status(400).json({ error: soChk.motivo });
+        const perfil = req.user?.perfilCompleto || {};
+        const quien = [perfil.nombre, perfil.apellidos].filter(Boolean).join(' ').trim() || req.user?.email || null;
+        res.json(await obligacionSo.saveObligacion(req.params.soId, req.body || {}, quien));
+    } catch (err) {
+        console.error('[PUT /lotes/obligacion-so]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+// La vista de UN S.O. calculada aquí, con sus lotes enriquecidos (las cuentas son
+// las de logic/obligacionSo.js). La usan el «le falta» del picker y el ENLACE
+// público del S.O. (routes/public.js), que solo ve lo que deja `vistaParaElSo`.
+async function vistaDeSo(soId, anio, { conDisponible = false } = {}) {
+    const [soRes, lotesRes] = await Promise.all([
+        supabase.from('prescriptores').select('id_empresa, acronimo, razon_social, cif, logo_empresa').eq('id_empresa', soId).maybeSingle(),
+        supabase.from('lotes').select('*').eq('sujeto_obligado_id', soId),
+    ]);
+    if (soRes.error || lotesRes.error) throw Object.assign(new Error('No se pudo leer la BD'), { status: 503 });
+    if (!soRes.data) throw Object.assign(new Error('Sujeto Obligado no encontrado'), { status: 404 });
+    const lotes = await enrichLotes(lotesRes.data || []);
+    const anioN = /^\d{4}$/.test(String(anio || '')) ? Number(anio) : new Date().getFullYear();
+    const vista = await obligacionSo.vistaSo({ soId, anio: anioN, lotes, conDisponible });
+    return obligacionSo.vistaParaElSo(vista, soRes.data);
+}
+
+router.get('/obligacion-so/:soId/vista', staffOnly, async (req, res) => {
+    try {
+        res.json(await vistaDeSo(req.params.soId, req.query.anio));
+    } catch (err) {
+        console.error('[GET /lotes/obligacion-so/vista]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+// El ENLACE de solo lectura para el S.O. (/so/:token): lo ve, lo crea y lo quita el ADMIN.
+router.get('/obligacion-so/:soId/enlace', adminOnly, async (req, res) => {
+    try {
+        res.json({ enlace: await obligacionSo.getEnlace(req.params.soId) });
+    } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.post('/obligacion-so/:soId/enlace', adminOnly, async (req, res) => {
+    try {
+        const soChk = await validarPrescriptorTipo(req.params.soId, 'SUJETO_OBLIGADO');
+        if (!soChk.ok) return res.status(400).json({ error: soChk.motivo });
+        res.json({ enlace: await obligacionSo.crearEnlace(req.params.soId, usuarioDe(req)) });
+    } catch (err) {
+        console.error('[POST /lotes/obligacion-so/enlace]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.delete('/obligacion-so/:soId/enlace', adminOnly, async (req, res) => {
+    try {
+        await obligacionSo.quitarEnlace(req.params.soId);
+        res.json({ enlace: null });
+    } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.get('/disponible', staffOnly, async (req, res) => {
+    try {
+        res.json(await obligacionSo.disponible());
+    } catch (err) {
+        console.error('[GET /lotes/disponible]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -536,7 +651,7 @@ router.patch('/:id', staffOnly, async (req, res) => {
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
-        const { sujeto_obligado_id, verificador_id, notas, coste_verificacion, oferta_lote, expediente_verificador } = req.body || {};
+        const { sujeto_obligado_id, verificador_id, notas, coste_verificacion, oferta_lote, expediente_verificador, registro_miteco } = req.body || {};
         const update = { updated_at: nowIso() };
 
         // Nº de expediente que el verificador da al lote en SU sistema. Dato manual e
@@ -544,6 +659,14 @@ router.patch('/:id', staffOnly, async (req, res) => {
         if (expediente_verificador !== undefined) {
             const v = String(expediente_verificador || '').trim();
             update.expediente_verificador = v || null;
+        }
+
+        // Nº de registro (REGAGE…) de la solicitud de emisión en el MITECO. Lo pone la
+        // subida del justificante; aquí solo se corrige a mano. Sin espacios: se copia
+        // y se pega tal cual en la sede y en las respuestas a los requerimientos.
+        if (registro_miteco !== undefined) {
+            const v = String(registro_miteco || '').replace(/\s+/g, '');
+            update.registro_miteco = v || null;
         }
 
         // La oferta del lote y el coste de verificación son MARGEN Brokergy: solo el
@@ -1163,6 +1286,104 @@ router.get('/:id/cobros/:expId/factura-gestion/pdf', adminOnly, async (req, res)
     }
 });
 
+// ─── La FACTURA de VENTA DEL AHORRO de un cliente EMPRESA (services/facturaVentaAhorro.js)
+// Una empresa no recibe una ayuda: VENDE el ahorro, y el pago lo justifica su
+// factura. O la expedimos nosotros en su nombre (AUTOFACTURA, art. 5 RD 1619/2012:
+// acepta el acuerdo y la factura en su enlace) o la emite ella con el MODELO que
+// se le manda. Dinero → adminOnly.
+const facturaVenta = require('../services/facturaVentaAhorro');
+const ventaUpload = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+
+router.get('/:id/cobros/:expId/factura-venta', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const iva = req.query.iva != null && req.query.iva !== '' ? Number(req.query.iva) : null;
+        res.json(await facturaVenta.borrador(exp, { modo: req.query.modo || null, ivaPct: Number.isFinite(iva) ? iva : null }));
+    } catch (err) {
+        console.error('[GET factura-venta]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo preparar la factura de venta' });
+    }
+});
+
+// Pedirla (manda el enlace de la autofactura o el modelo). Body: { modo, ivaPct, canales, tlf, email, mensaje }
+router.post('/:id/cobros/:expId/factura-venta/pedir', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const r = await facturaVenta.pedir(exp, { ...(req.body || {}), usuario: usuarioDe(req) });
+        if (r.canalesOk.length) {
+            await apuntarEnLote(req.params.id,
+                `${exp.numero_expediente}: pedida la factura de venta del ahorro (${req.body?.modo === 'autofactura' ? 'autofactura' : 'la emite el cliente'}) por ${r.canalesOk.join(' + ')}.`,
+                usuarioDe(req)).catch(() => {});
+        }
+        res.json(r);
+    } catch (err) {
+        console.error('[POST factura-venta/pedir]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo pedir la factura' });
+    }
+});
+
+router.post('/:id/cobros/:expId/factura-venta/rehacer', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const r = await facturaVenta.rehacer(exp, { ivaPct: req.body?.ivaPct ?? null, usuario: usuarioDe(req) });
+        await apuntarEnLote(req.params.id, `${exp.numero_expediente}: autofactura ${r.numero} rehecha (${r.total} €), pendiente de aceptar.`, usuarioDe(req)).catch(() => {});
+        res.json(r);
+    } catch (err) {
+        console.error('[POST factura-venta/rehacer]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo rehacer la autofactura' });
+    }
+});
+
+// Su factura, recibida (camino «la emite el cliente»). multipart: factura (PDF), numero, total
+router.post('/:id/cobros/:expId/factura-venta/recibida', adminOnly, ventaUpload.single('factura'), async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const r = await facturaVenta.registrarRecibida(exp, {
+            buffer: req.file?.buffer, mimetype: req.file?.mimetype, nombreFichero: req.file?.originalname,
+            numero: req.body?.numero, total: req.body?.total, usuario: usuarioDe(req),
+        });
+        await apuntarEnLote(req.params.id, `${exp.numero_expediente}: recibida su factura de venta del ahorro${r.numero_cliente ? ` ${r.numero_cliente}` : ''} (${r.total} €).`, usuarioDe(req)).catch(() => {});
+        res.json(r);
+    } catch (err) {
+        console.error('[POST factura-venta/recibida]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo registrar su factura' });
+    }
+});
+
+// Body: { noProcede: true|false, motivo }
+router.post('/:id/cobros/:expId/factura-venta/no-procede', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const noProcede = req.body?.noProcede !== false;
+        const r = await facturaVenta.marcarNoProcede(exp, { noProcede, motivo: req.body?.motivo, usuario: usuarioDe(req) });
+        await apuntarEnLote(req.params.id, `${exp.numero_expediente}: factura de venta del ahorro ${noProcede ? `NO PROCEDE (${req.body?.motivo || ''})` : 'vuelve a ser necesaria'}.`, usuarioDe(req)).catch(() => {});
+        res.json(r);
+    } catch (err) {
+        console.error('[POST factura-venta/no-procede]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo cambiar' });
+    }
+});
+
+// El PDF: la autofactura expedida o, con ?modelo=1 (o sin número aún), el MODELO.
+router.get('/:id/cobros/:expId/factura-venta/pdf', adminOnly, async (req, res) => {
+    try {
+        const exp = await expedienteDelLote(req, res);
+        if (!exp) return;
+        const { buffer, filename } = await facturaVenta.pdfDe(exp, { modelo: req.query.modelo === '1' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        res.send(buffer);
+    } catch (err) {
+        console.error('[GET factura-venta/pdf]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo obtener el PDF' });
+    }
+});
+
 // ─── Aviso a los INSTALADORES de que sus clientes ya han cobrado ───────────────
 // UN mensaje por instalador y lote, cuando todos sus clientes están transferidos
 // (services/avisoInstaladoresCobro.js). Lleva lo que cobra cada cliente → adminOnly.
@@ -1278,8 +1499,8 @@ async function expedientesDelLote(loteId) {
     return (exps || []).map(e => {
         // La inversión que consta hoy: la ya verificada si la hay, y si no la suma
         // de las facturas registradas, que es la que viaja al Anexo.
-        const facturas = Array.isArray(e.doc_facturas) ? e.doc_facturas : [];
-        const sumaFacturas = facturas.reduce((a, f) => a + (Number(f?.importe_sin_iva) || 0), 0);
+        // Lo que computa para el CAE de cada factura (utils/facturasCae.js).
+        const sumaFacturas = require('../utils/facturasCae').inversionCae(e.doc_facturas);
         return {
             id: e.id,
             numero_expediente: e.numero_expediente,
@@ -1556,6 +1777,28 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
             }
         }
 
+        // El JUSTIFICANTE del MITECO trae el nº de registro de la solicitud (REGAGE…),
+        // que es como el Gestor Autonómico cita el lote en sus requerimientos. Un
+        // justificante nuevo es una presentación nueva: su número MANDA sobre el que
+        // hubiera (el anterior queda en el historial).
+        let registroMiteco = null;
+        if (slot === 'justificante_miteco' && !esFirmado) {
+            registroMiteco = leerRegage(buffer);
+            if (registroMiteco) {
+                entrada.registro = registroMiteco;
+                update.documentos_so = docs;
+                if (registroMiteco !== lote.registro_miteco) {
+                    update.registro_miteco = registroMiteco;
+                    historial.push({
+                        id: `${Date.now()}_registro_miteco`, tipo: 'sistema',
+                        texto: `Nº de registro MITECO ${lote.registro_miteco ? `${lote.registro_miteco} → ` : ''}${registroMiteco} (leído del justificante).`,
+                        fecha: nowIso(), usuario: usuarioDe(req),
+                    });
+                    update.historial = historial;
+                }
+            }
+        }
+
         // El CERTIFICADO CAE: su rango de códigos se sella para la factura al S.O.
         let cae = null;
         if (slot === 'certificado_cae' && !esFirmado) {
@@ -1572,6 +1815,34 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
                     });
                     update.historial = historial;
                 }
+            }
+        }
+
+        // El PLAN DE VERIFICACIÓN dice QUIÉN verifica: verificador jefe (con email y
+        // teléfono) y revisor técnico. Se sella en la entrada, conservando lo que ya
+        // hubiera llegado por el correo del plan (services/equipoVerificacion.js).
+        // Un fallo del lector no tumba la subida.
+        let equipo = null;
+        if (slot === 'plan_verificacion' && !esFirmado) {
+            // Lo ya guardado (p. ej. el email del revisor, que solo trae el correo)
+            // no se pierde aunque el lector falle.
+            if (previa?.equipo) entrada.equipo = previa.equipo;
+            try {
+                const r = await equipoVerificacion.equipoDePdf(buffer, { previo: previa?.equipo || null });
+                equipo = r.equipo;
+                if (equipo) {
+                    entrada.equipo = equipo;
+                    update.documentos_so = docs;
+                    historial.push({
+                        id: `${Date.now()}_equipo_verificacion`, tipo: 'sistema',
+                        texto: `Equipo de verificación: ${equipoVerificacion.resumenEquipo(equipo)} (leído del plan).`,
+                        fecha: nowIso(), usuario: usuarioDe(req),
+                    });
+                    update.historial = historial;
+                    if (!lote.expediente_verificador && equipo.expediente_cae) update.expediente_verificador = equipo.expediente_cae;
+                }
+            } catch (err) {
+                console.warn('[lotes] OCR plan de verificación:', err.message);
             }
         }
 
@@ -1607,7 +1878,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, inexactitudes, lote: scrubLoteForUser(enriched, req) });
+        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, inexactitudes, equipo, registro_miteco: registroMiteco, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
         console.error('[POST /lotes/:id/documentos/:slot]', err.message);
         res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });
@@ -1839,6 +2110,15 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
         // En serie: cada anexo carga la plantilla (2 MB) y sube a Drive. Cinco a la
         // vez no ganan tiempo y sí multiplican la memoria y las llamadas a Google.
         for (const e of exps) {
+            // Vía del FACTOR MULTIPLICADOR: su ficha (RES060_FM, RES09x_FM…) aún NO
+            // está en el desplegable del impreso oficial (115 opciones, medido el
+            // 07/11/2026). Rellenarlo con la RES060 declararía otra ficha: no se genera.
+            if (esNumeroFm(e.numero_expediente)) {
+                const { contextoFm } = require('../utils/viaFm');
+                const codigo = contextoFm({ numero: e.numero_expediente, datos: e.documentacion?.via_fm || {} }).fichaOficial.codigo;
+                incompletos.push({ numero_expediente: e.numero_expediente, faltan: [`que el impreso del MITECO traiga la ficha ${codigo} en su desplegable (todavía no la trae)`] });
+                continue;
+            }
             const ficha = detectPrograma(e);
             const orden = Number(e.instalacion?.verificacion?.orden_actuacion) || null;
             const d = anexoActuacion.datosDesdeExpediente(e, { orden, ficha, dictamen });
@@ -2015,6 +2295,47 @@ router.post('/:id/certificado-cae/leer', adminOnly, async (req, res) => {
     }
 });
 
+// ─── POST /api/lotes/:id/plan-verificacion/leer ──────────────────────────────────
+// Relee el plan de verificación ya subido y sella QUIÉN verifica (lotes cuyo plan se
+// subió antes de que la app lo leyera). Si el plan llegó por correo, busca también
+// ese correo en el buzón: el email del revisor técnico solo viene en las copias.
+router.post('/:id/plan-verificacion/leer', staffOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        // 1. El correo del plan (si lo hay en el buzón): trae el PDF y las copias.
+        let deCorreo = null;
+        try {
+            const informes = await equipoVerificacion.importarPlanesDelBuzon({ dryRun: false, lote: lote.codigo, forzar: true });
+            deCorreo = informes.find(i => i.accion === 'archivado' || i.accion === 'actualizado') || null;
+        } catch (e) {
+            console.warn('[plan-verificacion/leer] buzón:', e.message);
+        }
+
+        // 2. Sin correo: el PDF que ya está en el lote.
+        if (!deCorreo) {
+            const doc = (lote.documentos_so || []).find(d => d?.key === 'plan_verificacion');
+            if (!doc?.draft_file_id) {
+                return res.status(409).json({ error: 'El lote no tiene el plan de verificación, y en el buzón no hay ningún correo con él.' });
+            }
+            const buffer = await driveService.getFileContent(doc.draft_file_id);
+            if (!buffer) return res.status(502).json({ error: 'No se pudo descargar el plan de verificación desde Drive.' });
+            const { equipo } = await equipoVerificacion.equipoDePdf(buffer, { previo: doc.equipo || null });
+            if (!equipo) return res.status(422).json({ error: 'El plan no dice quién verifica (no se ha encontrado el equipo de verificación).' });
+            await equipoVerificacion.guardarPlanEnLote(lote, { equipo, origen: 'plan ya subido', usuario: usuarioDe(req) });
+        }
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        const plan = (updated.documentos_so || []).find(d => d?.key === 'plan_verificacion');
+        res.json({ ok: true, equipo: plan?.equipo || null, desde: deCorreo ? 'correo' : 'plan', lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/plan-verificacion/leer]', err.message);
+        res.status(500).json({ error: err.message || 'Error al leer el plan de verificación' });
+    }
+});
+
 // ─── POST /api/lotes/:id/dictamen/aplicar ────────────────────────────────────────
 // Escribe la INVERSIÓN DEFINITIVA (y la vida útil) en los expedientes. ADMIN: es la
 // cifra que el verificador ha dado por buena y la que manda sobre lo declarado.
@@ -2132,8 +2453,12 @@ const ORIGEN_SOLICITUD_APP = 'generada por la app';
 const ORIGEN_SOLICITUD_VERIFICADOR = 'descargada del verificador';
 const solicitudGeneradaPorApp = (d) => !!d && d.origen === ORIGEN_SOLICITUD_APP;
 
-async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}) {
+// `origen: ORIGEN_SOLICITUD_VERIFICADOR` = el PDF lo ha bajado la app de beCAE por
+// su API (v1.6.0): ES la que vale, así que sí sustituye a la de la app (y a una
+// anterior del verificador sin firmar), pero nunca a una firmada.
+async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA', origen = ORIGEN_SOLICITUD_APP, nombreOriginal = null } = {}) {
     if (!pdf || !pdf.length) return { archivada: false, motivo: 'sin PDF' };
+    const delVerificador = origen === ORIGEN_SOLICITUD_VERIFICADOR;
 
     const { data: fresh } = await supabase
         .from('lotes').select('documentos_so, historial').eq('id', lote.id).maybeSingle();
@@ -2143,7 +2468,7 @@ async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}
         return { archivada: false, motivo: 'la solicitud del lote ya está firmada', documento: docs[idx] };
     }
     // La descargada del verificador MANDA: la de la app nunca la pisa.
-    if (idx >= 0 && !solicitudGeneradaPorApp(docs[idx])) {
+    if (!delVerificador && idx >= 0 && !solicitudGeneradaPorApp(docs[idx])) {
         return { archivada: false, motivo: 'el lote ya tiene la solicitud descargada del verificador', documento: docs[idx] };
     }
 
@@ -2171,14 +2496,17 @@ async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}
         sent_at: (idx >= 0 ? docs[idx].sent_at : null) || null,
         signed_at: null,
         uploaded_at: nowIso(),
-        origen: ORIGEN_SOLICITUD_APP,
+        origen,
+        ...(nombreOriginal ? { original_file_name: nombreOriginal } : {}),
     };
     if (idx >= 0) docs[idx] = entrada; else docs.push(entrada);
 
     const historial = Array.isArray(fresh?.historial) ? [...fresh.historial] : [];
     historial.push({
         id: `${Date.now()}_solicitud_auto`, tipo: 'sistema',
-        texto: `Archivada la Solicitud de Verificación (borrador) en el lote (${name}).`,
+        texto: delVerificador
+            ? `Traída de beCAE por API la Solicitud de Verificación del verificador (${nombreOriginal || name}): es la que firma el S.O.`
+            : `Archivada la Solicitud de Verificación (borrador) en el lote (${name}).`,
         fecha: nowIso(), usuario,
     });
     await supabase.from('lotes')
@@ -2599,6 +2927,46 @@ const PETICIONES_SO = {
             + `${total ? `, ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € en total` : ''}`
             + ` por ${canales}${to ? ` a ${to}` : ''}.`,
     },
+    // NUESTRAS facturas de venta de los CAE (05/11/2026). El PDF no es un documento
+    // del lote sino el de `facturas_so` (el que se generó y se archivó en
+    // contabilidad), así que la petición trae su propio `adjunto`. El sello va en la
+    // entrada del CERTIFICADO CAE del lote: la fila de `facturas_so` no tiene dónde.
+    facturas_cae: {
+        key: 'certificado_cae',
+        nombre: (n) => `${n} factura${n === 1 ? '' : 's'} de los CAE emitidos`,
+        asuntoPorDefecto: 'Facturas de los CAE emitidos',
+        etiquetaPorDefecto: 'Facturas de los CAE',
+        // Sin el certificado no hay CAE que facturar (lo comprueba `adjunto`); una
+        // factura ya COBRADA no se reclama.
+        bloqueo: () => null,
+        faltaTexto: 'la factura generada',
+        accionFalta: 'Genérala en su lote («Generar y guardar»)',
+        conFacturaSo: true,
+        adjunto: (l, fac) => {
+            const cert = (l.documentos_so || []).find(d => d?.key === 'certificado_cae');
+            if (!cert) return { motivo: 'no tiene los CAE emitidos (sin certificado)' };
+            if (!fac?.numero) return { falta: true };
+            if (fac.estado === 'PAGADA') return { motivo: `ya consta COBRADA (${fac.numero})` };
+            const fileId = fac.drive_file_id || idDeDriveLink(fac.drive_link);
+            if (!fileId) return { falta: true };
+            return {
+                fileId,
+                filename: pdfFileName(`${fac.numero} - ${l.codigo || 'LOTE'}`),
+                importe: Number(fac.total) || null,
+            };
+        },
+        sello: (d, { to }) => ({
+            factura_enviada_at: nowIso(),
+            factura_enviada_to: to || d.factura_enviada_to || null,
+            factura_enviada_veces: (Number(d.factura_enviada_veces) || 0) + 1,
+        }),
+        veces: (d) => Number(d?.factura_enviada_veces) || 0,
+        historial: ({ previas, codigos, total, canales, to }) =>
+            `${previas ? `Recordadas al S.O. (${previas + 1}ª vez)` : 'Enviadas al S.O.'}`
+            + ` las facturas de los CAE emitidos (${codigos.length} lote${codigos.length === 1 ? '' : 's'}: ${codigos.join(', ')})`
+            + `${total ? `, ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € con IVA en total` : ''}`
+            + ` por ${canales}${to ? ` a ${to}` : ''}.`,
+    },
     firma_ofertas: {
         key: 'oferta_verificacion',
         nombre: (n) => `${n} oferta${n === 1 ? '' : 's'} de verificación`,
@@ -2650,6 +3018,25 @@ async function peticionSo(req, res) {
         if (error) throw error;
         if (!(lotes || []).length) return res.status(404).json({ error: 'No se han encontrado los lotes.' });
 
+        // Nuestras facturas viven en `facturas_so`, no en los documentos del lote.
+        const facturaDe = new Map();
+        if (P.conFacturaSo) {
+            const { data: facs, error: fErr } = await supabase.from('facturas_so')
+                .select('lote_id, numero, estado, total, drive_file_id, drive_link').in('lote_id', lotes.map(l => l.id));
+            if (fErr) throw fErr;
+            for (const f of facs || []) facturaDe.set(f.lote_id, f);
+            const bloq = lotes
+                .map(l => ({ codigo: l.codigo, r: P.adjunto(l, facturaDe.get(l.id)) }))
+                .filter(x => x.r?.motivo);
+            if (bloq.length) {
+                return res.status(409).json({
+                    error: bloq.map(b => `${b.codigo} ${b.r.motivo}`).join('; ')
+                        + `. Quita ${bloq.length === 1 ? 'ese lote' : 'esos lotes'} del envío.`,
+                    bloqueados: bloq.map(b => b.codigo),
+                });
+            }
+        }
+
         // Una factura ya COBRADA no se reclama. La pantalla ya la excluye, pero
         // entre que se pinta y se pulsa puede haberse marcado el pago (o haberlo
         // hecho otra persona): reclamarle a quien ya pagó es la peor forma de
@@ -2676,6 +3063,14 @@ async function peticionSo(req, res) {
         const adjuntos = [];
         const sinDoc = [];
         for (const l of lotes) {
+            if (P.adjunto) {
+                const a = P.adjunto(l, facturaDe.get(l.id));
+                if (!a?.fileId) { sinDoc.push(l.codigo); continue; }
+                const buf = await driveService.getFileContent(a.fileId);
+                if (!buf) { sinDoc.push(l.codigo); continue; }
+                adjuntos.push({ filename: a.filename, content: buf, loteId: l.id, codigo: l.codigo, importe: a.importe });
+                continue;
+            }
             const f = (l.documentos_so || []).find(d => d?.key === P.key);
             // Un enlace que apunta a un fichero borrado tampoco vale: `getFileContent`
             // devuelve null y el correo saldría anunciando un adjunto que no lleva.
@@ -2696,7 +3091,7 @@ async function peticionSo(req, res) {
         }
         if (sinDoc.length) {
             return res.status(409).json({
-                error: `Falta ${P.faltaTexto} de ${sinDoc.join(', ')}. Súbela o quita ese lote del envío:`
+                error: `Falta ${P.faltaTexto} de ${sinDoc.join(', ')}. ${P.accionFalta || 'Súbela'} o quita ese lote del envío:`
                     + ' un correo que anuncia los documentos y no los lleva todos deja el trámite incompleto.',
             });
         }
@@ -3776,10 +4171,28 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
         }
 
         // 8. El PDF de la solicitud que se acaba de crear en el verificador queda
-        //    archivado en el lote. Best-effort: la solicitud YA está enviada y un
-        //    fallo de Drive no puede presentarse como un fallo de envío.
+        //    archivado en el lote. Desde la API v1.6.0 se BAJA la del propio beCAE
+        //    (la que vale para que la firme el S.O.): antes había que entrar en su
+        //    web, descargarla y volver a subirla aquí. Si no se puede, se archiva la
+        //    que compuso la app, como hasta ahora. Best-effort: la solicitud YA está
+        //    enviada y un fallo de Drive no puede presentarse como un fallo de envío.
         let solicitud_archivada = null;
-        if (solicitudHtml) {
+        //    beCAE puede tardar unos segundos en ofrecer el PDF de la solicitud recién
+        //    creada: se reintenta (3 veces, 4 s) antes de caer en la de la app. Y si
+        //    aun así cae, la próxima consulta de beCAE la trae sola (GET /:id/marwen).
+        if (result.num_solicitud) {
+            for (let intento = 1; intento <= 3; intento++) {
+                try {
+                    solicitud_archivada = await traerSolicitudDeBecae(updated || lote, result.num_solicitud, { usuario: usuarioDe(req) });
+                } catch (e) {
+                    console.warn(`[enviar-verificador-api] traer solicitud de beCAE (intento ${intento}):`, e.message);
+                    solicitud_archivada = { archivada: false, motivo: e.message };
+                }
+                if (solicitud_archivada?.archivada || !solicitud_archivada?.reintentable) break;
+                if (intento < 3) await new Promise(r => setTimeout(r, 4000));
+            }
+        }
+        if (solicitudHtml && !solicitud_archivada?.archivada) {
             try {
                 const pdf = await htmlToPdf(solicitudHtml);
                 solicitud_archivada = await archivarSolicitudBorrador(updated || lote, pdf, { usuario: usuarioDe(req) });
@@ -3811,4 +4224,388 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
     }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// beCAE (Marwen) por API v1.6.0 — el lote habla SOLO con el verificador
+// Ver docs/conocimiento/lotes/la-api-de-marwen-v1-6.md.
+//
+// Lo que antes eran viajes a la web de beCAE (descargar la solicitud, subir la
+// firmada y los ZIP, bajar la oferta, subirla firmada, mirar en qué estado está el
+// expediente y copiar su número, leer las inexactitudes de un PDF) se hace desde
+// el propio lote:
+//   GET  /:id/marwen                    estado en vivo + documentos de la solicitud
+//   GET  /:id/marwen/documentos/:docId  descarga un documento de beCAE (binario)
+//   POST /:id/marwen/traer-solicitud    la solicitud de beCAE → fase 1 del lote
+//   POST /:id/marwen/subir              solicitud firmada · ZIP de las actuaciones · oferta firmada
+//   POST /:id/marwen/inexactitudes      las de la API → incidencias (sin leer el PDF)
+//
+// REGLA — lo que SALE hacia beCAE (subir) lo pulsa una persona, con confirmación en
+// pantalla: subir la oferta firmada ES aceptarla. Consultar no cambia nada allí.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ESTADOS_EXP_INEXACTITUDES = ['En resolución', 'HDTED'];
+
+// El nº de solicitud del lote: el que se selló al enviarlo por API.
+const numSolicitudDe = (lote) => String(lote?.verificacion_api?.num_solicitud || '').trim() || null;
+
+function errorMarwenARespuesta(res, err, contexto) {
+    console.error(`[${contexto}]`, err.message);
+    if (!marwenService.isConfigured()) {
+        return res.status(503).json({ error: 'La integración con Marwen no está configurada (falta MARWEN_API_KEY en el backend).' });
+    }
+    const status = [503, 504, 429].includes(err.status) ? err.status
+        : err.status === 404 ? 404
+            : (err.status >= 400 && err.status < 500) ? 422 : 500;
+    res.status(status).json({ error: err.message, code: err.code || null, retryAfter: err.retryAfter ?? null, marwen: err.marwen || null });
+}
+
+/**
+ * Estado del lote en beCAE. Se busca por el nº de PEDIDO (= código del lote, que
+ * es como aparece en beCAE) y, si no sale, por el nº de solicitud y de expediente
+ * que el lote ya tenga. Solo LEE de Marwen.
+ */
+async function estadoBecaeDeLote(lote) {
+    const avisos = [];
+    const numSol = numSolicitudDe(lote);
+    const numExp = String(lote.expediente_verificador || '').trim() || null;
+    let solicitud = null, expediente = null;
+    const mismo = (a, b) => String(a || '').toUpperCase() === String(b || '').toUpperCase();
+
+    if (lote.codigo) {
+        const p = await marwenService.estadosPorPedido(lote.codigo);
+        solicitud = p.solicitudes.find(s => mismo(s.numero_solicitud, numSol)) || p.solicitudes[p.solicitudes.length - 1] || null;
+        expediente = p.expedientes.find(e => mismo(e.num_expediente, numExp)) || p.expedientes[p.expedientes.length - 1] || null;
+        if (p.solicitudes.length > 1) avisos.push(`En beCAE hay ${p.solicitudes.length} solicitudes con el pedido ${lote.codigo}: ${p.solicitudes.map(s => s.numero_solicitud).join(', ')}.`);
+        if (p.expedientes.length > 1) avisos.push(`En beCAE hay ${p.expedientes.length} expedientes con el pedido ${lote.codigo}: ${p.expedientes.map(e => e.num_expediente).join(', ')}.`);
+    }
+    const sinoEs404 = (e) => { if (e.code !== 'MARWEN_NO_EXISTE') throw e; return null; };
+    if (!solicitud && numSol) solicitud = await marwenService.estadoSolicitud(numSol).catch(sinoEs404);
+    if (!expediente && numExp) expediente = await marwenService.estadoExpediente(numExp).catch(sinoEs404);
+    if (numSol && solicitud && !mismo(solicitud.numero_solicitud, numSol)) {
+        avisos.push(`El lote tenía la solicitud ${numSol} y beCAE la da como ${solicitud.numero_solicitud} (se renumera al aceptar la primera oferta).`);
+    }
+
+    let documentos = [];
+    if (solicitud?.numero_solicitud) {
+        try { documentos = await marwenService.documentos(solicitud.numero_solicitud); } catch (e) {
+            if (e.status === 503 || e.status === 504) throw e;
+            avisos.push(`No se pudieron listar los documentos de la solicitud: ${e.message}`);
+        }
+    }
+    return { solicitud, expediente, documentos, avisos };
+}
+
+// Lo leído se SELLA en el lote: el nº de solicitud (puede haberse renumerado), el
+// nº de expediente del verificador (si aún no lo tenía: antes se tecleaba) y la
+// foto del estado, con una línea de historial cuando cambia.
+async function sellarEstadoBecae(lote, est, usuario) {
+    const api = lote.verificacion_api || {};
+    const antes = api.becae || {};
+    const becae = {
+        num_solicitud: est.solicitud?.numero_solicitud || null,
+        estado_solicitud: est.solicitud?.estado_solicitud || null,
+        num_expediente: est.expediente?.num_expediente || null,
+        estado_expediente: est.expediente?.estado || null,
+        num_pedido: est.solicitud?.num_pedido || est.expediente?.num_pedido || null,
+        documentos: (est.documentos || []).map(d => ({ id: d.id, name: d.name, type: d.type })),
+        consultado_at: nowIso(),
+    };
+    const update = {};
+    if (est.solicitud || est.expediente) {
+        update.verificacion_api = {
+            ...api,
+            ...(becae.num_solicitud ? { num_solicitud: becae.num_solicitud } : {}),
+            ...(!api.num_solicitud && becae.num_solicitud ? { vinculada_at: nowIso() } : {}),
+            becae,
+        };
+    }
+    const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+    const lineas = [];
+    if (becae.num_expediente && !String(lote.expediente_verificador || '').trim()) {
+        update.expediente_verificador = becae.num_expediente;
+        lineas.push(`Nº de expediente del verificador: ${becae.num_expediente} (leído de beCAE)`);
+    }
+    if (becae.estado_solicitud && becae.estado_solicitud !== antes.estado_solicitud) {
+        lineas.push(`Solicitud ${becae.num_solicitud}: ${antes.estado_solicitud ? `${antes.estado_solicitud} → ` : ''}${becae.estado_solicitud}`);
+    }
+    if (becae.estado_expediente && becae.estado_expediente !== antes.estado_expediente) {
+        lineas.push(`Expediente ${becae.num_expediente}: ${antes.estado_expediente ? `${antes.estado_expediente} → ` : ''}${becae.estado_expediente}`);
+    }
+    if (lineas.length) {
+        historial.push({ id: `${Date.now()}_becae`, tipo: 'sistema', texto: `beCAE · ${lineas.join(' · ')}.`, fecha: nowIso(), usuario });
+        update.historial = historial;
+    }
+    if (Object.keys(update).length) {
+        update.updated_at = nowIso();
+        await supabase.from('lotes').update(update).eq('id', lote.id);
+    }
+    return becae;
+}
+
+// Baja de beCAE la solicitud SIN firmar y la deja en la fase 1 como la del
+// verificador. beCAE solo la ofrece mientras no se haya subido la firmada.
+async function traerSolicitudDeBecae(lote, numSolicitud, { usuario = 'SISTEMA' } = {}) {
+    const docs = await marwenService.documentos(numSolicitud);
+    const sol = docs.find(d => d.type === 'solicitud');
+    if (!sol) {
+        const firmada = docs.find(d => d.type === 'solicitud_firmada');
+        return firmada
+            ? { archivada: false, motivo: 'en beCAE ya está la solicitud firmada' }
+            : { archivada: false, motivo: 'beCAE no ofrece la solicitud para descargar', reintentable: true };
+    }
+    const f = await marwenService.descargarDocumento(numSolicitud, sol.id);
+    if (!/pdf/i.test(f.contentType) && f.buffer.slice(0, 4).toString() !== '%PDF') {
+        return { archivada: false, motivo: `beCAE no ha devuelto un PDF (${f.contentType})` };
+    }
+    return archivarSolicitudBorrador(lote, f.buffer, {
+        usuario, origen: ORIGEN_SOLICITUD_VERIFICADOR, nombreOriginal: f.nombre || sol.name || null,
+    });
+}
+
+async function loteParaRespuesta(loteId, req) {
+    const { data: final } = await supabase.from('lotes').select('*').eq('id', loteId).maybeSingle();
+    const [enriched] = await enrichLotes([final]);
+    return scrubLoteForUser(enriched, req);
+}
+
+// ─── GET /api/lotes/:id/marwen — en qué está el lote en beCAE ─────────────────
+router.get('/:id/marwen', staffOnly, async (req, res) => {
+    try {
+        if (!marwenService.isConfigured()) {
+            return res.status(503).json({ error: 'La integración con Marwen no está configurada (falta MARWEN_API_KEY en el backend).' });
+        }
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const est = await estadoBecaeDeLote(lote);
+        const becae = await sellarEstadoBecae(lote, est, usuarioDe(req));
+
+        // Si beCAE ofrece la solicitud del verificador y el lote solo tiene la que
+        // compuso la app (o ninguna), se TRAE sola: es la que firma el S.O. Baja de
+        // beCAE y se guarda en nuestro Drive; no sale nada a terceros (regla 212).
+        let solicitud_traida = null;
+        const solLote = (lote.documentos_so || []).find(d => d?.key === 'solicitud_verificacion');
+        const ofrece = (est.documentos || []).some(d => d?.type === 'solicitud');
+        // Una de la app que YA se mandó al S.O. no se cambia sola (le llegó esa): ahí
+        // queda el botón «Traer la solicitud de beCAE» para que lo decida una persona.
+        if (ofrece && becae.num_solicitud && !solLote?.signed_link && !solLote?.sent_at
+            && (!solLote || solicitudGeneradaPorApp(solLote))) {
+            try {
+                solicitud_traida = await traerSolicitudDeBecae(lote, becae.num_solicitud, { usuario: usuarioDe(req) });
+            } catch (e) {
+                console.warn('[GET /lotes/:id/marwen] traer solicitud de beCAE:', e.message);
+                est.avisos.push(`beCAE ofrece la solicitud, pero no se pudo traer: ${e.message}`);
+            }
+        }
+
+        res.json({
+            ok: true,
+            encontrado: !!(est.solicitud || est.expediente),
+            destino: marwenService.BASE_URL,
+            becae,
+            solicitud_traida,
+            avisos: est.avisos,
+            inexactitudes_consultables: ESTADOS_EXP_INEXACTITUDES.includes(becae.estado_expediente),
+            lote: await loteParaRespuesta(lote.id, req),
+        });
+    } catch (err) {
+        errorMarwenARespuesta(res, err, 'GET /lotes/:id/marwen');
+    }
+});
+
+// ─── GET /api/lotes/:id/marwen/documentos/:docId — descargar de beCAE ─────────
+// El documento tiene que ser de la solicitud de ESTE lote (se comprueba contra su
+// lista: el id solo no dice de quién es).
+router.get('/:id/marwen/documentos/:docId', staffOnly, async (req, res) => {
+    try {
+        const { data: lote } = await supabase.from('lotes').select('id, codigo, verificacion_api').eq('id', req.params.id).maybeSingle();
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const numSol = numSolicitudDe(lote);
+        if (!numSol) return res.status(409).json({ error: 'El lote no tiene nº de solicitud de beCAE.' });
+        const docs = await marwenService.documentos(numSol);
+        const doc = docs.find(d => String(d.id) === String(req.params.docId));
+        if (!doc) return res.status(404).json({ error: 'Ese documento no es de la solicitud de este lote.' });
+        const f = await marwenService.descargarDocumento(numSol, doc.id);
+        const nombre = f.nombre || doc.name || `${doc.type}.pdf`;
+        res.setHeader('Content-Type', f.contentType);
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(nombre)}`);
+        res.setHeader('X-Becae-Tipo', doc.type);
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Becae-Tipo');
+        res.send(f.buffer);
+    } catch (err) {
+        errorMarwenARespuesta(res, err, 'GET /lotes/:id/marwen/documentos/:docId');
+    }
+});
+
+// ─── POST /api/lotes/:id/marwen/traer-solicitud ───────────────────────────────
+router.post('/:id/marwen/traer-solicitud', staffOnly, async (req, res) => {
+    try {
+        const { data: lote } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const numSol = numSolicitudDe(lote);
+        if (!numSol) return res.status(409).json({ error: 'El lote no tiene nº de solicitud de beCAE: consulta antes su estado o envíalo por API.' });
+        const r = await traerSolicitudDeBecae(lote, numSol, { usuario: usuarioDe(req) });
+        if (!r.archivada) return res.status(409).json({ error: `No se ha traído la solicitud: ${r.motivo}.` });
+        res.json({ ok: true, ...r, lote: await loteParaRespuesta(lote.id, req) });
+    } catch (err) {
+        errorMarwenARespuesta(res, err, 'POST /lotes/:id/marwen/traer-solicitud');
+    }
+});
+
+// Los ficheros que se suben a beCAE de cada tipo, sacados del lote / de Drive.
+async function ficherosParaBecae(lote, tipo) {
+    const docs = Array.isArray(lote.documentos_so) ? lote.documentos_so : [];
+    if (tipo === 'solicitud_firmada' || tipo === 'oferta_firmada') {
+        const key = tipo === 'solicitud_firmada' ? 'solicitud_verificacion' : 'oferta_verificacion';
+        const d = docs.find(x => x?.key === key);
+        if (!d?.signed_file_id) {
+            throw Object.assign(new Error(tipo === 'solicitud_firmada'
+                ? 'La solicitud aún no está FIRMADA por el S.O. en el lote (fase 2).'
+                : 'La oferta aún no está FIRMADA por el S.O. en el lote (fase 3).'), { status: 409 });
+        }
+        if (tipo === 'solicitud_firmada' && solicitudGeneradaPorApp(d)) {
+            throw Object.assign(new Error('La solicitud firmada del lote es la que generó la app, no la de beCAE: no vale para subirla.'), { status: 409 });
+        }
+        const buffer = await driveService.getFileContent(d.signed_file_id);
+        if (!buffer) throw new Error('No se pudo leer el PDF firmado de Drive');
+        const base = (d.original_file_name || d.file_name || key).replace(/\.pdf$/i, '');
+        return { ficheros: [{ nombre: `${base}_fdo.pdf`.replace(/_fdo_fdo/i, '_fdo'), buffer, contentType: 'application/pdf' }], faltan: [] };
+    }
+    // documento_adjunto = el ZIP de cada actuación («E{n}.zip», el paquete en modo
+    // expediente de la fase 3), que vive junto a la carpeta del expediente.
+    const { data: exps } = await supabase.from('expedientes')
+        .select('id, numero_expediente, oportunidad_id, instalacion').eq('lote_id', lote.id).order('numero_expediente');
+    const ficheros = [];
+    const faltan = [];
+    for (const exp of exps || []) {
+        const n = Number(exp.instalacion?.verificacion?.orden_actuacion) || null;
+        if (!n) { faltan.push(`${exp.numero_expediente}: sin nº de actuación`); continue; }
+        const carpeta = await carpetaDeExpediente(exp);
+        const f = carpeta ? await driveService.findFileByName(carpeta, `E${n}.zip`) : null;
+        const id = f && (f.id || f);
+        if (!id) { faltan.push(`E${n} · ${exp.numero_expediente}: no está su E${n}.zip (genéralo con el paquete de la fase 3)`); continue; }
+        const buffer = await driveService.getFileContent(id);
+        if (!buffer) { faltan.push(`E${n} · ${exp.numero_expediente}: no se pudo leer su E${n}.zip de Drive`); continue; }
+        ficheros.push({ nombre: `${lote.codigo} - E${n} - ${exp.numero_expediente}.zip`, buffer, contentType: 'application/zip', n });
+    }
+    ficheros.sort((a, b) => a.n - b.n);
+    return { ficheros, faltan };
+}
+
+const ETIQUETA_SUBIDA = {
+    solicitud_firmada: 'la solicitud firmada',
+    documento_adjunto: 'la documentación de las actuaciones',
+    oferta_firmada: 'la oferta firmada (aceptación)',
+};
+
+// ─── POST /api/lotes/:id/marwen/subir — { tipo, seco?, reemplazar? } ──────────
+// Con `seco: true` dice qué ficheros subiría, sin subir nada (es lo que enseña la
+// confirmación). Los ZIP solo se suben si están TODOS; con adjuntos ya en beCAE se
+// pide `reemplazar` (los borra antes: solo se puede mientras no haya oferta).
+router.post('/:id/marwen/subir', staffOnly, async (req, res) => {
+    try {
+        const { tipo, seco = false, reemplazar = false } = req.body || {};
+        if (!marwenService.TIPOS_SUBIDA.includes(tipo)) return res.status(400).json({ error: 'Tipo de subida no válido.' });
+        const { data: lote } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const numSol = numSolicitudDe(lote);
+        if (!numSol) return res.status(409).json({ error: 'El lote no tiene nº de solicitud de beCAE.' });
+
+        const enBecae = await marwenService.documentos(numSol);
+        const ya = enBecae.filter(d => d.type === tipo);
+        const hayOferta = enBecae.some(d => d.type === 'oferta');
+        if (tipo === 'solicitud_firmada' && ya.length) return res.status(409).json({ error: 'En beCAE ya está la solicitud firmada.' });
+        if (tipo === 'oferta_firmada' && ya.length) return res.status(409).json({ error: 'En beCAE ya está la oferta firmada (ya está aceptada).' });
+        if (tipo === 'oferta_firmada' && !hayOferta) return res.status(409).json({ error: 'beCAE todavía no tiene oferta: Marwen la sube cuando revisa la documentación.' });
+        if (tipo === 'documento_adjunto' && hayOferta) return res.status(409).json({ error: 'La solicitud ya tiene oferta: beCAE no admite más documentación.' });
+
+        const { ficheros, faltan } = await ficherosParaBecae(lote, tipo);
+        const resumen = ficheros.map(f => ({ nombre: f.nombre, bytes: f.buffer.length }));
+        const LIM_PDF = 20 * 1024 * 1024;
+        const grandes = ficheros.filter(f => f.contentType === 'application/pdf' && f.buffer.length > LIM_PDF).map(f => f.nombre);
+        const bloqueo = [
+            ...faltan,
+            ...grandes.map(n => `${n}: pasa de 20 MB (límite de beCAE por PDF)`),
+            ...(tipo === 'documento_adjunto' && ya.length && !reemplazar
+                ? [`En beCAE ya hay ${ya.length} documento(s) adjunto(s): ${ya.map(d => d.name).join(', ')}`] : []),
+        ];
+        if (seco) {
+            return res.json({ seco: true, tipo, ficheros: resumen, ya_en_becae: ya.map(d => d.name), bloqueo, num_solicitud: numSol });
+        }
+        if (!ficheros.length) return res.status(409).json({ error: bloqueo.join('\n') || 'No hay nada que subir.' });
+        if (faltan.length || grandes.length) return res.status(409).json({ error: bloqueo.join('\n'), bloqueo });
+        if (tipo === 'documento_adjunto' && ya.length) {
+            if (!reemplazar) return res.status(409).json({ error: bloqueo.join('\n'), bloqueo });
+            for (const d of ya) await marwenService.eliminarAdjunto(numSol, d.id);
+        }
+
+        const r = await marwenService.subirDocumentos(numSol, tipo, ficheros);
+        if (!r.success) return res.status(422).json({ error: `Marwen no ha aceptado la subida: ${r.message || 'sin motivo'}` });
+
+        // Sellar la subida (y el nº de solicitud si beCAE lo ha renumerado).
+        const { data: fresh } = await supabase.from('lotes').select('verificacion_api, historial').eq('id', lote.id).maybeSingle();
+        const api = { ...(fresh?.verificacion_api || {}) };
+        const renumerada = r.num_solicitud && r.num_solicitud !== numSol;
+        if (renumerada) api.num_solicitud = r.num_solicitud;
+        api.subidas = { ...(api.subidas || {}), [tipo]: { at: nowIso(), por: usuarioDe(req), ficheros: resumen.map(x => x.nombre), estado_solicitud: r.estado_solicitud } };
+        api.becae = { ...(api.becae || {}), estado_solicitud: r.estado_solicitud || api.becae?.estado_solicitud || null, num_solicitud: api.num_solicitud };
+        const historial = Array.isArray(fresh?.historial) ? [...fresh.historial] : [];
+        historial.push({
+            id: `${Date.now()}_becae_subida`, tipo: 'sistema',
+            texto: `Subida a beCAE por API: ${ETIQUETA_SUBIDA[tipo]} (${resumen.length} fichero${resumen.length === 1 ? '' : 's'})`
+                + `${r.estado_solicitud ? ` · solicitud: ${r.estado_solicitud}` : ''}`
+                + `${renumerada ? ` · renumerada ${numSol} → ${r.num_solicitud}` : ''}`
+                + `${r.documentos_descartados?.length ? ` · descartados: ${r.documentos_descartados.join(', ')}` : ''}.`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ verificacion_api: api, historial, updated_at: nowIso() }).eq('id', lote.id);
+
+        res.json({ ok: true, tipo, ...r, renumerada: !!renumerada, ficheros: resumen, lote: await loteParaRespuesta(lote.id, req) });
+    } catch (err) {
+        if (err.status === 409) return res.status(409).json({ error: err.message });
+        errorMarwenARespuesta(res, err, 'POST /lotes/:id/marwen/subir');
+    }
+});
+
+// ─── POST /api/lotes/:id/marwen/inexactitudes — { seco? } ─────────────────────
+// Las inexactitudes de beCAE, ya estructuradas, por el MISMO camino que las leídas
+// del PDF (regla 159): se cuelgan del ÚLTIMO informe de inexactitudes subido al
+// lote, que es la ronda que se está contestando. Sin informe en el lote se
+// devuelven para verlas, sin registrar nada.
+router.post('/:id/marwen/inexactitudes', staffOnly, async (req, res) => {
+    try {
+        const seco = req.body?.seco === true;
+        const { data: lote } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const numExp = String(lote.expediente_verificador || lote.verificacion_api?.becae?.num_expediente || '').trim();
+        if (!numExp) return res.status(409).json({ error: 'El lote no tiene nº de expediente del verificador (CAE-…): consulta antes su estado en beCAE.' });
+
+        const lista = await marwenService.inexactitudes(numExp, { forzar: req.body?.forzar === true });
+        const items = marwenService.aItemsDeInforme(lista);
+        const informes = (lote.documentos_so || []).filter(d => d?.tipo === 'informe_inexactitudes' && inexactitudesLote.rondaDeKey(d.key))
+            .sort((a, b) => inexactitudesLote.rondaDeKey(a.key) - inexactitudesLote.rondaDeKey(b.key));
+        const ultimo = informes[informes.length - 1] || null;
+        const crudo = lista.map(x => ({
+            numero: x.numero, clasificacion: x.clasificacion, estado: x.estado, actuaciones: x.actuaciones,
+            descripcion: x.descripcion, acciones_correctivas: x.acciones_correctivas, fecha_subsanacion: x.fecha_subsanacion,
+        }));
+        if (!items.length) return res.json({ ok: true, registrado: false, num_expediente: numExp, items: crudo, motivo: 'beCAE no tiene inexactitudes para este expediente.' });
+        if (!ultimo) {
+            return res.json({ ok: true, registrado: false, num_expediente: numExp, items: crudo,
+                motivo: 'El lote no tiene ningún informe de inexactitudes subido: súbelo (llega por correo) y se registran con él.' });
+        }
+        const r = await inexactitudesLote.registrarInexactitudes(lote, ultimo.key, null, {
+            usuario: usuarioDe(req), seco, fuente: 'API de beCAE',
+            informe: { inexactitudes: items, expediente_cae: numExp, fecha: ultimo.inexactitudes?.fecha || null },
+        });
+        if (!r.leido) return res.status(502).json({ error: r.error || 'No se pudieron registrar.' });
+        res.json({ ok: true, registrado: !seco, num_expediente: numExp, informe: ultimo.label, items: crudo, ...r,
+            lote: seco ? undefined : await loteParaRespuesta(lote.id, req) });
+    } catch (err) {
+        errorMarwenARespuesta(res, err, 'POST /lotes/:id/marwen/inexactitudes');
+    }
+});
+
 module.exports = router;
+// Para el enlace público del S.O. (routes/public.js).
+module.exports.vistaDeSo = vistaDeSo;

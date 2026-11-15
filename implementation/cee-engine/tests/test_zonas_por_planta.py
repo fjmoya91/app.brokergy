@@ -226,3 +226,17 @@ def test_un_garaje_en_planta_de_vivienda_no_resta_de_la_vivienda():
     m2 ya estan fuera de los de la vivienda, y restarlos los contaria dos veces."""
     m, _, _ = _plantas_con([{"nivel": 0, "uso": "GARAJE", "poligono": GARAJE}])
     assert [s.area for s in m.spaces] == [119.0, 117.0, 106.0]
+
+
+def test_un_porche_que_catastro_no_declara_se_resta_del_almacen_marcado():
+    """26RES093_14: Catastro no declara ningun porche; los dos dibujados estan
+    DENTRO del ALMACEN marcado como vivienda. Salian del suelo y la cubierta
+    pero no de la superficie declarada."""
+    spaces = _lcons()
+    spaces[2].attrs["habitable"] = True
+    m = _modelo(spaces=spaces)
+    inv = cu.inventario(m)
+    z = pipeline.leer_zonas(m, [{"nivel": 0, "uso": "PORCHE", "poligono": GARAJE}])
+    pipeline.excluir_cuerpos(m, [], inventario=inv, zonas=z)
+    assert abs(spaces[2].area - (106.0 - z[0]["area_m2"])) < 0.05
+    assert spaces[0].area == 119.0

@@ -427,9 +427,10 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                                     <section>
                                         <div className="flex items-center justify-between mb-2">
                                             <label className={`${lbl} mb-0`}>Facturar a</label>
-                                            {datos.destinatarios?.partner && (
+                                            {(datos.destinatarios?.partner || datos.destinatarios?.pagador) && (
                                                 <div className="flex rounded-lg border border-white/10 overflow-hidden">
-                                                    {[['cliente', 'Cliente'], ['partner', 'Partner']].map(([k, t]) => (
+                                                    {/* «Quien paga»: el instalador que lo pidió para su cliente. */}
+                                                    {[['pagador', 'Quien paga'], ['cliente', 'Cliente'], ['partner', 'Partner']].filter(([k]) => datos.destinatarios?.[k]).map(([k, t]) => (
                                                         <button key={k} onClick={() => elegirDestino(k)}
                                                             className={`px-3 min-h-[36px] text-[10px] font-black uppercase tracking-widest ${destino === k ? 'bg-brand/15 text-brand' : 'text-white/40 hover:text-white'}`}>{t}</button>
                                                     ))}

@@ -273,7 +273,9 @@ def _render(datos, output, esc=1.0):
         ('RIGHTPADDING', (0, 0), (0, -1), 0), ('RIGHTPADDING', (3, 0), (3, -1), 0)]))
     story.append(tb)
     story.append(Spacer(1, max(1.0, gap - 2)))
-    grid([[C("Observaciones", "")]], [ANCHO])
+    # Observaciones: en blanco salvo que el expediente traiga qué se reforma (p. ej.
+    # «se sustituye la caldera comunitaria de gasóleo por splits»).
+    grid([[C("Observaciones", datos.get('observaciones', ''))]], [ANCHO])
 
     # ── Aviso ──────────────────────────────────────────────────────────────
     story.append(HRFlowable(width="100%", color=VERDE, thickness=1, spaceAfter=4))

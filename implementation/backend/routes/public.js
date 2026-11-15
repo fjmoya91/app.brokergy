@@ -82,20 +82,87 @@ function loadCedentes() {
     return _cedentesPromise;
 }
 
+// ── VÍA DEL FACTOR MULTIPLICADOR: los documentos que GENERA la app para firmar ──
+// (utils/viaFm.js · GENERADOS_FM). Los del CLIENTE se firman en /firmar-anexos,
+// junto al Anexo A y al Convenio; la declaración de la tipología, el INSTALADOR en
+// /instalador/:id. El borrador vive en `documentacion.fm_docs[genera]` y el firmado
+// acaba en su apartado del gestor, como si se hubiera subido desde ahí.
+// Devuelve { exp, op, docs } — docs vacío si el expediente no va por la vía FM.
+async function fmParaFirmar(expedienteId, quien) {
+    const viaFm = require('../utils/viaFm');
+    const { esNumeroFm } = require('../utils/fichas');
+    const { data: exp, error } = await supabase.from('expedientes')
+        .select([
+            'id', 'numero_expediente', 'oportunidad_id',
+            'via_fm:documentacion->via_fm', 'fm_docs:documentacion->fm_docs',
+            'lf_e:cee->cee_final->>emisionesLetra', 'lf_c:cee->cee_final->>epnrLetra',
+            'li_e:cee->cee_inicial->>emisionesLetra', 'li_c:cee->cee_inicial->>epnrLetra',
+            'li_zona:cee->cee_inicial->>zonaClimatica',
+        ].join(', '))
+        .eq('id', expedienteId).maybeSingle();
+    if (error) throw Object.assign(new Error(error.message), { status: 503 });
+    if (!exp || !esNumeroFm(exp.numero_expediente)) return { exp, op: null, docs: [] };
+    const { data: op } = await supabase.from('oportunidades')
+        .select('id, zona:datos_calculo->>zona, inputs:datos_calculo->inputs, uploads:datos_calculo->reforma_uploads')
+        .eq('id', exp.oportunidad_id).maybeSingle();
+    const inputs = op?.inputs || {};
+    const ctx = viaFm.contextoFm({
+        numero: exp.numero_expediente, datos: exp.via_fm || {}, inputs,
+        zona: op?.zona || inputs.zona || exp.li_zona || null,
+        letrasFinal: [exp.lf_e, exp.lf_c], letrasInicial: [exp.li_e, exp.li_c],
+    });
+    const docs = viaFm.generadosParaFirmar(ctx, { quien, fmDocs: exp.fm_docs || {}, uploads: op?.uploads || {} });
+    return { exp, op, docs };
+}
+
+// Guarda el FIRMADO de un documento FM en su apartado del gestor (slot único: el
+// firmado sustituye al anterior) y sella `fm_docs[genera].signed_at`.
+// `sellar: false` cuando la ruta reescribe `documentacion` entera después (la de
+// /anexos-upload): el sello lo pone ella en su copia, o lo borraría al guardar.
+async function guardarFirmadoFm({ exp, op, doc, buffer, subidoPor, sellar = true }) {
+    const { subidas, fallidas } = await reformaUploadService.subirFicherosASlot({
+        oportunidadUuid: op.id,
+        datosCalculo: { reforma_uploads: op.uploads || {} },
+        slotDef: { key: doc.slot, multiple: false },
+        archivos: [{ originalname: `${doc.slot}.pdf`, mimetype: 'application/pdf', buffer }],
+        subidoPor,
+    });
+    if (!subidas.length) throw new Error(fallidas[0]?.error || 'No se pudo guardar en Drive');
+    const entrada = { ...((exp.fm_docs || {})[doc.genera] || {}), signed_at: new Date().toISOString(), signed_por: subidoPor };
+    if (sellar) {
+        const { error } = await supabase.rpc('merge_expediente_doc_json', {
+            p_expediente_id: exp.id, p_field: 'fm_docs', p_value: { [doc.genera]: entrada },
+        });
+        if (error) console.warn('[vía FM] sello del firmado:', error.message);
+    }
+    return { subida: subidas[0], entrada };
+}
+
+// Los campos de fichero de los documentos FM que firma el CLIENTE: `fm_<genera>`.
+const CAMPOS_FM_CLIENTE = Object.entries(require('../utils/viaFm').GENERADOS_FM)
+    .filter(([, m]) => m.firma === 'cliente').map(([k]) => k);
+
 /**
  * La confirmación del cliente, lista para guardar en la oportunidad, o null si
  * no llegó (un navegador con la versión anterior de la página no la manda, y
  * eso NO puede impedir aceptar). Lleva al lado lo que se SUPUSO al simular:
  * sin eso, dentro de tres meses no se sabe si el dato cambió o ya era así.
+ *
+ * El BONO SOCIAL solo se guarda si se le podía preguntar (`opts.programa` y
+ * `opts.nif`, cuando se pasan): ni en el terciario ni con el CIF de una empresa.
  */
-async function confirmacionDeLaAceptacion(raw, datosCalculo) {
+async function confirmacionDeLaAceptacion(raw, datosCalculo, opts = {}) {
     if (!raw) return null;
     let obj = raw;
     if (typeof raw === 'string') {
         try { obj = JSON.parse(raw); } catch (_) { return null; }
     }
-    const { sanearConfirmacion, CONFIRMACION_VERSION } = await loadConfirmacion();
-    const saneada = sanearConfirmacion(obj);
+    const { sanearConfirmacion, CONFIRMACION_VERSION, preguntaBonoSocial, esNifDeEmpresa, sinBonoSocial } = await loadConfirmacion();
+    let saneada = sanearConfirmacion(obj);
+    if (saneada && ('programa' in opts || 'nif' in opts)
+        && (!preguntaBonoSocial(opts.programa) || esNifDeEmpresa(opts.nif))) {
+        saneada = sinBonoSocial(saneada);
+    }
     if (!saneada) return null;
     const { normalizarFotovoltaica, fotovoltaicaDesdeFunnel } = await loadFotovoltaica();
     const inputs = datosCalculo?.inputs || {};
@@ -113,6 +180,17 @@ async function confirmacionDeLaAceptacion(raw, datosCalculo) {
             ...(inputs.aires && typeof inputs.aires === 'object' ? { aires: inputs.aires } : {}),
         },
     };
+}
+
+/** Qué se le pregunta del bono social en la aceptación (logic/confirmacionCliente.js). */
+async function preguntaBonoDeOportunidad(opp) {
+    try {
+        const { preguntaBonoSocial } = await loadConfirmacion();
+        return preguntaBonoSocial(require('../utils/fichas').detectPrograma({}, opp));
+    } catch (e) {
+        console.warn('[Public] pregunta del bono social:', e.message);
+        return null;
+    }
 }
 
 // Configuración de multer (memoria para subida directa a Drive)
@@ -225,6 +303,25 @@ router.get('/propuesta/:id', async (req, res) => {
     }
 });
 
+/**
+ * EMPRESA en la aceptación (Fran, 10/11/2026, 26TER100_OP389): la razón social va
+ * entera y SIN apellidos, y el formulario pide su REPRESENTANTE LEGAL (quien firma
+ * el Anexo I y el Convenio), para no tener que pedírselo después. Empresa = la
+ * ficha ya lo dice (`es_empresa`) o el NIF tecleado es un CIF. Solo se escribe lo
+ * que llega relleno: un navegador con la página anterior no borra nada.
+ * Detalle: docs/conocimiento/clientes/la-empresa-acepta-con-su-representante.md
+ */
+function camposEmpresaAceptacion(f = {}, esNifDeEmpresa = () => false) {
+    const esEmpresa = String(f.es_empresa) === 'true' || esNifDeEmpresa(f.dni_cif);
+    if (!esEmpresa) return {};
+    const out = { es_empresa: true, apellidos: null };
+    for (const k of ['representante_nombre', 'representante_apellidos', 'representante_dni']) {
+        const v = String(f[k] ?? '').trim();
+        if (v) out[k] = k === 'representante_dni' ? v.replace(/[\s.-]/g, '') : v;
+    }
+    return normalizeCliente(out);
+}
+
 // GET /api/public/cliente/:id
 router.get('/cliente/:id', async (req, res) => {
     try {
@@ -235,9 +332,10 @@ router.get('/cliente/:id', async (req, res) => {
             .from('oportunidades')
             .select(`
                 id,
-                cliente_id, 
-                referencia_cliente, 
+                cliente_id,
+                referencia_cliente,
                 prescriptor_id,
+                ficha,
                 datos_calculo,
                 expedientes (
                     numero_expediente
@@ -275,10 +373,13 @@ router.get('/cliente/:id', async (req, res) => {
             }
         }
 
-        // Fallback variables for name/surname parsing if client not found
+        // Fallback variables for name/surname parsing if client not found.
+        // Solo SIN ficha y solo si no es una sociedad: «AUTOSERVICIO RODRIGUEZ SL»
+        // salía como nombre «AUTOSERVICIO» y apellidos «RODRIGUEZ SL» (26TER100_OP389).
         let nombre = clienteStr || '';
         let apellidos = '';
-        if (nombre.includes(' ')) {
+        const pareceSociedad = /(^|[\s,.])(s\.?\s?l\.?\s?u?|s\.?\s?a\.?\s?u?|s\.?\s?c\.?\s?p?|c\.?\s?b|s\.?\s?coop|slne?|sll)\.?\s*$/i.test(nombre.trim());
+        if (!foundCliente && !pareceSociedad && nombre.includes(' ')) {
             const parts = nombre.split(' ');
             nombre = parts[0];
             apellidos = parts.slice(1).join(' ');
@@ -302,8 +403,13 @@ router.get('/cliente/:id', async (req, res) => {
             id_oportunidad: id,
             id_cliente: foundCliente?.id_cliente || null,
             nombre_razon_social: foundCliente?.nombre_razon_social || nombre,
-            apellidos: foundCliente?.apellidos || apellidos,
+            apellidos: foundCliente ? (foundCliente.es_empresa ? '' : (foundCliente.apellidos || '')) : apellidos,
             dni_cif: foundCliente?.dni || '',
+            // Empresa: su representante legal, para que venga relleno (o se pida).
+            es_empresa: !!foundCliente?.es_empresa || pareceSociedad,
+            representante_nombre: foundCliente?.representante_nombre || '',
+            representante_apellidos: foundCliente?.representante_apellidos || '',
+            representante_dni: foundCliente?.representante_dni || '',
             email: (useContact && foundCliente?.persona_contacto_email) ? foundCliente.persona_contacto_email : (foundCliente?.email || ''),
             telefono: (useContact && foundCliente?.persona_contacto_tlf) ? foundCliente.persona_contacto_tlf : (foundCliente?.tlf || ''),
             iban: foundCliente?.numero_cuenta || '',
@@ -330,9 +436,18 @@ router.get('/cliente/:id', async (req, res) => {
             // Qué versión firmó, si ya está aceptada. Puede ser ANTERIOR a la
             // vigente: se le reenvió una revisión después de aceptar.
             propuesta_version_aceptada: acceptanceEntry?.propuesta_version || null,
+            // «Perfil exigente»: el compromiso de cesión en exclusiva y la cifra de la
+            // compensación SELLADOS en la versión que tiene delante (utils/importesPropuesta.js).
+            // Una propuesta enviada antes de activarlo no los lleva: se acepta lo que se envió.
+            condiciones_reforzadas: vProp?.importes?.reforzadas
+                ? { ...vProp.importes.reforzadas, tarifa: 702.78 } : null,
             // El cliente aportó un CEE inicial → la firma ofrecerá elegir usarlo o hacer uno nuevo.
             cee_aportado: !!(opp.datos_calculo?.cee_previo || opp.datos_calculo?.inputs?.cee_previo),
             cee_decision: opp.datos_calculo?.cee_decision || null,
+            // ¿Se le pregunta por el BONO SOCIAL al aceptar? Por la ficha: null en el
+            // terciario, 'anexo' en RES080 (solo cuál), 'fm' en RES060/RES093 (también
+            // si es familia numerosa, por la -S). La página lo quita con un CIF.
+            bono_social_pregunta: await preguntaBonoDeOportunidad(opp),
         });
 
     } catch (e) {
@@ -389,6 +504,8 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
             numero_cuenta: formFields.iban || null,
             prescriptor_id: opp.prescriptor_id // Mantenemos el partner asociado a la oportunidad
         };
+        // Empresa: sin apellidos y con su representante legal (camposEmpresaAceptacion).
+        Object.assign(clienteData, camposEmpresaAceptacion(formFields, (await loadConfirmacion()).esNifDeEmpresa));
 
         // 1. Resolver si debemos actualizar datos principales o de contacto
         if (id_cliente) {
@@ -414,6 +531,16 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
             clienteData.tlf = formFields.telefono;
         }
 
+
+        // «Perfil exigente»: sin la casilla del compromiso se para AQUÍ, antes de
+        // tocar la ficha del cliente (más abajo se sella; ver `reforzadasVigentes`).
+        {
+            const vig = require('../services/propuestaVersiones').vigente(opp.datos_calculo);
+            if (vig?.importes?.reforzadas && (opp.datos_calculo?.estado || 'BORRADOR') !== 'ACEPTADA'
+                && formFields.compromiso_exclusiva !== 'si') {
+                return res.status(400).json({ error: 'Falta marcar la casilla del compromiso de cesión en exclusiva.' });
+            }
+        }
 
         // 1. Si no hay id_cliente en la oportunidad, buscamos si ya existe alguien con este DNI
         if (!id_cliente && clienteData.dni) {
@@ -527,6 +654,16 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
         const condicionesVersion = /^[\w.-]{1,20}$/.test(String(formFields.condiciones_version || ''))
             ? String(formFields.condiciones_version) : null;
 
+        // «Perfil exigente»: si la versión vigente selló las condiciones reforzadas,
+        // la casilla del compromiso es OBLIGATORIA (se comprueba arriba, antes de
+        // tocar el cliente) y se sella con la cifra que se aceptó. El inicio
+        // anticipado (art. 108.3 TRLGDCU) es opcional. Solo en la PRIMERA
+        // aceptación: editar los datos de una ya aceptada no lo vuelve a pedir.
+        const reforzadasVigentes = vAceptada ? (propuestaVersiones.vigente(opp.datos_calculo)?.importes?.reforzadas || null) : null;
+        const selloReforzadas = reforzadasVigentes && formFields.compromiso_exclusiva === 'si'
+            ? { compromiso_exclusiva: { ...reforzadasVigentes, aceptado: true }, inicio_anticipado: formFields.inicio_anticipado === 'si' }
+            : {};
+
         // Lo que el cliente CONFIRMA de su vivienda (cómo le llega el calor y si
         // tiene placas). Se guarda en la oportunidad y `createExpediente` lo
         // hereda: las placas se aplican, el emisor se AVISA si no casa con la
@@ -534,7 +671,10 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
         // tumbar la aceptación.
         let confirmacion = null;
         try {
-            confirmacion = await confirmacionDeLaAceptacion(formFields.confirmacion, opp.datos_calculo);
+            confirmacion = await confirmacionDeLaAceptacion(formFields.confirmacion, opp.datos_calculo, {
+                programa: require('../utils/fichas').detectPrograma({}, opp),
+                nif: formFields.dni_cif,
+            });
         } catch (e) {
             console.warn('[Public] confirmación de la vivienda:', e.message);
         }
@@ -550,6 +690,7 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
                 usuario: `Firma Cliente (${clienteNombre})`,
                 ...(vAceptada ? { propuesta_version: vAceptada } : {}),
                 ...(condicionesVersion ? { condiciones_version: condicionesVersion } : {}),
+                ...selloReforzadas,
                 ...(ceeDecision ? { cee_decision: ceeDecision } : {})
             }];
 
@@ -770,8 +911,18 @@ ${bloqueDocs(true)}
                 let viviendaStr = '';
                 if (confirmacion) {
                     try {
-                        const { resumenConfirmacion } = await loadConfirmacion();
+                        const { resumenConfirmacion, etiquetaBonoSocial, vulnerableFmDeBono, preguntaBonoSocial, PREGUNTA_BONO } = await loadConfirmacion();
                         const lineas = resumenConfirmacion(confirmacion);
+                        // El bono social, solo en este aviso al staff (no viaja al
+                        // certificador): lo declarado y, en RES060/RES093 (las que
+                        // tienen la -S), si marca el vulnerable de la vía FM.
+                        const bono = etiquetaBonoSocial(confirmacion.bono_social);
+                        if (bono) {
+                            const conS = preguntaBonoSocial(require('../utils/fichas').detectPrograma({}, opp)) === PREGUNTA_BONO.FM;
+                            const v = vulnerableFmDeBono(confirmacion.bono_social);
+                            lineas.push({ tema: 'Bono social', valor: bono,
+                                aviso: !conS ? null : v.vulnerable ? 'Consumidor vulnerable de la vía FM (× 1,5): queda marcado en la pestaña «Vía FM».' : v.pendiente });
+                        }
                         if (lineas.length) {
                             viviendaStr = '\n\n🏠 *Confirmado por el cliente:*\n' + lineas
                                 .map(l => `• ${l.tema}: *${l.valor}*${l.aviso ? `\n  ⚠️ ${l.aviso}` : ''}`)
@@ -841,6 +992,10 @@ router.patch('/datos/:id', async (req, res) => {
         if (apellidos !== undefined) updates.apellidos = apellidos;
         if (dni_cif !== undefined) updates.dni = dni_cif;
         if (iban !== undefined) updates.numero_cuenta = iban || null;
+        // Empresa: sin apellidos y con su representante legal.
+        if (dni_cif !== undefined || req.body.es_empresa !== undefined) {
+            Object.assign(updates, camposEmpresaAceptacion(req.body, (await loadConfirmacion()).esNifDeEmpresa));
+        }
 
         // Distinguir entre actualizar titular o contacto alternativo
         const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner, copropietarios, aceptacion_varios_propietarios').eq('id_cliente', opp.cliente_id).single();
@@ -1492,7 +1647,9 @@ router.post('/cee-prerevision/:expedienteId', async (req, res) => {
 
 // POST /api/public/cee-upload/:expedienteId/:slot?token=&phase= → sube 1 fichero
 // La subida (y el hito del REGISTRO) vive en `services/cee/subidaCeePublica.js`:
-// la comparte con el enlace de quien PRESENTA el certificado.
+// la comparte con el enlace de quien PRESENTA el certificado. Con el XML, el
+// servidor hace además el PDF oficial (`pdfDelXml`); si el XML no valida, 422 con
+// sus `motivos` y no se guarda.
 router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res) => {
     try {
         const { expedienteId, slot } = req.params;
@@ -1503,11 +1660,11 @@ router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res
         }
         const { subirCae } = require('../services/cee/subidaCeePublica');
         res.json(await subirCae({
-            expedienteId, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype,
+            expedienteId, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype, pdfDelXml: true,
         }));
     } catch (e) {
         console.error('[cee-upload POST]', e.message);
-        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo' });
+        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo', ...(e.motivos ? { codigo: e.codigo, motivos: e.motivos } : {}) });
     }
 });
 
@@ -2012,11 +2169,11 @@ router.post('/cee-directo-upload/:id/:slot', uploadDocsSingle, async (req, res) 
         }
         const { subirCeeDirecto } = require('../services/cee/subidaCeePublica');
         res.json(await subirCeeDirecto({
-            id, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype,
+            id, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype, pdfDelXml: true,
         }));
     } catch (e) {
         console.error('[cee-directo-upload POST]', e.message);
-        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo' });
+        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo', ...(e.motivos ? { codigo: e.codigo, motivos: e.motivos } : {}) });
     }
 });
 
@@ -2556,6 +2713,12 @@ router.get('/instalador/:expedienteId', async (req, res) => {
             memoria_subida: est.rite.memoriaRecibida,
             certificado_subido: est.rite.certificadoRecibido,
         });
+        // Vía FM: la declaración responsable de la TIPOLOGÍA (punto 1), si su ficha
+        // la pide y ya está generada. Se firma aquí mismo, como el CIFO.
+        try {
+            const fm = await fmParaFirmar(expedienteId, 'instalador');
+            for (const d of fm.docs) tareas.push({ key: 'fm_decl', genera: d.genera, hecho: d.firmado, titulo: d.label });
+        } catch (e) { console.warn('[instalador info] vía FM:', e.message); }
 
         // Dónde está la obra. Va aquí solo para que el instalador reconozca de qué
         // expediente le hablamos: la dirección de la INSTALACIÓN no es el domicilio
@@ -2578,6 +2741,94 @@ router.get('/instalador/:expedienteId', async (req, res) => {
     } catch (e) {
         console.error('[instalador] Error:', e);
         res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// ─── CONSEJO DE FACTURA: la página «Copiar el concepto» (Fran, 11/11/2026) ────
+// GET /api/public/consejo-factura/:expedienteId?token=…
+// El texto recomendado para la factura del instalador, con un botón para copiarlo.
+// Sale del MISMO sitio que el WhatsApp y el email (utils/consejoFactura.js). Lleva
+// el NIF del titular, así que no basta el UUID: se exige el `upload_token` de la
+// oportunidad, el mismo del enlace de subida que ya tiene el instalador (/subir-docs).
+// 403 sin token o con otro; 404 si no existe o es un RES080 (no hay consejo).
+router.get('/consejo-factura/:expedienteId', async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+        const token = String(req.query.token || '');
+        if (!token) return res.status(403).json({ error: 'Enlace no válido' });
+        if (!/^[0-9a-f-]{36}$/i.test(expedienteId)) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const cf = require('../utils/consejoFactura');
+        const r = await cf.cargarConsejoFactura(expedienteId);
+        if (!r) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!r.token || r.token !== token) return res.status(403).json({ error: 'Enlace no válido' });
+        if (!r.consejo) return res.status(404).json({ error: 'Esta obra no necesita texto recomendado para la factura' });
+        res.json({
+            numero_expediente: r.consejo.numero_expediente,
+            consejo: r.consejo,
+            copiar: r.copiar,
+            motivo: r.decision.motivo,
+            correcciones: cf.correccionesPorFactura(r.decision, r.consejo),
+        });
+    } catch (e) {
+        console.error('[consejo-factura] Error:', e);
+        // BD caída: 503, nunca una página vacía con pinta de buena (regla 38).
+        res.status(503).json({ error: 'No hemos podido cargar el texto. Inténtalo en un momento.' });
+    }
+});
+
+// ─── Vía FM: la DECLARACIÓN DE LA TIPOLOGÍA que firma el instalador ──────────
+// GET  /api/public/instalador/:id/fm-declaracion/pdf → { pdf } (base64), para firmar
+// POST /api/public/instalador/:id/fm-declaracion     → el firmado (campo `documento`)
+// El id del expediente (UUID) es el secreto del enlace, como /cifo-upload. Solo se
+// sirve y se acepta si la ficha FM del expediente lo pide y el borrador existe.
+router.get('/instalador/:expedienteId/fm-declaracion/pdf', async (req, res) => {
+    try {
+        const fm = await fmParaFirmar(req.params.expedienteId, 'instalador');
+        const d = fm.docs[0];
+        const fid = d?.drive_id || (String(d?.drive_link || '').match(/[-\w]{25,}/) || [])[0];
+        if (!fid) return res.status(404).json({ error: 'Este expediente no tiene una declaración preparada para firmar' });
+        const buf = await driveService.getFileContent(fid);
+        if (!buf || !buf.length) return res.status(502).json({ error: 'No se pudo descargar el documento' });
+        res.json({ pdf: Buffer.from(buf).toString('base64'), nombre: `${fm.exp.numero_expediente} - ${d.fichero}.pdf` });
+    } catch (e) {
+        console.error('[instalador fm-declaracion/pdf] Error:', e.message);
+        res.status(e.status || 500).json({ error: 'Error interno al obtener el documento' });
+    }
+});
+
+router.post('/instalador/:expedienteId/fm-declaracion', upload.single('documento'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+        const fm = await fmParaFirmar(req.params.expedienteId, 'instalador');
+        const d = fm.docs[0];
+        if (!d || !fm.op) return res.status(404).json({ error: 'Este expediente no tiene una declaración preparada para firmar' });
+        const buffer = req.file.mimetype === 'application/pdf' ? req.file.buffer
+            : (req.file.mimetype || '').startsWith('image/') ? await imageToPdf(req.file.buffer, req.file.mimetype) : req.file.buffer;
+        const { subida } = await guardarFirmadoFm({ exp: fm.exp, op: fm.op, doc: d, buffer, subidoPor: 'instalador' });
+        res.json({ success: true });
+
+        setImmediate(async () => {
+            const numexpte = fm.exp.numero_expediente;
+            const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
+            const msg = `✅ *Declaración de la tipología firmada*\nExpediente: *${numexpte}* (vía FM)\nLa ha subido el instalador desde su enlace. Está en su apartado del gestor (FM 1).`;
+            try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) { console.error('[fm-declaracion] WA notify:', e.message); }
+            try {
+                await emailService.sendDocumentEmail({
+                    to: process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com',
+                    subject: `✅ Declaración de la tipología firmada — ${numexpte}`,
+                    title: 'Declaración del instalador firmada',
+                    message: `El instalador ha firmado la *declaración responsable de la tipología* (punto 1 de la ficha FM) del expediente *${numexpte}*.\n\nQueda pendiente de revisión por vuestra parte.`,
+                    primaryLink: subida?.link || null,
+                    primaryLabel: '📄 Ver documento en Drive',
+                    secondaryLink: `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${fm.exp.id}`,
+                    secondaryLabel: '📂 Abrir expediente en la app',
+                    pill: { tone: 'success', text: 'Declaración firmada', emoji: '✅' },
+                });
+            } catch (e) { console.error('[fm-declaracion] Email notify:', e.message); }
+        });
+    } catch (e) {
+        console.error('[instalador fm-declaracion] Error:', e);
+        res.status(e.status || 500).json({ error: 'Error al procesar la subida', message: e.message });
     }
 });
 
@@ -2845,6 +3096,112 @@ router.get('/r/:codigo', async (req, res) => {
     }
 });
 
+// ─── AUTOFACTURA de una EMPRESA — /factura-ahorro/:expedienteId?token= ──────────
+// La empresa acepta el ACUERDO de facturación por el destinatario (art. 5 RD
+// 1619/2012), se le EXPIDE la factura en ese momento y la ACEPTA o dice qué está
+// mal (services/facturaVentaAhorro.js). Mismo token que el formulario de cobro,
+// comparado en tiempo constante.
+async function expedienteVenta(req, res) {
+    const exp = await cobroService.cargarExpediente(req.params.expedienteId);
+    if (!exp) { res.status(404).json({ error: 'Expediente no encontrado' }); return null; }
+    const guardado = exp.documentacion?.cobro?.token;
+    if (!guardado || !cobroService.tokenValido(guardado, req.query.token || req.body?.token)) {
+        res.status(403).json({ error: 'Enlace no válido o caducado' });
+        return null;
+    }
+    return exp;
+}
+const ipDe = (req) => String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || null;
+
+router.get('/factura-ahorro/:expedienteId', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const v = await require('../services/facturaVentaAhorro').vistaPublica(exp);
+        if (!v) return res.status(409).json({ error: 'Esta factura no está preparada para aceptarse aquí. Escríbenos y lo vemos.' });
+        res.json(v);
+    } catch (e) {
+        console.error('[factura-ahorro GET]', e.message);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+router.get('/factura-ahorro/:expedienteId/pdf', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        if (!(await fv.vistaPublica(exp))) return res.status(409).json({ error: 'No hay factura' });
+        const { buffer, filename } = await fv.pdfDe(exp);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        res.send(buffer);
+    } catch (e) {
+        console.error('[factura-ahorro PDF]', e.message);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+// Body: { token, nombre, dni } — acepta el acuerdo y se expide la factura.
+router.post('/factura-ahorro/:expedienteId/acuerdo', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        await fv.aceptarAcuerdo(exp, { nombre: req.body?.nombre, dni: req.body?.dni, ip: ipDe(req), ua: req.headers['user-agent'] });
+        res.json(await fv.vistaPublica(await cobroService.cargarExpediente(exp.id)));
+    } catch (e) {
+        console.error('[factura-ahorro acuerdo]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error del servidor' });
+    }
+});
+
+// Body: { token, modo: 'autofactura'|'cliente' } — elige (o cambia) quién hace la
+// factura, mientras no haya nada expedido ni recibido.
+router.post('/factura-ahorro/:expedienteId/elegir', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        await fv.elegir(exp, { modo: req.body?.modo, origen: 'pagina' });
+        res.json(await fv.vistaPublica(await cobroService.cargarExpediente(exp.id)));
+    } catch (e) {
+        console.error('[factura-ahorro elegir]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error del servidor' });
+    }
+});
+
+// multipart: factura (PDF), numero, total — SU factura (camino «la emito yo»).
+router.post('/factura-ahorro/:expedienteId/subir', upload.single('factura'), async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        await fv.subirFacturaCliente(exp, {
+            buffer: req.file?.buffer, mimetype: req.file?.mimetype, nombreFichero: req.file?.originalname,
+            numero: req.body?.numero, total: req.body?.total, ip: ipDe(req),
+        });
+        res.json(await fv.vistaPublica(await cobroService.cargarExpediente(exp.id)));
+    } catch (e) {
+        console.error('[factura-ahorro subir]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error del servidor' });
+    }
+});
+
+// Body: { token, accion: 'aceptar'|'rechazar', nombre, dni, motivo }
+router.post('/factura-ahorro/:expedienteId/responder', async (req, res) => {
+    try {
+        const exp = await expedienteVenta(req, res);
+        if (!exp) return;
+        const fv = require('../services/facturaVentaAhorro');
+        await fv.responderFactura(exp, { accion: req.body?.accion, nombre: req.body?.nombre, dni: req.body?.dni, motivo: req.body?.motivo, ip: ipDe(req) });
+        res.json(await fv.vistaPublica(await cobroService.cargarExpediente(exp.id)));
+    } catch (e) {
+        console.error('[factura-ahorro responder]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error del servidor' });
+    }
+});
+
 // ─── ¿Le ha LLEGADO el ingreso? — /cobro/:expedienteId/recibido?token= ─────────
 // La página del recordatorio que sale a los 2 días hábiles de la carta de pago:
 // confirma el ingreso, pide la reseña y da su documentación (recepcionCobroService).
@@ -2994,6 +3351,14 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
             } catch (e) { console.warn('[cobro POST] fotovoltaica:', e.message); }
         }
 
+        // Una EMPRESA: lo que eligió para la factura de venta (regla 194), ANTES de
+        // responder, para que su página ya lo encuentre al pulsar el botón.
+        if (exp.clientes?.es_empresa && respuestas.factura_venta) {
+            try {
+                await require('../services/facturaVentaAhorro').elegir(exp, { modo: respuestas.factura_venta, origen: 'formulario' });
+            } catch (e) { console.warn('[cobro POST] factura venta:', e.message); }
+        }
+
         res.json({ ok: true, iban_cambiado: ibanCambiado });
 
         // 3. Fondo: justificante a Drive + aviso al staff. No bloquea al cliente.
@@ -3058,6 +3423,9 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                     // Lo segundo que hay que hacer antes de transferir: la factura se
                     // emite y se cobra ANTES, o se acaba ingresando el bono entero.
                     forma_pago ? `\n${forma_pago.tono === 'aviso' ? '🧾' : '✂️'} *${forma_pago.texto}*` : '',
+                    // Una EMPRESA: cómo se hace su factura de venta (sin ella no entra en la remesa).
+                    respuestas.factura_venta === 'autofactura' ? '\n✍️ *Factura de venta: AUTOFACTURA.* Falta que acepte el acuerdo y la factura en su enlace.'
+                        : respuestas.factura_venta === 'cliente' ? '\n🧾 *Factura de venta: LA EMITE ÉL.* Falta que la suba en su enlace.' : '',
                     '',
                     lineas.length ? `Respuestas: ${lineas.join(' · ')}` : 'Sin respuestas de venta cruzada.',
                     leads.length ? `\n🎯 *Interesado en:* ${leads.map(l => l.texto).join(' · ')}` : '',
@@ -3078,6 +3446,14 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                     } catch (e) {}
                 }
             } catch (e) { console.error('[cobro POST] aviso:', e.message); }
+
+            // Empresa: con FACTURA_VENTA_ENVIO_AUTO=true le llega por WhatsApp y email
+            // lo suyo (el enlace de la autofactura, o los datos y el modelo).
+            if (exp.clientes?.es_empresa && respuestas.factura_venta) {
+                try {
+                    await require('../services/facturaVentaAhorro').alConfirmarCobro(await cobroService.cargarExpediente(exp.id), { avisar: false });
+                } catch (e) { console.warn('[cobro POST] factura venta envío:', e.message); }
+            }
         });
     } catch (e) {
         console.error('[cobro POST]', e.message);
@@ -3119,10 +3495,19 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
         const refirmaI = refirmaPendiente(doc, 'anexo_i');
         const refirmaC = refirmaPendiente(doc, 'anexo_cesion');
         const req0 = doc.requerimiento_firma || null;
+        // Vía FM: el «Anexo I» es el ANEXO A, y los documentos generados que firma
+        // el cliente (informado F/G, oferta de mantenimiento, Anexo B) van aquí.
+        let fmDocs = [];
+        try {
+            fmDocs = (await fmParaFirmar(expedienteId, 'cliente')).docs
+                .map(d => ({ key: d.genera, label: d.label, corto: d.corto, firmado: d.firmado }));
+        } catch (e) { console.warn('[anexos-upload info] vía FM:', e.message); }
         res.json({
             numero_expediente: exp.numero_expediente,
             cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
             cedentes,
+            anexo_a: require('../utils/fichas').esNumeroFm(exp.numero_expediente),
+            fm_docs: fmDocs,
             // qué documentos se enviaron / esperamos de vuelta
             anexo_i_pedido: !!(doc.anexo_i_drive_link || doc.anexo_i_sent_at),
             anexo_cesion_pedido: !!(doc.anexo_cesion_drive_link || doc.anexo_cesion_sent_at),
@@ -3633,6 +4018,8 @@ router.post('/anexos-upload/:expedienteId',
             { name: `dni_trasero_${i}`, maxCount: 1 },
             { name: `dni_pdf_${i}`, maxCount: 1 },
         ]),
+        // Vía FM: los documentos generados que firma el cliente (fm_informado_fg…).
+        ...CAMPOS_FM_CLIENTE.map(k => ({ name: `fm_${k}`, maxCount: 1 })),
     ]),
     async (req, res) => {
         try {
@@ -3655,8 +4042,11 @@ router.post('/anexos-upload/:expedienteId',
                 trasero: req.files?.[`dni_trasero_${i}`]?.[0] || null,
                 pdf: req.files?.[`dni_pdf_${i}`]?.[0] || null,
             })).filter(d => d.frontal || d.trasero || d.pdf);
+            const fmFiles = CAMPOS_FM_CLIENTE
+                .map(k => ({ genera: k, file: req.files?.[`fm_${k}`]?.[0] || null }))
+                .filter(x => x.file);
 
-            if (!anexoIFile && !cesionFile && !dniFrontFile && !dniBackFile && !dniPdfFile) {
+            if (!anexoIFile && !cesionFile && !dniFrontFile && !dniBackFile && !dniPdfFile && !fmFiles.length) {
                 return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
             }
             // Si la Cesión es manuscrita, necesitamos el DNI para anexarlo: las dos
@@ -3719,13 +4109,31 @@ router.post('/anexos-upload/:expedienteId',
             const recibido = [];
             const camposSubidos = [];
 
-            // Anexo I firmado
+            // Anexo I firmado (en la vía FM, el ANEXO A: mismo hueco, otro nombre)
+            const esFm = require('../utils/fichas').esNumeroFm(numexpte);
             if (anexoIFile) {
                 const buf = await toPdfBuffer(anexoIFile);
-                const r = await saveReplacing(`${numexpte} - Anexo I_fdo.pdf`, buf);
+                const r = await saveReplacing(`${numexpte} - ${esFm ? 'Anexo A' : 'Anexo I'}_fdo.pdf`, buf);
                 if (r?.link) {
-                    docUpdate.anexo_i_signed_link = r.link; camposSubidos.push('anexo_i_signed_link'); recibido.push('Anexo I firmado');
+                    docUpdate.anexo_i_signed_link = r.link; camposSubidos.push('anexo_i_signed_link'); recibido.push(`${esFm ? 'Anexo A' : 'Anexo I'} firmado`);
                     if (firmaOrigen) docUpdate.anexo_i_firma_origen = firmaOrigen;
+                }
+            }
+
+            // Vía FM: informado F/G, oferta de mantenimiento, Anexo B. Van a su
+            // apartado del gestor; el sello, en la copia que se guarda al final
+            // (esta ruta reescribe `documentacion` entera: un RPC aparte se perdería).
+            if (fmFiles.length) {
+                const fm = await fmParaFirmar(expedienteId, 'cliente');
+                for (const { genera, file } of fmFiles) {
+                    const d = fm.docs.find(x => x.genera === genera);
+                    if (!d || !fm.op) { console.warn(`[anexos-upload] ${genera}: no se le ha pedido`); continue; }
+                    const { entrada } = await guardarFirmadoFm({
+                        exp: { ...fm.exp, fm_docs: docUpdate.fm_docs || fm.exp.fm_docs }, op: fm.op, doc: d,
+                        buffer: await toPdfBuffer(file), subidoPor: 'cliente', sellar: false,
+                    });
+                    docUpdate.fm_docs = { ...(docUpdate.fm_docs || {}), [genera]: { ...entrada, ...(firmaOrigen ? { firma_origen: firmaOrigen } : {}) } };
+                    recibido.push(`${d.corto} firmado`);
                 }
             }
 
@@ -3890,6 +4298,19 @@ router.get('/anexos-upload/:expedienteId/descargar/:doc', async (req, res) => {
             .maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         const d = exp.documentacion || {};
+        // Vía FM: un documento generado que firma el cliente (solo si su ficha lo
+        // pide y el borrador existe: `fmParaFirmar`).
+        if (CAMPOS_FM_CLIENTE.includes(doc)) {
+            const fm = await fmParaFirmar(expedienteId, 'cliente');
+            const f = fm.docs.find(x => x.genera === doc);
+            const fid = f?.drive_id || (String(f?.drive_link || '').match(/[-\w]{25,}/) || [])[0];
+            if (!fid) return res.status(404).json({ error: 'Documento no disponible' });
+            const buf = await require('../services/driveService').getFileContent(fid);
+            if (!buf || !buf.length) return res.status(404).json({ error: 'No se pudo obtener el documento' });
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="${exp.numero_expediente} - ${f.fichero}.pdf"`);
+            return res.send(buf);
+        }
         const link = doc === 'anexo_i' ? d.anexo_i_drive_link : doc === 'cesion' ? d.anexo_cesion_drive_link : null;
         if (!link) return res.status(404).json({ error: 'Documento no disponible' });
         // Anexo rechazado y todavía sin corregir: no se sirve. La página ya no lo
@@ -3907,7 +4328,8 @@ router.get('/anexos-upload/:expedienteId/descargar/:doc', async (req, res) => {
         const { getFileContent } = require('../services/driveService');
         const buf = await getFileContent(fileId);
         if (!buf || !buf.length) return res.status(404).json({ error: 'No se pudo obtener el documento' });
-        const fname = doc === 'anexo_i' ? `${exp.numero_expediente} - Anexo I.pdf` : `${exp.numero_expediente} - Anexo Cesion.pdf`;
+        const anexoI = require('../utils/fichas').esNumeroFm(exp.numero_expediente) ? 'Anexo A' : 'Anexo I';
+        const fname = doc === 'anexo_i' ? `${exp.numero_expediente} - ${anexoI}.pdf` : `${exp.numero_expediente} - Anexo Cesion.pdf`;
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
         res.send(buf);
@@ -3932,6 +4354,25 @@ function driveFileIdFrom(entry) {
     const m = String(entry?.draft_link || '').match(/[-\w]{25,}/);
     return m ? m[0] : null;
 }
+
+// ─── La «Vista S.O.» para el propio Sujeto Obligado — /so/:token (03/11/2026) ───
+// Solo lectura y calculada en el momento: su obligación y cómo van nuestros lotes.
+// El token (128 bits) lo crea el ADMIN desde la Vista S.O. y es todo el acceso; lo
+// que sale lo recorta `vistaParaElSo` (sin clientes, ni importes nuestros, ni el
+// detalle de lo que no está en un lote). Ver docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md.
+router.get('/so/:token', async (req, res) => {
+    try {
+        const obligacionSo = require('../services/obligacionSo');
+        const soId = await obligacionSo.soDelToken(req.params.token);
+        if (!soId) return res.status(404).json({ error: 'Enlace no válido o retirado' });
+        const { vistaDeSo } = require('./lotes');
+        res.set('Cache-Control', 'no-store');
+        res.json(await vistaDeSo(soId, req.query.anio, { conDisponible: true }));
+    } catch (err) {
+        console.error('[GET /public/so]', err.message);
+        res.status(err.status === 404 ? 404 : 503).json({ error: err.status === 404 ? 'Enlace no válido o retirado' : 'No se ha podido calcular ahora mismo' });
+    }
+});
 
 // GET estado de firma del lote (documentos + flags de disponible/firmado).
 router.get('/lote-firma/:loteId', async (req, res) => {

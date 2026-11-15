@@ -131,3 +131,38 @@ sección anterior y el que hay que repetir si vuelve a romperse.
 ```bash
 node implementation/backend/scripts/test_adjunto_whatsapp.mjs
 ```
+
+### Y sin id, el ACK se saltaba callado (2026-11-05)
+
+**Caso**: los dos primeros WhatsApp a José Ángel Rivero y Vicente Serrano, clientes
+que pasó Pedro Cruz (Inst. Almagro), en dos chats NUEVOS. El texto salió por la cola
+(`whatsapp_queue` en SENT) y el vídeo por `send-media`, que respondió
+`{ ok: true, id: null }`. Los dos estaban en el chat, pero **ninguno tenía el ACK
+comprobado**: `confirmarEntrega()` empezaba con `if (!msgId) return null`, y la cola
+marcaba SENT igual.
+
+**Por qué no hay id**: `whatsapp-web.js` 1.34.7 cierra el envío con
+`Msg.get(newMsgKey._serialized)` y `Client.sendMessage` devuelve `undefined` si ahí no
+hay nada. El mensaje sale, pero ya no está bajo la clave con que se creó (en estos
+dos casos eran chats sin escribir, que viven bajo su `@lid`). La causa exacta dentro
+de WhatsApp Web no se ha medido: el log nuevo lo dirá en el próximo envío.
+
+**REGLA — sin id se BUSCA el mensaje; si no aparece, se DICE.** `confirmarEntrega(sent,
+etiqueta, busqueda)` recibe en cada envío `{ chatId, desde, tipo, texto|pie }` y, si
+`sendMessage` no dio id, busca en la colección `Msg` de la página el más reciente
+que es nuestro (`fromMe`), es de ese chat (por su número o su `@lid`), es de este
+envío (`t >= desde`, con 5 s de margen) y lleva ese cuerpo o ese pie. Con él espera
+el ACK como siempre; sin él, un `warn` («NO se ha podido comprobar el ACK»).
+No se da por fallido: un falso negativo duplicaría el mensaje al cliente.
+Ahora `sendMedia` devuelve también `ack` (`null` = no comprobado) y el id encontrado.
+
+| Qué | Dónde |
+|---|---|
+| Elegir el mensaje (puro; viaja a la página por su código fuente, como `soloDatosDelAdjunto`) | [utils/enviadoWhatsapp.js](implementation/backend/utils/enviadoWhatsapp.js) |
+| Buscarlo en la página y esperar el ACK | `idDelEnviado` y `confirmarEntrega` en [whatsappService.js](implementation/backend/services/whatsappService.js): cola, texto previo, adjunto y textos de después |
+
+Va por `Msg`, como el resto de `confirmarEntrega`: nada de `getChatById` (regla 39).
+
+```bash
+node implementation/backend/scripts/test_enviado_whatsapp.js
+```

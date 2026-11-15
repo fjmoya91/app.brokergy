@@ -58,22 +58,42 @@ function importesDeRama(f = {}) {
     };
 }
 
+// CONDICIONES REFORZADAS: la MISMA cuenta que `penalizacionReforzada` de
+// frontend `logic/cifrasPropuesta.js` (el 40 % del bono que imprime el PDF, con la
+// tarifa de 702,78 € como mínimo). Se repite porque esto es CommonJS;
+// test_importes_propuesta.js compara las dos.
+const TARIFA_TOTAL = 702.78;
+const PENALIZACION_REFORZADA_PCT = 40;
+function penalizacionReforzada(caeBonus) {
+    return Math.max(TARIFA_TOTAL, Math.round((num(caeBonus) || 0) * PENALIZACION_REFORZADA_PCT / 100));
+}
+
 /** `inputs` y `result` de la calculadora → importes de la versión. */
 function importesDe(result, inputs) {
     const f60 = result?.financials || {};
     const f80 = result?.financialsRes080 || null;
     const conReforma = !!inputs?.isReforma && f80?.caeBonus != null;
     const soloReforma = conReforma && inputs?.comparativaReforma === false;
+    const principal = importesDeRama(soloReforma ? f80 : f60);
+    const reforma = conReforma && !soloReforma ? importesDeRama(f80) : null;
+    // Lo que el cliente acepta al firmar sale de AQUÍ (GET /public/cliente lee la
+    // versión vigente): se sella la cifra impresa, no se recalcula al aceptar.
+    const reforzadas = inputs?.condicionesReforzadas === true ? {
+        pct: PENALIZACION_REFORZADA_PCT,
+        penalizacion: penalizacionReforzada(principal.caeBonus),
+        ...(reforma ? { penalizacion_reforma: penalizacionReforzada(reforma.caeBonus) } : {}),
+    } : null;
     return {
-        ...importesDeRama(soloReforma ? f80 : f60),
+        ...principal,
         rama: soloReforma ? 'reforma' : (conReforma ? 'comparativa' : 'aerotermia'),
-        ...(conReforma && !soloReforma ? { reforma: importesDeRama(f80) } : {}),
+        ...(reforma ? { reforma } : {}),
+        ...(reforzadas ? { reforzadas } : {}),
     };
 }
 
 // { aerotermia, reforma } con los importes de cada opción que la versión ofrece.
 function opciones(imp) {
-    const { rama, reforma, ...principal } = imp;
+    const { rama, reforma, reforzadas, ...principal } = imp;
     if (rama === 'reforma') return { reforma: principal };
     if (rama === 'comparativa') return { aerotermia: principal, reforma: reforma || null };
     return { aerotermia: principal };
@@ -109,4 +129,4 @@ function describirCambios(anterior, actual) {
     return difs.length ? difs.join('; ') : 'sin cambios en los importes';
 }
 
-module.exports = { IMPORTES, importesDe, importesDeRama, describirCambios };
+module.exports = { IMPORTES, importesDe, importesDeRama, describirCambios, penalizacionReforzada, PENALIZACION_REFORZADA_PCT };

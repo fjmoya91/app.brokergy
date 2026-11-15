@@ -21,16 +21,18 @@ export function IconCard({ icon, title, subtitle, selected, onClick, badge, disa
                     : 'border-white/10 bg-white/[0.03] hover:border-amber-400/40 hover:bg-white/[0.05]'
             }`}
         >
-            {badge && (
-                <span className="absolute top-3 right-3 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                    {badge}
-                </span>
-            )}
             <div className="flex items-center gap-4">
                 <div className={`flex-shrink-0 text-5xl md:text-6xl transition-transform group-hover:scale-110 ${selected ? 'scale-110' : ''}`}>
                     {icon}
                 </div>
                 <div className="flex-1 min-w-0">
+                    {/* La etiqueta va ENCIMA del título, no en la esquina: en la esquina
+                        pisaba los títulos largos ("Reforma integral: aerotermia +…"). */}
+                    {badge && (
+                        <span className="inline-block mb-1.5 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                            {badge}
+                        </span>
+                    )}
                     <div className={`font-bold text-base md:text-lg leading-tight ${selected ? 'text-amber-300' : 'text-white'}`}>
                         {title}
                     </div>

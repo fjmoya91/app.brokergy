@@ -175,9 +175,13 @@ export function EnviarApiVerificadorModal({ lote, payloadOpts, solicitudHtml = n
                     `Nº de solicitud: ${result.num_solicitud || '—'}`,
                     // Decir si el PDF quedó archivado es lo que evita el paso manual
                     // de "descargar y volver a subir": si no lo dice, se hace igual.
+                    // Desde la API v1.6.0 se trae la del propio beCAE, que es la que
+                    // vale para el S.O.; si no se pudo, queda la de la app (que NO vale).
                     result.solicitud_archivada?.archivada
-                        ? 'Solicitud archivada en el paso 1 del lote'
-                        : `La solicitud NO se archivó en el lote${result.solicitud_archivada?.motivo ? ` (${result.solicitud_archivada.motivo})` : ''} — súbela a mano en el paso 1`,
+                        ? (result.solicitud_archivada.documento?.origen === 'descargada del verificador'
+                            ? 'Solicitud de beCAE guardada en el paso 1: lista para que la firme el S.O.'
+                            : { texto: 'Archivada la solicitud de la app: trae la de beCAE con «Traer la solicitud de beCAE» antes de mandarla al S.O.', tono: 'aviso' })
+                        : { texto: `La solicitud NO se archivó en el lote${result.solicitud_archivada?.motivo ? ` (${result.solicitud_archivada.motivo})` : ''} — tráela de beCAE desde el lote`, tono: 'aviso' },
                 ] : []}
                 errorText={sendError}
                 onClose={() => { if (sendOk) { onClose(); } else { setSendPhase(null); } }}

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BOILER_EFFICIENCIES, SIN_CALEFACCION_ID, esSinCalefaccion, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, climaScopForzado, scopsParaClima, zoneClimateSeason, CLIMA_SCOP } from '../../calculator/logic/calculation';
-import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
+import { BOILER_EFFICIENCIES, SIN_CALEFACCION_ID, esSinCalefaccion, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, climaScopForzado, scopsParaClima, zoneClimateSeason, CLIMA_SCOP, etaAcsExistente } from '../../calculator/logic/calculation';
+import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME, buildInstalacionAddress } from '../utils/docGenerators';
+import { direccionDelCliente } from '../logic/direccionInstalacion';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE, acsEquipoPropio, getUnidades, mismaMaquina } from '../logic/aerotermiaUnits';
 import { esConjuntoAcs, produceAcs, metodoAcsDelModelo, litrosAcsCatalogo, nodoAcsDesdeConjunto, FALTA_ACS } from '../logic/acsCatalogo';
 import { opcionDeEquipo, BUSCAR_EQUIPO } from '../logic/aerotermiaOpciones';
@@ -19,6 +20,8 @@ import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal
 import EprelAcsModal from './EprelAcsModal';
 import { SeriesRepetidasProvider, AvisoSerieRepetida, ResumenSeriesRepetidas } from './AvisoSerieRepetida';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
+import { acsExistenteDelCee, proponerTermoAcs, ACS_TERMO_ELECTRICO } from '../logic/acsExistenteCee';
+import { aplicaInerciaFm, inerciaFm } from '../logic/inerciaFm';
 
 // Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
 // CIFO y el RES080), y la capa de "inicial vs finales" en logic/emisores.js. Las
@@ -2048,6 +2051,25 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         readOnly={readOnly}
                     />
 
+                    {/* Con «Sí» los documentos siguen la ficha del CLIENTE, en vivo
+                        (logic/direccionInstalacion.js): se enseña cuál, para que no
+                        haya que adivinar qué van a imprimir. */}
+                    {local.misma_direccion && (() => {
+                        const delCliente = direccionDelCliente(expediente?.clientes);
+                        const enDocs = buildInstalacionAddress({ ...expediente, instalacion: local }).full;
+                        return (
+                            <div className="pt-2 border-t border-white/5 text-[11px] leading-relaxed">
+                                <span className="text-white/40 font-bold uppercase tracking-wider text-[10px]">Dirección en los documentos</span>
+                                <div className="text-white/80 font-semibold mt-0.5">{enDocs || '—'}</div>
+                                <div className="text-white/30 mt-0.5">
+                                    {delCliente
+                                        ? 'Es la de la ficha del cliente: si la cambias allí, cambia aquí y en todos los documentos.'
+                                        : 'El cliente no tiene dirección en su ficha: se usa la del Catastro.'}
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     {!local.misma_direccion && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2 border-t border-white/5 animate-fade-in">
                             <SelectField label="CCAA" value={local.ccaa} onChange={v => setLocal(prev => ({ ...prev, ccaa: v, provincia: '', provincia_cod: '', municipio: '' }))} options={CCAA_LIST.map(c => ({ value: c, label: c }))} readOnly={readOnly} />
@@ -2305,6 +2327,34 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     )}
                 </div>
 
+                {/* ── ACS EXISTENTE según el CEE INICIAL (CAE-1991) ──
+                    Si el certificado declara el ACS con un termo eléctrico (efecto
+                    Joule), se PROPONE declararlo: el término de ACS va con η_ACS = 1,00
+                    y no con la η de la caldera. Nunca se escribe solo. Dos sistemas de
+                    ACS (termo y caldera) solo se avisan. */}
+                {(() => {
+                    const info = acsExistenteDelCee(expediente?.cee?.cee_inicial, expediente?.cee?.xml_inicial);
+                    if (!local.cambio_acs) return null;
+                    if (info.dosSistemas) return (
+                        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-200">
+                            El CEE inicial declara <b>dos sistemas de ACS</b> ({info.detalle}). Revisa cuál declarar como ACS existente: el rendimiento del ACS cambia el ahorro.
+                        </div>
+                    );
+                    if (!proponerTermoAcs(local, info)) return null;
+                    return (
+                        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-200 flex items-center gap-3 flex-wrap">
+                            <span className="flex-1 min-w-[240px]">El CEE inicial declara el ACS con un <b>termo eléctrico (efecto Joule)</b> ({info.detalle}), y aquí el ACS existente sale de la caldera. El ahorro de ACS se calcula con η<sub>ACS</sub> = 1,00, no con la η de la caldera.</span>
+                            {!readOnly && (
+                                <button
+                                    type="button"
+                                    className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-100 font-bold text-[11px] uppercase tracking-wider hover:bg-amber-500/30"
+                                    onClick={() => setLocal(p => ({ ...p, misma_caldera_acs: false, caldera_antigua_acs: { ...(p.caldera_antigua_acs || {}), ...ACS_TERMO_ELECTRICO, marca: '', modelo: '', numero_serie: '' } }))}
+                                >Declarar termo eléctrico</button>
+                            )}
+                        </div>
+                    );
+                })()}
+
                 {/* ── CALDERAS (2 cols si ACS activo) ── */}
                 <div className={`grid gap-4 ${local.cambio_acs ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
                     <CalderaSection
@@ -2321,12 +2371,27 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         }}
                     />
                     {local.cambio_acs && (
-                        <CalderaSection
-                            title="Caldera Antigua — ACS"
-                            data={local.caldera_antigua_acs}
-                            readOnly={readOnly}
-                            onChange={v => setLocal(p => ({ ...p, caldera_antigua_acs: v, misma_caldera_acs: false }))}
-                        />
+                        <div className="space-y-2">
+                            <CalderaSection
+                                title="Caldera Antigua — ACS"
+                                data={local.caldera_antigua_acs}
+                                readOnly={readOnly}
+                                onChange={v => setLocal(p => ({ ...p, caldera_antigua_acs: v, misma_caldera_acs: false }))}
+                            />
+                            {/* η_ACS: el rendimiento con el que el ACS entra en la fórmula del
+                                ahorro (CAE-1991). Con un termo eléctrico es 1,00, no la η de la
+                                caldera; lo mismo que imprimen el CIFO y la ficha. */}
+                            {(() => {
+                                const etaCal = BOILER_EFFICIENCIES.find(b => b.id === (local.caldera_antigua_cal?.rendimiento_id || 'default'))?.value || 0.92;
+                                const eta = etaAcsExistente(local, etaCal);
+                                return (
+                                    <p className="text-[11px] text-white/50 px-1">
+                                        Rendimiento del ACS existente (η<sub>ACS</sub>): <b className="text-white/80">{eta.value.toFixed(2).replace('.', ',')}</b>
+                                        {eta.propio ? ' · distinto del de la caldera de calefacción: el término de ACS se calcula con él' : ' · el mismo que la caldera de calefacción'}
+                                    </p>
+                                );
+                            })()}
+                        </div>
                     )}
                 </div>
 
@@ -2553,6 +2618,47 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         />
                     )}
                 </div>
+
+                {/* ── INERCIA HIDRÁULICA (vía FM · RES060_FM, documento 3.c) ──
+                    La ficha la pide DENTRO del certificado de la instalación, así que
+                    el CIFO la imprime en hoja propia con estos litros (logic/inerciaFm.js).
+                    El volumen específico no se teclea: sale de la potencia de la bomba. */}
+                {aplicaInerciaFm(expediente?.numero_expediente) && (() => {
+                    const fi = inerciaFm(local);
+                    const aNum = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
+                    return (
+                        <div className="rounded-2xl border border-violet-400/25 bg-violet-500/[0.04] p-4 space-y-3">
+                            <div>
+                                <p className="text-[11px] font-black uppercase tracking-widest text-violet-300">Inercia hidráulica · vía FM</p>
+                                <p className="text-[11px] text-white/45 mt-1 leading-snug">
+                                    RES060_FM, documento 3.c: va dentro del CIFO. El instalador certifica que la instalación tiene la inercia que pide el fabricante; ya no hay un mínimo fijo de litros por kW.
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <Field
+                                    label="Volumen de agua total (L)"
+                                    type="number"
+                                    value={local.inercia_litros ?? ''}
+                                    onChange={v => setLocal(p => ({ ...p, inercia_litros: aNum(v) }))}
+                                    placeholder="Depósito + tuberías + emisores"
+                                    readOnly={readOnly}
+                                />
+                                <Field
+                                    label="Mínimo del fabricante (L, opcional)"
+                                    type="number"
+                                    value={local.inercia_min_fabricante_litros ?? ''}
+                                    onChange={v => setLocal(p => ({ ...p, inercia_min_fabricante_litros: aNum(v) }))}
+                                    placeholder="El del manual de la máquina"
+                                    readOnly={readOnly}
+                                />
+                                <Field label="Volumen específico (l/kW)" value={fi.especifico ? fi.especificoStr : ''} readOnly placeholder={fi.potenciaKw ? 'Pon los litros' : 'Falta la potencia de la bomba'} />
+                            </div>
+                            {fi.avisos.map(a => (
+                                <p key={a} className="text-[11px] text-amber-300/90 leading-snug">{a}</p>
+                            ))}
+                        </div>
+                    );
+                })()}
 
                 {/* ── PISCINA (AE_CAP · solo terciario) ── */}
                 {esExpTerciario && (

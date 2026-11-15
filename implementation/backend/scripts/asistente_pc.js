@@ -6,6 +6,9 @@
 //   node scripts/asistente_pc.js presentar <nº> [--fase final] [--enviar]   le hace LA pregunta del pago
 //   node scripts/asistente_pc.js confirmar <nº> --texto "<su respuesta>" [--enviar]   con su «sí»: a la cola
 //   node scripts/asistente_pc.js cancelar <nº> [--enviar]                   quita lo que no haya empezado
+//   node scripts/asistente_pc.js mover <nº>|--lote --pc <NOMBRE> --texto "<su respuesta>" [--enviar]
+//        «hazlo en el otro»: lo que aún no ha empezado cambia de PC
+//   (confirmar, confirmar --lote, ce3x y probar aceptan también --pc <NOMBRE>)
 //   node scripts/asistente_pc.js ce3x <nº> --trabajo cee_final|calificar [--fase final] [--fecha AAAA-MM-DD]
 //        [--texto "lo que ha decidido Fran"] [--enviar]                     un trabajo que NECESITA CE3X
 //   node scripts/asistente_pc.js probar [--enviar]                          encargo de PRUEBA (no paga nada)
@@ -13,7 +16,7 @@
 //        para TODOS los CEE de la casa con visto bueno y sin registrar (la lanza el vigilante)
 //   node scripts/asistente_pc.js confirmar --lote --texto "<su respuesta>" [--excepto 207,186] [--enviar]
 //   node scripts/asistente_pc.js cancelar --lote [--enviar]
-//   node scripts/asistente_pc.js cola                                       qué hay y si el PC está vivo
+//   node scripts/asistente_pc.js cola                                       qué hay y qué PCs están vivos
 //
 //   EN EL PC (tarea programada «Brokergy Trabajos PC», cada 2 min, ver tools/windows/pc_trabajos.vbs):
 //   node scripts/asistente_pc.js vuelta [--seco]                            latido + recoge y lanza
@@ -21,6 +24,12 @@
 //
 // - La cola vive en el VPS (scratch/asistente/, fuera de git); el PC la lee y la escribe por ssh, como
 //   la memoria del asistente (asistente_memoria.js). Nada de esto toca la BD.
+// - VARIOS PCs (2026-11-15, Fran: «uno lo uso solo para presentar»): cada PC se llama como diga su
+//   PC_NOMBRE y da su propio latido (pc_latido_<NOMBRE>.json). Una presentación va al PC de
+//   PC_PRESENTAR (el del certificado) y solo la coge ese. Si no responde y otro sí, la pregunta lo dice:
+//   «¿Lo hago en OFICINA o esperas a encender FIRMA?»; con «sí, en OFICINA», `confirmar --pc OFICINA`
+//   (su respuesta tiene que nombrar el PC). Ya en la cola, `mover`. Coger un encargo es crear
+//   tomas/<id> (mkdir, atómico): dos PCs nunca empiezan el mismo (serían dos tasas).
 // - UNA pregunta y al principio (skill presentar-cee, 1b): expediente, titular, tasa y tarjeta. El «sí»
 //   de Fran (su mensaje literal, que el vigilante solo deja pasar si el AUTOR es él) viaja con el
 //   encargo y es la autorización de FIRMAR y de PAGAR esa tasa para ese expediente. Sin ella no hay
@@ -65,10 +74,21 @@ const POS = RESTO.filter((a, i) => !a.startsWith('--') && !(i > 0 && RESTO[i - 1
 const DIR = process.env.ASISTENTE_COLA_DIR || path.join(__dirname, '..', 'scratch', 'asistente');   // en el VPS: la cola
 const VPS = process.env.ASISTENTE_VPS || 'root@187.77.93.213';
 const DIR_REMOTO = process.env.ASISTENTE_DIR_VPS || '/opt/brokergy/implementation/backend/scratch/asistente';
-const F = { pendiente: 'presentar_pendiente.json', cola: 'tareas_pc.json', latido: 'pc_latido.json' };
 const DIR_PC = process.env.PC_TRABAJOS_DIR || path.join(__dirname, '..', 'scratch', 'pc_trabajos');   // en el PC: el trabajo en curso
 const REPO = path.join(__dirname, '..', '..', '..');
 const BACKEND = path.join(__dirname, '..');
+
+// ─── Varios PCs (2026-11-15) ─────────────────────────────────────────────────
+// Cada PC tiene NOMBRE (`PC_NOMBRE` en su .env, p. ej. FIRMA / OFICINA; sin él, su hostname) y su
+// propio latido. Cada encargo puede llevar `destino`: solo lo coge el PC de ese nombre. Sin destino,
+// lo coge el primero que lo vea (como antes). En el VPS, `PC_PRESENTAR` dice a qué PC van por defecto
+// las presentaciones (el del certificado) y `PC_CE3X` los trabajos con CE3X; vacíos = cualquiera.
+const nombrePc = s => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+const MI_PC = nombrePc(process.env.PC_NOMBRE || os.hostname()) || 'PC';
+const PC_PRESENTAR = nombrePc(process.env.PC_PRESENTAR) || null;
+const PC_CE3X = nombrePc(process.env.PC_CE3X) || null;
+const F = { pendiente: 'presentar_pendiente.json', cola: 'tareas_pc.json', latido: `pc_latido_${MI_PC}.json` };
+const LATIDO_RE = /^pc_latido(_[A-Z0-9_]+)?\.json$/;      // pc_latido.json: el de antes de nombrar los PCs
 
 // El navegador de la cuenta en el que se trabaja: el perfil «BROKERGY» de Chrome (el de la tarjeta).
 // Hay dos conectados (perfiles «BROKERGY» y «Francisco Javier»); sin nadie delante hay que elegir.
@@ -115,14 +135,95 @@ function escribir(clave, datos) {
 }
 const cola = () => leer('cola') || [];
 
-function estadoPc() {
-    const l = leer('latido');
-    if (!l) return { vivo: false, texto: 'tu PC no ha dado señales todavía (¿está instalada la tarea programada?)' };
-    const hace = ahora() - l.at;
-    if (hace > LATIDO_VIVO_S) return { vivo: false, texto: `tu PC no responde desde las ${hora(l.at).split(', ')[1]} del ${hora(l.at).split(', ')[0]} (apagado, suspendido o sin red): lo hará en cuanto lo enciendas` };
-    if (l.bloqueado) return { vivo: false, texto: 'tu PC está BLOQUEADO: lo hará en cuanto lo desbloquees' };
-    if (l.trabajando) return { vivo: true, texto: `tu PC está con otro encargo (${l.trabajando}): este va después` };
-    return { vivo: true, texto: 'tu PC está encendido: empieza en un par de minutos' };
+// Los latidos de TODOS los PCs, por nombre. El fichero viejo (`pc_latido.json`, sin nombre) cuenta
+// como el PC de su hostname hasta que ese PC se actualice.
+function latidos() {
+    let textos = [];
+    if (enElVps()) {
+        let ficheros = [];
+        try { ficheros = fs.readdirSync(DIR).filter(f => LATIDO_RE.test(f)); } catch { /* sin cola todavía */ }
+        textos = ficheros.map(f => { try { return fs.readFileSync(path.join(DIR, f), 'utf8'); } catch { return ''; } });
+    } else {
+        textos = ssh(`cd ${DIR_REMOTO} 2>/dev/null && for f in pc_latido*.json; do [ -f "$f" ] && cat "$f" && printf '\\n@@FIN@@\\n'; done; true`).split('@@FIN@@');
+    }
+    const out = {};
+    for (const t of textos) {
+        let l;
+        try { l = JSON.parse(t); } catch { continue; }
+        const n = nombrePc(l?.pc || l?.host);
+        if (n && l.at && (!out[n] || out[n].at < l.at)) out[n] = { ...l, pc: n };
+    }
+    return out;
+}
+
+// Cómo está UN PC según su latido. `vivo` = encendido y desbloqueado (puede trabajar).
+function estadoDe(l) {
+    if (!l) return { vivo: false, libre: false, motivo: 'no ha dado señales todavía (¿está instalada la tarea programada?)', espera: '' };
+    if (ahora() - l.at > LATIDO_VIVO_S) {
+        const [dia, hh] = hora(l.at).split(', ');
+        return { vivo: false, libre: false, motivo: `no responde desde las ${hh} del ${dia} (apagado, suspendido o sin red)`, espera: 'lo hará en cuanto lo enciendas' };
+    }
+    if (l.bloqueado) return { vivo: false, libre: false, motivo: 'está BLOQUEADO', espera: 'lo hará en cuanto lo desbloquees' };
+    if (l.trabajando) return { vivo: true, libre: false, motivo: `está con otro encargo (${l.trabajando})`, espera: 'este va después' };
+    return { vivo: true, libre: true, motivo: 'está encendido', espera: 'empieza en un par de minutos' };
+}
+
+/**
+ * Si el PC que hará el encargo está para trabajar. Con `destino`, ESE PC; si no responde y otro sí,
+ * `alternativas` los nombra y `pregunta` es lo que se le pregunta a Fran: ¿en el otro, o lo enciendes?
+ * Sin destino, el mejor que haya (libre > ocupado > el último que se oyó).
+ */
+function estadoPc(destino = PC_PRESENTAR) {
+    const ls = latidos();
+    const nombres = Object.keys(ls);
+    const dest = nombrePc(destino) || null;
+    const quien = n => (dest || nombres.length > 1 ? `tu PC *${n}*` : 'tu PC');
+    const frase = (n, e) => `${quien(n)} ${e.motivo}${e.espera ? `: ${e.espera}` : ''}`;
+    if (!dest) {
+        const orden = nombres.map(n => ({ n, e: estadoDe(ls[n]) }))
+            .sort((a, b) => (b.e.libre - a.e.libre) || (b.e.vivo - a.e.vivo) || (ls[b.n].at - ls[a.n].at));
+        if (!orden.length) return { vivo: false, pc: null, texto: 'tu PC no ha dado señales todavía (¿está instalada la tarea programada?)', alternativas: [], pregunta: null };
+        const { n, e } = orden[0];
+        return { vivo: e.vivo, pc: null, texto: frase(n, e), alternativas: [], pregunta: null };
+    }
+    const e = estadoDe(ls[dest]);
+    const alternativas = e.vivo ? [] : nombres.filter(n => n !== dest && estadoDe(ls[n]).vivo);
+    const pregunta = alternativas.length
+        ? `¿Lo hago en *${alternativas.join('* o en *')}*, que está encendido, o esperas a encender *${dest}*?` : null;
+    return { vivo: e.vivo, pc: dest, texto: frase(dest, e), alternativas, pregunta };
+}
+
+// El destino que se pide (`--pc`) solo vale si Fran lo ha dicho: su respuesta literal tiene que nombrar
+// ese PC, o —si es el ÚNICO encendido de los otros— decir «en el otro / en este / en ese».
+function comprobarCambioDePc(pedido, preferido, texto) {
+    const p = nombrePc(pedido);
+    if (!p) return preferido;
+    if (p === preferido) return p;
+    const ls = latidos();
+    if (!ls[p]) throw new Error(`No conozco ningún PC llamado «${pedido}» (con latido: ${Object.keys(ls).join(', ') || 'ninguno'}).`);
+    const dicho = new RegExp(p.replace(/_/g, '[\\s_-]?'), 'i').test(texto || '');
+    const otros = Object.keys(ls).filter(n => n !== preferido && estadoDe(ls[n]).vivo);
+    const deictico = otros.length === 1 && otros[0] === p && /(^|[^a-záéíóúñ])(otro|este|ese|aqu[ií]|ah[ií])(?![a-záéíóúñ])/i.test(texto || '');
+    if (!dicho && !deictico) throw new Error(`Su respuesta no dice que lo haga ${p}: con --pc ${p} tiene que nombrarlo (o decir «en el otro» si es el único encendido). Pregúntale.`);
+    return p;
+}
+
+// Que dos PCs no cojan el MISMO encargo (serían dos tasas): tomarlo es crear tomas/<id>, que es atómico
+// (mkdir falla si ya existe), y se hace ANTES de marcarlo en curso.
+const ID_SEGURO = /^[A-Za-z0-9_.-]+$/;
+function tomados() {
+    try {
+        return enElVps() ? fs.readdirSync(path.join(DIR, 'tomas'))
+            : ssh(`ls ${DIR_REMOTO}/tomas 2>/dev/null || true`).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    } catch { return []; }
+}
+function tomar(id) {
+    if (!ID_SEGURO.test(id)) throw new Error(`Id de encargo raro: ${id}`);
+    if (enElVps()) {
+        fs.mkdirSync(path.join(DIR, 'tomas'), { recursive: true });
+        try { fs.mkdirSync(path.join(DIR, 'tomas', id)); return true; } catch (e) { if (e.code === 'EEXIST') return false; throw e; }
+    }
+    return ssh(`mkdir -p ${DIR_REMOTO}/tomas && mkdir ${DIR_REMOTO}/tomas/${id} 2>/dev/null && echo TOMADO || true`).includes('TOMADO');
 }
 
 async function decir(texto) {
@@ -141,11 +242,12 @@ const preguntaPresentar = c => `¿Presento el CEE ${c.fase} de *${c.numero}* (${
 function encolarPresentacion(d) {
     if (!d.numero || !d.fase || !d.pregunta || !d.respuesta) throw new Error('Faltan datos del encargo (número, fase, pregunta o respuesta).');
     const lista = cola();
-    const pc = estadoPc();
     const ya = lista.find(t => t.numero === d.numero && t.fase === d.fase && ['pendiente', 'en_curso'].includes(t.estado));
-    if (ya) return { ok: true, duplicado: true, tarea: ya, pc };
+    if (ya) return { ok: true, duplicado: true, tarea: ya, pc: estadoPc(ya.destino || null) };
+    const destino = nombrePc(d.destino) || PC_PRESENTAR;
+    const pc = estadoPc(destino);
     const tarea = {
-        id: `pres-${d.numero}-${d.fase}-${ahora()}`, tipo: 'presentar', numero: d.numero, fase: d.fase,
+        id: `pres-${d.numero}-${d.fase}-${ahora()}`, tipo: 'presentar', numero: d.numero, fase: d.fase, destino,
         titular: d.titular || null, importe: d.importe || TASA, tarjeta: d.tarjeta || TARJETA,
         pregunta: d.pregunta, pregunta_at: d.pregunta_at || ahora(), respuesta: String(d.respuesta).slice(0, 500),
         confirmado_at: ahora(), origen: d.origen || 'whatsapp', estado: 'pendiente', creado_at: ahora(),
@@ -167,7 +269,7 @@ function encolarCalificarExt({ numero, obraId = null } = {}) {
     const lista = cola();
     const ya = lista.find(t => t.tipo === 'calificar_ext' && t.numero === n && ['pendiente', 'en_curso'].includes(t.estado));
     if (ya) return { ok: true, duplicado: true, tarea: ya };
-    const tarea = { id: `calext-${n}-${ahora()}`, tipo: 'calificar_ext', numero: n, obra_id: obraId || null,
+    const tarea = { id: `calext-${n}-${ahora()}`, tipo: 'calificar_ext', numero: n, obra_id: obraId || null, destino: PC_CE3X,
         fase: 'inicial', origen: 'app', estado: 'pendiente', creado_at: ahora() };
     escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
     return { ok: true, tarea };
@@ -210,12 +312,22 @@ async function presentar() {
         await decir(`El CEE ${c.fase} de *${c.numero}* ya está encargado a tu PC (${yaEnCola.estado === 'en_curso' ? 'lo está presentando ahora' : 'en cola'}).`);
         return;
     }
-    const pc = estadoPc();
+    const pc = estadoPc(PC_PRESENTAR);
     const pregunta = preguntaPresentar(c);
     const pendientes = (leer('pendiente') || []).filter(p => !(p.numero === c.numero && p.fase === c.fase));
-    pendientes.push({ numero: c.numero, fase: c.fase, titular: c.titular, importe: TASA, tarjeta: TARJETA, pregunta, at: ahora() });
+    pendientes.push({ numero: c.numero, fase: c.fase, titular: c.titular, importe: TASA, tarjeta: TARJETA, pregunta, at: ahora(),
+        ...(pc.pregunta ? { pc_pregunta: pc.pregunta, pc_alternativas: pc.alternativas } : {}) });
     if (bandera('enviar')) escribir('pendiente', pendientes);
-    await decir(`${pregunta}\n\nContesta *sí* y lo hago.${pc.vivo ? '' : `\n_Ojo: ${pc.texto}._`}`);
+    await decir(`${pregunta}\n\n${notaPc(pc, 'Contesta *sí* y lo hago.')}`);
+}
+
+// El cierre de la pregunta: «Contesta sí…» y, si el PC que toca no está, el aviso; y si otro sí está,
+// LA pregunta de dónde: «sí» (espero a que enciendas el de siempre) o «sí, en OFICINA».
+function notaPc(pc, contesta) {
+    if (pc.vivo) return contesta;
+    if (!pc.pregunta) return `${contesta}\n_Ojo: ${pc.texto}._`;
+    const alt = pc.alternativas[0];
+    return `_Ojo: ${pc.texto}._\n${pc.pregunta}\nContesta *sí* (espero a *${pc.pc}*) o *sí, en ${alt}*.`;
 }
 
 async function confirmar() {
@@ -228,13 +340,37 @@ async function confirmar() {
     const p = pendientes.find(x => norm(x.numero).endsWith(n) && (!opt('fase') || x.fase === opt('fase')));
     if (!p) throw new Error(`No hay ninguna pregunta de presentar pendiente para «${POS[0]}»: primero \`presentar ${POS[0]}\`.`);
     if (ahora() - p.at > 24 * 3600) throw new Error(`La pregunta de ${p.numero} es de hace más de 24 h: vuelve a hacerla con \`presentar\`.`);
+    const destino = comprobarCambioDePc(opt('pc'), PC_PRESENTAR, texto);
     if (!bandera('enviar')) {
-        console.log(`[EN SECO] Encolaría la presentación de ${p.numero} (${p.fase}) con la respuesta «${texto}».`);
+        console.log(`[EN SECO] Encolaría la presentación de ${p.numero} (${p.fase}) para ${destino || 'cualquier PC'} con la respuesta «${texto}».`);
         return;
     }
-    const r = encolarPresentacion({ ...p, pregunta_at: p.at, respuesta: texto, origen: 'whatsapp' });
+    const r = encolarPresentacion({ ...p, pregunta_at: p.at, respuesta: texto, origen: 'whatsapp', destino });
     await decir(r.duplicado ? `*${p.numero}* ya está en la cola de tu PC.`
-        : `Hecho: se lo paso a tu PC; ${r.pc.texto}. Te aviso cuando empiece y cuando esté registrado.`);
+        : `Hecho: se lo paso a ${destino ? `*${destino}*` : 'tu PC'}; ${r.pc.texto}.${otroPcSiNoEsta(r.pc)} Te aviso cuando empiece y cuando esté registrado.`);
+}
+
+// Ya en la cola y el PC de destino sin responder: cómo moverlo al otro que sí está.
+const otroPcSiNoEsta = pc => (pc.pregunta ? ` Si prefieres que lo haga *${pc.alternativas[0]}*, que está encendido, contesta «hazlo en ${pc.alternativas[0]}».` : '');
+
+// «Hazlo en el otro»: un encargo que aún NO ha empezado cambia de PC. Lo que está en curso no se toca.
+async function mover() {
+    const texto = opt('texto');
+    const a = nombrePc(opt('pc'));
+    if (!a || !texto || (!POS[0] && !bandera('lote'))) throw new Error('Uso: mover <nº>|--lote --pc <NOMBRE> --texto "<respuesta literal de Fran>" [--enviar]');
+    const lista = cola();
+    const n = POS[0] ? norm(POS[0]) : null;
+    const van = lista.filter(t => t.estado === 'pendiente' && (bandera('lote') ? t.lote && t.tipo === 'presentar' : norm(t.numero || '').endsWith(n)));
+    const enCurso = lista.find(t => t.estado === 'en_curso' && (bandera('lote') ? t.lote : n && norm(t.numero || '').endsWith(n)));
+    if (!van.length) {
+        await decir(enCurso ? `*${enCurso.numero}* ya lo está haciendo *${enCurso.pc || 'tu PC'}*: no lo cambio de PC a medias.` : `No hay nada pendiente de «${POS[0] || 'la ronda de la noche'}» en la cola.`);
+        return;
+    }
+    const destino = comprobarCambioDePc(a, van[0].destino || null, texto);
+    if (!bandera('enviar')) { console.log(`[EN SECO] Movería a ${destino}: ${van.map(t => t.id).join(', ')}.`); return; }
+    escribir('cola', lista.map(t => (van.includes(t) ? { ...t, destino, movido: [...(t.movido || []), { de: t.destino || null, a: destino, texto: texto.slice(0, 300), at: ahora() }] } : t)));
+    const pc = estadoPc(destino);
+    await decir(`Hecho: ${van.map(t => `*${t.numero}*`).join(', ')} lo hace *${destino}*; ${pc.texto}.`);
 }
 
 // ─── La ronda de las 21:00: UNA pregunta para todos ───────────────────────────
@@ -277,15 +413,16 @@ async function noche() {
         log(`Ronda de la noche: nada que presentar.${fuera.length ? ` Fuera: ${fuera.join(' | ')}` : ''}`);
         return;
     }
-    const pc = estadoPc();
+    const pc = estadoPc(PC_PRESENTAR);
     const pregunta = preguntaNoche(items);
     const lote = `noche-${new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })}`;
     // La pregunta de esta noche sustituye a la de anoche, si no se contestó.
     const pendientes = (leer('pendiente') || []).filter(p => !p.lote);
-    pendientes.push({ lote, items, importe: TASA, total: euros(items.length * tasaNum()), tarjeta: TARJETA, pregunta, at: ahora() });
+    pendientes.push({ lote, items, importe: TASA, total: euros(items.length * tasaNum()), tarjeta: TARJETA, pregunta, at: ahora(),
+        ...(pc.pregunta ? { pc_pregunta: pc.pregunta, pc_alternativas: pc.alternativas } : {}) });
     if (bandera('enviar')) escribir('pendiente', pendientes);
-    await decir(`${pregunta}\n\nContesta *sí* y empiezo. Para dejar alguno fuera: «sí, menos el ${corto(items[items.length - 1].numero)}». `
-        + `Si no contestas, no presento nada y mañana te lo vuelvo a preguntar.${pc.vivo ? '' : `\n_Ojo: ${pc.texto}._`}${notaFuera}`);
+    await decir(`${pregunta}\n\n${notaPc(pc, `Contesta *sí* y empiezo. Para dejar alguno fuera: «sí, menos el ${corto(items[items.length - 1].numero)}». `
+        + 'Si no contestas, no presento nada y mañana te lo vuelvo a preguntar.')}${notaFuera}`);
 }
 
 // Con su «sí» a la pregunta de la noche: cada CEE de la lista, a la cola, con la pregunta y la respuesta.
@@ -304,23 +441,24 @@ async function confirmarLote() {
     }
     const van = p.items.filter(c => !excepto.some(x => norm(c.numero).endsWith(x)));
     if (!van.length) throw new Error('Con lo que deja fuera no queda ninguno: no hay nada que encolar (usa `cancelar --lote`).');
+    const destino = comprobarCambioDePc(opt('pc'), PC_PRESENTAR, texto);
     if (!bandera('enviar')) {
-        console.log(`[EN SECO] Encolaría ${van.length} presentaciones (${van.map(c => c.numero).join(', ')}) con la respuesta «${texto}».`);
+        console.log(`[EN SECO] Encolaría ${van.length} presentaciones (${van.map(c => c.numero).join(', ')}) para ${destino || 'cualquier PC'} con la respuesta «${texto}».`);
         return;
     }
     let nuevos = 0;
-    let pc = estadoPc();
+    let pc = estadoPc(destino);
     for (const c of van) {
         const r = encolarPresentacion({
             ...c, importe: p.importe, tarjeta: p.tarjeta, pregunta: p.pregunta, pregunta_at: p.at, respuesta: texto,
-            origen: 'whatsapp', lote: p.lote, lote_n: van.length,
+            origen: 'whatsapp', lote: p.lote, lote_n: van.length, destino,
         });
         if (!r.duplicado) nuevos += 1;
         pc = r.pc;
     }
     escribir('pendiente', (leer('pendiente') || []).filter(x => x.lote !== p.lote));
-    await decir(`Hecho: le paso ${nuevos} CEE a tu PC, uno detrás de otro (${van.map(c => c.numero).join(', ')}); `
-        + `${pc.texto}. Te escribo antes de cada pago y, al acabar, el resumen.${excepto.length ? `\nFuera: ${p.items.filter(c => !van.includes(c)).map(c => c.numero).join(', ')}.` : ''}`);
+    await decir(`Hecho: le paso ${nuevos} CEE a ${destino ? `*${destino}*` : 'tu PC'}, uno detrás de otro (${van.map(c => c.numero).join(', ')}); `
+        + `${pc.texto}.${otroPcSiNoEsta(pc)} Te escribo antes de cada pago y, al acabar, el resumen.${excepto.length ? `\nFuera: ${p.items.filter(c => !van.includes(c)).map(c => c.numero).join(', ')}.` : ''}`);
 }
 
 async function cancelarLote() {
@@ -396,14 +534,16 @@ async function ce3x() {
     const lista = cola();
     const ya = lista.find(t => t.tipo === 'ce3x' && t.numero === numero && t.trabajo === opt('trabajo') && ['pendiente', 'en_curso'].includes(t.estado));
     if (ya) { await decir(`${def.que.charAt(0).toUpperCase()}${def.que.slice(1)} de *${numero}* ya está encargado a tu PC (${ya.estado === 'en_curso' ? 'lo está haciendo ahora' : 'en cola'}).`); return; }
+    // Aquí no se paga ni se firma: el PC lo elige Fran con --pc sin más guarda; si no, PC_CE3X o cualquiera.
+    const destino = nombrePc(opt('pc')) || PC_CE3X;
     const tarea = {
-        id: `ce3x-${opt('trabajo')}-${numero}-${ahora()}`, tipo: 'ce3x', trabajo: opt('trabajo'), numero, fase, fecha,
+        id: `ce3x-${opt('trabajo')}-${numero}-${ahora()}`, tipo: 'ce3x', trabajo: opt('trabajo'), numero, fase, fecha, destino,
         indicaciones: String(opt('texto') || '').slice(0, 1500), origen: 'whatsapp', estado: 'pendiente', creado_at: ahora(),
     };
     if (bandera('enviar')) escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
     else console.log(`[EN SECO] Encolaría:\n${JSON.stringify(tarea, null, 1)}`);
-    const pc = estadoPc();
-    await decir(`Aquí no hay CE3X: le paso ${def.que} de *${numero}* a tu PC; ${pc.texto}. Te aviso cuando esté.`);
+    const pc = estadoPc(destino);
+    await decir(`Aquí no hay CE3X: le paso ${def.que} de *${numero}* a ${destino ? `*${destino}*` : 'tu PC'}; ${pc.texto}.${otroPcSiNoEsta(pc)} Te aviso cuando esté.`);
 }
 
 // Que el número exista (expediente, CEE directo u obra de la app de certificadores) y que esa fase no
@@ -432,15 +572,23 @@ async function comprobarNumero(numero, fase) {
 
 async function probar() {
     const lista = cola();
-    const tarea = { id: `prueba-${ahora()}`, tipo: 'prueba', estado: 'pendiente', creado_at: ahora() };
+    const destino = nombrePc(opt('pc')) || null;
+    const tarea = { id: `prueba-${ahora()}`, tipo: 'prueba', destino, estado: 'pendiente', creado_at: ahora() };
     if (bandera('enviar')) escribir('cola', [...lista, tarea]);
-    const pc = estadoPc();
-    await decir(`Prueba encargada a tu PC (no presenta ni paga nada: solo abre la web de la JCCM en Chrome); ${pc.texto}.`);
+    const pc = estadoPc(destino);
+    await decir(`Prueba encargada a ${destino ? `*${destino}*` : 'tu PC'} (no presenta ni paga nada: solo abre la web de la JCCM en Chrome); ${pc.texto}.`);
 }
 
 function verCola() {
-    const pc = estadoPc();
-    console.log(`PC: ${pc.texto}`);
+    const ls = latidos();
+    console.log(`PCs (presentar va a: ${PC_PRESENTAR || 'cualquiera'} · CE3X a: ${PC_CE3X || 'cualquiera'}):`);
+    if (!Object.keys(ls).length) console.log('  - ninguno ha dado señales todavía');
+    for (const [n, l] of Object.entries(ls)) {
+        const e = estadoDe(l);
+        console.log(`  - ${n}${l.host && nombrePc(l.host) !== n ? ` (${l.host})` : ''}: ${e.motivo} · último latido ${hora(l.at)}`);
+    }
+    const pc = estadoPc(PC_PRESENTAR);
+    console.log(`Para presentar: ${pc.texto}${pc.pregunta ? ` — ${pc.pregunta}` : ''}`);
     const pend = leer('pendiente') || [];
     console.log(`\nPreguntas de presentar esperando el «sí» de Fran: ${pend.length || 'ninguna'}`);
     for (const p of pend) {
@@ -449,7 +597,7 @@ function verCola() {
     }
     const lista = cola().slice(-10);
     console.log(`\nCola del PC (últimas ${lista.length}):`);
-    for (const t of lista) console.log(`  - ${t.id} · ${t.estado}${t.resumen ? ` · ${t.resumen.slice(0, 120)}` : ''}`);
+    for (const t of lista) console.log(`  - ${t.id} · ${t.estado} · ${t.pc ? `en ${t.pc}` : `para ${t.destino || 'cualquier PC'}`}${t.resumen ? ` · ${t.resumen.slice(0, 120)}` : ''}`);
 }
 
 // ─── PC: la vuelta ────────────────────────────────────────────────────────────
@@ -509,9 +657,10 @@ function promptPrueba() {
 }
 
 const promptDe = t => (t.tipo === 'prueba' ? promptPrueba() : t.tipo === 'ce3x' ? promptCe3x(t) : promptPresentar(t));
-const cabecera = t => (t.tipo === 'prueba' ? 'PC · prueba'
-    : t.tipo === 'ce3x' ? `PC · ${TRABAJOS_CE3X[t.trabajo]?.que || t.trabajo} de ${t.numero}`
-        : t.tipo === 'calificar_ext' ? `PC · calificar ${t.numero} (app de certificadores)` : `PC · presentar ${t.numero}`);
+// «PC FIRMA · presentar …» cuando el PC tiene nombre puesto; «PC · …» si no (un solo PC, como antes).
+const cabecera = (t, pc = process.env.PC_NOMBRE ? `PC ${MI_PC}` : 'PC') => (t.tipo === 'prueba' ? `${pc} · prueba`
+    : t.tipo === 'ce3x' ? `${pc} · ${TRABAJOS_CE3X[t.trabajo]?.que || t.trabajo} de ${t.numero}`
+        : t.tipo === 'calificar_ext' ? `${pc} · calificar ${t.numero} (app de certificadores)` : `${pc} · presentar ${t.numero}`);
 
 // ─── calificar_ext: un trabajo FIJO, sin Claude ──────────────────────────────
 // La línea con la que `cee_inicial.js calificar` dice que lo ha calificado Y que producción ha
@@ -610,7 +759,7 @@ function lanzar(t) {
 function esperar(hijo, actual) {
     return new Promise((resolve) => {
         const latir = () => {
-            try { escribir('latido', { at: ahora(), host: os.hostname(), bloqueado: bloqueado(), trabajando: actual.numero || actual.tipo }); } catch (e) { log('Latido fallido:', e.message); }
+            try { escribir('latido', { at: ahora(), pc: MI_PC, host: os.hostname(), bloqueado: bloqueado(), trabajando: actual.numero || actual.tipo }); } catch (e) { log('Latido fallido:', e.message); }
         };
         const reloj = setInterval(() => {
             latir();
@@ -679,7 +828,7 @@ async function vuelta() {
     const actual = fs.existsSync(ACTUAL) ? JSON.parse(fs.readFileSync(ACTUAL, 'utf8')) : null;
     const estaBloqueado = bloqueado();
     // 1. El latido: el Claude del WhatsApp lo mira para decirle a Fran si el PC está.
-    if (!seco) escribir('latido', { at: ahora(), host: os.hostname(), bloqueado: estaBloqueado, trabajando: actual ? (actual.numero || actual.tipo) : null });
+    if (!seco) escribir('latido', { at: ahora(), pc: MI_PC, host: os.hostname(), bloqueado: estaBloqueado, trabajando: actual ? (actual.numero || actual.tipo) : null });
     // 2. Un trabajo que se quedó sin cerrar: la vuelta que lo vigilaba murió (PC reiniciado o
     //    suspendido, sesión cerrada). Si Claude sigue vivo, se espera; si no, se cierra con lo que haya.
     if (actual) {
@@ -690,9 +839,13 @@ async function vuelta() {
         if (!seco) await terminar(actual, cortado);
         return;
     }
-    // 3. Nada en marcha: ¿hay encargo?
+    // 3. Nada en marcha: ¿hay encargo PARA ESTE PC? (sin destino = para cualquiera; uno ya tomado por
+    //    otro PC no se vuelve a coger aunque su «en curso» se perdiera al escribir la cola los dos).
     const lista = cola();
-    const t = lista.find(x => x.estado === 'pendiente' && ['presentar', 'prueba', 'ce3x', 'calificar_ext'].includes(x.tipo));
+    const candidatos = lista.filter(x => x.estado === 'pendiente' && ['presentar', 'prueba', 'ce3x', 'calificar_ext'].includes(x.tipo)
+        && (!x.destino || nombrePc(x.destino) === MI_PC));
+    const ya = candidatos.length ? tomados() : [];
+    const t = candidatos.find(x => !ya.includes(x.id));
     if (!t) return;
     // Bloqueado no hay AutoFirma ni clic «real»; un trabajo con CE3X solo lanza scripts, pero CE3X es una
     // aplicación de escritorio y con la sesión bloqueada no se ha medido: espera igual.
@@ -702,7 +855,8 @@ async function vuelta() {
         console.log(t.tipo === 'calificar_ext' ? `node scripts/cee_inicial.js calificar ${t.numero} --escribir` : promptDe(t));
         return;
     }
-    escribir('cola', lista.map(x => (x.id === t.id ? { ...x, estado: 'en_curso', tomado_at: ahora(), pc: os.hostname() } : x)));
+    if (!tomar(t.id)) { log(`${t.id} lo ha cogido otro PC justo ahora: no lo empiezo.`); return; }
+    escribir('cola', cola().map(x => (x.id === t.id ? { ...x, estado: 'en_curso', tomado_at: ahora(), pc: MI_PC, host: os.hostname() } : x)));
     if (t.tipo === 'calificar_ext') {
         const sinMotor = await asegurarMotor();
         if (sinMotor) {
@@ -729,22 +883,24 @@ async function vuelta() {
 
 function estado() {
     const actual = fs.existsSync(ACTUAL) ? JSON.parse(fs.readFileSync(ACTUAL, 'utf8')) : null;
+    console.log(`Este PC: ${MI_PC}${process.env.PC_NOMBRE ? '' : ' (sin PC_NOMBRE en el .env: es su hostname)'}`);
     console.log(actual ? `En marcha aquí: ${actual.id} desde ${hora(actual.inicio)} (pid ${actual.pid}, ${vivo(actual.pid) ? 'vivo' : 'TERMINADO, pendiente de cerrar'})` : 'Nada en marcha en este PC.');
     console.log(`Pantalla bloqueada: ${bloqueado() ? 'sí' : 'no'}\n`);
     verCola();
 }
 
-const ORDENES = { presentar, noche, confirmar, cancelar, ce3x, probar, cola: verCola, vuelta, estado };
+const ORDENES = { presentar, noche, confirmar, cancelar, mover, ce3x, probar, cola: verCola, vuelta, estado };
 if (require.main === module) {
     (async () => {
         const f = ORDENES[ORDEN];
-        if (!f) { console.log('Órdenes: presentar · noche · confirmar · cancelar · ce3x · probar · cola (VPS) · vuelta · estado (PC)'); process.exit(1); }
+        if (!f) { console.log('Órdenes: presentar · noche · confirmar · cancelar · mover · ce3x · probar · cola (VPS) · vuelta · estado (PC)'); process.exit(1); }
         await f();
     })().catch((e) => { console.error(`ERROR: ${e.message}`); process.exit(1); });
 }
 
-module.exports = { estadoPc, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, TASA, TARJETA, TRABAJOS_CE3X,
+module.exports = { estadoPc, latidos, MI_PC, PC_PRESENTAR, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, TASA, TARJETA, TRABAJOS_CE3X,
     MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt,
     _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor,
     _preguntaNoche: preguntaNoche, _informeLote: informeLote, _promptPresentar: promptPresentar,
-    _confirmarLote: confirmarLote, _cancelarLote: cancelarLote, _terminar: terminar };
+    _confirmarLote: confirmarLote, _cancelarLote: cancelarLote, _terminar: terminar, _vuelta: vuelta, _tomar: tomar,
+    _comprobarCambioDePc: comprobarCambioDePc, _notaPc: notaPc, _confirmar: confirmar, _mover: mover };

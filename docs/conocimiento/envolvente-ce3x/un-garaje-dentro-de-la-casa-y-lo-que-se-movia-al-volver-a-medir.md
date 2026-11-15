@@ -91,6 +91,10 @@ de 203).
 de SUS m²** (`_restar_zonas_de_marcadas` en `pipeline.py`, con su diagnóstico `ZONAS_FUERA`).
 Un garaje dibujado en una planta de VIVIENDA de Catastro NO se resta: ya es otra construcción y
 sus m² no están dentro de los de la vivienda.
+**Y una zona de un uso que Catastro NO declara en esa planta** (un PORCHE dentro de un ALMACÉN
+marcado como vivienda) está dentro de alguna de sus construcciones: se resta de la marcada no
+vivienda (2026-10-25, 26RES093_14: los dos porches salían del suelo y la cubierta, 292 m², pero
+no de la superficie declarada, 335 m²). Si la única marcada es VIVIENDA no se toca.
 
 | Qué | Dónde |
 |---|---|

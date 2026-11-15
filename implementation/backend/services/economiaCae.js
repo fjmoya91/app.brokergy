@@ -177,4 +177,4 @@ async function volumen({ anio = null, ficha = null, conRechazados = false, detal
     };
 }
 
-module.exports = { expediente, volumen, economiaDe };
+module.exports = { expediente, volumen, economiaDe, SELECT_EXP };

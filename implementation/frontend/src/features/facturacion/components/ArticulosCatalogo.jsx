@@ -23,7 +23,8 @@ import { Ico, eur, ErrorApi, errorDeApi, AvisoFx } from '../estilo';
 //   250 € / nave 450 €). El `id` de la variante lo pone el navegador.
 // - ARRASTRA: lo que se añade solo al elegirlo (el CEE inicial y final arrastra
 //   la tasa de CLM ×2).
-// - GENERA: si al aceptarse el presupuesto abre un expediente de CEE directo.
+// - GENERA: si al aceptarse el presupuesto abre un expediente de CEE directo o un
+//   INFORME técnico (2026INF_n) o CERTIFICADO DE INSTALACIÓN TÉRMICA (2026CIT_n, el RITE suelto).
 // - Un artículo activo a 0 € (y sin variante con precio) lleva una marca ámbar:
 //   en un presupuesto saldría gratis. Arriba, el aviso de cuántos hay.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,8 +39,11 @@ const GENERA = [
     { v: '', label: 'No' },
     { v: 'CEE_UNICO', label: 'CEE único' },
     { v: 'CEE_DOBLE', label: 'CEE inicial + final' },
+    // Memoria para el Ayuntamiento, legalización, informe…: abre un 2026INF_n (docs/conocimiento/informes/).
+    { v: 'INFORME', label: 'Informe técnico (INF)' },
+    { v: 'CIT', label: 'Certificado instalación térmica (CIT)' },
 ];
-const generaDe = (g) => (g === 'CEE_UNICO' || g === 'CEE_DOBLE' ? g : '');
+const generaDe = (g) => (['CEE_UNICO', 'CEE_DOBLE', 'INFORME', 'CIT'].includes(g) ? g : '');
 const IVAS = [21, 10, 4, 0];
 
 // `crypto.randomUUID` solo existe en contexto seguro (https o localhost): por la
@@ -310,9 +314,9 @@ function FilaArticulo({ art, esAdmin, opcionesFamilia, opcionesArrastra, nombreD
                 {/* Móvil: «abre expediente» · activo · estado; PC: sus columnas. */}
                 <div className="fx-art-resto2">
                     <div>
-                        <Et>Abre expediente CEE</Et>
+                        <Et>Abre expediente</Et>
                         {esAdmin ? (
-                            <select value={genera} onChange={e => cambiar({ genera: e.target.value || null })} className="fx-select" aria-label="Abre expediente CEE">
+                            <select value={genera} onChange={e => cambiar({ genera: e.target.value || null })} className="fx-select" aria-label="Abre expediente">
                                 {GENERA.map(g => <option key={g.v} value={g.v}>{g.label}</option>)}
                             </select>
                         ) : (
@@ -485,7 +489,7 @@ function NuevoArticulo({ opcionesFamilia, onCreado, onCancelar }) {
                     </select>
                 </label>
                 <label className="fx-campo">
-                    <span>Abre expediente CEE</span>
+                    <span>Abre expediente</span>
                     <select value={f.genera} onChange={e => setF({ ...f, genera: e.target.value })} className="fx-select">
                         {GENERA.map(g => <option key={g.v} value={g.v}>{g.label}</option>)}
                     </select>

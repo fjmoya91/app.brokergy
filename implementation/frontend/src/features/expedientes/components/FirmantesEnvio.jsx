@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { firmanteCifo, firmanteMemoriaRite, firmanteIncompleto } from '../logic/instaladorPendientes';
+import { firmanteCifo, firmanteMemoriaRite, firmanteIncompleto, tecnicosRite } from '../logic/instaladorPendientes';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,7 +68,10 @@ function camposAGuardar(destino, v) {
 }
 
 export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada,
-    opcionesCifo = [], firmanteCifo: firmanteCifoRolSel = null, onFirmanteCifo = null }) {
+    opcionesCifo = [], firmanteCifo: firmanteCifoRolSel = null, onFirmanteCifo = null,
+    // Empresa con VARIOS técnicos habilitados: cuál firma la memoria de ESTE
+    // expediente (null = el de por defecto de la ficha).
+    tecnicoRiteDni = null, onTecnicoRite = null, guardandoTecnico = false }) {
     // Ficha recargada tras editarla: el bloque tiene que decir la verdad en
     // cuanto se guarda, sin esperar a que el padre recargue el expediente.
     const [fichaLocal, setFichaLocal] = useState(null);
@@ -268,6 +271,47 @@ export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada,
                             </div>
                             <p className="text-[10px] text-white/30 leading-snug mt-2">
                                 El certificado no lleva el nombre impreso: lo pone el certificado electrónico de quien lo firme.
+                            </p>
+                        </div>
+                    );
+                }
+                // Memoria RITE con varios técnicos habilitados: se ELIGE cuál la
+                // firma (por defecto, el de la ficha). Se guarda en el expediente y
+                // el backend genera la memoria con ese nombre y su carné.
+                const tecnicos = k === 'rite' && onTecnicoRite ? tecnicosRite(p) : [];
+                if (tecnicos.length > 1 && !form[k]) {
+                    const sel = tecnicos.find(t => tecnicoRiteDni && t.dni.toUpperCase() === String(tecnicoRiteDni).toUpperCase()) || tecnicos[0];
+                    return (
+                        <div key={k} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                                <p className="text-[9.5px] uppercase tracking-wider font-bold text-white/35">
+                                    {titulo} <span className="text-white/20 normal-case tracking-normal">· elige quién{guardandoTecnico ? ' · guardando…' : ''}</span>
+                                </p>
+                            </div>
+                            <div className="space-y-1.5">
+                                {tecnicos.map(t => {
+                                    const on = t.dni === sel.dni;
+                                    return (
+                                        <button key={t.dni} type="button" disabled={guardandoTecnico}
+                                            onClick={() => !on && onTecnicoRite(t.porDefecto ? null : t.dni)}
+                                            className={`w-full flex items-start gap-2.5 p-2.5 rounded-lg border text-left transition-all disabled:opacity-60 ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                            <span className={`mt-0.5 w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center ${on ? 'border-brand' : 'border-white/20'}`}>
+                                                {on && <span className="w-1.5 h-1.5 rounded-full bg-brand" />}
+                                            </span>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block text-[12px] font-bold text-white leading-snug truncate">
+                                                    {t.nombre}{t.porDefecto && <span className="ml-1.5 text-[9px] font-black uppercase tracking-wider text-brand/70">por defecto</span>}
+                                                </span>
+                                                <span className="block text-[10px] text-white/40">
+                                                    {t.dni}{t.carnet ? ` · Carné ${t.carnet}` : ''}
+                                                </span>
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="text-[10px] text-white/30 leading-snug mt-2">
+                                La memoria sale a nombre del que elijas, solo en este expediente. Los técnicos se dan de alta en la ficha de {p.razon_social || 'la empresa'}.
                             </p>
                         </div>
                     );

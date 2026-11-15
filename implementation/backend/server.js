@@ -90,6 +90,8 @@ app.use('/api/public/portal', require('./routes/portal'));
 app.use('/api/public/marketplace', require('./routes/publicMarketplace'));
 // App de certificadores (cee.brokergy.es), lo público: beta, activar, fotos del propietario. ANTES de /api/public.
 app.use('/api/public/certapp', require('./routes/certappPublic'));
+// El enlace del CLIENTE de un informe técnico (2026INF_n): su token, sin sesión. ANTES de /api/public.
+app.use('/api/public/informe', require('./routes/informesPublic'));
 app.use('/api/public', require('./routes/public'));
 // Servlets de almacenamiento intermedio de Autofirma (@firma) para firmar/recuperar
 // ficheros GRANDES. Montados bajo /api para reutilizar el proxy nginx existente
@@ -119,9 +121,14 @@ app.use('/api/seguimiento', require('./routes/seguimiento'));
 // en "26. CERTIF. EFICIENCIA ENER / 1. PRODUCCION". Rutas propias a propósito —
 // no comparten tabla ni handlers con /api/expedientes.
 app.use('/api/cee-directos', require('./routes/ceeDirectos'));
+// INFORMES técnicos ({AAAA}INF_{n}): todo lo que no es CAE ni CEE. Ver docs/conocimiento/informes/.
+app.use('/api/informes', require('./routes/informes'));
 // FACTURACIÓN: catálogo de artículos y presupuestos con N partidas (sustituye a
 // la app de presupuestos de AppSheet). Ver routes/facturacion.js.
 app.use('/api/facturacion', require('./routes/facturacion'));
+// CUADRO DE MANDO de dirección (solo ADMIN): negocio + finanzas (EBITDA, caja,
+// previsión). Ver services/cuadroDireccion.js y docs/conocimiento/cuadro-mando/.
+app.use('/api/cuadro-mando', require('./routes/cuadroMando'));
 // El asistente de la app (botón flotante, solo ADMIN): contesta por la API de
 // Anthropic con datos en vivo y propone encargos al Claude del WhatsApp.
 app.use('/api/asistente-app', require('./routes/asistenteApp'));
@@ -261,6 +268,14 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[FirmadosCorreo] no se pudo iniciar:', err.message);
     }
+    // El PLAN DE VERIFICACIÓN que manda el verificador por correo se archiva solo en
+    // su lote, con el equipo (verificador jefe y revisor, email y teléfono). Nace
+    // APAGADO (PLAN_VERIFICACION_CORREO_ENABLED): local escribe en producción.
+    try {
+      require('./services/equipoVerificacion').start();
+    } catch (err) {
+      console.warn('[PlanVerificacion] no se pudo iniciar:', err.message);
+    }
     // La revisión de la documentación tras la ACEPTACIÓN: manda a las 9:00 lo que el
     // agente pidió fuera de horario y avisa si un encargo lleva 24 h sin moverse.
     // Nace APAGADA (ACEPTACION_AGENTE_ENABLED): local escribe en producción.
@@ -268,6 +283,29 @@ if (require.main === module) {
       require('./services/aceptacionAgente').start();
     } catch (err) {
       console.warn('[aceptacion-agente] no se pudo iniciar:', err.message);
+    }
+    // Lo que se le ha PEDIDO a alguien por WhatsApp: se cierra al contestar y, si
+    // no, se le recuerda (en modo copia, solo lo ve Fran). Nace APAGADO (ESPERAS_ENABLED).
+    try {
+      require('./services/esperasWhatsapp').start();
+    } catch (err) {
+      console.warn('[esperas] no se pudo iniciar:', err.message);
+    }
+    // El CONTESTADOR: contesta como Fran a quien tiene algo vivo, tras 15 min de silencio
+    // y de 7 a 21 h. Nace APAGADO (CONTESTADOR_ENABLED) y, encendido, en modo copia
+    // (CONTESTADOR_MODO=real para escribir): lo que diría le llega a Fran al grupo.
+    try {
+      require('./services/contestadorWhatsapp').start();
+    } catch (err) {
+      console.warn('[contestador] no se pudo iniciar:', err.message);
+    }
+    // A quien escribe por PRIMERA VEZ, una vez y sola: el formulario «Calcula tu ayuda»
+    // y el vídeo de las ayudas. Nace APAGADA (WA_BIENVENIDA_ENABLED) y, encendida, en
+    // modo copia (WA_BIENVENIDA_MODO=real para escribir): local es la misma cuenta.
+    try {
+      require('./services/bienvenidaWhatsapp').start();
+    } catch (err) {
+      console.warn('[bienvenida] no se pudo iniciar:', err.message);
     }
   });
 }

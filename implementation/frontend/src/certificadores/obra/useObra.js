@@ -18,8 +18,25 @@ import axios from 'axios';
 import { API, errorDe, mensajeError } from '../api';
 import { aPayload, cambiosDe, formDe, normalizarSlots, reducirTodas } from './comun';
 import { SLOTS, contestar } from '../logic/cuestionario';
+import * as cola from './colaFotos';
 
 const FRENO_MS = 900;
+
+// Las fotos suben UNA A UNA y con reintentos (30/10/2026, antes de la primera visita
+// con el iPhone): en la visita la cobertura va y viene (sótanos, cuartos de calderas),
+// y la foto hecha con la cámara desde aquí NO queda en el carrete. Antes iba toda la
+// tanda en una petición: si caía, se perdían todas. Ahora lo que sí sube se queda, la
+// red caída o un 5xx se reintenta solo, y lo que aun así no sube queda en
+// `pendientes` para «Reintentar» sin volver a hacer la foto. Cada foto se apunta en
+// el móvil (colaFotos.js, IndexedDB) antes de mandarla y se borra al subir: si
+// Safari recarga la pestaña a mitad, al volver a la obra salen como pendientes.
+const ESPERAS_MS = [1500, 4000, 9000];
+// Un vídeo enorme no se copia en la cola del móvil (llenaría su espacio): ese, si falla, solo en memoria.
+const COLA_MAX_BYTES = 60 * 1024 * 1024;
+const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+// Sin respuesta (sin red), 5xx, 429, 408 y 401 (el token se renueva al volver la
+// página a primer plano: tras la espera, la petición sale con el nuevo).
+const reintentable = (err) => { const st = err?.response?.status; return !st || st === 401 || st === 408 || st === 429 || st >= 500; };
 
 export function useObra(id) {
     const [obra, setObra] = useState(null);
@@ -27,6 +44,8 @@ export function useObra(id) {
     const [enlaces, setEnlaces] = useState({});
     // La calificación y la firma del CEE entregado: { calificacion, firma } | null.
     const [cee, setCee] = useState(null);
+    // Un encargo de BROKERGY (obra/Encargo.jsx): el encargo y lo que dice ahora el CRM. null si no lo es.
+    const [encargo, setEncargo] = useState(null);
     const [barridoServidor, setBarridoServidor] = useState(null);
     const [form, setForm] = useState(null);
     const [slots, setSlots] = useState({});
@@ -35,6 +54,27 @@ export function useObra(id) {
     const [cargando, setCargando] = useState(true);
     const [guardado, setGuardado] = useState({ estado: 'ok' });
     const [subiendo, setSubiendo] = useState({}); // slot → 0..100
+    const [pendientes, setPendientes] = useState({}); // slot → [File] que no han podido subir
+    const subidasRef = useRef(0);
+    const pendientesRef = useRef({});
+    useEffect(() => { pendientesRef.current = pendientes; }, [pendientes]);
+    // Fichero → su clave en la cola del móvil (los ya apuntados no se reducen ni se apuntan otra vez).
+    const claveRef = useRef(new Map());
+    // Lo que quedó sin subir la última vez (otra visita a la obra, o Safari recargó).
+    useEffect(() => {
+        let vale = true;
+        cola.deLaObra(id).then((filas) => {
+            if (!vale || !filas.length) return;
+            const por = {};
+            for (const { k, slot, file } of filas) { claveRef.current.set(file, k); (por[slot] ||= []).push(file); }
+            setPendientes(p => {
+                const n = { ...p };
+                for (const [s, l] of Object.entries(por)) n[s] = [...(n[s] || []), ...l];
+                return n;
+            });
+        });
+        return () => { vale = false; };
+    }, [id]);
 
     const persistidoRef = useRef(null);
     const formRef = useRef(null);
@@ -87,6 +127,7 @@ export function useObra(id) {
             setEventos(Array.isArray(data?.eventos) ? data.eventos : []);
             setEnlaces(data?.enlaces || {});
             setCee(data?.cee || null);
+            setEncargo(data?.encargo || null);
             setBarridoServidor(data?.barrido || null);
             // Si `/obras/:id` ya trae las fotos, se usan; `/docs` trae miniaturas firmadas.
             if (o.documentacion?.reforma_uploads) setSlots(s => (Object.keys(s).length ? s : normalizarSlots(o.documentacion.reforma_uploads)));
@@ -167,7 +208,8 @@ export function useObra(id) {
             }
         };
         const antesDeSalir = (e) => {
-            if (cambiosDe(formRef.current, persistidoRef.current) || enVueloRef.current) {
+            const fotosEnJuego = subidasRef.current > 0 || Object.values(pendientesRef.current).some(l => l.length);
+            if (cambiosDe(formRef.current, persistidoRef.current) || enVueloRef.current || fotosEnJuego) {
                 guardar();
                 e.preventDefault();
                 e.returnValue = '';
@@ -198,28 +240,85 @@ export function useObra(id) {
         if (!files.length) return { ok: false };
         const slot = SLOTS.find(s => s.id === slotId);
         setSubiendo(s => ({ ...s, [slotId]: 1 }));
+        subidasRef.current += 1;
+        let n = 0;
+        const rechazados = [];
+        const fallidos = [];
+        let ultimoError = null;
+        const claves = claveRef.current;
+        const soltar = (f) => { const k = claves.get(f); if (k) { claves.delete(f); cola.quitar(k); } };
         try {
-            const listos = slot?.video || slot?.documento ? files : await reducirTodas(files);
-            const fd = new FormData();
-            listos.forEach(f => fd.append('files', f));
-            const { data } = await axios.post(`${API}/obras/${id}/docs/${slotId}`, fd, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: (e) => {
-                    if (e.total) setSubiendo(s => ({ ...s, [slotId]: Math.max(1, Math.round(95 * e.loaded / e.total)) }));
-                },
-            });
-            // → { ok, subidos: [...], rechazados: [{ nombre, motivo }], errores: [{ nombre, error }], slots }
-            if (data?.slots && vivo.current) setSlots(normalizarSlots(data));
-            else await recargarDocs();
-            const n = Array.isArray(data?.subidos) ? data.subidos.length : listos.length;
-            const rechazados = [...(data?.rechazados || []), ...(data?.errores || []).map(e => ({ nombre: e.nombre, motivo: e.error }))];
-            return { ok: n > 0 || !rechazados.length, n, rechazados };
+            // Lo que ya estaba en la cola ya se redujo; lo nuevo se reduce y se apunta ANTES de mandarlo.
+            const viejos = files.filter(f => claves.has(f));
+            const nuevos = files.filter(f => !claves.has(f));
+            const reducidos = slot?.video || slot?.documento ? nuevos : await reducirTodas(nuevos);
+            for (const f of reducidos) {
+                if (f.size > COLA_MAX_BYTES) continue;
+                const k = await cola.apuntar(id, slotId, f);
+                if (k) claves.set(f, k);
+            }
+            const listos = [...viejos, ...reducidos];
+            const total = listos.reduce((s, f) => s + (f.size || 1), 0) || 1;
+            let hecho = 0;
+            for (const f of listos) {
+                for (let intento = 0; ; intento++) {
+                    try {
+                        const fd = new FormData();
+                        fd.append('files', f);
+                        const { data } = await axios.post(`${API}/obras/${id}/docs/${slotId}`, fd, {
+                            headers: { 'Content-Type': 'multipart/form-data' },
+                            onUploadProgress: (e) => {
+                                if (e.total && vivo.current) setSubiendo(s => ({ ...s, [slotId]: Math.max(1, Math.round(95 * (hecho + (f.size || 1) * e.loaded / e.total) / total)) }));
+                            },
+                        });
+                        // → { ok, subidos: [...], rechazados: [{ nombre, motivo }], errores: [{ nombre, error }], slots }
+                        if (data?.slots && vivo.current) setSlots(normalizarSlots(data));
+                        n += Array.isArray(data?.subidos) ? data.subidos.length : 1;
+                        rechazados.push(...(data?.rechazados || []), ...(data?.errores || []).map(e => ({ nombre: e.nombre, motivo: e.error })));
+                        soltar(f);
+                        break;
+                    } catch (err) {
+                        if (reintentable(err) && intento < ESPERAS_MS.length) { await esperar(ESPERAS_MS[intento]); continue; }
+                        if (reintentable(err)) { fallidos.push(f); ultimoError = err; }
+                        else {
+                            soltar(f); // el servidor no lo quiere: reintentarlo no lo arregla
+                            const d = errorDe(err);
+                            if (Array.isArray(d.rechazados) && d.rechazados.length) rechazados.push(...d.rechazados);
+                            else rechazados.push({ nombre: f.name, motivo: mensajeError(err, 'no se ha podido subir') });
+                        }
+                        break;
+                    }
+                }
+                hecho += f.size || 1;
+            }
+            if (!n && vivo.current) await recargarDocs();
         } catch (err) {
-            return { ok: false, error: mensajeError(err, 'No se ha podido subir.') };
+            // Fuera de la subida (reducir las fotos): se guardan las originales para reintentar.
+            fallidos.push(...files);
+            ultimoError = err;
         } finally {
-            if (vivo.current) setSubiendo(s => { const n = { ...s }; delete n[slotId]; return n; });
+            subidasRef.current -= 1;
+            // Las que no han subido sustituyen, en su apartado, a las que se mandaban.
+            setPendientes(p => ({ ...p, [slotId]: [...(p[slotId] || []).filter(x => !files.includes(x)), ...fallidos] }));
+            if (vivo.current) setSubiendo(s => { const k = { ...s }; delete k[slotId]; return k; });
         }
+        return {
+            ok: !fallidos.length && (n > 0 || !rechazados.length), n, rechazados, fallidos,
+            error: fallidos.length ? mensajeError(ultimoError, 'No se ha podido subir.') : null,
+        };
     }, [id, recargarDocs]);
+
+    /** Vuelve a mandar lo que no subió en un apartado (las mismas fotos, sin repetirlas). */
+    const reintentar = useCallback((slotId) => subir(slotId, pendientesRef.current[slotId] || []), [subir]);
+
+    /** Olvida lo que no subió en un apartado (también de la cola del móvil). */
+    const descartar = useCallback((slotId) => {
+        for (const f of pendientesRef.current[slotId] || []) {
+            const k = claveRef.current.get(f);
+            if (k) { claveRef.current.delete(f); cola.quitar(k); }
+        }
+        setPendientes(p => { const n = { ...p }; delete n[slotId]; return n; });
+    }, []);
 
     // La fachada propuesta (Catastro o Street View) → «Fachada principal».
     const usarFachada = useCallback(async (fuente) => {
@@ -249,9 +348,9 @@ export function useObra(id) {
     }, [id]);
 
     return {
-        obra, setObra, eventos, enlaces, cee, barridoServidor, setBarridoServidor,
+        obra, setObra, eventos, enlaces, cee, encargo, setEncargo, barridoServidor, setBarridoServidor,
         form, setCampo, setC, setCuestionario, setTitular, setDecision,
-        slots, docsError, recargarDocs, subir, quitar, subiendo, usarFachada,
+        slots, docsError, recargarDocs, subir, reintentar, descartar, pendientes, quitar, subiendo, usarFachada,
         error, cargando, cargar, guardar, guardado, editable,
     };
 }

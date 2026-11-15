@@ -59,6 +59,13 @@ hereda el TOTAL y le vuelve a aplicar su porcentaje: sigue mandando el `.cex` si
 el certificador corrigió la superficie en CE3X, y sigue mandando el C_b para
 repartirla.
 
+**REGLA — el ACS solo se reparte si la BOMBA lo da** (2026-10-25, 26RES093_14). En una
+hibridación solo de calefacción (`instalacion.cambio_acs = false`) con la caldera MIXTA, la
+caldera de la medida conserva el **100 % del ACS** y el C_b solo reparte la calefacción.
+Repartiendo también el ACS, la caldera cubría el 10 % del agua, nadie el resto, y CE3X no
+calculaba la medida: «La instalación de ACS no está bien definida. El porcentaje de demanda
+cubierta debe ser el 100 %». Lo hace `calderaHibrida(…, { bombaDaAcs })`.
+
 **REGLA — sin reparto calculable NO se compone.** Sin la potencia de la bomba (o
 la de la caldera, según la base) el C_b no sale, y escribir la bomba al 100 %
 declararía una sustitución que no es. Se dice qué falta, con esas palabras.

@@ -18,7 +18,8 @@
 //   estar ACEPTADO con el CEE inicial sin encargar, y una vez por ronda de revisión
 //   (`aceptacion_agente.revision_at`), hasta MAX_RONDAS. `--otra-vez` salta lo de la
 //   ronda, solo si Fran lo pide.
-// - Fuera de 9 a 21 h (Madrid) no sale: se PROGRAMA y lo manda el servidor a las 9:00.
+// - Fuera de 7 a 21 h (Madrid) no sale: se PROGRAMA y lo manda el servidor a las 7:00
+//   (utils/horarioWhatsapp.js, la franja de la casa).
 // - El saludo, el enlace y la firma los pone el script; el agente solo dice QUÉ falta.
 // - Envía por el VPS (`/api/whatsapp/send-text` con la clave interna), como el resto
 //   de scripts del asistente, y lo apunta en el historial del expediente.

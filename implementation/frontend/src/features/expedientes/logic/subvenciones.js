@@ -121,6 +121,11 @@ export function subvencionesVacio() {
             anio: '',
             num_expediente: '',
             estado: 'PENDIENTE',
+            // Texto libre que imprime la casilla «Estado» del Anexo I en vez del
+            // rótulo del estado (p. ej. «Solicitada sin contestación por ausencia
+            // de fondos», 26RES060_126). La casilla marcada la sigue decidiendo
+            // `estado`, que es el enum: el texto solo matiza.
+            estado_texto: '',
             fecha_solicitud: '',
             fecha_resolucion: '',
             cuantia_eur: '',
@@ -268,7 +273,8 @@ export function anexoIStates(expediente) {
             anio: p.anio,
             disposicion: p.disposicion,
             num_expediente: a.num_expediente || '',
-            estado: (ESTADOS_CONCESION.find(e => e.id === a.estado) || {}).label || '',
+            estado: String(a.estado_texto || '').trim()
+                || (ESTADOS_CONCESION.find(e => e.id === a.estado) || {}).label || '',
             fecha_solicitud: fechaEs(a.fecha_solicitud),
             fecha_resolucion: fechaEs(a.fecha_resolucion),
             cuantia: a.cuantia_eur ? `${importeEs(a.cuantia_eur)} €` : '',

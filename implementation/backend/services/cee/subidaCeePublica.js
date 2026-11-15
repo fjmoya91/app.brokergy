@@ -11,6 +11,10 @@
 //
 // `quien` solo cambia CÓMO se cuenta en el historial y en el aviso («el
 // certificador», «Eva · presentación»); lo que se hace es lo mismo.
+//
+// `pdfDelXml` (solo las dos páginas del técnico, desde el 31/10/2026): al subir el
+// XML se hace con él el PDF OFICIAL en el servidor y va a la casilla del PDF. Ver
+// `pdfOficialDelXml` y docs/conocimiento/certificadores-app/el-pdf-del-xml-en-el-servidor.md.
 
 const supabase = require('../supabaseClient');
 const ceeUploadService = require('../ceeUploadService');
@@ -18,7 +22,55 @@ const { invalidarValidacionCee } = require('../../utils/docValidacion');
 
 const QUIEN_TECNICO = { texto: 'el certificador', usuario: 'CERTIFICADOR' };
 
-function error(status, msg) { const e = new Error(msg); e.status = status; return e; }
+function error(status, msg, extra) { const e = new Error(msg); e.status = status; return Object.assign(e, extra); }
+
+/**
+ * El PDF oficial del XML que sube el técnico por su enlace. Lo hace el servidor
+ * (`cexAPdf.pdfDeXml`, el servicio xml2cert del VPS), así que no necesita sacarlo de
+ * su CE3X —que es justo lo que les da errores—.
+ *
+ * REGLA — un XML de CE3X 3.x que NO VALIDA no se guarda (regla 140): 422 con los
+ * motivos del `.log`. Su PDF saldría con la marca «certificado incompleto».
+ * REGLA — lo demás se guarda como siempre, sin PDF: un XML de la 2.3 (xml2cert no lo
+ * sabe hacer: su PDF lo saca la 2.3), uno que no es de un certificado, la fase ya
+ * REGISTRADA (lo que hay es lo presentado y no se toca) o el generador sin
+ * responder (se dice, y basta con volver a subirlo).
+ * Devuelve { pdf: Buffer|null, aviso: texto|null }.
+ */
+async function pdfOficialDelXml(buffer, { registrado }) {
+    if (registrado) return { pdf: null, aviso: null };
+    const p = await require('./cexAPdf').pdfDeXml(buffer);
+    if (p.noDisponible) {
+        return { pdf: null, aviso: 'Ahora mismo no hemos podido hacer el PDF oficial. Tu XML sí se ha guardado: '
+            + 'vuelve a subirlo en unos minutos para tener el PDF, o sube el tuyo en su casilla.' };
+    }
+    if (p.noEsCee) return { pdf: null, aviso: 'Ese fichero no parece el XML de un certificado: se ha guardado, pero no podemos hacer su PDF.' };
+    if (!String(p.version || '').startsWith('3')) return { pdf: null, aviso: null };
+    if (!p.ok || p.marcaDeAgua) {
+        throw error(422, 'Ese XML no valida: su PDF saldría con la marca «certificado incompleto» y no se podría registrar. '
+            + 'Corrígelo en CE3X y vuelve a subirlo.', { codigo: 'XML_NO_VALIDA', motivos: p.avisos?.length ? p.avisos : [p.error].filter(Boolean) });
+    }
+    return { pdf: p.pdf, aviso: null };
+}
+
+/**
+ * Deja el PDF oficial en la casilla del PDF, SALVO que el que ya hay sea de este
+ * mismo XML (lo lleva dentro: `xmlDelPdf`). Entonces es el suyo, firmado o no, y no
+ * se toca: así da igual en qué orden suba los ficheros. Si era de otro XML, pasa a
+ * OLD (como cualquier versión anterior): ya no corresponde a lo que se presenta.
+ * `actual` = { id, name } de lo que hay; `subir(pdf)` → { link, fileName }.
+ */
+async function colocarPdfOficial({ pdf, xml, actual, subir }) {
+    const cexAPdf = require('./cexAPdf');
+    if (actual?.id) {
+        try {
+            const deAhora = await require('../driveService').getFileContent(actual.id);
+            if (cexAPdf.mismoXml(await cexAPdf.xmlDelPdf(Buffer.from(deAhora)), xml)) return { hecho: false, conservado: actual.name };
+        } catch (e) { console.warn('[subida cee] no se pudo leer el PDF que había:', e.message); }
+    }
+    const subido = await subir(pdf);
+    return { hecho: true, name: subido.fileName, link: subido.link, sustituido: actual?.name || null };
+}
 
 /**
  * Sube un fichero a un slot del CEE de un expediente CAE.
@@ -26,7 +78,7 @@ function error(status, msg) { const e = new Error(msg); e.status = status; retur
  */
 // `avisoAutomatico`: el aviso al cliente lo manda quien llama (presentación de la
 // casa), así que el email al equipo va SIN el botón «Notificar al Cliente».
-async function subirCae({ expedienteId, fase, slot, buffer, mimetype, quien = QUIEN_TECNICO, avisoAutomatico = false }) {
+async function subirCae({ expedienteId, fase, slot, buffer, mimetype, quien = QUIEN_TECNICO, avisoAutomatico = false, pdfDelXml = false }) {
     const ph = fase === 'final' ? 'final' : 'inicial';
     if (!buffer?.length) throw error(400, 'No se ha recibido ningún archivo');
     if (!ceeUploadService.CEE_SLOTS.find(s => s.id === slot)) throw error(400, 'Tipo de documento no válido');
@@ -37,6 +89,11 @@ async function subirCae({ expedienteId, fase, slot, buffer, mimetype, quien = QU
     const driveFolderId = await ceeUploadService.resolveDriveFolderId(exp);
     if (!driveFolderId) throw error(400, 'El expediente no tiene carpeta de Drive');
 
+    // Antes de guardar nada: un XML que no valida no entra.
+    const oficial = pdfDelXml && slot === 'xml'
+        ? await pdfOficialDelXml(buffer, { registrado: exp.seguimiento?.[ph === 'final' ? 'cee_final' : 'cee_inicial'] === 'REGISTRADO' })
+        : null;
+
     const numExp = exp.numero_expediente || expedienteId;
     const uploaded = await ceeUploadService.uploadCeeFile(driveFolderId, ph, numExp, slot, buffer, mimetype);
 
@@ -44,10 +101,20 @@ async function subirCae({ expedienteId, fase, slot, buffer, mimetype, quien = QU
     const cee = exp.cee || {};
     const ceeFiles = cee.cee_files || {};
     ceeFiles[ph] = { ...(ceeFiles[ph] || {}), [slot]: uploaded.link };
+    let pdfOficial = null;
+    if (oficial?.pdf) {
+        pdfOficial = await colocarPdfOficial({
+            pdf: oficial.pdf, xml: buffer,
+            actual: (await ceeUploadService.scanCeeSection(driveFolderId, ph)).pdf,
+            subir: (pdf) => ceeUploadService.uploadCeeFile(driveFolderId, ph, numExp, 'pdf', pdf, 'application/pdf'),
+        });
+        if (pdfOficial.hecho) ceeFiles[ph].pdf = pdfOficial.link;
+    }
     cee.cee_files = ceeFiles;
     // Fichero nuevo ⇒ la validación anterior del slot ya no vale (igual que al
     // subirlo desde la app en CeeDocumentsGrid): vuelve a ámbar.
-    const ceeActualizado = invalidarValidacionCee(cee, ph, slot);
+    let ceeActualizado = invalidarValidacionCee(cee, ph, slot);
+    if (pdfOficial?.hecho) ceeActualizado = invalidarValidacionCee(ceeActualizado, ph, 'pdf');
     await supabase.from('expedientes').update({ cee: ceeActualizado, updated_at: new Date().toISOString() }).eq('id', expedienteId);
     // Fichero nuevo ⇒ la revisión previa que hubiera en el freno ya no vale.
     if (slot === 'xml' || slot === 'cex') require('./revisionTecnico').olvidar(expedienteId, ph);
@@ -70,14 +137,15 @@ async function subirCae({ expedienteId, fase, slot, buffer, mimetype, quien = QU
         fechaRegistro = r.fechaRegistro || lectura.fecha;
     }
 
-    return { success: true, slot, link: uploaded.link, name: uploaded.fileName, registrado, ya_registrado: yaRegistrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha };
+    return { success: true, slot, link: uploaded.link, name: uploaded.fileName, registrado, ya_registrado: yaRegistrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha,
+        ...(oficial ? { pdf_oficial: pdfOficial, aviso_pdf: oficial.aviso } : {}) };
 }
 
 /**
  * Sube un fichero a un slot del CEE de un CEE DIRECTO. El justificante de
  * REGISTRO cierra la fase y es una de las dos mitades de la entrega al cliente.
  */
-async function subirCeeDirecto({ id, fase, slot, buffer, mimetype, quien = QUIEN_TECNICO }) {
+async function subirCeeDirecto({ id, fase, slot, buffer, mimetype, quien = QUIEN_TECNICO, pdfDelXml = false }) {
     const ceeDirectoUploads = require('../ceeDirectoUploadService');
     const svcCeeDirecto = require('../ceeDirectoService');
     const ph = fase === 'final' ? 'final' : 'inicial';
@@ -88,20 +156,38 @@ async function subirCeeDirecto({ id, fase, slot, buffer, mimetype, quien = QUIEN
     if (!row) throw error(404, 'Expediente no encontrado');
     if (!row.drive_folder_id) throw error(400, 'El expediente no tiene carpeta de Drive');
 
+    const key = ph === 'final' ? 'cee_final' : 'cee_inicial';
+    // Antes de guardar nada: un XML que no valida no entra.
+    const oficial = pdfDelXml && slot === 'xml'
+        ? await pdfOficialDelXml(buffer, { registrado: row.seguimiento?.[key] === 'REGISTRADO' })
+        : null;
+
     const subido = await ceeDirectoUploads.uploadFile(row, ph, slot, buffer, mimetype);
 
     const cee = row.cee || {};
     const ceeFiles = cee.cee_files || {};
     ceeFiles[ph] = { ...(ceeFiles[ph] || {}), [slot]: subido.link };
+    // El PDF oficial va a su casilla sin pasar por la del «PDF firmado» de abajo:
+    // está SIN FIRMAR y no completa el paso de la factura.
+    let pdfOficial = null;
+    if (oficial?.pdf) {
+        pdfOficial = await colocarPdfOficial({
+            pdf: oficial.pdf, xml: buffer,
+            actual: (await ceeDirectoUploads.scanSection(row, ph)).pdf,
+            subir: (pdf) => ceeDirectoUploads.uploadFile(row, ph, 'pdf', pdf, 'application/pdf'),
+        });
+        if (pdfOficial.hecho) ceeFiles[ph].pdf = pdfOficial.link;
+    }
     cee.cee_files = ceeFiles;
     // Fichero nuevo ⇒ la validación anterior del slot deja de valer y vuelve a
     // ámbar, igual que al subirlo desde la app.
-    const patch = { cee: invalidarValidacionCee(cee, ph, slot) };
+    let ceeActualizado = invalidarValidacionCee(cee, ph, slot);
+    if (pdfOficial?.hecho) ceeActualizado = invalidarValidacionCee(ceeActualizado, ph, 'pdf');
+    const patch = { cee: ceeActualizado };
 
     // El justificante de REGISTRO es el hito: cierra la fase. Se sella aquí y
     // no en un segundo paso porque quien lo sube no vuelve a entrar.
     let registrado = false, fechaRegistro = null, avisoFecha = null;
-    const key = ph === 'final' ? 'cee_final' : 'cee_inicial';
     if (slot === 'registro' && row.seguimiento?.[key] !== 'REGISTRADO') {
         // La fecha sale del justificante, no del día de la subida. Misma lectura que en el CAE.
         const { resolverFechaRegistro } = require('../registroCeeOcrService');
@@ -158,7 +244,8 @@ async function subirCeeDirecto({ id, fase, slot, buffer, mimetype, quien = QUIEN
         });
     }
 
-    return { success: true, slot, link: subido.link, name: subido.fileName, registrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha };
+    return { success: true, slot, link: subido.link, name: subido.fileName, registrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha,
+        ...(oficial ? { pdf_oficial: pdfOficial, aviso_pdf: oficial.aviso } : {}) };
 }
 
 module.exports = { subirCae, subirCeeDirecto, QUIEN_TECNICO };

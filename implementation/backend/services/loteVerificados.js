@@ -131,6 +131,19 @@ function casarActuaciones(actuaciones, expedientes) {
  * Por eso, si el lote no tiene todavía los ahorros verificados, no se propone
  * nada y se dice qué hacer antes (subir el informe y registrar sus ahorros).
  */
+/**
+ * ¿La ficha que escribe el dictamen es la del expediente? Sin separadores: así
+ * casan «RES060_FM» / «RES060_FM-S» con 26RES060FM_12, y las hibridaciones FM de
+ * cualquier zona (RES090_FM … RES094_FM) con 26RES093FM_N, que es su número en la
+ * app (vía del factor multiplicador, serie propia).
+ */
+function fichaDelDictamenCasa(fichaDictamen, numero) {
+    const n = String(numero || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    let f = String(fichaDictamen || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/FMS$/, 'FM');
+    if (/^RES09[0-4]FM$/.test(f)) f = 'RES093FM';
+    return n.includes(f);
+}
+
 function casarDictamen(actuaciones, expedientes) {
     const exps = Array.isArray(expedientes) ? expedientes : [];
     const avisos = [];
@@ -173,7 +186,7 @@ function casarDictamen(actuaciones, expedientes) {
 
         // La ficha del dictamen tiene que ser la del expediente: es la comprobación
         // que delata un casado por ahorro que ha coincidido de casualidad.
-        if (exp && fila.ficha && exp.numero_expediente && !String(exp.numero_expediente).toUpperCase().includes(String(fila.ficha).toUpperCase())) {
+        if (exp && fila.ficha && exp.numero_expediente && !fichaDelDictamenCasa(fila.ficha, exp.numero_expediente)) {
             fila.avisos.push(`El dictamen dice ${fila.ficha} y el expediente es ${exp.numero_expediente}.`);
         }
         if (fila.inversion_eur == null) fila.avisos.push('No se ha podido leer la inversión de esta fila.');
@@ -443,6 +456,7 @@ function puedePagarseAlCliente(expedientes) {
 }
 
 module.exports = {
+    fichaDelDictamenCasa,
     casarActuaciones,
     aplicarOrdenActuacion,
     casarDictamen,

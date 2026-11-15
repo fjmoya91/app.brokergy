@@ -34,6 +34,23 @@ const {
 // en cuanto vuelve (asistente_whatsapp.js). Nunca lanza.
 const mandar = mandarOGuardar;
 const proactivo = require('./asistente_proactivo');
+const { ordenContestador } = require('../utils/ordenContestador');
+
+/** «C4»: manda (y guarda) lo de esas copias del contestador. Devuelve lo que se le dice a Fran. Nunca lanza. */
+async function mandarCopias(ids, si) {
+    const lineas = [];
+    for (const id of ids) {
+        try {
+            // eslint-disable-next-line no-await-in-loop
+            const r = await api(`/api/whatsapp/contestador/${id}/enviar`, { method: 'POST', body: { si }, ms: 240_000 });
+            const g = r.guardados ? `${r.guardados === 1 ? '1 documento guardado' : `${r.guardados} documentos guardados`} en el expediente` : '';
+            lineas.push(r.texto ? `C${id}: mandado${g ? `, y ${g}` : ''}.` : `C${id}: ${g || 'hecho'} (sin escribirle).`);
+        } catch (e) {
+            lineas.push(`C${id}: no lo mando. ${String(e.message || e).replace(/^\/api\S+ → /, '')}`);
+        }
+    }
+    return lineas.join('\n');
+}
 
 const RAIZ = path.join(__dirname, '..', '..', '..');
 const DIR = path.join(__dirname, '..', 'scratch', 'asistente');
@@ -41,6 +58,7 @@ const ESTADO = path.join(DIR, 'vigia.json');
 const LOCK = path.join(DIR, 'vigia.lock');
 const LOGS = path.join(DIR, 'log');
 const CONSUMO = path.join(DIR, 'consumo.jsonl');
+const CONSUMO_CONTESTADOR = path.join(DIR, 'contestador.jsonl');
 const INSTRUCCIONES = path.join(__dirname, 'asistente_instrucciones.md');
 const SERVIDOR = process.argv.includes('--servidor');
 const PUERTO = Number(process.env.ASISTENTE_PUERTO) || 8091;
@@ -253,9 +271,16 @@ function textoConsumo() {
     }
     const total = filas.reduce((a, f) => a + (f.coste_usd || 0), 0);
     const minutos = filas.reduce((a, f) => a + (f.segundos || 0), 0) / 60;
+    // El contestador va en su propio fichero (no cuenta para el tope de trabajos del día).
+    let resp = [];
+    try { resp = fs.readFileSync(CONSUMO_CONTESTADOR, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(f => Date.parse(f.fecha) >= desde); } catch { /* aún nada */ }
+    const lineaContestador = resp.length
+        ? `• Contestador de WhatsApp: ${resp.length} respuestas, ${mil(resp.reduce((a, f) => a + (f.entrada || 0), 0))} tokens de entrada, ${(resp.reduce((a, f) => a + (f.coste_usd || 0), 0)).toFixed(2).replace('.', ',')} $ a precio de API`
+        : null;
     return [
         `*Consumo de los últimos 7 días*: ${filas.length} trabajos, ${mil(minutos)} min.`,
         ...Object.entries(porModelo).map(([m, u]) => `• ${m}: ${mil(u.entrada)} tokens de entrada, ${mil(u.salida)} de salida`),
+        ...(lineaContestador ? [lineaContestador] : []),
         `Equivale a ${total.toFixed(2).replace('.', ',')} $ a precio de API. Con tu plan no se cobra aparte: cuenta para tus límites de uso.`,
         `Por defecto uso ${MODELO}; escribe «con opus» o «con haiku» en tu mensaje para cambiarlo.`,
     ].join('\n');
@@ -310,7 +335,21 @@ async function mantenimiento() {
         const pend = seccion(leerCuaderno(), 'Pendiente');
         estado.parte = hoyMadrid();
         guardarEstado(estado);
-        if (pend.length) await mandar(`Buenos días, Fran. Esto sigue pendiente:\n${pend.join('\n')}`);
+        // Y, en el MISMO mensaje, lo que se le ha pedido a la gente por WhatsApp: quién ha
+        // contestado, a quién se le ha recordado (o se le habría recordado, en modo copia)
+        // y quién no contesta (esperasWhatsapp). Dos avisos a la misma hora son ruido.
+        let esperas = '';
+        try { esperas = (await api('/api/whatsapp/esperas/resumen', { ms: 30_000 })).texto || ''; }
+        catch (e) { log('Resumen de las esperas:', e.message); }
+        // Y lo que ha contestado (o habría contestado, en modo copia) el contestador.
+        let contestador = '';
+        try { contestador = (await api('/api/whatsapp/contestador/resumen', { ms: 30_000 })).texto || ''; }
+        catch (e) { log('Resumen del contestador:', e.message); }
+        const whatsapp = [esperas, contestador].filter(Boolean).join('\n\n');
+        const partes = [];
+        if (pend.length) partes.push(`Buenos días, Fran. Esto sigue pendiente:\n${pend.join('\n')}`);
+        if (whatsapp) partes.push(`${pend.length ? '' : 'Buenos días, Fran.\n\n'}*Lo de WhatsApp*\n${whatsapp}`);
+        if (partes.length) await mandar(partes.join('\n\n'));
     }
     // 3. La ronda de presentar de la noche (asistente_pc.js noche): a partir de las 21 h, una vez al día,
     //    UNA pregunta con todos los CEE de la casa con visto bueno y sin registrar. Sin nada, calla.
@@ -403,6 +442,14 @@ async function vueltaUnica() {
             await mandar(textoConsumo());
             return;
         }
+        // «C4» (o «manda C4», «C2 y C4»): el «sí» a una copia del CONTESTADOR. Es un botón, no hay nada
+        // que pensar: lo manda el vigilante sin despertar a Claude (Fran, 10/11/2026). Con cambios
+        // («C4, dile además…») sí va a Claude, que lo redacta y lo manda (asistente_instrucciones.md).
+        const orden = soloTexto ? ordenContestador(soloTexto) : null;
+        if (orden?.tipo === 'mandar') {
+            await mandar(await mandarCopias(orden.ids, soloTexto));
+            return;
+        }
 
         const carpeta = path.join(DIR, 'entrada', etiqueta);
         const lineas = [];
@@ -481,6 +528,17 @@ async function vueltaUnica() {
     }
 }
 
+// El carril del CONTESTADOR (POST /contestar): en fila, uno cada vez, aparte de `trabajando`.
+const contestadorClaude = require('./contestador_claude');
+let colaContestar = Promise.resolve();
+let esperandoContestar = 0;
+function contestar(prompt) {
+    esperandoContestar += 1;
+    const turno = colaContestar.then(() => contestadorClaude.pensar(prompt));
+    colaContestar = turno.then(() => {}, () => {}).then(() => { esperandoContestar -= 1; });
+    return turno;
+}
+
 // Una vuelta pedida para dentro de `ms` (el aviso del backend, o esperar a que acabe la ráfaga).
 let temporizador = null;
 function programar(ms) {
@@ -543,12 +601,39 @@ function servidor() {
                     });
                     if (r.ok && !r.duplicado) {
                         log(`Presentación de ${t.numero} encargada desde la app.`);
-                        await mandar(`Desde la app me has pedido presentar *${t.numero}* (${t.importe} €). Se lo paso a tu PC; ${r.pc.texto}. Te aviso cuando empiece y cuando esté registrado.`);
+                        // Si el PC de presentar no responde y otro sí: cómo pasárselo («hazlo en OFICINA» → `mover`).
+                        const otro = r.pc.pregunta ? ` Si prefieres que lo haga *${r.pc.alternativas[0]}*, que está encendido, contesta «hazlo en ${r.pc.alternativas[0]}».` : '';
+                        await mandar(`Desde la app me has pedido presentar *${t.numero}* (${t.importe} €). Se lo paso a ${r.tarea?.destino ? `*${r.tarea.destino}*` : 'tu PC'}; ${r.pc.texto}.${otro} Te aviso cuando empiece y cuando esté registrado.`);
                     }
                 } catch (e) {
                     r = { ok: false, motivo: e.message };
                 }
                 res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(r));
+            });
+            return;
+        }
+        if (req.method === 'POST' && req.url === '/contestar') {     // el CONTESTADOR: redactar UNA respuesta
+            // Su propio carril, uno cada vez: no espera a que acabe el trabajo de Fran (un CEE de
+            // 7 minutos no puede dejar a un cliente sin contestar) ni lo bloquea. Sin herramientas:
+            // el backend le pasa todo en el prompt (scripts/contestador_claude.js).
+            let cuerpo = '';
+            req.on('data', d => { cuerpo += d; if (cuerpo.length > 400_000) req.destroy(); });
+            req.on('end', async () => {
+                const json = { 'Content-Type': 'application/json' };
+                let prompt = '';
+                try { prompt = String(JSON.parse(cuerpo || '{}').prompt || ''); } catch { /* cuerpo raro */ }
+                if (!prompt) { res.writeHead(400, json); res.end(JSON.stringify({ ok: false, error: 'sin prompt' })); return; }
+                if (esperandoContestar >= 4) { res.writeHead(429, json); res.end(JSON.stringify({ ok: false, error: 'cola del contestador llena' })); return; }
+                const r = await contestar(prompt);
+                try {
+                    fs.appendFileSync(CONSUMO_CONTESTADOR, `${JSON.stringify({
+                        fecha: new Date().toISOString(), modelo: r.modelo, segundos: r.segundos, coste_usd: r.coste_usd,
+                        entrada: r.entrada, salida: r.salida, ok: r.ok,
+                    })}\n`);
+                } catch { /* no impide nada */ }
+                log(`Contestador: ${r.ok ? 'redactado' : `fallo (${r.error})`} en ${r.segundos} s.`);
+                res.writeHead(r.ok ? 200 : 502, json);
                 res.end(JSON.stringify(r));
             });
             return;
@@ -583,7 +668,10 @@ function servidor() {
     }).listen(PUERTO, () => log(`Esperando avisos en :${PUERTO}.`));
 }
 
-(async () => {
+// Solo arranca si se LANZA (`node scripts/asistente_vigia.js`). Con un `require` (una prueba que
+// mira si el fichero carga) arrancaba de verdad: leía el grupo de Fran desde el PC y le volvía a
+// atender lo ya atendido en el servidor (10/11/2026).
+if (require.main === module) (async () => {
     if (!TEL) { log('Falta ASISTENTE_WHATSAPP_TEL en el .env: el canal no arranca.'); return; }
     if (!cogerLock()) { log('Ya hay un vigilante corriendo.'); return; }
     log(`Vigilando ${GRUPO ? `el grupo ${GRUPO} (solo los mensajes de Fran)` : `el chat de ${TEL}`} cada ${CADA_MS / 1000} s${SERVIDOR ? ' y con el aviso del backend' : ''} · modelo por defecto ${MODELO}.`);

@@ -22,6 +22,12 @@ const casos = [
     ['gasóleo', { boilerId: 'oil_post98', fuelType: 'gasoleo' }, {}, false],
     ['gas', { boilerId: 'gas_post98_auto', fuelType: 'gas_natural' }, {}, false],
     ['sin inputs', null, {}, false],
+    // Lo ELEGIDO en «¿Carbón o biomasa?» manda sobre el funnel y la placa (26RES060_OP403).
+    ['elegido carbón aunque la placa y el funnel digan biomasa', { boilerId: 'solid_man_no_cal', fuelType: 'carbon', combustibleSolido: 'carbon', boilerHeatingType: 'BIOMASA', placa_caldera: { combustible: 'biomasa' } }, {}, false],
+    ['elegido carbón aunque fuelType se quedara en pellets', { boilerId: 'solid_man_no_cal', fuelType: 'pellets', combustibleSolido: 'carbon' }, {}, false],
+    ['elegida leña aunque fuelType diga carbón', { boilerId: 'solid_man_cal', fuelType: 'carbon', combustibleSolido: 'lena' }, {}, true],
+    ['elegido algo raro → se ignora y decide fuelType', { boilerId: 'solid_auto', fuelType: 'pellets', combustibleSolido: 'turba' }, {}, true],
+    ['elegido carbón con una fila de gas → no cuenta', { boilerId: 'gas_post98_auto', fuelType: 'gas_natural', combustibleSolido: 'lena' }, {}, false],
 ];
 for (const [d, inp, o, esp] of casos) {
     assert.equal(m.avisarIrpfBiomasa(inp, o), esp, d);
@@ -31,4 +37,7 @@ const linea = m.lineaIrpfBiomasa();
 assert.match(linea, /placas solares fotovoltaicas/);
 assert.match(linea, /Bono Energético CAE NO se ve afectado/);
 assert.match(linea, /primaria no renovable/);
-console.log(`✓ irpfBiomasa: ${casos.length} casos + texto`);
+assert.equal(m.combustibleSolidoElegido({ combustibleSolido: 'CARBON' }), 'carbon');
+assert.equal(m.combustibleSolidoElegido({}), null);
+assert.deepEqual(m.COMBUSTIBLES_SOLIDOS.map(x => x.id), ['carbon', 'lena', 'pellets']);
+console.log(`✓ irpfBiomasa: ${casos.length} casos + texto + elegido`);

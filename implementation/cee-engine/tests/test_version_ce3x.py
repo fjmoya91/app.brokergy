@@ -623,3 +623,46 @@ def test_lo_que_ya_trae_el_conjunto_manda_y_en_la_2_3_no_se_escribe():
     assert g.estado[P.Cadena("justificacion")] == "La del tecnico"
     VC.medidas_a_23([g])
     assert {str(k) for k in g.estado} == {"nombre"}
+
+
+def test_un_inicial_de_la_2_3_gana_los_puentes_que_la_2_3_anadia_al_calcular():
+    """26RES060_186 (20/10/2026): el MISMO inicial daba en la 3.2 196,84 kWh/m² de
+    calefacción frente a los 215,19 registrados con la 2.3, porque la 2.3 pone al
+    calcular pilares integrados, solera, cubierta y cajas de persiana que no van en
+    el fichero. Se escriben los del XML del inicial (que llega en MAYÚSCULAS de la
+    BD), tal cual y solo los que faltan; sin XML, se avisa."""
+    import server
+    crudo = _cex_23()
+    antes = L.leer(L.trocear_bytes(crudo), 3)[2]
+    puentes = [
+        {"nombre": "PT CONTORNO DE HUECO-V1", "tipo": "CONTORNO DE HUECO", "psi": 0.55, "longitud": 4.8},
+        {"nombre": "PT CAJA DE PERSIANA-V1", "tipo": "CAJA DE PERSIANA", "psi": 1.49, "longitud": 1.2},
+        {"nombre": "PT PILAR INTEGRADO EN FACHADA-FBS1 FACHADA", "tipo": "PILAR INTEGRADO EN FACHADA",
+         "psi": 1.05, "longitud": 5.6},
+        {"nombre": "PT ENCUENTRO DE FACHADA CON CUBIERTA-CUB1 CUBIERTA",
+         "tipo": "ENCUENTRO DE FACHADA CON CUBIERTA", "psi": 1.04, "longitud": 44.0},
+        {"nombre": "PT PILAR INTEGRADO EN FACHADA-NO EXISTE", "tipo": "PILAR INTEGRADO EN FACHADA",
+         "psi": 1.05, "longitud": 2.8},
+    ]
+    salida, avisos, _ = server.convertir(crudo, {"puentes_inicial": puentes})
+    despues = L.leer(L.trocear_bytes(salida), 3)
+    pts = {p[0]: p for p in despues[2]}
+    # Este fichero ya escribe sus pilares integrados y la cubierta: solo falta la
+    # caja de persiana, y lo que ya estaba no se toca ni se duplica.
+    assert len(despues[2]) == len(antes) + 1
+    assert pts["PT Caja de Persiana-V1"][2:5] == ["Caja de Persiana", 1.49, "1.2"]
+    assert pts["PT Caja de Persiana-V1"][7] == "FBS1 FACHADA"
+    assert repr(despues[2][:len(antes)]) == repr(antes)
+    assert any("1 puentes térmicos" in a for a in avisos)
+    assert any("NO EXISTE" in a for a in avisos)
+    # Sin ninguno de los suyos, se escriben todos (con el nombre del fichero).
+    sin = [p for p in antes if p[2] not in ("Pilar integrado en fachada", "Encuentro de fachada con cubierta")]
+    cambios = {3: [*L.leer(L.trocear_bytes(crudo), 3)[:2], sin, L.leer(L.trocear_bytes(crudo), 3)[3]]}
+    av = CX.completar_puentes_23(L.trocear_bytes(crudo), cambios, puentes)
+    nombres = {p[0] for p in cambios[3][2]}
+    assert {"PT Pilar integrado en fachada-FBS1 FACHADA",
+            "PT Encuentro de fachada con cubierta-CUB1 CUBIERTA"} <= nombres
+    assert any("3 puentes térmicos" in a for a in av)
+    # Sin el XML del inicial no se inventa nada: se avisa de comparar la demanda.
+    _, avisos2, _ = server.convertir(crudo, {})
+    assert any("DEMANDA" in a for a in avisos2)

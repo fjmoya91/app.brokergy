@@ -20,8 +20,8 @@ const raiz = path.resolve(import.meta.dirname, '../../frontend/src/features');
 const imp = (rel) => import(pathToFileURL(path.join(raiz, rel)).href);
 
 const { calculateFinancials, EQUIVALENCIA_FINANCIERA } = await imp('calculator/logic/calculation.js');
-// `loteEco.js` no se puede importar desde Node (sus imports van sin extension, que es
-// lo que resuelve vite y Node no), asi que su reexport se comprueba sobre el FUENTE.
+// `loteEco.js` se comprueba sobre el FUENTE (hasta el 28/10/2026 sus imports iban sin extension,
+// y Node no los resolvia): lo que se vigila es que REEXPORTA, no que define, la constante.
 const { readFileSync } = await import('fs');
 const fuenteLoteEco = readFileSync(path.join(raiz, 'lotes/logic/loteEco.js'), 'utf8');
 

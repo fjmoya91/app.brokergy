@@ -32,6 +32,25 @@ export const TARIFA_TOTAL = Math.round(TARIFA_SERVICIOS.reduce((s, l) => s + l.i
 const r = (v) => Math.round(Number(v) || 0);
 
 /**
+ * CONDICIONES REFORZADAS («Perfil exigente», `inputs.condicionesReforzadas`, solo
+ * ADMIN): el cliente se compromete AL ACEPTAR a ceder el ahorro en exclusiva, y si
+ * después de la visita del CEE lo tramita con otro (o no firma el convenio), paga
+ * el 40 % del Bono Energético CAE que imprime la propuesta, con la tarifa como
+ * mínimo. Decisión de Fran (05/11/2026, Vicente Jesús González, 26RES060_OP369):
+ * sin anticipo, para no poner barrera de entrada, pero que irse fuera no salga a
+ * cuenta. Por qué el 40 %: equivale a 40 €/MWh, más de lo que cualquier gestor le
+ * mejoraría el precio, y por debajo de lo que de verdad perdemos (no es una pena,
+ * es la liquidación de los daños; art. 85.6 TRLGDCU). Va en euros CONCRETOS en la
+ * cláusula 4 y en /firma, con su casilla. El backend repite la cuenta en
+ * `utils/importesPropuesta.js` (CommonJS) y lo sella con la versión.
+ */
+export const PENALIZACION_REFORZADA_PCT = 40;
+export function penalizacionReforzada(caeBonus) {
+    const pct = r(caeBonus) * PENALIZACION_REFORZADA_PCT / 100;
+    return Math.max(TARIFA_TOTAL, Math.round(pct));
+}
+
+/**
  * Una rama de `calculateFinancials` (financials o financialsRes080) con las cifras
  * que se imprimen: componentes redondeados a euros y totales recompuestos.
  */

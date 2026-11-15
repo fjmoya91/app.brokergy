@@ -57,6 +57,30 @@ export const CAE_PRECIO_CLIENTE_NUEVAS = 100;
 export const EQUIVALENCIA_FINANCIERA = 198.62;
 export const CAE_PRECIO_CLIENTE_ANTERIOR = { estandar: 95, res080: 60 };
 
+// Precio CAE de la opción RES080 (2026-10-29, Fran): con la reforma activada la
+// propuesta enseña dos opciones —solo aerotermia (RES060) y reforma (RES080)— y
+// cada una puede llevar SU precio. `caePriceClient` sigue siendo el de siempre (el
+// del RES060, y el único fuera de la reforma); `caePriceClientRes080` es el de la
+// reforma y, mientras nadie lo teclee, vale lo mismo que el otro: así lo ya
+// guardado da las mismas cifras. En la oportunidad se SELLA como
+// `cae_client_rate_res080` (backend/utils/precioCae.js), y la economía de un
+// expediente RES080 lee ese sello antes que `cae_client_rate`.
+export const precioCaeRes080 = (inputs) =>
+    parseFloat(inputs?.caePriceClientRes080) || parseFloat(inputs?.caePriceClient) || 0;
+export const precioSelladoRes080 = (opInputs) =>
+    parseFloat(opInputs?.cae_client_rate_res080) || parseFloat(opInputs?.cae_client_rate) || 0;
+
+// Precio CAE de la vía del FACTOR MULTIPLICADOR (RES060_FM / RES09x_FM, 2026-11-07,
+// Fran: «mismo precio para ambos, pero dar la posibilidad de elegir precio por
+// formato de ficha, igual que en RES060 y RES080»). Mismo patrón que el RES080:
+// `caePriceClientFm` solo lo teclea ADMIN y, sin teclear, vale el general. Se SELLA
+// como `cae_client_rate_fm` solo si difiere (backend/utils/precioCae.js). Es de
+// ADMIN como toda la vía FM: financialScrub lo quita a los demás (regla 155).
+export const precioCaeFm = (inputs) =>
+    parseFloat(inputs?.caePriceClientFm) || parseFloat(inputs?.caePriceClient) || 0;
+export const precioSelladoFm = (opInputs) =>
+    parseFloat(opInputs?.cae_client_rate_fm) || parseFloat(opInputs?.cae_client_rate) || 0;
+
 export const HDD = {
     A3: 600, A4: 550,
     B3: 950, B4: 900,
@@ -430,6 +454,38 @@ export function esSinCalefaccion(rendimientoId) {
     return String(rendimientoId || '') === SIN_CALEFACCION_ID;
 }
 
+/**
+ * ηACS — rendimiento del sistema de ACS EXISTENTE (CAE-1991, Fran 10/11/2026).
+ *
+ *   AE_TOTAL = F_P · [ D_CAL·S·(1/η_i − 1/SCOP) + D_ACS·(1/η_ACS − 1/SCOP_dhw) ]
+ *
+ * Con la MISMA caldera para los dos servicios (`misma_caldera_acs` ≠ false), η_ACS ES
+ * la η_i y nada cambia. Con un equipo de ACS propio manda SU fila
+ * (`caldera_antigua_acs.rendimiento_id`): un termo eléctrico de efecto Joule es
+ * `electric` → 1,00. Antes el ACS se calculaba con la η de la CALEFACCIÓN aunque el CEE
+ * inicial declarara un termo: en 26RES060_168 el CIFO decía 30.771 kWh/año y Marwen lo
+ * levantó (inexactitud nº 3); con el termo a 1,00 son 30.190.
+ *
+ * Sin fila de ACS (o con la de «sin calefacción», que no es un equipo de ACS) se cae a
+ * la η_i: no se inventa un rendimiento que nadie ha declarado.
+ * Devuelve { value, id, propio }: `propio` dice si el ACS tiene un rendimiento DISTINTO
+ * del de la caldera de calefacción, que es cuando los documentos lo imprimen aparte.
+ */
+export function etaAcsExistente(inst, etaCal) {
+    const etaI = Number(etaCal) || 0;
+    const calId = inst?.caldera_antigua_cal?.rendimiento_id || 'default';
+    if (!inst || inst.misma_caldera_acs !== false) return { value: etaI, id: calId, propio: false };
+    const id = inst.caldera_antigua_acs?.rendimiento_id;
+    const fila = id ? BOILER_EFFICIENCIES.find(b => b.id === id) : null;
+    if (!fila || fila.sinCalefaccion) return { value: etaI, id: calId, propio: false };
+    return { value: fila.value, id: fila.id, propio: fila.value !== etaI };
+}
+
+/** ¿El ACS existente es un termo eléctrico de efecto Joule? (fila `electric`, η = 1). */
+export function acsExistenteEsTermoElectrico(inst) {
+    return !!inst && inst.misma_caldera_acs === false && inst.caldera_antigua_acs?.rendimiento_id === 'electric';
+}
+
 const REFORMA_EFFICIENCIES = {
     'sin_aislamiento': 0.549,
     'antigua_mal_aislamiento': 0.618,
@@ -726,6 +782,29 @@ export function getCalibrationFactor(tipo, subtipo) {
     return 0.90;
 }
 
+// ============================================================================
+// CALIBRACIÓN POR ÉPOCA — la vivienda unifamiliar de 2008 en adelante (2026-10-26)
+// ----------------------------------------------------------------------------
+// Con las U límite del CTE la calculadora se quedaba muy corta en las casas
+// nuevas: medido sobre 33 expedientes unifamiliares de 2008+ con CEE inicial,
+// la demanda de calefacción del CEE fue SIEMPRE mayor que la estimada (ratio
+// mínimo 1,26 con la Guía CE3X, mediana 1,95). El factor va por DEBAJO de ese
+// mínimo: no se promete más de lo que dio ninguno de los 33.
+//
+// Solo en simulaciones NUEVAS (`inputs.calibracion_demanda`, mismo patrón que
+// `guia_transmitancias`): lo ya simulado no se mueve. Ni pisos ni terciario ni
+// RES080 —no hay datos para ellos; en el RES080 escalaría también el ahorro—.
+// ============================================================================
+export const CALIBRACION_DEMANDA = '2026-10';
+export const FACTOR_EPOCA_RECIENTE = 1.25;
+
+export function getFactorEpoca(inputs = {}) {
+    if (!inputs.calibracion_demanda || inputs.isReforma === true || inputs.isReforma === 'true') return 1;
+    if (String(inputs.tipo || '').toLowerCase() !== 'unifamiliar') return 1;
+    if (String(inputs.sector || '').toLowerCase() === 'terciario') return 1;
+    return Number(inputs.anio) >= 2008 ? FACTOR_EPOCA_RECIENTE : 1;
+}
+
 export const ORIENTATION_CORRECTION = {
     S: 0.94, SE: 0.96, SO: 0.96,
     E: 0.98, O: 1.00, media: 0.98,
@@ -843,7 +922,8 @@ export function calculateDemand(inputs) {
     const Q_internal = (INTERNAL_GAINS_WM2 * S * 14 * heatingDays) / 1000;
 
     const kcal = getCalibrationFactor(tipo, subtipo);
-    const Qnet = Math.max(0, (Qgross * kcal) - (Q_internal * 0.5));
+    const kEpoca = getFactorEpoca(inputs);
+    const Qnet = Math.max(0, (Qgross * kcal) - (Q_internal * 0.5)) * kEpoca;
 
     const q_gross = Qgross / S;
     const q_net = Qnet / S;
@@ -867,6 +947,7 @@ export function calculateDemand(inputs) {
         },
         meta: {
             k_calibracion: kcal,
+            k_epoca: kEpoca,
             delta_u_pt: ptFactor,
             hdd
         }
@@ -880,6 +961,9 @@ export function calculateSavings({
     q_net_heating, // Demanda Neta de Calefacción (kWh/año)
     dacs = 2731.4, // Demanda ACS (kWh/año)
     boilerEff = 0.92, // Rendimiento caldera antigua
+    // η_ACS — rendimiento del sistema de ACS EXISTENTE (`etaAcsExistente`). Sin él, el de
+    // la caldera: lo que no lo pasa da exactamente lo mismo que antes de existir.
+    acsEff,
     scopHeating = 4.5, // SCOP Nueva Bomba de Calor
     scopAcs = 3.0, // SCOP ACS Nueva
     changeAcs = false, // ¿Se cambia también ACS?
@@ -909,9 +993,10 @@ export function calculateSavings({
     // Consumo Final Calefacción (Actual)
     const finalEnergyHeatingOld = q_net_heating / boilerEff;
 
-    // Consumo Final ACS (Actual)
-    // Asumimos que la caldera actual provee ACS con el mismo rendimiento
-    const finalEnergyAcsOld = dacs / boilerEff;
+    // Consumo Final ACS (Actual), con el rendimiento del sistema de ACS existente
+    // (η_ACS). Si es la misma caldera, η_ACS = boilerEff.
+    const etaAcs = Number(acsEff) > 0 ? Number(acsEff) : boilerEff;
+    const finalEnergyAcsOld = dacs / etaAcs;
 
     const totalFinalEnergyOld = finalEnergyHeatingOld + finalEnergyAcsOld;
 
@@ -925,8 +1010,8 @@ export function calculateSavings({
 
     // ACS Nueva
     // Si se cambia ACS -> Usamos SCOP ACS
-    // Si NO se cambia ACS -> Usamos el rendimiento de la caldera antigua (boilerEff)
-    const effAcsNew = changeAcs ? scopAcs : boilerEff;
+    // Si NO se cambia ACS -> el rendimiento del ACS existente, y el término se cancela
+    const effAcsNew = changeAcs ? scopAcs : etaAcs;
     const finalEnergyAcsNew = dacs / effAcsNew;
 
     const totalFinalEnergyNew = finalEnergyHeatingNew + finalEnergyAcsNew;
@@ -1094,25 +1179,39 @@ function etiquetaCobertura(serv) {
 }
 
 // ============================================================================
-// PLACAS SOLARES: con AUTOCONSUMO el ahorro RES080 solo se puede calcular POR VECTOR
+// PLACAS SOLARES: la fotovoltaica autoconsumida NO es ahorro de energía final
 // ============================================================================
 // CE3X declara la energía final de cada USO (calefacción, ACS, refrigeración) en
 // BRUTO y descuenta lo que generan y autoconsumen las placas SOLO del total del
 // vector eléctrico (`Tot` del v3.0, `Global` del v2.0). Medido: 26RES080_OP71
 // previsto, usos 43,82 kWh/m² y total 10,22 (33,60 × 155 m² = 5.208 kWh =
 // <EnergiaGeneradaAutoconsumida>); 26RES080_61 (v2.0), 27,82 frente a 1,41 (4.200 kWh).
-// Sumando usos, el «por uso» cuenta esa electricidad como consumida y el ahorro sale
-// mal (5,21 MWh de menos en OP71). REGLA (2026-10-10, Fran): si CUALQUIERA de los dos
-// CEE declara autoconsumo, el ahorro va POR VECTOR aunque se haya elegido «por uso»
-// —el CIFO no puede presentar una cifra que el verificador no reproduce con el XML—,
-// y el resultado lo dice (`metodoForzado: 'autoconsumo'`).
+// REGLA (2026-10-30, Fran; sustituye a la del 10/10, que usaba ese total NETO): la
+// electricidad fotovoltaica generada en el edificio NO cuenta como ahorro, ni en el
+// inicial ni en el final — Recomendación (UE) 2024/1590, apartado 7.8, sobre el anexo V
+// de la Directiva (UE) 2023/1791: «la energía solar fotovoltaica no reduce el consumo
+// de energía final». El vector eléctrico se toma en BRUTO (la suma de sus usos), en
+// todos los caminos: con los .xml, con las emisiones por vector y por uso. Medido en
+// 26RES080_66 (CE3X 3.2, 6 kWp en las dos fases): 146.102 kWh en bruto frente a
+// 150.320 con el total neto. El resultado lo dice (`metodoForzado: 'autoconsumo'` y
+// `autoconsumoExcluido`) y el Certificado RES080 lo explica con esas dos normas.
+
+/**
+ * La energía final de un vector SIN descontar la fotovoltaica (kWh/m²·año): en el
+ * eléctrico, la suma de sus usos si supera el total neto que declara CE3X.
+ */
+export function energiaVectorSinFv(v) {
+    const neto = Number(v?.global) || 0;
+    if (!v?.esElectrico) return neto;
+    const bruto = (v.calefaccion || 0) + (v.acs || 0) + (v.refrigeracion || 0) + (v.iluminacion || 0);
+    return bruto - neto > 0.05 ? bruto : neto;
+}
 
 /** kWh/m²·año que las placas generan y se autoconsumen, según el CEE (0 si nada). */
 export function autoconsumoDeXml(xml) {
     const elec = Object.values(xml?.energiaFinalVectores || {}).filter((v) => v.esElectrico);
     if (!elec.length) return 0;
-    const dif = elec.reduce((a, v) => a + (v.calefaccion || 0) + (v.acs || 0) + (v.refrigeracion || 0)
-        + (v.iluminacion || 0) - (v.global || 0), 0);
+    const dif = elec.reduce((a, v) => a + energiaVectorSinFv(v) - (Number(v.global) || 0), 0);
     return dif > 0.05 ? Math.round(dif * 100) / 100 : 0;
 }
 
@@ -1166,7 +1265,8 @@ export function calculateRes080({
 }) {
     if (!xmlInicial || !xmlFinal) return null;
 
-    // Con placas en cualquiera de los dos CEE, POR VECTOR (ver arriba).
+    // Con placas en cualquiera de los dos CEE, por la energía final SIN la fotovoltaica
+    // (ver arriba): el vector eléctrico en bruto, se haya elegido el método que sea.
     const fvIni = autoconsumoDeXml(xmlInicial);
     const fvFin = autoconsumoDeXml(xmlFinal);
     if (fvIni > 0 || fvFin > 0) {
@@ -1175,6 +1275,22 @@ export function calculateRes080({
             superficieCustom, superficieInicial, superficieFinal,
         });
         if (r) return { ...r, metodoForzado: 'autoconsumo', autoconsumoM2: { inicial: fvIni, final: fvFin } };
+    }
+
+    // REGLA (2026-10-27, Fran, 26RES080_OP86): con los DOS .xml declarando
+    // <EnergiaFinalVectores>, el ahorro es la energía final que declara cada certificado,
+    // se haya elegido el método que se haya elegido. Por uso, cada servicio se reconstruye
+    // dividiendo sus emisiones por el factor del combustible elegido, y eso falla en
+    // silencio cuando el combustible no está (factor 1: 26RES080_97 daba 28,16 MWh frente
+    // a 88,74, 26RES080_95 26,38 frente a 80,14) o cuando dos combustibles comparten fila
+    // (OP86: carbón + el gas natural del sistema ficticio, 41,18 frente a 55,73). Medido
+    // el 27/10/2026 sobre los 30 RES080 con los dos .xml: los demás no se mueven (±0,01).
+    if (xmlInicial.energiaFinalVectores && xmlFinal.energiaFinalVectores) {
+        const r = calculateRes080SimplificadoFromXml({
+            xmlInicial, xmlFinal, xmlTextoInicial, xmlTextoFinal,
+            superficieCustom, superficieInicial, superficieFinal,
+        });
+        if (r) return { ...r, metodoForzado: 'energia_final' };
     }
 
     const getE = (val) => typeof val === 'number' ? val : 0;
@@ -1328,7 +1444,8 @@ export function calculateRes080FromEmissions({
     superficie, superficieInicial, superficieFinal,
     // Opcionales: las celdas POR VECTOR del mismo CEE. Con ellas se ve si hay placas
     // (las emisiones de los usos eléctricos suman más que las del vector) y entonces
-    // el ahorro va por vector, igual que con los .xml (ver autoconsumoDeXml).
+    // el ahorro va por vector con la fotovoltaica devuelta al vector eléctrico, igual
+    // que con los .xml (ver autoconsumoDeXml).
     emiElecIni, emiElecFin, emiOtrosIni, emiOtrosFin, combOtrosIni, combOtrosFin,
 }) {
     const fvIni = autoconsumoDeEmisiones({ emiElec: emiElecIni, emiOtros: emiOtrosIni,
@@ -1341,6 +1458,7 @@ export function calculateRes080FromEmissions({
             combOtrosIni: combOtrosIni || [combCalefaccionInicial, combAcsInicial].find((c) => c && !/electric/i.test(c)) || '',
             combOtrosFin: combOtrosFin || [combCalefaccionFinal, combAcsFinal].find((c) => c && !/electric/i.test(c)) || '',
             superficie, superficieInicial, superficieFinal,
+            autoconsumoIni: fvIni, autoconsumoFin: fvFin,
         });
         if (r) return { ...r, metodoForzado: 'autoconsumo', autoconsumoM2: { inicial: fvIni, final: fvFin } };
     }
@@ -1391,10 +1509,15 @@ export function calculateRes080FromEmissions({
 // biomasa, o todo carbón — nunca una mezcla), esos dos totales bastan para calcular la
 // energía final SIN necesidad de saber el reparto por uso: misma física que calculateRes080
 // (consumo = emisiones / factor_paso), aplicada a 2 vectores en vez de 3 usos.
+//
+// `autoconsumoIni/Fin` (kWh/m²·año): la fotovoltaica autoconsumida que el CEE resta de
+// las emisiones por consumo eléctrico. Se DEVUELVE al vector eléctrico: no es ahorro de
+// energía final (ver autoconsumoDeXml).
 export function calculateRes080Simplificado({
     emiElecIni, emiElecFin, emiOtrosIni, emiOtrosFin,
     combOtrosIni, combOtrosFin,
-    superficie, superficieInicial, superficieFinal
+    superficie, superficieInicial, superficieFinal,
+    autoconsumoIni = 0, autoconsumoFin = 0,
 }) {
     const num = (v) => {
         if (typeof v === 'number') return isNaN(v) ? 0 : v;
@@ -1415,8 +1538,12 @@ export function calculateRes080Simplificado({
     const fOtrosIni = combOtrosIni ? getFactorPaso(combOtrosIni) : 1;
     const fOtrosFin = combOtrosFinReal ? getFactorPaso(combOtrosFinReal) : 1;
 
-    const emiElecIniN = num(emiElecIni);
-    const emiElecFinN = num(emiElecFin);
+    const fvIniN = Math.max(0, num(autoconsumoIni));
+    const fvFinN = Math.max(0, num(autoconsumoFin));
+    // Con fotovoltaica, las emisiones del vector eléctrico se enseñan también en bruto,
+    // para que la fila cuadre: consumo × factor.
+    const emiElecIniN = num(emiElecIni) + fvIniN * fElec;
+    const emiElecFinN = num(emiElecFin) + fvFinN * fElec;
     const emiOtrosIniN = num(emiOtrosIni);
     const emiOtrosFinN = num(emiOtrosFin);
 
@@ -1445,6 +1572,7 @@ export function calculateRes080Simplificado({
         superficieFinalAplicada: supFin,
         metodoAhorro: 'simplificado',
         fuenteDatos: 'emisiones',
+        autoconsumoExcluido: (fvIniN > 0 || fvFinN > 0) ? { inicial: fvIniN, final: fvFinN } : null,
         details: {
             electrico: {
                 fuelIni: 'Electricidad peninsular',
@@ -1455,6 +1583,8 @@ export function calculateRes080Simplificado({
                 emissionsFin: emiElecFinN,
                 energyIni: energiaElecIniM2,
                 energyFin: energiaElecFinM2,
+                autoconsumoIni: fvIniN,
+                autoconsumoFin: fvFinN,
             },
             otros: {
                 fuelIni: combOtrosIni || '—',
@@ -1501,17 +1631,26 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
         const lista = Object.values(vec || {});
         const grupo = (esElectrico) => {
             const items = lista.filter((v) => !!v.esElectrico === esElectrico);
-            const energia = items.reduce((a, v) => a + (v.global || 0), 0);
+            // Sin descontar la fotovoltaica: el eléctrico, en bruto (ver autoconsumoDeXml).
+            const energia = items.reduce((a, v) => a + energiaVectorSinFv(v), 0);
+            const autoconsumo = items.reduce((a, v) => a + energiaVectorSinFv(v) - (Number(v.global) || 0), 0);
             // Emisiones reconstruidas vector a vector (cada uno con SU factor). Si algún
             // combustible no está en FACTORES_PASO no se inventa: el contraste no aplica.
+            // Las NETAS (con el total que declara CE3X) son las que se contrastan con su
+            // tabla de emisiones; las que se enseñan van en bruto, como la energía.
             const conocidos = items.every((v) => FACTORES_PASO[canonCombustible(v.nombre)] !== undefined);
             const emisiones = conocidos
+                ? items.reduce((a, v) => a + energiaVectorSinFv(v) * getFactorPaso(v.nombre), 0)
+                : null;
+            const emisionesNetas = conocidos
                 ? items.reduce((a, v) => a + (v.global || 0) * getFactorPaso(v.nombre), 0)
                 : null;
             return {
                 items,
                 energia,
+                autoconsumo: autoconsumo > 0.05 ? Math.round(autoconsumo * 100) / 100 : 0,
                 emisiones,
+                emisionesNetas,
                 nombres: items.map((v) => v.nombre),
                 // Con varios combustibles el "factor" que se enseña es el EFECTIVO
                 // (emisiones ÷ energía), no el de ninguno de ellos en particular.
@@ -1584,6 +1723,11 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
         metodoAhorro: 'simplificado',
         // De dónde salen los kWh: leídos del certificado o reconstruidos desde el CO₂.
         fuenteDatos: 'energia_final_declarada',
+        // La fotovoltaica autoconsumida que el CEE resta del vector eléctrico y que aquí
+        // NO se resta (kWh/m²·año). null sin placas.
+        autoconsumoExcluido: (gIni.elec.autoconsumo > 0 || gFin.elec.autoconsumo > 0)
+            ? { inicial: gIni.elec.autoconsumo, final: gFin.elec.autoconsumo }
+            : null,
         details: {
             electrico: {
                 fuelIni: nombreDe(gIni.elec) === '—' ? 'Electricidad peninsular' : nombreDe(gIni.elec),
@@ -1594,6 +1738,8 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
                 emissionsFin: gFin.elec.emisiones,
                 energyIni: gIni.elec.energia,
                 energyFin: gFin.elec.energia,
+                autoconsumoIni: gIni.elec.autoconsumo,
+                autoconsumoFin: gFin.elec.autoconsumo,
             },
             otros: {
                 fuelIni: nombreDe(gIni.otros, combRealIni, coberturaIni),
@@ -1619,9 +1765,9 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
             final: Object.values(vecFin || {}),
         },
         contraste: {
-            electricoIni: cuadra(gIni.elec.emisiones, emiDeclaradas?.elecIni),
+            electricoIni: cuadra(gIni.elec.emisionesNetas, emiDeclaradas?.elecIni),
             otrosIni: cuadra(gIni.otros.emisiones, emiDeclaradas?.otrosIni),
-            electricoFin: cuadra(gFin.elec.emisiones, emiDeclaradas?.elecFin),
+            electricoFin: cuadra(gFin.elec.emisionesNetas, emiDeclaradas?.elecFin),
             otrosFin: cuadra(gFin.otros.emisiones, emiDeclaradas?.otrosFin),
             declaradas: emiDeclaradas,
         },
@@ -1674,6 +1820,9 @@ export function calculateRes080SimplificadoFromXml({
         combOtrosFin: combOtrosFin || xmlFinal.combustibleOtros || '',
         superficieInicial: supIni,
         superficieFinal: supFin,
+        // Si uno de los dos trae la energía final por vector, de ahí sale su fotovoltaica.
+        autoconsumoIni: autoconsumoDeXml(xmlInicial),
+        autoconsumoFin: autoconsumoDeXml(xmlFinal),
     });
     if (res) res.fuenteDatos = 'emisiones';
     return res;

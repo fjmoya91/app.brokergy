@@ -27,6 +27,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { normalizarIban, ibanEnBloques, bloquesPara, bloquePago, textoEsfuerzo, eurEs } from '../logic/cobroForm';
+import { bloqueFacturaVenta, datosFacturaCliente, textoDatosFactura, IVA_VENTA_DEFECTO } from '../../lotes/logic/facturaVentaAhorro';
 
 const API = '/api/public';
 
@@ -35,12 +36,19 @@ const API = '/api/public';
 // lee ni guarda nada. Las preguntas salen de la MISMA fuente (`bloquesPara`).
 const DEMO = 'demo';
 const DEMO_BONO = 1840;
+// /cobro/demo?empresa — el de una EMPRESA, con la pregunta de su factura de venta.
+const demoEmpresa = () => { try { return new URLSearchParams(window.location.search).has('empresa'); } catch { return false; } };
 const vistaDemo = () => {
     const pago = bloquePago(250, DEMO_BONO);
+    const empresa = demoEmpresa();
     return {
     numero_expediente: '26RES060_000',
     saludo: 'María',
-    bloques: bloquesPara({ clienteAsumeCoste: true, costeGestion: 250, solarPrevio: 'no', respuestas: {}, bono: DEMO_BONO }),
+    es_empresa: empresa,
+    bloques: [
+        ...bloquesPara({ clienteAsumeCoste: true, costeGestion: 250, solarPrevio: 'no', respuestas: {}, bono: DEMO_BONO }),
+        ...(empresa ? [{ ...bloqueFacturaVenta(), valor: null, heredado: false }] : []),
+    ],
     importe: {
         bono: DEMO_BONO,
         honorarios_sin_iva: pago.importe_sin_iva, honorarios_total: pago.importe_total,
@@ -180,6 +188,19 @@ const CSS = `
 .cc-file-ok{border-color:rgba(177,209,62,.7)!important;background:rgba(177,209,62,.14)!important;color:var(--verde-txt)!important}
 .cc-file-ok span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cc-nota{font-size:12.5px;color:var(--gris2);text-align:center;margin:12px 0 0;line-height:1.5}
+/* la factura de venta (empresas) */
+.cc-pasos-exp{margin:16px 0 0;padding:16px;border-radius:18px;background:var(--crema);border:1px solid var(--linea)}
+.cc-pasos-exp h3{margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--gris)}
+.cc-pasos-exp ol{margin:0;padding:0;list-style:none;counter-reset:p}
+.cc-pasos-exp li{counter-increment:p;position:relative;padding:0 0 12px 38px;font-size:14px;line-height:1.5;color:#3b3e45}
+.cc-pasos-exp li:last-child{padding-bottom:0}
+.cc-pasos-exp li::before{content:counter(p);position:absolute;left:0;top:0;width:26px;height:26px;border-radius:50%;background:#fff;border:1.5px solid var(--linea);display:grid;place-items:center;font-size:12.5px;font-weight:800;color:var(--tinta)}
+.cc-pasos-exp li b{display:block;color:var(--tinta);font-size:14.5px;margin-bottom:2px}
+.cc-datos{margin:14px 0 0;padding:0}
+.cc-datos > div{padding:10px 0;border-top:1px solid var(--linea)}
+.cc-datos dt{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gris2)}
+.cc-datos dd{margin:3px 0 0;font-size:14.5px;font-weight:600;line-height:1.45;color:var(--tinta)}
+.cc-datos .cc-dato-fuerte dd{font-size:18px}
 /* hecho */
 .cc-ok{display:flex;align-items:center;gap:16px}
 .cc-check{flex:none;width:60px;height:60px}
@@ -241,7 +262,7 @@ const IcoRegalo = (p) => <Ico {...p}><rect x="3.5" y="8.5" width="17" height="4"
 const IcoRecibo = (p) => <Ico {...p}><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" /><path d="M9 8h6M9 12h6M9 16h3" /></Ico>;
 const IcoTijera = (p) => <Ico {...p}><circle cx="6" cy="6.5" r="2.5" /><circle cx="6" cy="17.5" r="2.5" /><path d="M8 8l12 10M8 16L20 6" /></Ico>;
 const IcoInfo = (p) => <Ico {...p}><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5M12 7.5v.01" /></Ico>;
-const ICONO_BLOQUE = { tarifa: IcoRayo, solar: IcoSol, fiscalidad: IcoDoc, forma_pago: IcoTarjeta };
+const ICONO_BLOQUE = { tarifa: IcoRayo, solar: IcoSol, fiscalidad: IcoDoc, forma_pago: IcoTarjeta, factura_venta: IcoRecibo };
 
 const Spinner = ({ size = 18 }) => (
     <svg className="cc-spin" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -378,6 +399,41 @@ function Progreso({ paso, total }) {
 
 // ─── Vista ───────────────────────────────────────────────────────────────────
 
+/**
+ * El ÚLTIMO paso de una EMPRESA, al confirmar: la factura de venta (regla 194).
+ * Autofactura → al enlace a aceptar el acuerdo y la factura. «La emito yo» →
+ * los datos que tiene que poner, para copiarlos, y el enlace para subirla.
+ */
+function PasoFacturaVenta({ modo, enlace, base, ivaPct, total, expediente }) {
+    const [copiado, setCopiado] = useState(false);
+    const filas = base != null ? datosFacturaCliente({ base, ivaPct, total, expediente }) : [];
+    const copiar = async () => {
+        try { await navigator.clipboard.writeText(textoDatosFactura(filas)); setCopiado(true); setTimeout(() => setCopiado(false), 2500); } catch { /* sin portapapeles: los datos siguen a la vista */ }
+    };
+    if (modo === 'autofactura') {
+        return (
+            <div className="cc-aviso cc-aviso-ambar" style={{ display: 'block' }}>
+                <p style={{ margin: 0 }}><b>Último paso: aceptar la factura.</b> Os la preparamos en vuestro nombre: aceptad el acuerdo de facturación y revisad la factura. Sin ella no podemos hacer la transferencia.</p>
+                <a className="cc-btn cc-btn-pri" style={{ marginTop: 14, textDecoration: 'none' }} href={enlace}>Aceptar el acuerdo y la factura <IcoFlecha size={18} /></a>
+            </div>
+        );
+    }
+    return (
+        <div className="cc-aviso cc-aviso-ambar" style={{ display: 'block' }}>
+            <p style={{ margin: 0 }}><b>Último paso: vuestra factura.</b> Hacedla con estos datos y subidla en el enlace (o mandádnosla por WhatsApp o a info@brokergy.es). La transferencia sale en cuanto la recibamos.</p>
+            {filas.length > 0 && (
+                <dl className="cc-datos">
+                    {filas.map(f => <div key={f.campo} className={f.destacado ? 'cc-dato-fuerte' : ''}><dt>{f.campo}</dt><dd>{f.valor}</dd></div>)}
+                </dl>
+            )}
+            <div className="cc-btns2" style={{ marginTop: 14 }}>
+                {filas.length > 0 && <button type="button" className="cc-btn cc-btn-sec" onClick={copiar}>{copiado ? 'Datos copiados' : 'Copiar los datos'}</button>}
+                <a className="cc-btn cc-btn-pri" style={{ textDecoration: 'none' }} href={enlace}>Subir la factura y ver el modelo <IcoFlecha size={18} /></a>
+            </div>
+        </div>
+    );
+}
+
 export function ConfirmarCobroView({ expedienteId, token }) {
     const [info, setInfo] = useState(null);
     const [loadError, setLoadError] = useState(null);
@@ -441,8 +497,19 @@ export function ConfirmarCobroView({ expedienteId, token }) {
                 : (importe.honorarios_sin_iva == null ? importe.bono : null))
         : null;
 
+    // Una EMPRESA vende el ahorro (regla 194): se le transfiere la base (lo de
+    // arriba) MÁS su IVA, contra la factura de venta.
+    const bloqueVenta = bloques.find(b => b.id === 'factura_venta') || null;
+    const modoVenta = respuestas.factura_venta || null;
+    const ivaVenta = bloqueVenta?.iva_pct ?? IVA_VENTA_DEFECTO;
+    const ventaTotal = bloqueVenta && recibes != null ? Math.round(recibes * (1 + ivaVenta / 100) * 100) / 100 : null;
+    const enlaceVenta = `/factura-ahorro/${expedienteId}${expedienteId === DEMO ? (modoVenta === 'cliente' ? '?paso=cliente' : '') : `?token=${encodeURIComponent(token || '')}`}`;
+
     const responder = (bloqueId, valor) => {
         setRespuestas(p => ({ ...p, [bloqueId]: valor }));
+        // Una pregunta con EXPLICACIÓN no avanza sola: al elegir se le cuentan
+        // los pasos de esa opción, y sigue cuando los ha leído.
+        if (bloques.find(b => b.id === bloqueId)?.explicacion) return;
         // Auto-avance, como en el formulario que sustituye: al elegir ya está
         // contestado y un "siguiente" de más es una pulsación que no aporta.
         setTimeout(() => { setPaso(p => p + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }, 220);
@@ -452,6 +519,8 @@ export function ConfirmarCobroView({ expedienteId, token }) {
 
     const enviar = async () => {
         setError(null);
+        const sinContestar = bloques.findIndex(b => b.obligatorio && !respuestas[b.id]);
+        if (sinContestar >= 0) { avanzar(sinContestar + 1); return; }
         const falta = ['nombre_razon_social', 'dni', 'email', 'telefono'].find(k => !String(datos?.[k] || '').trim());
         if (falta) return setError('Faltan datos por rellenar.');
         if (ibanOriginal && !cuentaOk) return setError('Dinos si la cuenta que tenemos es la correcta.');
@@ -529,9 +598,15 @@ export function ConfirmarCobroView({ expedienteId, token }) {
                     </p>
                     {recibes != null && (
                         <>
-                            <p className="cc-eyebrow cc-eyebrow-verde" style={{ marginTop: 22 }}>Vas a recibir</p>
-                            <Importe valor={recibes} />
+                            <p className="cc-eyebrow cc-eyebrow-verde" style={{ marginTop: 22 }}>{bloqueVenta ? 'Vais a recibir' : 'Vas a recibir'}</p>
+                            <Importe valor={ventaTotal ?? recibes} />
+                            {ventaTotal != null && (
+                                <p className="cc-meta" style={{ marginTop: 6 }}>{eur(recibes)} + {eur(ventaTotal - recibes)} de IVA ({ivaVenta} %), contra vuestra factura de venta del ahorro.</p>
+                            )}
                         </>
+                    )}
+                    {bloqueVenta && modoVenta && (
+                        <PasoFacturaVenta modo={modoVenta} enlace={enlaceVenta} base={recibes} ivaPct={ivaVenta} total={ventaTotal} expediente={numero} />
                     )}
                     {/* REGLA — no se promete fecha de ingreso: depende del pago del
                         Sujeto Obligado. Una fecha inventada aquí es una reclamación
@@ -675,9 +750,29 @@ export function ConfirmarCobroView({ expedienteId, token }) {
                         ))}
                     </div>
 
+                    {/* Los pasos de la opción elegida (la factura de venta): se le
+                        explica cómo va ANTES de seguir, no después. */}
+                    {b.explicacion && (
+                        <div className="cc-pasos-exp">
+                            <h3>{respuestas[b.id] === 'cliente' ? 'Si la emitís vosotros' : 'Cómo funciona la autofactura'}</h3>
+                            <ol>
+                                {(b.explicacion[respuestas[b.id] === 'cliente' ? 'cliente' : 'autofactura'] || []).map((x, i) => (
+                                    <li key={i}><b>{x.titulo}</b>{x.texto}</li>
+                                ))}
+                            </ol>
+                        </div>
+                    )}
+                    {b.explicacion && (
+                        <div className="cc-btns2" style={{ marginTop: 16 }}>
+                            <button type="button" className="cc-btn cc-btn-pri" disabled={!respuestas[b.id]} onClick={() => avanzar(paso + 1)}>
+                                {respuestas[b.id] ? 'Continuar' : 'Elige una opción'} <IcoFlecha size={18} />
+                            </button>
+                        </div>
+                    )}
+
                     {/* La forma de pago SÍ hay que contestarla: de ella depende cómo se
-                        liquida. Las tres preguntas comerciales no. */}
-                    {b.id !== 'forma_pago' && (
+                        liquida. Las tres preguntas comerciales no. Ni lo obligatorio. */}
+                    {b.id !== 'forma_pago' && !b.obligatorio && (
                         <button type="button" className="cc-link cc-link-centro" onClick={() => avanzar(paso + 1)}>
                             Prefiero no contestar <IcoFlecha size={16} />
                         </button>

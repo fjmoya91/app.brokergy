@@ -96,6 +96,18 @@ function pad2(v) {
     return s ? s.padStart(2, '0') : null;
 }
 
+// Código INE de provincia a partir de un código ("13", 13) o de un nombre
+// ("CIUDAD REAL"). Las oportunidades antiguas guardan en `inputs.provincia` el
+// NOMBRE: con pad2 a pelo salía "CIUDAD REAL" como código, COD_A_CCAA no lo
+// encontraba y el expediente se quedaba sin CCAA, fuera del picker del lote
+// (26RES060_96, _103, _104, _106, _111 y _112, medido el 05/11/2026).
+function codProvincia(v) {
+    const s = String(v == null ? '' : v).trim();
+    if (!s) return null;
+    if (/^\d{1,2}$/.test(s)) return s.padStart(2, '0');
+    return provinciaNombreACod(s);
+}
+
 // Nombre de provincia (texto sucio) → código INE, o null.
 function provinciaNombreACod(nombre) {
     const n = norm(nombre);
@@ -115,13 +127,13 @@ function resolveProvinciaCodInstalacion(exp, cliente, op) {
 
     // 1. Instalación con dirección propia → su provincia manda.
     if (inst.misma_direccion === false) {
-        const cod = pad2(inst.provincia_cod) || provinciaNombreACod(inst.provincia);
+        const cod = codProvincia(inst.provincia_cod) || provinciaNombreACod(inst.provincia);
         if (cod) return cod;
         // sin datos de instalación: caemos al cliente como mejor esfuerzo
     }
 
     // 2. Instalación = domicilio del cliente → código del funnel (más fiable).
-    const opCod = pad2(op && op.datos_calculo && op.datos_calculo.inputs && op.datos_calculo.inputs.provincia);
+    const opCod = codProvincia(op && op.datos_calculo && op.datos_calculo.inputs && op.datos_calculo.inputs.provincia);
     if (opCod) return opCod;
 
     // 3. Fallback: texto de provincia del cliente.

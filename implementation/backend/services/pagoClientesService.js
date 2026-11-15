@@ -135,6 +135,21 @@ async function pagoDeExpediente(exp, { facturaCobrada = false } = {}) {
         out.factura_pendiente = true;
         return out;
     }
+    // EMPRESA: vende el ahorro, así que el pago lo justifica SU factura (autofactura
+    // aceptada o la suya recibida) y se transfiere el TOTAL, IVA incluido
+    // (facturaVentaAhorro). Sin ella, no entra.
+    const venta = require('./facturaVentaAhorro').paraRemesa(exp);
+    if (venta.aplica) {
+        if (!venta.lista) { out.motivo = venta.motivo; out.factura_venta_pendiente = true; return out; }
+        if (!venta.sinFactura) {
+            if (Math.abs(Number(venta.neto) - Number(out.importe)) >= 0.01) {
+                out.aviso_venta = `La base de su factura (${eur(venta.neto)}) no cuadra con la calculada hoy (${eur(out.importe)})`;
+            }
+            out.base_venta = out.importe;
+            out.importe = venta.total;
+            out.factura_venta = { numero: venta.numero, neto: venta.neto, total: venta.total };
+        }
+    }
     if (!(out.importe > 0)) { out.motivo = 'El importe a transferir no es positivo'; return out; }
 
     // VARIOS CEDENTES con cuenta propia: el ingreso se parte por cuotas, en
@@ -161,6 +176,7 @@ async function pagoDeExpediente(exp, { facturaCobrada = false } = {}) {
         return out;
     }
     if (cobro.iban_cambiado) out.aviso = 'Ha cambiado de cuenta: revisa su justificante antes de ordenar';
+    if (out.aviso_venta) out.aviso = [out.aviso, out.aviso_venta].filter(Boolean).join(' · ');
     // Con el justificante del banco subido ya está PAGADO: no vuelve a ninguna
     // remesa (se le pagaría dos veces). Va al final para que `pagos` siga lleno
     // (la carta de pago de prueba lo lee).

@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const axios = require('axios');
 const supabase = require('../services/supabaseClient');
-const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff } = require('../middleware/auth');
+const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff, staffOClaveInterna } = require('../middleware/auth');
 const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData, fotosSinBase64 } = require('../utils/normalization');
@@ -14,7 +14,7 @@ const {
     resolveFechasRite, fechaPruebasPendiente
 } = require('../utils/riteValidation');
 const { resolveFincaInputs } = require('../utils/fincaInputs');
-const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
+const { resolveInstaladorFirmante, aplicarTecnicoRite } = require('../utils/instaladorFirmante');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
@@ -121,6 +121,15 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     // parte diario de seguimiento (routes/acciones.js) con la clave interna, para no
     // duplicar el envío ni el sellado del historial. Su middleware es internalKeyOrAuth.
     { method: 'POST', re: /^\/[^/]+\/notify-certificador\/?$/ },
+    // «Pendiente de revisión»: además del certificador con sesión, la app de
+    // certificadores al firmar un encargo (services/certapp/crm.js), con la clave
+    // interna. Su middleware propio es internalKeyOrAuth.
+    { method: 'POST', re: /^\/[^/]+\/notify-review\/?$/ },
+    // El visto bueno («Validar»): además del equipo con sesión, la app de
+    // certificadores al firmar un encargo al que BROKERGY ya dio el visto bueno en
+    // la envolvente (certapp/vistoBueno.js), sin aviso. Su middleware propio es
+    // staffOClaveInterna.
+    { method: 'POST', re: /^\/[^/]+\/approve-cee\/?$/ },
     // Lo que devuelve la sede cuando presenta la casa (skill presentar-cee): lo sube
     // un script con la clave interna. Su middleware propio es staffOClaveInterna.
     { method: 'POST', re: /^\/[^/]+\/presentacion-cee\/devuelto\/?$/ },
@@ -189,7 +198,7 @@ const internalKeyOrAuth = (req, res, next) => {
 // `html_propuesta`. Quitamos SOLO las claves de dinero; la energía/demanda
 // (surface, Q_net, zona…), la dirección y el estado quedan intactos.
 const MONEY_KEYS_DATOS = [
-    'caePriceClient', 'caePriceSO', 'caePricePrescriptor', 'prescriptorMode',
+    'caePriceClient', 'caePriceClientRes080', 'caePriceClientFm', 'caePriceSO', 'caePricePrescriptor', 'prescriptorMode',
     'presupuesto', 'presupuestoEnvolvente', 'presupuestoFotovoltaica',
     'discountCertificates', 'includeCommission', 'includeIrpf', 'includeItp',
     'includeIVA', 'includeLegalization', 'legalizationPrice', 'itpPercent',
@@ -197,7 +206,7 @@ const MONEY_KEYS_DATOS = [
     'result', 'html_propuesta',
 ];
 const MONEY_KEYS_INPUTS = [
-    'cae_client_rate', 'cae_so_rate', 'cae_prescriptor_rate', 'cae_prescriptor_mode',
+    'cae_client_rate', 'cae_client_rate_res080', 'cae_client_rate_fm', 'cae_so_rate', 'cae_prescriptor_rate', 'cae_prescriptor_mode',
     'include_commission', 'discount_certificates', 'certificates_cost',
     'include_legalization', 'legalization_mode', 'presupuesto', 'importe_total',
 ];
@@ -707,14 +716,9 @@ async function buildChecklistData(exp, cli, op, { soloLectura = false } = {}) {
     // queda registrada en documentacion.facturas[] (vía addFacturaToExpediente) Y en
     // reforma_uploads.DOC_FACTURAS; sumar ambas la contaría dos veces. Las del admin
     // solo tienen drive_link (sin drive_id), de ahí el fallback drive_id || drive_link.
-    const factSet = new Set();
-    (Array.isArray(doc.facturas) ? doc.facturas : []).forEach(f => {
-        if (f && (f.drive_id || f.drive_link)) factSet.add(f.drive_id || f.drive_link);
-    });
-    (Array.isArray(uploads.DOC_FACTURAS) ? uploads.DOC_FACTURAS : []).forEach(u => {
-        if (u && (u.driveId || u.link)) factSet.add(u.driveId || u.link);
-    });
-    const nFacturas = factSet.size;
+    // Fuente única con el consejo de factura (utils/consejoFactura.js): «falta la
+    // factura» tiene que significar lo mismo en el barrido y en lo que se le manda.
+    const nFacturas = require('../utils/consejoFactura').facturasAportadas(doc, uploads);
     const cifoOk = present(doc.cert_cifo_signed_link);
     // El RITE está aportado si nos ha llegado el certificado tramitado o la memoria
     // firmada. `cert_rite_drive_link` NO cuenta cuando lo que guarda es la Memoria
@@ -1213,6 +1217,34 @@ router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
 
         const FRONTEND = process.env.FRONTEND_URL || 'https://app.brokergy.es';
         const hayInstalador = !!(instalador?.nombre || instalador?.tlf || instalador?.email || (instalador?.contactos || []).length);
+
+        // El CONSEJO DE FACTURA (utils/consejoFactura.js): el texto recomendado para
+        // el concepto, si falta la factura o la que hay tiene una GRAVE que tumba la
+        // auditoría. El popup lo enseña y lo ofrece marcado; quien lo ENVÍA es
+        // `solicitar-faltantes`, que lo vuelve a calcular. Un fallo aquí no tumba la
+        // solicitud: sale sin consejo.
+        let consejoFactura = null;
+        try {
+            const facturaItem = (checklist.grupos.find(g => g.responsable === 'INSTALADOR')?.items || []).find(i => i.key === 'factura');
+            const r = await require('../utils/consejoFactura').cargarConsejoFactura(exp, {
+                cliente: cli, faltaFactura: facturaItem ? !facturaItem.presente : null,
+            });
+            if (r?.consejo) {
+                // El token de la página es el de subida, que ya se ha asegurado arriba.
+                const token = uploadBase ? new URL(uploadBase).searchParams.get('token') : null;
+                const cfMod = require('../utils/consejoFactura');
+                const url = cfMod.enlaceConsejo(exp.id, token);
+                consejoFactura = {
+                    ...r.decision,
+                    correcciones: cfMod.correccionesPorFactura(r.decision, r.consejo),
+                    consejo: r.consejo,
+                    url,
+                    copiar: r.copiar,
+                    whatsapp: cfMod.textosWhatsapp(r.consejo, r.decision, { url }),
+                };
+            }
+        } catch (e) { console.warn('[solicitud-info] consejo de factura:', e.message); }
+
         res.json({
             numero_expediente: exp.numero_expediente,
             obra,
@@ -1227,6 +1259,8 @@ router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
                 subirCifo: `${FRONTEND}/subir-cifo/${exp.id}`,
             },
             pendientes: buildSolicitudPendientes(checklist, { hayInstalador, bloqueos }),
+            // { mandar, motivo: 'FALTA'|'GRAVE'|null, graves, correcciones, consejo, url, copiar, whatsapp } | null (RES080)
+            consejo_factura: consejoFactura,
         });
     } catch (err) {
         console.error('[solicitud-info]', err.message);
@@ -1280,13 +1314,16 @@ async function resolveSolicitudContacto(exp, target, rol = null) {
     if (cErr) console.warn('[solicitud contacto CLIENTE]', cErr.message);
     const notif = cli?.notificaciones_contacto_activas === true || cli?.notificaciones_contacto_activas === 'true';
     const nombreCli = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : null;
+    // Quien lo lee NO es el titular (su persona de contacto, o el partner): el
+    // popup le escribe en tercera persona, diciéndole de qué cliente es.
+    const tercero = !!(notif && cli?.persona_contacto_nombre && (cli?.persona_contacto_tlf || cli?.persona_contacto_email));
     return {
         nombre: (notif ? (cli?.persona_contacto_nombre || nombreCli) : nombreCli) || null,
         tlf: (notif ? (cli?.persona_contacto_tlf || cli?.tlf) : (cli?.tlf || cli?.persona_contacto_tlf)) || null,
-        email: (notif ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
-        // Quien lo lee NO es el titular (su persona de contacto, o el partner): el
-        // popup le escribe en tercera persona, diciéndole de qué cliente es.
-        tercero: !!(notif && cli?.persona_contacto_nombre && (cli?.persona_contacto_tlf || cli?.persona_contacto_email)),
+        // Al contacto, solo SU email: el del titular le llegaría a otro (avisoCliente).
+        email: (tercero ? cli?.persona_contacto_email
+            : notif ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
+        tercero,
         // La lista completa para el selector del popup (titular · otros
         // propietarios · persona de contacto), igual que se hace con el partner.
         // El destinatario AUTOMÁTICO no cambia: sigue siendo el de arriba, o sea
@@ -1368,15 +1405,21 @@ async function buildAvisoClienteCee(exp, phase) {
 // ─── GET /api/expedientes/:id/enlace-encargo?phase=inicial|final ──────────────
 // La PÁGINA DEL ENCARGO del técnico ASIGNADO (`services/encargoTecnico.js`): los
 // popups de aviso al certificador la meten en el mensaje. staffOnly: el enlace
-// abre el teléfono y la dirección del cliente.
+// abre el teléfono y la dirección del cliente. Si el técnico usa la app de
+// certificadores, también el enlace de la app que pondrá el envío (en un encargo
+// y en un recordatorio), para que el popup enseñe lo que sale.
 router.get('/:id/enlace-encargo', staffOnly, async (req, res) => {
     try {
         const { data: exp } = await supabase.from('expedientes')
             .select('id, cert:cee->>certificador_id').eq('id', req.params.id).maybeSingle();
         if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         const { enlaceEncargo } = require('../services/encargoTecnico');
-        res.json({ url: enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase,
-                                        certId: req.query.certificador_id || exp.cert || null }) });
+        const certId = req.query.certificador_id || exp.cert || null;
+        const app = await require('../services/certapp/crm')
+            .enlaceAppPrevisto({ negocio: 'cae', id: exp.id, fase: req.query.phase, certId })
+            .catch((e) => { console.warn('[enlace-encargo] app:', e.message); return null; });
+        res.json({ url: enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase, certId }),
+                   url_app_encargo: app?.encargo || null, url_app_recordatorio: app?.recordatorio || null });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -1408,11 +1451,18 @@ router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
         } catch (e) { console.warn('[aviso-cliente-cee] confirmación:', e.message); }
         // La PÁGINA DEL ENCARGO del técnico que se acaba de elegir (su firma lo
         // lleva): el popup la mete en el mensaje en lugar del enlace a la app.
+        // Si usa la app de certificadores, el de su app (`enlace_en_app`): es el
+        // que pondrá el envío, y el popup tiene que enseñar lo que sale.
         const { enlaceEncargo } = require('../services/encargoTecnico');
+        const certId = req.query.certificador_id || exp.cert || null;
+        const app = await require('../services/certapp/crm')
+            .enlaceAppPrevisto({ negocio: 'cae', id: exp.id, fase: req.query.phase, certId })
+            .catch((e) => { console.warn('[aviso-cliente-cee] app:', e.message); return null; });
         res.json({ ...(await buildAvisoClienteCee(exp, req.query.phase)),
                    bloque_certificador: bloqueCertificador,
-                   enlace_encargo: enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase,
-                                                   certId: req.query.certificador_id || exp.cert || null }) });
+                   enlace_encargo: app?.encargo
+                       || enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase, certId }),
+                   enlace_en_app: !!app?.encargo });
     } catch (err) {
         console.error('[aviso-cliente-cee]', err.message);
         res.status(500).json({ error: 'Error preparando el aviso al cliente' });
@@ -1688,22 +1738,55 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         const nombreDest = (String(req.body?.nombre || '').trim()) || contacto.nombre;
         const sent = [];
 
+        // ── CONSEJO DE FACTURA (utils/consejoFactura.js, Fran 11/11/2026) ──
+        // Al INSTALADOR, cuando se le pide la factura (clave `factura` del barrido) o
+        // quien llama lo pide (`consejo_factura: true`: el popup con la casilla
+        // marcada, el «¿cómo va la obra?» del parte). `false` lo apaga. Se vuelve a
+        // calcular AQUÍ —nunca se fía del navegador— y solo sale si la regla lo dice:
+        // falta la factura, o la que hay tiene una GRAVE que tumba la auditoría.
+        let consejoEnvio = null;
+        const keysPedidas = Array.isArray(req.body?.solicitado_keys) ? req.body.solicitado_keys.map(String) : [];
+        if (target === 'INSTALADOR' && req.body?.consejo_factura !== false
+            && (req.body?.consejo_factura === true || keysPedidas.includes('factura'))) {
+            try {
+                const r = await require('../utils/consejoFactura').cargarConsejoFactura(exp, { crearToken: true });
+                if (r?.consejo && r.decision.mandar) consejoEnvio = r;
+            } catch (e) { console.warn('[solicitar-faltantes] consejo de factura:', e.message); }
+        }
+
         if (channels.includes('whatsapp')) {
             if (!tlf) return res.status(400).json({ error: 'No hay teléfono para enviar el WhatsApp. Indica uno.' });
             botVinculos.sembrarEnDiferido(tlf, exp.oportunidad_id);
             try { await whatsappService.sendText(tlf, mensaje); sent.push('WhatsApp'); }
             catch (e) { console.warn('[solicitar-faltantes] WA:', e.message); sent.push('WhatsApp (encolado)'); }
+            // Dos mensajes INDEPENDIENTES justo detrás: el consejo y, aparte, solo el
+            // concepto (mantener pulsado → Copiar copia exactamente eso).
+            if (consejoEnvio) {
+                for (const t of consejoEnvio.whatsapp) {
+                    try { await whatsappService.sendText(tlf, t); }
+                    catch (e) { console.warn('[solicitar-faltantes] WA consejo:', e.message); }
+                }
+            }
         }
         if (channels.includes('email')) {
             if (!email) return res.status(400).json({ error: 'No hay email para enviar. Indica uno.' });
-            // Los saltos van en <br>: Outlook (motor de Word) ignora `white-space:pre-wrap`
-            // y el mensaje llegaba de una pieza, como un párrafo corrido.
-            const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`;
+            const cfMod = consejoEnvio ? require('../utils/consejoFactura') : null;
+            // Con consejo, el texto lo ANUNCIA y el recuadro va al final del correo.
+            const textoEmail = consejoEnvio ? cfMod.anunciarEnTexto(mensaje) : mensaje;
+            // Con la plantilla de marca de todos los avisos (cabecera, pie, párrafos y
+            // los enlaces como botón): antes salía en un <div> suelto.
+            const html = emailService.buildSolicitudEmail({
+                asunto, mensaje: textoEmail,
+                extraHtml: consejoEnvio ? cfMod.htmlEmailConsejo(consejoEnvio.consejo, consejoEnvio.decision, { url: consejoEnvio.url }) : '',
+            });
+            const textoPlano = consejoEnvio
+                ? `${textoEmail}\n\nTexto recomendado para la factura${consejoEnvio.url ? ` (con botón para copiarlo: ${consejoEnvio.url})` : ''}:\n\n${consejoEnvio.copiar}`
+                : mensaje;
             // Copia REAL: quien lo recibe ve quién más está en el hilo. `sendMail`
             // descarta los vacíos y los que ya van en `to`.
             const cc = (Array.isArray(req.body?.cc) ? req.body.cc : [])
                 .map(e => String(e || '').trim()).filter(Boolean);
-            await emailService.sendMail({ to: email, cc, subject: asunto, text: mensaje, html });
+            await emailService.sendMail({ to: email, cc, subject: asunto, text: textoPlano, html });
             sent.push(cc.length ? `Email (+${cc.length} en copia)` : 'Email');
         }
         if (!sent.length) return res.status(400).json({ error: 'No se pudo enviar por los canales elegidos' });
@@ -1726,9 +1809,10 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         historial.push({
             id: Date.now().toString() + '_solicitud',
             tipo: 'solicitud_docs',
-            texto: `Solicitud de documentación enviada a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'}${destLabel} vía ${sent.join(' + ')}${solicitadoTxt}`,
+            texto: `Solicitud de documentación enviada a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'}${destLabel} vía ${sent.join(' + ')}${solicitadoTxt}${consejoEnvio ? `. Con el texto recomendado para la factura${consejoEnvio.decision.motivo === 'GRAVE' ? ' (y qué corregir de la que hay)' : ''}` : ''}`,
             solicitado,
             solicitado_keys: solicitadoKeys,
+            consejo_factura: consejoEnvio ? consejoEnvio.decision.motivo : null,
             target,
             fecha: new Date().toISOString(),
             usuario: userName,
@@ -1737,7 +1821,19 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
             .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
             .eq('id', req.params.id);
 
-        res.json({ ok: true, channels: sent, sentTo: email || tlf || null });
+        // Lo pedido por WhatsApp queda ESPERANDO respuesta: si contesta se cierra
+        // sola y, si no, se le recuerda a su hora (esperasWhatsapp; apagado por
+        // defecto). Nunca lanza ni retrasa la respuesta.
+        if (sent.includes('WhatsApp') || sent.includes('WhatsApp (encolado)')) {
+            void require('../services/esperasWhatsapp').abrir({
+                tel: tlf, quien: target, nombre: nombreDest,
+                expedienteId: exp.id, oportunidadId: exp.oportunidad_id, numero: exp.numero_expediente,
+                motivo: 'DOCUMENTACION', pedido: solicitado,
+                enlace: (mensaje.match(/https?:\/\/\S+/) || [null])[0], texto: mensaje, origen: 'solicitar-faltantes',
+            });
+        }
+
+        res.json({ ok: true, channels: sent, sentTo: email || tlf || null, consejo_factura: consejoEnvio ? consejoEnvio.decision.motivo : null });
     } catch (err) {
         console.error('[solicitar-faltantes]', err.message);
         res.status(500).json({ error: 'Error enviando la solicitud' });
@@ -2520,6 +2616,8 @@ router.post('/:id/anexo-fotografico/generar', internalKeyOrAuth, async (req, res
 //     La foto SIGUE en Drive: es documentación del expediente, solo se omite aquí.
 //   · `orden`       { <SLOT>: ['FOTO_X_3.jpg', 'FOTO_X_1.jpg', …] } — orden manual
 //     de las fotos dentro de un concepto. El orden de las filas ES el orden del PDF.
+//   · `tamanos`     { 'FOTO_X_1.jpg': 60, … } — tamaño de la foto en el PDF (30–99 %;
+//     sin entrada = 100 %). Antes vivía solo en el modal y se perdía al reabrirlo.
 // Viven en `documentacion` para que el PDF salga igual por el modal y por el MCP.
 // Escritura acotada: relee `documentacion` y toca SOLO estas dos claves, así un
 // guardado en paralelo del detalle del expediente no las pisa ni las borra.
@@ -2537,6 +2635,7 @@ router.get('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
             comentarios: doc.anexo_comentarios || {},
             excluidas: doc.anexo_excluidas || [],
             orden: doc.anexo_orden || {},
+            tamanos: doc.anexo_tamanos || {},
         });
     } catch (e) {
         console.error('[anexo-fotografico/config GET]', e);
@@ -2546,7 +2645,7 @@ router.get('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
 
 router.put('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
     try {
-        const { comentarios, excluidas, orden } = req.body || {};
+        const { comentarios, excluidas, orden, tamanos } = req.body || {};
         const { data: exp, error } = await supabase
             .from('expedientes').select('documentacion').eq('id', req.params.id).maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
@@ -2571,6 +2670,14 @@ router.put('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
                     .filter(([, lista]) => lista.length)
             );
         }
+        if (tamanos !== undefined) {
+            // Solo números de 30 a 99: el 100 es el de siempre y no deja rastro.
+            docObj.anexo_tamanos = Object.fromEntries(
+                Object.entries(tamanos || {})
+                    .map(([nombre, pct]) => [String(nombre), Math.round(Number(pct))])
+                    .filter(([nombre, pct]) => nombre && Number.isFinite(pct) && pct >= 30 && pct < 100)
+            );
+        }
 
         const { error: upErr } = await supabase
             .from('expedientes')
@@ -2583,6 +2690,7 @@ router.put('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
             comentarios: docObj.anexo_comentarios || {},
             excluidas: docObj.anexo_excluidas || [],
             orden: docObj.anexo_orden || {},
+            tamanos: docObj.anexo_tamanos || {},
         });
     } catch (e) {
         console.error('[anexo-fotografico/config]', e);
@@ -4266,8 +4374,13 @@ router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
             .maybeSingle();
         if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
-        const facturas = Array.isArray(exp.documentacion?.facturas) ? exp.documentacion.facturas : [];
-        if (!facturas.length) return res.status(400).json({ error: 'El expediente no tiene facturas.' });
+        // Solo las que COMPUTAN para el CAE: una factura entera de placas en un RES060
+        // se guarda (estudio de precios) pero no va al verificador. Una mixta sí va:
+        // es la factura de la aerotermia, y lo que no computa se descuenta en la cifra.
+        const { facturaComputa } = require('../utils/facturasCae');
+        const facturas = (Array.isArray(exp.documentacion?.facturas) ? exp.documentacion.facturas : [])
+            .filter(facturaComputa);
+        if (!facturas.length) return res.status(400).json({ error: 'El expediente no tiene facturas que computen para el CAE.' });
         if (!facturas.every(f => f && f.validada)) {
             return res.status(400).json({ error: 'Todas las facturas deben estar validadas antes de generar el PDF único.' });
         }
@@ -4346,8 +4459,10 @@ router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
 
         // Huérfanos: ficheros de "5. FACTURAS" que no son de ninguna factura registrada
         // ni el propio combinado. Son los que antes se colaban en el PDF.
+        // Las registradas que no computan no son huérfanas: están fuera a propósito.
+        const registradas = new Set((exp.documentacion?.facturas || []).map(facturaDriveId).filter(Boolean));
         const huerfanos = enCarpeta
-            .filter(f => !vistos.has(f.id))
+            .filter(f => !vistos.has(f.id) && !registradas.has(f.id))
             .map(f => ({ id: f.id, name: f.name }));
 
         res.json({
@@ -4475,7 +4590,7 @@ async function leerYArchivarFactura(grupo, ctx) {
     if (!saved?.link) throw new Error('La factura se ha leído pero no se pudo guardar en Drive.');
 
     // 4) Filtro previo de incidencias (determinista, sobre el JSON del OCR).
-    const { detectarIncidenciasFactura } = require('../services/facturaIncidencias');
+    const { detectarIncidenciasFactura, desgloseFactura } = require('../services/facturaIncidencias');
     const incidencias = detectarIncidenciasFactura({
         ocr,
         exp: ctx.exp,
@@ -4509,6 +4624,9 @@ async function leerYArchivarFactura(grupo, ctx) {
         partidas: [...new Set((ocr.lineas || [])
             .map(l => String(l?.partida || '').trim().toUpperCase())
             .filter(Boolean))],
+        // Importe POR PARTIDA y si computa para el CAE: la fotovoltaica de un RES060
+        // se registra pero sale de la inversión (logic/facturasCae.js).
+        desglose: desgloseFactura({ ocr, exp: ctx.exp, op: ctx.op }),
     };
 
     return { factura, incidencias, ocr };
@@ -5445,7 +5563,9 @@ async function loadRiteContext(idOrNum) {
         // el certificado van a nombre del instalador habilitado que firma por él.
         // `presReal` conserva el asignado: es a QUIEN se avisa (ver /send).
         const r = await resolveInstaladorFirmante(p, supabase);
-        pres = r.firmante;
+        // Si la empresa tiene VARIOS técnicos habilitados y en este expediente se
+        // eligió otro que el de por defecto, la memoria sale a nombre de ESE.
+        pres = aplicarTecnicoRite(r.firmante, exp.documentacion?.memoria_rite_tecnico?.dni);
         presReal = r.real;
         firmanteDelegado = r.delegado;
     }
@@ -5540,6 +5660,40 @@ router.put('/:id/memoria-rite/locales', staffOnly, async (req, res) => {
     } catch (err) {
         console.error('Error PUT expedientes/:id/memoria-rite/locales:', err);
         res.status(500).json({ error: 'No se pudieron guardar las estancias', details: err.message });
+    }
+});
+
+// ─── PUT /api/expedientes/:id/memoria-rite/tecnico ─────────────────────────────
+// QUÉ TÉCNICO firma la Memoria RITE de ESTE expediente, cuando la empresa tiene
+// varios habilitados (`prescriptores.tecnicos_firmantes_rite`). Body: { dni } —
+// null o el del técnico por defecto vuelve al de por defecto. El nombre lo
+// resuelve el servidor desde la ficha, nunca del body. RPC de MERGE + clave en
+// CLAVES_PROTEGIDAS: el autoguardado de la ficha no la pisa.
+router.put('/:id/memoria-rite/tecnico', staffOnly, async (req, res) => {
+    try {
+        const ctx = await loadRiteContext(req.params.id);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { data: p } = await supabase.from('prescriptores').select('*')
+            .eq('id_empresa', ctx.pres?.id_empresa || '').maybeSingle();
+        const dni = (req.body?.dni || '').toString().trim().toUpperCase() || null;
+        let elegido = null;
+        if (dni && p) {
+            const t = aplicarTecnicoRite(p, dni);
+            if (t === p && String(p.tecnico_firmante_dni || '').toUpperCase() !== dni) {
+                return res.status(400).json({ error: 'Ese técnico no está en la ficha de la empresa' });
+            }
+            // El de por defecto no se guarda: así, si mañana cambia en la ficha, se sigue.
+            if (t !== p) elegido = { dni, nombre: [t.tecnico_firmante_nombre, t.tecnico_firmante_apellidos].filter(Boolean).join(' ') };
+        }
+        const valor = { dni: elegido?.dni || null, nombre: elegido?.nombre || null, at: new Date().toISOString(), por: req.user?.email || null };
+        const { error } = await supabase.rpc('merge_expediente_doc_json', {
+            p_expediente_id: ctx.exp.id, p_field: 'memoria_rite_tecnico', p_value: valor,
+        });
+        if (error) throw error;
+        res.json({ ok: true, memoria_rite_tecnico: valor });
+    } catch (err) {
+        console.error('Error PUT expedientes/:id/memoria-rite/tecnico:', err);
+        res.status(500).json({ error: 'No se pudo guardar el técnico firmante', details: err.message });
     }
 });
 
@@ -6099,6 +6253,30 @@ router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
                 // El mensaje ya ha salido: esto no puede devolverle un error a
                 // quien envía, pero tiene que constar.
                 console.error('[instalador/enviar] no se pudo sellar el firmante del CIFO:', e.message);
+            }
+        }
+
+        // ── SELLO DE ENVÍO ───────────────────────────────────────────────────
+        // La fecha de envío de cada documento que ha viajado la sella el SERVIDOR.
+        // Antes la ponía solo el navegador al volver del popup (`markInstaladorSent`),
+        // así que un envío por script, MCP o el agente salía sin sello y el radar
+        // seguía diciendo «CIFO por enviar» (26RES060_237, 30/10/2026). El popup lo
+        // sigue sellando también; da igual quién llegue antes.
+        if (anyOk && exp.oportunidad_id) {
+            const at = new Date().toISOString();
+            const sellos = [
+                wants.includes('cifo') && 'cert_cifo_sent_at',
+                wants.includes('rite') && 'borrador_cert_sent_at',
+            ].filter(Boolean);
+            for (const campo of sellos) {
+                try {
+                    const { error } = await supabase.rpc('set_expediente_doc_field', {
+                        p_oportunidad_id: exp.oportunidad_id, p_field: campo, p_value: at,
+                    });
+                    if (error) throw new Error(error.message);
+                } catch (e) {
+                    console.error(`[instalador/enviar] no se pudo sellar ${campo}:`, e.message);
+                }
             }
         }
 
@@ -6822,6 +7000,17 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         }
         const encargoPendiente = template === 'standard' && soloAsignar && !esDeBrokergy(cert) && !delAgente;
 
+        // ¿Usa la APP de certificadores? (cuenta con el MISMO email que su ficha):
+        // entonces el encargo le llega a su panel, lo acepta o rechaza allí y el
+        // enlace del mensaje lleva a la app (services/certapp/crm.js). Si la app no
+        // responde, el encargo sale como siempre.
+        const certappCrm = require('../services/certapp/crm');
+        const cuentaApp = delAgente ? null : await certappCrm.cuentaDe(cert).catch((e) => {
+            console.warn('[notify-certificador] cuenta de la app:', e.message);
+            return null;
+        });
+        const encargoEnApp = !!cuentaApp && template === 'standard' && !encargoPendiente;
+
         // El AGENTE IA no se GUARDA como certificador (26/10/2026): en la barra
         // queda el de la casa (Fran), que firma, y el encargo del agente va a su
         // sello `cee.agente_ia[fase]` (`encargado`), que leen su cola y el radar.
@@ -6911,8 +7100,10 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         // ── Token de confirmación (cert-ack) ─────────────────────────────────────
         // Solo si algo sale: el enlace va dentro del email. Regenerarlo en un "solo
         // asignar" dejaría muerto el enlace de un encargo que sí se envió antes.
+        // Con la app, también en un «solo asignar» (el certificador de la casa): el
+        // «Aceptar» de la app es este mismo acuse. Sin pisar uno que ya hubiera.
         let ackLink = null;
-        if (!soloAsignar) {
+        if (!soloAsignar || (encargoEnApp && !workingCee.ack_token)) {
             const ackToken = crypto.createHash('sha256')
                 .update(`${req.params.id}-${certId}-${Date.now()}`)
                 .digest('hex').slice(0, 32);
@@ -6997,8 +7188,28 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         // si el mensaje llega sin ella (otra superficie, un navegador sin
         // refrescar), se añade aquí — en lugar del enlace a la app, que va dentro.
         const { enlaceEncargo: enlaceDeEncargo, conEnlaceEncargo } = require('../services/encargoTecnico');
-        const encargoLink = soloAsignar ? null
+        let encargoLink = soloAsignar ? null
             : enlaceDeEncargo({ negocio: 'cae', id: req.params.id, fase: phase, certId });
+
+        // La obra en su app (nueva, o la misma si ya se le había encargado) y su
+        // enlace en lugar de la página del encargo. Un recordatorio no crea nada:
+        // solo lleva a la obra si ya la tiene.
+        let enApp = null;
+        if (cuentaApp) {
+            try {
+                enApp = encargoEnApp
+                    ? await certappCrm.encargar({ negocio: 'cae', id: req.params.id, fase: phase, cert, cuenta: cuentaApp })
+                    : await certappCrm.obraDelEncargo(cuentaApp.id, { negocio: 'cae', id: req.params.id, fase: phase })
+                        .then(o => (o && o.estado !== 'ARCHIVADA' ? { obra: o, nueva: false, url: certappCrm.urlEncargo({ negocio: 'cae', id: req.params.id, fase: phase }) } : null));
+            } catch (e) {
+                console.error('[notify-certificador] encargo en la app:', e.message);
+            }
+            if (enApp && !soloAsignar) encargoLink = enApp.url;
+        }
+        // El texto del popup con UN enlace al encargo (el de la app si está allí):
+        // el mismo en el WhatsApp, el EMAIL y el historial.
+        const mensajeTecnico = certappCrm.textoParaTecnico(customMessage,
+            { urlApp: enApp?.url || null, urlPagina: encargoLink });
 
         // === EMAIL ===
         if (sendEmail) {
@@ -7016,7 +7227,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                 ackLink,
                 priority,
                 adminMessage,
-                customMessage,
+                customMessage: mensajeTecnico,
                 espera,
                 ceeUploadLink,
             };
@@ -7053,15 +7264,15 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                     : '';
 
                 let waMsg = '';
-                if (customMessage) {
+                if (mensajeTecnico) {
                     // El admin ha editado el texto (suele incluir ya el enlace de la carpeta). Solo
                     // añadimos el enlace de la carpeta si el cuerpo no trae ninguna URL, y la firma.
-                    const hasUrl = /https?:\/\//i.test(customMessage);
+                    const hasUrl = /https?:\/\//i.test(mensajeTecnico);
                     const carpetaWa = (ceeFolderLink && !hasUrl) ? `\n\n📁 Carpeta de documentos:\n${ceeFolderLink}` : '';
                     // El de subida sí se añade siempre en fase de registro (es la acción pedida),
                     // salvo que el propio texto ya lo lleve.
-                    const subirExtra = (subirWa && !customMessage.includes('/subir-cee/')) ? subirWa : '';
-                    waMsg = `${customMessage}${carpetaWa}${subirExtra}\n\n*BROKERGY · Ingeniería Energética*`;
+                    const subirExtra = (subirWa && !mensajeTecnico.includes('/subir-cee/')) ? subirWa : '';
+                    waMsg = `${mensajeTecnico}${carpetaWa}${subirExtra}\n\n*BROKERGY · Ingeniería Energética*`;
                 } else if (template === 'reminder' && esRegistro) {
                     // Plantilla compartida con el parte diario de seguimiento: el
                     // certificador debe recibir el mismo texto le escribas desde aquí
@@ -7079,7 +7290,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                     waMsg = `${urgentWaPrefix}¡Hola *${certName}*!\n\nTe hemos asignado el expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} para el *CEE Inicial*.\n\nTienes toda la documentación en la carpeta y el portal.${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 }
 
-                waMsg = conEnlaceEncargo(waMsg, encargoLink);
+                waMsg = enApp ? certappCrm.conEnlaceApp(waMsg, enApp.url) : conEnlaceEncargo(waMsg, encargoLink);
                 try {
                     const waRes = await whatsappService.sendText(certPhone, waMsg);
                     // sendText siempre encola en BD; si el cliente no está READY, se enviará al reconectar.
@@ -7142,19 +7353,23 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                 const esperaTag = template === 'standard'
                     ? ''
                     : ` · ${esRegistro ? 'Registro en Industria' : 'Emisión del CEE'}`;
-                const sentBody = customMessage || adminMessage;
+                const sentBody = mensajeTecnico || adminMessage;
                 const msgTag = sentBody ? `\n💬 Mensaje: "${sentBody}"` : '';
+                // El encargo también está en su app de certificadores (crm.encargar).
+                const appTag = enApp && encargoEnApp
+                    ? ` · 📲 en su app de certificadores (${enApp.obra.numero_expediente}), pendiente de que lo acepte`
+                    : '';
                 if (channels.length > 0) {
                     historial.push({
                         id: Date.now().toString() + '_certnotif',
                         tipo: 'notificacion_certificador',
-                        texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}${esperaTag}${priorityTag}) enviada a ${certName} vía ${channels.join(' + ')}${msgTag}`,
+                        texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}${esperaTag}${priorityTag}) enviada a ${certName} vía ${channels.join(' + ')}${appTag}${msgTag}`,
                         fecha: new Date().toISOString(),
                         usuario: userName,
                         priority,
                         espera,
                         adminMessage,
-                        customMessage
+                        customMessage: mensajeTecnico
                     });
                 } else {
                     const tecnico = cert.razon_social || cert.acronimo || certName;
@@ -7165,7 +7380,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                             ? `Certificador ${tecnico} asignado SIN AVISAR · el encargo del ${phaseLabel} queda PENDIENTE DE ENVIAR`
                             : delAgente
                                 ? `🤖 ${phaseLabel} encargado al AGENTE IA · lo prepara con las skills y avisa al terminar`
-                                : `Certificador ${tecnico} asignado (certificador de Brokergy: no se envía aviso)`,
+                                : `Certificador ${tecnico} asignado (certificador de Brokergy: no se envía aviso)${appTag}`,
                         fecha: new Date().toISOString(),
                         usuario: userName,
                     });
@@ -7211,6 +7426,8 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
             // la pantalla tiene que decirlo en vez de dar la tarea por hecha.
             asignadoSinAviso: soloAsignar,
             encargoPendiente,
+            // El encargo está en la app de certificadores del técnico (su nº de obra allí).
+            certapp: enApp ? { obra: enApp.obra.numero_expediente, nueva: !!enApp.nueva } : null,
             avisoCliente: avisoCliente
                 ? { canales: avisoCliente.canales, to: avisoCliente.to, nombre: avisoCliente.nombre }
                 : null,
@@ -7330,11 +7547,14 @@ router.post('/:id/cert-ack', async (req, res) => {
 // ─── POST /api/expedientes/:id/notify-review ──────────────────────────────
 // El certificador notifica que ha subido el CEX y está pendiente de revisión
 // Body: { phase, priority?, techMessage? }
-router.post('/:id/notify-review', enforceAuth, async (req, res) => {
+router.post('/:id/notify-review', internalKeyOrAuth, async (req, res) => {
     try {
         const { phase } = req.body;
         const priority = req.body?.priority === 'urgent' ? 'urgent' : 'normal';
         const techMessage = (req.body?.techMessage || '').trim() || null;
+        // Por la clave interna (la app de certificadores) no hay sesión: quién lo
+        // entrega viene en el cuerpo.
+        if (req.internalCall) req.user = { nombre: String(req.body?.quien || 'Técnico (app de certificadores)').slice(0, 120) };
 
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
@@ -7782,7 +8002,7 @@ router.post('/:id/cee/final-desde-medida', staffOnly, async (req, res) => {
     }
 });
 
-router.post('/:id/approve-cee', staffOnly, async (req, res) => {
+router.post('/:id/approve-cee', staffOClaveInterna, async (req, res) => {
     try {
         const { phase } = req.body;
         const adminMessage = (req.body?.adminMessage || '').trim() || null;
@@ -8031,6 +8251,248 @@ router.patch('/:id/regenerar-numero', adminOnly, async (req, res) => {
     } catch (error) {
         console.error('Error al regenerar número:', error.message);
         res.status(500).json({ error: 'Error al regenerar el número de expediente', details: error.message });
+    }
+});
+
+// ─── VÍA DEL FACTOR MULTIPLICADOR (BOE-A-2026-23367) ──────────────────────────
+// Un expediente por la vía FM lleva «FM» en su número (26RES060FM_N, mismo contador que su ficha)
+// y pide los 13 documentos de su ficha. Lógica: utils/viaFm.js; numeración:
+// expedienteService.cambiarViaFm. Ver
+// docs/conocimiento/expedientes/la-via-del-factor-multiplicador-en-el-expediente.md
+
+// Estado de cada documento que ya cubre OTRO del expediente.
+function estadoDocCubierto(cubre, exp, uploads) {
+    const doc = exp.doc || {};
+    const seg = exp.seguimiento || {};
+    const firmado = (campo) => (doc[campo] ? 'firmado' : null);
+    switch (cubre) {
+        case 'anexo_i': return firmado('anexo_i_signed_link') || 'pendiente';
+        case 'convenio': {
+            // Punto 12: el consentimiento del IRPF va en el Convenio de la vía FM. Uno
+            // firmado ANTES de pasar a la vía no lo lleva: hay que volver a firmarlo.
+            // Y en la VISTA PREVIA (el expediente aún va por la vigente) cualquier
+            // Convenio firmado es sin cláusula: solo la lleva el de un número FM.
+            if (!doc.anexo_cesion_signed_link) return 'pendiente';
+            if (!require('../utils/fichas').esNumeroFm(exp.numero_expediente)) return 'sin_clausula';
+            const activada = exp.via_fm?.activada_at;
+            const firmadoAt = doc.anexo_cesion_signed_at;
+            return activada && (!firmadoAt || firmadoAt < activada) ? 'sin_clausula' : 'firmado';
+        }
+        case 'cifo': return firmado('cert_cifo_signed_link') || 'pendiente';
+        case 'anexo_fotografico': return firmado('anexo_fotografico_signed_link') || 'pendiente';
+        case 'DOC_RITE': return doc.cert_rite_drive_link || (uploads.DOC_RITE || []).length ? 'aportado' : 'pendiente';
+        case 'DOC_FACTURAS': return (doc.facturas || []).length || (uploads.DOC_FACTURAS || []).length ? 'aportado' : 'pendiente';
+        // Mismo criterio que `ceeFinalOk` del checklist de validación.
+        case 'cee_final': return doc.fecha_registro_cee_final || String(seg.cee_final || '').toUpperCase() === 'REGISTRADO' ? 'registrado' : 'pendiente';
+        default: return null;
+    }
+}
+
+async function cargarViaFm(id) {
+    const { data: exp, error } = await supabase
+        .from('expedientes')
+        .select([
+            'id', 'numero_expediente', 'estado', 'lote_id', 'oportunidad_id', 'seguimiento',
+            'via_fm:documentacion->via_fm',
+            'fm_docs:documentacion->fm_docs',
+            'facturas:documentacion->facturas',
+            'anexo_i_signed_link:documentacion->>anexo_i_signed_link',
+            'anexo_cesion_signed_link:documentacion->>anexo_cesion_signed_link',
+            'anexo_cesion_signed_at:documentacion->>anexo_cesion_signed_at',
+            'cert_cifo_signed_link:documentacion->>cert_cifo_signed_link',
+            'anexo_fotografico_signed_link:documentacion->>anexo_fotografico_signed_link',
+            'cert_rite_drive_link:documentacion->>cert_rite_drive_link',
+            'fecha_registro_cee_final:documentacion->>fecha_registro_cee_final',
+            'lf_e:cee->cee_final->>emisionesLetra', 'lf_c:cee->cee_final->>epnrLetra',
+            'li_e:cee->cee_inicial->>emisionesLetra', 'li_c:cee->cee_inicial->>epnrLetra',
+            'li_zona:cee->cee_inicial->>zonaClimatica',
+        ].join(', '))
+        .eq('id', id)
+        .maybeSingle();
+    if (error) throw Object.assign(new Error(error.message), { status: 503 });
+    if (!exp) return null;
+    const { data: op } = await supabase
+        .from('oportunidades')
+        .select('zona:datos_calculo->>zona, inputs:datos_calculo->inputs, uploads:datos_calculo->reforma_uploads')
+        .eq('id', exp.oportunidad_id)
+        .maybeSingle();
+    exp.doc = {
+        anexo_i_signed_link: exp.anexo_i_signed_link, anexo_cesion_signed_link: exp.anexo_cesion_signed_link,
+        cert_cifo_signed_link: exp.cert_cifo_signed_link, anexo_fotografico_signed_link: exp.anexo_fotografico_signed_link,
+        cert_rite_drive_link: exp.cert_rite_drive_link, facturas: Array.isArray(exp.facturas) ? exp.facturas : [],
+        fecha_registro_cee_final: exp.fecha_registro_cee_final,
+        anexo_cesion_signed_at: exp.anexo_cesion_signed_at,
+    };
+    return { exp, op: op || {} };
+}
+
+function respuestaViaFm({ exp, op }) {
+    const viaFm = require('../utils/viaFm');
+    const fichas = require('../utils/fichas');
+    const inputs = op.inputs || {};
+    const uploads = op.uploads || {};
+    const ficha = fichas.fichaFromNumero(exp.numero_expediente);
+    const ctx = viaFm.contextoFm({
+        numero: exp.numero_expediente,
+        datos: exp.via_fm || {},
+        inputs,
+        zona: op.zona || inputs.zona || exp.li_zona || null,
+        letrasFinal: [exp.lf_e, exp.lf_c],
+        letrasInicial: [exp.li_e, exp.li_c],
+    });
+    // Para enseñar lo que pediría ANTES de pasar a la vía, se calcula como si lo fuera.
+    const ctxVista = ctx.activa ? ctx : viaFm.contextoFm({
+        numero: String(exp.numero_expediente || '').replace(/^(\d{2})(RES060|RES080|RES093)_/, '$1$2FM_'),
+        datos: exp.via_fm || {}, inputs, zona: op.zona || inputs.zona || exp.li_zona || null,
+        letrasFinal: [exp.lf_e, exp.lf_c], letrasInicial: [exp.li_e, exp.li_c],
+    });
+    // Los que GENERA la app: firmado = ya está en su apartado del gestor; borrador =
+    // generado y esperando firma (`documentacion.fm_docs`, sin enlace: el panel lo
+    // vuelve a maquetar para enseñarlo, y los enlaces de Drive son solo de ADMIN).
+    const fmDocs = exp.fm_docs || {};
+    const documentos = viaFm.documentosFm(ctxVista).map((d) => {
+        const n = d.slot ? (uploads[d.slot] || []).length : 0;
+        const b = d.genera ? fmDocs[d.genera] : null;
+        // Generado: firmado solo si lo subido es POSTERIOR al borrador de ahora
+        // (regenerarlo vuelve a pedir la firma, `firmadoVigente`).
+        const estadoGenerado = viaFm.firmadoVigente(uploads[d.slot], b?.drive_at) ? 'firmado' : (b?.drive_at ? 'borrador' : 'pendiente');
+        return {
+            ...d,
+            estado: d.slot
+                ? (d.genera ? estadoGenerado : (n ? 'aportado' : 'pendiente'))
+                : estadoDocCubierto(d.cubre, exp, uploads),
+            ficheros: d.slot ? n : undefined,
+            ...(d.genera ? {
+                firma: viaFm.GENERADOS_FM[d.genera]?.firma || null,
+                borrador: b?.drive_at ? { at: b.drive_at, por: b.por || null, signed_at: b.signed_at || null } : null,
+            } : {}),
+        };
+    });
+    // Inicio de la actuación: la primera factura que abre la obra (regla 93).
+    const fechasFact = (exp.doc.facturas || [])
+        .filter((f) => !f.motivo_no_inicio)
+        .map((f) => String(f.fecha_factura || f.fecha || '').slice(0, 10))
+        .filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f)).sort();
+    const inicioObra = fechasFact[0] || null;
+    const bloqueo = expedienteService.bloqueoCambioVia(exp);
+    return {
+        numero_expediente: exp.numero_expediente,
+        admite: fichas.admiteViaFm(ficha),
+        activa: ctx.activa,
+        bloqueo,
+        contexto: { ...ctxVista, activa: ctx.activa },
+        documentos,
+        vivienda_habitual: ctxVista.tipologia.clase === 'bloque' ? null
+            : viaFm.validarViviendaHabitual(ctxVista.datos.facturas_luz, inicioObra),
+        inicio_obra: inicioObra,
+        facturas_fuera_de_plazo: viaFm.facturasFueraDePlazo(exp.doc.facturas),
+    };
+}
+
+// GET /api/expedientes/:id/via-fm — el panel de la vía: qué pide, qué hay y qué falla.
+router.get('/:id/via-fm', staffOnly, async (req, res) => {
+    try {
+        const cargado = await cargarViaFm(req.params.id);
+        if (!cargado) return res.status(404).json({ error: 'Expediente no encontrado' });
+        res.json(respuestaViaFm(cargado));
+    } catch (err) {
+        console.error('Error GET expedientes/:id/via-fm:', err.message);
+        res.status(err.status || 500).json({ error: err.status === 503 ? 'La base de datos no responde' : 'No se pudo leer la vía FM', details: err.message });
+    }
+});
+
+// POST /api/expedientes/:id/via-fm — { activar: bool }. Pone o quita el «FM»: conserva el número.
+router.post('/:id/via-fm', staffOnly, async (req, res) => {
+    try {
+        if (typeof req.body?.activar !== 'boolean') return res.status(400).json({ error: 'Falta `activar` (true/false)' });
+        const usuario = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.nombre || req.user?.email || 'TRABAJADOR');
+        const r = await expedienteService.cambiarViaFm(req.params.id, { activar: req.body.activar, usuario });
+        const cargado = await cargarViaFm(req.params.id);
+        res.json({ ...r, via: cargado ? respuestaViaFm(cargado) : null });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/via-fm:', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+// PUT /api/expedientes/:id/via-fm/datos — los datos de la vía (`documentacion.via_fm`).
+// RPC de MERGE + clave en CLAVES_PROTEGIDAS: el autoguardado de la ficha no la pisa.
+router.put('/:id/via-fm/datos', staffOnly, async (req, res) => {
+    try {
+        const { sanearDatosFm } = require('../utils/viaFm');
+        const valor = { ...sanearDatosFm(req.body || {}), at: new Date().toISOString(), por: req.user?.email || null };
+        const { data: exp, error: e1 } = await supabase.from('expedientes').select('id').eq('id', req.params.id).maybeSingle();
+        if (e1) return res.status(503).json({ error: 'La base de datos no responde' });
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { error } = await supabase.rpc('merge_expediente_doc_json', { p_expediente_id: exp.id, p_field: 'via_fm', p_value: valor });
+        if (error) throw error;
+        const cargado = await cargarViaFm(req.params.id);
+        res.json({ ok: true, via: cargado ? respuestaViaFm(cargado) : null });
+    } catch (err) {
+        console.error('Error PUT expedientes/:id/via-fm/datos:', err.message);
+        res.status(500).json({ error: 'No se pudieron guardar los datos de la vía FM', details: err.message });
+    }
+});
+
+// POST /api/expedientes/:id/via-fm/documento/:genera — { html }. Guarda el BORRADOR
+// de un documento de firma de la vía FM (declaración del instalador, informado F/G,
+// oferta de mantenimiento, Anexo B) que el panel maqueta con logic/documentosFm.js:
+// PDF en «6. ANEXOS CAE» como `{nº} - {fichero}.pdf` (el anterior, a OLD) y el
+// sello en `documentacion.fm_docs[genera]` (RPC de MERGE, clave protegida). NO lo
+// envía a nadie: el cliente lo encuentra en su enlace de firma y el instalador en
+// el suyo. Lo firmado acaba en el apartado del gestor (`GENERADOS_FM[genera].slot`).
+router.post('/:id/via-fm/documento/:genera', staffOnly, async (req, res) => {
+    try {
+        const viaFm = require('../utils/viaFm');
+        const { esNumeroFm } = require('../utils/fichas');
+        const meta = viaFm.GENERADOS_FM[req.params.genera];
+        if (!meta) return res.status(404).json({ error: 'Documento de la vía FM desconocido' });
+        const html = req.body?.html;
+        // Solo la maqueta de logic/documentosFm.js (hojas `.fm-page`): no es un
+        // conversor de HTML a PDF de propósito general.
+        if (typeof html !== 'string' || html.length > 1500000 || !html.includes('class="fm-page"')) {
+            return res.status(400).json({ error: 'Falta el documento (html de la vía FM)' });
+        }
+        const { data: exp, error } = await supabase.from('expedientes')
+            .select('id, numero_expediente, oportunidad_id, fm_docs:documentacion->fm_docs')
+            .eq('id', req.params.id).maybeSingle();
+        if (error) return res.status(503).json({ error: 'La base de datos no responde' });
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!esNumeroFm(exp.numero_expediente)) return res.status(409).json({ error: 'El expediente no va por la vía del factor multiplicador' });
+        const { data: op } = await supabase.from('oportunidades')
+            .select('drive_folder_id:datos_calculo->>drive_folder_id, drive_folder_id_in:datos_calculo->inputs->>drive_folder_id')
+            .eq('id', exp.oportunidad_id).maybeSingle();
+        const driveFolderId = op?.drive_folder_id || op?.drive_folder_id_in;
+        if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
+
+        const driveService = require('../services/driveService');
+        const { documentoAPdf } = require('../services/pdfService');
+        const pdf = await documentoAPdf({ html });
+        const sub = await driveService.getOrCreateSubfolder(driveFolderId, '6. ANEXOS CAE');
+        const nombre = `${exp.numero_expediente} - ${meta.fichero}.pdf`;
+        try {
+            for (const prevId of (await driveService.findFilesByName(sub, nombre)) || []) {
+                await driveService.archiveExistingToOld(sub, prevId, nombre);
+            }
+        } catch (e) { console.warn('[via-fm/documento] no se pudo archivar el previo:', e.message); }
+        const saved = await driveService.saveFileToFolder(sub, nombre, 'application/pdf', pdf);
+        if (!saved?.link) throw new Error('No se pudo guardar el PDF en Drive');
+
+        const previo = (exp.fm_docs || {})[req.params.genera] || {};
+        const entrada = {
+            ...previo,
+            drive_link: saved.link, drive_id: saved.id || null,
+            drive_at: new Date().toISOString(), por: req.user?.email || null,
+        };
+        const { error: e2 } = await supabase.rpc('merge_expediente_doc_json', {
+            p_expediente_id: exp.id, p_field: 'fm_docs', p_value: { [req.params.genera]: entrada },
+        });
+        if (e2) throw e2;
+        const cargado = await cargarViaFm(req.params.id);
+        res.json({ ok: true, fichero: nombre, via: cargado ? respuestaViaFm(cargado) : null });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/via-fm/documento:', err.message);
+        res.status(500).json({ error: 'No se pudo generar el documento', details: err.message });
     }
 });
 
@@ -9128,3 +9590,5 @@ module.exports = router;
 // Expuesto para pruebas y para quien necesite el barrido sin pasar por HTTP
 // (p. ej. el MCP al responder "qué falta en el expediente NNN").
 module.exports.buildChecklistData = buildChecklistData;
+// Para scripts/test_tecnicos_rite.js: la memoria con el técnico elegido.
+module.exports._rite = { loadRiteContext, buildRitePayloads, generarRiteFiles };

@@ -226,6 +226,49 @@ export function firmanteMemoriaRite(pres = {}) {
 }
 
 /**
+ * Los técnicos que PUEDEN firmar la Memoria RITE de esta empresa: el de por
+ * defecto (`tecnico_firmante_*`) primero y luego los otros habilitados de
+ * `tecnicos_firmantes_rite` (FONCAMAN: Francisco Javier por defecto, Antonio
+ * también puede). Con uno solo no hay nada que elegir.
+ */
+const normDni = (s) => String(s || '').replace(/[^0-9A-Z]/gi, '').toUpperCase();
+export function tecnicosRite(pres = {}) {
+    if (!pres?.tecnico_firmante_distinto) return [];
+    const nom = (a, b) => [a, b].filter(Boolean).join(' ').trim();
+    const def = {
+        dni: pres.tecnico_firmante_dni || '', carnet: pres.tecnico_firmante_carnet_rite || '',
+        nombre: nom(pres.tecnico_firmante_nombre, pres.tecnico_firmante_apellidos), porDefecto: true,
+    };
+    const otros = (Array.isArray(pres.tecnicos_firmantes_rite) ? pres.tecnicos_firmantes_rite : [])
+        .filter(t => t?.dni && normDni(t.dni) !== normDni(def.dni))
+        .map(t => ({ dni: t.dni, carnet: t.carnet || '', nombre: nom(t.nombre, t.apellidos), porDefecto: false }));
+    return [def, ...otros];
+}
+
+/**
+ * La ficha con el técnico ELEGIDO para este expediente puesto en
+ * `tecnico_firmante_*` (`documentacion.memoria_rite_tecnico.dni`). Un DNI que ya
+ * no está en la ficha → se queda el de por defecto.
+ * ESPEJO de `aplicarTecnicoRite` en backend utils/instaladorFirmante.js.
+ */
+export function presConTecnicoRite(pres, dni) {
+    if (!pres || !dni) return pres;
+    const d = normDni(dni);
+    if (!d || normDni(pres.tecnico_firmante_dni) === d) return pres;
+    const t = (Array.isArray(pres.tecnicos_firmantes_rite) ? pres.tecnicos_firmantes_rite : [])
+        .find(x => normDni(x?.dni) === d);
+    if (!t) return pres;
+    return {
+        ...pres,
+        tecnico_firmante_distinto: true,
+        tecnico_firmante_nombre: t.nombre || '',
+        tecnico_firmante_apellidos: t.apellidos || '',
+        tecnico_firmante_dni: t.dni || '',
+        tecnico_firmante_carnet_rite: t.carnet || '',
+    };
+}
+
+/**
  * QUIÉN firma el CERTIFICADO CIFO.
  *
  * NO es el mismo que la Memoria RITE, y esa es justo la distinción: el CIFO lo

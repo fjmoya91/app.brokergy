@@ -145,7 +145,7 @@ async function resolverCliente(datos = {}) {
 
 // ── Lectura ─────────────────────────────────────────────────────────────────
 
-const COLS_LISTA = 'id, serie, tipo, numero, estado, fecha, vencimiento, fecha_pago, cliente_id, cliente_nombre, cliente_nif, concepto, neto, iva, irpf, total, expediente, presupuesto_id, cee_directo_id, rectifica_id, rectifica_numero, origen, enviada_at, emitida_at, created_at';
+const COLS_LISTA = 'id, serie, tipo, numero, estado, fecha, vencimiento, fecha_pago, cliente_id, cliente_nombre, cliente_nif, concepto, neto, iva, irpf, total, expediente, presupuesto_id, cee_directo_id, informe_id, rectifica_id, rectifica_numero, origen, enviada_at, emitida_at, created_at';
 
 /**
  * El listado de la pestaña con sus cifras (sin leer las líneas: regla 22).
@@ -231,6 +231,24 @@ async function ceeDeExpediente(expediente) {
     return data?.id || null;
 }
 
+/** El INFORME de un nº `{AAAA}INF_{n}` o `{AAAA}CIT_{n}` (o null): docs/conocimiento/informes/. */
+async function informeDeExpediente(expediente) {
+    const n = txt(expediente).toUpperCase();
+    if (!/^\d{4}(INF|CIT)_\d+$/.test(n)) return null;
+    const { data } = await supabase.from('informes').select('id').eq('numero', n).maybeSingle();
+    return data?.id || null;
+}
+
+/**
+ * Una factura de un INFORME cambia su estado (factura sin enviar, pendiente de
+ * pago…): el informe lo recalcula de sus facturas. Best-effort, como el CEE.
+ */
+async function reflejarEnInforme(f) {
+    if (!f?.informe_id) return null;
+    try { return await require('./informeService').refrescarEstado(f.informe_id); }
+    catch (e) { console.warn('[factura] reflejo en el informe:', e.message); return null; }
+}
+
 /**
  * Una factura de un CEE directo hecha aquí se ve también en la ficha del CEE
  * (procedimiento, entrega, cobro): ceeFacturaService.reflejarDeFacturacion.
@@ -280,6 +298,8 @@ async function crear(datos = {}, { usuarioId = null, usuarioNombre = null, orige
         presupuesto_id: datos.presupuesto_id || null,
         // Con el nº de un CEE directo en «expediente», es de ese CEE aunque no venga de su presupuesto.
         cee_directo_id: datos.cee_directo_id || await ceeDeExpediente(s.expediente),
+        // Igual con el nº de un informe (2026INF_n): cobrarla cobra el informe y lanza su entrega.
+        informe_id: datos.informe_id || await informeDeExpediente(s.expediente),
         origen, ...derivados,
         historial: anota(null, 'Borrador creado', usuarioNombre), created_by: usuarioId,
     };
@@ -311,6 +331,7 @@ async function actualizar(id, datos = {}, { usuarioNombre = null } = {}) {
         cliente_id, cliente: s.cliente, cliente_propio, lineas: s.lineas, irpf_pct: s.irpf_pct, observaciones: s.observaciones,
         expediente: s.expediente, ...derivados,
         ...(!f.cee_directo_id && s.expediente !== f.expediente ? { cee_directo_id: await ceeDeExpediente(s.expediente) } : {}),
+        ...(!f.informe_id && s.expediente !== f.expediente ? { informe_id: await informeDeExpediente(s.expediente) } : {}),
         ...(datos.motivo_rectificacion !== undefined ? { motivo_rectificacion: txt(datos.motivo_rectificacion).slice(0, 500) || null } : {}),
         updated_at: new Date().toISOString(), historial: anota(f, 'Borrador editado', usuarioNombre),
     };
@@ -395,9 +416,15 @@ async function desdePresupuesto(presupuestoId, { usuarioId = null, usuarioNombre
         const { data } = await supabase.from('cee_directos').select('numero_expediente').eq('id', o.cee_directo_id).maybeSingle();
         expediente = data?.numero_expediente || null;
     }
+    // Un presupuesto que abrió un INFORME: la factura es de ese informe.
+    if (o.informe_id && !expediente) {
+        const { data } = await supabase.from('informes').select('numero').eq('id', o.informe_id).maybeSingle();
+        expediente = data?.numero || null;
+    }
     return crear({
         serie: 'ING', cliente_id: o.cliente_id, lineas, presupuesto_id: o.id, cee_directo_id: o.cee_directo_id || null, expediente,
-    }, { usuarioId, usuarioNombre: `${usuarioNombre || ''} (del presupuesto ${o.numero})`.trim() });
+        informe_id: o.informe_id || null,
+    },{ usuarioId, usuarioNombre: `${usuarioNombre || ''} (del presupuesto ${o.numero})`.trim() });
 }
 
 // ── Rectificar ──────────────────────────────────────────────────────────────
@@ -426,7 +453,7 @@ async function rectificar(id, { motivo = '', tipo = 'R4', lineas = null, usuario
         cliente_id: f.cliente_id, cliente: f.cliente, cliente_propio: f.cliente_id ? f.cliente : null,
         lineas: Array.isArray(lineas) ? L.sanearFactura({ lineas }).lineas : L.lineasRectificativa(f.lineas || []),
         irpf_pct: f.irpf_pct, observaciones: f.observaciones, expediente: f.expediente,
-        presupuesto_id: f.presupuesto_id, cee_directo_id: f.cee_directo_id,
+        presupuesto_id: f.presupuesto_id, cee_directo_id: f.cee_directo_id, informe_id: f.informe_id || null,
         rectifica_id: f.id, rectifica_numero: f.numero, motivo_rectificacion: txt(motivo).slice(0, 500),
         origen: 'APP', historial: anota(null, `Rectificativa de ${f.numero} (${txt(motivo)})`, usuarioNombre), created_by: usuarioId,
     };
@@ -592,6 +619,8 @@ async function emitir(id, { usuario = null } = {}) {
 
         // 6 · Si es de un CEE directo, su ficha la ve (y deja de pedir que se facture).
         const cee = await reflejarEnCee(f.id, usuario);
+        // 7 · Si es de un informe, pasa a «factura sin enviar».
+        await reflejarEnInforme(f);
 
         return { id: f.id, numero, total: t.total, pdf, errorPdf, avisos, cee: cee?.expediente || null };
     } finally {
@@ -643,6 +672,17 @@ async function generarPdf(f) {
                 copiaId = (await driveService.saveFileToFolder(sub, nombre, 'application/pdf', buffer))?.id || null;
             }
         } catch (e) { console.warn('[factura] copia en el expediente:', e.message); }
+    }
+    // 2 bis · La carpeta de un INFORME (también «3. PRESUPUESTO Y FACTURAS», nunca pública).
+    if (f.informe_id && !copiaId) {
+        try {
+            const { data: x } = await supabase.from('informes').select('drive_folder_id').eq('id', f.informe_id).maybeSingle();
+            const sub = x?.drive_folder_id ? await driveService.findSubfolderByName(x.drive_folder_id, '3. PRESUPUESTO Y FACTURAS') : null;
+            if (sub) {
+                for (const fid of await driveService.findFilesByName(sub, nombre)) await driveService.deleteFile(fid);
+                copiaId = (await driveService.saveFileToFolder(sub, nombre, 'application/pdf', buffer))?.id || null;
+            }
+        } catch (e) { console.warn('[factura] copia en el informe:', e.message); }
     }
 
     // 3 · Contabilidad: las de BROKERGY (ING) a «ING - SERVICIOS DE INGENIERIA /
@@ -750,6 +790,14 @@ async function previsualizarEnvio(id) {
     const ofertas = require('./ceeOfertaService');
     const destino = ficha ? ofertas.destinoDe(ficha) : { nombre: f.cliente?.razon_social || '', email: f.cliente?.email || '', tlf: f.cliente?.tlf || '' };
     const em = f.emisor || await emisor(f.serie);
+    // La de un INFORME (no rectificativa): el mensaje general + el enlace para subir
+    // el justificante, y que el documento firmado se entrega una vez abonada.
+    if (f.informe_id && f.tipo === 'F1') {
+        try {
+            const c = await require('./informeService').envioDeFacturacion({ ...f, cliente: { ...(f.cliente || {}), es_empresa: !!(ficha?.es_empresa ?? f.cliente?.es_empresa) } }, { L, emisor: em, destino });
+            if (c) return { numero: f.numero, estado: f.estado, total: Number(f.total), destino: c.destino, mensaje: c.mensaje, expediente: c.expediente, adjunto: L.nombrePdfFactura(f.numero, f.cliente?.razon_social) };
+        } catch (e) { console.warn('[factura] mensaje del informe, va el general:', e.message); }
+    }
     const mensaje = L.mensajeFacturaGeneral({
         nombre: destino.nombre, esEmpresa: !!(ficha?.es_empresa ?? f.cliente?.es_empresa), numero: f.numero, total: Number(f.total),
         vencimiento: f.vencimiento, lineas: f.lineas || [], emisor: em, serie: f.serie,
@@ -797,6 +845,10 @@ async function enviar(id, { canales = [], email, tlf, mensaje, usuario = null } 
             historial: anota(f, `Enviada por ${canalesOk.join(' y ')}`, usuario),
         }).eq('id', f.id);
         await reflejarEnCee(f.id, usuario);
+        if (f.informe_id) {
+            await reflejarEnInforme(f);
+            await require('./informeService').anotar(f.informe_id, `FACTURA ${f.numero} ENVIADA POR ${canalesOk.join(' Y ')}`, usuario, 'CLIENTE').catch(() => {});
+        }
     }
     return { resultados, canalesOk };
 }
@@ -839,7 +891,22 @@ async function cobro(id, { pagada = true, fecha = null, usuario = null } = {}) {
         try { await hoja.actualizar(f.hoja_id, { 'ESTADO': pagada ? 'PAGADA' : 'ENVIADA', 'FECHA DE PAGO': pagada ? aHoja(fechaPago) : '' }, f.serie); }
         catch (err) { avisoHoja = `No se ha marcado en la hoja de AppSheet: ${err.message}`; }
     }
-    return { ok: true, estado: pagada ? 'PAGADA' : 'EMITIDA', fecha_pago: fechaPago, avisoHoja, cee };
+    // La de un INFORME cobra el informe —el mismo hecho que «Confirmar cobro» de su
+    // ficha— cuando ya no le queda otra factura suya sin cobrar, y eso lanza la
+    // entrega del firmado (INFORME_ENTREGA_AUTO). DESPUÉS de marcarla PAGADA: el
+    // informe recalcula su estado de sus facturas.
+    let informe = null;
+    if (f.tipo === 'F1' && f.informe_id) {
+        try {
+            const { data: otras } = await supabase.from(TABLA).select('numero').eq('informe_id', f.informe_id)
+                .eq('tipo', 'F1').eq('estado', 'EMITIDA').neq('id', f.id);
+            if (!pagada || !otras?.length) {
+                const r = await require('./informeService').marcarCobrado(f.informe_id, pagada, { fecha: fechaPago, usuario });
+                informe = { numero: r.informe?.numero, cobrado: !!r.informe?.cobrado, entrega: r.entrega };
+            } else informe = { pendientes: otras.map(x => x.numero) };
+        } catch (err) { console.warn('[factura] cobro del informe:', err.message); informe = { error: err.message }; }
+    }
+    return { ok: true, estado: pagada ? 'PAGADA' : 'EMITIDA', fecha_pago: fechaPago, avisoHoja, cee, informe };
 }
 
 // ── Lo que emiten otros servicios ───────────────────────────────────────────

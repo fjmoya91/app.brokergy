@@ -30,10 +30,11 @@ Analizadas 2 memorias reales de aerotermia firmadas por instalador, modelo
   (la plantilla antigua no tiene casilla específica de aerotermia)
 
 ## 5. GENERADOR DE CALOR
-- Se marca `X CALEFACCION-ACS` y `X BOMBA DE CALOR`
+- Se marca `X BOMBA DE CALOR`, y `X CALEFACCION-ACS` solo si se actúa sobre el ACS
+  (`cambio_acs`); sin ACS en la actuación la memoria no declara ACS (26RES060_237, 27/10/2026)
 - MARCA / MODELO / Nº FABRICACIÓN en MAYÚSCULAS
 - POTENCIA TÉRMICA CALEFACCIÓN en kW (ej. "12KW", "9")
-- POTENCIA ACS y ACUMULACIÓN (L) cuando aplica (ej. ACS 9 kW, 185 L)
+- POTENCIA ACS y ACUMULACIÓN (L) cuando aplica (ej. ACS 9 kW, 185 L); sin `cambio_acs`, en blanco
 - UBICACIÓN: `X LOCAL ESPECIFICO` (o genérico/abierto). USO DEL LOCAL: ej. CUBIERTA
 
 ## 6. GENERADOR DE FRÍO (solo si es reversible)

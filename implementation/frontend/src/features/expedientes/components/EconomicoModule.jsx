@@ -1,6 +1,6 @@
 import React from 'react';
 import { Input, Label, SectionCard } from '../../calculator/components/UIComponents';
-import { CAE_PRECIO_CLIENTE_ANTERIOR } from '../../calculator/logic/calculation';
+import { CAE_PRECIO_CLIENTE_ANTERIOR, precioCaeRes080 } from '../../calculator/logic/calculation';
 import { CartaPagoBloque } from './CartaPagoBloque';
 
 export function EconomicoModule({ expediente, liveInst, results, onSave, onLiveUpdate, saving }) {
@@ -16,9 +16,12 @@ export function EconomicoModule({ expediente, liveInst, results, onSave, onLiveU
     // Valores efectivos: override live + defaults resueltos desde la oportunidad.
     // Se derivan en CADA render (no es estado local) para que el componente sea
     // controlado y no quede desincronizado con cambios externos.
+    // En un RES080 el precio de la propuesta es el de la opción REFORMA.
+    const esRes080 = String(expediente.numero_expediente || '').includes('RES080') || op.ficha === 'RES080';
+    const precioOp = esRes080 ? precioCaeRes080(opInputs) : parseFloat(opInputs.caePriceClient);
     const localData = {
         presupuesto: economico.presupuesto ?? (parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-        cae_client_rate: economico.cae_client_rate ?? (parseFloat(opInputs.caePriceClient || opInputs.cae_client_rate) || CAE_PRECIO_CLIENTE_ANTERIOR.estandar),
+        cae_client_rate: economico.cae_client_rate ?? (precioOp || parseFloat(opInputs.cae_client_rate) || CAE_PRECIO_CLIENTE_ANTERIOR.estandar),
         cae_so_rate: economico.cae_so_rate ?? (parseFloat(opInputs.caePriceSO || opInputs.cae_so_rate) || 160),
         include_commission: economico.include_commission ?? !!(opInputs.include_commission ?? opInputs.includeCommission),
         cae_prescriptor_rate: economico.cae_prescriptor_rate ?? (parseFloat(opInputs.caePricePrescriptor || opInputs.cae_prescriptor_rate) || 0),

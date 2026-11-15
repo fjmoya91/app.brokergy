@@ -9,8 +9,10 @@
 // que usa el listado de Expedientes. Si los números del panel no cuadran con los
 // del listado, es un bug del helper, no de dos matemáticas distintas.
 // ============================================================================
-import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
-import { getFicha, getCCAA, getAnioPrevision, getCifoYear, normalizeCcaa, CCAA_MAP, pad2 } from '../../expedientes/logic/expedienteTaxonomia';
+// Con extensión: el backend también importa este módulo por ESM (services/cuadroDireccion.js)
+// para que el cuadro de mando y el servidor hagan las MISMAS cuentas, y Node no resuelve sin ella.
+import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials.js';
+import { getFicha, getCCAA, getAnioPrevision, getCifoYear, normalizeCcaa, CCAA_MAP, pad2 } from '../../expedientes/logic/expedienteTaxonomia.js';
 
 // Precio de venta al Sujeto Obligado por defecto, €/MWh. Es el mismo default que
 // aplica calculateFinancials cuando la oportunidad no trae `cae_so_rate`.

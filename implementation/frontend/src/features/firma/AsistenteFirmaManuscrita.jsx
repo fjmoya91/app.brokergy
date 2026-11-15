@@ -5,7 +5,7 @@ import SignaturePad from './SignaturePad';
 import FirmarConMovil from './FirmarConMovil';
 import LectorDocumento from './LectorDocumento';
 import { firmarYEscanear, comprimirImagen, cargarPdf, resolverCaja } from './escaneado';
-import { cajaConvenioCedente, anexoISignBoxCedente } from '../expedientes/logic/signBoxes';
+import { cajaConvenioCedente, anexoISignBoxCedente, cajaFirmaFmPt } from '../expedientes/logic/signBoxes';
 
 /**
  * Firmar los anexos A MANO, con el dedo, desde el propio móvil.
@@ -136,12 +136,21 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
     const cedentes = useMemo(() => (Array.isArray(info?.cedentes) && info.cedentes.length ? info.cedentes : [{ nombre: '' }]), [info?.cedentes]);
     const nCed = cedentes.length;
     const varios = nCed > 1;
+    // Vía FM (26RES060FM_N): el «Anexo I» es el ANEXO A, y detrás van los
+    // documentos que genera la app (informado F/G, oferta de mantenimiento,
+    // Anexo B). Esos los firma UNA persona, el titular: `firmantes: 1`.
+    const nombreAnexo = info?.anexo_a ? 'Anexo A' : 'Anexo I';
+    const fmFirmar = info?.fm_firmar;
     const docs = useMemo(() => {
         const lista = [];
         if (info?.anexo_cesion_disponible) lista.push({ which: 'cesion', label: 'Convenio de Cesión de Ahorros', corto: 'Cesión de Ahorros', boxDe: (i) => cajaConvenioCedente(i), fichero: `${info.numero_expediente} - Anexo Cesion_fdo.pdf`, campo: 'anexo_cesion' });
-        if (info?.anexo_i_disponible) lista.push({ which: 'anexo_i', label: 'Anexo I · Declaración Responsable', corto: 'Anexo I', boxDe: (i) => anexoISignBoxCedente(i, nCed), fichero: `${info.numero_expediente} - Anexo I_fdo.pdf`, campo: 'anexo_i' });
+        if (info?.anexo_i_disponible) lista.push({ which: 'anexo_i', label: `${nombreAnexo} · Declaración Responsable`, corto: nombreAnexo, boxDe: (i) => anexoISignBoxCedente(i, nCed), fichero: `${info.numero_expediente} - ${nombreAnexo}_fdo.pdf`, campo: 'anexo_i' });
+        for (const d of (Array.isArray(fmFirmar) ? fmFirmar : [])) {
+            lista.push({ which: d.key, label: d.label, corto: d.corto, boxDe: () => cajaFirmaFmPt(1), fichero: `${info.numero_expediente} - ${d.corto}_fdo.pdf`, campo: `fm_${d.key}`, firmantes: 1, fm: true });
+        }
         return lista;
-    }, [info?.anexo_cesion_disponible, info?.anexo_i_disponible, info?.numero_expediente, nCed]);
+    }, [info?.anexo_cesion_disponible, info?.anexo_i_disponible, info?.numero_expediente, nCed, nombreAnexo, fmFirmar]);
+    const firmantesDe = (d) => d?.firmantes || nCed;
 
     // preparar | leer | movil | firmar | componiendo | revisar | dni_frontal | dni_trasero | enviando
     const [paso, setPaso] = useState('preparar');
@@ -216,11 +225,12 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
             pdfRef.current = data;
             // Se abre aquí, donde el cliente ya está esperando, y no al firmar:
             // al pulsar "Firmar" la hoja tiene que salir al instante.
-            let resueltas = Array.from({ length: nCed }, (_, i) => d.boxDe(i));
+            const nf = d.firmantes || nCed;
+            let resueltas = Array.from({ length: nf }, (_, i) => d.boxDe(i));
             try {
                 const pdf = await cargarPdf(data);
                 resueltas = [];
-                for (let i = 0; i < nCed; i++) resueltas.push(await resolverCaja(pdf, d.boxDe(i)));
+                for (let i = 0; i < nf; i++) resueltas.push(await resolverCaja(pdf, d.boxDe(i)));
                 try { pdf.destroy(); } catch { /* da igual */ }
             } catch { /* se queda con lo declarado; `firmarYEscanear` lo resolverá */ }
             setCajas(resueltas);
@@ -252,7 +262,7 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
         // Con varios cedentes, cada uno firma su casilla; el documento se compone
         // UNA vez, cuando ha firmado el último (escanearlo tras cada firma lo
         // rasterizaría dos veces).
-        if (firmante + 1 < nCed) {
+        if (firmante + 1 < firmantesDe(doc)) {
             setFirmante(firmante + 1);
             setPaso('turno');
             return;
@@ -277,6 +287,9 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
 
     const continuarTrasRevisar = () => {
         if (idx + 1 < docs.length) { abrirDocumento(idx + 1); return; }
+        // Solo documentos de la vía FM y el DNI ya está: no se vuelve a pedir
+        // (el DNI lo exige el Convenio a mano, que esta vez no va).
+        if (docs.every(d => d.fm) && info?.dni_subido) { enviar(); return; }
         setDniIdx(0);
         setPaso('dni_frontal');
     };
@@ -321,7 +334,7 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
         return (
             <>
                 <SignaturePad
-                    titulo={varios ? `${doc?.corto} · firma de ${nombreCed(firmante)}` : doc?.corto}
+                    titulo={varios && firmantesDe(doc) > 1 ? `${doc?.corto} · firma de ${nombreCed(firmante)}` : doc?.corto}
                     caja={cajaFirma}
                     textoAceptar="Usar esta firma"
                     onCancel={() => setPaso('leer')}
@@ -385,7 +398,7 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
                             varios
                                 ? ['Los DNI de todos', `Firmáis ${cedentes.map(c => c.nombre).filter(Boolean).join(' y ')}: cada uno en su casilla, y después una foto de cada DNI por delante y por detrás. En PDF también vale.`]
                                 : ['Tu DNI', 'Vas a hacerle una foto por delante y otra por detrás. Si lo tienes en PDF, también vale.'],
-                            ['Un rato tranquilo', `Vas a firmar ${docs.length === 1 ? 'un documento' : 'dos documentos'} y conviene leerlos antes.`],
+                            ['Un rato tranquilo', `Vas a firmar ${docs.length === 1 ? 'un documento' : `${['dos', 'tres', 'cuatro', 'cinco', 'seis'][docs.length - 2] || docs.length} documentos`} y conviene leerlos antes.`],
                             ['El dedo o el lápiz', 'Se firma en la pantalla, como en el datáfono de una tienda. Se puede repetir las veces que haga falta.'],
                         ].map(([t, d]) => (
                             <div key={t} className="flex gap-3">
@@ -444,7 +457,7 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
             {/* ── Cambio de turno: firma el siguiente cedente ─────────────────── */}
             {paso === 'turno' && doc && (
                 <div className={`${PAPEL} p-6 space-y-4 text-center`}>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand">Firma {firmante + 1} de {nCed}</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand">Firma {firmante + 1} de {firmantesDe(doc)}</p>
                     <h2 className="text-lg font-black text-white">Ahora firma {nombreCed(firmante)}</h2>
                     <p className="text-white/70 text-[13px] leading-relaxed">
                         El {doc.label} lo firmáis todos los que pagáis la obra. Pásale el teléfono (o el ratón) a {nombreCed(firmante)} para que firme en su casilla.
@@ -472,7 +485,7 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
                         <img src={firmados[doc.which].vista} alt="Documento firmado" className="w-full h-auto" />
                     </div>
                     <button className={BOTON} onClick={continuarTrasRevisar}>
-                        {idx + 1 < docs.length ? <>Continuar con el siguiente<Icono d={D_FLECHA} w={3} /></> : <>Continuar con el DNI<Icono d={D_FLECHA} w={3} /></>}
+                        {idx + 1 < docs.length ? <>Continuar con el siguiente<Icono d={D_FLECHA} w={3} /></> : (docs.every(d => d.fm) && info?.dni_subido) ? <>Enviar<Icono d={D_FLECHA} w={3} /></> : <>Continuar con el DNI<Icono d={D_FLECHA} w={3} /></>}
                     </button>
                     <button onClick={volverAFirmar}
                         className="w-full py-3 rounded-xl border border-white/10 bg-white/[0.02] text-white/60 text-[11px] font-black uppercase tracking-widest">

@@ -188,3 +188,22 @@ tokens de aviso y sellos de migración que el listado no enseña). El payload su
 ese campo **nunca llegaba**, así que los 45 expedientes ya loteados se ofrecían
 como seleccionables y el error solo aparecía al crear el lote (el backend sí lo
 rechaza: `loteService.evaluarElegibilidadBase`).
+
+## «EN LOTE»: el listado separa lo completo que ya está en un lote (2026-11-05)
+
+Fran (05/11/2026): «tengo 5 [de INSTOTERMA] con documentación completa, pero al lotear no me
+salen». El picker estaba bien: cuatro estaban en el LOTE-2026-015 y el quinto en el lote que
+estaba armando. Pasa porque un expediente **sigue en DOC. COMPLETA hasta que su lote sale al
+verificador** (ENVIADO A VERIFICADOR), así que el chip y el filtro DOC. COMPLETA mezclaban lo
+que queda por lotear con lo ya loteado: ese día, 25 libres y 20 en los lotes 015, 016 y 017.
+
+**REGLA — en el listado, un completo con lote se ENSEÑA como «EN LOTE», con el lote debajo; en
+la BD sigue en DOC. COMPLETA.** `estadoVisible` ([logic/enLote.js](implementation/frontend/src/features/expedientes/logic/enLote.js))
+lo usan la columna Estado (chapa fija `EstadoEnLote`, con el código y el estado del lote; la
+tarjeta del móvil, igual), los chips de arriba (el de «EN LOTE» va detrás de DOC. COMPLETA, que
+ahora cuenta solo lo que queda por lotear: lo mismo que ofrece el picker del lote y el radar
+SIN_LOTEAR), el filtro del estado y «Todos menos finalizado y rechazado». **No es un estado de la
+BD a propósito**: de `estado` cuelgan las carpetas de Drive, el parte diario y lo que arrastra el
+cambio de estado del lote; un estado nuevo habría que meterlo en todos y se desincronizaría al
+quitar un expediente del lote. El estado se sigue pudiendo cambiar a mano desde la ficha. El
+enlace del cuadro de mando «Listos: N lotes por crear» (DOC. COMPLETA) enseña ahora justo eso.

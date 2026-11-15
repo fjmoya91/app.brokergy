@@ -423,6 +423,9 @@ def _construcciones(modelo: Modelo) -> list[dict]:
             continue
         out.append({
             "codigo": a["codigo"],
+            # Con lo que se MARCA: el codigo, o `codigo#USO` si dos filas lo
+            # comparten (la vivienda y la piscina de 26RES080_OP85).
+            "clave": pipeline.clave_construccion(modelo, s),
             "uso": a.get("uso_literal") or s.use,
             "uso_normalizado": s.use,
             "planta": a.get("planta_literal"),

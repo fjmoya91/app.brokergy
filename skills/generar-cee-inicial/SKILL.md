@@ -42,6 +42,11 @@ la envolvente (`/envolvente/:id`), donde el certificador lo abre y confirma lo q
   en un RES080 (su ahorro sale del inicial Y el previsto). Si Fran pide ajustar el bono («bájale el
   precio para que salga entre X e Y €»), `cargar <op> --precio <€/MWh> --escribir`: bono = MWh de
   ahorro × precio; en seco primero.
+- **Una oportunidad recién dada de alta con el bono por DEBAJO DE 3.000 € también llega aquí, sin
+  que nadie lo pida** (Fran, 23/10/2026, regla 161): `alta-oportunidad` la manda para saber si con
+  la situación real sale más. Mismo recorrido; al acabar, el informe da **bono estimado del alta →
+  bono con el CEE** (y el ahorro), y solo entonces se avisa a Fran. Si el cliente ya aportó su CEE,
+  no se hace (su cifra ya es la medida).
 - **Dónde se ejecuta — Claude Code o Cowork:** los comandos son los MISMOS y van SIEMPRE en el PC
   (repo + `.env` + motor). En Code, por la shell; en **Cowork, por Desktop Commander, nunca en el
   sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
@@ -80,9 +85,18 @@ Y el **agente** (`implementation/backend/scripts/agente_ia.js`):
 | `terminar <clave> [--fase final] [--sin-aviso]` | Solo si el `.cex` se dejó por otro camino: «pendiente de revisión» + aviso |
 | `estado <clave>` | Quién es el certificador y qué consta del agente en ese CEE |
 
-`<clave>`: `26RES060_OP246` (oportunidad), `26RES060_186` (expediente) o `2026CEE_55` (CEE directo);
-el origen se deduce del formato (`--origen op|cae|cee` lo fuerza). **Sin `--escribir` no se toca
-nada**: siempre primero en seco.
+`<clave>`: `26RES060_OP246` (oportunidad), `26RES060_186` (expediente), `2026CEE_55` (CEE directo) o
+`2026EXT_3` (obra de la app de certificadores); el origen se deduce del formato (`--origen
+op|cae|cee|ext` lo fuerza). **Sin `--escribir` no se toca nada**: siempre primero en seco.
+
+**Una obra de la APP DE CERTIFICADORES (`ext`)** es un CEE suelto de un certificador de FUERA: lo
+firma él y el titular es cliente SUYO. Por eso: **no sale nada a terceros** (`pedir-fotos` no envía
+ni con `--enviar`: imprime las paredes y el enlace de subida de la app para el informe); el técnico
+del `.cex` es el de su cuenta, nunca el de por defecto; no hay fase final; la placa de la caldera está
+en `FOTO_PLACA_CALDERA` y las fotos en «4. DOCUMENTACIÓN PARA CEE». `aplicar --escribir` avisa al
+equipo y la app decide si lo entrega sola (`CERTAPP_ENTREGA_AUTO`); sin calificar con CE3X no se
+entrega. `listo` deja `.cex`/`.xml`/`.pdf` calculados en «1. CEE» y carga el XML en la obra: sin
+subida del técnico, sin `firmar_cee.js` y sin factura.
 
 ## El recorrido
 
@@ -120,7 +134,23 @@ nada**: siempre primero en seco.
    la 2.3 (`ajustes.version_ce3x`) solo para rehacer uno firmado antes de esa fecha. Los
    **Datos generales** de la 3.2 se rellenan con el criterio del punto 16 de «Lo que hay que poner
    SIEMPRE» (plantas sobre y bajo rasante: las del EDIFICIO entero).
-2. **`placas`**, y **abre las fotos de las placas** para contrastar marca, modelo, potencia y serie.
+2. **¿Están la CALDERA EN SU SALA y su PLACA? Sin las dos, NO se genera** (Fran, 23/10/2026, regla
+   162, «muy importante»). Abre las fotos y míralas tú, no basta con que haya un fichero:
+   - `FOTO_CALDERA_ANTES`: la caldera **instalada en su sala**, clara y **no demasiado cerca**, que
+     se vea entera y su EMPLAZAMIENTO (el cuarto, tuberías, salida de humos). Un primer plano del
+     frontal no vale.
+   - `FOTO_PLACA_CALDERA_ANTES`: la placa de características que se LEA (marca, modelo, potencia).
+     La etiqueta con solo el código de artículo, el esquema de la tapa o una placa borrosa no valen.
+   - **Excepción: en una OPORTUNIDAD, el CEE para la SIMULACIÓN** (bono < 3.000 €, regla 161) se hace
+     igual, como borrador `_REVISAR` (Fran, 23/10/2026, 26RES060_OP335 y OP336): sirve para saber
+     cuánto sale. Se dice en `decisiones` y el WhatsApp que las pide va en el informe. El CEE que se
+     FIRMA (y el expediente) sigue necesitándolas.
+   - Si falta una o no vale (y no es esa excepción): **para**, no escribas el `.cex`, y prepara el WhatsApp que las pide en
+     borrador (al cliente o al instalador, quien las tenga): «una foto de la caldera en su sitio,
+     desde un par de metros, que se vea entera y el cuarto donde está, y otra de cerca de la etiqueta
+     con sus datos (marca, modelo y potencia), que se lea bien». Tras la aceptación lo pide el
+     agente con `aceptacion.js pedir`. No aplica sin calefacción ni a un equipo que no se retira.
+   Después, **`placas`**, y **abre las fotos de las placas** para contrastar marca, modelo, potencia y serie.
    - La CALDERA: la potencia que va al `.cex` es la **útil** (`Pn`, *Output*, *Puissance rendue*),
      no el consumo (`Qn`, *Input*). En una placa policombustible, la del combustible del expediente.
      «Caldaia / Chaudière / Boiler» es la palabra caldera, no la marca: la marca suele estar en el
@@ -212,6 +242,15 @@ nada**: siempre primero en seco.
      Catastro que imprime `streetview`/`paredes`) en píxeles de la foto, y redondea a 5 cm.
    - Los **PATIOS** (y la parte de atrás tapada) no salen en Street View: se piden al cliente
      (`pedir-fotos`) y el `.cex` sale con esas paredes sin huecos, **diciéndolo**.
+   - ⚠️ **Antes de pedir la foto de una pared, mira contra QUÉ da** (Fran, 24/10/2026,
+     26RES060_OP337, regla 167): el uso del colindante en `plano.png` (edificio, `SUELO` = solar),
+     la vista aérea (¿hay una franja de la PROPIA parcela entre la pared y el vecino, o toca el
+     linde?) y los planos si los hay. Una pared **EN EL LINDE** (con un solar o con otra finca) **no
+     puede tener ventanas** (art. 582 del Código Civil: nada de vistas rectas a menos de 2 m): va
+     **ciega**, con el porqué en `decisiones`, y **no se pide**. Su tipo, por lo que hay al otro
+     lado: solar → FACHADA; casa → MEDIANERA; nave, cochera o garaje → PARTICIÓN VERTICAL. Solo se
+     piden las paredes a algo de la propia parcela (patio, corral, jardín) o a la calle que Street
+     View no enseña. Ver `docs/conocimiento/cee-generacion/generar-el-cee-inicial-desde-las-fotos-skill-generar-cee-inicial/paredes-en-el-linde-sin-ventanas-y-sin-fotos.md`.
 4b. **¿Hay VÍDEO en vez de (o además de) fotos de las fachadas?** (`estado` lo dice: «vídeos de la
    vivienda: …»; si llegó por WhatsApp, súbelo primero a la obra con `documentar` —paso 0— o, solo para probar, pásalo con `--archivo`). Lánzale **`video`** y sigue
    `referencia/video.md`. En corto:
@@ -222,7 +261,9 @@ nada**: siempre primero en seco.
    - Lo asignado pasa al plan desde `video.json → propuesta` (`foto: "frame:H3"`): los fotogramas se
      suben a su pared al `aplicar --escribir`.
    - **Lo que no se puede saber NO se adivina**: `pedir-fotos <clave>` (en seco) y **enséñale al
-     usuario el mensaje** para que diga si se envía. No escribas el `.cex` con huecos en paredes que no
+     usuario el mensaje** para que diga si se envía. Antes, la pregunta de Fran: **«¿con lo que
+     tienes lo puedes sacar?»** — las paredes en el linde no cuentan como «sin resolver» (arriba), y
+     el ACS y el emisor no se le preguntan al cliente (punto 18 y regla 168). No escribas el `.cex` con huecos en paredes que no
      sabes: espera a las fotos (el CEE queda «esperando las fotos» en `agente_ia.js cola`).
 5. **`leer-pared`** por cada fachada con foto. Es una **propuesta**: la IA confunde a veces una
    máquina exterior con una ventana o se deja un hueco de un balcón. **Cuenta tú los huecos en la
@@ -611,6 +652,15 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
      el PDF: la Instalación tiene que pasar a **«ACS — no se actúa» + «Termo eléctrico»** (lo mismo que
      en su pestaña). **Eso saca el ACS del ahorro CAE** (un termo no es actuación): no se cambia en
      silencio, se PREGUNTA con la cifra de antes y la de después.
+   - **Desde el 23/10/2026 (regla 163) una simulación sin ACS declarado ya nace SIN ACS** (`acs.incluir:
+     false`), así que en ese caso no hay nada que preguntar: el ahorro ya era solo de calefacción. En
+     el INICIAL da igual que el ACS lo dé la caldera de hoy (mixta) o un termo (Fran: «me da igual»);
+     por defecto el termo, que deja el final hecho. En el FINAL, siempre el **termo eléctrico**.
+   - **Si el presupuesto SÍ trae ACS** (Fran, 24/10/2026, 26RES060_OP337): en el INICIAL el ACS lo da
+     la **misma caldera de hoy**, y en el FINAL (y la medida) la **aerotermia o el aerotermo** del
+     presupuesto. **Nunca se le pregunta al cliente con qué calienta el agua**: lo decide el
+     presupuesto (regla 163). Un termo que el presupuesto ofrece como OPCIONAL aparte no es ACS
+     presupuestado.
 19. **Un PATIO que Catastro no dibuja** (26RES060_225: los vídeos enseñan dos patios y Catastro solo
    uno de 6 m²; el otro, la «terraza» del croquis del cliente, lo cuenta como vivienda). La
    superficie NO se recorta (mandan los m² de Catastro); sus huecos van a la fachada de su

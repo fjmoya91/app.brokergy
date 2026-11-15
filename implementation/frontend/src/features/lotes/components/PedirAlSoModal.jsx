@@ -1,8 +1,178 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
 import { deriveSoEnvio, CC_BROKERGY } from '../logic/soContactos';
-import { fmtFecha } from '../logic/peticionesSo';
+import { fmtFecha, facturasCaeDeUnSo } from '../logic/peticionesSo';
+import { buildFacturaSoHtml } from '../logic/facturaSoHtml';
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const dmy = (d) => `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+const eur2 = (n) => `${(Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+const miles = (n) => Math.round(Number(n) || 0).toLocaleString('es-ES');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Las FACTURAS DE CAE que faltan, GENERADAS antes de escribir el correo
+// (05/11/2026, Fran: «¿no hay un botón para generar las 5 a la vez y enviarlas?»).
+//
+// Antes había que entrar en cada lote, abrir «Generar la factura de Brokergy al
+// S.O.» y pulsar «Generar y guardar» cinco veces. Aquí se generan las cinco con lo
+// MISMO que rellena ese popup (`borradorFacturaCae`: códigos y nº de CAE del
+// certificado, precio de la oferta, fecha de hoy y vencimiento a 30 días) y por la
+// MISMA ruta (`POST /api/lotes/:id/factura-so`: PDF en la carpeta del lote, copia en
+// contabilidad y la fila EMITIDA en `facturas_so`).
+//
+// REGLA — se ENSEÑAN antes de generarlas: una factura emitida tiene número y va a
+// contabilidad, así que no se genera sin haber visto lote a lote las unidades, el
+// rango de códigos, el precio y el total. Generarlas NO las envía: después viene el
+// correo de siempre, para revisarlo.
+// REGLA — el número se pide al servidor JUSTO antes de cada una (el siguiente
+// F-{año}CAE_n libre); un borrador que ya tenía número lo conserva. La ruta rechaza
+// un número repetido, y si una falla se para ahí: las anteriores quedan generadas y
+// se dice cuáles.
+// ─────────────────────────────────────────────────────────────────────────────
+function GenerarFacturasCae({ peticion, onListo, onGenerada, onClose }) {
+    const porGenerar = peticion.porGenerar || [];
+    const [hechasParcial, setHechasParcial] = useState(null);
+    const [siguiente, setSiguiente] = useState(null);
+    const [estado, setEstado] = useState({});       // loteId → 'generando' | 'ok' | mensaje de error
+    const [generando, setGenerando] = useState(false);
+    const [error, setError] = useState('');
+    const [avisos, setAvisos] = useState([]);
+    const hoy = useMemo(() => new Date(), []);
+    const fecha = dmy(hoy);
+    const vencimiento = dmy(new Date(hoy.getTime() + 30 * 24 * 3600 * 1000));
+
+    useEffect(() => {
+        axios.get('/api/lotes/factura-so/next-number', { params: { year: hoy.getFullYear() } })
+            .then(({ data }) => setSiguiente(data?.numero || null))
+            .catch(() => setSiguiente(null));
+    }, [hoy]);
+
+    const total = porGenerar.reduce((a, x) => a + x.borrador.total, 0);
+    const cae = porGenerar.reduce((a, x) => a + x.borrador.unidadesKwh, 0);
+
+    const generar = async () => {
+        setGenerando(true);
+        setError('');
+        const hechas = {};
+        const notas = [];
+        for (const x of porGenerar) {
+            const b = x.borrador;
+            setEstado(s => ({ ...s, [x.lote.id]: 'generando' }));
+            try {
+                const numero = b.numero || (await axios.get('/api/lotes/factura-so/next-number',
+                    { params: { year: hoy.getFullYear() } })).data?.numero;
+                if (!numero) throw new Error('No se ha podido obtener el nº de factura.');
+                const factura = {
+                    numero, fecha, vencimiento,
+                    cae_inicial: b.caeInicial, cae_final: b.caeFinal,
+                    unidades_kwh: b.unidadesKwh, precio_kwh: b.precioKwh,
+                    base: b.base, iva: b.iva, total: b.total,
+                };
+                const html = buildFacturaSoHtml(x.lote, {
+                    numero, fecha, vencimiento, caeInicial: b.caeInicial, caeFinal: b.caeFinal,
+                    unidadesKwh: b.unidadesKwh, precioKwh: b.precioKwh,
+                });
+                const { data } = await axios.post(`/api/lotes/${x.lote.id}/factura-so`, { html, factura });
+                const { contabilidad, ...lote } = data || {};
+                hechas[x.lote.id] = { ...x.lote, ...lote };
+                onGenerada?.();
+                if (!contabilidad?.ruta) notas.push(`${x.lote.codigo} (${numero}): guardada en el lote pero NO en contabilidad${contabilidad?.error ? ` — ${contabilidad.error}` : ''}.`);
+                setEstado(s => ({ ...s, [x.lote.id]: 'ok' }));
+            } catch (err) {
+                const msg = err.response?.data?.error || err.message || 'Error al generar la factura';
+                setEstado(s => ({ ...s, [x.lote.id]: msg }));
+                const n = Object.keys(hechas).length;
+                setError(`${x.lote.codigo}: ${msg}${n ? ` ${n === 1 ? 'La anterior sí está generada' : `Las ${n} anteriores sí están generadas`}.` : ''} No se ha seguido con las demás.`);
+                setAvisos(notas);
+                setGenerando(false);
+                if (n) setHechasParcial(hechas);
+                return;
+            }
+        }
+        setGenerando(false);
+        onListo(hechas, notas);
+    };
+
+    return (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="relative w-full max-w-2xl bg-[#0F1013] border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-scale-in">
+                <div className="absolute inset-x-0 top-0 h-[3px] pointer-events-none" style={{ background: 'var(--brand-gradient)' }} />
+                <div className="px-6 pt-7 pb-5 max-h-[75vh] overflow-y-auto">
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-brand/80">Antes de escribir el correo</p>
+                    <h3 className="mt-1 text-lg font-black uppercase tracking-tight text-white">
+                        {porGenerar.length === 1 ? 'Falta generar 1 factura' : `Faltan generar ${porGenerar.length} facturas`}
+                    </h3>
+                    <p className="mt-2 text-[11px] text-white/45 leading-relaxed no-uppercase">
+                        Con los códigos y el nº de CAE de cada certificado y el precio de la oferta del lote.
+                        Fecha {fecha}, vencimiento {vencimiento}
+                        {siguiente ? <>; se numeran desde <b className="text-white/70">{siguiente}</b></> : null}.
+                        Cada una se guarda en la carpeta de su lote y en contabilidad. <b className="text-white/70">No se envía nada</b>: después
+                        verás el correo para revisarlo.
+                    </p>
+
+                    <div className="mt-5 space-y-2">
+                        {porGenerar.map(x => {
+                            const b = x.borrador;
+                            const st = estado[x.lote.id];
+                            return (
+                                <div key={x.lote.id} className="px-3 py-2.5 rounded-xl border border-white/10 bg-white/[0.02]">
+                                    <div className="flex items-baseline justify-between gap-3">
+                                        <span className="text-[12px] font-black text-white">
+                                            {x.lote.codigo}
+                                            {b.numero && <span className="ml-2 text-[10px] font-bold text-white/40">nº {b.numero}</span>}
+                                        </span>
+                                        <span className="text-[13px] font-black text-white tabular-nums">{eur2(b.total)}</span>
+                                    </div>
+                                    <div className="mt-1 flex items-baseline justify-between gap-3 text-[10px] text-white/45 no-uppercase">
+                                        <span className="truncate">
+                                            {miles(b.unidadesKwh)} CAE × {(b.precioKwh * 1000).toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh
+                                            {' · '}{b.caeInicial} → {b.caeFinal}
+                                        </span>
+                                        <span className={`shrink-0 font-bold ${st === 'ok' ? 'text-emerald-400' : st === 'generando' ? 'text-brand' : st ? 'text-amber-300' : 'text-white/30'}`}>
+                                            {st === 'ok' ? '✓ generada' : st === 'generando' ? 'generando…' : st ? '⚠ no generada' : `base ${eur2(b.base)}`}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {porGenerar.length > 1 && (
+                            <div className="flex items-baseline justify-between gap-3 px-3 pt-1 text-[11px] font-black text-white/70">
+                                <span>TOTAL · {miles(cae)} CAE</span>
+                                <span className="tabular-nums">{eur2(total)} con IVA</span>
+                            </div>
+                        )}
+                    </div>
+                    {peticion.fuera && (
+                        <p className="mt-3 text-[11px] text-amber-300/90 leading-snug">⚠ Fuera: {peticion.fuera.resumen}. {peticion.fuera.aviso}</p>
+                    )}
+                    {avisos.map(a => <p key={a} className="mt-2 text-[11px] text-amber-300/90">⚠ {a}</p>)}
+                    {error && <p className="mt-3 text-[11px] text-amber-300">⚠ {error}</p>}
+                </div>
+
+                <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-between gap-3">
+                    <button onClick={onClose} disabled={generando}
+                        className="text-[10px] font-black uppercase tracking-widest text-white/30 hover:text-white/60 disabled:opacity-30 transition-all">
+                        Cancelar
+                    </button>
+                    {hechasParcial ? (
+                        // Una falló: se puede escribir el correo con las que sí se generaron.
+                        <button onClick={() => onListo(hechasParcial, avisos)}
+                            className="px-5 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all">
+                            Seguir con {Object.keys(hechasParcial).length === 1 ? 'la generada' : `las ${Object.keys(hechasParcial).length} generadas`}
+                        </button>
+                    ) : (
+                        <button onClick={generar} disabled={generando || !!error}
+                            className="px-5 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                            {generando ? 'Generando…'
+                                : porGenerar.length === 1 ? 'Generar la factura y seguir' : `Generar las ${porGenerar.length} facturas y seguir`}
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Petición al SUJETO OBLIGADO sobre VARIOS lotes a la vez.
@@ -126,7 +296,15 @@ function PreciosPendientes({ peticion, onListo, onSaltar, onClose }) {
     );
 }
 
-export function PedirAlSoModal({ peticion, onClose, onSent }) {
+export function PedirAlSoModal({ peticion: peticionInicial, onClose, onSent, onCambio }) {
+    // Nuestras facturas de CAE que faltaban, recién GENERADAS aquí (`GenerarFacturasCae`).
+    // La petición se calculó sin ellas: se rehace con esos lotes, y el correo ya las
+    // adjunta. `null` = todavía no se han generado (o no hacía falta).
+    const [generadas, setGeneradas] = useState(null);
+    const peticion = useMemo(() => {
+        if (!generadas || !peticionInicial?.todosLotes) return peticionInicial;
+        return facturasCaeDeUnSo(peticionInicial.todosLotes.map(l => generadas.lotes[l.id] || l));
+    }, [peticionInicial, generadas]);
     // Los precios que se acaban de teclear. Ya están guardados en su lote, pero la
     // petición de este render se calculó ANTES: sin esto el correo saldría sin la
     // cifra que se acaba de introducir, que es justo por lo que se pidió.
@@ -139,6 +317,30 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
         [peticion]);
     const envio = useMemo(() => deriveSoEnvio(so), [so]);
 
+    // El ENLACE del panel del S.O. (`/so/:token`), para las peticiones que lo llevan
+    // en el correo (nuestras facturas). Se busca el que ya tiene: crearlo o cambiarlo
+    // se hace en la Vista S.O., porque cambiarlo deja muerto el que ya tenga.
+    const soId = useMemo(
+        () => [...(peticionInicial?.lotes || []).map(x => x.lote), ...(peticionInicial?.todosLotes || [])]
+            .map(l => l?.sujeto_obligado_id || l?.sujeto_obligado?.id_empresa).find(Boolean) || null,
+        [peticionInicial]);
+    const conEnlacePanel = !!peticionInicial?.conEnlacePanel;
+    const [panel, setPanel] = useState({ cargando: conEnlacePanel, url: null });
+    useEffect(() => {
+        if (!conEnlacePanel || !soId) { setPanel({ cargando: false, url: null }); return undefined; }
+        let vivo = true;
+        axios.get(`/api/lotes/obligacion-so/${soId}/enlace`)
+            .then(({ data }) => {
+                if (!vivo) return;
+                const token = data?.enlace?.token;
+                // En local el origen es localhost: el enlace que se manda es el de producción.
+                const origen = /localhost|127\.0\.0\.1/.test(window.location.hostname) ? 'https://app.brokergy.es' : window.location.origin;
+                setPanel({ cargando: false, url: token ? `${origen}/so/${token}` : null });
+            })
+            .catch(() => vivo && setPanel({ cargando: false, url: null }));
+        return () => { vivo = false; };
+    }, [conEnlacePanel, soId]);
+
     // El saludo lleva el nombre de QUIEN RECIBE el correo, no el del representante
     // legal: éste es quien FIRMA los documentos, y casi nunca quien lee el correo
     // del día a día (aquí firma Pedro José y el correo lo lee Jesús, el director de
@@ -146,8 +348,10 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
     const mensajeFor = useCallback((email) => {
         const nombre = envio.nombrePilaDe ? envio.nombrePilaDe(email) : '';
         const saludo = nombre ? `Buenos días ${nombre},` : 'Buenos días,';
-        return typeof peticion?.mensaje === 'function' ? peticion.mensaje({ saludo, precios: precios || {} }) : '';
-    }, [peticion, envio, precios]);
+        return typeof peticion?.mensaje === 'function'
+            ? peticion.mensaje({ saludo, precios: precios || {}, enlacePanel: panel.url })
+            : '';
+    }, [peticion, envio, precios, panel.url]);
 
     const mensaje = useMemo(() => mensajeFor(envio.notifyEmail), [mensajeFor, envio.notifyEmail]);
 
@@ -190,6 +394,20 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
     };
 
     if (!peticion) return null;
+    // El mensaje lleva el enlace del panel: se espera a tenerlo (es una lectura).
+    if (panel.cargando) return null;
+
+    // Faltan facturas por generar: lo primero es generarlas, enseñándolas antes.
+    if (!generadas && (peticion.porGenerar || []).length > 0) {
+        return (
+            <GenerarFacturasCae
+                peticion={peticion}
+                onClose={onClose}
+                onGenerada={onCambio}
+                onListo={(lotes, notas) => setGeneradas({ lotes, notas: notas || [] })}
+            />
+        );
+    }
 
     // Con precios que faltan, lo primero que se ve es la pregunta por ellos. No es
     // un paso más: es el dato que hace útil el correo, y pedirlo después de haber
@@ -238,12 +456,29 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
             // que adjuntar. Pero callarlo es peor que excluirlo — se manda el
             // correo creyendo que van los cuatro y el S.O. paga tres. Se dice aquí,
             // con el nombre del lote y lo que le falta.
-            extraBody={peticion.fuera ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
-                    <p className="text-[11px] text-amber-300/90 leading-snug">
-                        ⚠ {peticion.fuera.lotes.length === 1 ? 'Se queda fuera' : 'Se quedan fuera'}{' '}
-                        <b>{peticion.fuera.lotes.map(l => l.codigo).join(', ')}</b>: {peticion.fuera.aviso}
-                    </p>
+            extraBody={(peticion.fuera || (peticion.conEnlacePanel && !panel.url) || generadas?.notas?.length) ? (
+                <div className="space-y-2">
+                    {(generadas?.notas || []).map(n => (
+                        <div key={n} className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
+                            <p className="text-[11px] text-amber-300/90 leading-snug">⚠ {n}</p>
+                        </div>
+                    ))}
+                    {peticion.fuera && (
+                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
+                            <p className="text-[11px] text-amber-300/90 leading-snug">
+                                ⚠ {peticion.fuera.lotes.length === 1 ? 'Se queda fuera' : 'Se quedan fuera'}{' '}
+                                <b>{peticion.fuera.lotes.map(l => l.codigo).join(', ')}</b>: {peticion.fuera.aviso}
+                            </p>
+                        </div>
+                    )}
+                    {peticion.conEnlacePanel && !panel.url && (
+                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
+                            <p className="text-[11px] text-amber-300/90 leading-snug">
+                                ⚠ Este S.O. no tiene enlace a su panel, así que el correo sale sin él. Créalo en
+                                «Vista S.O.» → «Enlace para…» y vuelve a abrir este envío.
+                            </p>
+                        </div>
+                    )}
                 </div>
             ) : null}
         />

@@ -290,7 +290,11 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
     if (!countUnidades(cal)) return null;
 
     // ── Alcance ──────────────────────────────────────────────────────────────
-    const conFrio = emisorDaFrio(inst.tipo_emisor);
+    // Una aerotermia GENÉRICA (la de la simulación, sin equipo elegido) no tiene
+    // SEER que completar: el motor ya la escribe sin refrigeración (regla 72), y
+    // el texto no puede pedir un «SEER de ___» que nadie va a rellenar.
+    const conFrio = emisorDaFrio(inst.tipo_emisor)
+        && !(cal?.generica && !(parseFloat(cal?.seer) > 0));
     // Un split/conductos es una bomba de calor aire-aire: en CE3X no lleva el
     // matiz de "Caudal Ref. Variable" (eso es del aire-agua) ni se nombra
     // "AEROTERMIA".

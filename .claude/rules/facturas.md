@@ -1,8 +1,10 @@
 ---
 paths:
-  - "implementation/backend/services/{facturaOcrService,facturaIncidencias,facturaAutoOcr,facturasCombineService,certificadorFacturacion}.js"
+  - "implementation/backend/services/{facturaOcrService,facturaIncidencias,facturaAutoOcr,facturasCombineService,certificadorFacturacion,estudioPrecios}.js"
+  - "implementation/frontend/src/features/facturacion/components/EstudioPrecios.jsx"
   - "implementation/backend/routes/facturaOcr.js"
-  - "implementation/backend/utils/agruparFacturas.js"
+  - "implementation/backend/utils/{agruparFacturas,facturasCae}.js"
+  - "implementation/frontend/src/features/expedientes/logic/facturasCae.js"
   - "implementation/frontend/src/features/admin/**/*{Facturacion,facturaCertificador}*"
   - "implementation/frontend/src/features/expedientes/components/DocumentacionModule.jsx"
 ---
@@ -15,14 +17,14 @@ paths:
 
 ## Reglas críticas (texto íntegro)
 
-_Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documentos, abajo._
+189. **Una factura de obra se registra ENTERA y al CAE solo cuenta lo SUBVENCIONABLE** (2026-11-03, Fran: requerimientos por facturas con aerotermia + placas). `importe_sin_iva` es la base del papel; la inversión que va al Anexo del MITECO, a la solicitud de verificación, al lote, al CE3X/previsto RES080 y a la sobrefinanciación es `importeCae` / `inversionCae` de [logic/facturasCae.js](implementation/frontend/src/features/expedientes/logic/facturasCae.js) (espejo CJS [utils/facturasCae.js](implementation/backend/utils/facturasCae.js)): la base menos las partidas del `desglose` con `computa: false`, o 0 si `computa_cae: false`. El OCR agrupa por partida y deja FUERA lo que la ficha no contempla (`desgloseFactura`: la fotovoltaica de un RES060), salvo los emisores de una sustitución (eso es `UNIDADES_TERMINALES`); en el modal se pulsa cada partida para sacarla o meterla, se añade a mano una «parte no subvencionable» o se deja la factura entera fuera. Una factura que no computa no va al PDF único ni fija las fechas del CIFO; una mixta sí. Nunca se suma `importe_sin_iva` a mano para la inversión del CAE. Lo que no computa SIGUE contando para el ESTUDIO DE PRECIOS (Facturación › «Precios de obra», solo ADMIN, [estudioPrecios.js](implementation/backend/services/estudioPrecios.js)): €/kWp de las placas por instalador y fecha, solo con las que traen kWp (leídos por el OCR o tecleados en «Potencia de las placas»), y una factura sin desglose solo si su única partida es esa. Tras tocarlo: `node implementation/backend/scripts/test_facturas_cae.mjs` y `test_facturas_incidencias.js`. Ver "Lo que computa para el CAE".
 
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/facturas/facturacion-del-certificador-conciliacion-mensual.md` — Facturación del certificador — conciliación mensual (2026-08-03) · 8,5 KB
-- `docs/conocimiento/facturas/facturas-de-la-obra-ocr-y-filtro-previo-de-incidencias.md` — Facturas de la obra — OCR y filtro previo de incidencias (2026-08-03) · 8,2 KB
+- `docs/conocimiento/facturas/facturas-de-la-obra-ocr-y-filtro-previo-de-incidencias.md` — Facturas de la obra — OCR y filtro previo de incidencias (2026-08-03) · 14,0 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -44,5 +46,12 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
   - **REGLA — la IA solo LEE; el juicio es de las reglas.**
   - **REGLA — el CAE SOLO puede superar la inversión; con OTRA subvención, no (usuario, 19/10/2026).**
   - **REGLA — el combinado se construye desde `documentacion.facturas[]`, NUNCA listando la carpeta.**
+  - **REGLA — `importe_sin_iva` sigue siendo la BASE de la factura; la inversión del CAE es
+`importeCae(f)`.**
+  - **REGLA — lo que la ficha no contempla nace FUERA, y se puede volver a meter.**
+  - **REGLA — se estudia la partida, computara o no para el CAE.**
+  - **REGLA — una factura SIN desglose solo cuenta si el OCR la dejó en UNA partida**
+  - **REGLA — el €/kWp solo con las que traen kWp**
+  - **REGLA — el instalador es el EMISOR de la factura**
 
 <!-- generado:fin -->

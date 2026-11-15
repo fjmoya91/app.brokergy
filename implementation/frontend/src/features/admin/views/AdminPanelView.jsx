@@ -12,6 +12,8 @@ import { VincularClienteModal } from '../../clientes/components/VincularClienteM
 // de dos colores ni quedarse una sin la nueva.
 import { FICHAS, fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
 import { EntregaPropuestaTag } from '../components/EntregaPropuestaTag';
+import { useVistaGuardada, useGuardarVista, useScrollLista } from '../../../utils/memoriaVista';
+import { ViaFmCelda, ViaFmChip, FILTRO_VIA_FM, pasaFiltroViaFm } from '../components/ViaFmCelda';
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -42,7 +44,7 @@ export function AdminPanelView({
     // ─── Columnas redimensionables (Excel-style) ──────────────────────────────
     const COL_DEFAULTS = {
         oportunidad: 380, ccaa: 60, ficha: 84,
-        metricas: 132, fecha: 88, prescriptor: 160, estado: 184,
+        metricas: 132, viaFm: 124, fecha: 88, prescriptor: 160, estado: 184,
     };
     const STORAGE_KEY = 'op_panel_col_widths_v1';
     const loadColWidths = () => {
@@ -98,6 +100,12 @@ export function AdminPanelView({
     );
     // ─────────────────────────────────────────────────────────────────────────
 
+    // Cómo tenías el listado la última vez (búsqueda, filtros, orden, página).
+    // Esta vista se desmonta al abrir una oportunidad —se abre en la
+    // calculadora— y al cambiar de pestaña, así que sin esto el filtro había
+    // que volver a ponerlo al volver. Ver utils/memoriaVista.js.
+    const memoria = useVistaGuardada('oportunidades');
+
     const [oportunidades, setOportunidades] = useState([]);
     const [prescriptores, setPrescriptores] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -137,12 +145,12 @@ export function AdminPanelView({
     const [pendingStatusUpdate, setPendingStatusUpdate] = useState(null); // { op, nuevoEstado }
 
     // Pagination state
-    const [currentPage, setCurrentPage] = useState(1);
-    const [itemsPerPage, setItemsPerPage] = useState(10); // Default to 10
-    const [showAll, setShowAll] = useState(false);
+    const [currentPage, setCurrentPage] = useState(memoria.page || 1);
+    const [itemsPerPage, setItemsPerPage] = useState(memoria.porPagina || 10); // Default to 10
+    const [showAll, setShowAll] = useState(!!memoria.showAll);
     const [openDropdownId, setOpenDropdownId] = useState(null); // 'filter' or opportunity id
     const [partnerSearch, setPartnerSearch] = useState('');
-    const [globalSearch, setGlobalSearch] = useState('');
+    const [globalSearch, setGlobalSearch] = useState(memoria.search || '');
     const [showMobileFilters, setShowMobileFilters] = useState(false); // Panel de filtros en móvil
 
     // Inline edit for cod_cliente_interno (DISTRIBUIDOR view)
@@ -376,10 +384,25 @@ export function AdminPanelView({
         estado: initialEstado || '',
         cod_cliente_interno: '',
         fechaDesde: '',
-        fechaHasta: ''
+        fechaHasta: '',
+        // Columna «Vía FM» (solo ADMIN): '' · gana · elegible · no_elegible · sin
+        viaFm: '',
+        // Lo recordado de la última vez; `initialEstado` (cuadro de mando) manda.
+        ...(memoria.filters || {}),
+        ...(initialEstado ? { estado: initialEstado } : {}),
     });
     // '' (sin ordenar, orden de llegada de la API) · 'desc' (más reciente primero) · 'asc'
-    const [fechaSort, setFechaSort] = useState('');
+    const [fechaSort, setFechaSort] = useState(memoria.fechaSort || '');
+
+    // Lo que se recuerda de esta pantalla (nunca los datos: solo cómo se miran).
+    useGuardarVista('oportunidades', {
+        filters, fechaSort, search: globalSearch,
+        page: currentPage, porPagina: itemsPerPage, showAll,
+    });
+
+    // Volver de la calculadora a la fila que se abrió, y no al principio de la lista.
+    const lista = useScrollLista('oportunidades', false, !loading && oportunidades.length > 0);
+    const abrirOportunidad = (op) => { lista.recordar(); onLoadOpportunity?.(op); };
 
     // Estado precargado al saltar desde el cuadro de mando. Se consume una vez
     // para que volver a esta pestaña no reaplique el filtro.
@@ -765,7 +788,8 @@ export function AdminPanelView({
             (filters.estado === '' || estadoDe(op) === filters.estado) &&
             (filters.cod_cliente_interno === '' || norm(op.datos_calculo?.cod_cliente_interno).includes(norm(filters.cod_cliente_interno))) &&
             (filters.fechaDesde === '' || (opDateKey(op) !== null && opDateKey(op) >= filters.fechaDesde)) &&
-            (filters.fechaHasta === '' || (opDateKey(op) !== null && opDateKey(op) <= filters.fechaHasta))
+            (filters.fechaHasta === '' || (opDateKey(op) !== null && opDateKey(op) <= filters.fechaHasta)) &&
+            (!isAdmin || !filters.viaFm || pasaFiltroViaFm(op.datos_calculo?.via_fm, filters.viaFm))
         );
 
         if (!matchesColFilters) return false;
@@ -814,13 +838,22 @@ export function AdminPanelView({
         : filteredOportunidadesSinOrdenar;
 
     // Reset pagination when filters, global search or sort change
+    // En el PRIMER render no: ahí los filtros son los que se recordaron de la
+    // última vez (memoriaVista) y con ellos viene la página en la que estabas.
+    const paginaSembrada = useRef(false);
     useEffect(() => {
+        if (!paginaSembrada.current) { paginaSembrada.current = true; return; }
         setCurrentPage(1);
     }, [filters, globalSearch, fechaSort]);
 
     // Pagination logic
     const totalItems = filteredOportunidades.length;
     const totalPages = showAll ? 1 : Math.ceil(totalItems / itemsPerPage);
+    // Una página recordada que ya no existe (la lista ha menguado) dejaría la
+    // tabla vacía sin decir por qué: se baja a la última que hay.
+    useEffect(() => {
+        if (!showAll && totalPages >= 1 && currentPage > totalPages) setCurrentPage(totalPages);
+    }, [showAll, totalPages, currentPage]);
     const startIndex = showAll ? 0 : (currentPage - 1) * itemsPerPage;
     const paginatedOportunidades = showAll ? filteredOportunidades : filteredOportunidades.slice(startIndex, startIndex + itemsPerPage);
 
@@ -868,7 +901,7 @@ export function AdminPanelView({
             {activeTab === 'prescriptores' ? (
                 <PrescriptoresList onNavigate={onNavigate} />
             ) : (
-                <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
+                <div ref={lista.ancla} className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
                     {/* ─── Header ─── */}
                     <header className="mb-8 flex flex-wrap items-center justify-between gap-4 pb-4">
                             <div className="flex items-center gap-4 md:gap-6 min-w-0 max-md:flex-wrap max-md:gap-y-3">
@@ -1276,6 +1309,13 @@ export function AdminPanelView({
                                     </div>
                                     <RH colKey="metricas" />
                                 </th>
+                                {/* Vía del FACTOR MULTIPLICADOR frente a la vigente (solo ADMIN: lleva el bono por las dos vías) */}
+                                {isAdmin && (
+                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-violet-400/60 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.viaFm }} title="Lo que saldría por la ficha del factor multiplicador (BOE 7/11/2026) y la diferencia con la vigente. ≈ = D_cal estimada, sin CEE.">
+                                        Vía FM
+                                        <RH colKey="viaFm" />
+                                    </th>
+                                )}
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.fecha }}>
                                     <div className="flex items-center gap-1">
                                         <button
@@ -1396,6 +1436,18 @@ export function AdminPanelView({
                                     </select>
                                 </td>
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
+                                {isAdmin && (
+                                    <td className="p-2.5 border-b border-white/[0.06]">
+                                        <select
+                                            className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-violet-500/40 focus:bg-bkg-elevated transition-all font-mono"
+                                            value={filters.viaFm || ''}
+                                            onChange={e => setFilters(prev => ({ ...prev, viaFm: e.target.value }))}
+                                            title="Filtrar por la vía del factor multiplicador"
+                                        >
+                                            {FILTRO_VIA_FM.map(o => <option key={o.value} value={o.value} className="bg-slate-800 text-white">{o.label}</option>)}
+                                        </select>
+                                    </td>
+                                )}
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 {user?.rol === 'ADMIN' && (
                                     <td className="p-2.5 border-b border-white/[0.06]">
@@ -1412,7 +1464,7 @@ export function AdminPanelView({
                         <tbody className="divide-y divide-white/[0.04]">
                             {loading && filteredOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan={user?.rol === 'ADMIN' ? 7 : (user?.rol === 'DISTRIBUIDOR' ? 7 : 6)} className="p-12 text-center">
+                                    <td colSpan={isAdmin ? 8 : (user?.rol === 'DISTRIBUIDOR' ? 7 : 6)} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-6 h-6 text-white/15 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1423,7 +1475,7 @@ export function AdminPanelView({
                                 </tr>
                             ) : paginatedOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan={user?.rol === 'ADMIN' ? 7 : (user?.rol === 'DISTRIBUIDOR' ? 7 : 6)} className="p-12 text-center">
+                                    <td colSpan={isAdmin ? 8 : (user?.rol === 'DISTRIBUIDOR' ? 7 : 6)} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-8 h-8 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1469,7 +1521,7 @@ export function AdminPanelView({
                                         <tr
                                             key={op.id}
                                             className="hover:bg-white/[0.03] transition-colors duration-150 cursor-pointer group"
-                                            onClick={() => onLoadOpportunity && onLoadOpportunity(op)}
+                                            onClick={() => abrirOportunidad(op)}
                                         >
                                             <td className="p-3.5 overflow-hidden">
                                                 <div className="flex flex-col gap-0.5 min-w-0">
@@ -1590,6 +1642,11 @@ export function AdminPanelView({
                                                     );
                                                 })()}
                                             </td>
+                                            {isAdmin && (
+                                                <td className="p-3.5 align-top whitespace-nowrap">
+                                                    <ViaFmCelda via={op.datos_calculo?.via_fm} />
+                                                </td>
+                                            )}
                                             <td className="p-3.5 text-[11px] text-white/25 whitespace-nowrap font-mono align-top">
                                                 {new Date(op.created_at).toLocaleDateString('es-ES')}
                                             </td>
@@ -1761,7 +1818,7 @@ export function AdminPanelView({
                         return (
                             <div
                                 key={op.id}
-                                onClick={() => onLoadOpportunity && onLoadOpportunity(op)}
+                                onClick={() => abrirOportunidad(op)}
                                 className="rounded-2xl border border-white/[0.06] bg-bkg-surface/60 p-4 active:scale-[0.99] transition-transform"
                             >
                                 {/* Cabecera: ID + ref + ficha */}
@@ -1822,6 +1879,7 @@ export function AdminPanelView({
                                             <span className="text-cyan-400/50 text-[9px]">▲</span>{fmt(tercero)}
                                         </span>
                                     )}
+                                    {isAdmin && <ViaFmChip via={op.datos_calculo?.via_fm} />}
                                 </div>
 
                                 {/* Pie: CCAA + fecha */}

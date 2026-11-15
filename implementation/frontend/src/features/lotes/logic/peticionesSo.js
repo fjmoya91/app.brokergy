@@ -17,6 +17,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { LOTE_ESTADOS } from '../loteConstants.js';
+import { EQUIVALENCIA_FINANCIERA } from '../../calculator/logic/calculation.js';
+import { ahorroSoFactura } from './mensajeFacturaSo.js';
+import { computeFacturaAmounts, defaultPrecioKwh } from './facturaSoImportes.js';
 
 const eur = (n) => `${Number(n || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €`;
 
@@ -440,10 +443,302 @@ Un saludo,
 BROKERGY · Ingeniería Energética`;
 }
 
+// Cifras para el correo con el formato español escrito a mano: `toLocaleString`
+// no agrupa los números de cuatro cifras ("4883 €") y en Node depende del ICU.
+function numEs(n, d = 0) {
+    const v = Number(n || 0);
+    const [ent, dec] = Math.abs(v).toFixed(d).split('.');
+    return `${v < 0 ? '-' : ''}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${dec ? `,${dec}` : ''}`;
+}
+
+/** El certificado CAE emitido de un lote (la resolución de inscripción), si está subido. */
+export const certificadoCaeDe = (lote) =>
+    (lote?.documentos_so || []).find(d => d?.key === 'certificado_cae') || null;
+
+/**
+ * La factura de CAE que se GENERARÍA hoy para un lote, con lo mismo que rellena
+ * `FacturaSoModal` al abrirla: los códigos y el total del CERTIFICADO (1 CAE = 1 kWh)
+ * y el precio de la oferta del lote; lo ya escrito en su borrador manda. `falta` dice
+ * lo que impide generarla sin una persona delante (05/11/2026, Fran: «¿no hay un
+ * botón para generar las 5 a la vez y enviarlas?»).
+ */
+export function borradorFacturaCae(lote) {
+    const c = certificadoCaeDe(lote)?.cae || {};
+    const prev = lote?.factura_so || {};
+    const conCodigos = !!(prev.cae_inicial || prev.cae_final);
+    const caeInicial = String(prev.cae_inicial || c.cae_inicial || '').trim();
+    const caeFinal = String(prev.cae_final || c.cae_final || '').trim();
+    const unidadesKwh = Math.round(Number(conCodigos && prev.unidades_kwh ? prev.unidades_kwh : c.total) || 0);
+    const precioKwh = Number(prev.precio_kwh) || defaultPrecioKwh(lote);
+    const { base, iva, total } = computeFacturaAmounts({ unidadesKwh, precioKwh });
+    // El rango de códigos y las unidades tienen que cuadrar (lo avisa también el popup
+    // de una factura): si no, se genera a mano, mirándolo.
+    const serie = (s) => { const m = String(s || '').match(/CAE_(\d+)_/i); return m ? parseInt(m[1], 10) : null; };
+    const a = serie(caeInicial), b = serie(caeFinal);
+    const enRango = a != null && b != null ? Math.abs(b - a) + 1 : null;
+    const falta = [
+        !caeInicial || !caeFinal ? 'los códigos CAE del certificado' : null,
+        !(unidadesKwh > 0) ? 'el nº de CAE del certificado' : null,
+        !(precioKwh > 0) ? 'el precio (la oferta del lote)' : null,
+        enRango != null && unidadesKwh > 0 && enRango !== unidadesKwh ? `que cuadren los códigos (${numEs(enRango)}) con las unidades (${numEs(unidadesKwh)})` : null,
+    ].filter(Boolean);
+    return {
+        numero: prev.numero ? String(prev.numero).trim() : null,
+        caeInicial, caeFinal, unidadesKwh, precioKwh, base, iva, total, falta,
+    };
+}
+
+/**
+ * NUESTRAS FACTURAS de venta de los CAE (05/11/2026, Fran: «enviarlas todas a la
+ * vez, con lo que les hemos ahorrado y el enlace del panel»).
+ *
+ * Cuando llegan las resoluciones de inscripción llegan varias juntas (el 05/11/2026,
+ * cinco de golpe), y se trabaja igual que con las del verificador: UN correo con
+ * todas las facturas adjuntas y el resumen delante.
+ *
+ * REGLA — solo entra un lote con los CAE EMITIDOS (su certificado subido): antes no
+ * hay nada que facturar, y no se nombra.
+ * REGLA — la factura tiene que estar GENERADA (con su número y su PDF en Drive): el
+ * correo adjunta el PDF que ya está archivado en contabilidad, no uno que se rehace
+ * al vuelo con otro número. La que falta y se puede sacar del certificado y de la
+ * oferta va a `porGenerar`: el botón pasa a «Generar y enviar» y el popup las genera
+ * PRIMERO, enseñando cada una antes (05/11/2026). La que no (sin códigos, sin precio
+ * o con un rango que no cuadra) se queda FUERA y se dice por qué.
+ * REGLA — una factura ya COBRADA sale del envío: reclamar a quien ya pagó es la peor
+ * forma de reclamar.
+ * REGLA — el sello va en el CERTIFICADO del lote (`factura_enviada_*`), porque la
+ * fila de `facturas_so` no tiene dónde, y como en las otras dos no apaga el botón:
+ * lo convierte en "volver a enviar" y el correo en un recordatorio.
+ *
+ * El correo dice A CUÁNTO LE SALE EL CAE (nuestra factura sin IVA + la verificación,
+ * que contrata él) frente a la equivalencia financiera, y el ahorro neto: es la cifra
+ * que se quiere que vea. Y lleva el ENLACE de su panel (`/so/:token`), que el popup
+ * busca y pasa al mensaje (`enlacePanel`).
+ */
+// REGLA — UN correo por S.O.: el botón actúa sobre lo filtrado, que puede mezclar
+// varios, y una factura de IBERDROLA no puede viajar en el correo a INTERALCO
+// (medido el 05/11/2026: el PAQUETE 2 - 2023 se colaba en el de Jesús). Sale una
+// petición por S.O., cada una con su nombre en el botón.
+function facturasCae(lotes) {
+    const porSo = new Map();
+    for (const l of lotes || []) {
+        if (!certificadoCaeDe(l)) continue;
+        const id = String(l?.sujeto_obligado_id || l?.sujeto_obligado?.id_empresa || '');
+        if (!porSo.has(id)) porSo.set(id, []);
+        porSo.get(id).push(l);
+    }
+    const grupos = [...porSo.values()].map(facturasCaeDeUnSo).filter(p => p.aplicable);
+    return grupos.length ? grupos : [facturasCaeDeUnSo([])];
+}
+
+export function facturasCaeDeUnSo(lotes) {
+    const conFactura = [];
+    const sinFactura = [];
+    const porGenerar = [];
+    const pagadas = [];
+    const so = (lotes || []).map(l => l?.sujeto_obligado).find(Boolean) || null;
+    const nombreSo = so?.acronimo || so?.razon_social || null;
+
+    for (const l of lotes || []) {
+        const cert = certificadoCaeDe(l);
+        if (!cert) continue;
+        const f = l?.factura_so || null;
+        if (f?.estado === 'PAGADA') { pagadas.push({ lote: l, factura: f }); continue; }
+        const generada = f?.numero && (f.drive_file_id || f.drive_link);
+        // Sin factura, solo cuenta el lote que AÚN espera el pago del S.O.: uno que ya
+        // pasó a pagar a los clientes (los de antes de la app) se cobró fuera de aquí,
+        // y nombrarlo como «sin factura» es el aviso que enseña a ignorar la lista.
+        if (!generada) {
+            if (!hastaEstado(l, 'CAE EMITIDO – PTE PAGO BROKERGY')) continue;
+            const borrador = borradorFacturaCae(l);
+            if (borrador.falta.length) sinFactura.push(l);
+            else porGenerar.push({ lote: l, cert, borrador, importe: borrador.total });
+            continue;
+        }
+        const verif = Number(l?.coste_verificacion) || 0;
+        conFactura.push({
+            lote: l,
+            factura: f,
+            cert,
+            verif,
+            ahorro: ahorroSoFactura({
+                unidadesKwh: f.unidades_kwh, base: f.base,
+                costeVerif: verif, equivalencia: EQUIVALENCIA_FINANCIERA,
+            }),
+            importe: Number(f.total) || 0,
+            pedidoAt: cert.factura_enviada_at || null,
+            pedidoA: cert.factura_enviada_to || null,
+            veces: Number(cert.factura_enviada_veces) || 0,
+        });
+    }
+
+    const importe = conFactura.reduce((a, x) => a + x.importe, 0);
+    const importePorGenerar = porGenerar.reduce((a, x) => a + x.importe, 0);
+    const nuevos = conFactura.filter(x => !x.pedidoAt);
+    const yaPedidos = conFactura.filter(x => x.pedidoAt);
+    const reinsistencia = conFactura.length > 0 && nuevos.length === 0 && porGenerar.length === 0;
+    const ultimaAt = yaPedidos.map(x => x.pedidoAt).sort().pop() || null;
+    const dias = diasDesde(ultimaAt);
+    const destinoPrevio = yaPedidos.map(x => x.pedidoA).find(Boolean) || null;
+    const resumen = resumenAhorroCae(conFactura);
+
+    return {
+        id: 'facturas_cae',
+        // Una por S.O.: el id es el de la ruta, la clave distingue los botones.
+        clave: `facturas_cae:${so?.id_empresa || (lotes || [])[0]?.sujeto_obligado_id || ''}`,
+        aplicable: conFactura.length > 0 || porGenerar.length > 0,
+        reinsistencia,
+        ultimaAt,
+        dias,
+        destinoPrevio,
+        etiqueta: (reinsistencia ? 'Volver a enviar nuestras facturas'
+            : porGenerar.length ? 'Generar y enviar nuestras facturas de CAE' : 'Enviar nuestras facturas de CAE')
+            + (nombreSo ? ` a ${nombreSo}` : '')
+            + (importe + importePorGenerar > 0 ? ` · ${eur(importe + importePorGenerar)}` : ''),
+        nota: [
+            porGenerar.length ? `${porGenerar.length} por generar` : null,
+            ultimaAt
+                ? `Enviadas ${haceTexto(dias)} (${fmtFecha(ultimaAt)})${destinoPrevio ? ` a ${destinoPrevio}` : ''}`
+                    + (yaPedidos.some(x => x.veces > 1) ? ' · ya recordado' : '')
+                : null,
+            pagadas.length ? `${pagadas.length} ya cobrada${pagadas.length === 1 ? '' : 's'}` : null,
+        ].filter(Boolean).join(' · ') || null,
+        titulo: reinsistencia
+            ? 'Recordar al Sujeto Obligado el pago de nuestras facturas'
+            : 'Enviar al Sujeto Obligado nuestras facturas de los CAE emitidos',
+        asunto: reinsistencia
+            ? 'Recordatorio: facturas de CAE pendientes de pago'
+            : 'Facturas de los CAE emitidos',
+        etiquetaPill: 'Facturas de los CAE',
+        // El popup busca el enlace del panel del S.O. y lo pasa al mensaje.
+        conEnlacePanel: true,
+        lotes: conFactura,
+        nuevos,
+        sinFactura,
+        // Las que el popup genera ANTES de escribir el correo (`borradorFacturaCae`),
+        // y todos los lotes del S.O., para rehacer la petición con ellas ya generadas.
+        porGenerar,
+        todosLotes: lotes || [],
+        pagadas,
+        yaPedidos,
+        importe,
+        resumen,
+        sustantivo: { sing: 'factura', plur: 'facturas' },
+        docs: conFactura.map(x => ({
+            key: x.lote.id,
+            label: `${x.lote.codigo} · ${x.factura.numero}`,
+            detail: [
+                `${numEs(x.factura.unidades_kwh)} CAE`,
+                x.importe ? `${numEs(x.importe, 2)} € con IVA` : null,
+                x.verif ? null : '⚠ sin el coste de verificación',
+                x.pedidoAt ? `enviada el ${fmtFecha(x.pedidoAt)}${x.veces > 1 ? ` · ${x.veces} veces` : ''}` : null,
+            ].filter(Boolean).join(' · ') || null,
+        })),
+        fuera: sinFactura.length ? {
+            lotes: sinFactura,
+            resumen: `${sinFactura.map(l => l.codigo).join(', ')} (sin factura)`,
+            aviso: `${sinFactura.length === 1 ? 'tiene' : 'tienen'} los CAE emitidos pero no se puede generar su factura sin mirarla`
+                + ` (falta ${sinFactura.map(l => `${l.codigo}: ${borradorFacturaCae(l).falta.join(', ')}`).join('; ')}).`
+                + ' Ábrela en su lote («Generar la factura de Brokergy al S.O.» → «Generar y guardar»)'
+                + ' y vuelve a entrar si quieres mandarla en este mismo correo.',
+        } : null,
+        bloqueo: conFactura.length || porGenerar.length ? null
+            : pagadas.length && !sinFactura.length
+                ? 'Las facturas de estos lotes ya están cobradas.'
+                : 'Ninguno de estos lotes con los CAE emitidos tiene la factura generada.',
+        mensaje: ({ saludo, enlacePanel = null }) => (reinsistencia
+            ? mensajeRecordatorioFacturasCae({ saludo, conFactura, importe, ultimaAt, enlacePanel })
+            : mensajeFacturasCae({ saludo, conFactura, resumen, importe, enlacePanel })),
+    };
+}
+
+/**
+ * A cuánto le sale el CAE al S.O. con estos lotes y cuánto se ahorra frente a la
+ * equivalencia financiera. Solo con los lotes cuya verificación ya está facturada:
+ * sin ella el €/MWh saldría más bajo de lo que de verdad le cuesta.
+ */
+export function resumenAhorroCae(conFactura) {
+    const con = (conFactura || []).filter(x => x.ahorro && x.verif > 0);
+    if (!con.length) return null;
+    const mwh = con.reduce((a, x) => a + x.ahorro.mwh, 0);
+    const coste = con.reduce((a, x) => a + x.ahorro.coste, 0);
+    const alternativa = con.reduce((a, x) => a + x.ahorro.alternativa, 0);
+    return {
+        mwh, coste, alternativa,
+        ahorro: alternativa - coste,
+        costeMwh: mwh > 0 ? coste / mwh : null,
+        equivalencia: EQUIVALENCIA_FINANCIERA,
+        nLotes: con.length,
+        completo: con.length === (conFactura || []).length,
+    };
+}
+
+function lineasFacturasCae(conFactura) {
+    const filas = conFactura.map(x => {
+        const f = x.factura;
+        const codigos = f.cae_inicial && f.cae_final ? ` (del ${f.cae_inicial} al ${f.cae_final})` : '';
+        return `- ${x.lote.codigo} · factura ${f.numero}: ${numEs(f.unidades_kwh)} CAE${codigos} · ${numEs(x.importe, 2)} €`;
+    });
+    if (conFactura.length > 1) {
+        const cae = conFactura.reduce((a, x) => a + (Number(x.factura.unidades_kwh) || 0), 0);
+        const total = conFactura.reduce((a, x) => a + x.importe, 0);
+        filas.push(`- TOTAL: ${numEs(cae)} CAE · ${numEs(total, 2)} €`);
+    }
+    return filas.join('\n');
+}
+
+const parrafoPanel = (enlacePanel) => (enlacePanel ? `
+
+Además, os he preparado un panel en el que podéis consultar en todo momento, y en tiempo real, cómo van vuestros lotes y cuánto os queda por cubrir de la obligación:
+${enlacePanel}` : '');
+
+function mensajeFacturasCae({ saludo, conFactura, resumen, importe, enlacePanel }) {
+    const codigos = conFactura.map(x => x.lote.codigo).filter(Boolean);
+    const una = codigos.length === 1;
+    const lista = una ? `del lote ${codigos[0]}` : `de los lotes ${codigos.join(' · ')}`;
+
+    // Solo el AHORRO, no a cuánto le sale el CAE (Fran, 05/11/2026: «de momento que
+    // no vea a cuánto está pagando el CAE»). Mismo criterio que su panel.
+    const bloqueAhorro = resumen?.ahorro > 0 ? `
+
+Trabajar con BROKERGY ${una ? 'en este lote' : 'en este conjunto de lotes'} os ha supuesto un ahorro neto de ${numEs(resumen.ahorro)} € frente a aportar ese ahorro energético al Fondo Nacional de Eficiencia Energética, ya descontado el coste de la verificación${resumen.completo ? '' : ` (calculado sobre los ${resumen.nLotes} lotes con la verificación ya facturada)`}.` : '';
+
+    return `${saludo}
+
+Os adjunto ${una ? 'la factura' : `las ${codigos.length} facturas`} de la venta de los ahorros energéticos ${lista}, cuyos Certificados de Ahorro Energético (CAE) ya están inscritos en el Registro Nacional:
+
+${lineasFacturasCae(conFactura)}
+
+Importes con el IVA (21 %) incluido.${bloqueAhorro}${parrafoPanel(enlacePanel)}
+
+Cuando podáis, haced el pago por transferencia a la cuenta indicada en ${una ? 'la factura' : 'cada factura'}${importe > 0 && !una ? ` (${numEs(importe, 2)} € en total)` : ''}. Quedamos a vuestra disposición para cualquier aclaración.
+
+Un saludo,
+BROKERGY · Ingeniería Energética`;
+}
+
+function mensajeRecordatorioFacturasCae({ saludo, conFactura, importe, ultimaAt, enlacePanel }) {
+    const una = conFactura.length === 1;
+
+    return `${saludo}
+
+Os escribo para recordaros que ${una ? 'sigue pendiente de pago la factura' : 'siguen pendientes de pago las facturas'} de los CAE emitidos que os remití el ${fmtFecha(ultimaAt)}:
+
+${lineasFacturasCae(conFactura)}
+
+Os ${una ? 'la adjunto' : 'las adjunto'} de nuevo para que ${una ? 'la tengáis' : 'las tengáis'} a mano${importe > 0 ? `: ${numEs(importe, 2)} € en total, IVA incluido` : ''}. Con el pago podemos liquidar a los propietarios que os han cedido el ahorro.${parrafoPanel(enlacePanel)}
+
+¿Podéis confirmarme si ${una ? 'tiene' : 'tienen'} ya fecha de pago prevista?
+
+Un saludo,
+BROKERGY · Ingeniería Energética`;
+}
+
 // El ORDEN es el de prioridad: la firma de las ofertas va primero porque bloquea
-// el arranque de la verificación, mientras que el pago se reclama con el trabajo
+// el arranque de la verificación; luego nuestras facturas (es lo que cobramos y lo
+// que libera el pago a los clientes) y el pago del verificador, con el trabajo
 // ya hecho.
-const PETICIONES = [firmaOfertas, pagoVerificacion];
+const PETICIONES = [firmaOfertas, facturasCae, pagoVerificacion];
 
 /**
  * Peticiones que hoy se le pueden hacer al S.O. sobre estos lotes.
@@ -451,7 +746,8 @@ const PETICIONES = [firmaOfertas, pagoVerificacion];
  * @param {object} resumen `computeLotesResumen(lotes)` — sus cifras van en el correo
  */
 export function peticionesDisponibles(lotes, resumen) {
-    return PETICIONES.map(f => f(lotes, resumen));
+    // Una petición puede devolver VARIAS (nuestras facturas: una por S.O.).
+    return PETICIONES.flatMap(f => f(lotes, resumen));
 }
 
 /** La primera que se puede hacer, o null. Es la que propone el botón. */
@@ -470,4 +766,4 @@ export function peticionesAplicables(lotes, resumen) {
     return peticionesDisponibles(lotes, resumen).filter(p => p.aplicable);
 }
 
-export default { peticionesDisponibles, peticionPrincipal, peticionesAplicables, facturaVerificadorDe, ofertaDe };
+export default { peticionesDisponibles, peticionPrincipal, peticionesAplicables, facturaVerificadorDe, ofertaDe, certificadoCaeDe };

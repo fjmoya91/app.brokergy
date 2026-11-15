@@ -5,6 +5,7 @@ const { requireAuth, enforceAuth, adminOnly, staffOnly } = require('../middlewar
 const { normalizeContactos, PARTNER_CONTACT_FIELDS, contactoClienteDesdePartner } = require('../services/notifyContacts');
 const { aplicarATodosSusClientes } = require('../services/avisosAlPartner');
 const { normalizeCliente } = require('../utils/normalization');
+const { limpiarTecnicosRite } = require('../utils/instaladorFirmante');
 
 // Rehace la persona de contacto de los clientes que tienen a este partner como
 // tal (`clientes.contacto_es_partner`). Si el partner se queda sin ningún canal,
@@ -123,6 +124,29 @@ router.post('/marketplace/refresh', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('Error refrescando stats del escaparate:', err);
         res.status(500).json({ error: 'No se pudo refrescar el escaparate' });
+    }
+});
+
+// PATCH /api/prescriptores/:id/web { oculto_web } -> Poner o quitar al instalador de la
+// web brokergy.es («Encuentra tu instalador») desde su TARJETA del listado, sin abrir la
+// ficha. Solo toca `oculto_web` (el PATCH /:id reescribe la ficha entera). Oculto no es
+// borrado: sigue contando en los totales. scripts/prescriptores_oculto_web.sql
+router.patch('/:id/web', adminOnly, async (req, res) => {
+    try {
+        if (typeof req.body?.oculto_web !== 'boolean') {
+            return res.status(400).json({ error: 'Falta oculto_web (true/false).' });
+        }
+        const { data, error } = await supabase.from('prescriptores')
+            .update({ oculto_web: req.body.oculto_web })
+            .eq('id_empresa', req.params.id)
+            .select('id_empresa, oculto_web')
+            .maybeSingle();
+        if (error) throw error;
+        if (!data) return res.status(404).json({ error: 'Partner no encontrado.' });
+        res.json(data);
+    } catch (err) {
+        console.error('Error PATCH oculto_web:', err.message);
+        res.status(503).json({ error: 'No se pudo cambiar si sale en la web.' });
     }
 });
 
@@ -865,6 +889,8 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             tecnico_firmante_apellidos: payload.tecnico_firmante_apellidos,
             tecnico_firmante_dni: payload.tecnico_firmante_dni,
             tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite,
+            // Otros técnicos habilitados que también pueden firmar la memoria.
+            tecnicos_firmantes_rite: limpiarTecnicosRite(payload.tecnicos_firmantes_rite),
             // Técnico competente (CERTIFICADOR): lo que le acredita para suscribir
             // un CEE. El carnet RITE es de instaladores y aquí no dice nada.
             // La EMPRESA en la que ejerce, si ejerce en una: `razon_social` es
@@ -1147,6 +1173,9 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             tecnico_firmante_apellidos: payload.tecnico_firmante_apellidos,
             tecnico_firmante_dni: payload.tecnico_firmante_dni,
             tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite,
+            // Solo si viene: un PATCH con medio payload no puede vaciar la lista.
+            ...(payload.tecnicos_firmantes_rite !== undefined
+                ? { tecnicos_firmantes_rite: limpiarTecnicosRite(payload.tecnicos_firmantes_rite) } : {}),
             // Técnico competente (CERTIFICADOR) — ver POST /avanzado. No se limpian
             // al cambiar de tipo: reclasificar una ficha no puede borrar en silencio
             // la titulación de nadie.
@@ -1162,7 +1191,7 @@ router.patch('/:id', enforceAuth, async (req, res) => {
 
         if (payload.logo_empresa !== undefined) {
             prescriptorPayload.logo_empresa = payload.logo_empresa;
-            cacheLogos.delete(String(id));
+            cacheLogos.delete(String(req.params.id));
             console.log(`[PATCH] Logo recibido en payload (Size: ${payload.logo_empresa?.length || 0})`);
         }
 
@@ -1266,6 +1295,10 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             }
             if (payload.descripcion_publica !== undefined) {
                 prescriptorPayload.descripcion_publica = (payload.descripcion_publica || '').toString().trim().slice(0, 1000) || null;
+            }
+            // No sale en la web pública (brokergy.es), aunque cuenta en el total. scripts/prescriptores_oculto_web.sql
+            if (payload.oculto_web !== undefined) {
+                prescriptorPayload.oculto_web = !!payload.oculto_web;
             }
             if (payload.visible_marketplace !== undefined) {
                 const activar = !!payload.visible_marketplace;

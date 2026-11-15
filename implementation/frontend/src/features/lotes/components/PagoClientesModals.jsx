@@ -257,6 +257,30 @@ export function JustificanteModal({ lote, filas, onClose, onSubido }) {
     const [fichero, setFichero] = useState(null);
     const [subiendo, setSubiendo] = useState(false);
     const [error, setError] = useState('');
+    // El PDF también se puede SOLTAR en cualquier parte del popup. Contador de
+    // dragenter/dragleave: los hijos disparan los dos y sin él el aviso parpadea.
+    const [arrastres, setArrastres] = useState(0);
+
+    const elegir = (f) => {
+        if (!f) return;
+        const esPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+        if (!esPdf) { setError('El justificante tiene que ser un PDF.'); return; }
+        setError('');
+        setFichero(f);
+    };
+    const conFicheros = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+    const suelta = {
+        onDragEnter: (e) => { if (!conFicheros(e)) return; e.preventDefault(); setArrastres(n => n + 1); },
+        onDragOver: (e) => { if (!conFicheros(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; },
+        onDragLeave: (e) => { if (!conFicheros(e)) return; setArrastres(n => Math.max(0, n - 1)); },
+        onDrop: (e) => {
+            if (!conFicheros(e)) return;
+            e.preventDefault();
+            setArrastres(0);
+            if (!subiendo) elegir(e.dataTransfer.files?.[0]);
+        },
+    };
+    const arrastrando = arrastres > 0;
 
     const subir = async () => {
         if (!fichero) return;
@@ -281,6 +305,7 @@ export function JustificanteModal({ lote, filas, onClose, onSubido }) {
     };
 
     return createPortal(
+        <div {...suelta}>
         <Marco
             subtitulo="Pago a los clientes"
             titulo="Justificante de la transferencia"
@@ -288,10 +313,12 @@ export function JustificanteModal({ lote, filas, onClose, onSubido }) {
             onClose={onClose}
             pie={(
                 <>
-                    <label className={`flex-1 min-w-0 cursor-pointer rounded-xl border border-dashed px-3.5 py-2.5 text-[12px] truncate transition-all ${fichero
-                        ? 'border-emerald-400/40 bg-emerald-400/[0.05] text-emerald-200' : 'border-white/25 text-white/70 hover:border-brand/50 hover:bg-brand/[0.04]'}`}>
-                        <input type="file" accept="application/pdf" className="hidden" onChange={e => setFichero(e.target.files?.[0] || null)} />
-                        {fichero ? `📄 ${fichero.name}` : '📎 Elegir el PDF del banco…'}
+                    <label className={`flex-1 min-w-0 cursor-pointer rounded-xl border border-dashed px-3.5 py-2.5 text-[12px] truncate transition-all ${arrastrando
+                        ? 'border-brand bg-brand/[0.10] text-brand'
+                        : fichero
+                            ? 'border-emerald-400/40 bg-emerald-400/[0.05] text-emerald-200' : 'border-white/25 text-white/70 hover:border-brand/50 hover:bg-brand/[0.04]'}`}>
+                        <input type="file" accept="application/pdf" className="hidden" onChange={e => { elegir(e.target.files?.[0]); e.target.value = ''; }} />
+                        {arrastrando ? '⬇ Suelta aquí el PDF del banco' : fichero ? `📄 ${fichero.name}` : '📎 Elige o arrastra el PDF del banco…'}
                     </label>
                     {error && <span className="w-full text-[10px] text-red-400">{error}</span>}
                     <button type="button" disabled={!fichero || !marcadas.size || subiendo} onClick={subir}
@@ -320,7 +347,15 @@ export function JustificanteModal({ lote, filas, onClose, onSubido }) {
             {nPagadas > 0 && candidatas.length > 0 && (
                 <p className="text-[10px] text-white/35">No salen los {nPagadas} que ya tienen el justificante subido.</p>
             )}
-        </Marco>,
+        </Marco>
+        {arrastrando && (
+            <div className="pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center p-6">
+                <div className="w-full sm:max-w-2xl h-[60dvh] rounded-3xl border-2 border-dashed border-brand bg-brand/[0.08] flex items-center justify-center">
+                    <p className="text-brand text-[15px] font-black uppercase tracking-wider">Suelta aquí el PDF del banco</p>
+                </div>
+            </div>
+        )}
+        </div>,
         document.body,
     );
 }

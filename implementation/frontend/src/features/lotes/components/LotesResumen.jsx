@@ -95,7 +95,7 @@ export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEs
                         reinsistencia el botón se pinta apagado —la acción no urge
                         igual— pero se pulsa lo mismo. */}
                     {onPedirAlSo && peticiones.map(peticion => (
-                        <div key={peticion.id} className="flex flex-col items-end gap-0.5">
+                        <div key={peticion.clave || peticion.id} className="flex flex-col items-end gap-0.5">
                             <button type="button" onClick={() => onPedirAlSo(peticion)}
                                 title={`${peticion.titulo} · ${peticion.lotes.length} lote${peticion.lotes.length === 1 ? '' : 's'}`}
                                 className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${

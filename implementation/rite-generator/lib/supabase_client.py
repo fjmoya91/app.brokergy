@@ -298,7 +298,10 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
             # de calor, así que NO comparte el gate con la potencia. Si el nodo de
             # ACS no los declara, se miran los del equipo de calefacción (ahí es
             # donde el catálogo precarga los litros de un equipo con depósito).
-            "acumulacion_l": (_acumulacion(acs) or (_acumulacion(cal) if not acs_distinto else "")),
+            # Sin actuación sobre el ACS no hay depósito que declarar: el respaldo
+            # del modelo de calefacción leía «30AWH 12M» como 30 litros (26RES060_237).
+            "acumulacion_l": ((_acumulacion_total(acs) or (_acumulacion(cal) if not acs_distinto else ""))
+                              if inst.get("cambio_acs") else ""),
             # Del catálogo del modelo; si no está, se intenta deducir del nombre
             # (casi nunca lo lleva, por eso ahora es un campo propio).
             "refrigerante": cal.get("refrigerante") or _refrigerante(cal.get("modelo", "")),
@@ -457,6 +460,28 @@ def _acumulacion(acs):
     modelo = _re.sub(r"\bR-?\d{2,4}\b", " ", acs.get("modelo", "") or "", flags=_re.I)
     m = _re.search(r"(\d{2,4})", modelo)
     return m.group(1) if m else ""
+
+
+def _acumulacion_total(acs):
+    """Litros de TODOS los depósitos de ACS: con dos bombas de calor de ACS en
+    cascada (dos aerotermos de 110 L) la acumulación instalada es 220 L, y la
+    memoria declaraba 110 (26RES060_226). Una unidad extra que no trae ni litros
+    ni modelo propio es del mismo modelo que la primera. Si alguna no se puede
+    leer, se declara la de la primera, como hasta ahora (nunca se suma a medias)."""
+    if not isinstance(acs, dict):
+        return ""
+    uds = _unidades(acs)
+    base = _acumulacion(acs)
+    if len(uds) < 2 or not base:
+        return base
+    total = 0.0
+    for u in uds:
+        v = _acumulacion(u) or (base if not (u.get("modelo") or "").strip() else "")
+        try:
+            total += float(str(v).replace(",", "."))
+        except ValueError:
+            return base
+    return str(int(total)) if total == int(total) else str(total)
 
 
 def _fmt(iso):

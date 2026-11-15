@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { largo as largoDe, LARGO_MINIMO_PARED, lienzoAMundo, rumbosDeLaPared } from './geometriaPlano';
 import { traduccionDeIds } from './identidadParedes.js';
+import { cambiosAlMedir } from './cambiosAlMedir.js';
 import { esFuera, esMedianera, esParticion, tipoDe } from './tiposPared.js';
 import { mudarHueco, paredesParaHueco } from './huecosEnParedes.js';
 import { aplicarTrabajo, cuerposDeHoy, deltaLienzo, trasladarMuros, trasladarTrabajo } from './trabajoGuardado.js';
@@ -16,7 +17,7 @@ import {
 export { nuevoUid, medirPared, esDibujada, nombreDe, esNombrePropio, rumboDe };
 
 import { SUFIJO_CAMBIA, nombreHueco } from './reforma.js';
-import { interpretarTrazo, rumboHaciaFuera, centroDePlanta, ETIQUETA_TIPO, ALTO_DEFECTO } from './pizarra.js';
+import { interpretarTrazo, rumboHaciaFuera, centroDePlanta, ETIQUETA_TIPO, ALTO_DEFECTO, ANCHO_TOQUE } from './pizarra.js';
 export { SUFIJO_CAMBIA, nombreHueco };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,6 +103,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     //: acaba de quitar). Antes desaparecían sin decir nada; ahora se enseñan y
     //: se pueden volver a poner en otra pared.
     const [huerfanos, setHuerfanos] = useState([]);
+    //: Lo que CAMBIÓ la última vez que se volvió a medir (paredes nuevas, las que
+    //: el motor ha renombrado, huecos sin pared): la ventana lo resalta unos
+    //: segundos y lo dice (`cambiosAlMedir.js`). `at` distingue una medida de otra.
+    const [cambiosMedida, setCambiosMedida] = useState(null);
+    const olvidaCambiosMedida = useCallback(() => setCambiosMedida(null), []);
 
     //: Lo dibujado en la PIZARRA desde la última vez que se dijo «Así es como
     //: está»: la lista de cambios en palabras (la que se le enseña a quien
@@ -155,6 +161,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         const viejos = trasladarMuros(murosRef.current,
                                       deltaLienzo(refMurosRef.current, refLienzo));
         const { traduce, perdidos } = traduccionDeIds(viejos, nuevo);
+        // Al RESTAURAR (deshacer) no se ha medido nada: no se resalta.
+        if (conLocal) {
+            const c = cambiosAlMedir(viejos, nuevo, traduce, perdidos);
+            setCambiosMedida(c ? { ...c, at: Date.now() } : null);
+        }
         const sinSitio = new Set(perdidos);
         const id = (k) => (sinSitio.has(k) ? null : (traduce[k] || k));
         try {
@@ -679,10 +690,16 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
      * final. `null` si no queda ninguna.
      */
     function siguientePorMirar(desde) {
+        // Planta a planta de abajo arriba (el orden de `plantas`: por su id en
+        // texto la planta 1 iba antes que la baja), y en cada una por su nombre
+        // de Catastro con los números como números (FBE2 antes que FBE10). El
+        // mismo orden que las flechas (`paredVecina`).
+        const orden = new Map(plantas.map((p, i) => [p.id, i]));
         const lista = Object.values(muros)
             .filter(m => !esFuera(m))
-            .sort((a, b) => String(a.planta).localeCompare(String(b.planta))
-                            || String(a.id).localeCompare(String(b.id)));
+            .sort((a, b) => (orden.get(a.planta) ?? 99) - (orden.get(b.planta) ?? 99)
+                            || String(a.planta).localeCompare(String(b.planta))
+                            || String(a.id).localeCompare(String(b.id), 'es', { numeric: true }));
         if (!lista.length) return null;
         const pendiente = m => !esMedianera(m) && !m.revisada && !(m.huecos || []).length;
         const i = Math.max(0, lista.findIndex(m => m.id === desde));
@@ -1213,32 +1230,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         }
 
         if (accion.accion === 'hueco') {
-            const m = muros[accion.id];
-            if (!m) return { ok: false, texto: 'Esa pared ya no está en el plano.' };
-            const base = nuevoHueco(accion.tipo, muros);
-            // Un nombre que se acaba de dar y aún no está en el estado, no se repite.
-            for (let k = 1; reservados.current.huecos.has(base.nombre) && k < 999; k++) {
-                base.nombre = `${base.nombre.replace(/\d+$/, '')}${Number(base.nombre.match(/\d+$/)?.[0] || 0) + 1}`;
-            }
-            reservados.current.huecos.add(base.nombre);
-            const h = {
-                ...base,
-                ancho: Number(accion.ancho) || base.ancho,
-                alto: ALTO_DEFECTO[accion.tipo] || base.alto,
-                pos: Number.isFinite(accion.pos) ? accion.pos : undefined,
-                estado: 'dudoso', origen: 'pizarra',
-                por_que: 'dibujada a mano en la pizarra: falta la medida real',
-            };
-            setMuros(v => (v[accion.id]
-                ? { ...v, [accion.id]: { ...v[accion.id], huecos: [...(v[accion.id].huecos || []), h] } }
-                : v));
-            // La primera PUERTA que se dibuja, si aún no se ha dicho por dónde
-            // se entra, es la entrada: es lo que se iba a señalar a continuación.
-            let extra = '';
-            if (accion.tipo === 'puerta' && !entrada) { setEntrada(accion.id); extra = ' · es la entrada'; }
-            const que = accion.tipo === 'puerta' ? 'puerta' : 'ventana';
-            return apunta(`+ ${h.nombre} ${que} en ${nombreDe(m)} de ≈${String(h.ancho).replace('.', ',')} m (medida por confirmar)${extra}`,
-                          [accion.id]);
+            const r = ponHuecoEnPared(plantaId, accion, {
+                origen: 'pizarra', por_que: 'dibujada a mano en la pizarra: falta la medida real' });
+            return r.ok ? apunta(r.texto, [accion.id]) : r;
         }
 
         if (accion.accion === 'borrar') {
@@ -1283,9 +1277,96 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         return { ok: false, texto: 'No he entendido el trazo.' };
     }
 
+    /**
+     * Pone UNA ventana o puerta en una pared (`accion` de `interpretarTrazo`:
+     * `{ id, tipo, ancho, pos }`). La usan la pizarra, el ARRASTRE desde la
+     * paleta y los «+ Ventana» de una medianera.
+     *
+     * REGLA — si la pared no da al exterior (medianera o partición) PASA a muro
+     * exterior en el mismo gesto, con el rumbo hacia fuera de la planta si no
+     * lo tenía, y se dice. Se mira el tipo de la pared AHORA, no lo que diga la
+     * acción: una acción que llega del móvil puede venir de antes de cambiarla.
+     */
+    function ponHuecoEnPared(plantaId, accion, { origen, por_que }) {
+        const m = muros[accion.id];
+        if (!m) return { ok: false, texto: 'Esa pared ya no está en el plano.' };
+        if (esFuera(m)) return { ok: false, texto: `${nombreDe(m)} está apartada de la envolvente: vuelve a tenerla en cuenta desde su panel.` };
+        const extra = [];
+        let nombre = nombreDe(m);
+        if (tipoDe(m) !== 'FACHADA') {
+            const antes = tipoDe(m);
+            reclasifica(accion.id, tipoDe({ tipo: m.tipo }) === 'FACHADA' ? null : 'FACHADA');
+            const suyo = m.nombre_manual && m.nombre_manual !== inicialDe(m.id, antes);
+            nombre = suyo ? m.nombre_manual : inicialDe(m.id, 'FACHADA') || m.id;
+            extra.push(`${nombre} pasa de ${ETIQUETA_TIPO[antes] || 'otra cosa'} a muro exterior`);
+            const pl = plantaId || plantas.find(p => (p.muros || []).some(b => b.id === accion.id))?.id;
+            const svg = (plantas.find(p => p.id === pl)?.muros || []).find(b => b.id === accion.id)?.svg || m.svg;
+            if (!rumboDe({ ...m, tipo_manual: 'FACHADA' })) {
+                const r = rumboHaciaFuera(svg, centroDePlanta(murosDePlanta(pl)));
+                if (r) { orienta(accion.id, r); extra.push(`mira al ${r} (cámbialo en su panel si no)`); }
+            }
+        }
+        const base = nuevoHueco(accion.tipo, muros);
+        // Un nombre que se acaba de dar y aún no está en el estado, no se repite.
+        for (let k = 1; reservados.current.huecos.has(base.nombre) && k < 999; k++) {
+            base.nombre = `${base.nombre.replace(/\d+$/, '')}${Number(base.nombre.match(/\d+$/)?.[0] || 0) + 1}`;
+        }
+        reservados.current.huecos.add(base.nombre);
+        const h = {
+            ...base,
+            ancho: Number(accion.ancho) || base.ancho,
+            alto: ALTO_DEFECTO[accion.tipo] || base.alto,
+            pos: Number.isFinite(accion.pos) ? accion.pos : undefined,
+            estado: 'dudoso', origen, por_que,
+        };
+        setMuros(v => (v[accion.id]
+            ? { ...v, [accion.id]: { ...v[accion.id], huecos: [...(v[accion.id].huecos || []), h] } }
+            : v));
+        // La primera PUERTA que se pone, si aún no se ha dicho por dónde se
+        // entra, es la entrada: es lo que se iba a señalar a continuación.
+        if (accion.tipo === 'puerta' && !entrada) { setEntrada(accion.id); extra.push('es la entrada'); }
+        const que = accion.tipo === 'puerta' ? 'puerta' : 'ventana';
+        return { ok: true, nombre: h.nombre,
+                 texto: `+ ${h.nombre} ${que} en ${nombre} de ≈${String(h.ancho).replace('.', ',')} m (medida por confirmar)`
+                     + (extra.length ? ` · ${extra.join(' · ')}` : '') };
+    }
+
+    /**
+     * Una ventana o puerta SOLTADA sobre el plano (arrastrada desde la paleta):
+     * va a la pared más cercana al punto, donde se suelta. Es un toque de la
+     * pizarra con su lápiz, pero no se apunta como cambio de la pizarra: es la
+     * forma normal de poner huecos, no una corrección para que la rehaga Claude.
+     */
+    function sueltaHueco(plantaId, x, y, tipo, { tam, iman } = {}) {
+        const accion = interpretarTrazo({ pts: [[x, y]], herramienta: tipo, muros: murosDePlanta(plantaId), tam, iman });
+        if (!accion || accion.error) return { ok: false, texto: accion?.error || 'Suéltala encima de una pared.' };
+        const r = ponHuecoEnPared(plantaId, accion, { origen: 'plano', por_que: 'puesta en el plano: falta la medida real' });
+        if (r.ok) setSel(accion.id);
+        return { ...r, id: accion.id };
+    }
+
+    /** «+ Ventana» en una pared concreta (la del panel): al centro libre, y la pasa a exterior si hace falta. */
+    function anadeHuecoA(id, tipo) {
+        const r = ponHuecoEnPared(null, { id, tipo, ancho: ANCHO_TOQUE[tipo] }, {
+            origen: 'plano', por_que: 'añadida desde el panel: falta la medida real' });
+        if (r.ok) setSel(id);
+        return r;
+    }
+
     /** Tras confirmar («Así es como está»): los cambios pasan a la revisión. */
     function limpiaPizarra() {
         setPizarra(p => ({ cambios: [], tocadas: p.tocadas || [] }));
+    }
+
+    /**
+     * Lo que dijo el ASISTENTE, con el «Sí»: un solo cambio del mapa de muros
+     * (`transformarMuros` de `asistenteEnvolvente.js`, puro). Va de una vez y no
+     * llamando a `mudaHueco` + `ponCarpinteria`… por separado: cada una busca el
+     * hueco por su ÍNDICE, y el paso anterior lo ha cambiado. De una vez es
+     * también UN paso de deshacer.
+     */
+    function aplicaAsistente(transformar) {
+        if (typeof transformar === 'function') setMuros(v => transformar(v));
     }
 
     /**
@@ -1317,8 +1398,10 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         recorte, zonasFuera, setZonasFuera, refLienzo,
         equiposPlano, equiposLienzo, ponEquipoPlano, quitaEquipoPlano,
         huerfanos, recuperaHuerfanos, descartaHuerfanos,
+        cambiosMedida, olvidaCambiosMedida,
         loSenalado, restaurar,
-        pizarra, trazoPizarra, aplicaPizarra, limpiaPizarra, murosDePlanta,
+        pizarra, trazoPizarra, aplicaPizarra, limpiaPizarra, murosDePlanta, aplicaAsistente,
+        sueltaHueco, anadeHuecoA,
         esCandidata, esMedianera, esParticion, esFuera, tipoDe, nombreDe, estadoDe,
         rumboDe, necesitaRumbo, rumbosDe,
     };

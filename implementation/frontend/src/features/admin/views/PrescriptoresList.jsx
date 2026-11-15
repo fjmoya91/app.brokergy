@@ -104,6 +104,27 @@ export function PrescriptoresList({ onNavigate }) {
     };
 
 
+    // Poner o quitar al instalador de la web brokergy.es («Encuentra tu instalador»)
+    // sin abrir la ficha. Oculto no es borrado: sigue contando en los totales.
+    // Se aplica al volver a generar la web (npm run red en brokergy-web).
+    const [cambiandoWeb, setCambiandoWeb] = useState(null);
+    const toggleWeb = async (p, e) => {
+        e.stopPropagation();
+        if (cambiandoWeb) return;
+        const oculto = !p.oculto_web;
+        setCambiandoWeb(p.id_empresa);
+        setPrescriptores(prev => prev.map(x => x.id_empresa === p.id_empresa ? { ...x, oculto_web: oculto } : x));
+        try {
+            await axios.patch(`/api/prescriptores/${p.id_empresa}/web`, { oculto_web: oculto });
+        } catch (err) {
+            console.error(err);
+            setPrescriptores(prev => prev.map(x => x.id_empresa === p.id_empresa ? { ...x, oculto_web: !oculto } : x));
+            setError(err.response?.data?.error || 'No se pudo cambiar si sale en la web.');
+        } finally {
+            setCambiandoWeb(null);
+        }
+    };
+
     // Filter logic
     const [searchTerm, setSearchTerm] = useState('');
     const [filterTipo, setFilterTipo] = useState('TODO');
@@ -354,6 +375,22 @@ export function PrescriptoresList({ onNavigate }) {
                                     )}
                                     {p.es_autonomo && (
                                         <span className="text-[8px] uppercase tracking-widest font-black border px-2 py-0.5 rounded bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20">Autónomo</span>
+                                    )}
+                                    {isAdmin && p.tipo_empresa === 'INSTALADOR' && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => toggleWeb(p, e)}
+                                            disabled={cambiandoWeb === p.id_empresa}
+                                            title={p.oculto_web
+                                                ? 'No sale en la web brokergy.es (sí cuenta en los totales). Pulsa para mostrarlo.'
+                                                : 'Sale en la web brokergy.es. Pulsa para ocultarlo (seguirá contando en los totales).'}
+                                            className={`ml-auto inline-flex items-center gap-1.5 text-[8px] uppercase tracking-widest font-black border px-2 py-0.5 rounded transition-all disabled:opacity-50 ${p.oculto_web
+                                                ? 'bg-white/5 text-white/35 border-white/10 hover:text-white/70 hover:border-white/25'
+                                                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20'}`}
+                                        >
+                                            <span className={`w-1.5 h-1.5 rounded-full ${p.oculto_web ? 'bg-white/25' : 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]'}`} />
+                                            {p.oculto_web ? 'Oculto en la web' : 'En la web'}
+                                        </button>
                                     )}
                                 </div>
 

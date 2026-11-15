@@ -56,7 +56,7 @@ const SCREEN_PROGRESS = {
     elementos: 0.68, aviso_no_cae: 0.68,
     facturas: 0.68, factura_fecha: 0.73, cee_previo: 0.76,
     fotos: 0.8, cee_ambos: 0.83,
-    gasto: 0.86, docs_obra: 0.9, presupuesto: 0.92,
+    gasto: 0.86, fm_fecha: 0.84, hogar: 0.86, bono_social: 0.88, bono_fn: 0.9, docs_obra: 0.9, presupuesto: 0.92,
     // Atajo con certificados aportados: el resumen deja el recorrido casi hecho.
     cee_resumen: 0.55,
 };
@@ -70,7 +70,7 @@ const MONEY_MILESTONES = [
     { emoji: '🤑', label: 'Propuesta',  threshold: 0.92 },
 ];
 
-export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, mode = 'public', initialCeeData = null, onCreated, onNoEmpezada, onRestart }) {
+export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, mode = 'public', obra = null, refEnlace = null, initialCeeData = null, onCreated, onNoEmpezada, onRestart }) {
     // Modo internal (partner/admin "nueva simulación"): mismas pantallas que el
     // flujo público pero con textos neutros (el partner pregunta por su cliente),
     // sin elementos comerciales y terminando en la pantalla de identificación de
@@ -78,6 +78,11 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const isInternal = mode === 'internal';
     // Helper de copy: t(textoPúblico, textoNeutroInternal)
     const t = (pub, int) => (isInternal ? int : pub);
+    // La obra que el visitante eligió en brokergy.es/ayudas (o en la primera pantalla):
+    // 'caldera' | 'reforma'. Con ella NO se pregunta «¿Qué mejora te interesa?»: es la
+    // misma pregunta otra vez (Fran, 09/11/2026). El CRM no la trae y la sigue viendo.
+    const obraFija = isInternal ? null : obra;
+    const esCaldera = obraFija === 'caldera';
 
     // Usuario logueado (solo relevante en internal) — para permitir validar/borrar
     // fotos si es ADMIN en la pantalla de documentación.
@@ -159,9 +164,35 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // luego en la calculadora, igual que el funnel interno clásico) y en vez de
     // preguntar el presupuesto "a ojo" ofrecemos soltar el presupuesto/las facturas
     // y leerlos. El flujo PÚBLICO no cambia: ahí sigue el gasto y el Step8 de siempre.
-    const gastoStep = () => (isInternal ? 'docs_obra' : 'gasto');
+    //
+    // Desde el 09/11/2026 el flujo PÚBLICO tampoco pregunta el gasto anual (no mueve el
+    // bono; el ahorro sale teórico) y, antes del presupuesto, pregunta lo que decide el
+    // factor multiplicador: quién vive en la casa y el bono social (`hogar`).
+    // Sin aerotermia en la obra no hay vía FM y no se pregunta nada de eso. Con la obra
+    // ya empezada, primero CUÁNDO empezó: la vía FM es para obras desde el 22/03/2026.
+    const tramoFinal = () => {
+        if (isInternal) return 'docs_obra';
+        const f = funnelRef.current;
+        if (!f.reforma_elementos?.caldera) return 'presupuesto';
+        if (f.obra_estado && f.obra_estado !== 'no_empezada') return 'fm_fecha';
+        return 'hogar';
+    };
+    const gastoStep = tramoFinal;
     // Cierre del tramo económico en internal (tras fotos/cee_ambos).
-    const presupuestoStep = () => (isInternal ? 'docs_obra' : 'presupuesto');
+    const presupuestoStep = tramoFinal;
+
+    // «¿Qué mejora te interesa?» sin preguntarla, si la obra ya viene elegida. En la
+    // reforma la aerotermia va marcada (es lo que dice su tarjeta) y en «¿Qué incluye
+    // la obra?» se añaden ventanas, tejado o fachada.
+    const irATipo = () => {
+        if (!obraFija) { push('tipo'); return; }
+        updateFunnel({
+            isReforma: !esCaldera,
+            reforma_elementos: { caldera: true, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false, aires: false },
+            reforma_aires_count: null,
+        });
+        push('combustible');
+    };
 
     // ---------- Elegibilidad (lenguaje claro, sin jerga) ----------
     const calc = () => {
@@ -215,6 +246,12 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const goAfterElementos = () => {
         const els = funnel.reforma_elementos || {};
         const hayEnv = !!(els.ventanas || els.cubierta || els.paredes || els.suelo);
+        // Con la reforma elegida en la web la aerotermia llega marcada y `isReforma` a
+        // true; si al final no se toca la envolvente, es un cambio de caldera (RES060).
+        if (obraFija && !funnel.reforma_sin_caldera && funnel.isReforma !== hayEnv) {
+            updateFunnel({ isReforma: hayEnv });
+            funnelRef.current = { ...funnelRef.current, isReforma: hayEnv };
+        }
         const generaCae = !!els.caldera || hayEnv;
         const hayAlgoSoloIrpf = !!els.aires || !!els.placas;
         if (!generaCae && hayAlgoSoloIrpf) {
@@ -297,7 +334,9 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                     municipio: catastro?.municipality || catastro?.municipio,
                     codigo_postal: catastro?.postalCode || null
                 },
-                funnel: { ...funnel, timeline: contacto.timeline, titular_type: contacto.titular_type },
+                // `obra` (la tarjeta elegida) y `ref` (quién mandó el enlace) quedan en
+                // `datos_calculo.landing_funnel`, con el resto de respuestas.
+                funnel: { ...funnel, obra: obraFija, ref: refEnlace, timeline: contacto.timeline, titular_type: contacto.titular_type },
                 calculatorInputs,
                 precomputedResult,
                 demandaCalefaccionPorM2: precomputedResult?.q_net || null,
@@ -305,7 +344,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 delivery_preference: deliveryPreference.length ? deliveryPreference : ['tecnico'],
                 delivery_summary,
                 // Metadatos del flujo Reforma (para el panel admin / clasificación)
-                origen: 'reforma',
+                origen: obraFija || 'reforma',
                 reforma: {
                     obra_estado: funnel.obra_estado,
                     sin_caldera: !!funnel.reforma_sin_caldera,
@@ -945,7 +984,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 <BackBtn />
                 <div className="text-center mb-10">
                     <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">¿En qué punto está {t('tu', 'la')} <span className="text-amber-400">obra</span>?</h1>
-                    <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">{t('Cuéntanos cómo está la reforma. Sin compromiso.', 'Indica el estado de la reforma del cliente.')}</p>
+                    <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">{t(esCaldera ? 'Cuéntanos si ya has cambiado la caldera. Sin compromiso.' : 'Cuéntanos cómo está la reforma. Sin compromiso.', 'Indica el estado de la reforma del cliente.')}</p>
                 </div>
                 <div className="space-y-3 max-w-2xl mx-auto">
                     {/* 'no_empezada' YA NO salta de URL — sigue el mismo flujo interno
@@ -953,10 +992,10 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                         (goAfterElementos) se saltan facturas/fotos cuando la obra
                         aún no se ha empezado. */}
                     <IconCard icon={<IconoFunnel n="plano" />} title={t('Aún no he empezado la obra', 'Aún no ha empezado la obra')} subtitle={t('Quiero saber qué ayudas tendría antes de empezar', 'Para saber qué ayudas tendría antes de empezar')}
-                        onClick={() => { updateFunnel({ obra_estado: 'no_empezada' }); push('tipo'); }} />
-                    <IconCard icon={<IconoFunnel n="obraMedias" />} title="Obra a medias" subtitle={t('Ya he empezado la reforma pero no está terminada', 'Reforma empezada pero sin terminar')}
-                        onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); push('tipo'); }} />
-                    <IconCard icon={<IconoFunnel n="obraHecha" />} title="Obra ya ejecutada" subtitle={t('La reforma ya está hecha y quiero ver si puedo conseguir ayudas', 'Reforma ya hecha; comprobar si hay ayudas posibles')}
+                        onClick={() => { updateFunnel({ obra_estado: 'no_empezada' }); irATipo(); }} />
+                    <IconCard icon={<IconoFunnel n="obraMedias" />} title="Obra a medias" subtitle={t(esCaldera ? 'Ya he empezado, pero la aerotermia no está terminada' : 'Ya he empezado la reforma pero no está terminada', 'Reforma empezada pero sin terminar')}
+                        onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); irATipo(); }} />
+                    <IconCard icon={<IconoFunnel n="obraHecha" />} title="Obra ya ejecutada" subtitle={t(esCaldera ? 'La aerotermia ya está puesta y quiero ver si puedo conseguir ayudas' : 'La reforma ya está hecha y quiero ver si puedo conseguir ayudas', 'Reforma ya hecha; comprobar si hay ayudas posibles')}
                         onClick={() => { updateFunnel({ obra_estado: 'ejecutada' }); push('ejec_fecha'); }} />
                     <IconCard icon={<IconoFunnel n="obraNueva" />} title="Obra nueva" subtitle={t('Construyo una vivienda desde cero', 'Vivienda de nueva construcción desde cero')}
                         onClick={() => push('nueva_dead')} />
@@ -991,10 +1030,10 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     }
     if (screen === 'ejec_terminada') {
         return (<><BackBtn /><StepLayout question="¿La obra está totalmente terminada?" subtitle={t('Si sólo tienes una factura parcial, en realidad es una obra a medias y la tratamos de otra forma.', 'Si solo hay una factura parcial, en realidad es una obra a medias y se trata de otra forma.')}>
-            <IconCard icon={<IconoFunnel n="obraHecha" />} title="Sí, totalmente terminada" subtitle="La reforma está acabada y facturada"
-                onClick={() => push('tipo')} />
+            <IconCard icon={<IconoFunnel n="obraHecha" />} title="Sí, totalmente terminada" subtitle={esCaldera ? 'La aerotermia está puesta y facturada' : 'La reforma está acabada y facturada'}
+                onClick={() => irATipo()} />
             <IconCard icon={<IconoFunnel n="obraMedias" />} title={t('Tengo factura parcial', 'Hay factura parcial')} subtitle="Aún queda obra por hacer"
-                onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); push('tipo'); }} />
+                onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); irATipo(); }} />
         </StepLayout></>);
     }
 
@@ -1429,6 +1468,82 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // → submit → result (LandingResultView con métricas + CTA subida docs).
     // ───────────────────────────────────────────────────────────────────────
 
+    // ───────────────────────────────────────────────────────────────────────
+    // Lo que decide el FACTOR MULTIPLICADOR (BOE-A-2026-23367), solo en el flujo
+    // público y solo con aerotermia en la obra (2026-11-09). Una pregunta por
+    // pantalla y sin jerga: al cliente nunca se le dice «consumidor vulnerable».
+    //   · fm_fecha     → la vía FM es para obras iniciadas desde el 22/03/2026.
+    //   · hogar        → exige vivienda habitual (facturas de luz del invierno).
+    //   · bono_social  → la sube ×1,5 (ficha «-S»)… salvo si se lo dieron SOLO por
+    //     familia numerosa (bono_fn), que no cuenta como vulnerable.
+    // Las respuestas viajan en `landing_funnel` y el servidor calcula `via_fm`.
+    // ───────────────────────────────────────────────────────────────────────
+    const conCombustibleFm = ['gas', 'gasoleo'].includes(funnel.combustible_actual);
+
+    if (screen === 'fm_fecha') {
+        const elegir = (v) => { updateFunnel({ obra_inicio_fm: v }); push('hogar'); };
+        return (<><BackBtn /><StepLayout question="¿Cuándo empezó la obra?"
+            subtitle="Hay una ayuda más alta para las obras empezadas desde el 22 de marzo de 2026. Vale la fecha de la primera factura o del contrato.">
+            <IconCard icon={<IconoFunnel n="calendarioOk" />} title="Desde el 22 de marzo de 2026" subtitle="La primera factura o el contrato son de esa fecha o después"
+                selected={funnel.obra_inicio_fm === 'desde'} onClick={() => elegir('desde')} />
+            <IconCard icon={<IconoFunnel n="calendarioReloj" />} title="Antes del 22 de marzo de 2026" subtitle="Sigue habiendo ayuda: la de siempre"
+                selected={funnel.obra_inicio_fm === 'antes'} onClick={() => elegir('antes')} />
+            <IconCard icon={<IconoFunnel n="noSe" />} title="No lo sé" subtitle="Lo miramos con las facturas"
+                selected={funnel.obra_inicio_fm === 'no_se'} onClick={() => elegir('no_se')} />
+        </StepLayout></>);
+    }
+
+    if (screen === 'hogar') {
+        const elegir = (v) => {
+            const vive = v === 'propia' || v === 'otra';
+            const preguntaBono = vive && conCombustibleFm && funnelRef.current.obra_inicio_fm !== 'antes';
+            updateFunnel(preguntaBono
+                ? { vivienda_habitual: v }
+                : { vivienda_habitual: v, bono_social: null, bono_social_solo_fn: null });
+            push(preguntaBono ? 'bono_social' : 'presupuesto');
+        };
+        return (<><BackBtn /><StepLayout question="¿Vive alguien en la casa todo el año?"
+            subtitle="La ayuda más alta es para la vivienda en la que se vive. Se demuestra con las facturas de la luz del invierno.">
+            <IconCard icon={<IconoFunnel n="casa" />} title="Sí, es mi vivienda habitual" subtitle="Vivo en ella todo el año"
+                selected={funnel.vivienda_habitual === 'propia'} onClick={() => elegir('propia')} />
+            <IconCard icon={<IconoFunnel n="casaOtra" />} title="Sí, vive otra persona" subtitle="Alquilada o de un familiar, todo el año"
+                selected={funnel.vivienda_habitual === 'otra'} onClick={() => elegir('otra')} />
+            <IconCard icon={<IconoFunnel n="casaVacia" />} title="No, es una segunda residencia" subtitle="Se usa en verano o algunos fines de semana"
+                selected={funnel.vivienda_habitual === 'segunda'} onClick={() => elegir('segunda')} />
+        </StepLayout></>);
+    }
+
+    if (screen === 'bono_social') {
+        const otra = funnel.vivienda_habitual === 'otra';
+        const elegir = (v) => {
+            updateFunnel(v === 'si' ? { bono_social: v } : { bono_social: v, bono_social_solo_fn: null });
+            push(v === 'si' ? 'bono_fn' : 'presupuesto');
+        };
+        return (<><BackBtn /><StepLayout
+            question={otra ? '¿Quien vive en la casa tiene el bono social de la luz?' : '¿En casa tenéis el bono social de la luz?'}
+            subtitle="Es el descuento que algunas familias tienen en la factura de la luz. Con él, la ayuda puede ser más alta.">
+            <IconCard icon={<IconoFunnel n="factura" />} title={otra ? 'Sí, lo tiene' : 'Sí, lo tenemos'} subtitle="Sale en la factura de la luz"
+                selected={funnel.bono_social === 'si'} onClick={() => elegir('si')} />
+            <IconCard icon={<IconoFunnel n="ninguno" />} title="No" subtitle={otra ? 'No lo tiene' : 'No lo tenemos'}
+                selected={funnel.bono_social === 'no'} onClick={() => elegir('no')} />
+            <IconCard icon={<IconoFunnel n="noSe" />} title="No lo sé" subtitle="Lo miramos con la factura de la luz"
+                selected={funnel.bono_social === 'no_se'} onClick={() => elegir('no_se')} />
+        </StepLayout></>);
+    }
+
+    if (screen === 'bono_fn') {
+        const elegir = (v) => { updateFunnel({ bono_social_solo_fn: v }); push('presupuesto'); };
+        return (<><BackBtn /><StepLayout question="¿Os lo dieron solo por ser familia numerosa?"
+            subtitle="Si es solo por eso, la ayuda no cambia. Si fue por los ingresos de la casa, puede subir.">
+            <IconCard icon={<IconoFunnel n="documento" />} title="Sí, solo por ser familia numerosa" subtitle="Sin tener en cuenta los ingresos"
+                selected={funnel.bono_social_solo_fn === true} onClick={() => elegir(true)} />
+            <IconCard icon={<IconoFunnel n="factura" />} title="No, por los ingresos u otro motivo" subtitle="Ingresos de la casa, pensión mínima, ingreso mínimo vital…"
+                selected={funnel.bono_social_solo_fn === false} onClick={() => elegir(false)} />
+            <IconCard icon={<IconoFunnel n="noSe" />} title="No lo sé" subtitle="Lo miramos con la resolución del bono"
+                selected={funnel.bono_social_solo_fn === 'no_se'} onClick={() => elegir('no_se')} />
+        </StepLayout></>);
+    }
+
     // ---- Gasto anual (Step7 reutilizado) ----
     if (screen === 'gasto') {
         return (<><BackBtn /><Step7_Gasto funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('presupuesto')} /></>);
@@ -1477,7 +1592,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 submitting={submitting}
                 submitError={submitError}
                 partnerBranding={partnerBranding}
-                origen="reforma"
+                origen={funnel.isReforma ? 'reforma' : 'aerotermia'}
             />
         );
     }

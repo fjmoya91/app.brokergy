@@ -112,6 +112,17 @@ el autoconsumo. Biomasa = fila `solid_*` con `fuelType: 'pellets'` (el mismo cri
 `instalacionExistente`: el carbón comparte fila y sigue con el texto de siempre). Prueba:
 `test_medidas_mejora.mjs`, bloque 10.
 
+**Y la justificación de las placas dice QUÉ se electrifica según quién da el ACS** (2026-10-27,
+26RES060_250, Fran: «mejora el texto de la justificación»): la caldera de gasóleo daba solo la
+calefacción y el ACS ya lo hacía un termo eléctrico que se queda, y el texto decía «tras la
+electrificación de la calefacción y del agua caliente sanitaria», falso. `acsTrasLaMedida`
+(`fichaCe3x.js`) mira quién da el ACS en el edificio mejorado y lo pasa como `acs` a
+`justificacionMedida('autoconsumo' | 'aerotermia_fv')`: lo que se instala (la bomba, o un termo NUEVO de
+la medida) → el texto de siempre; un **termo eléctrico que ya estaba** → «la electrificación de la
+calefacción, que se suma al termo eléctrico que ya produce el agua caliente sanitaria»; una **caldera
+que se queda** con el ACS → solo «la electrificación de la calefacción», y las horas de sol son para la
+climatización, no para el agua.
+
 **Y de `_REVISAR` a LISTO PARA FIRMAR, una orden: `listo`** (2026-10-19, sustituye a los scripts sueltos
 de 26RES060_188, _231 y _237). Cuando Fran pide «dámelo listo para firmar»: CE3X 3.2 califica el
 `_REVISAR.cex` de Drive, CALCULA las medidas y guarda el `.cex` calculado (`calificarCex(…,

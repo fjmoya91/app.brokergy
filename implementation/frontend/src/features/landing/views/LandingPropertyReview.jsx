@@ -60,6 +60,24 @@ function StatCard({ label, value, highlight = false }) {
     );
 }
 
+// La dirección del Catastro, legible para el cliente (2026-11-09): «CL TOLEDO 22 Es:1
+// Pl:00 Pt:L1 13001 CIUDAD REAL (CIUDAD REAL)» → «Calle Toledo 22 13001 Ciudad Real
+// (Ciudad Real)». Escalera, planta y puerta se quitan: son del Catastro, no de su casa.
+const TIPO_VIA = { CL: 'Calle', AV: 'Avenida', PZ: 'Plaza', CR: 'Carretera', PS: 'Paseo', CM: 'Camino', RD: 'Ronda', TR: 'Travesía', UR: 'Urbanización', LG: 'Lugar', PJ: 'Pasaje', DS: 'Diseminado', GV: 'Gran Vía', PG: 'Polígono', BO: 'Barrio' };
+const MINUSCULAS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'en']);
+export function direccionLegible(addr = '') {
+    const limpia = String(addr || '').replace(/\b(Es|Pl|Pt|Bl):\S+/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (!limpia) return '';
+    const palabras = limpia.split(' ');
+    if (TIPO_VIA[palabras[0]?.toUpperCase()]) palabras[0] = TIPO_VIA[palabras[0].toUpperCase()];
+    return palabras.map((w, i) => {
+        if (/\d/.test(w)) return w;
+        const m = w.toLowerCase();
+        if (i > 0 && MINUSCULAS.has(m)) return m;
+        return m.replace(/(^|[(\-/])(\p{L})/gu, (_, a, b) => a + b.toUpperCase());
+    }).join(' ');
+}
+
 export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal = false }) {
     const [selectedElements, setSelectedElements] = useState([]);
     const [facadeError, setFacadeError] = useState(false);
@@ -133,16 +151,19 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
             {/* ── Título ────────────────────────────────────────────────────── */}
             <div className="text-center mb-8">
                 <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight leading-tight">
-                    Ficha del <span className="text-amber-400">inmueble</span>
+                    {isInternal
+                        ? <>Ficha del <span className="text-amber-400">inmueble</span></>
+                        : <>¿Es esta tu <span className="text-amber-400">casa</span>?</>}
                 </h1>
                 <p className="text-white/50 text-sm mt-3 max-w-lg mx-auto leading-snug flex items-start justify-center gap-1.5">
                     <svg className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                             d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                     </svg>
-                    <span>{catastro?.address}</span>
+                    <span>{isInternal ? catastro?.address : direccionLegible(catastro?.address)}</span>
                 </p>
-                {catastro?.rc && (
+                {/* La referencia catastral es jerga para el cliente: solo el equipo. */}
+                {isInternal && catastro?.rc && (
                     <div className="inline-flex items-center gap-2 mt-3 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.07]">
                         <span className="text-white/30 text-[10px] uppercase tracking-widest font-bold">RC</span>
                         <code className="text-amber-400 font-mono text-xs font-black">{catastro.rc}</code>
@@ -159,10 +180,9 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
                     <StatCard label="Participación"    value={`${(catastro?.participation || '100,00').replace('%', '')}%`} />
                 </div>
             ) : (
-                <div className="grid grid-cols-3 gap-2 mb-7">
+                <div className="grid grid-cols-2 gap-2 mb-7">
                     <StatCard label="Año" value={catastro?.yearBuilt || '—'} />
                     <StatCard label="Superficie" value={catastro?.totalSurface ? `${catastro.totalSurface} m²` : '—'} />
-                    <StatCard label="Zona clima" value={catastro?.climateInfo?.climateZone || '—'} highlight />
                 </div>
             )}
 

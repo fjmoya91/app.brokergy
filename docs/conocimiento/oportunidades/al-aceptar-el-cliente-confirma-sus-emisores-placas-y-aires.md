@@ -111,3 +111,64 @@ CEE que ya tengo» / «Que BROKERGY emita un CEE nuevo», obligatoria. Se ha qui
 `AceptarPropuestaView.jsx`: el formulario ya no manda `cee_choice`, así que `cee_decision` no se
 escribe y el expediente sigue el flujo normal (el CEE inicial lo hace BROKERGY). El backend sigue
 aceptando `cee_choice` y respetando un `usar_cee_aportado` ya guardado en oportunidades antiguas.
+
+### El BONO SOCIAL también se pregunta al aceptar (2026-11-09)
+
+Lo pidió Fran al publicarse la vía FM (BOE-A-2026-23367): el consumidor VULNERABLE multiplica el
+ahorro × 1,5 (fichas -S) y nadie lo preguntaba; además el Anexo I (la declaración de ayudas) pide si
+el hogar percibe el bono social, y se marcaba a mano. Ahora es una pantalla más del formulario de
+aceptación, después de los aires y antes de «Revisar»:
+
+- **«¿Tienes el bono social?»** · ayuda: «Lo pide la declaración de ayudas que firmarás con el resto de
+  documentos. Si lo tienes, aparece en la factura de la luz de esta vivienda: más adelante te pediremos
+  una.» Opciones: **No** · **Sí, el bono social de la luz** · **Solo el bono social térmico** · **No lo sé**
+  («No pasa nada: lo comprobamos con tu factura de la luz»).
+- Con «Sí, el de la luz», en la misma pantalla: **«¿De qué tipo es?»** (Vulnerable · Vulnerable severo ·
+  En riesgo de exclusión social · No lo sé) y, solo en una RES060/RES093, **«¿Tienes el título de familia
+  numerosa?»** (Sí / No). Las otras opciones pasan solas a la siguiente pantalla.
+
+**A quién se pregunta**: `preguntaBonoSocial(programa)` — RES060 y RES093 → `fm` (tipo y familia
+numerosa); RES080 → `anexo` (solo el tipo: la RES080_FM no tiene -S y no se inventa); el terciario no.
+Y nunca a una empresa (`esNifDeEmpresa`, CIF): una sociedad no tiene bono social. El servidor manda la
+pregunta en `GET /api/public/cliente/:id` (`bono_social_pregunta`) y al aceptar vuelve a decidir con la
+ficha de la oportunidad y el NIF tecleado: si no tocaba, la respuesta se tira (`confirmacionDeLaAceptacion`
+con `{ programa, nif }`). Es obligatoria en la pantalla (tiene «No lo sé») pero no en el servidor: un
+navegador con la página vieja sigue pudiendo aceptar (regla de arriba: no llegar la confirmación no impide
+aceptar).
+
+**Dónde queda**: `datos_calculo.confirmacion_cliente.bono_social = { respuesta, tipo, familia_numerosa }`
+(`CONFIRMACION_VERSION` 2), y el expediente lo hereda en `instalacion.confirmacion_cliente` como el resto.
+Al crear el expediente, `semillaBonoSocial` (en `expedienteService.js`) siembra en el MISMO insert:
+
+- `documentacion.subvenciones.bono_social = { percibe: true, tipos: [...] }` con los ids del Anexo I
+  (`electrico_vulnerable` | `electrico_vulnerable_severo` | `electrico_riesgo_exclusion` | `termico`; un
+  eléctrico de tipo desconocido va como «vulnerables»). «No» y «No lo sé» no siembran nada.
+- en una RES060/RES093, `documentacion.via_fm = { vulnerable: true, anexo_b_casilla, at, por: 'aceptación
+  del cliente' }`, saneado con `sanearDatosFm`, **solo cuando no hay duda** (`vulnerableFmDeBono`):
+
+| Declara | ¿Vulnerable FM? | Casilla del Anexo B |
+|---|---|---|
+| Eléctrico, sin familia numerosa | Sí | `no_fn` |
+| Eléctrico severo o en riesgo de exclusión, con familia numerosa | Sí | `severo` |
+| Eléctrico «vulnerable» (o sin saber cuál), con familia numerosa | **No se marca**: pendiente de comprobar la renta (con el bono solo por ser familia numerosa no cuenta) | — |
+| Solo el térmico | No (el térmico solo no hace vulnerable) | — |
+| No lo sé | No se marca: pendiente de la factura de la luz | — |
+
+Si el expediente ya existía, el alta no siembra nada (no se pisa lo que el equipo haya marcado).
+
+**REGLA — el bono social NO viaja al certificador.** Es un dato de renta del hogar. `conAiresDeOportunidad`
+lo quita (`sinBonoSocial`) antes de dar la confirmación al encargo y a la app de certificadores, y
+`resumenConfirmacion` no lo enseña. El aviso de WhatsApp al equipo de «propuesta aceptada» sí lleva una
+línea «Bono social» y, en una RES060/RES093, si ha quedado marcado el vulnerable o qué falta comprobar.
+
+**REGLA — solo se marca vulnerable lo que lo es sin duda; lo dudoso se enseña, no se adivina.** En el
+expediente, el equipo ve lo declarado al lado de lo marcado: en «Subvenciones», «Declarado al aceptar ·
+fecha» con «Marcar lo declarado» si no coincide; en la pestaña «Vía FM», debajo de «Consumidor vulnerable
+(ficha -S)», lo declarado con su aviso (en ámbar si falta comprobar algo) y «Marcar como vulnerable» si la
+declaración lo hace vulnerable y el conmutador está apagado. El dato sale de `bonoDeclaradoDe(expediente)`:
+la confirmación más reciente entre la del expediente y la de la oportunidad.
+
+Todo en [logic/confirmacionCliente.js](implementation/frontend/src/features/expedientes/logic/confirmacionCliente.js)
+(sección «Bono social»). Tras tocarlo: `node implementation/backend/scripts/test_confirmacion_cliente.mjs`
+(prueba también que los ids casan con `leerSubvenciones` y `anexoIStates`). `/firma/demo` enseña la
+pantalla en su versión FM y `/firma/demo?reforma` en la de la RES080.

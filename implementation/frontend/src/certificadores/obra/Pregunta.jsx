@@ -145,7 +145,8 @@ export function Pregunta({ p, ctx, pasoId, grande = false, onElegido }) {
 }
 
 /* ── El inmueble (lo del Catastro, corregible) ───────────────────────────── */
-export function Inmueble({ ctx }) {
+// `sinDatos`: la referencia, la zona y el uso ya salen encima (CatastroResumen, fase 1).
+export function Inmueble({ ctx, sinDatos = false }) {
     const { form, setCampo, obra, editable } = ctx;
     const dis = !editable;
     const campo = (k, etiqueta, extra = {}) => (
@@ -157,11 +158,13 @@ export function Inmueble({ ctx }) {
     );
     return (
         <div>
-            <dl className="ca-dl ca-crema" style={{ padding: '6px 14px', borderRadius: 16, marginBottom: 16 }}>
-                <div><dt>Referencia catastral</dt><dd className="ca-mono">{obra?.ref_catastral || '—'}</dd></div>
-                <div><dt>Zona climática</dt><dd>{obra?.zona_climatica || '—'}</dd></div>
-                {obra?.uso && <div><dt>Uso</dt><dd>{obra.uso}</dd></div>}
-            </dl>
+            {!sinDatos && (
+                <dl className="ca-dl ca-crema" style={{ padding: '6px 14px', borderRadius: 16, marginBottom: 16 }}>
+                    <div><dt>Referencia catastral</dt><dd className="ca-mono">{obra?.ref_catastral || '—'}</dd></div>
+                    <div><dt>Zona climática</dt><dd>{obra?.zona_climatica || '—'}</dd></div>
+                    {obra?.uso && <div><dt>Uso</dt><dd>{obra.uso}</dd></div>}
+                </dl>
+            )}
             {campo('direccion', 'Dirección', { placeholder: 'Calle, número, piso y puerta', ayuda: 'Añade el piso y la puerta si faltan.' })}
             <div className="ca-grid2">
                 {campo('codigo_postal', 'Código postal', { inputMode: 'numeric', max: 5, limpiar: s => s.replace(/\D/g, '').slice(0, 5) })}

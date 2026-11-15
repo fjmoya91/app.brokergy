@@ -10,6 +10,7 @@
 //   const { pdfDeXml } = require('./cee/cexAPdf');   // solo el PDF de un XML ya hecho
 //   const p = await pdfDeXml(bufferOCaminoDelXml);   // { ok, pdf, marcaDeAgua, avisos, error }
 //   (lo usa scripts/pdf_del_xml.js, que lo hace solo al guardar el XML: ver allí)
+//   const xml = await xmlDelPdf(pdf);                 // el XML que el PDF oficial lleva dentro
 //
 // Cómo:
 //   1. El MOTOR DE CE3X 3.2 (desde el 08/10/2026; antes la 3.1), ejecutado sin
@@ -21,6 +22,10 @@
 // REGLA — SOLO EN UN PC CON CE3X 3.2 INSTALADO. En el VPS no hay CE3X: esto lo
 // usan los scripts de las skills, que corren en el PC. Sin CE3X se devuelve
 // `{ ok:false, noDisponible:true }` y quien llama sigue sin el PDF.
+// SALVO el PDF de un XML ya hecho (`pdfDeXml`, `validarXml`): con XML2CERT_URL (el
+// VPS, desde el 31/10/2026) lo hace el servicio `xml2cert` (implementation/xml2cert:
+// el mismo xml2cert.exe con Wine), que deja el mismo `.log`. Si no responde, se
+// devuelve `noDisponible`, como sin CE3X.
 //
 // REGLA — todo se hace en una carpeta TEMPORAL con nombres ASCII sin puntos.
 // CE3X 3.x no saca el PDF si la ruta lleva tildes o eñes (su subprocess de
@@ -66,6 +71,8 @@ const CE3X_EXE = process.env.CE3X_EXE || 'ce3xv3.2.exe';
 const ORACULO_DIR = path.resolve(__dirname, '..', '..', '..', 'cee-engine', 'tools', 'oraculo_ce3x');
 const ESPERA_CE3X_MS = Number(process.env.CEX_A_PDF_ESPERA_MS) || 6 * 60 * 1000;
 const ESPERA_PDF_MS = 2 * 60 * 1000;
+//: El servicio xml2cert del servidor (docker-compose); vacío en el PC, que usa el de CE3X.
+const XML2CERT_URL = (process.env.XML2CERT_URL || '').replace(/\/+$/, '');
 
 /** El xml2cert.exe más reciente que trae CE3X (`moduloXML/xmlcert_AAAAMMDD`). */
 function rutaXml2cert() {
@@ -331,6 +338,7 @@ async function pdfDesdeXml(xml, dir) {
         return { error: `el XML tiene ${huecos.length > 1 ? `${huecos.length} huecos` : 'un hueco'} «___» sin completar `
             + `y el PDF no sale hasta rellenarlo en CE3X: ${huecos.map((h) => `«${h.texto}» (${h.elemento})`).join(' · ')}` };
     }
+    if (XML2CERT_URL) return pdfDesdeXmlEnServidor(xml);
     const r2 = await ejecutar(rutaXml2cert(), [xml, '-o', dir], { cwd: dir, env: entornoXml2cert(), plazoMs: ESPERA_PDF_MS });
     const pdfRuta = path.join(dir, `${path.basename(xml, '.xml')}.pdf`);
     if (!fs.existsSync(pdfRuta)) {
@@ -339,8 +347,33 @@ async function pdfDesdeXml(xml, dir) {
     return { pdf: fs.readFileSync(pdfRuta) };
 }
 
+/**
+ * Lo mismo en el servicio `xml2cert` del servidor. Su `.log` se deja junto al XML, como
+ * el de Windows, para que `avisosDelLogDe` lo lea igual. `noResponde`: no se ha podido
+ * preguntar (caído, ocupado o fuera de plazo), que no es lo mismo que un XML malo.
+ */
+async function pdfDesdeXmlEnServidor(xml) {
+    let data;
+    try {
+        const r = await fetch(`${XML2CERT_URL}/pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/xml' },
+            body: fs.readFileSync(xml),
+            signal: AbortSignal.timeout(ESPERA_PDF_MS),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}${r.status === 503 ? ' (ocupado)' : ''}`);
+        data = await r.json();
+    } catch (e) {
+        return { noResponde: true, error: `el generador del PDF del servidor no responde (${e.name === 'TimeoutError' ? 'se ha pasado de tiempo' : e.message})` };
+    }
+    if (data.log) fs.writeFileSync(xml.replace(/\.xml$/i, '.log'), data.log);
+    if (!data.pdf) return { error: `xml2cert no ha generado el PDF: ${String(data.salida || '').slice(-800)}` };
+    return { pdf: Buffer.from(data.pdf, 'base64') };
+}
+
 /** ¿Está el generador del PDF? (no hace falta el motor de CE3X, solo `xml2cert` y su Java). */
 function disponiblePdf() {
+    if (XML2CERT_URL) return { ok: true, via: 'servidor' };
     if (process.platform !== 'win32') return { ok: false, motivo: 'xml2cert solo está instalado en Windows (lo trae CE3X)' };
     if (!rutaXml2cert()) return { ok: false, motivo: `no está el generador del PDF (${path.join(CE3X_DIR, 'moduloXML', 'xmlcert_*', 'xml2cert.exe')})` };
     return { ok: true };
@@ -380,6 +413,7 @@ async function pdfDeXml(entrada) {
         const p = await pdfDesdeXml(xml, dir);
         //: Lo que se ve sin xml2cert va delante: dice POR QUÉ con palabras de la casa.
         const avisos = [...incompletoDelXml(buf), ...avisosDelLogDe(xml)];
+        if (p.noResponde) return { ok: false, noDisponible: true, version, avisos, error: p.error };
         if (p.error) return { ok: false, version, avisos, error: avisos.length ? `XML no válido: ${avisos[0]}` : p.error };
         const pendientes = /<MedidasPendientes\b/.test(buf.toString('utf8'));
         if (pendientes) avisos.push('el XML tiene las medidas de mejora pendientes');
@@ -388,6 +422,31 @@ async function pdfDeXml(entrada) {
         try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temporal */ }
     }
 }
+
+/**
+ * El XML que el PDF oficial lleva DENTRO: `xml2cert` lo embebe tal cual (medido el
+ * 31/10/2026: mismos bytes que el de entrada, en el PDF del VPS y en el de Windows) y
+ * la firma de AutoFirma lo conserva, porque firma añadiendo al final. Así se sabe si
+ * un PDF es de un XML sin abrirlo. Devuelve el texto, o null si no lleva ninguno.
+ */
+async function xmlDelPdf(pdf) {
+    const { PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } = require('pdf-lib');
+    try {
+        const doc = await PDFDocument.load(pdf, { ignoreEncryption: true, updateMetadata: false });
+        for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+            if (!(obj instanceof PDFRawStream) || obj.dict.get(PDFName.of('Type')) !== PDFName.of('EmbeddedFile')) continue;
+            const txt = Buffer.from(decodePDFRawStream(obj).decode()).toString('utf8');
+            if (/<DatosEnergeticosDelEdificio\b/.test(txt.slice(0, 4096))) return txt;
+        }
+    } catch { /* no es un PDF que se pueda leer: como si no lo llevara */ }
+    return null;
+}
+
+/** ¿Es el mismo XML? Sin BOM, sin el fin de línea de Windows y sin espacios en los extremos. */
+const mismoXml = (a, b) => {
+    const n = (x) => String(Buffer.isBuffer(x) ? x.toString('utf8') : x || '').replace(/^﻿/, '').replace(/\r\n/g, '\n').trim();
+    return !!n(a) && n(a) === n(b);
+};
 
 /** Los diálogos de CE3X que no dicen nada. */
 const ruidoCe3x = (x) => x && !/^Dialog\.ShowModal: Dialog Opciones del Informe/.test(x);
@@ -655,4 +714,4 @@ function lineasCalificado(r, { esperado = null } = {}) {
     return out;
 }
 
-module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, disponiblePdf, avisosDelLog, huecosSinCompletar, incompletoDelXml, validarXml, textoIncompleto };
+module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, xmlDelPdf, mismoXml, disponiblePdf, avisosDelLog, huecosSinCompletar, incompletoDelXml, validarXml, textoIncompleto };

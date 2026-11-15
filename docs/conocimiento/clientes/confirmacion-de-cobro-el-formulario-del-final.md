@@ -224,6 +224,9 @@ descontaba nada y la remesa salía 1.000 € más alta.
 ahorro verificado, sin elegir forma de pago, con un IBAN que no pasa el dígito de
 control, o con FACTURA pedida hasta que se marque «ya cobrada». Un IBAN malo en el
 fichero hace que el banco rechace la remesa ENTERA, así que ni se genera.
+Desde el 04/11/2026, también **una EMPRESA sin su factura de venta del ahorro** aceptada o recibida; con
+ella, se le transfiere el TOTAL de esa factura, IVA incluido (ver «La EMPRESA factura la venta del
+ahorro»).
 
 **REGLA — el fichero REPRODUCE el que BBVA ya aceptó** (remesa del 02/10/2026, 5
 pagos, `remesa_BBVA_2026-10-02_5pagos.xml`): ordenante «SOLUCIONES SOSTENIBLES PARA

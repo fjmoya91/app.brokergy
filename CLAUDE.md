@@ -62,6 +62,7 @@ Si el usuario dice "no veo el cambio", lo primero es: **¿hemos hecho el deploy 
 | Fotos o documentación que falta | `docs/conocimiento/documentacion-fotos/` |
 | Lotes, verificación, Sujeto Obligado, pago al cliente | `docs/conocimiento/lotes/` y `clientes/` |
 | Un CEE suelto, no CAE | `docs/conocimiento/cee-directos/` |
+| Cómo va la empresa: EBITDA, margen, caja, previsión, cierre del año | El cuadro de mando: `docs/conocimiento/cuadro-mando/` y `cuadroDireccion.js` (`check_cuadro_mando.js` lo imprime) |
 | Una consulta de normativa, trámites, fiscalidad o ayudas de un cliente o instalador (boletines, legalizar placas, IRPF…) | **Primero** `docs/conocimiento/consultas/` (lo ya contestado); si no está, se investiga y se añade ahí una ficha |
 
 ## Cómo se piden las cosas (texto o audio)
@@ -112,7 +113,7 @@ Resumen de [docs/conocimiento/COMO-TRABAJAMOS.md](docs/conocimiento/COMO-TRABAJA
 - Con la BD caída se responde **503**, nunca una cifra a cero. (38)
 - **Local = datos de producción**. En el `.env` local, apagados: `REVISION_ALERTA_ENABLED`,
   `CEE_ENTREGA_AUTO`, `BOT_WHATSAPP_ENABLED`, `PROPUESTA_PROGRAMADA_ENABLED`, `WA_SYNC_INSTALADORES`,
-  `RESENA_PROGRAMADA_ENABLED`, `FIRMADOS_SO_CORREO_ENABLED`, `WA_RONDA_ENABLED`, `CARTA_PAGO_ENVIO_AUTO`, `ACEPTACION_AGENTE_ENABLED`, `CEE_REGISTRO_AVISO_AUTO`, `PRESENTAR_NOCHE_ENABLED`.
+  `RESENA_PROGRAMADA_ENABLED`, `FIRMADOS_SO_CORREO_ENABLED`, `WA_RONDA_ENABLED`, `CARTA_PAGO_ENVIO_AUTO`, `FACTURA_VENTA_ENVIO_AUTO`, `ACEPTACION_AGENTE_ENABLED`, `CEE_REGISTRO_AVISO_AUTO`, `PRESENTAR_NOCHE_ENABLED`, `CEE_CIEGO_ENABLED`, `INFORME_ENTREGA_AUTO`, `ESPERAS_ENABLED`, `WA_BIENVENIDA_ENABLED`, `CONTESTADOR_ENABLED`.
 - **WhatsApp**: un mensaje con el reloj no está enviado (manda el ACK); nunca `getChatById` ni `sendSeen`
   en el camino de envío. (39)
 - **Drive**: los enlaces, solo para ADMIN; la carpeta de cada expediente la decide `driveFolders.js`. (1)
@@ -143,12 +144,14 @@ Cada una tiene su regla `.claude/rules/<área>.md` y su carpeta `docs/conocimien
 | `envolvente-ce3x` | Plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del `.cex`, PVGIS |
 | `cee-generacion` | Generar el `.cex` inicial/final y el previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo, PDF sin CE3X |
 | `cee-directos` | El segundo negocio: alta, encargo, entrega, oferta y factura |
+| `informes` | Memorias, legalizaciones e informes `{AAAA}INF_{n}` (todo lo que no es CAE ni CEE) y RITE sueltos `{AAAA}CIT_{n}`: aceptación, firma, presentación, factura, cobro y entrega |
 | `certificadores-app` | La app para certificadores externos (cee.brokergy.es): beta, obras, cuestionario, generar con IA, entrega |
 | `lotes` | Verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados del S.O., factura |
 | `seguimiento` | Parte diario, radar, enlaces de acción, envío en bloque |
 | `clientes` | Fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada |
 | `facturas` | OCR e incidencias de las facturas de obra, facturación del certificador |
 | `facturacion` | Pestaña Facturación: presupuestos con partidas, catálogo de artículos, presupuestos por el MCP (y en fase 2, facturas propias / VERI*FACTU) |
+| `cuadro-mando` | Cuadro de mando de dirección (solo ADMIN): EBITDA, salud, caja, previsión, lotes por etapa, CEE directos y la cartera CAE |
 | `whatsapp` | Sesión, entrega (ACK), adjuntos, etiquetas, agenda, bot |
 | `catastro` | WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada |
 | `claude-automatizacion` | Asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento |

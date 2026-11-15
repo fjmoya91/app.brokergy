@@ -13,6 +13,9 @@ export const RESPONSABLE = {
     nombre: 'Soluciones Sostenibles para Eficiencia Energética, S.L. (BROKERGY)',
     cif: 'B19350222',
     email: 'info@brokergy.es',
+    // El domicilio a efectos de notificaciones del Convenio de Cesión (docGenerators).
+    domicilio: 'C/ Don Sergio, 12 – 1ºL, 13700 Tomelloso (Ciudad Real)',
+    telefono: '623 926 179',
 };
 
 export const CONDICIONES = [
@@ -49,3 +52,73 @@ export const CONDICIONES = [
         nota: 'No usaremos tus datos para enviarte publicidad.',
     },
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONDICIONES REFORZADAS («Perfil exigente», `inputs.condicionesReforzadas`).
+// Solo si la versión de la propuesta que tiene delante el cliente las SELLÓ
+// (`importes.reforzadas`, utils/importesPropuesta.js): GET /public/cliente las
+// devuelve con la cifra y /firma las enseña con su casilla APARTE, obligatoria.
+// El compromiso se cierra AL ACEPTAR, donde el cliente solo ve el dinero neto:
+// el convenio, con los kWh y el precio unitario, llega después.
+// Llevan su propia versión: las de siempre no cambian.
+// Pendiente de revisión por el asesor (el ajuste proporcional sin kWh y la
+// casilla de la compensación): docs/conocimiento/propuesta/condiciones-reforzadas-perfil-exigente.md
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const CONDICIONES_REFORZADAS_VERSION = '2026-11-05-R';
+
+// `useGrouping: 'always'`: en es-ES Intl no agrupa los miles con 4 cifras («1069,00 €»).
+const eur = (v) => `${new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' }).format(Number(v) || 0)} €`;
+
+/** El importe de la compensación tal y como se imprime («1.069,00 € + IVA», o los dos de una comparativa). */
+export function textoPenalizacion({ penalizacion, penalizacion_reforma } = {}) {
+    return penalizacion_reforma != null
+        ? `${eur(penalizacion)} + IVA (opción 1) o ${eur(penalizacion_reforma)} + IVA (opción 2), según la opción que se ejecute`
+        : `${eur(penalizacion)} + IVA`;
+}
+
+/**
+ * Las condiciones con el compromiso de exclusividad y el desistimiento.
+ * `reforzadas` = { pct, penalizacion, penalizacion_reforma?, tarifa }.
+ */
+export function condicionesReforzadas(reforzadas = {}) {
+    const tarifa = eur(reforzadas.tarifa ?? 702.78);
+    const [aceptacion, ...resto] = CONDICIONES;
+    return [
+        {
+            titulo: aceptacion.titulo,
+            parrafos: [
+                'Al pulsar «Confirmar y aceptar propuesta» aceptas la propuesta de BROKERGY que has recibido, con las condiciones que figuran en ella, incluidos el compromiso de cesión en exclusiva y la compensación por incumplimiento que se explican abajo.',
+                aceptacion.parrafos[1],
+            ],
+        },
+        {
+            titulo: 'Compromiso de cesión en exclusiva',
+            parrafos: [
+                'Al aceptar te comprometes a ceder a BROKERGY, en exclusiva, el ahorro energético de la actuación de esta propuesta, y a firmar el Convenio de Cesión cuando te lo presentemos. Como contraprestación recibirás el Bono Energético CAE que indica la propuesta, ajustado en la misma proporción en que el ahorro que se verifique difiera del estimado.',
+                'BROKERGY adelanta los certificados energéticos y el trabajo técnico sin cobrarte nada. Por eso, una vez hecha la visita para el certificado energético, y salvo que el incumplimiento sea por causa de BROKERGY:',
+                `a) Si el ahorro de esta actuación se tramita con otra empresa, o no firmas el Convenio de Cesión con BROKERGY, abonarás en 15 días naturales ${textoPenalizacion(reforzadas)}: el ${reforzadas.pct || 40} % del Bono Energético CAE estimado en la propuesta, con un mínimo de ${tarifa}. Es la liquidación anticipada de los daños y perjuicios que ese incumplimiento causa a BROKERGY (art. 1152 del Código Civil).`,
+                `b) Si no sigues adelante con la obra, o no aportas la documentación en los 30 días siguientes a pedírtela por escrito, abonarás solo los servicios ya prestados, a la tarifa de la propuesta: ${tarifa} + IVA.`,
+            ],
+        },
+        ...resto.slice(0, 2),
+        {
+            titulo: 'Derecho de desistimiento',
+            parrafos: [
+                'Tienes derecho a desistir de este contrato en un plazo de 14 días naturales desde la aceptación, sin necesidad de justificación y sin ningún coste.',
+                `Para ejercerlo basta con que nos comuniques tu decisión de forma clara, por ejemplo por email a ${RESPONSABLE.email} o por WhatsApp al ${RESPONSABLE.telefono}, o por carta a ${RESPONSABLE.nombre}, ${RESPONSABLE.domicilio}. Puedes usar el modelo de abajo, aunque no es obligatorio. Para cumplir el plazo basta con enviarla antes de que venza.`,
+                'Si desistes, no te cobraremos nada. Si nos has pedido que la visita y los certificados empiecen dentro del plazo de desistimiento (casilla al aceptar), nos abonarás solo la parte proporcional del servicio ya prestado hasta que nos lo comuniques, calculada sobre la tarifa de la propuesta.',
+                `Modelo de formulario de desistimiento — A la atención de ${RESPONSABLE.nombre}, ${RESPONSABLE.domicilio}, ${RESPONSABLE.email}: «Por la presente le comunico que desisto del contrato de prestación del servicio de la propuesta n.º …, aceptada el …». Nombre, DNI y domicilio del cliente, firma (solo si se envía en papel) y fecha.`,
+            ],
+        },
+        ...resto.slice(2),
+    ];
+}
+
+/** El texto de la casilla obligatoria de /firma. */
+export function textoCasillaCompromiso(reforzadas = {}) {
+    return `Acepto el compromiso de cesión en exclusiva y, si tramito el ahorro con otra empresa o no firmo el Convenio de Cesión tras la visita del certificado energético, la compensación de ${textoPenalizacion(reforzadas)}.`;
+}
+
+/** El texto de la casilla OPCIONAL del inicio anticipado (art. 108.3 TRLGDCU). */
+export const TEXTO_CASILLA_INICIO = 'Os pido que la visita y el certificado energético se hagan ya, dentro del plazo de desistimiento de 14 días. Si desisto después, abonaré solo lo ya hecho.';

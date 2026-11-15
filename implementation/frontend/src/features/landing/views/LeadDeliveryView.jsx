@@ -17,11 +17,13 @@
 
 import React, { useState, useMemo } from 'react';
 import { funnelToCalculatorInputs } from '../data/funnelToInputs';
-import { computeLandingResult } from '../data/landingCalculation';
+import { computeLandingResult, computeFullCalculatorResult } from '../data/landingCalculation';
+import { resumenViaFm } from '../../calculator/logic/viaFm.js';
 
 /* ── Formateo ────────────────────────────────────────────────── */
 const fmtEur = (n) =>
-    `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(n || 0))} €`;
+    // `useGrouping: 'always'`: en es-ES el separador de miles no sale con 4 cifras («3602 €»).
+    `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0, useGrouping: 'always' }).format(Math.abs(n || 0))} €`;
 
 /* ── Iconos ──────────────────────────────────────────────────── */
 const IconWA = ({ className = 'w-6 h-6' }) => (
@@ -90,6 +92,37 @@ export function LeadDeliveryView({
         } catch { return null; }
     }, [funnel, catastro]);
 
+    /* La vía del FACTOR MULTIPLICADOR (BOE-A-2026-23367), si le puede tocar (2026-11-09).
+       Se enseña APARTE y nunca sumada: la vía FM se presenta desde el 15/01/2027, hay un
+       cupo y una obra va por una vía o por la otra. La cuenta es la de la calculadora
+       (`resumenViaFm` sobre `computeFullCalculatorResult`, que ya trae `res060fc`), con
+       la misma gestión descontada que el bono de arriba. Solo un cambio de caldera
+       (RES060: la reforma RES080 por la FM pide cuatro CEE y no se calcula), con gas o
+       gasóleo (sólidos nunca; la eléctrica, pendiente de consulta), con alguien viviendo
+       en la casa y con la obra empezada desde el 22/03/2026 (o sin empezar). El bono
+       social no se calcula aquí: se dice con palabras que puede subir. */
+    const fm = useMemo(() => {
+        if (!r || r.isReformaResult) return null;
+        if (!['gas', 'gasoleo'].includes(funnel.combustible_actual)) return null;
+        if (funnel.vivienda_habitual === 'segunda' || funnel.obra_inicio_fm === 'antes') return null;
+        try {
+            const inputs = funnelToCalculatorInputs(
+                { ...funnel, titular_type: 'particular', num_propietarios: 1 },
+                catastro,
+                { mode: 'public' }
+            );
+            const via = resumenViaFm(computeFullCalculatorResult(inputs), inputs);
+            if (!via || !via.aplica || !via.elegible) return null;
+            const neto = Math.max(0, Math.round((Number(via.eur_fm) || 0) - (r.gestionCAE || 0)));
+            if (neto <= r.caeBonusNetoCliente) return null;
+            return {
+                neto,
+                acsSupuesto: via.acs === 'supuesto',
+                bonoSocial: funnel.bono_social === 'si' && funnel.bono_social_solo_fn !== true,
+            };
+        } catch { return null; }
+    }, [r, funnel, catastro]);
+
     /* ── Lógica de selección ── */
     const pref = deliveryPreference || [];
     const hasWA      = pref.includes('whatsapp');
@@ -143,13 +176,9 @@ export function LeadDeliveryView({
         : hasEmail ? 'Enviar por email →'
         : 'Confirmar →';
 
-    const ctaCls = hasTecnico
-        ? 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep shadow-amber-500/20'
-        : (hasWA && hasEmail)
-            ? 'bg-gradient-to-r from-[#25D366] to-blue-500 hover:from-[#1eb554] hover:to-blue-400 text-white'
-            : hasWA
-                ? 'bg-[#25D366] hover:bg-[#1eb554] text-white'
-                : 'bg-blue-500 hover:bg-blue-400 text-white';
+    // UNA acción principal, naranja, sea cual sea el canal (estilo «carta de pago»,
+    // regla 164). Antes iba en el verde de WhatsApp o en azul según lo elegido.
+    const ctaCls = 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep shadow-amber-500/20';
 
     /* ── Submit ── */
     const handleSubmit = () => {
@@ -197,21 +226,42 @@ export function LeadDeliveryView({
                 Volver
             </button>
 
-            {/* ── Resultado estimado ── */}
+            {/* ── Resultado estimado ──
+                UNA cifra protagonista, la ayuda (estilo «carta de pago», regla 164;
+                esta pantalla solo existe en la landing PÚBLICA, dentro de `.lf`). La
+                inversión neta y el ahorro van debajo, en filas: antes eran tres
+                tarjetas iguales de tres colores y ninguna mandaba. */}
             {r && (
-                <div className="mb-7">
-                    <p className="text-center text-[11px] font-black uppercase tracking-[0.18em] text-amber-400/80 mb-4">
-                        {esReforma ? 'Tu ayuda estimada por la reforma' : 'Tu estimación orientativa'}
+                <div className="lf-res mb-7">
+                    <div className="lf-filete-fino" />
+                    {/* La web promete «dos ayudas» (brokergy.es/ayudas): la cifra es la
+                        suma y debajo va cada una, con quién la paga y cómo. */}
+                    <p className="lf-eyebrow">{esReforma ? 'Tus dos ayudas por la reforma' : 'Tus dos ayudas'}</p>
+                    <p className="lf-cifra">{fmtEur(r.totalAyudaCliente)}</p>
+                    <p className="lf-cifra-sub">
+                        <span className="lf-mark">{r.porcentajeCubiertoCliente}% cubierto</span> de lo que cuesta la obra
                     </p>
-                    <div className="grid grid-cols-3 gap-2 md:gap-3">
-                        <MetricCard label="Ayuda total"     value={fmtEur(r.totalAyudaCliente)}   sub={`${r.porcentajeCubiertoCliente}% cubierto`} color="emerald" />
-                        <MetricCard label="Inversión neta"  value={fmtEur(r.inversionNetaCliente)} sub="tras las ayudas"                           color="amber"   />
-                        <MetricCard label="Ahorro anual"    value={r.ahorroAnualEur > 0 ? fmtEur(r.ahorroAnualEur) : '—'} sub={esReforma ? 'en factura' : 'en calefacción'}   color="blue"    />
-                    </div>
-                    <p className="text-center text-[10px] text-white/25 mt-3">
+                    <dl className="lf-res-dl">
+                        <div className="lf-res-dos"><dt>Bono CAE<small>Te lo pagamos por transferencia</small></dt><dd>{fmtEur(r.caeBonusNetoCliente)}</dd></div>
+                        <div className="lf-res-dos"><dt>Deducción del IRPF<small>Te la aplicas en la Renta</small></dt><dd>{r.irpfDeduction > 0 ? fmtEur(r.irpfDeduction) : '—'}</dd></div>
+                        <div><dt>Inversión neta, tras las ayudas</dt><dd>{fmtEur(r.inversionNetaCliente)}</dd></div>
+                        <div><dt>Ahorro anual {esReforma ? 'en factura' : 'en calefacción'}</dt><dd>{r.ahorroAnualEur > 0 ? fmtEur(r.ahorroAnualEur) : '—'}</dd></div>
+                    </dl>
+                    {fm && (
+                        <div className="lf-fm">
+                            <p className="lf-fm-t1">Desde el 15/01/2027</p>
+                            <p className="lf-fm-t2">Bono hasta {fmtEur(fm.neto)}</p>
+                            <p>
+                                Con el factor multiplicador{fm.acsSupuesto ? ', si la aerotermia da también el agua caliente' : ''}.
+                                {' '}Hay un cupo: te decimos qué te conviene.
+                                {fm.bonoSocial && <> Con el bono social de la luz, puede subir un 50 % más.</>}
+                            </p>
+                        </div>
+                    )}
+                    <p className="lf-res-nota">
                         {esReforma
-                            ? <>Estimación teórica. Se ajusta tras revisar tus certificados y facturas. <span className="text-amber-400/50 font-bold">El bono CAE lo garantiza Brokergy.</span></>
-                            : <>Estimación teórica. Se ajusta tras el CEE inicial. <span className="text-amber-400/50 font-bold">El bono CAE lo garantiza Brokergy.</span></>}
+                            ? <>Estimación teórica: se ajusta tras revisar tus certificados y facturas. <b>El bono CAE lo garantiza BROKERGY.</b></>
+                            : <>Estimación teórica: se ajusta tras el CEE inicial. <b>El bono CAE lo garantiza BROKERGY.</b></>}
                     </p>
                 </div>
             )}
@@ -465,20 +515,5 @@ function OptionCard({ icon, iconColor, title, desc, selected, ring, checkColor, 
                 )}
             </div>
         </button>
-    );
-}
-
-function MetricCard({ label, value, sub, color }) {
-    const cols = {
-        emerald: { bg: 'from-emerald-500/20 to-emerald-500/5', border: 'border-emerald-500/30', lbl: 'text-emerald-300/80', val: 'text-emerald-300', sub: 'text-emerald-400/60' },
-        amber:   { bg: 'from-amber-500/20 to-amber-500/5',     border: 'border-amber-500/30',   lbl: 'text-amber-300/80',   val: 'text-amber-300',   sub: 'text-amber-400/60' },
-        blue:    { bg: 'from-blue-500/20 to-blue-500/5',       border: 'border-blue-500/30',     lbl: 'text-blue-300/80',    val: 'text-blue-300',    sub: 'text-blue-400/60' },
-    }[color];
-    return (
-        <div className={`p-3 md:p-4 bg-gradient-to-br ${cols.bg} border-2 ${cols.border} rounded-2xl text-center`}>
-            <div className={`text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 ${cols.lbl}`}>{label}</div>
-            <div className={`text-lg md:text-2xl font-black tracking-tight ${cols.val}`}>{value}</div>
-            <div className={`text-[9px] md:text-[10px] mt-0.5 font-bold uppercase tracking-widest ${cols.sub}`}>{sub}</div>
-        </div>
     );
 }

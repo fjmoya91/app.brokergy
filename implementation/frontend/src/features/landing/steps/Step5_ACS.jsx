@@ -16,11 +16,19 @@ import { IconoFunnel } from '../components/IconosFunnel';
  */
 export function Step5_ACS({ funnel, updateFunnel, onNext, isInternal = false }) {
     const ej = funnel.obra_estado === 'ejecutada';
+    // Al cliente de la web NO se le pregunta con qué calienta HOY el agua (regla 163,
+    // Fran 09/11/2026): lo decide la casa. En el CEE inicial de un RES060 el ACS lo da
+    // la misma caldera; sin caldera de combustible (eléctrica o sin calefacción),
+    // un termo. Solo se pregunta lo que decide la OBRA: si la aerotermia da también
+    // el agua caliente, que además es lo que pide la vía del factor multiplicador.
+    const soloIncluir = !isInternal;
+    const acsPorDefecto = ['gas', 'gasoleo', 'carbon', 'biomasa'].includes(funnel.combustible_actual)
+        ? 'misma_caldera' : 'termo';
     // Posesivo neutro en internal (el partner pregunta por su cliente).
     const pos = isInternal ? 'la' : 'tu';
 
     // Si vuelve a este paso con respuestas, arranca en la sub-pantalla que falta.
-    const initialPhase = funnel.boiler_acs_type && (funnel.incluir_acs === null || funnel.incluir_acs === undefined)
+    const initialPhase = soloIncluir || (funnel.boiler_acs_type && (funnel.incluir_acs === null || funnel.incluir_acs === undefined))
         ? 'incluir'
         : 'tipo';
     const [phase, setPhase] = useState(initialPhase);
@@ -45,7 +53,7 @@ export function Step5_ACS({ funnel, updateFunnel, onNext, isInternal = false }) 
     };
 
     const selectIncluir = (val) => {
-        updateFunnel({ incluir_acs: val });
+        updateFunnel(soloIncluir ? { incluir_acs: val, boiler_acs_type: acsPorDefecto } : { incluir_acs: val });
         setTimeout(onNext, 200);
     };
 
@@ -100,10 +108,10 @@ export function Step5_ACS({ funnel, updateFunnel, onNext, isInternal = false }) 
     // ── Sub-pantalla B: incluir en aerotermia ────────────────────────────────
     return (
         <StepLayout
-            question={isInternal ? "¿La aerotermia dará también el agua caliente?" : "¿Quieres que la aerotermia te dé también el agua caliente?"}
-            subtitle="Una sola máquina para todo = más ahorro."
+            question={isInternal ? "¿La aerotermia dará también el agua caliente?" : (ej ? "¿La aerotermia te da también el agua caliente?" : "¿La aerotermia te dará también el agua caliente?")}
+            subtitle={isInternal ? "Una sola máquina para todo = más ahorro." : "Una sola máquina para la calefacción y el agua caliente: más ahorro y más ayuda."}
         >
-            <button
+            {!soloIncluir && <button
                 type="button"
                 onClick={() => setPhase('tipo')}
                 className="flex items-center gap-2 text-white/40 hover:text-amber-400 transition-colors text-[11px] uppercase tracking-widest font-bold mb-2 mx-auto"
@@ -112,19 +120,19 @@ export function Step5_ACS({ funnel, updateFunnel, onNext, isInternal = false }) 
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
                 </svg>
                 Cambiar lo del agua caliente actual
-            </button>
+            </button>}
             <IconCard
                 icon={<IconoFunnel n="ducha" />}
                 title="Sí, también el agua caliente"
                 subtitle="Más ahorro: una sola máquina para todo"
                 selected={funnel.incluir_acs === true}
                 onClick={() => selectIncluir(true)}
-                badge="Más ahorro"
+                badge={soloIncluir ? "Más ayuda" : "Más ahorro"}
             />
             <IconCard
                 icon={<IconoFunnel n="radiador" />}
                 title="No, solo calefacción"
-                subtitle={isInternal ? "Se mantiene el sistema actual de agua caliente" : "Mantienes tu sistema actual de agua caliente"}
+                subtitle={isInternal ? "Se mantiene el sistema actual de agua caliente" : (ej ? "El agua caliente sigue como estaba" : "Mantienes tu sistema actual de agua caliente")}
                 selected={funnel.incluir_acs === false}
                 onClick={() => selectIncluir(false)}
             />

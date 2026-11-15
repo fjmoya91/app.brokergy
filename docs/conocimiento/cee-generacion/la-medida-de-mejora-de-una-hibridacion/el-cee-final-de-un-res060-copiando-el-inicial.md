@@ -97,6 +97,17 @@ comparación ya no es a ojo: `compararDemanda` califica el final sin medida, com
 seco sale ⛔. Rehecho el 186: 40 puentes, calefacción 215,19, ACS 27,52, refrigeración 16,80, igual
 que el inicial; C (22,23) / C (131,22), autoconsumo 5,96 kWp.
 
+**REGLA — un TERMO ELÉCTRICO que declara el expediente para el ACS entra en el final, aunque el ACS
+esté fuera del alcance CAE** (26/10/2026, 26RES060_186). La obra cambió el ACS de la caldera de carbón
+por un termo (`cambio_acs: false` + `aerotermia_acs.tipo_equipo_nuevo: 'termo_electrico'`): no computa
+en el ahorro, pero en la casa ya no hay caldera. La ficha solo añadía el termo si el inicial traía un
+mixto que se retiraba, así que el final CONSERVABA la caldera de carbón para el ACS y salía **E/E**.
+Ahora `instalacionNueva` (fichaCe3x.js), en el final copiado (`delFichero`) y fuera de una hibridación,
+pone el **TERMO ELÉCTRICO** en el slot `ACS` al 100 % cuando el expediente lo declara, con su aviso «lo
+declara el expediente». Sin termo declarado no se inventa nada. Rehecho el 186 (CE3X 3.2, fecha
+26/10/2026): demanda 215,19 / 27,52 igual que el inicial, **C (28,3) / D (167,07)**, autoconsumo
+7,59 kWp. Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs`.
+
 Medido en **26RES060_178** (08/10/2026): inicial del técnico en la 2.3 con caldera de gasóleo →
 ALFEA EXTENSA S 10 (453 % calefacción, 280 % refrigeración con el EER 2,8 de la FT, suelo radiante)
 + AEROMAX VS R290 200 de ACS (354 %, 200 l). Sin medida: **B (19,3 kgCO₂/m²) / C (113,92 kWh/m²)**.
@@ -104,6 +115,37 @@ Consumo eléctrico del final 19.704 kWh/año → techo 17.734 → **10,61 kWp** 
 mes a mes 12.074 kWh y CE3X recortó mayo, junio y octubre (2.087 → 2.025): ~12.012 kWh declarados,
 **10.610 €**. Antes, «desde la medida» con el consumo del inicial, había salido 1,84 kWp, sin frío y
 sin inversión: el usuario lo rechazó.
+
+### Un RES093 también se hace COPIANDO el inicial, con la medida de RETIRAR la caldera (2026-10-22)
+
+Caso 26RES093_16 (antes 26RES060_122, renumerado ese día). El camino de un RES093 es «desde la medida»
+del inicial del técnico, y aquí la medida del CEE inicial **registrado** era la de OTRO edificio («CEE
+FINAL CL ZAPATEROS 2.cex»: almacén y cubiertas que esta casa no tiene, y más demanda de calefacción
+que la real, 302,7 frente a 260,5 kWh/m²): el motor se negaba («la medida cambia la ENVOLVENTE»), con
+razón. Fran: «tienes que hacer el CEE final manteniendo toda la demanda del CEE INICIAL, pero la nueva
+medida de mejora puede ser eliminar por completo la caldera o cambiar las ventanas».
+
+**REGLA — un RES093 se puede hacer COPIANDO el inicial, y entonces su medida es RETIRAR la caldera en
+apoyo.** `cee_final_copiando.js <nº> --fecha=… [--medida=retirada|autoconsumo]` (por defecto `retirada`
+en un RES093 y `autoconsumo` en un RES060). La copia ya conserva la caldera con su parte del C_b
+(regla 48.g); la medida «retirada» de `medidasCe3x` es la instalación nueva SIN hibridación (la bomba
+al 100 % + el equipo de ACS), compuesta sobre una COPIA del expediente con `hibridacion: false`, y sus
+textos calcan `texto_retirada` de `cee_final.py`. No depende de PVGIS. Se usa cuando la medida del
+técnico no vale; si vale, el camino de siempre (`cee_final.js`) sigue siendo el del RES093.
+
+**REGLA — la caldera que se conserva y deja el ACS deja también su DEPÓSITO.** La bomba de ACS heredaba
+el depósito del fichero (100 l, UA 4,3) y la caldera se lo quedaba TAMBIÉN: CE3X contaba dos y la
+demanda de ACS del final salía 33,41 frente a 24,47 kWh/m² (≈ 1.620 kWh/año de pérdidas de más). Ahora
+`construir_instalaciones` le pone `[False]` en la casilla [8] (`_sin_deposito`) cuando su ACS pasa a 0
+y un equipo nuevo hereda el depósito; y el aviso del reparto cuenta la parte de la caldera conservada
+(decía que el 18 % «no lo da ninguno»). Test: `test_la_caldera_que_deja_el_ACS_deja_tambien_su_DEPOSITO`.
+
+Resultado en 26RES093_16: copia de «26RES060_122 – CEE INICIAL.cex» (2.3 → 3.2), AEROTERMIA SH MASTER 14
+al 82 % + caldera de gasóleo SH 40 S al 18 % + Haier HP200M7-F9 para el ACS; demanda 260,51 / 24,47 =
+la del inicial; **E (45,35 kgCO₂/m²) / E (218,67 kWh/m²)** frente a G / G del inicial; medida «RETIRADA
+CALDERA GASÓLEO: AEROTERMIA SH MASTER 14 AL 100 %» calculada por CE3X. Ahorro y bono de la app sin
+cambios (42.709 kWh/año, 5.125,11 €). ⚠️ La medida del CEE inicial REGISTRADO sigue siendo la de otro
+edificio: eso no lo arregla el final.
 
 **Pendiente**: el botón «Generar» de la fila del CEE final sigue usando el camino «desde la medida»
 también en un RES060. Y un RES080 no tiene aún comando único: su final es el PREVISTO (regla 117)

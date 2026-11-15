@@ -5,7 +5,42 @@ const { getCoordinatesByRC } = require('./catastroService');
 const driveService = require('./driveService');
 const { syncExpedienteFolder } = require('./expedienteFolderSync');
 const { ALLOWED_PROVINCES } = require('../data/allowedProvinces');
-const { FICHAS, correlativoInicial, detectPrograma, esHibridacion } = require('../utils/fichas');
+const { FICHAS, correlativoInicial, detectPrograma, esHibridacion, serieNumeracion, serieBase, oportunidadViaFm, correlativoEnContador, numeroEnOtraVia, esNumeroFm, admiteViaFm, fichaFromNumero } = require('../utils/fichas');
+
+/**
+ * Siguiente número de una SERIE (`26RES060`, `26RES060FM`, `26RES080`…): el mayor
+ * entre `correlativo` y el sufijo del número, de las filas QUE SON de esa serie.
+ *
+ * NO se confía en ORDER BY correlativo DESC: en Postgres los NULL van primero y un
+ * único registro con correlativo NULL reiniciaba el contador a 1 (bug 26RESxxx_1).
+ * La vía FM COMPARTE el contador de su ficha (Fran, 09/11/2026): para 'RES060FM' se
+ * cuentan 26RES060_N y 26RES060FM_N, y el número sale con su «FM». El `LIKE
+ * '26RES060%'` casa más cosas (`_` es un comodín), así que se filtra con
+ * `correlativoEnContador` (regex exacta) antes de tomar el máximo.
+ */
+async function siguienteNumeroDeSerie(serie, anio2 = new Date().getFullYear().toString().slice(-2)) {
+    const base = serieBase(serie);
+    const prefijo = `${anio2}${serie}`;
+    const { data: rows, error } = await supabase
+        .from('expedientes')
+        .select('numero_expediente, correlativo')
+        .like('numero_expediente', `${anio2}${base}%`);
+    if (error) throw new Error(`No se pudo calcular el correlativo de ${prefijo}: ${error.message}`);
+    let maxNum = 0;
+    let deLaSerie = 0;
+    for (const r of (rows || [])) {
+        const suffix = correlativoEnContador(r.numero_expediente, prefijo);
+        if (suffix == null) continue; // otra serie (26RES060FC_ dentro de 26RES060%)
+        deLaSerie++;
+        const corr = Number.isInteger(r.correlativo) ? r.correlativo : 0;
+        maxNum = Math.max(maxNum, corr, suffix);
+    }
+    // Correlativo inicial por ficha (RES080 arranca en 36, TER100 en 3 por los
+    // expedientes heredados del sistema anterior). La FM, el de su ficha.
+    const correlativo = Math.max(maxNum + 1, correlativoInicial(base));
+    console.log(`[ExpedienteService] Serie ${prefijo}: máximo ${maxNum} (sobre ${deLaSerie} de ${rows?.length || 0} filas) → ${prefijo}_${correlativo}`);
+    return { numero: `${prefijo}_${correlativo}`, correlativo };
+}
 const { fotosSinBase64 } = require('../utils/normalization');
 
 // ─── Import ESM diferido del módulo puro del frontend ────────────────────────
@@ -29,6 +64,16 @@ function loadConfirmacion() {
         _confPromise = import(url);
     }
     return _confPromise;
+}
+
+// ¿La instalación está en el domicilio del cliente? (logic/direccionInstalacion.js)
+let _dirPromise = null;
+function loadDireccionInstalacion() {
+    if (!_dirPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/direccionInstalacion.js')).href;
+        _dirPromise = import(url);
+    }
+    return _dirPromise;
 }
 
 // Mapa inverso "nombre de provincia normalizado" -> código (para migración desde XML).
@@ -55,6 +100,39 @@ function resolveProvinceCode(ident) {
         if (ALLOWED_PROVINCES[cpCode]) return cpCode;
     }
     return null;
+}
+
+/**
+ * Lo que el BONO SOCIAL declarado al aceptar siembra en `documentacion` del
+ * expediente NUEVO (ver el comentario en `createExpediente`). Puro salvo el
+ * import ESM; lo prueba scripts/test_confirmacion_cliente.mjs.
+ * @param {object|null} confirmacionCliente  `datos_calculo.confirmacion_cliente`
+ * @param {string} programa                 RES060 · RES080 · RES093 · TER…
+ * @returns {Promise<{ subvenciones?: object, via_fm?: object }>}
+ */
+async function semillaBonoSocial(confirmacionCliente, programa, { vulnerableOp = null } = {}) {
+    // `vulnerableOp`: el conmutador «Consumidor vulnerable» de la calculadora
+    // (`inputs.vulnerable`, 09/11/2026). Un Sí del equipo siembra el × 1,5 aunque el
+    // cliente no declarase nada; un No explícito (p. ej., la renta no llega) manda
+    // sobre lo declarado. Sin tocar (null), lo declarado, como antes.
+    const op = vulnerableOp === true || vulnerableOp === 'true' ? true
+        : vulnerableOp === false || vulnerableOp === 'false' ? false : null;
+    if (!confirmacionCliente?.bono_social && op !== true) return {};
+    const { bonoSocialParaSubvenciones, vulnerableFmDeBono, preguntaBonoSocial, PREGUNTA_BONO } = await loadConfirmacion();
+    const pregunta = preguntaBonoSocial(programa);
+    if (!pregunta) return {};
+    const out = {};
+    const bs = confirmacionCliente?.bono_social ? bonoSocialParaSubvenciones(confirmacionCliente.bono_social) : null;
+    if (bs) out.subvenciones = { bono_social: bs };
+    const v = pregunta === PREGUNTA_BONO.FM && confirmacionCliente?.bono_social ? vulnerableFmDeBono(confirmacionCliente.bono_social) : null;
+    if (pregunta === PREGUNTA_BONO.FM && op !== false && (v?.vulnerable || op === true)) {
+        out.via_fm = {
+            ...require('../utils/viaFm').sanearDatosFm({ vulnerable: true, anexo_b_casilla: v?.anexo_b_casilla || null }),
+            // Como el PUT: cuándo y quién. Aquí, la aceptación del cliente (o la oportunidad).
+            at: new Date().toISOString(), por: v?.vulnerable ? 'aceptación del cliente' : 'oportunidad (marcado por el equipo)',
+        };
+    }
+    return out;
 }
 
 /**
@@ -239,8 +317,49 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             }
         }
 
+        // ── El BONO SOCIAL que declaró al aceptar (09/11/2026) ───────────────
+        // Dos destinos, en el INSERT (fila nueva: no hay nada que pisar):
+        //  · `documentacion.subvenciones.bono_social` — la declaración del Anexo I
+        //    (y del Anexo A). Sin esto salía «Ninguno de los anteriores».
+        //  · `documentacion.via_fm` con `vulnerable: true` y su casilla del Anexo B,
+        //    solo en RES060/RES093 (las fichas con -S) y solo cuando lo declarado
+        //    no deja duda (`vulnerableFmDeBono`: una familia numerosa con el bono
+        //    de vulnerable se deja para comprobar la renta). Va por `sanearDatosFm`,
+        //    la misma forma que escribe `PUT /:id/via-fm/datos`, que después es su
+        //    único escritor (regla 200).
+        // Lo dicho por el cliente se queda además en `instalacion.confirmacion_cliente`,
+        // y la pestaña «Vía FM» lo enseña al lado de lo marcado.
+        let semillaBono = {};
+        try {
+            semillaBono = await semillaBonoSocial(confirmacionCliente, programa, { vulnerableOp: opInputs.vulnerable ?? null });
+            if (semillaBono.subvenciones || semillaBono.via_fm) {
+                console.log(`[ExpedienteService] Bono social declarado al aceptar → Anexo I ${semillaBono.subvenciones ? semillaBono.subvenciones.bono_social.tipos.join(',') : '—'}${semillaBono.via_fm ? ` · vulnerable FM (Anexo B: ${semillaBono.via_fm.anexo_b_casilla})` : ''}`);
+            }
+        } catch (e) {
+            console.warn('[ExpedienteService] bono social del cliente:', e.message);
+        }
+
+        // ── ¿Misma dirección que el cliente? ─────────────────────────────────
+        // Con «Sí» los documentos siguen la ficha del cliente, así que solo se pone
+        // cuando ES la misma vivienda. Si el cliente vive en OTRA calle, nace en «No»
+        // con la dirección del Catastro (la de la obra). Sin calle en una de las dos,
+        // «Sí»: no hay nada que comparar y se cae a la del Catastro igualmente.
+        let direccionPropia = null;
+        try {
+            const { mismaVivienda } = await loadDireccionInstalacion();
+            const dirObra = opInputs.direccion || op.datos_calculo?.direccion || op.datos_calculo?.address || '';
+            const muniObra = opInputs.municipio || op.datos_calculo?.municipio || '';
+            if (mismaVivienda({ direccion: cliente.direccion, municipio: cliente.municipio },
+                              { direccion: dirObra, municipio: muniObra }) === false) {
+                direccionPropia = { misma_direccion: false, direccion: dirObra, ...(muniObra ? { municipio: muniObra } : {}) };
+            }
+        } catch (e) {
+            console.warn('[ExpedienteService] misma dirección:', e.message);
+        }
+
         const instalacion = {
             misma_direccion: true,
+            ...(direccionPropia || {}),
             ref_catastral: op.ref_catastral || '',
             coord_x: utmX,
             coord_y: utmY,
@@ -481,36 +600,13 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
         let nextCorrelativo = null;
 
         if (!numeroExpediente) {
-            const currentYear = new Date().getFullYear().toString().slice(-2);
-            const prefix = `${currentYear}${programa}_`;
-
-            console.log(`[ExpedienteService] Calculando siguiente correlativo para prefijo: ${prefix}`);
-
-            // Traemos TODOS los expedientes del prefijo y calculamos el máximo de
-            // forma robusta. NO confiamos en ORDER BY correlativo DESC porque en
-            // Postgres los NULL van primero y un único registro con correlativo
-            // NULL hacía que el contador se reiniciara a 1 (bug 26RESxxx_1).
-            // El máximo se obtiene del MAYOR entre `correlativo` y el sufijo
-            // numérico parseado de `numero_expediente`, ignorando nulos.
-            const { data: rows } = await supabase
-                .from('expedientes')
-                .select('numero_expediente, correlativo')
-                .like('numero_expediente', `${prefix}%`);
-
-            let maxNum = 0;
-            for (const r of (rows || [])) {
-                const corr = Number.isInteger(r.correlativo) ? r.correlativo : 0;
-                const suffix = parseInt(String(r.numero_expediente || '').slice(prefix.length), 10);
-                const val = Math.max(corr, Number.isNaN(suffix) ? 0 : suffix);
-                if (val > maxNum) maxNum = val;
-            }
-            console.log(`[ExpedienteService] Máximo correlativo detectado para ${programa}: ${maxNum} (sobre ${rows?.length || 0} registros)`);
-
-            // Correlativo inicial por ficha (RES080 arranca en 36, TER100 en 3 por
-            // los expedientes heredados del sistema anterior). Ver utils/fichas.js.
-            const startOffset = correlativoInicial(programa);
-            nextCorrelativo = Math.max(maxNum + 1, startOffset);
-            numeroExpediente = `${prefix}${nextCorrelativo}`;
+            // Vía del FACTOR MULTIPLICADOR: si la oportunidad se aceptó por ella
+            // (`inputs.ruta_fm`, solo RES060/RES093), el número sale de su serie
+            // propia — 26RES060FM_N (utils/fichas.js, Fran 07/11/2026).
+            const serie = serieNumeracion(programa, oportunidadViaFm(op));
+            const sig = await siguienteNumeroDeSerie(serie);
+            nextCorrelativo = sig.correlativo;
+            numeroExpediente = sig.numero;
             console.log(`[ExpedienteService] Asignado Número de Expediente: ${numeroExpediente}`);
         }
 
@@ -548,7 +644,9 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 // traen en `inputs.photo_attachments`, y copiado aquí se quedaba en
                 // el expediente para siempre (26RES060_136, _164). La imagen sigue
                 // en la oportunidad; el Anexo Fotográfico lee las fotos de Drive.
-                photo_attachments: fotosSinBase64(op.datos_calculo?.inputs?.photo_attachments) || null
+                photo_attachments: fotosSinBase64(op.datos_calculo?.inputs?.photo_attachments) || null,
+                // El bono social que declaró el cliente al aceptar (arriba).
+                ...semillaBono
             },
             seguimiento: {
                 // Si el cliente aporta su CEE inicial, NO se solicita uno nuevo al certificador:
@@ -694,34 +792,12 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
         const prefijo = PREFIJO_REF[newPrograma];
         if (prefijo) cleanRef = `${prefijo} ${cleanRef}`.trim();
 
-        // 3. Generar nuevo número
-        const currentYear = new Date().getFullYear().toString().slice(-2);
-        const newPrefix = `${currentYear}${newPrograma}_`;
-
-        // Traemos TODOS los expedientes del prefijo y calculamos el máximo de
-        // forma robusta. NO confiamos en ORDER BY correlativo DESC ... LIMIT 1
-        // porque en Postgres los NULL van primero y un único registro con
-        // correlativo NULL hacía que el contador se reiniciara a 1 (bug
-        // 26RESxxx_1 al cambiar de tipo de expediente). El máximo se obtiene
-        // del MAYOR entre `correlativo` y el sufijo numérico parseado de
-        // `numero_expediente`, ignorando nulos. Misma lógica que createExpediente.
-        const { data: rows } = await supabase
-            .from('expedientes')
-            .select('numero_expediente, correlativo')
-            .like('numero_expediente', `${newPrefix}%`);
-
-        let maxNumberFound = 0;
-        for (const r of (rows || [])) {
-            const corr = Number.isInteger(r.correlativo) ? r.correlativo : 0;
-            const suffix = parseInt(String(r.numero_expediente || '').slice(newPrefix.length), 10);
-            const val = Math.max(corr, Number.isNaN(suffix) ? 0 : suffix);
-            if (val > maxNumberFound) maxNumberFound = val;
-        }
-        console.log(`[ExpedienteService] Máximo correlativo detectado para ${newPrograma}: ${maxNumberFound} (sobre ${rows?.length || 0} registros)`);
-
-        const startOffset = correlativoInicial(newPrograma);
-        const nextCorrelativo = Math.max(maxNumberFound + 1, startOffset);
-        const newNumeroExpediente = `${newPrefix}${nextCorrelativo}`;
+        // 3. Generar nuevo número. Un expediente de la vía FM que cambia de ficha
+        // sigue en ella si la ficha nueva la admite (RES060FM ↔ RES093FM); a una que
+        // no la admite (RES080) vuelve a la serie vigente. Misma función que el alta.
+        const sigueFm = esNumeroFm(exp.numero_expediente) && admiteViaFm(newPrograma);
+        const { numero: newNumeroExpediente, correlativo: nextCorrelativo } =
+            await siguienteNumeroDeSerie(serieNumeracion(newPrograma, sigueFm));
 
         console.log(`[ExpedienteService] Migrando ${exp.numero_expediente} a ${newNumeroExpediente}...`);
 
@@ -797,10 +873,13 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
             inputs.hibridacion = false;
             inputs.isReforma = false;
         }
+        // La vía del factor multiplicador la dice ya el NÚMERO; la oportunidad la
+        // refleja para que la calculadora enseñe la misma (regla de la vía FM).
+        if (inputs.ruta_fm === true && !sigueFm) inputs.ruta_fm = false;
 
         await supabase
             .from('oportunidades')
-            .update({ 
+            .update({
                 ficha: newPrograma,
                 referencia_cliente: cleanRef,
                 datos_calculo: { ...dc, inputs }
@@ -818,6 +897,110 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
         console.error('[ExpedienteService] Error en migración:', error.message);
         throw error;
     }
+}
+
+// Estados en los que el número ya está FUERA de la casa (lote, verificador, MITECO):
+// el mismo corte que `tramiteFc` (calculator/logic/res060fc.js).
+const ESTADOS_NUMERO_FUERA = ['ENVIADO A VERIFICADOR', 'REQUERIMIENTO VERIFICADOR', 'PTE. SUBIDA MITECO',
+    'SUBIDO A MITECO', 'REQUERIMIENTO G.A.', 'CAE EMITIDO', 'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'];
+
+/**
+ * ¿Se puede cambiar la vía (y con ella el número) de este expediente? Null si sí, o
+ * el motivo si no. Con el número ya en un lote, en el verificador o en MITECO, un
+ * número nuevo dejaría los documentos presentados con otro distinto.
+ */
+function bloqueoCambioVia(exp) {
+    const estado = String(exp?.estado || '').toUpperCase().trim();
+    if (exp?.lote_id) return 'Está en un lote: sácalo del lote antes de cambiar de vía (sus documentos ya llevan el número).';
+    if (ESTADOS_NUMERO_FUERA.some((e) => estado.startsWith(e))) return `En «${exp.estado}» el número ya está presentado: no se puede cambiar de vía.`;
+    if (estado === 'RECHAZADO') return 'El expediente está rechazado.';
+    return null;
+}
+
+/**
+ * Pasa un expediente a la vía del FACTOR MULTIPLICADOR o lo devuelve a la vigente.
+ * Las dos vías COMPARTEN el contador de la ficha (Fran, 09/11/2026): cambiar de vía
+ * CONSERVA el número y solo pone o quita el «FM» (26RES060_250 ⇄ 26RES060FM_250).
+ * Renombra la carpeta de Drive (por el mismo
+ * sincronizador que la endereza en cada cambio de estado), lo apunta en el historial
+ * y refleja la vía en la oportunidad (`inputs.ruta_fm`) para que la calculadora
+ * enseñe la misma. `documentacion.via_fm` (los datos de la vía) NO se borra al
+ * volver: si se vuelve a pasar, sigue ahí.
+ *
+ * @returns {{ success, sinCambios?, oldNumber, newNumber }}
+ */
+async function cambiarViaFm(expedienteId, { activar, usuario = 'Sistema' } = {}) {
+    const { data: exp, error } = await supabase
+        .from('expedientes')
+        .select('id, numero_expediente, estado, lote_id, oportunidad_id, cliente_id, historial:documentacion->historial')
+        .eq('id', expedienteId)
+        .maybeSingle();
+    if (error) throw Object.assign(new Error(`No se pudo leer el expediente: ${error.message}`), { status: 503 });
+    if (!exp) throw Object.assign(new Error('Expediente no encontrado'), { status: 404 });
+
+    const ficha = fichaFromNumero(exp.numero_expediente);
+    if (!admiteViaFm(ficha)) {
+        throw Object.assign(new Error(`La vía del factor multiplicador solo existe para RES060, RES080 y RES093 (este es ${ficha || 'sin ficha'}).`), { status: 400 });
+    }
+    const yaFm = esNumeroFm(exp.numero_expediente);
+    if (yaFm === !!activar) return { success: true, sinCambios: true, oldNumber: exp.numero_expediente, newNumber: exp.numero_expediente };
+
+    const bloqueo = bloqueoCambioVia(exp);
+    if (bloqueo) throw Object.assign(new Error(bloqueo), { status: 409 });
+
+    // El mismo correlativo en la otra vía. Un número con otra forma (manual) toma el
+    // siguiente del contador de su ficha.
+    const mismo = numeroEnOtraVia(exp.numero_expediente, !!activar);
+    const { numero: nuevo, correlativo } = mismo || await siguienteNumeroDeSerie(serieNumeracion(ficha, !!activar));
+    if (mismo) {
+        const { data: ocupado, error: oErr } = await supabase
+            .from('expedientes').select('id').eq('numero_expediente', nuevo).neq('id', expedienteId).limit(1);
+        if (oErr) throw Object.assign(new Error(`No se pudo comprobar el número ${nuevo}: ${oErr.message}`), { status: 503 });
+        if (ocupado?.length) {
+            throw Object.assign(new Error(`El número ${nuevo} ya lo tiene otro expediente: no se puede cambiar de vía conservando el número.`), { status: 409 });
+        }
+    }
+
+    const { error: upErr } = await supabase
+        .from('expedientes')
+        .update({ numero_expediente: nuevo, correlativo, updated_at: new Date().toISOString() })
+        .eq('id', expedienteId)
+        .eq('numero_expediente', exp.numero_expediente); // nadie lo ha cambiado entretanto
+    if (upErr) throw new Error(`Error en base de datos: ${upErr.message}`);
+
+    // Historial sin reescribir `documentacion` (RPC de MERGE: una lista se AÑADE).
+    const entrada = {
+        id: `${Date.now()}_via_fm`, tipo: 'sistema', fecha: new Date().toISOString(), usuario,
+        texto: activar
+            ? `Vía del FACTOR MULTIPLICADOR: ${exp.numero_expediente} pasa a ${nuevo}${mismo ? ' (conserva su número)' : ''}.`
+            : `Vuelve a la vía VIGENTE: ${exp.numero_expediente} pasa a ${nuevo}${mismo ? ' (conserva su número)' : ''}.`,
+    };
+    const { error: hErr } = Array.isArray(exp.historial)
+        ? await supabase.rpc('merge_expediente_doc_json', { p_expediente_id: expedienteId, p_field: 'historial', p_value: [entrada] })
+        : await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: exp.oportunidad_id, p_field: 'historial', p_value: [entrada] });
+    if (hErr) console.warn('[ExpedienteService] via FM historial:', hErr.message);
+
+    // Cuándo pasó a la vía: un Convenio firmado ANTES no lleva la cláusula del IRPF
+    // (punto 12) y el panel lo pide de nuevo. Merge superficial: no toca los datos.
+    if (activar) {
+        const { error: aErr } = await supabase.rpc('merge_expediente_doc_json', {
+            p_expediente_id: expedienteId, p_field: 'via_fm', p_value: { activada_at: new Date().toISOString() },
+        });
+        if (aErr) console.warn('[ExpedienteService] via FM activada_at:', aErr.message);
+    }
+
+    if (exp.oportunidad_id) {
+        const { error: oErr } = await supabase.rpc('oportunidad_merge_inputs', { p_id: exp.oportunidad_id, p_patch: { ruta_fm: !!activar } });
+        if (oErr) console.warn('[ExpedienteService] via FM en la oportunidad:', oErr.message);
+    }
+
+    // La carpeta: `syncExpedienteFolder` endereza el nombre a `{nº} - {CLIENTE}`.
+    try {
+        require('./expedienteFolderSync').syncExpedienteFolderAsync(expedienteId, { motivo: activar ? 'pasa a la vía FM' : 'vuelve a la vía vigente' });
+    } catch (e) { console.warn('[ExpedienteService] via FM carpeta:', e.message); }
+
+    console.log(`[ExpedienteService] Vía FM ${activar ? 'ON' : 'OFF'}: ${exp.numero_expediente} → ${nuevo}`);
+    return { success: true, oldNumber: exp.numero_expediente, newNumber: nuevo };
 }
 
 /**
@@ -993,5 +1176,9 @@ async function migrateExpedienteFromXml({
 module.exports = {
     createExpediente,
     migrateExpedienteProgram,
-    migrateExpedienteFromXml
+    migrateExpedienteFromXml,
+    cambiarViaFm,
+    bloqueoCambioVia,
+    siguienteNumeroDeSerie,
+    semillaBonoSocial,
 };

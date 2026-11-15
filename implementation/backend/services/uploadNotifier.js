@@ -144,6 +144,12 @@ ${ctx.expedienteLink}${ctx.driveLink ? `\n📂 Carpeta de Drive:\n${ctx.driveLin
         // Si el agente le había pedido documentación tras la aceptación, que la
         // revise y siga (pedir lo que aún falte o hacer el CEE inicial).
         await require('./aceptacionAgente').retomarTrasSubida(oportunidadUuid);
+
+        // Lo que se le había pedido por WhatsApp a esta obra ya no se le recuerda:
+        // ha contestado subiendo (esperasWhatsapp; apagado por defecto, nunca lanza).
+        const subido = [...bucket.slots.values()].map(s => s.label).slice(0, 4).join(', ');
+        await require('./esperasWhatsapp').cerrarPorSubida(oportunidadUuid,
+            `ha subido ${total} archivo${total === 1 ? '' : 's'} por el enlace (${subido})`);
     } catch (e) {
         console.error('[UploadNotify] vaciar:', e.message);
     }

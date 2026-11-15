@@ -68,6 +68,21 @@ prueba('el enlace del instalador lleva su rol, también con need=', () => {
     assert.strictEqual(aviso.enlaceInstalador('https://x/subir-docs/u?token=t&need=A'), 'https://x/subir-docs/u?token=t&need=A&rol=instalador');
 });
 
+prueba('con el desvío, el email es SOLO el del contacto: nunca cae al del titular', () => {
+    const base = { nombre_razon_social: 'SALUSTIANO', apellidos: 'MARTINEZ', email: 'titular@x.es', tlf: '600' };
+    // 26RES060_253: Félix (partner) sin email → no sale email, y no al buzón del titular.
+    const sinEmail = aviso.avisoCliente({ ...base, notificaciones_contacto_activas: true, persona_contacto_nombre: 'Félix', persona_contacto_tlf: '696' });
+    assert.strictEqual(sinEmail.tercero, true);
+    assert.strictEqual(sinEmail.email, null);
+    const conEmail = aviso.avisoCliente({ ...base, notificaciones_contacto_activas: true, persona_contacto_nombre: 'Félix', persona_contacto_email: 'felix@x.es' });
+    assert.strictEqual(conEmail.email, 'felix@x.es');
+    // Desvío marcado sin nadie detrás: es el titular, con su email.
+    assert.strictEqual(aviso.avisoCliente({ ...base, notificaciones_contacto_activas: true }).email, 'titular@x.es');
+    // Sin desvío: el titular, y el del contacto de respaldo.
+    assert.strictEqual(aviso.avisoCliente(base).email, 'titular@x.es');
+    assert.strictEqual(aviso.avisoCliente({ ...base, email: null, persona_contacto_email: 'c@x.es' }).email, 'c@x.es');
+});
+
 prueba('CEE_REGISTRO_AVISO_AUTO: encendido salvo «false»', () => {
     const antes = process.env.CEE_REGISTRO_AVISO_AUTO;
     delete process.env.CEE_REGISTRO_AVISO_AUTO; assert.strictEqual(aviso.avisoAutoActivado(), true);

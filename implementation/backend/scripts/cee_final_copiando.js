@@ -15,6 +15,9 @@
 //   --version=3.2|3.1|2.3      sin decirla, la vigente (3.2)
 //   --base=ruta.cex            copia ESE inicial y no el que entregó el técnico
 //   --guardar=ruta.cex         deja además una copia local del final
+//   --medida=autoconsumo|retirada  la medida del final. Por defecto, autoconsumo en un
+//                              RES060 y RETIRAR la caldera de apoyo en un RES093 (que
+//                              también se puede hacer copiando el inicial: 22/10/2026)
 //   --escribir                 .cex + .xml + .pdf a «1. CEE / CEE FINAL» (lo anterior, a OLD),
 //                              el XML CARGADO en el expediente («Cargar CEE», cargarXmlCee.js)
 //                              y, como `cee_final.js`, termina el encargo del AGENTE IA y
@@ -45,6 +48,7 @@ function args(argv) {
         else if (k === '--version') o.version = val;
         else if (k === '--base') o.base = val;
         else if (k === '--guardar') o.guardar = val;
+        else if (k === '--medida') o.medida = val;
         else if (!a.startsWith('--')) o.clave = a;
     }
     return o;
@@ -64,7 +68,7 @@ async function main() {
 
     const r = await finalCopiandoInicial(ctx, {
         fechaEmision: o.fecha, fechaVisita: o.fechaVisita, version: o.version || '3.2',
-        cexBase, escribir: o.escribir,
+        cexBase, escribir: o.escribir, medidaFinal: o.medida || null,
     });
 
     console.log(`\n${ctx.expediente.numero_expediente} · CEE FINAL copiando «${r.base}» · CE3X ${r.version}`);
@@ -72,7 +76,9 @@ async function main() {
     for (const i of r.instalaciones) console.log(`  ${i}`);
     if (r.sin_medida) console.log(`Sin medida, CE3X: ${cexAPdf.textoCalificacion(r.sin_medida)}`);
     if (r.demanda) console.log(`Demanda inicial → final (kWh/m²·año): ${r.demanda.texto} · ${r.demanda.cuadra ? '✓ cuadra' : '⛔ NO CUADRA'}`);
-    if (r.medida) {
+    if (r.medida?.tipo === 'retirada') {
+        console.log(`Medida: ${r.medida.nombre}\n  ${r.medida.caracteristicas}`);
+    } else if (r.medida) {
         const m = r.medida;
         console.log(`Medida de AUTOCONSUMO: ${String(m.kwp).replace('.', ',')} kWp · `
                     + `${miles(m.kwh_declarado)} kWh/año declarados (90 % del consumo eléctrico del final: `

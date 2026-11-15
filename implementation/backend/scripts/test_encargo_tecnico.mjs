@@ -11,7 +11,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'clave-de-prueba';
 const enc = require('../services/encargoTecnico.js');
-const { buildCertEncargoMessage, buildCertMessage, TEXTO_ENLACE_ENCARGO } =
+const { buildCertEncargoMessage, buildCertMessage, TEXTO_ENLACE_ENCARGO, TEXTO_ENLACE_APP } =
     await import('../../frontend/src/features/expedientes/logic/certMessages.js');
 
 let fallos = 0;
@@ -69,6 +69,17 @@ await prueba('la plantilla del popup dice lo MISMO que el servidor (mismo texto)
     const rec = buildCertMessage({ espera: 'emision', tono: 'reminder', fase: 'inicial', certName: 'LUIS',
                                    numExp: '26RES060_1', expedienteId: 'abc', ctx: { encargoLink: url } });
     assert.ok(rec.includes(url));
+});
+
+await prueba('con la app de certificadores, el popup enseña el enlace de la app con el texto del servidor', () => {
+    const crm = require('../services/certapp/crm.js');
+    assert.equal(TEXTO_ENLACE_APP, crm.TEXTO_ENLACE_APP);
+    const app = 'https://cee.brokergy.es/encargo/cae/abc/inicial';
+    const m = buildCertEncargoMessage('inicial', 'LUIS', 'CLIENTE', '26RES060_1', 'https://drive/x', 'abc', '',
+                                      { encargoLink: app, encargoEnApp: true });
+    assert.ok(m.includes(`${TEXTO_ENLACE_APP}\n${app}`) && !m.includes(TEXTO_ENLACE_ENCARGO));
+    // Lo que se ve es lo que sale: el servidor no lo vuelve a tocar.
+    assert.equal(crm.textoParaTecnico(m, { urlApp: app, urlPagina: 'https://app.brokergy.es/encargo/abc?token=t' }), m);
 });
 
 await prueba('qué le toca AHORA sale del subestado de su fase', () => {

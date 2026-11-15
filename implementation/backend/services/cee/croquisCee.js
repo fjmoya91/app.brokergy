@@ -610,7 +610,13 @@ async function componerCroquisHtml({ cabecera = {}, geo, trabajo, rx = null }) {
     const st = sen.estadoDeTrabajo(geo, trabajo || null);
     const muros = Object.values(st.muros || {});
     const lam = st.lienzoAMundo;
-    const zonasLienzo = (trabajo?.zonas_fuera || [])
+    //: Los m² de cada zona, los que el MOTOR resta de verdad (`geo.zonas_fuera`,
+    //: por su posición en lo pedido): el trabajo guardado por la skill no los
+    //: trae y el cuadro decía «Porche 0,0 m²» (26RES093_14).
+    const restadas = new Map((geo?.zonas_fuera || []).map(z => [z.indice, z]));
+    const zonasFuera = (trabajo?.zonas_fuera || []).map((z, i) => (
+        restadas.has(i) ? { ...z, area_m2: restadas.get(i).area_m2 ?? z.area_m2 } : z));
+    const zonasLienzo = zonasFuera
         .filter(z => Array.isArray(z.poligono) && z.poligono.length >= 3 && lam)
         .map(z => ({ ...z, puntos: z.poligono.map(([X, Y]) => [X - lam.dx, lam.y0 - Y]) }));
 
@@ -823,7 +829,7 @@ ${pie(n)}</section>`;
     // Cuántas líneas ocupa cada fila de superficies: una por uso que no es vivienda.
     const lineasSup = [];
     const filasSup = plantas.map((p, i) => {
-        const zs = (trabajo?.zonas_fuera || []).filter(z => Number(z.nivel) === Number(p.nivel));
+        const zs = zonasFuera.filter(z => Number(z.nivel) === Number(p.nivel));
         const nombre = /^planta/i.test(p.nombre || '') ? p.nombre : `Planta ${p.nombre || p.id}`;
         const hs = huecos.filter(h => enPlanta(h, p, i));
         lineasSup.push(Math.max(1, porUso(zs).length));

@@ -193,6 +193,8 @@ const LIMITES_EXT = {
     croquis_movil: { max: 20, ventanaMs: HORA_MS,      que: 'enlaces para el móvil', plazo: 'una hora' },
     cex:           { max: 10, ventanaMs: HORA_MS,      que: 'certificados generados', plazo: 'una hora' },
     fotos_leer:    { max: 30, ventanaMs: 24 * HORA_MS, que: 'lecturas de fotos', plazo: 'un día' },
+    asistente:     { max: 60, ventanaMs: HORA_MS,      que: 'correcciones con el asistente', plazo: 'una hora' },
+    asistente_voz: { max: 40, ventanaMs: HORA_MS,      que: 'audios al asistente', plazo: 'una hora' },
 };
 const usosExt = new Map();       // `${tipo}|${cuentaId}` → [instantes]
 const enCursoExt = new Set();    // `${tipo}|${cuentaId}` con una petición en marcha
@@ -750,10 +752,47 @@ router.get('/:expedienteId/estado-cex', internoOExtSuyo, staffSiOportunidad, asy
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
         const fase = req.query?.fase === 'final' ? 'final' : 'inicial';
-        res.json({ fase, ...(await cex.estadoDelCex(ctx, fase)) });
+        // En una obra de la app, también su visto bueno (certapp/vistoBueno.js).
+        // Quién del equipo lo dio, solo al equipo (como `porDetalle` en los eventos).
+        let vistoBueno = {};
+        if (origenDe(req) === 'ext' && fase === 'inicial') {
+            const vb = await require('../services/certapp/vistoBueno').estado(ctx.expediente.id);
+            if (vb && !isStaff(req)) delete vb.por;
+            vistoBueno = { visto_bueno: vb };
+        }
+        res.json({ fase, ...(await cex.estadoDelCex(ctx, fase)), ...vistoBueno });
     } catch (e) {
         console.error('[ceeEnvolvente] estado del .cex:', e.message);
         res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/**
+ * POST /api/cee-envolvente/:expedienteId/visto-bueno?origen=ext
+ * Body: { huella }   la receta de lo que se ve en la ventana
+ *
+ * El visto bueno de BROKERGY a la obra de un certificador de la app: calificado,
+ * se le entrega «listo para firmar»; por calificar, se entrega solo cuando el PC
+ * lo califique. Solo el EQUIPO (un certificador de la app no se lo da a sí
+ * mismo) y solo en `ext` (en el CRM es «Validar»). certapp/vistoBueno.js
+ */
+router.post('/:expedienteId/visto-bueno', internoOExtSuyo, async (req, res) => {
+    try {
+        if (origenDe(req) !== 'ext') {
+            return res.status(400).json({ error: 'Esto es de las obras de la app de certificadores; en el CRM, «Validar».',
+                                          code: 'SOLO_EXT' });
+        }
+        if (!isStaff(req)) {
+            return res.status(403).json({ error: 'El visto bueno lo da BROKERGY.', code: 'SOLO_EQUIPO' });
+        }
+        const r = await require('../services/certapp/vistoBueno').dar(req.params.expedienteId, {
+            quien: req.user?.nombre || req.user?.email || null,
+            huella: typeof req.body?.huella === 'string' ? req.body.huella.slice(0, 64) : null,
+        });
+        res.json(r);
+    } catch (e) {
+        if (!e.status || e.status >= 500) console.error('[ceeEnvolvente] visto bueno:', e.message);
+        res.status(e.status || 500).json({ error: e.message, code: e.code || null });
     }
 });
 
@@ -1187,14 +1226,17 @@ router.post('/:expedienteId/cex', internoOExtSuyo, staffSiOportunidad, limiteExt
         // autoconsumo, y la 2.ª medida va con el consumo de la última vez).
         const conFv2 = (ficha.medidas || []).some(m => m.id === 'aerotermia_fv')
             && (ficha.medidas || []).some(m => m.id === 'aerotermia');
-        await cex.sellar(ctx, fase, {
+        const sellado = await cex.sellar(ctx, fase, {
             huella, bytes: crudo, driveId: guardado.driveId, nombre: guardado.nombre,
             por: 'ventana', autor: req.user?.nombre || req.user?.email || null,
             medidas: ficha.medidas || [], por_calificar: true,
             motivo: `Generado desde la ventana: sin XML ni PDF${conFv2
                 ? ' y con las placas de la 2.ª medida medidas con el consumo de la última vez' : ''}. `
                 + 'Lo califica CE3X en el PC (cola «por calificar»).',
-        }).catch(e => avisos.push(`No se ha podido sellar el .cex: ${e.message}`));
+        }).catch(e => { avisos.push(`No se ha podido sellar el .cex: ${e.message}`); return null; });
+        if (sellado?.visto_bueno_anulado) {
+            avisos.push('El visto bueno de BROKERGY que tenía ya no vale: lo generado es otro. Hay que volver a darlo.');
+        }
         // Una OBRA de la app de certificadores no espera a que alguien lance la
         // cola: se encarga al PC sola y en silencio (lo mismo que hace
         // agenteIa.terminarExt con lo que deja el agente). Calificada, producción
@@ -1227,7 +1269,8 @@ router.post('/:expedienteId/cex', internoOExtSuyo, staffSiOportunidad, limiteExt
             { fase, avisos: [...avisos], autor: req.user?.nombre || req.user?.email || null })
             .then(c => { if (!c.ok) console.warn('[ceeEnvolvente] croquis tras el .cex:', c.error); })
             .catch(e => console.warn('[ceeEnvolvente] croquis tras el .cex:', e.message)));
-        res.json({ ...guardado, fase, avisos, contraste, ficha,
+        // `huella`: la receta sellada (el visto bueno de una obra de la app se da sobre ella).
+        res.json({ ...guardado, fase, huella, avisos, contraste, ficha,
                    version_ce3x: r.headers.get('X-Cee-Version') || ficha.version_ce3x || null,
                    sin_imagenes: imagenesFallidas });
     } catch (e) {
@@ -1275,6 +1318,58 @@ router.post('/leer', internalOnly, upload.single('file'), async (req, res) => {
 //
 // ⚠️ El `upload` de arriba admite UN fichero de `.cex`. Aquí se sueltan varias
 // fotos de la misma fachada a la vez, así que va su propio multer.
+
+// ─── El ASISTENTE: lo que está mal, dicho con palabras ──────────────────────
+//
+// POST /api/cee-envolvente/:expedienteId/asistente  { texto, resumen, reintento? }
+//
+// Devuelve las OPERACIONES que Claude saca de lo dicho; no escribe nada. Las
+// aplica la ventana tras el «Sí» (ver `services/asistenteEnvolvente.js`). Lo que
+// llega es el RESUMEN que compone la ventana, nunca el trabajo entero: el plano
+// de un certificador externo ya lo tiene él delante, así que el guardián de
+// siempre basta (su obra, o 404) y el tope es por cuenta, como el de Gemini.
+const asistenteEnv = require('../services/asistenteEnvolvente');
+router.post('/:expedienteId/asistente', internoOExtSuyo, staffSiOportunidad, limiteExt('asistente'),
+    async (req, res) => {
+        const { texto, resumen, reintento } = req.body || {};
+        const r = await asistenteEnv.interpretar({
+            texto, resumen, reintento: reintento || null,
+            quien: req.certapp?.email || quienEs(req), obra: req.params.expedienteId,
+        });
+        if (!r.ok) return res.status(r.status || 500).json({ error: r.error });
+        res.json(r);
+    });
+
+// POST /api/cee-envolvente/:expedienteId/asistente/voz  (multipart: `audio`)
+//
+// La RESERVA del micrófono para cuando el navegador no dicta solo (Firefox, la
+// app del móvil): se transcribe con la misma llamada que las notas de voz del
+// WhatsApp (Gemini, «literalmente») y se devuelve el TEXTO, que se enseña y se
+// manda después al asistente como si se hubiera escrito. Claude no oye audio.
+const uploadVoz = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
+router.post('/:expedienteId/asistente/voz', internoOExtSuyo, staffSiOportunidad, limiteExt('asistente_voz'),
+    uploadVoz.single('audio'), async (req, res) => {
+        const f = req.file;
+        if (!f?.buffer?.length) return res.status(400).json({ error: 'No ha llegado el audio.' });
+        const mime = String(f.mimetype || '').split(';')[0];
+        if (!/^audio\//.test(mime)) return res.status(400).json({ error: 'Eso no es un audio.' });
+        try {
+            const { llamarGemini } = require('../services/placaOcrService');
+            const r = await llamarGemini([{ buffer: f.buffer, mimeType: mime }], {
+                prompt: 'Transcribe literalmente este audio en español. Habla de la envolvente de una vivienda: '
+                    + 'paredes como FBE1 o MBN2, ventanas V1, V2…, marcos de PVC, madera o aluminio. '
+                    + 'No resumas. Si algo no se entiende, pon [inaudible].',
+                schema: { type: 'object', properties: { transcripcion: { type: 'string' } }, required: ['transcripcion'] },
+                etiqueta: 'asistente-envolvente-voz', maxTokens: 1024,
+            });
+            const texto = String(r?.transcripcion || '').trim();
+            if (!texto) return res.status(502).json({ error: 'No se ha entendido nada en el audio.' });
+            res.json({ texto });
+        } catch (e) {
+            console.error('[ceeEnvolvente] asistente/voz:', e.message);
+            res.status(502).json({ error: `No se ha podido transcribir: ${e.message}` });
+        }
+    });
 
 const uploadFotos = multer({
     storage: multer.memoryStorage(),

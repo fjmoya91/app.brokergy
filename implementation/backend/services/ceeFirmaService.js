@@ -220,7 +220,8 @@ async function pdfParaFirmar(expId, phase) {
  *
  * Va por `ceeUploadService.uploadCeeFile`, que es el MISMO camino que la rejilla
  * y que el enlace público del técnico: renombra al nombre canónico y versiona a
- * OLD lo que hubiera. Aquí no se inventa ninguna colocación.
+ * OLD lo que hubiera. Aquí no se inventa ninguna colocación. Y, como ellos, deja
+ * el enlace en `cee.cee_files[fase].pdf` (`enlazarPdfEnSuHueco`).
  */
 async function guardarCertificado(expId, phase, buffer, { mimeType = 'application/pdf' } = {}) {
     const fase = normPhase(phase);
@@ -244,25 +245,73 @@ async function guardarCertificado(expId, phase, buffer, { mimeType = 'applicatio
         driveFolderId, fase, exp.numero_expediente, 'pdf', buffer, mimeType
     );
 
+    // El PDF se ENLAZA en su hueco (`cee.cee_files[fase].pdf`). Hasta el 07/11/2026
+    // solo se subía a Drive: la rejilla lo veía (escanea la carpeta), pero
+    // `validar-cee` copia lo ENLAZADO, así que el firmado no llegaba a «10.
+    // EXPEDIENTE CAE» y el lote salía sin él (26RES060_126 y _228).
+    const enlazado = await enlazarPdfEnSuHueco(exp.id, fase, subido.link);
+    if (!enlazado.ok) {
+        comprobacion.avisos = [...(comprobacion.avisos || []),
+            `El PDF está en Drive pero NO se ha enlazado en el expediente (${enlazado.error}): `
+            + 'al validarlo no llegaría a «10. EXPEDIENTE CAE». Vuelve a subirlo.'];
+    }
+
     // La huella de lo comprobado se queda en el expediente: una comprobación que
     // se ve una vez y se pierde al cerrar la pantalla no sirve de nada (mismo
-    // criterio que `rite_ocr` y `placas_ocr`). Solo metadatos — regla 21.
+    // criterio que `rite_ocr` y `placas_ocr`). Solo metadatos — regla 21. Por la
+    // RPC de clave: reescribir el `cee` leído al empezar pisaba lo que se hubiera
+    // guardado mientras subía a Drive (y, ahora, el enlace de arriba).
     try {
-        const cee = { ...(exp.cee || {}) };
-        cee[`firma_cee_${fase}`] = {
+        await setCeeField(exp.id, `firma_cee_${fase}`, {
             at: new Date().toISOString(),
             fecha_firma: comprobacion.fechaFirma,
             fecha_certificado: comprobacion.fechaCertificado,
             coincide: comprobacion.coincide,
             firmantes: (comprobacion.firmantes || []).map(f => ({ nombre: f.nombre, nif: f.nif, fecha: f.fecha })),
             avisos: comprobacion.avisos,
-        };
-        await supabase.from('expedientes').update({ cee }).eq('id', exp.id);
+        });
     } catch (e) {
         console.warn('[cee-firma] no se pudo sellar la comprobación:', e.message);
     }
 
-    return { ...subido, comprobacion };
+    return { ...subido, enlazado: enlazado.ok, comprobacion };
+}
+
+/** Una clave de `cee` por su RPC (regla 19): nunca el JSONB entero. */
+async function setCeeField(expId, campo, valor) {
+    const cex = require('./ceeEnvolventeCex');
+    await cex.setCeeField(cex.expedienteStub('cae', expId), campo, valor);
+}
+
+/**
+ * Pone el enlace del PDF en `cee.cee_files[fase].pdf` y, si ese hueco estaba
+ * validado, le quita la validación (fichero nuevo ⇒ vuelve a ámbar, igual que la
+ * subida del técnico): validar de nuevo es lo que copia el firmado a «10.
+ * EXPEDIENTE CAE». Se relee SOLO `cee_files` y `docs_validados` y se escriben por
+ * la RPC de clave, como `canonicoAlVistoBueno`. Nunca lanza: devuelve {ok, error}.
+ */
+async function enlazarPdfEnSuHueco(expId, fase, link) {
+    try {
+        if (!link) throw new Error('Drive no devolvió el enlace del fichero');
+        const { data: fila, error } = await supabase.from('expedientes')
+            .select('ficheros:cee->cee_files, validados:cee->docs_validados')
+            .eq('id', expId).maybeSingle();
+        if (error) throw new Error(error.message);
+        const ceeFiles = { ...(fila?.ficheros || {}) };
+        ceeFiles[fase] = { ...(ceeFiles[fase] || {}), pdf: link };
+        await setCeeField(expId, 'cee_files', ceeFiles);
+
+        const clave = `${fase}_pdf`;
+        if (fila?.validados?.[clave]) {
+            const validados = { ...fila.validados };
+            delete validados[clave];
+            await setCeeField(expId, 'docs_validados', validados);
+        }
+        return { ok: true };
+    } catch (e) {
+        console.error('[cee-firma] no se pudo enlazar el PDF en cee_files:', e.message);
+        return { ok: false, error: e.message };
+    }
 }
 
 module.exports = {
@@ -270,6 +319,7 @@ module.exports = {
     estadoFirma,
     pdfParaFirmar,
     guardarCertificado,
+    enlazarPdfEnSuHueco,
     fechaDelCertificado,
     esDeBrokergy,
     CIF_BROKERGY,

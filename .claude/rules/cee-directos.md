@@ -44,8 +44,9 @@ _Esta área no tiene reglas numeradas: mandan las «REGLA —» de sus documento
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-avisos-al-cliente-como-en-el-cae.md` — Los avisos al CLIENTE, como en el CAE (2026-09-23) · 2,4 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-ficheros-los-coloca-el-servidor-no-el-navegador.md` — Los FICHEROS los coloca el SERVIDOR, no el navegador · 2,3 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/numeracion-aaaa-cee-n.md` — Numeración — `{AAAA}CEE_{n}` · 0,9 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/presupuesto-para-un-cliente-del-instalador.md` — Presupuesto «para un cliente suyo»: lo pide el instalador, el certificado es del propietario (2026-11-10) · 4,5 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/que-ve-el-certificador-y-que-no.md` — Qué ve el certificador — y qué NO · 1,5 KB
-- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/quien-es-el-cliente-y-quien-el-partner.md` — Quién es el CLIENTE y quién el PARTNER · 1,3 KB
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/quien-es-el-cliente-y-quien-el-partner.md` — Quién es el CLIENTE y quién el PARTNER · 1,6 KB
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/seguimiento-del-encargo-que-paso-y-cuando.md` — Seguimiento del encargo — qué pasó y cuándo · 1,0 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -118,6 +119,12 @@ la ETIQUETA**
   cliente NO se le escribe solo: te PREGUNTA la app**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/los-ficheros-los-coloca-el-servidor-no-el-navegador.md`
   - **REGLA — ninguna ruta de carpeta llega desde el cliente.**
+- `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/presupuesto-para-un-cliente-del-instalador.md`
+  - **REGLA — el que va en el certificado sigue siendo el CLIENTE; quien paga es el PAGADOR.**
+  - **REGLA — si la visita es con el instalador, la ficha del propietario nace con el DESVÍO de contacto
+a él.**
+  - **REGLA — un DNI que ya tiene ficha ES esa persona.**
+  - **REGLA — la factura y la entrega van a QUIEN PAGA.**
 - `docs/conocimiento/cee-directos/cee-directos-el-segundo-negocio/que-ve-el-certificador-y-que-no.md`
   - **REGLA — al certificador NUNCA se le manda el enlace de la carpeta RAÍZ.**
   - **REGLA — un fichero que cae en presupuestos o facturas NO se hace público.**

@@ -20,6 +20,19 @@ con el certificado de la casa es un acto de quien firma. El script se niega con 
 se sube con el nombre canónico: desde el 19/10/2026, `cee_inicial.js listo <nº> --escribir`) y con un PDF que ya
 lleva firma electrónica.
 
+**REGLA — subir el firmado es también ENLAZARLO en su hueco** (2026-11-07). `guardarCertificado` deja el
+enlace en `cee.cee_files[fase].pdf` (`enlazarPdfEnSuHueco`: relee solo `cee_files` y `docs_validados` y
+los escribe por la RPC de clave `set_expediente_cee_field`, como `canonicoAlVistoBueno`) y, si ese hueco
+estaba validado, le quita la validación: el fichero es otro y vuelve a ámbar. Hasta ese día solo lo subía
+a Drive. La rejilla lo enseñaba igual (escanea la carpeta), pero `POST /:id/documentos/validar-cee` copia
+a «10. EXPEDIENTE CAE» lo que está ENLAZADO, así que el verificador recibía el PDF anterior (sin firmar) o
+nada. Salió al auditar 26RES060_126 el 06/11/2026, y en 26RES060_228 pasaba lo mismo. Si el enlace falla, el
+servicio no se calla: devuelve `enlazado: false` con un aviso, y `firmar_cee.js` sale con error. El sello
+`firma_cee_{fase}` también se escribe ya por la RPC de clave. Antes reescribía el `cee` entero leído al
+empezar, y eso pisaba lo que se hubiera guardado mientras subía a Drive. Lo ya subido sin enlazar se
+lista en seco con `scripts/enlazar_cee_fdo_pendientes.js` (con `--escribir` lo enlaza; validarlo después
+en la app es lo que lo copia a la carpeta 10). Prueba: `scripts/test_cee_firma_enlaza.js`.
+
 **REGLA — se firma con el certificado de REPRESENTANTE de Brokergy**, que es con el que firma Fran sus
 CEE (medido en el `_fdo` de 2026CEE_63: «NIF FRANCISCO JAVIER MOYA (R: B19350222)»), no con el personal.
 Se busca en el almacén de Windows por `(R: B19350222)` + vigente (o `CEE_FIRMA_HUELLA` en el `.env`) y se
@@ -42,9 +55,14 @@ y ahí no encontraba nada. Ahora toma el rótulo de ese servicio, casa solo el n
 (`{nº} – {rótulo}.pdf`, nunca algo que solo acabe igual) y con `--fase final` en uno de un solo
 certificado para y lo dice.
 
-⚠️ `CEE_SIGN_ANCHOR` de [signBoxes.js](implementation/frontend/src/features/expedientes/logic/signBoxes.js)
-(`'firma del tecnico certificador^above'`) NO encuentra el rótulo de CE3X 3.2 ni pone la firma donde la
-pone Fran (debajo): pendiente de alinear con esto en la firma desde la app.
+En la firma DESDE LA APP (`FirmarConCertificadoModal`) el ancla sigue siendo `CEE_SIGN_ANCHOR` de
+[signBoxes.js](implementation/frontend/src/features/expedientes/logic/signBoxes.js)
+(`'firma del tecnico certificador^above'`). Pero, desde el 28/10/2026, `findSignatureAnchor` **mira si el
+recuadro pisa texto**: si el lado pedido tapa otra línea y el otro no, lo pone en el otro. CE3X 2.3/3.1
+pone el rótulo debajo de la firma, y la 3.2 lo pone encima, con el párrafo de la declaración justo
+arriba. Por eso, en 2026EXT_1 (página 17), el recuadro pisaba la declaración. Ahora va **debajo** de
+«Firma del/la técnico/a certificador/a:» y ajustado al ancho de la hoja (medido: llx 345 · lly 515 ·
+urx 575 · ury 567).
 
 ⚠️ Para pintar un PDF con pdf.js en Node hay que pasarle `standardFontDataUrl`: sin las fuentes estándar
 no dibuja el texto en Helvetica (ni la marca de prueba ni el texto de la firma), y parece que falta.

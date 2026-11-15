@@ -1793,7 +1793,9 @@ const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, porta
 /**
  * Notifica a Admin/Partner que el CEE (Inicial o Final) ha sido presentado
  */
-const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ubicacion, techName, phaseLabel, portalLink, notifyClientLink = null) => {
+// `consejo` (opcional, solo al INSTALADOR): `{ html, texto }` del consejo de factura
+// (utils/consejoFactura.js). El correo lo ANUNCIA y el recuadro va al final.
+const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ubicacion, techName, phaseLabel, portalLink, notifyClientLink = null, consejo = null) => {
     // El asunto SIEMPRE empieza por el nº de expediente (mismo criterio que el resto
     // de emails): es por lo que se busca y se ordena en la bandeja.
     const subject = `${numExp} · ✅ Registro ${phaseLabel} presentado`;
@@ -1815,6 +1817,7 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
             (phaseLabel === 'CEE INICIAL'
                 ? emailBox(emailP('Desde este momento ya se pueden emitir facturas y pagos.', { bold: true, color: BRAND.greenDark, mb: 0 }), { bg: BRAND.greenTint, border: BRAND.green })
                 : '') +
+            (consejo?.html ? emailP(escapeHtml(require('../utils/consejoFactura').FRASE_EMAIL), { color: BRAND.muted }) : '') +
             (notifyClientLink && !isPartner
                 ? emailBox(
                     emailP('👆 Acción requerida', { bold: true, color: BRAND.greenDark, center: true, mb: 6 }) +
@@ -1823,10 +1826,15 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
                     emailP('Enlace de uso único · Válido 7 días', { size: 11, color: BRAND.muted, center: true, mb: 0 }),
                     { bg: BRAND.greenTint, border: BRAND.green })
                 : '') +
-            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;"><tr><td align="center">${emailOutlineButton(portalLink, '📁 Ver Expediente')}</td></tr></table>`,
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;"><tr><td align="center">${emailOutlineButton(portalLink, '📁 Ver Expediente')}</td></tr></table>` +
+            (consejo?.html || ''),
     });
 
-    return sendMail({ to, subject, html, text: `El justificante de registro del ${phaseLabel} ha sido presentado para el expediente ${numExp} del cliente ${clientName}. ${notifyClientLink && !isPartner ? 'Enlace para notificar al cliente: ' + notifyClientLink : ''}` });
+    return sendMail({ to, subject, html, text: `El justificante de registro del ${phaseLabel} ha sido presentado para el expediente ${numExp} del cliente ${clientName}. ${notifyClientLink && !isPartner ? 'Enlace para notificar al cliente: ' + notifyClientLink : ''}${consejo?.texto ? `
+
+Texto recomendado para la factura:
+
+${consejo.texto}` : ''}` });
 };
 
 /**
@@ -1982,7 +1990,36 @@ const sendDocumentEmail = async ({ to, cc, subject, title, message, primaryLink,
     return sendMail({ to, cc, subject, html, text, attachments, from });
 };
 
+/**
+ * El email de un mensaje REDACTADO (la solicitud de lo que falta al cliente o al
+ * instalador) con la MISMA identidad que el resto de avisos: el texto, párrafo a
+ * párrafo; una línea que es solo un enlace, como botón; y `extraHtml` (el recuadro
+ * del consejo de factura) detrás. Antes salía en un <div> suelto, sin cabecera ni
+ * pie de marca (Fran, 15/11/2026, 26RES060_283: «no tiene la estética del resto»).
+ */
+function buildSolicitudEmail({ asunto, mensaje, extraHtml = '' }) {
+    const etiquetaEnlace = (url) => (/\/subir-docs\/.*need=DOC_FACTURAS/.test(url) ? 'Subir la factura'
+        : /\/subir-docs\//.test(url) ? 'Subir la documentación'
+        : /\/consejo-factura\//.test(url) ? 'Copiar el concepto'
+            : /\/instalador\//.test(url) ? 'Abrir mi página' : 'Abrir el enlace');
+    const esUrl = (l) => /^https?:\/\/\S+$/.test(l.trim());
+    const bloques = String(mensaje || '').trim().split(/\n\s*\n/).map((parrafo) => {
+        const lineas = parrafo.split(/\r\n|\r|\n/);
+        const texto = lineas.filter(l => !esUrl(l)).join('\n').trim();
+        const botones = lineas.filter(esUrl).map(u => u.trim()).map(u =>
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;"><tr><td align="center">${emailButton(u, etiquetaEnlace(u))}</td></tr></table>`).join('');
+        return (texto ? emailP(nl2br(escapeHtml(texto)), { mb: botones ? 12 : 16 }) : '') + botones;
+    }).join('');
+    return brandEmailShell({
+        preheader: String(mensaje || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+        title: asunto || 'Documentación pendiente',
+        contentHtml: bloques + extraHtml,
+        footerNote: 'Si tienes cualquier duda, escríbenos por WhatsApp o contesta a este correo.',
+    });
+}
+
 module.exports = {
+    buildSolicitudEmail,
     sendDocumentEmail,
     buildDocumentEmailHtml,
     sendMail,

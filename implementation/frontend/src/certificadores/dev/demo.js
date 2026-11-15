@@ -7,6 +7,7 @@
 // Nada sale a ningún servidor: ni Supabase, ni el Catastro, ni Drive.
 import axios from 'axios';
 import { sanearCuestionario, barrido, SLOT_IDS } from '../logic/cuestionario';
+import { borradorDeObra } from '../logic/presentar';
 
 // v2 (25/10/2026): las obras traen el Catastro (deducciones) y el «para qué» múltiple.
 const CLAVE = 'certapp_demo_estado_v2';
@@ -73,6 +74,23 @@ function estadoInicial() {
             codigo_postal: '13700', superficie_catastro: 142, anio_construccion: 1968, proposito: 'IRPF_AEROTERMIA', en_vivienda: false,
             titular: { nombre: 'Carmen', apellidos: 'Díaz' }, pedido_at: hace(60 * 26), entregado_at: hace(60 * 3),
             cuestionario: { tipo_edificio: 'UNIFAMILIAR_AISLADA', cubierta: 'INCLINADA', colinda_no_calefactado: true, colindantes: ['GARAJE'], calefaccion: 'gasoleo', acs: 'misma_caldera' },
+        }),
+        // Un encargo de BROKERGY por aceptar (services/certapp/crm.js → encargar): con el
+        // cliente, la vivienda y las fotos del expediente del CRM.
+        base({
+            id: 'demo-obra-4', numero_expediente: '2026EXT_4', nombre: 'Pedro Sánchez Mora', estado: 'BORRADOR',
+            ref_catastral: '7778889VJ1273S0001QQ', direccion: 'CALLE VIRGEN 31', municipio: 'Pedro Muñoz',
+            codigo_postal: '13620', superficie_catastro: 118, anio_construccion: 1972, proposito: 'AYUDAS', en_vivienda: false,
+            titular: { nombre: 'Pedro', apellidos: 'Sánchez Mora', telefono: '644444444' }, created_at: hace(5), updated_at: hace(5),
+            // Lo que ya sabía el CRM, marcado BROKERGY (certapp/crm.instalacionCae).
+            cuestionario: { propositos: ['AYUDAS'], calefaccion: 'gasoleo', emisor: 'RADIADORES', acs: 'termo', placas_fv: 'NO',
+                origen: { calefaccion: 'BROKERGY', emisor: 'BROKERGY', acs: 'BROKERGY', placas_fv: 'BROKERGY' } },
+            documentacion: { reforma_uploads: {
+                FOTO_FACHADA_PRINCIPAL: [{ driveId: 'demo-crm-f1', nombre: 'FACHADA.jpg', mime: 'image/jpeg', subido_at: hace(60 * 24), por: 'BROKERGY' }],
+                FOTO_CALDERA: [{ driveId: 'demo-crm-c1', nombre: 'CALDERA.jpg', mime: 'image/jpeg', subido_at: hace(60 * 24), por: 'BROKERGY' }],
+            } },
+            crm: { negocio: 'cae', numero: '26RES060_999', fase: 'inicial', encargo: { estado: 'PENDIENTE', at: hace(5) } },
+            crmId: 'demo-exp-999', crmRevision: null,
         }),
     ];
     const eventos = {
@@ -157,9 +175,13 @@ const vista = (o) => {
 };
 const sinAltaGoogle = (cfg) => !S.altaGoogle && /demo-google/.test(String(cfg?.headers?.Authorization || cfg?.headers?.authorization || ''));
 const paraCertificador = (o) => {
-    const { portal_token, cuenta_id, ...resto } = o; // eslint-disable-line no-unused-vars
-    return resto;
+    const { portal_token, cuenta_id, crmId, crmRevision, ...resto } = o; // eslint-disable-line no-unused-vars
+    return { ...resto, crm: o.crm || null };
 };
+// Como crm.resumen: el encargo y lo que dice ahora el CRM (aquí, `crmRevision`).
+const encargoDe = (o) => (o.crm ? {
+    ...o.crm, fase_label: o.crm.fase === 'final' ? 'CEE final' : 'CEE inicial', enviado_at: o.firmado?.at || null, revision: o.crmRevision || null,
+} : null);
 const enlaces = (o) => (['LISTO', 'VALIDADO'].includes(o.estado) ? {
     pdf: miniatura('CEE PDF', '#fff'), firmado: o.firmado ? miniatura('CEE FIRMADO', '#fff') : null, cex: null, xml: miniatura('XML', '#fff'), croquis: null,
     carpeta: 'https://drive.google.com/', envolvente: `/obra/${o.id}/envolvente?origen=ext`,
@@ -191,11 +213,34 @@ const documentosDemo = (o, admin = false) => {
         firma: o.firmado ? { at: o.firmado.at, firmante: o.firmado.firmante, via: 'autofirma', coincide: true } : null,
         firma_anterior: false,
         xml_resumen: { consumo: 'E', emisiones: 'D', consumo_kwh_m2: 187.4, demanda_kwh_m2: 121.2, superficie: 128, zona: 'D3' },
+        // Lo que devuelve el Registro (services/certapp/presentacion.js).
+        justificante: o.reg?.justificante ? { ...docDemo(o, 'just', 'JUSTIFICANTE DE REGISTRO.pdf', o.reg.justificante, 'certificador'), clase: 'justificante' } : null,
+        etiqueta: o.reg?.etiqueta ? { ...docDemo(o, 'etq', 'ETIQUETA ENERGÉTICA.pdf', o.reg.etiqueta, 'certificador'), clase: 'etiqueta' } : null,
+        otros: (o.reg?.otros || []).map((x, i) => ({ ...docDemo(o, `otro${i}`, x.nombre, x.at, 'certificador'), clase: 'otros' })),
+        registro: o.reg?.registro || null,
     };
-    for (const k of ['certificado', 'firmado', 'xml', 'cex', 'croquis']) r[k] = conDrive(r[k]);
+    for (const k of ['certificado', 'firmado', 'xml', 'cex', 'croquis', 'justificante', 'etiqueta']) r[k] = conDrive(r[k]);
     r.anteriores = r.anteriores.map(conDrive);
     r.cuarentena = r.cuarentena.map(conDrive);
+    r.otros = r.otros.map(conDrive);
     return r;
+};
+// El borrador para presentar: el de verdad (logic/presentar.js), con el XML de la demo.
+const presentarDemo = (o) => {
+    if (!['LISTO', 'VALIDADO'].includes(o.estado)) fallo(409, 'Esto se hace con el certificado ya entregado.', 'ESTADO_NO_ENTREGADO');
+    const cee = { cee_inicial: { epnrLetra: 'E', emisionesLetra: 'D', fechaFirma: (o.entregado_at || ahora()).slice(0, 10), tipoEdificio: 'ViviendaUnifamiliar' } };
+    const b = borradorDeObra({ ...o, cee }, S.cuenta);
+    if (!b.aplica) return { borrador: b, html: null };
+    const pre = b.nif ? `${b.nif}_` : '';
+    const hay = { pdf: o.firmado ? 'CEE_fdo.pdf' : null, xml: 'CEE.xml', cex: 'CEE.cex', mejoras: null };
+    b.ficheros = b.ficheros.map(f => {
+        const n = hay[f.clave] ? `${o.numero_expediente} - ${hay[f.clave]}` : null;
+        return { clave: f.clave, titulo: f.titulo, presente: !!n, nombreDrive: n || f.titulo, nombreRegistro: n ? `${pre}${n}` : null,
+            url: n ? `/api/certapp/demo-fichero/${o.id}-${f.clave}` : null,
+            nota: f.clave === 'pdf' && !n ? 'Está sin firmar: fírmalo antes de presentarlo.' : null };
+    });
+    b.registro = o.reg?.registro || null;
+    return { borrador: b, html: '<!-- demo -->' };
 };
 const bytesDe = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
 // La fachada propuesta: un dibujo de una casa (otro cielo según la fuente).
@@ -237,6 +282,7 @@ const listaObra = (o) => ({
     id: o.id, numero_expediente: o.numero_expediente, nombre: o.nombre, direccion: o.direccion, municipio: o.municipio,
     provincia: o.provincia, ref_catastral: o.ref_catastral, estado: o.estado, proposito: o.proposito, en_vivienda: o.en_vivienda,
     created_at: o.created_at, updated_at: o.updated_at, pedido_at: o.pedido_at || null, entregado_at: o.entregado_at || null,
+    crm: o.crm || null,
 });
 const evento = (obraId, tipo, texto, por = 'certificador') => {
     (S.eventos[obraId] ||= []).unshift({ id: uuid(), created_at: ahora(), tipo, texto, por });
@@ -317,7 +363,29 @@ const RUTAS = [
     }],
     ['GET', /^\/api\/certapp\/obras\/([^/]+)$/, (b, [, id]) => {
         const o = obraDe(id);
-        return { obra: paraCertificador(o), barrido: barrido(o, S.cuenta), eventos: S.eventos[id] || [], enlaces: enlaces(o), cee: ceeDe(o) };
+        return { obra: paraCertificador(o), barrido: barrido(o, S.cuenta), eventos: S.eventos[id] || [], enlaces: enlaces(o), cee: ceeDe(o), encargo: encargoDe(o) };
+    }],
+    // Encargos de BROKERGY (routes/certapp.js → services/certapp/crm.js).
+    ['GET', /^\/api\/certapp\/encargo\/([^/]+)\/([^/]+)\/([^/]+)$/, (b, [, negocio, crmId, fase]) => {
+        const o = S.obras.find(x => x.crm && x.crm.negocio === negocio && x.crmId === decodeURIComponent(crmId) && x.crm.fase === fase && x.estado !== 'ARCHIVADA');
+        if (!o) fallo(404, 'Ese encargo no está en tu cuenta. ¿Has entrado con el email al que te lo mandamos?', 'ENCARGO_NO_ENCONTRADO');
+        return { obra_id: o.id, estado: o.estado };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/encargo\/aceptar$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (!o.crm) fallo(400, 'Esta obra no es un encargo de BROKERGY.', 'NO_ES_ENCARGO');
+        o.crm = { ...o.crm, encargo: { estado: 'ACEPTADO', at: ahora() } };
+        evento(o.id, 'ENCARGO_ACEPTADO', `Encargo ${o.crm.numero} aceptado`);
+        return { ok: true, obra: paraCertificador(o), encargo: encargoDe(o), __espera: 600 };
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/encargo\/rechazar$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (!o.crm) fallo(400, 'Esta obra no es un encargo de BROKERGY.', 'NO_ES_ENCARGO');
+        if (o.crm.encargo?.estado === 'ACEPTADO') fallo(409, 'Ya lo aceptaste. Si al final no puedes hacerlo, escríbenos y lo pasamos a otro técnico.', 'ENCARGO_ACEPTADO');
+        o.crm = { ...o.crm, encargo: { estado: 'RECHAZADO', at: ahora(), motivo: b.motivo || null } };
+        o.estado = 'ARCHIVADA';
+        evento(o.id, 'ENCARGO_RECHAZADO', `Encargo ${o.crm.numero} rechazado${b.motivo ? `: ${b.motivo}` : ''}`);
+        return { ok: true, obra: paraCertificador(o), __espera: 600 };
     }],
     // Firma y definitivo (services/certapp/firma.js). AutoFirma no corre en la
     // demo: el modal se abre con el recuadro colocado, pero no firma.
@@ -336,6 +404,34 @@ const RUTAS = [
     ['GET', /^\/api\/certapp\/obras\/([^/]+)\/documentos$/, (b, [, id]) => documentosDemo(obraDe(id))],
     ['GET', /^\/api\/certapp-admin\/obras\/([^/]+)\/documentos$/, (b, [, id]) => documentosDemo(obraDe(id), true)],
     ['GET', /^\/api\/certapp\/demo-fichero\/([^/]+)$/, (b, [, id]) => bytesDe(pdfDemo(/croquis/.test(id) ? 1 : 6))],
+    ['GET', /^\/api\/certapp\/obras\/([^/]+)\/presentar$/, (b, [, id]) => ({ ...presentarDemo(obraDe(id)), __espera: 500 })],
+    ['GET', /^\/api\/certapp\/obras\/([^/]+)\/presentar\/pdf$/, (b, [, id]) => {
+        presentarDemo(obraDe(id));
+        return new Blob([bytesDe(pdfDemo(2))], { type: 'application/pdf' });
+    }],
+    ['POST', /^\/api\/certapp\/obras\/([^/]+)\/documentos\/(justificante|etiqueta|otros)$/, (b, [, id, clase]) => {
+        const o = obraDe(id);
+        if (!['LISTO', 'VALIDADO'].includes(o.estado)) fallo(409, 'Esto se hace con el certificado ya entregado.', 'ESTADO_NO_ENTREGADO');
+        const f = b instanceof FormData ? b.get('fichero') : null;
+        const esPdf = /\.pdf$/i.test(f?.name || '');
+        if (clase === 'justificante' && !esPdf) fallo(415, 'El justificante tiene que ser el PDF que da la sede.', 'TIPO_NO_VALE');
+        const r = (o.reg ||= {});
+        if (clase === 'otros') {
+            const base = String((b.get('nombre') || '').trim() || String(f?.name || 'Documento').replace(/\.[a-z0-9]+$/i, '')).slice(0, 80);
+            r.otros = [{ nombre: `${base}.${esPdf ? 'pdf' : 'jpg'}`, at: ahora() }, ...(r.otros || [])];
+            evento(o.id, 'DOCUMENTO', `El certificador ha subido «${base}»`);
+            return { ok: true, clase, fichero: `${o.numero_expediente} - ${base}`, __espera: 800 };
+        }
+        r[clase] = ahora();
+        if (clase === 'justificante') {
+            // Como resolverFechaRegistro: la fecha leída del justificante (aquí, la de hoy).
+            r.registro = { at: ahora(), fecha: ahora().slice(0, 10), leida: true, numero: '2026/1234567' };
+            evento(o.id, 'REGISTRO', `El certificador ha subido el justificante de registro (registrado el ${r.registro.fecha})`);
+            return { ok: true, clase, registro: r.registro, aviso: null, __espera: 1400 };
+        }
+        evento(o.id, 'DOCUMENTO', 'El certificador ha subido la etiqueta energética');
+        return { ok: true, clase, __espera: 800 };
+    }],
     ['POST', /^\/api\/certapp\/obras\/([^/]+)\/cee\/definitivo$/, (b, [, id]) => {
         const o = obraDe(id);
         const f = b instanceof FormData ? b.get('fichero') : null;
@@ -349,6 +445,17 @@ const RUTAS = [
         }
         if (!/\.(xml|pdf)$/.test(nombre)) fallo(415, 'Sube el XML del certificado (de CE3X) o el PDF.', 'TIPO_NO_VALE');
         const tipo = nombre.endsWith('.xml') ? 'xml' : 'pdf';
+        if (o.estado === 'BORRADOR' && tipo !== 'xml') fallo(409, 'Antes de pedir el certificado solo se puede subir el XML que saca tu CE3X.', 'ESTADO_NO_FIRMABLE');
+        if (tipo === 'xml') {
+            // Como firma.subirXml: la app hace el PDF oficial. Un XML con «mal» en el nombre hace de uno que no valida.
+            if (/mal/.test(nombre)) {
+                fallo(422, 'Ese XML no valida: el PDF saldría con la marca «certificado incompleto», que no se puede registrar. '
+                    + 'Corrígelo en CE3X y vuelve a subirlo. element "DatosRaros" not allowed here', 'XML_NO_VALIDA');
+            }
+            if (o.estado === 'BORRADOR' || o.estado === 'VALIDADO') { o.estado = 'LISTO'; o.firmado = null; }
+            evento(o.id, 'DEFINITIVO', 'El certificador ha subido el XML definitivo y la app ha hecho el PDF oficial, listo para firmar');
+            return { ok: true, tipo, fichero: `${o.numero_expediente} - CEE.xml`, pdf: `${o.numero_expediente} - CEE.pdf`, cargado: true, estado: o.estado, __espera: 2500 };
+        }
         evento(o.id, 'DEFINITIVO', `El certificador ha subido el ${tipo.toUpperCase()} definitivo`);
         return { ok: true, tipo, fichero: `${o.numero_expediente} - CEE.${tipo}`, estado: o.estado, __espera: 900 };
     }],
@@ -425,6 +532,14 @@ const RUTAS = [
         up.FOTO_FACHADA_PRINCIPAL = [...(up.FOTO_FACHADA_PRINCIPAL || []), nuevo];
         return { ok: true, subidos: [nuevo], rechazados: [], errores: [], slots: vista(o).slots, __espera: 700 };
     }],
+    // Borrar una obra: como el servidor, solo un borrador sin crédito gastado.
+    ['DELETE', /^\/api\/certapp\/obras\/([^/]+)$/, (b, [, id]) => {
+        const o = obraDe(id);
+        if (o.crm) fallo(409, 'Es un encargo de BROKERGY: no se borra; si no puedes hacerlo, recházalo.', 'ENCARGO_CRM');
+        if (o.estado !== 'BORRADOR' || o.credito_consumido) fallo(409, 'Esta obra ya está pedida: no se puede borrar.', 'OBRA_CERRADA');
+        S.obras = S.obras.filter(x => x.id !== id);
+        return { ok: true, numero: o.numero_expediente, carpeta: 'papelera', __espera: 500 };
+    }],
     ['DELETE', /^\/api\/certapp\/obras\/([^/]+)\/docs\/([^/]+)\/([^/]+)$/, (b, [, id, slot, driveId]) => {
         const o = obraDe(id);
         const up = o.documentacion.reforma_uploads || {};
@@ -447,6 +562,13 @@ const RUTAS = [
         if (o.estado !== 'BORRADOR') fallo(409, 'Este certificado ya está pedido.', 'YA_PEDIDO');
         const r = barrido(o, S.cuenta);
         if (!r.listo) fallo(422, 'Falta algo para poder pedir el certificado.', 'BARRIDO', { barrido: r });
+        if (o.crm) {
+            // Un encargo de BROKERGY: aceptado antes, y sin gastar créditos.
+            if (o.crm.encargo?.estado !== 'ACEPTADO') fallo(409, 'Acepta primero el encargo de BROKERGY.', 'ENCARGO_SIN_ACEPTAR');
+            Object.assign(o, { estado: 'EN_PREPARACION', pedido_at: ahora() });
+            evento(o.id, 'GENERAR', `Certificado pedido (encargo de BROKERGY ${o.crm.numero}: no gasta tus créditos)`);
+            return { ok: true, obra: paraCertificador(o), creditos: S.cuenta.creditos, encargo: true, ia: { auto: false, ok: null }, __espera: 1400 };
+        }
         if (S.cuenta.creditos <= 0) fallo(402, 'No te quedan certificados.', 'SIN_CREDITOS');
         S.cuenta.creditos -= 1; S.cuenta.creditos_usados += 1;
         apuntarMov('GASTO', -1, 'Certificado pedido', o.id);
@@ -591,7 +713,7 @@ function vistaCliente(o) {
         obra: { id: o.id, numero_expediente: o.numero_expediente, direccion: o.direccion, municipio: o.municipio, titular: o.titular?.nombre || null, cerrada: ['LISTO', 'VALIDADO'].includes(o.estado) },
         apartados: ids.map(id => ({
             id, label: label[id], ayuda: id === 'FOTO_PLACA_CALDERA' ? 'La pegatina con marca, modelo y potencia, que se lea.' : null,
-            multiple: id !== 'FOTO_CALDERA' && id !== 'FOTO_PLACA_CALDERA', video: id === 'VIDEO_VIVIENDA', documento: id === 'DOC_PLANOS', placa: id === 'FOTO_PLACA_CALDERA',
+            multiple: true, video: id === 'VIDEO_VIVIENDA', documento: id === 'DOC_PLANOS', placa: id === 'FOTO_PLACA_CALDERA',
             ficheros: slots[id] || [],
         })),
     };

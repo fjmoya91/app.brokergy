@@ -21,9 +21,12 @@ import {
     FUEL_PRICES,
     getUByYear,
     GUIA_TRANSMITANCIAS,
+    CALIBRACION_DEMANDA,
     getVentanaYACHByYear,
     AEROTHERMIA_MODELS,
     CAE_PRECIO_CLIENTE_NUEVAS,
+    precioCaeRes080,
+    precioCaeFm,
     calculateTerciario,
     redondeaScop,
     scopsParaClima,
@@ -42,8 +45,11 @@ import { esBloque, TIPO_INMUEBLE } from '../logic/tipoInmueble';
 import { resolveDacs, ACS_METHOD } from '../../expedientes/logic/demandaAcs';
 import { ceeToEmisionesInputs, ceeFinalToEmisionesInputs } from '../logic/ceeSeed';
 import { demandaDeCalculo } from '../../cee/ceeAvisos';
-import { calculateRes060FC, contextoCalderaFc } from '../logic/res060fc';
+import { calculateRes060FC, contextoCalderaFc, potenciaBombaDeInputs } from '../logic/res060fc';
+import { esVulnerableFm } from '../logic/viaFm';
+import { entradasFmClima } from '../logic/climaFm';
 import { Res060FCModal } from '../components/Res060FCModal';
+import { calculateRes080FM } from '../logic/res080fm';
 import axios from 'axios';
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { nombrePartner, tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
@@ -125,6 +131,9 @@ const INITIAL_INPUTS = {
     hibridacionMetodo: 'demanda',  // 'demanda' (P. de diseño) | 'caldera' (P. nominal caldera)
     potenciaCaldera: 0,            // kW — solo se usa con hibridacionMetodo = 'caldera'
     discountCertificates: false,
+    // «Perfil exigente» (solo ADMIN): cláusulas 3 y 4 reforzadas en la propuesta y
+    // compromiso de cesión en exclusiva al aceptar (cifrasPropuesta.js).
+    condicionesReforzadas: false,
     includeLegalization: false,
     installerNoCard: false,
     legalizationPrice: 200,
@@ -242,6 +251,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         // (su bono ya se le dio al cliente). No va en INITIAL_INPUTS: la heredarían.
         if (!initialData?.isPersistent && base.guia_transmitancias === undefined) {
             base.guia_transmitancias = GUIA_TRANSMITANCIAS;
+        }
+        // Lo mismo con la calibración por época (calculation.js, `getFactorEpoca`).
+        if (!initialData?.isPersistent && base.calibracion_demanda === undefined) {
+            base.calibracion_demanda = CALIBRACION_DEMANDA;
         }
 
         // Forzamos defaults críticos si vienen vacíos de initialData (ej: oportunidades antiguas o mal inicializadas)
@@ -499,9 +512,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
     // resultados abran el MISMO modal.
     const [showEficiencia, setShowEficiencia] = useState(false);
 
-    // Popup de desglose de la ficha RES060FC: se abre desde las cifras FC de la barra
+    // Popup de desglose de la vía FM (RES060_FM / RES09x_FM): se abre desde las cifras FM de la barra
     // fija y desde la tarjeta de comparativa del panel de resultados.
     const [showRes060FCDetail, setShowRes060FCDetail] = useState(false);
+    const [showRes080FMDetail, setShowRes080FMDetail] = useState(false);
 
     const handleCalculate = () => {
         // Se eliminó la alerta bloqueante para permitir actualización fluida de cálculos en tiempo real
@@ -576,6 +590,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             gastoAnualReal: parseFloat(inputs.gastoAnualReal) || 0,
             participation: parseFloat(inputs.participation) || 100,
             caePriceClient: parseFloat(inputs.caePriceClient) || CAE_PRECIO_CLIENTE_NUEVAS,
+            // El de la opción REFORMA (RES080); sin teclear, el mismo que el RES060.
+            caePriceClientRes080: precioCaeRes080(inputs) || CAE_PRECIO_CLIENTE_NUEVAS,
+            // El de la vía del FACTOR MULTIPLICADOR (solo ADMIN); sin teclear, el general.
+            caePriceClientFm: precioCaeFm(inputs) || CAE_PRECIO_CLIENTE_NUEVAS,
             caePriceSO: parseFloat(inputs.caePriceSO) || 160,
             costeVerificacion: parseFloat(inputs.costeVerificacion) || 0,
             caePricePrescriptor: parseFloat(inputs.caePricePrescriptor) || 0,
@@ -822,37 +840,59 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             return out;
         })();
 
-        // 3.5 Fichas con FACTOR DE CORRECCIÓN (borrador) — comparativa en tiempo real.
-        // RES060FC, o la RES09xFC de la zona si hay hibridación (logic/res060fc.js).
-        // Demanda del ANEXO IV, el MISMO η/SCOP que el cálculo actual, y el CEF del
-        // CEE inicial si está cargado (sin él, estimado con la demanda de la app).
-        // La superficie es la misma que aplica el cálculo vigente (CEE si hay, si no la calefactable).
+        // 3.5 Vía del FACTOR MULTIPLICADOR (Resolución publicada, BOE-A-2026-23367) —
+        // comparativa en tiempo real: RES060_FM, o la RES09x_FM de la zona si hay
+        // hibridación (logic/res060fc.js). D_cal y S del CEE POSTERIOR (el final; sin
+        // él, el inicial; sin ninguno, la demanda de la app, marcada como estimada),
+        // con el MISMO η/SCOP que el cálculo vigente. Sin tope de CEF.
         const supRes060FC = sanitizedInputs.manualSuperficie > 0
             ? sanitizedInputs.manualSuperficie
             : (sanitizedInputs.superficieCalefactable || sanitizedInputs.superficie);
-        const res060fcData = calculateRes060FC({
+        // Por la FM la calefacción va en el clima de la ZONA aunque la vigente se haya
+        // declarado en medio (logic/climaFm.js): SCOP cálido y C_b con las horas cálidas.
+        const fmClima = entradasFmClima({
+            src: sanitizedInputs,
+            zona: sanitizedInputs.zona,
+            scopHeating: sanitizedInputs.scopHeating,
+            hibridacion: hybridizationRes
+                ? { coverage: hybridizationRes.coverage, refPower: hybridizationRes.refPower, cb: hybridizationRes.cb }
+                : null,
+            hybridInputs: { method: sanitizedInputs.hibridacionMetodo, heatPumpPower: sanitizedInputs.potenciaBomba, boilerPower: sanitizedInputs.potenciaCaldera },
+            demandAnnual: demandRes.Q_net,
+            scopCalido: comparativaClima?.[CLIMA_SCOP.CALIDO]?.scopHeating ?? null,
+        });
+        // TERCIARIO (TER100 / TER173): sin ficha FM, así que no se calcula y no sale
+        // nada del multiplicador ni en la calculadora ni en la propuesta (Fran,
+        // 10/11/2026, 26TER100_OP389). El `via_fm` guardado lo marca `aplica: false`.
+        const res060fcData = esTerciarioCalc ? null : calculateRes060FC({
             provinciaCode: inputs.provincia || inputs.provinceCode,
             anio: sanitizedInputs.anio || inputs.anio,
             tipo: sanitizedInputs.tipo,
             bloque: esBloqueCalc,
-            plantasEdificio: inputs.fcPlantasEdificio,
             zona: sanitizedInputs.zona,
             superficie: supRes060FC,
             boilerEff: sanitizedInputs.boilerEff,
             boilerId: inputs.boilerId,
-            scopHeating: sanitizedInputs.scopHeating,
+            scopHeating: fmClima.scopHeating,
             scopAcs: sanitizedInputs.scopAcs,
             changeAcs: sanitizedInputs.changeAcs,
-            dacs: sanitizedInputs.dacs,
+            // Mismo alcance que la vía vigente: solo en un bloque puede quedar fuera.
+            changeHeating: esBloqueCalc ? inputs.changeHeating !== false : true,
             qCalefaccion: demandRes.Q_net,
             ceeInicial: inputs.xmlDemandData,
-            hibridacion: hybridizationRes
-                ? { coverage: hybridizationRes.coverage, refPower: hybridizationRes.refPower, cb: hybridizationRes.cb }
-                : null,
-            contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal },
+            ceeFinal: inputs.xmlDemandDataFinal,
+            hibridacion: fmClima.hibridacion,
+            contexto: { ...contextoCalderaFc(inputs), ceeFinal: inputs.xmlDemandDataFinal, climaFm: fmClima.clima },
+            // × 1,5 de consumidor vulnerable (ficha -S): el conmutador del equipo o,
+            // sin tocar, el bono social que declaró el cliente al aceptar (09/11/2026).
+            vulnerable: esVulnerableFm(inputs),
+            // ¿Llega la bomba? Con la potencia del catálogo (o la tecleada en la
+            // hibridación) y las horas de la temporada del SCOP, como el C_b.
+            potenciaBomba: potenciaBombaDeInputs(inputs),
+            temporadaScop: fmClima.clima?.ajustado ? CLIMA_SCOP.CALIDO : resolveClimateSeason({}, sanitizedInputs, sanitizedInputs.zona),
         });
 
-        // Financieros RES060FC con las mismas reglas (precio CAE, prescriptor, IVA...)
+        // Financieros de la vía FM con las mismas reglas (precio CAE, prescriptor, IVA...)
         // para que el bono y el beneficio sean directamente comparables al RES060 actual.
         let financialsRes060FC = null;
         if (res060fcData && res060fcData.cae > 0) {
@@ -860,7 +900,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 presupuesto: sanitizedInputs.presupuesto,
                 presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
                 savingsKwh: res060fcData.cae,
-                caePriceClient: sanitizedInputs.caePriceClient,
+                // SU precio (`caePriceClientFm`), como la opción RES080 el suyo.
+                caePriceClient: sanitizedInputs.caePriceClientFm,
                 caePriceSO: sanitizedInputs.caePriceSO,
                 costeVerificacion: sanitizedInputs.costeVerificacion,
                 caePricePrescriptor: inputs.includeCommission ? sanitizedInputs.caePricePrescriptor : 0,
@@ -919,8 +960,19 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         let financialsRes080 = null;
         
         // LÓGICA DE CÁLCULO RES080
+        // REGLA (2026-10-27, 26RES080_OP86): con los DOS certificados declarando la energía
+        // final por vector, el ahorro es esa energía, venga la simulación del modo que venga
+        // (también la tabla de emisiones de una oportunidad antigua): calculateRes080 lo fuerza.
+        const dosConEnergiaFinal = inputs.demandMode !== 'estimated'
+            && !!inputs.xmlDemandData?.energiaFinalVectores && !!inputs.xmlDemandDataFinal?.energiaFinalVectores;
         if (inputs.isReforma && inputs.reformaType !== 'none') {
-            if (inputs.demandMode === 'real') {
+            if (dosConEnergiaFinal) {
+                res080Data = calculateRes080({
+                    xmlInicial: inputs.xmlDemandData,
+                    xmlFinal: inputs.xmlDemandDataFinal,
+                    superficieCustom: sanitizedInputs.superficieCalefactable
+                });
+            } else if (inputs.demandMode === 'real') {
                 // MODO REAL: Siempre usar lógica XML si el archivo final está cargado
                 if (inputs.xmlDemandDataFinal && sanitizedInputs.metodoAhorroRes080 === 'simplificado') {
                     // El .xml publica el reparto por vector energético en
@@ -981,7 +1033,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                     combRefrigeracionFinal: inputs.combustibleRefrigeracionFinal,
                     superficieInicial: sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable,
                     superficieFinal: sanitizedInputs.manualSupFinal || sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable,
-                    // Con placas en algún CEE, por vector (calculation.js, autoconsumoDeEmisiones).
+                    // Con placas en algún CEE, sin la fotovoltaica (calculation.js, autoconsumoDeEmisiones).
                     emiElecIni: inputs.manualEmisionesElectricoInicial, emiElecFin: inputs.manualEmisionesElectricoFinal,
                     emiOtrosIni: inputs.manualEmisionesOtrosInicial, emiOtrosFin: inputs.manualEmisionesOtrosFinal,
                     combOtrosIni: inputs.combustibleOtrosInicial, combOtrosFin: inputs.combustibleOtrosFinal,
@@ -1016,7 +1068,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 presupuesto: sanitizedInputs.presupuesto + (sanitizedInputs.isReforma ? sanitizedInputs.presupuestoEnvolvente : 0),
                 presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
                 savingsKwh: res080Data.ahorroEnergiaFinalTotal,
-                caePriceClient: sanitizedInputs.caePriceClient,
+                caePriceClient: sanitizedInputs.caePriceClientRes080,
                 caePriceSO: sanitizedInputs.caePriceSO,
                 // El informe de verificación se paga UNA vez por expediente: repercutido
                 // sobre el ahorro del RES080 (que es el que se presentaría) da su €/MWh.
@@ -1038,6 +1090,49 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             });
         }
 
+        // Vía FM del RES080 (RES080_FM, logic/res080fm.js): el MISMO ahorro de la
+        // reforma × el cociente de los dos CEE simulados (o sus kWh tecleados en la
+        // tarjeta; sin ellos, estimados desde el inicial y el final). Al precio de la
+        // opción reforma, con las mismas reglas que su bono.
+        let res080fmData = null;
+        let financialsRes080FM = null;
+        if (res080Data && !esTerciarioCalc) {
+            res080fmData = calculateRes080FM({
+                res080: res080Data,
+                ceeInicial: inputs.xmlDemandData,
+                ceeFinal: inputs.xmlDemandDataFinal,
+                efSimBC: parseFloat(inputs.efSimBC) || null,
+                efSimRest: parseFloat(inputs.efSimRest) || null,
+                tipo: sanitizedInputs.tipo,
+                bloque: esBloqueCalc,
+                contexto: contextoCalderaFc(inputs),
+            });
+            if (res080fmData?.cae > 0 && financialsRes080) {
+                financialsRes080FM = calculateFinancials({
+                    presupuesto: sanitizedInputs.presupuesto + (sanitizedInputs.isReforma ? sanitizedInputs.presupuestoEnvolvente : 0),
+                    presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
+                    savingsKwh: res080fmData.cae,
+                    caePriceClient: sanitizedInputs.caePriceClientRes080,
+                    caePriceSO: sanitizedInputs.caePriceSO,
+                    costeVerificacion: sanitizedInputs.costeVerificacion,
+                    caePricePrescriptor: inputs.includeCommission ? sanitizedInputs.caePricePrescriptor : 0,
+                    prescriptorMode: sanitizedInputs.prescriptorMode,
+                    tipo: sanitizedInputs.tipo,
+                    participation: sanitizedInputs.participation,
+                    numOwners: sanitizedInputs.numOwners,
+                    discountCertificates: sanitizedInputs.discountCertificates,
+                    includeLegalization: sanitizedInputs.includeLegalization,
+                    installerNoCard: sanitizedInputs.installerNoCard,
+                    legalizationPrice: sanitizedInputs.legalizationPrice,
+                    itpPercent: sanitizedInputs.itpPercent,
+                    includeIrpf: inputs.includeIrpf,
+                    titularType: inputs.titularType || 'particular',
+                    aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true',
+                    includeIVA: inputs.includeIVA === true || inputs.includeIVA === 'true'
+                });
+            }
+        }
+
         // 6. Información del modelo seleccionado
         const modelId = sanitizedInputs.aerothermiaModel;
         let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
@@ -1055,6 +1150,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             payback: paybackRes,
             res080: res080Data,
             financialsRes080: financialsRes080,
+            res080fm: res080fmData,
+            financialsRes080FM,
             res060fc: res060fcData,
             financialsRes060FC: financialsRes060FC,
             includeAnnualSavings: inputs.includeAnnualSavings,
@@ -1079,12 +1176,22 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 const fmt = (n) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
                 const fmtMwh = (n) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(n / 1000);
                 const currentFinancials = showOnlyReforma ? result.financialsRes080 : result.financials;
-                // Chip «FC»: la ficha que toca (RES060FC o la de hibridación de la zona) y,
-                // si algo impide pedirlo, tachado y con el porqué en el título.
+                // Chip «FM» (factor multiplicador): la ficha que toca (RES060_FM o la de
+                // hibridación de la zona) y, si algo impide pedirlo, tachado y con el porqué.
+                // Con la D_cal de la simulación (sin CEE) lleva «≈»: es una estimación.
                 const fcNoElegible = result.res060fc?.elegible === false;
                 const fcTitulo = fcNoElegible
                     ? `No se puede pedir: ${(result.res060fc.avisos || []).find(a => a.tono === 'bloquea')?.texto || ''}`
-                    : `Ver desglose de la ficha ${result.res060fc?.ficha || 'RES060FC'}`;
+                    : `Ver desglose de la ficha ${result.res060fc?.ficha || 'RES060_FM'}${result.res060fc?.dcalFuente === 'simulacion' ? ' (D_cal estimada: sin CEE)' : ''}`;
+                const fmAprox = result.res060fc?.dcalFuente === 'simulacion' ? '≈' : '';
+                // El mismo chip para la RES080_FM (rehabilitación profunda): «≈» con los
+                // CEE simulados estimados.
+                const fm080 = result.res080fm;
+                const fm080Aprox = fm080?.estimada ? '≈' : '';
+                const fm080Titulo = fm080?.elegible === false
+                    ? `No se puede pedir: ${(fm080.avisos || []).find(a => a.tono === 'bloquea')?.texto || ''}`
+                    : `Ver desglose de la ficha RES080_FM${fm080?.estimada ? ' (CEE simulados estimados)' : ''}`;
+                const fm080Clase = `relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer${fm080?.elegible === false ? ' line-through opacity-60' : ''}`;
                 const fcClase = `relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer${fcNoElegible ? ' line-through opacity-60' : ''}`;
                 return (
                 <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] py-2 px-3 md:py-2 md:px-4 flex justify-center pointer-events-none">
@@ -1114,7 +1221,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                                 title={fcTitulo}
                                                 className={fcClase}
                                             >
-                                                FC {fmt(result.financialsRes060FC.caeBonus)} €
+                                                FM {fmAprox}{fmt(result.financialsRes060FC.caeBonus)} €
                                             </button>
                                         )}
                                     </div>
@@ -1135,6 +1242,11 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                         <span className="text-[8px] font-bold text-cyan-400/45 uppercase tracking-[0.18em] mt-1 relative">
                                             {showOnlyReforma ? 'Bono Reforma CAE' : 'Bono Reforma'}
                                         </span>
+                                        {showBrokergy && result.financialsRes080FM && (
+                                            <button type="button" onClick={() => setShowRes080FMDetail(true)} title={fm080Titulo} className={fm080Clase}>
+                                                FM {fm080Aprox}{fmt(result.financialsRes080FM.caeBonus)} €
+                                            </button>
+                                        )}
                                     </div>
                                 )}
 
@@ -1157,7 +1269,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                                 title={fcTitulo}
                                                 className={fcClase}
                                             >
-                                                FC {fmt(result.financialsRes060FC.profitBrokergy)} €
+                                                FM {fmAprox}{fmt(result.financialsRes060FC.profitBrokergy)} €
                                             </button>
                                         )}
                                     </div>
@@ -1199,7 +1311,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                                 title={fcTitulo}
                                                 className={fcClase}
                                             >
-                                                FC {fmtMwh(result.res060fc.cae)} MWh/a
+                                                FM {fmAprox}{fmtMwh(result.res060fc.cae)} MWh/a
                                             </button>
                                         )}
                                     </div>
@@ -1219,6 +1331,11 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                         <span className="text-[8px] font-bold text-cyan-300/35 uppercase tracking-[0.18em] mt-1 relative">
                                             {showOnlyReforma ? 'Ahorro E. Final' : 'Ahorro Reforma'}
                                         </span>
+                                        {result.res080fm?.cae > 0 && (
+                                            <button type="button" onClick={() => setShowRes080FMDetail(true)} title={fm080Titulo} className={fm080Clase}>
+                                                FM {fm080Aprox}{fmtMwh(result.res080fm.cae)} MWh/a
+                                            </button>
+                                        )}
                                     </div>
                                 )}
 
@@ -1343,7 +1460,6 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         demandMode={inputs.demandMode}
                         onDemandModeChange={(mode) => setInputs(prev => ({...prev, demandMode: mode}))}
                         xmlDemandData={inputs.xmlDemandData}
-                        onXmlDemandDataChange={(data) => setInputs(prev => ({...prev, xmlDemandData: data}))}
                         onOpenEmisionesTable={() => setShowEficiencia(true)}
                         dbModels={dbModels}
                     />
@@ -1359,6 +1475,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         showEficiencia={showEficiencia}
                         setShowEficiencia={setShowEficiencia}
                         onOpenRes060FCDetail={() => setShowRes060FCDetail(true)}
+                        onOpenRes080FMDetail={() => setShowRes080FMDetail(true)}
+                        expedienteAsociado={associatedExpediente}
                         onAcceptOpportunity={['ENVIADA', 'PTE ENVIAR', 'PRE-ACEPTADO'].includes(inputs.estado?.toUpperCase()) && !associatedExpediente ? () => {
                             setManualExpNumber('');
                             setIsManualMode(false);
@@ -1374,6 +1492,19 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 isOpen={showRes060FCDetail}
                 onClose={() => setShowRes060FCDetail(false)}
                 result={result}
+                inputs={inputs}
+            />
+
+            {/* Popup de desglose RES080_FM: el mismo, con la forma que espera */}
+            <Res060FCModal
+                isOpen={showRes080FMDetail && !!result?.res080fm}
+                onClose={() => setShowRes080FMDetail(false)}
+                result={result?.res080fm ? {
+                    res060fc: result.res080fm,
+                    financialsRes060FC: result.financialsRes080FM,
+                    savings: { savingsKwh: result.res080?.ahorroEnergiaFinalTotal || 0 },
+                    financials: result.financialsRes080,
+                } : null}
                 inputs={inputs}
             />
 
@@ -1432,8 +1563,14 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                 ) : (
                                     <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-4 animate-slide-up">
                                         <p className="text-[9px] text-emerald-400/80 leading-relaxed font-black uppercase tracking-widest text-center">
-                                            Se asignará el siguiente correlativo oficial {new Date().getFullYear().toString().slice(-2)}{inputs.isReforma ? 'RES080' : (inputs.hibridacion ? 'RES093' : 'RES060')}_...
+                                            Se asignará el siguiente correlativo oficial {new Date().getFullYear().toString().slice(-2)}{inputs.isReforma ? 'RES080' : (inputs.hibridacion ? 'RES093' : 'RES060')}{inputs.ruta_fm === true && !inputs.isReforma ? 'FM' : ''}_...
                                         </p>
+                                        {/* La vía elegida con el conmutador de la calculadora (inputs.ruta_fm, regla 200). */}
+                                        {inputs.ruta_fm === true && !inputs.isReforma && (
+                                            <p className="mt-2 text-[10px] text-violet-300 leading-relaxed text-center">
+                                                Vía del <b>factor multiplicador</b>: el expediente lleva «FM» en su número (el contador es el mismo de la ficha). Para la vigente, apágala antes en «Vía de tramitación».
+                                            </p>
+                                        )}
                                     </div>
                                 )}
 

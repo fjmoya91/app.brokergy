@@ -226,7 +226,9 @@ async function cargarEnviosApp(desdeSeg) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. UN CHAT — adjuntos, análisis, apartados y borrador
 // ─────────────────────────────────────────────────────────────────────────────
-async function bajarAdjuntos(ms, desdeSeg, cont) {
+// `fuente`: de dónde se bajan adjuntos y audios. Por defecto la sesión de este
+// servidor; la prueba en seco del contestador (scripts/contestador.js) lee del VPS.
+async function bajarAdjuntos(ms, desdeSeg, cont, fuente = waConversacion) {
     // Solo lo NUEVO de ELLOS: lo de días anteriores ya salió en su ronda.
     const suyos = ms.filter(m => !m.de_mi && IA.MEDIA.has(m.tipo) && m.t >= desdeSeg);
     const ids = suyos.map(m => m.id);
@@ -243,13 +245,13 @@ async function bajarAdjuntos(ms, desdeSeg, cont) {
         n++;
         if (m.tipo === 'video') { m._video = true; cont.videos++; continue; }
         if (m.tipo === 'ptt' || m.tipo === 'audio') {
-            try { m._transcripcion = (await waConversacion.transcribir(m.id)).texto; cont.audios++; }
+            try { m._transcripcion = (await fuente.transcribir(m.id)).texto; cont.audios++; }
             catch (e) { m._error = `audio: ${e.message}`; }
             continue;
         }
         if (!m.descargable) { m._error = 'no descargable (ver una vez o demasiado grande)'; continue; }
         try {
-            m._fichero = await waConversacion.descargarAdjunto(m.id);
+            m._fichero = await fuente.descargarAdjunto(m.id);
             if (m.tipo === 'image') cont.fotos++; else cont.documentos++;
         } catch (e) { m._error = `bajar: ${e.message}`; }
     }
@@ -279,10 +281,13 @@ function dossierDe(obra) {
     }, { soloLectura: true });
 }
 
+// `ctx.redactar` (el contestador, 10/11/2026): quien escribe el borrador, con la
+// MISMA firma que `IA.borrador`. Por defecto, Gemini; el contestador pone a Claude.
 async function procesarChat(c, a, ctx) {
     const { ms } = a;
     const { cont, cuenta, envios, desdeSeg, modelo, modeloBorrador } = ctx;
-    const adjuntos = await bajarAdjuntos(ms, desdeSeg, cont);
+    const redactar = ctx.redactar || IA.borrador;
+    const adjuntos = await bajarAdjuntos(ms, desdeSeg, cont, ctx.fuente || waConversacion);
     // Primero se decide qué adjuntos ve el modelo y con qué número, y con ESOS
     // números se escribe la conversación que lee.
     const { partes, numeros } = IA.prepararPartes(adjuntos);
@@ -292,6 +297,7 @@ async function procesarChat(c, a, ctx) {
 
     const porN = new Map((an.adjuntos || []).map(x => [x.n, x]));
     const fotosPorObra = new Map();
+    const obrasConDoc = new Set();   // obras a las que llega una factura o un RITE (apartado fijo)
     for (const m of adjuntos) {
         const x = m._n ? porN.get(m._n) : null;
         m._an = x;
@@ -299,17 +305,29 @@ async function procesarChat(c, a, ctx) {
             if (!fotosPorObra.has(x.obra)) fotosPorObra.set(x.obra, []);
             fotosPorObra.get(x.obra).push(m);
         }
+        if (x && x.obra && x.obra !== 'NUEVA' && IA.SLOT_DE_DOC[x.tipo]) obrasConDoc.add(x.obra);
     }
     const slotDe = new Map();
     const pendientesDe = new Map();
-    for (const [codigo, fotos] of fotosPorObra) {
+    for (const codigo of new Set([...fotosPorObra.keys(), ...obrasConDoc])) {
         const obra = c.obras.find(o => o.codigo === codigo);
-        try { for (const p of await proponerApartados(obra, fotos, cuenta)) slotDe.set(p.msg, p); }
-        catch (e) { log(`repartidor ${codigo}: ${e.message}`); }
+        if (!obra) continue;
+        const fotos = fotosPorObra.get(codigo) || [];
+        if (fotos.length) {
+            try { for (const p of await proponerApartados(obra, fotos, cuenta)) slotDe.set(p.msg, p); }
+            catch (e) { log(`repartidor ${codigo}: ${e.message}`); }
+        }
         try {
             const d = await dossierDe(obra);
             if (d) pendientesDe.set(codigo, new Set((d.pendientes || []).map(p => p.clave)));
         } catch (e) { /* sin dossier: no se marca el hueco */ }
+    }
+    // Una factura o un certificado RITE van a su apartado fijo (no los reparte el modelo).
+    for (const m of adjuntos) {
+        const x = m._an;
+        const slot = x && IA.SLOT_DE_DOC[x.tipo];
+        if (!slot || !x.obra || x.obra === 'NUEVA' || slotDe.has(m.id)) continue;
+        slotDe.set(m.id, { msg: m.id, slot, label: Informe.DESTINO_DOC[x.tipo] || slot, confianza: x.confianza });
     }
 
     const tocadas = new Set();
@@ -324,7 +342,8 @@ async function procesarChat(c, a, ctx) {
         let donde = Informe.DESTINO_DOC[x.tipo] || '—';
         if (sl) {
             if (sl.slot) {
-                const hueco = pendientesDe.get(x.obra)?.has(sl.slot);
+                const pend = pendientesDe.get(x.obra);
+                const hueco = !!pend && IA.clavesDeSlot(sl.slot).some(k => pend.has(k));
                 donde = `${sl.labelCliente || sl.label}${hueco ? ' · **rellena un hueco**' : ''}`;
                 sl._hueco = !!hueco;
             } else donde = sl.concepto_label ? `sin apartado (sería «${sl.concepto_label}»)` : 'sin clasificar';
@@ -333,17 +352,31 @@ async function procesarChat(c, a, ctx) {
         c.filas.push({
             msg: m.id, n: x.n, cuando: fecha(m.t), que: corta(x.que_es, 70), obra: x.tipo === 'NO_RELACIONADO' ? '—' : x.obra,
             donde, confianza: x.confianza, tipo: x.tipo, slot: sl?.slot || null, hueco: !!sl?._hueco,
+            // Del repartidor (fotos): su propia confianza en el apartado, que no es la de la obra.
+            confianza_slot: sl?.confianza || null, t: m.t,
         });
         if (x.obra === 'NUEVA') c.nuevas = (c.nuevas || 0) + 1;
         else if (x.obra && x.tipo !== 'NO_RELACIONADO') { c.adjuntosObra++; tocadas.add(x.obra); }
     }
     c.obrasTocadas = [...tocadas];
 
+    // `ctx.alClasificar` (el contestador, 10/11/2026): con cada adjunto ya en su obra y su
+    // apartado, decide qué se GUARDA antes de contestar (y lo marca en `c.filas`: `guardado`).
+    // La ronda no lo pasa: en su fase 1 no coloca nada.
+    if (typeof ctx.alClasificar === 'function') {
+        try { await ctx.alClasificar({ c, adjuntos }); }
+        catch (e) { log(`guardar: ${e.message}`); }
+    }
+
     // ── Borrador ──
     const ultimo = ms[ms.length - 1];
     const ultimoSuyo = !ultimo.de_mi;
     const cortesia = ultimoSuyo && esCortesia({ tipo: ultimo.tipo, texto: ultimo.texto });
-    if (an.espera_respuesta || (ultimoSuyo && !cortesia)) {
+    // `ctx.siempreRedactar` (el contestador): ya ha mirado él que hay algo suyo sin contestar
+    // que no es cortesía, y el que decide si se calla es su cerebro. El análisis de la ronda
+    // daba «no espera respuesta» a «Ya me han instalado la aerotermia» y a «comprueba que
+    // esté todo bien» si detrás iba un aviso automático nuestro (seco del 10/11/2026).
+    if (ctx.siempreRedactar || an.espera_respuesta || (ultimoSuyo && !cortesia)) {
         if (c.rol === 'certificador') {
             c.borrador = { accion: 'MANO', motivo: `certificador: ${an.por_que_espera || 'espera respuesta'} (a un técnico se le escribe como a un compañero; lo redactaría Claude)` };
         } else {
@@ -355,14 +388,17 @@ async function procesarChat(c, a, ctx) {
             const llegado = { slots: new Set(), lineas: [] };
             for (const f of c.filas) {
                 if (f.obra && f.obra !== 'NUEVA' && f.obra !== '—' && (!codigo || f.obra === codigo)) {
-                    llegado.lineas.push(`${f.que} (${f.cuando})`);
-                    if (f.slot && f.confianza !== 'baja') llegado.slots.add(f.slot);
+                    const nota = f.guardado === true ? ' — YA GUARDADO en el expediente'
+                        : (typeof f.guardado === 'string' ? ` — sin guardar (lo mira Fran: ${f.guardado})` : '');
+                    llegado.lineas.push(`${f.que} (${f.cuando})${nota}`);
+                    // Con el nombre del apartado Y con el del dossier («factura», «rite»).
+                    if (f.slot && f.confianza !== 'baja') for (const k of IA.clavesDeSlot(f.slot)) llegado.slots.add(k);
                 }
             }
             const propuesta = IA.estadoPropuesta(obra);
             try {
                 const dossier = obra && (!propuesta || propuesta === 'ENVIADA') ? await dossierDe(obra) : null;
-                c.borrador = await IA.borrador({ ...ch, obras: c.obras }, obra, dossier, llegado, cuenta, { modelo: modeloBorrador });
+                c.borrador = await redactar({ ...ch, obras: c.obras }, obra, dossier, llegado, cuenta, { modelo: modeloBorrador });
                 c.obraBorrador = codigo || null;
             } catch (e) { c.borrador = { accion: 'MANO', motivo: `no se pudo redactar: ${e.message}` }; }
         }
@@ -668,6 +704,8 @@ module.exports = {
     start, tick, ejecutar, lanzar, enviar, estado, informe, CONFIG,
     // Piezas que comparte la ronda hecha por Claude Code (scripts/ronda_cc.js):
     cargarUniverso, obrasDeChat, rolDe, tituloDe, cargarEnviosApp, soloCortesia, componer, dossierDe,
+    // Y el contestador (services/contestadorWhatsapp.js): un chat, con su propio cerebro.
+    procesarChat,
     // Para las pruebas:
     _rolDe: rolDe, _tituloDe: tituloDe, _componer: componer, _soloCortesia: soloCortesia,
 };

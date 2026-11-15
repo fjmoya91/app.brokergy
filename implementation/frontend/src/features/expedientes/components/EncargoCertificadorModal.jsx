@@ -63,11 +63,12 @@ function EncargoTecnicoModal({
 
     //: `bloque` = lo que confirmó el cliente al aceptar (emisores, placas, aires),
     //: que llega con el borrador del aviso al cliente. Lo redacta el backend.
-    //: `encargo` = el enlace a la PÁGINA DEL ENCARGO de ESTE técnico (su firma lo
-    //: lleva), que llega en la misma respuesta.
+    //: `encargo` = `{ url, enApp }`: el enlace a la PÁGINA DEL ENCARGO de ESTE
+    //: técnico (su firma lo lleva) o, si usa la app de certificadores, el de su app,
+    //: que es el que pondrá el envío. Llega en la misma respuesta.
     const plantilla = (bloque = '', encargo = null) => buildCertDefaultMessage('standard', 'inicial', certName,
         clienteNombre, numExp, ceeFolderLink, expedienteId,
-        { ctx: { ...msgCtx, encargoLink: encargo }, ce3xBlock: bloque });
+        { ctx: { ...msgCtx, encargoLink: encargo?.url || null, encargoEnApp: !!encargo?.enApp }, ce3xBlock: bloque });
 
     const [certNotifLoading, setCertNotifLoading] = useState(false);
     const [certNotifResult, setCertNotifResult] = useState(null);
@@ -103,12 +104,13 @@ function EncargoTecnicoModal({
                 // tiene que declarar como existentes los aires y las placas.
                 // Solo si el mensaje sigue siendo la plantilla: lo ya retocado
                 // no se pisa.
-                // La página del encargo va en lugar del enlace a la app.
+                // La página del encargo (o su app) va en lugar del enlace al expediente.
                 if (d.bloque_certificador || d.enlace_encargo) {
+                    const encargo = d.enlace_encargo ? { url: d.enlace_encargo, enApp: !!d.enlace_en_app } : null;
                     setBloqueCliente(d.bloque_certificador || '');
-                    setEnlaceEncargo(d.enlace_encargo || null);
+                    setEnlaceEncargo(encargo);
                     setCertAssignMessage(m => (m === plantilla()
-                        ? plantilla(d.bloque_certificador || '', d.enlace_encargo || null) : m));
+                        ? plantilla(d.bloque_certificador || '', encargo) : m));
                 }
                 // Por WhatsApp, que es donde el cliente lee; si no consta teléfono, por email.
                 setClienteChannels(d.tlf ? ['whatsapp'] : (d.email ? ['email'] : []));

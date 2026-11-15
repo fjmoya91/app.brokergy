@@ -45,6 +45,26 @@ function sellarPrecioCae(inputs, existingOp) {
         // eso le cambiaría el bono a un expediente que ya está en marcha.
         delete inputs.cae_client_rate;
     }
+
+    // El precio de la opción REFORMA (RES080, 2026-10-29) va en su propio sello y
+    // con la MISMA condición. Solo se escribe si se tecleó uno distinto del
+    // general: si no, el expediente RES080 cae a `cae_client_rate` y da lo mismo.
+    const precio080 = parseFloat(inputs.caePriceClientRes080);
+    if (inputs.cae_client_rate !== undefined && precio080 > 0 && precio080 !== inputs.cae_client_rate) {
+        inputs.cae_client_rate_res080 = precio080;
+    } else {
+        delete inputs.cae_client_rate_res080;
+    }
+
+    // Y el de la vía del FACTOR MULTIPLICADOR (2026-11-07): mismo patrón y misma
+    // condición. Sin teclear (o igual al general), no hay sello propio y vale
+    // `cae_client_rate` (`precioSelladoFm` en calculation.js).
+    const precioFm = parseFloat(inputs.caePriceClientFm);
+    if (inputs.cae_client_rate !== undefined && precioFm > 0 && precioFm !== inputs.cae_client_rate) {
+        inputs.cae_client_rate_fm = precioFm;
+    } else {
+        delete inputs.cae_client_rate_fm;
+    }
     return inputs;
 }
 

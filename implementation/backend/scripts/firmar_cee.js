@@ -211,6 +211,9 @@ async function vistaPrevia(buffer, png) {
     } else {
         const up = await require('../services/ceeFirmaService').guardarCertificado(row.id, fase, firmado);
         console.log('SUBIDO:', up.fileName || up.name, '· avisos:', (up.comprobacion?.avisos || []).join(' | ') || 'ninguno');
+        //: Subido pero sin enlazar en `cee_files`: al validarlo no llegaría a «10. EXPEDIENTE CAE».
+        if (!up.enlazado) { console.error('ERROR: el PDF firmado está en Drive pero NO enlazado en el expediente.'); process.exit(1); }
+        console.log(`Enlazado en cee_files.${fase}.pdf (la validación del hueco vuelve a ámbar: hay que validarlo).`);
     }
     await new Promise(r2 => setTimeout(r2, 2000));
     process.exit(0);

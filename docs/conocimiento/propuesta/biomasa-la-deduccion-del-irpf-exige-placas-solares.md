@@ -60,4 +60,25 @@ biomasa) y la comparativa de CEE, sin pisar el pie.
 Los mensajes del funnel público (`leadMessages`) **no** lo llevan todavía: allí la biomasa ya
 tiene su aviso propio al elegir el combustible (`Step2_Combustible`).
 
+### Carbón o biomasa se ELIGE (2026-11-12)
+
+Fran, con 26RES060_OP403 (José Luis Alcolado, Pedro Muñoz): una Roca L 20 policombustible de
+carga manual se dio de alta como biomasa y era de **carbón**. La propuesta salió con el aviso de
+que sin placas no había deducción del IRPF, que con carbón no aplica: «cuando se seleccione
+combustible sólido, debemos elegir entre carbón o biomasa para evitar esto».
+
+**REGLA — con una fila `solid_*` se ELIGE carbón o biomasa, y lo elegido MANDA** sobre lo que
+dijeran el funnel (`boilerHeatingType`) o la placa (`placa_caldera.combustible`).
+
+- Calculadora: desplegable **«¿Carbón o biomasa?»** bajo «Sistema anterior», solo con una fila
+  sólida, en ámbar mientras no se elige. Guarda `inputs.combustibleSolido` (`carbon` · `lena` ·
+  `pellets`) y pone `fuelType` y su precio igual. El «Combustible actual» del panel de ahorro hace
+  lo mismo con una caldera sólida. Cambiar a una fila que no es sólida lo borra.
+- Alta por WhatsApp (`alta_oportunidad.js`): `caldera.combustible` admite `carbon`, `lena`,
+  `pellets` y `biomasa` (= pellets) y deja `combustibleSolido` fijado.
+- Una oportunidad ya hecha: `alta_oportunidad.js recalcular <OP> --combustible carbon` (también
+  corrige la placa y `boilerHeatingType`).
+- `combustibleDeclarado` (revisión del CEE) y la justificación de la medida del `.cex` leen lo
+  elegido; leña cuenta como biomasa (antes solo pellets).
+
 Tras tocarlo: `node implementation/backend/scripts/test_irpf_biomasa.mjs`, `test_mensaje_aceptacion.mjs` y `test_propuesta_programada.js`.

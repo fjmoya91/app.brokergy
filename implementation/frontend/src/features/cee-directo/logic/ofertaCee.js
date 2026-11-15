@@ -227,8 +227,31 @@ const capital = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() 
  * Mensaje de envío (WhatsApp con *negritas*; el email lo convierte). Lleva el
  * enlace de aceptación: es la acción que se le pide.
  */
-export function mensajeOferta({ nombre, numero, alcance, total, url, inmueble, tasas = 1, partidas = null, abreCee = false } = {}) {
+export function mensajeOferta({ nombre, numero, alcance, total, url, inmueble, tasas = 1, partidas = null, abreCee = false, paraTercero = false } = {}) {
     const saludo = nombre ? `¡Hola ${capital(primerNombre(nombre))}!` : '¡Hola!';
+    if (Array.isArray(partidas) && paraTercero && abreCee) {
+        // Lo pide un INSTALADOR para un cliente suyo: va a su nombre y se le factura
+        // a él; al aceptar nos da los datos del propietario (2026-11-10).
+        return [
+            saludo,
+            '',
+            `Te adjunto el presupuesto *${numero || ''}*${inmueble ? ` (${inmueble})` : ''}:`,
+            ...partidas.map(p => `• ${p}`),
+            '',
+            `💶 *Importe total: ${fmtEur(total)}* (${num(tasas) > 0 ? 'IVA y tasas incluidos' : 'IVA incluido'}).`,
+            '',
+            'Para aceptarlo, entra aquí:',
+            `👉 ${url || ''}`,
+            '',
+            'Te pediremos tus datos de facturación y los del *propietario de la vivienda*, que es a cuyo nombre va el certificado (nombre, DNI y la dirección o referencia catastral), y unas preguntas rápidas sobre la calefacción y el agua caliente.',
+            '',
+            '📌 Por nuestra política de calidad, no podemos iniciar ningún trabajo hasta que el presupuesto esté aceptado.',
+            '',
+            'Cualquier duda, estamos a tu disposición.',
+            'Un saludo,',
+            '*BROKERGY* · Ingeniería Energética',
+        ].join('\n');
+    }
     if (Array.isArray(partidas)) {
         // Presupuesto de partidas: se le dice QUÉ se le presupuesta, una por
         // línea (las tasas no: van dentro del total).

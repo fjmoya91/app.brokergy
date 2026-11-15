@@ -164,6 +164,13 @@ eléctrico que ya estaba), sin código nuevo:
 
 ## RES093 (hibridación): desde la medida de mejora del inicial
 
+> **Si la medida del técnico NO vale** (es de otro edificio o cambia la envolvente: el motor dice «la
+> medida … cambia la ENVOLVENTE»), el final se hace **COPIANDO el inicial**, como un RES060, con la
+> caldera de apoyo conservada por el C_b y como medida **RETIRAR esa caldera** (Fran, 22/10/2026,
+> 26RES093_16): `node scripts/cee_final_copiando.js <nº> --fecha=AAAA-MM-DD` (en un RES093 la medida
+> por defecto ya es `--medida=retirada`; no necesita PVGIS). La demanda de calefacción y ACS tiene que
+> salir la del inicial («✓ cuadra»). Dile al usuario que la medida del inicial REGISTRADO sigue mal.
+
 El CEE final no se levanta de cero: se abre el **CEE inicial que entregó el certificador** (el que ya
 pasó la revisión, con su medida de mejora **calculada** por CE3X) y su «edificio mejorado» pasa a ser
 el final. Es como se hace a mano, y la app lo hace igual:
@@ -302,7 +309,11 @@ cubierta que guardó CE3X para 26RES093_11.
   Joule) del inicial**, que se QUEDA; el equipo nuevo es solo de calefacción (Fran, 19/10/2026,
   26RES060_237). Si la Instalación trae un equipo de ACS nuevo sin modelo, no se escribe: la
   Instalación tiene que estar en «ACS — no se actúa» + «Termo eléctrico», y eso se PREGUNTA (saca el
-  ACS del ahorro CAE).
+  ACS del ahorro CAE). **Y si en el inicial el ACS lo daba la CALDERA mixta** (regla 163, Fran,
+  23/10/2026): sin ACS en el presupuesto, el final lleva igualmente un **termo eléctrico** para el
+  ACS, no la caldera conservada con la calefacción a 0. Si la simulación ya nació sin ACS (regla 163),
+  no se pregunta: el ahorro ya era solo de calefacción. Comprueba que la demanda de ACS sigue
+  igual a la del inicial (regla 127).
 - La retirada **no se decide por la ficha sino mirando el fichero**: un equipo del inicial cuya parte
   de un servicio BAJA en la medida es el generador en apoyo; el equipo nuevo que comparte ese servicio
   con él es la bomba. Una caldera **mixta** que sigue con el ACS se queda, con la calefacción a 0.

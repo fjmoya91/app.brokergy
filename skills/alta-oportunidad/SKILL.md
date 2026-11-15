@@ -71,6 +71,9 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
    - la PLACA de la caldera → `leer --placa <placa>,<caldera entera> --combustible <x>`. Contrasta
      marca, modelo, potencia y combustible con la foto.
    - la caldera entera, el croquis, el presupuesto, la captura/PDF del Catastro.
+   - **¿Están la caldera EN SU SALA y su PLACA legible?** (regla 162): son imprescindibles para el
+     CEE inicial y el expediente. Si falta alguna o no vale, el alta se hace igual pero se dice (ver
+     «Reglas que no se rompen»).
    - El presupuesto → `leer --presupuesto` (importe CON IVA, la aerotermia y el ACS en el catálogo).
      Si trae **placas fotovoltaicas** de esta obra, su importe CON IVA (sácalo de las líneas del
      PDF: el lector deja la obra civil en la aerotermia) va a `presupuesto.fotovoltaica_con_iva`, y
@@ -88,8 +91,11 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
    una a una — van al historial de la oportunidad y son lo que se revisa.
 6. **`crear --plan plan.json`** en seco. Revisa la ficha que imprime (superficie, caldera y η, emisor,
    ACS, aerotermia y SCOP, presupuesto, ahorro y bono) y que cada documento tiene ✓. Luego `--escribir`.
-7. **Nombre del chat y de la sesión** (ver «Al terminar, SIEMPRE»). Por email no hay chat: se dice.
-8. **Informe final** (abajo).
+7. **¿Bono por debajo de 3.000 €? → CEE con CE3X** (regla 161, abajo): con la oportunidad ya
+   escrita, `generar-cee-inicial` sobre ella y su XML cargado en la simulación, ANTES de avisar a
+   Fran o enviar la propuesta.
+8. **Nombre del chat y de la sesión** (ver «Al terminar, SIEMPRE»). Por email no hay chat: se dice.
+9. **Informe final** (abajo).
 
 ## Si llega por EMAIL
 
@@ -191,11 +197,14 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
 - **El nº de serie de la caldera solo si está rotulado como tal.** En Junkers/Bosch «FD 583 …» es el
   código de FECHA de fabricación: se guarda con `serie_dudosa: true` (no se hereda al expediente).
 - **ACS de hoy:** una caldera MIXTA (selector grifo / grifo+radiador, dos salidas, «mixta» en el
-  modelo, o el CEE que dice «Calefacción y ACS») → `misma_caldera`; un termo → `termo`. **Se cambia
-  el ACS** (`incluir: true`) si el presupuesto trae un equipo de ACS, lo dice el instalador **o la
-  caldera que se retira es MIXTA**: al quitarla, el agua caliente la tiene que dar la aerotermia (así
-  se hace en 76 de las 93 simulaciones recientes con el ACS en la caldera de gasóleo). Si el
-  presupuesto no detalla el depósito, se dice en `decisiones` para confirmarlo con el instalador.
+  modelo, o el CEE que dice «Calefacción y ACS») → `misma_caldera`; un termo → `termo`.
+- **Si el instalador NO dice nada del agua caliente, el ACS NO se calcula** (Fran, 2026-10-23, regla
+  163): `acs.incluir: false`, aunque la caldera que se retira sea mixta. El ahorro y el bono son solo
+  de la calefacción, con la caldera de hoy con su combustible (pellets, gasóleo, gas…). **Se cambia
+  el ACS** (`incluir: true`) solo si el presupuesto trae un equipo o un depósito de ACS, o lo dice
+  el instalador o el cliente («con ACS», «también el agua caliente»). Un «posiblemente con ACS» o
+  una idea sin presupuesto no cuenta: va a `decisiones`. Si el presupuesto no detalla el depósito, se
+  dice en `decisiones` para confirmarlo. (Antes la caldera mixta bastaba para incluir el ACS: ya no.)
 - **El CEE que aporta el cliente** (suele tenerlo de la deducción del IRPF por placas: un inicial y
   un final). Se carga el **MÁS RECIENTE** en `cee` del plan; su justificante de registro va a
   `DOC_CEE_EXISTENTE` y los anteriores (el inicial y su registro) a `OTROS_ANTES`.
@@ -236,6 +245,50 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
   dirección que dé el instalador manda sobre la del Catastro para el cliente (el portal puede ser otro).
   Un teléfono que no es suyo no se pone como suyo: va en `decisiones`.
 - **Placas solares: sin declarar** (`null`) salvo que se diga. «Sin declarar» no es «no».
+- **La CALDERA EN SU SALA y su PLACA: sin las dos no hay CEE inicial ni expediente** (Fran,
+  2026-10-23, regla 162, «muy importante»). Se MIRA cada foto:
+  - `FOTO_CALDERA_ANTES`: la caldera **instalada en su sala**, clara y **no demasiado cerca**, que
+    se vea entera y su EMPLAZAMIENTO (el cuarto, tuberías, salida de humos). Un primer plano del
+    frontal no vale.
+  - `FOTO_PLACA_CALDERA_ANTES`: la placa que se LEA (marca, modelo, potencia). La etiqueta con solo
+    el código de artículo o el esquema de la tapa no valen.
+  - Si falta alguna o no vale: **el alta se hace** (la simulación no lo necesita), pero va a
+    `decisiones` y al informe como FALTA, el aviso a Fran lo dice (`--nota`) y se deja en borrador el
+    WhatsApp que las pide a quien las tenga: «una foto de la caldera en su sitio, desde un par de
+    metros, que se vea entera y el cuarto donde está, y otra de cerca de la etiqueta con sus datos
+    (marca, modelo y potencia), que se lea bien». **El CEE por bono bajo (abajo) SÍ se hace**: es un
+    borrador para la simulación (Fran, 23/10/2026, OP335 y OP336); el que se firma espera a tenerlas.
+  - No aplica sin calefacción (`caldera: null`).
+- **Bono CAE por debajo de 3.000 € → se hace el CEE INICIAL con CE3X y su XML va a la
+  oportunidad** (regla de Fran, 2026-10-23, regla 161): la simulación del alta es ESTIMADA y, cuando
+  sale baja, la real puede ser bastante mayor (26RES060_OP321: 1.058 € → 4.491 € con el CEE). La
+  cifra es el «bono CAE» que imprime `crear` (ya en el seco: dilo desde ahí).
+  - Tras `crear --escribir` (el CEE necesita la carpeta de Drive), la skill **`generar-cee-inicial`**
+    sobre la oportunidad: `aplicar --escribir` lo califica con CE3X 3.2 en el PC y **carga el XML
+    en la SIMULACIÓN solo** (línea «✓ XML del CEE inicial CARGADO en la SIMULACIÓN de la
+    oportunidad»; si no sale, `cee_inicial.js cargar <op> --escribir`). Va como CEE nuestro: sin
+    comparativa «con tu CEE». En un RES080, inicial + previsto (`cargarRes080EnOportunidad`).
+  - **Antes de avisar a Fran o de enviar la propuesta.** El aviso y el informe llevan las dos
+    cifras: bono estimado → bono con el CEE.
+  - Si el cliente **ya aportó un CEE** (`cee` del plan), no se hace otro: su cifra «con tu CEE» ya
+    es la medida. Se dice, y si también baja de 3.000 €, se pregunta.
+  - **Si faltan fotos** para el CEE: Street View (`streetview`) primero; lo que no se resuelva va
+    en el aviso a Fran con el WhatsApp que lo pide en borrador (`pedir-fotos`, sin `--enviar`), y
+    la propuesta espera.
+  - **En el servidor no hay CE3X**: el `.cex` queda «por calificar» y el XML entra cuando el PC lo
+    califica (`asistente_pc.js ce3x <op> --trabajo calificar`). Se dice que la cifra está pendiente.
+- **El WhatsApp de «lo que falta» no pregunta lo que ya decide la casa** (Fran, 24/10/2026,
+  26RES060_OP337, regla 168: «¿con lo que tienes lo puedes sacar?»). Antes de redactarlo, se
+  comprueba si con lo que hay ya salen la simulación y el CEE; si salen, no se pregunta nada y se
+  sigue hasta la propuesta. **No se pregunta**:
+  - con qué calientan el agua: lo decide el presupuesto (regla 163; con ACS, inicial con la caldera
+    de hoy y final con la aerotermia; sin él, termo);
+  - si son radiadores: sin emisor declarado, radiadores (regla 99);
+  - a nombre de quién está la casa: el titular es el del presupuesto y el DNI que manda; un IBI a
+    nombre del cónyuge u otro familiar solo da la referencia catastral y no se cuestiona;
+  - fotos de paredes en el linde con un solar o con otra finca: no pueden tener ventanas (regla 167).
+  **Sí se pide** lo que cambia el resultado y no se deduce: la placa ilegible o la caldera sin foto en
+  su sala (regla 162), una pared a la propia parcela sin ninguna foto, el presupuesto.
 - **Nunca** se manda nada al cliente ni al instalador desde aquí.
 
 ## Lo que el informe final dice SIEMPRE
@@ -244,8 +297,12 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
   de subida de documentación.
 - Superficie, orientación y patios, caldera (y η), emisor, ACS, aerotermia y SCOP, presupuesto, ahorro
   y **bono CAE**. Con CEE, las **dos cifras de la comparativa** (con su CEE · CEE nuevo BROKERGY).
+  Con el bono por debajo de 3.000 €, **el CEE hecho y la cifra con él** (estimado → con el CEE), o
+  qué falta para hacerlo.
 - Las **decisiones** tomadas y **lo que hay que revisar** (equipo fuera de catálogo, superficie
   parcial, nº de serie dudoso, teléfono que falta…).
+- Si faltan (o no valen) la **foto de la caldera en su sala** o la de su **placa**, en lo primero de
+  lo que falta y con el WhatsApp que las pide en borrador (regla 162).
 - El **nombre nuevo del chat** de WhatsApp y el **título de la sesión**, o por qué no se ha tocado (por
   email: no hay chat). De dónde salió: el chat, o el correo (remitente, fecha y asunto).
 - Que la **propuesta (PDF) se revisa y se envía desde la app** — la skill no envía nada.
@@ -255,6 +312,8 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
 Claude trabaja como un compañero más: con la oportunidad hecha, **antes de enviar nada** le escribe a
 Fran desde el WhatsApp de la EMPRESA a su móvil PERSONAL (el chat con la etiqueta **MOIA**, que ya no
 lleva el bot de clientes) con el resumen y la pregunta «¿se la envío así o la quieres revisar tú?».
+Si el bono del alta bajaba de 3.000 €, el aviso va **después** del CEE y con su cifra (`--nota
+"Bono estimado X € → con el CEE Y €"`).
 
 1. `node scripts/asistente_whatsapp.js avisar <OP> --a partner` en seco (`--a cliente` si el chat es
    del propio cliente; `--nota "…"` para algo que deba saber) → luego `--enviar`.
