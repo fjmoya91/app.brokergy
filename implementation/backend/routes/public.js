@@ -2744,6 +2744,38 @@ router.get('/instalador/:expedienteId', async (req, res) => {
     }
 });
 
+// ─── CONSEJO DE FACTURA: la página «Copiar el concepto» (Fran, 11/11/2026) ────
+// GET /api/public/consejo-factura/:expedienteId?token=…
+// El texto recomendado para la factura del instalador, con un botón para copiarlo.
+// Sale del MISMO sitio que el WhatsApp y el email (utils/consejoFactura.js). Lleva
+// el NIF del titular, así que no basta el UUID: se exige el `upload_token` de la
+// oportunidad, el mismo del enlace de subida que ya tiene el instalador (/subir-docs).
+// 403 sin token o con otro; 404 si no existe o es un RES080 (no hay consejo).
+router.get('/consejo-factura/:expedienteId', async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+        const token = String(req.query.token || '');
+        if (!token) return res.status(403).json({ error: 'Enlace no válido' });
+        if (!/^[0-9a-f-]{36}$/i.test(expedienteId)) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const cf = require('../utils/consejoFactura');
+        const r = await cf.cargarConsejoFactura(expedienteId);
+        if (!r) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!r.token || r.token !== token) return res.status(403).json({ error: 'Enlace no válido' });
+        if (!r.consejo) return res.status(404).json({ error: 'Esta obra no necesita texto recomendado para la factura' });
+        res.json({
+            numero_expediente: r.consejo.numero_expediente,
+            consejo: r.consejo,
+            copiar: r.copiar,
+            motivo: r.decision.motivo,
+            correcciones: cf.correccionesPorFactura(r.decision, r.consejo),
+        });
+    } catch (e) {
+        console.error('[consejo-factura] Error:', e);
+        // BD caída: 503, nunca una página vacía con pinta de buena (regla 38).
+        res.status(503).json({ error: 'No hemos podido cargar el texto. Inténtalo en un momento.' });
+    }
+});
+
 // ─── Vía FM: la DECLARACIÓN DE LA TIPOLOGÍA que firma el instalador ──────────
 // GET  /api/public/instalador/:id/fm-declaracion/pdf → { pdf } (base64), para firmar
 // POST /api/public/instalador/:id/fm-declaracion     → el firmado (campo `documento`)

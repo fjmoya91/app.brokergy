@@ -5,6 +5,8 @@ paths:
   - "implementation/frontend/src/features/expedientes/logic/{instaladorPendientes,localesRite}.js"
   - "implementation/frontend/src/features/expedientes/components/{EnviarBorradorRite*,LocalesRite*,MemoriaRite*}.jsx"
   - "implementation/rite-generator/**"
+  - "implementation/backend/utils/consejoFactura.js"
+  - "implementation/frontend/src/features/public/views/ConsejoFacturaView.jsx"
 ---
 # Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias (nivel 2)
 
@@ -23,12 +25,15 @@ paths:
 
 171. **Cuando presentamos NOSOTROS la Memoria RITE en eDICE-Térmicas, firma y diligencia el certificado de REPRESENTANTE de la empresa de la memoria, y el slot «Certificado RITE» lleva el PDF de la IMPRESORA de eDICE** (2026-10-25, 26RES080_90). AutoFirma desde el navegador abre el almacén de Firefox, donde solo está el certificado PERSONAL: se cambia a «Almacén de claves del sistema» y se elige el `(R: <CIF>)` con captura antes y después de cada clic, sin el vigilante de `presentar-cee` (aceptaría el personal). El certificado que se guarda es `GenerarPdf.pdf` de `diligimp.jsp`, nunca la página web impresa. Firmar: [firmar_memoria_rite.js](implementation/backend/scripts/firmar_memoria_rite.js) (rechaza un firmante que no sea `R: <CIF>`); guardar: [guardar_certificado_rite.js](implementation/backend/scripts/guardar_certificado_rite.js) (mismo camino que la fila de Documentación y lectura de la 27.b). Paso a paso: skill `presentar-rite`. Ver "Presentar nosotros la Memoria RITE en eDICE-Térmicas".
 
+210. **Cuando se le pide la factura al INSTALADOR, va con el texto recomendado para el concepto; y si la que mandó tiene una GRAVE que tumba la auditoría, con qué corregir** (Fran, 11/11/2026, caso 26RES060_194). Fuente ÚNICA del texto, de la regla de cuándo y de lo que se envía: [utils/consejoFactura.js](implementation/backend/utils/consejoFactura.js). Se manda si FALTA la factura o hay una GRAVE ABIERTA de `TITULAR`, `EMISOR`, `UNIDADES_TERMINALES`, `ALCANCE`, `ALCANCE_SIN_EQUIPO`, `SERIE_DISTINTA`, `FECHA` o `DUPLICADA` (de las incidencias REGISTRADAS, no del OCR); si no, no. RES080 no lleva. Dos variantes, SUSTITUCIÓN e HIBRIDACIÓN («la caldera se queda»); lo que no se sabe, entre corchetes. WhatsApp: DOS mensajes independientes detrás del pedido (el consejo, sin emojis ni presentarse; y solo el concepto, para copiarlo). Email: el texto lo anuncia con «Al final de este correo tienes el texto que te recomendamos para el concepto de la factura, listo para copiar.» y el recuadro «Texto recomendado para la factura» con el botón «Copiar el concepto» a la página pública `/consejo-factura/:id?token=`, que se abre con el `upload_token` de la oportunidad (el del enlace de subida) porque lleva el NIF. `solicitar-faltantes` lo RECALCULA siempre. Enganchado al popup «Solicitar lo que falta», al «¿cómo va la obra?» del parte y al aviso de CEE inicial registrado; no a las esperas, al envío en bloque ni al MCP (el porqué, en el documento). Tras tocarlo: `node implementation/backend/scripts/test_consejo_factura.js` y `test_aviso_cee_registrado.js`. Ver "El consejo de factura al instalador".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/instalador-rite/al-instalador-se-le-pide-todo-de-una-vez.md` — Al instalador se le pide TODO de una vez (2026-08-27) · 11,1 KB
 - `docs/conocimiento/instalador-rite/el-certificado-rite-se-lee-al-subirlo.md` — El Certificado RITE se LEE al subirlo (2026-09-03) · 5,5 KB
+- `docs/conocimiento/instalador-rite/el-consejo-de-factura-al-instalador.md` — El consejo de factura al instalador (2026-11-11) · 11,5 KB
 - `docs/conocimiento/instalador-rite/la-memoria-rite-de-una-cascada.md` — La Memoria RITE de una CASCADA: todo cabe en su casilla y los litros se suman (2026-11-13) · 2,8 KB
 - `docs/conocimiento/instalador-rite/presentar-la-memoria-rite-en-edice.md` — Presentar nosotros la Memoria RITE en eDICE-Térmicas (2026-10-25) · 5,3 KB
 - `docs/conocimiento/instalador-rite/varios-tecnicos-pueden-firmar-la-memoria-rite.md` — VARIOS técnicos pueden firmar la Memoria RITE de una empresa (2026-11-06) · 2,9 KB
@@ -60,6 +65,15 @@ paths:
   - **REGLA — la comprobación del emplazamiento AVISA, no bloquea.**
   - **REGLA — lo leído viaja en el aviso al staff y se queda en el expediente.**
   - **REGLA — un slot validable DECLARA su nombre en `DOCUMENTO_VALIDABLE_LABELS`.**
+- `docs/conocimiento/instalador-rite/el-consejo-de-factura-al-instalador.md`
+  - **REGLA — el texto, la regla de cuándo y el envío salen de UNA fuente:
+[utils/consejoFactura.js](implementation/backend/utils/consejoFactura.js).**
+  - **REGLA — se manda si FALTA la factura, o si la que hay tiene una incidencia GRAVE que tumba
+la auditoría. Si no, no.**
+  - **REGLA — la página lleva el NIF del titular: se abre con el `upload_token` de la oportunidad,
+el MISMO del enlace de subida (`/subir-docs`) que ya tiene el instalador.**
+  - **REGLA — la factura en Word se rellena sobre una factura REAL del instalador en .docx (su
+plantilla), nunca se maqueta de nuevo.**
 - `docs/conocimiento/instalador-rite/la-memoria-rite-de-una-cascada.md`
   - **REGLA — en una casilla de alto fijo el texto largo se ENCOGE, nunca se corta.**
   - **REGLA — la acumulación es la de TODOS los depósitos de ACS.**

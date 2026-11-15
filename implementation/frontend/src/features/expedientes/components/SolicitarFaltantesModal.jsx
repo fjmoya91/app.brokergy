@@ -180,10 +180,15 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     const [result, setResult] = useState({ CLIENTE: null, INSTALADOR: null });
     // "Trato todo con el instalador": al instalador se le piden también las cosas del cliente.
     const [todoAlInstalador, setTodoAlInstalador] = useState(false);
+    // CONSEJO DE FACTURA (backend utils/consejoFactura.js): el texto recomendado
+    // para el concepto, detrás del mensaje al instalador. Viene marcado; el
+    // backend lo vuelve a decidir al enviar.
+    const [conConsejo, setConConsejo] = useState(true);
+    const [verConsejo, setVerConsejo] = useState(false);
 
     useEffect(() => {
         if (!isOpen || !expedienteId) return;
-        setLoading(true); setError(null); setResult({ CLIENTE: null, INSTALADOR: null }); setTodoAlInstalador(false);
+        setLoading(true); setError(null); setResult({ CLIENTE: null, INSTALADOR: null }); setTodoAlInstalador(false); setConConsejo(true); setVerConsejo(false);
         axios.get(`/api/expedientes/${expedienteId}/solicitud-info`)
             .then(({ data }) => {
                 setInfo(data);
@@ -260,6 +265,12 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     const actChannels = channels[active] || [];
     const sinPendientes = !loading && acciones.length === 0;
     const puedeTodoInstalador = cliAcciones.length > 0;
+    // ¿Va el consejo de factura con ESTE mensaje? Solo al instalador y si la regla
+    // lo dice (falta la factura y se la pedimos, o la que hay tiene una GRAVE).
+    const cf = info?.consejo_factura || null;
+    const pideFacturaInst = items.some(it => it.key === 'factura' && it.incluido && !it.waived && !it.bloqueado
+        && (it.owner === 'INSTALADOR' || todoAlInstalador));
+    const aplicaConsejo = active === 'INSTALADOR' && !!cf?.mandar && (cf.motivo === 'GRAVE' || pideFacturaInst);
 
     // ── Handlers del checklist: cualquier cambio regenera ambos mensajes ──
     const applyItems = (next) => {
@@ -384,7 +395,11 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
             // tiene que actuar no ve que su compañero también lo ha recibido. El
             // WhatsApp no tiene copia, así que ahí sí va uno a cada uno.
             const sentTo = [];
-            const base = { target: active, mensaje: messages[active], solicitado, solicitado_keys, asunto };
+            const base = {
+                target: active, mensaje: messages[active], solicitado, solicitado_keys, asunto,
+                // Explícito al instalador: `true` lo pide, `false` lo apaga (la casilla).
+                ...(active === 'INSTALADOR' ? { consejo_factura: aplicaConsejo && conConsejo } : {}),
+            };
             if (eff.includes('email')) {
                 const conEmail = recipientsActive.filter(r => r.email);
                 if (conEmail.length) {
@@ -636,6 +651,47 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                                 rows={13}
                                 className="w-full lg:h-[44vh] bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white/90 leading-relaxed focus:outline-none focus:border-brand/40 resize-y font-mono no-uppercase"
                             />
+
+                            {/* Consejo de factura: va DETRÁS, en mensajes aparte (WA) o en un
+                                recuadro al final (email). Se enseña entero antes de enviar. */}
+                            {aplicaConsejo && (
+                                <div className={`mt-3 rounded-xl border ${conConsejo ? 'border-amber-400/30 bg-amber-500/[0.06]' : 'border-white/10 bg-white/[0.02]'}`}>
+                                    <div className="flex items-start gap-2.5 px-3 py-2.5">
+                                        <button type="button" onClick={() => setConConsejo(v => !v)}
+                                            className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${conConsejo ? 'border-amber-400 bg-amber-400' : 'border-white/25 hover:border-white/50'}`}>
+                                            {conConsejo && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                        </button>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[11px] font-bold text-amber-300">
+                                                {cf.motivo === 'GRAVE' ? 'Añadir qué corregir de la factura y el texto recomendado' : 'Añadir el texto recomendado para la factura'}
+                                            </p>
+                                            <p className="text-[10px] text-white/45 mt-0.5">
+                                                WhatsApp: dos mensajes aparte (el consejo y, solo, el concepto para copiar). Email: recuadro al final del correo, con el botón «Copiar el concepto».
+                                            </p>
+                                            {(cf.correcciones || []).map((g, i) => (
+                                                <div key={i} className="mt-1.5">
+                                                    <p className="text-[10px] font-bold text-white/70">{g.factura ? `Factura ${g.factura}` : 'La factura'}:</p>
+                                                    {g.puntos.map((t, j) => <p key={j} className="text-[10px] text-white/55">· {t.replace(/\*/g, '')}</p>)}
+                                                </div>
+                                            ))}
+                                            {cf.consejo?.conHuecos && (
+                                                <p className="text-[10px] text-amber-400/70 mt-1">Hay datos sin completar: irán entre corchetes ([MARCA], [Nº DE SERIE]…).</p>
+                                            )}
+                                            <button type="button" onClick={() => setVerConsejo(v => !v)}
+                                                className="mt-1.5 text-[9px] font-black uppercase tracking-widest text-amber-400/80 hover:text-amber-300">
+                                                {verConsejo ? 'Ocultar' : 'Ver lo que se envía'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {verConsejo && (
+                                        <div className="px-3 pb-3 space-y-2">
+                                            {(cf.whatsapp || []).map((t, i) => (
+                                                <pre key={i} className="whitespace-pre-wrap text-[10px] leading-relaxed text-white/75 bg-black/30 border border-white/10 rounded-lg p-2.5 font-mono no-uppercase">{t}</pre>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {result[active] && result[active].type === 'error' && (
                                 <div className="mt-4 px-4 py-2.5 rounded-xl text-[12px] font-bold border bg-red-500/10 border-red-500/30 text-red-400">

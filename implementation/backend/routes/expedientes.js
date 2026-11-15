@@ -716,14 +716,9 @@ async function buildChecklistData(exp, cli, op, { soloLectura = false } = {}) {
     // queda registrada en documentacion.facturas[] (vía addFacturaToExpediente) Y en
     // reforma_uploads.DOC_FACTURAS; sumar ambas la contaría dos veces. Las del admin
     // solo tienen drive_link (sin drive_id), de ahí el fallback drive_id || drive_link.
-    const factSet = new Set();
-    (Array.isArray(doc.facturas) ? doc.facturas : []).forEach(f => {
-        if (f && (f.drive_id || f.drive_link)) factSet.add(f.drive_id || f.drive_link);
-    });
-    (Array.isArray(uploads.DOC_FACTURAS) ? uploads.DOC_FACTURAS : []).forEach(u => {
-        if (u && (u.driveId || u.link)) factSet.add(u.driveId || u.link);
-    });
-    const nFacturas = factSet.size;
+    // Fuente única con el consejo de factura (utils/consejoFactura.js): «falta la
+    // factura» tiene que significar lo mismo en el barrido y en lo que se le manda.
+    const nFacturas = require('../utils/consejoFactura').facturasAportadas(doc, uploads);
     const cifoOk = present(doc.cert_cifo_signed_link);
     // El RITE está aportado si nos ha llegado el certificado tramitado o la memoria
     // firmada. `cert_rite_drive_link` NO cuenta cuando lo que guarda es la Memoria
@@ -1222,6 +1217,34 @@ router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
 
         const FRONTEND = process.env.FRONTEND_URL || 'https://app.brokergy.es';
         const hayInstalador = !!(instalador?.nombre || instalador?.tlf || instalador?.email || (instalador?.contactos || []).length);
+
+        // El CONSEJO DE FACTURA (utils/consejoFactura.js): el texto recomendado para
+        // el concepto, si falta la factura o la que hay tiene una GRAVE que tumba la
+        // auditoría. El popup lo enseña y lo ofrece marcado; quien lo ENVÍA es
+        // `solicitar-faltantes`, que lo vuelve a calcular. Un fallo aquí no tumba la
+        // solicitud: sale sin consejo.
+        let consejoFactura = null;
+        try {
+            const facturaItem = (checklist.grupos.find(g => g.responsable === 'INSTALADOR')?.items || []).find(i => i.key === 'factura');
+            const r = await require('../utils/consejoFactura').cargarConsejoFactura(exp, {
+                cliente: cli, faltaFactura: facturaItem ? !facturaItem.presente : null,
+            });
+            if (r?.consejo) {
+                // El token de la página es el de subida, que ya se ha asegurado arriba.
+                const token = uploadBase ? new URL(uploadBase).searchParams.get('token') : null;
+                const cfMod = require('../utils/consejoFactura');
+                const url = cfMod.enlaceConsejo(exp.id, token);
+                consejoFactura = {
+                    ...r.decision,
+                    correcciones: cfMod.correccionesPorFactura(r.decision, r.consejo),
+                    consejo: r.consejo,
+                    url,
+                    copiar: r.copiar,
+                    whatsapp: cfMod.textosWhatsapp(r.consejo, r.decision, { url }),
+                };
+            }
+        } catch (e) { console.warn('[solicitud-info] consejo de factura:', e.message); }
+
         res.json({
             numero_expediente: exp.numero_expediente,
             obra,
@@ -1236,6 +1259,8 @@ router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
                 subirCifo: `${FRONTEND}/subir-cifo/${exp.id}`,
             },
             pendientes: buildSolicitudPendientes(checklist, { hayInstalador, bloqueos }),
+            // { mandar, motivo: 'FALTA'|'GRAVE'|null, graves, correcciones, consejo, url, copiar, whatsapp } | null (RES080)
+            consejo_factura: consejoFactura,
         });
     } catch (err) {
         console.error('[solicitud-info]', err.message);
@@ -1713,22 +1738,55 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         const nombreDest = (String(req.body?.nombre || '').trim()) || contacto.nombre;
         const sent = [];
 
+        // ── CONSEJO DE FACTURA (utils/consejoFactura.js, Fran 11/11/2026) ──
+        // Al INSTALADOR, cuando se le pide la factura (clave `factura` del barrido) o
+        // quien llama lo pide (`consejo_factura: true`: el popup con la casilla
+        // marcada, el «¿cómo va la obra?» del parte). `false` lo apaga. Se vuelve a
+        // calcular AQUÍ —nunca se fía del navegador— y solo sale si la regla lo dice:
+        // falta la factura, o la que hay tiene una GRAVE que tumba la auditoría.
+        let consejoEnvio = null;
+        const keysPedidas = Array.isArray(req.body?.solicitado_keys) ? req.body.solicitado_keys.map(String) : [];
+        if (target === 'INSTALADOR' && req.body?.consejo_factura !== false
+            && (req.body?.consejo_factura === true || keysPedidas.includes('factura'))) {
+            try {
+                const r = await require('../utils/consejoFactura').cargarConsejoFactura(exp, { crearToken: true });
+                if (r?.consejo && r.decision.mandar) consejoEnvio = r;
+            } catch (e) { console.warn('[solicitar-faltantes] consejo de factura:', e.message); }
+        }
+
         if (channels.includes('whatsapp')) {
             if (!tlf) return res.status(400).json({ error: 'No hay teléfono para enviar el WhatsApp. Indica uno.' });
             botVinculos.sembrarEnDiferido(tlf, exp.oportunidad_id);
             try { await whatsappService.sendText(tlf, mensaje); sent.push('WhatsApp'); }
             catch (e) { console.warn('[solicitar-faltantes] WA:', e.message); sent.push('WhatsApp (encolado)'); }
+            // Dos mensajes INDEPENDIENTES justo detrás: el consejo y, aparte, solo el
+            // concepto (mantener pulsado → Copiar copia exactamente eso).
+            if (consejoEnvio) {
+                for (const t of consejoEnvio.whatsapp) {
+                    try { await whatsappService.sendText(tlf, t); }
+                    catch (e) { console.warn('[solicitar-faltantes] WA consejo:', e.message); }
+                }
+            }
         }
         if (channels.includes('email')) {
             if (!email) return res.status(400).json({ error: 'No hay email para enviar. Indica uno.' });
-            // Los saltos van en <br>: Outlook (motor de Word) ignora `white-space:pre-wrap`
-            // y el mensaje llegaba de una pieza, como un párrafo corrido.
-            const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`;
+            const cfMod = consejoEnvio ? require('../utils/consejoFactura') : null;
+            // Con consejo, el texto lo ANUNCIA y el recuadro va al final del correo.
+            const textoEmail = consejoEnvio ? cfMod.anunciarEnTexto(mensaje) : mensaje;
+            // Con la plantilla de marca de todos los avisos (cabecera, pie, párrafos y
+            // los enlaces como botón): antes salía en un <div> suelto.
+            const html = emailService.buildSolicitudEmail({
+                asunto, mensaje: textoEmail,
+                extraHtml: consejoEnvio ? cfMod.htmlEmailConsejo(consejoEnvio.consejo, consejoEnvio.decision, { url: consejoEnvio.url }) : '',
+            });
+            const textoPlano = consejoEnvio
+                ? `${textoEmail}\n\nTexto recomendado para la factura${consejoEnvio.url ? ` (con botón para copiarlo: ${consejoEnvio.url})` : ''}:\n\n${consejoEnvio.copiar}`
+                : mensaje;
             // Copia REAL: quien lo recibe ve quién más está en el hilo. `sendMail`
             // descarta los vacíos y los que ya van en `to`.
             const cc = (Array.isArray(req.body?.cc) ? req.body.cc : [])
                 .map(e => String(e || '').trim()).filter(Boolean);
-            await emailService.sendMail({ to: email, cc, subject: asunto, text: mensaje, html });
+            await emailService.sendMail({ to: email, cc, subject: asunto, text: textoPlano, html });
             sent.push(cc.length ? `Email (+${cc.length} en copia)` : 'Email');
         }
         if (!sent.length) return res.status(400).json({ error: 'No se pudo enviar por los canales elegidos' });
@@ -1751,9 +1809,10 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         historial.push({
             id: Date.now().toString() + '_solicitud',
             tipo: 'solicitud_docs',
-            texto: `Solicitud de documentación enviada a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'}${destLabel} vía ${sent.join(' + ')}${solicitadoTxt}`,
+            texto: `Solicitud de documentación enviada a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'}${destLabel} vía ${sent.join(' + ')}${solicitadoTxt}${consejoEnvio ? `. Con el texto recomendado para la factura${consejoEnvio.decision.motivo === 'GRAVE' ? ' (y qué corregir de la que hay)' : ''}` : ''}`,
             solicitado,
             solicitado_keys: solicitadoKeys,
+            consejo_factura: consejoEnvio ? consejoEnvio.decision.motivo : null,
             target,
             fecha: new Date().toISOString(),
             usuario: userName,
@@ -1774,7 +1833,7 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
             });
         }
 
-        res.json({ ok: true, channels: sent, sentTo: email || tlf || null });
+        res.json({ ok: true, channels: sent, sentTo: email || tlf || null, consejo_factura: consejoEnvio ? consejoEnvio.decision.motivo : null });
     } catch (err) {
         console.error('[solicitar-faltantes]', err.message);
         res.status(500).json({ error: 'Error enviando la solicitud' });

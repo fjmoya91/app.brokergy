@@ -27,7 +27,7 @@
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `informes` | Informes técnicos — `{AAAA}INF_{n}`: memorias, legalizaciones, todo lo que no es CAE ni CEE | `.claude/rules/informes.md` · 4,7 KB | 1 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
-| `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 8,9 KB | 5 |
+| `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 11,4 KB | 6 |
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 41,9 KB | 20 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 25,6 KB | 10 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,4 KB | 10 |
@@ -295,6 +295,7 @@
 - **207** → `.claude/rules/whatsapp.md` — El CONTESTADOR contesta como Fran a quien tiene algo VIVO, tras 15 min de silencio, en la franja de la casa,…
 - **208** → `.claude/rules/oportunidades.md` — El formulario «Calcula tu ayuda» vive en la APP y la obra llega en el ENLACE
 - **209** → `.claude/rules/calculo.md` — El ACS existente se calcula con SU rendimiento: un termo eléctrico va a 1,00, no a la η de la caldera
+- **210** → `.claude/rules/instalador-rite.md` — Cuando se le pide la factura al INSTALADOR, va con el texto recomendado para el concepto; y si la que mandó …
 - **212** → `.claude/rules/lotes.md` — El lote habla con beCAE (Marwen) por su API v1.6.0, y la respuesta se lee en los DOS formatos
 - **213** → `.claude/rules/lotes.md` — El EQUIPO de verificación (verificador jefe y revisor técnico, con email y teléfono) se LEE del plan y de la…
 - **215** → `.claude/rules/lotes.md` — El Anexo I del LOTE lleva las firmas ANCLADAS al pie de la hoja, y sus casillas se MIDEN
@@ -602,6 +603,7 @@
 
 - `docs/conocimiento/instalador-rite/al-instalador-se-le-pide-todo-de-una-vez.md` — Al instalador se le pide TODO de una vez (2026-08-27)
 - `docs/conocimiento/instalador-rite/el-certificado-rite-se-lee-al-subirlo.md` — El Certificado RITE se LEE al subirlo (2026-09-03)
+- `docs/conocimiento/instalador-rite/el-consejo-de-factura-al-instalador.md` — El consejo de factura al instalador (2026-11-11)
 - `docs/conocimiento/instalador-rite/la-memoria-rite-de-una-cascada.md` — La Memoria RITE de una CASCADA: todo cabe en su casilla y los litros se suman (2026-11-13)
 - `docs/conocimiento/instalador-rite/presentar-la-memoria-rite-en-edice.md` — Presentar nosotros la Memoria RITE en eDICE-Térmicas (2026-10-25)
 - `docs/conocimiento/instalador-rite/varios-tecnicos-pueden-firmar-la-memoria-rite.md` — VARIOS técnicos pueden firmar la Memoria RITE de una empresa (2026-11-06)
