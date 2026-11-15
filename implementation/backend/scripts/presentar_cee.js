@@ -8,6 +8,8 @@
 //   node scripts/presentar_cee.js certificado          (con qué certificado firma en la sede)
 //   node scripts/presentar_cee.js preparar <nº> [--fase inicial|final] [--certificador <id|NIF|nombre>]
 //   node scripts/presentar_cee.js devuelto <nº> --registro <pdf> [--tasa <pdf>] [--fase …] [--escribir]
+//   node scripts/presentar_cee.js sede <nº> [--fase …] [--tasa <046>] [--registro <n/aaaa> --fecha --hora] [--escribir]
+//       (sin --tasa ni --registro: la puerta de ANTES de pagar; con ellos, el sello «ya está en la sede»)
 //
 // NO rellena el formulario ni paga: eso lo hace Claude en el navegador con lo que
 // deja `preparar` (rellenar.js + los ficheros). Todo lo que aquí se calcula sale
@@ -34,7 +36,7 @@ const fase = (opt('fase') || 'inicial').toLowerCase() === 'final' ? 'final' : 'i
 
 // ─── Dónde vive cada número ──────────────────────────────────────────────────
 async function localizar(numero) {
-    const campos = 'id, numero_expediente, cliente_id, seguimiento, estado';
+    const campos = 'id, numero_expediente, cliente_id, seguimiento, estado, en_sede:cee->en_sede';
     const { data: cd } = await supabase.from('cee_directos').select(`${campos}, alcance`).eq('numero_expediente', numero).maybeSingle();
     if (cd) return { origen: 'cee_directo', row: cd };
     const { data: ex } = await supabase.from('expedientes').select(campos).eq('numero_expediente', numero).maybeSingle();
@@ -43,6 +45,23 @@ async function localizar(numero) {
 }
 
 const claveFase = (f) => (f === 'final' ? 'cee_final' : 'cee_inicial');
+
+// ─── El sello «ya está en la sede» (`cee.en_sede[fase]`) ─────────────────────
+// REGLA — lo que se paga o se envía a la sede se SELLA en la app EN ESE MOMENTO, no
+// cuando llega el justificante (Fran, 15/11/2026). El 13/11 el 26RES060_206 final se
+// registró (4587339/2026, tasa 0466081112235) pero la sede devolvió el justificante EN
+// BLANCO y la app siguió diciendo «sin registrar»; al día siguiente otra sesión, en el
+// otro PC, lo vio pendiente y lo volvió a presentar: dos inscripciones y dos tasas. El
+// sello vive en Supabase, así que lo ve cualquier PC y cualquier sesión, y con él
+// `pendientes` no lo lista, `preparar` da NO LISTO y `sede` no deja pagar otra tasa.
+const enSedeDe = (row, f) => row?.en_sede?.[f] || null;
+function textoEnSede(s) {
+    if (!s) return '';
+    if (s.registro) return `ENVIADO A LA SEDE con registro ${s.registro}${s.fecha ? ` el ${s.fecha}${s.hora ? ` a las ${s.hora}` : ''}` : ''}`
+        + `${s.tasa ? ` · tasa ${s.tasa}` : ''}${s.pc ? ` · desde ${s.pc}` : ''}`;
+    return `TASA ${s.tasa} YA PAGADA${s.pagada_at ? ` (${s.pagada_at.slice(0, 16).replace('T', ' ')})` : ''}${s.pc ? ` desde ${s.pc}` : ''}`
+        + ' y SIN registro confirmado: antes de nada mira en la sede/correo si se envió; si no, se envía con ESA 046 (sin pagar otra)';
+}
 
 // ─── pendientes ──────────────────────────────────────────────────────────────
 // El MISMO criterio que el radar del parte («Con tu visto bueno y sin registrar»,
@@ -56,7 +75,7 @@ const claveFase = (f) => (f === 'final' ? 'cee_final' : 'cee_inicial');
 async function listaPendientes() {
     const { plazoDesdeFirma } = require('../services/presentacionCeeService');
     const { esDeLaCasa } = require('../services/cee/canonicoAlVistoBueno');
-    const campos = 'id, numero_expediente, seguimiento, presentacion:cee->presentacion, ficheros:cee->cee_files, '
+    const campos = 'id, numero_expediente, seguimiento, presentacion:cee->presentacion, en_sede:cee->en_sede, ficheros:cee->cee_files, '
         + 'cert:cee->>certificador_id, '
         + 'ffi:cee->>fecha_firma_cee_inicial, fff:cee->>fecha_firma_cee_final, '
         + 'dfi:documentacion->>fecha_firma_cee_inicial, dff:documentacion->>fecha_firma_cee_final, '
@@ -74,6 +93,7 @@ async function listaPendientes() {
                 const enc = r.presentacion?.[f];
                 out.push({
                     numero: r.numero_expediente, origen, fase: f, certId: r.cert || null,
+                    enSede: enSedeDe(r, f),
                     vbAt: r.seguimiento?.[`${claveFase(f)}_ts`]?.REVISADO || null,
                     plazo: plazoDesdeFirma(firma),
                     firmado: !!r.ficheros?.[f]?.pdf,
@@ -100,8 +120,15 @@ async function listaPendientes() {
 }
 
 async function pendientes() {
-    const out = await listaPendientes();
+    const todos = await listaPendientes();
+    const yaEnSede = todos.filter(p => p.enSede);
+    const out = todos.filter(p => !p.enSede);
     const casa = out.filter(p => p.casa), ajenos = out.filter(p => !p.casa);
+    if (yaEnSede.length) {
+        console.log('⛔ YA ESTÁN EN LA SEDE (NO se presentan otra vez: falta guardar su justificante con `devuelto`):');
+        for (const p of yaEnSede) console.log(`${p.numero.padEnd(18)} ${p.fase.padEnd(8)} ${textoEnSede(p.enSede)}`);
+        console.log('');
+    }
     if (!casa.length) console.log('No hay ningún CEE de la casa con visto bueno pendiente de presentar.');
     else {
         console.log('A PRESENTAR (de la casa):');
@@ -300,18 +327,20 @@ async function preparar(numero) {
     // CE3X: sin informe aparte, se adjunta el mismo PDF en esa categoría.
     if (!ficheros.mejoras && ficheros.pdf) ficheros.mejoras = ficheros.pdf;
 
-    // La «Fecha de emisión» que la sede compara con el XML es su <FechaGeneracion> (la que el
-    // PDF imprime como «Fecha (de generación del documento)»), no la de la firma que guarda la
-    // app. En 26RES060_221 el CEE se regeneró días después y la sede rechazó el XML: «La Fecha
-    // de emisión del certificado no coincide con la del xml».
+    // La «Fecha de emisión» que la sede compara con el XML NO es la de la firma que guarda la
+    // app (26RES060_221: «La Fecha de emisión del certificado no coincide con la del xml»). Si el
+    // XML trae <FechaCalificacion> (esquema v3.0 de CE3X 3.x), manda ÉSA: en 26RES060_232
+    // (06/11/2026) el XML decía generación 06/11 y calificación 04/11, la sede rechazó el 06/11 y
+    // aceptó el 04/11. Sin ella, la <FechaGeneracion>.
     if (ficheros.xml) {
         const xml = fs.readFileSync(ficheros.xml, 'latin1');
         const gen = aIso((xml.match(/<FechaGeneracion>\s*([\d/]+)/i) || [])[1]);
         const cal = aIso((xml.match(/<FechaCalificacion>\s*([\d/]+)/i) || [])[1]);
-        if (gen && gen !== valores.FECH_EMISION) {
-            avisos.push(`Fecha de emisión: la app dice ${valores.FECH_EMISION || '—'} pero el XML se generó el ${gen}. Se declara la del XML (la que compara la sede).`
-                + (cal && cal !== gen ? ` OJO: la calificación es del ${cal}; si la sede la rechaza, hay que regenerar el CEE con una sola fecha y firmar de nuevo el PDF.` : ''));
-            valores.FECH_EMISION = gen;
+        const emision = cal || gen;
+        if (emision && emision !== valores.FECH_EMISION) {
+            avisos.push(`Fecha de emisión: la app dice ${valores.FECH_EMISION || '—'} pero el XML dice ${emision} (${cal ? 'calificación' : 'generación'}). Se declara la del XML (la que compara la sede).`
+                + (cal && gen && cal !== gen ? ` OJO: el XML se generó el ${gen}; si la sede rechaza el ${cal}, prueba con el ${gen}.` : ''));
+            valores.FECH_EMISION = emision;
         }
         // Y la de VISITA, igual: la sede la compara con la <Fecha> de <Visita> del XML. En
         // 2026CEE_59 la app decía 25/10 y el XML 27/10: «La Fecha visita del xml no coincide
@@ -338,13 +367,15 @@ async function preparar(numero) {
     }
 
     if (yaRegistrado) avisos.unshift(`${numero} (${fase}) YA ESTÁ REGISTRADO: no se presenta otra vez (sería otra tasa).`);
+    const enSede = enSedeDe(row, fase);
+    if (enSede && !yaRegistrado) avisos.unshift(`⛔ ${numero} (${fase}) ${textoEnSede(enSede)}. NO se presenta otra vez.`);
     // El CEE de un técnico de FUERA lo presenta él (Fran, 25/10/2026): desde aquí, nunca.
     const ajeno = await tecnicoDeFuera(origen, row.id);
     if (ajeno) avisos.unshift(`${numero} (${fase}) es de ${ajeno}: lo presenta SU TÉCNICO, no la casa.`);
     // Con qué certificado firma AutoFirma en la sede: se le fija por huella (certificado.js).
     let cert = null;
     try { cert = certificadoQuePresenta(); } catch (e) { avisos.unshift(`⛔ ${e.message}: sin él la sede no se firma sola.`); }
-    const listo = cert && !yaRegistrado && !ajeno && !incompleto && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
+    const listo = cert && !yaRegistrado && !enSede && !ajeno && !incompleto && !faltan.length && ficheros.pdf && ficheros.xml && ficheros.cex;
     const plan = {
         numero, origen, fase, listo: !!listo,
         sede: 'http://www.jccm.es/administracion_electronica/formularios/SJM3.phtml?SER_ID=JM3&PROC=JM3&FIRMA=S',
@@ -566,6 +597,10 @@ async function devuelto(numero) {
         const { resolverFechaRegistro } = require('../services/registroCeeOcrService');
         const l = await resolverFechaRegistro(bReg);
         console.log('EN SECO · del justificante se lee:', JSON.stringify(l));
+        const s = enSedeDe(row, fase);
+        if (s?.registro && l?.numero_registro && s.registro !== l.numero_registro) {
+            console.log(`⛔ OJO: la app tenía sellado el registro ${s.registro} y este justificante es del ${l.numero_registro}: ¿SEGUNDA presentación? Díselo al usuario antes de guardar.`);
+        }
         console.log('Con --escribir: sube el justificante, marca REGISTRADO' + (bTasa ? ' y sube la tasa como «… – TASA».' : '.'));
         return;
     }
@@ -636,6 +671,58 @@ async function devuelto(numero) {
         } else console.log('ENCARGO cerrado');
     }
     await new Promise(r => setTimeout(r, 3000)); // deja salir los avisos asíncronos
+}
+
+// ─── sede ────────────────────────────────────────────────────────────────────
+// El sello `cee.en_sede[fase]` (ver «El sello «ya está en la sede»» arriba). Tres usos:
+//   sede <nº> [--fase …]                                   ¿se puede pagar? (lee la BD AHORA; sale con error si no)
+//   sede <nº> --tasa <046> --escribir                       justo DESPUÉS de pagar, antes de enviar
+//   sede <nº> --registro <n/aaaa> [--fecha dd/mm/aaaa] [--hora hh:mm:ss] --escribir
+//                                                           en cuanto la sede da el número, ANTES de bajar el justificante
+// Lo lee `preparar`, `pendientes` y la ronda de la noche; lo deja atrás `devuelto` (REGISTRADO).
+async function sede(numero) {
+    const os = require('os');
+    const { origen, row } = await localizar(numero);
+    const yaRegistrado = String(row.seguimiento?.[claveFase(fase)] || '').toUpperCase() === 'REGISTRADO';
+    const actual = enSedeDe(row, fase);
+    const tasa = opt('tasa') ? String(opt('tasa')).replace(/\s/g, '') : null;
+    const registro = opt('registro') ? String(opt('registro')).trim() : null;
+    if (tasa && !/^046\d{10}$/.test(tasa)) throw new Error(`--tasa «${tasa}» no es una referencia 046 de 13 dígitos`);
+    if (registro && !/^\d{5,9}\/\d{4}$/.test(registro)) throw new Error(`--registro «${registro}» no es un número de registro (nnnnnnn/aaaa)`);
+
+    console.log(`${numero} (${origen}) · fase ${fase} · seguimiento ${row.seguimiento?.[claveFase(fase)] || '—'} · en sede: ${actual ? textoEnSede(actual) : 'nada'}`);
+    // La puerta de ANTES de pagar: sin --tasa ni --registro solo se comprueba.
+    if (!tasa && !registro) {
+        if (yaRegistrado || actual?.registro) throw new Error(`${numero} (${fase}) YA está registrado${actual?.registro ? ` (${actual.registro})` : ''}: NO se paga ni se presenta otra vez.`);
+        if (actual?.tasa) throw new Error(`${numero} (${fase}) ya tiene la tasa ${actual.tasa} pagada: NO se paga otra. Comprueba si se envió; si no, se envía con ESA referencia (REFERENCIA_PAGO).`);
+        console.log('OK: no consta pagado ni enviado. Se puede pagar.');
+        return;
+    }
+    if (tasa && !registro) {
+        if (yaRegistrado || actual?.registro) throw new Error(`${numero} (${fase}) YA está registrado: esa tasa ${tasa} sobra (¿pagada dos veces?). No se sella.`);
+        if (actual?.tasa && actual.tasa !== tasa && !flag('forzar')) throw new Error(`${numero} (${fase}) ya tenía la tasa ${actual.tasa}; ${tasa} sería una SEGUNDA. Si de verdad se ha pagado otra, --forzar.`);
+    }
+    if (registro && actual?.registro && actual.registro !== registro && !flag('forzar')) {
+        throw new Error(`${numero} (${fase}) ya consta enviado con el registro ${actual.registro}; ${registro} sería una SEGUNDA presentación. Si es así, --forzar (y dilo).`);
+    }
+    const ahora = new Date().toISOString();
+    const nuevo = {
+        ...(actual || {}),
+        ...(tasa ? { tasa, pagada_at: actual?.tasa === tasa ? actual.pagada_at : ahora } : {}),
+        ...(registro ? { registro, fecha: opt('fecha') || null, hora: opt('hora') || null, enviado_at: ahora } : {}),
+        pc: os.hostname(), por: QUIEN.texto,
+    };
+    if (actual?.registro && registro && actual.registro !== registro) nuevo.duplicados = [...(actual.duplicados || []), actual.registro];
+    console.log(`${flag('escribir') ? 'SELLO' : 'EN SECO · sellaría'}: ${textoEnSede(nuevo)}`);
+    if (!flag('escribir')) return;
+    const tabla = origen === 'cee_directo' ? 'cee_directos' : 'expedientes';
+    const { data: f } = await supabase.from(tabla).select('en_sede:cee->en_sede').eq('id', row.id).maybeSingle();
+    const valor = { ...(f?.en_sede || {}), [fase]: nuevo };
+    const { error } = origen === 'cee_directo'
+        ? await supabase.rpc('set_cee_directo_cee_field', { p_cee_directo_id: row.id, p_field: 'en_sede', p_value: valor })
+        : await supabase.rpc('set_expediente_cee_field', { p_expediente_id: row.id, p_field: 'en_sede', p_value: valor });
+    if (error) throw new Error(`No se ha podido sellar: ${error.message}. ¡NO sigas sin el sello: díselo al usuario!`);
+    console.log('Sellado en la app.');
 }
 
 // ─── notificaciones ──────────────────────────────────────────────────────────
@@ -711,6 +798,7 @@ if (require.main === module) (async () => {
     if (orden === 'pendientes') await pendientes();
     else if (orden === 'preparar' && args[1]) await preparar(args[1]);
     else if (orden === 'devuelto' && args[1]) await devuelto(args[1]);
+    else if (orden === 'sede' && args[1]) await sede(args[1]);
     else if (orden === 'notificaciones' && args[1]) await notificaciones(args[1]);
     else if (orden === 'certificado') {
         // Solo dice con qué certificado se firmaría y deja certificado.js suelto (para probar).
@@ -722,7 +810,8 @@ if (require.main === module) (async () => {
     }
     else {
         console.log('Uso:\n  node scripts/presentar_cee.js pendientes\n  node scripts/presentar_cee.js certificado\n  node scripts/presentar_cee.js preparar <nº> [--fase inicial|final]\n'
-            + '  node scripts/presentar_cee.js devuelto <nº> --registro <pdf> [--tasa <pdf>] [--fase …] [--escribir]');
+            + '  node scripts/presentar_cee.js devuelto <nº> --registro <pdf> [--tasa <pdf>] [--fase …] [--escribir]\n'
+            + '  node scripts/presentar_cee.js sede <nº> [--fase …] [--tasa <046>] [--registro <n/aaaa> --fecha dd/mm/aaaa --hora hh:mm:ss] [--escribir]');
         process.exitCode = 1;
     }
     process.exit(process.exitCode || 0);

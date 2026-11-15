@@ -24,6 +24,17 @@ del usuario, con su certificado.
 - **Lo encargado a otra persona no se presenta sin preguntar**: si lo presentan los dos, se paga
   la tasa dos veces. `pendientes` dice si queda un encargo antiguo sin cerrar.
 - **Local = producción**: `devuelto --escribir` sube a Drive y marca REGISTRADO de verdad.
+- **⛔ UN CEE SE PRESENTA UNA SOLA VEZ: lo pagado y lo enviado se SELLA en la app EN EL MOMENTO**
+  (Fran, 15/11/2026). El 13/11 el 26RES060_206 final se registró (4587339/2026) pero la sede devolvió el
+  justificante en blanco, la app siguió diciendo «sin registrar» y al día siguiente otra sesión, desde el
+  otro PC, lo presentó OTRA vez: dos inscripciones y dos tasas. Por eso, siempre, con
+  `presentar_cee.js sede` (paso 7.0, 7.6 y 8.3): **(a)** justo ANTES de pagar, la puerta `sede <nº>`
+  (lee la BD en ese instante; si dice ERROR no se paga); **(b)** en cuanto está pagado, `sede <nº> --tasa
+  <046> --escribir`; **(c)** en cuanto la sede da el número, `sede <nº> --registro <n/aaaa> --fecha
+  --hora --escribir`, ANTES de intentar bajar el justificante. El sello vive en Supabase: lo ven todos los
+  PC y todas las sesiones, `pendientes` lo saca de la lista y `preparar` da NO LISTO. **Si no se puede
+  sellar, se para y se le dice al usuario.** Y **nunca se acaba un turno con algo registrado o pagado
+  que la app no sepa**: si el justificante falla, el sello basta y se dice en el informe.
 - Todo corre en el PC del usuario: los scripts por la shell (en Cowork, por Desktop Commander, ver
   [comun/entorno.md](comun/entorno.md)) y el navegador por **Claude en Chrome**.
 
@@ -206,6 +217,15 @@ Para quitar uno: marca su casilla y «Quitar documento».
 No se vuelve a preguntar. Solo se para si el importe del apartado 08 NO es el que se confirmó (entonces
 sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de Chrome.
 
+0. **La puerta, justo antes de pulsar «Pagar y enviar»** (no vale la de `preparar`, que puede ser de
+   hace horas o de otro PC):
+   ```bash
+   node scripts/presentar_cee.js sede 26RES060_206 --fase final
+   ```
+   `OK: no consta pagado ni enviado` → se paga. `ERROR: … YA está registrado` o `… ya tiene la tasa …
+   pagada` → **no se paga**: se para y se le dice al usuario (con la tasa ya pagada, se comprueba si se
+   envió —correo de la JCCM, Notifica— y, si no, se envía con ESA 046 por «Indique la referencia 046»).
+
 1. Marca **«Acceso a la pasarela de pago de tasas»** (radio `TIPO_PAGO` = `E`) y pulsa **«Pagar y
    enviar»** → `alert` («Vas a ser redirigido…») → `escritorio.ps1 aviso`. Se abre otra pestaña,
    `plataformapagos.jccm.es`.
@@ -251,6 +271,9 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
    oculta el velo (`document.getElementById('SPINNER').style.display='none'`), marca con un clic
    «Indique la referencia 046 del pago ya realizado» (`TIPO_PAGO` = `R`, habilita la casilla), teclea el
    nº 046 y cierra la pestaña del pago. Ya está pagado: no se vuelve a la pasarela.
+6. **Sella el pago EN SEGUIDA**, antes de enviar nada:
+   `node scripts/presentar_cee.js sede <nº> [--fase final] --tasa <nº 046> --escribir` («Sellado en la
+   app»). Si falla, no sigas: díselo al usuario.
 
 ## 8. Enviar
 
@@ -268,7 +291,13 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
    error y vuelve a pegar `enviar.js` (la 046 ya está pagada: no se vuelve a pagar).
 3. Unos segundos después, `javascript_tool` con `window.__resultadoEnvio()`: `registro` (NNNNNNN/AAAA),
    `fecha`, `hora`, `firmasConFiltro` (1) y `justificante: true`. Si `registro` es null, mira `error` o
-   el texto del marco. Baja el justificante con `window.__bajarJustificante()` → `Descargas\NNNNNNN.pdf`.
+   el texto del marco. **Con el número en la mano, LO PRIMERO es sellarlo**, antes de bajar nada:
+   `node scripts/presentar_cee.js sede <nº> [--fase final] --registro NNNNNNN/AAAA --fecha DD/MM/AAAA
+   --hora HH:MM:SS --escribir`. Después baja el justificante con `window.__bajarJustificante()` →
+   `Descargas\NNNNNNN.pdf`. **Ábrelo antes de darlo por bueno**: la sede, con «SOAP:Server: Server Error»
+   y el servidor lento, puede entregar un PDF con SOLO el logo (26RES060_206, 16 KB en vez de ~65 KB, y
+   Chrome lo guarda como `pdf` sin extensión). Uno en blanco no se sube: se reintenta más tarde con el
+   enlace del marco, o llega por correo a info@ (`from:plataformacesar@jccm.es`).
    **La sede puede tardar MINUTOS en contestar** (26RES060_243, 27/10/2026: firma a las 16:09:54 y
    registro a las 16:14:02). Mientras tanto el marco sigue enseñando el formulario, con `firmaB64` ya
    relleno y sin error. **No reenvíes**: consulta `__resultadoEnvio()` cada 30 s durante 6 min. Si no
@@ -285,7 +314,8 @@ sí: dilo y pregunta), o si la tarjeta confirmada no está en el desplegable de 
 
 ```bash
 node scripts/presentar_cee.js devuelto 2026CEE_64 --registro "C:\Users\Usuario\Downloads\NNNNNNN.pdf" --tasa "C:\Users\Usuario\Downloads\<nº 046>.pdf"
-# en seco: dice la fecha y el nº que lee del justificante. Si cuadran:
+# en seco: dice la fecha y el nº que lee del justificante, y AVISA (⛔) si no es el nº sellado
+# con `sede` (sería una segunda presentación: se para y se pregunta). Si cuadran:
 node scripts/presentar_cee.js devuelto 2026CEE_64 --registro … --tasa … --escribir
 ```
 

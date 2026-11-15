@@ -108,12 +108,14 @@ Y se TECLEA y se pulsa con clics reales **justo antes de subir el XML**: en 2026
 JavaScript y añadida antes de los dos PDF, salía en la lista pero la sede rechazó el XML dos veces; quitada
 y vuelta a teclear justo antes, entró a la primera. Por eso `rellenar.js` ya no la escribe.
 
-**REGLA — la «Fecha de emisión» es la de GENERACIÓN del XML, no la de firma de la app.** La sede la
-compara con `<FechaGeneracion>` del XML (la que el PDF imprime como «Fecha (de generación del
-documento)»). En 26RES060_221 el CEE se calificó el 08/10 y se regeneró el 15/10: con el 08/10 que
+**REGLA — la «Fecha de emisión» es la del XML, no la de firma de la app; con `<FechaCalificacion>`,
+manda ésa.** En 26RES060_221 el CEE se calificó el 08/10 y se regeneró el 15/10: con el 08/10 que
 pone el borrador (`fecha_firma_cee_inicial`), la sede rechazó el XML («La Fecha de emisión del
-certificado no coincide con la del xml»). `preparar` ya declara la del XML y lo avisa. Si la sede aún
-lo rechaza, el usuario regenera el CEE en CE3X con una sola fecha y firma de nuevo el PDF (decisión
+certificado no coincide con la del xml»). En 26RES060_232 (06/11/2026, CE3X 3.2, esquema v3.0) el XML
+traía `<FechaGeneracion>` 06/11 y `<FechaCalificacion>` 04/11: la sede rechazó el 06/11 y aceptó el
+04/11. Así que `preparar` declara la `<FechaCalificacion>` si el XML la trae y, si no, la
+`<FechaGeneracion>`, y avisa cuando las dos difieren. Si la sede aún lo rechaza, se prueba la otra; y
+si tampoco, el usuario regenera el CEE en CE3X con una sola fecha y firma de nuevo el PDF (decisión
 del usuario). ⚠️ El borrador del popup sigue tomando la fecha de firma: pendiente de cambiar.
 
 **REGLA — cada solicitud empieza y acaba BORRANDO la sesión de la sede.** Sin cerrar Chrome, la sede
@@ -153,6 +155,25 @@ extensión (ni capturas ni JavaScript): se acepta con `escritorio.ps1 aviso`.
 formulario bien: parece lo normal de la sede. Pendiente de ver que la copia por correo trae los cuatro
 documentos.
 
+**REGLA — un CEE se presenta UNA vez: lo pagado y lo enviado se SELLA en la app en el momento
+(`presentar_cee.js sede`), no cuando llega el justificante** (15/11/2026, Fran: «es un error que no debe
+volver a suceder»). Lo que pasó con el 26RES060_206 final: el 13/11 por la noche se pagó (046
+0466081112235) y se registró (4587339/2026, expediente de la sede 2026/355761), pero la sede, que ese día
+contestaba con «SOAP:Server: Server Error» y minutos de espera, entregó el justificante con SOLO el logo
+(16 KB). `devuelto` no lo podía subir, así que la app siguió en «REVISADO, sin registrar». El 14/11 otra
+sesión, en el otro PC, lo vio en `pendientes`, lo presentó otra vez y pagó otra tasa (046 0466081114362,
+registro 4589149/2026, sede 2026/355785). Las dos inscripciones salieron favorables con su etiqueta: 16,39 €
+tirados y una inscripción repetida. La app solo conocía el estado por el JUSTIFICANTE, y entre pagar y
+tenerlo bueno puede pasar un día. Ahora hay un sello en `cee.en_sede[fase]` (escrito con
+`set_*_cee_field`, sin tocar `cee.presentacion`, que es del encargo a otra persona) con `tasa`, `pagada_at`,
+`registro`, `fecha`, `hora`, `enviado_at` y el `pc`: **`sede <nº>`** sin más es la puerta de justo antes de
+pagar (sale con error si ya está registrado, sellado o con tasa pagada); **`--tasa <046> --escribir`** al
+pagar; **`--registro <n/aaaa> --escribir`** en cuanto la sede da el número, antes de bajar el justificante.
+Con el sello, `pendientes` lo lista aparte («YA ESTÁN EN LA SEDE»), `preparar` da NO LISTO, la ronda de las
+21:00 lo deja fuera y `devuelto` en seco avisa si el justificante es de OTRO número que el sellado (una
+segunda presentación). Una segunda tasa o un segundo registro solo se sellan con `--forzar`. Y un
+justificante se ABRE antes de darlo por bueno: uno en blanco no se sube.
+
 **REGLA — una solicitud perdida tras pagar se rehace con la referencia 046, sin volver a pagar**
 (19/10/2026, 26RES060_217, registro 4217566/2026). Mientras el usuario autorizaba el 3DS, Chrome
 descartó la pestaña de la sede (estaba detrás) y al volver salió «Confirmar reenvío del formulario»
@@ -171,6 +192,13 @@ de firma y sus páginas eran iguales a los del 238 y el 2026CEE_61, presentados 
 poner el nombre en mayúsculas tampoco lo cambió. Una solicitud NUEVA (sesión limpia, todo otra vez y la
 referencia 046 del pago ya hecho) registró a la primera. Ese día la sede había pasado horas en
 mantenimiento (la ENTRADA misma redirigía a `MttoJCCM`); puede que tuviera que ver.
+
+**Si la página 3DS del banco acaba en «Internal Server Error» (sin ticket), el pago NO se hizo y la
+solicitud se empieza de cero** (05/11/2026, 26RES080_97, registro 4441092/2026). El 3DS de BBVA caducó a
+los ~7 min y `3ds.redsys.es` dio el error; el usuario confirmó que no había cargo. Al cerrar esa pestaña,
+«Pagar y enviar» en la sede se queda en «Esperando pago…» deshabilitado y no vuelve a abrir la pasarela:
+se borra la sesión, se rehace la solicitud entera y sale una 046 NUEVA (la primera, 0466080972962, queda
+sin pagar y no estorba). Nunca se reintenta el pago sin que el usuario diga que no ve el cargo.
 
 **REGLA — si «Pagar y enviar» lleva a `mantenimiento.castillalamancha.es/MttoJCCM`, la pasarela está en
 MANTENIMIENTO: no se envía nada y se reintenta más tarde** (23/10/2026, 26RES060_245). En vez de

@@ -251,6 +251,8 @@ async function listaDeLaNoche() {
     const items = [], fuera = [];
     for (const p of (await listaPendientes()).filter(x => x.casa)) {
         if (enCola.some(t => t.numero === p.numero && t.fase === p.fase)) { fuera.push(`${p.numero} (${p.fase}): ya está en la cola de tu PC`); continue; }
+        // Ya pagado o enviado a la sede sin el justificante guardado (cee.en_sede): presentarlo es la 2.ª tasa (26RES060_206).
+        if (p.enSede) { fuera.push(`${p.numero} (${p.fase}): YA está en la sede${p.enSede.registro ? ` (registro ${p.enSede.registro})` : ` (tasa ${p.enSede.tasa} pagada)`}; falta guardar el justificante`); continue; }
         if (p.encargo) { fuera.push(`${p.numero} (${p.fase}): tiene un encargo de presentación antiguo sin cerrar (${p.encargo}); puede estar ya presentado`); continue; }
         try {
             const c = await localizarCee(p.numero, p.fase);
