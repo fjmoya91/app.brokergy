@@ -19,7 +19,7 @@
 // inyecte su propio origen absoluto (Puppeteer renderiza con setContent → base
 // about:blank, las rutas relativas no cargan).
 // ============================================================================
-import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, redondeaScop, normalizeClimateSeason, etaAcsExistente, acsExistenteEsTermoElectrico } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, redondeaScop, normalizeClimateSeason, FC_ACS_TERCIARIO_W55, etaAcsExistente, acsExistenteEsTermoElectrico } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, domicilioEmpresa, empresaInstaladora, empresasActuacion,
     notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
@@ -818,9 +818,16 @@ export const FC_ZONA_ACS = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.1
  * El recuadro «Cálculo del SCOP en ACS» del Anexo VI. Con `placaSrc` va a DOS
  * columnas y la foto queda al lado del número que justifica.
  */
-export function scopAcsAnexoViHtml({ zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl, anexoRef, placaSrc = null, placaRecorte = null, fmCop = false }) {
-    const fc = FC_ZONA_ACS[zoneStr] ?? FC_ZONA_ACS.D3;
+export function scopAcsAnexoViHtml({ zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl, anexoRef, placaSrc = null, placaRecorte = null, fmCop = false, terciario = false }) {
+    // TERCIARIO (TER100 Anexo IV Caso 3 · TER173 Anexo II): acumulación a 60 °C y
+    // sin COP a A7/W65 → COP A7/W55 × 0,9, factor ÚNICO (no depende de la zona).
+    // Mismo número que `fcAcsIndependiente` en calculation.js, que es quien calcula.
+    const fc = terciario ? FC_ACS_TERCIARIO_W55 : (FC_ZONA_ACS[zoneStr] ?? FC_ZONA_ACS.D3);
     const fcStr = fc.toFixed(3).replace('.', ',');
+    const fcDonde = terciario
+        ? 'factor único para el COP a A7/W55 (acumulación a 60 °C)'
+        : `factor de corrección para la zona climática ${zoneStr} (clima ${String(zoneLabel).toLowerCase()})`;
+    const fcValor = terciario ? 'factor único, COP A7/W55' : `para zona climática ${zoneStr}`;
     const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
     // Vía FM: el Anexo I de las fichas FM escribe la misma cuenta como
     // SCOP = COP_nominal × FP × FC. Su FP de «Energía Aerotérmica, ACS» es, zona a
@@ -874,18 +881,18 @@ export function scopAcsAnexoViHtml({ zoneStr, zoneLabel, scopAcsRaw, scopAcsStr,
                   <div style="flex:1;min-width:0;">
                     <div style="font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
                     <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
-                    <p style="margin:0 0 6px;">Según el ${anexoRef}, para la zona climática ${zoneStr}:</p>
+                    <p style="margin:0 0 6px;">Según el ${anexoRef}, ${terciario ? 'con 60 °C de acumulación y sin COP a A7/W65' : `para la zona climática ${zoneStr}`}:</p>
                     <div style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
                     <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
                     <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
                         <li>· COP: coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
-                        <li style="margin-top:3px;">· F<sub>c</sub>: factor de corrección para la zona climática ${zoneStr} (clima ${String(zoneLabel).toLowerCase()})</li>
+                        <li style="margin-top:3px;">· F<sub>c</sub>: ${fcDonde}</li>
                         ${ftLink}
                     </ul>
                     <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Valores utilizados</div>
                     <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
                         <li>· COP = ${copCalc} ${placaSrc ? '(según la ficha técnica del fabricante y la placa de características del equipo, que se reproduce en este certificado)' : '(según ficha técnica del fabricante)'}</li>
-                        <li style="margin-top:3px;">· F<sub>c</sub> = ${fcStr} (para zona climática ${zoneStr})</li>
+                        <li style="margin-top:3px;">· F<sub>c</sub> = ${fcStr} (${fcValor})</li>
                     </ul>
                     <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:10px 16px;margin-top:10px;">
                         <span style="font-weight:700;color:#1A1A1A;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</span>
@@ -1662,7 +1669,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         : isTer173
         ? 'Anexo II de la ficha TER173 (bombas de calor aerotérmicas y depósitos no suministrados como conjunto)'
         : isTerciario
-        ? 'Anexo VII de la ficha TER100 (condiciones generales para el cálculo del coeficiente de eficiencia estacional en el calentamiento de ACS)'
+        ? 'Anexo IV de la ficha TER100 (Caso 3: bombas de calor aerotérmicas y depósitos no suministrados como conjunto)'
         : 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)';
 
     const renderAcsScopJustification = () => {
@@ -1692,7 +1699,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             // Recuadro + placa: FUENTE ÚNICA con el Certificado RES080 (arriba).
             return scopAcsAnexoViHtml({
                 zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl,
-                anexoRef: anexoViRef, placaSrc, placaRecorte,
+                anexoRef: anexoViRef, placaSrc, placaRecorte, terciario: isTerciario,
                 // Vía FM: la misma cuenta con los nombres del Anexo I de la ficha FM.
                 fmCop: !!fm,
             });

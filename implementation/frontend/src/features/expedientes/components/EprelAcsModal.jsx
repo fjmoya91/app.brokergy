@@ -57,14 +57,17 @@ const CAMPOS = {
         label: 'COP A7/W55 (aire 7 °C · agua 55 °C)',
         ph: 'Ej: 3,15',
         campo: 'cop_a7_55',
-        formula: (v, zona) => getScopAcsFromModel({ cop_a7_55: v }, zona, 'independiente'),
+        // En terciario (TER100 · TER173) el F_c es el factor único 0,9 del COP A7/W55.
+        formula: (v, zona, terciario) => getScopAcsFromModel({ cop_a7_55: v }, zona, 'independiente', null, { terciario }),
         normaliza: (n) => n,
         pie: () => 'Está en la tabla de datos técnicos del catálogo del fabricante — NO en la ficha de producto del Reglamento 811/2013, que solo declara SCOP por clima.',
-        muestra: (v) => <>SCOP<sub>dhw</sub> = {v} · F<sub>c</sub></>,
+        muestra: (v, terciario) => (terciario
+            ? <>SCOP<sub>dhw</sub> = {v} · 0,9</>
+            : <>SCOP<sub>dhw</sub> = {v} · F<sub>c</sub></>),
     },
 };
 
-export default function EprelAcsModal({ model, zona = 'D3', modo = 'conjunto', onCerrar, onCompletado }) {
+export default function EprelAcsModal({ model, zona = 'D3', modo = 'conjunto', terciario = false, onCerrar, onCompletado }) {
     const cfg = CAMPOS[modo] || CAMPOS.conjunto;
     const [valor, setValor] = useState('');
     const [eprel, setEprel] = useState(model?.eprel || '');
@@ -76,7 +79,7 @@ export default function EprelAcsModal({ model, zona = 'D3', modo = 'conjunto', o
 
     const nombre = [model.marca, model.modelo_comercial || model.modelo_conjunto].filter(Boolean).join(' ');
     const n = parseFloat(String(valor).replace(',', '.'));
-    const scopPrevisto = Number.isFinite(n) && n > 0 ? cfg.formula(cfg.normaliza(n), zona) : null;
+    const scopPrevisto = Number.isFinite(n) && n > 0 ? cfg.formula(cfg.normaliza(n), zona, terciario) : null;
 
     const addFiles = (lista) => {
         const pdfs = Array.from(lista || []).filter(f => /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name));
@@ -123,8 +126,8 @@ export default function EprelAcsModal({ model, zona = 'D3', modo = 'conjunto', o
                             ? <>trae el depósito de ACS dentro, así que calienta también el agua — pero el catálogo no tiene
                                ni el SCOP para ACS de su ficha técnica ni el η<sub>wh</sub> de su EPREL, que es de donde sale
                                el cálculo del Anexo IV.</>
-                            : <>calienta un depósito aparte, así que su SCOP<sub>dhw</sub> se calcula por el Anexo VI sobre su
-                               COP A7/55 — y el catálogo no lo tiene. Sin él no se puede declarar el rendimiento en ACS.</>}
+                            : <>calienta un depósito aparte, así que su SCOP<sub>dhw</sub> se calcula sobre su COP A7/55
+                               ({terciario ? 'por 0,9 en el terciario' : 'Anexo VI, por el F_c de la zona'}) — y el catálogo no lo tiene. Sin él no se puede declarar el rendimiento en ACS.</>}
                     </p>
                 </div>
 
@@ -142,7 +145,7 @@ export default function EprelAcsModal({ model, zona = 'D3', modo = 'conjunto', o
                         </p>
                         {scopPrevisto != null && (
                             <p className="text-[11px] text-emerald-400/90 mt-1.5 font-semibold">
-                                {cfg.muestra(String(valor).replace('.', ','))} ={' '}
+                                {cfg.muestra(String(valor).replace('.', ','), terciario)} ={' '}
                                 <span className="font-mono">{Number(scopPrevisto).toFixed(2).replace('.', ',')}</span>
                             </p>
                         )}

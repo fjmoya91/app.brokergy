@@ -578,7 +578,7 @@ function EquipoRefLinks({ model, data, metodoScop = null }) {
 // `scopsParaClima` (la misma función que la calculadora). La usan el botón «Clima
 // del SCOP» y su comparativa. Un equipo que no está en el catálogo no se toca; el
 // acumulador (Anexo VI, F_c por zona) y el termo eléctrico no dependen del clima.
-function instalacionConClima(p, clima, { modelosPorMarca, zona }) {
+function instalacionConClima(p, clima, { modelosPorMarca, zona, terciario = false }) {
     const sig = { ...p, scop_clima: clima === CLIMA_SCOP.MEDIO ? CLIMA_SCOP.MEDIO : null };
     const c = climaScopForzado(sig);
     const temp = getEmitterTemp(p.tipo_emisor);
@@ -605,7 +605,7 @@ function instalacionConClima(p, clima, { modelosPorMarca, zona }) {
         if (!aero || tipo === EQUIPO_NUEVO.ACUMULADOR || tipo === EQUIPO_NUEVO.TERMO) return aero;
         const f = modeloDe(aero);
         if (!f) return aero;
-        const s = scopsParaClima({ modeloAcs: f, zona, temp, metodoAcs: aero.metodo_scop || 'ficha', clima: c });
+        const s = scopsParaClima({ modeloAcs: f, zona, temp, metodoAcs: aero.metodo_scop || 'ficha', clima: c, terciario });
         return { ...aero, scop: s.scopAcs };
     };
     const newCal = recalcCal(p.aerotermia_cal);
@@ -614,7 +614,9 @@ function instalacionConClima(p, clima, { modelosPorMarca, zona }) {
 }
 
 // ─── Sección Aerotermia Nueva ─────────────────────────────────────────────────
-function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, zona = 'D3', isAcs = false, readOnly = false, calData = null, emisorPorUnidad = false, numeroExpediente = '', onCompletarCatalogo = null, climaScop = null }) {
+function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, zona = 'D3', isAcs = false, readOnly = false, calData = null, emisorPorUnidad = false, numeroExpediente = '', onCompletarCatalogo = null, climaScop = null, terciario = false }) {
+    // `terciario` (TER100 · TER173): el SCOP_dhw de un depósito independiente es
+    // COP A7/W55 × 0,9, no el F_c por zona del residencial. Ver `fcAcsIndependiente`.
     // Zona climática REAL de la instalación (la de la oportunidad). El Anexo III de
     // la ficha RES060 la equipara a la temporada europea del Rgto. 813/2013: A3-D3
     // → cálidas, E1 → medias. De ahí sale qué columna del catálogo se aplica, así
@@ -794,7 +796,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         // expediente: son equipos independientes y cada uno tiene su impulsión.
         const temp = tempUnidad(extras[idx]);
         const scop = isAcs
-            ? getScopAcsFromModel(found, zonaCE, method, climaScop)
+            ? getScopAcsFromModel(found, zonaCE, method, climaScop, { terciario })
             : getScopFromModel(found, zonaCE, temp, method, climaScop);
         handleExtraChange(idx, {
             // Temporada de la que sale ese SCOP: viaja con el número (ver abajo).
@@ -826,7 +828,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             const method = data?.metodo_scop || 'ficha';
             let scop;
             if (isAcs) {
-                scop = getScopAcsFromModel(found, zonaCE, method, climaScop);
+                scop = getScopAcsFromModel(found, zonaCE, method, climaScop, { terciario });
             } else {
                 const temp = getEmitterTemp(tipoEmisor);
                 scop = getScopFromModel(found, zonaCE, temp, method, climaScop);
@@ -875,7 +877,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         if (found) {
             let scop;
             if (isAcs) {
-                scop = getScopAcsFromModel(found, zonaCE, method, climaScop);
+                scop = getScopAcsFromModel(found, zonaCE, method, climaScop, { terciario });
             } else {
                 const temp = getEmitterTemp(tipoEmisor);
                 scop = getScopFromModel(found, zonaCE, temp, method, climaScop);
@@ -951,7 +953,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             // sale de su COP A7/55 por el Anexo VI, y su ficha técnica es la que lo
             // justifica en el CIFO.
             const scop = calModel
-                ? getScopAcsFromModel(calModel, zonaCE, 'independiente')
+                ? getScopAcsFromModel(calModel, zonaCE, 'independiente', null, { terciario })
                 : base?.scop ?? null;
             emit({
                 ...base,
@@ -1746,7 +1748,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 aerotermia_acs: {
                     ...p.aerotermia_acs,
                     metodo_scop: 'independiente',
-                    scop: getScopAcsFromModel(merged, zonaInstalacion, 'independiente'),
+                    scop: getScopAcsFromModel(merged, zonaInstalacion, 'independiente', null, { terciario: esTerciario(expediente) }),
                     url_ficha: merged.ficha_tecnica ?? p.aerotermia_acs?.url_ficha ?? null,
                     url_eprel: merged.eprel ?? p.aerotermia_acs?.url_eprel ?? null,
                 },
@@ -1762,7 +1764,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 misma_aerotermia_acs: false,
                 aerotermia_acs: nodoAcsDesdeConjunto(p.aerotermia_cal, merged, {
                     metodo,
-                    scop: getScopAcsFromModel(merged, zonaInstalacion, metodo),
+                    scop: getScopAcsFromModel(merged, zonaInstalacion, metodo, null, { terciario: esTerciario(expediente) }),
                     litros: litrosAcsCatalogo(merged) ?? p.aerotermia_acs?.litros ?? null,
                 }),
             }));
@@ -1941,7 +1943,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     // calculadora; un equipo que no está en el catálogo no se toca. El acumulador
     // (Anexo VI, F_c por zona) y el termo eléctrico no dependen del clima.
     const handleClimaScopChange = (clima) => {
-        setLocal(p => instalacionConClima(p, clima, { modelosPorMarca, zona: zonaInstalacion }));
+        setLocal(p => instalacionConClima(p, clima, { modelosPorMarca, zona: zonaInstalacion, terciario: esTerciario(expediente) }));
     };
 
     const handleMismaCalderaAcsChange = (val) => {
@@ -2029,7 +2031,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     // ese clima. Solo con hibridación en zona cálida (en E1 ya es el medio).
     const comparativaClima = (local.hibridacion && zoneClimateSeason(zonaInstalacion) === CLIMA_SCOP.CALIDO && expediente?.oportunidades)
         ? Object.fromEntries([CLIMA_SCOP.CALIDO, CLIMA_SCOP.MEDIO].map(c => {
-            const inst = instalacionConClima(local, c, { modelosPorMarca, zona: zonaInstalacion });
+            const inst = instalacionConClima(local, c, { modelosPorMarca, zona: zonaInstalacion, terciario: esTerciario(expediente) });
             const fin = computeExpedienteFinancials({ ...expediente, instalacion: inst });
             const hyb = calculateHybridization({ demandAnnual, zone: opDatos.zona || 'D3', ...resolveHybridInputs(inst, opDatos, opDatos.zona) });
             return [c, { cae: fin.cae, savingsKwh: fin.savingsKwh, cb: hyb?.cb, scop: inst.aerotermia_cal?.scop }];
@@ -2557,7 +2559,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                         metodo: yaEra ? (p.aerotermia_acs?.metodo_scop || metodo) : metodo,
                                         scop: (yaEra && scopPrevio > 0)
                                             ? p.aerotermia_acs.scop
-                                            : (metodo ? getScopAcsFromModel(modelCal, zonaInstalacion, metodo) : null),
+                                            : (metodo ? getScopAcsFromModel(modelCal, zonaInstalacion, metodo, null, { terciario: esExpTerciario }) : null),
                                         litros: yaEra && p.aerotermia_acs?.litros != null && p.aerotermia_acs?.litros !== ''
                                             ? p.aerotermia_acs.litros
                                             : litrosAcsCatalogo(modelCal),
@@ -2580,7 +2582,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     if (model) {
                                         next.aerotermia_acs = {
                                             ...p.aerotermia_acs,
-                                            scop: getScopAcsFromModel(model, zonaInstalacion, p.aerotermia_acs?.metodo_scop || 'independiente'),
+                                            scop: getScopAcsFromModel(model, zonaInstalacion, p.aerotermia_acs?.metodo_scop || 'independiente', null, { terciario: esExpTerciario }),
                                             url_eprel: model.eprel ?? null,
                                             url_keymark: model.url_keymark ?? null,
                                             url_ficha: model.ficha_tecnica ?? null,
@@ -2595,6 +2597,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         tipoEmisor={local.tipo_emisor}
                         zona={zonaInstalacion}
                         climaScop={climaScopForzado(local)}
+                        terciario={esExpTerciario}
                         emisorPorUnidad={emisorPorUnidad}
                         numeroExpediente={expediente?.numero_expediente}
                         onCompletarCatalogo={(model, modo) => setEprelGate({ model, modo })}
@@ -2610,6 +2613,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                             tipoEmisor={local.tipo_emisor}
                             zona={zonaInstalacion}
                             climaScop={climaScopForzado(local)}
+                            terciario={esExpTerciario}
                             isAcs={true}
                             onCompletarCatalogo={(model, modo) => setEprelGate({ model, modo })}
                             // El acumulador lo calienta la BdC de calefacción: de ahí
@@ -2937,6 +2941,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         model={eprelGate.model}
                         modo={eprelGate.modo}
                         zona={zonaInstalacion}
+                        terciario={esExpTerciario}
                         onCerrar={() => {
                             // Solo se silencia el automático: un popup abierto a
                             // mano desde el aviso debe poder volver a abrirse.

@@ -2308,11 +2308,11 @@ export function climaScopForzado(src = {}) {
  * para que los dos lados no puedan dar números distintos para el mismo equipo.
  * Un valor es null si no hay modelo del catálogo del que sacarlo.
  */
-export function scopsParaClima({ modelo, modeloAcs, zona, temp, metodoCal = 'ficha', metodoAcs = 'ficha', clima = null } = {}) {
+export function scopsParaClima({ modelo, modeloAcs, zona, temp, metodoCal = 'ficha', metodoAcs = 'ficha', clima = null, terciario = false } = {}) {
     return {
         scopHeating: modelo ? getScopFromModel(modelo, zona, temp, metodoCal, clima) : null,
         scopTemporada: modelo ? getScopSeason(modelo, zona, temp, metodoCal, clima) : null,
-        scopAcs: modeloAcs ? getScopAcsFromModel(modeloAcs, zona, metodoAcs, clima) : null,
+        scopAcs: modeloAcs ? getScopAcsFromModel(modeloAcs, zona, metodoAcs, clima, { terciario }) : null,
     };
 }
 
@@ -2414,11 +2414,30 @@ const FC_BY_ZONE = {
 };
 
 /**
+ * En el TERCIARIO (TER100 Anexo IV Caso 3 · TER173 Anexo II), con 60 °C de
+ * acumulación y sin COP a A7/W65 —el catálogo solo guarda `cop_a7_55`—, el factor
+ * del depósito independiente es ÚNICO: 0,9, en cualquier zona (regla 192).
+ */
+export const FC_ACS_TERCIARIO_W55 = 0.9;
+
+/**
+ * El factor del método 'independiente' (SCOP_dhw = COP A7/W55 × factor). FUENTE
+ * ÚNICA: la usan `getScopAcsFromModel` y el CIFO (`scopAcsAnexoViHtml`).
+ * Residencial: el F_c por zona del Anexo VI de la RES060. Terciario: 0,9.
+ */
+export function fcAcsIndependiente(zone, { terciario = false } = {}) {
+    if (terciario) return FC_ACS_TERCIARIO_W55;
+    const z = zone?.toUpperCase() || 'D3';
+    return FC_BY_ZONE[z] ?? FC_BY_ZONE.D3;
+}
+
+/**
  * Extrae el SCOP ACS adecuado del modelo.
  * method: 'ficha' | 'conjunto' (Anexo IV, depósito integrado) | 'independiente' (Anexo VI, depósito separado)
  * Retrocompat: 'eprel' legacy → trata como 'ficha'
+ * opciones.terciario: solo cambia 'independiente' (COP × 0,9, regla 192).
  */
-export function getScopAcsFromModel(model, zone, method = 'ficha', clima = null) {
+export function getScopAcsFromModel(model, zone, method = 'ficha', clima = null, { terciario = false } = {}) {
     if (!model) return 3.0;
 
     const normalizedZone = zone?.toUpperCase() || 'D3';
@@ -2436,11 +2455,11 @@ export function getScopAcsFromModel(model, zone, method = 'ficha', clima = null)
     }
 
     // CASO: Depósito independiente — Anexo VI RES060
-    // SCOPdhw = COP_A7/55 × Fc(zona)
+    // SCOPdhw = COP_A7/55 × Fc(zona) — en terciario, × 0,9 (TER100 Anexo IV)
     if (method === 'independiente') {
         const cop = parseFloat(model.cop_a7_55);
         if (Number.isFinite(cop) && cop > 0) {
-            const fc = FC_BY_ZONE[normalizedZone] ?? FC_BY_ZONE['D3'];
+            const fc = fcAcsIndependiente(normalizedZone, { terciario });
             return redondeaScop(cop * fc);
         }
     }

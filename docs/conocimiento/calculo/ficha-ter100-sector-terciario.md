@@ -68,6 +68,45 @@ verificador es que el total sea la suma de sus sumandos: no puede haber un
 demanda ni su SCOP). Con el valor a la vista, el verificador podría multiplicarlo y
 obtener un ahorro que no forma parte de la actuación.
 
+### El SCOP_dhw con depósito independiente: COP A7/W55 × 0,9 (2026-11-04)
+
+Caso: el cálculo del camping (termo eléctrico → Johnson AURUM160 + acumulador). En el
+terciario la acumulación mínima es de **60 °C**, y la ficha lo cambia todo en el ACS:
+
+- **TER100 Anexo IV, Caso 3** (bomba aerotérmica + depósito NO suministrado como conjunto):
+  `SCOP_dhw = COP A7/W65 × F_c(zona)` con su propia tabla (D3 1,101…), y **sin dato a
+  A7/W65** —el caso de todo el catálogo, que solo guarda `cop_a7_55`—
+  `SCOP_dhw = COP A7/W55 × 0,9`, *factor único de corrección*. La bomba tiene que llegar a
+  65 °C de impulsión sin apoyo.
+- **TER173 Anexo II**: lo mismo para 60 °C de acumulación (su tabla de F_c por zona a W55
+  es para acumular a 50 °C, solo precalentamiento).
+- El **Anexo VI de la RES060** (F_c por zona: D3 1,113) es del RESIDENCIAL. La app lo
+  aplicaba también al terciario y daba un SCOP_dhw ~24 % alto (AURUM160: 3,17 en vez de
+  2,57).
+
+**REGLA — en TER100/TER173, el método 'independiente' es COP A7/W55 × 0,9, en cualquier
+zona.** Fuente única: `fcAcsIndependiente` / `FC_ACS_TERCIARIO_W55` y la opción
+`{ terciario }` de `getScopAcsFromModel` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js);
+la pasan Instalación (`AerotermiaSection terciario`, acumulador, conjunto, botón «Clima del
+SCOP» vía `scopsParaClima`) y el popup del COP (`EprelAcsModal terciario`). El CIFO imprime
+el mismo factor (`scopAcsAnexoViHtml({ terciario })`) y cita el **Anexo IV de la TER100**
+(antes decía «Anexo VII», que es el de la temperatura exterior de la piscina).
+
+⚠️ El CIFO **deduce el COP del SCOP guardado** (`COP = SCOP / F_c`): un expediente que
+guardó el SCOP con el F_c de zona imprimiría ahora un COP falso hasta que se le recalcule
+el SCOP_dhw. Medidos los dos que había (en seco, `backend/scratch/scop-acs-terciario/impacto.mjs`):
+**25TER100_2** 3,34 → 2,70 (−310 kWh, CIFO enviado al instalador el 04/11/2026, sin
+firmar) y **26TER100_3** 3,09 → 2,50 (−1.520 kWh, CIFO generado sin enviar).
+
+Fuera de alcance, por ahora: el Caso 1 del mismo anexo dice que con depósito **en
+conjunto** también se aplica el Caso 3 (la TER040 deja además que el fabricante aporte el
+SCOP_dhw); la app sigue usando ahí el Anexo IV/η_wh. Y un termo eléctrico que se cambia por
+bomba de calor **no es TER100** (su ámbito es caldera de combustión): es la **TER040**, que
+la app no tiene.
+
+Tras tocarlo: `node implementation/backend/scripts/test_scop_acs_terciario.mjs` y
+`check_cifo_paginas.mjs` (la hoja del Anexo VI con placa del TER100 va a +37 px).
+
 **REGLA**: `fichaTer100Html.js` es una RÉPLICA de `plantillas/Ficha TER100.pdf` —
 mismos saltos de página, textos, notas al pie, subtítulos centrados en cursiva y
 fórmulas centradas con fracción apilada. Los saltos de página **no se mueven**: el

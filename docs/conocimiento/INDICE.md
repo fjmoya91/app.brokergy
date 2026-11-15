@@ -7,7 +7,7 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 49,4 KB | 16 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 50,4 KB | 16 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 48,5 KB | 24 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 11,6 KB | 27 |
@@ -271,6 +271,7 @@
 - **188** → `.claude/rules/envolvente-ce3x.md` — Cuando el `.cex` no sale, el ASISTENTE dice qué lo para y lo arregla; y «déjalo listo para firmar» genera y …
 - **189** → `.claude/rules/facturas.md` — Una factura de obra se registra ENTERA y al CAE solo cuenta lo SUBVENCIONABLE
 - **190** → `.claude/rules/lotes.md` — El S.O. tiene su ENLACE de solo lectura (`/so/:token`), y solo ve lo que deja pasar `vistaParaElSo`
+- **192** → `.claude/rules/calculo.md` — En el TERCIARIO, el SCOP_dhw de un depósito independiente es COP A7/W55 × 0,9, no el F_c por zona
 - **193** → `.claude/rules/transversal-frontend.md` — Un LISTADO recuerda cómo lo dejaste: búsqueda, filtros y orden
 - **194** → `.claude/rules/clientes.md` — Un cliente EMPRESA (`clientes.es_empresa`) VENDE el ahorro: no cobra sin su FACTURA de venta
 - **195** → `.claude/rules/expedientes.md` — En el LISTADO, un expediente completo que ya está en un lote se ENSEÑA como «EN LOTE», con el lote debajo; e…
