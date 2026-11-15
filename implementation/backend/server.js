@@ -299,6 +299,14 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[contestador] no se pudo iniciar:', err.message);
     }
+    // El SEGUIMIENTO: que no se quede nada pendiente. Pregunta por las propuestas enviadas
+    // y recuerda el material del CEE inicial, con plantilla y su escalera. Nace APAGADO
+    // (SEGUIMIENTO_ENABLED) y, encendido, en modo copia (SEGUIMIENTO_MODO=real para escribir).
+    try {
+      require('./services/seguimientoWhatsapp').start();
+    } catch (err) {
+      console.warn('[seguimiento] no se pudo iniciar:', err.message);
+    }
     // A quien escribe por PRIMERA VEZ, una vez y sola: el formulario «Calcula tu ayuda»
     // y el vídeo de las ayudas. Nace APAGADA (WA_BIENVENIDA_ENABLED) y, encendida, en
     // modo copia (WA_BIENVENIDA_MODO=real para escribir): local es la misma cuenta.

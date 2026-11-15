@@ -148,6 +148,14 @@ corrigieron: borradores con TODA la lista del dossier (ahora seis líneas, dos c
 los cambia por «Lo miro y te digo.»). **Si pregunta si es una persona o un programa, no se le contesta: se
 le pasa a Fran, sin acuse; nunca dice que es una persona.** Ninguna escritura en la BD (candado).
 
+**Y si contesta a un SEGUIMIENTO** (15/11/2026, [el SEGUIMIENTO](el-seguimiento-que-no-se-quede-nada-pendiente.md)):
+el dossier lleva un bloque con lo que se le ha preguntado a ese teléfono (`bloqueSeguimiento`: la obra, la fase
+y lo que se le dijo) y el cerebro devuelve además `seguimiento: [{numero, resultado, cuando, nota}]`, con
+`resultado` en SIGUE · NO_SIGUE · MAS_ADELANTE · PENSANDO (lo que no es ninguno, no se apunta); el código lo valida (enum, fecha
+AAAA-MM-DD o nada, nota ≤ 300, como mucho 10) y lo aplica `seguimientoWhatsapp.alContestar`. A Fran le llega
+en el mismo aviso, «Del seguimiento: …»; si es lo único (el mensaje se calla), con «ha contestado al
+seguimiento».
+
 ## Topes, en el CÓDIGO
 
 3 respuestas por chat en 24 h (móviles: un bot de WhatsApp Business del otro lado no respeta la medianoche),

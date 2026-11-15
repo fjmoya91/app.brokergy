@@ -35,7 +35,7 @@
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,6 KB | 1 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,7 KB | 6 |
-| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 30,2 KB | 18 |
+| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 33,9 KB | 19 |
 
 ## Reglas numeradas → dónde están
 
@@ -300,6 +300,7 @@
 - **213** → `.claude/rules/lotes.md` — El EQUIPO de verificación (verificador jefe y revisor técnico, con email y teléfono) se LEE del plan y de la…
 - **215** → `.claude/rules/lotes.md` — El Anexo I del LOTE lleva las firmas ANCLADAS al pie de la hoja, y sus casillas se MIDEN
 - **216** → `.claude/rules/cuadro-mando.md` — El cuadro de mando es de DIRECCIÓN y en el navegador no se hace ninguna cuenta de dinero: todo sale de [cuad…
+- **217** → `.claude/rules/whatsapp.md` — El SEGUIMIENTO: toda propuesta enviada y todo CEE inicial sin material tiene su escalera de recordatorios, y…
 
 ## Documentos por área
 
@@ -702,6 +703,7 @@
 - `docs/conocimiento/whatsapp/como-se-prueba-sin-gastar-mensajes.md` — Cómo se prueba SIN gastar mensajes
 - `docs/conocimiento/whatsapp/coste-medido.md` — Coste medido (2026-08-25)
 - `docs/conocimiento/whatsapp/el-contestador-contesta-como-fran.md` — El CONTESTADOR: contesta por WhatsApp como Fran a quien tiene algo vivo (2026-11-10)
+- `docs/conocimiento/whatsapp/el-seguimiento-que-no-se-quede-nada-pendiente.md` — El SEGUIMIENTO: que no se quede nada pendiente — propuestas y material del CEE inicial (2026-11-15)
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js)
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13)

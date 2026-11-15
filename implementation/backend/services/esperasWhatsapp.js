@@ -367,6 +367,16 @@ async function vuelta({ seco = false, ahora = new Date() } = {}) {
 
         for (const e of filas) {
             const m = modo();
+            // 0. El material del CEE inicial lo recuerda el SEGUIMIENTO (services/seguimientoWhatsapp.js,
+            //    15/11/2026), con su escalera: dos recordatorios del mismo pedido serían el doble de
+            //    mensajes. La espera sigue abierta para lo suyo (marcar CONTESTADA, cerrar con la subida).
+            if (e.motivo === 'CEE_INICIAL' && process.env.SEGUIMIENTO_ENABLED === 'true') {
+                hecho.push({ id: e.id, numero: e.numero, accion: 'seguimiento', motivo: 'lo recuerda el seguimiento' });
+                if (!seco) await supabase.from('wa_esperas').update({
+                    vence_at: venceTras(ahora, 24 * 7).toISOString(), updated_at: ahora.toISOString(),
+                }).eq('id', e.id);
+                continue;
+            }
             // 1. Agotada: VENCIDA, y al resumen.
             if (e.intentos >= e.max_intentos) {
                 hecho.push({ id: e.id, numero: e.numero, accion: 'vencida' });
@@ -503,6 +513,7 @@ function start() {
 module.exports = {
     start, abrir, cancelar, cerrarPorSubida, alMensajeEntrante, alMensajePropio, vuelta, resumen, listar,
     pausaDe, pareceAutomatica,   // también los usa el contestador antes de contestar
+    telDeChat,                   // y el seguimiento (services/seguimientoWhatsapp.js)
     // para las pruebas
     textoRecordatorio, describirMensaje, esAcuse, esAutomatica, enHorario, siguienteHabil, venceTras, activo, modo, CFG, MOTIVOS,
 };

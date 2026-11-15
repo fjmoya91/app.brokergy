@@ -250,6 +250,9 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
             try { extra.pedidos = await Docs.pedidosAnteriores(tel9, obra, { unica: (c.obras || []).length === 1, hasta: ultimoT ? new Date(ultimoT * 1000) : null }); }
             catch (e) { /* sin lo de antes también se contesta */ }
         }
+        // Lo que le hemos preguntado en el SEGUIMIENTO (propuestas, CEE inicial): para que entienda
+        // a qué contesta y diga qué ha contestado (services/seguimientoWhatsapp.js; nunca lanza).
+        extra.seguimientos = await require('./seguimientoWhatsapp').paraContestador(tel9);
         return cerebro.redactar(ch, obra, dossier, llegado, cuentaR, { ...(opts || {}), ...extra });
     };
     await Ronda.procesarChat(c, { ms, personas }, {
@@ -270,6 +273,7 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     return {
         ...comun, ...g, estado: 'DECIDIDO', accion: b.accion, texto: b.mensaje || '', acuse: b.acuse || '', motivo: b.motivo || '',
         obra: c.obraBorrador || null, cerebro: b.cerebro || 'gemini', detalle,
+        seguimiento: Array.isArray(b.seguimiento) ? b.seguimiento : [],
     };
 }
 
@@ -319,7 +323,9 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
     const obra = d.obra ? ` · ${d.obra}` : '';
     const escribio = (d.pendientes || []).length ? `Escribió:\n${cita(d.pendientes.join('\n'))}` : '';
     const guardar = lineasGuardar(d.guardar);
-    const bloqueGuardar = guardar.length ? ['', ...guardar] : [];
+    // Lo que ha contestado al seguimiento, ya aplicado (o lo que se haría, en copia).
+    const seg = (d.seguimientoLineas || []).filter(Boolean);
+    const bloqueGuardar = [...(guardar.length ? ['', ...guardar] : []), ...(seg.length ? ['', 'Del seguimiento:', ...seg] : [])];
     const porGuardar = (d.guardar || []).some(x => x.guardar && !x.hecho && !x.error) && mg === 'copia';
     if (d.accion === 'RESPONDER') {
         return [
@@ -338,9 +344,13 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
         ].filter(x => x !== null).join('\n');
     }
     if (d.accion === 'CALLAR') {
-        // Solo llega a Fran si hay algo que guardar: no hace falta contestarle, pero lo suyo va al expediente.
+        // Solo llega a Fran si hay algo que guardar (no hace falta contestarle, pero lo suyo va al
+        // expediente) o si lo que dijo es la respuesta a un seguimiento.
+        const soloSeguimiento = !guardar.length && seg.length;
         return [
-            `*C${fila.id} · ${porGuardar ? 'Guardaría' : 'He guardado'} lo que ha mandado ${quien}*${obra}`,
+            soloSeguimiento
+                ? `*C${fila.id} · ${quien} ha contestado al seguimiento*${obra}`
+                : `*C${fila.id} · ${porGuardar ? 'Guardaría' : 'He guardado'} lo que ha mandado ${quien}*${obra}`,
             escribio,
             ...bloqueGuardar,
             '',
@@ -404,11 +414,18 @@ async function actuar(fila, d) {
         }
     }
     upd.detalle.guardar = Docs.paraFila(items);
+    // 2. Lo que ha contestado al SEGUIMIENTO de una propuesta (sigue, no sigue, más adelante): se
+    //    aplica aunque aquí estemos en copia, porque es lo que ha DICHO él (seguimientoWhatsapp
+    //    decide, con su propio modo, si toca la oportunidad). Nunca lanza.
+    if ((d.seguimiento || []).length) {
+        d.seguimientoLineas = await require('./seguimientoWhatsapp').alContestar(upd.tel9, d.seguimiento);
+        upd.detalle.seguimiento = d.seguimiento;
+    }
     const quedaPorGuardar = items.some(x => x.guardar && !x.hecho && !x.error);
     if (d.accion === 'CALLAR') {
         // Nada que decirle; pero si hay algo suyo que guardar, Fran lo sabe (en copia, para que
         // diga «C12»; en real, ya está guardado).
-        if (items.some(x => x.guardar)) {
+        if (items.some(x => x.guardar) || (d.seguimientoLineas || []).length) {
             try {
                 if (await mandarAFran(textoParaFran(fila, d, { m, mg }))) upd.copia_at = new Date().toISOString();
             } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }

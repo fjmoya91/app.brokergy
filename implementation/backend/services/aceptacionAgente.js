@@ -126,6 +126,9 @@ const MOTIVOS = {
     aceptacion: (n) => `El cliente de ${n} acaba de ACEPTAR la propuesta. Si aceptó desde su enlace, ya se le ha dicho que revisaremos su documentación y que le pediremos lo que falte.`,
     subida: (n, r) => `En ${n} acaban de SUBIR documentación por el enlace después de que pidiéramos lo que faltaba (ronda ${r} de ${MAX_RONDAS}).`,
     whatsapp: (n, r, tel) => `En ${n} acaban de mandar fotos, vídeos o documentos por WHATSAPP (chat ${tel}) después de que pidiéramos lo que faltaba (ronda ${r} de ${MAX_RONDAS}). Primero llévalos a la obra con la skill alta-oportunidad: \`node scripts/alta_oportunidad.js chat ${tel} --bajar todo\`, míralos y \`documentar --op ${n} --plan docs.json\` (en seco y --escribir).`,
+    // El seguimiento diario (services/seguimientoWhatsapp.js) ve el material COMPLETO y el CEE
+    // inicial sin encargar ni hacer: ya no hay nada que pedir, el siguiente paso es nuestro.
+    seguimiento: (n) => `En ${n} el material para el CEE inicial ya está COMPLETO según la app (y Drive) y el CEE inicial sigue sin encargar ni hacer: lo ha visto el seguimiento diario. No hace falta pedir nada salvo que, al MIRAR las fotos, alguna no valga.`,
 };
 
 /** El encargo que le llega al Claude del WhatsApp. Lo compone el SERVIDOR. */
@@ -246,16 +249,38 @@ async function retomar(oportunidadUuid, { motivo = 'subida', tel = null } = {}) 
 const retomarTrasSubida = (oportunidadUuid) => retomar(oportunidadUuid, { motivo: 'subida' });
 
 /**
+ * El seguimiento diario ve el material del CEE inicial COMPLETO y sin encargar: se le
+ * encarga al agente (que lo mira y hace el CEE). No gasta ronda: no ha llegado nada del
+ * cliente. El tope de uno cada 5 días hábiles lo pone el seguimiento. Nunca lanza.
+ * @returns {Promise<{ok: boolean, motivo?: string}>}
+ */
+async function revisarPorSeguimiento(expedienteId) {
+    try {
+        if (!activo()) return { ok: false, motivo: 'agente apagado (ACEPTACION_AGENTE_ENABLED)' };
+        const { data: expediente } = await supabase.from('expedientes')
+            .select(`id, numero_expediente, oportunidad_id, seguimiento, aa:documentacion->${CLAVE_DOC}`)
+            .eq('id', expedienteId).maybeSingle();
+        if (!expediente) return { ok: false, motivo: 'expediente no encontrado' };
+        if (!sinEncargar(expediente)) return { ok: false, motivo: 'ya está encargado' };
+        return await encargar({ expediente, motivo: 'seguimiento', ronda: Number(expediente.aa?.ronda) || 1 });
+    } catch (e) {
+        return { ok: false, motivo: e.message };
+    }
+}
+
+/**
  * Lo pedido, apuntado: sello, historial e índice (con el teléfono, para reconocer
  * las fotos que vuelvan por WhatsApp). Lo usan el script y el despachador.
  */
-async function registrarPedido({ expedienteId, oportunidadId, numero, lineas, tel, saludo, a = 'cliente' }) {
+async function registrarPedido({ expedienteId, oportunidadId, numero, lineas, tel, saludo, a = 'cliente', espera = true, texto = null }) {
     const ahora = ahoraIso();
     await sellar(expedienteId, { pedido_at: ahora, pedido: lineas, pedido_a: tel, pedido_quien: a, programado: null });
     // Historial, sin reescribir `documentacion`: la RPC de MERGE con una lista
     // AÑADE (jsonb `||`); solo si aún no hay historial se crea la lista.
+    // `texto`: el recordatorio del seguimiento se apunta como tal, no como un pedido nuevo.
+    const aQuien = `${saludo || (a === 'instalador' ? 'el instalador' : 'el cliente')}${a === 'instalador' ? ' (instalador)' : ''}`;
     const entrada = { id: `${Date.now()}_pedido_aceptacion`, tipo: 'pedido_aceptacion', fecha: ahora, usuario: 'CLAUDE',
-        texto: `Pedido por WhatsApp a ${saludo || (a === 'instalador' ? 'el instalador' : 'el cliente')}${a === 'instalador' ? ' (instalador)' : ''} para el CEE inicial: ${lineas.join(' · ')}` };
+        texto: texto ? `${texto} a ${aQuien}: ${lineas.join(' · ')}` : `Pedido por WhatsApp a ${aQuien} para el CEE inicial: ${lineas.join(' · ')}` };
     const { data: h } = await supabase.from('expedientes').select('historial:documentacion->historial').eq('id', expedienteId).maybeSingle();
     const { error } = Array.isArray(h?.historial)
         ? await supabase.rpc('merge_expediente_doc_json', { p_expediente_id: expedienteId, p_field: 'historial', p_value: [entrada] })
@@ -263,8 +288,9 @@ async function registrarPedido({ expedienteId, oportunidadId, numero, lineas, te
     if (error) console.warn('[aceptacion-agente] historial:', error.message);
     await apuntar(expedienteId, { numero, oportunidad_id: oportunidadId, tels: [tel] });
     // Y queda esperando respuesta: se cierra sola si contesta o sube, y si no,
-    // se le recuerda (esperasWhatsapp; apagado por defecto, nunca lanza).
-    await require('./esperasWhatsapp').abrir({
+    // se le recuerda (esperasWhatsapp; apagado por defecto, nunca lanza). El
+    // seguimiento ya lleva su propia escalera: no abre otra espera.
+    if (espera) await require('./esperasWhatsapp').abrir({
         tel, quien: a === 'instalador' ? 'INSTALADOR' : 'CLIENTE', nombre: saludo,
         expedienteId, oportunidadId, numero, motivo: 'CEE_INICIAL', pedido: lineas, origen: 'aceptacion',
     });
@@ -399,7 +425,7 @@ function start() {
 
 module.exports = {
     activo, acuseRevision, destinatarioCliente, destinatarioInstalador, instruccion,
-    encargarTrasAceptacion, retomar, retomarTrasSubida, alMensajeEntrante,
+    encargarTrasAceptacion, retomar, retomarTrasSubida, revisarPorSeguimiento, alMensajeEntrante,
     registrarPedido, programar, sellar, vuelta, start,
     enHorario, siguienteApertura, sinEncargar,
     CLAVE_DOC, MAX_RONDAS,

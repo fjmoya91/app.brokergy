@@ -39,7 +39,9 @@ PC). Nadie sabía, sin abrir el chat, si el cliente había contestado.
   recordatorio.
 - **La VUELTA** (cada 5 min, en la franja de la casa —de 7 a 21 h— **y de lunes a viernes**, regla 205): lo que vence sin respuesta se recuerda con
   PLANTILLA (sin IA) — primer recordatorio a las 48 h hábiles, `max_intentos` 1 —; agotado, `VENCIDA` y al
-  resumen.
+  resumen. **Con el SEGUIMIENTO encendido** (`SEGUIMIENTO_ENABLED`, 15/11/2026) las esperas de motivo
+  `CEE_INICIAL` no se recuerdan aquí: las lleva su escalera ([el SEGUIMIENTO](el-seguimiento-que-no-se-quede-nada-pendiente.md));
+  la espera sigue abierta para saber si contestó.
 - **REGLA — los topes van en el CÓDIGO**: horario, un recordatorio al día por persona, 30 al día, 8 a la
   hora y 3 por vuelta. El texto y el enlace los pone el código.
 - **REGLA — MODO COPIA de salida** (`ESPERAS_MODO` distinto de `real`): no se le escribe a nadie; el

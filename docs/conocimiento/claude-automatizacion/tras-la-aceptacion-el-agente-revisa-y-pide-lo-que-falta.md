@@ -113,6 +113,12 @@ WhatsApp a Paco con el cliente, la obra y el enlace filtrado; el parte escanea i
 encargar) y una vuelta con el índice vacío no hace nada. No se ha disparado una aceptación real (saldría
 el acuse al cliente) ni un mensaje entrante real (la sesión de WhatsApp vive en el VPS).
 
+**El SEGUIMIENTO lo vuelve a llamar** (15/11/2026, [el SEGUIMIENTO](../whatsapp/el-seguimiento-que-no-se-quede-nada-pendiente.md)):
+un expediente con el CEE inicial sin encargar y el material COMPLETO se le pasa de nuevo al agente
+(`revisarPorSeguimiento`, motivo `seguimiento`), como mucho 3 al día y una vez cada 5 días hábiles por
+expediente. Y los recordatorios del material que manda el seguimiento quedan apuntados en su historial con
+`registrarPedido({ …, espera: false })`: la espera ya la abrió el pedido y no se abre otra.
+
 **Tras tocarlo:** `node implementation/backend/scripts/test_aceptacion_agente.js`,
 `node implementation/backend/scripts/auditar_rutas_sin_guardian.js` y
 `node implementation/backend/scripts/aceptacion.js estado <nº>` con un expediente aceptado.

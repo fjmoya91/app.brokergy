@@ -42,9 +42,38 @@ const SCHEMA = {
         parrafos: { type: 'array', items: { type: 'string' } },
         acuse: { type: 'string' },
         motivo: { type: 'string' },
+        // Lo que ha contestado al SEGUIMIENTO de una propuesta (services/seguimientoWhatsapp.js).
+        seguimiento: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    numero: { type: 'string' },
+                    resultado: { type: 'string', enum: ['SIGUE', 'NO_SIGUE', 'PENSANDO', 'MAS_ADELANTE'] },
+                    cuando: { type: 'string' },
+                    nota: { type: 'string' },
+                },
+                required: ['numero', 'resultado'],
+            },
+        },
     },
     required: ['accion', 'parrafos', 'motivo'],
 };
+
+const RESULTADOS_SEGUIMIENTO = new Set(['SIGUE', 'NO_SIGUE', 'PENSANDO', 'MAS_ADELANTE']);
+
+/** Lo que le hemos preguntado en el seguimiento, en claro para el prompt. Puro. */
+function bloqueSeguimiento(segs) {
+    return (segs || []).map((s) => {
+        const quien = [s.cliente, s.municipio].filter(Boolean).join(', ');
+        const cuando = s.ultimo_toque_at ? ` el ${dia(s.ultimo_toque_at)}` : '';
+        if (s.tipo === 'PROPUESTA') {
+            return `- ${s.numero} · PROPUESTA${quien ? ` de ${quien}` : ''}: le preguntamos${cuando} si la había visto y si sigue adelante (${s.toques} mensaje${s.toques === 1 ? '' : 's'} nuestro${s.toques === 1 ? '' : 's'}).`;
+        }
+        const faltan = (s.faltan || []).length ? ` Le falta: ${s.faltan.join(' · ')}.` : '';
+        return `- ${s.numero} · CEE INICIAL${quien ? ` de ${quien}` : ''}: le recordamos${cuando} lo que falta para el certificado energético inicial.${faltan}`;
+    }).join('\n');
+}
 
 const dia = (iso) => (iso ? new Date(iso).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid', day: 'numeric', month: 'numeric' }) : null);
 
@@ -89,6 +118,9 @@ function construirPrompt(ch, obra, dossier, llegado, extra = {}) {
     const inst = bloqueInstalador(extra.instalador, { conEnlace: esInstalador && !!enlaces['{ENLACE_INSTALADOR}'] });
     const pedidos = (extra.pedidos || []).filter(p => p?.texto);
     const hayGuardado = (llegado?.lineas || []).some(l => /YA GUARDADO/.test(l));
+    const segs = (extra.seguimientos || []).filter(s => s?.numero);
+    const segPropuesta = segs.some(s => s.tipo === 'PROPUESTA');
+    const segCee = segs.some(s => s.tipo === 'CEE_INICIAL');
 
     const prompt = `${CONOCIMIENTO}
 
@@ -111,6 +143,10 @@ ${pedidos.length ? `
 # LO QUE YA LE HEMOS PEDIDO ANTES (mensajes de la app a este número, lo último primero)
 
 ${pedidos.map(p => `[${dia(p.at)}]\n${p.texto}`).join('\n\n')}
+` : ''}${segs.length ? `
+# LO QUE LE HEMOS PREGUNTADO EN EL SEGUIMIENTO (mensajes automáticos de la app a este número)
+
+${bloqueSeguimiento(segs)}
 ` : ''}
 # LA CONVERSACIÓN DE ESTOS DÍAS (lo más antiguo primero; NOSOTROS = la casa, ELLOS = quien escribe)
 
@@ -179,7 +215,24 @@ F. Ya emitido y pendiente de cobro → ha salido favorable y está emitido; esta
   · Si contesta que no tiene el RITE o que se lo preparemos → ESCALAR (motivo: «preparar la Memoria RITE de
     <la obra>»), con acuse «Perfecto, la preparo y te la paso».` : ''}${inst && !esInstalador ? `
 - El RITE, el CIFO y las facturas de la obra son del INSTALADOR: a un cliente no se le piden (caso A).` : ''}
-- Manda algo de una vivienda u obra que NO está en el dossier (una petición nueva) → acuse en una frase
+${segPropuesta ? `- Si contesta a lo que le preguntamos de una PROPUESTA en el seguimiento (arriba), di en "seguimiento"
+  QUÉ ha contestado, una entrada por cada propuesta de la que hable: {"numero": "<el de arriba>", "resultado":
+  "SIGUE" | "NO_SIGUE" | "PENSANDO" | "MAS_ADELANTE", "cuando": "AAAA-MM-DD" (solo con MAS_ADELANTE y si dice
+  cuándo), "nota": "lo que ha dicho, en una frase"}. Y contéstale:
+  · SIGUE (quiere hacerlo) → que perfecto, y que para ponernos con ello solo falta aceptarla en su enlace
+    ({ENLACE_ACEPTAR} si está en el dossier); si es el instalador, que se lo pase al cliente.
+  · NO_SIGUE (no lo va a hacer, lo ha hecho con otro, no le interesa) → corto: que sin problema, que la dejamos
+    cerrada y que si más adelante quiere retomarlo, nos escriba. Sin insistir ni preguntarle por qué.
+  · PENSANDO (lo está mirando, lo tiene que hablar en casa) → que sin prisa, y que cualquier duda nos la diga.
+    Si pregunta una DUDA de la propuesta, contéstala si el dossier lo responde (si no, ESCALAR, como siempre):
+    también es PENSANDO.
+  · MAS_ADELANTE (ahora no: tras el verano, cuando cobre…) → que perfecto, que le escribimos por esas fechas.
+  · Si no habla de ninguna propuesta, "seguimiento": [].
+` : ''}${segCee ? `- Si contesta a lo del CEE INICIAL del seguimiento: lo que mande se acusa como siempre. Si dice que ya lo
+  mandó por otro lado (email, al instalador, a otra persona) → ESCALAR (motivo: «dice que ya mandó lo del CEE
+  inicial de <la obra> por <dónde>: buscarlo»), con acuse «Lo busco y te digo». Si dice que no puede hacer las
+  fotos → ESCALAR (motivo: «no puede hacer las fotos de <la obra>: buscar otra vía»).
+` : ''}- Manda algo de una vivienda u obra que NO está en el dossier (una petición nueva) → acuse en una frase
   («Recibido, lo miro y te digo») y nada más.
 - Tiene varias obras y no se sabe de cuál habla → pregúntale cuál (por la dirección o el titular).
 
@@ -208,7 +261,7 @@ ENLACES: van en el dossier como MARCAS entre llaves (${marcas}). Si hace falta u
 cual, sola en su línea; el sistema pone el enlace. NUNCA escribas una dirección web.
 
 FORMATO: devuelve SOLO este JSON, sin nada alrededor:
-{"accion": "RESPONDER" | "ESCALAR" | "CALLAR", "parrafos": ["un elemento por párrafo"], "acuse": "", "motivo": "por qué (para nosotros, una frase)"}`;
+{"accion": "RESPONDER" | "ESCALAR" | "CALLAR", "parrafos": ["un elemento por párrafo"], "acuse": "", "motivo": "por qué (para nosotros, una frase)"${segPropuesta ? ', "seguimiento": []' : ''}}`;
 
     return { prompt, enlaces, propuesta };
 }
@@ -248,6 +301,16 @@ function rematar(r, enlaces) {
         motivo: String(r?.motivo || '').trim() || (accion === 'RESPONDER' && !mensaje ? 'el modelo no ha escrito nada' : ''),
         enlaces: usados.map(m => ({ marca: m, url: enlaces[m] })),
         problemas_enlaces: problemas,
+        // Lo que ha contestado al seguimiento: validado aquí; la obra se casa en seguimientoWhatsapp.
+        seguimiento: (Array.isArray(r?.seguimiento) ? r.seguimiento : [])
+            .map(s => ({
+                numero: String(s?.numero || '').trim().toUpperCase(),
+                resultado: String(s?.resultado || '').trim().toUpperCase(),
+                cuando: /^\d{4}-\d{2}-\d{2}$/.test(String(s?.cuando || '').trim()) ? String(s.cuando).trim() : null,
+                nota: String(s?.nota || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+            }))
+            .filter(s => s.numero && RESULTADOS_SEGUIMIENTO.has(s.resultado))
+            .slice(0, 10),
     };
 }
 
@@ -305,4 +368,4 @@ async function redactar(ch, obra, dossier, llegado, cuenta, extra = {}) {
     return { ...rematar(json, enlaces), con_dossier: !!dossier, propuesta, cerebro, prompt_chars: prompt.length };
 }
 
-module.exports = { redactar, construirPrompt, bloqueInstalador, rematar, limpiar, SCHEMA };
+module.exports = { redactar, construirPrompt, bloqueInstalador, bloqueSeguimiento, rematar, limpiar, SCHEMA };

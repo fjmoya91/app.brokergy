@@ -584,6 +584,43 @@ router.post('/esperas/:id/cancelar', adminOnly, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SEGUIMIENTO — que no se quede nada pendiente: las propuestas enviadas y el material del
+// CEE inicial (services/seguimientoWhatsapp.js). ADMIN o clave interna: nombres y teléfonos.
+// ─────────────────────────────────────────────────────────────────────────────
+const seguimiento = require('../services/seguimientoWhatsapp');
+
+// GET ?estado=ABIERTO|CONTESTADO|CERRADO&tipo=PROPUESTA|CEE_INICIAL → la lista (sin vivas = abiertas y contestadas)
+router.get('/seguimiento', adminOInterno, async (req, res) => {
+    try {
+        const estado = ['ABIERTO', 'CONTESTADO', 'CERRADO'].includes(req.query.estado) ? req.query.estado : null;
+        const tipo = ['PROPUESTA', 'CEE_INICIAL'].includes(req.query.tipo) ? req.query.tipo : null;
+        res.json({ activo: seguimiento.activo(), modo: seguimiento.modo(), seguimientos: await seguimiento.listar({ estado, tipo }) });
+    } catch (e) { res.status(503).json({ error: 'No se han podido leer los seguimientos', detalle: e.message }); }
+});
+
+// GET → { texto }: el bloque del resumen de las 9:00 (vacío si no hay nada que contar)
+router.get('/seguimiento/resumen', adminOInterno, async (req, res) => {
+    res.json({ texto: await seguimiento.resumen() });
+});
+
+// POST { seco?, sinHorario? } → una vuelta a mano. Por defecto EN SECO: lo que haría, con los textos enteros.
+router.post('/seguimiento/vuelta', adminOInterno, async (req, res) => {
+    const seco = req.body?.seco !== false;
+    res.json(await seguimiento.vuelta({ seco, sinHorario: seco && req.body?.sinHorario === true, sembrarYa: true }));
+});
+
+// POST → lo cierra una persona (ya está hablado, no hace falta seguir preguntando)
+router.post('/seguimiento/:id/cerrar', adminOnly, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+    try {
+        const r = await seguimiento.cerrar(id, req.user?.acronimo || req.user?.razon_social || 'ADMIN');
+        if (!r) return res.status(404).json({ error: 'No hay un seguimiento abierto con ese id' });
+        res.json({ ok: true });
+    } catch (e) { res.status(503).json({ error: 'No se ha podido cerrar', detalle: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CONTESTADOR — contesta como Fran a quien tiene algo vivo (services/contestadorWhatsapp.js).
 // ADMIN o clave interna: lleva conversaciones de clientes.
 // ─────────────────────────────────────────────────────────────────────────────

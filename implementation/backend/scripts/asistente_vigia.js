@@ -345,7 +345,12 @@ async function mantenimiento() {
         let contestador = '';
         try { contestador = (await api('/api/whatsapp/contestador/resumen', { ms: 30_000 })).texto || ''; }
         catch (e) { log('Resumen del contestador:', e.message); }
-        const whatsapp = [esperas, contestador].filter(Boolean).join('\n\n');
+        // Y el seguimiento: a quién se le ha preguntado por su propuesta o recordado el material
+        // del CEE inicial, qué han contestado y lo que se ha aparcado (seguimientoWhatsapp).
+        let seguimiento = '';
+        try { seguimiento = (await api('/api/whatsapp/seguimiento/resumen', { ms: 30_000 })).texto || ''; }
+        catch (e) { log('Resumen del seguimiento:', e.message); }
+        const whatsapp = [esperas, contestador, seguimiento].filter(Boolean).join('\n\n');
         const partes = [];
         if (pend.length) partes.push(`Buenos días, Fran. Esto sigue pendiente:\n${pend.join('\n')}`);
         if (whatsapp) partes.push(`${pend.length ? '' : 'Buenos días, Fran.\n\n'}*Lo de WhatsApp*\n${whatsapp}`);
