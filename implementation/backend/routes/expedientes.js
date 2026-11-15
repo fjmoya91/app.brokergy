@@ -8368,9 +8368,9 @@ function respuestaViaFm({ exp, op }) {
             } : {}),
         };
     });
-    // Inicio de la actuación: la primera factura que abre la obra (regla 93).
+    // Inicio de la actuación: la PRIMERA factura, sea anticipo, material o lo que
+    // sea (regla 93; la marca `motivo_no_inicio` ya no cuenta, Fran 15/11/2026).
     const fechasFact = (exp.doc.facturas || [])
-        .filter((f) => !f.motivo_no_inicio)
         .map((f) => String(f.fecha_factura || f.fecha || '').slice(0, 10))
         .filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f)).sort();
     const inicioObra = fechasFact[0] || null;

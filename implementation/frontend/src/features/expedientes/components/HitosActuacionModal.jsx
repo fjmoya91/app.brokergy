@@ -13,16 +13,20 @@ import {
 // que con el criterio de siempre (el inicio es la primera factura) fijaba el
 // inicio de la actuación antes del certificado de partida.
 //
-// Tres cosas se deciden aquí y las tres las decide una persona:
-//   · qué facturas NO abren la actuación (se marca en su propia línea, que es
-//     donde se ve que va antes que el CEE);
+// Dos cosas se deciden aquí y las dos las decide una persona:
 //   · si el inicio o el fin se fijan a mano (el override de siempre);
 //   · la ACLARACIÓN que se imprime en el CIFO. Hay una redacción propuesta,
 //     compuesta solo con los datos, y otra que puede redactar la IA con lo que
 //     se le cuente del caso; ninguna se guarda sin pasar por aquí.
 //
-// El gesto es de DOS TIEMPOS: se marca y se ve el efecto (la cronología se
+// El gesto es de DOS TIEMPOS: se cambia y se ve el efecto (la cronología se
 // recalcula al instante), y solo al pulsar Guardar se escribe.
+//
+// Hasta el 12/11/2026 aquí se marcaba una factura como «Material» o «Anticipo» para
+// que no abriera la actuación. El verificador lo rechazó (Marwen CAE-2078): el
+// inicio es la PRIMERA factura, primer compromiso en firme (RD 36/2023). El
+// selector ya no está; una marca antigua se AVISA en su línea y se QUITA al
+// guardar (ver calcCifo.js).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const eur = (v) => (Number(v) ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : null);
@@ -38,7 +42,8 @@ const ORDEN = { visita: 0, firma: 1, inicio: 2, factura: 3, pruebas: 4, fin: 5 }
 
 export function HitosActuacionModal({ expediente, doc, readOnly = false, user, onGuardar, onClose }) {
     const facturasDoc = doc?.facturas || [];
-    const [motivos, setMotivos] = useState(() => facturasDoc.map(f => motivoNoInicio(f)));
+    // Facturas con una marca antigua de «no abre la actuación»: se quitan al guardar.
+    const marcadas = facturasDoc.filter(f => motivoNoInicio(f)).length;
     const [inicioManual, setInicioManual] = useState(doc?.fecha_inicio_cifo_manual || '');
     const [finManual, setFinManual] = useState(doc?.fecha_fin_cifo_manual || '');
     const [aclaracion, setAclaracion] = useState(doc?.hitos_actuacion?.aclaracion || '');
@@ -51,11 +56,11 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
     // MISMA función que imprime el CIFO. Así lo que se ve es lo que va a salir.
     const borradorDoc = useMemo(() => ({
         ...doc,
-        facturas: facturasDoc.map((f, i) => ({ ...f, motivo_no_inicio: motivos[i] || null })),
+        facturas: facturasDoc.map(f => ({ ...f, motivo_no_inicio: null })),
         fecha_inicio_cifo_manual: inicioManual || null,
         fecha_fin_cifo_manual: finManual || null,
         hitos_actuacion: { aclaracion },
-    }), [doc, facturasDoc, motivos, inicioManual, finManual, aclaracion]);
+    }), [doc, facturasDoc, inicioManual, finManual, aclaracion]);
     const h = useMemo(() => hitosActuacion({ ...expediente, documentacion: borradorDoc }), [expediente, borradorDoc]);
     const hAuto = useMemo(() => hitosActuacion({
         ...expediente,
@@ -105,14 +110,12 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
     // un documento firmado—: se dice y no se deja guardar hasta acortarla.
     const demasiadoLarga = aclaracion.trim().length > ACLARACION_MAX;
 
-    const setMotivo = (idx, m) => setMotivos(prev => prev.map((v, i) => (i === idx ? m : v)));
-
     const redactarIa = async () => {
         setIa({ busy: true, aviso: null });
         try {
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/hitos/aclaracion-ia`, {
                 borrador: {
-                    motivos: Object.fromEntries(motivos.map((m, i) => [i, m || null])),
+                    motivos: Object.fromEntries(facturasDoc.map((_, i) => [i, null])),
                     fecha_inicio_cifo_manual: inicioManual || null,
                     fecha_fin_cifo_manual: finManual || null,
                 },
@@ -128,11 +131,8 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
     const guardar = async () => {
         setGuardando(true);
         const texto = aclaracion.trim();
-        const facturas = facturasDoc.map((f, i) => {
-            const m = motivos[i] || null;
-            if ((motivoNoInicio(f) || null) === m) return f;
-            return { ...f, motivo_no_inicio: m };
-        });
+        // Una marca antigua se quita; las demás facturas se devuelven tal cual.
+        const facturas = facturasDoc.map(f => (f?.motivo_no_inicio ? { ...f, motivo_no_inicio: null } : f));
         try {
             await onGuardar({
                 facturas,
@@ -170,9 +170,9 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
                         <h4 className="text-[10px] font-black text-white/45 uppercase tracking-widest mb-2">Cronología</h4>
                         <ol className="relative border-l border-white/10 ml-2 space-y-2.5">
                             {items.map((it, k) => (
-                                <ItemCronologia key={k} it={it} h={h} firmaIni={firmaIni} readOnly={readOnly}
+                                <ItemCronologia key={k} it={it} h={h} firmaIni={firmaIni}
                                     origenTxt={origenTxt} inicioAntesCee={inicioAntesCee}
-                                    onMotivo={(m) => setMotivo(it.f.idx, m)} />
+                                />
                             ))}
                         </ol>
                         {!items.length && <p className="text-[12px] text-white/40 italic">Todavía no hay ninguna fecha: ni facturas, ni pruebas del RITE, ni CEE.</p>}
@@ -284,6 +284,12 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
 
                 {/* Pie */}
                 <div className="px-5 py-3.5 border-t border-white/[0.08] space-y-2.5 max-md:pb-[max(0.875rem,env(safe-area-inset-bottom))]">
+                    {marcadas > 0 && !readOnly && (
+                        <p className="text-[11px] text-amber-300/90 leading-snug">
+                            ⚠ {marcadas === 1 ? 'Una factura lleva' : `${marcadas} facturas llevan`} la marca antigua «Material / Anticipo».
+                            El inicio ya es la primera factura; al guardar se quita la marca.
+                        </p>
+                    )}
                     {cifoGenerado && (cambianFechas || cambiaAclaracion) && (
                         <p className="text-[11px] text-amber-300/90 leading-snug">
                             ⚠ El CIFO {cifoFirmado ? 'firmado' : 'generado'} lleva lo de antes
@@ -309,7 +315,7 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
     );
 }
 
-function ItemCronologia({ it, h, firmaIni, readOnly, origenTxt, inicioAntesCee, onMotivo }) {
+function ItemCronologia({ it, h, firmaIni, origenTxt, inicioAntesCee }) {
     const esHito = it.tipo === 'inicio' || it.tipo === 'fin';
     let punto = 'bg-white/30';
     let titulo = null;
@@ -319,11 +325,11 @@ function ItemCronologia({ it, h, firmaIni, readOnly, origenTxt, inicioAntesCee, 
     if (it.tipo === 'factura') {
         const { f } = it;
         const antesCee = !!(firmaIni && f.fecha < firmaIni);
-        punto = f.motivo ? 'bg-amber-400' : antesCee ? 'bg-red-400' : 'bg-white/60';
+        punto = antesCee ? 'bg-red-400' : f.marcaAntigua ? 'bg-amber-400' : 'bg-white/60';
         titulo = <>Factura {f.numero ? `nº ${f.numero}` : <span className="italic text-white/45">sin número</span>}</>;
         detalle = [it.importe, it.partidas.length ? it.partidas.join(', ') : null].filter(Boolean).join(' · ');
-        if (f.motivo) alerta = { tono: 'text-amber-300/85', txt: `${MOTIVOS_NO_INICIO[f.motivo].label}: no abre la actuación` };
-        else if (antesCee) alerta = { tono: 'text-red-300/90', txt: `Anterior a la firma del CEE inicial (${fechaEs(firmaIni)}). Si es una entrega de material o un anticipo, márcala.` };
+        if (antesCee) alerta = { tono: 'text-red-300/90', txt: `Anterior a la firma del CEE inicial (${fechaEs(firmaIni)}). Aunque sea de material o un anticipo, abre la actuación: el CEE inicial tiene que ir firmado antes.` };
+        else if (f.marcaAntigua) alerta = { tono: 'text-amber-300/85', txt: `Estaba marcada «${MOTIVOS_NO_INICIO[f.marcaAntigua].label}» para no abrir la actuación. Ya no se usa (el verificador lo rechazó): se quita al guardar.` };
     } else if (it.tipo === 'visita') {
         titulo = `Visita del técnico certificador · CEE ${it.fase}`;
         punto = 'bg-sky-400/70';
@@ -354,39 +360,8 @@ function ItemCronologia({ it, h, firmaIni, readOnly, origenTxt, inicioAntesCee, 
                     {detalle && <div className="text-[11px] text-white/40">{detalle}</div>}
                     {alerta && <div className={`text-[11px] mt-0.5 leading-snug ${alerta.tono}`}>{alerta.txt}</div>}
                 </div>
-                {it.tipo === 'factura' && (
-                    <SelectorMotivo valor={it.f.motivo} onChange={onMotivo} readOnly={readOnly} />
-                )}
             </div>
         </li>
-    );
-}
-
-// Tres respuestas y siempre a la vista: marcar una factura es exactamente lo que
-// se viene a hacer aquí, y un desplegable lo escondería detrás de un clic.
-function SelectorMotivo({ valor, onChange, readOnly }) {
-    const opciones = [
-        { v: null, l: 'Abre la obra' },
-        { v: 'MATERIAL', l: 'Material' },
-        { v: 'ANTICIPO', l: 'Anticipo' },
-    ];
-    return (
-        <div className="flex rounded-lg border border-white/10 overflow-hidden shrink-0 max-sm:w-full">
-            {opciones.map(o => {
-                const activo = (valor || null) === o.v;
-                return (
-                    <button key={o.l} type="button" disabled={readOnly} onClick={() => onChange(o.v)}
-                        title={o.v ? `${MOTIVOS_NO_INICIO[o.v].label}: la factura no abre la actuación` : 'La fecha de esta factura puede abrir la actuación'}
-                        className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-colors max-sm:flex-1 ${
-                            activo
-                                ? (o.v ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-white')
-                                : 'text-white/35 hover:text-white/70 hover:bg-white/5'
-                        } disabled:cursor-default`}>
-                        {o.l}
-                    </button>
-                );
-            })}
-        </div>
     );
 }
 

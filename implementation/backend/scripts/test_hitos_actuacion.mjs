@@ -51,46 +51,56 @@ console.log('\n── calcCifo: qué factura abre la actuación');
     ok(calcCifo(d).inicio === '2026-05-29', 'sin marcar, el inicio es la primera factura (lo de siempre)');
     ok(calcCifo(d).fin === '2026-09-15', 'el fin es la última fecha (las pruebas)');
     const m = conMaterial().documentacion;
-    ok(calcCifo(m).inicio === '2026-09-11', 'marcada como MATERIAL, el inicio pasa a la siguiente factura');
+    // Marwen CAE-2078 (12/11/2026): la de material o un anticipo es el primer
+    // compromiso en firme y ABRE la actuación. La marca antigua ya no cuenta.
+    ok(calcCifo(m).inicio === '2026-05-29', 'marcada como MATERIAL, el inicio SIGUE siendo esa factura (regla 93 retirada)');
     ok(calcCifo(m).fin === '2026-09-15', 'y el fin no cambia');
-    const min = { ...m, facturas: m.facturas.map((f, i) => i === 0 ? { ...f, motivo_no_inicio: 'material' } : f) };
-    ok(calcCifo(min).inicio === '2026-09-11', 'la marca se lee sin distinguir mayúsculas (normalizeData la sube)');
-    ok(motivoNoInicio({ motivo_no_inicio: 'OTRA COSA' }) === null, 'un valor desconocido NO saca la factura');
-    const todas = { facturas: [{ fecha_factura: '2026-05-29', motivo_no_inicio: 'ANTICIPO' }] };
-    ok(calcCifo(todas).inicio === '2026-05-29', 'si no queda ninguna que abra, se usan todas (nunca un CIFO sin inicio)');
+    const ant = { ...m, facturas: m.facturas.map((f, i) => i === 0 ? { ...f, motivo_no_inicio: 'ANTICIPO' } : f) };
+    ok(calcCifo(ant).inicio === '2026-05-29', 'un anticipo también abre la actuación');
+    ok(motivoNoInicio({ motivo_no_inicio: 'material' }) === 'MATERIAL', 'la marca antigua se reconoce (para avisar y quitarla)');
+    ok(motivoNoInicio({ motivo_no_inicio: 'OTRA COSA' }) === null, 'un valor desconocido no es una marca');
     ok(calcCifo({ ...m, fecha_inicio_cifo_manual: '2026-09-05' }).inicio === '2026-09-05', 'la fecha a mano sigue mandando');
-    ok(calcCifo({ facturas: [{ fecha_factura: '2026-09-20' }], fecha_pruebas_cert_instalacion: '2026-09-15' }).inicio === '2026-09-15',
-        'las pruebas del RITE siguen contando para el inicio');
+    // 15/11/2026 (Fran): el inicio es SIEMPRE la primera factura; las pruebas solo cierran.
+    const pruebasAntes = { facturas: [{ fecha_factura: '2026-09-20' }, { fecha_factura: '2026-09-25' }], fecha_pruebas_cert_instalacion: '2026-09-15' };
+    ok(calcCifo(pruebasAntes).inicio === '2026-09-20', 'unas pruebas RITE anteriores NO abren: el inicio es la primera factura');
+    ok(calcCifo(pruebasAntes).fin === '2026-09-25', 'y el fin es la última factura, que es posterior a las pruebas');
+    ok(calcCifo({ facturas: [], fecha_pruebas_cert_instalacion: '2026-09-15' }).inicio === '2026-09-15',
+        'sin ninguna factura todavía, el inicio provisional son las pruebas');
 }
 
 console.log('\n── hitosActuacion');
 {
     const h = hitosActuacion(conMaterial());
-    ok(h.inicio === '2026-09-11' && h.fin === '2026-09-15', 'inicio y fin');
-    ok(h.inicioDe?.tipo === 'factura' && h.inicioDe.numero === '26/000618', 'el inicio sale de la factura 26/000618');
+    ok(h.inicio === '2026-05-29' && h.fin === '2026-09-15', 'inicio y fin');
+    ok(h.inicioDe?.tipo === 'factura' && h.inicioDe.numero === '26/000417', 'el inicio sale de la PRIMERA factura (26/000417), aunque sea de material');
     ok(h.finDe?.tipo === 'pruebas', 'el fin sale de las pruebas del RITE');
-    ok(h.primera?.numero === '26/000417' && h.primera.motivo === 'MATERIAL', 'la primera factura, con su motivo');
-    ok(h.anteriores.length === 1 && h.anteriores[0].numero === '26/000417', 'una factura anterior al inicio que explicar');
+    ok(h.primera?.numero === '26/000417' && h.primera.motivo === null && h.primera.marcaAntigua === 'MATERIAL',
+        'la primera factura: sin motivo, y la marca antigua aparte para el aviso');
+    ok(h.anteriores.length === 0, 'ninguna factura anterior al inicio: no hay nada que explicar');
     ok(h.ceeInicial.visita === '2026-09-01' && h.ceeInicial.firma === '2026-09-01', 'visita y firma del CEE inicial');
     ok(!h.ceeFinal.visita && !h.ceeFinal.firma, 'sin CEE final no se inventa nada');
     // La rejilla del CEE manda sobre lo leído del .xml (alguien pudo corregirla).
     const e = conMaterial();
     e.cee.fecha_firma_cee_inicial = '2026-09-02';
     ok(hitosActuacion(e).ceeInicial.firma === '2026-09-02', 'la fecha de la rejilla manda sobre la del .xml');
-    ok(hitosActuacion(expediente()).anteriores.length === 0, 'sin marcar ni fecha a mano no hay nada anterior al inicio');
+    ok(hitosActuacion(expediente()).anteriores.length === 0, 'sin fecha a mano no hay nada anterior al inicio');
 }
 
 console.log('\n── aclaracionSugerida: solo lo que dicen los datos');
 {
-    const t = aclaracionSugerida(hitosActuacion(conMaterial()));
-    ok(/nº 26\/000417, de fecha 29\/05\/2026, corresponde a la entrega de material/.test(t), 'nombra la factura y lo que es');
-    ok(/no supone el inicio de la ejecución/.test(t), 'dice que no abre la actuación');
+    // Una factura marcada (marca antigua) ya no abre nada que aclarar.
+    ok(aclaracionSugerida(hitosActuacion(conMaterial())) === '', 'marcada como material: nada que aclarar, abre la actuación');
+    // Con el inicio fijado a mano detrás de la primera factura, sí.
+    const conManual = () => expediente({ fecha_inicio_cifo_manual: '2026-09-11' });
+    const t = aclaracionSugerida(hitosActuacion(conManual()));
+    ok(/nº 26\/000417, de fecha 29\/05\/2026, es anterior a la fecha de inicio declarada/.test(t), 'nombra la factura anterior sin decir qué es');
+    ok(!/material|anticipo|no supone el inicio/.test(t), 'no dice que no abra la actuación');
     ok(/se inicia el 11\/09\/2026, con posterioridad a la firma del certificado de eficiencia energética inicial \(01\/09\/2026\)/.test(t),
         'sitúa el inicio tras la firma del CEE (visita y firma el mismo día: se nombra una vez)');
     ok(t.length <= ACLARACION_MAX, `cabe en el tope (${t.length}/${ACLARACION_MAX})`);
-    ok(fechasAjenas(t, hitosActuacion(conMaterial())).length === 0, 'no cita ninguna fecha que no conste');
+    ok(fechasAjenas(t, hitosActuacion(conManual())).length === 0, 'no cita ninguna fecha que no conste');
     // Si la firma del CEE es POSTERIOR al inicio, la frase no puede decir lo contrario.
-    const e = conMaterial();
+    const e = conManual();
     e.cee = { cee_inicial: { fechaFirma: '2026-09-12' } }; e.documentacion.fecha_firma_cee_inicial = '2026-09-12';
     const t2 = aclaracionSugerida(hitosActuacion(e));
     ok(!/posterioridad/.test(t2), 'con el CEE firmado DESPUÉS del inicio no afirma que sea posterior');
@@ -105,8 +115,10 @@ console.log('\n── aclaracionSugerida: solo lo que dicen los datos');
         { numero_factura: 'A2', fecha_factura: '2026-06-01', motivo_no_inicio: 'ANTICIPO' },
         { numero_factura: 'F3', fecha_factura: '2026-09-10' },
     ];
-    ok(/Las facturas nº A1 \(01\/05\/2026\) y nº A2 \(01\/06\/2026\) corresponden a anticipos a cuenta y no suponen/.test(aclaracionSugerida(hitosActuacion(e4))),
-        'plural bien concordado');
+    e4.documentacion.fecha_inicio_cifo_manual = '2026-09-10';
+    ok(/Las facturas nº A1 \(01\/05\/2026\) y nº A2 \(01\/06\/2026\) son anteriores a la fecha de inicio declarada/.test(aclaracionSugerida(hitosActuacion(e4))),
+        'plural bien concordado (y los anticipos NO se explican como «no abren»)');
+    ok(calcCifo({ ...e4.documentacion, fecha_inicio_cifo_manual: null }).inicio === '2026-05-01', 'sin inicio a mano, el primer anticipo abre la actuación');
 }
 
 console.log('\n── fechasAjenas / facturasCitadas: lo que la IA no puede aportar');
@@ -124,13 +136,14 @@ console.log('\n── Aviso de fechas del CIFO');
 {
     const sin = incidenciasFechasCifo(expediente());
     const grave = sin.find(i => i.tipo === 'FECHA_ANTERIOR_CEE');
-    ok(grave?.severidad === 'GRAVE' && grave.accion === 'hitos', 'sin marcar: GRAVE, con el botón que lo arregla');
+    ok(grave?.severidad === 'LEVE' && grave.accion === 'hitos', 'sin marcar: LEVE (Fran, 08-09/11/2026), con el botón que lo arregla');
     ok(/Hitos de la actuación/.test(grave?.texto || ''), 'y dice DÓNDE se arregla');
+    ok(!/márcala/.test(grave?.texto || '') && /abre la actuación/.test(grave?.texto || ''), 'ya no pide marcar la factura: dice que abre la actuación');
     const con = incidenciasFechasCifo(conMaterial());
-    ok(!con.some(i => i.tipo === 'FECHA_ANTERIOR_CEE'), 'marcada como material: el GRAVE se apaga solo');
-    const lev = con.find(i => i.tipo === 'FACTURA_ANTERIOR_INICIO');
-    ok(lev?.severidad === 'LEVE' && lev.accion === 'hitos', 'queda un LEVE pidiendo la aclaración');
-    const aclarado = incidenciasFechasCifo(conMaterial({ hitos_actuacion: { aclaracion: 'Texto.' } }));
+    ok(con.some(i => i.tipo === 'FECHA_ANTERIOR_CEE'), 'marcada como material: el aviso SIGUE (la marca ya no lo apaga)');
+    const lev = incidenciasFechasCifo(expediente({ fecha_inicio_cifo_manual: '2026-09-11' })).find(i => i.tipo === 'FACTURA_ANTERIOR_INICIO');
+    ok(lev?.severidad === 'LEVE' && lev.accion === 'hitos', 'con el inicio a mano detrás de una factura, un LEVE pidiendo la aclaración');
+    const aclarado = incidenciasFechasCifo(expediente({ fecha_inicio_cifo_manual: '2026-09-11', hitos_actuacion: { aclaracion: 'Texto.' } }));
     ok(!aclarado.some(i => i.tipo === 'FACTURA_ANTERIOR_INICIO'), 'con aclaración escrita, el LEVE también se apaga');
 }
 
@@ -144,7 +157,7 @@ console.log('\n── El CIFO imprime los hitos');
     e.cee.cee_final = { fechaVisita: '2026-09-20', fechaFirma: '2026-09-22' };
     const html = buildCifoHtml({ data: deriveCifoData({ expediente: e, results }), appUrl: 'https://app.brokergy.es' });
     ok(html.includes('Hitos de la actuación'), 'lleva el bloque');
-    ok(html.includes('entrega de material'), 'la primera factura dice lo que es');
+    ok(!html.includes('entrega de material'), 'la marca antigua ya no se imprime: la primera factura abre la actuación');
     ok(html.includes('22/09/2026'), 'con CEE final, sale su fila');
     ok(html.includes('&lt;b&gt;nº 26/000417&lt;/b&gt; es material &amp; no abre'), 'la aclaración va escapada (texto de una persona)');
     ok(html.indexOf('Hitos de la actuación') < html.indexOf('Datos de la instalación de calefacción'),

@@ -66,7 +66,11 @@ export function hitosActuacion(expediente) {
             idx,
             numero: String(f?.numero_factura || '').trim() || null,
             fecha: iso(f?.fecha_factura),
-            motivo: motivoNoInicio(f),
+            // Ninguna factura deja de abrir la actuación (2026-11-12, ver calcCifo.js):
+            // `motivo` queda siempre a null, y la marca antigua que siga guardada va
+            // aparte, solo para que el popup avise y la quite al guardar.
+            motivo: null,
+            marcaAntigua: motivoNoInicio(f),
             driveId: f?.drive_id || null,
             // Una factura que no computa para el CAE (solo placas en un RES060) no
             // es un hito de la actuación. Se filtra DESPUÉS de numerar: `idx` es su
@@ -81,11 +85,10 @@ export function hitosActuacion(expediente) {
 
     // De dónde sale cada fecha. Se enseña en el popup: "el inicio es el 11/09" no
     // basta para decidir si está bien; "el inicio es la factura 26/000618" sí.
-    const origen = (fecha, manual, esInicio) => {
+    const origen = (fecha, manual) => {
         if (!fecha) return null;
         if (manual) return { tipo: 'manual' };
-        const candidatas = esInicio ? facturas.filter(f => !f.motivo) : facturas;
-        const f = candidatas.find(x => x.fecha === fecha);
+        const f = facturas.find(x => x.fecha === fecha);
         if (f) return { tipo: 'factura', numero: f.numero };
         if (pruebas === fecha) return { tipo: 'pruebas' };
         return { tipo: 'otro' };
@@ -94,16 +97,15 @@ export function hitosActuacion(expediente) {
     return {
         inicio, fin, pruebas,
         inicioManual, finManual,
-        inicioDe: origen(inicio, inicioManual, true),
-        finDe: origen(fin, finManual, false),
+        inicioDe: origen(inicio, inicioManual),
+        finDe: origen(fin, finManual),
         facturas,
         primera: facturas[0] || null,
         // La última solo es OTRA factura si hay más de una: con una sola, primera y
         // última son la misma y el bloque la imprime una vez.
         ultima: facturas.length > 1 ? facturas[facturas.length - 1] : null,
         // Las facturas que el CIFO tiene que EXPLICAR: emitidas antes del inicio
-        // que declara. Solo existen si alguien ha marcado una factura como entrega
-        // de material / anticipo, o ha fijado el inicio a mano.
+        // que declara. Desde el 12/11/2026 solo pasa con el inicio fijado a mano.
         anteriores: inicio ? facturas.filter(f => f.fecha < inicio) : [],
         ceeInicial: { visita: fechaCee(expediente, 'visita', 'inicial'), firma: fechaCee(expediente, 'firma', 'inicial') },
         ceeFinal: { visita: fechaCee(expediente, 'visita', 'final'), firma: fechaCee(expediente, 'firma', 'final') },

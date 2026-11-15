@@ -23,6 +23,10 @@ del usuario, con su certificado.
   presenta él; `pendientes` los lista aparte («LOS PRESENTA SU TÉCNICO») y `preparar` da NO LISTO.
 - **Lo encargado a otra persona no se presenta sin preguntar**: si lo presentan los dos, se paga
   la tasa dos veces. `pendientes` dice si queda un encargo antiguo sin cerrar.
+- **⛔ Con la obra ya FACTURADA, el CEE inicial no se presenta sin comprobar la fecha** (Fran,
+  06/11/2026): tiene que ir firmado y visitado ANTES de la primera factura y con el mes de registro
+  abierto. Si no, `preparar` da NO LISTO con la ventana de fechas posibles y **se le pregunta a Fran**;
+  nunca se re-fecha por cuenta propia. Es, sobre todo, por el IRPF del cliente: la deducción de la DA 50ª LIRPF pide el CEE inicial expedido antes del inicio de las obras (Fran, 15/11/2026). Ver [comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md).
 - **Local = producción**: `devuelto --escribir` sube a Drive y marca REGISTRADO de verdad.
 - **⛔ UN CEE SE PRESENTA UNA SOLA VEZ: lo pagado y lo enviado se SELLA en la app EN EL MOMENTO**
   (Fran, 15/11/2026). El 13/11 el 26RES060_206 final se registró (4587339/2026) pero la sede devolvió el
@@ -63,7 +67,13 @@ Tiene que acabar en **MONTAJE LISTO**. Si no, para y di qué falta: sin él, la 
 
 Si el CEE aún no está firmado (no hay `{nº} – CEE INICIAL_fdo.pdf`) y el usuario lo ha dado por válido,
 primero `node scripts/firmar_cee.js <nº> --escribir` (ver la skill `generar-cee-inicial`): firma con el
-certificado de representante de Brokergy, sin ventanas, en la última página.
+certificado de representante de Brokergy, sin ventanas, en la última página. **Antes de firmar un CEE
+INICIAL, siempre la comprobación de la economía** (bono al cliente ≥ el de la oportunidad, beneficio a
+160 €/MWh ≥ 2.000 €; si no, no se firma ni se presenta): ver
+[comun/firmar-cee-economia.md](comun/firmar-cee-economia.md). **Y si la obra ya está facturada,
+`firmar_cee.js` no firma un inicial fechado después de la factura** (o fuera del mes de registro):
+dice la ventana de fechas posibles y se le pregunta a Fran
+([comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md)).
 
 ## 1. Qué hay que presentar
 
@@ -75,6 +85,11 @@ node scripts/presentar_cee.js pendientes
 Mismo criterio que el radar del parte («con tu visto bueno y sin registrar»): fase REVISADO, sin fecha
 de registro. Ordenado por **plazo** (un mes desde la firma; pasado el mes hay que volver a emitir el
 certificado). Si el usuario pide uno concreto que no sale aquí, dilo antes de seguir.
+
+Los CEE INICIALES cuyo expediente ya tiene factura salen además en el bloque **«CON LA OBRA YA
+FACTURADA»**: ✓ si van firmados y visitados antes de la primera factura y en plazo, ⛔ si no, con la
+fecha de obra, la firma y la ventana («firmable del … al …» o «SIN fecha posible»). Los ⛔ no se
+presentan hasta que Fran decida (sección 2).
 
 ## 1b. La confirmación (la ÚNICA pregunta)
 
@@ -122,6 +137,16 @@ y el Registro lo rechazaría con la tasa ya pagada. Para y díselo al usuario co
 de que no lo ha podido validar en este equipo, **abre el PDF** y mira que no lleve la marca antes de
 seguir. `xml2cert` valida con Java: sin `java` en el PATH usa solo el de AutoFirma; si dijera «program
 not found», es que no hay ninguno (no que el CEE esté mal). Ver [comun/cee-incompleto.md](comun/cee-incompleto.md).
+
+**«⛔ OBRA YA FACTURADA» → NO se presenta sin el «sí» de Fran** (regla de Fran, 06/11/2026): el
+expediente ya tiene una factura (o inicio de actuación del CIFO, o pruebas del RITE) y el CEE inicial
+está firmado o visitado ese día o después, o hace más de un mes. `preparar` lo pone el PRIMERO de los
+avisos, el plan queda NO LISTO y la línea siguiente dice la **ventana** de fechas con que se puede
+firmar hoy y una **propuesta**, o que no hay ninguna. Para, enséñale a Fran esas líneas y pregúntale.
+Con su «sí» a una fecha, se re-fecha y se vuelve a firmar con los pasos de
+[comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md) (`cee_inicial.js fechas` →
+`calificar` → `listo` → `firmar_cee.js`) y se prepara otra vez. `--factura-revisada` solo si él lo dice
+para ESE expediente. Si dice ✓ «Obra ya facturada… ANTES, y en plazo», se sigue normal.
 
 ## 3. El vigilante, en segundo plano
 
@@ -202,6 +227,13 @@ Referencia' o ninguna… coincide con las del XML»). Por eso `rellenar.js` no l
 JavaScript, o añadida antes de otros adjuntos, sale en la lista pero la sede no la cuenta (2026CEE_64:
 hubo que quitarla con «Eliminar» + «Quitar marcado/s» y volver a teclearla). Si aun así rechaza el XML,
 repite: quitar, teclear, añadir y subir el XML enseguida.
+
+**«La versión del xml no es soportada» es de la SEDE, no del XML: se sube el MISMO fichero otra vez**
+(26RES060_282, 14/11/2026). Esa mañana la sede rechazaba y aceptaba al azar el mismo `.xml` (hasta el de
+la 280, registrado el 11/11): el original de la 282 falló dos veces y entró a la tercera, sin tocarlo.
+Una tarde entera de pruebas (tamaño, saltos de línea, cabecera, bloques del XML) no encontró ninguna
+causa en el fichero. **El XML oficial no se modifica**: se reintenta (3-5 veces); si sigue, se para y
+se prueba más tarde.
 
 | Categoría | Qué |
 |---|---|
@@ -372,6 +404,16 @@ recientes**. Por orden: Resolución de Inscripción · **EtiquetaCEE** · Oficio
    La etiqueta va a su casilla (`_etq.pdf`) y las dos resoluciones a OTROS como
    `{nº} – RESOLUCIÓN DE INSCRIPCIÓN.pdf` y `{nº} – OFICIO FEE.pdf`. Lo sube el servidor (como el
    registro); `--local` desde el PC.
+5. **Si la etiqueta no llega y la pide el verificador** (26RES060_228, 12/11/2026: CEE final inscrito el
+   05/11 y la etiqueta v3.0 sin emitir una semana después):
+   - Al verificador se le aclara con el **justificante de registro**, que ya va en el paquete (E{n}-3-6).
+   - A la JCCM se le pide la etiqueta por correo a **tecnicoeficiencia@jccm.es**, el buzón de los técnicos
+     de eficiencia energética. El correo lleva el nº de registro, la fecha, la referencia catastral y el
+     justificante adjunto, y cita la petición de SIGUE si ya se abrió una. El correo se enseña en
+     borrador y sale con el «sí» de Fran.
+   - Cuando llegue, se sube con `notificaciones` y se aporta al verificador.
+
+   Ver [comun/fechas-inversion-y-scop-justificados.md](comun/fechas-inversion-y-scop-justificados.md).
 
 ## Informe final
 
@@ -408,5 +450,6 @@ supuesto, un aviso de `preparar`). Nunca datos de la tarjeta.
 | `escritorio.ps1 aviso` / `frente` no hacían nada con la app de Claude delante (y el Intro caía en ella) | `aviso` va ahora por la accesibilidad (sin foco ni teclas) y `frente` pulsa Alt antes de pedir el primer plano y comprueba qué quedó delante (27/10/2026) |
 | `aviso` dice `SIN_AVISO` y la página sigue congelada | El aviso es de una pestaña que no es la activa de su ventana y Chrome no lo enseña: `escritorio.ps1 pestana -Ventana '<título>'` y otra vez `aviso` |
 | La sede devuelve a «Validando componentes» en mitad del formulario | Se recargó la página a mano (`location.href`): hay que identificarse otra vez; los datos y adjuntos siguen (sesión), pero hay que repetir «Es representante» y comprobarlo todo |
+| `preparar` o `firmar_cee.js` dicen «⛔ OBRA YA FACTURADA» | El CEE inicial va fechado el día de la primera factura o después, o hace más de un mes (06/11/2026: 34 de 126 expedientes facturados). Se para y decide Fran con la ventana que da el script; con su «sí», `cee_inicial.js fechas` y volver a firmar ([comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md)) |
 
 Detalle y porqué: `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/presentarlo-sin-tocar-el-pc-skill-presentar-cee.md`.

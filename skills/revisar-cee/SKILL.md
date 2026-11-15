@@ -136,6 +136,7 @@ Todos los umbrales están medidos sobre los 143 CEE iniciales que Fran había ap
 | **Fase final**: declara la bomba de calor instalada | `aerotermia_cal` | NO APTO |
 | **Fecha del certificado** = la que consta en el expediente | `fechaFirmaCee` | aviso |
 | **Fecha de visita** anterior al certificado, y que exista | el propio `.xml` | NO APTO / aviso |
+| **CEE inicial anterior a la obra** (regla 199, Fran 06/11/2026): con una factura de la obra (o inicio del CIFO, o pruebas del RITE), firma y visita ANTES de la primera, y registro en el mes desde la firma | `documentacion.facturas` y el `.xml` (`firmaCeeFrenteAObra`) | NO APTO si es de ese día o después; aviso si solo es el plazo. Ver [comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md) |
 | **Quién firma** el certificado es el técnico asignado | `prescriptores` del `certificador_id` | aviso |
 
 ## Lo que hay que saber
@@ -173,6 +174,12 @@ ahogarían el recuento).
 la misma con la que se emitió el certificado», y esa X sale de `fechaFirmaCee`. Si el `.xml` declara
 otra, le estarás pidiendo una fecha que no es la de su propio certificado — corrige la del expediente
 antes de dárselo. (Que el PDF firmado traiga después otra fecha ya lo comprueba `ceeFirmaService`.)
+
+**⛔ Un CEE inicial fechado el día de la primera factura de la obra o después es NO APTO** (Fran,
+06/11/2026): el inicial es la situación de partida, y el cliente lo necesita expedido antes del inicio de las obras para deducirse la obra en el IRPF (DA 50ª LIRPF; Fran, 15/11/2026). Si es de un técnico de fuera, lo tiene que
+re-fechar y volver a firmar ÉL, dentro de la ventana que da el punto (y su revisión previa ya se lo
+dice); si es de la casa, la fecha la decide Fran. Nunca se da el visto bueno «para no atascarlo». Ver
+[comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md).
 
 **Un `APTO CON AVISOS` no es un `APTO`.** Significa que algo no se ha podido mirar, o que algo no casa
 sin llegar a invalidar el certificado. Léelos antes de dar el visto bueno.

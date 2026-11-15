@@ -9,7 +9,7 @@
 |---|---|---|---|
 | `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 49,4 KB | 16 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
-| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 49,8 KB | 23 |
+| `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 48,5 KB | 24 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 11,6 KB | 27 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 55,2 KB | 18 |
 | `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 10,7 KB | 16 |
@@ -18,7 +18,7 @@
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 11 |
 | `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 4,7 KB | 1 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,2 KB | 25 |
-| `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 50,1 KB | 14 |
+| `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 52,1 KB | 14 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 105,4 KB | 41 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 16,4 KB | 5 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 18,2 KB | 5 |
@@ -267,10 +267,7 @@
 - **181** → `.claude/rules/envolvente-ce3x.md` — Una ventana o puerta en una MEDIANERA o PARTICIÓN la pasa a MURO EXTERIOR, en los cuatro caminos; las ventan…
 - **182** → `.claude/rules/lotes.md` — La «Vista S.O.»: la obligación del Sujeto Obligado se TECLEA por año y lo que le falta se cuenta contra TODO…
 - **183** → `.claude/rules/transversal-frontend.md` — Las fotos se miran con UN visor y se editan con UN editor
-- **184** → `.claude/rules/cee.md` — Al técnico CON cuenta en la app de certificadores el encargo le llega POR LA APP, y lo que hace allí vuelve …
 - **185** → `.claude/rules/envolvente-ce3x.md` — La envolvente se revisa PARED A PARED con el TECLADO, y lo que falta para generar es UN número con su lista
-- **186** → `.claude/rules/cee.md` — El VISTO BUENO de una obra de la app se da en su ENVOLVENTE y la deja LISTA PARA FIRMAR; al firmarla, el exp…
-- **187** → `.claude/rules/documentos.md` — Un FIRMADO que ya está en BD no lo cambia ni lo borra un PUT general sin decirlo
 - **188** → `.claude/rules/envolvente-ce3x.md` — Cuando el `.cex` no sale, el ASISTENTE dice qué lo para y lo arregla; y «déjalo listo para firmar» genera y …
 - **189** → `.claude/rules/facturas.md` — Una factura de obra se registra ENTERA y al CAE solo cuenta lo SUBVENCIONABLE
 - **190** → `.claude/rules/lotes.md` — El S.O. tiene su ENLACE de solo lectura (`/so/:token`), y solo ve lo que deja pasar `vistaParaElSo`
@@ -280,12 +277,14 @@
 - **196** → `.claude/rules/expedientes.md` — Pasar a DOC. COMPLETA es haberlo VALIDADO TODO: primero el ✓ de cada documento firmado, después el estado
 - **197** → `.claude/rules/propuesta.md` — «Perfil exigente» (`inputs.condicionesReforzadas`, solo ADMIN): el compromiso de cesión en exclusiva se cier…
 - **198** → `.claude/rules/informes.md` — Un INFORME técnico (memoria para el Ayuntamiento, legalización, informe, consultoría: «todo lo que no sea CA…
+- **199** → `.claude/rules/cee.md` — Con la obra ya FACTURADA, el CEE inicial no se FIRMA ni se PRESENTA si no va firmado y visitado ANTES de la …
 - **200** → `.claude/rules/expedientes.md` — La vía del FACTOR MULTIPLICADOR (BOE-A-2026-23367, en vigor el 08/11/2026) es OTRO número: `26RES060FM_N` / …
 - **200.a** → `.claude/rules/documentos.md` — El Convenio de un expediente FM (`26RES060FM_N` / `26RES093FM_N`) lleva el CONSENTIMIENTO del IRPF que pide …
 - **200.b** → `.claude/rules/documentos.md` — El CIFO de un `26RES060FM_N` CERTIFICA la inercia hidráulica (documento 3.c de la ficha) en una hoja propia,…
 - **200.c** → `.claude/rules/documentos.md` — En un expediente FM la app GENERA los cinco documentos de firma de la ficha, y cada uno se firma donde ya fi…
 - **200.d** → `.claude/rules/documentos.md` — El Convenio de un expediente FM vale para las DOS fichas: la FM como PRINCIPAL y la general como SUBSIDIARIA…
 - **200.e** → `.claude/rules/documentos.md` — El CIFO de un `26RES060FM_N` / `26RES093FM_N` sale como su ficha FM, con la cifra FM y NUNCA con la vigente
+- **202** → `.claude/rules/documentos.md` — Un PDF que sube un tercero por un enlace público se comprueba que es de ESA obra antes de guardarlo
 - **203** → `.claude/rules/propuesta.md` — Toda propuesta en la que alguna opción sube por el FACTOR MULTIPLICADOR lleva una HOJA más, la 2, y una líne…
 - **203.b** → `.claude/rules/propuesta.md` — El FM de la propuesta se APAGA antes de enviar, con UN interruptor, y queda guardado en la oportunidad
 - **204** → `.claude/rules/oportunidades.md` — Al ACEPTAR, al particular de una RES060/RES093/RES080 se le pregunta si tiene el BONO SOCIAL; solo marca VUL…
@@ -296,6 +295,7 @@
 - **208** → `.claude/rules/oportunidades.md` — El formulario «Calcula tu ayuda» vive en la APP y la obra llega en el ENLACE
 - **209** → `.claude/rules/calculo.md` — El ACS existente se calcula con SU rendimiento: un termo eléctrico va a 1,00, no a la η de la caldera
 - **210** → `.claude/rules/instalador-rite.md` — Cuando se le pide la factura al INSTALADOR, va con el texto recomendado para el concepto; y si la que mandó …
+- **211** → `.claude/rules/documentos.md` — El BONO SOCIAL del titular se declara con su CAUSA, y la ficha va con ella: bono por RENTA → RES060S; solo p…
 - **212** → `.claude/rules/lotes.md` — El lote habla con beCAE (Marwen) por su API v1.6.0, y la respuesta se lee en los DOS formatos
 - **213** → `.claude/rules/lotes.md` — El EQUIPO de verificación (verificador jefe y revisor técnico, con email y teléfono) se LEE del plan y de la…
 - **215** → `.claude/rules/lotes.md` — El Anexo I del LOTE lleva las firmas ANCLADAS al pie de la hoja, y sus casillas se MIDEN
@@ -339,6 +339,7 @@
 - `docs/conocimiento/cee/la-guia-de-la-deduccion-del-irpf-para-el-cliente.md` — La GUÍA de la deducción del IRPF para el cliente (2026-10-01)
 - `docs/conocimiento/cee/la-pagina-del-encargo-del-tecnico.md` — La PÁGINA DEL ENCARGO del técnico (2026-09-30)
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/00-presentar-el-cee-en-el-registro-el-borrador.md` — PRESENTAR el CEE en el Registro — el borrador (2026-09-15)
+- `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/con-la-obra-ya-facturada-el-cee-inicial-antes-de-la-factura.md` — Con la obra ya FACTURADA, el CEE inicial va firmado ANTES de la factura (2026-11-06)
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/el-visto-bueno-deja-el-cee-listo-para-presentar.md` — El VISTO BUENO deja el CEE listo para presentar — Eva ya no presenta (2026-10-25)
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/encargar-la-presentacion-a-una-persona-de-fuera-presentar-negoci.md` — ENCARGAR la presentación a una persona de fuera — `/presentar/:negocio/:id` (2026-10-06)
 - `docs/conocimiento/cee/presentar-el-cee-en-el-registro-el-borrador/firmar-el-cee-sin-ventanas-firmar-cee-js.md` — FIRMAR el CEE sin ventanas — `scripts/firmar_cee.js` (2026-10-15)

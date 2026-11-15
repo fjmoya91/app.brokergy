@@ -1,6 +1,6 @@
 ---
 name: justificar-expediente
-description: 'JUSTIFICA un expediente CAE de BROKERGY cuando la obra ha terminado: coge lo que manda el instalador (zip, carpeta, WhatsApp o email con facturas, RITE, fotos) y lo lleva a la app como una persona en la pantalla — facturas validadas, RITE con sus fechas, fotos en su apartado, equipos y series desde sus placas, cedentes, precio y fechas — y deja PREPARADOS para firma el Anexo I, el Convenio, el CIFO y el Anexo Fotográfico (como al pulsar «Generar»), el CEE final y, si el instalador no mandó la Memoria RITE, la genera para mandársela. Acaba con lo que falta POR PERSONA (cliente, instalador, certificador) y sus WhatsApp en borrador. Úsalo con "justifica el expediente NNN", "en Descargas está la documentación del instalador de NNN, organízala", "deja NNN listo para firmar", "cierra la obra de NNN". No envía nada a nadie: lo dudoso se pregunta al final, de una vez.'
+description: 'JUSTIFICA un expediente CAE de BROKERGY cuando la obra ha terminado: coge lo que manda el instalador (zip, carpeta, WhatsApp o email con facturas, RITE, fotos) y lo lleva a la app como una persona en la pantalla — facturas validadas, RITE con sus fechas, fotos en su apartado, equipos y series desde sus placas, cedentes, precio y fechas — y deja PREPARADOS para firma el Anexo I, el Convenio, el CIFO y el Anexo Fotográfico (como al pulsar «Generar»), el CEE final y, si el instalador no mandó la Memoria RITE, la genera para mandársela. Acaba con lo que falta POR PERSONA (cliente, instalador, certificador) y sus WhatsApp en borrador. Úsalo con "justifica el expediente NNN", "en Descargas está la documentación del instalador de NNN, organízala", "deja NNN listo para firmar", "cierra la obra de NNN". Con el «sí» de Fran («envíales todo») ENVÍA a firma por los propios popups de la app (Anexo I + Convenio al cliente, CIFO + Memoria RITE al instalador); sin él, nada sale. Lo dudoso se pregunta al final, de una vez.'
 ---
 
 # Justificar un expediente al terminar la obra
@@ -17,8 +17,9 @@ que firmen el cliente y el instalador.
   sus generadores del servidor, y el Anexo I y el Convenio **pulsando «Generar» en la propia app**
   (los compone el navegador, como la propuesta). Lo hace la cuenta de **CLAUDE** (robot sin
   contraseña, regla 103): el historial lo firma «CLAUDE».
-- **Nada sale a terceros.** No se envía ningún documento, WhatsApp ni email: se deja todo en Drive y
-  enlazado, y el envío lo hace una persona desde la app.
+- **Nada sale a terceros sin el «sí» de Fran para ESE envío.** Se deja todo en Drive y enlazado.
+  Cuando Fran dice «envíaselo» / «envíales todo», el envío se hace **por los popups de envío de la
+  app** (orden `enviar`, paso 12), nunca con un WhatsApp o un email sueltos.
 - **No se inventa.** Lo que no está escrito en un documento se pregunta. Las preguntas se juntan
   y se hacen **una vez**, con opciones y una recomendada, cuando ya está hecho todo lo demás.
 - **Local = producción**: los scripts escriben en la Supabase y el Drive de verdad. Lo que escribe,
@@ -36,6 +37,7 @@ que firmen el cliente y el instalador.
 | `api MÉTODO ruta [--json f] [--file campo=ruta] [--out f]` | Llama a la API de la app como CLAUDE (la ruta puede ir sin «/»: Git Bash convierte `/api/…` en una ruta de Windows) | lo que haga la ruta |
 | `fotos --plan fotos.json [--escribir]` | Coloca cada foto en su apartado con `subirFicherosASlot`, validando contra el checklist de ESA obra, y pone NOMBRE a lo que va a «Otros» | con `--escribir` |
 | `anexos <nº> [anexo1,cesion] [--escribir]` | Chrome sin pantalla → Documentación → «Generar» → «Guardar en Drive». Si la app pide datos («Datos faltantes») lo dice y no sigue | con `--escribir` |
+| `enviar <nº> cliente\|instalador [--marcar NOMBRE]… [--mensaje f.txt] [--enviar]` | Pulsa el ENVÍO de la app: al cliente el Anexo I + el Convenio; al instalador el CIFO + la Legalización RITE. En seco enseña popup, destinatarios y mensaje | **envía** con `--enviar` |
 | `bajar <driveId\|enlace> salida` | Descarga un fichero de Drive para revisarlo | nada |
 
 Y las del MCP de BROKERGY: `estado_cifo` / `generar_cifo` y `estado_anexo_fotografico` /
@@ -78,6 +80,15 @@ catálogo) y **`generar-cee-final`** (el CEE final).
    cada fila con `concepto`, `emisor_nif` y `validada: true` **solo si cuadra con el PDF**.
 - Una factura de OTRA empresa (electricista, acometida) **se pregunta**: puede que no se quiera
   declarar. Las del instalador, todas (regla de rellenar-expediente).
+- **⛔ Con las facturas dentro, mira el CEE INICIAL** (Fran, 06/11/2026): si aún no está registrado,
+  tiene que ir firmado y visitado ANTES de la primera factura y con el mes de registro abierto (por el
+  IRPF del cliente: la DA 50ª LIRPF pide el CEE expedido antes del inicio de las obras).
+  `node scripts/presentar_cee.js pendientes` (bloque «CON LA OBRA YA FACTURADA») o `node
+  scripts/cee_inicial.js fechas <nº> --firma <la de su firma>` en seco lo dicen, con la ventana de
+  fechas posibles. Si sale ⛔, va en el informe final como lo PRIMERO que decide Fran, con esas
+  líneas; nunca se re-fecha ni se presenta por iniciativa propia. (Uno ya REGISTRADO no se toca:
+  cuenta su visita y su firma, no el registro — patrón 11 de `auditar-expediente`.) Ver
+  [comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md).
 
 ### 3. Certificado RITE y memoria
 - `api POST api/expedientes/<id>/rite/ocr --file files=<certificado.pdf>`: lo archiva en «7.
@@ -120,9 +131,31 @@ repite; si el instalador mandó la suya, no se genera ninguna. Es la MISMA caden
    expedientes** («instalador/a con carné: NNN»; el certificado de eDICE lo trae siempre como «--»),
    guárdalo con `PATCH api/prescriptores/<id>/firmantes` `{tecnico_firmante_carnet_rite}` y regenera
    (J.PORRERO-HIJOS, 26/10/2026: estaba en sus memorias de 26RES060_141 y _152). No se le pide al instalador salvo que no esté en ninguna.
-- **No se envía.** Se manda desde la app con el envío conjunto al instalador (Documentación →
-  Memoria RITE → Enviar): va en el MISMO mensaje que el CIFO para firmar, y con ella su enlace de
-  subida del certificado registrado. Va en el informe final, en lo que falta del instalador.
+- **No se envía sin el «sí».** Va con el envío conjunto al instalador (`enviar <nº> instalador`,
+  paso 12): en el MISMO mensaje que el CIFO para firmar, y con ella su enlace de subida del
+  certificado registrado. Va en el informe final, en lo que falta del instalador.
+
+### 3.c Instaladores a los que Fran FIRMA con su certificado (no se les pide nada)
+Con **RUBÉN HORCAJADA** (Rubén SAT), **SANEAMIENTOS ERNESTO, SL**, **RCA INSTALACIONES** (Ramón
+Carrasco) y **JOSÉ ÁLVAREZ ALMARCHA**, el CIFO y la Memoria RITE los firma **Fran con el certificado
+electrónico del instalador**, y la memoria la presenta él en eDICE (Fran, 04–09/11/2026). Al instalador
+**nunca** se le pide firmar ni registrar el RITE ni se le reclama, aunque `datos_contacto_expediente`
+lo liste como suyo: en el informe va en «Nosotros (Fran)».
+- **Cómo se sabe**: la ficha del instalador tiene un contacto con el cargo «Firma con el certificado del
+  instalador» (es Fran, rol TÉCNICO, así que el popup «Enviar al instalador» le llega a él). Lo lee
+  `utils/firmaConCertificadoInstalador.js`; `node scripts/test_firma_con_certificado_instalador.js`
+  lista los marcados y comprueba que su certificado está en el PC. Uno nuevo = ese contacto en su ficha
+  y su NIF/CIF bien escrito.
+- **El orden**, en vez de mandarle la memoria al instalador:
+  1. Memoria RITE generada (3.b) si no la mandó él.
+  2. **Skill `presentar-rite`**: firma la memoria con SU certificado (lo elige sola por la ficha),
+     la diligencia en eDICE y guarda el certificado RITE en su slot, que da la fecha de firma.
+  3. CIFO «Generar» (ya sin la puerta de la fecha de firma del RITE) y `enviar <nº> instalador`: le
+     llega a FRAN con el enlace `/instalador/…`, y firma con Autofirma eligiendo el certificado del
+     instalador (`R: B22966733` en Ernesto; el personal «APELLIDOS NOMBRE - NIF» en los autónomos).
+     En seco tiene que salir «FRAN · TÉCNICO» y nadie más.
+- Si el RITE aún no se puede presentar (falta un dato de la memoria), se pregunta a Fran; no se
+  manda el CIFO con la puerta forzada «para que el instalador registre el RITE», porque no lo va a hacer él.
 
 ### 4. Instalador
 Si el instalador solo consta en `instalacion.instalador_id` (pasa en ~66 expedientes), enlaza
@@ -183,8 +216,16 @@ Lo que no esté claro va a lo que falta del instalador, con el texto de
   la propuesta dijera otro → **se pregunta** y se fija en el Económico
   (`instalacion.economico_override.cae_client_rate`). Sin fijarlo, el Convenio imprimiría un precio y
   un importe calculado con otro.
-- **Fechas del CIFO**: las calcula la app (mínimo y máximo de pruebas RITE y facturas). Si las
-  facturas declaran otra fecha de inicio, se pregunta si se fija a mano (`fecha_inicio_cifo_manual`).
+- **Fechas del CIFO**: las calcula la app (inicio = la primera factura, aunque las pruebas RITE sean antes; fin = lo último entre la última factura y las pruebas, Fran 15/11/2026). **El inicio es la
+  PRIMERA factura, aunque sea de acopio de material o un anticipo**: es el primer compromiso en firme
+  (RD 36/2023; Marwen lo levantó en CAE-2078, 26RES060_114 y _180).
+  - No se marca `motivo_no_inicio` (MATERIAL / ANTICIPO, regla 93) ni se fija un
+    `fecha_inicio_cifo_manual` que lo retrase. Si una factura ya viene marcada, se le quita la marca.
+  - Si con eso el inicio cae antes de la visita o la firma del CEE inicial, va lo primero en el informe
+    para que decida Fran.
+- **Inversión**: Σ de las bases de TODAS las partidas de las facturas del instalador, también la de un
+  servicio sin ahorro declarado (26RES060_114: un vaso de expansión de ACS de 41,30 €; el verificador
+  lo sumó). Ver [comun/fechas-inversion-y-scop-justificados.md](comun/fechas-inversion-y-scop-justificados.md).
 
 ### 9. Documentos para firma
 1. **CIFO**: `estado_cifo` → `generar_cifo` (copia sola las fichas técnicas del catálogo). Si hay un
@@ -246,7 +287,7 @@ tenga algo, y nada más:
 | Quién | Lo típico |
 |---|---|
 | **Cliente** | Firmar el Anexo I y el Convenio; su email o su DNI si faltan; una foto que solo puede hacer él |
-| **Instalador** | Firmar el CIFO; registrar el RITE con la Memoria que le mandamos (3.b) y devolver el certificado; facturas, fotos o placas que falten |
+| **Instalador** | Firmar el CIFO; registrar el RITE con la Memoria que le mandamos (3.b) y devolver el certificado; facturas, fotos o placas que falten. Con los de 3.c, CIFO y RITE son de Fran |
 | **Certificador** | El CEE final si lo hace un técnico, o su visto bueno |
 | **Nosotros (Fran)** | Revisar y validar en la app, mandar a firmar el Anexo Fotográfico, las preguntas de abajo |
 
@@ -256,6 +297,39 @@ qué botón. Lo que se pide con PALABRAS (una foto, un dato, una factura que no 
 **borrador de WhatsApp** redactado con la skill `enviar-whatsapp`, al destinatario real (la
 persona de contacto si la hay), uno por persona y con todo lo suyo junto. **Solo borrador**: se
 enseñan enteros, y se mandan con el «sí» de Fran para ESE envío.
+
+### 12. Enviar a firma (solo con el «sí» de Fran)
+Cuando Fran dice «envíaselo», «envíales todo», «como si lo hiciese yo desde la app», se pulsa el envío
+de la app con `enviar`, que hace lo mismo que él a mano: guarda el borrador en Drive (el enlace de
+firma sirve ESA versión), manda email y WhatsApp con su enlace y sella `*_sent_at`. Se hace solo,
+sin volver a preguntar, salvo lo que la orden PARA. Siempre primero en seco y después `--enviar`.
+
+| Orden | Qué pulsa | A quién (por defecto, el de la app) |
+|---|---|---|
+| `enviar <nº> cliente` | Anexo I «Generar» → «Enviar» + chip «Anexo de Cesión» | El titular o su persona de contacto, como la app |
+| `enviar <nº> instalador` | Certificado CIFO «Generar» → «Enviar al instalador» (CIFO + Legalización RITE) | El contacto técnico de la empresa; `--marcar` añade otro (p. ej. el técnico que firma la memoria) |
+
+- **Para y dice dónde se arregla** si el CIFO saldría sin firmante (un autónomo sin
+  `nif_responsable`: `PATCH api/prescriptores/<id>/firmantes`, su NIF es el de sus facturas), si el
+  precio CAE es el de respaldo («Datos incompletos»: `instalacion.economico_override.cae_client_rate`
+  con el de la propuesta) o si un documento sale bloqueado.
+- **La puerta «Datos faltantes» del CIFO** solo se pasa («Generar de todos modos») cuando lo único que
+  falta es la **fecha de firma del certificado RITE**: no existe hasta que el instalador lo registra,
+  y se le manda justo para eso (Fran lo envía así). Cualquier otro hueco PARA. Con los instaladores
+  de 3.c no se fuerza: primero `presentar-rite` y después el CIFO.
+- **El mensaje** es el de la plantilla de la app **sin emojis** (`--con-emojis` lo deja). Si va a dos
+  personas o la plantilla no encaja (saluda con nombre y apellidos, habla de «el titular» a su
+  marido…), se escribe uno con `--mensaje fichero.txt`, de tú, sin presentarse si ya hay
+  conversación, y con el MISMO enlace que trae la plantilla.
+- **Tras enviar** comprueba los sellos (los imprime) y el WhatsApp entregado (`whatsapp_queue` en
+  SENT, o el chat con `alta_oportunidad.js chat <tel> --dias 1`).
+  - **También en una re-firma por requerimiento**: la del CIFO de 26RES060_114 (12/11/2026) salió solo
+    por email, y el instalador no se enteró hasta que se le mandó el WhatsApp aparte.
+  - Si no hay WhatsApp SENT a esa persona, se le manda el enlace de re-firma con la plantilla de
+    requerimiento, con el «sí» de Fran.
+- Caso: 26RES060_213 (30/10/2026): Anexo I + Convenio a la persona de contacto (el marido de la
+  titular), y CIFO + Memoria RITE al autónomo que firma el CIFO y, con `--marcar`, al técnico que
+  firma la memoria; un mensaje propio para los dos.
 
 ### 13. Cuando vuelve todo firmado: DOC. COMPLETA
 Con los firmados de vuelta (Anexo I, Convenio, CIFO, Anexo Fotográfico) y si Fran dice que se pase a
@@ -272,7 +346,7 @@ vez. Pasos y campos: [comun/pasar-a-doc-completa.md](comun/pasar-a-doc-completa.
 | Año de la caldera dudoso → fila de rendimiento | El de la placa |
 | Factura de otra empresa (acometida, electricista) | Preguntar; puede que no se declare |
 | SCOP sin clima cálido documentado | Clima medio |
-| Fecha de inicio: la calculada o la que declara la factura | Preguntar |
+| Fecha de inicio: la calculada o la que declara la factura | La PRIMERA factura, también la de material o un anticipo (CAE-2078) |
 | Fecha de PRUEBAS sin certificado RITE (la Memoria la hacemos nosotros) | La de la FACTURA, sin preguntar al instalador (Fran, 26/10/2026) |
 | Precio CAE en una oportunidad sin sellar | El que se le dijo al cliente |
 | Email del cliente que falta | Preguntar (nunca se inventa) |
@@ -280,7 +354,8 @@ vez. Pasos y campos: [comun/pasar-a-doc-completa.md](comun/pasar-a-doc-completa.
 
 ## Reglas que no se rompen
 
-- **Nada a terceros**: ni `Enviar` del popup, ni WhatsApp, ni email. Solo borradores en Drive.
+- **Nada a terceros sin el «sí» de Fran para ESE envío**; con él, por `enviar` (los popups de la
+  app), nunca por un WhatsApp o un email sueltos.
 - **Lo que hace la pantalla, por la pantalla o por su ruta**: nada de escribir PDF ni datos "a mano".
 - **Una incidencia propuesta no se registra sin mirarla.** Las de facturas se proponen.
 - **Lo leído de una foto o un PDF se contrasta** con el otro documento (placa ↔ factura ↔ RITE).

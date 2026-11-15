@@ -72,6 +72,7 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `rehacer <clave> [--plan plan.json]` | **Rehace el CEE sobre lo corregido A MANO en la pizarra** (tras «Así es como está»): imprime la revisión (nota y cambios) y los huecos dibujados que quedan por medir, y aplica el plan sobre el trabajo guardado sin deshacer nada de lo dibujado (ver «Rehacer el CEE tras una corrección A MANO»). Marca la revisión como rehecha | con `--escribir` |
 | `calificar <clave> [--fase final]` · `calificar --cola` | **Lo que la VENTANA dejó «por calificar»** (el servidor no tiene CE3X): rehace el inicial desde la RECETA guardada, vuelve a medir las placas de la 2.ª medida, lo califica (XML, PDF, recorte mes a mes) y lo sella; el final solo se califica. Sin aviso al equipo. Ver «La receta y el sello» | con `--escribir` |
 | `listo <clave> [--fase final] [--cex ruta] [--out DIR]` | **Deja el `_REVISAR` LISTO PARA FIRMAR** (cuando Fran lo pide, tras revisarlo): CE3X 3.2 lo califica, **calcula las medidas y guarda el `.cex` calculado**; si el XML no valida, para. Con `--escribir`: `{nº} – CEE INICIAL.cex/.xml` por la subida del técnico (`cee_files`, validación en ámbar), `{nº} – CEE INICIAL.pdf` sin firmar (el que busca `firmar_cee.js`), lo anterior con esos nombres a OLD, y el XML cargado como «Cargar CEE» (`cee_inicial`, `xml_inicial`, combustibles, fechas de firma y visita, D_ACS por litros/día). Parte del `_REVISAR` de Drive (o de la copia local si en Drive no hay; `--cex` manda). En seco deja la copia en `scratch/cee-inicial/<nº>/listo`. En una oportunidad solo califica (la subida no aplica hasta aceptarla); con un PDF ya FIRMADO en la carpeta o la fase REGISTRADA no escribe sin `--forzar`. **No firma** | con `--escribir` |
+| `fechas <nº> --firma AAAA-MM-DD [--visita AAAA-MM-DD]` | **Re-fecha el CEE inicial con la obra ya FACTURADA**, con el «sí» de Fran a esa fecha: la comprueba contra la primera factura y el mes de registro (si no vale, no escribe) y la pone en el expediente (`cee` y `documentacion`), que es la que manda al componer el `.cex`. Después `calificar`, `listo` y firmar. No toca un inicial REGISTRADO. Ver [comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md) | con `--escribir` |
 | `cargar <clave> [--fase final] [--xml ruta] [--forzar] [--precio €/MWh]` | **Solo el XML del `_REVISAR` en la app**, como «Cargar CEE» (`services/cee/cargarXmlCee.js`, la MISMA función que usan `aplicar --escribir`, `listo` y el CEE final). Lee el `.xml` de Drive (o la copia local; `--xml` manda). No sube, no renombra y no lo deja listo para firmar. No pisa el CEE cargado de un técnico sin `--forzar`. En una OPORTUNIDAD lo carga en su SIMULACIÓN (sin comparativa «con tu CEE») y `--precio` fija a la vez el precio CAE al cliente. Para un CEE ya generado o para reintentar | con `--escribir` |
 | `instalacion <clave> --plan plan.json` | **Solo lo de las PLACAS a la app** (Instalación del expediente, o inputs de la oportunidad), con el mismo plan que `aplicar`: sin `.cex`, sin Drive, sin aviso al equipo. Para un CEE ya hecho al que le falta la Instalación rellena | con `--escribir` |
 | `croquis <clave> [--fase final]` | El **croquis en PDF** de lo que YA hay (trabajo guardado + `.cex` de la carpeta): plano de obra por planta con la marca de BROKERGY, a escala, con muros, huecos, cotas y zonas, y los cuadros de huecos, superficies y cerramientos (sin avisos: vale para una auditoría). `aplicar --escribir` ya lo hace solo | con `--escribir` (sube `… - CEE INICIAL_CROQUIS.pdf` junto al `.cex`) |
@@ -284,7 +285,9 @@ subida del técnico, sin `firmar_cee.js` y sin factura.
    `agente_ia.js terminar <clave>`. **Y carga el XML en el expediente** (lo hace solo; mira la línea
    «✓ XML del CEE inicial CARGADO en la app» y, si no sale, `cargar <clave> --escribir`).
 7. **Informe final**: el enlace del `.cex` y de la carpeta, **cuánto sale con el XML cargado** (ahorro
-   en kWh y bono de la app frente a la propuesta), y la lista de **lo que queda por hacer**
+   en kWh, bono y beneficio de la app frente a la oportunidad, con el veredicto de
+   [comun/firmar-cee-economia.md](comun/firmar-cee-economia.md): si el ahorro baja o el beneficio a
+   160 €/MWh no llega a 2.000 €, se dice que NO se puede firmar y por qué), y la lista de **lo que queda por hacer**
    (ver abajo). Nunca «listo» a secas: el `.cex` lleva `_REVISAR` porque hay que abrirlo en CE3X.
    Dejarlo listo para firmar es OTRO paso, cuando Fran lo pide: orden `listo` (ver «Cuando el usuario
    lo da por VÁLIDO»).
@@ -422,8 +425,17 @@ como su medida de mejora. Ahora lo hace `aplicar` con el bloque **`previsto`** d
   saber qué hay, se pregunta en el informe en vez de suponerlo.
 - **Las superficies por planta tienen que casar con Catastro**: vivienda + garaje + porche de cada
   planta. Lo comprueba el propio `aplicar` («CROQUIS ajustado … (Catastro …)»).
-- **El ACS que da otro aparato** (un termo): la caldera va `da_acs: false` y el termo en `acs_aparte`.
-  Sin eso la caldera sale mixta y el termo no aparece. Lo dice el funnel (`boilerAcsType`).
+- **RES060: la caldera que se cambia da SIEMPRE calefacción Y ACS en el INICIAL** (Fran, 08/11/2026,
+  26RES060_275, «grabado a fuego»; regla 201). Si hoy el agua la calienta un TERMO, el termo **no va
+  aparte**: sus litros son la **acumulación** de la caldera mixta («Con acumulación», UA por defecto;
+  sin verlos, 150 l y se dice) en `ajustes.acumulacion_litros`, y el termo se queda fuera. Nada de
+  `acs_aparte` ni `da_acs: false` en un RES060: `aplicar` los quita solo y lo avisa
+  (`"acs_independiente": true` lo salta, solo con el «sí» de Fran). En la MEDIDA, sin ACS en el
+  presupuesto, termo eléctrico de efecto Joule y la aerotermia solo calefacción; con ACS, la
+  aerotermia lo da (punto 18).
+- **El ACS que da otro aparato** fuera de un RES060 (un CEE directo, un RES080, un terciario): la
+  caldera va `da_acs: false` y el termo en `acs_aparte`. Sin eso la caldera sale mixta y el termo no
+  aparece. Lo dice el funnel (`boilerAcsType`).
 - **La caldera que se retira se declara según la FICHA** (Fran, 21/10/2026, 26RES060_190; lo hace
   la ficha sola, no se pone en el plan): en un **RES080**, «Sin aislamiento» y el rendimiento de
   combustión de la tabla; en un **RES060/RES093** (y terciario y CEE directos), «Antigua con
@@ -635,6 +647,13 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    aún no se firme: entonces sin `fechas`). `aplicar` solo las usa si el expediente no tiene ya las
    suyas (mandan las del expediente), y sin ellas CE3X 3.x no escribe el XML (punto 12). Dilo en una
    línea en `decisiones` y en el informe.
+   ⛔ **EXCEPCIÓN — la obra ya FACTURADA** (Fran, 06/11/2026): si el expediente ya tiene una factura
+   de la obra (o inicio de actuación del CIFO, o pruebas del RITE), «hoy» NO vale: el CEE inicial
+   tiene que ir firmado y visitado ANTES de la primera de esas fechas y dentro del mes de registro.
+   Antes de escribir el plan, mira si hay factura (`node scripts/cee_inicial.js fechas <nº> --firma
+   <hoy>` en seco lo dice, con la ventana de fechas posibles y una propuesta) y **pregúntale a Fran
+   qué fecha pone**, enseñándole esas líneas; si no hay ninguna fecha posible, díselo y que decida
+   él. Ver [comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md).
 18. **La MEDIDA DE MEJORA es TODO lo que trae el PRESUPUESTO** (Fran, 26RES060_225: «como medida de
    mejora debe ser lo que aparezca en el presupuesto»). Léelo SIEMPRE (los dos sitios del punto 1) y
    comprueba, partida a partida, que la Instalación del expediente tiene CADA equipo antes de
@@ -644,18 +663,19 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    100 Litros») se puso en `instalacion.aerotermia_acs.litros` con un `jsonb_set` atómico, como lo
    llevan los demás expedientes (MANANTIAL 110 → 110). El depósito de INERCIA de calefacción no es de
    ACS: no va. Lo que el presupuesto no dice (la potencia de la bomba de ACS) no se inventa: se dice.
-   - **Si el presupuesto NO trae NADA de ACS, el ACS es un TERMO ELÉCTRICO (efecto Joule) en el CEE
-     inicial Y en el final** (Fran, 19/10/2026, 26RES060_237): la caldera va `da_acs: false` y el
-     termo en `acs_aparte`, y la medida es la aerotermia SOLO de calefacción (el termo se queda: regla
-     72). Si la Instalación del expediente trae un equipo de ACS nuevo (p. ej. «BOMBA DE CALOR PARA
+   - **En el INICIAL de un RES060 el ACS lo da SIEMPRE la caldera que se cambia** (Fran, 08/11/2026,
+     26RES060_275, regla 201; sustituye a lo de 26RES060_237 y a «da igual»): un termo existente va
+     como su depósito («Con acumulación»), nunca aparte (ver «RES060: la caldera…» más arriba).
+   - **Si el presupuesto NO trae NADA de ACS, en la MEDIDA y en el FINAL el ACS es un TERMO
+     ELÉCTRICO (efecto Joule)** y la aerotermia (monobloc) da SOLO la calefacción. Lo pone la ficha
+     sola con `cambio_acs: false` (`instalacionNueva`, `termoSiRetira`; sobre la regla 72). Si la Instalación del expediente trae un equipo de ACS nuevo (p. ej. «BOMBA DE CALOR PARA
      ACS» sin modelo, heredado de la simulación), la medida lo pondría con huecos «___» y CE3X no saca
      el PDF: la Instalación tiene que pasar a **«ACS — no se actúa» + «Termo eléctrico»** (lo mismo que
      en su pestaña). **Eso saca el ACS del ahorro CAE** (un termo no es actuación): no se cambia en
      silencio, se PREGUNTA con la cifra de antes y la de después.
    - **Desde el 23/10/2026 (regla 163) una simulación sin ACS declarado ya nace SIN ACS** (`acs.incluir:
      false`), así que en ese caso no hay nada que preguntar: el ahorro ya era solo de calefacción. En
-     el INICIAL da igual que el ACS lo dé la caldera de hoy (mixta) o un termo (Fran: «me da igual»);
-     por defecto el termo, que deja el final hecho. En el FINAL, siempre el **termo eléctrico**.
+     el INICIAL, la caldera de hoy con el ACS (regla 201); en el FINAL, siempre el **termo eléctrico**.
    - **Si el presupuesto SÍ trae ACS** (Fran, 24/10/2026, 26RES060_OP337): en el INICIAL el ACS lo da
      la **misma caldera de hoy**, y en el FINAL (y la medida) la **aerotermia o el aerotermo** del
      presupuesto. **Nunca se le pregunta al cliente con qué calienta el agua**: lo decide el
@@ -760,7 +780,10 @@ python -m pytest implementation/cee-engine/tests/test_previsto.py       # RES080
 ## Cuando el usuario lo da por VÁLIDO: firmarlo con el certificado de Brokergy
 
 Solo con un «doy por válido el CEE inicial de NNN» explícito, nunca por iniciativa propia: firmar es
-un acto de quien firma. Antes, el `.cex/.xml/.pdf` tienen que estar en Drive con su NOMBRE CANÓNICO
+un acto de quien firma. **Y antes de firmar, SIEMPRE, la comprobación de la economía** (regla de Fran,
+04/11/2026): el bono al cliente con el CEE ≥ el de la oportunidad y el beneficio de BROKERGY a
+160 €/MWh ≥ 2.000 €; si el ahorro sale más bajo que el de la oportunidad, NO se firma y se revisa. Ver
+[comun/firmar-cee-economia.md](comun/firmar-cee-economia.md). Antes, el `.cex/.xml/.pdf` tienen que estar en Drive con su NOMBRE CANÓNICO
 (`{nº} – CEE INICIAL.*`, sin `_REVISAR`) y con las medidas CALCULADAS: eso lo hace **`listo`** (una
 orden, no un script suelto; igual en Claude Code y en el agente de la API, que solo la corre en seco).
 
@@ -779,6 +802,13 @@ node scripts/firmar_cee.js 26RES060_231 --escribir   # firma y sube «{nº} – 
 - Comprueba que el PDF queda firmado, ÍNTEGRO y por Fran. Si no, no sube nada.
 - **No firma un CEE cuyo XML no valida** (el PDF llevaría «certificado incompleto»): para y lo dice.
   Ver [comun/cee-incompleto.md](comun/cee-incompleto.md).
+- **⛔ No firma un CEE inicial con la obra ya FACTURADA si va fechado el día de la primera factura o
+  después, o hace más de un mes** (Fran, 06/11/2026): para con «⛔ OBRA YA FACTURADA» y la ventana de
+  fechas con que se puede firmar hoy (es lo que protege la deducción del IRPF del cliente, DA 50ª LIRPF). Se le pregunta a Fran; con su «sí» a una fecha, `cee_inicial.js
+  fechas <nº> --firma … --escribir` → `calificar --escribir` → `listo --escribir` → firmar. Las fechas
+  del expediente mandan sobre las del plan, así que cambiar el plan no basta. `--factura-revisada`
+  solo si él lo dice para ESE expediente. Ver
+  [comun/cee-inicial-obra-facturada.md](comun/cee-inicial-obra-facturada.md).
 - Enseña al usuario `scratch/firmar-cee/<nº>_inicial/ultima_pagina.png` (en seco) antes del `--escribir`
   la primera vez de cada sesión.
 - ⚠️ La fecha de firma es la del PC. Si el XML se generó otro día, lo avisa: lo correcto es regenerar en

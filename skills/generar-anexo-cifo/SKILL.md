@@ -88,7 +88,8 @@ Lo que no sea deducible → `registrar_incidencia` (GRAVE si bloquea el CIFO) y 
 | Dirección, ref. catastral, coordenadas UTM | `instalacion.ref_catastral`, `coord_x/y` | Catastro/CEE |
 | Propietario (nombre, NIF, domicilio, tlf, email) | `clientes.*` | Anexo Cesión / DNI |
 | Nº facturas asociadas | `documentacion.facturas[].numero_factura` | Facturas (¡todas!) |
-| Fechas inicio/fin | `documentacion.fecha_inicio_cifo/fin` | 1ª factura ↔ pruebas RITE (regla BROKERGY) |
+| Fechas inicio/fin | `documentacion.fecha_inicio_cifo/fin` | Inicio = SIEMPRE la 1ª factura, **aunque sea de material o un anticipo** y aunque las pruebas RITE sean antes; fin = lo último entre la última factura y las pruebas RITE (Fran, 15/11/2026). Sin `motivo_no_inicio` ni inicio manual que la retrase (Marwen CAE-2078) |
+| Inversión | Σ facturas s/IVA | **todas las partidas**, también las de un servicio sin ahorro declarado (vaso de ACS, accesorios) |
 | Equipo antiguo cal.: tipo/marca/modelo/serie/combustible | `instalacion.caldera_antigua_cal` | CEE inicial + placa |
 | ηi (tramo por año de PLACA, condensación por modelo real) | `caldera_antigua_cal.rendimiento_id` | placa/internet/CIFO previo. NUNCA `default` |
 | Equipo nuevo cal.: marca/modelo/serie ud. exterior | `instalacion.aerotermia_cal` | placa DESPUÉS > CIFO/factura > presupuesto |
@@ -191,6 +192,20 @@ Lee `instalacion.aerotermia_cal.metodo_scop` (y `aerotermia_acs.metodo_scop` si 
 **d) ACS:** Anexo IV (conjunto) / Anexo VI (independiente: `SCOPdhw = COP_A7/55 × Fc(zona)`) según el
   tipo de depósito — regla ACS de rellenar-expediente. La justificación que imprime el backend depende
   de `metodo_scop` del bloque ACS.
+  - Con un depósito termodinámico con registro EPREL, el SCOPdhw es **ηwh en clima cálido del EPREL × 2,5**,
+    no el de la tabla comercial (26RES060_181: 3,18 del EPREL, no 3,55 del catálogo).
+  - Si el modelo comercial se llama distinto que el del EPREL (marca blanca, distribuidor), se anexa la
+    **etiqueta energética del modelo comercial**, que prueba la equivalencia (mismo perfil, clase y
+    consumos que el registro). Sin ella, el EPREL de otro nombre no justifica.
+
+**e) El número declarado tiene que estar ESCRITO en las fichas anexas** (Marwen CAE-2078, 26RES060_121).
+  - Si la ficha comercial solo trae el SCOP a 35 °C o en clima medio, y se declara el de 55 °C cálido por
+    llevar radiadores, el verificador lee el otro número y lo levanta.
+  - En ese caso se añade al PDF de fichas técnicas la **ficha de producto oficial 811/2013** del fabricante
+    o la ficha EPREL, la que da el ηs,h a 55 °C cálido.
+  - Esa página se guarda también en la ficha del catálogo (skill `alta-aerotermia`).
+
+  Detalle de los cinco casos: [comun/fechas-inversion-y-scop-justificados.md](comun/fechas-inversion-y-scop-justificados.md).
 
 ### 2-bis. Actualizar el catálogo `public.aerotermia` (¡aprovecha el paso!)
 
@@ -220,6 +235,10 @@ Para cada equipo del CIFO (cal y ACS si aplica), localiza su fila (`aerotermia_d
 1. `cambio_acs=true` y `aerotermia_acs.numero_serie = aerotermia_cal.numero_serie` → ERROR (serie
    copiada).
 2. `fecha_inicio_cifo > fecha_fin_cifo` o fechas incoherentes con facturas/RITE → ERROR.
+2-bis. **Inicio ≠ fecha de la PRIMERA factura → ERROR.** Pasa cuando una factura de material o un
+   anticipo lleva `motivo_no_inicio`, o hay un `fecha_inicio_cifo_manual` posterior. Se quita la marca o
+   el inicio manual y se recalcula. Si así el inicio queda antes de la visita o la firma del CEE inicial,
+   NO es grave (Fran, 15/11/2026): como mucho LEVE, y nunca se arregla retrasando la fecha.
 3. `metodo_scop='eprel'` sin `url_eprel`, o `'ficha'` sin FT anexable → ERROR.
 4. SCOP del expediente ≠ SCOP recalculado (EPREL/FT/catálogo, con el emisor del RITE) → ERROR.
 5. `rendimiento_id` en `default` o combustible incoherente CEE↔CIFO → ERROR.

@@ -2,6 +2,48 @@
 
 ## HITOS DE LA ACTUACIÓN — la factura que NO abre la obra (2026-09-30)
 
+> ⚠️ **12/11/2026: el verificador RECHAZÓ esta marca** (Marwen, CAE-2078 / LOTE-2026-019, inexactitud
+> nº2). En 26RES060_114 se declaró el inicio el 27/07, pero había una factura de acopio de material del
+> 24/05. En 26RES060_180 se declaró el 29/10, con un anticipo del 70 % del 14/09. La respuesta del
+> verificador: *«la fecha de inicio declarada difiere de la fecha de la factura en la que se alcanza
+> un primer compromiso en firme para la realización»*. Es la definición del RD 36/2023, y se subsanó
+> quitando la marca.
+>
+> **Desde entonces `motivo_no_inicio` NO se usa.** El inicio es la PRIMERA factura, también la de
+> material o la de un anticipo, y tampoco se fija un `fecha_inicio_cifo_manual` para retrasarlo. Lo
+> que este documento quería proteger se resuelve por el otro lado: el CEE inicial tiene que estar
+> firmado y visitado ANTES de esa primera factura (regla 199, que ya cuenta material y anticipos).
+>
+> ⚠️ **15/11/2026, Fran, «para que quede claro»**: *«Que el CEE inicial sea posterior a facturas no
+> es grave. Fecha de inicio siempre primera factura sea anticipo o lo que sea. Fecha de fin última
+> factura o fecha de pruebas, lo último de estas dos.»* Dos cambios sobre lo anterior:
+> - **Las pruebas RITE ya no abren la actuación**, aunque sean anteriores a la primera factura (hasta
+>   hoy `calcCifo` tomaba el mínimo de pruebas y facturas). Solo hacen de inicio provisional mientras
+>   no hay ninguna factura. Medido ese día: 44 expedientes vivos tenían las pruebas antes de la primera
+>   factura (21 sin verificar) y su inicio calculado pasa de las pruebas a la factura. A los 35 con el CIFO ya firmado y sin fecha a mano se les fijó ese día `fecha_inicio_cifo_manual` = la fecha firmada (Fran: «congela»): no se re-firman y no saltan como descuadre.
+> - **Un CEE inicial posterior a las facturas no es grave en la auditoría**: como mucho LEVE, y se
+>   explica en el escrito aclaratorio si hace falta. Nunca se retrasa el inicio para taparlo.
+>
+> **Retirada del código el 13/11/2026** (Fran: «sí, quítala»):
+> - `calcCifo` cuenta todas las facturas que computan para el inicio. `motivoNoInicio` sigue leyendo
+>   la marca guardada, pero solo para reconocerla.
+> - El popup «Hitos» ya no tiene el selector. Una factura con marca antigua lleva un aviso en ámbar,
+>   y al guardar se quita la marca.
+> - `hitosActuacion` deja `motivo` a null (la marca va aparte, en `marcaAntigua`). Así el CIFO ya no
+>   imprime «entrega de material» y la aclaración sugerida no dice que una factura «no supone el
+>   inicio».
+> - El aviso de fechas (`cifoFechas.js`) ya no pide marcar la factura: dice que abre la actuación y
+>   que lo que se corrige es la fecha de firma del CEE inicial, si aún no está registrado.
+> - El inicio que usan la vía FM (`routes/expedientes.js`) y la espera FM (`esperaFmService.js`)
+>   tampoco filtra.
+>
+> El 13/11/2026, **11 expedientes** llevaban la marca en alguna factura. Las marcas siguen escritas en
+> la BD: no cambian nada y se quitan al guardar el popup. Con el cambio, el inicio que calcula la app
+> se adelanta en ocho de ellos (172, 182, 211, 242, 251, 80_41, 93_16 y, cuando tenga CIFO, el 268).
+> En **182, 242 y 93_16 el CIFO ya está FIRMADO** con el inicio de antes, y hay que regenerarlo y
+> volver a pedir la firma antes de mandarlos a un lote. El bloque «Hitos de la actuación» y la
+> aclaración siguen valiendo.
+
 Requerimiento repetido: el CIFO toma como inicio de actuación la PRIMERA factura, y
 cuando esa factura es la **entrega del material** (o un **anticipo**) emitida antes
 de existir el CEE inicial, el verificador ve una obra que empieza sin certificado de
@@ -87,7 +129,8 @@ recuadros de firma no se mueven: los dos se anclan a la hoja 1 de contenido (PDF
 página 2), que va antes.
 
 **REGLA — el aviso dice DÓNDE se arregla.** `cifoFechas` añade `accion: 'hitos'` al
-GRAVE de «la actuación empieza antes del CEE inicial» y al LEVE nuevo
+aviso de «la actuación empieza antes del CEE inicial» (LEVE desde el 09/11/2026: Fran, 26RES060_150,
+«no es grave que haya partidas antes del cee inicial»; antes era GRAVE) y al LEVE nuevo
 `FACTURA_ANTERIOR_INICIO` (facturas anteriores al inicio sin aclaración); el panel
 de incidencias pinta «Aclarar las fechas», que abre el popup. Marcar las fechas de
 un CIFO ya generado no cambia el PDF: el popup lo dice antes de guardar (y si está
