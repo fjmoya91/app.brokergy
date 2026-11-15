@@ -79,6 +79,76 @@ def _build_field_index(xml: str):
     return fields
 
 
+# ── Casillas de ALTO FIJO: el texto largo se encoge, no se corta ─────────────
+# Las filas de la plantilla JCCM son de alto EXACTO (`hRule="exact"`): lo que no
+# cabe en su línea no empuja la fila, desaparece. En una instalación en cascada
+# el modelo («SHP M PRO 008 + SHP M PRO 010») y los números de serie («… / …»)
+# ocupan dos líneas y la segunda salía CORTADA (26RES060_226, 13/11/2026), y un
+# nº de fabricación incompleto en un documento que firma el instalador no vale.
+# Se reduce el cuerpo de letra de ESA casilla hasta que el texto quepa entero
+# (ancho de la celda × líneas que caben en su alto); interlineado 1,15.
+# Dos anchos de carácter a propósito: para DECIDIR si desborda, el holgado
+# (0,58 em), y así lo que ya cabía a su tamaño no se toca (con 0,66 encogía los
+# nº de fila «10», «11» y «ESPUMA ELASTOMÉRICA», que se veían bien); para ELEGIR
+# el tamaño nuevo, el estricto (0,66 em, medido en el PDF con mayúsculas y
+# cifras en Arial), para que el texto encogido no vuelva a partirse de más.
+_EM_DESBORDA = 0.58
+_EM_CHAR = 0.66
+_INTERLINEA = 1.15
+_MARGEN_CELDA_PT = 7.0       # tblCellMar de la plantilla: 70 dxa por lado
+_SZ_MIN = 8                  # 4 pt: por debajo ya no se lee
+
+
+def _celda_de(xml: str, pos: int):
+    """(ancho_pt, alto_exacto_pt | None) de la celda de tabla que contiene `pos`."""
+    tc = max(xml.rfind("<w:tc>", 0, pos), xml.rfind("<w:tc ", 0, pos))
+    tr = max(xml.rfind("<w:tr>", 0, pos), xml.rfind("<w:tr ", 0, pos))
+    if tc == -1 or tr == -1:
+        return None, None
+    wm = re.search(r'<w:tcW w:w="(\d+)" w:type="dxa"/>', xml[tc:pos])
+    hm = re.search(r'<w:trHeight w:hRule="exact" w:val="(\d+)"/>', xml[tr:tc])
+    ancho = int(wm.group(1)) / 20 if wm else None
+    alto = int(hm.group(1)) / 20 if hm else None
+    return ancho, alto
+
+
+def _lineas(texto: str, cap: int) -> int:
+    """Líneas que ocupa `texto` partido por palabras con `cap` caracteres por línea
+    (una palabra más larga que la línea se parte, como hace el procesador)."""
+    if cap < 1:
+        return 10 ** 6
+    lineas, actual = 0, 0
+    for palabra in str(texto).split():
+        n = len(palabra)
+        if actual and actual + 1 + n <= cap:
+            actual += 1 + n
+            continue
+        if actual:
+            lineas += 1
+        lineas += (n - 1) // cap
+        actual = n - ((n - 1) // cap) * cap
+    return lineas + (1 if actual else 0)
+
+
+def tamano_que_cabe(texto: str, ancho_pt: float, alto_pt: float, sz: int) -> int:
+    """Cuerpo (medios puntos, como `w:sz`) con el que `texto` cabe en la celda.
+    Devuelve `sz` si ya cabe; si ni al mínimo cabe, el mínimo."""
+    util = ancho_pt - _MARGEN_CELDA_PT
+
+    def cabe(s, em):
+        pt = s / 2
+        cap = int(util / (pt * em))
+        caben = int(alto_pt // (pt * _INTERLINEA)) or 1
+        return _lineas(texto, cap) <= caben
+
+    if cabe(sz, _EM_DESBORDA):
+        return sz
+    for s in range(sz - 1, _SZ_MIN - 1, -1):
+        if cabe(s, _EM_CHAR):
+            return s
+    return _SZ_MIN
+
+
 def rellenar_xml(xml: str, text_by_pos: dict, check_positions) -> str:
     """Aplica los valores por posición. Procesa de atrás hacia adelante para no
     invalidar offsets."""
@@ -117,6 +187,19 @@ def rellenar_xml(xml: str, text_by_pos: dict, check_positions) -> str:
                     abs_s = f["end"] + sep + tm.start()
                     abs_e = f["end"] + sep + tm.end()
                     xml = xml[:abs_s] + tm.group(1) + val + tm.group(3) + xml[abs_e:]
+                    # Casilla de alto fijo: si el texto no cabe, se encoge la letra.
+                    ancho, alto = _celda_de(xml, f["start"])
+                    szm = re.search(r'<w:sz w:val="(\d+)"/>', region)
+                    if ancho and alto and szm:
+                        sz0 = int(szm.group(1))
+                        sz = tamano_que_cabe(text_vals[i], ancho, alto, sz0)
+                        if sz != sz0:
+                            r_s = f["end"] + sep
+                            r_e = f["end"] + xml[f["end"]:].find('fldCharType="end"')
+                            seg = xml[r_s:r_e]
+                            seg = re.sub(r'<w:sz w:val="\d+"/>', f'<w:sz w:val="{sz}"/>', seg)
+                            seg = re.sub(r'<w:szCs w:val="\d+"/>', f'<w:szCs w:val="{sz}"/>', seg)
+                            xml = xml[:r_s] + seg + xml[r_e:]
     return xml
 
 
