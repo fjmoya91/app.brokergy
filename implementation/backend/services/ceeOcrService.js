@@ -96,7 +96,7 @@ QUÉ EXTRAER Y DÓNDE:
 - identificacion: dirección, municipio, provincia, código postal (cp) y "Zona climática".
 - fecha_certificado: la "Fecha" del certificado (formato YYYY-MM-DD).
 - fecha_visita: "Fecha de realización de la visita del técnico certificador" (Anexo IV) en YYYY-MM-DD.
-- superficie_habitable_m2: "Superficie habitable [m²]" (Anexo I, apartado SUPERFICIE).
+- superficie_habitable_m2: la superficie sobre la que van los kWh/m² del certificado (Anexo I, apartado SUPERFICIE). En CE3X 2.3 es "Superficie habitable [m²]". En CE3X 3.x (certificados con "Superficie útil (RD 390/2021)") es la fila "Superficie para el cálculo de indicadores de consumo (CTE DB-HE)", NUNCA la "Superficie útil (RD 390/2021)", que es administrativa y puede ser el doble.
 - demandas.calefaccion_kwh_m2_ano: "Demanda de calefacción [kWh/m² año]" (Anexo II, calificación parcial de la demanda).
 - demandas.refrigeracion_kwh_m2_ano: "Demanda de refrigeración [kWh/m² año]".
 - emisiones.calefaccion / acs / refrigeracion: "Emisiones calefacción/ACS/refrigeración [kgCO2/m² año]" (Anexo II, calificación en EMISIONES). OJO: son las EMISIONES (kgCO2/m² año), NO la energía primaria (kWh/m² año).

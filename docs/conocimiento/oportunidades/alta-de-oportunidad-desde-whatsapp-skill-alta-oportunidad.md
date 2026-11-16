@@ -121,6 +121,13 @@ nuevo», que con el ahorro medido entre dos certificados no tiene sentido (en OP
 6.795 €; sin él, 3.467 €, lo mismo que el alta). Ese hueco sigue en la app: cargar a mano un
 inicial y un final en «Nueva simulación» también deja `cee_previo`.
 
+**Con un CEE de CE3X 3.x leído del PDF, la superficie es la de los INDICADORES** (2026-11-16,
+26RES060_OP418, Mota del Cuervo): el PDF de la 3.x ya no dice «Superficie habitable», sino «Superficie
+útil (RD 390/2021)» (235,32 m², administrativa) y «Superficie para el cálculo de indicadores de consumo
+(CTE DB-HE)» (106,78 m², sobre la que van los kWh/m²). El lector (`ceeOcrService`) pedía la primera por su
+nombre viejo y Gemini elegía una u otra según la pasada: con la útil, «con tu CEE» salía en 3.470 € en
+vez de 1.575 €. Ahora pide la de los indicadores, como `<AreaRef>` en el `.xml` (`xmlCeeParser`).
+
 **Y cuando el material llega por EMAIL** (2026-10-19, INSTALACIONES PLAZA 2014 SL, «DOCUMENTACION
 PARA SUBVENCION»: el presupuesto 189, el recibo del IBI con la RC y fotos de la caldera ACV Delta).
 El usuario lo pide igual («da de alta lo que ha mandado Instalaciones Plaza por email») y, desde que
