@@ -28,8 +28,9 @@ material **son** ese compromiso.
   IRPF del cliente: la DA 50ª LIRPF pide el CEE expedido antes del inicio de las obras. (Un CEE inicial que aún está
   por firmar se sigue fechando antes de la factura cuando se puede: ver
   [cee-inicial-obra-facturada.md](cee-inicial-obra-facturada.md).)
-- **Las pruebas RITE no adelantan el inicio** (Fran, 15/11/2026): aunque sean anteriores a la primera
-  factura, el inicio es la factura. Las pruebas cuentan solo para el fin.
+- **Unas pruebas RITE anteriores a la primera factura SÍ abren la actuación** (Fran, 16/11/2026, que
+  corrige lo dicho el 15/11): el inicio es lo primero entre las facturas de la obra y las pruebas.
+  Una factura que no es de la obra (una bancada) no cuenta.
 - La fecha de fin es lo último entre la última factura y las pruebas RITE.
 
 ## 2. Inversión = TODAS las partidas de las facturas (aceptado)

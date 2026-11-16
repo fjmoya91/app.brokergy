@@ -17,10 +17,11 @@
 > ⚠️ **15/11/2026, Fran, «para que quede claro»**: *«Que el CEE inicial sea posterior a facturas no
 > es grave. Fecha de inicio siempre primera factura sea anticipo o lo que sea. Fecha de fin última
 > factura o fecha de pruebas, lo último de estas dos.»* Dos cambios sobre lo anterior:
-> - **Las pruebas RITE ya no abren la actuación**, aunque sean anteriores a la primera factura (hasta
->   hoy `calcCifo` tomaba el mínimo de pruebas y facturas). Solo hacen de inicio provisional mientras
->   no hay ninguna factura. Medido ese día: 44 expedientes vivos tenían las pruebas antes de la primera
->   factura (21 sin verificar) y su inicio calculado pasa de las pruebas a la factura. A los 35 con el CIFO ya firmado y sin fecha a mano se les fijó ese día `fecha_inicio_cifo_manual` = la fecha firmada (Fran: «congela»): no se re-firman y no saltan como descuadre.
+> - ~~Las pruebas RITE ya no abren la actuación~~ — **CORREGIDO el 16/11/2026** (Fran, en el 26RES060_150:
+>   «la primera de todas las facturas relacionadas con esto, la bancada no, o el RITE si lo hay. Fecha
+>   fin las últimas o el RITE»): el inicio vuelve a ser lo PRIMERO entre las facturas de la obra y las
+>   pruebas RITE. Lo que queda del 15/11 es que ninguna marca (material, anticipo) retrasa el inicio. Medido ese día: 44 expedientes vivos tenían las pruebas antes de la primera
+>   factura (21 sin verificar) y su inicio calculado pasa de las pruebas a la factura. A los 35 con el CIFO ya firmado y sin fecha a mano se les fijó ese día `fecha_inicio_cifo_manual` = la fecha firmada (Fran: «congela»); con la corrección del 16/11 esa fecha vuelve a ser la calculada y se les quitó.
 > - **Un CEE inicial posterior a las facturas no es grave en la auditoría**: como mucho LEVE, y se
 >   explica en el escrito aclaratorio si hace falta. Nunca se retrasa el inicio para taparlo.
 >

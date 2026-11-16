@@ -84,13 +84,13 @@ Lee el expediente en Supabase (cliente, instalador FK, equipos, `documentacion`,
   - En la app: `node implementation/backend/scripts/dacs_litros_pendientes.mjs` (en seco) lista los pendientes que hay que pasar a L/D.
 - **AETOTAL**: **Ficha↔CIFO↔solicitud de verificación → ERROR** (los tres, al kWh, patrón 10). El **Anexo de Cesión queda FUERA** de este cruce: su ahorro es estimado y no tiene que cuadrar al kWh (ver Severidades).
 - **Inversión (Σ facturas s/IVA)**: facturas↔ficha↔solicitud → ERROR
-- **Fechas inicio/fin** (regla, Fran 15/11/2026: inicio = SIEMPRE la 1ª factura, sea anticipo o lo que sea; fin = lo último entre la última factura y las pruebas RITE) → ERROR
+- **Fechas inicio/fin** (regla, Fran 16/11/2026: inicio = lo PRIMERO entre las facturas de la obra —también un anticipo o el material; no las que no son de la obra, como una bancada— y las pruebas RITE; fin = lo ÚLTIMO de las mismas) → ERROR
 - **Identidad cliente** (nombre+NIF): cesión↔CIFO↔Anexo I↔factura↔RITE↔titularidad. El titular = cedente (el contacto no es titular) → ERROR
 - **No sobrefinanciación** (CAE + subvención ≤ inversión) → WARNING · **Dirección postal** → WARNING · **Vida útil 15 / CNAE** (RES060→4322, RES080→4121) → WARNING
 - **S (superficie)**: usa SIEMPRE la `SuperficieHabitable` de los XML del CEE, no la de catastro. Comprueba que `consumo total (kWh/año) = consumo (kWh/m²·año) × S` en el CIFO.
 
 ### 5. Patrones de fallo del verificador (cazar siempre)
-**Los 6 clásicos:** 1. Fecha inicio distinta de la primera factura, o fin anterior a la última factura o a las pruebas RITE (patrón 20). 2. SCOPcal no justificado / falta Tª impulsión. 3. Inversión ≠ ficha/anexo/solicitud. 4. Falta XML demanda ACS si el CIFO lo exige. 5. SCOPcal de la FT sin condiciones de cálculo. 6. SCOPdhw no según Anexo IV/VI ficha RES060.
+**Los 6 clásicos:** 1. Fecha inicio distinta de lo primero entre la primera factura y las pruebas RITE, o fin anterior a la última factura o a las pruebas (patrón 20). 2. SCOPcal no justificado / falta Tª impulsión. 3. Inversión ≠ ficha/anexo/solicitud. 4. Falta XML demanda ACS si el CIFO lo exige. 5. SCOPcal de la FT sin condiciones de cálculo. 6. SCOPdhw no según Anexo IV/VI ficha RES060.
 
 **Los 7 nuevos — lecciones del requerimiento Marwen CAE-1602 / LOTE-2026-004 (10/08/2026):**
 
@@ -129,10 +129,10 @@ Lee el expediente en Supabase (cliente, instalador FK, equipos, `documentacion`,
 
 **Lecciones del informe de inexactitudes Marwen CAE-2078 / LOTE-2026-019 (12/11/2026).** El detalle, los casos y cómo se contestó están en [comun/fechas-inversion-y-scop-justificados.md](comun/fechas-inversion-y-scop-justificados.md).
 
-20. **Fecha de inicio ≠ fecha de la PRIMERA factura → ERROR**, aunque esa factura sea de acopio de material o un anticipo: es el «primer compromiso en firme» del RD 36/2023.
+20. **Fecha de inicio POSTERIOR a la PRIMERA factura → ERROR**, aunque esa factura sea de acopio de material o un anticipo: es el «primer compromiso en firme» del RD 36/2023. El inicio es lo primero entre esa factura y las pruebas RITE.
     - Hay que mirar cómo se llegó al inicio. Una factura con `motivo_no_inicio` (MATERIAL / ANTICIPO) o un `fecha_inicio_cifo_manual` que lo retrasa → **ERROR**: se quita la marca, se recalcula y se rehacen el CIFO, la Ficha RES y el Anexo I.
     - Casos: 26RES060_114 (declarado el 27/07, acopio del 24/05) y 26RES060_180 (declarado el 29/10, anticipo del 14/09).
-    - **Unas pruebas RITE anteriores a la primera factura NO adelantan el inicio** (Fran, 15/11/2026): el inicio sigue siendo la primera factura y las pruebas solo cuentan para el fin (lo último entre la última factura y las pruebas). Un CIFO **aún sin firmar** que declara de inicio las pruebas → **ERROR**, se recalcula. Uno **ya firmado** antes del 15/11/2026 con ese inicio NO se re-firma por esto: conserva sus fechas (inicio fijado a mano con la del firmado) y no es incidencia.
+    - **Unas pruebas RITE anteriores a la primera factura SÍ abren la actuación** (Fran, 16/11/2026: «la primera de todas las facturas relacionadas con esto, la bancada no, o el RITE si lo hay»). El 15/11 se dijo lo contrario y se corrigió al día siguiente: un CIFO que declara de inicio esas pruebas está BIEN. Una factura que no es de la obra (la bancada del 26RES060_150) no abre.
     - Un CEE inicial posterior a esa primera factura **NO es GRAVE**, como mucho LEVE (Fran, 15/11/2026, igual que el patrón 11): no bloquea el APTO, no se retrasa el inicio para taparlo y, si hace falta, se explica en el escrito aclaratorio del lote.
 21. **Inversión que deja fuera una partida de las facturas → ERROR.** El verificador suma las facturas partida por partida, y una partida de un servicio sin ahorro declarado también computa.
     - Caso: 26RES060_114, un vaso de expansión de ACS de 41,30 € fuera; se aceptó la cifra del verificador.

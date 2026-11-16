@@ -149,12 +149,12 @@ from aerotermia a where a.id = :cal_db_id;
 select cop_a7_55 from aerotermia where id = :acs_db_id;
 ```
 
-**d) Fechas del CIFO** (regla BROKERGY, Fran 15/11/2026): inicio = la primera factura; fin = lo último entre la última factura y la fecha de pruebas del RITE (hay un helper opcional `scripts/compute_fechas_cifo.py` si está disponible).
-- `fecha_inicio_cifo` = la **PRIMERA FACTURA**, siempre: unas pruebas RITE anteriores no la adelantan. **Cuenta también la
+**d) Fechas del CIFO** (regla BROKERGY, Fran 16/11/2026): inicio = lo primero entre las facturas de la obra y la fecha de pruebas del RITE; fin = lo último (hay un helper opcional `scripts/compute_fechas_cifo.py` si está disponible).
+- `fecha_inicio_cifo` = lo **PRIMERO** entre {facturas de la obra, pruebas RITE}; una factura que no es de la obra (una bancada) no cuenta. **Cuenta también la
   factura de acopio de material o de un anticipo**: es el primer compromiso en firme (RD 36/2023; Marwen,
   CAE-2078). No se marca `motivo_no_inicio` ni se fija un inicio manual para retrasarlo. Detalle:
   [comun/fechas-inversion-y-scop-justificados.md](comun/fechas-inversion-y-scop-justificados.md).
-- `fecha_fin_cifo` = lo **ÚLTIMO** entre la última factura y la fecha de pruebas del RITE.
+- `fecha_fin_cifo` = lo **ÚLTIMO** entre {facturas de la obra, pruebas RITE}.
 - Cruza con el Certificado de Fin de Obra si declara inicio/fin (deben cuadrar).
 
 **e) Cliente + Precio CAE (Anexo de Cesión de Ahorros)** — en `6. ANEXOS CAE` (busca `*Cesión*`/`*CESION*`/`*cesion*`, prefiere el `_fdo` firmado). Lee el PDF y saca los datos del **Cedente**:

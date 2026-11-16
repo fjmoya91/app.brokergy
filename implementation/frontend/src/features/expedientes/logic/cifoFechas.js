@@ -2,8 +2,8 @@
 // Las FECHAS del CIFO tienen que cuadrar — y si no, es GRAVE.
 // ----------------------------------------------------------------------------
 // El inicio y el fin de actuación del CIFO NO son un campo que se teclee: los
-// calcula `calcCifo`: inicio = la PRIMERA factura; fin = lo último entre la
-// última factura y la fecha de pruebas del Certificado RITE (15/11/2026). Eso tiene una consecuencia que
+// calcula `calcCifo`: inicio = lo PRIMERO entre las facturas de la obra y la
+// fecha de pruebas del Certificado RITE; fin = lo ÚLTIMO (16/11/2026). Eso tiene una consecuencia que
 // no se ve en pantalla: **el valor guardado en `fecha_inicio_cifo` /
 // `fecha_fin_cifo` no manda**. Si se registra una factura nueva, o se corrige la
 // fecha de pruebas, el CIFO que se regenere imprimirá OTRAS fechas que las del
@@ -51,13 +51,12 @@ export function incidenciasFechasCifo(expediente) {
     const facturas = (doc.facturas || []).filter(facturaComputa).map(f => iso(f?.fecha_factura)).filter(Boolean);
     const manual = doc.fecha_inicio_cifo_manual || doc.fecha_fin_cifo_manual;
 
-    // ── La fecha de pruebas es la que puede CERRAR la actuación ──────────────
-    // Desde el 15/11/2026 el inicio es siempre la primera factura; las pruebas
-    // cuentan para el FIN (lo último entre la última factura y las pruebas).
+    // ── La fecha de pruebas abre o cierra la actuación ──────────────────────
+    // Inicio = lo primero entre facturas y pruebas; fin = lo último (16/11/2026).
     if (!pruebas) {
         add('SIN_PRUEBAS_RITE', 'GRAVE',
             'Sin fecha de pruebas del Certificado RITE',
-            'El CIFO toma su fecha de fin de lo último entre la última factura y la fecha de pruebas del Certificado de Instalación Térmica. Sin la de pruebas, el fin sale solo de las facturas y puede quedar antes de que se probara la instalación.',
+            'El CIFO toma su inicio de lo primero y su fin de lo último entre las facturas de la obra y la fecha de pruebas del Certificado de Instalación Térmica. Sin la de pruebas, las dos fechas salen solo de las facturas.',
             null, 'cert_rite');
     }
 

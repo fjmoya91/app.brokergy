@@ -88,7 +88,7 @@ Lo que no sea deducible → `registrar_incidencia` (GRAVE si bloquea el CIFO) y 
 | Dirección, ref. catastral, coordenadas UTM | `instalacion.ref_catastral`, `coord_x/y` | Catastro/CEE |
 | Propietario (nombre, NIF, domicilio, tlf, email) | `clientes.*` | Anexo Cesión / DNI |
 | Nº facturas asociadas | `documentacion.facturas[].numero_factura` | Facturas (¡todas!) |
-| Fechas inicio/fin | `documentacion.fecha_inicio_cifo/fin` | Inicio = SIEMPRE la 1ª factura, **aunque sea de material o un anticipo** y aunque las pruebas RITE sean antes; fin = lo último entre la última factura y las pruebas RITE (Fran, 15/11/2026). Sin `motivo_no_inicio` ni inicio manual que la retrase (Marwen CAE-2078) |
+| Fechas inicio/fin | `documentacion.fecha_inicio_cifo/fin` | Inicio = lo PRIMERO entre la 1ª factura de la obra (**aunque sea de material o un anticipo**; no una que no sea de la obra, como una bancada) y las pruebas RITE; fin = lo ÚLTIMO de las mismas (Fran, 16/11/2026). Sin `motivo_no_inicio` ni inicio manual que la retrase (Marwen CAE-2078) |
 | Inversión | Σ facturas s/IVA | **todas las partidas**, también las de un servicio sin ahorro declarado (vaso de ACS, accesorios) |
 | Equipo antiguo cal.: tipo/marca/modelo/serie/combustible | `instalacion.caldera_antigua_cal` | CEE inicial + placa |
 | ηi (tramo por año de PLACA, condensación por modelo real) | `caldera_antigua_cal.rendimiento_id` | placa/internet/CIFO previo. NUNCA `default` |

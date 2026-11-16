@@ -60,12 +60,12 @@ console.log('\n── calcCifo: qué factura abre la actuación');
     ok(motivoNoInicio({ motivo_no_inicio: 'material' }) === 'MATERIAL', 'la marca antigua se reconoce (para avisar y quitarla)');
     ok(motivoNoInicio({ motivo_no_inicio: 'OTRA COSA' }) === null, 'un valor desconocido no es una marca');
     ok(calcCifo({ ...m, fecha_inicio_cifo_manual: '2026-09-05' }).inicio === '2026-09-05', 'la fecha a mano sigue mandando');
-    // 15/11/2026 (Fran): el inicio es SIEMPRE la primera factura; las pruebas solo cierran.
+    // 16/11/2026 (Fran): inicio = lo PRIMERO entre facturas y pruebas RITE; fin = lo último.
     const pruebasAntes = { facturas: [{ fecha_factura: '2026-09-20' }, { fecha_factura: '2026-09-25' }], fecha_pruebas_cert_instalacion: '2026-09-15' };
-    ok(calcCifo(pruebasAntes).inicio === '2026-09-20', 'unas pruebas RITE anteriores NO abren: el inicio es la primera factura');
+    ok(calcCifo(pruebasAntes).inicio === '2026-09-15', 'unas pruebas RITE anteriores a las facturas ABREN la actuación');
     ok(calcCifo(pruebasAntes).fin === '2026-09-25', 'y el fin es la última factura, que es posterior a las pruebas');
     ok(calcCifo({ facturas: [], fecha_pruebas_cert_instalacion: '2026-09-15' }).inicio === '2026-09-15',
-        'sin ninguna factura todavía, el inicio provisional son las pruebas');
+        'sin ninguna factura todavía, el inicio son las pruebas');
 }
 
 console.log('\n── hitosActuacion');

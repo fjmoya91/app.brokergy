@@ -1,6 +1,6 @@
-// Calculadora de fechas CIFO (inicio/fin de actuación). INICIO = la primera
-// factura (las pruebas RITE solo si aún no hay facturas). FIN = lo último entre la
-// última factura y la fecha de pruebas del certificado de instalación (15/11/2026).
+// Calculadora de fechas CIFO (inicio/fin de actuación). INICIO = lo PRIMERO entre
+// las facturas de la obra y la fecha de pruebas del certificado de instalación;
+// FIN = lo ÚLTIMO de las mismas (Fran, 16/11/2026, que corrige lo del 15/11).
 //
 // IMPORTANTE: es la única fuente de verdad para estas fechas. El campo
 // `documentacion.fecha_inicio_cifo` / `fecha_fin_cifo` persistido en BD puede
@@ -21,7 +21,7 @@
 // 26RES060_114 y _180): «la fecha de inicio declarada difiere de la fecha de la
 // factura en la que se alcanza un primer compromiso en firme para la realización»
 // (RD 36/2023). Ahora la marca NO cuenta para nada: el inicio es la primera factura
-// que computa (desde el 15/11/2026, aunque las pruebas RITE sean antes). Lo que la marca quería proteger
+// que computa, o las pruebas RITE si son antes (Fran, 16/11/2026, que corrige lo del 15/11). Lo que la marca quería proteger
 // —un CEE inicial posterior a la primera factura— lo vigila la regla 199
 // (backend/utils/ceeFechas.js, que ya contaba material y anticipos). Una marca
 // antigua que siga guardada se LEE (`motivoNoInicio`) solo para avisar en el popup
@@ -59,16 +59,15 @@ export function calcCifo(doc) {
     // Solo las que computan para el CAE: una factura entera de placas en un RES060
     // se registra (logic/facturasCae.js) pero no es obra de la actuación.
     const facturas = (doc?.facturas || []).filter(facturaComputa);
-    const fechasFactura = facturas.map(f => f?.fecha_factura).filter(Boolean).sort();
-    const todas = [pruebas, ...fechasFactura].filter(Boolean).sort();
+    const todas = [pruebas, ...facturas.map(f => f?.fecha_factura)].filter(Boolean).sort();
 
-    // INICIO = la PRIMERA FACTURA, siempre (Fran, 15/11/2026: «Fecha de inicio
-    // siempre primera factura sea anticipo o lo que sea»). Las pruebas RITE ya NO
-    // abren la actuación aunque sean anteriores: solo se usan de inicio mientras no
-    // hay ninguna factura registrada (expediente en curso).
-    // FIN = lo ÚLTIMO entre la última factura y las pruebas RITE.
-    let inicio = fechasFactura[0] || pruebas || null;
-    let fin = todas.length ? todas[todas.length - 1] : null;
+    // INICIO = lo PRIMERO entre las facturas de la obra (también un anticipo o el
+    // material; NO las que no computan, como una bancada) y las pruebas RITE.
+    // FIN = lo ÚLTIMO de las mismas. Fran, 16/11/2026: «la primera de todas las
+    // facturas relacionadas con esto, la bancada no, o el RITE si lo hay. Fecha fin
+    // las últimas o el RITE» (corrige lo del 15/11, cuando las pruebas no abrían).
+    const inicio = todas[0] || null;
+    const fin = todas.length ? todas[todas.length - 1] : null;
 
     return {
         inicio: manualInicio || inicio,

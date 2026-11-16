@@ -216,7 +216,7 @@ Lo que no esté claro va a lo que falta del instalador, con el texto de
   la propuesta dijera otro → **se pregunta** y se fija en el Económico
   (`instalacion.economico_override.cae_client_rate`). Sin fijarlo, el Convenio imprimiría un precio y
   un importe calculado con otro.
-- **Fechas del CIFO**: las calcula la app (inicio = la primera factura, aunque las pruebas RITE sean antes; fin = lo último entre la última factura y las pruebas, Fran 15/11/2026). **El inicio es la
+- **Fechas del CIFO**: las calcula la app (inicio = lo primero entre las facturas de la obra y las pruebas RITE; fin = lo último, Fran 16/11/2026). **El inicio es la
   PRIMERA factura, aunque sea de acopio de material o un anticipo**: es el primer compromiso en firme
   (RD 36/2023; Marwen lo levantó en CAE-2078, 26RES060_114 y _180).
   - No se marca `motivo_no_inicio` (MATERIAL / ANTICIPO, regla 93) ni se fija un

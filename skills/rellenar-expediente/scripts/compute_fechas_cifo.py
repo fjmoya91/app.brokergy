@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Calcula fecha de inicio y fin del CIFO segun la regla BROKERGY.
 
-Inicio CIFO = la PRIMERA factura, SIEMPRE (Fran, 15/11/2026: las pruebas RITE no
-              abren aunque sean anteriores; solo sin ninguna factura se usan de inicio).
-Fin CIFO    = lo ULTIMO entre la ultima factura y la fecha de pruebas del RITE.
+Inicio CIFO = lo PRIMERO entre las facturas de la obra y la fecha de pruebas del RITE.
+Fin CIFO    = lo ULTIMO de las mismas (Fran, 16/11/2026, que corrige lo del 15/11).
+Las facturas que no son de la obra (p. ej. una bancada) no se pasan.
 
 La fecha de pruebas del RITE vive en la carpeta '7. LEGALIZACION RITE'.
 
@@ -15,7 +15,7 @@ Uso:
   echo '{"facturas":["2024-06-14","2024-08-28","2025-03-07"],"rite_pruebas":"2025-10-21"}' | python3 compute_fechas_cifo.py
   -> inicio 2024-06-14 / fin 2025-10-21
   echo '{"facturas":["2025-03-07"],"rite_pruebas":"2025-02-20"}' | python3 compute_fechas_cifo.py
-  -> inicio 2025-03-07 / fin 2025-03-07
+  -> inicio 2025-02-20 / fin 2025-03-07
 """
 import sys
 import json
@@ -41,10 +41,8 @@ def compute(facturas=None, rite_pruebas=None):
     if not candidatos:
         return {"fecha_inicio_cifo": None, "fecha_fin_cifo": None, "warnings": warnings}
 
-    fact = sorted(d for d in (_parse(f) for f in facturas) if d)
-    inicio = fact[0] if fact else candidatos[0]
     return {
-        "fecha_inicio_cifo": inicio.isoformat(),           # PRIMERA FACTURA
+        "fecha_inicio_cifo": candidatos[0].isoformat(),   # PRIMERA (facturas o RITE)
         "fecha_fin_cifo": candidatos[-1].isoformat(),      # ULTIMA
         "warnings": warnings,
     }
