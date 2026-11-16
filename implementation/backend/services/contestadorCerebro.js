@@ -607,12 +607,12 @@ function debeInvestigar(d, extra = {}) {
  * Nunca lanza: { ok, json, modelo, segundos, turnos, error }.
  */
 async function investigar(prompt, primera, { enlaces, segPropuesta = false } = {}) {
-    const cc = require('../scripts/contestador_claude');
-    // La orden y la carpeta van como MARCAS: el prompt se arma aquí (contenedor del backend, /app) y
-    // Claude corre en el del asistente (/repo); allí `contestador_claude.investigar` pone las suyas,
-    // las mismas que su permiso de Bash.
-    const p = construirInvestigacion(prompt, primera, { orden: cc.MARCA_ORDEN, docs: cc.MARCA_DOCS, segPropuesta });
     try {
+        // La orden y la carpeta van como MARCAS: el prompt se arma aquí (contenedor del backend, /app,
+        // SIN scripts/) y Claude corre en el del asistente (/repo); allí `contestador_claude.investigar`
+        // pone las suyas, las mismas que su permiso de Bash.
+        const { MARCA_ORDEN, MARCA_DOCS } = require('../utils/marcasInvestigador');
+        const p = construirInvestigacion(prompt, primera, { orden: MARCA_ORDEN, docs: MARCA_DOCS, segPropuesta });
         const url = URL_ASISTENTE();
         let j;
         if (url) {
@@ -625,7 +625,7 @@ async function investigar(prompt, primera, { enlaces, segPropuesta = false } = {
             j = await r.json().catch(() => ({}));
             if (!r.ok && !j.error) j = { ok: false, error: `el asistente ha respondido ${r.status}` };
         } else if (process.env.CONTESTADOR_CLAUDE_LOCAL === 'true') {
-            j = await cc.investigar(p);
+            j = await require('../scripts/contestador_claude').investigar(p);
         } else {
             return { ok: false, error: 'no hay investigador en este servidor (sin ASISTENTE_URL)' };
         }
