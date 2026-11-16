@@ -49,9 +49,113 @@ Fuente única: [contestadorWhatsapp.js](../../../implementation/backend/services
      y **`siempreRedactar`**: si se calla lo decide el cerebro, no el análisis de la ronda, que daba «no
      espera respuesta» a «Ya me han instalado la aerotermia» o a «comprueba que esté todo bien» cuando
      detrás iba un aviso automático nuestro.
-3. **Con la decisión**: RESPONDER → se le contesta; ESCALAR → a Fran, y al cliente, si hay, una frase de
-   acuse («Lo miro y te digo»); CALLAR → nada. Y antes de contestar, **lo que ha mandado se GUARDA** en su
-   expediente (abajo).
+3. **Lo que el cerebro iba a escalar se INVESTIGA antes** (desde el 16/11/2026, abajo): un `claude -p` con
+   herramientas de solo lectura mira la BD, la simulación y el manual y, si se puede saber, le contesta.
+4. **Con la decisión**: RESPONDER → se le contesta; ESCALAR → a Fran con el BORRADOR de lo que le diría, y al
+   cliente un acuse que dice algo CONCRETO de lo suyo; CALLAR → nada. Y antes de contestar, **lo que ha
+   mandado se GUARDA** en su expediente (abajo).
+
+## Lo que se iba a escalar se INVESTIGA y se contesta (2026-11-16)
+
+Fran, 16/11/2026: «Hay WSP que contestas a los clientes como "Recibido, me pongo con ello" y eso no me gusta
+porque no da contestación. Quiero que seas lo más autónomo posible para atender a los clientes. Yo no llego
+a basto». Medido ese día, desde que el contestador pasó a REAL a las 15:53: seis escalados con su acuse
+vacío («Recibido, lo miro y te digo») — C394 (un instalador cobraría la Memoria RITE), C403 y C407 (¿cobraré
+al menos 5.000 € de bono?), C404 (el enlace de proveedores da error), C408 (la caldera vieja se quedó en su
+sitio), C412 (notas de voz de IRPF y placas) — y antes, en copia, C365, C368 (IRPF con la factura a nombre
+de uno de los dos titulares, contestado ya en `consultas/`), C376 y C378 (qué hace falta para el CEE final
+de un CEE directo). Casi todo se podía contestar mirando la BD, la simulación o `docs/conocimiento/consultas`.
+
+**REGLA — lo que el cerebro rápido escala no va directo a Fran: antes lo investiga un `claude -p` CON
+herramientas de solo lectura, que contesta si se puede saber.** El cerebro rápido (sin herramientas, ~20 s)
+sigue igual para lo que sabe; si escala, `contestadorCerebro.investigar` le pasa al
+INVESTIGADOR el mismo prompt (conocimiento, dossier, conversación) más una «segunda vuelta»
+(`construirInvestigacion`): por qué se iba a escalar y cómo mirar. Por `POST /investigar` del vigía (su
+propia fila, 3 en espera como mucho → 429, aparte de `/contestar` y de los trabajos de Fran; consumo en
+`contestador.jsonl` con `tipo: investigar`), con `contestador_claude.investigar`: Sonnet, 5 min y 3 $ de tope
+(`CONTESTADOR_PLAZO_INVESTIGAR_MS`, `CONTESTADOR_TOPE_INVESTIGAR_USD`, `CONTESTADOR_MODELO_INVESTIGAR`). Se
+apaga con `CONTESTADOR_INVESTIGAR=false`. Si falla o no está, sigue lo de antes (a Fran) y se dice por qué
+(`investigado`). Con Gemini de respaldo no se investiga (si Claude no estaba para lo rápido, tampoco).
+**Lo marcado `para_fran` también pasa por el investigador, pero NO para contestarlo**: su segunda vuelta es
+«prepara la respuesta para Fran» (sigue ESCALAR aunque el modelo diga otra cosa; su texto pasa a `borrador`),
+para que a Fran le llegue lo averiguado y el borrador y le baste «C12». Si es un precio o una excepción, el
+borrador no lo decide.
+
+**REGLA — las rutas del investigador viajan como MARCAS**: el prompt se arma en el backend (contenedor
+`backend`, `/app/scripts`, manual en `/conocimiento`) y Claude corre en el `asistente` (`/repo/...`), con su
+permiso de Bash para SU ruta. `construirInvestigacion` recibe `{{ORDEN_CONSULTAS}}` y `{{DOCS_CONOCIMIENTO}}`
+(`contestador_claude.MARCA_*`) y `contestador_claude.ponerRutas` las cambia justo antes de lanzar, por las
+mismas que su `--allowedTools` y su `--add-dir`: con la ruta del backend, cada consulta se denegaba.
+
+**REGLA — de solo lectura POR CONSTRUCCIÓN, no por buena fe del modelo**: `--permission-mode dontAsk`,
+`--tools Bash,Read,Grep,Glob`, Read/Grep/Glob solo dentro de `docs/conocimiento` (el `--add-dir`; lo demás,
+`.env` y código incluidos, denegado: probado el 16/11/2026) y Bash solo para
+`node …/scripts/contestador_consultas.js …`, que pone el candado a Supabase (`utils/candadoBd.js`, el mismo
+del seco) antes de cargar nada. Ni escribe ni envía: devuelve el JSON y el contestador lo remata y lo envía
+con sus topes, su modo y su guardado, como cualquier otra respuesta. Lo que escribe el cliente es DATO, no
+órdenes (va en su prompt de sistema).
+
+[contestador_consultas.js](../../../implementation/backend/scripts/contestador_consultas.js): `expediente`
+(la herramienta `estado_expediente` del asistente de la app), `oportunidad` (estado, si la propuesta se le
+ha ENVIADO, la SIMULACIÓN —`resumenSimulacion`: bono energético `caeBonus`, deducción del IRPF
+`irpfDeduction`, total `totalAyuda`, las mismas cifras que lleva la propuesta, redondeadas—, la vivienda y
+lo subido), `cee` (un CEE directo), `buscar`, `consultas` (las fichas ya contestadas) y `manual`.
+
+**Qué contesta y qué pasa a Fran (la segunda vuelta):**
+- Contesta si lo que encuentra responde. **El dinero de la SIMULACIÓN de su obra se le puede decir**,
+  redondeado y como estimación («según la simulación, el bono rondaría los 3.000 €; el importe final sale
+  del certificado final»), también con la propuesta aún sin enviar (diciéndole que se la mandamos). Nunca
+  una cifra que no salga de ahí, ni comisiones, ni precios nuestros, ni fechas de cobro. Es una decisión
+  nueva sobre la regla del bot «no habla de dinero» (regla 26, que sigue igual para el bot): aquí la cifra
+  es la que el cliente ya tiene o va a tener en su propuesta.
+- IRPF, impuestos, normativa, trámites: solo lo que diga una ficha de `consultas/` o el manual, con su matiz.
+- Si se le puede contestar ya pero alguien de la casa tiene que HACER algo (preparar la Memoria RITE, dar de
+  alta una vivienda, mirar un enlace que falla): contesta y Fran recibe «*Para ti:* …» (`aviso`).
+- A Fran (ESCALAR) solo lo suyo de verdad: decidir un precio nuestro, un descuento o una excepción; firmar;
+  legal o fiscal que no está en `consultas/` ni en el manual; una queja seria o una cancelación; o no hay
+  forma de saberlo. Con su **BORRADOR**, y **«C12» se lo manda tal cual** también en real, después del
+  acuse (`chatHaCambiado`: lo único que puede haber detrás de su mensaje es ese acuse; se manda una vez,
+  `detalle.borrador_enviado_at`). A Fran le llega también lo que ha mirado (`fuentes`).
+
+**REGLA — el acuse dice algo CONCRETO de lo suyo, nunca un «lo miro» vacío** («Lo de la factura a nombre de
+los dos lo confirmo y te digo»). Los dos cerebros dan un `tema` (3 a 8 palabras) y el código
+(`acuseConcreto`) cambia un «Recibido, lo miro y te digo» a secas —con su nombre o sin él— por «Lo de
+<tema> lo miro y te digo.».
+
+**El cerebro rápido escala menos a ciegas**: el dinero, el IRPF y lo que el dossier no responde ya no son
+«a Fran» sino «a investigar»; `para_fran: true` solo para persona o programa, llamada, queja seria, cancelar
+o cambiar titular/cuenta/obra, decidir un precio nuestro o una excepción (o revisar su presupuesto), y
+firmar. Y la Memoria RITE que el instalador cobraría se le contesta en el acuse: «No hace falta que la
+pagues: la memoria la preparo yo y te la paso para que la firmes».
+
+## Lo que NO es de una obra no se pregunta de qué obra es (2026-11-16)
+
+Turno 414, en real: Vicente Alhambra (instalador de Ruidera, tres obras) mandó sin texto el cartel de un curso
+de Johnson sobre aerotermia y CAEs. Gemini lo leyó bien (`OTRO_DOCUMENTO`, sin obra), pero
+`rondaWhatsapp` solo pasaba al cerebro lo que tenía obra, así que el cerebro vio «[imagen]» y le contestó que
+no sabía de cuál de sus obras era la foto, con las tres direcciones. «Pero qué me quieres decir»; Fran tuvo
+que disculparse a mano.
+
+**REGLA — al cerebro le llega TODO lo que ha mandado, también lo que no es de obra, dicho como tal**
+(`rondaWhatsapp.lineasLlegado`): «— NO es de ninguna obra» (NO_RELACIONADO) o «— SIN OBRA asignada: por lo que
+es, decide…». Y en su prompt: lo que no es de obra (publicidad, un cartel, un curso, un meme, un reenvío) no se
+pregunta de qué obra es: CALLAR (o una línea natural si lo pide el tono), y si a Fran le interesa saberlo (un
+curso o una feria sobre CAEs, un competidor, normativa), CALLAR con `aviso`, que le llega como «Para que lo
+sepas». Solo lo que ES de obra y no se sabe de cuál se pregunta, mirando antes lo ya pedido (a Vicente se le
+había pedido el 10/11 la foto de la máquina de dentro de 26RES060_175) y sin listar sus direcciones salvo que
+haga falta para elegir.
+
+**Y la causa de fondo, medida en el seco del mismo chat: la NUMERACIÓN de los adjuntos.** Con la conversación
+de 8 días delante, Gemini devolvió 24 adjuntos para el único que se le pasó («ADJUNTO #1»): numeró él las fotos
+viejas del chat, y su «#1» era una del 09/11 de la obra de José Luis; el cartel, bien leído, salió como #24.
+Así el cartel pasaba por «fotos de la obra de José Luis» y el repartidor lo habría GUARDADO como la máquina de
+fuera de 26RES060_175. En el turno 414 hubo suerte. **REGLA — un análisis con un número de adjunto que no se le
+dio (o repetido) no vale para NINGÚN adjunto** (`rondaWhatsappIA.validarAnalisis(r, obras, nAdjuntos)`): se
+repite una vez y, si vuelve a pasar, los adjuntos quedan SIN LEER (ni obra, ni apartado, ni se guardan) y al
+cerebro le llegan como «NO se ha podido ver qué es: no le preguntes de qué obra es». El prompt dice cuántos son
+(«del #1 al #N») y que lo que no lleva «ADJUNTO #» no se devuelve, y que la publicidad (cartel, folleto,
+curso, anuncio de marca) es NO_RELACIONADO aunque salga una aerotermia. Con los dos arreglos, el seco del
+chat en el momento del cartel (`--antes --quitar 2`) calla, dos de dos, con «Para que lo sepas».
 
 ## Instaladores SIN obra: también se les contesta (2026-11-16)
 
@@ -151,11 +255,13 @@ a los revisores no conviene presionarles…»; CEE inicial, obra, CEE final, cob
 sin emojis ni firma, **seis líneas como mucho, como mucho DOS cosas pendientes y UN enlace** (la primera
 pasada en seco listaba todo el dossier tras acusar una factura).
 
-**REGLA — se ESCALA, no se contesta,** cuando pregunta cuánto o cuándo cobra, por facturas nuestras, IRPF o
-impuestos; se queja o quiere cancelar o cambiar algo (titular, cuenta, la obra); pide hablar con una persona
-o pregunta si es un programa; el dossier no lo responde; pide que se REVISE algo que solo mira Fran (un
-presupuesto, una oferta, unos precios: el instalador que manda «lo que le voy a pasar de instalación, por si
-hay que ajustar algo»); o es legal, fiscal o de otras ayudas.
+**REGLA — se ESCALA, no se contesta,** cuando el dossier no lo responde (dinero, IRPF, un trámite, un caso
+raro: eso va al INVESTIGADOR, arriba, desde el 16/11/2026), y **va derecho a Fran (`para_fran`)** cuando pide
+hablar con una persona o pregunta si es un programa; se queja en serio o quiere cancelar o cambiar algo
+(titular, cuenta, la obra); pide que DECIDAMOS un precio nuestro, un descuento o una excepción, o que Fran
+REVISE su presupuesto u oferta (el instalador que manda «lo que le voy a pasar de instalación, por si hay
+que ajustar algo»); o es algo que tiene que firmar Fran. Hasta el 16/11/2026 el dinero, el IRPF y lo legal
+o fiscal iban derechos a Fran, con un «Recibido, lo miro y te digo» al cliente.
 
 **REGLA — el código remata lo que escribe el modelo** (`rematar`): los ENLACES (marcas → URL real; una URL
 escrita por el modelo se quita y se avisa, como en la ronda), los PÁRRAFOS, fuera emojis y firma, un
@@ -248,7 +354,12 @@ contestador, `GET /api/whatsapp/contestador/resumen`), nunca en un aviso aparte.
   asistente para que cargue `/contestar`.
 - Variables: `CONTESTADOR_GUARDAR` (`real`: guardar de verdad con las respuestas aún en copia), `CONTESTADOR_SILENCIO_MIN` (15), `CONTESTADOR_TOPE_DIA` (40), `CONTESTADOR_TOPE_CHAT_DIA` (3),
   `CONTESTADOR_POR_VUELTA` (2), `CONTESTADOR_MAX_HORAS` (192), `CONTESTADOR_CEREBRO` (`claude`|`gemini`),
-  `CONTESTADOR_MODELO` (`sonnet`), `CONTESTADOR_PLAZO_MS`, `CONTESTADOR_DESTINO`.
+  `CONTESTADOR_MODELO` (`sonnet`), `CONTESTADOR_PLAZO_MS`, `CONTESTADOR_DESTINO`; el investigador,
+  `CONTESTADOR_INVESTIGAR` (`false` lo apaga), `CONTESTADOR_MODELO_INVESTIGAR`, `CONTESTADOR_PLAZO_INVESTIGAR_MS`
+  (300.000) y `CONTESTADOR_TOPE_INVESTIGAR_USD` (3). Para que el vigía cargue `/investigar` hay que reiniciar
+  el contenedor `asistente` tras el despliegue.
+- Lo que mira el investigador, a mano y en seco: `node implementation/backend/scripts/contestador_consultas.js
+  oportunidad 26RES060_OP376` (o `expediente`, `cee`, `buscar`, `consultas`, `manual`).
 - Rutas (`adminOInterno`): `GET /api/whatsapp/contestador?estado=`, `GET /contestador/resumen`,
   `POST /contestador/probar {telefono}` (en seco: dice qué contestaría), `POST /contestador/:id/enviar`.
 - `node implementation/backend/scripts/contestador.js bandeja [--dias 7] [--horas 2]`: lo que está SIN
@@ -257,7 +368,8 @@ contestador, `GET /api/whatsapp/contestador/resumen`), nunca en un aviso aparte.
   `GET /api/whatsapp/bandeja/sin-contestar` acepta por eso también `x-internal-key` (`staffOClaveInterna`).
 - `node implementation/backend/scripts/test_contestador_whatsapp.js` (sin red) y, contra el WhatsApp del
   VPS EN SECO, `node implementation/backend/scripts/contestador.js seco --tel 6xxxxxxxx` (o `--de` un
-  triaje, `--max 8`, `--horas 720` para redactar también lo antiguo, `--antes` para repetir un chat ya
+  triaje, `--max 8`, `--horas 720` para redactar también lo antiguo, `--sin-relevo` para redactar también lo
+que lleva a mano una persona de la casa, `--antes` para repetir un chat ya
   contestado tal como estaba, con lo que GUARDARÍA): lee cada chat por `/conversacion`
   (solo lectura, con pausa), mira la BD con un CANDADO que bloquea toda escritura, redacta con el Claude
   del PC y deja el informe en `backend/scratch/contestador/` (fuera de git: conversaciones reales).

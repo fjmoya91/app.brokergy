@@ -276,7 +276,18 @@ function quienEs(personas) {
 }
 
 /** El código VALIDA lo que devuelve el modelo: un código fuera de la lista es dudoso. */
-function validarAnalisis(r, obras) {
+function validarAnalisis(r, obras, nAdjuntos = null) {
+    // Un número de adjunto que no le hemos dado: ha numerado él las fotos de la conversación y
+    // su «#1» puede ser una foto vieja (16/11/2026: devolvió 24 entradas para UN adjunto, y el
+    // cartel de un curso salió como «fotos de la obra de José Luis»). Nada de lo que dice de los
+    // adjuntos vale: se queda sin leer (ni obra, ni apartado, ni se guarda).
+    if (Number.isInteger(nAdjuntos)) {
+        const ns = (r.adjuntos || []).map(a => a.n);
+        if (ns.some(n => !Number.isInteger(n) || n < 1 || n > nAdjuntos) || new Set(ns).size !== ns.length) {
+            r.numeracion_dudosa = ns.length;
+            r.adjuntos = [];
+        }
+    }
     const validos = new Set(obras.map(o => o.codigo));
     const limpia = (c) => { const t = String(c || '').trim(); return validos.has(t) || t === 'NUEVA' ? t : ''; };
     for (const a of r.adjuntos || []) a.obra = limpia(a.obra);
@@ -292,7 +303,8 @@ function validarAnalisis(r, obras) {
 }
 
 async function analizar({ texto, obras, rol, personas, dias }, partes, cuenta, { modelo, pensamiento } = {}) {
-    const prompt = `Eres el ayudante de oficina de BROKERGY, una ingeniería que tramita Certificados de Ahorro
+    const nAdjuntos = partes.filter(p => p.buffer).length;
+    const prompt =`Eres el ayudante de oficina de BROKERGY, una ingeniería que tramita Certificados de Ahorro
 Energético (CAE) por cambiar calderas por aerotermia, reformas de envolvente y certificados energéticos
 (CEE). Repasas un chat de WhatsApp de los últimos ${dias} días entre BROKERGY («NOSOTROS») y
 «ELLOS» para dejar constancia en la app de lo que ha llegado. No contestas a nadie: ordenas.
@@ -310,12 +322,19 @@ Después de este texto van los ADJUNTOS que ELLOS han mandado, cada uno precedid
 Hoy es ${hoyISO()}.
 
 DEVUELVE:
-1. "adjuntos": UNO por cada ADJUNTO #n que te paso, con:
+1. "adjuntos": UNO por cada ADJUNTO #n que te paso (${nAdjuntos ? `${nAdjuntos}: del #1 al #${nAdjuntos}` : 'ninguno'}), con SU número y
+   ninguno más: las fotos, álbumes y documentos de la conversación SIN «ADJUNTO #» son mensajes anteriores que
+   ya se vieron; no los devuelvas ni les pongas número. Cada uno con:
    - "obra": el CÓDIGO de la lista al que pertenece. Mira el texto de alrededor, el nombre, la dirección,
      la referencia catastral o lo que se vea en el propio adjunto (una factura lleva el nombre del cliente y la
      dirección). Con UNA sola obra en la lista es esa, salvo que el adjunto no tenga nada que ver con una obra.
      Si con varias no se puede saber, "" (dudoso): quien revisa detecta antes un hueco que un acierto falso.
      "NUEVA" si es claramente de un cliente u obra que NO está en la lista (una petición nueva, otra vivienda).
+   - PUBLICIDAD y lo que no es de una vivienda real (un cartel, un folleto, un curso, una oferta, un catálogo, un
+     anuncio de una marca, un meme, una felicitación, un reenvío) → "tipo": "NO_RELACIONADO" y "obra": "",
+     AUNQUE salga una aerotermia o una caldera y aunque se le hubiera pedido una foto de su máquina: una foto
+     de OBRA es de una casa de verdad (el equipo instalado, su placa, el cuarto, la fachada), no una imagen de
+     marca con textos y logotipos. En "que_es", lo que es: «cartel de un curso de Johnson sobre aerotermia».
    - "tipo", "que_es" (frase corta y concreta: «placa de la unidad exterior Panasonic», «factura de la
      instalación de la aerotermia», «foto del hueco de la caldera retirada»), "confianza" y
      "por_que_esa_obra" (una frase).
@@ -338,11 +357,17 @@ REGLAS: no inventes códigos (uno que no esté en la lista es ""). No pongas imp
 resumen. Lo que no se pueda saber, vacío.`;
 
     const pensar = pensamiento ?? pensamientoPara({ obras, conAdjuntos: partes.length > 0 });
-    const r = await gemini(partes, {
+    const llamar = () => gemini(partes, {
         prompt, schema: SCHEMA_ANALISIS, etiqueta: 'ronda-analisis', pensar, deadline: 180_000, maxTokens: 16000,
         ...(modelo ? { modelo } : {}),
     }, cuenta);
-    return validarAnalisis(r, obras);
+    let r = validarAnalisis(await llamar(), obras, nAdjuntos);
+    // Mal numerado: una vez más (cuesta céntimos); si vuelve a pasar, los adjuntos quedan sin leer.
+    if (r.numeracion_dudosa) {
+        console.warn(`[ronda-analisis] devolvió ${r.numeracion_dudosa} adjunto(s) para ${nAdjuntos}: lo repito`);
+        r = validarAnalisis(await llamar(), obras, nAdjuntos);
+    }
+    return r;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -275,7 +275,7 @@ function textoConsumo() {
     let resp = [];
     try { resp = fs.readFileSync(CONSUMO_CONTESTADOR, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(f => Date.parse(f.fecha) >= desde); } catch { /* aún nada */ }
     const lineaContestador = resp.length
-        ? `• Contestador de WhatsApp: ${resp.length} respuestas, ${mil(resp.reduce((a, f) => a + (f.entrada || 0), 0))} tokens de entrada, ${(resp.reduce((a, f) => a + (f.coste_usd || 0), 0)).toFixed(2).replace('.', ',')} $ a precio de API`
+        ? `• Contestador de WhatsApp: ${resp.filter(f => f.tipo !== 'investigar').length} respuestas y ${resp.filter(f => f.tipo === 'investigar').length} investigadas, ${mil(resp.reduce((a, f) => a + (f.entrada || 0), 0))} tokens de entrada, ${(resp.reduce((a, f) => a + (f.coste_usd || 0), 0)).toFixed(2).replace('.', ',')} $ a precio de API`
         : null;
     return [
         `*Consumo de los últimos 7 días*: ${filas.length} trabajos, ${mil(minutos)} min.`,
@@ -543,6 +543,17 @@ function contestar(prompt) {
     colaContestar = turno.then(() => {}, () => {}).then(() => { esperandoContestar -= 1; });
     return turno;
 }
+// Y el del INVESTIGADOR (POST /investigar, 16/11/2026): lo que el cerebro rápido escala se
+// investiga CON herramientas de solo lectura antes de llegar a Fran. Su propia fila: tarda
+// minutos y no puede retrasar las respuestas rápidas de los demás chats.
+let colaInvestigar = Promise.resolve();
+let esperandoInvestigar = 0;
+function investigar(prompt) {
+    esperandoInvestigar += 1;
+    const turno = colaInvestigar.then(() => contestadorClaude.investigar(prompt));
+    colaInvestigar = turno.then(() => {}, () => {}).then(() => { esperandoInvestigar -= 1; });
+    return turno;
+}
 
 // Una vuelta pedida para dentro de `ms` (el aviso del backend, o esperar a que acabe la ráfaga).
 let temporizador = null;
@@ -614,6 +625,29 @@ function servidor() {
                     r = { ok: false, motivo: e.message };
                 }
                 res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(r));
+            });
+            return;
+        }
+        if (req.method === 'POST' && req.url === '/investigar') {    // el CONTESTADOR: investigar lo que iba a escalar
+            let cuerpo = '';
+            req.on('data', d => { cuerpo += d; if (cuerpo.length > 400_000) req.destroy(); });
+            req.on('end', async () => {
+                const json = { 'Content-Type': 'application/json' };
+                let prompt = '';
+                try { prompt = String(JSON.parse(cuerpo || '{}').prompt || ''); } catch { /* cuerpo raro */ }
+                if (!prompt) { res.writeHead(400, json); res.end(JSON.stringify({ ok: false, error: 'sin prompt' })); return; }
+                if (esperandoInvestigar >= 3) { res.writeHead(429, json); res.end(JSON.stringify({ ok: false, error: 'cola del investigador llena' })); return; }
+                const r = await investigar(prompt);
+                try {
+                    fs.appendFileSync(CONSUMO_CONTESTADOR, `${JSON.stringify({
+                        fecha: new Date().toISOString(), tipo: 'investigar', modelo: r.modelo, segundos: r.segundos, coste_usd: r.coste_usd,
+                        entrada: r.entrada, salida: r.salida, turnos: r.turnos, denegadas: r.denegadas, ok: r.ok,
+                    })}
+`);
+                } catch { /* no impide nada */ }
+                log(`Investigador: ${r.ok ? 'contestado' : `fallo (${r.error})`} en ${r.segundos} s, ${r.turnos ?? '?'} turnos.`);
+                res.writeHead(r.ok ? 200 : 502, json);
                 res.end(JSON.stringify(r));
             });
             return;

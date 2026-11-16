@@ -281,6 +281,36 @@ function dossierDe(obra) {
     }, { soloLectura: true });
 }
 
+/**
+ * Lo que acaba de mandar, para quien redacta: lo de la obra a la que se contesta y TAMBIÉN lo que
+ * no es de ninguna obra, dicho como tal. Antes lo segundo se caía y el cerebro solo veía «[foto]»:
+ * el 16/11/2026 a un instalador con tres obras que mandó el cartel de un curso sobre aerotermia se
+ * le preguntó de qué obra era la foto, con sus tres direcciones (turno 414). Puro.
+ */
+function lineasLlegado(filas, codigo, sinLeer = []) {
+    const llegado = { slots: new Set(), lineas: [] };
+    for (const f of filas || []) {
+        const deObra = f.obra && f.obra !== 'NUEVA' && f.obra !== '—';
+        if (deObra && (!codigo || f.obra === codigo)) {
+            const nota = f.guardado === true ? ' — YA GUARDADO en el expediente'
+                : (typeof f.guardado === 'string' ? ` — sin guardar (lo mira Fran: ${f.guardado})` : '');
+            llegado.lineas.push(`${f.que} (${f.cuando})${nota}`);
+            // Con el nombre del apartado Y con el del dossier («factura», «rite»).
+            if (f.slot && f.confianza !== 'baja') for (const k of IA.clavesDeSlot(f.slot)) llegado.slots.add(k);
+        } else if (f.obra === '—' || f.tipo === 'NO_RELACIONADO') {
+            llegado.lineas.push(`${f.que} (${f.cuando}) — NO es de ninguna obra`);
+        } else if (!f.obra) {
+            // Sin obra asignada: puede ser de una obra que no se ha sabido casar, o no ser de obra.
+            llegado.lineas.push(`${f.que} (${f.cuando}) — SIN OBRA asignada: por lo que es, decide si es de una obra (caldera, placa, factura, RITE…) o no`);
+        }
+    }
+    // Lo que no se ha podido ver (o se leyó mal numerado): se dice, para que no se dé por foto de obra.
+    for (const s of sinLeer || []) {
+        if (!/transcrito/.test(s)) llegado.lineas.push(`${s} — NO se ha podido ver qué es: no le preguntes de qué obra es; si hace falta saberlo, ESCALAR`);
+    }
+    return llegado;
+}
+
 // `ctx.redactar` (el contestador, 10/11/2026): quien escribe el borrador, con la
 // MISMA firma que `IA.borrador`. Por defecto, Gemini; el contestador pone a Claude.
 async function procesarChat(c, a, ctx) {
@@ -385,16 +415,7 @@ async function procesarChat(c, a, ctx) {
             const deLaConv = an.obra_de_la_conversacion !== 'NUEVA' ? an.obra_de_la_conversacion : '';
             const codigo = deLaPregunta || deLaConv || (c.obrasTocadas.length === 1 ? c.obrasTocadas[0] : (c.obras.length === 1 ? c.obras[0].codigo : ''));
             const obra = c.obras.find(o => o.codigo === codigo) || null;
-            const llegado = { slots: new Set(), lineas: [] };
-            for (const f of c.filas) {
-                if (f.obra && f.obra !== 'NUEVA' && f.obra !== '—' && (!codigo || f.obra === codigo)) {
-                    const nota = f.guardado === true ? ' — YA GUARDADO en el expediente'
-                        : (typeof f.guardado === 'string' ? ` — sin guardar (lo mira Fran: ${f.guardado})` : '');
-                    llegado.lineas.push(`${f.que} (${f.cuando})${nota}`);
-                    // Con el nombre del apartado Y con el del dossier («factura», «rite»).
-                    if (f.slot && f.confianza !== 'baja') for (const k of IA.clavesDeSlot(f.slot)) llegado.slots.add(k);
-                }
-            }
+            const llegado = lineasLlegado(c.filas, codigo, c.sinLeer);
             const propuesta = IA.estadoPropuesta(obra);
             try {
                 const dossier = obra && (!propuesta || propuesta === 'ENVIADA') ? await dossierDe(obra) : null;
@@ -708,4 +729,5 @@ module.exports = {
     procesarChat,
     // Para las pruebas:
     _rolDe: rolDe, _tituloDe: tituloDe, _componer: componer, _soloCortesia: soloCortesia,
+    lineasLlegado,
 };

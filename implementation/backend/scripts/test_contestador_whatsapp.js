@@ -261,6 +261,121 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
     ok(C.modoDeFila('copia', { accion: 'RESPONDER', cerebro: 'claude' }) === 'copia', 'en copia, todo copia');
 }
 
+// ── El INVESTIGADOR (16/11/2026): lo que se iba a escalar se investiga y se contesta ──
+{
+    // El acuse vacío («Recibido, lo miro y te digo») no contesta nada: con tema, dice de qué.
+    ok(!cerebro.acuseConcreto('Recibido, lo miro y te digo') && !cerebro.acuseConcreto('Recibido Manuel, lo miro y te digo.')
+        && !cerebro.acuseConcreto('Déjame que lo mire y te cuento, Ana.'), 'acuse vacío: «recibido, lo miro y te digo» (con o sin nombre)');
+    ok(cerebro.acuseConcreto('Lo de la factura a nombre de los dos lo miro y te digo.')
+        && cerebro.acuseConcreto('Recibidas las fotos de la caldera; lo del bono te lo confirmo con la simulación.'), 'acuse concreto: nombra lo suyo');
+    const v = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Recibido, lo miro y te digo', tema: 'el bono de la calle San Miguel.', motivo: 'm' }, ENLACES);
+    ok(v.acuse === 'Lo del bono de la calle San Miguel lo miro y te digo.', 'acuse vacío + tema → «Lo de <tema> lo miro y te digo.»');
+    const c = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Lo de la memoria no hace falta que la pagues: la preparo yo.', tema: 'la memoria RITE', motivo: 'm' }, ENLACES);
+    ok(c.acuse === 'Lo de la memoria no hace falta que la pagues: la preparo yo.', 'un acuse concreto se respeta');
+    // El borrador para Fran lleva los enlaces puestos; el aviso solo con RESPONDER.
+    const b = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: '', borrador: 'Hola Ana, súbela aquí:\n{ENLACE_SUBIR}\n\nUn saludo', aviso: 'x', fuentes: ['oportunidad OP1', ''], motivo: 'm' }, ENLACES);
+    ok(b.borrador.includes(URL_SUBIR) && !/saludo/i.test(b.borrador) && b.aviso === '' && b.fuentes.length === 1, 'ESCALAR: borrador con su enlace y rematado; sin aviso');
+    const a = cerebro.rematar({ accion: 'RESPONDER', parrafos: ['La memoria la preparo yo, no tienes que pagarla.'], aviso: 'preparar la Memoria RITE de 26RES060_250', motivo: 'm' }, ENLACES);
+    ok(a.aviso === 'preparar la Memoria RITE de 26RES060_250' && a.borrador === '', 'RESPONDER con aviso para Fran');
+    ok(cerebro.rematar({ accion: 'ESCALAR', parrafos: [], para_fran: true, motivo: 'm' }, ENLACES).para_fran === true, 'para_fran se respeta');
+
+    // Qué se investiga: lo escalado sin para_fran, con Claude; lo de Fran, no.
+    ok(cerebro.debeInvestigar({ accion: 'ESCALAR', para_fran: false, cerebro: 'claude (sonnet, 9 s)' }), 'un ESCALAR normal se investiga');
+    ok(cerebro.debeInvestigar({ accion: 'ESCALAR', para_fran: true, cerebro: 'claude' }), 'lo de Fran también pasa por el investigador, para dejarle el borrador');
+    ok(!cerebro.debeInvestigar({ accion: 'RESPONDER', cerebro: 'claude' }) && !cerebro.debeInvestigar({ accion: 'CALLAR' }), 'lo contestado o callado, no');
+    ok(!cerebro.debeInvestigar({ accion: 'ESCALAR', cerebro: 'gemini (respaldo: sin JSON)' }), 'con Claude caído (Gemini de respaldo) no se investiga');
+    ok(!cerebro.debeInvestigar({ accion: 'ESCALAR', cerebro: 'claude' }, { noInvestigar: true }), 'noInvestigar lo apaga');
+    process.env.CONTESTADOR_INVESTIGAR = 'false';
+    ok(!cerebro.debeInvestigar({ accion: 'ESCALAR', cerebro: 'claude' }), 'CONTESTADOR_INVESTIGAR=false lo apaga');
+    delete process.env.CONTESTADOR_INVESTIGAR;
+
+    // La segunda vuelta: mismo prompt, la orden de consultas, el manual y el JSON con borrador.
+    const ch = { texto: 'ELLOS: ¿cobraré al menos 5.000 € de bono?', rol: 'cliente', personas: [], obras: [] };
+    const base = cerebro.construirPrompt(ch, null, null, { lineas: [], slots: new Set() }, {});
+    ok(base.prompt.includes('"para_fran"') && base.prompt.includes('lo mira enseguida un compañero'), 'el cerebro rápido sabe que lo escalado se investiga y marca para_fran');
+    ok(!/pregunta CUÁNTO va a cobrar, cuándo exactamente, por facturas nuestras, IRPF o impuestos/.test(base.prompt), 'el dinero y el IRPF ya no van derechos a Fran');
+    const inv = cerebro.construirInvestigacion(base.prompt, { motivo: 'pregunta si cobrará 5.000 €' }, { orden: 'node /x/contestador_consultas.js', docs: 'C:\\r\\docs\\conocimiento' });
+    ok(inv.startsWith(base.prompt) && inv.includes('pregunta si cobrará 5.000 €'), 'la investigación parte del mismo prompt y del motivo');
+    ok(inv.includes('node /x/contestador_consultas.js oportunidad') && inv.includes('C:/r/docs/conocimiento/consultas'), 'lleva la orden de consultas y el manual (consultas/ primero)');
+    ok(/"borrador"/.test(inv) && /"aviso"/.test(inv) && /"fuentes"/.test(inv) && /SIMULACIÓN/.test(inv), 'pide borrador, aviso y fuentes, y explica el dinero de la simulación');
+    const invFran = cerebro.construirInvestigacion(base.prompt, { motivo: 'se queja: no se fía', para_fran: true }, { orden: 'o', docs: 'd' });
+    ok(invFran.includes('PREPARA LA RESPUESTA PARA FRAN') && invFran.includes('SIEMPRE "ESCALAR"') && !invFran.includes('INVESTIGA Y CONTESTA'), 'lo de Fran: no se contesta, se le prepara el borrador');
+    // Las rutas viajan como MARCAS (el prompt se arma en el backend, Claude corre en el asistente)
+    // y las pone quien lanza Claude: las mismas de su permiso de Bash y de su --add-dir.
+    const cc = require('./contestador_claude');
+    const conMarcas = cerebro.construirInvestigacion('P', { motivo: 'x' }, { orden: cc.MARCA_ORDEN, docs: cc.MARCA_DOCS });
+    const puesto = cc.ponerRutas(conMarcas);
+    ok(!puesto.includes('{{') && puesto.includes(`${cc.ORDEN_CONSULTAS()} expediente`) && puesto.includes(`${cc.DOCS().split('\\').join('/')}/consultas`), 'las marcas se cambian por la orden y el manual de donde corre Claude');
+
+    // Lo que le llega a Fran: el borrador y «C12»; lo contestado con aviso, «Para ti».
+    const esc = C.textoParaFran({ id: 30 }, {
+        accion: 'ESCALAR', titulo: 'Ana', motivo: 'factura a nombre de uno', acuse: 'Lo de la factura lo miro y te digo.',
+        borrador: 'Hola Ana, con la factura a tu nombre vale.', fuentes: ['consultas/cae-a-nombre…'], pendientes: [],
+    }, { m: 'real', acuseEnviado: true });
+    ok(esc.includes('Le he dicho: «Lo de la factura') && esc.includes('> Hola Ana, con la factura') && esc.includes('«C30» le manda esto'), 'ESCALAR con borrador: acuse dicho, borrador y «C30»');
+    ok(esc.includes('He mirado: consultas/cae-a-nombre'), 'y lo que ha mirado');
+    const resp = C.textoParaFran({ id: 31 }, { accion: 'RESPONDER', titulo: 'Miguel', texto: 'La memoria la preparo yo.', aviso: 'preparar la Memoria RITE de 26RES060_250', pendientes: [] }, { m: 'real', enviado: true });
+    ok(resp.includes('He contestado a Miguel') && resp.includes('*Para ti:* preparar la Memoria RITE'), 'RESPONDER con aviso: Fran sabe qué tiene que hacer');
+
+    // «C12» tras el acuse: lo único que puede haber después es ESE acuse.
+    const ms = [{ id: 'a', de_mi: false, texto: '¿?' }, { id: 'b', de_mi: true, texto: 'Lo de la factura lo miro y te digo.' }];
+    ok(C.chatHaCambiado(ms, 'a', 'Lo de la factura lo miro y te digo.') === null, '«C12» tras el acuse: el chat no ha cambiado');
+    ok(C.chatHaCambiado(ms, 'a', null) === 'nuestro', 'sin acuse enviado, lo nuestro de después sí es un cambio');
+    ok(C.chatHaCambiado([...ms, { id: 'c', de_mi: false }], 'a', 'Lo de la factura lo miro y te digo.') === 'suyo', 'si ha vuelto a escribir, no se manda');
+    ok(C.chatHaCambiado(ms.slice(0, 1), 'a', null) === null && C.chatHaCambiado(ms, 'x', null) === 'nuestro', 'sin nada después, igual; sin su mensaje, cambio');
+
+    // Lo que el investigador lee de la simulación: las cifras de la propuesta, redondeadas.
+    const { resumenSimulacion } = require('./contestador_consultas');
+    const sim = resumenSimulacion({ inputs: { presupuesto: 10071.85 }, result: { financials: { caeBonus: 3056.97, irpfDeduction: 6043.1, totalAyuda: 9100.08 } } });
+    ok(sim.bono_energetico_estimado === 3057 && sim.deduccion_irpf_estimada === 6043 && sim.total_ayudas_estimado === 9100 && sim.presupuesto_considerado === 10072, 'simulación: bono, IRPF y total de la propuesta, redondeados');
+    ok(resumenSimulacion({}).bono_energetico_estimado === null, 'sin simulación: null, nunca 0');
+}
+
+// ── Lo que NO es de ninguna obra no se pregunta de qué obra es (turno 414, 16/11/2026) ──
+// Vicente Alhambra (instalador, 3 obras en Ruidera) mandó, sin texto, el cartel de un curso de
+// Johnson sobre aerotermia y CAEs; el cerebro solo veía «[foto]» y le preguntó de qué obra era,
+// con sus tres direcciones. Fran tuvo que disculparse a mano.
+{
+    console.log('\nUn adjunto que no es de obra (16/11/2026)');
+    const R = require('../services/rondaWhatsapp');
+    const filas = [
+        { que: 'Imagen de un curso de formación de Johnson sobre aerotermia y CAEs', cuando: '16/11 19:19', obra: null, tipo: 'OTRO_DOCUMENTO' },
+        { que: 'Meme', cuando: '16/11 19:20', obra: '—', tipo: 'NO_RELACIONADO' },
+        { que: 'Placa de la caldera', cuando: '16/11 19:21', obra: '26RES060_175', tipo: 'FOTO_PLACA', slot: null },
+        { que: 'Factura de otra obra', cuando: '16/11 19:22', obra: '26RES060_176', tipo: 'FACTURA' },
+    ];
+    const ll = R.lineasLlegado(filas, '26RES060_175');
+    ok(ll.lineas.some(l => l.startsWith('Imagen de un curso de formación de Johnson') && /SIN OBRA asignada/.test(l)), 'lo que no tiene obra le llega al cerebro, con lo que es (antes se caía)');
+    ok(ll.lineas.some(l => l.startsWith('Meme') && /NO es de ninguna obra/.test(l)), 'lo NO_RELACIONADO, dicho como tal');
+    ok(ll.lineas.some(l => l.startsWith('Placa de la caldera')) && !ll.lineas.some(l => l.startsWith('Factura de otra obra')), 'lo de la obra a la que se contesta, sí; lo de otra obra, no (como antes)');
+    const ll2 = R.lineasLlegado([], '', ['16/11 19:19 image', '16/11 19:20 audio (transcrito)']);
+    ok(ll2.lineas.length === 1 && /NO se ha podido ver qué es: no le preguntes de qué obra es/.test(ll2.lineas[0]), 'lo que no se ha podido ver también llega, y no se pregunta de qué obra es (un audio transcrito ya va en la conversación)');
+
+    // La causa de fondo, medida en el seco: Gemini devolvió 24 adjuntos para UNO (numeró él las fotos
+    // viejas de la conversación) y su «#1», una foto de la obra de José Luis, se le pegó al cartel.
+    const IA = require('../services/rondaWhatsappIA');
+    const obras = [{ codigo: '26RES060_175' }];
+    const mal = IA.validarAnalisis({ adjuntos: [
+        { n: 1, obra: '26RES060_175', tipo: 'FOTO_OBRA', que_es: 'fotos de la obra de Jose Luis', confianza: 'alta' },
+        { n: 24, obra: '', tipo: 'NO_RELACIONADO', que_es: 'cartel de un curso de Johnson', confianza: 'alta' },
+    ] }, obras, 1);
+    ok(mal.adjuntos.length === 0 && mal.numeracion_dudosa === 2, 'un número de adjunto que no se le dio: nada de lo que dice de los adjuntos vale (queda sin leer, no se guarda)');
+    const bien = IA.validarAnalisis({ adjuntos: [{ n: 1, obra: '', tipo: 'NO_RELACIONADO', que_es: 'cartel', confianza: 'alta' }] }, obras, 1);
+    ok(bien.adjuntos.length === 1 && !bien.numeracion_dudosa, 'bien numerado: se queda');
+    ok(IA.validarAnalisis({ adjuntos: [{ n: 1, obra: '', tipo: 'X' }, { n: 1, obra: '', tipo: 'X' }] }, obras, 2).numeracion_dudosa === 2, 'un número repetido, también dudoso');
+
+    const ch = { texto: 'NOSOTROS [10/11]: Mándame la foto de la máquina de dentro y su pegatina\nELLOS [16/11 19:19]: [imagen]', rol: 'instalador', personas: [], obras: [] };
+    const { prompt } = cerebro.construirPrompt(ch, null, null, ll, {});
+    ok(prompt.includes('Imagen de un curso de formación de Johnson') && /nunca le preguntes de qué obra es/.test(prompt), 'el prompt lo lleva y dice que no se pregunta de qué obra es');
+    ok(/no le listes las direcciones de sus obras/.test(prompt) && /mira lo que ya le hemos pedido/.test(prompt), 'si es de obra: antes, lo ya pedido; y sin listar las direcciones');
+    ok(/"aviso"/.test(prompt), 'puede callar y dejarle a Fran una frase');
+
+    const callado = cerebro.rematar({ accion: 'CALLAR', motivo: 'cartel de un curso, no pide nada', aviso: 'Vicente ha mandado el cartel de un curso de Johnson sobre CAEs, el 25/11 en Valdepeñas' }, {});
+    ok(callado.accion === 'CALLAR' && /curso de Johnson/.test(callado.aviso), 'CALLAR con aviso: se queda el aviso');
+    const t = C.textoParaFran({ id: 414 }, { accion: 'CALLAR', titulo: 'Vicente Alhambra', motivo: 'cartel de un curso', aviso: callado.aviso, pendientes: ['16/11 19:19  [imagen]'] }, { m: 'real' });
+    ok(t.includes('Para que lo sepas: Vicente Alhambra') && t.includes('*Para ti:* Vicente ha mandado el cartel') && t.includes('No le contesto'), 'a Fran le llega «para que lo sepas», sin escribirle al instalador');
+}
+
 // ── Cómo contesta Fran a una copia: «C4» manda; «C4, dile además…» cambia ──
 {
     const { ordenContestador: o } = require('../utils/ordenContestador');

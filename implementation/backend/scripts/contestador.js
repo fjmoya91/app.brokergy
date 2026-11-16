@@ -9,6 +9,8 @@
 //       Fran al grupo. Redacta con el Claude Code de este PC (la suscripción) o con Gemini.
 //       Sin --tel ni --de: los chats que han contestado a una espera estas 72 h.
 //       `--de` es un JSON { "<tel9>": { "ultimo_es_suyo": true, … } } (el de un triaje).
+//       `--antes --quitar N`: y además sin los N mensajes de antes de esos (un momento anterior).
+//       `--sin-relevo`: redacta también lo que está llevando a mano una persona de la casa.
 //       `--antes`: el chat COMO ESTABA antes de nuestra última respuesta (se quitan nuestros
 //       mensajes del final), para repetir un caso ya contestado. Con lo que ha mandado, dice
 //       también qué GUARDARÍA en el expediente (en seco no se guarda nada).
@@ -68,36 +70,14 @@ const fuenteAntes = {
         const conv = await fuenteVps.leer(q);
         const ms = [...(conv.mensajes || [])];
         while (ms.length && ms[ms.length - 1].de_mi) ms.pop();
+        // `--quitar N`: además, los N últimos (suyos o nuestros), para volver a un momento anterior.
+        for (let i = Number(opt('quitar', 0)) || 0; i > 0 && ms.length; i -= 1) ms.pop();
         return { ...conv, mensajes: ms };
     },
 };
 
-// ── Candado: en seco este proceso no escribe en la BD ────────────────────────
-function candado() {
-    const supabase = require('../services/supabaseClient');
-    const bloqueadas = [];
-    const falso = (motivo) => {
-        const res = { data: null, error: { message: `EN SECO: ${motivo}` } };
-        const p = new Proxy(function () {}, {
-            get(_, prop) {
-                if (prop === 'then') return (ok, ko) => Promise.resolve(res).then(ok, ko);
-                if (prop === 'catch') return (ko) => Promise.resolve(res).catch(ko);
-                if (prop === 'finally') return (f) => Promise.resolve(res).finally(f);
-                return () => p;
-            },
-            apply() { return p; },
-        });
-        return p;
-    };
-    const fromOriginal = supabase.from.bind(supabase);
-    supabase.from = (tabla) => {
-        const qb = fromOriginal(tabla);
-        for (const op of ['insert', 'update', 'upsert', 'delete']) qb[op] = () => { bloqueadas.push(`${op} ${tabla}`); return falso(op); };
-        return qb;
-    };
-    supabase.rpc = (nombre) => { bloqueadas.push(`rpc ${nombre}`); return falso(nombre); };
-    return bloqueadas;
-}
+// ── Candado: en seco este proceso no escribe en la BD (utils/candadoBd.js) ────
+const { candado } = require('../utils/candadoBd');
 
 async function candidatos() {
     const tels = opt('tel', '');
@@ -118,6 +98,8 @@ async function seco() {
     const bloqueadas = candado();
     if (opt('cerebro', 'claude') === 'gemini') process.env.CONTESTADOR_CEREBRO = 'gemini';
     else { process.env.CONTESTADOR_CEREBRO = 'claude'; process.env.CONTESTADOR_CLAUDE_LOCAL = 'true'; delete process.env.ASISTENTE_URL; }
+    // --sin-relevo: redactar también lo que está llevando a mano una persona de la casa (para comparar).
+    if (args.includes('--sin-relevo')) process.env.CONTESTADOR_RELEVO_MIN = '0';
     // --horas 720: redactar también lo que lleva días sin contestar (en vivo, pasadas 48 h va a Fran).
     if (opt('horas', '')) process.env.CONTESTADOR_MAX_HORAS = opt('horas', '');
     const C = require('../services/contestadorWhatsapp');
@@ -137,7 +119,7 @@ async function seco() {
         out.push(d);
         console.log(`──── ${n}. ${tel} · ${d.estado}${d.accion ? ` · ${d.accion}` : ''}${d.obra ? ` · ${d.obra}` : ''} · ${d.segundos} s${d.cerebro ? ` · ${d.cerebro}` : ''}`);
         // Callar con algo que guardar también llega a Fran («Guardaría lo que ha mandado…»).
-        if (d.estado === 'DECIDIDO' && (d.accion !== 'CALLAR' || (d.guardar || []).some(x => x.guardar))) console.log(C.textoParaFran({ id: `S${n}` }, d, { m: 'copia' }));
+        if (d.estado === 'DECIDIDO' && (d.accion !== 'CALLAR' || d.aviso || (d.guardar || []).some(x => x.guardar))) console.log(C.textoParaFran({ id: `S${n}` }, d, { m: 'copia' }));
         if ((d.guardar || []).length) console.log(`   (en seco no se ha guardado nada: ${d.guardar.filter(x => x.guardar).length} se guardarían con «C…»)`);
         else console.log(`   ${d.motivo || ''}${d.pendientes?.length ? `\n   escribió: ${d.pendientes.join(' | ').slice(0, 300)}` : ''}`);
         if (d.detalle?.problemas_enlaces?.length) console.log(`   ⚠ enlaces: ${d.detalle.problemas_enlaces.join('; ')}`);

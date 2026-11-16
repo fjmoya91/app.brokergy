@@ -347,9 +347,17 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     const g = { guardar: plan ? Docs.paraFila(plan.items) : [], _ficheros: plan?.ficheros || null };
     if (!b) return { ...comun, ...g, estado: 'DECIDIDO', accion: 'CALLAR', motivo: 'no espera respuesta', obra: null, detalle };
     if (b.accion === 'MANO') return { ...comun, ...g, estado: 'DECIDIDO', accion: 'ESCALAR', motivo: b.motivo, obra: c.obraBorrador || null, detalle };
+    // Lo del INVESTIGADOR (contestadorCerebro.investigar): qué ha mirado, lo que le diría si Fran da
+    // el visto bueno (`borrador`, lo manda «C12») y lo que tiene que HACER Fran aunque ya se le haya
+    // contestado (`aviso`).
+    if (b.investigado) detalle.investigado = b.investigado;
+    if ((b.fuentes || []).length) detalle.fuentes = b.fuentes;
+    if (b.borrador) detalle.borrador = b.borrador;
+    if (b.aviso) detalle.aviso = b.aviso;
     return {
         ...comun, ...g, estado: 'DECIDIDO', accion: b.accion, texto: b.mensaje || '', acuse: b.acuse || '', motivo: b.motivo || '',
         obra: c.obraBorrador || null, cerebro: b.cerebro || 'gemini', detalle,
+        borrador: b.borrador || '', aviso: b.aviso || '', fuentes: b.fuentes || [], investigado: b.investigado || '',
         seguimiento: Array.isArray(b.seguimiento) ? b.seguimiento : [],
     };
 }
@@ -404,6 +412,7 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
     const seg = (d.seguimientoLineas || []).filter(Boolean);
     const bloqueGuardar = [...(guardar.length ? ['', ...guardar] : []), ...(seg.length ? ['', 'Del seguimiento:', ...seg] : [])];
     const porGuardar = (d.guardar || []).some(x => x.guardar && !x.hecho && !x.error) && mg === 'copia';
+    const fuentes = (d.fuentes || []).length ? `_He mirado: ${d.fuentes.slice(0, 5).join(' · ')}_` : null;
     if (d.accion === 'RESPONDER') {
         return [
             `*C${fila.id} · ${enviado ? 'He contestado a' : 'Contestaría a'} ${quien}*${obra}`,
@@ -412,6 +421,8 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
             '',
             enviado ? 'Le he dicho:' : 'Le contestaría:',
             cita(d.texto),
+            ...(d.aviso ? ['', `*Para ti:* ${d.aviso}`] : []),
+            fuentes,
             '',
             m === 'copia'
                 ? (porGuardar
@@ -423,15 +434,20 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
     if (d.accion === 'CALLAR') {
         // Solo llega a Fran si hay algo que guardar (no hace falta contestarle, pero lo suyo va al
         // expediente) o si lo que dijo es la respuesta a un seguimiento.
+        // O si es algo que a Fran le interesa saber (`aviso`: el cartel de un curso sobre CAEs).
         const soloSeguimiento = !guardar.length && seg.length;
+        const soloAviso = !guardar.length && !seg.length && !!d.aviso;
         return [
-            soloSeguimiento
+            soloAviso
+                ? `*C${fila.id} · Para que lo sepas: ${quien}*${obra}`
+                : soloSeguimiento
                 ? `*C${fila.id} · ${quien} ha contestado al seguimiento*${obra}`
                 : `*C${fila.id} · ${porGuardar ? 'Guardaría' : 'He guardado'} lo que ha mandado ${quien}*${obra}`,
             escribio,
             ...bloqueGuardar,
+            ...(d.aviso ? ['', `*Para ti:* ${d.aviso}`] : []),
             '',
-            `No le contesto: ${d.motivo || 'no hace falta'}.`,
+            `No le contesto: ${String(d.motivo || 'no hace falta').replace(/[.\s]+$/, '')}.`,
             porGuardar ? `_Modo copia: no he guardado nada. «C${fila.id}» lo guarda (sin escribirle); «C${fila.id}, dile…» además le escribe._` : null,
         ].filter(x => x !== null).join('\n');
     }
@@ -442,10 +458,15 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
         '',
         `Por qué te lo paso: ${d.motivo || 'no lo tengo claro'}`,
         d.acuse ? (acuseEnviado ? `Le he dicho: «${d.acuse}»` : `Le diría mientras: «${d.acuse}»`) : null,
-        m === 'copia'
-            ? (porGuardar ? `_Modo copia: no le ha llegado nada y no he guardado nada. «C${fila.id}» lo guarda${d.acuse ? ' y le manda el acuse' : ''}; «C${fila.id}, dile que…» le contesta lo que tú digas._`
-                : `_Modo copia: no le ha llegado nada.${d.acuse ? ` «C${fila.id}» le manda el acuse;` : ''} «C${fila.id}, dile que…» le contesta lo que tú digas._`)
-            : null,
+        // El borrador del investigador: lo que le diría si das el visto bueno («C12» lo manda).
+        ...(d.borrador ? ['', `Le contestaría${m === 'copia' ? '' : ', si te parece'}:`, cita(d.borrador)] : []),
+        fuentes,
+        d.borrador
+            ? `_«C${fila.id}» le manda esto tal cual; «C${fila.id}, dile que…» lo cambia${m === 'copia' && porGuardar ? ' (y guarda lo suyo)' : ''}._`
+            : (m === 'copia'
+                ? (porGuardar ? `_Modo copia: no le ha llegado nada y no he guardado nada. «C${fila.id}» lo guarda${d.acuse ? ' y le manda el acuse' : ''}; «C${fila.id}, dile que…» le contesta lo que tú digas._`
+                    : `_Modo copia: no le ha llegado nada.${d.acuse ? ` «C${fila.id}» le manda el acuse;` : ''} «C${fila.id}, dile que…» le contesta lo que tú digas._`)
+                : null),
     ].filter(x => x !== null).join('\n');
 }
 
@@ -550,7 +571,11 @@ async function actuar(fila, d) {
     // no tiene obra (un lead nuevo de un instalador): se le contesta solo, pero Fran lo sabe para
     // darlo de alta (16/11/2026).
     const leadSinObra = !!d.sin_obra && (d.detalle?.adjuntos || 0) > 0;
-    if (m === 'copia' || d.accion === 'ESCALAR' || (leadSinObra && d.accion !== 'CALLAR')) {
+    // Y lo contestado que deja algo que HACER a Fran (el `aviso` del investigador: preparar la
+    // memoria, dar de alta la vivienda…): se le contesta solo, pero Fran lo sabe.
+    // También lo callado que a Fran le interesa saber (el cartel de un curso sobre CAEs).
+    const conAviso = d.accion !== 'ESCALAR' && !!d.aviso;
+    if (m === 'copia' || d.accion === 'ESCALAR' || conAviso || (leadSinObra && d.accion !== 'CALLAR')) {
         try {
             if (await mandarAFran(textoParaFran(fila, d, { m, mg, enviado, acuseEnviado }))) upd.copia_at = new Date().toISOString();
         } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }
@@ -627,7 +652,13 @@ async function enviarCopia(id, { si, texto: deFran = null } = {}) {
     const { data: f, error } = await supabase.from('wa_contestador').select('*').eq('id', Number(id)).maybeSingle();
     if (error) throw e('La base de datos no responde.', 503);
     if (!f) throw e(`No hay ninguna C${id}.`, 404);
-    if (f.enviado_at) throw e(`C${id} ya se envió el ${new Date(f.enviado_at).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}.`, 409);
+    // Un ESCALAR con BORRADOR (del investigador): en real ya le salió el acuse (`enviado_at`), y «C12»
+    // es el visto bueno al borrador. Se manda una vez (`detalle.borrador_enviado_at`).
+    const conBorrador = f.accion === 'ESCALAR' && !!f.detalle?.borrador;
+    if (conBorrador ? f.detalle?.borrador_enviado_at : f.enviado_at) {
+        const cuando = conBorrador ? f.detalle.borrador_enviado_at : f.enviado_at;
+        throw e(`C${id} ya se envió el ${new Date(cuando).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}.`, 409);
+    }
     // «C12, dile además que…»: el texto lo ha terminado de redactar el asistente con lo que dijo
     // Fran (su mensaje es el «sí» para ESTE envío). Pasa por el mismo remate: sin emojis ni firma.
     let propio = null;
@@ -637,7 +668,7 @@ async function enviarCopia(id, { si, texto: deFran = null } = {}) {
         if (propio.length > 1500) throw e('El texto es demasiado largo para un WhatsApp de respuesta (más de 1.500 caracteres).');
         if (/\{ENLACE_[A-Z_]+\}/.test(propio)) throw e('El texto lleva una marca de enlace sin sustituir ({ENLACE_…}): pon el enlace real o quítalo.');
     }
-    const texto = propio || (f.accion === 'RESPONDER' ? f.texto : (f.accion === 'ESCALAR' ? f.acuse : null));
+    const texto = propio || (f.accion === 'RESPONDER' ? f.texto : (f.accion === 'ESCALAR' ? (f.detalle?.borrador || f.acuse) : null));
     const items = Array.isArray(f.detalle?.guardar) ? f.detalle.guardar : [];
     const porGuardar = items.filter(x => x.guardar && !x.hecho);
     if (!texto && !porGuardar.length) throw e(`C${id} no tiene nada que mandar ni que guardar (${f.accion}).`, 409);
@@ -645,9 +676,9 @@ async function enviarCopia(id, { si, texto: deFran = null } = {}) {
     const fuente = fuenteLocal();
     const conv = await fuente.leer({ chatId: f.chat_id, dias: 3 });
     const ms = conv.mensajes || [];
-    const ult = ms[ms.length - 1];
-    if (ult && ult.id !== f.ultimo_msg_id) {
-        throw e(ult.de_mi ? `En el chat de C${id} ya se ha escrito algo después: no lo mando.`
+    const cambio = chatHaCambiado(ms, f.ultimo_msg_id, f.enviado_at ? f.acuse : null);
+    if (cambio) {
+        throw e(cambio === 'nuestro' ? `En el chat de C${id} ya se ha escrito algo después: no lo mando.`
             : `Ha escrito algo más desde C${id}: no lo mando, que la respuesta ya no encaja.`, 409);
     }
     // Primero se GUARDA lo suyo (se vuelve a bajar del chat): la respuesta dice que ya lo
@@ -674,10 +705,30 @@ async function enviarCopia(id, { si, texto: deFran = null } = {}) {
     }
     const out = await require('./whatsappService').sendText(`34${f.tel9}`, texto);
     if (out?.ok === false) throw e(out.error || 'WhatsApp no lo ha aceptado', 502);
+    const ya = new Date().toISOString();
+    if (conBorrador) detalle.borrador_enviado_at = ya;
     await supabase.from('wa_contestador').update({
-        enviado_at: new Date().toISOString(), updated_at: new Date().toISOString(), detalle,
+        enviado_at: f.enviado_at || ya, updated_at: ya, detalle,
     }).eq('id', f.id);
     return { ok: true, id: f.id, tel9: f.tel9, texto, guardados };
+}
+
+/**
+ * ¿Ha cambiado el chat desde que se decidió? Pura. Lo único que puede haber después de su
+ * último mensaje es el ACUSE que ya le mandamos (en real, un ESCALAR sale con su acuse y «C12»
+ * manda después el borrador). Devuelve null (sin cambios), 'nuestro' o 'suyo'.
+ */
+function chatHaCambiado(ms, ultimoId, acuseEnviado) {
+    const lista = ms || [];
+    const i = lista.findIndex(m => m.id === ultimoId);
+    if (i < 0) return lista.length ? (lista[lista.length - 1].de_mi ? 'nuestro' : 'suyo') : null;
+    const despues = lista.slice(i + 1);
+    const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+    for (const m of despues) {
+        if (!m.de_mi) return 'suyo';
+        if (!(acuseEnviado && norm(m.texto) === norm(acuseEnviado))) return 'nuestro';
+    }
+    return null;
 }
 
 // ─── El resumen de las 9:00 (dentro del repaso del asistente) ────────────────
@@ -748,5 +799,5 @@ module.exports = {
     start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, activo, modo, modoGuardar, CFG,
     mapaSinObra, clasificarSinObra,
     // para las pruebas
-    textoParaFran, lineasGuardar, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila,
+    textoParaFran, lineasGuardar, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado,
 };
