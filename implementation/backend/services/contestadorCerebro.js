@@ -101,9 +101,42 @@ function bloqueInstalador(s, { conEnlace = false } = {}) {
     ].filter(Boolean).join('\n');
 }
 
+// El vídeo para instaladores («el CEE antes de la factura», 2:08), el mismo que se le mandó a mano
+// a Alejandro MultiServicios el 16/11/2026 como recordatorio de cómo trabajamos.
+const VIDEO_INSTALADORES = () => process.env.CONTESTADOR_VIDEO_INSTALADORES
+    || 'https://brokergy.es/video/2026-10_instaladores-cee-antes-factura.mp4';
+
+/**
+ * Quien escribe NO tiene ninguna obra viva con nosotros (16/11/2026, Fran: «sí, amplíalo» a los
+ * instaladores sin obra). `tipo`: 'registrado' (partner instalador sin obra en marcha),
+ * 'solicitud' (pidió entrar como instalador) o 'desconocido' (su número no está en la app; la
+ * primera vez es de la bienvenida, así que ya ha hablado con nosotros). Puro.
+ */
+function bloqueSinObra(tipo) {
+    const quien = tipo === 'registrado'
+        ? 'Es una EMPRESA INSTALADORA dada de alta con nosotros, pero ahora mismo no tiene ninguna obra en marcha en la app.'
+        : tipo === 'solicitud'
+            ? 'Pidió entrar en la red como INSTALADOR, pero no tiene ninguna obra con nosotros.'
+            : 'Su número NO está en la app (ni cliente ni partner) y no tiene ninguna obra con nosotros. Ya ha hablado con nosotros antes: no es la primera vez que escribe.';
+    return `# QUIEN ESCRIBE NO TIENE NINGUNA OBRA CON NOSOTROS
+
+${quien}
+
+Lo que contesta Fran a un INSTALADOR que quiere pasarnos un cliente o pregunta cómo trabajamos (caso G):
+- Lo que necesitamos para calcular la ayuda de su cliente: la dirección de la vivienda o su referencia
+  catastral; si tiene radiadores o suelo radiante (con una foto); la aerotermia que va a poner (marca y
+  modelo, o el presupuesto); y el nombre y el teléfono del titular. Si además cambia ventanas o aísla, que
+  lo diga.
+- Y lo que más importa: el certificado energético inicial se hace ANTES de facturar la obra.
+- El vídeo de dos minutos que lo explica (como recordatorio): {ENLACE_VIDEO_INSTALADORES}
+`;
+}
+
 /**
  * El prompt entero. Puro: se prueba sin red (scripts/test_contestador_whatsapp.js).
- * `extra` (lo pone el contestador): { instalador: situacionInstalador, pedidos: [{ at, texto }] }.
+ * `extra` (lo pone el contestador): { instalador: situacionInstalador, pedidos: [{ at, texto }],
+ *   tardeHoras: lo que lleva esperando su primer mensaje sin contestar,
+ *   sinObra: 'registrado'|'solicitud'|'desconocido' si no tiene ninguna obra viva }.
  */
 function construirPrompt(ch, obra, dossier, llegado, extra = {}) {
     if (dossier && llegado?.slots?.size) {
@@ -111,13 +144,20 @@ function construirPrompt(ch, obra, dossier, llegado, extra = {}) {
         dossier.pendientes = (dossier.pendientes || []).filter(p => !llegado.slots.has(p.clave));
     }
     const { texto: dossierTexto, enlaces, propuesta } = IA.dossierParaBorrador(ch, obra, dossier);
+    const sinObra = extra.sinObra || null;
+    if (sinObra) enlaces['{ENLACE_VIDEO_INSTALADORES}'] = VIDEO_INSTALADORES();
     const marcas = Object.keys(enlaces).join(', ') || 'ninguna';
-    const quien = ch.rol === 'instalador' ? 'una EMPRESA INSTALADORA (habla de las obras de sus clientes)'
-        : ch.rol === 'ambos' ? 'un instalador que además es titular de una obra' : 'un CLIENTE particular';
+    const quien = sinObra === 'desconocido' ? 'alguien que NO está en la app (lee la conversación para saber si es un instalador)'
+        : ch.rol === 'instalador' ? 'una EMPRESA INSTALADORA (habla de las obras de sus clientes)'
+            : ch.rol === 'ambos' ? 'un instalador que además es titular de una obra' : 'un CLIENTE particular';
     const esInstalador = ch.rol === 'instalador' || ch.rol === 'ambos';
     const inst = bloqueInstalador(extra.instalador, { conEnlace: esInstalador && !!enlaces['{ENLACE_INSTALADOR}'] });
     const pedidos = (extra.pedidos || []).filter(p => p?.texto);
     const hayGuardado = (llegado?.lineas || []).some(l => /YA GUARDADO/.test(l));
+    // Se le contesta TARDE (lleva más de un día esperando): se reconoce en una frase y se
+    // contesta igual. Antes lo de más de 48 h iba entero a Fran, sin borrador (11/11/2026: 31 de
+    // 63 chats; Fran: «si todo lo tengo que revisar yo, para eso contesto yo directamente»).
+    const tarde = Number(extra.tardeHoras) >= 24 ? Math.round(Number(extra.tardeHoras) / 24) : 0;
     const segs = (extra.seguimientos || []).filter(s => s?.numero);
     const segPropuesta = segs.some(s => s.tipo === 'PROPUESTA');
     const segCee = segs.some(s => s.tipo === 'CEE_INICIAL');
@@ -127,7 +167,8 @@ function construirPrompt(ch, obra, dossier, llegado, extra = {}) {
 # DOSSIER DE ESTA CONVERSACIÓN
 
 ${dossierTexto}
-${inst ? `
+${sinObra ? `
+${bloqueSinObra(sinObra)}` : ''}${inst ? `
 # LO DEL INSTALADOR EN ESTA OBRA (CIFO y RITE), mirado ahora en la app
 
 ${inst}
@@ -169,7 +210,11 @@ CÓMO ESCRIBE FRAN (manda sobre «CÓMO HABLAS» de arriba):
   escrito él. Si hoy ya os habéis saludado, ve al grano sin «Hola».
 - Saluda con el nombre de pila si el dossier lo da («Hola Ana,»); si no, «Hola,».
 - SIN emojis. Sin firma ni «un saludo». Sin disculparte («lo siento», «perdona», «disculpa»): se
-  explica y se dice qué sigue. *Negrita* solo para lo que se le pide.
+  explica y se dice qué sigue. *Negrita* solo para lo que se le pide.${tarde ? `
+- Le contestas TARDE: lleva ${tarde === 1 ? 'un día' : `${tarde} días`} esperando. Empieza con «Perdona la tardanza.»
+  (detrás del saludo) y contesta igual, con lo que dice HOY el dossier: si lo que preguntaba ya ha
+  cambiado (la fase ha avanzado, ya se le pidió o ya lo mandó después), contéstale con lo de ahora.
+  Si lo suyo ya se resolvió después en la conversación, CALLAR.` : ''}
 - Contesta a lo que ha preguntado o mandado, y SOLO a eso. No le cuentes todo el expediente.
 - Nunca el nombre interno de un estado o de una ficha (PTE FIN EXPTE, TITULAR PTE, S.O., MITECO, lote,
   RES060…), nunca importes, nunca fechas o plazos que no estén en el dossier.
@@ -215,6 +260,22 @@ F. Ya emitido y pendiente de cobro → ha salido favorable y está emitido; esta
   · Si contesta que no tiene el RITE o que se lo preparemos → ESCALAR (motivo: «preparar la Memoria RITE de
     <la obra>»), con acuse «Perfecto, la preparo y te la paso».` : ''}${inst && !esInstalador ? `
 - El RITE, el CIFO y las facturas de la obra son del INSTALADOR: a un cliente no se le piden (caso A).` : ''}
+${sinObra ? `G. NO TIENE OBRA CON NOSOTROS (arriba). La primera que encaje:
+   · Es un instalador (o una empresa del sector) y pregunta cómo trabajamos, qué necesitamos, si le
+     ayudamos con un cliente, o retoma una conversación de antes → RESPONDER con lo del caso G: lo que
+     necesitamos, en dos o tres líneas sin lista larga, que el certificado inicial va ANTES de facturar, y la
+     MARCA del vídeo sola en su línea. Aquí vale hasta OCHO líneas.
+   · Si además ya ha mandado algo de un cliente (fotos de la caldera, un presupuesto) y pregunta qué más
+     hace falta → igual, RESPONDER: acusa en concreto lo recibido («recibidas las fotos de la caldera») y
+     pídele solo lo que FALTA de la lista del caso G, con el vídeo. Fran se entera aparte para darlo de alta.
+   · Manda los datos de un cliente concreto SIN preguntar nada (para que se lo calculemos) → ESCALAR
+     (motivo: «dar de alta la oportunidad que manda <quién>, de <dónde>»), con acuse «Recibido, lo miro y te
+     digo».
+   · Pregunta por una obra o un expediente que no está aquí, por comisiones, precios o condiciones → ESCALAR
+     con acuse.${sinObra === 'desconocido' ? `
+   · NO es un instalador ni una empresa del sector (un particular, un proveedor, publicidad, algo
+     personal o que no entiendes) → CALLAR (motivo: «no es un instalador: …»). Ante la duda, CALLAR.` : ''}
+` : ''}
 ${segPropuesta ? `- Si contesta a lo que le preguntamos de una PROPUESTA en el seguimiento (arriba), di en "seguimiento"
   QUÉ ha contestado, una entrada por cada propuesta de la que hable: {"numero": "<el de arriba>", "resultado":
   "SIGUE" | "NO_SIGUE" | "PENSANDO" | "MAS_ADELANTE", "cuando": "AAAA-MM-DD" (solo con MAS_ADELANTE y si dice
@@ -368,4 +429,4 @@ async function redactar(ch, obra, dossier, llegado, cuenta, extra = {}) {
     return { ...rematar(json, enlaces), con_dossier: !!dossier, propuesta, cerebro, prompt_chars: prompt.length };
 }
 
-module.exports = { redactar, construirPrompt, bloqueInstalador, bloqueSeguimiento, rematar, limpiar, SCHEMA };
+module.exports = { redactar, construirPrompt, bloqueInstalador, bloqueSinObra, bloqueSeguimiento, rematar, limpiar, SCHEMA, VIDEO_INSTALADORES };

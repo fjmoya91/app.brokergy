@@ -35,10 +35,14 @@ Fuente única: [contestadorWhatsapp.js](../../../implementation/backend/services
    - **la respuesta AUTOMÁTICA de su WhatsApp Business no es suya** (`esperasWhatsapp.pareceAutomatica`:
      de plantilla y con emojis o larga; aquí SIN reloj, porque la de un instalador llegó 12 min después de lo
      nuestro y las esperas miran 10): no se cuenta, y si es lo único que hay, no se contesta;
-   - un **certificador** no se contesta (se lleva como a un compañero) ni un número **sin obra viva** (eso es
-     de la bienvenida y del modo proactivo);
-   - lo suyo de hace más de 48 h (`CONTESTADOR_MAX_HORAS`) → a Fran: contestar a lo de hace cuatro días, al
-     volver de un apagón, delata a la máquina;
+   - un **certificador** no se contesta (se lleva como a un compañero), ni un cliente sin obra viva, ni quien
+     escribe por PRIMERA vez (eso es de la bienvenida); un **instalador sin obra** sí (abajo);
+   - lo suyo de hace más de 8 días (`CONTESTADOR_MAX_HORAS`, 192) → a Fran. Lo de más de un día **se
+     contesta igual**, empezando por «Perdona la tardanza.» (el cerebro recibe `tardeHoras` y contesta con
+     lo que dice HOY el dossier; si ya se resolvió después, CALLAR). Hasta el 11/11/2026 el corte era 48 h y
+     lo de antes iba a Fran SIN borrador: de los 63 chats atrasados de la semana que se pasaron por la cola,
+     31 le llegaron así. Fran: «si todo lo tengo que revisar yo, para eso contesto yo directamente […] solo
+     quiero contestar en aquello que sea imprescindible»;
    - solo cortesía («gracias», «ok», un emoji) → CALLAR;
    - si no, hace con ESE chat lo mismo que la ronda (`rondaWhatsapp.procesarChat`: lee los adjuntos con
      Gemini, elige la obra, arma el DOSSIER en `soloLectura`) con el cerebro del contestador como redactor
@@ -48,6 +52,38 @@ Fuente única: [contestadorWhatsapp.js](../../../implementation/backend/services
 3. **Con la decisión**: RESPONDER → se le contesta; ESCALAR → a Fran, y al cliente, si hay, una frase de
    acuse («Lo miro y te digo»); CALLAR → nada. Y antes de contestar, **lo que ha mandado se GUARDA** en su
    expediente (abajo).
+
+## Instaladores SIN obra: también se les contesta (2026-11-16)
+
+Fran, 16/11/2026, tras ver días sin respuesta el chat de Alejandro MultiServicios (un instalador que mandó
+las fotos de la caldera de un cliente y preguntó «dime qué datos necesitas»): «sí, amplíalo». Nadie cogía a
+un instalador sin obra: el contestador solo miraba el universo de la ronda (obra viva) y la bienvenida no
+escribe a quien no es nuevo, a una cuenta de empresa ni a quien dice «soy instalador».
+
+**REGLA — el contestador contesta también a un INSTALADOR sin obra viva** (`clasificarSinObra`):
+- **registrado**: partner `INSTALADOR`/`DISTRIBUIDOR`/`OTRO` con ese teléfono (también el de la landing y
+  los de avisos) y sin ninguna obra en marcha;
+- **solicitud**: solo pidió entrar como instalador (`instalador_solicitudes`);
+- **desconocido**: el número no está en ningún sitio de la app (el mapa de `bienvenida._telefonosConocidos`),
+  es un móvil español, no tiene fila en `wa_bienvenidas` y no es su primera vez (si en el chat no hay nada
+  nuestro y empezó hace menos de 6 h, es de la bienvenida). El cerebro mira si es un instalador: **si no lo
+  es, CALLAR** (ante la duda, también).
+- Un cliente sin obra viva, un certificador, un usuario o un número descartado siguen sin contestarse.
+
+**Qué se le dice (caso G del cerebro)**: lo que necesitamos para calcular la ayuda de su cliente (dirección o
+referencia catastral; radiadores o suelo radiante, con foto; la aerotermia, marca y modelo o el presupuesto;
+nombre y teléfono del titular; ventanas o aislamiento si los hay), que el CEE inicial va **antes de facturar**,
+y el vídeo para instaladores (`{ENLACE_VIDEO_INSTALADORES}`, `CONTESTADOR_VIDEO_INSTALADORES`, por defecto
+el de brokergy.es). Si ya mandó algo de un cliente y pregunta qué falta, se acusa lo recibido y se le pide
+solo lo que falta. Si manda los datos de un cliente sin preguntar nada → ESCALAR («dar de alta la
+oportunidad…»). Comisiones, precios u obras que no están → ESCALAR.
+
+**En real, a Fran le llega «He contestado a…» cuando el que no tiene obra ha mandado adjuntos** (`leadSinObra`):
+es un lead nuevo y hay que darlo de alta; lo que manda NO se guarda solo (no hay obra donde guardarlo).
+
+Seco del 16/11/2026 con el chat de Alejandro tal como estaba (`--antes`): con la primera versión del caso G
+lo escalaba («manda fotos de un cliente»); con la segunda contesta «perdona la tardanza, recibidas las fotos de
+la caldera; para calcularle la ayuda necesito también…», el CEE antes de facturar y el vídeo.
 
 ## Lo que manda se GUARDA antes de contestar (2026-11-10)
 
@@ -134,7 +170,9 @@ un trabajo largo de Fran no deja a un cliente sin contestar y al revés. Es un `
 vacía y sin `ANTHROPIC_API_KEY`), así que no lee ficheros ni toca nada: piensa y devuelve el JSON. Su
 consumo va a `scratch/asistente/contestador.jsonl`, aparte del de Fran: **no cuenta para el tope de 40
 trabajos al día**. Si Claude no está o falla, GEMINI con el mismo prompt y su esquema (respaldo), y se dice
-cuál fue. Medido el 10/11/2026: la sobrecarga de una llamada sin herramientas es de ~300 tokens y 3-8 s; una
+cuál fue. **En modo real, una respuesta de Gemini de RESPALDO no sale sola: va a Fran como copia**
+(`modoDeFila`; su acuse de un ESCALAR sí sale). El 11/11/2026 Claude devolvió un JSON roto con una gestoría
+que acababa de darnos el correo para las memorias RITE, y Gemini le contestó que aceptara una propuesta. Medido el 10/11/2026: la sobrecarga de una llamada sin herramientas es de ~300 tokens y 3-8 s; una
 respuesta real, ~9.000 tokens de entrada y 19 s.
 
 **Lo medido en seco (10/11/2026, chats reales del triaje del 08/11 y cinco casos inventados):** de 14 chats,
@@ -194,6 +232,10 @@ pasa por el mismo remate: sin emojis ni firma, y sin marcas `{ENLACE_…}` sin s
 `POST /api/whatsapp/contestador/:id/enviar {si, texto?}`, que guarda antes y solo envía si **el chat no ha
 cambiado desde entonces** (su último mensaje es el mismo) y tiene menos de 24 h. Plan: 3 días en copia, revisar lo que
 habría dicho, y `CONTESTADOR_MODO=real`. En real, a Fran le llega lo mismo con «He contestado a…».
+**En REAL desde el 16/11/2026 15:53 (Madrid)** («Sí, a real», Fran): `CONTESTADOR_MODO=real` en el `.env` del
+VPS (respaldo `.env.bak.contestador_real.20261116_145316`), backend recreado. En real también GUARDA lo que
+mandan (`modoGuardar`). Las filas ya HECHAS en copia no se reenvían; volver a copia = quitar la línea y
+recrear el backend.
 
 El resumen del día va DENTRO del repaso de las 9:00 del asistente («*Lo de WhatsApp*»: esperas +
 contestador, `GET /api/whatsapp/contestador/resumen`), nunca en un aviso aparte.
@@ -205,7 +247,7 @@ contestador, `GET /api/whatsapp/contestador/resumen`), nunca en un aviso aparte.
   ya apunta al contenedor, `CONTESTADOR_ENABLED=true` (copia por defecto) y reiniciar el vigía del
   asistente para que cargue `/contestar`.
 - Variables: `CONTESTADOR_GUARDAR` (`real`: guardar de verdad con las respuestas aún en copia), `CONTESTADOR_SILENCIO_MIN` (15), `CONTESTADOR_TOPE_DIA` (40), `CONTESTADOR_TOPE_CHAT_DIA` (3),
-  `CONTESTADOR_POR_VUELTA` (2), `CONTESTADOR_MAX_HORAS` (48), `CONTESTADOR_CEREBRO` (`claude`|`gemini`),
+  `CONTESTADOR_POR_VUELTA` (2), `CONTESTADOR_MAX_HORAS` (192), `CONTESTADOR_CEREBRO` (`claude`|`gemini`),
   `CONTESTADOR_MODELO` (`sonnet`), `CONTESTADOR_PLAZO_MS`, `CONTESTADOR_DESTINO`.
 - Rutas (`adminOInterno`): `GET /api/whatsapp/contestador?estado=`, `GET /contestador/resumen`,
   `POST /contestador/probar {telefono}` (en seco: dice qué contestaría), `POST /contestador/:id/enviar`.

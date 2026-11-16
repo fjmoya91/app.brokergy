@@ -34,8 +34,11 @@
 //    le ha contestado alguien, no se contesta.
 //  - Topes en el CÓDIGO: 3 respuestas al día por chat (un bot del otro lado no puede
 //    hacer ping-pong), 40 al día en total, 2 por vuelta; pasado un tope, a Fran.
-//  - Certificadores y números sin obra viva: no se les contesta (un técnico se lleva
-//    como a un compañero; un número nuevo es de la bienvenida y del modo proactivo).
+//  - Certificadores: no se les contesta (un técnico se lleva como a un compañero). Un
+//    número que escribe por PRIMERA vez es de la bienvenida. Un cliente sin obra viva, no.
+//  - INSTALADORES SIN OBRA (16/11/2026): un partner instalador sin obra en marcha, o un
+//    número que no está en la app y ya habló con nosotros, SÍ: si es un instalador se le
+//    dice qué necesitamos y el vídeo; si no lo es, se calla (lo decide el cerebro).
 //  - El chat de Fran y el de administración no se contestan nunca.
 // =============================================================================
 
@@ -54,10 +57,11 @@ const CFG = {
     topeDia: num(process.env.CONTESTADOR_TOPE_DIA, 40),
     topeChatDia: num(process.env.CONTESTADOR_TOPE_CHAT_DIA, 3),
     porVuelta: num(process.env.CONTESTADOR_POR_VUELTA, 2),
-    diasContexto: 7,
-    // Lo suyo más antiguo que esto ya no se contesta solo (al volver de un apagón,
-    // contestar a lo de hace cuatro días delata a la máquina): a Fran.
-    maxHorasSinContestar: num(process.env.CONTESTADOR_MAX_HORAS, 48),
+    diasContexto: 10,
+    // Lo suyo más antiguo que esto ya no se contesta solo: a Fran. Era 48 h y mandaba a Fran,
+    // sin borrador, todo lo atrasado (11/11/2026: 31 de 63 chats de la semana). Ahora se
+    // contesta con «Perdona la tardanza» (el cerebro sabe cuánto lleva esperando) hasta 8 días.
+    maxHorasSinContestar: num(process.env.CONTESTADOR_MAX_HORAS, 192),
     purgaDias: 90,
 };
 const activo = () => process.env.CONTESTADOR_ENABLED === 'true';
@@ -83,16 +87,70 @@ function esDeLaCasa(tel9) {
 let universo = null;
 let universoAt = 0;
 let enviosApp = null;
+let instaladoresSinObra = null;
 async function cargar() {
     if (!universo || Date.now() - universoAt > 10 * 60_000) {
         const ahora = Math.floor(Date.now() / 1000);
-        [universo, enviosApp] = await Promise.all([
+        let partners;
+        [universo, enviosApp, partners] = await Promise.all([
             Ronda.cargarUniverso(),
             Ronda.cargarEnviosApp(ahora - (CFG.diasContexto + 1) * 86400),
+            supabase.from('prescriptores').select('id_empresa, razon_social, acronimo, tipo_empresa, tlf, tlf_responsable, tlf_contacto, landing_telefono_contacto, nombre_responsable, contactos_notificacion')
+                .then(r => { if (r.error) throw new Error(r.error.message); return r.data || []; }),
         ]);
+        instaladoresSinObra = mapaSinObra(partners, universo.porTel);
         universoAt = Date.now();
     }
-    return { u: universo, envios: enviosApp };
+    return { u: universo, envios: enviosApp, sinObra: instaladoresSinObra };
+}
+
+// ─── Instaladores SIN obra viva (16/11/2026, Fran: «sí, amplíalo») ───────────
+// Un instalador que nos escribe sin tener ninguna obra en marcha no lo cogía nadie: ni el
+// contestador (no estaba en el universo) ni la bienvenida (no es la primera vez, o es una cuenta
+// de empresa, o dice «soy instalador»). Caso: Alejandro MultiServicios, días sin respuesta.
+const TIPOS_INSTALADOR = new Set(['INSTALADOR', 'DISTRIBUIDOR', 'OTRO']);
+
+/** Teléfono → [persona] de los partners instaladores que NO están en el universo. Puro. */
+function mapaSinObra(partners, porTel) {
+    const m = new Map();
+    for (const p of partners || []) {
+        const tipo = String(p.tipo_empresa || '').toUpperCase();
+        if (!TIPOS_INSTALADOR.has(tipo)) continue;
+        const tels = [p.tlf, p.tlf_responsable, p.tlf_contacto, p.landing_telefono_contacto,
+            ...(Array.isArray(p.contactos_notificacion) ? p.contactos_notificacion.map(x => x?.tlf) : [])];
+        for (const t of tels) {
+            const n = ult9(t);
+            if (!n || porTel?.has(n)) continue;
+            if (!m.has(n)) m.set(n, []);
+            const l = m.get(n);
+            if (!l.some(x => x.id === p.id_empresa)) l.push({ tipo: 'partner', id: p.id_empresa, nombre: p.acronimo || p.razon_social, rol: tipo, persona: p.nombre_responsable || null });
+        }
+    }
+    return m;
+}
+
+/**
+ * ¿Es de los que no tienen obra y se contestan? { tipo, personas } o null. Puro.
+ * `conocido`: dónde lo conoce la app (`bienvenida._telefonosConocidos`), o undefined.
+ *  - partner instalador sin obra → 'registrado';
+ *  - solo una solicitud de instalador → 'solicitud';
+ *  - en ningún sitio y móvil español → 'desconocido' (el cerebro mira si es un instalador; si no, calla);
+ *  - un cliente sin obra viva, un certificador, un usuario, un descartado… → null (como antes).
+ */
+function clasificarSinObra(tel9, { porTel, sinObra, conocido, esMovil }) {
+    if (!tel9 || porTel?.has(tel9)) return null;
+    if (sinObra?.has(tel9)) return { tipo: 'registrado', personas: sinObra.get(tel9) };
+    if (conocido === 'solicitud de instalador') return { tipo: 'solicitud', personas: [] };
+    if (conocido) return null;
+    return esMovil ? { tipo: 'desconocido', personas: [] } : null;
+}
+
+async function sinObraDe(tel9) {
+    const { u, sinObra } = await cargar();
+    if (u.porTel.has(tel9)) return null;
+    const B = require('./bienvenidaWhatsapp');
+    const conocido = sinObra.has(tel9) ? undefined : (await B._telefonosConocidos()).get(tel9);
+    return clasificarSinObra(tel9, { porTel: u.porTel, sinObra, conocido, esMovil: require('../utils/bienvenidaWhatsapp').esMovilEspanol(tel9) });
 }
 
 // ─── 1. Lo que ENTRA ─────────────────────────────────────────────────────────
@@ -145,9 +203,10 @@ async function alMensajeEntrante(msg) {
         if (chatId.endsWith('@c.us')) {
             const t = ult9(chatId);
             if (!t || esDeLaCasa(t)) return;
-            // Un número sin nada vivo no se apunta siquiera (el @lid se mira en la vuelta).
+            // Un número sin nada vivo no se apunta siquiera (el @lid se mira en la vuelta), salvo
+            // que sea un instalador sin obra o alguien que no está en la app (16/11/2026).
             const { u } = await cargar();
-            if (!u.porTel.has(t)) return;
+            if (!u.porTel.has(t) && !(await sinObraDe(t))) return;
         }
         await conCandado(chatId, () => encolar(chatId, msg));
     } catch (e) {
@@ -206,13 +265,29 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     }
     if (enVivo && ahoraSeg - ultimo.t < CFG.silencioMin * 60 - 30) return { ...base, estado: 'ESPERAR', motivo: 'sigue escribiendo' };
 
-    const personas = u.porTel.get(tel9) || [];
-    if (!personas.length) return fuera('no tiene nada vivo con nosotros');
-    const rol = Ronda.rolDe(personas);
+    let personas = u.porTel.get(tel9) || [];
+    let sinObra = null;
+    if (!personas.length) {
+        sinObra = await sinObraDe(tel9);
+        if (!sinObra) return fuera('no tiene nada vivo con nosotros');
+        if (sinObra.tipo !== 'registrado') {
+            // La primera vez es de la bienvenida: si ya se le dio (o está apuntada), no se le contesta.
+            const { data: bv, error } = await supabase.from('wa_bienvenidas').select('id').eq('tel9', tel9).limit(1);
+            if (error) throw new Error(`la base de datos no responde (${error.message})`);
+            if (bv?.length) return fuera('es de la bienvenida (ya se le dio o se le va a dar)');
+            // Sin nada nuestro en el chat es la primera vez: también de la bienvenida.
+            if (!ms.some(m => m.de_mi) && ms.length && ahoraSeg - ms[0].t < 6 * 3600) return fuera('primera vez que escribe: es de la bienvenida');
+        }
+        personas = sinObra.personas;
+    }
+    const rol = sinObra ? 'instalador' : Ronda.rolDe(personas);
     if (rol === 'certificador') return fuera('es un técnico certificador: se le contesta a mano');
 
     // El último mensaje DEL CHAT (sea de quien sea): «C12» solo sale si sigue siéndolo.
-    const comun = { ...base, rol, titulo: Ronda.tituloDe(personas, null), pendientes: resumenPendientes(pendientes), ultimo_msg_id: ms[ms.length - 1].id };
+    const titulo = sinObra && !personas.length
+        ? `${conv.nombre || 'sin nombre'} (no está en la app${sinObra.tipo === 'solicitud' ? ': pidió entrar como instalador' : ''})`
+        : `${Ronda.tituloDe(personas, null)}${sinObra ? ' (sin obra en marcha)' : ''}`;
+    const comun = { ...base, rol, titulo, sin_obra: sinObra?.tipo || null, pendientes: resumenPendientes(pendientes), ultimo_msg_id: ms[ms.length - 1].id };
     if (ahoraSeg - pendientes[0].t > CFG.maxHorasSinContestar * 3600) {
         return { ...comun, estado: 'DECIDIDO', accion: 'ESCALAR', motivo: `lleva ${Math.round((ahoraSeg - pendientes[0].t) / 3600)} h sin contestar: mejor que lo veas tú` };
     }
@@ -250,6 +325,8 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
             try { extra.pedidos = await Docs.pedidosAnteriores(tel9, obra, { unica: (c.obras || []).length === 1, hasta: ultimoT ? new Date(ultimoT * 1000) : null }); }
             catch (e) { /* sin lo de antes también se contesta */ }
         }
+        extra.tardeHoras = (Date.now() / 1000 - pendientes[0].t) / 3600;
+        if (sinObra) extra.sinObra = sinObra.tipo;
         // Lo que le hemos preguntado en el SEGUIMIENTO (propuestas, CEE inicial): para que entienda
         // a qué contesta y diga qué ha contestado (services/seguimientoWhatsapp.js; nunca lanza).
         extra.seguimientos = await require('./seguimientoWhatsapp').paraContestador(tel9);
@@ -388,8 +465,18 @@ async function mandarAFran(texto) {
     return r?.ok !== false;
 }
 
+/**
+ * El modo de ESTA respuesta. Puro. En real, la que ha redactado Gemini porque Claude falló va a
+ * Fran como copia: 11/11/2026, a una gestoría que acababa de darnos el correo para las memorias
+ * RITE, Gemini le contestó que aceptara una propuesta (C60). Lo de Claude sale solo.
+ */
+function modoDeFila(m, d) {
+    return m === 'real' && d?.accion === 'RESPONDER' && /respaldo/i.test(String(d?.cerebro || '')) ? 'copia' : m;
+}
+
 async function actuar(fila, d) {
-    const m = modo();
+    const m = modoDeFila(modo(), d);
+    if (m !== modo()) d.motivo = `${d.motivo ? `${d.motivo} · ` : ''}lo ha redactado el cerebro de respaldo: revísalo`;
     const mg = modoGuardar();
     const ws = require('./whatsappService');
     const ahora = new Date().toISOString();
@@ -397,7 +484,7 @@ async function actuar(fila, d) {
         estado: 'HECHA', accion: d.accion, motivo: recorta(d.motivo, 500) || null, obra: d.obra || null,
         texto: d.texto || null, acuse: d.acuse || null, modo: m, cerebro: d.cerebro || null, tel9: d.tel9 || fila.tel9,
         nombre: fila.nombre || d.nombre || null, ultimo_msg_id: d.ultimo_msg_id || fila.ultimo_msg_id,
-        detalle: { ...(d.detalle || {}), rol: d.rol || null, titulo: d.titulo || null, pendientes: d.pendientes || [] },
+        detalle: { ...(d.detalle || {}), rol: d.rol || null, titulo: d.titulo || null, sin_obra: d.sin_obra || null, pendientes: d.pendientes || [] },
         updated_at: ahora,
     };
     // 1. GUARDAR lo que ha mandado, ANTES de contestar: la respuesta dice «ya lo tengo en el
@@ -459,8 +546,11 @@ async function actuar(fila, d) {
             acuseEnviado = d.accion === 'ESCALAR';
         }
     }
-    // A Fran: todo en modo copia; en real, lo que es para él.
-    if (m === 'copia' || d.accion === 'ESCALAR') {
+    // A Fran: todo en modo copia; en real, lo que es para él. Y lo que manda de un cliente quien
+    // no tiene obra (un lead nuevo de un instalador): se le contesta solo, pero Fran lo sabe para
+    // darlo de alta (16/11/2026).
+    const leadSinObra = !!d.sin_obra && (d.detalle?.adjuntos || 0) > 0;
+    if (m === 'copia' || d.accion === 'ESCALAR' || (leadSinObra && d.accion !== 'CALLAR')) {
         try {
             if (await mandarAFran(textoParaFran(fila, d, { m, mg, enviado, acuseEnviado }))) upd.copia_at = new Date().toISOString();
         } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }
@@ -656,6 +746,7 @@ function start() {
 
 module.exports = {
     start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, activo, modo, modoGuardar, CFG,
+    mapaSinObra, clasificarSinObra,
     // para las pruebas
-    textoParaFran, lineasGuardar, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla,
+    textoParaFran, lineasGuardar, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila,
 };

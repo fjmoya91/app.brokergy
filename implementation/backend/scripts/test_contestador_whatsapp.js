@@ -211,6 +211,54 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
     ok(cli.includes('a un cliente no se le piden') && !cli.includes('{ENLACE_INSTALADOR}'), 'a un cliente: lo del instalador no se le pide');
     const sinExtra = cerebro.construirPrompt(ch, { tipo: 'expediente', codigo: '26RES060_901' }, dossier(), { lineas: [], slots: new Set() }).prompt;
     ok(!sinExtra.includes('LO DEL INSTALADOR EN ESTA OBRA') && !sinExtra.includes('LO QUE YA LE HEMOS PEDIDO'), 'sin extra, el prompt de siempre');
+    ok(!sinExtra.includes('Perdona la tardanza'), 'contestado a tiempo: sin disculpa');
+    const tarde = cerebro.construirPrompt(ch, { tipo: 'expediente', codigo: '26RES060_901' }, dossier(), { lineas: [], slots: new Set() }, { tardeHoras: 130 }).prompt;
+    ok(tarde.includes('lleva 5 días esperando') && tarde.includes('«Perdona la tardanza.»'), 'tarde: el cerebro sabe cuánto lleva esperando y lo reconoce');
+    const unDia = cerebro.construirPrompt(ch, { tipo: 'expediente', codigo: '26RES060_901' }, dossier(), { lineas: [], slots: new Set() }, { tardeHoras: 20 }).prompt;
+    ok(!unDia.includes('Perdona la tardanza'), 'menos de un día: sin disculpa');
+}
+
+// ── Instaladores SIN obra viva (16/11/2026, «sí, amplíalo») ──
+{
+    const porTel = new Map([['600000001', [{ tipo: 'cliente', id: 'c1' }]]]);
+    const partners = [
+        { id_empresa: 'p1', razon_social: 'INSTALA SL', tipo_empresa: 'INSTALADOR', tlf: '+34 600 000 002', contactos_notificacion: [{ tlf: '600000003' }] },
+        { id_empresa: 'p2', razon_social: 'CERT SL', tipo_empresa: 'CERTIFICADOR', tlf: '600000004' },
+        { id_empresa: 'p3', razon_social: 'CON OBRA SL', tipo_empresa: 'INSTALADOR', tlf: '600000001' },
+    ];
+    const m = C.mapaSinObra(partners, porTel);
+    ok(m.has('600000002') && m.has('600000003'), 'sin obra: los teléfonos del instalador (también el de avisos) entran');
+    ok(!m.has('600000004'), 'sin obra: un certificador no entra');
+    ok(!m.has('600000001'), 'sin obra: un teléfono que ya está en el universo no se duplica');
+    const k = (t, o) => C.clasificarSinObra(t, { porTel, sinObra: m, esMovil: true, ...o });
+    ok(k('600000001') === null, 'con obra viva: el camino de siempre');
+    ok(k('600000002')?.tipo === 'registrado', 'partner instalador sin obra: registrado');
+    ok(k('611111111', { conocido: 'solicitud de instalador' })?.tipo === 'solicitud', 'solicitud de instalador: se contesta');
+    ok(k('611111111', { conocido: 'cliente' }) === null, 'un cliente sin obra viva: no (como antes)');
+    ok(k('611111111', { conocido: 'certificador de la app' }) === null, 'un certificador de la app: no');
+    ok(k('611111111')?.tipo === 'desconocido', 'no está en la app y es móvil español: desconocido');
+    ok(k('611111111', { esMovil: false }) === null, 'no está en la app y no es móvil español: no');
+    const ch = { texto: 'ELLOS: Hola, tengo un cliente en Tomelloso', rol: 'instalador', personas: [], obras: [] };
+    const r = cerebro.construirPrompt(ch, null, null, { lineas: [], slots: new Set() }, { sinObra: 'desconocido' });
+    ok(r.enlaces['{ENLACE_VIDEO_INSTALADORES}'] === cerebro.VIDEO_INSTALADORES(), 'sin obra: el vídeo de instaladores va como marca');
+    ok(r.prompt.includes('NO TIENE OBRA CON NOSOTROS') && r.prompt.includes('ANTES de facturar'), 'sin obra: el cerebro tiene el caso G');
+    ok(r.prompt.includes('NO es un instalador') && r.prompt.includes('Ante la duda, CALLAR'), 'desconocido: si no es instalador, calla');
+    const r2 = cerebro.construirPrompt(ch, null, null, { lineas: [], slots: new Set() }, { sinObra: 'registrado' });
+    ok(!r2.prompt.includes('NO es un instalador ni una empresa'), 'registrado: no se le pregunta si es instalador');
+    const r3 = cerebro.construirPrompt(ch, null, null, { lineas: [], slots: new Set() }, {});
+    ok(!r3.enlaces['{ENLACE_VIDEO_INSTALADORES}'] && !r3.prompt.includes('NO TIENE OBRA CON NOSOTROS'), 'con obra: nada de esto');
+    const fin = cerebro.rematar({ accion: 'RESPONDER', parrafos: ['Hola, te paso el vídeo:', '{ENLACE_VIDEO_INSTALADORES}'] }, r.enlaces);
+    ok(fin.mensaje.includes(cerebro.VIDEO_INSTALADORES()) && !fin.problemas_enlaces.length, 'la marca del vídeo se cambia por su enlace');
+}
+
+// ── Lo atrasado se contesta (ya no va entero a Fran) y lo de Gemini de respaldo, a Fran ──
+{
+    ok(C.CFG.maxHorasSinContestar >= 168, 'lo de una semana se contesta solo (antes, a partir de 48 h, a Fran)');
+    ok(C.CFG.diasContexto * 24 > C.CFG.maxHorasSinContestar, 'la conversación que se lee cubre lo más antiguo que se contesta');
+    ok(C.modoDeFila('real', { accion: 'RESPONDER', cerebro: 'claude (claude-sonnet-5-5, 9 s)' }) === 'real', 'real: lo de Claude sale solo');
+    ok(C.modoDeFila('real', { accion: 'RESPONDER', cerebro: 'gemini (respaldo: sin JSON)' }) === 'copia', 'real: lo de Gemini de respaldo va a Fran como copia');
+    ok(C.modoDeFila('real', { accion: 'ESCALAR', cerebro: 'gemini (respaldo: x)' }) === 'real', 'un ESCALAR de respaldo: su acuse sale igual');
+    ok(C.modoDeFila('copia', { accion: 'RESPONDER', cerebro: 'claude' }) === 'copia', 'en copia, todo copia');
 }
 
 // ── Cómo contesta Fran a una copia: «C4» manda; «C4, dile además…» cambia ──
