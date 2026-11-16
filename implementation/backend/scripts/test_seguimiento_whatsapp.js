@@ -208,6 +208,24 @@ const EMOJI = /\p{Extended_Pictographic}/u;
     ok(seg.destinoDeFila({ ...fila, detalle: {} }).tel9 === '600111222' && !seg.destinoDeFila({ ...fila, detalle: {} }).otroLado, 'R3 sin otro lado → al mismo');
     ok(seg.enlaceAceptar('abc').endsWith('/firma/abc'), 'el enlace de aceptar es el /firma/:uuid de la oportunidad');
 
+    // El WATCHDOG (16/11/2026, Vicente: seis mensajes de OTRA obra movieron cuatro propuestas dos pasos).
+    {
+        const V = '691000000';
+        const sinToque = { tel9: V, contestado_at: null, detalle: {}, acciones: [{ at: '2026-11-15T21:27:00Z', accion: 'alta' }] };
+        ok(!seg.comoRespuesta(sinToque, V).cuenta, 'sin haberle escrito nada en ESE seguimiento, su mensaje no es respuesta');
+        const tocada = { ...sinToque, detalle: { escritos: { [V]: '2026-11-16T09:00:00Z' } } };
+        ok(seg.comoRespuesta(tocada, V).cuenta && seg.comoRespuesta(tocada, V).avanza, 'el primer mensaje tras el toque es respuesta y mueve la escalera');
+        const yaContesto = { ...tocada, contestado_at: '2026-11-16T09:05:00Z' };
+        ok(seg.comoRespuesta(yaContesto, V).cuenta && !seg.comoRespuesta(yaContesto, V).avanza, 'los demás de la ráfaga se apuntan, pero no mueven nada');
+        const nuevoToque = { ...yaContesto, detalle: { escritos: { [V]: '2026-11-19T09:00:00Z' } } };
+        ok(seg.comoRespuesta(nuevoToque, V).avanza, 'tras un toque NUEVO, su respuesta vuelve a mover la escalera');
+        ok(!seg.comoRespuesta(tocada, '600999888').cuenta, 'el otro lado no cuenta si a él no se le ha escrito (el R3)');
+        const r3 = { ...tocada, detalle: { escritos: { [V]: '2026-11-16T09:00:00Z', '600999888': '2026-11-20T09:00:00Z' } } };
+        ok(seg.comoRespuesta(r3, '600999888').avanza, 'tras el R3, lo que conteste el otro lado sí es respuesta');
+        const deAntes = { ...sinToque, acciones: [{ at: '2026-11-16T09:00:00Z', accion: 'toque', tel9: V }] };
+        ok(seg.comoRespuesta(deAntes, V).avanza, 'una fila sin `escritos` se mira por el toque de sus acciones');
+    }
+
     // Fichas con un nombre PROVISIONAL (15/11/2026: la calle, «PROPIETARIO», «CALDERA CARBÓN»).
     for (const n of ['PROPIETARIO LA SOLANA 55', 'CL GOYA 15 - MOTILLA DEL PALANCAR', 'CALDERA CARBÓN', 'C/ SIETE, 11', 'AVDA. JUAN CARLOS I, 4']) {
         ok(seg.nombreProvisional(n), `«${n}» no es el nombre de una persona`);

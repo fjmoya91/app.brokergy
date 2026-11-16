@@ -40,6 +40,14 @@ Fuente única: [services/seguimientoWhatsapp.js](../../../implementation/backend
   conversación para contestarle, dice además QUÉ ha contestado (`seguimiento: [{numero, resultado, cuando,
   nota}]` en su JSON) y aquí se aplica (`alContestar`). Lo que manda (fotos, facturas) lo guardan el
   contestador y el agente de la aceptación, que ya saben hacerlo.
+- **REGLA — solo es RESPUESTA lo que llega DESPUÉS de haberle escrito a ESE teléfono en ese seguimiento, y
+  solo el PRIMER mensaje tras cada toque mueve la escalera** (`comoRespuesta`; cada toque apunta
+  `detalle.escritos[tel9]`). Medido el 16/11/2026, el primer día: Vicente (instalador) mandó seis mensajes
+  sobre 26RES060_257 —fotos y «Empezamos hoy»— sin que le hubiéramos escrito nada del seguimiento, y cada
+  uno movió un paso sus cuatro propuestas (OP104, OP245, OP396, OP411), que saltaron de «¿la has visto?» a
+  «¿sigues o la aparcamos?». Ahora un mensaje de alguien a quien aún no se le ha escrito no toca la fila (la
+  vuelta ya no le escribe mientras está hablando, 24 h); los demás de una ráfaga solo se apuntan; y el
+  «otro lado» de un CEE cuenta solo tras su R3.
 - **El CEE con el material COMPLETO es nuestro**: no se le pide nada a nadie; se le vuelve a pasar al agente de
   la aceptación (`revisarPorSeguimiento`, que hace el CEE con `generar-cee-inicial` y Fran le da el visto
   bueno), como mucho 3 al día y una vez cada 5 días hábiles por expediente.

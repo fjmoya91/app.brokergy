@@ -594,7 +594,9 @@ async function vuelta({ seco = false, ahora = new Date(), sinHorario = false, se
                     toques: f.toques + 1, ultimo_toque_at: ahora.toISOString(), updated_at: ahora.toISOString(),
                     acciones: accion(f, { accion: 'toque', fase: f.fase, modo: m, tel9, texto: String(texto).slice(0, 900) }),
                 };
-                if (f.tipo === 'CEE_INICIAL') upd.detalle = { ...(f.detalle || {}), faltan: it.lineas };
+                // A QUIÉN se le ha escrito y cuándo: solo lo que conteste ESE teléfono después es respuesta.
+                upd.detalle = { ...(f.detalle || {}), escritos: { ...(f.detalle?.escritos || {}), [tel9]: ahora.toISOString() } };
+                if (f.tipo === 'CEE_INICIAL') upd.detalle.faltan = it.lineas;
                 if (sig.cierra) Object.assign(upd, { resultado: 'SIN_RESPUESTA', cerrado_at: ahora.toISOString() });
                 await supabase.from('wa_seguimientos').update(upd).eq('id', f.id);
                 // CEE: lo pedido queda apuntado como pedido del agente (historial, e índice con el
@@ -636,6 +638,27 @@ async function telsAbiertos() {
 }
 
 /** Un mensaje que ENTRA (listener de la sesión): si es de alguien a quien seguimos, CONTESTADO. Nunca lanza. */
+/**
+ * ¿Este mensaje de `tel9` es RESPUESTA a ESTE seguimiento, y mueve su escalera? Puro.
+ * Solo si ya le habíamos escrito a ESE teléfono en este seguimiento, y solo el PRIMER mensaje
+ * tras el último toque a él la mueve; los demás de la ráfaga se apuntan y nada más.
+ * 16/11/2026: Vicente mandó seis mensajes sobre OTRA obra (sin que le hubiéramos escrito nada
+ * del seguimiento) y cuatro propuestas suyas saltaron dos pasos, a «¿sigues o la aparcamos?».
+ * Las filas de antes del cambio no tienen `detalle.escritos`: se mira el toque en `acciones`.
+ */
+function comoRespuesta(fila, tel9) {
+    const escritos = fila?.detalle?.escritos || {};
+    let ultimo = escritos[tel9] ? Date.parse(escritos[tel9]) || 0 : 0;
+    if (!ultimo) {
+        for (const a of Array.isArray(fila?.acciones) ? fila.acciones : []) {
+            if (a?.accion === 'toque' && a.tel9 === tel9) ultimo = Math.max(ultimo, Date.parse(a.at) || 0);
+        }
+    }
+    if (!ultimo) return { cuenta: false, avanza: false };
+    const contestado = fila.contestado_at ? Date.parse(fila.contestado_at) || 0 : 0;
+    return { cuenta: true, avanza: !contestado || contestado < ultimo };
+}
+
 async function alMensajeEntrante(msg) {
     try {
         if (!activo() || !msg || msg.fromMe || msg.isStatus) return;
@@ -652,7 +675,18 @@ async function alMensajeEntrante(msg) {
             .or(`tel9.eq.${tel9},detalle->otro->>tel9.eq.${tel9}`).limit(30);
         const ahora = new Date();
         const que = esperas.describirMensaje(msg);
+        const tocadas = [];
         for (const f of filas || []) {
+            const r = comoRespuesta(f, tel9);
+            if (!r.cuenta) continue;              // aún no le hemos escrito nada en ESTE seguimiento
+            tocadas.push(f.numero);
+            if (!r.avanza) {
+                // Otro mensaje de la misma ráfaga (o tras una respuesta ya apuntada): se apunta, no mueve nada.
+                await supabase.from('wa_seguimientos').update({
+                    contestado_at: ahora.toISOString(), respuesta: recorta(que, 200), updated_at: ahora.toISOString(),
+                }).eq('id', f.id);
+                continue;
+            }
             // CEE: un «vale, mañana te lo mando» no es lo pedido; se le da un respiro y sigue.
             if (f.tipo === 'CEE_INICIAL' && esperas.esAcuse(msg)) {
                 const respiro = Pasos.habilesDespues(ahora, 2);
@@ -669,7 +703,7 @@ async function alMensajeEntrante(msg) {
                 acciones: accion(f, { accion: 'contestado', texto: recorta(msg.body, 120) }),
             }).eq('id', f.id);
         }
-        if (filas?.length) log(`ha contestado ${tel9}: ${filas.map(f => f.numero).join(', ')}`);
+        if (tocadas.length) log(`ha contestado ${tel9}: ${tocadas.join(', ')}`);
     } catch (e) {
         log('mensaje entrante:', e.message);
     }
@@ -825,5 +859,5 @@ module.exports = {
     start, sembrar, vuelta, alMensajeEntrante, alContestar, paraContestador, resumen, listar, cerrar,
     activo, modo, modoPara, CFG,
     // para las pruebas
-    ultimoEnvio, destinoDeFila, enlaceAceptar, nombreProvisional,
+    ultimoEnvio, destinoDeFila, enlaceAceptar, nombreProvisional, comoRespuesta,
 };
