@@ -62,6 +62,9 @@ const CFG = {
     // sin borrador, todo lo atrasado (11/11/2026: 31 de 63 chats de la semana). Ahora se
     // contesta con «Perdona la tardanza» (el cerebro sabe cuánto lleva esperando) hasta 8 días.
     maxHorasSinContestar: num(process.env.CONTESTADOR_MAX_HORAS, 192),
+    // Con algo ya escalado y su acuse mandado, lo nuevo del chat no lleva otro acuse durante
+    // este tiempo (17/11/2026, 26RES060_OP376: cuatro «lo miro y te digo» en una hora).
+    acuseHoras: num(process.env.CONTESTADOR_ACUSE_HORAS, 6),
     purgaDias: 90,
 };
 const activo = () => process.env.CONTESTADOR_ENABLED === 'true';
@@ -354,12 +357,54 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     if ((b.fuentes || []).length) detalle.fuentes = b.fuentes;
     if (b.borrador) detalle.borrador = b.borrador;
     if (b.aviso) detalle.aviso = b.aviso;
+    // Ya hay algo ESCALADO en este chat con su acuse y sin contestar: lo nuevo se le AÑADE, sin
+    // otro acuse (17/11/2026, 26RES060_OP376: cuatro acuses casi iguales en una hora).
+    const abierto = b.accion === 'ESCALAR' ? await escaladoAbiertoDe(conv.chatId, ms) : null;
+    if (abierto) detalle.anadido_a = abierto.id;
     return {
+        escalado_abierto: abierto,
         ...comun, ...g, estado: 'DECIDIDO', accion: b.accion, texto: b.mensaje || '', acuse: b.acuse || '', motivo: b.motivo || '',
         obra: c.obraBorrador || null, cerebro: b.cerebro || 'gemini', detalle,
         borrador: b.borrador || '', aviso: b.aviso || '', fuentes: b.fuentes || [], investigado: b.investigado || '',
         seguimiento: Array.isArray(b.seguimiento) ? b.seguimiento : [],
     };
+}
+
+/**
+ * ¿Hay en este chat algo ESCALADO a Fran, con su acuse ya mandado, que nadie ha contestado? Puro.
+ * Abierto = el último ESCALAR con acuse enviado hace menos de `horas`, sin su borrador mandado
+ * («C12») y sin ningún mensaje NUESTRO después que no sea un acuse del contestador (si Fran o la
+ * app le han escrito, ese asunto está atendido y lo nuevo lleva su acuse). De un añadido, la raíz.
+ * @param {Array} turnos filas de wa_contestador de ese chat (id, accion, acuse, enviado_at, detalle)
+ * @param {Array} ms la conversación ({ de_mi, t (s), texto })
+ * @returns {{ id, acuse, at } | null}
+ */
+function escaladoAbierto(turnos, ms, { ahoraMs = Date.now(), horas = CFG.acuseHoras } = {}) {
+    const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const acuses = new Set((turnos || []).map(t => norm(t.acuse)).filter(Boolean));
+    const cand = (turnos || [])
+        .filter(t => t.accion === 'ESCALAR' && t.acuse && t.enviado_at && !t.detalle?.borrador_enviado_at)
+        .filter(t => ahoraMs - Date.parse(t.enviado_at) < horas * 3_600_000)
+        .sort((a, b) => Date.parse(b.enviado_at) - Date.parse(a.enviado_at))[0];
+    if (!cand) return null;
+    const desde = Date.parse(cand.enviado_at) / 1000 - 60;
+    const contestado = (ms || []).some(m => m.de_mi && m.t >= desde && !acuses.has(norm(m.texto)));
+    if (contestado) return null;
+    return { id: cand.detalle?.anadido_a || cand.id, acuse: cand.acuse, at: cand.enviado_at };
+}
+
+async function escaladoAbiertoDe(chatId, ms) {
+    try {
+        const desde = new Date(Date.now() - CFG.acuseHoras * 3_600_000).toISOString();
+        const { data, error } = await supabase.from('wa_contestador').select('id, accion, acuse, enviado_at, detalle')
+            .eq('chat_id', chatId).gte('updated_at', desde).order('id', { ascending: false }).limit(20);
+        if (error) throw new Error(error.message);
+        return escaladoAbierto(data || [], ms);
+    } catch (e) {
+        // Sin poder mirarlo, como antes (con su acuse): mejor un acuse de más que dejarle sin nada.
+        log(`no he podido mirar lo escalado del chat: ${e.message}`);
+        return null;
+    }
 }
 
 /** Hasta cuándo lo lleva una persona (wa_chat_pausas, por su @lid o por su número), o null. */
@@ -451,12 +496,14 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
             porGuardar ? `_Modo copia: no he guardado nada. «C${fila.id}» lo guarda (sin escribirle); «C${fila.id}, dile…» además le escribe._` : null,
         ].filter(x => x !== null).join('\n');
     }
+    const ab = d.escalado_abierto;
     return [
-        `*C${fila.id} · Para ti: ${quien}*${obra}`,
+        ab ? `*C${fila.id} · Más de ${quien} (sigue lo de C${ab.id})*${obra}` : `*C${fila.id} · Para ti: ${quien}*${obra}`,
         escribio,
         ...bloqueGuardar,
         '',
         `Por qué te lo paso: ${d.motivo || 'no lo tengo claro'}`,
+        ab ? `No le he mandado otro acuse: ya tiene el de C${ab.id} («${recorta(ab.acuse, 160)}») y aún no le has contestado.` : null,
         d.acuse ? (acuseEnviado ? `Le he dicho: «${d.acuse}»` : `Le diría mientras: «${d.acuse}»`) : null,
         // El borrador del investigador: lo que le diría si das el visto bueno («C12» lo manda).
         ...(d.borrador ? ['', `Le contestaría${m === 'copia' ? '' : ', si te parece'}:`, cita(d.borrador)] : []),
@@ -533,7 +580,7 @@ async function actuar(fila, d) {
     if (d.accion === 'CALLAR') {
         // Nada que decirle; pero si hay algo suyo que guardar, Fran lo sabe (en copia, para que
         // diga «C12»; en real, ya está guardado).
-        if (items.some(x => x.guardar) || (d.seguimientoLineas || []).length) {
+        if (items.some(x => x.guardar) || (d.seguimientoLineas || []).length || d.aviso) {
             try {
                 if (await mandarAFran(textoParaFran(fila, d, { m, mg }))) upd.copia_at = new Date().toISOString();
             } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }
@@ -543,6 +590,13 @@ async function actuar(fila, d) {
     }
     let enviado = false;
     let acuseEnviado = false;
+    // Lo ESCALADO que sigue abierto en este chat (decidir → escaladoAbierto): sin otro acuse. Es
+    // un añadido a lo que ya tiene Fran; el cliente ya sabe que lo estamos mirando (OP376, 17/11/2026).
+    if (d.accion === 'ESCALAR' && d.escalado_abierto && d.acuse) {
+        upd.detalle.acuse_omitido = d.acuse;
+        d.acuse = '';
+        upd.acuse = null;
+    }
     if (m === 'real' && quedaPorGuardar) {
         // No debería pasar (en real se guarda siempre antes): por si acaso, no se le dice que lo tenemos.
         d.motivo = `quedan documentos suyos sin guardar (iba a decirle: «${recorta(d.texto || d.acuse, 200)}»)`;
@@ -799,5 +853,5 @@ module.exports = {
     start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, activo, modo, modoGuardar, CFG,
     mapaSinObra, clasificarSinObra,
     // para las pruebas
-    textoParaFran, lineasGuardar, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado,
+    textoParaFran, lineasGuardar, escaladoAbierto, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado,
 };

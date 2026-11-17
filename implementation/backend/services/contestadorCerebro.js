@@ -38,6 +38,13 @@ const IA = require('./rondaWhatsappIA');
 const { CONOCIMIENTO } = require('./botPrompt');
 
 const URL_ASISTENTE = () => String(process.env.ASISTENTE_URL || '').replace(/\/+$/, '');
+
+// El correo de la casa para CLIENTES: el mismo que da la app en el acuse de la aceptación
+// (emailService: «Email: info@brokergy.es»). 17/11/2026, 26RES060_OP376: una clienta pidió un correo
+// para mandar lo de su asesoría y, sin dato autorizado, se escaló dos veces con dos acuses.
+const CORREO_CLIENTES = () => String(process.env.CONTESTADOR_CORREO_CLIENTES || 'info@brokergy.es').trim();
+const datosCasa = () => `Datos de la casa que SÍ puedes dar a quien los pida: el correo ${CORREO_CLIENTES()} (para mandarnos documentos
+o lo que prefiera por correo; también vale mandarlo por este WhatsApp). Ningún otro correo ni teléfono.`;
 const CEREBRO = () => (process.env.CONTESTADOR_CEREBRO === 'gemini' ? 'gemini' : 'claude');
 const ACCIONES = new Set(['RESPONDER', 'ESCALAR', 'CALLAR']);
 
@@ -218,6 +225,7 @@ ${ch.texto}
 # TU TAREA AHORA — manda sobre todo lo anterior si choca
 
 Hoy es ${hoy()}. Quien escribe es ${quien}.
+${datosCasa()}
 
 Contestas TÚ, AHORA, como FRAN (el ingeniero de BROKERGY que lleva los expedientes), en primera persona.
 Lo que escribas en "parrafos" se le manda TAL CUAL por WhatsApp, sin que nadie lo revise: si dudas, ESCALAR.
@@ -443,7 +451,13 @@ CÓMO:
    enviado, dile además que se la mandamos con el detalle. Nunca una cifra que no salga de ahí, ni comisiones,
    ni precios nuestros, ni fechas de cobro que el expediente no diga.
 4. IRPF, impuestos, normativa, trámites: solo lo que diga una ficha de consultas/ o el manual, con su matiz
-   («depende de tu declaración: tu gestor te lo confirma»). Si no hay ficha que lo cubra, es de Fran.
+   («depende de tu declaración: tu gestor te lo confirma»). Búscalo con Grep en consultas/ por la palabra
+   (titular, nombre, copropietario, madre, vivienda habitual, 60, tope, resta, ganancia). Si una ficha da la
+   REGLA GENERAL de lo que pregunta (a nombre de quién puede ir, quién se deduce, el 60 % con 3.000 €/año y
+   9.000 € en total, que el bono no se resta), CONTESTA con ella y su matiz: que su caso tenga un detalle
+   propio (la casa es de su madre, su asesoría dice algo) no lo convierte en «de Fran»; el detalle, «tu gestor
+   te lo confirma». Si manda lo que le ha dicho su asesoría y tú no lo puedes leer, contesta la regla general y
+   pídele que te diga en una frase qué le han dicho. Solo si no hay ficha que lo cubra, es de Fran.
 5. Si se le puede CONTESTAR ya pero alguien de la casa tiene que HACER algo (preparar la Memoria RITE, dar de
    alta una vivienda, mirar un enlace que falla) → "RESPONDER" con lo que sí se le puede decir, y en "aviso"
    lo que tiene que hacer Fran, en una frase con el nº de obra.

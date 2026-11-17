@@ -382,6 +382,62 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
     ok(t.includes('Para que lo sepas: Vicente Alhambra') && t.includes('*Para ti:* Vicente ha mandado el cartel') && t.includes('No le contesto'), 'a Fran le llega «para que lo sepas», sin escribirle al instalador');
 }
 
+// ── Un acuse por asunto (26RES060_OP376, 17/11/2026) ──
+// María José pidió el correo, lo repitió, mandó dos capturas de su asesoría y una nota de voz:
+// cuatro ESCALAR en una hora y cuatro «lo miro y te digo» casi iguales (turnos 450, 454, 457, 458).
+{
+    console.log('\nUn acuse por asunto (26RES060_OP376, 17/11/2026)');
+    const H = 3_600_000;
+    const t0 = Date.parse('2026-11-17T10:00:00Z');
+    const iso = (ms) => new Date(ms).toISOString();
+    const acuse1 = 'Lo del correo para mandarte los papeles lo miro y te digo.';
+    // 1. La petición: no hay nada abierto, lleva su acuse.
+    ok(C.escaladoAbierto([], [], { ahoraMs: t0, horas: 6 }) === null, 'la primera petición: nada abierto, lleva su acuse');
+    const turnos = [{ id: 450, accion: 'ESCALAR', acuse: acuse1, enviado_at: iso(t0), detalle: {} }];
+    const ms = [
+        { de_mi: false, t: t0 / 1000 - 60, texto: '¿Me das un correo para mandarte lo de la asesoría?' },
+        { de_mi: true, t: t0 / 1000 + 2, texto: acuse1 },
+    ];
+    // 2. La repetición, 3. las capturas y 4. la nota de voz: el mismo asunto abierto, sin otro acuse.
+    const rep = [...ms, { de_mi: false, t: t0 / 1000 + 900, texto: '¿Me lo pasas?' }];
+    const a2 = C.escaladoAbierto(turnos, rep, { ahoraMs: t0 + 0.25 * H, horas: 6 });
+    ok(a2 && a2.id === 450 && a2.acuse === acuse1, 'la repetición: sigue abierto lo de C450, sin otro acuse');
+    const turnos3 = [...turnos, { id: 454, accion: 'ESCALAR', acuse: null, enviado_at: null, detalle: { anadido_a: 450, acuse_omitido: 'Las capturas de tu asesoría las miro y te digo.' } }];
+    const caps = [...rep, { de_mi: false, t: t0 / 1000 + 1800, tipo: 'image', texto: '' }, { de_mi: false, t: t0 / 1000 + 1801, tipo: 'image', texto: '' }];
+    ok(C.escaladoAbierto(turnos3, caps, { ahoraMs: t0 + 0.5 * H, horas: 6 })?.id === 450, 'las capturas: añadido a C450');
+    const turnos4 = [...turnos3, { id: 457, accion: 'ESCALAR', acuse: null, enviado_at: null, detalle: { anadido_a: 450 } }];
+    const voz = [...caps, { de_mi: false, t: t0 / 1000 + 3000, tipo: 'ptt', texto: '(transcrito) lo de mi madre…' }];
+    ok(C.escaladoAbierto(turnos4, voz, { ahoraMs: t0 + 0.9 * H, horas: 6 })?.id === 450, 'la nota de voz: añadido a C450 (cuatro mensajes, UN acuse)');
+    // Un añadido que (raro) llevó acuse: la raíz sigue siendo la primera.
+    ok(C.escaladoAbierto([{ id: 460, accion: 'ESCALAR', acuse: 'x', enviado_at: iso(t0 + H), detalle: { anadido_a: 450 } }], ms, { ahoraMs: t0 + 1.1 * H, horas: 6 })?.id === 450, 'de un añadido, la raíz');
+    // Se cierra: Fran le contesta a mano, «C450» manda el borrador, o pasan las horas.
+    ok(C.escaladoAbierto(turnos4, [...voz, { de_mi: true, t: t0 / 1000 + 3500, texto: 'María José, el correo es info@…' }], { ahoraMs: t0 + H, horas: 6 }) === null, 'si Fran (o la app) le ha escrito después: cerrado, lo nuevo lleva acuse');
+    ok(C.escaladoAbierto([{ ...turnos[0], detalle: { borrador_enviado_at: iso(t0 + H) } }], voz, { ahoraMs: t0 + 1.5 * H, horas: 6 }) === null, 'con el borrador mandado («C450»): cerrado');
+    ok(C.escaladoAbierto(turnos4, voz, { ahoraMs: t0 + 7 * H, horas: 6 }) === null, 'pasadas las horas: un acuse nuevo (como mucho uno cada X horas)');
+    ok(C.escaladoAbierto([{ ...turnos[0], acuse: null }], voz, { ahoraMs: t0 + H, horas: 6 }) === null, 'un ESCALAR sin acuse no abre nada');
+    ok(C.escaladoAbierto([{ ...turnos[0], accion: 'RESPONDER' }], voz, { ahoraMs: t0 + H, horas: 6 }) === null, 'lo contestado no es un escalado abierto');
+    ok(C.CFG.acuseHoras === 6, 'por defecto, 6 h (CONTESTADOR_ACUSE_HORAS)');
+
+    // A Fran: «Más de…», sigue lo de C450, y que no se le ha mandado otro acuse.
+    const f = C.textoParaFran({ id: 458 }, {
+        accion: 'ESCALAR', titulo: 'María José', obra: '26RES060_OP376', motivo: 'nota de voz sobre su madre',
+        acuse: '', escalado_abierto: { id: 450, acuse: acuse1 }, borrador: 'Sí, con la vivienda a nombre de tu madre…', pendientes: ['[nota de voz]'],
+    }, { m: 'real', acuseEnviado: false });
+    ok(f.includes('Más de María José (sigue lo de C450)') && f.includes('No le he mandado otro acuse: ya tiene el de C450'), 'a Fran le llega como añadido de C450, sin acuse nuevo');
+    ok(f.includes('> Sí, con la vivienda') && f.includes('«C458» le manda esto') && !f.includes('Le he dicho'), 'con su borrador y «C458»; no dice que le haya dicho nada');
+
+    // b) El correo de la casa se puede dar; c) lo fiscal de consultas/ se contesta.
+    const ch = { texto: 'ELLOS: ¿me das un correo para mandarte los papeles?', rol: 'cliente', personas: [], obras: [] };
+    const p = cerebro.construirPrompt(ch, null, null, { lineas: [], slots: new Set() }, {}).prompt;
+    ok(p.includes('el correo info@brokergy.es') && /Ningún otro correo ni teléfono/.test(p), 'el cerebro puede dar el correo de la casa (y ningún otro)');
+    process.env.CONTESTADOR_CORREO_CLIENTES = 'otro@brokergy.es';
+    ok(cerebro.construirPrompt(ch, null, null, { lineas: [], slots: new Set() }, {}).prompt.includes('el correo otro@brokergy.es'), 'el correo se cambia con CONTESTADOR_CORREO_CLIENTES');
+    delete process.env.CONTESTADOR_CORREO_CLIENTES;
+    const inv = cerebro.construirInvestigacion(p, { motivo: 'IRPF con la vivienda a nombre de su madre' }, { orden: 'o', docs: 'd' });
+    ok(inv.includes('el correo info@brokergy.es'), 'el investigador lo hereda');
+    ok(/vivienda habitual/.test(inv) && /copropietario/.test(inv) && /no lo convierte en «de Fran»/.test(inv), 'lo fiscal: busca en consultas/ por palabras y un detalle del caso no lo hace de Fran');
+}
+
 // ── Cómo contesta Fran a una copia: «C4» manda; «C4, dile además…» cambia ──
 {
     const { ordenContestador: o } = require('../utils/ordenContestador');

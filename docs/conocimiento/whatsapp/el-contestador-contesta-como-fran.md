@@ -122,6 +122,31 @@ los dos lo confirmo y te digo»). Los dos cerebros dan un `tema` (3 a 8 palabras
 (`acuseConcreto`) cambia un «Recibido, lo miro y te digo» a secas —con su nombre o sin él— por «Lo de
 <tema> lo miro y te digo.».
 
+**REGLA — UN acuse por asunto: con algo ya ESCALADO y sin contestar en ese chat, lo nuevo no lleva otro
+acuse** (17/11/2026, 26RES060_OP376). María José pidió un correo para mandar los papeles, lo repitió, mandó
+dos capturas de su asesoría y una nota de voz: cuatro ESCALAR en una hora (C450, C454, C457, C458) y cuatro
+«lo miro y te digo» casi iguales. Ahora `decidir`, si sale ESCALAR, mira las filas de ese chat
+(`escaladoAbiertoDe`, solo lectura) y `escaladoAbierto` (pura) dice si hay uno ABIERTO: el último ESCALAR con
+acuse enviado hace menos de `CONTESTADOR_ACUSE_HORAS` (6 h), sin su borrador mandado («C12») y sin ningún
+mensaje NUESTRO después que no sea un acuse (si Fran o la app le han escrito, ese asunto está atendido). Si
+lo hay, lo nuevo va a Fran como **añadido** («*C458 · Más de María José (sigue lo de C450)*», «No le he
+mandado otro acuse…»), con su investigación y su borrador («C458» lo manda); en la fila,
+`detalle.anadido_a` (la raíz) y `detalle.acuse_omitido`. Si no se puede mirar la BD, como antes: con acuse.
+Medido sobre las filas reales: C454, C457 y C458 habrían salido sin acuse.
+
+**Lo que se escaló en OP376 y no hacía falta** (mismo día): el correo se escaló porque el investigador solo
+encontró el de Fran (interno). Ahora el prompt lleva los **datos de la casa que SÍ se pueden dar**
+(`datosCasa`): el correo **info@brokergy.es** (el de los emails a clientes; `CONTESTADOR_CORREO_CLIENTES`
+lo cambia), y ningún otro correo ni teléfono. Y lo FISCAL con ficha en `consultas/` (titular, vivienda
+habitual, tope del 60 %, copropiedad: `cae-a-nombre-de-un-copropietario-y-tope-irpf-60.md`) se CONTESTA
+con su matiz («tu gestor te lo confirma»): el investigador busca por palabras clave antes de decir que no
+hay ficha, y un detalle del caso (la casa es de su madre, su asesoría dice algo) no lo hace «de Fran»; si
+manda la respuesta de su asesoría y no se puede leer, contesta la regla general y le pregunta qué le han
+dicho, en una frase.
+
+Y lo que se CALLA con `aviso` («Para que lo sepas») llega de verdad a Fran: `actuar` solo le avisaba de un
+CALLAR con algo que guardar o un seguimiento.
+
 **El cerebro rápido escala menos a ciegas**: el dinero, el IRPF y lo que el dossier no responde ya no son
 «a Fran» sino «a investigar»; `para_fran: true` solo para persona o programa, llamada, queja seria, cancelar
 o cambiar titular/cuenta/obra, decidir un precio nuestro o una excepción (o revisar su presupuesto), y
