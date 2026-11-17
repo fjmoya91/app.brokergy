@@ -41,3 +41,38 @@ que solo lee de Drive y avisa de subcarpetas, `.txt`, piezas sin `_v1` (acepta `
 
 Cada inexactitud tiene también un campo propio de «Acciones correctivas» (el ojo de la columna
 ACC.). En CAE-2041 no se rellenó, porque el escrito ya contesta a todas.
+
+### La segunda ronda: el «convenio CAE actualizado» (2026-11-17)
+
+El informe 2 de CAE-2041 (16/11/2026) cerró siete de las ocho inexactitudes. La nº 7 (coordenadas
+UTM de E8) siguió abierta con esta observación: «no se aporta el convenio CAE actualizado». El
+Certificado de obra, el Acuerdo de cesión y el informe fotográfico ya llevaban la UTM corregida.
+Lo que pedía era el **Anexo I del lote** (Listado de cesión de ahorros, el anexo del Convenio CAE
+con el S.O.), firmado el 05/11 con la UTM antigua. La BD ya tenía la buena, así que bastó con
+regenerarlo.
+
+**REGLA — Si una inexactitud cambia un dato que figura en el listado del lote, en la MISMA
+contestación va el Anexo I del lote regenerado y firmado de nuevo por el S.O. y por Brokergy.**
+Si no, el verificador deja la inexactitud abierta, aunque el resto de documentos ya estén
+corregidos, y hace falta otra ronda.
+
+Así se hizo, y es lo que lleva la skill `contestar-inexactitudes-marwen` en «Antes de subir»:
+
+1. **Reenvío.** Se hizo desde el popup «Requerimiento · volver a pedir la firma» del lote, solo
+   con el Anexo I. Antes de enviar se comprobó la vista previa: la fila de E8 corregida y las otras
+   siete idénticas a la firmada, ahorro incluido.
+2. **INTERALCO lo devolvió** al día siguiente, firmado solo por él. El buzón lo dejó sin registrar
+   por falta de la segunda firma (regla 141), como debe.
+3. **Contrafirma, registro y `_v1`** con
+   [contrafirmar_anexo_i_lote.js](implementation/backend/scripts/contrafirmar_anexo_i_lote.js).
+   Sustituye a los scripts sueltos de los LOTE-2026-015, 019 y 016. `colocarRefirmados` deja las
+   copias como `…_rev1_fdo.pdf` y el script las renombra a `…_v1.pdf`.
+4. **Escrito de la ronda.** Solo la nº 7, firmado. «2. REQUERIMIENTO» quedó con dos PDF.
+5. **Subida 2** en el portal: el expediente volvió a «Reestudio documental».
+
+**Fallo encontrado y corregido el mismo día.** El correo del requerimiento se mandó desde el PC
+(`localhost:5184`), y el botón «Firmar / subir mis anexos» le llegó al S.O. apuntando a
+`http://localhost:5184/firmar-lote/…`. La ruta usaba el `frontendOrigin` del navegador. Ahora
+`origenPublicoFirma` ([routes/lotes.js](implementation/backend/routes/lotes.js)) descarta
+`localhost`/`127.0.0.1` y pone `https://app.brokergy.es`. Afecta a los tres envíos al S.O.: el
+envío del Anexo I y las fichas, el documento suelto y el requerimiento.

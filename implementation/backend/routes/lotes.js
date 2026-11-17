@@ -3174,6 +3174,16 @@ function idDeDriveLink(url) {
     return m ? m[1] : null;
 }
 
+// Base de los enlaces de firma que salen al S.O. Es la app PÚBLICA aunque el envío se
+// haga desde el PC: el `frontendOrigin` del navegador valía `http://localhost:5184`
+// y así le llegó el enlace a INTERALCO en el requerimiento del LOTE-2026-016
+// (16/11/2026). Firmó el PDF adjunto, pero el botón no le servía.
+function origenPublicoFirma(frontendOrigin) {
+    const publico = (u) => /^https:\/\//i.test(String(u || '')) && !/localhost|127\.0\.0\.1|\[::1\]/i.test(String(u));
+    const o = [frontendOrigin, process.env.FRONTEND_URL].find(publico) || 'https://app.brokergy.es';
+    return String(o).replace(/\/+$/, '');
+}
+
 // ─── POST /api/lotes/:id/enviar-documento/:key — mandar un documento al S.O. ─────
 // Sirve para CUALQUIER documento del lote que haya que remitir: la oferta de
 // verificación (que además hay que firmar) o la factura del verificador, que le
@@ -3215,7 +3225,7 @@ router.post('/:id/enviar-documento/:key', staffOnly, async (req, res) => {
         // Enlace de firma SOLO si el documento se firma. Va ACOTADO a él (`?doc=`): la
         // firma del Anexo I y las fichas es otro proceso y ya pasó, y enseñarle los 8
         // documentos al S.O. cuando solo tiene que firmar uno le despista.
-        const origin = (frontendOrigin || process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/$/, '');
+        const origin = origenPublicoFirma(frontendOrigin);
         const firmaUrl = cfg.firmable ? `${origin}/firmar-lote/${lote.id}?doc=${encodeURIComponent(docKey)}` : null;
         const msgConEnlace = firmaUrl ? `${customMessage || ''}\n\n${firmaUrl}`.trim() : (customMessage || '');
         const fileName = docs[idx].file_name || `${lote.codigo || 'LOTE'} - ${nombreDoc}.pdf`;
@@ -3435,7 +3445,7 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         if (!documentosSo.length) return res.status(400).json({ error: 'No se generó ningún documento (falta HTML o la solicitud).' });
 
         // 4) Enlace de firma para el S.O.
-        const origin = (frontendOrigin || process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/$/, '');
+        const origin = origenPublicoFirma(frontendOrigin);
         const firmaUrl = `${origin}/firmar-lote/${lote.id}`;
 
         // 5) Envío (email y/o WhatsApp). No bloqueante: los fallos van a `warnings`.
@@ -3639,7 +3649,7 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
         // Enlace de firma ACOTADO A LA RONDA (`?r=`): al S.O. se le pide volver a
         // firmar estos documentos concretos, así que la página solo le enseña estos.
         // El enlace sin `?r=` sigue mostrando todo lo que el lote tenga pendiente.
-        const origin = (frontendOrigin || process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/$/, '');
+        const origin = origenPublicoFirma(frontendOrigin);
         const firmaUrl = `${origin}/firmar-lote/${lote.id}?r=${ronda}`;
         const msgConEnlace = `${customMessage || ''}\n\n${firmaUrl}`.trim();
 

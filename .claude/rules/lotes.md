@@ -53,7 +53,7 @@ paths:
 
 - `docs/conocimiento/lotes/armar-el-lote-propuestas-por-antiguedad-y-por-instalador.md` — Armar el lote: filtro por instalador y PROPUESTAS por antigüedad y por instalador (2026-10-27) · 6,6 KB
 - `docs/conocimiento/lotes/auditar-los-cee-res060-frente-a-res080.md` — Auditar los CEE de un RES060 frente a un RES080: qué cuenta y qué no (2026-11-01) · 5,0 KB
-- `docs/conocimiento/lotes/contestar-inexactitudes-en-el-portal-de-marwen.md` — Contestar las inexactitudes en el portal de Marwen (beCAE), no por API (2026-11-11) · 3,2 KB
+- `docs/conocimiento/lotes/contestar-inexactitudes-en-el-portal-de-marwen.md` — Contestar las inexactitudes en el portal de Marwen (beCAE), no por API (2026-11-11) · 5,6 KB
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md` — Cuando MARWEN no responde: el envío por API dice de quién es el fallo (2026-10-15) · 2,1 KB
 - `docs/conocimiento/lotes/el-anexo-del-miteco-por-actuacion.md` — El ANEXO del MITECO por actuación (2026-09-01) · 8,8 KB
 - `docs/conocimiento/lotes/el-anexo-i-del-lote-las-firmas-van-al-pie.md` — El Anexo I del lote: las firmas van al PIE de la hoja, y sus casillas se miden (2026-11-12) · 3,0 KB
@@ -96,6 +96,8 @@ lista**
 - `docs/conocimiento/lotes/contestar-inexactitudes-en-el-portal-de-marwen.md`
   - **REGLA — la contestación se sube en UNA subida: el escrito firmado y todos los `_v1`, con una
 nota.**
+  - **REGLA — Si una inexactitud cambia un dato que figura en el listado del lote, en la MISMA
+contestación va el Anexo I del lote regenerado y firmado de nuevo por el S.O. y por Brokergy.**
 - `docs/conocimiento/lotes/cuando-marwen-no-responde-el-envio-por-api.md`
   - **REGLA — un fallo de red de Marwen se dice con su nombre, y dice si se ha creado algo.**
   - **REGLA — tras un 504 NO se reintenta a ciegas.**
