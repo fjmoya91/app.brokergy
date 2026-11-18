@@ -306,9 +306,25 @@ const MONO = "font-family:Consolas,'Courier New',monospace;";
  * petición, con el botón «Copiar el concepto» (un email no ejecuta JavaScript: el
  * botón abre la página pública, que sí copia).
  */
-function htmlEmailConsejo(consejo, decision, { url = null } = {}) {
+function htmlEmailConsejo(consejo, decision, { url = null, facturaWord = null, facturaApp = null } = {}) {
     if (!consejo) return '';
     const { emailP, emailBox, emailList, emailDataTable, emailButton, BRAND, FONT } = require('../services/emailService');
+    // Su factura YA PREPARADA (Fran, 18/11/2026): el Word de su plantilla con el
+    // cliente y el concepto escritos (adjunto) y, si tiene la plantilla en la app,
+    // el botón para poner los importes y que salga hecha. Va lo PRIMERO: es lo que
+    // le ahorra el trabajo; el texto para copiar queda para quien use su programa.
+    const preparada = facturaWord || facturaApp
+        ? emailBox(
+            `<p style="margin:0 0 8px 0;${FONT}font-size:16px;line-height:22px;font-weight:700;color:${BRAND.text};">Tu factura, ya preparada</p>`
+            + (facturaWord
+                ? emailP(`Te adjuntamos <strong>tu factura en Word</strong> (${esc(facturaWord.filename)}), en tu plantilla, con el cliente, el concepto, el inmueble, la referencia catastral y las observaciones para el IRPF ya escritos. <strong>Solo te falta poner el número, la fecha y los importes.</strong>`, { mb: facturaApp ? 12 : 0 })
+                : '')
+            + (facturaApp
+                ? emailP(facturaWord ? 'O, si lo prefieres, pon los importes aquí y te la devolvemos hecha, en PDF, y queda ya subida al expediente:' : 'Pon el número, la fecha y los importes aquí y te la devolvemos hecha, en PDF, y queda ya subida al expediente:', { mb: 12 })
+                  + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center">${emailButton(facturaApp, 'Rellenar los importes', BRAND.orange)}</td></tr></table>`
+                : ''),
+            { bg: BRAND.orangeTint, border: BRAND.orange, mb: 18 })
+        : '';
     const lineas = consejo.lineas.map((l, i) =>
         `<p style="margin:0 0 10px 0;${MONO}font-size:13px;line-height:20px;color:${BRAND.text};">${i + 1}. ${esc(l)}</p>`).join('');
     const copiar = emailBox(
@@ -325,6 +341,7 @@ function htmlEmailConsejo(consejo, decision, { url = null } = {}) {
             { bg: BRAND.orangeTint, border: BRAND.orange, mb: 16 })).join('')
         : '';
     return `
+      ${preparada ? `<div style="margin-top:26px;">${preparada}</div>` : ''}
       <p style="margin:26px 0 8px;${FONT}font-size:18px;line-height:24px;font-weight:700;color:${BRAND.text};">Texto recomendado para la factura</p>
       ${corregir}
       ${emailP(consejo.conHuecos ? 'Puedes copiarlo y completar lo que va entre corchetes con los datos de la placa del equipo.' : 'Puedes copiarlo tal cual.', { color: BRAND.muted, mb: 14 })}
@@ -410,7 +427,7 @@ function instaladorIdDe(exp, op) {
  * salvo `crearToken: true` (las rutas que ya lo crean al pedir la factura).
  * `faltaFactura` se puede pasar si quien llama ya lo sabe (el checklist).
  */
-async function cargarConsejoFactura(expOrId, { op = null, cliente = null, faltaFactura = null, crearToken = false } = {}) {
+async function cargarConsejoFactura(expOrId, { op = null, cliente = null, faltaFactura = null, crearToken = false, conFactura = false } = {}) {
     const supabase = require('../services/supabaseClient');
     let exp = expOrId;
     if (!exp || typeof exp !== 'object') {
@@ -475,8 +492,27 @@ async function cargarConsejoFactura(expOrId, { op = null, cliente = null, faltaF
     }
     const url = enlaceConsejo(exp.id, token);
     // `token` es para que la ruta PÚBLICA lo compare; nunca se devuelve al navegador.
-    return { consejo, decision, url, token, copiar: textoConcepto(consejo), whatsapp: textosWhatsapp(consejo, decision, { url }) };
+    // `instaladorId`: con él la página sabe si ese instalador tiene su plantilla de
+    // factura en la app (services/facturaInstaladorService.js, «hazla aquí»).
+    const out = { consejo, decision, url, token, instaladorId: insId, copiar: textoConcepto(consejo), whatsapp: textosWhatsapp(consejo, decision, { url }) };
+    // `conFactura` (los ENVÍOS): su factura ya preparada, si el instalador tiene su
+    // plantilla en la app — el Word pre-relleno para adjuntar y el enlace a la página
+    // donde pone los importes (/factura-obra). Sin plantilla, los dos a null.
+    out.facturaWord = null;
+    out.facturaApp = null;
+    if (conFactura && decision.mandar && insId) {
+        try {
+            const { plantillaDe } = require('../services/facturaInstaladorService');
+            const pl = await plantillaDe(insId);
+            if (pl && token) out.facturaApp = `${FRONTEND()}/factura-obra/${exp.id}?token=${encodeURIComponent(token)}`;
+            if (pl?.word) out.facturaWord = await require('../services/facturaWordService').adjuntoFacturaWord(exp.id, insId);
+        } catch (e) { console.warn('[consejoFactura] factura preparada:', e.message); }
+    }
+    return out;
 }
+
+/** Las opciones de `htmlEmailConsejo` que salen de lo que devuelve cargarConsejoFactura. */
+const opcionesEmail = (r) => ({ url: r?.url || null, facturaWord: r?.facturaWord || null, facturaApp: r?.facturaApp || null });
 
 module.exports = {
     GRAVES_QUE_TUMBAN,
@@ -488,6 +524,7 @@ module.exports = {
     correccionesPorFactura,
     textosWhatsapp,
     htmlEmailConsejo,
+    opcionesEmail,
     anunciarEnTexto,
     enlaceConsejo,
     facturasAportadas,

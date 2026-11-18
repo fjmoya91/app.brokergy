@@ -17,7 +17,9 @@
  * /subir-docs que ya tiene el instalador). Lleva el NIF del titular: sin token, 403.
  *
  * DISEÑO: registro «carta de pago» (regla 164), prefijo `.cf-`, mobile first.
- * /consejo-factura/demo — datos de MENTIRA, sin API (`?hibridacion`, `?grave`, `?huecos`).
+ * Si el instalador tiene su plantilla de factura en la app (`facturaApp`), una tarjeta
+ * «Hazla aquí, en tu plantilla» lleva a /factura-obra (FacturaObraView).
+ * /consejo-factura/demo — datos de MENTIRA, sin API (`?hibridacion`, `?grave`, `?huecos`, `?app`).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -69,6 +71,9 @@ const vistaDemo = () => {
             conHuecos: huecos,
         },
         copiar: lineas.join('\n'),
+        // `?app`: el instalador tiene su plantilla de factura en la app.
+        facturaApp: q.has('app') ? '/factura-obra/demo' : null,
+        facturaWord: q.has('app') ? '#word' : null,
         motivo: grave ? 'GRAVE' : 'FALTA',
         correcciones: grave
             ? [{ factura: 'F26-0001', puntos: ['Tiene que ir a nombre de *ANTONIO GARCÍA LÓPEZ* (NIF 00000000T), el titular del expediente.', 'El nº de serie no es el del equipo instalado: tiene que ser el de su placa.'] }]
@@ -123,6 +128,7 @@ const CSS = `
   font:700 16.5px/1.2 'Inter',sans-serif;background:var(--naranja);color:#08090c;box-shadow:0 1px 0 rgba(255,255,255,.35) inset,0 10px 22px -10px rgba(255,160,0,.75);transition:transform .12s ease}
 .cf-btn:active{transform:scale(.98)}
 .cf-btn.ok{background:var(--verde);box-shadow:none}
+.cf-btn.sec{background:#fff;color:var(--tinta);border:1.5px solid rgba(20,17,17,.18);box-shadow:none;margin-top:10px}
 .cf-pnota{font-size:13px;color:var(--gris2);text-align:center;margin:10px 0 0;line-height:1.5}
 /* ámbar */
 .cf-ambar{padding:16px;border-radius:18px;background:#fff7e6;border:1px solid #f6dca4;color:#5c4100;font-size:14.5px;line-height:1.55}
@@ -328,6 +334,27 @@ export function ConsejoFacturaView({ expedienteId, token }) {
                     </div>
                     <div className="cf-filete" />
                 </section>
+
+                {info.facturaApp && (
+                    // Su plantilla está en la app: la factura se la damos hecha (FacturaObraView).
+                    <section className="cf-card cf-pad cf-in" aria-labelledby="cf-app-t">
+                        <span className="cf-eyebrow">Más rápido</span>
+                        <h2 id="cf-app-t" className="cf-display cf-h3" style={{ marginTop: 6 }}>Hazla aquí, en tu plantilla</h2>
+                        <p className="cf-sub" style={{ marginTop: 6 }}>
+                            Te la damos ya escrita con tu diseño: pones el número, la fecha y los precios, y te llevas el PDF. Nos queda guardada, no hace falta que la mandes.
+                        </p>
+                        <a className="cf-btn" href={info.facturaApp} style={{ textDecoration: 'none' }}>Hacer la factura aquí</a>
+                        {info.facturaWord && (
+                            // Su plantilla en Word, ya escrita: solo le faltan el número, la fecha y los importes.
+                            <a className="cf-btn sec" href={info.facturaWord} download style={{ textDecoration: 'none' }}>Descargar mi factura en Word</a>
+                        )}
+                        <p className="cf-pnota">
+                            {info.facturaWord
+                                ? 'El Word va ya con el cliente y el concepto: pones el número, la fecha y los importes. Si prefieres tu programa, copia el concepto de abajo.'
+                                : 'Si prefieres hacerla en tu programa, copia el concepto de abajo.'}
+                        </p>
+                    </section>
+                )}
 
                 <section className="cf-card cf-pad cf-in" aria-labelledby="cf-concepto-t">
                     <span className="cf-eyebrow">Concepto para copiar</span>

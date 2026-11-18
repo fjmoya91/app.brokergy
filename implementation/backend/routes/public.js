@@ -2762,9 +2762,21 @@ router.get('/consejo-factura/:expedienteId', async (req, res) => {
         if (!r) return res.status(404).json({ error: 'Expediente no encontrado' });
         if (!r.token || r.token !== token) return res.status(403).json({ error: 'Enlace no válido' });
         if (!r.consejo) return res.status(404).json({ error: 'Esta obra no necesita texto recomendado para la factura' });
+        // Si el instalador tiene su plantilla en la app, la página le ofrece hacer la
+        // factura ahí mismo (/factura-obra, routes/facturaInstalador.js). Si no se puede
+        // mirar, la página sale igual, sin ese botón.
+        let facturaApp = null;
+        let facturaWord = null; // su factura en Word pre-rellena, para descargar (18/11/2026)
+        try {
+            const plantilla = await require('../services/facturaInstaladorService').plantillaDe(r.instaladorId);
+            if (plantilla) facturaApp = `/factura-obra/${expedienteId}?token=${encodeURIComponent(token)}`;
+            if (plantilla?.word) facturaWord = `/api/public/factura-instalador/${expedienteId}/word?token=${encodeURIComponent(token)}`;
+        } catch (e) { console.warn('[consejo-factura] plantilla:', e.message); }
         res.json({
             numero_expediente: r.consejo.numero_expediente,
             consejo: r.consejo,
+            facturaApp,
+            facturaWord,
             copiar: r.copiar,
             motivo: r.decision.motivo,
             correcciones: cf.correccionesPorFactura(r.decision, r.consejo),

@@ -1834,7 +1834,9 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
 
 Texto recomendado para la factura:
 
-${consejo.texto}` : ''}` });
+${consejo.texto}` : ''}`,
+        // Su factura en Word pre-rellena (consejoFactura, `conFactura`), si la hay.
+        attachments: Array.isArray(consejo?.attachments) && consejo.attachments.length ? consejo.attachments : undefined });
 };
 
 /**

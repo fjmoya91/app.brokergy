@@ -51,6 +51,7 @@ import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaVi
 import { ConfirmarCobroView } from './features/cobro/views/ConfirmarCobroView';
 import { RecibidoCobroView } from './features/cobro/views/RecibidoCobroView';
 import { ConsejoFacturaView } from './features/public/views/ConsejoFacturaView';
+import { FacturaObraView } from './features/public/views/FacturaObraView';
 import { FacturaAhorroView } from './features/cobro/views/FacturaAhorroView';
 import { EnlaceCortoView } from './features/public/views/EnlaceCortoView';
 import { RespuestasCobroView } from './features/cobro/views/RespuestasCobroView';
@@ -233,6 +234,13 @@ function App() {
   // (ConsejoFacturaView, backend utils/consejoFactura.js). `/consejo-factura/demo` sin API.
   const [consejoFacturaData] = useState(() => {
     const m = window.location.pathname.match(/^\/consejo-factura\/([^/]+)\/?$/);
+    return m ? { id: m[1], token: new URLSearchParams(window.location.search).get('token') || '' } : null;
+  });
+
+  // La FACTURA DE LA OBRA hecha en la app, en la plantilla del instalador: /factura-obra/:expedienteId?token=
+  // (FacturaObraView, backend routes/facturaInstalador.js). `/factura-obra/demo` sin API.
+  const [facturaObraData] = useState(() => {
+    const m = window.location.pathname.match(/^\/factura-obra\/([^/]+)\/?$/);
     return m ? { id: m[1], token: new URLSearchParams(window.location.search).get('token') || '' } : null;
   });
 
@@ -1227,8 +1235,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || informeToken || certAckData || enlaceCorto || cobroData || facturaAhorroData || consejoFacturaData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || soPublicoToken || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !informeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !facturaAhorroData && !consejoFacturaData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !soPublicoToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || informeToken || certAckData || enlaceCorto || cobroData || facturaAhorroData || consejoFacturaData || facturaObraData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || soPublicoToken || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !informeToken && !ceeDocsData && !resetToken && !certAckData && !enlaceCorto && !cobroData && !facturaAhorroData && !consejoFacturaData && !facturaObraData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !soPublicoToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1281,6 +1289,8 @@ function App() {
           <FacturaAhorroView expedienteId={facturaAhorroData.id} token={facturaAhorroData.token} />
         ) : consejoFacturaData ? (
           <ConsejoFacturaView expedienteId={consejoFacturaData.id} token={consejoFacturaData.token} />
+        ) : facturaObraData ? (
+          <FacturaObraView expedienteId={facturaObraData.id} token={facturaObraData.token} />
         ) : cobroData ? (
           cobroData.recibido
             ? <RecibidoCobroView expedienteId={cobroData.id} token={cobroData.token} />

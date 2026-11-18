@@ -1781,7 +1781,9 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         if (target === 'INSTALADOR' && req.body?.consejo_factura !== false
             && (req.body?.consejo_factura === true || keysPedidas.includes('factura'))) {
             try {
-                const r = await require('../utils/consejoFactura').cargarConsejoFactura(exp, { crearToken: true });
+                // `conFactura`: con la plantilla del instalador en la app, su factura en
+                // Word pre-rellena (adjunto del email) y el enlace para poner los importes.
+                const r = await require('../utils/consejoFactura').cargarConsejoFactura(exp, { crearToken: true, conFactura: channels.includes('email') });
                 if (r?.consejo && r.decision.mandar) consejoEnvio = r;
             } catch (e) { console.warn('[solicitar-faltantes] consejo de factura:', e.message); }
         }
@@ -1809,16 +1811,20 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
             // los enlaces como botón): antes salía en un <div> suelto.
             const html = emailService.buildSolicitudEmail({
                 asunto, mensaje: textoEmail,
-                extraHtml: consejoEnvio ? cfMod.htmlEmailConsejo(consejoEnvio.consejo, consejoEnvio.decision, { url: consejoEnvio.url }) : '',
+                extraHtml: consejoEnvio ? cfMod.htmlEmailConsejo(consejoEnvio.consejo, consejoEnvio.decision, cfMod.opcionesEmail(consejoEnvio)) : '',
             });
+            const preparada = consejoEnvio && (consejoEnvio.facturaWord || consejoEnvio.facturaApp)
+                ? `\n\nTu factura, ya preparada:${consejoEnvio.facturaWord ? ` te adjuntamos tu factura en Word (${consejoEnvio.facturaWord.filename}) con el cliente y el concepto ya escritos; solo te falta poner el número, la fecha y los importes.` : ''}${consejoEnvio.facturaApp ? ` ${consejoEnvio.facturaWord ? 'O pon' : 'Pon'} los importes aquí y te la devolvemos hecha: ${consejoEnvio.facturaApp}` : ''}`
+                : '';
             const textoPlano = consejoEnvio
-                ? `${textoEmail}\n\nTexto recomendado para la factura${consejoEnvio.url ? ` (con botón para copiarlo: ${consejoEnvio.url})` : ''}:\n\n${consejoEnvio.copiar}`
+                ? `${textoEmail}${preparada}\n\nTexto recomendado para la factura${consejoEnvio.url ? ` (con botón para copiarlo: ${consejoEnvio.url})` : ''}:\n\n${consejoEnvio.copiar}`
                 : mensaje;
+            const adjuntos = consejoEnvio?.facturaWord ? [consejoEnvio.facturaWord] : undefined;
             // Copia REAL: quien lo recibe ve quién más está en el hilo. `sendMail`
             // descarta los vacíos y los que ya van en `to`.
             const cc = (Array.isArray(req.body?.cc) ? req.body.cc : [])
                 .map(e => String(e || '').trim()).filter(Boolean);
-            await emailService.sendMail({ to: email, cc, subject: asunto, text: textoPlano, html });
+            await emailService.sendMail({ to: email, cc, subject: asunto, text: textoPlano, html, attachments: adjuntos });
             sent.push(cc.length ? `Email (+${cc.length} en copia)` : 'Email');
         }
         if (!sent.length) return res.status(400).json({ error: 'No se pudo enviar por los canales elegidos' });
@@ -1841,7 +1847,7 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         historial.push({
             id: Date.now().toString() + '_solicitud',
             tipo: 'solicitud_docs',
-            texto: `Solicitud de documentación enviada a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'}${destLabel} vía ${sent.join(' + ')}${solicitadoTxt}${consejoEnvio ? `. Con el texto recomendado para la factura${consejoEnvio.decision.motivo === 'GRAVE' ? ' (y qué corregir de la que hay)' : ''}` : ''}`,
+            texto: `Solicitud de documentación enviada a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'}${destLabel} vía ${sent.join(' + ')}${solicitadoTxt}${consejoEnvio ? `. Con el texto recomendado para la factura${consejoEnvio.decision.motivo === 'GRAVE' ? ' (y qué corregir de la que hay)' : ''}${consejoEnvio.facturaWord ? ' y su factura en Word pre-rellena' : ''}` : ''}`,
             solicitado,
             solicitado_keys: solicitadoKeys,
             consejo_factura: consejoEnvio ? consejoEnvio.decision.motivo : null,

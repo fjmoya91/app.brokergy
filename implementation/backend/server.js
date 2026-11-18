@@ -87,6 +87,8 @@ app.use('/api/expedientes', expedientesRoutes);
 app.use('/api/lotes', require('./routes/lotes'));
 app.use('/api/auth', authRoutes);
 app.use('/api/public/portal', require('./routes/portal'));
+// La factura de la obra hecha en la app, en la plantilla del instalador («como su ERP»). ANTES de /api/public.
+app.use('/api/public/factura-instalador', require('./routes/facturaInstalador'));
 // Escaparate público de instaladores (instaladores.brokergy.es). El frontend vive
 // en un repo aparte (C:/Proyectos/marketplace); aquí solo servimos su API pública.
 app.use('/api/public/marketplace', require('./routes/publicMarketplace'));

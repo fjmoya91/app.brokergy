@@ -31,7 +31,9 @@ const GUARDIANES = new Set([
 //   la obra, y miniaturas/ficheros con firma HMAC que caduca.
 // · informesPublic (/api/public/informe): el enlace del cliente de un informe, con su portal_token (32 hex),
 //   límite por IP; el firmado solo se descarga cobrado.
-const ROUTERS_PUBLICOS = new Set(['public', 'portal', 'publicMarketplace', 'landing', 'afirmaStorage', 'acciones', 'certappPublic', 'informesPublic']);
+// · facturaInstalador (/api/public/factura-instalador): la factura que el instalador hace en la
+//   app, con el upload_token de la oportunidad (el de su enlace de subida); 403 sin él o con otro.
+const ROUTERS_PUBLICOS = new Set(['public', 'portal', 'publicMarketplace', 'landing', 'afirmaStorage', 'acciones', 'certappPublic', 'informesPublic', 'facturaInstalador']);
 
 // Rutas sueltas abiertas a propósito, con el motivo.
 const ABIERTAS = {

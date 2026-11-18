@@ -289,7 +289,8 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
                 const partnerId = op?.instalador_asociado_id || op?.prescriptor_id;
                 const insId = cf.instaladorIdDe(expediente, op || {});
                 if (partnerId && insId && String(partnerId) === String(insId)) {
-                    const r = await cf.cargarConsejoFactura(expediente.id, { op, cliente: cli, faltaFactura: true, crearToken: true });
+                    // `conFactura` (solo si va por email): su factura en Word pre-rellena y el enlace de los importes.
+                    const r = await cf.cargarConsejoFactura(expediente.id, { op, cliente: cli, faltaFactura: true, crearToken: true, conFactura: chFilter.includes('email') });
                     if (r?.consejo && r.decision.mandar) consejo = r;
                 }
             } catch (e) { console.warn(`${tag} consejo de factura:`, e.message); }
@@ -345,7 +346,11 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
             if (targets.includes('PARTNER') && partnerEmail) {
                 channels.email.push('partner');
                 const consejoEmail = consejo
-                    ? { html: require('../utils/consejoFactura').htmlEmailConsejo(consejo.consejo, consejo.decision, { url: consejo.url }), texto: consejo.copiar }
+                    ? {
+                        html: require('../utils/consejoFactura').htmlEmailConsejo(consejo.consejo, consejo.decision, require('../utils/consejoFactura').opcionesEmail(consejo)),
+                        texto: consejo.copiar,
+                        attachments: consejo.facturaWord ? [consejo.facturaWord] : [],
+                    }
                     : null;
                 await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink, null, consejoEmail)
                     .catch(e => console.error(`${tag} Email Partner:`, e.message));
