@@ -272,12 +272,17 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
             "telefono": exp.get("tlf", ""),
         },
         "instalacion": {
-            # La instalación está en la dirección del cliente (igual que el CIFO).
-            "calle": exp.get("cli_dir", ""),
+            # EMPLAZAMIENTO = dirección de la INSTALACIÓN, no el domicilio del titular.
+            # El backend la resuelve con la regla 149 («¿Misma dirección que el
+            # cliente?») y la manda en `inst_*`; sin ella (CLI, payload antiguo) se cae
+            # a la del cliente, como hasta el 18/11/2026. Antes era SIEMPRE la del
+            # cliente y la memoria de 26RES093_15 situaba la obra en el domicilio de
+            # empadronamiento, con la RC de la casa donde está la instalación.
+            "calle": exp.get("inst_dir") or exp.get("cli_dir", ""),
             "numero": "",
-            "localidad": exp.get("cli_muni", ""),
-            "provincia": exp.get("cli_prov", ""),
-            "cp": exp.get("cli_cp", ""),
+            "localidad": exp.get("inst_muni") or exp.get("cli_muni", ""),
+            "provincia": exp.get("inst_prov") or exp.get("cli_prov", ""),
+            "cp": exp.get("inst_cp") or exp.get("cli_cp", ""),
             "ref_catastral": inst.get("ref_catastral") or exp.get("ref_catastral", ""),
             "coord_x": inst.get("coord_x"), "coord_y": inst.get("coord_y"),
             "superficie": superficie, "zona": zona, "plantas": plantas,

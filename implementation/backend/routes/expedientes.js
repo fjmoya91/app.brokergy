@@ -5495,6 +5495,16 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
 // Construye el payload (exp + instalador) que espera el microservicio RITE.
 // Centralizado para que /generate, /send y /files no se desincronicen.
 function buildRitePayloads({ exp, cli, op, normalizedDatos, pres }) {
+    // EMPLAZAMIENTO de la memoria y del certificado: la dirección de la INSTALACIÓN
+    // (regla 149, espejo de logic/direccionInstalacion.js). Con «¿Misma dirección
+    // que el cliente? → No» es la del expediente; si no, el generador sigue usando
+    // la del cliente. Hasta el 18/11/2026 era SIEMPRE la del cliente (26RES093_15:
+    // memoria con la obra en el domicilio de empadronamiento).
+    const inst = exp.instalacion || {};
+    const md = String(inst.misma_direccion ?? '').trim().toUpperCase();
+    const instPropia = (inst.misma_direccion === false || md === 'NO' || md === 'FALSE')
+        && String(inst.direccion || '').trim();
+    const provInst = /^\d+$/.test(String(inst.provincia || '').trim()) ? '' : (inst.provincia || '');
     const expPayload = {
         numero_expediente: exp.numero_expediente,
         instalacion: exp.instalacion || {},
@@ -5514,7 +5524,11 @@ function buildRitePayloads({ exp, cli, op, normalizedDatos, pres }) {
         cli_prov: cli?.provincia || '',
         cli_muni: cli?.municipio || '',
         cli_dir: cli?.direccion || '',
-        cli_cp: cli?.codigo_postal || ''
+        cli_cp: cli?.codigo_postal || '',
+        inst_dir: instPropia ? [inst.direccion, inst.num].filter(Boolean).join(' ').trim() : '',
+        inst_muni: instPropia ? String(inst.municipio || '').toUpperCase() : '',
+        inst_prov: instPropia ? String(provInst).toUpperCase() : '',
+        inst_cp: instPropia ? (inst.codigo_postal || '') : ''
     };
     const instaladorPayload = pres ? {
         razon_social: pres.razon_social || '',

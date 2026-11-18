@@ -35,6 +35,15 @@ documentos. Otros 12 eran otra casa, o no se podía asegurar que no lo fueran: 2
 `node implementation/backend/scripts/direccion_instalacion_otra_casa.mjs` (en seco;
 `--escribir`).
 
+**La Memoria RITE y el borrador del certificado RITE también, desde el 18/11/2026.** El
+generador del RITE ponía SIEMPRE el domicilio del cliente como EMPLAZAMIENTO, con «Sí» o con
+«No». En 26RES093_15 la memoria situaba la obra en la calle donde el titular está
+empadronado y recibe las notificaciones, con la RC de la casa donde vive y está la aerotermia
+(otra calle, en esquina; en el Catastro, sin número). Ahora `buildRitePayloads` ([routes/expedientes.js](../../../implementation/backend/routes/expedientes.js))
+resuelve la dirección de la instalación con esta misma regla y la manda en `inst_*`. El
+generador (`normalizar` en `rite-generator/lib/supabase_client.py`) la usa para el
+emplazamiento y, si no llega, cae a la del cliente. El titular sigue con su domicilio.
+
 Fuente única: [direccionInstalacion.js](../../../implementation/frontend/src/features/expedientes/logic/direccionInstalacion.js),
 usada por `buildInstalacionAddress` y `direccionObra`, y por el alta del expediente
 mediante import(). `anexoFotograficoService.buildDocMeta` y `certClienteData` son CJS
