@@ -113,6 +113,19 @@ declarados > cuota declarada > tipo declarado > **tipo por defecto (21 %)**. Est
 suposición, no un dato, y por eso viaja marcado `iva_estimado` y la pantalla lo dice: el campo es
 editable, y ahí se corrige también el caso de titular EMPRESA, que sí se deduce el IVA.
 
+**REGLA — un documento que dice «NO incluye IVA» tiene la BASE escrita, no lo que se paga
+(2026-11-18).** El lector devuelve `totales.iva_incluido` (`false` con «IVA no incluido», «NO incluye
+IVA», «+ IVA», «más IVA»; `true` con «IVA incluido» o la cuota desglosada; `null` si no dice nada), y
+con `false`, sin cuota y sin base < total escritos, `importesDocumento` toma el único importe (esté en
+`base_imponible` o en `total`) como base y le suma el tipo declarado o el 21 % estimado. Antes, un
+total suelto era SIEMPRE con IVA. Caso: 26RES060_OP424, «TOTAL PRESUPUESTO 5.900 € · Nota: este
+presupuesto NO incluye IVA». El modelo no era estable: de tres lecturas del mismo PDF, una lo puso
+como base (7.139 € con IVA) y dos como total (5.900 € con IVA), y la propuesta perdía el 21 % de la
+inversión y el IRPF bajaba de 4.283 € a 3.540 € (se vio en la portada antes de enviarla). Con la
+marca, las tres lecturas dan 7.139 € aunque el modelo siga poniendo la cifra unas veces en
+`base_imponible` y otras en `total`. Un presupuesto con el IVA desglosado no cambia. Prueba:
+`node implementation/backend/scripts/test_importes_documento.js`.
+
 `funnel.presupuesto_modo = 'documento'` (nuevo, junto a `'tengo'`) hace que `funnelToInputs` use esa
 cifra.
 

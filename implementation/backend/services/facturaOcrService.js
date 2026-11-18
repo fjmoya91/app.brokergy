@@ -118,6 +118,7 @@ IMPORTES:
 - iva_pct = el tipo aplicado (21, 10, 0...). iva_importe = la cuota. total = el total a pagar.
 - retencion = la retención de IRPF si la hubiera (número positivo), si no null.
 - Si SOLO aparece un total y no hay desglose, pon base_imponible a null y total al importe que veas. No calcules la base tú.
+- iva_incluido = lo que el documento DICE del IVA de ese total: false si dice que NO lo incluye («IVA no incluido», «NO incluye IVA», «+ IVA», «más IVA», «impuestos no incluidos», «precios sin IVA»), true si dice que lo incluye («IVA incluido», «IVA incl.») o desglosa la cuota, null si no dice nada. Mira también las notas al pie: suele ir ahí.
 
 LÍNEAS (lo más importante):
 - Una entrada por cada CONCEPTO facturado. Copia su "descripcion" literal.
@@ -168,6 +169,9 @@ const GEMINI_SCHEMA = {
                 iva_importe: { type: 'NUMBER', nullable: true },
                 total: { type: 'NUMBER', nullable: true },
                 retencion: { type: 'NUMBER', nullable: true },
+                // Lo que el documento DICE del IVA («NO incluye IVA» → false). Con
+                // solo un total, decide si ese total es la base o lo que se paga.
+                iva_incluido: { type: 'BOOLEAN', nullable: true },
             },
         },
         lineas: {
@@ -389,6 +393,7 @@ function sanitize(raw) {
             iva_importe: num(r.totales?.iva_importe),
             total: num(r.totales?.total),
             retencion: num(r.totales?.retencion),
+            iva_incluido: typeof r.totales?.iva_incluido === 'boolean' ? r.totales.iva_incluido : null,
         },
         lineas: lineas.map((l) => ({
             descripcion: str(l?.descripcion),

@@ -71,10 +71,26 @@ function importesDocumento(ocr) {
     const total = pos(ocr?.totales?.total);
     const cuota = pos(ocr?.totales?.iva_importe);
     const pct = pos(ocr?.totales?.iva_pct);
+    // Lo que el documento DICE del IVA (`false` = «NO incluye IVA», «+ IVA»).
+    const sinIvaDeclarado = ocr?.totales?.iva_incluido === false;
 
     const ok = (sinIva, conIva, ivaPct, ivaEstimado) => ({
         sinIva: r2(sinIva), conIva: r2(conIva), ivaPct: r2(ivaPct), ivaEstimado,
     });
+
+    // «TOTAL 5.900 € · Nota: este presupuesto NO incluye IVA» (26RES060_OP424,
+    // 18/11/2026): el único importe escrito es la BASE. Sin esto, cuando el modelo
+    // lo dejaba en `total` sin base, salía como lo que se paga (con IVA) y la
+    // propuesta bajaba la inversión un 21 % y con ella el IRPF (4.283 → 3.540 €).
+    // El lector no era estable: de tres lecturas del mismo PDF, dos lo hicieron así.
+    // Si el papel escribe las dos cifras (base < total) o la cuota, mandan ellas.
+    if (sinIvaDeclarado && !cuota && !(base && total && total > base)) {
+        const b = base ?? total;
+        if (b) {
+            if (pct) return ok(b, b * (1 + pct / 100), pct, false);
+            return ok(b, b * (1 + IVA_DEFECTO_PCT / 100), IVA_DEFECTO_PCT, true);
+        }
+    }
 
     if (base) {
         // El documento declara las dos cifras: no hay nada que calcular.

@@ -522,9 +522,23 @@ async function crear() {
     const docPresu = alta.documentoPresupuesto(plan);
     const fvPlan = alta.fotovoltaicaDelPlan(plan);
     const { lecturaAPresupuesto, ivaDeLaSimulacion } = await esm('features/calculator/logic/presupuestoLeido.js');
+    // La lectura se GUARDA junto al plan y el `--escribir` usa la MISMA que se revisó en
+    // seco: el lector con IA no es estable (26RES060_OP424, 18/11/2026: el seco leyó
+    // 5.900 € + IVA = 7.139 € y el `--escribir`, releyendo, guardó 5.900 € con IVA).
+    // Se reconoce por el contenido del fichero: cambiarlo obliga a leer otra vez.
     const leerPresupuesto = async (fichero, hueco) => {
         const { extraerDocumentoObra } = require('../routes/facturaOcr');
-        const r = await extraerDocumentoObra(ficherosDe(path.resolve(base, fichero)), 'presupuesto');
+        const ruta = path.resolve(base, fichero);
+        const huellaFichero = require('crypto').createHash('sha1').update(fs.readFileSync(ruta)).digest('hex');
+        const cache = path.join(base, `.lectura_presupuesto_${huellaFichero.slice(0, 16)}.json`);
+        let r = null;
+        try { r = JSON.parse(fs.readFileSync(cache, 'utf8')); } catch { r = null; }
+        if (r?.doc) {
+            console.log(`\n(presupuesto: la MISMA lectura del seco — ${path.basename(cache)}; bórrala para volver a leerlo)`);
+        } else {
+            r = await extraerDocumentoObra(ficherosDe(ruta), 'presupuesto');
+            try { fs.writeFileSync(cache, JSON.stringify({ doc: r.doc, equipos: r.equipos, ocr: r.ocr })); } catch { /* sin caché: se leerá otra vez */ }
+        }
         const lec = lecturaAPresupuesto(r, inputs, { hueco });
         if (lec.patch) Object.assign(inputs, lec.patch);
         avisos.push(...(lec.avisos || []));

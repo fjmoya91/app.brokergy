@@ -190,6 +190,14 @@ de 9.000 €. Se arregló a mano y ahora el alta lo hace como la calculadora:
   «Presupuesto: 9.879,40 € + placas FV 11.078,57 € = inversión 20.957,97 €» y «IRPF 9.000 € (sobre
   20.957,97 €, con las placas)». Prueba: `test_alta_oportunidad.js` (bloque «Placas fotovoltaicas»).
 
+**REGLA — el `--escribir` usa la MISMA lectura del presupuesto que se revisó en seco** (2026-11-18,
+26RES060_OP424). El lector con IA no da siempre lo mismo: el seco imprimió «5.900 € + IVA = 7.139 €»
+y el `--escribir`, que volvía a leer el PDF, guardó 5.900 € como importe con IVA. La lectura se guarda
+junto al plan (`.lectura_presupuesto_<sha1>.json`, por el CONTENIDO del fichero: otro PDF se lee de
+nuevo) y el segundo paso la reutiliza y lo dice; para forzar otra lectura se borra ese fichero. Y la
+causa de fondo, «NO incluye IVA», la resuelve `importesDocumento` con `iva_incluido` (ver
+`nueva-simulacion-con-cee-inicial-y-final.md`, «el documento tiene DOS importes»).
+
 Primer caso real: **26RES060_OP250** (chat «ISM Alejandro administración», 01/10/2026): RC + PDF del
 Catastro, presupuesto con CARRIER 30AWH010HM (catálogo id 420) y bomba de ACS LASIAN ATHERIA 100
 (fuera de catálogo), placa JUNKERS CGW25 de gasóleo 25 kW y croquis con los radiadores por estancia.
