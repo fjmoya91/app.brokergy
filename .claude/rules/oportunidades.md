@@ -1,6 +1,9 @@
 ---
 paths:
-  - "implementation/backend/routes/{oportunidades,landing}.js"
+  - "implementation/backend/routes/{oportunidades,landing,comisionistas}.js"
+  - "implementation/backend/utils/comisionista.js"
+  - "implementation/backend/scripts/comisionista*.{js,sql}"
+  - "implementation/frontend/src/features/comisionistas/**"
   - "implementation/backend/services/{leadService,avisoLeadAdmin}.js"
   - "implementation/backend/utils/{estadoOportunidad,altaOportunidad}.js"
   - "implementation/backend/scripts/alta_oportunidad*.js"
@@ -55,6 +58,8 @@ paths:
 
 208. **El formulario «Calcula tu ayuda» vive en la APP y la obra llega en el ENLACE** (2026-11-09, Fran: «sí, constrúyelo»). La web (brokergy.es/ayudas) solo enlaza a `app.brokergy.es/calcula-tu-ayuda?obra=caldera|reforma`: el funnel (Catastro, cálculo, `check-rc`, alta) es el mismo componente que la «Nueva simulación» y duplicarlo en la web haría que calcularan distinto. Todas las rutas públicas (`/calcula-tu-ayuda`, `/reforma`, `/ayudas-aerotermia`, `/p/:slug`) entran por `ReformaSubFlow`; `?obra=` es una lista cerrada y `?ref=` una etiqueta corta (`^[a-z0-9_-]{1,30}$`): **en el enlace no va nunca un dato personal**. Una etiqueta asigna partner: `esc-<fila>` (el escaparate de WhatsApp, regla 206): el alta lee esa fila de `wa_bienvenidas` (o la de su teléfono) y la oportunidad nace a nombre de su instalador (`partnerDelLead`, que nunca tumba el alta). Con `obra`, no se pregunta el tipo (la reforma llega a los elementos con la aerotermia ya marcada). En el PÚBLICO ya no se pregunta el gasto anual, la condensación (gas/gasóleo de menos de 10 años = condensación) ni con qué calienta hoy el agua (163); **sí lo que decide el factor multiplicador**, solo con aerotermia en la obra: cuándo empezó (si está empezada), quién vive en la casa y el bono social (y si es solo por familia numerosa, que no cuenta como vulnerable). El bono social no se guarda en el navegador (`NO_PERSISTIR`). El resultado da «tus dos ayudas» (bono CAE neto + IRPF) y **la vía FM APARTE, nunca sumada**, con el aviso del cupo. `POST /api/landing/lead` guarda `via_fm` (`viaFmDe`) y el aviso de administración sale para todo lead público. **El CRM (`isInternal`) no cambia**: sigue con el tipo, la condensación, el ACS de hoy y `docs_obra`. **Local escribe en PRODUCCIÓN: el formulario se prueba con el POST bloqueado en el navegador.** Tras tocarlo: `node implementation/backend/scripts/test_aviso_lead_admin.js`, `test_lead_duplicado.js` y el build. Ver "El formulario «Calcula tu ayuda»".
 
+218. **Una oportunidad puede llevar un COMISIONISTA: la PERSONA que trajo la obra, aparte del partner (empresa) del que cuelga** (Fran, 16/11/2026, 26RES060_OP308: Juanma, ingeniero de LOS SIETE HERMANOS, frente a Rufino, comercial de la misma empresa). Tabla `comisionistas` + `oportunidades.comisionista_id` / `comisionista_importe` ([comisionistas_schema.sql](implementation/backend/scripts/comisionistas_schema.sql); RLS sin policies, GRANT a `service_role` y REVOKE a `anon`/`authenticated`, regla 150). **Es una marca de ATRIBUCIÓN**: no cambia el partner, ni a quién se avisa, ni el bono, ni la comisión de la empresa (regla 81). **Del equipo interno, y lo pactado solo de ADMIN**: rutas `staffOnly` ([routes/comisionistas.js](implementation/backend/routes/comisionistas.js)); al partner se le quitan las dos columnas en el listado, en `GET /:id` y en las respuestas del guardado (`sinCiegaParaPartner`), y al TRABAJADOR el importe y `comision_*` — lo decide SOLO `capaComisionista` ([utils/comisionista.js](implementation/backend/utils/comisionista.js)). **Se guarda AL MOMENTO** por `PUT /api/comisionistas/oportunidad/:id`, nunca con el guardado de la calculadora (cuyo `update` no incluye esas columnas: no las pisa); cambiar de persona vacía el importe. Se elige con UNA pieza ([ComisionistaSelector.jsx](implementation/frontend/src/features/comisionistas/ComisionistaSelector.jsx)) en la fila del listado de oportunidades, la cabecera de la calculadora y la del expediente; se filtra en los dos listados (columna «Comisionista» en expedientes). **Sin JSONB** (regla 22): dos escalares en `listaSelect`; en expedientes, una consulta aparte de escalares como la de los rechazados, sin tocar la RPC v4. Por script, en seco: `scripts/comisionista.js listar | alta | marcar` («marcar» no pisa otro comisionista). Tras tocarlo: `node implementation/backend/scripts/test_comisionista.js`, `test_rutas_sin_sesion.js`, `test_rutas_partner.js`, `auditar_rutas_sin_guardian.js` y el build; banco sin sesión: `/comisionista-prueba.html`. Ver "El COMISIONISTA de una oportunidad".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -63,6 +68,7 @@ paths:
 - `docs/conocimiento/oportunidades/alta-de-oportunidad-desde-whatsapp-skill-alta-oportunidad.md` — Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01) · 16,5 KB
 - `docs/conocimiento/oportunidades/bono-por-debajo-de-3000-se-hace-el-cee-al-dar-de-alta.md` — Bono por debajo de 3.000 € al dar de alta: se hace el CEE con CE3X y su XML va a la oportunidad (2026-10-23) · 3,1 KB
 - `docs/conocimiento/oportunidades/el-aviso-de-lead-web-trae-lo-necesario-para-decidir.md` — El aviso de LEAD WEB trae lo necesario para decidir (2026-10-20) · 2,5 KB
+- `docs/conocimiento/oportunidades/el-comisionista-de-una-oportunidad.md` — El COMISIONISTA de una oportunidad: la persona que trajo la obra (2026-11-16) · 4,9 KB
 - `docs/conocimiento/oportunidades/el-formulario-calcula-tu-ayuda-la-obra-viene-en-el-enlace.md` — El formulario «Calcula tu ayuda»: la obra viene en el enlace, y pregunta lo que decide el FM (2026-11-09) · 8,5 KB
 - `docs/conocimiento/oportunidades/el-mismo-vecino-volviendo-al-funnel-no-estrena-oportunidad.md` — El mismo vecino volviendo al funnel NO estrena oportunidad (2026-09-11) · 3,8 KB
 - `docs/conocimiento/oportunidades/lo-que-no-se-le-pregunta-al-cliente.md` — Lo que NO se le pregunta al cliente (2026-10-24) · 3,5 KB
@@ -106,6 +112,15 @@ Fran o enviar la propuesta.**
 - `docs/conocimiento/oportunidades/el-aviso-de-lead-web-trae-lo-necesario-para-decidir.md`
   - **REGLA — las cifras del aviso salen con el MISMO criterio que la lista de oportunidades**
   - **REGLA — el margen va solo porque el chat es el de administración.**
+- `docs/conocimiento/oportunidades/el-comisionista-de-una-oportunidad.md`
+  - **REGLA — el comisionista es una marca de ATRIBUCIÓN: no cambia el partner, ni a quién
+se avisa, ni el bono.**
+  - **REGLA — es del EQUIPO INTERNO, y lo pactado solo de ADMIN**
+  - **REGLA — se guarda AL MOMENTO por su ruta, no con el guardado de la calculadora ni
+con el autoguardado del expediente.**
+  - **REGLA — el listado no trae `datos_calculo` para esto**
+  - **REGLA — la tabla nació con RLS sin policies, GRANT a `service_role` y REVOKE a `anon`
+y `authenticated`.**
 - `docs/conocimiento/oportunidades/el-formulario-calcula-tu-ayuda-la-obra-viene-en-el-enlace.md`
   - **REGLA — el formulario vive en la APP (`app.brokergy.es/calcula-tu-ayuda`); la web solo enlaza con
 `?obra=`.**

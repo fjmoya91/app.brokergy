@@ -18,7 +18,7 @@
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 11 |
 | `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 4,7 KB | 1 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,2 KB | 25 |
-| `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 52,3 KB | 14 |
+| `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 52,4 KB | 14 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 105,4 KB | 41 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 16,4 KB | 5 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 18,2 KB | 5 |
@@ -29,7 +29,7 @@
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 11,4 KB | 6 |
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 42,0 KB | 20 |
-| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 25,6 KB | 10 |
+| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 28,5 KB | 11 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,4 KB | 10 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,0 KB | 11 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
@@ -302,6 +302,7 @@
 - **215** → `.claude/rules/lotes.md` — El Anexo I del LOTE lleva las firmas ANCLADAS al pie de la hoja, y sus casillas se MIDEN
 - **216** → `.claude/rules/cuadro-mando.md` — El cuadro de mando es de DIRECCIÓN y en el navegador no se hace ninguna cuenta de dinero: todo sale de [cuad…
 - **217** → `.claude/rules/whatsapp.md` — El SEGUIMIENTO: toda propuesta enviada y todo CEE inicial sin material tiene su escalera de recordatorios, y…
+- **218** → `.claude/rules/oportunidades.md` — Una oportunidad puede llevar un COMISIONISTA: la PERSONA que trajo la obra, aparte del partner (empresa) del…
 
 ## Documentos por área
 
@@ -640,6 +641,7 @@
 - `docs/conocimiento/oportunidades/alta-de-oportunidad-desde-whatsapp-skill-alta-oportunidad.md` — Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01)
 - `docs/conocimiento/oportunidades/bono-por-debajo-de-3000-se-hace-el-cee-al-dar-de-alta.md` — Bono por debajo de 3.000 € al dar de alta: se hace el CEE con CE3X y su XML va a la oportunidad (2026-10-23)
 - `docs/conocimiento/oportunidades/el-aviso-de-lead-web-trae-lo-necesario-para-decidir.md` — El aviso de LEAD WEB trae lo necesario para decidir (2026-10-20)
+- `docs/conocimiento/oportunidades/el-comisionista-de-una-oportunidad.md` — El COMISIONISTA de una oportunidad: la persona que trajo la obra (2026-11-16)
 - `docs/conocimiento/oportunidades/el-formulario-calcula-tu-ayuda-la-obra-viene-en-el-enlace.md` — El formulario «Calcula tu ayuda»: la obra viene en el enlace, y pregunta lo que decide el FM (2026-11-09)
 - `docs/conocimiento/oportunidades/el-mismo-vecino-volviendo-al-funnel-no-estrena-oportunidad.md` — El mismo vecino volviendo al funnel NO estrena oportunidad (2026-09-11)
 - `docs/conocimiento/oportunidades/lo-que-no-se-le-pregunta-al-cliente.md` — Lo que NO se le pregunta al cliente (2026-10-24)

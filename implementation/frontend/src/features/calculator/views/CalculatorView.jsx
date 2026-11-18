@@ -52,6 +52,7 @@ import { Res060FCModal } from '../components/Res060FCModal';
 import { calculateRes080FM } from '../logic/res080fm';
 import axios from 'axios';
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
+import { ComisionistaDeOportunidad } from '../../comisionistas/ComisionistaSelector';
 import { nombrePartner, tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 
 const INITIAL_INPUTS = {
@@ -1392,6 +1393,17 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                             </span>
                         );
                     })()}
+                    {/* La PERSONA que trajo la obra, aparte del partner. Solo equipo
+                        interno; se guarda al momento por su ruta, no con «Guardar». */}
+                    {inputs.id_oportunidad && ['ADMIN', 'TRABAJADOR'].includes(user?.rol?.toUpperCase()) && (
+                        <ComisionistaDeOportunidad
+                            idOportunidad={inputs.id_oportunidad}
+                            prescriptorId={prescriptor?.id_empresa || null}
+                            prescriptores={prescriptor ? [prescriptor] : []}
+                            isAdmin={user?.rol?.toUpperCase() === 'ADMIN'}
+                            size="md"
+                        />
+                    )}
                     {inputs.referenciaCliente && (
                         <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
                             {inputs.referenciaCliente}

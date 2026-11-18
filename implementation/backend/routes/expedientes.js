@@ -419,6 +419,38 @@ router.get('/', enforceAuth, async (req, res) => {
             }
         }
 
+        // ── Comisionista: la PERSONA que trajo la obra (aparte del partner) ──
+        // Solo el equipo interno; el importe pactado, solo ADMIN. Igual que los
+        // rechazos: la firma de la RPC v4 no lo trae y cambiarla obliga a un
+        // DROP, así que va una consulta aparte de ESCALARES y solo de las
+        // oportunidades que tienen uno (regla 22). Si falla, el listado sale
+        // igual, sin la columna rellena.
+        if (canViewAll) {
+            const { data: conCom, error: comErr } = await supabase
+                .from('oportunidades')
+                .select('id, comisionista_id, comisionista_importe, comisionistas(nombre)')
+                .not('comisionista_id', 'is', null);
+            if (comErr) {
+                console.warn('[GET expedientes] comisionistas:', comErr.message);
+            } else if (conCom?.length) {
+                const admin = rol === 'ADMIN';
+                const porOp = new Map(conCom.map(o => [String(o.id), o]));
+                data = data.map(r => {
+                    const c = r.oportunidad_id ? porOp.get(String(r.oportunidad_id)) : null;
+                    if (!c || !r.oportunidades) return r;
+                    return {
+                        ...r,
+                        oportunidades: {
+                            ...r.oportunidades,
+                            comisionista_id: c.comisionista_id,
+                            comisionista_nombre: c.comisionistas?.nombre || null,
+                            ...(admin ? { comisionista_importe: c.comisionista_importe } : {}),
+                        },
+                    };
+                });
+            }
+        }
+
         // ── Filtros por rol ──────────────────────────────────────────────────
         if (isCertificador) {
             if (!req.user.prescriptor_id) return res.json([]);

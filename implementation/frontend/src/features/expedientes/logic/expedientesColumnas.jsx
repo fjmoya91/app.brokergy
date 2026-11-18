@@ -822,6 +822,62 @@ export const COLUMNAS = [
         limpiar: (ctx) => ctx.setFiltro('instalador', 'ALL'),
     },
     {
+        // La PERSONA que trajo la obra, aparte del partner (Juanma frente a
+        // Rufino en LOS SIETE HERMANOS, 16/11/2026). Vive en la oportunidad
+        // (`oportunidades.comisionista_id`); el listado lo trae en una consulta
+        // aparte de escalares (routes/expedientes.js). El importe, solo ADMIN.
+        key: 'comisionista',
+        label: 'Comisionista',
+        grupo: 'Gente',
+        ancho: 140,
+        roles: ['ADMIN', 'TRABAJADOR'],
+        valor: (exp) => exp.oportunidades?.comisionista_nombre || '',
+        render: (exp, ctx) => {
+            const op = exp.oportunidades || {};
+            if (!op.comisionista_id) return <Vacio />;
+            const importe = ctx.rol === 'ADMIN' ? op.comisionista_importe : null;
+            return (
+                <span
+                    className="inline-flex items-center gap-1 max-w-full px-2 py-0.5 rounded-full border border-amber-400/40 bg-amber-400/10 text-amber-300"
+                    title={`Trajo la obra: ${op.comisionista_nombre || '—'}${importe != null ? ` · ${Number(importe).toLocaleString('es-ES')} € en esta obra` : ''}`}
+                >
+                    <span className="text-[10px] font-black uppercase tracking-wide truncate">{op.comisionista_nombre || '—'}</span>
+                    {importe != null && (
+                        <span className="text-[10px] font-bold text-amber-200/70 shrink-0">· {Number(importe).toLocaleString('es-ES')} €</span>
+                    )}
+                </span>
+            );
+        },
+        filtro: (ctx) => (
+            <select
+                value={ctx.filtros.comisionista}
+                onChange={e => ctx.setFiltro('comisionista', e.target.value)}
+                className={`w-full bg-bkg-deep border rounded-lg px-2 py-1.5 text-[10px] uppercase focus:outline-none ${ctx.filtros.comisionista !== 'ALL' ? 'border-amber-400/50 text-amber-300' : 'border-white/[0.08] text-white/60'}`}
+                title="Filtrar por la persona que trajo la obra"
+            >
+                <option value="ALL" className="bg-slate-800 text-white">Todos</option>
+                <option value="NONE" className="bg-slate-800 text-white">Sin comisionista</option>
+                {(ctx.listas.comisionistas || []).map(c => (
+                    <option key={c.id} value={c.id} className="bg-slate-800 text-white">{c.nombre} ({c.n})</option>
+                ))}
+            </select>
+        ),
+        match: (exp, ctx) => {
+            const v = ctx.filtros.comisionista;
+            if (!v || v === 'ALL') return true;
+            const id = exp.oportunidades?.comisionista_id;
+            if (v === 'NONE') return !id;
+            return String(id || '') === String(v);
+        },
+        filtroActivo: (ctx) => ctx.filtros.comisionista && ctx.filtros.comisionista !== 'ALL' && {
+            label: 'Comisionista',
+            value: ctx.filtros.comisionista === 'NONE'
+                ? 'Sin comisionista'
+                : ((ctx.listas.comisionistas || []).find(c => String(c.id) === String(ctx.filtros.comisionista))?.nombre || '…'),
+        },
+        limpiar: (ctx) => ctx.setFiltro('comisionista', 'ALL'),
+    },
+    {
         key: 'metricas',
         label: '⚡ € ▲',
         etiquetaPicker: 'Ahorro · Bono · Margen (juntos)',

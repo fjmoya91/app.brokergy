@@ -920,6 +920,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [faseIniFilter, setFaseIniFilter] = useState(memoria.fase_inicial || 'ALL');
     const [faseFinFilter, setFaseFinFilter] = useState(memoria.fase_final || 'ALL');
     const [incidenciasFilter, setIncidenciasFilter] = useState(memoria.incidencias || 'ALL');
+    const [comisionistaFilter, setComisionistaFilter] = useState(memoria.comisionista || 'ALL');
     // Rango de la columna CREADO ('' = sin acotar). En 'YYYY-MM-DD' local, que es
     // lo que escribe un <input type="date"> y lo que devuelve `fechaLocal`.
     const [creadoDesde, setCreadoDesde] = useState(memoria.creadoDesde || '');
@@ -984,6 +985,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         fase_inicial: faseIniFilter,
         fase_final: faseFinFilter,
         incidencias: incidenciasFilter,
+        comisionista: comisionistaFilter,
         creadoDesde,
         creadoHasta,
         prioridad: prioridadFilter,
@@ -1297,6 +1299,21 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         return c;
     }, [expedientes]);
 
+    // Comisionistas con obra en la cartera, con cuántas tiene cada uno. Salen de
+    // los propios expedientes (el backend ya trae el nombre): sin otra petición.
+    const availableComisionistas = useMemo(() => {
+        const m = new Map();
+        for (const e of expedientes) {
+            const op = e.oportunidades;
+            if (!op?.comisionista_id) continue;
+            const k = String(op.comisionista_id);
+            const prev = m.get(k) || { id: k, nombre: op.comisionista_nombre || '—', n: 0 };
+            prev.n += 1;
+            m.set(k, prev);
+        }
+        return [...m.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    }, [expedientes]);
+
     const availableLotes = useMemo(() => {
         const set = new Set(expedientes.map(e => e.lote?.codigo).filter(Boolean));
         return Array.from(set).sort().reverse();
@@ -1398,6 +1415,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             conteoCertificador,
             lotes: availableLotes,
             municipios: availableMunicipios,
+            comisionistas: availableComisionistas,
         },
         filtros: {
             prioridad: prioridadFilter,
@@ -1412,6 +1430,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             fase_final: faseFinFilter,
             incidencias: incidenciasFilter,
             creadoDesde, creadoHasta,
+            comisionista: comisionistaFilter,
         },
         setFiltro: (key, val) => ({
             prioridad: setPrioridadFilter, ccaa: setCcaaFilter, ficha: setFichaFilter,
@@ -1419,6 +1438,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             instalador: setInstaladorFilter, lote: setLoteFilter, municipio: setMunicipioFilter,
             fase_inicial: setFaseIniFilter, fase_final: setFaseFinFilter, incidencias: setIncidenciasFilter,
             creadoDesde: setCreadoDesde, creadoHasta: setCreadoHasta,
+            comisionista: setComisionistaFilter,
         }[key]?.(val)),
         onStatusChange: (id, val, e) => handleStatusChange(id, val, e),
         // Rechazar es del equipo interno (la ruta es staffOnly): a los demás no se

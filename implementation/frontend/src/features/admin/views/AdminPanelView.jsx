@@ -14,6 +14,8 @@ import { FICHAS, fichaColor } from '../../expedientes/logic/expedienteTaxonomia'
 import { EntregaPropuestaTag } from '../components/EntregaPropuestaTag';
 import { useVistaGuardada, useGuardarVista, useScrollLista } from '../../../utils/memoriaVista';
 import { ViaFmCelda, ViaFmChip, FILTRO_VIA_FM, pasaFiltroViaFm } from '../components/ViaFmCelda';
+import { ComisionistaSelector } from '../../comisionistas/ComisionistaSelector';
+import { useComisionistas } from '../../comisionistas/useComisionistas';
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -38,8 +40,13 @@ export function AdminPanelView({
     onClearInitialEstado
 }) {
     const { user } = useAuth();
-    const { canDelete } = getRoleFlags(user);
+    const { canDelete, isStaff: esStaffLista } = getRoleFlags(user);
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+    // Comisionistas (la persona que trajo la obra): solo el equipo interno.
+    const comisionistas = useComisionistas(esStaffLista);
+    // Lo guardado en una fila se refleja sin recargar la lista entera.
+    const aplicarComisionista = (idOportunidad, next) => setOportunidades(prev => prev.map(o =>
+        o.id_oportunidad === idOportunidad ? { ...o, ...next } : o));
 
     // ─── Columnas redimensionables (Excel-style) ──────────────────────────────
     const COL_DEFAULTS = {
@@ -387,6 +394,8 @@ export function AdminPanelView({
         fechaHasta: '',
         // Columna «Vía FM» (solo ADMIN): '' · gana · elegible · no_elegible · sin
         viaFm: '',
+        // La PERSONA que trajo la obra (aparte del partner): '' todos · 'none' sin · id
+        comisionista_id: '',
         // Lo recordado de la última vez; `initialEstado` (cuadro de mando) manda.
         ...(memoria.filters || {}),
         ...(initialEstado ? { estado: initialEstado } : {}),
@@ -789,7 +798,10 @@ export function AdminPanelView({
             (filters.cod_cliente_interno === '' || norm(op.datos_calculo?.cod_cliente_interno).includes(norm(filters.cod_cliente_interno))) &&
             (filters.fechaDesde === '' || (opDateKey(op) !== null && opDateKey(op) >= filters.fechaDesde)) &&
             (filters.fechaHasta === '' || (opDateKey(op) !== null && opDateKey(op) <= filters.fechaHasta)) &&
-            (!isAdmin || !filters.viaFm || pasaFiltroViaFm(op.datos_calculo?.via_fm, filters.viaFm))
+            (!isAdmin || !filters.viaFm || pasaFiltroViaFm(op.datos_calculo?.via_fm, filters.viaFm)) &&
+            (!esStaffLista || !filters.comisionista_id || (filters.comisionista_id === 'none'
+                ? !op.comisionista_id
+                : String(op.comisionista_id || '') === String(filters.comisionista_id)))
         );
 
         if (!matchesColFilters) return false;
@@ -1190,7 +1202,7 @@ export function AdminPanelView({
                         )}
                     </div>
                     {(() => {
-                        const activeCount = [filters.ficha, filters.ccaa, filters.prescriptor_id].filter(v => v && v !== '').length;
+                        const activeCount = [filters.ficha, filters.ccaa, filters.prescriptor_id, filters.comisionista_id].filter(v => v && v !== '').length;
                         return (
                             <button
                                 onClick={() => setShowMobileFilters(v => !v)}
@@ -1252,10 +1264,25 @@ export function AdminPanelView({
                                 />
                             </div>
                         )}
+                        {/* Comisionista (equipo interno) */}
+                        {esStaffLista && comisionistas.length > 0 && (
+                            <div>
+                                <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5">Comisionista</label>
+                                <select
+                                    value={filters.comisionista_id || ''}
+                                    onChange={e => setFilters(prev => ({ ...prev, comisionista_id: e.target.value }))}
+                                    className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase"
+                                >
+                                    <option value="" className="bg-slate-800">Todos</option>
+                                    <option value="none" className="bg-slate-800">Sin comisionista</option>
+                                    {comisionistas.map(c => <option key={c.id} value={c.id} className="bg-slate-800">{c.nombre} ({c.obras || 0})</option>)}
+                                </select>
+                            </div>
+                        )}
                         {/* Limpiar */}
-                        {[filters.ficha, filters.ccaa, filters.prescriptor_id].some(v => v && v !== '') && (
+                        {[filters.ficha, filters.ccaa, filters.prescriptor_id, filters.comisionista_id].some(v => v && v !== '') && (
                             <button
-                                onClick={() => setFilters(prev => ({ ...prev, ficha: '', ccaa: '', prescriptor_id: '' }))}
+                                onClick={() => setFilters(prev => ({ ...prev, ficha: '', ccaa: '', prescriptor_id: '', comisionista_id: '' }))}
                                 className="w-full py-2 rounded-lg border border-white/10 text-white/50 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all"
                             >
                                 Limpiar filtros
@@ -1452,10 +1479,26 @@ export function AdminPanelView({
                                 {user?.rol === 'ADMIN' && (
                                     <td className="p-2.5 border-b border-white/[0.06]">
                                         <SearchablePartnerSelect
-                                            isFilter 
-                                            value={filters.prescriptor_id} 
+                                            isFilter
+                                            value={filters.prescriptor_id}
                                             onSelect={val => setFilters(prev => ({ ...prev, prescriptor_id: val }))}
                                         />
+                                        {comisionistas.length > 0 && (
+                                            <select
+                                                className={`mt-1.5 w-full bg-bkg-deep border rounded-lg px-2 py-1 text-[10px] focus:outline-none transition-all uppercase ${filters.comisionista_id ? 'border-amber-400/50 text-amber-300' : 'border-white/[0.08] text-white/50'}`}
+                                                value={filters.comisionista_id || ''}
+                                                onChange={e => setFilters(prev => ({ ...prev, comisionista_id: e.target.value }))}
+                                                title="Filtrar por la persona que trajo la obra (comisionista)"
+                                            >
+                                                <option value="" className="bg-slate-800 text-white">Comisionista: todos</option>
+                                                <option value="none" className="bg-slate-800 text-white">Sin comisionista</option>
+                                                {comisionistas.map(c => (
+                                                    <option key={c.id} value={c.id} className="bg-slate-800 text-white">
+                                                        {c.nombre} ({c.obras || 0})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        )}
                                     </td>
                                 )}
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
@@ -1676,6 +1719,18 @@ export function AdminPanelView({
                                                             onSelect={val => handleAssignPrescriptor({ stopPropagation: () => {} }, op, val)}
                                                         />
                                                     )}
+                                                    {/* Quién de dentro (o de fuera) trajo la obra, aparte del partner */}
+                                                    <div className="mt-1.5">
+                                                        <ComisionistaSelector
+                                                            idOportunidad={op.id_oportunidad}
+                                                            value={op.comisionista_id}
+                                                            importe={op.comisionista_importe}
+                                                            prescriptorId={op.prescriptor_id}
+                                                            prescriptores={prescriptores}
+                                                            isAdmin={isAdmin}
+                                                            onSaved={next => aplicarComisionista(op.id_oportunidad, next)}
+                                                        />
+                                                    </div>
                                                 </td>
                                             )}
 
@@ -1893,6 +1948,19 @@ export function AdminPanelView({
                                 {user?.rol === 'ADMIN' && (
                                     <div className="mt-3" onClick={e => e.stopPropagation()}>
                                         <SearchablePartnerSelect value={op} onSelect={val => handleAssignPrescriptor({ stopPropagation: () => {} }, op, val)} />
+                                    </div>
+                                )}
+                                {esStaffLista && (
+                                    <div className="mt-2" onClick={e => e.stopPropagation()}>
+                                        <ComisionistaSelector
+                                            idOportunidad={op.id_oportunidad}
+                                            value={op.comisionista_id}
+                                            importe={op.comisionista_importe}
+                                            prescriptorId={op.prescriptor_id}
+                                            prescriptores={prescriptores}
+                                            isAdmin={isAdmin}
+                                            onSaved={next => aplicarComisionista(op.id_oportunidad, next)}
+                                        />
                                     </div>
                                 )}
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+import { ComisionistaDeOportunidad } from '../../comisionistas/ComisionistaSelector';
 import { useModal } from '../../../context/ModalContext';
 import { CeeModule } from '../components/CeeModule';
 
@@ -1700,6 +1701,19 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                             </span>
                         );
                     })()}
+                    {/* La PERSONA que trajo la obra, aparte del partner (Juanma frente
+                        a Rufino en LOS SIETE HERMANOS). Vive en la OPORTUNIDAD y se
+                        guarda al momento por su ruta: no pasa por el autoguardado.
+                        Solo equipo interno; el importe, solo ADMIN. */}
+                    {isStaff && op.id_oportunidad && (
+                        <ComisionistaDeOportunidad
+                            idOportunidad={op.id_oportunidad}
+                            prescriptorId={op.prescriptor_id}
+                            prescriptores={partners}
+                            isAdmin={isAdmin}
+                            size="md"
+                        />
+                    )}
                     {/* Indicador de Sincronización (Autosave) */}
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/5">
                         {saving ? (

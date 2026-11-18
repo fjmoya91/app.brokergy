@@ -22,7 +22,18 @@ const { FICHAS, detectPrograma } = require('../utils/fichas');
 const { sellarPrecioCae } = require('../utils/precioCae');
 const { viaFmAlGuardar, conservarRutaFm, conservarFmEnPropuesta, viaFmDe } = require('../utils/viaFmAlGuardar');
 const { sellarGuiaTransmitancias } = require('../utils/guiaTransmitancias');
-const { conservarCiega, sinCiegaParaPartner, cargarLogicaCiega } = require('../utils/estimacionCiega');
+const { conservarCiega, sinCiegaParaPartner: _sinCiegaParaPartner, cargarLogicaCiega } = require('../utils/estimacionCiega');
+const { capaComisionista } = require('../utils/comisionista');
+// Toda respuesta con la fila de una oportunidad pasa por aquí: además del CEE a
+// ciegas, al partner se le quita el COMISIONISTA (quién de su empresa nos trajo
+// la obra y lo pactado con él: es del equipo interno). El importe, al resto que
+// no es ADMIN, lo quita `capaComisionista` en el listado y en GET /:id.
+const sinCiegaParaPartner = (op, staff) => {
+    const fila = _sinCiegaParaPartner(op, staff);
+    if (staff || !fila || typeof fila !== 'object') return fila;
+    const { comisionista_id, comisionista_importe, ...resto } = fila;
+    return resto;
+};
 const clasificarFotos = require('../services/clasificarFotosService');
 const whatsappMedia = require('../services/whatsappMedia');
 const multer = require('multer');
@@ -634,6 +645,7 @@ const listaSelect = (conFicha = true) => `
     id, id_oportunidad, ref_catastral, ${conFicha ? 'ficha,' : ''} referencia_cliente,
     prescriptor, demanda_calefaccion, created_at, updated_at, creador_id,
     prescriptor_id, cliente_id, instalador_asociado_id,
+    comisionista_id, comisionista_importe,
     dc_estado:datos_calculo->>estado,
     dc_origen:datos_calculo->>origen,
     dc_cod_cliente:datos_calculo->>cod_cliente_interno,
@@ -686,6 +698,11 @@ function filaListado(o) {
         prescriptor_id: o.prescriptor_id,
         cliente_id: o.cliente_id,
         instalador_asociado_id: o.instalador_asociado_id,
+        // Quién trajo la obra (persona, aparte del partner). Lo poda por rol
+        // `capaComisionista` antes de responder: el partner no lo ve y el
+        // importe es solo de ADMIN.
+        comisionista_id: o.comisionista_id,
+        comisionista_importe: o.comisionista_importe,
         datos_calculo: {
             estado: o.dc_estado,
             origen: o.dc_origen,
@@ -781,7 +798,7 @@ router.get('/', enforceAuth, async (req, res) => {
                 const retryVisible = await conEstadoDeExpediente(
                     (retryData || []).map(filaListado).filter(o => o.datos_calculo.origen !== 'migracion_xml')
                 );
-                return res.status(200).json(isNonAdmin(req) ? retryVisible.map(stripPartnerMargin) : retryVisible);
+                return res.status(200).json(isNonAdmin(req) ? retryVisible.map(o => capaComisionista(stripPartnerMargin(o), req)) : retryVisible);
             }
             // Un error de la BD NO puede presentarse como "no tienes ninguna oportunidad".
             // Antes esto devolvía `200 []` para "evitar crashes en el front", y el precio
@@ -800,7 +817,7 @@ router.get('/', enforceAuth, async (req, res) => {
         const visible = await conEstadoDeExpediente(
             (data || []).map(filaListado).filter(o => o.datos_calculo.origen !== 'migracion_xml')
         );
-        res.status(200).json(isNonAdmin(req) ? visible.map(stripPartnerMargin) : visible);
+        res.status(200).json(isNonAdmin(req) ? visible.map(o => capaComisionista(stripPartnerMargin(o), req)) : visible);
     } catch (error) {
         console.error('Fatal crash in GET /:', error);
         res.status(500).json({ error: 'Error del servidor.' });
@@ -1667,7 +1684,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
         if (byId.data && byId.data.length > 0) {
             const found = sinCiegaParaPartner(byId.data[0], isStaff(req));
             console.log(`[Backend] Encontrada por id_oportunidad: ${found.id_oportunidad}`);
-            return res.status(200).json(isNonAdmin(req) ? stripPartnerMargin(found) : found);
+            return res.status(200).json(isNonAdmin(req) ? capaComisionista(stripPartnerMargin(found), req) : found);
         }
 
         // 2. Fallback por ref_catastral
@@ -1685,7 +1702,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
         if (byRc.data && byRc.data.length > 0) {
             const found = sinCiegaParaPartner(byRc.data[0], isStaff(req));
             console.log(`[Backend] Encontrada por ref_catastral: ${found.id_oportunidad}`);
-            return res.status(200).json(isNonAdmin(req) ? stripPartnerMargin(found) : found);
+            return res.status(200).json(isNonAdmin(req) ? capaComisionista(stripPartnerMargin(found), req) : found);
         }
 
         console.log(`[Backend] Oportunidad no encontrada para: ${id}`);
