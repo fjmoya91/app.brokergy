@@ -296,7 +296,8 @@ function calcular(entrada, { lineas: lineasConsejo, cfg, fechaMinima, hoy = new 
 /**
  * Compone la factura sobre el fondo de la plantilla. Posiciones en puntos PDF,
  * `y` medida DESDE ARRIBA (como en el visor) y en la LÍNEA BASE del texto.
- * @returns {Promise<{ buffer: Buffer, desborda: boolean }>}
+ * `numeroLargo`: el nº de factura no cabe en su casilla ni encogido (con `numero.zona`).
+ * @returns {Promise<{ buffer: Buffer, desborda: boolean, numeroLargo: boolean }>}
  */
 async function componerPdf(plantilla, datos, calculo) {
     const { PDFDocument, rgb } = require('pdf-lib');
@@ -311,11 +312,24 @@ async function componerPdf(plantilla, datos, calculo) {
     const color = (c) => rgb(...(Array.isArray(c) ? c : [0, 0, 0]));
 
     const ancho = (t, size, bold) => (bold ? fB : fR).widthOfTextAtSize(t, size);
-    function txt(x, y, t, { size = 11, bold = false, col = null, align = 'l' } = {}) {
-        if (!t) return;
-        const w = ancho(t, size, bold);
-        const x0 = align === 'c' ? x - w / 2 : align === 'r' ? x - w : x;
-        pg.drawText(t, { x: x0, y: H - y, size, font: bold ? fB : fR, color: color(col) });
+    // `zona: [xmin, xmax]` (opcional, de plantilla.json): el hueco libre del campo. Un texto que
+    // se saldría se corre dentro y, si aun así no cabe, se encoge (hasta 6,5 pt). Sin ella, el
+    // nº «PRUEBA 1» centrado pisaba la etiqueta «Número:» (RCA, 18/11/2026).
+    // Devuelve false si ni encogido cabe (entonces la página pide acortarlo y no se guarda).
+    function txt(x, y, t, { size = 11, bold = false, col = null, align = 'l', zona = null } = {}) {
+        if (!t) return true;
+        let s = size;
+        let w = ancho(t, s, bold);
+        let x0 = align === 'c' ? x - w / 2 : align === 'r' ? x - w : x;
+        let cabe = true;
+        if (Array.isArray(zona) && zona.length === 2) {
+            const [a, b] = zona;
+            if (w > b - a) { s = Math.max(6.5, s * (b - a) / w); w = ancho(t, s, bold); }
+            cabe = w <= b - a + 0.5;
+            x0 = Math.min(Math.max(x0, a), Math.max(a, b - w));
+        }
+        pg.drawText(t, { x: x0, y: H - y, size: s, font: bold ? fB : fR, color: color(col) });
+        return cabe;
     }
     function partir(t, lim, size) {
         const out = [];
@@ -331,8 +345,8 @@ async function componerPdf(plantilla, datos, calculo) {
     const cl = cfg.cliente;
     txt(cl.x, cl.y, datos.clienteNombre, { size: cl.size, bold: cl.nombreNegrita !== false });
     datos.clienteDomicilio.forEach((l, i) => txt(cl.x, cl.y + cl.pitch * (i + 1), l, { size: cl.size }));
-    txt(cfg.numero.x, cfg.numero.y, calculo.numero, { size: cfg.numero.size, align: cfg.numero.align });
-    txt(cfg.fecha.x, cfg.fecha.y, calculo.fechaTxt, { size: cfg.fecha.size, align: cfg.fecha.align });
+    const numeroCabe = txt(cfg.numero.x, cfg.numero.y, calculo.numero, { size: cfg.numero.size, align: cfg.numero.align, zona: cfg.numero.zona });
+    txt(cfg.fecha.x, cfg.fecha.y, calculo.fechaTxt, { size: cfg.fecha.size, align: cfg.fecha.align, zona: cfg.fecha.zona });
 
     // Líneas: la primera de cada partida lleva cantidad, precio e importe
     const tb = cfg.tabla;
@@ -361,7 +375,7 @@ async function componerPdf(plantilla, datos, calculo) {
 
     pdf.setTitle(`Factura ${calculo.numero}`);
     pdf.setProducer('BROKERGY');
-    return { buffer: Buffer.from(await pdf.save()), desborda };
+    return { buffer: Buffer.from(await pdf.save()), desborda, numeroLargo: !numeroCabe };
 }
 
 // ── Guardar: lo mismo que una factura subida al apartado ─────────────────────

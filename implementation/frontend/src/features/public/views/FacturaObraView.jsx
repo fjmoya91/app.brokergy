@@ -17,10 +17,13 @@
  * NIF del titular: sin token, 403.
  *
  * DISEÑO: «carta de pago» (regla 164), prefijo `.fo-`, mobile first; en el PC la
- * vista previa va al lado. /factura-obra/demo — datos de MENTIRA, sin API.
+ * vista previa va al lado y FIJA mientras se baja (sticky, cabe en la pantalla); en el
+ * móvil, una píldora abajo con el total abre la factura en una hoja (18/11/2026).
+ * /factura-obra/demo — datos de MENTIRA, sin API.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 
 const API = '/api/public/factura-instalador';
@@ -82,7 +85,7 @@ const CSS = `
 .fo{--crema:#faf9f7;--tinta:#141111;--gris:#55585f;--gris2:#6b6e76;--linea:rgba(20,17,17,.08);--naranja:#ffa000;--naranja-txt:#b33a0a;--verde:#b1d13e;--verde-txt:#4d6b0f;--lima:#c7f601;
   --filete:linear-gradient(90deg,#fca508 0%,#f5c53f 30%,#eee475 55%,#c7d54c 78%,#b5cf38 100%);
   color-scheme:light;min-height:100vh;min-height:100dvh;background:var(--crema);color:var(--tinta);
-  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased;position:relative;overflow-x:hidden}
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased;position:relative;overflow-x:hidden;overflow-x:clip}
 .fo *{box-sizing:border-box}
 .fo-filete-top{height:4px;background:var(--filete)}
 .fo-halo{position:absolute;inset:0 0 auto 0;height:520px;pointer-events:none;
@@ -164,12 +167,31 @@ const CSS = `
 @keyframes fo-shim{to{background-position:-200% 0}}
 .fo-dos{display:block}
 .fo-lado{margin-top:14px}
+/* Móvil: la píldora con el total que abre la factura en una hoja (en el PC no hace falta: va al lado, fija). */
+.fo-pildora{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom));z-index:40;display:inline-flex;align-items:center;gap:10px;
+  min-height:48px;padding:0 18px 0 16px;border:0;border-radius:999px;background:var(--tinta);color:#fff;font:inherit;font-size:14.5px;font-weight:700;cursor:pointer;
+  box-shadow:0 10px 28px -8px rgba(20,17,17,.45);white-space:nowrap}
+.fo-pildora b{font-family:'Antonio',sans-serif;font-size:17px;letter-spacing:.01em;color:var(--lima)}
+.fo-pildora:focus-visible{outline:3px solid var(--naranja);outline-offset:3px}
+.fo-hoja{position:fixed;inset:0;z-index:10050;background:rgba(20,17,17,.55);display:flex;align-items:flex-end;justify-content:center}
+.fo-hoja-caja{background:#faf9f7;color:#141111;width:100%;max-width:640px;max-height:92vh;border-radius:22px 22px 0 0;display:flex;flex-direction:column;overflow:hidden;
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;animation:fo-up .28s cubic-bezier(.2,.8,.2,1) both}
+.fo-hoja-cab{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid rgba(20,17,17,.08)}
+.fo-hoja-cab b{font-family:'Antonio',sans-serif;font-size:20px}
+.fo-hoja-cab button{min-height:44px;padding:0 16px;border-radius:999px;border:1.5px solid rgba(20,17,17,.18);background:#fff;color:#141111;font:inherit;font-weight:700;cursor:pointer}
+.fo-hoja-cuerpo{overflow:auto;padding:12px 12px calc(16px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
+.fo-hoja .fo-previa{background:#fff;border:1px solid rgba(20,17,17,.08)}
+@media (max-width:979px){.fo-col.ancha{padding-bottom:calc(96px + env(safe-area-inset-bottom))}}
 @media (max-width:360px){.fo-h1{font-size:32px}.fo-campos{grid-template-columns:1fr}}
 @media (min-width:980px){
   .fo-col.ancha{max-width:1080px;padding-top:40px}
   .fo-dos{display:grid;grid-template-columns:minmax(0,460px) minmax(0,1fr);gap:24px;align-items:start}
-  .fo-lado{margin-top:0;position:sticky;top:24px}
+  /* FIJA mientras se rellena, y entera en la pantalla: la hoja se encoge a lo alto que haya. */
+  .fo-lado{margin-top:0;position:sticky;top:16px}
+  .fo-lado .fo-previa{display:flex;justify-content:center}
+  .fo-lado .fo-previa canvas{width:auto;max-width:100%;max-height:calc(100vh - 64px)}
   .fo-pad{padding:26px}
+  .fo-pildora{display:none}
 }
 @media (prefers-reduced-motion:reduce){.fo-in-anim,.fo-sk{animation:none}.fo-btn{transition:none}}
 `;
@@ -251,6 +273,33 @@ function VistaPrevia({ pdf, cargando }) {
     );
 }
 
+/** Móvil: la factura en una HOJA que sube desde abajo (portaleada a body, regla 29.b). */
+function HojaPrevia({ abierta, onCerrar, total, children }) {
+    useEffect(() => {
+        if (!abierta) return undefined;
+        const tecla = (e) => { if (e.key === 'Escape') onCerrar(); };
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        window.addEventListener('keydown', tecla);
+        return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', tecla); };
+    }, [abierta, onCerrar]);
+    if (!abierta) return null;
+    return createPortal(
+        <div className="fo-hoja" role="dialog" aria-modal="true" aria-label="Así queda la factura"
+            onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.fondo = '1'; }}
+            onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.fondo === '1') onCerrar(); e.currentTarget.dataset.fondo = ''; }}>
+            <div className="fo-hoja-caja">
+                <div className="fo-hoja-cab">
+                    <div><span className="fo-eyebrow">Así queda</span><b>{total}</b></div>
+                    <button type="button" onClick={onCerrar}>Seguir rellenando</button>
+                </div>
+                <div className="fo-hoja-cuerpo">{children}</div>
+            </div>
+        </div>,
+        document.body,
+    );
+}
+
 export function FacturaObraView({ expedienteId, token }) {
     const demo = expedienteId === DEMO;
     const [info, setInfo] = useState(null);
@@ -267,11 +316,31 @@ export function FacturaObraView({ expedienteId, token }) {
     // Con facturas ya SUBIDAS: si esta sustituye a una (su `ref`) o es otra ('ninguna').
     const [sustituir, setSustituir] = useState('');
     const [desborda, setDesborda] = useState(false);
+    const [numeroLargo, setNumeroLargo] = useState(false); // el nº no cabe en su casilla ni encogido
     const [previa, setPrevia] = useState(null);
     const [previaCargando, setPreviaCargando] = useState(false);
     const [enviando, setEnviando] = useState(false);
     const [avisos, setAvisos] = useState([]);
     const [hecha, setHecha] = useState(null);
+    const [verHoja, setVerHoja] = useState(false); // móvil: la factura en una hoja
+    const cerrarHoja = React.useCallback(() => setVerHoja(false), []);
+
+    // La vista previa va FIJA (sticky) en el PC, y un `overflow-x: hidden` en un antepasado
+    // (la envoltura de App.jsx) la convierte en un scroll propio y la anula: mientras esta
+    // página está abierta, ese recorte pasa a `clip`, que corta igual y no rompe el sticky.
+    useEffect(() => {
+        const tocados = [];
+        let e = document.querySelector('.fo')?.parentElement;
+        while (e && e !== document.body) {
+            if (getComputedStyle(e).overflowX === 'hidden') {
+                tocados.push([e, e.style.overflowX, e.style.overflowY]);
+                e.style.overflowX = 'clip';
+                e.style.overflowY = 'visible';
+            }
+            e = e.parentElement;
+        }
+        return () => tocados.forEach(([el, x, y]) => { el.style.overflowX = x; el.style.overflowY = y; });
+    }, [info]);
 
     // La página es CLARA: el body de la app es oscuro y asomaría al estirar el scroll.
     useEffect(() => {
@@ -342,7 +411,11 @@ export function FacturaObraView({ expedienteId, token }) {
         const t = setTimeout(() => {
             setPreviaCargando(true);
             axios.post(`${API}/${expedienteId}/vista-previa${q}`, cuerpo, { responseType: 'arraybuffer' })
-                .then((r) => { setPrevia(r.data); setDesborda(r.headers?.['x-factura-desborda'] === '1'); })
+                .then((r) => {
+                    setPrevia(r.data);
+                    setDesborda(r.headers?.['x-factura-desborda'] === '1');
+                    setNumeroLargo(r.headers?.['x-factura-numero-largo'] === '1');
+                })
                 .catch(() => { /* sin vista previa se puede seguir */ })
                 .finally(() => setPreviaCargando(false));
         }, 650);
@@ -530,7 +603,7 @@ export function FacturaObraView({ expedienteId, token }) {
                             <div className="fo-campos">
                                 <div className="fo-campo">
                                     <label htmlFor="fo-num">Nº de factura</label>
-                                    <input id="fo-num" className="fo-in" value={numero} onChange={(e) => setNumero(e.target.value)}
+                                    <input id="fo-num" className={`fo-in${numeroLargo ? ' mal' : ''}`} value={numero} onChange={(e) => setNumero(e.target.value)}
                                         placeholder={info.ejemploNumero ? `p. ej. ${info.ejemploNumero}` : ''} autoComplete="off" maxLength={30} />
                                 </div>
                                 <div className="fo-campo">
@@ -539,6 +612,11 @@ export function FacturaObraView({ expedienteId, token }) {
                                         onChange={(e) => setFecha(e.target.value)} min={fechaMin || undefined} max={hoyIso()} />
                                 </div>
                             </div>
+                            {numeroLargo && (
+                                <div className="fo-ambar" role="alert" style={{ marginTop: 12 }}>
+                                    El número no cabe en la casilla de tu factura. Acórtalo.
+                                </div>
+                            )}
                             <p className="fo-ayuda">
                                 {fecha ? <>Saldrá: <b>{fechaLarga(fecha)}</b>. </> : null}
                                 {info.fechaMinima ? `Posterior al ${fechaCorta(info.fechaMinima)}, cuando se registró el certificado energético inicial.` : ''}
@@ -639,7 +717,7 @@ export function FacturaObraView({ expedienteId, token }) {
                             </div>
                         )}
                         <button type="button" className="fo-btn" onClick={guardar}
-                            disabled={enviando || problemas.length > 0 || fechaMal || numMal || largo || desborda}>
+                            disabled={enviando || problemas.length > 0 || fechaMal || numMal || largo || desborda || numeroLargo}>
                             {enviando ? 'Guardando…' : <><IcoCheck size={20} sw={2.6} />Guardar la factura</>}
                         </button>
                         <p className="fo-pnota" role="status" aria-live="polite">
@@ -647,6 +725,7 @@ export function FacturaObraView({ expedienteId, token }) {
                                 ? `Falta ${problemas.join(', ').replace(/, ([^,]*)$/, ' y $1')}.`
                                 : fechaMal ? 'Revisa la fecha.'
                                     : numMal ? 'Revisa los precios: solo números.'
+                                        : numeroLargo ? 'Acorta el número de factura: no cabe en su casilla.'
                                         : desborda ? 'Acorta algún concepto: no cabe en la hoja.'
                                             : sustituir && sustituir !== 'ninguna'
                                                 ? 'Se guarda en el expediente en lugar de la que subiste, y te damos el PDF.'
@@ -662,6 +741,16 @@ export function FacturaObraView({ expedienteId, token }) {
                         : <VistaPrevia pdf={previa} cargando={previaCargando} />}
                 </aside>
             </div>
+            {!demo && (
+                <>
+                    <button type="button" className="fo-pildora" onClick={() => setVerHoja(true)} aria-haspopup="dialog">
+                        Ver la factura <b>{eur(total)}</b>
+                    </button>
+                    <HojaPrevia abierta={verHoja} onCerrar={cerrarHoja} total={eur(total)}>
+                        <VistaPrevia pdf={previa} cargando={previaCargando} />
+                    </HojaPrevia>
+                </>
+            )}
             <Firma />
         </Marco>
     );

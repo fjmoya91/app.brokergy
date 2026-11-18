@@ -327,3 +327,27 @@ si aún no hay precios, su base como precio total. Se identifican por una REFERE
 - Probado el 18/11 con 26RES060_283 en seco (`FACTURA_INSTALADOR_EN_SECO`): sustituyendo a la 44/26,
   precio total 16.836 €, un concepto cambiado y una línea añadida → «Sustituye a la factura 44/26»,
   20.371,56 €; la BD siguió con su única factura. Tests: `test_factura_instalador.js` (12).
+
+### La vista previa a la vista y el nº de factura en su casilla — 18/11/2026
+
+Fran, 18/11/2026, probando con 26RES060_278 en producción (la factura PRUEBA 1 se retiró después de
+los tres sitios): «haciendo scroll no veo el visor» y «si el número de factura es muy largo se mete
+dentro de "Número"».
+
+**REGLA — la vista previa no se pierde al rellenar: en el PC va al lado y FIJA (sticky, encogida a lo
+alto de la pantalla, con los totales a la vista); en el móvil, una píldora abajo con el total («Ver la
+factura · 14.666,41 €») la abre entera en una hoja que sube desde abajo («Seguir rellenando»).**
+- El sticky ya estaba en el CSS y no funcionaba: la envoltura de las rutas públicas de `App.jsx`
+  lleva `overflow-x: hidden`, que la convierte en un contenedor de scroll que no se mueve. La página,
+  mientras está abierta, pasa ese recorte de sus antepasados a `overflow-x: clip` (corta igual y no
+  rompe el sticky) y lo devuelve al salir. No se tocó `App.jsx`: lo comparten todas las públicas.
+- La hoja va portaleada a `body` (regla 29.b), bloquea el scroll de detrás, se cierra con Esc o
+  pulsando fuera (si el clic empieza y acaba en el fondo).
+
+**REGLA — el nº de factura no se sale de su hueco: `numero.zona` (y `fecha.zona`) de `plantilla.json`
+es `[xmin, xmax]`, el espacio libre del campo; un texto que se saldría se corre dentro y, si no cabe,
+se encoge hasta 6,5 pt. Si ni así cabe, la vista previa lo dice (`X-Factura-Numero-Largo: 1`), la
+página pide acortarlo y `generar` no lo guarda.** En RCA el nº iba centrado en 503,5 y «Número:»
+acaba en 484,1: todo lo que pasaba de ~5 caracteres la pisaba. Zona de RCA: 488 a 562 (borde interior
+de la caja, 574). Medido: «44/26» y «PRUEBA 1» a 12 pt, «FAC-2026/000123» encogido, uno de 30
+caracteres marcado como largo. Una plantilla sin `zona` sale como antes.

@@ -12,7 +12,8 @@
 //   GET  /:expedienteId?token=            → lo que lleva impreso y lo ya tecleado
 //   GET  /:expedienteId/word?token=       → su factura en Word, pre-rellena (sin importes)
 //   POST /:expedienteId/vista-previa?token= { numero, fecha, modo, partidas | total, conceptos? } → PDF
-//        (cabecera X-Factura-Desborda: 1 si el texto no cabe en la hoja)
+//        (cabecera X-Factura-Desborda: 1 si el texto no cabe en la hoja; X-Factura-Numero-Largo: 1
+//        si el nº no cabe en su casilla ni encogido)
 //   POST /:expedienteId/generar?token=    { …lo mismo, sustituir? } → la guarda
 //        en «Facturas» como si la hubiera subido él, y devuelve el PDF (base64).
 //        Sustituye a la que ya hizo aquí (aunque estuviera revisada) y, con
@@ -120,10 +121,11 @@ router.post('/:expedienteId/vista-previa', async (req, res) => {
         if (!ctx) return;
         // La vista previa se pinta aunque falten datos: es para ver cómo va quedando.
         const { calculo } = svc.calcular(req.body || {}, { lineas: ctx.lineas, cfg: ctx.plantilla.cfg, fechaMinima: ctx.fechaMinima });
-        const { buffer, desborda } = await svc.componerPdf(ctx.plantilla, ctx.datos, calculo);
+        const { buffer, desborda, numeroLargo } = await svc.componerPdf(ctx.plantilla, ctx.datos, calculo);
         res.set({
             'Content-Type': 'application/pdf', 'Cache-Control': 'no-store', 'Content-Disposition': 'inline; filename="factura.pdf"',
-            'X-Factura-Desborda': desborda ? '1' : '0', 'Access-Control-Expose-Headers': 'X-Factura-Desborda',
+            'X-Factura-Desborda': desborda ? '1' : '0', 'X-Factura-Numero-Largo': numeroLargo ? '1' : '0',
+            'Access-Control-Expose-Headers': 'X-Factura-Desborda, X-Factura-Numero-Largo',
         });
         res.send(buffer);
     } catch (e) { fallo(res, e, 'vista-previa'); }
@@ -141,7 +143,8 @@ router.post('/:expedienteId/generar', async (req, res) => {
         if (elegibles.length && !sust) errores.push('Dinos si esta factura sustituye a la que ya subiste o es otra distinta.');
         if (sust && sust !== 'ninguna' && !elegibles.some(f => svc.refFactura(f) === sust)) errores.push('La factura que quieres sustituir ya no está en el expediente. Recarga la página.');
         if (errores.length) return res.status(400).json({ error: errores[0], errores });
-        const { buffer, desborda } = await svc.componerPdf(ctx.plantilla, ctx.datos, calculo);
+        const { buffer, desborda, numeroLargo } = await svc.componerPdf(ctx.plantilla, ctx.datos, calculo);
+        if (numeroLargo) return res.status(400).json({ error: 'El número de factura no cabe en su casilla: acórtalo.' });
         if (desborda) return res.status(400).json({ error: 'El texto no cabe en una hoja de la factura: acorta algún concepto o escríbenos y lo ajustamos.' });
         // FACTURA_INSTALADOR_EN_SECO=true (pruebas en local, que escribe en PRODUCCIÓN):
         // se compone y se devuelve igual, pero no se guarda nada.
