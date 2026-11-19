@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { CSS as CSS_FX, Ico, AvisoFx } from '../../facturacion/estilo';
-import { ResumenObligacion, EtapasLotes } from '../../lotes/components/SujetoObligadoPanel';
+import { ResumenObligacion, EtapasLotes, RegistroCae, ChipRegistro } from '../../lotes/components/SujetoObligadoPanel';
 import { CSS_SO, chipEstado, logoEsClaro, gwh, mwh } from '../../lotes/components/vistaSoEstilo';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,6 +53,8 @@ export function SujetoObligadoPublicoView({ token }) {
     const d = cargando ? null : res.data;
     const ob = d?.obligacion || null;
     const nombre = d?.so?.nombre || 'el Sujeto Obligado';
+    // Su cuenta en el Registro (certificado del MITECO), solo en el año al que se refiere.
+    const reg = d?.registro && d.registro.anioRegistro === d.anio ? d.registro : null;
 
     const filaLote = (l) => (
         <li key={l.codigo} className="so-lote so-lote-fijo">
@@ -60,6 +62,7 @@ export function SujetoObligadoPublicoView({ token }) {
             <span className="so-lote-mwh">{mwh(l.kwh)}</span>
             <span className="so-lote-pie">
                 <span className={`fx-chip ${chipEstado(l)}`} title={l.estado}>{l.estado}</span>
+                {reg && <ChipRegistro r={l.registro} />}
                 {l.fuente && <span className="so-fuente">{l.fuente}</span>}
                 {l.nExpedientes ? <span className="sp-lote-n" style={{ marginLeft: 'auto' }}>{l.nExpedientes} actuaciones</span> : null}
             </span>
@@ -100,8 +103,9 @@ export function SujetoObligadoPublicoView({ token }) {
                         </div>
                     </div>
                 )}
-                <ResumenObligacion ob={ob} anio={d.anio} etapas={d.etapas}
+                <ResumenObligacion ob={ob} anio={d.anio} etapas={d.etapas} registro={reg}
                     sinObligacion={<p className="so-vacio">Sin la obligación de {d.anio} todavía.</p>} />
+                <RegistroCae reg={reg} anio={d.anio} nombre={nombre} paraElSo />
                 <EtapasLotes etapas={d.etapas} brokergyGwh={d.brokergyGwh} anio={d.anio} filaLote={filaLote} />
                 {d.carteraGwh > 0 && (
                     <section className="so-seccion">

@@ -108,8 +108,9 @@ async function disponible() {
 // `vistaParaElSo` son GWh y las cifras públicas del Anexo II, nunca un importe nuestro.
 async function vistaSo({ soId, anio, lotes, conDisponible = false }) {
     const { computeVistaSo, aniosElegibles } = await logica();
-    const [config, disp] = await Promise.all([getObligacion(soId), conDisponible ? disponible() : null]);
-    const vista = computeVistaSo({ lotes, soId, anio, config, disponible: disp });
+    const { getRegistro } = require('./registroCaeSo');
+    const [config, disp, registro] = await Promise.all([getObligacion(soId), conDisponible ? disponible() : null, getRegistro(soId)]);
+    const vista = computeVistaSo({ lotes, soId, anio, config, disponible: disp, registro });
     return { ...vista, anios: aniosElegibles(config, lotes, soId) };
 }
 
@@ -172,8 +173,15 @@ function vistaParaElSo(vista, so = null) {
                 codigo: codigoParaElSo(l.codigo), estado: ESTADO_PARA_EL_SO[l.estado] || e.titulo,
                 etapa: l.etapa, kwh: l.kwh, fuente: FUENTE_PARA_EL_SO[l.fuente] || null,
                 nExpedientes: l.nExpedientes, requerimiento: l.requerimiento,
+                // Dónde está en SU cuenta del Registro (19/11/2026): es suyo, del MITECO.
+                registro: l.registro || null,
             })),
         })),
+        // Su cuenta del Registro Nacional de CAE, del certificado del MITECO: son SUS datos
+        // (tramos, vencimientos, solicitudes) y nuestros códigos de lote; sin ids ni importes.
+        registro: vista.registro ? (({ tramos, ...r }) => ({
+            ...r, tramos: tramos.map(({ por, ...t }) => t),
+        }))(vista.registro) : null,
         brokergyGwh: vista.brokergyGwh,
         carteraGwh: vista.oferta ? vista.oferta.totalGwh : null,
         calculado_at: new Date().toISOString(),

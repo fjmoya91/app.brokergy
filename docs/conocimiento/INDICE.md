@@ -28,7 +28,7 @@
 | `informes` | Informes técnicos — `{AAAA}INF_{n}`: memorias, legalizaciones, todo lo que no es CAE ni CEE | `.claude/rules/informes.md` · 4,7 KB | 1 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 17,4 KB | 6 |
-| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 42,0 KB | 20 |
+| `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 44,3 KB | 20 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 29,0 KB | 11 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,4 KB | 10 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,0 KB | 11 |
@@ -304,6 +304,7 @@
 - **217** → `.claude/rules/whatsapp.md` — El SEGUIMIENTO: toda propuesta enviada y todo CEE inicial sin material tiene su escalera de recordatorios, y…
 - **218** → `.claude/rules/oportunidades.md` — Una oportunidad puede llevar un COMISIONISTA: la PERSONA que trajo la obra, aparte del partner (empresa) del…
 - **219** → `.claude/rules/instalador-rite.md` — El instalador puede HACER la factura de la obra en la app, en SU plantilla, y se guarda como si la hubiera S…
+- **227** → `.claude/rules/lotes.md` — La CUENTA del S.O. en el REGISTRO NACIONAL DE CAE se guarda TAL CUAL la certifica el MITECO y se CRUZA en ca…
 
 ## Documentos por área
 

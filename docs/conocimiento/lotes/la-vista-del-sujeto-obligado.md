@@ -158,3 +158,63 @@ para INTERALCO: 177,20 €/MWh sobre 16 lotes (5,44 GWh), con 116.664 € de aho
 
 La vista en el servidor tarda ~4 s (la mitad es lo disponible); en local el modo estricto de
 React la pide dos veces.
+
+## Su cuenta en el REGISTRO NACIONAL DE CAE: emitido no es liquidado (2026-11-19)
+
+Fran (19/11/2026) dejó el certificado del MITECO a INTERALCO (del 18/11/2026, CSV
+GEN-467c-…): un PDF firmado y un Excel con los tramos de CAE inscritos a su nombre. Lo pidió para
+la Vista S.O., «que sea útil para nosotros y el S.O.»: **«puede ser que para nosotros sea
+resolución favorable, pero luego los tienen que liquidar ellos»**. Los dos ficheros están en
+`…/03. SUJETOS OBLIGADOS/5. INTERALCO/CAE EMITIDOS MITECO`.
+
+| Qué | Dónde |
+|---|---|
+| Leer el Excel (columnas por su título) y el PDF (texto con MuPDF, sin IA); guardar | [services/registroCaeSo.js](implementation/backend/services/registroCaeSo.js) |
+| El cruce con nuestros lotes (función pura) | `normalizarRegistro` y `cruzarRegistro` en [logic/obligacionSo.js](implementation/frontend/src/features/lotes/logic/obligacionSo.js); `computeVistaSo({ …, registro })` |
+| El bloque «Su cuenta en el Registro» y el chip de cada lote | `RegistroCae` y `ChipRegistro` en [SujetoObligadoPanel.jsx](implementation/frontend/src/features/lotes/components/SujetoObligadoPanel.jsx), los mismos en la página del S.O. |
+| Rutas | `GET /api/lotes/obligacion-so/:soId/registro` (staff) · `POST …/registro` (adminOnly; Excel + PDF; en seco, `?guardar=1` guarda) |
+
+**REGLA — lo que dice el MITECO se guarda TAL CUAL y se cruza en cada vista.** Va en `app_settings`
+como `registro_cae_so:{id}` (el patrón de la obligación): tramos (vencimiento, código inicial y
+final, total, expediente de emisión), solicitudes sin resolver (E_CAE + REGAGE), fechas, CSV y lo
+liquidado contra el año. Un certificado nuevo SUSTITUYE al anterior: cada uno es la foto completa de
+su cuenta. Se sube desde la propia Vista S.O. («Nuevo certificado», solo ADMIN): primero se LEE y se
+enseña, y luego se guarda. Un PDF de otro NIF no se acepta; si el Excel no cuadra con su TOTAL
+INVENTARIO o con la razón social, se avisa. **Solo se afirma lo liquidado si el certificado lo dice**
+(«no consta que se haya liquidado ningún CAE contra la obligación de 2026» → 0); si no, «sin dato».
+
+**REGLA — un tramo es NUESTRO por el expediente de emisión de la resolución del lote (o su primer
+código CAE); a falta de eso, si un lote emitido sin casar tiene EXACTAMENTE esos CAE. Una solicitud
+pendiente es nuestra por el REGAGE del lote (`registro_miteco`), sin mirar mayúsculas.** Cada lote
+queda en una de cuatro situaciones: **en su cuenta** (inscrito, sin liquidar, con su vencimiento) ·
+**pte. de resolución** · **aún no figura** (tiene REGAGE pero no salía en el certificado) · **no
+figura en su cuenta** (lo damos por emitido y no está: o lo liquidó o algo no cuadra, y se avisa;
+solo para los lotes del año que se mira).
+
+**REGLA — una resolución que subimos DESPUÉS del certificado entra sola en su cuenta, sin esperar a
+otro certificado** (Fran, 19/11/2026: «que se actualice cuando subimos una resolución nueva»). El
+MITECO inscribe el CAE en la cuenta del S.O. al resolver, así que un lote emitido cuya
+`fecha_resolucion` (o, sin ella, la subida del certificado CAE) es del día del certificado o posterior
+se cuenta como un tramo más: con su expediente de emisión, sus códigos y el vencimiento que lleva el
+propio código (`CAE_…_311228` → 31/12/2028, `venceDeCodigo`), marcado «después del certificado» en el
+paso 3, en el chip del lote y en la tabla. Sale de los pendientes de resolución, entra en el total de
+su cuenta y en lo de BROKERGY. Sin esto, el lote recién resuelto se pintaba como **«no figura en su
+cuenta»**, una alarma falsa. Una resolución ANTERIOR al certificado que no figura sigue siendo «no
+figura» (o ya se liquidó o algo no cuadra). El día de corte es la fecha del certificado, no la de los
+datos: E_CAE_2026_07019, resuelto el 04/11, ya estaba en un certificado «con datos a 03/11».
+
+**REGLA — se pinta como un CAMINO y el último paso es SUYO**: recién presentados → pendientes de
+resolución → en su cuenta sin liquidar → **liquidado contra el año («le toca a {S.O.}»)**. Aparte, los
+vencimientos por año y, en ámbar, lo que vence el 31/12 del año que se mira («o se liquidan contra
+la obligación de {año}, o se pierden»). Las cuentas de la obligación (lo que falta, lo asegurado) NO
+cambian: el certificado es la comprobación de que lo asegurado está de verdad en su cuenta. En la
+vista interna, además, si lo de otros agentes en su cuenta cuadra con lo que nos dijo que compró. El
+S.O. ve todo esto en su enlace: son sus datos del Registro y nuestros códigos de lote.
+
+Medido el 19/11/2026 (certificado del 18/11, datos a 03/11): **13.707.801 CAE en 40 tramos, nada
+liquidado contra 2026**. Nuestros, 9 tramos = **3.125.537**, que son exactamente los 9 lotes que la
+vista daba por emitidos (el PAQUETE 1 PRE APP es E_CAE_2026_02095, y LOTE-2026-004, sin el
+certificado leído, E_CAE_2026_06161, los dos por la cifra). De otros agentes, 10.582.264: cuadra con
+los 10,582 GWh que dijo Jesús Almodóvar el 29/10. Las 4 solicitudes sin resolver son LOTE-2025-009,
+010, 011 y 012 (1,13 GWh); LOTE-2026-013 y 014 (presentados el 16/11) aún no figuraban. **Vencen el
+31/12/2026 1.804.037 CAE, ninguno nuestro** (Axoil 1.582.000 · E_CAE_2025_02729 · E_CAE_2026_00069).

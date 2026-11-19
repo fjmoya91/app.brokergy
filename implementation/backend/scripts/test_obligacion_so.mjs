@@ -13,6 +13,7 @@
 //   7. Con qué se cubre lo que le falta (planParaCubrir).
 //   8. Lo que sale por el enlace del S.O.: estados y fuente en su idioma.
 //   9. A cuánto le sale el CAE al S.O. (€/MWh) y su ahorro frente al Fondo.
+//  10. Su cuenta en el Registro Nacional de CAE: cruce con nuestros lotes.
 //   (y) Los GWh tecleados con coma se leen bien («20,03»), y una obligación sin
 //      cuota no se guarda.
 //
@@ -24,7 +25,7 @@ import path from 'path';
 const raiz = path.resolve(import.meta.dirname, '../../frontend/src/features');
 const {
     computeVistaSo, kwhDelLote, etapaDelLote, anioDelLote, normalizarObligacion, planParaCubrir,
-    costeDelLoteParaSo, precioCaeParaSo,
+    costeDelLoteParaSo, precioCaeParaSo, cruzarRegistro, normalizarRegistro, venceDeCodigo,
 } = await import(pathToFileURL(path.join(raiz, 'lotes/logic/obligacionSo.js')).href);
 
 let fallos = 0;
@@ -153,6 +154,69 @@ console.log('\n9. A cuánto le sale el CAE al S.O. (factura + verificación, en 
     ok('€/MWh = (factura + verificación) / MWh', cerca(p.costeCaeMwh, 258000 / 1500));
     ok('ahorro = (equivalencia − €/MWh) × MWh', cerca(p.ahorroCaeEur, (198.624 - 172) * 1500, 0.01));
     ok('sin ninguno verificado no se da cifra', precioCaeParaSo([filas[2]], 198.624) === null);
+}
+
+console.log('\n10. Su cuenta en el Registro Nacional de CAE (certificado del MITECO, 19/11/2026)');
+{
+    const certL = (total, ref, ini) => ({ key: 'certificado_cae', link: 'x', cae: { total, referencia: ref, cae_inicial: ini, fecha_resolucion: '04/11/2026' } });
+    const lotesR = [
+        { id: 'a', codigo: 'L-A', sujeto_obligado_id: SO, estado: 'FINALIZADO', documentos_so: [certL(300000, 'E_CAE_2026_00001', 'CAE_000000000001_311228')], created_at: '2026-01-01' },
+        // Emitido sin certificado leído: se casa por la cifra exacta (la factura).
+        { id: 'b', codigo: 'L-B', sujeto_obligado_id: SO, estado: 'PTE. PAGO BROKERGY A CLIENTE', factura_so: { unidades_kwh: 200000 }, created_at: '2026-01-01' },
+        { id: 'c', codigo: 'L-C', sujeto_obligado_id: SO, estado: 'SUBIDO A MITECO', registro_miteco: 'REGAGE26e00000000001', factura_so: { unidades_kwh: 150000 }, created_at: '2026-06-01' },
+        { id: 'd', codigo: 'L-D', sujeto_obligado_id: SO, estado: 'SUBIDO A MITECO', registro_miteco: 'REGAGE26e00000000002', factura_so: { unidades_kwh: 120000 }, created_at: '2026-06-01' },
+        // Emitido que NO está en su cuenta.
+        { id: 'e', codigo: 'L-E', sujeto_obligado_id: SO, estado: 'FINALIZADO', documentos_so: [certL(90000, 'E_CAE_2026_00009', 'CAE_000000000009_311228')], created_at: '2026-01-01' },
+    ];
+    const registro = {
+        fecha_certificado: '2026-11-18', fecha_datos: '2026-11-03', fecha_pendientes: '2026-11-16',
+        liquidado: { anio: 2026, kwh: 0 },
+        tramos: [
+            { vence: '2026-12-31', inicial: 'CAE_X1', final: 'CAE_X2', total: 1582000, expediente: 'E_CAE_2025_00132' },
+            { vence: '2028-12-31', inicial: 'CAE_000000000001_311228', final: 'CAE_Z', total: 300000, expediente: 'e_cae_2026_00001' },
+            { vence: '2029-12-31', inicial: 'CAE_Y1', final: 'CAE_Y2', total: 200000, expediente: 'E_CAE_2026_00002' },
+        ],
+        pendientes: [{ expediente: 'E_CAE_2026_07452', registro: 'REGAGE26E00000000001' }],
+    };
+    const cfg = { anios: { 2026: { obligacion_gwh: 20.03, pct_fondo: 8, otros_gwh: 1.582 } } };
+    const v = computeVistaSo({ lotes: lotesR, soId: SO, anio: 2026, config: cfg, registro, hoy: HOY });
+    const r = v.registro;
+    const sit = (cod) => v.etapas.flatMap(e => e.lotes).find(l => l.codigo === cod)?.registro?.situacion;
+    ok('un tramo es nuestro por el expediente de emisión (sin mayúsculas)', r.tramos.find(t => t.total === 300000).lote === 'L-A');
+    ok('a falta de expediente, por la cifra EXACTA de un lote emitido', r.tramos.find(t => t.total === 200000).lote === 'L-B');
+    ok('lo de otros es el resto', r.otrosKwh === 1582000 && r.nOtros === 1 && r.brokergyKwh === 500000);
+    ok('cuadra con lo que dijo que compró a otros', Math.abs(r.otrosKwh - r.otrosDeclaradoKwh) < 1000);
+    ok('la solicitud pendiente se casa por el REGAGE, sin mayúsculas', r.pendientes[0].lote === 'L-C' && sit('L-C') === 'PTE_RESOLUCION');
+    ok('presentado y aún no figuraba', sit('L-D') === 'PRESENTADO' && r.presentados.map(x => x.codigo).join() === 'L-D');
+    ok('emitido que no está en su cuenta: NO_CONSTA y se avisa', sit('L-E') === 'NO_CONSTA' && r.noConstan.map(x => x.codigo).join() === 'L-E');
+    ok('emitido en su cuenta, con su vencimiento', sit('L-A') === 'EN_SU_CUENTA' && v.etapas[0].lotes.find(l => l.codigo === 'L-A').registro.vence === '2028-12-31');
+    ok('lo que vence este año, aparte', r.venceKwh === 1582000 && r.venceBrokergyKwh === 0 && r.nVence === 1);
+    ok('liquidado contra el año: 0 (lo dice el certificado)', r.liquidadoKwh === 0);
+    ok('liquidado de otro año: sin dato', computeVistaSo({ lotes: lotesR, soId: SO, anio: 2027, config: cfg, registro, hoy: HOY }).registro.liquidadoKwh === null);
+    ok('el certificado es del año de sus datos', r.anioRegistro === 2026);
+    ok('un tramo sin total o sin vencimiento no entra', normalizarRegistro({ tramos: [{ vence: '2028-12-31', total: 0 }, { total: 5 }] }) === null);
+    ok('sin certificado, la vista no cambia', computeVistaSo({ lotes: lotesR, soId: SO, anio: 2026, config: cfg, hoy: HOY }).registro === null);
+    ok('sin certificado, cruzarRegistro no da nada', cruzarRegistro(null, []) === null);
+
+    // Una resolución subida DESPUÉS del certificado (Fran, 19/11/2026).
+    const certN = (total, ref, ini, fin, fecha) => ({ key: 'certificado_cae', link: 'x', uploaded_at: '2026-11-20T10:00:00Z',
+        cae: { total, referencia: ref, cae_inicial: ini, cae_final: fin, fecha_resolucion: fecha } });
+    const lotesN = [
+        ...lotesR.filter(l => l.id !== 'c'),
+        // L-C, que estaba pendiente, ya tiene su resolución: del 20/11, después del certificado.
+        { id: 'c', codigo: 'L-C', sujeto_obligado_id: SO, estado: 'CAE EMITIDO – PTE PAGO BROKERGY', registro_miteco: 'REGAGE26e00000000001',
+            documentos_so: [certN(150000, 'E_CAE_2026_07452', 'CAE_000000000100_311229', 'CAE_000000150099_311229', '20/11/2026 18:20')], created_at: '2026-06-01' },
+    ];
+    const vn = computeVistaSo({ lotes: lotesN, soId: SO, anio: 2026, config: cfg, registro, hoy: HOY });
+    const rn = vn.registro;
+    const filaC = vn.etapas.flatMap(e => e.lotes).find(l => l.codigo === 'L-C');
+    ok('resuelto después del certificado: EN_SU_CUENTA y marcado nuevo', filaC.registro.situacion === 'EN_SU_CUENTA' && filaC.registro.nuevo === true);
+    ok('su vencimiento sale del propio código (_311229)', filaC.registro.vence === '2029-12-31');
+    ok('entra en su cuenta y en lo nuestro', rn.totalKwh === r.totalKwh + 150000 && rn.brokergyKwh === r.brokergyKwh + 150000 && rn.nTramos === 4);
+    ok('se dice aparte lo resuelto después', rn.nuevosKwh === 150000 && rn.nuevos[0].codigo === 'L-C' && rn.nuevos[0].fechaResolucion === '2026-11-20');
+    ok('y deja de estar pendiente de resolución', rn.pendientes.length === 0 && rn.pendientesKwh === 0);
+    ok('un emitido ANTES del certificado que no figura sigue NO_CONSTA', rn.noConstan.map(x => x.codigo).join() === 'L-E');
+    ok('el vencimiento del código: 31/12/2028', venceDeCodigo('CAE_008657599241_311228') === '2028-12-31' && venceDeCodigo('CAE_X') === null);
 }
 
 console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ Todo bien');

@@ -47,6 +47,8 @@ paths:
 
 215. **El Anexo I del LOTE lleva las firmas ANCLADAS al pie de la hoja, y sus casillas se MIDEN** (2026-11-12, LOTE-2026-018). El bloque de firmas iba detrás de la tabla y bajaba con cada actuación: la casilla fija de `SIGN_BOXES.anexo_i_listado*`, medida con un lote corto, caía encima de las filas 8 y 9 de un lote de 10 y la firma de Brokergy las tapó. Ahora `.hoja` llena la hoja útil, `.firma` va con `margin-top:auto` y un hueco fijo bajo cada rótulo ([anexoListadoHtml.js](implementation/frontend/src/features/lotes/logic/anexoListadoHtml.js)), y las casillas (Proveedor 131,42–337,106; S.O. 504,42–710,106) son las mismas con 1 que con 10 actuaciones y caen en blanco también en los PDF de la maqueta anterior. El flex va en `.hoja`, nunca en el `body` (la vista previa del popup inyecta este `<style>` en la app). Caben 10 actuaciones RES060 reales en una hoja (7 RES093). Tras tocar la maqueta o las casillas: `node implementation/backend/scripts/check_anexo_listado_firmas.mjs`. Ver "El Anexo I del lote: las firmas van al PIE de la hoja".
 
+227. **La CUENTA del S.O. en el REGISTRO NACIONAL DE CAE se guarda TAL CUAL la certifica el MITECO y se CRUZA en cada vista: emitido no es liquidado** (Fran, 19/11/2026: «puede ser que para nosotros sea resolución favorable, pero luego los tienen que liquidar ellos»). El certificado (Excel de tramos + PDF) lo sube el ADMIN en la Vista S.O. («Nuevo certificado»: primero se LEE, luego se guarda; `POST /api/lotes/obligacion-so/:soId/registro`, adminOnly; lo lee [registroCaeSo.js](implementation/backend/services/registroCaeSo.js) sin IA) y va en `app_settings` como `registro_cae_so:{id}`, reemplazándose entero. El cruce es `cruzarRegistro` de [logic/obligacionSo.js](implementation/frontend/src/features/lotes/logic/obligacionSo.js): un tramo es NUESTRO por el expediente de emisión de la resolución del lote (o su primer código), y si no, por la cifra EXACTA de un lote emitido sin casar; una solicitud pendiente, por el REGAGE (`registro_miteco`). **Una resolución que subimos DESPUÉS del certificado (`fecha_resolucion` ≥ su fecha) entra SOLA en su cuenta como un tramo más**, marcado «después del certificado», con el vencimiento que lleva su propio código (`_311228` → 31/12/2028, `venceDeCodigo`) y sale de los pendientes: no hay que esperar a otro certificado. Una emitida ANTES que no figura es NO_CONSTA (o ya se liquidó o algo no cuadra). Se pinta como un camino cuyo último paso, liquidar, es del S.O.; lo que vence el 31/12 del año va en ámbar. Las cuentas de la obligación NO cambian. El S.O. lo ve en su enlace (sin el `por` del cruce). Tras tocarlo: `node implementation/backend/scripts/test_obligacion_so.mjs`. Ver "Su cuenta en el REGISTRO NACIONAL DE CAE".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -64,7 +66,7 @@ paths:
 - `docs/conocimiento/lotes/el-zip-que-se-sube-a-becae-es-el-mismo-paquete-del-miteco.md` — El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09) · 14,3 KB
 - `docs/conocimiento/lotes/la-api-de-marwen-v1-6.md` — La API de Marwen v1.6.0: el lote habla solo con beCAE (2026-11-11) · 7,7 KB
 - `docs/conocimiento/lotes/la-ficha-del-lote-en-crema.md` — La ficha del lote, en crema: qué toca, dónde está y cómo se ve (2026-11-12) · 6,5 KB
-- `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md` — La «Vista S.O.»: su obligación del año y cómo vamos con ella (2026-10-28) · 12,0 KB
+- `docs/conocimiento/lotes/la-vista-del-sujeto-obligado.md` — La «Vista S.O.»: su obligación del año y cómo vamos con ella (2026-10-28) · 17,2 KB
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md` — Las cifras del lote se LEEN de sus documentos (2026-09-01) · 9,3 KB
 - `docs/conocimiento/lotes/las-inexactitudes-del-verificador-se-registran-y-la-respuesta-se-arma-sola.md` — Las INEXACTITUDES del verificador se registran solas, y la RESPUESTA se arma al subsanar (2026-10-22) · 11,1 KB
 - `docs/conocimiento/lotes/las-tarifas-del-verificador-en-su-ficha.md` — Las TARIFAS del verificador, en su ficha (2026-09-14) · 3,7 KB
@@ -186,6 +188,13 @@ hecha, de más a menos MWh; de lo que aún se está cerrando, lo que tiene incid
 abiertas no cuenta.**
   - **REGLA — el S.O. ve el AHORRO por trabajar con BROKERGY; a cuánto le sale el CAE (€/MWh) lo ve
 solo nuestro ADMIN**
+  - **REGLA — lo que dice el MITECO se guarda TAL CUAL y se cruza en cada vista.**
+  - **REGLA — un tramo es NUESTRO por el expediente de emisión de la resolución del lote (o su primer
+código CAE); a falta de eso, si un lote emitido sin casar tiene EXACTAMENTE esos CAE. Una solicitud
+pendiente es nuestra por el REGAGE del lote (`registro_miteco`), sin mirar mayúsculas.**
+  - **REGLA — una resolución que subimos DESPUÉS del certificado entra sola en su cuenta, sin esperar a
+otro certificado**
+  - **REGLA — se pinta como un CAMINO y el último paso es SUYO**
 - `docs/conocimiento/lotes/las-cifras-del-lote-se-leen-de-sus-documentos.md`
   - **REGLA — el modelo solo LEE; el juicio es del código.**
   - **REGLA — los números se piden como TEXTO y los convierte `numeroEs()`.**

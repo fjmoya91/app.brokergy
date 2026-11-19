@@ -24,7 +24,7 @@ export const PCT_FONDO_DEFECTO = 8;
 // en manos de la Administración, del verificador, o si todavía hay papeleo suyo.
 export const ETAPAS_SO = [
     {
-        id: 'EMITIDO', titulo: 'CAE emitidos', sub: 'ya en su cuenta del registro', tono: 'emerald',
+        id: 'EMITIDO', titulo: 'CAE emitidos', sub: 'en su cuenta del Registro, por liquidar', tono: 'emerald',
         estados: ['CAE EMITIDO – PTE PAGO BROKERGY', 'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'],
     },
     {
@@ -183,7 +183,7 @@ export function anioDelLote(lote, hoy = new Date()) {
  * respuesta de `GET /api/lotes/disponible`, para decir cuánto de lo que falta
  * podemos cubrir.
  */
-export function computeVistaSo({ lotes = [], soId, anio, config, disponible = null, hoy = new Date() }) {
+export function computeVistaSo({ lotes = [], soId, anio, config, disponible = null, registro = null, hoy = new Date() }) {
     const cfg = normalizarObligacion(config || {});
     const ob = cfg.anios[String(anio)] || null;
 
@@ -195,7 +195,14 @@ export function computeVistaSo({ lotes = [], soId, anio, config, disponible = nu
         const auto = anioDelLote(l, hoy);
         const cuentaPara = manual === 'NO' ? null : (manual ? Number(manual) : auto);
         const { kwh, fuente } = kwhDelLote(l);
+        const caeLeido = (l?.documentos_so || []).find(d => d?.key === 'certificado_cae')?.cae || null;
         const fila = {
+            // Para cruzarlo con el Registro Nacional de CAE (`cruzarRegistro`).
+            refEmision: caeLeido?.referencia || null, caeInicial: caeLeido?.cae_inicial || null,
+            caeFinal: caeLeido?.cae_final || null,
+            fechaResolucion: fechaIso(caeLeido?.fecha_resolucion),
+            resolucionSubidaAt: (l?.documentos_so || []).find(d => d?.key === 'certificado_cae')?.uploaded_at || null,
+            registroMiteco: l.registro_miteco || null,
             id: l.id, codigo: l.codigo, estado: l.estado, etapa: etapaDelLote(l),
             kwh, fuente, anio: cuentaPara, anioAuto: auto, manual,
             nExpedientes: l.num_expedientes ?? (l.expedientes_eco || l.expedientes || []).length,
@@ -261,7 +268,195 @@ export function computeVistaSo({ lotes = [], soId, anio, config, disponible = nu
         oferta = { filas, totalGwh: gwh(acum) };
     }
 
-    return { anio: Number(anio), obligacion: cuenta, etapas: ETAPAS_SO.map(e => etapas[e.id]), brokergyGwh, fuera, oferta };
+    // Lo que dice el MITECO de su cuenta: qué está inscrito, qué falta por resolver y
+    // qué ha liquidado. Marca cada lote con dónde está (`fila.registro`).
+    const registroCae = registro
+        ? cruzarRegistro(registro, [...Object.values(etapas).flatMap(e => e.lotes), ...fuera], Number(anio), cuenta)
+        : null;
+
+    return { anio: Number(anio), obligacion: cuenta, etapas: ETAPAS_SO.map(e => etapas[e.id]), brokergyGwh, fuera, oferta, registro: registroCae };
+}
+
+// ─── El REGISTRO NACIONAL DE CAE: lo que de verdad tiene en su cuenta ───────────
+// (Fran, 19/11/2026, con el certificado del MITECO a INTERALCO del 18/11/2026). Que
+// un lote tenga la resolución FAVORABLE es el final para nosotros, pero no para el
+// S.O.: el CAE entra en SU cuenta del Registro y solo cuenta para su obligación
+// cuando ÉL lo LIQUIDA. El certificado trae tres cosas: los tramos inscritos a su
+// nombre SIN liquidar (el Excel: vencimiento, códigos, total y expediente de
+// emisión), las solicitudes de emisión aún sin resolver (nº E_CAE y REGAGE) y si ha
+// liquidado algo contra el año. Se guarda tal cual lo dice el MITECO, y aquí se
+// cruza con nuestros lotes: un tramo es NUESTRO si su expediente de emisión es el de
+// la resolución del lote (o su primer código CAE); a falta de eso, si un lote
+// emitido sin casar tiene EXACTAMENTE esos CAE. Una solicitud es nuestra si su
+// REGAGE es el nº de registro del lote.
+
+function fechaIso(v) {
+    if (!v) return null;
+    const s = String(v).trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return null;
+}
+
+/** El vencimiento va en el propio código: CAE_008657599241_311228 → 31/12/2028. */
+export function venceDeCodigo(codigo) {
+    const m = String(codigo || '').match(/_(\d{2})(\d{2})(\d{2})\s*$/);
+    if (!m) return null;
+    const [, d, mes, a] = m;
+    if (Number(mes) < 1 || Number(mes) > 12 || Number(d) < 1 || Number(d) > 31) return null;
+    return `20${a}-${mes}-${d}`;
+}
+
+/** Limpia lo guardado del certificado. Un tramo sin total o sin vencimiento no entra. */
+export function normalizarRegistro(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const tramos = (raw.tramos || []).map(t => ({
+        vence: fechaIso(t.vence),
+        inicial: String(t.inicial || '').trim() || null,
+        final: String(t.final || '').trim() || null,
+        total: Math.round(numDecimal(t.total) || 0),
+        expediente: String(t.expediente || '').trim().toUpperCase() || null,
+    })).filter(t => t.total > 0 && t.vence);
+    if (!tramos.length) return null;
+    const pendientes = (raw.pendientes || []).map(p => ({
+        expediente: String(p.expediente || '').trim().toUpperCase() || null,
+        registro: String(p.registro || '').trim() || null,
+    })).filter(p => p.expediente || p.registro);
+    const liq = raw.liquidado && /^\d{4}$/.test(String(raw.liquidado.anio)) ? {
+        anio: Number(raw.liquidado.anio),
+        kwh: numDecimal(raw.liquidado.kwh),
+    } : null;
+    return {
+        fecha_certificado: fechaIso(raw.fecha_certificado),
+        fecha_datos: fechaIso(raw.fecha_datos),
+        fecha_pendientes: fechaIso(raw.fecha_pendientes),
+        registro_solicitud: (raw.registro_solicitud || '').toString().trim() || null,
+        csv: (raw.csv || '').toString().trim() || null,
+        firmante: (raw.firmante || '').toString().trim() || null,
+        tramos, pendientes, liquidado: liq,
+        ficheros: raw.ficheros || null,
+        actualizado_at: raw.actualizado_at || null,
+        actualizado_por: raw.actualizado_por || null,
+    };
+}
+
+/**
+ * El certificado frente a nuestros lotes. `filas` son las de `computeVistaSo`
+ * (todas, también las de otro año); a cada una le pone `registro` con su situación:
+ * EN_SU_CUENTA (inscrito, sin liquidar) · PTE_RESOLUCION (solicitud presentada sin
+ * resolver) · PRESENTADO (con nº de registro, pero aún no figuraba en el
+ * certificado) · NO_CONSTA (lo damos por emitido y no está en su cuenta: o ya lo
+ * liquidó o algo no cuadra).
+ */
+export function cruzarRegistro(raw, filas = [], anio, cuenta = null) {
+    const reg = normalizarRegistro(raw);
+    if (!reg) return null;
+    const anioReg = Number((reg.fecha_datos || reg.fecha_certificado || '').slice(0, 4)) || null;
+
+    // 1) Por el expediente de emisión o el primer código; 2) por la cifra exacta.
+    const casado = new Map(); // índice del tramo → fila
+    const filaDe = new Map(); // id de la fila → índice del tramo
+    reg.tramos.forEach((t, i) => {
+        const f = filas.find(x => !filaDe.has(x.id) && ((t.expediente && x.refEmision && x.refEmision.toUpperCase() === t.expediente)
+            || (t.inicial && x.caeInicial && x.caeInicial === t.inicial)));
+        if (f) { casado.set(i, { fila: f, por: 'EXPEDIENTE' }); filaDe.set(f.id, i); }
+    });
+    reg.tramos.forEach((t, i) => {
+        if (casado.has(i)) return;
+        const f = filas.find(x => !filaDe.has(x.id) && x.etapa === 'EMITIDO' && Math.round(x.kwh) === t.total);
+        if (f) { casado.set(i, { fila: f, por: 'CIFRA' }); filaDe.set(f.id, i); }
+    });
+
+    const tramos = reg.tramos.map((t, i) => {
+        const c = casado.get(i);
+        return { ...t, lote: c ? c.fila.codigo : null, por: c ? c.por : null };
+    });
+
+    // 3) Una resolución que subimos DESPUÉS del certificado (Fran, 19/11/2026: «que se
+    // actualice cuando subimos una resolución nueva»): el MITECO la inscribe en su cuenta
+    // al resolver, así que entra como un tramo más —con su expediente, sus códigos y el
+    // vencimiento que lleva el propio código—, marcado `nuevo` hasta el próximo certificado.
+    // Una resuelta ANTES del certificado que no figura sigue siendo NO_CONSTA.
+    const corte = reg.fecha_certificado;
+    const esPosterior = (f) => {
+        const fecha = f.fechaResolucion || fechaIso(f.resolucionSubidaAt);
+        return !!(corte && fecha && fecha >= corte);
+    };
+    for (const f of filas) {
+        if (filaDe.has(f.id) || f.etapa !== 'EMITIDO' || !(f.kwh > 0) || !esPosterior(f)) continue;
+        const vence = venceDeCodigo(f.caeInicial) || venceDeCodigo(f.caeFinal);
+        if (!vence) continue;
+        filaDe.set(f.id, tramos.length);
+        tramos.push({
+            vence, inicial: f.caeInicial, final: f.caeFinal, total: Math.round(f.kwh),
+            expediente: f.refEmision ? f.refEmision.toUpperCase() : null,
+            lote: f.codigo, por: 'RESOLUCION', nuevo: true, fechaResolucion: f.fechaResolucion,
+        });
+    }
+
+    const may = (s) => String(s || '').toUpperCase();
+    // Una solicitud que ya tiene su resolución deja de estar pendiente.
+    const resueltos = new Set(filas.filter(f => filaDe.has(f.id) && f.registroMiteco).map(f => may(f.registroMiteco)));
+    const pendientes = reg.pendientes.filter(p => !(p.registro && resueltos.has(may(p.registro)))).map(p => {
+        const f = p.registro ? filas.find(x => x.registroMiteco && may(x.registroMiteco) === may(p.registro)) : null;
+        return { ...p, lote: f ? f.codigo : null, kwh: f ? f.kwh : null };
+    });
+    const pendDe = new Map(pendientes.filter(p => p.registro).map(p => [may(p.registro), p]));
+
+    for (const f of filas) {
+        const i = filaDe.get(f.id);
+        if (i != null) {
+            const t = tramos[i];
+            f.registro = { situacion: 'EN_SU_CUENTA', expediente: t.expediente, vence: t.vence, nuevo: !!t.nuevo };
+        } else if (f.registroMiteco && pendDe.has(may(f.registroMiteco))) {
+            f.registro = { situacion: 'PTE_RESOLUCION', expediente: pendDe.get(may(f.registroMiteco)).expediente };
+        } else if (f.etapa === 'MINISTERIO' && f.registroMiteco) {
+            f.registro = { situacion: 'PRESENTADO' };
+        } else if (f.etapa === 'EMITIDO') {
+            f.registro = { situacion: 'NO_CONSTA' };
+        } else f.registro = null;
+    }
+
+    const suma = (xs, k = 'total') => xs.reduce((s, x) => s + (Number(x[k]) || 0), 0);
+    const nuestros = tramos.filter(t => t.lote);
+    const porAnio = new Map();
+    for (const t of tramos) {
+        const a = Number(t.vence.slice(0, 4));
+        const g = porAnio.get(a) || { anio: a, kwh: 0, brokergyKwh: 0, n: 0 };
+        g.kwh += t.total; g.n++; if (t.lote) g.brokergyKwh += t.total;
+        porAnio.set(a, g);
+    }
+    const totalKwh = suma(tramos);
+    const brokergyKwh = suma(nuestros);
+    const vence = porAnio.get(Number(anio)) || { anio: Number(anio), kwh: 0, brokergyKwh: 0, n: 0 };
+    const liquidadoKwh = reg.liquidado && reg.liquidado.anio === Number(anio) ? reg.liquidado.kwh : null;
+    const cubribleKwh = cuenta ? cuenta.cubribleGwh * 1e6 : null;
+
+    return {
+        fechaCertificado: reg.fecha_certificado, fechaDatos: reg.fecha_datos, fechaPendientes: reg.fecha_pendientes,
+        registroSolicitud: reg.registro_solicitud, csv: reg.csv, anioRegistro: anioReg,
+        tramos, nTramos: tramos.length, totalKwh,
+        brokergyKwh, nBrokergy: nuestros.length,
+        // Lo resuelto después del certificado, que ya contamos en su cuenta.
+        nuevos: tramos.filter(t => t.nuevo).map(t => ({ codigo: t.lote, kwh: t.total, fechaResolucion: t.fechaResolucion || null })),
+        nuevosKwh: suma(tramos.filter(t => t.nuevo)),
+        otrosKwh: totalKwh - brokergyKwh, nOtros: tramos.length - nuestros.length,
+        // Lo que él dice que compró a otros frente a lo que hay de otros en su cuenta.
+        otrosDeclaradoKwh: cuenta ? cuenta.otros_gwh * 1e6 : null,
+        porVencimiento: [...porAnio.values()].sort((a, b) => a.anio - b.anio),
+        // Lo que caduca el 31/12 del año que se mira: o se liquida contra él, o se pierde.
+        venceKwh: vence.kwh, venceBrokergyKwh: vence.brokergyKwh, nVence: vence.n,
+        liquidadoKwh,
+        // Lo inscrito llega para cubrir lo que puede cubrir con CAE: le basta con liquidarlo.
+        pctCubribleEnCuenta: cubribleKwh > 0 ? Math.min(100, totalKwh / cubribleKwh * 100) : null,
+        pendientes, pendientesKwh: suma(pendientes.filter(p => p.kwh != null), 'kwh'),
+        // Solo los que cuentan para el año que se mira: uno de otro año que no está
+        // en su cuenta lo normal es que ya lo liquidara.
+        presentados: filas.filter(f => f.anio === Number(anio) && f.registro?.situacion === 'PRESENTADO').map(f => ({ codigo: f.codigo, kwh: f.kwh })),
+        noConstan: filas.filter(f => f.anio === Number(anio) && f.registro?.situacion === 'NO_CONSTA').map(f => ({ codigo: f.codigo, kwh: f.kwh })),
+    };
 }
 
 /**

@@ -533,6 +533,41 @@ router.delete('/obligacion-so/:soId/enlace', adminOnly, async (req, res) => {
     }
 });
 
+// Su cuenta en el REGISTRO NACIONAL DE CAE, del certificado del MITECO (19/11/2026):
+// el Excel de tramos (obligatorio) y el PDF firmado (fechas, pendientes, liquidado).
+// GET lo ve el staff; subir es del ADMIN y primero en seco (`?guardar=1` guarda).
+const registroUpload = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 2 } });
+router.get('/obligacion-so/:soId/registro', staffOnly, async (req, res) => {
+    try {
+        res.json({ registro: await require('../services/registroCaeSo').getRegistro(req.params.soId) });
+    } catch (err) {
+        console.error('[GET /lotes/obligacion-so/registro]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+router.post('/obligacion-so/:soId/registro', adminOnly,
+    registroUpload.fields([{ name: 'excel', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]),
+    async (req, res) => {
+        try {
+            const registroCae = require('../services/registroCaeSo');
+            const soChk = await validarPrescriptorTipo(req.params.soId, 'SUJETO_OBLIGADO');
+            if (!soChk.ok) return res.status(400).json({ error: soChk.motivo });
+            const { data: so, error: eSo } = await supabase.from('prescriptores')
+                .select('id_empresa, acronimo, razon_social, cif').eq('id_empresa', req.params.soId).maybeSingle();
+            if (eSo) return res.status(503).json({ error: 'No se pudo leer la BD' });
+            const excel = req.files?.excel?.[0], pdf = req.files?.pdf?.[0];
+            if (!excel) return res.status(400).json({ error: 'Falta el Excel de los tramos del MITECO' });
+            const leido = await registroCae.leerCertificado({ excel: excel.buffer, pdf: pdf?.buffer || null, so });
+            if (req.query.guardar !== '1') return res.json({ seco: true, ...leido });
+            const ficheros = { excel: excel.originalname, pdf: pdf?.originalname || null };
+            const registro = await registroCae.saveRegistro(req.params.soId, leido.registro, { quien: usuarioDe(req), ficheros });
+            res.json({ seco: false, registro, avisos: leido.avisos });
+        } catch (err) {
+            console.error('[POST /lotes/obligacion-so/registro]', err.message);
+            res.status(err.status || 500).json({ error: err.message });
+        }
+    });
+
 router.get('/disponible', staffOnly, async (req, res) => {
     try {
         res.json(await obligacionSo.disponible());

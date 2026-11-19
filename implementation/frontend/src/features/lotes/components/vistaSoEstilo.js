@@ -20,6 +20,20 @@ export const COLOR_OFERTA = { LISTO: 'var(--o4)', CERRANDO: 'var(--o3)', OBRA: '
 export const FUENTE = {
     EMITIDO: 'CAE de la resolución', FACTURA: 'de nuestra factura', VERIFICADO: 'verificado', ESTIMADO: 'estimado',
 };
+// Dónde está el lote en la cuenta del S.O. en el Registro Nacional de CAE
+// (`cruzarRegistro`, 19/11/2026). Emitido no es liquidado: eso lo hace él.
+export const SITUACION_REGISTRO = {
+    EN_SU_CUENTA: { txt: 'en su cuenta', chip: 'fx-chip-ok', ayuda: 'Inscrito a su nombre en el Registro Nacional de CAE: falta que lo liquide contra su obligación' },
+    PTE_RESOLUCION: { txt: 'pte. de resolución', chip: 'fx-chip-pizarra', ayuda: 'La solicitud de emisión figura en el Registro, sin resolver' },
+    PRESENTADO: { txt: 'aún no figura', chip: 'fx-chip-gris', ayuda: 'Tiene nº de registro, pero no figuraba en el certificado del MITECO' },
+    NO_CONSTA: { txt: 'no figura en su cuenta', chip: 'fx-chip-ambar', ayuda: 'Lo damos por emitido y no está entre sus CAE sin liquidar: o ya lo liquidó o algo no cuadra' },
+};
+export const fechaEs = (iso) => {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : '—';
+};
+export const COLOR_REGISTRO = { PTE: '#7b9a1c', PRESENTADO: '#b1d13e', CUENTA: '#466510', LIQUIDADO: '#141111' };
+
 export const chipEstado = (l) => (l.requerimiento ? 'fx-chip-ambar'
     : l.etapa === 'EMITIDO' ? 'fx-chip-ok'
         : l.etapa === 'MINISTERIO' ? 'fx-chip-pizarra' : 'fx-chip-gris');
@@ -125,6 +139,35 @@ export const CSS_SO = `
 .so-enlace{margin-top:14px;font:600 13px/1.3 var(--mono)}
 .so-lote-fijo{cursor:default}
 .so-lote-fijo:hover{background:none}
+.so-lote-pie{flex-wrap:wrap}
+.so-lote-reg{font-size:11.5px;padding:3px 8px}
+
+/* Su cuenta en el Registro Nacional de CAE (19/11/2026) */
+.so-camino{display:grid;gap:14px;grid-template-columns:minmax(0,1fr)}
+@container fx (min-width:700px){.so-camino{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container fx (min-width:1180px){.so-camino{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.so-paso{position:relative;display:flex;flex-direction:column}
+.so-paso-n{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:99px;font:800 12px/1 var(--texto);color:#fff;background:var(--c)}
+.so-paso-quien{margin-left:auto;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--gris2)}
+.so-paso-suyo{border-color:rgba(255,160,0,.45);box-shadow:0 0 0 3px rgba(255,160,0,.10)}
+.so-paso-suyo .so-paso-quien{color:var(--naranja-txt)}
+.so-paso ul{list-style:none;margin:12px 0 0;padding:10px 0 0;border-top:1px solid var(--linea);display:grid;gap:6px}
+.so-paso li{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--gris)}
+.so-paso li b{font:600 12.5px/1.2 var(--mono);color:var(--tinta)}
+.so-paso li span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums}
+.so-reparto{margin-top:8px;font-size:12.5px;color:var(--gris);line-height:1.45}
+.so-reparto b{color:var(--tinta)}
+.so-venc{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.so-venc span{display:inline-flex;align-items:baseline;gap:6px;padding:6px 11px;border-radius:99px;background:var(--crema);border:1px solid var(--linea);font-size:12.5px;color:var(--gris)}
+.so-venc span b{color:var(--tinta);font-variant-numeric:tabular-nums}
+.so-venc span.so-venc-ya{background:#fff3dc;border-color:var(--vence-borde);color:var(--vence-txt)}
+.so-tramos td{font-variant-numeric:tabular-nums;white-space:nowrap}
+.so-tramos td.so-mono{font:600 12.5px/1.2 var(--mono)}
+.so-tramos td.so-num{text-align:right}
+.so-tramos th.so-num{text-align:right}
+.so-tramos tr.so-nuestro td{background:#f7faef}
+.so-tramos td.so-de{color:var(--gris)}
+.so-tramos tr.so-nuestro td.so-de{color:#3c5409;font-weight:700}
 `;
 
 // Un logo pensado para fondo OSCURO (texto blanco sobre transparente, como el de
