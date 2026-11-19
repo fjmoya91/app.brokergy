@@ -18,6 +18,7 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
+const { enLotes } = require('../utils/consultaLotes');
 const driveService = require('../services/driveService');
 const { geoGate } = require('../middleware/geoGate');
 const { verifyTurnstileToken } = require('../services/turnstileService');
@@ -331,23 +332,35 @@ router.get('/instalaciones', async (req, res) => {
     const marcasBy = new Map();
     (marcasRows || []).forEach((m) => { if (!marcasBy.has(m.instalador_id)) marcasBy.set(m.instalador_id, []); marcasBy.get(m.instalador_id).push(m.marca_nombre); });
 
-    const { data: exps } = await supabase
+    const { data: exps, error: errExps } = await supabase
       .from('expedientes')
       .select('id, numero_expediente, instalacion, oportunidad_id, cliente_id, seguimiento, estado, instalador_asociado_id')
       .neq('estado', 'RECHAZADO');
+    if (errExps) throw errExps;
     const vlist = exps || [];
 
+    // 19/11/2026: las dos consultas por ids van POR LOTES (utils/consultaLotes.js). Con la
+    // lista entera de oportunidades la URL pasaba de 16 KB, Supabase fallaba y, como el
+    // error no se miraba, salían TODAS las obras sin ayuda ni municipio del cálculo: la web
+    // (npm run cifras) publicó «+0 € de ayuda de media» y «0 % cubierto». Un lote que falla
+    // LANZA → 500, nunca un mapa sin cifras (regla 38). Y de `datos_calculo` solo lo que se
+    // usa, nunca el JSONB entero en un listado (regla 22).
     // Municipio del cliente (dato coarse, permitido) como fuente de respaldo —
     // muchos expedientes solo tienen el municipio ahí. NO se expone nada más del cliente.
-    const cliIds = [...new Set(vlist.map((e) => e.cliente_id).filter(Boolean))];
-    const { data: clientes } = cliIds.length
-      ? await supabase.from('clientes').select('id_cliente, municipio, provincia').in('id_cliente', cliIds)
-      : { data: [] };
+    const cliIds = vlist.map((e) => e.cliente_id);
+    const clientes = await enLotes(cliIds, (trozo) =>
+      supabase.from('clientes').select('id_cliente, municipio, provincia').in('id_cliente', trozo));
     const cliBy = new Map((clientes || []).map((c) => [c.id_cliente, c]));
 
-    const { data: ops } = await supabase.from('oportunidades').select('id, datos_calculo')
-      .in('id', [...new Set(vlist.map((e) => e.oportunidad_id).filter(Boolean))]);
-    const opBy = new Map((ops || []).map((o) => [o.id, o]));
+    const ops = await enLotes(vlist.map((e) => e.oportunidad_id), (trozo) =>
+      supabase.from('oportunidades')
+        .select('id, financials:datos_calculo->result->financials, selectedModel:datos_calculo->result->selectedModel, inputs_municipio:datos_calculo->inputs->>municipio, inputs_provincia_nombre:datos_calculo->inputs->>provincia_nombre, inputs_provincia:datos_calculo->inputs->>provincia')
+        .in('id', trozo));
+    // se rehace la forma de `datos_calculo` que usa el resto de la ruta
+    const opBy = new Map((ops || []).map((o) => [o.id, { datos_calculo: {
+      result: { financials: o.financials || {}, selectedModel: o.selectedModel },
+      inputs: { municipio: o.inputs_municipio, provincia_nombre: o.inputs_provincia_nombre, provincia: o.inputs_provincia },
+    } }]));
 
     // Indexar por MUNICIPIO normalizado (muniKey): la provincia venía como código
     // INE en unos sitios y como nombre en otros, así que casar por municipio es lo fiable.
@@ -484,9 +497,9 @@ router.get('/stats', async (req, res) => {
       || ['DOC. COMPLETA', 'ENVIADO A VERIFICADOR', 'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'].includes(e.estado);
     const vlist = (exps || []).filter(verif);
 
-    const { data: ops } = await supabase.from('oportunidades').select('id, datos_calculo')
-      .in('id', [...new Set(vlist.map((e) => e.oportunidad_id).filter(Boolean))]);
-    const opBy = new Map((ops || []).map((o) => [o.id, o]));
+    const ops = await enLotes(vlist.map((e) => e.oportunidad_id), (trozo) =>
+      supabase.from('oportunidades').select('id, financials:datos_calculo->result->financials').in('id', trozo));
+    const opBy = new Map((ops || []).map((o) => [o.id, { datos_calculo: { result: { financials: o.financials || {} } } }]));
 
     // "Dinero movilizado" = suma del coste de obra (presupuesto) de TODAS las instalaciones
     // verificadas. Es un agregado del ecosistema, no el precio de ningún instalador
@@ -577,10 +590,9 @@ router.get('/marca/:nombre', async (req, res) => {
       const vlist = (exps || []).filter((e) => verif(e)
         && (e.instalacion?.aerotermia_cal?.marca || '').toUpperCase() === m.nombre.toUpperCase());
       num_instalaciones = vlist.length;
-      const { data: ops } = vlist.length
-        ? await supabase.from('oportunidades').select('id, datos_calculo').in('id', [...new Set(vlist.map((e) => e.oportunidad_id).filter(Boolean))])
-        : { data: [] };
-      const opBy = new Map((ops || []).map((o) => [o.id, o]));
+      const ops = await enLotes(vlist.map((e) => e.oportunidad_id), (trozo) =>
+        supabase.from('oportunidades').select('id, financials:datos_calculo->result->financials').in('id', trozo));
+      const opBy = new Map((ops || []).map((o) => [o.id, { datos_calculo: { result: { financials: o.financials || {} } } }]));
       for (const e of vlist) {
         const f = opBy.get(e.oportunidad_id)?.datos_calculo?.result?.financials || {};
         ayuda_total += (num(f.caeBonus) || 0) + (num(f.irpfDeduction) || 0);

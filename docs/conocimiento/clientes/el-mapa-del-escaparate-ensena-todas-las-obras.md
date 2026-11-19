@@ -49,3 +49,28 @@ municipios suman en los totales (`red.json → ocultos`, sin nombre). Es indepen
 `visible_marketplace` (el escaparate antiguo): apagar uno no toca el otro. Se aplica al volver a
 generar la web (`npm run red`, build y deploy de brokergy-web). Primeros ocultos: Juan Manuel
 Caballero García y Proactiva y Desarrollo Empresarial.
+
+**12/11/2026: el directorio ENTERO, oculto pero funcionando.** Fran: «de momento quita visible lo de
+encuentra instalador, pero que sí funcione: lo usaremos cuando enviemos el mensaje a quien rellene el
+formulario y pida que le recomendemos uno… que no aparezca para que no nos espíen». En brokergy-web,
+`RED_PUBLICA = false` (`src/data/sitio.js`): `/encuentra-tu-instalador/`, sus fichas y
+`/aerotermia/<provincia>/` se abren por su URL, pero ningún enlace de la web lleva a ellas, salen
+del sitemap y llevan `noindex` (detalle en el `docs/BRIEF.md` de la web, §2.b). El mensaje a quien
+pide que le recomendemos instalador lleva `https://brokergy.es/encuentra-tu-instalador/`. El
+interruptor de cada instalador (`oculto_web`) sigue valiendo dentro del directorio.
+
+**19/11/2026: las consultas por ids del mapa van POR LOTES, y de `datos_calculo` solo lo que se usa.**
+`GET /api/public/marketplace/instalaciones` pedía las oportunidades de TODOS los expedientes con un
+solo `.in('id', …)`: al pasar de ~400 la URL superó los 16 KB, Supabase falló y la ruta, que no
+miraba el error, devolvió las obras sin `datos_calculo` — sin ayuda, sin % cubierto y sin el
+municipio del cálculo (154 obras en vez de 398). La web lo publicó en su build de la noche: «+0 € de
+ayuda de media por obra terminada» y «0 % del coste cubierto» en la portada y en /instaladores/.
+Ahora clientes y oportunidades van con `enLotes` ([utils/consultaLotes.js](implementation/backend/utils/consultaLotes.js)),
+un lote que falla da **500** (nunca un mapa sin cifras) y de `datos_calculo` se piden solo
+`result.financials`, `result.selectedModel` y el municipio/provincia de `inputs` (regla 22). Lo
+mismo en `/stats` y `/marca/:nombre`. Y `npm run cifras` de la web ya no pisa nada si la API trae
+obras terminadas pero ninguna con ayuda. Medido tras el arreglo: 398 obras, 229 terminadas con
+ayuda, media 11.389 €, 87 % cubierto.
+
+**REGLA — en el escaparate, toda consulta por ids va con `enLotes` y mirando el error:** la lista
+crece con la base y el fallo no hace ruido, solo deja cifras a cero en una web pública.
