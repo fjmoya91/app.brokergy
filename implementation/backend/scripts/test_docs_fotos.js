@@ -146,6 +146,12 @@ function alcance() {
     const aparte = svc.buildDocChecklist({ ...base, alcance: { acs: true, acs_equipo_propio: true } })
         .find(s => s.key === 'FOTO_UNIDAD_INTERIOR');
     ok(!/depósito/i.test(aparte?.label || ''), 'con el ACS aparte, la etiqueta no cambia', aparte?.label);
+    // 26RES093_19: la máquina daría el ACS, pero la obra no lo toca → nada de «depósito integrado».
+    const sinAcs = svc.buildDocChecklist({ ...base, alcance: { acs: false, acs_equipo_propio: false } })
+        .find(s => s.key === 'FOTO_UNIDAD_INTERIOR');
+    ok(!/depósito|ACS/i.test(sinAcs?.label || ''), 'con el ACS fuera del alcance, no habla de depósito ni de ACS', sinAcs?.label);
+    const conAcs = svc.buildDocChecklist({ ...base, alcance: { acs: true } }).find(s => s.key === 'FOTO_UNIDAD_INTERIOR');
+    ok(/ACS/.test(conAcs?.label || ''), 'con el ACS dentro, el rótulo de siempre', conAcs?.label);
 
     console.log('\n3. ¿El ACS es OTRA máquina? (docsAlcance)');
     ok(acsEquipoPropio(null) === null, 'sin instalación no se afirma nada');

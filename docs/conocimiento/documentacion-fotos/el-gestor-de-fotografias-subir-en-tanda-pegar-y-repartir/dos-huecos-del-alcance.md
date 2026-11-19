@@ -22,6 +22,13 @@ por la MÁQUINA y no por el flag `misma_aerotermia_acs` (regla 12.c), y el apart
 se retira **solo si el expediente lo afirma y solo si está VACÍO**: lo ya subido no
 se esconde nunca (mismo criterio que `emisorDesencaja`). Entonces la etiqueta de la
 unidad interior lo dice, o el cliente busca un depósito aparte que no existe.
+**Y solo si la actuación toca el ACS** (2026-11-19): en 26RES093_19 (hibridación,
+`cambio_acs` en false, `misma_aerotermia_acs` sembrado en true) el Anexo Fotográfico
+rotulaba la foto de dentro «Unidad interior con depósito de ACS integrado», es decir,
+un ACS que la obra no incluye. `deriveSelectors` ignora `acs_equipo_propio` cuando
+`changeAcs` es false, y entonces los rótulos técnicos de la unidad interior y de su placa
+tampoco nombran el ACS («Unidad interior», «Placa de la unidad interior»). Prueba:
+`test_docs_fotos.js`, bloque 2.
 
 ⚠️ `acsEsOtraMaquina` responde **true con los dos nodos en blanco**, y hace bien
 (dos huecos no son "el mismo equipo"). Pero eso no es una declaración: para afirmar

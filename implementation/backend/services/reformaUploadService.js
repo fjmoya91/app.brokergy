@@ -455,7 +455,11 @@ function deriveSelectors(datosCalculo = {}) {
     // máquina: "la unidad interior" y "el depósito de ACS" son la MISMA foto, y
     // la segunda casilla se queda siempre vacía. `null` = el expediente aún no
     // identifica los equipos y manda el comportamiento de siempre.
-    const acsAparatoPropio = alc.acs_equipo_propio;
+    // Solo cuenta si la actuación TOCA el ACS: con el ACS fuera del alcance no hay
+    // depósito que fotografiar, y decir «con depósito de ACS integrado» en el
+    // Anexo Fotográfico describe una obra que no se ha hecho (26RES093_19, 19/11/2026:
+    // `misma_aerotermia_acs` sembrado en true con `cambio_acs` en false).
+    const acsAparatoPropio = changeAcs ? alc.acs_equipo_propio : null;
 
     // ── El GENERADOR DE CALOR que se sustituye ───────────────────────────────
     // Se documenta SIEMPRE que haya calefacción, sea del tipo que sea. Antes esto
@@ -631,10 +635,15 @@ function buildDocChecklist(datosCalculo = {}) {
     // exigencias al reactivarlo; se le quitó porque el equipo instalado es justo lo
     // que documenta el Anexo Fotográfico: la app la marcaba como "falta esta foto"
     // y en cambio "solicitar lo que falta" nunca llegaba a pedirla.
+    // Con el ACS fuera del alcance, el rótulo no lo nombra: es el que sale en el
+    // Anexo Fotográfico, y «/ ACS» ahí describe una actuación que no se ha hecho
+    // (26RES093_19, 19/11/2026).
     push({ key: 'FOTO_UNIDAD_INTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
-           label: 'Unidad interior / ACS', help: 'La unidad de dentro (split, hidrokit o depósito) ya instalada.' });
+           label: sel.changeAcs ? 'Unidad interior / ACS' : 'Unidad interior',
+           help: sel.changeAcs ? 'La unidad de dentro (split, hidrokit o depósito) ya instalada.' : 'La unidad de dentro (split o hidrokit) ya instalada.' });
     push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
-           label: 'Placa de la unidad interior / DEPOSITO ACS', help: 'La etiqueta de datos de la unidad de dentro o del depósito de agua caliente. Que se lean marca, modelo y número de serie.' });
+           label: sel.changeAcs ? 'Placa de la unidad interior / DEPOSITO ACS' : 'Placa de la unidad interior',
+           help: sel.changeAcs ? 'La etiqueta de datos de la unidad de dentro o del depósito de agua caliente. Que se lean marca, modelo y número de serie.' : 'La etiqueta de datos de la unidad de dentro. Que se lean marca, modelo y número de serie.' });
     if (want('FOTO_ARMARIO_SUELO_RADIANTE', sel.sueloRadiante)) push({ key: 'FOTO_ARMARIO_SUELO_RADIANTE', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Armario del suelo radiante (colectores)', help: 'El armario de colectores abierto: que se vean los circuitos, las válvulas y la conexión con el equipo nuevo.' });
     if (want('FOTO_ACS_DEPOSITO', sel.changeAcs)) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
