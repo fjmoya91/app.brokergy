@@ -340,7 +340,10 @@ Al escalar, "parrafos" vacío; "motivo" = lo que hay que averiguar o decidir, en
 de qué va, en 3 a 8 palabras («el bono de la calle San Miguel», «la factura a nombre de un solo titular»);
 y "acuse" = UNA frase corta EN LA VOZ DE FRAN que diga algo CONCRETO de lo suyo, para que no se quede sin
 respuesta: «Lo de la factura a nombre de los dos lo miro y te digo», «Recibidas las fotos de la caldera; lo
-del bono te lo confirmo con la simulación». Nunca un «Recibido, lo miro y te digo» a secas. Ni plazo
+del bono te lo confirmo con la simulación». Nunca un «Recibido, lo miro y te digo» a secas. Concreto no es
+recitar lo que ha mandado: el asunto en pocas palabras («Perfecto, Manu, las facturas de Alberto las miro y te
+digo»), nunca la lista («las dos facturas en Word y tus audios sobre el concepto y la calle…»), y nada de «a
+mano», «yo mismo» ni «personalmente»: así no habla Fran de su trabajo. Ni plazo
 («ahora mismo», «hoy», «en un rato»), ni canal («te llamo»), ni «un compañero» (Fran lo lleva él).
 Si pregunta si eres una persona o un programa, o pide que le llamen: ESCALAR con "para_fran": true y
 "acuse" VACÍO. Le contesta Fran en persona. Aquí NO vale lo de «di que eres el asistente automático» de
@@ -361,7 +364,10 @@ FORMATO: devuelve SOLO este JSON, sin nada alrededor:
 // ─── El remate del código ────────────────────────────────────────────────────
 const EMOJI = /[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{FE0F}\u{200D}]/gu;
 const FIRMA = /\n+\s*(\*?BROKERGY\b[^\n]*|un saludo[^\n]*|saludos[^\n]*|fran\.?)\s*$/i;
-const ACUSE_NO = /compa[ñn]er[oa]|asistente|autom[aá]tic|programa|\bbot\b|ahora mismo|en un rato|\bhoy\b|ma[ñn]ana|te llam|llamar|lo siento|perd[oó]n|disculp/i;
+// «a mano», «yo mismo», «personalmente»: así no habla Fran de su propio trabajo y delata a quien no es
+// él (26RES093_14, 18/11/2026: «Las dos facturas en Word y tus audios sobre el concepto y la calle Niños
+// los reviso yo a mano y te digo si están bien»). Pasa al de siempre y, con tema, a «Lo de <tema>…».
+const ACUSE_NO = /compa[ñn]er[oa]|asistente|autom[aá]tic|programa|\bbot\b|ahora mismo|en un rato|\bhoy\b|ma[ñn]ana|te llam|llamar|lo siento|perd[oó]n|disculp|\ba mano\b|yo mism[oa]|personalmente/i;
 function limpiar(texto) {
     let s = String(texto || '').replace(EMOJI, '').replace(/[ \t]{2,}/g, ' ');
     for (let i = 0; i < 2; i++) s = s.replace(FIRMA, '');
@@ -448,7 +454,8 @@ CÓMO:
    · "motivo": qué tiene que decidir Fran y lo que has averiguado (con el nº de obra);
    · "tema": de qué va, en 3 a 8 palabras;
    · "acuse": UNA frase al cliente (≤ 150 caracteres, sin enlace) que diga algo CONCRETO de lo suyo («Lo de
-     la factura a nombre de los dos lo confirmo y te digo»); nunca un «Recibido, lo miro y te digo» a secas.
+     la factura a nombre de los dos lo confirmo y te digo»); nunca un «Recibido, lo miro y te digo» a secas,
+     ni la lista de lo que ha mandado, ni «a mano», «yo mismo» o «personalmente».
 7. Si al mirar ves que ya está contestado o resuelto en la conversación → "CALLAR".
 8. Enlaces: solo las MARCAS del dossier. Las direcciones que salen en las consultas (?exp=…, ?op=…) son de la
    app del equipo: nunca al cliente.

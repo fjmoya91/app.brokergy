@@ -266,7 +266,12 @@ o fiscal iban derechos a Fran, con un «Recibido, lo miro y te digo» al cliente
 **REGLA — el código remata lo que escribe el modelo** (`rematar`): los ENLACES (marcas → URL real; una URL
 escrita por el modelo se quita y se avisa, como en la ronda), los PÁRRAFOS, fuera emojis y firma, un
 RESPONDER vacío pasa a ESCALAR, una acción desconocida es ESCALAR, y el acuse es una frase de ≤ 160
-caracteres sin enlace.
+caracteres sin enlace. **Concreto no es recitar lo recibido** (19/11/2026, 26RES093_14): a Manu, que mandó dos
+facturas en Word y dos audios, le salió «Las dos facturas en Word y tus audios sobre el concepto y la calle Niños
+los reviso yo a mano y te digo si están bien»; Fran habría dicho «Perfecto, Manu, las facturas de Alberto las
+miro y te digo». El prompt (los dos, el rápido y el investigador) pide el asunto en pocas palabras y no la
+lista, y un acuse con «a mano», «yo mismo» o «personalmente» lo cambia el código, como los de «un compañero»,
+por «Lo de <tema> lo miro y te digo.» (o «Lo miro y te digo.» sin tema).
 
 **Cerebro**: CLAUDE (Sonnet) con la SUSCRIPCIÓN, en el contenedor `asistente`, por `POST /contestar` del
 vigía: **un carril aparte** de los trabajos de Fran (su propia cola, 4 en espera como mucho → 429), así que

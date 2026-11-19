@@ -272,6 +272,12 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
     ok(v.acuse === 'Lo del bono de la calle San Miguel lo miro y te digo.', 'acuse vacío + tema → «Lo de <tema> lo miro y te digo.»');
     const c = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Lo de la memoria no hace falta que la pagues: la preparo yo.', tema: 'la memoria RITE', motivo: 'm' }, ENLACES);
     ok(c.acuse === 'Lo de la memoria no hace falta que la pagues: la preparo yo.', 'un acuse concreto se respeta');
+    // 26RES093_14, 18/11/2026: recitaba lo recibido y decía «a mano».
+    const manoAcuse = 'Las dos facturas en Word y tus audios sobre el concepto y la calle Niños los reviso yo a mano y te digo si están bien.';
+    const mano = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: manoAcuse, tema: 'las facturas de Alberto', motivo: 'm' }, ENLACES);
+    const manoSinTema = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: manoAcuse, motivo: 'm' }, ENLACES);
+    ok(mano.acuse === 'Lo de las facturas de Alberto lo miro y te digo.' && manoSinTema.acuse === 'Lo miro y te digo.',
+        'un acuse con «a mano» pasa a «Lo de <tema> lo miro y te digo.» (o al de siempre sin tema)');
     // El borrador para Fran lleva los enlaces puestos; el aviso solo con RESPONDER.
     const b = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: '', borrador: 'Hola Ana, súbela aquí:\n{ENLACE_SUBIR}\n\nUn saludo', aviso: 'x', fuentes: ['oportunidad OP1', ''], motivo: 'm' }, ENLACES);
     ok(b.borrador.includes(URL_SUBIR) && !/saludo/i.test(b.borrador) && b.aviso === '' && b.fuentes.length === 1, 'ESCALAR: borrador con su enlace y rematado; sin aviso');
