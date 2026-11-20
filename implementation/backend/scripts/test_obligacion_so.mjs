@@ -14,6 +14,7 @@
 //   8. Lo que sale por el enlace del S.O.: estados y fuente en su idioma.
 //   9. A cuánto le sale el CAE al S.O. (€/MWh) y su ahorro frente al Fondo.
 //  10. Su cuenta en el Registro Nacional de CAE: cruce con nuestros lotes.
+//  11. La TABLA: la situación de cada lote, en orden, y su liquidación.
 //   (y) Los GWh tecleados con coma se leen bien («20,03»), y una obligación sin
 //      cuota no se guarda.
 //
@@ -25,7 +26,7 @@ import path from 'path';
 const raiz = path.resolve(import.meta.dirname, '../../frontend/src/features');
 const {
     computeVistaSo, kwhDelLote, etapaDelLote, anioDelLote, normalizarObligacion, planParaCubrir,
-    costeDelLoteParaSo, precioCaeParaSo, cruzarRegistro, normalizarRegistro, venceDeCodigo,
+    costeDelLoteParaSo, precioCaeParaSo, cruzarRegistro, normalizarRegistro, venceDeCodigo, tablaDelSo,
 } = await import(pathToFileURL(path.join(raiz, 'lotes/logic/obligacionSo.js')).href);
 
 let fallos = 0;
@@ -217,6 +218,56 @@ console.log('\n10. Su cuenta en el Registro Nacional de CAE (certificado del MIT
     ok('y deja de estar pendiente de resolución', rn.pendientes.length === 0 && rn.pendientesKwh === 0);
     ok('un emitido ANTES del certificado que no figura sigue NO_CONSTA', rn.noConstan.map(x => x.codigo).join() === 'L-E');
     ok('el vencimiento del código: 31/12/2028', venceDeCodigo('CAE_008657599241_311228') === '2028-12-31' && venceDeCodigo('CAE_X') === null);
+
+    console.log('\n11. La TABLA: dónde está cada lote, y su liquidación (20/11/2026)');
+    const lotesT = [
+        ...lotesR.map(l => ({ ...l, num_expedientes: 5 })),
+        { id: 'f', codigo: 'L-F', sujeto_obligado_id: SO, estado: 'REQUERIMIENTO VERIFICADOR', factura_so: { unidades_kwh: 50000 }, created_at: '2026-06-01', num_expedientes: 3 },
+        { id: 'g', codigo: 'L-G', sujeto_obligado_id: SO, estado: 'VERIFICADO', factura_so: { unidades_kwh: 60000 }, created_at: '2026-06-01', num_expedientes: 2 },
+        { id: 'h', codigo: 'L-H', sujeto_obligado_id: SO, estado: 'PTE. FIRMA S.O.', factura_so: { unidades_kwh: 70000 }, created_at: '2026-06-01', num_expedientes: 5 },
+        { id: 'i', codigo: 'L-I', sujeto_obligado_id: SO, estado: 'REQUERIMIENTO G.A.', registro_miteco: 'REGAGE26e00000000009', factura_so: { unidades_kwh: 80000 }, created_at: '2026-06-01', num_expedientes: 5,
+            documentos_so: [{ key: 'justificante_miteco', link: 'j', uploaded_at: '2026-10-29T09:00:00Z' }] },
+        { id: 'k', codigo: 'L-K', sujeto_obligado_id: SO, estado: 'PTE. SUBIDA MITECO', factura_so: { unidades_kwh: 90000 }, created_at: '2026-06-01', num_expedientes: 5 },
+        { id: 'v', codigo: 'VACIO', sujeto_obligado_id: SO, estado: 'BORRADOR', created_at: '2026-06-01', num_expedientes: 0 },
+    ];
+    const cfgL = normalizarObligacion({
+        ...cfg,
+        liquidacion: { a: { estado: 'solicitada', fecha: '2026-11-20' }, e: { estado: 'LIQUIDADA', fecha: '20/11/2026' }, b: { estado: 'basura' } },
+    });
+    ok('la liquidación se normaliza: estados válidos, fecha ISO, lo demás fuera',
+        cfgL.liquidacion.a.estado === 'SOLICITADA' && cfgL.liquidacion.e.fecha === '2026-11-20' && !cfgL.liquidacion.b);
+    const vt = computeVistaSo({ lotes: lotesT, soId: SO, anio: 2026, config: cfgL, registro, hoy: HOY });
+    const s = (cod) => vt.etapas.flatMap(e => e.lotes).find(l => l.codigo === cod)?.situacion;
+    ok('emitido con la liquidación SOLICITADA', s('L-A') === 'LIQ_SOLICITADA');
+    ok('emitido en su cuenta sin marcar: pendiente de liquidar', s('L-B') === 'PTE_LIQUIDAR');
+    ok('emitido que no figura pero nos dijo que LIQUIDÓ: liquidado y sin aviso', s('L-E') === 'LIQUIDADO' && vt.registro.noConstan.length === 0);
+    ok('con REGAGE (figure o no en el certificado): pendiente de resolución', s('L-C') === 'PTE_RESOLUCION' && s('L-D') === 'PTE_RESOLUCION');
+    ok('requerimiento del Gestor, aparte', s('L-I') === 'REQ_GESTOR');
+    ok('verificado o PTE. SUBIDA: por presentar al MITECO', s('L-G') === 'POR_PRESENTAR' && s('L-K') === 'POR_PRESENTAR');
+    ok('en el verificador con requerimiento', s('L-F') === 'REQ_VERIFICADOR');
+    ok('firmas del S.O.: en preparación', s('L-H') === 'PREPARACION');
+    ok('la presentación lleva la fecha del justificante', vt.etapas.flatMap(e => e.lotes).find(l => l.codigo === 'L-I').fechaPresentacion === '2026-10-29');
+    const t = tablaDelSo(vt.etapas);
+    ok('la tabla va en el orden del camino, sin el lote vacío',
+        t.filas.map(f => f.codigo).join() === 'L-H,L-F,L-G,L-K,L-C,L-D,L-I,L-B,L-A,L-E', t.filas.map(f => f.codigo).join());
+    ok('el resumen cuenta lotes y kWh por situación', t.resumen.find(x => x.id === 'PTE_RESOLUCION').n === 2
+        && t.resumen.find(x => x.id === 'PTE_RESOLUCION').kwh === 270000 && t.totalKwh === t.resumen.reduce((a, x) => a + x.kwh, 0));
+    ok('sin certificado, la situación sale igual (la cuenta del Registro es un añadido)',
+        computeVistaSo({ lotes: lotesT, soId: SO, anio: 2026, config: cfgL, hoy: HOY }).etapas.flatMap(e => e.lotes).find(l => l.codigo === 'L-B').situacion === 'PTE_LIQUIDAR');
+
+    // Lo que le llega al S.O. lleva la situación y su liquidación, y nada nuestro.
+    const { createRequire } = await import('module');
+    const req = createRequire(import.meta.url);
+    let vistaParaElSo = null;
+    try { ({ vistaParaElSo } = req('../services/obligacionSo.js')); } catch { /* sin .env: se salta */ }
+    if (vistaParaElSo) {
+        const pub = vistaParaElSo({ ...vt, anios: [2026] });
+        const la = pub.etapas.flatMap(e => e.lotes).find(l => l.codigo === 'L-A');
+        ok('al S.O. le llega la situación y la liquidación (sin quién la marcó)', la.situacion === 'LIQ_SOLICITADA'
+            && la.liquidacion.estado === 'SOLICITADA' && la.liquidacion.fecha === '2026-11-20' && !('por' in la.liquidacion));
+        ok('y la tabla del S.O. sale igual que la nuestra', tablaDelSo(pub.etapas).filas.map(f => f.codigo).join() === t.filas.map(f => f.codigo).join());
+        ok('sin id ni oferta ni coste por lote', !('id' in la) && !('oferta' in la) && !('coste' in la));
+    } else console.log('  · vistaParaElSo no se ha podido cargar (sin .env): se salta');
 }
 
 console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ Todo bien');

@@ -38,7 +38,7 @@ async function getObligacion(soId) {
 async function saveObligacion(soId, body, quien = null) {
     const { normalizarObligacion } = await logica();
     const limpio = normalizarObligacion(body || {});
-    const value = { anios: limpio.anios, asignacion: limpio.asignacion, actualizada_at: new Date().toISOString(), actualizada_por: quien };
+    const value = { anios: limpio.anios, asignacion: limpio.asignacion, liquidacion: limpio.liquidacion, actualizada_at: new Date().toISOString(), actualizada_por: quien };
     const { error: e } = await supabase.from('app_settings').upsert(
         { key: settingsKey(soId), value: JSON.stringify(value), updated_at: new Date().toISOString() },
         { onConflict: 'key' });
@@ -175,6 +175,11 @@ function vistaParaElSo(vista, so = null) {
                 nExpedientes: l.nExpedientes, requerimiento: l.requerimiento,
                 // Dónde está en SU cuenta del Registro (19/11/2026): es suyo, del MITECO.
                 registro: l.registro || null,
+                // La TABLA (20/11/2026): dónde está en una palabra, su nº del MITECO, las
+                // fechas y si ha pedido la liquidación (sin quién la marcó: es nuestro).
+                situacion: l.situacion || null, registroMiteco: l.registroMiteco || null,
+                fechaPresentacion: l.fechaPresentacion || null, fechaResolucion: l.fechaResolucion || null,
+                liquidacion: l.liquidacion ? { estado: l.liquidacion.estado, fecha: l.liquidacion.fecha } : null,
             })),
         })),
         // Su cuenta del Registro Nacional de CAE, del certificado del MITECO: son SUS datos

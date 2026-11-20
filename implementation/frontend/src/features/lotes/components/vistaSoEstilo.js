@@ -33,6 +33,14 @@ export const fechaEs = (iso) => {
     return m ? `${m[3]}/${m[2]}/${m[1]}` : '—';
 };
 export const COLOR_REGISTRO = { PTE: '#7b9a1c', PRESENTADO: '#b1d13e', CUENTA: '#466510', LIQUIDADO: '#141111' };
+// La situación de cada lote en la TABLA (`SITUACIONES`, 20/11/2026): el mismo tono
+// ordinal que las etapas; lo que le toca al S.O. (liquidar) en naranja; lo que no
+// cuadra en ámbar; lo liquidado, en tinta.
+export const COLOR_SITUACION = {
+    PREPARACION: '#dce8a4', VERIFICADOR: '#b1d13e', REQ_VERIFICADOR: '#b1d13e',
+    POR_PRESENTAR: '#7b9a1c', PTE_RESOLUCION: '#7b9a1c', REQ_GESTOR: '#7b9a1c',
+    PTE_LIQUIDAR: '#466510', NO_CONSTA: '#e0a030', LIQ_SOLICITADA: '#ffa000', LIQUIDADO: '#141111',
+};
 
 export const chipEstado = (l) => (l.requerimiento ? 'fx-chip-ambar'
     : l.etapa === 'EMITIDO' ? 'fx-chip-ok'
@@ -168,6 +176,53 @@ export const CSS_SO = `
 .so-tramos tr.so-nuestro td{background:#f7faef}
 .so-tramos td.so-de{color:var(--gris)}
 .so-tramos tr.so-nuestro td.so-de{color:#3c5409;font-weight:700}
+
+/* La TABLA de lotes: dónde está cada uno, a golpe de vista (20/11/2026) */
+.so-vista-seg{flex:none}
+.so-res{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.so-res button{appearance:none;font:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:6px 12px;border-radius:99px;background:#fff;border:1px solid var(--linea);font-size:12.5px;color:var(--gris);transition:border-color .15s,box-shadow .15s}
+.so-res button:hover{border-color:rgba(20,17,17,.25)}
+.so-res button[aria-pressed="true"]{border-color:var(--tinta);box-shadow:0 0 0 2px rgba(20,17,17,.08);color:var(--tinta)}
+.so-res button b{color:var(--tinta);font-variant-numeric:tabular-nums}
+.so-sit{display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:12.5px;color:var(--tinta);white-space:nowrap}
+.so-sit i{flex:none;width:10px;height:10px;border-radius:99px;background:var(--c);box-shadow:inset 0 0 0 1px rgba(20,17,17,.12)}
+.so-tabla-card{padding:0;overflow:hidden}
+/* .fx-tabla-caja se esconde en el móvil (allí Facturación pinta tarjetas): esta se desliza */
+.so-tabla-caja{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.so-tabla td{vertical-align:middle;font-variant-numeric:tabular-nums}
+.so-tabla td,.so-tabla th{white-space:nowrap}
+.so-tabla td.so-num,.so-tabla th.so-num{text-align:right}
+/* la situación y la línea de debajo del lote pasan a dos renglones antes que ensanchar la tabla */
+.so-tabla td:first-child{min-width:196px;max-width:240px;white-space:normal}
+.so-tabla td:first-child .so-sit{white-space:normal;align-items:flex-start;line-height:1.3}
+.so-tabla td:first-child .so-sit i{margin-top:3px}
+.so-tabla td.so-cod{min-width:140px;white-space:normal}
+.so-res-kwh{white-space:nowrap}
+/* en el móvil caben situación, lote y MWh sin deslizar; lo demás, deslizando */
+@container fx (max-width:639px){
+  .so-tabla th,.so-tabla td{padding-left:8px!important;padding-right:8px!important}
+  .so-tabla th:first-child,.so-tabla td:first-child{padding-left:14px!important}
+  .so-tabla td:first-child{min-width:112px;max-width:130px}
+  .so-tabla td:first-child .so-sit{font-size:12px}
+  .so-tabla td.so-cod{min-width:118px;width:118px;font-size:11.5px}
+  .so-tabla td.so-cod small{max-width:118px}
+}
+.so-res button{display:inline-block;max-width:100%;text-align:left;line-height:1.4}
+.so-res button > *{margin-right:6px}
+.so-res button .so-sit{vertical-align:-1px}
+@container fx (max-width:639px){.so-tabla tfoot td{white-space:normal}}
+.so-tabla td.so-cod{font:600 12.5px/1.2 var(--mono)}
+.so-tabla td.so-cod small,.so-tabla td small{display:block;margin-top:3px;font:500 11.5px/1.2 var(--texto);color:var(--gris2)}
+.so-tabla td.so-mono{font:600 12px/1.25 var(--mono)}
+.so-tabla td.so-mono small{font-family:var(--mono)}
+.so-tabla tr.so-clic{cursor:pointer}
+.so-tabla tr.so-clic:hover td{background:#fcfbf8}
+.so-tabla tr.so-liq td{background:#fff8ea}
+.so-tabla tr.so-liq-ok td{color:var(--gris)}
+.so-tabla tfoot td{font-weight:800;border-top:2px solid var(--linea)}
+.so-tabla .so-liq-sel{width:auto;min-height:32px;padding:0 28px 0 10px;border-radius:10px;font-size:12.5px;font-weight:600;background-position:right 9px center;background-size:12px}
+@media (pointer:coarse){.so-tabla .so-liq-sel{min-height:44px}}
+.so-tabla-pie{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px 14px;margin-top:10px;font-size:12px;color:var(--gris2)}
 `;
 
 // Un logo pensado para fondo OSCURO (texto blanco sobre transparente, como el de

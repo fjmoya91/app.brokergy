@@ -76,9 +76,11 @@ export function normalizarAnio(a = {}) {
     };
 }
 
+export const ESTADOS_LIQUIDACION = ['SOLICITADA', 'LIQUIDADA'];
+
 /**
  * Limpia la configuración entera de un S.O.: `{ anios: { '2026': {...} },
- * asignacion: { loteId: '2025' | 'NO' } }`. `asignacion` solo guarda las
+ * asignacion: { loteId: '2025' | 'NO' }, liquidacion: { loteId: { estado, fecha } } }`. `asignacion` solo guarda las
  * EXCEPCIONES: un lote sin entrada cuenta para el año que dice `anioDelLote`.
  */
 export function normalizarObligacion(raw = {}) {
@@ -93,8 +95,16 @@ export function normalizarObligacion(raw = {}) {
         const s = String(v ?? '').trim().toUpperCase();
         if (s === 'NO' || /^\d{4}$/.test(s)) asignacion[id] = s;
     }
+    // La LIQUIDACIÓN de cada lote emitido (20/11/2026): la pide el S.O. al MITECO y
+    // nos lo dice él; el certificado solo lo cuenta en agregado. Solo las marcadas.
+    const liquidacion = {};
+    for (const [id, v] of Object.entries(raw?.liquidacion || {})) {
+        const estado = String(v?.estado || '').trim().toUpperCase();
+        if (!ESTADOS_LIQUIDACION.includes(estado)) continue;
+        liquidacion[id] = { estado, fecha: fechaIso(v.fecha), por: (v.por || '').toString().trim() || null };
+    }
     return {
-        anios, asignacion,
+        anios, asignacion, liquidacion,
         actualizada_at: raw?.actualizada_at || null,
         actualizada_por: raw?.actualizada_por || null,
     };
@@ -203,6 +213,9 @@ export function computeVistaSo({ lotes = [], soId, anio, config, disponible = nu
             fechaResolucion: fechaIso(caeLeido?.fecha_resolucion),
             resolucionSubidaAt: (l?.documentos_so || []).find(d => d?.key === 'certificado_cae')?.uploaded_at || null,
             registroMiteco: l.registro_miteco || null,
+            // El día que se subió el justificante del MITECO: el de la presentación.
+            fechaPresentacion: fechaIso((l?.documentos_so || []).find(d => d?.key === 'justificante_miteco')?.uploaded_at),
+            liquidacion: cfg.liquidacion[l.id] || null,
             id: l.id, codigo: l.codigo, estado: l.estado, etapa: etapaDelLote(l),
             kwh, fuente, anio: cuentaPara, anioAuto: auto, manual,
             nExpedientes: l.num_expedientes ?? (l.expedientes_eco || l.expedientes || []).length,
@@ -274,7 +287,70 @@ export function computeVistaSo({ lotes = [], soId, anio, config, disponible = nu
         ? cruzarRegistro(registro, [...Object.values(etapas).flatMap(e => e.lotes), ...fuera], Number(anio), cuenta)
         : null;
 
+    // Dónde está cada lote en UNA palabra, para la tabla (después del cruce: lo usa).
+    for (const f of [...Object.values(etapas).flatMap(e => e.lotes), ...fuera]) f.situacion = situacionDelLote(f);
+
     return { anio: Number(anio), obligacion: cuenta, etapas: ETAPAS_SO.map(e => etapas[e.id]), brokergyGwh, fuera, oferta, registro: registroCae };
+}
+
+// ─── La TABLA: dónde está cada lote, a golpe de vista (20/11/2026) ──────────────
+// Fran: «un botón para verlo en modo tabla, tipo el Excel que tienen con el estado
+// de los expedientes: emitidos pendientes de liquidar, cuando se solicite la
+// liquidación que aparezca así, los que están en verificador, pendientes de ser
+// resueltos…». Una situación por lote, en el orden del camino: del papeleo al
+// liquidado. La de un lote emitido la dice, por este orden, la liquidación que nos
+// ha dicho el S.O. y luego su cuenta del Registro.
+export const SITUACIONES = [
+    { id: 'PREPARACION', txt: 'En preparación', ayuda: 'Firmas y oferta del verificador', tono: 'amber' },
+    { id: 'VERIFICADOR', txt: 'En el verificador', ayuda: 'Verificándose', tono: 'blue' },
+    { id: 'REQ_VERIFICADOR', txt: 'En el verificador · requerimiento', ayuda: 'Contestando las inexactitudes del verificador', tono: 'blue' },
+    { id: 'POR_PRESENTAR', txt: 'Verificado · por presentar al MITECO', ayuda: 'Dictamen favorable: falta presentar la solicitud de emisión', tono: 'cyan' },
+    { id: 'PTE_RESOLUCION', txt: 'En el MITECO · pendiente de resolución', ayuda: 'Solicitud de emisión presentada, sin resolver', tono: 'cyan' },
+    { id: 'REQ_GESTOR', txt: 'En el MITECO · requerimiento del Gestor', ayuda: 'Contestando un requerimiento del Gestor Autonómico', tono: 'cyan' },
+    { id: 'PTE_LIQUIDAR', txt: 'Emitido · pendiente de liquidar', ayuda: 'En su cuenta del Registro: cuenta para la obligación cuando lo liquide', tono: 'emerald' },
+    { id: 'NO_CONSTA', txt: 'Emitido · no figura en su cuenta', ayuda: 'Lo damos por emitido y no está entre lo inscrito sin liquidar: ¿ya liquidado?', tono: 'ambar' },
+    { id: 'LIQ_SOLICITADA', txt: 'Liquidación solicitada', ayuda: 'El S.O. ha pedido al MITECO liquidarlo', tono: 'lima' },
+    { id: 'LIQUIDADO', txt: 'Liquidado', ayuda: 'Ya cuenta para su obligación', tono: 'verde' },
+];
+const ORDEN_SITUACION = Object.fromEntries(SITUACIONES.map((s, i) => [s.id, i]));
+
+/** La situación de UNA fila de `computeVistaSo` (con `registro` ya cruzado, si lo hay). */
+export function situacionDelLote(f) {
+    const e = f?.estado || '';
+    if (f?.etapa === 'EMITIDO') {
+        if (f.liquidacion?.estado === 'LIQUIDADA') return 'LIQUIDADO';
+        if (f.liquidacion?.estado === 'SOLICITADA') return 'LIQ_SOLICITADA';
+        return f.registro?.situacion === 'NO_CONSTA' ? 'NO_CONSTA' : 'PTE_LIQUIDAR';
+    }
+    if (f?.etapa === 'MINISTERIO') {
+        if (e === 'REQUERIMIENTO G.A.') return 'REQ_GESTOR';
+        // Con nº de registro (o ya subido) está presentado; si no, por presentar.
+        return f.registroMiteco || e === 'SUBIDO A MITECO' || ['PTE_RESOLUCION', 'PRESENTADO'].includes(f.registro?.situacion)
+            ? 'PTE_RESOLUCION' : 'POR_PRESENTAR';
+    }
+    if (f?.etapa === 'VERIFICACION') {
+        if (e === 'VERIFICADO') return 'POR_PRESENTAR';
+        return e === 'REQUERIMIENTO VERIFICADOR' ? 'REQ_VERIFICADOR' : 'VERIFICADOR';
+    }
+    return 'PREPARACION';
+}
+
+/**
+ * Las filas de la tabla, en el orden del camino (lo más atrás primero, como se
+ * explica), y el resumen por situación con su nº de lotes y kWh. `lotes` son los de
+ * las etapas (internos o los de `vistaParaElSo`); un lote vacío no entra.
+ */
+export function tablaDelSo(etapas = []) {
+    const filas = etapas.flatMap(e => e.lotes || [])
+        .filter(l => l && (l.nExpedientes == null || l.nExpedientes > 0))
+        .map(l => ({ ...l, situacion: l.situacion || situacionDelLote(l) }))
+        .sort((a, b) => (ORDEN_SITUACION[a.situacion] ?? 99) - (ORDEN_SITUACION[b.situacion] ?? 99)
+            || String(a.codigo).localeCompare(String(b.codigo), 'es'));
+    const resumen = SITUACIONES.map(s => {
+        const xs = filas.filter(f => f.situacion === s.id);
+        return { ...s, n: xs.length, kwh: xs.reduce((a, f) => a + (Number(f.kwh) || 0), 0) };
+    }).filter(s => s.n > 0);
+    return { filas, resumen, totalKwh: filas.reduce((a, f) => a + (Number(f.kwh) || 0), 0) };
 }
 
 // ─── El REGISTRO NACIONAL DE CAE: lo que de verdad tiene en su cuenta ───────────
@@ -455,7 +531,8 @@ export function cruzarRegistro(raw, filas = [], anio, cuenta = null) {
         // Solo los que cuentan para el año que se mira: uno de otro año que no está
         // en su cuenta lo normal es que ya lo liquidara.
         presentados: filas.filter(f => f.anio === Number(anio) && f.registro?.situacion === 'PRESENTADO').map(f => ({ codigo: f.codigo, kwh: f.kwh })),
-        noConstan: filas.filter(f => f.anio === Number(anio) && f.registro?.situacion === 'NO_CONSTA').map(f => ({ codigo: f.codigo, kwh: f.kwh })),
+        // Uno que nos ha dicho que LIQUIDÓ no está en su cuenta porque ya no tiene que estar.
+        noConstan: filas.filter(f => f.anio === Number(anio) && f.registro?.situacion === 'NO_CONSTA' && f.liquidacion?.estado !== 'LIQUIDADA').map(f => ({ codigo: f.codigo, kwh: f.kwh })),
     };
 }
 

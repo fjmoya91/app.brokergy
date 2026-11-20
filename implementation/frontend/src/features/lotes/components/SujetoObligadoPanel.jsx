@@ -5,11 +5,12 @@ import {
 } from '../../facturacion/estilo';
 import {
     computeVistaSo, aniosElegibles, normalizarObligacion, planParaCubrir, PCT_FONDO_DEFECTO,
+    SITUACIONES, tablaDelSo,
 } from '../logic/obligacionSo';
 import { EQUIVALENCIA_FINANCIERA } from '../logic/loteEco';
 import {
     num, gwh, mwh, pct, presName, COLOR, COLOR_OFERTA, FUENTE, chipEstado, CSS_SO, logoEsClaro,
-    SITUACION_REGISTRO, COLOR_REGISTRO, fechaEs,
+    SITUACION_REGISTRO, COLOR_REGISTRO, COLOR_SITUACION, fechaEs,
 } from './vistaSoEstilo';
 
 /** El chip de dónde está el lote en la cuenta del S.O. (null si no hay certificado). */
@@ -227,18 +228,181 @@ export function ResumenObligacion({ ob, anio, etapas, editar = null, sinObligaci
     );
 }
 
-/** Los lotes por etapa vista desde el S.O.; `filaLote` pinta cada lote y `children` va al final. */
-export function EtapasLotes({ etapas, brokergyGwh, anio, filaLote, children = null }) {
+// ─── La TABLA de lotes: dónde está cada uno, a golpe de vista (20/11/2026) ──────
+// Fran: «un botón para verlo en modo tabla, tipo el Excel que tienen con el estado de
+// los expedientes… que a golpe de vista sea fácil, para explicar y revisar». Una fila
+// por lote, en el orden del camino (lo más atrás primero), con su situación, la
+// solicitud de emisión (E_CAE y REGAGE), la fecha que toca, el vencimiento y la
+// liquidación. Arriba, el resumen por situación (pulsar filtra). La situación sale de
+// `situacionDelLote` (logic/obligacionSo.js); la comparten la Vista S.O. y la página
+// del propio S.O. `onLiquidar(fila, estado)` solo lo pasa el ADMIN.
+const SIT = Object.fromEntries(SITUACIONES.map(s => [s.id, s]));
+const txtLiquidacion = (f) => {
+    if (f.etapa !== 'EMITIDO') return '—';
+    const q = f.liquidacion;
+    if (!q) return 'Por solicitar';
+    return `${q.estado === 'LIQUIDADA' ? 'Liquidada' : 'Solicitada'}${q.fecha ? ` el ${fechaEs(q.fecha)}` : ''}`;
+};
+const fechaDeFila = (f) => (f.etapa === 'EMITIDO' && f.fechaResolucion ? { f: f.fechaResolucion, que: 'resolución' }
+    : f.etapa === 'MINISTERIO' && f.fechaPresentacion ? { f: f.fechaPresentacion, que: 'presentación' } : null);
+
+/** La tabla como HTML (para pegar en un correo) y como texto con tabuladores. */
+function tablaParaCopiar(filas, conLiq) {
+    const cab = ['Situación', 'Lote', 'Actuaciones', 'MWh', 'Expediente MITECO', 'Nº registro (REGAGE)', 'Fecha', 'Vence', ...(conLiq ? ['Liquidación'] : [])];
+    const datos = filas.map(f => {
+        const fe = fechaDeFila(f);
+        return [
+            SIT[f.situacion]?.txt || '', f.codigo, String(f.nExpedientes ?? ''), Math.round((f.kwh || 0) / 1000).toLocaleString('es-ES'),
+            f.registro?.expediente || '', f.registroMiteco || '', fe ? `${fechaEs(fe.f)} (${fe.que})` : '',
+            f.registro?.vence ? fechaEs(f.registro.vence) : '', ...(conLiq ? [txtLiquidacion(f)] : []),
+        ];
+    });
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const td = 'border:1px solid #d9d4cc;padding:5px 8px;font:13px Arial,sans-serif;white-space:nowrap';
+    const html = `<table style="border-collapse:collapse"><thead><tr>${cab.map(c => `<th style="${td};background:#f1eee8;text-align:left">${esc(c)}</th>`).join('')}</tr></thead><tbody>${
+        datos.map(r => `<tr>${r.map((c, i) => `<td style="${td}${i === 3 ? ';text-align:right' : ''}">${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    const texto = [cab, ...datos].map(r => r.join('\t')).join('\n');
+    return { html, texto };
+}
+
+export function TablaLotesSo({ etapas, nombre, onLiquidar = null, onAbrirLote = null }) {
+    const [filtro, setFiltro] = useState(null);
+    const [copiado, setCopiado] = useState(false);
+    const t = useMemo(() => tablaDelSo(etapas), [etapas]);
+    const filas = filtro ? t.filas.filter(f => f.situacion === filtro) : t.filas;
+    const conLiq = t.filas.some(f => f.etapa === 'EMITIDO');
+    // Con formato (para pegarla en un correo) y en texto (para una hoja de cálculo). Sin
+    // permiso de portapapeles (un navegador embebido), se copia la tabla seleccionándola.
+    const copiar = async () => {
+        const { html, texto } = tablaParaCopiar(filas, conLiq);
+        const conSeleccion = () => {
+            const caja = document.createElement('div');
+            caja.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+            caja.innerHTML = html;
+            document.body.appendChild(caja);
+            const sel = window.getSelection(); const r = document.createRange();
+            r.selectNodeContents(caja); sel.removeAllRanges(); sel.addRange(r);
+            const ok = document.execCommand('copy');
+            sel.removeAllRanges(); caja.remove();
+            return ok;
+        };
+        let ok = false;
+        try {
+            if (window.ClipboardItem && navigator.clipboard?.write) {
+                await navigator.clipboard.write([new window.ClipboardItem({
+                    'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([texto], { type: 'text/plain' }),
+                })]);
+            } else await navigator.clipboard.writeText(texto);
+            ok = true;
+        } catch { try { ok = conSeleccion(); } catch { ok = false; } }
+        setCopiado(ok ? 'si' : 'no');
+        setTimeout(() => setCopiado(false), 3000);
+    };
+
+    return (
+        <>
+            <div className="so-res" role="group" aria-label="Filtrar por situación">
+                <button type="button" aria-pressed={!filtro} onClick={() => setFiltro(null)}>Todos <b>{t.filas.length}</b></button>
+                {t.resumen.map(s => (
+                    <button key={s.id} type="button" aria-pressed={filtro === s.id} title={s.ayuda}
+                        onClick={() => setFiltro(v => (v === s.id ? null : s.id))}>
+                        <span className="so-sit" style={{ '--c': COLOR_SITUACION[s.id] }}><i />{s.txt}</span>
+                        <b>{s.n}</b><span className="so-res-kwh">· {mwh(s.kwh)}</span>
+                    </button>
+                ))}
+            </div>
+            <div className="fx-card so-tabla-card fx-in" style={{ '--i': 5 }}>
+                <div className="so-tabla-caja">
+                    <table className="fx-tabla so-tabla">
+                        <thead>
+                            <tr>
+                                <th>Situación</th><th>Lote</th><th className="so-num">MWh</th>
+                                <th>Expediente MITECO</th><th>Fecha</th><th>Vence</th>
+                                {conLiq && <th>Liquidación</th>}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filas.map(f => {
+                                const s = SIT[f.situacion];
+                                const fe = fechaDeFila(f);
+                                const clic = onAbrirLote && f.id;
+                                return (
+                                    <tr key={f.id || f.codigo} title={f.estado}
+                                        className={`${clic ? 'so-clic' : ''} ${f.situacion === 'LIQ_SOLICITADA' ? 'so-liq' : ''} ${f.situacion === 'LIQUIDADO' ? 'so-liq-ok' : ''}`}
+                                        onClick={clic ? () => onAbrirLote(f.id) : undefined}>
+                                        <td><span className="so-sit" style={{ '--c': COLOR_SITUACION[f.situacion] }} title={s?.ayuda}><i />{s?.txt}</span></td>
+                                        <td className="so-cod">{f.codigo}<small>{f.nExpedientes} actuaci{f.nExpedientes === 1 ? 'ón' : 'ones'} · {FUENTE[f.fuente] || f.fuente}</small></td>
+                                        <td className="so-num"><b>{Math.round((f.kwh || 0) / 1000).toLocaleString('es-ES')}</b></td>
+                                        <td className="so-mono">{f.registro?.expediente || (f.registroMiteco ? '' : '—')}
+                                            {f.registroMiteco && <small>{f.registroMiteco}</small>}</td>
+                                        <td>{fe ? <>{fechaEs(fe.f)}<small>{fe.que}</small></> : '—'}</td>
+                                        <td>{f.registro?.vence ? fechaEs(f.registro.vence) : '—'}</td>
+                                        {conLiq && (
+                                            <td onClick={e => onLiquidar && e.stopPropagation()}>
+                                                {f.etapa !== 'EMITIDO' ? '—' : onLiquidar ? (
+                                                    <select className="fx-select so-liq-sel" value={f.liquidacion?.estado || ''}
+                                                        aria-label={`Liquidación de ${f.codigo}`} onChange={e => onLiquidar(f, e.target.value)}>
+                                                        <option value="">Por solicitar</option>
+                                                        <option value="SOLICITADA">Solicitada{f.liquidacion?.estado === 'SOLICITADA' && f.liquidacion.fecha ? ` (${fechaEs(f.liquidacion.fecha)})` : ''}</option>
+                                                        <option value="LIQUIDADA">Liquidada{f.liquidacion?.estado === 'LIQUIDADA' && f.liquidacion.fecha ? ` (${fechaEs(f.liquidacion.fecha)})` : ''}</option>
+                                                    </select>
+                                                ) : txtLiquidacion(f)}
+                                            </td>
+                                        )}
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td>{filtro ? SIT[filtro]?.txt : 'Total'}</td>
+                                <td>{filas.length} lote{filas.length === 1 ? '' : 's'} · {filas.reduce((a, f) => a + (Number(f.nExpedientes) || 0), 0)} actuaciones</td>
+                                <td className="so-num">{Math.round(filas.reduce((a, f) => a + (Number(f.kwh) || 0), 0) / 1000).toLocaleString('es-ES')}</td>
+                                <td colSpan={conLiq ? 4 : 3} />
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+            <div className="so-tabla-pie">
+                <span>Un CAE es 1 kWh. La liquidación la solicita {nombre} al MITECO: hasta entonces no cuenta para su obligación.</span>
+                <button type="button" className="fx-btn fx-btn-sec fx-btn-peq" onClick={copiar}>
+                    <Ico n={copiado === 'si' ? 'check' : 'tabla'} size={16} />
+                    {copiado === 'si' ? 'Copiada: pégala en el correo' : copiado === 'no' ? 'No se ha podido copiar' : 'Copiar la tabla'}
+                </button>
+            </div>
+        </>
+    );
+}
+
+const leerModo = () => { try { return sessionStorage.getItem('vistaSo.modo') === 'TABLA' ? 'TABLA' : 'ETAPAS'; } catch { return 'ETAPAS'; } };
+
+/**
+ * Los lotes por etapa vista desde el S.O.; `filaLote` pinta cada lote y `children` va al
+ * final. Con `tabla` (la `TablaLotesSo` ya montada), un conmutador «Por etapas / En tabla».
+ */
+export function EtapasLotes({ etapas, brokergyGwh, anio, filaLote, tabla = null, children = null }) {
+    const [modo, setModo] = useState(leerModo);
+    const cambiar = (m) => { setModo(m); try { sessionStorage.setItem('vistaSo.modo', m); } catch { /* sin almacenamiento: no se recuerda */ } };
+    const enTabla = tabla && modo === 'TABLA';
     return (
         <section className="so-seccion">
             <div className="so-seccion-cab">
                 <div>
                     <div className="fx-eyebrow">Lo que le llevamos para {anio}</div>
                     <h2 className="fx-display fx-h2">{gwh(brokergyGwh)} en {etapas.reduce((s, e) => s + e.lotes.length, 0)} lotes</h2>
-                    <p>Cada lote con su cifra más firme: CAE de la resolución → nuestra factura → verificado → estimado.</p>
+                    <p>{enTabla
+                        ? 'Cada lote con dónde está hoy: del verificador al MITECO, a su cuenta y a liquidado.'
+                        : 'Cada lote con su cifra más firme: CAE de la resolución → nuestra factura → verificado → estimado.'}</p>
                 </div>
+                {tabla && (
+                    <div className="fx-seg so-vista-seg" role="group" aria-label="Cómo ver los lotes">
+                        <button type="button" aria-pressed={!enTabla} onClick={() => cambiar('ETAPAS')}><Ico n="lista" size={16} />Por etapas</button>
+                        <button type="button" aria-pressed={!!enTabla} onClick={() => cambiar('TABLA')}><Ico n="tabla" size={16} />En tabla</button>
+                    </div>
+                )}
             </div>
-            <div className="so-etapas">
+            {enTabla ? tabla : <div className="so-etapas">
                 {etapas.map((e, i) => {
                     const nReq = e.lotes.filter(l => l.requerimiento).length;
                     return (
@@ -258,7 +422,7 @@ export function EtapasLotes({ etapas, brokergyGwh, anio, filaLote, children = nu
                         </div>
                     );
                 })}
-            </div>
+            </div>}
             {children}
         </section>
     );
@@ -636,6 +800,16 @@ export function SujetoObligadoPanel({
         if (valor === 'AUTO') delete asignacion[loteId]; else asignacion[loteId] = valor;
         if (await guardar({ ...config, asignacion })) avisar(valor === 'NO' ? 'El lote ya no cuenta' : 'Año del lote cambiado');
     };
+    // La liquidación de un lote emitido, que nos dice el S.O. (20/11/2026): con la fecha de hoy.
+    const liquidar = async (fila, estado) => {
+        const liquidacion = { ...(config?.liquidacion || {}) };
+        if (!estado) delete liquidacion[fila.id];
+        else liquidacion[fila.id] = { estado, fecha: new Date().toISOString().slice(0, 10) };
+        if (await guardar({ ...config, liquidacion })) {
+            avisar(!estado ? `${fila.codigo}: pendiente de solicitar la liquidación`
+                : `${fila.codigo}: liquidación ${estado === 'LIQUIDADA' ? 'hecha' : 'solicitada'}`);
+        }
+    };
 
     const ob = vista?.obligacion;
 
@@ -793,7 +967,9 @@ export function SujetoObligadoPanel({
 
                 {/* Lo nuestro con él, por etapas */}
                 {vista && (
-                    <EtapasLotes etapas={vista.etapas} brokergyGwh={vista.brokergyGwh} anio={anio} filaLote={filaLote}>
+                    <EtapasLotes etapas={vista.etapas} brokergyGwh={vista.brokergyGwh} anio={anio} filaLote={filaLote}
+                        tabla={<TablaLotesSo etapas={vista.etapas} nombre={presName(so)} onAbrirLote={onAbrirLote}
+                            onLiquidar={canEdit && config ? liquidar : null} />}>
                         {vista.fuera.length > 0 && (
                             <div className="so-fuera">
                                 <button type="button" className="fx-link" aria-expanded={verFuera} onClick={() => setVerFuera(v => !v)}>

@@ -218,3 +218,35 @@ certificado leído, E_CAE_2026_06161, los dos por la cifra). De otros agentes, 1
 los 10,582 GWh que dijo Jesús Almodóvar el 29/10. Las 4 solicitudes sin resolver son LOTE-2025-009,
 010, 011 y 012 (1,13 GWh); LOTE-2026-013 y 014 (presentados el 16/11) aún no figuraban. **Vencen el
 31/12/2026 1.804.037 CAE, ninguno nuestro** (Axoil 1.582.000 · E_CAE_2025_02729 · E_CAE_2026_00069).
+
+## La TABLA: dónde está cada lote, a golpe de vista, y su LIQUIDACIÓN (2026-11-20)
+
+Fran, 20/11/2026: «en el visor me gustaría algún botón para verlo en modo tabla, tipo el Excel que
+tienen con el estado de los expedientes: los que están emitidos pendientes de liquidar, cuando se
+solicite la liquidación que aparezca así, los que están en verificador, pendientes de ser resueltos…
+que a golpe de vista sea fácil, para explicar y revisar, y con eso se le contesta el email».
+
+En «Lo que le llevamos para {año}», un conmutador **Por etapas / En tabla** (`EtapasLotes` con
+`tabla`, el mismo en la Vista S.O. y en el enlace `/so/:token`; la elección se recuerda en la sesión
+del navegador). La tabla es `TablaLotesSo` de [SujetoObligadoPanel.jsx](implementation/frontend/src/features/lotes/components/SujetoObligadoPanel.jsx):
+una fila por lote con **situación · lote (actuaciones y de dónde sale la cifra) · MWh · expediente del
+MITECO (E_CAE) y nº de registro (REGAGE) · fecha (de la resolución, o de la presentación: el día que se
+subió el justificante) · vence · liquidación**, y el total. Arriba, el resumen por situación con su nº
+de lotes y MWh; pulsar uno filtra. **«Copiar la tabla»** la deja en el portapapeles con formato (para
+pegarla en un correo) y en texto con tabuladores (para una hoja de cálculo); sin permiso de
+portapapeles se copia seleccionándola.
+
+**REGLA — la situación de un lote es UNA, y sale de `situacionDelLote`** ([logic/obligacionSo.js](implementation/frontend/src/features/lotes/logic/obligacionSo.js)),
+en el orden del camino (`SITUACIONES`, que es también el orden de las filas: lo más atrás primero):
+en preparación · en el verificador · en el verificador con requerimiento · verificado, por presentar
+(VERIFICADO y PTE. SUBIDA MITECO) · en el MITECO pendiente de resolución (con REGAGE, figure o no ya
+en el certificado) · requerimiento del Gestor · **emitido, pendiente de liquidar** · emitido que no
+figura en su cuenta · **liquidación solicitada** · **liquidado**. La calcula `computeVistaSo` después
+del cruce con el Registro y viaja al S.O. en su enlace: la tabla de los dos es la misma.
+
+**REGLA — la LIQUIDACIÓN la marca el ADMIN, porque nos la dice el S.O.**: el certificado solo trae lo
+liquidado en agregado y no dice qué tramo. Va en la obligación del S.O. (`obligacion_so:{id}`, clave
+`liquidacion: { loteId: { estado: SOLICITADA | LIQUIDADA, fecha } }`, junto a `asignacion`), se
+cambia con el desplegable de la columna «Liquidación» (con la fecha del día) y el S.O. la ve sin
+quién la marcó. Para un emitido manda sobre la cuenta del Registro: uno marcado LIQUIDADO que ya no
+figura en su cuenta no es un «no figura» (no se avisa). Las cuentas de la obligación NO cambian.

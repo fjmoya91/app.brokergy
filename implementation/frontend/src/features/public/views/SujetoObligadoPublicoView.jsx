@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { CSS as CSS_FX, Ico, AvisoFx } from '../../facturacion/estilo';
-import { ResumenObligacion, EtapasLotes, RegistroCae, ChipRegistro } from '../../lotes/components/SujetoObligadoPanel';
+import { ResumenObligacion, EtapasLotes, RegistroCae, ChipRegistro, TablaLotesSo } from '../../lotes/components/SujetoObligadoPanel';
 import { CSS_SO, chipEstado, logoEsClaro, gwh, mwh } from '../../lotes/components/vistaSoEstilo';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +106,8 @@ export function SujetoObligadoPublicoView({ token }) {
                 <ResumenObligacion ob={ob} anio={d.anio} etapas={d.etapas} registro={reg}
                     sinObligacion={<p className="so-vacio">Sin la obligación de {d.anio} todavía.</p>} />
                 <RegistroCae reg={reg} anio={d.anio} nombre={nombre} paraElSo />
-                <EtapasLotes etapas={d.etapas} brokergyGwh={d.brokergyGwh} anio={d.anio} filaLote={filaLote} />
+                <EtapasLotes etapas={d.etapas} brokergyGwh={d.brokergyGwh} anio={d.anio} filaLote={filaLote}
+                    tabla={<TablaLotesSo etapas={d.etapas} nombre={nombre} />} />
                 {d.carteraGwh > 0 && (
                     <section className="so-seccion">
                         <div className="fx-card fx-pad fx-in" style={{ '--i': 9 }}>
