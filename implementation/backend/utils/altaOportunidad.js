@@ -489,10 +489,25 @@ const capitaliza = s => String(s || '').toLowerCase().replace(/(^|[\s-])(\p{L})/
 
 // ─── Base de datos (lectura, salvo anotarAlta) ──────────────────────────────
 
+/**
+ * Las oportunidades que ya tiene esa vivienda. La RC puede llegar con 14 caracteres (la parcela:
+ * es lo que da el Catastro de una casa de un solo inmueble y lo que suele escribir el plan) o con
+ * 20 (el inmueble), y en la BD está guardada de cualquiera de las dos maneras. Con un igual exacto
+ * no se cruzaban: el 20/11/2026 «1546004WJ1114N» salía «sin oportunidades previas» con la
+ * 26RES093_OP2 guardada como «1546004WJ1114N0001LA», y el alta AUTOMÁTICA habría duplicado obras.
+ * Con 20: esa vivienda o una guardada solo con su parcela (no los demás pisos del bloque). Con 14:
+ * cualquier vivienda de la parcela (la lista sale con su RC para ver si es la misma).
+ */
 async function oportunidadesDeLaRc(supabase, rc) {
-    const { data } = await supabase.from('oportunidades')
-        .select('id, id_oportunidad, referencia_cliente, created_at, estado:datos_calculo->>estado')
-        .eq('ref_catastral', rc).order('created_at', { ascending: false }).limit(10);
+    const r = String(rc || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (r.length < 14) return [];
+    const parcela = r.slice(0, 14);
+    let q = supabase.from('oportunidades')
+        .select('id, id_oportunidad, ref_catastral, referencia_cliente, created_at, estado:datos_calculo->>estado');
+    q = r.length >= 20 ? q.in('ref_catastral', [r, parcela]) : q.like('ref_catastral', `${parcela}%`);
+    const { data, error } = await q.order('created_at', { ascending: false }).limit(10);
+    // Si no se puede mirar, no se puede decir que no hay: el alta PARA (mejor preguntar que duplicar).
+    if (error) throw new Error(`No he podido comprobar si la vivienda ya tiene oportunidad: ${error.message}`);
     return data || [];
 }
 

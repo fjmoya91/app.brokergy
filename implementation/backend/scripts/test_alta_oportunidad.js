@@ -330,5 +330,43 @@ const prueba = async (nombre, fn) => {
         assert.strictEqual(con.financials.caeBonus, sin.financials.caeBonus, 'las placas no mueven el bono CAE');
     });
 
+    console.log('\nLa vivienda que ya tiene oportunidad (RC de 14 o de 20, 20/11/2026)');
+    // Una BD de juguete con la forma de PostgREST: .in() y .like() sobre ref_catastral.
+    const bdRc = (filas) => ({
+        from: () => {
+            let f = filas;
+            const q = {
+                select: () => q,
+                in: (c, vals) => { f = f.filter(x => vals.includes(x[c])); return q; },
+                like: (c, pat) => { const p = pat.replace(/%$/, ''); f = f.filter(x => String(x[c]).startsWith(p)); return q; },
+                order: () => q,
+                limit: async () => ({ data: f, error: null }),
+            };
+            return q;
+        },
+    });
+    const filasRc = [
+        { id_oportunidad: '26RES093_OP2', ref_catastral: '1546004WJ1114N0001LA' },
+        { id_oportunidad: '26RES080_OP89', ref_catastral: '0940025WJ6604S0001PI' },
+        { id_oportunidad: 'PISO_1', ref_catastral: '8578501WJ9187H0047XT' },
+        { id_oportunidad: 'SOLO_PARCELA', ref_catastral: '7777777AB1234C' },
+    ];
+    const ids = (l) => l.map(o => o.id_oportunidad).sort().join(',');
+    await prueba('la RC de 14 de la parcela encuentra la oportunidad guardada con la de 20 (Ruidera, OP2)', async () => {
+        assert.strictEqual(ids(await alta.oportunidadesDeLaRc(bdRc(filasRc), '1546004WJ1114N')), '26RES093_OP2');
+        assert.strictEqual(ids(await alta.oportunidadesDeLaRc(bdRc(filasRc), '0940025WJ6604S')), '26RES080_OP89', 'Vara de Rey (RUIMOR)');
+    });
+    await prueba('la de 20 encuentra la suya y la guardada solo con la parcela, no la de otro piso del bloque', async () => {
+        assert.strictEqual(ids(await alta.oportunidadesDeLaRc(bdRc(filasRc), '1546004WJ1114N0001LA')), '26RES093_OP2');
+        assert.strictEqual(ids(await alta.oportunidadesDeLaRc(bdRc(filasRc), '7777777AB1234C0001XX')), 'SOLO_PARCELA');
+        assert.strictEqual(ids(await alta.oportunidadesDeLaRc(bdRc(filasRc), '8578501WJ9187H0048ZZ')), '', 'otro piso: no es la misma vivienda');
+        assert.strictEqual(ids(await alta.oportunidadesDeLaRc(bdRc(filasRc), ' 1546004wj1114n 0001la ')), '26RES093_OP2', 'minúsculas y espacios');
+    });
+    await prueba('sin RC no se busca, y un fallo de la BD PARA el alta (no dice «sin oportunidades»)', async () => {
+        assert.deepStrictEqual(await alta.oportunidadesDeLaRc(bdRc(filasRc), ''), []);
+        const rota = { from: () => { const q = { select: () => q, in: () => q, like: () => q, order: () => q, limit: async () => ({ data: null, error: { message: 'caída' } }) }; return q; } };
+        await assert.rejects(() => alta.oportunidadesDeLaRc(rota, '1546004WJ1114N'), /No he podido comprobar/);
+    });
+
     console.log(`\n${ok} pruebas correctas${process.exitCode ? ' — HAY FALLOS' : ''}`);
 })();

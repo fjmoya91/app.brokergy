@@ -261,7 +261,7 @@ async function catastro() {
     const prev = await alta.oportunidadesDeLaRc(supabase, d.rc);
     if (prev.length) {
         console.log('\n  ⚠ ESTA VIVIENDA YA TIENE OPORTUNIDAD:');
-        for (const o of prev) console.log(`    ${o.id_oportunidad} · ${o.estado || '?'} · ${o.referencia_cliente || ''} · ${new Date(o.created_at).toLocaleDateString('es-ES')}`);
+        for (const o of prev) console.log(`    ${o.id_oportunidad} · ${o.estado || '?'} · RC ${o.ref_catastral} · ${o.referencia_cliente || ''} · ${new Date(o.created_at).toLocaleDateString('es-ES')}`);
     } else console.log('\n  Sin oportunidades previas con esta referencia.');
     const dni = opt('dni');
     if (dni && dni !== true) {
@@ -791,7 +791,7 @@ async function crear() {
     // cambio (otro presupuesto) de una simulación ya hecha, no un alta. Solo se
     // sigue si el plan lo dice a sabiendas (otro titular, la anterior rechazada).
     if (previas.length) {
-        const lista = previas.map(o => `${o.id_oportunidad} (${o.estado || '?'})`).join(' · ');
+        const lista = previas.map(o => `${o.id_oportunidad} (${o.estado || '?'}, RC ${o.ref_catastral})`).join(' · ');
         if (!plan.permitir_duplicado) {
             console.log(`
 ✗ ESTA VIVIENDA YA TIENE OPORTUNIDAD: ${lista}.`);

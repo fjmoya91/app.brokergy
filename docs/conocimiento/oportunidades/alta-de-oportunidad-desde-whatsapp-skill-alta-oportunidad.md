@@ -80,6 +80,17 @@ nº de serie dudoso no. En Junkers/Bosch «FD 583 …» es la fecha de fabricaci
 **REGLA — una vivienda que ya tiene oportunidad PARA la skill y se pregunta**: puede ser un cambio de
 presupuesto de una simulación ya hecha, no un alta. La skill solo da de alta.
 
+**REGLA — la vivienda se busca por su PARCELA, no por un igual exacto de la RC** (2026-11-20).
+La RC llega con 14 caracteres (la parcela: lo que devuelve el Catastro de una casa de un solo inmueble y
+lo que suele llevar el plan) o con 20, y en `oportunidades.ref_catastral` está de las dos maneras. Con el
+`eq` de antes no se cruzaban: con el alta ya AUTOMÁTICA (la lanza el contestador, regla 207),
+`1546004WJ1114N` salía «sin oportunidades previas» con la 26RES093_OP2 guardada como
+`1546004WJ1114N0001LA`, y la RC de RUIMOR (`0940025WJ6604S`) no veía la 26RES080_OP89. Ahora
+`oportunidadesDeLaRc` ([utils/altaOportunidad.js](implementation/backend/utils/altaOportunidad.js)):
+con 20, esa vivienda o una guardada solo con su parcela (los otros pisos del bloque NO paran); con 14,
+cualquier vivienda de la parcela, y la lista sale con la RC de cada una para ver si es la misma. Si la BD
+no contesta, el alta PARA: no se puede decir «sin oportunidades» sin haber mirado.
+
 **REGLA — el CEE que aporta el cliente entra para la COMPARATIVA, no para el cálculo** (2026-10-01).
 Se carga el MÁS RECIENTE (`cee` del plan, PDF leído con el OCR de «Nueva simulación») con
 `ceeParaComparativa` ([ceeSeed.js](implementation/frontend/src/features/calculator/logic/ceeSeed.js)):
