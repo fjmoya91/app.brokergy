@@ -117,6 +117,45 @@ infla el ahorro de un piso con el del edificio entero. Las dos cosas acaban firm
   hay que comprobarlo antes de prometerlo: una propuesta que anuncia 9.000 € por vivienda
   sin decir de qué dependen se lee como un derecho adquirido.
 
+### El CEE del EDIFICIO, el alta por script y la vía FM (2026-11-20, 26RES060_OP438)
+
+Encargo de Fran: «hacer el CEE de toda la comunidad para calcular con el FM y su
+correspondiente multiplicador». Es la comunidad de C/ Ntra. Sra. de los Buenos Libros 1
+(Murcia, RC de la parcela 4270003XH6046N), traída por SIETE HERMANOS: 14 viviendas en 7
+plantas, con caldera centralizada de gasóleo y radiadores. Para hacerlo faltaban cuatro
+piezas:
+
+| Pieza | Dónde |
+|---|---|
+| El MOTOR mide el edificio entero desde la RC de 14: cada inmueble de `lrcdnp` pasa a ser una construcción con su código `escalera/planta/puerta` | `consulta_dnprc` → `_unidades_de_parcela` / `_resumir_parcela` en [alphanumeric.py](implementation/cee-engine/src/catastro/alphanumeric.py); prueba `tests/test_edificio_completo.py` |
+| Las cabeceras de los avisos tienen un TOPE: con 203 paredes (un aviso por pared) la cabecera `X-Cee-Avisos` pasaba de los 16 KB que admite undici, y Node cortaba la respuesta del `/cex` (`UND_ERR_HEADERS_OVERFLOW`) | `_cabecera_json` en [server.py](implementation/cee-engine/server.py), que agrupa los repetidos («(xN)»), corta a 8.000 B, dice cuántos no caben y sirve también para `X-Cee-Contraste`; prueba `tests/test_cabecera_avisos.py` |
+| La FICHA CE3X propone el bloque: «Bloque de Viviendas», `unidades_uso` = nº de viviendas, y ACS = 140 l/día × n × el factor de centralización del CTE HE Anejo F (14 viviendas → 0,90 → 1.764 l/día). Lo que haya puesto el certificador manda | `propuestaDeBloque` / `factorCentralizacionAcs` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) y `viviendasBloque` en `datosCe3x31` |
+| El ALTA por script admite un bloque: con `"bloque": true` en el plan y la RC de 14 | `parcelaComoBloque` en [altaOportunidad.js](implementation/backend/utils/altaOportunidad.js) y `crear` en `scripts/alta_oportunidad.js`: `tipoInmueble 'bloque'`, `numViviendas`, `numOwners`, `demandMode 'manual'`, `acsMethod 'xml'` y un aviso de que la cifra es ORIENTATIVA hasta tener el CEE |
+| El XML del CEE del edificio exige la RC de 20 (`Parcela` [0-9A-Z]{14} + `Inmueble` \d{4}[A-Z]{2}): con la de 14 de la parcela no validaba. El `.cex` declara la RC de 20 de CADA VIVIENDA (los locales y garajes, no) | `referencia` en `_unidades_de_parcela` ([alphanumeric.py](implementation/cee-engine/src/catastro/alphanumeric.py)) y en los attrs del espacio (`pipeline.py`); `rcsDelBloque` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js); `out[15]` como LISTA en `generar_cex.py`; prueba `tests/test_edificio_completo.py` |
+
+**REGLA — la vía FM de un bloque es la del edificio CENTRALIZADO también fuera de la
+calculadora.** `computeFullCalculatorResult` (lo usan el alta, `recalcular` y la carga del
+XML) llamaba al FM con `bloque: false` fijo, porque la landing nunca tiene bloques. Un bloque
+dado de alta por script salía como unifamiliar, con f_M 2 y D_ACS = 11·S. Con el CEE del
+edificio, la diferencia fue de **396,7 MWh frente a 621,6 MWh**. Ahora pasa `esBloque(inputs)`
+y el `changeHeating` del bloque, igual que `CalculatorView`. Lo vigila la sección 7 de
+`test_bloque_viviendas.mjs`.
+
+**La SUPERFICIE ÚTIL de un bloque no es la del Catastro.** La de cada vivienda lleva
+repercutidos los elementos comunes: en OP438 eran 2.702 m² construidos, frente a 318 m² de
+huella × 7 plantas = 2.228 m². Como la D_ACS de la vía FM es 16·S, inflar la S infla el bono.
+Al CEE se le pone una útil realista con `ajustes.superficie_util_habitable`; en OP438, 1.900 m²
+(≈ 0,85 × la huella) a falta de planos. El motor avisa de que la huella sale menor que lo
+declarado, y en un edificio completo explica por qué.
+
+Resultado del CEE A CIEGAS de OP438, calificado con CE3X 3.2 en el PC: huecos al 12 %, caldera
+de 160 kW (sin placa) y zona HE4 V. Sale una demanda de calefacción de **92,66 kWh/m²**, que
+con la superficie da 176.054 kWh/año (con huecos al 20 %, 90,28). Las dos vías:
+
+- **Ficha vigente**: 178,8 MWh → 17.884 € (solo calefacción, con η 0,79 y SCOP 4).
+- **Vía FM**: [176.054 × (1/0,79 − 1/4) + 30.400 × (1/0,79 − 1/3)] × 3 = **621,6 MWh → 62.156 €**,
+  ELEGIBLE. La cifra supone el depósito de ACS (regla 155), que hay que añadir al presupuesto.
+
 ### Lo que todavía NO cubre
 
 El encargo llegó hasta **simular y guardar la oportunidad**. Queda fuera, y hay que

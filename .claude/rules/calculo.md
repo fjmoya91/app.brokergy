@@ -67,6 +67,17 @@ paths:
 
 209. **El ACS existente se calcula con SU rendimiento: un termo eléctrico va a 1,00, no a la η de la caldera** (2026-11-10, CAE-1991, Marwen en 26RES060_168: 30.771 → 30.190 kWh/año). `AE = F_P·[D_CAL·S·(1/η_i − 1/SCOP_bdc) + D_ACS·(1/η_ACS − 1/SCOP_dhw)]`; η_ACS = η_i salvo con `misma_caldera_acs: false` y una fila de `caldera_antigua_acs.rendimiento_id` (`electric` = 1,00; sin fila o «sin calefacción», η_i). Fuente única: `etaAcsExistente` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js) y el parámetro `acsEff` de `calculateSavings`, que pasan las cinco vías del ahorro (`computeExpedienteFinancials`, `expedienteFinancialsNode`, `cifoService.computeSavingsKwh`, `ExpedienteDetailView`, `ExpedientesView`). El termo lo PROPONE el CEE inicial en Instalación ([acsExistenteCee.js](implementation/frontend/src/features/expedientes/logic/acsExistenteCee.js)) y lo declara una persona; el CIFO imprime «η_i · η_ACS» solo cuando difieren. Medido: de 382 expedientes solo cambian el 168 y el 182. **También por la vía FM** (2026-11-11): `calculateRes060FM({ acsEff, acsEffId })`, que le pasa `entradasFmExpediente` ([fmExpediente.js](implementation/frontend/src/features/expedientes/logic/fmExpediente.js)), usa η_ACS en el término del ACS **solo si es más alta que η_i** (`etaAcsPropio`; nota 9 de la fórmula: con varias calderas, la de mayor rendimiento), y el CIFO FM imprime `1/η_ACS`. Tras tocarlo: `node implementation/backend/scripts/test_eta_acs_existente.mjs`, `test_res060fc.mjs` y `check_cifo_paginas.mjs`. Ver "El ACS existente con su PROPIO rendimiento".
 
+229. **Un BLOQUE se certifica ENTERO y su vía FM es la del edificio CENTRALIZADO, venga de donde venga el cálculo** (2026-11-20, 26RES060_OP438, Fran: «hacer el CEE de toda la comunidad para calcular con el FM»).
+- **El motor mide el edificio desde la RC de 14**: cada inmueble de `lrcdnp` pasa a ser una construcción `escalera/planta/puerta` ([alphanumeric.py](implementation/cee-engine/src/catastro/alphanumeric.py)).
+- **Las cabeceras de avisos llevan tope** (`_cabecera_json` en [server.py](implementation/cee-engine/server.py), 8.000 B, con los repetidos agrupados): con 203 paredes pasaban de los 16 KB de undici y Node cortaba el `/cex`.
+- **La ficha CE3X propone el bloque** (`propuestaDeBloque`): «Bloque de Viviendas», `unidades_uso` = viviendas, y ACS = 140 × n × factor de centralización del HE Anejo F. Lo del certificador manda.
+- **El alta por script** acepta `"bloque": true` con la RC de 14 (`parcelaComoBloque`).
+- **El `.cex` del edificio declara la RC de 20 de CADA VIVIENDA** (`referencia` del motor, `rcsDelBloque` en fichaCe3x, `out[15]` lista en `generar_cex.py`): con la de 14 el XML no valida (`Inmueble` \d{4}[A-Z]{2}).
+- **`computeFullCalculatorResult` pasa `esBloque(inputs)` al FM**, como `CalculatorView`. Con `false` fijo, un bloque salía f_M 2 y 11·S: 396,7 MWh en vez de 621,6.
+- **La superficie útil NO es la del Catastro** (lleva los comunes repercutidos, y la D_ACS FM es 16·S): se fija con `ajustes.superficie_util_habitable`.
+
+Tras tocarlo: `node implementation/backend/scripts/test_bloque_viviendas.mjs`, `test_alta_oportunidad.js`, `test_via_fm.mjs` y `python -m pytest implementation/cee-engine/tests`. Ver "El CEE del EDIFICIO, el alta por script y la vía FM".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -116,6 +127,8 @@ RES080 es Σ energía final del inicial − Σ la del final, y nada más**
   - **REGLA — ni `tipo: 'piso'` ni una participación heredada < 100 la bajan al
   40 %**
   - **REGLA — el requisito se dice en pantalla.**
+  - **REGLA — la vía FM de un bloque es la del edificio CENTRALIZADO también fuera de la
+calculadora.**
 - `docs/conocimiento/calculo/calibracion-por-epoca-unifamiliar-2008-en-adelante.md`
   - **REGLA — en una simulación NUEVA de una vivienda UNIFAMILIAR de 2008 en adelante, la demanda neta de
 calefacción estimada se multiplica por 1,25**

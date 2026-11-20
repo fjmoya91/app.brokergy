@@ -314,7 +314,8 @@ export function plantasDelEdificio(g) {
  */
 export function datosCe3x31({ ajustes, terciario = false, tipoEdificio = '',
                               superficie = null, plantas = null, titulacion = null,
-                              actividad = null, normativa = null, edificio = null } = {}) {
+                              actividad = null, normativa = null, edificio = null,
+                              viviendasBloque = null } = {}) {
     const c = ajustes?.ce3x31 || {};
     const avisos = [];
     const de = {};
@@ -369,11 +370,14 @@ export function datosCe3x31({ ajustes, terciario = false, tipoEdificio = '',
     }
 
     const bloque = tipoEdificio === 'Bloque de Viviendas';
-    const uds = suyo('unidades_uso') ? entero(c.unidades_uso) : (bloque ? null : 1);
+    // Un BLOQUE completo: las viviendas de la simulación (de Catastro), si las hay.
+    const udsBloque = bloque ? entero(viviendasBloque) : null;
+    const uds = suyo('unidades_uso') ? entero(c.unidades_uso) : (bloque ? udsBloque : 1);
     if (uds) {
         val.unidades_uso = uds;
         de.unidades_uso = suyo('unidades_uso') ? 'puesto a mano por el certificador'
-            : (terciario ? 'por defecto: un edificio o un local' : 'una vivienda');
+            : (bloque ? 'las viviendas del bloque, de la simulación (Catastro)'
+                : (terciario ? 'por defecto: un edificio o un local' : 'una vivienda'));
     } else {
         de.unidades_uso = 'falta';
         avisos.push('Falta el nº de viviendas o unidades de uso (Datos generales): CE3X 3.2 '

@@ -2886,7 +2886,11 @@ def construir_administrativos(datos: dict, plantilla: list) -> list:
     out[8] = _opcional(a["cliente_telefono"])
     out[9] = _opcional(a["cliente_email"])
     out[14] = _opcional(a["codigo_postal"])
-    out[15] = [_v(a["referencia_catastral"], "administrativos.referencia_catastral")]
+    # Una LISTA en un edificio entero (un bloque): una RC de 20 por vivienda.
+    # CE3X guarda aquí una lista y el XML escribe un <Ref> por cada una; la RC
+    # de 14 de la parcela no valida («Inmueble» \d{4}[A-Z]{2}) — 26RES060_OP438.
+    rc = _v(a["referencia_catastral"], "administrativos.referencia_catastral")
+    out[15] = [str(x) for x in rc if x] if isinstance(rc, (list, tuple)) else [rc]
     out[16] = _opcional(a["cliente_localidad"])
     out[17] = _opcional(a["cliente_provincia"])
     out[18] = _opcional(a["cliente_cp"])

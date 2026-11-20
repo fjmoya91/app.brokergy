@@ -640,6 +640,27 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    - Se corrigen en el plan con `ajustes.ce3x31` (`unidades_uso`, `plantas_sobre_rasante`,
      `plantas_bajo_rasante`, `superficie_util`), con este mismo criterio. En un «Bloque de
      Viviendas» la app no propone las unidades de uso: pon `unidades_uso: 1` si se certifica un piso.
+   - **EDIFICIO ENTERO (una comunidad que cambia la caldera CENTRAL)** (2026-11-20, 26RES060_OP438,
+     14 viviendas): la oportunidad nace con `bloque: true` (skill `alta-oportunidad`) y la RC de
+     **14** de la parcela. El motor mide el bloque entero: Catastro contesta a la RC de 14 con la
+     lista de inmuebles y cuentan los de VIVIENDA (los locales y los garajes, fuera). Lo que cambia:
+     - **El `.cex` declara la RC de 20 de CADA vivienda**, no la de 14: el XML no la admite
+       («Inmueble» `\d{4}[A-Z]{2}`: sale «certificado incompleto»). Lo hace solo la ficha
+       (`rcsDelBloque`, con las viviendas que CUENTAN en la selección).
+     - `ajustes.superficie_util_habitable` = la ÚTIL del edificio (≈ 70 % de lo construido de
+       las viviendas, que en Catastro lleva los comunes repercutidos) y `ajustes.ce3x31` con
+       `unidades_uso` = nº de viviendas y las plantas del edificio. La ACS la propone la app por
+       viviendas con el factor de centralización (CTE HE Anejo F): dilo en el informe.
+     - **Huecos**: Street View da las fachadas a la calle; los PATIOS no se ven. Se ponen por
+       regla (una ventana de 1,0 × 1,0 m cada ~3,5 m) y se dice en `decisiones`; el plan es
+       grande (≈ 30 paredes × plantas) y conviene GENERARLO con un script desde `paredes.txt`.
+     - **La potencia de la caldera central** no es la de 24 kW por defecto: sin placa, la de la
+       cascada que la sustituye, en la simulación con `alta_oportunidad.js recalcular <OP>
+       --potencia-caldera N --escribir` (no en `caldera.potencia_kw` del plan: eso la apunta
+       como leída de la PLACA).
+     - **`aplicar --escribir` tarda**: una foto de Street View se sube a CADA pared de cada
+       planta (≈ 100 subidas en 7 plantas). Lánzalo en segundo plano, sin `timeout`.
+     - Con la vía FM, la cifra es la de bloque (`f_M 3`, `D_ACS 16·S`): regla 229 de `calculo`.
 17. **FECHAS de firma y de visita: HOY, por defecto** — Fran lo pide en casi cada CEE («fecha de firma
    hoy», «fecha de visita y firma hoy», «realiza el cee, fecha de hoy»: 26RES060_223, _225, _228,
    26RES080_OP60, 2026CEE_54, 2026CEE_63). El plan lleva SIEMPRE

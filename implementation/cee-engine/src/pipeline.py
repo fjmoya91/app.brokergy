@@ -281,6 +281,10 @@ def construir_modelo(o: Opciones, rc: refcat_mod.ReferenciaCatastral,
                 attrs={"uso_literal": u.uso_literal, "planta_literal": u.planta_literal,
                        "escalera": u.escalera, "puerta": u.puerta,
                        "codigo": u.codigo,
+                       # La RC de 20 de este inmueble (solo en un bloque, consulta
+                       # de parcela): el `.cex` del edificio declara las de sus
+                       # viviendas (`refCatastral` de fichaCe3x).
+                       "referencia": getattr(u, "referencia", None),
                        "habitable": u.habitable,
                        # Lo que dice CATASTRO, aparte de lo que acabe mandando:
                        # si el certificador cuenta un almacen como vivienda, el
@@ -1757,11 +1761,19 @@ def _cruzar_superficies(modelo: Modelo, tolerancia: float = 0.15) -> None:
             desvio = abs(pl.area_m2 - declarada) / declarada
             fila["desvio"] = round(desvio, 3)
             if desvio > tolerancia:
+                # EDIFICIO COMPLETO (RC de 14): la superficie de cada inmueble
+                # lleva repercutidos los elementos comunes (portal, escalera,
+                # patios), asi que la suma por planta pasa de la huella sin que
+                # falte nada (4270003XH6046N: 386 declarados, 318 de huella).
+                if getattr(datos, "inmuebles_parcela", None) and pl.area_m2 < declarada:
+                    causa = ("En un edificio completo la superficie de cada inmueble lleva "
+                             "repercutidos los elementos comunes: la huella sale menor.")
+                else:
+                    causa = "El inmueble puede ocupar solo una parte del edificio de la parcela."
                 modelo.diagnostics.add(
                     "FLOOR_AREA_MISMATCH",
                     f"planta {pl.etiqueta}: la huella mide {pl.area_m2:.2f} m2 y Catastro "
-                    f"declara {declarada:.2f} m2 ({desvio:.0%} de desvio). El inmueble "
-                    f"puede ocupar solo una parte del edificio de la parcela.")
+                    f"declara {declarada:.2f} m2 ({desvio:.0%} de desvio). {causa}")
         filas.append(fila)
     modelo.catastro["cruce_superficies"] = filas
 

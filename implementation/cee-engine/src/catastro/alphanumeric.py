@@ -125,6 +125,10 @@ class UnidadConstructiva:
     #: El `pt` TAL CUAL viene de Catastro ("00", "01", "02"). `planta_literal`
     #: ya esta normalizado a como se lee, y el codigo se compone con el bruto.
     planta_bruta: str | None = None
+    #: La RC de 20 del INMUEBLE, solo en la consulta de PARCELA (un bloque): es
+    #: lo que el `.cex` del EDIFICIO declara, una por vivienda (el XML no admite
+    #: la RC de 14: «Inmueble» es \d{4}[A-Z]{2}; 26RES060_OP438).
+    referencia: str | None = None
 
     @property
     def habitable(self) -> bool | None:
@@ -309,7 +313,7 @@ def consulta_dnprc(client: CatastroClient, refcat: str) -> DatosInmueble:
                          "no hay reparto por uso/planta.")
         return out
 
-    # Consulta de PARCELA: solo la lista de inmuebles, sin construcciones.
+    # Consulta de PARCELA (finca con division horizontal): la LISTA de inmuebles.
     rcdnp = _g(res, "lrcdnp", "rcdnp") or []
     if isinstance(rcdnp, dict):
         rcdnp = [rcdnp]
@@ -318,9 +322,72 @@ def consulta_dnprc(client: CatastroClient, refcat: str) -> DatosInmueble:
         completo = "".join(str(rc.get(k) or "") for k in ("pc1", "pc2", "car", "cc1", "cc2"))
         if completo:
             out.inmuebles_parcela.append(completo)
-    out.aviso = ("La RC consultada es de PARCELA: Catastro devuelve la lista de "
-                 "inmuebles, no sus construcciones. Consulta cada RC de 20.")
+    out.unidades = _unidades_de_parcela(rcdnp)
+    if out.unidades:
+        _resumir_parcela(out, rcdnp)
+        out.aviso = ("La RC consultada es de PARCELA: se mide el EDIFICIO COMPLETO. Cada "
+                     "inmueble de la lista es una construccion (su uso, su planta y su "
+                     "superficie, con los elementos comunes repercutidos).")
+    else:
+        out.aviso = ("La RC consultada es de PARCELA: Catastro devuelve la lista de "
+                     "inmuebles, no sus construcciones. Consulta cada RC de 20.")
     return out
+
+
+def _unidades_de_parcela(rcdnp: list) -> list[UnidadConstructiva]:
+    """Un BLOQUE entero: cada inmueble de la lista es una construccion.
+
+    POR QUE EXISTE (2026-11-20, C/ Ntra. S. Buenos Libros 1, Murcia, 14 viviendas):
+    el CEE de un EDIFICIO COMPLETO (la comunidad que cambia la caldera central)
+    se pide con la RC de 14, y Catastro contesta a esa RC con la lista
+    `lrcdnp` —un inmueble por piso, local o plaza de garaje— y ningun `lcons`.
+    Sin construcciones no habia nada habitable y el motor contestaba «no hay
+    plano que medir».
+
+    REGLA — la lista ya trae lo que hace falta: el USO (`debi.luso`), la PLANTA,
+    la escalera y la puerta (`loint`) y la SUPERFICIE (`debi.sfc`) de cada
+    inmueble, asi que no se consulta cada RC de 20 (62 peticiones al mismo WAF del
+    buscador). El codigo es el MISMO que el de una fila de `lcons`
+    (escalera/planta/puerta), y por eso la seleccion de construcciones casa igual.
+    La superficie es la del inmueble con sus comunes repercutidos, no la util.
+    """
+    out: list[UnidadConstructiva] = []
+    for r in rcdnp or []:
+        if not isinstance(r, dict):
+            continue
+        dt = _g(r, "dt") or {}
+        loint = _g(dt, "locs", "lous", "lourb", "loint") or {}
+        planta, planta_lit = normaliza_planta(loint.get("pt"))
+        uso_lit = _g(r, "debi", "luso")
+        rc = _g(r, "rc") or {}
+        completo = "".join(str(rc.get(k) or "") for k in ("pc1", "pc2", "car", "cc1", "cc2"))
+        out.append(UnidadConstructiva(
+            referencia=completo if len(completo) == 20 else None,
+            uso=normaliza_uso(uso_lit),
+            uso_literal=uso_lit,
+            planta=planta, planta_literal=planta_lit,
+            escalera=loint.get("es"), puerta=loint.get("pu"),
+            superficie_m2=_num(_g(r, "debi", "sfc")),
+            planta_bruta=loint.get("pt"),
+        ))
+    return out
+
+
+def _resumir_parcela(out: DatosInmueble, rcdnp: list) -> None:
+    """Uso principal, superficie, antiguedad y direccion del EDIFICIO."""
+    por_uso = out.superficie_por_uso()
+    if por_uso:
+        out.uso_principal = max(por_uso, key=por_uso.get)
+    out.superficie_m2 = round(sum(u.superficie_m2 or 0 for u in out.unidades), 2) or None
+    anios = [str(_g(r, "debi", "ant") or "") for r in rcdnp if isinstance(r, dict)]
+    anios = [int(a) for a in anios if a.isdigit()]
+    if anios:
+        out.antiguedad = max(set(anios), key=anios.count)
+    for r in rcdnp:
+        dt = _g(r, "dt") if isinstance(r, dict) else None
+        if dt:
+            out.direccion = _direccion(dt)
+            break
 
 
 def consulta_cpmrc(client: CatastroClient, refcat14: str,

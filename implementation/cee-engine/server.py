@@ -58,6 +58,37 @@ log = logging.getLogger("cee-engine")
 
 app = FastAPI(title="cee-engine", version="1.0.0")
 
+#: Lo más que ocupa UNA cabecera de avisos. El cliente de Node (undici) corta
+#: la respuesta ENTERA con `UND_ERR_HEADERS_OVERFLOW` pasados 16 KB de
+#: cabeceras, y con el `.cex` ya escrito: le pasó al EDIFICIO COMPLETO de
+#: 4270003XH6046N (2026-11-20), 203 paredes y un aviso por cada una.
+MAX_CABECERA = 8000
+
+
+def _cabecera_json(avisos: list) -> str:
+    """Los avisos en JSON (ASCII, ver /cex) sin pasar de MAX_CABECERA.
+
+    REGLA — no se pierde ninguno en silencio: los repetidos se agrupan con su
+    número de veces y, si aun así no caben, los que sobran se CUENTAN en un
+    último aviso.
+    """
+    vistos: dict = {}
+    for a in avisos or []:
+        clave = a if isinstance(a, str) else json.dumps(a, sort_keys=True)
+        if clave in vistos:
+            vistos[clave][1] += 1
+        else:
+            vistos[clave] = [a, 1]
+    # Un objeto (el contraste) se deja tal cual: quien lo lee espera su forma.
+    lista = [a if n == 1 or not isinstance(a, str) else f"{a} (x{n})" for a, n in vistos.values()]
+    out: list = []
+    for i, t in enumerate(lista):
+        if len(json.dumps(out + [t])) > MAX_CABECERA - 120:
+            out.append(f"... y {len(lista) - i} aviso(s) mas que no caben en la respuesta.")
+            break
+        out.append(t)
+    return json.dumps(out)
+
 #: La plantilla es un ACTIVO del servicio: sin ella no se genera nada. Es un
 #: `.cex` en blanco guardado por el propio CE3X, y de ahí se copian byte a byte
 #: los 11 pickles que no sabemos escribir (entre ellos un HMAC con clave
@@ -624,8 +655,8 @@ def cex(payload: dict = Body(...)) -> Response:
                 # `.cex` YA ESCRITO. Se perdía un fichero hecho, por un guion.
                 # Escapado, el JSON sigue siendo válido y el navegador recupera
                 # el texto al parsearlo.
-                "X-Cee-Avisos": json.dumps(avisos),
-                "X-Cee-Contraste": json.dumps(fuera),
+                "X-Cee-Avisos": _cabecera_json(avisos),
+                "X-Cee-Contraste": _cabecera_json(fuera),
                 "X-Cee-Version": version,
             })
     except G.GeneracionError as exc:
@@ -826,7 +857,7 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
 
     return Response(
         content=salida, media_type="application/octet-stream",
-        headers={"X-Cee-Avisos": json.dumps(avisos + G.AVISOS_IMAGEN),
+        headers={"X-Cee-Avisos": _cabecera_json(avisos + G.AVISOS_IMAGEN),
                  "X-Cee-Version": version})
 
 
@@ -908,7 +939,7 @@ async def cex_previsto(fichero: UploadFile = File(...),
 
     return Response(
         content=salida, media_type="application/octet-stream",
-        headers={"X-Cee-Avisos": json.dumps(avisos),
+        headers={"X-Cee-Avisos": _cabecera_json(avisos),
                  "X-Cee-Previsto": json.dumps(hechos),
                  "X-Cee-Version": version})
 
@@ -968,7 +999,7 @@ async def cex_final_desde_medida(fichero: UploadFile = File(...),
         return JSONResponse({"analisis": analisis, "avisos": avisos})
     return Response(
         content=salida, media_type="application/octet-stream",
-        headers={"X-Cee-Avisos": json.dumps(avisos)})
+        headers={"X-Cee-Avisos": _cabecera_json(avisos)})
 
 
 class MedidaNoEscrita(Exception):
@@ -1093,7 +1124,7 @@ async def cex_medida(fichero: UploadFile = File(...),
 
     return Response(
         content=salida, media_type="application/octet-stream",
-        headers={"X-Cee-Avisos": json.dumps(avisos)})
+        headers={"X-Cee-Avisos": _cabecera_json(avisos)})
 
 
 def convertir(crudo: bytes, ficha: dict) -> tuple[bytes, list[str], str]:
@@ -1135,7 +1166,7 @@ async def cex_convertir(fichero: UploadFile = File(...),
         raise HTTPException(500, f"no se ha podido convertir el .cex: {exc}")
     return Response(
         content=salida, media_type="application/octet-stream",
-        headers={"X-Cee-Avisos": json.dumps(avisos), "X-Cee-Version": destino})
+        headers={"X-Cee-Avisos": _cabecera_json(avisos), "X-Cee-Version": destino})
 
 
 def _zonas_declaradas(cex: Any) -> set[str]:

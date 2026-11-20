@@ -2673,13 +2673,66 @@ export function informeCe3x(expediente, fase = 'inicial', { terciario = false, o
 }
 
 
+/**
+ * Factor de centralización del ACS (CTE DB-HE 2019, Anejo F, tabla b): con
+ * más viviendas servidas por una misma instalación, menos simultaneidad.
+ */
+export function factorCentralizacionAcs(n) {
+    const v = Number(n) || 0;
+    if (v <= 3) return 1;
+    if (v <= 10) return 0.95;
+    if (v <= 20) return 0.90;
+    if (v <= 50) return 0.85;
+    if (v <= 75) return 0.80;
+    if (v <= 100) return 0.75;
+    return 0.70;
+}
+
+/**
+ * Lo que cambia la ficha cuando lo que se certifica es un BLOQUE COMPLETO
+ * (`inputs.tipoInmueble === 'bloque'`): el EDIFICIO entero de una comunidad de
+ * propietarios con la instalación centralizada.
+ *
+ * POR QUÉ EXISTE (2026-11-20, 4270003XH6046N, Murcia, 14 viviendas, vía FM con
+ * f_M = 3): el `.cex` salía como «Unifamiliar», con UNA unidad de uso y los
+ * 140 l/día de una vivienda — la demanda de ACS del edificio, ~12 veces menor.
+ *
+ * REGLA — lo puesto por el certificador MANDA; esto solo PROPONE:
+ *   · tipo de edificio «Bloque de Viviendas»;
+ *   · unidades de uso = las viviendas del bloque (`numViviendas`, de Catastro);
+ *   · ACS = 140 l/día por vivienda (el mismo por defecto de una vivienda) × nº de
+ *     viviendas × el factor de centralización del CTE (14 → 0,90 → 1.764 l/día).
+ */
+export function propuestaDeBloque(expediente, ajustes = {}) {
+    const inputs = expediente?.oportunidades?.datos_calculo?.inputs
+        || expediente?.datos_calculo?.inputs || {};
+    if (inputs.tipoInmueble !== 'bloque') return null;
+    const n = parseInt(inputs.numViviendas || inputs.numOwners, 10) || null;
+    const out = { viviendas: n, avisos: [] };
+    if (!ajustes?.tipo_edificio) out.tipo_edificio = 'Bloque de Viviendas';
+    if (!(Number(ajustes?.demanda_acs) > 0) && n) {
+        const f = factorCentralizacionAcs(n);
+        out.demanda_acs = Math.round(AJUSTES_POR_DEFECTO.demanda_acs * n * f);
+        out.avisos.push(`BLOQUE de ${n} viviendas: ACS propuesta ${out.demanda_acs} l/día `
+            + `(${AJUSTES_POR_DEFECTO.demanda_acs} l/día × ${n} viviendas × ${String(f).replace('.', ',')} `
+            + 'de centralización, CTE HE Anejo F). Corrígela si el bloque tiene otro reparto de dormitorios.');
+    }
+    if (!n) {
+        out.avisos.push('BLOQUE sin nº de viviendas en la simulación: pon las unidades de uso a mano.');
+    }
+    return out;
+}
+
 export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, imagenes,
                             certificador, modelos = {},
                             fase = 'inicial', medidas = null } = {}) {
     const g = geo?.geometria || geo || {};
     const inmueble = g.modelo?.catastro?.inmueble || {};
-    const cfg = { ...AJUSTES_POR_DEFECTO, ...(ajustes || {}) };
-    const avisos = [];
+    const bloque = propuestaDeBloque(expediente, ajustes);
+    const cfg = { ...AJUSTES_POR_DEFECTO, ...(ajustes || {}),
+                  ...(bloque?.tipo_edificio ? { tipo_edificio: bloque.tipo_edificio } : {}),
+                  ...(bloque?.demanda_acs ? { demanda_acs: bloque.demanda_acs } : {}) };
+    const avisos = [...(bloque?.avisos || [])];
     //: Con qué PROGRAMA de CE3X se escribe (residencial, pequeño o gran
     //: terciario). Va en la cabecera del fichero y cambia dos campos de los
     //: datos generales y la iluminación; nada más.
@@ -3016,6 +3069,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     const ce31 = esModerna(versionCe3x) ? datosCe3x31({
         ajustes, terciario,
         tipoEdificio: cfg.tipo_edificio,
+        viviendasBloque: bloque?.viviendas || null,
         superficie: ficha.generales.superficie_util_habitable?.valor,
         plantas: ficha.generales.n_plantas_habitables?.valor,
         //: Las plantas sobre y bajo rasante del EDIFICIO ENTERO, de Catastro
@@ -3295,8 +3349,26 @@ export function particionArriba(g) {
     return true;
 }
 
+/**
+ * Las RC de 20 de las viviendas de un EDIFICIO ENTERO (bloque medido con la RC
+ * de 14 de la parcela): las de los inmuebles que CUENTAN (la selección de la
+ * ficha, `attrs.habitable`). El XML del CEE no admite la RC de 14 —«Inmueble»
+ * es \d{4}[A-Z]{2}— y CE3X declara una por vivienda (26RES060_OP438). `null` si
+ * no es un bloque o el motor no trae las referencias.
+ */
+export function rcsDelBloque(geo) {
+    const g = geo?.geometria || geo;
+    if (g?.referencia_catastral?.inmueble) return null;
+    const rcs = (g?.modelo?.spaces || [])
+        .map(s => s?.attrs || {})
+        .filter(a => a.habitable && /^[0-9A-Z]{20}$/.test(String(a.referencia || '')))
+        .map(a => a.referencia);
+    return rcs.length ? [...new Set(rcs)].sort() : null;
+}
+
 function refCatastral(geo, expediente) {
-    return geo?.referencia_catastral?.inmueble
+    return rcsDelBloque(geo)
+        || geo?.referencia_catastral?.inmueble
         || geo?.referencia_catastral?.completa
         || geo?.geometria?.referencia_catastral?.inmueble
         || expediente?.instalacion?.ref_catastral
