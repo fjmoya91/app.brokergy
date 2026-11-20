@@ -204,6 +204,29 @@ async function resolvePotenciasCatalogo(instalacion, supabase) {
 }
 
 /**
+ * ¿La Memoria RITE declara ACS? `cambio_acs` true/'SI' → sí; false/'NO' → no.
+ * VACÍO → sí SOLO si hay un equipo de ACS declarado (modelo o ficha del catálogo).
+ * El CIFO y el RES080 dan el ACS por incluido salvo un false explícito; leer el
+ * vacío como «no» dejó la memoria de 26RES080_41 sin su bomba de calor de ACS
+ * (20/11/2026). Sin equipo declarado no se inventa un ACS.
+ * ESPEJO de `_acs_en_alcance` en rite-generator/lib/supabase_client.py.
+ */
+function acsEnAlcanceRite(inst) {
+    const i = inst || {};
+    const acs = i.aerotermia_acs || {};
+    const declarado = !!(String(acs.modelo || '').trim() || acs.aerotermia_db_id);
+    const v = i.cambio_acs;
+    if (v == null) return declarado;
+    if (typeof v === 'string') {
+        const s = v.trim().toLowerCase();
+        if (['true', 'si', 'sí', '1'].includes(s)) return true;
+        if (s === '') return declarado;
+        return false;
+    }
+    return !!v;
+}
+
+/**
  * Lista de campos que faltan para generar la Memoria RITE. Vacía = se puede generar.
  *
  * `pres` es SIEMPRE la ficha que firma (ya resuelta por `resolveInstaladorFirmante`);
@@ -255,7 +278,7 @@ function validateMemoriaRite({ exp, cli, op, pres, presReal }) {
     // ── Equipo de ACS ────────────────────────────────────────────────────────
     // Solo se valida si aporta potencia propia al RITE; si no, el documento ni
     // siquiera rellena esas casillas.
-    const hasAcs = inst.cambio_acs === true || inst.cambio_acs === 'si';
+    const hasAcs = acsEnAlcanceRite(inst);
     if (hasAcs && acsEsEquipoPropio(inst)) {
         if (!P(acs.marca)) missing.push('Marca Aerotermia ACS (Instalación)');
         if (!P(acs.modelo)) missing.push('Modelo Aerotermia ACS (Instalación)');
@@ -422,6 +445,6 @@ function fechaPruebasPendiente(doc) {
 module.exports = {
     isPresent, potenciaBloque, potenciaFrioBloque, emisorLlevaFrio,
     potenciasCatalogoPendientes, situadoEnPendiente, SITUADO_EN_OPCIONES,
-    acsEsEquipoPropio, resolvePotenciasCatalogo, validateMemoriaRite,
+    acsEsEquipoPropio, acsEnAlcanceRite, resolvePotenciasCatalogo, validateMemoriaRite,
     PARTIDAS_TERMICAS, facturaEsTermica, resolveFechasRite, fechaPruebasPendiente
 };

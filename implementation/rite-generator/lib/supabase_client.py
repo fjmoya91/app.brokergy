@@ -114,6 +114,32 @@ def _resolver_fecha_pruebas(doc: dict) -> str | None:
     return candidatas[-1]["fecha_factura"] if candidatas else None
 
 
+def _acs_en_alcance(inst: dict) -> bool:
+    """¿Se actúa sobre el ACS? `cambio_acs` true/'SI' → sí; false/'NO' → no.
+    VACÍO (None) → sí SOLO si hay un equipo de ACS declarado (modelo o ficha del
+    catálogo): el resto de la app (CIFO, RES080) da el ACS por incluido salvo un
+    false explícito, y con el vacío leído como «no» la memoria de 26RES080_41 salió
+    SIN su bomba de calor de ACS (20/11/2026). Sin equipo declarado no se inventa
+    un ACS (36 expedientes migrados lo tienen vacío y sin nada).
+    ESPEJO de `acsEnAlcanceRite` en backend/utils/riteValidation.js."""
+    v = inst.get("cambio_acs")
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("true", "si", "sí", "1"):
+            return True
+        if s in ("false", "no", "0", ""):
+            return False if s else _acs_declarado(inst)
+        return False
+    if v is None:
+        return _acs_declarado(inst)
+    return bool(v)
+
+
+def _acs_declarado(inst: dict) -> bool:
+    acs = inst.get("aerotermia_acs") or {}
+    return bool((acs.get("modelo") or "").strip() or acs.get("aerotermia_db_id"))
+
+
 def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) -> dict:
     """Convierte el dict crudo (Supabase o JSON de ejemplo) a la estructura
     que consumen mapeo.py y la guía JE6. Calcula cargas térmicas (opción B)."""
@@ -289,7 +315,7 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
         },
         # Climatización: el suelo radiante puede dar refrescamiento en verano, así
         # que cuando el emisor es suelo radiante se marca CLIMATIZACIÓN.
-        "objeto": {"calefaccion": True, "acs": bool(inst.get("cambio_acs")),
+        "objeto": {"calefaccion": True, "acs": bool(_acs_en_alcance(inst)),
                    "climatizacion": lleva_frio},
         "tipo": {"nueva": not exp.get("is_reforma"), "reforma": bool(exp.get("is_reforma")) or bool(inst.get("caldera_antigua_cal"))},
         "generador_calor": {
@@ -306,7 +332,7 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
             # Sin actuación sobre el ACS no hay depósito que declarar: el respaldo
             # del modelo de calefacción leía «30AWH 12M» como 30 litros (26RES060_237).
             "acumulacion_l": ((_acumulacion_total(acs) or (_acumulacion(cal) if not acs_distinto else ""))
-                              if inst.get("cambio_acs") else ""),
+                              if _acs_en_alcance(inst) else ""),
             # Del catálogo del modelo; si no está, se intenta deducir del nombre
             # (casi nunca lo lleva, por eso ahora es un campo propio).
             "refrigerante": cal.get("refrigerante") or _refrigerante(cal.get("modelo", "")),
@@ -372,7 +398,7 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
         # unidades 1.1, 1.2… en paralelo), así que se elige un dibujo distinto.
         "_meta": {"emisor": emisor,
                   "cascada": len(cal_uds) > 1,
-                  "acs_modo": ("sin_acs" if not inst.get("cambio_acs") or _acs_es_termo
+                  "acs_modo": ("sin_acs" if not _acs_en_alcance(inst) or _acs_es_termo
                                else "bdc_acs" if acs_distinto else "interacumulador")},
     }
 
@@ -461,10 +487,24 @@ def _acumulacion(acs):
     #    Se tacha antes el REFRIGERANTE: en "AQUAREA … R290 ALL IN ONE" el primer
     #    número es el gas, y declarar un depósito de 290 litros que no existe es
     #    peor que dejar la casilla en blanco.
+    #    Y del nombre solo vale lo que PARECE un volumen: un número con «L»
+    #    («185L») o entre 80 y 1.000 («ACS 110», «VA 200»). La potencia o la
+    #    temperatura del nombre no son litros: «CONFORT 12», «ALFEA EXTENSA AI 16»
+    #    o «AUREA DUO 8 55» declaraban depósitos de 12, 16 y 55 L (20/11/2026, los
+    #    22 migrados con cambio_acs vacío). En blanco es mejor que inventado.
     import re as _re
     modelo = _re.sub(r"\bR-?\d{2,4}\b", " ", acs.get("modelo", "") or "", flags=_re.I)
-    m = _re.search(r"(\d{2,4})", modelo)
-    return m.group(1) if m else ""
+    #    Los litros suelen ir PEGADOS al código («MANANTIAL150RPLUSB», «HP200M7-F9»),
+    #    así que se recorren todos los números; uno que empieza por 0 es parte de un
+    #    código («WH-ADC0309K3E5B»), no un volumen.
+    m = _re.search(r"(?<!\d)(\d{2,4})\s*(?:L|LITROS)\b", modelo, flags=_re.I)
+    if m and not m.group(1).startswith("0"):
+        return m.group(1)
+    for m in _re.finditer(r"\d{2,4}", modelo):
+        s = m.group(0)
+        if not s.startswith("0") and 80 <= int(s) <= 1000:
+            return s
+    return ""
 
 
 def _acumulacion_total(acs):
