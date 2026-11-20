@@ -34,7 +34,7 @@ const DEMO = 'demo';
 const REGLAS_DEMO = (instalador, fecha) => [
     `La emite *${instalador}*, la misma empresa que firma el certificado de la instalación${fecha ? `, con fecha posterior al ${fecha}` : ''}.`,
     'Marca, modelo y nº de serie, los de la placa del equipo instalado.',
-    'Nada de radiadores, suelo radiante ni otros emisores nuevos: la ayuda es por el generador y no admite cambiar los emisores.',
+    'Si se cambian o añaden emisores (suelo radiante, fancoils, radiadores), en líneas aparte con su marca, modelo e importe.',
     'Si en la misma factura van placas solares, un termo u otra cosa, en líneas aparte con su importe (o en otra factura).',
     'Si hubo anticipo o factura del material, con este mismo concepto.',
 ];

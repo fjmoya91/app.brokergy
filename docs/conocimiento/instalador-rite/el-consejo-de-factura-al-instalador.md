@@ -18,9 +18,11 @@ el texto por su cuenta. Pruebas: `node implementation/backend/scripts/test_conse
 
 **REGLA — se manda si FALTA la factura, o si la que hay tiene una incidencia GRAVE que tumba
 la auditoría. Si no, no.** Las que tumban (`GRAVES_QUE_TUMBAN`): `TITULAR`, `EMISOR`,
-`UNIDADES_TERMINALES`, `ALCANCE` (no separable), `ALCANCE_SIN_EQUIPO`, `SERIE_DISTINTA`,
+`ALCANCE` (no separable), `ALCANCE_SIN_EQUIPO`, `SERIE_DISTINTA`,
 `FECHA` (futura) y `DUPLICADA`. Con una GRAVE el mensaje dice además **qué corregir** de esa
-factura (una frase por código, `correccion`).
+factura (una frase por código, `correccion`). **20/11/2026: `UNIDADES_TERMINALES` sale de la lista** (la ficha
+ya admite cambiar los emisores desde el 11/11/2026; Fran) y la regla «Nada de radiadores, suelo radiante ni otros
+emisores nuevos» del consejo pasa a «Si se cambian o añaden emisores, en líneas aparte con su marca, modelo e importe».
 
 - Las GRAVES se leen de las incidencias **registradas** (`documentacion.incidencias[]`,
   `severidad GRAVE`, `estado ABIERTA`, `tipo` = el código, `slot` vacío o `facturas`), no del

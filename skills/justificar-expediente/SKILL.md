@@ -221,6 +221,11 @@ Lo que no esté claro va a lo que falta del instalador, con el texto de
   (RD 36/2023; Marwen lo levantó en CAE-2078, 26RES060_114 y _180).
   - No se marca `motivo_no_inicio` (MATERIAL / ANTICIPO, regla 93) ni se fija un
     `fecha_inicio_cifo_manual` que lo retrase. Si una factura ya viene marcada, se le quita la marca.
+  - **Mira los ALBARANES de cada factura** (Fran, 20/11/2026): una línea «ALBARÁN … FECHA dd/mm/aaaa» es un
+    compromiso en firme. Si su fecha es la PRIMERA de todas, el inicio es la del albarán: la app no la
+    ve, así que se fija `fecha_inicio_cifo_manual` y `fecha_inicio_cifo` con esa fecha y una aclaración
+    en `hitos_actuacion` («la fecha de inicio es la del albarán X de Y, recogido en su factura Z»), y se
+    regenera el CIFO. Si no es la primera, se mantiene la primera. Caso: 26RES060_188 (24/09).
   - Si con eso el inicio cae antes de la visita o la firma del CEE inicial, va lo primero en el informe
     para que decida Fran.
 - **Inversión**: Σ de las bases de TODAS las partidas de las facturas del instalador, también la de un

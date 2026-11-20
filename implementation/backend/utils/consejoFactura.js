@@ -31,7 +31,9 @@ const limpio = (v) => (v === null || v === undefined ? '' : String(v).trim());
 // Las GRAVES de facturaIncidencias.js que tumban la auditoría y que el instalador
 // puede arreglar rehaciendo la factura. SOBREFINANCIACION y SUPERFICIE_EMISORES no
 // están: la primera no se arregla con el papel y la segunda es de RES080.
-const GRAVES_QUE_TUMBAN = ['TITULAR', 'EMISOR', 'UNIDADES_TERMINALES', 'ALCANCE', 'ALCANCE_SIN_EQUIPO', 'SERIE_DISTINTA', 'FECHA', 'DUPLICADA'];
+// UNIDADES_TERMINALES ya no tumba: desde el 11/11/2026 la ficha admite cambiar los emisores
+// (Resolución DGPLACE 4/11/2026; Fran, 20/11/2026). Las antiguas que sigan abiertas no piden rehacer.
+const GRAVES_QUE_TUMBAN = ['TITULAR', 'EMISOR', 'ALCANCE', 'ALCANCE_SIN_EQUIPO', 'SERIE_DISTINTA', 'FECHA', 'DUPLICADA'];
 
 const FRASE_EMAIL = 'Al final de este correo tienes el texto que te recomendamos para el concepto de la factura, listo para copiar.';
 const PIE_LINEAS = 'Cada línea con su importe; base imponible e IVA desglosados.';
@@ -170,7 +172,7 @@ function construirConsejoFactura({ exp, op = {}, cliente = null, instalador = nu
     const reglas = [
         `La emite *${emisor}*, la misma empresa que firma el certificado de la instalación${fechaCee ? `, con fecha posterior al ${fechaCee}` : ''}.`,
         'Marca, modelo y nº de serie, los de la placa del equipo instalado.',
-        'Nada de radiadores, suelo radiante ni otros emisores nuevos: la ayuda es por el generador y no admite cambiar los emisores.',
+        'Si se cambian o añaden emisores (suelo radiante, fancoils, radiadores), en líneas aparte con su marca, modelo e importe.',
         'Si en la misma factura van placas solares, un termo u otra cosa, en líneas aparte con su importe (o en otra factura).',
         'Si hubo anticipo o factura del material, con este mismo concepto.',
     ];
@@ -239,7 +241,7 @@ function correccion(codigo, consejo) {
     switch (codigo) {
         case 'TITULAR': return `Tiene que ir a nombre de *${c.titular}*${c.nif && !/^\[/.test(c.nif) ? ` (NIF ${c.nif})` : ''}, el titular del expediente.`;
         case 'EMISOR': return `La tiene que emitir *${c.instalador}*, la empresa que firma el certificado de la instalación.`;
-        case 'UNIDADES_TERMINALES': return 'Lleva emisores nuevos (radiadores, suelo radiante…): la ayuda es por el generador y no admite cambiar los emisores. Si solo se conectaron los que ya había, que lo diga así.';
+        case 'UNIDADES_TERMINALES': return 'Los emisores nuevos (radiadores, suelo radiante, fancoils), en líneas aparte con su marca, modelo e importe.';
         case 'ALCANCE': return 'Lleva algo que no es la bomba de calor (placas solares, un termo u otra cosa) sin su importe aparte: en líneas aparte con su importe, o en otra factura.';
         case 'ALCANCE_SIN_EQUIPO': return 'No aparece la bomba de calor: tiene que estar el suministro e instalación del equipo, con su marca, modelo y nº de serie.';
         case 'SERIE_DISTINTA': return 'El nº de serie no es el del equipo instalado: tiene que ser el de su placa.';

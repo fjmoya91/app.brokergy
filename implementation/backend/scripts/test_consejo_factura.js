@@ -111,6 +111,7 @@ prueba('REGLA: factura con LEVE (o GRAVE subsanada, o GRAVE que no tumba) → no
         { severidad: 'GRAVE', estado: 'SUBSANADA', slot: 'facturas', tipo: 'TITULAR' },
         { severidad: 'GRAVE', estado: 'ABIERTA', slot: 'facturas', tipo: 'SOBREFINANCIACION' },
         { severidad: 'GRAVE', estado: 'ABIERTA', slot: 'facturas', tipo: 'INEXACTITUD' },
+        { severidad: 'GRAVE', estado: 'ABIERTA', slot: 'facturas', tipo: 'UNIDADES_TERMINALES' }, // ya no tumba (11/11/2026)
         { severidad: 'GRAVE', estado: 'ABIERTA', slot: 'anexo_fotografico', tipo: 'FECHA' },
         { severidad: 'GRAVE', estado: 'ABIERTA' }, // sin tipo (las del Anexo Fotográfico)
     ];
@@ -119,14 +120,14 @@ prueba('REGLA: factura con LEVE (o GRAVE subsanada, o GRAVE que no tumba) → no
 
 prueba('REGLA: factura con GRAVE que tumba → sí, con qué corregir', () => {
     const incidencias = [
-        { severidad: 'GRAVE', estado: 'ABIERTA', slot: 'facturas', tipo: 'UNIDADES_TERMINALES', ref: 'drv1', ref_label: 'Factura F260545' },
-        { severidad: 'GRAVE', estado: 'ABIERTA', slot: 'facturas', tipo: 'UNIDADES_TERMINALES', ref: 'drv1', ref_label: 'Factura F260545' },
+        { severidad: 'GRAVE', estado: 'ABIERTA', slot: 'facturas', tipo: 'SERIE_DISTINTA', ref: 'drv1', ref_label: 'Factura F260545' },
+        { severidad: 'GRAVE', estado: 'ABIERTA', slot: 'facturas', tipo: 'SERIE_DISTINTA', ref: 'drv1', ref_label: 'Factura F260545' },
         { severidad: 'grave', estado: 'abierta', slot: 'facturas', tipo: 'emisor', ref: 'drv1', ref_label: 'Factura F260545' },
     ];
     const d = cf.decidirConsejoFactura({ faltaFactura: false, incidencias });
     assert.strictEqual(d.mandar, true);
     assert.strictEqual(d.motivo, 'GRAVE');
-    assert.deepStrictEqual(d.graves.map(g => g.codigo), ['UNIDADES_TERMINALES', 'EMISOR'], 'sin repetir la misma');
+    assert.deepStrictEqual(d.graves.map(g => g.codigo), ['SERIE_DISTINTA', 'EMISOR'], 'sin repetir la misma');
     const c = cf.construirConsejoFactura({ exp: expSustitucion(), ...base });
     const grupos = cf.correccionesPorFactura(d, c);
     assert.strictEqual(grupos.length, 1);

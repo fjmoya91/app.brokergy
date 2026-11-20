@@ -79,9 +79,9 @@ function detectPrograma(exp = {}, op = {}) {
 
 /**
  * ¿Esta ficha actúa sobre el GENERADOR y no sobre la envolvente? Es decir, todas
- * menos la RES080. Decide, entre otras cosas, que una línea de "emisores" en una
- * factura sea incidencia (la ficha no admite tocar las unidades terminales) y que
- * no se pidan las fotos de ventanas, cubierta o fachada.
+ * menos la RES080. Decide, entre otras cosas, que el instalador tenga que emitir
+ * la factura (desde el 11/11/2026 los emisores nuevos SÍ caben: ya no es
+ * incidencia) y que no se pidan las fotos de ventanas, cubierta o fachada.
  */
 function esSustitucionCaldera(ficha) {
     return ficha === 'RES060' || ficha === 'RES093' || ficha === 'TER100' || ficha === 'TER173';

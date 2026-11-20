@@ -299,26 +299,15 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
     const numExp = clean(exp?.numero_expediente) || 'el expediente';
 
     // ── UNIDADES TERMINALES ──────────────────────────────────────────────────
-    // Las unidades terminales (radiadores, suelo radiante, fancoils) se tratan de
-    // forma OPUESTA según la ficha, y es de lo que más incidencias trae:
-    //
-    //   · RES060 / RES093 / TER100 / TER173 — la actuación es sobre el GENERADOR y nada
-    //     más. La unidad terminal existente es un dato de ENTRADA: fija la
-    //     temperatura de impulsión (35 suelo radiante / 55 radiadores) y con ella el
-    //     SCOP con el que se calcula el ahorro. Tocarla no está contemplado en la
-    //     ficha, así que si aparece facturada la actuación no encaja → GRAVE.
-    //
-    //   · RES080 — es una reforma: la unidad terminal SÍ puede ir en la factura. Lo
-    //     que hay que mirar entonces es otra cosa, la SUPERFICIE (regla siguiente).
+    // Desde el 11/11/2026 (Resolución DGPLACE de 4/11/2026, BOE-A-2026-23657) la
+    // RES060, las RES090–099, la TER040, la TER100 y las TER170–179 YA NO exigen que
+    // «la actuación no afecte a los elementos terminales»: cambiar radiadores por
+    // suelo radiante o fancoils, o añadir unidades, cabe en la sustitución y computa
+    // en la inversión (Fran, 20/11/2026). Hasta entonces era la GRAVE
+    // `UNIDADES_TERMINALES`, que ya no salta; las antiguas siguen en la BD y se leen
+    // (incidenciaSlots, consejoFactura). En un RES080 lo que se mira de los emisores
+    // es la SUPERFICIE (regla siguiente).
     const lineasEmisores = lineas.filter(l => l.partida === 'EMISORES');
-    if (esSustitucionCaldera(ficha) && lineasEmisores.length) {
-        add(
-            'UNIDADES_TERMINALES', 'GRAVE',
-            'Se facturan unidades terminales y la ficha no las admite',
-            `La ficha ${ficha} no admite cambiar ni ampliar las unidades terminales: la actuación es la sustitución del generador (caldera → bomba de calor), y el emisor existente es el que fija la temperatura de impulsión y con ella el SCOP del cálculo. La factura incluye ${lineasEmisores.length} línea(s) de emisores (radiadores / suelo radiante / fancoils). Si la obra ha cambiado el sistema de emisión, esta actuación no encaja en ${ficha} y habría que llevarla a RES080; si es solo conexión o adaptación de los emisores existentes, que la factura lo diga así.`,
-            lineasEmisores.map(l => clean(l.descripcion)).filter(Boolean).join(' · ')
-        );
-    }
 
     // ── RES080 · SUPERFICIE_EMISORES ─────────────────────────────────────────
     // En una reforma la unidad terminal sí se factura, y entonces sus m² tienen que

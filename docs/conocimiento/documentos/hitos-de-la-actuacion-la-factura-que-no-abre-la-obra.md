@@ -25,6 +25,14 @@
 > - **Un CEE inicial posterior a las facturas no es grave en la auditoría**: como mucho LEVE, y se
 >   explica en el escrito aclaratorio si hace falta. Nunca se retrasa el inicio para taparlo.
 >
+> ⚠️ **20/11/2026, Fran: un ALBARÁN también abre la actuación.** Si una factura cita un albarán con fecha
+> (p. ej. «ALBARAN R-600266904 FECHA 24/09/2026»), esa fecha es un compromiso en firme, como un anticipo:
+> si es la PRIMERA de todas, el inicio es la del albarán; si no, se mantiene la primera. El fin sigue siendo
+> lo último (si es la fecha de una factura, esa). Hoy ni el OCR guarda la fecha del albarán ni `calcCifo` la
+> mira: se revisa cada factura a mano y, si abre, se fija `fecha_inicio_cifo_manual` (y `fecha_inicio_cifo`,
+> que lee el anexo del lote) con la aclaración en «Hitos». Caso: 26RES060_188 (Hidrofil 600263081 del
+> 05/11/2026, albarán del 24/09) → inicio 24/09 en vez del 13/10, CIFO regenerado antes de la re-firma.
+>
 > **Retirada del código el 13/11/2026** (Fran: «sí, quítala»):
 > - `calcCifo` cuenta todas las facturas que computan para el inicio. `motivoNoInicio` sigue leyendo
 >   la marca guardada, pero solo para reconocerla.

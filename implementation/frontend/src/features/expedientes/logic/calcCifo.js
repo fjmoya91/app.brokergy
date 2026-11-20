@@ -8,6 +8,10 @@
 // confiar en ese valor guardado, siempre recalcular con esta función a partir
 // de `fecha_pruebas_cert_instalacion` + `facturas`.
 //
+// ALBARANES (2026-11-20, Fran): la fecha de un albarán que cita una factura también
+// es un compromiso en firme y abre la actuación si es la primera de todas. Esta
+// función aún NO la ve (el OCR no la guarda): se fija con el override manual.
+//
 // OVERRIDE MANUAL: el usuario puede fijar a mano estas fechas (p.ej. para
 // atender un requerimiento). Si existe `fecha_inicio_cifo_manual` /
 // `fecha_fin_cifo_manual` en el doc, ese valor MANDA sobre el cálculo

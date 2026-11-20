@@ -42,7 +42,10 @@ preguntarlo (solo se preguntan las fechas de visita y emisión):
 4. **Inversión del autoconsumo: 1.000 € por kWp** (con 25 años de vida útil).
 5. **Si el catálogo no tiene el SEER de la bomba, se pone el EER de su ficha técnica** (en
    `PATCH /api/aerotermia/:id/datos-rite`, campo `seer`): con suelo radiante o splits la bomba da
-   frío y sin SEER saldría sin refrigeración (regla 72).
+   frío y sin SEER saldría sin refrigeración (regla 72). **Si la obra pone FANCOILS (o suelo radiante) nuevos,
+   la aerotermia también REFRIGERA en el final** (Fran, 20/11/2026, 26RES060_188): desde el 11/11/2026 la
+   RES060 admite cambiar los emisores. ⚠️ La app aún no tiene «fancoils» entre los emisores del expediente
+   ni en `emisorDaFrio`: hasta que lo tenga, se declara la refrigeración a mano en Instalaciones del final.
 6. **En la versión vigente de CE3X (3.2)**. Un inicial de la 2.3 o la 3.1 se convierte al copiarlo.
    **Todo CEE que se FIRME después del 05/10/2026 va en CE3X 3.2** (usuario, 14/10/2026), aunque el
    inicial, el encargo o un borrador anterior sean de la 2.3 y aunque alguien pida la 2.3 para ese

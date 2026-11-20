@@ -75,7 +75,7 @@ ok(d060.filter(d => d.partida !== 'FOTOVOLTAICA').every(d => d.computa), 'aerote
 ok(espejo.importeCae({ importe_sin_iva: 10000, desglose: d060 }) === 6800, 'computa 6.800 € de 10.000 €');
 
 const dEmis = desgloseFactura({ ocr: { lineas: [{ partida: 'EMISORES', importe_total: 900 }] }, exp: res060, op: {} });
-ok(dEmis[0].computa === true, 'los emisores de una sustitución NO salen solos (eso es UNIDADES_TERMINALES)');
+ok(dEmis[0].computa === true, 'los emisores de una sustitución computan (se admiten desde el 11/11/2026)');
 
 const d080fv = desgloseFactura({ ocr: ocrMixta, exp: res080, op: { datos_calculo: { inputs: { reformaPlacas: true } } } });
 ok(d080fv.find(d => d.partida === 'FOTOVOLTAICA').computa === true, 'RES080 con placas declaradas: la fotovoltaica computa');

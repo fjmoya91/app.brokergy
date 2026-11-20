@@ -19,11 +19,19 @@ FACHADA · SUELO · FOTOVOLTAICA · OBRA_CIVIL · MANO_OBRA · OTROS). Quién de
 evidencia literal citada, para que cualquiera pueda reproducir por qué saltó.
 
 ### Lo que mira (mismo criterio que el §4B de la skill `auditar-expediente`)
-- **GRAVE `UNIDADES_TERMINALES`** — en RES060/RES093/TER100 (`esSustitucionCaldera`), una línea
-  `EMISORES` es incidencia: **la ficha no admite cambiar ni ampliar las unidades terminales**. La
-  actuación es sustituir el GENERADOR, y el emisor existente es el que fija la temperatura de
-  impulsión y con ella el SCOP. RES080 exento (ahí sí cabe obra de emisores). ⚠️ Conectar o purgar
-  los emisores YA EXISTENTES es `OBRA_CIVIL`, no `EMISORES` — probado: no da falso positivo.
+- ~~**GRAVE `UNIDADES_TERMINALES`**~~ — **RETIRADA el 20/11/2026** (Fran: «ya se permite modificar las
+  unidades terminales, cambiar de radiadores a suelo radiante o a fancoils»). La Resolución DGPLACE de
+  4/11/2026 (BOE-A-2026-23657, en vigor el 11/11/2026) quitó de la RES060, las RES090–099, la TER040,
+  la TER100 y las TER170–179 «la actuación no afecta a los elementos terminales» (detalle en
+  [factor-multiplicador-faq.md](docs/conocimiento/consultas/factor-multiplicador-faq.md), pregunta 9).
+  Desde entonces una línea `EMISORES` en una sustitución **no es incidencia y COMPUTA** en la inversión
+  CAE; el consejo de factura al instalador pide solo que vayan en líneas aparte con marca, modelo e
+  importe. Las incidencias antiguas de este código siguen en la BD, pero ya no piden rehacer la factura
+  (`GRAVES_QUE_TUMBAN`). Lo que la Resolución NO cambia: el ahorro no sube por cambiar los emisores
+  (el SCOP con el que se calcula sigue siendo el del emisor declarado en el expediente).
+  Caso: 26RES060_188 (fancoils Johnson SU50/SU70 + termostatos, 787,50 €, vuelven a la inversión).
+  Hasta el 11/11 era GRAVE: la actuación era solo el GENERADOR y el emisor existente fijaba la
+  temperatura de impulsión y con ella el SCOP.
 - **GRAVE**: `TITULAR` (NIF del cliente ≠ el del expediente) · `EMISOR` (no factura el instalador
   asociado, que es quien firma el CIFO — ver abajo: en RES080 solo si la factura lleva la
   TÉRMICA) · `ALCANCE` (partida fuera de la ficha **que no se puede separar**; desde el
@@ -126,8 +134,8 @@ no se leyó). Sin desglose, computa entera: las facturas de antes no cambian.
 **REGLA — lo que la ficha no contempla nace FUERA, y se puede volver a meter.** El OCR marca
 `computa: false` en las partidas fuera de `alcanceEsperado` (la fotovoltaica de un RES060, las
 ventanas de una sustitución, la fotovoltaica de un RES080 que no la declara). Las neutras (obra
-civil, mano de obra, otros) computan, y los EMISORES de una sustitución también: eso es la GRAVE
-`UNIDADES_TERMINALES`, y sacarlos de la cifra la escondería. En el modal cada partida es una
+civil, mano de obra, otros) computan, y los EMISORES de una sustitución también: desde el
+11/11/2026 la ficha admite cambiar o añadir unidades terminales (ver arriba). En el modal cada partida es una
 pastilla que se pulsa para sacarla o meterla.
 
 **Quién usa `importeCae` / `inversionCae` y no la base**: el Anexo del MITECO (`anexoListado`), la
