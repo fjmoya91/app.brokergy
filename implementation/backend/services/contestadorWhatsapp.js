@@ -65,8 +65,14 @@ const CFG = {
     // Con algo ya escalado y su acuse mandado, lo nuevo del chat no lleva otro acuse durante
     // este tiempo (17/11/2026, 26RES060_OP376: cuatro «lo miro y te digo» en una hora).
     acuseHoras: num(process.env.CONTESTADOR_ACUSE_HORAS, 6),
+    // Altas que se encargan solas al asistente en 24 h (cada una es un trabajo de Claude con la
+    // suscripción, dentro de su tope de 40). Pasado el tope, a Fran.
+    altasDia: num(process.env.CONTESTADOR_ALTAS_DIA, 10),
     purgaDias: 90,
 };
+// La PETICIÓN NUEVA se da de alta sola (20/11/2026, Fran: «cuando nos pasan catastro, foto de caldera
+// y/o presupuesto es para eso, e incluso ponerse en marcha sin que yo lo tenga que hacer»).
+const altaActiva = () => process.env.CONTESTADOR_ALTA !== 'false';
 const activo = () => process.env.CONTESTADOR_ENABLED === 'true';
 const modo = () => (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia');
 // GUARDAR lo que manda: de verdad con el modo real o con `CONTESTADOR_GUARDAR=real` (se puede
@@ -330,6 +336,9 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
         }
         extra.tardeHoras = (Date.now() / 1000 - pendientes[0].t) / 3600;
         if (sinObra) extra.sinObra = sinObra.tipo;
+        // «Buenos días, Fran.»: el nombre con el que le saludamos nosotros, y si no, la agenda.
+        extra.nombrePila = nombrePilaDe(ms) || nombreDeAgenda(conv.nombre, personas);
+        extra.agenda = conv.nombre || null;
         // Lo que le hemos preguntado en el SEGUIMIENTO (propuestas, CEE inicial): para que entienda
         // a qué contesta y diga qué ha contestado (services/seguimientoWhatsapp.js; nunca lanza).
         extra.seguimientos = await require('./seguimientoWhatsapp').paraContestador(tel9);
@@ -361,8 +370,15 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     // otro acuse (17/11/2026, 26RES060_OP376: cuatro acuses casi iguales en una hora).
     const abierto = b.accion === 'ESCALAR' ? await escaladoAbiertoDe(conv.chatId, ms) : null;
     if (abierto) detalle.anadido_a = abierto.id;
+    // PETICIÓN NUEVA: se da de alta sola si el cerebro lo dice Y lo respalda lo que ha llegado.
+    const nueva = b.alta && altaActiva() ? peticionNueva(c, { sinObra: !!sinObra }) : null;
+    // Quién, para el encargo: de la BD (nunca su nombre en WhatsApp, que lo pone él).
+    const quienBD = personas.length ? Ronda.tituloDe(personas, null) : 'número que no está en la app';
+    const alta = nueva ? { ...nueva, desde: desdeMadrid(desdeSeg), quien: recorta(quienBD, 80) } : null;
+    if (alta) detalle.alta = { n: alta.n, tipos: alta.tipos, desde: alta.desde };
     return {
         escalado_abierto: abierto,
+        alta,
         ...comun, ...g, estado: 'DECIDIDO', accion: b.accion, texto: b.mensaje || '', acuse: b.acuse || '', motivo: b.motivo || '',
         obra: c.obraBorrador || null, cerebro: b.cerebro || 'gemini', detalle,
         borrador: b.borrador || '', aviso: b.aviso || '', fuentes: b.fuentes || [], investigado: b.investigado || '',
@@ -417,6 +433,115 @@ async function pausaDe(chatId, tel9) {
     return hasta > Date.now() ? new Date(hasta) : null;
 }
 
+// ─── La PETICIÓN NUEVA (20/11/2026) ──────────────────────────────────────────
+const NO_ES_NOMBRE = new Set(['buenos', 'buenas', 'muy', 'te', 'ya', 'perfecto', 'gracias', 'muchas', 'pues', 'vale', 'ok',
+    'que', 'me', 'nos', 'de', 'el', 'la', 'lo', 'los', 'las', 'un', 'una', 'si', 'sí', 'por', 'para', 'nada', 'todo', 'equipo']);
+/**
+ * El nombre de pila con el que le saludamos NOSOTROS en este chat («Hola Fran! Necesito…» → 'Fran'),
+ * lo más reciente primero. Así le llama Fran; el de la ficha suele ser el de la empresa. Puro.
+ */
+function nombrePilaDe(ms) {
+    for (let i = (ms || []).length - 1; i >= 0; i -= 1) {
+        const m = ms[i];
+        if (!m?.de_mi || m.tipo !== 'chat') continue;
+        const x = /^\s*¡?\s*(?:hola|buenos\s+d[ií]as|buenas\s+tardes|buenas)[\s,!¡]+([A-ZÁÉÍÓÚÑ][a-záéíóúñü]{1,20})(?![\p{L}])/iu.exec(m.texto || '');
+        if (x && /^[A-ZÁÉÍÓÚÑ]/.test(x[1]) && !NO_ES_NOMBRE.has(x[1].toLowerCase())) return x[1].charAt(0) + x[1].slice(1).toLowerCase();
+    }
+    return null;
+}
+
+const sinTildes = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+/**
+ * Sin saludo nuestro en estos días (se leen 10), el nombre con que le tenemos en la AGENDA si casa
+ * con el de la FICHA: «INSTALADOR FRAN RUIMOR (villarrobledo)» + responsable «FRANCISCO SANTOS» →
+ * «Fran» (20/11/2026, Fran Ruimor: nuestro «Hola Fran!» era de septiembre). Las dos tienen que
+ * coincidir: el de la ficha solo puede ser de otra persona (el jefe de obra escribe desde su móvil)
+ * y la agenda sola puede ser el nombre de la empresa. Pura.
+ */
+function nombreDeAgenda(agenda, personas) {
+    const fichas = [...new Set((personas || []).map(p => (p.tipo === 'partner' ? p.persona : (p.via === 'titular' ? p.nombre : null)))
+        .map(n => sinTildes(n).split(/\s+/)[0]).filter(n => n && n.length >= 3))];
+    if (fichas.length !== 1) return null;
+    const palabras = String(agenda || '').replace(/\([^)]*\)/g, ' ').split(/[\s_,.-]+/).filter(w => /^[\p{L}]{3,}$/u.test(w));
+    const w = palabras.find(x => fichas[0].startsWith(sinTildes(x)) && !NO_ES_NOMBRE.has(x.toLowerCase()) && sinTildes(x) !== 'INSTALADOR');
+    return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : null;
+}
+
+// Lo que identifica una vivienda: si llega sin casar con ninguna obra, puede ser de una nueva.
+const DE_VIVIENDA = new Set(['CAPTURA_CATASTRO', 'FOTO_PLACA', 'PRESUPUESTO', 'PLANO_CROQUIS', 'FOTO_OBRA', 'CEE']);
+const NOMBRE_TIPO = {
+    CAPTURA_CATASTRO: 'captura del Catastro', FOTO_PLACA: 'foto de la placa', FOTO_OBRA: 'foto de la vivienda o la caldera',
+    PRESUPUESTO: 'presupuesto', PLANO_CROQUIS: 'croquis', CEE: 'certificado energético', DNI: 'DNI',
+    FACTURA: 'factura', OTRO_DOCUMENTO: 'documento',
+};
+
+/**
+ * ¿Ha llegado de verdad algo de una vivienda que no está en la app? Lo que dice el cerebro («alta»)
+ * solo vale si lo respalda lo que se ha visto: un adjunto de obra NUEVA, la conversación sobre una
+ * obra nueva, un adjunto de vivienda sin obra, o lo de quien no tiene obra con nosotros. Puro.
+ * @returns {{ n, tipos: string[] } | null}
+ */
+function peticionNueva(c, { sinObra = false } = {}) {
+    const filas = (c?.filas || []).filter(f => f.obra !== '—' && f.tipo !== 'NO_RELACIONADO');
+    const nuevas = filas.filter(f => f.obra === 'NUEVA' || (!f.obra && (DE_VIVIENDA.has(f.tipo) || sinObra)));
+    const deLaConv = c?.analisis?.obra_de_la_conversacion === 'NUEVA';
+    if (!nuevas.length && !deLaConv) return null;
+    return { n: nuevas.length, tipos: [...new Set(nuevas.map(f => f.tipo).filter(t => NOMBRE_TIPO[t]))] };
+}
+
+const desdeMadrid = (t) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(t * 1000)).map(x => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
+};
+
+/**
+ * El ENCARGO del alta para el asistente (`/tarea`). Lo compone el CÓDIGO con datos de la BD y un
+ * vocabulario fijo: el asistente lo toma como una orden de Fran, así que aquí no entra NADA que
+ * haya escrito quien manda la petición (ni su texto, ni su nombre en WhatsApp). Puro.
+ */
+function textoAlta({ tel9, quien, rol, desde, n, tipos, contestado }) {
+    const lista = (tipos || []).map(t => NOMBRE_TIPO[t]).filter(Boolean);
+    const aQuien = rol === 'cliente' ? 'cliente' : 'partner';
+    return [
+        'ALTA AUTOMÁTICA de una petición nueva que ha llegado por WhatsApp (la ha detectado el contestador; Fran ha dejado dicho que estas se dan de alta solas, sin preguntarle).',
+        `- Chat: teléfono ${tel9} · ${quien} (${rol === 'cliente' ? 'cliente' : 'instalador'}).`,
+        `- La petición empieza el ${desde} (hora de Madrid).`,
+        `- Lo que ha mandado de la vivienda nueva: ${n ? `${n} adjunto${n === 1 ? '' : 's'}` : 'lo dice en el chat'}${lista.length ? ` (${lista.join(', ')})` : ''}.`,
+        contestado
+            ? '- A quien la manda YA se le ha contestado que lo revisamos y le pasamos la propuesta: a él NO le escribas.'
+            : '- A quien la manda no le escribas: lo suyo lo lleva el contestador.',
+        '',
+        `Hazlo con la skill alta-oportunidad sobre ESE chat: \`node scripts/alta_oportunidad.js chat ${tel9} --desde "${desde}"\` (si la petición empezó antes —la referencia un día y las fotos otro—, lee más atrás), y después plan y \`crear\`, en seco y luego \`--escribir\`. Una oportunidad por vivienda. Si la referencia catastral ya tiene oportunidad, no crees otra: documéntala con lo nuevo.`,
+        `Al terminar, el aviso de siempre a Fran con el resumen y «¿se la envío así o la quieres revisar tú?»: \`node scripts/asistente_whatsapp.js avisar <OP> --a ${aQuien} --enviar\`. La propuesta NO se envía sin su «sí» para esa oportunidad.`,
+        'Si con lo que hay no se puede saber qué vivienda es, o falta algo sin lo que no se puede calcular, no lo supongas: díselo a Fran en UN mensaje con el WhatsApp que le mandarías al instalador, en borrador.',
+    ].join('\n');
+}
+
+/**
+ * Le encarga el alta al asistente (el Claude del WhatsApp de Fran, `/tarea`). Nunca lanza.
+ * Clave por chat: si aún no ha empezado el anterior de ese chat, este lo sustituye (una sola alta
+ * para la ráfaga). Con tope al día.
+ * @returns {Promise<{ ok: boolean, motivo?: string }>}
+ */
+async function encargarAlta(fila, d) {
+    try {
+        const desde = new Date(Date.now() - 24 * 3_600_000).toISOString();
+        const { count, error } = await supabase.from('wa_contestador').select('id', { count: 'exact', head: true })
+            .gte('detalle->>alta_at', desde);
+        if (error) return { ok: false, motivo: `no he podido contar las altas de hoy (${error.message})` };
+        if ((count || 0) >= CFG.altasDia) return { ok: false, motivo: `tope de altas automáticas del día (${CFG.altasDia})` };
+        const r = await require('./asistenteCanal').pedirTarea({
+            texto: textoAlta({ ...d.alta, tel9: d.tel9 || fila.tel9, rol: d.rol, contestado: d.alta.contestado }),
+            clave: `alta:${fila.chat_id}`,
+        });
+        return r?.ok ? { ok: true } : { ok: false, motivo: `el asistente no lo ha cogido${r?.motivo ? ` (${recorta(r.motivo, 120)})` : ''}` };
+    } catch (e) {
+        return { ok: false, motivo: `no se pudo encargar (${recorta(e.message, 120)})` };
+    }
+}
+
 function resumenPendientes(ms) {
     return ms.slice(-6).map((m) => {
         const que = m.tipo === 'chat' ? recorta(m.texto, 300)
@@ -458,6 +583,10 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
     const bloqueGuardar = [...(guardar.length ? ['', ...guardar] : []), ...(seg.length ? ['', 'Del seguimiento:', ...seg] : [])];
     const porGuardar = (d.guardar || []).some(x => x.guardar && !x.hecho && !x.error) && mg === 'copia';
     const fuentes = (d.fuentes || []).length ? `_He mirado: ${d.fuentes.slice(0, 5).join(' · ')}_` : null;
+    // La petición nueva: lo que ha pasado con su alta (actuar → `d.altaLinea`), o lo que se haría.
+    const altaTxt = d.alta
+        ? (d.altaLinea || (m === 'copia' ? '*Alta:* es una petición nueva; en real la daría de alta yo solo y te llegaría el resumen.' : null))
+        : null;
     if (d.accion === 'RESPONDER') {
         return [
             `*C${fila.id} · ${enviado ? 'He contestado a' : 'Contestaría a'} ${quien}*${obra}`,
@@ -466,6 +595,7 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
             '',
             enviado ? 'Le he dicho:' : 'Le contestaría:',
             cita(d.texto),
+            ...(altaTxt ? ['', altaTxt] : []),
             ...(d.aviso ? ['', `*Para ti:* ${d.aviso}`] : []),
             fuentes,
             '',
@@ -505,6 +635,7 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
         `Por qué te lo paso: ${d.motivo || 'no lo tengo claro'}`,
         ab ? `No le he mandado otro acuse: ya tiene el de C${ab.id} («${recorta(ab.acuse, 160)}») y aún no le has contestado.` : null,
         d.acuse ? (acuseEnviado ? `Le he dicho: «${d.acuse}»` : `Le diría mientras: «${d.acuse}»`) : null,
+        altaTxt,
         // El borrador del investigador: lo que le diría si das el visto bueno («C12» lo manda).
         ...(d.borrador ? ['', `Le contestaría${m === 'copia' ? '' : ', si te parece'}:`, cita(d.borrador)] : []),
         fuentes,
@@ -621,15 +752,31 @@ async function actuar(fila, d) {
             acuseEnviado = d.accion === 'ESCALAR';
         }
     }
+    // 3. PETICIÓN NUEVA: con la respuesta ya dada, el alta se le ENCARGA al asistente (la skill
+    //    alta-oportunidad, como si Fran le escribiera «da de alta lo de X»). Solo en real: en copia
+    //    Fran ve que se haría. El aviso con el resumen se lo manda el asistente al terminar.
+    let altaEncargada = false;
+    if (d.alta && m === 'real' && d.accion !== 'CALLAR') {
+        const r = await encargarAlta(fila, { ...d, alta: { ...d.alta, contestado: enviado || acuseEnviado } });
+        if (r.ok) {
+            altaEncargada = true;
+            upd.detalle.alta_at = new Date().toISOString();
+            d.altaLinea = '*Alta:* es una petición nueva; se la he encargado al asistente y te llegará el resumen.';
+        } else {
+            upd.detalle.alta_error = r.motivo;
+            d.altaLinea = `*Alta:* es una petición nueva, pero no la he podido encargar (${r.motivo}): dásela tú de alta.`;
+        }
+    }
     // A Fran: todo en modo copia; en real, lo que es para él. Y lo que manda de un cliente quien
     // no tiene obra (un lead nuevo de un instalador): se le contesta solo, pero Fran lo sabe para
-    // darlo de alta (16/11/2026).
-    const leadSinObra = !!d.sin_obra && (d.detalle?.adjuntos || 0) > 0;
+    // darlo de alta (16/11/2026). Si el alta ya se ha encargado sola, el aviso es el del asistente.
+    const leadSinObra = !!d.sin_obra && (d.detalle?.adjuntos || 0) > 0 && !altaEncargada;
+    const altaFallida = !!d.alta && m === 'real' && d.accion !== 'CALLAR' && !altaEncargada;
     // Y lo contestado que deja algo que HACER a Fran (el `aviso` del investigador: preparar la
     // memoria, dar de alta la vivienda…): se le contesta solo, pero Fran lo sabe.
     // También lo callado que a Fran le interesa saber (el cartel de un curso sobre CAEs).
     const conAviso = d.accion !== 'ESCALAR' && !!d.aviso;
-    if (m === 'copia' || d.accion === 'ESCALAR' || conAviso || (leadSinObra && d.accion !== 'CALLAR')) {
+    if (m === 'copia' || d.accion === 'ESCALAR' || conAviso || altaFallida || (leadSinObra && d.accion !== 'CALLAR')) {
         try {
             if (await mandarAFran(textoParaFran(fila, d, { m, mg, enviado, acuseEnviado }))) upd.copia_at = new Date().toISOString();
         } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }
@@ -854,4 +1001,5 @@ module.exports = {
     mapaSinObra, clasificarSinObra,
     // para las pruebas
     textoParaFran, lineasGuardar, escaladoAbierto, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado,
+    nombrePilaDe, nombreDeAgenda, peticionNueva, textoAlta, desdeMadrid,
 };

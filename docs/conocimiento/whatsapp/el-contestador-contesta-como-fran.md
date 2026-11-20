@@ -182,6 +182,58 @@ cerebro le llegan como «NO se ha podido ver qué es: no le preguntes de qué ob
 curso, anuncio de marca) es NO_RELACIONADO aunque salga una aerotermia. Con los dos arreglos, el seco del
 chat en el momento del cartel (`--antes --quitar 2`) calla, dos de dos, con «Para que lo sepas».
 
+## La PETICIÓN NUEVA se contesta «lo vamos a revisar» y se da de ALTA sola (2026-11-20)
+
+C696, en real: Fran Ruimor (instalador de Villarrobledo, tres obras en la app) mandó a las 8:15 la captura del
+Catastro de una parcela de Vara de Rey y el presupuesto de una aerotermia, con «Buenos días cuando puedas». Gemini
+los dio bien por obra `NUEVA`, pero `lineasLlegado` solo tenía ramas para «de esta obra», «de ninguna» y «sin
+obra»: lo NUEVO **se caía** y el cerebro, con «tiene tres obras abiertas, pregúntale cuál» del dossier, contestó
+«He recibido la foto y el presupuesto 1-000048. ¿Me dices de qué obra son? Con el nombre del titular o la dirección
+me vale, así lo coloco en su expediente». Fran, ese día: «las contestaciones que está dando son una mierda y
+vuelve loco a los clientes… sería algo como: Buenos días (o tardes según hora) Fran, lo vamos a revisar y te
+pasamos la propuesta. El asistente debe ser listo: cuando nos pasan catastro, foto de caldera y/o presupuesto es
+para eso, e incluso ponerse en marcha sin que yo lo tenga que hacer». A la vez, el modo proactivo le había
+mandado «P83 · Nueva petición… ¿La doy de alta?» y había ocho así sin contestar (P76–P83).
+
+**REGLA — lo de una obra NUEVA llega al cerebro dicho como tal, y no se pregunta de qué obra es.**
+`lineasLlegado` lo pasa como «— de una OBRA NUEVA que aún no está en la app (es una petición nueva: se da de
+alta)» y lo junta en `llegado.nuevas`; si la conversación es de una obra nueva no se le cuelga la única obra
+que tenga (`procesarChat`, `esNueva`), y `dossierParaBorrador` con `ch.obraNueva` dice «es de una OBRA NUEVA…
+no le preguntes de cuál es ni le hables de ellas» en vez de «tiene varias obras, pregúntale cuál».
+
+**REGLA — a una petición nueva se le contesta como Fran: «Buenos días, Fran. Lo vamos a revisar y te pasamos la
+propuesta.»** Una o dos líneas; sin recitar lo recibido (ni el nº del presupuesto, ni el fichero), sin hablarle
+de sus otras obras y sin «lo coloco en su expediente». Solo si no hay manera de saber qué vivienda es (ni
+Catastro, ni RC, ni dirección), una frase pidiéndole la dirección o la referencia catastral. Lo mismo en el caso
+G (instalador sin obra que manda los datos de un cliente): antes era ESCALAR a Fran.
+
+**REGLA — el saludo es el de Fran: «Buenos días» hasta las 14:00 y «Buenas tardes» después (Madrid), con el
+nombre de pila con el que le saludamos NOSOTROS en el chat** (`saludoDeLaHora`, `nombrePilaDe`: «Hola Fran!» →
+Fran; los saludos del contestador y las plantillas no cuentan). Sin él, la agenda como pista; nunca el nombre de
+la empresa. Y, para todas las respuestas: lo recibido no se recita, y la coletilla del bot de clientes («si
+preguntabas por otra obra, avísame») ya no se pide y, si sale, la quita `limpiar` (`sinColetillaOtraObra`: solo
+la frase con «otra», «si preguntabas/te referías/era…» y «avísame/dime»). El prompt lleva tres respuestas reales
+de Fran como ejemplo de tono.
+
+**REGLA — el ALTA se encarga sola, y lo que la decide es lo que ha llegado, no solo el modelo.** El cerebro
+devuelve `"alta": true`; el contestador solo lo acepta si lo respalda lo visto (`peticionNueva`: un adjunto de
+obra NUEVA, una placa / Catastro / presupuesto / croquis sin obra asignada, lo de quien no tiene obra con
+nosotros, o la conversación sobre una obra nueva) y, **en real y con la respuesta ya dada**, se la encarga al
+asistente (`asistenteCanal.pedirTarea`, clave `alta:<chatId>`: una por ráfaga). El texto lo compone el CÓDIGO
+con datos de la BD y vocabulario fijo (`textoAlta`: teléfono, partner de la ficha, `--desde` en hora de Madrid,
+cuántos adjuntos y de qué tipo) — **nada de lo que ha escrito el instalador ni su nombre de WhatsApp**, porque el
+asistente lo toma como una orden de Fran. El asistente hace la skill `alta-oportunidad` sobre ese chat (una
+oportunidad por vivienda; si la RC ya tiene oportunidad, la documenta) y termina con el `avisar` de siempre: a
+Fran solo le llega el resumen con «¿se la envío así o la quieres revisar tú?», y la propuesta sigue saliendo
+solo con su «sí». Tope: `CONTESTADOR_ALTAS_DIA` (10 en 24 h, contados por `detalle.alta_at`); si no se puede
+encargar (tope, asistente caído) Fran recibe la respuesta con «no la he podido encargar: dásela tú de alta». En
+copia no se encarga: Fran ve «en real la daría de alta yo solo». Se apaga con `CONTESTADOR_ALTA=false`.
+
+**REGLA — con el contestador en real, el modo proactivo no pregunta «¿La doy de alta?».** Contestaban los dos a la
+misma petición (el proactivo a los 10 min, el contestador a los 15) y la pregunta se quedaba sin respuesta.
+`asistente_proactivo.js` se apaga solo con `CONTESTADOR_ENABLED=true` + `CONTESTADOR_MODO=real` (salvo
+`CONTESTADOR_ALTA=false`).
+
 ## Instaladores SIN obra: también se les contesta (2026-11-16)
 
 Fran, 16/11/2026, tras ver días sin respuesta el chat de Alejandro MultiServicios (un instalador que mandó

@@ -52,6 +52,23 @@ const hoy = () => new Date().toLocaleString('es-ES', {
     timeZone: 'Europe/Madrid', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
 });
 
+/**
+ * «Buenos días» por la mañana y «Buenas tardes» desde las 14:00 (Madrid), como saluda Fran
+ * (20/11/2026: «Buenos días (o tardes según hora) Fran, lo vamos a revisar y te pasamos la
+ * propuesta»). La franja de la casa acaba a las 21 h: no hay «buenas noches». Pura.
+ */
+function saludoDeLaHora(ahora = new Date()) {
+    const h = Number(new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: 'numeric', hourCycle: 'h23' }).format(ahora));
+    return h >= 6 && h < 14 ? 'Buenos días' : 'Buenas tardes';
+}
+
+// Lo que el instalador manda de una vivienda que no está en la app, en lenguaje de casa (para el prompt).
+const NOMBRE_TIPO_NUEVA = {
+    CAPTURA_CATASTRO: 'el Catastro', FOTO_PLACA: 'la placa de la caldera', FOTO_OBRA: 'fotos',
+    PRESUPUESTO: 'un presupuesto', PLANO_CROQUIS: 'un croquis', CEE: 'un certificado energético',
+    DNI: 'un DNI', FACTURA: 'una factura', OTRO_DOCUMENTO: 'un documento',
+};
+
 const SCHEMA = {
     type: 'object',
     properties: {
@@ -60,6 +77,9 @@ const SCHEMA = {
         acuse: { type: 'string' },
         tema: { type: 'string' },
         para_fran: { type: 'boolean' },
+        // Es una PETICIÓN NUEVA (Catastro, caldera, presupuesto de una vivienda que no está en la
+        // app): la oportunidad se da de alta sola (contestadorWhatsapp → asistente, 20/11/2026).
+        alta: { type: 'boolean' },
         // Una frase para Fran sin contestarle al cliente (lo que no es de obra pero le interesa).
         aviso: { type: 'string' },
         motivo: { type: 'string' },
@@ -157,7 +177,10 @@ Lo que contesta Fran a un INSTALADOR que quiere pasarnos un cliente o pregunta c
  * El prompt entero. Puro: se prueba sin red (scripts/test_contestador_whatsapp.js).
  * `extra` (lo pone el contestador): { instalador: situacionInstalador, pedidos: [{ at, texto }],
  *   tardeHoras: lo que lleva esperando su primer mensaje sin contestar,
- *   sinObra: 'registrado'|'solicitud'|'desconocido' si no tiene ninguna obra viva }.
+ *   sinObra: 'registrado'|'solicitud'|'desconocido' si no tiene ninguna obra viva,
+ *   saludo: 'Buenos días'|'Buenas tardes' (si no, el de la hora), nombrePila: como le llamamos
+ *   nosotros en el chat («Hola Fran!» → 'Fran'), agenda: su nombre en la agenda }.
+ * `ch.obraNueva` / `llegado.nuevas`: lo que manda es de una vivienda que no está en la app.
  */
 function construirPrompt(ch, obra, dossier, llegado, extra = {}) {
     if (dossier && llegado?.slots?.size) {
@@ -182,6 +205,17 @@ function construirPrompt(ch, obra, dossier, llegado, extra = {}) {
     const segs = (extra.seguimientos || []).filter(s => s?.numero);
     const segPropuesta = segs.some(s => s.tipo === 'PROPUESTA');
     const segCee = segs.some(s => s.tipo === 'CEE_INICIAL');
+    // El saludo de Fran: «Buenos días/Buenas tardes, <nombre de pila>.» (20/11/2026).
+    const saludo = extra.saludo || saludoDeLaHora();
+    // Un nombre de pila: una o dos palabras con mayúscula («Fran», «José Luis»); otra cosa no entra.
+    const nombrePila = /^[A-ZÁÉÍÓÚÑ][a-záéíóúñü]{1,20}( [A-ZÁÉÍÓÚÑ][a-záéíóúñü]{1,20})?$/.test(String(extra.nombrePila || '').trim()) ? String(extra.nombrePila).trim() : null;
+    const agenda = String(extra.agenda || '').replace(/["«»\n\r]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const saludoCon = nombrePila ? `${saludo}, ${nombrePila}` : saludo;
+    // PETICIÓN NUEVA: lo que manda es de una vivienda que no está en la app (20/11/2026, Fran Ruimor:
+    // Catastro + presupuesto → se le preguntó de cuál de sus tres obras era).
+    const nuevas = llegado?.nuevas || [];
+    const peticionNueva = nuevas.length > 0 || !!ch.obraNueva;
+    const queNuevas = [...new Set(nuevas.map(n => NOMBRE_TIPO_NUEVA[n.tipo] || 'un documento'))];
 
     const prompt = `${CONOCIMIENTO}
 
@@ -206,9 +240,12 @@ trata como de una obra: nunca le preguntes de qué obra es. Si no pide nada con 
 pide el tono, RESPONDER con una línea natural: «Gracias, lo he visto»). Si a Fran le interesa saberlo (un curso o
 una feria sobre CAEs o aerotermia, un competidor, un cambio de normativa) → CALLAR y en "aviso" una frase para Fran
 («Vicente ha mandado el cartel de un curso de Johnson sobre aerotermia y CAEs, el 25/11 en Valdepeñas»).
+Lo marcado «OBRA NUEVA» es de una vivienda que aún no está en la app: es una PETICIÓN NUEVA (ver TU TAREA).
 Lo «SIN OBRA asignada» decídelo por lo que es. Solo si ES de obra (caldera, placa, factura, RITE, la vivienda…) y no
 se sabe de cuál, se pregunta de cuál; antes mira lo que ya le hemos pedido (abajo): si encaja con algo pedido,
-es de esa obra. Y al preguntar, no le listes las direcciones de sus obras salvo que haga falta para que elija.
+es de esa obra. Si es de una vivienda que no es ninguna de las suyas (otro Catastro, otra dirección, otro
+titular), es una PETICIÓN NUEVA. Y al preguntar, no le listes las direcciones de sus obras salvo que haga falta
+para que elija.
 ${pedidos.length ? `
 # LO QUE YA LE HEMOS PEDIDO ANTES (mensajes de la app a este número, lo último primero)
 
@@ -237,8 +274,8 @@ CÓMO ESCRIBE FRAN (manda sobre «CÓMO HABLAS» de arriba):
 - Si le falta más de una cosa, pídele solo lo de la fase activa y como mucho DOS, con UN enlace (el de
   subirlo); el resto se le pedirá después. Nunca la lista entera del dossier.
 - Sigue el hilo de la conversación. NO te presentes («soy Fran, de BROKERGY»): ya nos conoce, nos ha
-  escrito él. Si hoy ya os habéis saludado, ve al grano sin «Hola».
-- Saluda con el nombre de pila si el dossier lo da («Hola Ana,»); si no, «Hola,».
+  escrito él. Si hoy ya os habéis saludado, ve al grano sin saludo.
+- Saluda con «${saludo}» y su NOMBRE DE PILA: ${nombrePila ? `«${saludoCon}.» (así le llamamos en la conversación)` : `el que le damos nosotros en la conversación, o el de la ficha o la agenda si es claramente el de una persona${agenda ? ` (en la agenda: «${agenda}»)` : ''}; si no hay, «${saludo}.» a secas`}. Nunca el nombre de una empresa ni «Hola,» a secas.
 - SIN emojis. Sin firma ni «un saludo». Sin disculparte («lo siento», «perdona», «disculpa»): se
   explica y se dice qué sigue. *Negrita* solo para lo que se le pide.${tarde ? `
 - Le contestas TARDE: lleva ${tarde === 1 ? 'un día' : `${tarde} días`} esperando. Empieza con «Perdona la tardanza.»
@@ -250,10 +287,33 @@ CÓMO ESCRIBE FRAN (manda sobre «CÓMO HABLAS» de arriba):
   RES060…), nunca importes, nunca fechas o plazos que no estén en el dossier.
 - No empieces con un rótulo («Sobre la obra de CL MAYOR 1 (…):»). Si tiene varias obras y hay que decir de
   cuál hablas, nómbrala dentro de la frase por la calle y el pueblo («lo de la calle Mayor, en Tomelloso»).
-  Si está claro de cuál habla, no le preguntes por las otras.
+  Si está claro de cuál habla, no le preguntes por las otras, y no termines ofreciéndole que te avise si
+  hablaba de otra obra.
+- Lo que ha mandado NO se recita: ni la lista de lo recibido, ni el nombre del fichero, ni el número del
+  presupuesto o de la factura. Basta con «perfecto, ya lo tengo» o nombrar el asunto en dos palabras.
 - Si dice que la obra YA ESTÁ HECHA o te pide que mires lo que ha mandado, eso SÍ se contesta (caso D/E o
   el acuse de lo recibido): no es cortesía.
 
+ASÍ CONTESTA FRAN (respuestas suyas reales: copia el TONO; lo que se dice sale del dossier):
+- «Buenos días, Fran. Lo vamos a revisar y te pasamos la propuesta.»
+- «Buenas tardes, Javier. Recibido el justificante de la cuenta, gracias. Por tu parte ya no falta nada por
+  ahora: los anexos para firmar los preparamos nosotros y te llegan hechos, con un enlace.»
+- «Buenos días, Sergio. Lo más importante ahora son las fotos: la caldera vieja ya quitada y la máquina de
+  fuera y la de dentro, cada una con su pegatina bien de cerca.»
+${peticionNueva ? `
+ES UNA PETICIÓN NUEVA (manda sobre los casos de abajo): lo que ha mandado${queNuevas.length ? ` (${queNuevas.join(', ')})` : ''} es de una vivienda
+que aún no está en la app. Cuando nos pasan el Catastro, la foto de la caldera o de su placa, o un presupuesto, es
+para que le calculemos la ayuda y le pasemos la propuesta: no hace falta que lo diga, y NO se le pregunta de qué obra
+es. La oportunidad la damos de alta nosotros enseguida, sin pedirle nada que no haga falta.
+- "accion": "RESPONDER" y "alta": true. La respuesta, la de Fran: «${saludoCon}. Lo vamos a revisar y te pasamos la
+  propuesta.» Una o dos líneas, nada más.
+- Sin recitar lo que ha mandado, sin hablarle de sus otras obras y sin «lo coloco en su expediente».
+- Solo si con lo que ha mandado NO hay manera de saber qué vivienda es (ni Catastro, ni referencia catastral, ni
+  dirección en el presupuesto o en lo que escribe), añade UNA frase pidiéndole la dirección o la referencia
+  catastral. Si se puede saber, no le pidas nada más.
+- Si en la misma ráfaga pregunta otra cosa (de esta obra nueva o de una de las suyas), contéstala también en una
+  frase, o ESCALAR como siempre si no la sabes, con "alta": true igualmente.
+` : ''}
 QUÉ SE LE CONTESTA (la primera que encaje):
 A. Le falta algo SUYO en la fase activa (el dossier lo dice) → se lo dices y le das la MARCA del enlace.
    Lo que le toca al INSTALADOR (factura, CIFO, RITE, fotos de la obra) no se le pide a un cliente: se le
@@ -270,12 +330,13 @@ D. CEE inicial registrado y obra sin terminar → ya puede hacerse y facturarse 
 E. Obra terminada, certificado final → estamos con el certificado final y después lo preparamos para
    mandarlo a revisión.
 F. Ya emitido y pendiente de cobro → ha salido favorable y está emitido; estamos con el cobro y le avisas.
-- Ha mandado FOTOS o DOCUMENTOS → acusa recibo nombrando lo que es en lenguaje de casa («la foto de la
-  pegatina de la caldera, perfecto»). Si con eso aún le falta algo suyo, díselo con su enlace; si no, que
-  lo revisas y si falta algo se lo dices. No le pidas lo que acaba de mandar.${hayGuardado ? `
-- Lo que ya está GUARDADO se acusa EN CONCRETO, qué es y cuántos, y que ya está en el expediente («Recibidas
-  las dos facturas, ya las tengo en el expediente»). Y en la MISMA respuesta, lo que le queda a ÉL ahora
-  (el dossier, sin lo que acaba de mandar), como mucho dos cosas: «Ahora solo quedaría el RITE».` : ''}${pedidos.length ? `
+- Ha mandado FOTOS o DOCUMENTOS de una de sus obras → acusa recibo en pocas palabras y en lenguaje de casa
+  («Perfecto, ya lo tengo», «Recibidas las fotos, perfecto»), sin enumerarlo. Si con eso aún le falta algo
+  suyo, díselo con su enlace; si no, que lo revisas y si falta algo se lo dices. No le pidas lo que acaba de
+  mandar.${hayGuardado ? `
+- Lo que ya está GUARDADO se acusa diciendo QUÉ es en dos palabras y que ya está en el expediente («Recibidas
+  las facturas, ya las tengo en el expediente»), sin la lista. Y en la MISMA respuesta, lo que le queda a ÉL
+  ahora (el dossier, sin lo que acaba de mandar), como mucho dos cosas: «Ahora solo quedaría el RITE».` : ''}${pedidos.length ? `
 - Si le vuelves a pedir algo que ya le pedimos antes (arriba), dilo con palabras PARECIDAS a las de entonces,
   que es la misma persona y el mismo asunto, pero corto: sin copiar la plantilla, su lista ni sus 📸.` : ''}${inst && esInstalador ? `
 - LO DEL INSTALADOR (CIFO y RITE), con lo de «LO DEL INSTALADOR EN ESTA OBRA»:
@@ -298,11 +359,10 @@ ${sinObra ? `G. NO TIENE OBRA CON NOSOTROS (arriba). La primera que encaje:
      necesitamos, en dos o tres líneas sin lista larga, que el certificado inicial va ANTES de facturar, y la
      MARCA del vídeo sola en su línea. Aquí vale hasta OCHO líneas.
    · Si además ya ha mandado algo de un cliente (fotos de la caldera, un presupuesto) y pregunta qué más
-     hace falta → igual, RESPONDER: acusa en concreto lo recibido («recibidas las fotos de la caldera») y
-     pídele solo lo que FALTA de la lista del caso G, con el vídeo. Fran se entera aparte para darlo de alta.
-   · Manda los datos de un cliente concreto SIN preguntar nada (para que se lo calculemos) → ESCALAR
-     con "para_fran": true (motivo: «dar de alta la oportunidad que manda <quién>, de <dónde>»), con un
-     acuse que nombre lo recibido («Recibidos los datos de la vivienda de Tomelloso, te digo con lo que sale»).
+     hace falta → igual, RESPONDER y "alta": true: sin recitar lo recibido, pídele solo lo que FALTA de la
+     lista del caso G, con el vídeo. La oportunidad la damos de alta nosotros con lo que haya.
+   · Manda los datos de un cliente concreto SIN preguntar nada (para que se lo calculemos) → es una PETICIÓN
+     NUEVA: RESPONDER «${saludoCon}. Lo vamos a revisar y te pasamos la propuesta.» y "alta": true.
    · Pregunta por comisiones, precios o condiciones → ESCALAR con "para_fran": true y acuse concreto. Por
      una obra o un expediente que no está aquí → ESCALAR (se busca) con acuse concreto.${sinObra === 'desconocido' ? `
    · NO es un instalador ni una empresa del sector (un particular, un proveedor, publicidad, algo
@@ -325,10 +385,12 @@ ${segPropuesta ? `- Si contesta a lo que le preguntamos de una PROPUESTA en el s
   mandó por otro lado (email, al instalador, a otra persona) → ESCALAR (motivo: «dice que ya mandó lo del CEE
   inicial de <la obra> por <dónde>: buscarlo»), con acuse «Lo busco y te digo». Si dice que no puede hacer las
   fotos → ESCALAR (motivo: «no puede hacer las fotos de <la obra>: buscar otra vía»).
-` : ''}- Manda algo de una vivienda u obra que NO está en el dossier (una petición nueva) → ESCALAR con
-  "para_fran": true (hay que darla de alta) y un acuse que nombre lo que ha mandado («Recibidas las fotos
-  de la casa de tu hermano, lo miro y te digo»).
-- Tiene varias obras y no se sabe de cuál habla → pregúntale cuál (por la dirección o el titular).
+` : ''}- Manda algo de una vivienda u obra que NO está en el dossier (una petición nueva) → RESPONDER «${saludoCon}.
+  Lo vamos a revisar y te pasamos la propuesta.» y "alta": true (la damos de alta nosotros). Solo si no hay
+  manera de saber qué vivienda es, una frase pidiéndole la dirección o la referencia catastral.
+- Tiene varias obras y no se sabe de cuál habla (y no es una petición nueva) → pregúntale cuál (por la
+  dirección o el titular).
+"alta" = true SOLO con una petición nueva de una vivienda que no está en la app; si no, false.
 
 "accion" = ESCALAR cuando NO lo puedes contestar con lo que tienes AQUÍ: pregunta algo que el dossier no
 responde (cuánto le saldrá de ayuda, el IRPF, un trámite, qué hace falta en un caso raro, un enlace que no
@@ -364,7 +426,7 @@ ENLACES: van en el dossier como MARCAS entre llaves (${marcas}). Si hace falta u
 cual, sola en su línea; el sistema pone el enlace. NUNCA escribas una dirección web.
 
 FORMATO: devuelve SOLO este JSON, sin nada alrededor:
-{"accion": "RESPONDER" | "ESCALAR" | "CALLAR", "parrafos": ["un elemento por párrafo"], "acuse": "", "tema": "", "para_fran": false, "aviso": "", "motivo": "por qué (para nosotros, una frase)"${segPropuesta ? ', "seguimiento": []' : ''}}`;
+{"accion": "RESPONDER" | "ESCALAR" | "CALLAR", "parrafos": ["un elemento por párrafo"], "acuse": "", "tema": "", "para_fran": false, "alta": false, "aviso": "", "motivo": "por qué (para nosotros, una frase)"${segPropuesta ? ', "seguimiento": []' : ''}}`;
 
     return { prompt, enlaces, propuesta };
 }
@@ -376,8 +438,23 @@ const FIRMA = /\n+\s*(\*?BROKERGY\b[^\n]*|un saludo[^\n]*|saludos[^\n]*|fran\.?)
 // él (26RES093_14, 18/11/2026: «Las dos facturas en Word y tus audios sobre el concepto y la calle Niños
 // los reviso yo a mano y te digo si están bien»). Pasa al de siempre y, con tema, a «Lo de <tema>…».
 const ACUSE_NO = /compa[ñn]er[oa]|asistente|autom[aá]tic|programa|\bbot\b|ahora mismo|en un rato|\bhoy\b|ma[ñn]ana|te llam|llamar|lo siento|perd[oó]n|disculp|\ba mano\b|yo mism[oa]|personalmente/i;
+// La coletilla del bot de clientes («…y si preguntabas por otra obra, avísame»): suena a máquina y
+// Fran no la dice nunca (20/11/2026). Se quita la FRASE entera solo si lleva las tres cosas: «otra»,
+// el «si preguntabas / te referías / era…» y el «avísame / dime»; así no se cae una frase normal
+// sobre otra obra.
+function sinColetillaOtraObra(s) {
+    const esColetilla = (f) => /\botr[ao]s?\b/i.test(f)
+        && /\bsi\s+(me\s+)?(preguntabas|preguntas|te\s+refer[ií]as|te\s+refieres|hablabas|era|es)\b/i.test(f)
+        && /\b(av[ií]sa(me)?|d[ií](me|melo)|me\s+(lo\s+)?dices|me\s+lo\s+indicas|ind[ií]camelo)\b/i.test(f);
+    return s.split('\n').map((linea) => {
+        const frases = linea.split(/(?<=[.!?])\s+/);
+        const quedan = frases.filter(f => !esColetilla(f));
+        return quedan.length === frases.length ? linea : quedan.join(' ');
+    }).join('\n');
+}
+
 function limpiar(texto) {
-    let s = String(texto || '').replace(EMOJI, '').replace(/[ \t]{2,}/g, ' ');
+    let s = sinColetillaOtraObra(String(texto || '').replace(EMOJI, '')).replace(/[ \t]{2,}/g, ' ');
     for (let i = 0; i < 2; i++) s = s.replace(FIRMA, '');
     return s.replace(/^[ \t]+/gm, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n')
         // «Puedes subirlas aquí:» y el enlace, juntos (la marca en su línea dejaba un hueco).
@@ -512,6 +589,9 @@ function rematar(r, enlaces) {
         acuse,
         tema,
         para_fran: r?.para_fran === true,
+        // Petición nueva: se da de alta sola. Lo valida el contestador (que de verdad haya llegado algo
+        // de una vivienda que no está en la app) antes de encargarlo.
+        alta: r?.alta === true && accion !== 'CALLAR',
         borrador: /\{ENLACE_/.test(borrador) ? '' : borrador,
         aviso: accion !== 'ESCALAR' ? String(r?.aviso || '').replace(/\s+/g, ' ').trim().slice(0, 300) : '',
         fuentes: (Array.isArray(r?.fuentes) ? r.fuentes : []).map(f => String(f || '').replace(/\s+/g, ' ').trim().slice(0, 120)).filter(Boolean).slice(0, 8),
@@ -599,6 +679,8 @@ async function redactar(ch, obra, dossier, llegado, cuenta, extra = {}) {
     return {
         ...r,
         para_fran: primera.para_fran || r.para_fran,
+        // El alta la decide la primera (es lo que ha llegado, no lo que se investiga).
+        alta: (primera.alta || r.alta) && r.accion !== 'CALLAR',
         // El seguimiento lo dice quien lee mejor; si el investigador no lo da, vale el de la primera.
         seguimiento: r.seguimiento.length ? r.seguimiento : primera.seguimiento,
         acuse: r.acuse || (r.accion === 'ESCALAR' ? primera.acuse : ''),
@@ -661,4 +743,5 @@ async function investigar(prompt, primera, { enlaces, segPropuesta = false } = {
 module.exports = {
     redactar, construirPrompt, construirInvestigacion, debeInvestigar, acuseConcreto,
     bloqueInstalador, bloqueSinObra, bloqueSeguimiento, rematar, limpiar, SCHEMA, VIDEO_INSTALADORES,
+    saludoDeLaHora, sinColetillaOtraObra,
 };

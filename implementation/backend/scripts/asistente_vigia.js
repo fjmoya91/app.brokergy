@@ -493,7 +493,7 @@ async function vueltaUnica() {
             `\n## Tu CUADERNO (${CUADERNO})\nLéelo antes de empezar y REESCRÍBELO al terminar (ver «El cuaderno» arriba).\n`,
             (() => { const c = leerCuaderno(); return c.length > CUADERNO_MAX ? `${c.slice(0, CUADERNO_MAX)}\n[… CORTADO: pasa de ${CUADERNO_MAX} caracteres; acórtalo]` : c; })(),
             lineas.length ? '\n## LO QUE FRAN TE ACABA DE ESCRIBIR\n' : '', lineas.join('\n'),
-            lineasApp.length ? '\n## LO QUE TE PIDE LA APP (lo ha pedido Fran pulsando un botón: hazlo igual que si te lo escribiera)\n' : '',
+            lineasApp.length ? '\n## LO QUE TE PIDE LA APP (lo ha pedido Fran pulsando un botón, o la app por él en lo que él ha dejado dicho que se haga solo, como el ALTA de una petición nueva: hazlo igual que si te lo escribiera)\n' : '',
             lineasApp.join('\n\n'),
             sinWhatsapp ? '\n⚠️ AHORA MISMO EL WHATSAPP DEL SERVIDOR NO RESPONDE. Trabaja igual: lo que digas con `decir` se guarda y le llegará en cuanto vuelva (no lo repitas).' : '',
             enSilencio

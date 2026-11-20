@@ -437,6 +437,19 @@ function dossierParaBorrador(ch, obra, dossier) {
         })),
     };
     const persona = nombres.length === 1 ? nombres[0] : 'esta persona';
+    // Lo que habla ahora es una OBRA NUEVA (catastro, caldera, presupuesto de una vivienda que no
+    // está en la app): ni «tiene varias obras, pregúntale cuál» ni «no tiene nada, escala». El
+    // 20/11/2026 a un instalador con tres obras que mandó el Catastro y el presupuesto de otra se le
+    // preguntó de cuál de las tres era.
+    if (ch.obraNueva && !dossier) {
+        const otras = candidatas.map(o => o.referencia || o.cliente).filter(Boolean).slice(0, 6);
+        const texto = `Quien escribe: ${ctx.nombre || 'sin nombre en la ficha'} — figura como ${rolBot === 'instalador' ? 'EMPRESA INSTALADORA' : rolBot === 'ambos' ? 'CLIENTE y también como INSTALADORA' : 'CLIENTE particular'}.
+
+Lo que manda AHORA es de una OBRA NUEVA que aún no está en la app: una petición nueva para que le calculemos
+la ayuda y le pasemos la propuesta. NO es de ninguna de sus obras en curso${otras.length ? ` (${otras.join(' · ')})` : ''}:
+no le preguntes de cuál es ni le hables de ellas.`;
+        return { texto, enlaces, propuesta };
+    }
     let texto = textoDossier(ctx, obra, propuesta, persona);
     if (obra?.tipo === 'cee') texto += `\n\nEs un CERTIFICADO ENERGÉTICO suelto (${obra.codigo}, ${obra.estado}), no un expediente CAE.`;
     return { texto, enlaces, propuesta };

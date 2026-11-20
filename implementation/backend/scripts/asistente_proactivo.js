@@ -24,7 +24,12 @@ const { createClient } = require(path.join(__dirname, '../node_modules/@supabase
 
 const DIR = path.join(__dirname, '..', 'scratch', 'asistente');
 const FICHERO = path.join(DIR, 'proactivo.json');
-const ACTIVO = String(process.env.ASISTENTE_PROACTIVO || 'true') !== 'false';
+// Con el CONTESTADOR en real, la petición nueva la contesta él («lo vamos a revisar y te pasamos la
+// propuesta») y encarga el alta sola (contestadorWhatsapp → /tarea, 20/11/2026). Preguntarle aquí a
+// Fran «¿la doy de alta?» era trabajo doble y no lo contestaba: P76–P83 se quedaron sin respuesta.
+const CONTESTADOR_REAL = process.env.CONTESTADOR_ENABLED === 'true' && process.env.CONTESTADOR_MODO === 'real'
+    && process.env.CONTESTADOR_ALTA !== 'false';
+const ACTIVO = String(process.env.ASISTENTE_PROACTIVO || 'true') !== 'false' && !CONTESTADOR_REAL;
 const SILENCIO_MS = Number(process.env.ASISTENTE_PROACTIVO_SILENCIO_MIN || 10) * 60_000;
 const MAX_HORA = Number(process.env.ASISTENTE_PROACTIVO_MAX_HORA || 6);
 const CADUCA_MS = 3 * 24 * 3600_000;

@@ -288,10 +288,17 @@ function dossierDe(obra) {
  * le preguntó de qué obra era la foto, con sus tres direcciones (turno 414). Puro.
  */
 function lineasLlegado(filas, codigo, sinLeer = []) {
-    const llegado = { slots: new Set(), lineas: [] };
+    // `nuevas`: lo que es de una vivienda que NO está en la app (catastro, caldera, presupuesto
+    // de una obra nueva). Antes se caía aquí y el cerebro, sin saberlo, preguntaba «¿de qué obra
+    // son?» (20/11/2026, Fran Ruimor: captura del Catastro + presupuesto → «¿me dices de qué obra
+    // son?»). Una petición nueva se contesta «lo revisamos y te pasamos la propuesta» y se da de alta.
+    const llegado = { slots: new Set(), lineas: [], nuevas: [] };
     for (const f of filas || []) {
         const deObra = f.obra && f.obra !== 'NUEVA' && f.obra !== '—';
-        if (deObra && (!codigo || f.obra === codigo)) {
+        if (f.obra === 'NUEVA' && f.tipo !== 'NO_RELACIONADO') {
+            llegado.nuevas.push({ tipo: f.tipo || 'OTRO_DOCUMENTO', que: f.que, cuando: f.cuando });
+            llegado.lineas.push(`${f.que} (${f.cuando}) — de una OBRA NUEVA que aún no está en la app (es una petición nueva: se da de alta)`);
+        } else if (deObra && (!codigo || f.obra === codigo)) {
             const nota = f.guardado === true ? ' — YA GUARDADO en el expediente'
                 : (typeof f.guardado === 'string' ? ` — sin guardar (lo mira Fran: ${f.guardado})` : '');
             llegado.lineas.push(`${f.que} (${f.cuando})${nota}`);
@@ -413,13 +420,17 @@ async function procesarChat(c, a, ctx) {
             // La obra de la ÚLTIMA pregunta sin contestar manda: es a lo que hay que responder.
             const deLaPregunta = [...(an.preguntas_sin_contestar || [])].reverse().find(p => p.obra && p.obra !== 'NUEVA')?.obra;
             const deLaConv = an.obra_de_la_conversacion !== 'NUEVA' ? an.obra_de_la_conversacion : '';
-            const codigo = deLaPregunta || deLaConv || (c.obrasTocadas.length === 1 ? c.obrasTocadas[0] : (c.obras.length === 1 ? c.obras[0].codigo : ''));
+            // Si lo que se habla es una obra NUEVA, no se le cuelga la única que tiene: a un
+            // instalador con una obra en la app le llegaba el dossier de esa al mandar otra.
+            const esNueva = an.obra_de_la_conversacion === 'NUEVA' || (c.nuevas > 0 && !c.obrasTocadas.length);
+            const porDefecto = esNueva ? '' : (c.obrasTocadas.length === 1 ? c.obrasTocadas[0] : (c.obras.length === 1 ? c.obras[0].codigo : ''));
+            const codigo = deLaPregunta || deLaConv || porDefecto;
             const obra = c.obras.find(o => o.codigo === codigo) || null;
             const llegado = lineasLlegado(c.filas, codigo, c.sinLeer);
             const propuesta = IA.estadoPropuesta(obra);
             try {
                 const dossier = obra && (!propuesta || propuesta === 'ENVIADA') ? await dossierDe(obra) : null;
-                c.borrador = await redactar({ ...ch, obras: c.obras }, obra, dossier, llegado, cuenta, { modelo: modeloBorrador });
+                c.borrador = await redactar({ ...ch, obras: c.obras, obraNueva: esNueva && !obra }, obra, dossier, llegado, cuenta, { modelo: modeloBorrador });
                 c.obraBorrador = codigo || null;
             } catch (e) { c.borrador = { accion: 'MANO', motivo: `no se pudo redactar: ${e.message}` }; }
         }

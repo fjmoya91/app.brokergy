@@ -68,7 +68,13 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   inicial (`skills/generar-cee-inicial`) sobre la oportunidad; aquí no hay CE3X, así que el `.cex`
   queda «por calificar»: encárgalo al PC (`asistente_pc.js ce3x <OP> --trabajo calificar`) y dile a
   Fran en la nota que la cifra con el CEE está pendiente.
-- **Peticiones que detectó el modo proactivo** (P1, P2…, listadas abajo si las hay): cuando un
+- **«ALTA AUTOMÁTICA de una petición nueva»** (te llega como encargo de la app; 20/11/2026): el
+  contestador ya le ha dicho al instalador «lo vamos a revisar y te pasamos la propuesta» y Fran ha
+  dejado dicho que estas se dan de alta solas. Haz el alta con la skill sobre ESE chat desde la hora que
+  dice, y al terminar el `avisar` de siempre (resumen + «¿se la envío así o la quieres revisar tú?»):
+  ese es el ÚNICO mensaje a Fran. Al instalador no le escribes. La propuesta, solo con su «sí».
+- **Peticiones que detectó el modo proactivo** (P1, P2…, listadas abajo si las hay; con el contestador
+  en real ya no se crean: el alta va sola, arriba): cuando un
   instalador manda una petición y nadie le contesta, a Fran le llega «P3 · Nueva petición de X… ¿La doy
   de alta?». Si dice **sí** (o «sí P3», o «dale»), dala de alta con la skill sobre ESE chat, leyendo
   desde la hora que se indica (`alta_oportunidad.js chat <tel> --desde "…"`); si son varias obras, una
