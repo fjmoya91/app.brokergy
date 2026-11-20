@@ -56,6 +56,13 @@ toca el ACS; `acsInicial` dice si hay que documentar el que YA HABÍA. En un **R
 justifica comparando antes/después y el ACS entra en esa tabla de emisiones (en 26RES080_OP54:
 7,91 → 7,59 kg CO₂/m²), así que el termo existente se fotografía aunque la obra no lo sustituya. En
 una ficha de sustitución de caldera sigue mandando la regla 12.b: ACS fuera de alcance → no se pide.
+**Y eso manda sobre el aparato que diga la simulación** (2026-11-20, Fran, 26RES060_299): el código
+pedía igual «Tu termo eléctrico actual» cuando `boilerAcsType` era «Termo», aunque el ACS fuera de
+gasóleo y la obra no lo tocara —se lo reclamó el aviso de «CEE inicial presentado»—. En un RES060 la
+caldera da el ACS y el termo es SU DEPÓSITO (regla 201), y su foto ya está pedida. Ahora, con el alcance
+del EXPEDIENTE diciendo sustitución (`esSustitucionCaldera`) y `acs` en falso, `FOTO_ACS_ANTES` no sale
+(`acsFueraDeLaSustitucion` en `deriveSelectors`); una oportunidad sin expediente sigue como antes, y el
+admin puede añadir el apartado a mano. Lo vigila `test_docs_fotos.js` (bloque 2).
 El **depósito nuevo** (`FOTO_ACS_DEPOSITO`, fase DESPUÉS) solo se pide si `changeAcs`.
 
 **REGLA — lo que define la ACTUACIÓN va PRIMERO; el contexto, detrás.** Fachada de la calle, patios,

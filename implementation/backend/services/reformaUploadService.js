@@ -515,7 +515,16 @@ function deriveSelectors(datosCalculo = {}) {
     const acsSinAgua = acsTipo === 'no_tengo';
     const acsLoDaLaCaldera = !acsOtroAparato && !acsTipoInputs
         && (acsTipo ? acsTipo === 'misma_caldera' : true);
-    const acsInicial = !acsLoDaLaCaldera && !acsSinAgua
+    // Una ficha de SUSTITUCIÓN de caldera (RES060/093, TER100/173) con el ACS
+    // fuera de la obra no documenta el ACS que había (regla 12.b): o lo calienta
+    // la propia caldera, o un termo es SU DEPÓSITO (regla 201), y la foto de la
+    // caldera ya está pedida. Se pedía igual porque la simulación decía «Termo» en
+    // el equipo de ACS: 26RES060_299 (20/11/2026), caldera de gasóleo con el ACS
+    // en gasóleo, y el aviso de «CEE presentado» le reclamó «tu termo eléctrico».
+    // Solo con el alcance del EXPEDIENTE (una oportunidad sin él, como siempre); el
+    // admin puede volver a añadir el apartado a mano.
+    const acsFueraDeLaSustitucion = alc.esSustitucionCaldera === true && !changeAcs;
+    const acsInicial = !acsFueraDeLaSustitucion && !acsLoDaLaCaldera && !acsSinAgua
         && (changeAcs || alc.ficha === 'RES080' || acsOtroAparato || !!acsTipoInputs
             || (!!acsTipo && acsTipo !== 'misma_caldera'));
     // Nombre del aparato para la etiqueta. Si el expediente contradice al funnel

@@ -153,6 +153,19 @@ function alcance() {
     const conAcs = svc.buildDocChecklist({ ...base, alcance: { acs: true } }).find(s => s.key === 'FOTO_UNIDAD_INTERIOR');
     ok(/ACS/.test(conAcs?.label || ''), 'con el ACS dentro, el rótulo de siempre', conAcs?.label);
 
+    // 26RES060_299: caldera de gasóleo, la simulación dice «Termo» en el ACS y la obra
+    // no toca el ACS → el termo es el depósito de la caldera (reglas 12.b y 201).
+    const termo = { estado: 'ACEPTADA', inputs: { boilerHeatingType: 'Caldera de Gasóleo', boilerAcsType: 'Termo', fuelType: 'gasoleo' } };
+    ok(!claves({ ...termo, alcance: { ficha: 'RES060', esSustitucionCaldera: true, acs: false } }).includes('FOTO_ACS_ANTES'),
+        'RES060 sin ACS en la obra: NO se pide el termo');
+    ok(claves({ ...termo, alcance: { ficha: 'RES060', esSustitucionCaldera: true, acs: true } }).includes('FOTO_ACS_ANTES'),
+        'RES060 que SÍ toca el ACS: el termo se sigue pidiendo');
+    ok(claves({ ...termo, alcance: { ficha: 'RES080', esSustitucionCaldera: false, acs: false } }).includes('FOTO_ACS_ANTES'),
+        'RES080: el termo existente se sigue pidiendo (entra en el antes/después)');
+    ok(claves(termo).includes('FOTO_ACS_ANTES'), 'una oportunidad sin alcance del expediente: como siempre');
+    ok(claves({ ...termo, alcance: { ficha: 'RES060', esSustitucionCaldera: true, acs: false },
+        docs_overrides: { FOTO_ACS_ANTES: { enabled: true } } }).includes('FOTO_ACS_ANTES'),
+        'y el admin puede volver a añadirlo a mano');
     console.log('\n3. ¿El ACS es OTRA máquina? (docsAlcance)');
     ok(acsEquipoPropio(null) === null, 'sin instalación no se afirma nada');
     ok(acsEquipoPropio({}) === null, 'con los dos nodos en blanco tampoco');
