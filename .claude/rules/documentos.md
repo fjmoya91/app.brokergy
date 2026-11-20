@@ -139,7 +139,7 @@ Tras tocarlo: `check_cifo_paginas.mjs` (11 casos FM), `test_via_fm.mjs`, `test_r
 - `docs/conocimiento/documentos/convenio-de-cesion-se-firma-antes-de-terminar-la-obra.md` — Convenio de Cesión — se firma ANTES de terminar la obra (2026-08-12) · 4,0 KB
 - `docs/conocimiento/documentos/el-certificado-res080-con-ventanas-hoja-propia-y-fichas.md` — El Certificado RES080 con VENTANAS: la comparativa en hoja propia y las fichas del marco y del vidrio (2026-10-13) · 5,5 KB
 - `docs/conocimiento/documentos/el-cifo-en-pdf-las-hojas-son-fijas-y-hay-que-medirlas.md` — El CIFO en PDF — las hojas son FIJAS y hay que medirlas (2026-08-25) · 4,0 KB
-- `docs/conocimiento/documentos/hitos-de-la-actuacion-la-factura-que-no-abre-la-obra.md` — HITOS DE LA ACTUACIÓN — la factura que NO abre la obra (2026-09-30) · 11,0 KB
+- `docs/conocimiento/documentos/hitos-de-la-actuacion-la-factura-que-no-abre-la-obra.md` — HITOS DE LA ACTUACIÓN — la factura que NO abre la obra (2026-09-30) · 11,7 KB
 - `docs/conocimiento/documentos/la-placa-de-la-unidad-exterior-dentro-del-certificado.md` — La PLACA de la unidad exterior, dentro del certificado (2026-09-17) · 7,9 KB
 - `docs/conocimiento/documentos/la-representacion-del-titular-en-el-anexo-i.md` — La REPRESENTACIÓN del titular en el Anexo I: poder notarial u otro documento (2026-10-22) · 4,5 KB
 - `docs/conocimiento/documentos/las-coordenadas-utm-se-rotulan-etrs89-huso-30-n.md` — Las coordenadas UTM se rotulan «ETRS89 · huso 30 N» (2026-10-22) · 2,4 KB

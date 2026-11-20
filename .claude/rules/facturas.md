@@ -24,7 +24,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/facturas/facturacion-del-certificador-conciliacion-mensual.md` — Facturación del certificador — conciliación mensual (2026-08-03) · 8,5 KB
-- `docs/conocimiento/facturas/facturas-de-la-obra-ocr-y-filtro-previo-de-incidencias.md` — Facturas de la obra — OCR y filtro previo de incidencias (2026-08-03) · 14,0 KB
+- `docs/conocimiento/facturas/facturas-de-la-obra-ocr-y-filtro-previo-de-incidencias.md` — Facturas de la obra — OCR y filtro previo de incidencias (2026-08-03) · 14,7 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
