@@ -2,25 +2,18 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
-import { buildAnexoListadoHtml, buildAnexoListadoRows, buildAnexoListadoTotals, CONVENIO_FECHA_DEFAULT, fichaDe } from '../logic/anexoListado';
-// La ficha que viaja al Sujeto Obligado es el IMPRESO OFICIAL del Ministerio
-// (formato formulario): se manda `formulario` y lo rellena el backend. La maqueta
-// HTML sigue existiendo en logic/ficha*Html.js para poder comparar los dos.
-import { fichaFormulario } from '../../expedientes/logic/fichasFormulario';
-import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
-import { SIGN_BOXES, fichaSignBox } from '../../expedientes/logic/signBoxes';
+import { buildAnexoListadoHtml, buildAnexoListadoRows, buildAnexoListadoTotals, CONVENIO_FECHA_DEFAULT } from '../logic/anexoListado';
+// Qué se manda al S.O. y con qué texto: fuente ÚNICA, la misma que usa el envío
+// automático cuando la solicitud llega de beCAE (regla 222). La ficha que viaja es
+// el IMPRESO OFICIAL del Ministerio (`formulario`, lo rellena el backend).
+import { MESES, mensajeEnvioSo, docsEnvioSo } from '../logic/envioSoDocs';
+import { SIGN_BOXES } from '../../expedientes/logic/signBoxes';
 import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
 import { deriveSoEnvio, CC_BROKERGY, representanteElegido } from '../logic/soContactos';
 import { FirmantePicker } from './FirmantePicker';
 import { docParaEnvio } from '../logic/docEnvio';
 import { solicitudValida } from '../logic/loteProceso';
-
-const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
-// Textos ancla para pre-situar el recuadro de firma (Autofirma) en la firma en cadena del S.O.
-const ANEXO_ANCHOR = ['fdo', 'firma', 'representante legal', 'el cedente'];
-const FICHA_ANCHOR = ['fdo', 'firma', 'representante'];
 
 // Lee un File a base64 (sin el prefijo data:).
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -97,21 +90,11 @@ Un saludo.`.replace(/ ,/g, ',');
         setAvisoWaOn(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sendOpen]);
-    const sendMsg = `Estimados,\n\nAdjuntamos el Anexo I (Listado de Cesión de Ahorros) del lote ${lote.codigo || ''}, que recoge ${totals.numActuaciones} actuaciones con un ahorro total de ${totals.ahorroMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año (${totals.ahorroGwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} GWh/año), junto con las fichas técnicas RES de cada actuación y la solicitud de verificación.\n\nRogamos procedan a su firma con el certificado electrónico del representante legal. Pueden firmar todo en cadena desde el enlace que incluimos más abajo (Autofirma), sin descargar ni volver a subir nada. Quedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
+    const sendMsg = mensajeEnvioSo(lote, totals);
 
-    // Construye los documentos a adjuntar: Anexo I (listado) + una ficha por expediente (RES060/080/093).
-    const buildDocs = () => {
-        const rep = { representanteNombre: soRepNombre, representanteNif: soRepNif };
-        // Si Brokergy ya firmó el Anexo I (columna PROVEEDOR), se envía ESE PDF firmado
-        // (pdfBase64) para que el S.O. solo añada su firma; si no, se genera del HTML.
-        const docs = [{ html, pdfBase64: proveedorSigned, fileName: `${lote.codigo || 'LOTE'} - Anexo I Listado Cesion`, label: 'Anexo I', tipo: 'anexo_i_listado', expediente_id: null, anchor: ANEXO_ANCHOR, fixedBox: SIGN_BOXES.anexo_i_listado, repNombre: soRepNombre, repNif: soRepNif }];
-        for (const e of (lote.expedientes || [])) {
-            const f = fichaDe(e.numero_expediente);
-            const formulario = fichaFormulario(f, e, { ...rep, results: computeExpedienteFinancials(e) });
-            docs.push({ formulario, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f}`, tipo: 'ficha_res', expediente_id: e.id, anchor: FICHA_ANCHOR, fixedBox: fichaSignBox(f), repNombre: soRepNombre, repNif: soRepNif });
-        }
-        return docs;
-    };
+    // Los documentos a adjuntar: Anexo I (listado) + una ficha por expediente. Si
+    // Brokergy ya firmó el Anexo I (PROVEEDOR), va ESE PDF firmado.
+    const buildDocs = () => docsEnvioSo(lote, { html, repNombre: soRepNombre, repNif: soRepNif, proveedorSigned });
 
     const aceptarSolicitud = async (file) => {
         if (!file) return;

@@ -280,6 +280,32 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[PlanVerificacion] no se pudo iniciar:', err.message);
     }
+    // La OFERTA DE VERIFICACIÓN que Marwen deja en beCAE se trae sola al lote y, si
+    // su importe se lee limpio, se manda al S.O. con el mismo correo que a mano.
+    // Nace APAGADA (OFERTA_VERIFICADOR_AUTO): le escribe al Sujeto Obligado.
+    try {
+      require('./services/ofertaVerificadorAuto').start();
+    } catch (err) {
+      console.warn('[OfertaAuto] no se pudo iniciar:', err.message);
+    }
+    // El INFORME DE INEXACTITUDES que Marwen manda por correo se sube solo a su lote
+    // (incidencias registradas) y, con INEXACTITUDES_AGENTE_ENABLED, el Claude del
+    // servidor prepara la contestación sin enviar nada. Nace APAGADO
+    // (INEXACTITUDES_CORREO_ENABLED): local escribe en producción.
+    try {
+      require('./services/inexactitudesCorreo').start();
+    } catch (err) {
+      console.warn('[InexactitudesCorreo] no se pudo iniciar:', err.message);
+    }
+    // El INFORME DE VERIFICACIÓN, el DICTAMEN y la FACTURA del verificador que manda
+    // Marwen por correo se suben solos a su lote (y se leen, como al subirlos a mano).
+    // El ahorro verificado se sigue aplicando a mano. Nace APAGADO
+    // (VERIFICACION_CORREO_ENABLED): local escribe en producción.
+    try {
+      require('./services/verificacionCorreo').start();
+    } catch (err) {
+      console.warn('[VerificacionCorreo] no se pudo iniciar:', err.message);
+    }
     // La revisión de la documentación tras la ACEPTACIÓN: manda a las 9:00 lo que el
     // agente pidió fuera de horario y avisa si un encargo lleva 24 h sin moverse.
     // Nace APAGADA (ACEPTACION_AGENTE_ENABLED): local escribe en producción.

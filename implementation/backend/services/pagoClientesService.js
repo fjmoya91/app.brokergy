@@ -121,6 +121,9 @@ async function pagoDeExpediente(exp, { facturaCobrada = false } = {}) {
         remesa: cobro.remesa || null,
         transferencia: cobro.transferencia || null,
         resena: cobro.resena || null,
+        // Verificado MENOR que lo declarado (regla 226): las cifras y la decisión.
+        // Pendiente de decidir, no entra en la remesa.
+        ahorro_menor: bono != null ? await cobroService.ahorroMenorDe(exp) : null,
     };
 
     if (!cobro.completado_at) { out.motivo = 'No ha confirmado su cuenta'; return out; }
@@ -176,6 +179,12 @@ async function pagoDeExpediente(exp, { facturaCobrada = false } = {}) {
         return out;
     }
     if (cobro.iban_cambiado) out.aviso = 'Ha cambiado de cuenta: revisa su justificante antes de ordenar';
+    if (out.ahorro_menor && !out.ahorro_menor.pendiente) {
+        const am = out.ahorro_menor;
+        out.aviso = [out.aviso, am.decision === 'acordado'
+            ? `Verificado menor: se le paga lo acordado (${eur(am.bono_declarado)})`
+            : `Verificado menor: se le paga sobre lo verificado (${eur(am.diferencia)} menos)`].filter(Boolean).join(' · ');
+    }
     if (out.aviso_venta) out.aviso = [out.aviso, out.aviso_venta].filter(Boolean).join(' · ');
     // Con el justificante del banco subido ya está PAGADO: no vuelve a ninguna
     // remesa (se le pagaría dos veces). Va al final para que `pagos` siga lleno
@@ -183,6 +192,13 @@ async function pagoDeExpediente(exp, { facturaCobrada = false } = {}) {
     if (cobro.transferencia) {
         out.motivo = `Ya transferido el ${fechaCorta(cobro.transferencia.at)}`;
         out.transferida = true;
+        return out;
+    }
+    // REGLA (226) — un verificado MENOR que lo declarado no se paga sin que un ADMIN
+    // decida: subirle el precio para pagarle lo acordado, o pagarle lo verificado.
+    if (out.ahorro_menor?.pendiente) {
+        out.motivo = `Su verificado es menor que lo declarado (−${eur(out.ahorro_menor.diferencia)}): decide en su fila si se le paga lo acordado o lo verificado`;
+        out.decidir_ahorro = true;
         return out;
     }
     out.incluible = true;

@@ -722,7 +722,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
 
     // ── Fase 4 · el informe de verificación trae el AHORRO VERIFICADO ─────────
     // Es el número sobre el que se factura al S.O. y sobre el que se le paga al
-    // cliente. Se lee al subirlo y se abre la revisión: nada se escribe solo.
+    // cliente. Se lee al subirlo: lo que casa sin duda se GUARDA SOLO (regla 226,
+    // 18/11/2026) y solo lo demás pasa por la revisión.
     const subirInforme = async (file) => {
         setLectura({
             phase: 'sending', sendingTitle: 'Analizando el informe…',
@@ -730,12 +731,45 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         });
         const r = await subir('informe_verificacion', file);
         if (!r?.documento) { setLectura(null); return; }
-        if (r.ahorros?.leido) {
-            // Del overlay se pasa DIRECTO a la revisión: enseñar un "listo" que hay
-            // que cerrar para que aparezca otra pantalla es un clic de peaje.
+        const a = r.ahorros;
+        if (a?.leido && a.aplicados_solos?.length) {
+            // Desde el 18/11/2026 (regla 226) lo que casa sin duda se guarda SOLO:
+            // se enseña lo guardado, los MENORES que lo declarado (se deciden al
+            // pagar, fase 7) y, si queda algo, el paso a su revisión.
+            const kwhT = (n) => `${Number(n || 0).toLocaleString('es-ES')} kWh`;
+            const eurT = (n) => Number(n || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+            const menores = new Map((a.menores || []).map(m => [m.expediente_id, m]));
+            const revisar = a.por_revisar || [];
+            if (onChanged) onChanged();
+            setLectura({
+                phase: 'done', ok: !revisar.length && !menores.size,
+                okTitle: 'Ahorros verificados guardados', errorTitle: 'Ahorros guardados: mira los avisos',
+                subtitle: `${a.aplicados_solos.length} expediente${a.aplicados_solos.length === 1 ? '' : 's'} con su ahorro verificado`,
+                items: [
+                    ...a.aplicados_solos.map(x => {
+                        const m = menores.get(x.expediente_id);
+                        return m
+                            ? { texto: `${x.numero_expediente} · ${kwhT(x.ahorro_kwh)} — menor que lo declarado (${kwhT(m.kwh_declarado)}): ${eurT(m.diferencia)} menos de bono. Se decide al pagar.`, tono: 'aviso' }
+                            : `${x.numero_expediente} · ${kwhT(x.ahorro_kwh)}`;
+                    }),
+                    ...((a.ya_estaban || []).length ? [{ texto: `Ya estaban: ${a.ya_estaban.join(', ')}`, tono: 'info' }] : []),
+                    ...(revisar.length ? [{ texto: `Por revisar: ${revisar.map(f => f.numero_expediente || f.expediente_leido || `actuación ${f.orden ?? '?'}`).join(', ')}`, tono: 'aviso' }] : []),
+                    ...(r.avisado?.length ? [{ texto: 'Avisado a Fran por WhatsApp y email', tono: 'info' }] : []),
+                ],
+                errorText: a.motivo_revisar || null,
+                accion: revisar.length
+                    ? { etiqueta: `Revisar ${revisar.length === 1 ? 'el que falta' : `los ${revisar.length} que faltan`}`, onClick: () => {
+                        setLectura(null); setModoRevision('informe');
+                        setPropuestaAhorros({ ...a, filas: revisar });
+                    } }
+                    : null,
+            });
+        } else if (a?.leido) {
+            // Nada se ha podido guardar solo: del overlay se pasa DIRECTO a la
+            // revisión (un "listo" que hay que cerrar sería un clic de peaje).
             setLectura(null);
             setModoRevision('informe');
-            setPropuestaAhorros(r.ahorros);
+            setPropuestaAhorros(a);
         } else {
             setLectura({
                 phase: 'done', ok: false, errorTitle: 'No se ha podido leer',

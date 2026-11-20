@@ -220,6 +220,11 @@ cuenta que pinta la fila de la fase 7. Medido en seco sobre LOTE-2026-004 el
 13/10/2026: con `costeGestion` = 0 en la simulación, una primera versión no
 descontaba nada y la remesa salía 1.000 € más alta.
 
+Desde el 18/11/2026 (Fran, regla 226): si el verificado sale MENOR que lo declarado, el
+expediente no entra en la remesa hasta que el ADMIN decida en su fila «pagarle lo acordado»
+(se le sube el precio por MWh y se transfiere el declarado, congelado) o «pagarle lo
+verificado». Ver [el-ahorro-verificado-se-guarda-solo-y-el-menor-se-decide-al-pagar.md](docs/conocimiento/lotes/el-ahorro-verificado-se-guarda-solo-y-el-menor-se-decide-al-pagar.md).
+
 **REGLA — fuera de la remesa, y se DICE por qué**: sin confirmar la cuenta, sin
 ahorro verificado, sin elegir forma de pago, con un IBAN que no pasa el dígito de
 control, o con FACTURA pedida hasta que se marque «ya cobrada». Un IBAN malo en el

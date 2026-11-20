@@ -47,7 +47,7 @@ paths:
 - `docs/conocimiento/documentacion-fotos/el-gestor-de-fotografias-subir-en-tanda-pegar-y-repartir/traer-las-fotos-del-whatsapp-al-repartidor.md` — Traer las fotos del WHATSAPP al repartidor (2026-09-30) · 5,1 KB
 - `docs/conocimiento/documentacion-fotos/medio-minuto-de-espera-no-puede-ser-una-pantalla-quieta.md` — Medio minuto de espera no puede ser una pantalla quieta (2026-09-22) · 2,3 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/00-modulo-documentacion-fotografica-superficie-unificada.md` — Módulo Documentación Fotográfica — Superficie unificada (2026-05-29) · 0,6 KB
-- `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/alcance-documental-a-cada-expediente-se-le-pide-lo-suyo.md` — Alcance documental — a cada expediente se le pide LO SUYO (2026-08-11) · 6,6 KB
+- `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/alcance-documental-a-cada-expediente-se-le-pide-lo-suyo.md` — Alcance documental — a cada expediente se le pide LO SUYO (2026-08-11) · 7,3 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/almacenamiento-incremental-sin-esquema-nuevo.md` — Almacenamiento (incremental, sin esquema nuevo) · 0,8 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/aviso-al-staff-cuando-suben-documentacion.md` — Aviso al staff cuando suben documentación (2026-07-30) · 1,6 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/checklist-por-fases-computado-no-persistido.md` — Checklist por fases (computado, NO persistido) · 0,7 KB

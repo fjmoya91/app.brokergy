@@ -30,7 +30,10 @@ modelo como NUMBER, el punto de miles español se lee como decimal y "28.852" en
 como 28,852: tres órdenes de magnitud de error en el número con el que se paga a un
 cliente. La conversión es determinista y está probada sobre los formatos reales.
 
-**REGLA — el ahorro verificado se PROPONE, nunca se escribe solo.** Se lee al subir el
+**REGLA — el ahorro verificado se PROPONE, nunca se escribe solo.** *(Cambiada el
+18/11/2026 por Fran: lo que casa sin duda se GUARDA SOLO y lo que se decide es PAGAR menos
+de lo declarado — ver [el-ahorro-verificado-se-guarda-solo-y-el-menor-se-decide-al-pagar.md](el-ahorro-verificado-se-guarda-solo-y-el-menor-se-decide-al-pagar.md).
+Lo de abajo sigue valiendo para lo que NO casa sin duda.)* Se lee al subir el
 informe, se casa contra los expedientes del lote y se abre la revisión; aplica el
 ADMIN. Sobre esa cifra se factura al S.O. y se le paga el bono al cliente, y una
 transferencia hecha no se deshace. **Lo que no casa no se puede ni marcar**: adivinar a

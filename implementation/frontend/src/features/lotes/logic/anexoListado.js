@@ -5,10 +5,10 @@
 // ahorros de TODAS las actuaciones del lote. Una fila por expediente.
 // Estructura calcada del Excel/PDF de referencia de INTERALCO.
 // ============================================================
-import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
-import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
-import { calcCifo } from '../../expedientes/logic/calcCifo';
-import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
+import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators.js';
+import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials.js';
+import { calcCifo } from '../../expedientes/logic/calcCifo.js';
+import { getFicha } from '../../expedientes/logic/expedienteTaxonomia.js';
 import { RES080_VIDA_UTIL } from '../../expedientes/logic/fichaRes080Html.js';
 import { inversionCae } from '../../expedientes/logic/facturasCae.js';
 import { fichaOficialDeExpediente } from '../../expedientes/logic/viaFm.js';

@@ -38,7 +38,7 @@ const { detectPrograma, esNumeroFm } = require('../utils/fichas');
 const {
     casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLote,
     aplicarAhorrosVerificados, aplicarDatosDictamen, aplicarOrdenActuacion,
-    puedePagarseAlCliente,
+    puedePagarseAlCliente, separarAplicables,
 } = require('../services/loteVerificados');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -48,6 +48,12 @@ function usuarioDe(req) {
 }
 
 function nowIso() { return new Date().toISOString(); }
+
+// Error de una función de lote con su código HTTP: lo lanzan las funciones que usan
+// a la vez una ruta y el servidor (subirDocumentoLote, enviarDocumentoLote).
+class ErrorLote extends Error {
+    constructor(status, mensaje) { super(mensaje); this.status = status; }
+}
 
 // Remitente del email al Sujeto Obligado (decisión usuario 2026-07-13): sale desde la
 // cuenta personal en lugar de la genérica brokergy@brokergy.es. Debe ser una dirección
@@ -578,12 +584,15 @@ router.get('/disponible', staffOnly, async (req, res) => {
 });
 
 // ─── GET /api/lotes/:id — detalle + expedientes del lote ─────────────────────────
-router.get('/:id', staffOnly, async (req, res) => {
-    try {
+// El lote COMPLETO, tal y como lo recibe la ficha (GET /:id): enriquecido y con
+// sus expedientes con oportunidad y cliente. Sacado a función (18/11/2026) para el
+// envío automático al S.O.: monta el Anexo I y las fichas con los MISMOS datos que
+// el navegador. SIN capar: quien lo devuelva a un usuario lo pasa por scrubLoteForUser.
+async function loteCompleto(loteId) {
         const { data: lote, error } = await supabase
-            .from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+            .from('lotes').select('*').eq('id', loteId).maybeSingle();
         if (error) throw error;
-        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        if (!lote) return null;
 
         const [enriched] = await enrichLotes([lote]);
         const { data: expedientes } = await supabase
@@ -617,7 +626,14 @@ router.get('/:id', staffOnly, async (req, res) => {
             cliente_direccion: fmtDir(cliMap[e.cliente_id]),
         }));
 
-        res.json(scrubLoteForUser({ ...enriched, expedientes: expedientesFull }, req));
+        return { ...enriched, expedientes: expedientesFull };
+}
+
+router.get('/:id', staffOnly, async (req, res) => {
+    try {
+        const lote = await loteCompleto(req.params.id);
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        res.json(scrubLoteForUser(lote, req));
     } catch (err) {
         console.error('[GET /lotes/:id]', err.message);
         res.status(500).json({ error: 'Error al obtener el lote' });
@@ -952,7 +968,11 @@ router.get('/:id/cobros', staffOnly, async (req, res) => {
             const exp = await cobroService.cargarExpediente(m.id);
             if (!exp) continue;
             try {
-                filas.push(await cobroService.filaCobro(exp, { conBorrador: enPago, ibanCompleto: admin }));
+                const fila = await cobroService.filaCobro(exp, { conBorrador: enPago, ibanCompleto: admin });
+                // Verificado MENOR que lo declarado (regla 226): cifras, decisión y el
+                // precio que pagaría lo acordado. Solo ADMIN: es dinero.
+                if (admin) fila.ahorro_menor = await require('../services/ahorroMenorService').simular(exp);
+                filas.push(fila);
             } catch (e) {
                 console.warn('[lotes cobros]', exp.numero_expediente, e.message);
                 filas.push({ id: exp.id, numero_expediente: exp.numero_expediente, error: e.message });
@@ -1183,6 +1203,22 @@ router.post('/:id/cobros/:expId/gestion-bonificada', adminOnly, async (req, res)
 // y quién y cuándo, para que la remesa lo lleve. Solo la cuenta que YA consta en la
 // ficha: una cuenta nueva exige justificante (se cambia en la ficha y se sube allí).
 // Cuentas y dinero → adminOnly. Con la remesa generada ya no se deshace.
+// ─── El verificado salió MENOR que lo declarado: ¿qué se le paga? (regla 226) ─────
+// Fran, 18/11/2026: antes de pagar, se autoriza y se decide por expediente:
+// 'acordado' (se le sube el precio por MWh para pagarle lo declarado) o
+// 'verificado' (se le paga sobre lo verificado). Sin decidir, no entra en la remesa.
+router.post('/:id/cobros/:expId/ahorro-menor', adminOnly, async (req, res) => {
+    const svc = require('../services/ahorroMenorService');
+    try {
+        const sello = await svc.decidir(req.params.id, req.params.expId, req.body?.decision, { usuario: usuarioDe(req) });
+        res.json({ ok: true, ahorro_menor: sello });
+    } catch (err) {
+        if (err instanceof svc.ErrorDecision) return res.status(err.status).json({ error: err.message });
+        console.error('[POST /lotes/:id/cobros/:expId/ahorro-menor]', err.message);
+        res.status(500).json({ error: err.message || 'No se pudo guardar la decisión' });
+    }
+});
+
 router.post('/:id/cobros/:expId/validar-manual', adminOnly, async (req, res) => {
     try {
         const exp = await expedienteDelLote(req, res);
@@ -1573,6 +1609,87 @@ async function proponerAhorrosVerificados(lote, pdfBuffer) {
     }
 }
 
+// ─── El ahorro verificado se GUARDA SOLO (regla 226, Fran 18/11/2026) ─────────
+// Lo que casa sin duda (`separarAplicables`) se escribe en su expediente; lo demás
+// queda para la revisión. Con `seco` no escribe: dice qué haría. Devuelve el
+// resumen que viaja con la subida y la entrada del historial (la escribe quien llama).
+async function guardarAhorrosSolos(lote, ahorros, { usuario = 'ADMIN', seco = false } = {}) {
+    const sep = separarAplicables(ahorros);
+    let aplicados = [], errores = [];
+    if (sep.aplicar.length && !seco) {
+        ({ aplicados, errores } = await aplicarAhorrosVerificados(sep.aplicar, {
+            usuario,
+            informe: ahorros.informe?.expediente_cae || lote.expediente_verificador || null,
+            fechaInforme: ahorros.informe?.fecha_informe || null,
+            origen: 'INFORME_VERIFICACION_AUTO',
+            lote: lote.codigo,
+        }));
+    } else if (seco) {
+        aplicados = sep.aplicar.map(f => ({ expediente_id: f.expediente_id, numero_expediente: f.numero_expediente, ahorro_kwh: Number(f.ahorro_kwh), inversion_eur: f.inversion_eur ?? null }));
+    }
+    const fallidos = new Set(errores.map(e => e.expediente_id));
+    // En seco el MENOR se calcula sobre el expediente con el verificado puesto en memoria.
+    const menores = seco
+        ? await ahorrosMenoresDe(aplicados.map(a => a.expediente_id), new Map(aplicados.map(a => [a.expediente_id, a.ahorro_kwh])))
+        : await ahorrosMenoresDe(aplicados.map(a => a.expediente_id));
+    const resumen = {
+        aplicados_solos: aplicados,
+        ya_estaban: sep.yaEstaban.map(f => f.numero_expediente),
+        por_revisar: [...sep.revisar, ...sep.aplicar.filter(f => fallidos.has(f.expediente_id))],
+        motivo_revisar: sep.motivo,
+        menores,
+        errores,
+    };
+    const historial = aplicados.length && !seco ? {
+        id: `${Date.now()}_ahorros_verif_auto`, tipo: 'sistema',
+        texto: `Ahorro verificado guardado solo (leído del informe) en ${aplicados.length} expediente${aplicados.length === 1 ? '' : 's'}: `
+            + aplicados.map(a => `${a.numero_expediente} ${a.ahorro_kwh.toLocaleString('es-ES')} kWh`).join(' · ')
+            + `.${resumen.por_revisar.length ? ` Quedan ${resumen.por_revisar.length} por revisar.` : ''}`
+            + `${menores.length ? ` Verificado MENOR que lo declarado en ${menores.map(m => m.numero_expediente).join(', ')}: se decide al pagar.` : ''}`,
+        fecha: nowIso(), usuario,
+    } : null;
+    return { resumen, historial };
+}
+
+/** Para un lote con el informe YA subido: lo relee de Drive y guarda (o, en seco, dice).
+ *  Con `buffer` (un informe aún SIN subir, p. ej. el del correo) solo se admite en seco. */
+async function guardarAhorrosDelInformeSubido(loteId, { usuario = 'ADMIN', seco = true, buffer: dado = null } = {}) {
+    if (dado && !seco) throw new ErrorLote(400, 'Un informe sin subir solo se mira en seco: súbelo por la fase 4.');
+    const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', loteId).maybeSingle();
+    if (error || !lote) throw new ErrorLote(404, 'Lote no encontrado');
+    const doc = (lote.documentos_so || []).find(d => d?.key === 'informe_verificacion');
+    if (!dado && !doc?.draft_file_id) throw new ErrorLote(409, 'Este lote no tiene subido el informe de verificación.');
+    const buffer = dado || await driveService.getFileContent(doc.draft_file_id);
+    if (!buffer) throw new ErrorLote(502, 'No se pudo descargar el informe desde Drive.');
+    const ahorros = await proponerAhorrosVerificados(lote, buffer);
+    if (!ahorros.leido) throw new ErrorLote(502, ahorros.error || 'No se pudo leer el informe.');
+    const g = await guardarAhorrosSolos(lote, ahorros, { usuario, seco });
+    if (g.historial) {
+        const { data: fresh } = await supabase.from('lotes').select('historial').eq('id', lote.id).maybeSingle();
+        const historial = Array.isArray(fresh?.historial) ? [...fresh.historial, g.historial] : [g.historial];
+        await supabase.from('lotes').update({ historial, updated_at: nowIso() }).eq('id', lote.id);
+    }
+    return { lote: lote.codigo, seco, total: ahorros.total, ...g.resumen };
+}
+
+// Los expedientes cuyo verificado ha salido MENOR que lo declarado (regla 226):
+// para avisarlo al guardar el informe. Lo que se le PAGA se decide en la fase 7.
+async function ahorrosMenoresDe(expIds = [], verificadoEnMemoria = null) {
+    const cobroService = require('../services/cobroService');
+    const out = [];
+    for (const id of expIds) {
+        try {
+            let exp = await cobroService.cargarExpediente(id);
+            if (exp && verificadoEnMemoria?.has(id)) {
+                exp = { ...exp, instalacion: { ...(exp.instalacion || {}), verificacion: { ...(exp.instalacion?.verificacion || {}), ahorro_verificado_kwh: verificadoEnMemoria.get(id) } } };
+            }
+            const est = exp ? await cobroService.ahorroMenorDe(exp) : null;
+            if (est) out.push({ expediente_id: id, numero_expediente: exp.numero_expediente, ...est });
+        } catch (e) { console.warn('[lotes] ahorro menor:', id, e.message); }
+    }
+    return out;
+}
+
 // ─── El DICTAMEN trae los datos DEFINITIVOS ───────────────────────────────────
 // Cierra la verificación: su nº, su fecha y —fila a fila— la inversión y el ahorro
 // que el organismo da por buenos. Mandan sobre lo declarado al principio, que ha
@@ -1653,21 +1770,21 @@ async function leerCodigosCertificadoCae(lote, pdfBuffer) {
 }
 
 // Cada subida puede AVANZAR el estado del lote (sincronizarEstadoLote).
-router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
-    try {
-        const slot = req.params.slot;
+//
+// `subirDocumentoLote` es la lógica de la ruta, sacada a función (17/11/2026) para
+// que la use también el servidor sin pasar por HTTP: la OFERTA que llega de beCAE
+// se archiva por aquí (`services/ofertaVerificadorAuto.js`), igual que si la subiera
+// una persona. Devuelve el lote enriquecido SIN filtrar por usuario (lo filtra la
+// ruta) y lanza `ErrorLote` con el código HTTP cuando la petición no vale.
+async function subirDocumentoLote(loteId, slot, { buffer, fileName, firmado, importe, usuario = 'ADMIN' } = {}) {
         const cfg = LOTE_DOC_SLOTS[slot];
-        if (!cfg || !SLOTS_SUBIBLES.includes(slot)) {
-            return res.status(400).json({ error: `Documento de lote no válido: ${slot}` });
-        }
-        const { base64, fileName, firmado, importe } = req.body || {};
-        if (!base64) return res.status(400).json({ error: 'Falta el fichero' });
+        if (!cfg || !SLOTS_SUBIBLES.includes(slot)) throw new ErrorLote(400, `Documento de lote no válido: ${slot}`);
+        if (!buffer || !buffer.length) throw new ErrorLote(400, 'Falta el fichero');
 
-        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
-        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', loteId).maybeSingle();
+        if (error || !lote) throw new ErrorLote(404, 'Lote no encontrado');
 
         const docsFolder = await ensureLoteDocsFolder(lote);
-        const buffer = Buffer.from(String(base64).split(',').pop(), 'base64');
         const esFirmado = !!firmado && !!cfg.firmable;
 
         // Releemos `documentos_so` justo antes de escribir para no pisar cambios de
@@ -1680,7 +1797,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
         const idx = docs.findIndex(d => d?.key === key);
         const previa = idx >= 0 ? docs[idx] : null;
         if (esFirmado && !previa) {
-            return res.status(409).json({ error: `Sube antes el borrador de "${cfg.label}" para poder registrar el firmado.` });
+            throw new ErrorLote(409, `Sube antes el borrador de "${cfg.label}" para poder registrar el firmado.`);
         }
 
         // El nombre en Drive es SIEMPRE el canónico (prefijo numérico + slot), no el
@@ -1729,7 +1846,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
             texto: esFirmado
                 ? `Registrado "${entrada.label}" FIRMADO por el S.O. (${name}).`
                 : `Subido "${entrada.label}" (${name}).`,
-            fecha: nowIso(), usuario: usuarioDe(req),
+            fecha: nowIso(), usuario: usuario,
         });
 
         // `drive_folder_id` ya lo persiste ensureLoteFolder.
@@ -1784,7 +1901,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
                         id: `${Date.now()}_coste_verif`, tipo: 'sistema',
                         texto: `Coste de verificación ${Number.isFinite(antes) && antes > 0 ? `${antes} € → ` : ''}${importeNum} €`
                             + `${ocr?.leido ? ` (leído de la factura${ocr.numero_factura ? ` ${ocr.numero_factura}` : ''})` : ''}.`,
-                        fecha: nowIso(), usuario: usuarioDe(req),
+                        fecha: nowIso(), usuario: usuario,
                     });
                     update.historial = historial;
                 }
@@ -1792,12 +1909,26 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
         }
 
         // ── El informe de verificación trae el ahorro VERIFICADO de cada uno ───
-        // Se lee y se PROPONE, casado contra los expedientes del lote; escribirlo
-        // lo decide una persona desde `POST /:id/ahorros-verificados`. Sobre este
-        // número se factura al S.O. y se le paga al cliente: no se toca solo.
+        // Se lee y se casa contra los expedientes del lote. Desde el 18/11/2026
+        // (Fran, regla 226) lo que casa SIN DUDA se GUARDA SOLO en su expediente
+        // (`separarAplicables`); lo demás queda para la revisión de siempre
+        // (`POST /:id/ahorros-verificados`). Si el verificado es MENOR que lo
+        // declarado, lo que se le paga lo decide el ADMIN en la fase 7.
         let ahorros = null;
         if (slot === 'informe_verificacion' && !esFirmado) {
             ahorros = await proponerAhorrosVerificados(lote, buffer);
+            if (ahorros.leido) {
+                try {
+                    const g = await guardarAhorrosSolos(lote, ahorros, { usuario });
+                    Object.assign(ahorros, g.resumen);
+                    if (g.historial) { historial.push(g.historial); update.historial = historial; }
+                } catch (err) {
+                    // Un fallo aquí no tumba la subida: queda la revisión a mano.
+                    console.warn('[lotes] guardar ahorros verificados solos:', err.message);
+                    Object.assign(ahorros, { aplicados_solos: [], por_revisar: ahorros.filas, ya_estaban: [], menores: [],
+                        motivo_revisar: `No se pudieron guardar solos: ${err.message}` });
+                }
+            }
         }
 
         // El DICTAMEN: su cabecera (nº, fecha, decisión) se sella en la entrada del
@@ -1827,7 +1958,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
                     historial.push({
                         id: `${Date.now()}_registro_miteco`, tipo: 'sistema',
                         texto: `Nº de registro MITECO ${lote.registro_miteco ? `${lote.registro_miteco} → ` : ''}${registroMiteco} (leído del justificante).`,
-                        fecha: nowIso(), usuario: usuarioDe(req),
+                        fecha: nowIso(), usuario: usuario,
                     });
                     update.historial = historial;
                 }
@@ -1846,7 +1977,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
                         id: `${Date.now()}_cae_rango`, tipo: 'sistema',
                         texto: `Códigos CAE leídos del certificado: ${cae.cae.cae_inicial} → ${cae.cae.cae_final}`
                             + `${cae.cae.total ? ` (${Number(cae.cae.total).toLocaleString('es-ES')} CAE)` : ''}.`,
-                        fecha: nowIso(), usuario: usuarioDe(req),
+                        fecha: nowIso(), usuario: usuario,
                     });
                     update.historial = historial;
                 }
@@ -1871,7 +2002,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
                     historial.push({
                         id: `${Date.now()}_equipo_verificacion`, tipo: 'sistema',
                         texto: `Equipo de verificación: ${equipoVerificacion.resumenEquipo(equipo)} (leído del plan).`,
-                        fecha: nowIso(), usuario: usuarioDe(req),
+                        fecha: nowIso(), usuario: usuario,
                     });
                     update.historial = historial;
                     if (!lote.expediente_verificador && equipo.expediente_cae) update.expediente_verificador = equipo.expediente_cae;
@@ -1891,7 +2022,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
         if (slot === 'informe_inexactitudes' && !esFirmado) {
             try {
                 inexactitudes = await inexactitudesLote.registrarInexactitudes(
-                    { ...lote, documentos_so: docs }, key, buffer, { usuario: usuarioDe(req) });
+                    { ...lote, documentos_so: docs }, key, buffer, { usuario: usuario });
             } catch (err) {
                 console.warn('[lotes] inexactitudes:', err.message);
                 inexactitudes = { leido: false, error: err.message };
@@ -1902,7 +2033,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
         // es el único paso atrás legítimo del proceso.
         await sincronizarEstadoLote(lote.id, {
             docs,
-            usuario: usuarioDe(req),
+            usuario: usuario,
             motivo: `subida de ${entrada.label}`,
             ...(slot === 'informe_inexactitudes'
                 ? { destino: 'REQUERIMIENTO VERIFICADOR', retroceso: true }
@@ -1911,10 +2042,34 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
                     : {}),
         });
 
+        // Subido A MANO el informe, el dictamen o la factura del verificador: si algo
+        // no ha ido solo (no cuadra, sin leer, sin guardar, verificado MENOR…), el
+        // mismo aviso por WhatsApp y email que cuando llega por el correo (regla 226).
+        // Por el correo lo manda `verificacionCorreo` una vez por correo, no aquí.
+        let avisado = [];
+        const VC = require('../services/verificacionCorreo');
+        if (!esFirmado && ['informe_verificacion', 'dictamen_favorable', 'factura_verificador'].includes(slot) && usuario !== VC.USUARIO) {
+            avisado = await VC.avisarSubidaAMano({
+                lote: lote.codigo, cae: lote.expediente_verificador || null, subido_por: usuario,
+                subidos: [{ slot, fichero: fileName || name, importe: entrada.importe ?? null, ocr, ahorros, dictamen: dictamen?.dictamen || entrada.dictamen || null }],
+                errores: [],
+            });
+        }
+
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, inexactitudes, equipo, registro_miteco: registroMiteco, lote: scrubLoteForUser(enriched, req) });
+        return { documento: entrada, ocr, ahorros, dictamen, cae, inexactitudes, equipo, registro_miteco: registroMiteco, avisado, lote: enriched };
+}
+
+router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
+    try {
+        const { base64, fileName, firmado, importe } = req.body || {};
+        if (!base64) return res.status(400).json({ error: 'Falta el fichero' });
+        const buffer = Buffer.from(String(base64).split(',').pop(), 'base64');
+        const r = await subirDocumentoLote(req.params.id, req.params.slot, { buffer, fileName, firmado, importe, usuario: usuarioDe(req) });
+        res.json({ ok: true, ...r, lote: scrubLoteForUser(r.lote, req) });
     } catch (err) {
+        if (err instanceof ErrorLote) return res.status(err.status).json({ error: err.message });
         console.error('[POST /lotes/:id/documentos/:slot]', err.message);
         res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });
     }
@@ -2040,6 +2195,53 @@ router.post('/:id/paquete-actuaciones', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/paquete-actuaciones]', err.message);
         res.status(500).json({ error: err.message || 'Error al generar el paquete de actuaciones' });
+    }
+});
+
+// ─── GET /api/lotes/:id/miteco — qué hay preparado para subir a la sede ──────────
+// Lo que pinta la pestaña «Presentar MITECO»: los ZIP «ActuacionE{n}» que ya hay en
+// «{LOTE} - ENVIO GESTOR» con lo que PESA cada uno (la sede admite 10 MB por ZIP y
+// 50 por presentación) y si está la SOLICITUD de emisión en la documentación del
+// lote. Se mira Drive, no el historial: lo que se sube es lo que hay en la carpeta.
+// Solo LEE: no crea ninguna carpeta.
+router.get('/:id/miteco', adminOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes')
+            .select('id, codigo, drive_folder_id').eq('id', req.params.id).maybeSingle();
+        if (error) return res.status(503).json({ error: 'No se pudo leer el lote' });
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const { CARPETA_GESTOR, LIMITE_ZIP_SEDE, LIMITE_ZIP_MITECO, LIMITE_TOTAL_MITECO } = require('../services/envioGestorService');
+        const salida = {
+            codigo: lote.codigo, carpeta_gestor: null, zips: [], total_bytes: 0, solicitud: null,
+            limites: { zip: LIMITE_ZIP_SEDE, objetivo: LIMITE_ZIP_MITECO, total: LIMITE_TOTAL_MITECO },
+        };
+        if (!lote.drive_folder_id) return res.json(salida);
+
+        const conTamano = async (f) => {
+            let meta = null;
+            try { meta = await driveService.getFileMetadata(f.id, 'id, size, modifiedTime'); } catch (_) { meta = null; }
+            return { nombre: f.name, bytes: Number(meta?.size) || 0, modificado: meta?.modifiedTime || f.modifiedTime || null };
+        };
+        const gestor = await driveService.findSubfolderByName(lote.drive_folder_id, CARPETA_GESTOR(lote.codigo));
+        if (gestor) {
+            salida.carpeta_gestor = { id: gestor, link: `https://drive.google.com/drive/folders/${gestor}` };
+            const files = (await driveService.listFiles(gestor) || [])
+                .filter(f => /^ActuacionE\d+\.zip$/i.test(f.name));
+            salida.zips = (await Promise.all(files.map(conTamano)))
+                .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
+        }
+        const docs = await driveService.findSubfolderByName(lote.drive_folder_id, CARPETA_DOCS(lote.codigo));
+        if (docs) {
+            const sol = (await driveService.listFiles(docs) || [])
+                .filter(f => /^Solicitud de emisi[oó]n de CAE/i.test(f.name) && /\.pdf$/i.test(f.name))
+                .sort((a, b) => String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || '')))[0];
+            if (sol) salida.solicitud = await conTamano(sol);
+        }
+        salida.total_bytes = salida.zips.reduce((s, z) => s + z.bytes, 0) + (salida.solicitud?.bytes || 0);
+        res.json(salida);
+    } catch (err) {
+        console.error('[GET /lotes/:id/miteco]', err.message);
+        res.status(500).json({ error: err.message || 'No se pudo mirar la carpeta del envío' });
     }
 });
 
@@ -2393,6 +2595,7 @@ router.post('/:id/dictamen/aplicar', adminOnly, async (req, res) => {
             usuario: usuarioDe(req),
             numero: req.body?.numero_dictamen || null,
             fecha: req.body?.fecha_emision || null,
+            lote: lote.codigo,
         });
 
         if (aplicados.length) {
@@ -2445,6 +2648,7 @@ router.post('/:id/ahorros-verificados', adminOnly, async (req, res) => {
             informe: req.body?.informe_expediente_cae || lote.expediente_verificador || null,
             fechaInforme: req.body?.informe_fecha || null,
             origen: req.body?.origen || 'INFORME_VERIFICACION',
+            lote: lote.codigo,
         });
 
         if (aplicados.length) {
@@ -3229,33 +3433,35 @@ function origenPublicoFirma(frontendOrigin) {
 // acotado a ese documento (`?doc=`), donde el S.O. puede firmarlo con certificado,
 // subirlo firmado a mano o devolvérnoslo por email. Si no lo es (una factura), va
 // tal cual, sin enlace de firma.
-router.post('/:id/enviar-documento/:key', staffOnly, async (req, res) => {
-    try {
-        const {
-            to, cc, phone, channels = { email: true, whatsapp: false },
-            customMessage, frontendOrigin, asunto, etiqueta,
-        } = req.body || {};
+//
+// `enviarDocumentoLote` es la lógica de la ruta, sacada a función (17/11/2026) para
+// el envío AUTOMÁTICO de la oferta que llega de beCAE: mismo correo, mismo enlace,
+// misma marca de `sent_at`. `noReenviar` (lo pasa el automático) no manda nada si el
+// documento ya consta enviado: un segundo disparo no le llega dos veces al S.O.
+async function enviarDocumentoLote(loteId, docKey, {
+    to, cc, phone, channels = { email: true, whatsapp: false },
+    customMessage, frontendOrigin, asunto, etiqueta, usuario = 'ADMIN', noReenviar = false,
+} = {}) {
+        if (channels.email && !to) throw new ErrorLote(400, 'Falta el email del destinatario');
+        if (channels.whatsapp && !phone) throw new ErrorLote(400, 'Falta el teléfono para WhatsApp');
 
-        if (channels.email && !to) return res.status(400).json({ error: 'Falta el email del destinatario' });
-        if (channels.whatsapp && !phone) return res.status(400).json({ error: 'Falta el teléfono para WhatsApp' });
-
-        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', loteId).maybeSingle();
         if (error) throw error;
-        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        if (!lote) throw new ErrorLote(404, 'Lote no encontrado');
 
-        const docKey = req.params.key;
         const docs = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
         const idx = docs.findIndex(d => d?.key === docKey);
-        if (idx < 0) return res.status(409).json({ error: 'Ese documento no está en el lote.' });
+        if (idx < 0) throw new ErrorLote(409, 'Ese documento no está en el lote.');
+        if (noReenviar && docs[idx].sent_at) throw new ErrorLote(409, `"${docs[idx].label || docKey}" ya se envió (${docs[idx].sent_at}).`);
 
         const cfg = LOTE_DOC_SLOTS[slotDeKey(docKey)] || {};
         const nombreDoc = docs[idx].label || cfg.label || 'Documento del lote';
 
         // El PDF vive en Drive: se descarga para adjuntarlo (no guardamos binarios en BD).
         const fileId = docs[idx].draft_file_id || (String(docs[idx].draft_link || '').match(/[-\w]{25,}/) || [])[0];
-        if (!fileId) return res.status(409).json({ error: `"${nombreDoc}" no tiene fichero en Drive.` });
+        if (!fileId) throw new ErrorLote(409, `"${nombreDoc}" no tiene fichero en Drive.`);
         const buf = await driveService.getFileContent(fileId);
-        if (!buf || !buf.length) return res.status(409).json({ error: `No se pudo descargar "${nombreDoc}" de Drive.` });
+        if (!buf || !buf.length) throw new ErrorLote(409, `No se pudo descargar "${nombreDoc}" de Drive.`);
 
         // Enlace de firma SOLO si el documento se firma. Va ACOTADO a él (`?doc=`): la
         // firma del Anexo I y las fichas es otro proceso y ya pasó, y enseñarle los 8
@@ -3303,42 +3509,60 @@ router.post('/:id/enviar-documento/:key', staffOnly, async (req, res) => {
         historial.push({
             id: `${Date.now()}_enviar_doc`, tipo: 'sistema',
             texto: `Enviado al S.O. "${nombreDoc}"${cfg.firmable ? ' para firma' : ''}${canales ? ` (${canales})` : ''}.`,
-            fecha: sentAt, usuario: usuarioDe(req),
+            fecha: sentAt, usuario: usuario,
         });
         await supabase.from('lotes').update({ documentos_so: docs, historial, updated_at: sentAt }).eq('id', lote.id);
 
         // Mandar la oferta deja el lote esperando que la devuelvan firmada.
-        await sincronizarEstadoLote(lote.id, { docs, usuario: usuarioDe(req), motivo: `envío de ${nombreDoc}` });
+        await sincronizarEstadoLote(lote.id, { docs, usuario: usuario, motivo: `envío de ${nombreDoc}` });
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, firma_url: firmaUrl, warnings, lote: scrubLoteForUser(enriched, req) });
+        return { firma_url: firmaUrl, warnings, lote: enriched };
+}
+
+router.post('/:id/enviar-documento/:key', staffOnly, async (req, res) => {
+    try {
+        const r = await enviarDocumentoLote(req.params.id, req.params.key, { ...(req.body || {}), noReenviar: false, usuario: usuarioDe(req) });
+        res.json({ ok: true, ...r, lote: scrubLoteForUser(r.lote, req) });
     } catch (err) {
+        if (err instanceof ErrorLote) return res.status(err.status).json({ error: err.message });
         console.error('[POST /lotes/:id/enviar-documento/:key]', err.message);
         res.status(500).json({ error: err.message || 'Error al enviar el documento del lote' });
     }
 });
 
-router.post('/:id/enviar-so', staffOnly, async (req, res) => {
-    try {
-        const {
-            to, cc, phone, channels = { email: true, whatsapp: false },
-            customMessage, summaryData, docs = [], solicitud, frontendOrigin,
-            // Aviso corto por WhatsApp al contacto del S.O. ("os hemos enviado otro
-            // lote para firmar"). Independiente del canal WhatsApp, que manda además
-            // todos los adjuntos.
-            avisoWhatsApp,
-        } = req.body || {};
+// Envío al S.O. para que firme (fase 2): Anexo I + fichas RES + solicitud del
+// verificador. Es la lógica de la ruta, sacada a función (18/11/2026) para el envío
+// AUTOMÁTICO cuando la solicitud llega de beCAE (regla 222): mismas carpetas, mismo
+// correo, mismo enlace, mismas marcas. Lanza ErrorLote(status, mensaje).
+async function enviarAlSo(loteId, {
+    to, cc, phone, channels = { email: true, whatsapp: false },
+    customMessage, summaryData, docs = [], solicitud, frontendOrigin,
+    // Aviso corto por WhatsApp al contacto del S.O. ("os hemos enviado otro
+    // lote para firmar"). Independiente del canal WhatsApp, que manda además
+    // todos los adjuntos.
+    avisoWhatsApp,
+    usuario = 'ADMIN', noReenviar = false,
+} = {}) {
 
         if (!Array.isArray(docs) || docs.length === 0) {
-            return res.status(400).json({ error: 'No hay documentos para enviar' });
+            throw new ErrorLote(400, 'No hay documentos para enviar');
         }
-        if (channels.email && !to) return res.status(400).json({ error: 'Falta el email del destinatario' });
-        if (channels.whatsapp && !phone) return res.status(400).json({ error: 'Falta el teléfono para WhatsApp' });
+        if (channels.email && !to) throw new ErrorLote(400, 'Falta el email del destinatario');
+        if (channels.whatsapp && !phone) throw new ErrorLote(400, 'Falta el teléfono para WhatsApp');
 
-        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', loteId).maybeSingle();
         if (error) throw error;
-        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        if (!lote) throw new ErrorLote(404, 'Lote no encontrado');
+
+        // El automático (`noReenviar`) no manda nada si el lote YA salió al S.O.: un
+        // segundo disparo, o un envío hecho a mano entre medias, no le llega dos veces.
+        if (noReenviar) {
+            const ya = (Array.isArray(lote.documentos_so) ? lote.documentos_so : [])
+                .find(d => d && (d.key === 'anexo_i' || String(d.key || '').startsWith('ficha_')) && d.sent_at);
+            if (ya) throw new ErrorLote(409, `El lote ya se envió al S.O. (${ya.label || ya.key}, ${ya.sent_at}).`);
+        }
 
         // 0) SIN la solicitud DESCARGADA DEL VERIFICADOR no sale nada. Es uno de los
         //    papeles que el S.O. firma en esta ronda, y la que compone la app no vale.
@@ -3348,11 +3572,9 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
             .find(d => d?.key === 'solicitud_verificacion') || null;
         const traeSolicitud = !!(solicitud && solicitud.base64);
         if (!traeSolicitud && (!solActual || (solicitudGeneradaPorApp(solActual) && !solActual.signed_link))) {
-            return res.status(400).json({
-                error: solActual
+            throw new ErrorLote(400, solActual
                     ? 'La Solicitud de Verificación del lote es la que generó la app, y esa no vale: sube la que se descarga de la web del verificador.'
-                    : 'Falta la Solicitud de Verificación descargada de la web del verificador.',
-            });
+                    : 'Falta la Solicitud de Verificación descargada de la web del verificador.');
         }
 
         // 1) Carpeta del lote (padre = "07. ENVIADOS A VERIFICAR") + su subcarpeta de
@@ -3401,9 +3623,7 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         // impreso oficial y el navegador no mandaba su `formulario`.
         const vacios = docs.filter(d => !d.html && !d.pdfBase64 && !d.formulario);
         if (vacios.length) {
-            return res.status(400).json({
-                error: `No se pudo preparar ${vacios.length === 1 ? 'un documento' : `${vacios.length} documentos`}: ${vacios.map(d => d.label || d.fileName || 'sin nombre').join(', ')}. No se ha enviado nada.`,
-            });
+            throw new ErrorLote(400, `No se pudo preparar ${vacios.length === 1 ? 'un documento' : `${vacios.length} documentos`}: ${vacios.map(d => d.label || d.fileName || 'sin nombre').join(', ')}. No se ha enviado nada.`);
         }
 
         for (const d of docs) {
@@ -3477,7 +3697,7 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
             });
         }
 
-        if (!documentosSo.length) return res.status(400).json({ error: 'No se generó ningún documento (falta HTML o la solicitud).' });
+        if (!documentosSo.length) throw new ErrorLote(400, 'No se generó ningún documento (falta HTML o la solicitud).');
 
         // 4) Enlace de firma para el S.O.
         const origin = origenPublicoFirma(frontendOrigin);
@@ -3538,19 +3758,26 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         historial.push({
             id: `${Date.now()}_enviar_so`, tipo: 'sistema',
             texto: `Enviado al S.O. para firma (${documentosSo.length} doc.${canales ? `, ${canales}` : ''}). Expedientes movidos a la carpeta del lote.`,
-            fecha: sentAt, usuario: usuarioDe(req),
+            fecha: sentAt, usuario: usuario,
         });
         await supabase.from('lotes').update({
             documentos_so: documentosFinales, historial, drive_folder_id: folderId, updated_at: sentAt,
         }).eq('id', lote.id);
 
         // El lote queda esperando la firma del Sujeto Obligado.
-        await sincronizarEstadoLote(lote.id, { docs: documentosFinales, usuario: usuarioDe(req), motivo: 'documentación enviada al S.O.' });
+        await sincronizarEstadoLote(lote.id, { docs: documentosFinales, usuario: usuario, motivo: 'documentación enviada al S.O.' });
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, firma_url: firmaUrl, movimientos, warnings, lote: scrubLoteForUser(enriched, req) });
+        return { firma_url: firmaUrl, movimientos, warnings, lote: enriched };
+}
+
+router.post('/:id/enviar-so', staffOnly, async (req, res) => {
+    try {
+        const r = await enviarAlSo(req.params.id, { ...(req.body || {}), noReenviar: false, usuario: usuarioDe(req) });
+        res.json({ ok: true, ...r, lote: scrubLoteForUser(r.lote, req) });
     } catch (err) {
+        if (err instanceof ErrorLote) return res.status(err.status).json({ error: err.message });
         console.error('[POST /lotes/:id/enviar-so]', err.message);
         res.status(500).json({ error: err.message || 'Error al enviar al Sujeto Obligado' });
     }
@@ -4547,22 +4774,22 @@ const ETIQUETA_SUBIDA = {
 // Con `seco: true` dice qué ficheros subiría, sin subir nada (es lo que enseña la
 // confirmación). Los ZIP solo se suben si están TODOS; con adjuntos ya en beCAE se
 // pide `reemplazar` (los borra antes: solo se puede mientras no haya oferta).
-router.post('/:id/marwen/subir', staffOnly, async (req, res) => {
-    try {
-        const { tipo, seco = false, reemplazar = false } = req.body || {};
-        if (!marwenService.TIPOS_SUBIDA.includes(tipo)) return res.status(400).json({ error: 'Tipo de subida no válido.' });
-        const { data: lote } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
-        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+// La lógica vive en `subirABecae` (la usa también services/ofertaVerificadorAuto.js
+// para la oferta firmada, regla 223): la ruta solo la envuelve.
+async function subirABecae(loteId, { tipo, seco = false, reemplazar = false, usuario = 'ADMIN' } = {}) {
+        if (!marwenService.TIPOS_SUBIDA.includes(tipo)) throw new ErrorLote(400, 'Tipo de subida no válido.');
+        const { data: lote } = await supabase.from('lotes').select('*').eq('id', loteId).maybeSingle();
+        if (!lote) throw new ErrorLote(404, 'Lote no encontrado');
         const numSol = numSolicitudDe(lote);
-        if (!numSol) return res.status(409).json({ error: 'El lote no tiene nº de solicitud de beCAE.' });
+        if (!numSol) throw new ErrorLote(409, 'El lote no tiene nº de solicitud de beCAE.');
 
         const enBecae = await marwenService.documentos(numSol);
         const ya = enBecae.filter(d => d.type === tipo);
         const hayOferta = enBecae.some(d => d.type === 'oferta');
-        if (tipo === 'solicitud_firmada' && ya.length) return res.status(409).json({ error: 'En beCAE ya está la solicitud firmada.' });
-        if (tipo === 'oferta_firmada' && ya.length) return res.status(409).json({ error: 'En beCAE ya está la oferta firmada (ya está aceptada).' });
-        if (tipo === 'oferta_firmada' && !hayOferta) return res.status(409).json({ error: 'beCAE todavía no tiene oferta: Marwen la sube cuando revisa la documentación.' });
-        if (tipo === 'documento_adjunto' && hayOferta) return res.status(409).json({ error: 'La solicitud ya tiene oferta: beCAE no admite más documentación.' });
+        if (tipo === 'solicitud_firmada' && ya.length) throw new ErrorLote(409, 'En beCAE ya está la solicitud firmada.');
+        if (tipo === 'oferta_firmada' && ya.length) throw new ErrorLote(409, 'En beCAE ya está la oferta firmada (ya está aceptada).');
+        if (tipo === 'oferta_firmada' && !hayOferta) throw new ErrorLote(409, 'beCAE todavía no tiene oferta: Marwen la sube cuando revisa la documentación.');
+        if (tipo === 'documento_adjunto' && hayOferta) throw new ErrorLote(409, 'La solicitud ya tiene oferta: beCAE no admite más documentación.');
 
         const { ficheros, faltan } = await ficherosParaBecae(lote, tipo);
         const resumen = ficheros.map(f => ({ nombre: f.nombre, bytes: f.buffer.length }));
@@ -4574,25 +4801,28 @@ router.post('/:id/marwen/subir', staffOnly, async (req, res) => {
             ...(tipo === 'documento_adjunto' && ya.length && !reemplazar
                 ? [`En beCAE ya hay ${ya.length} documento(s) adjunto(s): ${ya.map(d => d.name).join(', ')}`] : []),
         ];
+        // Las ofertas de beCAE (la última es la vigente): el automático comprueba que la
+        // firmada del lote es la de ESA oferta antes de aceptarla.
+        const ofertasBecae = enBecae.filter(d => d.type === 'oferta').map(d => ({ id: d.id, name: d.name }));
         if (seco) {
-            return res.json({ seco: true, tipo, ficheros: resumen, ya_en_becae: ya.map(d => d.name), bloqueo, num_solicitud: numSol });
+            return { seco: true, tipo, ficheros: resumen, ya_en_becae: ya.map(d => d.name), bloqueo, num_solicitud: numSol, ofertas_becae: ofertasBecae };
         }
-        if (!ficheros.length) return res.status(409).json({ error: bloqueo.join('\n') || 'No hay nada que subir.' });
-        if (faltan.length || grandes.length) return res.status(409).json({ error: bloqueo.join('\n'), bloqueo });
+        if (!ficheros.length) throw new ErrorLote(409, bloqueo.join('\n') || 'No hay nada que subir.');
+        if (faltan.length || grandes.length) throw Object.assign(new ErrorLote(409, bloqueo.join('\n')), { bloqueo });
         if (tipo === 'documento_adjunto' && ya.length) {
-            if (!reemplazar) return res.status(409).json({ error: bloqueo.join('\n'), bloqueo });
+            if (!reemplazar) throw Object.assign(new ErrorLote(409, bloqueo.join('\n')), { bloqueo });
             for (const d of ya) await marwenService.eliminarAdjunto(numSol, d.id);
         }
 
         const r = await marwenService.subirDocumentos(numSol, tipo, ficheros);
-        if (!r.success) return res.status(422).json({ error: `Marwen no ha aceptado la subida: ${r.message || 'sin motivo'}` });
+        if (!r.success) throw new ErrorLote(422, `Marwen no ha aceptado la subida: ${r.message || 'sin motivo'}`);
 
         // Sellar la subida (y el nº de solicitud si beCAE lo ha renumerado).
         const { data: fresh } = await supabase.from('lotes').select('verificacion_api, historial').eq('id', lote.id).maybeSingle();
         const api = { ...(fresh?.verificacion_api || {}) };
         const renumerada = r.num_solicitud && r.num_solicitud !== numSol;
         if (renumerada) api.num_solicitud = r.num_solicitud;
-        api.subidas = { ...(api.subidas || {}), [tipo]: { at: nowIso(), por: usuarioDe(req), ficheros: resumen.map(x => x.nombre), estado_solicitud: r.estado_solicitud } };
+        api.subidas = { ...(api.subidas || {}), [tipo]: { at: nowIso(), por: usuario, ficheros: resumen.map(x => x.nombre), estado_solicitud: r.estado_solicitud } };
         api.becae = { ...(api.becae || {}), estado_solicitud: r.estado_solicitud || api.becae?.estado_solicitud || null, num_solicitud: api.num_solicitud };
         const historial = Array.isArray(fresh?.historial) ? [...fresh.historial] : [];
         historial.push({
@@ -4601,12 +4831,22 @@ router.post('/:id/marwen/subir', staffOnly, async (req, res) => {
                 + `${r.estado_solicitud ? ` · solicitud: ${r.estado_solicitud}` : ''}`
                 + `${renumerada ? ` · renumerada ${numSol} → ${r.num_solicitud}` : ''}`
                 + `${r.documentos_descartados?.length ? ` · descartados: ${r.documentos_descartados.join(', ')}` : ''}.`,
-            fecha: nowIso(), usuario: usuarioDe(req),
+            fecha: nowIso(), usuario,
         });
         await supabase.from('lotes').update({ verificacion_api: api, historial, updated_at: nowIso() }).eq('id', lote.id);
 
-        res.json({ ok: true, tipo, ...r, renumerada: !!renumerada, ficheros: resumen, lote: await loteParaRespuesta(lote.id, req) });
+        return { ok: true, tipo, ...r, renumerada: !!renumerada, ficheros: resumen, lote_id: lote.id };
+}
+
+router.post('/:id/marwen/subir', staffOnly, async (req, res) => {
+    try {
+        const { tipo, seco = false, reemplazar = false } = req.body || {};
+        const r = await subirABecae(req.params.id, { tipo, seco, reemplazar, usuario: usuarioDe(req) });
+        if (r.seco) { const { ofertas_becae, ...resto } = r; return res.json(resto); }
+        const { lote_id, ...resto } = r;
+        res.json({ ...resto, lote: await loteParaRespuesta(lote_id, req) });
     } catch (err) {
+        if (err instanceof ErrorLote) return res.status(err.status).json({ error: err.message, ...(err.bloqueo ? { bloqueo: err.bloqueo } : {}) });
         if (err.status === 409) return res.status(409).json({ error: err.message });
         errorMarwenARespuesta(res, err, 'POST /lotes/:id/marwen/subir');
     }
@@ -4654,3 +4894,11 @@ router.post('/:id/marwen/inexactitudes', staffOnly, async (req, res) => {
 module.exports = router;
 // Para el enlace público del S.O. (routes/public.js).
 module.exports.vistaDeSo = vistaDeSo;
+module.exports.subirDocumentoLote = subirDocumentoLote;
+module.exports.enviarDocumentoLote = enviarDocumentoLote;
+module.exports.ErrorLote = ErrorLote;
+module.exports.enviarAlSo = enviarAlSo;
+module.exports.loteCompleto = loteCompleto;
+module.exports.traerSolicitudDeBecae = traerSolicitudDeBecae;
+module.exports.subirABecae = subirABecae;
+module.exports.guardarAhorrosDelInformeSubido = guardarAhorrosDelInformeSubido;

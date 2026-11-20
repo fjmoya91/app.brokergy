@@ -34,6 +34,70 @@ const eur = eurEs;
 const fecha = (iso) => (iso ? new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '');
 const diasDesde = (iso) => (iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)) : null);
 
+/**
+ * Verificado MENOR que lo declarado (regla 226): las cifras y las dos salidas.
+ * Pendiente → dos botones; decidido → lo decidido y «Cambiar» mientras no haya remesa.
+ */
+function AhorroMenorFila({ am, bloqueada, ocupado, onDecidir }) {
+    const [cambiar, setCambiar] = useState(false);
+    const kwh = (n) => `${Number(n || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh`;
+    const precio = (n) => `${Number(n).toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh`;
+    const abierto = am.pendiente || cambiar;
+    // Con la remesa ya hecha sin decidir (lotes anteriores a la regla), se pagó
+    // sobre lo verificado: se dice en gris, sin alarma.
+    if (bloqueada && am.pendiente) {
+        return (
+            <p className="mt-2 text-[11px] text-white/45">
+                Verificado {kwh(am.kwh_verificado)} de {kwh(am.kwh_declarado)} declarados: se pagó sobre lo verificado ({eur(am.diferencia)} menos que lo declarado).
+            </p>
+        );
+    }
+    return (
+        <div className={`mt-2.5 rounded-xl border px-3 py-2 text-[11px] leading-snug ${am.pendiente
+            ? 'border-amber-400/40 bg-amber-400/[0.07] text-amber-100' : 'border-white/[0.09] bg-white/[0.02] text-white/70'}`}>
+            <p>
+                <span className={`font-black ${am.pendiente ? 'text-amber-300' : 'text-white/85'}`}>
+                    {am.pendiente ? '⚠ Verificado menor que lo declarado' : 'Verificado menor que lo declarado'}
+                </span>
+                {' · '}{kwh(am.kwh_verificado)} de {kwh(am.kwh_declarado)}: bono {eur(am.bono_verificado)} en vez de {eur(am.bono_declarado)}
+                {' '}<span className="font-bold">(−{eur(am.diferencia)})</span>
+                {am.decision_caducada && <span className="block text-amber-300/80">Había una decisión para otras cifras: hay que volver a decidir.</span>}
+            </p>
+            {!abierto && am.decision && (
+                <p className="mt-1">
+                    {am.decision === 'acordado'
+                        ? <>Se le paga lo <span className="font-bold text-emerald-300">acordado ({eur(am.bono_declarado)})</span>{am.decidido?.precio_nuevo ? <> · precio {precio(am.decidido.precio_antes ?? am.precio_antes)} → {precio(am.decidido.precio_nuevo)}</> : null}</>
+                        : <>Se le paga sobre lo <span className="font-bold text-white/90">verificado ({eur(am.bono_verificado)})</span></>}
+                    {am.decidido?.por && <span className="text-white/40"> · {am.decidido.por}{am.decidido.at ? ` ${fecha(am.decidido.at)}` : ''}</span>}
+                    {!bloqueada && (
+                        <button type="button" onClick={() => setCambiar(true)} className="ml-2 text-cyan-300/80 hover:underline">Cambiar</button>
+                    )}
+                </p>
+            )}
+            {abierto && !bloqueada && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                    <button type="button" disabled={ocupado || am.acordado_posible === false}
+                        onClick={async () => { await onDecidir('acordado'); setCambiar(false); }}
+                        title={am.acordado_posible === false ? 'No se ha podido calcular el precio: fíjalo a mano en el Económico' : 'Se le sube el precio por MWh para que cobre lo declarado. El margen baja.'}
+                        className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-emerald-400/40 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/20 disabled:opacity-40">
+                        Pagarle lo acordado · {eur(am.bono_declarado)}{am.precio_nuevo ? ` (${precio(am.precio_antes)} → ${precio(am.precio_nuevo)})` : ''}
+                    </button>
+                    <button type="button" disabled={ocupado}
+                        onClick={async () => { await onDecidir('verificado'); setCambiar(false); }}
+                        title="Se le paga sobre el ahorro verificado, al precio de siempre"
+                        className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-white/20 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] disabled:opacity-40">
+                        Pagarle lo verificado · {eur(am.bono_verificado)}
+                    </button>
+                    {cambiar && (
+                        <button type="button" onClick={() => setCambiar(false)} className="px-2 text-[10px] text-white/50 hover:text-white/80">Cancelar</button>
+                    )}
+                </div>
+            )}
+            {abierto && bloqueada && <p className="mt-1 text-white/50">Ya tiene la remesa generada: el importe ya no se cambia.</p>}
+        </div>
+    );
+}
+
 /** En qué punto está el cobro de un cliente, dicho en una chapa. */
 function estadoCobro(f) {
     const c = f.cobro || {};
@@ -129,6 +193,26 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
         }
     };
 
+    // Verificado MENOR que lo declarado (regla 226, Fran 18/11/2026): antes de
+    // pagarle se decide, por expediente, si se le sube el precio para pagarle lo
+    // acordado o se le paga sobre lo verificado. Solo ADMIN: es dinero.
+    const [decidiendo, setDecidiendo] = useState(null);
+    const decidirAhorroMenor = async (f, decision) => {
+        setDecidiendo(f.id);
+        setError('');
+        try {
+            await axios.post(`/api/lotes/${lote.id}/cobros/${f.id}/ahorro-menor`, { decision });
+            await cargar();
+            if (onChanged) onChanged();   // el precio subido cambia el bono del panel
+        } catch (e) {
+            setError(e.response?.data?.error || 'No se pudo guardar la decisión.');
+        } finally {
+            setDecidiendo(null);
+        }
+    };
+    const menoresPendientes = canSeeMargin
+        ? (datos?.filas || []).filter(f => f.ahorro_menor?.pendiente && !f.pago?.remesa && !f.pago?.transferencia) : [];
+
     // Confirmar la cuenta POR el cliente (el que desconfía del enlace y lo dice por
     // teléfono). Solo ADMIN: es la cuenta a la que se transfiere.
     const [validar, setValidar] = useState(null);   // fila que se valida (abre el popup)
@@ -195,6 +279,14 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                     {pago.transferidas.length > 0 && <> · <span className="text-cyan-300">{pago.transferidas.length} transferido{pago.transferidas.length > 1 ? 's' : ''}</span></>}
                     {pago.resenasProg.length > 0 && <> · <span className="text-white/60">{pago.resenasProg.length} reseña{pago.resenasProg.length > 1 ? 's' : ''} programada{pago.resenasProg.length > 1 ? 's' : ''}</span></>}
                 </p>
+            )}
+
+            {/* Verificado MENOR que lo declarado sin decidir: no entran en la remesa. */}
+            {menoresPendientes.length > 0 && (
+                <div className="rounded-xl border border-amber-400/35 bg-amber-400/[0.07] px-3 py-2 text-[11px] text-amber-200 leading-snug">
+                    ⚠ <span className="font-bold">Verificado menor que lo declarado en {menoresPendientes.map(f => f.numero_expediente).join(', ')}.</span>{' '}
+                    Antes de pagarle{menoresPendientes.length > 1 ? 's' : ''}, decide en su fila: subirle el precio para pagarle lo acordado, o pagarle lo verificado. Sin decidir no entra{menoresPendientes.length > 1 ? 'n' : ''} en la remesa.
+                </div>
             )}
 
             {/* Cuando han confirmado TODOS, se dice: es el momento de la remesa. */}
@@ -412,6 +504,10 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                     </p>
                                 )}
                             </div>
+                            {canSeeMargin && f.ahorro_menor && (
+                                <AhorroMenorFila am={f.ahorro_menor} bloqueada={!!(f.pago?.remesa || f.pago?.transferencia)}
+                                    ocupado={decidiendo === f.id} onDecidir={(d) => decidirAhorroMenor(f, d)} />
+                            )}
                             {(f.leads || []).length > 0 && (
                                 <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                                     {f.leads.map(l => (

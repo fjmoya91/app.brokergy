@@ -42,6 +42,30 @@ function loadFinancials() {
     return _finPromise;
 }
 
+let _menorPromise = null;
+function loadAhorroMenor() {
+    if (!_menorPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/lotes/logic/ahorroMenor.js')).href;
+        _menorPromise = import(url);
+    }
+    return _menorPromise;
+}
+
+/**
+ * ¿Su verificado es MENOR que lo declarado? null si no (o sin verificado). Si lo
+ * es: las cifras, si está pendiente de decidir y qué se decidió (regla 226).
+ */
+async function ahorroMenorDe(exp) {
+    try {
+        const { computeExpedienteFinancials } = await loadFinancials();
+        const { estadoAhorroMenor } = await loadAhorroMenor();
+        return estadoAhorroMenor(computeExpedienteFinancials(exp), exp?.documentacion?.cobro?.ahorro_menor || null);
+    } catch (e) {
+        console.warn('[cobro] ahorro menor:', exp?.numero_expediente, e.message);
+        return null;
+    }
+}
+
 let _formPromise = null;
 function loadCobroForm() {
     if (!_formPromise) {
@@ -79,6 +103,12 @@ async function bonoVerificado(exp) {
     try {
         const { computeExpedienteFinancials } = await loadFinancials();
         const f = computeExpedienteFinancials(exp);
+        // Verificado MENOR que lo declarado y decidido «pagarle lo acordado»: se le
+        // ingresa el declarado CONGELADO, al céntimo (el precio subido da lo mismo
+        // con seis decimales; esto evita el céntimo suelto). Regla 226.
+        const { estadoAhorroMenor } = await loadAhorroMenor();
+        const est = estadoAhorroMenor(f, exp?.documentacion?.cobro?.ahorro_menor || null);
+        if (est?.decision === 'acordado' && Number(est.bono_a_pagar) > 0) return est.bono_a_pagar;
         return Number(f?.caeVerificado) > 0 ? Math.round(f.caeVerificado * 100) / 100 : null;
     } catch (e) {
         console.warn('[cobro] bono verificado:', exp?.numero_expediente, e.message);
@@ -478,6 +508,9 @@ module.exports = {
     filaCobro,
     tieneJustificante,
     bonoVerificado,
+    ahorroMenorDe,
+    loadFinancials,
+    loadAhorroMenor,
     requerimientosDe,
     loadCobroForm,
     SELECT_EXP,

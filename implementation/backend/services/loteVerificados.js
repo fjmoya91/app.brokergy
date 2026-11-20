@@ -9,9 +9,10 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * REGLA — el ahorro verificado es SOBRE LO QUE SE COBRA Y SE PAGA.
  * La factura al Sujeto Obligado se emite sobre él y el bono del cliente se
- * calcula con él. Por eso nada se escribe sin que una persona lo confirme: se
- * PROPONE lo leído, casado y con sus avisos, y el ADMIN aplica. Mismo criterio
- * que las incidencias de las facturas de obra.
+ * calcula con él. Desde el 18/11/2026 (Fran, regla 226) lo que casa SIN DUDA se
+ * guarda solo al llegar el informe (`separarAplicables`); lo demás se PROPONE,
+ * casado y con sus avisos, y el ADMIN aplica. Lo que nunca es automático es
+ * PAGAR menos de lo declarado: eso lo decide el ADMIN en la fase 7.
  *
  * REGLA — un expediente que no case NO se toca.
  * Si el informe cita una actuación que no está en el lote (o al revés), se dice
@@ -228,6 +229,33 @@ function casarDictamen(actuaciones, expedientes) {
  * `instalacion.verificacion`, junto al ahorro verificado: no pisa
  * `documentacion.facturas[]`, que es el registro de lo que de verdad se facturó.
  */
+// ─── La HUELLA en el expediente ──────────────────────────────────────────────
+// Lo que el lote escribe en un expediente (ahorro e inversión verificados, la
+// decisión de un verificado menor) se apunta TAMBIÉN en el historial del propio
+// expediente: `instalacion.verificacion` guarda solo la última cifra, y sin esto
+// no quedaría dónde ver qué había antes, de qué informe salió y quién lo puso
+// (Fran, 20/11/2026: «no quiero perder la trazabilidad del expediente»).
+// Se AÑADE por la RPC de merge (una lista se concatena), nunca reescribiendo
+// `documentacion`. Nunca lanza: la cifra ya está escrita y un fallo aquí se avisa.
+const kwhEs = (n) => Number(n).toLocaleString('es-ES');
+const eurEs = (n) => `${Number(n).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+async function anotarHistorialExpediente(expedienteId, { texto, tipo = 'verificacion', usuario = 'SISTEMA', ...extra }) {
+    try {
+        const { data: exp } = await supabase.from('expedientes')
+            .select('id, oportunidad_id, historial:documentacion->historial').eq('id', expedienteId).maybeSingle();
+        if (!exp) return false;
+        const entrada = { id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}_verif`, tipo, texto, fecha: nowIso(), usuario, ...extra };
+        const { error } = Array.isArray(exp.historial)
+            ? await supabase.rpc('merge_expediente_doc_json', { p_expediente_id: exp.id, p_field: 'historial', p_value: [entrada] })
+            : await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: exp.oportunidad_id, p_field: 'historial', p_value: [entrada] });
+        if (error) throw new Error(error.message);
+        return true;
+    } catch (e) {
+        console.warn('[loteVerificados] historial del expediente', expedienteId, e.message);
+        return false;
+    }
+}
+
 async function aplicarDatosDictamen(filas, meta = {}) {
     const aplicados = [];
     const errores = [];
@@ -258,6 +286,12 @@ async function aplicarDatosDictamen(filas, meta = {}) {
             const { error: e2 } = await supabase.from('expedientes')
                 .update({ instalacion, updated_at: nowIso() }).eq('id', exp.id);
             if (e2) throw new Error(e2.message);
+            const invAntes = Number(exp.instalacion?.verificacion?.inversion_verificada_eur);
+            await anotarHistorialExpediente(exp.id, {
+                usuario: meta.usuario || 'SISTEMA', origen: 'DICTAMEN', lote: meta.lote || null,
+                texto: `Inversión verificada ${eurEs(inv)}, leída del dictamen${meta.numero ? ` ${meta.numero}` : ''}${meta.fecha ? ` (${meta.fecha})` : ''}${meta.lote ? ` · ${meta.lote}` : ''}`
+                    + (Number.isFinite(invAntes) && invAntes > 0 && invAntes !== inv ? `. Antes: ${eurEs(invAntes)}.` : '.'),
+            });
             aplicados.push({ expediente_id: exp.id, numero_expediente: exp.numero_expediente, inversion_eur: inv });
         } catch (err) {
             errores.push({ expediente_id: f.expediente_id, error: err.message });
@@ -376,6 +410,18 @@ async function aplicarAhorrosVerificados(filas, meta = {}) {
             const { error: e2 } = await supabase.from('expedientes')
                 .update({ instalacion, updated_at: nowIso() }).eq('id', exp.id);
             if (e2) throw new Error(e2.message);
+            const antes = exp.instalacion?.verificacion || {};
+            const kAntes = Number(antes.ahorro_verificado_kwh);
+            const solo = (meta.origen || '') === 'INFORME_VERIFICACION_AUTO';
+            await anotarHistorialExpediente(exp.id, {
+                usuario: meta.usuario || 'SISTEMA', origen: meta.origen || 'INFORME_VERIFICACION', lote: meta.lote || null,
+                texto: `Ahorro verificado ${kwhEs(kwh)} kWh${Number.isFinite(inv) && inv > 0 ? ` · inversión ${eurEs(inv)}` : ''}`
+                    + `, ${solo ? 'guardado SOLO al subir' : 'aplicado del'} informe de verificación`
+                    + `${meta.informe ? ` ${meta.informe}` : ''}${meta.lote ? ` · ${meta.lote}` : ''}`
+                    + `${Number.isFinite(Number(f?.orden)) && Number(f.orden) > 0 ? ` · actuación E${Number(f.orden)}` : ''}`
+                    + (Number.isFinite(kAntes) && kAntes > 0 && kAntes !== kwh
+                        ? `. Antes: ${kwhEs(kAntes)} kWh (${antes.origen || 'sin origen'}${antes.fecha ? `, ${String(antes.fecha).slice(0, 10)}` : ''}).` : '.'),
+            });
             aplicados.push({
                 expediente_id: exp.id, numero_expediente: exp.numero_expediente,
                 ahorro_kwh: kwh, inversion_eur: (Number.isFinite(inv) && inv > 0) ? inv : null,
@@ -439,6 +485,43 @@ async function aplicarOrdenActuacion(filas, opts = {}) {
 }
 
 /**
+ * Qué filas del informe se GUARDAN SOLAS y cuáles se dejan para revisar.
+ *
+ * REGLA (226, Fran 18/11/2026) — el ahorro verificado se guarda SOLO en su
+ * expediente al llegar el informe… pero solo lo que no admite duda: casado por el
+ * NÚMERO de expediente (nunca por el titular), con su cifra leída, sin repetirse en
+ * otra actuación y sin pisar un verificado DISTINTO ya registrado. Y si la suma de
+ * las actuaciones no cuadra con el total que declara el informe, no se guarda
+ * NINGUNA: alguna cifra se ha leído mal y no se sabe cuál. Lo que no entra queda en
+ * la revisión de siempre (AhorrosVerificadosModal).
+ *
+ * Que el verificado sea MENOR que lo declarado no impide guardarlo: es la cifra que
+ * da el verificador. Lo que se decide (y se avisa) es qué se le PAGA (regla 226).
+ *
+ * @returns {{ aplicar: Array, revisar: Array, yaEstaban: Array, motivo: string|null }}
+ */
+function separarAplicables(propuesta) {
+    const filas = Array.isArray(propuesta?.filas) ? propuesta.filas : [];
+    if (!propuesta?.leido) return { aplicar: [], revisar: filas, yaEstaban: [], motivo: 'No se ha podido leer el informe.' };
+    if (propuesta.total?.cuadra === false) {
+        return { aplicar: [], revisar: filas, yaEstaban: [], motivo: 'La suma de las actuaciones no cuadra con el total del informe.' };
+    }
+    const aplicar = [], revisar = [], yaEstaban = [];
+    for (const f of filas) {
+        const limpia = f.aplicable && f.casado_por === 'numero' && Number(f.ahorro_kwh) > 0
+            && !(f.avisos || []).some(a => /ya aparece en otra/i.test(a));
+        if (!limpia) { revisar.push(f); continue; }
+        const actual = Number(f.ahorro_actual_kwh);
+        if (Number.isFinite(actual) && actual > 0 && actual !== Number(f.ahorro_kwh)) { revisar.push(f); continue; }
+        const invIgual = f.inversion_eur == null
+            || (f.inversion_actual_eur != null && Math.abs(Number(f.inversion_actual_eur) - Number(f.inversion_eur)) < 0.01);
+        if (actual === Number(f.ahorro_kwh) && invIgual) { yaEstaban.push(f); continue; }
+        aplicar.push(f);
+    }
+    return { aplicar, revisar, yaEstaban, motivo: null };
+}
+
+/**
  * ¿Puede este lote pasar a pagar al cliente?
  *
  * REGLA DE NEGOCIO — no se le paga a un cliente hasta tener SU ahorro verificado.
@@ -464,5 +547,7 @@ module.exports = {
     contrastarTotal,
     verificarFacturaDelLote,
     aplicarAhorrosVerificados,
+    separarAplicables,
+    anotarHistorialExpediente,
     puedePagarseAlCliente,
 };
