@@ -304,8 +304,35 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
     ok(inv.startsWith(base.prompt) && inv.includes('pregunta si cobrará 5.000 €'), 'la investigación parte del mismo prompt y del motivo');
     ok(inv.includes('node /x/contestador_consultas.js oportunidad') && inv.includes('C:/r/docs/conocimiento/consultas'), 'lleva la orden de consultas y el manual (consultas/ primero)');
     ok(/"borrador"/.test(inv) && /"aviso"/.test(inv) && /"fuentes"/.test(inv) && /SIMULACIÓN/.test(inv), 'pide borrador, aviso y fuentes, y explica el dinero de la simulación');
-    const invFran = cerebro.construirInvestigacion(base.prompt, { motivo: 'se queja: no se fía', para_fran: true }, { orden: 'o', docs: 'd' });
-    ok(invFran.includes('PREPARA LA RESPUESTA PARA FRAN') && invFran.includes('SIEMPRE "ESCALAR"') && !invFran.includes('INVESTIGA Y CONTESTA'), 'lo de Fran: no se contesta, se le prepara el borrador');
+    ok(inv.includes('REVÍSALO Y CONTÉSTALE TÚ') && inv.includes('TU RESPUESTA SE ENVÍA TAL CUAL') && /"por"/.test(inv)
+        && ['PRECIO', 'QUEJA', 'PERSONA', 'FIRMA', 'AJENO', 'SIN_DATOS'].every(x => inv.includes(`"${x}"`)), 'la segunda vuelta contesta ella, y solo escala con un motivo de la lista cerrada');
+    // Lo que SOLO contesta Fran en persona (persona o programa, una llamada): para_fran y SIN acuse.
+    const invFran = cerebro.construirInvestigacion(base.prompt, { motivo: 'pregunta si es un programa', para_fran: true, acuse: '' }, { orden: 'o', docs: 'd' });
+    ok(invFran.includes('PREPARA LA RESPUESTA PARA FRAN') && invFran.includes('SIEMPRE "ESCALAR"') && !invFran.includes('CONTÉSTALE TÚ'), 'persona o programa: no se contesta, se le prepara el borrador');
+    // Lo demás que el cerebro rápido da por «de Fran» (cambiar el titular, una queja…) lo vuelve a mirar el investigador.
+    const invQuiza = cerebro.construirInvestigacion(base.prompt, { motivo: 'pide cambiar el titular', para_fran: true, acuse: 'Lo del cambio de titular lo miro y te digo.' }, { orden: 'o', docs: 'd' });
+    ok(invQuiza.includes('CONTÉSTALE TÚ') && invQuiza.includes('El primer vistazo lo dio por «de Fran»') && !invQuiza.includes('SIEMPRE "ESCALAR"'), 'lo marcado para_fran con acuse se vuelve a mirar: casi nunca es de Fran');
+
+    // Lo investigado SE ENVÍA (21/11/2026): 34 acuses «lo miro y te digo» en tres días y ningún «C12».
+    const rapida = { motivo: 'pregunta a nombre de quién va la factura', para_fran: false, acuse: 'Lo de la factura lo miro y te digo.' };
+    const sinPor = cerebro.decisionTrasInvestigar({ accion: 'ESCALAR', acuse: 'Lo de la factura lo confirmo y te digo.', borrador: 'Buenos días, Cristina. La factura va a nombre del titular.\n\nCon su NIF y la dirección de la obra.', motivo: 'no hay ficha' }, rapida);
+    ok(sinPor.accion === 'RESPONDER' && sinPor.parrafos.length === 2 && sinPor.acuse === '' && sinPor._enviado_sin_fran === true && /no hay ficha/.test(sinPor.aviso),
+        'un ESCALAR sin motivo de la lista: su borrador ES la respuesta, y a Fran le llega por qué se lo iba a pasar');
+    const rSinPor = cerebro.rematar(sinPor, ENLACES);
+    ok(rSinPor.accion === 'RESPONDER' && rSinPor.mensaje.startsWith('Buenos días, Cristina.') && rSinPor.acuse === '' && rSinPor.aviso, 'rematado: se envía el texto, sin acuse y con aviso');
+    const conPor = cerebro.decisionTrasInvestigar({ accion: 'ESCALAR', por: 'precio', acuse: 'Lo de pagar tú los RITE lo miro y te digo.', borrador: 'x', motivo: 'm' }, rapida);
+    ok(conPor.accion === 'ESCALAR' && cerebro.rematar(conPor, ENLACES).por === 'PRECIO', 'con un motivo de la lista (un precio nuestro) se queda en Fran, con su acuse');
+    ok(cerebro.decisionTrasInvestigar({ accion: 'ESCALAR', por: 'OTRA_COSA', borrador: '', acuse: 'a', motivo: 'm' }, rapida).accion === 'ESCALAR', 'sin borrador no hay nada que enviar: sigue en Fran');
+    ok(cerebro.rematar({ accion: 'ESCALAR', por: 'inventado', parrafos: [], motivo: 'm' }, ENLACES).por === '', 'un «por» que no es de la lista no cuenta');
+    const yaResp = { accion: 'RESPONDER', parrafos: ['Hola'], aviso: '' };
+    ok(cerebro.decisionTrasInvestigar(yaResp, rapida) === yaResp && cerebro.decisionTrasInvestigar({ accion: 'CALLAR' }, rapida).accion === 'CALLAR', 'lo que el investigador contesta o calla no se toca');
+    // Persona o programa / solo una llamada: diga lo que diga el investigador, a Fran y sin acuse.
+    const persona = { motivo: 'pregunta si es un programa', para_fran: true, acuse: '' };
+    ok(cerebro.soloDeFran(persona) && !cerebro.soloDeFran(rapida) && !cerebro.soloDeFran({ para_fran: true, acuse: 'Lo miro' }), 'solo de Fran = para_fran sin acuse');
+    const p1 = cerebro.decisionTrasInvestigar({ accion: 'RESPONDER', parrafos: ['Soy Fran, claro.'], motivo: 'm' }, persona);
+    const p2 = cerebro.decisionTrasInvestigar({ accion: 'ESCALAR', acuse: 'Te llamo', borrador: 'b', motivo: 'm' }, persona);
+    ok(p1.accion === 'ESCALAR' && p1.acuse === '' && p1.borrador === 'Soy Fran, claro.' && p2.accion === 'ESCALAR' && p2.acuse === '' && p2.por === 'PERSONA',
+        'persona o programa: nunca se contesta solo y nunca lleva acuse');
     // Las rutas viajan como MARCAS (el prompt se arma en el backend, Claude corre en el asistente)
     // y las pone quien lanza Claude: las mismas de su permiso de Bash y de su --add-dir.
     const cc = require('./contestador_claude');
@@ -644,6 +671,47 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         ok(false, `planear: ${e.stack || e.message}`);
     } finally {
         supabase.from = orig.from; supabase.rpc = orig.rpc; RU.checklistForOportunidad = orig.checklist;
+    }
+    // ── El LISTADO para repasar las respuestas (21/11/2026) ──
+    {
+        console.log('\nEl listado para repasar las respuestas');
+        const L = require('../utils/listadoContestador');
+        const t = L.tramo({ desde: '2026-11-18', hasta: '2026-11-21' });
+        ok(t.desde.toISOString() === '2026-11-17T23:00:00.000Z' && t.hasta.toISOString() === '2026-11-21T23:00:00.000Z', 'el tramo son días de MADRID, los dos incluidos (invierno, +1)');
+        ok(L.inicioDiaMadrid('2026-07-01').toISOString() === '2026-06-30T22:00:00.000Z' && L.inicioDiaMadrid('ayer') === null, 'en verano, +2; una fecha mal escrita no vale');
+        const ahora = new Date('2026-11-21T12:00:00Z');
+        ok(L.tramo({}, ahora).desde.toISOString() === '2026-11-14T12:00:00.000Z' && L.tramo({ dias: 9999 }, ahora).desde.toISOString() === '2026-08-23T12:00:00.000Z',
+            'sin fechas, los últimos 7 días; como mucho 90');
+        const T = '2026-11-20T12:00:00.000Z';
+        const filas = L.filasListado([
+            { id: 5, chat_id: 'b', estado: 'HECHA', accion: 'CALLAR', motivo: 'solo es cortesía', ultimo_at: T, pendientes: ['20/11, 13:21  Ok'] },
+            { id: 1, chat_id: 'a', estado: 'HECHA', accion: 'RESPONDER', texto: 'Recibidas, perfecto.', enviado_at: '2026-11-20T12:16:00.000Z', ultimo_at: T, cerebro: 'claude (sonnet, 8.2 s, 12000 tokens)', pendientes: ['20/11, 13:00  Ahí van'] },
+            { id: 2, chat_id: 'b', estado: 'HECHA', accion: 'ESCALAR', acuse: 'Lo de la factura lo confirmo y te digo.', enviado_at: T, ultimo_at: T, borrador: 'Va a nombre del titular.', por: 'precio',
+                cerebro: 'investigador claude (sonnet, 16.4 s, 6 pasos) tras claude (sonnet, 5 s)', fuentes: ['expediente 26RES060_224'], pendientes: ['20/11, 13:00  ¿A qué nombre?'], titulo: 'Cristina' },
+            { id: 3, chat_id: 'c', estado: 'HECHA', accion: 'ESCALAR', motivo: 'tope del día (40) alcanzado (iba a decirle: «Hola»)', ultimo_at: T },
+            { id: 4, chat_id: 'd', estado: 'HECHA', accion: 'RESPONDER', texto: 'Sí, vale.', enviado_at: T, ultimo_at: T, enviado_sin_fran: 'true', aviso: 'te lo iba a pasar por: x', cerebro: 'investigador claude (sonnet, 30 s, 5 pasos) tras claude' },
+            { id: 6, chat_id: 'e', estado: 'DESCARTADA', motivo: 'ya le hemos contestado', ultimo_at: T },
+            { id: 7, chat_id: 'f', estado: 'HECHA', accion: 'RESPONDER', texto: 'En copia.', modo: 'copia', ultimo_at: T },
+        ]);
+        const de = (n) => filas.find(f => f.n === n);
+        ok(filas.map(f => f.n).join() === 'C1,C2,C3,C4,C5,C6,C7', 'salen por orden, lo más antiguo primero');
+        ok(de('C1').resultado === 'Contestado' && de('C1').le_dijimos === 'Recibidas, perfecto.' && de('C1').minutos === 16 && de('C1').como === 'directo (8 s)', 'contestado: lo que se le dijo, cuánto tardó y cómo se decidió');
+        ok(de('C2').resultado === 'A Fran, con acuse al cliente' && de('C2').le_dijimos.startsWith('Lo de la factura') && de('C2').sin_enviar === 'Va a nombre del titular.'
+            && de('C2').motivo_fran === 'Precio, descuento o excepción' && de('C2').como === 'revisando: 6 pasos, 16 s' && de('C2').miro === 'expediente 26RES060_224',
+            'escalado: el acuse que le llegó, el borrador que NO le llegó, por qué se quedó en Fran y qué se miró');
+        ok(de('C2').despues === '20/11, 13:21  Ok' && de('C1').despues === '', 'lo que escribió DESPUÉS sale del turno siguiente del mismo chat');
+        ok(de('C3').resultado === 'No salió por un tope' && de('C4').resultado === 'Contestado con lo que antes iba a Fran' && de('C4').para_fran.startsWith('te lo iba'),
+            'lo parado por un tope y lo contestado con el borrador se distinguen');
+        ok(de('C5').resultado.startsWith('Callado') && de('C6').resultado.startsWith('Descartado') && de('C7').resultado === 'Solo copia a Fran' && de('C7').sin_enviar === 'En copia.' && de('C7').le_dijimos === '',
+            'callado, descartado y modo copia: a nadie se le dijo nada');
+        const r = L.resumenListado(filas);
+        ok(r.total === 7 && r.pedian_respuesta === 5 && r.contestadas === 2 && r.resultados.reduce((s, x) => s + x.n, 0) === 7 && r.motivos_fran[0].n === 1,
+            'el resumen se cuenta sobre las propias filas, y sus partes suman el total');
+        const buf = await L.aExcel(filas, t);
+        const wb = new (require('exceljs').Workbook)();
+        await wb.xlsx.load(buf);
+        const hoja = wb.getWorksheet('Respuestas');
+        ok(hoja.rowCount === 8 && hoja.getRow(1).values.includes('QUÉ HABRÍA DICHO YO') && !!wb.getWorksheet('Resumen'), 'el Excel: una fila por turno, las columnas para valorar y la hoja de resumen');
     }
     console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ todo bien');
     process.exit(fallos ? 1 : 0);

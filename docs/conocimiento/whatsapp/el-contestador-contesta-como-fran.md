@@ -153,6 +153,98 @@ o cambiar titular/cuenta/obra, decidir un precio nuestro o una excepción (o rev
 firmar. Y la Memoria RITE que el instalador cobraría se le contesta en el acuse: «No hace falta que la
 pagues: la memoria la preparo yo y te la paso para que la firmes».
 
+## Lo investigado SE ENVÍA: Fran no supervisa las respuestas (2026-11-21)
+
+Fran, 21/11/2026: «El reportar que le damos a los clientes no me sigue gustando… respuestas automáticas como
+"lo reviso y te digo", sin analizar la conversación. Realmente revisarlo y, con el token, revisar el expediente
+y contestar acorde a cómo cuando te paso yo la conversación a ti por Claude y me propones una conversación y
+casi siempre te digo "sí, envíalo". De eso se trata. No de "reviso y te digo" y que tenga yo que supervisarlo».
+
+**Lo medido en `wa_contestador`, del 18 al 21/11/2026** (tres días, en real): 47 respuestas enviadas; **34 acuses
+«Lo de … lo miro y te digo»**, cada uno con su borrador esperando en el grupo de Fran, y **ningún «C12» enviado
+nunca** (`detalle.borrador_enviado_at` vacío en toda la tabla): el cliente se quedaba con el acuse y nada más,
+salvo que Fran escribiera a mano; y **22 respuestas ya redactadas que no salieron por un tope** (20 por el de 40
+al día, 2 por el de 3 por chat: «tope del día (40) alcanzado (iba a decirle: …)»). De 103 mensajes que pedían
+respuesta, la tuvieron 47. Y los borradores eran buenos para mandar tal cual (C578 el desguace de la caldera, C613
+la ayuda de la Junta, C640 el IRPF y los apellidos, C662 el cambio de titular de una propuesta sin aceptar, C698 la
+Memoria RITE, C732 a nombre de quién va la factura, C775 cómo facturar las ventanas): el fallo no era lo que se
+averiguaba, sino que se le enseñaba a Fran en vez de mandarlo. Santos pidió tres veces en 45 minutos una
+referencia catastral que estaba en la conversación, y recibió tres acuses (C582, C584, C586).
+
+**REGLA — lo que el investigador averigua SE ENVÍA: su respuesta sale tal cual, sin que Fran la vea antes.** La
+segunda vuelta ya no es «contesta si se puede saber; si no, a Fran con el borrador»: es «revísalo como lo haría
+Fran (la obra entera, toda la conversación, el manual) y contéstale tú». Lo que antes era motivo para escalar
+ahora tiene salida: no se sabe de qué obra habla → se contesta con la que encaja, diciéndola, o se le pregunta en
+una frase; pide un dato que está en la BD o en la conversación → se le da; falta un dato suyo → se le pregunta;
+una parte es de Fran → se contesta lo demás, una frase con lo que queda por confirmar y `aviso` a Fran; pide una
+llamada y además pregunta algo → se contesta lo que pregunta y `aviso` «pide que le llames»; lo fiscal o de
+trámite sin ficha en `consultas/` → la regla general con su matiz («tu gestor te lo confirma») y `aviso`
+«contestado sin ficha en consultas/: …», para que Fran la revise y quede escrita.
+
+**REGLA — un ESCALAR del investigador solo se queda en Fran si dice POR QUÉ con un motivo de una lista cerrada**
+(`"por"`, `POR_FRAN`): `PRECIO` (un precio nuestro, un descuento, una comisión, cómo o cuándo se nos paga, una
+excepción) · `QUEJA` (queja seria, enfado, cancelación) · `PERSONA` (pregunta si es una persona o un programa, o
+solo quiere hablar por teléfono) · `FIRMA` · `AJENO` (algo personal de Fran o hablado fuera del chat) ·
+`SIN_DATOS` (ni mirando ni preguntándole se puede saber). **Sin ese motivo, su `borrador` ES la respuesta**: lo
+decide el código (`contestadorCerebro.decisionTrasInvestigar`, pura), no la buena fe del modelo; el borrador pasa
+a `parrafos`, sin acuse, y lo que se iba a decidir va en el `aviso` («te lo iba a pasar por: …»). A Fran le llega
+«*He contestado a…*» con «*Para ti:*», y en la fila queda `detalle.enviado_sin_fran` (y `detalle.por` en lo que
+sí se queda), para medirlo. Sin borrador no hay nada que enviar: sigue en Fran.
+
+**REGLA — lo que solo contesta Fran en persona no se contesta nunca, se diga lo que se diga**: lo que el cerebro
+rápido marca `para_fran` y SIN acuse (persona o programa, una llamada y nada más; `soloDeFran`). Su segunda vuelta
+sigue siendo «prepara la respuesta para Fran» y el código lo deja en ESCALAR, `por: PERSONA`, sin acuse. Lo demás
+que el cerebro rápido da por «de Fran» (cambiar el titular, una queja, un presupuesto que revisar) lo vuelve a
+mirar el investigador con la lista cerrada delante: casi nunca lo es (C662: la propuesta estaba sin aceptar y el
+titular se cambia sin más).
+
+**Los topes eran el otro motivo**: 40 al día y 3 por chat pasan a **120 y 6** (`CONTESTADOR_TOPE_DIA`,
+`CONTESTADOR_TOPE_CHAT_DIA`). Siguen siendo un freno (un bucle con el bot de otro WhatsApp Business, un día
+desbocado), no el ritmo normal: la demanda medida es de unas 35 respuestas al día. Los acuses también cuentan.
+
+**Y el cerebro rápido, cuando acusa algo recibido y no le falta nada suyo, dice QUÉ VIENE AHORA** («por tu parte
+ya no falta nada: ahora seguimos nosotros con el certificado»), no «lo reviso y si falta algo te digo».
+
+**Lo que NO cambia**: el investigador sigue siendo de SOLO LECTURA por construcción, con el mismo modelo, plazo y
+tope (Sonnet, 5 min, 3 $); la propuesta sigue saliendo solo con el «sí» de Fran (regla 113); en modo copia no le
+llega nada a nadie; y lo de Gemini de respaldo no sale solo. Lo que no hace todavía: comprobar que un documento
+firmado o un justificante que manda el cliente está BIEN (eso lo sigue mirando una persona).
+
+Tras tocarlo: `node implementation/backend/scripts/test_contestador_whatsapp.js` y un seco sobre chats ya
+contestados (`contestador.js seco --antes --tel …`).
+
+## El LISTADO para repasar las respuestas (2026-11-21)
+
+Fran, 21/11/2026: «quiero que luego se pueda sacar un listado de las respuestas que se dan para analizar cómo han
+sido, mejorar el asistente». Con las respuestas saliendo solas, esto es lo que las vigila después.
+
+`node implementation/backend/scripts/contestador.js listado [--dias 7 | --desde AAAA-MM-DD --hasta AAAA-MM-DD]`
+baja un **Excel** a Descargas (lleva conversaciones reales: nunca al repositorio) por
+`GET /api/whatsapp/contestador/listado` (`adminOInterno`; JSON por defecto, `formato=xlsx` el Excel; solo lee).
+Fuente única: [utils/listadoContestador.js](../../../implementation/backend/utils/listadoContestador.js) (puro) +
+`contestadorWhatsapp.listado`.
+
+- **Hoja «Respuestas», una fila por turno** (lo más antiguo primero): nº (C…), fecha y hora, quién, rol, obra,
+  **qué escribió**, **qué se hizo**, **qué se le dijo** (lo que le LLEGÓ: la respuesta o el acuse), **lo
+  redactado que no le llegó** (el borrador para Fran, lo parado por un tope, lo de modo copia), por qué se quedó en
+  Fran (`detalle.por`), el aviso a Fran, el motivo interno, cómo se decidió («directo (8 s)» / «revisando: 6 pasos,
+  16 s»), qué miró (`fuentes`), los minutos hasta contestar, si se encargó un alta, y **qué escribió DESPUÉS** (el
+  turno siguiente de ese chat: es la mejor pista de si la respuesta le valió). Y dos columnas vacías para repasarlo,
+  **«VALORACIÓN»** y **«QUÉ HABRÍA DICHO YO»**: rellenadas, son el material para corregir el prompt.
+- **Qué se hizo**, en una etiqueta (`resultadoDe`): Contestado · Contestado tras revisarlo (pasó por el
+  investigador) · Contestado con lo que antes iba a Fran (`detalle.enviado_sin_fran`) · A Fran, con acuse al cliente
+  · A Fran, sin decirle nada · No salió por un tope · Solo copia a Fran · Callado · Descartado · Error.
+- **Hoja «Resumen»**: totales contados sobre las propias filas (los que pedían respuesta son todos menos los
+  callados y los descartados) y, de lo que se quedó en Fran, por qué.
+- **El tramo son días de MADRID**, los dos incluidos; sin fechas, los últimos 7 días (tope 90).
+- De `detalle` se piden solo los subcampos que hacen falta (`detalle->pendientes`, `detalle->>borrador`…), de mil
+  en mil: un listado no trae un JSONB entero (regla 22).
+
+Medido al estrenarlo, del 18 al 21/11/2026 (antes del cambio de arriba): 280 turnos, 143 pedían respuesta y la
+tuvieron 66; 51 se quedaron en un acuse, 23 no salieron por un tope y 3 fueron a Fran sin decirle nada al cliente.
+
+Tras tocarlo: `node implementation/backend/scripts/test_contestador_whatsapp.js` y `auditar_rutas_sin_guardian.js`.
+
 ## Lo que NO es de una obra no se pregunta de qué obra es (2026-11-16)
 
 Turno 414, en real: Vicente Alhambra (instalador de Ruidera, tres obras) mandó sin texto el cartel de un curso
@@ -384,8 +476,8 @@ seguimiento».
 
 ## Topes, en el CÓDIGO
 
-3 respuestas por chat en 24 h (móviles: un bot de WhatsApp Business del otro lado no respeta la medianoche),
-40 al día en total, 2 por vuelta. Pasado un tope, a Fran. Con la BD caída (pausas) no se contesta: 503 y se
+6 respuestas por chat en 24 h (móviles: un bot de WhatsApp Business del otro lado no respeta la medianoche),
+120 al día en total, 2 por vuelta (eran 3 y 40 hasta el 21/11/2026: arriba). Pasado un tope, a Fran. Con la BD caída (pausas) no se contesta: 503 y se
 reintenta (ante la duda, callar). Un fallo suma un intento y vuelve en 5 min; al tercero, ERROR.
 
 ## MODO COPIA (los primeros días)
@@ -434,7 +526,7 @@ contestador, `GET /api/whatsapp/contestador/resumen`), nunca en un aviso aparte.
   la del VPS. Para encenderlo en el VPS: aplicar `wa_contestador_schema.sql` (regla 150), `ASISTENTE_URL`
   ya apunta al contenedor, `CONTESTADOR_ENABLED=true` (copia por defecto) y reiniciar el vigía del
   asistente para que cargue `/contestar`.
-- Variables: `CONTESTADOR_GUARDAR` (`real`: guardar de verdad con las respuestas aún en copia), `CONTESTADOR_SILENCIO_MIN` (15), `CONTESTADOR_TOPE_DIA` (40), `CONTESTADOR_TOPE_CHAT_DIA` (3),
+- Variables: `CONTESTADOR_GUARDAR` (`real`: guardar de verdad con las respuestas aún en copia), `CONTESTADOR_SILENCIO_MIN` (15), `CONTESTADOR_TOPE_DIA` (120), `CONTESTADOR_TOPE_CHAT_DIA` (6),
   `CONTESTADOR_POR_VUELTA` (2), `CONTESTADOR_MAX_HORAS` (192), `CONTESTADOR_CEREBRO` (`claude`|`gemini`),
   `CONTESTADOR_MODELO` (`sonnet`), `CONTESTADOR_PLAZO_MS`, `CONTESTADOR_DESTINO`; el investigador,
   `CONTESTADOR_INVESTIGAR` (`false` lo apaga), `CONTESTADOR_MODELO_INVESTIGAR`, `CONTESTADOR_PLAZO_INVESTIGAR_MS`
@@ -443,6 +535,7 @@ contestador, `GET /api/whatsapp/contestador/resumen`), nunca en un aviso aparte.
 - Lo que mira el investigador, a mano y en seco: `node implementation/backend/scripts/contestador_consultas.js
   oportunidad 26RES060_OP376` (o `expediente`, `cee`, `buscar`, `consultas`, `manual`).
 - Rutas (`adminOInterno`): `GET /api/whatsapp/contestador?estado=`, `GET /contestador/resumen`,
+  `GET /contestador/listado` (el Excel para repasar las respuestas: `contestador.js listado --dias 7`),
   `POST /contestador/probar {telefono}` (en seco: dice qué contestaría), `POST /contestador/:id/enviar`.
 - `node implementation/backend/scripts/contestador.js bandeja [--dias 7] [--horas 2]`: lo que está SIN
   CONTESTAR (el criterio de la bandeja de la app: el último mensaje es del otro), sin la cortesía, con quién

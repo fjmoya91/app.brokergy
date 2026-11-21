@@ -639,6 +639,24 @@ router.get('/contestador/resumen', adminOInterno, async (req, res) => {
     res.json({ texto: await contestador.resumen() });
 });
 
+// GET ?dias=7 | ?desde=AAAA-MM-DD&hasta=AAAA-MM-DD [&formato=xlsx] → el LISTADO para repasar las
+// respuestas: una fila por turno (qué escribió, qué se hizo, qué se le dijo, por qué, qué miró y qué
+// escribió después). JSON por defecto; con formato=xlsx, el Excel. Solo lee.
+router.get('/contestador/listado', adminOInterno, async (req, res) => {
+    try {
+        const L = require('../utils/listadoContestador');
+        const t = L.tramo({ dias: req.query.dias, desde: req.query.desde, hasta: req.query.hasta });
+        const filas = L.filasListado(await contestador.listado(t));
+        if (req.query.formato === 'xlsx') {
+            const buf = await L.aExcel(filas, t);
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="contestador_${t.desde.toISOString().slice(0, 10)}_${t.hasta.toISOString().slice(0, 10)}.xlsx"`);
+            return res.send(buf);
+        }
+        res.json({ desde: t.desde, hasta: t.hasta, resumen: L.resumenListado(filas), filas });
+    } catch (e) { res.status(503).json({ error: 'No se ha podido leer el contestador', detalle: e.message }); }
+});
+
 // POST { telefono | chatId } → qué contestaría AHORA a ese chat. EN SECO: no escribe nada
 // ni manda nada (sí llama a Claude o a Gemini para redactar).
 router.post('/contestador/probar', adminOInterno, async (req, res) => {

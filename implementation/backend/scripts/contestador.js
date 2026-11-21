@@ -19,6 +19,10 @@
 //       Los últimos turnos en el servidor (GET /api/whatsapp/contestador).
 //   node scripts/contestador.js resumen [--api …]
 //       Su línea del repaso de las 9:00, tal y como saldría hoy.
+//   node scripts/contestador.js listado [--dias 7 | --desde AAAA-MM-DD --hasta AAAA-MM-DD] [--salida fichero.xlsx]
+//       El EXCEL para repasar las respuestas: una fila por turno (qué escribió, qué se hizo, qué se le
+//       dijo, por qué, qué miró y qué escribió después) y dos columnas para valorarlas. Solo lee.
+//       Por defecto va a Descargas (lleva conversaciones reales: nunca al repositorio).
 //   node scripts/contestador.js enviar C12 --si "<respuesta literal de Fran>" [--api …]
 //       «C12»: guarda lo suyo y envía tal cual lo que el contestador habría dicho (modo copia).
 //       Solo con el «C12» de Fran, que va LITERAL en --si. Con --texto, ese texto en su lugar
@@ -161,6 +165,25 @@ async function seco() {
         if (args.includes('--json')) fs.writeFileSync(path.join(DIR, 'bandeja.json'), JSON.stringify(vivos, null, 2));
         return;
     }
+    if (orden === 'listado') {
+        // El Excel para repasar las respuestas (una fila por turno). Solo lee. Lleva conversaciones
+        // reales: por defecto va a Descargas, nunca al repositorio.
+        const q = new URLSearchParams({ formato: 'xlsx' });
+        for (const k of ['dias', 'desde', 'hasta']) if (opt(k, '')) q.set(k, opt(k, ''));
+        const r = await api(`/contestador/listado?${q}`, { binario: true });
+        const descargas = path.join(require('os').homedir(), 'Downloads');
+        const nombre = `contestador_${opt('desde', '') || `ultimos_${opt('dias', 7)}_dias`}${opt('hasta', '') ? `_a_${opt('hasta', '')}` : ''}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        const salida = opt('salida', path.join(fs.existsSync(descargas) ? descargas : DIR, nombre));
+        fs.mkdirSync(path.dirname(salida), { recursive: true });
+        fs.writeFileSync(salida, r.buffer);
+        const j = await api(`/contestador/listado?${new URLSearchParams([...q].filter(([k]) => k !== 'formato'))}`);
+        const s = j.resumen || {};
+        console.log(`Listado: ${s.total ?? '?'} turnos · pedían respuesta ${s.pedian_respuesta ?? '?'} · contestados ${s.contestadas ?? '?'}`);
+        for (const x of s.resultados || []) console.log(`  ${String(x.n).padStart(4)}  ${x.resultado}`);
+        if ((s.motivos_fran || []).length) console.log(`Se quedó en Fran por: ${s.motivos_fran.map(x => `${x.motivo} (${x.n})`).join(' · ')}`);
+        console.log(`Excel: ${salida}`);
+        return;
+    }
     if (orden === 'enviar') {
         const id = String(args[1] || '').replace(/^C/i, '');
         const si = opt('si', '');
@@ -171,5 +194,5 @@ async function seco() {
         console.log(r.texto ? `✓ C${r.id} enviado a ${r.tel9}${g}:\n${r.texto}` : `✓ C${r.id}${g} (sin escribirle)`);
         return;
     }
-    console.log('Órdenes: seco [--tel …|--de …] [--max 8] [--cerebro claude|gemini] · estado · resumen · bandeja [--dias 7] · enviar C12 --si "…" [--texto "…"]');
+    console.log('Órdenes: seco [--tel …|--de …] [--max 8] [--cerebro claude|gemini] · estado · resumen · bandeja [--dias 7] · listado [--dias 7] · enviar C12 --si "…" [--texto "…"]');
 })().catch((e) => { console.error(`✗ ${e.message}`); process.exitCode = 1; });
