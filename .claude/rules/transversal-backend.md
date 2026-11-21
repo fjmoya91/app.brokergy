@@ -25,16 +25,26 @@ Guardianes de las rutas, Supabase (JSONB, listados, escrituras atómicas) y BD c
 
 150. **Tabla nueva en `public`: en el MISMO script que la crea, `ENABLE ROW LEVEL SECURITY` (sin policies) y `GRANT SELECT, INSERT, UPDATE, DELETE … TO service_role`, más `GRANT USAGE, SELECT` en su secuencia si la tiene** (2026-10-20). Desde el 30/10/2026 Supabase deja de conceder permisos automáticos a las tablas nuevas de `public`; el backend, el MCP y el portal van por PostgREST con `service_role`, que se salta el RLS pero NO los permisos de tabla: sin el `GRANT`, la tabla nueva da *permission denied* en su primer uso real. **Nunca a `anon` ni a `authenticated`, y se les QUITA con `REVOKE ALL … FROM anon, authenticated`**: el 05/11/2026 los privilegios por defecto aún se lo dieron todo a `informes` (el ejemplo del correo de Supabase lo pone; aquí no vale: el frontend no hace `.from()` y la clave anónima es pública). Patrón: `cee_ofertas_schema.sql`. Los ocho scripts antiguos sin `GRANT` (`supabase_schema.sql`, `lotes_schema.sql`…) solo funcionan porque sus tablas son anteriores. El porqué y la consulta de comprobación: [tabla-nueva-en-supabase-grant-y-rls.md](docs/conocimiento/transversal-backend/tabla-nueva-en-supabase-grant-y-rls.md).
 
+232. **Un enlace PÚBLICO con token vale para UNA obra: solo borra y solo sirve ficheros de ESA obra, y lo que escribe en `documentacion` va clave a clave** (2026-11-21). `DELETE /api/public/reforma-docs/:uuid/:slot` borraba en Drive cualquier `driveId` y `GET /reforma-thumb/:uuid/:driveId` servía cualquiera, con el token de su obra. Ahora el borrado exige que el fichero esté en `reforma_uploads[slot]` de ESA obra o —Drive manda, regla 20— directamente en su subcarpeta con el nombre de ESE apartado (`ficheroBorrableDelApartado`); si no, **404 sin tocar nada**. La miniatura, que esté en su `reforma_uploads` o cuelgue de su carpeta a ≤ 4 niveles: fuente ÚNICA con `/thumb` y `/fichero` de la app del instalador, [utils/ficheroDeLaObra.js](implementation/backend/utils/ficheroDeLaObra.js). BD caída, 503 (38). **`cifo-upload` y `rite-upload` no reescriben `documentacion` entera** (leían, subían a Drive unos segundos y pisaban lo escrito entretanto): [utils/documentacionAtomica.js](implementation/backend/utils/documentacionAtomica.js) anula SIEMPRE el visto bueno y el rechazo (`merge_expediente_doc_json`, `{campo: null}`), anota la nueva versión en el historial y escribe cada escalar con `set_expediente_doc_field` (TEXTO: `cert_cifo_rev` se lee con `Number()`), **el enlace el último**; si una RPC falla, 500. `rite-upload` ya no abre sus PDF a «cualquiera con el enlace» y ninguna de las dos devuelve enlaces de Drive al instalador (regla 1). `POST /cifo-upload/:id` y `GET /instalador/:id` siguen **sin token a propósito**: el UUID del expediente es la credencial de toda la familia del instalador (el porqué, en el documento). ⚠️ `cee-directo-thumb` sigue sirviendo cualquier `driveId`. Tras tocarlo: `node implementation/backend/scripts/test_rutas_publicas_obra.js`, `test_app_instalador_no_regresion.js`, `test_docs_fotos.js` y `auditar_rutas_sin_guardian.js`. Ver "Rutas públicas por enlace: el token vale para UNA obra".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
+- `docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md` — Rutas públicas por enlace: el token vale para UNA obra, y lo que escriben en `documentacion` va clave a clave (2026-11-21) · 7,5 KB
 - `docs/conocimiento/transversal-backend/tabla-nueva-en-supabase-grant-y-rls.md` — Tabla nueva en Supabase: GRANT a `service_role` y RLS en el mismo script (2026-10-20) · 3,3 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
 > Son sus frases en negrita, copiadas tal cual. El porqué y los casos, en el documento.
 
+- `docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md`
+  - **REGLA — con un token válido solo se borra un fichero de ESA obra y de ESE apartado; si no, 404 y
+no se toca ni Drive ni `reforma_uploads`.**
+  - **REGLA — la miniatura solo se sirve si el fichero es de la obra del token: en su `reforma_uploads`
+o colgando de su carpeta de Drive a ≤ 4 niveles.**
+  - **REGLA — una subida pública no reescribe `documentacion` entera: escribe solo sus claves, cada una
+con su RPC atómica, y el ENLACE el último.**
 - `docs/conocimiento/transversal-backend/tabla-nueva-en-supabase-grant-y-rls.md`
   - **REGLA — Toda tabla nueva en `public` lleva, en el MISMO script que la crea, el RLS activado sin
 policies y el GRANT a `service_role` (y a su secuencia, si tiene).**

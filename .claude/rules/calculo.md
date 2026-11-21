@@ -84,7 +84,7 @@ Tras tocarlo: `node implementation/backend/scripts/test_bloque_viviendas.mjs`, `
 
 - `docs/conocimiento/calculo/ahorro-anual-en-euros-con-hibridacion.md` — El ahorro anual en € reparte el consumo por VECTOR: la bomba a precio de luz, la caldera al de su combustible (2026-10-19) · 3,7 KB
 - `docs/conocimiento/calculo/ahorro-res080-metodo-simplificado-por-vector-energetico.md` — Ahorro RES080 — método SIMPLIFICADO, por vector energético (2026-08-10) · 16,6 KB
-- `docs/conocimiento/calculo/bloques-de-viviendas-el-edificio-completo-como-objeto.md` — BLOQUES de viviendas — el edificio completo como objeto (2026-09-11) · 8,6 KB
+- `docs/conocimiento/calculo/bloques-de-viviendas-el-edificio-completo-como-objeto.md` — BLOQUES de viviendas — el edificio completo como objeto (2026-09-11) · 12,8 KB
 - `docs/conocimiento/calculo/calibracion-por-epoca-unifamiliar-2008-en-adelante.md` — Calibración por ÉPOCA: la unifamiliar de 2008 en adelante sube ×1,25 (2026-10-26) · 2,8 KB
 - `docs/conocimiento/calculo/cee-a-ciegas-diseno-para-la-oportunidad.md` — El CEE «a ciegas» en la oportunidad: la cifra APARTE, solo para el equipo (2026-10-26) · 10,0 KB
 - `docs/conocimiento/calculo/cee-a-ciegas-prueba-con-18-expedientes.md` — El CEE «a ciegas»: prueba con 18 expedientes y Fase 0 con 120 (2026-10-26) · 6,7 KB

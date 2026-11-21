@@ -16,7 +16,7 @@ o subir la factura, firmar el certificado de la instalación (CIFO), subir el RI
 | Las tarjetas de siempre, con rutas y envío inyectables | `FirmarCifoCard`, `SubirRiteCard`, `FirmarFmDeclaracionCard` (`rutas`, `alSubir`) y `FacturaObraView` (`api`, `embebida`, `alEnviar`) |
 | El gestor de documentación con la API de la app | `DocsManager` + `API_DOCS_INSTALADOR` de [docsApi.js](implementation/frontend/src/features/docs/docsApi.js) |
 | Banco sin API | `/instalador-demo.html` ([instaladorDemo.jsx](implementation/frontend/src/demo/instaladorDemo.jsx)), `instalador-demo-5187` |
-| Pruebas | `test_app_instalador.js` (212) y `test_app_instalador_no_regresion.js` (23), más `test_rutas_sin_sesion.js` y `auditar_rutas_sin_guardian.js` |
+| Pruebas | `test_app_instalador.js` (212) y `test_app_instalador_no_regresion.js` (26), más `test_rutas_sin_sesion.js` y `auditar_rutas_sin_guardian.js` |
 
 ### No se reescribe nada: se DESPACHA a la ruta de siempre
 
@@ -67,8 +67,10 @@ llave casa sin tocar el gestor.
   dentro de la ruta pública y por aquí nunca entra el staff.
 
 **REGLA — borrar una foto solo se deja si ese fichero está apuntado en ESE apartado de ESTA obra.** La
-ruta pública `DELETE /reforma-docs/:uuid/:slot` borra en Drive el `driveId` que le llegue; la de la app
-mira antes `reforma_uploads[slot]` de la obra y, si no está, **404**.
+de la app mira antes `reforma_uploads[slot]` de la obra y, si no está, **404**. Desde el 21/11/2026 la
+ruta pública `DELETE /reforma-docs/:uuid/:slot` también lo comprueba (y admite además lo que está en
+Drive y no en la BD, en la subcarpeta de la obra con el nombre del apartado): ver
+[rutas-publicas-solo-lo-de-esa-obra.md](docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md).
 
 **Los envíos usan `SendActionOverlay`** (regla 29.b) por `useEnvio().alSubir(textos)`: presupuesto,
 factura (generada o subida), CIFO, RITE y declaración FM. **El gestor de fotos conserva su propia subida
@@ -109,12 +111,10 @@ contesta las fotos con un adaptador dentro del navegador.
 
 ### Lo que queda (no es de esta fase)
 
-Debilidades de las rutas PÚBLICAS que ya estaban, vistas al despachar a ellas (la app no las hereda,
-pero el enlace sí):
-- `DELETE /reforma-docs/:uuid/:slot` borra cualquier `driveId` que reciba con un token válido;
-- `GET /reforma-thumb` sirve cualquier `driveId` con un token válido;
-- `cifo-upload` y `rite-upload` reescriben `documentacion` en vez de usar la RPC de merge;
-- `cifo-upload` y `GET /instalador/:id` no piden token;
-- `rite-upload` llama a `setFolderPublic`.
+Las cinco debilidades de las rutas PÚBLICAS vistas al despachar a ellas (borrar y servir cualquier
+`driveId`, `cifo-upload`/`rite-upload` reescribiendo `documentacion`, `cifo-upload` y `/instalador/:id`
+sin token, `setFolderPublic` en `rite-upload`) quedaron cerradas o decididas el mismo 21/11/2026:
+[rutas-publicas-solo-lo-de-esa-obra.md](docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md)
+(regla 232).
 
 Y de producto: unificar `cuentasCliente` con el resumen del partner; partidas y catálogo (fase 3).
